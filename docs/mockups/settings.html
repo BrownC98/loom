@@ -19,7 +19,6 @@
   --surface: light-dark(oklch(100% 0 0), oklch(24% 0.016 255));
   --surface-hover: light-dark(oklch(93.5% 0.008 255), oklch(28% 0.018 255));
   --term: light-dark(oklch(99.4% 0.002 255), oklch(13% 0.01 255));
-  --term-ink: light-dark(oklch(27% 0.015 255), oklch(86% 0.01 255));
   --line: light-dark(oklch(89.5% 0.008 255), oklch(33% 0.016 255));
   --line-strong: light-dark(oklch(80% 0.012 255), oklch(42% 0.02 255));
   --ink: light-dark(oklch(22% 0.015 255), oklch(95% 0.006 255));
@@ -151,7 +150,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .acct-row { display: grid; grid-template-columns: 1fr 220px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .acct-row:last-child { border-bottom: 0; }
 .acct-row[aria-current="true"] { background: light-dark(oklch(52% 0.19 258 / 0.06), oklch(70% 0.16 258 / 0.07)); }
-.term { font: 12px/1.55 var(--mono); padding: 10px 12px; white-space: pre; color: var(--term-ink); background: var(--term); border-radius: 6px; height: 200px; overflow: hidden; }
+.term { font: 12px/1.55 var(--mono); padding: 10px 12px; white-space: pre; background: light-dark(#ffffff, #282c34); color: light-dark(#2e3434, #ffffff); border-radius: 6px; height: 200px; overflow: hidden; }
 .term .dim { color: var(--ink-3); }
 .term .acc { color: var(--accent); }
 
@@ -166,9 +165,18 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .choice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .choice input { position: absolute; opacity: 0; pointer-events: none; }
 .choice svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 6px; }
-.swatches span { display: grid; gap: 2px; font: 11px var(--mono); color: var(--ink-3); }
-.swatches i { display: block; height: 22px; border-radius: 4px; border: 1px solid var(--line); }
+.tpick { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; }
+.tlist { height: 236px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); padding: 4px; display: grid; align-content: start; gap: 1px; background: var(--bg); }
+.tlist label { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 5px; font-size: 13px; cursor: pointer; color: var(--ink-2); }
+.tlist label:hover, .tlist label[data-hover] { background: var(--surface-hover); color: var(--ink); }
+.tlist label:has(input:checked) { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.tlist label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tlist input { position: absolute; opacity: 0; pointer-events: none; }
+.tlist i { font: 600 11px var(--mono); font-style: normal; width: 26px; height: 18px; display: inline-grid; place-items: center; border-radius: 4px; border: 1px solid var(--line); flex: none; }
+.tprev figcaption { font-size: 12px; color: var(--ink-3); margin-bottom: 4px; }
+.tprev pre { font: 12px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); height: 216px; overflow: hidden; margin: 0; }
+.tprev .chips { display: inline-flex; gap: 3px; }
+.tprev .chips b { width: 18px; height: 12px; border-radius: 2px; display: inline-block; }
 
 /* 목업 보기 전환(목업 전용). 제품은 데몬 설정이 테마를 정한다. */
 .mock-theme { position: fixed; top: 12px; right: 12px; z-index: 50; display: flex; align-items: center; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; font-size: 12px; }
@@ -405,24 +413,26 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
   <p class="hint" style="margin-top:10px">노드 카드 머리의 「Claude Code」 글자는 에이전트 이름(카탈로그의 label)으로 바뀐다. 카드 모양은 그대로다.</p>
 </section>
 
-<!-- 6. 설정: 화면(테마) -->
+<!-- 6. 설정: UI·터미널 -->
 <section class="unit" aria-labelledby="u-theme">
-  <h2 id="u-theme">6. 설정 창 「화면」 탭: 테마</h2>
+  <h2 id="u-theme">6. 설정 창 「UI」·「터미널」 탭: 화면 테마와 터미널 테마</h2>
   <div class="why">
-    <b>문제점</b><span>화면이 늘 다크다. OS를 라이트로 쓰거나 밝은 곳에서 일하는 사용자는 테마를 바꿀 수 없다.</span>
-    <b>개선 사항</b><span>설정 창에 「화면」 탭을 더하고 테마 세 값(시스템·라이트·다크)을 둔다. 처음 값은 「시스템」이다. 누르면 화면이 바로 바뀌고 데몬 설정에 저장한다. 메인 화면의 라이트 모양은 <a href="main.html">main.html</a>에서 오른쪽 위 「목업 보기」로 본다.</span>
+    <b>문제점</b><span>화면이 늘 다크다. 터미널 색도 하나로 고정돼 있다. OS를 라이트로 쓰거나 밝은 곳에서 일하는 사용자는 바꿀 수 없다.</span>
+    <b>개선 사항</b><span>설정 창에 「UI」 탭과 「터미널」 탭을 더한다. 「UI」에서 화면 테마(시스템·라이트·다크)를 고른다. 「터미널」에서 Orca 내장 터미널 테마 30개 가운데 다크 모드용과 라이트 모드용을 하나씩 고른다. 메인 화면의 라이트 모양은 <a href="main.html">main.html</a>에서 오른쪽 위 「목업 보기」로 본다.</span>
   </div>
   <figure style="margin-bottom:16px"><figcaption class="hint" style="font-weight:600;margin-bottom:6px">전 (현재 제품, 다크만 있다. 탭은 「에이전트」「계정」 둘이다)</figcaption><a class="shot" href="settings-before.png" style="width:720px"><img src="settings-before.png" alt="현재 loom 설정 창. 탭은 에이전트와 계정 둘이고 화면은 다크다." width="1440" height="900"></a></figure>
+  <h3 style="font-size:15px;margin:20px 0 8px">후: 「UI」 탭</h3>
   <div class="stage">
-    <div class="dialog" role="dialog" aria-label="설정">
+    <div class="dialog" role="dialog" aria-label="설정" style="height:260px">
       <nav>
         <h2>설정</h2>
         <button class="tab">에이전트</button>
         <button class="tab">계정</button>
-        <button class="tab" aria-current="page">화면</button>
+        <button class="tab" aria-current="page">UI</button>
+        <button class="tab">터미널</button>
       </nav>
       <div class="pane">
-        <div class="pane-head"><h3>화면</h3><span class="spacer"></span><button class="btn ghost" style="font-size:20px;padding:0 8px" aria-label="닫기">×</button></div>
+        <div class="pane-head"><h3>UI</h3><span class="spacer"></span><button class="btn ghost" style="font-size:20px;padding:0 8px" aria-label="닫기">×</button></div>
         <section>
           <h4 id="t-theme">테마</h4>
           <div class="choice" role="radiogroup" aria-labelledby="t-theme">
@@ -435,40 +445,78 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
       </div>
     </div>
   </div>
+  <h3 style="font-size:15px;margin:20px 0 8px">후: 「터미널」 탭</h3>
+  <div class="stage">
+    <div class="dialog" role="dialog" aria-label="설정" style="height:auto">
+      <nav>
+        <h2>설정</h2>
+        <button class="tab">에이전트</button>
+        <button class="tab">계정</button>
+        <button class="tab">UI</button>
+        <button class="tab" aria-current="page">터미널</button>
+      </nav>
+      <div class="pane">
+        <div class="pane-head"><h3>터미널</h3><span class="spacer"></span><button class="btn ghost" style="font-size:20px;padding:0 8px" aria-label="닫기">×</button></div>
+        <section>
+          <h4>다크 모드 테마</h4>
+          <div class="tpick"><div class="tlist" role="radiogroup" aria-label="다크 모드 터미널 테마"><label><input type="radio" name="tdark" checked><i style="background:#282c34;color:#ffffff">Aa</i>Ghostty Default Style Dark</label><label><input type="radio" name="tdark"><i style="background:#ffffff;color:#2e3434">Aa</i>Builtin Tango Light</label><label data-hover><input type="radio" name="tdark"><i style="background:#282a36;color:#f8f8f2">Aa</i>Dracula</label><label><input type="radio" name="tdark"><i style="background:#282c34;color:#abb2bf">Aa</i>One Dark</label><label><input type="radio" name="tdark"><i style="background:#2e3440;color:#d8dee9">Aa</i>Nord</label><label><input type="radio" name="tdark"><i style="background:#272822;color:#f8f8f2">Aa</i>Monokai</label><label><input type="radio" name="tdark"><i style="background:#1a1b26;color:#c0caf5">Aa</i>Tokyo Night</label><label><input type="radio" name="tdark"><i style="background:#282828;color:#ebdbb2">Aa</i>Gruvbox Dark</label><label><input type="radio" name="tdark"><i style="background:#1e1e2e;color:#cdd6f4">Aa</i>Catppuccin Mocha</label><label><input type="radio" name="tdark"><i style="background:#002b36;color:#839496">Aa</i>Solarized Dark</label><label><input type="radio" name="tdark"><i style="background:#263238;color:#eeffff">Aa</i>Material Dark</label><label><input type="radio" name="tdark"><i style="background:#0a0e14;color:#b3b1ad">Aa</i>Ayu Dark</label><label><input type="radio" name="tdark"><i style="background:#192330;color:#cdcecf">Aa</i>Nightfox</label><label><input type="radio" name="tdark"><i style="background:#1f1f28;color:#dcd7ba">Aa</i>Kanagawa</label><label><input type="radio" name="tdark"><i style="background:#191724;color:#e0def4">Aa</i>Rose Pine</label><label><input type="radio" name="tdark"><i style="background:#2d353b;color:#d3c6aa">Aa</i>Everforest Dark</label><label><input type="radio" name="tdark"><i style="background:#292d3e;color:#a6accd">Aa</i>Palenight</label><label><input type="radio" name="tdark"><i style="background:#1c1e26;color:#e0e0e0">Aa</i>Horizon Dark</label><label><input type="radio" name="tdark"><i style="background:#011627;color:#d6deeb">Aa</i>Night Owl</label><label><input type="radio" name="tdark"><i style="background:#fdf6e3;color:#657b83">Aa</i>Solarized Light</label><label><input type="radio" name="tdark"><i style="background:#fafafa;color:#383a42">Aa</i>One Light</label><label><input type="radio" name="tdark"><i style="background:#eff1f5;color:#4c4f69">Aa</i>Catppuccin Latte</label><label><input type="radio" name="tdark"><i style="background:#ffffff;color:#24292e">Aa</i>GitHub Light</label><label><input type="radio" name="tdark"><i style="background:#faf4ed;color:#575279">Aa</i>Rose Pine Dawn</label><label><input type="radio" name="tdark"><i style="background:#fbf1c7;color:#3c3836">Aa</i>Gruvbox Light</label><label><input type="radio" name="tdark"><i style="background:#d5d6db;color:#343b58">Aa</i>Tokyo Night Light</label><label><input type="radio" name="tdark"><i style="background:#fdf6e3;color:#5c6a72">Aa</i>Everforest Light</label><label><input type="radio" name="tdark"><i style="background:#000000;color:#d3d7cf">Aa</i>Tango Dark</label><label><input type="radio" name="tdark"><i style="background:#000000;color:#00ff00">Aa</i>Homebrew</label><label><input type="radio" name="tdark"><i style="background:#282a36;color:#eff0eb">Aa</i>Snazzy</label></div><figure class="tprev"><figcaption>미리보기 · Dracula</figcaption><pre translate="no" style="background:#282a36;color:#f8f8f2"><span style="color:#50fa7b">~/loom</span> <span style="color:#6272a4">$</span> git status -sb
+<span style="color:#8be9fd">## main</span>...<span style="color:#ff5555">origin/main</span>
+ <span style="color:#ff5555">M</span> src/settings.rs
+<span style="color:#ff5555">??</span> web/src/theme.ts
+<span style="color:#50fa7b">~/loom</span> <span style="color:#6272a4">$</span> cargo test
+test settings::put_then_get ... <span style="color:#50fa7b">ok</span>
+test daemon::<span style="background:#44475a;color:#f8f8f2">with_theme</span> ... <span style="color:#ff5555">FAILED</span>
+<span style="color:#f1fa8c">warning</span>: <span style="color:#bd93f9">1 test</span> <span style="color:#ff79c6">skipped</span>
+<span class="chips"><b style="background:#21222c"></b><b style="background:#ff5555"></b><b style="background:#50fa7b"></b><b style="background:#f1fa8c"></b><b style="background:#bd93f9"></b><b style="background:#ff79c6"></b><b style="background:#8be9fd"></b><b style="background:#f8f8f2"></b></span>
+<span class="chips"><b style="background:#6272a4"></b><b style="background:#ff6e6e"></b><b style="background:#69ff94"></b><b style="background:#ffffa5"></b><b style="background:#d6acff"></b><b style="background:#ff92df"></b><b style="background:#a4ffff"></b><b style="background:#ffffff"></b></span>
+<span style="color:#50fa7b">~/loom</span> <span style="color:#6272a4">$</span> <span style="background:#f8f8f2;color:#282a36"> </span></pre></figure></div>
+          <span class="hint">목록에서 마우스를 올리거나 방향키로 옮기면 미리보기가 바로 바뀐다. 그림은 「Dracula」에 마우스를 올린 상태다.</span>
+        </section>
+        <section>
+          <h4>라이트 모드 테마</h4>
+          <label class="switch"><input type="checkbox">라이트 모드에서도 다크 모드 테마를 쓴다</label>
+          <div class="tpick"><div class="tlist" role="radiogroup" aria-label="라이트 모드 터미널 테마"><label><input type="radio" name="tlight"><i style="background:#282c34;color:#ffffff">Aa</i>Ghostty Default Style Dark</label><label><input type="radio" name="tlight" checked><i style="background:#ffffff;color:#2e3434">Aa</i>Builtin Tango Light</label><label><input type="radio" name="tlight"><i style="background:#282a36;color:#f8f8f2">Aa</i>Dracula</label><label><input type="radio" name="tlight"><i style="background:#282c34;color:#abb2bf">Aa</i>One Dark</label><label><input type="radio" name="tlight"><i style="background:#2e3440;color:#d8dee9">Aa</i>Nord</label><label><input type="radio" name="tlight"><i style="background:#272822;color:#f8f8f2">Aa</i>Monokai</label><label><input type="radio" name="tlight"><i style="background:#1a1b26;color:#c0caf5">Aa</i>Tokyo Night</label><label><input type="radio" name="tlight"><i style="background:#282828;color:#ebdbb2">Aa</i>Gruvbox Dark</label><label><input type="radio" name="tlight"><i style="background:#1e1e2e;color:#cdd6f4">Aa</i>Catppuccin Mocha</label><label><input type="radio" name="tlight"><i style="background:#002b36;color:#839496">Aa</i>Solarized Dark</label><label><input type="radio" name="tlight"><i style="background:#263238;color:#eeffff">Aa</i>Material Dark</label><label><input type="radio" name="tlight"><i style="background:#0a0e14;color:#b3b1ad">Aa</i>Ayu Dark</label><label><input type="radio" name="tlight"><i style="background:#192330;color:#cdcecf">Aa</i>Nightfox</label><label><input type="radio" name="tlight"><i style="background:#1f1f28;color:#dcd7ba">Aa</i>Kanagawa</label><label><input type="radio" name="tlight"><i style="background:#191724;color:#e0def4">Aa</i>Rose Pine</label><label><input type="radio" name="tlight"><i style="background:#2d353b;color:#d3c6aa">Aa</i>Everforest Dark</label><label><input type="radio" name="tlight"><i style="background:#292d3e;color:#a6accd">Aa</i>Palenight</label><label><input type="radio" name="tlight"><i style="background:#1c1e26;color:#e0e0e0">Aa</i>Horizon Dark</label><label><input type="radio" name="tlight"><i style="background:#011627;color:#d6deeb">Aa</i>Night Owl</label><label><input type="radio" name="tlight"><i style="background:#fdf6e3;color:#657b83">Aa</i>Solarized Light</label><label><input type="radio" name="tlight"><i style="background:#fafafa;color:#383a42">Aa</i>One Light</label><label><input type="radio" name="tlight"><i style="background:#eff1f5;color:#4c4f69">Aa</i>Catppuccin Latte</label><label><input type="radio" name="tlight"><i style="background:#ffffff;color:#24292e">Aa</i>GitHub Light</label><label><input type="radio" name="tlight"><i style="background:#faf4ed;color:#575279">Aa</i>Rose Pine Dawn</label><label><input type="radio" name="tlight"><i style="background:#fbf1c7;color:#3c3836">Aa</i>Gruvbox Light</label><label><input type="radio" name="tlight"><i style="background:#d5d6db;color:#343b58">Aa</i>Tokyo Night Light</label><label><input type="radio" name="tlight"><i style="background:#fdf6e3;color:#5c6a72">Aa</i>Everforest Light</label><label><input type="radio" name="tlight"><i style="background:#000000;color:#d3d7cf">Aa</i>Tango Dark</label><label><input type="radio" name="tlight"><i style="background:#000000;color:#00ff00">Aa</i>Homebrew</label><label><input type="radio" name="tlight"><i style="background:#282a36;color:#eff0eb">Aa</i>Snazzy</label></div><figure class="tprev"><figcaption>미리보기 · Builtin Tango Light</figcaption><pre translate="no" style="background:#ffffff;color:#2e3434"><span style="color:#4e9a06">~/loom</span> <span style="color:#555753">$</span> git status -sb
+<span style="color:#05727e">## main</span>...<span style="color:#cc0000">origin/main</span>
+ <span style="color:#cc0000">M</span> src/settings.rs
+<span style="color:#cc0000">??</span> web/src/theme.ts
+<span style="color:#4e9a06">~/loom</span> <span style="color:#555753">$</span> cargo test
+test settings::put_then_get ... <span style="color:#4e9a06">ok</span>
+test daemon::<span style="background:#accef7;color:#2e3434">with_theme</span> ... <span style="color:#cc0000">FAILED</span>
+<span style="color:#8e7700">warning</span>: <span style="color:#3465a4">1 test</span> <span style="color:#75507b">skipped</span>
+<span class="chips"><b style="background:#2e3436"></b><b style="background:#cc0000"></b><b style="background:#4e9a06"></b><b style="background:#8e7700"></b><b style="background:#3465a4"></b><b style="background:#75507b"></b><b style="background:#05727e"></b><b style="background:#6a6a6a"></b></span>
+<span class="chips"><b style="background:#555753"></b><b style="background:#ef2929"></b><b style="background:#1b7a1b"></b><b style="background:#6d5a00"></b><b style="background:#204a87"></b><b style="background:#ad7fa8"></b><b style="background:#034b50"></b><b style="background:#3d3d3d"></b></span>
+<span style="color:#4e9a06">~/loom</span> <span style="color:#555753">$</span> <span style="background:#2e3434;color:#ffffff"> </span></pre></figure></div>
+          <span class="hint">위 스위치를 켜면 이 목록과 미리보기가 흐려지고 고를 수 없다.</span>
+        </section>
+        <section>
+          <div><button class="btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg>터미널 테마 초기화</button></div>
+          <span class="hint">다크 「Ghostty Default Style Dark」, 라이트 「Builtin Tango Light」로 되돌리고 스위치를 끈다. 미리보기와 열린 터미널이 바로 바뀐다.</span>
+        </section>
+      </div>
+    </div>
+  </div>
   <h3 style="font-size:15px;margin:20px 0 8px">결정표</h3>
   <table class="t decide">
     <thead><tr><th>항목</th><th>정한 것</th><th>이유</th></tr></thead>
     <tbody>
-      <tr><td>고르는 자리</td><td>설정 창 새 「화면」 탭</td><td>테마는 에이전트·계정과 바뀌는 이유가 다르다. 그 탭 안에 두면 찾기 어렵다. 그림·글자 크기 같은 화면 설정이 생기면 이 탭에 더한다.</td></tr>
-      <tr><td>컨트롤</td><td>세 칸 라디오(분할 버튼)</td><td>값이 셋이라 모두 보인다. 한 번 누르면 바뀐다. 선택 칸(<code>select</code>)은 두 번 눌러야 한다.</td></tr>
-      <tr><td>저장</td><td>데몬 설정의 <code>theme</code>(<code>system</code>·<code>light</code>·<code>dark</code>)</td><td>다른 브라우저에서 열어도 같다. 옛 설정에는 값이 없으므로 <code>system</code>으로 읽는다. 다른 설정 값은 그대로다.</td></tr>
-      <tr><td>첫 그리기</td><td>데몬이 <code>index.html</code>의 <code>&lt;html&gt;</code>에 <code>data-theme</code>을 넣어 보낸다</td><td>페이지 스크립트가 돌기 전에 테마가 정해진다. 페이지를 열 때 다른 테마가 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.</td></tr>
-      <tr><td>색 토큰</td><td>토큰마다 <code>light-dark(라이트, 다크)</code>. 다크 값은 승인본 그대로다</td><td>토큰 한 벌이 두 테마를 갖는다. 테마를 고르면 <code>color-scheme</code> 하나만 바뀐다. 「시스템」은 브라우저가 OS 설정을 따라 바꾼다.</td></tr>
-      <tr><td>새 토큰</td><td><code>--term-ink</code>(제품에 이미 있음), <code>--warn</code>(제품에 빠져 있었음)</td><td>목업에 하드코딩한 터미널 글자색을 토큰으로 옮겼다. 제품 <code>styles.css</code>는 <code>--warn</code>을 쓰지만 정의하지 않아 막대·배지가 색 없이 보였다.</td></tr>
-      <tr><td>터미널 16색</td><td>라이트: 아래 16색(GitHub Light 계열). 다크: 지금처럼 xterm 기본색</td><td>xterm 기본색은 흰 바탕에서 노랑·흰색이 보이지 않는다. 라이트 16색 가운데 14색은 터미널 바탕 대비 4.5:1 이상이다. <code>white</code>는 4.9:1이다. <code>brightWhite</code>는 3.0:1이다. 다크 바탕을 가정한 프로그램이 굵은 흰 글자에 쓰는 색이라 라이트 터미널 관례대로 흐린 회색으로 둔다.</td></tr>
-      <tr><td>대비(WCAG AA)</td><td>라이트 본문 15.8:1, <code>--ink-2</code> 8.8:1, <code>--ink-3</code> 바탕 5.7:1·카드 머리 6.3:1·호버 5.2:1, 강조색 글자 5.2:1, 강조색 위 글자 5.5:1, <code>--ok</code> 5.5:1, <code>--err</code> 6.0:1, <code>--warn</code> 5.0:1</td><td>모두 4.5:1 이상이다. 계산: OKLCH → sRGB 상대 휘도.</td></tr>
+      <tr><td>고르는 자리</td><td>설정 창 새 「UI」 탭과 「터미널」 탭</td><td>사람 지시 「ui / 터미널 설정 기능 추가」. 화면 테마와 터미널 테마는 따로 바뀐다.</td></tr>
+      <tr><td>UI 테마 컨트롤</td><td>세 칸 라디오(시스템·라이트·다크). 처음 값 「시스템」</td><td>값이 셋이라 모두 보인다. 한 번 누르면 바뀐다.</td></tr>
+      <tr><td>터미널 테마 목록</td><td>Orca 내장 30개 전부. 다크 모드용과 라이트 모드용을 따로 고른다. 두 목록 모두 30개를 보인다</td><td>사람 지시 「orca에서 지원하는거 모두」. Orca와 같이 어떤 테마든 어느 모드에 써도 된다.</td></tr>
+      <tr><td>색 원천</td><td>Orca 1.4.229 설치본 렌더러 번들의 내장 테마 객체를 스크립트로 꺼낸 데이터 파일 하나(<code>web/src/terminalThemes.ts</code>)</td><td>손으로 옮겨 적지 않는다. 파일 머리에 출처 경로와 Orca 버전을 적는다.</td></tr>
+      <tr><td>기본값</td><td>다크 「Ghostty Default Style Dark」, 라이트 「Builtin Tango Light」, 스위치 꺼짐</td><td>Orca 기본값과 같다. 1판의 라이트 16색은 지운다. 같은 일을 이 목록이 한다.</td></tr>
+      <tr><td>「다크 모드와 같게」</td><td>스위치 「라이트 모드에서도 다크 모드 테마를 쓴다」</td><td>Orca의 <code>terminalUseSeparateLightTheme</code>를 뒤집은 뜻이다. 끄면(기본) 라이트 모드에서 라이트 테마를 쓴다.</td></tr>
+      <tr><td>미리보기</td><td>정적 HTML(<code>&lt;pre&gt;</code>에 테마 색을 칠한다). 다크·라이트 하나씩</td><td>xterm 미리보기는 터미널 인스턴스 두 개, 글꼴 로딩 대기, 이스케이프 문자열이 더 든다. 정적 HTML은 색 값만 읽는다. 바탕·글자·16색·커서·선택 영역을 모두 보인다.</td></tr>
+      <tr><td>목록 컨트롤</td><td>라디오 목록(높이 고정, 스크롤). 칸마다 바탕·글자색 견본 「Aa」</td><td>네이티브 <code>select</code>는 항목에 마우스를 올려도 알림이 없어 미리보기를 바꿀 수 없다. 라디오는 방향키로 옮기면 바로 고른다.</td></tr>
+      <tr><td>초기화</td><td>[터미널 테마 초기화] 버튼 하나. 확인 창 없음</td><td>되돌리기 쉽다. 결과가 미리보기와 열린 터미널에 바로 보인다.</td></tr>
+      <tr><td>저장</td><td>데몬 설정 <code>theme</code>(UI)과 <code>terminalTheme { dark, light, matchDark }</code>. 이름이 없거나 목록에 없으면 기본값으로 읽는다</td><td>다른 브라우저에서 열어도 같다. 초기화는 <code>terminalTheme</code>을 비운다. 기본값은 데이터 파일 한 곳에만 둔다.</td></tr>
+      <tr><td>첫 그리기</td><td>데몬이 첫 페이지 <code>&lt;html&gt;</code>에 <code>data-theme</code>을 넣는다</td><td>화면 스크립트가 돌기 전에 테마가 정해진다. 페이지를 열 때 다른 테마가 보이지 않는다.</td></tr>
+      <tr><td>UI 색 토큰</td><td>토큰마다 <code>light-dark(라이트, 다크)</code>. 다크 값은 승인본 그대로다. <code>--term-ink</code>는 지운다</td><td>터미널 글자색은 이제 터미널 테마가 정한다. 제품 <code>--warn</code>은 쓰이지만 정의가 빠져 있었다. 이번에 정의한다.</td></tr>
+      <tr><td><span class="ask">다크 카드 모양</span></td><td>카드 안 터미널 바탕이 승인본 <code>--term</code>(거의 검정)에서 「Ghostty Default Style Dark」의 <code>#282c34</code>로 바뀐다</td><td>Orca 기본값을 따르면 승인본 다크 모양이 이만큼 바뀐다. 지금 모양을 지키려면 기본 다크 테마를 다른 것으로 정한다. 권장: Orca 기본값을 따른다.</td></tr>
+      <tr><td>만들지 않음</td><td>Orca의 색 재정의(16색 개별 지정)와 사용자 테마</td><td>사람이 요청하지 않았다.</td></tr>
+      <tr><td>대비(WCAG AA)</td><td>UI 라이트: 본문 15.8:1, <code>--ink-2</code> 8.8:1, <code>--ink-3</code> 5.2~6.3:1, 강조색 글자 5.2:1, 강조색 위 글자 5.5:1, <code>--ok</code> 5.5:1, <code>--err</code> 6.0:1, <code>--warn</code> 5.0:1</td><td>모두 4.5:1 이상이다. 터미널 테마 30개의 색은 Orca 값 그대로다. 대비를 고치지 않는다.</td></tr>
     </tbody>
   </table>
-  <p class="hint" style="margin-top:10px">점검(2026-10-19, 각 1회): impeccable detect 결함 0건. 「여백 부족」 경고 2건은 승인본과 같은 오탐이다(화면 틀 <code>.app</code>·<code>.shell</code>의 테두리, 안쪽 패널이 여백을 가진다). 대비 경고 0건. WIG: 라디오는 글자와 함께 한 누름 영역이다. 포커스 테두리와 호버 바탕이 있다. <code>color-scheme</code>을 <code>&lt;html&gt;</code>에 둔다. 네이티브 <code>select</code>는 토큰 바탕·글자색을 받는다. <code>theme-color</code>는 OS 설정별 두 값(<code>media</code>)을 둔다. OS와 다른 테마를 고르면 브라우저 틀 색이 OS를 따른다. 데스크톱 브라우저는 이 값을 쓰지 않아 그대로 둔다.</p>
-  <h3 style="font-size:15px;margin:20px 0 8px">라이트 터미널 16색</h3>
-  <div class="swatches">
-          <span><i style="background:#24292f"></i>black<br>#24292f</span>
-          <span><i style="background:#c2272d"></i>red<br>#c2272d</span>
-          <span><i style="background:#0f7b3a"></i>green<br>#0f7b3a</span>
-          <span><i style="background:#8a6100"></i>yellow<br>#8a6100</span>
-          <span><i style="background:#0b5cd5"></i>blue<br>#0b5cd5</span>
-          <span><i style="background:#8a3fc0"></i>magenta<br>#8a3fc0</span>
-          <span><i style="background:#0f7285"></i>cyan<br>#0f7285</span>
-          <span><i style="background:#656d76"></i>white<br>#656d76</span>
-          <span><i style="background:#57606a"></i>brightBlack<br>#57606a</span>
-          <span><i style="background:#a40e26"></i>brightRed<br>#a40e26</span>
-          <span><i style="background:#116329"></i>brightGreen<br>#116329</span>
-          <span><i style="background:#714d00"></i>brightYellow<br>#714d00</span>
-          <span><i style="background:#0a4bb0"></i>brightBlue<br>#0a4bb0</span>
-          <span><i style="background:#6e2fa0"></i>brightMagenta<br>#6e2fa0</span>
-          <span><i style="background:#0b5b6b"></i>brightCyan<br>#0b5b6b</span>
-          <span><i style="background:#8c959f"></i>brightWhite<br>#8c959f</span>
-  </div>
+  <p class="hint" style="margin-top:10px">점검(2026-10-19, 각 1회): impeccable detect 결함 0건. 「여백 부족」 경고 2건은 승인본과 같은 오탐이다(화면 틀 <code>.app</code>·<code>.shell</code>의 테두리, 안쪽 패널이 여백을 가진다). WIG: 라디오는 글자와 함께 한 누름 영역이다. 포커스 테두리와 호버 바탕이 있다. <code>color-scheme</code>을 <code>&lt;html&gt;</code>에 둔다. 네이티브 <code>select</code>는 토큰 바탕·글자색을 받는다. <code>theme-color</code>는 OS 설정별 두 값(<code>media</code>)을 둔다. 데스크톱 브라우저는 이 값을 쓰지 않는다.</p>
 </section>
 
 <!-- 결정표 -->

@@ -17,14 +17,13 @@
 
 | 할 일 | 명령 |
 |---|---|
-| 컨테이너 띄우기 | `docker compose up -d --build` |
+| 컨테이너 띄우기, 화면 패키지 설치 | `bash scripts/worktree/setup.sh`. 워크트리마다 컨테이너와 호스트 포트(`.env`의 `LOOM_PORT`)가 따로다 |
 | Rust 포맷 | `docker compose exec dev cargo fmt` |
 | Rust 검사 | `docker compose exec dev cargo clippy --all-targets` |
 | Rust 테스트, TS 타입 생성 | `docker compose exec dev cargo test` |
-| 화면 패키지 설치 | `docker compose exec -w /work/web dev npm ci` |
 | 화면 타입·순환 검사 | `docker compose exec -w /work/web dev npm run check` |
 | 화면 빌드 | `docker compose exec -w /work/web dev npm run build` |
-| 데몬 띄우기 | `docker compose exec dev cargo run -- serve --listen 0.0.0.0:7420` 뒤 http://127.0.0.1:7420 |
+| 데몬 띄우기 | `docker compose exec dev cargo run -- serve --listen 0.0.0.0:7420` 뒤 `http://127.0.0.1:<LOOM_PORT>` |
 
 - API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.
 

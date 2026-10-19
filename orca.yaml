@@ -1,0 +1,3 @@
+scripts:
+  setup: bash scripts/worktree/setup.sh
+  archive: docker compose down

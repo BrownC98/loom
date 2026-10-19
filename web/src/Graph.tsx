@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -269,6 +269,16 @@ export function Graph(props: {
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     setFlowState(new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n])));
   };
+
+  // React Flow는 `nodes`를 effect에서 받는다. 새 카드를 재기 전에 시작한 렌더의 effect가 잰 뒤에 돌면
+  // `measured` 없는 노드가 잰 핸들 위치를 지운다. 그 뒤 크기가 돌아와도 크기가 그대로라 다시 재지 않아 간선이 빠진다.
+  // 자식(React Flow)의 effect가 먼저 돈다. 그래서 여기서 그 상태를 찾아 다시 재게 한다.
+  const store = useStoreApi();
+  const remeasure = useUpdateNodeInternals();
+  useEffect(() => {
+    const lost = [...store.getState().nodeLookup.values()].filter((n) => n.measured.width && !n.internals.handleBounds).map((n) => n.id);
+    if (lost.length > 0) remeasure(lost);
+  });
 
   /** 잇기 점을 놓은 자리의 카드가 끌기 시작한 카드를 새 부모로 받는다. 대상 핸들 대신 카드 전체를 놓는 자리로 쓴다. */
   const onConnectEnd = (event: MouseEvent | TouchEvent, connection: FinalConnectionState) => {

@@ -190,15 +190,6 @@ impl Graph {
             let notice = format!("adopted: {}", name_of(&tx, parent)?);
             mailbox::enqueue(&tx, child, Some(old), Kind::Queue, &notice)?;
         }
-        events::write(
-            &tx,
-            &Entry::Adopted {
-                node: events::who(&tx, child)?,
-                from: old.map(|old| events::who(&tx, old)).transpose()?,
-                to: events::who(&tx, parent)?,
-            },
-            None,
-        )?;
         tx.execute(
             "UPDATE nodes SET parent = ?2 WHERE id = ?1",
             params![child.0, parent.0],
@@ -206,6 +197,16 @@ impl Graph {
         let moved = tx.execute(
             "UPDATE messages SET recipient = ?2 WHERE recipient IS NULL AND sender = ?1",
             params![child.0, parent.0],
+        )?;
+        events::write(
+            &tx,
+            &Entry::Adopted {
+                node: events::who(&tx, child)?,
+                from: old.map(|old| events::who(&tx, old)).transpose()?,
+                to: events::who(&tx, parent)?,
+                held: moved as u32,
+            },
+            None,
         )?;
         tx.commit()?;
         for node in [Some(child), Some(parent), told_old].into_iter().flatten() {

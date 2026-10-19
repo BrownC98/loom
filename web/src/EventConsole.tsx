@@ -14,7 +14,7 @@ import type { Who } from './gen/Who';
 import { useShowNodes } from './Graph';
 import { clockTime } from './i18n';
 import { stateLabel } from './NodeCard';
-import { problemText } from './problem';
+import { refusalWithoutName } from './problem';
 
 type Category = 'node' | 'message';
 
@@ -116,6 +116,7 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
           {name(entry.node)}
           <span className="note">
             {entry.from ? entry.from.name : t('events.noParent')} → {entry.to.name}
+            {entry.held > 0 && <> · {t('events.movedHeld', { n: entry.held })}</>}
           </span>
         </>
       );
@@ -140,7 +141,7 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
         <>
           <KindLabel how={entry.how} />
           {name(entry.from)}→{name({ id: [...views.values()].find((v) => v.name === entry.to)?.id ?? null, name: entry.to })}
-          <span className="note err">{t('events.refused', { reason: problemText({ code: 'refused', value: entry.reason }) })}</span>
+          <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
         </>
       );
   }

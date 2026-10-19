@@ -438,6 +438,10 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
 
     let adopted = view(&g, worker);
     assert_eq!((adopted.parent, adopted.held), (Some(lead), 0));
+    assert!(matches!(
+        recorded(&g).last(),
+        Some((events::Entry::Adopted { held: 3, .. }, None))
+    ));
     assert_eq!(
         bodies(&g.take(lead, Kind::ALL, usize::MAX).unwrap()),
         ["하나", "둘", "done: 요약"]
@@ -585,7 +589,8 @@ fn records_node_and_message_events_in_order() {
                 Entry::Adopted {
                     node: who(a, "a"),
                     from: Some(who(lead, "총괄-1")),
-                    to: who(other, "검토-1")
+                    to: who(other, "검토-1"),
+                    held: 0
                 },
                 None
             ),
@@ -722,4 +727,14 @@ fn roots_take_the_smallest_free_number() {
         names,
         ["shell-1", "claude-1", "claude-2", "claude-3", "claude-3"]
     );
+}
+
+#[test]
+fn reads_adoptions_recorded_before_the_held_count() {
+    let old =
+        r#"{"kind":"adopted","node":{"id":2,"name":"a"},"from":null,"to":{"id":1,"name":"총괄"}}"#;
+    assert!(matches!(
+        serde_json::from_str(old).unwrap(),
+        events::Entry::Adopted { held: 0, .. }
+    ));
 }

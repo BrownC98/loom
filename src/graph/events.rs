@@ -54,6 +54,9 @@ pub enum Entry {
         node: Who,
         from: Option<Who>,
         to: Who,
+        /// 부모가 없던 동안 보관해 새 부모에게 옮긴 메시지 수. 이 수를 남기기 전 기록은 0이다.
+        #[serde(default)]
+        held: u32,
     },
     Removed {
         node: Who,

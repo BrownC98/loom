@@ -53,12 +53,15 @@ pub struct CodexServer {
 impl CodexServer {
     /// `home`이 `None`이면 시스템 기본 로그인(`~/.codex`)을 쓴다.
     /// `node_env`는 노드 프로세스와 같은 환경이다. 셸 명령은 이 서버 아래에서 돌므로 `loom`이 그 값을 읽는다.
+    /// `config`는 서버에 넘길 `-c` 인자다.
     pub async fn start(
         home: Option<&Path>,
         node_env: &[(&'static str, OsString)],
+        config: &[String],
     ) -> Result<Self, String> {
         let mut cmd = Command::new("codex");
         cmd.envs(node_env.iter().map(|(k, v)| (k, v)));
+        cmd.args(config);
         // Codex 셸은 로그인 셸 스냅샷의 `PATH`를 다시 적용해 노드 `PATH`의 `loom` 폴더를 지운다(실측).
         // 셸 환경 설정으로 노드 `PATH`를 다시 넣는다. JSON 문자열은 TOML 문자열로도 읽힌다.
         if let Some((_, path)) = node_env.iter().find(|(key, _)| *key == "PATH") {

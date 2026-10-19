@@ -39,11 +39,19 @@
 | 프로필 없음 | 없음 | `loom wait`로만 메시지를 받는다 |
 
 - Claude `--settings`는 권한 허용 목록에 `loom guard`와 메시지 명령(`send`, `steer`, `interrupt`, `wait`, `done`)만 넣는다. 기본 권한 모드에서 사람이 없는 노드가 승인 창에서 멈추지 않게 한다. `loom spawn`은 `-- <명령>`으로 아무 명령이나 띄울 수 있어 넣지 않는다.
+- Codex 샌드박스(`workspace-write`)는 셸 명령의 네트워크를 막는다. 그래서 데몬은 노드 문을 하나 더 연다. 노드 문은 노드 전용 루프백 주소 `127.76.77.1:<OS가 고른 포트>`에서 듣고 `/api/agent/*` 가운데 `spawn`을 뺀 라우트만 둔다.
+  - app-server에 `-c sandbox_workspace_write.network_access=true`, `-c features.network_proxy.enabled=true`, `-c features.network_proxy.domains={"127.76.77.1"="allow"}`를 넘긴다. 셸 명령은 Codex 프록시로만 밖에 닿는다. 프록시는 노드 문 주소 말고 모든 주소를 막는다. 파일 권한은 그대로다. 인자는 [src/profile/codex.rs](../src/profile/codex.rs)의 `sandbox_args`에 있다.
+  - `loom` 명령은 노드 문(`LOOM_URL`)에 Codex가 넣은 프록시 환경 변수(`ALL_PROXY`)로 닿는다. `loom spawn`만 데몬 주소(`LOOM_SPAWN_URL`)에 프록시 없이 간다. 샌드박스 안에서는 실패하므로 Codex가 샌드박스 밖 실행 승인을 묻는다.
+  - 권한 프로필(`default_permissions`, `permissions.<이름>.network`)은 쓰지 않는다. TUI가 `thread/start`에 `sandbox: "workspace-write"`를 넣어 보내 프로필을 덮는다.
+  - 설치한 Codex 버전이 고정 버전과 다르면 위 인자를 넘기지 않는다. 프록시가 뜨지 않는 버전에서 `network_access`만 켜지면 모든 주소가 열린다. 그때 Codex 노드는 loom 명령마다 승인을 묻고, 설정 화면의 버전 경고가 이 사실을 보인다.
+  - 노드 문 주소에서 듣지 못하면(예: 이 루프백 주소가 없는 OS) 노드 문 없이 데몬 주소를 쓴다. 인자도 넘기지 않는다. Codex 노드는 loom 명령마다 승인을 묻는다.
+  - 위험: 모든 주소(`0.0.0.0`)에서 듣는 다른 서비스는 샌드박스 안에서 `127.76.77.1`로 닿는다. 데몬을 `--listen 0.0.0.0:<포트>`로 띄우면 `spawn`도 그 길로 닿는다. Codex 도메인 규칙은 포트를 가리지 않고, unix 소켓 허용은 macOS만 된다(「실측 근거」). 그래서 더 좁힐 수 없다.
+  - 신뢰하지 않은 폴더에서는 TUI가 `read-only`를 보낸다. `read-only`는 네트워크를 열지 않아 loom 명령마다 승인을 묻는다.
 - 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex` 파일은 고치지 않는다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다.
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
 - 고정한 스키마는 쓰는 요청·알림 7개만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
 - 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
-- Codex 셸 명령은 TUI가 아니라 app-server 아래에서 돈다. 그래서 app-server도 노드 환경(`LOOM_URL`, `LOOM_TOKEN`, `PATH`)을 받는다. Codex 셸 스냅샷은 로그인 셸의 `PATH`를 다시 적용한다. 그래서 `-c shell_environment_policy.set.PATH=<노드 PATH>`로 노드 `PATH`를 다시 넣는다.
+- Codex 셸 명령은 TUI가 아니라 app-server 아래에서 돈다. 그래서 app-server도 노드 환경(`LOOM_URL`, `LOOM_SPAWN_URL`, `LOOM_TOKEN`, `PATH`)을 받는다. Codex 셸 스냅샷은 로그인 셸의 `PATH`를 다시 적용한다. 그래서 `-c shell_environment_policy.set.PATH=<노드 PATH>`로 노드 `PATH`를 다시 넣는다.
 - 노드가 끝나면 데몬이 그 app-server를 끝낸다. Linux에서는 데몬이 끝나도 app-server가 TERM을 받는다(`PR_SET_PDEATHSIG`).
 
 ### 에이전트
@@ -178,7 +186,7 @@
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
 - 워크트리는 `git` CLI를 부른다.
 - 개발 환경은 도커 컨테이너(`compose.yaml`)다. 호스트에는 Rust·Node를 설치하지 않는다. 실행 명령은 [AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)에 있다.
-- 노드를 띄울 때 `LOOM_URL`(데몬 주소), `LOOM_TOKEN`(노드마다 무작위 값) 환경 변수를 넣는다. 에이전트용 명령은 이 값으로 데몬의 `/api/agent/*`에 HTTP로 요청한다. 데몬은 토큰으로 보낸 노드를 찾는다. 토큰은 메모리에만 둔다. 데몬이 다시 시작하면 노드 프로세스도 모두 끝나기 때문이다.
+- 노드를 띄울 때 `LOOM_URL`(노드 문 주소), `LOOM_SPAWN_URL`(데몬 주소), `LOOM_TOKEN`(노드마다 무작위 값) 환경 변수를 넣는다. 에이전트용 명령은 이 값으로 데몬의 `/api/agent/*`에 HTTP로 요청한다. 데몬은 토큰으로 보낸 노드를 찾는다. 토큰은 메모리에만 둔다. 데몬이 다시 시작하면 노드 프로세스도 모두 끝나기 때문이다.
 - 노드의 `PATH` 앞에 `loom` 실행 파일의 폴더를 넣는다. 노드는 설치 없이 `loom`을 부른다.
 
 ## 레이어
@@ -218,13 +226,17 @@
 - loom 4단위(Codex 부모 → Claude 자식): `loom spawn --agent claude`가 동작했다. 자식 `done`이 쉬던 Codex 부모를 `turn/start`로 깨웠다. 부모 입력창에 사람이 쓰다 만 글은 그대로 남았고 턴에 섞이지 않았다.
 - Codex 셸 명령은 app-server 아래의 `/bin/sh -c` 세션 리더다. `item/started`의 `processId`는 OS PID가 아니다. 그래서 프로세스 나무에서 셸을 찾는다.
 - Codex 셸 스냅샷이 로그인 셸의 `PATH`를 다시 적용해 노드 `PATH` 앞의 폴더가 빠졌다. `-c shell_environment_policy.set.PATH`를 주면 남았다. `LOOM_URL`·`LOOM_TOKEN`은 그대로 전해졌다.
+- Codex 샌드박스(`codex sandbox`, Linux): 기본 `workspace-write`는 루프백 TCP를 막고(`curl` 종료 코드 7) unix 소켓은 만들지도 못한다(EPERM). 권한 프로필의 `network.unix_sockets` 허용은 Linux에서 동작하지 않았다. 프록시 도메인 규칙에 `127.0.0.1:47801`을 넣어도 같은 주소의 다른 포트가 열렸다.
+- `network_access=true`와 프록시 도메인 `127.76.77.1`: `127.76.77.1`은 200, `127.0.0.1`의 다른 포트는 프록시 403, `example.com`은 실패했다. 프록시를 건너뛴 직접 연결은 주소와 관계없이 종료 코드 7이었다. 홈 쓰기는 막히고 `/tmp` 쓰기는 됐다. `read-only`에서는 프록시가 뜨지 않았다.
+- `default_permissions`를 app-server와 TUI 모두에 `-c`로 넘겨도 스레드는 `workspace-write`(네트워크 꺼짐)였다. TUI가 `thread/start`에 `sandbox: "workspace-write"`, `permissions: null`을 보냈다.
+- loom 노드(Codex 0.159.2, 기본 승인 정책 `on-request`): `loom send`와 `loom done`이 승인 창 없이 부모에게 닿았다. `curl`로 `127.0.0.1`의 다른 포트, 데몬 주소, `example.com`은 프록시가 막았다. `loom spawn`은 샌드박스 안에서 연결이 거부됐고, 샌드박스 밖 실행을 승인하자 자식을 띄웠다.
+- Codex 허용 규칙(`prefix_rule`, `allow`)에 맞은 명령은 샌드박스 밖에서 돌았다. 규칙은 설정 폴더의 `rules/`에서만 읽고 `-c`로 넘길 수 없다. 시스템 기본 계정의 설정 폴더는 사용자의 `~/.codex`라 이 방법을 쓰지 않았다.
+- 개발 컨테이너에 `bubblewrap`을 넣어도 Docker 기본 seccomp가 사용자 네임스페이스를 막아 Codex 샌드박스가 동작하지 않았다. `seccomp=unconfined`이면 동작했다.
 - `--listen ws://`로 띄운 app-server는 stdin이 닫혀도, TUI와 데몬 연결이 끊겨도 끝나지 않았다. `codex` wrapper(node)에 보낸 TERM은 실행 파일까지 끝냈다.
 
 ## 아직 확인하지 않은 것
 
 - Windows에서 `loom guard`가 자기를 부른 셸을 찾는 방법. 지금 Windows의 `loom guard`는 아무것도 하지 않아 중단이 셸 명령을 끝내지 못한다. 첫 Windows 구현 때 확인한다.
-- Codex 기본 샌드박스(`workspace-write`)는 루프백 TCP와 unix 소켓 연결을 막는다. 그래서 Codex 노드의 `loom` 명령마다 승인 창이 뜬다. 지금은 사람이 승인한다. 후보:
-  - (나) `-c sandbox_workspace_write.network_access=true`를 넘긴다. 위험: 샌드박스 셸이 모든 주소로 네트워크를 연다.
-  - (다) loom Codex 계정 폴더에만 `rules` 파일로 메시지 명령(`send`, `steer`, `interrupt`, `done`)을 허용한다. 시스템 기본 계정은 지금과 같다. 위험: loom이 계정 폴더 안의 Codex 설정 파일을 하나 더 쓰고, 허용한 명령은 샌드박스 밖에서 돈다.
+- macOS에서 노드 문(`127.76.77.1`). macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없어 듣지 못할 수 있다. 그러면 Codex 노드는 loom 명령마다 승인을 묻는다. 첫 macOS 구현 때 확인한다.
 - macOS·Windows에서 데몬이 신호로 죽으면 Codex app-server가 남는지. Linux만 `PR_SET_PDEATHSIG`로 막았다. Windows에서 `sysinfo`가 세션 ID를 주는지도 확인하지 않았다. 주지 않으면 Codex 중단이 셸을 끝내지 못한다. 첫 macOS·Windows 구현 때 확인한다.
 - Codex app-server를 unix 소켓으로 쓸 때의 메시지 틀. 지금은 `ws://127.0.0.1`만 쓴다.

@@ -4,6 +4,7 @@
 //! `PINNED_VERSION`을 고친다. 근거: docs/design.md 「에이전트 실행」, 「전달 지점」.
 
 use std::future::Future;
+use std::net::IpAddr;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -29,7 +30,7 @@ pub const INPUT_LIMIT_BYTES: usize = super::claude::HOOK_LIMIT_BYTES;
 
 const USAGE: &str = "\
 너는 loom 그래프의 노드다. loom은 부모·자식 노드 사이 메시지를 나른다. 명령은 셸로 부른다.
-- `loom spawn <이름> --agent codex` (지시문은 stdin, `--file <경로>`): 자식 노드를 만든다. `--agent claude`도 된다.
+- `loom spawn <이름> --agent codex` (지시문은 stdin, `--file <경로>`): 자식 노드를 만든다. `--agent claude`도 된다. 샌드박스 안에서는 데몬에 닿지 않는다. 처음부터 샌드박스 밖 실행 승인(`require_escalated`)을 요청해 부른다.
 - `loom send <이름> <본문>`: 부모나 자식에게 보낸다. 받는 노드의 턴을 끊지 않는다.
 - `loom steer <이름> <본문>`: 일하는 자식의 턴에 넣는다.
 - `loom interrupt <이름> <본문>`: 자식이 하던 일을 멈추게 하고 이 본문을 따르게 한다.
@@ -49,20 +50,41 @@ pub fn args(app_server: &str) -> Vec<String> {
     ]
 }
 
-/// 데몬 PATH의 `codex` 버전이 고정 버전과 다르면 화면에 보일 경고다. 설치하지 않았으면 없다.
-pub fn installed_version_warning() -> Option<String> {
+/// `codex app-server`의 `workspace-write` 샌드박스에 `daemon` 주소로 가는 길 하나만 연다.
+/// 네트워크를 켜면 셸 명령은 Codex 프록시로만 밖에 닿고, 프록시는 `daemon` 말고 모든 주소를 막는다.
+/// 권한 프로필(`default_permissions`)은 쓰지 않는다. TUI가 `thread/start`에 `sandbox`를 넣어 덮는다.
+/// `version_output`이 고정 버전이 아니면 아무것도 넘기지 않는다. 프록시가 뜨지 않는 버전에서
+/// `network_access`만 켜지면 모든 주소가 열린다. 근거: docs/design.md 「에이전트 실행」, 「실측 근거」.
+pub fn sandbox_args(version_output: &str, daemon: IpAddr) -> Vec<String> {
+    if version_output.split_whitespace().last() != Some(PINNED_VERSION) {
+        return Vec::new();
+    }
+    [
+        "sandbox_workspace_write.network_access=true".into(),
+        "features.network_proxy.enabled=true".into(),
+        format!(r#"features.network_proxy.domains={{"{daemon}"="allow"}}"#),
+    ]
+    .into_iter()
+    .flat_map(|config| ["-c".into(), config])
+    .collect()
+}
+
+/// 데몬 PATH의 `codex --version` 출력. 설치하지 않았으면 없다.
+pub fn installed_version() -> Option<String> {
     let out = std::process::Command::new("codex")
         .arg("--version")
         .stdin(std::process::Stdio::null())
         .output()
         .ok()?;
-    version_warning(&String::from_utf8_lossy(&out.stdout))
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// `codex --version` 출력(예: `codex-cli 0.159.2`)이 고정 버전과 다르면 화면에 보일 경고다.
-fn version_warning(version_output: &str) -> Option<String> {
+pub fn version_warning(version_output: &str) -> Option<String> {
     let installed = version_output.split_whitespace().last()?;
-    (installed != PINNED_VERSION).then(|| format!("app-server {installed} · 고정 {PINNED_VERSION}"))
+    (installed != PINNED_VERSION).then(|| {
+        format!("app-server {installed} · 고정 {PINNED_VERSION} · loom 명령마다 승인을 묻는다")
+    })
 }
 
 /// 노드 스레드의 상태. `thread/status/changed` 알림이 정한다.
@@ -358,7 +380,25 @@ mod tests {
         assert_eq!(version_warning("codex-cli 0.159.2"), None);
         assert_eq!(
             version_warning("codex-cli 0.160.0\n").as_deref(),
-            Some("app-server 0.160.0 · 고정 0.159.2")
+            Some("app-server 0.160.0 · 고정 0.159.2 · loom 명령마다 승인을 묻는다")
         );
+    }
+
+    #[test]
+    fn sandbox_opens_the_daemon_address_only_on_the_pinned_version() {
+        let daemon = IpAddr::from([127, 76, 77, 1]);
+        assert_eq!(
+            sandbox_args("codex-cli 0.159.2\n", daemon),
+            [
+                "-c",
+                "sandbox_workspace_write.network_access=true",
+                "-c",
+                "features.network_proxy.enabled=true",
+                "-c",
+                r#"features.network_proxy.domains={"127.76.77.1"="allow"}"#,
+            ]
+        );
+        assert!(sandbox_args("codex-cli 0.160.0\n", daemon).is_empty());
+        assert!(sandbox_args("", daemon).is_empty());
     }
 }

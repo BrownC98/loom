@@ -20,7 +20,7 @@ sysinfo = { version = "0.39.6", default-features = false, features = ["system"] 
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "sync", "net", "process", "time", "io-util"] }
 tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect"] }
 ts-rs = "12.0.1"
-ureq = { version = "3.4.2", default-features = false, features = ["json", "rustls"] }
+ureq = { version = "3.4.2", default-features = false, features = ["json", "rustls", "socks-proxy"] }
 which = "8.0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]

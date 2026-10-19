@@ -1,5 +1,5 @@
 //! 상호작용 레이어: 노드 안의 에이전트가 부르는 명령. 데몬에 HTTP로 요청만 보낸다.
-//! 데몬 주소와 자기 토큰은 데몬이 노드를 띄울 때 넣은 `LOOM_URL`, `LOOM_TOKEN`에서 읽는다.
+//! 데몬 주소와 자기 토큰은 데몬이 노드를 띄울 때 넣은 `LOOM_URL`(`spawn`은 `LOOM_SPAWN_URL`), `LOOM_TOKEN`에서 읽는다.
 
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
@@ -37,7 +37,8 @@ pub fn spawn(
         None => SpawnRun::Command(command.join(" ")),
     };
     let request = SpawnRequest { name, run, brief };
-    let _: NodeId = call("spawn", &request, None)?;
+    // 프록시를 거치지 않는다. Codex 샌드박스 안에서는 실패하고, 사람이 승인하면 샌드박스 밖에서 닿는다.
+    let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;
     println!("노드를 만들었다: {}", request.name);
     Ok(())
 }
@@ -95,20 +96,34 @@ pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String
     Ok(())
 }
 
+/// 노드 문으로 보낸다. Codex 샌드박스 안에서는 Codex가 넣은 프록시 환경 변수로만 닿는다.
 /// `timeout`이 없으면 기다림 상한을 두지 않는다. `wait`는 메시지가 올 때까지 끝나지 않는다.
 fn call<T: DeserializeOwned>(
     action: &str,
     body: &impl Serialize,
     timeout: Option<Duration>,
 ) -> Result<T, String> {
-    let var = |name| {
-        std::env::var(name).map_err(|_| format!("{name}가 없다. loom 노드 안에서만 부른다."))
-    };
-    let (url, token) = (var("LOOM_URL")?, var("LOOM_TOKEN")?);
+    let url = env_var("LOOM_URL")?;
+    post(&url, ureq::Proxy::try_from_env(), action, body, timeout)
+}
+
+fn env_var(name: &str) -> Result<String, String> {
+    std::env::var(name).map_err(|_| format!("{name}가 없다. loom 노드 안에서만 부른다."))
+}
+
+fn post<T: DeserializeOwned>(
+    url: &str,
+    proxy: Option<ureq::Proxy>,
+    action: &str,
+    body: &impl Serialize,
+    timeout: Option<Duration>,
+) -> Result<T, String> {
+    let token = env_var("LOOM_TOKEN")?;
     // 거부 문장을 본문에서 읽으려고 4xx·5xx를 오류로 바꾸지 않는다.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .timeout_global(timeout)
+        .proxy(proxy)
         .build()
         .into();
     let mut res = agent

@@ -5,6 +5,7 @@ mod settings;
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::future::IntoFuture;
 use std::hash::Hash;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -50,8 +51,12 @@ struct App {
     codex: Mutex<HashMap<NodeId, Arc<CodexServer>>>,
     /// 설치한 Codex 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     codex_warning: Option<String>,
-    /// 노드 안에서 `loom` 명령이 쓰는 데몬 주소(`LOOM_URL`).
+    /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 비어 있다.
+    codex_sandbox: Vec<String>,
+    /// 노드 안에서 `loom` 명령이 쓰는 노드 문 주소(`LOOM_URL`).
     url: String,
+    /// `loom spawn`이 쓰는 데몬 주소(`LOOM_SPAWN_URL`). Codex 샌드박스는 이 주소를 막는다.
+    spawn_url: String,
     /// 노드의 `PATH`. 앞에 이 실행 파일의 폴더를 넣어 노드가 `loom`을 바로 부르게 한다.
     path: OsString,
 }
@@ -125,7 +130,15 @@ pub struct DoneRequest {
     pub summary: String,
 }
 
+/// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
+/// 다른 서비스가 쓰지 않는 주소를 골라, `127.0.0.1`의 다른 포트는 샌드박스 안에서 계속 막힌다.
+const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
+
 pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
+    // 포트는 OS가 고른다. 데몬마다(워크트리마다) 다른 포트다. macOS는 `127.0.0.1` 말고 루프백 주소가
+    // 기본으로 없다(확인하지 않았다). 그때는 노드 문 없이 데몬 주소를 쓰고, Codex는 loom 명령마다 승인을 묻는다.
+    let node_door = tokio::net::TcpListener::bind((NODE_IP, 0)).await.ok();
+    let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
     let open = || db::open(&db_path).map_err(std::io::Error::other);
     let app = Arc::new(App {
@@ -138,27 +151,45 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         logins: settings::Logins::default(),
         tokens: Mutex::default(),
         codex: Mutex::default(),
-        codex_warning: codex::installed_version_warning(),
-        url: node_url(listen),
+        codex_warning: codex_version.as_deref().and_then(codex::version_warning),
+        codex_sandbox: match (&codex_version, &node_door) {
+            (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
+            _ => Vec::new(),
+        },
+        url: match &node_door {
+            Some(door) => format!("http://{}", door.local_addr()?),
+            None => node_url(listen),
+        },
+        spawn_url: node_url(listen),
         path: node_path()?,
     });
-    let router = Router::new()
-        .route("/api/repo", get(repo))
-        .route("/api/nodes", post(create_node))
-        .route("/api/agent/spawn", post(agent_spawn))
+    // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
+    let node_routes = Router::new()
         .route("/api/agent/send", post(agent_send))
         .route("/api/agent/wait", post(agent_wait))
         .route("/api/agent/take", post(agent_take))
         .route("/api/agent/guard", post(agent_guard))
-        .route("/api/agent/done", post(agent_done))
+        .route("/api/agent/done", post(agent_done));
+    let router = node_routes
+        .clone()
+        .route("/api/repo", get(repo))
+        .route("/api/nodes", post(create_node))
+        .route("/api/agent/spawn", post(agent_spawn))
         .route("/api/nodes/{id}/pty", get(pty))
         .route("/api/events", get(events))
         .merge(settings::routes())
         .fallback(asset)
-        .with_state(app);
+        .with_state(app.clone());
     let listener = tokio::net::TcpListener::bind(listen).await?;
     println!("loom: http://{listen}");
-    axum::serve(listener, router).await
+    let main = axum::serve(listener, router).into_future();
+    match node_door {
+        Some(door) => {
+            let node = axum::serve(door, node_routes.with_state(app)).into_future();
+            tokio::try_join!(main, node).map(drop)
+        }
+        None => main.await,
+    }
 }
 
 /// 노드는 데몬과 같은 기계에서 돈다. 모든 주소에서 듣더라도 루프백으로 부른다.
@@ -243,7 +274,7 @@ impl App {
         let codex = match provider {
             Some(Profile::Codex) => {
                 let home = self.accounts.config_dir(Profile::Codex, account);
-                let server = CodexServer::start(home.as_deref(), &env)
+                let server = CodexServer::start(home.as_deref(), &env, &self.codex_sandbox)
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
                 Some(Arc::new(server))
@@ -264,9 +295,10 @@ impl App {
     }
 
     /// 노드 안의 `loom` 명령이 쓰는 환경. Codex는 셸을 TUI가 아니라 app-server 아래에서 띄우므로 둘 다 받는다.
-    fn node_env(&self, token: &str) -> [(&'static str, OsString); 3] {
+    fn node_env(&self, token: &str) -> [(&'static str, OsString); 4] {
         [
             ("LOOM_URL", self.url.clone().into()),
+            ("LOOM_SPAWN_URL", self.spawn_url.clone().into()),
             ("LOOM_TOKEN", token.into()),
             ("PATH", self.path.clone()),
         ]

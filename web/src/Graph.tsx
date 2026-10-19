@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, ViewportPortal, type Edge, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
-import { nodePty } from './api';
+import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { adoptNode, nodePty } from './api';
 import { agentLabel, defaultAgent, enabledAgents } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -9,21 +9,41 @@ import type { NodeView } from './gen/NodeView';
 import type { SettingsView } from './gen/SettingsView';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard } from './NodeCard';
+import { RemovePopover } from './RemovePopover';
 import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
-const GROUP_MIN_HEIGHT = 672;
+const GROUP_MIN_HEIGHT = 768;
 const CARD_X = 20;
 const CARD_TOP = 60;
 /** 카드 높이에 간선이 지나갈 틈을 더한 세로 간격. */
-const CARD_STEP = 328;
+const CARD_STEP = 376;
 /** 카드 폭(400)에 틈을 더한 가로 간격. 한 칸이면 묶음 폭이 목업과 같은 440이다. */
 const CARD_COLUMN_STEP = 420;
 /** 묶음 왼쪽 위에서 잰 새 노드 팝오버 위치. */
 const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
+/** 카드 왼쪽 위에서 잰 제거 확인 위치. 오른쪽 끝을 카드에 맞추고(400 - 300) 머리 바로 아래에 둔다. */
+const REMOVE_OFFSET: XYPosition = { x: 100, y: 38 };
+
+/** 카드 머리 아이콘(목업 docs/mockups/main.html). */
+const ICON = {
+  expand: 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7',
+  collapse: 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7',
+  remove: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+};
+
+function IconButton(props: { label: string; title: string; path: string; onClick: () => void }) {
+  return (
+    <button type="button" className="btn ghost sm icon nodrag" aria-label={props.label} title={props.title} onClick={props.onClick}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d={props.path} />
+      </svg>
+    </button>
+  );
+}
 
 /** 원래 체크아웃 묶음. 워크트리 묶음은 5단위에서 더한다. */
 export const MAIN_GROUP = 'main';
@@ -35,7 +55,7 @@ export function useShowNodes(): (ids: NodeId[]) => void {
 }
 
 type GroupData = { branch: string; empty: boolean; creating: boolean; onOpen: () => void };
-type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; expanded: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand: () => void };
+type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; expanded: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand: () => void; onRemove: () => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 type CardNode = Node<CardData, 'card'>;
 type FlowNode = GroupNode | CardNode;
@@ -64,13 +84,27 @@ function Group({ data }: NodeProps<GroupNode>) {
 function Card({ data }: NodeProps<CardNode>) {
   return (
     <>
-      <NodeCard view={data.view} agentLabel={data.agentLabel} parentName={data.parentName} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} onDoubleClickHead={data.onExpand}>
+      <NodeCard
+        view={data.view}
+        agentLabel={data.agentLabel}
+        parentName={data.parentName}
+        selected={data.selected}
+        onSelect={data.onSelect}
+        onNavigate={data.onNavigate}
+        onDoubleClickHead={data.onExpand}
+        headAction={
+          <>
+            <IconButton label="확대" title="확대 (머리를 두 번 눌러도 된다)" path={ICON.expand} onClick={data.onExpand} />
+            <IconButton label="노드 제거" title="노드 제거" path={ICON.remove} onClick={data.onRemove} />
+          </>
+        }
+      >
         {/* 확대한 동안에는 확대 창이 터미널을 연다. PTY 크기를 한쪽만 정하게 한다. */}
         {!data.expanded && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
       </NodeCard>
-      {/* 간선이 붙는 자리. 사람이 간선을 잇지 않으므로 보이지 않게 둔다. */}
+      {/* 간선이 붙는 자리. 아래 잇기 점을 끌어 다른 카드에 놓으면 그 카드의 부모가 된다(onConnectEnd). */}
       <Handle type="target" position={Position.Top} isConnectable={false} />
-      <Handle type="source" position={Position.Bottom} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} className="port" />
     </>
   );
 }
@@ -103,7 +137,9 @@ type Slot = { column: number; row: number };
 function treeLayout(views: ReadonlyMap<NodeId, NodeView>): { slots: Map<NodeId, Slot>; columns: number } {
   const children = new Map<NodeId | null, NodeView[]>();
   for (const view of [...views.values()].sort((a, b) => a.id - b.id)) {
-    children.set(view.parent, [...(children.get(view.parent) ?? []), view]);
+    // 부모를 지우면 `removed` 뒤에 자식의 새 상태가 온다. 그 사이에는 그래프에 없는 부모를 가리키므로 뿌리로 놓는다.
+    const parent = view.parent !== null && views.has(view.parent) ? view.parent : null;
+    children.set(parent, [...(children.get(parent) ?? []), view]);
   }
   const slots = new Map<NodeId, Slot>();
   let columns = 1;
@@ -146,6 +182,9 @@ export function Graph(props: {
   const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
   const [creating, setCreating] = useState(false);
+  const [removing, setRemoving] = useState<NodeId | null>(null);
+  // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
+  const [refusal, setRefusal] = useState('');
   // React Flow가 잰 크기와 끈 위치. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
 
@@ -193,6 +232,7 @@ export function Graph(props: {
             setSelected(view.id);
             setExpanded(view.id);
           },
+          onRemove: () => setRemoving(view.id),
         },
       }),
     ),
@@ -219,7 +259,18 @@ export function Graph(props: {
     setFlowState(new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n])));
   };
 
+  /** 잇기 점을 놓은 자리의 카드가 끌기 시작한 카드를 새 부모로 받는다. 대상 핸들 대신 카드 전체를 놓는 자리로 쓴다. */
+  const onConnectEnd = (event: MouseEvent | TouchEvent, connection: FinalConnectionState) => {
+    if (!connection.fromNode) return;
+    const point = 'changedTouches' in event ? event.changedTouches[0] : event;
+    const target = document.elementFromPoint(point.clientX, point.clientY)?.closest('.react-flow__node-card')?.getAttribute('data-id');
+    if (!target || target === connection.fromNode.id) return;
+    adoptNode(Number(target), Number(connection.fromNode.id)).catch((err: Error) => setRefusal(err.message));
+  };
+
   const zoomedView = expanded === null ? undefined : props.views.get(expanded);
+  const removingView = removing === null ? undefined : props.views.get(removing);
+  const removingAt = removingView && positions.get(removingView.id)!;
 
   return (
     <>
@@ -231,10 +282,12 @@ export function Graph(props: {
         onPaneClick={() => {
           setSelected(null);
           setCreating(false);
+          setRefusal('');
         }}
+        onConnectStart={() => setRefusal('')}
+        onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements
         elementsSelectable={false}
-        nodesConnectable={false}
         nodesFocusable={false}
         deleteKeyCode={null}
         zoomOnDoubleClick={false}
@@ -266,7 +319,19 @@ export function Graph(props: {
             </div>
           </ViewportPortal>
         )}
+        {removingView && removingAt && (
+          <ViewportPortal>
+            <div style={{ position: 'absolute', transform: `translate(${GROUP_POSITION.x + removingAt.x + REMOVE_OFFSET.x}px, ${GROUP_POSITION.y + removingAt.y + REMOVE_OFFSET.y}px)` }}>
+              <RemovePopover view={removingView} childNames={views.filter((v) => v.parent === removingView.id).map((v) => v.name)} onClose={() => setRemoving(null)} />
+            </div>
+          </ViewportPortal>
+        )}
       </ReactFlow>
+      {refusal && (
+        <p className="refusal" role="alert">
+          {refusal}
+        </p>
+      )}
       {zoomedView && (
         <div className="zoomed">
           <NodeCard
@@ -276,11 +341,7 @@ export function Graph(props: {
             selected={selected === zoomedView.id}
             onSelect={() => setSelected(zoomedView.id)}
             onNavigate={() => {}}
-            headAction={
-              <button className="btn ghost sm" onClick={() => setExpanded(null)}>
-                축소
-              </button>
-            }
+            headAction={<IconButton label="축소" title="축소" path={ICON.collapse} onClick={() => setExpanded(null)} />}
           >
             <Terminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
           </NodeCard>

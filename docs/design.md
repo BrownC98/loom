@@ -284,3 +284,7 @@
 - macOS에서 노드 문(`127.76.77.1`). macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없어 듣지 못할 수 있다. 그러면 Codex 노드는 loom 명령마다 승인을 묻는다. 첫 macOS 구현 때 확인한다.
 - macOS·Windows에서 데몬이 신호로 죽으면 Codex app-server가 남는지. Linux만 `PR_SET_PDEATHSIG`로 막았다. Windows에서 `sysinfo`가 세션 ID를 주는지도 확인하지 않았다. 주지 않으면 Codex 중단이 셸을 끝내지 못한다. 첫 macOS·Windows 구현 때 확인한다.
 - Codex app-server를 unix 소켓으로 쓸 때의 메시지 틀. 지금은 `ws://127.0.0.1`만 쓴다.
+
+## 후속
+
+- 사람의 입양에 끌어 잇기 말고 클릭·키보드로 하는 방법을 더한다. WIG 「끌기 동작에는 클릭·키보드 대안을 둔다」 때문이다. 새 화면 요소라 목업 승인 뒤 만든다.

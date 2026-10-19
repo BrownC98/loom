@@ -34,6 +34,10 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
+/** 노드 하나를 지운다. 자식은 부모 없이 남는다(docs/design.md 「노드 제거와 입양」). */
+export const removeNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}`);
+/** `parent`가 `child`의 새 부모가 된다. 거절하면 데몬의 문장을 담은 Error를 던진다. */
+export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/api/nodes/${child}/parent/${parent}`);
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');

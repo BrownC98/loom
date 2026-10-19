@@ -14,12 +14,13 @@ function stateLabel(state: NodeState): string {
   }
 }
 
-function footText(state: NodeState, parentName: string | null, selected: boolean): string {
+function footText(state: NodeState, parentName: string | null, held: boolean, selected: boolean): string {
   switch (state.kind) {
     case 'done':
-      return `요약: ${state.summary}`;
+      return held ? '부모가 없다 · 요약은 새 부모에게 전한다' : `요약: ${state.summary}`;
     case 'exited':
       if (state.code === null) return '데몬이 다시 시작해 프로세스가 없다';
+      if (held) return `부모가 없다 · exited(${state.code})은 새 부모에게 전한다`;
       if (parentName !== null) return `부모(${parentName})에게 exited(${state.code})을 보냈다`;
       return `프로세스가 코드 ${state.code}로 끝났다`;
     case 'running':
@@ -32,7 +33,7 @@ export function NodeCard(props: {
   view: NodeView;
   /** 에이전트 이름(카탈로그 label)이나 「직접 입력」. */
   agentLabel: string;
-  /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. */
+  /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. 부모가 없는 동안 보낸 메시지는 데몬이 보관한다(`view.held`). */
   parentName: string | null;
   selected: boolean;
   onSelect: () => void;
@@ -69,6 +70,11 @@ export function NodeCard(props: {
             {view.unread}
           </span>
         )}
+        {view.held > 0 && (
+          <span className="held" title={`부모가 생기면 전할 메시지 ${view.held}개`}>
+            보관 {view.held}
+          </span>
+        )}
         <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
           {stateLabel(view.state)}
         </span>
@@ -77,7 +83,7 @@ export function NodeCard(props: {
       <div className="term nodrag nowheel" translate="no">
         {props.children}
       </div>
-      <div className="card-foot">{footText(view.state, props.parentName, selected)}</div>
+      <div className="card-foot">{footText(view.state, props.parentName, view.held > 0, selected)}</div>
     </article>
   );
 }

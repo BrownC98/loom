@@ -17,6 +17,7 @@
   --ok: light-dark(oklch(50% 0.13 155), oklch(76% 0.13 155));
   --warn: light-dark(oklch(54% 0.12 70), oklch(80% 0.13 80));
   --err: light-dark(oklch(52% 0.19 25), oklch(72% 0.16 25));
+  --err-ink: light-dark(oklch(99% 0.005 25), oklch(16% 0.03 25));
   --dot: light-dark(oklch(86% 0.008 255), oklch(30% 0.014 255));
   --radius: 8px;
   --font: 'Pretendard Variable', system-ui, sans-serif;
@@ -77,6 +78,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
 .btn.ghost:hover { background: var(--surface-hover); color: var(--ink); }
 .btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn.icon { width: 26px; padding: 0; justify-content: center; }
+.btn.danger { background: var(--err); border-color: var(--err); color: var(--err-ink); font-weight: 600; }
+.btn.danger:hover { background: light-dark(oklch(46% 0.19 25), oklch(77% 0.15 25)); }
 .btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* 그래프 */
@@ -134,7 +138,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .card { width: 400px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.card-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
 .card-head .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .agent { font-size: 12px; color: var(--ink-3); }
 .card-head .spacer { flex: 1; }
@@ -143,8 +147,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .state.running { color: var(--accent); }
 .state.done { color: var(--ok); }
 .state.exited { color: var(--err); }
+.held { height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--ink-2); font-size: 12px; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .unread { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
-.term { height: 196px; cursor: text; }
+.term { height: 244px; cursor: text; }
 /* 터미널 칸. 바탕은 터미널 테마가 칠한다(Terminal.tsx). */
 .xterm-box { height: 100%; padding: 8px 10px; }
 .xterm-box > div { height: 100%; }
@@ -157,6 +162,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__edge-textbg { fill: var(--accent); }
 .react-flow__edge-text { fill: var(--accent-ink); font-size: 12px; font-weight: 600; }
 .react-flow__handle { opacity: 0; pointer-events: none; }
+/* 잇기 점: 카드에 포인터를 올리거나 카드를 고르면 보인다. 끌어 다른 카드에 놓으면 이 카드가 부모가 된다. */
+.react-flow__handle.port { width: 10px; height: 10px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); cursor: crosshair; }
+.react-flow__node:hover > .port, .react-flow__node:has(> .card[data-selected]) > .port { opacity: 1; pointer-events: all; }
+.react-flow__connection-path { stroke: var(--accent); stroke-width: 2; }
+.refusal { position: absolute; top: 16px; right: 16px; z-index: 6; max-width: 480px; padding: 6px 10px; border-radius: 6px; background: var(--surface); color: var(--err); font-size: 13px; }
 
 /* 확대한 카드: 그래프 영역 전체를 덮는다 */
 .zoomed { position: absolute; inset: 0; z-index: 7; padding: 16px; background: var(--bg); display: flex; }
@@ -176,6 +186,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .hint { font-size: 12px; color: var(--ink-3); }
 .error { font-size: 12px; color: var(--err); }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* 노드 제거 확인 */
+.pop.confirm { width: 300px; gap: 10px; }
+.pop.confirm ul { padding-left: 18px; color: var(--ink-2); font-size: 13px; display: grid; gap: 2px; }
 
 /* 하단 상태 줄과 사용량 팝오버(docs/mockups/settings.html 1·2번) */
 .app { grid-template-rows: minmax(0, 1fr) 28px; }

@@ -130,7 +130,10 @@ fn post<T: DeserializeOwned>(
         .post(format!("{url}/api/agent/{action}"))
         .header("authorization", format!("Bearer {token}"))
         .send_json(body)
-        .map_err(|e| format!("데몬에 연결하지 못했다: {e}"))?;
+        // Codex 모델은 사용법 지시보다 이 출력을 보고 승인을 요청한다(실측).
+        .map_err(|e| {
+            format!("데몬에 연결하지 못했다: {e}. 샌드박스 안이면 샌드박스 밖 실행 승인을 받아 다시 부른다.")
+        })?;
     if !res.status().is_success() {
         return Err(res.body_mut().read_to_string().unwrap_or_default());
     }

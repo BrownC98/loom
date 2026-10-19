@@ -30,7 +30,7 @@ pub const INPUT_LIMIT_BYTES: usize = super::claude::HOOK_LIMIT_BYTES;
 
 const USAGE: &str = "\
 너는 loom 그래프의 노드다. loom은 부모·자식 노드 사이 메시지를 나른다. 명령은 셸로 부른다.
-- `loom spawn <이름> --agent codex` (지시문은 stdin, `--file <경로>`): 자식 노드를 만든다. `--agent claude`도 된다. 샌드박스 안에서는 데몬에 닿지 않는다. 처음부터 샌드박스 밖 실행 승인(`require_escalated`)을 요청해 부른다.
+- `loom spawn <이름> --agent codex` (지시문은 stdin, `--file <경로>`): 자식 노드를 만든다. `--agent claude`도 된다.
 - `loom send <이름> <본문>`: 부모나 자식에게 보낸다. 받는 노드의 턴을 끊지 않는다.
 - `loom steer <이름> <본문>`: 일하는 자식의 턴에 넣는다.
 - `loom interrupt <이름> <본문>`: 자식이 하던 일을 멈추게 하고 이 본문을 따르게 한다.

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#16191f">
+<title>loom 미니맵과 커밋 그래프 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 공용 모양은 기준 화면 docs/mockups/main.html에서 그대로 가져왔다. 새 모양은 「새 구역」 아래에만 있다. */
+:root {
+  color-scheme: dark;
+  --bg: oklch(17% 0.012 255);
+  --panel: oklch(20.5% 0.014 255);
+  --surface: oklch(24% 0.016 255);
+  --surface-hover: oklch(28% 0.018 255);
+  --term: oklch(13% 0.01 255);
+  --term-ink: oklch(86% 0.01 255);
+  --line: oklch(33% 0.016 255);
+  --line-strong: oklch(42% 0.02 255);
+  --ink: oklch(95% 0.006 255);
+  --ink-2: oklch(78% 0.012 255);
+  --ink-3: oklch(68% 0.014 255);
+  --accent: oklch(70% 0.16 258);
+  --accent-wash: oklch(70% 0.16 258 / 0.14);
+  --accent-ink: oklch(16% 0.03 258);
+  --ok: oklch(76% 0.13 155);
+  --err: oklch(72% 0.16 25);
+  --dot: oklch(30% 0.014 255);
+  --radius: 8px;
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+::selection { background: var(--accent-wash); color: var(--ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button { font: inherit; color: inherit; }
+
+.frame { width: 1440px; margin: 0 auto; }
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 720px; border-bottom: 1px solid var(--line); }
+.side { background: var(--panel); border-right: 1px solid var(--line); }
+.brand { font-weight: 700; font-size: 16px; padding: 16px 16px 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn:hover { background: var(--surface-hover); }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.ghost:hover { background: var(--surface-hover); color: var(--ink); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.canvas { position: relative; overflow: hidden; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.toolbar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; z-index: 5; }
+.toolbar h1 { font-size: 18px; font-weight: 600; }
+.toolbar .path { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+.toolbar .spacer { flex: 1; }
+.group { position: absolute; border: 1px dashed var(--line-strong); border-radius: 12px; background: oklch(19% 0.013 255 / 0.6); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); }
+.group-head .branch { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.group-head .kind { font-size: 12px; color: var(--ink-3); }
+.card { position: absolute; width: 400px; height: 268px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; }
+.card-head .agent { font-size: 12px; color: var(--ink-3); }
+.card-head .spacer { flex: 1; }
+.state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state.running { color: var(--accent); }
+.state.done { color: var(--ok); }
+.state.exited { color: var(--err); }
+
+/* ───── 새 구역 ───── */
+
+/* 1. 도구 줄 [커밋 그래프]: 열린 동안 눌린 모양 */
+.btn[aria-expanded="true"] { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+
+/* 2. 미니맵: React Flow <MiniMap>. 그래프 오른쪽 아래 */
+.minimap { position: absolute; right: 16px; bottom: 16px; width: 200px; height: 150px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; z-index: 5; cursor: pointer; }
+.minimap .mm-group { fill: none; stroke: var(--line-strong); stroke-dasharray: 4 3; }
+.minimap .mm-node { fill: var(--surface-hover); }
+.minimap .running { fill: var(--accent); }
+.minimap .done { fill: var(--ok); }
+.minimap .exited { fill: var(--err); }
+.minimap .mm-mask { fill: color-mix(in oklch, var(--bg) 70%, transparent); fill-rule: evenodd; }
+.minimap .mm-view { fill: none; stroke: var(--line-strong); }
+
+/* 3. 커밋 그래프 칸: 그래프 오른쪽 칸. 그래프를 덮지 않고 좁힌다 */
+.app.with-commits { grid-template-columns: 232px minmax(0, 1fr) 520px; }
+.commits { display: flex; flex-direction: column; min-width: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.commits-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
+.commits-head h2 { font-size: 14px; font-weight: 600; }
+.commits-head .hint { font-size: 12px; color: var(--ink-3); }
+.commits-head .spacer { flex: 1; }
+.commits-body { flex: 1; min-height: 0; overflow: hidden; background: var(--term); padding: 8px 10px; font: 12px/1.2 var(--mono); color: var(--term-ink); white-space: pre; }
+/* xterm.js 기본 ANSI 색(Tango)을 그대로 그린다. 구현은 xterm이 칠한다. 굵은 글자는 밝은 색이다. */
+.r { color: #cc0000; } .g { color: #4e9a06; } .y { color: #c4a000; } .b { color: #3465a4; } .m { color: #75507b; }
+.G { color: #8ae234; font-weight: 600; } .C { color: #34e2e2; font-weight: 600; }
+.mark { background: var(--term-ink); color: var(--term); }
+
+/* 결정표 */
+.notes { padding: 32px 40px 48px; max-width: 1100px; }
+.notes h2 { font-size: 18px; margin: 28px 0 10px; }
+.notes h2:first-child { margin-top: 0; }
+.notes h3 { font-size: 15px; margin: 18px 0 6px; }
+.notes p, .notes li { color: var(--ink-2); max-width: 75ch; }
+.notes ul { padding-left: 20px; }
+.notes table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.notes th, .notes td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.notes th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.notes td:first-child { white-space: nowrap; font-weight: 600; }
+.notes code { font-family: var(--mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app with-commits">
+  <nav class="side" aria-label="저장소"><div class="brand">loom</div></nav>
+
+  <main class="canvas" aria-label="loom 그래프">
+    <div class="toolbar">
+      <h1>loom</h1>
+      <span class="path" translate="no">/tmp/demo/loom</span>
+      <span class="spacer"></span>
+      <button class="btn" aria-expanded="true" aria-controls="commits">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v6M12 15v6"/></svg>커밋 그래프
+      </button>
+    </div>
+
+    <section class="group" style="left:16px;top:64px;width:440px;height:900px" aria-label="묶음 main">
+      <div class="group-head"><span class="branch" translate="no">main</span><span class="kind">원래 체크아웃</span></div>
+    </section>
+    <article class="card" style="left:36px;top:124px"><div class="card-head"><span class="name">총괄</span><span class="agent">Claude Code</span><span class="spacer"></span><span class="state running">running</span></div></article>
+    <article class="card" style="left:36px;top:452px"><div class="card-head"><span class="name">조사</span><span class="agent">Codex</span><span class="spacer"></span><span class="state done">done</span></div></article>
+
+    <!-- 미니맵: 묶음 하나, 카드 넷(상태 색). 밝은 틀이 지금 보이는 자리다. -->
+    <svg class="minimap" viewBox="0 0 200 150" role="img" aria-label="미니맵">
+      <rect class="mm-group" x="64" y="8" width="72" height="134" rx="3"/>
+      <rect class="mm-node running" x="68" y="18" width="64" height="22" rx="2"/>
+      <rect class="mm-node done" x="68" y="50" width="64" height="22" rx="2"/>
+      <rect class="mm-node running" x="68" y="82" width="64" height="22" rx="2"/>
+      <rect class="mm-node exited" x="68" y="114" width="64" height="22" rx="2"/>
+      <path class="mm-mask" d="M0 0H200V150H0Z M60 4H172V92H60Z"/>
+      <rect class="mm-view" x="60" y="4" width="112" height="88"/>
+    </svg>
+  </main>
+
+  <aside class="commits" id="commits" aria-label="커밋 그래프">
+    <div class="commits-head">
+      <h2>커밋 그래프</h2>
+      <span class="hint">모든 브랜치 · 최근 1,000개</span>
+      <span class="spacer"></span>
+      <button class="btn ghost sm" aria-label="커밋 그래프 닫기">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+<div class="commits-body" translate="no">* <span class="y">e8d527e (</span><span class="G">feat/minimap</span><span class="y">)</span> feat: 미니맵 <span class="mark"> 워크트리 feat/minimap </span>
+<span class="r">|</span> * <span class="y">0cbfc5b (</span><span class="G">feat/node-host</span><span class="y">)</span> fix: 크기 변경 경합 <span class="mark"> 워크트리 feat/node-host </span>
+<span class="r">|</span> <span class="g">|</span> * <span class="y">89b5bfd (</span><span class="C">HEAD</span><span class="y"> -&gt; </span><span class="G">main</span><span class="y">)</span> chore: 개발 컨테이너 <span class="mark"> 원래 체크아웃 main </span>
+<span class="r">|</span> <span class="g">|</span><span class="r">/</span>
+<span class="r">|/</span><span class="g">|</span>
+* <span class="g">|</span> <span class="y">73669b7</span> Merge branch 'feat/node-host'
+<span class="b">|</span><span class="g">\|</span>
+<span class="b">|</span> * <span class="y">3bb58c7</span> test: 크기 변경
+<span class="b">|</span> * <span class="y">b5cfe0c</span> feat: 링 버퍼
+* <span class="m">|</span> <span class="y">c55dec4 (</span><span class="G">fix/typo</span><span class="y">)</span> docs: 설계 문서
+<span class="m">|/</span>
+* <span class="y">437259f</span> feat: 노드 PTY
+* <span class="y">8ebb65c</span> feat: 데몬 뼈대
+</div>
+  </aside>
+</div>
+
+<section class="notes">
+  <h2>바뀌는 곳</h2>
+  <p>위 그림은 바뀌는 구역만 그렸다. 커밋 그래프 글자는 시험 저장소에서 데몬 <code>GET /api/commits</code>가 실제로 돌려준 출력이다.</p>
+
+  <h3>1. 그래프 위 도구 줄</h3>
+  <ul>
+    <li>전 → 후: 저장소 이름·경로만 있다 → 오른쪽 끝에 [커밋 그래프]가 있다. 열린 동안 눌린 모양(코발트 테두리)이다.</li>
+    <li>문제점: 에이전트가 만든 브랜치와 커밋을 보려면 터미널에서 <code>git log</code>를 쳐야 한다.</li>
+    <li>개선 사항: 한 번 눌러 커밋 그래프 칸을 열고 닫는다.</li>
+  </ul>
+
+  <h3>2. 그래프 오른쪽 아래 미니맵</h3>
+  <ul>
+    <li>전 → 후: 미니맵이 없다 → 200×150 미니맵이 있다. 묶음은 점선 테두리, 카드는 상태 색(<code>running</code> 코발트, <code>done</code> 초록, <code>exited</code> 빨강)이다. 지금 보이는 자리는 밝은 틀이고 나머지는 어둡다.</li>
+    <li>문제점: 카드가 늘면 화면 밖 카드가 어디 있는지, 어느 카드가 끝났는지 알 수 없다.</li>
+    <li>개선 사항: 미니맵의 한 점을 누르면 그 자리가 그래프 가운데로 온다. 밝은 틀을 끌면 그래프가 따라 움직인다.</li>
+  </ul>
+
+  <h3>3. 커밋 그래프 칸(오른쪽)</h3>
+  <ul>
+    <li>전 → 후: 없다 → 520px 칸이 그래프 오른쪽에 붙는다. 그래프는 덮이지 않고 좁아진다.</li>
+    <li>문제점: 워크트리 묶음이 어느 커밋에 있는지, 병합이 어떻게 이어졌는지 화면에서 볼 수 없다.</li>
+    <li>개선 사항: 모든 브랜치와 병합 선을 <code>git log --graph</code>로 보인다. 워크트리가 체크아웃한 커밋 줄 끝에 반전 표시(「원래 체크아웃 main」, 「워크트리 feat/minimap」)가 붙는다. 표시 글은 묶음 머리의 종류·브랜치와 같다.</li>
+    <li>상태: 처음 읽는 동안 「읽는 중…」 한 줄, 커밋이 없으면 「아직 커밋이 없다」, git이 실패하면 git 오류 문장을 빨간 글자로 보인다.</li>
+  </ul>
+
+  <h2>결정표</h2>
+  <table>
+    <thead><tr><th>항목</th><th>결정</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td>그리는 방법</td><td>(가) 데몬이 <code>git log --graph --color=always --all</code> 출력을 주고, 화면이 이미 쓰는 xterm.js로 그린다</td><td>배치 코드가 없다. 병합 선과 색은 git이 그린다. (나) SVG 차선은 차선 배치와 그리기를 직접 써야 한다. 커밋을 누르는 요구가 없다. <code>@gitgraph/js</code>는 2022-04 뒤로 갱신이 없다(보관)</td></tr>
+      <tr><td>워크트리 표시</td><td>데몬이 <code>git worktree list --porcelain</code>으로 워크트리마다 체크아웃한 커밋을 찾아 그 줄 끝에 붙인다</td><td>git 장식(<code>--decorate</code>)은 워크트리 브랜치를 다른 브랜치와 구별하지 않는다. 분리된 HEAD 워크트리는 아예 보이지 않는다(git 2.43 실측)</td></tr>
+      <tr><td>표시 모양</td><td>터미널 글자색·바탕색 반전(ANSI 7)</td><td>새 색을 더하지 않는다. 굵은 초록 브랜치 이름과 겹치지 않는다</td></tr>
+      <tr><td>범위</td><td>모든 브랜치(<code>--all</code>), stash 제외, 최근 커밋 1,000개. 긴 줄은 칸 끝에서 자른다</td><td>stash는 모든 워크트리가 함께 쓰는 임시 커밋이다. 줄을 접으면 그래프 선이 끊긴다</td></tr>
+      <tr><td>여는 자리</td><td>도구 줄 [커밋 그래프] → 그래프 오른쪽 칸(520px)</td><td>팝오버·모달은 그래프와 미니맵을 가린다. 칸이면 둘 다 보인다. 열림 상태는 저장하지 않는다</td></tr>
+      <tr><td>갱신</td><td>칸이 열린 동안 3초마다 다시 읽는다. 글자가 바뀔 때만 다시 그린다. 닫으면 읽지 않는다</td><td>기존 이벤트(<code>/api/events</code>)는 커밋을 알리지 않는다. 사람이 터미널에서 한 커밋도 보여야 한다. 파일 감시는 새 의존성과 감시 코드가 든다</td></tr>
+      <tr><td>미니맵</td><td>React Flow <code>&lt;MiniMap pannable&gt;</code>. 누르면 그 자리를 가운데로 옮긴다. 색은 <code>styles.css</code> 토큰이다</td><td>이미 쓰는 라이브러리 부품이다. 끄기 설정과 휠 확대는 요구가 없어 두지 않는다</td></tr>
+      <tr><td>목업 파일</td><td>이 파일을 따로 둔다. 승인 뒤 <code>docs/design.md</code>가 이 파일을 명세로 가리킨다</td><td>다른 코디 셋이 <code>main.html</code>을 고치는 중이다</td></tr>
+      <tr><td>제품 범위</td><td><code>docs/design.md</code> 「기능은 셋만 둔다」에 커밋 그래프 보기(읽기 전용)를 더한다</td><td>사람 지시. loom은 커밋·병합·체크아웃을 하지 않는다</td></tr>
+    </tbody>
+  </table>
+
+  <h2>점검 기록</h2>
+  <ul id="checks">
+    <li>방향: 기준 화면 <code>main.html</code>의 토큰·버튼·카드 모양을 그대로 썼다. 새 색은 없다. 미니맵 가림막은 <code>--bg</code>를 <code>color-mix</code>로 섞었다.</li>
+    <li>impeccable detect 1회: 경고 3건, 모두 고치지 않았다. <code>.app</code> 아래 테두리 여백은 화면 틀 테두리다(<code>main.html</code>과 같은 오탐). 커밋 그래프 줄 높이 1.2는 노드 터미널(<code>Terminal.tsx</code>)과 같다. 더 벌리면 그래프 세로선이 끊긴다. 제목 단계 경고는 아래 설명 절(h2·h3)의 크기다. 제품 화면 글자 크기는 <code>main.html</code>과 같다.</li>
+    <li>WIG: 지켰다 — 아이콘만 있는 [닫기]에 <code>aria-label</code>, 아이콘에 <code>aria-hidden</code>, [커밋 그래프]에 <code>aria-expanded</code>·<code>aria-controls</code>, 커밋 글자에 <code>translate="no"</code>, 긴 줄 자르기, 빈 상태·오류 상태, 읽는 중 글자 끝 「…」. 적용하지 않았다 — 미니맵 끌기의 키보드 대안(미니맵은 마우스용 지름길이다. 키보드는 <code>Ctrl+Shift+</code>방향키로 카드를 옮긴다), 열림 상태 URL(설정 창이 URL 해시를 쓴다. 칸은 한 번 눌러 다시 연다), 영어 문구 규칙(한국어 UI 예외).</li>
+  </ul>
+</section>
+</div>
+</body>
+</html>

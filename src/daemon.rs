@@ -27,6 +27,7 @@ use ts_rs::TS;
 
 use crate::accounts::Accounts;
 use crate::codex_server::CodexServer;
+use crate::commit_graph;
 use crate::db;
 use crate::graph::{Delivery, Graph, GraphEvent, Kind, NodeId, Refusal};
 use crate::node_host::NodeHost;
@@ -173,6 +174,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let router = node_routes
         .clone()
         .route("/api/repo", get(repo))
+        .route("/api/commits", get(commits))
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
         .route("/api/nodes/{id}/pty", get(pty))
@@ -224,6 +226,13 @@ fn repo_view(path: PathBuf) -> RepoView {
 
 async fn repo(State(app): State<Arc<App>>) -> Json<RepoView> {
     Json(app.repo.clone())
+}
+
+/// `git log --graph` 글자(ANSI 색 포함). 화면은 터미널로 그린다.
+async fn commits(State(app): State<Arc<App>>) -> Result<String, ApiError> {
+    commit_graph::draw(std::path::Path::new(&app.repo.path))
+        .await
+        .map_err(internal)
 }
 
 impl App {

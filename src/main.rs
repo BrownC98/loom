@@ -1,6 +1,7 @@
 mod accounts;
 mod cli;
 mod codex_server;
+mod commit_graph;
 mod daemon;
 mod db;
 mod graph;

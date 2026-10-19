@@ -34,10 +34,11 @@
 
 | 프로필 | loom 사용법 지시 | 상태·전달 경로 |
 |---|---|---|
-| Claude Code | `--append-system-prompt` | `--settings`로 넘긴 훅 5개가 `loom hook`을 부른다(UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop) |
+| Claude Code | `--append-system-prompt` | `--settings`로 넘긴 훅 5개가 `loom hook`을 부른다(UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop). 형식과 인자는 [src/profile/claude.rs](../src/profile/claude.rs)에 있다 |
 | Codex | `-c developer_instructions=…` | `codex --remote ws://127.0.0.1:<포트>`로 loom 데몬이 띄운 app-server에 붙인다. 훅은 쓰지 않는다 |
 | 프로필 없음 | 없음 | `loom wait`로만 메시지를 받는다 |
 
+- Claude `--settings`는 권한 허용 목록에 `loom guard`와 메시지 명령(`send`, `steer`, `interrupt`, `wait`, `done`)만 넣는다. 기본 권한 모드에서 사람이 없는 노드가 승인 창에서 멈추지 않게 한다. `loom spawn`은 `-- <명령>`으로 아무 명령이나 띄울 수 있어 넣지 않는다.
 - 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex` 파일은 고치지 않는다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다.
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
 
@@ -101,17 +102,17 @@
 
 | 명령 | 누가 부르나 | 뜻 |
 |---|---|---|
-| `loom spawn <이름> [--worktree <브랜치>] -- <명령>` | 에이전트 | 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다. `<명령>`은 ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다 |
+| `loom spawn <이름> [--worktree <브랜치>] (--agent <id> \| -- <명령>)` | 에이전트 | 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다. `--agent`는 카탈로그 에이전트를 그 프로필·계정으로 띄운다. `<명령>`은 ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다 |
 | `loom send <이름> <본문>` | 에이전트 | 큐: 받는 노드의 턴을 끊지 않는다 |
 | `loom steer <이름> <본문>` | 에이전트 | 조정: 턴을 멈추지 않고 다음 도구 호출 사이에 넣는다 |
 | `loom interrupt <이름> <본문>` | 에이전트 | 중단: 지금 동작을 멈추고 메시지를 바로 따르게 한다 |
 | `loom wait` | 에이전트 | 메시지가 올 때까지 기다렸다가 본문을 출력한다 |
 | `loom done <요약>` / `loom done --file <경로>` | 에이전트 | 결과를 부모에게 보내고 노드를 `done`으로 바꾼다 |
 | `loom hook` | Claude 훅 | stdin의 훅 이벤트를 받아 전달할 메시지를 돌려준다 |
-| `loom run -- <명령>` | Claude PreToolUse 훅 | 셸 명령을 감싼다. 중단이 오면 loom이 이 프로세스 묶음을 끝낸다 |
+| `loom guard` | Claude PreToolUse 훅 | 훅이 포그라운드 Bash 명령 앞에 이 줄을 붙인다. 부른 셸을 중단 대상으로 데몬에 알린다 |
 | `loom serve` | 사람 | 데몬과 화면을 띄운다 |
 
-- 프로필이 없는 노드에 `steer`나 `interrupt`를 보내면 오류를 내고 보내지 않는다. 큐로 바꿔 보내지 않는다.
+- 프로필이 없는 노드에 `steer`나 `interrupt`를 보내면 오류를 내고 보내지 않는다. 큐로 바꿔 보내지 않는다. Codex 노드도 app-server 연동 전까지 같다.
 
 ### 전달 지점
 
@@ -121,13 +122,21 @@
 | 큐 | 일하는 중 | Stop 훅이 `block`과 본문을 돌려준다. 같은 턴을 이어 간다 | `turn/completed` 뒤에 `turn/start` |
 | 큐 | 쉬는 중 | 다음 턴의 UserPromptSubmit 훅 맥락. 부모가 결과를 기다리면 백그라운드 `loom wait`로 깨어난다 | `turn/start`로 깨운다 |
 | 조정 | 일하는 중 | PostToolUse 훅 맥락 | `turn/steer` |
-| 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 `loom run` 프로세스 묶음을 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` |
+| 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 데몬이 `loom guard`로 알린 셸과 그 자손 프로세스를 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` |
 | 조정·중단 | 쉬는 중 | 큐와 같다 | 큐와 같다 |
+
+- 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 불린 훅이 그 상태다. 훅마다 꺼내는 방식: UserPromptSubmit·Stop은 모두, PostToolUse는 조정, PreToolUse·PostToolUseFailure는 중단.
+- 훅 한 번에 꺼내는 본문 합은 8KB 이하다. Claude는 `additionalContext` 한 개를 10,000자에서 자른다. 남은 메시지는 다음 훅이 꺼낸다.
+- PreToolUse 훅은 중단 메시지가 없으면 포그라운드 Bash 명령 앞에 `loom guard` 줄을 붙인다(`updatedInput`). 명령을 감싸지 않는 이유: Claude는 권한 규칙을 바꾼 명령으로 판정한다. 감싸면 사용자의 Bash 허용 규칙이 맞지 않는다. 줄을 앞에 붙이면 Claude가 줄마다 판정해 규칙이 그대로 맞는다.
+- 백그라운드 Bash 명령(`run_in_background`)에는 붙이지 않는다. 결과를 기다리는 백그라운드 `loom wait`를 중단이 끝내면 안 된다.
+- 중단을 보내면 데몬은 셸을 먼저 끝내고 메시지를 넣는다. 반대 순서면 그 셸 안의 `loom wait`가 본문을 꺼낸 뒤 죽어 본문을 잃을 수 있다. 데몬은 셸이 그 노드 프로세스의 자손일 때만 끝낸다. 끝난 셸의 PID를 다른 프로세스가 받았을 수 있다.
+- 전달 확정: 데몬이 응답에 본문을 담는 순간 `delivered`로 바꾼다. 훅 호출은 기다리지 않는 짧은 요청이다. `loom hook`의 응답 상한(5초)을 훅 `timeout`(10초)보다 짧게 둔다. 그래서 Claude가 훅을 먼저 끝내 본문을 버리는 일이 없다. 남은 손실 경우는 응답 직후 `loom hook`·`loom wait` 프로세스가 죽을 때뿐이다.
 
 ### 맥락과 크기
 
 - 자식은 새 맥락에서 시작한다. 지시문(4KB 이하)과 부모 이름만 받는다. 부모 대화를 넘기는 fork는 두지 않는다.
-- 지시문은 자식 메일함의 첫 메시지(보낸 노드는 부모)로 넣는다. 프로필이 없는 자식은 `loom wait`로 받는다.
+- `--agent`로 띄운 자식은 카탈로그의 `prompt` 방법으로 지시문을 시작 명령에 받는다. 쉬는 상태로 뜬 TUI는 지시문을 읽을 턴이 없기 때문이다.
+- `-- <명령>`으로 띄운 자식은 지시문을 메일함의 첫 메시지(보낸 노드는 부모)로 받는다. 자식은 `loom wait`로 읽는다.
 - `loom send` 본문도 4KB 이하다. 4KB를 넘는 자료는 파일에 쓰고 경로를 적는다.
 - `loom done` 요약은 1KB 이하다. 더 길면 `--file`을 쓰고 부모에게는 경로만 간다.
 - `done` 없이 PTY가 끝나면 부모 메일함에 `exited(<코드>)` 한 줄만 넣는다. 이 줄은 메일함 상한을 넘어도 넣는다. 버리면 부모가 끝없이 기다린다.
@@ -156,7 +165,7 @@
 ## 기술 스택
 
 - `loom` Rust 실행 파일 하나가 데몬과 모든 명령을 맡는다. Windows, macOS, Linux에서 같은 코드가 돈다.
-- 데몬: `tokio`, `axum`, `portable-pty`(Windows ConPTY 포함), `rusqlite`, `rust-embed`
+- 데몬: `tokio`, `axum`, `portable-pty`(Windows ConPTY 포함), `rusqlite`, `rust-embed`, `sysinfo`(중단할 셸의 프로세스 나무)
 - 화면: React, React Flow, xterm.js. 빌드한 화면을 실행 파일에 넣는다. 사람은 브라우저로 연다. Tauri는 지금 만들지 않는다.
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
 - 워크트리는 `git` CLI를 부른다.
@@ -172,7 +181,7 @@
 |---|---|
 | 상호작용 | 화면, CLI 명령(`src/cli.rs`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다 |
-| 기능 | 그래프(`src/graph/`: 노드 목록과 메일함), 노드 호스트(`src/node_host.rs`, PTY), 워크트리, 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
+| 기능 | 그래프(`src/graph/`: 노드 목록과 메일함), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 워크트리, 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록) |
 
 - 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `AgentId`, `Profile`, `AccountId`)만 쓴다.
@@ -194,8 +203,11 @@
 - tmux로 글자와 Enter를 한 번에 보내면 Codex는 Enter를 줄바꿈으로 받았다. PTY에 글자를 쓰지 않는 원칙의 근거다.
 - 사용량 출처(「계정과 사용량」): Claude `api/oauth/usage`가 `five_hour`·`seven_day`를 돌려줬다. Codex `account/rateLimits/read`는 `primary`에 주간 창(10080분)을 주고 `secondary`는 `null`이었다. 그래서 창은 위치가 아니라 길이로 가른다.
 - Codex `app-server`는 stdin이 닫히면 답하기 전에 끝난다. 데몬은 답을 받을 때까지 stdin을 열어 두고, 받은 뒤 프로세스를 끝낸다.
+- Claude 권한(기본 권한 모드, `claude -p`): PreToolUse `updatedInput`만 넣고 `permissionDecision`을 비우면, 허용 규칙을 바꾼 명령으로 판정했다. `Bash(touch /tmp/original-file)`이 있어도 바꾼 `touch /tmp/rewritten-file`은 승인을 요구했다. 앞에 줄을 붙인 `id -u && touch /tmp/original-file`은 사용자 규칙대로 허용됐다.
+- Claude Bash 도구 셸은 자기 세션의 리더다. 셸 안 명령은 다른 프로세스 그룹으로 떴다. 그래서 그룹 하나가 아니라 셸의 프로세스 나무를 끝낸다.
+- loom 3단위(Claude 노드 부모·자식): 조정은 자식의 다음 PostToolUse 맥락으로 들어갔다. 중단은 120초 셸 명령을 보낸 뒤 0.08초 만에 끝냈고 PostToolUseFailure가 본문을 전했다. 큐는 자식의 Stop `block`으로 들어갔다. 자식 `done` 뒤 0.03초 만에 쉬던 부모의 백그라운드 `loom wait`가 끝나 부모가 새 턴을 시작했다.
 
 ## 아직 확인하지 않은 것
 
-- Windows에서 `loom run`이 프로세스 묶음을 끝내는 방법(Job Object). 첫 Windows 구현 때 확인한다.
+- Windows에서 `loom guard`가 자기를 부른 셸을 찾는 방법. 지금 Windows의 `loom guard`는 아무것도 하지 않아 중단이 셸 명령을 끝내지 못한다. 첫 Windows 구현 때 확인한다.
 - Codex app-server를 unix 소켓으로 쓸 때의 메시지 틀. 지금은 `ws://127.0.0.1`만 쓴다.

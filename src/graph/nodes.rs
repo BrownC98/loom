@@ -3,7 +3,8 @@
 use rusqlite::{Connection, params};
 
 use super::{
-    Graph, MAX_DEPTH, NodeId, NodeState, Refusal, mailbox, parent_of, set_state, state_of, to_json,
+    Graph, Kind, MAX_DEPTH, NodeId, NodeState, Refusal, mailbox, parent_of, set_state, state_of,
+    to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -54,7 +55,7 @@ impl Graph {
         let id = insert(&tx, name, &agent, Some(parent))?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
-            mailbox::enqueue(&tx, parent, id, brief)?;
+            mailbox::enqueue(&tx, parent, id, Kind::Queue, brief)?;
         }
         launch(id).map_err(Refusal::Launch)?;
         tx.commit()?;
@@ -76,7 +77,7 @@ impl Graph {
         set_state(&tx, id, &NodeState::Exited { code: Some(code) })?;
         let parent = parent_of(&tx, id)?;
         if let Some(parent) = parent {
-            mailbox::enqueue(&tx, id, parent, &format!("exited({code})"))?;
+            mailbox::enqueue(&tx, id, parent, Kind::Queue, &format!("exited({code})"))?;
         }
         tx.commit()?;
         self.publish_node(&db, id)?;

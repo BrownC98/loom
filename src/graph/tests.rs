@@ -20,14 +20,19 @@ fn child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
 }
 
 fn take(g: &Graph, node: NodeId) -> Option<Delivery> {
-    g.take(node).unwrap()
+    g.take(node, Kind::ALL, 0).unwrap().pop()
 }
 
 fn delivery(from: &str, body: &str) -> Option<Delivery> {
     Some(Delivery {
         from: from.into(),
+        kind: Kind::Queue,
         body: body.into(),
     })
+}
+
+fn bodies(taken: Vec<Delivery>) -> Vec<String> {
+    taken.into_iter().map(|d| d.body).collect()
 }
 
 fn view(g: &Graph, id: NodeId) -> NodeView {
@@ -49,11 +54,11 @@ fn parent_and_child_exchange_messages() {
         .unwrap();
 
     assert_eq!(take(&g, worker), delivery("총괄", "node_host를 고쳐라"));
-    g.send(worker, "총괄", "질문 하나").unwrap();
+    g.send(worker, "총괄", Kind::Queue, "질문 하나").unwrap();
     assert_eq!(view(&g, lead).unread, 1);
     assert_eq!(take(&g, lead), delivery("구현", "질문 하나"));
     assert_eq!(view(&g, lead).unread, 0);
-    g.send(lead, "구현", "답").unwrap();
+    g.send(lead, "구현", Kind::Queue, "답").unwrap();
     assert_eq!(take(&g, worker), delivery("총괄", "답"));
     assert_eq!(take(&g, worker), None);
 }
@@ -67,16 +72,16 @@ fn messages_go_only_between_parent_and_child() {
     child(&g, lead, "b");
     let a1 = child(&g, a, "a1");
 
-    assert!(matches!(g.send(a, "b", "x"), Err(Refusal::NotRelated(n)) if n == "b"));
+    assert!(matches!(g.send(a, "b", Kind::Queue, "x"), Err(Refusal::NotRelated(n)) if n == "b"));
     assert!(matches!(
-        g.send(lead, "a1", "x"),
+        g.send(lead, "a1", Kind::Queue, "x"),
         Err(Refusal::NotRelated(_))
     ));
     assert!(matches!(
-        g.send(a1, "총괄", "x"),
+        g.send(a1, "총괄", Kind::Queue, "x"),
         Err(Refusal::NotRelated(_))
     ));
-    g.send(a1, "a", "x").unwrap();
+    g.send(a1, "a", Kind::Queue, "x").unwrap();
 }
 
 #[test]
@@ -112,10 +117,10 @@ fn limits_are_enforced() {
         Err(Refusal::BriefTooLong(4097))
     ));
     assert!(matches!(
-        g.send(lead, "a", &brief),
+        g.send(lead, "a", Kind::Queue, &brief),
         Err(Refusal::BriefTooLong(4097))
     ));
-    g.send(lead, "a", &"x".repeat(4096)).unwrap();
+    g.send(lead, "a", Kind::Queue, &"x".repeat(4096)).unwrap();
     // done 요약 1KB
     assert!(matches!(
         g.done(a1, &"x".repeat(1025)),
@@ -123,11 +128,13 @@ fn limits_are_enforced() {
     ));
     // 메일함 50: 위에서 하나를 넣었다
     for _ in 1..50 {
-        g.send(lead, "a", "x").unwrap();
+        g.send(lead, "a", Kind::Queue, "x").unwrap();
     }
-    assert!(matches!(g.send(lead, "a", "x"), Err(Refusal::MailboxFull(n)) if n == "a"));
+    assert!(
+        matches!(g.send(lead, "a", Kind::Queue, "x"), Err(Refusal::MailboxFull(n)) if n == "a")
+    );
     take(&g, a);
-    g.send(lead, "a", "x").unwrap();
+    g.send(lead, "a", Kind::Queue, "x").unwrap();
 }
 
 #[test]
@@ -173,13 +180,16 @@ fn exit_without_done_tells_parent_even_when_mailbox_is_full() {
     let a = child(&g, lead, "a");
     let b = child(&g, lead, "b");
     for _ in 0..50 {
-        g.send(b, "총괄", "x").unwrap();
+        g.send(b, "총괄", Kind::Queue, "x").unwrap();
     }
 
     g.exited(a, 3).unwrap();
     assert_eq!(view(&g, a).state, NodeState::Exited { code: Some(3) });
     assert_eq!(view(&g, lead).unread, 51);
-    assert!(matches!(g.send(lead, "a", "x"), Err(Refusal::Ended(_))));
+    assert!(matches!(
+        g.send(lead, "a", Kind::Queue, "x"),
+        Err(Refusal::Ended(_))
+    ));
 }
 
 #[test]
@@ -224,6 +234,82 @@ async fn wait_returns_when_a_message_arrives() {
     });
     tokio::task::yield_now().await;
     assert!(!waiting.is_finished());
-    g.send(a, "총괄", "결과").unwrap();
+    g.send(a, "총괄", Kind::Queue, "결과").unwrap();
     assert_eq!(Some(waiting.await.unwrap()), delivery("a", "결과"));
+}
+
+#[test]
+fn each_point_takes_only_its_kinds_in_arrival_order_and_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    g.send(lead, "a", Kind::Queue, "q1").unwrap();
+    g.send(lead, "a", Kind::Steer, "s1").unwrap();
+    g.send(lead, "a", Kind::Interrupt, "i1").unwrap();
+    g.send(lead, "a", Kind::Steer, "s2").unwrap();
+
+    // PostToolUse: 조정만
+    assert_eq!(
+        bodies(g.take(a, &[Kind::Steer], 8192).unwrap()),
+        ["s1", "s2"]
+    );
+    assert!(g.take(a, &[Kind::Steer], 8192).unwrap().is_empty());
+    // PreToolUse: 중단만
+    let interrupt = g.take(a, &[Kind::Interrupt], 8192).unwrap();
+    assert_eq!(
+        interrupt,
+        [Delivery {
+            from: "총괄".into(),
+            kind: Kind::Interrupt,
+            body: "i1".into()
+        }]
+    );
+    assert_eq!(view(&g, a).unread, 1);
+    // Stop: 남은 것 모두
+    assert_eq!(bodies(g.take(a, Kind::ALL, 8192).unwrap()), ["q1"]);
+    assert_eq!(view(&g, a).unread, 0);
+    assert!(g.take(a, Kind::ALL, 8192).unwrap().is_empty());
+}
+
+#[test]
+fn take_stops_at_the_byte_limit_but_always_takes_the_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    for body in ["x".repeat(4096), "y".repeat(4096), "z".repeat(10)] {
+        g.send(lead, "a", Kind::Queue, &body).unwrap();
+    }
+
+    assert_eq!(g.take(a, Kind::ALL, 4096).unwrap().len(), 1);
+    assert_eq!(
+        g.take(a, Kind::ALL, 4096).unwrap()[0].body,
+        "y".repeat(4096)
+    );
+    assert_eq!(
+        bodies(g.take(a, Kind::ALL, 4096).unwrap()),
+        ["z".repeat(10)]
+    );
+    g.send(lead, "a", Kind::Queue, "1").unwrap();
+    g.send(lead, "a", Kind::Queue, "2").unwrap();
+    assert_eq!(bodies(g.take(a, Kind::ALL, 1).unwrap()), ["1"]);
+}
+
+#[test]
+fn recipient_names_the_node_and_its_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = g
+        .add_root("총괄", Some(AgentId("claude".into())), launched)
+        .unwrap();
+    let a = child(&g, lead, "a");
+
+    let (id, agent) = g.recipient(a, "총괄").unwrap();
+    assert_eq!((id, agent), (lead, Some(AgentId("claude".into()))));
+    assert_eq!(g.recipient(lead, "a").unwrap(), (a, None));
+    assert!(matches!(
+        g.recipient(lead, "b"),
+        Err(Refusal::NotRelated(_))
+    ));
 }

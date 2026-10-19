@@ -14,6 +14,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
+use crate::graph::Kind;
+
 #[derive(Parser)]
 #[command(name = "loom", version)]
 enum Cli {
@@ -26,15 +28,22 @@ enum Cli {
     /// 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다.
     Spawn {
         name: String,
+        /// 카탈로그 에이전트 id(예: `claude`). 그 프로필과 계정으로 띄운다.
+        #[arg(long, conflicts_with = "command", required_unless_present = "command")]
+        agent: Option<String>,
         /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
         #[arg(long)]
         file: Option<PathBuf>,
         /// 자식이 실행할 명령. ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다.
-        #[arg(last = true, required = true)]
+        #[arg(last = true)]
         command: Vec<String>,
     },
     /// 부모나 자식에게 메시지를 보낸다. 받는 노드의 턴을 끊지 않는다.
     Send { name: String, body: String },
+    /// 일하는 Claude 노드의 다음 도구 호출 사이에 메시지를 넣는다. 턴을 멈추지 않는다.
+    Steer { name: String, body: String },
+    /// Claude 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다.
+    Interrupt { name: String, body: String },
     /// 메시지가 올 때까지 기다렸다가 본문을 출력한다.
     Wait,
     /// 결과를 부모에게 보내고 이 노드를 done으로 바꾼다.
@@ -45,6 +54,10 @@ enum Cli {
         #[arg(long, conflicts_with = "summary")]
         file: Option<PathBuf>,
     },
+    /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
+    Hook,
+    /// Claude 훅이 Bash 명령 앞에 붙인다. 부른 셸을 중단 대상으로 알린다.
+    Guard,
 }
 
 fn main() -> ExitCode {
@@ -54,10 +67,15 @@ fn main() -> ExitCode {
             .map_err(|e| e.to_string()),
         Cli::Spawn {
             name,
+            agent,
             file,
             command,
-        } => cli::spawn(name, file, command),
-        Cli::Send { name, body } => cli::send(name, body),
+        } => cli::spawn(name, agent, file, command),
+        Cli::Send { name, body } => cli::send(name, Kind::Queue, body),
+        Cli::Steer { name, body } => cli::send(name, Kind::Steer, body),
+        Cli::Interrupt { name, body } => cli::send(name, Kind::Interrupt, body),
+        Cli::Hook => cli::hook(),
+        Cli::Guard => cli::guard(),
         Cli::Wait => cli::wait(),
         Cli::Done { summary, file } => cli::done(summary, file),
     };

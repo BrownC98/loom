@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use mailbox::Delivery;
+pub use mailbox::{Delivery, Kind};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 

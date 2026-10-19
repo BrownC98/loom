@@ -2,6 +2,8 @@
 //! 카탈로그는 Orca 표를 옮긴 데이터(`agents.json`)다. 바뀌는 이유는 CLI 버전과 Orca 표다.
 //! 근거: docs/design.md 「에이전트」.
 
+pub mod claude;
+
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -98,6 +100,11 @@ fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
 
+/// 메시지 연동이 있는 에이전트면 그 프로필이다.
+pub fn profile_of(id: &AgentId) -> Option<Profile> {
+    find(id).and_then(|a| a.profile)
+}
+
 #[derive(Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -120,7 +127,7 @@ impl Start {
     /// 계정을 골라야 하는 에이전트면 그 공급자다.
     pub fn profile(&self) -> Option<Profile> {
         match self {
-            Start::Agent { agent, .. } => find(agent).and_then(|a| a.profile),
+            Start::Agent { agent, .. } => profile_of(agent),
             Start::Command { .. } => None,
         }
     }
@@ -154,6 +161,9 @@ fn agent_command(id: &AgentId, brief: &str) -> Result<CommandBuilder, String> {
     }
     let mut cmd = CommandBuilder::new(program);
     cmd.args(&agent.args);
+    if agent.profile == Some(Profile::Claude) {
+        cmd.args(claude::args());
+    }
     if brief.trim().is_empty() {
         return Ok(cmd);
     }

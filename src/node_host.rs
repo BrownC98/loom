@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use bytes::Bytes;
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::sync::broadcast;
 
 /// 다시 연 카드에 먼저 보내는 출력의 상한. 근거: docs/design.md 「규모」.
@@ -40,6 +41,10 @@ impl<K> Default for NodeHost<K> {
 }
 
 struct Pty {
+    /// PTY에서 띄운 프로세스. 중단할 셸이 이 프로세스의 자손인지 볼 때 쓴다.
+    pid: Option<u32>,
+    /// 중단이 오면 끝낼 셸(`loom guard`가 알린 Bash 도구 셸).
+    guarded: Mutex<Vec<u32>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     input: Mutex<Box<dyn Write + Send>>,
@@ -67,6 +72,8 @@ impl<K: Copy + Eq + Hash> NodeHost<K> {
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let input = pair.master.take_writer().map_err(|e| e.to_string())?;
         let pty = Arc::new(Pty {
+            pid: child.process_id(),
+            guarded: Mutex::default(),
             killer: Mutex::new(child.clone_killer()),
             master: Mutex::new(pair.master),
             input: Mutex::new(input),
@@ -127,9 +134,82 @@ impl<K: Copy + Eq + Hash> NodeHost<K> {
         }
     }
 
+    /// 노드 안의 셸 하나를 중단 대상으로 둔다. 이미 끝난 셸은 이때 목록에서 지운다.
+    pub fn guard(&self, id: K, shell: u32) {
+        let Some(pty) = self.pty(id) else { return };
+        let mut shells = pty.guarded.lock().unwrap();
+        shells.push(shell);
+        let pids: Vec<Pid> = shells.iter().map(|&p| Pid::from_u32(p)).collect();
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&pids),
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        shells.retain(|&p| system.process(Pid::from_u32(p)).is_some());
+    }
+
+    /// 중단 대상 셸과 그 자손 프로세스를 모두 끝내고, 끝낸 프로세스 수를 돌려준다.
+    /// 노드 프로세스의 자손인 셸만 끝낸다. 셸이 끝난 뒤 그 PID를 다른 프로세스가 받았을 수 있다.
+    pub fn stop_guarded(&self, id: K) -> usize {
+        let Some(pty) = self.pty(id) else { return 0 };
+        let shells = std::mem::take(&mut *pty.guarded.lock().unwrap());
+        let Some(root) = pty.pid.filter(|_| !shells.is_empty()) else {
+            return 0;
+        };
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        let parents: HashMap<u32, u32> = system
+            .processes()
+            .iter()
+            .filter_map(|(pid, p)| Some((pid.as_u32(), p.parent()?.as_u32())))
+            .collect();
+        shells
+            .into_iter()
+            .filter(|&shell| descends(&parents, shell, root))
+            .flat_map(|shell| subtree(&parents, shell))
+            .filter(|&p| system.process(Pid::from_u32(p)).is_some_and(|p| p.kill()))
+            .count()
+    }
+
     fn pty(&self, id: K) -> Option<Arc<Pty>> {
         self.nodes.read().unwrap().get(&id).cloned()
     }
+}
+
+/// `pid`가 `root`의 자손이면 참이다. `parents`는 프로세스마다 부모다.
+fn descends(parents: &HashMap<u32, u32>, pid: u32, root: u32) -> bool {
+    let mut at = pid;
+    // 부모 관계에 고리가 있어도 끝나도록 프로세스 수만큼만 올라간다.
+    for _ in 0..parents.len() {
+        match parents.get(&at) {
+            Some(&parent) if parent == root => return true,
+            Some(&parent) => at = parent,
+            None => return false,
+        }
+    }
+    false
+}
+
+/// `root`와 그 자손. `root`가 먼저 온다.
+fn subtree(parents: &HashMap<u32, u32>, root: u32) -> Vec<u32> {
+    let mut found = vec![root];
+    let mut next = 0;
+    while next < found.len() {
+        let at = found[next];
+        let children: Vec<u32> = parents
+            .iter()
+            .filter(|&(child, &parent)| parent == at && !found.contains(child))
+            .map(|(&child, _)| child)
+            .collect();
+        found.extend(children);
+        next += 1;
+    }
+    found
 }
 
 impl Output {
@@ -146,6 +226,46 @@ impl Output {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subtree_and_descends_follow_parent_links() {
+        // 1 ← 10(노드) ← 20(셸) ← 30 ← 40, 10 ← 21(다른 셸), 1 ← 50(남의 프로세스)
+        let parents = HashMap::from([(10, 1), (20, 10), (30, 20), (40, 30), (21, 10), (50, 1)]);
+        let mut tree = subtree(&parents, 20);
+        tree.sort();
+        assert_eq!(tree, [20, 30, 40]);
+        assert!(descends(&parents, 20, 10));
+        assert!(descends(&parents, 40, 10));
+        assert!(!descends(&parents, 50, 10));
+        assert!(!descends(&parents, 10, 10));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_guarded_ends_the_shell_and_its_children() {
+        let host = NodeHost::default();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut cmd = CommandBuilder::new("sh");
+        // 노드(sh) 안의 셸(sh)이 자식 둘을 띄운다. 셸이 자기 PID를 출력한다.
+        cmd.args(["-c", "sh -c 'echo $$; sleep 30 & sleep 30' ; sleep 30"]);
+        host.spawn(1, cmd, move |code| tx.send(code).unwrap())
+            .unwrap();
+        let mut output = host.attach(1).unwrap();
+        let mut text = String::from_utf8_lossy(&output.backlog).into_owned();
+        while !text.contains('\n') {
+            let chunk = output.output.blocking_recv().unwrap();
+            text.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        let shell: u32 = text.trim().parse().unwrap();
+        // 다른 노드의 셸로 알리면 끝내지 않는다.
+        host.guard(1, std::process::id());
+        host.guard(1, shell);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(host.stop_guarded(1), 3);
+        assert_eq!(host.stop_guarded(1), 0);
+        host.kill(1);
+        rx.recv().unwrap();
+    }
 
     #[test]
     fn backlog_keeps_only_the_newest_bytes() {

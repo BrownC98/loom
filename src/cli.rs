@@ -3,14 +3,22 @@
 
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::daemon::{DoneRequest, SendRequest, SpawnRequest};
-use crate::graph::{Delivery, NodeId};
+use crate::daemon::{DoneRequest, GuardRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest};
+use crate::graph::{Delivery, Kind, NodeId};
+use crate::profile::{AgentId, claude};
 
-pub fn spawn(name: String, file: Option<PathBuf>, command: Vec<String>) -> Result<(), String> {
+/// `agent`가 없으면 `command`를 셸 명령 한 줄로 띄운다.
+pub fn spawn(
+    name: String,
+    agent: Option<String>,
+    file: Option<PathBuf>,
+    command: Vec<String>,
+) -> Result<(), String> {
     let brief = match file {
         Some(path) => {
             std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?
@@ -24,23 +32,52 @@ pub fn spawn(name: String, file: Option<PathBuf>, command: Vec<String>) -> Resul
             brief
         }
     };
-    let request = SpawnRequest {
-        name,
-        command: command.join(" "),
-        brief,
+    let run = match agent {
+        Some(id) => SpawnRun::Agent(AgentId(id)),
+        None => SpawnRun::Command(command.join(" ")),
     };
-    let _: NodeId = call("spawn", &request)?;
+    let request = SpawnRequest { name, run, brief };
+    let _: NodeId = call("spawn", &request, None)?;
     println!("노드를 만들었다: {}", request.name);
     Ok(())
 }
 
-pub fn send(to: String, body: String) -> Result<(), String> {
-    call::<()>("send", &SendRequest { to, body })
+pub fn send(to: String, kind: Kind, body: String) -> Result<(), String> {
+    call::<()>("send", &SendRequest { to, kind, body }, None)
 }
 
 pub fn wait() -> Result<(), String> {
-    let Delivery { from, body } = call("wait", &())?;
+    let Delivery { from, body, .. } = call("wait", &(), None)?;
     println!("보낸 노드: {from}\n{body}");
+    Ok(())
+}
+
+/// Claude 훅: stdin의 훅 입력을 읽고, 이 지점에서 넘길 메시지를 데몬에서 꺼내 훅 출력으로 쓴다.
+pub fn hook() -> Result<(), String> {
+    let event: claude::Event =
+        serde_json::from_reader(std::io::stdin()).map_err(|e| format!("훅 입력: {e}"))?;
+    let request = TakeRequest {
+        kinds: event.kinds().to_vec(),
+        limit_bytes: claude::HOOK_LIMIT_BYTES,
+    };
+    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
+    let taken: Vec<Delivery> = call("take", &request, Some(timeout))?;
+    if let Some(reply) = event.reply(&taken) {
+        println!("{reply}");
+    }
+    Ok(())
+}
+
+/// 이 명령을 부른 셸을 중단 대상으로 데몬에 알린다. Claude 훅이 Bash 명령 앞에 붙인다.
+#[cfg(unix)]
+pub fn guard() -> Result<(), String> {
+    let shell = std::os::unix::process::parent_id();
+    call::<()>("guard", &GuardRequest { shell }, None)
+}
+
+/// Windows에서 프로세스 묶음을 끝내는 방법은 아직 확인하지 않았다(docs/design.md 「아직 확인하지 않은 것」).
+#[cfg(windows)]
+pub fn guard() -> Result<(), String> {
     Ok(())
 }
 
@@ -53,19 +90,25 @@ pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String
             .to_string(),
         None => summary.unwrap_or_default(),
     };
-    call::<()>("done", &DoneRequest { summary })?;
+    call::<()>("done", &DoneRequest { summary }, None)?;
     println!("부모에게 결과를 보냈다.");
     Ok(())
 }
 
-fn call<T: DeserializeOwned>(action: &str, body: &impl Serialize) -> Result<T, String> {
+/// `timeout`이 없으면 기다림 상한을 두지 않는다. `wait`는 메시지가 올 때까지 끝나지 않는다.
+fn call<T: DeserializeOwned>(
+    action: &str,
+    body: &impl Serialize,
+    timeout: Option<Duration>,
+) -> Result<T, String> {
     let var = |name| {
         std::env::var(name).map_err(|_| format!("{name}가 없다. loom 노드 안에서만 부른다."))
     };
     let (url, token) = (var("LOOM_URL")?, var("LOOM_TOKEN")?);
-    // 거부 문장을 본문에서 읽으려고 4xx·5xx를 오류로 바꾸지 않는다. `wait`는 메시지가 올 때까지 끝나지 않으므로 시간 상한을 두지 않는다.
+    // 거부 문장을 본문에서 읽으려고 4xx·5xx를 오류로 바꾸지 않는다.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
+        .timeout_global(timeout)
         .build()
         .into();
     let mut res = agent

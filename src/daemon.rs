@@ -25,9 +25,9 @@ use ts_rs::TS;
 
 use crate::accounts::Accounts;
 use crate::db;
-use crate::graph::{Delivery, Graph, GraphEvent, NodeId, Refusal};
+use crate::graph::{Delivery, Graph, GraphEvent, Kind, NodeId, Refusal};
 use crate::node_host::NodeHost;
-use crate::profile::{self, Start};
+use crate::profile::{self, AgentId, Profile, Start};
 use crate::settings::Settings;
 
 #[derive(Embed)]
@@ -77,16 +77,39 @@ pub struct Resize {
 #[derive(Serialize, Deserialize)]
 pub struct SpawnRequest {
     pub name: String,
-    /// 셸이 해석하는 명령 한 줄.
-    pub command: String,
+    pub run: SpawnRun,
     pub brief: String,
 }
 
-/// `loom send`의 요청.
+/// 자식이 실행할 것.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpawnRun {
+    /// 카탈로그 에이전트. 지시문은 카탈로그의 방법으로 시작 명령에 넘긴다.
+    Agent(AgentId),
+    /// 셸이 해석하는 명령 한 줄. 지시문은 메일함 첫 메시지로 넣고, 자식이 `loom wait`로 받는다.
+    Command(String),
+}
+
+/// `loom send`·`steer`·`interrupt`의 요청.
 #[derive(Serialize, Deserialize)]
 pub struct SendRequest {
     pub to: String,
+    pub kind: Kind,
     pub body: String,
+}
+
+/// `loom hook`의 요청. `kinds` 가운데 하나인 메시지를 꺼낸다. 본문 합 상한은 `limit_bytes`다(첫 메시지는 늘 꺼낸다).
+#[derive(Serialize, Deserialize)]
+pub struct TakeRequest {
+    pub kinds: Vec<Kind>,
+    pub limit_bytes: usize,
+}
+
+/// `loom guard`의 요청. `shell`은 중단이 오면 끝낼 셸의 PID다.
+#[derive(Serialize, Deserialize)]
+pub struct GuardRequest {
+    pub shell: u32,
 }
 
 /// `loom done`의 요청. `summary`는 요약이나 결과 파일 경로다.
@@ -116,6 +139,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/spawn", post(agent_spawn))
         .route("/api/agent/send", post(agent_send))
         .route("/api/agent/wait", post(agent_wait))
+        .route("/api/agent/take", post(agent_take))
+        .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/done", post(agent_done))
         .route("/api/nodes/{id}/pty", get(pty))
         .route("/api/events", get(events))
@@ -247,10 +272,20 @@ async fn agent_spawn(
     Json(req): Json<SpawnRequest>,
 ) -> Result<Json<NodeId>, ApiError> {
     let parent = app.caller(&headers)?;
-    let cmd = app.command(&Start::Command { line: req.command })?;
+    let (start, queued_brief) = match req.run {
+        SpawnRun::Agent(agent) => (
+            Start::Agent {
+                agent,
+                brief: req.brief,
+            },
+            String::new(),
+        ),
+        SpawnRun::Command(line) => (Start::Command { line }, req.brief),
+    };
+    let cmd = app.command(&start)?;
     let id = app
         .graph
-        .add_child(parent, &req.name, None, &req.brief, |id| {
+        .add_child(parent, &req.name, start.agent(), &queued_brief, |id| {
             app.launch(id, cmd)
         })
         .map_err(refused)?;
@@ -263,7 +298,46 @@ async fn agent_send(
     Json(req): Json<SendRequest>,
 ) -> Result<Json<()>, ApiError> {
     let from = app.caller(&headers)?;
-    app.graph.send(from, &req.to, &req.body).map_err(refused)?;
+    if req.kind != Kind::Queue {
+        let (to, agent) = app.graph.recipient(from, &req.to).map_err(refused)?;
+        // 조정·중단은 훅이 있는 노드만 받는다. 큐로 바꿔 보내지 않는다. 근거: docs/design.md 「명령」.
+        if agent.as_ref().and_then(profile::profile_of) != Some(Profile::Claude) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "{}: 조정·중단을 받지 못하는 노드다(Claude 노드만 받는다). `loom send`로 보낸다.",
+                    req.to
+                ),
+            ));
+        }
+        // 셸을 먼저 끝낸다. 메시지를 먼저 넣으면 그 셸 안의 `loom wait`가 본문을 꺼낸 뒤 죽어 본문을 잃을 수 있다.
+        if req.kind == Kind::Interrupt {
+            app.host.stop_guarded(to);
+        }
+    }
+    app.graph
+        .send(from, &req.to, req.kind, &req.body)
+        .map_err(refused)?;
+    Ok(Json(()))
+}
+
+async fn agent_take(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<TakeRequest>,
+) -> Result<Json<Vec<Delivery>>, ApiError> {
+    let node = app.caller(&headers)?;
+    let taken = app.graph.take(node, &req.kinds, req.limit_bytes);
+    Ok(Json(taken.map_err(refused)?))
+}
+
+async fn agent_guard(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<GuardRequest>,
+) -> Result<Json<()>, ApiError> {
+    let node = app.caller(&headers)?;
+    app.host.guard(node, req.shell);
     Ok(Json(()))
 }
 

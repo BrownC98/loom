@@ -37,6 +37,8 @@ const STEPS: &[M] = &[
             value TEXT NOT NULL
         );",
     ),
+    // 4: 메시지 전달 방식(graph). serde JSON 문자열이다. 앞 메시지는 모두 큐다.
+    M::up(r#"ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT '"queue"';"#),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

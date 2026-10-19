@@ -133,32 +133,12 @@ pub fn end_with_daemon(_: &mut tokio::process::Command) {}
 /// 다른 OS: 할 일이 없다. PTY 노드는 PTY가 닫히면 HUP을 받고, Linux app-server는 `end_with_daemon`이 맡는다.
 #[cfg(windows)]
 pub fn end_descendants_on_exit() -> std::io::Result<()> {
-    use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        SetInformationJobObject,
-    };
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-    let fail = |ok: i32| match ok {
-        0 => Err(std::io::Error::last_os_error()),
-        _ => Ok(()),
-    };
-    // SAFETY: 이름 없는 Job을 만들고, 크기를 맞춘 구조체 하나로 한도를 정한 뒤 자기 프로세스를 넣는다.
-    unsafe {
-        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job.is_null() {
-            return Err(std::io::Error::last_os_error());
-        }
-        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        fail(SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            (&raw const info).cast(),
-            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        ))?;
-        fail(AssignProcessToJobObject(job, GetCurrentProcess()))
-    }
+    let job = win32job::Job::create_with_limit_info(
+        win32job::ExtendedLimitInfo::new().limit_kill_on_job_close(),
+    )?;
+    job.assign_current_process()?;
+    job.into_handle();
+    Ok(())
 }
 
 #[cfg(not(windows))]

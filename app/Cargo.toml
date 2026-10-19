@@ -12,7 +12,7 @@ tauri-plugin-single-instance = "2.5.4"
 tauri-plugin-window-state = "2.5.0"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_System_JobObjects", "Win32_System_Threading"] }
+win32job = "2.0.3"
 
 [build-dependencies]
 tauri-build = "2.7.3"

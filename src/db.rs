@@ -60,6 +60,8 @@ const STEPS: &[M] = &[
         CREATE INDEX messages_queued ON messages(recipient) WHERE delivered = 0;
         CREATE INDEX messages_held ON messages(sender) WHERE recipient IS NULL;",
     ),
+    // 6: 받음 확인(graph). `sent_at`은 꺼낸 시각(유닉스 초)이다. 받는 쪽이 확인하면 `delivered`가 1이 된다.
+    M::up("ALTER TABLE messages ADD COLUMN sent_at INTEGER;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

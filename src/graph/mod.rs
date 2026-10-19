@@ -16,7 +16,7 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use mailbox::{Delivery, Kind};
+pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 

@@ -3,6 +3,7 @@
 //! 근거: docs/design.md 「전달 지점」.
 
 use std::pin::pin;
+use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -29,9 +30,19 @@ impl Kind {
     pub const ALL: &[Kind] = &[Kind::Queue, Kind::Steer, Kind::Interrupt];
 }
 
-/// 받는 노드에 넘기는 메시지 하나.
+/// 꺼낸 메시지를 받는 쪽이 확인하지 않으면 이 시간 뒤에 다시 준다.
+/// 근거: 꺼내고 확인하기까지 가장 오래 걸리는 쪽은 Claude 훅이다. Claude는 훅을 10초(`timeout`)에 끝낸다. 그 3배를 둔다.
+/// 다음 호출 때 바로 다시 주지 않는 이유: Claude 노드는 백그라운드 `loom wait`와 훅이 같은 메일함을 함께 꺼낸다.
+/// 바로 다시 주면 한쪽이 확인하기 전에 다른 쪽이 같은 메시지를 또 받는다.
+pub const REDELIVER_AFTER: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct MessageId(pub u32);
+
+/// 받는 노드에 넘기는 메시지 하나. 같은 메시지가 두 번 오면 `id`가 같다.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Delivery {
+    pub id: MessageId,
     pub from: String,
     pub kind: Kind,
     pub body: String,
@@ -99,7 +110,7 @@ impl Graph {
         Ok(Some(to_id))
     }
 
-    /// 가장 먼저 온 `queued` 메시지 하나를 꺼낸다. 없으면 올 때까지 기다린다.
+    /// 가장 먼저 온 메시지 하나를 꺼낸다. 없으면 올 때까지 기다린다. 받은 쪽은 `ack`로 확인한다.
     pub async fn wait(&self, node: NodeId) -> Result<Delivery, Refusal> {
         loop {
             // 확인하기 전에 깨우기 신호를 받을 준비를 한다. 그래야 확인과 기다림 사이에 온 메시지를 놓치지 않는다.
@@ -108,11 +119,13 @@ impl Graph {
             if let Some(delivery) = self.take(node, Kind::ALL, 0)?.pop() {
                 return Ok(delivery);
             }
-            notified.await;
+            // 확인 없이 둔 메시지는 새 메시지 알림 없이 다시 꺼낼 수 있게 된다.
+            let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
         }
     }
 
-    /// `kinds` 가운데 하나인 `queued` 메시지를 온 순서로 꺼내 `delivered`로 바꾼다.
+    /// `kinds` 가운데 하나인 메시지를 온 순서로 꺼내 전달 중으로 표시한다.
+    /// 전달 중인 메시지는 `REDELIVER_AFTER`가 지나야 다시 꺼낸다. 받은 쪽이 `ack`로 확인하면 다시 꺼내지 않는다.
     /// 첫 메시지는 늘 꺼낸다. 그 뒤 메시지는 본문 합이 `limit_bytes` 이하일 때만 꺼낸다.
     pub fn take(
         &self,
@@ -128,34 +141,52 @@ impl Graph {
             .prepare(
                 "SELECT id, sender_name, kind, body FROM messages
                  WHERE recipient = ?1 AND delivered = 0
+                 AND (sent_at IS NULL OR sent_at <= unixepoch() - ?3)
                  AND kind IN (SELECT value FROM json_each(?2)) ORDER BY id",
             )?
-            .query_map(params![node.0, kinds], |row| {
-                Ok((
-                    row.get::<_, u32>(0)?,
-                    Delivery {
+            .query_map(
+                params![node.0, kinds, REDELIVER_AFTER.as_secs() as i64],
+                |row| {
+                    Ok(Delivery {
+                        id: MessageId(row.get(0)?),
                         from: row.get(1)?,
                         kind: from_json(row, 2)?,
                         body: row.get(3)?,
-                    },
-                ))
-            })?
+                    })
+                },
+            )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut taken = Vec::new();
         let mut total = 0;
-        for (id, delivery) in queued {
+        for delivery in queued {
             total += delivery.body.len();
             if !taken.is_empty() && total > limit_bytes {
                 break;
             }
-            tx.execute("UPDATE messages SET delivered = 1 WHERE id = ?1", [id])?;
+            tx.execute(
+                "UPDATE messages SET sent_at = unixepoch() WHERE id = ?1",
+                [delivery.id.0],
+            )?;
             taken.push(delivery);
         }
         tx.commit()?;
-        if !taken.is_empty() {
+        Ok(taken)
+    }
+
+    /// 받는 쪽이 `ids` 메시지를 받았다. 다시 꺼내지 않는다. 다른 노드의 메시지 id는 무시한다.
+    pub fn ack(&self, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
+        let db = self.lock();
+        let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+            .expect("숫자 목록은 늘 직렬화된다");
+        let acked = db.execute(
+            "UPDATE messages SET delivered = 1
+             WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))",
+            params![node.0, ids],
+        )?;
+        if acked > 0 {
             self.publish_node(&db, node)?;
         }
-        Ok(taken)
+        Ok(())
     }
 
     /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 부모가 없으면 보관한다.

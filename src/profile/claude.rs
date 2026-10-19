@@ -10,7 +10,7 @@ use crate::graph::{Delivery, Kind};
 /// 훅 한 번에 넘기는 본문 합의 상한. Claude는 `additionalContext` 한 개를 10,000자에서 자르고 파일로 돌린다.
 pub const HOOK_LIMIT_BYTES: usize = 8 * 1024;
 /// `loom hook`이 데몬 응답을 기다리는 상한. 훅 `timeout`(`HOOK_TIMEOUT_SECS`)보다 짧아야 한다.
-/// 그래야 Claude가 훅을 먼저 끝내 데몬이 이미 `delivered`로 바꾼 본문을 버리는 일이 없다.
+/// 그래야 Claude가 훅을 먼저 끝내 꺼낸 본문을 버리는 일이 드물다. 버려도 받음 확인 전이므로 데몬이 다시 준다.
 pub const HOOK_HTTP_TIMEOUT_SECS: u64 = 5;
 const HOOK_TIMEOUT_SECS: u64 = 10;
 /// Bash 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다.
@@ -149,6 +149,7 @@ mod tests {
 
     fn delivery(kind: Kind, body: &str) -> Delivery {
         Delivery {
+            id: crate::graph::MessageId(1),
             from: "총괄".into(),
             kind,
             body: body.into(),
@@ -212,7 +213,7 @@ mod tests {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason":
-                    "loom 메시지 (보낸 노드: 총괄, 방식: 중단. 하던 일을 멈추고 이 본문을 따른다)\n멈춰라",
+                    "loom 메시지 #1 (보낸 노드: 총괄, 방식: 중단. 하던 일을 멈추고 이 본문을 따른다)\n멈춰라",
             } }))
         );
     }
@@ -225,7 +226,7 @@ mod tests {
             stop.reply(&[delivery(Kind::Queue, "a"), delivery(Kind::Steer, "b")]),
             Some(json!({
                 "decision": "block",
-                "reason": "loom 메시지 (보낸 노드: 총괄, 방식: 큐)\na\n\nloom 메시지 (보낸 노드: 총괄, 방식: 조정)\nb",
+                "reason": "loom 메시지 #1 (보낸 노드: 총괄, 방식: 큐)\na\n\nloom 메시지 #1 (보낸 노드: 총괄, 방식: 조정)\nb",
             }))
         );
     }
@@ -247,7 +248,7 @@ mod tests {
                 event(input).reply(&[delivery(Kind::Steer, "b")]),
                 Some(json!({ "hookSpecificOutput": {
                     "hookEventName": name,
-                    "additionalContext": "loom 메시지 (보낸 노드: 총괄, 방식: 조정)\nb",
+                    "additionalContext": "loom 메시지 #1 (보낸 노드: 총괄, 방식: 조정)\nb",
                 } }))
             );
         }

@@ -104,7 +104,7 @@ pub fn kinds(status: Status) -> &'static [Kind] {
 }
 
 /// 꺼낸 메시지를 `turn/*` 요청으로 넘긴다. `call`은 JSON-RPC 요청 하나를 보내고 결과를 돌려준다.
-/// 꺼낸 메시지는 이미 `delivered`다. 그래서 첫 요청이 실패하면 다른 요청으로 한 번 더 넘긴다.
+/// 첫 요청이 실패하면 다른 요청으로 한 번 더 넘긴다. 그래도 실패하면 받음을 확인하지 않고, 데몬이 `REDELIVER_AFTER` 뒤에 다시 꺼낸다.
 /// - 쉬는 중: `turn/start`. 그 사이 턴이 시작돼 실패하면 그 턴에 `turn/steer`.
 /// - 일하는 중, 조정: `turn/steer`. 그 사이 턴이 끝나 실패하면 `turn/start`.
 /// - 일하는 중, 중단: `turn/interrupt` 뒤 `turn/start`.
@@ -238,6 +238,7 @@ mod tests {
 
     fn delivery(kind: Kind, body: &str) -> Delivery {
         Delivery {
+            id: crate::graph::MessageId(1),
             from: "부모".into(),
             kind,
             body: body.into(),
@@ -305,7 +306,7 @@ mod tests {
         assert_eq!(
             sent[0].1,
             json!({ "threadId": "th", "input": [{ "type": "text", "text":
-                "loom 메시지 (보낸 노드: 부모, 방식: 큐)\na\n\nloom 메시지 (보낸 노드: 부모, 방식: 조정)\nb" }] })
+                "loom 메시지 #1 (보낸 노드: 부모, 방식: 큐)\na\n\nloom 메시지 #1 (보낸 노드: 부모, 방식: 조정)\nb" }] })
         );
     }
 
@@ -353,7 +354,7 @@ mod tests {
         assert_eq!(sent[1].0, "turn/start");
         assert_eq!(
             sent[1].1["input"][0]["text"],
-            "loom 메시지 (보낸 노드: 부모, 방식: 중단. 하던 일을 멈추고 이 본문을 따른다)\n멈춰라"
+            "loom 메시지 #1 (보낸 노드: 부모, 방식: 중단. 하던 일을 멈추고 이 본문을 따른다)\n멈춰라"
         );
     }
 

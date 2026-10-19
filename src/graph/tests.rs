@@ -19,20 +19,29 @@ fn child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
     g.add_child(parent, name, None, "", launched).unwrap()
 }
 
-fn take(g: &Graph, node: NodeId) -> Option<Delivery> {
-    g.take(node, Kind::ALL, 0).unwrap().pop()
+/// 메시지 하나를 꺼내고 받음을 확인한다. 보낸 노드, 방식, 본문을 돌려준다.
+fn take(g: &Graph, node: NodeId) -> Option<(String, Kind, String)> {
+    let d = g.take(node, Kind::ALL, 0).unwrap().pop()?;
+    g.ack(node, &[d.id]).unwrap();
+    Some((d.from, d.kind, d.body))
 }
 
-fn delivery(from: &str, body: &str) -> Option<Delivery> {
-    Some(Delivery {
-        from: from.into(),
-        kind: Kind::Queue,
-        body: body.into(),
-    })
+fn delivery(from: &str, body: &str) -> Option<(String, Kind, String)> {
+    Some((from.into(), Kind::Queue, body.into()))
 }
 
-fn bodies(taken: Vec<Delivery>) -> Vec<String> {
-    taken.into_iter().map(|d| d.body).collect()
+/// 확인 없이 둔 메시지를 다시 꺼낼 수 있게 꺼낸 시각을 `REDELIVER_AFTER`만큼 앞으로 옮긴다.
+fn expire(g: &Graph) {
+    g.lock()
+        .execute(
+            "UPDATE messages SET sent_at = sent_at - ?1",
+            [REDELIVER_AFTER.as_secs() as i64],
+        )
+        .unwrap();
+}
+
+fn bodies<'a>(taken: impl IntoIterator<Item = &'a Delivery>) -> Vec<&'a str> {
+    taken.into_iter().map(|d| d.body.as_str()).collect()
 }
 
 fn view(g: &Graph, id: NodeId) -> NodeView {
@@ -235,7 +244,46 @@ async fn wait_returns_when_a_message_arrives() {
     tokio::task::yield_now().await;
     assert!(!waiting.is_finished());
     g.send(a, "총괄", Kind::Queue, "결과").unwrap();
-    assert_eq!(Some(waiting.await.unwrap()), delivery("a", "결과"));
+    let got = waiting.await.unwrap();
+    assert_eq!((got.from.as_str(), got.body.as_str()), ("a", "결과"));
+}
+
+#[test]
+fn an_unacknowledged_message_comes_back_in_order_even_after_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let g = open(&path);
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    g.send(lead, "a", Kind::Queue, "1").unwrap();
+    g.send(lead, "a", Kind::Queue, "2").unwrap();
+
+    let first = g.take(a, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(bodies(first.iter()), ["1", "2"]);
+    // 전달 중인 메시지는 시간 상한 전에는 다른 쪽(훅, 백그라운드 `loom wait`)이 다시 꺼내지 않는다.
+    assert!(g.take(a, Kind::ALL, usize::MAX).unwrap().is_empty());
+    expire(&g);
+    let again = g.take(a, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(again, first);
+    g.ack(a, &[first[0].id]).unwrap();
+    // 다른 노드의 확인은 무시한다.
+    g.ack(lead, &[first[1].id]).unwrap();
+    expire(&g);
+    assert_eq!(bodies(&g.take(a, Kind::ALL, usize::MAX).unwrap()), ["2"]);
+
+    // 데몬이 다시 시작해도 확인하지 않은 메시지는 남는다.
+    drop(g);
+    let g = open(&path);
+    expire(&g);
+    let after = g.take(a, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(
+        after.iter().map(|d| d.id).collect::<Vec<_>>(),
+        [first[1].id]
+    );
+    g.ack(a, &[first[1].id]).unwrap();
+    expire(&g);
+    assert!(g.take(a, Kind::ALL, usize::MAX).unwrap().is_empty());
+    assert_eq!(view(&g, a).unread, 0);
 }
 
 #[test]
@@ -251,24 +299,32 @@ fn each_point_takes_only_its_kinds_in_arrival_order_and_once() {
 
     // PostToolUse: 조정만
     assert_eq!(
-        bodies(g.take(a, &[Kind::Steer], 8192).unwrap()),
+        bodies(&g.take(a, &[Kind::Steer], 8192).unwrap()),
         ["s1", "s2"]
     );
     assert!(g.take(a, &[Kind::Steer], 8192).unwrap().is_empty());
     // PreToolUse: 중단만
     let interrupt = g.take(a, &[Kind::Interrupt], 8192).unwrap();
     assert_eq!(
-        interrupt,
-        [Delivery {
-            from: "총괄".into(),
-            kind: Kind::Interrupt,
-            body: "i1".into()
-        }]
+        interrupt
+            .iter()
+            .map(|d| (d.from.as_str(), d.kind, d.body.as_str()))
+            .collect::<Vec<_>>(),
+        [("총괄", Kind::Interrupt, "i1")]
     );
-    assert_eq!(view(&g, a).unread, 1);
+    // 확인하기 전에는 읽지 않은 메시지로 센다.
+    assert_eq!(view(&g, a).unread, 4);
+    g.ack(a, &[interrupt[0].id]).unwrap();
     // Stop: 남은 것 모두
-    assert_eq!(bodies(g.take(a, Kind::ALL, 8192).unwrap()), ["q1"]);
-    assert_eq!(view(&g, a).unread, 0);
+    let rest = g.take(a, Kind::ALL, 8192).unwrap();
+    assert_eq!(
+        rest.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
+        ["q1"]
+    );
+    let ids: Vec<MessageId> = rest.iter().map(|d| d.id).collect();
+    g.ack(a, &ids).unwrap();
+    // 조정 두 개는 확인하지 않았으므로 아직 센다.
+    assert_eq!(view(&g, a).unread, 2);
     assert!(g.take(a, Kind::ALL, 8192).unwrap().is_empty());
 }
 
@@ -288,12 +344,12 @@ fn take_stops_at_the_byte_limit_but_always_takes_the_first() {
         "y".repeat(4096)
     );
     assert_eq!(
-        bodies(g.take(a, Kind::ALL, 4096).unwrap()),
+        bodies(&g.take(a, Kind::ALL, 4096).unwrap()),
         ["z".repeat(10)]
     );
     g.send(lead, "a", Kind::Queue, "1").unwrap();
     g.send(lead, "a", Kind::Queue, "2").unwrap();
-    assert_eq!(bodies(g.take(a, Kind::ALL, 1).unwrap()), ["1"]);
+    assert_eq!(bodies(&g.take(a, Kind::ALL, 1).unwrap()), ["1"]);
 }
 
 #[test]
@@ -384,7 +440,7 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
     let adopted = view(&g, worker);
     assert_eq!((adopted.parent, adopted.held), (Some(lead), 0));
     assert_eq!(
-        bodies(g.take(lead, Kind::ALL, usize::MAX).unwrap()),
+        bodies(&g.take(lead, Kind::ALL, usize::MAX).unwrap()),
         ["하나", "둘", "done: 요약"]
     );
     // 새 부모와는 보관 없이 바로 주고받는다.

@@ -29,7 +29,9 @@ use crate::accounts::Accounts;
 use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, CommitGraph};
 use crate::db;
-use crate::graph::{Delivery, Graph, GraphEvent, Kind, NodeId, Refusal};
+use crate::graph::{
+    Delivery, Graph, GraphEvent, Kind, MessageId, NodeId, REDELIVER_AFTER, Refusal,
+};
 use crate::node_host::NodeHost;
 use crate::profile::codex::{self, Status};
 use crate::profile::{self, AgentId, Profile, Start};
@@ -125,6 +127,12 @@ pub struct GuardRequest {
     pub shell: u32,
 }
 
+/// `loom wait`·`loom hook`이 받은 메시지를 확인한다.
+#[derive(Serialize, Deserialize)]
+pub struct AckRequest {
+    pub ids: Vec<MessageId>,
+}
+
 /// `loom adopt`의 요청. 부르는 노드가 `name` 노드의 새 부모가 된다.
 #[derive(Serialize, Deserialize)]
 pub struct AdoptRequest {
@@ -175,6 +183,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/send", post(agent_send))
         .route("/api/agent/wait", post(agent_wait))
         .route("/api/agent/take", post(agent_take))
+        .route("/api/agent/ack", post(agent_ack))
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/adopt", post(agent_adopt));
@@ -357,8 +366,14 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                 Ok(taken) if !taken.is_empty() => {
                     let call = |method, params| server.call(method, params);
                     match codex::deliver(call, &now.id, status, &taken).await {
-                        Ok(()) => started = true,
-                        // 본문은 이미 delivered다. 데몬 로그에만 남는다.
+                        Ok(()) => {
+                            started = true;
+                            let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
+                            if let Err(e) = app.graph.ack(node, &ids) {
+                                eprintln!("loom: 노드 {}의 받음 확인을 쓰지 못했다: {e}", node.0);
+                            }
+                        }
+                        // 확인하지 않았으므로 `REDELIVER_AFTER` 뒤에 다시 꺼낸다.
                         Err(e) => eprintln!("loom: 노드 {}에 메시지를 넘기지 못했다: {e}", node.0),
                     }
                     continue;
@@ -369,6 +384,8 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
         }
         tokio::select! {
             _ = mail => {}
+            // 넘기지 못한 메시지는 새 메시지 알림 없이 다시 꺼낼 수 있게 된다.
+            _ = tokio::time::sleep(REDELIVER_AFTER) => {}
             changed = thread.changed() => {
                 if changed.is_err() {
                     return;
@@ -511,6 +528,16 @@ async fn agent_take(
     let node = app.caller(&headers)?;
     let taken = app.graph.take(node, &req.kinds, req.limit_bytes);
     Ok(Json(taken.map_err(refused)?))
+}
+
+async fn agent_ack(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<AckRequest>,
+) -> Result<Json<()>, ApiError> {
+    let node = app.caller(&headers)?;
+    app.graph.ack(node, &req.ids).map_err(refused)?;
+    Ok(Json(()))
 }
 
 async fn agent_guard(

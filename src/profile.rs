@@ -209,8 +209,8 @@ pub fn message_text(taken: &[Delivery]) -> String {
                 Kind::Interrupt => "중단. 하던 일을 멈추고 이 본문을 따른다",
             };
             format!(
-                "loom 메시지 (보낸 노드: {}, 방식: {how})\n{}",
-                d.from, d.body
+                "loom 메시지 #{} (보낸 노드: {}, 방식: {how})\n{}",
+                d.id.0, d.from, d.body
             )
         })
         .collect::<Vec<_>>()

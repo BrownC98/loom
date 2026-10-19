@@ -9,7 +9,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::daemon::{
-    AdoptRequest, DoneRequest, GuardRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest,
+    AckRequest, AdoptRequest, DoneRequest, GuardRequest, SendRequest, SpawnRequest, SpawnRun,
+    TakeRequest,
 };
 use crate::graph::{Delivery, Kind, NodeId};
 use crate::profile::{AgentId, claude};
@@ -53,10 +54,16 @@ pub fn send(to: String, kind: Kind, body: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 출력을 다 쓴 뒤 받음을 확인한다. 확인 전에 이 프로세스가 죽으면 데몬이 같은 메시지를 다시 준다.
 pub fn wait() -> Result<(), String> {
-    let Delivery { from, body, .. } = call("wait", &(), None)?;
-    println!("보낸 노드: {from}\n{body}");
-    Ok(())
+    let Delivery { id, from, body, .. } = call("wait", &(), None)?;
+    println!("loom 메시지 #{} (보낸 노드: {from})\n{body}", id.0);
+    call::<()>("ack", &AckRequest { ids: vec![id] }, None).map_err(|e| {
+        format!(
+            "받음 확인을 보내지 못했다: {e}. 같은 메시지 #{}가 다시 올 수 있다.",
+            id.0
+        )
+    })
 }
 
 /// Claude 훅: stdin의 훅 입력을 읽고, 이 지점에서 넘길 메시지를 데몬에서 꺼내 훅 출력으로 쓴다.
@@ -71,6 +78,14 @@ pub fn hook() -> Result<(), String> {
     let taken: Vec<Delivery> = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken) {
         println!("{reply}");
+    }
+    if taken.is_empty() {
+        return Ok(());
+    }
+    // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
+    let ids = taken.iter().map(|d| d.id).collect();
+    if let Err(e) = call::<()>("ack", &AckRequest { ids }, Some(timeout)) {
+        eprintln!("loom: 받음 확인을 보내지 못했다: {e}");
     }
     Ok(())
 }

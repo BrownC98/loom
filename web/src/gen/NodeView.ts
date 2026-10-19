@@ -3,4 +3,8 @@ import type { NodeId } from "./NodeId";
 import type { NodeState } from "./NodeState";
 import type { Profile } from "./Profile";
 
-export type NodeView = { id: NodeId, name: string, profile: Profile, state: NodeState, };
+export type NodeView = { id: NodeId, name: string, profile: Profile, parent: NodeId | null, state: NodeState, 
+/**
+ * 아직 전하지 않은(`queued`) 메시지 수.
+ */
+unread: number, };

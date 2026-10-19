@@ -1,5 +1,5 @@
 //! 노드 호스트: 노드마다 PTY 하나를 쥐고, 출력을 보는 화면 모두에 나눠 준다.
-//! 노드 이름·상태는 모른다. 그것은 registry가 갖는다.
+//! 노드 이름·상태는 모른다. 그것은 graph가 갖는다.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -9,7 +9,7 @@ use bytes::Bytes;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use tokio::sync::broadcast;
 
-use crate::registry::NodeId;
+use crate::graph::NodeId;
 
 /// 다시 연 카드에 먼저 보내는 출력의 상한. 근거: docs/design.md 「규모」.
 const BACKLOG_BYTES: usize = 256 * 1024;

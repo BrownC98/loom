@@ -28,6 +28,7 @@ const USAGE_REFRESH_MS = 5 * 60 * 1000;
 const EMPTY_SETTINGS: SettingsView = {
   defaultAgent: null,
   disabledAgents: [],
+  bypassOff: [],
   claudeAccount: null,
   codexAccount: null,
   // 데몬이 첫 페이지에 넣은 테마(`Theme`의 serde 이름)다. 설정을 받기 전에도 같은 테마를 그린다.

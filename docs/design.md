@@ -58,6 +58,9 @@
 | OpenCode 2 | 세션 지시 항목 `loom`(`PUT /api/experimental/session/{id}/instructions/entries/loom`) | 데몬이 노드마다 `opencode2 serve --hostname 127.0.0.1 --port 0`을 띄우고 `POST /api/session`으로 세션을 만든다. TUI는 `opencode2 --server <주소> --session <id>`로 붙는다. 데몬은 세션 입력함(`POST /api/session/{id}/prompt`)으로 전달한다. 규칙과 전달 작업은 [src/profile/opencode2/mod.rs](../src/profile/opencode2/mod.rs), 서버 연결은 [src/profile/opencode2/server.rs](../src/profile/opencode2/server.rs)에 있다 |
 | 프로필 없음 | 없음 | `loom wait`로만 메시지를 받는다 |
 
+- 모든 권한 허용: 노드는 처음부터 승인 창 없이 모든 권한으로 뜬다. 사람이 띄운 노드와 `loom spawn` 자식이 같다. 인자는 카탈로그 항목의 `bypass` 필드다(「에이전트」). 설정에서 에이전트마다 끌 수 있다(`bypassOff`). `bypass`가 빈 에이전트는 CLI 기본 권한 모드로 뜬다.
+  - 끄면 아래의 좁은 길을 쓴다: Claude는 loom 명령만 허용 목록에 넣고, Codex는 샌드박스에서 노드 문 주소만 연다. 켜면 이 길은 쓰이지 않지만 그대로 넘긴다.
+  - Claude는 계정 폴더마다 첫 실행에 「Bypass Permissions mode」 동의 창을 띄운다. 동의는 사람의 보안 결정이라 사람이 카드 터미널에서 고른다. loom은 대신 누르지 않고 사용자 설정 파일을 고치지 않는다. 동의하면 Claude가 그 폴더의 `settings.json`에 `skipDangerousModePermissionPrompt`를 쓰고 다음부터 묻지 않는다.
 - Claude `--settings`는 권한 허용 목록에 `loom guard`와 메시지 명령(`send`, `steer`, `interrupt`, `wait`, `done`)만 넣는다. 기본 권한 모드에서 사람이 없는 노드가 승인 창에서 멈추지 않게 한다. `loom spawn`은 `-- <명령>`으로 아무 명령이나 띄울 수 있어 넣지 않는다.
 - Codex 샌드박스(`workspace-write`)는 셸 명령의 네트워크를 막는다. 그래서 데몬은 노드 문을 하나 더 연다. 노드 문은 노드 전용 루프백 주소 `127.76.77.1:<OS가 고른 포트>`에서 듣고 `/api/agent/*` 가운데 `spawn`을 뺀 라우트만 둔다.
   - app-server에 `-c sandbox_workspace_write.network_access=true`, `-c features.network_proxy.enabled=true`, `-c features.network_proxy.domains={"127.76.77.1"="allow"}`를 넘긴다. 셸 명령은 Codex 프록시로만 밖에 닿는다. 프록시는 노드 문 주소 말고 모든 주소를 막는다. 파일 권한은 그대로다. 인자는 [src/profile/codex.rs](../src/profile/codex.rs)의 `sandbox_args`에 있다.
@@ -82,7 +85,8 @@
 
 - 카탈로그는 Orca의 에이전트 표를 옮긴 데이터 [src/agents.json](../src/agents.json)이다. 44개다. 목록을 지어내지 않는다. Orca가 표를 고치면 이 파일만 다시 옮긴다.
   - `claude-agent-teams`는 뺐다. Orca 안에서만 쓰는 Claude 팀 모드라 따로 띄울 CLI가 없다.
-  - 한 줄은 `id`, `label`, `cmd`, `aliases`, `args`, `prompt`, `profile`, `homepage`다.
+  - 한 줄은 `id`, `label`, `cmd`, `aliases`, `args`, `prompt`, `profile`, `bypass`, `homepage`다.
+  - `bypass`는 모든 권한 허용 인자다. CLI 도움말과 실행으로 확인한 에이전트에만 넣는다(「실측 근거」). 새 CLI는 이 필드를 더하면 설정에 스위치가 생긴다.
 - `prompt`는 첫 지시문을 넘기는 방법이다. Orca의 `promptInjectionMode`를 옮겼다.
 
 | `prompt` | 명령 | Orca 값 |
@@ -97,7 +101,7 @@
 - 사용자는 설치한 에이전트를 켜고 끈다. 새 노드 창은 켠 에이전트와 「직접 입력」만 보인다.
 - 기본 에이전트는 새 노드 창이 처음에 고르는 에이전트다. 고르지 않았거나 그 에이전트를 껐으면 켠 것 가운데 첫째(카탈로그 순서)다. Orca의 Auto와 같은 결과라 Auto 선택지는 두지 않는다.
 - 노드 목록에는 에이전트 `id`를 남긴다. 「직접 입력」으로 띄운 노드와 `loom spawn` 자식은 에이전트가 없다. 카드 머리는 카탈로그의 `label`을 보인다.
-- 넣지 않은 Orca 기능: 설치 버튼, 실행 파일 경로 재정의, 기본 인자·환경 변수, 권한 모드. 「직접 입력」에 명령 전체를 적으면 같은 일을 한다.
+- 넣지 않은 Orca 기능: 설치 버튼, 실행 파일 경로 재정의, 기본 인자·환경 변수. 「직접 입력」에 명령 전체를 적으면 같은 일을 한다.
 
 ### 계정과 사용량
 
@@ -123,7 +127,7 @@
 
 ### 설정
 
-- 설정은 `settings` 테이블 한 줄(JSON)이다: 기본 에이전트, 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어.
+- 설정은 `settings` 테이블 한 줄(JSON)이다: 기본 에이전트, 끈 에이전트 목록, 모든 권한 허용을 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어. 저장한 JSON에 없는 값은 기본값으로 읽는다.
 - 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
@@ -315,6 +319,7 @@
 - loom 노드(Codex 0.159.2, 기본 승인 정책 `on-request`): `loom send`와 `loom done`이 승인 창 없이 부모에게 닿았다. `curl`로 `127.0.0.1`의 다른 포트, 데몬 주소, `example.com`은 프록시가 막았다. `loom spawn`은 샌드박스 안에서 연결이 거부됐고, 샌드박스 밖 실행을 승인하자 자식을 띄웠다.
 - Codex 허용 규칙(`prefix_rule`, `allow`)에 맞은 명령은 샌드박스 밖에서 돌았다. 규칙은 설정 폴더의 `rules/`에서만 읽고 `-c`로 넘길 수 없다. 시스템 기본 계정의 설정 폴더는 사용자의 `~/.codex`라 이 방법을 쓰지 않았다.
 - 개발 컨테이너에 `bubblewrap`을 넣어도 Docker 기본 seccomp가 사용자 네임스페이스를 막아 Codex 샌드박스가 동작하지 않았다. `seccomp=unconfined`이면 동작했다.
+- 모든 권한 허용 인자(loom 노드로 띄움): Claude `--dangerously-skip-permissions`는 첫 실행에 동의 창을 띄웠고, 동의 뒤 같은 계정 폴더의 두 번째 노드에는 띄우지 않았다. 훅 5개는 그대로 돌았다. Codex `--dangerously-bypass-approvals-and-sandbox`는 `--remote`와 함께 써도 「permissions: YOLO mode」로 떴다. 동의 창은 없었고 `loom spawn`과 `example.com` 접속이 승인 없이 됐다. OpenCode 2.0.32 `--auto`는 「Build auto」로 떴고 동의 창이 없었다.
 - `--listen ws://`로 띄운 app-server는 stdin이 닫혀도, TUI와 데몬 연결이 끊겨도 끝나지 않았다. `codex` wrapper(node)에 보낸 TERM은 실행 파일까지 끝냈다.
 - OpenCode 2 `serve`: stdout에 `server listening on http://127.0.0.1:<포트>`를 쓴다. API 명세는 `/openapi.json`이다. `OPENCODE_PASSWORD`를 주면 Basic `opencode:<값>`만 받았다. Bearer와 쿼리 값은 401이었다.
 - OpenCode 2 입력함: `steer`는 다음 단계 사이에, `queue`는 지금 실행이 끝난 뒤에 들어갔다. 쉬는 세션에서는 둘 다 새 실행을 시작했다. 같은 메시지 id로 두 번 보내면 한 번만 들어갔다. 세션 지시 항목은 모델이 읽었다.

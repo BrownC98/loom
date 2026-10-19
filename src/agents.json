@@ -1,10 +1,10 @@
 [
-  {"id": "claude", "label": "Claude", "cmd": "claude", "prompt": "argv", "profile": "claude", "homepage": "https://code.claude.com/docs"},
+  {"id": "claude", "label": "Claude", "cmd": "claude", "prompt": "argv", "profile": "claude", "bypass": ["--dangerously-skip-permissions"], "homepage": "https://code.claude.com/docs"},
   {"id": "openclaude", "label": "OpenClaude", "cmd": "openclaude", "prompt": "argv", "homepage": "https://openclaude.gitlawb.com/"},
-  {"id": "codex", "label": "Codex", "cmd": "codex", "prompt": "argv", "profile": "codex", "homepage": "https://github.com/openai/codex"},
+  {"id": "codex", "label": "Codex", "cmd": "codex", "prompt": "argv", "profile": "codex", "bypass": ["--dangerously-bypass-approvals-and-sandbox"], "homepage": "https://github.com/openai/codex"},
   {"id": "grok", "label": "Grok", "cmd": "grok", "prompt": {"argvAfter": "--"}, "homepage": "https://x.ai/cli"},
   {"id": "copilot", "label": "GitHub Copilot", "cmd": "copilot", "prompt": {"flag": "-i"}, "homepage": "https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli"},
-  {"id": "opencode2", "label": "OpenCode 2", "cmd": "opencode2", "args": ["--standalone"], "prompt": {"flag": "--prompt"}, "profile": "opencode2", "homepage": "https://opencode.ai/v2/docs/"},
+  {"id": "opencode2", "label": "OpenCode 2", "cmd": "opencode2", "args": ["--standalone"], "prompt": {"flag": "--prompt"}, "bypass": ["--auto"], "profile": "opencode2", "homepage": "https://opencode.ai/v2/docs/"},
   {"id": "opencode", "label": "OpenCode", "cmd": "opencode", "prompt": {"flag": "--prompt"}, "homepage": "https://opencode.ai/docs/cli/"},
   {"id": "mimo-code", "label": "MiMo Code", "cmd": "mimo", "prompt": {"flag": "--prompt"}, "homepage": "https://mimo.xiaomi.com/coder"},
   {"id": "ante", "label": "Ante", "cmd": "ante", "prompt": "none", "homepage": "https://github.com/AntigmaLabs/ante-preview"},

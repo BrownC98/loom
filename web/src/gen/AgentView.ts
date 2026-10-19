@@ -17,6 +17,10 @@ provider: Provider | null,
  */
 takesBrief: boolean, 
 /**
+ * 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다.
+ */
+canBypass: boolean, 
+/**
  * 데몬 PATH에서 찾은 실행 파일. 없으면 설치하지 않은 것이다.
  */
 path: string | null, 

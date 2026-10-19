@@ -411,7 +411,8 @@ impl App {
             _ => None,
         };
         let discard = discarder(&codex, &opencode2);
-        let mut cmd = profile::command(start, cwd, remote).inspect_err(|_| discard())?;
+        let mut cmd = profile::command(start, cwd, remote, &settings.bypass_off)
+            .inspect_err(|_| discard())?;
         for (key, value) in &env {
             cmd.env(key, value);
         }

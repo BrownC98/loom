@@ -110,6 +110,9 @@ struct Agent {
     args: Vec<String>,
     prompt: Prompt,
     profile: Option<Profile>,
+    /// 승인 창 없이 모든 권한을 허용하는 인자. 비어 있으면 그런 인자를 확인하지 않은 것이다.
+    #[serde(default)]
+    bypass: Vec<String>,
     homepage: String,
 }
 
@@ -130,6 +133,8 @@ pub struct AgentView {
     pub provider: Option<Provider>,
     /// 첫 지시문을 넘길 수 있다.
     pub takes_brief: bool,
+    /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다.
+    pub can_bypass: bool,
     /// 데몬 PATH에서 찾은 실행 파일. 없으면 설치하지 않은 것이다.
     pub path: Option<String>,
     /// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고.
@@ -147,6 +152,7 @@ pub fn agents() -> Vec<AgentView> {
             profile: a.profile,
             provider: a.profile.and_then(Profile::provider),
             takes_brief: !matches!(a.prompt, Prompt::None),
+            can_bypass: !a.bypass.is_empty(),
             path: installed(a).map(|p| p.to_string_lossy().into_owned()),
             version_warning: None,
         })
@@ -285,13 +291,15 @@ pub struct VersionMismatch {
 }
 
 /// `remote`는 노드 TUI가 붙을 서버다. 서버를 쓰는 프로필(Codex, OpenCode 2)에만 쓴다.
+/// `bypass_off`에 없는 에이전트는 모든 권한 허용 인자(`bypass`)로 띄운다.
 pub fn command(
     start: &Start,
     cwd: &Path,
     remote: Option<Remote<'_>>,
+    bypass_off: &[AgentId],
 ) -> Result<CommandBuilder, LaunchError> {
     let mut cmd = match start {
-        Start::Agent { agent, brief } => agent_command(agent, brief, remote)?,
+        Start::Agent { agent, brief } => agent_command(agent, brief, remote, bypass_off)?,
         Start::Command { line } if line.trim().is_empty() => CommandBuilder::new_default_prog(),
         Start::Command { line } => shell(line),
     };
@@ -305,6 +313,7 @@ fn agent_command(
     id: &AgentId,
     brief: &str,
     remote: Option<Remote<'_>>,
+    bypass_off: &[AgentId],
 ) -> Result<CommandBuilder, LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
     let program = installed(agent).ok_or_else(|| LaunchError::NotInstalled {
@@ -320,6 +329,9 @@ fn agent_command(
     let mut cmd = CommandBuilder::new(program);
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
+    if !bypass_off.contains(id) {
+        cmd.args(&agent.bypass);
+    }
     match (agent.profile, remote) {
         (Some(Profile::Claude), _) => cmd.args(claude::args()),
         (Some(Profile::Codex), Some(Remote::Codex { url })) => cmd.args(codex::args(url)),
@@ -401,5 +413,16 @@ mod tests {
             profile_of(&AgentId("opencode2".into())),
             Some(Profile::OpenCode2)
         );
+    }
+
+    /// 모든 권한 허용 인자는 CLI 도움말로 확인한 셋에만 둔다(docs/design.md 「실측 근거」).
+    #[test]
+    fn only_checked_agents_can_bypass() {
+        let ids: Vec<_> = agents()
+            .into_iter()
+            .filter(|a| a.can_bypass)
+            .map(|a| a.id.0)
+            .collect();
+        assert_eq!(ids, ["claude", "codex", "opencode2"]);
     }
 }

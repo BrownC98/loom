@@ -15,6 +15,10 @@ defaultAgent: AgentId | null,
  */
 disabledAgents: Array<AgentId>, 
 /**
+ * 모든 권한 허용을 끈 에이전트. 여기 없는 에이전트는 승인 창 없이 모든 권한으로 뜬다.
+ */
+bypassOff: Array<AgentId>, 
+/**
  * 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
  */
 claudeAccount: AccountId | null, codexAccount: AccountId | null, 

@@ -11,13 +11,15 @@ use crate::accounts::AccountId;
 use crate::profile::{AgentId, Provider};
 
 #[derive(Clone, Default, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 #[ts(export)]
 pub struct SettingsView {
     /// 없으면 켠 에이전트 가운데 첫째를 쓴다.
     pub default_agent: Option<AgentId>,
     /// 끈 에이전트. 설치했어도 새 노드 창에 보이지 않는다.
     pub disabled_agents: Vec<AgentId>,
+    /// 모든 권한 허용을 끈 에이전트. 여기 없는 에이전트는 승인 창 없이 모든 권한으로 뜬다.
+    pub bypass_off: Vec<AgentId>,
     /// 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
     pub claude_account: Option<AccountId>,
     pub codex_account: Option<AccountId>,

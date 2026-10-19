@@ -5,6 +5,8 @@ import { getAccounts, getAgents, getRepo, getSettings, putSettings, watchGraph }
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import { CommitGraph } from './CommitGraph';
+import { EventConsole, involved, useEventLog } from './EventConsole';
+import type { EventRecord } from './gen/EventRecord';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
@@ -83,7 +85,15 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
   const [selected, setSelected] = useState<NodeId | null>(null);
-  const [commitsOpen, setCommitsOpen] = useState(false);
+  // 오른쪽 칸 하나를 이벤트 콘솔과 커밋 그래프가 번갈아 쓴다.
+  const [dock, setDock] = useState<'events' | 'commits' | null>(null);
+  const toggleDock = (next: 'events' | 'commits') => setDock(dock === next ? null : next);
+  const log = useEventLog(dock === 'events');
+  // 이벤트 콘솔에서 고른 이벤트. 칸을 닫으면 끈다.
+  const [highlight, setHighlight] = useState<EventRecord | null>(null);
+  useEffect(() => {
+    if (dock !== 'events') setHighlight(null);
+  }, [dock]);
   const mode = useColorMode(settings.theme);
 
   useEffect(() => {
@@ -150,6 +160,10 @@ export function App() {
           break;
         case 'node':
           setNodes((prev) => new Map(prev).set(event.id, event));
+          break;
+        case 'recorded':
+          // `onRecord`는 ref와 setState만 쓴다. 처음 만든 것을 계속 불러도 된다.
+          log.onRecord(event.record);
       }
     });
   }, []);
@@ -157,7 +171,7 @@ export function App() {
   return (
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <ReactFlowProvider>
-        <div className="app" data-dock={commitsOpen || undefined}>
+        <div className="app" data-dock={dock ?? undefined}>
           <nav className="side" aria-label={t('app.sideLabel')}>
             <div className="brand">loom</div>
             {repo && <Tree repo={repo} views={nodes} agents={agents} selected={selected} onSelect={setSelected} />}
@@ -175,7 +189,13 @@ export function App() {
             <div className="toolbar">
               <h1>{repo?.name}</h1>
               <span className="spacer" />
-              <button className="btn" aria-pressed={commitsOpen} aria-controls="dock" onClick={() => setCommitsOpen(!commitsOpen)}>
+              <button className="btn" aria-pressed={dock === 'events'} aria-controls="dock" onClick={() => toggleDock('events')}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 6h16M4 12h16M4 18h10" />
+                </svg>
+                {t('events.title')}
+              </button>
+              <button className="btn" aria-pressed={dock === 'commits'} aria-controls="dock" onClick={() => toggleDock('commits')}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" />
                   <path d="M12 3v6M12 15v6" />
@@ -183,9 +203,20 @@ export function App() {
                 {t('app.commitGraph')}
               </button>
             </div>
-            <Graph views={nodes} pulses={pulses} agents={agents} settings={settings} accounts={accounts} selected={selected} onSelect={setSelected} />
+            <Graph
+              views={nodes}
+              pulses={pulses}
+              agents={agents}
+              settings={settings}
+              accounts={accounts}
+              selected={selected}
+              onSelect={setSelected}
+              highlight={highlight && new Set(involved(highlight.entry))}
+              onClearHighlight={() => setHighlight(null)}
+            />
           </main>
-          {commitsOpen && <CommitGraph onClose={() => setCommitsOpen(false)} />}
+          {dock === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} onClose={() => setDock(null)} />}
+          {dock === 'commits' && <CommitGraph onClose={() => setDock(null)} />}
           <StatusBar
             usage={usage}
             settings={settings}

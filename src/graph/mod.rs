@@ -1,11 +1,14 @@
 //! 그래프: 노드 나무와 메일함. SQLite에 두고, 바뀔 때마다 화면에 이벤트 하나를 보낸다.
+//! 바뀐 일은 이벤트 기록(`events`)에도 남긴다.
 //! 부모-자식 규칙(깊이, 이름, 메시지 방향)은 나무와 메시지를 함께 보므로 이 모듈 한 곳에 둔다.
 //! 근거: docs/design.md 「메시징」.
 
+mod events;
 mod mailbox;
 mod nodes;
 
 use std::fmt;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::types::Type;
@@ -16,6 +19,7 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
+pub use events::EventRecord;
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
@@ -76,10 +80,15 @@ pub enum GraphEvent {
     Removed {
         id: NodeId,
     },
+    /// 이벤트 기록에 한 줄을 더했다.
+    Recorded {
+        record: EventRecord,
+    },
 }
 
 /// 규칙에 맞지 않아 거부한 요청. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
-#[derive(Debug, Serialize, TS)]
+/// 이벤트 기록에도 남기므로 읽을 수 있어야 한다(`Deserialize`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "code", content = "value", rename_all = "camelCase")]
 #[ts(export)]
 pub enum Refusal {
@@ -96,6 +105,8 @@ pub enum Refusal {
     Cycle,
     NotFound(String),
     Ambiguous(String),
+    /// 조정·중단을 받지 못하는 노드다. 값은 보낸 쪽이 적은 이름이다.
+    NotSteerable(String),
     Launch(String),
     Db(String),
 }
@@ -135,6 +146,10 @@ impl fmt::Display for Refusal {
             ),
             Refusal::Cycle => write!(f, "자기 자신이나 자기 자손을 부모로 정하지 않는다."),
             Refusal::NotFound(name) => write!(f, "{name}: 그런 이름의 노드가 없다."),
+            Refusal::NotSteerable(name) => write!(
+                f,
+                "{name}: 조정·중단을 받지 못하는 노드다(Claude·Codex·OpenCode 2 노드만 받는다). `loom send`로 보낸다."
+            ),
             Refusal::Ambiguous(name) => write!(
                 f,
                 "{name}: 이 이름의 노드가 둘 이상이다. 사람이 화면에서 부모를 바꾼다."
@@ -152,7 +167,7 @@ impl From<rusqlite::Error> for Refusal {
 }
 
 pub struct Graph {
-    db: Mutex<Connection>,
+    db: Mutex<Store>,
     events: broadcast::Sender<GraphEvent>,
     /// 메시지를 넣을 때마다 `wait` 모두를 깨운다. 깬 쪽이 자기 메시지인지 DB에서 본다.
     mail: Notify,
@@ -163,15 +178,58 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id)
     FROM nodes n";
 
+struct Store {
+    conn: Connection,
+    /// 화면에 보낸 마지막 이벤트 기록 id.
+    published: u32,
+}
+
+/// 잠근 DB. 놓을 때 아직 보내지 않은 이벤트 기록을 보낸다.
+/// 기록은 바꾼 트랜잭션 안에서 쓴다. 되돌린 트랜잭션의 기록은 없으므로 보내지 않는다.
+struct Db<'a> {
+    store: MutexGuard<'a, Store>,
+    events: &'a broadcast::Sender<GraphEvent>,
+}
+
+impl Deref for Db<'_> {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        &self.store.conn
+    }
+}
+
+impl DerefMut for Db<'_> {
+    fn deref_mut(&mut self) -> &mut Connection {
+        &mut self.store.conn
+    }
+}
+
+impl Drop for Db<'_> {
+    fn drop(&mut self) {
+        // 잠금을 쥔 채 보낸다. 그래야 기록 순서가 DB 순서와 같다.
+        let Ok(new) = events::after(&self.store.conn, self.store.published) else {
+            return;
+        };
+        for record in new {
+            self.store.published = record.id;
+            let _ = self.events.send(GraphEvent::Recorded { record });
+        }
+    }
+}
+
 impl Graph {
     /// 저장한 그래프를 연다. `running`이던 노드는 데몬과 함께 프로세스가 끝났으므로 코드 없는 `exited`로 바꾼다.
     pub fn open(conn: Connection) -> rusqlite::Result<Self> {
-        conn.execute(
-            "UPDATE nodes SET state = ?1 WHERE state ->> 'kind' = 'running'",
-            [to_json(&NodeState::Exited { code: None })],
-        )?;
+        let running = conn
+            .prepare("SELECT id FROM nodes WHERE state ->> 'kind' = 'running'")?
+            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for id in running {
+            set_state(&conn, id, &NodeState::Exited { code: None })?;
+        }
+        let published = events::last_id(&conn)?;
         Ok(Self {
-            db: Mutex::new(conn),
+            db: Mutex::new(Store { conn, published }),
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
         })
@@ -187,8 +245,34 @@ impl Graph {
         Ok((views, self.events.subscribe()))
     }
 
-    fn lock(&self) -> MutexGuard<'_, Connection> {
-        self.db.lock().unwrap()
+    fn lock(&self) -> Db<'_> {
+        Db {
+            store: self.db.lock().unwrap(),
+            events: &self.events,
+        }
+    }
+
+    /// 이벤트 콘솔을 열 때 읽는 최근 기록. 최근 것부터.
+    pub fn recent_events(&self) -> rusqlite::Result<Vec<EventRecord>> {
+        events::recent(&self.lock())
+    }
+
+    /// 보내기를 거절한 일을 남긴다. `reason`은 보낸 쪽이 받은 거절이다.
+    pub fn record_refusal(
+        &self,
+        from: NodeId,
+        to: &str,
+        how: Kind,
+        reason: &Refusal,
+    ) -> rusqlite::Result<()> {
+        let db = self.lock();
+        let entry = events::Entry::Refused {
+            how,
+            from: events::who(&db, from)?,
+            to: to.to_owned(),
+            reason: reason.clone(),
+        };
+        events::write(&db, &entry, None)
     }
 
     /// 잠금을 쥔 채 부른다. 그래야 이벤트 순서가 DB 변경 순서와 같다.
@@ -255,11 +339,16 @@ fn name_of(db: &Connection, id: NodeId) -> rusqlite::Result<String> {
 }
 
 fn set_state(db: &Connection, id: NodeId, state: &NodeState) -> rusqlite::Result<()> {
+    let entry = events::Entry::State {
+        node: events::who(db, id)?,
+        from: state_of(db, id)?,
+        to: state.clone(),
+    };
     db.execute(
         "UPDATE nodes SET state = ?2 WHERE id = ?1",
         params![id.0, to_json(state)],
     )?;
-    Ok(())
+    events::write(db, &entry, None)
 }
 
 #[cfg(test)]

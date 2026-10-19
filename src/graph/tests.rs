@@ -487,3 +487,215 @@ fn adopt_refuses_cycles_depth_and_taken_names() {
     assert_eq!(g.find("검토").unwrap(), other);
     assert_eq!(view(&g, other).parent, None);
 }
+
+/// 최근 기록을 오래된 것부터, 기록과 본문만.
+fn recorded(g: &Graph) -> Vec<(events::Entry, Option<String>)> {
+    let mut records = g.recent_events().unwrap();
+    records.reverse();
+    records.into_iter().map(|r| (r.entry, r.body)).collect()
+}
+
+fn who(id: NodeId, name: &str) -> events::Who {
+    events::Who {
+        id: Some(id),
+        name: name.into(),
+    }
+}
+
+#[test]
+fn records_node_and_message_events_in_order() {
+    use events::{Entry, Step};
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    g.send(a, "총괄", Kind::Queue, "질문").unwrap();
+    take(&g, lead);
+    g.done(a, "끝").unwrap();
+    let other = root(&g, "검토");
+    g.adopt(other, a).unwrap();
+    g.remove(other).unwrap();
+    g.send(a, "검토", Kind::Queue, "보관할 말").unwrap();
+
+    assert_eq!(
+        recorded(&g),
+        [
+            (
+                Entry::Created {
+                    node: who(lead, "총괄"),
+                    parent: None,
+                    agent: None
+                },
+                None
+            ),
+            (
+                Entry::Created {
+                    node: who(a, "a"),
+                    parent: Some(who(lead, "총괄")),
+                    agent: None
+                },
+                None
+            ),
+            (
+                Entry::Message {
+                    how: Kind::Queue,
+                    from: who(a, "a"),
+                    to: Some(who(lead, "총괄")),
+                    step: Step::Sent
+                },
+                Some("질문".into())
+            ),
+            (
+                Entry::Message {
+                    how: Kind::Queue,
+                    from: who(a, "a"),
+                    to: Some(who(lead, "총괄")),
+                    step: Step::Delivered
+                },
+                Some("질문".into())
+            ),
+            (
+                Entry::State {
+                    node: who(a, "a"),
+                    from: NodeState::Running,
+                    to: NodeState::Done {
+                        summary: "끝".into()
+                    }
+                },
+                None
+            ),
+            (
+                Entry::Message {
+                    how: Kind::Queue,
+                    from: who(a, "a"),
+                    to: Some(who(lead, "총괄")),
+                    step: Step::Sent
+                },
+                Some("done: 끝".into())
+            ),
+            (
+                Entry::Created {
+                    node: who(other, "검토"),
+                    parent: None,
+                    agent: None
+                },
+                None
+            ),
+            (
+                Entry::Adopted {
+                    node: who(a, "a"),
+                    from: Some(who(lead, "총괄")),
+                    to: who(other, "검토")
+                },
+                None
+            ),
+            // 지운 노드도 이름이 남는다.
+            (
+                Entry::Removed {
+                    node: who(other, "검토")
+                },
+                None
+            ),
+            (
+                Entry::Message {
+                    how: Kind::Queue,
+                    from: who(a, "a"),
+                    to: None,
+                    step: Step::Held
+                },
+                Some("보관할 말".into())
+            ),
+        ]
+    );
+}
+
+#[test]
+fn records_refusals_and_skips_rolled_back_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    assert!(g.add_root("b", None, |_| Err("없는 명령".into())).is_err());
+    g.record_refusal(lead, "없음", Kind::Steer, &Refusal::NotFound("없음".into()))
+        .unwrap();
+
+    let entries: Vec<_> = recorded(&g).into_iter().map(|(e, _)| e).collect();
+    assert_eq!(
+        entries,
+        [
+            events::Entry::Created {
+                node: who(lead, "총괄"),
+                parent: None,
+                agent: None
+            },
+            events::Entry::Refused {
+                how: Kind::Steer,
+                from: who(lead, "총괄"),
+                to: "없음".into(),
+                reason: Refusal::NotFound("없음".into())
+            },
+        ]
+    );
+    // 되돌린 노드의 기록이 없으므로 번호가 비지 않는다.
+    let ids: Vec<u32> = g.recent_events().unwrap().iter().map(|r| r.id).collect();
+    assert_eq!(ids, [2, 1]);
+}
+
+#[test]
+fn screen_receives_each_record_once_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let (_, mut rx) = g.subscribe().unwrap();
+    child(&g, lead, "a");
+    g.send(lead, "a", Kind::Queue, "일").unwrap();
+
+    let mut ids = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        if let GraphEvent::Recorded { record } = event {
+            ids.push(record.id);
+        }
+    }
+    assert_eq!(ids, [2, 3]);
+}
+
+#[test]
+fn keeps_only_the_latest_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let entry = events::Entry::Removed {
+        node: who(lead, "총괄"),
+    };
+    {
+        let mut db = g.lock();
+        let tx = db.transaction().unwrap();
+        for _ in 0..10_000 {
+            events::write(&tx, &entry, None).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    let db = g.lock();
+    let (count, min): (u32, u32) = db
+        .query_row("SELECT count(*), min(id) FROM events", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap();
+    assert_eq!((count, min), (10_000, 2));
+}
+
+#[test]
+fn reopening_records_running_nodes_as_exited() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let lead = root(&open(&path), "총괄");
+    let g = open(&path);
+    let (entry, _) = recorded(&g).pop().unwrap();
+    assert_eq!(
+        entry,
+        events::Entry::State {
+            node: who(lead, "총괄"),
+            from: NodeState::Running,
+            to: NodeState::Exited { code: None }
+        }
+    );
+}

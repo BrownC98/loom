@@ -171,6 +171,7 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
 /**
  * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
  * `selected`: 입력을 받는 카드. 트리도 고르므로 부르는 쪽이 가진다.
+ * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드. 그 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다. 바탕을 누르면 끈다.
  */
 export function Graph(props: {
   views: ReadonlyMap<NodeId, NodeView>;
@@ -180,8 +181,13 @@ export function Graph(props: {
   accounts: AccountView[] | null;
   selected: NodeId | null;
   onSelect: (id: NodeId | null) => void;
+  highlight: ReadonlySet<NodeId> | null;
+  onClearHighlight: () => void;
 }) {
   const { t } = useTranslation();
+  const { highlight } = props;
+  /** 강조 중이면 `ids`가 모두 관여한 쪽은 `hl`, 아니면 `dim`. */
+  const lit = (...ids: NodeId[]) => (highlight === null ? undefined : ids.every((id) => highlight.has(id)) ? 'hl' : 'dim');
   const { selected, onSelect: setSelected } = props;
   const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
@@ -223,6 +229,7 @@ export function Graph(props: {
         parentId: MAIN_GROUP,
         extent: 'parent',
         dragHandle: '.card-head',
+        className: lit(view.id),
         position: positions.get(view.id)!,
         data: {
           view,
@@ -250,7 +257,7 @@ export function Graph(props: {
         id: `edge-${view.id}`,
         source: String(view.parent),
         target: String(view.id),
-        className: messages ? 'live' : undefined,
+        className: [messages ? 'live' : undefined, lit(view.id, view.parent)].filter(Boolean).join(' ') || undefined,
         label: messages ? t('graph.messages', { n: messages }) : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,
@@ -285,6 +292,7 @@ export function Graph(props: {
         onNodesChange={onNodesChange}
         onPaneClick={() => {
           setSelected(null);
+          props.onClearHighlight();
           setCreating(false);
           setRefusal('');
         }}

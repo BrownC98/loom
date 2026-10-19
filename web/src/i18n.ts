@@ -24,11 +24,13 @@ export const INITIAL_LANGUAGE = (document.documentElement.dataset.language as La
 
 let relative: Intl.RelativeTimeFormat;
 let weekdayTime: Intl.DateTimeFormat;
+let clock: Intl.DateTimeFormat;
 // `init`도 이 이벤트를 낸다.
 i18next.on('languageChanged', (locale) => {
   document.documentElement.lang = locale;
   relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
   weekdayTime = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  clock = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 });
 i18next.use(initReactI18next).init({
   resources: { en: { translation: en }, ko: { translation: ko } },
@@ -63,6 +65,11 @@ export function ago(time: number, now: number): string {
 /** 예: 「(월) 15:40」, 「Mon 15:40」. */
 export function weekdayAndTime(time: number): string {
   return weekdayTime.format(time);
+}
+
+/** 예: 「15:40:07」. */
+export function clockTime(time: number): string {
+  return clock.format(time);
 }
 
 export default i18next;

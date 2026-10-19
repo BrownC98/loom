@@ -29,7 +29,7 @@ use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, CommitGraph};
 use crate::db;
 use crate::graph::{
-    Delivery, Graph, GraphEvent, Kind, MessageId, NodeId, REDELIVER_AFTER, Refusal,
+    Delivery, EventRecord, Graph, GraphEvent, Kind, MessageId, NodeId, REDELIVER_AFTER, Refusal,
 };
 use crate::node_host::NodeHost;
 use crate::profile::codex::{self, Status};
@@ -258,6 +258,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/pty", get(pty))
         .route("/api/events", get(events))
+        .route("/api/events/log", get(event_log))
         .merge(settings::routes())
         .fallback(asset)
         .with_state(app.clone());
@@ -624,17 +625,24 @@ async fn agent_send(
     Json(req): Json<SendRequest>,
 ) -> Result<Json<Option<NodeId>>, AgentError> {
     let from = app.caller(&headers)?;
+    let sent = send(&app, from, &req).await;
+    // 거절은 보낸 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
+    if let Err(reason) = &sent
+        && !matches!(reason, Refusal::Db(_))
+    {
+        app.graph
+            .record_refusal(from, &req.to, req.kind, reason)
+            .map_err(|e| for_agent(Refusal::from(e)))?;
+    }
+    sent.map(Json).map_err(for_agent)
+}
+
+async fn send(app: &App, from: NodeId, req: &SendRequest) -> Result<Option<NodeId>, Refusal> {
     if req.kind != Kind::Queue {
-        let (to, agent) = app.graph.recipient(from, &req.to).map_err(for_agent)?;
+        let (to, agent) = app.graph.recipient(from, &req.to)?;
         // 조정·중단은 프로필(훅·app-server)이 있는 노드만 받는다. 큐로 바꿔 보내지 않는다. 근거: docs/design.md 「명령」.
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "{}: 조정·중단을 받지 못하는 노드다(Claude·Codex·OpenCode 2 노드만 받는다). `loom send`로 보낸다.",
-                    req.to
-                ),
-            ));
+            return Err(Refusal::NotSteerable(req.to.clone()));
         };
         // 셸을 먼저 끝낸다. 메시지를 먼저 넣으면 그 셸 안의 `loom wait`가 본문을 꺼낸 뒤 죽어 본문을 잃을 수 있다.
         if req.kind == Kind::Interrupt {
@@ -657,11 +665,7 @@ async fn agent_send(
             }
         }
     }
-    let to = app
-        .graph
-        .send(from, &req.to, req.kind, &req.body)
-        .map_err(for_agent)?;
-    Ok(Json(to))
+    app.graph.send(from, &req.to, req.kind, &req.body)
 }
 
 async fn agent_take(
@@ -783,6 +787,10 @@ fn serve_pty<K: Copy + Eq + Hash + Send + Sync + 'static>(
             }
         }
     })
+}
+
+async fn event_log(State(app): State<Arc<App>>) -> Result<Json<Vec<EventRecord>>, Problem> {
+    app.graph.recent_events().map(Json).map_err(internal)
 }
 
 async fn events(ws: WebSocketUpgrade, State(app): State<Arc<App>>) -> Response {

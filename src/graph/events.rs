@@ -1,0 +1,143 @@
+//! 이벤트 기록: 노드와 메시지에 일어난 일을 바꾼 트랜잭션 안에서 `events` 테이블에 한 줄씩 남긴다.
+//! 화면의 이벤트 콘솔이 읽는다. 잠금을 놓을 때 새 줄을 웹소켓으로 보낸다(`Db`의 `Drop`).
+//! 근거: docs/mockups/graph-panels.html 결정 표 「이벤트 저장」·「이벤트 화면 전달」.
+
+use rusqlite::{Connection, Row, params};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use super::{Kind, MessageId, NodeId, NodeState, Refusal, from_json, to_json};
+use crate::profile::AgentId;
+
+/// 남기는 이벤트 수 상한. 노드 50개가 각각 메시지 200개를 주고받는 하루치다.
+const KEEP: u32 = 10_000;
+/// 이벤트 콘솔을 열 때 읽는 수. 한 화면 스크롤 몇 번 분량이다.
+const RECENT: u32 = 500;
+
+/// 이벤트 하나. 노드 이름을 함께 남긴다. 노드를 지워도 이벤트를 읽을 수 있어야 한다.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Who {
+    /// 메시지를 보낸 노드를 지운 뒤 받음을 확인하면 보낸 노드의 id를 모른다. 그때는 없다.
+    pub id: Option<NodeId>,
+    pub name: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Step {
+    /// 받는 노드 메일함에 넣었다.
+    Sent,
+    /// 부모가 없어 보관했다. 새 부모가 생기면 그 부모가 받는다.
+    Held,
+    /// 받는 노드가 받음을 확인했다.
+    Delivered,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Entry {
+    Created {
+        node: Who,
+        parent: Option<Who>,
+        agent: Option<AgentId>,
+    },
+    State {
+        node: Who,
+        from: NodeState,
+        to: NodeState,
+    },
+    /// 부모가 바뀌었다. `from`이 없으면 부모 없던 노드다.
+    Adopted {
+        node: Who,
+        from: Option<Who>,
+        to: Who,
+    },
+    Removed {
+        node: Who,
+    },
+    /// `to`가 없으면 보관한 메시지다.
+    Message {
+        how: Kind,
+        from: Who,
+        to: Option<Who>,
+        step: Step,
+    },
+    /// 보내기를 거절했다. `to`는 보낸 쪽이 적은 이름이다.
+    Refused {
+        how: Kind,
+        from: Who,
+        to: String,
+        reason: Refusal,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct EventRecord {
+    /// 1씩 늘어난다. 화면은 건너뛴 번호로 놓친 이벤트를 안다.
+    pub id: u32,
+    /// 유닉스 초.
+    #[ts(type = "number")]
+    pub at: i64,
+    pub entry: Entry,
+    /// 메시지 이벤트의 본문. 메시지 테이블에서 읽는다. 메시지를 지웠으면 없다.
+    pub body: Option<String>,
+}
+
+const RECORD_COLUMNS: &str = "SELECT e.id, e.at, e.entry, m.body FROM events e
+    LEFT JOIN messages m ON m.id = e.message";
+
+/// `message`는 메시지 이벤트가 가리키는 메시지다. 본문을 복사하지 않는다.
+pub(super) fn write(
+    db: &Connection,
+    entry: &Entry,
+    message: Option<MessageId>,
+) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT INTO events (at, entry, message) VALUES (unixepoch(), ?1, ?2)",
+        params![to_json(entry), message.map(|m| m.0)],
+    )?;
+    db.execute(
+        "DELETE FROM events WHERE id <= ?1",
+        [db.last_insert_rowid() - KEEP as i64],
+    )?;
+    Ok(())
+}
+
+pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
+    Ok(Who {
+        id: Some(id),
+        name: super::name_of(db, id)?,
+    })
+}
+
+/// 최근 것부터.
+pub(super) fn recent(db: &Connection) -> rusqlite::Result<Vec<EventRecord>> {
+    db.prepare(&format!("{RECORD_COLUMNS} ORDER BY e.id DESC LIMIT ?1"))?
+        .query_map([RECENT], record_from_row)?
+        .collect()
+}
+
+/// `after`보다 뒤의 이벤트, 오래된 것부터.
+pub(super) fn after(db: &Connection, after: u32) -> rusqlite::Result<Vec<EventRecord>> {
+    db.prepare(&format!("{RECORD_COLUMNS} WHERE e.id > ?1 ORDER BY e.id"))?
+        .query_map([after], record_from_row)?
+        .collect()
+}
+
+pub(super) fn last_id(db: &Connection) -> rusqlite::Result<u32> {
+    let id: Option<u32> = db.query_row("SELECT max(id) FROM events", [], |row| row.get(0))?;
+    Ok(id.unwrap_or(0))
+}
+
+fn record_from_row(row: &Row) -> rusqlite::Result<EventRecord> {
+    Ok(EventRecord {
+        id: row.get(0)?,
+        at: row.get(1)?,
+        entry: from_json(row, 2)?,
+        body: row.get(3)?,
+    })
+}

@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
+use super::events::{self, Entry, Step};
 use super::{
     Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, from_json, name_of,
     parent_of, set_state, state_of, to_json,
@@ -15,8 +17,9 @@ use super::{
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
 /// 메시지 전달 방식. 근거: docs/design.md 「명령」.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub enum Kind {
     /// `loom send`: 받는 노드의 턴을 끊지 않는다.
     Queue,
@@ -175,15 +178,40 @@ impl Graph {
 
     /// 받는 쪽이 `ids` 메시지를 받았다. 다시 꺼내지 않는다. 다른 노드의 메시지 id는 무시한다.
     pub fn ack(&self, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
-        let db = self.lock();
+        let mut db = self.lock();
         let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
             .expect("숫자 목록은 늘 직렬화된다");
-        let acked = db.execute(
-            "UPDATE messages SET delivered = 1
-             WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))",
-            params![node.0, ids],
-        )?;
-        if acked > 0 {
+        let tx = db.transaction()?;
+        let acked = tx
+            .prepare(
+                "UPDATE messages SET delivered = 1
+                 WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))
+                 RETURNING id, kind, sender, sender_name",
+            )?
+            .query_map(params![node.0, ids], |row| {
+                Ok((
+                    MessageId(row.get(0)?),
+                    from_json::<Kind>(row, 1)?,
+                    row.get::<_, Option<u32>>(2)?.map(NodeId),
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let to = events::who(&tx, node)?;
+        for (id, how, sender, name) in &acked {
+            let entry = Entry::Message {
+                how: *how,
+                from: events::Who {
+                    id: *sender,
+                    name: name.clone(),
+                },
+                to: Some(to.clone()),
+                step: Step::Delivered,
+            };
+            events::write(&tx, &entry, Some(*id))?;
+        }
+        tx.commit()?;
+        if !acked.is_empty() {
             self.publish_node(&db, node)?;
         }
         Ok(())
@@ -267,5 +295,12 @@ pub(super) fn enqueue(
          VALUES (?1, ?2, (SELECT name FROM nodes WHERE id = ?2), ?3, ?4)",
         params![to.map(|to| to.0), from.0, to_json(&kind), body],
     )?;
-    Ok(())
+    let id = MessageId(db.last_insert_rowid() as u32);
+    let entry = Entry::Message {
+        how: kind,
+        from: events::who(db, from)?,
+        to: to.map(|to| events::who(db, to)).transpose()?,
+        step: if to.is_some() { Step::Sent } else { Step::Held },
+    };
+    events::write(db, &entry, Some(id))
 }

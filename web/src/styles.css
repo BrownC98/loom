@@ -58,11 +58,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tree-row .chev { width: 14px; height: 14px; flex: none; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tree-row .chev.closed { transform: rotate(-90deg); }
 .tree-row .leaf { width: 14px; flex: none; }
-.tree-row .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 좁으면 에이전트 이름이 먼저 준다. 노드 이름은 줄 폭의 60%를 넘을 때만 자른다. */
+.tree-row .name { flex-shrink: 0; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tree-row .branch { font-family: var(--mono); font-weight: 600; font-size: 12px; }
 .tree-row .spacer { flex: 1; }
 .tree-row .unread { min-width: 18px; height: 18px; font-size: 11px; }
+.kept { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--ink-2); white-space: nowrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
 .dot.running { background: var(--accent); }
 .dot.done { background: var(--ok); }
@@ -99,16 +101,43 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__minimap-node.running { fill: var(--accent); }
 .react-flow__minimap-node.done { fill: var(--ok); }
 .react-flow__minimap-node.exited { fill: var(--err); }
+/* 이벤트 강조(graph-panels.html 3번): 관여한 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다 */
+.react-flow__node.hl .card { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash), 0 0 0 1px var(--accent); }
+.react-flow__node.dim, .react-flow__edge.dim { opacity: 0.4; }
+.react-flow__edge.hl .react-flow__edge-path { stroke: var(--accent); stroke-width: 3; }
 .react-flow__attribution { background: none; color: var(--ink-3); }
 .react-flow__attribution a { color: inherit; }
 
-/* 오른쪽 칸: 커밋 그래프(graph-panels.html 4번) */
+/* 오른쪽 칸: 이벤트 콘솔(graph-panels.html 3번)과 커밋 그래프(4번)가 같은 자리를 쓴다 */
 .dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
 .dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
 .dock-head h2 { font-size: 14px; font-weight: 600; }
 .dock-head .spacer { flex: 1; }
 .dock-note { padding: 16px; font-size: 13px; color: var(--ink-3); }
 .dock-note.error { color: var(--err); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+.filters { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.chip { height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-strong); background: none; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.chip:hover { background: var(--surface-hover); }
+.chip[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+.filters input { margin-left: auto; width: 160px; height: 26px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 9px; font-size: 12px; color: var(--ink); }
+.filters input::placeholder { color: var(--ink-3); }
+.filters input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
+.events { list-style: none; padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
+.ev { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; font-size: 13px; }
+.events li { border-radius: 6px; content-visibility: auto; contain-intrinsic-size: auto 40px; }
+.events li:hover { background: var(--surface-hover); }
+.events li:has(> .ev[aria-current="true"]) { background: var(--accent-wash); }
+.events button:focus-visible { outline-offset: -2px; }
+.ev time { font: 12px var(--mono); color: var(--ink-3); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.ev .what { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.ev .kind { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.ev .who { font-weight: 600; }
+.ev .gone { font-weight: 600; color: var(--ink-3); }
+.ev .note { font-size: 12px; color: var(--ink-3); }
+.ev .note.err { color: var(--err); }
+.ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev .body.open { white-space: pre-wrap; overflow-wrap: anywhere; }
+.events .more { display: block; margin: -4px 0 0 80px; padding: 0 0 6px; font-size: 12px; color: var(--accent); background: none; border: 0; cursor: pointer; }
 .commits { list-style: none; padding: 6px 0; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
 .commit { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 12px 0 6px; }
 .commit:hover { background: var(--surface-hover); }

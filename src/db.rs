@@ -62,6 +62,16 @@ const STEPS: &[M] = &[
     ),
     // 6: 받음 확인(graph). `sent_at`은 꺼낸 시각(유닉스 초)이다. 받는 쪽이 확인하면 `delivered`가 1이 된다.
     M::up("ALTER TABLE messages ADD COLUMN sent_at INTEGER;"),
+    // 7: 이벤트 기록(graph). `entry`는 serde JSON 문자열이다. `message`는 메시지 이벤트가 가리키는 메시지다.
+    // 메시지를 지워도 기록은 남으므로 외래 키를 두지 않는다. id는 1씩 늘어난다(AUTOINCREMENT 없이 max+1).
+    M::up(
+        "CREATE TABLE events (
+            id INTEGER PRIMARY KEY,
+            at INTEGER NOT NULL,
+            entry TEXT NOT NULL,
+            message INTEGER
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

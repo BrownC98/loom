@@ -3,6 +3,7 @@
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+use super::events::{self, Entry};
 use super::{
     Graph, GraphEvent, Kind, MAX_DEPTH, NodeId, NodeState, Refusal, mailbox, name_of, parent_of,
     set_state, state_of, to_json,
@@ -120,6 +121,13 @@ impl Graph {
             "DELETE FROM messages WHERE recipient IS NULL AND sender = ?1",
             [id.0],
         )?;
+        events::write(
+            &tx,
+            &Entry::Removed {
+                node: events::who(&tx, id)?,
+            },
+            None,
+        )?;
         tx.execute("UPDATE nodes SET parent = NULL WHERE parent = ?1", [id.0])?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
@@ -179,6 +187,15 @@ impl Graph {
             let notice = format!("adopted: {}", name_of(&tx, parent)?);
             mailbox::enqueue(&tx, child, Some(old), Kind::Queue, &notice)?;
         }
+        events::write(
+            &tx,
+            &Entry::Adopted {
+                node: events::who(&tx, child)?,
+                from: old.map(|old| events::who(&tx, old)).transpose()?,
+                to: events::who(&tx, parent)?,
+            },
+            None,
+        )?;
         tx.execute(
             "UPDATE nodes SET parent = ?2 WHERE id = ?1",
             params![child.0, parent.0],
@@ -222,7 +239,17 @@ fn insert(
             to_json(&NodeState::Running)
         ],
     )?;
-    Ok(NodeId(db.last_insert_rowid() as u32))
+    let id = NodeId(db.last_insert_rowid() as u32);
+    let entry = Entry::Created {
+        node: events::Who {
+            id: Some(id),
+            name: name.to_owned(),
+        },
+        parent: parent.map(|p| events::who(db, p)).transpose()?,
+        agent: agent.clone(),
+    };
+    events::write(db, &entry, None)?;
+    Ok(id)
 }
 
 /// 부모부터 뿌리까지. 개수가 깊이다.

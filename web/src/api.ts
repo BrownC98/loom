@@ -3,6 +3,7 @@ import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { CommitGraph } from './gen/CommitGraph';
+import type { EventRecord } from './gen/EventRecord';
 import type { GraphEvent } from './gen/GraphEvent';
 import type { Login } from './gen/Login';
 import type { LoginId } from './gen/LoginId';
@@ -47,6 +48,8 @@ export const getSettings = () => call<SettingsView>('GET', '/api/settings');
 export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/settings', view);
 /** 모든 브랜치의 최근 커밋과 워크트리마다 체크아웃한 커밋. */
 export const getCommits = () => call<CommitGraph>('GET', '/api/commits');
+/** 최근 이벤트 기록 500개, 최근 것부터. */
+export const getEventLog = () => call<EventRecord[]>('GET', '/api/events/log');
 /** 계정마다 사용량을 그 자리에서 읽는다. 몇 초 걸린다. */
 export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
 export const removeAccount = (provider: Provider, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}`);

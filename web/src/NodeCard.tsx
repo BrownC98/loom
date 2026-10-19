@@ -5,7 +5,7 @@ import type { NodeView } from './gen/NodeView';
 import i18next from './i18n';
 import { navDirection, type Direction } from './Terminal';
 
-function stateLabel(state: NodeState): string {
+export function stateLabel(state: NodeState): string {
   switch (state.kind) {
     case 'running':
       return 'running';

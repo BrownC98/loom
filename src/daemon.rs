@@ -27,7 +27,7 @@ use ts_rs::TS;
 
 use crate::accounts::Accounts;
 use crate::codex_server::CodexServer;
-use crate::commit_graph;
+use crate::commit_graph::{self, CommitGraph};
 use crate::db;
 use crate::graph::{Delivery, Graph, GraphEvent, Kind, NodeId, Refusal};
 use crate::node_host::NodeHost;
@@ -228,10 +228,10 @@ async fn repo(State(app): State<Arc<App>>) -> Json<RepoView> {
     Json(app.repo.clone())
 }
 
-/// `git log --graph` 글자(ANSI 색 포함). 화면은 터미널로 그린다.
-async fn commits(State(app): State<Arc<App>>) -> Result<String, ApiError> {
-    commit_graph::draw(std::path::Path::new(&app.repo.path))
+async fn commits(State(app): State<Arc<App>>) -> Result<Json<CommitGraph>, ApiError> {
+    commit_graph::read(std::path::Path::new(&app.repo.path))
         .await
+        .map(Json)
         .map_err(internal)
 }
 

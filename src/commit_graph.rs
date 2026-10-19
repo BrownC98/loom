@@ -1,38 +1,82 @@
-//! 커밋 그래프: 저장소의 모든 브랜치를 `git log --graph`로 그린 글자(ANSI 색 포함).
-//! 워크트리가 체크아웃한 커밋 줄 끝에 그 워크트리 표시를 붙인다. 읽기만 한다.
+//! 커밋 그래프 데이터: 저장소의 모든 브랜치 커밋과, 워크트리마다 체크아웃한 커밋. 읽기만 한다.
+//! 차선 배치와 그리기는 화면(`web/src/CommitGraph.tsx`)이 한다.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use tokio::process::Command;
+use ts_rs::TS;
 
-/// 그리는 커밋 수 상한. 화면은 최근 이력을 본다. 전체 이력은 큰 저장소에서 git과 화면 버퍼를 무겁게 한다.
+/// 그리는 커밋 수 상한. 화면은 최근 이력을 본다. 1,000줄은 화면이 가상 스크롤 없이 그린다(목업 실측 중앙값 39.8ms).
 const MAX_COMMITS: u32 = 1000;
-/// 커밋 줄을 「그래프 선, SHA, 나머지」로 가르는 문자. 커밋 제목에는 NUL이 들어가지 않는다.
-/// SHA를 `%C(auto)` 앞에 둔다. 뒤에 두면 git이 SHA에도 색 코드를 붙인다.
+/// 커밋 줄의 칸 구분 문자. 커밋 제목·작성자·참조 이름에는 NUL이 들어가지 않는다.
 const SEPARATOR: char = '\0';
-/// 워크트리 표시의 ANSI 모양: 반전. 색을 따로 두지 않고 화면 터미널의 글자색·바탕색을 뒤집는다.
-const MARK_START: &str = "\x1b[7m";
-const RESET: &str = "\x1b[0m";
+/// `%D`의 태그 앞말.
+const TAG_PREFIX: &str = "tag: ";
 
-/// `repo`는 데몬이 보이는 저장소다. 이 경로의 워크트리는 「원래 체크아웃」, 나머지는 「워크트리」로 표시한다.
-pub async fn draw(repo: &Path) -> Result<String, String> {
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct CommitGraph {
+    /// 자식이 부모보다 먼저 온다(`--topo-order`). 화면의 차선 계산이 이 순서를 쓴다.
+    pub commits: Vec<Commit>,
+    pub worktrees: Vec<Worktree>,
+}
+
+#[derive(Serialize, TS, PartialEq, Debug)]
+#[ts(export)]
+pub struct Commit {
+    pub hash: String,
+    pub parents: Vec<String>,
+    pub subject: String,
+    pub author: String,
+    /// 작성 시각, 유닉스 초.
+    #[ts(type = "number")]
+    pub time: i64,
+    pub refs: Vec<GitRef>,
+}
+
+#[derive(Serialize, TS, PartialEq, Debug)]
+#[serde(tag = "kind", content = "name", rename_all = "camelCase")]
+#[ts(export)]
+pub enum GitRef {
+    /// 로컬·원격 브랜치. 원격은 `origin/main`처럼 원격 이름이 붙는다.
+    Branch(String),
+    Tag(String),
+}
+
+#[derive(Serialize, TS, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Worktree {
+    /// 체크아웃한 커밋.
+    pub head: String,
+    /// 분리된 HEAD면 없다.
+    pub branch: Option<String>,
+    /// 데몬이 보이는 저장소 폴더 자신이면 「원래 체크아웃」, 아니면 추가한 워크트리다.
+    pub original: bool,
+}
+
+/// `repo`는 데몬이 보이는 저장소다.
+pub async fn read(repo: &Path) -> Result<CommitGraph, String> {
     let worktrees = git(repo, &["worktree", "list", "--porcelain"]).await?;
     let log = git(
         repo,
         &[
             "log",
-            "--graph",
-            "--color=always",
             // stash는 모든 워크트리가 함께 쓰는 임시 커밋이라 브랜치 이력이 아니다.
+            // `--exclude`는 뒤에 오는 `--all`에만 걸린다.
             "--exclude=refs/stash",
             "--all",
+            "--topo-order",
             &format!("--max-count={MAX_COMMITS}"),
-            "--format=%x00%H%x00%C(auto)%h%d %s",
+            "--format=%H%x00%P%x00%s%x00%an%x00%at%x00%D",
         ],
     )
     .await?;
-    Ok(annotate(&log, &marks(repo, &worktrees)))
+    Ok(CommitGraph {
+        commits: log.lines().filter_map(commit).collect(),
+        worktrees: parse_worktrees(repo, &worktrees),
+    })
 }
 
 async fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -49,74 +93,63 @@ async fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// 커밋 SHA → 그 커밋을 체크아웃한 워크트리 표시들. `porcelain`은 `git worktree list --porcelain` 출력이다.
-fn marks(repo: &Path, porcelain: &str) -> HashMap<String, Vec<String>> {
+fn commit(line: &str) -> Option<Commit> {
+    let [hash, parents, subject, author, time, refs] =
+        line.splitn(6, SEPARATOR).collect::<Vec<_>>()[..]
+    else {
+        return None;
+    };
+    Some(Commit {
+        hash: hash.to_owned(),
+        parents: parents.split_whitespace().map(str::to_owned).collect(),
+        subject: subject.to_owned(),
+        author: author.to_owned(),
+        time: time.parse().ok()?,
+        refs: refs
+            .split(", ")
+            .filter_map(|r| {
+                // `HEAD -> main`의 HEAD는 원래 체크아웃이다. 워크트리 목록이 이미 그 사실을 준다.
+                let r = r.strip_prefix("HEAD -> ").unwrap_or(r);
+                match r {
+                    "" | "HEAD" => None,
+                    _ => Some(r.strip_prefix(TAG_PREFIX).map_or_else(
+                        || GitRef::Branch(r.to_owned()),
+                        |t| GitRef::Tag(t.to_owned()),
+                    )),
+                }
+            })
+            .collect(),
+    })
+}
+
+/// `porcelain`은 `git worktree list --porcelain` 출력이다.
+fn parse_worktrees(repo: &Path, porcelain: &str) -> Vec<Worktree> {
     let repo = canonical(repo);
-    let mut marks: HashMap<String, Vec<String>> = HashMap::new();
-    for block in porcelain.split("\n\n") {
-        let field = |key: &str| {
-            block
-                .lines()
-                .find_map(|line| line.strip_prefix(key)?.strip_prefix(' '))
-        };
-        let (Some(path), Some(head)) = (field("worktree"), field("HEAD")) else {
-            continue;
-        };
-        let kind = if canonical(Path::new(path)) == repo {
-            "원래 체크아웃"
-        } else {
-            "워크트리"
-        };
-        let branch = field("branch").map_or("HEAD", |b| b.strip_prefix("refs/heads/").unwrap_or(b));
-        marks
-            .entry(head.to_owned())
-            .or_default()
-            .push(format!("{kind} {branch}"));
-    }
-    marks
+    porcelain
+        .split("\n\n")
+        .filter_map(|block| {
+            let field = |key: &str| {
+                block
+                    .lines()
+                    .find_map(|line| line.strip_prefix(key)?.strip_prefix(' '))
+            };
+            Some(Worktree {
+                original: canonical(Path::new(field("worktree")?)) == repo,
+                head: field("HEAD")?.to_owned(),
+                branch: field("branch")
+                    .map(|b| b.strip_prefix("refs/heads/").unwrap_or(b).to_owned()),
+            })
+        })
+        .collect()
 }
 
 fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_owned())
 }
 
-/// 커밋 줄에서 SHA를 지우고, 그 커밋을 체크아웃한 워크트리가 있으면 줄 끝에 표시를 붙인다.
-fn annotate(log: &str, marks: &HashMap<String, Vec<String>>) -> String {
-    log.lines()
-        .map(
-            |line| match line.splitn(3, SEPARATOR).collect::<Vec<_>>()[..] {
-                [graph, sha, rest] => {
-                    let tags: String = marks
-                        .get(sha)
-                        .into_iter()
-                        .flatten()
-                        .map(|mark| format!(" {MARK_START} {mark} {RESET}"))
-                        .collect();
-                    format!("{graph}{rest}{RESET}{tags}")
-                }
-                _ => line.to_owned(),
-            },
-        )
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn strip_ansi(text: &str) -> String {
-        let mut out = String::new();
-        let mut chars = text.chars();
-        while let Some(c) = chars.next() {
-            if c == '\x1b' {
-                chars.by_ref().find(|&c| c == 'm');
-            } else {
-                out.push(c);
-            }
-        }
-        out
-    }
 
     fn run(dir: &Path, args: &[&str]) -> String {
         let out = std::process::Command::new("git")
@@ -135,34 +168,60 @@ mod tests {
     }
 
     #[test]
-    fn annotate_marks_checked_out_commits() {
-        let marks = HashMap::from([("bbb".to_owned(), vec!["워크트리 feat".to_owned()])]);
-        let log = "* \0aaa\0a1 (main) first\n|\n* \0bbb\0b2 (feat) second";
+    fn commit_line_splits_parents_and_refs() {
+        let line = "bbb\0aaa ccc\0Merge feat\0t\x001792414055\0HEAD -> main, tag: v1, origin/main";
         assert_eq!(
-            annotate(log, &marks),
-            "* a1 (main) first\x1b[0m\n|\n* b2 (feat) second\x1b[0m \x1b[7m 워크트리 feat \x1b[0m"
+            commit(line),
+            Some(Commit {
+                hash: "bbb".into(),
+                parents: vec!["aaa".into(), "ccc".into()],
+                subject: "Merge feat".into(),
+                author: "t".into(),
+                time: 1792414055,
+                refs: vec![
+                    GitRef::Branch("main".into()),
+                    GitRef::Tag("v1".into()),
+                    GitRef::Branch("origin/main".into()),
+                ],
+            })
+        );
+        assert_eq!(
+            commit("aaa\0\0root\0t\x001\0").unwrap().parents,
+            Vec::<String>::new()
         );
     }
 
     #[test]
-    fn marks_name_original_checkout_and_detached_head() {
+    fn worktrees_name_original_checkout_and_detached_head() {
         let porcelain = "worktree /nowhere/repo\nHEAD aaa\nbranch refs/heads/main\n\n\
-                         worktree /nowhere/wt\nHEAD bbb\ndetached\n\n\
-                         worktree /nowhere/wt2\nHEAD bbb\nbranch refs/heads/feat/x\n";
-        let marks = marks(Path::new("/nowhere/repo"), porcelain);
-        assert_eq!(marks["aaa"], ["원래 체크아웃 main"]);
-        assert_eq!(marks["bbb"], ["워크트리 HEAD", "워크트리 feat/x"]);
+                         worktree /nowhere/wt\nHEAD bbb\ndetached\n";
+        assert_eq!(
+            parse_worktrees(Path::new("/nowhere/repo"), porcelain),
+            [
+                Worktree {
+                    head: "aaa".into(),
+                    branch: Some("main".into()),
+                    original: true
+                },
+                Worktree {
+                    head: "bbb".into(),
+                    branch: None,
+                    original: false
+                },
+            ]
+        );
     }
 
-    /// 실제 git으로 브랜치·병합·워크트리가 있는 저장소를 만들고 그린다.
+    /// 실제 git으로 브랜치·병합·태그·워크트리·stash가 있는 저장소를 만들고 읽는다.
     #[tokio::test]
-    async fn draws_all_branches_merges_and_worktrees() {
+    async fn reads_all_branches_merges_and_worktrees() {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
         let wt = dir.path().join("wt");
         std::fs::create_dir(&repo).unwrap();
         run(&repo, &["init", "-q", "-b", "main"]);
         run(&repo, &["commit", "-q", "--allow-empty", "-m", "a"]);
+        run(&repo, &["tag", "v1"]);
         run(
             &repo,
             &["worktree", "add", "-q", "-b", "feat", wt.to_str().unwrap()],
@@ -178,32 +237,48 @@ mod tests {
         run(&repo, &["add", "f"]);
         run(&repo, &["stash", "-q"]);
 
-        let text = strip_ansi(&draw(&repo).await.unwrap());
-        let short = |rev: &str| run(&repo, &["rev-parse", "--short", rev]);
-        let lines: Vec<&str> = text.lines().collect();
-        let line = |subject: &str| {
-            *lines
-                .iter()
-                .find(|l| l.ends_with(subject) || l.contains(&format!(" {subject} ")))
-                .unwrap()
-        };
+        let graph = read(&repo).await.unwrap();
+        let subjects: Vec<&str> = graph.commits.iter().map(|c| c.subject.as_str()).collect();
+        // stash 커밋(WIP, index)은 없다. 자식이 부모보다 먼저 온다.
+        assert_eq!(subjects.len(), 5);
+        let at = |s: &str| subjects.iter().position(|x| *x == s).unwrap();
+        assert!(at("m") < at("c") && at("m") < at("b") && at("d") < at("b") && at("b") < at("a"));
+        let merge = &graph.commits[at("m")];
+        assert_eq!(merge.parents.len(), 2);
+        assert_eq!(merge.refs, [GitRef::Branch("main".into())]);
+        assert_eq!(graph.commits[at("a")].refs, [GitRef::Tag("v1".into())]);
 
-        assert!(line("d").contains(&format!("{} (feat) d  워크트리 feat ", short("feat"))));
-        assert!(line("m").contains(&format!(
-            "{} (HEAD -> main) m  원래 체크아웃 main ",
-            short("main")
-        )));
-        // 병합 커밋 아래에 갈래 선이 있다.
-        assert!(lines.iter().any(|l| l.contains("|\\")));
-        // 커밋 a, b, c, m, d만 있다. stash 커밋(WIP, index)은 그리지 않는다.
-        assert_eq!(lines.iter().filter(|l| l.contains('*')).count(), 5);
-        assert!(!text.contains("WIP"));
+        let head = |rev: &str| run(&repo, &["rev-parse", rev]);
+        assert_eq!(
+            graph.worktrees,
+            [
+                Worktree {
+                    head: head("main"),
+                    branch: Some("main".into()),
+                    original: true
+                },
+                Worktree {
+                    head: head("feat"),
+                    branch: Some("feat".into()),
+                    original: false
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn repository_without_commits_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        run(dir.path(), &["init", "-q"]);
+        assert!(read(dir.path()).await.unwrap().commits.is_empty());
     }
 
     #[tokio::test]
     async fn outside_a_repository_returns_git_error() {
         let dir = tempfile::tempdir().unwrap();
-        let err = draw(dir.path()).await.unwrap_err();
+        let Err(err) = read(dir.path()).await else {
+            panic!()
+        };
         assert!(err.contains("not a git repository"), "{err}");
     }
 }

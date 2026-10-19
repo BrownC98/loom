@@ -9,7 +9,7 @@ import type { LoginId } from './gen/LoginId';
 import type { LoginState } from './gen/LoginState';
 import type { NewNode } from './gen/NewNode';
 import type { NodeId } from './gen/NodeId';
-import type { Profile } from './gen/Profile';
+import type { Provider } from './gen/Provider';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
@@ -46,8 +46,8 @@ export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/setti
 export const getCommits = () => call<CommitGraph>('GET', '/api/commits');
 /** 계정마다 사용량을 그 자리에서 읽는다. 몇 초 걸린다. */
 export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
-export const removeAccount = (provider: Profile, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}`);
-export const startLogin = (provider: Profile, req: Login) => call<LoginId>('POST', `/api/accounts/${provider}`, req);
+export const removeAccount = (provider: Provider, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}`);
+export const startLogin = (provider: Provider, req: Login) => call<LoginId>('POST', `/api/accounts/${provider}`, req);
 export const getLogin = (id: LoginId) => call<LoginState>('GET', `/api/logins/${id}`);
 export const closeLogin = (id: LoginId) => call<null>('DELETE', `/api/logins/${id}`);
 export const loginPty = (id: LoginId) => `/api/logins/${id}/pty`;

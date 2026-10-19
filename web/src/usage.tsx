@@ -2,27 +2,27 @@
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { Limits } from './gen/Limits';
-import type { Profile } from './gen/Profile';
+import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Window } from './gen/Window';
 
 /** 이 비율 이하로 남으면 막대가 노란색이다(목업 1번). */
 const LOW_REMAINING = 25;
 
-export const PROVIDERS: Profile[] = ['claude', 'codex'];
-export const PROVIDER_LABEL: Record<Profile, string> = { claude: 'Claude', codex: 'Codex' };
+export const PROVIDERS: Provider[] = ['claude', 'codex'];
+export const PROVIDER_LABEL: Record<Provider, string> = { claude: 'Claude', codex: 'Codex' };
 /** 시스템 기본 계정의 로그인 폴더. loom은 읽기만 한다. */
-export const SYSTEM_DIR: Record<Profile, string> = { claude: '~/.claude', codex: '~/.codex' };
+export const SYSTEM_DIR: Record<Provider, string> = { claude: '~/.claude', codex: '~/.codex' };
 
 /** 새 노드가 쓰는 계정. 설정이 고른 계정이 없거나 지워졌으면 시스템 기본이다. */
-export function activeAccount(accounts: AccountView[], settings: SettingsView, provider: Profile): AccountView | undefined {
+export function activeAccount(accounts: AccountView[], settings: SettingsView, provider: Provider): AccountView | undefined {
   const chosen = provider === 'claude' ? settings.claudeAccount : settings.codexAccount;
   const own = accounts.filter((a) => a.provider === provider);
   return own.find((a) => a.id !== null && a.id === chosen) ?? own.find((a) => a.id === null);
 }
 
 /** 공급자의 쓰는 계정을 바꾼 설정. `null`이면 시스템 기본이다. */
-export function withAccount(settings: SettingsView, provider: Profile, id: AccountId | null): SettingsView {
+export function withAccount(settings: SettingsView, provider: Provider, id: AccountId | null): SettingsView {
   return provider === 'claude' ? { ...settings, claudeAccount: id } : { ...settings, codexAccount: id };
 }
 

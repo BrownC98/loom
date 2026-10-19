@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::accounts::AccountId;
-use crate::profile::{AgentId, Profile};
+use crate::profile::{AgentId, Provider};
 
 #[derive(Clone, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -52,10 +52,10 @@ pub enum Theme {
 }
 
 impl SettingsView {
-    pub fn account(&self, provider: Profile) -> Option<&AccountId> {
+    pub fn account(&self, provider: Provider) -> Option<&AccountId> {
         match provider {
-            Profile::Claude => self.claude_account.as_ref(),
-            Profile::Codex => self.codex_account.as_ref(),
+            Provider::Claude => self.claude_account.as_ref(),
+            Provider::Codex => self.codex_account.as_ref(),
         }
     }
 }

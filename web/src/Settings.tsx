@@ -5,7 +5,7 @@ import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { LoginId } from './gen/LoginId';
-import type { Profile } from './gen/Profile';
+import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Usage } from './StatusBar';
 import { Terminal } from './Terminal';
@@ -163,7 +163,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
   );
 }
 
-type OpenLogin = { provider: Profile; id: LoginId; title: string };
+type OpenLogin = { provider: Provider; id: LoginId; title: string };
 
 function AccountsTab(props: { settings: SettingsView; onSettings: (next: SettingsView) => void; usage: Usage }) {
   const { settings, usage } = props;
@@ -178,7 +178,7 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
       setError((err as Error).message);
     }
   };
-  const openLogin = (provider: Profile, id: AccountId | null, title: string) =>
+  const openLogin = (provider: Provider, id: AccountId | null, title: string) =>
     run(async () => setLogin({ provider, title, id: await startLogin(provider, { id }) }));
   const remove = (a: AccountView, id: AccountId) => {
     if (!confirm(`${accountName(a)} 계정을 지운다. loom이 만든 로그인 폴더를 지운다.`)) return;
@@ -268,7 +268,7 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
 }
 
 /** 시스템 기본이 로그인하지 않았으면 사용자 셸에서 로그인하는 명령을 보인다. loom은 그 폴더를 고치지 않는다. */
-function needsLoginHint(account: AccountView, provider: Profile) {
+function needsLoginHint(account: AccountView, provider: Provider) {
   if (account.usage.limits.kind !== 'needsLogin') return null;
   const command = provider === 'claude' ? 'claude auth login' : 'codex login';
   return (

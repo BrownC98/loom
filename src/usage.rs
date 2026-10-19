@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use crate::profile::Profile;
+use crate::profile::Provider;
 
 /// CLI나 API 하나를 기다리는 상한. 넘으면 그 계정만 「지금 볼 수 없다」가 된다.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -69,10 +69,10 @@ impl Usage {
 }
 
 /// `config_dir`가 `None`이면 시스템 기본 로그인을 읽는다.
-pub fn probe(provider: Profile, config_dir: Option<&Path>) -> Usage {
+pub fn probe(provider: Provider, config_dir: Option<&Path>) -> Usage {
     match provider {
-        Profile::Claude => claude(config_dir),
-        Profile::Codex => codex(config_dir),
+        Provider::Claude => claude(config_dir),
+        Provider::Codex => codex(config_dir),
     }
 }
 

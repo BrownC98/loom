@@ -42,12 +42,14 @@
 ## 에이전트 실행
 
 - 에이전트는 데몬이 쥔 PTY 하나에서 도는 실제 TUI다. tmux는 쓰지 않는다. 데몬이 죽으면 에이전트도 끝난다.
-- CLI마다 실행 프로필을 둔다. 프로필은 메시지 연동(훅·app-server)과 계정이 있는 에이전트다. 지금은 Claude Code와 Codex 둘이다. 프로필이 바뀌는 이유는 CLI 버전이다.
+- CLI마다 실행 프로필을 둔다. 프로필은 메시지 연동(훅·app-server·서버 API)이 있는 에이전트다. 지금은 Claude Code, Codex, OpenCode 2 셋이다. 프로필이 바뀌는 이유는 CLI 버전이다.
+- 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 쓰지 않는다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다. 예: OpenCode 2의 `--standalone`은 `--server`와 함께 쓸 수 없다.
 
 | 프로필 | loom 사용법 지시 | 상태·전달 경로 |
 |---|---|---|
 | Claude Code | `--append-system-prompt` | `--settings`로 넘긴 훅 5개가 `loom hook`을 부른다(UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop). 형식과 인자는 [src/profile/claude.rs](../src/profile/claude.rs)에 있다 |
 | Codex | `-c developer_instructions=…` | 데몬이 노드마다 `codex app-server --listen ws://127.0.0.1:0`을 띄우고 TUI를 `codex --remote <주소>`로 붙인다. 데몬도 같은 서버에 연결해 스레드 상태를 보고 `turn/*` 요청으로 전달한다. 훅은 쓰지 않는다. 연결은 [src/codex_server.rs](../src/codex_server.rs), 요청 내용은 [src/profile/codex.rs](../src/profile/codex.rs)에 있다 |
+| OpenCode 2 | 세션 지시 항목 `loom`(`PUT /api/experimental/session/{id}/instructions/entries/loom`) | 데몬이 노드마다 `opencode2 serve --hostname 127.0.0.1 --port 0`을 띄우고 `POST /api/session`으로 세션을 만든다. TUI는 `opencode2 --server <주소> --session <id>`로 붙는다. 데몬은 세션 입력함(`POST /api/session/{id}/prompt`)으로 전달한다. 규칙과 전달 작업은 [src/profile/opencode2/mod.rs](../src/profile/opencode2/mod.rs), 서버 연결은 [src/profile/opencode2/server.rs](../src/profile/opencode2/server.rs)에 있다 |
 | 프로필 없음 | 없음 | `loom wait`로만 메시지를 받는다 |
 
 - Claude `--settings`는 권한 허용 목록에 `loom guard`와 메시지 명령(`send`, `steer`, `interrupt`, `wait`, `done`)만 넣는다. 기본 권한 모드에서 사람이 없는 노드가 승인 창에서 멈추지 않게 한다. `loom spawn`은 `-- <명령>`으로 아무 명령이나 띄울 수 있어 넣지 않는다.
@@ -59,12 +61,16 @@
   - 노드 문 주소에서 듣지 못하면(예: 이 루프백 주소가 없는 OS) 노드 문 없이 데몬 주소를 쓴다. 인자도 넘기지 않는다. Codex 노드는 loom 명령마다 승인을 묻는다.
   - 위험: 모든 주소(`0.0.0.0`)에서 듣는 다른 서비스는 샌드박스 안에서 `127.76.77.1`로 닿는다. 데몬을 `--listen 0.0.0.0:<포트>`로 띄우면 `spawn`도 그 길로 닿는다. Codex 도메인 규칙은 포트를 가리지 않고, unix 소켓 허용은 macOS만 된다(「실측 근거」). 그래서 더 좁힐 수 없다.
   - 신뢰하지 않은 폴더에서는 TUI가 `read-only`를 보낸다. `read-only`는 네트워크를 열지 않아 loom 명령마다 승인을 묻는다.
-- 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex` 파일은 고치지 않는다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다.
+- 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode` 파일은 고치지 않는다. OpenCode 설정은 명령 인자, 환경 변수, 세션 API로만 넘긴다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다.
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
 - 고정한 스키마는 쓰는 요청·알림 7개만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
 - 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
 - Codex 셸 명령은 TUI가 아니라 app-server 아래에서 돈다. 그래서 app-server도 노드 환경(`LOOM_URL`, `LOOM_SPAWN_URL`, `LOOM_TOKEN`, `PATH`)을 받는다. Codex 셸 스냅샷은 로그인 셸의 `PATH`를 다시 적용한다. 그래서 `-c shell_environment_policy.set.PATH=<노드 PATH>`로 노드 `PATH`를 다시 넣는다.
-- 노드가 끝나면 데몬이 그 app-server를 끝낸다. Linux에서는 데몬이 끝나도 app-server가 TERM을 받는다(`PR_SET_PDEATHSIG`).
+- 노드가 끝나면 데몬이 그 서버(Codex app-server, OpenCode 2 서버)를 끝낸다. Linux에서는 데몬이 끝나도 서버가 TERM을 받는다(`PR_SET_PDEATHSIG`).
+- OpenCode 2 서버는 HTTP Basic(`opencode:<비밀번호>`)만 받는다. 데몬이 노드마다 무작위 비밀번호를 만들어 서버와 TUI에 `OPENCODE_PASSWORD`로 넘긴다. 셸 명령도 이 값을 본다. 그 노드 서버에만 쓰이는 값이다.
+- OpenCode 2 셸 명령도 TUI가 아니라 서버 아래에서 돈다. 서버가 노드 환경을 받는다. 셸은 서버 환경을 그대로 받아 `PATH`를 다시 넣지 않아도 된다(실측).
+- OpenCode 2 권한: 데몬은 노드 세션을 만들 때 `permissions`에 모든 권한 허용 규칙(`*` → `allow`)을 넣는다. 사용자 설정이 `bash`를 `ask`로 두어도 노드는 승인 창을 띄우지 않는다(「실측 근거」). 사용자 설정 파일은 고치지 않는다.
+- 데몬은 시작할 때 `opencode2 --version`도 확인한다. 고정한 버전(2.0.32)과 다르면 Codex와 같이 화면에 경고를 띄운다.
 
 ### 에이전트
 
@@ -95,6 +101,7 @@
 - [계정 추가]: 데몬이 폴더를 만들고, 그 폴더로 `claude auth login`·`codex login`을 PTY에서 띄운다. 화면은 이 PTY를 노드 카드와 같은 터미널로 보인다. 그래프에는 나타나지 않는다.
   - 로그인 프로세스가 코드 0으로 끝나면 창이 닫힌다. 0이 아니면 실패를 보인다.
   - 새 계정은 로그인이 실패하거나 사용자가 창을 닫으면 폴더를 지운다. [다시 로그인]은 폴더를 지우지 않는다.
+- OpenCode 2에는 계정과 사용량이 없다. 공급자가 여럿이고(OpenCode 설정의 `provider`), 공급자마다 나뉜 로그인 폴더가 없고, 남은 한도를 주는 출처가 없다. Orca도 OpenCode는 로컬 `opencode.db`에서 읽은 토큰·비용 통계 창만 보이고 계정을 바꾸지 않는다.
 - 사용량 출처는 Orca와 같다.
 
 | 공급자 | 계정 정보 | 사용량 |
@@ -166,14 +173,14 @@
 
 ### 전달 지점
 
-| 방식 | 받는 노드 상태 | Claude Code | Codex |
-|---|---|---|---|
-| 큐 | `loom wait` 안 | `loom wait`가 본문을 돌려준다 | 같다 |
-| 큐 | 일하는 중 | Stop 훅이 `block`과 본문을 돌려준다. 같은 턴을 이어 간다 | `turn/completed` 뒤에 `turn/start` |
-| 큐 | 쉬는 중 | 다음 턴의 UserPromptSubmit 훅 맥락. 부모가 결과를 기다리면 백그라운드 `loom wait`로 깨어난다 | `turn/start`로 깨운다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 |
-| 조정 | 일하는 중 | PostToolUse 훅 맥락 | `turn/steer` |
-| 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 데몬이 `loom guard`로 알린 셸과 그 자손 프로세스를 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` |
-| 조정·중단 | 쉬는 중 | 큐와 같다 | 큐와 같다 |
+| 방식 | 받는 노드 상태 | Claude Code | Codex | OpenCode 2 |
+|---|---|---|---|---|
+| 큐 | `loom wait` 안 | `loom wait`가 본문을 돌려준다 | 같다 | 같다 |
+| 큐 | 일하는 중 | Stop 훅이 `block`과 본문을 돌려준다. 같은 턴을 이어 간다 | `turn/completed` 뒤에 `turn/start` | 입력함 `queue`. 지금 실행이 끝난 뒤 같은 실행에 들어간다 |
+| 큐 | 쉬는 중 | 다음 턴의 UserPromptSubmit 훅 맥락. 부모가 결과를 기다리면 백그라운드 `loom wait`로 깨어난다 | `turn/start`로 깨운다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 | 입력함 `queue`가 새 실행을 시작한다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 |
+| 조정 | 일하는 중 | PostToolUse 훅 맥락 | `turn/steer` | 입력함 `steer`. 다음 단계 사이(도구 호출 뒤)에 들어간다 |
+| 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 데몬이 `loom guard`로 알린 셸과 그 자손 프로세스를 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` | 세션의 셸과 그 자손을 끝내고 `POST …/interrupt` 뒤에 입력함 `steer` |
+| 조정·중단 | 쉬는 중 | 큐와 같다 | 큐와 같다 | 입력함 `steer`가 새 실행을 시작한다 |
 
 - Claude: 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 불린 훅이 그 상태다. 훅마다 꺼내는 방식: UserPromptSubmit·Stop은 모두, PostToolUse는 조정, PreToolUse·PostToolUseFailure는 중단.
 - 훅 한 번에 꺼내는 본문 합은 8KB 이하다. Claude는 `additionalContext` 한 개를 10,000자에서 자른다. 남은 메시지는 다음 훅이 꺼낸다.
@@ -190,6 +197,10 @@
 - Codex: `turn/start`를 보낸 뒤 상태 알림이 오기 전까지는 일하는 중으로 본다. 그 사이에 큐로 턴을 하나 더 시작하지 않는다.
 - Codex: `turn/start`가 막 시작된 다른 턴과 겹쳐 실패하면 본문을 `turn/steer`로 넣는다. `turn/steer`가 이미 끝난 턴을 겨눠 실패하면(`expectedTurnId` 불일치) `turn/start`로 보낸다. 꺼낸 메시지를 잃지 않는다.
 - Codex 중단: 데몬은 app-server 아래의 세션 리더(셸 명령)와 그 자손을 먼저 끝낸다. MCP 서버와 `codex-code-mode-host`는 서버 세션 안에 있어 남는다. 그 뒤 지금 턴에 `turn/interrupt`를 보내고 `turn/start`로 본문을 보낸다.
+- OpenCode 2: 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 서버 입력함이 상태에 맞게 넣는다. 전달 작업은 노드마다 하나다. 메일함이 바뀌면 조정·중단을 먼저 꺼내고, 없으면 큐를 꺼낸다. 한 번에 꺼내는 본문 합은 다른 프로필과 같은 8KB다.
+- OpenCode 2: 메시지 id는 데몬이 만든다. 서버는 같은 id를 한 번만 넣는다. 넣기가 실패하면 같은 id로 1초 간격, 5번까지 다시 넣는다. 그래서 다시 넣어도 두 번 들어가지 않는다. 넣기가 성공한 뒤 받음을 확인한다. 5번 모두 실패하면 확인하지 않아 데몬이 `REDELIVER_AFTER` 뒤에 다시 꺼낸다.
+- OpenCode 2 중단: 데몬은 서버 셸 목록(`GET /api/shell`)에서 그 세션의 셸 PID를 읽는다. 서버의 자손인 셸과 그 자손을 끝낸 뒤 메시지를 넣는다. 전달 작업은 중단을 꺼내면 `interrupt`를 보낸 뒤 본문을 입력함 `steer`로 넣는다. `interrupt`는 셸의 프로세스 그룹만 끝낸다. 셸보다 먼저 보내면 셸이 목록에서 빠지고, `setsid` 자손은 부모를 잃어 찾을 수 없다.
+- OpenCode 2: 중단 전에 입력함에 있던 큐는 중단 본문의 실행이 끝난 뒤 들어간다(실측).
 
 ### 맥락과 크기
 
@@ -225,7 +236,7 @@
 ## 기술 스택
 
 - `loom` Rust 실행 파일 하나가 데몬과 모든 명령을 맡는다. Windows, macOS, Linux에서 같은 코드가 돈다.
-- 데몬: `tokio`, `axum`, `portable-pty`(Windows ConPTY 포함), `rusqlite`, `rust-embed`, `sysinfo`(중단할 셸의 프로세스 나무), `tokio-tungstenite`(Codex app-server 연결), `typify`(빌드 때 Codex 스키마에서 타입 생성)
+- 데몬: `tokio`, `axum`, `portable-pty`(Windows ConPTY 포함), `rusqlite`, `rust-embed`, `sysinfo`(중단할 셸의 프로세스 나무), `tokio-tungstenite`(Codex app-server 연결), `typify`(빌드 때 Codex 스키마에서 타입 생성), `ureq`·`base64`(OpenCode 2 서버 HTTP와 Basic 인증)
 - 화면: React, React Flow, xterm.js. 빌드한 화면을 실행 파일에 넣는다. 사람은 브라우저로 연다. Tauri는 지금 만들지 않는다.
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
 - 워크트리와 커밋 그래프는 `git` CLI를 부른다.
@@ -241,17 +252,19 @@
 |---|---|
 | 상호작용 | 화면, CLI 명령(`src/cli.rs`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다 |
-| 기능 | 그래프(`src/graph/`: 노드 목록과 메일함), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 워크트리, 커밋 그래프(`src/commit_graph.rs`: `git log`·`git worktree list` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
+| 기능 | 그래프(`src/graph/`: 노드 목록과 메일함), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 워크트리, 커밋 그래프(`src/commit_graph.rs`: `git log`·`git worktree list` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기) |
 
-- 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `AgentId`, `Profile`, `AccountId`)만 쓴다.
+- 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `AgentId`, `Profile`, `Provider`, `AccountId`, `Delivery`, `Kind`)만 쓴다.
+- `Profile`은 메시지 연동이고 `Provider`는 계정이다. OpenCode 2는 프로필은 있고 공급자는 없다.
+- 프로필의 전달 작업은 그래프를 모른다. 데몬이 노드 메일함을 `profile::Mailbox`(꺼내기와 변화 알림)로 넘긴다.
 - 노드 호스트는 키에 대해 제네릭이다. 노드 PTY(`NodeId`)와 로그인 창 PTY(`LoginId`)가 같은 코드를 쓴다.
 - 노드 목록과 메일함은 한 모듈이다. 부모-자식 규칙(깊이, 이름, 메시지 방향)이 둘을 함께 보고, `done`처럼 둘을 한 트랜잭션에서 바꿔야 하기 때문이다.
 - 새 테이블은 `src/db.rs`의 `STEPS` 끝에 항목 하나로 더한다. 마이그레이션은 `rusqlite_migration`(`PRAGMA user_version`)이 한다.
 
 ## 실측 근거
 
-2026-10-19 Claude Code 2.1.303, Codex 0.159.2에서 확인했다.
+2026-10-19 Claude Code 2.1.303, Codex 0.159.2, OpenCode 2.0.32에서 확인했다.
 
 - Claude `--settings` 훅: Stop `block`, UserPromptSubmit·PostToolUse 맥락, PreToolUse `updatedInput`이 모두 동작했다.
 - Claude 중단: 90초 셸 명령을 8초에 끊었다. PostToolUseFailure 훅이 본문을 전했고, 전체가 15초에 끝났다.
@@ -277,12 +290,18 @@
 - Codex 허용 규칙(`prefix_rule`, `allow`)에 맞은 명령은 샌드박스 밖에서 돌았다. 규칙은 설정 폴더의 `rules/`에서만 읽고 `-c`로 넘길 수 없다. 시스템 기본 계정의 설정 폴더는 사용자의 `~/.codex`라 이 방법을 쓰지 않았다.
 - 개발 컨테이너에 `bubblewrap`을 넣어도 Docker 기본 seccomp가 사용자 네임스페이스를 막아 Codex 샌드박스가 동작하지 않았다. `seccomp=unconfined`이면 동작했다.
 - `--listen ws://`로 띄운 app-server는 stdin이 닫혀도, TUI와 데몬 연결이 끊겨도 끝나지 않았다. `codex` wrapper(node)에 보낸 TERM은 실행 파일까지 끝냈다.
+- OpenCode 2 `serve`: stdout에 `server listening on http://127.0.0.1:<포트>`를 쓴다. API 명세는 `/openapi.json`이다. `OPENCODE_PASSWORD`를 주면 Basic `opencode:<값>`만 받았다. Bearer와 쿼리 값은 401이었다.
+- OpenCode 2 입력함: `steer`는 다음 단계 사이에, `queue`는 지금 실행이 끝난 뒤에 들어갔다. 쉬는 세션에서는 둘 다 새 실행을 시작했다. 같은 메시지 id로 두 번 보내면 한 번만 들어갔다. 세션 지시 항목은 모델이 읽었다.
+- OpenCode 2 `interrupt`는 셸의 프로세스 그룹을 끝냈다. `setsid`로 띄운 자손은 남았다.
+- loom OpenCode 2 프로필(Claude 부모 → OpenCode 2 자식): `loom spawn --agent opencode2`가 동작했다. 조정은 보낸 뒤 3초에, 자식의 `sleep 20`이 끝난 단계 사이에 들어갔다. 큐는 입력함에 남았다가 중단 본문의 실행이 끝난 뒤 들어갔다. 중단은 `sh -c 'setsid sleep 601 & sleep 600'`의 두 `sleep`을 `loom interrupt`를 부른 뒤 0.09초 안에 끝냈다. 끊긴 실행 뒤 0.1초 만에 중단 본문이 들어갔다. 자식 `done` 뒤 쉬던 Claude 부모가 백그라운드 `loom wait`로 깨어났다. 승인 창은 뜨지 않았다.
+- loom OpenCode 2 권한(컨테이너 안 임시 설정 `OPENCODE_CONFIG_CONTENT`로 `bash: ask`): 세션 규칙 없이 만든 세션은 셸 명령에 `shell` 승인 요청을 만들었다. loom 노드 세션은 `*` 허용 규칙으로 셸 명령 3개를 승인 요청 없이 실행했다. 셸의 `LOOM_URL`은 노드 문(`127.76.77.1`)이었고 `loom spawn`·자식 `done` 깨우기가 동작했다. 중단은 데몬이 셸을 먼저 끝내 두 `sleep`이 `loom interrupt`가 돌아오기 전(0.11초)에 끝났다. 중단 본문은 1.3초 뒤 실행됐다.
+- loom OpenCode 2 프로필(OpenCode 2 부모 → Claude 자식): `loom spawn --agent claude`가 동작했다. 자식 `done` 본문이 큐로 들어가 쉬던 부모 세션이 0.02초 만에 새 실행을 시작했다. 승인 창은 뜨지 않았다.
 
 ## 아직 확인하지 않은 것
 
 - Windows에서 `loom guard`가 자기를 부른 셸을 찾는 방법. 지금 Windows의 `loom guard`는 아무것도 하지 않아 중단이 셸 명령을 끝내지 못한다. 첫 Windows 구현 때 확인한다.
 - macOS에서 노드 문(`127.76.77.1`). macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없어 듣지 못할 수 있다. 그러면 Codex 노드는 loom 명령마다 승인을 묻는다. 첫 macOS 구현 때 확인한다.
-- macOS·Windows에서 데몬이 신호로 죽으면 Codex app-server가 남는지. Linux만 `PR_SET_PDEATHSIG`로 막았다. Windows에서 `sysinfo`가 세션 ID를 주는지도 확인하지 않았다. 주지 않으면 Codex 중단이 셸을 끝내지 못한다. 첫 macOS·Windows 구현 때 확인한다.
+- macOS·Windows에서 데몬이 신호로 죽으면 Codex app-server와 OpenCode 2 서버가 남는지. Linux만 `PR_SET_PDEATHSIG`로 막았다. Windows에서 `sysinfo`가 세션 ID를 주는지도 확인하지 않았다. 주지 않으면 Codex 중단이 셸을 끝내지 못한다. 첫 macOS·Windows 구현 때 확인한다.
 - Codex app-server를 unix 소켓으로 쓸 때의 메시지 틀. 지금은 `ws://127.0.0.1`만 쓴다.
 
 ## 후속

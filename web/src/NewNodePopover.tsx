@@ -26,7 +26,7 @@ export function NewNodePopover(props: {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const agent = props.agents.find((a) => a.id === choice);
-  const account = agent?.profile && props.accounts ? activeAccount(props.accounts, props.settings, agent.profile) : undefined;
+  const account = agent?.provider && props.accounts ? activeAccount(props.accounts, props.settings, agent.provider) : undefined;
 
   async function submit(e: FormEvent) {
     e.preventDefault();

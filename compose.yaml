@@ -1,4 +1,4 @@
-# 개발 환경. 호스트에는 Rust·Node를 설치하지 않는다. Claude Code·Codex 버전은 docs/design.md 「실측 근거」와 같다.
+# 개발 환경. 호스트에는 Rust·Node를 설치하지 않는다. Claude Code·Codex·OpenCode 2 버전은 docs/design.md 「실측 근거」와 같다.
 # 빌드 산출물과 패키지 캐시는 볼륨에 둔다. 저장소가 있는 /mnt/c(9p)에서 빌드하면 느리다.
 services:
   dev:
@@ -14,10 +14,11 @@ services:
         COPY --from=node:24-trixie-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
         RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
          && rustup component add clippy rustfmt \
-         && npm install -g @anthropic-ai/claude-code@2.1.303 @openai/codex@0.159.2 \
+         && npm install -g @anthropic-ai/claude-code@2.1.303 @openai/codex@0.159.2 @opencode/cli@2.0.32 \
          && useradd -m -u 1000 -d $$HOST_HOME dev \
          && mkdir -p /cache/cargo /work/target /work/web/node_modules $$HOST_HOME/.loom \
-         && chown -R dev /cache /work $$HOST_HOME/.loom
+              $$HOST_HOME/.config $$HOST_HOME/.local/share $$HOST_HOME/.local/state \
+         && chown -R dev /cache /work $$HOST_HOME/.loom $$HOST_HOME/.config $$HOST_HOME/.local
         ENV CARGO_HOME=/cache/cargo
         USER dev
     image: loom-dev
@@ -35,6 +36,9 @@ services:
       - ${HOME}/.claude:${HOME}/.claude
       - ${HOME}/.claude.json:${HOME}/.claude.json
       - ${HOME}/.codex:${HOME}/.codex
+      - ${HOME}/.config/opencode:${HOME}/.config/opencode
+      - ${HOME}/.local/share/opencode:${HOME}/.local/share/opencode
+      - ${HOME}/.local/state/opencode:${HOME}/.local/state/opencode
       - ${HOME}/.agents:${HOME}/.agents:ro
       - ${HOME}/.gitconfig:${HOME}/.gitconfig:ro
     # 노드의 claude가 사용자 설정의 ANTHROPIC_BASE_URL(호스트 127.0.0.1 프록시)에 닿아야 한다.

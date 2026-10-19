@@ -25,8 +25,7 @@ use protocol::{
 /// `src/profile/codex/schema/`를 만든 Codex 버전.
 pub const PINNED_VERSION: &str = "0.159.2";
 /// 새 턴 입력 하나에 넣는 본문 합의 상한. 첫 메시지는 늘 넣는다. 남은 메시지는 다음 턴에 들어간다.
-/// Claude 훅 상한(`claude::HOOK_LIMIT_BYTES`)과 같게 둬 두 프로필의 메시지 묶음 크기를 맞춘다.
-pub const INPUT_LIMIT_BYTES: usize = super::claude::HOOK_LIMIT_BYTES;
+pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 
 const USAGE: &str = "\
 너는 loom 그래프의 노드다. loom은 부모·자식 노드 사이 메시지를 나른다. 명령은 셸로 부른다.
@@ -72,12 +71,7 @@ pub fn sandbox_args(version_output: &str, daemon: IpAddr) -> Vec<String> {
 
 /// 데몬 PATH의 `codex --version` 출력. 설치하지 않았으면 없다.
 pub fn installed_version() -> Option<String> {
-    let out = std::process::Command::new("codex")
-        .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    super::installed_version("codex")
 }
 
 /// `codex --version` 출력(예: `codex-cli 0.159.2`)이 고정 버전과 다르면 화면에 보일 경고다.
@@ -373,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn args_pass_usage_as_a_toml_string_and_version_warning_names_both_versions() {
+    fn args_pass_usage_as_a_toml_string() {
         let args = args("ws://127.0.0.1:1");
         assert_eq!(args[..3], ["--remote", "ws://127.0.0.1:1", "-c"]);
         let (key, value) = args[3].split_once('=').unwrap();

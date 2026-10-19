@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 
 use crate::graph::{Delivery, Kind};
 
-/// 훅 한 번에 넘기는 본문 합의 상한. Claude는 `additionalContext` 한 개를 10,000자에서 자르고 파일로 돌린다.
-pub const HOOK_LIMIT_BYTES: usize = 8 * 1024;
+/// 훅 한 번에 넘기는 본문 합의 상한.
+pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 /// `loom hook`이 데몬 응답을 기다리는 상한. 훅 `timeout`(`HOOK_TIMEOUT_SECS`)보다 짧아야 한다.
 /// 그래야 Claude가 훅을 먼저 끝내 꺼낸 본문을 버리는 일이 드물다. 버려도 받음 확인 전이므로 데몬이 다시 준다.
 pub const HOOK_HTTP_TIMEOUT_SECS: u64 = 5;

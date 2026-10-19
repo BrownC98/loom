@@ -1,5 +1,5 @@
 //! 기반: OS 프로세스 나무. 중단할 셸과 그 자손을 찾고 끝낸다.
-//! 노드 호스트(Claude 셸)와 Codex app-server(Codex 셸)가 함께 쓴다.
+//! 노드 호스트(Claude 셸), Codex app-server(Codex 셸), OpenCode 2 서버(OpenCode 셸)가 함께 쓴다.
 
 use std::collections::HashMap;
 
@@ -59,6 +59,22 @@ impl Snapshot {
                     .is_some_and(|p| p.kill())
             })
             .count()
+    }
+}
+
+/// 데몬이 어떻게 끝나든(신호, 충돌) 이 자식도 TERM을 받는다. 데몬이 노드마다 띄우는 서버에 쓴다.
+/// 서버는 노드 PTY와 달리 데몬과의 끊김을 알 길이 없다.
+/// 신호는 띄운 스레드가 끝날 때 간다. 노드는 tokio 작업 스레드에서 띄우고, 그 스레드는 데몬이 끝날 때까지 산다.
+#[cfg(target_os = "linux")]
+pub fn end_with_daemon(cmd: &mut tokio::process::Command) {
+    // SAFETY: fork 뒤 exec 전에 async-signal-safe인 prctl 하나만 부른다.
+    unsafe {
+        cmd.pre_exec(
+            || match libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) {
+                -1 => Err(std::io::Error::last_os_error()),
+                _ => Ok(()),
+            },
+        );
     }
 }
 

@@ -17,11 +17,11 @@ use ts_rs::TS;
 use super::{ApiError, App, internal, serve_pty};
 use crate::accounts::AccountId;
 use crate::node_host::NodeHost;
-use crate::profile::{self, AgentView, Profile};
+use crate::profile::{self, AgentView, Provider};
 use crate::settings::{SettingsView, Theme};
 use crate::usage::{self, Usage};
 
-const PROVIDERS: [Profile; 2] = [Profile::Claude, Profile::Codex];
+const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -48,7 +48,7 @@ pub struct Logins {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct AccountView {
-    pub provider: Profile,
+    pub provider: Provider,
     /// 없으면 시스템 기본(`~/.claude`·`~/.codex`)이다. 쓰는 계정은 설정(`SettingsView`)이 정한다.
     pub id: Option<AccountId>,
     pub usage: Usage,
@@ -74,13 +74,13 @@ pub fn routes() -> Router<Arc<App>> {
 }
 
 /// 부를 때마다 데몬 PATH를 다시 훑는다. 화면의 [다시 찾기]는 이것을 다시 부른다.
-/// Codex 줄에는 데몬이 시작할 때 본 버전 경고를 붙인다.
+/// 서버를 쓰는 프로필(Codex, OpenCode 2) 줄에는 데몬이 시작할 때 본 버전 경고를 붙인다.
 async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
     let mut agents = profile::agents();
     for agent in &mut agents {
-        if agent.profile == Some(Profile::Codex) {
-            agent.version_warning = app.codex_warning.clone();
-        }
+        agent.version_warning = agent
+            .profile
+            .and_then(|p| app.version_warnings.get(&p).cloned());
     }
     Json(agents)
 }
@@ -146,7 +146,7 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
 
 async fn remove_account(
     State(app): State<Arc<App>>,
-    Path((provider, id)): Path<(Profile, AccountId)>,
+    Path((provider, id)): Path<(Provider, AccountId)>,
 ) -> Result<Json<()>, ApiError> {
     app.accounts
         .remove(provider, &id)
@@ -157,7 +157,7 @@ async fn remove_account(
 /// 로그인 창을 띄운다. 새 계정이면 로그인이 실패하거나 창을 닫았을 때 만든 폴더를 지운다.
 async fn login(
     State(app): State<Arc<App>>,
-    Path(provider): Path<Profile>,
+    Path(provider): Path<Provider>,
     Json(req): Json<Login>,
 ) -> Result<Json<LoginId>, ApiError> {
     let created = req.id.is_none();

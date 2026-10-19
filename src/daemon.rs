@@ -34,7 +34,8 @@ use crate::graph::{
 };
 use crate::node_host::NodeHost;
 use crate::profile::codex::{self, Status};
-use crate::profile::{self, AgentId, Profile, Start};
+use crate::profile::opencode2;
+use crate::profile::{self, AgentId, Mailbox, Profile, Remote, Start};
 use crate::settings::Settings;
 
 #[derive(Embed)]
@@ -52,8 +53,10 @@ struct App {
     tokens: Mutex<HashMap<String, NodeId>>,
     /// Codex 노드마다 그 노드가 붙은 app-server. 노드 프로세스가 끝나면 지우고 끝낸다.
     codex: Mutex<HashMap<NodeId, Arc<CodexServer>>>,
-    /// 설치한 Codex 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
-    codex_warning: Option<String>,
+    /// OpenCode 2 노드마다 그 노드의 서버와 세션. 노드 프로세스가 끝나면 지우고 끝낸다.
+    opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
+    /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
+    version_warnings: HashMap<Profile, String>,
     /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 비어 있다.
     codex_sandbox: Vec<String>,
     /// 노드 안에서 `loom` 명령이 쓰는 노드 문 주소(`LOOM_URL`).
@@ -166,7 +169,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         logins: settings::Logins::default(),
         tokens: Mutex::default(),
         codex: Mutex::default(),
-        codex_warning: codex_version.as_deref().and_then(codex::version_warning),
+        opencode2: Mutex::default(),
+        version_warnings: profile::version_warnings(codex_version.as_deref()),
         codex_sandbox: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
             _ => Vec::new(),
@@ -256,7 +260,12 @@ async fn commits(State(app): State<Arc<App>>) -> Result<Json<CommitGraph>, ApiEr
 impl App {
     /// 노드 프로세스를 띄운다. 끝나면 그래프에 알린다. Codex 노드면 메일함을 그 app-server로 넘기기 시작한다.
     fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
-        let Prepared { cmd, token, codex } = prepared;
+        let Prepared {
+            cmd,
+            token,
+            codex,
+            opencode2,
+        } = prepared;
         // 노드가 뜨자마자 데몬을 불러도 받도록 토큰을 먼저 넣는다.
         self.tokens.lock().unwrap().insert(token.clone(), id);
         let app = self.clone();
@@ -264,6 +273,9 @@ impl App {
             .spawn(id, cmd, move |code| {
                 if let Some(server) = app.codex.lock().unwrap().remove(&id) {
                     server.stop();
+                }
+                if let Some(node) = app.opencode2.lock().unwrap().remove(&id) {
+                    node.stop();
                 }
                 // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
                 let _ = app.graph.exited(id, code);
@@ -274,6 +286,14 @@ impl App {
         if let Some(server) = codex {
             self.codex.lock().unwrap().insert(id, server.clone());
             tokio::spawn(deliver_to_codex(self.clone(), id, server));
+        }
+        if let Some(node) = opencode2 {
+            self.opencode2.lock().unwrap().insert(id, node.clone());
+            let mailbox = NodeMailbox {
+                graph: self.graph.clone(),
+                node: id,
+            };
+            tokio::spawn(async move { node.run(mailbox).await });
         }
         Ok(())
     }
@@ -292,15 +312,18 @@ impl App {
     }
 
     /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.
+    /// OpenCode 2면 노드 서버와 세션을 먼저 띄운다.
     async fn prepare(&self, start: &Start) -> Result<Prepared, ApiError> {
-        let provider = start.profile();
+        let profile = start.profile();
+        let provider = profile.and_then(Profile::provider);
         let settings = self.settings.get().map_err(internal)?;
         let account = provider.and_then(|p| settings.account(p));
         let token = new_token().map_err(internal)?;
         let env = self.node_env(&token);
-        let codex = match provider {
+        let cwd = std::path::Path::new(&self.repo.path);
+        let codex = match profile {
             Some(Profile::Codex) => {
-                let home = self.accounts.config_dir(Profile::Codex, account);
+                let home = self.accounts.config_dir(profile::Provider::Codex, account);
                 let server = CodexServer::start(home.as_deref(), &env, &self.codex_sandbox)
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
@@ -308,17 +331,37 @@ impl App {
             }
             _ => None,
         };
-        let url = codex.as_ref().map(|s| s.url());
-        let mut cmd = profile::command(start, std::path::Path::new(&self.repo.path), url)
+        let opencode2 = match profile {
+            Some(Profile::OpenCode2) => {
+                let password = new_token().map_err(internal)?;
+                let node = opencode2::Node::start(cwd, &env, password)
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+                Some(Arc::new(node))
+            }
+            _ => None,
+        };
+        let remote = match (&codex, &opencode2) {
+            (Some(server), _) => Some(Remote::Codex { url: server.url() }),
+            (_, Some(node)) => Some(node.remote()),
+            _ => None,
+        };
+        let discard = discarder(&codex, &opencode2);
+        let mut cmd = profile::command(start, cwd, remote)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))
-            .inspect_err(|_| discard(&codex))?;
+            .inspect_err(|_| discard())?;
         for (key, value) in &env {
             cmd.env(key, value);
         }
         if let Some(provider) = provider {
             self.accounts.apply(&mut cmd, provider, account);
         }
-        Ok(Prepared { cmd, token, codex })
+        Ok(Prepared {
+            cmd,
+            token,
+            codex,
+            opencode2,
+        })
     }
 
     /// 노드 안의 `loom` 명령이 쓰는 환경. Codex는 셸을 TUI가 아니라 app-server 아래에서 띄우므로 둘 다 받는다.
@@ -332,18 +375,62 @@ impl App {
     }
 }
 
-/// 띄울 준비가 된 노드. Codex 노드면 TUI가 붙을 app-server가 이미 떠 있다.
+/// 띄울 준비가 된 노드. Codex·OpenCode 2 노드면 TUI가 붙을 서버가 이미 떠 있다.
 struct Prepared {
     cmd: portable_pty::CommandBuilder,
     /// 노드가 데몬을 부를 때 내는 토큰. 노드가 뜨기 직전에 `tokens`에 넣는다.
     token: String,
     codex: Option<Arc<CodexServer>>,
+    opencode2: Option<Arc<opencode2::Node>>,
 }
 
-/// 노드를 만들지 못했으면 미리 띄운 app-server를 끝낸다.
-fn discard(prepared: &Option<Arc<CodexServer>>) {
-    if let Some(server) = prepared {
-        server.stop();
+impl Prepared {
+    /// 노드를 만들지 못했으면 미리 띄운 서버를 끝내는 함수. 노드를 띄우는 클로저가 `self`를 가져가므로 따로 만든다.
+    fn discarder(&self) -> impl Fn() + use<> {
+        discarder(&self.codex, &self.opencode2)
+    }
+}
+
+fn discarder(
+    codex: &Option<Arc<CodexServer>>,
+    opencode2: &Option<Arc<opencode2::Node>>,
+) -> impl Fn() + use<> {
+    let (codex, opencode2) = (codex.clone(), opencode2.clone());
+    move || {
+        if let Some(server) = &codex {
+            server.stop();
+        }
+        if let Some(node) = &opencode2 {
+            node.stop();
+        }
+    }
+}
+
+/// 그래프에 있는 노드 하나의 메일함. 프로필의 전달 작업에 넘긴다.
+struct NodeMailbox {
+    graph: Arc<Graph>,
+    node: NodeId,
+}
+
+impl Mailbox for NodeMailbox {
+    fn changed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        let mut changed = Box::pin(self.graph.mail_changed());
+        changed.as_mut().enable();
+        // 확인 없이 둔 메시지는 새 메시지 알림 없이 다시 꺼낼 수 있게 된다.
+        Box::pin(async move {
+            let _ = tokio::time::timeout(REDELIVER_AFTER, changed).await;
+        })
+    }
+
+    fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String> {
+        self.graph
+            .take(self.node, kinds, limit_bytes)
+            .map_err(|e| e.to_string())
+    }
+
+    fn ack(&self, taken: &[Delivery]) -> Result<(), String> {
+        let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
+        self.graph.ack(self.node, &ids).map_err(|e| e.to_string())
     }
 }
 
@@ -396,6 +483,7 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
     }
 }
 
+/// 노드 토큰과 OpenCode 2 서버 비밀번호. 128비트 무작위 값의 16진수다.
 fn new_token() -> Result<String, String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
@@ -419,12 +507,12 @@ async fn create_node(
     Json(req): Json<NewNode>,
 ) -> Result<Json<NodeId>, ApiError> {
     let prepared = app.prepare(&req.start).await?;
-    let codex = prepared.codex.clone();
+    let discard = prepared.discarder();
     let id = app
         .graph
         .add_root(&req.name, req.start.agent(), |id| app.launch(id, prepared))
         .map_err(refused)
-        .inspect_err(|_| discard(&codex))?;
+        .inspect_err(|_| discard())?;
     Ok(Json(id))
 }
 
@@ -469,14 +557,14 @@ async fn agent_spawn(
         SpawnRun::Command(line) => (Start::Command { line }, req.brief),
     };
     let prepared = app.prepare(&start).await?;
-    let codex = prepared.codex.clone();
+    let discard = prepared.discarder();
     let id = app
         .graph
         .add_child(parent, &req.name, start.agent(), &queued_brief, |id| {
             app.launch(id, prepared)
         })
         .map_err(refused)
-        .inspect_err(|_| discard(&codex))?;
+        .inspect_err(|_| discard())?;
     Ok(Json(id))
 }
 
@@ -493,7 +581,7 @@ async fn agent_send(
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!(
-                    "{}: 조정·중단을 받지 못하는 노드다(Claude·Codex 노드만 받는다). `loom send`로 보낸다.",
+                    "{}: 조정·중단을 받지 못하는 노드다(Claude·Codex·OpenCode 2 노드만 받는다). `loom send`로 보낸다.",
                     req.to
                 ),
             ));
@@ -508,6 +596,12 @@ async fn agent_send(
                     let server = app.codex.lock().unwrap().get(&to).cloned();
                     if let Some(server) = server {
                         server.stop_shells();
+                    }
+                }
+                Profile::OpenCode2 => {
+                    let node = app.opencode2.lock().unwrap().get(&to).cloned();
+                    if let Some(node) = node {
+                        node.stop_shells().await;
                     }
                 }
             }

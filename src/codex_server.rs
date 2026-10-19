@@ -72,8 +72,9 @@ impl CodexServer {
         if let Some(dir) = home {
             cmd.env("CODEX_HOME", dir);
         }
+        // `codex` wrapper는 TERM을 실행 파일에 넘긴다. 표준 입력이 닫혀도 서버는 끝나지 않는다(실측).
         #[cfg(target_os = "linux")]
-        end_with_daemon(&mut cmd);
+        crate::process_tree::end_with_daemon(&mut cmd);
         let mut child = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -189,22 +190,6 @@ impl CodexServer {
         }
         // 이미 끝났으면 실패한다. 할 일이 없다.
         let _ = self.child.lock().unwrap().start_kill();
-    }
-}
-
-/// 데몬이 어떻게 끝나든(신호, 충돌) 서버도 TERM을 받는다. `codex` wrapper는 TERM을 실행 파일에 넘긴다.
-/// 표준 입력이 닫혀도 서버는 끝나지 않는다(실측). 노드 PTY와 달리 끊김을 알 길이 이것뿐이다.
-/// 신호는 띄운 스레드가 끝날 때 간다. 노드는 tokio 작업 스레드에서 띄우고, 그 스레드는 데몬이 끝날 때까지 산다.
-#[cfg(target_os = "linux")]
-fn end_with_daemon(cmd: &mut Command) {
-    // SAFETY: fork 뒤 exec 전에 async-signal-safe인 prctl 하나만 부른다.
-    unsafe {
-        cmd.pre_exec(
-            || match libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) {
-                -1 => Err(std::io::Error::last_os_error()),
-                _ => Ok(()),
-            },
-        );
     }
 }
 

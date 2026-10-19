@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
-import type { Profile } from './gen/Profile';
+import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 
@@ -15,8 +15,8 @@ export type Usage = {
 };
 
 /** 화면 맨 아래에 늘 보이는 줄: 공급자마다 계정과 남은 사용량(목업 1·2번). [설정]은 사이드바에 있다(graph-panels.html 1번). */
-export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Profile, id: AccountId | null) => void; onManage: () => void }) {
-  const [open, setOpen] = useState<Profile | null>(null);
+export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void }) {
+  const [open, setOpen] = useState<Provider | null>(null);
   const bar = useRef<HTMLElement>(null);
   const { usage } = props;
 
@@ -33,7 +33,7 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
     };
   }, [open]);
 
-  const toggle = (provider: Profile) => {
+  const toggle = (provider: Provider) => {
     if (open === provider) return setOpen(null);
     setOpen(provider);
     usage.refresh();
@@ -88,7 +88,7 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
   );
 }
 
-function UsagePopover(props: { provider: Profile; accounts: AccountView[]; active: AccountView | undefined; usage: Usage; onChoose: (id: AccountId | null) => void; onManage: () => void }) {
+function UsagePopover(props: { provider: Provider; accounts: AccountView[]; active: AccountView | undefined; usage: Usage; onChoose: (id: AccountId | null) => void; onManage: () => void }) {
   const { active, usage } = props;
   const label = PROVIDER_LABEL[props.provider];
   const problem = active && limitsProblem(active.usage.limits);

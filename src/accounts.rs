@@ -10,7 +10,7 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::Profile;
+use crate::profile::Provider;
 
 /// 만든 시각(밀리초)의 16진수 16자리. 이름 순서가 만든 순서다.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
@@ -36,7 +36,7 @@ impl Accounts {
     }
 
     /// 만든 순서로 돌려준다.
-    pub fn list(&self, provider: Profile) -> io::Result<Vec<AccountId>> {
+    pub fn list(&self, provider: Provider) -> io::Result<Vec<AccountId>> {
         let dir = self.provider_dir(provider);
         let entries = match std::fs::read_dir(&dir) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -53,7 +53,7 @@ impl Accounts {
         Ok(ids)
     }
 
-    pub fn create(&self, provider: Profile) -> io::Result<AccountId> {
+    pub fn create(&self, provider: Provider) -> io::Result<AccountId> {
         let millis = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(io::Error::other)?
@@ -65,32 +65,32 @@ impl Accounts {
         Ok(id)
     }
 
-    pub fn remove(&self, provider: Profile, id: &AccountId) -> io::Result<()> {
+    pub fn remove(&self, provider: Provider, id: &AccountId) -> io::Result<()> {
         std::fs::remove_dir_all(self.dir(provider, id)?)
     }
 
     /// CLI가 읽을 로그인 폴더. `None`이거나 폴더가 사라졌으면 시스템 기본이다.
-    pub fn config_dir(&self, provider: Profile, id: Option<&AccountId>) -> Option<PathBuf> {
+    pub fn config_dir(&self, provider: Provider, id: Option<&AccountId>) -> Option<PathBuf> {
         id.and_then(|id| self.dir(provider, id).ok())
             .filter(|dir| dir.is_dir())
     }
 
     /// 로그인 폴더를 CLI에 알리는 환경 변수를 `cmd`에 넣는다. 시스템 기본이면 넣지 않는다.
-    pub fn apply(&self, cmd: &mut CommandBuilder, provider: Profile, id: Option<&AccountId>) {
+    pub fn apply(&self, cmd: &mut CommandBuilder, provider: Provider, id: Option<&AccountId>) {
         if let Some(dir) = self.config_dir(provider, id) {
             cmd.env(config_env(provider), dir);
         }
     }
 
     /// 그 계정 폴더로 CLI 로그인을 띄우는 명령.
-    pub fn login(&self, provider: Profile, id: &AccountId) -> io::Result<CommandBuilder> {
+    pub fn login(&self, provider: Provider, id: &AccountId) -> io::Result<CommandBuilder> {
         let mut cmd = match provider {
-            Profile::Claude => {
+            Provider::Claude => {
                 let mut cmd = CommandBuilder::new("claude");
                 cmd.args(["auth", "login"]);
                 cmd
             }
-            Profile::Codex => {
+            Provider::Codex => {
                 let mut cmd = CommandBuilder::new("codex");
                 cmd.arg("login");
                 cmd
@@ -101,23 +101,23 @@ impl Accounts {
         Ok(cmd)
     }
 
-    fn provider_dir(&self, provider: Profile) -> PathBuf {
+    fn provider_dir(&self, provider: Provider) -> PathBuf {
         self.root.join(match provider {
-            Profile::Claude => "claude",
-            Profile::Codex => "codex",
+            Provider::Claude => "claude",
+            Provider::Codex => "codex",
         })
     }
 
-    fn dir(&self, provider: Profile, id: &AccountId) -> io::Result<PathBuf> {
+    fn dir(&self, provider: Provider, id: &AccountId) -> io::Result<PathBuf> {
         Ok(self.provider_dir(provider).join(id.checked()?))
     }
 }
 
 /// CLI가 로그인 폴더를 고르는 환경 변수.
-fn config_env(provider: Profile) -> &'static str {
+fn config_env(provider: Provider) -> &'static str {
     match provider {
-        Profile::Claude => "CLAUDE_CONFIG_DIR",
-        Profile::Codex => "CODEX_HOME",
+        Provider::Claude => "CLAUDE_CONFIG_DIR",
+        Provider::Codex => "CODEX_HOME",
     }
 }
 
@@ -129,13 +129,13 @@ mod tests {
     fn create_list_remove() {
         let tmp = tempfile::tempdir().unwrap();
         let accounts = Accounts::new(tmp.path().to_path_buf());
-        assert!(accounts.list(Profile::Claude).unwrap().is_empty());
-        let id = accounts.create(Profile::Claude).unwrap();
-        assert_eq!(accounts.list(Profile::Claude).unwrap(), vec![id.clone()]);
-        assert!(accounts.list(Profile::Codex).unwrap().is_empty());
-        assert!(accounts.config_dir(Profile::Claude, Some(&id)).is_some());
-        accounts.remove(Profile::Claude, &id).unwrap();
-        assert!(accounts.config_dir(Profile::Claude, Some(&id)).is_none());
+        assert!(accounts.list(Provider::Claude).unwrap().is_empty());
+        let id = accounts.create(Provider::Claude).unwrap();
+        assert_eq!(accounts.list(Provider::Claude).unwrap(), vec![id.clone()]);
+        assert!(accounts.list(Provider::Codex).unwrap().is_empty());
+        assert!(accounts.config_dir(Provider::Claude, Some(&id)).is_some());
+        accounts.remove(Provider::Claude, &id).unwrap();
+        assert!(accounts.config_dir(Provider::Claude, Some(&id)).is_none());
     }
 
     #[test]
@@ -143,10 +143,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let accounts = Accounts::new(tmp.path().join("accounts"));
         let escape = AccountId("../../etc".into());
-        assert!(accounts.remove(Profile::Claude, &escape).is_err());
+        assert!(accounts.remove(Provider::Claude, &escape).is_err());
         assert!(
             accounts
-                .config_dir(Profile::Claude, Some(&escape))
+                .config_dir(Provider::Claude, Some(&escape))
                 .is_none()
         );
     }

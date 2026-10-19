@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#16191f">
+<title>loom 메인 화면 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: oklch(17% 0.012 255);
+  --panel: oklch(20.5% 0.014 255);
+  --surface: oklch(24% 0.016 255);
+  --surface-hover: oklch(28% 0.018 255);
+  --term: oklch(13% 0.01 255);
+  --line: oklch(33% 0.016 255);
+  --line-strong: oklch(42% 0.02 255);
+  --ink: oklch(95% 0.006 255);
+  --ink-2: oklch(78% 0.012 255);
+  --ink-3: oklch(68% 0.014 255);
+  --accent: oklch(70% 0.16 258);
+  --accent-wash: oklch(70% 0.16 258 / 0.14);
+  --accent-ink: oklch(16% 0.03 258);
+  --ok: oklch(76% 0.13 155);
+  --err: oklch(72% 0.16 25);
+  --dot: oklch(30% 0.014 255);
+  --radius: 8px;
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+::selection { background: var(--accent-wash); color: var(--ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+
+.frame { width: 1440px; margin: 0 auto; }
+.app { display: grid; grid-template-columns: 232px 1fr; height: 900px; border-bottom: 1px solid var(--line); }
+
+/* 저장소 목록 */
+.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.brand { font-weight: 700; font-size: 16px; padding: 16px 16px 12px; letter-spacing: -0.01em; }
+.side h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 12px 16px 6px; }
+.repos { list-style: none; padding: 0 8px; }
+.repo { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 8px; cursor: pointer; }
+.repo:hover { background: var(--surface-hover); }
+.repo[aria-current="page"] { background: var(--accent-wash); }
+.repo b { display: block; font-weight: 600; }
+.repo span { display: block; font-size: 12px; color: var(--ink-3); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-foot { margin-top: auto; padding: 12px 16px 16px; border-top: 1px solid var(--line); }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn:hover { background: var(--surface-hover); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { background: oklch(76% 0.15 258); }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.ghost:hover { background: var(--surface-hover); color: var(--ink); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* 그래프 */
+.canvas { position: relative; overflow: hidden; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.toolbar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; z-index: 5; }
+.toolbar h1 { font-size: 18px; font-weight: 600; }
+.toolbar .path { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+.toolbar .spacer { flex: 1; }
+
+.group { position: absolute; border: 1px dashed var(--line-strong); border-radius: 12px; background: oklch(19% 0.013 255 / 0.6); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); }
+.group-head .branch { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.group-head .kind { font-size: 12px; color: var(--ink-3); }
+.group-head .spacer { flex: 1; }
+
+.card { position: absolute; width: 400px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
+.card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-head .profile { font-size: 12px; color: var(--ink-3); }
+.card-head .spacer { flex: 1; }
+.state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state.running { color: var(--accent); }
+.state.done { color: var(--ok); }
+.state.exited { color: var(--err); }
+.unread { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
+.term { font: 12px/1.55 var(--mono); padding: 8px 10px; white-space: pre; color: oklch(86% 0.01 255); height: 196px; overflow: hidden; }
+.term .dim { color: var(--ink-3); }
+.term .acc { color: var(--accent); }
+.term .ok { color: var(--ok); }
+.term .err { color: var(--err); }
+.term .cursor { background: var(--ink); color: var(--term); }
+.card-foot { font-size: 12px; color: var(--ink-3); padding: 5px 10px; border-top: 1px solid var(--line); }
+.card[data-selected] .card-foot { color: var(--accent); }
+
+svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.group, .card { z-index: 2; }
+.edge { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
+.edge.live { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
+.edge-label { position: absolute; z-index: 3; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+/* 새 노드 팝오버 */
+.pop { position: absolute; z-index: 6; width: 340px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px oklch(0% 0 0 / 0.55); padding: 14px; display: grid; gap: 12px; }
+.pop h2 { font-size: 14px; font-weight: 600; }
+.pop h2 span { font-family: var(--mono); font-weight: 500; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
+.field { display: grid; gap: 5px; }
+.field label, .field legend { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.field input, .field textarea { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
+.field input:focus, .field textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
+.field textarea { height: 76px; resize: vertical; font-size: 13px; }
+.field input::placeholder, .field textarea::placeholder { color: var(--ink-3); }
+fieldset.field { border: 0; padding: 0; }
+.seg { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.seg label { flex: 1; text-align: center; font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 5px 10px; cursor: pointer; border-right: 1px solid var(--line); }
+.seg label:last-child { border-right: 0; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg input:checked + span { color: var(--ink); }
+.seg label:has(input:checked) { background: var(--accent-wash); color: var(--ink); }
+.seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* 결정표 */
+.notes { padding: 32px 40px 48px; max-width: 1100px; }
+.notes h2 { font-size: 18px; margin: 28px 0 10px; }
+.notes h2:first-child { margin-top: 0; }
+.notes p, .notes li { color: var(--ink-2); max-width: 75ch; }
+.notes table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.notes th, .notes td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.notes th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.notes td:first-child { white-space: nowrap; font-weight: 600; }
+.notes code { font-family: var(--mono); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app">
+  <nav class="side" aria-label="저장소">
+    <div class="brand">loom</div>
+    <h2>저장소</h2>
+    <ul class="repos">
+      <li><button class="repo" aria-current="page"><b>loom</b><span>/mnt/c/Users/…/orca/loom</span></button></li>
+      <li><button class="repo"><b>patent-search</b><span>~/work/patent-search</span></button></li>
+      <li><button class="repo"><b>dev-toolbox</b><span>~/.agents/skills/dev-toolbox</span></button></li>
+    </ul>
+    <div class="side-foot">
+      <button class="btn" style="width:100%;justify-content:center"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>저장소 추가</button>
+    </div>
+  </nav>
+
+  <main class="canvas" aria-label="loom 그래프">
+    <div class="toolbar">
+      <h1>loom</h1>
+      <span class="path" translate="no">/mnt/c/Users/me/orca/loom</span>
+      <span class="spacer"></span>
+      <button class="btn"><svg viewBox="0 0 24 24"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg>새 워크트리</button>
+    </div>
+
+    <svg class="edges" aria-hidden="true">
+      <!-- 총괄 → 조사 -->
+      <path class="edge" d="M 236 372 C 236 410, 236 420, 236 452"/>
+      <!-- 총괄 → 구현 (묶음 경계를 넘는다, 메시지가 오가는 중) -->
+      <path class="edge live" d="M 436 230 C 540 230, 560 196, 664 196"/>
+      <!-- 구현 → 테스트 -->
+      <path class="edge" d="M 864 372 C 864 410, 864 420, 864 452"/>
+    </svg>
+    <span class="edge-label" style="left:500px;top:186px">메시지 1</span>
+
+    <!-- 묶음: 원래 체크아웃 -->
+    <section class="group" style="left:16px;top:64px;width:440px;height:672px" aria-label="묶음 main">
+      <div class="group-head">
+        <span class="branch" translate="no">main</span><span class="kind">원래 체크아웃</span>
+        <span class="spacer"></span>
+        <button class="btn ghost sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button>
+      </div>
+    </section>
+
+    <article class="card" style="left:36px;top:124px" tabindex="0" aria-label="노드 총괄">
+      <div class="card-head"><span class="name">총괄</span><span class="profile">Claude Code</span><span class="spacer"></span><span class="state running">running</span></div>
+<div class="term" translate="no"><span class="dim">❯</span> node-host 구현을 워크트리에 맡기고 결과를 기다려
+<span class="acc">●</span> Bash(loom spawn 구현 --worktree feat/node-host
+       -- claude &lt; brief.md)
+  <span class="dim">⎿ 노드 구현을 만들었다</span>
+<span class="acc">●</span> Bash(loom wait) <span class="dim">· 백그라운드</span>
+<span class="acc">●</span> 구현 노드가 끝나면 결과를 정리하겠다.
+<span class="dim">✻ Cogitating… (12s)</span>
+</div>
+      <div class="card-foot">클릭하면 이 카드가 입력을 받는다</div>
+    </article>
+
+    <article class="card" style="left:36px;top:452px" tabindex="0" aria-label="노드 조사">
+      <div class="card-head"><span class="name">조사</span><span class="profile">Codex</span><span class="spacer"></span><span class="state done">done</span></div>
+<div class="term" translate="no"><span class="dim">›</span> portable-pty의 Windows ConPTY 지원 범위를 조사해
+<span class="dim">•</span> 문서와 예제를 읽었다.
+<span class="dim">•</span> Ran loom done --file notes/conpty.md
+  <span class="ok">└ 부모에게 결과를 보냈다</span>
+
+<span class="dim">  Worked for 1m 42s</span>
+<span class="dim">›</span> <span class="cursor"> </span>
+</div>
+      <div class="card-foot">요약: ConPTY 지원, 크기 변경 가능 · notes/conpty.md</div>
+    </article>
+
+    <!-- 묶음: 워크트리 -->
+    <section class="group" style="left:644px;top:64px;width:440px;height:672px" aria-label="묶음 feat/node-host">
+      <div class="group-head">
+        <span class="branch" translate="no">feat/node-host</span><span class="kind">워크트리</span>
+        <span class="spacer"></span>
+        <button class="btn ghost sm" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button>
+        <button class="btn ghost sm">워크트리 닫기</button>
+      </div>
+    </section>
+
+    <article class="card" style="left:664px;top:124px" tabindex="0" data-selected aria-label="노드 구현, 입력 중">
+      <div class="card-head"><span class="name">구현</span><span class="profile">Claude Code</span><span class="spacer"></span><span class="unread" aria-label="읽지 않은 메시지 2개">2</span><span class="state running">running</span></div>
+<div class="term" translate="no"><span class="acc">●</span> Write(src/node_host.rs)
+  <span class="dim">⎿ Wrote 142 lines</span>
+<span class="acc">●</span> Bash(loom run -- cargo test -p loom)
+  <span class="dim">⎿ Running… (38s)</span>
+
+<span class="dim">───────────────────────────────────────────</span>
+<span class="dim">❯</span> 링 버퍼 크기는 설정값으로 빼지 마<span class="cursor"> </span>
+<span class="dim">───────────────────────────────────────────</span>
+</div>
+      <div class="card-foot">입력 중 · 메시지는 입력창과 섞이지 않는다</div>
+    </article>
+
+    <article class="card" style="left:664px;top:452px" tabindex="0" aria-label="노드 테스트">
+      <div class="card-head"><span class="name">테스트</span><span class="profile">직접 입력</span><span class="spacer"></span><span class="state exited">exited(1)</span></div>
+<div class="term" translate="no"><span class="dim">$</span> cargo test -p loom node_host
+   Compiling loom v0.1.0
+    Finished test profile in 4.21s
+     Running unittests src/main.rs
+test node_host::ring_buffer_wraps ... <span class="ok">ok</span>
+test node_host::resize ... <span class="err">FAILED</span>
+<span class="err">test result: FAILED. 1 passed; 1 failed</span>
+</div>
+      <div class="card-foot">부모(구현)에게 exited(1)을 보냈다</div>
+    </article>
+
+    <!-- 새 노드 팝오버 -->
+    <form class="pop" style="left:828px;top:104px" aria-label="새 노드">
+      <h2>새 노드<span>feat/node-host</span></h2>
+      <div class="field">
+        <label for="n-name">이름</label>
+        <input id="n-name" name="name" value="리뷰" autocomplete="off" spellcheck="false">
+      </div>
+      <fieldset class="field">
+        <legend>프로필</legend>
+        <div class="seg">
+          <label><input type="radio" name="profile" checked><span>Claude Code</span></label>
+          <label><input type="radio" name="profile"><span>Codex</span></label>
+          <label><input type="radio" name="profile"><span>직접 입력</span></label>
+        </div>
+      </fieldset>
+      <div class="field">
+        <label for="n-brief">첫 지시문</label>
+        <textarea id="n-brief" name="brief" placeholder="비워 두면 빈 세션으로 시작한다"></textarea>
+        <span class="hint">4KB까지. 더 긴 자료는 파일 경로를 적는다.</span>
+      </div>
+      <div class="pop-actions">
+        <button type="button" class="btn ghost">취소</button>
+        <button type="submit" class="btn primary">만들기</button>
+      </div>
+    </form>
+  </main>
+</div>
+
+<section class="notes">
+  <h2>화면 명세</h2>
+  <p>2026-10-19 사용자가 승인했다. 위 그림과 아래 표가 메인 화면의 구현 명세다. 색·글꼴·간격 토큰은 이 파일의 <code>:root</code>가 원천이다.</p>
+  <table>
+    <thead><tr><th>위치</th><th>모양</th><th>근거</th></tr></thead>
+    <tbody>
+      <tr><td>왼쪽 저장소 목록</td><td>저장소 이름과 경로. 고른 저장소를 강조한다. 아래에 [저장소 추가]</td><td>그래프 하나에 저장소 하나(Q41)</td></tr>
+      <tr><td>그래프 위 도구 줄</td><td>저장소 이름, 경로, [새 워크트리]</td><td>묶음은 사람이 만든다(Q40)</td></tr>
+      <tr><td>워크트리 묶음</td><td>점선 테두리 상자. 머리에 브랜치, 종류(원래 체크아웃·워크트리), [새 노드], [워크트리 닫기]. 원래 체크아웃에는 [워크트리 닫기]가 없다</td><td>Q32·Q40</td></tr>
+      <tr><td>노드 카드</td><td>머리: 이름, 프로필, 읽지 않은 메시지 수, 상태. 몸: 실제 터미널. 발: 한 줄 요약(입력 중, <code>done</code> 요약, 종료 보고)</td><td>Q5·Q15</td></tr>
+      <tr><td>고른 카드</td><td>코발트 테두리. 이 카드만 키 입력을 받는다. 두 번 누르면 그래프 영역 전체로 확대한다(그림 생략)</td><td>Q5</td></tr>
+      <tr><td>간선</td><td>평소에는 회색 곡선. 메시지가 오가면 코발트 점선과 「메시지 1」 표시가 잠깐 나온다</td><td>Q3</td></tr>
+      <tr><td>새 노드 창</td><td>[새 노드] 옆에 붙는 팝오버. 이름, 프로필 3택, 첫 지시문. [직접 입력]을 고르면 「명령」 칸이 첫 지시문 자리에 나온다(그림 생략)</td><td>Q32. 모달 대신 팝오버: 그래프를 가리지 않는다</td></tr>
+      <tr><td>확대한 카드</td><td>그래프 영역 전체를 덮는다. 카드 머리 오른쪽의 [축소]로 돌아간다. Esc는 터미널 앱이 쓰므로 축소에 쓰지 않는다(그림 생략)</td><td>Q5</td></tr>
+      <tr><td>빈 저장소</td><td>묶음 <code>main</code>만 보이고, 그 안에 「[새 노드]로 첫 에이전트를 띄운다」 한 줄을 둔다(그림 생략)</td><td>빈 화면이 다음 동작을 알려 준다</td></tr>
+      <tr><td>터미널에서 빠져나오기</td><td>카드 밖을 클릭하면 입력이 풀린다. 키보드로는 <code>Ctrl+Shift+</code>방향키로 옆 카드를 고른다</td><td>Tab과 Esc는 터미널 앱이 쓴다. 두 CLI가 이 키를 쓰지 않는지는 구현 때 확인한다</td></tr>
+      <tr><td>새 워크트리 창</td><td>새 노드 창과 같은 팝오버. 브랜치 이름, 기준 브랜치(기본 <code>main</code>)</td><td>Q40</td></tr>
+    </tbody>
+  </table>
+
+  <h2>점검 기록</h2>
+  <ul>
+    <li>방향: 제품 UI(Operate). Hallmark Cobalt의 팔레트만 썼다. 어두운 바탕은 카드 안 터미널과 밝기를 맞추려고 골랐다. 글꼴은 Pretendard 하나, 터미널만 JetBrains Mono다.</li>
+    <li>impeccable detect 1회: 결함 4건을 고쳤다(카드 테두리+넓은 그림자, 프로필 선택 칸 좌우 여백, 제목 크기 단계 1.14배→1.29배, h1 다음 h3). 오탐 1건: <code>.app</code> 아래 테두리 여백 경고. 화면 틀의 테두리이고 안쪽 패널이 여백을 가진다.</li>
+    <li>WIG: 고쳤다 — <code>theme-color</code>, 코드·경로·브랜치에 <code>translate="no"</code>, 카드 이름 말줄임, 카드 키보드 포커스(<code>tabindex</code>). 구현 때 지킨다 — 상태 변화 <code>aria-live="polite"</code>, 간선 강조 효과의 <code>prefers-reduced-motion</code>, 숫자 <code>Intl</code>. 적용하지 않았다 — 영어 문구 규칙(한국어 UI 예외), [워크트리 닫기] 확인 창(브랜치가 남아 다시 만들 수 있고, 미커밋 변경과 running 노드가 있으면 거부한다).</li>
+    <li>better-interface: 하위 스킬 6개를 따로 불러오지 않고, 캡처와 소스로 6개 영역을 한 번에 봤다. 상위 문제 2건 — 확대 상태에서 돌아가는 길이 없었다([축소] 추가), 터미널 안에서 키보드로 빠져나올 길이 없다(위 「정할 것」).</li>
+    <li>명도 대비(OKLCH 명도로 계산): 보조 글자 <code>--ink-3</code> 대 바탕 6.6:1, 대 카드 머리 5.7:1. 강조색 위 글자 7.2:1. 모두 4.5:1 이상이다.</li>
+  </ul>
+  <table>
+    <thead><tr><th>Nielsen 휴리스틱</th><th>점수</th><th>핵심 문제</th></tr></thead>
+    <tbody>
+      <tr><td>1 상태 보이기</td><td>3</td><td>노드 상태·읽지 않은 메시지·간선 강조가 있다. 데몬 연결 상태는 없다</td></tr>
+      <tr><td>2 실제 세계와 맞추기</td><td>4</td><td>브랜치·워크트리·터미널은 사용자의 말이다</td></tr>
+      <tr><td>3 사용자 통제</td><td>3</td><td>확대에서 돌아가는 [축소]를 더했다</td></tr>
+      <tr><td>4 일관성</td><td>3</td><td>버튼과 팝오버 모양이 하나다</td></tr>
+      <tr><td>5 오류 예방</td><td>3</td><td>[워크트리 닫기]가 위험한 경우를 거부한다</td></tr>
+      <tr><td>6 기억 대신 알아보기</td><td>3</td><td>카드 확대가 두 번 누르기뿐이라 찾기 어렵다</td></tr>
+      <tr><td>7 유연성·효율</td><td>2</td><td>키보드로 카드 사이를 옮기는 길이 아직 없다</td></tr>
+      <tr><td>8 미니멀 디자인</td><td>4</td><td>화면 요소는 결정 사항뿐이다</td></tr>
+      <tr><td>9 오류 회복</td><td>2</td><td><code>exited(1)</code> 노드를 다시 띄우는 동작이 없다. 사람이 새 노드를 만든다</td></tr>
+      <tr><td>10 도움말</td><td>3</td><td>빈 저장소 안내 한 줄과 지시문 크기 안내가 있다</td></tr>
+      <tr><td>합계</td><td>30/40</td><td></td></tr>
+    </tbody>
+  </table>
+</section>
+</div>
+</body>
+</html>

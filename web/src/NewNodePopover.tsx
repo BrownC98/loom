@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createNode } from './api';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -20,6 +21,7 @@ export function NewNodePopover(props: {
   onCreated: (id: NodeId) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [choice, setChoice] = useState(props.initial?.id ?? COMMAND);
   const [text, setText] = useState('');
@@ -43,49 +45,48 @@ export function NewNodePopover(props: {
   return (
     <form
       className="pop nodrag nowheel"
-      aria-label="새 노드"
+      aria-label={t('graph.newNode')}
       onSubmit={submit}
       onKeyDown={(e) => e.key === 'Escape' && props.onCancel()}
     >
       <h2>
-        새 노드<span translate="no">{props.branch}</span>
+        {t('graph.newNode')}
+        <span translate="no">{props.branch}</span>
       </h2>
       <div className="field">
-        <label htmlFor="n-name">이름</label>
+        <label htmlFor="n-name">{t('newNode.name')}</label>
         <input id="n-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} required autoFocus />
       </div>
       <div className="field">
-        <label htmlFor="n-agent">에이전트</label>
+        <label htmlFor="n-agent">{t('newNode.agent')}</label>
         <select id="n-agent" value={choice} onChange={(e) => setChoice(e.target.value)}>
           {props.agents.map((a) => (
             <option key={a.id} value={a.id}>
               {a.label}
             </option>
           ))}
-          <option value={COMMAND}>직접 입력</option>
+          <option value={COMMAND}>{t('node.customCommand')}</option>
         </select>
         {account && (
-          <span className="hint">
-            계정: {accountName(account)} · {windowsText(account.usage.limits)}
-          </span>
+          <span className="hint">{t('newNode.account', { name: accountName(account), usage: windowsText(account.usage.limits) })}</span>
         )}
       </div>
       {agent === undefined ? (
         <div className="field">
-          <label htmlFor="n-text">명령</label>
-          <input id="n-text" value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" spellCheck={false} placeholder="비워 두면 기본 셸을 띄운다" translate="no" />
+          <label htmlFor="n-text">{t('newNode.command')}</label>
+          <input id="n-text" value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" spellCheck={false} placeholder={t('newNode.commandPlaceholder')} translate="no" />
         </div>
       ) : (
         <div className="field">
-          <label htmlFor="n-text">첫 지시문</label>
+          <label htmlFor="n-text">{t('newNode.brief')}</label>
           <textarea
             id="n-text"
             value={agent.takesBrief ? text : ''}
             onChange={(e) => setText(e.target.value)}
             disabled={!agent.takesBrief}
-            placeholder={agent.takesBrief ? '비워 두면 빈 세션으로 시작한다' : `${agent.label}: 첫 지시문을 받지 않는다. 노드를 띄운 뒤 카드에 입력한다.`}
+            placeholder={agent.takesBrief ? t('newNode.briefPlaceholder') : t('newNode.noBriefPlaceholder', { agent: agent.label })}
           />
-          {agent.takesBrief && <span className="hint">4KB까지. 더 긴 자료는 파일 경로를 적는다.</span>}
+          {agent.takesBrief && <span className="hint">{t('newNode.briefHint')}</span>}
         </div>
       )}
       {error && (
@@ -95,10 +96,10 @@ export function NewNodePopover(props: {
       )}
       <div className="pop-actions">
         <button type="button" className="btn ghost" onClick={props.onCancel}>
-          취소
+          {t('common.cancel')}
         </button>
         <button type="submit" className="btn primary" disabled={busy}>
-          만들기
+          {t('newNode.create')}
         </button>
       </div>
     </form>

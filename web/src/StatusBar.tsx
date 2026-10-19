@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { Provider } from './gen/Provider';
@@ -16,6 +17,7 @@ export type Usage = {
 
 /** 화면 맨 아래에 늘 보이는 줄: 공급자마다 계정과 남은 사용량(목업 1·2번). [설정]은 사이드바에 있다(graph-panels.html 1번). */
 export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState<Provider | null>(null);
   const bar = useRef<HTMLElement>(null);
   const { usage } = props;
@@ -40,11 +42,11 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
   };
 
   return (
-    <footer className="statusbar" aria-label="상태 줄" ref={bar}>
+    <footer className="statusbar" aria-label={t('statusBar.label')} ref={bar}>
       {PROVIDERS.map((provider, i) => {
         const active = usage.accounts ? activeAccount(usage.accounts, props.settings, provider) : undefined;
         const label = PROVIDER_LABEL[provider];
-        const summary = active ? `${accountName(active)}, ${windowsText(active.usage.limits)}` : '불러오는 중';
+        const summary = active ? `${accountName(active)}, ${windowsText(active.usage.limits)}` : t('statusBar.summaryLoading');
         return (
           <div className="seg" key={provider}>
             {i > 0 && <span className="sep" aria-hidden="true" />}
@@ -52,19 +54,19 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
               className="seg-btn"
               data-loading={usage.loading || undefined}
               aria-expanded={open === provider}
-              aria-label={`${label} 계정 ${summary}. 누르면 계정 바꾸기를 연다`}
+              aria-label={t('statusBar.segLabel', { provider: label, summary })}
               onClick={() => toggle(provider)}
             >
               <span className="who">{label}</span>
               {active === undefined ? (
-                <span>불러오는 중…</span>
+                <span>{t('statusBar.loading')}</span>
               ) : active.usage.limits.kind === 'needsLogin' ? (
-                <span>로그인하면 사용량을 본다</span>
+                <span>{t('statusBar.loginToSee')}</span>
               ) : (
                 <>
                   <span className="acct-name">{accountName(active)}</span>
                   <InlineWindows limits={active.usage.limits} />
-                  {active.usage.limits.kind === 'failed' && <span className="seg-err">사용량을 지금 볼 수 없다</span>}
+                  {active.usage.limits.kind === 'failed' && <span className="seg-err">{t('statusBar.unavailable')}</span>}
                 </>
               )}
             </button>
@@ -89,16 +91,17 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
 }
 
 function UsagePopover(props: { provider: Provider; accounts: AccountView[]; active: AccountView | undefined; usage: Usage; onChoose: (id: AccountId | null) => void; onManage: () => void }) {
+  const { t } = useTranslation();
   const { active, usage } = props;
   const label = PROVIDER_LABEL[props.provider];
   const problem = active && limitsProblem(active.usage.limits);
   const notes = [active && resetText(active.usage.limits), usage.fetchedAt !== null && fetchedText(usage.fetchedAt, Date.now())].filter(Boolean);
   return (
-    <div className="pop usage-pop" role="dialog" aria-label={`${label} 사용량`}>
+    <div className="pop usage-pop" role="dialog" aria-label={t('statusBar.usageLabel', { provider: label })}>
       <h3>
         {label}
         <span className="spacer" />
-        <button className="btn ghost sm" aria-label="새로 고침" disabled={usage.loading} onClick={usage.refresh}>
+        <button className="btn ghost sm" aria-label={t('statusBar.refresh')} disabled={usage.loading} onClick={usage.refresh}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" />
           </svg>
@@ -110,7 +113,7 @@ function UsagePopover(props: { provider: Provider; accounts: AccountView[]; acti
         {notes.length > 0 && <span className="reset">{notes.join(' · ')}</span>}
       </div>
       <hr className="divider" />
-      <ul className="acct-list" aria-label={`${label} 계정`}>
+      <ul className="acct-list" aria-label={t('statusBar.accountsLabel', { provider: label })}>
         {props.accounts.map((a) => {
           const current = a === active;
           const session = a.usage.limits.kind === 'ready' ? a.usage.limits.session : null;
@@ -118,7 +121,7 @@ function UsagePopover(props: { provider: Provider; accounts: AccountView[]; acti
             <li key={a.id ?? 'system'}>
               <button className="acct" aria-current={current || undefined} onClick={() => props.onChoose(a.id)}>
                 <span className="acct-name">{accountName(a)}</span>
-                <span className="sub">{current ? '쓰는 중' : session ? `${session.remaining}% 남음` : a.usage.limits.kind === 'needsLogin' ? '로그인 필요' : ''}</span>
+                <span className="sub">{current ? t('accounts.current') : session ? t('usage.left', { n: session.remaining }) : a.usage.limits.kind === 'needsLogin' ? t('usage.loginRequired') : ''}</span>
               </button>
             </li>
           );
@@ -126,7 +129,7 @@ function UsagePopover(props: { provider: Provider; accounts: AccountView[]; acti
       </ul>
       <hr className="divider" />
       <button className="btn ghost sm manage" onClick={props.onManage}>
-        계정 관리…
+        {t('statusBar.manage')}
       </button>
     </div>
   );

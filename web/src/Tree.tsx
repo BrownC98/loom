@@ -1,12 +1,14 @@
 // 사이드바 트리(docs/mockups/graph-panels.html 1번): 저장소 > 워크트리 묶음 > 노드 > 자식 노드.
 // 그래프와 같은 노드 목록을 그린다. 트리만의 상태는 접힌 줄뿐이다.
 import { useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { agentLabel } from './catalog';
 import type { AgentView } from './gen/AgentView';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import { MAIN_GROUP, useShowNodes } from './Graph';
+import i18next from './i18n';
 
 type Item = { key: string; row: ReactNode; node: NodeId | null; children: Item[] };
 
@@ -35,7 +37,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
           {v.unread > 0 && (
             <>
               <span className="spacer" />
-              <span className="unread" aria-label={`읽지 않은 메시지 ${v.unread}개`}>
+              <span className="unread" aria-label={i18next.t('node.unread', { n: v.unread })}>
                 {v.unread}
               </span>
             </>
@@ -47,6 +49,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
 }
 
 export function Tree(props: { repo: RepoView; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[]; selected: NodeId | null; onSelect: (id: NodeId) => void }) {
+  const { t } = useTranslation();
   const show = useShowNodes();
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   // Tab으로 들어올 때 포커스를 받는 줄(roving tabindex).
@@ -79,7 +82,7 @@ export function Tree(props: { repo: RepoView; views: ReadonlyMap<NodeId, NodeVie
             <span className="branch" translate="no">
               {MAIN_GROUP}
             </span>
-            <span className="sub">원래 체크아웃</span>
+            <span className="sub">{t('worktree.original')}</span>
           </>
         ),
         children: nodeItems([...props.views.values()], null, props.agents),
@@ -142,15 +145,15 @@ export function Tree(props: { repo: RepoView; views: ReadonlyMap<NodeId, NodeVie
   return (
     <>
       <div className="side-head">
-        <h2>저장소</h2>
+        <h2>{t('tree.repos')}</h2>
         <span className="spacer" />
-        <button className="btn ghost sm" aria-label="모두 펼치기" title="모두 펼치기" onClick={() => setClosed(new Set())}>
+        <button className="btn ghost sm" aria-label={t('tree.expandAll')} title={t('tree.expandAll')} onClick={() => setClosed(new Set())}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M7 15l5 5 5-5M7 9l5-5 5 5" />
           </svg>
         </button>
       </div>
-      <ul className="tree" role="tree" aria-label="노드 트리" onKeyDown={onKeyDown}>
+      <ul className="tree" role="tree" aria-label={t('tree.label')} onKeyDown={onKeyDown}>
         {render(root, 0, null)}
       </ul>
     </>

@@ -8,10 +8,12 @@
 // 바꾼 점: 부모 없는 커밋에서도 다른 차선을 이어 간다(원본은 그 줄에서 다른 차선을 버린다).
 // 옮기지 않은 것: Incoming/Outgoing 줄, 참조 색 지도, 마우스 올림 설명 창.
 import { useEffect, useState, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getCommits } from './api';
 import type { Commit } from './gen/Commit';
 import type { CommitGraph as Graph } from './gen/CommitGraph';
 import type { Worktree } from './gen/Worktree';
+import i18next, { ago } from './i18n';
 
 const LANE_WIDTH = 11;
 const ROW_HEIGHT = 22;
@@ -116,25 +118,6 @@ function LaneSvg({ row, width }: { row: Row; width: number }) {
   );
 }
 
-const relative = new Intl.RelativeTimeFormat('ko', { numeric: 'auto' });
-const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ['year', 365 * 24 * 3600],
-  ['month', 30 * 24 * 3600],
-  ['week', 7 * 24 * 3600],
-  ['day', 24 * 3600],
-  ['hour', 3600],
-  ['minute', 60],
-];
-
-function ago(time: number, now: number): string {
-  const seconds = time - now / 1000;
-  for (const [unit, size] of STEPS) {
-    if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit);
-  }
-  // 1분이 안 되면 「지금」.
-  return relative.format(0, 'second');
-}
-
 function Folder() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -145,7 +128,7 @@ function Folder() {
 
 /** 묶음 머리의 종류 글과 같다. */
 function kindLabel(worktree: Worktree): string {
-  return worktree.original ? '원래 체크아웃' : '워크트리';
+  return i18next.t(worktree.original ? 'worktree.original' : 'worktree.linked');
 }
 
 function Refs({ commit, worktrees, color }: { commit: Commit; worktrees: Worktree[]; color: number }) {
@@ -180,6 +163,7 @@ function Refs({ commit, worktrees, color }: { commit: Commit; worktrees: Worktre
 
 /** 칸이 열린 동안 붙어 있다. 닫으면 다시 읽기를 멈춘다. */
 export function CommitGraph(props: { onClose: () => void }) {
+  const { t } = useTranslation();
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now);
@@ -208,12 +192,12 @@ export function CommitGraph(props: { onClose: () => void }) {
   const width = LANE_WIDTH * (Math.max(1, ...rows.map(laneCount)) + 1);
 
   return (
-    <aside className="dock" id="dock" aria-label="커밋 그래프">
+    <aside className="dock" id="dock" aria-label={t('app.commitGraph')}>
       <div className="dock-head">
-        <h2>커밋 그래프</h2>
-        <span className="hint">모든 브랜치 · 최근 1,000개</span>
+        <h2>{t('app.commitGraph')}</h2>
+        <span className="hint">{t('commits.scope')}</span>
         <span className="spacer" />
-        <button className="btn ghost sm" aria-label="커밋 그래프 닫기" onClick={props.onClose}>
+        <button className="btn ghost sm" aria-label={t('commits.close')} onClick={props.onClose}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
@@ -224,11 +208,11 @@ export function CommitGraph(props: { onClose: () => void }) {
           {error}
         </p>
       ) : graph === null ? (
-        <p className="dock-note">읽는 중…</p>
+        <p className="dock-note">{t('commits.reading')}</p>
       ) : rows.length === 0 ? (
-        <p className="dock-note">아직 커밋이 없다.</p>
+        <p className="dock-note">{t('commits.empty')}</p>
       ) : (
-        <ol className="commits" aria-label="커밋 목록">
+        <ol className="commits" aria-label={t('commits.list')}>
           {rows.map((row) => (
               <li key={row.commit.hash} className="commit" title={row.commit.hash}>
                 <span className="graph">
@@ -239,7 +223,7 @@ export function CommitGraph(props: { onClose: () => void }) {
                   <span>{row.commit.subject}</span>
                 </span>
                 <span className="author">{row.commit.author}</span>
-                <time dateTime={new Date(row.commit.time * 1000).toISOString()}>{ago(row.commit.time, now)}</time>
+                <time dateTime={new Date(row.commit.time * 1000).toISOString()}>{ago(row.commit.time * 1000, now)}</time>
               </li>
           ))}
         </ol>

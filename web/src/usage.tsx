@@ -5,6 +5,7 @@ import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Window } from './gen/Window';
+import i18next, { ago, weekdayAndTime } from './i18n';
 import { usageProblemText } from './problem';
 
 /** 이 비율 이하로 남으면 막대가 노란색이다(목업 1번). */
@@ -28,8 +29,8 @@ export function withAccount(settings: SettingsView, provider: Provider, id: Acco
 }
 
 export function accountName(account: AccountView): string {
-  if (account.id === null) return '시스템 기본';
-  return account.usage.email ?? '로그인하지 않은 계정';
+  if (account.id === null) return i18next.t('usage.systemDefault');
+  return account.usage.email ?? i18next.t('usage.notLoggedIn');
 }
 
 /** 사용량을 보일 수 없는 이유. 보일 수 있으면 null. */
@@ -38,7 +39,7 @@ export function limitsProblem(limits: Limits): string | null {
     case 'ready':
       return null;
     case 'needsLogin':
-      return '다시 로그인해야 한다';
+      return i18next.t('usage.needsLogin');
     case 'failed':
       return usageProblemText(limits.problem);
   }
@@ -52,21 +53,22 @@ export function Meter(props: { remaining: number }) {
   );
 }
 
-const WINDOWS = [
-  ['session', '5시간'],
-  ['weekly', '주간'],
-] as const;
+const WINDOWS = ['session', 'weekly'] as const;
+
+function windowLabel(key: (typeof WINDOWS)[number]): string {
+  return i18next.t(`usage.window.${key}`);
+}
 
 /** 창마다 이름, 막대, 남은 비율 한 줄. 사용량이 없으면 아무것도 그리지 않는다. */
 export function WindowLines(props: { limits: Limits }) {
   if (props.limits.kind !== 'ready') return null;
   const limits = props.limits;
-  return WINDOWS.map(([key, label]) => {
+  return WINDOWS.map((key) => {
     const w = limits[key];
     return (
       w && (
         <span className="win-line" key={key}>
-          <span>{label}</span>
+          <span>{windowLabel(key)}</span>
           <Meter remaining={w.remaining} />
           <span className="pct">{w.remaining}%</span>
         </span>
@@ -79,13 +81,13 @@ export function WindowLines(props: { limits: Limits }) {
 export function InlineWindows(props: { limits: Limits }) {
   if (props.limits.kind !== 'ready') return null;
   const limits = props.limits;
-  return WINDOWS.map(([key, label]) => {
+  return WINDOWS.map((key) => {
     const w = limits[key];
     return (
       w && (
         <span className="lim" key={key}>
           <Meter remaining={w.remaining} />
-          {label} {w.remaining}%
+          {windowLabel(key)} {w.remaining}%
         </span>
       )
     );
@@ -95,25 +97,22 @@ export function InlineWindows(props: { limits: Limits }) {
 /** 읽는 사람에게 들리는 한 줄. 예: 「5시간 58% 남음, 주간 82% 남음」. */
 export function windowsText(limits: Limits): string {
   if (limits.kind !== 'ready') return limitsProblem(limits) ?? '';
-  return WINDOWS.flatMap(([key, label]) => {
+  return WINDOWS.flatMap((key) => {
     const w = limits[key];
-    return w ? [`${label} ${w.remaining}% 남음`] : [];
+    return w ? [i18next.t('usage.windowLeft', { window: windowLabel(key), n: w.remaining })] : [];
   }).join(', ');
 }
-
-const resetFormat = new Intl.DateTimeFormat('ko-KR', { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 /** 예: 「5시간 창 초기화 (월) 15:40 · 주간 창 초기화 (목) 09:00」. */
 export function resetText(limits: Limits): string {
   if (limits.kind !== 'ready') return '';
-  return WINDOWS.flatMap(([key, label]) => {
+  return WINDOWS.flatMap((key) => {
     const w: Window | null = limits[key];
-    return w?.resetsAt ? [`${label} 창 초기화 ${resetFormat.format(w.resetsAt * 1000)}`] : [];
+    return w?.resetsAt ? [i18next.t('usage.reset', { window: windowLabel(key), time: weekdayAndTime(w.resetsAt * 1000) })] : [];
   }).join(' · ');
 }
 
-/** 예: 「2분 전에 갱신」. */
+/** 예: 「2분 전 갱신」. */
 export function fetchedText(at: number, now: number): string {
-  const minutes = Math.floor((now - at) / 60000);
-  return minutes < 1 ? '방금 갱신' : `${minutes}분 전에 갱신`;
+  return i18next.t('usage.fetched', { ago: ago(at, now) });
 }

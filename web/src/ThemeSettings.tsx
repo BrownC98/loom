@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { Language } from './gen/Language';
 import type { SettingsView } from './gen/SettingsView';
 import type { TerminalTheme } from './gen/TerminalTheme';
 import type { Theme } from './gen/Theme';
@@ -6,10 +8,10 @@ import { chosenTheme, DEFAULT_TERMINAL_THEME, RESET_TERMINAL_THEME, TERMINAL_THE
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
-const THEME_CHOICES: { value: Theme; label: string; icon: ReactNode }[] = [
+const THEME_CHOICES = [
   {
     value: 'system',
-    label: '시스템',
+    label: 'common.system',
     icon: (
       <>
         <rect x="3" y="4" width="18" height="12" rx="2" />
@@ -19,7 +21,7 @@ const THEME_CHOICES: { value: Theme; label: string; icon: ReactNode }[] = [
   },
   {
     value: 'light',
-    label: '라이트',
+    label: 'theme.light',
     icon: (
       <>
         <circle cx="12" cy="12" r="4" />
@@ -27,49 +29,69 @@ const THEME_CHOICES: { value: Theme; label: string; icon: ReactNode }[] = [
       </>
     ),
   },
-  { value: 'dark', label: '다크', icon: <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /> },
-];
+  { value: 'dark', label: 'theme.dark', icon: <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /> },
+] as const satisfies readonly { value: Theme; label: string; icon: ReactNode }[];
 
-/** 「UI」 탭(목업 6번): 화면 테마. */
+const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
+
+/** 「UI」 탭(목업 settings.html 6번, language.html): 화면 테마와 언어. 언어 이름은 번역하지 않는다. */
 export function UiTab({ settings, onSettings }: TabProps) {
+  const { t } = useTranslation();
   return (
-    <section>
-      <h4 id="t-theme">테마</h4>
-      <div className="choice" role="radiogroup" aria-labelledby="t-theme">
-        {THEME_CHOICES.map((c) => (
-          <label key={c.value}>
-            <input type="radio" name="theme" checked={settings.theme === c.value} onChange={() => onSettings({ ...settings, theme: c.value })} />
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              {c.icon}
-            </svg>
-            {c.label}
-          </label>
-        ))}
-      </div>
-      <span className="hint">「시스템」은 OS의 라이트·다크 설정을 따른다. OS 설정이 바뀌면 화면도 바로 바뀐다.</span>
-    </section>
+    <>
+      <section>
+        <h4 id="t-theme">{t('theme.heading')}</h4>
+        <div className="choice" role="radiogroup" aria-labelledby="t-theme">
+          {THEME_CHOICES.map((c) => (
+            <label key={c.value}>
+              <input type="radio" name="theme" checked={settings.theme === c.value} onChange={() => onSettings({ ...settings, theme: c.value })} />
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                {c.icon}
+              </svg>
+              {t(c.label)}
+            </label>
+          ))}
+        </div>
+        <span className="hint">{t('theme.systemHint')}</span>
+      </section>
+      <section>
+        <h4>
+          <label htmlFor="t-lang">{t('settings.language')}</label>
+        </h4>
+        <div className="field narrow">
+          <select id="t-lang" value={settings.language} onChange={(e) => onSettings({ ...settings, language: e.target.value as Language })}>
+            {LANGUAGES.map((l) => (
+              <option key={l} value={l} lang={l === 'system' ? undefined : l}>
+                {l === 'system' ? t('common.system') : t(`languageName.${l}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+    </>
   );
 }
 
 /** 「터미널」 탭(목업 6번): 모드마다 터미널 테마. */
 export function TerminalTab({ settings, onSettings }: TabProps) {
+  const { t } = useTranslation();
   const saved = settings.terminalTheme;
   const save = (next: Partial<TerminalTheme>) => onSettings({ ...settings, terminalTheme: { ...saved, ...next } });
   return (
     <>
       <section>
-        <h4>다크 모드 테마</h4>
-        <ThemePicker label="다크 모드 터미널 테마" value={chosenTheme(saved, 'dark')} onChoose={(dark) => save({ dark })} />
-        <span className="hint">목록에서 마우스를 올리거나 방향키로 옮기면 미리보기가 바로 바뀐다.</span>
+        <h4>{t('theme.darkTheme')}</h4>
+        <ThemePicker label={t('theme.darkPicker')} value={chosenTheme(saved, 'dark')} onChoose={(dark) => save({ dark })} />
+        <span className="hint">{t('theme.previewHint')}</span>
       </section>
       <section>
-        <h4>라이트 모드 테마</h4>
+        <h4>{t('theme.lightTheme')}</h4>
         <label className="switch">
           <input type="checkbox" checked={saved.matchDark} onChange={(e) => save({ matchDark: e.target.checked })} />
-          라이트 모드에서도 다크 모드 테마를 쓴다
+          {t('theme.matchDark')}
         </label>
-        <ThemePicker label="라이트 모드 터미널 테마" value={chosenTheme(saved, 'light')} onChoose={(light) => save({ light })} disabled={saved.matchDark} />
-        <span className="hint">위 스위치를 켜면 이 목록과 미리보기가 흐려지고 고를 수 없다.</span>
+        <ThemePicker label={t('theme.lightPicker')} value={chosenTheme(saved, 'light')} onChoose={(light) => save({ light })} disabled={saved.matchDark} />
+        <span className="hint">{t('theme.matchHint')}</span>
       </section>
       <section>
         <div>
@@ -77,12 +99,10 @@ export function TerminalTab({ settings, onSettings }: TabProps) {
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />
             </svg>
-            터미널 테마 초기화
+            {t('theme.reset')}
           </button>
         </div>
-        <span className="hint">
-          다크 「{DEFAULT_TERMINAL_THEME.dark}」, 라이트 「{DEFAULT_TERMINAL_THEME.light}」로 되돌리고 스위치를 끈다.
-        </span>
+        <span className="hint">{t('theme.resetHint', DEFAULT_TERMINAL_THEME)}</span>
       </section>
     </>
   );
@@ -131,6 +151,7 @@ const BRIGHT = ['brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brig
 
 /** 짧은 셸 출력으로 바탕·글자·16색·커서·선택 영역을 모두 보인다. 정적 HTML이라 터미널을 띄우지 않는다. */
 function Preview({ name }: { name: TerminalThemeName }) {
+  const { t: tr } = useTranslation();
   const t = TERMINAL_THEMES[name];
   const c = (color: string, text: string) => <span style={{ color }}>{text}</span>;
   const prompt = (
@@ -172,7 +193,7 @@ function Preview({ name }: { name: TerminalThemeName }) {
   ];
   return (
     <figure className="tprev">
-      <figcaption>미리보기 · {name}</figcaption>
+      <figcaption>{tr('theme.preview', { name })}</figcaption>
       <pre translate="no" style={{ background: t.background, color: t.foreground }}>
         {lines.map((line, i) => (
           <Fragment key={i}>

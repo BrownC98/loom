@@ -2,6 +2,7 @@
 import type { AgentId } from './gen/AgentId';
 import type { AgentView } from './gen/AgentView';
 import type { SettingsView } from './gen/SettingsView';
+import i18next from './i18n';
 
 /** 설치했고 끄지 않은 에이전트. 카탈로그 순서다. */
 export function enabledAgents(agents: AgentView[], settings: SettingsView): AgentView[] {
@@ -16,6 +17,6 @@ export function defaultAgent(agents: AgentView[], settings: SettingsView): Agent
 
 /** 노드 카드 머리의 글자. 직접 입력한 명령이면 「직접 입력」이다. */
 export function agentLabel(agents: AgentView[], id: AgentId | null): string {
-  if (id === null) return '직접 입력';
+  if (id === null) return i18next.t('node.customCommand');
   return agents.find((a) => a.id === id)?.label ?? id;
 }

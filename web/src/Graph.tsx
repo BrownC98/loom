@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty } from './api';
 import { agentLabel, defaultAgent, enabledAgents } from './catalog';
@@ -61,27 +62,29 @@ type CardNode = Node<CardData, 'card'>;
 type FlowNode = GroupNode | CardNode;
 
 function Group({ data }: NodeProps<GroupNode>) {
+  const { t } = useTranslation();
   return (
-    <section className="group" aria-label={`묶음 ${data.branch}`}>
+    <section className="group" aria-label={t('graph.group', { branch: data.branch })}>
       <div className="group-head">
         <span className="branch" translate="no">
           {data.branch}
         </span>
-        <span className="kind">원래 체크아웃</span>
+        <span className="kind">{t('worktree.original')}</span>
         <span className="spacer" />
         <button className="btn ghost sm" aria-expanded={data.creating} onClick={data.onOpen}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          새 노드
+          {t('graph.newNode')}
         </button>
       </div>
-      {data.empty && <p className="group-empty">[새 노드]로 첫 에이전트를 띄운다.</p>}
+      {data.empty && <p className="group-empty">{t('graph.empty')}</p>}
     </section>
   );
 }
 
 function Card({ data }: NodeProps<CardNode>) {
+  const { t } = useTranslation();
   return (
     <>
       <NodeCard
@@ -94,8 +97,8 @@ function Card({ data }: NodeProps<CardNode>) {
         onDoubleClickHead={data.onExpand}
         headAction={
           <>
-            <IconButton label="확대" title="확대 (머리를 두 번 눌러도 된다)" path={ICON.expand} onClick={data.onExpand} />
-            <IconButton label="노드 제거" title="노드 제거" path={ICON.remove} onClick={data.onRemove} />
+            <IconButton label={t('node.expand')} title={t('node.expandTitle')} path={ICON.expand} onClick={data.onExpand} />
+            <IconButton label={t('node.remove')} title={t('node.remove')} path={ICON.remove} onClick={data.onRemove} />
           </>
         }
       >
@@ -178,6 +181,7 @@ export function Graph(props: {
   selected: NodeId | null;
   onSelect: (id: NodeId | null) => void;
 }) {
+  const { t } = useTranslation();
   const { selected, onSelect: setSelected } = props;
   const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
@@ -247,7 +251,7 @@ export function Graph(props: {
         source: String(view.parent),
         target: String(view.id),
         className: messages ? 'live' : undefined,
-        label: messages ? `메시지 ${messages}` : undefined,
+        label: messages ? t('graph.messages', { n: messages }) : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,
         focusable: false,
@@ -296,7 +300,7 @@ export function Graph(props: {
       >
         <MiniMap
           pannable
-          ariaLabel="미니맵"
+          ariaLabel={t('graph.minimap')}
           nodeClassName={(node) => (node.type === 'card' ? (node as CardNode).data.view.state.kind : 'worktree')}
           onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
         />
@@ -341,7 +345,7 @@ export function Graph(props: {
             selected={selected === zoomedView.id}
             onSelect={() => setSelected(zoomedView.id)}
             onNavigate={() => {}}
-            headAction={<IconButton label="축소" title="축소" path={ICON.collapse} onClick={() => setExpanded(null)} />}
+            headAction={<IconButton label={t('node.collapse')} title={t('node.collapse')} path={ICON.collapse} onClick={() => setExpanded(null)} />}
           >
             <Terminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
           </NodeCard>

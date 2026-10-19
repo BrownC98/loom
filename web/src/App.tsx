@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
+import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getRepo, getSettings, putSettings, watchGraph } from './api';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -69,6 +70,7 @@ function useColorMode(theme: Theme): ColorMode {
 }
 
 export function App() {
+  const { t } = useTranslation();
   const [repo, setRepo] = useState<RepoView | null>(null);
   const [nodes, setNodes] = useState<ReadonlyMap<NodeId, NodeView>>(new Map());
   // 자식 id → 강조하는 동안 그 자식의 간선으로 오간 메시지 수.
@@ -156,7 +158,7 @@ export function App() {
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <ReactFlowProvider>
         <div className="app" data-dock={commitsOpen || undefined}>
-          <nav className="side" aria-label="저장소와 노드">
+          <nav className="side" aria-label={t('app.sideLabel')}>
             <div className="brand">loom</div>
             {repo && <Tree repo={repo} views={nodes} agents={agents} selected={selected} onSelect={setSelected} />}
             <div className="side-foot">
@@ -165,11 +167,11 @@ export function App() {
                   <circle cx="12" cy="12" r="3" />
                   <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
                 </svg>
-                설정
+                {t('settings.title')}
               </button>
             </div>
           </nav>
-          <main className="canvas" aria-label={`${repo?.name ?? ''} 그래프`}>
+          <main className="canvas" aria-label={t('app.graphLabel', { repo: repo?.name ?? '' })}>
             <div className="toolbar">
               <h1>{repo?.name}</h1>
               <span className="spacer" />
@@ -178,7 +180,7 @@ export function App() {
                   <circle cx="12" cy="12" r="3" />
                   <path d="M12 3v6M12 15v6" />
                 </svg>
-                커밋 그래프
+                {t('app.commitGraph')}
               </button>
             </div>
             <Graph views={nodes} pulses={pulses} agents={agents} settings={settings} accounts={accounts} selected={selected} onSelect={setSelected} />

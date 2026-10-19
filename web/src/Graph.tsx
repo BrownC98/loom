@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { applyNodeChanges, Handle, Position, ReactFlow, ViewportPortal, type Edge, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { nodePty } from './api';
+import { agentLabel, defaultAgent, enabledAgents } from './catalog';
+import type { AccountView } from './gen/AccountView';
+import type { AgentView } from './gen/AgentView';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { SettingsView } from './gen/SettingsView';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard } from './NodeCard';
 import { Terminal, type Direction } from './Terminal';
@@ -22,7 +27,7 @@ const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
 const MAIN_GROUP = 'main';
 
 type GroupData = { branch: string; empty: boolean; creating: boolean; onOpen: () => void };
-type CardData = { view: NodeView; parentName: string | null; selected: boolean; expanded: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand: () => void };
+type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; expanded: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand: () => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 type CardNode = Node<CardData, 'card'>;
 type FlowNode = GroupNode | CardNode;
@@ -51,9 +56,9 @@ function Group({ data }: NodeProps<GroupNode>) {
 function Card({ data }: NodeProps<CardNode>) {
   return (
     <>
-      <NodeCard view={data.view} parentName={data.parentName} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} onDoubleClickHead={data.onExpand}>
+      <NodeCard view={data.view} agentLabel={data.agentLabel} parentName={data.parentName} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} onDoubleClickHead={data.onExpand}>
         {/* 확대한 동안에는 확대 창이 터미널을 연다. PTY 크기를 한쪽만 정하게 한다. */}
-        {!data.expanded && <Terminal id={data.view.id} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+        {!data.expanded && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
       </NodeCard>
       {/* 간선이 붙는 자리. 사람이 간선을 잇지 않으므로 보이지 않게 둔다. */}
       <Handle type="target" position={Position.Top} isConnectable={false} />
@@ -116,8 +121,14 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
   return view.parent === null ? null : (views.get(view.parent)?.name ?? null);
 }
 
-/** `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수. */
-export function Graph(props: { views: ReadonlyMap<NodeId, NodeView>; pulses: ReadonlyMap<NodeId, number> }) {
+/** `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다. */
+export function Graph(props: {
+  views: ReadonlyMap<NodeId, NodeView>;
+  pulses: ReadonlyMap<NodeId, number>;
+  agents: AgentView[];
+  settings: SettingsView;
+  accounts: AccountView[] | null;
+}) {
   const [selected, setSelected] = useState<NodeId | null>(null);
   const [expanded, setExpanded] = useState<NodeId | null>(null);
   const [creating, setCreating] = useState(false);
@@ -158,6 +169,7 @@ export function Graph(props: { views: ReadonlyMap<NodeId, NodeView>; pulses: Rea
         position: positions.get(view.id)!,
         data: {
           view,
+          agentLabel: agentLabel(props.agents, view.agent),
           parentName: parentName(props.views, view),
           selected: selected === view.id,
           expanded: expanded === view.id,
@@ -221,6 +233,10 @@ export function Graph(props: { views: ReadonlyMap<NodeId, NodeView>; pulses: Rea
             <div style={{ position: 'absolute', transform: `translate(${GROUP_POSITION.x + POPOVER_OFFSET.x}px, ${GROUP_POSITION.y + POPOVER_OFFSET.y}px)` }}>
               <NewNodePopover
                 branch={MAIN_GROUP}
+                agents={enabledAgents(props.agents, props.settings)}
+                initial={defaultAgent(props.agents, props.settings)}
+                settings={props.settings}
+                accounts={props.accounts}
                 onCreated={(id) => {
                   setCreating(false);
                   setSelected(id);
@@ -235,6 +251,7 @@ export function Graph(props: { views: ReadonlyMap<NodeId, NodeView>; pulses: Rea
         <div className="zoomed">
           <NodeCard
             view={zoomedView}
+            agentLabel={agentLabel(props.agents, zoomedView.agent)}
             parentName={parentName(props.views, zoomedView)}
             selected={selected === zoomedView.id}
             onSelect={() => setSelected(zoomedView.id)}
@@ -245,7 +262,7 @@ export function Graph(props: { views: ReadonlyMap<NodeId, NodeView>; pulses: Rea
               </button>
             }
           >
-            <Terminal id={zoomedView.id} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
+            <Terminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
           </NodeCard>
         </div>
       )}

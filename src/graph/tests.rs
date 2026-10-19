@@ -12,12 +12,11 @@ fn launched(_: NodeId) -> Result<(), String> {
 }
 
 fn root(g: &Graph, name: &str) -> NodeId {
-    g.add_root(name, Profile::Command, launched).unwrap()
+    g.add_root(name, None, launched).unwrap()
 }
 
 fn child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
-    g.add_child(parent, name, Profile::Command, "", launched)
-        .unwrap()
+    g.add_child(parent, name, None, "", launched).unwrap()
 }
 
 fn take(g: &Graph, node: NodeId) -> Option<Delivery> {
@@ -46,13 +45,7 @@ fn parent_and_child_exchange_messages() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let worker = g
-        .add_child(
-            lead,
-            "구현",
-            Profile::Command,
-            "node_host를 고쳐라",
-            launched,
-        )
+        .add_child(lead, "구현", None, "node_host를 고쳐라", launched)
         .unwrap();
 
     assert_eq!(take(&g, worker), delivery("총괄", "node_host를 고쳐라"));
@@ -93,7 +86,7 @@ fn child_names_are_unique_among_siblings_and_parent() {
     let lead = root(&g, "총괄");
     child(&g, lead, "a");
 
-    let refused = |name| g.add_child(lead, name, Profile::Command, "", launched);
+    let refused = |name| g.add_child(lead, name, None, "", launched);
     assert!(matches!(refused("a"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("총괄"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("  "), Err(Refusal::EmptyName)));
@@ -109,13 +102,13 @@ fn limits_are_enforced() {
 
     // 중첩 깊이 2
     assert!(matches!(
-        g.add_child(a1, "a2", Profile::Command, "", launched),
+        g.add_child(a1, "a2", None, "", launched),
         Err(Refusal::TooDeep)
     ));
     // 지시문 4KB
     let brief = "x".repeat(4097);
     assert!(matches!(
-        g.add_child(lead, "b", Profile::Command, &brief, launched),
+        g.add_child(lead, "b", None, &brief, launched),
         Err(Refusal::BriefTooLong(4097))
     ));
     assert!(matches!(
@@ -145,7 +138,7 @@ fn failed_launch_leaves_nothing() {
     let fail = |_| Err("없는 명령".to_owned());
 
     assert!(matches!(
-        g.add_child(lead, "a", Profile::Command, "지시", fail),
+        g.add_child(lead, "a", None, "지시", fail),
         Err(Refusal::Launch(_))
     ));
     assert_eq!(g.subscribe().unwrap().0.len(), 1);
@@ -196,9 +189,7 @@ fn restart_keeps_nodes_and_messages() {
     let (lead, a) = {
         let g = open(&path);
         let lead = root(&g, "총괄");
-        let a = g
-            .add_child(lead, "a", Profile::Command, "지시", launched)
-            .unwrap();
+        let a = g.add_child(lead, "a", None, "지시", launched).unwrap();
         g.done(a, "요약").unwrap();
         (lead, a)
     };

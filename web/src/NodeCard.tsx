@@ -1,14 +1,7 @@
 import type { ReactNode } from 'react';
 import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
-import type { Profile } from './gen/Profile';
 import { navDirection, type Direction } from './Terminal';
-
-export const PROFILE_LABEL: Record<Profile, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  command: '직접 입력',
-};
 
 function stateLabel(state: NodeState): string {
   switch (state.kind) {
@@ -37,6 +30,8 @@ function footText(state: NodeState, parentName: string | null, selected: boolean
 /** 노드 카드 틀. 터미널 자리(`children`)와 머리 오른쪽 버튼(`headAction`)은 부르는 쪽이 채운다. */
 export function NodeCard(props: {
   view: NodeView;
+  /** 에이전트 이름(카탈로그 label)이나 「직접 입력」. */
+  agentLabel: string;
   /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. */
   parentName: string | null;
   selected: boolean;
@@ -67,7 +62,7 @@ export function NodeCard(props: {
     >
       <div className="card-head" onDoubleClick={props.onDoubleClickHead}>
         <span className="name">{view.name}</span>
-        <span className="profile">{PROFILE_LABEL[view.profile]}</span>
+        <span className="agent">{props.agentLabel}</span>
         <span className="spacer" />
         {view.unread > 0 && (
           <span className="unread" aria-label={`읽지 않은 메시지 ${view.unread}개`}>

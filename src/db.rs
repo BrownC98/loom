@@ -25,6 +25,18 @@ const STEPS: &[M] = &[
         );
         CREATE INDEX messages_queued ON messages(recipient) WHERE delivered = 0;",
     ),
+    // 2: 노드에 프로필 대신 카탈로그 에이전트 id를 남긴다(graph). 직접 입력은 JSON `null`이다.
+    M::up(
+        "ALTER TABLE nodes RENAME COLUMN profile TO agent;
+        UPDATE nodes SET agent = 'null' WHERE agent = '\"command\"';",
+    ),
+    // 3: 설정 한 줄(settings). `value`는 serde JSON 문자열이다.
+    M::up(
+        "CREATE TABLE settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            value TEXT NOT NULL
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -48,8 +60,29 @@ pub fn open(path: &Path) -> Result<Connection, rusqlite_migration::Error> {
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::Connection;
+
     #[test]
     fn migrations_are_valid() {
         super::MIGRATIONS.validate().unwrap();
+    }
+
+    #[test]
+    fn step_2_keeps_agent_profiles_and_clears_command() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 1).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO nodes (name, profile, state) VALUES ('a', '"claude"', '{}'), ('b', '"command"', '{}');"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let agents: Vec<String> = conn
+            .prepare("SELECT agent FROM nodes ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(agents, [r#""claude""#, "null"]);
     }
 }

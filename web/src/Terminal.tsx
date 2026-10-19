@@ -2,7 +2,6 @@ import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'rea
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { attachPty } from './api';
-import type { NodeId } from './gen/NodeId';
 
 export type Direction = 'left' | 'right' | 'up' | 'down';
 
@@ -21,7 +20,8 @@ export function navDirection(e: KeyboardEvent | ReactKeyboardEvent): Direction |
 
 const FONT_SIZE = 12;
 
-export function Terminal(props: { id: NodeId; focused: boolean; onFocus: () => void; onNavigate: (dir: Direction) => void }) {
+/** `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). */
+export function Terminal(props: { src: string; focused: boolean; onFocus: () => void; onNavigate: (dir: Direction) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm | null>(null);
   const latest = useRef(props);
@@ -57,7 +57,7 @@ export function Terminal(props: { id: NodeId; focused: boolean; onFocus: () => v
       xterm.loadAddon(fit);
       xterm.open(el);
       term.current = xterm;
-      const link = attachPty(props.id, {
+      const link = attachPty(props.src, {
         onAttach: () => {
           // 다시 붙으면 backlog를 처음부터 받으므로 화면을 비운다.
           xterm.reset();
@@ -89,7 +89,7 @@ export function Terminal(props: { id: NodeId; focused: boolean; onFocus: () => v
         term.current = null;
       };
     }
-  }, [props.id]);
+  }, [props.src]);
 
   useEffect(() => {
     if (props.focused) term.current?.focus();

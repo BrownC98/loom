@@ -5,20 +5,20 @@ use rusqlite::{Connection, params};
 use super::{
     Graph, MAX_DEPTH, NodeId, NodeState, Refusal, mailbox, parent_of, set_state, state_of, to_json,
 };
-use crate::profile::{BRIEF_LIMIT_BYTES, Profile};
+use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
 impl Graph {
     /// 사람이 띄운 노드(깊이 0)를 더한다. `launch`가 실패하면 노드를 남기지 않는다.
     pub fn add_root(
         &self,
         name: &str,
-        profile: Profile,
+        agent: Option<AgentId>,
         launch: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
         let name = checked_name(name)?;
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let id = insert(&tx, name, profile, None)?;
+        let id = insert(&tx, name, &agent, None)?;
         launch(id).map_err(Refusal::Launch)?;
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -30,7 +30,7 @@ impl Graph {
         &self,
         parent: NodeId,
         name: &str,
-        profile: Profile,
+        agent: Option<AgentId>,
         brief: &str,
         launch: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
@@ -51,7 +51,7 @@ impl Graph {
         if taken {
             return Err(Refusal::NameTaken(name.to_owned()));
         }
-        let id = insert(&tx, name, profile, Some(parent))?;
+        let id = insert(&tx, name, &agent, Some(parent))?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
             mailbox::enqueue(&tx, parent, id, brief)?;
@@ -98,14 +98,14 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
 fn insert(
     db: &Connection,
     name: &str,
-    profile: Profile,
+    agent: &Option<AgentId>,
     parent: Option<NodeId>,
 ) -> rusqlite::Result<NodeId> {
     db.execute(
-        "INSERT INTO nodes (name, profile, parent, state) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO nodes (name, agent, parent, state) VALUES (?1, ?2, ?3, ?4)",
         params![
             name,
-            to_json(&profile),
+            to_json(agent),
             parent.map(|p| p.0),
             to_json(&NodeState::Running)
         ],

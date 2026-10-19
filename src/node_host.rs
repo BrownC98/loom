@@ -1,15 +1,14 @@
-//! 노드 호스트: 노드마다 PTY 하나를 쥐고, 출력을 보는 화면 모두에 나눠 준다.
-//! 노드 이름·상태는 모른다. 그것은 graph가 갖는다.
+//! 노드 호스트: 키마다 PTY 하나를 쥐고, 출력을 보는 화면 모두에 나눠 준다.
+//! 노드 이름·상태는 모른다. 그것은 graph가 갖는다. 키는 노드 id나 로그인 창 id다.
 
 use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex, RwLock};
 
 use bytes::Bytes;
-use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use tokio::sync::broadcast;
-
-use crate::graph::NodeId;
 
 /// 다시 연 카드에 먼저 보내는 출력의 상한. 근거: docs/design.md 「규모」.
 const BACKLOG_BYTES: usize = 256 * 1024;
@@ -28,12 +27,20 @@ pub struct Attached {
     pub output: broadcast::Receiver<Bytes>,
 }
 
-#[derive(Default)]
-pub struct NodeHost {
-    nodes: RwLock<HashMap<NodeId, Arc<Pty>>>,
+pub struct NodeHost<K> {
+    nodes: RwLock<HashMap<K, Arc<Pty>>>,
+}
+
+impl<K> Default for NodeHost<K> {
+    fn default() -> Self {
+        Self {
+            nodes: RwLock::default(),
+        }
+    }
 }
 
 struct Pty {
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     input: Mutex<Box<dyn Write + Send>>,
     output: Mutex<Output>,
@@ -44,11 +51,11 @@ struct Output {
     tx: broadcast::Sender<Bytes>,
 }
 
-impl NodeHost {
+impl<K: Copy + Eq + Hash> NodeHost<K> {
     /// 명령을 PTY에서 띄운다. 프로세스가 끝나면 `on_exit`에 종료 코드를 넘긴다.
     pub fn spawn(
         &self,
-        id: NodeId,
+        id: K,
         cmd: CommandBuilder,
         on_exit: impl FnOnce(u32) + Send + 'static,
     ) -> Result<(), String> {
@@ -60,6 +67,7 @@ impl NodeHost {
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let input = pair.master.take_writer().map_err(|e| e.to_string())?;
         let pty = Arc::new(Pty {
+            killer: Mutex::new(child.clone_killer()),
             master: Mutex::new(pair.master),
             input: Mutex::new(input),
             output: Mutex::new(Output {
@@ -83,7 +91,7 @@ impl NodeHost {
     }
 
     /// backlog와 그 뒤의 출력을 빈틈없이 받는다.
-    pub fn attach(&self, id: NodeId) -> Option<Attached> {
+    pub fn attach(&self, id: K) -> Option<Attached> {
         let pty = self.pty(id)?;
         let output = pty.output.lock().unwrap();
         Some(Attached {
@@ -92,14 +100,14 @@ impl NodeHost {
         })
     }
 
-    pub fn write(&self, id: NodeId, bytes: &[u8]) {
+    pub fn write(&self, id: K, bytes: &[u8]) {
         if let Some(pty) = self.pty(id) {
             // 끝난 프로세스에 쓰면 실패한다. 화면에 따로 알리지 않는다. 상태 이벤트가 exited를 보인다.
             let _ = pty.input.lock().unwrap().write_all(bytes);
         }
     }
 
-    pub fn resize(&self, id: NodeId, cols: u16, rows: u16) {
+    pub fn resize(&self, id: K, cols: u16, rows: u16) {
         if let Some(pty) = self.pty(id) {
             let size = PtySize {
                 rows,
@@ -111,7 +119,15 @@ impl NodeHost {
         }
     }
 
-    fn pty(&self, id: NodeId) -> Option<Arc<Pty>> {
+    /// 프로세스를 끝내고 PTY를 놓는다. `spawn`의 `on_exit`는 그대로 불린다.
+    pub fn kill(&self, id: K) {
+        if let Some(pty) = self.nodes.write().unwrap().remove(&id) {
+            // 이미 끝난 프로세스면 실패한다. 할 일이 없다.
+            let _ = pty.killer.lock().unwrap().kill();
+        }
+    }
+
+    fn pty(&self, id: K) -> Option<Arc<Pty>> {
         self.nodes.read().unwrap().get(&id).cloned()
     }
 }

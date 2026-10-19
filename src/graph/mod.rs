@@ -17,7 +17,7 @@ use ts_rs::TS;
 
 pub use mailbox::Delivery;
 
-use crate::profile::{BRIEF_LIMIT_BYTES, Profile};
+use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
 /// 화면 하나가 밀려도 버티는 이벤트 수.
 const EVENT_QUEUE: usize = 256;
@@ -52,7 +52,8 @@ pub enum NodeState {
 pub struct NodeView {
     pub id: NodeId,
     pub name: String,
-    pub profile: Profile,
+    /// 카탈로그 에이전트. 직접 입력한 명령이면 없다.
+    pub agent: Option<AgentId>,
     pub parent: Option<NodeId>,
     pub state: NodeState,
     /// 아직 전하지 않은(`queued`) 메시지 수.
@@ -134,7 +135,7 @@ pub struct Graph {
     mail: Notify,
 }
 
-const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.profile, n.parent, n.state,
+const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0)
     FROM nodes n";
 
@@ -188,7 +189,7 @@ fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
     Ok(NodeView {
         id: NodeId(row.get(0)?),
         name: row.get(1)?,
-        profile: from_json(row, 2)?,
+        agent: from_json(row, 2)?,
         parent: row.get::<_, Option<u32>>(3)?.map(NodeId),
         state: from_json(row, 4)?,
         unread: row.get(5)?,

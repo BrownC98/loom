@@ -1,34 +1,39 @@
 import { useState, type FormEvent } from 'react';
 import { createNode } from './api';
+import type { AccountView } from './gen/AccountView';
+import type { AgentView } from './gen/AgentView';
 import type { NodeId } from './gen/NodeId';
-import type { Profile } from './gen/Profile';
+import type { SettingsView } from './gen/SettingsView';
 import type { Start } from './gen/Start';
-import { PROFILE_LABEL } from './NodeCard';
+import { accountName, activeAccount, windowsText } from './usage';
 
-const PROFILES: Profile[] = ['claude', 'codex', 'command'];
+/** 에이전트 선택 칸에서 「직접 입력」의 값. 카탈로그 id와 겹치지 않는다. */
+const COMMAND = '';
 
-function startOf(profile: Profile, text: string): Start {
-  switch (profile) {
-    case 'claude':
-    case 'codex':
-      return { profile, brief: text };
-    case 'command':
-      return { profile, line: text };
-  }
-}
-
-export function NewNodePopover(props: { branch: string; onCreated: (id: NodeId) => void; onCancel: () => void }) {
+/** `agents`는 켠 에이전트만, `initial`은 처음에 고를 기본 에이전트다(목업 5번). */
+export function NewNodePopover(props: {
+  branch: string;
+  agents: AgentView[];
+  initial: AgentView | undefined;
+  settings: SettingsView;
+  accounts: AccountView[] | null;
+  onCreated: (id: NodeId) => void;
+  onCancel: () => void;
+}) {
   const [name, setName] = useState('');
-  const [profile, setProfile] = useState<Profile>('claude');
+  const [choice, setChoice] = useState(props.initial?.id ?? COMMAND);
   const [text, setText] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const agent = props.agents.find((a) => a.id === choice);
+  const account = agent?.profile && props.accounts ? activeAccount(props.accounts, props.settings, agent.profile) : undefined;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
+    const start: Start = agent ? { kind: 'agent', agent: agent.id, brief: agent.takesBrief ? text : '' } : { kind: 'command', line: text };
     try {
-      props.onCreated(await createNode({ name, start: startOf(profile, text) }));
+      props.onCreated(await createNode({ name, start }));
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -49,18 +54,23 @@ export function NewNodePopover(props: { branch: string; onCreated: (id: NodeId) 
         <label htmlFor="n-name">이름</label>
         <input id="n-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} required autoFocus />
       </div>
-      <fieldset className="field">
-        <legend>프로필</legend>
-        <div className="seg">
-          {PROFILES.map((p) => (
-            <label key={p}>
-              <input type="radio" name="profile" checked={profile === p} onChange={() => setProfile(p)} />
-              <span>{PROFILE_LABEL[p]}</span>
-            </label>
+      <div className="field">
+        <label htmlFor="n-agent">에이전트</label>
+        <select id="n-agent" value={choice} onChange={(e) => setChoice(e.target.value)}>
+          {props.agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.label}
+            </option>
           ))}
-        </div>
-      </fieldset>
-      {profile === 'command' ? (
+          <option value={COMMAND}>직접 입력</option>
+        </select>
+        {account && (
+          <span className="hint">
+            계정: {accountName(account)} · {windowsText(account.usage.limits)}
+          </span>
+        )}
+      </div>
+      {agent === undefined ? (
         <div className="field">
           <label htmlFor="n-text">명령</label>
           <input id="n-text" value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" spellCheck={false} placeholder="비워 두면 기본 셸을 띄운다" translate="no" />
@@ -68,8 +78,14 @@ export function NewNodePopover(props: { branch: string; onCreated: (id: NodeId) 
       ) : (
         <div className="field">
           <label htmlFor="n-text">첫 지시문</label>
-          <textarea id="n-text" value={text} onChange={(e) => setText(e.target.value)} placeholder="비워 두면 빈 세션으로 시작한다" />
-          <span className="hint">4KB까지. 더 긴 자료는 파일 경로를 적는다.</span>
+          <textarea
+            id="n-text"
+            value={agent.takesBrief ? text : ''}
+            onChange={(e) => setText(e.target.value)}
+            disabled={!agent.takesBrief}
+            placeholder={agent.takesBrief ? '비워 두면 빈 세션으로 시작한다' : `${agent.label}: 첫 지시문을 받지 않는다. 노드를 띄운 뒤 카드에 입력한다.`}
+          />
+          {agent.takesBrief && <span className="hint">4KB까지. 더 긴 자료는 파일 경로를 적는다.</span>}
         </div>
       )}
       {error && (

@@ -1,9 +1,17 @@
 // 데몬 API. 요청·응답 타입은 Rust가 원천이다(gen/).
+import type { AccountId } from './gen/AccountId';
+import type { AccountView } from './gen/AccountView';
+import type { AgentView } from './gen/AgentView';
 import type { GraphEvent } from './gen/GraphEvent';
+import type { Login } from './gen/Login';
+import type { LoginId } from './gen/LoginId';
+import type { LoginState } from './gen/LoginState';
 import type { NewNode } from './gen/NewNode';
 import type { NodeId } from './gen/NodeId';
+import type { Profile } from './gen/Profile';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
+import type { SettingsView } from './gen/SettingsView';
 
 /** 끊긴 WebSocket을 다시 여는 간격. 데몬이 다시 시작하는 동안 기다린다. */
 const RECONNECT_MS = 1000;
@@ -14,15 +22,29 @@ export async function getRepo(): Promise<RepoView> {
 }
 
 /** 실패하면 데몬이 보낸 문장을 담은 Error를 던진다. */
-export async function createNode(req: NewNode): Promise<NodeId> {
-  const res = await fetch('/api/nodes', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(req),
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
+/** 부를 때마다 데몬이 PATH를 다시 훑는다. */
+export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
+export const getSettings = () => call<SettingsView>('GET', '/api/settings');
+export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/settings', view);
+/** 계정마다 사용량을 그 자리에서 읽는다. 몇 초 걸린다. */
+export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
+export const removeAccount = (provider: Profile, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}`);
+export const startLogin = (provider: Profile, req: Login) => call<LoginId>('POST', `/api/accounts/${provider}`, req);
+export const getLogin = (id: LoginId) => call<LoginState>('GET', `/api/logins/${id}`);
+export const closeLogin = (id: LoginId) => call<null>('DELETE', `/api/logins/${id}`);
+export const loginPty = (id: LoginId) => `/api/logins/${id}/pty`;
+export const nodePty = (id: NodeId) => `/api/nodes/${id}/pty`;
 
 function socketUrl(path: string): string {
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`;
@@ -52,16 +74,16 @@ export interface PtyLink {
   close(): void;
 }
 
-/** 노드 PTY에 붙는다. 연결할 때마다 `onAttach`를 부른 뒤 backlog부터 출력을 넘긴다. */
+/** PTY에 붙는다(`nodePty`·`loginPty`). 연결할 때마다 `onAttach`를 부른 뒤 backlog부터 출력을 넘긴다. */
 export function attachPty(
-  id: NodeId,
+  path: string,
   handlers: { onAttach: () => void; onOutput: (bytes: Uint8Array) => void },
 ): PtyLink {
   const encoder = new TextEncoder();
   let socket: WebSocket;
   let stopped = false;
   const open = () => {
-    socket = new WebSocket(socketUrl(`/api/nodes/${id}/pty`));
+    socket = new WebSocket(socketUrl(path));
     socket.binaryType = 'arraybuffer';
     socket.onopen = handlers.onAttach;
     socket.onmessage = (e) => handlers.onOutput(new Uint8Array(e.data as ArrayBuffer));

@@ -1,7 +1,11 @@
 //! 조합 레이어: HTTP·WebSocket 라우트. 아래 기능 모듈을 부르고 결과를 엮기만 한다.
+//! 설정·계정·사용량 라우트는 `settings.rs`에 둔다.
+
+mod settings;
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::hash::Hash;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -19,10 +23,12 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
 use ts_rs::TS;
 
+use crate::accounts::Accounts;
 use crate::db;
 use crate::graph::{Delivery, Graph, GraphEvent, NodeId, Refusal};
 use crate::node_host::NodeHost;
-use crate::profile::{self, Profile, Start};
+use crate::profile::{self, Start};
+use crate::settings::Settings;
 
 #[derive(Embed)]
 #[folder = "web/dist"]
@@ -30,8 +36,11 @@ struct Assets;
 
 struct App {
     repo: RepoView,
-    host: NodeHost,
+    host: NodeHost<NodeId>,
     graph: Arc<Graph>,
+    settings: Settings,
+    accounts: Accounts,
+    logins: settings::Logins,
     /// 노드가 데몬을 부를 때 내는 토큰. 데몬이 다시 시작하면 노드 프로세스도 모두 끝나므로 메모리에만 둔다.
     tokens: Mutex<HashMap<String, NodeId>>,
     /// 노드 안에서 `loom` 명령이 쓰는 데몬 주소(`LOOM_URL`).
@@ -87,11 +96,16 @@ pub struct DoneRequest {
 }
 
 pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
-    let conn = db::open(&db::default_path()?).map_err(std::io::Error::other)?;
+    let db_path = db::default_path()?;
+    let open = || db::open(&db_path).map_err(std::io::Error::other);
     let app = Arc::new(App {
         repo: repo_view(std::env::current_dir()?),
         host: NodeHost::default(),
-        graph: Arc::new(Graph::open(conn).map_err(std::io::Error::other)?),
+        graph: Arc::new(Graph::open(open()?).map_err(std::io::Error::other)?),
+        settings: Settings::new(open()?),
+        // 근거: docs/design.md 「저장」.
+        accounts: Accounts::new(db_path.with_file_name("accounts")),
+        logins: settings::Logins::default(),
         tokens: Mutex::default(),
         url: node_url(listen),
         path: node_path()?,
@@ -105,6 +119,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/done", post(agent_done))
         .route("/api/nodes/{id}/pty", get(pty))
         .route("/api/events", get(events))
+        .merge(settings::routes())
         .fallback(asset)
         .with_state(app);
     let listener = tokio::net::TcpListener::bind(listen).await?;
@@ -183,9 +198,16 @@ impl App {
             ))
     }
 
+    /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다.
     fn command(&self, start: &Start) -> Result<portable_pty::CommandBuilder, ApiError> {
-        profile::command(start, std::path::Path::new(&self.repo.path))
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))
+        let mut cmd = profile::command(start, std::path::Path::new(&self.repo.path))
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        if let Some(provider) = start.profile() {
+            let settings = self.settings.get().map_err(internal)?;
+            self.accounts
+                .apply(&mut cmd, provider, settings.account(provider));
+        }
+        Ok(cmd)
     }
 }
 
@@ -193,6 +215,10 @@ fn new_token() -> Result<String, String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn internal(e: impl std::fmt::Display) -> ApiError {
+    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
 
 fn refused(e: Refusal) -> ApiError {
@@ -210,7 +236,7 @@ async fn create_node(
     let cmd = app.command(&req.start)?;
     let id = app
         .graph
-        .add_root(&req.name, req.start.profile(), |id| app.launch(id, cmd))
+        .add_root(&req.name, req.start.agent(), |id| app.launch(id, cmd))
         .map_err(refused)?;
     Ok(Json(id))
 }
@@ -224,7 +250,7 @@ async fn agent_spawn(
     let cmd = app.command(&Start::Command { line: req.command })?;
     let id = app
         .graph
-        .add_child(parent, &req.name, Profile::Command, &req.brief, |id| {
+        .add_child(parent, &req.name, None, &req.brief, |id| {
             app.launch(id, cmd)
         })
         .map_err(refused)?;
@@ -260,12 +286,20 @@ async fn agent_done(
 }
 
 async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<App>>) -> Response {
-    let id = NodeId(id);
-    let Some(attached) = app.host.attach(id) else {
-        // 데몬이 다시 시작해 PTY가 없는 노드다. 안내 한 줄을 보이고, 화면이 다시 붙지 않게 연결을 열어 둔다.
+    serve_pty(ws, app, |app| &app.host, NodeId(id))
+}
+
+/// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
+fn serve_pty<K: Copy + Eq + Hash + Send + Sync + 'static>(
+    ws: WebSocketUpgrade,
+    app: Arc<App>,
+    host: fn(&App) -> &NodeHost<K>,
+    id: K,
+) -> Response {
+    let Some(attached) = host(&app).attach(id) else {
+        // 데몬이 다시 시작해 PTY가 없다. 안내 한 줄을 보이고, 화면이 다시 붙지 않게 연결을 열어 둔다.
         return ws.on_upgrade(|mut socket| async move {
-            let notice =
-                Bytes::from_static("데몬이 다시 시작해 이 노드의 터미널은 없다.\r\n".as_bytes());
+            let notice = Bytes::from_static("데몬이 다시 시작해 이 터미널은 없다.\r\n".as_bytes());
             if socket.send(Message::Binary(notice)).await.is_ok() {
                 while let Some(Ok(_)) = socket.next().await {}
             }
@@ -289,10 +323,10 @@ async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<Ap
                     Err(RecvError::Lagged(_) | RecvError::Closed) => return,
                 },
                 msg = from_view.next() => match msg {
-                    Some(Ok(Message::Binary(bytes))) => app.host.write(id, &bytes),
+                    Some(Ok(Message::Binary(bytes))) => host(&app).write(id, &bytes),
                     Some(Ok(Message::Text(text))) => {
                         if let Ok(Resize { cols, rows }) = serde_json::from_str(&text) {
-                            app.host.resize(id, cols, rows);
+                            host(&app).resize(id, cols, rows);
                         }
                     }
                     Some(Ok(_)) => {}

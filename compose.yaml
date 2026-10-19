@@ -1,0 +1,34 @@
+# 개발 환경. 호스트에는 Rust·Node를 설치하지 않는다.
+# 빌드 산출물과 패키지 캐시는 볼륨에 둔다. 저장소가 있는 /mnt/c(9p)에서 빌드하면 느리다.
+services:
+  dev:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM rust:1.99-trixie
+        COPY --from=node:24-trixie-slim /usr/local/bin/node /usr/local/bin/node
+        COPY --from=node:24-trixie-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+        RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+         && rustup component add clippy rustfmt \
+         && useradd -m -u 1000 dev \
+         && mkdir -p /cache/cargo /work/target /work/web/node_modules \
+         && chown -R dev /cache /work
+        ENV CARGO_HOME=/cache/cargo
+        USER dev
+    image: loom-dev
+    init: true
+    working_dir: /work
+    command: sleep infinity
+    volumes:
+      - .:/work
+      - target:/work/target
+      - node_modules:/work/web/node_modules
+      - cargo:/cache/cargo
+    ports:
+      # 호스트에는 루프백으로만 연다. 컨테이너 안 데몬은 0.0.0.0에서 듣는다.
+      - "127.0.0.1:7420:7420"
+
+volumes:
+  target:
+  node_modules:
+  cargo:

@@ -11,6 +11,23 @@
 - [랩터-3](~/.agents/skills/raptor-3/SKILL.md): 설계·구현할 때마다 부품 수를 최소로 만든다. 코드를 쓰기 전, 목록에 없는 부품을 더할 때, 커밋하기 전에 요구가 없는 부품을 지운다.
 - [ste-ko](~/.agents/skills/ste-ko/SKILL.md): 에이전트 사이 소통을 한 뜻으로만 읽히게 하는 지침이다. 에이전트에게 보내는 글(지시문, 메시지, 결과 보고)에 먼저 적용한다. 사람이 읽는 글(보고, 문서, 지시 파일, 커밋 본문, UI 문구)에도 적용한다. 보내기 전에 9절 점검 순서를 돌린다.
 
+## 개발 환경
+
+도커 컨테이너에서만 빌드·실행한다. 저장소 폴더에서 아래 명령을 쓴다.
+
+| 할 일 | 명령 |
+|---|---|
+| 컨테이너 띄우기 | `docker compose up -d --build` |
+| Rust 포맷 | `docker compose exec dev cargo fmt` |
+| Rust 검사 | `docker compose exec dev cargo clippy --all-targets` |
+| Rust 테스트, TS 타입 생성 | `docker compose exec dev cargo test` |
+| 화면 패키지 설치 | `docker compose exec -w /work/web dev npm ci` |
+| 화면 타입·순환 검사 | `docker compose exec -w /work/web dev npm run check` |
+| 화면 빌드 | `docker compose exec -w /work/web dev npm run build` |
+| 데몬 띄우기 | `docker compose exec dev cargo run -- serve --listen 0.0.0.0:7420` 뒤 http://127.0.0.1:7420 |
+
+- API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.
+
 ## 목표
 
 - 모델은 처음 구현을 잘 끝낸다. 무너지는 곳은 반복 수정이다.

@@ -68,7 +68,7 @@ a { color: var(--accent); }
 .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
 .ba > figure > figcaption { font-size: 12px; font-weight: 600; color: var(--ink-3); margin-bottom: 6px; }
 .shot { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: block; }
-.shot img { display: block; width: 100%; }
+.shot img { display: block; width: 100%; height: auto; }
 .stage { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; position: relative; }
 
 table.t { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -201,7 +201,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
     <b>개선 사항</b><span>Orca처럼 화면 맨 아래에 늘 보이는 상태 줄을 둔다. 공급자마다 한 칸에 계정과 5시간·주간 남은 비율을 보인다. 칸을 누르면 2번 팝오버가 열린다. 줄 오른쪽 끝에 [설정]을 둔다.</span>
   </div>
   <div class="ba" style="grid-template-columns:1fr">
-    <figure><figcaption>전 (현재 제품, 1440×900)</figcaption><a class="shot" href="settings-before.png" style="width:720px"><img src="settings-before.png" alt="현재 loom 화면. 화면 아래에 상태 줄이 없고 새 노드 창이 열려 있다." width="1440" height="900"></a></figure>
+    <figure><figcaption>전 (현재 제품, 1440×900, 다크, 설정 창을 연 화면. 상태 줄과 설정 창은 이 목업대로 이미 구현했다)</figcaption><a class="shot" href="settings-before.png" style="width:720px"><img src="settings-before.png" alt="현재 loom 화면. 설정 창 「에이전트」 탭이 열려 있고 화면 아래에 사용량 상태 줄이 있다." width="1440" height="900"></a></figure>
     <figure><figcaption>후 (화면 아래쪽만, 그래프는 흐리게 줄였다)</figcaption>
       <div class="shell">
         <div class="shell-body">
@@ -379,7 +379,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
     <b>개선 사항</b><span>「에이전트」 선택 칸으로 바꾼다. 켠 에이전트와 「직접 입력」만 보인다. 기본 에이전트를 처음에 고른다. Claude·Codex를 고르면 쓸 계정을 한 줄로 보인다.</span>
   </div>
   <div class="ba">
-    <figure><figcaption>전 (위 캡처의 새 노드 창 부분)</figcaption><a class="shot" href="settings-before.png" style="height:380px;background:url(settings-before.png) -432px -104px / 1440px 900px no-repeat" aria-label="현재 새 노드 창"></a></figure>
+    <figure><figcaption>전</figcaption><p class="hint">승인본 <a href="main.html">main.html</a>의 새 노드 창이다. 「프로필」 칸이 Claude Code·Codex·직접 입력 셋이다. 이 구역은 이미 구현했다.</p></figure>
     <figure><figcaption>후</figcaption>
       <div class="stage" style="display:flex;gap:24px">
         <form class="pop" style="width:340px" aria-label="새 노드">
@@ -412,6 +412,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
     <b>문제점</b><span>화면이 늘 다크다. OS를 라이트로 쓰거나 밝은 곳에서 일하는 사용자는 테마를 바꿀 수 없다.</span>
     <b>개선 사항</b><span>설정 창에 「화면」 탭을 더하고 테마 세 값(시스템·라이트·다크)을 둔다. 처음 값은 「시스템」이다. 누르면 화면이 바로 바뀌고 데몬 설정에 저장한다. 메인 화면의 라이트 모양은 <a href="main.html">main.html</a>에서 오른쪽 위 「목업 보기」로 본다.</span>
   </div>
+  <figure style="margin-bottom:16px"><figcaption class="hint" style="font-weight:600;margin-bottom:6px">전 (현재 제품, 다크만 있다. 탭은 「에이전트」「계정」 둘이다)</figcaption><a class="shot" href="settings-before.png" style="width:720px"><img src="settings-before.png" alt="현재 loom 설정 창. 탭은 에이전트와 계정 둘이고 화면은 다크다." width="1440" height="900"></a></figure>
   <div class="stage">
     <div class="dialog" role="dialog" aria-label="설정">
       <nav>

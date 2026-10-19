@@ -76,19 +76,28 @@ table.t { border-collapse: collapse; width: 100%; font-size: 13px; }
 .no { color: var(--ink-3); font-weight: 600; }
 .ask { color: var(--warn); font-weight: 600; }
 
-/* 사이드바 아래 */
+/* 사이드바 */
 .side { width: 232px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; height: 360px; }
 .side .brand { font-weight: 700; font-size: 16px; padding: 16px 16px 12px; }
 .side .label { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 12px 16px 6px; }
 .side .repo { margin: 0 8px; border-radius: 6px; padding: 7px 8px; background: var(--accent-wash); }
 .side .repo b { display: block; }
 .side .repo span { font: 12px var(--mono); color: var(--ink-3); }
-.side-foot { margin-top: auto; border-top: 1px solid var(--line); padding: 8px; display: grid; gap: 2px; }
-.usage-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; background: none; border: 0; text-align: left; cursor: pointer; width: 100%; }
-.usage-row:hover { background: var(--surface-hover); }
-.usage-row .who { font-size: 12px; font-weight: 600; }
-.usage-row .pct { font: 12px var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.meters { display: grid; gap: 3px; }
+/* 하단 상태 줄 */
+.shell { display: grid; grid-template-rows: 1fr 28px; height: 260px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.shell-body { display: grid; grid-template-columns: 232px 1fr; min-height: 0; }
+.shell-body .side { height: auto; border: 0; border-right: 1px solid var(--line); border-radius: 0; }
+.shell-body .canvas-dim { background-color: var(--bg); background-image: radial-gradient(oklch(30% 0.014 255) 1px, transparent 1px); background-size: 20px 20px; display: grid; place-items: center; color: var(--ink-3); font-size: 12px; }
+.statusbar { display: flex; align-items: stretch; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); padding: 0 4px; }
+.seg-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; }
+.seg-btn:hover { background: var(--surface-hover); color: var(--ink); }
+.seg-btn[aria-expanded="true"] { background: var(--accent-wash); color: var(--ink); }
+.seg-btn .who { font-weight: 600; color: var(--ink); }
+.lim { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.lim .meter { width: 36px; }
+.statusbar .spacer { flex: 1; }
+.seg-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; }
+.statusbar .sep { width: 1px; background: var(--line); margin: 6px 2px; }
 .meter { height: 4px; border-radius: 2px; background: var(--surface-hover); overflow: hidden; }
 .meter i { display: block; height: 100%; background: var(--accent); }
 .meter i.hi { background: var(--warn); }
@@ -152,40 +161,45 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
   <p>Orca의 「Agents」「Accounts」 설정과 상태 표시줄 사용량을 loom에 옮긴 목업이다. 바뀌는 구역만 그렸다. 폭은 1440 데스크톱 하나다. 승인할 것은 셋이다: ① 맨 아래 「결정표」의 넣기·빼기, ② 각 구역의 화면, ③ 「구조 제안」의 모듈 배치.</p>
 </header>
 
-<!-- 1. 사이드바 아래 -->
+<!-- 1. 하단 상태 줄 -->
 <section class="unit" aria-labelledby="u1">
-  <h2 id="u1">1. 사이드바 아래: 사용량과 [설정]</h2>
+  <h2 id="u1">1. 화면 맨 아래: 사용량 상태 줄과 [설정]</h2>
   <div class="why">
-    <b>문제점</b><span>사이드바 아래가 비어 있다. 지금 쓰는 Claude·Codex 계정과 남은 사용량을 볼 곳이 없고, 설정으로 가는 진입점도 없다.</span>
-    <b>개선 사항</b><span>Orca 상태 표시줄의 사용량을 사이드바 아래에 둔다. 공급자마다 한 줄에 5시간·주간 사용 비율을 보인다. 줄을 누르면 2번 팝오버가 열린다. 그 아래에 [설정]을 둔다.</span>
+    <b>문제점</b><span>지금 쓰는 Claude·Codex 계정과 남은 사용량을 볼 곳이 없다. 설정으로 가는 진입점도 없다.</span>
+    <b>개선 사항</b><span>Orca처럼 화면 맨 아래에 늘 보이는 상태 줄을 둔다. 공급자마다 한 칸에 계정과 5시간·주간 남은 비율을 보인다. 칸을 누르면 2번 팝오버가 열린다. 줄 오른쪽 끝에 [설정]을 둔다.</span>
   </div>
-  <div class="ba">
-    <figure><figcaption>전 (현재 제품, 1440×900)</figcaption><a class="shot" href="settings-before.png"><img src="settings-before.png" alt="현재 loom 화면. 사이드바 아래가 비어 있고 새 노드 창이 열려 있다." width="1440" height="900"></a></figure>
-    <figure><figcaption>후 (사이드바만)</figcaption>
-      <div class="stage" style="display:flex;gap:24px;align-items:flex-start">
-        <nav class="side" aria-label="저장소">
-          <div class="brand">loom</div>
-          <div class="label">저장소</div>
-          <div class="repo"><b>work</b><span>/work</span></div>
-          <div class="side-foot">
-            <button class="usage-row" aria-label="Claude 사용량: 5시간 42%, 주간 18%">
-              <span class="who">Claude</span>
-              <span class="meters"><span class="meter"><i style="width:42%"></i></span><span class="meter"><i style="width:18%"></i></span></span>
-              <span class="pct">42%</span>
-            </button>
-            <button class="usage-row" aria-label="Codex 사용량: 5시간 81%, 주간 55%">
-              <span class="who">Codex</span>
-              <span class="meters"><span class="meter"><i class="hi" style="width:81%"></i></span><span class="meter"><i style="width:55%"></i></span></span>
-              <span class="pct">81%</span>
-            </button>
-            <button class="btn ghost settings-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>설정</button>
-          </div>
-        </nav>
-        <div class="hint" style="max-width:260px;display:grid;gap:8px">
-          <span>막대 위: 5시간 창. 막대 아래: 주간 창. 숫자는 둘 가운데 큰 값이다.</span>
-          <span>75% 이상이면 막대가 노란색이다.</span>
-          <span>계정을 더하지 않았거나 로그인하지 않았으면 그 공급자 줄을 숨긴다. 두 줄이 모두 없으면 [설정]만 남는다.</span>
+  <div class="ba" style="grid-template-columns:1fr">
+    <figure><figcaption>전 (현재 제품, 1440×900)</figcaption><a class="shot" href="settings-before.png" style="width:720px"><img src="settings-before.png" alt="현재 loom 화면. 화면 아래에 상태 줄이 없고 새 노드 창이 열려 있다." width="1440" height="900"></a></figure>
+    <figure><figcaption>후 (화면 아래쪽만, 그래프는 흐리게 줄였다)</figcaption>
+      <div class="shell">
+        <div class="shell-body">
+          <nav class="side" aria-label="저장소">
+            <div class="brand">loom</div>
+            <div class="label">저장소</div>
+            <div class="repo"><b>work</b><span>/work</span></div>
+          </nav>
+          <div class="canvas-dim">그래프(바뀌지 않음)</div>
         </div>
+        <footer class="statusbar" aria-label="상태 줄">
+          <button class="seg-btn" aria-expanded="true" aria-label="Claude 계정 work@example.com, 5시간 58% 남음, 주간 82% 남음. 누르면 계정 바꾸기를 연다">
+            <span class="who">Claude</span><span>work@example.com</span>
+            <span class="lim"><span class="meter"><i style="width:58%"></i></span>5시간 58%</span>
+            <span class="lim"><span class="meter"><i style="width:82%"></i></span>주간 82%</span>
+          </button>
+          <span class="sep" aria-hidden="true"></span>
+          <button class="seg-btn" aria-label="Codex 계정 시스템 기본, 5시간 19% 남음, 주간 45% 남음. 누르면 계정 바꾸기를 연다">
+            <span class="who">Codex</span><span>시스템 기본</span>
+            <span class="lim"><span class="meter"><i class="hi" style="width:19%"></i></span>5시간 19%</span>
+            <span class="lim"><span class="meter"><i style="width:45%"></i></span>주간 45%</span>
+          </button>
+          <span class="spacer"></span>
+          <button class="seg-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>설정</button>
+        </footer>
+      </div>
+      <div class="hint" style="display:grid;gap:6px;margin-top:12px">
+        <span>숫자는 남은 비율이다. 막대도 남은 양만큼 찬다. 25% 이하이면 막대가 노란색이다.</span>
+        <span>순서는 Orca 기본값을 따른다: Claude, Codex. 로그인한 계정이 없는 공급자는 칸 대신 「로그인하면 사용량을 본다」를 보인다.</span>
+        <span>사용량을 가져오는 중이면 그 칸만 흐리게 깜박인다. 오류면 칸에 오류 한 줄을 보인다.</span>
       </div>
     </figure>
   </div>
@@ -202,22 +216,23 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
     <div class="pop" role="dialog" aria-label="Claude 사용량">
       <h3>Claude<span class="spacer"></span><button class="btn ghost sm" aria-label="새로 고침"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg></button></h3>
       <div class="win">
-        <div class="win-line"><span>5시간</span><span class="meter"><i style="width:42%"></i></span><span class="pct">42%</span></div>
-        <div class="win-line"><span>주간</span><span class="meter"><i style="width:18%"></i></span><span class="pct">18%</span></div>
+        <div class="win-line"><span>5시간</span><span class="meter"><i style="width:58%"></i></span><span class="pct">58%</span></div>
+        <div class="win-line"><span>주간</span><span class="meter"><i style="width:82%"></i></span><span class="pct">82%</span></div>
         <span class="reset">5시간 창 초기화 15:40 · 주간 창 초기화 목 09:00 · 2분 전에 갱신</span>
       </div>
       <hr class="divider">
       <ul class="acct-list" aria-label="Claude 계정">
         <li class="acct">시스템 기본<span class="sub mono">~/.claude</span></li>
         <li class="acct" aria-current="true">work@example.com<span class="sub">쓰는 중</span></li>
-        <li class="acct">personal@gmail.com<span class="sub">87%</span></li>
+        <li class="acct">personal@gmail.com<span class="sub">13% 남음</span></li>
       </ul>
       <hr class="divider">
       <button class="btn ghost sm" style="justify-self:start">계정 관리…</button>
     </div>
     <div class="hint" style="max-width:360px;display:grid;gap:8px;align-content:start">
-      <span>계정 옆 숫자는 그 계정의 5시간 창 비율이다. 계정을 고를 때 남은 양을 비교한다.</span>
-      <span>[계정 관리…]는 3번 설정 창의 「계정」 탭을 연다.</span>
+      <span>계정 옆 숫자는 그 계정의 5시간 창 남은 비율이다. 계정을 고를 때 남은 양을 비교한다.</span>
+      <span>[계정 관리…]는 4번 설정 창의 「계정」 탭을 연다.</span>
+      <span>팝오버는 1번 상태 줄의 칸 위에 뜬다.</span>
       <span>오류는 줄 하나로 보인다. 예: 「다시 로그인해야 한다」, 「사용량을 지금 볼 수 없다」.</span>
     </div>
   </div>
@@ -287,15 +302,15 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
         <section>
           <h4>Claude <span class="spacer" style="flex:1"></span><button class="btn sm"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>계정 추가</button></h4>
           <div class="rows">
-            <div class="acct-row"><span><span class="name">시스템 기본</span><br><span class="meta">~/.claude · loom이 고치지 않는다</span></span><span class="win"><span class="win-line"><span>5시간</span><span class="meter"><i style="width:12%"></i></span><span class="pct">12%</span></span><span class="win-line"><span>주간</span><span class="meter"><i style="width:30%"></i></span><span class="pct">30%</span></span></span><span><button class="btn sm">쓰기</button></span></div>
-            <div class="acct-row" aria-current="true"><span><span class="name">work@example.com</span> <span class="badge">쓰는 중</span><br><span class="meta">Max · 2분 전에 갱신</span></span><span class="win"><span class="win-line"><span>5시간</span><span class="meter"><i style="width:42%"></i></span><span class="pct">42%</span></span><span class="win-line"><span>주간</span><span class="meter"><i style="width:18%"></i></span><span class="pct">18%</span></span></span><span><button class="btn ghost sm" aria-label="work@example.com 지우기">지우기</button></span></div>
+            <div class="acct-row"><span><span class="name">시스템 기본</span><br><span class="meta">~/.claude · loom이 고치지 않는다</span></span><span class="win"><span class="win-line"><span>5시간</span><span class="meter"><i style="width:88%"></i></span><span class="pct">88%</span></span><span class="win-line"><span>주간</span><span class="meter"><i style="width:70%"></i></span><span class="pct">70%</span></span></span><span><button class="btn sm">쓰기</button></span></div>
+            <div class="acct-row" aria-current="true"><span><span class="name">work@example.com</span> <span class="badge">쓰는 중</span><br><span class="meta">Max · 2분 전에 갱신</span></span><span class="win"><span class="win-line"><span>5시간</span><span class="meter"><i style="width:58%"></i></span><span class="pct">58%</span></span><span class="win-line"><span>주간</span><span class="meter"><i style="width:82%"></i></span><span class="pct">82%</span></span></span><span><button class="btn ghost sm" aria-label="work@example.com 지우기">지우기</button></span></div>
             <div class="acct-row"><span><span class="name">old@gmail.com</span> <span class="badge warn">다시 로그인 필요</span><br><span class="meta">토큰이 만료됐다</span></span><span class="hint">사용량을 볼 수 없다</span><span style="display:flex;gap:4px"><button class="btn sm">다시 로그인</button><button class="btn ghost sm" aria-label="old@gmail.com 지우기">지우기</button></span></div>
           </div>
         </section>
         <section>
           <h4>Codex <span class="spacer" style="flex:1"></span><button class="btn sm"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>계정 추가</button></h4>
           <div class="rows">
-            <div class="acct-row" aria-current="true"><span><span class="name">시스템 기본</span> <span class="badge">쓰는 중</span><br><span class="meta">~/.codex · Plus</span></span><span class="win"><span class="win-line"><span>5시간</span><span class="meter"><i class="hi" style="width:81%"></i></span><span class="pct">81%</span></span><span class="win-line"><span>주간</span><span class="meter"><i style="width:55%"></i></span><span class="pct">55%</span></span></span><span></span></div>
+            <div class="acct-row" aria-current="true"><span><span class="name">시스템 기본</span> <span class="badge">쓰는 중</span><br><span class="meta">~/.codex · Plus</span></span><span class="win"><span class="win-line"><span>5시간</span><span class="meter"><i class="hi" style="width:19%"></i></span><span class="pct">19%</span></span><span class="win-line"><span>주간</span><span class="meter"><i style="width:45%"></i></span><span class="pct">45%</span></span></span><span></span></div>
           </div>
         </section>
       </div>
@@ -340,7 +355,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
           <div class="field"><label for="m-name">이름</label><input id="m-name" value="조사"></div>
           <div class="field"><label for="m-agent">에이전트</label>
             <select id="m-agent"><option>Claude</option><option>Codex</option><option>Gemini</option><option>직접 입력</option></select>
-            <span class="hint">계정: work@example.com · 5시간 42%</span>
+            <span class="hint">계정: work@example.com · 5시간 58% 남음</span>
           </div>
           <div class="field"><label for="m-text">첫 지시문</label><textarea id="m-text" placeholder="비워 두면 빈 세션으로 시작한다"></textarea><span class="hint">4KB까지. 더 긴 자료는 파일 경로를 적는다.</span></div>
           <div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" class="btn ghost">취소</button><button class="btn primary">만들기</button></div>
@@ -377,10 +392,13 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
       <tr><td>Claude·Codex 계정 여러 개, 시스템 기본</td><td>4번 화면</td><td class="yes">넣는다</td><td>요청의 「계정 관리」다.</td></tr>
       <tr><td>계정마다 따로 둔 로그인 폴더</td><td><code>~/.loom/accounts/&lt;공급자&gt;/&lt;id&gt;</code></td><td class="yes">넣는다</td><td>사용자의 <code>~/.claude</code>·<code>~/.codex</code>를 고치지 않는다(docs/design.md 「프로필」).</td></tr>
       <tr><td>Needs re-auth, [Re-authenticate]</td><td>「다시 로그인 필요」, [다시 로그인]</td><td class="yes">넣는다</td><td>토큰이 만료되면 사용량과 노드가 모두 실패한다.</td></tr>
-      <tr><td>5시간·주간 사용 비율, 초기화 시각</td><td>1·2·4번 화면</td><td class="yes">넣는다</td><td>요청의 「남은 사용량 표시」다.</td></tr>
+      <tr><td>하단 상태 줄 사용량(늘 보임)</td><td>1번 화면. 공급자 순서 Claude, Codex</td><td class="yes">넣는다</td><td>사용자 지시: 「사용량은 orca처럼 하단에 항상 뜨도록」.</td></tr>
+      <tr><td>5시간·주간 비율, 초기화 시각</td><td>1·2·4번 화면</td><td class="yes">넣는다</td><td>요청의 「남은 사용량 표시」다.</td></tr>
       <tr><td>Codex 한도 초기화 크레딧 [Reset now]</td><td>—</td><td class="no">뺀다</td><td>돈이 드는 동작이다. Codex 화면에서 한다.</td></tr>
       <tr><td>Claude 추가 사용량(금액), 모델별 주간 한도</td><td>—</td><td class="no">뺀다</td><td>계정 고르기에 필요한 값은 5시간·주간 두 창이다.</td></tr>
-      <tr><td>상태 표시줄에서 숨기기</td><td>—</td><td class="no">뺀다</td><td>계정이 없으면 줄이 저절로 숨는다.</td></tr>
+      <tr><td>상태 줄 끄기, 항목 고르기</td><td>—</td><td class="no">뺀다</td><td>loom 상태 줄 항목은 사용량 둘과 [설정]뿐이다.</td></tr>
+      <tr><td>Compact/Detailed 표시 전환</td><td>늘 두 창(5시간·주간)을 보인다</td><td class="no">뺀다</td><td>공급자가 둘이라 자리가 남는다. Orca의 Compact는 공급자마다 대표값 하나만 보인다.</td></tr>
+      <tr><td>사용 비율/남은 비율 전환(기본 「used」)</td><td>남은 비율만 보인다</td><td class="no">뺀다</td><td>요청이 「남은 사용량 표시」다. 전환 옵션을 두지 않는다.</td></tr>
       <tr><td>사용량 갱신 주기</td><td>데몬이 5분마다, 팝오버를 열 때, [새로 고침]</td><td class="ask">묻는다</td><td>Orca의 주기는 확인하지 못했다. 5분이면 공급자 API의 429(요청 제한)를 피한다. 다른 값이 필요하면 말한다.</td></tr>
       <tr><td>계정 고르는 단위</td><td>공급자마다 「쓰는 중」 계정 하나. 새 노드가 그 계정으로 뜬다</td><td class="ask">묻는다</td><td>Orca와 같다. 다른 안: 새 노드 창에서 노드마다 계정을 고른다. 칸이 하나 늘어난다.</td></tr>
     </tbody>
@@ -399,7 +417,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
       <tr><td>기능 · <code>src/usage.rs</code></td><td>공급자 사용량 API</td><td><code>fetch(Provider, 로그인 폴더) -&gt; Usage { session: Window, weekly: Window }</code>, <code>Window { used_percent, resets_at }</code>. 결과는 데몬이 계정마다 5분 캐시한다.</td></tr>
       <tr><td>저장 · 2단위 저장 모듈</td><td>저장 형식</td><td>설정 세 값: 끈 에이전트 목록, 기본 에이전트, 공급자마다 쓰는 계정. 「큐」 브랜치가 main에 병합된 뒤 그 모듈의 표에 더한다.</td></tr>
       <tr><td>조합 · <code>src/daemon.rs</code></td><td>화면 요구</td><td><code>GET /api/agents</code>, <code>POST /api/agents/refresh</code>, <code>PUT /api/settings</code>, <code>GET /api/accounts</code>(사용량 포함), <code>POST /api/accounts/{공급자}</code>(로그인 PTY id를 돌려준다), <code>PUT /api/accounts/{공급자}/active</code>, <code>DELETE /api/accounts/{공급자}/{id}</code>, <code>POST /api/usage/refresh</code>. 로그인 PTY는 기존 <code>NodeHost</code>로 띄우고 노드 목록에 넣지 않는다.</td></tr>
-      <tr><td>상호작용 · <code>web/src/</code></td><td>화면</td><td>새 파일 <code>Settings.tsx</code>(창과 두 탭), <code>UsagePanel.tsx</code>(사이드바 줄과 팝오버). 고칠 파일 <code>NewNodePopover.tsx</code>, <code>NodeCard.tsx</code>(label), <code>App.tsx</code>(사이드바 아래), <code>api.ts</code>. 로그인 창은 기존 <code>Terminal.tsx</code>를 쓴다.</td></tr>
+      <tr><td>상호작용 · <code>web/src/</code></td><td>화면</td><td>새 파일 <code>Settings.tsx</code>(창과 두 탭), <code>StatusBar.tsx</code>(하단 상태 줄과 사용량 팝오버). 고칠 파일 <code>NewNodePopover.tsx</code>, <code>NodeCard.tsx</code>(label), <code>App.tsx</code>(화면 맨 아래 줄), <code>api.ts</code>. 로그인 창은 기존 <code>Terminal.tsx</code>를 쓴다.</td></tr>
     </tbody>
   </table>
   <h3 style="font-size:15px;margin:20px 0 8px">새 의존성</h3>

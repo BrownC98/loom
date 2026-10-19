@@ -134,6 +134,16 @@ fieldset.field { border: 0; padding: 0; }
 .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .hint { font-size: 12px; color: var(--ink-3); }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* 프로필 고르기: 검색 입력과 목록 */
+.pick { list-style: none; padding: 4px; margin: 0; max-height: 264px; overflow: auto; overscroll-behavior: contain; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; }
+.pick .grp { font-size: 11px; font-weight: 600; color: var(--ink-3); padding: 6px 8px 2px; }
+.pick [role="option"] { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; font-size: 13px; cursor: pointer; }
+.pick [role="option"]:hover { background: var(--surface-hover); }
+.pick [aria-selected="true"] { background: var(--accent-wash); color: var(--ink); }
+.pick [aria-disabled="true"] { color: var(--ink-3); cursor: default; }
+.pick [aria-disabled="true"]:hover { background: none; }
+.pick .tag { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.pick .recent { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
 
 /* 노드 제거 확인 */
 .pop.confirm { width: 300px; gap: 10px; }
@@ -290,21 +300,23 @@ test node_host::resize ... <span class="err">FAILED</span>
     <form class="pop" style="left:828px;top:104px" aria-label="새 노드">
       <h2>새 노드<span>feat/node-host</span></h2>
       <div class="field">
-        <label for="n-name">이름</label>
-        <input id="n-name" name="name" value="리뷰" autocomplete="off" spellcheck="false">
-      </div>
-      <fieldset class="field">
-        <legend>프로필</legend>
-        <div class="seg">
-          <label><input type="radio" name="profile" checked><span>Claude Code</span></label>
-          <label><input type="radio" name="profile"><span>Codex</span></label>
-          <label><input type="radio" name="profile"><span>직접 입력</span></label>
-        </div>
-      </fieldset>
-      <div class="field">
-        <label for="n-brief">첫 지시문</label>
-        <textarea id="n-brief" name="brief" placeholder="비워 두면 빈 세션으로 시작한다"></textarea>
-        <span class="hint">4KB까지. 더 긴 자료는 파일 경로를 적는다.</span>
+        <label for="n-find">프로필</label>
+        <input id="n-find" role="combobox" aria-expanded="true" aria-controls="n-list" aria-activedescendant="n-codex" placeholder="이름으로 찾는다" autocomplete="off" spellcheck="false">
+        <ul id="n-list" class="pick" role="listbox" aria-label="프로필">
+          <li class="grp" role="presentation">설치됨 9</li>
+          <li role="option" aria-selected="false">Claude</li>
+          <li role="option" aria-selected="true" id="n-codex">Codex <span class="recent">최근</span></li>
+          <li role="option" aria-selected="false">OpenCode 2<span class="tag">터미널만</span></li>
+          <li role="option" aria-selected="false">OpenCode<span class="tag">터미널만</span></li>
+          <li role="option" aria-selected="false">Pi<span class="tag">터미널만</span></li>
+          <li role="option" aria-selected="false">OMP<span class="tag">터미널만</span></li>
+          <li role="option" aria-selected="false">기본 셸<span class="tag">터미널만</span></li>
+          <li class="grp" role="presentation">설치하지 않음 35</li>
+          <li role="option" aria-disabled="true">OpenClaude<span class="tag">설치 안 됨</span></li>
+          <li role="option" aria-disabled="true">Grok<span class="tag">설치 안 됨</span></li>
+        </ul>
+        <span class="hint">계정: 시스템 기본 · 5시간 19% 남음</span>
+        <span class="hint">모든 권한 허용으로 띄운다. 설정 › 에이전트에서 끈다.</span>
       </div>
       <div class="pop-actions">
         <button type="button" class="btn ghost">취소</button>
@@ -346,7 +358,7 @@ test node_host::resize ... <span class="err">FAILED</span>
       <tr><td>노드 카드</td><td>머리: 이름, 프로필, 읽지 않은 메시지 수, 상태. 몸: 실제 터미널. 발: 한 줄 요약(입력 중, <code>done</code> 요약, 종료 보고)</td><td>Q5·Q15</td></tr>
       <tr><td>고른 카드</td><td>코발트 테두리. 이 카드만 키 입력을 받는다. 두 번 누르면 그래프 영역 전체로 확대한다(그림 생략)</td><td>Q5</td></tr>
       <tr><td>간선</td><td>평소에는 회색 곡선. 메시지가 오가면 코발트 점선과 「메시지 1」 표시가 잠깐 나온다</td><td>Q3</td></tr>
-      <tr><td>새 노드 창</td><td>[새 노드] 옆에 붙는 팝오버. 이름, 프로필 3택, 첫 지시문. [직접 입력]을 고르면 「명령」 칸이 첫 지시문 자리에 나온다(그림 생략)</td><td>Q32. 모달 대신 팝오버: 그래프를 가리지 않는다</td></tr>
+      <tr><td>새 노드 창</td><td>[새 노드] 옆에 붙는 팝오버. 칸은 「프로필」 하나다: 검색 입력과 카탈로그 목록. 이름은 데몬이 짓는다. 첫 지시문은 노드를 띄운 뒤 카드 터미널에 입력한다. 명세는 settings.html 5번 구역</td><td>Q32. 모달 대신 팝오버: 그래프를 가리지 않는다. 2026-10-19 사용자 지시 「어떤 프로필로 열지만 선택」</td></tr>
       <tr><td>확대한 카드</td><td>그래프 영역 전체를 덮는다. 카드 머리 오른쪽 끝의 [축소] 아이콘 버튼으로 돌아간다. [축소]는 카드의 [확대]와 같은 모양이다(화살표가 안쪽을 향한다). 확대한 카드에는 [노드 제거]가 없다. Esc는 터미널 앱이 쓰므로 축소에 쓰지 않는다(그림 생략)</td><td>Q5</td></tr>
       <tr><td>빈 저장소</td><td>묶음 <code>main</code>만 보이고, 그 안에 「[새 노드]로 첫 에이전트를 띄운다」 한 줄을 둔다(그림 생략)</td><td>빈 화면이 다음 동작을 알려 준다</td></tr>
       <tr><td>터미널에서 빠져나오기</td><td>카드 밖을 클릭하면 입력이 풀린다. 키보드로는 <code>Ctrl+Shift+</code>방향키로 옆 카드를 고른다</td><td>Tab과 Esc는 터미널 앱이 쓴다. Claude Code(공식 키 문서)와 Codex(TUI 소스) 모두 이 키를 기본으로 쓰지 않는다(2026-10-19 확인)</td></tr>

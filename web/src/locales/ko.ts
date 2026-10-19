@@ -6,7 +6,6 @@ const ko: typeof en = {
   settings: {
     language: '언어',
     languageSystem: '시스템',
-    languageHint: '「시스템」은 브라우저 언어를 따른다. 한국어가 아니면 영어로 보인다.',
     rescan: '다시 찾기',
     versionWarning: 'app-server {{installed}} · 고정 {{pinned}} · loom 명령마다 승인을 묻는다',
   },

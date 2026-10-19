@@ -4,7 +4,6 @@ const en = {
   settings: {
     language: 'Language',
     languageSystem: 'System',
-    languageHint: '“System” follows the browser language. Anything other than Korean shows English.',
     rescan: 'Rescan',
     versionWarning: 'app-server {{installed}} · pinned {{pinned}} · asks approval for every loom command',
   },

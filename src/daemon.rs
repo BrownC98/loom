@@ -16,7 +16,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
@@ -125,6 +125,12 @@ pub struct GuardRequest {
     pub shell: u32,
 }
 
+/// `loom adopt`의 요청. 부르는 노드가 `name` 노드의 새 부모가 된다.
+#[derive(Serialize, Deserialize)]
+pub struct AdoptRequest {
+    pub name: String,
+}
+
 /// `loom done`의 요청. `summary`는 요약이나 결과 파일 경로다.
 #[derive(Serialize, Deserialize)]
 pub struct DoneRequest {
@@ -170,13 +176,16 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/wait", post(agent_wait))
         .route("/api/agent/take", post(agent_take))
         .route("/api/agent/guard", post(agent_guard))
-        .route("/api/agent/done", post(agent_done));
+        .route("/api/agent/done", post(agent_done))
+        .route("/api/agent/adopt", post(agent_adopt));
     let router = node_routes
         .clone()
         .route("/api/repo", get(repo))
         .route("/api/commits", get(commits))
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
+        .route("/api/nodes/{id}", delete(remove_node))
+        .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/pty", get(pty))
         .route("/api/events", get(events))
         .merge(settings::routes())
@@ -402,6 +411,30 @@ async fn create_node(
     Ok(Json(id))
 }
 
+/// 노드 하나를 지우고 프로세스를 끝낸다. 프로세스가 끝나면 `launch`의 `on_exit`가 app-server를 끝낸다.
+/// 그래프에서는 이미 지웠으므로 `on_exit`의 `exited`는 아무것도 바꾸지 않는다.
+async fn remove_node(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, ApiError> {
+    let node = NodeId(id);
+    app.graph.remove(node).map_err(internal)?;
+    app.tokens.lock().unwrap().retain(|_, n| *n != node);
+    app.host.kill(node);
+    Ok(Json(()))
+}
+
+/// 사람이 화면에서 `parent`를 `id`의 새 부모로 정한다.
+async fn adopt_node(
+    State(app): State<Arc<App>>,
+    Path((id, parent)): Path<(u32, u32)>,
+) -> Result<Json<()>, ApiError> {
+    app.graph
+        .adopt(NodeId(parent), NodeId(id))
+        .map_err(refused)?;
+    Ok(Json(()))
+}
+
 async fn agent_spawn(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -434,7 +467,7 @@ async fn agent_send(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<SendRequest>,
-) -> Result<Json<()>, ApiError> {
+) -> Result<Json<Option<NodeId>>, ApiError> {
     let from = app.caller(&headers)?;
     if req.kind != Kind::Queue {
         let (to, agent) = app.graph.recipient(from, &req.to).map_err(refused)?;
@@ -463,10 +496,11 @@ async fn agent_send(
             }
         }
     }
-    app.graph
+    let to = app
+        .graph
         .send(from, &req.to, req.kind, &req.body)
         .map_err(refused)?;
-    Ok(Json(()))
+    Ok(Json(to))
 }
 
 async fn agent_take(
@@ -504,6 +538,17 @@ async fn agent_done(
 ) -> Result<Json<()>, ApiError> {
     let node = app.caller(&headers)?;
     app.graph.done(node, &req.summary).map_err(refused)?;
+    Ok(Json(()))
+}
+
+async fn agent_adopt(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<AdoptRequest>,
+) -> Result<Json<()>, ApiError> {
+    let parent = app.caller(&headers)?;
+    let child = app.graph.find(&req.name).map_err(refused)?;
+    app.graph.adopt(parent, child).map_err(refused)?;
     Ok(Json(()))
 }
 

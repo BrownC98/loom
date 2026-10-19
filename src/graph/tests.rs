@@ -313,3 +313,121 @@ fn recipient_names_the_node_and_its_agent() {
         Err(Refusal::NotRelated(_))
     ));
 }
+
+#[test]
+fn removing_a_parent_keeps_its_children_and_they_hold_unsent_messages() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    let b = child(&g, a, "b");
+    g.send(lead, "a", Kind::Queue, "a가 받을 지시").unwrap();
+    g.send(b, "a", Kind::Queue, "질문").unwrap();
+    let mut events = g.subscribe().unwrap().1;
+
+    g.remove(a).unwrap();
+
+    assert!(matches!(events.try_recv().unwrap(), GraphEvent::Removed { id } if id == a));
+    assert!(matches!(events.try_recv().unwrap(), GraphEvent::Node(v) if v.id == b));
+    let ids: Vec<NodeId> = g.subscribe().unwrap().0.iter().map(|v| v.id).collect();
+    assert_eq!(ids, [lead, b]);
+    // 자식은 계속 돈다. 부모가 비고, 전하지 못한 질문을 보관한다.
+    let orphan = view(&g, b);
+    assert_eq!(
+        (orphan.parent, orphan.state, orphan.held),
+        (None, NodeState::Running, 1)
+    );
+    // 실행 중이던 a를 기다리는 부모가 removed를 받는다. a가 받은 지시는 a와 함께 지운다.
+    assert_eq!(take(&g, lead), delivery("a", "removed"));
+    let left: u32 = g
+        .lock()
+        .query_row("SELECT count(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(left, 2);
+    // 없는 노드는 아무것도 하지 않는다.
+    g.remove(a).unwrap();
+}
+
+#[test]
+fn removing_a_finished_node_does_not_tell_the_parent_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    g.done(a, "요약").unwrap();
+    assert_eq!(take(&g, lead), delivery("a", "done: 요약"));
+
+    g.remove(a).unwrap();
+    assert_eq!(take(&g, lead), None);
+    g.remove(lead).unwrap();
+    assert!(g.subscribe().unwrap().0.is_empty());
+}
+
+#[test]
+fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let worker = root(&g, "조사");
+    g.send(worker, "옛 총괄", Kind::Queue, "하나").unwrap();
+    g.send(worker, "옛 총괄", Kind::Queue, "둘").unwrap();
+    g.done(worker, "요약").unwrap();
+    // 받을 노드가 정해지지 않은 조정은 보관하지 않는다.
+    assert!(matches!(
+        g.send(worker, "옛 총괄", Kind::Steer, "x"),
+        Err(Refusal::NotRelated(_))
+    ));
+    assert_eq!(view(&g, worker).held, 3);
+
+    g.adopt(lead, worker).unwrap();
+
+    let adopted = view(&g, worker);
+    assert_eq!((adopted.parent, adopted.held), (Some(lead), 0));
+    assert_eq!(
+        bodies(g.take(lead, Kind::ALL, usize::MAX).unwrap()),
+        ["하나", "둘", "done: 요약"]
+    );
+    // 새 부모와는 보관 없이 바로 주고받는다.
+    g.send(lead, "조사", Kind::Queue, "다음").unwrap();
+    assert_eq!(take(&g, worker), delivery("총괄", "다음"));
+}
+
+#[test]
+fn adopting_a_running_node_tells_its_old_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let other = root(&g, "검토");
+    let a = child(&g, lead, "a");
+
+    g.adopt(other, a).unwrap();
+
+    assert_eq!(view(&g, a).parent, Some(other));
+    assert_eq!(take(&g, lead), delivery("a", "adopted: 검토"));
+    // 이미 그 부모면 아무것도 하지 않는다.
+    g.adopt(other, a).unwrap();
+    assert_eq!(take(&g, other), None);
+}
+
+#[test]
+fn adopt_refuses_cycles_depth_and_taken_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    let a1 = child(&g, a, "a1");
+    let other = root(&g, "검토");
+    child(&g, other, "b");
+    let twin = root(&g, "a");
+
+    assert!(matches!(g.adopt(lead, lead), Err(Refusal::Cycle)));
+    assert!(matches!(g.adopt(a1, lead), Err(Refusal::Cycle)));
+    assert!(matches!(g.adopt(a, lead), Err(Refusal::Cycle)));
+    // a1은 깊이 2다. 자식이 있는 검토를 그 아래에 두면 깊이 4가 된다.
+    assert!(matches!(g.adopt(a1, other), Err(Refusal::TooDeep)));
+    assert!(matches!(g.adopt(lead, twin), Err(Refusal::NameTaken(n)) if n == "a"));
+    assert!(matches!(g.find("a"), Err(Refusal::Ambiguous(_))));
+    assert!(matches!(g.find("없음"), Err(Refusal::NotFound(_))));
+    assert_eq!(g.find("검토").unwrap(), other);
+    assert_eq!(view(&g, other).parent, None);
+}

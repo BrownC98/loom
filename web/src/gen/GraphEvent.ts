@@ -2,4 +2,4 @@
 import type { NodeId } from "./NodeId";
 import type { NodeView } from "./NodeView";
 
-export type GraphEvent = { "kind": "node" } & NodeView | { "kind": "message", child: NodeId, };
+export type GraphEvent = { "kind": "node" } & NodeView | { "kind": "message", child: NodeId, } | { "kind": "removed", id: NodeId, };

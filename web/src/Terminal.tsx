@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { attachPty } from './api';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
 
@@ -57,6 +58,15 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
       const fit = new FitAddon();
       xterm.loadAddon(fit);
       xterm.open(el);
+      // DOM 렌더러는 블록·박스 문자를 글꼴로 그려 칸 사이에 틈이 생긴다(Claude 마스코트). WebGL은 칸에 꽉 차게 직접 그린다.
+      // 브라우저는 WebGL 컨텍스트 수를 제한하고 넘으면 오래된 것을 잃는다. 잃은 카드와 WebGL2가 없는 브라우저는 DOM 렌더러로 그린다.
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      try {
+        xterm.loadAddon(webgl);
+      } catch {
+        webgl.dispose();
+      }
       term.current = xterm;
       const link = attachPty(props.src, {
         onAttach: () => {

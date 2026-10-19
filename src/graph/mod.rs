@@ -59,6 +59,8 @@ pub struct NodeView {
     pub state: NodeState,
     /// 아직 전하지 않은(`queued`) 메시지 수.
     pub unread: u32,
+    /// 부모가 없어 보관한 메시지 수. 새 부모가 생기면 그 부모가 받는다.
+    pub held: u32,
 }
 
 #[derive(Clone, Serialize, TS)]
@@ -69,6 +71,10 @@ pub enum GraphEvent {
     /// `child`와 그 부모 사이 간선으로 메시지가 오갔다. 방향은 화면에 보이지 않는다.
     Message {
         child: NodeId,
+    },
+    /// 노드를 지웠다. 자식은 부모 없이 남고 `Node` 이벤트로 따로 온다.
+    Removed {
+        id: NodeId,
     },
 }
 
@@ -84,6 +90,10 @@ pub enum Refusal {
     NotRelated(String),
     Ended(String),
     AlreadyDone,
+    HeldFull,
+    Cycle,
+    NotFound(String),
+    Ambiguous(String),
     Launch(String),
     Db(rusqlite::Error),
 }
@@ -117,6 +127,16 @@ impl fmt::Display for Refusal {
             }
             Refusal::Ended(name) => write!(f, "{name}: 노드 프로세스가 끝났다."),
             Refusal::AlreadyDone => write!(f, "이 노드는 이미 done이다."),
+            Refusal::HeldFull => write!(
+                f,
+                "부모가 없어 보관한 메시지가 {MAILBOX_LIMIT}개다. 새 부모가 생긴 뒤 다시 보낸다."
+            ),
+            Refusal::Cycle => write!(f, "자기 자신이나 자기 자손을 부모로 정하지 않는다."),
+            Refusal::NotFound(name) => write!(f, "{name}: 그런 이름의 노드가 없다."),
+            Refusal::Ambiguous(name) => write!(
+                f,
+                "{name}: 이 이름의 노드가 둘 이상이다. 사람이 화면에서 부모를 바꾼다."
+            ),
             Refusal::Launch(e) => write!(f, "노드를 띄우지 못했다: {e}"),
             Refusal::Db(e) => write!(f, "DB 오류: {e}"),
         }
@@ -137,7 +157,8 @@ pub struct Graph {
 }
 
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
-    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0)
+    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
+    (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id)
     FROM nodes n";
 
 impl Graph {
@@ -199,6 +220,7 @@ fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
         parent: row.get::<_, Option<u32>>(3)?.map(NodeId),
         state: from_json(row, 4)?,
         unread: row.get(5)?,
+        held: row.get(6)?,
     })
 }
 
@@ -221,6 +243,12 @@ fn state_of(db: &Connection, id: NodeId) -> rusqlite::Result<NodeState> {
 fn parent_of(db: &Connection, id: NodeId) -> rusqlite::Result<Option<NodeId>> {
     db.query_row("SELECT parent FROM nodes WHERE id = ?1", [id.0], |row| {
         Ok(row.get::<_, Option<u32>>(0)?.map(NodeId))
+    })
+}
+
+fn name_of(db: &Connection, id: NodeId) -> rusqlite::Result<String> {
+    db.query_row("SELECT name FROM nodes WHERE id = ?1", [id.0], |row| {
+        row.get(0)
     })
 }
 

@@ -1,4 +1,5 @@
 //! 메일함: 부모와 자식 사이 메시지. 전달 방식(`Kind`)마다 꺼내는 지점이 다르다.
+//! 부모 없는 노드가 부모에게 보내는 메시지는 보관했다가 새 부모에게 전한다.
 //! 근거: docs/design.md 「전달 지점」.
 
 use std::pin::pin;
@@ -7,8 +8,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, from_json, parent_of,
-    set_state, state_of, to_json,
+    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, from_json, name_of,
+    parent_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -52,19 +53,41 @@ impl Graph {
         found.ok_or_else(|| Refusal::NotRelated(to.to_owned()))
     }
 
-    /// `from`의 부모나 자식 가운데 이름이 `to`인 노드에게 보낸다. 받은 노드를 돌려준다.
-    pub fn send(&self, from: NodeId, to: &str, kind: Kind, body: &str) -> Result<NodeId, Refusal> {
+    /// `from`의 부모나 자식 가운데 이름이 `to`인 노드에게 보내고 받은 노드를 돌려준다.
+    /// `from`에 부모가 없고 그래프에 `to` 노드가 없으면 지운 부모에게 보내는 큐 메시지로 보고 보관한다. 이때는 `None`이다.
+    pub fn send(
+        &self,
+        from: NodeId,
+        to: &str,
+        kind: Kind,
+        body: &str,
+    ) -> Result<Option<NodeId>, Refusal> {
         if body.len() > BRIEF_LIMIT_BYTES {
             return Err(Refusal::BriefTooLong(body.len()));
         }
-        let (to_id, _) = self.recipient(from, to)?;
+        let found = self.recipient(from, to);
         let mut db = self.lock();
+        let to_id = match found {
+            Ok((to_id, _)) => to_id,
+            // 조정·중단은 받는 노드의 프로필에 따라 넣는 방법이 다르다. 받을 노드가 정해지지 않았으므로 보관하지 않는다.
+            Err(Refusal::NotRelated(_))
+                if kind == Kind::Queue
+                    && parent_of(&db, from)?.is_none()
+                    && !name_exists(&db, to)? =>
+            {
+                check_held_room(&db, from)?;
+                enqueue(&db, from, None, kind, body)?;
+                self.publish_node(&db, from)?;
+                return Ok(None);
+            }
+            Err(e) => return Err(e),
+        };
         if matches!(state_of(&db, to_id)?, NodeState::Exited { .. }) {
             return Err(Refusal::Ended(to.to_owned()));
         }
         check_room(&db, to_id, to)?;
         let tx = db.transaction()?;
-        enqueue(&tx, from, to_id, kind, body)?;
+        enqueue(&tx, from, Some(to_id), kind, body)?;
         tx.commit()?;
         self.publish_node(&db, to_id)?;
         let child = if parent_of(&db, from)? == Some(to_id) {
@@ -73,7 +96,7 @@ impl Graph {
             to_id
         };
         self.publish_message(child);
-        Ok(to_id)
+        Ok(Some(to_id))
     }
 
     /// 가장 먼저 온 `queued` 메시지 하나를 꺼낸다. 없으면 올 때까지 기다린다.
@@ -103,9 +126,9 @@ impl Graph {
             .expect("문자열 목록은 늘 직렬화된다");
         let queued = tx
             .prepare(
-                "SELECT m.id, s.name, m.kind, m.body FROM messages m JOIN nodes s ON s.id = m.sender
-                 WHERE m.recipient = ?1 AND m.delivered = 0
-                 AND m.kind IN (SELECT value FROM json_each(?2)) ORDER BY m.id",
+                "SELECT id, sender_name, kind, body FROM messages
+                 WHERE recipient = ?1 AND delivered = 0
+                 AND kind IN (SELECT value FROM json_each(?2)) ORDER BY id",
             )?
             .query_map(params![node.0, kinds], |row| {
                 Ok((
@@ -135,7 +158,7 @@ impl Graph {
         Ok(taken)
     }
 
-    /// 노드를 `done`으로 바꾸고, 부모가 있으면 요약을 보낸다.
+    /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 부모가 없으면 보관한다.
     pub fn done(&self, node: NodeId, summary: &str) -> Result<(), Refusal> {
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
@@ -146,11 +169,7 @@ impl Graph {
         }
         let parent = parent_of(&db, node)?;
         if let Some(parent) = parent {
-            let name: String =
-                db.query_row("SELECT name FROM nodes WHERE id = ?1", [parent.0], |row| {
-                    row.get(0)
-                })?;
-            check_room(&db, parent, &name)?;
+            check_room(&db, parent, &name_of(&db, parent)?)?;
         }
         let tx = db.transaction()?;
         set_state(
@@ -160,9 +179,7 @@ impl Graph {
                 summary: summary.to_owned(),
             },
         )?;
-        if let Some(parent) = parent {
-            enqueue(&tx, node, parent, Kind::Queue, &format!("done: {summary}"))?;
-        }
+        enqueue(&tx, node, parent, Kind::Queue, &format!("done: {summary}"))?;
         tx.commit()?;
         self.publish_node(&db, node)?;
         if let Some(parent) = parent {
@@ -185,17 +202,39 @@ fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
-/// 상한을 보지 않고 넣는다. 상한은 부르는 쪽이 `check_room`으로 본다.
+fn name_exists(db: &Connection, name: &str) -> rusqlite::Result<bool> {
+    db.query_row(
+        "SELECT EXISTS (SELECT 1 FROM nodes WHERE name = ?1)",
+        [name],
+        |row| row.get(0),
+    )
+}
+
+/// 부모 없는 노드가 보관한 메시지도 상한을 둔다. 새 부모가 한꺼번에 받으므로 같은 상한을 쓴다.
+fn check_held_room(db: &Connection, from: NodeId) -> Result<(), Refusal> {
+    let held: u32 = db.query_row(
+        "SELECT count(*) FROM messages WHERE recipient IS NULL AND sender = ?1",
+        [from.0],
+        |row| row.get(0),
+    )?;
+    if held >= MAILBOX_LIMIT {
+        return Err(Refusal::HeldFull);
+    }
+    Ok(())
+}
+
+/// 상한을 보지 않고 넣는다. 상한은 부르는 쪽이 `check_room`으로 본다. `to`가 없으면 `from`이 보관한다.
 pub(super) fn enqueue(
     db: &Connection,
     from: NodeId,
-    to: NodeId,
+    to: Option<NodeId>,
     kind: Kind,
     body: &str,
 ) -> rusqlite::Result<()> {
     db.execute(
-        "INSERT INTO messages (recipient, sender, kind, body) VALUES (?1, ?2, ?3, ?4)",
-        params![to.0, from.0, to_json(&kind), body],
+        "INSERT INTO messages (recipient, sender, sender_name, kind, body)
+         VALUES (?1, ?2, (SELECT name FROM nodes WHERE id = ?2), ?3, ?4)",
+        params![to.map(|to| to.0), from.0, to_json(&kind), body],
     )?;
     Ok(())
 }

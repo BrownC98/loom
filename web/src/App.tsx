@@ -132,8 +132,20 @@ export function App() {
       pulseTimers.current.set(child, timer);
     };
     return watchGraph((event) => {
-      if (event.kind === 'message') pulse(event.child);
-      else setNodes((prev) => new Map(prev).set(event.id, event));
+      switch (event.kind) {
+        case 'message':
+          pulse(event.child);
+          break;
+        case 'removed':
+          setNodes((prev) => {
+            const next = new Map(prev);
+            next.delete(event.id);
+            return next;
+          });
+          break;
+        case 'node':
+          setNodes((prev) => new Map(prev).set(event.id, event));
+      }
     });
   }, []);
 

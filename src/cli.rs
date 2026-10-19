@@ -8,7 +8,9 @@ use std::time::Duration;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::daemon::{DoneRequest, GuardRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest};
+use crate::daemon::{
+    AdoptRequest, DoneRequest, GuardRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest,
+};
 use crate::graph::{Delivery, Kind, NodeId};
 use crate::profile::{AgentId, claude};
 
@@ -44,7 +46,11 @@ pub fn spawn(
 }
 
 pub fn send(to: String, kind: Kind, body: String) -> Result<(), String> {
-    call::<()>("send", &SendRequest { to, kind, body }, None)
+    let to: Option<NodeId> = call("send", &SendRequest { to, kind, body }, None)?;
+    if to.is_none() {
+        println!("부모가 없어 보관했다. 새 부모가 생기면 받는다.");
+    }
+    Ok(())
 }
 
 pub fn wait() -> Result<(), String> {
@@ -92,7 +98,13 @@ pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String
         None => summary.unwrap_or_default(),
     };
     call::<()>("done", &DoneRequest { summary }, None)?;
-    println!("부모에게 결과를 보냈다.");
+    println!("부모에게 결과를 보냈다. 부모가 없으면 새 부모가 생길 때 받는다.");
+    Ok(())
+}
+
+pub fn adopt(name: String) -> Result<(), String> {
+    call::<()>("adopt", &AdoptRequest { name }, None)?;
+    println!("부모가 되었다. 그 노드가 보관한 메시지가 메일함에 들어온다.");
     Ok(())
 }
 

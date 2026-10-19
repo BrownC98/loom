@@ -39,6 +39,27 @@ const STEPS: &[M] = &[
     ),
     // 4: 메시지 전달 방식(graph). serde JSON 문자열이다. 앞 메시지는 모두 큐다.
     M::up(r#"ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT '"queue"';"#),
+    // 5: 노드 제거와 입양(graph). 보낸 노드 이름을 남긴다. 보낸 노드를 지워도 메시지를 읽을 수 있어야 한다.
+    // `recipient`가 NULL이면 부모 없는 `sender`가 보관한 메시지다. 새 부모가 생기면 그 부모가 받는다.
+    // 받은 메시지는 받는 노드와 함께 지운다.
+    M::up(
+        "CREATE TABLE messages_v5 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipient INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
+            sender INTEGER REFERENCES nodes(id) ON DELETE SET NULL,
+            sender_name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            body TEXT NOT NULL,
+            delivered INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO messages_v5 (id, recipient, sender, sender_name, kind, body, delivered)
+            SELECT m.id, m.recipient, m.sender, n.name, m.kind, m.body, m.delivered
+            FROM messages m JOIN nodes n ON n.id = m.sender;
+        DROP TABLE messages;
+        ALTER TABLE messages_v5 RENAME TO messages;
+        CREATE INDEX messages_queued ON messages(recipient) WHERE delivered = 0;
+        CREATE INDEX messages_held ON messages(sender) WHERE recipient IS NULL;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -86,5 +107,33 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(agents, [r#""claude""#, "null"]);
+    }
+
+    #[test]
+    fn step_5_keeps_messages_with_sender_names() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 4).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO nodes (name, agent, state) VALUES ('총괄', 'null', '{}'), ('a', 'null', '{}');
+            INSERT INTO messages (recipient, sender, body, kind) VALUES (1, 2, '질문', '"steer"');"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let row: (u32, u32, String, String, String) = conn
+            .query_row(
+                "SELECT recipient, sender, sender_name, kind, body FROM messages",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(row, (1, 2, "a".into(), r#""steer""#.into(), "질문".into()));
     }
 }

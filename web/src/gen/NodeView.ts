@@ -11,4 +11,8 @@ agent: AgentId | null, parent: NodeId | null, state: NodeState,
 /**
  * 아직 전하지 않은(`queued`) 메시지 수.
  */
-unread: number, };
+unread: number, 
+/**
+ * 부모가 없어 보관한 메시지 수. 새 부모가 생기면 그 부모가 받는다.
+ */
+held: number, };

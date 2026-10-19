@@ -3,6 +3,7 @@
 //! 근거: docs/design.md 「에이전트」.
 
 pub mod claude;
+pub mod codex;
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -10,6 +11,8 @@ use std::sync::LazyLock;
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::graph::{Delivery, Kind};
 
 /// 첫 지시문 상한. 근거: docs/design.md 「맥락과 크기」.
 pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
@@ -73,6 +76,8 @@ pub struct AgentView {
     pub takes_brief: bool,
     /// 데몬 PATH에서 찾은 실행 파일. 없으면 설치하지 않은 것이다.
     pub path: Option<String>,
+    /// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고. 예: `app-server 0.160.0 · 고정 0.159.2`.
+    pub version_warning: Option<String>,
 }
 
 /// 카탈로그 전체를 데몬 PATH에서 찾는다. 부를 때마다 다시 찾는다.
@@ -86,6 +91,7 @@ pub fn agents() -> Vec<AgentView> {
             profile: a.profile,
             takes_brief: !matches!(a.prompt, Prompt::None),
             path: installed(a).map(|p| p.to_string_lossy().into_owned()),
+            version_warning: None,
         })
         .collect()
 }
@@ -133,9 +139,14 @@ impl Start {
     }
 }
 
-pub fn command(start: &Start, cwd: &Path) -> Result<CommandBuilder, String> {
+/// `app_server`는 Codex 노드가 붙을 app-server 주소다. Codex 에이전트에만 쓴다.
+pub fn command(
+    start: &Start,
+    cwd: &Path,
+    app_server: Option<&str>,
+) -> Result<CommandBuilder, String> {
     let mut cmd = match start {
-        Start::Agent { agent, brief } => agent_command(agent, brief)?,
+        Start::Agent { agent, brief } => agent_command(agent, brief, app_server)?,
         Start::Command { line } if line.trim().is_empty() => CommandBuilder::new_default_prog(),
         Start::Command { line } => shell(line),
     };
@@ -145,7 +156,11 @@ pub fn command(start: &Start, cwd: &Path) -> Result<CommandBuilder, String> {
     Ok(cmd)
 }
 
-fn agent_command(id: &AgentId, brief: &str) -> Result<CommandBuilder, String> {
+fn agent_command(
+    id: &AgentId,
+    brief: &str,
+    app_server: Option<&str>,
+) -> Result<CommandBuilder, String> {
     let agent = find(id).ok_or_else(|| format!("{}: 카탈로그에 없는 에이전트다.", id.0))?;
     let program = installed(agent).ok_or_else(|| {
         format!(
@@ -161,8 +176,11 @@ fn agent_command(id: &AgentId, brief: &str) -> Result<CommandBuilder, String> {
     }
     let mut cmd = CommandBuilder::new(program);
     cmd.args(&agent.args);
-    if agent.profile == Some(Profile::Claude) {
-        cmd.args(claude::args());
+    match (agent.profile, app_server) {
+        (Some(Profile::Claude), _) => cmd.args(claude::args()),
+        (Some(Profile::Codex), Some(url)) => cmd.args(codex::args(url)),
+        (Some(Profile::Codex), None) => return Err("Codex app-server를 띄우지 못했다.".into()),
+        (None, _) => {}
     }
     if brief.trim().is_empty() {
         return Ok(cmd);
@@ -178,6 +196,25 @@ fn agent_command(id: &AgentId, brief: &str) -> Result<CommandBuilder, String> {
         }
     }
     Ok(cmd)
+}
+
+/// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
+pub fn message_text(taken: &[Delivery]) -> String {
+    taken
+        .iter()
+        .map(|d| {
+            let how = match d.kind {
+                Kind::Queue => "큐",
+                Kind::Steer => "조정",
+                Kind::Interrupt => "중단. 하던 일을 멈추고 이 본문을 따른다",
+            };
+            format!(
+                "loom 메시지 (보낸 노드: {}, 방식: {how})\n{}",
+                d.from, d.body
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 #[cfg(unix)]

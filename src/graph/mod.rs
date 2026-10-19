@@ -12,6 +12,7 @@ use rusqlite::types::Type;
 use rusqlite::{Connection, Row, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
@@ -177,6 +178,11 @@ impl Graph {
         // 보는 화면이 없으면 send가 실패한다. 화면은 붙을 때 목록 전체를 받으므로 버려도 된다.
         let _ = self.events.send(GraphEvent::Node(view));
         Ok(())
+    }
+
+    /// 다음 메시지가 들어올 때 끝나는 future. 메일함을 보기 전에 `enable()`해야 그 사이에 온 메시지를 놓치지 않는다.
+    pub fn mail_changed(&self) -> Notified<'_> {
+        self.mail.notified()
     }
 
     fn publish_message(&self, child: NodeId) {

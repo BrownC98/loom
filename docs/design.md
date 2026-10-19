@@ -35,12 +35,16 @@
 | 프로필 | loom 사용법 지시 | 상태·전달 경로 |
 |---|---|---|
 | Claude Code | `--append-system-prompt` | `--settings`로 넘긴 훅 5개가 `loom hook`을 부른다(UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop). 형식과 인자는 [src/profile/claude.rs](../src/profile/claude.rs)에 있다 |
-| Codex | `-c developer_instructions=…` | `codex --remote ws://127.0.0.1:<포트>`로 loom 데몬이 띄운 app-server에 붙인다. 훅은 쓰지 않는다 |
+| Codex | `-c developer_instructions=…` | 데몬이 노드마다 `codex app-server --listen ws://127.0.0.1:0`을 띄우고 TUI를 `codex --remote <주소>`로 붙인다. 데몬도 같은 서버에 연결해 스레드 상태를 보고 `turn/*` 요청으로 전달한다. 훅은 쓰지 않는다. 연결은 [src/codex_server.rs](../src/codex_server.rs), 요청 내용은 [src/profile/codex.rs](../src/profile/codex.rs)에 있다 |
 | 프로필 없음 | 없음 | `loom wait`로만 메시지를 받는다 |
 
 - Claude `--settings`는 권한 허용 목록에 `loom guard`와 메시지 명령(`send`, `steer`, `interrupt`, `wait`, `done`)만 넣는다. 기본 권한 모드에서 사람이 없는 노드가 승인 창에서 멈추지 않게 한다. `loom spawn`은 `-- <명령>`으로 아무 명령이나 띄울 수 있어 넣지 않는다.
 - 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex` 파일은 고치지 않는다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다.
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
+- 고정한 스키마는 쓰는 요청·알림 7개만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
+- 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
+- Codex 셸 명령은 TUI가 아니라 app-server 아래에서 돈다. 그래서 app-server도 노드 환경(`LOOM_URL`, `LOOM_TOKEN`, `PATH`)을 받는다. Codex 셸 스냅샷은 로그인 셸의 `PATH`를 다시 적용한다. 그래서 `-c shell_environment_policy.set.PATH=<노드 PATH>`로 노드 `PATH`를 다시 넣는다.
+- 노드가 끝나면 데몬이 그 app-server를 끝낸다. Linux에서는 데몬이 끝나도 app-server가 TERM을 받는다(`PR_SET_PDEATHSIG`).
 
 ### 에이전트
 
@@ -112,7 +116,7 @@
 | `loom guard` | Claude PreToolUse 훅 | 훅이 포그라운드 Bash 명령 앞에 이 줄을 붙인다. 부른 셸을 중단 대상으로 데몬에 알린다 |
 | `loom serve` | 사람 | 데몬과 화면을 띄운다 |
 
-- 프로필이 없는 노드에 `steer`나 `interrupt`를 보내면 오류를 내고 보내지 않는다. 큐로 바꿔 보내지 않는다. Codex 노드도 app-server 연동 전까지 같다.
+- 프로필이 없는 노드에 `steer`나 `interrupt`를 보내면 오류를 내고 보내지 않는다. 큐로 바꿔 보내지 않는다.
 
 ### 전달 지점
 
@@ -120,17 +124,21 @@
 |---|---|---|---|
 | 큐 | `loom wait` 안 | `loom wait`가 본문을 돌려준다 | 같다 |
 | 큐 | 일하는 중 | Stop 훅이 `block`과 본문을 돌려준다. 같은 턴을 이어 간다 | `turn/completed` 뒤에 `turn/start` |
-| 큐 | 쉬는 중 | 다음 턴의 UserPromptSubmit 훅 맥락. 부모가 결과를 기다리면 백그라운드 `loom wait`로 깨어난다 | `turn/start`로 깨운다 |
+| 큐 | 쉬는 중 | 다음 턴의 UserPromptSubmit 훅 맥락. 부모가 결과를 기다리면 백그라운드 `loom wait`로 깨어난다 | `turn/start`로 깨운다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 |
 | 조정 | 일하는 중 | PostToolUse 훅 맥락 | `turn/steer` |
 | 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 데몬이 `loom guard`로 알린 셸과 그 자손 프로세스를 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` |
 | 조정·중단 | 쉬는 중 | 큐와 같다 | 큐와 같다 |
 
-- 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 불린 훅이 그 상태다. 훅마다 꺼내는 방식: UserPromptSubmit·Stop은 모두, PostToolUse는 조정, PreToolUse·PostToolUseFailure는 중단.
+- Claude: 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 불린 훅이 그 상태다. 훅마다 꺼내는 방식: UserPromptSubmit·Stop은 모두, PostToolUse는 조정, PreToolUse·PostToolUseFailure는 중단.
 - 훅 한 번에 꺼내는 본문 합은 8KB 이하다. Claude는 `additionalContext` 한 개를 10,000자에서 자른다. 남은 메시지는 다음 훅이 꺼낸다.
 - PreToolUse 훅은 중단 메시지가 없으면 포그라운드 Bash 명령 앞에 `loom guard` 줄을 붙인다(`updatedInput`). 명령을 감싸지 않는 이유: Claude는 권한 규칙을 바꾼 명령으로 판정한다. 감싸면 사용자의 Bash 허용 규칙이 맞지 않는다. 줄을 앞에 붙이면 Claude가 줄마다 판정해 규칙이 그대로 맞는다.
 - 백그라운드 Bash 명령(`run_in_background`)에는 붙이지 않는다. 결과를 기다리는 백그라운드 `loom wait`를 중단이 끝내면 안 된다.
 - 중단을 보내면 데몬은 셸을 먼저 끝내고 메시지를 넣는다. 반대 순서면 그 셸 안의 `loom wait`가 본문을 꺼낸 뒤 죽어 본문을 잃을 수 있다. 데몬은 셸이 그 노드 프로세스의 자손일 때만 끝낸다. 끝난 셸의 PID를 다른 프로세스가 받았을 수 있다.
 - 전달 확정: 데몬이 응답에 본문을 담는 순간 `delivered`로 바꾼다. 훅 호출은 기다리지 않는 짧은 요청이다. `loom hook`의 응답 상한(5초)을 훅 `timeout`(10초)보다 짧게 둔다. 그래서 Claude가 훅을 먼저 끝내 본문을 버리는 일이 없다. 남은 손실 경우는 응답 직후 `loom hook`·`loom wait` 프로세스가 죽을 때뿐이다.
+- Codex: 데몬은 노드마다 전달 작업 하나를 둔다. 이 작업은 메일함이나 스레드 상태가 바뀔 때 꺼낸다. 쉬면 모두, 일하면 조정·중단만 꺼낸다. 한 번에 꺼내는 본문 합은 Claude와 같은 8KB다.
+- Codex: `turn/start`를 보낸 뒤 상태 알림이 오기 전까지는 일하는 중으로 본다. 그 사이에 큐로 턴을 하나 더 시작하지 않는다.
+- Codex: `turn/start`가 막 시작된 다른 턴과 겹쳐 실패하면 본문을 `turn/steer`로 넣는다. `turn/steer`가 이미 끝난 턴을 겨눠 실패하면(`expectedTurnId` 불일치) `turn/start`로 보낸다. 꺼낸 메시지를 잃지 않는다.
+- Codex 중단: 데몬은 app-server 아래의 세션 리더(셸 명령)와 그 자손을 먼저 끝낸다. MCP 서버와 `codex-code-mode-host`는 서버 세션 안에 있어 남는다. 그 뒤 지금 턴에 `turn/interrupt`를 보내고 `turn/start`로 본문을 보낸다.
 
 ### 맥락과 크기
 
@@ -165,7 +173,7 @@
 ## 기술 스택
 
 - `loom` Rust 실행 파일 하나가 데몬과 모든 명령을 맡는다. Windows, macOS, Linux에서 같은 코드가 돈다.
-- 데몬: `tokio`, `axum`, `portable-pty`(Windows ConPTY 포함), `rusqlite`, `rust-embed`, `sysinfo`(중단할 셸의 프로세스 나무)
+- 데몬: `tokio`, `axum`, `portable-pty`(Windows ConPTY 포함), `rusqlite`, `rust-embed`, `sysinfo`(중단할 셸의 프로세스 나무), `tokio-tungstenite`(Codex app-server 연결), `typify`(빌드 때 Codex 스키마에서 타입 생성)
 - 화면: React, React Flow, xterm.js. 빌드한 화면을 실행 파일에 넣는다. 사람은 브라우저로 연다. Tauri는 지금 만들지 않는다.
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
 - 워크트리는 `git` CLI를 부른다.
@@ -181,8 +189,8 @@
 |---|---|
 | 상호작용 | 화면, CLI 명령(`src/cli.rs`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다 |
-| 기능 | 그래프(`src/graph/`: 노드 목록과 메일함), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 워크트리, 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
-| 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록) |
+| 기능 | 그래프(`src/graph/`: 노드 목록과 메일함), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 워크트리, 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
+| 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기) |
 
 - 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `AgentId`, `Profile`, `AccountId`)만 쓴다.
 - 노드 호스트는 키에 대해 제네릭이다. 노드 PTY(`NodeId`)와 로그인 창 PTY(`LoginId`)가 같은 코드를 쓴다.
@@ -202,12 +210,21 @@
 - Codex `turn/interrupt`는 턴만 멈춘다. 실행 중이던 셸 명령은 끝까지 돌았다.
 - tmux로 글자와 Enter를 한 번에 보내면 Codex는 Enter를 줄바꿈으로 받았다. PTY에 글자를 쓰지 않는 원칙의 근거다.
 - 사용량 출처(「계정과 사용량」): Claude `api/oauth/usage`가 `five_hour`·`seven_day`를 돌려줬다. Codex `account/rateLimits/read`는 `primary`에 주간 창(10080분)을 주고 `secondary`는 `null`이었다. 그래서 창은 위치가 아니라 길이로 가른다.
-- Codex `app-server`는 stdin이 닫히면 답하기 전에 끝난다. 데몬은 답을 받을 때까지 stdin을 열어 두고, 받은 뒤 프로세스를 끝낸다.
+- stdio로 띄운 Codex `app-server`는 stdin이 닫히면 답하기 전에 끝난다. 데몬은 답을 받을 때까지 stdin을 열어 두고, 받은 뒤 프로세스를 끝낸다.
 - Claude 권한(기본 권한 모드, `claude -p`): PreToolUse `updatedInput`만 넣고 `permissionDecision`을 비우면, 허용 규칙을 바꾼 명령으로 판정했다. `Bash(touch /tmp/original-file)`이 있어도 바꾼 `touch /tmp/rewritten-file`은 승인을 요구했다. 앞에 줄을 붙인 `id -u && touch /tmp/original-file`은 사용자 규칙대로 허용됐다.
 - Claude Bash 도구 셸은 자기 세션의 리더다. 셸 안 명령은 다른 프로세스 그룹으로 떴다. 그래서 그룹 하나가 아니라 셸의 프로세스 나무를 끝낸다.
 - loom 3단위(Claude 노드 부모·자식): 조정은 자식의 다음 PostToolUse 맥락으로 들어갔다. 중단은 120초 셸 명령을 보낸 뒤 0.08초 만에 끝냈고 PostToolUseFailure가 본문을 전했다. 큐는 자식의 Stop `block`으로 들어갔다. 자식 `done` 뒤 0.03초 만에 쉬던 부모의 백그라운드 `loom wait`가 끝나 부모가 새 턴을 시작했다.
+- loom 4단위(Claude 부모 → Codex 자식): 셸 명령을 돌리는 자식에게 보낸 큐는 메일함에 남았고 조정은 바로 꺼내졌다. 중단은 120초 셸 명령을 끝내고 0.06초 만에 돌아왔다(`loom interrupt` 왕복). 끊긴 턴 뒤의 새 턴이 중단 본문을 따랐다. 그 턴이 끝나자 큐가 `turn/start`로 들어갔다. 자식이 `done`으로 보낸 본문에 조정·중단·큐 본문이 모두 있었다. 쉬던 Claude 부모가 바로 깨어났다.
+- loom 4단위(Codex 부모 → Claude 자식): `loom spawn --agent claude`가 동작했다. 자식 `done`이 쉬던 Codex 부모를 `turn/start`로 깨웠다. 부모 입력창에 사람이 쓰다 만 글은 그대로 남았고 턴에 섞이지 않았다.
+- Codex 셸 명령은 app-server 아래의 `/bin/sh -c` 세션 리더다. `item/started`의 `processId`는 OS PID가 아니다. 그래서 프로세스 나무에서 셸을 찾는다.
+- Codex 셸 스냅샷이 로그인 셸의 `PATH`를 다시 적용해 노드 `PATH` 앞의 폴더가 빠졌다. `-c shell_environment_policy.set.PATH`를 주면 남았다. `LOOM_URL`·`LOOM_TOKEN`은 그대로 전해졌다.
+- `--listen ws://`로 띄운 app-server는 stdin이 닫혀도, TUI와 데몬 연결이 끊겨도 끝나지 않았다. `codex` wrapper(node)에 보낸 TERM은 실행 파일까지 끝냈다.
 
 ## 아직 확인하지 않은 것
 
 - Windows에서 `loom guard`가 자기를 부른 셸을 찾는 방법. 지금 Windows의 `loom guard`는 아무것도 하지 않아 중단이 셸 명령을 끝내지 못한다. 첫 Windows 구현 때 확인한다.
+- Codex 기본 샌드박스(`workspace-write`)는 루프백 TCP와 unix 소켓 연결을 막는다. 그래서 Codex 노드의 `loom` 명령마다 승인 창이 뜬다. 지금은 사람이 승인한다. 후보:
+  - (나) `-c sandbox_workspace_write.network_access=true`를 넘긴다. 위험: 샌드박스 셸이 모든 주소로 네트워크를 연다.
+  - (다) loom Codex 계정 폴더에만 `rules` 파일로 메시지 명령(`send`, `steer`, `interrupt`, `done`)을 허용한다. 시스템 기본 계정은 지금과 같다. 위험: loom이 계정 폴더 안의 Codex 설정 파일을 하나 더 쓰고, 허용한 명령은 샌드박스 밖에서 돈다.
+- macOS·Windows에서 데몬이 신호로 죽으면 Codex app-server가 남는지. Linux만 `PR_SET_PDEATHSIG`로 막았다. Windows에서 `sysinfo`가 세션 ID를 주는지도 확인하지 않았다. 주지 않으면 Codex 중단이 셸을 끝내지 못한다. 첫 macOS·Windows 구현 때 확인한다.
 - Codex app-server를 unix 소켓으로 쓸 때의 메시지 틀. 지금은 `ws://127.0.0.1`만 쓴다.

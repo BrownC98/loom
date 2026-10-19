@@ -1,9 +1,11 @@
 mod accounts;
 mod cli;
+mod codex_server;
 mod daemon;
 mod db;
 mod graph;
 mod node_host;
+mod process_tree;
 mod profile;
 mod settings;
 mod usage;
@@ -40,9 +42,9 @@ enum Cli {
     },
     /// 부모나 자식에게 메시지를 보낸다. 받는 노드의 턴을 끊지 않는다.
     Send { name: String, body: String },
-    /// 일하는 Claude 노드의 다음 도구 호출 사이에 메시지를 넣는다. 턴을 멈추지 않는다.
+    /// 일하는 Claude·Codex 노드의 지금 턴에 메시지를 넣는다. 턴을 멈추지 않는다.
     Steer { name: String, body: String },
-    /// Claude 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다.
+    /// Claude·Codex 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다.
     Interrupt { name: String, body: String },
     /// 메시지가 올 때까지 기다렸다가 본문을 출력한다.
     Wait,

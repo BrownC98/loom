@@ -8,6 +8,7 @@ use std::ffi::OsString;
 use std::hash::Hash;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::pin::pin;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -24,9 +25,11 @@ use tokio::sync::broadcast::error::RecvError;
 use ts_rs::TS;
 
 use crate::accounts::Accounts;
+use crate::codex_server::CodexServer;
 use crate::db;
 use crate::graph::{Delivery, Graph, GraphEvent, Kind, NodeId, Refusal};
 use crate::node_host::NodeHost;
+use crate::profile::codex::{self, Status};
 use crate::profile::{self, AgentId, Profile, Start};
 use crate::settings::Settings;
 
@@ -43,6 +46,10 @@ struct App {
     logins: settings::Logins,
     /// 노드가 데몬을 부를 때 내는 토큰. 데몬이 다시 시작하면 노드 프로세스도 모두 끝나므로 메모리에만 둔다.
     tokens: Mutex<HashMap<String, NodeId>>,
+    /// Codex 노드마다 그 노드가 붙은 app-server. 노드 프로세스가 끝나면 지우고 끝낸다.
+    codex: Mutex<HashMap<NodeId, Arc<CodexServer>>>,
+    /// 설치한 Codex 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
+    codex_warning: Option<String>,
     /// 노드 안에서 `loom` 명령이 쓰는 데몬 주소(`LOOM_URL`).
     url: String,
     /// 노드의 `PATH`. 앞에 이 실행 파일의 폴더를 넣어 노드가 `loom`을 바로 부르게 한다.
@@ -130,6 +137,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         accounts: Accounts::new(db_path.with_file_name("accounts")),
         logins: settings::Logins::default(),
         tokens: Mutex::default(),
+        codex: Mutex::default(),
+        codex_warning: codex::installed_version_warning(),
         url: node_url(listen),
         path: node_path()?,
     });
@@ -187,27 +196,28 @@ async fn repo(State(app): State<Arc<App>>) -> Json<RepoView> {
 }
 
 impl App {
-    /// 노드 프로세스를 띄운다. 끝나면 그래프에 알린다.
-    fn launch(
-        self: &Arc<Self>,
-        id: NodeId,
-        mut cmd: portable_pty::CommandBuilder,
-    ) -> Result<(), String> {
-        let token = new_token()?;
-        cmd.env("LOOM_URL", &self.url);
-        cmd.env("LOOM_TOKEN", &token);
-        cmd.env("PATH", &self.path);
+    /// 노드 프로세스를 띄운다. 끝나면 그래프에 알린다. Codex 노드면 메일함을 그 app-server로 넘기기 시작한다.
+    fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
+        let Prepared { cmd, token, codex } = prepared;
         // 노드가 뜨자마자 데몬을 불러도 받도록 토큰을 먼저 넣는다.
         self.tokens.lock().unwrap().insert(token.clone(), id);
-        let graph = self.graph.clone();
+        let app = self.clone();
         self.host
             .spawn(id, cmd, move |code| {
+                if let Some(server) = app.codex.lock().unwrap().remove(&id) {
+                    server.stop();
+                }
                 // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
-                let _ = graph.exited(id, code);
+                let _ = app.graph.exited(id, code);
             })
             .inspect_err(|_| {
                 self.tokens.lock().unwrap().remove(&token);
-            })
+            })?;
+        if let Some(server) = codex {
+            self.codex.lock().unwrap().insert(id, server.clone());
+            tokio::spawn(deliver_to_codex(self.clone(), id, server));
+        }
+        Ok(())
     }
 
     fn caller(&self, headers: &HeaderMap) -> Result<NodeId, ApiError> {
@@ -223,16 +233,99 @@ impl App {
             ))
     }
 
-    /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다.
-    fn command(&self, start: &Start) -> Result<portable_pty::CommandBuilder, ApiError> {
-        let mut cmd = profile::command(start, std::path::Path::new(&self.repo.path))
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        if let Some(provider) = start.profile() {
-            let settings = self.settings.get().map_err(internal)?;
-            self.accounts
-                .apply(&mut cmd, provider, settings.account(provider));
+    /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.
+    async fn prepare(&self, start: &Start) -> Result<Prepared, ApiError> {
+        let provider = start.profile();
+        let settings = self.settings.get().map_err(internal)?;
+        let account = provider.and_then(|p| settings.account(p));
+        let token = new_token().map_err(internal)?;
+        let env = self.node_env(&token);
+        let codex = match provider {
+            Some(Profile::Codex) => {
+                let home = self.accounts.config_dir(Profile::Codex, account);
+                let server = CodexServer::start(home.as_deref(), &env)
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+                Some(Arc::new(server))
+            }
+            _ => None,
+        };
+        let url = codex.as_ref().map(|s| s.url());
+        let mut cmd = profile::command(start, std::path::Path::new(&self.repo.path), url)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))
+            .inspect_err(|_| discard(&codex))?;
+        for (key, value) in &env {
+            cmd.env(key, value);
         }
-        Ok(cmd)
+        if let Some(provider) = provider {
+            self.accounts.apply(&mut cmd, provider, account);
+        }
+        Ok(Prepared { cmd, token, codex })
+    }
+
+    /// 노드 안의 `loom` 명령이 쓰는 환경. Codex는 셸을 TUI가 아니라 app-server 아래에서 띄우므로 둘 다 받는다.
+    fn node_env(&self, token: &str) -> [(&'static str, OsString); 3] {
+        [
+            ("LOOM_URL", self.url.clone().into()),
+            ("LOOM_TOKEN", token.into()),
+            ("PATH", self.path.clone()),
+        ]
+    }
+}
+
+/// 띄울 준비가 된 노드. Codex 노드면 TUI가 붙을 app-server가 이미 떠 있다.
+struct Prepared {
+    cmd: portable_pty::CommandBuilder,
+    /// 노드가 데몬을 부를 때 내는 토큰. 노드가 뜨기 직전에 `tokens`에 넣는다.
+    token: String,
+    codex: Option<Arc<CodexServer>>,
+}
+
+/// 노드를 만들지 못했으면 미리 띄운 app-server를 끝낸다.
+fn discard(prepared: &Option<Arc<CodexServer>>) {
+    if let Some(server) = prepared {
+        server.stop();
+    }
+}
+
+/// Codex 노드의 메일함을 app-server로 넘긴다. 노드마다 이 작업 하나만 꺼내므로 같은 메시지를 두 번 넘기지 않는다.
+/// 받는 노드의 상태에 따라 꺼내는 방식을 고른다. 근거: docs/design.md 「전달 지점」.
+async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>) {
+    let mut thread = server.thread();
+    // `turn/start`를 보낸 뒤 서버의 active 알림이 오기 전까지 일하는 중으로 본다. 그래야 큐를 두 턴으로 나눠 보내지 않는다.
+    let mut started = false;
+    loop {
+        let mut mail = pin!(app.graph.mail_changed());
+        mail.as_mut().enable();
+        let now = thread.borrow_and_update().clone();
+        if let Some(now) = now {
+            let status = if started { Status::Busy } else { now.status };
+            match app
+                .graph
+                .take(node, codex::kinds(status), codex::INPUT_LIMIT_BYTES)
+            {
+                Ok(taken) if !taken.is_empty() => {
+                    let call = |method, params| server.call(method, params);
+                    match codex::deliver(call, &now.id, status, &taken).await {
+                        Ok(()) => started = true,
+                        // 본문은 이미 delivered다. 데몬 로그에만 남는다.
+                        Err(e) => eprintln!("loom: 노드 {}에 메시지를 넘기지 못했다: {e}", node.0),
+                    }
+                    continue;
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.0),
+            }
+        }
+        tokio::select! {
+            _ = mail => {}
+            changed = thread.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                started = false;
+            }
+        }
     }
 }
 
@@ -258,11 +351,13 @@ async fn create_node(
     State(app): State<Arc<App>>,
     Json(req): Json<NewNode>,
 ) -> Result<Json<NodeId>, ApiError> {
-    let cmd = app.command(&req.start)?;
+    let prepared = app.prepare(&req.start).await?;
+    let codex = prepared.codex.clone();
     let id = app
         .graph
-        .add_root(&req.name, req.start.agent(), |id| app.launch(id, cmd))
-        .map_err(refused)?;
+        .add_root(&req.name, req.start.agent(), |id| app.launch(id, prepared))
+        .map_err(refused)
+        .inspect_err(|_| discard(&codex))?;
     Ok(Json(id))
 }
 
@@ -282,13 +377,15 @@ async fn agent_spawn(
         ),
         SpawnRun::Command(line) => (Start::Command { line }, req.brief),
     };
-    let cmd = app.command(&start)?;
+    let prepared = app.prepare(&start).await?;
+    let codex = prepared.codex.clone();
     let id = app
         .graph
         .add_child(parent, &req.name, start.agent(), &queued_brief, |id| {
-            app.launch(id, cmd)
+            app.launch(id, prepared)
         })
-        .map_err(refused)?;
+        .map_err(refused)
+        .inspect_err(|_| discard(&codex))?;
     Ok(Json(id))
 }
 
@@ -300,19 +397,29 @@ async fn agent_send(
     let from = app.caller(&headers)?;
     if req.kind != Kind::Queue {
         let (to, agent) = app.graph.recipient(from, &req.to).map_err(refused)?;
-        // 조정·중단은 훅이 있는 노드만 받는다. 큐로 바꿔 보내지 않는다. 근거: docs/design.md 「명령」.
-        if agent.as_ref().and_then(profile::profile_of) != Some(Profile::Claude) {
+        // 조정·중단은 프로필(훅·app-server)이 있는 노드만 받는다. 큐로 바꿔 보내지 않는다. 근거: docs/design.md 「명령」.
+        let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!(
-                    "{}: 조정·중단을 받지 못하는 노드다(Claude 노드만 받는다). `loom send`로 보낸다.",
+                    "{}: 조정·중단을 받지 못하는 노드다(Claude·Codex 노드만 받는다). `loom send`로 보낸다.",
                     req.to
                 ),
             ));
-        }
+        };
         // 셸을 먼저 끝낸다. 메시지를 먼저 넣으면 그 셸 안의 `loom wait`가 본문을 꺼낸 뒤 죽어 본문을 잃을 수 있다.
         if req.kind == Kind::Interrupt {
-            app.host.stop_guarded(to);
+            match profile {
+                Profile::Claude => {
+                    app.host.stop_guarded(to);
+                }
+                Profile::Codex => {
+                    let server = app.codex.lock().unwrap().get(&to).cloned();
+                    if let Some(server) = server {
+                        server.stop_shells();
+                    }
+                }
+            }
         }
     }
     app.graph

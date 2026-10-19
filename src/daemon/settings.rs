@@ -73,8 +73,15 @@ pub fn routes() -> Router<Arc<App>> {
 }
 
 /// 부를 때마다 데몬 PATH를 다시 훑는다. 화면의 [다시 찾기]는 이것을 다시 부른다.
-async fn agents() -> Json<Vec<AgentView>> {
-    Json(profile::agents())
+/// Codex 줄에는 데몬이 시작할 때 본 버전 경고를 붙인다.
+async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
+    let mut agents = profile::agents();
+    for agent in &mut agents {
+        if agent.profile == Some(Profile::Codex) {
+            agent.version_warning = app.codex_warning.clone();
+        }
+    }
+    Json(agents)
 }
 
 async fn get_settings(State(app): State<Arc<App>>) -> Result<Json<SettingsView>, ApiError> {

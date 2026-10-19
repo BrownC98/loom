@@ -13,4 +13,8 @@ takesBrief: boolean,
 /**
  * 데몬 PATH에서 찾은 실행 파일. 없으면 설치하지 않은 것이다.
  */
-path: string | null, };
+path: string | null, 
+/**
+ * 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고. 예: `app-server 0.160.0 · 고정 0.159.2`.
+ */
+versionWarning: string | null, };

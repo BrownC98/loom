@@ -80,7 +80,7 @@ impl Graph {
     pub async fn wait(&self, node: NodeId) -> Result<Delivery, Refusal> {
         loop {
             // 확인하기 전에 깨우기 신호를 받을 준비를 한다. 그래야 확인과 기다림 사이에 온 메시지를 놓치지 않는다.
-            let mut notified = pin!(self.mail.notified());
+            let mut notified = pin!(self.mail_changed());
             notified.as_mut().enable();
             if let Some(delivery) = self.take(node, Kind::ALL, 0)?.pop() {
                 return Ok(delivery);

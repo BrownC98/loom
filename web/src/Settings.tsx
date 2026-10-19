@@ -127,6 +127,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
                     <span className="name">{a.label}</span>
                     {a.id === chosen?.id && <span className="badge">기본</span>}
                     {!a.takesBrief && <span className="badge warn">첫 지시문 없음</span>}
+                    {a.versionWarning && <span className="badge warn">{a.versionWarning}</span>}
                     <span className="meta" translate="no">
                       {a.path} · {a.profile ? '메시지 연동' : 'loom wait만'}
                     </span>

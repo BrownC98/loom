@@ -105,7 +105,7 @@ impl Event {
                 _ => None,
             };
         }
-        let text = text(taken);
+        let text = super::message_text(taken);
         Some(match self {
             Event::Stop => json!({ "decision": "block", "reason": text }),
             Event::PreToolUse { .. } => json!({ "hookSpecificOutput": {
@@ -135,24 +135,6 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     let mut input = input.clone();
     input["command"] = format!("{GUARD}\n{command}").into();
     Some(input)
-}
-
-fn text(taken: &[Delivery]) -> String {
-    taken
-        .iter()
-        .map(|d| {
-            let how = match d.kind {
-                Kind::Queue => "큐",
-                Kind::Steer => "조정",
-                Kind::Interrupt => "중단. 하던 일을 멈추고 이 본문을 따른다",
-            };
-            format!(
-                "loom 메시지 (보낸 노드: {}, 방식: {how})\n{}",
-                d.from, d.body
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
 }
 
 #[cfg(test)]

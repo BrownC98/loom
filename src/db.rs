@@ -77,13 +77,26 @@ const STEPS: &[M] = &[
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
-/// `~/.loom/loom.db`. 근거: docs/design.md 「저장」.
+/// `<데이터 폴더>/loom.db`. 근거: docs/design.md 「저장」.
 pub fn default_path() -> std::io::Result<PathBuf> {
-    let home =
-        std::env::home_dir().ok_or_else(|| std::io::Error::other("홈 폴더를 찾지 못했다"))?;
-    let dir = home.join(".loom");
+    let dir = data_dir()?;
     std::fs::create_dir_all(&dir)?;
     Ok(dir.join("loom.db"))
+}
+
+/// Windows는 앱 설정 관례(`%APPDATA%\loom`), 다른 OS는 `~/.loom`이다.
+#[cfg(windows)]
+fn data_dir() -> std::io::Result<PathBuf> {
+    let appdata =
+        std::env::var_os("APPDATA").ok_or_else(|| std::io::Error::other("APPDATA가 없다"))?;
+    Ok(PathBuf::from(appdata).join("loom"))
+}
+
+#[cfg(not(windows))]
+fn data_dir() -> std::io::Result<PathBuf> {
+    let home =
+        std::env::home_dir().ok_or_else(|| std::io::Error::other("홈 폴더를 찾지 못했다"))?;
+    Ok(home.join(".loom"))
 }
 
 /// 파일을 WAL 모드로 열고 스키마를 최신으로 올린다.

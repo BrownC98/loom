@@ -41,12 +41,11 @@ impl Server {
         node_env: &[(&'static str, OsString)],
         password: String,
     ) -> Result<Self, String> {
-        let mut cmd = Command::new(program);
+        let mut cmd = Command::from(crate::process_tree::command(program));
         cmd.args(["serve", "--hostname", "127.0.0.1", "--port", "0"])
             .current_dir(cwd)
             .envs(node_env.iter().map(|(k, v)| (k, v)))
             .env(super::PASSWORD_ENV, &password);
-        #[cfg(target_os = "linux")]
         crate::process_tree::end_with_daemon(&mut cmd);
         let mut child = cmd
             .stdin(Stdio::null())

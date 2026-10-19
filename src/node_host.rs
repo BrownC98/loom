@@ -16,6 +16,11 @@ use crate::process_tree::{self, Snapshot};
 const BACKLOG_BYTES: usize = 256 * 1024;
 /// 화면 하나가 밀려도 버티는 출력 조각 수. 넘으면 그 화면의 연결을 끊고, 화면은 다시 붙어 backlog를 받는다.
 const VIEWER_QUEUE_CHUNKS: usize = 1024;
+/// Windows ConPTY는 첫 출력으로 커서 위치를 묻고, 답이 올 때까지 프로그램을 멈춘다.
+/// portable-pty가 `PSEUDOCONSOLE_INHERIT_CURSOR`를 늘 켜고 연다. 화면이 붙지 않은 노드(`loom spawn` 자식)도 뜨도록
+/// 노드 호스트가 왼쪽 위로 답하고 이 질의를 출력에서 지운다. 그래서 나중에 붙은 xterm이 한 번 더 답하지 않는다.
+const CURSOR_QUERY: &[u8] = b"\x1b[6n";
+const CURSOR_AT_ORIGIN: &[u8] = b"\x1b[1;1R";
 /// 화면이 크기를 보내기 전에 쓰는 PTY 크기.
 const INITIAL_SIZE: PtySize = PtySize {
     rows: 24,
@@ -87,8 +92,13 @@ impl<K: Copy + Eq + Hash> NodeHost<K> {
 
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
+            let mut first = true;
             while let Ok(n @ 1..) = reader.read(&mut buf) {
-                pty.output.lock().unwrap().push(&buf[..n]);
+                let mut chunk = &buf[..n];
+                if std::mem::take(&mut first) && cfg!(windows) {
+                    chunk = pty.answer_cursor_query(chunk);
+                }
+                pty.output.lock().unwrap().push(chunk);
             }
         });
         std::thread::spawn(move || {
@@ -135,11 +145,21 @@ impl<K: Copy + Eq + Hash> NodeHost<K> {
         }
     }
 
-    /// 노드 안의 셸 하나를 중단 대상으로 둔다. 이미 끝난 셸은 이때 목록에서 지운다.
-    pub fn guard(&self, id: K, shell: u32) {
+    /// `caller`를 띄운 셸을 중단 대상으로 둔다. 셸은 `caller`의 조상 가운데 노드 프로세스의 직속 자식이다.
+    /// 부모 PID를 쓰지 않는 이유: Windows Git Bash는 명령마다 fork 대리 프로세스를 띄우고, 그 프로세스는 명령과 함께 끝난다.
+    /// 노드 프로세스의 자손이 아니면 두지 않는다. 이미 끝난 셸은 이때 목록에서 지운다.
+    pub fn guard(&self, id: K, caller: u32) {
         let Some(pty) = self.pty(id) else { return };
+        let Some(shell) = pty
+            .pid
+            .and_then(|root| Snapshot::now().child_on_path(root, caller))
+        else {
+            return;
+        };
         let mut shells = pty.guarded.lock().unwrap();
-        shells.push(shell);
+        if !shells.contains(&shell) {
+            shells.push(shell);
+        }
         process_tree::alive(&mut shells);
     }
 
@@ -161,6 +181,19 @@ impl<K: Copy + Eq + Hash> NodeHost<K> {
 
     fn pty(&self, id: K) -> Option<Arc<Pty>> {
         self.nodes.read().unwrap().get(&id).cloned()
+    }
+}
+
+impl Pty {
+    /// `chunk`가 ConPTY의 커서 위치 질의로 시작하면 답하고 질의 뒤의 출력을 돌려준다.
+    fn answer_cursor_query<'a>(&self, chunk: &'a [u8]) -> &'a [u8] {
+        match chunk.strip_prefix(CURSOR_QUERY) {
+            Some(rest) => {
+                let _ = self.input.lock().unwrap().write_all(CURSOR_AT_ORIGIN);
+                rest
+            }
+            None => chunk,
+        }
     }
 }
 

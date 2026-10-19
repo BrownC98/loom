@@ -32,6 +32,7 @@ use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, MessageId, NodeId, REDELIVER_AFTER, Refusal,
 };
 use crate::node_host::NodeHost;
+use crate::process_tree;
 use crate::profile::codex::{self, Status};
 use crate::profile::opencode2;
 use crate::profile::{
@@ -180,10 +181,10 @@ pub struct TakeRequest {
     pub limit_bytes: usize,
 }
 
-/// `loom guard`의 요청. `shell`은 중단이 오면 끝낼 셸의 PID다.
+/// `loom guard`의 요청. `caller`는 `loom guard` 프로세스의 PID다. 끝낼 셸은 데몬이 그 조상에서 고른다.
 #[derive(Serialize, Deserialize)]
 pub struct GuardRequest {
-    pub shell: u32,
+    pub caller: u32,
 }
 
 /// `loom wait`·`loom hook`이 받은 메시지를 확인한다.
@@ -209,6 +210,10 @@ pub struct DoneRequest {
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
 pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
+    process_tree::end_descendants_on_exit()?;
+    let listener = tokio::net::TcpListener::bind(listen).await?;
+    // 포트 0이면 OS가 고른 포트다. 노드 주소와 시작 줄은 실제 주소를 쓴다. Windows 앱은 시작 줄에서 주소를 읽는다.
+    let listen = listener.local_addr()?;
     // 포트는 OS가 고른다. 데몬마다(워크트리마다) 다른 포트다. macOS는 `127.0.0.1` 말고 루프백 주소가
     // 기본으로 없다(확인하지 않았다). 그때는 노드 문 없이 데몬 주소를 쓰고, Codex는 loom 명령마다 승인을 묻는다.
     let node_door = tokio::net::TcpListener::bind((NODE_IP, 0)).await.ok();
@@ -261,7 +266,6 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .merge(settings::routes())
         .fallback(asset)
         .with_state(app.clone());
-    let listener = tokio::net::TcpListener::bind(listen).await?;
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     match node_door {
@@ -694,7 +698,7 @@ async fn agent_guard(
     Json(req): Json<GuardRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.host.guard(node, req.shell);
+    app.host.guard(node, req.caller);
     Ok(Json(()))
 }
 

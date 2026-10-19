@@ -5,7 +5,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
+use crate::process_tree;
 use crate::profile::Provider;
 
 /// CLI나 API 하나를 기다리는 상한. 넘으면 그 계정만 「지금 볼 수 없다」가 된다.
@@ -106,7 +107,7 @@ struct ClaudeStatus {
 }
 
 fn claude(config_dir: Option<&Path>) -> Usage {
-    let mut cmd = Command::new("claude");
+    let mut cmd = process_tree::command("claude");
     cmd.args(["auth", "status", "--json"]);
     if let Some(dir) = config_dir {
         cmd.env("CLAUDE_CONFIG_DIR", dir);
@@ -232,7 +233,7 @@ fn codex_limits(rate_limits: &Value) -> Limits {
 
 /// `account/read`와 `account/rateLimits/read`의 결과를 순서대로 돌려준다.
 fn app_server(home: Option<&Path>) -> Result<[Value; 2], UsageProblem> {
-    let mut cmd = Command::new("codex");
+    let mut cmd = process_tree::command("codex");
     cmd.arg("app-server");
     if let Some(dir) = home {
         cmd.env("CODEX_HOME", dir);

@@ -91,16 +91,10 @@ pub fn hook() -> Result<(), String> {
 }
 
 /// 이 명령을 부른 셸을 중단 대상으로 데몬에 알린다. Claude 훅이 Bash 명령 앞에 붙인다.
-#[cfg(unix)]
+/// 셸은 데몬이 이 프로세스의 조상에서 고른다. 이 프로세스는 응답을 받을 때까지 살아 있다.
 pub fn guard() -> Result<(), String> {
-    let shell = std::os::unix::process::parent_id();
-    call::<()>("guard", &GuardRequest { shell }, None)
-}
-
-/// Windows에서 프로세스 묶음을 끝내는 방법은 아직 확인하지 않았다(docs/design.md 「아직 확인하지 않은 것」).
-#[cfg(windows)]
-pub fn guard() -> Result<(), String> {
-    Ok(())
+    let caller = std::process::id();
+    call::<()>("guard", &GuardRequest { caller }, None)
 }
 
 pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String> {

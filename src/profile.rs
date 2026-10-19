@@ -187,7 +187,7 @@ pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, Version
 
 /// 데몬 PATH의 `<cmd> --version` 출력. 설치하지 않았으면 없다.
 fn installed_version(cmd: &str) -> Option<String> {
-    let out = std::process::Command::new(cmd)
+    let out = crate::process_tree::command(cmd)
         .arg("--version")
         .stdin(std::process::Stdio::null())
         .output()
@@ -323,7 +323,7 @@ fn agent_command(
             limit: BRIEF_LIMIT_BYTES,
         });
     }
-    let mut cmd = CommandBuilder::new(program);
+    let mut cmd = CommandBuilder::from_argv(crate::process_tree::argv(&program));
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
     if !bypass_off.contains(id) {

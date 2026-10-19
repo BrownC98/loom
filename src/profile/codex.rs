@@ -56,8 +56,10 @@ pub fn args(app_server: &str) -> Vec<String> {
 /// 권한 프로필(`default_permissions`)은 쓰지 않는다. TUI가 `thread/start`에 `sandbox`를 넣어 덮는다.
 /// `version_output`이 고정 버전이 아니면 아무것도 넘기지 않는다. 프록시가 뜨지 않는 버전에서
 /// `network_access`만 켜지면 모든 주소가 열린다. 근거: docs/design.md 「에이전트 실행」, 「실측 근거」.
+/// Windows도 아무것도 넘기지 않는다. 프록시는 관리자 권한 샌드박스(elevated)에서만 뜨고, 기본 Windows Codex는
+/// `workspace-write`를 `read-only`로 낮춘다(실측). 그때 Codex 노드는 loom 명령마다 승인을 묻는다.
 pub fn sandbox_args(version_output: &str, daemon: IpAddr) -> Vec<String> {
-    if version_output.split_whitespace().last() != Some(PINNED_VERSION) {
+    if cfg!(windows) || version_output.split_whitespace().last() != Some(PINNED_VERSION) {
         return Vec::new();
     }
     [

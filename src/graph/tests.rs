@@ -11,8 +11,9 @@ fn launched(_: NodeId) -> Result<(), String> {
     Ok(())
 }
 
-fn root(g: &Graph, name: &str) -> NodeId {
-    g.add_root(name, None, launched).unwrap()
+/// 에이전트 id가 `agent`인 루트. 이름은 `<agent>-1`이다.
+fn root(g: &Graph, agent: &str) -> NodeId {
+    g.add_root(Some(AgentId(agent.into())), launched).unwrap()
 }
 
 fn child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
@@ -62,13 +63,13 @@ fn parent_and_child_exchange_messages() {
         .add_child(lead, "구현", None, "node_host를 고쳐라", launched)
         .unwrap();
 
-    assert_eq!(take(&g, worker), delivery("총괄", "node_host를 고쳐라"));
-    g.send(worker, "총괄", Kind::Queue, "질문 하나").unwrap();
+    assert_eq!(take(&g, worker), delivery("총괄-1", "node_host를 고쳐라"));
+    g.send(worker, "총괄-1", Kind::Queue, "질문 하나").unwrap();
     assert_eq!(view(&g, lead).unread, 1);
     assert_eq!(take(&g, lead), delivery("구현", "질문 하나"));
     assert_eq!(view(&g, lead).unread, 0);
     g.send(lead, "구현", Kind::Queue, "답").unwrap();
-    assert_eq!(take(&g, worker), delivery("총괄", "답"));
+    assert_eq!(take(&g, worker), delivery("총괄-1", "답"));
     assert_eq!(take(&g, worker), None);
 }
 
@@ -87,7 +88,7 @@ fn messages_go_only_between_parent_and_child() {
         Err(Refusal::NotRelated(_))
     ));
     assert!(matches!(
-        g.send(a1, "총괄", Kind::Queue, "x"),
+        g.send(a1, "총괄-1", Kind::Queue, "x"),
         Err(Refusal::NotRelated(_))
     ));
     g.send(a1, "a", Kind::Queue, "x").unwrap();
@@ -102,7 +103,7 @@ fn child_names_are_unique_among_siblings_and_parent() {
 
     let refused = |name| g.add_child(lead, name, None, "", launched);
     assert!(matches!(refused("a"), Err(Refusal::NameTaken(_))));
-    assert!(matches!(refused("총괄"), Err(Refusal::NameTaken(_))));
+    assert!(matches!(refused("총괄-1"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("  "), Err(Refusal::EmptyName)));
 }
 
@@ -189,7 +190,7 @@ fn exit_without_done_tells_parent_even_when_mailbox_is_full() {
     let a = child(&g, lead, "a");
     let b = child(&g, lead, "b");
     for _ in 0..50 {
-        g.send(b, "총괄", Kind::Queue, "x").unwrap();
+        g.send(b, "총괄-1", Kind::Queue, "x").unwrap();
     }
 
     g.exited(a, 3).unwrap();
@@ -224,7 +225,7 @@ fn restart_keeps_nodes_and_messages() {
             summary: "요약".into()
         }
     );
-    assert_eq!(take(&g, a), delivery("총괄", "지시"));
+    assert_eq!(take(&g, a), delivery("총괄-1", "지시"));
     assert_eq!(take(&g, lead), delivery("a", "done: 요약"));
     // 다시 연 뒤 만든 노드의 id는 앞 노드와 겹치지 않는다.
     assert_eq!(root(&g, "새 노드"), NodeId(3));
@@ -243,7 +244,7 @@ async fn wait_returns_when_a_message_arrives() {
     });
     tokio::task::yield_now().await;
     assert!(!waiting.is_finished());
-    g.send(a, "총괄", Kind::Queue, "결과").unwrap();
+    g.send(a, "총괄-1", Kind::Queue, "결과").unwrap();
     let got = waiting.await.unwrap();
     assert_eq!((got.from.as_str(), got.body.as_str()), ("a", "결과"));
 }
@@ -310,7 +311,7 @@ fn each_point_takes_only_its_kinds_in_arrival_order_and_once() {
             .iter()
             .map(|d| (d.from.as_str(), d.kind, d.body.as_str()))
             .collect::<Vec<_>>(),
-        [("총괄", Kind::Interrupt, "i1")]
+        [("총괄-1", Kind::Interrupt, "i1")]
     );
     // 확인하기 전에는 읽지 않은 메시지로 센다.
     assert_eq!(view(&g, a).unread, 4);
@@ -356,12 +357,10 @@ fn take_stops_at_the_byte_limit_but_always_takes_the_first() {
 fn recipient_names_the_node_and_its_agent() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    let lead = g
-        .add_root("총괄", Some(AgentId("claude".into())), launched)
-        .unwrap();
+    let lead = root(&g, "claude");
     let a = child(&g, lead, "a");
 
-    let (id, agent) = g.recipient(a, "총괄").unwrap();
+    let (id, agent) = g.recipient(a, "claude-1").unwrap();
     assert_eq!((id, agent), (lead, Some(AgentId("claude".into()))));
     assert_eq!(g.recipient(lead, "a").unwrap(), (a, None));
     assert!(matches!(
@@ -444,8 +443,8 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
         ["하나", "둘", "done: 요약"]
     );
     // 새 부모와는 보관 없이 바로 주고받는다.
-    g.send(lead, "조사", Kind::Queue, "다음").unwrap();
-    assert_eq!(take(&g, worker), delivery("총괄", "다음"));
+    g.send(lead, "조사-1", Kind::Queue, "다음").unwrap();
+    assert_eq!(take(&g, worker), delivery("총괄-1", "다음"));
 }
 
 #[test]
@@ -459,7 +458,7 @@ fn adopting_a_running_node_tells_its_old_parent() {
     g.adopt(other, a).unwrap();
 
     assert_eq!(view(&g, a).parent, Some(other));
-    assert_eq!(take(&g, lead), delivery("a", "adopted: 검토"));
+    assert_eq!(take(&g, lead), delivery("a", "adopted: 검토-1"));
     // 이미 그 부모면 아무것도 하지 않는다.
     g.adopt(other, a).unwrap();
     assert_eq!(take(&g, other), None);
@@ -474,7 +473,8 @@ fn adopt_refuses_cycles_depth_and_taken_names() {
     let a1 = child(&g, a, "a1");
     let other = root(&g, "검토");
     child(&g, other, "b");
-    let twin = root(&g, "a");
+    // 검토 아래의 a. 총괄 아래에도 a가 있다.
+    let twin = child(&g, other, "a");
 
     assert!(matches!(g.adopt(lead, lead), Err(Refusal::Cycle)));
     assert!(matches!(g.adopt(a1, lead), Err(Refusal::Cycle)));
@@ -484,7 +484,7 @@ fn adopt_refuses_cycles_depth_and_taken_names() {
     assert!(matches!(g.adopt(lead, twin), Err(Refusal::NameTaken(n)) if n == "a"));
     assert!(matches!(g.find("a"), Err(Refusal::Ambiguous(_))));
     assert!(matches!(g.find("없음"), Err(Refusal::NotFound(_))));
-    assert_eq!(g.find("검토").unwrap(), other);
+    assert_eq!(g.find("검토-1").unwrap(), other);
     assert_eq!(view(&g, other).parent, None);
 }
 
@@ -509,29 +509,29 @@ fn records_node_and_message_events_in_order() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
-    g.send(a, "총괄", Kind::Queue, "질문").unwrap();
+    g.send(a, "총괄-1", Kind::Queue, "질문").unwrap();
     take(&g, lead);
     g.done(a, "끝").unwrap();
     let other = root(&g, "검토");
     g.adopt(other, a).unwrap();
     g.remove(other).unwrap();
-    g.send(a, "검토", Kind::Queue, "보관할 말").unwrap();
+    g.send(a, "검토-1", Kind::Queue, "보관할 말").unwrap();
 
     assert_eq!(
         recorded(&g),
         [
             (
                 Entry::Created {
-                    node: who(lead, "총괄"),
+                    node: who(lead, "총괄-1"),
                     parent: None,
-                    agent: None
+                    agent: Some(AgentId("총괄".into()))
                 },
                 None
             ),
             (
                 Entry::Created {
                     node: who(a, "a"),
-                    parent: Some(who(lead, "총괄")),
+                    parent: Some(who(lead, "총괄-1")),
                     agent: None
                 },
                 None
@@ -540,7 +540,7 @@ fn records_node_and_message_events_in_order() {
                 Entry::Message {
                     how: Kind::Queue,
                     from: who(a, "a"),
-                    to: Some(who(lead, "총괄")),
+                    to: Some(who(lead, "총괄-1")),
                     step: Step::Sent
                 },
                 Some("질문".into())
@@ -549,7 +549,7 @@ fn records_node_and_message_events_in_order() {
                 Entry::Message {
                     how: Kind::Queue,
                     from: who(a, "a"),
-                    to: Some(who(lead, "총괄")),
+                    to: Some(who(lead, "총괄-1")),
                     step: Step::Delivered
                 },
                 Some("질문".into())
@@ -568,31 +568,31 @@ fn records_node_and_message_events_in_order() {
                 Entry::Message {
                     how: Kind::Queue,
                     from: who(a, "a"),
-                    to: Some(who(lead, "총괄")),
+                    to: Some(who(lead, "총괄-1")),
                     step: Step::Sent
                 },
                 Some("done: 끝".into())
             ),
             (
                 Entry::Created {
-                    node: who(other, "검토"),
+                    node: who(other, "검토-1"),
                     parent: None,
-                    agent: None
+                    agent: Some(AgentId("검토".into()))
                 },
                 None
             ),
             (
                 Entry::Adopted {
                     node: who(a, "a"),
-                    from: Some(who(lead, "총괄")),
-                    to: who(other, "검토")
+                    from: Some(who(lead, "총괄-1")),
+                    to: who(other, "검토-1")
                 },
                 None
             ),
             // 지운 노드도 이름이 남는다.
             (
                 Entry::Removed {
-                    node: who(other, "검토")
+                    node: who(other, "검토-1")
                 },
                 None
             ),
@@ -614,7 +614,7 @@ fn records_refusals_and_skips_rolled_back_changes() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
-    assert!(g.add_root("b", None, |_| Err("없는 명령".into())).is_err());
+    assert!(g.add_root(None, |_| Err("없는 명령".into())).is_err());
     g.record_refusal(lead, "없음", Kind::Steer, &Refusal::NotFound("없음".into()))
         .unwrap();
 
@@ -623,13 +623,13 @@ fn records_refusals_and_skips_rolled_back_changes() {
         entries,
         [
             events::Entry::Created {
-                node: who(lead, "총괄"),
+                node: who(lead, "총괄-1"),
                 parent: None,
-                agent: None
+                agent: Some(AgentId("총괄".into()))
             },
             events::Entry::Refused {
                 how: Kind::Steer,
-                from: who(lead, "총괄"),
+                from: who(lead, "총괄-1"),
                 to: "없음".into(),
                 reason: Refusal::NotFound("없음".into())
             },
@@ -664,7 +664,7 @@ fn keeps_only_the_latest_records() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let entry = events::Entry::Removed {
-        node: who(lead, "총괄"),
+        node: who(lead, "총괄-1"),
     };
     {
         let mut db = g.lock();
@@ -693,9 +693,33 @@ fn reopening_records_running_nodes_as_exited() {
     assert_eq!(
         entry,
         events::Entry::State {
-            node: who(lead, "총괄"),
+            node: who(lead, "총괄-1"),
             from: NodeState::Running,
             to: NodeState::Exited { code: None }
         }
+    );
+}
+
+#[test]
+fn roots_take_the_smallest_free_number() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    g.add_root(None, launched).unwrap();
+    let first = root(&g, "claude");
+    root(&g, "claude");
+    // 자식 이름은 사람이 띄운 노드의 번호를 막지 않는다.
+    child(&g, first, "claude-3");
+    root(&g, "claude");
+
+    let names: Vec<_> = g
+        .subscribe()
+        .unwrap()
+        .0
+        .into_iter()
+        .map(|n| n.name)
+        .collect();
+    assert_eq!(
+        names,
+        ["shell-1", "claude-1", "claude-2", "claude-3", "claude-3"]
     );
 }

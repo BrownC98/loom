@@ -10,18 +10,21 @@ use super::{
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
+/// 에이전트 없이 띄운 노드(셸) 이름의 앞부분.
+const SHELL_NAME: &str = "shell";
+
 impl Graph {
-    /// 사람이 띄운 노드(깊이 0)를 더한다. `launch`가 실패하면 노드를 남기지 않는다.
+    /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
+    /// `launch`가 실패하면 노드를 남기지 않는다.
     pub fn add_root(
         &self,
-        name: &str,
         agent: Option<AgentId>,
         launch: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
-        let name = checked_name(name)?;
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let id = insert(&tx, name, &agent, None)?;
+        let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
+        let id = insert(&tx, &name, &agent, None)?;
         launch(id).map_err(Refusal::Launch)?;
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -214,6 +217,23 @@ impl Graph {
             self.mail.notify_waiters();
         }
         Ok(())
+    }
+}
+
+/// `<prefix>-<번호>`. 번호는 사람이 띄운 노드 사이에서 겹치지 않는 가장 작은 수다.
+fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
+    let mut number = 1;
+    loop {
+        let name = format!("{prefix}-{number}");
+        let taken: bool = db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM nodes WHERE parent IS NULL AND name = ?1)",
+            [&name],
+            |row| row.get(0),
+        )?;
+        if !taken {
+            return Ok(name);
+        }
+        number += 1;
     }
 }
 

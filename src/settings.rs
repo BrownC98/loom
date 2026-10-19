@@ -1,4 +1,4 @@
-//! 설정: 켠 에이전트, 기본 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어. SQLite에 한 줄로 둔다.
+//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
 use std::sync::Mutex;
@@ -14,10 +14,6 @@ use crate::profile::{AgentId, Provider};
 #[serde(default, rename_all = "camelCase")]
 #[ts(export)]
 pub struct SettingsView {
-    /// 없으면 켠 에이전트 가운데 첫째를 쓴다.
-    pub default_agent: Option<AgentId>,
-    /// 끈 에이전트. 설치했어도 새 노드 창에 보이지 않는다.
-    pub disabled_agents: Vec<AgentId>,
     /// 모든 권한 허용을 끈 에이전트. 여기 없는 에이전트는 승인 창 없이 모든 권한으로 뜬다.
     pub bypass_off: Vec<AgentId>,
     /// 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
@@ -121,16 +117,13 @@ mod tests {
     fn put_then_get() {
         let tmp = tempfile::tempdir().unwrap();
         let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
-        assert!(settings.get().unwrap().default_agent.is_none());
+        assert!(settings.get().unwrap().bypass_off.is_empty());
         let view = SettingsView {
-            default_agent: Some(AgentId("codex".into())),
-            disabled_agents: vec![AgentId("aider".into())],
+            bypass_off: vec![AgentId("codex".into())],
             ..Default::default()
         };
         settings.put(&view).unwrap();
-        let got = settings.get().unwrap();
-        assert_eq!(got.default_agent, view.default_agent);
-        assert_eq!(got.disabled_agents, view.disabled_agents);
+        assert_eq!(settings.get().unwrap().bypass_off, view.bypass_off);
     }
 
     #[test]
@@ -139,11 +132,11 @@ mod tests {
         let conn = crate::db::open(&tmp.path().join("t.db")).unwrap();
         conn.execute(
             "INSERT INTO settings (id, value) VALUES (1, ?1)",
-            [r#"{"defaultAgent":"codex","disabledAgents":[],"claudeAccount":null,"codexAccount":null}"#],
+            [r#"{"bypassOff":["codex"],"claudeAccount":null,"codexAccount":null}"#],
         )
         .unwrap();
         let got = Settings::new(conn).get().unwrap();
-        assert_eq!(got.default_agent, Some(AgentId("codex".into())));
+        assert_eq!(got.bypass_off, [AgentId("codex".into())]);
         assert_eq!(got.theme, Theme::System);
         assert_eq!(got.terminal_theme, TerminalTheme::default());
         assert_eq!(got.language, Language::System);

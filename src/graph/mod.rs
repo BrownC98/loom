@@ -57,7 +57,7 @@ pub enum NodeState {
 pub struct NodeView {
     pub id: NodeId,
     pub name: String,
-    /// 카탈로그 에이전트. 직접 입력한 명령이면 없다.
+    /// 카탈로그 에이전트. 명령(기본 셸 포함)이면 없다.
     pub agent: Option<AgentId>,
     pub parent: Option<NodeId>,
     pub state: NodeState,

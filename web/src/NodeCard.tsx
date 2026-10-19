@@ -34,7 +34,7 @@ function footText(state: NodeState, parentName: string | null, held: boolean, se
 /** 노드 카드 틀. 터미널 자리(`children`)와 머리 오른쪽 버튼(`headAction`)은 부르는 쪽이 채운다. */
 export function NodeCard(props: {
   view: NodeView;
-  /** 에이전트 이름(카탈로그 label)이나 「직접 입력」. */
+  /** 에이전트 이름(카탈로그 label)이나 「터미널」. */
   agentLabel: string;
   /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. 부모가 없는 동안 보낸 메시지는 데몬이 보관한다(`view.held`). */
   parentName: string | null;

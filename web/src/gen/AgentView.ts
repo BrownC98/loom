@@ -13,10 +13,6 @@ export type AgentView = { id: AgentId, label: string, homepage: string, profile:
  */
 provider: Provider | null, 
 /**
- * 첫 지시문을 넘길 수 있다.
- */
-takesBrief: boolean, 
-/**
  * 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다.
  */
 canBypass: boolean, 

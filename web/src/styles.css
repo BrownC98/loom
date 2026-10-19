@@ -208,13 +208,22 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pop h2 span { font-family: var(--mono); font-weight: 500; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
 .field { display: grid; gap: 5px; }
 .field label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
-.field input, .field textarea { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
-.field input:focus, .field textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
-.field textarea { height: 76px; resize: vertical; font-size: 13px; }
-.field input::placeholder, .field textarea::placeholder { color: var(--ink-3); }
+.field input { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
+.field input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
+.field input::placeholder { color: var(--ink-3); }
 .hint { font-size: 12px; color: var(--ink-3); }
 .error { font-size: 12px; color: var(--err); }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* 프로필 고르기: 검색 입력과 목록(docs/mockups/settings.html 5번) */
+.pick { list-style: none; padding: 4px; margin: 0; max-height: 264px; overflow: auto; overscroll-behavior: contain; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; }
+.pick .grp { font-size: 11px; font-weight: 600; color: var(--ink-3); padding: 6px 8px 2px; }
+.pick [role="option"] { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; font-size: 13px; cursor: pointer; }
+.pick [role="option"]:hover { background: var(--surface-hover); }
+.pick [aria-selected="true"] { background: var(--accent-wash); color: var(--ink); }
+.pick [aria-disabled="true"] { color: var(--ink-3); cursor: default; }
+.pick [aria-disabled="true"]:hover { background: none; }
+.pick .tag { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.pick .recent { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
 
 /* 노드 제거 확인 */
 .pop.confirm { width: 300px; gap: 10px; }
@@ -277,8 +286,6 @@ dialog::backdrop { background: light-dark(oklch(25% 0.02 255 / 0.3), oklch(0% 0 
 .pane code { font-family: var(--mono); font-size: 12px; }
 .field select { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
 .field select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
-.field textarea:disabled { opacity: 0.55; }
-.field.narrow { max-width: 280px; }
 .rows { border: 1px solid var(--line); border-radius: var(--radius); }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
 .row:last-child, .acct-row:last-child { border-bottom: 0; }
@@ -286,6 +293,7 @@ dialog::backdrop { background: light-dark(oklch(25% 0.02 255 / 0.3), oklch(0% 0 
 .row-main .name { font-weight: 600; }
 .row-main .meta { flex-basis: 100%; font: 12px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.row .off { font-size: 12px; color: var(--ink-3); }
 .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
 .badge.warn { background: light-dark(oklch(54% 0.12 70 / 0.12), oklch(80% 0.13 80 / 0.14)); color: var(--warn); }
 .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; min-width: 64px; }

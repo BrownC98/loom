@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { closeLogin, getLogin, loginPty, removeAccount, startLogin } from './api';
-import { defaultAgent, enabledAgents } from './catalog';
+import { canBypass } from './catalog';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -85,30 +85,12 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
   const { agents, settings } = props;
   const installed = agents.filter((a) => a.path !== null);
   const missing = agents.filter((a) => a.path === null);
-  const enabled = enabledAgents(agents, settings);
-  const chosen = defaultAgent(agents, settings);
   const toggle = (agent: AgentView, on: boolean) => {
-    const rest = settings.disabledAgents.filter((id) => id !== agent.id);
-    props.onSettings({ ...settings, disabledAgents: on ? rest : [...rest, agent.id] });
+    const rest = settings.bypassOff.filter((id) => id !== agent.id);
+    props.onSettings({ ...settings, bypassOff: on ? rest : [...rest, agent.id] });
   };
   return (
     <>
-      <section>
-        <h4>
-          <label htmlFor="s-default">{t('settings.defaultAgent')}</label>
-        </h4>
-        <div className="field narrow">
-          <select id="s-default" value={chosen?.id ?? ''} disabled={enabled.length === 0} onChange={(e) => props.onSettings({ ...settings, defaultAgent: e.target.value })}>
-            {enabled.length === 0 && <option value="">{t('settings.noEnabled')}</option>}
-            {enabled.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <span className="hint">{t('settings.defaultHint')}</span>
-      </section>
       <section>
         <h4>
           {t('settings.installed', { n: installed.length })}
@@ -123,31 +105,31 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
           <p className="hint">{t('settings.noneInstalled')}</p>
         ) : (
           <div className="rows">
-            {installed.map((a) => {
-              const on = !settings.disabledAgents.includes(a.id);
-              return (
-                <div className="row" key={a.id}>
-                  <span className="row-main">
-                    <span className="name">{a.label}</span>
-                    {a.id === chosen?.id && <span className="badge">{t('settings.default')}</span>}
-                    {!a.takesBrief && <span className="badge warn">{t('settings.noBrief')}</span>}
-                    {a.profile && a.versionWarning && <span className="badge warn">{t(`settings.versionWarning.${a.profile}`, a.versionWarning)}</span>}
-                    <span className="meta" translate="no">
-                      {a.path} · {a.profile ? t('settings.messaging') : t('settings.waitOnly')}
-                    </span>
+            {installed.map((a) => (
+              <div className="row" key={a.id}>
+                <span className="row-main">
+                  <span className="name">{a.label}</span>
+                  {a.profile && a.versionWarning && <span className="badge warn">{t(`settings.versionWarning.${a.profile}`, a.versionWarning)}</span>}
+                  <span className="meta" translate="no">
+                    {a.path} · {a.profile ? t('settings.messaging') : t('settings.terminalOnly')}
                   </span>
-                  <a className="hint" href={a.homepage} target="_blank" rel="noreferrer">
-                    {t('settings.docs')}
-                  </a>
+                </span>
+                <a className="hint" href={a.homepage} target="_blank" rel="noreferrer">
+                  {t('settings.docs')}
+                </a>
+                {a.canBypass ? (
                   <label className="switch">
-                    <input type="checkbox" checked={on} aria-label={t('settings.enable', { agent: a.label })} onChange={(e) => toggle(a, e.target.checked)} />
-                    {on ? t('settings.on') : t('settings.off')}
+                    <input type="checkbox" checked={canBypass(a, settings)} aria-label={t('settings.bypassLabel', { agent: a.label })} onChange={(e) => toggle(a, e.target.checked)} />
+                    {t('settings.bypass')}
                   </label>
-                </div>
-              );
-            })}
+                ) : (
+                  <span className="off">{t('settings.bypassUnsupported')}</span>
+                )}
+              </div>
+            ))}
           </div>
         )}
+        <span className="hint">{t('settings.bypassHint')}</span>
       </section>
       <section>
         <details className="more">

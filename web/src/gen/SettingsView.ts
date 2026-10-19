@@ -7,14 +7,6 @@ import type { Theme } from "./Theme";
 
 export type SettingsView = { 
 /**
- * 없으면 켠 에이전트 가운데 첫째를 쓴다.
- */
-defaultAgent: AgentId | null, 
-/**
- * 끈 에이전트. 설치했어도 새 노드 창에 보이지 않는다.
- */
-disabledAgents: Array<AgentId>, 
-/**
  * 모든 권한 허용을 끈 에이전트. 여기 없는 에이전트는 승인 창 없이 모든 권한으로 뜬다.
  */
 bypassOff: Array<AgentId>, 

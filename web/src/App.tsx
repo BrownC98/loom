@@ -26,8 +26,6 @@ const PULSE_MS = 3000;
 /** 사용량을 다시 읽는 간격. 근거: docs/design.md 「계정과 사용량」. */
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
 const EMPTY_SETTINGS: SettingsView = {
-  defaultAgent: null,
-  disabledAgents: [],
   bypassOff: [],
   claudeAccount: null,
   codexAccount: null,

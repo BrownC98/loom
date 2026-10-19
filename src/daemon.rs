@@ -136,7 +136,6 @@ pub struct RepoView {
 #[derive(Deserialize, TS)]
 #[ts(export)]
 pub struct NewNode {
-    pub name: String,
     pub start: Start,
 }
 
@@ -565,7 +564,7 @@ async fn create_node(
     let discard = prepared.discarder();
     let id = app
         .graph
-        .add_root(&req.name, req.start.agent(), |id| app.launch(id, prepared))
+        .add_root(req.start.agent(), |id| app.launch(id, prepared))
         .inspect_err(|_| discard())?;
     Ok(Json(id))
 }

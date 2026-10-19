@@ -5,7 +5,7 @@ import type { NodeState } from "./NodeState";
 
 export type NodeView = { id: NodeId, name: string, 
 /**
- * 카탈로그 에이전트. 직접 입력한 명령이면 없다.
+ * 카탈로그 에이전트. 명령(기본 셸 포함)이면 없다.
  */
 agent: AgentId | null, parent: NodeId | null, state: NodeState, 
 /**

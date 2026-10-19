@@ -72,6 +72,8 @@ const STEPS: &[M] = &[
             message INTEGER
         );",
     ),
+    // 8: 설정에서 기본 에이전트와 에이전트 켜기·끄기를 지웠다(settings). 새 노드 창의 「최근」과 검색 목록이 맡는다.
+    M::up("UPDATE settings SET value = json_remove(value, '$.defaultAgent', '$.disabledAgents');"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -119,6 +121,22 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(agents, [r#""claude""#, "null"]);
+    }
+
+    #[test]
+    fn step_8_removes_default_and_disabled_agents_from_settings() {
+        // 6에서 시작해 7(events)과 8을 차례로 올린다.
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 6).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO settings (id, value) VALUES (1, '{"defaultAgent":"codex","disabledAgents":["aider"],"theme":"dark"}');"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let value: String = conn
+            .query_row("SELECT value FROM settings", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(value, r#"{"theme":"dark"}"#);
     }
 
     #[test]

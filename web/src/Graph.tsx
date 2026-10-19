@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty } from './api';
-import { agentLabel, defaultAgent, enabledAgents } from './catalog';
+import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { NodeId } from './gen/NodeId';
@@ -318,8 +318,8 @@ export function Graph(props: {
             <div style={{ position: 'absolute', transform: `translate(${GROUP_POSITION.x + POPOVER_OFFSET.x}px, ${GROUP_POSITION.y + POPOVER_OFFSET.y}px)` }}>
               <NewNodePopover
                 branch={MAIN_GROUP}
-                agents={enabledAgents(props.agents, props.settings)}
-                initial={defaultAgent(props.agents, props.settings)}
+                agents={props.agents}
+                recent={recentAgent(views)}
                 settings={props.settings}
                 accounts={props.accounts}
                 onCreated={(id) => {

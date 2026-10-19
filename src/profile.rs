@@ -131,8 +131,6 @@ pub struct AgentView {
     pub profile: Option<Profile>,
     /// 계정을 고르는 공급자. 프로필이 있어도 없을 수 있다(OpenCode 2).
     pub provider: Option<Provider>,
-    /// 첫 지시문을 넘길 수 있다.
-    pub takes_brief: bool,
     /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다.
     pub can_bypass: bool,
     /// 데몬 PATH에서 찾은 실행 파일. 없으면 설치하지 않은 것이다.
@@ -151,7 +149,6 @@ pub fn agents() -> Vec<AgentView> {
             homepage: a.homepage.clone(),
             profile: a.profile,
             provider: a.profile.and_then(Profile::provider),
-            takes_brief: !matches!(a.prompt, Prompt::None),
             can_bypass: !a.bypass.is_empty(),
             path: installed(a).map(|p| p.to_string_lossy().into_owned()),
             version_warning: None,
@@ -214,7 +211,7 @@ pub enum Start {
 }
 
 impl Start {
-    /// 노드 목록에 남기는 에이전트. 직접 입력이면 없다.
+    /// 노드 목록에 남기는 에이전트. 명령(기본 셸 포함)이면 없다.
     pub fn agent(&self) -> Option<AgentId> {
         match self {
             Start::Agent { agent, .. } => Some(agent.clone()),

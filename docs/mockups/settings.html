@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" style="color-scheme: light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#16191f">
+<meta name="theme-color" content="#f2f5f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16191f" media="(prefers-color-scheme: dark)">
 <title>loom 설정 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,23 +12,26 @@
 <style>
 /* 토큰과 공용 부품은 docs/mockups/main.html(승인본)에서 옮겼다. */
 :root {
-  color-scheme: dark;
-  --bg: oklch(17% 0.012 255);
-  --panel: oklch(20.5% 0.014 255);
-  --surface: oklch(24% 0.016 255);
-  --surface-hover: oklch(28% 0.018 255);
-  --term: oklch(13% 0.01 255);
-  --line: oklch(33% 0.016 255);
-  --line-strong: oklch(42% 0.02 255);
-  --ink: oklch(95% 0.006 255);
-  --ink-2: oklch(78% 0.012 255);
-  --ink-3: oklch(68% 0.014 255);
-  --accent: oklch(70% 0.16 258);
-  --accent-wash: oklch(70% 0.16 258 / 0.14);
-  --accent-ink: oklch(16% 0.03 258);
-  --ok: oklch(76% 0.13 155);
-  --warn: oklch(80% 0.13 80);
-  --err: oklch(72% 0.16 25);
+  /* 테마: light-dark(라이트, 다크). 다크 값은 2026-10-19 승인본 그대로다. 고른 테마는 color-scheme이 정한다. */
+  color-scheme: light dark;
+  --bg: light-dark(oklch(96.8% 0.005 255), oklch(17% 0.012 255));
+  --panel: light-dark(oklch(98.6% 0.003 255), oklch(20.5% 0.014 255));
+  --surface: light-dark(oklch(100% 0 0), oklch(24% 0.016 255));
+  --surface-hover: light-dark(oklch(93.5% 0.008 255), oklch(28% 0.018 255));
+  --term: light-dark(oklch(99.4% 0.002 255), oklch(13% 0.01 255));
+  --term-ink: light-dark(oklch(27% 0.015 255), oklch(86% 0.01 255));
+  --line: light-dark(oklch(89.5% 0.008 255), oklch(33% 0.016 255));
+  --line-strong: light-dark(oklch(80% 0.012 255), oklch(42% 0.02 255));
+  --ink: light-dark(oklch(22% 0.015 255), oklch(95% 0.006 255));
+  --ink-2: light-dark(oklch(39% 0.016 255), oklch(78% 0.012 255));
+  --ink-3: light-dark(oklch(49% 0.016 255), oklch(68% 0.014 255));
+  --accent: light-dark(oklch(52% 0.19 258), oklch(70% 0.16 258));
+  --accent-wash: light-dark(oklch(52% 0.19 258 / 0.12), oklch(70% 0.16 258 / 0.14));
+  --accent-ink: light-dark(oklch(99% 0.005 258), oklch(16% 0.03 258));
+  --ok: light-dark(oklch(50% 0.13 155), oklch(76% 0.13 155));
+  --warn: light-dark(oklch(54% 0.12 70), oklch(80% 0.13 80));
+  --err: light-dark(oklch(52% 0.19 25), oklch(72% 0.16 25));
+  --dot: light-dark(oklch(86% 0.008 255), oklch(30% 0.014 255));
   --radius: 8px;
   --font: 'Pretendard', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -87,7 +91,7 @@ table.t { border-collapse: collapse; width: 100%; font-size: 13px; }
 .shell { display: grid; grid-template-rows: 1fr 28px; height: 260px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .shell-body { display: grid; grid-template-columns: 232px 1fr; min-height: 0; }
 .shell-body .side { height: auto; border: 0; border-right: 1px solid var(--line); border-radius: 0; }
-.shell-body .canvas-dim { background-color: var(--bg); background-image: radial-gradient(oklch(30% 0.014 255) 1px, transparent 1px); background-size: 20px 20px; display: grid; place-items: center; color: var(--ink-3); font-size: 12px; }
+.shell-body .canvas-dim { background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; display: grid; place-items: center; color: var(--ink-3); font-size: 12px; }
 .statusbar { display: flex; align-items: stretch; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); padding: 0 4px; }
 .seg-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; }
 .seg-btn:hover { background: var(--surface-hover); color: var(--ink); }
@@ -104,7 +108,7 @@ table.t { border-collapse: collapse; width: 100%; font-size: 13px; }
 .settings-btn { justify-content: flex-start; width: 100%; }
 
 /* 팝오버·창 */
-.pop { width: 320px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px oklch(0% 0 0 / 0.55); padding: 14px; display: grid; gap: 12px; }
+.pop { width: 320px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px light-dark(oklch(25% 0.02 255 / 0.16), oklch(0% 0 0 / 0.55)); padding: 14px; display: grid; gap: 12px; }
 .pop h3 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .pop h3 .spacer { flex: 1; }
 .win { gap: 6px; display: grid; }
@@ -118,7 +122,7 @@ table.t { border-collapse: collapse; width: 100%; font-size: 13px; }
 .acct .sub { white-space: nowrap; font-size: 12px; color: var(--ink-3); margin-left: auto; }
 .divider { border: 0; border-top: 1px solid var(--line); }
 
-.dialog { width: 880px; height: 600px; background: var(--panel); border-radius: 12px; box-shadow: 0 18px 48px oklch(0% 0 0 / 0.6); display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
+.dialog { width: 880px; height: 600px; background: var(--panel); border-radius: 12px; box-shadow: 0 18px 48px light-dark(oklch(25% 0.02 255 / 0.2), oklch(0% 0 0 / 0.6)); display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
 .dialog nav { border-right: 1px solid var(--line); padding: 16px 8px; display: grid; align-content: start; gap: 2px; }
 .dialog nav h2 { font-size: 15px; padding: 0 8px 10px; }
 .tab { text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; color: var(--ink-2); }
@@ -135,7 +139,7 @@ table.t { border-collapse: collapse; width: 100%; font-size: 13px; }
 .name { font-weight: 600; }
 .meta { font: 12px var(--mono); color: var(--ink-3); }
 .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
-.badge.warn { background: oklch(80% 0.13 80 / 0.14); color: var(--warn); }
+.badge.warn { background: light-dark(oklch(54% 0.12 70 / 0.12), oklch(80% 0.13 80 / 0.14)); color: var(--warn); }
 .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
 .switch input { appearance: none; width: 30px; height: 18px; border-radius: 9px; background: var(--line-strong); position: relative; cursor: pointer; margin: 0; }
 .switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform 0.15s; }
@@ -146,15 +150,43 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .cols-2 a { font-size: 13px; }
 .acct-row { display: grid; grid-template-columns: 1fr 220px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .acct-row:last-child { border-bottom: 0; }
-.acct-row[aria-current="true"] { background: oklch(70% 0.16 258 / 0.07); }
-.term { font: 12px/1.55 var(--mono); padding: 10px 12px; white-space: pre; color: oklch(86% 0.01 255); background: var(--term); border-radius: 6px; height: 200px; overflow: hidden; }
+.acct-row[aria-current="true"] { background: light-dark(oklch(52% 0.19 258 / 0.06), oklch(70% 0.16 258 / 0.07)); }
+.term { font: 12px/1.55 var(--mono); padding: 10px 12px; white-space: pre; color: var(--term-ink); background: var(--term); border-radius: 6px; height: 200px; overflow: hidden; }
 .term .dim { color: var(--ink-3); }
 .term .acc { color: var(--accent); }
 
 .decide td:nth-child(3) { white-space: nowrap; }
+
+/* 세 값 고르기(6번 「화면」 탭) */
+.choice { justify-self: start; display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.choice label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 5px 14px; cursor: pointer; border-right: 1px solid var(--line); }
+.choice label:last-child { border-right: 0; }
+.choice label:hover { background: var(--surface-hover); }
+.choice label:has(input:checked) { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.choice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.choice input { position: absolute; opacity: 0; pointer-events: none; }
+.choice svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 6px; }
+.swatches span { display: grid; gap: 2px; font: 11px var(--mono); color: var(--ink-3); }
+.swatches i { display: block; height: 22px; border-radius: 4px; border: 1px solid var(--line); }
+
+/* 목업 보기 전환(목업 전용). 제품은 데몬 설정이 테마를 정한다. */
+.mock-theme { position: fixed; top: 12px; right: 12px; z-index: 50; display: flex; align-items: center; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; font-size: 12px; }
+.mock-theme > span { color: var(--ink-3); padding: 0 8px; }
+.mock-theme label { padding: 4px 10px; border-radius: 5px; cursor: pointer; color: var(--ink-2); }
+.mock-theme label:has(input:checked) { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.mock-theme label:has(input:focus-visible) { outline: 2px solid var(--accent); }
+.mock-theme input { position: absolute; opacity: 0; pointer-events: none; }
 </style>
 </head>
 <body>
+<form class="mock-theme" aria-label="목업 테마 보기">
+  <span>목업 보기</span>
+  <label><input type="radio" name="mt" value="light dark">시스템</label>
+  <label><input type="radio" name="mt" value="light" checked>라이트</label>
+  <label><input type="radio" name="mt" value="dark">다크</label>
+</form>
+<script>document.querySelector('.mock-theme').onchange = (e) => { document.documentElement.style.colorScheme = e.target.value; };</script>
 <main class="doc">
 <header>
   <h1>loom 설정: 에이전트 등록, 계정, 사용량</h1>
@@ -371,6 +403,71 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
     </figure>
   </div>
   <p class="hint" style="margin-top:10px">노드 카드 머리의 「Claude Code」 글자는 에이전트 이름(카탈로그의 label)으로 바뀐다. 카드 모양은 그대로다.</p>
+</section>
+
+<!-- 6. 설정: 화면(테마) -->
+<section class="unit" aria-labelledby="u-theme">
+  <h2 id="u-theme">6. 설정 창 「화면」 탭: 테마</h2>
+  <div class="why">
+    <b>문제점</b><span>화면이 늘 다크다. OS를 라이트로 쓰거나 밝은 곳에서 일하는 사용자는 테마를 바꿀 수 없다.</span>
+    <b>개선 사항</b><span>설정 창에 「화면」 탭을 더하고 테마 세 값(시스템·라이트·다크)을 둔다. 처음 값은 「시스템」이다. 누르면 화면이 바로 바뀌고 데몬 설정에 저장한다. 메인 화면의 라이트 모양은 <a href="main.html">main.html</a>에서 오른쪽 위 「목업 보기」로 본다.</span>
+  </div>
+  <div class="stage">
+    <div class="dialog" role="dialog" aria-label="설정">
+      <nav>
+        <h2>설정</h2>
+        <button class="tab">에이전트</button>
+        <button class="tab">계정</button>
+        <button class="tab" aria-current="page">화면</button>
+      </nav>
+      <div class="pane">
+        <div class="pane-head"><h3>화면</h3><span class="spacer"></span><button class="btn ghost" style="font-size:20px;padding:0 8px" aria-label="닫기">×</button></div>
+        <section>
+          <h4 id="t-theme">테마</h4>
+          <div class="choice" role="radiogroup" aria-labelledby="t-theme">
+            <label><input type="radio" name="theme" checked><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>시스템</label>
+            <label><input type="radio" name="theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>라이트</label>
+            <label><input type="radio" name="theme"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>다크</label>
+          </div>
+          <span class="hint">「시스템」은 OS의 라이트·다크 설정을 따른다. OS 설정이 바뀌면 화면도 바로 바뀐다.</span>
+        </section>
+      </div>
+    </div>
+  </div>
+  <h3 style="font-size:15px;margin:20px 0 8px">결정표</h3>
+  <table class="t decide">
+    <thead><tr><th>항목</th><th>정한 것</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td>고르는 자리</td><td>설정 창 새 「화면」 탭</td><td>테마는 에이전트·계정과 바뀌는 이유가 다르다. 그 탭 안에 두면 찾기 어렵다. 그림·글자 크기 같은 화면 설정이 생기면 이 탭에 더한다.</td></tr>
+      <tr><td>컨트롤</td><td>세 칸 라디오(분할 버튼)</td><td>값이 셋이라 모두 보인다. 한 번 누르면 바뀐다. 선택 칸(<code>select</code>)은 두 번 눌러야 한다.</td></tr>
+      <tr><td>저장</td><td>데몬 설정의 <code>theme</code>(<code>system</code>·<code>light</code>·<code>dark</code>)</td><td>다른 브라우저에서 열어도 같다. 옛 설정에는 값이 없으므로 <code>system</code>으로 읽는다. 다른 설정 값은 그대로다.</td></tr>
+      <tr><td>첫 그리기</td><td>데몬이 <code>index.html</code>의 <code>&lt;html&gt;</code>에 <code>data-theme</code>을 넣어 보낸다</td><td>페이지 스크립트가 돌기 전에 테마가 정해진다. 페이지를 열 때 다른 테마가 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.</td></tr>
+      <tr><td>색 토큰</td><td>토큰마다 <code>light-dark(라이트, 다크)</code>. 다크 값은 승인본 그대로다</td><td>토큰 한 벌이 두 테마를 갖는다. 테마를 고르면 <code>color-scheme</code> 하나만 바뀐다. 「시스템」은 브라우저가 OS 설정을 따라 바꾼다.</td></tr>
+      <tr><td>새 토큰</td><td><code>--term-ink</code>(제품에 이미 있음), <code>--warn</code>(제품에 빠져 있었음)</td><td>목업에 하드코딩한 터미널 글자색을 토큰으로 옮겼다. 제품 <code>styles.css</code>는 <code>--warn</code>을 쓰지만 정의하지 않아 막대·배지가 색 없이 보였다.</td></tr>
+      <tr><td>터미널 16색</td><td>라이트: 아래 16색(GitHub Light 계열). 다크: 지금처럼 xterm 기본색</td><td>xterm 기본색은 흰 바탕에서 노랑·흰색이 보이지 않는다. 라이트 16색 가운데 14색은 터미널 바탕 대비 4.5:1 이상이다. <code>white</code>는 4.9:1이다. <code>brightWhite</code>는 3.0:1이다. 다크 바탕을 가정한 프로그램이 굵은 흰 글자에 쓰는 색이라 라이트 터미널 관례대로 흐린 회색으로 둔다.</td></tr>
+      <tr><td>대비(WCAG AA)</td><td>라이트 본문 15.8:1, <code>--ink-2</code> 8.8:1, <code>--ink-3</code> 바탕 5.7:1·카드 머리 6.3:1·호버 5.2:1, 강조색 글자 5.2:1, 강조색 위 글자 5.5:1, <code>--ok</code> 5.5:1, <code>--err</code> 6.0:1, <code>--warn</code> 5.0:1</td><td>모두 4.5:1 이상이다. 계산: OKLCH → sRGB 상대 휘도.</td></tr>
+    </tbody>
+  </table>
+  <p class="hint" style="margin-top:10px">점검(2026-10-19, 각 1회): impeccable detect 결함 0건. 「여백 부족」 경고 2건은 승인본과 같은 오탐이다(화면 틀 <code>.app</code>·<code>.shell</code>의 테두리, 안쪽 패널이 여백을 가진다). 대비 경고 0건. WIG: 라디오는 글자와 함께 한 누름 영역이다. 포커스 테두리와 호버 바탕이 있다. <code>color-scheme</code>을 <code>&lt;html&gt;</code>에 둔다. 네이티브 <code>select</code>는 토큰 바탕·글자색을 받는다. <code>theme-color</code>는 OS 설정별 두 값(<code>media</code>)을 둔다. OS와 다른 테마를 고르면 브라우저 틀 색이 OS를 따른다. 데스크톱 브라우저는 이 값을 쓰지 않아 그대로 둔다.</p>
+  <h3 style="font-size:15px;margin:20px 0 8px">라이트 터미널 16색</h3>
+  <div class="swatches">
+          <span><i style="background:#24292f"></i>black<br>#24292f</span>
+          <span><i style="background:#c2272d"></i>red<br>#c2272d</span>
+          <span><i style="background:#0f7b3a"></i>green<br>#0f7b3a</span>
+          <span><i style="background:#8a6100"></i>yellow<br>#8a6100</span>
+          <span><i style="background:#0b5cd5"></i>blue<br>#0b5cd5</span>
+          <span><i style="background:#8a3fc0"></i>magenta<br>#8a3fc0</span>
+          <span><i style="background:#0f7285"></i>cyan<br>#0f7285</span>
+          <span><i style="background:#656d76"></i>white<br>#656d76</span>
+          <span><i style="background:#57606a"></i>brightBlack<br>#57606a</span>
+          <span><i style="background:#a40e26"></i>brightRed<br>#a40e26</span>
+          <span><i style="background:#116329"></i>brightGreen<br>#116329</span>
+          <span><i style="background:#714d00"></i>brightYellow<br>#714d00</span>
+          <span><i style="background:#0a4bb0"></i>brightBlue<br>#0a4bb0</span>
+          <span><i style="background:#6e2fa0"></i>brightMagenta<br>#6e2fa0</span>
+          <span><i style="background:#0b5b6b"></i>brightCyan<br>#0b5b6b</span>
+          <span><i style="background:#8c959f"></i>brightWhite<br>#8c959f</span>
+  </div>
 </section>
 
 <!-- 결정표 -->

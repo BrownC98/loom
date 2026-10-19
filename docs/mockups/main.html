@@ -1,32 +1,36 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" style="color-scheme: light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#16191f">
+<meta name="theme-color" content="#f2f5f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16191f" media="(prefers-color-scheme: dark)">
 <title>loom 메인 화면 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
 :root {
-  color-scheme: dark;
-  --bg: oklch(17% 0.012 255);
-  --panel: oklch(20.5% 0.014 255);
-  --surface: oklch(24% 0.016 255);
-  --surface-hover: oklch(28% 0.018 255);
-  --term: oklch(13% 0.01 255);
-  --line: oklch(33% 0.016 255);
-  --line-strong: oklch(42% 0.02 255);
-  --ink: oklch(95% 0.006 255);
-  --ink-2: oklch(78% 0.012 255);
-  --ink-3: oklch(68% 0.014 255);
-  --accent: oklch(70% 0.16 258);
-  --accent-wash: oklch(70% 0.16 258 / 0.14);
-  --accent-ink: oklch(16% 0.03 258);
-  --ok: oklch(76% 0.13 155);
-  --err: oklch(72% 0.16 25);
-  --dot: oklch(30% 0.014 255);
+  /* 테마: light-dark(라이트, 다크). 다크 값은 2026-10-19 승인본 그대로다. 고른 테마는 color-scheme이 정한다. */
+  color-scheme: light dark;
+  --bg: light-dark(oklch(96.8% 0.005 255), oklch(17% 0.012 255));
+  --panel: light-dark(oklch(98.6% 0.003 255), oklch(20.5% 0.014 255));
+  --surface: light-dark(oklch(100% 0 0), oklch(24% 0.016 255));
+  --surface-hover: light-dark(oklch(93.5% 0.008 255), oklch(28% 0.018 255));
+  --term: light-dark(oklch(99.4% 0.002 255), oklch(13% 0.01 255));
+  --term-ink: light-dark(oklch(27% 0.015 255), oklch(86% 0.01 255));
+  --line: light-dark(oklch(89.5% 0.008 255), oklch(33% 0.016 255));
+  --line-strong: light-dark(oklch(80% 0.012 255), oklch(42% 0.02 255));
+  --ink: light-dark(oklch(22% 0.015 255), oklch(95% 0.006 255));
+  --ink-2: light-dark(oklch(39% 0.016 255), oklch(78% 0.012 255));
+  --ink-3: light-dark(oklch(49% 0.016 255), oklch(68% 0.014 255));
+  --accent: light-dark(oklch(52% 0.19 258), oklch(70% 0.16 258));
+  --accent-wash: light-dark(oklch(52% 0.19 258 / 0.12), oklch(70% 0.16 258 / 0.14));
+  --accent-ink: light-dark(oklch(99% 0.005 258), oklch(16% 0.03 258));
+  --ok: light-dark(oklch(50% 0.13 155), oklch(76% 0.13 155));
+  --warn: light-dark(oklch(54% 0.12 70), oklch(80% 0.13 80));
+  --err: light-dark(oklch(52% 0.19 25), oklch(72% 0.16 25));
+  --dot: light-dark(oklch(86% 0.008 255), oklch(30% 0.014 255));
   --radius: 8px;
   --font: 'Pretendard', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -55,7 +59,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .btn:hover { background: var(--surface-hover); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
-.btn.primary:hover { background: oklch(76% 0.15 258); }
+.btn.primary:hover { background: light-dark(oklch(46% 0.19 258), oklch(76% 0.15 258)); }
 .btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
 .btn.ghost:hover { background: var(--surface-hover); color: var(--ink); }
 .btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
@@ -68,7 +72,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .toolbar .path { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
 .toolbar .spacer { flex: 1; }
 
-.group { position: absolute; border: 1px dashed var(--line-strong); border-radius: 12px; background: oklch(19% 0.013 255 / 0.6); }
+.group { position: absolute; border: 1px dashed var(--line-strong); border-radius: 12px; background: light-dark(oklch(98.6% 0.003 255 / 0.6), oklch(19% 0.013 255 / 0.6)); }
 .group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); }
 .group-head .branch { font-family: var(--mono); font-weight: 600; font-size: 13px; }
 .group-head .kind { font-size: 12px; color: var(--ink-3); }
@@ -86,7 +90,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .state.done { color: var(--ok); }
 .state.exited { color: var(--err); }
 .unread { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
-.term { font: 12px/1.55 var(--mono); padding: 8px 10px; white-space: pre; color: oklch(86% 0.01 255); height: 196px; overflow: hidden; }
+.term { font: 12px/1.55 var(--mono); padding: 8px 10px; white-space: pre; color: var(--term-ink); height: 196px; overflow: hidden; }
 .term .dim { color: var(--ink-3); }
 .term .acc { color: var(--accent); }
 .term .ok { color: var(--ok); }
@@ -102,7 +106,7 @@ svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .edge-label { position: absolute; z-index: 3; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 
 /* 새 노드 팝오버 */
-.pop { position: absolute; z-index: 6; width: 340px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px oklch(0% 0 0 / 0.55); padding: 14px; display: grid; gap: 12px; }
+.pop { position: absolute; z-index: 6; width: 340px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px light-dark(oklch(25% 0.02 255 / 0.16), oklch(0% 0 0 / 0.55)); padding: 14px; display: grid; gap: 12px; }
 .pop h2 { font-size: 14px; font-weight: 600; }
 .pop h2 span { font-family: var(--mono); font-weight: 500; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
 .field { display: grid; gap: 5px; }
@@ -132,9 +136,24 @@ fieldset.field { border: 0; padding: 0; }
 .notes th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
 .notes td:first-child { white-space: nowrap; font-weight: 600; }
 .notes code { font-family: var(--mono); font-size: 12px; }
+
+/* 목업 보기 전환(목업 전용). 제품은 데몬 설정이 테마를 정한다. */
+.mock-theme { position: fixed; top: 12px; right: 12px; z-index: 50; display: flex; align-items: center; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; font-size: 12px; }
+.mock-theme > span { color: var(--ink-3); padding: 0 8px; }
+.mock-theme label { padding: 4px 10px; border-radius: 5px; cursor: pointer; color: var(--ink-2); }
+.mock-theme label:has(input:checked) { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.mock-theme label:has(input:focus-visible) { outline: 2px solid var(--accent); }
+.mock-theme input { position: absolute; opacity: 0; pointer-events: none; }
 </style>
 </head>
 <body>
+<form class="mock-theme" aria-label="목업 테마 보기">
+  <span>목업 보기</span>
+  <label><input type="radio" name="mt" value="light dark">시스템</label>
+  <label><input type="radio" name="mt" value="light" checked>라이트</label>
+  <label><input type="radio" name="mt" value="dark">다크</label>
+</form>
+<script>document.querySelector('.mock-theme').onchange = (e) => { document.documentElement.style.colorScheme = e.target.value; };</script>
 <div class="frame">
 <div class="app">
   <nav class="side" aria-label="저장소">
@@ -284,6 +303,7 @@ test node_host::resize ... <span class="err">FAILED</span>
       <tr><td>확대한 카드</td><td>그래프 영역 전체를 덮는다. 카드 머리 오른쪽의 [축소]로 돌아간다. Esc는 터미널 앱이 쓰므로 축소에 쓰지 않는다(그림 생략)</td><td>Q5</td></tr>
       <tr><td>빈 저장소</td><td>묶음 <code>main</code>만 보이고, 그 안에 「[새 노드]로 첫 에이전트를 띄운다」 한 줄을 둔다(그림 생략)</td><td>빈 화면이 다음 동작을 알려 준다</td></tr>
       <tr><td>터미널에서 빠져나오기</td><td>카드 밖을 클릭하면 입력이 풀린다. 키보드로는 <code>Ctrl+Shift+</code>방향키로 옆 카드를 고른다</td><td>Tab과 Esc는 터미널 앱이 쓴다. Claude Code(공식 키 문서)와 Codex(TUI 소스) 모두 이 키를 기본으로 쓰지 않는다(2026-10-19 확인)</td></tr>
+      <tr><td>테마</td><td>라이트·다크 두 벌. <code>:root</code> 토큰마다 <code>light-dark(라이트, 다크)</code>로 둔다. 오른쪽 위 「목업 보기」로 바꿔 본다. 고르는 자리는 <a href="settings.html#u-theme">settings.html 6번</a>이다</td><td>2026-10-19 사람 지시 「라이트/다크/시스템 테마 구현」</td></tr>
       <tr><td>새 워크트리 창</td><td>새 노드 창과 같은 팝오버. 브랜치 이름, 기준 브랜치(기본 <code>main</code>)</td><td>Q40</td></tr>
     </tbody>
   </table>

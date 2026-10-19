@@ -92,6 +92,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .state.running { color: var(--accent); }
 .state.done { color: var(--ok); }
 .state.exited { color: var(--err); }
+.held { height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--ink-2); font-size: 12px; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
+.port { position: absolute; left: 50%; bottom: -5px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); z-index: 3; }
+.card.port-host { overflow: visible; }
+.mini { position: relative; display: flex; gap: 24px; align-items: flex-start; padding: 12px 0 4px; }
+.mini .card { position: relative; }
 .unread { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
 /* 터미널 색은 기본 터미널 테마다: light-dark(Loom Light, Loom Dark). settings.html 6번 */
 .term { font: 12px/1.55 var(--mono); padding: 8px 10px; white-space: pre; background: light-dark(#fcfdfe, #05070b); color: light-dark(#22272e, #cdd1d8); height: 244px; overflow: hidden; }
@@ -273,7 +278,7 @@ test node_host::resize ... <span class="err">FAILED</span>
       <ul>
         <li>터미널 기록과 받은 메시지를 지운다.</li>
         <li>실행 중인 프로세스를 끝낸다.</li>
-        <li>자식 노드 1개(조사)도 함께 지운다.</li>
+        <li>자식 노드 1개(조사)는 부모 없이 계속 돈다.</li>
       </ul>
       <div class="pop-actions">
         <button type="button" class="btn ghost">취소</button>
@@ -311,11 +316,21 @@ test node_host::resize ... <span class="err">FAILED</span>
 
 <section class="notes">
   <h2>이번 변경(승인 대기)</h2>
+  <div class="mini" aria-label="부모 없는 카드와 잇기 점">
+    <article class="card port-host" style="width:400px" aria-label="노드 조사, 부모 없음">
+      <div class="card-head"><span class="name">조사</span><span class="profile">Codex</span><span class="spacer"></span><span class="held" title="부모가 생기면 전할 메시지 1개">보관 1</span><span class="state done">done</span><button class="btn ghost sm icon" aria-label="확대" title="확대"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button><button class="btn ghost sm icon" aria-label="노드 제거" title="노드 제거"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>
+      <div class="card-foot">부모가 없다 · 요약은 새 부모에게 전한다</div>
+      <span class="port" aria-hidden="true"></span>
+    </article>
+    <p class="hint" style="max-width:420px">왼쪽: 부모(총괄)를 지운 뒤의 조사 카드(터미널 생략). 그래프 맨 위 줄에 뿌리로 놓인다. 「보관 1」은 부모에게 보낼 <code>done</code> 요약이다. 아래 가장자리의 점은 카드에 포인터를 올리거나 카드를 고르면 보인다. 이 점을 끌어 다른 카드에 놓으면 이 카드가 그 카드의 부모가 된다.</p>
+  </div>
   <table>
     <thead><tr><th>위치</th><th>전 → 후</th><th>문제점</th><th>개선 사항</th></tr></thead>
     <tbody>
       <tr><td>카드 머리</td><td>이름·에이전트·메시지 수·상태 → 오른쪽 끝에 휴지통 아이콘 [노드 제거]. 누르면 확인 팝오버(그림: 실행 중이고 자식이 있는 총괄)</td><td>노드를 지울 방법이 없다. 끝난 카드가 그래프에 계속 쌓인다</td><td>카드 하나에 진입점 하나. 지우기 전에 잃는 것(기록, 프로세스, 자식)을 한 번 보인다</td></tr>
       <tr><td>카드 머리</td><td>확대는 머리 두 번 누르기뿐 → [노드 제거] 왼쪽에 아이콘 [확대]. 확대한 카드의 [축소]도 같은 모양의 아이콘이다</td><td>두 번 누르기는 보이지 않아 사람이 확대 기능을 찾지 못했다</td><td>확대가 눈에 보인다. 두 번 누르기도 그대로 쓴다</td></tr>
+      <tr><td>부모 없는 카드</td><td>없음 → 머리에 「보관 N」, 발 줄에 「부모가 없다」</td><td>부모를 지우면 자식도 함께 지워졌다</td><td>자식은 계속 돈다. 부모에게 보낸 메시지는 보관했다가 새 부모에게 전한다</td></tr>
+      <tr><td>카드 아래 가장자리</td><td>없음 → 잇기 점. 끌어 다른 카드에 놓으면 부모가 된다</td><td>사람이 부모를 바꿀 방법이 없다</td><td>사람과 에이전트(<code>loom adopt</code>)가 언제든 부모를 바꾼다</td></tr>
       <tr><td>카드 터미널</td><td>9줄(196px) → 12줄(244px)</td><td>Claude 폴더 신뢰 창에서 「No, exit」만 보이고 「Yes, I trust this folder」가 잘린다</td><td>Claude·Codex 폴더 신뢰 창의 선택지가 카드 안에 모두 보인다</td></tr>
     </tbody>
   </table>
@@ -338,7 +353,9 @@ test node_host::resize ... <span class="err">FAILED</span>
       <tr><td>테마</td><td>라이트·다크 두 벌. <code>:root</code> 토큰마다 <code>light-dark(라이트, 다크)</code>로 둔다. 카드 안 터미널 색은 따로 고른 터미널 테마다(그림은 기본값). 오른쪽 위 「목업 보기」로 바꿔 본다. 고르는 자리는 <a href="settings.html#u-theme">settings.html 6번</a>이다</td><td>2026-10-19 사람 지시 「라이트/다크/시스템 테마 구현」</td></tr>
       <tr><td>카드 확대</td><td>[노드 제거] 왼쪽의 아이콘 버튼 [확대](<code>aria-label</code> 「확대」). 머리 두 번 누르기도 그대로 둔다</td><td>2026-10-19 사람 지시 「지정한 터미널을 크게 볼 수 있는 기능」. 두 번 누르기는 보이지 않아 사람이 찾지 못했다(휴리스틱 6)</td></tr>
       <tr><td>노드 제거</td><td>카드 머리 오른쪽 끝의 휴지통 아이콘 버튼(<code>aria-label</code> 「노드 제거」). 누르면 버튼 아래에 확인 팝오버를 띄운다. 첫 줄 「터미널 기록과 받은 메시지를 지운다」는 늘 보인다. 실행 중이면 「실행 중인 프로세스를 끝낸다」, 자식이 있으면 「자식 노드 N개(이름)도 함께 지운다」를 더한다. 버튼은 [취소]·[노드 제거]다. 첫 포커스는 [취소]이고, Esc와 팝오버 밖 클릭이 닫는다. 확대한 카드에는 두지 않는다. [축소] 뒤 지운다</td><td>2026-10-19 사람 지시 「터미널 제거할 수 있는 기능」. 되돌리기가 없으므로 끝난 노드도 묻는다(WIG: 되돌릴 수 없는 삭제는 확인이나 되돌리기 창을 둔다). 진입점은 카드 하나에 하나다</td></tr>
-      <tr><td>지운 노드의 범위</td><td>노드와 그 자손 모두. 실행 중인 노드는 프로세스(Codex면 app-server도)를 끝낸다. DB에서 노드와 받은 메시지를 지운다. 지운 노드가 실행 중이었고 부모가 남으면 부모 메일함에 <code>removed</code> 한 줄을 넣는다(받는 노드 이름은 지운 노드). 끝난 노드를 지울 때는 넣지 않는다. 부모는 이미 <code>done</code>·<code>exited</code>를 받았다</td><td>자식만 남기면 부모 없는 노드가 생겨 메시지 규칙(부모·자식 사이)이 깨진다. <code>removed</code>가 없으면 결과를 기다리던 부모가 끝없이 기다린다</td></tr>
+      <tr><td>지운 노드의 범위</td><td>그 노드 하나만 지운다. 실행 중이면 프로세스(Codex면 app-server도)를 끝낸다. DB에서 노드와 그 노드가 받은 메시지를 지운다. 자식은 계속 돌고 부모가 빈다(뿌리가 된다). 자식이 지운 노드에 보냈지만 아직 전하지 않은 메시지는 보관으로 돌린다. 지운 노드가 실행 중이었고 부모가 남으면 부모 메일함에 <code>removed</code> 한 줄을 넣는다</td><td>2026-10-19 사람 지시 「부모를 지워도 자식은 지우지 않는다. 다른 터미널이 해당 역할을 언제든 할 수 있는 구조」. <code>removed</code>가 없으면 결과를 기다리던 부모가 끝없이 기다린다</td></tr>
+      <tr><td>부모 바꾸기(입양)</td><td>사람: 부모가 될 카드의 아래 잇기 점을 끌어 자식이 될 카드에 놓는다. 부모가 있는 카드도 된다. 에이전트: <code>loom adopt &lt;이름&gt;</code>으로 부르는 노드가 새 부모가 된다(Claude·Codex 승인 없이 부른다). 자기 자신·자기 자손을 부모로 정하거나, 중첩 깊이 2를 넘거나, 이름이 부모·형제와 겹치면 거절한다. 거절하면 도구 줄에 그 문장을 보인다. 실행 중인 노드를 데려가면 옛 부모에게 <code>adopted: &lt;새 부모&gt;</code> 한 줄을 넣는다</td><td>카드 머리 메뉴 대신 끌어 잇기: 그래프 화면에서 간선을 만드는 익숙한 동작이고 버튼이 늘지 않는다. 사람이 간선을 지워 부모를 비우는 동작은 두지 않는다</td></tr>
+      <tr><td>부모가 없을 때의 메시지</td><td>부모 없는 노드의 <code>done</code>, <code>exited</code>, 자식이 아닌 이름으로 보낸 <code>loom send</code>는 버리지 않고 보관한다. 새 부모가 생기면 온 순서대로 그 부모의 메일함에 넣는다. 카드 머리에 「보관 N」을 보인다. 조정·중단은 보관하지 않고 거절한다</td><td>받는 노드의 프로필을 모르므로 조정·중단은 넘길 방법을 정할 수 없다</td></tr>
       <tr><td>카드 크기</td><td>터미널 칸 높이 196px → 244px(12줄). 카드 폭 400px(50칸)은 그대로다. 카드 세로 간격도 48px 늘어난다</td><td>2026-10-19 실측(Claude 2.1.303, Codex 0.159.2, 50칸): Claude 폴더 신뢰 창은 10줄부터, Codex 폴더 신뢰 창은 안내 줄까지 11줄부터 선택지가 모두 보인다. 지금 카드는 9줄이라 Claude 창에 「No, exit」만 보였다. 여유 1줄을 더했다. 더 긴 창은 카드 확대로 본다</td></tr>
       <tr><td>새 워크트리 창</td><td>새 노드 창과 같은 팝오버. 브랜치 이름, 기준 브랜치(기본 <code>main</code>)</td><td>Q40</td></tr>
     </tbody>

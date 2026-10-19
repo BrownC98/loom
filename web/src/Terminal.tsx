@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, type KeyboardEvent as Rea
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { attachPty } from './api';
+import i18next from './i18n';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
 
 export type Direction = 'left' | 'right' | 'up' | 'down';
@@ -68,6 +69,12 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           if (latest.current.focused) xterm.focus();
         },
         onOutput: (bytes) => xterm.write(bytes),
+        onNotice: (notice) => {
+          switch (notice) {
+            case 'gone':
+              xterm.write(`${i18next.t('terminal.gone')}\r\n`);
+          }
+        },
       });
       xterm.attachCustomKeyEventHandler((e) => {
         const dir = navDirection(e);

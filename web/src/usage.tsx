@@ -5,6 +5,7 @@ import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Window } from './gen/Window';
+import { usageProblemText } from './problem';
 
 /** 이 비율 이하로 남으면 막대가 노란색이다(목업 1번). */
 const LOW_REMAINING = 25;
@@ -39,7 +40,7 @@ export function limitsProblem(limits: Limits): string | null {
     case 'needsLogin':
       return '다시 로그인해야 한다';
     case 'failed':
-      return limits.message;
+      return usageProblemText(limits.problem);
   }
 }
 

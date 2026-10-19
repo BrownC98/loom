@@ -42,8 +42,30 @@ pub enum Limits {
     },
     /// 로그인하지 않았거나 로그인이 끝났다.
     NeedsLogin,
-    /// 문장은 그대로 화면에 간다.
-    Failed { message: String },
+    Failed {
+        problem: UsageProblem,
+    },
+}
+
+/// 사용량을 보일 수 없는 이유. 화면이 고른 언어로 쓴다.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "code", content = "value", rename_all = "camelCase")]
+#[ts(export)]
+pub enum UsageProblem {
+    /// CLI를 실행하지 못했다. `detail`은 OS 오류 글이다.
+    CliFailed { command: String, detail: String },
+    /// CLI가 알 수 없는 형식을 냈다.
+    CliFormat(String),
+    /// CLI가 `PROBE_TIMEOUT` 안에 답하지 않았다.
+    NoReply(String),
+    /// API 키 같은 로그인 방식은 사용량을 볼 수 없다.
+    LoginNotSupported,
+    /// 사용량 API가 알 수 없는 형식을 냈다.
+    ResponseFormat,
+    /// OAuth 토큰이 만료됐다. 그 계정으로 CLI를 한 번 실행하면 갱신된다.
+    TokenExpired,
+    /// 네트워크 오류 같은 그 밖의 실패. 값은 원인 글이다.
+    Unavailable(String),
 }
 
 #[derive(Clone, Serialize, TS)]
@@ -57,13 +79,11 @@ pub struct Usage {
 }
 
 impl Usage {
-    pub fn failed(message: impl Into<String>) -> Self {
+    pub fn failed(problem: UsageProblem) -> Self {
         Usage {
             email: None,
             plan: None,
-            limits: Limits::Failed {
-                message: message.into(),
-            },
+            limits: Limits::Failed { problem },
         }
     }
 }
@@ -95,9 +115,16 @@ fn claude(config_dir: Option<&Path>) -> Usage {
     let status: ClaudeStatus = match cmd.stdin(Stdio::null()).stderr(Stdio::null()).output() {
         Ok(out) => match serde_json::from_slice(&out.stdout) {
             Ok(status) => status,
-            Err(_) => return Usage::failed("`claude auth status`가 알 수 없는 형식을 냈다."),
+            Err(_) => {
+                return Usage::failed(UsageProblem::CliFormat("claude auth status".into()));
+            }
         },
-        Err(e) => return Usage::failed(format!("`claude`를 실행하지 못했다: {e}")),
+        Err(e) => {
+            return Usage::failed(UsageProblem::CliFailed {
+                command: "claude".into(),
+                detail: e.to_string(),
+            });
+        }
     };
     let limits = if status.logged_in {
         claude_limits(&status.config_directory)
@@ -121,9 +148,7 @@ fn claude_limits(config_dir: &Path) -> Limits {
                 .map(str::to_owned)
         });
     let Some(token) = token else {
-        return Limits::Failed {
-            message: "이 로그인 방식(API 키, macOS 키체인)은 사용량을 볼 수 없다.".into(),
-        };
+        return failed(UsageProblem::LoginNotSupported);
     };
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(PROBE_TIMEOUT))
@@ -140,12 +165,10 @@ fn claude_limits(config_dir: &Path) -> Limits {
                 session: claude_window(&body["five_hour"]),
                 weekly: claude_window(&body["seven_day"]),
             },
-            Err(_) => failed("사용량 응답이 알 수 없는 형식이다."),
+            Err(_) => failed(UsageProblem::ResponseFormat),
         },
-        Err(ureq::Error::StatusCode(401)) => {
-            failed("토큰이 만료됐다. 이 계정으로 Claude를 한 번 실행하면 갱신된다.")
-        }
-        Err(e) => failed(format!("사용량을 지금 볼 수 없다: {e}")),
+        Err(ureq::Error::StatusCode(401)) => failed(UsageProblem::TokenExpired),
+        Err(e) => failed(UsageProblem::Unavailable(e.to_string())),
     }
 }
 
@@ -163,7 +186,7 @@ fn claude_window(v: &Value) -> Option<Window> {
 fn codex(home: Option<&Path>) -> Usage {
     let replies = match app_server(home) {
         Ok(replies) => replies,
-        Err(e) => return Usage::failed(format!("`codex app-server`를 부르지 못했다: {e}")),
+        Err(problem) => return Usage::failed(problem),
     };
     let [account, limits] = replies;
     let account = &account["account"];
@@ -185,7 +208,7 @@ fn codex(home: Option<&Path>) -> Usage {
 /// `primary`·`secondary` 가운데 창 길이로 5시간 창과 주간 창을 고른다.
 fn codex_limits(rate_limits: &Value) -> Limits {
     if rate_limits.is_null() {
-        return failed("이 로그인 방식(API 키)은 사용량을 볼 수 없다.");
+        return failed(UsageProblem::LoginNotSupported);
     }
     let (mut session, mut weekly) = (None, None);
     for w in [&rate_limits["primary"], &rate_limits["secondary"]] {
@@ -208,7 +231,7 @@ fn codex_limits(rate_limits: &Value) -> Limits {
 }
 
 /// `account/read`와 `account/rateLimits/read`의 결과를 순서대로 돌려준다.
-fn app_server(home: Option<&Path>) -> Result<[Value; 2], String> {
+fn app_server(home: Option<&Path>) -> Result<[Value; 2], UsageProblem> {
     let mut cmd = Command::new("codex");
     cmd.arg("app-server");
     if let Some(dir) = home {
@@ -219,7 +242,7 @@ fn app_server(home: Option<&Path>) -> Result<[Value; 2], String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| app_server_failed(&e))?;
     let result = exchange(&mut child);
     // 서버는 stdin이 열려 있는 동안 돈다. 답을 받았으면 끝낸다.
     let _ = child.kill();
@@ -227,7 +250,7 @@ fn app_server(home: Option<&Path>) -> Result<[Value; 2], String> {
     result
 }
 
-fn exchange(child: &mut std::process::Child) -> Result<[Value; 2], String> {
+fn exchange(child: &mut std::process::Child) -> Result<[Value; 2], UsageProblem> {
     let requests = [
         r#"{"method":"initialize","id":0,"params":{"clientInfo":{"name":"loom","version":"0"}}}"#,
         r#"{"method":"initialized"}"#,
@@ -236,7 +259,7 @@ fn exchange(child: &mut std::process::Child) -> Result<[Value; 2], String> {
     ];
     let mut stdin = child.stdin.take().expect("stdin을 piped로 열었다");
     for line in requests {
-        writeln!(stdin, "{line}").map_err(|e| e.to_string())?;
+        writeln!(stdin, "{line}").map_err(|e| app_server_failed(&e))?;
     }
     let stdout = child.stdout.take().expect("stdout을 piped로 열었다");
     let (tx, rx) = mpsc::channel();
@@ -253,7 +276,7 @@ fn exchange(child: &mut std::process::Child) -> Result<[Value; 2], String> {
     while pending > 0 {
         let line = rx
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .map_err(|_| "응답이 없다".to_owned())?;
+            .map_err(|_| UsageProblem::NoReply(APP_SERVER.into()))?;
         let Ok(msg) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -273,9 +296,16 @@ fn remaining(used_percent: f64) -> u8 {
     (100.0 - used_percent).round().clamp(0.0, 100.0) as u8
 }
 
-fn failed(message: impl Into<String>) -> Limits {
-    Limits::Failed {
-        message: message.into(),
+fn failed(problem: UsageProblem) -> Limits {
+    Limits::Failed { problem }
+}
+
+const APP_SERVER: &str = "codex app-server";
+
+fn app_server_failed(e: &std::io::Error) -> UsageProblem {
+    UsageProblem::CliFailed {
+        command: APP_SERVER.into(),
+        detail: e.to_string(),
     }
 }
 

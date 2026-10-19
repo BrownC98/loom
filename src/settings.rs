@@ -1,4 +1,4 @@
-//! 설정: 켠 에이전트, 기본 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마. SQLite에 한 줄로 둔다.
+//! 설정: 켠 에이전트, 기본 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
 use std::sync::Mutex;
@@ -26,6 +26,21 @@ pub struct SettingsView {
     pub theme: Theme,
     #[serde(default)]
     pub terminal_theme: TerminalTheme,
+    /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
+    #[serde(default)]
+    pub language: Language,
+}
+
+/// 화면 언어. `System`은 브라우저 언어(`navigator.language`)를 따른다. Orca의 `uiLanguage`와 같은 자리다.
+/// 에이전트가 읽는 글(CLI 출력, 노드 메시지)은 이 값과 관계없이 한국어다.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Language {
+    #[default]
+    System,
+    En,
+    Ko,
 }
 
 /// 모드마다 쓰는 터미널 테마 이름. 테마 목록과 기본값은 화면(`web/src/terminalThemes.ts`)에만 있다.
@@ -129,5 +144,6 @@ mod tests {
         assert_eq!(got.default_agent, Some(AgentId("codex".into())));
         assert_eq!(got.theme, Theme::System);
         assert_eq!(got.terminal_theme, TerminalTheme::default());
+        assert_eq!(got.language, Language::System);
     }
 }

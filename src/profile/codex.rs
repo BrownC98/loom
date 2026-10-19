@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use super::VersionMismatch;
 use crate::graph::{Delivery, Kind};
 
 #[allow(clippy::all, dead_code)]
@@ -75,10 +76,12 @@ pub fn installed_version() -> Option<String> {
 }
 
 /// `codex --version` 출력(예: `codex-cli 0.159.2`)이 고정 버전과 다르면 화면에 보일 경고다.
-pub fn version_warning(version_output: &str) -> Option<String> {
+/// 다르면 메시지 연동이 맞지 않을 수 있고 loom 명령마다 승인을 묻는다.
+pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
     let installed = version_output.split_whitespace().last()?;
-    (installed != PINNED_VERSION).then(|| {
-        format!("app-server {installed} · 고정 {PINNED_VERSION} · loom 명령마다 승인을 묻는다")
+    (installed != PINNED_VERSION).then(|| VersionMismatch {
+        installed: installed.to_owned(),
+        pinned: PINNED_VERSION.to_owned(),
     })
 }
 
@@ -375,8 +378,11 @@ mod tests {
         assert_eq!(serde_json::from_str::<String>(value).unwrap(), USAGE);
         assert_eq!(version_warning("codex-cli 0.159.2"), None);
         assert_eq!(
-            version_warning("codex-cli 0.160.0\n").as_deref(),
-            Some("app-server 0.160.0 · 고정 0.159.2 · loom 명령마다 승인을 묻는다")
+            version_warning("codex-cli 0.160.0\n"),
+            Some(VersionMismatch {
+                installed: "0.160.0".into(),
+                pinned: "0.159.2".into()
+            })
         );
     }
 

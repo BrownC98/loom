@@ -54,7 +54,7 @@ impl Server {
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| format!("`{program} serve`를 띄우지 못했다: {e}"))?;
+            .map_err(|e| e.to_string())?;
         let pid = child.id();
         let stdout = child.stdout.take().expect("stdout을 piped로 열었다");
         let url = match tokio::time::timeout(REPLY_TIMEOUT, listening(stdout)).await {
@@ -65,9 +65,9 @@ impl Server {
                 }
                 let why = match failed {
                     Ok(Err(e)) => e,
-                    _ => "주소를 알리지 않았다".into(),
+                    _ => "did not announce its address".into(),
                 };
-                return Err(format!("`{program} serve`: {why}"));
+                return Err(why);
             }
         };
         let (done, stopped) = watch::channel(false);
@@ -109,7 +109,7 @@ impl Server {
         reply["data"]["id"]
             .as_str()
             .map(str::to_owned)
-            .ok_or_else(|| format!("세션 생성: 알 수 없는 응답이다: {reply}"))
+            .ok_or_else(|| format!("session create: unknown reply: {reply}"))
     }
 
     /// 세션의 지시 항목 `key`를 `value`로 둔다. 모델은 다음 단계부터 본다.
@@ -214,7 +214,7 @@ fn request(method: &str, url: &str, auth: &str, body: Option<Value>) -> Result<V
     if text.is_empty() {
         return Ok(Value::Null);
     }
-    serde_json::from_str(&text).map_err(|e| format!("알 수 없는 응답이다: {e}"))
+    serde_json::from_str(&text).map_err(|e| format!("unknown reply: {e}"))
 }
 
 /// stdout에서 듣는 주소를 찾는다. 그 뒤의 stdout도 계속 읽어 버린다. 읽지 않으면 파이프가 차서 서버가 멈춘다.
@@ -227,7 +227,7 @@ async fn listening(stdout: tokio::process::ChildStdout) -> Result<String, String
                     break url.trim().trim_end_matches('/').to_owned();
                 }
             }
-            _ => return Err("주소를 알리기 전에 끝났다".into()),
+            _ => return Err("exited before announcing its address".into()),
         }
     };
     tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });

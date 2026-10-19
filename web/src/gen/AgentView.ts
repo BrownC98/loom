@@ -2,6 +2,7 @@
 import type { AgentId } from "./AgentId";
 import type { Profile } from "./Profile";
 import type { Provider } from "./Provider";
+import type { VersionMismatch } from "./VersionMismatch";
 
 /**
  * 설정 화면과 새 노드 창이 보는 카탈로그 한 줄.
@@ -20,6 +21,6 @@ takesBrief: boolean,
  */
 path: string | null, 
 /**
- * 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고. 예: `app-server 0.160.0 · 고정 0.159.2`.
+ * 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고.
  */
-versionWarning: string | null, };
+versionWarning: VersionMismatch | null, };

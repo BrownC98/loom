@@ -132,8 +132,8 @@ pub struct AgentView {
     pub takes_brief: bool,
     /// 데몬 PATH에서 찾은 실행 파일. 없으면 설치하지 않은 것이다.
     pub path: Option<String>,
-    /// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고. 예: `app-server 0.160.0 · 고정 0.159.2`.
-    pub version_warning: Option<String>,
+    /// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고.
+    pub version_warning: Option<VersionMismatch>,
 }
 
 /// 카탈로그 전체를 데몬 PATH에서 찾는다. 부를 때마다 다시 찾는다.
@@ -165,7 +165,7 @@ fn find(id: &AgentId) -> Option<&'static Agent> {
 
 /// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있는 프로필마다 화면 경고. 데몬이 시작할 때 한 번 부른다.
 /// `codex_version`은 데몬이 샌드박스 인자에도 쓰는 `codex --version` 출력이다.
-pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, String> {
+pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, VersionMismatch> {
     let opencode2 = installed_version(opencode2::CMD);
     [
         (
@@ -225,12 +225,71 @@ impl Start {
     }
 }
 
+/// 노드를 띄우지 못한 이유. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
+#[derive(Debug, Serialize, TS)]
+#[serde(tag = "code", content = "value", rename_all = "camelCase")]
+#[ts(export)]
+pub enum LaunchError {
+    UnknownAgent(AgentId),
+    NotInstalled {
+        agent: String,
+        command: String,
+    },
+    BriefTooLong {
+        #[ts(type = "number")]
+        len: usize,
+        #[ts(type = "number")]
+        limit: usize,
+    },
+    /// 노드가 붙을 서버(`codex app-server`, `opencode serve`)를 띄우지 못했다. `cause`는 OS·서버 오류 글이다.
+    Server {
+        program: String,
+        cause: String,
+    },
+    /// 서버를 쓰는 프로필인데 서버가 없다. 값은 에이전트 이름이다.
+    NoServer(String),
+    /// 첫 지시문을 받지 않는 에이전트다. 값은 에이전트 이름이다.
+    NoBrief(String),
+}
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LaunchError::UnknownAgent(id) => write!(f, "{}: 카탈로그에 없는 에이전트다.", id.0),
+            LaunchError::NotInstalled { agent, command } => write!(
+                f,
+                "{agent}: 데몬 PATH에서 실행 파일(`{command}`)을 찾지 못했다. 설치한 뒤 설정에서 [다시 찾기]를 누른다."
+            ),
+            LaunchError::BriefTooLong { len, limit } => write!(
+                f,
+                "첫 지시문이 {len}바이트다. {limit}바이트 이하로 줄이고, 긴 자료는 파일 경로를 적는다."
+            ),
+            LaunchError::Server { program, cause } => {
+                write!(f, "`{program}`를 띄우지 못했다: {cause}")
+            }
+            LaunchError::NoServer(agent) => write!(f, "{agent}: 노드가 붙을 서버를 띄우지 못했다."),
+            LaunchError::NoBrief(agent) => write!(
+                f,
+                "{agent}: 첫 지시문을 받지 않는다. 지시문을 비우고 만든 뒤 터미널에 입력한다."
+            ),
+        }
+    }
+}
+
+/// 설치한 CLI 버전이 메시지 연동을 만든 고정 버전과 다르다. 화면이 프로필마다 경고 문장으로 바꾼다.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct VersionMismatch {
+    pub installed: String,
+    pub pinned: String,
+}
+
 /// `remote`는 노드 TUI가 붙을 서버다. 서버를 쓰는 프로필(Codex, OpenCode 2)에만 쓴다.
 pub fn command(
     start: &Start,
     cwd: &Path,
     remote: Option<Remote<'_>>,
-) -> Result<CommandBuilder, String> {
+) -> Result<CommandBuilder, LaunchError> {
     let mut cmd = match start {
         Start::Agent { agent, brief } => agent_command(agent, brief, remote)?,
         Start::Command { line } if line.trim().is_empty() => CommandBuilder::new_default_prog(),
@@ -246,19 +305,17 @@ fn agent_command(
     id: &AgentId,
     brief: &str,
     remote: Option<Remote<'_>>,
-) -> Result<CommandBuilder, String> {
-    let agent = find(id).ok_or_else(|| format!("{}: 카탈로그에 없는 에이전트다.", id.0))?;
-    let program = installed(agent).ok_or_else(|| {
-        format!(
-            "{}: 데몬 PATH에서 실행 파일(`{}`)을 찾지 못했다. 설치한 뒤 설정에서 [다시 찾기]를 누른다.",
-            agent.label, agent.cmd
-        )
+) -> Result<CommandBuilder, LaunchError> {
+    let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
+    let program = installed(agent).ok_or_else(|| LaunchError::NotInstalled {
+        agent: agent.label.clone(),
+        command: agent.cmd.clone(),
     })?;
     if brief.len() > BRIEF_LIMIT_BYTES {
-        return Err(format!(
-            "첫 지시문이 {}바이트다. {BRIEF_LIMIT_BYTES}바이트 이하로 줄이고, 긴 자료는 파일 경로를 적는다.",
-            brief.len()
-        ));
+        return Err(LaunchError::BriefTooLong {
+            len: brief.len(),
+            limit: BRIEF_LIMIT_BYTES,
+        });
     }
     let mut cmd = CommandBuilder::new(program);
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
@@ -277,12 +334,7 @@ fn agent_command(
             cmd.args(opencode2::args(url, session));
             cmd.env(opencode2::PASSWORD_ENV, password);
         }
-        (Some(_), _) => {
-            return Err(format!(
-                "{}: 노드가 붙을 서버를 띄우지 못했다.",
-                agent.label
-            ));
-        }
+        (Some(_), _) => return Err(LaunchError::NoServer(agent.label.clone())),
         (None, _) => cmd.args(&agent.args),
     }
     if brief.trim().is_empty() {
@@ -292,10 +344,7 @@ fn agent_command(
         Prompt::Argv => cmd.arg(brief),
         Prompt::ArgvAfter(sep) | Prompt::Flag(sep) => cmd.args([sep.as_str(), brief]),
         Prompt::None => {
-            return Err(format!(
-                "{}: 첫 지시문을 받지 않는다. 지시문을 비우고 만든 뒤 터미널에 입력한다.",
-                agent.label
-            ));
+            return Err(LaunchError::NoBrief(agent.label.clone()));
         }
     }
     Ok(cmd)

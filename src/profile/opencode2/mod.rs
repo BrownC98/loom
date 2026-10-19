@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::graph::{Delivery, Kind};
 
-use super::Mailbox;
+use super::{Mailbox, VersionMismatch};
 use server::Server;
 
 /// 실측과 `docs/design.md`의 API 근거를 본 OpenCode 버전.
@@ -46,10 +46,13 @@ pub fn args(url: &str, session: &str) -> Vec<String> {
 }
 
 /// `opencode2 --version` 출력(예: `opencode v2.0.32`)이 고정 버전과 다르면 화면에 보일 경고다.
-pub fn version_warning(version_output: &str) -> Option<String> {
+pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
     let last = version_output.split_whitespace().last()?;
     let installed = last.strip_prefix('v').unwrap_or(last);
-    (installed != PINNED_VERSION).then(|| format!("serve {installed} · 고정 {PINNED_VERSION}"))
+    (installed != PINNED_VERSION).then(|| VersionMismatch {
+        installed: installed.to_owned(),
+        pinned: PINNED_VERSION.to_owned(),
+    })
 }
 
 /// 노드 하나의 서버와 세션. 데몬이 노드를 띄우기 전에 만든다.
@@ -416,8 +419,11 @@ mod tests {
     fn version_warning_ignores_the_leading_v() {
         assert_eq!(version_warning("opencode v2.0.32\n"), None);
         assert_eq!(
-            version_warning("opencode v2.0.33\n").as_deref(),
-            Some("serve 2.0.33 · 고정 2.0.32")
+            version_warning("opencode v2.0.33\n"),
+            Some(VersionMismatch {
+                installed: "2.0.33".into(),
+                pinned: "2.0.32".into()
+            })
         );
     }
 

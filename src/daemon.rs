@@ -18,7 +18,6 @@ use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
-use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
 use serde::{Deserialize, Serialize};
@@ -35,7 +34,9 @@ use crate::graph::{
 use crate::node_host::NodeHost;
 use crate::profile::codex::{self, Status};
 use crate::profile::opencode2;
-use crate::profile::{self, AgentId, Mailbox, Profile, Remote, Start};
+use crate::profile::{
+    self, AgentId, LaunchError, Mailbox, Profile, Remote, Start, VersionMismatch,
+};
 use crate::settings::Settings;
 
 #[derive(Embed)]
@@ -56,7 +57,7 @@ struct App {
     /// OpenCode 2 노드마다 그 노드의 서버와 세션. 노드 프로세스가 끝나면 지우고 끝낸다.
     opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
-    version_warnings: HashMap<Profile, String>,
+    version_warnings: HashMap<Profile, VersionMismatch>,
     /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 비어 있다.
     codex_sandbox: Vec<String>,
     /// 노드 안에서 `loom` 명령이 쓰는 노드 문 주소(`LOOM_URL`).
@@ -67,7 +68,63 @@ struct App {
     path: OsString,
 }
 
-type ApiError = (StatusCode, String);
+/// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
+#[derive(Debug, Serialize, TS)]
+#[serde(tag = "code", content = "value", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Problem {
+    Refused(Refusal),
+    Launch(LaunchError),
+    /// 없는 로그인 창이다.
+    NoLogin,
+    /// DB·파일 오류처럼 요청을 고쳐도 낫지 않는 실패. 값은 원인 글이다.
+    Internal(String),
+}
+
+impl Problem {
+    fn status(&self) -> StatusCode {
+        match self {
+            Problem::Refused(Refusal::Db(_)) | Problem::Internal(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            Problem::Refused(_) | Problem::Launch(_) => StatusCode::BAD_REQUEST,
+            Problem::NoLogin => StatusCode::NOT_FOUND,
+        }
+    }
+}
+
+impl IntoResponse for Problem {
+    fn into_response(self) -> Response {
+        (self.status(), Json(self)).into_response()
+    }
+}
+
+impl From<Refusal> for Problem {
+    fn from(e: Refusal) -> Self {
+        Problem::Refused(e)
+    }
+}
+
+impl From<LaunchError> for Problem {
+    fn from(e: LaunchError) -> Self {
+        Problem::Launch(e)
+    }
+}
+
+/// 에이전트 경로(`/api/agent/*`)의 실패. 몸통은 `loom` 명령이 그대로 찍는 한국어 문장이다.
+type AgentError = (StatusCode, String);
+
+/// 화면 경로의 `Problem`을 에이전트가 읽는 문장으로 바꾼다.
+fn for_agent(e: impl Into<Problem>) -> AgentError {
+    let problem = e.into();
+    let text = match &problem {
+        Problem::Refused(e) => e.to_string(),
+        Problem::Launch(e) => e.to_string(),
+        Problem::NoLogin => "없는 로그인 창이다.".into(),
+        Problem::Internal(e) => e.clone(),
+    };
+    (problem.status(), text)
+}
 
 #[derive(Clone, Serialize, TS)]
 #[ts(export)]
@@ -250,7 +307,7 @@ async fn repo(State(app): State<Arc<App>>) -> Json<RepoView> {
     Json(app.repo.clone())
 }
 
-async fn commits(State(app): State<Arc<App>>) -> Result<Json<CommitGraph>, ApiError> {
+async fn commits(State(app): State<Arc<App>>) -> Result<Json<CommitGraph>, Problem> {
     commit_graph::read(std::path::Path::new(&app.repo.path))
         .await
         .map(Json)
@@ -298,7 +355,7 @@ impl App {
         Ok(())
     }
 
-    fn caller(&self, headers: &HeaderMap) -> Result<NodeId, ApiError> {
+    fn caller(&self, headers: &HeaderMap) -> Result<NodeId, AgentError> {
         let token = headers
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
@@ -313,7 +370,7 @@ impl App {
 
     /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.
     /// OpenCode 2면 노드 서버와 세션을 먼저 띄운다.
-    async fn prepare(&self, start: &Start) -> Result<Prepared, ApiError> {
+    async fn prepare(&self, start: &Start) -> Result<Prepared, Problem> {
         let profile = start.profile();
         let provider = profile.and_then(Profile::provider);
         let settings = self.settings.get().map_err(internal)?;
@@ -326,7 +383,10 @@ impl App {
                 let home = self.accounts.config_dir(profile::Provider::Codex, account);
                 let server = CodexServer::start(home.as_deref(), &env, &self.codex_sandbox)
                     .await
-                    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+                    .map_err(|cause| LaunchError::Server {
+                        program: "codex app-server".into(),
+                        cause,
+                    })?;
                 Some(Arc::new(server))
             }
             _ => None,
@@ -336,7 +396,10 @@ impl App {
                 let password = new_token().map_err(internal)?;
                 let node = opencode2::Node::start(cwd, &env, password)
                     .await
-                    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+                    .map_err(|cause| LaunchError::Server {
+                        program: format!("{} serve", opencode2::CMD),
+                        cause,
+                    })?;
                 Some(Arc::new(node))
             }
             _ => None,
@@ -347,9 +410,7 @@ impl App {
             _ => None,
         };
         let discard = discarder(&codex, &opencode2);
-        let mut cmd = profile::command(start, cwd, remote)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))
-            .inspect_err(|_| discard())?;
+        let mut cmd = profile::command(start, cwd, remote).inspect_err(|_| discard())?;
         for (key, value) in &env {
             cmd.env(key, value);
         }
@@ -490,28 +551,19 @@ fn new_token() -> Result<String, String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-fn internal(e: impl std::fmt::Display) -> ApiError {
-    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-}
-
-fn refused(e: Refusal) -> ApiError {
-    let status = match e {
-        Refusal::Db(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        _ => StatusCode::BAD_REQUEST,
-    };
-    (status, e.to_string())
+fn internal(e: impl std::fmt::Display) -> Problem {
+    Problem::Internal(e.to_string())
 }
 
 async fn create_node(
     State(app): State<Arc<App>>,
     Json(req): Json<NewNode>,
-) -> Result<Json<NodeId>, ApiError> {
+) -> Result<Json<NodeId>, Problem> {
     let prepared = app.prepare(&req.start).await?;
     let discard = prepared.discarder();
     let id = app
         .graph
         .add_root(&req.name, req.start.agent(), |id| app.launch(id, prepared))
-        .map_err(refused)
         .inspect_err(|_| discard())?;
     Ok(Json(id))
 }
@@ -521,7 +573,7 @@ async fn create_node(
 async fn remove_node(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
-) -> Result<Json<()>, ApiError> {
+) -> Result<Json<()>, Problem> {
     let node = NodeId(id);
     app.graph.remove(node).map_err(internal)?;
     app.tokens.lock().unwrap().retain(|_, n| *n != node);
@@ -533,10 +585,8 @@ async fn remove_node(
 async fn adopt_node(
     State(app): State<Arc<App>>,
     Path((id, parent)): Path<(u32, u32)>,
-) -> Result<Json<()>, ApiError> {
-    app.graph
-        .adopt(NodeId(parent), NodeId(id))
-        .map_err(refused)?;
+) -> Result<Json<()>, Problem> {
+    app.graph.adopt(NodeId(parent), NodeId(id))?;
     Ok(Json(()))
 }
 
@@ -544,7 +594,7 @@ async fn agent_spawn(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<SpawnRequest>,
-) -> Result<Json<NodeId>, ApiError> {
+) -> Result<Json<NodeId>, AgentError> {
     let parent = app.caller(&headers)?;
     let (start, queued_brief) = match req.run {
         SpawnRun::Agent(agent) => (
@@ -556,14 +606,14 @@ async fn agent_spawn(
         ),
         SpawnRun::Command(line) => (Start::Command { line }, req.brief),
     };
-    let prepared = app.prepare(&start).await?;
+    let prepared = app.prepare(&start).await.map_err(for_agent)?;
     let discard = prepared.discarder();
     let id = app
         .graph
         .add_child(parent, &req.name, start.agent(), &queued_brief, |id| {
             app.launch(id, prepared)
         })
-        .map_err(refused)
+        .map_err(for_agent)
         .inspect_err(|_| discard())?;
     Ok(Json(id))
 }
@@ -572,10 +622,10 @@ async fn agent_send(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<SendRequest>,
-) -> Result<Json<Option<NodeId>>, ApiError> {
+) -> Result<Json<Option<NodeId>>, AgentError> {
     let from = app.caller(&headers)?;
     if req.kind != Kind::Queue {
-        let (to, agent) = app.graph.recipient(from, &req.to).map_err(refused)?;
+        let (to, agent) = app.graph.recipient(from, &req.to).map_err(for_agent)?;
         // 조정·중단은 프로필(훅·app-server)이 있는 노드만 받는다. 큐로 바꿔 보내지 않는다. 근거: docs/design.md 「명령」.
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err((
@@ -610,7 +660,7 @@ async fn agent_send(
     let to = app
         .graph
         .send(from, &req.to, req.kind, &req.body)
-        .map_err(refused)?;
+        .map_err(for_agent)?;
     Ok(Json(to))
 }
 
@@ -618,19 +668,19 @@ async fn agent_take(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<TakeRequest>,
-) -> Result<Json<Vec<Delivery>>, ApiError> {
+) -> Result<Json<Vec<Delivery>>, AgentError> {
     let node = app.caller(&headers)?;
     let taken = app.graph.take(node, &req.kinds, req.limit_bytes);
-    Ok(Json(taken.map_err(refused)?))
+    Ok(Json(taken.map_err(for_agent)?))
 }
 
 async fn agent_ack(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<AckRequest>,
-) -> Result<Json<()>, ApiError> {
+) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.graph.ack(node, &req.ids).map_err(refused)?;
+    app.graph.ack(node, &req.ids).map_err(for_agent)?;
     Ok(Json(()))
 }
 
@@ -638,7 +688,7 @@ async fn agent_guard(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<GuardRequest>,
-) -> Result<Json<()>, ApiError> {
+) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.host.guard(node, req.shell);
     Ok(Json(()))
@@ -647,18 +697,18 @@ async fn agent_guard(
 async fn agent_wait(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-) -> Result<Json<Delivery>, ApiError> {
+) -> Result<Json<Delivery>, AgentError> {
     let node = app.caller(&headers)?;
-    Ok(Json(app.graph.wait(node).await.map_err(refused)?))
+    Ok(Json(app.graph.wait(node).await.map_err(for_agent)?))
 }
 
 async fn agent_done(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<DoneRequest>,
-) -> Result<Json<()>, ApiError> {
+) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.graph.done(node, &req.summary).map_err(refused)?;
+    app.graph.done(node, &req.summary).map_err(for_agent)?;
     Ok(Json(()))
 }
 
@@ -666,15 +716,24 @@ async fn agent_adopt(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<AdoptRequest>,
-) -> Result<Json<()>, ApiError> {
+) -> Result<Json<()>, AgentError> {
     let parent = app.caller(&headers)?;
-    let child = app.graph.find(&req.name).map_err(refused)?;
-    app.graph.adopt(parent, child).map_err(refused)?;
+    let child = app.graph.find(&req.name).map_err(for_agent)?;
+    app.graph.adopt(parent, child).map_err(for_agent)?;
     Ok(Json(()))
 }
 
 async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<App>>) -> Response {
     serve_pty(ws, app, |app| &app.host, NodeId(id))
+}
+
+/// PTY 웹소켓의 글 프레임. 터미널 출력은 바이너리 프레임으로 간다.
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum PtyNotice {
+    /// 데몬이 다시 시작해 이 PTY가 없다.
+    Gone,
 }
 
 /// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
@@ -685,10 +744,11 @@ fn serve_pty<K: Copy + Eq + Hash + Send + Sync + 'static>(
     id: K,
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
-        // 데몬이 다시 시작해 PTY가 없다. 안내 한 줄을 보이고, 화면이 다시 붙지 않게 연결을 열어 둔다.
+        // 데몬이 다시 시작해 PTY가 없다. 화면이 안내를 보이게 알리고, 다시 붙지 않게 연결을 열어 둔다.
         return ws.on_upgrade(|mut socket| async move {
-            let notice = Bytes::from_static("데몬이 다시 시작해 이 터미널은 없다.\r\n".as_bytes());
-            if socket.send(Message::Binary(notice)).await.is_ok() {
+            let notice =
+                serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
+            if socket.send(Message::Text(notice.into())).await.is_ok() {
                 while let Some(Ok(_)) = socket.next().await {}
             }
         });
@@ -763,5 +823,39 @@ async fn asset(uri: Uri) -> Response {
         )
             .into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 화면(`web/src/problem.ts`)이 읽는 모양이다. 바뀌면 화면 번역도 함께 고친다.
+    #[test]
+    fn problem_is_a_code_and_value() {
+        let json = |p: Problem| serde_json::to_value(p).unwrap();
+        assert_eq!(
+            json(Refusal::NameTaken("a".into()).into()),
+            serde_json::json!({"code": "refused", "value": {"code": "nameTaken", "value": "a"}})
+        );
+        assert_eq!(
+            json(
+                LaunchError::BriefTooLong {
+                    len: 5000,
+                    limit: 4096
+                }
+                .into()
+            ),
+            serde_json::json!({"code": "launch", "value": {"code": "briefTooLong", "value": {"len": 5000, "limit": 4096}}})
+        );
+        assert_eq!(
+            json(Problem::NoLogin),
+            serde_json::json!({"code": "noLogin"})
+        );
+        assert_eq!(Problem::NoLogin.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            for_agent(Refusal::EmptyName),
+            (StatusCode::BAD_REQUEST, "이름을 적는다.".into())
+        );
     }
 }

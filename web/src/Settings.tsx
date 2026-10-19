@@ -7,6 +7,7 @@ import type { AgentView } from './gen/AgentView';
 import type { LoginId } from './gen/LoginId';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
+import i18next from './i18n';
 import type { Usage } from './StatusBar';
 import { Terminal } from './Terminal';
 import { TerminalTab, UiTab } from './ThemeSettings';
@@ -129,7 +130,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
                     <span className="name">{a.label}</span>
                     {a.id === chosen?.id && <span className="badge">기본</span>}
                     {!a.takesBrief && <span className="badge warn">첫 지시문 없음</span>}
-                    {a.versionWarning && <span className="badge warn">{a.versionWarning}</span>}
+                    {a.versionWarning && <span className="badge warn">{i18next.t('settings.versionWarning', a.versionWarning)}</span>}
                     <span className="meta" translate="no">
                       {a.path} · {a.profile ? '메시지 연동' : 'loom wait만'}
                     </span>

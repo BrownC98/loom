@@ -78,14 +78,16 @@ pub enum GraphEvent {
     },
 }
 
-/// 규칙에 맞지 않아 거부한 요청. 문장은 그대로 에이전트나 사람에게 간다.
-#[derive(Debug)]
+/// 규칙에 맞지 않아 거부한 요청. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
+#[derive(Debug, Serialize, TS)]
+#[serde(tag = "code", content = "value", rename_all = "camelCase")]
+#[ts(export)]
 pub enum Refusal {
     EmptyName,
     NameTaken(String),
     TooDeep,
-    BriefTooLong(usize),
-    SummaryTooLong(usize),
+    BriefTooLong(#[ts(type = "number")] usize),
+    SummaryTooLong(#[ts(type = "number")] usize),
     MailboxFull(String),
     NotRelated(String),
     Ended(String),
@@ -95,7 +97,7 @@ pub enum Refusal {
     NotFound(String),
     Ambiguous(String),
     Launch(String),
-    Db(rusqlite::Error),
+    Db(String),
 }
 
 impl fmt::Display for Refusal {
@@ -145,7 +147,7 @@ impl fmt::Display for Refusal {
 
 impl From<rusqlite::Error> for Refusal {
     fn from(e: rusqlite::Error) -> Self {
-        Refusal::Db(e)
+        Refusal::Db(e.to_string())
     }
 }
 

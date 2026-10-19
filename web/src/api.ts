@@ -9,10 +9,13 @@ import type { LoginId } from './gen/LoginId';
 import type { LoginState } from './gen/LoginState';
 import type { NewNode } from './gen/NewNode';
 import type { NodeId } from './gen/NodeId';
+import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
+import type { PtyNotice } from './gen/PtyNotice';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
+import { problemText } from './problem';
 
 /** 끊긴 WebSocket을 다시 여는 간격. 데몬이 다시 시작하는 동안 기다린다. */
 const RECONNECT_MS = 1000;
@@ -22,14 +25,14 @@ export async function getRepo(): Promise<RepoView> {
   return res.json();
 }
 
-/** 실패하면 데몬이 보낸 문장을 담은 Error를 던진다. */
+/** 실패하면 데몬이 보낸 코드(`Problem`)를 현재 언어로 바꾼 문장을 담은 Error를 던진다. */
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body === undefined ? undefined : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(problemText((await res.json()) as Problem));
   return res.json();
 }
 
@@ -84,7 +87,7 @@ export interface PtyLink {
 /** PTY에 붙는다(`nodePty`·`loginPty`). 연결할 때마다 `onAttach`를 부른 뒤 backlog부터 출력을 넘긴다. */
 export function attachPty(
   path: string,
-  handlers: { onAttach: () => void; onOutput: (bytes: Uint8Array) => void },
+  handlers: { onAttach: () => void; onOutput: (bytes: Uint8Array) => void; onNotice: (notice: PtyNotice) => void },
 ): PtyLink {
   const encoder = new TextEncoder();
   let socket: WebSocket;
@@ -93,7 +96,9 @@ export function attachPty(
     socket = new WebSocket(socketUrl(path));
     socket.binaryType = 'arraybuffer';
     socket.onopen = handlers.onAttach;
-    socket.onmessage = (e) => handlers.onOutput(new Uint8Array(e.data as ArrayBuffer));
+    // 출력은 바이너리 프레임, 데몬의 알림(`PtyNotice`)은 글 프레임이다.
+    socket.onmessage = (e) =>
+      typeof e.data === 'string' ? handlers.onNotice(JSON.parse(e.data) as PtyNotice) : handlers.onOutput(new Uint8Array(e.data as ArrayBuffer));
     socket.onclose = () => {
       if (!stopped) setTimeout(open, RECONNECT_MS);
     };

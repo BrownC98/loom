@@ -10,6 +10,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
 import { Graph } from './Graph';
+import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
@@ -29,6 +30,7 @@ const EMPTY_SETTINGS: SettingsView = {
   // 데몬이 첫 페이지에 넣은 테마(`Theme`의 serde 이름)다. 설정을 받기 전에도 같은 테마를 그린다.
   theme: (document.documentElement.dataset.theme as Theme | undefined) ?? 'system',
   terminalTheme: RESET_TERMINAL_THEME,
+  language: INITIAL_LANGUAGE,
 };
 const SETTINGS_HASH = '#settings/';
 
@@ -86,6 +88,7 @@ export function App() {
     // styles.css가 `data-theme`으로 `color-scheme`을 고른다.
     document.documentElement.dataset.theme = settings.theme;
   }, [settings.theme]);
+  useEffect(() => applyLanguage(settings.language), [settings.language]);
 
   const refreshUsage = useCallback(async () => {
     setLoading(true);

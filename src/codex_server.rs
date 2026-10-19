@@ -81,14 +81,20 @@ impl CodexServer {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| format!("`codex app-server`를 띄우지 못했다: {e}"))?;
+            .map_err(|e| e.to_string())?;
         let pid = child.id();
         let stderr = child.stderr.take().expect("stderr를 piped로 열었다");
         let server = tokio::time::timeout(REPLY_TIMEOUT, connect(stderr)).await;
         let (url, socket) = match server {
             Ok(Ok(found)) => found,
             Ok(Err(e)) => return Err(stop_after(child, pid, e)),
-            Err(_) => return Err(stop_after(child, pid, "주소를 알리지 않았다".into())),
+            Err(_) => {
+                return Err(stop_after(
+                    child,
+                    pid,
+                    "did not announce its address".into(),
+                ));
+            }
         };
         let (mut sink, mut stream) = socket.split();
         let (to_server, mut outbox) = mpsc::unbounded_channel::<Message>();
@@ -112,7 +118,7 @@ impl CodexServer {
             }
             // 연결이 끊겼다. 기다리는 요청을 모두 실패로 끝낸다. `thread_tx`가 사라져 구독자도 끝난다.
             for (_, reply) in replies.lock().unwrap().drain() {
-                let _ = reply.send(Err("app-server 연결이 끊겼다".into()));
+                let _ = reply.send(Err("app-server connection closed".into()));
             }
         });
         let server = Self {
@@ -156,14 +162,14 @@ impl CodexServer {
             .is_err()
         {
             self.pending.lock().unwrap().remove(&id);
-            return Err("app-server 연결이 끊겼다".into());
+            return Err("app-server connection closed".into());
         }
         match tokio::time::timeout(REPLY_TIMEOUT, rx).await {
             Ok(Ok(reply)) => reply.map_err(|e| format!("{method}: {e}")),
-            Ok(Err(_)) => Err(format!("{method}: app-server 연결이 끊겼다")),
+            Ok(Err(_)) => Err(format!("{method}: app-server connection closed")),
             Err(_) => {
                 self.pending.lock().unwrap().remove(&id);
-                Err(format!("{method}: 응답이 없다"))
+                Err(format!("{method}: no reply"))
             }
         }
     }
@@ -213,13 +219,13 @@ async fn connect(
                     break url;
                 }
             }
-            _ => return Err("주소를 알리기 전에 끝났다".into()),
+            _ => return Err("exited before announcing its address".into()),
         }
     };
     tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
     let (socket, _) = tokio_tungstenite::connect_async(url.as_str())
         .await
-        .map_err(|e| format!("{url}에 연결하지 못했다: {e}"))?;
+        .map_err(|e| format!("could not connect to {url}: {e}"))?;
     Ok((url, socket))
 }
 
@@ -237,7 +243,7 @@ fn receive(msg: Value, pending: &Pending, thread: &watch::Sender<Option<Thread>>
         let Some(id) = msg["id"].as_u64() else { return };
         if let Some(reply) = pending.lock().unwrap().remove(&id) {
             let result = match msg.get("error") {
-                Some(error) => Err(error["message"].as_str().unwrap_or("오류").to_owned()),
+                Some(error) => Err(error["message"].as_str().unwrap_or("error").to_owned()),
                 None => Ok(msg.get("result").cloned().unwrap_or(Value::Null)),
             };
             let _ = reply.send(result);

@@ -117,7 +117,7 @@
 
 ### 설정
 
-- 설정은 `settings` 테이블 한 줄(JSON)이다: 기본 에이전트, 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마.
+- 설정은 `settings` 테이블 한 줄(JSON)이다: 기본 에이전트, 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어.
 - 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
@@ -125,6 +125,23 @@
 - 터미널 테마는 loom 테마 2개와 Orca 내장 테마 30개 가운데 다크 모드용과 라이트 모드용을 하나씩 고른다. 기본값은 지금 loom 모양인 「Loom Dark」와 「Loom Light」다. 「라이트 모드에서도 다크 모드 테마를 쓴다」를 켜면 라이트 모드에서도 다크 모드용을 쓴다.
   - 색 값은 `web/src/terminalThemes.ts` 한 곳에만 있다. Orca 테마는 Orca 번들에서 기계로 꺼냈다. 데몬은 이름만 저장한다. 이름이 없거나 목록에 없으면 화면이 기본값을 쓴다. [터미널 테마 초기화]는 저장한 이름을 비운다.
   - 열린 터미널(xterm)은 모드나 고른 테마가 바뀌면 바로 다시 칠한다. 명세는 [settings.html 6번](mockups/settings.html#u-theme)이다.
+
+### 화면 언어
+
+화면 문구는 영어와 한국어다. 명세는 [settings.html 7번](mockups/settings.html#u-lang)이다(2026-10-19 사람 지시 "i18n 적용 (영어, 한국어)").
+
+| 결정 | 정한 것 | 이유 |
+|---|---|---|
+| 자리와 값 | 「UI」 탭의 「테마」 아래 「언어」 드롭다운. 「시스템」「English」「한국어」. 처음 값은 「시스템」 | Orca도 Appearance의 Theme 아래에 Language(`uiLanguage`)를 둔다. 목록 첫 줄이 System이다 |
+| 「시스템」 | 브라우저 언어가 `ko`로 시작하면 한국어, 아니면 영어 | Orca와 같은 규칙이다 |
+| 언어 이름 | 「English」「한국어」는 화면 언어와 관계없이 그 언어로 쓴다 | Orca와 같다 |
+| 라이브러리 | `i18next` + `react-i18next` | Orca와 같다. 언어를 바꾸면 `useTranslation`을 쓰는 부품만 다시 그린다 |
+| 문구 자리 | `web/src/locales/en.ts`가 키의 원천이다. `ko.ts`는 그 타입을 받는다 | 키 오타와 두 파일의 키 차이를 `tsc`가 잡는다 |
+| 첫 그리기 | 데몬이 첫 페이지 `<html>`에 `data-language`를 넣는다 | 테마와 같은 방식이다. 설정을 받기 전에 다른 언어가 잠깐 보이지 않는다 |
+| 데몬 문구 | 화면 경로는 문장 대신 코드와 값(`Problem`, `UsageProblem`, `PtyNotice`, `VersionMismatch`)을 보낸다. 화면이 번역한다 | 타입은 Rust에만 둔다. Rust에 코드를 더하고 번역을 빠뜨리면 `tsc`가 실패한다 |
+| 에이전트가 읽는 글 | CLI 출력, 노드 메시지, 훅 출력, `/api/agent/*` 오류는 한국어 그대로다 | 이번 범위가 아니다. 같은 거절(`Refusal`, `LaunchError`)을 에이전트에게는 `Display` 문장으로 보낸다 |
+| 원인 글 | OS·app-server 오류 글은 번역하지 않고 값으로 붙인다. `src/codex_server.rs`의 원인 글은 영어다 | 시스템이 낸 글이라 loom이 번역할 수 없다 |
+| 재발 방지 | `npm run check`가 `web/scripts/no-hangul.mjs`를 돌린다. `src`의 문자열·JSX 글자에 한글이 있으면 실패한다(`locales/` 제외) | 새 문구가 번역 파일을 거치게 한다 |
 
 ## 메시징
 

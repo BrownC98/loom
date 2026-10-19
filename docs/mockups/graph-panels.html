@@ -32,6 +32,12 @@
   --radius: 8px;
   --font: 'Pretendard', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* 새 토큰: 커밋 그래프 차선 색 5개. 차선은 차례로 돌려 쓴다(VS Code scmGraph.foreground1~5와 같은 수) */
+  --lane-1: oklch(70% 0.16 258);
+  --lane-2: oklch(78% 0.14 75);
+  --lane-3: oklch(72% 0.17 350);
+  --lane-4: oklch(76% 0.12 185);
+  --lane-5: oklch(72% 0.15 300);
 }
 * { box-sizing: border-box; margin: 0; }
 html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
@@ -73,13 +79,15 @@ button, input { font: inherit; color: inherit; }
 
 /* ───── 새 구역 ───── */
 
-/* 1. 왼쪽 트리: 저장소 > 워크트리 묶음 > 노드(부모-자식 들여쓰기) */
+/* 1. 사이드바: 트리(저장소 > 워크트리 묶음 > 노드, 부모-자식 들여쓰기)와 맨 아래 [설정] */
 .side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
 .brand { font-weight: 700; font-size: 16px; padding: 16px 16px 12px; }
 .side-head { display: flex; align-items: center; padding: 8px 8px 6px 16px; }
 .side-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .side-head .spacer { flex: 1; }
-.tree { list-style: none; padding: 0 8px; font-size: 13px; }
+.tree { list-style: none; padding: 0 8px; font-size: 13px; flex: 1; min-height: 0; overflow: auto; }
+.side-foot { padding: 8px; border-top: 1px solid var(--line); }
+.side-foot .btn { width: 100%; justify-content: flex-start; }
 .tree ul { list-style: none; padding: 0; }
 .row { display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 8px 0 calc(4px + var(--depth, 0) * 16px); border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; }
 .row:hover { background: var(--surface-hover); }
@@ -148,11 +156,21 @@ button, input { font: inherit; color: inherit; }
 
 /* 5-2. 커밋 그래프(그림 B) */
 .dock.alone { width: 520px; height: 380px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.commits-body { flex: 1; min-height: 0; overflow: hidden; background: var(--term); padding: 8px 10px; font: 12px/1.2 var(--mono); color: var(--term-ink); white-space: pre; }
-/* xterm.js 기본 ANSI 색(Tango)을 그대로 그린다. 구현은 xterm이 칠한다. 굵은 글자는 밝은 색이다. */
-.r { color: #cc0000; } .g { color: #4e9a06; } .y { color: #c4a000; } .b { color: #3465a4; } .m { color: #75507b; }
-.G { color: #8ae234; font-weight: 600; } .C { color: #34e2e2; font-weight: 600; }
-.mark { background: var(--term-ink); color: var(--term); }
+.commits { list-style: none; padding: 6px 0; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
+.commit { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 12px 0 6px; }
+.commit:hover { background: var(--surface-hover); }
+.commit .graph { flex: none; }
+.lanes path { fill: none; stroke-width: 1; stroke-linecap: round; }
+.lanes circle { stroke: var(--panel); stroke-width: 2; }
+.commit .subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.commit .subject span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ref { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 9px; font: 600 11px var(--mono); border: 1px solid var(--lane); background: color-mix(in oklch, var(--lane) 22%, transparent); color: var(--ink); }
+.ref svg { width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ref.tag { border-style: dashed; }
+.commit .author, .commit time { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.commit .author { width: 56px; overflow: hidden; text-overflow: ellipsis; }
+.commit time { width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+.compare { border-collapse: collapse; font-size: 13px; margin-top: 8px; }
 
 /* 설명 */
 .notes { padding: 32px 40px 48px; max-width: 1100px; }
@@ -210,6 +228,9 @@ button, input { font: inherit; color: inherit; }
         </ul>
       </li>
     </ul>
+    <div class="side-foot">
+      <button class="btn ghost"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>설정</button>
+    </div>
   </nav>
 
   <main class="canvas" aria-label="loom 그래프">
@@ -286,34 +307,23 @@ button, input { font: inherit; color: inherit; }
       <h2>커밋 그래프</h2><span class="hint">모든 브랜치 · 최근 1,000개</span><span class="spacer"></span>
       <button class="btn ghost sm" aria-label="커밋 그래프 닫기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
-<div class="commits-body" translate="no">* <span class="y">e8d527e (</span><span class="G">feat/minimap</span><span class="y">)</span> feat: 미니맵 <span class="mark"> 워크트리 feat/minimap </span>
-<span class="r">|</span> * <span class="y">0cbfc5b (</span><span class="G">feat/node-host</span><span class="y">)</span> fix: 크기 변경 경합 <span class="mark"> 워크트리 feat/node-host </span>
-<span class="r">|</span> <span class="g">|</span> * <span class="y">89b5bfd (</span><span class="C">HEAD</span><span class="y"> -&gt; </span><span class="G">main</span><span class="y">)</span> chore: 개발 컨테이너 <span class="mark"> 원래 체크아웃 main </span>
-<span class="r">|</span> <span class="g">|</span><span class="r">/</span>
-<span class="r">|/</span><span class="g">|</span>
-* <span class="g">|</span> <span class="y">73669b7</span> Merge branch 'feat/node-host'
-<span class="b">|</span><span class="g">\|</span>
-<span class="b">|</span> * <span class="y">3bb58c7</span> test: 크기 변경
-<span class="b">|</span> * <span class="y">b5cfe0c</span> feat: 링 버퍼
-* <span class="m">|</span> <span class="y">c55dec4 (</span><span class="G">fix/typo</span><span class="y">)</span> docs: 설계 문서
-<span class="m">|/</span>
-* <span class="y">437259f</span> feat: 노드 PTY
-* <span class="y">8ebb65c</span> feat: 데몬 뼈대
-</div>
+<ol class="commits" id="commits" aria-label="커밋 목록"></ol>
   </aside>
-  <p>그림 B. 도구 줄 [커밋 그래프]를 누르면 오른쪽 칸이 이벤트 콘솔에서 커밋 그래프로 바뀐다. 글자는 시험 저장소에서 데몬 <code>GET /api/commits</code>가 실제로 돌려준 출력이다. 줄 끝 반전 표시가 워크트리 묶음이 체크아웃한 커밋이다.</p>
+  <p>그림 B. 도구 줄 [커밋 그래프]를 누르면 오른쪽 칸이 이벤트 콘솔에서 커밋 그래프로 바뀐다. 커밋·부모·참조는 시험 저장소의 실제 값이고, 차선은 아래 스크립트(VS Code 차선 계산을 옮긴 것)가 그렸다. 시간과 태그 v0.1은 보기 위해 바꾸거나 더했다. 폴더 그림이 붙은 브랜치 칩이 워크트리 묶음이 체크아웃한 커밋이다.</p>
 </div>
 
 <section class="notes">
   <h2>바뀌는 곳</h2>
-  <p>위 그림은 바뀌는 구역만 그렸다. 지금 화면은 왼쪽에 저장소 이름 한 줄, 가운데에 그래프만 있다(캡처는 총괄 보고에 첨부).</p>
+  <p>위 그림은 바뀌는 구역만 그렸다. 지금 화면은 사이드바에 저장소 이름 한 줄, 가운데에 그래프, 아래에 상태 줄이 있다(캡처는 총괄 보고에 첨부). 이 문서는 왼쪽 영역을 「사이드바」, 그 안 목록을 「트리」라고 부른다.</p>
 
-  <h3>1. 왼쪽 목록 → 트리</h3>
+  <h3>1. 사이드바: 저장소 목록 → 트리, 맨 아래 [설정]</h3>
   <ul>
     <li>전 → 후: 저장소 이름·경로 한 줄 → 저장소 &gt; 워크트리 묶음 &gt; 노드 트리. 자식 노드는 부모 아래에 들여 쓴다. 줄마다 상태 점, 이름, 에이전트, 읽지 않은 메시지 수, 보관 메시지 수가 있다.</li>
     <li>문제점: 카드가 많으면 어느 워크트리에 어떤 에이전트가 있고 누가 누구의 자식인지 그래프를 돌아다니며 찾아야 한다.</li>
     <li>개선 사항: 줄을 누르면 그래프가 그 노드로 옮겨 가고 그 카드를 고른다(입력을 받는다). 줄 머리를 누르거나 ←→로 접고 편다. ↑↓로 줄을 옮긴다. 머리의 [모두 펼치기]가 접은 줄을 모두 편다.</li>
     <li>부모가 다른 묶음에 있으면 자식은 자기 묶음 아래에 두고 「← 부모 이름」을 작게 보인다(그림의 구현).</li>
+    <li>사이드바 맨 아래 고정 줄에 [설정]을 둔다(Orca와 같은 자리). 누르면 지금 설정 창의 에이전트 탭이 열린다. 트리가 길어도 [설정]은 움직이지 않는다.</li>
+    <li>지우는 진입점: 상태 줄 오른쪽 끝 [설정]. 같은 동작으로 가는 진입점을 하나로 둔다. 사용량 팝오버의 [계정 관리]는 계정 탭으로 바로 가는 다른 동작이라 둔다.</li>
   </ul>
 
   <h3>2. 그래프 위 도구 줄</h3>
@@ -336,10 +346,28 @@ button, input { font: inherit; color: inherit; }
 
   <h3>4. 오른쪽 칸 — 커밋 그래프(그림 B)</h3>
   <ul>
-    <li>전 → 후: 없다 → 모든 브랜치와 병합 선을 <code>git log --graph</code>로 보인다. 워크트리가 체크아웃한 커밋 줄 끝에 반전 표시(「원래 체크아웃 main」, 「워크트리 feat/minimap」)가 붙는다. 표시 글은 묶음 머리의 종류·브랜치와 같다.</li>
+    <li>전 → 후: 없다 → 커밋마다 한 줄. 왼쪽에 차선 그래프(차선마다 색, 병합 곡선), 오른쪽에 브랜치·태그 칩, 제목, 작성자, 시간이 있다. 모든 브랜치를 보인다.</li>
+    <li>워크트리 표시: 워크트리 묶음이 체크아웃한 브랜치 칩 앞에 폴더 그림을 붙인다. 칩에 마우스를 올리면 「워크트리 feat/minimap가 체크아웃한 커밋」처럼 종류와 브랜치를 보인다. 종류 글은 묶음 머리(원래 체크아웃·워크트리)와 같다. 분리된 HEAD 워크트리는 그 커밋에 폴더 그림이 붙은 <code>HEAD</code> 칩을 따로 단다.</li>
+    <li>칩 색은 그 커밋 차선의 색이다. 태그 칩은 점선 테두리다.</li>
+    <li>줄에 마우스를 올리면 전체 해시가 보인다. 줄을 눌러도 아무 일이 없다(읽기 전용, 커밋을 누르는 요구가 없다).</li>
     <li>문제점: 워크트리 묶음이 어느 커밋에 있는지, 병합이 어떻게 이어졌는지 화면에서 볼 수 없다.</li>
     <li>상태: 처음 읽는 동안 「읽는 중…」, 커밋이 없으면 「아직 커밋이 없다」, git이 실패하면 git 오류 문장을 빨간 글자로 보인다.</li>
   </ul>
+
+  <h3>커밋 그래프 라이브러리 조사(2026-10-19)</h3>
+  <p>기준: 최근 1년 안 릴리스, 주간 내려받기 수, MIT 같은 허용 라이선스, React 19, 1,000개 커밋 성능, 테마 토큰을 따를 수 있음. 내려받기는 npm 지난 주 값이다.</p>
+  <table class="compare">
+    <thead><tr><th>후보</th><th>마지막 릴리스</th><th>주간 내려받기</th><th>라이선스</th><th>React</th><th>판정</th></tr></thead>
+    <tbody>
+      <tr><td><code>commit-graph</code> 2.4.0</td><td>2026-03-29</td><td>1,726</td><td>MIT</td><td>&gt;=18</td><td>탈락. 색이 해시 붙은 CSS 모듈 클래스에 밝은 테마로 박혀 있다(<code>#fff</code>, <code>#e1e4e8</code>). 줄 높이 4rem 고정, 글꼴 Source Sans Pro 고정, 줄마다 칩을 넣을 자리가 없다. 차선 색은 hex 문자열만 받는다(<code>var()</code>를 못 쓴다). 덮어쓰려면 라이브러리 내부 클래스 이름에 기대야 한다. 의존성 4개(<code>react-icons</code>, <code>react-tooltip</code>, <code>reactjs-popup</code>, <code>react-infinite-scroller</code>)가 따라온다</td></tr>
+      <tr><td><code>@dolthub/commit-graph</code> 2.4.1</td><td>2026-03-17</td><td>136</td><td>MIT</td><td>&gt;=19</td><td>탈락. 위와 같은 코드의 DoltHub 판이다. 같은 이유</td></tr>
+      <tr><td><code>git-graph-svg</code> 2.0.5</td><td>2026-03-11</td><td>3</td><td>MIT</td><td>&gt;=18</td><td>탈락. 쓰는 사람이 없어 검증되지 않았다</td></tr>
+      <tr><td><code>@wexample/js-graph-log</code> 1.0.6</td><td>2026-10-13</td><td>16</td><td>MIT</td><td>없음(차선 계산만)</td><td>탈락. 쓰는 사람이 없어 검증되지 않았다</td></tr>
+      <tr><td><code>@gitgraph/react</code> 1.6.0</td><td>2021-03-06</td><td>2,922</td><td>MIT</td><td>&gt;=16.8</td><td>탈락. 저장소가 보관 상태다</td></tr>
+      <tr><td>VS Code <code>scmHistory.ts</code></td><td>2025-12-08(<code>25c94ab</code>)</td><td>VS Code 본체</td><td>MIT</td><td>해당 없음</td><td><b>고른다.</b> 차선 계산 약 90줄과 줄 SVG 그리기 약 150줄을 옮긴다. Orca 1.4.229의 소스 컨트롤 기록 그래프도 같은 코드를 옮겼다(번들에 <code>inputSwimlanes</code>·<code>outputSwimlanes</code>·Incoming Changes가 그대로 있다)</td></tr>
+    </tbody>
+  </table>
+  <p>1,000개 실측: 옮긴 코드로 커밋 1,000개(브랜치가 갈라지고 합쳐지는 합성 이력)를 데스크톱 Chromium에서 그렸다. 5회 표본에서 차선 계산 중앙값 0.2ms, DOM 생성과 배치 중앙값 39.8ms, 최대 87.9ms(첫 회)였다. 스크롤 60프레임은 중앙값 16.7ms, 최대 17.0ms였다. 가상 스크롤은 두지 않는다.</p>
 
   <h3>5. 그래프 오른쪽 아래 미니맵</h3>
   <ul>
@@ -354,6 +382,7 @@ button, input { font: inherit; color: inherit; }
     <tbody>
       <tr><td>화면 배치</td><td>왼쪽 트리(260px) · 가운데 그래프 · 오른쪽 칸(520px) 하나. 이벤트 콘솔과 커밋 그래프가 오른쪽 칸을 번갈아 쓴다</td><td>칸이면 그래프와 미니맵을 가리지 않는다. 칸 둘을 함께 열면 1440 폭에서 그래프가 400px 밑으로 준다</td></tr>
       <tr><td>오른쪽 칸 여닫기</td><td>도구 줄 버튼 둘이 유일한 진입점이다. 칸 머리에는 탭을 두지 않고 [닫기]만 둔다. 열린 칸은 저장하지 않는다</td><td>같은 동작의 진입점을 하나로 둔다</td></tr>
+      <tr><td>설정 진입점</td><td>사이드바 맨 아래 고정 줄의 [설정] 하나. 상태 줄 오른쪽 [설정]은 지운다. 사용량 팝오버의 [계정 관리]는 둔다</td><td>사람 지시: 설정 버튼을 사이드바에 둔다. Orca도 사이드바 아래에 둔다. [계정 관리]는 계정 탭으로 바로 가는 다른 동작이다</td></tr>
       <tr><td>트리 단계</td><td>저장소 &gt; 워크트리 묶음 &gt; 노드 &gt; 자식 노드. 저장소 줄도 접힌다. 묶음 여러 개를 전제로 그린다</td><td>Orca 왼쪽 목록(1.4.229)과 같다: 저장소 접기, 워크트리 아래 에이전트, 상위 워크트리 아래 중첩, 모두 펼치기</td></tr>
       <tr><td>트리와 Orca 차이</td><td>검색 칸, 그룹화 기준, 고정, 숨기기는 두지 않는다. 노드 부모-자식 들여쓰기를 더한다</td><td>loom 원칙은 에이전트 사이 통신이다. 부모-자식이 메시지 경로다. Orca 목록 관리 기능은 지금 요구가 없다</td></tr>
       <tr><td>트리 상태 원천</td><td>그래프와 같은 노드 목록(<code>GraphEvent</code>로 받은 상태)을 그린다. 트리용 상태는 접힘 여부뿐이다</td><td>같은 사실을 두 곳에 두지 않는다</td></tr>
@@ -362,9 +391,11 @@ button, input { font: inherit; color: inherit; }
       <tr><td>이벤트 저장</td><td>데몬이 <code>GraphEvent</code>를 보내는 한 자리에서 DB <code>events</code> 테이블에 같은 트랜잭션으로 쓴다. 메시지 본문은 복사하지 않고 message id로 가리킨다. 저장소마다 최근 10,000개만 둔다</td><td>원천은 하나다. 10,000개는 노드 50개가 각각 메시지 200개를 주고받는 하루치다</td></tr>
       <tr><td>이벤트 화면 전달</td><td>칸을 열 때 <code>GET /api/events/log</code>로 최근 500개를 읽고, 그 뒤는 지금 웹소켓(<code>/api/events</code>)의 새 이벤트를 붙인다</td><td>웹소켓을 하나 더 열지 않는다. 500개는 한 화면 스크롤 몇 번 분량이다</td></tr>
       <tr><td>이벤트 백엔드 순서</td><td>「노드 제거」 코디 브랜치가 main에 병합된 뒤 그 위에 만든다. 화면과 커밋 그래프·미니맵·트리는 먼저 한다</td><td>제거·입양·보관 이벤트가 그 브랜치에 있다</td></tr>
-      <tr><td>커밋 그래프 그리기</td><td>(가) 데몬이 <code>git log --graph --color=always --all</code> 출력을 주고, 이미 쓰는 xterm.js로 그린다</td><td>배치 코드가 없다. (나) SVG 차선은 차선 배치를 직접 써야 하고 커밋을 누르는 요구가 없다. <code>@gitgraph/js</code>는 2022-04 뒤로 갱신이 없다</td></tr>
-      <tr><td>워크트리 표시</td><td>데몬이 <code>git worktree list --porcelain</code>으로 체크아웃 커밋을 찾아 줄 끝에 반전(ANSI 7) 표시를 붙인다</td><td>git 장식은 워크트리 브랜치를 다른 브랜치와 구별하지 않는다. 분리된 HEAD 워크트리는 보이지 않는다(git 2.43 실측). 반전은 새 색이 없다</td></tr>
-      <tr><td>커밋 범위</td><td>모든 브랜치, stash 제외, 최근 1,000개, 긴 줄은 자른다</td><td>stash는 모든 워크트리가 함께 쓰는 임시 커밋이다. 줄을 접으면 그래프 선이 끊긴다</td></tr>
+      <tr><td>커밋 그래프 그리기</td><td>VS Code <code>scmHistory.ts</code>(MIT, <code>25c94ab</code>)의 차선 계산과 줄 SVG를 <code>web/src</code> 한 파일로 옮긴다. 파일 머리에 출처·커밋·라이선스를 적는다. 바꾼 점: 부모 없는 커밋에서도 다른 차선을 이어 간다(원본은 그 줄에서 다른 차선을 버린다). Incoming/Outgoing 줄, 마우스 올림 설명 창은 옮기지 않는다</td><td>사람 지시: Orca·Fork·Sourcetree 같은 그래프. 기준을 넘는 라이브러리가 없다(위 조사 표). Orca도 같은 코드를 옮겼다. 터미널 글자(옛 (가) 안)는 버린다</td></tr>
+      <tr><td>워크트리 표시</td><td>데몬이 <code>git worktree list --porcelain</code>으로 워크트리마다 체크아웃 커밋·브랜치·종류를 준다. 화면은 그 브랜치 칩에 폴더 그림을 붙인다. 분리된 HEAD는 <code>HEAD</code> 칩을 단다</td><td>git 장식은 워크트리 브랜치를 다른 브랜치와 구별하지 않는다. 분리된 HEAD 워크트리는 보이지 않는다(git 2.43 실측)</td></tr>
+      <tr><td>커밋 범위</td><td>모든 브랜치, stash 제외, <code>--topo-order</code>, 최근 1,000개. 가상 스크롤 없음</td><td>stash는 모든 워크트리가 함께 쓰는 임시 커밋이다. 차선 계산은 자식이 부모보다 먼저 와야 한다. 1,000줄 실측 중앙값 39.8ms</td></tr>
+      <tr><td>커밋 데이터 API</td><td><code>GET /api/commits</code>가 글자 대신 Rust 타입을 준다: 커밋 목록(해시, 부모 해시들, 제목, 작성자, 시간, 참조 이름)과 워크트리 목록(체크아웃 커밋, 브랜치, 원래 체크아웃인지). TS 타입은 <code>cargo test</code>가 <code>gen/</code>에 만든다</td><td>그리기를 화면으로 옮겼다. 이미 만든 API와 테스트를 고친다</td></tr>
+      <tr><td>차선 색</td><td><code>styles.css</code>에 토큰 <code>--lane-1</code>~<code>--lane-5</code>를 더한다. 차선은 차례로 돌려 쓴다</td><td>VS Code 기본 색 수(5)와 같다. 테마 코디가 밝은 테마 값을 같은 이름으로 더한다</td></tr>
       <tr><td>커밋 갱신</td><td>칸이 열린 동안 3초마다 다시 읽고 바뀔 때만 다시 그린다</td><td>기존 이벤트는 커밋을 알리지 않는다. 사람이 터미널에서 한 커밋도 보여야 한다. 파일 감시는 새 의존성이 든다</td></tr>
       <tr><td>미니맵</td><td>React Flow <code>&lt;MiniMap pannable&gt;</code>. 누르면 그 자리를 가운데로. 색은 <code>styles.css</code> 토큰</td><td>이미 쓰는 라이브러리 부품이다. 끄기 설정·휠 확대는 요구가 없다</td></tr>
       <tr><td>목업 파일</td><td>이 파일을 따로 둔다. 승인 뒤 <code>docs/design.md</code>가 명세로 가리킨다</td><td>다른 코디 셋이 <code>main.html</code>을 고치는 중이다</td></tr>
@@ -374,11 +405,101 @@ button, input { font: inherit; color: inherit; }
 
   <h2>점검 기록</h2>
   <ul id="checks">
-    <li><code>impeccable detect</code>: 경고 3건, 모두 고치지 않는다. 「Cramped padding」은 화면 틀 <code>.app</code>의 아래 테두리다(안쪽 글자가 없다). 「Tight line height」 1.2는 커밋 그래프 터미널 줄 높이로, <code>Terminal.tsx</code>와 같은 값이다. 「Flat type hierarchy」는 설명 영역의 제목 단계이고 화면 부분이 아니다.</li>
-    <li>WIG: 트리는 <code>role="tree"</code>·<code>treeitem</code>·<code>aria-expanded</code>·<code>aria-current</code>를 쓴다. 아이콘만 있는 단추에 <code>aria-label</code>이 있다. 도구 줄 단추는 <code>aria-pressed</code>로 열린 칸을 알린다. 펼친 이벤트 줄 안의 [접기] 단추가 단추 안에 들어가지 않게 바깥을 <code>div role="button"</code>으로 바꿨다. 거르기 입력에 <code>aria-label</code>이 있다.</li>
+    <li><code>impeccable detect</code>: 경고 2건, 모두 고치지 않는다. 「Cramped padding」은 화면 틀 <code>.app</code>의 아래 테두리다(안쪽 글자가 없다). 「Flat type hierarchy」는 설명 영역의 제목 단계이고 화면 부분이 아니다.</li>
+    <li>WIG: 트리는 <code>role="tree"</code>·<code>treeitem</code>·<code>aria-expanded</code>·<code>aria-current</code>를 쓴다. 아이콘만 있는 단추에 <code>aria-label</code>이 있다. 도구 줄 단추는 <code>aria-pressed</code>로 열린 칸을 알린다. 펼친 이벤트 줄 안의 [접기] 단추가 단추 안에 들어가지 않게 바깥을 <code>div role="button"</code>으로 바꿨다. 거르기 입력에 <code>aria-label</code>이 있다. 커밋 목록은 <code>ol</code>에 <code>aria-label</code>을 달고, 차선 SVG는 <code>aria-hidden</code>이다. 사이드바 [설정]은 글자가 있는 단추다.</li>
     <li>데스크톱 1440폭에서 그림 A·B를 찍어 겹침·잘림이 없는 것을 봤다.</li>
   </ul>
 </section>
 </div>
+<script>
+// 차선 계산과 줄 SVG. VS Code scmHistory.ts(MIT, microsoft/vscode 25c94ab)를 옮겼다.
+// 바꾼 점: 부모 없는 커밋에서도 다른 차선을 이어 간다(원본은 그 줄에서 다른 차선을 버린다).
+const LANE_W = 11, ROW_H = 22, CURVE = 5, R = 4, COLORS = 5;
+
+function lanes(commits) {
+  let color = -1;
+  let prev = [];
+  return commits.map((c) => {
+    const input = prev;
+    const output = [];
+    let first = false;
+    for (const n of input) {
+      if (n.id === c.hash) {
+        if (!first && c.parents.length > 0) { output.push({ id: c.parents[0], color: n.color }); first = true; }
+        continue;
+      }
+      output.push(n);
+    }
+    for (let i = first ? 1 : 0; i < c.parents.length; i++) {
+      color = (color + 1) % COLORS;
+      output.push({ id: c.parents[i], color });
+    }
+    prev = output;
+    return { commit: c, input, output };
+  });
+}
+
+function rowSvg({ commit, input, output }) {
+  const x = (i) => LANE_W * (i + 1);
+  const stroke = (c) => `var(--lane-${c + 1})`;
+  const path = (c, d) => `<path d="${d}" stroke="${stroke(c)}"/>`;
+  const inputIndex = input.findIndex((n) => n.id === commit.hash);
+  const circle = inputIndex !== -1 ? inputIndex : input.length;
+  const circleColor = circle < output.length ? output[circle].color : circle < input.length ? input[circle].color : 0;
+  const parts = [];
+  let o = 0;
+  input.forEach((n, i) => {
+    if (n.id === commit.hash) {
+      if (i !== circle) parts.push(path(n.color, `M ${x(i)} 0 A ${LANE_W} ${LANE_W} 0 0 1 ${LANE_W * i} ${LANE_W} H ${x(circle)}`));
+      else o++;
+      return;
+    }
+    if (o < output.length && n.id === output[o].id) {
+      if (i === o) parts.push(path(n.color, `M ${x(i)} 0 V ${ROW_H}`));
+      else parts.push(path(n.color, `M ${x(i)} 0 V 6 A ${CURVE} ${CURVE} 0 0 1 ${x(i) - CURVE} ${ROW_H / 2} H ${x(o) + CURVE} A ${CURVE} ${CURVE} 0 0 0 ${x(o)} ${ROW_H / 2 + CURVE} V ${ROW_H}`));
+      o++;
+    }
+  });
+  for (let p = 1; p < commit.parents.length; p++) {
+    const j = output.map((n) => n.id).lastIndexOf(commit.parents[p]);
+    if (j === -1) continue;
+    parts.push(path(output[j].color, `M ${LANE_W * j} ${ROW_H / 2} A ${LANE_W} ${LANE_W} 0 0 1 ${x(j)} ${ROW_H} M ${LANE_W * j} ${ROW_H / 2} H ${x(circle)}`));
+  }
+  if (inputIndex !== -1) parts.push(path(input[inputIndex].color, `M ${x(circle)} 0 V ${ROW_H / 2}`));
+  if (commit.parents.length > 0) parts.push(path(circleColor, `M ${x(circle)} ${ROW_H / 2} V ${ROW_H}`));
+  const c = stroke(circleColor);
+  if (commit.parents.length > 1) parts.push(`<circle cx="${x(circle)}" cy="${LANE_W}" r="${R + 2}" fill="${c}"/><circle cx="${x(circle)}" cy="${LANE_W}" r="${R - 1}" fill="${c}"/>`);
+  else parts.push(`<circle cx="${x(circle)}" cy="${LANE_W}" r="${R + 1}" fill="${c}"/>`);
+  const width = LANE_W * (Math.max(input.length, output.length, 1) + 1);
+  return { width, svg: `<svg class="lanes" width="${width}" height="${ROW_H}" aria-hidden="true">${parts.join('')}</svg>`, color: circleColor };
+}
+
+// 시험 저장소 /tmp/demo/loom: git log --all --exclude=refs/stash --topo-order. 워크트리 셋: main(원래 체크아웃), feat/minimap, feat/node-host.
+const COMMITS = [
+  { hash: 'e8d527e', parents: ['73669b7'], subject: 'feat: 미니맵', author: 'demo', time: '3분 전', refs: ['feat/minimap'] },
+  { hash: '0cbfc5b', parents: ['3bb58c7'], subject: 'fix: 크기 변경 경합', author: 'demo', time: '12분 전', refs: ['feat/node-host'] },
+  { hash: '89b5bfd', parents: ['73669b7'], subject: 'chore: 개발 컨테이너', author: 'demo', time: '25분 전', refs: ['main'] },
+  { hash: '73669b7', parents: ['c55dec4', '3bb58c7'], subject: "Merge branch 'feat/node-host'", author: 'demo', time: '1시간 전', refs: [] },
+  { hash: '3bb58c7', parents: ['b5cfe0c'], subject: 'test: 크기 변경', author: 'demo', time: '1시간 전', refs: [] },
+  { hash: 'b5cfe0c', parents: ['437259f'], subject: 'feat: 링 버퍼', author: 'demo', time: '2시간 전', refs: [] },
+  { hash: 'c55dec4', parents: ['437259f'], subject: 'docs: 설계 문서', author: 'demo', time: '2시간 전', refs: ['fix/typo', 'tag: v0.1'] },
+  { hash: '437259f', parents: ['8ebb65c'], subject: 'feat: 노드 PTY', author: 'demo', time: '어제', refs: [] },
+  { hash: '8ebb65c', parents: [], subject: 'feat: 데몬 뼈대', author: 'demo', time: '어제', refs: [] },
+];
+const WORKTREES = { main: '원래 체크아웃', 'feat/minimap': '워크트리', 'feat/node-host': '워크트리' };
+const FOLDER = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const rows = lanes(COMMITS).map(rowSvg);
+const graphWidth = Math.max(...rows.map((r) => r.width));
+document.getElementById('commits').innerHTML = COMMITS.map((c, i) => {
+  const lane = `var(--lane-${rows[i].color + 1})`;
+  const refs = c.refs.map((r) => {
+    const tag = r.startsWith('tag: ');
+    const wt = WORKTREES[r];
+    const title = wt ? ` title="${wt} ${r}가 체크아웃한 커밋"` : '';
+    return `<span class="ref${tag ? ' tag' : ''}" style="--lane:${lane}"${title}>${wt ? FOLDER : ''}${tag ? r.slice(5) : r}</span>`;
+  }).join('');
+  return `<li class="commit" title="${c.hash}"><span class="graph" style="width:${graphWidth}px">${rows[i].svg}</span><span class="subject">${refs}<span>${c.subject}</span></span><span class="author">${c.author}</span><time>${c.time}</time></li>`;
+}).join('');
+</script>
 </body>
 </html>

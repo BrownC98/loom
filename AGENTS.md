@@ -23,7 +23,7 @@
 | Rust 테스트, TS 타입 생성 | `docker compose exec dev cargo test` |
 | 화면 타입·순환 검사 | `docker compose exec -w /work/web dev npm run check` |
 | 화면 빌드 | `docker compose exec -w /work/web dev npm run build` |
-| 데몬 띄우기 | `docker compose exec dev cargo run -- serve --listen 0.0.0.0:7420` 뒤 `http://127.0.0.1:<LOOM_PORT>` |
+| 데몬 띄우기 | `docker compose exec dev sh -c 'cargo run -- serve --listen 127.0.0.1:$LOOM_PORT'` 뒤 `http://127.0.0.1:<LOOM_PORT>` |
 
 - API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.
 

@@ -37,9 +37,11 @@ services:
       - ${HOME}/.codex:${HOME}/.codex
       - ${HOME}/.agents:${HOME}/.agents:ro
       - ${HOME}/.gitconfig:${HOME}/.gitconfig:ro
-    ports:
-      # 호스트에는 루프백으로만 연다. 컨테이너 안 데몬은 0.0.0.0에서 듣는다.
-      - "127.0.0.1:${LOOM_PORT:-7420}:7420"
+    # 노드의 claude가 사용자 설정의 ANTHROPIC_BASE_URL(호스트 127.0.0.1 프록시)에 닿아야 한다.
+    # 데몬은 127.0.0.1:$LOOM_PORT에서 듣는다.
+    network_mode: host
+    environment:
+      LOOM_PORT: ${LOOM_PORT:-7420}
 
 volumes:
   target:

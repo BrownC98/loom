@@ -1,17 +1,38 @@
-import { useEffect, useState } from 'react';
-import { getRepo, watchNodes } from './api';
+import { useEffect, useRef, useState } from 'react';
+import { getRepo, watchGraph } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import { Graph } from './Graph';
 
+/** 메시지가 오간 간선을 강조하는 시간. 마지막 메시지부터 잰다. */
+const PULSE_MS = 3000;
+
 export function App() {
   const [repo, setRepo] = useState<RepoView | null>(null);
   const [nodes, setNodes] = useState<ReadonlyMap<NodeId, NodeView>>(new Map());
+  // 자식 id → 강조하는 동안 그 자식의 간선으로 오간 메시지 수.
+  const [pulses, setPulses] = useState<ReadonlyMap<NodeId, number>>(new Map());
+  const pulseTimers = useRef(new Map<NodeId, number>());
 
   useEffect(() => {
     getRepo().then(setRepo);
-    return watchNodes((view) => setNodes((prev) => new Map(prev).set(view.id, view)));
+    const pulse = (child: NodeId) => {
+      setPulses((prev) => new Map(prev).set(child, (prev.get(child) ?? 0) + 1));
+      clearTimeout(pulseTimers.current.get(child));
+      const timer = window.setTimeout(() => {
+        setPulses((prev) => {
+          const next = new Map(prev);
+          next.delete(child);
+          return next;
+        });
+      }, PULSE_MS);
+      pulseTimers.current.set(child, timer);
+    };
+    return watchGraph((event) => {
+      if (event.kind === 'message') pulse(event.child);
+      else setNodes((prev) => new Map(prev).set(event.id, event));
+    });
   }, []);
 
   return (
@@ -37,7 +58,7 @@ export function App() {
             {repo?.path}
           </span>
         </div>
-        <Graph views={[...nodes.values()]} />
+        <Graph views={nodes} pulses={pulses} />
       </main>
     </div>
   );

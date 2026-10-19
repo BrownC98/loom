@@ -10,7 +10,7 @@ use ts_rs::TS;
 /// 첫 지시문 상한. 근거: docs/design.md 「맥락과 크기」.
 pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
 
-#[derive(Clone, Copy, Serialize, TS)]
+#[derive(Clone, Copy, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum Profile {

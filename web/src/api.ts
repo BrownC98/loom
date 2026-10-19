@@ -1,7 +1,7 @@
 // 데몬 API. 요청·응답 타입은 Rust가 원천이다(gen/).
+import type { GraphEvent } from './gen/GraphEvent';
 import type { NewNode } from './gen/NewNode';
 import type { NodeId } from './gen/NodeId';
-import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 
@@ -28,13 +28,13 @@ function socketUrl(path: string): string {
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`;
 }
 
-/** 노드 상태 이벤트를 받는다. 연결할 때마다 노드 목록 전체를 먼저 받는다. 반환값은 구독 해제 함수다. */
-export function watchNodes(onNode: (view: NodeView) => void): () => void {
+/** 그래프 이벤트를 받는다. 연결할 때마다 노드 목록 전체를 노드 이벤트로 먼저 받는다. 반환값은 구독 해제 함수다. */
+export function watchGraph(onEvent: (event: GraphEvent) => void): () => void {
   let socket: WebSocket;
   let stopped = false;
   const open = () => {
     socket = new WebSocket(socketUrl('/api/events'));
-    socket.onmessage = (e) => onNode(JSON.parse(e.data) as NodeView);
+    socket.onmessage = (e) => onEvent(JSON.parse(e.data) as GraphEvent);
     socket.onclose = () => {
       if (!stopped) setTimeout(open, RECONNECT_MS);
     };

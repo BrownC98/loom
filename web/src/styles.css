@@ -21,6 +21,12 @@
   --radius: 8px;
   --font: 'Pretendard Variable', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* 커밋 그래프 차선 색 5개(docs/mockups/graph-panels.html). 차선은 차례로 돌려 쓴다. */
+  --lane-1: light-dark(oklch(52% 0.19 258), oklch(70% 0.16 258));
+  --lane-2: light-dark(oklch(58% 0.14 70), oklch(78% 0.14 75));
+  --lane-3: light-dark(oklch(54% 0.2 350), oklch(72% 0.17 350));
+  --lane-4: light-dark(oklch(52% 0.11 185), oklch(76% 0.12 185));
+  --lane-5: light-dark(oklch(52% 0.18 300), oklch(72% 0.15 300));
 }
 /* 「시스템」은 위 기본값(OS 설정)을 따른다. 데몬이 첫 페이지에 data-theme을 넣는다. */
 :root[data-theme="light"] { color-scheme: light; }
@@ -32,18 +38,36 @@ html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); wor
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button, input, select, textarea { font: inherit; color: inherit; }
 
-.app { display: grid; grid-template-columns: 232px 1fr; height: 100%; }
+.app { display: grid; grid-template-columns: 260px minmax(0, 1fr); height: 100%; }
+.app[data-dock] { grid-template-columns: 260px minmax(0, 1fr) 520px; }
 
-/* 저장소 목록 */
-.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+/* 사이드바: 트리와 맨 아래 [설정](docs/mockups/graph-panels.html 1번) */
+.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .brand { font-weight: 700; font-size: 16px; padding: 16px 16px 12px; letter-spacing: -0.01em; }
-.side h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 12px 16px 6px; }
-.repos { list-style: none; padding: 0 8px; }
-.repo { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 8px; cursor: pointer; }
-.repo:hover { background: var(--surface-hover); }
-.repo[aria-current="page"] { background: var(--accent-wash); }
-.repo b { display: block; font-weight: 600; }
-.repo span { display: block; font-size: 12px; color: var(--ink-3); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-head { display: flex; align-items: center; padding: 8px 8px 6px 16px; }
+.side-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.side-head .spacer { flex: 1; }
+.tree { list-style: none; padding: 0 8px; font-size: 13px; flex: 1; min-height: 0; overflow: auto; }
+.tree ul { list-style: none; padding: 0; }
+.tree-row { display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 8px 0 calc(4px + var(--depth, 0) * 16px); border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; }
+.tree-row:hover { background: var(--surface-hover); }
+.tree-row[aria-current="true"] { background: var(--accent-wash); }
+/* 트리는 스크롤 칸이라 바깥 고리가 잘린다. */
+.tree-row:focus-visible { outline-offset: -2px; }
+.tree-row .chev { width: 14px; height: 14px; flex: none; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tree-row .chev.closed { transform: rotate(-90deg); }
+.tree-row .leaf { width: 14px; flex: none; }
+.tree-row .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tree-row .branch { font-family: var(--mono); font-weight: 600; font-size: 12px; }
+.tree-row .spacer { flex: 1; }
+.tree-row .unread { min-width: 18px; height: 18px; font-size: 11px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.running { background: var(--accent); }
+.dot.done { background: var(--ok); }
+.dot.exited { background: var(--err); }
+.side-foot { padding: 8px; border-top: 1px solid var(--line); }
+.side-foot .btn { width: 100%; justify-content: flex-start; }
 
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .btn:hover { background: var(--surface-hover); }
@@ -60,7 +84,42 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .canvas .react-flow { background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
 .toolbar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; z-index: 5; pointer-events: none; }
 .toolbar h1 { font-size: 18px; font-weight: 600; }
-.toolbar .path { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+.toolbar .spacer { flex: 1; }
+.toolbar .btn { pointer-events: all; }
+.btn[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+
+/* 미니맵: 그래프 오른쪽 아래. 카드는 상태 색, 묶음은 점선 테두리 */
+.react-flow { --xy-minimap-background-color: var(--panel); --xy-minimap-mask-background-color: color-mix(in oklch, var(--bg) 70%, transparent); --xy-minimap-mask-stroke-color: var(--line-strong); --xy-minimap-mask-stroke-width: 1; }
+.react-flow__minimap { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; cursor: pointer; }
+.react-flow__minimap-node.worktree { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.react-flow__minimap-node.running { fill: var(--accent); }
+.react-flow__minimap-node.done { fill: var(--ok); }
+.react-flow__minimap-node.exited { fill: var(--err); }
+.react-flow__attribution { background: none; color: var(--ink-3); }
+.react-flow__attribution a { color: inherit; }
+
+/* 오른쪽 칸: 커밋 그래프(graph-panels.html 4번) */
+.dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
+.dock-head h2 { font-size: 14px; font-weight: 600; }
+.dock-head .spacer { flex: 1; }
+.dock-note { padding: 16px; font-size: 13px; color: var(--ink-3); }
+.dock-note.error { color: var(--err); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+.commits { list-style: none; padding: 6px 0; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
+.commit { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 12px 0 6px; }
+.commit:hover { background: var(--surface-hover); }
+.commit .graph { flex: none; display: flex; }
+.lanes path { fill: none; stroke-width: 1; stroke-linecap: round; }
+.lanes circle { stroke: var(--panel); stroke-width: 2; }
+.commit .subject { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.commit .subject > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ref { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 9px; font: 600 11px var(--mono); border: 1px solid var(--lane); background: color-mix(in oklch, var(--lane) 22%, transparent); color: var(--ink); }
+.ref span { display: inline-flex; }
+.ref svg { width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ref.tag { border-style: dashed; }
+.commit .author, .commit time { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.commit .author { width: 56px; overflow: hidden; text-overflow: ellipsis; }
+.commit time { width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .group { width: 100%; height: 100%; border: 1px dashed var(--line-strong); border-radius: 12px; background: light-dark(oklch(98.6% 0.003 255 / 0.6), oklch(19% 0.013 255 / 0.6)); }
 /* React Flow는 묶음 노드에 pointer-events: none을 준다. 머리와 팝오버만 받고, 빈 곳 클릭은 바탕 클릭으로 둔다. */
@@ -123,7 +182,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); }
 .statusbar { grid-column: 1 / -1; display: flex; align-items: stretch; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); padding: 0 4px; min-width: 0; }
 .statusbar .seg { position: relative; display: flex; }
-.statusbar .spacer { flex: 1; }
 .statusbar .sep { width: 1px; background: var(--line); margin: 6px 2px; }
 .seg-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; font-size: 12px; }
 .seg-btn:hover { background: var(--surface-hover); color: var(--ink); }

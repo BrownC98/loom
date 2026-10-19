@@ -2,6 +2,7 @@
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
+import type { CommitGraph } from './gen/CommitGraph';
 import type { GraphEvent } from './gen/GraphEvent';
 import type { Login } from './gen/Login';
 import type { LoginId } from './gen/LoginId';
@@ -37,6 +38,8 @@ export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', r
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');
 export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/settings', view);
+/** 모든 브랜치의 최근 커밋과 워크트리마다 체크아웃한 커밋. */
+export const getCommits = () => call<CommitGraph>('GET', '/api/commits');
 /** 계정마다 사용량을 그 자리에서 읽는다. 몇 초 걸린다. */
 export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
 export const removeAccount = (provider: Profile, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}`);

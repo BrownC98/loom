@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { applyNodeChanges, Handle, Position, ReactFlow, ViewportPortal, type Edge, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, ViewportPortal, type Edge, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { nodePty } from './api';
 import { agentLabel, defaultAgent, enabledAgents } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -22,9 +22,17 @@ const CARD_STEP = 328;
 const CARD_COLUMN_STEP = 420;
 /** 묶음 왼쪽 위에서 잰 새 노드 팝오버 위치. */
 const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
+/** 노드로 옮겨 가는 화면 이동 시간. */
+const MOVE_MS = 300;
 
 /** 원래 체크아웃 묶음. 워크트리 묶음은 5단위에서 더한다. */
-const MAIN_GROUP = 'main';
+export const MAIN_GROUP = 'main';
+
+/** 그래프 화면을 `ids` 노드가 모두 보이게 옮긴다. 그래프 밖(트리)에서 노드로 옮겨 갈 때 쓴다. `ReactFlowProvider` 안에서만 부른다. */
+export function useShowNodes(): (ids: NodeId[]) => void {
+  const flow = useReactFlow();
+  return (ids) => flow.fitView({ nodes: ids.map((id) => ({ id: String(id) })), duration: MOVE_MS, maxZoom: 1 });
+}
 
 type GroupData = { branch: string; empty: boolean; creating: boolean; onOpen: () => void };
 type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; expanded: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand: () => void };
@@ -121,15 +129,21 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
   return view.parent === null ? null : (views.get(view.parent)?.name ?? null);
 }
 
-/** `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다. */
+/**
+ * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
+ * `selected`: 입력을 받는 카드. 트리도 고르므로 부르는 쪽이 가진다.
+ */
 export function Graph(props: {
   views: ReadonlyMap<NodeId, NodeView>;
   pulses: ReadonlyMap<NodeId, number>;
   agents: AgentView[];
   settings: SettingsView;
   accounts: AccountView[] | null;
+  selected: NodeId | null;
+  onSelect: (id: NodeId | null) => void;
 }) {
-  const [selected, setSelected] = useState<NodeId | null>(null);
+  const { selected, onSelect: setSelected } = props;
+  const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
   const [creating, setCreating] = useState(false);
   // React Flow가 잰 크기와 끈 위치. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
@@ -227,6 +241,12 @@ export function Graph(props: {
         minZoom={0.4}
         maxZoom={1}
       >
+        <MiniMap
+          pannable
+          ariaLabel="미니맵"
+          nodeClassName={(node) => (node.type === 'card' ? (node as CardNode).data.view.state.kind : 'worktree')}
+          onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
+        />
         {creating && (
           // 묶음 노드 안에 두면 자식 카드가 팝오버를 덮는다. 뷰포트 층에 그려 카드 위에 둔다.
           <ViewportPortal>

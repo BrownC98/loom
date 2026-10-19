@@ -14,8 +14,8 @@ export type Usage = {
   refresh: () => void;
 };
 
-/** 화면 맨 아래에 늘 보이는 줄: 공급자마다 계정과 남은 사용량, 오른쪽 끝에 [설정](목업 1·2번). */
-export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Profile, id: AccountId | null) => void; onManage: () => void; onSettings: () => void }) {
+/** 화면 맨 아래에 늘 보이는 줄: 공급자마다 계정과 남은 사용량(목업 1·2번). [설정]은 사이드바에 있다(graph-panels.html 1번). */
+export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Profile, id: AccountId | null) => void; onManage: () => void }) {
   const [open, setOpen] = useState<Profile | null>(null);
   const bar = useRef<HTMLElement>(null);
   const { usage } = props;
@@ -84,14 +84,6 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
           </div>
         );
       })}
-      <span className="spacer" />
-      <button className="seg-btn" onClick={props.onSettings}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-        </svg>
-        설정
-      </button>
     </footer>
   );
 }

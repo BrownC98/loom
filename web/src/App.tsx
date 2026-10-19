@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { ReactFlowProvider } from '@xyflow/react';
 import { getAccounts, getAgents, getRepo, getSettings, putSettings, watchGraph } from './api';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
+import { CommitGraph } from './CommitGraph';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
@@ -11,6 +13,7 @@ import { Graph } from './Graph';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
+import { Tree } from './Tree';
 import { XtermTheme } from './Terminal';
 import { withAccount } from './usage';
 
@@ -75,6 +78,8 @@ export function App() {
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
+  const [selected, setSelected] = useState<NodeId | null>(null);
+  const [commitsOpen, setCommitsOpen] = useState(false);
   const mode = useColorMode(settings.theme);
 
   useEffect(() => {
@@ -134,50 +139,56 @@ export function App() {
 
   return (
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
-      <div className="app">
-        <nav className="side" aria-label="저장소">
-          <div className="brand">loom</div>
-          <h2>저장소</h2>
-          {repo && (
-            <ul className="repos">
-              <li>
-                <button className="repo" aria-current="page">
-                  <b>{repo.name}</b>
-                  <span translate="no">{repo.path}</span>
-                </button>
-              </li>
-            </ul>
-          )}
-        </nav>
-        <main className="canvas" aria-label={`${repo?.name ?? ''} 그래프`}>
-          <div className="toolbar">
-            <h1>{repo?.name}</h1>
-            <span className="path" translate="no">
-              {repo?.path}
-            </span>
-          </div>
-          <Graph views={nodes} pulses={pulses} agents={agents} settings={settings} accounts={accounts} />
-        </main>
-        <StatusBar
-          usage={usage}
-          settings={settings}
-          onChoose={(provider, id) => saveSettings(withAccount(settings, provider, id))}
-          onManage={() => setSettingsTab('accounts')}
-          onSettings={() => setSettingsTab('agents')}
-        />
-        {settingsTab && (
-          <Settings
-            tab={settingsTab}
-            onTab={setSettingsTab}
-            onClose={() => setSettingsTab(null)}
-            agents={agents}
-            onRescan={rescan}
-            settings={settings}
-            onSettings={saveSettings}
+      <ReactFlowProvider>
+        <div className="app" data-dock={commitsOpen || undefined}>
+          <nav className="side" aria-label="저장소와 노드">
+            <div className="brand">loom</div>
+            {repo && <Tree repo={repo} views={nodes} agents={agents} selected={selected} onSelect={setSelected} />}
+            <div className="side-foot">
+              <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
+                </svg>
+                설정
+              </button>
+            </div>
+          </nav>
+          <main className="canvas" aria-label={`${repo?.name ?? ''} 그래프`}>
+            <div className="toolbar">
+              <h1>{repo?.name}</h1>
+              <span className="spacer" />
+              <button className="btn" aria-pressed={commitsOpen} aria-controls="dock" onClick={() => setCommitsOpen(!commitsOpen)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 3v6M12 15v6" />
+                </svg>
+                커밋 그래프
+              </button>
+            </div>
+            <Graph views={nodes} pulses={pulses} agents={agents} settings={settings} accounts={accounts} selected={selected} onSelect={setSelected} />
+          </main>
+          {commitsOpen && <CommitGraph onClose={() => setCommitsOpen(false)} />}
+          <StatusBar
             usage={usage}
+            settings={settings}
+            onChoose={(provider, id) => saveSettings(withAccount(settings, provider, id))}
+            onManage={() => setSettingsTab('accounts')}
           />
-        )}
-      </div>
+          {settingsTab && (
+            <Settings
+              tab={settingsTab}
+              onTab={setSettingsTab}
+              onClose={() => setSettingsTab(null)}
+              agents={agents}
+              onRescan={rescan}
+              settings={settings}
+              onSettings={saveSettings}
+              usage={usage}
+            />
+          )}
+        </div>
+      </ReactFlowProvider>
     </XtermTheme.Provider>
   );
 }

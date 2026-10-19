@@ -7,15 +7,16 @@
 - loom은 Orca보다 가볍고 시각적인 멀티에이전트 개발 도구다.
 - 에이전트 하나는 그래프의 노드 하나다. 노드 카드에는 그 에이전트의 터미널이 보인다.
 - 핵심 목표는 협업할 때 에이전트가 받는 컨텍스트 부담을 최소로 만드는 것이다.
-- 기능은 셋만 둔다: 에이전트 터미널, 워크트리 묶음, 에이전트 사이 메시징. 워크플로 DAG 엔진은 만들지 않는다.
+- 기능은 넷만 둔다: 에이전트 터미널, 워크트리 묶음, 에이전트 사이 메시징, 커밋 그래프. 워크플로 DAG 엔진은 만들지 않는다.
+  - 커밋 그래프는 읽기만 한다. loom은 커밋하지 않는다.
 - 새 설계는 에이전트 사이 통신에 집중한다. 설정(터미널, 테마, 에이전트 프로필, 계정 등)은 새로 설계하지 않고 Orca의 같은 설정을 먼저 보고 따른다. Orca와 다르게 하면 이유를 결정 표에 적는다(2026-10-19 사람 지시 "제공해야할 각종 설정들은 orca를 최대한 참고한다. 우리는 에이전트간 통신에 집중한다").
 - 사용자는 한 명이다. 데몬은 `127.0.0.1`에서만 듣는다.
 
 ## 그래프와 화면
 
-화면의 모양과 토큰은 승인한 목업 [docs/mockups/main.html](mockups/main.html)이 명세다. 설정 창, 하단 상태 줄, 새 노드 창의 에이전트 칸은 [docs/mockups/settings.html](mockups/settings.html)이 명세다. 이 절은 동작만 적는다.
+화면의 모양과 토큰은 승인한 목업 [docs/mockups/main.html](mockups/main.html)이 명세다. 설정 창, 하단 상태 줄, 새 노드 창의 에이전트 칸은 [docs/mockups/settings.html](mockups/settings.html)이 명세다. 사이드바, 미니맵, 커밋 그래프 칸은 [docs/mockups/graph-panels.html](mockups/graph-panels.html)이 명세다. 이 절은 동작만 적는다.
 
-- 그래프 하나에는 저장소 하나만 보인다. 화면 왼쪽 저장소 목록에서 저장소를 바꾼다. 저장소는 경로를 글로 입력해 더한다. 최근 경로 목록을 함께 보인다.
+- 그래프 하나에는 저장소 하나만 보인다. 화면 왼쪽 사이드바의 트리에서 저장소를 바꾼다. 저장소는 경로를 글로 입력해 더한다. 최근 경로 목록을 함께 보인다.
 - 워크트리는 묶음(React Flow group node)이다. 저장소의 원래 체크아웃도 묶음 하나다.
 - 노드는 늘 묶음 하나 안에 있다.
   - 사람: [새 워크트리]로 묶음을 만든다(브랜치 이름, 기준 브랜치). 그 묶음 안에서 [새 노드]를 누른다(에이전트, 첫 지시문).
@@ -27,6 +28,15 @@
 - 카드 터미널은 입력을 받는다. 고른 카드만 입력을 받는다. 카드를 두 번 누르면 확대한다.
 - 노드 상태는 `running`, `done`, `exited(<코드>)` 셋이다. 카드에는 읽지 않은 메시지 수도 보인다.
 - 데몬이 다시 시작하면 `running`이던 노드는 프로세스가 없다. 이 노드는 코드 없는 `exited(?)`로 바꾼다.
+- 사이드바는 트리와 맨 아래 [설정]이다. [설정]이 설정 창을 연다. Orca도 설정 단추를 사이드바 맨 아래에 둔다.
+  - 트리는 저장소 > 워크트리 묶음 > 노드 > 자식 노드다. 그래프와 같은 노드 목록을 그린다.
+  - 노드 줄을 누르면 그래프가 그 카드로 옮겨 가고 그 카드를 고른다. 고른 카드의 터미널이 입력을 받는다.
+  - 키보드: ↑↓로 줄을 옮긴다. →는 펴고 ←는 접거나 부모 줄로 간다.
+- 미니맵은 그래프 오른쪽 아래에 늘 보인다. 누르거나 끌면 그 자리로 시점을 옮긴다. 켜고 끄는 설정은 없다.
+- 커밋 그래프는 도구 줄의 [커밋 그래프]로 여는 오른쪽 칸이다.
+  - 모든 브랜치의 최근 커밋 1,000개를 차선 그림으로 보인다. 차선 계산과 그리기는 VS Code `scmHistory.ts`를 옮겼다(MIT).
+  - 워크트리가 체크아웃한 브랜치에는 폴더 표시가 붙는다. 분리된 HEAD는 `HEAD` 표시로 보인다.
+  - 칸이 열린 동안 3초마다 다시 읽는다. 사람이 터미널에서 한 커밋도 보여야 하기 때문이다.
 
 ## 에이전트 실행
 
@@ -100,7 +110,7 @@
 ### 설정
 
 - 설정은 `settings` 테이블 한 줄(JSON)이다: 기본 에이전트, 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마.
-- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 오른쪽 끝의 [설정]이 설정 창을 연다. 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
+- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
   - 색 토큰은 `light-dark(라이트, 다크)` 한 벌이다. 테마는 `color-scheme` 하나만 바꾼다.
@@ -191,7 +201,7 @@
 - 데몬: `tokio`, `axum`, `portable-pty`(Windows ConPTY 포함), `rusqlite`, `rust-embed`, `sysinfo`(중단할 셸의 프로세스 나무), `tokio-tungstenite`(Codex app-server 연결), `typify`(빌드 때 Codex 스키마에서 타입 생성)
 - 화면: React, React Flow, xterm.js. 빌드한 화면을 실행 파일에 넣는다. 사람은 브라우저로 연다. Tauri는 지금 만들지 않는다.
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
-- 워크트리는 `git` CLI를 부른다.
+- 워크트리와 커밋 그래프는 `git` CLI를 부른다.
 - 개발 환경은 도커 컨테이너(`compose.yaml`)다. 호스트에는 Rust·Node를 설치하지 않는다. 실행 명령은 [AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)에 있다.
 - 노드를 띄울 때 `LOOM_URL`(노드 문 주소), `LOOM_SPAWN_URL`(데몬 주소), `LOOM_TOKEN`(노드마다 무작위 값) 환경 변수를 넣는다. 에이전트용 명령은 이 값으로 데몬의 `/api/agent/*`에 HTTP로 요청한다. 데몬은 토큰으로 보낸 노드를 찾는다. 토큰은 메모리에만 둔다. 데몬이 다시 시작하면 노드 프로세스도 모두 끝나기 때문이다.
 - 노드의 `PATH` 앞에 `loom` 실행 파일의 폴더를 넣는다. 노드는 설치 없이 `loom`을 부른다.
@@ -204,7 +214,7 @@
 |---|---|
 | 상호작용 | 화면, CLI 명령(`src/cli.rs`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다 |
-| 기능 | 그래프(`src/graph/`: 노드 목록과 메일함), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 워크트리, 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
+| 기능 | 그래프(`src/graph/`: 노드 목록과 메일함), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 워크트리, 커밋 그래프(`src/commit_graph.rs`: `git log`·`git worktree list` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기) |
 
 - 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `AgentId`, `Profile`, `AccountId`)만 쓴다.

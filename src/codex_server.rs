@@ -73,7 +73,7 @@ impl CodexServer {
             cmd.env("CODEX_HOME", dir);
         }
         // `codex` wrapper는 TERM을 실행 파일에 넘긴다. 표준 입력이 닫혀도 서버는 끝나지 않는다(실측).
-        crate::process_tree::end_with_daemon(&mut cmd);
+        process_tree::end_with_daemon(&mut cmd);
         let mut child = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::null())

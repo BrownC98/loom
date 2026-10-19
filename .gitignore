@@ -2,3 +2,6 @@
 /web/node_modules/
 /web/dist/
 /.env
+/app/binaries/
+/app/target/
+/app/gen/

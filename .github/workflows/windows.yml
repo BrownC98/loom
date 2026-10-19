@@ -1,0 +1,56 @@
+# main에 push할 때마다 Windows 설치 파일을 만들어 Release `latest` 하나에 덮어쓴다.
+# 근거: docs/design.md 「Windows 앱」.
+name: windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: true
+
+env:
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: 화면 빌드
+        run: npm ci && npm run build
+        working-directory: web
+      - name: loom.exe 빌드
+        run: |
+          cargo build --release
+          mkdir -p app/binaries
+          cp target/release/loom.exe app/binaries/loom-x86_64-pc-windows-msvc.exe
+      - name: 설치 파일 빌드
+        run: npx --yes @tauri-apps/cli@2.12.3 build
+        working-directory: app
+      - name: Release `latest`에 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          installer=$(ls target/release/bundle/nsis/*-setup.exe)
+          git tag -f latest
+          git push -f origin refs/tags/latest
+          notes="$GITHUB_REF_NAME $GITHUB_SHA 빌드. 설치 파일을 실행하면 loom 창이 열린다."
+          gh release view latest >/dev/null 2>&1 \
+            || gh release create latest --title "loom Windows" --notes "$notes"
+          gh release edit latest --notes "$notes"
+          gh release upload latest "$installer" --clobber

@@ -1,0 +1,18 @@
+# Windows 앱 창. 데몬은 옆에 놓인 `loom.exe`(sidecar)다. 근거: docs/design.md 「Windows 앱」.
+# 루트 크레이트와 따로 빌드한다. Linux 개발 명령(`cargo test` 등)은 이 크레이트를 빌드하지 않는다.
+[package]
+name = "loom-app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rfd = "0.17.2"
+tauri = "2.12.4"
+tauri-plugin-single-instance = "2.5.4"
+tauri-plugin-window-state = "2.5.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[build-dependencies]
+tauri-build = "2.7.3"

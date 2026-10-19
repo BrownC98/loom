@@ -1,7 +1,8 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Terminal as XTerm } from '@xterm/xterm';
+import { createContext, useContext, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { attachPty } from './api';
+import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
 
 export type Direction = 'left' | 'right' | 'up' | 'down';
 
@@ -20,12 +21,18 @@ export function navDirection(e: KeyboardEvent | ReactKeyboardEvent): Direction |
 
 const FONT_SIZE = 12;
 
+/** 지금 모드의 터미널 테마. `App`이 설정과 모드로 정한다. */
+export const XtermTheme = createContext<ITheme>(TERMINAL_THEMES[DEFAULT_TERMINAL_THEME.dark]);
+
 /** `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). */
 export function Terminal(props: { src: string; focused: boolean; onFocus: () => void; onNavigate: (dir: Direction) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm | null>(null);
   const latest = useRef(props);
   latest.current = props;
+  const theme = useContext(XtermTheme);
+  const latestTheme = useRef(theme);
+  latestTheme.current = theme;
 
   useEffect(() => {
     let disposed = false;
@@ -45,13 +52,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
         fontFamily: '"JetBrains Mono", monospace',
         fontSize: FONT_SIZE,
         lineHeight: 1.2,
-        allowTransparency: true,
-        theme: {
-          background: cssColor('--term'),
-          foreground: cssColor('--term-ink'),
-          cursor: cssColor('--ink'),
-          selectionBackground: cssColor('--accent-wash'),
-        },
+        theme: latestTheme.current,
       });
       const fit = new FitAddon();
       xterm.loadAddon(fit);
@@ -92,18 +93,18 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
   }, [props.src]);
 
   useEffect(() => {
+    if (term.current) term.current.options.theme = theme;
+  }, [theme]);
+
+  useEffect(() => {
     if (props.focused) term.current?.focus();
     else term.current?.blur();
   }, [props.focused]);
 
-  return <div ref={box} />;
-}
-
-/** CSS 토큰(oklch)을 xterm이 읽는 rgba 문자열로 바꾼다. 색 원천을 styles.css 하나로 둔다. */
-function cssColor(token: string): string {
-  const ctx = document.createElement('canvas').getContext('2d')!;
-  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
-  ctx.fillRect(0, 0, 1, 1);
-  const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-  return `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
+  // 바깥 칸이 여백과 바탕을 갖는다. FitAddon은 안쪽 칸의 크기로 열 수를 잰다.
+  return (
+    <div className="xterm-box" style={{ background: theme.background }}>
+      <div ref={box} />
+    </div>
+  );
 }

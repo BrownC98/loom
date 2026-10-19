@@ -579,12 +579,9 @@ async fn send_json(socket: &mut WebSocket, value: &impl Serialize) -> Result<(),
     socket.send(Message::Text(text.into())).await
 }
 
+/// 첫 페이지(`/`)는 테마를 넣어 보내는 `settings::index`가 맡는다.
 async fn asset(uri: Uri) -> Response {
-    let path = match uri.path().trim_start_matches('/') {
-        "" => "index.html",
-        p => p,
-    };
-    match Assets::get(path) {
+    match Assets::get(uri.path().trim_start_matches('/')) {
         Some(file) => (
             [(header::CONTENT_TYPE, file.metadata.mimetype().to_owned())],
             file.data,

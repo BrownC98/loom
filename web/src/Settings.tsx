@@ -9,10 +9,13 @@ import type { Profile } from './gen/Profile';
 import type { SettingsView } from './gen/SettingsView';
 import type { Usage } from './StatusBar';
 import { Terminal } from './Terminal';
+import { TerminalTab, UiTab } from './ThemeSettings';
 import { accountName, activeAccount, fetchedText, limitsProblem, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines, withAccount } from './usage';
 
-export type SettingsTab = 'agents' | 'accounts';
-const TAB_LABEL: Record<SettingsTab, string> = { agents: '에이전트', accounts: '계정' };
+/** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
+export const SETTINGS_TABS = ['agents', 'accounts', 'ui', 'terminal'] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
+const TAB_LABEL: Record<SettingsTab, string> = { agents: '에이전트', accounts: '계정', ui: 'UI', terminal: '터미널' };
 /** 로그인 창이 로그인이 끝났는지 묻는 간격. */
 const LOGIN_POLL_MS = 1000;
 
@@ -38,7 +41,7 @@ function Modal(props: { className: string; label: string; onClose: () => void; c
   );
 }
 
-/** 설정 창(목업 3·4번). 열린 탭은 URL 해시(`#settings/agents`)가 갖는다. */
+/** 설정 창(목업 3·4·6번). 열린 탭은 URL 해시(`#settings/agents`)가 갖는다. */
 export function Settings(props: {
   tab: SettingsTab;
   onTab: (tab: SettingsTab) => void;
@@ -53,7 +56,7 @@ export function Settings(props: {
     <Modal className="dialog" label="설정" onClose={props.onClose}>
       <nav aria-label="설정 탭">
         <h2>설정</h2>
-        {(Object.keys(TAB_LABEL) as SettingsTab[]).map((tab) => (
+        {SETTINGS_TABS.map((tab) => (
           <button key={tab} className="tab" aria-current={props.tab === tab ? 'page' : undefined} onClick={() => props.onTab(tab)}>
             {TAB_LABEL[tab]}
           </button>
@@ -67,11 +70,10 @@ export function Settings(props: {
             ×
           </button>
         </div>
-        {props.tab === 'agents' ? (
-          <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />
-        ) : (
-          <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} />
-        )}
+        {props.tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
+        {props.tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} />}
+        {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
+        {props.tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
       </div>
     </Modal>
   );

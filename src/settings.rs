@@ -1,4 +1,4 @@
-//! 설정: 켠 에이전트, 기본 에이전트, 공급자마다 쓰는 계정. SQLite에 한 줄로 둔다.
+//! 설정: 켠 에이전트, 기본 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
 use std::sync::Mutex;
@@ -21,6 +21,34 @@ pub struct SettingsView {
     /// 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
     pub claude_account: Option<AccountId>,
     pub codex_account: Option<AccountId>,
+    /// 옛 설정에는 없다. 없으면 `System`으로 읽고 다른 값은 그대로 둔다.
+    #[serde(default)]
+    pub theme: Theme,
+    #[serde(default)]
+    pub terminal_theme: TerminalTheme,
+}
+
+/// 모드마다 쓰는 터미널 테마 이름. 테마 목록과 기본값은 화면(`web/src/terminalThemes.ts`)에만 있다.
+/// 이름이 없거나 목록에 없으면 화면이 기본값을 쓴다. 초기화는 이 값을 기본값(빈 값)으로 바꾼다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct TerminalTheme {
+    pub dark: Option<String>,
+    pub light: Option<String>,
+    /// 켜면 라이트 모드에서도 다크 모드 테마를 쓴다.
+    pub match_dark: bool,
+}
+
+/// 화면 테마. `System`은 OS 설정(`prefers-color-scheme`)을 따른다.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
 }
 
 impl SettingsView {
@@ -86,5 +114,20 @@ mod tests {
         let got = settings.get().unwrap();
         assert_eq!(got.default_agent, view.default_agent);
         assert_eq!(got.disabled_agents, view.disabled_agents);
+    }
+
+    #[test]
+    fn old_row_without_theme_keeps_other_values() {
+        let tmp = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&tmp.path().join("t.db")).unwrap();
+        conn.execute(
+            "INSERT INTO settings (id, value) VALUES (1, ?1)",
+            [r#"{"defaultAgent":"codex","disabledAgents":[],"claudeAccount":null,"codexAccount":null}"#],
+        )
+        .unwrap();
+        let got = Settings::new(conn).get().unwrap();
+        assert_eq!(got.default_agent, Some(AgentId("codex".into())));
+        assert_eq!(got.theme, Theme::System);
+        assert_eq!(got.terminal_theme, TerminalTheme::default());
     }
 }

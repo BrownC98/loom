@@ -1,4 +1,4 @@
-//! 설정 창과 상태 줄의 라우트: 에이전트 탐지, 설정, 계정, 사용량, 로그인 창.
+//! 설정 창과 상태 줄의 라우트: 에이전트 탐지, 설정, 계정, 사용량, 로그인 창, 테마를 넣은 첫 페이지.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::Response;
+use axum::response::{Html, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use futures_util::future::join_all;
@@ -18,7 +18,7 @@ use super::{ApiError, App, internal, serve_pty};
 use crate::accounts::AccountId;
 use crate::node_host::NodeHost;
 use crate::profile::{self, AgentView, Profile};
-use crate::settings::SettingsView;
+use crate::settings::{SettingsView, Theme};
 use crate::usage::{self, Usage};
 
 const PROVIDERS: [Profile; 2] = [Profile::Claude, Profile::Codex];
@@ -63,6 +63,7 @@ pub struct Login {
 
 pub fn routes() -> Router<Arc<App>> {
     Router::new()
+        .route("/", get(index))
         .route("/api/agents", get(agents))
         .route("/api/settings", get(get_settings).put(put_settings))
         .route("/api/accounts", get(accounts))
@@ -82,6 +83,24 @@ async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
         }
     }
     Json(agents)
+}
+
+/// 첫 그리기 전에 테마를 정한다. 설정의 테마를 `<html data-theme>`에 넣어 보낸다.
+/// 화면 스크립트가 돌기 전이라 다른 테마가 잠깐 보이지 않는다.
+async fn index(State(app): State<Arc<App>>) -> Result<Html<String>, ApiError> {
+    let theme = app.settings.get().map_err(internal)?.theme;
+    let page = super::Assets::get("index.html")
+        .ok_or((StatusCode::NOT_FOUND, "화면을 빌드하지 않았다.".into()))?;
+    Ok(Html(with_theme(
+        &String::from_utf8_lossy(&page.data),
+        theme,
+    )))
+}
+
+/// 속성 값은 serde 이름이다. 화면 타입 `Theme`(gen/)과 같은 글자다.
+fn with_theme(page: &str, theme: Theme) -> String {
+    let value = serde_json::to_string(&theme).expect("Theme은 늘 직렬화된다");
+    page.replacen("<html", &format!("<html data-theme={value}"), 1)
 }
 
 async fn get_settings(State(app): State<Arc<App>>) -> Result<Json<SettingsView>, ApiError> {
@@ -217,4 +236,18 @@ async fn login_pty(
     State(app): State<Arc<App>>,
 ) -> Response {
     serve_pty(ws, app, |app| &app.logins.host, LoginId(id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_theme_marks_html() {
+        let page = with_theme("<!doctype html>\n<html lang=\"ko\">\n</html>", Theme::Light);
+        assert_eq!(
+            page,
+            "<!doctype html>\n<html data-theme=\"light\" lang=\"ko\">\n</html>"
+        );
+    }
 }

@@ -346,7 +346,9 @@ fn agent_command(
         (Some(_), _) => return Err(LaunchError::NoServer(agent.label.clone())),
         (None, _) => cmd.args(&agent.args),
     }
-    if brief.trim().is_empty() {
+    // 파일 끝 줄바꿈을 지운다. OpenCode 2 TUI는 `--prompt` 값이 줄바꿈으로 끝나면 제출하지 않는다(Windows 실측).
+    let brief = brief.trim_end();
+    if brief.is_empty() {
         return Ok(cmd);
     }
     match &agent.prompt {

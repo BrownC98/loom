@@ -19,13 +19,15 @@ pub fn command(name: &str) -> std::process::Command {
 
 /// 실행 파일 `path`를 띄우는 argv 앞부분. 보통은 `[path]`다.
 /// npm이 Windows에 설치한 CLI는 배치 파일이다. 배치 파일을 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해
-/// 사용법 지시와 첫 지시문이 깨진다(실측). 그래서 배치 파일이 부르는 `node <스크립트>`를 바로 띄운다.
+/// 사용법 지시와 첫 지시문이 깨진다(실측). 그래서 배치 파일이 부르는 프로그램을 바로 띄운다.
 pub fn argv(path: &Path) -> Vec<OsString> {
     npm_shim(path).unwrap_or_else(|| vec![path.into()])
 }
 
-/// npm cmd-shim의 끝 줄: `… "%_prog%"  "%dp0%\..\@openai\codex\bin\codex.js" %*`.
-/// `%_prog%`는 배치 파일 옆의 `node.exe`가 있으면 그것, 없으면 `PATH`의 `node`다.
+/// npm cmd-shim의 끝 줄은 둘 가운데 하나다.
+/// - 스크립트: `… "%_prog%"  "%dp0%\..\@openai\codex\bin\codex.js" %*`. `%_prog%`는 배치 파일 옆의
+///   `node.exe`가 있으면 그것, 없으면 `PATH`의 `node`다.
+/// - 실행 파일: `"%dp0%\..\@opencode\cli\bin\opencode.exe"   %*`. 그 실행 파일을 띄운다.
 fn npm_shim(path: &Path) -> Option<Vec<OsString>> {
     if !path.extension()?.eq_ignore_ascii_case("cmd") {
         return None;
@@ -34,6 +36,9 @@ fn npm_shim(path: &Path) -> Option<Vec<OsString>> {
     let line = text.lines().rev().find(|l| l.contains("%*"))?;
     let script = line.rsplit_once("\"%dp0%\\")?.1.split('"').next()?;
     let dir = path.parent()?;
+    if !line.contains("%_prog%") {
+        return Some(vec![dir.join(script).into()]);
+    }
     let node = Some(dir.join("node.exe"))
         .filter(|p| p.is_file())
         .or_else(|| which::which("node").ok())?;
@@ -221,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn npm_shim_runs_its_script_with_node() {
+    fn npm_shim_runs_its_target_directly() {
         let dir = tempfile::tempdir().unwrap();
         let shim = dir.path().join("codex.cmd");
         std::fs::write(
@@ -238,6 +243,18 @@ mod tests {
                 node.into_os_string(),
                 dir.path().join("..\\@openai\\codex\\bin\\codex.js").into()
             ]
+        );
+        let opencode = dir.path().join("opencode2.cmd");
+        std::fs::write(
+            &opencode,
+            "@ECHO off\r\nCALL :find_dp0\r\n\"%dp0%\\..\\@opencode\\cli\\bin\\opencode.exe\"   %*\r\n",
+        )
+        .unwrap();
+        assert_eq!(
+            argv(&opencode),
+            [dir.path()
+                .join("..\\@opencode\\cli\\bin\\opencode.exe")
+                .into_os_string()]
         );
         let exe = dir.path().join("claude.exe");
         assert_eq!(argv(&exe), [exe.into_os_string()]);

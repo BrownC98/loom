@@ -296,7 +296,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 한 번만 실행한다. 두 번째 실행은 있는 창을 앞으로 가져온다 | Orca와 같다 |
 | 창 위치·크기를 기억한다(`tauri-plugin-window-state`) | Orca와 같다 |
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
-| npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 스크립트를 `node`로 직접 띄운다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
+| npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 노드 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
 | main에 push할 때마다 GitHub Actions(`.github/workflows/windows.yml`)가 설치 파일을 만들어 Release `latest` 하나에 덮어쓴다 | 받는 링크가 늘 같다. 옛 판은 git 기록으로 다시 만들 수 있어 Release를 쌓지 않는다 |
 | 로컬 확인은 컨테이너의 `cargo-xwin` 크로스 빌드다([AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)). 설치 파일은 Actions만 만든다 | NSIS 묶기는 Windows 러너에서 공식 경로로 돈다 |
@@ -356,8 +356,9 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 - loom OpenCode 2 프로필(OpenCode 2 부모 → Claude 자식): `loom spawn --agent claude`가 동작했다. 자식 `done` 본문이 큐로 들어가 쉬던 부모 세션이 0.02초 만에 새 실행을 시작했다. 승인 창은 뜨지 않았다.
 - Windows 11(빌드 26200), Codex 0.159.2: `-s workspace-write`는 `read-only`로 낮아졌다. 관리 프록시는 "managed networking requires the elevated Windows sandbox backend"로 뜨지 않았다.
 - Windows Codex 셸은 `codex.exe` 바로 아래의 `powershell.exe -Command`다. 부모 `loom interrupt`가 120초 셸 명령을 0.3초 안에 끝냈고(`Failed (exit -1)`), 셸 뒤의 파일 쓰기는 일어나지 않았다. 자식 `done`이 `loom wait`로 쉬던 부모를 깨웠다.
+- Windows OpenCode 2(2.0.32): `opencode.exe` 서버와 TUI가 떴다. 부모 `loom interrupt`가 120초 셸 명령을 끝냈고 셸 뒤의 파일 쓰기는 일어나지 않았다. 큐와 자식 `done`이 쉬던 부모를 깨웠다. 첫 지시문이 줄바꿈(CRLF)으로 끝나면 TUI가 `--prompt`를 입력창에 넣기만 하고 제출하지 않았다. 그래서 데몬은 첫 지시문 끝의 공백·줄바꿈을 지운다.
 - Windows Git Bash: `bash -c '<명령>'`의 프로세스 나무는 호출자 → `Git\bin\bash.exe`(껍데기) → bash → fork 흉내용 bash → 명령이다. fork 흉내용 bash는 명령과 함께 끝난다.
-- Windows 앱: 창이 열려 브라우저와 같은 화면을 보였다. 그 안에서 PowerShell 노드와 Codex 노드가 떴다. 창을 닫자 `loom.exe`, `codex.exe`, `node.exe`, `conhost.exe` 노드 프로세스가 하나도 남지 않았다. 데몬만 `taskkill /F`로 끝냈을 때도 자손이 남지 않았다.
+- Windows 앱: 창이 열려 브라우저와 같은 화면을 보였다. 그 안에서 PowerShell 노드, Codex 노드, OpenCode 2 노드가 떴다. 창을 닫자 `loom.exe`, `codex.exe`, `node.exe`, `conhost.exe` 노드 프로세스가 하나도 남지 않았다. 데몬만 `taskkill /F`로 끝냈을 때도 자손이 남지 않았다.
 
 ## 아직 확인하지 않은 것
 

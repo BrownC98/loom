@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>메시지 방향 표시</title>
+<style>
+  /* 토큰은 web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light dark;
+    --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+    --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+    --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+    --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+    --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+    --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+    --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+    --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+    --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+  header p { font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  .lead { max-width: 76ch; color: var(--ink-2); font-size: 13px; }
+  .row { display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; margin-top: 20px; }
+  figure { display: flex; flex-direction: column; gap: 8px; }
+  figcaption { font-size: 13px; font-weight: 600; }
+  figcaption .rec { margin-left: 6px; font-size: 12px; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+  .notes { max-width: 300px; font-size: 12px; color: var(--ink-2); padding-left: 16px; }
+  svg { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+  .card rect { fill: var(--surface); stroke: var(--line-strong); }
+  .card text { fill: var(--ink); font: 600 13px var(--font); }
+  .card .dot { fill: var(--run); stroke: none; }
+  .edge { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
+  .live { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
+  /* 점선이 메시지가 가는 쪽으로 흐른다. 경로는 늘 부모 → 자식으로 그린다. */
+  .to-child { animation: flow 0.6s linear infinite; }
+  .to-parent { animation: flow 0.6s linear infinite reverse; }
+  @keyframes flow { to { stroke-dashoffset: -11; } }
+  @media (prefers-reduced-motion: reduce) { .to-child, .to-parent { animation: none; } }
+  .pill rect { fill: var(--accent); }
+  .pill text { fill: var(--accent-ink); font: 600 12px var(--font); text-anchor: middle; dominant-baseline: central; }
+</style>
+<header>
+  <p>응답할 곳: 총괄 · claude-1 &nbsp;|&nbsp; 연 담당: 총괄 · claude-1</p>
+  <h1>연결선 메시지 표시에 방향 더하기</h1>
+  <p class="lead">메시지가 오가면 연결선이 3초 동안 점선으로 바뀌고 「메시지 n」이 뜹니다. 지금은 어느 쪽으로 갔는지 보이지 않습니다. 아래 그림의 점선은 실제처럼 움직입니다.</p>
+</header>
+
+<div class="row">
+  <figure>
+    <figcaption>지금</figcaption>
+    <svg width="300" height="230" viewBox="0 0 300 230">
+      <g class="card"><rect x="90" y="16" width="120" height="40" rx="8"/><circle class="dot" cx="106" cy="36" r="4"/><text x="118" y="41">총괄</text></g>
+      <g class="card"><rect x="90" y="174" width="120" height="40" rx="8"/><circle class="dot" cx="106" cy="194" r="4"/><text x="118" y="199">워커A</text></g>
+      <path class="edge live" d="M150 56 V174"/>
+      <g class="pill"><rect x="114" y="104" width="72" height="22" rx="11"/><text x="150" y="115">메시지 2</text></g>
+    </svg>
+  </figure>
+
+  <figure>
+    <figcaption>A. 받는 노드 이름 + 점선 흐름<span class="rec">권장</span></figcaption>
+    <svg width="300" height="230" viewBox="0 0 300 230">
+      <g class="card"><rect x="90" y="16" width="120" height="40" rx="8"/><circle class="dot" cx="106" cy="36" r="4"/><text x="118" y="41">총괄</text></g>
+      <g class="card"><rect x="90" y="174" width="120" height="40" rx="8"/><circle class="dot" cx="106" cy="194" r="4"/><text x="118" y="199">워커A</text></g>
+      <path class="edge live to-parent" d="M150 56 V174"/>
+      <g class="pill"><rect x="104" y="104" width="92" height="22" rx="11"/><text x="150" y="115">→ 총괄 2</text></g>
+    </svg>
+    <ul class="notes">
+      <li>라벨에 받는 노드 이름을 적습니다: 「→ 총괄 2」(자식이 부모에게 2개).</li>
+      <li>점선이 받는 쪽으로 흐릅니다. 카드 배치가 위아래든 옆이든 맞습니다.</li>
+      <li>3초 안에 양쪽으로 오가면 「→ 총괄 2 · → 워커A 1」로 적고, 점선은 흐르지 않습니다.</li>
+      <li>움직임 줄이기 설정이면 점선이 멈추고 라벨만 남습니다.</li>
+    </ul>
+  </figure>
+
+  <figure>
+    <figcaption>B. 위·아래 화살표만</figcaption>
+    <svg width="300" height="230" viewBox="0 0 300 230">
+      <g class="card"><rect x="90" y="16" width="120" height="40" rx="8"/><circle class="dot" cx="106" cy="36" r="4"/><text x="118" y="41">총괄</text></g>
+      <g class="card"><rect x="90" y="174" width="120" height="40" rx="8"/><circle class="dot" cx="106" cy="194" r="4"/><text x="118" y="199">워커A</text></g>
+      <path class="edge live" d="M150 56 V174"/>
+      <g class="pill"><rect x="114" y="104" width="72" height="22" rx="11"/><text x="150" y="115">↑ 2 · ↓ 1</text></g>
+    </svg>
+    <ul class="notes">
+      <li>↑는 부모 쪽, ↓는 자식 쪽입니다.</li>
+      <li>카드를 옆으로 놓거나 끌어 옮기면 화살표와 실제 선 방향이 어긋납니다.</li>
+    </ul>
+  </figure>
+</div>

@@ -11,8 +11,8 @@ use ts_rs::TS;
 
 use super::events::{self, Entry, Step};
 use super::{
-    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, from_json, parent_of,
-    set_state, state_of, to_json,
+    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward, from_json,
+    parent_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -193,12 +193,11 @@ impl Graph {
         tx.commit()?;
         if let Some(to_id) = to_id {
             self.publish_node(&db, to_id)?;
-            let child = if parent_of(&db, from)? == Some(to_id) {
-                from
+            if parent_of(&db, from)? == Some(to_id) {
+                self.publish_message(from, Toward::Parent);
             } else {
-                to_id
-            };
-            self.publish_message(child);
+                self.publish_message(to_id, Toward::Child);
+            }
         } else {
             self.publish_node(&db, from)?;
         }
@@ -352,7 +351,7 @@ impl Graph {
         self.publish_node(&db, node)?;
         if let Some(parent) = parent {
             self.publish_node(&db, parent)?;
-            self.publish_message(node);
+            self.publish_message(node, Toward::Parent);
         }
         Ok(())
     }

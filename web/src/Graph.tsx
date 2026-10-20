@@ -1,4 +1,4 @@
-import { Maximize2, Minimize2, Plus } from 'lucide-react';
+import { Maximize2, Minimize2, Plus, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useImperativeHandle, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
@@ -7,6 +7,7 @@ import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { CardView } from './gen/CardView';
+import type { Toward } from './gen/Toward';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
@@ -146,9 +147,7 @@ function RemoveButton(props: { onRemove: () => void }) {
   const { t } = useTranslation();
   return (
     <IconButton label={t('node.remove')} title={t('node.remove')} onClick={props.onRemove}>
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-      </svg>
+      <Trash2 />
     </IconButton>
   );
 }
@@ -189,12 +188,15 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
   return view.parent === null ? null : (views.get(view.parent)?.name ?? null);
 }
 
+/** 강조하는 동안 한 간선으로 오간 메시지 수. 가는 쪽마다 센다. */
+export type Pulse = Readonly<Record<Toward, number>>;
+
 /** `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끈 카드와 묶음을 모두 배치 자리로 되돌린다(위 막대의 [정렬]). */
 export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void };
 
 /**
  * `cardView`: 그래프 전체의 카드 보기. 심플이면 카드에 터미널이 없고, 터미널은 부르는 쪽(오른쪽 칸)이 연다.
- * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
+ * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수(가는 쪽마다). `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
  * `selected`: 입력을 받는 카드. 트리도 고르므로 부르는 쪽이 가진다.
  * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드. 그 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다. 바탕을 누르면 끈다.
  */
@@ -203,7 +205,7 @@ export function Graph(props: {
   repo: RepoView;
   onRepo: (repo: RepoView) => void;
   views: ReadonlyMap<NodeId, NodeView>;
-  pulses: ReadonlyMap<NodeId, number>;
+  pulses: ReadonlyMap<NodeId, Pulse>;
   agents: AgentView[];
   settings: SettingsView;
   accounts: AccountView[] | null;
@@ -351,7 +353,10 @@ export function Graph(props: {
 
   const edges: Edge[] = views.flatMap((view) => {
     if (view.parent === null) return [];
-    const messages = props.pulses.get(view.id);
+    const pulse = props.pulses.get(view.id);
+    const receivers = pulse ? ([['parent', view.parent], ['child', view.id]] as const).filter(([toward]) => pulse[toward] > 0) : [];
+    // 한쪽으로만 갔으면 점선이 받는 쪽으로 흐른다. 경로는 늘 부모 → 자식으로 그린다.
+    const flow = receivers.length === 1 ? `to-${receivers[0][0]}` : undefined;
     const from = positions.get(view.parent);
     const to = positions.get(view.id);
     const sides = from && to ? edgeSides({ at: from, size: size(view.parent) }, { at: to, size: size(view.id) }, direction) : TREE_SIDES[direction];
@@ -362,8 +367,8 @@ export function Graph(props: {
         target: String(view.id),
         sourceHandle: sides.parent,
         targetHandle: sides.child,
-        className: [messages ? 'live' : undefined, lit(view.id, view.parent)].filter(Boolean).join(' ') || undefined,
-        label: messages ? t('graph.messages', { n: messages }) : undefined,
+        className: [pulse ? 'live' : undefined, flow, lit(view.id, view.parent)].filter(Boolean).join(' ') || undefined,
+        label: pulse ? receivers.map(([toward, id]) => t('graph.messageTo', { name: props.views.get(id)?.name ?? `#${id}`, n: pulse[toward] })).join(' · ') : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,
         focusable: false,

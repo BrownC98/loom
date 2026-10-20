@@ -1,4 +1,4 @@
-import { GitCommitVertical } from 'lucide-react';
+import { AlignLeft, GitBranch, GitCommitVertical, Settings as SettingsIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
@@ -13,8 +13,9 @@ import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
+import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
-import { Graph, type GraphHandle } from './Graph';
+import { Graph, type GraphHandle, type Pulse } from './Graph';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
@@ -108,8 +109,8 @@ export function App() {
   // 노드가 모르는 워크트리에 있으면(`loom spawn --worktree`, 터미널에서 만든 워크트리) 목록을 다시 읽는다. 경로마다 한 번만 읽는다.
   const askedWorktrees = useRef(new Set<string>());
   const [nodes, setNodes] = useState<ReadonlyMap<NodeId, NodeView>>(new Map());
-  // 자식 id → 강조하는 동안 그 자식의 간선으로 오간 메시지 수.
-  const [pulses, setPulses] = useState<ReadonlyMap<NodeId, number>>(new Map());
+  // 자식 id → 강조하는 동안 그 자식의 간선으로 오간 메시지 수(가는 쪽마다).
+  const [pulses, setPulses] = useState<ReadonlyMap<NodeId, Pulse>>(new Map());
   const pulseTimers = useRef(new Map<NodeId, number>());
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [settings, setSettings] = useState<SettingsView>(EMPTY_SETTINGS);
@@ -205,8 +206,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const pulse = (child: NodeId) => {
-      setPulses((prev) => new Map(prev).set(child, (prev.get(child) ?? 0) + 1));
+    const pulse = (child: NodeId, toward: Toward) => {
+      setPulses((prev) => {
+        const counts = prev.get(child) ?? { parent: 0, child: 0 };
+        return new Map(prev).set(child, { ...counts, [toward]: counts[toward] + 1 });
+      });
       clearTimeout(pulseTimers.current.get(child));
       const timer = window.setTimeout(() => {
         setPulses((prev) => {
@@ -220,7 +224,7 @@ export function App() {
     return watchGraph((event) => {
       switch (event.kind) {
         case 'message':
-          pulse(event.child);
+          pulse(event.child, event.toward);
           break;
         case 'removed':
           setNodes((prev) => {
@@ -276,10 +280,7 @@ export function App() {
             />
             <div className="side-foot">
               <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-                </svg>
+                <SettingsIcon />
                 {t('settings.title')}
               </button>
             </div>
@@ -306,16 +307,12 @@ export function App() {
               )}
               {repo && (
                 <button className="btn" aria-expanded={creatingWorktree} disabled={!repo.hasCommits} aria-describedby={repo.hasCommits ? undefined : 'no-commit'} onClick={() => setCreatingWorktree(true)}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9" />
-                  </svg>
+                  <GitBranch />
                   {t('repo.newWorktree')}
                 </button>
               )}
               <button className="btn" aria-pressed={dock === 'events'} aria-controls="dock" onClick={() => toggleDock('events')}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 6h16M4 12h16M4 18h10" />
-                </svg>
+                <AlignLeft />
                 {t('events.title')}
               </button>
               <button className="btn" aria-pressed={dock === 'commits'} aria-controls="dock" onClick={() => toggleDock('commits')}>

@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { Terminal } from 'lucide-react';
 import claude from '@lobehub/icons-static-svg/icons/claude-color.svg?url';
 import cursor from '@lobehub/icons-static-svg/icons/cursor.svg?url';
 import gemini from '@lobehub/icons-static-svg/icons/gemini-color.svg?url';
@@ -30,11 +31,7 @@ export function AgentMark(props: { agent: AgentId | null; label: string }) {
   if (logo && 'color' in logo) return <img className="agent-logo" src={logo.color} alt={props.label} title={props.label} />;
   return (
     <span className="agent-logo" role="img" aria-label={props.label} title={props.label} style={logo ? ({ '--logo': `url("${logo.mono}")` } as CSSProperties) : undefined}>
-      {!logo && (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 17l6-5-6-5M12 19h8" />
-        </svg>
-      )}
+      {!logo && <Terminal />}
     </span>
   );
 }

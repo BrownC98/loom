@@ -2,5 +2,6 @@
 import type { EventRecord } from "./EventRecord";
 import type { NodeId } from "./NodeId";
 import type { NodeView } from "./NodeView";
+import type { Toward } from "./Toward";
 
-export type GraphEvent = { "kind": "node" } & NodeView | { "kind": "message", child: NodeId, } | { "kind": "removed", id: NodeId, } | { "kind": "recorded", record: EventRecord, };
+export type GraphEvent = { "kind": "node" } & NodeView | { "kind": "message", child: NodeId, toward: Toward, } | { "kind": "removed", id: NodeId, } | { "kind": "recorded", record: EventRecord, };

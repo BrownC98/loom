@@ -5,8 +5,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::events::{self, Entry};
 use super::{
-    Graph, GraphEvent, Kind, MAX_DEPTH, NodeId, NodeState, Refusal, mailbox, name_of, parent_of,
-    set_state, state_of, to_json,
+    Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Refusal, mailbox, name_of,
+    parent_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -88,6 +88,20 @@ impl Graph {
         if let Some(parent) = parent {
             self.publish_node(&db, parent)?;
             self.publish_message(id);
+        }
+        Ok(())
+    }
+
+    /// 노드의 모델과 추론 강도를 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 없는 노드면 아무것도 하지 않는다.
+    pub fn set_model(&self, id: NodeId, model: &Model) -> rusqlite::Result<()> {
+        let db = self.lock();
+        let changed = db.execute(
+            "UPDATE nodes SET model = ?2, effort = ?3
+             WHERE id = ?1 AND (model IS NOT ?2 OR effort IS NOT ?3)",
+            params![id.0, model.model, model.effort],
+        )?;
+        if changed > 0 {
+            self.publish_node(&db, id)?;
         }
         Ok(())
     }

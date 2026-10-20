@@ -9,7 +9,11 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::graph::{Delivery, Kind};
+use serde::Deserialize;
+use serde_json::Value;
+use tokio::sync::watch;
+
+use crate::graph::{Delivery, Kind, Model};
 
 use super::{Mailbox, VersionMismatch};
 use server::Server;
@@ -55,10 +59,34 @@ pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
     })
 }
 
+/// `session.model.selected` 이벤트의 모델(`Model.Ref`). variant가 없으면 기본 variant다.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelRef {
+    #[serde(rename = "providerID")]
+    provider_id: String,
+    id: String,
+    variant: Option<String>,
+}
+
+/// 서버 이벤트가 `session`의 모델 선택이면 그 모델이다. 모델 id는 `<공급자>/<모델>`로 쓴다(TUI `--model` 형식).
+fn selected_model(event: &Value, session: &str) -> Option<Model> {
+    let data = &event["data"];
+    if event["type"] != "session.model.selected" || data["sessionID"] != session {
+        return None;
+    }
+    let model = ModelRef::deserialize(&data["model"]).ok()?;
+    Some(Model {
+        model: Some(format!("{}/{}", model.provider_id, model.id)),
+        effort: model.variant,
+    })
+}
+
 /// 노드 하나의 서버와 세션. 데몬이 노드를 띄우기 전에 만든다.
 pub struct Node {
     server: Server,
     session: String,
+    model: watch::Receiver<Model>,
 }
 
 impl Node {
@@ -82,7 +110,24 @@ impl Node {
             server.stop();
             return Err(e);
         }
-        Ok(Self { server, session })
+        let (tx, model) = watch::channel(Model::default());
+        let ours = session.clone();
+        server.follow_events(move |event| {
+            if let Some(selected) = selected_model(&event, &ours) {
+                tx.send_replace(selected);
+            }
+        });
+        Ok(Self {
+            server,
+            session,
+            model,
+        })
+    }
+
+    /// 세션의 모델과 variant(추론 강도). TUI는 고른 값을 다음 입력을 보낼 때 서버에 알린다(실측).
+    /// 그래서 첫 입력 전에는 없다. 서버가 끝나면 `changed()`가 실패한다.
+    pub fn model(&self) -> watch::Receiver<Model> {
+        self.model.clone()
     }
 
     /// TUI가 붙을 서버와 세션.
@@ -263,6 +308,7 @@ fn message_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::sync::Mutex;
 
     fn delivery(kind: Kind, body: &str) -> Delivery {
@@ -413,6 +459,29 @@ mod tests {
         let b = message_id();
         assert!(a.starts_with("msg_") && a.len() == 4 + 12 + 14, "{a}");
         assert!(a[4..16] < b[4..16], "{a} {b}");
+    }
+
+    /// 2.0.32 `GET /api/event`에서 옮긴 이벤트다(위치·durable 필드는 줄였다). TUI는 고른 값을 다음 입력 때 알린다.
+    #[test]
+    fn model_selection_of_this_session_gives_provider_model_and_variant() {
+        let selected = json!({ "type": "session.model.selected", "data": {
+            "sessionID": "ses_a", "model": { "id": "kta-chat-deep", "providerID": "KTA", "variant": "high" } } });
+        assert_eq!(
+            selected_model(&selected, "ses_a"),
+            Some(Model {
+                model: Some("KTA/kta-chat-deep".into()),
+                effort: Some("high".into())
+            })
+        );
+        // variant를 끄면 이벤트에 variant가 없다.
+        let default = json!({ "type": "session.model.selected", "data": {
+            "sessionID": "ses_a", "model": { "id": "kta-chat-deep", "providerID": "KTA" },
+            "previous": { "id": "kta-chat-deep", "providerID": "KTA", "variant": "high" } } });
+        assert_eq!(selected_model(&default, "ses_a").unwrap().effort, None);
+        assert_eq!(selected_model(&selected, "ses_b"), None);
+        let step = json!({ "type": "session.step.started", "data": { "sessionID": "ses_a",
+            "model": { "id": "kta-chat-deep", "providerID": "KTA" } } });
+        assert_eq!(selected_model(&step, "ses_a"), None);
     }
 
     #[test]

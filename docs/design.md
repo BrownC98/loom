@@ -56,10 +56,12 @@
 
 | 프로필 | loom 사용법 지시 | 상태·전달 경로 |
 |---|---|---|
-| Claude Code | `--append-system-prompt` | `--settings`로 넘긴 훅 5개가 `loom hook`을 부른다(UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop). 형식과 인자는 [src/profile/claude.rs](../src/profile/claude.rs)에 있다 |
+| Claude Code | `--append-system-prompt` | `--settings`로 넘긴 훅 6개가 `loom hook`을 부른다(SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop). 형식과 인자는 [src/profile/claude.rs](../src/profile/claude.rs)에 있다 |
 | Codex | `-c developer_instructions=…` | 데몬이 노드마다 `codex app-server --listen ws://127.0.0.1:0`을 띄우고 TUI를 `codex --remote <주소>`로 붙인다. 데몬도 같은 서버에 연결해 스레드 상태를 보고 `turn/*` 요청으로 전달한다. 훅은 쓰지 않는다. 연결은 [src/codex_server.rs](../src/codex_server.rs), 요청 내용은 [src/profile/codex.rs](../src/profile/codex.rs)에 있다 |
 | OpenCode 2 | 세션 지시 항목 `loom`(`PUT /api/experimental/session/{id}/instructions/entries/loom`) | 데몬이 노드마다 `opencode2 serve --hostname 127.0.0.1 --port 0`을 띄우고 `POST /api/session`으로 세션을 만든다. TUI는 `opencode2 --server <주소> --session <id>`로 붙는다. 데몬은 세션 입력함(`POST /api/session/{id}/prompt`)으로 전달한다. 규칙과 전달 작업은 [src/profile/opencode2/mod.rs](../src/profile/opencode2/mod.rs), 서버 연결은 [src/profile/opencode2/server.rs](../src/profile/opencode2/server.rs)에 있다 |
 | 프로필 없음 | 없음 | `loom wait`로만 메시지를 받는다 |
+
+- 카드 머리의 모델·추론 강도(`NodeView.model`·`effort`)는 CLI가 알린 글 그대로다. 알리지 않으면 비운다. Claude: SessionStart 훅의 `model`, 그 뒤 훅마다 기록 파일 마지막 응답의 `message.model`·`effort`. Codex: 스레드 상태가 바뀔 때마다 `thread/read`의 `model`·`reasoningEffort`(구독하지 않은 연결에는 `thread/settings/updated`가 오지 않는다). OpenCode 2: `GET /api/event`의 `session.model.selected`(`<providerID>/<id>`, `variant`). 셋 다 TUI에서 바꾼 값은 다음 입력 뒤에 보인다(실측).
 
 - 모든 권한 허용: 노드는 처음부터 승인 창 없이 모든 권한으로 뜬다. 사람이 띄운 노드와 `loom spawn` 자식이 같다. 인자는 카탈로그 항목의 `bypass` 필드다(「에이전트」). 설정에서 에이전트마다 끌 수 있다(`bypassOff`). `bypass`가 빈 에이전트는 CLI 기본 권한 모드로 뜬다.
   - 끄면 아래의 좁은 길을 쓴다: Claude는 loom 명령만 허용 목록에 넣고, Codex는 샌드박스에서 노드 문 주소만 연다. 켜면 이 길은 쓰이지 않지만 그대로 넘긴다.

@@ -14,7 +14,7 @@ import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { arrangeTree, edgeSides, placeGroups, SIDES, TREE_SIDES, type ArrangeDirection, type Side, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
-import { groupsOf, inGroup, type GroupKind } from './repos';
+import { groupParents, groupsOf, inGroup, type GroupKind } from './repos';
 import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
@@ -248,7 +248,8 @@ export function Graph(props: {
   };
   // 묶음마다 나무 배치를 따로 한다. 카드 위치는 묶음 기준, `positions`는 키보드 이동에 쓰는 화면 기준이다.
   const positions = new Map<NodeId, XYPosition>();
-  const laid = groupsOf(props.repo, views).map((group) => {
+  const allGroups = groupsOf(props.repo, views);
+  const laid = allGroups.map((group) => {
     const members = inGroup(views, group);
     const tree = arrangeTree(members, size, direction);
     const local = new Map<NodeId, XYPosition>(
@@ -263,9 +264,10 @@ export function Graph(props: {
     const height = members.length > 0 ? bottom : (flowState.get(group.path)?.measured?.height ?? EMPTY_GROUP_HEIGHT);
     return { group, members, local, right, bottom, height };
   });
-  // 묶음끼리는 정렬 방향을 따라 한 줄로 놓고, 커지거나 끈 묶음이 겹치면 민다.
+  // 묶음끼리도 부모 묶음 다음 단계에 놓는 나무다.
+  const parentGroups = groupParents(allGroups, views);
   const origins = placeGroups(
-    laid.map((g) => ({ size: { width: g.right, height: g.height }, dragged: dragged.get(g.group.path) })),
+    laid.map((g, i) => ({ size: { width: g.right, height: g.height }, parent: parentGroups[i], dragged: dragged.get(g.group.path) })),
     direction,
     GROUP_POSITION,
   );

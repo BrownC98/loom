@@ -40,6 +40,20 @@ export function inGroup(views: NodeView[], group: Group): NodeView[] {
   return views.filter((v) => v.place.worktree === group.path);
 }
 
+/**
+ * 묶음 나무의 부모 묶음 번호(`groups` 안). 그 묶음의 노드가 부모를 다른 묶음에 둔 간선에서 첫 번째(묶음 순서) 부모 묶음이고, 없으면 null이다.
+ */
+export function groupParents(groups: readonly Group[], views: readonly NodeView[]): (number | null)[] {
+  const groupOf = new Map(views.map((v) => [v.id, groups.findIndex((g) => g.path === v.place.worktree)]));
+  return groups.map((group, i) => {
+    const parents = views.flatMap((v) => {
+      const parent = v.parent === null ? undefined : groupOf.get(v.parent);
+      return v.place.worktree === group.path && parent !== undefined && parent >= 0 && parent !== i ? [parent] : [];
+    });
+    return parents.length > 0 ? Math.min(...parents) : null;
+  });
+}
+
 /** 고른 저장소. 저장한 저장소가 목록에 없으면 첫 저장소다. 저장은 이 브라우저에만 한다. */
 export function useSelectedRepo(repos: RepoView[]): [RepoView | null, (id: RepoId) => void] {
   const [saved, setSaved] = useState<RepoId | null>(() => {

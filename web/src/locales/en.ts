@@ -35,6 +35,8 @@ const en = {
   },
   node: {
     label: 'Node {{name}}',
+    unread: 'Unread messages: {{n}}',
+    unreadShort: 'Unread {{n}}',
     held: 'Held {{n}}',
     heldTitle: 'Messages to deliver when it gets a parent: {{n}}',
     terminal: 'Terminal',

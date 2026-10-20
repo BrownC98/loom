@@ -43,12 +43,26 @@ function ModelText(props: { view: NodeView }) {
   ) : null;
 }
 
-/** 보관 수와 상태. */
+/** 읽지 않은 메시지 표시(목업 docs/mockups/unread-badge.html C안). 봉투 아이콘 뒤에 `children`을 둔다. 카드는 「안 읽음 N」, 트리 줄은 수만 둔다. */
+export function Unread(props: { n: number; children: ReactNode }) {
+  return (
+    <span className="unread" aria-label={i18next.t('node.unread', { n: props.n })}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+      </svg>
+      {props.children}
+    </span>
+  );
+}
+
+/** 읽지 않은 수, 보관 수, 상태. */
 function Badges(props: { view: NodeView }) {
   const { t } = useTranslation();
   const { view } = props;
   return (
     <>
+      {view.unread > 0 && <Unread n={view.unread}>{t('node.unreadShort', { n: view.unread })}</Unread>}
       {view.held > 0 && (
         <span className="held" title={t('node.heldTitle', { n: view.held })}>
           {t('node.held', { n: view.held })}

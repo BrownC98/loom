@@ -1,6 +1,6 @@
-import { ChevronDown, ChevronsUpDown, CornerLeftUp, Plus } from 'lucide-react';
 // 사이드바 트리(docs/mockups/graph-panels.html 1번): 저장소 > 워크트리 묶음 > 노드 > 자식 노드.
 // 그래프와 같은 노드 목록을 그린다. 트리만의 상태는 접힌 줄뿐이다.
+import { ChevronDown, ChevronsUpDown, CornerLeftUp, Plus } from 'lucide-react';
 import { useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { agentLabel } from './catalog';

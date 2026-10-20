@@ -1,6 +1,6 @@
-import { X } from 'lucide-react';
 // 이벤트 콘솔 칸(docs/mockups/graph-panels.html 그림 A). 노드·메시지 이벤트를 최근 것부터 보인다.
 // 줄을 누르면 그 이벤트에 관여한 노드를 그래프에서 강조한다. 강조 상태는 부르는 쪽(App)이 가진다.
+import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getEventLog } from './api';

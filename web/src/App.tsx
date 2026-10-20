@@ -46,8 +46,10 @@ const REPOS_REFRESH_MS = 5000;
  * 오른쪽 칸(터미널·이벤트·커밋)은 상한을 창 폭에 맞춘다: `dockPane`이 창 폭에서 왼쪽 칸을 뺀 만큼을 넘긴다(사람 지시 2026-10-20 「심플 모드의 사이드바 터미널 너비는 원하는 만큼」).
  */
 const SIDE_PANE: Pane = { key: 'loom.sideWidth', initial: 260, min: 180, max: 480, grow: 1 };
+/** 오른쪽 칸은 가장 좁은 너비로 시작한다(사람 지시 2026-10-20 「우측 사이드바 최소 너비를 디폴트로 설정」). */
+const DOCK_MIN_WIDTH = 320;
 /** `max`는 App이 창 폭으로 바꿔 넘긴다. 여기 값은 아직 창 폭을 모를 때의 자리값이다. */
-const DOCK_PANE: Pane = { key: 'loom.dockWidth', initial: 520, min: 320, max: 800, grow: -1 };
+const DOCK_PANE: Pane = { key: 'loom.dockWidth', initial: DOCK_MIN_WIDTH, min: DOCK_MIN_WIDTH, max: 800, grow: -1 };
 /** 접힌 사이드바(양쪽)의 줄 폭. 아이콘 단추(30) 하나와 여백이 들어간다(목업 docs/mockups/toolbar.html 4번). */
 const RAIL_WIDTH = 40;
 /** 왼쪽 사이드바 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있다. */

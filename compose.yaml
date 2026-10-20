@@ -49,11 +49,7 @@ services:
       - ${HOME}/.local/state/opencode:${HOME}/.local/state/opencode
       - ${HOME}/.agents:${HOME}/.agents:ro
       - ${HOME}/.gitconfig:${HOME}/.gitconfig:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      # 사람의 저장소 폴더는 compose.override.yaml(저장소에 넣지 않는다)에서 호스트와 같은 경로로 넣는다. 예: AGENTS.md 「개발 환경」.
-    # 호스트 docker 소켓의 그룹. setup.sh가 .env에 적는다.
-    group_add:
-      - ${DOCKER_GID:?bash scripts/worktree/setup.sh를 다시 실행한다}
+      # 호스트 docker 소켓과 사람의 저장소 폴더는 compose.override.yaml(저장소에 넣지 않는다)이 넣는다. setup.sh가 처음 만든다.
     # 노드의 claude가 사용자 설정의 ANTHROPIC_BASE_URL(호스트 127.0.0.1 프록시)에 닿아야 한다.
     # 데몬은 127.0.0.1:$LOOM_PORT에서 듣는다.
     network_mode: host

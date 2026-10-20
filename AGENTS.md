@@ -27,7 +27,7 @@
 | 데몬 띄우기(시험) | `docker compose exec dev sh -c 'cargo run -- serve --listen 127.0.0.1:$LOOM_PORT'` 뒤 `http://127.0.0.1:<LOOM_PORT>` |
 | 사람이 쓰는 데몬 | 원래 체크아웃에서 `docker compose exec -w "$PWD" dev sh -c 'cargo run --manifest-path /work/Cargo.toml -- serve --listen 127.0.0.1:$LOOM_PORT'`. 저장소 폴더를 아래 `compose.override.yaml`로 넣은 뒤에 쓴다 |
 
-- 사람의 저장소 폴더는 원래 체크아웃의 `compose.override.yaml`(커밋하지 않는다)에 호스트와 같은 경로로 넣는다. 설정의 워크스페이스 폴더(처음 값 `~/loom/workspaces`)와 Orca 워크트리 폴더도 넣는다. 그 뒤 `bash scripts/worktree/setup.sh`를 다시 실행한다. 예: `services: {dev: {volumes: ["/srv:/srv", "/mnt/c/Users/<이름>:/mnt/c/Users/<이름>"]}}`. 근거: docs/design.md 「저장소와 워크트리」 「경로와 컨테이너」.
+- 사람의 저장소 폴더는 원래 체크아웃의 `compose.override.yaml`(커밋하지 않는다. setup.sh가 docker 소켓만 켜서 처음 만든다)의 `volumes`에 호스트와 같은 경로로 넣는다. 예: `- /srv:/srv`. 설정의 워크스페이스 폴더(처음 값 `~/loom/workspaces`)와 Orca 워크트리 폴더도 넣는다. 그 뒤 `bash scripts/worktree/setup.sh`를 다시 실행한다. 근거: docs/design.md 「저장소와 워크트리」 「경로와 컨테이너」.
 
 - API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.
 

@@ -258,6 +258,7 @@ const ko: typeof en = {
       server: '`{{program}}`을(를) 시작하지 못했습니다: {{cause}}',
       noServer: '{{value}}: 에이전트를 시작하지 못했습니다. 다시 시도하십시오.',
       noBrief: '{{value}}: 첫 지시문을 받지 않습니다. 지시문을 비워 노드를 만든 뒤 터미널에 입력하십시오.',
+      noModelChoice: '{{value}}: 모델과 추론 강도를 받지 않습니다. Claude와 Codex만 받습니다.',
     },
     repo: {
       notFound: '폴더를 찾을 수 없습니다: {{value}}',

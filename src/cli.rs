@@ -13,7 +13,7 @@ use crate::daemon::{
     TakeRequest,
 };
 use crate::graph::{Delivery, Kind, NodeId};
-use crate::profile::{AgentId, claude};
+use crate::profile::{AgentId, ModelChoice, claude};
 
 /// `agent`가 없으면 `command`를 셸 명령 한 줄로 띄운다.
 pub fn spawn(
@@ -21,6 +21,7 @@ pub fn spawn(
     worktree: Option<String>,
     agent: Option<String>,
     file: Option<PathBuf>,
+    choice: ModelChoice,
     command: Vec<String>,
 ) -> Result<(), String> {
     let brief = match file {
@@ -45,6 +46,7 @@ pub fn spawn(
         run,
         brief,
         worktree,
+        choice,
     };
     // 프록시를 거치지 않는다. Codex 샌드박스 안에서는 실패하고, 사람이 승인하면 샌드박스 밖에서 닿는다.
     let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;

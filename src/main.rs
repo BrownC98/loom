@@ -20,6 +20,7 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use crate::graph::Kind;
+use crate::profile::ModelChoice;
 
 /// 제품 판. `scripts/host.sh`가 `scripts/version.sh` 값을 `LOOM_VERSION`으로 넣는다.
 /// 릴리스 CI는 Cargo.toml 판을 바꿔 빌드한다. 근거: docs/design.md 「배포」.
@@ -49,6 +50,12 @@ enum Cli {
         /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
         #[arg(long)]
         file: Option<PathBuf>,
+        /// 모델. 없으면 CLI 설정의 모델로 뜬다. Claude·Codex만 받는다.
+        #[arg(long, requires = "agent")]
+        model: Option<String>,
+        /// 추론 강도(예: `medium`). 없으면 CLI 설정의 강도로 뜬다. Claude·Codex만 받는다.
+        #[arg(long, requires = "agent")]
+        effort: Option<String>,
         /// 자식이 실행할 명령. ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다.
         #[arg(last = true)]
         command: Vec<String>,
@@ -90,8 +97,17 @@ fn main() -> ExitCode {
             worktree,
             agent,
             file,
+            model,
+            effort,
             command,
-        } => cli::spawn(name, worktree, agent, file, command),
+        } => cli::spawn(
+            name,
+            worktree,
+            agent,
+            file,
+            ModelChoice { model, effort },
+            command,
+        ),
         Cli::Send { name, body } => cli::send(name, Kind::Queue, body),
         Cli::Steer { name, body } => cli::send(name, Kind::Steer, body),
         Cli::Interrupt { name, body } => cli::send(name, Kind::Interrupt, body),

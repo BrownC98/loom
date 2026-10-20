@@ -4,4 +4,4 @@ import type { AgentId } from "./AgentId";
 /**
  * 노드를 띄우지 못한 이유. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
  */
-export type LaunchError = { "code": "unknownAgent", "value": AgentId } | { "code": "notInstalled", "value": { agent: string, command: string, } } | { "code": "briefTooLong", "value": { len: number, limit: number, } } | { "code": "server", "value": { program: string, cause: string, } } | { "code": "noServer", "value": string } | { "code": "noBrief", "value": string };
+export type LaunchError = { "code": "unknownAgent", "value": AgentId } | { "code": "notInstalled", "value": { agent: string, command: string, } } | { "code": "briefTooLong", "value": { len: number, limit: number, } } | { "code": "server", "value": { program: string, cause: string, } } | { "code": "noServer", "value": string } | { "code": "noBrief", "value": string } | { "code": "noModelChoice", "value": string };

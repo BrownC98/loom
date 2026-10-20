@@ -48,6 +48,18 @@ const ALLOWED: [&str; 7] = [
     "Bash(loom adopt:*)",
 ];
 
+/// `--model`·`--effort` 시작 인자(Claude Code 2.1.304 도움말).
+pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(model) = &choice.model {
+        args.extend(["--model".into(), model.clone()]);
+    }
+    if let Some(effort) = &choice.effort {
+        args.extend(["--effort".into(), effort.clone()]);
+    }
+    args
+}
+
 /// `claude` 시작 인자. 사용자의 `~/.claude` 파일을 고치지 않으려고 훅을 `--settings`로만 넘긴다.
 pub fn args() -> Vec<String> {
     let hook = json!([{ "hooks": [{

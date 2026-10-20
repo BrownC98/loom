@@ -267,10 +267,29 @@ pub fn profile_of(id: &AgentId) -> Option<Profile> {
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum Start {
-    /// `brief`가 비어 있으면 빈 세션으로 시작한다.
-    Agent { agent: AgentId, brief: String },
+    /// `brief`가 비어 있으면 빈 세션으로 시작한다. 화면은 `choice`를 보내지 않는다.
+    Agent {
+        agent: AgentId,
+        brief: String,
+        #[serde(default)]
+        #[ts(skip)]
+        choice: ModelChoice,
+    },
     /// `line`이 비어 있으면 사용자의 기본 셸을 띄운다.
     Command { line: String },
+}
+
+/// `loom spawn --model`·`--effort`. 빈 칸은 CLI 설정의 값으로 뜬다.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub struct ModelChoice {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+impl ModelChoice {
+    fn is_empty(&self) -> bool {
+        self.model.is_none() && self.effort.is_none()
+    }
 }
 
 impl Start {
@@ -324,6 +343,8 @@ pub enum LaunchError {
     NoServer(String),
     /// 첫 지시문을 받지 않는 에이전트다. 값은 에이전트 이름이다.
     NoBrief(String),
+    /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. 값은 에이전트 이름이다.
+    NoModelChoice(String),
 }
 
 impl std::fmt::Display for LaunchError {
@@ -342,6 +363,10 @@ impl std::fmt::Display for LaunchError {
                 write!(f, "`{program}`를 띄우지 못했다: {cause}")
             }
             LaunchError::NoServer(agent) => write!(f, "{agent}: 노드가 붙을 서버를 띄우지 못했다."),
+            LaunchError::NoModelChoice(agent) => write!(
+                f,
+                "{agent}: `--model`·`--effort`를 받지 않는다. Claude·Codex만 받는다. 빼고 다시 만든다."
+            ),
             LaunchError::NoBrief(agent) => write!(
                 f,
                 "{agent}: 첫 지시문을 받지 않는다. 지시문을 비우고 만든 뒤 터미널에 입력한다."
@@ -367,7 +392,11 @@ pub fn command(
     bypass_off: &[AgentId],
 ) -> Result<CommandBuilder, LaunchError> {
     let mut cmd = match start {
-        Start::Agent { agent, brief } => agent_command(agent, brief, remote, bypass_off)?,
+        Start::Agent {
+            agent,
+            brief,
+            choice,
+        } => agent_command(agent, brief, choice, remote, bypass_off)?,
         Start::Command { line } if line.trim().is_empty() => CommandBuilder::new_default_prog(),
         Start::Command { line } => shell(line),
     };
@@ -400,10 +429,12 @@ fn forget_parent_session(cmd: &mut CommandBuilder) {
 fn agent_command(
     id: &AgentId,
     brief: &str,
+    choice: &ModelChoice,
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
 ) -> Result<CommandBuilder, LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
+    let choice_args = choice_args(agent, choice)?;
     let program = installed(agent).ok_or_else(|| LaunchError::NotInstalled {
         agent: agent.label.clone(),
         command: agent.cmd.clone(),
@@ -437,6 +468,7 @@ fn agent_command(
         (Some(_), _) => return Err(LaunchError::NoServer(agent.label.clone())),
         (None, _) => cmd.args(&agent.args),
     }
+    cmd.args(choice_args);
     // 파일 끝 줄바꿈을 지운다. OpenCode 2 TUI는 `--prompt` 값이 줄바꿈으로 끝나면 제출하지 않는다(Windows 실측).
     let brief = brief.trim_end();
     if brief.is_empty() {
@@ -450,6 +482,16 @@ fn agent_command(
         }
     }
     Ok(cmd)
+}
+
+/// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
+fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
+    match agent.profile {
+        _ if choice.is_empty() => Ok(Vec::new()),
+        Some(Profile::Claude) => Ok(claude::choice_args(choice)),
+        Some(Profile::Codex) => Ok(codex::choice_args(choice)),
+        Some(Profile::OpenCode2) | None => Err(LaunchError::NoModelChoice(agent.label.clone())),
+    }
 }
 
 /// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
@@ -515,6 +557,38 @@ mod tests {
         assert_eq!(cmd.get_env("CLAUDE_CODE_CHILD_SESSION"), None);
         assert_eq!(cmd.get_env("CLAUDECODE"), None);
         assert_eq!(cmd.get_env("CLAUDE_CONFIG_DIR").unwrap(), "/x");
+    }
+
+    #[test]
+    fn model_choice_goes_to_claude_and_codex_only() {
+        let choice = ModelChoice {
+            model: Some("claude-sonnet-5-5".into()),
+            effort: Some("medium".into()),
+        };
+        let agent = |id: &str| find(&AgentId(id.into())).unwrap();
+        assert_eq!(
+            choice_args(agent("claude"), &choice).unwrap(),
+            ["--model", "claude-sonnet-5-5", "--effort", "medium"]
+        );
+        assert_eq!(
+            choice_args(agent("codex"), &choice).unwrap(),
+            [
+                "-m",
+                "claude-sonnet-5-5",
+                "-c",
+                r#"model_reasoning_effort="medium""#
+            ]
+        );
+        for id in ["opencode2", "grok"] {
+            assert!(matches!(
+                choice_args(agent(id), &choice),
+                Err(LaunchError::NoModelChoice(_))
+            ));
+        }
+        assert_eq!(
+            choice_args(agent("grok"), &ModelChoice::default()).unwrap(),
+            Vec::<String>::new()
+        );
     }
 
     /// 모든 권한 허용 인자는 CLI 도움말로 확인한 셋에만 둔다(docs/design.md 「실측 근거」).

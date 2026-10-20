@@ -38,7 +38,8 @@ use crate::process_tree;
 use crate::profile::codex::{self, Status};
 use crate::profile::opencode2;
 use crate::profile::{
-    self, AgentId, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
+    self, AgentId, LaunchError, Mailbox, ModelChoice, Profile, Remote, ServerLink, Start,
+    VersionMismatch,
 };
 use crate::settings::Settings;
 use crate::worktree::{self, RepoId, RepoProblem, RepoView, Repos, Worktree};
@@ -197,6 +198,9 @@ pub struct SpawnRequest {
     pub brief: String,
     /// 있으면 부모 워크트리의 HEAD에서 이 브랜치로 새 워크트리를 만들고 자식을 그 안에 띄운다.
     pub worktree: Option<String>,
+    /// `SpawnRun::Agent`에만 쓴다. 옛 CLI는 보내지 않으므로 없으면 빈 값이다.
+    #[serde(default)]
+    pub choice: ModelChoice,
 }
 
 /// 자식이 실행할 것.
@@ -905,6 +909,7 @@ async fn agent_spawn(
             Start::Agent {
                 agent,
                 brief: req.brief,
+                choice: req.choice,
             },
             String::new(),
         ),

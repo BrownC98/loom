@@ -40,6 +40,19 @@ const USAGE: &str = "\
 받은 메시지는 「loom 메시지」로 시작하는 입력으로 들어온다. 중단 메시지를 받으면 하던 일을 멈추고 그 본문을 따른다.
 자식의 결과를 기다리는 동안 할 일이 없으면 턴을 끝낸다. 자식의 결과는 새 턴으로 들어온다. `loom wait`는 부르지 않는다.";
 
+/// `-m`과 `model_reasoning_effort` 시작 인자. `-c` 값은 TOML이라 문자열을 따옴표로 감싼다.
+pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(model) = &choice.model {
+        args.extend(["-m".into(), model.clone()]);
+    }
+    if let Some(effort) = &choice.effort {
+        let effort = serde_json::to_string(effort).expect("문자열은 늘 직렬화된다");
+        args.extend(["-c".into(), format!("model_reasoning_effort={effort}")]);
+    }
+    args
+}
+
 /// `codex` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
 /// `-c` 값은 TOML로 읽힌다. JSON 문자열은 TOML 기본 문자열과 같은 이스케이프를 쓴다.
 /// 터미널 제목은 스레드 제목만 쓴다. 기본 제목(`<스피너> | <폴더>`)에는 카드 주제가 없다(`Profile::topic`).

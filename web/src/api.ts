@@ -63,6 +63,8 @@ export const getRepos = () => call<RepoView[]>('GET', '/api/repos');
 export const addRepo = (req: NewRepo) => call<RepoView>('POST', '/api/repos', req);
 export const cloneRepo = (req: CloneRepo) => call<RepoView>('POST', '/api/repos/clone', req);
 export const createRepo = (req: CreateRepo) => call<RepoView>('POST', '/api/repos/create', req);
+/** 목록에서만 뺀다. 폴더는 그대로다. 그 저장소에 노드가 남았으면 거절한다. */
+export const removeRepo = (repo: RepoId) => call<null>('DELETE', `/api/repos/${repo}`);
 /** 데몬이 보는 폴더의 자식 폴더. `path`가 없으면 `<홈>/loom`이다. */
 export const getFolders = (path?: string) => call<FolderList>('GET', path === undefined ? '/api/folders' : `/api/folders?${new URLSearchParams({ path })}`);
 export const createWorktree = (repo: RepoId, req: NewWorktree) => call<RepoView>('POST', `/api/repos/${repo}/worktrees`, req);

@@ -92,6 +92,8 @@ pub enum RepoProblem {
     NotEmpty(String),
     /// 새 프로젝트 폴더가 이미 있다. 그 폴더는 건드리지 않는다.
     Exists(String),
+    /// 이 저장소에 노드가 남았다. 값은 남은 노드 수다. 노드를 먼저 지운다.
+    HasNodes(u32),
     /// git이 실패했다. 값은 git의 오류 글이다.
     Git(String),
 }
@@ -111,6 +113,9 @@ impl fmt::Display for RepoProblem {
             RepoProblem::BadName(name) => write!(f, "'{name}': 폴더 이름으로 쓸 수 없다."),
             RepoProblem::NotEmpty(path) => write!(f, "{path}: 이미 있고 비어 있지 않다."),
             RepoProblem::Exists(path) => write!(f, "{path}: 이미 있다."),
+            RepoProblem::HasNodes(n) => {
+                write!(f, "노드 {n}개가 남은 저장소다. 노드를 먼저 지운다.")
+            }
             RepoProblem::Git(e) => write!(f, "git 오류: {e}"),
         }
     }
@@ -201,6 +206,31 @@ impl Repos {
                 Ok((RepoId(row.get(0)?), PathBuf::from(row.get::<_, String>(1)?)))
             })?
             .collect()
+    }
+
+    /// 목록에서 뺀다. 폴더는 건드리지 않는다. 노드가 남았으면 거절한다. 보관한 메시지를 몰래 지우지 않는다.
+    /// `nodes`는 같은 DB 파일이다. 검사와 삭제가 한 문장이라 그 사이에 노드가 들어오지 못한다.
+    pub fn remove(&self, id: RepoId) -> Result<(), RepoProblem> {
+        let db = self.db.lock().unwrap();
+        let fail = |e: rusqlite::Error| RepoProblem::Git(e.to_string());
+        let deleted = db
+            .execute(
+                "DELETE FROM repos WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM nodes WHERE repo = ?1)",
+                [id.0],
+            )
+            .map_err(fail)?;
+        if deleted > 0 {
+            return Ok(());
+        }
+        let left: Option<u32> = db
+            .query_row(
+                "SELECT (SELECT count(*) FROM nodes WHERE repo = ?1) FROM repos WHERE id = ?1",
+                [id.0],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(fail)?;
+        Err(left.map_or(RepoProblem::NoRepo, RepoProblem::HasNodes))
     }
 
     pub fn path(&self, id: RepoId) -> Result<PathBuf, RepoProblem> {
@@ -558,6 +588,30 @@ mod tests {
         assert_eq!(path, Path::new(plain));
         assert_eq!(repos.path(start), Ok(PathBuf::from(plain)));
         assert_eq!(repos.path(RepoId(99)), Err(RepoProblem::NoRepo));
+    }
+
+    #[tokio::test]
+    async fn remove_refuses_while_nodes_remain_and_keeps_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(dir.path());
+        let repos = repos(dir.path());
+        let id = repos.add(repo.to_str().unwrap()).await.unwrap();
+        // 노드 표는 그래프가 같은 DB 파일에 쓴다.
+        let graph = crate::db::open(&dir.path().join("t.db")).unwrap();
+        graph
+            .execute(
+                r#"INSERT INTO nodes (name, agent, state, repo) VALUES ('shell-1', 'null', '{"kind":"running"}', ?1)"#,
+                [id.0],
+            )
+            .unwrap();
+        assert_eq!(repos.remove(id), Err(RepoProblem::HasNodes(1)));
+        assert_eq!(repos.list().unwrap(), [(id, repo.clone())]);
+
+        graph.execute("DELETE FROM nodes", []).unwrap();
+        assert_eq!(repos.remove(id), Ok(()));
+        assert_eq!(repos.list().unwrap(), []);
+        assert!(repo.join(".git").is_dir());
+        assert_eq!(repos.remove(id), Err(RepoProblem::NoRepo));
     }
 
     #[test]

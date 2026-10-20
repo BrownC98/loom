@@ -268,6 +268,11 @@ export function App() {
               agents={agents}
               selected={selected}
               onSelect={selectNode}
+              settings={settings}
+              accounts={accounts}
+              onRepoChanged={putRepo}
+              // 그래프가 그리던 저장소면 `useSelectedRepo`가 남은 첫 저장소로 바꾼다.
+              onRepoRemoved={(id) => setRepos((prev) => prev.filter((r) => r.id !== id))}
             />
             <div className="side-foot">
               <button className="btn ghost" onClick={() => setSettingsTab('agents')}>

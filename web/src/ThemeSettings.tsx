@@ -2,8 +2,10 @@ import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 're
 import { useTranslation } from 'react-i18next';
 import type { Language } from './gen/Language';
 import type { SettingsView } from './gen/SettingsView';
+import type { TerminalFont } from './gen/TerminalFont';
 import type { TerminalTheme } from './gen/TerminalTheme';
 import type { Theme } from './gen/Theme';
+import { activeFont, DEFAULT_TERMINAL_FONT, FONT_SIZE_RANGE } from './Terminal';
 import { chosenTheme, DEFAULT_TERMINAL_THEME, RESET_TERMINAL_THEME, TERMINAL_THEMES, type TerminalThemeName } from './terminalThemes';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
@@ -72,13 +74,14 @@ export function UiTab({ settings, onSettings }: TabProps) {
   );
 }
 
-/** 「터미널」 탭(목업 6번): 모드마다 터미널 테마. */
+/** 「터미널」 탭(목업 6번, terminal-font.html): 글꼴과 모드마다 터미널 테마. */
 export function TerminalTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   const saved = settings.terminalTheme;
   const save = (next: Partial<TerminalTheme>) => onSettings({ ...settings, terminalTheme: { ...saved, ...next } });
   return (
     <>
+      <FontFields settings={settings} onSettings={onSettings} />
       <section>
         <h4>{t('theme.darkTheme')}</h4>
         <ThemePicker label={t('theme.darkPicker')} value={chosenTheme(saved, 'dark')} onChoose={(dark) => save({ dark })} />
@@ -103,6 +106,71 @@ export function TerminalTab({ settings, onSettings }: TabProps) {
           </button>
         </div>
         <span className="hint">{t('theme.resetHint', DEFAULT_TERMINAL_THEME)}</span>
+      </section>
+    </>
+  );
+}
+
+/** Orca의 「Font Size」·「Font Family」와 같은 두 칸. 칸을 떠나거나 Enter를 누르면 저장한다. 범위 밖 크기는 버린다. 글꼴 칸을 비우면 기본값이다. */
+function FontFields({ settings, onSettings }: TabProps) {
+  const { t } = useTranslation();
+  const saved = settings.terminalFont;
+  const size = activeFont(saved).size;
+  const save = (next: Partial<TerminalFont>) => onSettings({ ...settings, terminalFont: { ...saved, ...next } });
+  const saveSize = (n: number) => {
+    if (Number.isInteger(n) && n >= FONT_SIZE_RANGE.min && n <= FONT_SIZE_RANGE.max) save({ size: n });
+  };
+  const saveFamily = (text: string) => {
+    const family = text.trim() || null;
+    if (family !== saved.family) save({ family });
+  };
+  return (
+    <>
+      <section>
+        <h4>
+          <label htmlFor="t-font-size">{t('terminalFont.size')}</label>
+        </h4>
+        <div className="stepper">
+          <button className="btn icon" aria-label={t('terminalFont.smaller')} disabled={size <= FONT_SIZE_RANGE.min} onClick={() => saveSize(size - 1)}>
+            −
+          </button>
+          <input
+            id="t-font-size"
+            key={size}
+            type="number"
+            min={FONT_SIZE_RANGE.min}
+            max={FONT_SIZE_RANGE.max}
+            defaultValue={size}
+            onBlur={(e) => saveSize(e.target.valueAsNumber)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveSize(e.currentTarget.valueAsNumber);
+            }}
+          />
+          <button className="btn icon" aria-label={t('terminalFont.larger')} disabled={size >= FONT_SIZE_RANGE.max} onClick={() => saveSize(size + 1)}>
+            +
+          </button>
+        </div>
+      </section>
+      <section>
+        <h4>
+          <label htmlFor="t-font-family">{t('terminalFont.family')}</label>
+        </h4>
+        <div className="field">
+          <input
+            id="t-font-family"
+            key={saved.family}
+            defaultValue={saved.family ?? ''}
+            placeholder={DEFAULT_TERMINAL_FONT.family}
+            spellCheck={false}
+            autoComplete="off"
+            translate="no"
+            onBlur={(e) => saveFamily(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveFamily(e.currentTarget.value);
+            }}
+          />
+        </div>
+        <span className="hint">{t('terminalFont.familyHint')}</span>
       </section>
     </>
   );

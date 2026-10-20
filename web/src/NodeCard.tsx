@@ -16,7 +16,8 @@ export function stateLabel(state: NodeState): string {
   }
 }
 
-function footText(state: NodeState, parentName: string | null, held: boolean, selected: boolean): string {
+/** 도는 노드는 발 줄이 없다. 터미널이 상태를 보인다. */
+function footText(state: NodeState, parentName: string | null, held: boolean): string | null {
   const t = i18next.t;
   switch (state.kind) {
     case 'done':
@@ -27,7 +28,7 @@ function footText(state: NodeState, parentName: string | null, held: boolean, se
       if (parentName !== null) return t('node.foot.exitedSent', { code: state.code, parent: parentName });
       return t('node.foot.exited', { code: state.code });
     case 'running':
-      return selected ? t('node.foot.typing') : t('node.foot.clickToType');
+      return null;
   }
 }
 
@@ -47,6 +48,7 @@ export function NodeCard(props: {
 }) {
   const { t } = useTranslation();
   const { view, selected } = props;
+  const foot = footText(view.state, props.parentName, view.held > 0);
   return (
     <article
       className="card"
@@ -87,7 +89,7 @@ export function NodeCard(props: {
       <div className="term nodrag nowheel" translate="no">
         {props.children}
       </div>
-      <div className="card-foot">{footText(view.state, props.parentName, view.held > 0, selected)}</div>
+      {foot !== null && <div className="card-foot">{foot}</div>}
     </article>
   );
 }

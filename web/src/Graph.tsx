@@ -18,7 +18,8 @@ const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
-const CARD_WIDTH = 400;
+/** `.card`의 폭. 기본 글꼴로 터미널이 80열을 넘는다(TUI가 80열로 그린다). */
+const CARD_WIDTH = 600;
 /** 카드를 재기 전에 쓰는 높이. 재면 잰 값을 쓴다. */
 const CARD_HEIGHT = 330;
 /** 카드는 묶음 머리 위나 왼쪽 테두리 밖으로 끌 수 없다. 오른쪽·아래로 끌면 묶음이 따라 커진다. 좌표는 묶음 기준이다. */
@@ -28,8 +29,8 @@ const CARD_EXTENT: CoordinateExtent = [
 ];
 /** 카드 높이에 간선이 지나갈 틈을 더한 세로 간격. */
 const CARD_STEP = 376;
-/** 카드 폭에 틈을 더한 가로 간격. 한 칸이면 묶음 폭이 목업과 같은 440이다. */
-const CARD_COLUMN_STEP = 420;
+/** 카드 폭에 틈을 더한 가로 간격. 한 칸이면 묶음 폭이 640이다. */
+const CARD_COLUMN_STEP = 620;
 /** 묶음 왼쪽 위에서 잰 새 노드 팝오버 위치. */
 const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
 /** 노드로 옮겨 가는 화면 이동 시간. */

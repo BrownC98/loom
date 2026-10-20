@@ -46,8 +46,6 @@ const en = {
       exitedHeld: 'No parent · exited({{code}}) goes to the new parent',
       exitedSent: 'Sent exited({{code}}) to the parent ({{parent}})',
       exited: 'The process ended with code {{code}}',
-      typing: 'Typing',
-      clickToType: 'Click to type in this card',
     },
   },
   removeNode: {
@@ -132,6 +130,13 @@ const en = {
     refresh: 'Refresh',
     accountsLabel: '{{provider}} accounts',
     manage: 'Manage accounts…',
+  },
+  terminalFont: {
+    size: 'Font size',
+    smaller: 'Decrease font size',
+    larger: 'Increase font size',
+    family: 'Font family',
+    familyHint: 'List fonts separated by commas. Each character uses the first font that has it. Leave empty for the default.',
   },
   theme: {
     heading: 'Theme',

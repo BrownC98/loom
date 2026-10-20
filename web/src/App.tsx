@@ -20,7 +20,7 @@ import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Tree } from './Tree';
 import { UpdateCard } from './Update';
-import { XtermTheme } from './Terminal';
+import { activeFont, XtermFont, XtermTheme } from './Terminal';
 import { withAccount } from './usage';
 
 /** 메시지가 오간 간선을 강조하는 시간. 마지막 메시지부터 잰다. */
@@ -37,6 +37,7 @@ const EMPTY_SETTINGS: SettingsView = {
   // 데몬이 첫 페이지에 넣은 테마(`Theme`의 serde 이름)다. 설정을 받기 전에도 같은 테마를 그린다.
   theme: (document.documentElement.dataset.theme as Theme | undefined) ?? 'system',
   terminalTheme: RESET_TERMINAL_THEME,
+  terminalFont: { family: null, size: null },
   language: INITIAL_LANGUAGE,
 };
 const SETTINGS_HASH = '#settings/';
@@ -176,6 +177,7 @@ export function App() {
 
   return (
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
+      <XtermFont.Provider value={activeFont(settings.terminalFont)}>
       <ReactFlowProvider>
         <div className="app" data-dock={dock ?? undefined} style={{ '--side-w': `${sideWidth}px`, '--dock-w': `${dockWidth}px` } as CSSProperties}>
           <Splitter pane={SIDE_PANE} width={sideWidth} onWidth={setSideWidth} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />
@@ -246,6 +248,7 @@ export function App() {
           )}
         </div>
       </ReactFlowProvider>
+      </XtermFont.Provider>
     </XtermTheme.Provider>
   );
 }

@@ -48,8 +48,6 @@ const ko: typeof en = {
       exitedHeld: '부모가 없다 · exited({{code}})은 새 부모에게 전한다',
       exitedSent: '부모({{parent}})에게 exited({{code}})을 보냈다',
       exited: '프로세스가 코드 {{code}}로 끝났다',
-      typing: '입력 중',
-      clickToType: '클릭하면 이 카드가 입력을 받는다',
     },
   },
   removeNode: {
@@ -133,6 +131,13 @@ const ko: typeof en = {
     refresh: '새로 고침',
     accountsLabel: '{{provider}} 계정',
     manage: '계정 관리…',
+  },
+  terminalFont: {
+    size: '글꼴 크기',
+    smaller: '글꼴 크기 줄이기',
+    larger: '글꼴 크기 키우기',
+    family: '글꼴',
+    familyHint: '쉼표로 여러 글꼴을 적는다. 글자마다 그 글자가 있는 첫 글꼴을 쓴다. 비우면 기본값이다.',
   },
   theme: {
     heading: '테마',

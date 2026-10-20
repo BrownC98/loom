@@ -2,6 +2,7 @@
 import type { AccountId } from "./AccountId";
 import type { AgentId } from "./AgentId";
 import type { Language } from "./Language";
+import type { TerminalFont } from "./TerminalFont";
 import type { TerminalTheme } from "./TerminalTheme";
 import type { Theme } from "./Theme";
 
@@ -17,7 +18,7 @@ claudeAccount: AccountId | null, codexAccount: AccountId | null,
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽고 다른 값은 그대로 둔다.
  */
-theme: Theme, terminalTheme: TerminalTheme, 
+theme: Theme, terminalTheme: TerminalTheme, terminalFont: TerminalFont, 
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽는다.
  */

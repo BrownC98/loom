@@ -1,4 +1,4 @@
-//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어. SQLite에 한 줄로 둔다.
+//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 화면 언어. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
 use std::sync::Mutex;
@@ -24,6 +24,8 @@ pub struct SettingsView {
     pub theme: Theme,
     #[serde(default)]
     pub terminal_theme: TerminalTheme,
+    #[serde(default)]
+    pub terminal_font: TerminalFont,
     /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
     #[serde(default)]
     pub language: Language,
@@ -51,6 +53,17 @@ pub struct TerminalTheme {
     pub light: Option<String>,
     /// 켜면 라이트 모드에서도 다크 모드 테마를 쓴다.
     pub match_dark: bool,
+}
+
+/// 모든 터미널이 쓰는 글꼴. 기본값은 화면(`web/src/Terminal.tsx`)에만 있다. 없으면 화면이 기본값을 쓴다.
+/// Orca의 `terminalFontFamily`·`terminalFontSize`와 같은 자리다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct TerminalFont {
+    /// CSS `font-family` 문자열. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다(VS Code `terminal.integrated.fontFamily`).
+    pub family: Option<String>,
+    pub size: Option<u8>,
 }
 
 /// 화면 테마. `System`은 OS 설정(`prefers-color-scheme`)을 따른다.
@@ -139,6 +152,7 @@ mod tests {
         assert_eq!(got.bypass_off, [AgentId("codex".into())]);
         assert_eq!(got.theme, Theme::System);
         assert_eq!(got.terminal_theme, TerminalTheme::default());
+        assert_eq!(got.terminal_font, TerminalFont::default());
         assert_eq!(got.language, Language::System);
     }
 }

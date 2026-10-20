@@ -134,7 +134,7 @@
 
 ### 설정
 
-- 설정은 `settings` 테이블 한 줄(JSON)이다: 모든 권한 허용을 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어. 저장한 JSON에 없는 값은 기본값으로 읽는다.
+- 설정은 `settings` 테이블 한 줄(JSON)이다: 모든 권한 허용을 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 화면 언어. 저장한 JSON에 없는 값은 기본값으로 읽는다.
 - 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
@@ -142,6 +142,7 @@
   - 디자인 언어: 회색은 무채색(채도 0)이고 값은 Orca 토큰(shadcn neutral)을 따른다. 강조도 Orca primary처럼 무채색이고, 실행 중 상태만 파랑(`--run`)이다. 출처가 다르면 Orca, [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/color), [Toss TDS](https://tossmini-docs.toss.im/tds-mobile/foundation/colors/) 순서로 고른다. Apple에서는 글자 대비 4.5:1을 가져왔다(2026-10-20 사람 지시 "다크모드에서 파란색 톤을 제거하고 무채색으로", "애플을 우선순위 더 높게"). 명세는 [neutral-palette.html](mockups/neutral-palette.html)이다.
 - 터미널 테마는 loom 테마 2개와 Orca 내장 테마 30개 가운데 다크 모드용과 라이트 모드용을 하나씩 고른다. 기본값은 지금 loom 모양인 「Loom Dark」와 「Loom Light」다. 「라이트 모드에서도 다크 모드 테마를 쓴다」를 켜면 라이트 모드에서도 다크 모드용을 쓴다.
   - 색 값은 `web/src/terminalThemes.ts` 한 곳에만 있다. Orca 테마는 Orca 번들에서 기계로 꺼냈다. 데몬은 이름만 저장한다. 이름이 없거나 목록에 없으면 화면이 기본값을 쓴다. [터미널 테마 초기화]는 저장한 이름을 비운다.
+- 터미널 글꼴은 Orca처럼 글꼴 크기와 글꼴(CSS `font-family` 문자열) 두 칸이다. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다. 기본값은 `"JetBrains Mono", "Nanum Gothic Coding", monospace`, 12px다. 번들한 Nanum Gothic Coding은 한글 폭이 JetBrains Mono 두 칸과 같게 키워 한글 사이에 틈이 없다. 카드는 기본 글꼴로 80열이다.
   - 열린 터미널(xterm)은 모드나 고른 테마가 바뀌면 바로 다시 칠한다. 명세는 [settings.html 6번](mockups/settings.html#u-theme)이다.
 
 ### 화면 언어

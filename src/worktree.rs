@@ -411,12 +411,23 @@ pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem>
     Ok(())
 }
 
-/// 병합하지 않은 커밋이 있어도 지운다(`-D`). 사람이 삭제 창에서 고를 때만 부른다.
+/// 병합하지 않은 커밋이 있어도 지운다(`-D`). 사람이 삭제 창에서 고를 때와 `discard`만 부른다.
 pub async fn delete_branch(repo: &Path, branch: &str) -> Result<(), RepoProblem> {
     git::run(repo, &["branch", "-D", "--", branch])
         .await
         .map_err(RepoProblem::Git)?;
     Ok(())
+}
+
+/// `create`가 만든 워크트리를 되돌린다: 폴더와 그 워크트리의 브랜치를 지운다. 다른 워크트리·브랜치는 건드리지 않는다.
+/// 새 브랜치는 기준 커밋을 가리킬 뿐 자기 커밋이 없어 잃는 것이 없다.
+pub async fn discard(repo: &Path, path: &str) -> Result<(), RepoProblem> {
+    let made = find(repo, path).await?;
+    remove(repo, &made).await?;
+    match &made.branch {
+        Some(branch) => delete_branch(repo, branch).await,
+        None => Ok(()),
+    }
 }
 
 /// 폴더가 속한 저장소의 원래 체크아웃. git 저장소가 아니면 없다.
@@ -595,6 +606,35 @@ mod tests {
         assert_eq!(run(&repo, &["branch", "--list", "me/feat-1"]), "me/feat-1");
         delete_branch(&repo, "me/feat-1").await.unwrap();
         assert_eq!(run(&repo, &["branch", "--list", "me/feat-1"]), "");
+    }
+
+    /// 띄우지 못한 `loom spawn --worktree`의 되돌리기: 만든 폴더와 브랜치만 지운다.
+    #[tokio::test]
+    async fn discard_removes_only_the_made_worktree_and_its_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(dir.path());
+        let workspace = dir.path().join("ws");
+        std::fs::create_dir(&workspace).unwrap();
+        let kept = create(&repo, &repo, &workspace, "kept", "main")
+            .await
+            .unwrap();
+        let made = create(&repo, &repo, &workspace, "me/made", "main")
+            .await
+            .unwrap();
+        assert_eq!(discard(&repo, &made).await, Ok(()));
+        assert!(!Path::new(&made).exists());
+        assert_eq!(run(&repo, &["branch", "--list", "me/made"]), "");
+        assert_eq!(view(RepoId(1), &repo).await.branches, ["kept", "main"]);
+        assert!(find(&repo, &kept).await.is_ok());
+        // 이미 지운 워크트리는 되돌리지 못한다. 원래 체크아웃은 지우지 않는다.
+        assert_eq!(
+            discard(&repo, &made).await,
+            Err(RepoProblem::NotInRepo(made.clone()))
+        );
+        assert_eq!(
+            discard(&repo, repo.to_str().unwrap()).await,
+            Err(RepoProblem::Original)
+        );
     }
 
     #[tokio::test]

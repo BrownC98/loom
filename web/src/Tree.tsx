@@ -11,6 +11,7 @@ import type { RepoView } from './gen/RepoView';
 import { AddRepoPopover } from './AddRepoPopover';
 import { useShowNodes } from './Graph';
 import i18next from './i18n';
+import { Unread } from './NodeCard';
 import { groupsOf, inGroup } from './repos';
 
 type Item = { key: string; row: ReactNode; node: NodeId | null; repo?: RepoId; children: Item[] };
@@ -37,7 +38,8 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
           <span className={`dot ${v.state.kind}`} aria-label={v.state.kind} />
           <span className="name">{v.name}</span>
           <span className="sub">{agentLabel(agents, v.agent)}</span>
-          {v.held > 0 && <span className="spacer" />}
+          {(v.unread > 0 || v.held > 0) && <span className="spacer" />}
+          {v.unread > 0 && <Unread n={v.unread}>{v.unread}</Unread>}
           {v.held > 0 && (
             <span className="kept" title={i18next.t('node.heldTitle', { n: v.held })}>
               {i18next.t('node.held', { n: v.held })}

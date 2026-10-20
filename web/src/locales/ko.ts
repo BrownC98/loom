@@ -37,6 +37,8 @@ const ko: typeof en = {
   },
   node: {
     label: '노드 {{name}}',
+    unread: '읽지 않은 메시지 {{n}}개',
+    unreadShort: '안 읽음 {{n}}',
     held: '보관 {{n}}',
     heldTitle: '부모가 생기면 전달할 메시지 {{n}}개',
     terminal: '터미널',

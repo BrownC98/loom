@@ -737,6 +737,9 @@ mod tests {
         assert!(!workspace.join("my-app").exists());
         run(&made, &["commit", "-q", "--allow-empty", "-m", "a"]);
         assert!(view(id, &made).await.has_commits);
+        // 분리된 HEAD는 브랜치 목록과 관계없이 커밋이 있다.
+        run(&made, &["checkout", "-q", "--detach"]);
+        assert!(view(id, &made).await.has_commits);
         create(&made, &made, &workspace, "feat", "HEAD")
             .await
             .unwrap();

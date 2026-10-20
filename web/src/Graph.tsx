@@ -62,10 +62,24 @@ function IconButton(props: { label: string; title: string; path: string; onClick
   );
 }
 
-/** 그래프 화면을 `ids` 노드가 모두 보이게 옮긴다. 그래프 밖(트리)에서 노드로 옮겨 갈 때 쓴다. `ReactFlowProvider` 안에서만 부른다. */
+/**
+ * 그래프 화면을 `ids` 노드가 모두 보이게 옮긴다. 그래프 밖(트리)에서 노드로 옮겨 갈 때 쓴다. `ReactFlowProvider` 안에서만 부른다.
+ * 다른 저장소의 노드는 그래프가 그 저장소로 바뀌고 카드를 잰 뒤에 옮긴다.
+ */
 export function useShowNodes(): (ids: NodeId[]) => void {
   const flow = useReactFlow();
-  return (ids) => flow.fitView({ nodes: ids.map((id) => ({ id: String(id) })), duration: MOVE_MS, maxZoom: 1 });
+  const store = useStoreApi();
+  return (ids) => {
+    const keys = ids.map(String);
+    const ready = () => keys.every((key) => store.getState().nodeLookup.get(key)?.measured.width);
+    const fit = () => void flow.fitView({ nodes: keys.map((id) => ({ id })), duration: MOVE_MS, maxZoom: 1 });
+    if (ready()) return fit();
+    const stop = store.subscribe(() => {
+      if (!ready()) return;
+      stop();
+      fit();
+    });
+  };
 }
 
 /** `onDelete`가 없으면 지울 수 없다(원래 체크아웃). */

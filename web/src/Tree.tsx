@@ -130,7 +130,7 @@ export function Tree(props: {
       const parent = v.parent === null ? undefined : props.views.get(v.parent);
       const from = parent === undefined ? -1 : groups.findIndex((g) => g.path === parent.place.worktree);
       return parent !== undefined && from >= 0 && from !== at && from !== parents[at] ? t('tree.parent', { node: parent.name, group: groups[from].label }) : null;
-      };
+    };
     const groupItem = (group: Group, at: number): Item => ({
       key: `group:${group.path}`,
       node: null,

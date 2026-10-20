@@ -14,6 +14,6 @@ head: string,
  */
 branch: string | null, 
 /**
- * 원래 체크아웃이면 참이다. 닫을 수 없다.
+ * 원래 체크아웃이면 참이다. 지울 수 없다.
  */
 original: boolean, };

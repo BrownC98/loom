@@ -135,8 +135,8 @@ button, input, select { font: inherit; color: inherit; }
   <div class="pop" style="left: 160px; top: 44px;">
     <h3>저장소 추가</h3>
     <label class="field">폴더 경로<input class="mono" value="/mnt/c/Users/me/work/app"></label>
-    <p class="err">/mnt/c/Users/me/work/app: 데몬이 보는 파일 시스템에 없다.</p>
-    <p class="hint" style="margin-bottom:12px">데몬이 도는 기계의 경로를 적는다. 개발 컨테이너의 데몬은 <code>compose.yaml</code>이 넣은 폴더만 본다.</p>
+    <p class="err">데몬이 보는 파일 시스템에 /mnt/c/Users/me/work/app 폴더가 없습니다. 데몬이 도는 기계의 경로를 적으십시오.</p>
+    <p class="hint" style="margin-bottom:12px">개발 컨테이너의 데몬은 <code>compose.yaml</code>이 넣은 폴더만 봅니다.</p>
     <div class="actions"><button class="btn">취소</button><button class="btn primary">추가</button></div>
   </div>
   <span class="callout" style="left: 210px; top: 18px;">1</span>
@@ -175,11 +175,12 @@ button, input, select { font: inherit; color: inherit; }
 </div>
 
 <div class="note">
-  <h2>3. 그래프의 두 묶음과 [워크트리 닫기]</h2>
+  <h2>3. 그래프의 두 묶음과 [워크트리 삭제] 경고 창</h2>
   <ul>
     <li>묶음은 <code>git worktree list</code> 순서로 나란히 놓는다. 첫째가 원래 체크아웃이다. 묶음마다 [정렬] [새 노드]가 있다.</li>
-    <li>추가한 워크트리 묶음 머리에만 [워크트리 닫기]가 있다. 누르면 확인 창이 연다. 닫으면 폴더를 지우고 브랜치는 남긴다. 그 묶음의 끝난 노드도 지운다.</li>
-    <li>거절: 커밋하지 않은 변경이 있거나 <code>running</code> 노드가 있으면 이유를 창에 보이고 닫지 않는다.</li>
+    <li>추가한 워크트리 묶음 머리에만 [워크트리 삭제]가 있다. 원래 체크아웃은 지우지 않는다(Orca: 「Git does not allow removing the main worktree.」).</li>
+    <li>경고 창은 Orca 「Delete Workspace」를 따른다: 워크트리 이름, 잃는 것(커밋하지 않은·추적하지 않는 파일 목록, 끝낼 running 노드, 지울 노드), [취소] [삭제]. [삭제]는 노드를 끝내고 <code>git worktree remove --force</code>를 부른다.</li>
+    <li>「브랜치도 삭제」 확인란은 처음에 꺼져 있다. Orca 창에는 이 선택이 없고 Orca가 만든 브랜치를 안에서 지운다. loom은 병합하지 않은 커밋을 잃지 않게 고르게 한다.</li>
     <li><code>loom spawn --worktree &lt;브랜치&gt;</code>로 만든 자식은 새 묶음에 뜨고, 부모와 간선으로 잇는다.</li>
   </ul>
 </div>
@@ -204,14 +205,17 @@ button, input, select { font: inherit; color: inherit; }
       </div>
       <div class="edge" style="left: 360px; top: 220px; width: 120px; height: 0; border-left: 0; border-top: 1px dashed var(--line-strong);"></div>
       <div class="group" style="left: 420px; width: 470px; height: 260px;">
-        <div class="group-head"><span class="branch">BrownC98/TERM-터미널-가독성</span><span class="kind">워크트리</span><span class="spacer"></span><button class="btn ghost sm">정렬</button><button class="btn ghost sm">+ 새 노드</button><button class="btn ghost sm" aria-expanded="true">워크트리 닫기</button></div>
+        <div class="group-head"><span class="branch">BrownC98/TERM-터미널-가독성</span><span class="kind">워크트리</span><span class="spacer"></span><button class="btn ghost sm">정렬</button><button class="btn ghost sm">+ 새 노드</button><button class="btn ghost sm" aria-expanded="true">워크트리 삭제</button></div>
         <div class="card" style="left: 30px; top: 60px;"><div class="card-head"><span class="st"></span><b>구현</b><span class="sub">Claude Code · 부모 claude-1</span></div><div class="card-term">&gt; 카드 크기를 고친다…</div></div>
       </div>
-      <div class="pop" style="left: 560px; top: 76px; width: 340px;">
-        <h3>워크트리를 닫을까?</h3>
-        <p class="hint" style="margin-bottom:8px">폴더 <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code>를 지운다. 브랜치 <code>BrownC98/TERM-터미널-가독성</code>은 남는다.</p>
-        <p class="err">닫지 않았다: running 노드가 1개 있다.</p>
-        <div class="actions"><button class="btn">취소</button><button class="btn primary" disabled style="opacity:.5">닫기</button></div>
+      <div class="pop" role="alertdialog" style="left: 520px; top: 50px; width: 420px;">
+        <h3>워크트리 삭제</h3>
+        <p class="hint" style="margin-bottom:8px"><code>BrownC98/TERM-터미널-가독성</code> 워크트리의 폴더 <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code>를 삭제합니다.</p>
+        <p class="err" style="margin-bottom:4px">커밋하지 않은 변경과 추적하지 않는 파일은 영구히 삭제됩니다.</p>
+        <div style="font: 11px/1.5 var(--mono); color: var(--ink-2); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;">&nbsp;M web/src/NodeCard.tsx<br>?? web/src/notes.md</div>
+        <p class="hint" style="margin-bottom:8px">실행 중인 노드 1개(구현)를 끝냅니다. 이 묶음의 노드 1개를 그래프에서 지웁니다.</p>
+        <label class="hint" style="display:flex; gap:6px; align-items:center; margin-bottom:12px; color: var(--ink-2)"><input type="checkbox"> 브랜치도 삭제(<code>BrownC98/TERM-터미널-가독성</code>)</label>
+        <div class="actions"><button class="btn">취소</button><button class="btn" style="background: var(--err); color: oklch(98.5% 0 0); border-color: var(--err)">삭제</button></div>
       </div>
     </div>
   </div>
@@ -233,10 +237,10 @@ button, input, select { font: inherit; color: inherit; }
     <nav><a>에이전트</a><a>계정</a><a class="cur">워크스페이스</a><a>UI</a><a>터미널</a></nav>
     <section>
       <h2>워크스페이스</h2>
-      <p class="desc">새 워크트리를 만드는 곳을 정한다.</p>
+      <p class="desc">새 워크트리를 만드는 곳을 정합니다.</p>
       <div class="set-row">
         <span class="label">워크스페이스 폴더</span>
-        <span class="hint">워크트리 폴더를 만드는 루트 폴더다. 저장소 이름의 하위 폴더 안에 만든다. 데몬이 보는 절대 경로를 적는다.</span>
+        <span class="hint">새 워크트리를 &lt;이 폴더&gt;/&lt;저장소 이름&gt;/ 안에 만듭니다. 데몬이 보는 절대 경로를 적으십시오.</span>
         <div class="inline"><input value="/home/me/loom/workspaces"></div>
         <span class="hint">예: <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code></span>
       </div>
@@ -261,7 +265,7 @@ button, input, select { font: inherit; color: inherit; }
     <tr><td>폴더 배치</td><td>「Nest Workspaces」 켜짐(기본): <code>&lt;폴더&gt;/&lt;저장소&gt;/&lt;이름&gt;</code></td><td>늘 중첩</td></tr>
     <tr><td>브랜치</td><td><code>&lt;접두어&gt;/&lt;이름&gt;</code>, 접두어 기본 git 사용자 이름</td><td>사람이 브랜치 이름 전체를 적는다. 폴더는 마지막 마디</td></tr>
     <tr><td>저장소 추가</td><td>폴더 경로, git 저장소, 「Project already added」</td><td>같다. 이미 있으면 그 저장소를 고른다</td></tr>
-    <tr><td>워크트리 지우기</td><td><code>git worktree remove --force</code>, 선택하면 브랜치도 지움. 원래 체크아웃은 지우지 않음</td><td><code>--force</code> 없이 지우고 브랜치는 남긴다. 변경·running 노드가 있으면 거절</td></tr>
+    <tr><td>워크트리 지우기</td><td>「Delete Workspace」 경고 창, 바뀐 파일 목록, <code>git worktree remove --force</code>. 브랜치 선택은 창에 없음(Orca가 만든 브랜치는 안에서 지움). 원래 체크아웃은 지우지 않음</td><td>같은 경고 창과 <code>--force</code>. 「브랜치도 삭제」 확인란(처음 꺼짐)</td></tr>
   </table>
 </div>
 </body>

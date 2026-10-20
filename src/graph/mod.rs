@@ -259,16 +259,7 @@ impl Graph {
         place_of(&self.lock(), id)
     }
 
-    /// 그 워크트리 안의 `running` 노드 수.
-    pub fn running_in(&self, worktree: &str) -> rusqlite::Result<u32> {
-        self.lock().query_row(
-            "SELECT count(*) FROM nodes WHERE worktree = ?1 AND state ->> 'kind' = 'running'",
-            [worktree],
-            |row| row.get(0),
-        )
-    }
-
-    /// 그 워크트리 안의 노드 id. 워크트리를 닫을 때 지운다.
+    /// 그 워크트리 안의 노드 id. 워크트리를 지울 때 함께 지운다.
     pub fn nodes_in(&self, worktree: &str) -> rusqlite::Result<Vec<NodeId>> {
         self.lock()
             .prepare("SELECT id FROM nodes WHERE worktree = ?1 ORDER BY id")?

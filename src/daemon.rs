@@ -159,10 +159,19 @@ pub struct NewWorktree {
     pub base: String,
 }
 
-/// [워크트리 닫기]의 대상.
+/// [워크트리 삭제]의 대상.
 #[derive(Deserialize)]
 pub struct WorktreePath {
     pub path: String,
+}
+
+/// [워크트리 삭제]. `delete_branch`가 참이면 그 워크트리의 브랜치도 지운다(삭제 창의 확인란).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteWorktree {
+    pub path: String,
+    #[serde(default)]
+    pub delete_branch: bool,
 }
 
 /// 커밋 그래프 칸이 읽는 것: 커밋과, 워크트리마다 체크아웃한 커밋.
@@ -304,8 +313,9 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/repos", get(list_repos).post(add_repo))
         .route(
             "/api/repos/{id}/worktrees",
-            post(create_worktree).delete(close_worktree),
+            post(create_worktree).delete(delete_worktree),
         )
+        .route("/api/repos/{id}/worktrees/changes", get(worktree_changes))
         .route("/api/repos/{id}/commits", get(commits))
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
@@ -376,21 +386,35 @@ async fn create_worktree(
     Ok(Json(worktree::view(id, &repo).await))
 }
 
-/// 폴더를 지우고 그 묶음의 노드를 그래프에서 지운다. 브랜치는 남긴다. 근거: docs/design.md 「저장소와 워크트리」.
-async fn close_worktree(
+/// 삭제 창이 보일, 지우면 잃는 변경.
+async fn worktree_changes(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
     Query(req): Query<WorktreePath>,
+) -> Result<Json<Vec<String>>, Problem> {
+    let repo = app.repos.path(RepoId(id))?;
+    worktree::find(&repo, &req.path).await?;
+    Ok(Json(worktree::changes(&req.path).await?))
+}
+
+/// 그 묶음의 노드를 끝내고 그래프에서 지운 뒤 폴더를 지운다. 근거: docs/design.md 「저장소와 워크트리」.
+/// 노드를 먼저 끝낸다. Windows는 프로세스가 작업 폴더로 쓰는 폴더를 지우지 못한다.
+async fn delete_worktree(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+    Query(req): Query<DeleteWorktree>,
 ) -> Result<Json<RepoView>, Problem> {
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
-    let running = app.graph.running_in(&req.path).map_err(internal)?;
-    if running > 0 {
-        return Err(RepoProblem::Running(running).into());
+    if worktree::find(&repo, &req.path).await?.original {
+        return Err(RepoProblem::Original.into());
     }
-    worktree::close(&repo, &req.path).await?;
     for node in app.graph.nodes_in(&req.path).map_err(internal)? {
         app.remove(node).map_err(internal)?;
+    }
+    let branch = worktree::remove(&repo, &req.path).await?;
+    if let (true, Some(branch)) = (req.delete_branch, branch) {
+        worktree::delete_branch(&repo, &branch).await?;
     }
     Ok(Json(worktree::view(id, &repo).await))
 }

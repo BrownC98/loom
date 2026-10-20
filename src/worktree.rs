@@ -38,7 +38,7 @@ pub struct Worktree {
     pub head: String,
     /// 분리된 HEAD면 없다.
     pub branch: Option<String>,
-    /// 원래 체크아웃이면 참이다. 닫을 수 없다.
+    /// 원래 체크아웃이면 참이다. 지울 수 없다.
     pub original: bool,
 }
 
@@ -56,12 +56,8 @@ pub enum RepoProblem {
     NoRepo,
     /// 이 저장소의 워크트리가 아니다.
     NotInRepo(String),
-    /// 원래 체크아웃은 닫지 않는다.
+    /// 원래 체크아웃은 지우지 않는다. git도 지우지 못한다.
     Original,
-    /// 커밋하지 않은 변경이 있다. 값은 바뀐 파일 수다.
-    Dirty(u32),
-    /// 안에 `running` 노드가 있다. 값은 그 수다.
-    Running(u32),
     EmptyBranch,
     /// git이 실패했다. 값은 git의 오류 글이다.
     Git(String),
@@ -75,9 +71,7 @@ impl fmt::Display for RepoProblem {
             RepoProblem::NotAbsolute(path) => write!(f, "{path}: 절대 경로를 적는다."),
             RepoProblem::NoRepo => write!(f, "없는 저장소다."),
             RepoProblem::NotInRepo(path) => write!(f, "{path}: 이 저장소의 워크트리가 아니다."),
-            RepoProblem::Original => write!(f, "원래 체크아웃은 닫지 않는다."),
-            RepoProblem::Dirty(n) => write!(f, "커밋하지 않은 변경이 {n}개 있다."),
-            RepoProblem::Running(n) => write!(f, "running 노드가 {n}개 있다."),
+            RepoProblem::Original => write!(f, "원래 체크아웃은 지우지 않는다."),
             RepoProblem::EmptyBranch => write!(f, "브랜치 이름을 적는다."),
             RepoProblem::Git(e) => write!(f, "git 오류: {e}"),
         }
@@ -254,20 +248,30 @@ pub async fn create(
         .unwrap_or(path))
 }
 
-/// 워크트리를 닫는다: 폴더를 지우고 브랜치는 남긴다. 원래 체크아웃과 커밋하지 않은 변경이 있는 워크트리는 거절한다.
-/// `--force`를 쓰지 않으므로 git도 바뀐 파일이 있으면 거절한다. 무시하는 파일(`target/` 등)은 함께 지운다.
-pub async fn close(repo: &Path, path: &str) -> Result<(), RepoProblem> {
-    if find(repo, path).await?.original {
-        return Err(RepoProblem::Original);
-    }
+/// 지우면 잃는 변경: 커밋하지 않은 파일과 추적하지 않는 파일. 줄마다 `git status --porcelain` 한 줄이다.
+pub async fn changes(path: &str) -> Result<Vec<String>, RepoProblem> {
     let status = git::run(Path::new(path), &["status", "--porcelain"])
         .await
         .map_err(RepoProblem::Git)?;
-    let changed = status.lines().count() as u32;
-    if changed > 0 {
-        return Err(RepoProblem::Dirty(changed));
+    Ok(status.lines().map(str::to_owned).collect())
+}
+
+/// 워크트리를 지운다: 커밋하지 않은 변경이 있어도 폴더째 지운다(`--force`, Orca와 같다). 브랜치는 남긴다.
+/// 원래 체크아웃은 거절한다. 돌려주는 값은 그 워크트리가 체크아웃한 브랜치다.
+pub async fn remove(repo: &Path, path: &str) -> Result<Option<String>, RepoProblem> {
+    let worktree = find(repo, path).await?;
+    if worktree.original {
+        return Err(RepoProblem::Original);
     }
-    git::run(repo, &["worktree", "remove", path])
+    git::run(repo, &["worktree", "remove", "--force", path])
+        .await
+        .map_err(RepoProblem::Git)?;
+    Ok(worktree.branch)
+}
+
+/// 병합하지 않은 커밋이 있어도 지운다(`-D`). 사람이 삭제 창에서 고를 때만 부른다.
+pub async fn delete_branch(repo: &Path, branch: &str) -> Result<(), RepoProblem> {
+    git::run(repo, &["branch", "-D", "--", branch])
         .await
         .map_err(RepoProblem::Git)?;
     Ok(())
@@ -383,7 +387,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_then_close_a_worktree() {
+    async fn create_then_remove_a_worktree() {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(dir.path());
         let workspace = dir.path().join("ws");
@@ -403,31 +407,28 @@ mod tests {
             [(Some("main"), true), (Some("me/feat-1"), false)]
         );
 
-        close(&repo, &path).await.unwrap();
+        // 커밋하지 않은 변경과 추적하지 않는 파일이 있어도 지운다. 브랜치는 남긴다.
+        std::fs::write(Path::new(&path).join("new.txt"), "x").unwrap();
+        assert_eq!(changes(&path).await.unwrap(), ["?? new.txt"]);
+        assert_eq!(remove(&repo, &path).await, Ok(Some("me/feat-1".into())));
         assert!(!Path::new(&path).exists());
         assert_eq!(worktrees(&repo).await.len(), 1);
-        // 브랜치는 남긴다.
         assert_eq!(run(&repo, &["branch", "--list", "me/feat-1"]), "me/feat-1");
+        delete_branch(&repo, "me/feat-1").await.unwrap();
+        assert_eq!(run(&repo, &["branch", "--list", "me/feat-1"]), "");
     }
 
     #[tokio::test]
-    async fn close_refuses_original_dirty_and_unknown_worktrees() {
+    async fn remove_refuses_original_and_unknown_worktrees() {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(dir.path());
         let repo_text = repo.to_str().unwrap();
-        assert_eq!(close(&repo, repo_text).await, Err(RepoProblem::Original));
+        assert_eq!(remove(&repo, repo_text).await, Err(RepoProblem::Original));
+        assert!(repo.exists());
         assert_eq!(
-            close(&repo, "/nowhere/wt").await,
+            remove(&repo, "/nowhere/wt").await,
             Err(RepoProblem::NotInRepo("/nowhere/wt".into()))
         );
-
-        let path = create(&repo, &repo, &dir.path().join("ws"), "feat", "main")
-            .await
-            .unwrap();
-        std::fs::write(Path::new(&path).join("new.txt"), "x").unwrap();
-        std::fs::write(Path::new(&path).join("other.txt"), "y").unwrap();
-        assert_eq!(close(&repo, &path).await, Err(RepoProblem::Dirty(2)));
-        assert!(Path::new(&path).join("new.txt").exists());
     }
 
     #[tokio::test]

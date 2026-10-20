@@ -3,4 +3,4 @@
 /**
  * 저장소·워크트리 요청을 거절한 이유. 화면에는 코드와 값(JSON)이, 에이전트에게는 한국어 문장(`Display`)이 간다.
  */
-export type RepoProblem = { "code": "notFound", "value": string } | { "code": "notGit", "value": string } | { "code": "notAbsolute", "value": string } | { "code": "noRepo" } | { "code": "notInRepo", "value": string } | { "code": "original" } | { "code": "dirty", "value": number } | { "code": "running", "value": number } | { "code": "emptyBranch" } | { "code": "git", "value": string };
+export type RepoProblem = { "code": "notFound", "value": string } | { "code": "notGit", "value": string } | { "code": "notAbsolute", "value": string } | { "code": "noRepo" } | { "code": "notInRepo", "value": string } | { "code": "original" } | { "code": "emptyBranch" } | { "code": "git", "value": string };

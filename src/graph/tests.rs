@@ -771,10 +771,8 @@ fn children_stay_in_the_parent_place_unless_given_a_worktree() {
             worktree: "/ws/repo/feat".into()
         }
     );
-    assert_eq!(g.running_in("/ws/repo/feat").unwrap(), 1);
     assert_eq!(g.nodes_in("/repo").unwrap(), [lead, same]);
-    g.done(moved, "끝").unwrap();
-    assert_eq!(g.running_in("/ws/repo/feat").unwrap(), 0);
+    assert_eq!(g.nodes_in("/ws/repo/feat").unwrap(), [moved]);
 }
 
 #[test]

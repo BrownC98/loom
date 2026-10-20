@@ -86,7 +86,7 @@ export function arrangeTree(views: readonly NodeView[], size: (id: NodeId) => Si
 /** 옆 묶음과의 틈(목업 docs/mockups/card-view.html 2번). */
 const GROUP_GAP = 32;
 
-type Box = { at: Point; size: Size };
+export type Box = { at: Point; size: Size };
 
 /** 두 상자가 `GROUP_GAP` 안으로 붙거나 겹친다. */
 function crowds(a: Box, b: Box): boolean {
@@ -125,4 +125,33 @@ export function placeGroups(groups: readonly { size: Size; dragged?: Point }[], 
     if (!dragged) next = (row ? box.at.x + size.width : box.at.y + size.height) + GROUP_GAP;
     return box.at;
   });
+}
+
+/** 간선이 붙는 카드의 변. */
+export type Side = 'top' | 'right' | 'bottom' | 'left';
+export const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];
+/** 나무가 뻗는 쪽으로 이은 간선의 변. `parent`는 부모 카드에서 나가는 변, `child`는 자식 카드로 들어오는 변이다. */
+export const TREE_SIDES: Record<ArrangeDirection, { parent: Side; child: Side }> = {
+  down: { parent: 'bottom', child: 'top' },
+  up: { parent: 'top', child: 'bottom' },
+  right: { parent: 'right', child: 'left' },
+  left: { parent: 'left', child: 'right' },
+};
+
+/**
+ * 부모와 자식 카드(화면 기준 상자)를 잇는 간선의 변. 자식이 부모보다 나무가 뻗는 쪽에 있으면 `TREE_SIDES[direction]`이다.
+ * 아니면(다른 묶음의 자식, 끈 카드) 두 카드 중심 사이의 긴 축을 따라 서로 마주 보는 변이다. 간선이 카드를 돌아 나가지 않는다.
+ */
+export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection): { parent: Side; child: Side } {
+  const ahead: Record<ArrangeDirection, boolean> = {
+    down: child.at.y >= parent.at.y + parent.size.height,
+    up: child.at.y + child.size.height <= parent.at.y,
+    right: child.at.x >= parent.at.x + parent.size.width,
+    left: child.at.x + child.size.width <= parent.at.x,
+  };
+  if (ahead[direction]) return TREE_SIDES[direction];
+  const dx = child.at.x + child.size.width / 2 - (parent.at.x + parent.size.width / 2);
+  const dy = child.at.y + child.size.height / 2 - (parent.at.y + parent.size.height / 2);
+  const toward: ArrangeDirection = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+  return TREE_SIDES[toward];
 }

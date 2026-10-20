@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
+import { Fragment, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty, removeNode } from './api';
@@ -11,7 +11,7 @@ import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeTree, placeGroups, type ArrangeDirection, type Size } from './layout';
+import { arrangeTree, edgeSides, placeGroups, SIDES, TREE_SIDES, type ArrangeDirection, type Side, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { groupsOf, inGroup, type GroupKind } from './repos';
@@ -34,13 +34,7 @@ const CARD_SIZE: Record<CardView, Size> = {
   standard: { width: 600, height: 466 },
   simple: { width: 260, height: 134 },
 };
-/** 간선이 붙는 쪽. 부모 쪽(`target`)과 자식 쪽(`source`)이 나무가 뻗는 쪽을 따른다. */
-const HANDLES: Record<ArrangeDirection, { target: Position; source: Position }> = {
-  down: { target: Position.Top, source: Position.Bottom },
-  up: { target: Position.Bottom, source: Position.Top },
-  right: { target: Position.Left, source: Position.Right },
-  left: { target: Position.Right, source: Position.Left },
-};
+const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left };
 /** 카드는 묶음 머리 위나 왼쪽 테두리 밖으로 끌 수 없다. 오른쪽·아래로 끌면 묶음이 따라 커진다. 좌표는 묶음 기준이다. */
 const CARD_EXTENT: CoordinateExtent = [
   [0, CARD_TOP],
@@ -87,7 +81,7 @@ type GroupData = {
   onOpen: (button: HTMLElement) => void;
   onDelete?: () => void;
 };
-type CardBase = { view: NodeView; agentLabel: string; selected: boolean; handles: (typeof HANDLES)[ArrangeDirection]; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
+type CardBase = { view: NodeView; agentLabel: string; selected: boolean; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /** 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 확대 창이 열면 카드는 터미널을 그리지 않는다. PTY 크기를 한쪽만 정하게 한다. */
 type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void };
 type GroupNode = Node<GroupData, 'worktree'>;
@@ -143,7 +137,7 @@ function Card({ data }: NodeProps<CardNode>) {
       >
         {data.ownsPty && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
       </NodeCard>
-      <Ports handles={data.handles} />
+      <Ports port={data.port} />
     </>
   );
 }
@@ -152,7 +146,7 @@ function Simple({ data }: NodeProps<SimpleNode>) {
   return (
     <>
       <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={<RemoveButton onRemove={data.onRemove} />} />
-      <Ports handles={data.handles} />
+      <Ports port={data.port} />
     </>
   );
 }
@@ -162,14 +156,17 @@ function RemoveButton(props: { onRemove: () => void }) {
   return <IconButton label={t('node.remove')} title={t('node.remove')} path={ICON.remove} onClick={props.onRemove} />;
 }
 
-/** 간선이 붙는 자리. 자식 쪽 잇기 점을 끌어 다른 카드에 놓으면 그 카드의 부모가 된다(onConnectEnd). */
-function Ports(props: { handles: (typeof HANDLES)[ArrangeDirection] }) {
-  return (
-    <>
-      <Handle type="target" position={props.handles.target} isConnectable={false} />
-      <Handle type="source" position={props.handles.source} className="port" />
-    </>
-  );
+/**
+ * 간선이 붙는 자리. 변마다 들어오는 핸들과 나가는 핸들을 두고, 간선이 `edgeSides`로 고른다(id는 변 이름).
+ * 잇기 점은 `port` 변 하나다. 그 점을 끌어 다른 카드에 놓으면 그 카드의 부모가 된다(onConnectEnd).
+ */
+function Ports(props: { port: Side }) {
+  return SIDES.map((side) => (
+    <Fragment key={side}>
+      <Handle type="target" id={side} position={POSITION[side]} isConnectable={false} />
+      <Handle type="source" id={side} position={POSITION[side]} isConnectable={side === props.port} className={side === props.port ? 'port' : undefined} />
+    </Fragment>
+  ));
 }
 
 const nodeTypes = { worktree: Group, card: Card, simple: Simple };
@@ -338,7 +335,7 @@ export function Graph(props: {
         view,
         agentLabel: agentLabel(props.agents, view.agent),
         selected: selected === view.id,
-        handles: HANDLES[direction],
+        port: TREE_SIDES[direction].parent,
         onSelect: () => setSelected(view.id),
         onNavigate: navigate(view.id),
         // 확인 없이 바로 지운다(docs/design.md 「노드 제거와 입양」). 실패하면 입양 거절과 같은 자리에 보인다.
@@ -366,11 +363,16 @@ export function Graph(props: {
   const edges: Edge[] = views.flatMap((view) => {
     if (view.parent === null) return [];
     const messages = props.pulses.get(view.id);
+    const from = positions.get(view.parent);
+    const to = positions.get(view.id);
+    const sides = from && to ? edgeSides({ at: from, size: size(view.parent) }, { at: to, size: size(view.id) }, direction) : TREE_SIDES[direction];
     return [
       {
         id: `edge-${view.id}`,
         source: String(view.parent),
         target: String(view.id),
+        sourceHandle: sides.parent,
+        targetHandle: sides.child,
         className: [messages ? 'live' : undefined, lit(view.id, view.parent)].filter(Boolean).join(' ') || undefined,
         label: messages ? t('graph.messages', { n: messages }) : undefined,
         labelBgPadding: [8, 2],
@@ -396,11 +398,6 @@ export function Graph(props: {
     const lost = [...store.getState().nodeLookup.values()].filter((n) => n.measured.width && !n.internals.handleBounds).map((n) => n.id);
     if (lost.length > 0) remeasure(lost);
   });
-  // 정렬 방향이 바뀌면 간선이 붙는 쪽(`HANDLES`)이 바뀐다. React Flow는 핸들 자리를 다시 재야 간선을 옮긴다.
-  const cardIds = views.map((v) => String(v.id)).join(',');
-  useEffect(() => {
-    if (cardIds) remeasure(cardIds.split(','));
-  }, [direction, cardIds, remeasure]);
 
   /** 잇기 점을 놓은 자리의 카드가 끌기 시작한 카드를 새 부모로 받는다. 대상 핸들 대신 카드 전체를 놓는 자리로 쓴다. */
   const onConnectEnd = (event: MouseEvent | TouchEvent, connection: FinalConnectionState) => {

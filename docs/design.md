@@ -290,7 +290,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 |---|---|
 | 창은 Tauri 2 앱(`app/`)이다. wry+tao를 직접 쓰지 않는다 | 한 번만 실행, 창 위치 기억, NSIS 설치 파일, WebView2 설치를 Tauri와 공식 플러그인이 맡는다. wry+tao로는 이 넷을 직접 만들어야 한다 |
 | 앱은 옆에 놓인 `loom.exe serve --listen 127.0.0.1:0`을 띄우고, 데몬이 출력한 첫 줄의 주소를 창에 연다 | 노드가 부르는 `loom` 명령이 같은 실행 파일이다. 데몬 코드는 플랫폼마다 하나로 둔다 |
-| 앱은 자기를 kill-on-close Job Object에 넣는다. 데몬과 노드가 같은 Job에 든다. 앱과 데몬은 Job Object를 `win32job` 크레이트로 만든다 | 창을 닫거나 앱을 강제로 끝내도 노드 프로세스가 남지 않는다 |
+| 앱은 데몬을 kill-on-close Job Object에 넣고, 데몬은 자기를 다른 Job에 넣는다. 앱 자신은 Job에 들지 않는다. Job Object는 `win32job` 크레이트로 만든다 | 창을 닫거나 앱을 강제로 끝내도 노드 프로세스가 남지 않는다. 앱이 띄운 업데이트 설치 파일은 앱이 끝난 뒤에도 돈다 |
 | 데몬은 콘솔 창 없이(`CREATE_NO_WINDOW`) 띄운다 | 데몬이 띄우는 콘솔 프로그램도 그 숨은 콘솔을 물려받아 새 창을 열지 않는다 |
 | 저장소: 명령줄 인자 → 마지막에 연 폴더 → 폴더 고르기 창. 취소하면 앱이 끝난다 | 화면에는 저장소 고르기 화면이 없다. 데몬은 시작 폴더를 저장소로 쓴다 |
 | 한 번만 실행한다. 두 번째 실행은 있는 창을 앞으로 가져온다 | Orca와 같다 |
@@ -298,7 +298,9 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 노드 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
-| main에 push할 때마다 GitHub Actions(`.github/workflows/windows.yml`)가 설치 파일을 만들어 Release `latest` 하나에 덮어쓴다 | 받는 링크가 늘 같다. 옛 판은 git 기록으로 다시 만들 수 있어 Release를 쌓지 않는다 |
+| 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 CI가 `git rev-list --count HEAD`로 정해 두 `Cargo.toml`에 쓴다. 로컬 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |
+| main에 push할 때마다 GitHub Actions(`.github/workflows/windows.yml`)가 `tauri-apps/tauri-action`으로 설치 파일, 서명(`.sig`), `latest.json`을 만들어 Release `v<판>`에 올린다. 처음 설치하는 링크는 https://github.com/BrownC98/loom/releases/latest 다 | 판마다 파일이 바뀌지 않아 `latest.json`과 설치 파일이 어긋나지 않는다. 옛 파일을 지우는 스크립트가 없다. Release는 쌓인다 |
+| 업데이트: 화면을 열 때 한 번 `latest.json`을 확인하고, 새 판이 있으면 오른쪽 아래 카드로 알린다([update.html](mockups/update.html), Orca의 업데이트 카드). [업데이트] → 다운로드 → [다시 시작하여 업데이트]다. 화면이 `@tauri-apps/plugin-updater` JS API를 부른다. 권한(`app/capabilities/update.json`)은 `http://127.0.0.1:*` 화면의 `check`·`download`·`install`뿐이다 | 문구는 화면 i18n을 쓴다. 서명 공개 키는 `app/tauri.conf.json`, 개인 키는 GitHub Actions 비밀값 `TAURI_SIGNING_PRIVATE_KEY`(`_PASSWORD`)와 사람이 보관하는 사본뿐이다 |
 | 로컬 확인은 컨테이너의 `cargo-xwin` 크로스 빌드다([AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)). 설치 파일은 Actions만 만든다 | NSIS 묶기는 Windows 러너에서 공식 경로로 돈다 |
 
 ## 레이어

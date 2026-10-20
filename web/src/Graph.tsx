@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useImperativeHandle, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
+import type { CardView } from './gen/CardView';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { SettingsView } from './gen/SettingsView';
@@ -18,25 +19,27 @@ const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
-/** `.card`의 폭. 기본 글꼴로 터미널이 80열을 넘는다(TUI가 80열로 그린다). */
-const CARD_WIDTH = 600;
-/** 카드를 재기 전에 쓰는 높이. 재면 잰 값을 쓴다. */
-const CARD_HEIGHT = 330;
+/**
+ * 카드 보기마다 배치 값. `width`는 styles.css `.card`의 폭이다. `height`는 카드를 재기 전에 쓰는 높이다(재면 잰 값을 쓴다).
+ * `step`은 카드 높이에 간선이 지나갈 틈을 더한 세로 간격, `columnStep`은 카드 폭에 틈을 더한 가로 간격이다.
+ */
+const CARD_LAYOUT: Record<CardView, { width: number; height: number; step: number; columnStep: number }> = {
+  // 기본 글꼴로 터미널이 80열을 넘는다(TUI가 80열로 그린다).
+  terminal: { width: 600, height: 330, step: 376, columnStep: 620 },
+  header: { width: 360, height: 36, step: 96, columnStep: 380 },
+};
 /** 카드는 묶음 머리 위나 왼쪽 테두리 밖으로 끌 수 없다. 오른쪽·아래로 끌면 묶음이 따라 커진다. 좌표는 묶음 기준이다. */
 const CARD_EXTENT: CoordinateExtent = [
   [0, CARD_TOP],
   [Infinity, Infinity],
 ];
-/** 카드 높이에 간선이 지나갈 틈을 더한 세로 간격. */
-const CARD_STEP = 376;
-/** 카드 폭에 틈을 더한 가로 간격. 한 칸이면 묶음 폭이 640이다. */
-const CARD_COLUMN_STEP = 620;
 /** 묶음 왼쪽 위에서 잰 새 노드 팝오버 위치. */
 const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
-/** 카드 왼쪽 위에서 잰 제거 확인 위치. 오른쪽 끝을 카드에 맞추고(400 - 300) 머리 바로 아래에 둔다. */
-const REMOVE_OFFSET: XYPosition = { x: 100, y: 38 };
+/** 제거 확인 창은 오른쪽 끝을 카드에 맞추고 머리 바로 아래에 둔다. 폭은 styles.css `.pop.confirm`이다. */
+const REMOVE_WIDTH = 300;
+const REMOVE_TOP = 38;
 
 /** 카드 머리 아이콘(목업 docs/mockups/main.html). */
 const ICON = {
@@ -65,7 +68,8 @@ export function useShowNodes(): (ids: NodeId[]) => void {
 }
 
 type GroupData = { branch: string; empty: boolean; creating: boolean; onOpen: () => void; onArrange: () => void };
-type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; expanded: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand: () => void; onRemove: () => void };
+/** `ownsPty`: 이 카드가 터미널을 연다. 확대 창이나 오른쪽 칸이 열면 카드는 머리만 그린다. PTY 크기를 한쪽만 정하게 한다. `onExpand`가 없으면 확대가 없다. */
+type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; ownsPty: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand?: () => void; onRemove: () => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 type CardNode = Node<CardData, 'card'>;
 type FlowNode = GroupNode | CardNode;
@@ -116,13 +120,12 @@ function Card({ data }: NodeProps<CardNode>) {
         onDoubleClickHead={data.onExpand}
         headAction={
           <>
-            <IconButton label={t('node.expand')} title={t('node.expandTitle')} path={ICON.expand} onClick={data.onExpand} />
+            {data.onExpand && <IconButton label={t('node.expand')} title={t('node.expandTitle')} path={ICON.expand} onClick={data.onExpand} />}
             <IconButton label={t('node.remove')} title={t('node.remove')} path={ICON.remove} onClick={data.onRemove} />
           </>
         }
       >
-        {/* 확대한 동안에는 확대 창이 터미널을 연다. PTY 크기를 한쪽만 정하게 한다. */}
-        {!data.expanded && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+        {data.ownsPty && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
       </NodeCard>
       {/* 간선이 붙는 자리. 아래 잇기 점을 끌어 다른 카드에 놓으면 그 카드의 부모가 된다(onConnectEnd). */}
       <Handle type="target" position={Position.Top} isConnectable={false} />
@@ -152,8 +155,8 @@ function neighbor(positions: Map<NodeId, XYPosition>, from: NodeId, dir: Directi
 
 type Slot = { column: number; row: number };
 
-function slotPosition({ column, row }: Slot): XYPosition {
-  return { x: CARD_X + column * CARD_COLUMN_STEP, y: CARD_TOP + row * CARD_STEP };
+function slotPosition({ column, row }: Slot, layout: (typeof CARD_LAYOUT)[CardView]): XYPosition {
+  return { x: CARD_X + column * layout.columnStep, y: CARD_TOP + row * layout.step };
 }
 
 /**
@@ -189,7 +192,11 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
   return view.parent === null ? null : (views.get(view.parent)?.name ?? null);
 }
 
+/** 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. */
+export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null };
+
 /**
+ * `cardView`: 카드에 터미널을 그릴지, 머리만 그릴지. 머리만이면 터미널은 부르는 쪽(오른쪽 칸)이 연다.
  * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
  * `selected`: 입력을 받는 카드. 트리도 고르므로 부르는 쪽이 가진다.
  * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드. 그 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다. 바탕을 누르면 끈다.
@@ -204,6 +211,8 @@ export function Graph(props: {
   onSelect: (id: NodeId | null) => void;
   highlight: ReadonlySet<NodeId> | null;
   onClearHighlight: () => void;
+  cardView: CardView;
+  ref?: Ref<GraphHandle>;
 }) {
   const { t } = useTranslation();
   const { highlight } = props;
@@ -223,16 +232,19 @@ export function Graph(props: {
 
   const views = [...props.views.values()];
   const slots = treeLayout(props.views);
-  const positions = new Map<NodeId, XYPosition>(views.map((v) => [v.id, dragged.get(String(v.id)) ?? slotPosition(slots.get(v.id)!)]));
+  const layout = CARD_LAYOUT[props.cardView];
+  const positions = new Map<NodeId, XYPosition>(views.map((v) => [v.id, dragged.get(String(v.id)) ?? slotPosition(slots.get(v.id)!, layout)]));
   /** 끈 위치를 버려 모든 카드를 나무 배치 자리로 되돌린다. */
   const arrange = () => setDragged(new Map());
   // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
-  const right = Math.max(CARD_X + CARD_WIDTH, ...[...positions.values()].map((p) => p.x + CARD_WIDTH)) + CARD_X;
-  const bottom = Math.max(...views.map((v) => positions.get(v.id)!.y + (flowState.get(String(v.id))?.measured?.height ?? CARD_HEIGHT))) + CARD_X;
+  const right = Math.max(CARD_X + layout.width, ...[...positions.values()].map((p) => p.x + layout.width)) + CARD_X;
+  const bottom = Math.max(...views.map((v) => positions.get(v.id)!.y + (flowState.get(String(v.id))?.measured?.height ?? layout.height))) + CARD_X;
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
     if (to !== null) setSelected(to);
   };
+  useImperativeHandle(props.ref, () => ({ neighbor: (from, dir) => neighbor(positions, from, dir) }));
+  const terminalCards = props.cardView === 'terminal';
   const keep = <N extends FlowNode>(node: N): N => ({ ...node, measured: flowState.get(node.id)?.measured });
 
   const nodes: FlowNode[] = [
@@ -258,13 +270,15 @@ export function Graph(props: {
           agentLabel: agentLabel(props.agents, view.agent),
           parentName: parentName(props.views, view),
           selected: selected === view.id,
-          expanded: expanded === view.id,
+          ownsPty: terminalCards && expanded !== view.id,
           onSelect: () => setSelected(view.id),
           onNavigate: navigate(view.id),
-          onExpand: () => {
-            setSelected(view.id);
-            setExpanded(view.id);
-          },
+          onExpand: terminalCards
+            ? () => {
+                setSelected(view.id);
+                setExpanded(view.id);
+              }
+            : undefined,
           onRemove: () => setRemoving(view.id),
         },
       }),
@@ -314,7 +328,7 @@ export function Graph(props: {
     adoptNode(Number(target), Number(connection.fromNode.id)).catch((err: Error) => setRefusal(err.message));
   };
 
-  const zoomedView = expanded === null ? undefined : props.views.get(expanded);
+  const zoomedView = expanded === null || !terminalCards ? undefined : props.views.get(expanded);
   const removingView = removing === null ? undefined : props.views.get(removing);
   const removingAt = removingView && positions.get(removingView.id)!;
 
@@ -331,6 +345,8 @@ export function Graph(props: {
           setCreating(false);
           setRefusal('');
         }}
+        // 카드 머리는 끌기 손잡이라 React Flow가 mousedown 전파를 막는다. 머리 클릭은 여기서 고른다.
+        onNodeClick={(_, node) => node.type === 'card' && setSelected(Number(node.id))}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements
@@ -368,7 +384,7 @@ export function Graph(props: {
         )}
         {removingView && removingAt && (
           <ViewportPortal>
-            <div style={{ position: 'absolute', transform: `translate(${GROUP_POSITION.x + removingAt.x + REMOVE_OFFSET.x}px, ${GROUP_POSITION.y + removingAt.y + REMOVE_OFFSET.y}px)` }}>
+            <div style={{ position: 'absolute', transform: `translate(${GROUP_POSITION.x + removingAt.x + layout.width - REMOVE_WIDTH}px, ${GROUP_POSITION.y + removingAt.y + REMOVE_TOP}px)` }}>
               <RemovePopover view={removingView} childNames={views.filter((v) => v.parent === removingView.id).map((v) => v.name)} onClose={() => setRemoving(null)} />
             </div>
           </ViewportPortal>

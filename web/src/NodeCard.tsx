@@ -32,7 +32,7 @@ function footText(state: NodeState, parentName: string | null, held: boolean): s
   }
 }
 
-/** 노드 카드 틀. 터미널 자리(`children`)와 머리 오른쪽 버튼(`headAction`)은 부르는 쪽이 채운다. */
+/** 노드 카드 틀. 터미널 자리(`children`)와 머리 오른쪽 버튼(`headAction`)은 부르는 쪽이 채운다. 터미널이 없으면 머리만 그린다(발 줄은 터미널의 끝 상태라 함께 뺀다). */
 export function NodeCard(props: {
   view: NodeView;
   /** 에이전트 이름(카탈로그 label)이나 「터미널」. */
@@ -44,7 +44,7 @@ export function NodeCard(props: {
   onNavigate: (dir: Direction) => void;
   onDoubleClickHead?: () => void;
   headAction?: ReactNode;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   const { t } = useTranslation();
   const { view, selected } = props;
@@ -86,10 +86,14 @@ export function NodeCard(props: {
         </span>
         {props.headAction}
       </div>
-      <div className="term nodrag nowheel" translate="no">
-        {props.children}
-      </div>
-      {foot !== null && <div className="card-foot">{foot}</div>}
+      {props.children && (
+        <>
+          <div className="term nodrag nowheel" translate="no">
+            {props.children}
+          </div>
+          {foot !== null && <div className="card-foot">{foot}</div>}
+        </>
+      )}
     </article>
   );
 }

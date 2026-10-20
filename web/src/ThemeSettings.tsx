@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { CardView } from './gen/CardView';
 import type { Language } from './gen/Language';
 import type { SettingsView } from './gen/SettingsView';
 import type { TerminalFont } from './gen/TerminalFont';
@@ -35,8 +36,9 @@ const THEME_CHOICES = [
 ] as const satisfies readonly { value: Theme; label: string; icon: ReactNode }[];
 
 const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
+const CARD_VIEWS = ['terminal', 'header'] as const satisfies readonly CardView[];
 
-/** 「UI」 탭(목업 settings.html 6번, language.html): 화면 테마와 언어. 언어 이름은 번역하지 않는다. */
+/** 「UI」 탭(목업 settings.html 6번, language.html, terminal-font.html): 화면 테마, 카드 보기, 언어. 언어 이름은 번역하지 않는다. */
 export function UiTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
@@ -55,6 +57,18 @@ export function UiTab({ settings, onSettings }: TabProps) {
           ))}
         </div>
         <span className="hint">{t('theme.systemHint')}</span>
+      </section>
+      <section>
+        <h4 id="t-card-view">{t('cardView.heading')}</h4>
+        <div className="choice" role="radiogroup" aria-labelledby="t-card-view">
+          {CARD_VIEWS.map((v) => (
+            <label key={v}>
+              <input type="radio" name="card-view" checked={settings.cardView === v} onChange={() => onSettings({ ...settings, cardView: v })} />
+              {t(`cardView.${v}`)}
+            </label>
+          ))}
+        </div>
+        <span className="hint">{t('cardView.hint')}</span>
       </section>
       <section>
         <h4>

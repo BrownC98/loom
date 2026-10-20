@@ -138,6 +138,15 @@ const en = {
     family: 'Font family',
     familyHint: 'List fonts separated by commas. Each character uses the first font that has it. Leave empty for the default.',
   },
+  dock: {
+    closeTerminal: 'Close terminal panel',
+  },
+  cardView: {
+    heading: 'Cards',
+    terminal: 'Terminal',
+    header: 'Header only',
+    hint: 'With "Header only", clicking a card opens its terminal in the right panel.',
+  },
   theme: {
     heading: 'Theme',
     light: 'Light',

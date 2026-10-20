@@ -122,6 +122,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
 .dock-head h2 { font-size: 14px; font-weight: 600; }
 .dock-head .spacer { flex: 1; }
+.dock-term { flex: 1; min-height: 0; }
 .dock-note { padding: 16px; font-size: 13px; color: var(--ink-3); }
 .dock-note.error { color: var(--err); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
 .filters { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
@@ -180,6 +181,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .card-head .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .agent { font-size: 12px; color: var(--ink-3); }
 .card-head .spacer { flex: 1; }
+.card-head:last-child { border-bottom: 0; }
+/* 머리만 보는 카드. 폭은 Graph.tsx `CARD_LAYOUT.header.width`다. */
+.canvas[data-card-view="header"] .card { width: 360px; }
 .state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.running { color: var(--run); }

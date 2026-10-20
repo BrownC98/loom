@@ -78,6 +78,11 @@ function loadFont(family: string): Promise<unknown> {
   return Promise.allSettled([...document.fonts].filter((f) => names.includes(unquote(f.family))).map((f) => f.load()));
 }
 
+/** 카드 머리를 누르면 브라우저가 누른 뒤에 카드에 포커스를 준다. 그 뒤에 터미널로 옮기려고 다음 프레임에 준다. */
+function focusSoon(xterm: XTerm) {
+  requestAnimationFrame(() => xterm.focus());
+}
+
 /** 지금 모드의 터미널 테마. `App`이 설정과 모드로 정한다. */
 export const XtermTheme = createContext<ITheme>(TERMINAL_THEMES[DEFAULT_TERMINAL_THEME.dark]);
 /** 모든 터미널의 글꼴. `App`이 설정으로 정한다. */
@@ -129,7 +134,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           // 다시 붙으면 backlog를 처음부터 받으므로 화면을 비운다.
           xterm.reset();
           link.sendResize({ cols: xterm.cols, rows: xterm.rows });
-          if (latest.current.focused) xterm.focus();
+          if (latest.current.focused) focusSoon(xterm);
         },
         onOutput: (bytes) => xterm.write(bytes),
         onNotice: (notice) => {
@@ -152,7 +157,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
       const observer = new ResizeObserver(() => fitAddon.fit());
       observer.observe(el);
       fitAddon.fit();
-      if (latest.current.focused) xterm.focus();
+      if (latest.current.focused) focusSoon(xterm);
       return () => {
         observer.disconnect();
         input.dispose();
@@ -185,7 +190,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
   }, [font.family, font.size]);
 
   useEffect(() => {
-    if (props.focused) term.current?.focus();
+    if (props.focused && term.current) focusSoon(term.current);
     else term.current?.blur();
   }, [props.focused]);
 

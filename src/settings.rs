@@ -1,4 +1,4 @@
-//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 화면 언어. SQLite에 한 줄로 둔다.
+//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 화면 언어. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
 use std::sync::Mutex;
@@ -26,6 +26,8 @@ pub struct SettingsView {
     pub terminal_theme: TerminalTheme,
     #[serde(default)]
     pub terminal_font: TerminalFont,
+    #[serde(default)]
+    pub card_view: CardView,
     /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
     #[serde(default)]
     pub language: Language,
@@ -64,6 +66,16 @@ pub struct TerminalFont {
     /// CSS `font-family` 문자열. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다(VS Code `terminal.integrated.fontFamily`).
     pub family: Option<String>,
     pub size: Option<u8>,
+}
+
+/// 그래프 카드가 보이는 것. `Header`면 카드는 머리만 보이고, 고른 노드의 터미널은 오른쪽 칸에 열린다.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum CardView {
+    #[default]
+    Terminal,
+    Header,
 }
 
 /// 화면 테마. `System`은 OS 설정(`prefers-color-scheme`)을 따른다.
@@ -153,6 +165,7 @@ mod tests {
         assert_eq!(got.theme, Theme::System);
         assert_eq!(got.terminal_theme, TerminalTheme::default());
         assert_eq!(got.terminal_font, TerminalFont::default());
+        assert_eq!(got.card_view, CardView::Terminal);
         assert_eq!(got.language, Language::System);
     }
 }

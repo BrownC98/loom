@@ -12,7 +12,8 @@ import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
-import { Graph } from './Graph';
+import { agentLabel } from './catalog';
+import { Graph, type GraphHandle } from './Graph';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { Splitter, usePaneWidth, type Pane } from './Splitter';
@@ -21,6 +22,7 @@ import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThe
 import { Tree } from './Tree';
 import { UpdateCard } from './Update';
 import { activeFont, XtermFont, XtermTheme } from './Terminal';
+import { TerminalDock } from './TerminalDock';
 import { withAccount } from './usage';
 
 /** 메시지가 오간 간선을 강조하는 시간. 마지막 메시지부터 잰다. */
@@ -38,6 +40,7 @@ const EMPTY_SETTINGS: SettingsView = {
   theme: (document.documentElement.dataset.theme as Theme | undefined) ?? 'system',
   terminalTheme: RESET_TERMINAL_THEME,
   terminalFont: { family: null, size: null },
+  cardView: 'terminal',
   language: INITIAL_LANGUAGE,
 };
 const SETTINGS_HASH = '#settings/';
@@ -90,8 +93,9 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
   const [selected, setSelected] = useState<NodeId | null>(null);
-  // 오른쪽 칸 하나를 이벤트 콘솔과 커밋 그래프가 번갈아 쓴다.
-  const [dock, setDock] = useState<'events' | 'commits' | null>(null);
+  // 오른쪽 칸 하나를 이벤트 콘솔, 커밋 그래프, 고른 노드의 터미널(카드를 머리만 볼 때)이 번갈아 쓴다.
+  const [dock, setDock] = useState<'events' | 'commits' | 'terminal' | null>(null);
+  const graph = useRef<GraphHandle>(null);
   const [sideWidth, setSideWidth] = usePaneWidth(SIDE_PANE);
   const [dockWidth, setDockWidth] = usePaneWidth(DOCK_PANE);
   const toggleDock = (next: 'events' | 'commits') => setDock(dock === next ? null : next);
@@ -125,6 +129,14 @@ export function App() {
     putSettings(next).catch(() => getSettings().then(setSettings));
   };
   const usage: Usage = { accounts, fetchedAt, loading, refresh: refreshUsage };
+  const headerCards = settings.cardView === 'header';
+  /** 카드를 머리만 보면 노드를 고를 때 오른쪽 칸에 그 터미널을 연다. */
+  const selectNode = (id: NodeId | null) => {
+    setSelected(id);
+    if (headerCards && id !== null) setDock('terminal');
+  };
+  const dockedView = dock === 'terminal' && headerCards && selected !== null ? nodes.get(selected) : undefined;
+  const shownDock = dock === 'terminal' && !dockedView ? null : dock;
 
   useEffect(() => {
     rescan();
@@ -179,12 +191,20 @@ export function App() {
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <XtermFont.Provider value={activeFont(settings.terminalFont)}>
       <ReactFlowProvider>
-        <div className="app" data-dock={dock ?? undefined} style={{ '--side-w': `${sideWidth}px`, '--dock-w': `${dockWidth}px` } as CSSProperties}>
+        <div className="app" data-dock={shownDock ?? undefined} style={{ '--side-w': `${sideWidth}px`, '--dock-w': `${dockWidth}px` } as CSSProperties}>
           <Splitter pane={SIDE_PANE} width={sideWidth} onWidth={setSideWidth} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />
-          {dock && <Splitter pane={DOCK_PANE} width={dockWidth} onWidth={setDockWidth} label={t('app.resize', { pane: dock === 'events' ? t('events.title') : t('app.commitGraph') })} style={{ right: dockWidth }} />}
+          {shownDock && (
+            <Splitter
+              pane={DOCK_PANE}
+              width={dockWidth}
+              onWidth={setDockWidth}
+              label={t('app.resize', { pane: shownDock === 'events' ? t('events.title') : shownDock === 'commits' ? t('app.commitGraph') : dockedView!.name })}
+              style={{ right: dockWidth }}
+            />
+          )}
           <nav className="side" aria-label={t('app.sideLabel')}>
             <div className="brand">loom</div>
-            {repo && <Tree repo={repo} views={nodes} agents={agents} selected={selected} onSelect={setSelected} />}
+            {repo && <Tree repo={repo} views={nodes} agents={agents} selected={selected} onSelect={selectNode} />}
             <div className="side-foot">
               <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -195,7 +215,7 @@ export function App() {
               </button>
             </div>
           </nav>
-          <main className="canvas" aria-label={t('app.graphLabel', { repo: repo?.name ?? '' })}>
+          <main className="canvas" data-card-view={settings.cardView} aria-label={t('app.graphLabel', { repo: repo?.name ?? '' })}>
             <div className="toolbar">
               <h1>{repo?.name}</h1>
               <span className="spacer" />
@@ -220,13 +240,26 @@ export function App() {
               settings={settings}
               accounts={accounts}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={selectNode}
               highlight={highlight && new Set(involved(highlight.entry))}
               onClearHighlight={() => setHighlight(null)}
+              cardView={settings.cardView}
+              ref={graph}
             />
           </main>
           {dock === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} onClose={() => setDock(null)} />}
           {dock === 'commits' && <CommitGraph onClose={() => setDock(null)} />}
+          {dockedView && (
+            <TerminalDock
+              view={dockedView}
+              agentLabel={agentLabel(agents, dockedView.agent)}
+              onNavigate={(dir) => {
+                const to = graph.current?.neighbor(dockedView.id, dir);
+                if (to != null) selectNode(to);
+              }}
+              onClose={() => setDock(null)}
+            />
+          )}
           <StatusBar
             usage={usage}
             settings={settings}

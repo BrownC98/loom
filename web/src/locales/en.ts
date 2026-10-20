@@ -53,6 +53,11 @@ const en = {
       exited: 'Ended with exit code {{code}}',
     },
   },
+  rename: {
+    label: 'Node name',
+    title: 'Double-click or press F2 to rename',
+    hint: 'Enter to save · Esc to cancel',
+  },
   repo: {
     path: 'Folder',
     parent: 'Parent folder',
@@ -227,7 +232,7 @@ const en = {
     empty: 'No events yet.',
     noMatch: 'No events match.',
     list: 'Events',
-    kind: { created: 'Created', state: 'State', adopted: 'Adopted', removed: 'Removed' },
+    kind: { created: 'Created', state: 'State', adopted: 'Adopted', removed: 'Removed', renamed: 'Renamed' },
     how: { queue: 'Queue', steer: 'Steer', interrupt: 'Interrupt' },
     step: { sent: 'sent', held: 'held because it has no parent', delivered: 'delivered' },
     parent: 'parent {{name}}',
@@ -243,7 +248,8 @@ const en = {
   problem: {
     refused: {
       emptyName: 'Enter a name.',
-      nameTaken: '{{value}}: a parent or sibling already uses this name.',
+      nameTaken: '{{value}}: a parent, sibling, or child node already uses this name. Enter a different name.',
+      reservedName: '{{value}}: names that start with # are for node numbers. Remove the #.',
       tooDeep: 'Nesting is too deep to add more children.',
       tooManyChildren: 'This node already has {{value}} children. Remove a finished child first.',
       briefTooLong: 'The message is {{value}} bytes. Shorten it and give a file path for longer material.',

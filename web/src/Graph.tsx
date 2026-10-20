@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
+import { Fragment, useEffect, useImperativeHandle, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty, removeNode } from './api';
@@ -24,8 +24,6 @@ const EMPTY_GROUP_HEIGHT = 100;
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
-/** 묶음의 가장 작은 폭. 머리(이름, 버튼 둘)가 한 줄에 들어간다(목업 docs/mockups/card-view.html). 긴 이름은 말줄임한다. */
-const GROUP_MIN_WIDTH = 400;
 /**
  * 카드를 재기 전에 쓰는 크기. 재면 잰 크기로 배치한다. `width`는 styles.css `.card`·`.card.simple`의 폭이다.
  * 표준 높이는 머리, 80×24 터미널(styles.css `.term`), 발 줄의 합이다. 심플 높이는 목업 docs/mockups/card-view.html에서 쟀다.
@@ -94,7 +92,7 @@ function Group({ data }: NodeProps<GroupNode>) {
   return (
     <section className="group" aria-label={t('graph.group', { branch: data.branch })}>
       <div className="group-head">
-        <span className="branch" translate="no">
+        <span className="branch" translate="no" title={data.branch}>
           {data.branch}
         </span>
         {data.kind !== 'linked' && <span className="kind">{t(`worktree.${data.kind}`)}</span>}
@@ -259,7 +257,8 @@ export function Graph(props: {
       }),
     );
     // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
-    const right = Math.max(GROUP_MIN_WIDTH, Math.max(CARD_X + estimate.width, ...members.map((v) => local.get(v.id)!.x + size(v.id).width)) + CARD_X);
+    // 묶음 폭은 카드에 맞춘다. 머리가 좁으면 브랜치 이름을 말줄임한다(2026-10-20 사람 지시 "심플모드일때 워크트리 안에 노드 우측 공백이 생기지 않도록 만들어").
+    const right = Math.max(CARD_X + estimate.width, ...members.map((v) => local.get(v.id)!.x + size(v.id).width)) + CARD_X;
     const bottom = Math.max(...members.map((v) => local.get(v.id)!.y + size(v.id).height)) + CARD_X;
     const height = members.length > 0 ? bottom : (flowState.get(group.path)?.measured?.height ?? EMPTY_GROUP_HEIGHT);
     return { group, members, local, right, bottom, height };
@@ -276,17 +275,6 @@ export function Graph(props: {
     for (const [id, p] of g.local) positions.set(id, { x: origin.x + p.x, y: origin.y + p.y });
     return { ...g, origin };
   });
-  // 묶음이 생기면(방금 만든 워크트리) 화면을 그 묶음으로 옮긴다. 묶음은 화면 밖에 생기기 쉽다. 묶음이 빠질 때는 화면을 옮기지 않는다(2026-10-20 사람 지시 "워크트리 제거될때 자동 포커싱되는 기능 제거해").
-  const known = useRef<readonly string[] | null>(null);
-  const groupKey = groups.map((g) => g.group.path).join('\n');
-  useEffect(() => {
-    const paths = groupKey.split('\n');
-    const before = known.current;
-    known.current = paths;
-    if (before === null) return;
-    const target = paths.find((path) => !before.includes(path));
-    if (target) void flow.fitView({ nodes: [{ id: target }], duration: MOVE_MS, maxZoom: 1 });
-  }, [groupKey, flow]);
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
     if (to !== null) setSelected(to);

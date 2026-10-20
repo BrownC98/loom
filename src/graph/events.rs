@@ -61,6 +61,11 @@ pub enum Entry {
     Removed {
         node: Who,
     },
+    /// 사람이 이름을 바꿨다. `node`는 새 이름, `from`은 옛 이름이다.
+    Renamed {
+        node: Who,
+        from: String,
+    },
     /// `to`가 없으면 보관한 메시지다.
     Message {
         how: Kind,

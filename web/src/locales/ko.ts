@@ -55,6 +55,11 @@ const ko: typeof en = {
       exited: '종료 코드 {{code}}로 끝났습니다',
     },
   },
+  rename: {
+    label: '노드 이름',
+    title: '더블클릭하거나 F2를 눌러 이름 바꾸기',
+    hint: 'Enter 저장 · Esc 취소',
+  },
   repo: {
     path: '폴더',
     parent: '부모 폴더',
@@ -228,7 +233,7 @@ const ko: typeof en = {
     empty: '아직 이벤트가 없습니다.',
     noMatch: '일치하는 이벤트가 없습니다.',
     list: '이벤트 목록',
-    kind: { created: '생성', state: '상태', adopted: '입양', removed: '제거' },
+    kind: { created: '생성', state: '상태', adopted: '입양', removed: '제거', renamed: '이름 변경' },
     how: { queue: '큐', steer: '조정', interrupt: '중단' },
     step: { sent: '보냄', held: '부모가 없어 보관함', delivered: '전달됨' },
     parent: '부모 {{name}}',
@@ -244,7 +249,8 @@ const ko: typeof en = {
   problem: {
     refused: {
       emptyName: '이름을 입력하십시오.',
-      nameTaken: '{{value}}: 부모나 형제 노드가 이미 쓰는 이름입니다.',
+      nameTaken: '{{value}}: 부모·형제·자식 노드가 이미 쓰는 이름입니다. 다른 이름을 입력하십시오.',
+      reservedName: '{{value}}: #으로 시작하는 이름은 노드 번호 표기에 씁니다. #을 빼십시오.',
       tooDeep: '중첩이 너무 깊어 자식을 더 만들 수 없습니다.',
       tooManyChildren: '이 노드에는 자식이 이미 {{value}}개 있습니다. 끝난 자식을 먼저 지우십시오.',
       briefTooLong: '본문이 {{value}}바이트입니다. 줄이고, 긴 자료는 파일 경로로 전달하십시오.',

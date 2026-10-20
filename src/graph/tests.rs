@@ -1402,3 +1402,79 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     assert!(!g.discard_finished_shell(failed).unwrap());
     assert_eq!(view(&g, failed).state, NodeState::Exited { code: Some(1) });
 }
+
+#[test]
+fn rename_refuses_names_relatives_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let other_root = root(&g, "other");
+    let middle = child(&g, lead, "middle");
+    let sibling = child(&g, lead, "sibling");
+    let leaf = child(&g, middle, "leaf");
+    let deep = TreeLimits {
+        max_depth: 3,
+        ..TreeLimits::default()
+    };
+    g.add_child(leaf, named("tip"), deep, launched).unwrap();
+    let taken = |id, name| matches!(g.rename(id, name), Err(Refusal::NameTaken(n)) if n == name);
+    assert!(taken(middle, "lead-1"), "parent");
+    assert!(taken(leaf, "lead-1"), "grandparent");
+    assert!(taken(middle, "sibling"), "sibling");
+    assert!(taken(other_root, "lead-1"), "root sibling");
+    assert!(taken(middle, "leaf"), "child");
+    assert!(taken(middle, "tip"), "grandchild");
+    assert!(matches!(g.rename(middle, "#3"), Err(Refusal::ReservedName(n)) if n == "#3"));
+    assert!(matches!(g.rename(middle, " "), Err(Refusal::EmptyName)));
+    // 이름으로 서로 찾지 않는 노드끼리는 같은 이름을 쓸 수 있다: 형제의 손자, 다른 나무의 노드.
+    g.rename(sibling, "tip").unwrap();
+    g.rename(other_root, "middle").unwrap();
+    assert_eq!(view(&g, sibling).name, "tip");
+    assert_eq!(view(&g, other_root).name, "middle");
+}
+
+#[test]
+fn rename_records_the_old_name_and_tells_parent_and_children() {
+    use events::Entry;
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let middle = child(&g, lead, "middle");
+    let a = child(&g, middle, "a");
+    let b = child(&g, middle, "b");
+    g.rename(middle, "  코디 ").unwrap();
+    assert_eq!(view(&g, middle).name, "코디");
+    let notice = format!(
+        "renamed: middle -> 코디 (#{0}). Address it as 코디 or '#{0}'.",
+        middle.0
+    );
+    for to in [lead, a, b] {
+        assert_eq!(take(&g, to), delivery("코디", &notice));
+    }
+    assert!(recorded(&g).contains(&(
+        Entry::Renamed {
+            node: who(middle, "코디"),
+            from: "middle".into()
+        },
+        None
+    )));
+    // 새 이름으로 주고받는다.
+    g.send(a, "코디", Kind::Queue, "hi").unwrap();
+    assert_eq!(take(&g, middle), delivery("a", "hi"));
+    // 같은 이름이면 아무것도 바꾸지 않는다.
+    let before = recorded(&g).len();
+    g.rename(middle, "코디 ").unwrap();
+    assert_eq!(recorded(&g).len(), before);
+    assert_eq!(take(&g, lead), None);
+}
+
+#[test]
+fn child_names_cannot_start_with_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    assert!(matches!(
+        g.add_child(lead, named("#2"), TreeLimits::default(), launched),
+        Err(Refusal::ReservedName(_))
+    ));
+}

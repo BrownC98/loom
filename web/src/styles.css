@@ -195,6 +195,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
 .card-head .name { font-weight: 600; min-width: 0; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 노드 이름 바꾸기(NameEdit, docs/mockups/node-rename.html). 입력창은 이름 글자 자리에 같은 높이로 든다. 저장·취소 단추는 없다(Enter·Esc). */
+.name.renamable:hover { text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; cursor: text; }
+.rename { position: relative; flex: 0 1 160px; min-width: 96px; }
+.rename input { width: 100%; height: 22px; padding: 0 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 600 13px/20px var(--font); color: var(--ink); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
+.rename input[aria-invalid="true"] { border-color: var(--err); box-shadow: 0 0 0 2px color-mix(in oklch, var(--err) 25%, transparent); }
+.rename input:read-only { color: var(--ink-3); }
+.rename .tip { position: absolute; left: 0; top: calc(100% + 4px); z-index: 2; width: max-content; max-width: 260px; padding: 4px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 4px 12px var(--shadow); font-size: 12px; font-weight: 400; color: var(--ink-2); white-space: normal; cursor: default; }
+.rename .tip.err { color: var(--err); border-color: color-mix(in oklch, var(--err) 60%, var(--line-strong)); }
+/* 사이드바는 좁고 트리가 넘친 글을 자른다. 팁을 입력창이 아니라 줄 너비에 맞춘다. */
+.tree .tree-row { position: relative; }
+.tree .rename { position: static; }
+.tree .rename .tip { left: 8px; right: 8px; width: auto; max-width: none; }
 .card-head .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
 .agent-logo { width: 14px; height: 14px; flex-shrink: 0; display: inline-grid; place-items: center; color: var(--ink-2); }
 span.agent-logo[style] { background: currentColor; mask: var(--logo) center / contain no-repeat; }

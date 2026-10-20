@@ -130,8 +130,8 @@ button, input, select { font: inherit; color: inherit; }
   <div class="pop" style="left: 160px; top: 44px;">
     <h3>저장소 추가</h3>
     <label class="field">폴더 경로<input class="mono" value="/mnt/c/Users/me/work/app"></label>
-    <p class="err">데몬이 보는 파일 시스템에 /mnt/c/Users/me/work/app 폴더가 없습니다. 데몬이 도는 기계의 경로를 적으십시오.</p>
-    <p class="hint" style="margin-bottom:12px">개발 컨테이너의 데몬은 <code>compose.yaml</code>이 넣은 폴더만 봅니다.</p>
+    <p class="err">폴더를 찾을 수 없습니다: /mnt/c/Users/me/work/app</p>
+    <p class="hint" style="margin-bottom:12px">git 저장소 폴더의 전체 경로를 적으십시오.</p>
     <div class="actions"><button class="btn">취소</button><button class="btn primary">추가</button></div>
   </div>
   <span class="callout" style="left: 210px; top: 18px;">1</span>
@@ -215,10 +215,10 @@ button, input, select { font: inherit; color: inherit; }
     <nav><a>에이전트</a><a>계정</a><a class="cur">워크스페이스</a><a>UI</a><a>터미널</a></nav>
     <section>
       <h2>워크스페이스</h2>
-      <p class="desc">새 워크트리를 만드는 곳을 정합니다.</p>
+      <p class="desc">새 워크트리를 만들 폴더입니다.</p>
       <div class="set-row">
         <span class="label">워크스페이스 폴더</span>
-        <span class="hint">새 워크트리를 &lt;이 폴더&gt;/&lt;저장소 이름&gt;/ 안에 만듭니다. 데몬이 보는 절대 경로를 적으십시오.</span>
+        <span class="hint">새 워크트리를 &lt;이 폴더&gt;/&lt;저장소 이름&gt;/ 안에 만듭니다.</span>
         <div class="inline"><input value="/home/me/loom/workspaces"></div>
         <span class="hint">예: <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code></span>
       </div>

@@ -74,7 +74,18 @@ pub struct NodeView {
     pub unread: u32,
     /// 부모가 없어 보관한 메시지 수. 새 부모가 생기면 그 부모가 받는다.
     pub held: u32,
+    /// CLI가 알린 모델 id 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
+    pub model: Option<String>,
+    /// CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
+    pub effort: Option<String>,
     pub place: Place,
+}
+
+/// 프로필이 CLI에서 읽은 지금 모델과 추론 강도. 값은 CLI가 쓴 글 그대로다. 근거: docs/design.md 「에이전트 실행」.
+#[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Model {
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 #[derive(Clone, Serialize, TS)]
@@ -186,7 +197,7 @@ pub struct Graph {
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
-    n.repo, n.worktree
+    n.model, n.effort, n.repo, n.worktree
     FROM nodes n";
 
 struct Store {
@@ -339,9 +350,11 @@ fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
         state: from_json(row, 4)?,
         unread: row.get(5)?,
         held: row.get(6)?,
+        model: row.get(7)?,
+        effort: row.get(8)?,
         place: Place {
-            repo: RepoId(row.get(7)?),
-            worktree: row.get(8)?,
+            repo: RepoId(row.get(9)?),
+            worktree: row.get(10)?,
         },
     })
 }

@@ -65,6 +65,32 @@ fn view(g: &Graph, id: NodeId) -> NodeView {
 }
 
 #[test]
+fn model_change_reaches_the_view_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let node = root(&g, "codex");
+    let (_, mut events) = g.subscribe().unwrap();
+    assert_eq!((view(&g, node).model, view(&g, node).effort), (None, None));
+    let model = Model {
+        model: Some("gpt-6.1-sol".into()),
+        effort: Some("medium".into()),
+    };
+    g.set_model(node, &model).unwrap();
+    g.set_model(node, &model).unwrap();
+    let Ok(GraphEvent::Node(changed)) = events.try_recv() else {
+        panic!("Node 이벤트가 와야 한다")
+    };
+    assert_eq!(
+        (changed.model.as_deref(), changed.effort.as_deref()),
+        (Some("gpt-6.1-sol"), Some("medium"))
+    );
+    // 같은 값은 다시 알리지 않는다.
+    assert!(events.try_recv().is_err());
+    g.set_model(node, &Model::default()).unwrap();
+    assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.effort.is_none()));
+}
+
+#[test]
 fn parent_and_child_exchange_messages() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));

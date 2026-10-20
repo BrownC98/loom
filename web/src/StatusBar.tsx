@@ -5,6 +5,8 @@ import type { AccountView } from './gen/AccountView';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
+import { AgentMark } from './AgentMark';
+import { VERSION } from './version';
 
 export type Usage = {
   /** 처음 읽기 전에는 null이다. */
@@ -53,7 +55,7 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
           return (
             <Fragment key={provider}>
               {i > 0 && <span className="sep" aria-hidden="true" />}
-              <span className="who">{PROVIDER_LABEL[provider]}</span>
+              <AgentMark agent={provider} label={PROVIDER_LABEL[provider]} />
               {a === undefined ? (
                 <span>{t('statusBar.loading')}</span>
               ) : a.usage.limits.kind === 'needsLogin' ? (
@@ -69,6 +71,7 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
           );
         })}
       </button>
+      <span className="app-version">v{VERSION}</span>
       {open && usage.accounts && (
         <UsagePopover
           accounts={usage.accounts}
@@ -101,10 +104,11 @@ function UsagePopover(props: {
       <h3>
         {t('statusBar.usage')}
         <span className="spacer" />
-        <button className="btn ghost sm" aria-label={t('statusBar.refresh')} disabled={usage.loading} onClick={usage.refresh}>
+        <button className="btn ghost sm refresh" data-loading={usage.loading || undefined} disabled={usage.loading} onClick={usage.refresh}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" />
           </svg>
+          {t('statusBar.refresh')}
         </button>
       </h3>
       {PROVIDERS.map((provider) => (
@@ -144,7 +148,7 @@ function ProviderSection(props: {
   return (
     <section className="prov-sec" aria-label={t('statusBar.usageLabel', { provider: label })}>
       <button className="prov" aria-expanded={props.expanded} onClick={props.onToggle}>
-        <span className="who">{label}</span>
+        <AgentMark agent={props.provider} label={label} />
         {active && <span className="acct-name">{accountName(active)}</span>}
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d={props.expanded ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />

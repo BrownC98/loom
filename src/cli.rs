@@ -5,8 +5,8 @@ use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
     AckRequest, AdoptRequest, DoneRequest, GuardRequest, SendRequest, SpawnRequest, SpawnRun,
@@ -73,14 +73,24 @@ pub fn wait() -> Result<(), String> {
 }
 
 /// Claude 훅: stdin의 훅 입력을 읽고, 이 지점에서 넘길 메시지를 데몬에서 꺼내 훅 출력으로 쓴다.
+/// 모델이 바뀌었는지는 데몬이 본다. 알리지 못해도 메시지 전달은 계속한다.
 pub fn hook() -> Result<(), String> {
-    let event: claude::Event =
+    let input: serde_json::Value =
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("훅 입력: {e}"))?;
+    let event = claude::Event::deserialize(&input).map_err(|e| format!("훅 입력: {e}"))?;
+    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
+    if let Some(model) = claude::reported_model(&event, &input)
+        && let Err(e) = call::<()>("model", &model, Some(timeout))
+    {
+        eprintln!("loom: 모델을 알리지 못했다: {e}");
+    }
+    if event.kinds().is_empty() {
+        return Ok(());
+    }
     let request = TakeRequest {
         kinds: event.kinds().to_vec(),
         limit_bytes: claude::HOOK_LIMIT_BYTES,
     };
-    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
     let taken: Vec<Delivery> = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken) {
         println!("{reply}");

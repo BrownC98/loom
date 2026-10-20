@@ -49,8 +49,6 @@ const ko: typeof en = {
       exitedHeld: '부모 없음 · 새 부모에게 exited({{code}})를 전달합니다',
       exitedSent: '부모({{parent}})에게 exited({{code}})를 보냈습니다',
       exited: '프로세스가 코드 {{code}}로 종료되었습니다',
-      typing: '입력 중',
-      clickToType: '클릭하면 이 카드에 입력합니다',
     },
   },
   repo: {
@@ -78,11 +76,6 @@ const ko: typeof en = {
     desc: '새 워크트리를 만들 폴더입니다.',
     folder: '워크스페이스 폴더',
     hint: '새 워크트리를 <이 폴더>/<저장소 이름>/ 안에 만듭니다.',
-  },
-  removeNode: {
-    erase: '터미널 기록과 받은 메시지를 삭제합니다.',
-    stop: '실행 중인 프로세스를 종료합니다.',
-    orphans: '자식 노드 {{n}}개({{names}})는 부모 없이 계속 실행됩니다.',
   },
   newNode: {
     profile: '프로필',
@@ -161,6 +154,22 @@ const ko: typeof en = {
     refresh: '새로 고침',
     accountsLabel: '{{provider}} 계정',
     manage: '계정 관리…',
+  },
+  terminalFont: {
+    size: '글꼴 크기',
+    smaller: '글꼴 크기 줄이기',
+    larger: '글꼴 크기 키우기',
+    family: '글꼴',
+    familyHint: '쉼표로 여러 글꼴을 적습니다. 글자마다 그 글자가 있는 첫 글꼴을 씁니다. 비우면 기본값을 씁니다.',
+  },
+  dock: {
+    closeTerminal: '터미널 칸 닫기',
+  },
+  cardView: {
+    heading: '카드 보기',
+    terminal: '터미널',
+    header: '머리만',
+    hint: '‘머리만’이면 카드를 누를 때 그 노드의 터미널이 오른쪽 칸에 열립니다.',
   },
   theme: {
     heading: '테마',

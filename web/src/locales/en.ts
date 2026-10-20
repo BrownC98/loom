@@ -47,8 +47,6 @@ const en = {
       exitedHeld: 'No parent · exited({{code}}) goes to the new parent',
       exitedSent: 'Sent exited({{code}}) to the parent ({{parent}})',
       exited: 'The process ended with code {{code}}',
-      typing: 'Typing',
-      clickToType: 'Click to type in this card',
     },
   },
   repo: {
@@ -76,11 +74,6 @@ const en = {
     desc: 'The folder for new worktrees.',
     folder: 'Workspace folder',
     hint: 'Creates new worktrees in <this folder>/<repository name>/.',
-  },
-  removeNode: {
-    erase: 'Deletes the terminal history and received messages.',
-    stop: 'Stops the running process.',
-    orphans: 'Child nodes ({{names}}) keep running without a parent.',
   },
   newNode: {
     profile: 'Profile',
@@ -160,6 +153,22 @@ const en = {
     refresh: 'Refresh',
     accountsLabel: '{{provider}} accounts',
     manage: 'Manage accounts…',
+  },
+  terminalFont: {
+    size: 'Font size',
+    smaller: 'Decrease font size',
+    larger: 'Increase font size',
+    family: 'Font family',
+    familyHint: 'List fonts separated by commas. Each character uses the first font that has it. Leave empty for the default.',
+  },
+  dock: {
+    closeTerminal: 'Close terminal panel',
+  },
+  cardView: {
+    heading: 'Cards',
+    terminal: 'Terminal',
+    header: 'Header only',
+    hint: 'With “Header only”, clicking a card opens its terminal in the right panel.',
   },
   theme: {
     heading: 'Theme',

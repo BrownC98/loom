@@ -2,10 +2,13 @@
 //! 바뀌는 이유는 Claude Code 버전이다. 형식은 https://code.claude.com/docs/en/hooks 를 따른다.
 //! 근거: docs/design.md 「에이전트 실행」, 「전달 지점」.
 
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::graph::{Delivery, Kind};
+use crate::graph::{Delivery, Kind, Model};
 
 /// 훅 한 번에 넘기는 본문 합의 상한.
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
@@ -13,6 +16,10 @@ pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 /// 그래야 Claude가 훅을 먼저 끝내 꺼낸 본문을 버리는 일이 드물다. 버려도 받음 확인 전이므로 데몬이 다시 준다.
 pub const HOOK_HTTP_TIMEOUT_SECS: u64 = 5;
 const HOOK_TIMEOUT_SECS: u64 = 10;
+/// 기록 파일(transcript)에서 마지막 응답을 찾는 끝부분의 크기. 응답 한 줄은 보통 수 KB다.
+const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
+/// Claude가 API 응답 없이 쓴 응답(오류·중단)의 모델 값. 실제 모델이 아니다.
+const SYNTHETIC_MODEL: &str = "<synthetic>";
 /// Bash 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다.
 const GUARD: &str = "loom guard";
 
@@ -51,6 +58,7 @@ pub fn args() -> Vec<String> {
     let settings = json!({
         "permissions": { "allow": ALLOWED },
         "hooks": {
+            "SessionStart": hook,
             "UserPromptSubmit": hook,
             "PreToolUse": hook,
             "PostToolUse": hook,
@@ -70,6 +78,10 @@ pub fn args() -> Vec<String> {
 #[derive(Deserialize)]
 #[serde(tag = "hook_event_name")]
 pub enum Event {
+    /// 세션 시작. 모델만 알린다(실측: 2.1.304 입력의 `model`).
+    SessionStart {
+        model: Option<String>,
+    },
     UserPromptSubmit,
     PreToolUse {
         tool_name: String,
@@ -84,6 +96,8 @@ impl Event {
     /// 이 지점에서 꺼내는 전달 방식. 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 어느 훅이 불렸는지가 그 상태다.
     pub fn kinds(&self) -> &'static [Kind] {
         match self {
+            // 아직 턴이 없다. 첫 턴은 UserPromptSubmit이 받는다.
+            Event::SessionStart { .. } => &[],
             // 쉬는 중이던 노드의 다음 턴, 일하던 노드의 턴 끝: 모두 넘긴다.
             Event::UserPromptSubmit | Event::Stop => Kind::ALL,
             Event::PostToolUse => &[Kind::Steer],
@@ -115,11 +129,64 @@ impl Event {
                 "permissionDecision": "deny",
                 "permissionDecisionReason": text,
             } }),
+            Event::SessionStart { .. } => context("SessionStart", text),
             Event::UserPromptSubmit => context("UserPromptSubmit", text),
             Event::PostToolUse => context("PostToolUse", text),
             Event::PostToolUseFailure => context("PostToolUseFailure", text),
         })
     }
+}
+
+/// 훅 입력이 알리는 모델과 추론 강도. 알리지 않는 훅이면 없다.
+/// 세션 시작은 입력의 `model`을, 그 뒤 훅은 기록 파일의 마지막 응답을 쓴다. 훅 입력에는 `/model`로 바꾼 모델이 없다(실측).
+pub fn reported_model(event: &Event, input: &Value) -> Option<Model> {
+    if let Event::SessionStart { model } = event {
+        return Some(Model {
+            model: model.clone(),
+            effort: None,
+        });
+    }
+    let path = PathBuf::from(input["transcript_path"].as_str()?);
+    last_model(&transcript_tail(&path)?)
+}
+
+fn transcript_tail(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(TRANSCRIPT_TAIL_BYTES)))
+        .ok()?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail).ok()?;
+    Some(String::from_utf8_lossy(&tail).into_owned())
+}
+
+/// 기록 파일 끝부분에서 본 대화의 마지막 응답이 쓴 모델과 추론 강도. 첫 줄은 잘렸을 수 있어 읽지 못하면 건너뛴다.
+/// 하위 에이전트 응답(`isSidechain`)과 API 없이 쓴 응답은 건너뛴다.
+fn last_model(tail: &str) -> Option<Model> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Entry {
+        r#type: String,
+        #[serde(default)]
+        is_sidechain: bool,
+        effort: Option<String>,
+        message: Option<Message>,
+    }
+    #[derive(Deserialize)]
+    struct Message {
+        model: Option<String>,
+    }
+    tail.lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<Entry>(line).ok())
+        .filter(|e| e.r#type == "assistant" && !e.is_sidechain)
+        .find_map(|e| {
+            let model = e.message?.model.filter(|m| m != SYNTHETIC_MODEL)?;
+            Some(Model {
+                model: Some(model),
+                effort: e.effort,
+            })
+        })
 }
 
 fn context(event: &str, text: String) -> Value {
@@ -255,7 +322,67 @@ mod tests {
     }
 
     #[test]
-    fn settings_register_the_five_hooks_and_allow_messaging_but_not_spawn() {
+    fn session_start_reports_the_model_and_takes_nothing() {
+        let input = json!({
+            "session_id": "17dde44e", "hook_event_name": "SessionStart",
+            "source": "startup", "model": "claude-opus-5-5",
+        });
+        let start = event(input.clone());
+        assert_eq!(start.kinds(), [] as [Kind; 0]);
+        assert_eq!(
+            reported_model(&start, &input),
+            Some(Model {
+                model: Some("claude-opus-5-5".into()),
+                effort: None
+            })
+        );
+    }
+
+    /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
+    #[test]
+    fn transcript_gives_the_last_main_chain_reply() {
+        let tail = r#"{"type":"assistant","isSidechain":false,"effort":"medium","message":{"model":"claude-opus-5-5","role":"assistant"}}
+{"type":"user","isSidechain":false,"message":{"role":"user","content":"/model sonnet"}}
+{"type":"assistant","isSidechain":false,"effort":"high","perTurnEffort":"high","requestedModel":"claude-sonnet-5-5","message":{"model":"claude-sonnet-5-5","role":"assistant"}}
+{"type":"assistant","isSidechain":true,"effort":"low","message":{"model":"claude-haiku-5-5"}}
+{"type":"assistant","isSidechain":false,"message":{"model":"<synthetic>"}}
+{"type":"system","content":"x"}
+"#;
+        assert_eq!(
+            last_model(tail),
+            Some(Model {
+                model: Some("claude-sonnet-5-5".into()),
+                effort: Some("high".into())
+            })
+        );
+        // 잘린 첫 줄과 응답 없는 기록은 모델이 없다.
+        assert_eq!(last_model("ssistant\"}}\n{\"type\":\"user\"}\n"), None);
+    }
+
+    #[test]
+    fn hooks_after_start_read_the_transcript_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"type":"assistant","effort":"xhigh","message":{"model":"claude-opus-5-5"}}"#,
+        )
+        .unwrap();
+        let input = json!({ "hook_event_name": "Stop", "transcript_path": path });
+        assert_eq!(
+            reported_model(&event(input.clone()), &input),
+            Some(Model {
+                model: Some("claude-opus-5-5".into()),
+                effort: Some("xhigh".into())
+            })
+        );
+        let missing =
+            json!({ "hook_event_name": "Stop", "transcript_path": dir.path().join("없음") });
+        assert_eq!(reported_model(&event(missing.clone()), &missing), None);
+    }
+
+    #[test]
+    fn settings_register_the_six_hooks_and_allow_messaging_but_not_spawn() {
         let args = args();
         assert_eq!(args[2], "--settings");
         let settings: Value = serde_json::from_str(&args[3]).unwrap();
@@ -267,6 +394,7 @@ mod tests {
                 "PostToolUse",
                 "PostToolUseFailure",
                 "PreToolUse",
+                "SessionStart",
                 "Stop",
                 "UserPromptSubmit"
             ]

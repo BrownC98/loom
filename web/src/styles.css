@@ -1,3 +1,7 @@
+/* 터미널 기본 글꼴. kuskhan/jetendard v0.1.0 웹 글꼴(OFL 1.1, fonts/jetendard/LICENSE). JetBrains Mono에 Pretendard 한글을 두 칸으로 넣었다. */
+@font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+
 /* 토큰 원천: docs/mockups/main.html :root(2026-10-19 승인). 값을 바꾸면 목업도 같은 커밋에서 바꾼다. */
 :root {
   color-scheme: light dark;
@@ -122,6 +126,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
 .dock-head h2 { font-size: 14px; font-weight: 600; }
 .dock-head .spacer { flex: 1; }
+.dock-term { flex: 1; min-height: 0; }
 .dock-note { padding: 16px; font-size: 13px; color: var(--ink-3); }
 .dock-note.error { color: var(--err); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
 .filters { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
@@ -174,12 +179,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .group-head .spacer { flex: 1; }
 .group-empty { padding: 16px 14px; color: var(--ink-3); font-size: 13px; }
 
-.card { width: 400px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
+.card { width: 600px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
-.card-head .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-head .agent { font-size: 12px; color: var(--ink-3); }
+.card-head .name { font-weight: 600; min-width: 0; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-head .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
+.agent-logo { width: 14px; height: 14px; flex-shrink: 0; display: inline-grid; place-items: center; color: var(--ink-2); }
+span.agent-logo[style] { background: currentColor; mask: var(--logo) center / contain no-repeat; }
+.agent-logo svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.dock-head .agent { font-size: 12px; color: var(--ink-3); }
+.card-head .model { font-size: 12px; color: var(--ink-3); font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .spacer { flex: 1; }
+.card-head:last-child { border-bottom: 0; }
+/* 머리만 보는 카드. 폭은 Graph.tsx `CARD_LAYOUT.header.width`다. */
+.canvas[data-card-view="header"] .card { width: 400px; }
 .state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.running { color: var(--run); }
@@ -220,6 +233,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .field input { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
 .field input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
 .field input::placeholder { color: var(--ink-3); }
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper input { width: 56px; height: 26px; text-align: center; font-variant-numeric: tabular-nums; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; }
+.stepper input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
 .hint { font-size: 12px; color: var(--ink-3); }
 .error { font-size: 12px; color: var(--err); }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -241,10 +257,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pick .tag { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .pick .recent { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
 
-/* 노드 제거 확인 */
-.pop.confirm { width: 300px; gap: 10px; }
-.pop.confirm ul { padding-left: 18px; color: var(--ink-2); font-size: 13px; display: grid; gap: 2px; }
-
 /* 하단 상태 줄과 사용량 팝오버(docs/mockups/usage.html) */
 .app { grid-template-rows: minmax(0, 1fr) 28px; }
 a { color: var(--accent); }
@@ -255,9 +267,12 @@ a { color: var(--accent); }
 .usage-btn[aria-expanded="true"] { background: var(--accent-wash); color: var(--ink); }
 .usage-btn[data-loading] { animation: loading 1.2s ease-in-out infinite alternate; }
 @keyframes loading { to { opacity: 0.5; } }
-@media (prefers-reduced-motion: reduce) { .usage-btn[data-loading] { animation: none; opacity: 0.7; } }
-.usage-btn .who { font-weight: 600; color: var(--ink); }
+/* 사용량을 읽는 동안 새로 고침 아이콘이 돈다. */
+.refresh[data-loading] svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .usage-btn[data-loading] { animation: none; opacity: 0.7; } .refresh[data-loading] svg { animation: none; } }
 .seg-err { color: var(--err); }
+.app-version { margin-left: auto; align-self: center; padding: 0 10px; font-family: var(--mono); color: var(--ink-3); }
 .acct-name { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lim { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .lim .meter { width: 36px; }
@@ -269,7 +284,6 @@ a { color: var(--accent); }
 .prov-sec { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .prov { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 13px; color: inherit; }
 .prov:hover, .prov[aria-expanded="true"] { background: var(--surface-hover); }
-.prov .who { font-weight: 600; }
 .prov .acct-name { color: var(--ink-2); }
 .prov svg { margin-left: auto; flex: none; width: 14px; height: 14px; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .usage-foot { display: flex; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }

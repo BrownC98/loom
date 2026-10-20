@@ -74,7 +74,9 @@ const STEPS: &[M] = &[
     ),
     // 8: 설정에서 기본 에이전트와 에이전트 켜기·끄기를 지웠다(settings). 새 노드 창의 「최근」과 검색 목록이 맡는다.
     M::up("UPDATE settings SET value = json_remove(value, '$.defaultAgent', '$.disabledAgents');"),
-    // 9: 저장소 목록(worktree)과 노드의 자리(graph). `path`는 저장소 원래 체크아웃의 절대 경로다.
+    // 9: 노드의 모델과 추론 강도(graph). CLI가 알린 글 그대로다. 알리지 않았으면 NULL이다.
+    M::up("ALTER TABLE nodes ADD COLUMN model TEXT; ALTER TABLE nodes ADD COLUMN effort TEXT;"),
+    // 10: 저장소 목록(worktree)과 노드의 자리(graph). `path`는 저장소 원래 체크아웃의 절대 경로다.
     // 워크트리 묶음은 `git worktree list`가 원천이라 표를 두지 않는다. 노드는 띄운 워크트리 경로를 남긴다.
     // 옛 노드는 `repo`가 NULL이다. 데몬이 시작할 때 시작 폴더 저장소로 옮긴다(`Graph::settle`).
     M::up(

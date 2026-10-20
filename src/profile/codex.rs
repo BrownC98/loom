@@ -36,6 +36,19 @@ fn usage() -> String {
     )
 }
 
+/// `-m`과 `model_reasoning_effort` 시작 인자. `-c` 값은 TOML이라 문자열을 따옴표로 감싼다.
+pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(model) = &choice.model {
+        args.extend(["-m".into(), model.clone()]);
+    }
+    if let Some(effort) = &choice.effort {
+        let effort = serde_json::to_string(effort).expect("문자열은 늘 직렬화된다");
+        args.extend(["-c".into(), format!("model_reasoning_effort={effort}")]);
+    }
+    args
+}
+
 /// `codex` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
 /// `-c` 값은 TOML로 읽힌다. JSON 문자열은 TOML 기본 문자열과 같은 이스케이프를 쓴다.
 /// 터미널 제목은 스레드 제목만 쓴다. 기본 제목(`<스피너> | <폴더>`)에는 카드 주제가 없다(`Profile::topic`).

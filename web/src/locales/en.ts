@@ -259,6 +259,7 @@ const en = {
       server: 'Could not start `{{program}}`: {{cause}}',
       noServer: '{{value}}: could not start the agent. Try again.',
       noBrief: '{{value}} does not take a first prompt. Leave it empty, create the node, then type in its terminal.',
+      noModelChoice: '{{value}} does not take a model or effort. Only Claude and Codex do.',
     },
     repo: {
       notFound: 'Folder not found: {{value}}',

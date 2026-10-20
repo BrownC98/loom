@@ -13,7 +13,7 @@ use crate::daemon::{
     SpawnRun, TakeRequest, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, MessageId, NodeId, Relations, Sent};
-use crate::profile::{AgentId, claude};
+use crate::profile::{AgentId, ModelChoice, claude};
 
 /// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
@@ -24,6 +24,7 @@ pub fn spawn(
     worktree: Option<String>,
     agent: Option<String>,
     file: Option<PathBuf>,
+    choice: ModelChoice,
     command: Vec<String>,
 ) -> Result<(), String> {
     let brief = match file {
@@ -48,6 +49,7 @@ pub fn spawn(
         run,
         brief,
         worktree,
+        choice,
     };
     // 프록시를 거치지 않는다. Codex 샌드박스 안에서는 실패하고, 사람이 승인하면 샌드박스 밖에서 닿는다.
     let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;

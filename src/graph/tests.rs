@@ -91,6 +91,58 @@ fn model_change_reaches_the_view_once() {
 }
 
 #[test]
+fn topic_prefers_summary_then_title_then_brief() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = g
+        .add_child(
+            lead,
+            "구현",
+            None,
+            None,
+            "\n  node_host를 고쳐라 \n둘째 줄",
+            launched,
+        )
+        .unwrap();
+    let quiet = child(&g, lead, "조용");
+    let (_, mut events) = g.subscribe().unwrap();
+    // 첫 지시문이 없는 노드는 받은 메시지로 짐작하지 않는다.
+    g.send(worker, "claude-1", Kind::Queue, "질문").unwrap();
+    assert_eq!(view(&g, lead).topic, None);
+    assert_eq!(view(&g, quiet).topic, None);
+    assert_eq!(
+        view(&g, worker).topic.as_deref(),
+        Some("node_host를 고쳐라")
+    );
+    while events.try_recv().is_ok() {}
+
+    g.set_title(worker, Some("a.txt 한 줄 요약".into()))
+        .unwrap();
+    g.set_title(worker, Some("a.txt 한 줄 요약".into()))
+        .unwrap();
+    let Ok(GraphEvent::Node(changed)) = events.try_recv() else {
+        panic!("Node 이벤트가 와야 한다")
+    };
+    assert_eq!(changed.topic.as_deref(), Some("a.txt 한 줄 요약"));
+    // 같은 값은 다시 알리지 않는다.
+    assert!(events.try_recv().is_err());
+    g.set_title(worker, None).unwrap();
+    assert!(
+        matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.topic.as_deref() == Some("node_host를 고쳐라"))
+    );
+
+    // 프로세스가 끝나면 제목도 사라진다.
+    g.set_title(quiet, Some("제목".into())).unwrap();
+    g.exited(quiet, 0).unwrap();
+    assert_eq!(view(&g, quiet).topic, None);
+
+    g.set_title(worker, Some("제목".into())).unwrap();
+    g.done(worker, "  \n결과는 out.md\n자세히").unwrap();
+    assert_eq!(view(&g, worker).topic.as_deref(), Some("결과는 out.md"));
+}
+
+#[test]
 fn parent_and_child_exchange_messages() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));

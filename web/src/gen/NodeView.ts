@@ -24,4 +24,9 @@ model: string | null,
 /**
  * CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
  */
-effort: string | null, place: Place, };
+effort: string | null, place: Place, 
+/**
+ * 노드가 지금 하는 일 한 줄. 근거: docs/design.md 「그래프와 화면」.
+ * `done` 요약, CLI 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄이다. 모두 없으면 없다.
+ */
+topic: string | null, };

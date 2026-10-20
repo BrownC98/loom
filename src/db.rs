@@ -87,6 +87,9 @@ const STEPS: &[M] = &[
         ALTER TABLE nodes ADD COLUMN repo INTEGER;
         ALTER TABLE nodes ADD COLUMN worktree TEXT;",
     ),
+    // 11: 자식 노드의 첫 지시문(graph). 그 메시지의 id다. 첫 지시문 없이 만든 노드와 옛 노드는 NULL이다.
+    // 메시지는 받는 노드와 함께 지우므로 외래 키를 두지 않는다.
+    M::up("ALTER TABLE nodes ADD COLUMN brief INTEGER;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

@@ -220,11 +220,14 @@ async fn login(
             }
         }
     };
-    app.logins.host.spawn(login, cmd, on_exit).map_err(|e| {
-        app.logins.states.lock().unwrap().remove(&login);
-        discard();
-        internal(e)
-    })?;
+    app.logins
+        .host
+        .spawn(login, cmd, |_| {}, on_exit)
+        .map_err(|e| {
+            app.logins.states.lock().unwrap().remove(&login);
+            discard();
+            internal(e)
+        })?;
     Ok(Json(login))
 }
 

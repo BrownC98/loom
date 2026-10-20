@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loom 카드 터미널 목업</title>
+<style>
+:root { color-scheme: dark; }
+body { margin: 0; padding: 24px; background: #16191f; color: #eef1f5; font: 15px/1.5 system-ui, sans-serif; }
+h1 { font-size: 20px; margin: 0 0 16px; }
+h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+.pair { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+img { display: block; max-width: 100%; height: auto; border: 1px solid #3a414d; border-radius: 8px; }
+</style>
+</head>
+<body>
+<h1>카드 터미널</h1>
+<div class="pair">
+  <figure>
+    <h2>카드 · 전 (52열, 한글 사이 틈, 발 줄)</h2>
+    <img src="term-card-before.png" alt="400px 카드. 한글 글자 사이가 벌어지고 tput cols가 52다. 아래에 「입력 중」 발 줄이 있다." width="452" height="394">
+  </figure>
+  <figure>
+    <h2>카드 · 후 (80열, 틈 없음, 발 줄 없음, 머리에 모델·추론 강도)</h2>
+    <img src="term-card-after.png" alt="600px 카드. 한글이 붙어 보이고 tput cols가 80이다. 발 줄이 없고 머리에 모델과 추론 강도가 있다." width="652" height="394">
+  </figure>
+</div>
+<div class="pair">
+  <figure>
+    <h2>설정 「터미널」 탭 · 전</h2>
+    <img src="term-settings-before.png" alt="설정 「터미널」 탭. 테마 목록만 있다." width="880" height="600">
+  </figure>
+  <figure>
+    <h2>설정 「터미널」 탭 · 후 (글꼴 크기, 글꼴)</h2>
+    <img src="term-settings-after.png" alt="설정 「터미널」 탭 위에 글꼴 크기 칸과 글꼴 칸이 있다." width="880" height="600">
+  </figure>
+</div>
+<h2>설정 「UI」 탭 · 후 (카드 보기)</h2>
+<img src="term-settings-ui.png" alt="설정 「UI」 탭. 테마 아래에 카드 보기 「터미널 / 머리만」이 있다." width="880" height="600">
+<h2>머리만 보기 · 카드를 누르면 오른쪽 칸에 터미널</h2>
+<img src="term-header-dock.png" alt="카드가 머리만 보이고, 고른 카드의 터미널이 오른쪽 칸에 열려 있다." width="1440" height="900">
+</body>
+</html>

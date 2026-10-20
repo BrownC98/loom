@@ -38,7 +38,7 @@ const THEME_CHOICES = [
 const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
 const CARD_VIEWS = ['terminal', 'header'] as const satisfies readonly CardView[];
 
-/** 「UI」 탭(목업 settings.html 6번, language.html, terminal-font.html): 화면 테마, 카드 보기, 언어. 언어 이름은 번역하지 않는다. */
+/** 「UI」 탭(목업 settings.html 6번, language.html, card-terminal.html): 화면 테마, 카드 보기, 언어. 언어 이름은 번역하지 않는다. */
 export function UiTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
@@ -88,7 +88,7 @@ export function UiTab({ settings, onSettings }: TabProps) {
   );
 }
 
-/** 「터미널」 탭(목업 6번, terminal-font.html): 글꼴과 모드마다 터미널 테마. */
+/** 「터미널」 탭(목업 6번, card-terminal.html): 글꼴과 모드마다 터미널 테마. */
 export function TerminalTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   const saved = settings.terminalTheme;
@@ -150,6 +150,7 @@ function FontFields({ settings, onSettings }: TabProps) {
           </button>
           <input
             id="t-font-size"
+            name="font-size"
             key={size}
             type="number"
             min={FONT_SIZE_RANGE.min}
@@ -172,6 +173,7 @@ function FontFields({ settings, onSettings }: TabProps) {
         <div className="field">
           <input
             id="t-font-family"
+            name="font-family"
             key={saved.family}
             defaultValue={saved.family ?? ''}
             placeholder={DEFAULT_TERMINAL_FONT.family}

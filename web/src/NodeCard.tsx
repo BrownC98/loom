@@ -70,6 +70,11 @@ export function NodeCard(props: {
       <div className="card-head" onDoubleClick={props.onDoubleClickHead}>
         <span className="name">{view.name}</span>
         <span className="agent">{props.agentLabel}</span>
+        {(view.model || view.effort) && (
+          <span className="model" translate="no">
+            {[view.model, view.effort].filter(Boolean).join(' · ')}
+          </span>
+        )}
         <span className="spacer" />
         {view.unread > 0 && (
           <span className="unread" aria-label={t('node.unread', { n: view.unread })}>

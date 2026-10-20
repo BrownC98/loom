@@ -1,4 +1,4 @@
-//! 노드를 더하고 지우고, 부모를 바꾸고(입양), 프로세스가 끝난 노드를 고친다.
+//! 노드를 더하고 지우고, 이름과 부모를 바꾸고(입양), 프로세스가 끝난 노드를 고친다.
 //! 근거: docs/design.md 「노드 제거와 입양」.
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -350,6 +350,69 @@ impl Graph {
         }
     }
 
+    /// 사람이 노드 이름을 바꾼다. 이름이 그대로면 아무것도 하지 않는다.
+    /// 메시지를 이름으로 찾는 범위(`mailbox::recipient`)에서 겹치지 않게 한다: 부모, 조부모, 형제(부모가 없으면 다른 뿌리), 자식, 손자.
+    /// 부모와 자식이 옛 이름으로 보내면 받는 노드를 찾지 못하므로 그들 메일함에 바뀐 이름을 한 줄 넣는다.
+    pub fn rename(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
+        let name = checked_name(name)?;
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let old = name_of(&tx, id)
+            .optional()?
+            .ok_or_else(|| Refusal::NotFound(format!("#{}", id.0)))?;
+        if old == name {
+            return Ok(());
+        }
+        let taken: bool = tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM nodes n, nodes me WHERE me.id = ?1 AND n.id != ?1 AND n.name = ?2 AND (
+                n.id = me.parent
+                OR n.id = (SELECT parent FROM nodes WHERE id = me.parent)
+                OR n.parent IS me.parent
+                OR n.parent = ?1
+                OR n.parent IN (SELECT id FROM nodes WHERE parent = ?1)))",
+            params![id.0, name],
+            |row| row.get(0),
+        )?;
+        if taken {
+            return Err(Refusal::NameTaken(name.to_owned()));
+        }
+        tx.execute(
+            "UPDATE nodes SET name = ?2 WHERE id = ?1",
+            params![id.0, name],
+        )?;
+        events::write(
+            &tx,
+            &Entry::Renamed {
+                node: events::who(&tx, id)?,
+                from: old.clone(),
+            },
+            None,
+        )?;
+        let relatives = tx
+            .prepare(
+                "SELECT id FROM nodes WHERE parent = ?1
+                 OR id = (SELECT parent FROM nodes WHERE id = ?1) ORDER BY id",
+            )?
+            .query_map([id.0], |row| Ok(NodeId(row.get(0)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let notice = format!(
+            "renamed: {old} -> {name} (#{0}). Address it as {name} or '#{0}'.",
+            id.0
+        );
+        for &to in &relatives {
+            mailbox::enqueue(&tx, id, Some(to), Kind::Queue, &notice)?;
+        }
+        tx.commit()?;
+        self.publish_node(&db, id)?;
+        let parent = parent_of(&db, id)?;
+        for &to in &relatives {
+            self.publish_node(&db, to)?;
+            // 간선은 자식 id로 가리킨다.
+            self.publish_message(if Some(to) == parent { id } else { to });
+        }
+        Ok(())
+    }
+
     /// `parent`를 `child`의 새 부모로 정한다. 이미 그 부모면 아무것도 하지 않는다.
     /// `child`가 보관한 메시지는 보낸 순서대로 새 부모 메일함에 넣는다. 보관할 때 상한을 봤으므로 메일함 상한은 보지 않는다.
     /// 실행 중인 노드를 데려가면 옛 부모 메일함에 `adopted: <새 부모>` 한 줄을 넣는다. 옛 부모가 끝없이 기다리지 않게 한다.
@@ -442,7 +505,7 @@ fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
 fn checked_name(name: &str) -> Result<&str, Refusal> {
     match name.trim() {
         "" => Err(Refusal::EmptyName),
-        name if name.starts_with('#') => Err(Refusal::NameTaken(name.to_owned())),
+        name if name.starts_with('#') => Err(Refusal::ReservedName(name.to_owned())),
         name => Ok(name),
     }
 }

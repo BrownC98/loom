@@ -3,6 +3,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import type { Terminal as XTerm } from '@xterm/xterm';
 import { nodePty } from './api';
 import type { NodeView } from './gen/NodeView';
+import { useRename } from './NameEdit';
 import { NodeSummary } from './NodeCard';
 import { Terminal, type Direction } from './Terminal';
 
@@ -24,12 +25,15 @@ function webglRenderer(xterm: XTerm) {
 export function TerminalDock(props: { view: NodeView; agentLabel: string; onNavigate: (dir: Direction) => void; onClose: () => void }) {
   const { t } = useTranslation();
   const { view } = props;
+  // 오른쪽 칸 머리는 두 번 누르기로만 연다. 칸에 F2를 받는 포커스 자리가 없다.
+  const rename = useRename();
   return (
     <aside className="dock" id="dock" aria-label={t('node.label', { name: view.name })}>
       <div className="dock-head">
         <NodeSummary
           view={view}
           agentLabel={props.agentLabel}
+          rename={rename}
           actions={
             <button className="btn ghost sm icon" aria-label={t('dock.closeTerminal')} title={t('dock.closeTerminal')} onClick={props.onClose}>
               <svg viewBox="0 0 24 24" aria-hidden="true">

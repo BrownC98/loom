@@ -10,4 +10,4 @@ export type Entry = { "kind": "created", node: Who, parent: Who | null, agent: A
 /**
  * 부모가 없던 동안 보관해 새 부모에게 옮긴 메시지 수. 이 수를 남기기 전 기록은 0이다.
  */
-held: number, } | { "kind": "removed", node: Who, } | { "kind": "message", how: Kind, from: Who, to: Who | null, step: Step, } | { "kind": "refused", how: Kind, from: Who, to: string, reason: Refusal, };
+held: number, } | { "kind": "removed", node: Who, } | { "kind": "renamed", node: Who, from: string, } | { "kind": "message", how: Kind, from: Who, to: Who | null, step: Step, } | { "kind": "refused", how: Kind, from: Who, to: string, reason: Refusal, };

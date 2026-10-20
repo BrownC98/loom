@@ -11,6 +11,7 @@ import type { RepoView } from './gen/RepoView';
 import { AddRepoPopover } from './AddRepoPopover';
 import { useShowNodes } from './Graph';
 import i18next from './i18n';
+import { NameEdit, returnFocus, type Rename } from './NameEdit';
 import { Unread } from './NodeCard';
 import { groupsOf, inGroup } from './repos';
 
@@ -26,7 +27,7 @@ function Chevron({ open }: { open: boolean }) {
 }
 
 /** `parent`가 없으면 묶음의 뿌리: 부모가 없거나 부모가 다른 묶음에 있는 노드다. */
-function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]): Item[] {
+function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[], rename: (id: NodeId) => Rename): Item[] {
   return views
     .filter((v) => (parent === null ? !views.some((p) => p.id === v.parent) : v.parent === parent))
     .sort((a, b) => a.id - b.id)
@@ -36,7 +37,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
       row: (
         <>
           <span className={`dot ${v.state.kind}`} aria-label={v.state.kind} />
-          <span className="name">{v.name}</span>
+          <NameEdit id={v.id} name={v.name} rename={rename(v.id)} />
           <span className="sub">{agentLabel(agents, v.agent)}</span>
           {(v.unread > 0 || v.held > 0) && <span className="spacer" />}
           {v.unread > 0 && <Unread n={v.unread}>{v.unread}</Unread>}
@@ -47,7 +48,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
           )}
         </>
       ),
-      children: nodeItems(views, v.id, agents),
+      children: nodeItems(views, v.id, agents, rename),
     }));
 }
 
@@ -69,6 +70,16 @@ export function Tree(props: {
   const repoKey = (id: RepoId) => `repo:${id}`;
   // Tab으로 들어올 때 포커스를 받는 줄(roving tabindex).
   const [active, setActive] = useState('');
+  // 이름을 고치는 노드. 그 줄은 단추 대신 div다. 단추 안에는 입력창을 두지 못한다.
+  const [renaming, setRenaming] = useState<NodeId | null>(null);
+  const rename = (id: NodeId): Rename => ({
+    editing: renaming === id,
+    open: () => setRenaming(id),
+    close: () => {
+      setRenaming(null);
+      returnFocus(() => document.querySelector<HTMLElement>(`button.tree-row[data-key="node:${id}"]`));
+    },
+  });
   const toggle = (key: string, open: boolean) =>
     setClosed((prev) => {
       const next = new Set(prev);
@@ -102,7 +113,7 @@ export function Tree(props: {
           {group.kind !== 'linked' && <span className="tag">{t(`worktree.${group.kind}`)}</span>}
         </>
       ),
-      children: nodeItems(inGroup(views, group), null, props.agents),
+      children: nodeItems(inGroup(views, group), null, props.agents, rename),
     })),
   }));
   const visible = new Set<string>();
@@ -116,37 +127,49 @@ export function Tree(props: {
   const render = (item: Item, depth: number, parentKey: string | null): ReactNode => {
     const open = !closed.has(item.key);
     const branch = item.children.length > 0;
+    const head = (
+      <>
+        {branch ? <Chevron open={open} /> : <span className="leaf" />}
+        {item.row}
+      </>
+    );
     return (
       <li key={item.key} role="treeitem" aria-expanded={branch ? open : undefined} aria-selected={item.node !== null ? item.node === props.selected : undefined}>
-        <button
-          className="tree-row"
-          style={{ '--depth': depth } as CSSProperties}
-          data-key={item.key}
-          data-parent={parentKey ?? undefined}
-          data-open={branch ? open : undefined}
-          tabIndex={item.key === tabStop ? 0 : -1}
-          onFocus={() => setActive(item.key)}
-          aria-current={(item.node !== null && item.node === props.selected) || (item.repo !== undefined && item.repo === props.current) ? 'true' : undefined}
-          onClick={() => {
-            // 저장소 줄은 그래프를 그 저장소로 바꾼다. 고른 저장소 줄을 다시 누르면 접고 편다.
-            if (item.repo !== undefined && item.repo !== props.current) {
-              toggle(item.key, true);
-              return props.onRepo(item.repo);
-            }
-            if (item.node === null) return toggle(item.key, !open);
-            show([item.node]);
-            props.onSelect(item.node);
-          }}
-        >
-          {branch ? <Chevron open={open} /> : <span className="leaf" />}
-          {item.row}
-        </button>
+        {item.node !== null && item.node === renaming ? (
+          <div className="tree-row" style={{ '--depth': depth } as CSSProperties} aria-current={item.node === props.selected ? 'true' : undefined}>
+            {head}
+          </div>
+        ) : (
+          <button
+            className="tree-row"
+            style={{ '--depth': depth } as CSSProperties}
+            data-key={item.key}
+            data-parent={parentKey ?? undefined}
+            data-open={branch ? open : undefined}
+            data-node={item.node ?? undefined}
+            tabIndex={item.key === tabStop ? 0 : -1}
+            onFocus={() => setActive(item.key)}
+            aria-current={(item.node !== null && item.node === props.selected) || (item.repo !== undefined && item.repo === props.current) ? 'true' : undefined}
+            onClick={() => {
+              // 저장소 줄은 그래프를 그 저장소로 바꾼다. 고른 저장소 줄을 다시 누르면 접고 편다.
+              if (item.repo !== undefined && item.repo !== props.current) {
+                toggle(item.key, true);
+                return props.onRepo(item.repo);
+              }
+              if (item.node === null) return toggle(item.key, !open);
+              show([item.node]);
+              props.onSelect(item.node);
+            }}
+          >
+            {head}
+          </button>
+        )}
         {branch && open && <ul role="group">{item.children.map((child) => render(child, depth + 1, item.key))}</ul>}
       </li>
     );
   };
 
-  // 트리 키보드: ↑↓ 줄 옮기기, → 펴기, ← 접기 또는 부모 줄로, Enter·Space는 단추 기본 동작(고르기).
+  // 트리 키보드: ↑↓ 줄 옮기기, → 펴기, ← 접기 또는 부모 줄로, F2 노드 이름 바꾸기, Enter·Space는 단추 기본 동작(고르기).
   const onKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
     // 보이는 줄 단추, 위에서부터.
     const rows = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('button.tree-row')];
@@ -158,6 +181,7 @@ export function Tree(props: {
     else if (e.key === 'ArrowRight' && current?.dataset.open === 'false') toggle(current.dataset.key!, true);
     else if (e.key === 'ArrowLeft' && current?.dataset.open === 'true') toggle(current.dataset.key!, false);
     else if (e.key === 'ArrowLeft' && current?.dataset.parent) focus(rows.find((r) => r.dataset.key === current.dataset.parent));
+    else if (e.key === 'F2' && current?.dataset.node) setRenaming(Number(current.dataset.node));
     else return;
     e.preventDefault();
   };

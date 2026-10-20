@@ -1,4 +1,4 @@
-import { GitCommitVertical } from 'lucide-react';
+import { AlignLeft, GitBranch, GitCommitVertical, Settings as SettingsIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
@@ -276,10 +276,7 @@ export function App() {
             />
             <div className="side-foot">
               <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-                </svg>
+                <SettingsIcon />
                 {t('settings.title')}
               </button>
             </div>
@@ -306,16 +303,12 @@ export function App() {
               )}
               {repo && (
                 <button className="btn" aria-expanded={creatingWorktree} disabled={!repo.hasCommits} aria-describedby={repo.hasCommits ? undefined : 'no-commit'} onClick={() => setCreatingWorktree(true)}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9" />
-                  </svg>
+                  <GitBranch />
                   {t('repo.newWorktree')}
                 </button>
               )}
               <button className="btn" aria-pressed={dock === 'events'} aria-controls="dock" onClick={() => toggleDock('events')}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 6h16M4 12h16M4 18h10" />
-                </svg>
+                <AlignLeft />
                 {t('events.title')}
               </button>
               <button className="btn" aria-pressed={dock === 'commits'} aria-controls="dock" onClick={() => toggleDock('commits')}>

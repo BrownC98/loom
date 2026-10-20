@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Folder } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getFolders } from './api';
@@ -96,9 +96,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
               return (
                 <li key={folder.name} className={selected === path ? 'sel' : undefined}>
                   <button type="button" className="dir" disabled={props.disabled} aria-pressed={selected === path} onClick={() => select(path)}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                    </svg>
+                    <Folder />
                     <span className="dir-name">{folder.name}</span>
                     {folder.git && <span className="tag">git</span>}
                   </button>

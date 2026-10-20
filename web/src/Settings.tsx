@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react';
+import { Plus, RotateCw } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { closeLogin, getLogin, loginPty, removeAccount, startLogin } from './api';
@@ -98,9 +98,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
         <h4>
           {t('settings.installed', { n: installed.length })}
           <button className="btn ghost sm" onClick={props.onRescan}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" />
-            </svg>
+            <RotateCw />
             {t('settings.rescan')}
           </button>
         </h4>

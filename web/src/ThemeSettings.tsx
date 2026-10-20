@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Monitor, Moon, RotateCcw, Sun, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { CardView } from './gen/CardView';
 import type { Language } from './gen/Language';
@@ -12,28 +13,10 @@ import { chosenTheme, DEFAULT_TERMINAL_THEME, RESET_TERMINAL_THEME, TERMINAL_THE
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
 const THEME_CHOICES = [
-  {
-    value: 'system',
-    label: 'common.system',
-    icon: (
-      <>
-        <rect x="3" y="4" width="18" height="12" rx="2" />
-        <path d="M8 20h8M12 16v4" />
-      </>
-    ),
-  },
-  {
-    value: 'light',
-    label: 'theme.light',
-    icon: (
-      <>
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-      </>
-    ),
-  },
-  { value: 'dark', label: 'theme.dark', icon: <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /> },
-] as const satisfies readonly { value: Theme; label: string; icon: ReactNode }[];
+  { value: 'system', label: 'common.system', icon: Monitor },
+  { value: 'light', label: 'theme.light', icon: Sun },
+  { value: 'dark', label: 'theme.dark', icon: Moon },
+] as const satisfies readonly { value: Theme; label: string; icon: LucideIcon }[];
 
 const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
 /** 설정과 그래프 위 막대가 같은 순서로 보인다(목업 card-view.html). */
@@ -66,9 +49,7 @@ export function UiTab({ settings, onSettings }: TabProps) {
           {THEME_CHOICES.map((c) => (
             <label key={c.value}>
               <input type="radio" name="theme" checked={settings.theme === c.value} onChange={() => onSettings({ ...settings, theme: c.value })} />
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                {c.icon}
-              </svg>
+              <c.icon />
               {t(c.label)}
             </label>
           ))}
@@ -122,9 +103,7 @@ export function TerminalTab({ settings, onSettings }: TabProps) {
       <section>
         <div>
           <button className="btn" onClick={() => onSettings({ ...settings, terminalTheme: RESET_TERMINAL_THEME })}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />
-            </svg>
+            <RotateCcw />
             {t('theme.reset')}
           </button>
         </div>

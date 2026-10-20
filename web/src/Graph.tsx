@@ -22,6 +22,8 @@ import { Terminal, type Direction } from './Terminal';
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
 /** 빈 묶음을 재기 전에 쓰는 높이(머리와 안내 글). */
+/** 끄는 상자의 z. React Flow가 고른 노드에 더하는 1000(`SELECTED_NODE_Z`)과 그 묶음의 카드보다 높아야 한다. */
+const DRAGGING_Z = 2000;
 const EMPTY_GROUP_HEIGHT = 100;
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
@@ -300,9 +302,10 @@ export function Graph(props: {
   }));
   const standard = props.cardView === 'standard';
   // 끄는 상자는 React Flow가 옮긴 자리에 그린다. React Flow가 그 노드에 `dragging` 클래스를 붙여 반투명하게 보인다.
+  // 겹치면 늘 맨 위다(2026-10-20 사람 지시 "드래그로 잡은건 겹칠때 항상 최상위 z 인덱스 적용"). 묶음을 끌면 그 카드도 함께 올라온다.
   const keep = <N extends FlowNode>(node: N): N => {
     const live = flowState.get(node.id);
-    return { ...node, measured: live?.measured, ...(live?.dragging && { position: live.position, dragging: true }) };
+    return { ...node, measured: live?.measured, ...(live?.dragging && { position: live.position, dragging: true, zIndex: DRAGGING_Z }) };
   };
 
   const nodes: FlowNode[] = groups.flatMap(({ group, members, local, origin, right, bottom }) => [

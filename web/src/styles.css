@@ -330,7 +330,8 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 /* 저장소 추가(repository.html). 탭 셋과 데몬 폴더 목록. */
 .pop.add-repo { width: min(440px, calc(100vw - 24px)); }
 .add-repo .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); }
-.add-repo .tabs button { border: 0; background: none; border-radius: 6px; padding: 4px 0; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+/* 공용 .tabs(밑줄 탭)의 높이·왼쪽 정렬·밑줄 자리를 되돌린다. 여기는 가운데 맞춘 칸 탭이다. */
+.add-repo .tabs button { justify-content: center; height: auto; margin-bottom: 0; border: 0; background: none; border-radius: 6px; padding: 4px 0; font-size: 13px; color: var(--ink-2); cursor: pointer; }
 .add-repo .tabs button:hover:not(:disabled) { color: var(--ink); }
 .add-repo .tabs button[aria-selected='true'] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px var(--shadow); }
 .add-repo .tabs button:disabled { opacity: 0.5; cursor: default; }

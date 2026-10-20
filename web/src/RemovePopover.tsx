@@ -1,24 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeNode } from './api';
 import type { NodeView } from './gen/NodeView';
+import { useOutsideClose } from './popover';
 
 /** 노드 제거 확인(목업 「노드 제거」). 되돌릴 수 없으므로 끝난 노드도 묻는다. 첫 포커스는 [취소]이고, Esc와 팝오버 밖 누르기가 닫는다. */
 export function RemovePopover(props: { view: NodeView; childNames: string[]; onClose: () => void }) {
   const { t } = useTranslation();
-  const box = useRef<HTMLDivElement>(null);
-  const onClose = useRef(props.onClose);
-  onClose.current = props.onClose;
+  const box = useOutsideClose<HTMLDivElement>(props.onClose);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const outside = (e: PointerEvent) => {
-      if (!box.current?.contains(e.target as Node)) onClose.current();
-    };
-    document.addEventListener('pointerdown', outside, true);
-    return () => document.removeEventListener('pointerdown', outside, true);
-  }, []);
 
   async function remove() {
     setBusy(true);

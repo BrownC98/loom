@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getRepo, getSettings, putSettings, watchGraph } from './api';
+import { getAccounts, getAgents, getRepos, getSettings, putSettings, watchGraph } from './api';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import { CommitGraph } from './CommitGraph';
@@ -13,6 +13,8 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
 import { Graph } from './Graph';
+import { NewWorktreePopover } from './NewWorktreePopover';
+import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { Splitter, usePaneWidth, type Pane } from './Splitter';
@@ -38,6 +40,7 @@ const EMPTY_SETTINGS: SettingsView = {
   theme: (document.documentElement.dataset.theme as Theme | undefined) ?? 'system',
   terminalTheme: RESET_TERMINAL_THEME,
   language: INITIAL_LANGUAGE,
+  workspaceDir: null,
 };
 const SETTINGS_HASH = '#settings/';
 
@@ -77,7 +80,13 @@ function useColorMode(theme: Theme): ColorMode {
 
 export function App() {
   const { t } = useTranslation();
-  const [repo, setRepo] = useState<RepoView | null>(null);
+  const [repos, setRepos] = useState<RepoView[]>([]);
+  const [repo, selectRepo] = useSelectedRepo(repos);
+  const [creatingWorktree, setCreatingWorktree] = useState(false);
+  /** 저장소 하나의 새 모양(워크트리를 만들거나 지운 뒤)을 목록에 넣는다. 처음 보는 저장소면 끝에 더한다. */
+  const putRepo = (next: RepoView) => setRepos((prev) => (prev.some((r) => r.id === next.id) ? prev.map((r) => (r.id === next.id ? next : r)) : [...prev, next]));
+  // 노드가 모르는 워크트리에 있으면(`loom spawn --worktree`, 터미널에서 만든 워크트리) 목록을 다시 읽는다. 경로마다 한 번만 읽는다.
+  const askedWorktrees = useRef(new Set<string>());
   const [nodes, setNodes] = useState<ReadonlyMap<NodeId, NodeView>>(new Map());
   // 자식 id → 강조하는 동안 그 자식의 간선으로 오간 메시지 수.
   const [pulses, setPulses] = useState<ReadonlyMap<NodeId, number>>(new Map());
@@ -139,7 +148,17 @@ export function App() {
   }, [settingsTab !== null]);
 
   useEffect(() => {
-    getRepo().then(setRepo);
+    for (const v of nodes.values()) {
+      const known = repos.find((r) => r.id === v.place.repo)?.worktrees.some((w) => w.path === v.place.worktree);
+      if (known === false && !askedWorktrees.current.has(v.place.worktree)) {
+        askedWorktrees.current.add(v.place.worktree);
+        getRepos().then(setRepos);
+      }
+    }
+  }, [nodes, repos]);
+
+  useEffect(() => {
+    getRepos().then(setRepos);
     const pulse = (child: NodeId) => {
       setPulses((prev) => new Map(prev).set(child, (prev.get(child) ?? 0) + 1));
       clearTimeout(pulseTimers.current.get(child));
@@ -182,7 +201,19 @@ export function App() {
           {dock && <Splitter pane={DOCK_PANE} width={dockWidth} onWidth={setDockWidth} label={t('app.resize', { pane: dock === 'events' ? t('events.title') : t('app.commitGraph') })} style={{ right: dockWidth }} />}
           <nav className="side" aria-label={t('app.sideLabel')}>
             <div className="brand">loom</div>
-            {repo && <Tree repo={repo} views={nodes} agents={agents} selected={selected} onSelect={setSelected} />}
+            <Tree
+              repos={repos}
+              current={repo?.id ?? null}
+              onRepo={selectRepo}
+              onAdded={(added) => {
+                putRepo(added);
+                selectRepo(added.id);
+              }}
+              views={nodes}
+              agents={agents}
+              selected={selected}
+              onSelect={setSelected}
+            />
             <div className="side-foot">
               <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -197,6 +228,14 @@ export function App() {
             <div className="toolbar">
               <h1>{repo?.name}</h1>
               <span className="spacer" />
+              {repo && (
+                <button className="btn" aria-expanded={creatingWorktree} onClick={() => setCreatingWorktree(true)}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9" />
+                  </svg>
+                  {t('repo.newWorktree')}
+                </button>
+              )}
               <button className="btn" aria-pressed={dock === 'events'} aria-controls="dock" onClick={() => toggleDock('events')}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M4 6h16M4 12h16M4 18h10" />
@@ -211,8 +250,19 @@ export function App() {
                 {t('app.commitGraph')}
               </button>
             </div>
+            {repo && creatingWorktree && (
+              <NewWorktreePopover
+                repo={repo}
+                workspaceDir={settings.workspaceDir ?? ''}
+                onClose={() => setCreatingWorktree(false)}
+                onCreated={(next) => {
+                  setCreatingWorktree(false);
+                  putRepo(next);
+                }}
+              />
+            )}
             <Graph
-              views={nodes}
+              views={repo ? new Map([...nodes].filter(([, v]) => v.place.repo === repo.id)) : new Map()}
               pulses={pulses}
               agents={agents}
               settings={settings}
@@ -224,7 +274,7 @@ export function App() {
             />
           </main>
           {dock === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} onClose={() => setDock(null)} />}
-          {dock === 'commits' && <CommitGraph onClose={() => setDock(null)} />}
+          {dock === 'commits' && repo && <CommitGraph repo={repo.id} onClose={() => setDock(null)} />}
           <StatusBar
             usage={usage}
             settings={settings}

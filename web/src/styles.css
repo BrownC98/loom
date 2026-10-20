@@ -52,7 +52,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .splitter:hover, .splitter:focus-visible, .splitter:active { background: color-mix(in oklch, var(--accent) 55%, transparent); outline: none; }
 
 /* 사이드바: 트리와 맨 아래 [설정](docs/mockups/graph-panels.html 1번) */
-.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.side { position: relative; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .brand { font-weight: 700; font-size: 16px; padding: 16px 16px 12px; letter-spacing: -0.01em; }
 .side-head { display: flex; align-items: center; padding: 8px 8px 6px 16px; }
 .side-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
@@ -223,6 +223,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .hint { font-size: 12px; color: var(--ink-3); }
 .error { font-size: 12px; color: var(--err); }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* 저장소·워크트리 팝오버(목업 workspace.html). 사이드바 머리 아래, 도구 줄 아래 오른쪽에 뜬다. */
+.pop.side-pop { top: 84px; left: 12px; width: min(380px, calc(100vw - 24px)); }
+.pop.toolbar-pop { top: 56px; right: 16px; width: 380px; }
+.pop.confirm.wide { width: 420px; }
+.pop .mono, .field input.mono { font-family: var(--mono); overflow-wrap: anywhere; }
+.pop pre.changes { max-height: 160px; overflow: auto; margin: 0; padding: 6px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 11px/1.5 var(--mono); color: var(--ink-2); }
+.pop .check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
 /* 프로필 고르기: 검색 입력과 목록(docs/mockups/settings.html 5번) */
 .pick { list-style: none; padding: 4px; margin: 0; max-height: 264px; overflow: auto; overscroll-behavior: contain; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; }
 .pick .grp { font-size: 11px; font-weight: 600; color: var(--ink-3); padding: 6px 8px 2px; }

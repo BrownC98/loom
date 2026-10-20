@@ -9,10 +9,13 @@ import type { Login } from './gen/Login';
 import type { LoginId } from './gen/LoginId';
 import type { LoginState } from './gen/LoginState';
 import type { NewNode } from './gen/NewNode';
+import type { NewRepo } from './gen/NewRepo';
+import type { NewWorktree } from './gen/NewWorktree';
 import type { NodeId } from './gen/NodeId';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
+import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
@@ -20,11 +23,6 @@ import { problemText } from './problem';
 
 /** 끊긴 WebSocket을 다시 여는 간격. 데몬이 다시 시작하는 동안 기다린다. */
 const RECONNECT_MS = 1000;
-
-export async function getRepo(): Promise<RepoView> {
-  const res = await fetch('/api/repo');
-  return res.json();
-}
 
 /** 실패하면 데몬이 보낸 코드(`Problem`)를 현재 언어로 바꾼 문장을 담은 Error를 던진다. */
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -47,7 +45,17 @@ export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');
 export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/settings', view);
 /** 모든 브랜치의 최근 커밋과 워크트리마다 체크아웃한 커밋. */
-export const getCommits = () => call<CommitGraph>('GET', '/api/commits');
+export const getCommits = (repo: RepoId) => call<CommitGraph>('GET', `/api/repos/${repo}/commits`);
+/** 더한 순서. 워크트리 첫째가 원래 체크아웃이다. */
+export const getRepos = () => call<RepoView[]>('GET', '/api/repos');
+export const addRepo = (req: NewRepo) => call<RepoView>('POST', '/api/repos', req);
+export const createWorktree = (repo: RepoId, req: NewWorktree) => call<RepoView>('POST', `/api/repos/${repo}/worktrees`, req);
+const worktreeQuery = (path: string) => `path=${encodeURIComponent(path)}`;
+/** 삭제하면 잃는 변경. 줄마다 `git status --porcelain` 한 줄이다. */
+export const getWorktreeChanges = (repo: RepoId, path: string) => call<string[]>('GET', `/api/repos/${repo}/worktrees/changes?${worktreeQuery(path)}`);
+/** 그 묶음의 노드를 끝내고 폴더를 지운다(`--force`). `deleteBranch`면 브랜치도 지운다. */
+export const deleteWorktree = (repo: RepoId, path: string, deleteBranch: boolean) =>
+  call<RepoView>('DELETE', `/api/repos/${repo}/worktrees?${worktreeQuery(path)}&deleteBranch=${deleteBranch}`);
 /** 최근 이벤트 기록 500개, 최근 것부터. */
 export const getEventLog = () => call<EventRecord[]>('GET', '/api/events/log');
 /** 계정마다 사용량을 그 자리에서 읽는다. 몇 초 걸린다. */

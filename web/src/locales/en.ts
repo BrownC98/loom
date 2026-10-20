@@ -141,7 +141,7 @@ const en = {
     heading: 'Cards',
     terminal: 'Terminal',
     header: 'Header only',
-    hint: 'With "Header only", clicking a card opens its terminal in the right panel.',
+    hint: 'With “Header only”, clicking a card opens its terminal in the right panel.',
   },
   theme: {
     heading: 'Theme',

@@ -133,7 +133,7 @@ const ko: typeof en = {
     smaller: '글꼴 크기 줄이기',
     larger: '글꼴 크기 키우기',
     family: '글꼴',
-    familyHint: '쉼표로 여러 글꼴을 적는다. 글자마다 그 글자가 있는 첫 글꼴을 쓴다. 비우면 기본값이다.',
+    familyHint: '쉼표로 여러 글꼴을 적습니다. 글자마다 그 글자가 있는 첫 글꼴을 씁니다. 비우면 기본값을 씁니다.',
   },
   dock: {
     closeTerminal: '터미널 칸 닫기',
@@ -142,7 +142,7 @@ const ko: typeof en = {
     heading: '카드 보기',
     terminal: '터미널',
     header: '머리만',
-    hint: '「머리만」이면 카드를 눌렀을 때 그 터미널이 오른쪽 칸에 열린다.',
+    hint: '‘머리만’이면 카드를 누를 때 그 노드의 터미널이 오른쪽 칸에 열립니다.',
   },
   theme: {
     heading: '테마',

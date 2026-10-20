@@ -383,6 +383,7 @@ Linux에서 loom은 호스트 실행 파일 하나다. Orca처럼 사람이 호�
 | 사람이 쓰는 loom은 `~/loom/bin/loom`이다. 원래 체크아웃(main)에서 `scripts/host.sh`가 빌드하고, 파일을 바꿔 넣고, 데몬을 다시 띄운다. 데몬은 `127.0.0.1:7420`에서 듣고 시작 폴더는 그 체크아웃이다. 출력은 `~/.loom/serve.log`, PID는 `~/.loom/serve.pid`다 | 명령 하나로 main을 올린다. 노드는 그대로 산다(「에이전트 실행」). 데몬은 새 세션(`setsid`)이라 터미널을 닫아도 산다 |
 | `host.sh`는 그 호스트의 glibc용으로 빌드한다 | 같은 기계에서만 돈다. 호스트에 musl 도구를 설치하지 않는다 |
 | 다른 Linux 기계용 실행 파일은 Release의 `loom-x86_64-linux`다. 정적 링크(musl)라 glibc 판과 관계없이 x86-64에서 돈다. Windows 설치 파일과 같은 Actions 실행(`release.yml`, 손으로 돌린다)이 같은 Release에 올린다 | Release 하나에 한 판의 파일이 모두 있다. Linux 파일만 따로 Release를 만들면 가장 새 Release에 `latest.json`이 없어 Windows 앱이 새 판을 찾지 못한다 |
+| 이름은 `loom`, 앱 아이콘은 지금 것(`app/icons/icon.ico`)을 둔다(2026-10-20 사람 결정 "아이콘, 이름 현행 유지") | 바꿀 이름 후보 14개와 충돌 조사(crates.io, npm, winget 색인, GitHub, 웹 검색), 바꾸는 비용은 [brand.html](mockups/brand.html)에 있다. Atlassian Loom과 winget 별칭 `loom`이 겹치는 문제는 남는다 |
 
 ## Windows 앱
 

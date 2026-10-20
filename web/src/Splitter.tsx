@@ -84,3 +84,27 @@ export function Splitter(props: { pane: Pane; width: number; onWidth: (width: nu
     />
   );
 }
+
+/** 사이드바를 펼쳤는지. 너비처럼 이 브라우저에만 남긴다. 처음에는 펼친다(목업 docs/mockups/toolbar.html E안). */
+export function usePaneOpen(key: string): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(key) !== CLOSED;
+    } catch {
+      return true;
+    }
+  });
+  const set = (next: boolean) => {
+    setOpen(next);
+    try {
+      if (next) localStorage.removeItem(key);
+      else localStorage.setItem(key, CLOSED);
+    } catch {
+      // 저장하지 못해도 이번 창에서는 바뀐 상태를 쓴다.
+    }
+  };
+  return [open, set];
+}
+
+/** `usePaneOpen`이 접힌 사이드바에 남기는 값. 펼침은 값이 없는 것이다. */
+const CLOSED = 'closed';

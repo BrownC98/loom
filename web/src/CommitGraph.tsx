@@ -7,7 +7,7 @@
 // 라이선스: MIT, Copyright (c) Microsoft Corporation.
 // 바꾼 점: 부모 없는 커밋에서도 다른 차선을 이어 간다(원본은 그 줄에서 다른 차선을 버린다).
 // 옮기지 않은 것: Incoming/Outgoing 줄, 참조 색 지도, 마우스 올림 설명 창.
-import { Folder, X } from 'lucide-react';
+import { Folder } from 'lucide-react';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getCommits } from './api';
@@ -156,7 +156,7 @@ function Refs({ commit, worktrees, color }: { commit: Commit; worktrees: Worktre
 }
 
 /** 칸이 열린 동안 붙어 있다. 닫으면 다시 읽기를 멈춘다. */
-export function CommitGraph(props: { repo: RepoId; onClose: () => void }) {
+export function CommitGraph(props: { repo: RepoId }) {
   const { t } = useTranslation();
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -186,15 +186,8 @@ export function CommitGraph(props: { repo: RepoId; onClose: () => void }) {
   const width = LANE_WIDTH * (Math.max(1, ...rows.map(laneCount)) + 1);
 
   return (
-    <aside className="dock" id="dock" aria-label={t('app.commitGraph')}>
-      <div className="dock-head">
-        <h2>{t('app.commitGraph')}</h2>
-        <span className="hint">{t('commits.scope')}</span>
-        <span className="spacer" />
-        <button className="btn ghost sm" aria-label={t('commits.close')} onClick={props.onClose}>
-          <X />
-        </button>
-      </div>
+    <>
+      <p className="dock-head hint">{t('commits.scope')}</p>
       {error !== null ? (
         <p className="dock-note error" role="alert">
           {error}
@@ -220,6 +213,6 @@ export function CommitGraph(props: { repo: RepoId; onClose: () => void }) {
           ))}
         </ol>
       )}
-    </aside>
+    </>
   );
 }

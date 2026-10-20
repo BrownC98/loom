@@ -49,15 +49,21 @@ html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); wor
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button, input, select, textarea { font: inherit; color: inherit; }
 
-.app { position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); height: 100%; }
-.app[data-dock] { grid-template-columns: var(--side-w) minmax(0, 1fr) var(--dock-w); }
+.app { position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--dock-w); height: 100%; }
 /* 사이드바 경계(sidebar-resize.html). 칸 사이 선 위에 7px 폭으로 겹친다. 맨 아래 상태 줄(28px)은 덮지 않는다. */
 .splitter { position: absolute; top: 0; bottom: 28px; width: 7px; margin-left: -3px; margin-right: -4px; z-index: 8; cursor: col-resize; touch-action: none; }
 .splitter:hover, .splitter:focus-visible, .splitter:active { background: color-mix(in oklch, var(--accent) 55%, transparent); outline: none; }
 
 /* 사이드바: 트리와 맨 아래 [설정](docs/mockups/graph-panels.html 1번) */
 .side { position: relative; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.brand { font-weight: 700; font-size: 16px; padding: 16px 16px 12px; letter-spacing: -0.01em; }
+.brand { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 16px; padding: 12px 8px 8px 16px; letter-spacing: -0.01em; }
+/* 접힌 사이드바(목업 toolbar.html 4번): 아이콘 단추만 세로로 둔다. */
+.rail { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; min-height: 0; background: var(--panel); }
+.side-rail { border-right: 1px solid var(--line); }
+.dock-rail { border-left: 1px solid var(--line); }
+.rail .btn.icon { width: 30px; }
+.rail hr { width: 18px; margin: 4px 0; border: 0; border-top: 1px solid var(--line-strong); }
+.rail-end { margin-top: auto; }
 .side-head { display: flex; align-items: center; padding: 8px 8px 6px 16px; }
 .side-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .side-head .spacer { flex: 1; }
@@ -121,11 +127,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 그래프 */
 .canvas { position: relative; overflow: hidden; min-width: 0; }
 .canvas .react-flow { background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
-.toolbar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; z-index: 5; pointer-events: none; }
-.toolbar h1 { font-size: 18px; font-weight: 600; }
-.toolbar .spacer { flex: 1; }
-.toolbar .btn, .toolbar .choice { pointer-events: all; }
-.btn[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+.canvas-title { position: absolute; top: 16px; left: 16px; z-index: 5; font-size: 18px; font-weight: 600; pointer-events: none; }
 
 /* 미니맵: 그래프 오른쪽 아래. 카드는 상태 색, 묶음은 점선 테두리 */
 .react-flow { --xy-minimap-background-color: var(--panel); --xy-minimap-mask-background-color: color-mix(in oklch, var(--bg) 70%, transparent); --xy-minimap-mask-stroke-color: var(--line-strong); --xy-minimap-mask-stroke-width: 1; }
@@ -144,11 +146,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__attribution { background: none; color: var(--ink-3); }
 .react-flow__attribution a { color: inherit; }
 
-/* 오른쪽 칸: 이벤트 콘솔(graph-panels.html 3번)과 커밋 그래프(4번)가 같은 자리를 쓴다 */
+/* 오른쪽 사이드바(목업 toolbar.html E안): 위는 그래프 보기 도구, 아래는 탭 하나의 칸. 칸은 이벤트 콘솔(graph-panels.html 3번), 커밋 그래프(4번), 심플 보기의 터미널이다 */
 .dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.dock-tools { display: grid; gap: 8px; padding: 8px 12px 12px; }
+.dock-tools-head { display: flex; align-items: center; justify-content: space-between; }
+.dock-tools-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.dock-tools .choice { display: flex; justify-self: stretch; }
+.dock-tools .choice label { flex: 1; justify-content: center; }
+.dock-tools .split { display: flex; }
+.dock-tools .split > .btn:first-child { flex: 1; }
+.tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tabs button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-2); font-size: 13px; white-space: nowrap; cursor: pointer; }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.tabs button:focus-visible { outline-offset: -2px; }
+.tabs svg { width: 14px; height: 14px; }
+.dock-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
-.dock-head h2 { font-size: 14px; font-weight: 600; }
-.dock-head .spacer { flex: 1; }
+.dock-head.hint { padding: 8px 16px; }
 .dock-term { flex: 1; min-height: 0; }
 .dock-note { padding: 16px; font-size: 13px; color: var(--ink-3); }
 .dock-note.error { color: var(--err); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
@@ -202,7 +217,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .group-head > :not(.branch) { flex: none; white-space: nowrap; }
 .group-head .spacer { flex: 1; }
 .group-empty { padding: 16px 14px; color: var(--ink-3); font-size: 13px; }
-/* 위 막대의 정렬 나눈 버튼과 방향 메뉴(ArrangeButton.tsx). */
+/* 오른쪽 사이드바의 정렬 나눈 버튼과 방향 메뉴(ArrangeButton.tsx). */
 .split { position: relative; display: inline-flex; }
 .split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split .caret { padding: 0 6px; gap: 0; border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
@@ -302,7 +317,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .hint { font-size: 12px; color: var(--ink-3); }
 .error { font-size: 12px; color: var(--err); }
 .pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
-/* 저장소·워크트리 팝오버(목업 workspace.html). 사이드바 머리 아래, 도구 줄 아래 오른쪽에 뜬다. */
+/* 저장소·워크트리 팝오버(목업 workspace.html). 사이드바 머리와 줄 옆에 뜬다. */
 .pop.side-pop { top: 84px; left: 12px; width: min(380px, calc(100vw - 24px)); }
 /* 저장소 추가(repository.html). 탭 셋과 데몬 폴더 목록. */
 .pop.add-repo { width: min(440px, calc(100vw - 24px)); }
@@ -320,7 +335,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .dirs .dir svg { flex: none; width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--ink-3); }
 .dirs .dir-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dirs .tag { margin-left: auto; font-size: 11px; color: var(--ink-3); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; }
-.pop.toolbar-pop { top: 56px; right: 16px; width: 380px; }
+.pop.worktree-pop { width: 380px; }
 .pop.confirm.wide { width: 420px; }
 /* 위치가 오른쪽 끝인 팝오버(묶음의 [워크트리 삭제]). */
 .pop-end > .pop { right: 0; }

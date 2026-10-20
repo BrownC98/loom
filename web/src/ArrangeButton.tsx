@@ -36,7 +36,7 @@ const MENU_WIDTH = 180;
 
 /**
  * [정렬]은 지금 방향으로 다시 놓고, 옆 버튼은 방향 메뉴를 연다. 메뉴에서 고르면 그 방향으로 바로 정렬한다.
- * 그래프 위 막대에 하나다(목업 card-view.html 2번). 메뉴는 그래프 층에 덮이지 않게 body에 버튼 자리 기준으로 그린다.
+ * 오른쪽 사이드바 「보기」에 하나다(목업 toolbar.html E안). 메뉴는 그래프 층에 덮이지 않게 body에 버튼 자리 기준으로 그린다.
  */
 export function ArrangeButton(props: { direction: ArrangeDirection; onArrange: (direction: ArrangeDirection) => void }) {
   const { t } = useTranslation();

@@ -12,6 +12,8 @@ const ko: typeof en = {
     sideLabel: '저장소와 노드',
     graphLabel: '{{repo}} 그래프',
     commitGraph: '커밋 그래프',
+    sideCollapse: '사이드바 접기',
+    sideExpand: '사이드바 펴기',
     resize: '{{pane}} 너비',
   },
   worktree: {
@@ -194,7 +196,12 @@ const ko: typeof en = {
     familyHint: '쉼표로 여러 글꼴을 적습니다. 글자마다 그 글자가 있는 첫 글꼴을 씁니다. 비우면 기본값을 씁니다.',
   },
   dock: {
-    closeTerminal: '터미널 칸 닫기',
+    label: '오른쪽 사이드바',
+    view: '보기',
+    tabs: '칸',
+    terminal: '터미널',
+    collapse: '오른쪽 사이드바 접기',
+    expand: '오른쪽 사이드바 펴기',
   },
   cardView: {
     heading: '카드 보기',
@@ -219,7 +226,6 @@ const ko: typeof en = {
   },
   commits: {
     scope: '모든 브랜치 · 최근 1,000개',
-    close: '커밋 그래프 닫기',
     reading: '불러오는 중…',
     empty: '아직 커밋이 없습니다.',
     list: '커밋 목록',
@@ -227,7 +233,6 @@ const ko: typeof en = {
   events: {
     title: '이벤트',
     order: '최신순',
-    close: '이벤트 닫기',
     filterKinds: '종류로 거르기',
     category: { node: '노드', message: '메시지' },
     filterName: '노드 이름으로 거르기',

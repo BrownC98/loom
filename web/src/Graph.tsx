@@ -189,7 +189,7 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
 /** 강조하는 동안 한 간선으로 오간 메시지 수. 가는 쪽마다 센다. */
 export type Pulse = Readonly<Record<Toward, number>>;
 
-/** `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끌어 바꾼 순서를 버리고 만든 순서로 되돌린다(위 막대의 [정렬]). */
+/** `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끌어 바꾼 순서를 버리고 만든 순서로 되돌린다(오른쪽 사이드바의 [정렬]). */
 export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void };
 
 /**
@@ -212,7 +212,7 @@ export function Graph(props: {
   highlight: ReadonlySet<NodeId> | null;
   onClearHighlight: () => void;
   cardView: CardView;
-  /** 나무가 뻗는 쪽. 위 막대의 [정렬] 메뉴가 고른다. */
+  /** 나무가 뻗는 쪽. 오른쪽 사이드바의 [정렬] 메뉴가 고른다. */
   direction: ArrangeDirection;
   ref?: Ref<GraphHandle>;
 }) {

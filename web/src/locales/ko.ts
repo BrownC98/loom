@@ -63,6 +63,7 @@ const ko: typeof en = {
     up: '위 폴더',
     open: '{{name}} 열기',
     noFolders: '안에 폴더가 없습니다.',
+    loading: '불러오는 중…',
     target: '추가할 폴더: {{path}}',
     tab: { folder: '기존 폴더', clone: 'URL 복제', create: '새 프로젝트' },
     busy: { folder: '추가하는 중…', clone: '복제하는 중…', create: '만드는 중…' },

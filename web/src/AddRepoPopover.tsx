@@ -18,13 +18,17 @@ function repoName(url: string): string {
 /** 저장소 추가(목업 repository.html). 기존 폴더, URL 복제, 새 프로젝트. 같은 저장소를 다시 더하면 그 저장소를 돌려받는다. */
 export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
-  const box = useOutsideClose<HTMLFormElement>(props.onClose);
   const [tab, setTab] = useState<Tab>('folder');
   const [path, setPath] = useState('');
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // 데몬의 복제·만들기는 멈추지 못한다. 진행 중에는 창을 닫지 않아 결과를 보인다.
+  const close = () => {
+    if (!busy) props.onClose();
+  };
+  const box = useOutsideClose<HTMLFormElement>(close);
 
   function choose(next: Tab) {
     setTab(next);
@@ -58,7 +62,7 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
   const ready = path.trim() !== '' && (tab === 'folder' || (tab === 'clone' ? url.trim() !== '' : name.trim() !== ''));
 
   return (
-    <form ref={box} className="pop side-pop add-repo" aria-label={t('tree.addRepo')} aria-busy={busy} onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && props.onClose()}>
+    <form ref={box} className="pop side-pop add-repo" aria-label={t('tree.addRepo')} aria-busy={busy} onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && close()}>
       <h2>{t('tree.addRepo')}</h2>
       <div className="tabs" role="tablist" aria-label={t('tree.addRepo')} onKeyDown={onTabKey}>
         {TABS.map((each) => (
@@ -80,7 +84,7 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
             <input id="repo-name" name="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-app" disabled={busy} spellCheck={false} autoComplete="off" autoFocus />
           </div>
         )}
-        <FolderPicker key={tab} id="repo-path" label={t(tab === 'folder' ? 'repo.path' : 'repo.parent')} disabled={busy} autoFocus={tab === 'folder'} onPick={setPath} />
+        <FolderPicker id="repo-path" label={t(tab === 'folder' ? 'repo.path' : 'repo.parent')} disabled={busy} autoFocus={tab === 'folder'} onPick={setPath} />
       </div>
       {error ? (
         <p className="error" role="alert">
@@ -94,7 +98,7 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
         )
       )}
       <div className="pop-actions">
-        <button type="button" className="btn ghost" onClick={props.onClose}>
+        <button type="button" className="btn ghost" disabled={busy} onClick={props.onClose}>
           {t('common.cancel')}
         </button>
         <button type="submit" className="btn primary" disabled={busy || !ready}>

@@ -43,11 +43,15 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     load();
   }, []);
 
+  /** 칸을 고칠 때마다 앞 요청을 버리고 옛 목록을 지운다. 늦은 응답이 적은 글이나 고른 폴더를 덮지 않는다. */
   function go(path: string) {
     setDir(path);
     setSelected(null);
     onPick(path);
-    if (path.trim() !== '') load(path.trim());
+    setList(null);
+    setFailed('');
+    if (path.trim() === '') latest.current++;
+    else load(path.trim());
   }
 
   function select(path: string) {
@@ -76,6 +80,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
       {open && (
         <ul className="dirs" aria-label={t('repo.folders')} translate="no">
           {failed !== '' && <li className="hint">{failed}</li>}
+          {failed === '' && list === null && <li className="hint">{dir.trim() === '' ? t('repo.noFolders') : t('repo.loading')}</li>}
           {failed === '' && list?.parent != null && (
             <li>
               <button type="button" className="dir" disabled={props.disabled} aria-label={t('repo.up')} onClick={() => go(list.parent!)}>

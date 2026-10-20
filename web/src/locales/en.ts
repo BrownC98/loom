@@ -61,6 +61,7 @@ const en = {
     up: 'Parent folder',
     open: 'Open {{name}}',
     noFolders: 'No folders here.',
+    loading: 'Loading…',
     target: 'Folder to add: {{path}}',
     tab: { folder: 'Existing folder', clone: 'Clone URL', create: 'New project' },
     busy: { folder: 'Adding…', clone: 'Cloning…', create: 'Creating…' },

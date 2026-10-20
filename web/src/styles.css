@@ -137,6 +137,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 이벤트 강조(graph-panels.html 3번): 관여한 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다 */
 .react-flow__node.hl .card { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash), 0 0 0 1px var(--accent); }
 .react-flow__node.dim, .react-flow__edge.dim { opacity: 0.4; }
+/* 끄는 카드·묶음은 반투명하다. 밑의 카드가 비쳐 보여 놓을 자리를 고를 수 있다. */
+.react-flow__node.dragging { opacity: 0.6; }
 .react-flow__edge.hl .react-flow__edge-path { stroke: var(--accent); stroke-width: 3; }
 .react-flow__attribution { background: none; color: var(--ink-3); }
 .react-flow__attribution a { color: inherit; }

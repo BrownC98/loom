@@ -235,7 +235,10 @@ export function Graph(props: {
   // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
   // 사람이 끈 카드와 묶음의 위치만 둔다(React Flow 노드 id 기준). 나머지는 늘 배치를 따르므로, 노드를 지우면 빈자리를 채운다.
+  // 끄는 동안에는 바꾸지 않고 놓을 때 한 번 적는다. 그래서 끄는 동안 다른 카드와 묶음은 제자리에 있다(2026-10-20 사람 지시 "마우스를 놓기 전까지 기존 노드들은 제자리를 유지").
   const [dragged, setDragged] = useState<ReadonlyMap<string, XYPosition>>(new Map());
+  // 마지막에 놓은 카드나 묶음. 겹쳐 놓으면 이것은 제자리에 남고 다른 상자가 비킨다.
+  const [pinned, setPinned] = useState<string | null>(null);
   const { direction } = props;
 
   const views = [...props.views.values()];
@@ -255,7 +258,7 @@ export function Graph(props: {
       members,
       (id) => {
         const at = dragged.get(String(id));
-        return { size: size(id), dragged: at && { x: at.x - CARD_X, y: at.y - CARD_TOP }, dragging: flowState.get(String(id))?.dragging };
+        return { size: size(id), dragged: at && { x: at.x - CARD_X, y: at.y - CARD_TOP }, pinned: pinned === String(id) };
       },
       direction,
     );
@@ -275,7 +278,7 @@ export function Graph(props: {
   // 묶음끼리도 부모 묶음 다음 단계에 놓는 나무다.
   const parentGroups = groupParents(allGroups, views);
   const origins = placeGroups(
-    laid.map((g, i) => ({ size: { width: g.right, height: g.height }, parent: parentGroups[i], dragged: dragged.get(g.group.path), dragging: flowState.get(g.group.path)?.dragging })),
+    laid.map((g, i) => ({ size: { width: g.right, height: g.height }, parent: parentGroups[i], dragged: dragged.get(g.group.path), pinned: pinned === g.group.path })),
     direction,
     GROUP_POSITION,
   );
@@ -288,9 +291,19 @@ export function Graph(props: {
     const to = neighbor(positions, from, dir);
     if (to !== null) setSelected(to);
   };
-  useImperativeHandle(props.ref, () => ({ neighbor: (from, dir) => neighbor(positions, from, dir), arrange: () => setDragged(new Map()) }));
+  useImperativeHandle(props.ref, () => ({
+    neighbor: (from, dir) => neighbor(positions, from, dir),
+    arrange: () => {
+      setDragged(new Map());
+      setPinned(null);
+    },
+  }));
   const standard = props.cardView === 'standard';
-  const keep = <N extends FlowNode>(node: N): N => ({ ...node, measured: flowState.get(node.id)?.measured, dragging: flowState.get(node.id)?.dragging });
+  // 끄는 상자는 React Flow가 옮긴 자리에 그린다. React Flow가 그 노드에 `dragging` 클래스를 붙여 반투명하게 보인다.
+  const keep = <N extends FlowNode>(node: N): N => {
+    const live = flowState.get(node.id);
+    return { ...node, measured: live?.measured, ...(live?.dragging && { position: live.position, dragging: true }) };
+  };
 
   const nodes: FlowNode[] = groups.flatMap(({ group, members, local, origin, right, bottom }) => [
     keep<GroupNode>({
@@ -385,10 +398,13 @@ export function Graph(props: {
   });
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
-    setFlowState(new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n])));
-    // 카드나 묶음을 끌 때만 위치 변경이 온다(키보드 이동은 껐다).
-    const moved = changes.flatMap((c) => (c.type === 'position' && c.position ? [[c.id, c.position] as const] : []));
-    if (moved.length > 0) setDragged((prev) => new Map([...prev, ...moved]));
+    const next = new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n]));
+    setFlowState(next);
+    // 카드나 묶음을 끌 때만 위치 변경이 온다(키보드 이동은 껐다). 놓은 변경(`dragging: false`)만 적는다.
+    const dropped = changes.flatMap((c) => (c.type === 'position' && c.dragging === false && next.has(c.id) ? [c.id] : []));
+    if (dropped.length === 0) return;
+    setDragged((prev) => new Map([...prev, ...dropped.map((id) => [id, next.get(id)!.position] as const)]));
+    setPinned(dropped[dropped.length - 1]);
   };
 
   // React Flow는 `nodes`를 effect에서 받는다. 새 카드를 재기 전에 시작한 렌더의 effect가 잰 뒤에 돌면

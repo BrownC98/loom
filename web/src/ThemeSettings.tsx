@@ -36,9 +36,26 @@ const THEME_CHOICES = [
 ] as const satisfies readonly { value: Theme; label: string; icon: ReactNode }[];
 
 const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
-const CARD_VIEWS = ['terminal', 'header'] as const satisfies readonly CardView[];
+/** 설정과 그래프 위 막대가 같은 순서로 보인다(목업 card-view.html). */
+export const CARD_VIEWS = ['simple', 'standard'] as const satisfies readonly CardView[];
 
-/** 「UI」 탭(목업 settings.html 6번, language.html, card-terminal.html): 화면 테마, 카드 보기, 언어. 언어 이름은 번역하지 않는다. */
+/** 카드 보기 고르기. 설정 「UI」와 그래프 위 막대가 함께 쓴다. */
+export function CardViewSwitch(props: { value: CardView; onChange: (value: CardView) => void }) {
+  const { t } = useTranslation();
+  const name = useId();
+  return (
+    <div className="choice" role="radiogroup" aria-label={t('cardView.heading')}>
+      {CARD_VIEWS.map((v) => (
+        <label key={v}>
+          <input type="radio" name={name} checked={props.value === v} onChange={() => props.onChange(v)} />
+          {t(`cardView.${v}`)}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html): 화면 테마, 카드 보기, 언어. 언어 이름은 번역하지 않는다. */
 export function UiTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
@@ -59,15 +76,8 @@ export function UiTab({ settings, onSettings }: TabProps) {
         <span className="hint">{t('theme.systemHint')}</span>
       </section>
       <section>
-        <h4 id="t-card-view">{t('cardView.heading')}</h4>
-        <div className="choice" role="radiogroup" aria-labelledby="t-card-view">
-          {CARD_VIEWS.map((v) => (
-            <label key={v}>
-              <input type="radio" name="card-view" checked={settings.cardView === v} onChange={() => onSettings({ ...settings, cardView: v })} />
-              {t(`cardView.${v}`)}
-            </label>
-          ))}
-        </div>
+        <h4>{t('cardView.heading')}</h4>
+        <CardViewSwitch value={settings.cardView} onChange={(cardView) => onSettings({ ...settings, cardView })} />
         <span className="hint">{t('cardView.hint')}</span>
       </section>
       <section>

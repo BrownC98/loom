@@ -52,6 +52,50 @@ impl Profile {
     }
 }
 
+impl Profile {
+    /// CLI가 쓴 터미널 제목에서 지금 하는 일(카드 주제)을 꺼낸다. 아직 주제가 없으면 없다.
+    /// 제목 형식은 CLI마다 다르다. 근거: docs/design.md 「그래프와 화면」.
+    pub fn topic(self, title: &str) -> Option<String> {
+        let title = title.trim();
+        let topic = match self {
+            // `✳ <주제>`. 주제가 생기기 전에는 `✳ Claude Code`다.
+            Profile::Claude => Some(match title.split_once(' ') {
+                Some((spinner, rest)) if is_spinner(spinner) => rest,
+                _ => title,
+            })
+            .filter(|t| *t != "Claude Code"),
+            // `tui.terminal_title=["thread-title"]`로 띄우면 `<스레드 제목>`, 일하는 동안 `<스레드 제목> ⠋`이다.
+            // 제목이 생기기 전에는 스레드 id(UUID)다.
+            Profile::Codex => Some(match title.rsplit_once(' ') {
+                Some((rest, spinner)) if is_spinner(spinner) => rest,
+                _ => title,
+            })
+            .filter(|t| !is_uuid(t)),
+            // `OC | <세션 제목>`. 제목이 생기기 전에는 `OpenCode`다.
+            Profile::OpenCode2 => title.strip_prefix("OC | "),
+        };
+        topic
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned)
+    }
+}
+
+/// CLI가 일하는 동안 제목에 붙이는 글자 하나(✳ ◐ ◑ ⠋ 등). 글자·숫자가 아닌 ASCII 밖 기호다.
+fn is_spinner(part: &str) -> bool {
+    let mut chars = part.chars();
+    matches!((chars.next(), chars.next()), (Some(c), None) if !c.is_ascii() && !c.is_alphanumeric())
+}
+
+/// `01a1573a-9c7e-7b33-a79c-5c196d8346e9` 꼴.
+fn is_uuid(text: &str) -> bool {
+    text.len() == 36
+        && text.bytes().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => b == b'-',
+            _ => b.is_ascii_hexdigit(),
+        })
+}
+
 /// 계정과 사용량이 있는 공급자. 근거: docs/design.md 「계정과 사용량」.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -216,6 +260,14 @@ impl Start {
         match self {
             Start::Agent { agent, .. } => Some(agent.clone()),
             Start::Command { .. } => None,
+        }
+    }
+
+    /// 에이전트에게 준 첫 지시. 명령이면 없다(빈 글).
+    pub fn brief(&self) -> &str {
+        match self {
+            Start::Agent { brief, .. } => brief,
+            Start::Command { .. } => "",
         }
     }
 
@@ -423,5 +475,58 @@ mod tests {
             .map(|a| a.id.0)
             .collect();
         assert_eq!(ids, ["claude", "codex", "opencode2"]);
+    }
+
+    /// 실측한 제목(2026-10-20, Claude Code 2.1.304, Codex 0.159.2, OpenCode 2).
+    #[test]
+    fn topic_comes_from_each_cli_title() {
+        let cases = [
+            (
+                Profile::Claude,
+                "✳ A.txt 파일 내용",
+                Some("A.txt 파일 내용"),
+            ),
+            (
+                Profile::Claude,
+                "◐ a.txt 한 줄 요약",
+                Some("a.txt 한 줄 요약"),
+            ),
+            (
+                Profile::Claude,
+                "◑ a.txt 한 줄 요약",
+                Some("a.txt 한 줄 요약"),
+            ),
+            (Profile::Claude, "✳ Claude Code", None),
+            (Profile::Claude, "Claude Code", None),
+            (
+                Profile::OpenCode2,
+                "OC | a.txt 파일 내용 한 줄 요약",
+                Some("a.txt 파일 내용 한 줄 요약"),
+            ),
+            (Profile::OpenCode2, "OpenCode", None),
+            (
+                Profile::Codex,
+                "읽고 b.rs에 주석 추가해",
+                Some("읽고 b.rs에 주석 추가해"),
+            ),
+            (
+                Profile::Codex,
+                "요약해 a.txt 내용 ⠋",
+                Some("요약해 a.txt 내용"),
+            ),
+            (Profile::Codex, "01a1573a-9c7e-7b33-a79c-5c196d8346e9", None),
+            (
+                Profile::Codex,
+                "01a1573b-5b38-7911-bc29-11ece871434d ⠋",
+                None,
+            ),
+        ];
+        for (profile, title, topic) in cases {
+            assert_eq!(
+                profile.topic(title).as_deref(),
+                topic,
+                "{profile:?} {title:?}"
+            );
+        }
     }
 }

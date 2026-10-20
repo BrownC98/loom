@@ -7,6 +7,7 @@ mod events;
 mod mailbox;
 mod nodes;
 
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
@@ -79,6 +80,9 @@ pub struct NodeView {
     /// CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
     pub effort: Option<String>,
     pub place: Place,
+    /// 노드가 지금 하는 일 한 줄. 근거: docs/design.md 「그래프와 화면」.
+    /// `done` 요약, CLI 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄이다. 모두 없으면 없다.
+    pub topic: Option<String>,
 }
 
 /// 프로필이 CLI에서 읽은 지금 모델과 추론 강도. 값은 CLI가 쓴 글 그대로다. 근거: docs/design.md 「에이전트 실행」.
@@ -192,12 +196,16 @@ pub struct Graph {
     events: broadcast::Sender<GraphEvent>,
     /// 메시지를 넣을 때마다 `wait` 모두를 깨운다. 깬 쪽이 자기 메시지인지 DB에서 본다.
     mail: Notify,
+    /// 실행 중인 노드 CLI의 터미널 제목에서 꺼낸 주제. PTY와 함께 사라지므로 DB에 두지 않는다.
+    /// `db`를 잠근 채 잠근다. 반대 순서로 잠그지 않는다.
+    titles: Mutex<HashMap<NodeId, String>>,
 }
 
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
-    n.model, n.effort, n.repo, n.worktree
+    n.model, n.effort, n.repo, n.worktree,
+    n.brief
     FROM nodes n";
 
 struct Store {
@@ -254,6 +262,7 @@ impl Graph {
             db: Mutex::new(Store { conn, published }),
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
+            titles: Mutex::default(),
         })
     }
 
@@ -281,10 +290,12 @@ impl Graph {
     /// 지금 목록과 그 뒤의 이벤트를 빈틈없이 받는다.
     pub fn subscribe(&self) -> rusqlite::Result<(Vec<NodeView>, broadcast::Receiver<GraphEvent>)> {
         let db = self.lock();
+        let titles = self.titles.lock().unwrap();
         let views = db
             .prepare(&format!("{VIEW_COLUMNS} ORDER BY n.id"))?
-            .query_map([], view_from_row)?
+            .query_map([], |row| view_from_row(row, &titles))?
             .collect::<rusqlite::Result<_>>()?;
+        drop(titles);
         Ok((views, self.events.subscribe()))
     }
 
@@ -320,11 +331,11 @@ impl Graph {
 
     /// 잠금을 쥔 채 부른다. 그래야 이벤트 순서가 DB 변경 순서와 같다.
     fn publish_node(&self, db: &Connection, id: NodeId) -> rusqlite::Result<()> {
-        let view = db.query_row(
-            &format!("{VIEW_COLUMNS} WHERE n.id = ?1"),
-            [id.0],
-            view_from_row,
-        )?;
+        let titles = self.titles.lock().unwrap();
+        let view = db.query_row(&format!("{VIEW_COLUMNS} WHERE n.id = ?1"), [id.0], |row| {
+            view_from_row(row, &titles)
+        })?;
+        drop(titles);
         // 보는 화면이 없으면 send가 실패한다. 화면은 붙을 때 목록 전체를 받으므로 버려도 된다.
         let _ = self.events.send(GraphEvent::Node(view));
         Ok(())
@@ -341,13 +352,17 @@ impl Graph {
     }
 }
 
-fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
+fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Result<NodeView> {
+    let id = NodeId(row.get(0)?);
+    let state = from_json(row, 4)?;
+    let brief: Option<String> = row.get(11)?;
     Ok(NodeView {
-        id: NodeId(row.get(0)?),
+        topic: topic(&state, titles.get(&id), brief.as_deref()),
+        id,
         name: row.get(1)?,
         agent: from_json(row, 2)?,
         parent: row.get::<_, Option<u32>>(3)?.map(NodeId),
-        state: from_json(row, 4)?,
+        state,
         unread: row.get(5)?,
         held: row.get(6)?,
         model: row.get(7)?,
@@ -357,6 +372,24 @@ fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
             worktree: row.get(10)?,
         },
     })
+}
+
+/// 카드 주제: `done` 요약, 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄.
+fn topic(state: &NodeState, title: Option<&String>, brief: Option<&str>) -> Option<String> {
+    let summary = match state {
+        NodeState::Done { summary } => Some(summary.as_str()),
+        _ => None,
+    };
+    [summary, title.map(String::as_str), brief]
+        .into_iter()
+        .flatten()
+        .find_map(first_line)
+        .map(str::to_owned)
+}
+
+/// 비지 않은 첫 줄(앞뒤 공백을 뺀다).
+fn first_line(text: &str) -> Option<&str> {
+    text.lines().map(str::trim).find(|line| !line.is_empty())
 }
 
 fn to_json(value: &impl Serialize) -> String {

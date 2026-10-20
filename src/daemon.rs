@@ -456,14 +456,23 @@ impl App {
         let Prepared {
             cmd,
             token,
+            profile,
             codex,
             opencode2,
         } = prepared;
         // 노드가 뜨자마자 데몬을 불러도 받도록 토큰을 먼저 넣는다.
         self.tokens.lock().unwrap().insert(token.clone(), id);
+        let graph = self.graph.clone();
+        // 셸·명령 노드의 제목(`user@host: dir`)은 주제가 아니다. 프로필이 제목 형식을 아는 노드만 쓴다.
+        let on_title = move |title: String| {
+            if let Some(profile) = profile {
+                // DB가 실패하면 알릴 곳이 없다. 화면은 앞 주제로 남는다.
+                let _ = graph.set_title(id, profile.topic(&title));
+            }
+        };
         let app = self.clone();
         self.host
-            .spawn(id, cmd, move |code| {
+            .spawn(id, cmd, on_title, move |code| {
                 if let Some(server) = app.codex.lock().unwrap().remove(&id) {
                     server.stop();
                 }
@@ -559,6 +568,7 @@ impl App {
         Ok(Prepared {
             cmd,
             token,
+            profile,
             codex,
             opencode2,
         })
@@ -580,6 +590,8 @@ struct Prepared {
     cmd: portable_pty::CommandBuilder,
     /// 노드가 데몬을 부를 때 내는 토큰. 노드가 뜨기 직전에 `tokens`에 넣는다.
     token: String,
+    /// 터미널 제목에서 카드 주제를 꺼내는 프로필. 없으면 제목을 쓰지 않는다.
+    profile: Option<Profile>,
     codex: Option<Arc<CodexServer>>,
     opencode2: Option<Arc<opencode2::Node>>,
 }
@@ -733,7 +745,9 @@ async fn create_node(
     let discard = prepared.discarder();
     let id = app
         .graph
-        .add_root(&req.place, req.start.agent(), |id| app.launch(id, prepared))
+        .add_root(&req.place, req.start.agent(), req.start.brief(), |id| {
+            app.launch(id, prepared)
+        })
         .inspect_err(|_| discard())?;
     Ok(Json(id))
 }

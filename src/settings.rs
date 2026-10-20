@@ -71,14 +71,15 @@ pub struct TerminalFont {
     pub size: Option<u8>,
 }
 
-/// 그래프 카드가 보이는 것. `Header`면 카드는 머리만 보이고, 고른 노드의 터미널은 오른쪽 칸에 열린다.
+/// 그래프 전체의 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.
+/// 옛 이름(`terminal`, `header`)은 DB 12단계가 바꾼다.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum CardView {
     #[default]
-    Terminal,
-    Header,
+    Standard,
+    Simple,
 }
 
 /// 화면 테마. `System`은 OS 설정(`prefers-color-scheme`)을 따른다.
@@ -168,7 +169,7 @@ mod tests {
         assert_eq!(got.theme, Theme::System);
         assert_eq!(got.terminal_theme, TerminalTheme::default());
         assert_eq!(got.terminal_font, TerminalFont::default());
-        assert_eq!(got.card_view, CardView::Terminal);
+        assert_eq!(got.card_view, CardView::Standard);
         assert_eq!(got.language, Language::System);
     }
 }

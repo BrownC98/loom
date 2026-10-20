@@ -42,6 +42,7 @@ const USAGE: &str = "\
 
 /// `codex` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
 /// `-c` 값은 TOML로 읽힌다. JSON 문자열은 TOML 기본 문자열과 같은 이스케이프를 쓴다.
+/// 터미널 제목은 스레드 제목만 쓴다. 기본 제목(`<스피너> | <폴더>`)에는 카드 주제가 없다(`Profile::topic`).
 pub fn args(app_server: &str) -> Vec<String> {
     let usage = serde_json::to_string(USAGE).expect("문자열은 늘 직렬화된다");
     vec![
@@ -49,6 +50,8 @@ pub fn args(app_server: &str) -> Vec<String> {
         app_server.into(),
         "-c".into(),
         format!("developer_instructions={usage}"),
+        "-c".into(),
+        r#"tui.terminal_title=["thread-title"]"#.into(),
     ]
 }
 
@@ -434,6 +437,7 @@ mod tests {
         let (key, value) = args[3].split_once('=').unwrap();
         assert_eq!(key, "developer_instructions");
         assert_eq!(serde_json::from_str::<String>(value).unwrap(), USAGE);
+        assert_eq!(args[4..], ["-c", r#"tui.terminal_title=["thread-title"]"#]);
         assert_eq!(version_warning("codex-cli 0.159.2"), None);
         assert_eq!(
             version_warning("codex-cli 0.160.0\n"),

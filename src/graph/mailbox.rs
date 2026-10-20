@@ -289,7 +289,7 @@ pub(super) fn enqueue(
     to: Option<NodeId>,
     kind: Kind,
     body: &str,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<MessageId> {
     db.execute(
         "INSERT INTO messages (recipient, sender, sender_name, kind, body)
          VALUES (?1, ?2, (SELECT name FROM nodes WHERE id = ?2), ?3, ?4)",
@@ -302,5 +302,6 @@ pub(super) fn enqueue(
         to: to.map(|to| events::who(db, to)).transpose()?,
         step: if to.is_some() { Step::Sent } else { Step::Held },
     };
-    events::write(db, &entry, Some(id))
+    events::write(db, &entry, Some(id))?;
+    Ok(id)
 }

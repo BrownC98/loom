@@ -22,7 +22,7 @@ fn launched(_: NodeId) -> Result<(), String> {
 
 /// 에이전트 id가 `agent`인 루트. 이름은 `<agent>-1`이다.
 fn root(g: &Graph, agent: &str) -> NodeId {
-    g.add_root(&home(), Some(AgentId(agent.into())), launched)
+    g.add_root(&home(), Some(AgentId(agent.into())), "", launched)
         .unwrap()
 }
 
@@ -88,6 +88,68 @@ fn model_change_reaches_the_view_once() {
     assert!(events.try_recv().is_err());
     g.set_model(node, &Model::default()).unwrap();
     assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.effort.is_none()));
+}
+
+#[test]
+fn topic_prefers_summary_then_title_then_brief() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = g
+        .add_child(
+            lead,
+            "구현",
+            None,
+            None,
+            "\n  node_host를 고쳐라 \n둘째 줄",
+            launched,
+        )
+        .unwrap();
+    let quiet = child(&g, lead, "조용");
+    let (_, mut events) = g.subscribe().unwrap();
+    // 첫 지시문이 없는 노드는 받은 메시지로 짐작하지 않는다.
+    g.send(worker, "claude-1", Kind::Queue, "질문").unwrap();
+    assert_eq!(view(&g, lead).topic, None);
+    assert_eq!(view(&g, quiet).topic, None);
+    assert_eq!(
+        view(&g, worker).topic.as_deref(),
+        Some("node_host를 고쳐라")
+    );
+    while events.try_recv().is_ok() {}
+
+    g.set_title(worker, Some("a.txt 한 줄 요약".into()))
+        .unwrap();
+    g.set_title(worker, Some("a.txt 한 줄 요약".into()))
+        .unwrap();
+    let Ok(GraphEvent::Node(changed)) = events.try_recv() else {
+        panic!("Node 이벤트가 와야 한다")
+    };
+    assert_eq!(changed.topic.as_deref(), Some("a.txt 한 줄 요약"));
+    // 같은 값은 다시 알리지 않는다.
+    assert!(events.try_recv().is_err());
+    g.set_title(worker, None).unwrap();
+    // 사람이 띄운 노드는 CLI에 넘긴 첫 지시를 쓴다.
+    let led = g
+        .add_root(
+            &home(),
+            Some(AgentId("claude".into())),
+            "로그인 화면을 고쳐라\n자세히",
+            launched,
+        )
+        .unwrap();
+    assert_eq!(view(&g, led).topic.as_deref(), Some("로그인 화면을 고쳐라"));
+    assert!(
+        matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.topic.as_deref() == Some("node_host를 고쳐라"))
+    );
+
+    // 프로세스가 끝나면 제목도 사라진다.
+    g.set_title(quiet, Some("제목".into())).unwrap();
+    g.exited(quiet, 0).unwrap();
+    assert_eq!(view(&g, quiet).topic, None);
+
+    g.set_title(worker, Some("제목".into())).unwrap();
+    g.done(worker, "  \n결과는 out.md\n자세히").unwrap();
+    assert_eq!(view(&g, worker).topic.as_deref(), Some("결과는 out.md"));
 }
 
 #[test]
@@ -658,7 +720,7 @@ fn records_refusals_and_skips_rolled_back_changes() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     assert!(
-        g.add_root(&home(), None, |_| Err("없는 명령".into()))
+        g.add_root(&home(), None, "", |_| Err("없는 명령".into()))
             .is_err()
     );
     g.record_refusal(lead, "없음", Kind::Steer, &Refusal::NotFound("없음".into()))
@@ -750,7 +812,7 @@ fn reopening_records_running_nodes_as_exited() {
 fn roots_take_the_smallest_free_number() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    g.add_root(&home(), None, launched).unwrap();
+    g.add_root(&home(), None, "", launched).unwrap();
     let first = root(&g, "claude");
     root(&g, "claude");
     // 자식 이름은 사람이 띄운 노드의 번호를 막지 않는다.

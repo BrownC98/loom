@@ -26,6 +26,8 @@ const en = {
     group: 'Group {{branch}}',
     newNode: 'New node',
     arrange: 'Arrange',
+    direction: 'Arrange direction',
+    directions: { down: 'Down', right: 'Right', up: 'Up', left: 'Left' },
     empty: 'Click “New node” to start the first agent.',
     minimap: 'Minimap',
     messages: 'Messages {{n}}',
@@ -166,9 +168,9 @@ const en = {
   },
   cardView: {
     heading: 'Cards',
-    terminal: 'Terminal',
-    header: 'Header only',
-    hint: 'With “Header only”, clicking a card opens its terminal in the right panel.',
+    simple: 'Simple',
+    standard: 'Standard',
+    hint: 'With “Simple”, cards show only node details, and clicking a card opens its terminal in the right panel.',
   },
   theme: {
     heading: 'Theme',

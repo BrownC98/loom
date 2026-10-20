@@ -5,8 +5,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::events::{self, Entry};
 use super::{
-    Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Place, Refusal, mailbox, name_of,
-    parent_of, place_of, set_state, state_of, to_json,
+    Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Place, Refusal, first_line,
+    mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -15,17 +15,19 @@ const SHELL_NAME: &str = "shell";
 
 impl Graph {
     /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
+    /// `brief`는 사람이 쓴 첫 지시다. CLI에 인자로 넘기므로 메일함에는 넣지 않고 카드 주제에만 쓴다.
     /// `launch`가 실패하면 노드를 남기지 않는다.
     pub fn add_root(
         &self,
         place: &Place,
         agent: Option<AgentId>,
+        brief: &str,
         launch: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
-        let id = insert(&tx, &name, &agent, None, place)?;
+        let id = insert(&tx, &name, &agent, None, place, brief)?;
         launch(id).map_err(Refusal::Launch)?;
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -65,7 +67,7 @@ impl Graph {
             worktree: worktree.map_or(place.worktree, str::to_owned),
             ..place
         };
-        let id = insert(&tx, name, &agent, Some(parent), &place)?;
+        let id = insert(&tx, name, &agent, Some(parent), &place, brief)?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
             mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
@@ -84,6 +86,8 @@ impl Graph {
     /// 이 줄은 메일함 상한을 넘어도 넣는다. 버리면 부모가 끝없이 기다린다.
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
         let mut db = self.lock();
+        // 터미널 제목은 PTY와 함께 사라진다.
+        self.titles.lock().unwrap().remove(&id);
         if state_of(&db, id)? != NodeState::Running {
             return Ok(());
         }
@@ -112,6 +116,23 @@ impl Graph {
             self.publish_node(&db, id)?;
         }
         Ok(())
+    }
+
+    /// 노드 CLI의 터미널 제목에서 꺼낸 주제를 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
+    /// 노드마다 PTY 출력을 읽는 스레드 하나만 부른다. 그래서 비교와 바꾸기 사이에 다른 값이 끼지 않는다.
+    pub fn set_title(&self, id: NodeId, title: Option<String>) -> rusqlite::Result<()> {
+        if self.titles.lock().unwrap().get(&id) == title.as_ref() {
+            return Ok(());
+        }
+        // 화면에 보내는 순서가 DB 변경 순서와 같도록 DB를 먼저 잠근다.
+        let db = self.lock();
+        let mut titles = self.titles.lock().unwrap();
+        match title {
+            Some(title) => titles.insert(id, title),
+            None => titles.remove(&id),
+        };
+        drop(titles);
+        self.publish_node(&db, id)
     }
 }
 
@@ -156,6 +177,7 @@ impl Graph {
         tx.execute("UPDATE nodes SET parent = NULL WHERE parent = ?1", [id.0])?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
+        self.titles.lock().unwrap().remove(&id);
         let _ = self.events.send(GraphEvent::Removed { id });
         for child in children {
             self.publish_node(&db, child)?;
@@ -273,9 +295,10 @@ fn insert(
     agent: &Option<AgentId>,
     parent: Option<NodeId>,
     place: &Place,
+    brief: &str,
 ) -> rusqlite::Result<NodeId> {
     db.execute(
-        "INSERT INTO nodes (name, agent, parent, state, repo, worktree) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO nodes (name, agent, parent, state, repo, worktree, brief) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             name,
             to_json(agent),
@@ -283,6 +306,7 @@ fn insert(
             to_json(&NodeState::Running),
             place.repo.0,
             place.worktree,
+            first_line(brief),
         ],
     )?;
     let id = NodeId(db.last_insert_rowid() as u32);

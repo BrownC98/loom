@@ -33,29 +33,82 @@ function footText(state: NodeState, parentName: string | null, held: boolean): s
   }
 }
 
-/** 노드 카드 틀. 터미널 자리(`children`)와 머리 오른쪽 버튼(`headAction`)은 부르는 쪽이 채운다. 터미널이 없으면 머리만 그린다(발 줄은 터미널의 끝 상태라 함께 뺀다). */
-export function NodeCard(props: {
+/** 모델 · 추론 강도. 모르면 그리지 않는다. */
+function ModelText(props: { view: NodeView }) {
+  const text = [props.view.model, props.view.effort].filter(Boolean).join(' · ');
+  return text ? (
+    <span className="model" translate="no">
+      {text}
+    </span>
+  ) : null;
+}
+
+/** 읽지 않은 수, 보관 수, 상태. */
+function Badges(props: { view: NodeView }) {
+  const { t } = useTranslation();
+  const { view } = props;
+  return (
+    <>
+      {view.unread > 0 && (
+        <span className="unread" aria-label={t('node.unread', { n: view.unread })}>
+          {view.unread}
+        </span>
+      )}
+      {view.held > 0 && (
+        <span className="held" title={t('node.heldTitle', { n: view.held })}>
+          {t('node.held', { n: view.held })}
+        </span>
+      )}
+      <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
+        {stateLabel(view.state)}
+      </span>
+    </>
+  );
+}
+
+/**
+ * 노드 정보 전체: 로고·이름·버튼(`actions`), 지금 하는 일, 모델 · 추론 강도, 상태와 수. 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
+ * 목업 docs/mockups/card-view.html 1번.
+ */
+export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode }) {
+  const { view } = props;
+  return (
+    <div className="summary">
+      <div className="summary-row">
+        <AgentMark agent={view.agent} label={props.agentLabel} />
+        <span className="name">{view.name}</span>
+        <span className="spacer" />
+        {props.actions}
+      </div>
+      <p className="topic" title={view.topic ?? undefined}>
+        {view.topic}
+      </p>
+      <div className="summary-model">
+        <ModelText view={view} />
+      </div>
+      <div className="summary-row">
+        <Badges view={view} />
+      </div>
+    </div>
+  );
+}
+
+type ShellProps = {
   view: NodeView;
-  /** 에이전트 이름(카탈로그 label)이나 「터미널」. */
-  agentLabel: string;
-  /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. 부모가 없는 동안 보낸 메시지는 데몬이 보관한다(`view.held`). */
-  parentName: string | null;
   selected: boolean;
   onSelect: () => void;
   onNavigate: (dir: Direction) => void;
-  onDoubleClickHead?: () => void;
-  headAction?: ReactNode;
-  children?: ReactNode;
-}) {
+};
+
+/** 카드 틀: 고르기와 키보드 이동. */
+function CardShell(props: ShellProps & { className: string; children: ReactNode }) {
   const { t } = useTranslation();
-  const { view, selected } = props;
-  const foot = footText(view.state, props.parentName, view.held > 0);
   return (
     <article
-      className="card"
+      className={props.className}
       tabIndex={0}
-      aria-label={t('node.label', { name: view.name })}
-      data-selected={selected || undefined}
+      aria-label={t('node.label', { name: props.view.name })}
+      data-selected={props.selected || undefined}
       onMouseDown={props.onSelect}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
@@ -68,38 +121,48 @@ export function NodeCard(props: {
         }
       }}
     >
+      {props.children}
+    </article>
+  );
+}
+
+/** 심플 카드. 터미널이 없다. 고르면 부르는 쪽이 오른쪽 칸에 터미널을 연다. */
+export function SimpleCard(props: ShellProps & { agentLabel: string; actions: ReactNode }) {
+  return (
+    <CardShell className="card simple" {...props}>
+      <NodeSummary view={props.view} agentLabel={props.agentLabel} actions={props.actions} />
+    </CardShell>
+  );
+}
+
+/** 표준 카드: 한 줄 머리, 터미널(`children`), 끝난 노드의 발 줄. 머리 오른쪽 버튼(`headAction`)은 부르는 쪽이 채운다. */
+export function NodeCard(
+  props: ShellProps & {
+    /** 에이전트 이름(카탈로그 label)이나 「터미널」. */
+    agentLabel: string;
+    /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. 부모가 없는 동안 보낸 메시지는 데몬이 보관한다(`view.held`). */
+    parentName: string | null;
+    onDoubleClickHead?: () => void;
+    headAction: ReactNode;
+    children: ReactNode;
+  },
+) {
+  const { view } = props;
+  const foot = footText(view.state, props.parentName, view.held > 0);
+  return (
+    <CardShell className="card" {...props}>
       <div className="card-head" onDoubleClick={props.onDoubleClickHead}>
         <span className="name">{view.name}</span>
         <AgentMark agent={view.agent} label={props.agentLabel} />
-        {(view.model || view.effort) && (
-          <span className="model" translate="no">
-            {[view.model, view.effort].filter(Boolean).join(' · ')}
-          </span>
-        )}
+        <ModelText view={view} />
         <span className="spacer" />
-        {view.unread > 0 && (
-          <span className="unread" aria-label={t('node.unread', { n: view.unread })}>
-            {view.unread}
-          </span>
-        )}
-        {view.held > 0 && (
-          <span className="held" title={t('node.heldTitle', { n: view.held })}>
-            {t('node.held', { n: view.held })}
-          </span>
-        )}
-        <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
-          {stateLabel(view.state)}
-        </span>
+        <Badges view={view} />
         {props.headAction}
       </div>
-      {props.children && (
-        <>
-          <div className="term nodrag nowheel" translate="no">
-            {props.children}
-          </div>
-          {foot !== null && <div className="card-foot">{foot}</div>}
-        </>
-      )}
-    </article>
+      <div className="term nodrag nowheel" translate="no">
+        {props.children}
+      </div>
+      {foot !== null && <div className="card-foot">{foot}</div>}
+    </CardShell>
   );
 }

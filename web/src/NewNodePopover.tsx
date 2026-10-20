@@ -27,7 +27,7 @@ function choices(agents: AgentView[]): Choice[] {
 }
 
 
-/** 프로필만 고른다. 이름은 데몬이 짓고, 첫 지시문은 띄운 뒤 카드 터미널에 입력한다. `recent`는 사람이 마지막으로 띄운 노드의 에이전트다. */
+/** 프로필만 고른다. 목록 줄을 누르거나 Enter를 누르면 바로 띄운다(사람 지시 2026-10-20 「새노드는 리스트 아이템을 클릭하면 바로 해당 노드가 생성되는걸로 변경」). 이름은 데몬이 짓고, 첫 지시문은 띄운 뒤 카드 터미널에 입력한다. `recent`는 사람이 마지막으로 띄운 노드의 에이전트다. */
 export function NewNodePopover(props: {
   branch: string;
   /** 새 노드가 도는 묶음. */
@@ -66,10 +66,10 @@ export function NewNodePopover(props: {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex]);
 
-  async function create() {
-    if (!active || busy) return;
+  async function create(choice: Choice | undefined) {
+    if (!choice?.installed || busy) return;
     setBusy(true);
-    const start: Start = agent ? { kind: 'agent', agent: agent.id, brief: '' } : { kind: 'command', line: '' };
+    const start: Start = choice.agent ? { kind: 'agent', agent: choice.agent.id, brief: '' } : { kind: 'command', line: '' };
     try {
       props.onCreated(await createNode({ start, place: props.place }));
     } catch (err) {
@@ -80,7 +80,7 @@ export function NewNodePopover(props: {
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    void create();
+    void create(active);
   }
 
   function move(e: KeyboardEvent) {
@@ -106,8 +106,7 @@ export function NewNodePopover(props: {
         aria-selected={selected}
         aria-disabled={!c.installed || undefined}
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => c.installed && setPicked({ key: keyOf(c) })}
-        onDoubleClick={() => c.installed && void create()}
+        onClick={() => void create(c)}
       >
         <span translate="no">{labelOf(c)}</span>
         {c.installed && props.recent !== undefined && keyOf(c) === props.recent && <span className="recent">{t('newNode.recent')}</span>}
@@ -170,9 +169,6 @@ export function NewNodePopover(props: {
       <div className="pop-actions">
         <button type="button" className="btn ghost" onClick={props.onCancel}>
           {t('common.cancel')}
-        </button>
-        <button type="submit" className="btn primary" disabled={busy || !active}>
-          {t('newNode.create')}
         </button>
       </div>
     </form>

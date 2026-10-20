@@ -114,7 +114,6 @@ const en = {
     noMatch: 'No matching profile',
     account: 'Account: {{name}} · {{usage}}',
     bypass: 'Starts with all permissions allowed. Turn this off in Settings › Agents.',
-    create: 'Create',
   },
   settings: {
     title: 'Settings',

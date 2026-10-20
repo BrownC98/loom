@@ -66,6 +66,8 @@ pub enum Limits {
 #[serde(tag = "code", content = "value", rename_all = "camelCase")]
 #[ts(export)]
 pub enum UsageProblem {
+    /// CLI가 `PATH`에 없다. 그 CLI를 설치하지 않은 기계다.
+    NotInstalled(String),
     /// CLI를 실행하지 못했다. `detail`은 OS 오류 글이다.
     CliFailed { command: String, detail: String },
     /// CLI가 알 수 없는 형식을 냈다.
@@ -116,7 +118,8 @@ struct ClaudeStatus {
     logged_in: bool,
     email: Option<String>,
     subscription_type: Option<String>,
-    config_directory: PathBuf,
+    /// 2.1.228 같은 옛 판은 이 값을 내지 않는다. 그때는 CLI가 쓰는 폴더를 loom이 고른다.
+    config_directory: Option<PathBuf>,
 }
 
 fn claude(config_dir: Option<&Path>) -> Usage {
@@ -133,17 +136,18 @@ fn claude(config_dir: Option<&Path>) -> Usage {
                 return Usage::failed(UsageProblem::CliFormat("claude auth status".into()));
             }
         },
-        Err(e) => {
-            return Usage::failed(UsageProblem::CliFailed {
-                command: "claude".into(),
-                detail: e.to_string(),
-            });
-        }
+        Err(e) => return Usage::failed(run_failed("claude", &e)),
     };
-    let limits = if status.logged_in {
-        claude_limits(&status.config_directory)
-    } else {
+    let dir = status
+        .config_directory
+        .or_else(|| config_dir.map(Path::to_path_buf))
+        .or_else(|| std::env::home_dir().map(|home| home.join(".claude")));
+    let limits = if !status.logged_in {
         Limits::NeedsLogin
+    } else if let Some(dir) = dir {
+        claude_limits(&dir)
+    } else {
+        failed(UsageProblem::CliFormat("claude auth status".into()))
     };
     Usage {
         email: status.email,
@@ -346,8 +350,17 @@ fn failed(problem: UsageProblem) -> Limits {
 const APP_SERVER: &str = "codex app-server";
 
 fn app_server_failed(e: &std::io::Error) -> UsageProblem {
+    run_failed(APP_SERVER, e)
+}
+
+/// 실행 파일이 없으면(`NotFound`) 설치하지 않은 것이다. OS 글("program not found")보다 할 일을 말한다.
+fn run_failed(command: &str, e: &std::io::Error) -> UsageProblem {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        let program = command.split(' ').next().unwrap_or(command);
+        return UsageProblem::NotInstalled(program.into());
+    }
     UsageProblem::CliFailed {
-        command: APP_SERVER.into(),
+        command: command.into(),
         detail: e.to_string(),
     }
 }
@@ -356,6 +369,31 @@ fn app_server_failed(e: &std::io::Error) -> UsageProblem {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Windows에 깔린 2.1.228의 실제 출력(로그인 안 함)이다. `configDirectory`가 없다.
+    #[test]
+    fn old_claude_status_parses() {
+        let status: ClaudeStatus = serde_json::from_str(
+            r#"{"loggedIn": false, "authMethod": "none", "apiProvider": "firstParty"}"#,
+        )
+        .unwrap();
+        assert!(!status.logged_in);
+        assert_eq!(status.config_directory, None);
+    }
+
+    #[test]
+    fn missing_cli_is_not_installed() {
+        let gone = std::io::Error::new(std::io::ErrorKind::NotFound, "program not found");
+        assert_eq!(
+            app_server_failed(&gone),
+            UsageProblem::NotInstalled("codex".into())
+        );
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        assert!(matches!(
+            run_failed("claude", &denied),
+            UsageProblem::CliFailed { .. }
+        ));
+    }
 
     fn ready(limits: Limits) -> (Option<Window>, Option<Window>) {
         match limits {

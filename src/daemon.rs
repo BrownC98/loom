@@ -30,7 +30,7 @@ use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::graph::{
-    Delivery, EventRecord, Graph, GraphEvent, Kind, MessageId, Model, NodeId, Place,
+    Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, MessageId, Model, NodeId, Place,
     REDELIVER_AFTER, Refusal,
 };
 use crate::node_host::NodeHost;
@@ -38,7 +38,7 @@ use crate::process_tree;
 use crate::profile::codex::{self, Status};
 use crate::profile::opencode2;
 use crate::profile::{
-    self, AgentId, LaunchError, Mailbox, Profile, Remote, Start, VersionMismatch,
+    self, AgentId, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
 };
 use crate::settings::Settings;
 use crate::worktree::{self, RepoId, RepoProblem, RepoView, Repos, Worktree};
@@ -54,8 +54,6 @@ struct App {
     settings: Settings,
     accounts: Accounts,
     logins: settings::Logins,
-    /// 노드가 데몬을 부를 때 내는 토큰. 데몬이 다시 시작하면 노드 프로세스도 모두 끝나므로 메모리에만 둔다.
-    tokens: Mutex<HashMap<String, NodeId>>,
     /// Codex 노드마다 그 노드가 붙은 app-server. 노드 프로세스가 끝나면 지우고 끝낸다.
     codex: Mutex<HashMap<NodeId, Arc<CodexServer>>>,
     /// OpenCode 2 노드마다 그 노드의 서버와 세션. 노드 프로세스가 끝나면 지우고 끝낸다.
@@ -259,9 +257,14 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(listen).await?;
     // 포트 0이면 OS가 고른 포트다. 노드 주소와 시작 줄은 실제 주소를 쓴다. Windows 앱은 시작 줄에서 주소를 읽는다.
     let listen = listener.local_addr()?;
-    // 포트는 OS가 고른다. 데몬마다(워크트리마다) 다른 포트다. macOS는 `127.0.0.1` 말고 루프백 주소가
-    // 기본으로 없다(확인하지 않았다). 그때는 노드 문 없이 데몬 주소를 쓰고, Codex는 loom 명령마다 승인을 묻는다.
-    let node_door = tokio::net::TcpListener::bind((NODE_IP, 0)).await.ok();
+    // 포트는 데몬 포트와 같다. 노드 환경의 `LOOM_URL`은 노드가 끝날 때까지 바뀌지 않으므로, 다시 시작한 데몬도 같은 주소에서 듣는다.
+    // 그 포트를 쓸 수 없으면(예: `--listen 0.0.0.0:<포트>`) OS가 고른다. 그때 앞 데몬의 노드는 다시 시작한 뒤 loom 명령이 닿지 않는다.
+    // macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없다(확인하지 않았다).
+    // 그때는 노드 문 없이 데몬 주소를 쓰고, Codex는 loom 명령마다 승인을 묻는다.
+    let node_door = match tokio::net::TcpListener::bind((NODE_IP, listen.port())).await {
+        Ok(door) => Some(door),
+        Err(_) => tokio::net::TcpListener::bind((NODE_IP, 0)).await.ok(),
+    };
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
     let open = || db::open(&db_path).map_err(std::io::Error::other);
@@ -277,15 +280,15 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             worktree: start_path.to_string_lossy().into_owned(),
         })
         .map_err(std::io::Error::other)?;
+    // 근거: docs/design.md 「저장」.
+    let pty_dir = db_path.with_file_name("pty");
     let app = Arc::new(App {
         repos,
-        host: NodeHost::default(),
+        host: NodeHost::new(pty_dir.join("nodes")),
         graph: Arc::new(graph),
         settings: Settings::new(open()?),
-        // 근거: docs/design.md 「저장」.
         accounts: Accounts::new(db_path.with_file_name("accounts")),
-        logins: settings::Logins::default(),
-        tokens: Mutex::default(),
+        logins: settings::Logins::new(pty_dir.join("logins")),
         codex: Mutex::default(),
         opencode2: Mutex::default(),
         version_warnings: profile::version_warnings(codex_version.as_deref()),
@@ -300,6 +303,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         spawn_url: node_url(listen),
         path: node_path()?,
     });
+    app.resume().await.map_err(std::io::Error::other)?;
     // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
     let node_routes = Router::new()
         .route("/api/agent/send", post(agent_send))
@@ -473,13 +477,13 @@ impl App {
     /// 노드 하나를 그래프에서 지우고 프로세스를 끝낸다.
     fn remove(&self, node: NodeId) -> rusqlite::Result<()> {
         self.graph.remove(node)?;
-        self.tokens.lock().unwrap().retain(|_, n| *n != node);
         self.host.kill(node);
         Ok(())
     }
 
     /// 노드 프로세스를 띄운다. 끝나면 그래프에 알린다. Codex 노드면 메일함을 그 app-server로 넘기기 시작한다.
-    fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
+    /// 돌려준 값(토큰, 서버 주소)은 그래프가 노드와 함께 남긴다. 노드가 뜨자마자 데몬을 불러도 그래프가 커밋할 때까지 기다린다.
+    fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<Launched, String> {
         let Prepared {
             cmd,
             token,
@@ -487,31 +491,106 @@ impl App {
             codex,
             opencode2,
         } = prepared;
-        // 노드가 뜨자마자 데몬을 불러도 받도록 토큰을 먼저 넣는다.
-        self.tokens.lock().unwrap().insert(token.clone(), id);
+        let server = match (&codex, &opencode2) {
+            (Some(server), _) => Some(server.link()),
+            (_, Some(node)) => Some(node.link()),
+            _ => None,
+        };
+        let on_exit = self.on_exit(id, &codex, &opencode2);
+        self.host
+            .spawn(id, cmd, self.on_title(id, profile), on_exit)?;
+        self.follow_servers(id, codex, opencode2);
+        Ok(Launched { token, server })
+    }
+
+    /// 앞 데몬이 띄운 `running` 노드의 PTY 호스트와 서버에 다시 붙는다. 데몬이 시작할 때 한 번 부른다.
+    /// 호스트가 없으면 노드는 코드 없는 `exited`가 되고, 남은 서버를 끝낸다.
+    /// 그 뒤 붙지 않은 호스트(꺼진 동안 지운 노드, 앞 데몬의 로그인 창)를 끝낸다.
+    async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
+        for node in self.graph.running()? {
+            let (codex, opencode2) = match node.server.clone() {
+                Some(ServerLink::Codex { url, pid, thread }) => {
+                    match CodexServer::reconnect(url, pid, thread).await {
+                        Ok(server) => (Some(Arc::new(server)), None),
+                        Err(e) => {
+                            eprintln!(
+                                "loom: 노드 {}의 app-server에 다시 붙지 못했다: {e}",
+                                node.id.0
+                            );
+                            (None, None)
+                        }
+                    }
+                }
+                Some(ServerLink::OpenCode2 {
+                    url,
+                    pid,
+                    session,
+                    password,
+                }) => (
+                    None,
+                    Some(Arc::new(opencode2::Node::reconnect(
+                        url, pid, session, password,
+                    ))),
+                ),
+                None => (None, None),
+            };
+            let profile = node.agent.as_ref().and_then(profile::profile_of);
+            let on_exit = self.on_exit(node.id, &codex, &opencode2);
+            if self
+                .host
+                .resume(node.id, self.on_title(node.id, profile), on_exit)
+                .is_err()
+            {
+                if let Some(server) = &node.server {
+                    stop_server(server);
+                }
+                self.graph.lost(node.id)?;
+                continue;
+            }
+            self.follow_servers(node.id, codex, opencode2);
+        }
+        self.host.end_others();
+        self.logins.end_others();
+        Ok(())
+    }
+
+    /// 셸·명령 노드의 제목(`user@host: dir`)은 주제가 아니다. 프로필이 제목 형식을 아는 노드만 쓴다.
+    fn on_title(&self, id: NodeId, profile: Option<Profile>) -> impl FnMut(String) + use<> {
         let graph = self.graph.clone();
-        // 셸·명령 노드의 제목(`user@host: dir`)은 주제가 아니다. 프로필이 제목 형식을 아는 노드만 쓴다.
-        let on_title = move |title: String| {
+        move |title: String| {
             if let Some(profile) = profile {
                 // DB가 실패하면 알릴 곳이 없다. 화면은 앞 주제로 남는다.
                 let _ = graph.set_title(id, profile.topic(&title));
             }
-        };
+        }
+    }
+
+    /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다.
+    /// 서버는 맵이 아니라 이 클로저가 쥔다. 다시 붙은 호스트는 붙자마자 종료 코드를 보낼 수 있다.
+    fn on_exit(
+        self: &Arc<Self>,
+        id: NodeId,
+        codex: &Option<Arc<CodexServer>>,
+        opencode2: &Option<Arc<opencode2::Node>>,
+    ) -> impl FnOnce(u32) + use<> {
         let app = self.clone();
-        self.host
-            .spawn(id, cmd, on_title, move |code| {
-                if let Some(server) = app.codex.lock().unwrap().remove(&id) {
-                    server.stop();
-                }
-                if let Some(node) = app.opencode2.lock().unwrap().remove(&id) {
-                    node.stop();
-                }
-                // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
-                let _ = app.graph.exited(id, code);
-            })
-            .inspect_err(|_| {
-                self.tokens.lock().unwrap().remove(&token);
-            })?;
+        let discard = discarder(codex, opencode2);
+        move |code| {
+            discard();
+            app.codex.lock().unwrap().remove(&id);
+            app.opencode2.lock().unwrap().remove(&id);
+            // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
+            let _ = app.graph.exited(id, code);
+        }
+    }
+
+    /// 노드 서버의 상태를 따라가고 메일함을 넘기기 시작한다.
+    fn follow_servers(
+        self: &Arc<Self>,
+        id: NodeId,
+        codex: Option<Arc<CodexServer>>,
+        opencode2: Option<Arc<opencode2::Node>>,
+    ) {
         if let Some(server) = codex {
             self.codex.lock().unwrap().insert(id, server.clone());
             tokio::spawn(follow_codex_model(self.graph.clone(), id, server.clone()));
@@ -526,7 +605,6 @@ impl App {
             };
             tokio::spawn(async move { node.run(mailbox).await });
         }
-        Ok(())
     }
 
     fn caller(&self, headers: &HeaderMap) -> Result<NodeId, AgentError> {
@@ -534,12 +612,17 @@ impl App {
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "));
-        token
-            .and_then(|t| self.tokens.lock().unwrap().get(t).copied())
-            .ok_or((
-                StatusCode::UNAUTHORIZED,
-                "loom 노드 안에서만 부른다.".into(),
-            ))
+        let node = match token {
+            Some(token) => self
+                .graph
+                .caller(token)
+                .map_err(|e| for_agent(Refusal::from(e)))?,
+            None => None,
+        };
+        node.ok_or((
+            StatusCode::UNAUTHORIZED,
+            "loom 노드 안에서만 부른다.".into(),
+        ))
     }
 
     /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.
@@ -615,7 +698,7 @@ impl App {
 /// 띄울 준비가 된 노드. Codex·OpenCode 2 노드면 TUI가 붙을 서버가 이미 떠 있다.
 struct Prepared {
     cmd: portable_pty::CommandBuilder,
-    /// 노드가 데몬을 부를 때 내는 토큰. 노드가 뜨기 직전에 `tokens`에 넣는다.
+    /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
     token: String,
     /// 터미널 제목에서 카드 주제를 꺼내는 프로필. 없으면 제목을 쓰지 않는다.
     profile: Option<Profile>,
@@ -684,12 +767,20 @@ async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receive
 }
 
 /// Codex 노드 스레드가 생기거나 상태가 바뀔 때마다 모델을 다시 읽어 그래프에 옮긴다. 서버가 끝나면 끝난다.
+/// 스레드가 새로 생기면 다시 붙는 값(`ServerLink`)도 그래프에 남긴다. 다시 시작한 데몬은 `thread/started`를 다시 받지 못한다.
 async fn follow_codex_model(graph: Arc<Graph>, node: NodeId, server: Arc<CodexServer>) {
     let mut thread = server.thread();
+    let mut kept = thread.borrow().as_ref().map(|t| t.id.clone());
     while thread.changed().await.is_ok() {
         let Some(id) = thread.borrow_and_update().as_ref().map(|t| t.id.clone()) else {
             continue;
         };
+        if kept.as_ref() != Some(&id) {
+            if let Err(e) = graph.set_server(node, &server.link()) {
+                eprintln!("loom: 노드 {}의 스레드를 쓰지 못했다: {e}", node.0);
+            }
+            kept = Some(id.clone());
+        }
         let call = |method, params| server.call(method, params);
         let saved = match codex::model(call, &id).await {
             Ok(model) => graph.set_model(node, &model).map_err(|e| e.to_string()),
@@ -747,6 +838,15 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                 started = false;
             }
         }
+    }
+}
+
+/// 다시 붙지 못한 노드의 서버를 끝낸다. 서버가 이미 끝났으면 할 일이 없다.
+/// PID를 다른 프로세스가 받았을 수 있다. 데몬이 꺼진 동안 노드가 끝난 드문 경우다.
+fn stop_server(server: &ServerLink) {
+    let (ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) = server;
+    if let Some(root) = pid {
+        process_tree::Snapshot::now().kill_trees([*root]);
     }
 }
 
@@ -976,19 +1076,19 @@ async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<Ap
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum PtyNotice {
-    /// 데몬이 다시 시작해 이 PTY가 없다.
+    /// 이 PTY가 없다. 데몬이 다시 시작할 때 호스트가 사라졌거나, 앞 데몬에서 끝난 노드다.
     Gone,
 }
 
 /// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
-fn serve_pty<K: Copy + Eq + Hash + Send + Sync + 'static>(
+fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
     ws: WebSocketUpgrade,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
     id: K,
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
-        // 데몬이 다시 시작해 PTY가 없다. 화면이 안내를 보이게 알리고, 다시 붙지 않게 연결을 열어 둔다.
+        // PTY가 없다. 화면이 안내를 보이게 알리고, 다시 붙지 않게 연결을 열어 둔다.
         return ws.on_upgrade(|mut socket| async move {
             let notice =
                 serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");

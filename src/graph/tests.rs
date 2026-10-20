@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::*;
 use crate::db;
+use crate::profile::ServerLink;
 use crate::worktree::RepoId;
 
 fn open(path: &Path) -> Graph {
@@ -16,8 +17,11 @@ fn home() -> Place {
     }
 }
 
-fn launched(_: NodeId) -> Result<(), String> {
-    Ok(())
+fn launched(id: NodeId) -> Result<Launched, String> {
+    Ok(Launched {
+        token: format!("t{}", id.0),
+        server: None,
+    })
 }
 
 /// 에이전트 id가 `agent`인 루트. 이름은 `<agent>-1`이다.
@@ -317,7 +321,7 @@ fn restart_keeps_nodes_and_messages() {
     let g = open(&path);
     let views = g.subscribe().unwrap().0;
     assert_eq!(views.len(), 2);
-    assert_eq!(view(&g, lead).state, NodeState::Exited { code: None });
+    assert_eq!(view(&g, lead).state, NodeState::Running);
     assert_eq!(view(&g, a).parent, Some(lead));
     assert_eq!(
         view(&g, a).state,
@@ -792,20 +796,43 @@ fn keeps_only_the_latest_records() {
 }
 
 #[test]
-fn reopening_records_running_nodes_as_exited() {
+fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("loom.db");
-    let lead = root(&open(&path), "총괄");
+    let server = ServerLink::Codex {
+        url: "ws://127.0.0.1:1".into(),
+        pid: Some(9),
+        thread: None,
+    };
+    let (lead, a) = {
+        let g = open(&path);
+        let lead = root(&g, "codex");
+        let a = child(&g, lead, "a");
+        g.set_server(lead, &server).unwrap();
+        g.done(a, "요약").unwrap();
+        (lead, a)
+    };
     let g = open(&path);
+    let running = g.running().unwrap();
+    assert_eq!(running.len(), 1);
+    assert_eq!(running[0].id, lead);
+    assert_eq!(running[0].agent, Some(AgentId("codex".into())));
+    assert_eq!(running[0].server, Some(server));
+    // 다시 연 데몬도 앞 데몬이 준 토큰으로 노드를 찾는다.
+    assert_eq!(g.caller(&format!("t{}", lead.0)).unwrap(), Some(lead));
+    assert_eq!(g.caller(&format!("t{}", a.0)).unwrap(), Some(a));
+    assert_eq!(g.caller("t999").unwrap(), None);
+    g.lost(lead).unwrap();
     let (entry, _) = recorded(&g).pop().unwrap();
     assert_eq!(
         entry,
         events::Entry::State {
-            node: who(lead, "총괄-1"),
+            node: who(lead, "codex-1"),
             from: NodeState::Running,
             to: NodeState::Exited { code: None }
         }
     );
+    assert!(g.running().unwrap().is_empty());
 }
 
 #[test]

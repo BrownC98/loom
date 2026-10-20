@@ -110,6 +110,26 @@ impl Node {
             server.stop();
             return Err(e);
         }
+        Ok(Self::follow(server, session))
+    }
+
+    /// 앞 데몬이 띄운 서버와 세션에 다시 붙는다. 모델은 TUI가 다음 입력을 보낼 때 다시 알린다.
+    pub fn reconnect(url: String, pid: Option<u32>, session: String, password: String) -> Self {
+        Self::follow(Server::connect(url, password, pid), session)
+    }
+
+    /// 다시 붙는 데 쓰는 값. DB에 남긴다.
+    pub fn link(&self) -> super::ServerLink {
+        super::ServerLink::OpenCode2 {
+            url: self.server.url().to_owned(),
+            pid: self.server.pid(),
+            session: self.session.clone(),
+            password: self.server.password().to_owned(),
+        }
+    }
+
+    /// 서버 이벤트에서 세션의 모델을 읽기 시작한다.
+    fn follow(server: Server, session: String) -> Self {
         let (tx, model) = watch::channel(Model::default());
         let ours = session.clone();
         server.follow_events(move |event| {
@@ -117,11 +137,11 @@ impl Node {
                 tx.send_replace(selected);
             }
         });
-        Ok(Self {
+        Self {
             server,
             session,
             model,
-        })
+        }
     }
 
     /// 세션의 모델과 variant(추론 강도). TUI는 고른 값을 다음 입력을 보낼 때 서버에 알린다(실측).

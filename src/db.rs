@@ -95,6 +95,9 @@ const STEPS: &[M] = &[
             CASE json_extract(value, '$.cardView') WHEN 'terminal' THEN 'standard' WHEN 'header' THEN 'simple' ELSE json_extract(value, '$.cardView') END)
         WHERE json_extract(value, '$.cardView') IS NOT NULL;",
     ),
+    // 13: 노드가 데몬을 부를 때 내는 토큰과, 노드 서버에 다시 붙는 값(graph). 노드 프로세스는 데몬이 다시 시작해도 살므로
+    // 새 데몬도 같은 토큰을 받아야 한다. `server`는 serde JSON 문자열(`ServerLink`)이고 서버가 없는 노드는 NULL이다.
+    M::up("ALTER TABLE nodes ADD COLUMN token TEXT; ALTER TABLE nodes ADD COLUMN server TEXT;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

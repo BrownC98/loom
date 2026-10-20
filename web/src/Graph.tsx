@@ -250,11 +250,19 @@ export function Graph(props: {
   const allGroups = groupsOf(props.repo, views);
   const laid = allGroups.map((group) => {
     const members = inGroup(views, group);
-    const tree = arrangeTree(members, size, direction);
+    // 끈 자리는 묶음 기준이고 나무 배치는 카드 자리 기준이라 `CARD_X`·`CARD_TOP`만큼 옮겨 넘기고 받는다.
+    const tree = arrangeTree(
+      members,
+      (id) => {
+        const at = dragged.get(String(id));
+        return { size: size(id), dragged: at && { x: at.x - CARD_X, y: at.y - CARD_TOP }, dragging: flowState.get(String(id))?.dragging };
+      },
+      direction,
+    );
     const local = new Map<NodeId, XYPosition>(
       members.map((v) => {
         const at = tree.get(v.id)!;
-        return [v.id, dragged.get(String(v.id)) ?? { x: CARD_X + at.x, y: CARD_TOP + at.y }];
+        return [v.id, { x: CARD_X + at.x, y: CARD_TOP + at.y }];
       }),
     );
     // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
@@ -267,7 +275,7 @@ export function Graph(props: {
   // 묶음끼리도 부모 묶음 다음 단계에 놓는 나무다.
   const parentGroups = groupParents(allGroups, views);
   const origins = placeGroups(
-    laid.map((g, i) => ({ size: { width: g.right, height: g.height }, parent: parentGroups[i], dragged: dragged.get(g.group.path) })),
+    laid.map((g, i) => ({ size: { width: g.right, height: g.height }, parent: parentGroups[i], dragged: dragged.get(g.group.path), dragging: flowState.get(g.group.path)?.dragging })),
     direction,
     GROUP_POSITION,
   );
@@ -282,7 +290,7 @@ export function Graph(props: {
   };
   useImperativeHandle(props.ref, () => ({ neighbor: (from, dir) => neighbor(positions, from, dir), arrange: () => setDragged(new Map()) }));
   const standard = props.cardView === 'standard';
-  const keep = <N extends FlowNode>(node: N): N => ({ ...node, measured: flowState.get(node.id)?.measured });
+  const keep = <N extends FlowNode>(node: N): N => ({ ...node, measured: flowState.get(node.id)?.measured, dragging: flowState.get(node.id)?.dragging });
 
   const nodes: FlowNode[] = groups.flatMap(({ group, members, local, origin, right, bottom }) => [
     keep<GroupNode>({

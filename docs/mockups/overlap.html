@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>묶음·카드 겹침</title>
+<style>
+  /* 토큰은 web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light;
+    --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+    --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+    --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+    --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+    --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+    --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+    --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+    --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+    --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+    --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+    --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+    --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+    --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+    --danger: light-dark(oklch(50.5% 0.213 27.5), oklch(70.4% 0.191 22.2));
+    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+  header p { font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  h2 { font-size: 16px; margin: 32px 0 4px; }
+  .lead { max-width: 76ch; color: var(--ink-2); font-size: 13px; }
+  .row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; }
+  figure { display: flex; flex-direction: column; gap: 8px; }
+  figcaption { font-size: 13px; font-weight: 600; }
+  figcaption .rec { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+  .notes { max-width: 320px; font-size: 12px; color: var(--ink-2); padding-left: 16px; }
+  .notes li + li { margin-top: 2px; }
+  .notes b { color: var(--ink); }
+  .shot { border: 1px solid var(--line); border-radius: 8px; max-width: 100%; }
+  table { border-collapse: collapse; font-size: 13px; margin-top: 12px; max-width: 1100px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+  code { font-size: 12px; }
+
+  /* 축소 그림. 묶음과 심플 카드(web/src/styles.css .group, .card.simple)를 1/2로 줄였다. 좌표는 style로 준다. */
+  .canvas { position: relative; width: 640px; height: 128px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); background-image: radial-gradient(var(--line-strong) 0.6px, transparent 0.6px); background-size: 10px 10px; overflow: hidden; }
+  .g { position: absolute; top: 10px; height: 80px; border: 1px dashed var(--line-strong); border-radius: 6px; background: color-mix(in oklch, var(--panel) 60%, transparent); font-size: 10px; font-weight: 600; padding: 3px 6px; }
+  .c { position: absolute; top: 44px; width: 130px; height: 36px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 5px; font-size: 10px; font-weight: 600; padding: 3px 6px; }
+  .c::after { content: ''; position: absolute; left: 6px; bottom: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--run); }
+  .drag { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .new { border-color: var(--run); }
+  .bad { position: absolute; top: 10px; height: 80px; background: color-mix(in oklch, var(--danger) 18%, transparent); border: 1.5px solid var(--danger); border-radius: 4px; }
+  .move { position: absolute; top: 96px; height: 2px; background: var(--run); }
+  .move::after { content: ''; position: absolute; right: -2px; top: -4px; border: 5px solid transparent; border-left: 7px solid var(--run); border-right: 0; }
+  .cap { position: absolute; left: 8px; bottom: 6px; font-size: 11px; color: var(--ink-3); }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-2); margin-top: 8px; align-items: center; }
+  .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+</style>
+
+<header>
+  <p>응답할 곳: 총괄 · claude-1 | 연 담당: 총괄 · claude-1</p>
+  <h1>묶음·카드 겹침 풀기</h1>
+  <p class="lead">사용자 요청(2026-10-20): "묶음, 노드 겹침 문제 어떻게 해결하면 좋을지도 목업으로 제안해줘". 그래프에서 사람이 끈 카드·묶음은 제자리에 남는다. 그 뒤 새 카드가 생기거나 옆 묶음이 커지면 끈 것 위에 겹친다. 세 안을 비교한다. 화면 코드는 승인 뒤에 쓴다.</p>
+</header>
+
+<h2>지금</h2>
+<p class="lead">시험 데몬에서 찍었다(심플 보기, 화면 언어 English). 위: 기능-a의 shell-2를 오른쪽으로 끈 뒤 새 노드 shell-4를 띄웠다. shell-4가 shell-2를 덮는다. 아래: 기능-b 묶음을 기능-a 바로 옆으로 끈 뒤 기능-a에 노드를 하나 더 띄웠다. 커진 기능-a가 기능-b 밑으로 들어간다.</p>
+<div class="row">
+  <img class="shot" src="overlap-before-card.png" width="1005" alt="끈 카드 shell-2 위에 새 카드 shell-4가 겹친다">
+  <img class="shot" src="overlap-before-group.png" width="1005" alt="커진 기능-a 묶음이 끈 기능-b 묶음 밑으로 들어간다">
+</div>
+
+<h2>원인</h2>
+<p class="lead">배치는 끈 것을 모른다. 끈 것은 배치를 모른다. 둘 사이에 겹침을 보는 곳이 없다.</p>
+<table>
+  <tr><th>장면</th><th>겹치는 까닭</th><th>코드</th></tr>
+  <tr><td>끈 카드 위에 새 카드</td><td>나무 배치는 끈 카드도 원래 칸에 있다고 보고 칸을 나눈다. 끈 카드는 다른 칸 위에 놓일 수 있다. 새 카드는 그 칸에 들어간다.</td><td><code>web/src/Graph.tsx:251</code>, <code>:255</code></td></tr>
+  <tr><td>끈 묶음 쪽으로 옆 묶음이 커짐</td><td>끈 묶음은 그 자리에 그대로 둔다. 끌지 않은 묶음은 카드가 늘면 커지고 뒤 묶음을 민다. 끈 묶음은 밀리지 않는다.</td><td><code>web/src/layout.ts:109</code>, <code>web/src/Graph.tsx:260</code></td></tr>
+  <tr><td>끈 것을 다른 것 위에 놓음</td><td>놓을 때 겹침을 보지 않는다. 위치만 기록한다.</td><td><code>web/src/Graph.tsx:377</code>-<code>378</code></td></tr>
+  <tr><td>심플 ↔ 표준 전환</td><td>끈 위치는 픽셀로 남는다. 카드 폭이 260에서 600으로 바뀌면 끈 카드끼리, 끈 카드와 배치 카드가 겹친다.</td><td><code>web/src/Graph.tsx:240</code>-<code>244</code>, <code>:255</code></td></tr>
+  <tr><td>새 묶음·노드 이동</td><td>새 워크트리나 입양으로 묶음 나무가 바뀌면, 끌지 않은 묶음이 끈 묶음 자리로 갈 수 있다.</td><td><code>web/src/layout.ts:107</code>-<code>109</code></td></tr>
+</table>
+
+<h2>세 안</h2>
+<p class="lead">같은 장면(위 아래 그림: 끈 기능-b 쪽으로 기능-a가 커짐)을 세 안으로 그렸다. 위는 놓은 직후, 아래는 기능-a에 카드가 늘어난 뒤다.</p>
+<div class="legend"><span><i style="outline:2px solid var(--accent)"></i>사람이 끈 것</span><span><i style="border:1px solid var(--run)"></i>새 카드</span><span><i style="background:color-mix(in oklch, var(--danger) 18%, transparent);border:1.5px solid var(--danger)"></i>겹침</span><span><i style="height:2px;background:var(--run)"></i>밀린 거리</span></div>
+
+<div class="row">
+  <figure>
+    <figcaption>A. 배치 뒤 겹침 풀기<span class="rec">권장</span></figcaption>
+    <div class="canvas">
+      <div class="g" style="left:10px;width:300px">기능-a</div>
+      <div class="c" style="left:20px">shell-1</div><div class="c" style="left:160px">shell-2</div>
+      <div class="g drag" style="left:322px;width:160px">기능-b</div>
+      <span class="cap">놓은 직후</span>
+    </div>
+    <div class="canvas">
+      <div class="g" style="left:10px;width:440px">기능-a</div>
+      <div class="c" style="left:20px">shell-1</div><div class="c" style="left:160px">shell-2</div><div class="c new" style="left:300px">shell-4</div>
+      <div class="g drag" style="left:466px;width:160px">기능-b</div>
+      <div class="move" style="left:322px;width:140px"></div>
+      <span class="cap">카드가 늘어난 뒤: 기능-b가 오른쪽으로 밀린다</span>
+    </div>
+    <ul class="notes">
+      <li><b>규칙 하나:</b> 화면에 그리기 전에 상자를 앞에서부터 본다. 앞 상자와 겹치는 상자는 형제가 늘어서는 쪽(아래로 정렬이면 오른쪽)으로 겹치지 않을 때까지 민다.</li>
+      <li>카드는 묶음 안에서 먼저 풀고, 그 크기로 묶음을 푼다. 지금 끄는 상자 하나만 밀리지 않는다. 나머지가 비켜 준다.</li>
+      <li>위 다섯 장면을 모두 막는다. 끄는 동안에도 비켜 주는 모습이 바로 보인다.</li>
+      <li><b>부품:</b> <code>layout.ts</code>에 순수 함수 하나(약 30줄), <code>Graph.tsx</code>에서 두 번 부른다. 새 상태·단추·저장은 없다. 지금 끄는 상자는 React Flow가 이미 주는 <code>dragging</code>으로 안다.</li>
+      <li><b>대가:</b> 끈 것도 밀릴 수 있다. 사람이 놓은 자리가 옆으로 비켜 간다. 밀린 거리는 기록하지 않는다. 겹침이 사라지면(노드를 지우면) 끈 자리로 돌아온다.</li>
+    </ul>
+  </figure>
+
+  <figure>
+    <figcaption>B. 놓을 때만 밀어내기</figcaption>
+    <div class="canvas">
+      <div class="g" style="left:10px;width:300px">기능-a</div>
+      <div class="c" style="left:20px">shell-1</div><div class="c" style="left:160px">shell-2</div>
+      <div class="g drag" style="left:322px;width:160px">기능-b</div>
+      <span class="cap">놓은 직후: 겹치지 않으면 그대로</span>
+    </div>
+    <div class="canvas">
+      <div class="g" style="left:10px;width:440px">기능-a</div>
+      <div class="c" style="left:20px">shell-1</div><div class="c" style="left:160px">shell-2</div><div class="c new" style="left:300px">shell-4</div>
+      <div class="g drag" style="left:322px;width:160px;background:color-mix(in oklch, var(--panel) 85%, transparent)">기능-b</div>
+      <div class="bad" style="left:322px;width:128px"></div>
+      <span class="cap">카드가 늘어난 뒤: 그대로 겹친다</span>
+    </div>
+    <ul class="notes">
+      <li>끈 것을 놓는 순간, 겹치면 가장 가까운 빈자리로 옮긴다.</li>
+      <li>놓은 것 하나만 움직이므로 다른 것은 늘 제자리다.</li>
+      <li><b>부품:</b> 놓기 처리(<code>onNodeDragStop</code>)와 빈자리 찾기 함수.</li>
+      <li><b>대가:</b> 다섯 장면 중 「끈 것을 다른 것 위에 놓음」 하나만 막는다. 새 카드, 커지는 묶음, 보기 전환은 그대로 겹친다.</li>
+    </ul>
+  </figure>
+
+  <figure>
+    <figcaption>C. 끌면 순서만 바꾸기</figcaption>
+    <div class="canvas">
+      <div class="g drag" style="left:10px;width:160px">기능-b</div>
+      <div class="g" style="left:182px;width:300px">기능-a</div>
+      <div class="c" style="left:192px">shell-1</div><div class="c" style="left:332px">shell-2</div>
+      <span class="cap">놓은 직후: 기능-b가 기능-a 앞 칸으로 들어간다</span>
+    </div>
+    <div class="canvas">
+      <div class="g drag" style="left:10px;width:160px">기능-b</div>
+      <div class="g" style="left:182px;width:440px">기능-a</div>
+      <div class="c" style="left:192px">shell-1</div><div class="c" style="left:332px">shell-2</div><div class="c new" style="left:472px">shell-4</div>
+      <span class="cap">카드가 늘어난 뒤: 늘 나무 배치</span>
+    </div>
+    <ul class="notes">
+      <li>끌어 놓으면 자유 위치가 아니라 형제 사이 순서가 바뀐다. 모든 것이 늘 나무 배치를 따른다. 겹침이 생길 수 없다.</li>
+      <li><b>부품:</b> 끈 위치 기록(<code>dragged</code>), 카드 끌기 경계(<code>CARD_EXTENT</code>), [정렬]의 「끈 위치 버리기」가 없어진다. 대신 형제 순서를 이 브라우저에 저장하는 표가 생긴다.</li>
+      <li><b>대가:</b> 사람이 원한 자유 이동("워크트리도 이동가능하게")이 순서 바꾸기로 줄어든다. 제품 결정(docs/design.md 「배치」)을 바꾼다.</li>
+    </ul>
+  </figure>
+</div>
+
+<h2>권장: A</h2>
+<p class="lead">랩터-3 기준으로 A는 새 상태 없이 순수 함수 하나로 다섯 장면을 모두 막는다. B는 부품 수가 비슷하지만 한 장면만 막는다. C는 지우는 부품이 가장 많지만 저장 부품이 새로 생기고, 사람이 정한 자유 이동을 바꾼다. 그래서 A를 권한다. C는 자유 이동이 필요 없다고 정하면 다시 볼 만하다.</p>
+<table>
+  <tr><th></th><th>A. 배치 뒤 풀기</th><th>B. 놓을 때 밀기</th><th>C. 순서만 바꾸기</th></tr>
+  <tr><th>막는 장면</th><td>다섯 모두</td><td>하나</td><td>다섯 모두</td></tr>
+  <tr><th>새 부품</th><td>순수 함수 1</td><td>처리기 1, 함수 1</td><td>순서 저장 1</td></tr>
+  <tr><th>지우는 부품</th><td>없음</td><td>없음</td><td><code>dragged</code>, <code>CARD_EXTENT</code>, [정렬]의 되돌리기</td></tr>
+  <tr><th>제품 결정 변경</th><td>끈 것도 비켜 갈 수 있다(한 줄 더함)</td><td>없음</td><td>자유 이동을 없앤다</td></tr>
+  <tr><th>시험</th><td><code>layout.test.ts</code>에 상자 겹침 표 시험</td><td>끌기 화면 시험</td><td>순서 저장 시험</td></tr>
+</table>
+</html>

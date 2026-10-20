@@ -1,4 +1,4 @@
-import { Maximize2, Minimize2, Plus } from 'lucide-react';
+import { Maximize2, Minimize2, Plus, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useImperativeHandle, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
@@ -146,9 +146,7 @@ function RemoveButton(props: { onRemove: () => void }) {
   const { t } = useTranslation();
   return (
     <IconButton label={t('node.remove')} title={t('node.remove')} onClick={props.onRemove}>
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-      </svg>
+      <Trash2 />
     </IconButton>
   );
 }

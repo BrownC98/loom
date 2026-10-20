@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronDown, Workflow, type LucideIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { ARRANGE_DIRECTIONS, type ArrangeDirection } from './layout';
@@ -23,19 +24,11 @@ export function saveDirection(direction: ArrangeDirection) {
   }
 }
 
-const ARROW: Record<ArrangeDirection, string> = {
-  down: 'M12 5v14M6 13l6 6 6-6',
-  right: 'M5 12h14M13 6l6 6-6 6',
-  up: 'M12 19V5M6 11l6-6 6 6',
-  left: 'M19 12H5M11 6l-6 6 6 6',
-};
+const ARROW: Record<ArrangeDirection, LucideIcon> = { down: ArrowDown, right: ArrowRight, up: ArrowUp, left: ArrowLeft };
 
 function Arrow(props: { direction: ArrangeDirection }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d={ARROW[props.direction]} />
-    </svg>
-  );
+  const Icon = ARROW[props.direction];
+  return <Icon />;
 }
 
 /** 메뉴 폭. styles.css `.menu`의 폭이다. 메뉴 오른쪽을 버튼 오른쪽에 맞춘다. */
@@ -84,18 +77,12 @@ export function ArrangeButton(props: { direction: ArrangeDirection; onArrange: (
   return (
     <span className="split">
       <button className="btn" onClick={() => props.onArrange(props.direction)}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="3" y="3" width="7" height="7" rx="1" />
-          <rect x="14" y="14" width="7" height="7" rx="1" />
-          <path d="M6.5 10v4.5H14" />
-        </svg>
+        <Workflow />
         {t('graph.arrange')}
       </button>
       <button ref={caret} className="btn caret" aria-haspopup="menu" aria-expanded={open} aria-label={t('graph.direction')} title={t('graph.direction')} onClick={() => setOpen(!open)}>
         <Arrow direction={props.direction} />
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 10l5 5 5-5" />
-        </svg>
+        <ChevronDown />
       </button>
       {at &&
         createPortal(
@@ -114,9 +101,7 @@ export function ArrangeButton(props: { direction: ArrangeDirection; onArrange: (
                 <Arrow direction={direction} />
                 {t(`graph.directions.${direction}`)}
                 {direction === props.direction && (
-                  <svg className="check" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M5 12l5 5 9-10" />
-                  </svg>
+                  <Check className="check" />
                 )}
               </button>
             ))}

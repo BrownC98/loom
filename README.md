@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <strong>Run Claude Code, Codex and OpenCode as one team, on a graph you can watch.</strong><br>
+  <strong>Run different AI agents as one team, on a graph you can watch.</strong><br>
   Each agent is a node card with its real terminal. Parents spawn children, children report back, and each message shows on the edge between them.
 </p>
 
@@ -26,7 +26,7 @@
 | Feature | What it does |
 |---|---|
 | **Live terminals as nodes** | Each agent runs in a real TUI. Click a card to type into it. Double-click to enlarge it. |
-| **Mix agent CLIs** | Claude Code, Codex and OpenCode 2 work in one tree. Each card head shows the CLI and the model. |
+| **Mix agent CLIs** | Different agents work in one tree. Each card head shows the CLI and the model. |
 | **Small messaging CLI** | Agents use `loom spawn`, `send`, `wait` and `done` to split work and report results. |
 | **Worktree groups** | Nodes are grouped by git worktree. `--worktree <branch>` makes a new group. |
 | **Commit graph and event console** | See the commits of all branches and each message between nodes. |

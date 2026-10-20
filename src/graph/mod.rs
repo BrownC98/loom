@@ -102,6 +102,11 @@ pub struct Model {
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum GraphEvent {
+    /// 연결할 때 먼저 한 번 보내는 노드 목록 전체. 화면은 가진 노드를 이 목록으로 바꾼다.
+    /// 그래서 연결이 끊긴 동안 지운 노드가 화면에 남지 않는다(2026-10-20 사람 보고: 지운 노드 카드가 데몬을 다시 띄운 뒤에도 남음).
+    Snapshot {
+        nodes: Vec<NodeView>,
+    },
     Node(NodeView),
     /// `child`와 그 부모 사이 간선으로 메시지가 `toward` 쪽으로 갔다.
     Message {

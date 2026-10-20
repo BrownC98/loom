@@ -15,6 +15,7 @@ import type { NewNode } from './gen/NewNode';
 import type { NewRepo } from './gen/NewRepo';
 import type { NewWorktree } from './gen/NewWorktree';
 import type { NodeId } from './gen/NodeId';
+import type { OpenFile } from './gen/OpenFile';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
@@ -52,6 +53,8 @@ export const removeNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}
 export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/api/nodes/${child}/parent/${parent}`);
 /** 이름을 바꾸고 부모·자식에게 알린다. 거절하면 데몬의 문장을 담은 Error를 던진다. */
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
+
+export const openFile = (path: string) => call<null>('POST', '/api/files/open', { path } satisfies OpenFile);
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');

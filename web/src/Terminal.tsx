@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { attachPty, savePastedImage } from './api';
+import { attachPty, openFile, savePastedImage } from './api';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
@@ -50,6 +50,20 @@ function loadFont(family: string): Promise<unknown> {
  * 카드 머리를 누르면 브라우저가 누른 뒤에 카드에 포커스를 준다. 그 뒤에 터미널로 옮기려고 다음 프레임에 준다.
  * 입력창(예: 이름 바꾸기)에 포커스가 있으면 옮기지 않는다. 터미널 연결은 늦게 끝나므로 사람이 쓰는 글을 끊는다.
  */
+/**
+ * 터미널 링크를 연다. `file://`은 데몬이 그 기계의 기본 앱으로 연다(브라우저 페이지는 열지 못한다). `http(s)`는 새 탭이다. 다른 형식은 열지 않는다.
+ * Windows 경로(`file:///C:/…`)는 앞의 `/`를 뗀다.
+ */
+function openLink(uri: string) {
+  const url = URL.parse(uri);
+  if (url?.protocol === 'file:') {
+    const path = decodeURIComponent(url.pathname);
+    openFile(/^\/[A-Za-z]:/.test(path) ? path.slice(1) : path).catch((err: Error) => console.error(err));
+  } else if (url?.protocol === 'http:' || url?.protocol === 'https:') {
+    window.open(url.href, '_blank', 'noopener');
+  }
+}
+
 function focusSoon(xterm: XTerm) {
   requestAnimationFrame(() => {
     if (!(document.activeElement instanceof HTMLInputElement)) xterm.focus();
@@ -98,6 +112,8 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
         // WebGL 렌더러는 틈이 없지만 브라우저가 컨텍스트 수를 제한해 카드가 많으면 깨진다.
         lineHeight: 1,
         theme: latestTheme.current,
+        // 에이전트가 적은 링크(OSC 8)를 누르면 연다. 기본값은 http(s)가 아닌 링크를 무시하고, 브라우저는 file://을 열지 못한다.
+        linkHandler: { allowNonHttpProtocols: true, activate: (_event, uri) => openLink(uri) },
       });
       const fitAddon = new FitAddon();
       xterm.loadAddon(fitAddon);

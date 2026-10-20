@@ -68,7 +68,11 @@ impl Graph {
         let id = insert(&tx, name, &agent, Some(parent), &place)?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
-            mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
+            let message = mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
+            tx.execute(
+                "UPDATE nodes SET brief = ?2 WHERE id = ?1",
+                params![id.0, message.0],
+            )?;
         }
         launch(id).map_err(Refusal::Launch)?;
         tx.commit()?;
@@ -84,6 +88,8 @@ impl Graph {
     /// 이 줄은 메일함 상한을 넘어도 넣는다. 버리면 부모가 끝없이 기다린다.
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
         let mut db = self.lock();
+        // 터미널 제목은 PTY와 함께 사라진다.
+        self.titles.lock().unwrap().remove(&id);
         if state_of(&db, id)? != NodeState::Running {
             return Ok(());
         }
@@ -112,6 +118,23 @@ impl Graph {
             self.publish_node(&db, id)?;
         }
         Ok(())
+    }
+
+    /// 노드 CLI의 터미널 제목에서 꺼낸 주제를 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
+    /// 노드마다 PTY 출력을 읽는 스레드 하나만 부른다. 그래서 비교와 바꾸기 사이에 다른 값이 끼지 않는다.
+    pub fn set_title(&self, id: NodeId, title: Option<String>) -> rusqlite::Result<()> {
+        if self.titles.lock().unwrap().get(&id) == title.as_ref() {
+            return Ok(());
+        }
+        // 화면에 보내는 순서가 DB 변경 순서와 같도록 DB를 먼저 잠근다.
+        let db = self.lock();
+        let mut titles = self.titles.lock().unwrap();
+        match title {
+            Some(title) => titles.insert(id, title),
+            None => titles.remove(&id),
+        };
+        drop(titles);
+        self.publish_node(&db, id)
     }
 }
 
@@ -156,6 +179,7 @@ impl Graph {
         tx.execute("UPDATE nodes SET parent = NULL WHERE parent = ?1", [id.0])?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
+        self.titles.lock().unwrap().remove(&id);
         let _ = self.events.send(GraphEvent::Removed { id });
         for child in children {
             self.publish_node(&db, child)?;

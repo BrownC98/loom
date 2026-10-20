@@ -19,6 +19,7 @@ import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
+import { ArrangeButton, loadDirection, saveDirection } from './ArrangeButton';
 import { Splitter, usePaneWidth, type Pane } from './Splitter';
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
@@ -104,6 +105,7 @@ export function App() {
   const [settingsTab, setSettingsTab] = useSettingsTab();
   const [selected, setSelected] = useState<NodeId | null>(null);
   // 오른쪽 칸 하나를 이벤트 콘솔, 커밋 그래프, 고른 노드의 터미널(카드를 머리만 볼 때)이 번갈아 쓴다.
+  const [direction, setDirection] = useState(loadDirection);
   const [dock, setDock] = useState<'events' | 'commits' | 'terminal' | null>(null);
   const graph = useRef<GraphHandle>(null);
   const [sideWidth, setSideWidth] = usePaneWidth(SIDE_PANE);
@@ -253,6 +255,16 @@ export function App() {
               <span className="spacer" />
               <CardViewSwitch value={settings.cardView} onChange={(cardView) => saveSettings({ ...settings, cardView })} />
               {repo && (
+                <ArrangeButton
+                  direction={direction}
+                  onArrange={(next) => {
+                    setDirection(next);
+                    saveDirection(next);
+                    graph.current?.arrange();
+                  }}
+                />
+              )}
+              {repo && (
                 <button className="btn" aria-expanded={creatingWorktree} onClick={() => setCreatingWorktree(true)}>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9" />
@@ -298,6 +310,7 @@ export function App() {
               highlight={highlight && new Set(involved(highlight.entry))}
               onClearHighlight={() => setHighlight(null)}
               cardView={settings.cardView}
+              direction={direction}
               ref={graph}
             />}
           </main>

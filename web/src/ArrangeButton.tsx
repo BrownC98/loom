@@ -43,7 +43,7 @@ const MENU_WIDTH = 180;
 
 /**
  * [정렬]은 지금 방향으로 다시 놓고, 옆 버튼은 방향 메뉴를 연다. 메뉴에서 고르면 그 방향으로 바로 정렬한다.
- * 묶음 노드 안에 그리면 카드가 메뉴를 덮는다. 그래서 메뉴는 body에 버튼 자리 기준으로 그린다.
+ * 그래프 위 막대에 하나다(목업 card-view.html 2번). 메뉴는 그래프 층에 덮이지 않게 body에 버튼 자리 기준으로 그린다.
  */
 export function ArrangeButton(props: { direction: ArrangeDirection; onArrange: (direction: ArrangeDirection) => void }) {
   const { t } = useTranslation();
@@ -83,7 +83,7 @@ export function ArrangeButton(props: { direction: ArrangeDirection; onArrange: (
   };
   return (
     <span className="split">
-      <button className="btn ghost sm" onClick={() => props.onArrange(props.direction)}>
+      <button className="btn" onClick={() => props.onArrange(props.direction)}>
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <rect x="3" y="3" width="7" height="7" rx="1" />
           <rect x="14" y="14" width="7" height="7" rx="1" />
@@ -91,7 +91,7 @@ export function ArrangeButton(props: { direction: ArrangeDirection; onArrange: (
         </svg>
         {t('graph.arrange')}
       </button>
-      <button ref={caret} className="btn ghost sm caret" aria-haspopup="menu" aria-expanded={open} aria-label={t('graph.direction')} title={t('graph.direction')} onClick={() => setOpen(!open)}>
+      <button ref={caret} className="btn caret" aria-haspopup="menu" aria-expanded={open} aria-label={t('graph.direction')} title={t('graph.direction')} onClick={() => setOpen(!open)}>
         <Arrow direction={props.direction} />
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M7 10l5 5 5-5" />

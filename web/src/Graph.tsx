@@ -10,9 +10,8 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
-import { ArrangeButton, loadDirection, saveDirection } from './ArrangeButton';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeTree, type ArrangeDirection, type Size } from './layout';
+import { arrangeTree, placeGroups, type ArrangeDirection, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { groupsOf, inGroup } from './repos';
@@ -20,8 +19,8 @@ import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
-/** 옆 묶음과의 가로 틈. 묶음은 git 순서로 왼쪽부터 놓는다(목업 docs/mockups/workspace.html 2번). */
-const GROUP_GAP = 32;
+/** 빈 묶음을 재기 전에 쓰는 높이(머리와 안내 글). */
+const EMPTY_GROUP_HEIGHT = 100;
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
@@ -82,9 +81,7 @@ type GroupData = {
   empty: boolean;
   creating: boolean;
   deleting: boolean;
-  direction: ArrangeDirection;
   onOpen: () => void;
-  onArrange: (direction: ArrangeDirection) => void;
   onDelete?: () => void;
 };
 type CardBase = { view: NodeView; agentLabel: string; selected: boolean; handles: (typeof HANDLES)[ArrangeDirection]; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
@@ -105,15 +102,14 @@ function Group({ data }: NodeProps<GroupNode>) {
         </span>
         <span className="kind">{t(data.original ? 'worktree.original' : 'worktree.linked')}</span>
         <span className="spacer" />
-        {!data.empty && <ArrangeButton direction={data.direction} onArrange={data.onArrange} />}
-        <button className="btn ghost sm" aria-expanded={data.creating} onClick={data.onOpen}>
+        <button className="btn ghost sm nodrag" aria-expanded={data.creating} onClick={data.onOpen}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
           </svg>
           {t('graph.newNode')}
         </button>
         {data.onDelete && (
-          <button className="btn ghost sm" aria-expanded={data.deleting} onClick={data.onDelete}>
+          <button className="btn ghost sm nodrag" aria-expanded={data.deleting} onClick={data.onDelete}>
             {t('deleteWorktree.action')}
           </button>
         )}
@@ -196,8 +192,8 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
   return view.parent === null ? null : (views.get(view.parent)?.name ?? null);
 }
 
-/** 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. */
-export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null };
+/** `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끈 카드와 묶음을 모두 배치 자리로 되돌린다(위 막대의 [정렬]). */
+export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void };
 
 /**
  * `cardView`: 그래프 전체의 카드 보기. 심플이면 카드에 터미널이 없고, 터미널은 부르는 쪽(오른쪽 칸)이 연다.
@@ -219,6 +215,8 @@ export function Graph(props: {
   highlight: ReadonlySet<NodeId> | null;
   onClearHighlight: () => void;
   cardView: CardView;
+  /** 나무가 뻗는 쪽. 위 막대의 [정렬] 메뉴가 고른다. */
+  direction: ArrangeDirection;
   ref?: Ref<GraphHandle>;
 }) {
   const { t } = useTranslation();
@@ -235,9 +233,9 @@ export function Graph(props: {
   const [refusal, setRefusal] = useState('');
   // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
-  // 사람이 끈 카드의 위치만 둔다. 나머지 카드는 늘 나무 배치를 따르므로, 노드를 지우면 빈자리를 채운다.
+  // 사람이 끈 카드와 묶음의 위치만 둔다(React Flow 노드 id 기준). 나머지는 늘 배치를 따르므로, 노드를 지우면 빈자리를 채운다.
   const [dragged, setDragged] = useState<ReadonlyMap<string, XYPosition>>(new Map());
-  const [direction, setDirection] = useState(loadDirection);
+  const { direction } = props;
 
   const views = [...props.views.values()];
   const estimate = CARD_SIZE[props.cardView];
@@ -246,16 +244,9 @@ export function Graph(props: {
     const measured = flowState.get(String(id))?.measured;
     return measured?.width && measured.height ? { width: measured.width, height: measured.height } : estimate;
   };
-  /** 끈 위치를 버려 모든 카드를 `next` 방향의 나무 배치 자리로 되돌린다. */
-  const arrange = (next: ArrangeDirection) => {
-    setDirection(next);
-    saveDirection(next);
-    setDragged(new Map());
-  };
   // 묶음마다 나무 배치를 따로 한다. 카드 위치는 묶음 기준, `positions`는 키보드 이동에 쓰는 화면 기준이다.
   const positions = new Map<NodeId, XYPosition>();
-  let nextX = GROUP_POSITION.x;
-  const groups = groupsOf(props.repo, views).map((group) => {
+  const laid = groupsOf(props.repo, views).map((group) => {
     const members = inGroup(views, group);
     const tree = arrangeTree(members, size, direction);
     const local = new Map<NodeId, XYPosition>(
@@ -267,10 +258,19 @@ export function Graph(props: {
     // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
     const right = Math.max(CARD_X + estimate.width, ...members.map((v) => local.get(v.id)!.x + size(v.id).width)) + CARD_X;
     const bottom = Math.max(...members.map((v) => local.get(v.id)!.y + size(v.id).height)) + CARD_X;
-    const origin = { x: nextX, y: GROUP_POSITION.y };
-    nextX += right + GROUP_GAP;
-    for (const [id, p] of local) positions.set(id, { x: origin.x + p.x, y: origin.y + p.y });
-    return { group, members, local, origin, right, bottom };
+    const height = members.length > 0 ? bottom : (flowState.get(group.path)?.measured?.height ?? EMPTY_GROUP_HEIGHT);
+    return { group, members, local, right, bottom, height };
+  });
+  // 묶음끼리는 정렬 방향을 따라 한 줄로 놓고, 커지거나 끈 묶음이 겹치면 민다.
+  const origins = placeGroups(
+    laid.map((g) => ({ size: { width: g.right, height: g.height }, dragged: dragged.get(g.group.path) })),
+    direction,
+    GROUP_POSITION,
+  );
+  const groups = laid.map((g, i) => {
+    const origin = origins[i];
+    for (const [id, p] of g.local) positions.set(id, { x: origin.x + p.x, y: origin.y + p.y });
+    return { ...g, origin };
   });
   // 묶음이 생기면(방금 만든 워크트리) 화면을 그 묶음으로, 빠지면 첫 묶음으로 옮긴다. 묶음은 오른쪽에 붙어 화면 밖에 생기기 쉽다.
   const known = useRef<readonly string[] | null>(null);
@@ -287,7 +287,7 @@ export function Graph(props: {
     const to = neighbor(positions, from, dir);
     if (to !== null) setSelected(to);
   };
-  useImperativeHandle(props.ref, () => ({ neighbor: (from, dir) => neighbor(positions, from, dir) }));
+  useImperativeHandle(props.ref, () => ({ neighbor: (from, dir) => neighbor(positions, from, dir), arrange: () => setDragged(new Map()) }));
   const standard = props.cardView === 'standard';
   const keep = <N extends FlowNode>(node: N): N => ({ ...node, measured: flowState.get(node.id)?.measured });
 
@@ -297,7 +297,8 @@ export function Graph(props: {
       type: 'worktree',
       position: origin,
       style: { width: right, height: members.length > 0 ? bottom : undefined },
-      draggable: false,
+      // 묶음 머리를 끌어 묶음을 옮긴다. 카드는 묶음 기준 위치라 함께 옮겨진다.
+      dragHandle: '.group-head',
       data: {
         branch: group.label,
         original: group.original,
@@ -308,8 +309,6 @@ export function Graph(props: {
           setDeleting(null);
           setCreating(group.path);
         },
-        direction,
-        onArrange: arrange,
         onDelete: group.original
           ? undefined
           : () => {
@@ -374,7 +373,7 @@ export function Graph(props: {
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     setFlowState(new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n])));
-    // 카드를 끌 때만 위치 변경이 온다(묶음은 끌 수 없고 키보드 이동은 껐다).
+    // 카드나 묶음을 끌 때만 위치 변경이 온다(키보드 이동은 껐다).
     const moved = changes.flatMap((c) => (c.type === 'position' && c.position ? [[c.id, c.position] as const] : []));
     if (moved.length > 0) setDragged((prev) => new Map([...prev, ...moved]));
   };

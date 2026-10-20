@@ -174,14 +174,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .group-head, .pop { pointer-events: all; }
 /* 팝오버를 그리는 뷰포트 층. 노드는 z-index를 인라인으로 받으므로 그보다 위에 둔다. */
 .react-flow__viewport-portal { z-index: 2000; pointer-events: none; }
-.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); cursor: grab; }
 .group-head .branch { font-weight: 600; font-size: 13px; }
 .group-head .kind { font-size: 12px; color: var(--ink-3); }
 .group-head .spacer { flex: 1; }
 .group-empty { padding: 16px 14px; color: var(--ink-3); font-size: 13px; }
-/* 정렬 나눈 버튼과 방향 메뉴(ArrangeButton.tsx). */
+/* 위 막대의 정렬 나눈 버튼과 방향 메뉴(ArrangeButton.tsx). */
 .split { position: relative; display: inline-flex; }
-.split .caret { padding: 0 4px; gap: 0; }
+.split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split .caret { padding: 0 6px; gap: 0; border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .split .caret svg + svg { width: 12px; height: 12px; }
 .menu { position: fixed; z-index: 30; width: 180px; display: grid; padding: 6px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); }
 .menu button { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }

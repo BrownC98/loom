@@ -84,6 +84,39 @@
   .rail .ib { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; color: var(--ink-2); }
   .rail .ib.on { background: var(--accent-wash); color: var(--ink); }
   .corner { position: absolute; left: 16px; bottom: 12px; display: flex; gap: 8px; }
+
+  /* 앱 전체 축소판(D안, 접기): 사이드바 | 캔버스 | 오른쪽 칸. web/src/styles.css .side, .brand, .side-head, .tree-row, .dock-head와 같은 값이다. */
+  .frame { display: flex; width: var(--w); height: var(--h, 300px); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); color: var(--ink); flex: none; }
+  .frame.dark { color-scheme: dark; }
+  .frame .canvas .card { top: 64px; height: auto; bottom: 16px; }
+  .fside { width: var(--sw, 260px); flex: none; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; font-size: 13px; }
+  .fbrand { display: flex; align-items: center; font-weight: 700; font-size: 16px; padding: 12px 8px 8px 16px; }
+  .fbrand > span:first-child { flex: 1; }
+  .fhead { display: flex; align-items: center; padding: 8px 8px 4px 16px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+  .fhead > span:first-child { flex: 1; }
+  .frow { display: flex; align-items: center; gap: 6px; height: 30px; margin: 0 8px; padding: 0 8px 0 calc(4px + var(--d, 0) * 12px); border-radius: 6px; white-space: nowrap; overflow: hidden; }
+  .frow.on { background: var(--accent-wash); font-weight: 600; }
+  .frow small { font-size: 12px; color: var(--ink-3); }
+  .frow svg { color: var(--ink-3); }
+  .fctl { padding: 2px 16px 6px; display: flex; gap: 8px; }
+  .fctl .choice { display: flex; width: 100%; }
+  .fctl .choice span { flex: 1; justify-content: center; }
+  .fctl .split { width: 100%; }
+  .fctl .split .btn:first-child { flex: 1; }
+  .ffoot { margin-top: auto; padding: 8px; border-top: 1px solid var(--line); }
+  .ffoot .btn { width: 100%; border-color: transparent; background: none; color: var(--ink-2); }
+  .ib2 { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 5px; color: var(--ink-2); flex: none; }
+  .ib2.hot { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .fdock { width: var(--dw, 220px); flex: none; background: var(--panel); border-left: 1px solid var(--line); font-size: 13px; }
+  .fdock .head { display: flex; align-items: center; gap: 6px; padding: 10px 8px 10px 14px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  .fdock .head > span:first-child { flex: 1; }
+  .fdock .ln { height: 22px; margin: 6px 14px; border-radius: 4px; background: var(--line); }
+  .frail { width: 40px; flex: none; background: var(--panel); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 8px; }
+  .frail.l { border-right: 1px solid var(--line); }
+  .frail.r { border-left: 1px solid var(--line); }
+  .frail .ib2.on { background: var(--accent-wash); color: var(--ink); }
+  .frail .end { margin-top: auto; }
+  kbd { font: 600 11px var(--font); padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); }
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -96,6 +129,13 @@
   <symbol id="simple" viewBox="0 0 24 24"><rect width="20" height="12" x="2" y="6" rx="2"/></symbol>
   <symbol id="standard" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20"/></symbol>
   <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="plc" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></symbol>
+  <symbol id="plo" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></symbol>
+  <symbol id="prc" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></symbol>
+  <symbol id="pro" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></symbol>
+  <symbol id="cdown" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
 </svg>
 
 <header>
@@ -208,18 +248,132 @@
   </ul>
 </div>
 
+<h3 style="font-size:14px;margin-top:24px">D. 왼쪽 사이드바로 모은다</h3>
+<p class="lead">막대의 단추를 모두 사이드바 위쪽, 「loom」 아래로 옮긴다. 종류마다 머리를 둔다: 「보기」(심플·표준, 정렬과 방향), 「칸」(이벤트, 커밋 그래프). [새 워크트리]는 이미 저장소 줄에 있다. 캔버스 위에는 저장소 이름만 남는다.</p>
+<div class="row">
+  <figure>
+    <figcaption>사이드바 260, 커밋 그래프 열림</figcaption>
+    <div class="frame" style="--w:900px;--h:400px"><div class="fside" style="--sw:260px"><div class="fbrand"><span>loom</span><span class="ib2" title="사이드바 접기"><svg><use href="#plc"/></svg></span></div><div class="fhead"><span>보기</span></div>
+        <div class="fctl"><span class="choice"><span>심플</span><span class="on">표준</span></span></div>
+        <div class="fctl"><span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span></div>
+        <div class="fhead"><span>칸</span></div>
+        <div class="frow"><svg><use href="#events"/></svg>이벤트</div>
+        <div class="frow on"><svg><use href="#commit"/></svg>커밋 그래프</div><div class="fhead"><span>저장소</span><span class="ib2"><svg><use href="#plus"/></svg></span></div>
+        <div class="frow" style="--d:0"><svg><use href="#cdown"/></svg><b>repo</b><small>/tmp/repo</small></div>
+        <div class="frow" style="--d:1"><svg><use href="#cdown"/></svg><svg><use href="#branch"/></svg><b>main</b><small>원래 체크아웃</small></div>
+        <div class="frow on" style="--d:2"><b>shell-1</b><small>터미널</small></div><div class="ffoot"><span class="btn"><svg><use href="#gear"/></svg>설정</span></div></div><div class="canvas"><div class="bar"><h3>repo</h3></div><div class="card">main 원래 체크아웃</div></div><div class="fdock"><div class="head"><span>커밋 그래프</span><span class="ib2" title="칸 접기"><svg><use href="#prc"/></svg></span></div><div class="ln"></div><div class="ln"></div><div class="ln"></div></div></div>
+  </figure>
+  <figure>
+    <figcaption>사이드바 180(가장 좁음), 어두운 화면</figcaption>
+    <div class="frame dark" style="--w:520px;--h:400px"><div class="fside" style="--sw:180px"><div class="fbrand"><span>loom</span><span class="ib2" title="사이드바 접기"><svg><use href="#plc"/></svg></span></div><div class="fhead"><span>보기</span></div>
+        <div class="fctl"><span class="choice"><span>심플</span><span class="on">표준</span></span></div>
+        <div class="fctl"><span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span></div>
+        <div class="fhead"><span>칸</span></div>
+        <div class="frow"><svg><use href="#events"/></svg>이벤트</div>
+        <div class="frow on"><svg><use href="#commit"/></svg>커밋 그래프</div><div class="fhead"><span>저장소</span><span class="ib2"><svg><use href="#plus"/></svg></span></div>
+        <div class="frow" style="--d:0"><svg><use href="#cdown"/></svg><b>repo</b><small>/tmp/repo</small></div>
+        <div class="frow" style="--d:1"><svg><use href="#cdown"/></svg><svg><use href="#branch"/></svg><b>main</b><small>원래 체크아웃</small></div>
+        <div class="frow on" style="--d:2"><b>shell-1</b><small>터미널</small></div><div class="ffoot"><span class="btn"><svg><use href="#gear"/></svg>설정</span></div></div><div class="canvas"><div class="bar"><h3>repo</h3></div><div class="card">main 원래 체크아웃</div></div></div>
+  </figure>
+  <ul class="notes">
+    <li><b>옮긴다</b>: 심플·표준과 [정렬|방향]은 사이드바 폭을 꽉 채운다. [이벤트]·[커밋 그래프]는 나무 줄과 같은 모양의 줄이고, 연 칸은 고른 줄처럼 칠한다(<code>aria-pressed</code>).</li>
+    <li><b>지운다</b>: 그래프 위 막대의 단추 전부와 첫 커밋 안내. 남는 것은 저장소 이름이다.</li>
+    <li><b>좁을 때(180)</b>: 심플·표준(103)과 정렬(107)은 들어간다. 칸 줄은 글자가 짧아 그대로 들어간다. 잘림은 없다.</li>
+    <li><b>단점</b>: 단추가 캔버스에서 멀다. 정렬은 그래프를 보면서 누르는데, 눈과 마우스가 왼쪽 끝까지 간다. 사이드바가 약 170px 길어져 저장소 나무가 그만큼 아래로 밀린다. 사이드바를 접으면 이 단추도 함께 숨으므로, 접힌 줄에 아이콘으로 다시 둬야 한다(부품이 는다). 사이드바는 저장소 여럿의 나무인데, 지금 그래프 하나에만 걸리는 단추가 섞인다.</li>
+    <li><b>장점</b>: 캔버스 위가 비어 카드가 가리지 않는다. 단추 자리가 한 곳이다.</li>
+  </ul>
+</div>
+<p class="lead" style="margin-top:12px"><b>A와 D 중 권장은 A다.</b> D의 장점(위가 빔)은 A가 막대를 약 440px로 줄여 대부분 얻는다. D는 단추를 캔버스에서 떼고, 사이드바 접기와 부딪쳐 접힌 줄에 단추를 또 둬야 한다. 사이드바의 분류 기준(저장소 나무)도 섞인다.</p>
+
 <h2>3. 비교와 결정할 것</h2>
 <table>
-  <tr><th>항목</th><th>A(권장)</th><th>B</th><th>C</th></tr>
-  <tr><td>막대 폭(넓음 / 좁음)</td><td>약 440 / 315</td><td>약 255 / 255</td><td>이름만 / 이름만</td></tr>
-  <tr><td>지우는 부품</td><td>막대 [새 워크트리], 첫 커밋 안내</td><td>없음</td><td>막대 [새 워크트리], 첫 커밋 안내</td></tr>
-  <tr><td>새 부품</td><td>칸 단추 묶음 모양, 컨테이너 쿼리 한 줄</td><td>아이콘 막대, 툴팁 일곱</td><td>세로 줄, 왼쪽 아래 묶음</td></tr>
-  <tr><td>글자로 뜻이 보임</td><td>넓을 때 전부, 좁을 때 칸 단추만 아이콘</td><td>없음</td><td>칸 단추는 아이콘</td></tr>
-  <tr><td>잘림</td><td>없음(560 아래에서 줄인다)</td><td>없음</td><td>없음</td></tr>
+  <tr><th>항목</th><th>A(권장)</th><th>B</th><th>C</th><th>D</th></tr>
+  <tr><td>막대 폭(넓음 / 좁음)</td><td>약 440 / 315</td><td>약 255 / 255</td><td>이름만 / 이름만</td><td>이름만 / 이름만(사이드바 약 170px 길어짐)</td></tr>
+  <tr><td>지우는 부품</td><td>막대 [새 워크트리], 첫 커밋 안내</td><td>없음</td><td>막대 [새 워크트리], 첫 커밋 안내</td><td>막대 전부</td></tr>
+  <tr><td>새 부품</td><td>칸 단추 묶음 모양, 컨테이너 쿼리 한 줄</td><td>아이콘 막대, 툴팁 일곱</td><td>세로 줄, 왼쪽 아래 묶음</td><td>사이드바 「보기」·「칸」 머리, 칸 줄 둘, 접힌 줄의 아이콘</td></tr>
+  <tr><td>글자로 뜻이 보임</td><td>넓을 때 전부, 좁을 때 칸 단추만 아이콘</td><td>없음</td><td>칸 단추는 아이콘</td><td>전부(사이드바를 접으면 아이콘)</td></tr>
+  <tr><td>잘림</td><td>없음(560 아래에서 줄인다)</td><td>없음</td><td>없음</td><td>없음</td></tr><tr><td>캔버스까지 거리</td><td>바로 위</td><td>바로 위</td><td>흩어짐</td><td>사이드바 끝</td></tr>
 </table>
 <ul class="notes" style="max-width:76ch;margin-top:12px">
   <li><b>결정 1</b>: 막대 [새 워크트리]를 지울까? 앞 목업 sidebar-crud.html은 「도구 줄 단추는 그대로 둔다」로 정했다. A·C는 이를 뒤집는다. 사이드바 줄 단추는 마우스를 올리거나 포커스가 있어야 보이므로 처음 쓰는 사람은 찾기가 조금 어렵다. 지우지 않으면 A안 막대 폭이 약 110 늘고, 좁을 때 그 단추도 아이콘만 남긴다.</li>
   <li><b>결정 2</b>: 심플·표준은 막대와 설정 「UI」 둘에 있다(2026-10-20 사람 지시로 둘 다 두었다). A는 자주 바꾸는 막대 쪽을 남긴다. 설정 쪽을 지울지는 이번 범위 밖으로 둔다.</li>
+  <li><b>결정 3</b>: A와 D 중 무엇을 쓸까? 권장은 A다(위 「A와 D」).</li>
+</ul>
+<h2>4. 양쪽 칸 접기</h2>
+<p class="lead">지금 왼쪽 사이드바는 접을 수 없다. 오른쪽 칸(이벤트, 커밋 그래프, 심플 보기의 터미널)은 막대 단추를 다시 누르거나 칸 머리 [×]로 닫는다. 닫으면 칸이 아예 없어진다. 두 칸의 폭은 이미 이 브라우저에 남는다(<code>loom.sideWidth</code>, <code>loom.dockWidth</code>). 아래는 A안 막대를 바탕으로 그렸다.</p>
+<div class="row">
+  <figure>
+    <figcaption>펼침: 접기 단추 자리(테두리 표시)</figcaption>
+    <div class="frame" style="--w:900px;--h:260px">
+      <div class="fside" style="--sw:220px"><div class="fbrand"><span>loom</span><span class="ib2 hot" title="사이드바 접기"><svg><use href="#plc"/></svg></span></div><div class="fhead"><span>저장소</span><span class="ib2"><svg><use href="#plus"/></svg></span></div>
+        <div class="frow" style="--d:0"><svg><use href="#cdown"/></svg><b>repo</b><small>/tmp/repo</small></div>
+        <div class="frow" style="--d:1"><svg><use href="#cdown"/></svg><svg><use href="#branch"/></svg><b>main</b><small>원래 체크아웃</small></div>
+        <div class="frow on" style="--d:2"><b>shell-1</b><small>터미널</small></div><div class="ffoot"><span class="btn"><svg><use href="#gear"/></svg>설정</span></div></div>
+      <div class="canvas"><div class="bar"><h3>repo</h3>
+        <span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span>
+        <span class="choice"><span>심플</span><span class="on">표준</span></span><span class="sep"></span>
+        <span class="seg"><span class="btn icon" aria-pressed="false" title="이벤트"><svg><use href="#events"/></svg></span><span class="btn icon" aria-pressed="true" title="커밋 그래프"><svg><use href="#commit"/></svg></span></span>
+      </div><div class="card">main 원래 체크아웃</div></div><div class="fdock"><div class="head"><span>커밋 그래프</span><span class="ib2 hot" title="칸 접기"><svg><use href="#prc"/></svg></span></div><div class="ln"></div><div class="ln"></div><div class="ln"></div></div>
+    </div>
+  </figure>
+  <ul class="notes">
+    <li><b>왼쪽</b>: 「loom」 줄 오른쪽 끝에 <code>PanelLeftClose</code>. 툴팁 「사이드바 접기」.</li>
+    <li><b>오른쪽</b>: 칸 머리의 [×]를 <code>PanelRightClose</code>로 바꾼다. 동작은 지금 [×]와 같다(칸 닫기). 단추를 하나 더하지 않는다.</li>
+  </ul>
+</div>
+<div class="row">
+  <figure>
+    <figcaption>왼쪽 접힘: 40px 줄이 남는다</figcaption>
+    <div class="frame" style="--w:640px;--h:260px">
+      <div class="frail l"><span class="ib2" title="사이드바 펴기"><svg><use href="#plo"/></svg></span><span class="ib2 end" title="설정"><svg><use href="#gear"/></svg></span></div>
+      <div class="canvas"><div class="bar"><h3>repo</h3>
+        <span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span>
+        <span class="choice"><span>심플</span><span class="on">표준</span></span><span class="sep"></span>
+        <span class="seg"><span class="btn icon" aria-pressed="false" title="이벤트"><svg><use href="#events"/></svg></span><span class="btn icon" aria-pressed="true" title="커밋 그래프"><svg><use href="#commit"/></svg></span></span>
+      </div><div class="card">main 원래 체크아웃</div></div><div class="fdock"><div class="head"><span>커밋 그래프</span><span class="ib2" title="칸 접기"><svg><use href="#prc"/></svg></span></div><div class="ln"></div><div class="ln"></div><div class="ln"></div></div>
+    </div>
+  </figure>
+  <figure>
+    <figcaption>둘 다 접힘, 어두운 화면</figcaption>
+    <div class="frame dark" style="--w:520px;--h:260px">
+      <div class="frail l"><span class="ib2" title="사이드바 펴기"><svg><use href="#plo"/></svg></span><span class="ib2 end" title="설정"><svg><use href="#gear"/></svg></span></div>
+      <div class="canvas"><div class="bar"><h3>repo</h3>
+        <span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span>
+        <span class="choice"><span>심플</span><span class="on">표준</span></span><span class="sep"></span>
+        <span class="seg"><span class="btn icon" aria-pressed="false" title="이벤트"><svg><use href="#events"/></svg></span><span class="btn icon" aria-pressed="false" title="커밋 그래프"><svg><use href="#commit"/></svg></span></span>
+      </div><div class="card">main 원래 체크아웃</div></div>
+    </div>
+  </figure>
+  <ul class="notes">
+    <li><b>왼쪽 접힘</b>: 40px 줄에 [펴기]와 [설정]만 남는다. 설정은 사이드바 아래에만 있어서 숨기면 갈 길이 없다. 나무는 숨긴다(아이콘으로 나무를 대신할 수 없다).</li>
+    <li><b>오른쪽 접힘</b>: 아무것도 남기지 않는다. 막대의 [이벤트]·[커밋 그래프]가 펴기 단추다. 심플 보기의 터미널은 지금처럼 노드를 고르면 다시 열린다. 오른쪽에도 줄을 두면 막대 단추와 같은 일을 하는 부품이 둘이 된다(아래 다른 안).</li>
+    <li><b>둘 다 접힘</b>: 캔버스가 창 폭에서 40px만 빠진다.</li>
+  </ul>
+</div>
+<div class="row">
+  <figure>
+    <figcaption>다른 안: 오른쪽에도 줄을 두고 막대의 칸 단추를 옮긴다</figcaption>
+    <div class="frame" style="--w:640px;--h:220px">
+      <div class="fside" style="--sw:160px"><div class="fbrand"><span>loom</span><span class="ib2"><svg><use href="#plc"/></svg></span></div><div class="fhead"><span>저장소</span><span class="ib2"><svg><use href="#plus"/></svg></span></div>
+        <div class="frow" style="--d:0"><svg><use href="#cdown"/></svg><b>repo</b><small>/tmp/repo</small></div>
+        <div class="frow" style="--d:1"><svg><use href="#cdown"/></svg><svg><use href="#branch"/></svg><b>main</b><small>원래 체크아웃</small></div>
+        <div class="frow on" style="--d:2"><b>shell-1</b><small>터미널</small></div></div>
+      <div class="canvas"><div class="bar"><h3>repo</h3>
+        <span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span>
+        <span class="choice"><span>심플</span><span class="on">표준</span></span></div><div class="card">main 원래 체크아웃</div></div>
+      <div class="frail r"><span class="ib2" title="이벤트"><svg><use href="#events"/></svg></span><span class="ib2" title="커밋 그래프"><svg><use href="#commit"/></svg></span></div>
+    </div>
+  </figure>
+  <ul class="notes">
+    <li>양쪽 모양이 같아진다(VS Code 모양). 막대는 정렬·보기만 남아 더 좁다.</li>
+    <li><b>단점</b>: 칸을 쓰지 않을 때도 캔버스가 40px 줄어든다. C안의 세로 줄과 같은 새 부품이다. 권장하지 않는다.</li>
+  </ul>
+</div>
+<ul class="notes" style="max-width:76ch;margin-top:12px">
+  <li><b>단축키 제안</b>: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> 왼쪽, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> 오른쪽(마지막에 연 칸). 근거: 터미널이 거의 모든 키를 받는다. loom은 이미 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+방향키를 터미널에서 빼서 쓴다(<code>Terminal.tsx</code> <code>navDirection</code>). 같은 앞쇠를 쓰면 규칙이 하나다. 터미널은 Ctrl+Shift+[와 Ctrl+[(Esc)를 구별하지 못하므로, 사람이 Esc 대신 쓰는 Ctrl+[는 그대로 터미널에 간다. 한글 입력 중에도 맞게 <code>e.code</code>(BracketLeft·BracketRight)를 본다.</li>
+  <li><b>쓰지 않는 키</b>: Ctrl+B(VS Code 방식)는 tmux 앞쇠, 셸의 한 글자 뒤로, Claude Code의 백그라운드 실행과 부딪친다. Ctrl+Shift+B는 Chrome 북마크 막대다.</li>
+  <li><b>기억</b>: 왼쪽 접힘은 정렬 방향처럼 이 브라우저에 남긴다(<code>localStorage</code> 한 키). 오른쪽은 남기지 않는다. 지금도 새로 열면 닫힌 채로 시작하고, 터미널 칸은 고른 노드가 있어야 열린다.</li>
+  <li><b>키보드</b>: 접기 단추는 <code>aria-expanded</code>와 <code>aria-controls</code>를 갖는다. 접으면 포커스를 [펴기]로 옮긴다. 펴면 다시 [접기]로 옮긴다.</li>
 </ul>
 </body>
 </html>

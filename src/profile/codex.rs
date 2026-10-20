@@ -343,7 +343,7 @@ mod tests {
         assert_eq!(
             sent[0].1,
             json!({ "threadId": "th", "input": [{ "type": "text", "text":
-                "loom 메시지 #1 (보낸 노드: 부모, 방식: 큐)\na\n\nloom 메시지 #1 (보낸 노드: 부모, 방식: 조정)\nb" }] })
+                "loom message #1 (from: 부모, mode: queue)\na\n\nloom message #1 (from: 부모, mode: steer)\nb" }] })
         );
     }
 
@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(sent[1].0, "turn/start");
         assert_eq!(
             sent[1].1["input"][0]["text"],
-            "loom 메시지 #1 (보낸 노드: 부모, 방식: 중단. 하던 일을 멈추고 이 본문을 따른다)\n멈춰라"
+            "loom message #1 (from: 부모, mode: interrupt. Stop current work and follow this body)\n멈춰라"
         );
     }
 

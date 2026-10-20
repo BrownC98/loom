@@ -53,7 +53,7 @@ pub fn spawn(
     };
     // 프록시를 거치지 않는다. Codex 샌드박스 안에서는 실패하고, 사람이 승인하면 샌드박스 밖에서 닿는다.
     let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;
-    println!("노드를 만들었다: {}", request.name);
+    println!("Created node: {}", request.name);
     Ok(())
 }
 
@@ -78,11 +78,8 @@ pub fn reply(message: u32, body: String) -> Result<(), String> {
 
 fn print_sent(sent: &Sent) {
     match sent.recipient {
-        Some(to) => println!("loom 메시지 #{} → 노드 #{}", sent.id.0, to.0),
-        None => println!(
-            "loom 메시지 #{}를 보관했다. 새 부모가 생기면 받는다.",
-            sent.id.0
-        ),
+        Some(to) => println!("loom message #{} → node #{}", sent.id.0, to.0),
+        None => println!("Kept loom message #{}. A new parent gets it.", sent.id.0),
     }
 }
 
@@ -117,7 +114,7 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Res
     std::io::Write::flush(&mut std::io::stdout()).map_err(|e| e.to_string())?;
     call::<()>("ack", &AckRequest { ids: vec![id] }, None).map_err(|e| {
         format!(
-            "받음 확인을 보내지 못했다: {e}. 같은 메시지 #{}가 다시 올 수 있다.",
+            "Could not acknowledge: {e}. Message #{} can come again.",
             id.0
         )
     })
@@ -127,13 +124,13 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Res
 /// 모델이 바뀌었는지는 데몬이 본다. 알리지 못해도 메시지 전달은 계속한다.
 pub fn hook() -> Result<(), String> {
     let input: serde_json::Value =
-        serde_json::from_reader(std::io::stdin()).map_err(|e| format!("훅 입력: {e}"))?;
-    let event = claude::Event::deserialize(&input).map_err(|e| format!("훅 입력: {e}"))?;
+        serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
+    let event = claude::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
     if let Some(model) = claude::reported_model(&event, &input)
         && let Err(e) = call::<()>("model", &model, Some(timeout))
     {
-        eprintln!("loom: 모델을 알리지 못했다: {e}");
+        eprintln!("loom: could not report the model: {e}");
     }
     if event.kinds().is_empty() {
         return Ok(());
@@ -152,7 +149,7 @@ pub fn hook() -> Result<(), String> {
     // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
     let ids = taken.iter().map(|d| d.id).collect();
     if let Err(e) = call::<()>("ack", &AckRequest { ids }, Some(timeout)) {
-        eprintln!("loom: 받음 확인을 보내지 못했다: {e}");
+        eprintln!("loom: could not acknowledge: {e}");
     }
     Ok(())
 }
@@ -174,13 +171,13 @@ pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String
         None => summary.unwrap_or_default(),
     };
     call::<()>("done", &DoneRequest { summary }, None)?;
-    println!("부모에게 결과를 보냈다. 부모가 없으면 새 부모가 생길 때 받는다.");
+    println!("Sent the result to the parent. With no parent, a new parent gets it.");
     Ok(())
 }
 
 pub fn adopt(name: String) -> Result<(), String> {
     call::<()>("adopt", &AdoptRequest { name }, None)?;
-    println!("부모가 되었다. 그 노드가 보관한 메시지가 메일함에 들어온다.");
+    println!("You are the parent now. Messages that node kept move to your inbox.");
     Ok(())
 }
 
@@ -196,7 +193,7 @@ fn call<T: DeserializeOwned>(
 }
 
 fn env_var(name: &str) -> Result<String, String> {
-    std::env::var(name).map_err(|_| format!("{name}가 없다. loom 노드 안에서만 부른다."))
+    std::env::var(name).map_err(|_| format!("{name} is not set. Run this only inside a loom node."))
 }
 
 fn post<T: DeserializeOwned>(
@@ -220,7 +217,7 @@ fn post<T: DeserializeOwned>(
         .send_json(body)
         // Codex 모델은 사용법 지시보다 이 출력을 보고 승인을 요청한다(실측).
         .map_err(|e| {
-            format!("데몬에 연결하지 못했다: {e}. 샌드박스 안이면 샌드박스 밖 실행 승인을 받아 다시 부른다.")
+            format!("Could not connect to the daemon: {e}. In a sandbox, get approval to run outside the sandbox and try again.")
         })?;
     if !res.status().is_success() {
         return Err(res.body_mut().read_to_string().unwrap_or_default());

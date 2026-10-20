@@ -795,7 +795,7 @@ impl App {
         };
         node.ok_or((
             StatusCode::UNAUTHORIZED,
-            "loom 노드 안에서만 부른다.".into(),
+            "Run this only inside a loom node.".into(),
         ))
     }
 

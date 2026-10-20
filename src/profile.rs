@@ -505,7 +505,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
 Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with loom 메시지 and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
+Messages begin with loom message and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
 
 /// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
@@ -523,16 +523,16 @@ pub fn message_text(taken: &[Delivery]) -> String {
         .iter()
         .map(|d| {
             let how = match d.kind {
-                Kind::Queue => "큐",
-                Kind::Steer => "조정",
-                Kind::Interrupt => "중단. 하던 일을 멈추고 이 본문을 따른다",
+                Kind::Queue => "queue",
+                Kind::Steer => "steer",
+                Kind::Interrupt => "interrupt. Stop current work and follow this body",
             };
             let reply = d
                 .reply_to
-                .map(|id| format!(", 답변 대상: #{}", id.0))
+                .map(|id| format!(", reply to: #{}", id.0))
                 .unwrap_or_default();
             format!(
-                "loom 메시지 #{} (보낸 노드: {}, 방식: {how}{reply})\n{}",
+                "loom message #{} (from: {}, mode: {how}{reply})\n{}",
                 d.id.0, d.from, d.body
             )
         })

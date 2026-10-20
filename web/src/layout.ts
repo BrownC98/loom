@@ -140,7 +140,8 @@ export const TREE_SIDES: Record<ArrangeDirection, { parent: Side; child: Side }>
 
 /**
  * 부모와 자식 카드(화면 기준 상자)를 잇는 간선의 변. 자식이 부모보다 나무가 뻗는 쪽에 있으면 `TREE_SIDES[direction]`이다.
- * 아니면(다른 묶음의 자식, 끈 카드) 두 카드 중심 사이의 긴 축을 따라 서로 마주 보는 변이다. 간선이 카드를 돌아 나가지 않는다.
+ * 아니면(다른 묶음의 자식, 끈 카드) 두 카드 사이 빈 틈이 더 큰 축을 따라 서로 마주 보는 변이다.
+ * 중심 거리로 축을 고르면 가로로 겹친 카드(틈이 좁다)에서 간선이 카드 옆 틈을 돌아 나가 꺾인다.
  */
 export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection): { parent: Side; child: Side } {
   const ahead: Record<ArrangeDirection, boolean> = {
@@ -150,8 +151,11 @@ export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection):
     left: child.at.x + child.size.width <= parent.at.x,
   };
   if (ahead[direction]) return TREE_SIDES[direction];
-  const dx = child.at.x + child.size.width / 2 - (parent.at.x + parent.size.width / 2);
-  const dy = child.at.y + child.size.height / 2 - (parent.at.y + parent.size.height / 2);
-  const toward: ArrangeDirection = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+  const gapRight = child.at.x - (parent.at.x + parent.size.width);
+  const gapLeft = parent.at.x - (child.at.x + child.size.width);
+  const gapDown = child.at.y - (parent.at.y + parent.size.height);
+  const gapUp = parent.at.y - (child.at.y + child.size.height);
+  const horizontal = Math.max(gapRight, gapLeft) > Math.max(gapDown, gapUp);
+  const toward: ArrangeDirection = horizontal ? (gapRight > gapLeft ? 'right' : 'left') : gapDown > gapUp ? 'down' : 'up';
   return TREE_SIDES[toward];
 }

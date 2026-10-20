@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="loom in Simple view: a three-level graph. A Claude Code lead on main has two coordinators (Codex auth, Claude Code ui), each in its own worktree group with two workers (Claude Code, Codex, OpenCode 2). Each card shows the summary, model and state. The edges show messages lead → auth, auth → tests and form → ui. The right panel shows the live terminal of auth with a loom message header." width="960">
+  <a href="docs/images/standard.png"><img src="docs/images/standard.png" alt="loom in Standard view: a three-level graph of seven nodes, and each card is a live terminal. A Claude Code lead on main has two coordinators (Codex auth, Claude Code ui), each in its own worktree group with two workers (Claude Code, Codex, OpenCode 2). The repository tree is open on the left and the commit graph is open on the right." width="960"></a>
 </p>
 
 ## Features
@@ -32,8 +32,8 @@
 | **Commit graph and event console** | See the commits of all branches and each message between nodes. |
 
 <p align="center">
-  <a href="docs/images/standard.png"><img src="docs/images/standard.png" alt="loom in Standard view: the same seven nodes, and each card is a live terminal. The repository tree is open on the left and the commit graph is open on the right." width="960"></a><br>
-  <em>Standard view: every card is a live terminal. Click to open full size.</em>
+  <a href="docs/images/hero.png"><img src="docs/images/hero.png" alt="loom in Simple view: the same seven nodes as compact cards with the summary, model and state. The edges show messages lead → auth, auth → tests and form → ui. The right panel shows the live terminal of auth with a loom message header." width="960"></a><br>
+  <em>Simple view: compact cards show each summary, and the side panel shows one live terminal.</em>
 </p>
 
 ## How agents talk

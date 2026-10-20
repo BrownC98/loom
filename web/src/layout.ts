@@ -88,42 +88,80 @@ const GROUP_GAP = 32;
 
 export type Box = { at: Point; size: Size };
 
-/** 두 상자가 `GROUP_GAP` 안으로 붙거나 겹친다. */
-function crowds(a: Box, b: Box): boolean {
-  return (
-    a.at.x < b.at.x + b.size.width + GROUP_GAP &&
-    b.at.x < a.at.x + a.size.width + GROUP_GAP &&
-    a.at.y < b.at.y + b.size.height + GROUP_GAP &&
-    b.at.y < a.at.y + a.size.height + GROUP_GAP
-  );
+/** 묶음 자리 계산의 입력. `parent`는 부모 묶음의 번호(`groups` 안)이고, 없으면 뿌리 묶음이다. */
+export type GroupSlot = { size: Size; parent: number | null; dragged?: Point };
+
+/**
+ * 묶음 나무의 부모. 순환(A↔B)이면 고리에서 뒤 묶음을 뿌리로 둔다: 부모 줄을 거슬러 올라가다 이미 본 묶음을 만나면 그 고리의 가장 뒤 묶음의 부모를 끊는다.
+ */
+function breakCycles(parents: readonly (number | null)[]): (number | null)[] {
+  const fixed = [...parents];
+  for (let i = 0; i < fixed.length; i++) {
+    const seen = new Set<number>([i]);
+    for (let at = fixed[i]; at !== null; at = fixed[at]) {
+      if (seen.has(at)) {
+        const ring = [at];
+        for (let k = fixed[at]!; k !== at; k = fixed[k]!) ring.push(k);
+        fixed[Math.max(...ring)] = null;
+        break;
+      }
+      seen.add(at);
+    }
+  }
+  return fixed;
 }
 
 /**
- * 묶음 자리(목업 docs/mockups/card-view.html 2·3번). 나무가 아래·위로 뻗으면 묶음을 가로로, 오른쪽·왼쪽으로 뻗으면 세로로 놓는다.
- * 아래로는 위쪽, 위로는 아래쪽, 오른쪽으로는 왼쪽, 왼쪽으로는 오른쪽을 맞춘다. 순서는 `groups` 순서(왼쪽 목록의 워크트리 순서)다.
- * 사람이 끈 묶음(`dragged`)은 그 자리에 둔다. 앞 묶음과 겹치거나 틈보다 가까우면 줄 방향으로 민다.
+ * 묶음 자리(사용자 요청 2026-10-20 "자동정렬하면 … 트리 방식으로 정렬"). 묶음을 카드처럼 나무로 놓는다.
+ * 자식 묶음은 부모 묶음 다음 단계(나무가 뻗는 쪽)에, 형제는 옆(가로질러)에 놓고, 부모는 자식들이 차지한 폭의 가운데에 둔다.
+ * 부모 묶음이 없는 뿌리 묶음은 `groups` 순서대로 옆으로 늘어선다. 단계와 틈은 잰 묶음 크기와 `GROUP_GAP`이다.
+ * 사람이 끈 묶음(`dragged`)은 그 자리에 둔다. 다른 묶음의 자리는 바꾸지 않는다.
  */
-export function placeGroups(groups: readonly { size: Size; dragged?: Point }[], direction: ArrangeDirection, start: Point): Point[] {
-  const row = direction === 'down' || direction === 'up';
-  const crossMax = Math.max(0, ...groups.map((g) => (row ? g.size.height : g.size.width)));
-  const placed: Box[] = [];
-  let next = row ? start.x : start.y;
-  return groups.map(({ size, dragged }) => {
-    const cross =
-      direction === 'up' ? start.y + crossMax - size.height : direction === 'left' ? start.x + crossMax - size.width : row ? start.y : start.x;
-    const box: Box = { at: dragged ?? (row ? { x: next, y: cross } : { x: cross, y: next }), size };
-    for (let pushed = true; pushed; ) {
-      pushed = false;
-      for (const other of placed) {
-        if (!crowds(box, other)) continue;
-        box.at = row ? { ...box.at, x: other.at.x + other.size.width + GROUP_GAP } : { ...box.at, y: other.at.y + other.size.height + GROUP_GAP };
-        pushed = true;
-      }
+export function placeGroups(groups: readonly GroupSlot[], direction: ArrangeDirection, start: Point): Point[] {
+  const vertical = direction === 'down' || direction === 'up';
+  const along = (size: Size) => (vertical ? size.height : size.width);
+  const across = (size: Size) => (vertical ? size.width : size.height);
+  const parents = breakCycles(groups.map((g) => g.parent));
+  const kids = groups.map((_, i) => parents.flatMap((p, k) => (p === i ? [k] : [])));
+  const depthOf = (i: number): number => (parents[i] === null ? 0 : depthOf(parents[i]!) + 1);
+  const depthSizes: number[] = [];
+  groups.forEach((g, i) => {
+    const d = depthOf(i);
+    depthSizes[d] = Math.max(depthSizes[d] ?? 0, along(g.size));
+  });
+  const depths = offsets(depthSizes, GROUP_GAP);
+  // 한 묶음과 그 자손이 가로질러 차지하는 폭.
+  const span = new Map<number, number>();
+  const spanOf = (i: number): number => {
+    if (!span.has(i)) {
+      const below = kids[i].reduce((sum, k) => sum + spanOf(k), 0) + GROUP_GAP * Math.max(0, kids[i].length - 1);
+      span.set(i, Math.max(across(groups[i].size), below));
     }
-    placed.push(box);
-    // 끈 묶음은 다음 묶음의 자리를 바꾸지 않는다. 겹치면 위에서 민다.
-    if (!dragged) next = (row ? box.at.x + size.width : box.at.y + size.height) + GROUP_GAP;
-    return box.at;
+    return span.get(i)!;
+  };
+  const crossAt = new Map<number, number>();
+  const place = (i: number, from: number) => {
+    const own = across(groups[i].size);
+    crossAt.set(i, from + (spanOf(i) - own) / 2);
+    const below = kids[i].reduce((sum, k) => sum + spanOf(k), 0) + GROUP_GAP * Math.max(0, kids[i].length - 1);
+    let next = from + (spanOf(i) - below) / 2;
+    for (const k of kids[i]) {
+      place(k, next);
+      next += spanOf(k) + GROUP_GAP;
+    }
+  };
+  let nextRoot = vertical ? start.x : start.y;
+  parents.forEach((p, i) => {
+    if (p !== null) return;
+    place(i, nextRoot);
+    nextRoot += spanOf(i) + GROUP_GAP;
+  });
+  const reversed = direction === 'up' || direction === 'left';
+  const origin = vertical ? start.y : start.x;
+  return groups.map((g, i) => {
+    const d = depthOf(i);
+    const a = origin + (reversed ? depths.total - depths.at[d] - depthSizes[d] : depths.at[d]);
+    return g.dragged ?? (vertical ? { x: crossAt.get(i)!, y: a } : { x: a, y: crossAt.get(i)! });
   });
 }
 
@@ -140,7 +178,8 @@ export const TREE_SIDES: Record<ArrangeDirection, { parent: Side; child: Side }>
 
 /**
  * 부모와 자식 카드(화면 기준 상자)를 잇는 간선의 변. 자식이 부모보다 나무가 뻗는 쪽에 있으면 `TREE_SIDES[direction]`이다.
- * 아니면(다른 묶음의 자식, 끈 카드) 두 카드 중심 사이의 긴 축을 따라 서로 마주 보는 변이다. 간선이 카드를 돌아 나가지 않는다.
+ * 아니면(다른 묶음의 자식, 끈 카드) 두 카드 사이 빈 틈이 더 큰 축을 따라 서로 마주 보는 변이다.
+ * 중심 거리로 축을 고르면 가로로 겹친 카드(틈이 좁다)에서 간선이 카드 옆 틈을 돌아 나가 꺾인다.
  */
 export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection): { parent: Side; child: Side } {
   const ahead: Record<ArrangeDirection, boolean> = {
@@ -150,8 +189,11 @@ export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection):
     left: child.at.x + child.size.width <= parent.at.x,
   };
   if (ahead[direction]) return TREE_SIDES[direction];
-  const dx = child.at.x + child.size.width / 2 - (parent.at.x + parent.size.width / 2);
-  const dy = child.at.y + child.size.height / 2 - (parent.at.y + parent.size.height / 2);
-  const toward: ArrangeDirection = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+  const gapRight = child.at.x - (parent.at.x + parent.size.width);
+  const gapLeft = parent.at.x - (child.at.x + child.size.width);
+  const gapDown = child.at.y - (parent.at.y + parent.size.height);
+  const gapUp = parent.at.y - (child.at.y + child.size.height);
+  const horizontal = Math.max(gapRight, gapLeft) > Math.max(gapDown, gapUp);
+  const toward: ArrangeDirection = horizontal ? (gapRight > gapLeft ? 'right' : 'left') : gapDown > gapUp ? 'down' : 'up';
   return TREE_SIDES[toward];
 }

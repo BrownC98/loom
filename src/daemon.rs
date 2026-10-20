@@ -1060,7 +1060,6 @@ async fn agent_spawn(
         .graph
         .place_of(parent)
         .map_err(|e| for_agent(Refusal::from(e)))?;
-    // 새 워크트리는 자식을 띄우지 못해도 남는다. 깨끗한 워크트리라 사람이 [워크트리 닫기]로 닫는다.
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo).map_err(for_agent)?;
@@ -1069,39 +1068,66 @@ async fn agent_spawn(
             let made = worktree::create(&repo, from, &workspace, branch, "HEAD")
                 .await
                 .map_err(for_agent)?;
-            app.setup(&Place {
-                repo: place.repo,
-                worktree: made.clone(),
-            })
-            .await
-            .map_err(for_agent)?;
-            Some(made)
+            Some((repo, made))
         }
         None => None,
     };
-    let cwd = std::path::Path::new(worktree.as_deref().unwrap_or(&place.worktree));
-    let prepared = app.prepare(&start, cwd).await.map_err(for_agent)?;
+    let made = worktree.as_ref().map(|(_, made)| made.as_str());
+    let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
+    let spawned = spawn_child(&app, parent, &req.name, &start, &queued_brief, made, cwd).await;
+    match (&worktree, &spawned) {
+        // 자식을 띄우지 못하면 이 요청이 만든 워크트리와 브랜치를 지운다. 거절만 남긴다.
+        (Some((repo, made)), Err(_)) => {
+            if let Err(e) = worktree::discard(repo, made).await {
+                eprintln!("loom: 띄우지 못한 자식의 워크트리 {made}를 지우지 못했다: {e}");
+            }
+        }
+        // 설정 스크립트는 자식이 뜬 뒤에 띄운다. 그래서 되돌릴 설정 노드가 없다. 자식은 설정을 기다리지 않는다.
+        (Some((_, made)), Ok(_)) => {
+            let setup = Place {
+                repo: place.repo,
+                worktree: made.clone(),
+            };
+            if let Err(e) = app.setup(&setup).await {
+                let (_, e) = for_agent(e);
+                eprintln!("loom: 워크트리 {made}의 설정 스크립트를 띄우지 못했다: {e}");
+            }
+        }
+        (None, _) => {}
+    }
+    spawned.map(Json)
+}
+
+/// `agent_spawn`에서 워크트리를 만든 뒤의 단계: 준비하고 그래프에 자식을 더해 띄운다.
+async fn spawn_child(
+    app: &Arc<App>,
+    parent: NodeId,
+    name: &str,
+    start: &Start,
+    queued_brief: &str,
+    worktree: Option<&str>,
+    cwd: &std::path::Path,
+) -> Result<NodeId, AgentError> {
+    let prepared = app.prepare(start, cwd).await.map_err(for_agent)?;
     let discard = prepared.discarder();
     let limits = app
         .tree_limits()
         .map_err(for_agent)
         .inspect_err(|_| discard())?;
-    let id = app
-        .graph
+    app.graph
         .add_child(
             parent,
             NewChild {
-                name: &req.name,
-                worktree: worktree.as_deref(),
+                name,
+                worktree,
                 agent: start.agent(),
-                brief: &queued_brief,
+                brief: queued_brief,
             },
             limits,
             |id| app.launch(id, prepared),
         )
         .map_err(for_agent)
-        .inspect_err(|_| discard())?;
-    Ok(Json(id))
+        .inspect_err(|_| discard())
 }
 
 async fn agent_send(

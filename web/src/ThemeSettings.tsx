@@ -19,10 +19,10 @@ const THEME_CHOICES = [
 ] as const satisfies readonly { value: Theme; label: string; icon: LucideIcon }[];
 
 const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
-/** 설정과 그래프 위 막대가 같은 순서로 보인다(목업 card-view.html). */
+/** 설정과 오른쪽 사이드바가 같은 순서로 보인다(목업 card-view.html). */
 export const CARD_VIEWS = ['simple', 'standard'] as const satisfies readonly CardView[];
 
-/** 카드 보기 고르기. 설정 「UI」와 그래프 위 막대가 함께 쓴다. */
+/** 카드 보기 고르기. 설정 「UI」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
 export function CardViewSwitch(props: { value: CardView; onChange: (value: CardView) => void }) {
   const { t } = useTranslation();
   const name = useId();

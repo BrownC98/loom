@@ -1,4 +1,4 @@
-import { AlignLeft, GitBranch, GitCommitVertical, Settings as SettingsIcon } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
@@ -16,13 +16,14 @@ import type { Theme } from './gen/Theme';
 import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
 import { Graph, type GraphHandle, type Pulse } from './Graph';
-import { NewWorktreePopover } from './NewWorktreePopover';
 import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
 import { ArrangeButton, loadDirection, saveDirection } from './ArrangeButton';
-import { Splitter, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
+import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
+import type { ArrangeDirection } from './layout';
+import { Splitter, usePaneOpen, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Tree } from './Tree';
@@ -47,6 +48,10 @@ const REPOS_REFRESH_MS = 5000;
 const SIDE_PANE: Pane = { key: 'loom.sideWidth', initial: 260, min: 180, max: 480, grow: 1 };
 /** `max`는 App이 창 폭으로 바꿔 넘긴다. 여기 값은 아직 창 폭을 모를 때의 자리값이다. */
 const DOCK_PANE: Pane = { key: 'loom.dockWidth', initial: 520, min: 320, max: 800, grow: -1 };
+/** 접힌 사이드바(양쪽)의 줄 폭. 아이콘 단추(30) 하나와 여백이 들어간다(목업 docs/mockups/toolbar.html 4번). */
+const RAIL_WIDTH = 40;
+/** 왼쪽 사이드바 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있다. */
+const SIDE_TOGGLE = 'side-toggle';
 /** 오른쪽 칸과 그래프 사이에 늘 남기는 폭. 그래프를 다 덮어 되돌릴 수 없게 되는 것을 막는다. */
 const DOCK_MIN_GRAPH = 120;
 const EMPTY_SETTINGS: SettingsView = {
@@ -103,7 +108,6 @@ export function App() {
   const { t } = useTranslation();
   const [repos, setRepos] = useState<RepoView[]>([]);
   const [repo, selectRepo] = useSelectedRepo(repos);
-  const [creatingWorktree, setCreatingWorktree] = useState(false);
   /** 저장소 하나의 새 모양(워크트리를 만들거나 지운 뒤)을 목록에 넣는다. 처음 보는 저장소면 끝에 더한다. */
   const putRepo = (next: RepoView) => setRepos((prev) => (prev.some((r) => r.id === next.id) ? prev.map((r) => (r.id === next.id ? next : r)) : [...prev, next]));
   // 노드가 모르는 워크트리에 있으면(`loom spawn --worktree`, 터미널에서 만든 워크트리) 목록을 다시 읽는다. 경로마다 한 번만 읽는다.
@@ -119,22 +123,44 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
   const [selected, setSelected] = useState<NodeId | null>(null);
-  // 오른쪽 칸 하나를 이벤트 콘솔, 커밋 그래프, 고른 노드의 터미널(카드를 머리만 볼 때)이 번갈아 쓴다.
   const [direction, setDirection] = useState(loadDirection);
-  const [dock, setDock] = useState<'events' | 'commits' | 'terminal' | null>(null);
+  // 오른쪽 사이드바 아래 칸 하나를 이벤트 콘솔, 커밋 그래프, 고른 노드의 터미널(심플 보기)이 탭으로 번갈아 쓴다.
+  const [tab, setTab] = useState<DockTab>('commits');
+  const [sideOpen, setSideOpen] = usePaneOpen('loom.sideOpen');
+  const [dockOpen, setDockOpen] = usePaneOpen('loom.dockOpen');
   const graph = useRef<GraphHandle>(null);
   const [sideWidth, setSideWidth] = usePaneWidth(SIDE_PANE);
+  const sideShown = sideOpen ? sideWidth : RAIL_WIDTH;
   const viewport = useViewportWidth();
   // 오른쪽 칸은 창 폭에서 왼쪽 칸과 그래프 최소 폭을 뺀 만큼까지 늘어난다. 창을 넓히면 한도도 넓어진다.
-  const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, viewport - sideWidth - DOCK_MIN_GRAPH) };
+  const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, viewport - sideShown - DOCK_MIN_GRAPH) };
   const [dockWidth, setDockWidth] = usePaneWidth(dockPane);
-  const toggleDock = (next: 'events' | 'commits') => setDock(dock === next ? null : next);
-  const log = useEventLog(dock === 'events');
-  // 이벤트 콘솔에서 고른 이벤트. 칸을 닫으면 끈다.
+  const simpleCards = settings.cardView === 'simple';
+  const dockedView = simpleCards && selected !== null ? nodes.get(selected) : undefined;
+  const tabs: readonly DockTab[] = dockedView ? ['events', 'commits', 'terminal'] : ['events', 'commits'];
+  // 터미널 탭을 보다가 노드 고르기를 풀면 커밋 그래프로 돌아간다.
+  const shownTab = tabs.includes(tab) ? tab : 'commits';
+  const log = useEventLog(dockOpen && shownTab === 'events');
+  // 이벤트 콘솔에서 고른 이벤트. 칸을 접거나 다른 탭으로 가면 끈다.
   const [highlight, setHighlight] = useState<EventRecord | null>(null);
   useEffect(() => {
-    if (dock !== 'events') setHighlight(null);
-  }, [dock]);
+    if (!dockOpen || shownTab !== 'events') setHighlight(null);
+  }, [dockOpen, shownTab]);
+  /** 접기·펴기 단추를 누른 뒤 포커스를 바뀐 자리의 같은 단추(접힌 줄 ↔ 사이드바)로 옮긴다. */
+  const focusToggle = (id: string) => requestAnimationFrame(() => document.getElementById(id)?.focus());
+  const openSide = (open: boolean) => {
+    setSideOpen(open);
+    focusToggle(SIDE_TOGGLE);
+  };
+  const openDock = (open: boolean) => {
+    setDockOpen(open);
+    focusToggle(DOCK_TOGGLE);
+  };
+  const arrange = (next: ArrangeDirection) => {
+    setDirection(next);
+    saveDirection(next);
+    graph.current?.arrange();
+  };
   const mode = useColorMode(settings.theme);
 
   useEffect(() => {
@@ -159,17 +185,17 @@ export function App() {
     putSettings(next).catch(() => getSettings().then(setSettings));
   };
   const usage: Usage = { accounts, fetchedAt, loading, refresh: refreshUsage };
-  const simpleCards = settings.cardView === 'simple';
-  /** 심플 보기에서는 노드를 고를 때 오른쪽 칸에 그 터미널을 연다. 카드에는 터미널이 없다. */
+  /** 심플 보기에서는 노드를 고를 때 오른쪽 사이드바를 펴고 그 터미널 탭을 연다. 카드에는 터미널이 없다. */
   const selectNode = (id: NodeId | null) => {
     setSelected(id);
     // 다른 저장소의 노드(트리, 이벤트 기록)를 고르면 그래프를 그 저장소로 바꾼다.
     const place = id === null ? undefined : nodes.get(id)?.place;
     if (place && place.repo !== repo?.id) selectRepo(place.repo);
-    if (simpleCards && id !== null) setDock('terminal');
+    if (simpleCards && id !== null) {
+      setTab('terminal');
+      setDockOpen(true);
+    }
   };
-  const dockedView = dock === 'terminal' && simpleCards && selected !== null ? nodes.get(selected) : undefined;
-  const shownDock = dock === 'terminal' && !dockedView ? null : dock;
 
   useEffect(() => {
     rescan();
@@ -247,90 +273,54 @@ export function App() {
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <XtermFont.Provider value={activeFont(settings.terminalFont)}>
       <ReactFlowProvider>
-        <div className="app" data-dock={shownDock ?? undefined} style={{ '--side-w': `${sideWidth}px`, '--dock-w': `${dockWidth}px` } as CSSProperties}>
-          <Splitter pane={SIDE_PANE} width={sideWidth} onWidth={setSideWidth} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />
-          {shownDock && (
-            <Splitter
-              pane={dockPane}
-              width={dockWidth}
-              onWidth={setDockWidth}
-              label={t('app.resize', { pane: shownDock === 'events' ? t('events.title') : shownDock === 'commits' ? t('app.commitGraph') : dockedView!.name })}
-              style={{ right: dockWidth }}
-            />
-          )}
-          <nav className="side" aria-label={t('app.sideLabel')}>
-            <div className="brand">loom</div>
-            <Tree
-              repos={repos}
-              current={repo?.id ?? null}
-              onRepo={selectRepo}
-              onAdded={(added) => {
-                putRepo(added);
-                selectRepo(added.id);
-              }}
-              views={nodes}
-              agents={agents}
-              selected={selected}
-              onSelect={selectNode}
-              settings={settings}
-              accounts={accounts}
-              onRepoChanged={putRepo}
-              // 그래프가 그리던 저장소면 `useSelectedRepo`가 남은 첫 저장소로 바꾼다.
-              onRepoRemoved={(id) => setRepos((prev) => prev.filter((r) => r.id !== id))}
-            />
-            <div className="side-foot">
-              <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
-                <SettingsIcon />
-                {t('settings.title')}
-              </button>
-            </div>
-          </nav>
-          <main className="canvas" aria-label={t('app.graphLabel', { repo: repo?.name ?? '' })}>
-            <div className="toolbar">
-              <h1>{repo?.name}</h1>
-              <span className="spacer" />
-              <CardViewSwitch value={settings.cardView} onChange={(cardView) => saveSettings({ ...settings, cardView })} />
-              {repo && (
-                <ArrangeButton
-                  direction={direction}
-                  onArrange={(next) => {
-                    setDirection(next);
-                    saveDirection(next);
-                    graph.current?.arrange();
-                  }}
-                />
-              )}
-              {repo && !repo.hasCommits && (
-                <span className="hint" id="no-commit">
-                  {t('repo.noCommit')}
-                </span>
-              )}
-              {repo && (
-                <button className="btn" aria-expanded={creatingWorktree} disabled={!repo.hasCommits} aria-describedby={repo.hasCommits ? undefined : 'no-commit'} onClick={() => setCreatingWorktree(true)}>
-                  <GitBranch />
-                  {t('repo.newWorktree')}
+        <div className="app" style={{ '--side-w': `${sideShown}px`, '--dock-w': `${dockOpen ? dockWidth : RAIL_WIDTH}px` } as CSSProperties}>
+          {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} onWidth={setSideWidth} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />}
+          {dockOpen && <Splitter pane={dockPane} width={dockWidth} onWidth={setDockWidth} label={t('app.resize', { pane: t('dock.label') })} style={{ right: dockWidth }} />}
+          {sideOpen ? (
+            <nav className="side" id="side" aria-label={t('app.sideLabel')}>
+              <div className="brand">
+                loom
+                <button id={SIDE_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="side" aria-label={t('app.sideCollapse')} title={t('app.sideCollapse')} onClick={() => openSide(false)}>
+                  <PanelLeftClose />
                 </button>
-              )}
-              <button className="btn" aria-pressed={dock === 'events'} aria-controls="dock" onClick={() => toggleDock('events')}>
-                <AlignLeft />
-                {t('events.title')}
-              </button>
-              <button className="btn" aria-pressed={dock === 'commits'} aria-controls="dock" onClick={() => toggleDock('commits')}>
-                <GitCommitVertical />
-                {t('app.commitGraph')}
-              </button>
-            </div>
-            {repo && creatingWorktree && (
-              <NewWorktreePopover
-                repo={repo}
-                workspaceDir={settings.workspaceDir ?? ''}
-                onClose={() => setCreatingWorktree(false)}
-                onCreated={(next) => {
-                  setCreatingWorktree(false);
-                  putRepo(next);
+              </div>
+              <Tree
+                repos={repos}
+                current={repo?.id ?? null}
+                onRepo={selectRepo}
+                onAdded={(added) => {
+                  putRepo(added);
+                  selectRepo(added.id);
                 }}
+                views={nodes}
+                agents={agents}
+                selected={selected}
+                onSelect={selectNode}
+                settings={settings}
+                accounts={accounts}
+                onRepoChanged={putRepo}
+                // 그래프가 그리던 저장소면 `useSelectedRepo`가 남은 첫 저장소로 바꾼다.
+                onRepoRemoved={(id) => setRepos((prev) => prev.filter((r) => r.id !== id))}
               />
-            )}
+              <div className="side-foot">
+                <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
+                  <SettingsIcon />
+                  {t('settings.title')}
+                </button>
+              </div>
+            </nav>
+          ) : (
+            <nav className="rail side-rail" id="side" aria-label={t('app.sideLabel')}>
+              <button id={SIDE_TOGGLE} className="btn ghost icon" aria-expanded={false} aria-controls="side" aria-label={t('app.sideExpand')} title={t('app.sideExpand')} onClick={() => openSide(true)}>
+                <PanelLeftOpen />
+              </button>
+              <button className="btn ghost icon rail-end" aria-label={t('settings.title')} title={t('settings.title')} onClick={() => setSettingsTab('agents')}>
+                <SettingsIcon />
+              </button>
+            </nav>
+          )}
+          <main className="canvas" aria-label={t('app.graphLabel', { repo: repo?.name ?? '' })}>
+            <h1 className="canvas-title">{repo?.name}</h1>
             {repo && <Graph
               repo={repo}
               onRepo={putRepo}
@@ -348,17 +338,40 @@ export function App() {
               ref={graph}
             />}
           </main>
-          {dock === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} onClose={() => setDock(null)} />}
-          {dock === 'commits' && repo && <CommitGraph repo={repo.id} onClose={() => setDock(null)} />}
-          {dockedView && (
-            <TerminalDock
-              view={dockedView}
-              agentLabel={agentLabel(agents, dockedView.agent)}
-              onNavigate={(dir) => {
-                const to = graph.current?.neighbor(dockedView.id, dir);
-                if (to != null) selectNode(to);
+          {dockOpen ? (
+            <Dock
+              tabs={tabs}
+              tab={shownTab}
+              onTab={setTab}
+              onCollapse={() => openDock(false)}
+              tools={
+                <>
+                  <CardViewSwitch value={settings.cardView} onChange={(cardView) => saveSettings({ ...settings, cardView })} />
+                  {repo && <ArrangeButton direction={direction} onArrange={arrange} />}
+                </>
+              }
+            >
+              {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} />}
+              {shownTab === 'commits' && repo && <CommitGraph repo={repo.id} />}
+              {shownTab === 'terminal' && dockedView && (
+                <TerminalDock
+                  view={dockedView}
+                  agentLabel={agentLabel(agents, dockedView.agent)}
+                  onNavigate={(dir) => {
+                    const to = graph.current?.neighbor(dockedView.id, dir);
+                    if (to != null) selectNode(to);
+                  }}
+                />
+              )}
+            </Dock>
+          ) : (
+            <DockRail
+              tabs={tabs}
+              onArrange={() => arrange(direction)}
+              onExpand={(next) => {
+                if (next) setTab(next);
+                openDock(true);
               }}
-              onClose={() => setDock(null)}
             />
           )}
           <StatusBar

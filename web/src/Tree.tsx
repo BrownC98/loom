@@ -335,7 +335,7 @@ export function Tree(props: {
     e.preventDefault();
   };
 
-  /** 열린 줄 팝오버. 내용은 그래프·도구 줄의 팝오버 그대로다. */
+  /** 열린 줄 팝오버. 내용은 그래프의 팝오버 그대로다. */
   const popContent = ({ target }: Opened): ReactNode => {
     const repo = props.repos.find((r) => r.id === target.repo);
     if (!repo) return null;

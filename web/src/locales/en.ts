@@ -10,6 +10,8 @@ const en = {
     sideLabel: 'Repositories and nodes',
     graphLabel: '{{repo}} graph',
     commitGraph: 'Commit graph',
+    sideCollapse: 'Collapse sidebar',
+    sideExpand: 'Expand sidebar',
     resize: '{{pane}} width',
   },
   worktree: {
@@ -193,7 +195,12 @@ const en = {
     familyHint: 'List fonts separated by commas. Each character uses the first font that has it. Leave empty for the default.',
   },
   dock: {
-    closeTerminal: 'Close terminal panel',
+    label: 'Right sidebar',
+    view: 'View',
+    tabs: 'Panels',
+    terminal: 'Terminal',
+    collapse: 'Collapse right sidebar',
+    expand: 'Expand right sidebar',
   },
   cardView: {
     heading: 'Cards',
@@ -218,7 +225,6 @@ const en = {
   },
   commits: {
     scope: 'All branches · latest 1,000',
-    close: 'Close commit graph',
     reading: 'Loading…',
     empty: 'No commits yet.',
     list: 'Commits',
@@ -226,7 +232,6 @@ const en = {
   events: {
     title: 'Events',
     order: 'Newest first',
-    close: 'Close events',
     filterKinds: 'Filter by kind',
     category: { node: 'Nodes', message: 'Messages' },
     filterName: 'Filter by node name',

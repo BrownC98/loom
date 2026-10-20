@@ -34,6 +34,11 @@ const PULSE_MS = 3000;
 /** 사용량을 다시 읽는 간격. 근거: docs/design.md 「계정과 사용량」. */
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
 /**
+ * 저장소·워크트리 목록을 다시 읽는 간격. git CLI로 지운 워크트리는 데몬이 알리지 않으므로 몇 초 안에 화면에서 빼려고 읽는다.
+ * 한 번에 저장소마다 git 명령 세 개라 싸다. 창이 숨으면 읽지 않는다.
+ */
+const REPOS_REFRESH_MS = 5000;
+/**
  * 기본 너비는 목업 graph-panels.html의 값이다. 왼쪽 칸은 480이 상한이라 1440 화면에서도 그래프 칸이 160px 남는다.
  * 오른쪽 칸(터미널·이벤트·커밋)은 상한을 창 폭에 맞춘다: `dockPane`이 창 폭에서 왼쪽 칸을 뺀 만큼을 넘긴다(사람 지시 2026-10-20 「심플 모드의 사이드바 터미널 너비는 원하는 만큼」).
  */
@@ -185,7 +190,17 @@ export function App() {
   }, [nodes, repos]);
 
   useEffect(() => {
-    getRepos().then(setRepos);
+    // 같은 목록이면 그대로 둔다. 새 배열은 그래프 배치를 다시 그린다.
+    const refreshRepos = () =>
+      getRepos().then((next) => setRepos((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next)));
+    refreshRepos();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) refreshRepos();
+    }, REPOS_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     const pulse = (child: NodeId) => {
       setPulses((prev) => new Map(prev).set(child, (prev.get(child) ?? 0) + 1));
       clearTimeout(pulseTimers.current.get(child));

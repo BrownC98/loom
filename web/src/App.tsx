@@ -20,7 +20,7 @@ import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
 import { ArrangeButton, loadDirection, saveDirection } from './ArrangeButton';
-import { Splitter, usePaneWidth, type Pane } from './Splitter';
+import { Splitter, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Tree } from './Tree';
@@ -33,9 +33,15 @@ import { withAccount } from './usage';
 const PULSE_MS = 3000;
 /** 사용량을 다시 읽는 간격. 근거: docs/design.md 「계정과 사용량」. */
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
-/** 기본 너비는 목업 graph-panels.html의 값이다. 두 칸을 모두 가장 넓게 해도 1440 화면에서 그래프 칸이 160px 남는다. */
+/**
+ * 기본 너비는 목업 graph-panels.html의 값이다. 왼쪽 칸은 480이 상한이라 1440 화면에서도 그래프 칸이 160px 남는다.
+ * 오른쪽 칸(터미널·이벤트·커밋)은 상한을 창 폭에 맞춘다: `dockPane`이 창 폭에서 왼쪽 칸을 뺀 만큼을 넘긴다(사람 지시 2026-10-20 「심플 모드의 사이드바 터미널 너비는 원하는 만큼」).
+ */
 const SIDE_PANE: Pane = { key: 'loom.sideWidth', initial: 260, min: 180, max: 480, grow: 1 };
+/** `max`는 App이 창 폭으로 바꿔 넘긴다. 여기 값은 아직 창 폭을 모를 때의 자리값이다. */
 const DOCK_PANE: Pane = { key: 'loom.dockWidth', initial: 520, min: 320, max: 800, grow: -1 };
+/** 오른쪽 칸과 그래프 사이에 늘 남기는 폭. 그래프를 다 덮어 되돌릴 수 없게 되는 것을 막는다. */
+const DOCK_MIN_GRAPH = 120;
 const EMPTY_SETTINGS: SettingsView = {
   bypassOff: [],
   claudeAccount: null,
@@ -111,7 +117,10 @@ export function App() {
   const [dock, setDock] = useState<'events' | 'commits' | 'terminal' | null>(null);
   const graph = useRef<GraphHandle>(null);
   const [sideWidth, setSideWidth] = usePaneWidth(SIDE_PANE);
-  const [dockWidth, setDockWidth] = usePaneWidth(DOCK_PANE);
+  const viewport = useViewportWidth();
+  // 오른쪽 칸은 창 폭에서 왼쪽 칸과 그래프 최소 폭을 뺀 만큼까지 늘어난다. 창을 넓히면 한도도 넓어진다.
+  const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, viewport - sideWidth - DOCK_MIN_GRAPH) };
+  const [dockWidth, setDockWidth] = usePaneWidth(dockPane);
   const toggleDock = (next: 'events' | 'commits') => setDock(dock === next ? null : next);
   const log = useEventLog(dock === 'events');
   // 이벤트 콘솔에서 고른 이벤트. 칸을 닫으면 끈다.
@@ -219,7 +228,7 @@ export function App() {
           <Splitter pane={SIDE_PANE} width={sideWidth} onWidth={setSideWidth} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />
           {shownDock && (
             <Splitter
-              pane={DOCK_PANE}
+              pane={dockPane}
               width={dockWidth}
               onWidth={setDockWidth}
               label={t('app.resize', { pane: shownDock === 'events' ? t('events.title') : shownDock === 'commits' ? t('app.commitGraph') : dockedView!.name })}

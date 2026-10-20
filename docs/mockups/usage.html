@@ -55,9 +55,10 @@ img { display: block; max-width: 100%; border: 1px solid var(--line); border-rad
 .prov .who { font-weight: 600; }
 .prov .acct-name { color: var(--ink-2); }
 .prov svg { margin-left: auto; color: var(--ink-3); }
-.win-line { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 8px; color: var(--ink-2); }
+.win-line { display: grid; grid-template-columns: 64px 1fr 44px auto; align-items: center; gap: 8px; color: var(--ink-2); }
 .win-line .meter { width: auto; height: 6px; border-radius: 3px; }
 .win-line .pct { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.win-line .left { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-3); font-size: 12px; }
 .reset { color: var(--ink-3); }
 .acct-list { list-style: none; padding: 0; display: grid; gap: 2px; }
 .acct { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13px; }
@@ -80,9 +81,9 @@ img { display: block; max-width: 100%; border: 1px solid var(--line); border-rad
     <hr class="divider">
     <section class="prov-sec">
       <button class="prov" aria-expanded="true"><span class="who">Claude</span><span class="acct-name">시스템 기본</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
-      <div class="win-line"><span>5시간</span><span class="meter"><i style="width:46%"></i></span><span class="pct">46%</span></div>
-      <div class="win-line"><span>주간</span><span class="meter"><i style="width:38%"></i></span><span class="pct">38%</span></div>
-      <div class="win-line"><span>Fable</span><span class="meter"><i style="width:100%"></i></span><span class="pct">100%</span></div>
+      <div class="win-line"><span>5시간</span><span class="meter"><i style="width:46%"></i></span><span class="pct">46%</span><span class="left">2시간 41분 남음</span></div>
+      <div class="win-line"><span>주간</span><span class="meter"><i style="width:38%"></i></span><span class="pct">38%</span><span class="left">4일 6시간 남음</span></div>
+      <div class="win-line"><span>Fable</span><span class="meter"><i style="width:100%"></i></span><span class="pct">100%</span><span class="left">4일 6시간 남음</span></div>
       <span class="reset">5시간 창 초기화 (화) 11:29 · 주간 창 초기화 (토) 20:59</span>
       <ul class="acct-list" aria-label="Claude 계정">
         <li class="acct" aria-current="true">시스템 기본<span class="sub">쓰는 중</span></li>
@@ -92,7 +93,7 @@ img { display: block; max-width: 100%; border: 1px solid var(--line); border-rad
     <hr class="divider">
     <section class="prov-sec">
       <button class="prov" aria-expanded="false"><span class="who">Codex</span><span class="acct-name">시스템 기본</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
-      <div class="win-line"><span>주간</span><span class="meter"><i style="width:87%"></i></span><span class="pct">87%</span></div>
+      <div class="win-line"><span>주간</span><span class="meter"><i style="width:87%"></i></span><span class="pct">87%</span><span class="left">1일 4시간 남음</span></div>
       <span class="reset">주간 창 초기화 (일) 08:30</span>
     </section>
     <hr class="divider">

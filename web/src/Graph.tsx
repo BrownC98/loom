@@ -46,8 +46,8 @@ const CARD_EXTENT: CoordinateExtent = [
   [0, CARD_TOP],
   [Infinity, Infinity],
 ];
-/** 묶음 왼쪽 위에서 잰 새 노드 팝오버 위치. */
-const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
+/** [새 노드] 버튼 아래로 띄우는 새 노드 팝오버의 틈. 팝오버 오른쪽 끝을 버튼 오른쪽 끝에 맞춘다. */
+const POPOVER_GAP = 6;
 /** 묶음 오른쪽 위에서 잰 삭제 경고 위치. 경고는 [워크트리 삭제] 아래에 오른쪽을 맞춰 연다. */
 const DELETE_OFFSET: XYPosition = { x: -8, y: 40 };
 /** 노드로 옮겨 가는 화면 이동 시간. */
@@ -83,7 +83,8 @@ type GroupData = {
   empty: boolean;
   creating: boolean;
   deleting: boolean;
-  onOpen: () => void;
+  /** 누른 [새 노드] 버튼. 창을 그 버튼 옆에 띄우려고 자리를 잰다. */
+  onOpen: (button: HTMLElement) => void;
   onDelete?: () => void;
 };
 type CardBase = { view: NodeView; agentLabel: string; selected: boolean; handles: (typeof HANDLES)[ArrangeDirection]; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
@@ -104,7 +105,7 @@ function Group({ data }: NodeProps<GroupNode>) {
         </span>
         {data.original && <span className="kind">{t('worktree.original')}</span>}
         <span className="spacer" />
-        <button className="btn ghost sm nodrag" aria-expanded={data.creating} onClick={data.onOpen}>
+        <button className="btn ghost sm nodrag" aria-expanded={data.creating} onClick={(e) => data.onOpen(e.currentTarget)}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -230,6 +231,8 @@ export function Graph(props: {
   const [expanded, setExpanded] = useState<NodeId | null>(null);
   // 새 노드 창이나 삭제 경고를 연 묶음(워크트리 경로).
   const [creating, setCreating] = useState<string | null>(null);
+  // [새 노드] 버튼의 오른쪽 아래 모서리(묶음 왼쪽 위에서 잰 자리). 창을 그 자리에 오른쪽을 맞춰 띄운다. 묶음을 끌면 함께 움직인다.
+  const [anchor, setAnchor] = useState<XYPosition | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
   const [refusal, setRefusal] = useState('');
@@ -307,9 +310,12 @@ export function Graph(props: {
         empty: members.length === 0,
         creating: creating === group.path,
         deleting: deleting === group.path,
-        onOpen: () => {
+        onOpen: (button) => {
           setDeleting(null);
           setCreating(group.path);
+          const rect = button.getBoundingClientRect();
+          const at = flow.screenToFlowPosition({ x: rect.right, y: rect.bottom + POPOVER_GAP });
+          setAnchor({ x: at.x - origin.x, y: at.y - origin.y });
         },
         onDelete: group.original
           ? undefined
@@ -438,50 +444,51 @@ export function Graph(props: {
           nodeClassName={(node) => (node.type === 'worktree' ? 'worktree' : (node as CardNode | SimpleNode).data.view.state.kind)}
           onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
         />
-        {groups.map(({ group, members, origin, right }) => (
-          // 묶음 노드 안에 두면 자식 카드가 팝오버를 덮는다. 뷰포트 층에 그려 카드 위에 둔다.
-          (creating === group.path || deleting === group.path) && (
-            <ViewportPortal key={group.path}>
-              <div
-                className={creating === group.path ? undefined : 'pop-end'}
-                style={{
-                  position: 'absolute',
-                  transform:
-                    creating === group.path
-                      ? `translate(${origin.x + POPOVER_OFFSET.x}px, ${origin.y + POPOVER_OFFSET.y}px)`
-                      : `translate(${origin.x + right + DELETE_OFFSET.x}px, ${origin.y + DELETE_OFFSET.y}px)`,
-                }}
-              >
-                {creating === group.path ? (
-                  <NewNodePopover
-                    branch={group.label}
-                    place={{ repo: props.repo.id, worktree: group.path }}
-                    agents={props.agents}
-                    recent={recentAgent(views)}
-                    settings={props.settings}
-                    accounts={props.accounts}
-                    onCreated={(id) => {
-                      setCreating(null);
-                      setSelected(id);
-                    }}
-                    onCancel={() => setCreating(null)}
-                  />
-                ) : (
-                  <DeleteWorktreePopover
-                    repo={props.repo.id}
-                    group={group}
-                    views={members}
-                    onDeleted={(repo) => {
-                      setDeleting(null);
-                      props.onRepo(repo);
-                    }}
-                    onClose={() => setDeleting(null)}
-                  />
-                )}
-              </div>
-            </ViewportPortal>
-          )
-        ))}
+        {groups.map(({ group, members, origin, right }) => {
+          const at = creating === group.path && anchor ? { x: origin.x + anchor.x, y: origin.y + anchor.y } : null;
+          return (
+            // 묶음 노드 안에 두면 자식 카드가 팝오버를 덮는다. 뷰포트 층에 그려 카드 위에 둔다.
+            (creating === group.path || deleting === group.path) && (
+              <ViewportPortal key={group.path}>
+                <div
+                  className="pop-end"
+                  style={{
+                    position: 'absolute',
+                    // 새 노드 창은 누른 [새 노드] 버튼의 오른쪽 아래 모서리에 오른쪽을 맞춰 붙인다.
+                    transform: at ? `translate(${at.x}px, ${at.y}px)` : `translate(${origin.x + right + DELETE_OFFSET.x}px, ${origin.y + DELETE_OFFSET.y}px)`,
+                  }}
+                >
+                  {creating === group.path ? (
+                    <NewNodePopover
+                      branch={group.label}
+                      place={{ repo: props.repo.id, worktree: group.path }}
+                      agents={props.agents}
+                      recent={recentAgent(views)}
+                      settings={props.settings}
+                      accounts={props.accounts}
+                      onCreated={(id) => {
+                        setCreating(null);
+                        setSelected(id);
+                      }}
+                      onCancel={() => setCreating(null)}
+                    />
+                  ) : (
+                    <DeleteWorktreePopover
+                      repo={props.repo.id}
+                      group={group}
+                      views={members}
+                      onDeleted={(repo) => {
+                        setDeleting(null);
+                        props.onRepo(repo);
+                      }}
+                      onClose={() => setDeleting(null)}
+                    />
+                  )}
+                </div>
+              </ViewportPortal>
+            )
+          );
+        })}
       </ReactFlow>
       {refusal && (
         <p className="refusal" role="alert">

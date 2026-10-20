@@ -146,6 +146,8 @@ const en = {
     windowUsed: '{{window}} {{n}}% used',
     used: '{{n}}% used',
     reset: '{{window}} resets {{time}}',
+    remaining: '{{left}} left',
+    soon: 'soon',
     fetched: 'Updated {{ago}}',
   },
   statusBar: {

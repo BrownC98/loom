@@ -29,22 +29,18 @@ pub const PINNED_VERSION: &str = "0.159.2";
 /// 새 턴 입력 하나에 넣는 본문 합의 상한. 첫 메시지는 늘 넣는다. 남은 메시지는 다음 턴에 들어간다.
 pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 
-const USAGE: &str = "\
-너는 loom 그래프의 노드다. loom은 부모·자식 노드 사이 메시지를 나른다. 명령은 셸로 부른다.
-- `loom spawn <이름> --agent codex` (지시문은 stdin, `--file <경로>`): 자식 노드를 만든다. `--agent claude`도 된다.
-- `loom send <이름> <본문>`: 부모나 자식에게 보낸다. 받는 노드의 턴을 끊지 않는다.
-- `loom steer <이름> <본문>`: 일하는 자식의 턴에 넣는다.
-- `loom interrupt <이름> <본문>`: 자식이 하던 일을 멈추게 하고 이 본문을 따르게 한다.
-- `loom done <요약>` / `loom done --file <경로>`: 결과를 부모에게 보내고 끝낸다. 요약은 1KB, 본문은 4KB 이하다.
-- `loom adopt <이름>`: 그 노드의 새 부모가 된다. 그 노드가 부모 없이 보관한 메시지를 받는다.
-받은 메시지는 「loom 메시지」로 시작하는 입력으로 들어온다. 중단 메시지를 받으면 하던 일을 멈추고 그 본문을 따른다.
-자식의 결과를 기다리는 동안 할 일이 없으면 턴을 끝낸다. 자식의 결과는 새 턴으로 들어온다. `loom wait`는 부르지 않는다.";
+fn usage() -> String {
+    format!(
+        "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.",
+        super::COMMUNICATION_USAGE
+    )
+}
 
 /// `codex` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
 /// `-c` 값은 TOML로 읽힌다. JSON 문자열은 TOML 기본 문자열과 같은 이스케이프를 쓴다.
 /// 터미널 제목은 스레드 제목만 쓴다. 기본 제목(`<스피너> | <폴더>`)에는 카드 주제가 없다(`Profile::topic`).
 pub fn args(app_server: &str) -> Vec<String> {
-    let usage = serde_json::to_string(USAGE).expect("문자열은 늘 직렬화된다");
+    let usage = serde_json::to_string(&usage()).expect("문자열은 늘 직렬화된다");
     vec![
         "--remote".into(),
         app_server.into(),
@@ -269,6 +265,7 @@ mod tests {
             from: "부모".into(),
             kind,
             body: body.into(),
+            reply_to: None,
         }
     }
 
@@ -436,7 +433,7 @@ mod tests {
         assert_eq!(args[..3], ["--remote", "ws://127.0.0.1:1", "-c"]);
         let (key, value) = args[3].split_once('=').unwrap();
         assert_eq!(key, "developer_instructions");
-        assert_eq!(serde_json::from_str::<String>(value).unwrap(), USAGE);
+        assert_eq!(serde_json::from_str::<String>(value).unwrap(), usage());
         assert_eq!(args[4..], ["-c", r#"tui.terminal_title=["thread-title"]"#]);
         assert_eq!(version_warning("codex-cli 0.159.2"), None);
         assert_eq!(

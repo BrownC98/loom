@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 
 /**
  * 너비를 바꿀 수 있는 사이드바(목업 docs/mockups/sidebar-resize.html).
@@ -11,6 +11,17 @@ const KEY_STEP = 16;
 
 const clamp = (pane: Pane, width: number) => Math.min(pane.max, Math.max(pane.min, Math.round(width)));
 
+/** 창 폭. 창 크기가 바뀌면 다시 잰다. 오른쪽 칸의 너비 상한을 창 안으로 두는 데 쓴다. */
+export function useViewportWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return width;
+}
+
 /** 사이드바 너비. 이 브라우저에만 남긴다. 저장소를 쓸 수 없으면(사생활 보호 창 등) 기본 너비를 쓴다. */
 export function usePaneWidth(pane: Pane): [number, (width: number) => void] {
   const [width, setWidth] = useState(() => {
@@ -21,6 +32,10 @@ export function usePaneWidth(pane: Pane): [number, (width: number) => void] {
       return pane.initial;
     }
   });
+  // 상한이 줄면(창을 좁히면) 저장한 너비도 그 안으로 당긴다.
+  useEffect(() => {
+    setWidth((w) => clamp(pane, w));
+  }, [pane.max]);
   const set = (next: number) => {
     const w = clamp(pane, next);
     setWidth(w);

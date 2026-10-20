@@ -23,27 +23,24 @@ const SYNTHETIC_MODEL: &str = "<synthetic>";
 /// Bash 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다.
 const GUARD: &str = "loom guard";
 
-const USAGE: &str = "\
-너는 loom 그래프의 노드다. loom은 부모·자식 노드 사이 메시지를 나른다. 명령은 Bash로 부른다.
-- `loom spawn <이름> --agent claude` (지시문은 stdin, `--file <경로>`): 자식 노드를 만든다.
-- `loom send <이름> <본문>`: 부모나 자식에게 보낸다. 받는 노드의 턴을 끊지 않는다.
-- `loom steer <이름> <본문>`: 일하는 자식의 다음 도구 호출 사이에 넣는다.
-- `loom interrupt <이름> <본문>`: 자식이 하던 일을 멈추게 하고 이 본문을 따르게 한다.
-- `loom wait`: 메시지 하나를 기다렸다가 출력한다.
-- `loom done <요약>` / `loom done --file <경로>`: 결과를 부모에게 보내고 끝낸다. 요약은 1KB, 본문은 4KB 이하다.
-- `loom adopt <이름>`: 그 노드의 새 부모가 된다. 그 노드가 부모 없이 보관한 메시지를 받는다.
-받은 메시지는 「loom 메시지」로 시작하는 맥락으로 들어온다. 중단 메시지를 받으면 하던 일을 멈추고 그 본문을 따른다.
-자식의 결과를 기다리는 동안 할 일이 없으면 Bash `run_in_background`로 `loom wait`를 띄우고 턴을 끝낸다. 그 명령이 끝나면 출력이 받은 메시지다.
-Bash 명령 앞의 `loom guard` 줄은 loom이 붙인다. 지우거나 직접 쓰지 않는다.";
+fn usage() -> String {
+    format!(
+        "{}\nWhen no independent work remains, run loom wait with Bash run_in_background and end your turn. Its completed output is the incoming message. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.",
+        super::COMMUNICATION_USAGE
+    )
+}
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 7] = [
+const ALLOWED: [&str; 10] = [
     "Bash(loom guard)",
     "Bash(loom send:*)",
     "Bash(loom steer:*)",
     "Bash(loom interrupt:*)",
     "Bash(loom wait)",
+    "Bash(loom wait:*)",
+    "Bash(loom reply:*)",
+    "Bash(loom status)",
     "Bash(loom done:*)",
     "Bash(loom adopt:*)",
 ];
@@ -68,7 +65,7 @@ pub fn args() -> Vec<String> {
     });
     vec![
         "--append-system-prompt".into(),
-        USAGE.into(),
+        usage(),
         "--settings".into(),
         settings.to_string(),
     ]
@@ -220,6 +217,7 @@ mod tests {
             from: "총괄".into(),
             kind,
             body: body.into(),
+            reply_to: None,
         }
     }
 

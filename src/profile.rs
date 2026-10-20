@@ -452,6 +452,21 @@ fn agent_command(
     Ok(cmd)
 }
 
+/// 모든 프로필이 받는 통신 명령. 프로필별 대기 방식은 각 실행 지시가 정한다.
+pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell commands to communicate with your parent and children only.
+- loom spawn <name> --agent <agent-id>: create a child. Supply its brief on stdin or with --file. --worktree <branch> gives it a new worktree.
+- loom status: inspect your ID, current parent and children, and their process availability.
+- loom send <name> <body>: queue a message without interrupting a turn. Sending prints the message ID.
+- loom send '#<node-id>' <body>: address a parent or child by stable ID. Use IDs if names are ambiguous.
+- loom reply <message-id> <body>: reply to a received message. The reply names its request ID.
+- loom wait --reply-to <message-id> --timeout <seconds> --json: wait for a particular reply. This also finds replies already delivered by another consumer. Other messages stay in the inbox. A timeout exits with an error.
+- loom steer <name-or-id> <body>: insert guidance between tool calls.
+- loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
+- loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback.
+- loom adopt <name>: become this node's parent. Use loom status after a parent change.
+Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
+Messages begin with loom 메시지 and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
+
 /// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
 pub fn message_text(taken: &[Delivery]) -> String {
     taken
@@ -462,8 +477,12 @@ pub fn message_text(taken: &[Delivery]) -> String {
                 Kind::Steer => "조정",
                 Kind::Interrupt => "중단. 하던 일을 멈추고 이 본문을 따른다",
             };
+            let reply = d
+                .reply_to
+                .map(|id| format!(", 답변 대상: #{}", id.0))
+                .unwrap_or_default();
             format!(
-                "loom 메시지 #{} (보낸 노드: {}, 방식: {how})\n{}",
+                "loom 메시지 #{} (보낸 노드: {}, 방식: {how}{reply})\n{}",
                 d.id.0, d.from, d.body
             )
         })

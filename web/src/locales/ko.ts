@@ -147,6 +147,8 @@ const ko: typeof en = {
     windowUsed: '{{window}} {{n}}% 사용',
     used: '{{n}}% 사용',
     reset: '{{window}} 창 초기화 {{time}}',
+    remaining: '{{left}} 남음',
+    soon: '곧',
     fetched: '{{ago}} 갱신',
   },
   statusBar: {

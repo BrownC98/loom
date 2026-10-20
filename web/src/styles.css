@@ -316,10 +316,14 @@ a { color: var(--accent); }
 .usage-foot .btn { margin-left: auto; }
 .pop h3 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .pop h3 .spacer { flex: 1; }
-.win { gap: 6px; display: grid; }
-.win-line { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.win { display: grid; grid-template-columns: 64px 1fr 44px auto; gap: 6px 8px; }
+/* 창 줄은 같은 칸을 나눠 쓴다. 그래야 줄마다 막대 끝과 남은 시간이 나란하다. */
+.win > :not(.win-line) { grid-column: 1 / -1; }
+.win-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; font-size: 12px; color: var(--ink-2); }
 .win-line .meter { height: 6px; border-radius: 3px; }
+.win-line > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .win-line .pct { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.win-line .left { white-space: nowrap; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-3); }
 .reset { font-size: 12px; color: var(--ink-3); }
 .acct-list { list-style: none; padding: 0; display: grid; gap: 2px; }
 .acct { display: flex; width: 100%; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13px; background: none; border: 0; cursor: pointer; text-align: left; }
@@ -364,7 +368,7 @@ dialog::backdrop { background: var(--scrim); }
 .switch input:checked::after { transform: translateX(12px); background: var(--accent-ink); }
 details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .cols-2 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 16px; margin-top: 8px; font-size: 13px; }
-.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) 220px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .acct-row[aria-current="true"] { background: color-mix(in oklch, var(--accent) 6%, transparent); }
 .login { position: fixed; width: 640px; max-width: calc(100vw - 32px); margin: auto; inset: 0; height: fit-content; }
 .login-term { height: 320px; border-radius: 6px; overflow: hidden; }

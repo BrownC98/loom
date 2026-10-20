@@ -11,8 +11,8 @@ use ts_rs::TS;
 
 use super::events::{self, Entry, Step};
 use super::{
-    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, from_json, name_of,
-    parent_of, set_state, state_of, to_json,
+    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, from_json, parent_of,
+    set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -49,80 +49,199 @@ pub struct Delivery {
     pub from: String,
     pub kind: Kind,
     pub body: String,
+    #[serde(default)]
+    pub reply_to: Option<MessageId>,
+}
+
+/// 보낸 메시지 번호와 받는 노드. 부모가 없어 보관하면 `recipient`가 없다.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Sent {
+    pub id: MessageId,
+    pub recipient: Option<NodeId>,
+}
+
+struct Outgoing<'a> {
+    kind: Kind,
+    body: &'a str,
+    reply_to: Option<MessageId>,
 }
 
 impl Graph {
-    /// `from`의 부모나 자식 가운데 이름이 `to`인 노드와 그 에이전트를 찾는다.
+    /// 부모·자식을 이름이나 `#노드번호`로 찾는다. 여러 노드가 맞으면 거절한다.
     pub fn recipient(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
-        let db = self.lock();
-        // 자식 이름은 형제끼리, 그리고 부모 이름과 겹치지 않는다. 그래서 많아야 한 노드가 맞는다.
-        let found = db
-            .query_row(
-                "SELECT id, agent FROM nodes WHERE name = ?2
-                 AND (parent = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1))",
-                params![from.0, to],
-                |row| Ok((NodeId(row.get(0)?), from_json(row, 1)?)),
-            )
-            .optional()?;
-        found.ok_or_else(|| Refusal::NotRelated(to.to_owned()))
+        recipient(&self.lock(), from, to)
     }
 
-    /// `from`의 부모나 자식 가운데 이름이 `to`인 노드에게 보내고 받은 노드를 돌려준다.
-    /// `from`에 부모가 없고 그래프에 `to` 노드가 없으면 지운 부모에게 보내는 큐 메시지로 보고 보관한다. 이때는 `None`이다.
-    pub fn send(
+    pub fn send(&self, from: NodeId, to: &str, kind: Kind, body: &str) -> Result<Sent, Refusal> {
+        self.post(
+            from,
+            to,
+            Outgoing {
+                kind,
+                body,
+                reply_to: None,
+            },
+            |_| {},
+        )
+    }
+
+    /// Claude 셸은 검증과 큐 쓰기가 끝난 뒤, 메시지를 꺼낼 수 있기 전에 끝낸다.
+    pub fn interrupt(
         &self,
         from: NodeId,
         to: &str,
-        kind: Kind,
         body: &str,
-    ) -> Result<Option<NodeId>, Refusal> {
+        stop: impl FnOnce(NodeId),
+    ) -> Result<Sent, Refusal> {
+        self.post(
+            from,
+            to,
+            Outgoing {
+                kind: Kind::Interrupt,
+                body,
+                reply_to: None,
+            },
+            stop,
+        )
+    }
+
+    /// 내가 받은 메시지의 보낸 노드에게 답한다. 현재 부모·자식 관계도 검사한다.
+    pub fn reply(&self, from: NodeId, request: MessageId, body: &str) -> Result<Sent, Refusal> {
+        let sender: Option<u32> = self
+            .lock()
+            .query_row(
+                "SELECT sender FROM messages WHERE id = ?1 AND recipient = ?2",
+                params![request.0, from.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let sender = sender.ok_or_else(|| Refusal::NotFound(format!("메시지 #{}", request.0)))?;
+        self.post(
+            from,
+            &format!("#{sender}"),
+            Outgoing {
+                kind: Kind::Queue,
+                body,
+                reply_to: Some(request),
+            },
+            |_| {},
+        )
+    }
+
+    fn post(
+        &self,
+        from: NodeId,
+        to: &str,
+        message: Outgoing<'_>,
+        before_delivery: impl FnOnce(NodeId),
+    ) -> Result<Sent, Refusal> {
+        let Outgoing {
+            kind,
+            body,
+            reply_to,
+        } = message;
         if body.len() > BRIEF_LIMIT_BYTES {
             return Err(Refusal::BriefTooLong(body.len()));
         }
-        let found = self.recipient(from, to);
         let mut db = self.lock();
-        let to_id = match found {
-            Ok((to_id, _)) => to_id,
-            // 조정·중단은 받는 노드의 프로필에 따라 넣는 방법이 다르다. 받을 노드가 정해지지 않았으므로 보관하지 않는다.
+        let to_id = match recipient(&db, from, to) {
+            Ok((to_id, _)) => Some(to_id),
             Err(Refusal::NotRelated(_))
                 if kind == Kind::Queue
+                    && reply_to.is_none()
+                    && !to.starts_with('#')
                     && parent_of(&db, from)?.is_none()
                     && !name_exists(&db, to)? =>
             {
-                check_held_room(&db, from)?;
-                enqueue(&db, from, None, kind, body)?;
-                self.publish_node(&db, from)?;
-                return Ok(None);
+                None
             }
             Err(e) => return Err(e),
         };
-        if matches!(state_of(&db, to_id)?, NodeState::Exited { .. }) {
-            return Err(Refusal::Ended(to.to_owned()));
-        }
-        check_room(&db, to_id, to)?;
-        let tx = db.transaction()?;
-        enqueue(&tx, from, Some(to_id), kind, body)?;
-        tx.commit()?;
-        self.publish_node(&db, to_id)?;
-        let child = if parent_of(&db, from)? == Some(to_id) {
-            from
+        if let Some(to_id) = to_id {
+            let exited: bool = db.query_row(
+                "SELECT process_exited FROM nodes WHERE id = ?1",
+                [to_id.0],
+                |row| row.get(0),
+            )?;
+            if exited {
+                return Err(Refusal::Ended(to.to_owned()));
+            }
+            check_room(&db, to_id, to)?;
         } else {
-            to_id
-        };
-        self.publish_message(child);
-        Ok(Some(to_id))
+            check_held_room(&db, from)?;
+        }
+        let tx = db.transaction()?;
+        let id = enqueue(&tx, from, to_id, kind, body)?;
+        if let Some(request) = reply_to {
+            // 답변을 쓰는 동안 원래 메시지의 보낸 노드와 받은 노드가 바뀌지 않았는지 본다.
+            let valid: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?1 AND recipient = ?2 AND sender = ?3)",
+                params![request.0, from.0, to_id.map(|id| id.0)], |row| row.get(0),
+            )?;
+            if !valid {
+                return Err(Refusal::NotFound(format!("메시지 #{}", request.0)));
+            }
+            tx.execute(
+                "UPDATE messages SET reply_to = ?2 WHERE id = ?1",
+                params![id.0, request.0],
+            )?;
+        }
+        if let Some(to_id) = to_id {
+            before_delivery(to_id);
+        }
+        tx.commit()?;
+        if let Some(to_id) = to_id {
+            self.publish_node(&db, to_id)?;
+            let child = if parent_of(&db, from)? == Some(to_id) {
+                from
+            } else {
+                to_id
+            };
+            self.publish_message(child);
+        } else {
+            self.publish_node(&db, from)?;
+        }
+        Ok(Sent {
+            id,
+            recipient: to_id,
+        })
     }
 
-    /// 가장 먼저 온 메시지 하나를 꺼낸다. 없으면 올 때까지 기다린다. 받은 쪽은 `ack`로 확인한다.
-    pub async fn wait(&self, node: NodeId) -> Result<Delivery, Refusal> {
+    /// 답변 대기는 훅이 이미 받은 답도 찾는다. 다른 소비자 때문에 답을 놓치지 않는다.
+    pub async fn wait(
+        &self,
+        node: NodeId,
+        reply_to: Option<MessageId>,
+    ) -> Result<Delivery, Refusal> {
+        if let Some(request) = reply_to {
+            let owns: bool = self.lock().query_row(
+                "SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?1 AND sender = ?2)",
+                params![request.0, node.0],
+                |row| row.get(0),
+            )?;
+            if !owns {
+                return Err(Refusal::NotFound(format!("메시지 #{}", request.0)));
+            }
+        }
         loop {
-            // 확인하기 전에 깨우기 신호를 받을 준비를 한다. 그래야 확인과 기다림 사이에 온 메시지를 놓치지 않는다.
             let mut notified = pin!(self.mail_changed());
             notified.as_mut().enable();
-            if let Some(delivery) = self.take(node, Kind::ALL, 0)?.pop() {
+            let delivery = match reply_to {
+                Some(request) => self
+                    .lock()
+                    .query_row(
+                        "SELECT id, sender_name, kind, body, reply_to FROM messages
+                     WHERE recipient = ?1 AND reply_to = ?2 ORDER BY id LIMIT 1",
+                        params![node.0, request.0],
+                        read_delivery,
+                    )
+                    .optional()?,
+                None => self.take(node, Kind::ALL, 0)?.pop(),
+            };
+            if let Some(delivery) = delivery {
                 return Ok(delivery);
             }
-            // 확인 없이 둔 메시지는 새 메시지 알림 없이 다시 꺼낼 수 있게 된다.
             let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
         }
     }
@@ -142,21 +261,14 @@ impl Graph {
             .expect("문자열 목록은 늘 직렬화된다");
         let queued = tx
             .prepare(
-                "SELECT id, sender_name, kind, body FROM messages
+                "SELECT id, sender_name, kind, body, reply_to FROM messages
                  WHERE recipient = ?1 AND delivered = 0
                  AND (sent_at IS NULL OR sent_at <= unixepoch() - ?3)
                  AND kind IN (SELECT value FROM json_each(?2)) ORDER BY id",
             )?
             .query_map(
                 params![node.0, kinds, REDELIVER_AFTER.as_secs() as i64],
-                |row| {
-                    Ok(Delivery {
-                        id: MessageId(row.get(0)?),
-                        from: row.get(1)?,
-                        kind: from_json(row, 2)?,
-                        body: row.get(3)?,
-                    })
-                },
+                read_delivery,
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut taken = Vec::new();
@@ -227,9 +339,6 @@ impl Graph {
             return Err(Refusal::AlreadyDone);
         }
         let parent = parent_of(&db, node)?;
-        if let Some(parent) = parent {
-            check_room(&db, parent, &name_of(&db, parent)?)?;
-        }
         let tx = db.transaction()?;
         set_state(
             &tx,
@@ -304,4 +413,32 @@ pub(super) fn enqueue(
     };
     events::write(db, &entry, Some(id))?;
     Ok(id)
+}
+
+fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
+    Ok(Delivery {
+        id: MessageId(row.get(0)?),
+        from: row.get(1)?,
+        kind: from_json(row, 2)?,
+        body: row.get(3)?,
+        reply_to: row.get::<_, Option<u32>>(4)?.map(MessageId),
+    })
+}
+
+fn recipient(
+    db: &Connection,
+    from: NodeId,
+    to: &str,
+) -> Result<(NodeId, Option<AgentId>), Refusal> {
+    let id = to.strip_prefix('#').and_then(|id| id.parse::<u32>().ok());
+    let found = db.prepare(
+        "SELECT id, agent FROM nodes WHERE (CASE WHEN ?3 IS NULL THEN name = ?2 ELSE id = ?3 END)
+         AND (parent = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)) LIMIT 2",
+    )?.query_map(params![from.0, to, id], |row| Ok((NodeId(row.get(0)?), from_json(row, 1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    match found.as_slice() {
+        [one] => Ok(one.clone()),
+        [] => Err(Refusal::NotRelated(to.to_owned())),
+        _ => Err(Refusal::Ambiguous(to.to_owned())),
+    }
 }

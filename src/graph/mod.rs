@@ -21,8 +21,8 @@ use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
 pub use events::EventRecord;
-pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER};
-pub use nodes::{Launched, NewChild};
+pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
+pub use nodes::{Launched, NewChild, Relations};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
@@ -168,7 +168,9 @@ impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Refusal::EmptyName => write!(f, "이름을 적는다."),
-            Refusal::NameTaken(name) => write!(f, "{name}: 부모나 형제가 이미 이 이름을 쓴다."),
+            Refusal::NameTaken(name) => {
+                write!(f, "{name}: 이미 쓰이거나 노드 번호 표기에 예약된 이름이다.")
+            }
             Refusal::TooDeep => write!(f, "중첩 깊이 상한을 넘는다. 자식을 더 만들지 않는다."),
             Refusal::TooManyChildren(max) => write!(
                 f,
@@ -206,7 +208,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::Ambiguous(name) => write!(
                 f,
-                "{name}: 이 이름의 노드가 둘 이상이다. 사람이 화면에서 부모를 바꾼다."
+                "{name}: 이 이름의 노드가 둘 이상이다. `loom status`로 번호를 찾고 `#번호`로 보낸다."
             ),
             Refusal::Launch(e) => write!(f, "노드를 띄우지 못했다: {e}"),
             Refusal::Db(e) => write!(f, "DB 오류: {e}"),
@@ -277,7 +279,7 @@ impl Drop for Db<'_> {
 }
 
 impl Graph {
-    /// 저장한 그래프를 연다. `running`이던 노드는 그대로 둔다. 프로세스가 살았는지는 데몬이 다시 붙어 보고 정한다(`running`, `lost`).
+    /// 저장한 그래프를 연다. `running`이던 노드는 그대로 둔다. 프로세스가 살았는지는 데몬이 다시 붙어 보고 정한다(`active`, `lost`).
     pub fn open(conn: Connection) -> rusqlite::Result<Self> {
         let published = events::last_id(&conn)?;
         Ok(Self {

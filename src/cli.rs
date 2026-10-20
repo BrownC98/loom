@@ -9,11 +9,14 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
-    AckRequest, AdoptRequest, DoneRequest, GuardRequest, SendRequest, SpawnRequest, SpawnRun,
-    TakeRequest,
+    AckRequest, AdoptRequest, DoneRequest, GuardRequest, ReplyRequest, SendRequest, SpawnRequest,
+    SpawnRun, TakeRequest, WaitRequest,
 };
-use crate::graph::{Delivery, Kind, NodeId};
+use crate::graph::{Delivery, Kind, MessageId, NodeId, Relations, Sent};
 use crate::profile::{AgentId, claude};
+
+/// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
+const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 
 /// `agent`가 없으면 `command`를 셸 명령 한 줄로 띄운다.
 pub fn spawn(
@@ -53,17 +56,63 @@ pub fn spawn(
 }
 
 pub fn send(to: String, kind: Kind, body: String) -> Result<(), String> {
-    let to: Option<NodeId> = call("send", &SendRequest { to, kind, body }, None)?;
-    if to.is_none() {
-        println!("부모가 없어 보관했다. 새 부모가 생기면 받는다.");
-    }
+    let sent: Sent = call("send", &SendRequest { to, kind, body }, None)?;
+    print_sent(&sent);
     Ok(())
 }
 
-/// 출력을 다 쓴 뒤 받음을 확인한다. 확인 전에 이 프로세스가 죽으면 데몬이 같은 메시지를 다시 준다.
-pub fn wait() -> Result<(), String> {
-    let Delivery { id, from, body, .. } = call("wait", &(), None)?;
-    println!("loom 메시지 #{} (보낸 노드: {from})\n{body}", id.0);
+pub fn reply(message: u32, body: String) -> Result<(), String> {
+    let sent: Sent = call(
+        "reply",
+        &ReplyRequest {
+            message: MessageId(message),
+            body,
+        },
+        None,
+    )?;
+    print_sent(&sent);
+    Ok(())
+}
+
+fn print_sent(sent: &Sent) {
+    match sent.recipient {
+        Some(to) => println!("loom 메시지 #{} → 노드 #{}", sent.id.0, to.0),
+        None => println!(
+            "loom 메시지 #{}를 보관했다. 새 부모가 생기면 받는다.",
+            sent.id.0
+        ),
+    }
+}
+
+pub fn status() -> Result<(), String> {
+    let relations: Relations = call("status", &(), None)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&relations).map_err(|e| e.to_string())?
+    );
+    Ok(())
+}
+
+/// 출력을 다 쓴 뒤 받음을 확인한다. 확인 전에 죽으면 같은 메시지를 다시 받는다.
+pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Result<(), String> {
+    let request = WaitRequest {
+        reply_to: reply_to.map(MessageId),
+        timeout_secs,
+    };
+    let timeout =
+        timeout_secs.map(|secs| Duration::from_secs(secs.saturating_add(WAIT_RESPONSE_GRACE_SECS)));
+    let delivery: Delivery = call("wait", &request, timeout)?;
+    let id = delivery.id;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&delivery).map_err(|e| e.to_string())?
+        );
+    } else {
+        println!("{}", crate::profile::message_text(&[delivery]));
+    }
+    // 파이프에 본문을 넘기기 전에 확인하지 않는다.
+    std::io::Write::flush(&mut std::io::stdout()).map_err(|e| e.to_string())?;
     call::<()>("ack", &AckRequest { ids: vec![id] }, None).map_err(|e| {
         format!(
             "받음 확인을 보내지 못했다: {e}. 같은 메시지 #{}가 다시 올 수 있다.",

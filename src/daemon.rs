@@ -31,7 +31,7 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, MessageId, Model, NewChild, NodeId,
-    Place, REDELIVER_AFTER, Refusal, TreeLimits,
+    Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
 };
 use crate::node_host::NodeHost;
 use crate::process_tree;
@@ -217,6 +217,19 @@ pub struct SendRequest {
     pub body: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ReplyRequest {
+    pub message: MessageId,
+    pub body: String,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WaitRequest {
+    pub reply_to: Option<MessageId>,
+    pub timeout_secs: Option<u64>,
+}
+
 /// `loom hook`의 요청. `kinds` 가운데 하나인 메시지를 꺼낸다. 본문 합 상한은 `limit_bytes`다(첫 메시지는 늘 꺼낸다).
 #[derive(Serialize, Deserialize)]
 pub struct TakeRequest {
@@ -308,6 +321,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let node_routes = Router::new()
         .route("/api/agent/send", post(agent_send))
         .route("/api/agent/wait", post(agent_wait))
+        .route("/api/agent/reply", post(agent_reply))
+        .route("/api/agent/status", post(agent_status))
         .route("/api/agent/take", post(agent_take))
         .route("/api/agent/ack", post(agent_ack))
         .route("/api/agent/guard", post(agent_guard))
@@ -511,7 +526,7 @@ impl App {
     /// 호스트가 없으면 노드는 코드 없는 `exited`가 되고, 남은 서버를 끝낸다.
     /// 그 뒤 붙지 않은 호스트(꺼진 동안 지운 노드, 앞 데몬의 로그인 창)를 끝낸다.
     async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
-        for node in self.graph.running()? {
+        for node in self.graph.active()? {
             let (codex, opencode2) = match node.server.clone() {
                 Some(ServerLink::Codex { url, pid, thread }) => {
                     match CodexServer::reconnect(url, pid, thread).await {
@@ -813,6 +828,9 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                 .take(node, codex::kinds(status), codex::INPUT_LIMIT_BYTES)
             {
                 Ok(taken) if !taken.is_empty() => {
+                    if taken.iter().any(|d| d.kind == Kind::Interrupt) {
+                        server.stop_shells();
+                    }
                     let call = |method, params| server.call(method, params);
                     match codex::deliver(call, &now.id, status, &taken).await {
                         Ok(()) => {
@@ -962,9 +980,9 @@ async fn agent_send(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<SendRequest>,
-) -> Result<Json<Option<NodeId>>, AgentError> {
+) -> Result<Json<Sent>, AgentError> {
     let from = app.caller(&headers)?;
-    let sent = send(&app, from, &req).await;
+    let sent = send(&app, from, &req);
     // 거절은 보낸 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
     if let Err(reason) = &sent
         && !matches!(reason, Refusal::Db(_))
@@ -976,35 +994,41 @@ async fn agent_send(
     sent.map(Json).map_err(for_agent)
 }
 
-async fn send(app: &App, from: NodeId, req: &SendRequest) -> Result<Option<NodeId>, Refusal> {
+fn send(app: &App, from: NodeId, req: &SendRequest) -> Result<Sent, Refusal> {
     if req.kind != Kind::Queue {
         let (to, agent) = app.graph.recipient(from, &req.to)?;
-        // 조정·중단은 프로필(훅·app-server)이 있는 노드만 받는다. 큐로 바꿔 보내지 않는다. 근거: docs/design.md 「명령」.
+        let target = format!("#{}", to.0);
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
-        // 셸을 먼저 끝낸다. 메시지를 먼저 넣으면 그 셸 안의 `loom wait`가 본문을 꺼낸 뒤 죽어 본문을 잃을 수 있다.
-        if req.kind == Kind::Interrupt {
-            match profile {
-                Profile::Claude => {
-                    app.host.stop_guarded(to);
-                }
-                Profile::Codex => {
-                    let server = app.codex.lock().unwrap().get(&to).cloned();
-                    if let Some(server) = server {
-                        server.stop_shells();
-                    }
-                }
-                Profile::OpenCode2 => {
-                    let node = app.opencode2.lock().unwrap().get(&to).cloned();
-                    if let Some(node) = node {
-                        node.stop_shells().await;
-                    }
-                }
-            }
+        if req.kind == Kind::Interrupt && profile == Profile::Claude {
+            return app.graph.interrupt(from, &target, &req.body, |to| {
+                app.host.stop_guarded(to);
+            });
         }
+        return app.graph.send(from, &target, req.kind, &req.body);
     }
     app.graph.send(from, &req.to, req.kind, &req.body)
+}
+
+async fn agent_reply(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<ReplyRequest>,
+) -> Result<Json<Sent>, AgentError> {
+    let from = app.caller(&headers)?;
+    app.graph
+        .reply(from, req.message, &req.body)
+        .map(Json)
+        .map_err(for_agent)
+}
+
+async fn agent_status(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<Relations>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.graph.relations(node).map(Json).map_err(for_agent)
 }
 
 async fn agent_take(
@@ -1053,9 +1077,22 @@ async fn agent_model(
 async fn agent_wait(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
+    Json(req): Json<WaitRequest>,
 ) -> Result<Json<Delivery>, AgentError> {
     let node = app.caller(&headers)?;
-    Ok(Json(app.graph.wait(node).await.map_err(for_agent)?))
+    let wait = app.graph.wait(node, req.reply_to);
+    let result = match req.timeout_secs {
+        Some(secs) => tokio::time::timeout(std::time::Duration::from_secs(secs), wait)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::REQUEST_TIMEOUT,
+                    "메시지 대기 시간이 끝났다.".to_owned(),
+                )
+            })?,
+        None => wait.await,
+    };
+    Ok(Json(result.map_err(for_agent)?))
 }
 
 async fn agent_done(

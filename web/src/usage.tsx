@@ -1,11 +1,12 @@
 // 계정과 사용량을 보이는 공용 부품. 상태 줄, 설정 창, 새 노드 창이 같은 문구와 색을 쓴다.
+import { useEffect, useState } from 'react';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Window } from './gen/Window';
-import i18next, { ago, weekdayAndTime } from './i18n';
+import i18next, { ago, duration, weekdayAndTime } from './i18n';
 import { usageProblemText } from './problem';
 
 /** 이 비율 이상 쓰면 막대가 노란색이다(목업 usage.html). */
@@ -70,15 +71,30 @@ function windows(limits: Limits): NamedWindow[] {
   return [...accountWindows(limits), ...models];
 }
 
-/** 창마다 이름, 막대, 사용한 비율 한 줄. 사용량이 없으면 아무것도 그리지 않는다. */
+/** 창마다 이름, 막대, 사용한 비율, 남은 시간 한 줄. 사용량이 없으면 아무것도 그리지 않는다. */
 export function WindowLines(props: { limits: Limits }) {
-  return windows(props.limits).map(({ label, window: w }) => (
-    <span className="win-line" key={label}>
-      <span>{label}</span>
-      <Meter used={w.used} />
-      <span className="pct">{w.used}%</span>
-    </span>
-  ));
+  const now = useMinute();
+  return windows(props.limits).map(({ label, window: w }) => {
+    const left = remainingText(w.resetsAt, now);
+    return (
+      <span className="win-line" key={label}>
+        <span>{label}</span>
+        <Meter used={w.used} />
+        <span className="pct">{w.used}%</span>
+        <span className="left">{left}</span>
+      </span>
+    );
+  });
+}
+
+/** 남은 시간이 1분마다 줄도록 다시 그린다. */
+function useMinute(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
 }
 
 /** 상태 줄 안의 짧은 표시: 막대와 「5시간 58%」. */
@@ -97,6 +113,13 @@ export function windowsText(limits: Limits): string {
   return windows(limits)
     .map(({ label, window: w }) => i18next.t('usage.windowUsed', { window: label, n: w.used }))
     .join(', ');
+}
+
+/** 예: 「3시간 12분 남음」. 초기화 시각이 없으면 빈 글자다. */
+export function remainingText(resetsAt: number | null, now: number): string {
+  const ms = resetsAt === null ? null : resetsAt * 1000 - now;
+  if (ms === null) return '';
+  return ms < 60 * 1000 ? i18next.t('usage.soon') : i18next.t('usage.remaining', { left: duration(ms) });
 }
 
 /** 예: 「5시간 창 초기화 (월) 15:40 · 주간 창 초기화 (목) 09:00」. 모델 창은 주간 창과 함께 초기화되므로 넣지 않는다(목업 usage.html). */

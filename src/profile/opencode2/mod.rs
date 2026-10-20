@@ -29,15 +29,12 @@ const PROMPT_ATTEMPTS: u32 = 5;
 const PROMPT_RETRY_DELAY: Duration = Duration::from_secs(1);
 
 /// 세션 지시 항목(`instructions/entries/loom`). 모델이 모든 턴에 본다(실측).
-const USAGE: &str = "\
-너는 loom 그래프의 노드다. loom은 부모·자식 노드 사이 메시지를 나른다. 명령은 셸로 부른다.
-- `loom spawn <이름> --agent opencode2` (지시문은 stdin, `--file <경로>`): 자식 노드를 만든다. `--agent claude`, `--agent codex`도 된다.
-- `loom send <이름> <본문>`: 부모나 자식에게 보낸다. 받는 노드의 턴을 끊지 않는다.
-- `loom steer <이름> <본문>`: 일하는 자식의 턴에 넣는다.
-- `loom interrupt <이름> <본문>`: 자식이 하던 일을 멈추게 하고 이 본문을 따르게 한다.
-- `loom done <요약>` / `loom done --file <경로>`: 결과를 부모에게 보내고 끝낸다. 요약은 1KB, 본문은 4KB 이하다.
-받은 메시지는 「loom 메시지」로 시작하는 입력으로 들어온다. 중단 메시지를 받으면 하던 일을 멈추고 그 본문을 따른다.
-자식의 결과를 기다리는 동안 할 일이 없으면 턴을 끝낸다. 자식의 결과는 새 입력으로 들어온다. `loom wait`는 부르지 않는다.";
+fn usage() -> String {
+    format!(
+        "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages arrive as new input automatically. Do not run an unbounded loom wait.",
+        super::COMMUNICATION_USAGE
+    )
+}
 
 /// `opencode` TUI 시작 인자. 카탈로그의 `--standalone`(비공개 서버)은 `--server`와 함께 쓸 수 없다.
 pub fn args(url: &str, session: &str) -> Vec<String> {
@@ -106,7 +103,7 @@ impl Node {
                 return Err(e);
             }
         };
-        if let Err(e) = server.put_instructions(&session, "loom", USAGE).await {
+        if let Err(e) = server.put_instructions(&session, "loom", &usage()).await {
             server.stop();
             return Err(e);
         }
@@ -182,6 +179,9 @@ impl Node {
             let changed = mailbox.changed();
             match next(&mailbox) {
                 Ok(Some(batch)) => {
+                    if batch.interrupt {
+                        self.stop_shells().await;
+                    }
                     match deliver(&api, &batch, PROMPT_RETRY_DELAY).await {
                         Ok(()) => {
                             if let Err(e) = mailbox.ack(&batch.taken) {
@@ -337,6 +337,7 @@ mod tests {
             from: "부모".into(),
             kind,
             body: body.into(),
+            reply_to: None,
         }
     }
 

@@ -98,6 +98,13 @@ const STEPS: &[M] = &[
     // 13: 노드가 데몬을 부를 때 내는 토큰과, 노드 서버에 다시 붙는 값(graph). 노드 프로세스는 데몬이 다시 시작해도 살므로
     // 새 데몬도 같은 토큰을 받아야 한다. `server`는 serde JSON 문자열(`ServerLink`)이고 서버가 없는 노드는 NULL이다.
     M::up("ALTER TABLE nodes ADD COLUMN token TEXT; ALTER TABLE nodes ADD COLUMN server TEXT;"),
+    // 14: 작업 완료와 프로세스 종료를 나눈다. 답변은 원래 메시지 번호로 연결한다.
+    M::up(
+        "ALTER TABLE nodes ADD COLUMN process_exited INTEGER NOT NULL DEFAULT 0;
+        UPDATE nodes SET process_exited = 1 WHERE state ->> 'kind' = 'exited';
+        ALTER TABLE messages ADD COLUMN reply_to INTEGER;
+        CREATE INDEX messages_replies ON messages(recipient, reply_to) WHERE reply_to IS NOT NULL;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -139,6 +146,37 @@ mod tests {
     #[test]
     fn migrations_are_valid() {
         super::MIGRATIONS.validate().unwrap();
+    }
+
+    #[test]
+    fn step_14_preserves_completion_and_marks_only_exited_processes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 13).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO nodes(name, agent, state) VALUES
+            ('running', 'null', '{"kind":"running"}'),
+            ('done', 'null', '{"kind":"done","summary":"finished"}'),
+            ('exited', 'null', '{"kind":"exited","code":0}');"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let states = conn
+            .prepare("SELECT state, process_exited FROM nodes ORDER BY id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            states,
+            vec![
+                (r#"{"kind":"running"}"#.into(), false),
+                (r#"{"kind":"done","summary":"finished"}"#.into(), false),
+                (r#"{"kind":"exited","code":0}"#.into(), true),
+            ]
+        );
     }
 
     #[test]

@@ -60,7 +60,21 @@ enum Cli {
     /// Claude·Codex·OpenCode 2 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다.
     Interrupt { name: String, body: String },
     /// 메시지가 올 때까지 기다렸다가 본문을 출력한다.
-    Wait,
+    Wait {
+        /// 이 메시지에 대한 답변만 찾는다. 이미 훅이 받은 답도 찾는다.
+        #[arg(long)]
+        reply_to: Option<u32>,
+        /// 이 초 안에 답이 없으면 실패한다.
+        #[arg(long = "timeout")]
+        timeout_secs: Option<u64>,
+        /// 메시지 번호와 답변 대상을 JSON으로 출력한다.
+        #[arg(long)]
+        json: bool,
+    },
+    /// 받은 메시지 번호를 지정해 보낸 노드에게 답한다.
+    Reply { message: u32, body: String },
+    /// 내 번호, 현재 부모와 자식, 프로세스 생존 여부를 출력한다.
+    Status,
     /// 결과를 부모에게 보내고 이 노드를 done으로 바꾼다.
     Done {
         #[arg(required_unless_present = "file")]
@@ -97,7 +111,13 @@ fn main() -> ExitCode {
         Cli::Interrupt { name, body } => cli::send(name, Kind::Interrupt, body),
         Cli::Hook => cli::hook(),
         Cli::Guard => cli::guard(),
-        Cli::Wait => cli::wait(),
+        Cli::Wait {
+            reply_to,
+            timeout_secs,
+            json,
+        } => cli::wait(reply_to, timeout_secs, json),
+        Cli::Reply { message, body } => cli::reply(message, body),
+        Cli::Status => cli::status(),
         Cli::Done { summary, file } => cli::done(summary, file),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::PtyHost => node_host::run(),

@@ -427,7 +427,7 @@ async fn wait_returns_when_a_message_arrives() {
 
     let waiting = tokio::spawn({
         let g = g.clone();
-        async move { g.wait(lead).await.unwrap() }
+        async move { g.wait(lead, None).await.unwrap() }
     });
     tokio::task::yield_now().await;
     assert!(!waiting.is_finished());
@@ -633,6 +633,13 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
         bodies(&g.take(lead, Kind::ALL, usize::MAX).unwrap()),
         ["하나", "둘", "done: 요약"]
     );
+    assert_eq!(
+        take(&g, worker),
+        delivery(
+            "총괄-1",
+            "parent: 총괄-1 (#1). Use loom status to inspect current relationships."
+        )
+    );
     // 새 부모와는 보관 없이 바로 주고받는다.
     g.send(lead, "조사-1", Kind::Queue, "다음").unwrap();
     assert_eq!(take(&g, worker), delivery("총괄-1", "다음"));
@@ -787,6 +794,17 @@ fn records_node_and_message_events_in_order() {
                 None
             ),
             (
+                Entry::Message {
+                    how: Kind::Queue,
+                    from: who(other, "검토-1"),
+                    to: Some(who(a, "a")),
+                    step: Step::Sent,
+                },
+                Some(
+                    "parent: 검토-1 (#3). Use loom status to inspect current relationships.".into()
+                ),
+            ),
+            (
                 Entry::Adopted {
                     node: who(a, "a"),
                     from: Some(who(lead, "총괄-1")),
@@ -910,8 +928,8 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
         (lead, a)
     };
     let g = open(&path);
-    let running = g.running().unwrap();
-    assert_eq!(running.len(), 1);
+    let running = g.active().unwrap();
+    assert_eq!(running.len(), 2);
     assert_eq!(running[0].id, lead);
     assert_eq!(running[0].agent, Some(AgentId("codex".into())));
     assert_eq!(running[0].server, Some(server));
@@ -920,16 +938,23 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
     assert_eq!(g.caller(&format!("t{}", a.0)).unwrap(), Some(a));
     assert_eq!(g.caller("t999").unwrap(), None);
     g.lost(lead).unwrap();
-    let (entry, _) = recorded(&g).pop().unwrap();
+    let records = recorded(&g);
     assert_eq!(
-        entry,
+        records.last().unwrap().1.as_deref(),
+        Some("exited(unknown)")
+    );
+    assert_eq!(
+        records[records.len() - 2].0,
         events::Entry::State {
             node: who(lead, "codex-1"),
             from: NodeState::Running,
             to: NodeState::Exited { code: None }
         }
     );
-    assert!(g.running().unwrap().is_empty());
+    assert_eq!(
+        g.active().unwrap().iter().map(|n| n.id).collect::<Vec<_>>(),
+        vec![a]
+    );
 }
 
 #[test]
@@ -1009,4 +1034,227 @@ fn settle_moves_nodes_without_a_place_to_the_start_repo() {
     g.settle(&home()).unwrap();
     let views = g.subscribe().unwrap().0;
     assert_eq!(views[0].place, home());
+}
+
+#[test]
+fn recipient_names_cannot_collide_across_three_generations() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let middle = child(&g, lead, "middle");
+    assert!(matches!(
+        g.add_child(middle, named("lead-1"), TreeLimits::default(), launched),
+        Err(Refusal::NameTaken(_))
+    ));
+    let leaf = child(&g, middle, "leaf");
+    // 옛 데이터에 이름 충돌이 있어도 수신자를 임의로 고르지 않는다.
+    g.lock()
+        .execute("UPDATE nodes SET name = 'lead-1' WHERE id = ?1", [leaf.0])
+        .unwrap();
+    assert!(matches!(
+        g.send(middle, "lead-1", Kind::Queue, "message"),
+        Err(Refusal::Ambiguous(_))
+    ));
+    let sent = g
+        .send(middle, &format!("#{}", leaf.0), Kind::Queue, "leaf only")
+        .unwrap();
+    assert_eq!(sent.recipient, Some(leaf));
+    assert_eq!(take(&g, leaf), delivery("middle", "leaf only"));
+    assert_eq!(take(&g, lead), None);
+}
+
+#[test]
+fn adoption_checks_names_on_both_sides_of_the_new_edge() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let old = root(&g, "old");
+    let middle = child(&g, old, "middle");
+    let leaf = child(&g, middle, "new-1");
+    let new = root(&g, "new");
+    assert!(matches!(
+        g.adopt(new, middle, TreeLimits::default()),
+        Err(Refusal::NameTaken(_))
+    ));
+    assert_eq!(view(&g, middle).parent, Some(old));
+    let other = child(&g, new, "other");
+    assert!(matches!(
+        g.adopt(other, leaf, TreeLimits::default()),
+        Err(Refusal::NameTaken(_))
+    ));
+    assert_eq!(view(&g, leaf).parent, Some(middle));
+}
+
+#[test]
+fn rejected_interrupts_do_not_stop_the_recipient() {
+    use std::cell::Cell;
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    let stopped = Cell::new(0);
+    assert!(matches!(
+        g.interrupt(lead, "worker", &"x".repeat(4097), |_| stopped
+            .set(stopped.get() + 1)),
+        Err(Refusal::BriefTooLong(_))
+    ));
+    for _ in 0..50 {
+        g.send(lead, "worker", Kind::Queue, "status").unwrap();
+    }
+    assert!(matches!(
+        g.interrupt(lead, "worker", "cancel", |_| stopped.set(stopped.get() + 1)),
+        Err(Refusal::MailboxFull(_))
+    ));
+    assert_eq!(stopped.get(), 0);
+    take(&g, worker);
+    g.interrupt(lead, "worker", "cancel", |id| {
+        assert_eq!(id, worker);
+        stopped.set(stopped.get() + 1);
+    })
+    .unwrap();
+    assert_eq!(stopped.get(), 1);
+    g.exited(worker, 0).unwrap();
+    assert!(matches!(
+        g.interrupt(lead, "worker", "cancel", |_| stopped.set(stopped.get() + 1)),
+        Err(Refusal::Ended(_))
+    ));
+    assert_eq!(stopped.get(), 1);
+}
+
+#[test]
+fn completion_and_lost_notices_bypass_a_full_parent_mailbox() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    let lost = child(&g, lead, "lost");
+    for _ in 0..50 {
+        g.send(worker, "lead-1", Kind::Queue, "status").unwrap();
+    }
+    g.done(worker, "finished").unwrap();
+    g.lost(lost).unwrap();
+    g.lost(lost).unwrap();
+    assert_eq!(
+        view(&g, worker).state,
+        NodeState::Done {
+            summary: "finished".into()
+        }
+    );
+    let messages = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(messages.len(), 52);
+    assert_eq!(
+        bodies(messages.iter().skip(50)),
+        ["done: finished", "exited(unknown)"]
+    );
+}
+
+#[test]
+fn completed_nodes_receive_feedback_until_the_process_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let g = open(&path);
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    g.done(worker, "finished").unwrap();
+    g.send(lead, "worker", Kind::Queue, "feedback").unwrap();
+    assert_eq!(take(&g, worker), delivery("lead-1", "feedback"));
+    drop(g);
+    let g = open(&path);
+    assert!(g.active().unwrap().iter().any(|n| n.id == worker));
+    assert!(g.relations(worker).unwrap().me.alive);
+    g.exited(worker, 0).unwrap();
+    assert!(!g.relations(worker).unwrap().me.alive);
+    assert!(!g.active().unwrap().iter().any(|n| n.id == worker));
+    assert_eq!(
+        view(&g, worker).state,
+        NodeState::Done {
+            summary: "finished".into()
+        }
+    );
+    assert!(matches!(
+        g.send(lead, "worker", Kind::Queue, "more feedback"),
+        Err(Refusal::Ended(_))
+    ));
+}
+
+#[tokio::test]
+async fn replies_match_the_request_even_after_another_consumer_acknowledged_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let g = open(&path);
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    let first = g
+        .send(lead, "worker", Kind::Queue, "first question")
+        .unwrap();
+    let second = g
+        .send(lead, "worker", Kind::Queue, "second question")
+        .unwrap();
+    assert!(matches!(
+        g.reply(lead, first.id, "forged"),
+        Err(Refusal::NotFound(_))
+    ));
+    g.reply(worker, second.id, "second answer").unwrap();
+    g.reply(worker, first.id, "first answer").unwrap();
+    // Stop 훅이 먼저 받아도 기다리는 질문의 답을 찾는다.
+    let deliveries = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    g.ack(lead, &deliveries.iter().map(|d| d.id).collect::<Vec<_>>())
+        .unwrap();
+    drop(g);
+    let g = open(&path);
+    let answer = g.wait(lead, Some(first.id)).await.unwrap();
+    assert_eq!(answer.body, "first answer");
+    assert_eq!(answer.reply_to, Some(first.id));
+    assert_eq!(
+        g.wait(lead, Some(second.id)).await.unwrap().body,
+        "second answer"
+    );
+    assert!(matches!(
+        g.wait(worker, Some(first.id)).await,
+        Err(Refusal::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn waiting_for_a_reply_keeps_unrelated_mail_and_can_be_cancelled() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    let question = g.send(lead, "worker", Kind::Queue, "question").unwrap();
+    g.send(worker, "lead-1", Kind::Queue, "unrelated").unwrap();
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(5),
+            g.wait(lead, Some(question.id))
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(take(&g, lead), delivery("worker", "unrelated"));
+    g.reply(worker, question.id, "answer").unwrap();
+    assert_eq!(
+        g.wait(lead, Some(question.id)).await.unwrap().body,
+        "answer"
+    );
+}
+
+#[test]
+fn current_parent_is_available_to_the_child_after_adoption() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let old = root(&g, "old");
+    let worker = child(&g, old, "worker");
+    let new = root(&g, "new");
+    g.adopt(new, worker, TreeLimits::default()).unwrap();
+    let relations = g.relations(worker).unwrap();
+    assert_eq!(relations.parent.unwrap().id, new);
+    assert!(relations.me.alive);
+    assert_eq!(g.relations(new).unwrap().children[0].id, worker);
+    assert_eq!(
+        take(&g, worker),
+        delivery(
+            "new-1",
+            "parent: new-1 (#3). Use loom status to inspect current relationships."
+        )
+    );
 }

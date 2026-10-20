@@ -64,6 +64,32 @@ function openLink(uri: string) {
   }
 }
 
+type Point = { clientX: number; clientY: number };
+type MouseService = {
+  getCoords: (event: Point, element: HTMLElement, ...rest: never[]) => unknown;
+  getMouseReportCoords: (event: Point, element: HTMLElement) => unknown;
+};
+
+/**
+ * 그래프 캔버스는 카드를 CSS `scale`로 줄이거나 키워 그린다. xterm은 마우스 위치에서 이 배율을 빼지 않아
+ * 링크·글자 선택·TUI 마우스 클릭이 누른 곳과 다른 칸을 고른다(2026-10-20 사람 보고 "터미널 링크가 화면이 클때만 작동함").
+ * xterm 내부 `MouseService`의 두 함수 앞에서 위치를 배율 1로 되돌린다. 두 함수는 `clientX`·`clientY`만 읽는다.
+ * 내부가 바뀌어 없으면 고치지 않는다.
+ */
+function unscaleMouse(xterm: XTerm) {
+  const mouse = (xterm as unknown as { _core?: { _mouseService?: MouseService } })._core?._mouseService;
+  if (!mouse?.getCoords || !mouse.getMouseReportCoords) return;
+  const unscale = (event: Point, element: HTMLElement): Point => {
+    const rect = element.getBoundingClientRect();
+    const scale = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1;
+    if (scale === 1 || !Number.isFinite(scale) || scale <= 0) return event;
+    return { clientX: rect.left + (event.clientX - rect.left) / scale, clientY: rect.top + (event.clientY - rect.top) / scale };
+  };
+  const { getCoords, getMouseReportCoords } = mouse;
+  mouse.getCoords = (event, element, ...rest) => getCoords.call(mouse, unscale(event, element), element, ...rest);
+  mouse.getMouseReportCoords = (event, element) => getMouseReportCoords.call(mouse, unscale(event, element), element);
+}
+
 function focusSoon(xterm: XTerm) {
   requestAnimationFrame(() => {
     if (!(document.activeElement instanceof HTMLInputElement)) xterm.focus();
@@ -118,6 +144,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
       const fitAddon = new FitAddon();
       xterm.loadAddon(fitAddon);
       xterm.open(el);
+      unscaleMouse(xterm);
       latest.current.loadRenderer?.(xterm);
       term.current = xterm;
       fit.current = fitAddon;

@@ -1238,6 +1238,111 @@ async fn waiting_for_a_reply_keeps_unrelated_mail_and_can_be_cancelled() {
     );
 }
 
+/// loom-mode 한 바퀴: 총괄이 코디를, 코디가 워커를 띄운다. 묻고 답하고, 완료와 반려를 주고받는다.
+/// 회수는 데몬 `delete_worktree`와 같이 워크트리마다 `nodes_in` 다음 `remove`를 부른다.
+#[tokio::test]
+async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let spawn = |parent, name, worktree, brief| {
+        g.add_child(
+            parent,
+            NewChild {
+                name,
+                worktree: Some(worktree),
+                agent: Some(AgentId("claude".into())),
+                brief,
+            },
+            TreeLimits::default(),
+            launched,
+        )
+        .unwrap()
+    };
+    let coord = spawn(
+        lead,
+        "코디-1",
+        "/ws/loom/1-기능",
+        "Read coord.md and follow it.",
+    );
+    assert_eq!(
+        take(&g, coord),
+        delivery("claude-1", "Read coord.md and follow it.")
+    );
+    let worker = spawn(
+        coord,
+        "워커-1-화면",
+        "/ws/loom/1-화면",
+        "Read worker.md and follow it.",
+    );
+    assert_eq!(
+        take(&g, worker),
+        delivery("코디-1", "Read worker.md and follow it.")
+    );
+    assert_eq!(view(&g, worker).place.worktree, "/ws/loom/1-화면");
+    // 깊이 상한 2: 워커는 자식을 만들지 못한다.
+    assert!(matches!(
+        g.add_child(worker, named("손자"), TreeLimits::default(), launched),
+        Err(Refusal::TooDeep)
+    ));
+    // 메시지는 한 단계씩만 간다.
+    assert!(matches!(
+        g.send(lead, "워커-1-화면", Kind::Queue, "x"),
+        Err(Refusal::NotRelated(_))
+    ));
+
+    let question = g
+        .send(worker, "코디-1", Kind::Queue, "QUESTION: 색은?")
+        .unwrap();
+    assert_eq!(take(&g, coord), delivery("워커-1-화면", "QUESTION: 색은?"));
+    g.reply(coord, question.id, "ANSWER: 파랑").unwrap();
+    let answer = g.wait(worker, Some(question.id)).await.unwrap();
+    assert_eq!(
+        (answer.from.as_str(), answer.body.as_str()),
+        ("코디-1", "ANSWER: 파랑")
+    );
+    g.ack(worker, &[answer.id]).unwrap();
+    g.send(coord, "claude-1", Kind::Queue, "STATUS: 워커 하나")
+        .unwrap();
+    assert_eq!(take(&g, lead), delivery("코디-1", "STATUS: 워커 하나"));
+
+    g.done(worker, "1-화면 커밋").unwrap();
+    assert_eq!(
+        take(&g, coord),
+        delivery("워커-1-화면", "done: 1-화면 커밋")
+    );
+    // 완료한 워커도 반려를 받는다. 두 번째 done은 거절하므로 send로 보고한다.
+    g.send(coord, "워커-1-화면", Kind::Queue, "Rework: 여백")
+        .unwrap();
+    assert_eq!(take(&g, worker), delivery("코디-1", "Rework: 여백"));
+    assert!(matches!(g.done(worker, "다시"), Err(Refusal::AlreadyDone)));
+    g.send(worker, "코디-1", Kind::Queue, "REWORK DONE: 여백")
+        .unwrap();
+    assert_eq!(
+        take(&g, coord),
+        delivery("워커-1-화면", "REWORK DONE: 여백")
+    );
+    g.done(coord, "1-기능 병합 준비").unwrap();
+    assert_eq!(take(&g, lead), delivery("코디-1", "done: 1-기능 병합 준비"));
+    let children = g.relations(lead).unwrap().children;
+    assert_eq!(children.len(), 1);
+    assert!(children[0].alive);
+
+    for worktree in ["/ws/loom/1-화면", "/ws/loom/1-기능"] {
+        for node in g.nodes_in(worktree).unwrap() {
+            g.remove(node).unwrap();
+        }
+    }
+    // 끝난 노드를 지우면 부모에게 `removed`를 다시 보내지 않는다.
+    assert_eq!(take(&g, lead), None);
+    assert!(g.relations(lead).unwrap().children.is_empty());
+    let ids: Vec<_> = g.subscribe().unwrap().0.iter().map(|v| v.id).collect();
+    assert_eq!(ids, [lead]);
+    for gone in [coord, worker] {
+        assert_eq!(g.caller(&format!("t{}", gone.0)).unwrap(), None);
+    }
+}
+
 #[test]
 fn current_parent_is_available_to_the_child_after_adoption() {
     let dir = tempfile::tempdir().unwrap();

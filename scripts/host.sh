@@ -2,16 +2,22 @@
 # 이 체크아웃으로 호스트(Linux)의 loom을 바꾸고 데몬을 다시 띄운다. 사람이 쓰는 loom을 올릴 때 원래 체크아웃(main)에서 부른다.
 # 노드는 데몬과 따로 살아 새 데몬이 다시 붙는다. 데몬은 이 폴더를 시작 폴더로, LOOM_PORT(기본 7420)에서 듣는다.
 # 출력은 ~/.loom/serve.log다. 근거: docs/design.md 「배포」.
+# 빌드는 이 체크아웃의 커밋(HEAD)만 쓴다. 작업 폴더의 미커밋 변경은 올라가지 않는다. 그래서 다른 작업이 커밋하지 않은 변경이 있어도 바로 올릴 수 있다.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 bin=$HOME/loom/bin/loom
 port=${LOOM_PORT:-7420}
+build=$HOME/.loom/host-build
 
-bash scripts/worktree/setup.sh
-LOOM_VERSION=$(sh scripts/version.sh) memcap -m 8G cargo build --release
+# 빌드 전용 복제를 HEAD로 옮긴다. 워크트리로 두지 않는다: 화면이 `git worktree list`를 묶음으로 보이기 때문이다.
+# target 폴더를 다시 써서 빌드가 빠르다.
+[ -e "$build/.git" ] || git clone --quiet --no-checkout . "$build"
+git -C "$build" fetch --quiet "$PWD" HEAD
+git -C "$build" checkout --detach --quiet --force FETCH_HEAD
+(cd "$build" && bash scripts/worktree/setup.sh && LOOM_VERSION=$(sh scripts/version.sh) memcap -m 8G cargo build --release)
 mkdir -p "$(dirname "$bin")" "$HOME/.loom"
 # 새 파일로 바꿔 넣는다(rename). 도는 PTY 호스트는 옛 파일을 계속 쓴다.
-cp target/release/loom "$bin.new"
+cp "$build/target/release/loom" "$bin.new"
 mv "$bin.new" "$bin"
 
 pidfile=$HOME/.loom/serve.pid

@@ -170,11 +170,46 @@ const overlaps = (a: Box, b: Box) =>
   a.at.x < b.at.x + b.size.width && b.at.x < a.at.x + a.size.width && a.at.y < b.at.y + b.size.height && b.at.y < a.at.y + a.size.height;
 
 /**
- * 겹친 상자를 형제가 늘어서는 쪽(아래·위로 정렬이면 오른쪽, 오른쪽·왼쪽으로면 아래)으로 민다(목업 docs/mockups/overlap.html A안).
- * 마지막에 놓은 상자를 먼저 두고, 나머지는 그 축에서 앞선 상자부터 둔다. 앞에 둔 상자와 겹치면 그 상자 너머 `lane` 틈 자리로 민다.
+ * 겹친 상자를 푼다(목업 docs/mockups/overlap.html A안). 마지막에 놓은 상자(`pinned`)가 다른 상자에 걸치면,
+ * 걸친 상자는 그대로 두고 놓은 상자를 그 옆으로 붙인다. 놓은 상자의 중심이 걸친 상자의 중심보다 앞(형제가 늘어서는 쪽의 반대)이면 앞에, 뒤면 뒤에 붙인다.
+ * 그래서 중심선을 넘어야 순서가 바뀐다(2026-10-20 사람 지시 "중앙선 넘어가야 포지션 바뀌게 해줘").
+ * 붙일 자리가 다른 상자와 겹치면 끼워 넣는다: 놓은 상자를 두 상자 사이에 두고 뒤 상자부터 `spread`로 민다.
+ */
+function untangle(boxes: readonly Pinnable[], direction: ArrangeDirection, lane: number): Point[] {
+  const p = boxes.findIndex((b) => b.pinned);
+  if (p < 0) return spread(boxes, direction, lane);
+  const vertical = direction === 'down' || direction === 'up';
+  const others = boxes.filter((_, i) => i !== p);
+  const placed: Box[] = spread(others, direction, lane).map((at, i) => ({ at, size: others[i].size }));
+  const dropped = boxes[p];
+  // 형제가 늘어서는 축 위의 시작·길이·중심.
+  const start = (b: Box) => (vertical ? b.at.x : b.at.y);
+  const length = (b: Box) => (vertical ? b.size.width : b.size.height);
+  const center = (b: Box) => start(b) + length(b) / 2;
+  const hits = placed.filter((b) => overlaps(b, dropped));
+  if (hits.length === 0) return spread(boxes, direction, lane);
+  const hit = hits.reduce((a, b) => (Math.abs(center(b) - center(dropped)) < Math.abs(center(a) - center(dropped)) ? b : a));
+  const at = (to: number) => (vertical ? { x: to, y: dropped.at.y } : { x: dropped.at.x, y: to });
+  const free = (to: number) => !placed.some((b) => overlaps(b, { at: at(to), size: dropped.size }));
+  const before = start(hit) - lane - length(dropped);
+  // 뒤에 붙일 자리가 막히면 `spread`가 막은 상자를 민다. 앞에 붙일 자리가 막히면 걸친 상자의 자리를 차지하고 그 상자를 민다.
+  const to = center(dropped) >= center(hit) ? start(hit) + length(hit) + lane : free(before) ? before : start(hit);
+  const beside = at(to);
+  return spread(
+    boxes.map((b, i) => (i === p ? { ...b, at: beside } : b)),
+    direction,
+    lane,
+  );
+}
+
+type Pinnable = Box & { pinned?: boolean };
+
+/**
+ * 겹친 상자를 형제가 늘어서는 쪽(아래·위로 정렬이면 오른쪽, 오른쪽·왼쪽으로면 아래)으로 민다.
+ * 놓은 상자(`pinned`)를 먼저 두고, 나머지는 그 축에서 앞선 상자부터 둔다. 앞에 둔 상자와 겹치면 그 상자 너머 `lane` 틈 자리로 민다.
  * 겹침이 없으면 아무것도 옮기지 않는다. 민 거리는 기록하지 않으므로 겹침이 사라지면 원래 자리로 돌아온다.
  */
-function untangle(boxes: readonly (Box & { pinned?: boolean })[], direction: ArrangeDirection, lane: number): Point[] {
+function spread(boxes: readonly Pinnable[], direction: ArrangeDirection, lane: number): Point[] {
   const vertical = direction === 'down' || direction === 'up';
   const laneOf = (p: Point) => (vertical ? p.x : p.y);
   const alongOf = (p: Point) => (vertical ? p.y : p.x);

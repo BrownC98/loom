@@ -136,7 +136,7 @@
 ### 설정
 
 - 설정은 `settings` 테이블 한 줄(JSON)이다: 모든 권한 허용을 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어. 저장한 JSON에 없는 값은 기본값으로 읽는다.
-- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
+- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 오른쪽 끝에 제품 버전(`v<루트 Cargo.toml version>`)을 보인다(2026-10-20 사람 지시 "버전 번호는 우하단에 보여주면 될듯, 사용량 보여주는 섹션에"). 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
   - 색 토큰은 `light-dark(라이트, 다크)` 한 벌이다. 테마는 `color-scheme` 하나만 바꾼다.

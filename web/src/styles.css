@@ -251,6 +251,7 @@ a { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .usage-btn[data-loading] { animation: none; opacity: 0.7; } }
 .usage-btn .who { font-weight: 600; color: var(--ink); }
 .seg-err { color: var(--err); }
+.app-version { margin-left: auto; align-self: center; padding: 0 10px; font-family: var(--mono); color: var(--ink-3); }
 .acct-name { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lim { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .lim .meter { width: 36px; }

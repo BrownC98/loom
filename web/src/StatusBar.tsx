@@ -5,6 +5,7 @@ import type { AccountView } from './gen/AccountView';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
+import { VERSION } from './version';
 
 export type Usage = {
   /** 처음 읽기 전에는 null이다. */
@@ -69,6 +70,7 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
           );
         })}
       </button>
+      <span className="app-version">v{VERSION}</span>
       {open && usage.accounts && (
         <UsagePopover
           accounts={usage.accounts}

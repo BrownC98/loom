@@ -300,7 +300,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 노드 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
-| main에 push할 때마다 GitHub Actions(`.github/workflows/windows.yml`)가 설치 파일을 만들어 Release `latest` 하나에 덮어쓴다 | 받는 링크가 늘 같다. 옛 판은 git 기록으로 다시 만들 수 있어 Release를 쌓지 않는다 |
+| 사람이 손으로 돌릴 때만(`workflow_dispatch`) GitHub Actions(`.github/workflows/windows.yml`)가 설치 파일을 만들어 Release `latest` 하나에 덮어쓴다. 기능이 어느 정도 완성될 때까지 에이전트는 Windows 빌드(Actions, `scripts/windows.sh`)를 돌리지 않는다(2026-10-20 사람 지시 "당분간, 기능이 어느정도 완성되기전에는 윈도우 빌드하지마 개발 시간만 잡아먹는다") | 받는 링크가 늘 같다. 옛 판은 git 기록으로 다시 만들 수 있어 Release를 쌓지 않는다 |
 | 로컬 확인은 컨테이너의 `cargo-xwin` 크로스 빌드다([AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)). 설치 파일은 Actions만 만든다 | NSIS 묶기는 Windows 러너에서 공식 경로로 돈다 |
 
 ## 레이어

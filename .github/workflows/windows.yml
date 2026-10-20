@@ -1,10 +1,8 @@
-# main에 push할 때마다 Windows 설치 파일을 만들어 Release `latest` 하나에 덮어쓴다.
+# 사람이 손으로 돌릴 때만 Windows 설치 파일을 만들어 Release `latest` 하나에 덮어쓴다.
 # 근거: docs/design.md 「Windows 앱」.
 name: windows
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

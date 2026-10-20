@@ -43,10 +43,10 @@ const en = {
     foot: {
       doneHeld: 'No parent · the summary goes to the new parent',
       done: 'Summary: {{summary}}',
-      daemonRestarted: 'The daemon restarted, so the process is gone',
+      daemonRestarted: 'Ended when loom restarted',
       exitedHeld: 'No parent · exited({{code}}) goes to the new parent',
       exitedSent: 'Sent exited({{code}}) to the parent ({{parent}})',
-      exited: 'The process ended with code {{code}}',
+      exited: 'Ended with exit code {{code}}',
     },
   },
   repo: {
@@ -97,12 +97,12 @@ const en = {
     language: 'Language',
     installed: 'Installed {{n}}',
     rescan: 'Rescan',
-    noneInstalled: 'No agent found on the daemon PATH. Install one from the list below, then click “Rescan”.',
+    noneInstalled: 'No installed agent found. Install one from the list below, then click “Rescan”.',
     // 키는 `Profile` 값이다. 데몬은 Codex·OpenCode 2에만 경고를 보낸다.
     versionWarning: {
       claude: 'claude {{installed}} · pinned {{pinned}}',
-      codex: 'app-server {{installed}} · pinned {{pinned}} · approval needed for every loom command',
-      opencode2: 'serve {{installed}} · pinned {{pinned}}',
+      codex: 'codex {{installed}} · pinned {{pinned}} · approval needed for every loom command',
+      opencode2: 'opencode2 {{installed}} · pinned {{pinned}}',
     },
     messaging: 'messaging',
     terminalOnly: 'terminal only',
@@ -215,7 +215,7 @@ const en = {
     fold: 'Collapse',
   },
   terminal: {
-    gone: 'The daemon restarted, so this terminal no longer exists.',
+    gone: 'loom restarted, so this terminal is closed. Create a new node.',
   },
   problem: {
     refused: {
@@ -228,8 +228,8 @@ const en = {
       mailboxFull_nameless: 'The mailbox is full. Send again after the receiver reads it with `loom wait`.',
       notRelated: '{{value}}: not my parent or child. Messages go only between parent and child.',
       notRelated_nameless: 'Not my parent or child. Messages go only between parent and child.',
-      ended: '{{value}}: the node process has ended.',
-      ended_nameless: 'The node process has ended.',
+      ended: '{{value}} has already ended.',
+      ended_nameless: 'This node has already ended.',
       alreadyDone: 'This node is already done.',
       heldFull: 'Too many messages are held while this node has no parent. Send again after it gets a new parent.',
       cycle: 'A node cannot take itself or its descendant as parent.',
@@ -240,14 +240,14 @@ const en = {
       notSteerable: '{{value}}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Send it with `loom send`.',
       notSteerable_nameless: 'This node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Send it with `loom send`.',
       launch: 'Could not start the node: {{value}}',
-      db: 'Database error: {{value}}',
+      db: 'Could not read or save records: {{value}}',
     },
     launch: {
-      unknownAgent: '{{value}}: not in the agent catalog.',
-      notInstalled: '{{agent}}: `{{command}}` is not on the daemon PATH. Install it, then click “Rescan” in Settings.',
+      unknownAgent: '{{value}}: not in the agent list.',
+      notInstalled: '{{agent}}: `{{command}}` was not found. Install it, then click “Rescan” in Settings.',
       briefTooLong: 'The first prompt is {{len}} bytes. Keep it to {{limit}} bytes or less and give a file path for longer material.',
       server: 'Could not start `{{program}}`: {{cause}}',
-      noServer: '{{value}}: could not start the server the node attaches to.',
+      noServer: '{{value}}: could not start the agent. Try again.',
       noBrief: '{{value}} does not take a first prompt. Leave it empty, create the node, then type in its terminal.',
     },
     repo: {

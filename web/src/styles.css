@@ -74,7 +74,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 좁으면 에이전트 이름이 먼저 준다. 노드 이름은 줄 폭의 60%를 넘을 때만 자른다. */
 .tree-row .name { flex-shrink: 0; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tree-row .branch { font-family: var(--mono); font-weight: 600; font-size: 12px; }
+.tree-row .branch { font-family: var(--mono); font-weight: 600; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .tag { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 .tree-row .spacer { flex: 1; }
 .tree-row .unread { min-width: 18px; height: 18px; font-size: 11px; }
 .kept { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--ink-2); white-space: nowrap; }

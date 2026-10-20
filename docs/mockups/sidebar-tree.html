@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사이드바 워크트리 나무</title>
+<style>
+  /* 토큰은 web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light;
+    --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+    --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+    --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+    --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+    --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+    --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+    --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+    --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+    --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+    --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+    --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+    --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+    --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+    --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+  ::selection { background: var(--accent-wash); }
+  header p { font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  h2 { font-size: 16px; margin: 32px 0 4px; }
+  .lead { max-width: 72ch; color: var(--ink-2); font-size: 13px; }
+  .row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; }
+  figure { display: flex; flex-direction: column; gap: 8px; }
+  figcaption { font-size: 13px; font-weight: 600; }
+  figcaption .rec { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+  .notes { max-width: 260px; font-size: 12px; color: var(--ink-2); padding-left: 16px; }
+  .notes li + li { margin-top: 2px; }
+  .notes b { color: var(--ink); }
+  .shot { border: 1px solid var(--line); border-radius: 8px; }
+
+  /* 사이드바(web/src/styles.css .side, .tree, .tree-row와 같은 값). 새 것: --step, 안내선, 묶음 아이콘, 다른 묶음 부모 표시. */
+  .side { width: var(--w, 260px); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 0 8px; color: var(--ink); }
+  .side.dark { color-scheme: dark; }
+  .side-head { display: flex; align-items: center; padding: 2px 8px 6px 16px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+  .tree { list-style: none; padding: 0 8px; font-size: 13px; }
+  .tree-row { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 8px 0 calc(4px + var(--depth) * var(--step)); border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .tree-row:hover { background: var(--surface-hover); }
+  .tree-row[aria-current="true"] { background: var(--accent-wash); }
+  .tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-strong); opacity: 0.6; left: calc(4px + var(--level) * var(--step) + 6.5px); }
+  .chev, .icon { width: 14px; height: 14px; flex: none; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .chev.closed { transform: rotate(-90deg); }
+  .leaf { width: 14px; flex: none; }
+  .from { width: 12px; height: 12px; flex: none; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .name { flex-shrink: 1; min-width: 2em; max-width: 60%; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { flex-shrink: 1000; font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .branch { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { flex-shrink: 1000; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+  .spacer { flex: 1; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--run); }
+  .dot.done { background: var(--ok); }
+  .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+  .unread svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  table { border-collapse: collapse; font-size: 13px; margin-top: 12px; max-width: 980px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-2); }
+  code { font-size: 12px; }
+</style>
+
+<header>
+  <p>응답할 곳: 총괄 · claude-1</p>
+  <p>연 담당: 총괄 · claude-1</p>
+  <h1>사이드바에서 워크트리와 노드의 상하 관계 보이기</h1>
+  <p class="lead">사용자 요청(2026-10-20): "사이드 바에도 워크트리, 노드간의 상하관계가 잘 보이도록 만들어줘". 묶음의 부모는 그래프 자동 정렬과 같은 규칙(<code>groupParents</code>)으로 정한다. 부모 규칙을 새로 만들지 않는다.</p>
+</header>
+
+<h2>지금</h2>
+<p class="lead">모든 워크트리 묶음이 저장소 아래에 같은 층으로 늘어선다. shell-2(이름변경)는 shell-1(main)의 자식이고, shell-3(이름변경-구현)은 shell-2의 자식이다. 그러나 사이드바에서는 이 관계가 보이지 않는다. 시험 데몬에서 찍었다(셸 노드 4개, 부모 연결 3개).</p>
+<div class="row">
+  <img class="shot" src="sidebar-tree-before.png" width="260" height="272" alt="지금 사이드바: main, 사이드바나무, 이름변경, 이름변경-구현 묶음이 같은 층에 있다">
+</div>
+
+<h2>1. 자식 워크트리 묶음을 어디에 둘까</h2>
+<p class="lead">같은 장면을 세 안으로 그렸다. 장면: claude-1(main)이 이름변경과 사이드바나무를 띄웠다. 이름변경이 이름변경-구현을 띄웠다. 리뷰는 이름변경-구현 묶음에 있지만 부모가 사이드바나무다. 폭은 기본 260px다.</p>
+<div class="row">
+  <figure>
+    <figcaption>A. 부모 묶음 아래에 묶음<span class="rec">권장</span></figcaption>
+    <div class="side" data-scene="A"></div>
+    <ul class="notes">
+      <li>묶음 나무는 그래프와 같은 <code>groupParents</code>다. 그래프와 사이드바가 같은 모양이다.</li>
+      <li>자식 묶음은 그 묶음의 노드 뒤에 온다.</li>
+      <li>묶음 줄에 브랜치 아이콘을 붙인다. 묶음과 노드가 같은 층에 섞이기 때문이다.</li>
+      <li>워크트리 한 층이 들여쓰기 한 칸만 늘린다.</li>
+    </ul>
+  </figure>
+  <figure>
+    <figcaption>B. 띄운 노드 줄 아래에 묶음</figcaption>
+    <div class="side" data-scene="B"></div>
+    <ul class="notes">
+      <li>누가 띄웠는지는 바로 보인다.</li>
+      <li><b>문제</b>: 묶음 하나에 부모가 다른 노드가 있으면(리뷰) 묶음을 둘 노드를 하나 골라야 한다. 노드 단위의 부모 규칙이 하나 더 생긴다.</li>
+      <li>워크트리 한 층이 들여쓰기 두 칸(묶음, 노드)을 늘린다. 세 층이면 이름이 잘린다.</li>
+      <li>그래프 배치(묶음 나무)와 모양이 다르다.</li>
+    </ul>
+  </figure>
+  <figure>
+    <figcaption>C. 지금처럼 같은 층 + 부모 이름</figcaption>
+    <div class="side" data-scene="C"></div>
+    <ul class="notes">
+      <li>들여쓰기는 지금과 같다.</li>
+      <li>관계는 글자(← 부모 묶음)로만 보인다. 묶음이 많으면 눈으로 따라가기 어렵다.</li>
+      <li>접어도 자식 묶음이 함께 접히지 않는다.</li>
+    </ul>
+  </figure>
+</div>
+
+<h2>2. A안 세부</h2>
+<div class="row">
+  <figure>
+    <figcaption>최소 폭 180px, 사이드바나무를 접음</figcaption>
+    <div class="side" style="--w: 180px" data-scene="A" data-closed="g:사이드바나무"></div>
+    <ul class="notes" style="max-width: 180px">
+      <li>묶음을 접으면 그 안의 노드와 자식 묶음을 함께 숨긴다.</li>
+    </ul>
+  </figure>
+  <figure>
+    <figcaption>다크, 노드 고름, 이름변경을 접음</figcaption>
+    <div class="side dark" data-scene="A" data-closed="g:이름변경" data-current="claude-1"></div>
+  </figure>
+  <figure>
+    <figcaption>깊은 사슬(워크트리 7층)</figcaption>
+    <div class="side" data-scene="deep"></div>
+    <ul class="notes">
+      <li>들여쓰기는 깊이 8에서 멈춘다(96px). 그보다 깊은 줄은 안내선이 같은 자리에 남고, 이름이 보일 폭을 지킨다.</li>
+    </ul>
+  </figure>
+</div>
+
+<h2>3. 결정할 것과 권장</h2>
+<table>
+  <tr><th>질문</th><th>권장</th><th>이유</th></tr>
+  <tr><td>자식 묶음의 자리</td><td>A. 부모 묶음 아래, 그 묶음의 노드 뒤</td><td><code>groupParents</code> 하나로 그래프와 사이드바가 같은 나무가 된다. B는 노드 단위 부모 규칙을 하나 더 만든다.</td></tr>
+  <tr><td>부모가 다른 묶음에 있는 노드</td><td>부모가 나무의 부모 묶음 밖에 있을 때만 <svg class="from" viewBox="0 0 24 24" aria-hidden="true"><polyline points="14 9 9 4 4 9"/><path d="M20 20h-7a4 4 0 0 1-4-4V4"/></svg> 표시와 툴팁 「부모: 사이드바나무 · 사이드바나무 워크트리」</td><td>보통은 묶음이 부모 묶음 바로 아래에 있어 나무가 관계를 보인다. 나무가 보이지 못하는 경우(리뷰)만 표시한다.</td></tr>
+  <tr><td>안내선</td><td>조상 층마다 1px 세로선(<code>--line-strong</code>, 60%)</td><td>VS Code·Orca 탐색기와 같은 모양이다. 묶음과 노드가 섞여도 층을 따라갈 수 있다.</td></tr>
+  <tr><td>들여쓰기</td><td>한 칸 16px → 12px, 깊이 8에서 멈춤</td><td>180px 최소 폭에서 워크트리 3층 노드 이름이 잘리지 않는다. 안내선이 줄인 칸을 보완한다.</td></tr>
+  <tr><td>그대로 두는 것</td><td>접기·펴기, 안 읽음 수, 보관 수, 원래 체크아웃 꼬리표, ↑↓←→ 키, 고르기, 줄 key(<code>group:&lt;경로&gt;</code>)</td><td>트리 줄 구조(<code>Item</code>)를 바꾸지 않고 자식 목록만 바꾼다.</td></tr>
+</table>
+
+<h2>4. 바꿀 곳</h2>
+<table>
+  <tr><th>파일·함수</th><th>바꿀 것</th></tr>
+  <tr><td><code>web/src/repos.ts</code> <code>groupParents</code></td><td>순환을 여기서 끊어 돌려준다(<code>layout.ts</code>의 <code>breakCycles</code>를 옮긴다). 그래프와 사이드바가 같은 순환 없는 나무를 받는다.</td></tr>
+  <tr><td><code>web/src/layout.ts</code> <code>placeGroups</code></td><td><code>breakCycles</code> 호출과 함수를 지운다. 받은 부모를 그대로 쓴다.</td></tr>
+  <tr><td><code>web/src/Tree.tsx</code></td><td>묶음 줄 만들기를 함수 <code>groupItems(groups, parents, at)</code>로 뽑아 자기를 부른다: 자식 = 노드 나무 + 자식 묶음. 묶음 줄에 브랜치 아이콘. <code>nodeItems</code>가 다른 묶음 부모 표시를 단다.</td></tr>
+  <tr><td><code>web/src/styles.css</code></td><td><code>.tree-row</code> 들여쓰기 12px와 깊이 상한, 안내선, 아이콘 크기. <code>.name</code>도 줄어들게 하고 <code>.sub</code>·<code>.tag</code>가 먼저 줄어든다. 좁은 폭에서도 이름과 안 읽음 수가 줄 안에 남는다.</td></tr>
+  <tr><td><code>web/src/i18n/*</code></td><td>툴팁 문구 「부모: {node} · {group}」 하나.</td></tr>
+  <tr><td><code>docs/design.md</code> 사이드바 줄</td><td>「트리는 저장소 &gt; 워크트리 묶음(부모 묶음 아래) &gt; 노드 &gt; 자식 노드」로 고친다.</td></tr>
+</table>
+
+<script>
+  // 장면 데이터: [깊이, 종류, 이름, 보조 글자, 선택]. 종류: r 저장소, g 묶음, n 노드.
+  const SCENES = {
+    A: [
+      [0, 'r', 'loom', '/home/me/src/loom'],
+      [1, 'g', 'main', '원래 체크아웃'],
+      [2, 'n', 'claude-1', 'Claude'],
+      [2, 'g', '이름변경', ''],
+      [3, 'n', '이름변경', 'Claude'],
+      [3, 'g', '이름변경-구현', ''],
+      [4, 'n', '이름변경-구현', 'Claude', { unread: 1 }],
+      [4, 'n', '리뷰', 'Codex', { from: '사이드바나무' }],
+      [2, 'g', '사이드바나무', ''],
+      [3, 'n', '사이드바나무', 'Claude', { unread: 2 }],
+      [4, 'n', 'shell-5', '터미널', { done: true }],
+    ],
+    B: [
+      [0, 'r', 'loom', '/home/me/src/loom'],
+      [1, 'g', 'main', '원래 체크아웃'],
+      [2, 'n', 'claude-1', 'Claude'],
+      [3, 'g', '이름변경', ''],
+      [4, 'n', '이름변경', 'Claude'],
+      [5, 'g', '이름변경-구현', ''],
+      [6, 'n', '이름변경-구현', 'Claude', { unread: 1 }],
+      [6, 'n', '리뷰', 'Codex', { from: '사이드바나무' }],
+      [3, 'g', '사이드바나무', ''],
+      [4, 'n', '사이드바나무', 'Claude', { unread: 2 }],
+      [5, 'n', 'shell-5', '터미널', { done: true }],
+    ],
+    C: [
+      [0, 'r', 'loom', '/home/me/src/loom'],
+      [1, 'g', 'main', '원래 체크아웃'],
+      [2, 'n', 'claude-1', 'Claude'],
+      [1, 'g', '이름변경', '← main'],
+      [2, 'n', '이름변경', 'Claude'],
+      [1, 'g', '이름변경-구현', '← 이름변경'],
+      [2, 'n', '이름변경-구현', 'Claude', { unread: 1 }],
+      [2, 'n', '리뷰', 'Codex'],
+      [1, 'g', '사이드바나무', '← main'],
+      [2, 'n', '사이드바나무', 'Claude', { unread: 2 }],
+      [3, 'n', 'shell-5', '터미널', { done: true }],
+    ],
+    deep: [
+      [0, 'r', 'loom', '/home/me/src/loom'],
+      [1, 'g', 'main', '원래 체크아웃'],
+      [2, 'n', 'claude-1', 'Claude'],
+      [2, 'g', '일-1', ''], [3, 'n', '코디-1', 'Claude'],
+      [3, 'g', '일-2', ''], [4, 'n', '코디-2', 'Claude'],
+      [4, 'g', '일-3', ''], [5, 'n', '코디-3', 'Claude'],
+      [5, 'g', '일-4', ''], [6, 'n', '코디-4', 'Claude'],
+      [6, 'g', '일-5', ''], [7, 'n', '코디-5', 'Claude'],
+      [7, 'g', '일-6', ''], [8, 'n', '코디-6', 'Claude'],
+      [8, 'g', '일-7-아주-긴-브랜치-이름', ''], [9, 'n', '워커-7', 'Codex', { unread: 3 }],
+    ],
+  };
+  const STEP = { A: 12, B: 12, C: 16, deep: 12 };
+  const MAX_DEPTH = 8;
+  const svg = (cls, body) => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+  const CHEV = '<path d="M6 9l6 6 6-6"/>';
+  const BRANCH = '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>';
+  const FROM = '<polyline points="14 9 9 4 4 9"/><path d="M20 20h-7a4 4 0 0 1-4-4V4"/>';
+  const MAIL = '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>';
+
+  for (const side of document.querySelectorAll('.side')) {
+    const scene = side.dataset.scene;
+    const rows = SCENES[scene];
+    const closed = side.dataset.closed?.slice(2);
+    const current = side.dataset.current;
+    const guides = scene !== 'C';
+    side.style.setProperty('--step', `${STEP[scene]}px`);
+    let html = '<div class="side-head">저장소</div><ul class="tree" role="tree" aria-label="저장소">';
+    let hideBelow = Infinity;
+    rows.forEach(([depth, kind, name, sub, opt = {}], i) => {
+      if (depth > hideBelow) return;
+      hideBelow = Infinity;
+      const isClosed = kind === 'g' && name === closed;
+      if (isClosed) hideBelow = depth;
+      const next = rows[i + 1];
+      const branch = next && next[0] > depth;
+      const d = Math.min(depth, MAX_DEPTH);
+      let lines = '';
+      if (guides) for (let l = 0; l < d; l++) lines += `<span class="guide" style="--level:${l}"></span>`;
+      let body = branch ? svg(isClosed ? 'chev closed' : 'chev', CHEV) : '<span class="leaf"></span>';
+      if (kind === 'r') body += `<span class="name">${name}</span><span class="sub">${sub}</span>`;
+      if (kind === 'g') body += (scene === 'C' ? '' : svg('icon', BRANCH)) + `<span class="branch" title="${name}">${name}</span>` + (sub ? `<span class="tag">${sub}</span>` : '');
+      if (kind === 'n') {
+        body += `<span class="dot${opt.done ? ' done' : ''}"></span><span class="name">${name}</span>`;
+        if (opt.from) body += `<span title="부모: ${opt.from} · ${opt.from} 워크트리" style="display:flex">${svg('from', FROM)}</span>`;
+        body += `<span class="sub">${sub}</span>`;
+        if (opt.unread) body += `<span class="spacer"></span><span class="unread" aria-label="안 읽은 메시지 ${opt.unread}">${svg('', MAIL)}${opt.unread}</span>`;
+      }
+      const cur = (kind === 'n' && name === current) || (kind === 'r' && !current) ? ' aria-current="true"' : '';
+      html += `<li role="treeitem"${branch ? ` aria-expanded="${!isClosed}"` : ''}><button class="tree-row" style="--depth:${d}"${cur} tabindex="${i === 0 ? 0 : -1}">${lines}${body}</button></li>`;
+    });
+    side.innerHTML = html + '</ul>';
+  }
+</script>
+</html>

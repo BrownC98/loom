@@ -1392,13 +1392,11 @@ async fn send_events(mut socket: WebSocket, app: Arc<App>) {
     let Ok((snapshot, mut rx)) = app.graph.subscribe() else {
         return;
     };
-    for view in snapshot {
-        if send_json(&mut socket, &GraphEvent::Node(view))
-            .await
-            .is_err()
-        {
-            return;
-        }
+    if send_json(&mut socket, &GraphEvent::Snapshot { nodes: snapshot })
+        .await
+        .is_err()
+    {
+        return;
     }
     // 밀리거나 끊기면 닫는다. 화면이 다시 붙으면 목록 전체를 다시 받는다.
     while let Ok(event) = rx.recv().await {

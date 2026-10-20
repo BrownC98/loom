@@ -10,7 +10,7 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::Provider;
+use crate::profile::{self, Provider};
 
 /// 만든 시각(밀리초)의 16진수 16자리. 이름 순서가 만든 순서다.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
@@ -97,7 +97,7 @@ impl Accounts {
             }
         };
         cmd.env(config_env(provider), self.dir(provider, id)?);
-        cmd.env("TERM", "xterm-256color");
+        profile::color_terminal(&mut cmd);
         Ok(cmd)
     }
 

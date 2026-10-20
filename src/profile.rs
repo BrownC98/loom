@@ -406,9 +406,9 @@ pub fn command(
     Ok(cmd)
 }
 
-/// 노드 터미널(xterm.js)은 트루컬러를 그린다. 데몬을 띄운 곳(예: Claude Code의 Bash 도구)이 색을 끈 값은
+/// 노드·로그인 터미널(xterm.js)은 트루컬러를 그린다. 데몬을 띄운 곳(예: Claude Code의 Bash 도구)이 색을 끈 값은
 /// 노드에 맞지 않는다. 남기면 Claude Code 마스코트 같은 색 출력이 흰색으로 나온다.
-fn color_terminal(cmd: &mut CommandBuilder) {
+pub fn color_terminal(cmd: &mut CommandBuilder) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env_remove("NO_COLOR");

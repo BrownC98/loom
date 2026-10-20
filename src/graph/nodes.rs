@@ -79,7 +79,9 @@ impl Graph {
         }
         let mut db = self.lock();
         let tx = db.transaction()?;
-        if ancestors(&tx, parent)?.len() as u32 >= limits.max_depth {
+        if let Some(max) = limits.max_depth
+            && ancestors(&tx, parent)?.len() as u32 >= max
+        {
             return Err(Refusal::TooDeep);
         }
         check_children(&tx, parent, limits)?;
@@ -431,7 +433,9 @@ impl Graph {
         if parent == child || above.contains(&child) {
             return Err(Refusal::Cycle);
         }
-        if above.len() as u32 + 1 + height(&tx, child)? > limits.max_depth {
+        if let Some(max) = limits.max_depth
+            && above.len() as u32 + 1 + height(&tx, child)? > max
+        {
             return Err(Refusal::TooDeep);
         }
         check_children(&tx, parent, limits)?;

@@ -1,7 +1,7 @@
 import { Maximize2, Minimize2, Plus, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useImperativeHandle, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty, removeNode } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -13,7 +13,7 @@ import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeTree, edgeSides, placeGroups, SIDES, TREE_SIDES, type ArrangeDirection, type Side, type Size } from './layout';
+import { arrangeTree, edgeSides, growBox, placeGroups, reorder, SIDES, TREE_SIDES, type ArrangeDirection, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { groupParents, groupsOf, inGroup, type GroupKind } from './repos';
@@ -28,6 +28,7 @@ const EMPTY_GROUP_HEIGHT = 100;
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
+const CARD_INSET = { top: CARD_TOP, side: CARD_X };
 /**
  * 카드를 재기 전에 쓰는 크기. 재면 잰 크기로 배치한다. `width`는 styles.css `.card`·`.card.simple`의 폭이다.
  * 표준 높이는 머리, 80×24 터미널(styles.css `.term`), 발 줄의 합이다. 심플 높이는 목업 docs/mockups/card-view.html에서 쟀다.
@@ -37,13 +38,6 @@ const CARD_SIZE: Record<CardView, Size> = {
   simple: { width: 260, height: 134 },
 };
 const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left };
-/**
- * 카드는 묶음 머리 위로 끌 수 없다. 왼쪽·오른쪽·아래로 끌면 묶음이 따라 커진다(2026-10-20 사람 지시 "우측으로 옮기면 묶음이 확장되는데 좌측은 그렇지 않은 문제 해결"). 좌표는 묶음 기준이다.
- */
-const CARD_EXTENT: CoordinateExtent = [
-  [-Infinity, CARD_TOP],
-  [Infinity, Infinity],
-];
 /** [새 노드] 버튼 아래로 띄우는 새 노드 팝오버의 틈. 팝오버 오른쪽 끝을 버튼 오른쪽 끝에 맞춘다. */
 const POPOVER_GAP = 6;
 /** 묶음 오른쪽 위에서 잰 삭제 경고 위치. 경고는 [워크트리 삭제] 아래에 오른쪽을 맞춰 연다. */
@@ -195,7 +189,7 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
 /** 강조하는 동안 한 간선으로 오간 메시지 수. 가는 쪽마다 센다. */
 export type Pulse = Readonly<Record<Toward, number>>;
 
-/** `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끈 카드와 묶음을 모두 배치 자리로 되돌린다(위 막대의 [정렬]). */
+/** `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끌어 바꾼 순서를 버리고 만든 순서로 되돌린다(위 막대의 [정렬]). */
 export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void };
 
 /**
@@ -238,11 +232,11 @@ export function Graph(props: {
   const [refusal, setRefusal] = useState('');
   // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
-  // 사람이 끈 카드와 묶음의 위치만 둔다(React Flow 노드 id 기준). 나머지는 늘 배치를 따르므로, 노드를 지우면 빈자리를 채운다.
-  // 끄는 동안에는 바꾸지 않고 놓을 때 한 번 적는다. 그래서 끄는 동안 다른 카드와 묶음은 제자리에 있다(2026-10-20 사람 지시 "마우스를 놓기 전까지 기존 노드들은 제자리를 유지").
-  const [dragged, setDragged] = useState<ReadonlyMap<string, XYPosition>>(new Map());
-  // 마지막에 놓은 카드나 묶음. 겹쳐 놓으면 이것은 제자리에 남고 다른 상자가 비킨다.
-  const [pinned, setPinned] = useState<string | null>(null);
+  // 사람이 끌어 바꾼 순서(React Flow 노드 id). 앞에 있을수록 형제 사이에서 앞이다. 없는 상자는 그 뒤에 만든 순서로 선다.
+  // 끈 형제 묶음을 통째로 끝에 다시 적으므로 다른 형제 묶음의 순서는 그대로다.
+  const [order, setOrder] = useState<readonly string[]>([]);
+  // 끄는 카드의 자리(묶음이 넓어지기 전 묶음 왼쪽 위 기준). 묶음은 이 카드를 담게 넓어진다. 놓으면 비운다.
+  const [drag, setDrag] = useState<{ card: NodeId; at: XYPosition } | null>(null);
   const { direction } = props;
 
   const views = [...props.views.values()];
@@ -252,43 +246,59 @@ export function Graph(props: {
     const measured = flowState.get(String(id))?.measured;
     return measured?.width && measured.height ? { width: measured.width, height: measured.height } : estimate;
   };
+  const rank = (key: string) => {
+    const i = order.indexOf(key);
+    return i < 0 ? Infinity : i;
+  };
+  // 끄는 상자 id → 그 형제(끄는 상자 포함, 배치 자리). 끄는 동안 `reorder`에 넘긴다.
+  // 카드의 형제는 같은 묶음에서 부모가 같은 카드다. 묶음의 형제는 부모 묶음이 같은 묶음이다.
+  const siblings = new Map<string, Sibling[]>();
+  const share = (boxes: readonly (Sibling & { parent: unknown })[]) => {
+    for (const b of boxes) siblings.set(b.key, boxes.filter((o) => o.parent === b.parent));
+  };
   // 묶음마다 나무 배치를 따로 한다. 카드 위치는 묶음 기준, `positions`는 키보드 이동에 쓰는 화면 기준이다.
-  // 카드를 왼쪽 테두리 밖으로 끌면 묶음 상자가 그만큼(`lead`) 왼쪽으로 넓어진다. 끈 자리는 넓어지기 전 묶음 왼쪽 위 기준으로 적는다.
-  // 그래서 상자가 넓어져도 카드는 화면에서 제자리다.
   const positions = new Map<NodeId, XYPosition>();
   const allGroups = groupsOf(props.repo, views);
   const laid = allGroups.map((group) => {
     const members = inGroup(views, group);
-    // 끈 자리는 묶음 기준이고 나무 배치는 카드 자리 기준이라 `CARD_X`·`CARD_TOP`만큼 옮겨 넘기고 받는다.
-    const tree = arrangeTree(
-      members,
-      (id) => {
-        const at = dragged.get(String(id));
-        return { size: size(id), dragged: at && { x: at.x - CARD_X, y: at.y - CARD_TOP }, pinned: pinned === String(id) };
-      },
-      direction,
-    );
-    const lead = Math.max(0, ...members.map((v) => -tree.get(v.id)!.x));
-    const local = new Map<NodeId, XYPosition>(
+    const tree = arrangeTree(members, size, (id) => rank(String(id)), direction);
+    // 나무 배치는 카드 자리 기준이라 `CARD_X`·`CARD_TOP`만큼 옮긴다. 가장 왼쪽·위 카드를 그 틈에 맞춰 네 쪽 모두 빈 곳이 없게 한다.
+    // `slot`은 넓어지기 전 묶음 기준이다.
+    const min = { x: Math.min(...[...tree.values()].map((p) => p.x)), y: Math.min(...[...tree.values()].map((p) => p.y)) };
+    const slot = new Map<NodeId, XYPosition>(
       members.map((v) => {
         const at = tree.get(v.id)!;
-        return [v.id, { x: CARD_X + lead + at.x, y: CARD_TOP + at.y }];
+        return [v.id, { x: CARD_X + at.x - min.x, y: CARD_TOP + at.y - min.y }];
       }),
     );
+    const ids = new Set(members.map((v) => v.id));
+    share(members.map((v) => ({ key: String(v.id), at: slot.get(v.id)!, size: size(v.id), parent: v.parent !== null && ids.has(v.parent) ? v.parent : null })));
     // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
     // 묶음 폭은 카드에 맞춘다. 머리가 좁으면 브랜치 이름을 말줄임한다(2026-10-20 사람 지시 "심플모드일때 워크트리 안에 노드 우측 공백이 생기지 않도록 만들어").
-    const right = Math.max(CARD_X + estimate.width, ...members.map((v) => local.get(v.id)!.x + size(v.id).width)) + CARD_X;
-    const bottom = Math.max(...members.map((v) => local.get(v.id)!.y + size(v.id).height)) + CARD_X;
+    const fit = {
+      width: Math.max(CARD_X + estimate.width, ...members.map((v) => slot.get(v.id)!.x + size(v.id).width)) + CARD_X,
+      height: Math.max(...members.map((v) => slot.get(v.id)!.y + size(v.id).height)) + CARD_X,
+    };
+    const held = drag !== null && ids.has(drag.card) ? drag : null;
+    const box = held ? growBox(fit, { at: held.at, size: size(held.card) }, CARD_INSET) : { lead: { x: 0, y: 0 }, size: fit };
+    const { lead } = box;
+    // 넓어진 묶음 기준. 카드는 화면에서 제자리다. 끄는 카드는 끄는 자리에 그린다.
+    const shift = (p: XYPosition) => ({ x: p.x + lead.x, y: p.y + lead.y });
+    const local = new Map([...slot].map(([id, p]) => [id, shift(p)]));
+    const drawn = held && { card: held.card, at: shift(held.at) };
+    const [right, bottom] = [box.size.width, box.size.height];
     const height = members.length > 0 ? bottom : (flowState.get(group.path)?.measured?.height ?? EMPTY_GROUP_HEIGHT);
-    return { group, members, local, lead, right, bottom, height };
+    return { group, members, local, drawn, lead, right, bottom, height };
   });
   // 묶음끼리도 부모 묶음 다음 단계에 놓는 나무다.
   const parentGroups = groupParents(allGroups, views);
   const origins = placeGroups(
-    laid.map((g, i) => ({ size: { width: g.right, height: g.height }, parent: parentGroups[i], dragged: dragged.get(g.group.path), pinned: pinned === g.group.path, lead: g.lead })),
+    // 왼쪽·위로 넓어진 폭은 자리 밖이다. 묶음 상자는 자리보다 `lead`만큼 왼쪽 위에서 시작한다.
+    laid.map((g, i) => ({ size: { width: g.right - g.lead.x, height: g.height - g.lead.y }, parent: parentGroups[i], rank: rank(g.group.path) })),
     direction,
     GROUP_POSITION,
-  );
+  ).map((at, i) => ({ x: at.x - laid[i].lead.x, y: at.y - laid[i].lead.y }));
+  share(laid.map((g, i) => ({ key: g.group.path, at: origins[i], size: { width: g.right, height: g.height }, parent: parentGroups[i] })));
   const groups = laid.map((g, i) => {
     const origin = origins[i];
     for (const [id, p] of g.local) positions.set(id, { x: origin.x + p.x, y: origin.y + p.y });
@@ -300,20 +310,18 @@ export function Graph(props: {
   };
   useImperativeHandle(props.ref, () => ({
     neighbor: (from, dir) => neighbor(positions, from, dir),
-    arrange: () => {
-      setDragged(new Map());
-      setPinned(null);
-    },
+    arrange: () => setOrder([]),
   }));
   const standard = props.cardView === 'standard';
-  // 끄는 상자는 React Flow가 옮긴 자리에 그린다. React Flow가 그 노드에 `dragging` 클래스를 붙여 반투명하게 보인다.
-  // 겹치면 늘 맨 위다(2026-10-20 사람 지시 "드래그로 잡은건 겹칠때 항상 최상위 z 인덱스 적용"). 묶음을 끌면 그 카드도 함께 올라온다.
+  // 끄는 상자는 React Flow가 옮긴 자리에 그린다. 그 자리(배치 자리)는 비워 둔다. React Flow가 그 노드에 `dragging` 클래스를 붙여 반투명하게 보인다.
+  // 끄는 카드는 `drawn` 자리다. React Flow 자리는 넓어지기 전 묶음 기준이라 묶음이 넓어지면 어긋난다.
+  // 늘 맨 위다(2026-10-20 사람 지시 "드래그로 잡은건 겹칠때 항상 최상위 z 인덱스 적용"). 묶음을 끌면 그 카드도 함께 올라온다.
   const keep = <N extends FlowNode>(node: N): N => {
     const live = flowState.get(node.id);
-    return { ...node, measured: live?.measured, ...(live?.dragging && { position: live.position, dragging: true, zIndex: DRAGGING_Z }) };
+    return { ...node, measured: live?.measured, ...(live?.dragging && { position: node.parentId ? node.position : live.position, dragging: true, zIndex: DRAGGING_Z }) };
   };
 
-  const nodes: FlowNode[] = groups.flatMap(({ group, members, local, origin, right, bottom }) => [
+  const nodes: FlowNode[] = groups.flatMap(({ group, members, local, drawn, origin, right, bottom }) => [
     keep<GroupNode>({
       id: group.path,
       type: 'worktree',
@@ -347,9 +355,8 @@ export function Graph(props: {
       const base = {
         id: String(view.id),
         parentId: group.path,
-        extent: CARD_EXTENT,
         className: lit(view.id),
-        position: local.get(view.id)!,
+        position: drawn?.card === view.id ? drawn.at : local.get(view.id)!,
       };
       const data: CardBase = {
         view,
@@ -408,18 +415,25 @@ export function Graph(props: {
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     const next = new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n]));
     setFlowState(next);
-    // 카드나 묶음을 끌 때만 위치 변경이 온다(키보드 이동은 껐다). 놓은 변경(`dragging: false`)만 적는다.
-    const dropped = changes.flatMap((c) => (c.type === 'position' && c.dragging === false && next.has(c.id) ? [c.id] : []));
-    if (dropped.length === 0) return;
-    // React Flow 좌표는 묶음 상자 기준이다. 끈 자리는 넓어지기 전 묶음 기준이라 `lead`만큼 바꿔 적는다.
+    // 카드나 묶음을 끌 때만 위치 변경이 온다(키보드 이동은 껐다). 끄는 동안 순서를 바로 바꾼다. 놓으면 끄는 상자가 배치 자리로 간다.
+    // 카드 자리는 넓어진 지금 묶음 기준이라 `lead`를 빼 넓어지기 전 묶음 기준으로 바꾼다.
     const leads = new Map(laid.map((g) => [g.group.path, g.lead]));
-    const toSlot = (node: FlowNode): XYPosition => {
-      const { x, y } = node.position;
-      if (node.parentId) return { x: x - (leads.get(node.parentId) ?? 0), y };
-      return { x: x + (leads.get(node.id) ?? 0), y };
-    };
-    setDragged((prev) => new Map([...prev, ...dropped.map((id) => [id, toSlot(next.get(id)!)] as const)]));
-    setPinned(dropped[dropped.length - 1]);
+    for (const c of changes) {
+      if (c.type !== 'position') continue;
+      const node = next.get(c.id);
+      if (!node) continue;
+      if (!c.dragging) {
+        if (node.parentId) setDrag(null);
+        continue;
+      }
+      const lead = node.parentId ? leads.get(node.parentId) : undefined;
+      const at = lead ? { x: node.position.x - lead.x, y: node.position.y - lead.y } : node.position;
+      if (node.parentId) setDrag({ card: Number(c.id), at });
+      const sibs = siblings.get(c.id) ?? [];
+      if (sibs.length < 2) continue;
+      const keys = reorder(sibs, { ...sibs.find((b) => b.key === c.id)!, at }, direction);
+      if (keys.some((k, i) => k !== sibs[i].key)) setOrder((prev) => [...prev.filter((k) => !keys.includes(k)), ...keys]);
+    }
   };
 
   // React Flow는 `nodes`를 effect에서 받는다. 새 카드를 재기 전에 시작한 렌더의 effect가 잰 뒤에 돌면

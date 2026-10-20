@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { WebglAddon } from '@xterm/addon-webgl';
 import type { Terminal as XTerm } from '@xterm/xterm';
@@ -36,9 +37,7 @@ export function TerminalDock(props: { view: NodeView; agentLabel: string; onNavi
           rename={rename}
           actions={
             <button className="btn ghost sm icon" aria-label={t('dock.closeTerminal')} title={t('dock.closeTerminal')} onClick={props.onClose}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
+              <X />
             </button>
           }
         />

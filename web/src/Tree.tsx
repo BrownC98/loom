@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronsUpDown, CornerLeftUp, Plus } from 'lucide-react';
 // 사이드바 트리(docs/mockups/graph-panels.html 1번): 저장소 > 워크트리 묶음 > 노드 > 자식 노드.
 // 그래프와 같은 노드 목록을 그린다. 트리만의 상태는 접힌 줄뿐이다.
 import { useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
@@ -22,11 +23,7 @@ const MAX_VISUAL_DEPTH = 8;
 
 
 function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg className={open ? 'chev' : 'chev closed'} viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  );
+  return <ChevronDown className={open ? 'chev' : 'chev closed'} />;
 }
 
 /** 줄 폭 안에서 이름 앞에 오는 git-branch 아이콘(묶음 줄). */
@@ -44,11 +41,9 @@ function BranchIcon() {
 /** 부모가 나무의 부모 묶음 밖에 있는 노드의 표시(corner-left-up). `title`이 부모 노드와 묶음을 말한다. */
 function FromIcon({ title }: { title: string }) {
   return (
-    <svg className="from" viewBox="0 0 24 24" role="img" aria-label={title}>
+    <CornerLeftUp className="from" role="img" aria-label={title}>
       <title>{title}</title>
-      <polyline points="14 9 9 4 4 9" />
-      <path d="M20 20h-7a4 4 0 0 1-4-4V4" />
-    </svg>
+    </CornerLeftUp>
   );
 }
 
@@ -244,14 +239,10 @@ export function Tree(props: {
         <h2>{t('tree.repos')}</h2>
         <span className="spacer" />
         <button className="btn ghost sm" aria-label={t('tree.addRepo')} title={t('tree.addRepo')} aria-expanded={adding} onClick={() => setAdding(true)}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <Plus />
         </button>
         <button className="btn ghost sm" aria-label={t('tree.expandAll')} title={t('tree.expandAll')} onClick={() => setClosed(new Set())}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 15l5 5 5-5M7 9l5-5 5 5" />
-          </svg>
+          <ChevronsUpDown />
         </button>
       </div>
       <ul className="tree" role="tree" aria-label={t('tree.label')} onKeyDown={onKeyDown}>

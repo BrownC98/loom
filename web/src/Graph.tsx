@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useImperativeHandle, useState, type Ref } from 'react';
+import { Maximize2, Minimize2, Plus } from 'lucide-react';
+import { Fragment, useEffect, useImperativeHandle, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty, removeNode } from './api';
@@ -45,19 +46,11 @@ const DELETE_OFFSET: XYPosition = { x: -8, y: 40 };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
 
-/** 카드 머리 아이콘(목업 docs/mockups/main.html). */
-const ICON = {
-  expand: 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7',
-  collapse: 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7',
-  remove: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
-};
-
-function IconButton(props: { label: string; title: string; path: string; onClick: () => void }) {
+/** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
+function IconButton(props: { label: string; title: string; children: ReactNode; onClick: () => void }) {
   return (
     <button type="button" className="btn ghost sm icon nodrag" aria-label={props.label} title={props.title} onClick={props.onClick}>
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d={props.path} />
-      </svg>
+      {props.children}
     </button>
   );
 }
@@ -98,9 +91,7 @@ function Group({ data }: NodeProps<GroupNode>) {
         {data.kind !== 'linked' && <span className="kind">{t(`worktree.${data.kind}`)}</span>}
         <span className="spacer" />
         <button className="btn ghost sm nodrag" aria-expanded={data.creating} onClick={(e) => data.onOpen(e.currentTarget)}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <Plus />
           {t('graph.newNode')}
         </button>
         {data.onDelete && (
@@ -128,7 +119,9 @@ function Card({ data }: NodeProps<CardNode>) {
         onDoubleClickHead={data.onExpand}
         headAction={
           <>
-            <IconButton label={t('node.expand')} title={t('node.expandTitle')} path={ICON.expand} onClick={data.onExpand} />
+            <IconButton label={t('node.expand')} title={t('node.expandTitle')} onClick={data.onExpand}>
+              <Maximize2 />
+            </IconButton>
             <RemoveButton onRemove={data.onRemove} />
           </>
         }
@@ -151,7 +144,13 @@ function Simple({ data }: NodeProps<SimpleNode>) {
 
 function RemoveButton(props: { onRemove: () => void }) {
   const { t } = useTranslation();
-  return <IconButton label={t('node.remove')} title={t('node.remove')} path={ICON.remove} onClick={props.onRemove} />;
+  return (
+    <IconButton label={t('node.remove')} title={t('node.remove')} onClick={props.onRemove}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+      </svg>
+    </IconButton>
+  );
 }
 
 /**
@@ -492,7 +491,11 @@ export function Graph(props: {
             selected={selected === zoomedView.id}
             onSelect={() => setSelected(zoomedView.id)}
             onNavigate={() => {}}
-            headAction={<IconButton label={t('node.collapse')} title={t('node.collapse')} path={ICON.collapse} onClick={() => setExpanded(null)} />}
+            headAction={
+              <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
+                <Minimize2 />
+              </IconButton>
+            }
           >
             <Terminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
           </NodeCard>

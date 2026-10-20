@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
@@ -147,9 +148,7 @@ function ProviderSection(props: {
       <button className="prov" aria-expanded={props.expanded} onClick={props.onToggle}>
         <AgentMark agent={props.provider} label={label} />
         {active && <span className="acct-name">{accountName(active)}</span>}
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d={props.expanded ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
-        </svg>
+        {props.expanded ? <ChevronUp /> : <ChevronDown />}
       </button>
       <div className="win" aria-live="polite">
         {active && <WindowLines limits={active.usage.limits} />}

@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getFolders } from './api';
@@ -84,9 +85,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
           {failed === '' && list?.parent != null && (
             <li>
               <button type="button" className="dir" disabled={props.disabled} aria-label={t('repo.up')} onClick={() => go(list.parent!)}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M15 18l-6-6 6-6" />
-                </svg>
+                <ChevronLeft />
                 ..
               </button>
             </li>
@@ -104,9 +103,7 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
                     {folder.git && <span className="tag">git</span>}
                   </button>
                   <button type="button" className="btn ghost sm" disabled={props.disabled} aria-label={t('repo.open', { name: folder.name })} title={t('repo.open', { name: folder.name })} onClick={() => go(path)}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M9 18l6-6-6-6" />
-                    </svg>
+                    <ChevronRight />
                   </button>
                 </li>
               );

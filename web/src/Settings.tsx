@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { closeLogin, getLogin, loginPty, removeAccount, startLogin } from './api';
@@ -242,9 +243,7 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
               <h4>
                 {label}
                 <button className="btn ghost sm" onClick={() => openLogin(provider, null, t('accounts.addTitle', { provider: label }))}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
+                  <Plus />
                   {t('accounts.add')}
                 </button>
               </h4>

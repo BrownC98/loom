@@ -16,6 +16,8 @@ concurrency:
 
 env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
+  # 설치 파일을 만드는 Tauri CLI 판. 설치 템플릿도 같은 판에서 받는다.
+  TAURI_CLI: 2.12.3
 
 jobs:
   installer:
@@ -61,6 +63,16 @@ jobs:
           cargo build --release
           mkdir -p app/binaries
           cp target/release/loom.exe app/binaries/loom-x86_64-pc-windows-msvc.exe
+      # 이전 판이 깔려 있으면 Tauri 템플릿은 「먼저 지우기/지우지 않기」 화면과 옛 판 제거 마법사를 띄운다.
+      # 그 화면을 건너뛰고 같은 폴더에 덮어 설치한다(앱 업데이트의 /UPDATE와 같은 길). 근거: docs/design.md 「Windows 앱」.
+      - name: 설치 템플릿 받기
+        shell: bash
+        run: |
+          nsi=app/windows/installer.nsi
+          curl -fsSL "https://raw.githubusercontent.com/tauri-apps/tauri/tauri-cli-v$TAURI_CLI/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi" -o "$nsi"
+          line='  ${IfThen} "$R0$R1" == "" ${|} Abort ${|}'
+          [ "$(grep -cxF "$line" "$nsi")" = 1 ] || { echo "Tauri $TAURI_CLI 템플릿에 이전 판 확인 줄이 없다. 패치를 다시 맞춘다." >&2; exit 1; }
+          awk -v line="$line" '$0 == line { print "  Abort"; next } { print }' "$nsi" > "$nsi.tmp" && mv "$nsi.tmp" "$nsi"
       - name: 설치 파일 빌드, Release에 올리기
         uses: tauri-apps/tauri-action@action-v1.0.0
         env:
@@ -69,7 +81,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
-          tauriScript: npx --yes @tauri-apps/cli@2.12.3
+          tauriScript: npx --yes @tauri-apps/cli@${{ env.TAURI_CLI }}
           tagName: v${{ steps.version.outputs.version }}
           releaseName: loom ${{ steps.version.outputs.version }}
           releaseBody: |

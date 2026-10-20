@@ -72,15 +72,13 @@ pub struct TerminalFont {
 }
 
 /// 그래프 전체의 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.
-/// 옛 이름(`terminal`, `header`)으로 저장한 값도 읽는다.
+/// 옛 이름(`terminal`, `header`)은 DB 12단계가 바꾼다.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum CardView {
     #[default]
-    #[serde(alias = "terminal")]
     Standard,
-    #[serde(alias = "header")]
     Simple,
 }
 
@@ -173,13 +171,5 @@ mod tests {
         assert_eq!(got.terminal_font, TerminalFont::default());
         assert_eq!(got.card_view, CardView::Standard);
         assert_eq!(got.language, Language::System);
-    }
-
-    #[test]
-    fn old_card_view_names_still_read() {
-        let read = |name: &str| serde_json::from_str::<CardView>(&format!("\"{name}\"")).unwrap();
-        assert_eq!(read("terminal"), CardView::Standard);
-        assert_eq!(read("header"), CardView::Simple);
-        assert_eq!(serde_json::to_string(&CardView::Simple).unwrap(), "\"simple\"");
     }
 }

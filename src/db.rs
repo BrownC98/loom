@@ -87,9 +87,14 @@ const STEPS: &[M] = &[
         ALTER TABLE nodes ADD COLUMN repo INTEGER;
         ALTER TABLE nodes ADD COLUMN worktree TEXT;",
     ),
-    // 11: 자식 노드의 첫 지시문(graph). 그 메시지의 id다. 첫 지시문 없이 만든 노드와 옛 노드는 NULL이다.
-    // 메시지는 받는 노드와 함께 지우므로 외래 키를 두지 않는다.
-    M::up("ALTER TABLE nodes ADD COLUMN brief INTEGER;"),
+    // 11: 노드의 첫 지시 첫 줄(graph). 카드 주제에 쓴다. 첫 지시 없이 만든 노드와 옛 노드는 NULL이다.
+    M::up("ALTER TABLE nodes ADD COLUMN brief TEXT;"),
+    // 12: 카드 보기 이름을 바꿨다(settings). 「터미널」은 「표준」, 「머리만」은 「심플」이다.
+    M::up(
+        "UPDATE settings SET value = json_set(value, '$.cardView',
+            CASE json_extract(value, '$.cardView') WHEN 'terminal' THEN 'standard' WHEN 'header' THEN 'simple' ELSE json_extract(value, '$.cardView') END)
+        WHERE json_extract(value, '$.cardView') IS NOT NULL;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -166,6 +171,19 @@ mod tests {
             .query_row("SELECT value FROM settings", [], |row| row.get(0))
             .unwrap();
         assert_eq!(value, r#"{"theme":"dark"}"#);
+    }
+
+    #[test]
+    fn step_12_renames_card_views() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 11).unwrap();
+        conn.execute_batch(r#"INSERT INTO settings (id, value) VALUES (1, '{"cardView":"header","theme":"dark"}');"#)
+            .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let value: String = conn
+            .query_row("SELECT value FROM settings", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(value, r#"{"cardView":"simple","theme":"dark"}"#);
     }
 
     #[test]

@@ -263,6 +263,14 @@ impl Start {
         }
     }
 
+    /// 에이전트에게 준 첫 지시. 명령이면 없다(빈 글).
+    pub fn brief(&self) -> &str {
+        match self {
+            Start::Agent { brief, .. } => brief,
+            Start::Command { .. } => "",
+        }
+    }
+
     /// 메시지 연동이 있는 에이전트면 그 프로필이다.
     pub fn profile(&self) -> Option<Profile> {
         match self {

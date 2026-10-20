@@ -2,6 +2,6 @@
 
 /**
  * 그래프 전체의 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.
- * 옛 이름(`terminal`, `header`)으로 저장한 값도 읽는다.
+ * 옛 이름(`terminal`, `header`)은 DB 12단계가 바꾼다.
  */
 export type CardView = "standard" | "simple";

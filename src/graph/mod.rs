@@ -205,7 +205,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    (SELECT body FROM messages m WHERE m.id = n.brief)
+    n.brief
     FROM nodes n";
 
 struct Store {
@@ -383,8 +383,13 @@ fn topic(state: &NodeState, title: Option<&String>, brief: Option<&str>) -> Opti
     [summary, title.map(String::as_str), brief]
         .into_iter()
         .flatten()
-        .find_map(|text| text.lines().map(str::trim).find(|line| !line.is_empty()))
+        .find_map(first_line)
         .map(str::to_owned)
+}
+
+/// 비지 않은 첫 줄(앞뒤 공백을 뺀다).
+fn first_line(text: &str) -> Option<&str> {
+    text.lines().map(str::trim).find(|line| !line.is_empty())
 }
 
 fn to_json(value: &impl Serialize) -> String {

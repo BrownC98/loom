@@ -745,7 +745,9 @@ async fn create_node(
     let discard = prepared.discarder();
     let id = app
         .graph
-        .add_root(&req.place, req.start.agent(), |id| app.launch(id, prepared))
+        .add_root(&req.place, req.start.agent(), req.start.brief(), |id| {
+            app.launch(id, prepared)
+        })
         .inspect_err(|_| discard())?;
     Ok(Json(id))
 }

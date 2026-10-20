@@ -5,8 +5,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::events::{self, Entry};
 use super::{
-    Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Place, Refusal, mailbox, name_of,
-    parent_of, place_of, set_state, state_of, to_json,
+    Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Place, Refusal, first_line,
+    mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -15,17 +15,19 @@ const SHELL_NAME: &str = "shell";
 
 impl Graph {
     /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
+    /// `brief`는 사람이 쓴 첫 지시다. CLI에 인자로 넘기므로 메일함에는 넣지 않고 카드 주제에만 쓴다.
     /// `launch`가 실패하면 노드를 남기지 않는다.
     pub fn add_root(
         &self,
         place: &Place,
         agent: Option<AgentId>,
+        brief: &str,
         launch: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
-        let id = insert(&tx, &name, &agent, None, place)?;
+        let id = insert(&tx, &name, &agent, None, place, brief)?;
         launch(id).map_err(Refusal::Launch)?;
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -65,14 +67,10 @@ impl Graph {
             worktree: worktree.map_or(place.worktree, str::to_owned),
             ..place
         };
-        let id = insert(&tx, name, &agent, Some(parent), &place)?;
+        let id = insert(&tx, name, &agent, Some(parent), &place, brief)?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
-            let message = mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
-            tx.execute(
-                "UPDATE nodes SET brief = ?2 WHERE id = ?1",
-                params![id.0, message.0],
-            )?;
+            mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
         }
         launch(id).map_err(Refusal::Launch)?;
         tx.commit()?;
@@ -297,9 +295,10 @@ fn insert(
     agent: &Option<AgentId>,
     parent: Option<NodeId>,
     place: &Place,
+    brief: &str,
 ) -> rusqlite::Result<NodeId> {
     db.execute(
-        "INSERT INTO nodes (name, agent, parent, state, repo, worktree) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO nodes (name, agent, parent, state, repo, worktree, brief) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             name,
             to_json(agent),
@@ -307,6 +306,7 @@ fn insert(
             to_json(&NodeState::Running),
             place.repo.0,
             place.worktree,
+            first_line(brief),
         ],
     )?;
     let id = NodeId(db.last_insert_rowid() as u32);

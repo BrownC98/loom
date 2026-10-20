@@ -22,7 +22,7 @@ fn launched(_: NodeId) -> Result<(), String> {
 
 /// 에이전트 id가 `agent`인 루트. 이름은 `<agent>-1`이다.
 fn root(g: &Graph, agent: &str) -> NodeId {
-    g.add_root(&home(), Some(AgentId(agent.into())), launched)
+    g.add_root(&home(), Some(AgentId(agent.into())), "", launched)
         .unwrap()
 }
 
@@ -128,6 +128,16 @@ fn topic_prefers_summary_then_title_then_brief() {
     // 같은 값은 다시 알리지 않는다.
     assert!(events.try_recv().is_err());
     g.set_title(worker, None).unwrap();
+    // 사람이 띄운 노드는 CLI에 넘긴 첫 지시를 쓴다.
+    let led = g
+        .add_root(
+            &home(),
+            Some(AgentId("claude".into())),
+            "로그인 화면을 고쳐라\n자세히",
+            launched,
+        )
+        .unwrap();
+    assert_eq!(view(&g, led).topic.as_deref(), Some("로그인 화면을 고쳐라"));
     assert!(
         matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.topic.as_deref() == Some("node_host를 고쳐라"))
     );
@@ -710,7 +720,7 @@ fn records_refusals_and_skips_rolled_back_changes() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     assert!(
-        g.add_root(&home(), None, |_| Err("없는 명령".into()))
+        g.add_root(&home(), None, "", |_| Err("없는 명령".into()))
             .is_err()
     );
     g.record_refusal(lead, "없음", Kind::Steer, &Refusal::NotFound("없음".into()))
@@ -802,7 +812,7 @@ fn reopening_records_running_nodes_as_exited() {
 fn roots_take_the_smallest_free_number() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    g.add_root(&home(), None, launched).unwrap();
+    g.add_root(&home(), None, "", launched).unwrap();
     let first = root(&g, "claude");
     root(&g, "claude");
     // 자식 이름은 사람이 띄운 노드의 번호를 막지 않는다.

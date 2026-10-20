@@ -406,7 +406,6 @@ pub fn command(
     };
     cmd.cwd(cwd);
     color_terminal(&mut cmd);
-    forget_parent_session(&mut cmd);
     Ok(cmd)
 }
 
@@ -419,23 +418,20 @@ pub fn color_terminal(cmd: &mut CommandBuilder) {
     cmd.env_remove("FORCE_COLOR");
 }
 
-/// 데몬을 띄운 Claude Code 세션의 표지. 노드가 물려받으면 Claude Code가 자기를 그 세션의 자식으로 보고
-/// 대화 기록을 저장하지 않는다("inherited CLAUDE_CODE_CHILD_SESSION marker", 2.1.304 실측).
-/// 노드는 독립 세션이다. `CLAUDE_CONFIG_DIR` 같은 설정 변수는 그대로 둔다.
-fn is_parent_session_marker(key: &str) -> bool {
-    key.starts_with("CLAUDE_CODE_") || matches!(key, "CLAUDECODE" | "CLAUDE_PID" | "CLAUDE_EFFORT")
-}
-
-fn forget_parent_session(cmd: &mut CommandBuilder) {
-    let markers: Vec<_> = cmd
-        .iter_full_env_as_str()
-        .map(|(key, _)| key)
-        .filter(|key| is_parent_session_marker(key))
-        .map(str::to_owned)
-        .collect();
-    for key in markers {
-        cmd.env_remove(key);
-    }
+/// 데몬을 띄운 터미널(Claude Code, Codex, OpenCode, Orca, 다른 loom 노드)이 넣은 변수다. 데몬은 시작할 때 지운다.
+/// 남기면 노드와 사용량 조회가 데몬을 띄운 곳에 따라 다르게 돈다.
+/// - 세션 표지: Claude Code가 자기를 그 세션의 자식으로 보고 대화 기록을 저장하지 않는다
+///   ("inherited CLAUDE_CODE_CHILD_SESSION marker", 2.1.304 실측). Orca 훅 변수는 노드의 훅 보고를 Orca로 보낸다.
+/// - 로그인 폴더(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG_DIR`): 기본 계정이 데몬을 띄운 곳의 계정이 된다.
+///   다른 `HOME`으로 띄운 시험 데몬도 사람의 `~/.codex`를 썼다. 다른 계정은 loom 계정 설정으로 고른다.
+pub fn is_launcher_env(key: &str) -> bool {
+    ["CLAUDE_CODE_", "CODEX_", "OPENCODE", "ORCA_", "LOOM_"]
+        .iter()
+        .any(|prefix| key.starts_with(prefix))
+        || matches!(
+            key,
+            "CLAUDECODE" | "CLAUDE_PID" | "CLAUDE_EFFORT" | "CLAUDE_CONFIG_DIR"
+        )
 }
 
 fn agent_command(
@@ -579,15 +575,28 @@ mod tests {
     }
 
     #[test]
-    fn parent_session_markers_are_not_inherited() {
-        let mut cmd = shell("true");
-        cmd.env("CLAUDE_CODE_CHILD_SESSION", "1");
-        cmd.env("CLAUDECODE", "1");
-        cmd.env("CLAUDE_CONFIG_DIR", "/x");
-        forget_parent_session(&mut cmd);
-        assert_eq!(cmd.get_env("CLAUDE_CODE_CHILD_SESSION"), None);
-        assert_eq!(cmd.get_env("CLAUDECODE"), None);
-        assert_eq!(cmd.get_env("CLAUDE_CONFIG_DIR").unwrap(), "/x");
+    fn launcher_env_is_known() {
+        for key in [
+            "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDECODE",
+            "CLAUDE_CONFIG_DIR",
+            "CODEX_HOME",
+            "OPENCODE_SESSION_ID",
+            "OPENCODE",
+            "ORCA_AGENT_HOOK_PORT",
+            "LOOM_TOKEN",
+        ] {
+            assert!(is_launcher_env(key), "{key}");
+        }
+        for key in [
+            "HOME",
+            "PATH",
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "CLAUDE",
+        ] {
+            assert!(!is_launcher_env(key), "{key}");
+        }
     }
 
     #[test]

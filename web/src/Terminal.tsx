@@ -46,9 +46,14 @@ function loadFont(family: string): Promise<unknown> {
   return Promise.allSettled([...document.fonts].filter((f) => names.includes(unquote(f.family))).map((f) => f.load()));
 }
 
-/** 카드 머리를 누르면 브라우저가 누른 뒤에 카드에 포커스를 준다. 그 뒤에 터미널로 옮기려고 다음 프레임에 준다. */
+/**
+ * 카드 머리를 누르면 브라우저가 누른 뒤에 카드에 포커스를 준다. 그 뒤에 터미널로 옮기려고 다음 프레임에 준다.
+ * 입력창(예: 이름 바꾸기)에 포커스가 있으면 옮기지 않는다. 터미널 연결은 늦게 끝나므로 사람이 쓰는 글을 끊는다.
+ */
 function focusSoon(xterm: XTerm) {
-  requestAnimationFrame(() => xterm.focus());
+  requestAnimationFrame(() => {
+    if (!(document.activeElement instanceof HTMLInputElement)) xterm.focus();
+  });
 }
 
 /** 지금 모드의 터미널 테마. `App`이 설정과 모드로 정한다. */

@@ -154,6 +154,13 @@ pub struct NewNode {
     pub place: Place,
 }
 
+/// 노드 이름 바꾸기. 이름 칸을 두 번 누르거나 F2를 눌러 고친다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct RenameNode {
+    pub name: String,
+}
+
 /// [저장소 추가]. `path`는 데몬이 보는 폴더다.
 #[derive(Deserialize, TS)]
 #[ts(export)]
@@ -382,6 +389,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/spawn", post(agent_spawn))
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
+        .route("/api/nodes/{id}/name", put(rename_node))
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
             "/api/pastes",
@@ -1018,6 +1026,16 @@ async fn adopt_node(
 ) -> Result<Json<()>, Problem> {
     let limits = app.tree_limits()?;
     app.graph.adopt(NodeId(parent), NodeId(id), limits)?;
+    Ok(Json(()))
+}
+
+/// 사람이 화면에서 노드 이름을 바꾼다. 에이전트는 이 길을 쓰지 않는다(노드 문에 없다).
+async fn rename_node(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+    Json(req): Json<RenameNode>,
+) -> Result<Json<()>, Problem> {
+    app.graph.rename(NodeId(id), &req.name)?;
     Ok(Json(()))
 }
 

@@ -145,6 +145,8 @@ impl Default for TreeLimits {
 pub enum Refusal {
     EmptyName,
     NameTaken(String),
+    /// `#`으로 시작하는 이름. `#번호`는 노드 번호 표기다.
+    ReservedName(String),
     TooDeep,
     /// 값은 자식 수 상한이다.
     TooManyChildren(u32),
@@ -169,8 +171,12 @@ impl fmt::Display for Refusal {
         match self {
             Refusal::EmptyName => write!(f, "이름을 적는다."),
             Refusal::NameTaken(name) => {
-                write!(f, "{name}: 이미 쓰이거나 노드 번호 표기에 예약된 이름이다.")
+                write!(f, "{name}: 부모·형제·자식 노드가 이미 쓰는 이름이다.")
             }
+            Refusal::ReservedName(name) => write!(
+                f,
+                "{name}: #으로 시작하는 이름은 노드 번호 표기에 쓴다. #을 뺀다."
+            ),
             Refusal::TooDeep => write!(f, "중첩 깊이 상한을 넘는다. 자식을 더 만들지 않는다."),
             Refusal::TooManyChildren(max) => write!(
                 f,

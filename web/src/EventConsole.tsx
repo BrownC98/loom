@@ -31,6 +31,7 @@ function whoOf(entry: Entry): Who[] {
       return [entry.node, ...(entry.parent ? [entry.parent] : [])];
     case 'state':
     case 'removed':
+    case 'renamed':
       return [entry.node];
     case 'adopted':
       return [entry.node, ...(entry.from ? [entry.from] : []), entry.to];
@@ -127,6 +128,13 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
           {name(entry.node)}
         </>
       );
+    case 'renamed':
+      return (
+        <>
+          <span className="kind">{t('events.kind.renamed')}</span>
+          <span translate="no">{entry.from}</span> → {name(entry.node)}
+        </>
+      );
     case 'message':
       return (
         <>
@@ -208,7 +216,7 @@ export function EventConsole(props: {
     });
   const needle = query.trim();
   const shown = (props.records ?? []).filter(
-    (r) => !hidden.has(categoryOf(r.entry)) && (needle === '' || whoOf(r.entry).some((w) => w.name.includes(needle)) || (r.entry.kind === 'refused' && r.entry.to.includes(needle))),
+    (r) => !hidden.has(categoryOf(r.entry)) && (needle === '' || whoOf(r.entry).some((w) => w.name.includes(needle)) || (r.entry.kind === 'refused' && r.entry.to.includes(needle)) || (r.entry.kind === 'renamed' && r.entry.from.includes(needle))),
   );
 
   return (

@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AgentMark } from './AgentMark';
 import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
 import i18next from './i18n';
+import { NameEdit, useRename, type Rename } from './NameEdit';
 import { navDirection, type Direction } from './Terminal';
 
 export function stateLabel(state: NodeState): string {
@@ -79,13 +80,13 @@ function Badges(props: { view: NodeView }) {
  * 노드 정보 전체: 로고·이름·버튼(`actions`), 지금 하는 일, 모델 · 추론 강도, 상태와 수. 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
  * 목업 docs/mockups/card-view.html 1번.
  */
-export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode }) {
+export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode; rename: Rename }) {
   const { view } = props;
   return (
     <div className="summary">
       <div className="summary-row">
         <AgentMark agent={view.agent} label={props.agentLabel} />
-        <span className="name">{view.name}</span>
+        <NameEdit id={view.id} name={view.name} rename={props.rename} />
         <span className="spacer" />
         {props.actions}
       </div>
@@ -113,11 +114,14 @@ type ShellProps = {
   onNavigate: (dir: Direction) => void;
 };
 
-/** 카드 틀: 고르기와 키보드 이동. */
-function CardShell(props: ShellProps & { className: string; children: ReactNode }) {
+/** 카드 틀: 고르기, 키보드 이동, F2 이름 바꾸기. 이름 편집 상태를 `children`에 넘긴다. */
+function CardShell(props: ShellProps & { className: string; children: (rename: Rename) => ReactNode }) {
   const { t } = useTranslation();
+  const home = useRef<HTMLElement>(null);
+  const rename = useRename(home);
   return (
     <article
+      ref={home}
       className={props.className}
       tabIndex={0}
       aria-label={t('node.label', { name: props.view.name })}
@@ -131,10 +135,13 @@ function CardShell(props: ShellProps & { className: string; children: ReactNode 
           props.onNavigate(dir);
         } else if (e.key === 'Enter') {
           props.onSelect();
+        } else if (e.key === 'F2') {
+          e.preventDefault();
+          rename.open();
         }
       }}
     >
-      {props.children}
+      {props.children(rename)}
     </article>
   );
 }
@@ -143,7 +150,7 @@ function CardShell(props: ShellProps & { className: string; children: ReactNode 
 export function SimpleCard(props: ShellProps & { agentLabel: string; actions: ReactNode }) {
   return (
     <CardShell className="card simple" {...props}>
-      <NodeSummary view={props.view} agentLabel={props.agentLabel} actions={props.actions} />
+      {(rename) => <NodeSummary view={props.view} agentLabel={props.agentLabel} actions={props.actions} rename={rename} />}
     </CardShell>
   );
 }
@@ -164,18 +171,22 @@ export function NodeCard(
   const foot = footText(view.state, props.parentName, view.held > 0);
   return (
     <CardShell className="card" {...props}>
-      <div className="card-head" onDoubleClick={props.onDoubleClickHead}>
-        <span className="name">{view.name}</span>
-        <AgentMark agent={view.agent} label={props.agentLabel} />
-        <ModelText view={view} />
-        <span className="spacer" />
-        <Badges view={view} />
-        {props.headAction}
-      </div>
-      <div className="term nodrag nowheel" translate="no">
-        {props.children}
-      </div>
-      {foot !== null && <div className="card-foot">{foot}</div>}
+      {(rename) => (
+        <>
+          <div className="card-head" onDoubleClick={props.onDoubleClickHead}>
+            <NameEdit id={view.id} name={view.name} rename={rename} />
+            <AgentMark agent={view.agent} label={props.agentLabel} />
+            <ModelText view={view} />
+            <span className="spacer" />
+            <Badges view={view} />
+            {props.headAction}
+          </div>
+          <div className="term nodrag nowheel" translate="no">
+            {props.children}
+          </div>
+          {foot !== null && <div className="card-foot">{foot}</div>}
+        </>
+      )}
     </CardShell>
   );
 }

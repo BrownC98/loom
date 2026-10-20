@@ -51,7 +51,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .app { position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--dock-w); height: 100%; }
 /* 사이드바 경계(sidebar-resize.html). 칸 사이 선 위에 7px 폭으로 겹친다. 맨 아래 상태 줄(28px)은 덮지 않는다. */
-.splitter { position: absolute; top: 0; bottom: 28px; width: 7px; margin-left: -3px; margin-right: -4px; z-index: 8; cursor: col-resize; touch-action: none; }
+/* 경계는 사이드바·그래프 칸 바로 위(1)에만 둔다. 더 높으면 그 위에 뜬 창(저장소 추가, 줄 창)을 뚫고 마우스를 받는다. */
+.splitter { position: absolute; top: 0; bottom: 28px; width: 7px; margin-left: -3px; margin-right: -4px; z-index: 1; cursor: col-resize; touch-action: none; }
 .splitter:hover, .splitter:focus-visible, .splitter:active { background: color-mix(in oklch, var(--accent) 55%, transparent); outline: none; }
 
 /* 사이드바: 트리와 맨 아래 [설정](docs/mockups/graph-panels.html 1번) */

@@ -28,7 +28,7 @@ import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Tree } from './Tree';
 import { UpdateCard } from './Update';
-import { activeFont, XtermFont, XtermTheme } from './Terminal';
+import { activeFont, paneKey, XtermFont, XtermTheme } from './Terminal';
 import { TerminalDock } from './TerminalDock';
 import { withAccount } from './usage';
 
@@ -52,6 +52,9 @@ const DOCK_PANE: Pane = { key: 'loom.dockWidth', initial: 520, min: 320, max: 80
 const RAIL_WIDTH = 40;
 /** 왼쪽 사이드바 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있다. */
 const SIDE_TOGGLE = 'side-toggle';
+/** 왼쪽 접기·펴기 키(Terminal.tsx `paneKey`). 툴팁과 `aria-keyshortcuts`에 보인다. */
+const SIDE_KEY = 'Ctrl+Shift+[';
+const SIDE_ARIA_KEY = 'Control+Shift+[';
 /** 오른쪽 칸과 그래프 사이에 늘 남기는 폭. 그래프를 다 덮어 되돌릴 수 없게 되는 것을 막는다. */
 const DOCK_MIN_GRAPH = 120;
 const EMPTY_SETTINGS: SettingsView = {
@@ -156,6 +159,19 @@ export function App() {
     setDockOpen(open);
     focusToggle(DOCK_TOGGLE);
   };
+  // `Ctrl+Shift+[`·`]`로 사이드바를 접고 편다. 포커스는 그대로 둔다(터미널에서 눌러도 터미널에 남는다).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const side = paneKey(e);
+      if (!side) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      if (side === 'left') setSideOpen(!sideOpen);
+      else setDockOpen(!dockOpen);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sideOpen, dockOpen]);
   const arrange = (next: ArrangeDirection) => {
     setDirection(next);
     saveDirection(next);
@@ -280,7 +296,7 @@ export function App() {
             <nav className="side" id="side" aria-label={t('app.sideLabel')}>
               <div className="brand">
                 loom
-                <button id={SIDE_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="side" aria-label={t('app.sideCollapse')} title={t('app.sideCollapse')} onClick={() => openSide(false)}>
+                <button id={SIDE_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="side" aria-label={t('app.sideCollapse')} aria-keyshortcuts={SIDE_ARIA_KEY} title={`${t('app.sideCollapse')} (${SIDE_KEY})`} onClick={() => openSide(false)}>
                   <PanelLeftClose />
                 </button>
               </div>
@@ -311,7 +327,7 @@ export function App() {
             </nav>
           ) : (
             <nav className="rail side-rail" id="side" aria-label={t('app.sideLabel')}>
-              <button id={SIDE_TOGGLE} className="btn ghost icon" aria-expanded={false} aria-controls="side" aria-label={t('app.sideExpand')} title={t('app.sideExpand')} onClick={() => openSide(true)}>
+              <button id={SIDE_TOGGLE} className="btn ghost icon" aria-expanded={false} aria-controls="side" aria-label={t('app.sideExpand')} aria-keyshortcuts={SIDE_ARIA_KEY} title={`${t('app.sideExpand')} (${SIDE_KEY})`} onClick={() => openSide(true)}>
                 <PanelLeftOpen />
               </button>
               <button className="btn ghost icon rail-end" aria-label={t('settings.title')} title={t('settings.title')} onClick={() => setSettingsTab('agents')}>

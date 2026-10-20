@@ -21,6 +21,19 @@ export function navDirection(e: KeyboardEvent | ReactKeyboardEvent): Direction |
   return NAV_KEYS[e.key] ?? null;
 }
 
+/** 접고 펴는 사이드바. */
+export type PaneSide = 'left' | 'right';
+const PANE_KEYS: Record<string, PaneSide> = { BracketLeft: 'left', BracketRight: 'right' };
+
+/**
+ * `Ctrl+Shift+[`·`]`는 왼쪽·오른쪽 사이드바를 접고 편다(목업 toolbar.html 4번). 방향키처럼 터미널 앱에 넘기지 않는다.
+ * 터미널은 `Ctrl+Shift+[`와 `Ctrl+[`(Esc)를 구별하지 못한다. Shift 없는 `Ctrl+[`는 그대로 터미널에 간다. 한글 입력 중에도 맞도록 자리(`code`)를 본다.
+ */
+export function paneKey(e: KeyboardEvent | ReactKeyboardEvent): PaneSide | null {
+  if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return null;
+  return PANE_KEYS[e.code] ?? null;
+}
+
 /** 다른 수식 키 없는 Ctrl+글쇠. 한글 입력 중에도 맞도록 글자(`key`)가 아니라 자리(`code`)를 본다. */
 function plainCtrl(e: KeyboardEvent, code: string): boolean {
   return e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === code;
@@ -170,6 +183,8 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           e.preventDefault();
           return false;
         }
+        // 접기 키는 막지 않고 창으로 올려 보낸다. 창의 키 처리(App)가 사이드바를 바꾼다.
+        if (paneKey(e)) return false;
         // 선택이 없으면 Ctrl+C는 터미널 앱에 `^C`로 간다. 복사한 뒤 선택을 지워 다음 Ctrl+C가 `^C`가 되게 한다.
         if (plainCtrl(e, 'KeyC') && xterm.hasSelection()) {
           if (e.type === 'keydown') {

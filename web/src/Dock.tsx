@@ -10,6 +10,9 @@ const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'dock.terminal
 
 /** 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있어, 누른 뒤 같은 id로 포커스를 옮긴다. */
 export const DOCK_TOGGLE = 'dock-toggle';
+/** 접기·펴기 키(Terminal.tsx `paneKey`). 툴팁과 `aria-keyshortcuts`에 보인다. */
+const KEY = 'Ctrl+Shift+]';
+const ARIA_KEY = 'Control+Shift+]';
 
 /**
  * 오른쪽 사이드바(목업 docs/mockups/toolbar.html E안). 위 「보기」에 그래프 보기 도구(`tools`)를 두고, 아래 탭이 칸(`children`)을 고른다.
@@ -31,7 +34,7 @@ export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; onTab: (ta
       <div className="dock-tools">
         <div className="dock-tools-head">
           <h2>{t('dock.view')}</h2>
-          <button id={DOCK_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="dock" aria-label={t('dock.collapse')} title={t('dock.collapse')} onClick={props.onCollapse}>
+          <button id={DOCK_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="dock" aria-label={t('dock.collapse')} aria-keyshortcuts={ARIA_KEY} title={`${t('dock.collapse')} (${KEY})`} onClick={props.onCollapse}>
             <PanelRightClose />
           </button>
         </div>
@@ -61,7 +64,7 @@ export function DockRail(props: { tabs: readonly DockTab[]; onExpand: (tab: Dock
   const { t } = useTranslation();
   return (
     <aside className="rail dock-rail" id="dock" aria-label={t('dock.label')}>
-      <button id={DOCK_TOGGLE} className="btn ghost icon" aria-expanded={false} aria-controls="dock" aria-label={t('dock.expand')} title={t('dock.expand')} onClick={() => props.onExpand(null)}>
+      <button id={DOCK_TOGGLE} className="btn ghost icon" aria-expanded={false} aria-controls="dock" aria-label={t('dock.expand')} aria-keyshortcuts={ARIA_KEY} title={`${t('dock.expand')} (${KEY})`} onClick={() => props.onExpand(null)}>
         <PanelRightOpen />
       </button>
       <hr />

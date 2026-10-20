@@ -5,10 +5,19 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::events::{self, Entry};
 use super::{
-    Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Place, Refusal, first_line,
+    Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, TreeLimits, first_line,
     from_json, mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
+
+/// `Graph::add_child`가 더할 자식.
+pub struct NewChild<'a> {
+    pub name: &'a str,
+    /// 없으면 부모와 같은 워크트리에 든다. 저장소는 늘 부모와 같다.
+    pub worktree: Option<&'a str>,
+    pub agent: Option<AgentId>,
+    pub brief: &'a str,
+}
 
 /// 에이전트 없이 띄운 노드(셸) 이름의 앞부분.
 const SHELL_NAME: &str = "shell";
@@ -50,25 +59,29 @@ impl Graph {
     }
 
     /// `parent`의 자식을 더하고 `brief`를 자식 메일함의 첫 메시지로 넣는다. `launch`가 실패하면 아무것도 남기지 않는다.
-    /// 자식은 `worktree`가 없으면 부모와 같은 워크트리에 든다. 저장소는 늘 부모와 같다.
     pub fn add_child(
         &self,
         parent: NodeId,
-        name: &str,
-        worktree: Option<&str>,
-        agent: Option<AgentId>,
-        brief: &str,
+        child: NewChild,
+        limits: TreeLimits,
         launch: impl FnOnce(NodeId) -> Result<Launched, String>,
     ) -> Result<NodeId, Refusal> {
+        let NewChild {
+            name,
+            worktree,
+            agent,
+            brief,
+        } = child;
         let name = checked_name(name)?;
         if brief.len() > BRIEF_LIMIT_BYTES {
             return Err(Refusal::BriefTooLong(brief.len()));
         }
         let mut db = self.lock();
         let tx = db.transaction()?;
-        if ancestors(&tx, parent)?.len() as u32 >= MAX_DEPTH {
+        if ancestors(&tx, parent)?.len() as u32 >= limits.max_depth {
             return Err(Refusal::TooDeep);
         }
+        check_children(&tx, parent, limits)?;
         let taken: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM nodes WHERE name = ?2 AND (parent = ?1 OR id = ?1))",
             params![parent.0, name],
@@ -264,7 +277,7 @@ impl Graph {
     /// `parent`를 `child`의 새 부모로 정한다. 이미 그 부모면 아무것도 하지 않는다.
     /// `child`가 보관한 메시지는 보낸 순서대로 새 부모 메일함에 넣는다. 보관할 때 상한을 봤으므로 메일함 상한은 보지 않는다.
     /// 실행 중인 노드를 데려가면 옛 부모 메일함에 `adopted: <새 부모>` 한 줄을 넣는다. 옛 부모가 끝없이 기다리지 않게 한다.
-    pub fn adopt(&self, parent: NodeId, child: NodeId) -> Result<(), Refusal> {
+    pub fn adopt(&self, parent: NodeId, child: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let old = parent_of(&tx, child)?;
@@ -275,9 +288,10 @@ impl Graph {
         if parent == child || above.contains(&child) {
             return Err(Refusal::Cycle);
         }
-        if above.len() as u32 + 1 + height(&tx, child)? > MAX_DEPTH {
+        if above.len() as u32 + 1 + height(&tx, child)? > limits.max_depth {
             return Err(Refusal::TooDeep);
         }
+        check_children(&tx, parent, limits)?;
         let name = name_of(&tx, child)?;
         let taken: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM nodes WHERE name = ?2 AND id != ?3 AND (parent = ?1 OR id = ?1))",
@@ -386,6 +400,22 @@ fn insert(
     };
     events::write(db, &entry, None)?;
     Ok(id)
+}
+
+/// `parent`가 자식을 하나 더 받을 수 있는지 본다. 끝난 자식도 센다. 사람이 지워야 자리가 난다.
+fn check_children(db: &Connection, parent: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
+    let Some(max) = limits.max_children else {
+        return Ok(());
+    };
+    let count: u32 = db.query_row(
+        "SELECT count(*) FROM nodes WHERE parent = ?1",
+        [parent.0],
+        |row| row.get(0),
+    )?;
+    if count >= max {
+        return Err(Refusal::TooManyChildren(max));
+    }
+    Ok(())
 }
 
 /// 부모부터 뿌리까지. 개수가 깊이다.

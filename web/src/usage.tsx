@@ -8,8 +8,8 @@ import type { Window } from './gen/Window';
 import i18next, { ago, weekdayAndTime } from './i18n';
 import { usageProblemText } from './problem';
 
-/** 이 비율 이하로 남으면 막대가 노란색이다(목업 usage.html). */
-const LOW_REMAINING = 25;
+/** 이 비율 이상 쓰면 막대가 노란색이다(목업 usage.html). */
+const HIGH_USED = 75;
 
 export const PROVIDERS: Provider[] = ['claude', 'codex'];
 export const PROVIDER_LABEL: Record<Provider, string> = { claude: 'Claude', codex: 'Codex' };
@@ -45,10 +45,10 @@ export function limitsProblem(limits: Limits): string | null {
   }
 }
 
-export function Meter(props: { remaining: number }) {
+export function Meter(props: { used: number }) {
   return (
     <span className="meter" aria-hidden="true">
-      <i className={props.remaining <= LOW_REMAINING ? 'low' : undefined} style={{ width: `${props.remaining}%` }} />
+      <i className={props.used >= HIGH_USED ? 'low' : undefined} style={{ width: `${props.used}%` }} />
     </span>
   );
 }
@@ -70,13 +70,13 @@ function windows(limits: Limits): NamedWindow[] {
   return [...accountWindows(limits), ...models];
 }
 
-/** 창마다 이름, 막대, 남은 비율 한 줄. 사용량이 없으면 아무것도 그리지 않는다. */
+/** 창마다 이름, 막대, 사용한 비율 한 줄. 사용량이 없으면 아무것도 그리지 않는다. */
 export function WindowLines(props: { limits: Limits }) {
   return windows(props.limits).map(({ label, window: w }) => (
     <span className="win-line" key={label}>
       <span>{label}</span>
-      <Meter remaining={w.remaining} />
-      <span className="pct">{w.remaining}%</span>
+      <Meter used={w.used} />
+      <span className="pct">{w.used}%</span>
     </span>
   ));
 }
@@ -85,17 +85,17 @@ export function WindowLines(props: { limits: Limits }) {
 export function InlineWindows(props: { limits: Limits }) {
   return windows(props.limits).map(({ label, window: w }) => (
     <span className="lim" key={label}>
-      <Meter remaining={w.remaining} />
-      {label} {w.remaining}%
+      <Meter used={w.used} />
+      {label} {w.used}%
     </span>
   ));
 }
 
-/** 읽는 사람에게 들리는 한 줄. 예: 「5시간 58% 남음, 주간 82% 남음」. */
+/** 읽는 사람에게 들리는 한 줄. 예: 「5시간 42% 사용, 주간 18% 사용」. */
 export function windowsText(limits: Limits): string {
   if (limits.kind !== 'ready') return limitsProblem(limits) ?? '';
   return windows(limits)
-    .map(({ label, window: w }) => i18next.t('usage.windowLeft', { window: label, n: w.remaining }))
+    .map(({ label, window: w }) => i18next.t('usage.windowUsed', { window: label, n: w.used }))
     .join(', ');
 }
 

@@ -22,7 +22,7 @@ use ts_rs::TS;
 
 pub use events::EventRecord;
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER};
-pub use nodes::Launched;
+pub use nodes::{Launched, NewChild};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
@@ -31,8 +31,6 @@ use crate::worktree::RepoId;
 const EVENT_QUEUE: usize = 256;
 /// 받는 노드마다 `queued` 메시지 상한. 근거: docs/design.md 「상한」.
 const MAILBOX_LIMIT: u32 = 50;
-/// 사람이 띄운 노드가 깊이 0이다. 근거: docs/design.md 「상한」.
-const MAX_DEPTH: u32 = 2;
 /// `loom done` 요약 상한. 근거: docs/design.md 「맥락과 크기」.
 const SUMMARY_LIMIT_BYTES: usize = 1024;
 
@@ -119,6 +117,26 @@ pub enum GraphEvent {
     },
 }
 
+/// 노드 나무의 상한. 사람이 설정에서 바꾼다. 근거: docs/design.md 「상한」.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct TreeLimits {
+    /// 사람이 띄운 노드가 깊이 0이다. 0이면 에이전트가 자식을 만들지 못한다.
+    pub max_depth: u32,
+    /// 한 부모의 자식 수. `None`이면 상한이 없다.
+    pub max_children: Option<u32>,
+}
+
+impl Default for TreeLimits {
+    fn default() -> Self {
+        Self {
+            max_depth: 2,
+            max_children: None,
+        }
+    }
+}
+
 /// 규칙에 맞지 않아 거부한 요청. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
 /// 이벤트 기록에도 남기므로 읽을 수 있어야 한다(`Deserialize`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -128,6 +146,8 @@ pub enum Refusal {
     EmptyName,
     NameTaken(String),
     TooDeep,
+    /// 값은 자식 수 상한이다.
+    TooManyChildren(u32),
     BriefTooLong(#[ts(type = "number")] usize),
     SummaryTooLong(#[ts(type = "number")] usize),
     MailboxFull(String),
@@ -149,9 +169,10 @@ impl fmt::Display for Refusal {
         match self {
             Refusal::EmptyName => write!(f, "이름을 적는다."),
             Refusal::NameTaken(name) => write!(f, "{name}: 부모나 형제가 이미 이 이름을 쓴다."),
-            Refusal::TooDeep => write!(
+            Refusal::TooDeep => write!(f, "중첩 깊이 상한을 넘는다. 자식을 더 만들지 않는다."),
+            Refusal::TooManyChildren(max) => write!(
                 f,
-                "중첩 깊이 {MAX_DEPTH}를 넘는다. 자식을 더 만들지 않는다."
+                "자식이 이미 {max}개다. 끝난 자식을 지우거나 자식에게 일을 맡긴다."
             ),
             Refusal::BriefTooLong(len) => write!(
                 f,

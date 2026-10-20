@@ -30,8 +30,19 @@ fn root(g: &Graph, agent: &str) -> NodeId {
         .unwrap()
 }
 
+/// 지시문 없이 부모 워크트리에 드는 셸 자식.
+fn named(name: &str) -> NewChild<'_> {
+    NewChild {
+        name,
+        worktree: None,
+        agent: None,
+        brief: "",
+    }
+}
+
 fn child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
-    g.add_child(parent, name, None, None, "", launched).unwrap()
+    g.add_child(parent, named(name), TreeLimits::default(), launched)
+        .unwrap()
 }
 
 /// 메시지 하나를 꺼내고 받음을 확인한다. 보낸 노드, 방식, 본문을 돌려준다.
@@ -102,10 +113,11 @@ fn topic_prefers_summary_then_title_then_brief() {
     let worker = g
         .add_child(
             lead,
-            "구현",
-            None,
-            None,
-            "\n  node_host를 고쳐라 \n둘째 줄",
+            NewChild {
+                brief: "\n  node_host를 고쳐라 \n둘째 줄",
+                ..named("구현")
+            },
+            TreeLimits::default(),
             launched,
         )
         .unwrap();
@@ -162,7 +174,15 @@ fn parent_and_child_exchange_messages() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let worker = g
-        .add_child(lead, "구현", None, None, "node_host를 고쳐라", launched)
+        .add_child(
+            lead,
+            NewChild {
+                brief: "node_host를 고쳐라",
+                ..named("구현")
+            },
+            TreeLimits::default(),
+            launched,
+        )
         .unwrap();
 
     assert_eq!(take(&g, worker), delivery("총괄-1", "node_host를 고쳐라"));
@@ -203,10 +223,49 @@ fn child_names_are_unique_among_siblings_and_parent() {
     let lead = root(&g, "총괄");
     child(&g, lead, "a");
 
-    let refused = |name| g.add_child(lead, name, None, None, "", launched);
+    let refused = |name| g.add_child(lead, named(name), TreeLimits::default(), launched);
     assert!(matches!(refused("a"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("총괄-1"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("  "), Err(Refusal::EmptyName)));
+}
+
+#[test]
+fn tree_limits_come_from_the_caller() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let flat = TreeLimits {
+        max_depth: 0,
+        max_children: None,
+    };
+    assert!(matches!(
+        g.add_child(lead, named("a"), flat, launched),
+        Err(Refusal::TooDeep)
+    ));
+    let two = TreeLimits {
+        max_depth: 5,
+        max_children: Some(2),
+    };
+    let a = g.add_child(lead, named("a"), two, launched).unwrap();
+    g.add_child(lead, named("b"), two, launched).unwrap();
+    // 끝난 자식도 센다.
+    g.done(a, "끝").unwrap();
+    assert!(matches!(
+        g.add_child(lead, named("c"), two, launched),
+        Err(Refusal::TooManyChildren(2))
+    ));
+    // 입양도 같은 상한을 본다.
+    let other = root(&g, "검토");
+    assert!(matches!(
+        g.adopt(lead, other, two),
+        Err(Refusal::TooManyChildren(2))
+    ));
+    let deep = TreeLimits {
+        max_depth: 3,
+        max_children: None,
+    };
+    let a1 = g.add_child(a, named("a1"), deep, launched).unwrap();
+    g.add_child(a1, named("a2"), deep, launched).unwrap();
 }
 
 #[test]
@@ -219,13 +278,21 @@ fn limits_are_enforced() {
 
     // 중첩 깊이 2
     assert!(matches!(
-        g.add_child(a1, "a2", None, None, "", launched),
+        g.add_child(a1, named("a2"), TreeLimits::default(), launched),
         Err(Refusal::TooDeep)
     ));
     // 지시문 4KB
     let brief = "x".repeat(4097);
     assert!(matches!(
-        g.add_child(lead, "b", None, None, &brief, launched),
+        g.add_child(
+            lead,
+            NewChild {
+                brief: &brief,
+                ..named("b")
+            },
+            TreeLimits::default(),
+            launched
+        ),
         Err(Refusal::BriefTooLong(4097))
     ));
     assert!(matches!(
@@ -257,7 +324,15 @@ fn failed_launch_leaves_nothing() {
     let fail = |_| Err("없는 명령".to_owned());
 
     assert!(matches!(
-        g.add_child(lead, "a", None, None, "지시", fail),
+        g.add_child(
+            lead,
+            NewChild {
+                brief: "지시",
+                ..named("a")
+            },
+            TreeLimits::default(),
+            fail
+        ),
         Err(Refusal::Launch(_))
     ));
     assert_eq!(g.subscribe().unwrap().0.len(), 1);
@@ -312,7 +387,15 @@ fn restart_keeps_nodes_and_messages() {
         let g = open(&path);
         let lead = root(&g, "총괄");
         let a = g
-            .add_child(lead, "a", None, None, "지시", launched)
+            .add_child(
+                lead,
+                NewChild {
+                    brief: "지시",
+                    ..named("a")
+                },
+                TreeLimits::default(),
+                launched,
+            )
             .unwrap();
         g.done(a, "요약").unwrap();
         (lead, a)
@@ -538,7 +621,7 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
     ));
     assert_eq!(view(&g, worker).held, 3);
 
-    g.adopt(lead, worker).unwrap();
+    g.adopt(lead, worker, TreeLimits::default()).unwrap();
 
     let adopted = view(&g, worker);
     assert_eq!((adopted.parent, adopted.held), (Some(lead), 0));
@@ -563,12 +646,12 @@ fn adopting_a_running_node_tells_its_old_parent() {
     let other = root(&g, "검토");
     let a = child(&g, lead, "a");
 
-    g.adopt(other, a).unwrap();
+    g.adopt(other, a, TreeLimits::default()).unwrap();
 
     assert_eq!(view(&g, a).parent, Some(other));
     assert_eq!(take(&g, lead), delivery("a", "adopted: 검토-1"));
     // 이미 그 부모면 아무것도 하지 않는다.
-    g.adopt(other, a).unwrap();
+    g.adopt(other, a, TreeLimits::default()).unwrap();
     assert_eq!(take(&g, other), None);
 }
 
@@ -584,12 +667,26 @@ fn adopt_refuses_cycles_depth_and_taken_names() {
     // 검토 아래의 a. 총괄 아래에도 a가 있다.
     let twin = child(&g, other, "a");
 
-    assert!(matches!(g.adopt(lead, lead), Err(Refusal::Cycle)));
-    assert!(matches!(g.adopt(a1, lead), Err(Refusal::Cycle)));
-    assert!(matches!(g.adopt(a, lead), Err(Refusal::Cycle)));
+    assert!(matches!(
+        g.adopt(lead, lead, TreeLimits::default()),
+        Err(Refusal::Cycle)
+    ));
+    assert!(matches!(
+        g.adopt(a1, lead, TreeLimits::default()),
+        Err(Refusal::Cycle)
+    ));
+    assert!(matches!(
+        g.adopt(a, lead, TreeLimits::default()),
+        Err(Refusal::Cycle)
+    ));
     // a1은 깊이 2다. 자식이 있는 검토를 그 아래에 두면 깊이 4가 된다.
-    assert!(matches!(g.adopt(a1, other), Err(Refusal::TooDeep)));
-    assert!(matches!(g.adopt(lead, twin), Err(Refusal::NameTaken(n)) if n == "a"));
+    assert!(matches!(
+        g.adopt(a1, other, TreeLimits::default()),
+        Err(Refusal::TooDeep)
+    ));
+    assert!(
+        matches!(g.adopt(lead, twin, TreeLimits::default()), Err(Refusal::NameTaken(n)) if n == "a")
+    );
     assert!(matches!(g.find("a"), Err(Refusal::Ambiguous(_))));
     assert!(matches!(g.find("없음"), Err(Refusal::NotFound(_))));
     assert_eq!(g.find("검토-1").unwrap(), other);
@@ -621,7 +718,7 @@ fn records_node_and_message_events_in_order() {
     take(&g, lead);
     g.done(a, "끝").unwrap();
     let other = root(&g, "검토");
-    g.adopt(other, a).unwrap();
+    g.adopt(other, a, TreeLimits::default()).unwrap();
     g.remove(other).unwrap();
     g.send(a, "검토-1", Kind::Queue, "보관할 말").unwrap();
 
@@ -876,7 +973,15 @@ fn children_stay_in_the_parent_place_unless_given_a_worktree() {
     let lead = root(&g, "claude");
     let same = child(&g, lead, "a");
     let moved = g
-        .add_child(lead, "b", Some("/ws/repo/feat"), None, "", launched)
+        .add_child(
+            lead,
+            NewChild {
+                worktree: Some("/ws/repo/feat"),
+                ..named("b")
+            },
+            TreeLimits::default(),
+            launched,
+        )
         .unwrap();
     assert_eq!(view(&g, same).place, home());
     assert_eq!(

@@ -255,6 +255,8 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .field input { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
 .field input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
 .field input::placeholder { color: var(--ink-3); }
+.limit-fields { display: flex; flex-wrap: wrap; gap: 16px; }
+.limit-fields input { width: 120px; font-variant-numeric: tabular-nums; }
 .stepper { display: flex; align-items: center; gap: 6px; }
 .stepper input { width: 56px; height: 26px; text-align: center; font-variant-numeric: tabular-nums; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; }
 .stepper input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }

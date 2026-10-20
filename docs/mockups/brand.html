@@ -2,7 +2,7 @@
 <html lang="ko">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>서비스 이름과 아이콘</title>
+<title>서비스 이름 시안</title>
 <style>
   /* 토큰은 web/src/styles.css :root와 같다. */
   :root {
@@ -51,35 +51,6 @@
   .names td:nth-child(2) { max-width: 260px; }
   .names td:nth-child(n+5):not(:last-child) { color: var(--ink-2); max-width: 170px; }
 
-  /* 아이콘 */
-  .icons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 12px; }
-  .icon-card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-  .icon-card h3 { font-size: 14px; }
-  .icon-card h3 small { font-weight: 400; color: var(--ink-3); margin-left: 4px; }
-  .icon-card p { font-size: 12.5px; color: var(--ink-2); }
-  .big { width: 100%; max-width: 256px; aspect-ratio: 1; align-self: center; }
-  .sizes { display: grid; grid-template-columns: 1fr 1fr; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
-  .sizes > div { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 6px; }
-  .sizes .light { background: #ffffff; }
-  .sizes .dark { background: #1f1f1f; }
-  .sizes svg { flex: none; }
-  .zoom { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-3); }
-  .zoom canvas { width: 96px; height: 96px; image-rendering: pixelated; border: 1px solid var(--line); flex: none; }
-
-  /* Windows 작업 표시줄(24px 아이콘, 100% 배율) */
-  .taskbar { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
-  .bar { height: 48px; display: flex; align-items: center; justify-content: center; gap: 4px; border-radius: 6px; }
-  .bar.dark { background: #202020; }
-  .bar.light { background: #eeeeee; }
-  .bar .slot { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 4px; position: relative; }
-  .bar .slot.on::after { content: ""; position: absolute; bottom: 2px; width: 16px; height: 3px; border-radius: 2px; background: #6aa7ff; }
-  .bar.dark .slot.on { background: #ffffff14; }
-  .bar.light .slot.on { background: #00000010; }
-  .bar .ph { width: 24px; height: 24px; border-radius: 5px; background: #8a8a8a; }
-  .bar.dark .ph { background: #5a5a5a; }
-  .bar .sep { width: 12px; }
-
-  .pair { margin-top: 8px; font-size: 12.5px; color: var(--ink-2); }
   .notes { max-width: 90ch; font-size: 13px; color: var(--ink-2); padding-left: 18px; margin-top: 10px; }
   .notes li + li { margin-top: 4px; }
   .notes b { color: var(--ink); }
@@ -91,63 +62,125 @@
 <header>
   <p>응답할 곳: 총괄 · claude-1</p>
   <p>연 담당: 총괄 · claude-1</p>
-  <h1>서비스 이름과 앱 아이콘 시안</h1>
-  <p class="lead">이름 후보 6개(지금 이름 loom 포함), 아이콘 4개, 이름을 바꿀 때 드는 비용을 보인다. 마지막 「결정할 것」 표에서 고른다. 이 페이지는 목업이다. 제품 코드는 바꾸지 않았다.</p>
+  <h1>서비스 이름 시안</h1>
+  <p class="lead">2차 이름 후보 8개(짧고 소리 내기 쉬운 이름), 1차 이름 후보 6개, 이름을 바꿀 때 드는 비용을 보인다. 아이콘은 지금 것을 둔다. 마지막 「결정할 것」 표에서 고른다. 이 페이지는 목업이다. 제품 코드는 바꾸지 않았다.</p>
 </header>
 
-<!-- 아이콘 원본. 아래에서 <use>로 크기만 바꿔 쓴다. viewBox는 모두 64. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <!-- A. 지금 아이콘을 다듬은 짜임: 3×3을 2×2 굵은 띠로 줄였다. 16px에서도 교차가 보인다. -->
-    <symbol id="i-weave" viewBox="0 0 64 64">
-      <rect width="64" height="64" rx="14" fill="#2E5BD6"/>
-      <!-- 씨실 둘, 날실 둘. 교차마다 아래로 가는 실에 파란 틈을 낸다. -->
-      <g fill="#fff">
-        <rect x="10" y="17" width="44" height="11" rx="5.5"/>
-        <rect x="10" y="36" width="44" height="11" rx="5.5"/>
-        <rect x="17" y="10" width="11" height="44" rx="5.5"/>
-        <rect x="36" y="10" width="11" height="44" rx="5.5"/>
-      </g>
-      <g fill="#2E5BD6">
-        <rect x="14" y="17" width="3" height="11"/><rect x="28" y="17" width="3" height="11"/>
-        <rect x="33" y="36" width="3" height="11"/><rect x="47" y="36" width="3" height="11"/>
-        <rect x="36" y="14" width="11" height="3"/><rect x="36" y="28" width="11" height="3"/>
-        <rect x="17" y="33" width="11" height="3"/><rect x="17" y="47" width="11" height="3"/>
-      </g>
-    </symbol>
-    <!-- B. 노드 그래프: 부모 하나와 자식 둘. 카드 모양 사각 노드. -->
-    <symbol id="i-graph" viewBox="0 0 64 64">
-      <rect width="64" height="64" rx="14" fill="#18181B"/>
-      <path d="M32 24 V32 M32 32 H18 V40 M32 32 H46 V40" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
-      <rect x="22" y="10" width="20" height="15" rx="4" fill="#4F7BFF"/>
-      <rect x="8" y="40" width="20" height="15" rx="4" fill="#fff"/>
-      <rect x="36" y="40" width="20" height="15" rx="4" fill="#fff"/>
-    </symbol>
-    <!-- C. 組(땋은 끈): 두 끈이 두 번 엇갈린다. 짝 이름: Kumi. -->
-    <symbol id="i-braid" viewBox="0 0 64 64">
-      <rect width="64" height="64" rx="14" fill="#0E6E5C"/>
-      <g fill="none" stroke-width="8" stroke-linecap="round">
-        <path d="M22 10 C22 22 42 20 42 32 C42 44 22 42 22 54" stroke="#9FE3CF"/>
-        <path d="M42 10 C42 22 22 20 22 32" stroke="#0E6E5C" stroke-width="14" stroke-linecap="butt"/>
-        <path d="M42 10 C42 22 22 20 22 32" stroke="#fff"/>
-        <path d="M22 32 C22 44 42 42 42 54" stroke="#fff"/>
-        <path d="M42 32 C42 44 22 42 22 54" stroke="#0E6E5C" stroke-width="14" stroke-linecap="butt"/>
-        <path d="M42 32 C42 44 22 42 22 54" stroke="#9FE3CF"/>
-      </g>
-    </symbol>
-    <!-- D. 실 잣기: 한 실이 세 노드를 꿴다(메시지 릴레이). 짝 이름: Clotho·Bobbin. -->
-    <symbol id="i-thread" viewBox="0 0 64 64">
-      <rect width="64" height="64" rx="14" fill="#5B3FD1"/>
-      <path d="M10 46 C18 46 18 18 26 18 S34 46 40 46 S48 18 54 18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
-      <circle cx="26" cy="18" r="7" fill="#FFD66B"/>
-      <circle cx="40" cy="46" r="7" fill="#FFD66B"/>
-      <circle cx="54" cy="18" r="6" fill="#fff"/>
-    </symbol>
-  </defs>
-</svg>
+<section aria-labelledby="h-names2">
+  <h2 id="h-names2">1. 2차 이름 후보</h2>
+  <p class="lead">규칙: 1~2음절, 3~5자, 한국어와 영어 사용자가 모두 쉽게 소리 낸다(어려운 자음 묶음 없음, 들은 대로 적는다). 직물 낱말(weft, skein, heddle)은 뺐다. 조사 방법은 1차와 같고, 2026-10-20에 했다. 상표 등록은 찾지 않았다. 모든 후보의 상표 상태는 가설이다.</p>
+  <table class="names">
+    <thead>
+      <tr><th>이름</th><th>뜻 · 맞는 이유</th><th>읽기</th><th>CLI</th><th>crates.io</th><th>npm</th><th>winget</th><th>GitHub 같은 이름 저장소</th><th>개발 도구 웹 검색</th><th>판정</th></tr>
+    </thead>
+    <tbody>
+      <tr class="pick">
+        <td class="name">Tali<span class="rec">권장</span><small>밧줄</small></td>
+        <td>말레이·인도네시아어로 「밧줄, 끈」. 에이전트를 줄로 이어 묶는다. 2음절이고 받침이 없다.</td>
+        <td>탈리 / TAH-lee</td>
+        <td><code>tali spawn</code> (4자)</td>
+        <td>없음</td>
+        <td><code>tali</code> 있음 (작은 번들 도구)</td>
+        <td>없음</td>
+        <td>같은 이름 저장소 없음</td>
+        <td>개발 도구 없음. <a href="https://tali.ai/install">Tali AI</a>(캐나다 의료 기록 AI)가 있다. 분야가 다르다</td>
+        <td><span class="verdict good">충돌 적음</span></td>
+      </tr>
+      <tr>
+        <td class="name">Mura<small>村 · 마을</small></td>
+        <td>일본어 「마을」. 에이전트가 모여 사는 곳. 단, 린 생산 용어 斑(mura, 「불균일」 낭비)과 같은 소리다.</td>
+        <td>무라 / MOO-rah</td>
+        <td><code>mura spawn</code> (4자)</td>
+        <td>없음</td>
+        <td><code>mura</code> 있음 (설명 없는 빈 패키지)</td>
+        <td>없음</td>
+        <td>같은 이름 저장소 없음</td>
+        <td>같은 이름의 개발 도구를 찾지 못했다</td>
+        <td><span class="verdict good">충돌 적음</span></td>
+      </tr>
+      <tr>
+        <td class="name">Hilo<small>실</small></td>
+        <td>스페인어 「실」. 프로그래밍에서 스레드도 hilo다.</td>
+        <td>힐로 / HEE-loh</td>
+        <td><code>hilo spawn</code> (4자)</td>
+        <td><code>hilo</code> 22 (“Agent-first metadata filesystem”)</td>
+        <td><code>hilo</code> 있음 (JS 프레임워크)</td>
+        <td>없음</td>
+        <td>hiloteam/Hilo ★5.9k (HTML5 게임 엔진)</td>
+        <td>에이전트 도구는 찾지 못했다. 하와이 도시 이름과 같다</td>
+        <td><span class="verdict mid">중간</span></td>
+      </tr>
+      <tr>
+        <td class="name">Fila<small>줄 · 실</small></td>
+        <td>스페인어 「줄(대기열)」, 라틴어 filum 「실」. 메시지 대기열과 실을 함께 뜻한다.</td>
+        <td>필라 / FEE-lah</td>
+        <td><code>fila spawn</code> (4자)</td>
+        <td><code>fila</code> 1,529 (PostgreSQL 작업 큐)</td>
+        <td><code>fila</code> 있음 (비동기 작업 큐)</td>
+        <td>없음</td>
+        <td>같은 이름 저장소 없음</td>
+        <td>에이전트 도구는 없다. 스포츠 브랜드 FILA와 철자가 같다(상표 위험은 가설)</td>
+        <td><span class="verdict mid">중간</span></td>
+      </tr>
+      <tr>
+        <td class="name">Nodo<small>매듭 · 노드</small></td>
+        <td>스페인어·이탈리아어 「매듭, 노드」. 뜻은 가장 잘 맞는다.</td>
+        <td>노도 / NOH-doh</td>
+        <td><code>nodo spawn</code> (4자)</td>
+        <td><code>nodo</code> 1만 (로봇 프레임워크)</td>
+        <td><code>nodo</code> 있음 (할 일 CLI)</td>
+        <td>없음</td>
+        <td>mtgrosser/nodo ★134</td>
+        <td>같은 분야 둘: <a href="https://github.com/stgavs77-ctrl/NODO">NODO</a>(macOS AI 에이전트 작업 공간), <a href="https://nodo.com/">nodo.com</a>(에이전트용 MCP)</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+      <tr>
+        <td class="name">Dari<small>다리</small></td>
+        <td>한국어 「다리」. 에이전트 사이를 잇는다.</td>
+        <td>다리 / DAH-ree</td>
+        <td><code>dari spawn</code> (4자)</td>
+        <td>없음</td>
+        <td>없음</td>
+        <td>없음</td>
+        <td>easyhooon/dari ★36</td>
+        <td><a href="https://dari.dev/">dari.dev</a>(YC, 에이전트 라우터)가 CLI <code>dari claude</code>를 쓴다. 같은 명령 이름이다</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+      <tr>
+        <td class="name">Ito<small>糸 · 실</small></td>
+        <td>일본어 「실」. 3자로 가장 짧다.</td>
+        <td>이토 / EE-toh</td>
+        <td><code>ito spawn</code> (3자)</td>
+        <td>없음</td>
+        <td><code>ito</code> 있음 (로그 형식기)</td>
+        <td>없음</td>
+        <td>OpenBioLink/ITO ★79</td>
+        <td><a href="https://www.ito.ai/">ito.ai</a>(에이전트로 PR을 실행하는 AI 코드 리뷰)가 같은 분야다</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+      <tr>
+        <td class="name">Moa<small>모아</small></td>
+        <td>한국어 「모아(모으다)」. 에이전트를 모은다.</td>
+        <td>모아 / MOH-ah</td>
+        <td><code>moa spawn</code> (3자)</td>
+        <td><code>moa</code> 11 (군집 알고리즘)</td>
+        <td><code>moa</code> 있음</td>
+        <td>없음</td>
+        <td>togethercomputer/MoA ★3k</td>
+        <td>MoA는 AI 분야에서 「Mixture-of-Agents」 기법 이름으로 이미 쓴다</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <ul class="notes">
+    <li><b>Tali의 약점:</b> 영어 사용자가 tally(집계)로 적을 수 있다. 가설: 이 혼동은 처음 한 번뿐이다.</li>
+    <li><b>Kumi</b>(1차 권장)도 2차 규칙에 맞는다: 2음절, 4자, 충돌 적음. 아래 1차 표에 있다.</li>
+    <li><b>winget:</b> 8개 모두 공식 색인에 id·이름·별칭·명령이 없다. <b>GitHub:</b> <code>gh search repos "&lt;이름&gt; in:name" --sort stars</code>에서 저장소 이름이 꼭 같은 것만 적었다.</li>
+  </ul>
+</section>
 
 <section aria-labelledby="h-names">
-  <h2 id="h-names">1. 이름 후보</h2>
+  <h2 id="h-names">2. 1차 이름 후보 (참고)</h2>
   <p class="lead">CLI 이름은 사람과 에이전트가 <code>&lt;이름&gt; spawn …</code>처럼 매번 친다. 짧을수록 좋다. 충돌 조사는 2026-10-20에 직접 했다. 출처와 방법은 표 아래에 있다.</p>
   <table class="names">
     <thead>
@@ -167,7 +200,7 @@
         <td><span class="verdict bad">충돌 큼</span></td>
       </tr>
       <tr class="pick">
-        <td class="name">Kumi<span class="rec">권장</span><small>組 · 구미</small></td>
+        <td class="name">Kumi<span class="cur">1차 권장</span><small>組 · 구미</small></td>
         <td>일본어 組(조·팀)와 組紐(쿠미히모, 끈 땋기). 팀과 엮기를 한 낱말에 담는다. 짧고 소리가 쉽다.</td>
         <td>쿠미 / KOO-mee</td>
         <td><code>kumi spawn</code> (4자)</td>
@@ -231,94 +264,26 @@
   <ul class="notes">
     <li><b>발견:</b> 직물 낱말(weft, skein, heddle)은 2026년 AI 에이전트 도구가 이미 많이 쓴다. heddle도 에이전트 터미널·오케스트레이터가 셋 이상 있어 표에서 뺐다. 그래서 직물 비유를 바로 쓰지 않는 Kumi를 권장한다.</li>
     <li><b>crates.io:</b> <code>curl https://crates.io/api/v1/crates/&lt;이름&gt;</code>. <b>npm:</b> <code>npm view &lt;이름&gt;</code>. <b>GitHub:</b> <code>gh search repos &lt;이름&gt; --sort stars -L 3</code>.</li>
-    <li><b>winget:</b> winget 공식 색인(<code>cdn.winget.microsoft.com/cache/source2.msix</code>의 <code>index.db</code>)에서 id·이름·별칭·명령을 찾았다. 우리 <code>BrownC98.loom</code>은 아직 이 색인에 없다. 그래서 winget id는 지금 바꾸면 비용이 없다.</li>
+    <li><b>winget:</b> winget 공식 색인(<code>cdn.winget.microsoft.com/cache/source2.msix</code>의 <code>index.db</code>)에서 id·이름·별칭·명령을 찾았다. 우리 <code>BrownC98.loom</code>은 아직 이 색인에 없다. 첫 등록 PR이 열려 있다(4절 표).</li>
     <li><b>웹 검색:</b> “&lt;이름&gt; AI agent developer tool”로 찾았다. 상표 등록(KIPRIS, USPTO)은 찾지 않았다. 모든 후보의 상표 상태는 가설이다.</li>
     <li><b>Kumi의 약점:</b> 한국어 사용자에게 뜻이 바로 보이지 않는다. 일본어 낱말이다.</li>
   </ul>
 </section>
 
 <section aria-labelledby="h-icons">
-  <h2 id="h-icons">2. 아이콘 시안</h2>
-  <p class="lead">각 시안을 256·32·16 px로, 밝은 바탕과 어두운 바탕에 보인다. 오른쪽 아래 확대 칸은 16 px로 그린 화소를 6배로 키운 것이다. 이 칸에서 모양이 보이는지 본다.</p>
-  <div class="icons">
-    <article class="icon-card">
-      <h3>A. 짜임 다듬기 <small>지금 아이콘 바탕</small></h3>
-      <svg class="big" role="img" aria-label="짜임 아이콘"><use href="#i-weave"/></svg>
-      <div class="sizes">
-        <div class="light"><svg width="32" height="32"><use href="#i-weave"/></svg><svg width="16" height="16"><use href="#i-weave"/></svg></div>
-        <div class="dark"><svg width="32" height="32"><use href="#i-weave"/></svg><svg width="16" height="16"><use href="#i-weave"/></svg></div>
-      </div>
-      <div class="zoom"><canvas data-icon="i-weave" width="16" height="16"></canvas><span>16 px: 띠 넷이 바람개비처럼 엇갈린다. 틈은 흐려진다. 지금 3×3은 16 px에서 흰 덩어리가 된다.</span></div>
-      <p>지금 파란색(#2E5BD6)을 둔다. 3×3 짜임을 2×2 굵은 띠로 줄였다. 짝 이름: loom, Weft.</p>
-    </article>
-    <article class="icon-card">
-      <h3>B. 노드 그래프 <small>새 시안</small></h3>
-      <svg class="big" role="img" aria-label="노드 그래프 아이콘"><use href="#i-graph"/></svg>
-      <div class="sizes">
-        <div class="light"><svg width="32" height="32"><use href="#i-graph"/></svg><svg width="16" height="16"><use href="#i-graph"/></svg></div>
-        <div class="dark"><svg width="32" height="32"><use href="#i-graph"/></svg><svg width="16" height="16"><use href="#i-graph"/></svg></div>
-      </div>
-      <div class="zoom"><canvas data-icon="i-graph" width="16" height="16"></canvas><span>16 px: 파란 부모 하나와 흰 자식 둘이 보인다. 선은 흐려진다.</span></div>
-      <p>제품 화면 그대로다: 부모 카드와 자식 카드를 간선이 잇는다. 이름에 묶이지 않아 어느 이름과도 쓴다.</p>
-    </article>
-    <article class="icon-card">
-      <h3>C. 땋은 끈 <small>새 시안</small></h3>
-      <svg class="big" role="img" aria-label="땋은 끈 아이콘"><use href="#i-braid"/></svg>
-      <div class="sizes">
-        <div class="light"><svg width="32" height="32"><use href="#i-braid"/></svg><svg width="16" height="16"><use href="#i-braid"/></svg></div>
-        <div class="dark"><svg width="32" height="32"><use href="#i-braid"/></svg><svg width="16" height="16"><use href="#i-braid"/></svg></div>
-      </div>
-      <div class="zoom"><canvas data-icon="i-braid" width="16" height="16"></canvas><span>16 px: 두 색 끈의 S자가 보인다. 엇갈림 틈은 흐려진다.</span></div>
-      <p>組紐(쿠미히모) 두 끈이 엇갈려 올라간다. 에이전트 둘이 주고받는 모양이다. 짝 이름: Kumi.</p>
-    </article>
-    <article class="icon-card">
-      <h3>D. 실과 노드 <small>새 시안</small></h3>
-      <svg class="big" role="img" aria-label="실과 노드 아이콘"><use href="#i-thread"/></svg>
-      <div class="sizes">
-        <div class="light"><svg width="32" height="32"><use href="#i-thread"/></svg><svg width="16" height="16"><use href="#i-thread"/></svg></div>
-        <div class="dark"><svg width="32" height="32"><use href="#i-thread"/></svg><svg width="16" height="16"><use href="#i-thread"/></svg></div>
-      </div>
-      <div class="zoom"><canvas data-icon="i-thread" width="16" height="16"></canvas><span>16 px: 노란 점 둘과 물결이 보인다.</span></div>
-      <p>실 하나가 노드를 차례로 꿴다. 메시지가 노드 사이를 건너가는 모양이다. 짝 이름: Clotho, Bobbin.</p>
-    </article>
-  </div>
-
-  <h3 style="font-size:14px;margin-top:20px">Windows 작업 표시줄 (24 px, 100% 배율)</h3>
-  <p class="lead">회색 칸은 다른 앱이다. 밑줄 있는 칸이 실행 중인 시안이다.</p>
-  <div class="taskbar">
-    <div class="bar dark">
-      <span class="slot"><span class="ph"></span></span><span class="slot"><span class="ph"></span></span>
-      <span class="sep"></span>
-      <span class="slot on"><svg width="24" height="24" role="img" aria-label="A"><use href="#i-weave"/></svg></span>
-      <span class="slot on"><svg width="24" height="24" role="img" aria-label="B"><use href="#i-graph"/></svg></span>
-      <span class="slot on"><svg width="24" height="24" role="img" aria-label="C"><use href="#i-braid"/></svg></span>
-      <span class="slot on"><svg width="24" height="24" role="img" aria-label="D"><use href="#i-thread"/></svg></span>
-      <span class="sep"></span>
-      <span class="slot"><span class="ph"></span></span><span class="slot"><span class="ph"></span></span>
-    </div>
-    <div class="bar light">
-      <span class="slot"><span class="ph"></span></span><span class="slot"><span class="ph"></span></span>
-      <span class="sep"></span>
-      <span class="slot on"><svg width="24" height="24" role="img" aria-label="A"><use href="#i-weave"/></svg></span>
-      <span class="slot on"><svg width="24" height="24" role="img" aria-label="B"><use href="#i-graph"/></svg></span>
-      <span class="slot on"><svg width="24" height="24" role="img" aria-label="C"><use href="#i-braid"/></svg></span>
-      <span class="slot on"><svg width="24" height="24" role="img" aria-label="D"><use href="#i-thread"/></svg></span>
-      <span class="sep"></span>
-      <span class="slot"><span class="ph"></span></span><span class="slot"><span class="ph"></span></span>
-    </div>
-  </div>
-  <p class="pair">왼쪽부터 A·B·C·D. B는 이름과 관계없이 쓸 수 있어 이름을 바꾸지 않아도 고를 수 있다.</p>
+  <h2 id="h-icons">3. 아이콘</h2>
+  <p class="lead">지금 아이콘(<code>app/icons/icon.ico</code>, 파란 바탕의 흰 짜임)을 그대로 둔다(2026-10-20 사용자 결정). 1차 시안 A~D는 이 페이지에서 뺐다.</p>
 </section>
 
 <section aria-labelledby="h-cost">
-  <h2 id="h-cost">3. 이름을 바꿀 때 바뀌는 곳</h2>
+  <h2 id="h-cost">4. 이름을 바꿀 때 바뀌는 곳</h2>
   <p class="lead">저장소에서 <code>loom</code>을 쓰는 곳은 48개 파일, 397줄이다(<code>git grep -i loom</code>, 목업 제외). 아래 표에서 「둔다」는 낮은 비용 안(표시 이름만 바꾸기)에서 바꾸지 않는 곳이다.</p>
   <table class="cost">
     <thead><tr><th>곳</th><th>지금 값</th><th>바꾸면 생기는 일</th><th>낮은 비용 안</th></tr></thead>
     <tbody>
       <tr><td>앱 표시 이름, 창 제목, README·docs 제목</td><td><code>productName: "loom"</code></td><td>문구만 바뀐다. 위험 없음.</td><td class="change">바꾼다</td></tr>
-      <tr><td>아이콘</td><td><code>app/icons/icon.ico</code></td><td>파일 교체. 위험 없음.</td><td class="change">바꾼다</td></tr>
-      <tr><td>winget id</td><td><code>BrownC98.loom</code> (색인에 아직 없음)</td><td>아직 올라가지 않아 지금은 비용이 없다. 올라간 뒤에는 새 패키지가 된다.</td><td class="change">바꾼다</td></tr>
+      <tr><td>아이콘</td><td><code>app/icons/icon.ico</code></td><td>바꾸지 않는다(사용자 결정).</td><td class="keep">둔다</td></tr>
+      <tr><td>winget id</td><td><code>BrownC98.loom</code> (색인에 아직 없음)</td><td>첫 등록 PR <a href="https://github.com/microsoft/winget-pkgs/pull/456767">microsoft/winget-pkgs#456767</a>(BrownC98.loom 0.1.270)이 열려 있다. id를 바꾸면 이 PR을 닫고 새 id로 다시 낸다. 병합 뒤에 바꾸면 새 패키지가 되어 기존 설치는 업데이트를 받지 못한다.</td><td class="change">바꾼다</td></tr>
       <tr><td>GitHub 저장소 이름</td><td><code>BrownC98/loom</code></td><td>GitHub가 옛 주소를 새 주소로 넘긴다. 업데이트 확인 주소는 확인해야 한다(가설: 넘김이 릴리스 내려받기에도 맞다).</td><td class="change">바꾼다</td></tr>
       <tr><td>CLI·실행 파일 이름</td><td><code>loom</code> (Cargo <code>name = "loom"</code>)</td><td>에이전트 스킬(<code>~/.agents/skills/loom-mode</code>)과 브리프, 실행 중 에이전트가 모두 <code>loom spawn</code>을 친다. 한꺼번에 바꿔야 한다.</td><td class="keep">둔다</td></tr>
       <tr><td>환경 변수</td><td><code>LOOM_URL</code>, <code>LOOM_TOKEN</code>, <code>LOOM_SPAWN_URL</code>, <code>LOOM_VERSION</code>, <code>LOOM_PORT</code></td><td>실행 중인 노드는 옛 이름을 가진다. 데몬을 다시 띄우면 그 노드의 CLI 호출이 실패한다.</td><td class="keep">둔다</td></tr>
@@ -327,32 +292,20 @@
     </tbody>
   </table>
   <ul class="notes">
-    <li><b>권장:</b> 사용자에게 보이는 곳(표시 이름, 아이콘, 저장소, winget id, README)만 Kumi로 바꾼다. 안쪽 이름(CLI <code>loom</code>, <code>LOOM_*</code>, <code>~/.loom</code>, Tauri id)은 둔다. 충돌이 생기는 곳은 검색·winget·상표이고, 이것은 모두 보이는 곳이다.</li>
-    <li><b>낮은 비용 안의 단점:</b> 제품 이름(Kumi)과 명령(<code>loom</code>)이 다르다. 나중에 CLI도 바꾸려면 별도 작업으로 한 번에 바꾼다(스킬·브리프·환경 변수를 함께).</li>
-    <li>이름을 바꾸지 않아도 아이콘은 따로 고를 수 있다.</li>
+    <li><b>권장:</b> 사용자에게 보이는 곳(표시 이름, 저장소, winget id, README)만 새 이름(Tali)으로 바꾼다. 안쪽 이름(CLI <code>loom</code>, <code>LOOM_*</code>, <code>~/.loom</code>, Tauri id)은 둔다. 충돌이 생기는 곳은 검색·winget·상표이고, 이것은 모두 보이는 곳이다.</li>
+    <li><b>낮은 비용 안의 단점:</b> 제품 이름(Tali)과 명령(<code>loom</code>)이 다르다. 나중에 CLI도 바꾸려면 별도 작업으로 한 번에 바꾼다(스킬·브리프·환경 변수를 함께).</li>
   </ul>
 </section>
 
 <section aria-labelledby="h-decide">
-  <h2 id="h-decide">4. 결정할 것</h2>
+  <h2 id="h-decide">5. 결정할 것</h2>
   <table>
     <thead><tr><th>결정</th><th>권장안</th><th>다른 안</th></tr></thead>
     <tbody>
-      <tr><td>서비스 이름</td><td><b>Kumi</b><span class="rec">권장</span> — 같은 분야 충돌이 없고 짧다</td><td>loom 유지(비용 0, 충돌 남음) · Clotho · Bobbin · Weft · Skein</td></tr>
-      <tr><td>바꾸는 범위</td><td><b>보이는 곳만</b><span class="rec">권장</span> — 표시 이름, 아이콘, 저장소, winget id, README</td><td>CLI·환경 변수·데이터 폴더까지 전부(실행 중 노드와 스킬을 함께 바꿔야 함)</td></tr>
-      <tr><td>아이콘</td><td><b>B. 노드 그래프</b><span class="rec">권장</span> — 16 px에서 가장 잘 보이고 이름과 관계없다</td><td>C. 땋은 끈(Kumi와 짝) · A. 짜임 다듬기(loom 유지 때) · D. 실과 노드</td></tr>
+      <tr><td>서비스 이름</td><td><b>Tali</b><span class="rec">권장</span> — 2음절 4자, 개발 도구 충돌 없음, 뜻(밧줄)이 잇기와 맞다</td><td>Kumi(1차 권장, 2차 규칙에도 맞음) · Mura · Hilo · Fila · loom 유지(비용 0, 충돌 남음)</td></tr>
+      <tr><td>바꾸는 범위</td><td><b>보이는 곳만</b><span class="rec">권장</span> — 표시 이름, 저장소, winget id, README</td><td>CLI·환경 변수·데이터 폴더까지 전부(실행 중 노드와 스킬을 함께 바꿔야 함)</td></tr>
     </tbody>
   </table>
 </section>
 
-<script>
-  // 16 px 화소 확대: 아이콘을 16×16 캔버스에 그린다. CSS가 6배로 키운다.
-  const defs = document.querySelector('svg defs').outerHTML;
-  for (const canvas of document.querySelectorAll('canvas[data-icon]')) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="16" height="16">${defs}<use href="#${canvas.dataset.icon}"/></svg>`;
-    const img = new Image();
-    img.onload = () => canvas.getContext('2d').drawImage(img, 0, 0, 16, 16);
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-  }
-</script>
 </html>

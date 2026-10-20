@@ -98,10 +98,11 @@ export function Tree(props: {
       node: null,
       row: (
         <>
-          <span className="branch" translate="no" title={group.path}>
+          {/* 긴 브랜치는 한 줄에서 줄임표로 자른다. 툴팁이 전체 이름과 경로를 보인다. 들여쓰기가 워크트리 층을 보이므로 원래 체크아웃에만 꼬리표를 단다(Orca 사이드바). */}
+          <span className="branch" translate="no" title={`${group.label}\n${group.path}`}>
             {group.label}
           </span>
-          <span className="sub">{t(group.original ? 'worktree.original' : 'worktree.linked')}</span>
+          {group.original && <span className="tag">{t('worktree.original')}</span>}
         </>
       ),
       children: nodeItems(inGroup(views, group), null, props.agents),

@@ -45,10 +45,10 @@ const ko: typeof en = {
     foot: {
       doneHeld: '부모 없음 · 새 부모에게 요약을 전달합니다',
       done: '요약: {{summary}}',
-      daemonRestarted: '데몬이 다시 시작되어 프로세스가 없습니다',
+      daemonRestarted: 'loom을 다시 시작해서 종료되었습니다',
       exitedHeld: '부모 없음 · 새 부모에게 exited({{code}})를 전달합니다',
       exitedSent: '부모({{parent}})에게 exited({{code}})를 보냈습니다',
-      exited: '프로세스가 코드 {{code}}로 종료되었습니다',
+      exited: '종료 코드 {{code}}로 끝났습니다',
     },
   },
   repo: {
@@ -99,11 +99,11 @@ const ko: typeof en = {
     language: '언어',
     installed: '설치됨 {{n}}개',
     rescan: '다시 찾기',
-    noneInstalled: '데몬 PATH에서 에이전트를 찾지 못했습니다. 아래 목록에서 하나를 설치한 뒤 ‘다시 찾기’를 클릭하십시오.',
+    noneInstalled: '설치된 에이전트를 찾지 못했습니다. 아래 목록에서 하나를 설치한 뒤 ‘다시 찾기’를 클릭하십시오.',
     versionWarning: {
       claude: 'claude {{installed}} · 고정 {{pinned}}',
-      codex: 'app-server {{installed}} · 고정 {{pinned}} · loom 명령마다 승인 필요',
-      opencode2: 'serve {{installed}} · 고정 {{pinned}}',
+      codex: 'codex {{installed}} · 고정 {{pinned}} · loom 명령마다 승인 필요',
+      opencode2: 'opencode2 {{installed}} · 고정 {{pinned}}',
     },
     messaging: '메시지 연동',
     terminalOnly: '터미널만',
@@ -216,7 +216,7 @@ const ko: typeof en = {
     fold: '접기',
   },
   terminal: {
-    gone: '데몬이 다시 시작되어 이 터미널이 없습니다.',
+    gone: 'loom을 다시 시작해서 이 터미널은 닫혔습니다. 새 노드를 만드십시오.',
   },
   problem: {
     refused: {
@@ -229,8 +229,8 @@ const ko: typeof en = {
       mailboxFull_nameless: '메일함이 가득 찼습니다. 받는 노드가 `loom wait`로 읽은 뒤 다시 보내십시오.',
       notRelated: '{{value}}: 부모나 자식 노드가 아닙니다. 메시지는 부모와 자식 사이에만 보낼 수 있습니다.',
       notRelated_nameless: '부모나 자식 노드가 아닙니다. 메시지는 부모와 자식 사이에만 보낼 수 있습니다.',
-      ended: '{{value}}: 노드 프로세스가 종료되었습니다.',
-      ended_nameless: '노드 프로세스가 종료되었습니다.',
+      ended: '{{value}}: 이미 종료된 노드입니다.',
+      ended_nameless: '이미 종료된 노드입니다.',
       alreadyDone: '이 노드는 이미 done 상태입니다.',
       heldFull: '부모가 없어 보관한 메시지가 너무 많습니다. 새 부모가 생긴 뒤 다시 보내십시오.',
       cycle: '자기 자신이나 자손 노드를 부모로 정할 수 없습니다.',
@@ -241,14 +241,14 @@ const ko: typeof en = {
       notSteerable: '{{value}}: 조정·중단을 받을 수 없는 노드입니다(Claude·Codex·OpenCode 2 노드만 가능). `loom send`로 보내십시오.',
       notSteerable_nameless: '조정·중단을 받을 수 없는 노드입니다(Claude·Codex·OpenCode 2 노드만 가능). `loom send`로 보내십시오.',
       launch: '노드를 시작하지 못했습니다: {{value}}',
-      db: 'DB 오류: {{value}}',
+      db: '기록을 읽거나 저장하지 못했습니다: {{value}}',
     },
     launch: {
-      unknownAgent: '{{value}}: 카탈로그에 없는 에이전트입니다.',
-      notInstalled: '{{agent}}: 데몬 PATH에서 `{{command}}`를 찾지 못했습니다. 설치한 뒤 설정에서 ‘다시 찾기’를 클릭하십시오.',
+      unknownAgent: '{{value}}: 에이전트 목록에 없는 에이전트입니다.',
+      notInstalled: '{{agent}}: `{{command}}` 명령을 찾지 못했습니다. 설치한 뒤 설정에서 ‘다시 찾기’를 클릭하십시오.',
       briefTooLong: '첫 지시문이 {{len}}바이트입니다. {{limit}}바이트 이하로 줄이고, 긴 자료는 파일 경로로 전달하십시오.',
       server: '`{{program}}`을(를) 시작하지 못했습니다: {{cause}}',
-      noServer: '{{value}}: 노드가 연결할 서버를 시작하지 못했습니다.',
+      noServer: '{{value}}: 에이전트를 시작하지 못했습니다. 다시 시도하십시오.',
       noBrief: '{{value}}: 첫 지시문을 받지 않습니다. 지시문을 비워 노드를 만든 뒤 터미널에 입력하십시오.',
     },
     repo: {

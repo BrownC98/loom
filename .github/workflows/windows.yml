@@ -32,12 +32,14 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - uses: Swatinem/rust-cache@v2.9.2
-      # 판 = 루트 Cargo.toml의 MAJOR.MINOR + 커밋 수. loom.exe, 앱, 설치 파일이 같은 판을 쓴다.
+      # 판 = 루트 Cargo.toml의 MAJOR.MINOR + 그 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수.
+      # MAJOR.MINOR를 올리면 PATCH는 0부터 다시 센다. loom.exe, 앱, 설치 파일이 같은 판을 쓴다.
       - name: 판 정하기
         id: version
         run: |
           base=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\)\.[0-9]*"$/\1/p' Cargo.toml)
-          version=$base.$(git rev-list --count HEAD)
+          bumped=$(git log -1 --format=%H -G'^version = ' -- Cargo.toml)
+          version=$base.$(git rev-list --count "$bumped..HEAD")
           sed -i "s/^version = \".*\"$/version = \"$version\"/" Cargo.toml
           sed -i "s/^name = \"loom-app\"$/&\nversion = \"$version\"/" app/Cargo.toml
           echo "version=$version" >> "$GITHUB_OUTPUT"

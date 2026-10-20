@@ -243,6 +243,8 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .pop.side-pop { top: 84px; left: 12px; width: min(380px, calc(100vw - 24px)); }
 .pop.toolbar-pop { top: 56px; right: 16px; width: 380px; }
 .pop.confirm.wide { width: 420px; }
+/* 위치가 오른쪽 끝인 팝오버(묶음의 [워크트리 삭제]). */
+.pop-end > .pop { right: 0; }
 .pop .mono, .field input.mono { font-family: var(--mono); overflow-wrap: anywhere; }
 .pop pre.changes { max-height: 160px; overflow: auto; margin: 0; padding: 6px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 11px/1.5 var(--mono); color: var(--ink-2); }
 .pop .check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }

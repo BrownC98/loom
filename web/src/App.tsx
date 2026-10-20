@@ -283,8 +283,10 @@ export function App() {
                 }}
               />
             )}
-            <Graph
-              views={repo ? new Map([...nodes].filter(([, v]) => v.place.repo === repo.id)) : new Map()}
+            {repo && <Graph
+              repo={repo}
+              onRepo={putRepo}
+              views={new Map([...nodes].filter(([, v]) => v.place.repo === repo.id))}
               pulses={pulses}
               agents={agents}
               settings={settings}
@@ -295,7 +297,7 @@ export function App() {
               onClearHighlight={() => setHighlight(null)}
               cardView={settings.cardView}
               ref={graph}
-            />
+            />}
           </main>
           {dock === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} onClose={() => setDock(null)} />}
           {dock === 'commits' && repo && <CommitGraph repo={repo.id} onClose={() => setDock(null)} />}

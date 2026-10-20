@@ -23,6 +23,7 @@ const en = {
   graph: {
     group: 'Group {{branch}}',
     newNode: 'New node',
+    arrange: 'Arrange',
     empty: 'Click [New node] to start the first agent.',
     minimap: 'Minimap',
     messages: 'Messages {{n}}',

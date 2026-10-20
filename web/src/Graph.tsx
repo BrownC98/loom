@@ -55,7 +55,7 @@ export function useShowNodes(): (ids: NodeId[]) => void {
   return (ids) => flow.fitView({ nodes: ids.map((id) => ({ id: String(id) })), duration: MOVE_MS, maxZoom: 1 });
 }
 
-type GroupData = { branch: string; empty: boolean; creating: boolean; onOpen: () => void };
+type GroupData = { branch: string; empty: boolean; creating: boolean; onOpen: () => void; onArrange: () => void };
 type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; expanded: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand: () => void; onRemove: () => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 type CardNode = Node<CardData, 'card'>;
@@ -71,6 +71,16 @@ function Group({ data }: NodeProps<GroupNode>) {
         </span>
         <span className="kind">{t('worktree.original')}</span>
         <span className="spacer" />
+        {!data.empty && (
+          <button className="btn ghost sm" onClick={data.onArrange}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+              <path d="M6.5 10v4.5H14" />
+            </svg>
+            {t('graph.arrange')}
+          </button>
+        )}
         <button className="btn ghost sm" aria-expanded={data.creating} onClick={data.onOpen}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
@@ -132,6 +142,10 @@ function neighbor(positions: Map<NodeId, XYPosition>, from: NodeId, dir: Directi
 }
 
 type Slot = { column: number; row: number };
+
+function slotPosition({ column, row }: Slot): XYPosition {
+  return { x: CARD_X + column * CARD_COLUMN_STEP, y: CARD_TOP + row * CARD_STEP };
+}
 
 /**
  * 나무 배치: 자식은 부모 아래 줄에, 형제는 오른쪽 칸에 놓는다. 잎마다 새 칸을 쓰고 부모는 첫 자식의 칸에 둔다.
@@ -200,12 +214,17 @@ export function Graph(props: {
 
   const views = [...props.views.values()];
   const { slots, columns } = treeLayout(props.views);
-  const positions = new Map<NodeId, XYPosition>(
-    views.map((v) => {
-      const { column, row } = slots.get(v.id)!;
-      return [v.id, flowState.get(String(v.id))?.position ?? { x: CARD_X + column * CARD_COLUMN_STEP, y: CARD_TOP + row * CARD_STEP }];
-    }),
-  );
+  const positions = new Map<NodeId, XYPosition>(views.map((v) => [v.id, flowState.get(String(v.id))?.position ?? slotPosition(slots.get(v.id)!)]));
+  /** 끈 위치를 나무 배치 자리로 되돌린다. 잰 크기는 그대로 둔다. */
+  const arrange = () =>
+    setFlowState(
+      new Map(
+        [...flowState].map(([id, n]) => {
+          const slot = slots.get(Number(id));
+          return [id, slot ? { ...n, position: slotPosition(slot) } : n];
+        }),
+      ),
+    );
   const lowest = Math.max(0, ...[...positions.values()].map((p) => p.y));
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
@@ -220,7 +239,7 @@ export function Graph(props: {
       position: GROUP_POSITION,
       style: { width: CARD_X + columns * CARD_COLUMN_STEP, height: Math.max(GROUP_MIN_HEIGHT, lowest + CARD_STEP) },
       draggable: false,
-      data: { branch: MAIN_GROUP, empty: views.length === 0, creating, onOpen: () => setCreating(true) },
+      data: { branch: MAIN_GROUP, empty: views.length === 0, creating, onOpen: () => setCreating(true), onArrange: arrange },
     }),
     ...views.map((view) =>
       keep<CardNode>({

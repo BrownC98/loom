@@ -25,6 +25,7 @@ const ko: typeof en = {
   graph: {
     group: '묶음 {{branch}}',
     newNode: '새 노드',
+    arrange: '정렬',
     empty: '[새 노드]로 첫 에이전트를 띄운다.',
     minimap: '미니맵',
     messages: '메시지 {{n}}',

@@ -260,8 +260,10 @@ a { color: var(--accent); }
 .usage-btn[aria-expanded="true"] { background: var(--accent-wash); color: var(--ink); }
 .usage-btn[data-loading] { animation: loading 1.2s ease-in-out infinite alternate; }
 @keyframes loading { to { opacity: 0.5; } }
-@media (prefers-reduced-motion: reduce) { .usage-btn[data-loading] { animation: none; opacity: 0.7; } }
-.usage-btn .who { font-weight: 600; color: var(--ink); }
+/* 사용량을 읽는 동안 새로 고침 아이콘이 돈다. */
+.refresh[data-loading] svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .usage-btn[data-loading] { animation: none; opacity: 0.7; } .refresh[data-loading] svg { animation: none; } }
 .seg-err { color: var(--err); }
 .app-version { margin-left: auto; align-self: center; padding: 0 10px; font-family: var(--mono); color: var(--ink-3); }
 .acct-name { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -275,7 +277,6 @@ a { color: var(--accent); }
 .prov-sec { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .prov { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 13px; color: inherit; }
 .prov:hover, .prov[aria-expanded="true"] { background: var(--surface-hover); }
-.prov .who { font-weight: 600; }
 .prov .acct-name { color: var(--ink-2); }
 .prov svg { margin-left: auto; flex: none; width: 14px; height: 14px; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .usage-foot { display: flex; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }

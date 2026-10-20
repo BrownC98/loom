@@ -37,12 +37,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
           <span className={`dot ${v.state.kind}`} aria-label={v.state.kind} />
           <span className="name">{v.name}</span>
           <span className="sub">{agentLabel(agents, v.agent)}</span>
-          {(v.unread > 0 || v.held > 0) && <span className="spacer" />}
-          {v.unread > 0 && (
-            <span className="unread" aria-label={i18next.t('node.unread', { n: v.unread })}>
-              {v.unread}
-            </span>
-          )}
+          {v.held > 0 && <span className="spacer" />}
           {v.held > 0 && (
             <span className="kept" title={i18next.t('node.heldTitle', { n: v.held })}>
               {i18next.t('node.held', { n: v.held })}
@@ -102,7 +97,7 @@ export function Tree(props: {
           <span className="branch" translate="no" title={`${group.label}\n${group.path}`}>
             {group.label}
           </span>
-          {group.original && <span className="tag">{t('worktree.original')}</span>}
+          {group.kind !== 'linked' && <span className="tag">{t(`worktree.${group.kind}`)}</span>}
         </>
       ),
       children: nodeItems(inGroup(views, group), null, props.agents),

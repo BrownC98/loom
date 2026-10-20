@@ -164,6 +164,15 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
+    /// 출력이 없는 것을 확인할 수 있을 때만 자동 정리할 수 있다.
+    pub fn has_output(&self, id: K) -> bool {
+        self.nodes
+            .read()
+            .unwrap()
+            .get(&id)
+            .is_none_or(|pty| !pty.output.lock().unwrap().backlog.0.is_empty())
+    }
+
     /// backlog와 그 뒤의 출력을 빈틈없이 받는다.
     pub fn attach(&self, id: K) -> Option<Attached> {
         let pty = self.pty(id)?;
@@ -408,6 +417,35 @@ mod tests {
             seen.push_str(&String::from_utf8_lossy(&chunk));
         }
         seen
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_output_is_available_before_exit_callback() {
+        for (script, expected) in [("exit 0", false), ("printf 'review this'; exit 0", true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut cmd = CommandBuilder::new("sh");
+            cmd.args(["-c", script]);
+            in_process(dir.path(), 1, cmd);
+            let nodes = Arc::new(NodeHost::new(dir.path().to_path_buf()));
+            let observed = nodes.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            nodes
+                .resume(
+                    1,
+                    |_| {},
+                    move |code| {
+                        tx.send((code, observed.has_output(1))).unwrap();
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+                (0, expected)
+            );
+            assert!(nodes.has_output(99));
+            nodes.kill(1);
+        }
     }
 
     #[cfg(unix)]

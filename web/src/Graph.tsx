@@ -14,7 +14,7 @@ import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { arrangeTree, placeGroups, type ArrangeDirection, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
-import { groupsOf, inGroup } from './repos';
+import { groupsOf, inGroup, type GroupKind } from './repos';
 import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
@@ -79,7 +79,7 @@ export function useShowNodes(): (ids: NodeId[]) => void {
 /** `onDelete`가 없으면 지울 수 없다(원래 체크아웃). */
 type GroupData = {
   branch: string;
-  original: boolean;
+  kind: GroupKind;
   empty: boolean;
   creating: boolean;
   deleting: boolean;
@@ -103,7 +103,7 @@ function Group({ data }: NodeProps<GroupNode>) {
         <span className="branch" translate="no">
           {data.branch}
         </span>
-        {data.original && <span className="kind">{t('worktree.original')}</span>}
+        {data.kind !== 'linked' && <span className="kind">{t(`worktree.${data.kind}`)}</span>}
         <span className="spacer" />
         <button className="btn ghost sm nodrag" aria-expanded={data.creating} onClick={(e) => data.onOpen(e.currentTarget)}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -306,7 +306,7 @@ export function Graph(props: {
       dragHandle: '.group-head',
       data: {
         branch: group.label,
-        original: group.original,
+        kind: group.kind,
         empty: members.length === 0,
         creating: creating === group.path,
         deleting: deleting === group.path,
@@ -317,12 +317,13 @@ export function Graph(props: {
           const at = flow.screenToFlowPosition({ x: rect.right, y: rect.bottom + POPOVER_GAP });
           setAnchor({ x: at.x - origin.x, y: at.y - origin.y });
         },
-        onDelete: group.original
-          ? undefined
-          : () => {
-              setCreating(null);
-              setDeleting(group.path);
-            },
+        onDelete:
+          group.kind === 'linked'
+            ? () => {
+                setCreating(null);
+                setDeleting(group.path);
+              }
+            : undefined,
       },
     }),
     ...members.map((view): FlowNode => {

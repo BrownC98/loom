@@ -17,6 +17,7 @@ use crate::git;
 pub struct RepoId(pub u32);
 
 #[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct RepoView {
     pub id: RepoId,
@@ -27,6 +28,28 @@ pub struct RepoView {
     pub worktrees: Vec<Worktree>,
     /// 로컬 브랜치. [새 워크트리]의 기준 브랜치 목록이다.
     pub branches: Vec<String>,
+    /// 거짓이면 첫 커밋 전이다(`git init` 직후). 워크트리를 만들 수 없다.
+    pub has_commits: bool,
+}
+
+/// [저장소 추가]의 폴더 목록: 데몬이 보는 폴더 하나의 자식 폴더.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct FolderList {
+    /// 목록을 읽은 폴더의 절대 경로.
+    pub path: String,
+    /// 맨 위 폴더면 없다.
+    pub parent: Option<String>,
+    /// 이름 순이다. 점으로 시작하는 폴더는 뺀다.
+    pub folders: Vec<Folder>,
+}
+
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct Folder {
+    pub name: String,
+    /// 안에 `.git`이 있다.
+    pub git: bool,
 }
 
 #[derive(Serialize, TS, PartialEq, Debug)]
@@ -61,6 +84,14 @@ pub enum RepoProblem {
     /// 원래 체크아웃은 지우지 않는다. git도 지우지 못한다.
     Original,
     EmptyBranch,
+    /// 첫 커밋 전 저장소에서는 워크트리를 만들지 못한다.
+    NoCommit,
+    /// 새 저장소 폴더 이름으로 쓸 수 없다. 복제면 주소에서 얻은 이름이다.
+    BadName(String),
+    /// 복제할 폴더가 이미 있고 비어 있지 않다. 그 폴더는 건드리지 않는다.
+    NotEmpty(String),
+    /// 새 프로젝트 폴더가 이미 있다. 그 폴더는 건드리지 않는다.
+    Exists(String),
     /// git이 실패했다. 값은 git의 오류 글이다.
     Git(String),
 }
@@ -76,6 +107,10 @@ impl fmt::Display for RepoProblem {
             RepoProblem::NotInRepo(path) => write!(f, "{path}: 이 저장소의 워크트리가 아니다."),
             RepoProblem::Original => write!(f, "원래 체크아웃은 지우지 않는다."),
             RepoProblem::EmptyBranch => write!(f, "브랜치 이름을 적는다."),
+            RepoProblem::NoCommit => write!(f, "첫 커밋 전 저장소다. 커밋한 뒤 워크트리를 만든다."),
+            RepoProblem::BadName(name) => write!(f, "'{name}': 폴더 이름으로 쓸 수 없다."),
+            RepoProblem::NotEmpty(path) => write!(f, "{path}: 이미 있고 비어 있지 않다."),
+            RepoProblem::Exists(path) => write!(f, "{path}: 이미 있다."),
             RepoProblem::Git(e) => write!(f, "git 오류: {e}"),
         }
     }
@@ -112,6 +147,36 @@ impl Repos {
             .await
             .unwrap_or_else(|| folder.to_owned());
         Ok((self.insert(&original)?, original))
+    }
+
+    /// `url`을 `<parent>/<주소 마지막 마디에서 .git을 뺀 이름>`에 복제하고 더한다.
+    /// 그 폴더가 있고 비어 있으면 그 안에 복제한다. 실패하면 git이 자기가 만든 것만 지운다. loom은 지우지 않는다.
+    pub async fn clone(&self, url: &str, parent: &str) -> Result<RepoId, RepoProblem> {
+        let url = url.trim();
+        let target = new_folder(parent, repo_name(url))?;
+        let occupied =
+            std::fs::read_dir(&target).map_or(target.exists(), |mut d| d.next().is_some());
+        if occupied {
+            return Err(RepoProblem::NotEmpty(target.to_string_lossy().into_owned()));
+        }
+        git::clone(url, &target).await.map_err(RepoProblem::Git)?;
+        self.add(&target.to_string_lossy()).await
+    }
+
+    /// `<parent>/<name>` 폴더를 새로 만들고 `git init`한 뒤 더한다. 첫 커밋은 만들지 않는다.
+    pub async fn create(&self, parent: &str, name: &str) -> Result<RepoId, RepoProblem> {
+        let target = new_folder(parent, name.trim())?;
+        let text = target.to_string_lossy().into_owned();
+        if target.exists() {
+            return Err(RepoProblem::Exists(text));
+        }
+        std::fs::create_dir(&target).map_err(|e| RepoProblem::Git(e.to_string()))?;
+        if let Err(e) = git::run(&target, &["init", "-q"]).await {
+            // 방금 만든 폴더다. 비어 있을 때만 지워진다.
+            let _ = std::fs::remove_dir(&target);
+            return Err(RepoProblem::Git(e));
+        }
+        self.add(&text).await
     }
 
     fn insert(&self, path: &Path) -> rusqlite::Result<RepoId> {
@@ -164,7 +229,69 @@ pub async fn view(id: RepoId, path: &Path) -> RepoView {
         path: path.to_string_lossy().into_owned(),
         worktrees: worktrees(path).await,
         branches,
+        has_commits: has_commits(path).await,
     }
+}
+
+async fn has_commits(repo: &Path) -> bool {
+    git::run(repo, &["rev-parse", "--verify", "-q", "HEAD"])
+        .await
+        .is_ok()
+}
+
+/// `path`의 자식 폴더 목록. 심볼릭 링크는 따라간다.
+pub fn folders(path: &str) -> Result<FolderList, RepoProblem> {
+    let dir = Path::new(path);
+    if !dir.is_absolute() {
+        return Err(RepoProblem::NotAbsolute(path.to_owned()));
+    }
+    if !dir.is_dir() {
+        return Err(RepoProblem::NotFound(path.to_owned()));
+    }
+    let mut folders: Vec<Folder> = std::fs::read_dir(dir)
+        .map_err(|e| RepoProblem::Git(e.to_string()))?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| {
+            (
+                entry.file_name().to_string_lossy().into_owned(),
+                entry.path(),
+            )
+        })
+        .filter(|(name, _)| !name.starts_with('.'))
+        .map(|(name, path)| Folder {
+            git: path.join(".git").exists(),
+            name,
+        })
+        .collect();
+    folders.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(FolderList {
+        path: path.to_owned(),
+        parent: dir.parent().map(|p| p.to_string_lossy().into_owned()),
+        folders,
+    })
+}
+
+/// 복제·새 프로젝트가 만들 폴더 `<parent>/<name>`. `parent`는 있는 절대 경로이고 `name`은 한 마디다.
+fn new_folder(parent: &str, name: &str) -> Result<PathBuf, RepoProblem> {
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+        return Err(RepoProblem::BadName(name.to_owned()));
+    }
+    let dir = Path::new(parent);
+    if !dir.is_absolute() {
+        return Err(RepoProblem::NotAbsolute(parent.to_owned()));
+    }
+    if !dir.is_dir() {
+        return Err(RepoProblem::NotFound(parent.to_owned()));
+    }
+    Ok(dir.join(name))
+}
+
+/// git이 `git clone <url>`에서 고르는 폴더 이름과 같다: 마지막 마디(`/`·`:` 뒤)에서 `.git`을 뺀다.
+fn repo_name(url: &str) -> &str {
+    let url = url.trim_end_matches('/');
+    let leaf = url.rsplit(['/', ':']).next().unwrap_or_default();
+    leaf.strip_suffix(".git").unwrap_or(leaf)
 }
 
 /// 첫째가 원래 체크아웃이다(git이 그 순서로 준다). git을 읽지 못하면 `repo` 하나다.
@@ -229,6 +356,9 @@ pub async fn create(
     let leaf = branch.rsplit('/').next().unwrap_or_default();
     if leaf.is_empty() {
         return Err(RepoProblem::EmptyBranch);
+    }
+    if !has_commits(repo).await {
+        return Err(RepoProblem::NoCommit);
     }
     if !workspace.is_absolute() {
         return Err(RepoProblem::NotAbsolute(
@@ -312,9 +442,16 @@ pub fn setup_script(worktree: &Path) -> Option<String> {
 /// Orca 기본값(`<홈>/orca/workspaces`)과 같은 모양이다. Orca처럼 없으면 만든다. 사람이 고른 폴더는 만들지 않는다.
 /// 근거: docs/design.md 「저장소와 워크트리」.
 pub fn default_workspace() -> std::io::Result<PathBuf> {
+    let dir = loom_home()?.join("workspaces");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// `<홈>/loom`. [저장소 추가] 폴더 목록이 처음 여는 폴더다. 없으면 만든다.
+pub fn loom_home() -> std::io::Result<PathBuf> {
     let home =
         std::env::home_dir().ok_or_else(|| std::io::Error::other("홈 폴더를 찾지 못했다"))?;
-    let dir = home.join("loom").join("workspaces");
+    let dir = home.join("loom");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -493,6 +630,137 @@ mod tests {
             panic!()
         };
         assert!(e.contains("already exists"), "{e}");
+    }
+
+    #[test]
+    fn folders_lists_child_folders_by_name_and_marks_git() {
+        let dir = tempfile::tempdir().unwrap();
+        repo(dir.path());
+        std::fs::create_dir(dir.path().join("b-plain")).unwrap();
+        std::fs::create_dir(dir.path().join(".hidden")).unwrap();
+        std::fs::write(dir.path().join("file.txt"), "x").unwrap();
+        let path = dir.path().to_str().unwrap();
+        let list = folders(path).unwrap();
+        assert_eq!(list.path, path);
+        assert_eq!(
+            list.parent.as_deref(),
+            dir.path().parent().and_then(Path::to_str)
+        );
+        assert_eq!(
+            list.folders
+                .iter()
+                .map(|f| (f.name.as_str(), f.git))
+                .collect::<Vec<_>>(),
+            [("app", true), ("b-plain", false)]
+        );
+        assert_eq!(
+            folders("rel").err(),
+            Some(RepoProblem::NotAbsolute("rel".into()))
+        );
+        assert_eq!(
+            folders("/nowhere/at/all").err(),
+            Some(RepoProblem::NotFound("/nowhere/at/all".into()))
+        );
+    }
+
+    #[test]
+    fn repo_name_is_last_segment_without_git_suffix() {
+        assert_eq!(repo_name("https://github.com/team/app.git"), "app");
+        assert_eq!(repo_name("https://github.com/team/app/"), "app");
+        assert_eq!(repo_name("git@github.com:team/app.git"), "app");
+        assert_eq!(repo_name("host:app"), "app");
+        assert_eq!(repo_name("/srv/git/app.git"), "app");
+    }
+
+    #[tokio::test]
+    async fn clone_adds_the_copy_and_keeps_existing_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = repo(dir.path());
+        let parent = dir.path().join("p");
+        std::fs::create_dir(&parent).unwrap();
+        let parent_text = parent.to_str().unwrap();
+        let repos = repos(dir.path());
+        let id = repos
+            .clone(source.to_str().unwrap(), parent_text)
+            .await
+            .unwrap();
+        let copy = parent.join("app");
+        assert_eq!(
+            repos.path(id).unwrap().canonicalize().unwrap(),
+            copy.canonicalize().unwrap()
+        );
+        assert!(view(id, &copy).await.has_commits);
+
+        // 대상이 비어 있지 않으면 git을 부르지 않고 거절한다. 원래 파일은 남는다.
+        assert_eq!(
+            repos.clone(source.to_str().unwrap(), parent_text).await,
+            Err(RepoProblem::NotEmpty(copy.to_string_lossy().into_owned()))
+        );
+        assert!(copy.join(".git").exists());
+
+        // 원본이 없으면 실패한다. 새 폴더는 남지 않고, 미리 있던 빈 폴더는 남는다.
+        let Err(RepoProblem::Git(_)) = repos.clone("/nowhere/gone.git", parent_text).await else {
+            panic!()
+        };
+        assert!(!parent.join("gone").exists());
+        std::fs::create_dir(parent.join("empty")).unwrap();
+        let Err(RepoProblem::Git(_)) = repos.clone("/nowhere/empty.git", parent_text).await else {
+            panic!()
+        };
+        assert!(parent.join("empty").is_dir());
+
+        assert_eq!(
+            repos.clone("https://h/x/", "rel").await,
+            Err(RepoProblem::NotAbsolute("rel".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn create_inits_without_a_commit_and_refuses_existing_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().to_str().unwrap();
+        let repos = repos(dir.path());
+        let id = repos.create(parent, " my-app ").await.unwrap();
+        let made = repos.path(id).unwrap();
+        assert!(made.ends_with("my-app"), "{made:?}");
+        let made_view = view(id, &made).await;
+        assert!(!made_view.has_commits);
+        assert_eq!(made_view.branches, Vec::<String>::new());
+
+        // 첫 커밋 전에는 워크트리를 만들지 않는다. 커밋 뒤에는 만든다.
+        let workspace = dir.path().join("ws");
+        std::fs::create_dir(&workspace).unwrap();
+        assert_eq!(
+            create(&made, &made, &workspace, "feat", "HEAD").await,
+            Err(RepoProblem::NoCommit)
+        );
+        assert!(!workspace.join("my-app").exists());
+        run(&made, &["commit", "-q", "--allow-empty", "-m", "a"]);
+        assert!(view(id, &made).await.has_commits);
+        // 분리된 HEAD는 브랜치 목록과 관계없이 커밋이 있다.
+        run(&made, &["checkout", "-q", "--detach"]);
+        assert!(view(id, &made).await.has_commits);
+        create(&made, &made, &workspace, "feat", "HEAD")
+            .await
+            .unwrap();
+
+        // 이미 있는 폴더는 건드리지 않는다.
+        let taken = dir.path().join("taken");
+        std::fs::create_dir(&taken).unwrap();
+        std::fs::write(taken.join("keep.txt"), "x").unwrap();
+        assert_eq!(
+            repos.create(parent, "taken").await,
+            Err(RepoProblem::Exists(taken.to_string_lossy().into_owned()))
+        );
+        assert!(!taken.join(".git").exists());
+        assert!(taken.join("keep.txt").exists());
+
+        for bad in ["", "..", "a/b", "a\\b"] {
+            assert_eq!(
+                repos.create(parent, bad).await,
+                Err(RepoProblem::BadName(bad.into()))
+            );
+        }
     }
 
     /// `loom spawn --worktree`: 기준이 `HEAD`면 부모 워크트리가 체크아웃한 커밋에서 갈라진다.

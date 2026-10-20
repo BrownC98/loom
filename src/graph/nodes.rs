@@ -111,6 +111,35 @@ impl Graph {
         Ok(id)
     }
 
+    /// 출력 없이 정상 종료한 셸만 부른다. 관계나 메시지가 있으면 보존한다.
+    pub fn discard_empty_shell(&self, id: NodeId) -> rusqlite::Result<bool> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let eligible: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND agent = 'null'
+             AND parent IS NULL AND state = ?2
+             AND NOT EXISTS(SELECT 1 FROM nodes WHERE parent = ?1)
+             AND NOT EXISTS(SELECT 1 FROM messages WHERE sender = ?1 OR recipient = ?1))",
+            params![id.0, to_json(&NodeState::Running)],
+            |row| row.get(0),
+        )?;
+        if !eligible {
+            return Ok(false);
+        }
+        events::write(
+            &tx,
+            &Entry::Removed {
+                node: events::who(&tx, id)?,
+            },
+            None,
+        )?;
+        tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
+        tx.commit()?;
+        self.titles.lock().unwrap().remove(&id);
+        let _ = self.events.send(GraphEvent::Removed { id });
+        Ok(true)
+    }
+
     /// 완료한 노드의 요약은 남기고 프로세스 종료만 따로 적는다.
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
         self.end_process(id, Some(code))

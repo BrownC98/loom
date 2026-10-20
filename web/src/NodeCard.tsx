@@ -43,17 +43,12 @@ function ModelText(props: { view: NodeView }) {
   ) : null;
 }
 
-/** 읽지 않은 수, 보관 수, 상태. */
+/** 보관 수와 상태. */
 function Badges(props: { view: NodeView }) {
   const { t } = useTranslation();
   const { view } = props;
   return (
     <>
-      {view.unread > 0 && (
-        <span className="unread" aria-label={t('node.unread', { n: view.unread })}>
-          {view.unread}
-        </span>
-      )}
       {view.held > 0 && (
         <span className="held" title={t('node.heldTitle', { n: view.held })}>
           {t('node.held', { n: view.held })}

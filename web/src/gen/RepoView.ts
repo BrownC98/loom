@@ -14,4 +14,8 @@ worktrees: Array<Worktree>,
 /**
  * 로컬 브랜치. [새 워크트리]의 기준 브랜치 목록이다.
  */
-branches: Array<string>, };
+branches: Array<string>, 
+/**
+ * 거짓이면 첫 커밋 전이다(`git init` 직후). 워크트리를 만들 수 없다.
+ */
+hasCommits: boolean, };

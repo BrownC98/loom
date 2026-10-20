@@ -42,7 +42,7 @@ use crate::profile::{
     VersionMismatch,
 };
 use crate::settings::Settings;
-use crate::worktree::{self, RepoId, RepoProblem, RepoView, Repos, Worktree};
+use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
 #[derive(Embed)]
 #[folder = "web/dist"]
@@ -149,6 +149,28 @@ pub struct NewNode {
 #[ts(export)]
 pub struct NewRepo {
     pub path: String,
+}
+
+/// [저장소 추가] 「URL 복제」. `parent`는 데몬이 보는 폴더다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct CloneRepo {
+    pub url: String,
+    pub parent: String,
+}
+
+/// [저장소 추가] 「새 프로젝트」. `<parent>/<name>`을 만든다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct CreateRepo {
+    pub parent: String,
+    pub name: String,
+}
+
+/// [저장소 추가]의 폴더 목록. 없으면 `<홈>/loom`이다.
+#[derive(Deserialize)]
+pub struct FolderQuery {
+    pub path: Option<String>,
 }
 
 /// [새 워크트리]. `base`에서 새 브랜치 `branch`를 만든다.
@@ -336,6 +358,9 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let router = node_routes
         .clone()
         .route("/api/repos", get(list_repos).post(add_repo))
+        .route("/api/repos/clone", post(clone_repo))
+        .route("/api/repos/create", post(create_repo))
+        .route("/api/folders", get(list_folders))
         .route(
             "/api/repos/{id}/worktrees",
             post(create_worktree).delete(delete_worktree),
@@ -397,6 +422,33 @@ async fn add_repo(
 ) -> Result<Json<RepoView>, Problem> {
     let id = app.repos.add(req.path.trim()).await?;
     Ok(Json(worktree::view(id, &app.repos.path(id)?).await))
+}
+
+async fn clone_repo(
+    State(app): State<Arc<App>>,
+    Json(req): Json<CloneRepo>,
+) -> Result<Json<RepoView>, Problem> {
+    let id = app.repos.clone(&req.url, req.parent.trim()).await?;
+    Ok(Json(worktree::view(id, &app.repos.path(id)?).await))
+}
+
+async fn create_repo(
+    State(app): State<Arc<App>>,
+    Json(req): Json<CreateRepo>,
+) -> Result<Json<RepoView>, Problem> {
+    let id = app.repos.create(req.parent.trim(), &req.name).await?;
+    Ok(Json(worktree::view(id, &app.repos.path(id)?).await))
+}
+
+async fn list_folders(Query(req): Query<FolderQuery>) -> Result<Json<FolderList>, Problem> {
+    let path = match req.path {
+        Some(path) => path,
+        None => worktree::loom_home()
+            .map_err(internal)?
+            .to_string_lossy()
+            .into_owned(),
+    };
+    Ok(Json(worktree::folders(path.trim())?))
 }
 
 async fn create_worktree(
@@ -602,6 +654,13 @@ impl App {
             discard();
             app.codex.lock().unwrap().remove(&id);
             app.opencode2.lock().unwrap().remove(&id);
+            if code == 0
+                && !app.host.has_output(id)
+                && app.graph.discard_empty_shell(id).unwrap_or(false)
+            {
+                app.host.kill(id);
+                return;
+            }
             // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
             let _ = app.graph.exited(id, code);
         }

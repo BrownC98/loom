@@ -2,8 +2,11 @@
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
+import type { CloneRepo } from './gen/CloneRepo';
 import type { CommitGraph } from './gen/CommitGraph';
+import type { CreateRepo } from './gen/CreateRepo';
 import type { EventRecord } from './gen/EventRecord';
+import type { FolderList } from './gen/FolderList';
 import type { GraphEvent } from './gen/GraphEvent';
 import type { Login } from './gen/Login';
 import type { LoginId } from './gen/LoginId';
@@ -49,6 +52,10 @@ export const getCommits = (repo: RepoId) => call<CommitGraph>('GET', `/api/repos
 /** 더한 순서. 워크트리 첫째가 원래 체크아웃이다. */
 export const getRepos = () => call<RepoView[]>('GET', '/api/repos');
 export const addRepo = (req: NewRepo) => call<RepoView>('POST', '/api/repos', req);
+export const cloneRepo = (req: CloneRepo) => call<RepoView>('POST', '/api/repos/clone', req);
+export const createRepo = (req: CreateRepo) => call<RepoView>('POST', '/api/repos/create', req);
+/** 데몬이 보는 폴더의 자식 폴더. `path`가 없으면 `<홈>/loom`이다. */
+export const getFolders = (path?: string) => call<FolderList>('GET', path === undefined ? '/api/folders' : `/api/folders?${new URLSearchParams({ path })}`);
 export const createWorktree = (repo: RepoId, req: NewWorktree) => call<RepoView>('POST', `/api/repos/${repo}/worktrees`, req);
 const worktreeQuery = (path: string) => `path=${encodeURIComponent(path)}`;
 /** 삭제하면 잃는 변경. 줄마다 `git status --porcelain` 한 줄이다. */

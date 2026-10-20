@@ -952,6 +952,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "jiff",
+ "libc",
  "portable-pty",
  "rusqlite",
  "rusqlite_migration",

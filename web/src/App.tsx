@@ -275,8 +275,13 @@ export function App() {
                   }}
                 />
               )}
+              {repo && !repo.hasCommits && (
+                <span className="hint" id="no-commit">
+                  {t('repo.noCommit')}
+                </span>
+              )}
               {repo && (
-                <button className="btn" aria-expanded={creatingWorktree} onClick={() => setCreatingWorktree(true)}>
+                <button className="btn" aria-expanded={creatingWorktree} disabled={!repo.hasCommits} aria-describedby={repo.hasCommits ? undefined : 'no-commit'} onClick={() => setCreatingWorktree(true)}>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9" />
                   </svg>

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loom 업데이트 목업</title>
+<style>
+  /* 토큰: web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light dark;
+    --bg: light-dark(oklch(96.8% 0.005 255), oklch(17% 0.012 255));
+    --panel: light-dark(oklch(98.6% 0.003 255), oklch(20.5% 0.014 255));
+    --surface: light-dark(oklch(100% 0 0), oklch(24% 0.016 255));
+    --line: light-dark(oklch(89.5% 0.008 255), oklch(33% 0.016 255));
+    --ink: light-dark(oklch(22% 0.015 255), oklch(95% 0.006 255));
+    --ink-3: light-dark(oklch(49% 0.016 255), oklch(68% 0.014 255));
+    --accent: light-dark(oklch(52% 0.19 258), oklch(70% 0.16 258));
+    --accent-ink: light-dark(oklch(99% 0.005 258), oklch(16% 0.03 258));
+    --err: light-dark(oklch(52% 0.19 25), oklch(72% 0.16 25));
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.5 'Pretendard Variable', system-ui, sans-serif; padding: 32px; word-break: keep-all; }
+  h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); margin: 28px 0 8px; }
+  .row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .bar { width: 440px; height: 32px; display: flex; align-items: center; justify-content: space-between; padding-left: 12px; background: var(--panel); border: 1px solid var(--line); font-size: 12px; }
+  .bar .caps { display: flex; color: var(--ink-3); } .bar .caps span { width: 46px; text-align: center; }
+  .arrow { align-self: center; color: var(--ink-3); }
+  /* 화면: 카드는 오른쪽 아래, 상태 표시줄 위(Orca: bottom-10 right-4, 폭 360) */
+  .screen { position: relative; width: 760px; height: 300px; background: var(--bg); border: 1px solid var(--line); }
+  .screen .side { position: absolute; inset: 0 auto 28px 0; width: 160px; background: var(--panel); border-right: 1px solid var(--line); }
+  .screen .status { position: absolute; inset: auto 0 0 0; height: 28px; background: var(--panel); border-top: 1px solid var(--line); }
+  .screen .card { position: absolute; right: 16px; bottom: 40px; }
+  .card { width: 360px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 24px oklch(0% 0 0 / 0.14); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .head h3 { font-size: 14px; font-weight: 600; }
+  .x { width: 24px; height: 24px; border: 0; background: none; color: var(--ink-3); font-size: 14px; line-height: 1; }
+  .card p { font-size: 13px; color: var(--ink-3); }
+  .card p.err { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+  .btn { height: 32px; border: 0; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 13px; font-weight: 600; }
+  .track { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; } .track i { display: block; width: 42%; height: 100%; background: var(--accent); }
+</style>
+</head>
+<body>
+<h2>창 제목</h2>
+<div class="row">
+  <div class="bar"><span>loom</span><span class="caps"><span>–</span><span>□</span><span>✕</span></span></div>
+  <span class="arrow">→</span>
+  <div class="bar"><span>loom 0.1.58</span><span class="caps"><span>–</span><span>□</span><span>✕</span></span></div>
+</div>
+
+<h2>자리: 시작할 때 새 판이 있으면 오른쪽 아래</h2>
+<div class="screen"><div class="side"></div><div class="status"></div>
+  <div class="card"><div class="head"><h3>업데이트 가능</h3><button class="x" aria-label="업데이트 닫기">✕</button></div>
+    <p>loom v0.1.59</p><p>다시 시작하면 실행 중인 노드가 끝난다.</p>
+    <button class="btn">업데이트</button></div>
+</div>
+
+<h2>[업데이트] 다음 → 다운로드 → 설치 준비 → 오류</h2>
+<div class="row">
+  <div class="card"><div class="head"><h3>업데이트 다운로드 중</h3><button class="x" aria-label="닫기">✕</button></div>
+    <p>loom v0.1.59</p><div class="track"><i></i></div><p>다운로드 중... 42%</p></div>
+  <div class="card"><div class="head"><h3>설치 준비 완료</h3><button class="x" aria-label="닫기">✕</button></div>
+    <p>loom v0.1.59. 다시 시작하면 실행 중인 노드가 끝난다.</p>
+    <button class="btn">다시 시작하여 업데이트</button></div>
+  <div class="card"><div class="head"><h3>업데이트 오류</h3><button class="x" aria-label="닫기">✕</button></div>
+    <p class="err">error sending request for url (https://github.com/…/latest.json)</p>
+    <button class="btn">다시 시도</button></div>
+</div>
+
+<h2>English</h2>
+<div class="row">
+  <div class="card"><div class="head"><h3>Update Available</h3><button class="x">✕</button></div>
+    <p>loom v0.1.59</p><p>Restarting ends running nodes.</p><button class="btn">Update</button></div>
+  <div class="card"><div class="head"><h3>Downloading Update</h3><button class="x">✕</button></div>
+    <p>loom v0.1.59</p><div class="track"><i></i></div><p>Downloading... 42%</p></div>
+  <div class="card"><div class="head"><h3>Ready to Install</h3><button class="x">✕</button></div>
+    <p>loom v0.1.59. Restarting ends running nodes.</p><button class="btn">Restart to Update</button></div>
+  <div class="card"><div class="head"><h3>Update Error</h3><button class="x">✕</button></div>
+    <p class="err">error sending request for url (https://github.com/…/latest.json)</p><button class="btn">Try Again</button></div>
+</div>
+</body>
+</html>

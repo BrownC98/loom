@@ -401,10 +401,18 @@ pub fn command(
         Start::Command { line } => shell(line),
     };
     cmd.cwd(cwd);
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
+    color_terminal(&mut cmd);
     forget_parent_session(&mut cmd);
     Ok(cmd)
+}
+
+/// 노드 터미널(xterm.js)은 트루컬러를 그린다. 데몬을 띄운 곳(예: Claude Code의 Bash 도구)이 색을 끈 값은
+/// 노드에 맞지 않는다. 남기면 Claude Code 마스코트 같은 색 출력이 흰색으로 나온다.
+fn color_terminal(cmd: &mut CommandBuilder) {
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env_remove("NO_COLOR");
+    cmd.env_remove("FORCE_COLOR");
 }
 
 /// 데몬을 띄운 Claude Code 세션의 표지. 노드가 물려받으면 Claude Code가 자기를 그 세션의 자식으로 보고
@@ -576,6 +584,17 @@ mod tests {
         assert_eq!(cmd.get_env("CLAUDE_CODE_CHILD_SESSION"), None);
         assert_eq!(cmd.get_env("CLAUDECODE"), None);
         assert_eq!(cmd.get_env("CLAUDE_CONFIG_DIR").unwrap(), "/x");
+    }
+
+    #[test]
+    fn node_terminal_keeps_colors_on() {
+        let mut cmd = shell("true");
+        cmd.env("NO_COLOR", "1");
+        cmd.env("FORCE_COLOR", "0");
+        color_terminal(&mut cmd);
+        assert_eq!(cmd.get_env("NO_COLOR"), None);
+        assert_eq!(cmd.get_env("FORCE_COLOR"), None);
+        assert_eq!(cmd.get_env("COLORTERM").unwrap(), "truecolor");
     }
 
     #[test]

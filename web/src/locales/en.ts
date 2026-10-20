@@ -256,6 +256,7 @@ const en = {
       notFound: 'Folder not found: {{value}}',
       notGit: 'Not a git repository: {{value}}',
       notAbsolute: 'Enter the full path: {{value}}',
+      noWorkspace: 'Workspace folder not found: {{value}}. Add this folder to compose.override.yaml and run scripts/worktree/setup.sh again, or choose another folder in Settings › Workspace.',
       noRepo: 'This repository no longer exists. Reload the page.',
       notInRepo: 'This worktree no longer exists: {{value}}',
       original: 'The original checkout cannot be deleted.',

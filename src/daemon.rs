@@ -441,11 +441,10 @@ impl App {
     /// 설정의 워크스페이스 폴더. 없으면 기본값이다.
     fn workspace(&self) -> Result<PathBuf, Problem> {
         let settings = self.settings.get().map_err(internal)?;
-        settings
-            .workspace_dir
-            .map(PathBuf::from)
-            .or_else(worktree::default_workspace)
-            .ok_or_else(|| internal("홈 폴더를 찾지 못했다"))
+        match settings.workspace_dir {
+            Some(dir) => Ok(PathBuf::from(dir)),
+            None => worktree::default_workspace().map_err(internal),
+        }
     }
 
     /// 부모 없는 노드를 `place`에서 띄운다.

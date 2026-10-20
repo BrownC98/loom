@@ -114,8 +114,9 @@ fn with_settings(page: &str, settings: &SettingsView) -> String {
 async fn get_settings(State(app): State<Arc<App>>) -> Result<Json<SettingsView>, Problem> {
     let mut view = app.settings.get().map_err(internal)?;
     if view.workspace_dir.is_none() {
-        view.workspace_dir =
-            worktree::default_workspace().map(|p| p.to_string_lossy().into_owned());
+        view.workspace_dir = worktree::default_workspace()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned());
     }
     Ok(Json(view))
 }

@@ -10,7 +10,9 @@ if [ ! -e .env ]; then
   [ -d .git ] || port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
   printf 'COMPOSE_PROJECT_NAME=loom-%s\nLOOM_PORT=%s\n' "$(pwd -P | sha1sum | cut -c1-8)" "$port" >.env
 fi
-# 사람마다 다른 마운트. 처음에는 호스트 docker 소켓만 켠다. 근거: docs/design.md 「저장소와 워크트리」 「경로와 컨테이너」.
+# 사람마다 다른 마운트. 처음에는 호스트 docker 소켓과 loom의 기본 워크스페이스 폴더(src/worktree.rs default_workspace)를 넣는다.
+# 근거: docs/design.md 「저장소와 워크트리」 「경로와 컨테이너」.
+mkdir -p "$HOME/loom/workspaces"
 if [ ! -e compose.override.yaml ]; then
   cat >compose.override.yaml <<YAML
 services:
@@ -19,7 +21,8 @@ services:
     group_add: ["$(stat -c %g /var/run/docker.sock)"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # 저장소 폴더를 호스트와 같은 경로로 더한다. 예: - /srv:/srv
+      - $HOME/loom/workspaces:$HOME/loom/workspaces
+      # 다른 곳의 저장소 폴더는 호스트와 같은 경로로 한 줄씩 더한다. 예: - /srv:/srv
 YAML
 fi
 docker compose up -d --build

@@ -52,6 +52,8 @@ pub enum RepoProblem {
     NotGit(String),
     /// 워크스페이스 폴더는 절대 경로다.
     NotAbsolute(String),
+    /// 워크스페이스 폴더가 없다. 개발 컨테이너면 `compose.override.yaml`이 넣지 않은 폴더다.
+    NoWorkspace(String),
     /// 없는 저장소 id다.
     NoRepo,
     /// 이 저장소의 워크트리가 아니다.
@@ -69,6 +71,7 @@ impl fmt::Display for RepoProblem {
             RepoProblem::NotFound(path) => write!(f, "{path}: 데몬이 보는 파일 시스템에 없다."),
             RepoProblem::NotGit(path) => write!(f, "{path}: git 저장소가 아니다."),
             RepoProblem::NotAbsolute(path) => write!(f, "{path}: 절대 경로를 적는다."),
+            RepoProblem::NoWorkspace(path) => write!(f, "{path}: 워크스페이스 폴더가 없다."),
             RepoProblem::NoRepo => write!(f, "없는 저장소다."),
             RepoProblem::NotInRepo(path) => write!(f, "{path}: 이 저장소의 워크트리가 아니다."),
             RepoProblem::Original => write!(f, "원래 체크아웃은 지우지 않는다."),
@@ -232,6 +235,11 @@ pub async fn create(
             workspace.to_string_lossy().into_owned(),
         ));
     }
+    if !workspace.is_dir() {
+        return Err(RepoProblem::NoWorkspace(
+            workspace.to_string_lossy().into_owned(),
+        ));
+    }
     let parent = workspace.join(folder_name(repo));
     std::fs::create_dir_all(&parent).map_err(|e| RepoProblem::Git(e.to_string()))?;
     let path = parent.join(leaf).to_string_lossy().into_owned();
@@ -301,9 +309,14 @@ pub fn setup_script(worktree: &Path) -> Option<String> {
     (!script.trim().is_empty()).then(|| script.to_owned())
 }
 
-/// Orca 기본값(`<홈>/orca/workspaces`)과 같은 모양이다. 근거: docs/design.md 「저장소와 워크트리」.
-pub fn default_workspace() -> Option<PathBuf> {
-    std::env::home_dir().map(|home| home.join("loom").join("workspaces"))
+/// Orca 기본값(`<홈>/orca/workspaces`)과 같은 모양이다. Orca처럼 없으면 만든다. 사람이 고른 폴더는 만들지 않는다.
+/// `scripts/worktree/setup.sh`가 같은 경로를 컨테이너에 넣는다. 근거: docs/design.md 「저장소와 워크트리」.
+pub fn default_workspace() -> std::io::Result<PathBuf> {
+    let home =
+        std::env::home_dir().ok_or_else(|| std::io::Error::other("홈 폴더를 찾지 못했다"))?;
+    let dir = home.join("loom").join("workspaces");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
 }
 
 #[cfg(test)]
@@ -413,6 +426,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(dir.path());
         let workspace = dir.path().join("ws");
+        std::fs::create_dir(&workspace).unwrap();
         let path = create(&repo, &repo, &workspace, "me/feat-1", "main")
             .await
             .unwrap();
@@ -458,6 +472,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(dir.path());
         let workspace = dir.path().join("ws");
+        std::fs::create_dir(&workspace).unwrap();
         assert_eq!(
             create(&repo, &repo, &workspace, " ", "main").await,
             Err(RepoProblem::EmptyBranch)
@@ -465,6 +480,13 @@ mod tests {
         assert_eq!(
             create(&repo, &repo, Path::new("ws"), "feat", "main").await,
             Err(RepoProblem::NotAbsolute("ws".into()))
+        );
+        let missing = dir.path().join("missing");
+        assert_eq!(
+            create(&repo, &repo, &missing, "feat", "main").await,
+            Err(RepoProblem::NoWorkspace(
+                missing.to_string_lossy().into_owned()
+            ))
         );
         let Err(RepoProblem::Git(e)) = create(&repo, &repo, &workspace, "main", "main").await
         else {
@@ -479,6 +501,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(dir.path());
         let workspace = dir.path().join("ws");
+        std::fs::create_dir(&workspace).unwrap();
         let parent = create(&repo, &repo, &workspace, "parent", "main")
             .await
             .unwrap();

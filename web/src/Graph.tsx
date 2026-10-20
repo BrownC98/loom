@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
+import { Fragment, useEffect, useImperativeHandle, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty, removeNode } from './api';
@@ -276,17 +276,6 @@ export function Graph(props: {
     for (const [id, p] of g.local) positions.set(id, { x: origin.x + p.x, y: origin.y + p.y });
     return { ...g, origin };
   });
-  // 묶음이 생기면(방금 만든 워크트리) 화면을 그 묶음으로 옮긴다. 묶음은 화면 밖에 생기기 쉽다. 묶음이 빠질 때는 화면을 옮기지 않는다(2026-10-20 사람 지시 "워크트리 제거될때 자동 포커싱되는 기능 제거해").
-  const known = useRef<readonly string[] | null>(null);
-  const groupKey = groups.map((g) => g.group.path).join('\n');
-  useEffect(() => {
-    const paths = groupKey.split('\n');
-    const before = known.current;
-    known.current = paths;
-    if (before === null) return;
-    const target = paths.find((path) => !before.includes(path));
-    if (target) void flow.fitView({ nodes: [{ id: target }], duration: MOVE_MS, maxZoom: 1 });
-  }, [groupKey, flow]);
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
     if (to !== null) setSelected(to);

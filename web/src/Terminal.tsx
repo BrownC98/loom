@@ -105,7 +105,6 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           // 다시 붙으면 backlog를 처음부터 받으므로 화면을 비운다.
           xterm.reset();
           link.sendResize({ cols: xterm.cols, rows: xterm.rows });
-          if (latest.current.focused) focusSoon(xterm);
         },
         onOutput: (bytes) => xterm.write(bytes),
         onNotice: (notice) => {

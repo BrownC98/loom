@@ -145,7 +145,56 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
           </div>
         </details>
       </section>
+      <TreeLimitsSection settings={settings} onSettings={props.onSettings} />
     </>
+  );
+}
+
+/** 숫자 칸이 받는 범위(목업 settings.html 9번). */
+const DEPTH_RANGE = { min: 0, max: 9 };
+const CHILDREN_RANGE = { min: 1, max: 99 };
+
+/** 범위 안의 정수면 그 값, 아니면 null. */
+function inRange(text: string, range: { min: number; max: number }): number | null {
+  const n = Number(text);
+  return Number.isInteger(n) && n >= range.min && n <= range.max && text.trim() !== '' ? n : null;
+}
+
+/** 「하위 노드 상한」 구역(목업 settings.html 9번). 범위 안의 값으로 바꾸면 바로 저장한다.
+ *  칸은 처음 값만 받는다. 저장할 때마다 다시 그리면 입력 중 커서를 잃는다. */
+function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
+  const { t } = useTranslation();
+  const limits = settings.treeLimits;
+  const setDepth = (text: string) => {
+    const maxDepth = inRange(text, DEPTH_RANGE);
+    if (maxDepth !== null) onSettings({ ...settings, treeLimits: { ...limits, maxDepth } });
+  };
+  const setChildren = (text: string) => {
+    const maxChildren = text.trim() === '' ? null : inRange(text, CHILDREN_RANGE);
+    if (maxChildren !== null || text.trim() === '') onSettings({ ...settings, treeLimits: { ...limits, maxChildren } });
+  };
+  return (
+    <section>
+      <h4>{t('settings.treeLimits')}</h4>
+      <div className="limit-fields">
+        <div className="field">
+          <label htmlFor="tree-depth">{t('settings.maxDepth')}</label>
+          <input id="tree-depth" type="number" {...DEPTH_RANGE} defaultValue={limits.maxDepth} onChange={(e) => setDepth(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="tree-children">{t('settings.maxChildren')}</label>
+          <input
+            id="tree-children"
+            type="number"
+            {...CHILDREN_RANGE}
+            placeholder={t('settings.noLimit')}
+            defaultValue={limits.maxChildren ?? ''}
+            onChange={(e) => setChildren(e.target.value)}
+          />
+        </div>
+      </div>
+      <span className="hint">{t('settings.treeLimitsHint')}</span>
+    </section>
   );
 }
 

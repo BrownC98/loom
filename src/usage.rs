@@ -1,4 +1,4 @@
-//! 사용량: 계정마다 5시간·주간 창의 남은 비율을 CLI와 같은 출처에서 읽는다. Orca와 같은 출처다.
+//! 사용량: 계정마다 5시간·주간 창의 사용한 비율을 CLI와 같은 출처에서 읽는다. Orca와 같은 출처다.
 //! Claude는 로그인 폴더의 OAuth 토큰으로 `api/oauth/usage`를, Codex는 `codex app-server`를 부른다.
 //! 바뀌는 이유는 두 CLI와 그 API다. 막는 호출이므로 데몬은 `spawn_blocking`에서 부른다.
 //! 근거: docs/design.md 「계정과 사용량」.
@@ -28,8 +28,8 @@ const CLAUDE_USER_AGENT: &str = "claude-code/2.1.0";
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Window {
-    /// 남은 비율(0~100).
-    pub remaining: u8,
+    /// 사용한 비율(0~100). Orca 기본 표시와 같다.
+    pub used: u8,
     /// 창이 다시 차는 시각. 유닉스 초.
     #[ts(type = "number | null")]
     pub resets_at: Option<i64>,
@@ -197,7 +197,7 @@ fn claude_limits(config_dir: &Path) -> Limits {
 /// `used`는 사용한 %, `resets_at`은 ISO 8601 시각이다.
 fn claude_window(used: &Value, resets_at: &Value) -> Option<Window> {
     Some(Window {
-        remaining: remaining(used.as_f64()?),
+        used: percent(used.as_f64()?),
         resets_at: resets_at
             .as_str()
             .and_then(|s| s.parse::<jiff::Timestamp>().ok())
@@ -257,7 +257,7 @@ fn codex_limits(rate_limits: &Value) -> Limits {
             continue;
         };
         let window = Some(Window {
-            remaining: remaining(used),
+            used: percent(used),
             resets_at: w["resetsAt"].as_i64(),
         });
         if mins <= SESSION_WINDOW_MAX_MINS {
@@ -335,8 +335,8 @@ fn exchange(child: &mut std::process::Child) -> Result<[Value; 2], UsageProblem>
     Ok(replies)
 }
 
-fn remaining(used_percent: f64) -> u8 {
-    (100.0 - used_percent).round().clamp(0.0, 100.0) as u8
+fn percent(used_percent: f64) -> u8 {
+    used_percent.round().clamp(0.0, 100.0) as u8
 }
 
 fn failed(problem: UsageProblem) -> Limits {
@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn claude_window_reads_used_percent_and_iso_time() {
         let w = claude_window(&json!(45.0), &json!("2026-10-19T11:29:59.565320+00:00")).unwrap();
-        assert_eq!(w.remaining, 55);
+        assert_eq!(w.used, 45);
         assert_eq!(w.resets_at, Some(1792409399));
         assert!(claude_window(&Value::Null, &Value::Null).is_none());
     }
@@ -384,7 +384,7 @@ mod tests {
         ]));
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].model, "Fable");
-        assert_eq!(models[0].window.remaining, 88);
+        assert_eq!(models[0].window.used, 12);
         assert_eq!(models[0].window.resets_at, Some(1792843200));
         assert!(claude_models(&Value::Null).is_empty());
     }
@@ -396,12 +396,12 @@ mod tests {
             "secondary": null,
         })));
         assert!(session.is_none());
-        assert_eq!(weekly.unwrap().remaining, 88);
+        assert_eq!(weekly.unwrap().used, 12);
         let (session, weekly) = ready(codex_limits(&json!({
             "primary": {"usedPercent": 81, "windowDurationMins": 300, "resetsAt": 1},
             "secondary": {"usedPercent": 0, "windowDurationMins": 10080, "resetsAt": 2},
         })));
-        assert_eq!(session.unwrap().remaining, 19);
-        assert_eq!(weekly.unwrap().remaining, 100);
+        assert_eq!(session.unwrap().used, 81);
+        assert_eq!(weekly.unwrap().used, 0);
     }
 }

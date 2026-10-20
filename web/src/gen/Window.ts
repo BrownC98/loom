@@ -2,9 +2,9 @@
 
 export type Window = { 
 /**
- * 남은 비율(0~100).
+ * 사용한 비율(0~100). Orca 기본 표시와 같다.
  */
-remaining: number, 
+used: number, 
 /**
  * 창이 다시 차는 시각. 유닉스 초.
  */

@@ -168,7 +168,7 @@ function ProviderSection(props: {
               <li key={a.id ?? 'system'}>
                 <button className="acct" aria-current={current || undefined} onClick={() => props.onChoose(a.id)}>
                   <span className="acct-name">{accountName(a)}</span>
-                  <span className="sub">{current ? t('accounts.current') : session ? t('usage.left', { n: session.remaining }) : a.usage.limits.kind === 'needsLogin' ? t('usage.loginRequired') : ''}</span>
+                  <span className="sub">{current ? t('accounts.current') : session ? t('usage.used', { n: session.used }) : a.usage.limits.kind === 'needsLogin' ? t('usage.loginRequired') : ''}</span>
                 </button>
               </li>
             );

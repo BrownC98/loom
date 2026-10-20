@@ -47,6 +47,8 @@ const EMPTY_SETTINGS: SettingsView = {
   cardView: 'standard',
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
+  // 설정을 받기 전 자리값이다. 기본값의 원천은 Rust `TreeLimits::default`다.
+  treeLimits: { maxDepth: 2, maxChildren: null },
 };
 const SETTINGS_HASH = '#settings/';
 

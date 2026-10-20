@@ -30,8 +30,8 @@ use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::graph::{
-    Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, MessageId, Model, NodeId, Place,
-    REDELIVER_AFTER, Refusal,
+    Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, MessageId, Model, NewChild, NodeId,
+    Place, REDELIVER_AFTER, Refusal, TreeLimits,
 };
 use crate::node_host::NodeHost;
 use crate::process_tree;
@@ -449,6 +449,10 @@ impl App {
             Some(dir) => Ok(PathBuf::from(dir)),
             None => worktree::default_workspace().map_err(internal),
         }
+    }
+
+    fn tree_limits(&self) -> Result<TreeLimits, Problem> {
+        Ok(self.settings.get().map_err(internal)?.tree_limits)
     }
 
     /// 부모 없는 노드를 `place`에서 띄운다.
@@ -885,7 +889,8 @@ async fn adopt_node(
     State(app): State<Arc<App>>,
     Path((id, parent)): Path<(u32, u32)>,
 ) -> Result<Json<()>, Problem> {
-    app.graph.adopt(NodeId(parent), NodeId(id))?;
+    let limits = app.tree_limits()?;
+    app.graph.adopt(NodeId(parent), NodeId(id), limits)?;
     Ok(Json(()))
 }
 
@@ -931,14 +936,21 @@ async fn agent_spawn(
     let cwd = std::path::Path::new(worktree.as_deref().unwrap_or(&place.worktree));
     let prepared = app.prepare(&start, cwd).await.map_err(for_agent)?;
     let discard = prepared.discarder();
+    let limits = app
+        .tree_limits()
+        .map_err(for_agent)
+        .inspect_err(|_| discard())?;
     let id = app
         .graph
         .add_child(
             parent,
-            &req.name,
-            worktree.as_deref(),
-            start.agent(),
-            &queued_brief,
+            NewChild {
+                name: &req.name,
+                worktree: worktree.as_deref(),
+                agent: start.agent(),
+                brief: &queued_brief,
+            },
+            limits,
             |id| app.launch(id, prepared),
         )
         .map_err(for_agent)
@@ -1063,7 +1075,8 @@ async fn agent_adopt(
 ) -> Result<Json<()>, AgentError> {
     let parent = app.caller(&headers)?;
     let child = app.graph.find(&req.name).map_err(for_agent)?;
-    app.graph.adopt(parent, child).map_err(for_agent)?;
+    let limits = app.tree_limits().map_err(for_agent)?;
+    app.graph.adopt(parent, child, limits).map_err(for_agent)?;
     Ok(Json(()))
 }
 

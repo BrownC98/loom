@@ -327,7 +327,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
           <li role="option" aria-disabled="true">OpenClaude<span class="tag">설치 안 됨</span></li>
           <li role="option" aria-disabled="true">Grok<span class="tag">설치 안 됨</span></li>
         </ul>
-        <span class="hint">계정: 시스템 기본 · 5시간 19% 남음</span>
+        <span class="hint">계정: 시스템 기본 · 5시간 81% 사용</span>
         <span class="hint">모든 권한 허용으로 띄운다. 설정 › 에이전트에서 끈다.</span>
       </div>
       <div class="pop-actions">
@@ -533,6 +533,39 @@ test daemon::<span style="background:#deeaf9;color:#22272e">with_theme</span> ..
 </section>
 
 <!-- 점검 기록 -->
+<!-- 9. 설정: 하위 노드 상한 -->
+<section class="unit" aria-labelledby="u9">
+  <h2 id="u9">9. 설정 창 「에이전트」 탭: 하위 노드 상한</h2>
+  <div class="why">
+    <b>문제점</b><span>에이전트가 <code>loom spawn</code>으로 만드는 자식의 중첩 깊이는 코드에 2로 고정됐다. 부모 하나의 자식 수에는 상한이 없다. 사람이 바꿀 방법이 없다.</span>
+    <b>개선 사항</b><span>「에이전트」 탭 끝에 「하위 노드 상한」 구역을 둔다. 「중첩 깊이」(0~9, 처음 값 2)와 「부모 하나의 자식 수」(1~99, 빈칸이면 상한 없음) 숫자 칸 두 개다. 값을 바꾸면 바로 저장한다. 이미 있는 노드는 그대로 둔다.</span>
+  </div>
+  <div class="stage">
+    <div class="dialog" role="dialog" aria-label="설정" style="width:100%">
+      <nav>
+        <h2>설정</h2>
+        <button class="tab" aria-current="page">에이전트</button>
+        <button class="tab">계정</button>
+      </nav>
+      <div class="pane">
+        <div class="pane-head"><h3>에이전트</h3><span class="spacer"></span><button class="btn ghost" style="font-size:20px;padding:0 8px" aria-label="닫기">×</button></div>
+        <section>
+          <h4>설치됨 9개</h4>
+          <span class="hint">… 3번 구역과 같다 …</span>
+        </section>
+        <section>
+          <h4>하위 노드 상한</h4>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <div class="field"><label for="m-depth">중첩 깊이</label><input id="m-depth" type="number" min="0" max="9" value="2" style="width:120px;font-variant-numeric:tabular-nums"></div>
+            <div class="field"><label for="m-children">부모 하나의 자식 수</label><input id="m-children" type="number" min="1" max="99" placeholder="상한 없음" style="width:120px;font-variant-numeric:tabular-nums"></div>
+          </div>
+          <span class="hint">사람이 띄운 노드가 깊이 0이다. 0이면 에이전트가 자식을 만들지 못한다. 자식 수는 끝난 자식도 센다. 입양(<code>loom adopt</code>, 카드 잇기)도 같은 상한을 본다.</span>
+        </section>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="unit" aria-labelledby="u8">
   <h2 id="u8">점검 기록</h2>
   <ul class="hint" style="padding-left:20px;display:grid;gap:4px;font-size:13px;color:var(--ink-2)">

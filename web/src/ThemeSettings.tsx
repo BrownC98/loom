@@ -108,7 +108,6 @@ export function TerminalTab({ settings, onSettings }: TabProps) {
           {t('theme.matchDark')}
         </label>
         <ThemePicker label={t('theme.lightPicker')} value={chosenTheme(saved, 'light')} onChoose={(light) => save({ light })} disabled={saved.matchDark} />
-        <span className="hint">{t('theme.matchHint')}</span>
       </section>
       <section>
         <div>

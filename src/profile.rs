@@ -374,7 +374,27 @@ pub fn command(
     cmd.cwd(cwd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    forget_parent_session(&mut cmd);
     Ok(cmd)
+}
+
+/// 데몬을 띄운 Claude Code 세션의 표지. 노드가 물려받으면 Claude Code가 자기를 그 세션의 자식으로 보고
+/// 대화 기록을 저장하지 않는다("inherited CLAUDE_CODE_CHILD_SESSION marker", 2.1.304 실측).
+/// 노드는 독립 세션이다. `CLAUDE_CONFIG_DIR` 같은 설정 변수는 그대로 둔다.
+fn is_parent_session_marker(key: &str) -> bool {
+    key.starts_with("CLAUDE_CODE_") || matches!(key, "CLAUDECODE" | "CLAUDE_PID" | "CLAUDE_EFFORT")
+}
+
+fn forget_parent_session(cmd: &mut CommandBuilder) {
+    let markers: Vec<_> = cmd
+        .iter_full_env_as_str()
+        .map(|(key, _)| key)
+        .filter(|key| is_parent_session_marker(key))
+        .map(str::to_owned)
+        .collect();
+    for key in markers {
+        cmd.env_remove(key);
+    }
 }
 
 fn agent_command(
@@ -483,6 +503,18 @@ mod tests {
             profile_of(&AgentId("opencode2".into())),
             Some(Profile::OpenCode2)
         );
+    }
+
+    #[test]
+    fn parent_session_markers_are_not_inherited() {
+        let mut cmd = shell("true");
+        cmd.env("CLAUDE_CODE_CHILD_SESSION", "1");
+        cmd.env("CLAUDECODE", "1");
+        cmd.env("CLAUDE_CONFIG_DIR", "/x");
+        forget_parent_session(&mut cmd);
+        assert_eq!(cmd.get_env("CLAUDE_CODE_CHILD_SESSION"), None);
+        assert_eq!(cmd.get_env("CLAUDECODE"), None);
+        assert_eq!(cmd.get_env("CLAUDE_CONFIG_DIR").unwrap(), "/x");
     }
 
     /// 모든 권한 허용 인자는 CLI 도움말로 확인한 셋에만 둔다(docs/design.md 「실측 근거」).

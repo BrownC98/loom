@@ -180,8 +180,8 @@ describe('overlap after drag (untangle)', () => {
     expect(at[1]).toEqual({ x: 442, y: 20 });
   });
 
-  it('the box being dragged now stays; the box under it moves aside', () => {
-    const at = placeGroups([g(null), g(null, { dragged: { x: 10, y: 20 }, dragging: true })], 'down', start);
+  it('the box dropped last stays; the box under it moves aside', () => {
+    const at = placeGroups([g(null), g(null, { dragged: { x: 10, y: 20 }, pinned: true })], 'down', start);
     expect(at[1]).toEqual({ x: 10, y: 20 });
     expect(at[0]).toEqual({ x: 142, y: 20 });
   });

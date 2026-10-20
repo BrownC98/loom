@@ -77,10 +77,10 @@ function layoutTree(items: readonly TreeItem[], direction: ArrangeDirection, gap
 const CARD_GAP: TreeGap = { depth: 46, lane: 20 };
 
 /**
- * 사람이 끌 수 있는 상자(카드·묶음) 하나의 입력. `dragged`는 사람이 끈 자리, `dragging`은 사람이 지금 끄는 상자다.
+ * 사람이 끌 수 있는 상자(카드·묶음) 하나의 입력. `dragged`는 사람이 끈 자리, `pinned`는 사람이 마지막에 놓은 상자다(겹쳐도 밀리지 않는다).
  * 끈 자리의 좌표는 배치 결과와 같은 기준이다.
  */
-export type CardSlot = { size: Size; dragged?: Point; dragging?: boolean };
+export type CardSlot = { size: Size; dragged?: Point; pinned?: boolean };
 
 /**
  * 카드 위치(묶음 안 카드 자리의 왼쪽 위 기준). `slot`은 잰 카드 크기와 끈 자리다.
@@ -164,10 +164,10 @@ const overlaps = (a: Box, b: Box) =>
 
 /**
  * 겹친 상자를 형제가 늘어서는 쪽(아래·위로 정렬이면 오른쪽, 오른쪽·왼쪽으로면 아래)으로 민다(목업 docs/mockups/overlap.html A안).
- * 지금 끄는 상자를 먼저 두고, 나머지는 그 축에서 앞선 상자부터 둔다. 앞에 둔 상자와 겹치면 그 상자 너머 `lane` 틈 자리로 민다.
+ * 마지막에 놓은 상자를 먼저 두고, 나머지는 그 축에서 앞선 상자부터 둔다. 앞에 둔 상자와 겹치면 그 상자 너머 `lane` 틈 자리로 민다.
  * 겹침이 없으면 아무것도 옮기지 않는다. 민 거리는 기록하지 않으므로 겹침이 사라지면 원래 자리로 돌아온다.
  */
-function untangle(boxes: readonly (Box & { dragging?: boolean })[], direction: ArrangeDirection, lane: number): Point[] {
+function untangle(boxes: readonly (Box & { pinned?: boolean })[], direction: ArrangeDirection, lane: number): Point[] {
   const vertical = direction === 'down' || direction === 'up';
   const laneOf = (p: Point) => (vertical ? p.x : p.y);
   const alongOf = (p: Point) => (vertical ? p.y : p.x);
@@ -175,7 +175,7 @@ function untangle(boxes: readonly (Box & { dragging?: boolean })[], direction: A
     .map((_, i) => i)
     .sort((a, b) => {
       const [p, q] = [boxes[a], boxes[b]];
-      return Number(!!q.dragging) - Number(!!p.dragging) || laneOf(p.at) - laneOf(q.at) || alongOf(p.at) - alongOf(q.at) || a - b;
+      return Number(!!q.pinned) - Number(!!p.pinned) || laneOf(p.at) - laneOf(q.at) || alongOf(p.at) - alongOf(q.at) || a - b;
     });
   const out: Point[] = boxes.map((b) => b.at);
   const placed: Box[] = [];

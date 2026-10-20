@@ -74,6 +74,8 @@ const STEPS: &[M] = &[
     ),
     // 8: 설정에서 기본 에이전트와 에이전트 켜기·끄기를 지웠다(settings). 새 노드 창의 「최근」과 검색 목록이 맡는다.
     M::up("UPDATE settings SET value = json_remove(value, '$.defaultAgent', '$.disabledAgents');"),
+    // 9: 노드의 모델과 추론 강도(graph). CLI가 알린 글 그대로다. 알리지 않았으면 NULL이다.
+    M::up("ALTER TABLE nodes ADD COLUMN model TEXT; ALTER TABLE nodes ADD COLUMN effort TEXT;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

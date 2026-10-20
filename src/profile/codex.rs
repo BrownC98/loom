@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::VersionMismatch;
-use crate::graph::{Delivery, Kind};
+use crate::graph::{Delivery, Kind, Model};
 
 #[allow(clippy::all, dead_code)]
 pub mod protocol {
@@ -19,8 +19,9 @@ pub mod protocol {
 }
 
 use protocol::{
-    TextUserInputType, ThreadTurnsListParams, ThreadTurnsListResponse, TurnInterruptParams,
-    TurnItemsView, TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
+    TextUserInputType, Thread, ThreadReadParams, ThreadReadResponse, ThreadTurnsListParams,
+    ThreadTurnsListResponse, TurnInterruptParams, TurnItemsView, TurnStartParams, TurnStatus,
+    TurnSteerParams, UserInput,
 };
 
 /// `src/profile/codex/schema/`를 만든 Codex 버전.
@@ -92,6 +93,30 @@ pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
 pub enum Status {
     Idle,
     Busy,
+}
+
+/// 노드 스레드의 지금 모델과 추론 강도. `call`은 JSON-RPC 요청 하나를 보내고 결과를 돌려준다.
+/// TUI가 `/model`로 바꾼 값은 다음 턴에 스레드 설정이 된다. 이 연결은 구독하지 않아 설정 알림
+/// (`thread/settings/updated`)을 받지 못한다(실측). 그래서 스레드 상태가 바뀔 때마다 데몬이 부른다.
+pub async fn model<F, Fut>(call: F, thread: &str) -> Result<Model, String>
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: Future<Output = Result<Value, String>>,
+{
+    let rpc = Rpc { call, thread };
+    let params = ThreadReadParams {
+        thread_id: thread.to_owned(),
+        include_turns: Some(false),
+    };
+    let read: ThreadReadResponse = rpc.send("thread/read", &params).await?;
+    Ok(thread_model(&read.thread))
+}
+
+fn thread_model(thread: &Thread) -> Model {
+    Model {
+        model: thread.model.clone(),
+        effort: thread.reasoning_effort.as_deref().cloned(),
+    }
 }
 
 /// 이 상태에서 메일함에서 꺼내는 전달 방식. 일하는 중에는 큐를 남긴다. 턴이 끝나면 `turn/start`로 넘긴다.
@@ -369,6 +394,37 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.starts_with("turn/start 실패"), "{err}");
+    }
+
+    /// 0.159.2 `thread/read` 응답의 모양이다(필수 필드만 남겼다). TUI `/model` 뒤 다음 턴에 이 값이 바뀐다(실측).
+    #[tokio::test]
+    async fn model_comes_from_thread_read() {
+        let thread = json!({ "thread": {
+            "id": "th", "cliVersion": "0.159.2", "createdAt": 1, "updatedAt": 2, "cwd": "/w",
+            "ephemeral": false, "modelProvider": "openai", "preview": "", "projectId": "p",
+            "sessionId": "s", "source": "cli", "status": { "type": "idle" }, "turns": [],
+            "model": "gpt-6-luna", "reasoningEffort": "high",
+        } });
+        let sent = Mutex::new(Vec::new());
+        let call = |method: &'static str, params: Value| {
+            sent.lock().unwrap().push((method, params));
+            let reply = thread.clone();
+            async move { Ok(reply) }
+        };
+        assert_eq!(
+            model(call, "th").await.unwrap(),
+            Model {
+                model: Some("gpt-6-luna".into()),
+                effort: Some("high".into())
+            }
+        );
+        assert_eq!(
+            sent.lock().unwrap()[0],
+            (
+                "thread/read",
+                json!({ "threadId": "th", "includeTurns": false })
+            )
+        );
     }
 
     #[test]

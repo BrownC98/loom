@@ -815,7 +815,7 @@ impl App {
         let codex = match profile {
             Some(Profile::Codex) => {
                 let home = self.accounts.config_dir(profile::Provider::Codex, account);
-                let server = CodexServer::start(home.as_deref(), &env, &self.codex_sandbox)
+                let server = CodexServer::start(cwd, home.as_deref(), &env, &self.codex_sandbox)
                     .await
                     .map_err(|cause| LaunchError::Server {
                         program: "codex app-server".into(),

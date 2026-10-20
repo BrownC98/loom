@@ -35,6 +35,7 @@ use crate::graph::{
     Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
 };
 use crate::node_host::NodeHost;
+use crate::open;
 use crate::paste;
 use crate::process_tree;
 use crate::profile::codex::{self, Status};
@@ -159,6 +160,13 @@ pub struct NewNode {
 #[ts(export)]
 pub struct RenameNode {
     pub name: String,
+}
+
+/// 터미널의 파일 링크를 누른다. `path`는 데몬이 보는 절대 경로다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct OpenFile {
+    pub path: String,
 }
 
 /// [저장소 추가]. `path`는 데몬이 보는 폴더다.
@@ -396,6 +404,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             "/api/pastes",
             post(save_paste).layer(DefaultBodyLimit::max(paste::LIMIT_BYTES)),
         )
+        .route("/api/files/open", post(open_file))
         .route("/api/events", get(events))
         .route("/api/events/log", get(event_log))
         .merge(settings::routes())
@@ -1036,6 +1045,12 @@ async fn adopt_node(
 ) -> Result<Json<()>, Problem> {
     let limits = app.tree_limits()?;
     app.graph.adopt(NodeId(parent), NodeId(id), limits)?;
+    Ok(Json(()))
+}
+
+/// 사람이 터미널에서 누른 파일 링크를 기본 앱으로 연다. JSON 몸통이라 다른 출처의 페이지는 사전 요청에서 막힌다.
+async fn open_file(Json(req): Json<OpenFile>) -> Result<Json<()>, Problem> {
+    open::open(std::path::Path::new(&req.path)).map_err(internal)?;
     Ok(Json(()))
 }
 

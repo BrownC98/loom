@@ -1,4 +1,4 @@
-/* 터미널 기본 글꼴. kuskhan/jetendard v0.1.0 웹 글꼴(OFL 1.1, fonts/jetendard/LICENSE). JetBrains Mono에 Pretendard 한글을 두 칸으로 넣었다. */
+/* 터미널 기본 글꼴이자 화면의 고정폭 글꼴(--mono). kuskhan/jetendard v0.1.0 웹 글꼴(OFL 1.1, fonts/jetendard/LICENSE). JetBrains Mono에 Pretendard 한글을 두 칸으로 넣었다. */
 @font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
 
@@ -31,7 +31,7 @@
   --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5));
   --radius: 8px;
   --font: 'Pretendard Variable', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --mono: 'Jetendard', ui-monospace, monospace;
   /* 커밋 그래프 차선 색 5개. 다크는 Orca git-graph-lane 값 그대로, 라이트는 같은 색상을 흰 바탕에서 보이게 어둡게 했다. 차선은 차례로 돌려 쓴다. */
   --lane-1: light-dark(oklch(58% 0.14 76), oklch(81.2% 0.17 76));
   --lane-2: light-dark(oklch(55% 0.2 358), oklch(59.5% 0.222 358));
@@ -74,7 +74,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 좁으면 에이전트 이름이 먼저 준다. 노드 이름은 줄 폭의 60%를 넘을 때만 자른다. */
 .tree-row .name { flex-shrink: 0; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tree-row .branch { font-family: var(--mono); font-weight: 600; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .branch { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .tag { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 .tree-row .spacer { flex: 1; }
 .tree-row .unread { min-width: 18px; height: 18px; font-size: 11px; }
@@ -175,7 +175,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 팝오버를 그리는 뷰포트 층. 노드는 z-index를 인라인으로 받으므로 그보다 위에 둔다. */
 .react-flow__viewport-portal { z-index: 2000; pointer-events: none; }
 .group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); }
-.group-head .branch { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.group-head .branch { font-weight: 600; font-size: 13px; }
 .group-head .kind { font-size: 12px; color: var(--ink-3); }
 .group-head .spacer { flex: 1; }
 .group-empty { padding: 16px 14px; color: var(--ink-3); font-size: 13px; }

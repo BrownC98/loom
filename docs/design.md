@@ -163,7 +163,7 @@
   - 디자인 언어: 회색은 무채색(채도 0)이고 값은 Orca 토큰(shadcn neutral)을 따른다. 강조도 Orca primary처럼 무채색이고, 실행 중 상태만 파랑(`--run`)이다. 출처가 다르면 Orca, [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/color), [Toss TDS](https://tossmini-docs.toss.im/tds-mobile/foundation/colors/) 순서로 고른다. Apple에서는 글자 대비 4.5:1을 가져왔다(2026-10-20 사람 지시 "다크모드에서 파란색 톤을 제거하고 무채색으로", "애플을 우선순위 더 높게"). 명세는 [neutral-palette.html](mockups/neutral-palette.html)이다.
 - 터미널 테마는 loom 테마 2개와 Orca 내장 테마 30개 가운데 다크 모드용과 라이트 모드용을 하나씩 고른다. 기본값은 지금 loom 모양인 「Loom Dark」와 「Loom Light」다. 「라이트 모드에서도 다크 모드 테마를 쓴다」를 켜면 라이트 모드에서도 다크 모드용을 쓴다.
   - 색 값은 `web/src/terminalThemes.ts` 한 곳에만 있다. Orca 테마는 Orca 번들에서 기계로 꺼냈다. 데몬은 이름만 저장한다. 이름이 없거나 목록에 없으면 화면이 기본값을 쓴다. [터미널 테마 초기화]는 저장한 이름을 비운다.
-- 터미널 글꼴은 Orca처럼 글꼴 크기와 글꼴(CSS `font-family` 문자열) 두 칸이다. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다. 기본값은 `"Jetendard", monospace`, 12px다(2026-10-20 사람 지시 "터미널 폰트는 디폴트로 jetendard를 사용하라"). Jetendard는 JetBrains Mono에 Pretendard 한글을 두 칸으로 넣은 글꼴(OFL 1.1)이라 한글 사이에 틈이 없다. 번들한다. 카드는 기본 글꼴로 80열이다.
+- 터미널 글꼴은 Orca처럼 글꼴 크기와 글꼴(CSS `font-family` 문자열) 두 칸이다. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다. 기본값은 `"Jetendard", monospace`, 12px다(2026-10-20 사람 지시 "터미널 폰트는 디폴트로 jetendard를 사용하라"). Jetendard는 JetBrains Mono에 Pretendard 한글을 두 칸으로 넣은 글꼴(OFL 1.1)이라 한글 사이에 틈이 없다. 번들한다. 카드는 기본 글꼴로 80열이다. 화면의 고정폭 글자(`--mono`)도 Jetendard다. 브랜치·워크트리 이름은 화면 글꼴(Pretendard)로 보인다(2026-10-20 사람 지시 "글꼴도 이상하니 pretendard로 하고").
 - 카드 보기(설정 「UI」 탭)는 「터미널」과 「머리만」이다. 「머리만」이면 카드에 머리만 보이고, 카드를 고르면 그 노드의 터미널이 오른쪽 칸(이벤트·커밋 그래프와 같은 자리)에 열린다. 화면 모양을 바꾸는 설정이라 「UI」 탭에 둔다. 「머리만」에는 확대가 없다. PTY 크기는 오른쪽 칸 하나가 정한다.
   - 열린 터미널(xterm)은 모드나 고른 테마가 바뀌면 바로 다시 칠한다. 명세는 [settings.html 6번](mockups/settings.html#u-theme)이다.
 

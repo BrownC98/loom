@@ -1,8 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
-import '@fontsource/jetbrains-mono/400.css';
-import '@fontsource/jetbrains-mono/600.css';
 import '@xyflow/react/dist/base.css';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';

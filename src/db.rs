@@ -131,6 +131,7 @@ fn data_dir() -> std::io::Result<PathBuf> {
 }
 
 /// 파일을 WAL 모드로 열고 스키마를 최신으로 올린다.
+/// 연결마다 rusqlite가 busy timeout 5초를 건다(`Connection::open`). `Repos`·`Graph`·`Settings`는 같은 파일에 따로 연결하므로, 다른 연결이 쓰는 동안 바로 `database is locked`로 실패하지 않고 기다린다.
 pub fn open(path: &Path) -> Result<Connection, rusqlite_migration::Error> {
     let mut conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;

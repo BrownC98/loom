@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && VITE_LOOM_VERSION=$(sh ../scripts/version.sh) vite build",
+    "test": "vitest run",
     "check": "tsc --noEmit && madge --circular --extensions ts,tsx src && node scripts/no-hangul.mjs"
   },
   "dependencies": {
@@ -27,6 +28,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "madge": "^8.0.0",
     "typescript": "^5.9.3",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "vitest": "5.0.5"
   }
 }

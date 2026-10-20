@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loom 나무 배치 통합 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="../../web/src/styles.css">
+<style>
+body { margin:0; padding:24px; background:var(--bg); color:var(--ink); font:14px/1.5 Pretendard, system-ui, sans-serif; width:1392px; }
+.meta { margin:0 0 16px; color:var(--ink-2); font-size:13px; }
+h1.page { font-size:22px; margin:0 0 4px; }
+.lede { color:var(--ink-2); margin:0 0 8px; max-width:75ch; }
+h2.sec { font-size:17px; margin:36px 0 12px; }
+.pair { display:flex; gap:24px; align-items:flex-start; }
+figure { margin:0; flex:1; }
+figcaption { font-size:13px; color:var(--ink-2); margin-bottom:8px; }
+figcaption b { color:var(--ink); font-weight:600; }
+.stage { border:1px solid var(--line); border-radius:10px; padding:16px; background-color:var(--bg); background-image:radial-gradient(var(--dot) 1px, transparent 1px); background-size:20px 20px; }
+.stage svg { display:block; }
+.grp { fill:color-mix(in oklch, var(--panel) 70%, transparent); stroke:var(--line-strong); stroke-dasharray:6 4; }
+.grp-head { fill:var(--ink); font:600 12px var(--mono); }
+.grp-kind { fill:var(--ink-2); font:12px Pretendard, sans-serif; }
+.cd { fill:var(--surface); stroke:var(--line-strong); }
+.cd-term { fill:var(--term); }
+.cd-name { fill:var(--ink); font:600 12px Pretendard, sans-serif; }
+.edge { fill:none; stroke:var(--line-strong); stroke-width:1.5; }
+.notes { margin:32px 0 0; padding-left:20px; color:var(--ink-2); columns:2; column-gap:40px; }
+.notes li { margin-bottom:8px; break-inside:avoid; }
+.notes b { color:var(--ink); }
+</style></head>
+<body>
+<p class="meta">응답할 곳: 총괄 · claude-1<br>연 담당: 총괄 · claude-1</p>
+<h1 class="page">나무 배치 하나로 합치기</h1>
+<p class="lede">지금 카드는 부모를 첫 자식 위(오른쪽으로면 첫 자식 옆)에 놓고, 묶음은 부모를 자식들 폭의 가운데에 놓습니다. 두 배치를 하나로 합치면 카드도 부모가 자식들 폭의 가운데로 옵니다. 아래 그림은 실제 카드 크기(표준 600×466, 심플 260×134)와 틈(단계 46, 형제 20)으로 계산해 줄였습니다.</p>
+
+<div id="rows"></div>
+
+<ul class="notes">
+  <li><b>바뀌는 것:</b> 묶음 안 카드에서 자식이 둘 이상인 부모만 자리가 옮겨 갑니다. 자식들 폭의 가운데에 섭니다. 자식이 하나면 그 자식과 같은 줄이라 지금과 같습니다.</li>
+  <li><b>그대로인 것:</b> 단계 틈 46, 형제 틈 20, 묶음 틈 32, 네 방향(아래·오른쪽·위·왼쪽), 뿌리끼리 첫 단계에 옆으로 늘어서기, 형제는 만든 순서.</li>
+  <li><b>묶음 폭:</b> 카드가 차지하는 전체 폭과 높이는 크기가 같은 카드에서 바뀌지 않습니다. 그래서 묶음 크기와 묶음끼리의 배치도 그대로입니다.</li>
+  <li><b>끈 카드·묶음:</b> 끈 것은 지금처럼 그 자리에 남고, [정렬]을 누르면 새 배치로 돌아갑니다.</li>
+  <li><b>간선:</b> 부모가 가운데로 오므로 자식으로 가는 간선이 양쪽으로 고르게 갈라집니다. 붙는 변은 지금과 같습니다.</li>
+  <li><b>위로·왼쪽으로:</b> 아래로·오른쪽으로 배치를 뒤집은 것이라 그림을 따로 두지 않았습니다.</li>
+</ul>
+
+<script>
+// 노드: [id, parent, 이름]. 만든 순서가 id 순서다. 뿌리가 둘이다(부모, 뿌리 2).
+const NODES = [[1, null, '부모'], [2, 1, '자식 1'], [3, 1, '자식 2'], [4, 1, '자식 3'], [5, 2, '손자'], [6, null, '뿌리 2'], [7, 6, '뿌리 2의 자식']];
+const SIZE = { standard: { width: 600, height: 466 }, simple: { width: 260, height: 134 } };
+const DEPTH_GAP = 46, LANE_GAP = 20, CARD_X = 20, CARD_TOP = 60;
+
+function kidsOf() {
+  const kids = new Map();
+  for (const [id, p] of NODES) kids.set(p, [...(kids.get(p) ?? []), id]);
+  return kids;
+}
+function depthOffsets(slots, along) {
+  const sizes = [];
+  for (const { depth } of slots.values()) sizes[depth] = along;
+  const at = []; let next = 0;
+  for (const s of sizes) { at.push(next); next += s + DEPTH_GAP; }
+  return at;
+}
+// 지금 web/src/layout.ts arrangeTree: 잎마다 새 칸, 부모는 첫 자식의 칸.
+function current(size, vertical) {
+  const kids = kidsOf(), slots = new Map(); let lane = 0;
+  const place = (id, depth) => { slots.set(id, { lane, depth }); const k = kids.get(id) ?? []; if (!k.length) lane++; for (const c of k) place(c, depth + 1); };
+  for (const r of kids.get(null)) place(r, 0);
+  const across = vertical ? size.width : size.height, along = vertical ? size.height : size.width;
+  const at = depthOffsets(slots, along), pos = new Map();
+  for (const [id, s] of slots) pos.set(id, { across: s.lane * (across + LANE_GAP), along: at[s.depth] });
+  return pos;
+}
+// 제안: placeGroups와 같은 규칙. 부모는 자식들이 차지한 폭의 가운데.
+function proposed(size, vertical) {
+  const kids = kidsOf(), across = vertical ? size.width : size.height, along = vertical ? size.height : size.width;
+  const span = (id) => { const k = kids.get(id) ?? []; return Math.max(across, k.reduce((s, c) => s + span(c), 0) + LANE_GAP * Math.max(0, k.length - 1)); };
+  const pos = new Map(), depth = new Map();
+  const place = (id, from, d) => {
+    depth.set(id, { depth: d });
+    pos.set(id, { across: from + (span(id) - across) / 2, d });
+    const k = kids.get(id) ?? [];
+    const below = k.reduce((s, c) => s + span(c), 0) + LANE_GAP * Math.max(0, k.length - 1);
+    let next = from + (span(id) - below) / 2;
+    for (const c of k) { place(c, next, d + 1); next += span(c) + LANE_GAP; }
+  };
+  let next = 0;
+  for (const r of kids.get(null)) { place(r, next, 0); next += span(r) + LANE_GAP; }
+  const at = depthOffsets(depth, along);
+  for (const p of pos.values()) p.along = at[p.d];
+  return pos;
+}
+function toXY(pos, vertical) {
+  const xy = new Map();
+  for (const [id, p] of pos) xy.set(id, vertical ? { x: CARD_X + p.across, y: CARD_TOP + p.along } : { x: CARD_X + p.along, y: CARD_TOP + p.across });
+  return xy;
+}
+function extent(xy, size) {
+  let w = 0, h = 0;
+  for (const p of xy.values()) { w = Math.max(w, p.x + size.width + CARD_X); h = Math.max(h, p.y + size.height + CARD_X); }
+  return { w, h };
+}
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, text) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text) e.textContent = text; return e; }
+const HEAD = 32;
+function draw(xy, size, view, vertical, scale, box, title) {
+  // 묶음 머리는 줄이지 않고 글자 크기 그대로 그린다. 카드 영역만 줄인다.
+  const s = (v) => v * scale, shift = HEAD - s(CARD_TOP - CARD_X);
+  const svg = el('svg', { width: s(box.w), height: s(box.h) + shift, role: 'img', 'aria-label': title });
+  svg.append(el('rect', { class: 'grp', x: 0.5, y: 0.5, width: s(box.w) - 1, height: s(box.h) + shift - 1, rx: 10 }));
+  svg.append(el('text', { class: 'grp-head', x: 12, y: 20 }, 'feat-tree'), el('text', { class: 'grp-kind', x: 90, y: 20 }, '워크트리'));
+  const body = el('g', { transform: `translate(0 ${shift})` });
+  svg.append(body);
+  for (const [id, p] of NODES) {
+    if (p === null) continue;
+    const a = xy.get(p), b = xy.get(id);
+    const [x1, y1, x2, y2] = vertical
+      ? [a.x + size.width / 2, a.y + size.height, b.x + size.width / 2, b.y]
+      : [a.x + size.width, a.y + size.height / 2, b.x, b.y + size.height / 2];
+    const m = DEPTH_GAP / 2;
+    const d = vertical
+      ? `M${s(x1)} ${s(y1)} C${s(x1)} ${s(y1 + m)} ${s(x2)} ${s(y2 - m)} ${s(x2)} ${s(y2)}`
+      : `M${s(x1)} ${s(y1)} C${s(x1 + m)} ${s(y1)} ${s(x2 - m)} ${s(y2)} ${s(x2)} ${s(y2)}`;
+    body.append(el('path', { class: 'edge', d }));
+  }
+  for (const [id, , name] of NODES) {
+    const p = xy.get(id);
+    body.append(el('rect', { class: 'cd', x: s(p.x), y: s(p.y), width: s(size.width), height: s(size.height), rx: 6 }));
+    if (view === 'standard') body.append(el('rect', { class: 'cd-term', x: s(p.x + 8), y: s(p.y + 44), width: s(size.width - 16), height: s(size.height - 80), rx: 3 }));
+    body.append(el('text', { class: 'cd-name', x: s(p.x) + 8, y: s(p.y) + 17 }, name));
+  }
+  return svg;
+}
+const ROWS = [['down', 'standard', '아래로 · 표준 카드'], ['down', 'simple', '아래로 · 심플 카드'], ['right', 'standard', '오른쪽으로 · 표준 카드'], ['right', 'simple', '오른쪽으로 · 심플 카드']];
+const STAGE = { w: 640, h: 420 };
+const rows = document.getElementById('rows');
+for (const [dir, view, title] of ROWS) {
+  const size = SIZE[view], vertical = dir === 'down';
+  const before = toXY(current(size, vertical), vertical), after = toXY(proposed(size, vertical), vertical);
+  const b1 = extent(before, size), b2 = extent(after, size);
+  const box = { w: Math.max(b1.w, b2.w), h: Math.max(b1.h, b2.h) };
+  const scale = Math.min(STAGE.w / box.w, STAGE.h / box.h, 1);
+  const h2 = document.createElement('h2'); h2.className = 'sec'; h2.textContent = title;
+  const pair = document.createElement('div'); pair.className = 'pair';
+  for (const [xy, cap] of [[before, '<b>지금</b>: 부모는 첫 자식과 같은 줄'], [after, '<b>제안</b>: 부모는 자식들 폭의 가운데']]) {
+    const fig = document.createElement('figure');
+    fig.innerHTML = `<figcaption>${cap}</figcaption>`;
+    const stage = document.createElement('div'); stage.className = 'stage';
+    stage.append(draw(xy, size, view, vertical, scale, box, title));
+    fig.append(stage); pair.append(fig);
+  }
+  rows.append(h2, pair);
+}
+</script>
+</body>
+</html>

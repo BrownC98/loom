@@ -82,3 +82,47 @@ export function arrangeTree(views: readonly NodeView[], size: (id: NodeId) => Si
   }
   return positions;
 }
+
+/** 옆 묶음과의 틈(목업 docs/mockups/card-view.html 2번). */
+const GROUP_GAP = 32;
+
+type Box = { at: Point; size: Size };
+
+/** 두 상자가 `GROUP_GAP` 안으로 붙거나 겹친다. */
+function crowds(a: Box, b: Box): boolean {
+  return (
+    a.at.x < b.at.x + b.size.width + GROUP_GAP &&
+    b.at.x < a.at.x + a.size.width + GROUP_GAP &&
+    a.at.y < b.at.y + b.size.height + GROUP_GAP &&
+    b.at.y < a.at.y + a.size.height + GROUP_GAP
+  );
+}
+
+/**
+ * 묶음 자리(목업 docs/mockups/card-view.html 2·3번). 나무가 아래·위로 뻗으면 묶음을 가로로, 오른쪽·왼쪽으로 뻗으면 세로로 놓는다.
+ * 아래로는 위쪽, 위로는 아래쪽, 오른쪽으로는 왼쪽, 왼쪽으로는 오른쪽을 맞춘다. 순서는 `groups` 순서(왼쪽 목록의 워크트리 순서)다.
+ * 사람이 끈 묶음(`dragged`)은 그 자리에 둔다. 앞 묶음과 겹치거나 틈보다 가까우면 줄 방향으로 민다.
+ */
+export function placeGroups(groups: readonly { size: Size; dragged?: Point }[], direction: ArrangeDirection, start: Point): Point[] {
+  const row = direction === 'down' || direction === 'up';
+  const crossMax = Math.max(0, ...groups.map((g) => (row ? g.size.height : g.size.width)));
+  const placed: Box[] = [];
+  let next = row ? start.x : start.y;
+  return groups.map(({ size, dragged }) => {
+    const cross =
+      direction === 'up' ? start.y + crossMax - size.height : direction === 'left' ? start.x + crossMax - size.width : row ? start.y : start.x;
+    const box: Box = { at: dragged ?? (row ? { x: next, y: cross } : { x: cross, y: next }), size };
+    for (let pushed = true; pushed; ) {
+      pushed = false;
+      for (const other of placed) {
+        if (!crowds(box, other)) continue;
+        box.at = row ? { ...box.at, x: other.at.x + other.size.width + GROUP_GAP } : { ...box.at, y: other.at.y + other.size.height + GROUP_GAP };
+        pushed = true;
+      }
+    }
+    placed.push(box);
+    // 끈 묶음은 다음 묶음의 자리를 바꾸지 않는다. 겹치면 위에서 민다.
+    if (!dragged) next = (row ? box.at.x + size.width : box.at.y + size.height) + GROUP_GAP;
+    return box.at;
+  });
+}

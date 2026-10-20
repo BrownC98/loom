@@ -1,6 +1,7 @@
 //! 조합 레이어: HTTP·WebSocket 라우트. 아래 기능 모듈을 부르고 결과를 엮기만 한다.
 //! 설정·계정·사용량 라우트는 `settings.rs`에 둔다.
 
+mod origin;
 mod settings;
 
 use std::collections::{HashMap, HashSet};
@@ -427,11 +428,13 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/events/log", get(event_log))
         .merge(settings::routes())
         .fallback(asset)
+        .layer(axum::middleware::from_fn(origin::same_site))
         .with_state(app.clone());
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     match node_door {
         Some(door) => {
+            let node_routes = node_routes.layer(axum::middleware::from_fn(origin::same_site));
             let node = axum::serve(door, node_routes.with_state(app)).into_future();
             tokio::try_join!(main, node).map(drop)
         }

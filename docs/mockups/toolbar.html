@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>그래프 도구 막대</title>
+<style>
+  /* 토큰은 web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light;
+    --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+    --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+    --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+    --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+    --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+    --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+    --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+    --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+    --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+    --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+    --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+    --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+    --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+  ::selection { background: var(--accent-wash); color: var(--ink); }
+  header p { font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  h2 { font-size: 16px; margin: 32px 0 4px; }
+  .lead { max-width: 76ch; color: var(--ink-2); font-size: 13px; }
+  .row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; }
+  figure { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  figcaption { font-size: 13px; font-weight: 600; }
+  figcaption .rec { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+  .notes { max-width: 340px; font-size: 12px; color: var(--ink-2); padding-left: 16px; }
+  .notes li + li { margin-top: 2px; }
+  .notes b { color: var(--ink); }
+  .shot { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; margin-top: 12px; font-size: 13px; max-width: 1100px; }
+  th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+
+  /* 캔버스 조각: 그래프 바탕(점 무늬) 위에 막대가 뜬다. 폭은 --w. 칸이 열리면 오른쪽에 .dock을 붙인다. */
+  .stage { display: flex; width: var(--w); height: 120px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); color: var(--ink); flex: none; }
+  .stage.dark { color-scheme: dark; }
+  .canvas { position: relative; flex: 1; min-width: 0; background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 16px 16px; }
+  .dock { width: 150px; flex: none; background: var(--panel); border-left: 1px solid var(--line); padding: 12px; font-size: 13px; font-weight: 600; display: flex; gap: 6px; }
+  .dock span { flex: 1; }
+  .dock svg { width: 14px; height: 14px; color: var(--ink-3); }
+  .card { position: absolute; top: 64px; left: 16px; right: 16px; height: 80px; border: 1px dashed var(--line-strong); border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; }
+  .bar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; }
+  .bar h3 { font-size: 18px; font-weight: 600; margin-right: auto; }
+  .bar .sep { width: 1px; height: 18px; background: var(--line-strong); }
+
+  svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  /* web/src/styles.css .btn, .choice, .split와 같은 값 */
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font: 500 13px var(--font); white-space: nowrap; }
+  .btn.icon { width: 30px; padding: 0; justify-content: center; }
+  .btn[aria-pressed="true"] { background: var(--accent-wash); font-weight: 600; }
+  .btn.dim { color: var(--ink-3); }
+  .split { display: inline-flex; }
+  .split .btn:first-child { border-radius: 6px 0 0 6px; }
+  .split .btn + .btn { border-radius: 0 6px 6px 0; margin-left: -1px; padding: 0 6px; gap: 2px; }
+  .choice { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--bg); }
+  .choice span { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; font-size: 13px; font-weight: 500; color: var(--ink-2); border-right: 1px solid var(--line); }
+  .choice span:last-child { border-right: 0; }
+  .choice span.on { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+  .choice.icons span { padding: 0 8px; }
+  /* 새 것(A안): 칸 단추 둘을 한 덩어리로 붙인다. 한 번에 하나만 눌린다. */
+  .seg { display: inline-flex; }
+  .seg .btn { border-radius: 0; }
+  .seg .btn:first-child { border-radius: 6px 0 0 6px; }
+  .seg .btn:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+  /* B안: 막대 하나 */
+  .pill { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); box-shadow: 0 2px 8px oklch(0% 0 0 / 0.08); }
+  .pill .ib { width: 28px; height: 26px; display: grid; place-items: center; border-radius: 5px; color: var(--ink-2); }
+  .pill .ib.on { background: var(--accent-wash); color: var(--ink); }
+  .pill .sep { height: 16px; margin: 0 3px; }
+  .tip { position: absolute; top: 52px; right: 16px; padding: 3px 8px; border-radius: 5px; background: var(--ink); color: var(--bg); font-size: 12px; }
+  /* C안: 칸 레일과 왼쪽 아래 묶음 */
+  .rail { width: 40px; flex: none; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 10px; }
+  .rail .ib { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; color: var(--ink-2); }
+  .rail .ib.on { background: var(--accent-wash); color: var(--ink); }
+  .corner { position: absolute; left: 16px; bottom: 12px; display: flex; gap: 8px; }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="branch" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="events" viewBox="0 0 24 24"><path d="M15 12H3"/><path d="M17 18H3"/><path d="M21 6H3"/></symbol>
+  <symbol id="commit" viewBox="0 0 24 24"><path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/></symbol>
+  <symbol id="simple" viewBox="0 0 24 24"><rect width="20" height="12" x="2" y="6" rx="2"/></symbol>
+  <symbol id="standard" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+</svg>
+
+<header>
+  <p>응답할 곳: 총괄 · claude-1 | 연 담당: 총괄 · claude-1</p>
+  <h1>그래프 도구 막대(오른쪽 위)</h1>
+  <p class="lead">그래프 오른쪽 위 단추 다섯 묶음을 어떻게 줄지 고르는 목업이다. 제품 코드는 바꾸지 않았다. 분류 규칙은 하나다: <b>막대에는 지금 보는 그래프에 걸리는 것(보기·정렬)과 옆 칸 열기만 둔다. 무엇을 만드는 동작은 사이드바 나무가 맡는다.</b></p>
+</header>
+
+<h2>1. 지금</h2>
+<p class="lead">1440 폭, 사이드바 260, 칸 기본 폭에서 찍었다. 칸이 닫히면 단추가 들어간다. 칸을 열면 캔버스가 628px이 되고 단추가 그 폭을 꽉 채운다. 막대는 줄을 바꾸지도, 줄이지도 않는다. 그래서 칸이나 사이드바를 조금 넓히거나 화면을 확대하면 오른쪽 단추가 잘린다(사람이 보낸 캡처의 [커밋 그래프]).</p>
+<div class="row">
+  <figure>
+    <figcaption>넓은 캔버스(칸 닫힘), 밝은 화면</figcaption>
+    <img class="shot" src="toolbar-before-wide-light.png" width="1440" height="320" alt="지금 도구 막대: 심플·표준, 정렬과 방향, 새 워크트리, 이벤트, 커밋 그래프" style="width:720px;height:auto">
+  </figure>
+  <figure>
+    <figcaption>좁은 캔버스(커밋 그래프 열림), 어두운 화면</figcaption>
+    <img class="shot" src="toolbar-before-narrow-dark.png" width="1440" height="320" alt="커밋 그래프 칸을 연 뒤 캔버스 폭을 꽉 채운 도구 막대" style="width:720px;height:auto">
+  </figure>
+  <ul class="notes">
+    <li><b>잰 폭</b>: 심플·표준 103, 정렬 107, 새 워크트리 104, 이벤트 79, 커밋 그래프 104, 틈 12×5. 저장소 이름까지 628px이다.</li>
+    <li><b>종류가 넷이다</b>: 보기 설정(설정 「UI」에도 있다), 정렬 동작과 방향 메뉴, 만들기 동작(사이드바 저장소 줄에도 있다), 칸 열기 둘(칸 머리 [×]로도 닫힌다).</li>
+    <li><b>첫 커밋 전</b>에는 「첫 커밋 뒤에 쓸 수 있습니다」 안내가 막대 안에 더 붙어 폭이 더 길다.</li>
+    <li>[이벤트]·[커밋 그래프]는 한 번에 하나만 열리는데, 따로 떨어진 단추라 그 관계가 보이지 않는다.</li>
+  </ul>
+</div>
+
+<h2>2. 안</h2>
+
+<h3 style="font-size:14px;margin-top:16px">A. 중복을 지우고 종류별로 묶는다 <span class="rec" style="font-size:12px;padding:1px 6px;border-radius:9px;background:var(--accent);color:var(--accent-ink)">권장</span></h3>
+<div class="row">
+  <figure>
+    <figcaption>넓은 캔버스(760), 밝은 화면</figcaption>
+    <div class="stage" style="--w:760px"><div class="canvas">
+      <div class="bar"><h3>repo</h3>
+        <span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span>
+        <span class="choice"><span>심플</span><span class="on">표준</span></span>
+        <span class="sep"></span>
+        <span class="seg" role="group" aria-label="옆 칸"><span class="btn" aria-pressed="false"><svg><use href="#events"/></svg>이벤트</span><span class="btn" aria-pressed="false"><svg><use href="#commit"/></svg>커밋 그래프</span></span>
+      </div>
+      <div class="card">main 원래 체크아웃</div>
+    </div></div>
+  </figure>
+  <figure>
+    <figcaption>좁은 캔버스(커밋 그래프 열림), 어두운 화면</figcaption>
+    <div class="stage dark" style="--w:620px"><div class="canvas">
+      <div class="bar"><h3>repo</h3>
+        <span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span>
+        <span class="choice"><span>심플</span><span class="on">표준</span></span>
+        <span class="sep"></span>
+        <span class="seg"><span class="btn icon" aria-pressed="false" title="이벤트"><svg><use href="#events"/></svg></span><span class="btn icon" aria-pressed="true" title="커밋 그래프"><svg><use href="#commit"/></svg></span></span>
+      </div>
+      <div class="card">main 원래 체크아웃</div>
+    </div><div class="dock"><span>커밋 그래프</span><svg><use href="#x"/></svg></div></div>
+  </figure>
+  <ul class="notes">
+    <li><b>지운다</b>: 막대의 [새 워크트리]와 첫 커밋 안내. 사이드바 저장소 줄의 [새 워크트리]가 같은 창을 연다. 첫 커밋 전에는 그 단추가 꺼지고 툴팁이 이유를 말한다.</li>
+    <li><b>남긴다</b>: [정렬]과 방향 메뉴(그래프에서 가장 자주 누른다), 심플·표준(그래프를 보는 방법이라 그래프 옆에 둔다).</li>
+    <li><b>묶는다</b>: [이벤트]·[커밋 그래프]를 붙여 한 덩어리로 둔다. 같은 자리를 나눠 쓰는 칸이라는 뜻이 모양으로 보인다. 앞에 세로 구분선을 둔다.</li>
+    <li><b>좁을 때</b>: 캔버스가 560px 아래면 칸 단추의 글자를 숨기고 아이콘만 남긴다(컨테이너 쿼리 하나). 이름은 <code>aria-label</code>과 툴팁으로 남는다. 막대 폭: 넓을 때 약 440, 좁을 때 약 315. 지금은 628이다.</li>
+    <li><b>키보드</b>: 탭 순서는 왼쪽부터 그대로다. 칸 단추는 <code>aria-pressed</code>와 <code>aria-controls="dock"</code> 그대로, 심플·표준은 라디오 그룹(←→) 그대로다. 새 단축키는 더하지 않는다.</li>
+  </ul>
+</div>
+
+<h3 style="font-size:14px;margin-top:24px">B. 다 남기고 아이콘 막대 하나로 줄인다</h3>
+<div class="row">
+  <figure>
+    <figcaption>넓은 캔버스(760), 툴팁을 띄운 상태</figcaption>
+    <div class="stage" style="--w:760px"><div class="canvas">
+      <div class="bar"><h3>repo</h3>
+        <span class="pill">
+          <span class="ib"><svg><use href="#simple"/></svg></span><span class="ib on"><svg><use href="#standard"/></svg></span>
+          <span class="sep"></span>
+          <span class="ib"><svg><use href="#workflow"/></svg></span><span class="ib"><svg><use href="#down"/></svg></span>
+          <span class="sep"></span>
+          <span class="ib"><svg><use href="#branch"/></svg></span>
+          <span class="sep"></span>
+          <span class="ib"><svg><use href="#events"/></svg></span><span class="ib"><svg><use href="#commit"/></svg></span>
+        </span>
+      </div>
+      <div class="tip">새 워크트리</div>
+      <div class="card">main 원래 체크아웃</div>
+    </div></div>
+  </figure>
+  <ul class="notes">
+    <li><b>지우는 것 없음</b>. 단추 일곱을 28px 아이콘으로 바꾸고 둥근 막대 하나에 넣는다. 폭 약 255.</li>
+    <li>좁아도 줄일 것이 없다. 가장 좁은 안이다.</li>
+    <li><b>단점</b>: 심플·표준, 정렬, 새 워크트리는 아이콘만으로 뜻을 알기 어렵다. 툴팁을 기다려야 한다. 아이콘 단추 일곱마다 <code>aria-label</code>과 툴팁이 새로 필요하다.</li>
+    <li>[정렬]과 방향 메뉴가 떨어진 두 아이콘이 되어 「지금 방향으로 정렬」이 보이지 않는다.</li>
+  </ul>
+</div>
+
+<h3 style="font-size:14px;margin-top:24px">C. 종류마다 다른 자리에 둔다</h3>
+<div class="row">
+  <figure>
+    <figcaption>넓은 캔버스(760)</figcaption>
+    <div class="stage" style="--w:760px"><div class="canvas">
+      <div class="bar"><h3>repo</h3></div>
+      <div class="card" style="top:58px;height:14px;padding:0;border-bottom:0"></div><div hidden>main 원래 체크아웃</div>
+      <div class="corner">
+        <span class="split"><span class="btn"><svg><use href="#workflow"/></svg>정렬</span><span class="btn"><svg><use href="#down"/></svg><svg><use href="#chev"/></svg></span></span>
+        <span class="choice"><span>심플</span><span class="on">표준</span></span>
+      </div>
+    </div><div class="rail"><span class="ib" title="이벤트"><svg><use href="#events"/></svg></span><span class="ib on" title="커밋 그래프"><svg><use href="#commit"/></svg></span></div></div>
+  </figure>
+  <ul class="notes">
+    <li>칸 단추는 캔버스 오른쪽 끝의 세로 줄(VS Code 활동 막대 모양)로, 정렬·보기는 왼쪽 아래로, [새 워크트리]는 사이드바로 간다. 위에는 저장소 이름만 남는다.</li>
+    <li>위가 비어 카드가 막대에 가리지 않는다.</li>
+    <li><b>단점</b>: 새 부품(세로 줄)이 생기고 캔버스가 40px 줄어든다. 단추가 세 곳으로 흩어져 사람이 다시 익혀야 한다. 왼쪽 아래는 끌기·축소 동작과 부딪힌다.</li>
+  </ul>
+</div>
+
+<h2>3. 비교와 결정할 것</h2>
+<table>
+  <tr><th>항목</th><th>A(권장)</th><th>B</th><th>C</th></tr>
+  <tr><td>막대 폭(넓음 / 좁음)</td><td>약 440 / 315</td><td>약 255 / 255</td><td>이름만 / 이름만</td></tr>
+  <tr><td>지우는 부품</td><td>막대 [새 워크트리], 첫 커밋 안내</td><td>없음</td><td>막대 [새 워크트리], 첫 커밋 안내</td></tr>
+  <tr><td>새 부품</td><td>칸 단추 묶음 모양, 컨테이너 쿼리 한 줄</td><td>아이콘 막대, 툴팁 일곱</td><td>세로 줄, 왼쪽 아래 묶음</td></tr>
+  <tr><td>글자로 뜻이 보임</td><td>넓을 때 전부, 좁을 때 칸 단추만 아이콘</td><td>없음</td><td>칸 단추는 아이콘</td></tr>
+  <tr><td>잘림</td><td>없음(560 아래에서 줄인다)</td><td>없음</td><td>없음</td></tr>
+</table>
+<ul class="notes" style="max-width:76ch;margin-top:12px">
+  <li><b>결정 1</b>: 막대 [새 워크트리]를 지울까? 앞 목업 sidebar-crud.html은 「도구 줄 단추는 그대로 둔다」로 정했다. A·C는 이를 뒤집는다. 사이드바 줄 단추는 마우스를 올리거나 포커스가 있어야 보이므로 처음 쓰는 사람은 찾기가 조금 어렵다. 지우지 않으면 A안 막대 폭이 약 110 늘고, 좁을 때 그 단추도 아이콘만 남긴다.</li>
+  <li><b>결정 2</b>: 심플·표준은 막대와 설정 「UI」 둘에 있다(2026-10-20 사람 지시로 둘 다 두었다). A는 자주 바꾸는 막대 쪽을 남긴다. 설정 쪽을 지울지는 이번 범위 밖으로 둔다.</li>
+</ul>
+</body>
+</html>

@@ -33,19 +33,20 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - uses: Swatinem/rust-cache@v2.9.2
       # 판 = 루트 Cargo.toml의 MAJOR.MINOR + 그 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수.
-      # MAJOR.MINOR를 올리면 PATCH는 0부터 다시 센다. loom.exe, 앱, 설치 파일이 같은 판을 쓴다.
+      # loom.exe, 앱, 설치 파일, 화면이 같은 판을 쓴다.
       - name: 판 정하기
         id: version
         run: |
-          base=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\)\.[0-9]*"$/\1/p' Cargo.toml)
-          bumped=$(git log -1 --format=%H -G'^version = ' -- Cargo.toml)
-          version=$base.$(git rev-list --count "$bumped..HEAD")
+          version=$(sh scripts/version.sh)
           sed -i "s/^version = \".*\"$/version = \"$version\"/" Cargo.toml
           sed -i "s/^name = \"loom-app\"$/&\nversion = \"$version\"/" app/Cargo.toml
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: 화면 빌드
         run: npm ci && npm run build
         working-directory: web
+        env:
+          # build 스크립트가 sh 문법으로 판을 넣는다. Windows 기본 셸(cmd)로는 돌지 않는다.
+          NPM_CONFIG_SCRIPT_SHELL: bash
       - name: loom.exe 빌드
         run: |
           cargo build --release

@@ -138,7 +138,7 @@
 ### 설정
 
 - 설정은 `settings` 테이블 한 줄(JSON)이다: 모든 권한 허용을 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 화면 언어. 저장한 JSON에 없는 값은 기본값으로 읽는다.
-- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 오른쪽 끝에 제품 버전(`v<루트 Cargo.toml version>`)을 보인다(2026-10-20 사람 지시 "버전 번호는 우하단에 보여주면 될듯, 사용량 보여주는 섹션에"). 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
+- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 오른쪽 끝에 제품 버전(`v<scripts/version.sh 값>`)을 보인다(2026-10-20 사람 지시 "버전 번호는 우하단에 보여주면 될듯, 사용량 보여주는 섹션에"). 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
   - 색 토큰은 `light-dark(라이트, 다크)` 한 벌이다. 테마는 `color-scheme` 하나만 바꾼다.
@@ -319,7 +319,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 노드 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
-| 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 CI가 루트 `Cargo.toml`의 `version` 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수로 정해 두 `Cargo.toml`에 쓴다. 그래서 `MAJOR.MINOR`를 올리면 PATCH는 0부터 다시 센다(SemVer 관례). 로컬 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |
+| 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 루트 `Cargo.toml`의 `version` 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수다. 계산은 `scripts/version.sh` 한 곳이고, 화면 빌드(`npm run build`)와 CI가 함께 쓴다. CI는 그 값을 두 `Cargo.toml`에 쓴다. 그래서 `MAJOR.MINOR`를 올리면 PATCH는 0부터 다시 센다(SemVer 관례). 로컬 Rust 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |
 | 사람이 손으로 돌릴 때만(`workflow_dispatch`) GitHub Actions(`.github/workflows/windows.yml`)가 `tauri-apps/tauri-action`으로 설치 파일, 서명(`.sig`), `latest.json`을 만들어 Release `v<판>`에 올린다. 처음 설치하는 링크는 https://github.com/BrownC98/loom/releases/latest 다 | 판마다 파일이 바뀌지 않아 `latest.json`과 설치 파일이 어긋나지 않는다. 옛 파일을 지우는 스크립트가 없다. Release는 쌓인다 |
 | 기능이 어느 정도 완성될 때까지 에이전트는 Windows 빌드(Actions, `scripts/windows.sh`)를 돌리지 않는다(2026-10-20 사람 지시 "당분간, 기능이 어느정도 완성되기전에는 윈도우 빌드하지마 개발 시간만 잡아먹는다") | 빌드가 개발 시간을 잡아먹는다 |
 | 업데이트: 화면을 열 때 한 번 `latest.json`을 확인하고, 새 판이 있으면 오른쪽 아래 카드로 알린다([update.html](mockups/update.html), Orca의 업데이트 카드). [업데이트] → 다운로드 → [다시 시작하여 업데이트]다. 화면이 `@tauri-apps/plugin-updater` JS API를 부른다. 권한(`app/capabilities/update.json`)은 `http://127.0.0.1:*` 화면의 `check`·`download`·`install`뿐이다 | 문구는 화면 i18n을 쓴다. 서명 공개 키는 `app/tauri.conf.json`, 개인 키는 GitHub Actions 비밀값 `TAURI_SIGNING_PRIVATE_KEY`(`_PASSWORD`)와 사람이 보관하는 사본뿐이다 |

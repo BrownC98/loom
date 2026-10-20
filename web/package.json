@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && VITE_LOOM_VERSION=$(sh ../scripts/version.sh) vite build",
     "check": "tsc --noEmit && madge --circular --extensions ts,tsx src && node scripts/no-hangul.mjs"
   },
   "dependencies": {

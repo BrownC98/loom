@@ -81,8 +81,10 @@ pub enum RepoProblem {
     NoRepo,
     /// 이 저장소의 워크트리가 아니다.
     NotInRepo(String),
-    /// 원래 체크아웃은 지우지 않는다. git도 지우지 못한다.
+    /// 원래 체크아웃은 지우지 않고 브랜치 이름도 바꾸지 않는다. git도 지우지 못한다.
     Original,
+    /// 분리된 HEAD 워크트리다. 이름을 바꿀 브랜치가 없다.
+    Detached,
     EmptyBranch,
     /// 첫 커밋 전 저장소에서는 워크트리를 만들지 못한다.
     NoCommit,
@@ -107,7 +109,8 @@ impl fmt::Display for RepoProblem {
             RepoProblem::NoWorkspace(path) => write!(f, "{path}: 워크스페이스 폴더가 없다."),
             RepoProblem::NoRepo => write!(f, "없는 저장소다."),
             RepoProblem::NotInRepo(path) => write!(f, "{path}: 이 저장소의 워크트리가 아니다."),
-            RepoProblem::Original => write!(f, "원래 체크아웃은 지우지 않는다."),
+            RepoProblem::Original => write!(f, "원래 체크아웃은 지우거나 이름을 바꾸지 않는다."),
+            RepoProblem::Detached => write!(f, "분리된 HEAD다. 이름을 바꿀 브랜치가 없다."),
             RepoProblem::EmptyBranch => write!(f, "브랜치 이름을 적는다."),
             RepoProblem::NoCommit => write!(f, "첫 커밋 전 저장소다. 커밋한 뒤 워크트리를 만든다."),
             RepoProblem::BadName(name) => write!(f, "'{name}': 폴더 이름으로 쓸 수 없다."),
@@ -441,6 +444,25 @@ pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem>
     Ok(())
 }
 
+/// 워크트리의 브랜치 이름을 바꾼다(`git branch -m`). 폴더는 그대로다. 노드는 폴더 경로로 묶음을 가리킨다.
+/// 잘못된 이름과 이미 있는 이름은 git이 거절한다.
+pub async fn rename(repo: &Path, worktree: &Worktree, name: &str) -> Result<(), RepoProblem> {
+    if worktree.original {
+        return Err(RepoProblem::Original);
+    }
+    let Some(branch) = &worktree.branch else {
+        return Err(RepoProblem::Detached);
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(RepoProblem::EmptyBranch);
+    }
+    git::run(repo, &["branch", "-m", "--", branch, name])
+        .await
+        .map_err(RepoProblem::Git)?;
+    Ok(())
+}
+
 /// 병합하지 않은 커밋이 있어도 지운다(`-D`). 사람이 삭제 창에서 고를 때와 `discard`만 부른다.
 pub async fn delete_branch(repo: &Path, branch: &str) -> Result<(), RepoProblem> {
     git::run(repo, &["branch", "-D", "--", branch])
@@ -701,6 +723,47 @@ mod tests {
         assert_eq!(
             find(&repo, "/nowhere/wt").await,
             Err(RepoProblem::NotInRepo("/nowhere/wt".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn rename_keeps_the_folder_and_refuses_original_detached_bad_and_taken_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(dir.path());
+        let workspace = dir.path().join("ws");
+        std::fs::create_dir(&workspace).unwrap();
+        let path = create(&repo, &repo, &workspace, "feat", "main")
+            .await
+            .unwrap();
+        let made = find(&repo, &path).await.unwrap();
+        assert_eq!(rename(&repo, &made, " me/new ").await, Ok(()));
+        let renamed = find(&repo, &path).await.unwrap();
+        assert_eq!(renamed.branch.as_deref(), Some("me/new"));
+        assert_eq!(view(RepoId(1), &repo).await.branches, ["main", "me/new"]);
+
+        assert_eq!(
+            rename(&repo, &renamed, " ").await,
+            Err(RepoProblem::EmptyBranch)
+        );
+        for bad in ["a..b", "-x", "main"] {
+            let Err(RepoProblem::Git(e)) = rename(&repo, &renamed, bad).await else {
+                panic!("{bad}")
+            };
+            assert!(
+                e.contains("not a valid branch name") || e.contains("already exists"),
+                "{e}"
+            );
+        }
+        let original = find(&repo, repo.to_str().unwrap()).await.unwrap();
+        assert_eq!(
+            rename(&repo, &original, "x").await,
+            Err(RepoProblem::Original)
+        );
+        run(Path::new(&path), &["checkout", "--detach"]);
+        let detached = find(&repo, &path).await.unwrap();
+        assert_eq!(
+            rename(&repo, &detached, "x").await,
+            Err(RepoProblem::Detached)
         );
     }
 

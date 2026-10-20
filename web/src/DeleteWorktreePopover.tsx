@@ -42,7 +42,8 @@ export function DeleteWorktreePopover(props: { repo: RepoId; group: Group; views
         {t('deleteWorktree.folder', { path: group.path })}
       </p>
       {changes === null ? (
-        <p className="hint">{t('deleteWorktree.checking')}</p>
+        // 변경을 읽지 못하면 아래 오류 글이 대신 보인다.
+        !error && <p className="hint">{t('deleteWorktree.checking')}</p>
       ) : changes.length === 0 ? (
         <p className="hint">{t('deleteWorktree.clean')}</p>
       ) : (

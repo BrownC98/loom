@@ -387,24 +387,28 @@ pub async fn create(
 }
 
 /// 지우면 잃는 변경: 커밋하지 않은 파일과 추적하지 않는 파일. 줄마다 `git status --porcelain` 한 줄이다.
-pub async fn changes(path: &str) -> Result<Vec<String>, RepoProblem> {
-    let status = git::run(Path::new(path), &["status", "--porcelain"])
+/// 폴더가 이미 없으면 잃을 것이 없다. 그 폴더에서는 git이 돌지 못한다.
+pub async fn changes(worktree: &Worktree) -> Result<Vec<String>, RepoProblem> {
+    let path = Path::new(&worktree.path);
+    if !path.is_dir() {
+        return Ok(Vec::new());
+    }
+    let status = git::run(path, &["status", "--porcelain"])
         .await
         .map_err(RepoProblem::Git)?;
     Ok(status.lines().map(str::to_owned).collect())
 }
 
 /// 워크트리를 지운다: 커밋하지 않은 변경이 있어도 폴더째 지운다(`--force`, Orca와 같다). 브랜치는 남긴다.
-/// 원래 체크아웃은 거절한다. 돌려주는 값은 그 워크트리가 체크아웃한 브랜치다.
-pub async fn remove(repo: &Path, path: &str) -> Result<Option<String>, RepoProblem> {
-    let worktree = find(repo, path).await?;
+/// 폴더가 이미 없어도 git이 등록을 지운다. 원래 체크아웃은 거절한다.
+pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem> {
     if worktree.original {
         return Err(RepoProblem::Original);
     }
-    git::run(repo, &["worktree", "remove", "--force", path])
+    git::run(repo, &["worktree", "remove", "--force", &worktree.path])
         .await
         .map_err(RepoProblem::Git)?;
-    Ok(worktree.branch)
+    Ok(())
 }
 
 /// 병합하지 않은 커밋이 있어도 지운다(`-D`). 사람이 삭제 창에서 고를 때만 부른다.
@@ -582,8 +586,10 @@ mod tests {
 
         // 커밋하지 않은 변경과 추적하지 않는 파일이 있어도 지운다. 브랜치는 남긴다.
         std::fs::write(Path::new(&path).join("new.txt"), "x").unwrap();
-        assert_eq!(changes(&path).await.unwrap(), ["?? new.txt"]);
-        assert_eq!(remove(&repo, &path).await, Ok(Some("me/feat-1".into())));
+        let made = find(&repo, &path).await.unwrap();
+        assert_eq!(made.branch.as_deref(), Some("me/feat-1"));
+        assert_eq!(changes(&made).await.unwrap(), ["?? new.txt"]);
+        assert_eq!(remove(&repo, &made).await, Ok(()));
         assert!(!Path::new(&path).exists());
         assert_eq!(worktrees(&repo).await.len(), 1);
         assert_eq!(run(&repo, &["branch", "--list", "me/feat-1"]), "me/feat-1");
@@ -592,16 +598,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remove_refuses_original_and_unknown_worktrees() {
+    async fn remove_refuses_original() {
         let dir = tempfile::tempdir().unwrap();
         let repo = repo(dir.path());
-        let repo_text = repo.to_str().unwrap();
-        assert_eq!(remove(&repo, repo_text).await, Err(RepoProblem::Original));
+        let original = find(&repo, repo.to_str().unwrap()).await.unwrap();
+        assert_eq!(remove(&repo, &original).await, Err(RepoProblem::Original));
         assert!(repo.exists());
         assert_eq!(
-            remove(&repo, "/nowhere/wt").await,
+            find(&repo, "/nowhere/wt").await,
             Err(RepoProblem::NotInRepo("/nowhere/wt".into()))
         );
+    }
+
+    /// 폴더를 loom 밖에서 지워도(`rm -rf`) git은 워크트리를 적어 둔다. 잃을 것이 없고, 지우면 등록이 사라진다.
+    #[tokio::test]
+    async fn remove_a_worktree_whose_folder_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(dir.path());
+        let workspace = dir.path().join("ws");
+        std::fs::create_dir(&workspace).unwrap();
+        let path = create(&repo, &repo, &workspace, "feat", "main")
+            .await
+            .unwrap();
+        std::fs::remove_dir_all(&path).unwrap();
+        let gone = find(&repo, &path).await.unwrap();
+        assert_eq!(changes(&gone).await, Ok(Vec::new()));
+        assert_eq!(remove(&repo, &gone).await, Ok(()));
+        assert_eq!(worktrees(&repo).await.len(), 1);
+        assert_eq!(run(&repo, &["branch", "--list", "feat"]), "feat");
     }
 
     #[tokio::test]

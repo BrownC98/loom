@@ -12,6 +12,7 @@ const ko: typeof en = {
     sideLabel: '저장소와 노드',
     graphLabel: '{{repo}} 그래프',
     commitGraph: '커밋 그래프',
+    resize: '{{pane}} 너비',
   },
   worktree: {
     original: '원래 체크아웃',

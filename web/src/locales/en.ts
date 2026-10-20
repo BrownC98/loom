@@ -10,6 +10,7 @@ const en = {
     sideLabel: 'Repositories and nodes',
     graphLabel: '{{repo}} graph',
     commitGraph: 'Commit graph',
+    resize: '{{pane}} width',
   },
   worktree: {
     original: 'original checkout',

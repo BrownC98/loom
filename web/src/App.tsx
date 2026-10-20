@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getRepo, getSettings, putSettings, watchGraph } from './api';
@@ -15,6 +15,7 @@ import type { Theme } from './gen/Theme';
 import { Graph } from './Graph';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
+import { Splitter, usePaneWidth, type Pane } from './Splitter';
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Tree } from './Tree';
@@ -25,6 +26,9 @@ import { withAccount } from './usage';
 const PULSE_MS = 3000;
 /** 사용량을 다시 읽는 간격. 근거: docs/design.md 「계정과 사용량」. */
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
+/** 기본 너비는 목업 graph-panels.html의 값이다. 두 칸을 모두 가장 넓게 해도 1440 화면에서 그래프 칸이 160px 남는다. */
+const SIDE_PANE: Pane = { key: 'loom.sideWidth', initial: 260, min: 180, max: 480, grow: 1 };
+const DOCK_PANE: Pane = { key: 'loom.dockWidth', initial: 520, min: 320, max: 800, grow: -1 };
 const EMPTY_SETTINGS: SettingsView = {
   bypassOff: [],
   claudeAccount: null,
@@ -86,6 +90,8 @@ export function App() {
   const [selected, setSelected] = useState<NodeId | null>(null);
   // 오른쪽 칸 하나를 이벤트 콘솔과 커밋 그래프가 번갈아 쓴다.
   const [dock, setDock] = useState<'events' | 'commits' | null>(null);
+  const [sideWidth, setSideWidth] = usePaneWidth(SIDE_PANE);
+  const [dockWidth, setDockWidth] = usePaneWidth(DOCK_PANE);
   const toggleDock = (next: 'events' | 'commits') => setDock(dock === next ? null : next);
   const log = useEventLog(dock === 'events');
   // 이벤트 콘솔에서 고른 이벤트. 칸을 닫으면 끈다.
@@ -170,7 +176,9 @@ export function App() {
   return (
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <ReactFlowProvider>
-        <div className="app" data-dock={dock ?? undefined}>
+        <div className="app" data-dock={dock ?? undefined} style={{ '--side-w': `${sideWidth}px`, '--dock-w': `${dockWidth}px` } as CSSProperties}>
+          <Splitter pane={SIDE_PANE} width={sideWidth} onWidth={setSideWidth} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />
+          {dock && <Splitter pane={DOCK_PANE} width={dockWidth} onWidth={setDockWidth} label={t('app.resize', { pane: dock === 'events' ? t('events.title') : t('app.commitGraph') })} style={{ right: dockWidth }} />}
           <nav className="side" aria-label={t('app.sideLabel')}>
             <div className="brand">loom</div>
             {repo && <Tree repo={repo} views={nodes} agents={agents} selected={selected} onSelect={setSelected} />}

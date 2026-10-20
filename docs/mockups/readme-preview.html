@@ -19,7 +19,7 @@
   <p>응답할 곳: 총괄 · claude-1</p>
   <p>연 담당: 총괄 · claude-1</p>
   <h1>README 미리보기</h1>
-  <p class="lead">GitHub 저장소 첫 화면에 보일 README 두 개다. 영어(README.md)가 기본이고, 한국어(README.ko.md)는 위 링크로 옮겨 간다. 대표 스크린샷은 시험 데몬에서 실제로 돈 Claude Code·Codex·OpenCode 2 노드 7개(세 단계, 워크트리 묶음 둘)를 찍었다. 영어 README는 영어 화면, 한국어 README는 한국어 화면을 쓴다. SignPath 서명 절은 뺐다. 에이전트가 읽는 메시지 머리말과 loom 명령 출력은 영어다.</p>
+  <p class="lead">GitHub 저장소 첫 화면에 보일 README 두 개다. 영어(README.md)가 기본이고, 한국어(README.ko.md)는 위 링크로 옮겨 간다. 대표 스크린샷은 시험 데몬에서 실제로 돈 Claude Code·Codex·OpenCode 2 노드 7개(세 단계, 워크트리 묶음 둘)를 찍었다. 대표 그림은 심플 보기(카드 + 오른쪽 터미널 칸), 기능 절 아래 그림은 표준 보기(카드마다 터미널)다. 영어 README는 영어 화면, 한국어 README는 한국어 화면을 쓴다. SignPath 서명 절은 뺐다. 에이전트가 읽는 메시지 머리말과 loom 명령 출력은 영어다.</p>
 </header>
 <h2 class="label">README.md (영어, 기본)</h2>
 <div class="box"><div class="file">README.md</div><article class="markdown-body"><h1 align="center" dir="auto">
@@ -38,7 +38,7 @@
   Each agent is a node card with its real terminal. Parents spawn children, children report back, and each message shows on the edge between them.
 </p>
 <p align="center" dir="auto">
-  <a target="_blank" rel="noopener noreferrer" href="../images/hero.png"><img src="../images/hero.png" alt="loom graph in three levels: a Claude Code lead on main, and two coordinators (Codex auth, Claude Code ui), each in its own worktree group with two workers (Claude Code, Codex, OpenCode 2). Each card shows a live terminal and its model. The edges show messages lead → auth, auth → tests and form → ui, and the terminals show loom message headers. The commit graph is on the right." width="960" style="max-width: 100%;"></a>
+  <a target="_blank" rel="noopener noreferrer" href="../images/hero.png"><img src="../images/hero.png" alt="loom in Simple view: a three-level graph. A Claude Code lead on main has two coordinators (Codex auth, Claude Code ui), each in its own worktree group with two workers (Claude Code, Codex, OpenCode 2). Each card shows the summary, model and state. The edges show messages lead → auth, auth → tests and form → ui. The right panel shows the live terminal of auth with a loom message header." width="960" style="max-width: 100%;"></a>
 </p>
 <h2 dir="auto">Features</h2>
 <markdown-accessiblity-table><table role="table">
@@ -71,6 +71,10 @@
 </tr>
 </tbody>
 </table></markdown-accessiblity-table>
+<p align="center" dir="auto">
+  <a href="../images/standard.png"><img src="../images/standard.png" alt="loom in Standard view: the same seven nodes, and each card is a live terminal." width="960" style="max-width: 100%;"></a><br>
+  <em>Standard view: every card is a live terminal. Click to open full size.</em>
+</p>
 <h2 dir="auto">How agents talk</h2>
 <p dir="auto">An agent runs these commands in its own terminal. loom gives each node its address and token.</p>
 <div class="highlight highlight-source-shell" dir="auto"><pre class="notranslate">loom spawn tests --agent codex --file brief.md   <span class="pl-c"><span class="pl-c">#</span> make a child in this worktree</span>
@@ -111,7 +115,7 @@ loom <span class="pl-k">done</span> <span class="pl-s"><span class="pl-pds">"</s
   에이전트 하나가 노드 카드 하나이고, 카드에 그 에이전트의 실제 터미널이 보입니다. 부모가 자식을 띄우고, 자식이 결과를 보고하고, 메시지는 둘 사이 간선에 보입니다.
 </p>
 <p align="center" dir="auto">
-  <a target="_blank" rel="noopener noreferrer" href="../images/hero.ko.png"><img src="../images/hero.ko.png" alt="세 단계 loom 그래프: main에 Claude Code 총괄이 있고, 코디 둘(Codex 인증, Claude Code 화면)이 각자 워크트리 묶음에서 워커 둘(Claude Code, Codex, OpenCode 2)을 둔다. 카드마다 실시간 터미널과 모델이 보인다. 간선에 총괄 → 인증, 인증 → 테스트, 폼 → 화면 메시지가 보이고, 터미널에 loom message 머리말이 보인다. 오른쪽에 커밋 그래프가 있다." width="960" style="max-width: 100%;"></a>
+  <a target="_blank" rel="noopener noreferrer" href="../images/hero.ko.png"><img src="../images/hero.ko.png" alt="심플 보기의 loom: 세 단계 그래프. main의 Claude Code 총괄 아래에 코디 둘(Codex 인증, Claude Code 화면)이 각자 워크트리 묶음에서 워커 둘(Claude Code, Codex, OpenCode 2)을 둔다. 카드마다 요약, 모델, 상태가 보인다. 간선에 총괄 → 인증, 인증 → 테스트, 폼 → 화면 메시지가 보인다. 오른쪽 칸에 인증의 실시간 터미널과 loom message 머리말이 보인다." width="960" style="max-width: 100%;"></a>
 </p>
 <h2 dir="auto">기능</h2>
 <markdown-accessiblity-table><table role="table">
@@ -144,6 +148,10 @@ loom <span class="pl-k">done</span> <span class="pl-s"><span class="pl-pds">"</s
 </tr>
 </tbody>
 </table></markdown-accessiblity-table>
+<p align="center" dir="auto">
+  <a href="../images/standard.ko.png"><img src="../images/standard.ko.png" alt="표준 보기의 loom: 같은 노드 일곱 개이고, 카드마다 실시간 터미널이다." width="960" style="max-width: 100%;"></a><br>
+  <em>표준 보기: 카드마다 실시간 터미널입니다. 누르면 원래 크기로 엽니다.</em>
+</p>
 <h2 dir="auto">에이전트끼리 말하는 법</h2>
 <p dir="auto">에이전트는 자기 터미널에서 아래 명령을 씁니다. loom이 노드마다 주소와 토큰을 넣습니다.</p>
 <div class="highlight highlight-source-shell" dir="auto"><pre class="notranslate">loom spawn tests --agent codex --file brief.md   <span class="pl-c"><span class="pl-c">#</span> 이 워크트리에 자식을 만든다</span>

@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="loom graph in three levels: a Claude Code lead on main, and two coordinators (Codex auth, Claude Code ui), each in its own worktree group with two workers (Claude Code, Codex, OpenCode 2). Each card shows a live terminal and its model. The edges show messages lead → auth, auth → tests and form → ui, and the terminals show loom message headers. The commit graph is on the right." width="960">
+  <img src="docs/images/hero.png" alt="loom in Simple view: a three-level graph. A Claude Code lead on main has two coordinators (Codex auth, Claude Code ui), each in its own worktree group with two workers (Claude Code, Codex, OpenCode 2). Each card shows the summary, model and state. The edges show messages lead → auth, auth → tests and form → ui. The right panel shows the live terminal of auth with a loom message header." width="960">
 </p>
 
 ## Features
@@ -30,6 +30,11 @@
 | **Small messaging CLI** | Agents use `loom spawn`, `send`, `wait` and `done` to split work and report results. |
 | **Worktree groups** | Nodes are grouped by git worktree. `--worktree <branch>` makes a new group. |
 | **Commit graph and event console** | See the commits of all branches and each message between nodes. |
+
+<p align="center">
+  <a href="docs/images/standard.png"><img src="docs/images/standard.png" alt="loom in Standard view: the same seven nodes, and each card is a live terminal." width="960"></a><br>
+  <em>Standard view: every card is a live terminal. Click to open full size.</em>
+</p>
 
 ## How agents talk
 

@@ -105,11 +105,6 @@ button, input, select { font: inherit; color: inherit; }
 
 <div class="note">
   <h2>1. 저장소 추가와 트리에서 저장소 바꾸기</h2>
-  <ul>
-    <li>사이드바 「저장소」 머리의 [+]가 저장소 추가 창을 연다. Orca 「프로젝트」 머리의 [+]와 같은 자리다.</li>
-    <li>트리는 더한 저장소를 모두 보인다: 저장소 &gt; 워크트리 묶음 &gt; 노드. 저장소 줄을 누르면 그래프가 그 저장소로 바뀐다. 고른 저장소는 이 브라우저에 남긴다.</li>
-    <li>경로는 데몬이 보는 파일 시스템의 경로다. 없는 폴더, git 저장소가 아닌 폴더는 거절하고 이유를 보인다. 같은 저장소의 다른 워크트리를 적으면 원래 체크아웃 한 줄로 더한다.</li>
-  </ul>
 </div>
 <div class="frame">
   <aside class="side">
@@ -144,11 +139,6 @@ button, input, select { font: inherit; color: inherit; }
 
 <div class="note">
   <h2>2. 새 워크트리 창</h2>
-  <ul>
-    <li>그래프 도구 줄의 [새 워크트리]가 연다. 입력은 브랜치 이름과 기준 브랜치 둘이다(design.md 「그래프와 화면」).</li>
-    <li>폴더는 Orca 「워크스페이스 중첩」과 같다: <code>&lt;워크스페이스 폴더&gt;/&lt;저장소 이름&gt;/&lt;브랜치 마지막 마디&gt;</code>. 만들 폴더를 창 아래에 미리 보인다.</li>
-    <li>기준 브랜치의 처음 값은 원래 체크아웃의 브랜치다. 목록은 로컬 브랜치다.</li>
-  </ul>
 </div>
 <div class="frame">
   <aside class="side">
@@ -176,13 +166,6 @@ button, input, select { font: inherit; color: inherit; }
 
 <div class="note">
   <h2>3. 그래프의 두 묶음과 [워크트리 삭제] 경고 창</h2>
-  <ul>
-    <li>묶음은 <code>git worktree list</code> 순서로 나란히 놓는다. 첫째가 원래 체크아웃이다. 묶음마다 [정렬] [새 노드]가 있다.</li>
-    <li>추가한 워크트리 묶음 머리에만 [워크트리 삭제]가 있다. 원래 체크아웃은 지우지 않는다(Orca: 「Git does not allow removing the main worktree.」).</li>
-    <li>경고 창은 Orca 「Delete Workspace」를 따른다: 워크트리 이름, 잃는 것(커밋하지 않은·추적하지 않는 파일 목록, 끝낼 running 노드, 지울 노드), [취소] [삭제]. [삭제]는 노드를 끝내고 <code>git worktree remove --force</code>를 부른다.</li>
-    <li>「브랜치도 삭제」 확인란은 처음에 꺼져 있다. Orca 창에는 이 선택이 없고 Orca가 만든 브랜치를 안에서 지운다. loom은 병합하지 않은 커밋을 잃지 않게 고르게 한다.</li>
-    <li><code>loom spawn --worktree &lt;브랜치&gt;</code>로 만든 자식은 새 묶음에 뜨고, 부모와 간선으로 잇는다.</li>
-  </ul>
 </div>
 <div class="frame">
   <aside class="side">
@@ -210,10 +193,10 @@ button, input, select { font: inherit; color: inherit; }
       </div>
       <div class="pop" role="alertdialog" style="left: 520px; top: 50px; width: 420px;">
         <h3>워크트리 삭제</h3>
-        <p class="hint" style="margin-bottom:8px"><code>BrownC98/TERM-터미널-가독성</code> 워크트리의 폴더 <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code>를 삭제합니다.</p>
+        <p class="hint" style="margin-bottom:8px">‘BrownC98/TERM-터미널-가독성’ 워크트리 폴더 <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code>를 삭제합니다.</p>
         <p class="err" style="margin-bottom:4px">커밋하지 않은 변경과 추적하지 않는 파일은 영구히 삭제됩니다.</p>
         <div style="font: 11px/1.5 var(--mono); color: var(--ink-2); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;">&nbsp;M web/src/NodeCard.tsx<br>?? web/src/notes.md</div>
-        <p class="hint" style="margin-bottom:8px">실행 중인 노드 1개(구현)를 끝냅니다. 이 묶음의 노드 1개를 그래프에서 지웁니다.</p>
+        <p class="hint" style="margin-bottom:8px">실행 중인 노드 1개(‘구현’)를 끝내고, 이 묶음의 노드 1개를 그래프에서 삭제합니다.</p>
         <label class="hint" style="display:flex; gap:6px; align-items:center; margin-bottom:12px; color: var(--ink-2)"><input type="checkbox"> 브랜치도 삭제(<code>BrownC98/TERM-터미널-가독성</code>)</label>
         <div class="actions"><button class="btn">취소</button><button class="btn" style="background: var(--err); color: oklch(98.5% 0 0); border-color: var(--err)">삭제</button></div>
       </div>
@@ -224,11 +207,6 @@ button, input, select { font: inherit; color: inherit; }
 
 <div class="note">
   <h2>4. 설정: 워크스페이스 폴더</h2>
-  <ul>
-    <li>설정 창에 「워크스페이스」 탭(<code>#settings/workspace</code>)을 더한다. Orca는 「일반 &gt; 워크스페이스」에 둔다. loom에는 「일반」 탭이 없어 같은 이름의 탭으로 둔다.</li>
-    <li>글 입력 하나다. 처음 값은 <code>~/loom/workspaces</code>다(Orca 기본값 <code>~/orca/workspaces</code>와 같은 모양). 입력에서 나가거나 Enter를 누르면 저장한다. 상대 경로는 거절한다.</li>
-    <li>넣지 않은 Orca 기능: [찾아보기](브라우저는 데몬 기계의 폴더를 고르지 못한다), 「워크스페이스 중첩」 스위치(늘 중첩한다), 호스트별 재정의.</li>
-  </ul>
 </div>
 <div class="frame">
   <aside class="side"><div class="side-head"><h2>저장소</h2></div><div class="side-foot">⚙ 설정</div></aside>
@@ -250,23 +228,10 @@ button, input, select { font: inherit; color: inherit; }
 </div>
 
 <div class="note">
-  <h2>참고: Orca</h2>
-  <ul>
-    <li>왼쪽: 사람의 Orca 사이드바(2026-10-20 캡처). 프로젝트 &gt; 워크트리(브랜치 줄) &gt; 에이전트 순서, 「프로젝트」 머리의 [+].</li>
-    <li>오른쪽: Orca 1.4 번들(app.asar)에서 읽은 설정 이름과 기본값.</li>
-  </ul>
+  <h2>참고: Orca 사이드바(2026-10-20 캡처)</h2>
 </div>
 <div class="ref">
   <img src="ws-orca-sidebar.png" alt="Orca 사이드바 캡처">
-  <table>
-    <tr><th>항목</th><th>Orca</th><th>loom</th></tr>
-    <tr><td>폴더 설정</td><td>General &gt; Workspace &gt; 「Workspace Directory」(워크스페이스 디렉터리) + [Browse]. 「Root directory where workspace folders are created.」</td><td>「워크스페이스」 탭, 글 입력만</td></tr>
-    <tr><td>기본값</td><td><code>&lt;홈&gt;/orca/workspaces</code></td><td><code>&lt;홈&gt;/loom/workspaces</code></td></tr>
-    <tr><td>폴더 배치</td><td>「Nest Workspaces」 켜짐(기본): <code>&lt;폴더&gt;/&lt;저장소&gt;/&lt;이름&gt;</code></td><td>늘 중첩</td></tr>
-    <tr><td>브랜치</td><td><code>&lt;접두어&gt;/&lt;이름&gt;</code>, 접두어 기본 git 사용자 이름</td><td>사람이 브랜치 이름 전체를 적는다. 폴더는 마지막 마디</td></tr>
-    <tr><td>저장소 추가</td><td>폴더 경로, git 저장소, 「Project already added」</td><td>같다. 이미 있으면 그 저장소를 고른다</td></tr>
-    <tr><td>워크트리 지우기</td><td>「Delete Workspace」 경고 창, 바뀐 파일 목록, <code>git worktree remove --force</code>. 브랜치 선택은 창에 없음(Orca가 만든 브랜치는 안에서 지움). 원래 체크아웃은 지우지 않음</td><td>같은 경고 창과 <code>--force</code>. 「브랜치도 삭제」 확인란(처음 꺼짐)</td></tr>
-  </table>
 </div>
 </body>
 </html>

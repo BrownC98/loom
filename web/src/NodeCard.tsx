@@ -80,12 +80,16 @@ export function NodeSummary(props: { view: NodeView; agentLabel: string; actions
         <span className="spacer" />
         {props.actions}
       </div>
-      <p className="topic" title={view.topic ?? undefined}>
-        {view.topic}
-      </p>
-      <div className="summary-model">
-        <ModelText view={view} />
-      </div>
+      {view.topic && (
+        <p className="topic" title={view.topic}>
+          {view.topic}
+        </p>
+      )}
+      {(view.model || view.effort) && (
+        <div className="summary-model">
+          <ModelText view={view} />
+        </div>
+      )}
       <div className="summary-row">
         <Badges view={view} />
       </div>

@@ -68,6 +68,9 @@ enum Cli {
     Hook,
     /// Claude 훅이 Bash 명령 앞에 붙인다. 부른 셸을 중단 대상으로 알린다.
     Guard,
+    /// 데몬이 노드마다 띄운다. PTY 하나를 쥐고 데몬보다 오래 산다.
+    #[command(hide = true)]
+    PtyHost,
 }
 
 fn main() -> ExitCode {
@@ -90,6 +93,7 @@ fn main() -> ExitCode {
         Cli::Wait => cli::wait(),
         Cli::Done { summary, file } => cli::done(summary, file),
         Cli::Adopt { name } => cli::adopt(name),
+        Cli::PtyHost => node_host::run(),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

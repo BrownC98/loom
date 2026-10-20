@@ -22,6 +22,7 @@ use ts_rs::TS;
 
 pub use events::EventRecord;
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER};
+pub use nodes::Launched;
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
@@ -39,6 +40,13 @@ const SUMMARY_LIMIT_BYTES: usize = 1024;
 #[ts(export)]
 pub struct NodeId(pub u32);
 
+/// 노드 호스트가 주소 파일 이름에 쓴다.
+impl fmt::Display for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -48,7 +56,7 @@ pub enum NodeState {
     Done {
         summary: String,
     },
-    /// `code`가 없으면 데몬이 다시 시작해 프로세스가 사라진 노드다.
+    /// `code`가 없으면 데몬이 다시 시작했을 때 프로세스가 사라졌던 노드다.
     Exited {
         code: Option<u32>,
     },
@@ -248,15 +256,8 @@ impl Drop for Db<'_> {
 }
 
 impl Graph {
-    /// 저장한 그래프를 연다. `running`이던 노드는 데몬과 함께 프로세스가 끝났으므로 코드 없는 `exited`로 바꾼다.
+    /// 저장한 그래프를 연다. `running`이던 노드는 그대로 둔다. 프로세스가 살았는지는 데몬이 다시 붙어 보고 정한다(`running`, `lost`).
     pub fn open(conn: Connection) -> rusqlite::Result<Self> {
-        let running = conn
-            .prepare("SELECT id FROM nodes WHERE state ->> 'kind' = 'running'")?
-            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for id in running {
-            set_state(&conn, id, &NodeState::Exited { code: None })?;
-        }
         let published = events::last_id(&conn)?;
         Ok(Self {
             db: Mutex::new(Store { conn, published }),

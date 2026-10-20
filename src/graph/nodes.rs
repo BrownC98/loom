@@ -6,12 +6,27 @@ use rusqlite::{Connection, OptionalExtension, params};
 use super::events::{self, Entry};
 use super::{
     Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Place, Refusal, first_line,
-    mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
+    from_json, mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
 };
-use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
+use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
 
 /// 에이전트 없이 띄운 노드(셸) 이름의 앞부분.
 const SHELL_NAME: &str = "shell";
+
+/// 띄운 노드와 함께 남기는 값. 데몬이 다시 시작해도 노드에 다시 붙게 한다.
+pub struct Launched {
+    /// 노드가 데몬을 부를 때 내는 토큰(`LOOM_TOKEN`).
+    pub token: String,
+    /// Codex·OpenCode 2 노드의 서버.
+    pub server: Option<ServerLink>,
+}
+
+/// 데몬이 시작할 때 다시 붙을 `running` 노드.
+pub struct Running {
+    pub id: NodeId,
+    pub agent: Option<AgentId>,
+    pub server: Option<ServerLink>,
+}
 
 impl Graph {
     /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
@@ -22,13 +37,13 @@ impl Graph {
         place: &Place,
         agent: Option<AgentId>,
         brief: &str,
-        launch: impl FnOnce(NodeId) -> Result<(), String>,
+        launch: impl FnOnce(NodeId) -> Result<Launched, String>,
     ) -> Result<NodeId, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
         let id = insert(&tx, &name, &agent, None, place, brief)?;
-        launch(id).map_err(Refusal::Launch)?;
+        keep(&tx, id, &launch(id).map_err(Refusal::Launch)?)?;
         tx.commit()?;
         self.publish_node(&db, id)?;
         Ok(id)
@@ -43,7 +58,7 @@ impl Graph {
         worktree: Option<&str>,
         agent: Option<AgentId>,
         brief: &str,
-        launch: impl FnOnce(NodeId) -> Result<(), String>,
+        launch: impl FnOnce(NodeId) -> Result<Launched, String>,
     ) -> Result<NodeId, Refusal> {
         let name = checked_name(name)?;
         if brief.len() > BRIEF_LIMIT_BYTES {
@@ -72,7 +87,7 @@ impl Graph {
         if has_brief {
             mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
         }
-        launch(id).map_err(Refusal::Launch)?;
+        keep(&tx, id, &launch(id).map_err(Refusal::Launch)?)?;
         tx.commit()?;
         self.publish_node(&db, id)?;
         if has_brief {
@@ -101,6 +116,49 @@ impl Graph {
             self.publish_node(&db, parent)?;
             self.publish_message(id);
         }
+        Ok(())
+    }
+
+    /// 데몬이 다시 붙지 못한 `running` 노드다. 코드 없는 `exited`로 바꾼다. 부모에게는 알리지 않는다.
+    pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
+        let db = self.lock();
+        set_state(&db, id, &NodeState::Exited { code: None })?;
+        self.publish_node(&db, id)
+    }
+
+    /// `running` 노드 모두. 데몬이 시작할 때 그 PTY 호스트와 서버에 다시 붙는다.
+    pub fn running(&self) -> rusqlite::Result<Vec<Running>> {
+        self.lock()
+            .prepare("SELECT id, agent, server FROM nodes WHERE state ->> 'kind' = 'running' ORDER BY id")?
+            .query_map([], |row| {
+                let server: Option<String> = row.get(2)?;
+                Ok(Running {
+                    id: NodeId(row.get(0)?),
+                    agent: from_json(row, 1)?,
+                    server: match server {
+                        Some(_) => Some(from_json(row, 2)?),
+                        None => None,
+                    },
+                })
+            })?
+            .collect()
+    }
+
+    /// 토큰을 낸 노드. 지운 노드의 토큰은 없다.
+    pub fn caller(&self, token: &str) -> rusqlite::Result<Option<NodeId>> {
+        self.lock()
+            .query_row("SELECT id FROM nodes WHERE token = ?1", [token], |row| {
+                Ok(NodeId(row.get(0)?))
+            })
+            .optional()
+    }
+
+    /// 노드 서버에 다시 붙는 값을 바꾼다. 예: Codex TUI가 노드 스레드를 만들었다.
+    pub fn set_server(&self, id: NodeId, server: &ServerLink) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "UPDATE nodes SET server = ?2 WHERE id = ?1",
+            params![id.0, to_json(server)],
+        )?;
         Ok(())
     }
 
@@ -287,6 +345,14 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
         "" => Err(Refusal::EmptyName),
         name => Ok(name),
     }
+}
+
+fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE nodes SET token = ?2, server = ?3 WHERE id = ?1",
+        params![id.0, launched.token, launched.server.as_ref().map(to_json)],
+    )?;
+    Ok(())
 }
 
 fn insert(

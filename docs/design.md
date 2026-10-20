@@ -30,7 +30,7 @@
 - 노드 상태는 `running`, `done`, `exited(<코드>)` 셋이다. 카드에는 읽지 않은 메시지 수도 보인다. 부모 없는 카드와 그 트리 줄에는 보관한 메시지 수(「보관 N」)를 보인다.
 - 카드 주제(`NodeView.topic`)는 노드가 지금 하는 일 한 줄이다. 데몬은 새 LLM 호출 없이 `done` 요약, CLI 터미널 제목(OSC 0·2, Claude `✳ <주제>`, Codex `tui.terminal_title=["thread-title"]`의 스레드 제목, OpenCode 2 `OC | <제목>`), 첫 지시문(사람이 띄운 노드는 CLI에 넘긴 첫 지시, 자식은 부모가 준 지시) 순서로 처음 있는 것의 첫 줄을 쓴다(2026-10-20 사람 질문 "각자가 현재 무슨 일을 하고 있는지 요약해서 각 노드에 표시"). 첫 지시의 첫 줄은 `nodes.brief`에 둔다. 제목은 PTY와 함께 사라지므로 기억에만 둔다. 셸 제목은 쓰지 않는다. 모두 없으면 비운다.
 - 노드를 지우고 부모를 바꾸는 규칙은 「[노드 제거와 입양](#노드-제거와-입양)」에 있다.
-- 데몬이 다시 시작하면 `running`이던 노드는 프로세스가 없다. 이 노드는 코드 없는 `exited(?)`로 바꾼다.
+- 데몬이 다시 시작하면 `running`이던 노드의 PTY 호스트에 다시 붙는다(「에이전트 실행」). 호스트가 없는 노드만 코드 없는 `exited(?)`로 바꾼다.
 - 사이드바는 트리와 맨 아래 [설정]이다. [설정]이 설정 창을 연다. Orca도 설정 단추를 사이드바 맨 아래에 둔다.
 - 왼쪽 사이드바와 오른쪽 칸은 안쪽 경계를 끌거나 ←·→로 너비를 바꾼다. 두 번 누르면 기본 너비로 돌아간다. 너비는 그 브라우저에만 남긴다. 말줄임으로 잘린 글자는 마우스를 올리면 브라우저 툴팁으로 전문을 보인다(목업 `docs/mockups/sidebar-resize.html`).
   - 트리는 저장소 > 워크트리 묶음 > 노드 > 자식 노드다. 그래프와 같은 노드 목록을 그린다.
@@ -69,7 +69,14 @@
 
 ## 에이전트 실행
 
-- 에이전트는 데몬이 쥔 PTY 하나에서 도는 실제 TUI다. tmux는 쓰지 않는다. 데몬이 죽으면 에이전트도 끝난다.
+- 에이전트는 PTY 하나에서 도는 실제 TUI다. tmux는 쓰지 않는다. PTY는 노드마다 따로 뜨는 PTY 호스트(`loom pty-host`, [src/node_host/host.rs](../src/node_host/host.rs))가 쥔다. 데몬은 호스트에 붙어 출력을 화면에 나눠 준다. Orca도 PTY를 데몬과 따로 사는 프로세스가 쥔다.
+  - 데몬이 다시 시작하거나 새 실행 파일로 바뀌어도(Rust 병합 뒤 다시 띄우기) 노드 프로세스, 최근 출력(256KB), 토큰이 남는다. 새 데몬은 시작할 때 `running` 노드마다 호스트에 다시 붙고, 호스트가 backlog를 먼저 보낸다. 카드는 다시 연결한 것처럼 앞 출력을 보인다.
+  - 호스트는 루프백 TCP의 OS가 고른 포트에서 듣고, 데몬은 그 주소를 `<데이터 폴더>/pty/nodes/<노드 id>`(로그인 창은 `pty/logins/`)에 둔다. 루프백 신뢰는 데몬 HTTP와 같다. Windows에도 같은 코드가 돈다.
+  - 데몬과 호스트 사이 프레임은 판 번호를 첫 프레임에 넣는다([src/node_host/wire.rs](../src/node_host/wire.rs)). 낸 판의 프레임은 바꾸지 않는다. 새 데몬이 옛 실행 파일이 띄운 호스트와 말해야 하기 때문이다.
+  - 호스트는 프로세스가 끝나면 종료 코드를 데몬에 넘기고 끝난다. 붙은 데몬이 없으면 10분 기다린다. 그 사이 다시 시작한 데몬은 코드를 받는다.
+  - 데몬이 시작할 때 다시 붙지 않은 호스트는 끝낸다: 데몬이 꺼진 동안 지운 노드, 앞 데몬의 로그인 창(창 번호는 데몬마다 0부터 센다).
+  - 개발 컨테이너에서는 사람이 데몬(`cargo run -- serve`)만 다시 띄운다. 호스트는 데몬과 다른 프로세스 그룹이라 데몬 터미널의 Ctrl+C를 받지 않고, 데몬이 끝나면 컨테이너의 init(`init: true`)이 부모가 된다. 컨테이너를 다시 만들면(`compose.yaml`을 바꾼 뒤 `docker compose up`) 컨테이너 안의 호스트도 끝난다. 그때 새 데몬은 그 노드를 `exited(?)`로 바꾼다.
+  - Windows는 이번에 유지하지 않는다. 데몬이 자기를 kill-on-close Job Object에 넣고, 호스트와 서버도 그 Job에 든다. 그래서 데몬이 끝나면 노드도 끝나고, 다시 시작한 데몬은 노드를 `exited(?)`로 바꾼다. 앱의 업데이트 카드 문구(「다시 시작하면 실행 중인 노드가 종료됩니다」)도 그대로 맞다.
 - CLI마다 실행 프로필을 둔다. 프로필은 메시지 연동(훅·app-server·서버 API)이 있는 에이전트다. 지금은 Claude Code, Codex, OpenCode 2 셋이다. 프로필이 바뀌는 이유는 CLI 버전이다.
 - 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 쓰지 않는다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다. 예: OpenCode 2의 `--standalone`은 `--server`와 함께 쓸 수 없다.
 
@@ -86,7 +93,7 @@
   - 끄면 아래의 좁은 길을 쓴다: Claude는 loom 명령만 허용 목록에 넣고, Codex는 샌드박스에서 노드 문 주소만 연다. 켜면 이 길은 쓰이지 않지만 그대로 넘긴다.
   - Claude는 계정 폴더마다 첫 실행에 「Bypass Permissions mode」 동의 창을 띄운다. 동의는 사람의 보안 결정이라 사람이 카드 터미널에서 고른다. loom은 대신 누르지 않고 사용자 설정 파일을 고치지 않는다. 동의하면 Claude가 그 폴더의 `settings.json`에 `skipDangerousModePermissionPrompt`를 쓰고 다음부터 묻지 않는다.
 - Claude `--settings`는 권한 허용 목록에 `loom guard`와 메시지 명령(`send`, `steer`, `interrupt`, `wait`, `done`)만 넣는다. 기본 권한 모드에서 사람이 없는 노드가 승인 창에서 멈추지 않게 한다. `loom spawn`은 `-- <명령>`으로 아무 명령이나 띄울 수 있어 넣지 않는다.
-- Codex 샌드박스(`workspace-write`)는 셸 명령의 네트워크를 막는다. 그래서 데몬은 노드 문을 하나 더 연다. 노드 문은 노드 전용 루프백 주소 `127.76.77.1:<OS가 고른 포트>`에서 듣고 `/api/agent/*` 가운데 `spawn`을 뺀 라우트만 둔다.
+- Codex 샌드박스(`workspace-write`)는 셸 명령의 네트워크를 막는다. 그래서 데몬은 노드 문을 하나 더 연다. 노드 문은 노드 전용 루프백 주소 `127.76.77.1:<데몬 포트>`에서 듣고 `/api/agent/*` 가운데 `spawn`을 뺀 라우트만 둔다.
   - app-server에 `-c sandbox_workspace_write.network_access=true`, `-c features.network_proxy.enabled=true`, `-c features.network_proxy.domains={"127.76.77.1"="allow"}`를 넘긴다. 셸 명령은 Codex 프록시로만 밖에 닿는다. 프록시는 노드 문 주소 말고 모든 주소를 막는다. 파일 권한은 그대로다. 인자는 [src/profile/codex.rs](../src/profile/codex.rs)의 `sandbox_args`에 있다.
   - `loom` 명령은 노드 문(`LOOM_URL`)에 Codex가 넣은 프록시 환경 변수(`ALL_PROXY`)로 닿는다. `loom spawn`만 데몬 주소(`LOOM_SPAWN_URL`)에 프록시 없이 간다. 샌드박스 안에서는 연결이 실패한다. 실패 메시지가 샌드박스 밖 실행 승인을 받으라고 적고, Codex 모델은 그 출력을 보고 승인을 요청한다. 사용법 지시(`developer_instructions`)에만 적었을 때는 요청하지 않았다.
   - 권한 프로필(`default_permissions`, `permissions.<이름>.network`)은 쓰지 않는다. TUI가 `thread/start`에 `sandbox: "workspace-write"`를 넣어 보내 프로필을 덮는다.
@@ -100,7 +107,10 @@
 - 고정한 스키마는 쓰는 요청·알림 7개만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
 - 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
 - Codex 셸 명령은 TUI가 아니라 app-server 아래에서 돈다. 그래서 app-server도 노드 환경(`LOOM_URL`, `LOOM_SPAWN_URL`, `LOOM_TOKEN`, `PATH`)을 받는다. Codex 셸 스냅샷은 로그인 셸의 `PATH`를 다시 적용한다. 그래서 `-c shell_environment_policy.set.PATH=<노드 PATH>`로 노드 `PATH`를 다시 넣는다.
-- 노드가 끝나면 데몬이 그 서버(Codex app-server, OpenCode 2 서버)를 끝낸다. Linux에서는 데몬이 끝나도 서버가 TERM을 받는다(`PR_SET_PDEATHSIG`). Windows에서는 데몬이 시작할 때 자기를 kill-on-close Job Object에 넣는다. 데몬이 어떻게 끝나든 OS가 자손을 모두 끝낸다.
+- 노드 문의 포트는 데몬 포트와 같다. 노드 환경의 `LOOM_URL`은 노드가 끝날 때까지 바뀌지 않으므로, 다시 시작한 데몬도 같은 주소에서 들어야 한다. 그 포트를 쓸 수 없으면(예: `--listen 0.0.0.0:<포트>`) OS가 고른다. 그때 앞 데몬의 노드는 다시 시작한 뒤 loom 명령이 닿지 않는다.
+- 노드 서버(Codex app-server, OpenCode 2 서버)도 노드처럼 데몬과 따로 산다(Unix: 새 프로세스 그룹). Codex TUI는 app-server에 붙어 있어 서버가 끝나면 노드도 쓸 수 없다. 포트는 loom이 골라 넘기고 서버 출력은 읽지 않는다. 출력 파이프는 데몬과 함께 닫혀 서버가 쓰기에 실패하기 때문이다.
+  - 다시 붙는 값(주소, 서버 PID, Codex 노드 스레드, OpenCode 2 세션과 비밀번호)은 노드와 함께 DB에 남긴다. 새 데몬은 그 값으로 다시 연결하고 전달 작업을 다시 시작한다. Codex는 `thread/started`가 다시 오지 않으므로 남긴 스레드 id로 `thread/read`해 상태를 읽는다.
+  - 노드가 끝나면 데몬이 그 서버를 끝낸다. 데몬이 다시 시작할 때 호스트가 없는 노드의 서버도 끝낸다. Windows는 Job Object가 데몬과 함께 모두 끝낸다(위).
 - OpenCode 2 서버는 HTTP Basic(`opencode:<비밀번호>`)만 받는다. 데몬이 노드마다 무작위 비밀번호를 만들어 서버와 TUI에 `OPENCODE_PASSWORD`로 넘긴다. 셸 명령도 이 값을 본다. 그 노드 서버에만 쓰이는 값이다.
 - OpenCode 2 셸 명령도 TUI가 아니라 서버 아래에서 돈다. 서버가 노드 환경을 받는다. 셸은 서버 환경을 그대로 받아 `PATH`를 다시 넣지 않아도 된다(실측).
 - OpenCode 2 권한: 데몬은 노드 세션을 만들 때 `permissions`에 모든 권한 허용 규칙(`*` → `allow`)을 넣는다. 사용자 설정이 `bash`를 `ask`로 두어도 노드는 승인 창을 띄우지 않는다(「실측 근거」). 사용자 설정 파일은 고치지 않는다.
@@ -304,7 +314,7 @@
 - SQLite 파일 하나: `<데이터 폴더>/loom.db`, WAL 모드. 데이터 폴더는 `~/.loom`이고, Windows는 앱 설정 관례대로 `%APPDATA%\loom`이다. 라이브러리는 `rusqlite`다.
 - 메일함, 노드 목록, 저장소 목록, 카드 위치, 설정, 이벤트 기록을 모두 여기에 둔다. 워크트리 묶음은 git이 갖는다(「저장소와 워크트리」). 데몬이 다시 시작해도 메시지는 남는다.
 - 이벤트 기록은 바꾼 트랜잭션 안에서 함께 쓴다. 되돌린 변경은 기록에 남지 않는다. 메시지 본문은 복사하지 않고 메시지 id로 가리킨다. 최근 10,000개만 남긴다.
-- 계정 로그인 폴더는 같은 폴더의 `accounts/`에 둔다.
+- 계정 로그인 폴더는 같은 폴더의 `accounts/`에, PTY 호스트 주소 파일은 `pty/`에 둔다.
 - 개발 컨테이너는 `~/.loom`을 이름 있는 볼륨(`loom_home`)에 둔다. 컨테이너를 다시 만들어도 DB와 계정 폴더가 남는다.
 
 ## 규모
@@ -321,7 +331,7 @@
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
 - 워크트리와 커밋 그래프는 `git` CLI를 부른다.
 - 개발 환경은 도커 컨테이너(`compose.yaml`)다. 호스트에는 Rust·Node를 설치하지 않는다. 실행 명령은 [AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)에 있다.
-- 노드를 띄울 때 `LOOM_URL`(노드 문 주소), `LOOM_SPAWN_URL`(데몬 주소), `LOOM_TOKEN`(노드마다 무작위 값) 환경 변수를 넣는다. 에이전트용 명령은 이 값으로 데몬의 `/api/agent/*`에 HTTP로 요청한다. 데몬은 토큰으로 보낸 노드를 찾는다. 토큰은 메모리에만 둔다. 데몬이 다시 시작하면 노드 프로세스도 모두 끝나기 때문이다.
+- 노드를 띄울 때 `LOOM_URL`(노드 문 주소), `LOOM_SPAWN_URL`(데몬 주소), `LOOM_TOKEN`(노드마다 무작위 값) 환경 변수를 넣는다. 에이전트용 명령은 이 값으로 데몬의 `/api/agent/*`에 HTTP로 요청한다. 데몬은 토큰으로 보낸 노드를 찾는다. 토큰은 노드와 함께 DB에 둔다. 노드 프로세스는 데몬이 다시 시작해도 살아 옛 토큰을 계속 낸다.
 - 노드의 `PATH` 앞에 `loom` 실행 파일의 폴더를 넣는다. 노드는 설치 없이 `loom`을 부른다.
 
 ## Windows 앱
@@ -339,7 +349,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 창 위치·크기를 기억한다(`tauri-plugin-window-state`) | Orca와 같다 |
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
-| ConPTY의 커서 위치 질의(`ESC[6n`)에 노드 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
+| ConPTY의 커서 위치 질의(`ESC[6n`)에 PTY 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
 | 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 루트 `Cargo.toml`의 `version` 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수다. 계산은 `scripts/version.sh` 한 곳이고, 화면 빌드(`npm run build`)와 CI가 함께 쓴다. CI는 그 값을 두 `Cargo.toml`에 쓴다. 그래서 `MAJOR.MINOR`를 올리면 PATCH는 0부터 다시 센다(SemVer 관례). 로컬 Rust 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |
 | 사람이 손으로 돌릴 때만(`workflow_dispatch`) GitHub Actions(`.github/workflows/windows.yml`)가 `tauri-apps/tauri-action`으로 설치 파일, 서명(`.sig`), `latest.json`을 만들어 Release `v<판>`에 올린다. 처음 설치하는 링크는 https://github.com/BrownC98/loom/releases/latest 다 | 판마다 파일이 바뀌지 않아 `latest.json`과 설치 파일이 어긋나지 않는다. 옛 파일을 지우는 스크립트가 없다. Release는 쌓인다 |
 | 기능이 어느 정도 완성될 때까지 에이전트는 Windows 빌드(Actions, `scripts/windows.sh`)를 돌리지 않는다(2026-10-20 사람 지시 "당분간, 기능이 어느정도 완성되기전에는 윈도우 빌드하지마 개발 시간만 잡아먹는다") | 빌드가 개발 시간을 잡아먹는다 |
@@ -354,7 +364,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 |---|---|
 | 상호작용 | 화면, CLI 명령(`src/cli.rs`), Windows 앱 창(`app/`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다. 예: 워크트리 닫기는 그래프의 `running` 수, `worktree::close`, 노드 지우기를 차례로 부른다 |
-| 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
+| 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록), 노드 호스트(`src/node_host/`: PTY 호스트에 붙어 출력 나누기, 중단할 셸(`mod.rs`), PTY 호스트 프로세스(`host.rs`), 프레임(`wire.rs`)), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |
 
 - 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `RepoId`, `AgentId`, `Profile`, `Provider`, `AccountId`, `Delivery`, `Kind`)만 쓴다.
@@ -410,7 +420,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 
 - Windows Claude 노드의 훅과 `loom guard` 중단. 측정한 Windows PC의 Claude 로그인이 만료되어 Claude 노드를 돌리지 못했다. `loom guard`의 셸 고르기 규칙은 Git Bash 나무로만 확인했다.
 - macOS에서 노드 문(`127.76.77.1`). macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없어 듣지 못할 수 있다. 그러면 Codex 노드는 loom 명령마다 승인을 묻는다. 첫 macOS 구현 때 확인한다.
-- macOS에서 데몬이 신호로 죽으면 Codex app-server와 OpenCode 2 서버가 남는지. Linux는 `PR_SET_PDEATHSIG`, Windows는 Job Object로 막았다. 첫 macOS 구현 때 확인한다.
+- macOS에서 PTY 호스트와 노드 서버가 데몬이 끝난 뒤에도 사는지. Linux는 실측했다(새 프로세스 그룹). 첫 macOS 구현 때 확인한다.
 - Codex app-server를 unix 소켓으로 쓸 때의 메시지 틀. 지금은 `ws://127.0.0.1`만 쓴다.
 
 ## 후속

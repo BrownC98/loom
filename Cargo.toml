@@ -24,9 +24,6 @@ ts-rs = "12.0.1"
 ureq = { version = "3.4.2", default-features = false, features = ["json", "rustls", "socks-proxy"] }
 which = "8.0.6"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2.191"
-
 [target.'cfg(windows)'.dependencies]
 win32job = "2.0.3"
 

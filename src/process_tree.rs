@@ -1,4 +1,4 @@
-//! 기반: OS 프로세스. 실행 파일을 찾고, 중단할 셸과 그 자손을 찾아 끝내고, 데몬과 함께 끝나게 한다.
+//! 기반: OS 프로세스. 실행 파일을 찾고, 중단할 셸과 그 자손을 찾아 끝내고, 데몬과 따로 살게 한다.
 //! 노드 호스트(Claude 셸), Codex app-server(Codex 셸), OpenCode 2 서버(OpenCode 셸)가 함께 쓴다. OS마다 갈리는 프로세스 처리는 이 파일에만 둔다.
 
 use std::collections::HashMap;
@@ -107,30 +107,48 @@ impl Snapshot {
     }
 }
 
-/// 데몬이 어떻게 끝나든(신호, 충돌) `cmd`로 띄운 프로세스도 끝나게 한다.
-/// Linux: 띄운 프로세스가 TERM을 받는다. 신호는 띄운 스레드가 끝날 때 간다.
-/// 노드는 tokio 작업 스레드에서 띄우고, 그 스레드는 데몬이 끝날 때까지 산다.
-/// 다른 OS: 할 일이 없다. Windows는 `end_descendants_on_exit`가 모든 자손을 맡는다.
-#[cfg(target_os = "linux")]
-pub fn end_with_daemon(cmd: &mut tokio::process::Command) {
-    // SAFETY: fork 뒤 exec 전에 async-signal-safe인 prctl 하나만 부른다.
-    unsafe {
-        cmd.pre_exec(
-            || match libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) {
-                -1 => Err(std::io::Error::last_os_error()),
-                _ => Ok(()),
-            },
-        );
-    }
+/// `cmd`로 띄운 프로세스가 데몬이 끝나도 살게 한다. 노드의 PTY 호스트와 서버(Codex app-server, OpenCode 2)가 쓴다.
+/// Unix: 새 프로세스 그룹에 넣는다. 데몬 터미널의 Ctrl+C·HUP는 데몬의 그룹에만 간다.
+/// Windows: 할 일이 없다. 자손은 `end_descendants_on_exit`의 Job에 들어 데몬과 함께 끝난다(「에이전트 실행」).
+#[cfg(unix)]
+pub fn detach(cmd: &mut std::process::Command) {
+    std::os::unix::process::CommandExt::process_group(cmd, 0);
 }
 
-#[cfg(not(target_os = "linux"))]
-pub fn end_with_daemon(_: &mut tokio::process::Command) {}
+#[cfg(not(unix))]
+pub fn detach(_: &mut std::process::Command) {}
+
+/// 서버 프로세스에 넘길 루프백 포트. OS가 고른 빈 포트를 놓고 그 번호를 돌려준다.
+/// 서버가 고르게(`--port 0`) 하면 주소를 서버 출력에서 읽어야 한다. 그 파이프는 데몬과 함께 닫혀 서버가 쓰기에 실패한다.
+pub fn free_port() -> Result<u16, String> {
+    std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .and_then(|l| l.local_addr())
+        .map(|a| a.port())
+        .map_err(|e| e.to_string())
+}
+
+/// `child`가 루프백 `port`에서 들을 때까지 기다린다. 먼저 끝나면 실패한다. 상한은 호출자가 둔다.
+pub async fn until_listening(child: &mut tokio::process::Child, port: u16) -> Result<(), String> {
+    /// 다시 연결해 보는 간격.
+    const POLL: std::time::Duration = std::time::Duration::from_millis(100);
+    loop {
+        if tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
+            .await
+            .is_ok()
+        {
+            return Ok(());
+        }
+        tokio::select! {
+            _ = child.wait() => return Err("exited before listening".into()),
+            _ = tokio::time::sleep(POLL) => {}
+        }
+    }
+}
 
 /// 이 프로세스가 어떻게 끝나든 그 자손(노드, Codex app-server, 셸)도 함께 끝나게 한다.
 /// Windows: 이 프로세스를 `KILL_ON_JOB_CLOSE` Job Object에 넣는다. 자손은 Job을 물려받는다.
 /// 핸들은 닫지 않는다. 프로세스가 끝나면 OS가 닫고, 그때 Job 안의 프로세스를 모두 끝낸다.
-/// 다른 OS: 할 일이 없다. PTY 노드는 PTY가 닫히면 HUP을 받고, Linux app-server는 `end_with_daemon`이 맡는다.
+/// 다른 OS: 할 일이 없다. 노드와 그 서버는 데몬이 다시 시작해도 산다(`detach`).
 #[cfg(windows)]
 pub fn end_descendants_on_exit() -> std::io::Result<()> {
     let job = win32job::Job::create_with_limit_info(

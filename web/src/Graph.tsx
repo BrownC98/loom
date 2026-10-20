@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useState, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty, removeNode } from './api';
@@ -8,13 +8,18 @@ import type { AgentView } from './gen/AgentView';
 import type { CardView } from './gen/CardView';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
+import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard } from './NodeCard';
+import { groupsOf, inGroup } from './repos';
 import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
+/** 옆 묶음과의 가로 틈. 묶음은 git 순서로 왼쪽부터 놓는다(목업 docs/mockups/workspace.html 2번). */
+const GROUP_GAP = 32;
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
@@ -34,6 +39,8 @@ const CARD_EXTENT: CoordinateExtent = [
 ];
 /** 묶음 왼쪽 위에서 잰 새 노드 팝오버 위치. */
 const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
+/** 묶음 오른쪽 위에서 잰 삭제 경고 위치. 경고는 [워크트리 삭제] 아래에 오른쪽을 맞춰 연다. */
+const DELETE_OFFSET: XYPosition = { x: -8, y: 40 };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
 
@@ -54,16 +61,14 @@ function IconButton(props: { label: string; title: string; path: string; onClick
   );
 }
 
-/** 원래 체크아웃 묶음. 워크트리 묶음은 5단위에서 더한다. */
-export const MAIN_GROUP = 'main';
-
 /** 그래프 화면을 `ids` 노드가 모두 보이게 옮긴다. 그래프 밖(트리)에서 노드로 옮겨 갈 때 쓴다. `ReactFlowProvider` 안에서만 부른다. */
 export function useShowNodes(): (ids: NodeId[]) => void {
   const flow = useReactFlow();
   return (ids) => flow.fitView({ nodes: ids.map((id) => ({ id: String(id) })), duration: MOVE_MS, maxZoom: 1 });
 }
 
-type GroupData = { branch: string; empty: boolean; creating: boolean; onOpen: () => void; onArrange: () => void };
+/** `onDelete`가 없으면 지울 수 없다(원래 체크아웃). */
+type GroupData = { branch: string; original: boolean; empty: boolean; creating: boolean; deleting: boolean; onOpen: () => void; onArrange: () => void; onDelete?: () => void };
 /** `ownsPty`: 이 카드가 터미널을 연다. 확대 창이나 오른쪽 칸이 열면 카드는 머리만 그린다. PTY 크기를 한쪽만 정하게 한다. `onExpand`가 없으면 확대가 없다. */
 type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; ownsPty: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand?: () => void; onRemove: () => void };
 type GroupNode = Node<GroupData, 'worktree'>;
@@ -78,7 +83,7 @@ function Group({ data }: NodeProps<GroupNode>) {
         <span className="branch" translate="no">
           {data.branch}
         </span>
-        <span className="kind">{t('worktree.original')}</span>
+        <span className="kind">{t(data.original ? 'worktree.original' : 'worktree.linked')}</span>
         <span className="spacer" />
         {!data.empty && (
           <button className="btn ghost sm" onClick={data.onArrange}>
@@ -96,6 +101,11 @@ function Group({ data }: NodeProps<GroupNode>) {
           </svg>
           {t('graph.newNode')}
         </button>
+        {data.onDelete && (
+          <button className="btn ghost sm" aria-expanded={data.deleting} onClick={data.onDelete}>
+            {t('deleteWorktree.action')}
+          </button>
+        )}
       </div>
       {data.empty && <p className="group-empty">{t('graph.empty')}</p>}
     </section>
@@ -198,6 +208,9 @@ export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId |
  * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드. 그 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다. 바탕을 누르면 끈다.
  */
 export function Graph(props: {
+  /** 그래프가 그리는 저장소. `views`는 이 저장소의 노드만이다. */
+  repo: RepoView;
+  onRepo: (repo: RepoView) => void;
   views: ReadonlyMap<NodeId, NodeView>;
   pulses: ReadonlyMap<NodeId, number>;
   agents: AgentView[];
@@ -217,7 +230,9 @@ export function Graph(props: {
   const { selected, onSelect: setSelected } = props;
   const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
-  const [creating, setCreating] = useState(false);
+  // 새 노드 창이나 삭제 경고를 연 묶음(워크트리 경로).
+  const [creating, setCreating] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
   const [refusal, setRefusal] = useState('');
   // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
@@ -226,14 +241,35 @@ export function Graph(props: {
   const [dragged, setDragged] = useState<ReadonlyMap<string, XYPosition>>(new Map());
 
   const views = [...props.views.values()];
-  const slots = treeLayout(props.views);
   const layout = CARD_LAYOUT[props.cardView];
-  const positions = new Map<NodeId, XYPosition>(views.map((v) => [v.id, dragged.get(String(v.id)) ?? slotPosition(slots.get(v.id)!, layout)]));
   /** 끈 위치를 버려 모든 카드를 나무 배치 자리로 되돌린다. */
   const arrange = () => setDragged(new Map());
-  // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
-  const right = Math.max(CARD_X + layout.width, ...[...positions.values()].map((p) => p.x + layout.width)) + CARD_X;
-  const bottom = Math.max(...views.map((v) => positions.get(v.id)!.y + (flowState.get(String(v.id))?.measured?.height ?? layout.height))) + CARD_X;
+  // 묶음마다 나무 배치를 따로 한다. 카드 위치는 묶음 기준, `positions`는 키보드 이동에 쓰는 화면 기준이다.
+  const positions = new Map<NodeId, XYPosition>();
+  let nextX = GROUP_POSITION.x;
+  const groups = groupsOf(props.repo, views).map((group) => {
+    const members = inGroup(views, group);
+    const slots = treeLayout(new Map(members.map((v) => [v.id, v])));
+    const local = new Map<NodeId, XYPosition>(members.map((v) => [v.id, dragged.get(String(v.id)) ?? slotPosition(slots.get(v.id)!, layout)]));
+    // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
+    const right = Math.max(CARD_X + layout.width, ...[...local.values()].map((p) => p.x + layout.width)) + CARD_X;
+    const bottom = Math.max(...members.map((v) => local.get(v.id)!.y + (flowState.get(String(v.id))?.measured?.height ?? layout.height))) + CARD_X;
+    const origin = { x: nextX, y: GROUP_POSITION.y };
+    nextX += right + GROUP_GAP;
+    for (const [id, p] of local) positions.set(id, { x: origin.x + p.x, y: origin.y + p.y });
+    return { group, members, local, origin, right, bottom };
+  });
+  // 묶음이 생기면(방금 만든 워크트리) 화면을 그 묶음으로, 빠지면 첫 묶음으로 옮긴다. 묶음은 오른쪽에 붙어 화면 밖에 생기기 쉽다.
+  const known = useRef<readonly string[] | null>(null);
+  const groupKey = groups.map((g) => g.group.path).join('\n');
+  useEffect(() => {
+    const paths = groupKey.split('\n');
+    const before = known.current;
+    known.current = paths;
+    if (before === null) return;
+    const target = paths.find((path) => !before.includes(path)) ?? (before.some((path) => !paths.includes(path)) ? paths[0] : undefined);
+    if (target) void flow.fitView({ nodes: [{ id: target }], duration: MOVE_MS, maxZoom: 1 });
+  }, [groupKey, flow]);
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
     if (to !== null) setSelected(to);
@@ -242,24 +278,41 @@ export function Graph(props: {
   const terminalCards = props.cardView === 'terminal';
   const keep = <N extends FlowNode>(node: N): N => ({ ...node, measured: flowState.get(node.id)?.measured });
 
-  const nodes: FlowNode[] = [
+  const nodes: FlowNode[] = groups.flatMap(({ group, members, local, origin, right, bottom }) => [
     keep<GroupNode>({
-      id: MAIN_GROUP,
+      id: group.path,
       type: 'worktree',
-      position: GROUP_POSITION,
-      style: { width: right, height: views.length > 0 ? bottom : undefined },
+      position: origin,
+      style: { width: right, height: members.length > 0 ? bottom : undefined },
       draggable: false,
-      data: { branch: MAIN_GROUP, empty: views.length === 0, creating, onOpen: () => setCreating(true), onArrange: arrange },
+      data: {
+        branch: group.label,
+        original: group.original,
+        empty: members.length === 0,
+        creating: creating === group.path,
+        deleting: deleting === group.path,
+        onOpen: () => {
+          setDeleting(null);
+          setCreating(group.path);
+        },
+        onArrange: arrange,
+        onDelete: group.original
+          ? undefined
+          : () => {
+              setCreating(null);
+              setDeleting(group.path);
+            },
+      },
     }),
-    ...views.map((view) =>
+    ...members.map((view) =>
       keep<CardNode>({
         id: String(view.id),
         type: 'card',
-        parentId: MAIN_GROUP,
+        parentId: group.path,
         extent: CARD_EXTENT,
         dragHandle: '.card-head',
         className: lit(view.id),
-        position: positions.get(view.id)!,
+        position: local.get(view.id)!,
         data: {
           view,
           agentLabel: agentLabel(props.agents, view.agent),
@@ -279,7 +332,7 @@ export function Graph(props: {
         },
       }),
     ),
-  ];
+  ]);
 
   const edges: Edge[] = views.flatMap((view) => {
     if (view.parent === null) return [];
@@ -336,7 +389,8 @@ export function Graph(props: {
         onPaneClick={() => {
           setSelected(null);
           props.onClearHighlight();
-          setCreating(false);
+          setCreating(null);
+          setDeleting(null);
           setRefusal('');
         }}
         // 카드 머리는 끌기 손잡이라 React Flow가 mousedown 전파를 막는다. 머리 클릭은 여기서 고른다.
@@ -357,25 +411,50 @@ export function Graph(props: {
           nodeClassName={(node) => (node.type === 'card' ? (node as CardNode).data.view.state.kind : 'worktree')}
           onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
         />
-        {creating && (
+        {groups.map(({ group, members, origin, right }) => (
           // 묶음 노드 안에 두면 자식 카드가 팝오버를 덮는다. 뷰포트 층에 그려 카드 위에 둔다.
-          <ViewportPortal>
-            <div style={{ position: 'absolute', transform: `translate(${GROUP_POSITION.x + POPOVER_OFFSET.x}px, ${GROUP_POSITION.y + POPOVER_OFFSET.y}px)` }}>
-              <NewNodePopover
-                branch={MAIN_GROUP}
-                agents={props.agents}
-                recent={recentAgent(views)}
-                settings={props.settings}
-                accounts={props.accounts}
-                onCreated={(id) => {
-                  setCreating(false);
-                  setSelected(id);
+          (creating === group.path || deleting === group.path) && (
+            <ViewportPortal key={group.path}>
+              <div
+                className={creating === group.path ? undefined : 'pop-end'}
+                style={{
+                  position: 'absolute',
+                  transform:
+                    creating === group.path
+                      ? `translate(${origin.x + POPOVER_OFFSET.x}px, ${origin.y + POPOVER_OFFSET.y}px)`
+                      : `translate(${origin.x + right + DELETE_OFFSET.x}px, ${origin.y + DELETE_OFFSET.y}px)`,
                 }}
-                onCancel={() => setCreating(false)}
-              />
-            </div>
-          </ViewportPortal>
-        )}
+              >
+                {creating === group.path ? (
+                  <NewNodePopover
+                    branch={group.label}
+                    place={{ repo: props.repo.id, worktree: group.path }}
+                    agents={props.agents}
+                    recent={recentAgent(views)}
+                    settings={props.settings}
+                    accounts={props.accounts}
+                    onCreated={(id) => {
+                      setCreating(null);
+                      setSelected(id);
+                    }}
+                    onCancel={() => setCreating(null)}
+                  />
+                ) : (
+                  <DeleteWorktreePopover
+                    repo={props.repo.id}
+                    group={group}
+                    views={members}
+                    onDeleted={(repo) => {
+                      setDeleting(null);
+                      props.onRepo(repo);
+                    }}
+                    onClose={() => setDeleting(null)}
+                  />
+                )}
+              </div>
+            </ViewportPortal>
+          )
+        ))}
       </ReactFlow>
       {refusal && (
         <p className="refusal" role="alert">

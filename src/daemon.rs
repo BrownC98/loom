@@ -13,7 +13,7 @@ use std::pin::pin;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
@@ -27,11 +27,11 @@ use ts_rs::TS;
 
 use crate::accounts::Accounts;
 use crate::codex_server::CodexServer;
-use crate::commit_graph::{self, CommitGraph};
+use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::graph::{
-    Delivery, EventRecord, Graph, GraphEvent, Kind, MessageId, Model, NodeId, REDELIVER_AFTER,
-    Refusal,
+    Delivery, EventRecord, Graph, GraphEvent, Kind, MessageId, Model, NodeId, Place,
+    REDELIVER_AFTER, Refusal,
 };
 use crate::node_host::NodeHost;
 use crate::process_tree;
@@ -41,13 +41,14 @@ use crate::profile::{
     self, AgentId, LaunchError, Mailbox, Profile, Remote, Start, VersionMismatch,
 };
 use crate::settings::Settings;
+use crate::worktree::{self, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
 #[derive(Embed)]
 #[folder = "web/dist"]
 struct Assets;
 
 struct App {
-    repo: RepoView,
+    repos: Repos,
     host: NodeHost<NodeId>,
     graph: Arc<Graph>,
     settings: Settings,
@@ -78,6 +79,7 @@ struct App {
 pub enum Problem {
     Refused(Refusal),
     Launch(LaunchError),
+    Repo(RepoProblem),
     /// 없는 로그인 창이다.
     NoLogin,
     /// DB·파일 오류처럼 요청을 고쳐도 낫지 않는 실패. 값은 원인 글이다.
@@ -90,7 +92,7 @@ impl Problem {
             Problem::Refused(Refusal::Db(_)) | Problem::Internal(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
-            Problem::Refused(_) | Problem::Launch(_) => StatusCode::BAD_REQUEST,
+            Problem::Refused(_) | Problem::Launch(_) | Problem::Repo(_) => StatusCode::BAD_REQUEST,
             Problem::NoLogin => StatusCode::NOT_FOUND,
         }
     }
@@ -105,6 +107,12 @@ impl IntoResponse for Problem {
 impl From<Refusal> for Problem {
     fn from(e: Refusal) -> Self {
         Problem::Refused(e)
+    }
+}
+
+impl From<RepoProblem> for Problem {
+    fn from(e: RepoProblem) -> Self {
+        Problem::Repo(e)
     }
 }
 
@@ -123,23 +131,56 @@ fn for_agent(e: impl Into<Problem>) -> AgentError {
     let text = match &problem {
         Problem::Refused(e) => e.to_string(),
         Problem::Launch(e) => e.to_string(),
+        Problem::Repo(e) => e.to_string(),
         Problem::NoLogin => "없는 로그인 창이다.".into(),
         Problem::Internal(e) => e.clone(),
     };
     (problem.status(), text)
 }
 
-#[derive(Clone, Serialize, TS)]
-#[ts(export)]
-pub struct RepoView {
-    pub name: String,
-    pub path: String,
-}
-
 #[derive(Deserialize, TS)]
 #[ts(export)]
 pub struct NewNode {
     pub start: Start,
+    pub place: Place,
+}
+
+/// [저장소 추가]. `path`는 데몬이 보는 폴더다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct NewRepo {
+    pub path: String,
+}
+
+/// [새 워크트리]. `base`에서 새 브랜치 `branch`를 만든다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct NewWorktree {
+    pub branch: String,
+    pub base: String,
+}
+
+/// [워크트리 삭제]의 대상.
+#[derive(Deserialize)]
+pub struct WorktreePath {
+    pub path: String,
+}
+
+/// [워크트리 삭제]. `delete_branch`가 참이면 그 워크트리의 브랜치도 지운다(삭제 창의 확인란).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteWorktree {
+    pub path: String,
+    #[serde(default)]
+    pub delete_branch: bool,
+}
+
+/// 커밋 그래프 칸이 읽는 것: 커밋과, 워크트리마다 체크아웃한 커밋.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct CommitGraph {
+    pub commits: Vec<Commit>,
+    pub worktrees: Vec<Worktree>,
 }
 
 /// PTY WebSocket의 텍스트 프레임. 바이너리 프레임은 키 입력과 터미널 출력이다.
@@ -156,6 +197,8 @@ pub struct SpawnRequest {
     pub name: String,
     pub run: SpawnRun,
     pub brief: String,
+    /// 있으면 부모 워크트리의 HEAD에서 이 브랜치로 새 워크트리를 만들고 자식을 그 안에 띄운다.
+    pub worktree: Option<String>,
 }
 
 /// 자식이 실행할 것.
@@ -222,10 +265,22 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
     let open = || db::open(&db_path).map_err(std::io::Error::other);
+    let repos = Repos::new(open()?);
+    let (start, start_path) = repos
+        .add_start(&std::env::current_dir()?)
+        .await
+        .map_err(std::io::Error::other)?;
+    let graph = Graph::open(open()?).map_err(std::io::Error::other)?;
+    graph
+        .settle(&Place {
+            repo: start,
+            worktree: start_path.to_string_lossy().into_owned(),
+        })
+        .map_err(std::io::Error::other)?;
     let app = Arc::new(App {
-        repo: repo_view(std::env::current_dir()?),
+        repos,
         host: NodeHost::default(),
-        graph: Arc::new(Graph::open(open()?).map_err(std::io::Error::other)?),
+        graph: Arc::new(graph),
         settings: Settings::new(open()?),
         // 근거: docs/design.md 「저장」.
         accounts: Accounts::new(db_path.with_file_name("accounts")),
@@ -257,8 +312,13 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/adopt", post(agent_adopt));
     let router = node_routes
         .clone()
-        .route("/api/repo", get(repo))
-        .route("/api/commits", get(commits))
+        .route("/api/repos", get(list_repos).post(add_repo))
+        .route(
+            "/api/repos/{id}/worktrees",
+            post(create_worktree).delete(delete_worktree),
+        )
+        .route("/api/repos/{id}/worktrees/changes", get(worktree_changes))
+        .route("/api/repos/{id}/commits", get(commits))
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
         .route("/api/nodes/{id}", delete(remove_node))
@@ -299,29 +359,98 @@ fn node_path() -> std::io::Result<OsString> {
     std::env::join_paths(dirs).map_err(std::io::Error::other)
 }
 
-fn repo_view(path: PathBuf) -> RepoView {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    RepoView {
-        name,
-        path: path.to_string_lossy().into_owned(),
+/// 더한 순서다. 첫째는 처음 띄운 데몬의 시작 폴더다.
+async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, Problem> {
+    let mut views = Vec::new();
+    for (id, path) in app.repos.list().map_err(internal)? {
+        views.push(worktree::view(id, &path).await);
     }
+    Ok(Json(views))
 }
 
-async fn repo(State(app): State<Arc<App>>) -> Json<RepoView> {
-    Json(app.repo.clone())
+async fn add_repo(
+    State(app): State<Arc<App>>,
+    Json(req): Json<NewRepo>,
+) -> Result<Json<RepoView>, Problem> {
+    let id = app.repos.add(req.path.trim()).await?;
+    Ok(Json(worktree::view(id, &app.repos.path(id)?).await))
 }
 
-async fn commits(State(app): State<Arc<App>>) -> Result<Json<CommitGraph>, Problem> {
-    commit_graph::read(std::path::Path::new(&app.repo.path))
-        .await
-        .map(Json)
-        .map_err(internal)
+async fn create_worktree(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+    Json(req): Json<NewWorktree>,
+) -> Result<Json<RepoView>, Problem> {
+    let id = RepoId(id);
+    let repo = app.repos.path(id)?;
+    let workspace = app.workspace()?;
+    worktree::create(&repo, &repo, &workspace, &req.branch, &req.base).await?;
+    Ok(Json(worktree::view(id, &repo).await))
+}
+
+/// 삭제 창이 보일, 지우면 잃는 변경.
+async fn worktree_changes(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+    Query(req): Query<WorktreePath>,
+) -> Result<Json<Vec<String>>, Problem> {
+    let repo = app.repos.path(RepoId(id))?;
+    worktree::find(&repo, &req.path).await?;
+    Ok(Json(worktree::changes(&req.path).await?))
+}
+
+/// 그 묶음의 노드를 끝내고 그래프에서 지운 뒤 폴더를 지운다. 근거: docs/design.md 「저장소와 워크트리」.
+/// 노드를 먼저 끝낸다. Windows는 프로세스가 작업 폴더로 쓰는 폴더를 지우지 못한다.
+async fn delete_worktree(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+    Query(req): Query<DeleteWorktree>,
+) -> Result<Json<RepoView>, Problem> {
+    let id = RepoId(id);
+    let repo = app.repos.path(id)?;
+    if worktree::find(&repo, &req.path).await?.original {
+        return Err(RepoProblem::Original.into());
+    }
+    for node in app.graph.nodes_in(&req.path).map_err(internal)? {
+        app.remove(node).map_err(internal)?;
+    }
+    let branch = worktree::remove(&repo, &req.path).await?;
+    if let (true, Some(branch)) = (req.delete_branch, branch) {
+        worktree::delete_branch(&repo, &branch).await?;
+    }
+    Ok(Json(worktree::view(id, &repo).await))
+}
+
+async fn commits(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<CommitGraph>, Problem> {
+    let repo = app.repos.path(RepoId(id))?;
+    Ok(Json(CommitGraph {
+        commits: commit_graph::read(&repo).await.map_err(internal)?,
+        worktrees: worktree::worktrees(&repo).await,
+    }))
 }
 
 impl App {
+    /// 설정의 워크스페이스 폴더. 없으면 기본값이다.
+    fn workspace(&self) -> Result<PathBuf, Problem> {
+        let settings = self.settings.get().map_err(internal)?;
+        settings
+            .workspace_dir
+            .map(PathBuf::from)
+            .or_else(worktree::default_workspace)
+            .ok_or_else(|| internal("홈 폴더를 찾지 못했다"))
+    }
+
+    /// 노드 하나를 그래프에서 지우고 프로세스를 끝낸다.
+    fn remove(&self, node: NodeId) -> rusqlite::Result<()> {
+        self.graph.remove(node)?;
+        self.tokens.lock().unwrap().retain(|_, n| *n != node);
+        self.host.kill(node);
+        Ok(())
+    }
+
     /// 노드 프로세스를 띄운다. 끝나면 그래프에 알린다. Codex 노드면 메일함을 그 app-server로 넘기기 시작한다.
     fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
         let Prepared {
@@ -379,14 +508,14 @@ impl App {
 
     /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.
     /// OpenCode 2면 노드 서버와 세션을 먼저 띄운다.
-    async fn prepare(&self, start: &Start) -> Result<Prepared, Problem> {
+    /// `cwd`는 노드가 도는 워크트리다.
+    async fn prepare(&self, start: &Start, cwd: &std::path::Path) -> Result<Prepared, Problem> {
         let profile = start.profile();
         let provider = profile.and_then(Profile::provider);
         let settings = self.settings.get().map_err(internal)?;
         let account = provider.and_then(|p| settings.account(p));
         let token = new_token().map_err(internal)?;
         let env = self.node_env(&token);
-        let cwd = std::path::Path::new(&self.repo.path);
         let codex = match profile {
             Some(Profile::Codex) => {
                 let home = self.accounts.config_dir(profile::Provider::Codex, account);
@@ -597,11 +726,14 @@ async fn create_node(
     State(app): State<Arc<App>>,
     Json(req): Json<NewNode>,
 ) -> Result<Json<NodeId>, Problem> {
-    let prepared = app.prepare(&req.start).await?;
+    let repo = app.repos.path(req.place.repo)?;
+    worktree::find(&repo, &req.place.worktree).await?;
+    let cwd = std::path::Path::new(&req.place.worktree);
+    let prepared = app.prepare(&req.start, cwd).await?;
     let discard = prepared.discarder();
     let id = app
         .graph
-        .add_root(req.start.agent(), |id| app.launch(id, prepared))
+        .add_root(&req.place, req.start.agent(), |id| app.launch(id, prepared))
         .inspect_err(|_| discard())?;
     Ok(Json(id))
 }
@@ -612,10 +744,7 @@ async fn remove_node(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
-    let node = NodeId(id);
-    app.graph.remove(node).map_err(internal)?;
-    app.tokens.lock().unwrap().retain(|_, n| *n != node);
-    app.host.kill(node);
+    app.remove(NodeId(id)).map_err(internal)?;
     Ok(Json(()))
 }
 
@@ -644,13 +773,37 @@ async fn agent_spawn(
         ),
         SpawnRun::Command(line) => (Start::Command { line }, req.brief),
     };
-    let prepared = app.prepare(&start).await.map_err(for_agent)?;
+    let place = app
+        .graph
+        .place_of(parent)
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    // 새 워크트리는 자식을 띄우지 못해도 남는다. 깨끗한 워크트리라 사람이 [워크트리 닫기]로 닫는다.
+    let worktree = match &req.worktree {
+        Some(branch) => {
+            let repo = app.repos.path(place.repo).map_err(for_agent)?;
+            let workspace = app.workspace().map_err(for_agent)?;
+            let from = std::path::Path::new(&place.worktree);
+            Some(
+                worktree::create(&repo, from, &workspace, branch, "HEAD")
+                    .await
+                    .map_err(for_agent)?,
+            )
+        }
+        None => None,
+    };
+    let cwd = std::path::Path::new(worktree.as_deref().unwrap_or(&place.worktree));
+    let prepared = app.prepare(&start, cwd).await.map_err(for_agent)?;
     let discard = prepared.discarder();
     let id = app
         .graph
-        .add_child(parent, &req.name, start.agent(), &queued_brief, |id| {
-            app.launch(id, prepared)
-        })
+        .add_child(
+            parent,
+            &req.name,
+            worktree.as_deref(),
+            start.agent(),
+            &queued_brief,
+            |id| app.launch(id, prepared),
+        )
         .map_err(for_agent)
         .inspect_err(|_| discard())?;
     Ok(Json(id))

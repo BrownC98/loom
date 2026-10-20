@@ -23,4 +23,8 @@ theme: Theme, terminalTheme: TerminalTheme, terminalFont: TerminalFont, cardView
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽는다.
  */
-language: Language, };
+language: Language, 
+/**
+ * 새 워크트리를 만드는 폴더. 데몬이 보는 절대 경로다. 없으면 기본값이고, 데몬이 화면에 보낼 때 채운다.
+ */
+workspaceDir: string | null, };

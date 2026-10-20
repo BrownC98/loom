@@ -18,6 +18,7 @@ use crate::profile::{AgentId, claude};
 /// `agent`가 없으면 `command`를 셸 명령 한 줄로 띄운다.
 pub fn spawn(
     name: String,
+    worktree: Option<String>,
     agent: Option<String>,
     file: Option<PathBuf>,
     command: Vec<String>,
@@ -39,7 +40,12 @@ pub fn spawn(
         Some(id) => SpawnRun::Agent(AgentId(id)),
         None => SpawnRun::Command(command.join(" ")),
     };
-    let request = SpawnRequest { name, run, brief };
+    let request = SpawnRequest {
+        name,
+        run,
+        brief,
+        worktree,
+    };
     // 프록시를 거치지 않는다. Codex 샌드박스 안에서는 실패하고, 사람이 승인하면 샌드박스 밖에서 닿는다.
     let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;
     println!("노드를 만들었다: {}", request.name);

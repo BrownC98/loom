@@ -4,12 +4,14 @@ mod codex_server;
 mod commit_graph;
 mod daemon;
 mod db;
+mod git;
 mod graph;
 mod node_host;
 mod process_tree;
 mod profile;
 mod settings;
 mod usage;
+mod worktree;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -31,6 +33,9 @@ enum Cli {
     /// 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다.
     Spawn {
         name: String,
+        /// 새 워크트리의 브랜치. 주면 내 워크트리의 HEAD에서 이 브랜치로 워크트리를 만들고 자식을 그 안에 띄운다.
+        #[arg(long)]
+        worktree: Option<String>,
         /// 카탈로그 에이전트 id(예: `claude`). 그 프로필과 계정으로 띄운다.
         #[arg(long, conflicts_with = "command", required_unless_present = "command")]
         agent: Option<String>,
@@ -72,10 +77,11 @@ fn main() -> ExitCode {
             .map_err(|e| e.to_string()),
         Cli::Spawn {
             name,
+            worktree,
             agent,
             file,
             command,
-        } => cli::spawn(name, agent, file, command),
+        } => cli::spawn(name, worktree, agent, file, command),
         Cli::Send { name, body } => cli::send(name, Kind::Queue, body),
         Cli::Steer { name, body } => cli::send(name, Kind::Steer, body),
         Cli::Interrupt { name, body } => cli::send(name, Kind::Interrupt, body),

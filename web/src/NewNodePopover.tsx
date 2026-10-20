@@ -6,6 +6,7 @@ import type { AccountView } from './gen/AccountView';
 import type { AgentId } from './gen/AgentId';
 import type { AgentView } from './gen/AgentView';
 import type { NodeId } from './gen/NodeId';
+import type { Place } from './gen/Place';
 import type { SettingsView } from './gen/SettingsView';
 import type { Start } from './gen/Start';
 import { accountName, activeAccount, windowsText } from './usage';
@@ -29,6 +30,8 @@ function choices(agents: AgentView[]): Choice[] {
 /** 프로필만 고른다. 이름은 데몬이 짓고, 첫 지시문은 띄운 뒤 카드 터미널에 입력한다. `recent`는 사람이 마지막으로 띄운 노드의 에이전트다. */
 export function NewNodePopover(props: {
   branch: string;
+  /** 새 노드가 도는 묶음. */
+  place: Place;
   agents: AgentView[];
   recent: AgentId | null | undefined;
   settings: SettingsView;
@@ -68,7 +71,7 @@ export function NewNodePopover(props: {
     setBusy(true);
     const start: Start = agent ? { kind: 'agent', agent: agent.id, brief: '' } : { kind: 'command', line: '' };
     try {
-      props.onCreated(await createNode({ start }));
+      props.onCreated(await createNode({ start, place: props.place }));
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

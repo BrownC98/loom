@@ -5,8 +5,15 @@ use crate::db;
 use crate::profile::ServerLink;
 use crate::worktree::RepoId;
 
+/// `home()`의 저장소 줄이 있는 그래프. 노드는 목록에 있는 저장소에만 든다.
 fn open(path: &Path) -> Graph {
-    Graph::open(db::open(path).unwrap()).unwrap()
+    let conn = db::open(path).unwrap();
+    conn.execute(
+        "INSERT OR IGNORE INTO repos (id, path) VALUES (1, '/repo')",
+        [],
+    )
+    .unwrap();
+    Graph::open(conn).unwrap()
 }
 
 /// 테스트 노드가 도는 자리.
@@ -1477,4 +1484,19 @@ fn child_names_cannot_start_with_hash() {
         g.add_child(lead, named("#2"), TreeLimits::default(), launched),
         Err(Refusal::ReservedName(_))
     ));
+}
+
+#[test]
+fn a_node_does_not_enter_a_repo_outside_the_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("t.db"));
+    let gone = Place {
+        repo: RepoId(2),
+        worktree: "/gone".into(),
+    };
+    assert_eq!(
+        g.add_root(&gone, None, "", |_| panic!("launched")),
+        Err(Refusal::NoRepo)
+    );
+    assert!(g.subscribe().unwrap().0.is_empty());
 }

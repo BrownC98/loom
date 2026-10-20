@@ -378,6 +378,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/repos", get(list_repos).post(add_repo))
         .route("/api/repos/clone", post(clone_repo))
         .route("/api/repos/create", post(create_repo))
+        .route("/api/repos/{id}", delete(remove_repo))
         .route("/api/folders", get(list_folders))
         .route(
             "/api/repos/{id}/worktrees",
@@ -461,6 +462,15 @@ async fn create_repo(
 ) -> Result<Json<RepoView>, Problem> {
     let id = app.repos.create(req.parent.trim(), &req.name).await?;
     Ok(Json(worktree::view(id, &app.repos.path(id)?).await))
+}
+
+/// 저장소를 목록에서 뺀다. 폴더는 그대로다. 근거: docs/design.md 「저장소와 워크트리」.
+async fn remove_repo(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.repos.remove(RepoId(id))?;
+    Ok(Json(()))
 }
 
 async fn list_folders(Query(req): Query<FolderQuery>) -> Result<Json<FolderList>, Problem> {

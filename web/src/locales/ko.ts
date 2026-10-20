@@ -24,6 +24,7 @@ const ko: typeof en = {
     expandAll: '모두 펼치기',
     label: '노드 트리',
     addRepo: '저장소 추가',
+    removeRepo: '목록에서 빼기',
     parent: '부모: {{node}} · {{group}}',
   },
   graph: {
@@ -60,6 +61,7 @@ const ko: typeof en = {
     label: '노드 이름',
     title: '더블클릭하거나 F2를 눌러 이름 바꾸기',
     hint: 'Enter 저장 · Esc 취소',
+    action: '이름 바꾸기',
   },
   repo: {
     path: '폴더',
@@ -271,6 +273,7 @@ const ko: typeof en = {
       ambiguous_nameless: '이 이름의 노드가 둘 이상입니다. 화면에서 부모를 바꾸십시오.',
       notSteerable: '{{value}}: 조정·중단을 받을 수 없는 노드입니다(Claude·Codex·OpenCode 2 노드만 가능). `loom send`로 보내십시오.',
       notSteerable_nameless: '조정·중단을 받을 수 없는 노드입니다(Claude·Codex·OpenCode 2 노드만 가능). `loom send`로 보내십시오.',
+      noRepo: '저장소가 목록에 없습니다. 저장소를 다시 추가하십시오.',
       launch: '노드를 시작하지 못했습니다: {{value}}',
       db: '기록을 읽거나 저장하지 못했습니다: {{value}}',
     },
@@ -296,6 +299,7 @@ const ko: typeof en = {
       badName: '폴더 이름으로 쓸 수 없습니다: ‘{{value}}’',
       notEmpty: '{{value}} 폴더가 이미 있고 비어 있지 않습니다. 다른 부모 폴더를 고르십시오. 그 폴더는 건드리지 않았습니다.',
       exists: '{{value}} 폴더가 이미 있습니다. 다른 이름이나 부모 폴더를 고르십시오. 그 폴더는 건드리지 않았습니다.',
+      hasNodes: '이 저장소에 노드 {{value}}개가 남았습니다. 노드를 먼저 삭제하십시오. 폴더는 건드리지 않았습니다.',
       git: 'git이 실패했습니다: {{value}}',
     },
     noLogin: '로그인 창이 더 이상 없습니다.',

@@ -22,6 +22,7 @@ const en = {
     expandAll: 'Expand all',
     label: 'Node tree',
     addRepo: 'Add repository',
+    removeRepo: 'Remove from list',
     parent: 'Parent: {{node}} · {{group}}',
   },
   graph: {
@@ -58,6 +59,7 @@ const en = {
     label: 'Node name',
     title: 'Double-click or press F2 to rename',
     hint: 'Enter to save · Esc to cancel',
+    action: 'Rename',
   },
   repo: {
     path: 'Folder',
@@ -270,6 +272,7 @@ const en = {
       ambiguous_nameless: 'More than one node has this name. Change the parent on the screen.',
       notSteerable: '{{value}}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Send it with `loom send`.',
       notSteerable_nameless: 'This node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Send it with `loom send`.',
+      noRepo: 'This repository is not in the list. Add it again.',
       launch: 'Could not start the node: {{value}}',
       db: 'Could not read or save records: {{value}}',
     },
@@ -295,6 +298,7 @@ const en = {
       badName: 'Cannot use this as a folder name: “{{value}}”',
       notEmpty: '{{value}} already exists and is not empty. Choose another parent folder. That folder was not changed.',
       exists: '{{value}} already exists. Choose another name or parent folder. That folder was not changed.',
+      hasNodes: '{{value}} nodes remain in this repository. Remove the nodes first. The folder was not changed.',
       git: 'Git failed: {{value}}',
     },
     noLogin: 'This login window no longer exists.',

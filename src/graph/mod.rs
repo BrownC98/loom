@@ -162,6 +162,8 @@ pub enum Refusal {
     Ambiguous(String),
     /// 조정·중단을 받지 못하는 노드다. 값은 보낸 쪽이 적은 이름이다.
     NotSteerable(String),
+    /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
+    NoRepo,
     Launch(String),
     Db(String),
 }
@@ -216,6 +218,7 @@ impl fmt::Display for Refusal {
                 f,
                 "{name}: 이 이름의 노드가 둘 이상이다. `loom status`로 번호를 찾고 `#번호`로 보낸다."
             ),
+            Refusal::NoRepo => write!(f, "목록에 없는 저장소다. 저장소를 다시 더한다."),
             Refusal::Launch(e) => write!(f, "노드를 띄우지 못했다: {e}"),
             Refusal::Db(e) => write!(f, "DB 오류: {e}"),
         }

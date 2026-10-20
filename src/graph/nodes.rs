@@ -525,9 +525,11 @@ fn insert(
     parent: Option<NodeId>,
     place: &Place,
     brief: &str,
-) -> rusqlite::Result<NodeId> {
-    db.execute(
-        "INSERT INTO nodes (name, agent, parent, state, repo, worktree, brief) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+) -> Result<NodeId, Refusal> {
+    // 저장소 줄이 있을 때만 넣는다. 저장소 빼기(`Repos::remove`)도 검사와 삭제가 한 문장이라 둘 사이에 노드가 남지 않는다.
+    let inserted = db.execute(
+        "INSERT INTO nodes (name, agent, parent, state, repo, worktree, brief)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM repos WHERE id = ?5)",
         params![
             name,
             to_json(agent),
@@ -538,6 +540,9 @@ fn insert(
             first_line(brief),
         ],
     )?;
+    if inserted == 0 {
+        return Err(Refusal::NoRepo);
+    }
     let id = NodeId(db.last_insert_rowid() as u32);
     let entry = Entry::Created {
         node: events::Who {

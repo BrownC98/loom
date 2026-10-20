@@ -64,7 +64,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tree { --step: 12px; list-style: none; padding: 0 8px; font-size: 13px; flex: 1; min-height: 0; overflow: auto; }
 .tree ul { list-style: none; padding: 0; }
 .tree-row { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 8px 0 calc(4px + var(--depth, 0) * var(--step)); border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; }
-.tree-row:hover { background: var(--surface-hover); }
+.tree-line { position: relative; }
+.tree-line:hover > .tree-row { background: var(--surface-hover); }
 .tree-row[aria-current="true"] { background: var(--accent-wash); }
 /* 트리는 스크롤 칸이라 바깥 고리가 잘린다. */
 .tree-row:focus-visible { outline-offset: -2px; }
@@ -86,6 +87,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dot.running { background: var(--run); }
 .dot.done { background: var(--ok); }
 .dot.exited { background: var(--err); }
+/* 줄 끝 동작 단추(docs/mockups/sidebar-crud.html 2번). 마우스를 올리거나 줄에 포커스가 있을 때만 보인다.
+   줄 끝 글자 위에 덮고, 왼쪽 그라데이션이 잘린 글자를 가린다. 바탕은 줄 바탕과 같다(고른 줄은 패널 위 accent-wash). */
+.row-acts { --row-base: var(--panel); position: absolute; top: 3px; right: 4px; height: 24px; display: none; gap: 2px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--row-wash, transparent) 16px), linear-gradient(to right, transparent, var(--row-base) 16px); }
+.tree-line:is(:hover, :focus-within) > .row-acts { display: flex; }
+.tree-line:hover > .row-acts { --row-base: var(--surface-hover); }
+.tree-line:has(> .tree-row[aria-current="true"]) > .row-acts { --row-base: var(--panel); --row-wash: var(--accent-wash); }
+.row-acts .act { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-2); cursor: pointer; }
+.row-acts .act:hover:not(:disabled) { background: var(--line); color: var(--ink); }
+.row-acts .act.remove:hover { color: var(--err); }
+.row-acts .act:disabled { opacity: 0.4; cursor: default; }
+.row-acts .act svg { width: 14px; height: 14px; }
+.row-refusal { margin: 2px 8px 4px calc(26px + var(--depth) * var(--step)); font-size: 12px; color: var(--err); }
+/* 줄 단추로 연 팝오버. 누른 줄 높이에서 사이드바 경계 밖에 붙는다. */
+.row-pop { position: fixed; z-index: 8; }
+.row-pop > .pop { position: static; max-height: calc(100vh - 16px); overflow: auto; }
 .side-foot { padding: 8px; border-top: 1px solid var(--line); }
 .side-foot .btn { width: 100%; justify-content: flex-start; }
 

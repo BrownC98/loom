@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사이드바 줄 CRUD</title>
+<style>
+  /* 토큰은 web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light;
+    --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+    --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+    --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+    --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+    --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+    --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+    --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+    --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+    --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+    --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+    --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+    --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+    --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+    --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+    --danger: light-dark(oklch(50.5% 0.213 27.5), oklch(70.4% 0.191 22.2));
+    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+  header p { font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  h2 { font-size: 16px; margin: 32px 0 4px; }
+  .lead { max-width: 76ch; color: var(--ink-2); font-size: 13px; }
+  .row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; }
+  figure { display: flex; flex-direction: column; gap: 8px; }
+  figcaption { font-size: 13px; font-weight: 600; }
+  figcaption .rec { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+  .notes { max-width: 280px; font-size: 12px; color: var(--ink-2); padding-left: 16px; }
+  .notes li + li { margin-top: 2px; }
+  .notes b { color: var(--ink); }
+  .shot { border: 1px solid var(--line); border-radius: 8px; }
+  .stage { position: relative; display: flex; gap: 8px; align-items: flex-start; }
+
+  /* 사이드바(web/src/styles.css .side, .tree, .tree-row와 같은 값). 새 것: .row-acts와 그 단추. */
+  .side { width: var(--w, 260px); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 0 8px; color: var(--ink); --step: 12px; flex: none; }
+  .side.dark { color-scheme: dark; }
+  .side-head { display: flex; align-items: center; gap: 2px; padding: 2px 8px 6px 16px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+  .side-head .spacer { flex: 1; }
+  .tree { list-style: none; padding: 0 8px; font-size: 13px; }
+  .tree li { position: relative; list-style: none; }
+  .tree-row { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 8px 0 calc(4px + var(--depth) * var(--step)); border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .tree li.hover > .tree-row { background: var(--surface-hover); }
+  .tree-row[aria-current="true"] { background: var(--accent-wash); }
+  .tree li.focus > .tree-row { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-strong); opacity: 0.6; left: calc(4px + var(--level) * var(--step) + 6.5px); }
+  svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .chev, .icon { width: 14px; height: 14px; flex: none; stroke: var(--ink-3); }
+  .leaf { width: 14px; flex: none; }
+  .name { flex-shrink: 1; min-width: 2em; max-width: 60%; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { flex-shrink: 1000; font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .branch { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { flex-shrink: 1000; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+  .spacer { flex: 1; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--run); }
+  .dot.done { background: var(--ok); }
+  .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+  .unread svg { width: 13px; height: 13px; }
+
+  /* 새 것: 줄 끝 동작 단추. 마우스를 올리거나 줄에 포커스가 있을 때만 보인다. 줄 글자 위에 덮고, 왼쪽 그라데이션이 잘린 글자를 가린다. */
+  .row-acts { position: absolute; top: 3px; right: 4px; height: 24px; display: none; gap: 2px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--row-bg) 16px); }
+  .tree li.hover > .row-acts, .tree li.focus > .row-acts { display: flex; }
+  .tree li.hover { --row-bg: var(--surface-hover); }
+  .tree li.focus:not(.hover) { --row-bg: var(--panel); }
+  .act { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 5px; background: none; color: var(--ink-2); cursor: pointer; }
+  .act:hover, .act.press { background: var(--line); color: var(--ink); }
+  .act.del:hover, .act.del.press { color: var(--danger); }
+  .act svg { width: 14px; height: 14px; }
+  .btn.sm { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 5px; background: none; color: var(--ink-3); }
+  .btn.sm svg { width: 14px; height: 14px; }
+
+  /* 우클릭 메뉴(B안) */
+  .menu { position: absolute; width: 168px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 6px 20px oklch(0% 0 0 / 0.12); font-size: 13px; z-index: 2; }
+  .menu div { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 5px; }
+  .menu div:first-child { background: var(--surface-hover); }
+  .menu svg { width: 14px; height: 14px; color: var(--ink-3); }
+  .menu kbd { margin-left: auto; font: 11px var(--font); color: var(--ink-3); }
+  .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+  .menu .danger { color: var(--danger); }
+  .menu .danger svg { color: var(--danger); }
+
+  /* 팝오버(web/src/styles.css .pop의 값을 줄였다). 내용은 기존 팝오버 그대로다. */
+  .pop { width: 300px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; box-shadow: 0 8px 28px oklch(0% 0 0 / 0.14); font-size: 13px; display: flex; flex-direction: column; gap: 10px; }
+  .pop h3 { font-size: 14px; display: flex; gap: 6px; align-items: baseline; }
+  .pop h3 span { font-weight: 500; color: var(--ink-3); }
+  .pop .hint { font-size: 12px; color: var(--ink-3); }
+  .pop .err { font-size: 12px; color: var(--danger); }
+  .pop .mono { font-family: ui-monospace, monospace; font-size: 11.5px; }
+  .pop .field { display: flex; flex-direction: column; gap: 4px; }
+  .pop .field label { font-size: 12px; color: var(--ink-2); }
+  .pop .in { height: 30px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 8px; display: flex; align-items: center; color: var(--ink-3); }
+  .pop .pick { border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
+  .pop .pick div { height: 26px; display: flex; align-items: center; padding: 0 6px; border-radius: 4px; }
+  .pop .pick .on { background: var(--accent-wash); font-weight: 600; }
+  .pop .acts { display: flex; justify-content: flex-end; gap: 6px; }
+  .pop .b { height: 28px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: none; font: inherit; color: var(--ink); }
+  .pop .b.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .pop .b.danger { background: var(--danger); color: oklch(98.5% 0 0); border-color: var(--danger); }
+  .pop ul { padding-left: 18px; font-size: 12px; color: var(--ink-2); }
+  .pop label.check { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+  .inline-err { margin: 2px 8px 4px calc(26px + var(--depth) * 12px); font-size: 12px; color: var(--danger); }
+
+  table { border-collapse: collapse; font-size: 13px; margin-top: 12px; max-width: 1040px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+  code { font-size: 12px; }
+</style>
+
+<header>
+  <p>응답할 곳: 총괄 · claude-1</p>
+  <p>연 담당: 총괄 · claude-1</p>
+  <h1>사이드바 줄에서 저장소·워크트리·노드 만들기·고치기·지우기</h1>
+  <p class="lead">사용자 요청(2026-10-20): "사이드바의 요소들을 crud 가능하게 만들어". 지금 사이드바는 저장소 더하기([+])와 노드 이름 바꾸기(두 번 누르기, F2)만 한다. 나머지는 그래프에만 있다. 그래프의 팝오버를 그대로 다시 쓴다. 새 창을 만들지 않는다.</p>
+</header>
+
+<h2>지금</h2>
+<p class="lead">시험 데몬에서 찍었다(화면 언어 English). 줄에는 동작 단추가 없다.</p>
+<div class="row">
+  <img class="shot" src="sidebar-crud-before.png" width="260" alt="지금 사이드바: 저장소, main과 기능 워크트리, 셸 노드 셋">
+  <table style="margin-top:0">
+    <tr><th>줄</th><th>만들기</th><th>읽기</th><th>고치기</th><th>지우기</th></tr>
+    <tr><td>저장소</td><td>사이드바 머리 [+]</td><td>사이드바</td><td>없음</td><td>없음</td></tr>
+    <tr><td>워크트리</td><td>그래프 도구 줄 [새 워크트리]</td><td>사이드바·그래프</td><td>없음</td><td>그래프 묶음 머리 [워크트리 삭제]</td></tr>
+    <tr><td>노드</td><td>그래프 묶음 머리 [새 노드]</td><td>사이드바·그래프</td><td>이름: 사이드바·카드. 부모: 그래프에서 끌기</td><td>그래프 카드 [노드 제거]</td></tr>
+  </table>
+</div>
+
+<h2>1. 동작을 어디에 보일까</h2>
+<p class="lead">같은 장면을 두 안으로 그렸다. 폭은 기본 260px다. 마우스는 각 그림에서 한 줄에 있다.</p>
+<div class="row">
+  <figure>
+    <figcaption>A. 줄 끝 단추(마우스·포커스 때)<span class="rec">권장</span></figcaption>
+    <div class="stage">
+      <div class="side" data-scene="main" data-hover="g:기능"></div>
+    </div>
+    <ul class="notes">
+      <li>마우스를 올린 줄과 포커스 줄에만 단추가 보인다. 평소 줄은 지금과 같다.</li>
+      <li>단추는 줄 끝 글자(에이전트 이름, 경로) 위에 덮인다. 이름은 가리지 않는다.</li>
+      <li>VS Code 탐색기·Orca 사이드바와 같은 모양이다. 찾기 쉽다.</li>
+      <li>단추 아이콘은 그래프의 같은 동작과 같다.</li>
+    </ul>
+  </figure>
+  <figure>
+    <figcaption>B. 우클릭 메뉴</figcaption>
+    <div class="stage">
+      <div class="side" data-scene="main" data-hover="g:기능"></div>
+      <div class="menu" style="left: 150px; top: 98px">
+        <div><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</div>
+        <hr>
+        <div class="danger"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제<kbd>Delete</kbd></div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li>줄이 늘 깨끗하다.</li>
+      <li><b>문제</b>: 메뉴가 있는 줄 모르면 찾지 못한다. loom에는 우클릭 메뉴가 아직 없다. 메뉴 부품(위치, 키보드 이동, 닫기)을 새로 만든다.</li>
+      <li>줄마다 동작이 한두 개라 메뉴가 거의 비어 있다.</li>
+    </ul>
+  </figure>
+</div>
+
+<h2>2. A안: 줄 종류마다 단추</h2>
+<p class="lead">왼쪽 셋은 마우스를 올린 줄이 다르다. 넷째는 최소 폭 180px에서 키보드 포커스가 노드 줄에 있다.</p>
+<div class="row">
+  <figure>
+    <figcaption>저장소 줄</figcaption>
+    <div class="side" data-scene="main" data-hover="r:demo"></div>
+    <ul class="notes" style="max-width:260px">
+      <li><b>새 워크트리</b>: 도구 줄과 같은 팝오버(<code>NewWorktreePopover</code>). 첫 커밋 전 저장소에서는 단추를 끈다(도구 줄과 같다).</li>
+      <li><b>목록에서 빼기</b>: 폴더와 파일은 그대로다. 노드가 남았으면 거절한다(3번).</li>
+    </ul>
+  </figure>
+  <figure>
+    <figcaption>워크트리 줄(추가한 워크트리)</figcaption>
+    <div class="side" data-scene="main" data-hover="g:기능"></div>
+    <ul class="notes" style="max-width:260px">
+      <li><b>새 노드</b>: 그 묶음에 뿌리 노드를 띄운다. 묶음 머리와 같은 팝오버(<code>NewNodePopover</code>).</li>
+      <li><b>워크트리 삭제</b>: 묶음 머리와 같은 경고 팝오버(<code>DeleteWorktreePopover</code>).</li>
+      <li>원래 체크아웃(main) 줄에는 [새 노드]만 있다. 지우지 않는다.</li>
+    </ul>
+  </figure>
+  <figure>
+    <figcaption>노드 줄</figcaption>
+    <div class="side" data-scene="main" data-hover="n:shell-2"></div>
+    <ul class="notes" style="max-width:260px">
+      <li><b>이름 바꾸기</b>: 지금 동작(두 번 누르기, F2)에 단추 하나만 더한다.</li>
+      <li><b>노드 제거</b>: 카드와 같이 확인 없이 바로 지운다. 자식은 남아 뿌리가 된다.</li>
+      <li>노드 줄에는 [새 노드]가 없다(3번).</li>
+    </ul>
+  </figure>
+  <figure>
+    <figcaption>180px, 키보드 포커스</figcaption>
+    <div class="side" style="--w:180px" data-scene="main" data-focus="n:shell-2"></div>
+    <ul class="notes" style="max-width:180px">
+      <li>단추 둘(52px)은 줄 끝 글자만 덮는다. 이름은 가리지 않는다. 이 폭에서는 지금도 이름이 줄임표로 잘린다.</li>
+      <li>키: <b>Delete</b> = 그 줄의 지우기(노드 제거, 워크트리 삭제 창, 목록에서 빼기). <b>F2</b> = 이름(지금과 같다).</li>
+      <li>Tab은 포커스 줄의 단추로 간다. 줄 사이 이동은 지금처럼 ↑↓다.</li>
+    </ul>
+  </figure>
+</div>
+
+<h2>3. 팝오버와 거절</h2>
+<p class="lead">팝오버는 누른 줄 오른쪽, 사이드바 경계 밖에 붙는다. 내용은 그래프의 팝오버와 같다.</p>
+<div class="row">
+  <figure>
+    <figcaption>워크트리 줄 [새 노드]</figcaption>
+    <div class="stage">
+      <div class="side" data-scene="main" data-hover="g:기능" data-press="g:기능:0"></div>
+      <div class="pop">
+        <h3>새 노드<span>기능</span></h3>
+        <div class="field"><label>프로필</label><div class="in">검색</div>
+          <div class="pick"><div class="on">Claude Code</div><div>Codex</div><div>셸</div></div></div>
+        <div class="acts"><button class="b">취소</button><button class="b primary">만들기</button></div>
+      </div>
+    </div>
+  </figure>
+  <figure>
+    <figcaption>워크트리 줄 [워크트리 삭제]</figcaption>
+    <div class="stage">
+      <div class="side" data-scene="main" data-hover="g:기능" data-press="g:기능:1"></div>
+      <div class="pop">
+        <h3>워크트리 삭제<span>기능</span></h3>
+        <p class="hint mono">폴더: ~/loom/workspaces/demo/기능</p>
+        <p class="hint">커밋하지 않은 변경이 없습니다.</p>
+        <ul><li>실행 중인 노드 1개를 끝냅니다: shell-2</li><li>노드 2개를 그래프에서 지웁니다.</li></ul>
+        <label class="check"><input type="checkbox"> 브랜치 「기능」도 삭제</label>
+        <div class="acts"><button class="b">취소</button><button class="b danger">삭제</button></div>
+      </div>
+    </div>
+  </figure>
+  <figure>
+    <figcaption>저장소 [목록에서 빼기], 노드가 남음</figcaption>
+    <div class="side" data-scene="main" data-focus="r:demo" data-error="r:demo"></div>
+    <ul class="notes">
+      <li>확인 창이 없다. 빼도 [+]로 다시 더할 수 있다.</li>
+      <li>노드가 남았으면 데몬이 거절하고, 줄 아래에 이유를 보인다. 노드는 사람이 먼저 지운다. 보관한 메시지를 몰래 지우지 않는다.</li>
+    </ul>
+  </figure>
+</div>
+
+<h2>4. 결정할 것과 권장</h2>
+<table>
+  <tr><th>질문</th><th>권장</th><th>이유</th></tr>
+  <tr><td>동작 자리</td><td>A. 줄 끝 단추(마우스·포커스 때) + Delete 키</td><td>사이드바에서 바로 보인다. 우클릭 메뉴는 새 부품이 크고 찾기 어렵다.</td></tr>
+  <tr><td>저장소 고치기</td><td>없음</td><td>이름은 폴더 이름이고 경로는 저장소의 정체다. 고칠 값이 없다. 다른 경로면 빼고 다시 더한다.</td></tr>
+  <tr><td>저장소 지우기</td><td>「목록에서 빼기」: <code>repos</code> 줄만 지운다. 폴더는 지우지 않는다. 그 저장소에 노드가 있으면 거절한다</td><td>사람의 파일을 잃지 않는다. 노드를 같이 지우면 보관 메시지를 잃는다. 데몬 시작 폴더 저장소는 다음 시작 때 다시 더해진다(지금 규칙).</td></tr>
+  <tr><td>워크트리 만들기</td><td>저장소 줄 [새 워크트리]. 도구 줄 단추는 그대로 둔다</td><td>사이드바 CRUD 요청이다. 같은 팝오버라 새 부품은 단추 하나다.</td></tr>
+  <tr><td>워크트리 고치기</td><td>없음</td><td>브랜치 이름을 바꿔도 폴더 경로는 그대로라 이름과 폴더가 어긋난다. 노드는 폴더 경로를 가리킨다. 터미널의 <code>git branch -m</code>은 5초 안에 사이드바에 보인다.</td></tr>
+  <tr><td>노드 만들기</td><td>워크트리 줄에서만. 그 묶음의 뿌리 노드</td><td>사람이 띄운 노드는 늘 뿌리다(지금 규칙). 자식으로 띄우려면 <code>NewNode</code>에 부모가 생기고 데몬 규칙이 바뀐다. 필요하면 띄운 뒤 그래프에서 끌어 입양한다.</td></tr>
+  <tr><td>노드 고치기</td><td>이름만(단추 + F2). 부모 바꾸기는 그래프 끌기 그대로</td><td>사이드바에서 끌어 입양하는 부품은 크다. 요청이 오면 따로 한다.</td></tr>
+  <tr><td>노드 지우기</td><td>단추 + Delete. 확인 없이 바로 지운다</td><td>카드와 같은 규칙(2026-10-20 사람 지시 「노드 제거시 경고 팝업 안뜨고 바로 삭제」).</td></tr>
+</table>
+
+<h2>5. 바꿀 곳</h2>
+<table>
+  <tr><th>파일·함수</th><th>바꿀 것</th></tr>
+  <tr><td><code>src/daemon.rs</code>, <code>src/worktree.rs</code> <code>Repos</code></td><td><code>DELETE /api/repos/{id}</code> 하나. 그 저장소에 노드가 있으면 <code>Problem</code>(거절 글)을 돌려준다. 노드 검사와 줄 지우기는 한 트랜잭션이다.</td></tr>
+  <tr><td><code>web/src/api.ts</code></td><td><code>removeRepo(id)</code> 하나.</td></tr>
+  <tr><td><code>web/src/Tree.tsx</code></td><td><code>Item</code>에 줄 동작 목록을 더하고 <code>li</code> 안 <code>.row-acts</code>에 그린다(단추 안에 단추를 두지 못한다). 열린 팝오버 상태 하나. Delete 키. 팝오버는 기존 셋을 그대로 그린다.</td></tr>
+  <tr><td><code>web/src/App.tsx</code></td><td>Tree에 <code>workspaceDir</code>, <code>settings</code>, <code>accounts</code>, 저장소 갱신(<code>putRepo</code>)·저장소 빼기 콜백을 넘긴다.</td></tr>
+  <tr><td><code>web/src/Graph.tsx</code></td><td><code>recentAgent</code>를 Tree가 쓰도록 내보낸다. 그 밖은 그대로다.</td></tr>
+  <tr><td><code>web/src/styles.css</code></td><td><code>.row-acts</code>와 단추 규칙. 아이콘 워커가 병합된 뒤 그 아이콘(lucide-react)을 쓴다.</td></tr>
+  <tr><td><code>web/src/locales/*</code></td><td>「목록에서 빼기」, 거절 글 하나.</td></tr>
+  <tr><td><code>docs/design.md</code></td><td>「저장소와 워크트리」 더하기 줄의 「목록을 지우는 기능은 없다」를 고치고, 사이드바 줄에 동작을 적는다.</td></tr>
+</table>
+
+<script>
+  // 장면: [깊이, 종류, 이름, 보조 글자, 선택]. 종류: r 저장소, g 묶음, n 노드.
+  const SCENE = [
+    [0, 'r', 'demo', '/tmp/crud-home/demo'],
+    [1, 'g', 'main', '원래 체크아웃', { original: true }],
+    [2, 'n', 'shell-1', '터미널'],
+    [1, 'g', '기능', ''],
+    [2, 'n', 'shell-2', '터미널', { unread: 2 }],
+    [3, 'n', 'shell-3', '터미널', { done: true }],
+  ];
+  const svg = (cls, body) => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+  const CHEV = '<path d="M6 9l6 6 6-6"/>';
+  const BRANCH = '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>';
+  const MAIL = '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>';
+  const PLUS = '<path d="M12 5v14M5 12h14"/>';
+  const TRASH = '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>';
+  const PEN = '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>';
+  const OUT = '<path d="M5 12h14"/>';
+  const WT = '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>';
+  const acts = (kind, opt) => kind === 'r' ? [['새 워크트리', WT], ['목록에서 빼기', OUT, 'del']]
+    : kind === 'g' ? (opt.original ? [['새 노드', PLUS]] : [['새 노드', PLUS], ['워크트리 삭제', TRASH, 'del']])
+    : [['이름 바꾸기', PEN], ['노드 제거', TRASH, 'del']];
+
+  for (const side of document.querySelectorAll('.side')) {
+    const [hover, focus, press, error] = ['hover', 'focus', 'press', 'error'].map((k) => side.dataset[k]);
+    let html = `<div class="side-head">저장소<span class="spacer"></span><span class="btn sm">${svg('', PLUS)}</span><span class="btn sm">${svg('', '<path d="M7 15l5 5 5-5M7 9l5-5 5 5"/>')}</span></div><ul class="tree" role="tree" aria-label="저장소">`;
+    SCENE.forEach(([depth, kind, name, sub, opt = {}], i) => {
+      const key = `${kind}:${name}`;
+      const next = SCENE[i + 1];
+      const branch = next && next[0] > depth;
+      let lines = '';
+      for (let l = 0; l < depth; l++) lines += `<span class="guide" style="--level:${l}"></span>`;
+      let body = branch ? svg('chev', CHEV) : '<span class="leaf"></span>';
+      if (kind === 'r') body += `<span class="name">${name}</span><span class="sub">${sub}</span>`;
+      if (kind === 'g') body += svg('icon', BRANCH) + `<span class="branch">${name}</span>` + (sub ? `<span class="tag">${sub}</span>` : '');
+      if (kind === 'n') {
+        body += `<span class="dot${opt.done ? ' done' : ''}"></span><span class="name">${name}</span><span class="sub">${sub}</span>`;
+        if (opt.unread) body += `<span class="spacer"></span><span class="unread">${svg('', MAIL)}${opt.unread}</span>`;
+      }
+      const cls = [hover === key && 'hover', focus === key && 'focus'].filter(Boolean).join(' ');
+      const cur = kind === 'r' ? ' aria-current="true"' : '';
+      const buttons = acts(kind, opt).map(([label, icon, del], j) =>
+        `<button class="act${del ? ' del' : ''}${press === `${key}:${j}` ? ' press' : ''}" aria-label="${label}" title="${label}" tabindex="-1">${svg('', icon)}</button>`).join('');
+      html += `<li role="treeitem" class="${cls}"${branch ? ' aria-expanded="true"' : ''}><button class="tree-row" style="--depth:${depth}"${cur} tabindex="${i === 0 ? 0 : -1}">${lines}${body}</button><span class="row-acts">${buttons}</span></li>`;
+      if (error === key) html += `<li class="inline-err" role="alert" style="--depth:${depth}">노드 2개가 남아 있어 뺄 수 없습니다. 노드를 먼저 지우세요.</li>`;
+    });
+    side.innerHTML = html + '</ul>';
+  }
+</script>
+</html>

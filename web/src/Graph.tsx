@@ -25,7 +25,7 @@ const CARD_TOP = 60;
 const CARD_LAYOUT: Record<CardView, { width: number; height: number; step: number; columnStep: number }> = {
   // 기본 글꼴로 터미널이 80열을 넘는다(TUI가 80열로 그린다).
   terminal: { width: 600, height: 330, step: 376, columnStep: 620 },
-  header: { width: 360, height: 36, step: 96, columnStep: 380 },
+  header: { width: 400, height: 36, step: 96, columnStep: 420 },
 };
 /** 카드는 묶음 머리 위나 왼쪽 테두리 밖으로 끌 수 없다. 오른쪽·아래로 끌면 묶음이 따라 커진다. 좌표는 묶음 기준이다. */
 const CARD_EXTENT: CoordinateExtent = [

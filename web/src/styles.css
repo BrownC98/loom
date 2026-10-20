@@ -182,7 +182,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .card { width: 600px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
-.card-head .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-head .name { font-weight: 600; min-width: 0; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
 .agent-logo { width: 14px; height: 14px; flex-shrink: 0; display: inline-grid; place-items: center; color: var(--ink-2); }
 span.agent-logo[style] { background: currentColor; mask: var(--logo) center / contain no-repeat; }
@@ -192,7 +192,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .card-head .spacer { flex: 1; }
 .card-head:last-child { border-bottom: 0; }
 /* 머리만 보는 카드. 폭은 Graph.tsx `CARD_LAYOUT.header.width`다. */
-.canvas[data-card-view="header"] .card { width: 360px; }
+.canvas[data-card-view="header"] .card { width: 400px; }
 .state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.running { color: var(--run); }

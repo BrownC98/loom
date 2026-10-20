@@ -272,6 +272,7 @@ const en = {
       ambiguous_nameless: 'More than one node has this name. Change the parent on the screen.',
       notSteerable: '{{value}}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Send it with `loom send`.',
       notSteerable_nameless: 'This node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Send it with `loom send`.',
+      noRepo: 'This repository is not in the list. Add it again.',
       launch: 'Could not start the node: {{value}}',
       db: 'Could not read or save records: {{value}}',
     },

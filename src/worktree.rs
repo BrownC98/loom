@@ -209,7 +209,7 @@ impl Repos {
     }
 
     /// 목록에서 뺀다. 폴더는 건드리지 않는다. 노드가 남았으면 거절한다. 보관한 메시지를 몰래 지우지 않는다.
-    /// `nodes`는 같은 DB 파일이다. 검사와 삭제가 한 문장이라 그 사이에 노드가 들어오지 못한다.
+    /// `nodes`는 같은 DB 파일이다. 검사와 삭제가 한 문장이고, 노드 넣기도 저장소 줄이 있을 때만 한다(`graph::nodes::insert`). 그래서 저장소 없는 노드가 남지 않는다.
     pub fn remove(&self, id: RepoId) -> Result<(), RepoProblem> {
         let db = self.db.lock().unwrap();
         let fail = |e: rusqlite::Error| RepoProblem::Git(e.to_string());

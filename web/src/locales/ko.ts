@@ -273,6 +273,7 @@ const ko: typeof en = {
       ambiguous_nameless: '이 이름의 노드가 둘 이상입니다. 화면에서 부모를 바꾸십시오.',
       notSteerable: '{{value}}: 조정·중단을 받을 수 없는 노드입니다(Claude·Codex·OpenCode 2 노드만 가능). `loom send`로 보내십시오.',
       notSteerable_nameless: '조정·중단을 받을 수 없는 노드입니다(Claude·Codex·OpenCode 2 노드만 가능). `loom send`로 보내십시오.',
+      noRepo: '저장소가 목록에 없습니다. 저장소를 다시 추가하십시오.',
       launch: '노드를 시작하지 못했습니다: {{value}}',
       db: '기록을 읽거나 저장하지 못했습니다: {{value}}',
     },

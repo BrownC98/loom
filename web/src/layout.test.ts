@@ -187,10 +187,25 @@ describe('overlap after drag (untangle)', () => {
     expect(at[1]).toEqual({ x: 442, y: 20 });
   });
 
-  it('the box dropped last stays; the box under it moves aside', () => {
-    const at = placeGroups([g(null), g(null, { dragged: { x: 10, y: 20 }, pinned: true })], 'down', start);
-    expect(at[1]).toEqual({ x: 10, y: 20 });
-    expect(at[0]).toEqual({ x: 142, y: 20 });
+  // 묶음 0은 (10, 20)에 폭 100이다. 중심은 x 60이다.
+  it('a box dropped on the far half of another box goes after it; the other box stays', () => {
+    const at = placeGroups([g(null), g(null, { dragged: { x: 50, y: 20 }, pinned: true })], 'down', start);
+    expect(at[0]).toEqual({ x: 10, y: 20 });
+    expect(at[1]).toEqual({ x: 142, y: 20 });
+  });
+
+  it('a box dropped past the center line of another box goes before it', () => {
+    const at = placeGroups([g(null), g(null, { dragged: { x: -30, y: 20 }, pinned: true })], 'down', start);
+    expect(at[0]).toEqual({ x: 10, y: 20 });
+    expect(at[1]).toEqual({ x: -122, y: 20 });
+  });
+
+  it('a box dropped past the center line into a full row takes that place and pushes the rest', () => {
+    // 0(10..110), 1(142..242). 2를 1의 중심선(192) 앞으로 놓았다. 0과 1 사이에는 들어갈 자리가 없어 2가 1의 자리를 차지한다.
+    const at = placeGroups([g(null), g(null), g(null, { dragged: { x: 130, y: 20 }, pinned: true })], 'down', start);
+    expect(at[0]).toEqual({ x: 10, y: 20 });
+    expect(at[2]).toEqual({ x: 142, y: 20 });
+    expect(at[1]).toEqual({ x: 274, y: 20 });
   });
 
   it('wider cards after a view switch push the dragged card that they now cover', () => {

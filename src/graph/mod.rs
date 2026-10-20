@@ -137,8 +137,8 @@ pub enum Toward {
 #[serde(default, rename_all = "camelCase")]
 #[ts(export)]
 pub struct TreeLimits {
-    /// 사람이 띄운 노드가 깊이 0이다. 0이면 에이전트가 자식을 만들지 못한다.
-    pub max_depth: u32,
+    /// 사람이 띄운 노드가 깊이 0이다. 0이면 에이전트가 자식을 만들지 못한다. `None`이면 상한이 없다.
+    pub max_depth: Option<u32>,
     /// 한 부모의 자식 수. `None`이면 상한이 없다.
     pub max_children: Option<u32>,
 }
@@ -146,7 +146,7 @@ pub struct TreeLimits {
 impl Default for TreeLimits {
     fn default() -> Self {
         Self {
-            max_depth: 2,
+            max_depth: Some(2),
             max_children: None,
         }
     }

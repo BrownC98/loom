@@ -242,7 +242,7 @@ fn tree_limits_come_from_the_caller() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let flat = TreeLimits {
-        max_depth: 0,
+        max_depth: Some(0),
         max_children: None,
     };
     assert!(matches!(
@@ -250,7 +250,7 @@ fn tree_limits_come_from_the_caller() {
         Err(Refusal::TooDeep)
     ));
     let two = TreeLimits {
-        max_depth: 5,
+        max_depth: Some(5),
         max_children: Some(2),
     };
     let a = g.add_child(lead, named("a"), two, launched).unwrap();
@@ -268,11 +268,29 @@ fn tree_limits_come_from_the_caller() {
         Err(Refusal::TooManyChildren(2))
     ));
     let deep = TreeLimits {
-        max_depth: 3,
+        max_depth: Some(3),
         max_children: None,
     };
     let a1 = g.add_child(a, named("a1"), deep, launched).unwrap();
-    g.add_child(a1, named("a2"), deep, launched).unwrap();
+    let a2 = g.add_child(a1, named("a2"), deep, launched).unwrap();
+    // 깊이 상한이 없으면 더 깊이 만들고 데려온다.
+    let open_depth = TreeLimits {
+        max_depth: None,
+        max_children: None,
+    };
+    let a3 = g.add_child(a2, named("a3"), open_depth, launched).unwrap();
+    g.add_child(a3, named("a4"), open_depth, launched).unwrap();
+    let loner = root(&g, "외톨이");
+    g.adopt(a3, loner, open_depth).unwrap();
+}
+
+#[test]
+fn tree_limits_read_null_depth_as_no_limit() {
+    // 비운 칸은 null로 저장된다. 없는 값은 기본값(2)이다. 옛 설정의 숫자는 그대로다.
+    let read = |json: &str| serde_json::from_str::<TreeLimits>(json).unwrap().max_depth;
+    assert_eq!(read(r#"{"maxDepth":null}"#), None);
+    assert_eq!(read("{}"), Some(2));
+    assert_eq!(read(r#"{"maxDepth":4}"#), Some(4));
 }
 
 #[test]
@@ -1420,7 +1438,7 @@ fn rename_refuses_names_relatives_use() {
     let sibling = child(&g, lead, "sibling");
     let leaf = child(&g, middle, "leaf");
     let deep = TreeLimits {
-        max_depth: 3,
+        max_depth: Some(3),
         ..TreeLimits::default()
     };
     g.add_child(leaf, named("tip"), deep, launched).unwrap();

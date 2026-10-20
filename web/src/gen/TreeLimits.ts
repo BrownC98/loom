@@ -5,9 +5,9 @@
  */
 export type TreeLimits = { 
 /**
- * 사람이 띄운 노드가 깊이 0이다. 0이면 에이전트가 자식을 만들지 못한다.
+ * 사람이 띄운 노드가 깊이 0이다. 0이면 에이전트가 자식을 만들지 못한다. `None`이면 상한이 없다.
  */
-maxDepth: number, 
+maxDepth: number | null, 
 /**
  * 한 부모의 자식 수. `None`이면 상한이 없다.
  */

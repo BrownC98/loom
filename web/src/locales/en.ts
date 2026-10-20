@@ -142,7 +142,7 @@ const en = {
     maxDepth: 'Nesting depth',
     maxChildren: 'Children per parent',
     noLimit: 'No limit',
-    treeLimitsHint: 'Nodes you start are depth 0. At 0, agents cannot start child nodes. Finished children count toward the limit. Linking cards to change a parent uses the same limits.',
+    treeLimitsHint: 'Nodes you start are depth 0. At 0, agents cannot start child nodes. Leave a field empty for no limit. Finished children count toward the limit. Linking cards to change a parent uses the same limits.',
   },
   accounts: {
     confirmRemove: 'Removes the account {{name}} and the login folder loom created.',

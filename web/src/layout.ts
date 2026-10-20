@@ -73,7 +73,7 @@ function layoutTree(items: readonly TreeItem[], direction: ArrangeDirection, gap
   );
 }
 
-/** 부모와 자식 카드 사이 틈. 간선이 지나간다. */
+/** 카드 틈. 단계 틈으로 간선이 지나간다. */
 const CARD_GAP: TreeGap = { depth: 46, lane: 20 };
 
 /**

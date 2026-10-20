@@ -15,4 +15,12 @@ unread: number,
 /**
  * 부모가 없어 보관한 메시지 수. 새 부모가 생기면 그 부모가 받는다.
  */
-held: number, };
+held: number, 
+/**
+ * CLI가 알린 모델 id 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
+ */
+model: string | null, 
+/**
+ * CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
+ */
+effort: string | null, };

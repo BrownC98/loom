@@ -21,6 +21,8 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 const LISTENING: &str = "server listening on ";
 /// Basic 인증의 사용자 이름. 서버가 정한 값이다(실측: 다른 이름과 Bearer는 401).
 const USER: &str = "opencode";
+/// SSE 이벤트 본문 줄의 앞머리. 서버는 이벤트 하나를 `data:` 한 줄로 쓴다(실측).
+const SSE_DATA: &str = "data: ";
 
 pub struct Server {
     url: String,
@@ -95,6 +97,27 @@ impl Server {
     /// 서버 프로세스가 끝나면 `true`가 된다.
     pub fn stopped(&self) -> watch::Receiver<bool> {
         self.stopped.clone()
+    }
+
+    /// 서버 이벤트(`GET /api/event`, SSE)를 받을 때마다 `on_event`에 `data` JSON을 넘기는 스레드를 띄운다.
+    /// 서버가 끝나 연결이 닫히면 스레드도 끝난다.
+    pub fn follow_events(&self, mut on_event: impl FnMut(Value) + Send + 'static) {
+        let url = format!("{}/api/event", self.url);
+        let auth = self.auth.clone();
+        std::thread::spawn(move || {
+            // 이벤트는 끝없이 오므로 응답 상한을 두지 않는다.
+            let agent: ureq::Agent = ureq::Agent::config_builder().build().into();
+            let Ok(mut res) = agent.get(&url).header("authorization", &auth).call() else {
+                return;
+            };
+            let lines =
+                std::io::BufRead::lines(std::io::BufReader::new(res.body_mut().as_reader()));
+            for line in lines.map_while(Result::ok) {
+                if let Some(Ok(event)) = line.strip_prefix(SSE_DATA).map(serde_json::from_str) {
+                    on_event(event);
+                }
+            }
+        });
     }
 
     /// `cwd`를 작업 폴더로 하는 새 세션의 id.

@@ -22,6 +22,7 @@ use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::watch;
 use ts_rs::TS;
 
 use crate::accounts::Accounts;
@@ -29,7 +30,8 @@ use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, CommitGraph};
 use crate::db;
 use crate::graph::{
-    Delivery, EventRecord, Graph, GraphEvent, Kind, MessageId, NodeId, REDELIVER_AFTER, Refusal,
+    Delivery, EventRecord, Graph, GraphEvent, Kind, MessageId, Model, NodeId, REDELIVER_AFTER,
+    Refusal,
 };
 use crate::node_host::NodeHost;
 use crate::process_tree;
@@ -250,6 +252,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/take", post(agent_take))
         .route("/api/agent/ack", post(agent_ack))
         .route("/api/agent/guard", post(agent_guard))
+        .route("/api/agent/model", post(agent_model))
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/adopt", post(agent_adopt));
     let router = node_routes
@@ -346,10 +349,12 @@ impl App {
             })?;
         if let Some(server) = codex {
             self.codex.lock().unwrap().insert(id, server.clone());
+            tokio::spawn(follow_codex_model(self.graph.clone(), id, server.clone()));
             tokio::spawn(deliver_to_codex(self.clone(), id, server));
         }
         if let Some(node) = opencode2 {
             self.opencode2.lock().unwrap().insert(id, node.clone());
+            tokio::spawn(follow_model(self.graph.clone(), id, node.model()));
             let mailbox = NodeMailbox {
                 graph: self.graph.clone(),
                 node: id,
@@ -497,6 +502,34 @@ impl Mailbox for NodeMailbox {
     fn ack(&self, taken: &[Delivery]) -> Result<(), String> {
         let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
         self.graph.ack(self.node, &ids).map_err(|e| e.to_string())
+    }
+}
+
+/// 프로필이 읽은 모델과 추론 강도를 그래프에 옮긴다. 서버가 끝나면 끝난다.
+async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receiver<Model>) {
+    while model.changed().await.is_ok() {
+        let now = model.borrow_and_update().clone();
+        if let Err(e) = graph.set_model(node, &now) {
+            eprintln!("loom: 노드 {}의 모델을 쓰지 못했다: {e}", node.0);
+        }
+    }
+}
+
+/// Codex 노드 스레드가 생기거나 상태가 바뀔 때마다 모델을 다시 읽어 그래프에 옮긴다. 서버가 끝나면 끝난다.
+async fn follow_codex_model(graph: Arc<Graph>, node: NodeId, server: Arc<CodexServer>) {
+    let mut thread = server.thread();
+    while thread.changed().await.is_ok() {
+        let Some(id) = thread.borrow_and_update().as_ref().map(|t| t.id.clone()) else {
+            continue;
+        };
+        let call = |method, params| server.call(method, params);
+        let saved = match codex::model(call, &id).await {
+            Ok(model) => graph.set_model(node, &model).map_err(|e| e.to_string()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = saved {
+            eprintln!("loom: 노드 {}의 모델을 읽지 못했다: {e}", node.0);
+        }
     }
 }
 
@@ -699,6 +732,19 @@ async fn agent_guard(
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.host.guard(node, req.caller);
+    Ok(Json(()))
+}
+
+/// `loom hook`이 Claude 훅 입력에서 읽은 모델과 추론 강도.
+async fn agent_model(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(model): Json<Model>,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.graph
+        .set_model(node, &model)
+        .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))
 }
 

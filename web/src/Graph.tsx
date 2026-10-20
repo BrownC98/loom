@@ -607,6 +607,7 @@ export function Graph(props: {
             selected={selected === zoomedView.id}
             onSelect={() => setSelected(zoomedView.id)}
             onNavigate={() => {}}
+            onDoubleClickHead={() => setExpanded(null)}
             headAction={
               <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
                 <Minimize2 />

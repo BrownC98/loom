@@ -324,6 +324,7 @@ const ko: typeof en = {
     internal: '내부 오류: {{value}}',
   },
   usageProblem: {
+    notInstalled: '`{{value}}`이(가) 이 컴퓨터에 없습니다. 설치하고 PATH에 넣습니다.',
     cliFailed: '`{{command}}`을(를) 실행하지 못했습니다: {{detail}}',
     cliFormat: '`{{value}}`이(가) 알 수 없는 형식으로 응답했습니다.',
     noReply: '`{{value}}`이(가) 응답하지 않았습니다.',

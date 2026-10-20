@@ -323,6 +323,7 @@ const en = {
     internal: 'Internal error: {{value}}',
   },
   usageProblem: {
+    notInstalled: '`{{value}}` is not on this computer. Install it and put it on PATH.',
     cliFailed: 'Could not run `{{command}}`: {{detail}}',
     cliFormat: '`{{value}}` returned an unknown format.',
     noReply: '`{{value}}` did not reply.',

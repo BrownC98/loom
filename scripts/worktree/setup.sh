@@ -10,5 +10,6 @@ if [ ! -e .env ]; then
   [ -d .git ] || port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
   printf 'COMPOSE_PROJECT_NAME=loom-%s\nLOOM_PORT=%s\n' "$(pwd -P | sha1sum | cut -c1-8)" "$port" >.env
 fi
+grep -q '^DOCKER_GID=' .env || echo "DOCKER_GID=$(stat -c %g /var/run/docker.sock)" >>.env
 docker compose up -d --build
 docker compose exec -T -w /work/web dev npm ci

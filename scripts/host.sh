@@ -8,7 +8,7 @@ bin=$HOME/loom/bin/loom
 port=${LOOM_PORT:-7420}
 
 bash scripts/worktree/setup.sh
-memcap -m 8G cargo build --release
+LOOM_VERSION=$(sh scripts/version.sh) memcap -m 8G cargo build --release
 mkdir -p "$(dirname "$bin")" "$HOME/.loom"
 # 새 파일로 바꿔 넣는다(rename). 도는 PTY 호스트는 옛 파일을 계속 쓴다.
 cp target/release/loom "$bin.new"

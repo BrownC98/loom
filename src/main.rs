@@ -21,8 +21,15 @@ use clap::Parser;
 
 use crate::graph::Kind;
 
+/// 제품 판. `scripts/host.sh`가 `scripts/version.sh` 값을 `LOOM_VERSION`으로 넣는다.
+/// 릴리스 CI는 Cargo.toml 판을 바꿔 빌드한다. 근거: docs/design.md 「배포」.
+const VERSION: &str = match option_env!("LOOM_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 #[derive(Parser)]
-#[command(name = "loom", version)]
+#[command(name = "loom", version = VERSION)]
 enum Cli {
     /// 데몬과 화면을 띄운다.
     Serve {

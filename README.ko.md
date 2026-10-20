@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.ko.png" alt="심플 보기의 loom: 세 단계 그래프. main의 Claude Code 총괄 아래에 코디 둘(Codex 인증, Claude Code 화면)이 각자 워크트리 묶음에서 워커 둘(Claude Code, Codex, OpenCode 2)을 둔다. 카드마다 요약, 모델, 상태가 보인다. 간선에 총괄 → 인증, 인증 → 테스트, 폼 → 화면 메시지가 보인다. 오른쪽 칸에 인증의 실시간 터미널과 loom message 머리말이 보인다." width="960">
+  <img src="docs/images/hero.png" alt="심플 보기의 loom: 세 단계 그래프. main의 Claude Code lead 아래에 코디 둘(Codex auth, Claude Code ui)이 각자 워크트리 묶음에서 워커 둘(Claude Code, Codex, OpenCode 2)을 둔다. 카드마다 요약, 모델, 상태가 보인다. 간선에 lead → auth, auth → tests, form → ui 메시지가 보인다. 오른쪽 칸에 auth의 실시간 터미널과 loom message 머리말이 보인다." width="960">
 </p>
 
 ## 기능
@@ -32,7 +32,7 @@
 | **커밋 그래프와 이벤트 콘솔** | 모든 브랜치의 커밋과 노드 사이 메시지를 봅니다. |
 
 <p align="center">
-  <a href="docs/images/standard.ko.png"><img src="docs/images/standard.ko.png" alt="표준 보기의 loom: 같은 노드 일곱 개이고, 카드마다 실시간 터미널이다." width="960"></a><br>
+  <a href="docs/images/standard.png"><img src="docs/images/standard.png" alt="표준 보기의 loom: 같은 노드 일곱 개이고, 카드마다 실시간 터미널이다. 왼쪽에 저장소 트리, 오른쪽에 커밋 그래프가 펼쳐져 있다." width="960"></a><br>
   <em>표준 보기: 카드마다 실시간 터미널입니다. 누르면 원래 크기로 엽니다.</em>
 </p>
 

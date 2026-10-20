@@ -32,7 +32,7 @@
 | **Commit graph and event console** | See the commits of all branches and each message between nodes. |
 
 <p align="center">
-  <a href="docs/images/standard.png"><img src="docs/images/standard.png" alt="loom in Standard view: the same seven nodes, and each card is a live terminal." width="960"></a><br>
+  <a href="docs/images/standard.png"><img src="docs/images/standard.png" alt="loom in Standard view: the same seven nodes, and each card is a live terminal. The repository tree is open on the left and the commit graph is open on the right." width="960"></a><br>
   <em>Standard view: every card is a live terminal. Click to open full size.</em>
 </p>
 

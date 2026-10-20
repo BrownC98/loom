@@ -36,7 +36,7 @@
 | `src/worktree.rs` `RepoView` | 더함: `has_commits: bool`(`git rev-parse --verify HEAD` 성공). 화면이 [새 워크트리]를 끄는 근거다. 빈 `branches`로 짐작하지 않는다 |
 | `src/worktree.rs` `create` | 원래 체크아웃에 커밋이 없으면 git을 부르기 전에 `NoCommit`으로 거절한다. [새 워크트리]와 `loom spawn --worktree`(`daemon.rs` 946줄)가 같은 글을 받는다 |
 | `src/worktree.rs` `RepoProblem` | 더함: `NotEmpty(path)`(대상이 있고 비어 있지 않음), `Exists(path)`(새 프로젝트 대상이 이미 있음), `BadName(name)`(빈 이름, `/`·`\`, `.`, `..`), `NoCommit`(커밋이 없는 저장소에서 워크트리 만들기). 복제·init 실패는 `Git(String)`을 다시 쓴다 |
-| `src/git.rs` | `clone(url, target)`을 더한다. `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS` 빈 값, `SSH_ASKPASS_REQUIRE=never`, `GCM_INTERACTIVE=never`, 빈 표준 입력. 인증이 필요하면 창·질문 없이 실패 글을 돌려준다. SSH 호스트 키 확인은 그대로다. 다른 git 읽기(`run`)는 바꾸지 않는다 |
+| `src/git.rs` | `clone(url, target)`을 더한다. 새 세션(`setsid`, Windows `DETACHED_PROCESS`)으로 제어 터미널을 떼고 `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS` 빈 값, `SSH_ASKPASS_REQUIRE=never`, `DISPLAY` 지우기, `GCM_INTERACTIVE=never`, 빈 표준 입력. 인증이 필요하면 창·질문 없이 실패 글을 돌려준다. SSH 설정과 호스트 키 확인은 그대로다. 다른 git 읽기(`run`)는 바꾸지 않는다. 의존성 `libc`(unix)를 더한다 |
 | `src/daemon.rs` | `GET /api/folders?path=`, `POST /api/repos/clone {url, parent}`, `POST /api/repos/create {parent, name}`. 둘 다 `RepoView`를 돌려준다. `POST /api/repos {path}`는 그대로 둔다 |
 | `src/daemon.rs` 요청 타입 | `CloneRepo`, `CreateRepo`, `FolderList`를 `NewRepo` 옆에 두고 `ts-rs`로 내보낸다 |
 

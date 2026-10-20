@@ -28,6 +28,9 @@ yaml-rust2 = "0.13.0"
 [target.'cfg(windows)'.dependencies]
 win32job = "2.0.3"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
+
 [dev-dependencies]
 tempfile = "3.27.0"
 tokio = { version = "1.53.3", features = ["test-util"] }

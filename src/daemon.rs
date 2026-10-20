@@ -490,12 +490,16 @@ async fn worktree_changes(
     Query(req): Query<WorktreePath>,
 ) -> Result<Json<Vec<String>>, Problem> {
     let repo = app.repos.path(RepoId(id))?;
-    worktree::find(&repo, &req.path).await?;
-    Ok(Json(worktree::changes(&req.path).await?))
+    // git이 적지 않은 경로(이미 지운 워크트리)에는 잃을 것이 없다. 그 경로에서 git을 돌리지 않는다.
+    match worktree::find(&repo, &req.path).await {
+        Ok(listed) => Ok(Json(worktree::changes(&listed).await?)),
+        Err(_) => Ok(Json(Vec::new())),
+    }
 }
 
 /// 그 묶음의 노드를 끝내고 그래프에서 지운 뒤 폴더를 지운다. 근거: docs/design.md 「저장소와 워크트리」.
 /// 노드를 먼저 끝낸다. Windows는 프로세스가 작업 폴더로 쓰는 폴더를 지우지 못한다.
+/// git이 적지 않은 경로(loom 밖에서 지운 워크트리)는 노드만 지운다. 브랜치는 짐작하지 않는다.
 async fn delete_worktree(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
@@ -503,15 +507,18 @@ async fn delete_worktree(
 ) -> Result<Json<RepoView>, Problem> {
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
-    if worktree::find(&repo, &req.path).await?.original {
+    let listed = worktree::find(&repo, &req.path).await.ok();
+    if listed.as_ref().is_some_and(|w| w.original) {
         return Err(RepoProblem::Original.into());
     }
     for node in app.graph.nodes_in(&req.path).map_err(internal)? {
         app.remove(node).map_err(internal)?;
     }
-    let branch = worktree::remove(&repo, &req.path).await?;
-    if let (true, Some(branch)) = (req.delete_branch, branch) {
-        worktree::delete_branch(&repo, &branch).await?;
+    if let Some(listed) = listed {
+        worktree::remove(&repo, &listed).await?;
+        if let (true, Some(branch)) = (req.delete_branch, &listed.branch) {
+            worktree::delete_branch(&repo, branch).await?;
+        }
     }
     Ok(Json(worktree::view(id, &repo).await))
 }

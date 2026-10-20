@@ -316,7 +316,7 @@ a { color: var(--accent); }
 .usage-foot .btn { margin-left: auto; }
 .pop h3 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .pop h3 .spacer { flex: 1; }
-.win { display: grid; grid-template-columns: 64px 1fr 44px auto; gap: 6px 8px; }
+.win { display: grid; grid-template-columns: 64px minmax(0, 1fr) 44px auto; gap: 6px 8px; }
 /* 창 줄은 같은 칸을 나눠 쓴다. 그래야 줄마다 막대 끝과 남은 시간이 나란하다. */
 .win > :not(.win-line) { grid-column: 1 / -1; }
 .win-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; font-size: 12px; color: var(--ink-2); }

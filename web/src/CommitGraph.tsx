@@ -1,3 +1,4 @@
+import { X } from 'lucide-react';
 // 커밋 그래프 칸(docs/mockups/graph-panels.html 그림 B). 읽기만 한다.
 //
 // 차선 계산(`lanes`)과 줄 그리기(`LaneSvg`)는 VS Code에서 옮겼다.
@@ -199,9 +200,7 @@ export function CommitGraph(props: { repo: RepoId; onClose: () => void }) {
         <span className="hint">{t('commits.scope')}</span>
         <span className="spacer" />
         <button className="btn ghost sm" aria-label={t('commits.close')} onClick={props.onClose}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
+          <X />
         </button>
       </div>
       {error !== null ? (

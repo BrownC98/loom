@@ -1,3 +1,4 @@
+import { GitCommitVertical } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
@@ -313,10 +314,7 @@ export function App() {
                 {t('events.title')}
               </button>
               <button className="btn" aria-pressed={dock === 'commits'} aria-controls="dock" onClick={() => toggleDock('commits')}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M12 3v6M12 15v6" />
-                </svg>
+                <GitCommitVertical />
                 {t('app.commitGraph')}
               </button>
             </div>

@@ -116,7 +116,7 @@ export function windowsText(limits: Limits): string {
 }
 
 /** 예: 「3시간 12분 남음」. 초기화 시각이 없으면 빈 글자다. */
-export function remainingText(resetsAt: number | null, now: number): string {
+function remainingText(resetsAt: number | null, now: number): string {
   const ms = resetsAt === null ? null : resetsAt * 1000 - now;
   if (ms === null) return '';
   return ms < 60 * 1000 ? i18next.t('usage.soon') : i18next.t('usage.remaining', { left: duration(ms) });

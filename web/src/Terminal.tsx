@@ -21,6 +21,14 @@ export function navDirection(e: KeyboardEvent | ReactKeyboardEvent): Direction |
   return NAV_KEYS[e.key] ?? null;
 }
 
+/** 다른 수식 키 없는 Ctrl+글쇠. 한글 입력 중에도 맞도록 글자(`key`)가 아니라 자리(`code`)를 본다. */
+function plainCtrl(e: KeyboardEvent, code: string): boolean {
+  return e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === code;
+}
+
+/** 글이 없는 붙여넣기(그림)는 예전처럼 `^V`로 보낸다. Claude Code·Codex는 `^V`를 받으면 클립보드 그림을 스스로 읽는다. */
+const CTRL_V = '\x16';
+
 export type XtermFontValue = { family: string; size: number };
 /**
  * 기본 글꼴 Jetendard(번들, styles.css)는 한글이 꼭 두 칸이라 글자 사이에 틈이 없다. 기본 글꼴로 카드가 80열이다(`.card`의 폭).
@@ -111,13 +119,32 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           }
         },
       });
+      // xterm은 Ctrl+C·Ctrl+V를 늘 `^C`·`^V`로 보내고 브라우저 복사·붙여넣기를 막는다.
       xterm.attachCustomKeyEventHandler((e) => {
         const dir = navDirection(e);
-        if (!dir) return true;
-        if (e.type === 'keydown') latest.current.onNavigate(dir);
-        e.preventDefault();
-        return false;
+        if (dir) {
+          if (e.type === 'keydown') latest.current.onNavigate(dir);
+          e.preventDefault();
+          return false;
+        }
+        // 선택이 없으면 Ctrl+C는 터미널 앱에 `^C`로 간다. 복사한 뒤 선택을 지워 다음 Ctrl+C가 `^C`가 되게 한다.
+        if (plainCtrl(e, 'KeyC') && xterm.hasSelection()) {
+          if (e.type === 'keydown') {
+            void navigator.clipboard.writeText(xterm.getSelection());
+            xterm.clearSelection();
+          }
+          return false;
+        }
+        // 기본 동작을 막지 않으므로 브라우저가 paste 이벤트를 내고 xterm이 그 글을 보낸다.
+        return !plainCtrl(e, 'KeyV');
       });
+      const pasteImage = (e: ClipboardEvent) => {
+        if (e.clipboardData?.getData('text/plain')) return;
+        e.stopPropagation();
+        link.sendInput(CTRL_V);
+      };
+      // xterm의 paste 처리기보다 먼저 받는다.
+      el.addEventListener('paste', pasteImage, true);
       const input = xterm.onData((data) => link.sendInput(data));
       const resize = xterm.onResize((size) => link.sendResize(size));
       xterm.textarea?.addEventListener('focus', () => latest.current.onFocus());
@@ -127,6 +154,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
       if (latest.current.focused) focusSoon(xterm);
       return () => {
         observer.disconnect();
+        el.removeEventListener('paste', pasteImage, true);
         input.dispose();
         resize.dispose();
         link.close();

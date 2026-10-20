@@ -37,9 +37,11 @@ const CARD_SIZE: Record<CardView, Size> = {
   simple: { width: 260, height: 134 },
 };
 const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left };
-/** 카드는 묶음 머리 위나 왼쪽 테두리 밖으로 끌 수 없다. 오른쪽·아래로 끌면 묶음이 따라 커진다. 좌표는 묶음 기준이다. */
+/**
+ * 카드는 묶음 머리 위로 끌 수 없다. 왼쪽·오른쪽·아래로 끌면 묶음이 따라 커진다(2026-10-20 사람 지시 "우측으로 옮기면 묶음이 확장되는데 좌측은 그렇지 않은 문제 해결"). 좌표는 묶음 기준이다.
+ */
 const CARD_EXTENT: CoordinateExtent = [
-  [0, CARD_TOP],
+  [-Infinity, CARD_TOP],
   [Infinity, Infinity],
 ];
 /** [새 노드] 버튼 아래로 띄우는 새 노드 팝오버의 틈. 팝오버 오른쪽 끝을 버튼 오른쪽 끝에 맞춘다. */
@@ -251,6 +253,8 @@ export function Graph(props: {
     return measured?.width && measured.height ? { width: measured.width, height: measured.height } : estimate;
   };
   // 묶음마다 나무 배치를 따로 한다. 카드 위치는 묶음 기준, `positions`는 키보드 이동에 쓰는 화면 기준이다.
+  // 카드를 왼쪽 테두리 밖으로 끌면 묶음 상자가 그만큼(`lead`) 왼쪽으로 넓어진다. 끈 자리는 넓어지기 전 묶음 왼쪽 위 기준으로 적는다.
+  // 그래서 상자가 넓어져도 카드는 화면에서 제자리다.
   const positions = new Map<NodeId, XYPosition>();
   const allGroups = groupsOf(props.repo, views);
   const laid = allGroups.map((group) => {
@@ -264,10 +268,11 @@ export function Graph(props: {
       },
       direction,
     );
+    const lead = Math.max(0, ...members.map((v) => -tree.get(v.id)!.x));
     const local = new Map<NodeId, XYPosition>(
       members.map((v) => {
         const at = tree.get(v.id)!;
-        return [v.id, { x: CARD_X + at.x, y: CARD_TOP + at.y }];
+        return [v.id, { x: CARD_X + lead + at.x, y: CARD_TOP + at.y }];
       }),
     );
     // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
@@ -275,12 +280,12 @@ export function Graph(props: {
     const right = Math.max(CARD_X + estimate.width, ...members.map((v) => local.get(v.id)!.x + size(v.id).width)) + CARD_X;
     const bottom = Math.max(...members.map((v) => local.get(v.id)!.y + size(v.id).height)) + CARD_X;
     const height = members.length > 0 ? bottom : (flowState.get(group.path)?.measured?.height ?? EMPTY_GROUP_HEIGHT);
-    return { group, members, local, right, bottom, height };
+    return { group, members, local, lead, right, bottom, height };
   });
   // 묶음끼리도 부모 묶음 다음 단계에 놓는 나무다.
   const parentGroups = groupParents(allGroups, views);
   const origins = placeGroups(
-    laid.map((g, i) => ({ size: { width: g.right, height: g.height }, parent: parentGroups[i], dragged: dragged.get(g.group.path), pinned: pinned === g.group.path })),
+    laid.map((g, i) => ({ size: { width: g.right, height: g.height }, parent: parentGroups[i], dragged: dragged.get(g.group.path), pinned: pinned === g.group.path, lead: g.lead })),
     direction,
     GROUP_POSITION,
   );
@@ -406,7 +411,14 @@ export function Graph(props: {
     // 카드나 묶음을 끌 때만 위치 변경이 온다(키보드 이동은 껐다). 놓은 변경(`dragging: false`)만 적는다.
     const dropped = changes.flatMap((c) => (c.type === 'position' && c.dragging === false && next.has(c.id) ? [c.id] : []));
     if (dropped.length === 0) return;
-    setDragged((prev) => new Map([...prev, ...dropped.map((id) => [id, next.get(id)!.position] as const)]));
+    // React Flow 좌표는 묶음 상자 기준이다. 끈 자리는 넓어지기 전 묶음 기준이라 `lead`만큼 바꿔 적는다.
+    const leads = new Map(laid.map((g) => [g.group.path, g.lead]));
+    const toSlot = (node: FlowNode): XYPosition => {
+      const { x, y } = node.position;
+      if (node.parentId) return { x: x - (leads.get(node.parentId) ?? 0), y };
+      return { x: x + (leads.get(node.id) ?? 0), y };
+    };
+    setDragged((prev) => new Map([...prev, ...dropped.map((id) => [id, toSlot(next.get(id)!)] as const)]));
     setPinned(dropped[dropped.length - 1]);
   };
 

@@ -225,6 +225,18 @@ const en = {
     tokenExpired: 'The token expired. Run Claude once with this account to refresh it.',
     unavailable: 'Usage is not available now: {{value}}',
   },
+  update: {
+    available: 'Update Available',
+    downloading: 'Downloading Update',
+    ready: 'Ready to Install',
+    error: 'Update Error',
+    version: 'loom v{{version}}',
+    nodesEnd: 'Restarting ends running nodes.',
+    update: 'Update',
+    percent: 'Downloading... {{percent}}%',
+    restart: 'Restart to Update',
+    retry: 'Try Again',
+  },
 };
 
 export default en;

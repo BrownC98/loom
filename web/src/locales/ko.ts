@@ -226,6 +226,18 @@ const ko: typeof en = {
     tokenExpired: '토큰이 만료됐다. 이 계정으로 Claude를 한 번 실행하면 갱신된다.',
     unavailable: '사용량을 지금 볼 수 없다: {{value}}',
   },
+  update: {
+    available: '업데이트 가능',
+    downloading: '업데이트 다운로드 중',
+    ready: '설치 준비 완료',
+    error: '업데이트 오류',
+    version: 'loom v{{version}}',
+    nodesEnd: '다시 시작하면 실행 중인 노드가 끝난다.',
+    update: '업데이트',
+    percent: '다운로드 중... {{percent}}%',
+    restart: '다시 시작하여 업데이트',
+    retry: '다시 시도',
+  },
 };
 
 export default ko;

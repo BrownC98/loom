@@ -2,7 +2,6 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "loom",
   "mainBinaryName": "loom-app",
-  "version": "0.1.0",
   "identifier": "io.github.brownc98.loom",
   "app": {
     "windows": []
@@ -11,6 +10,13 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
-    "externalBin": ["binaries/loom"]
+    "externalBin": ["binaries/loom"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFCQzdFM0Y4MDEyQTg3MDkKUldRSmh5b0IrT1BIcTBDMEI0eUxnZ0ZZWUx3T3JxTEM3ZFQ2b1RONytiM29aMGozNE0yTytDL3cK",
+      "endpoints": ["https://github.com/BrownC98/loom/releases/latest/download/latest.json"]
+    }
   }
 }

@@ -18,6 +18,7 @@ import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Tree } from './Tree';
+import { UpdateCard } from './Update';
 import { XtermTheme } from './Terminal';
 import { withAccount } from './usage';
 
@@ -222,6 +223,7 @@ export function App() {
             onChoose={(provider, id) => saveSettings(withAccount(settings, provider, id))}
             onManage={() => setSettingsTab('accounts')}
           />
+          <UpdateCard />
           {settingsTab && (
             <Settings
               tab={settingsTab}

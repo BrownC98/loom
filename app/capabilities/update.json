@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "update",
+  "description": "데몬이 내는 화면(127.0.0.1)이 업데이트를 확인하고 설치한다. 근거: docs/design.md 「Windows 앱」.",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*"] },
+  "permissions": ["updater:allow-check", "updater:allow-download", "updater:allow-install"]
+}

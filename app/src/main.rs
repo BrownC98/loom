@@ -1,5 +1,6 @@
 //! Windows 앱: 옆에 놓인 `loom.exe serve`를 띄우고, 데몬이 출력한 주소를 창에 연다.
 //! 화면은 브라우저용과 같다. 앱이 끝나면 Job Object가 데몬과 노드를 함께 끝낸다.
+//! 업데이트는 화면이 `tauri-plugin-updater` JS API로 한다(`web/src/Update.tsx`).
 #![windows_subsystem = "windows"]
 
 use std::io::BufRead;
@@ -24,8 +25,8 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            end_with_app()?;
             let config_dir = app.path().app_config_dir()?;
             let Some(repo) = choose_repo(&config_dir) else {
                 app.handle().exit(0);
@@ -39,7 +40,7 @@ fn main() {
             let (daemon, url) = start_daemon(&repo)?;
             app.manage(daemon);
             WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(url.parse()?))
-                .title("loom")
+                .title(format!("loom {}", app.package_info().version))
                 .inner_size(1280.0, 800.0)
                 .build()?;
             Ok(())
@@ -75,6 +76,7 @@ fn start_daemon(repo: &std::path::Path) -> Result<(Child, String), Box<dyn std::
         .stderr(Stdio::null());
     hide_console(&mut command);
     let mut daemon = command.spawn()?;
+    end_with_app(&daemon)?;
     let mut line = String::new();
     // 파이프는 `Child`에 남겨 둔다. 데몬이 뒤에 쓰는 출력이 닫힌 파이프에 막히지 않는다.
     let stdout = daemon.stdout.as_mut().ok_or("데몬 stdout이 없다")?;
@@ -97,20 +99,22 @@ fn hide_console(command: &mut Command) {
 #[cfg(not(windows))]
 fn hide_console(_: &mut Command) {}
 
-/// 앱을 kill-on-close Job Object에 넣는다. 자식인 데몬과 그 자손이 같은 Job에 들어간다.
-/// 앱이 어떻게 끝나든(창 닫기, 강제 종료) 마지막 핸들이 닫히면 OS가 모두 끝낸다.
-/// 핸들은 닫지 않는다. 닫으면 Job 안의 프로세스가 모두 끝난다.
+/// 데몬을 kill-on-close Job Object에 넣는다. 앱이 어떻게 끝나든(창 닫기, 강제 종료, 업데이트)
+/// OS가 앱의 핸들을 닫을 때 데몬을 끝낸다. 노드는 데몬이 자기 Job으로 끝낸다(`process_tree`).
+/// 앱 자신은 Job에 넣지 않는다. 업데이트 설치 파일은 앱이 끝난 뒤에도 돌아야 한다.
+/// 핸들은 닫지 않는다. 닫으면 데몬이 끝난다.
 #[cfg(windows)]
-fn end_with_app() -> std::io::Result<()> {
+fn end_with_app(daemon: &Child) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
     let job = win32job::Job::create_with_limit_info(
         win32job::ExtendedLimitInfo::new().limit_kill_on_job_close(),
     )?;
-    job.assign_current_process()?;
+    job.assign_process(daemon.as_raw_handle() as isize)?;
     job.into_handle();
     Ok(())
 }
 
 #[cfg(not(windows))]
-fn end_with_app() -> std::io::Result<()> {
+fn end_with_app(_: &Child) -> std::io::Result<()> {
     Ok(())
 }

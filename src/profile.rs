@@ -117,6 +117,25 @@ pub enum Remote<'a> {
     },
 }
 
+/// 데몬이 다시 시작한 뒤 노드 서버에 다시 붙는 값. 노드와 함께 DB에 남는다(graph).
+/// `pid`는 서버 프로세스다. 셸을 찾고 서버를 끝낼 때 쓴다.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ServerLink {
+    /// `thread`는 TUI가 만든 노드 스레드다. 만들기 전에는 없다.
+    Codex {
+        url: String,
+        pid: Option<u32>,
+        thread: Option<String>,
+    },
+    OpenCode2 {
+        url: String,
+        pid: Option<u32>,
+        session: String,
+        password: String,
+    },
+}
+
 /// 노드 하나의 메일함. 데몬이 그래프로 만들어 프로필의 전달 작업에 넘긴다. 프로필은 그래프를 모른다.
 pub trait Mailbox: Send + Sync + 'static {
     /// 다음 메일 변화나, 확인하지 않은 메시지를 다시 꺼낼 수 있게 될 때 끝나는 future.

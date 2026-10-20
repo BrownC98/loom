@@ -29,6 +29,13 @@ const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
 #[ts(export)]
 pub struct LoginId(pub u32);
 
+/// PTY 호스트 주소 파일 이름.
+impl std::fmt::Display for LoginId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Clone, Copy, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -39,11 +46,27 @@ pub enum LoginState {
 }
 
 /// 계정 추가·다시 로그인 창의 PTY. 그래프에는 나타나지 않는다.
-#[derive(Default)]
+/// 창 번호는 데몬마다 0부터 다시 센다. 그래서 앞 데몬의 로그인 창은 다시 붙지 않고 끝낸다(`end_others`).
 pub struct Logins {
     host: NodeHost<LoginId>,
     states: Mutex<HashMap<LoginId, LoginState>>,
     next: AtomicU32,
+}
+
+impl Logins {
+    /// `dir`는 로그인 창 PTY 호스트의 주소 파일 폴더다.
+    pub fn new(dir: std::path::PathBuf) -> Self {
+        Self {
+            host: NodeHost::new(dir),
+            states: Mutex::default(),
+            next: AtomicU32::default(),
+        }
+    }
+
+    /// 앞 데몬이 띄운 로그인 창을 끝낸다. 데몬이 시작할 때 부른다.
+    pub fn end_others(&self) {
+        self.host.end_others();
+    }
 }
 
 #[derive(Serialize, TS)]
@@ -114,8 +137,9 @@ fn with_settings(page: &str, settings: &SettingsView) -> String {
 async fn get_settings(State(app): State<Arc<App>>) -> Result<Json<SettingsView>, Problem> {
     let mut view = app.settings.get().map_err(internal)?;
     if view.workspace_dir.is_none() {
-        view.workspace_dir =
-            worktree::default_workspace().map(|p| p.to_string_lossy().into_owned());
+        view.workspace_dir = worktree::default_workspace()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned());
     }
     Ok(Json(view))
 }

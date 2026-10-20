@@ -257,6 +257,7 @@ const ko: typeof en = {
       notFound: '폴더를 찾을 수 없습니다: {{value}}',
       notGit: 'git 저장소가 아닙니다: {{value}}',
       notAbsolute: '전체 경로를 적으십시오: {{value}}',
+      noWorkspace: '워크스페이스 폴더를 찾을 수 없습니다: {{value}}. compose.override.yaml에 이 폴더를 더하고 scripts/worktree/setup.sh를 다시 실행하거나, ‘설정 › 워크스페이스’에서 다른 폴더를 고르십시오.',
       noRepo: '저장소가 더 이상 없습니다. 페이지를 새로 고치십시오.',
       notInRepo: '워크트리가 더 이상 없습니다: {{value}}',
       original: '원래 체크아웃은 삭제할 수 없습니다.',

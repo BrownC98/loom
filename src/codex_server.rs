@@ -1,6 +1,7 @@
 //! Codex app-server: Codex 노드마다 하나를 띄우고 WebSocket JSON-RPC로 잇는다.
 //! 노드의 TUI는 `codex --remote <주소>`로 같은 서버에 붙는다. 이 연결은 스레드를 구독하지 않는다.
 //! 구독하면 승인 요청도 이 연결로 온다. 구독 없이도 `thread/started`·`thread/status/changed`는 온다.
+//! 서버는 노드처럼 데몬이 다시 시작해도 산다. 새 데몬은 DB에 남긴 주소로 다시 붙는다(`reconnect`).
 //! 바뀌는 이유는 app-server 전송 방식과 프로세스 모양이다. 요청 내용은 `profile::codex`가 정한다.
 //! 근거: docs/design.md 「에이전트 실행」, 「실측 근거」.
 
@@ -8,27 +9,26 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::process_tree::{self, Snapshot};
+use crate::profile::ServerLink;
 use crate::profile::codex::Status;
 use crate::profile::codex::protocol::{
-    ThreadStartedNotification, ThreadStatus, ThreadStatusChangedNotification,
+    ThreadReadParams, ThreadReadResponse, ThreadStartedNotification, ThreadStatus,
+    ThreadStatusChangedNotification,
 };
 
 /// 서버가 뜨고 요청 하나에 답하는 상한. 첫 실행은 로그인 확인과 플러그인 읽기로 몇 초 걸린다.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
-/// 서버가 듣는 주소를 stderr에 쓰는 줄의 앞머리. 포트는 OS가 고른다(`ws://127.0.0.1:0`).
-const LISTENING: &str = "listening on: ";
 
 /// 노드의 대화 스레드. TUI가 만든다. 서버가 따로 만드는 제목용 임시 스레드는 거른다.
 #[derive(Clone, Debug, PartialEq)]
@@ -39,15 +39,17 @@ pub struct Thread {
 
 type Pending = Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>;
 
+/// app-server 하나와 데몬의 연결. 서버 프로세스는 데몬과 따로 산다. 데몬이 다시 시작하면 `reconnect`로 다시 붙는다.
 pub struct CodexServer {
     url: String,
-    child: Mutex<Child>,
-    /// 셸을 찾는 뿌리. `codex`는 실행 파일을 띄우는 node 스크립트라 셸은 손자 아래에 뜬다.
+    /// 셸을 찾고 서버를 끝내는 뿌리. `codex`는 실행 파일을 띄우는 node 스크립트라 셸은 손자 아래에 뜬다.
     pid: Option<u32>,
     to_server: mpsc::UnboundedSender<Message>,
-    pending: std::sync::Arc<Pending>,
+    pending: Arc<Pending>,
     next_id: AtomicU64,
     thread: watch::Receiver<Option<Thread>>,
+    /// `reconnect`가 읽은 스레드 상태를 넣는 길.
+    thread_tx: Weak<watch::Sender<Option<Thread>>>,
 }
 
 impl CodexServer {
@@ -59,7 +61,9 @@ impl CodexServer {
         node_env: &[(&'static str, OsString)],
         config: &[String],
     ) -> Result<Self, String> {
-        let mut cmd = Command::from(process_tree::command("codex"));
+        let port = process_tree::free_port()?;
+        let url = format!("ws://127.0.0.1:{port}");
+        let mut cmd = process_tree::command("codex");
         cmd.envs(node_env.iter().map(|(k, v)| (k, v)));
         cmd.args(config);
         // Codex 셸은 로그인 셸 스냅샷의 `PATH`를 다시 적용해 노드 `PATH`의 `loom` 폴더를 지운다(실측).
@@ -68,33 +72,90 @@ impl CodexServer {
             let path = json!(path.to_string_lossy());
             cmd.args(["-c", &format!("shell_environment_policy.set.PATH={path}")]);
         }
-        cmd.args(["app-server", "--listen", "ws://127.0.0.1:0"]);
+        cmd.args(["app-server", "--listen", &url]);
         if let Some(dir) = home {
             cmd.env("CODEX_HOME", dir);
         }
-        // `codex` wrapper는 TERM을 실행 파일에 넘긴다. 표준 입력이 닫혀도 서버는 끝나지 않는다(실측).
-        process_tree::end_with_daemon(&mut cmd);
-        let mut child = cmd
+        // 노드가 데몬보다 오래 살므로 서버도 따로 산다. 출력은 읽지 않는다. 데몬이 끝나면 읽을 쪽이 없다.
+        process_tree::detach(&mut cmd);
+        let mut child = Command::from(cmd)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
+            .stderr(Stdio::null())
             .spawn()
             .map_err(|e| e.to_string())?;
         let pid = child.id();
-        let stderr = child.stderr.take().expect("stderr를 piped로 열었다");
-        let server = tokio::time::timeout(REPLY_TIMEOUT, connect(stderr)).await;
-        let (url, socket) = match server {
-            Ok(Ok(found)) => found,
-            Ok(Err(e)) => return Err(stop_after(child, pid, e)),
-            Err(_) => {
-                return Err(stop_after(
-                    child,
-                    pid,
-                    "did not announce its address".into(),
-                ));
-            }
+        let listening = tokio::time::timeout(
+            REPLY_TIMEOUT,
+            process_tree::until_listening(&mut child, port),
+        )
+        .await
+        .unwrap_or_else(|_| Err("did not listen".into()));
+        // 이 데몬이 띄운 서버는 끝날 때 이 데몬이 거둔다.
+        tokio::spawn(async move { child.wait().await });
+        let server = match listening {
+            Ok(()) => Self::connect(url, pid).await,
+            Err(e) => Err(e),
         };
+        server.map_err(|e| {
+            if let Some(root) = pid {
+                Snapshot::now().kill_trees([root]);
+            }
+            format!("`codex app-server`: {e}")
+        })
+    }
+
+    /// 앞 데몬이 띄운 서버에 다시 붙는다. `thread`가 있으면 그 상태를 읽어 둔다.
+    /// 상태를 읽지 못하면 쉬는 중으로 둔다. 다음 `thread/status/changed`가 고친다.
+    pub async fn reconnect(
+        url: String,
+        pid: Option<u32>,
+        thread: Option<String>,
+    ) -> Result<Self, String> {
+        let server = Self::connect(url, pid).await?;
+        if let Some(id) = thread {
+            let status = server
+                .read_status(&id)
+                .await
+                .inspect_err(|e| eprintln!("loom: Codex 스레드 {id}의 상태를 읽지 못했다: {e}"))
+                .unwrap_or(Status::Idle);
+            if let Some(tx) = server.thread_tx.upgrade() {
+                tx.send_replace(Some(Thread { id, status }));
+            }
+        }
+        Ok(server)
+    }
+
+    async fn read_status(&self, thread: &str) -> Result<Status, String> {
+        let params = ThreadReadParams {
+            thread_id: thread.to_owned(),
+            include_turns: Some(false),
+        };
+        let params = serde_json::to_value(params).map_err(|e| e.to_string())?;
+        let read = self.call("thread/read", params).await?;
+        let read: ThreadReadResponse =
+            serde_json::from_value(read).map_err(|e| format!("thread/read: {e}"))?;
+        Ok(status(&read.thread.status))
+    }
+
+    /// 다시 붙는 데 쓰는 값. DB에 남긴다.
+    pub fn link(&self) -> ServerLink {
+        ServerLink::Codex {
+            url: self.url.clone(),
+            pid: self.pid,
+            thread: self.thread.borrow().as_ref().map(|t| t.id.clone()),
+        }
+    }
+
+    /// 연결하고 `initialize`를 보낸다.
+    async fn connect(url: String, pid: Option<u32>) -> Result<Self, String> {
+        let connected = tokio::time::timeout(
+            REPLY_TIMEOUT,
+            tokio_tungstenite::connect_async(url.as_str()),
+        )
+        .await
+        .map_err(|_| format!("could not connect to {url}: timed out"))?;
+        let (socket, _) = connected.map_err(|e| format!("could not connect to {url}: {e}"))?;
         let (mut sink, mut stream) = socket.split();
         let (to_server, mut outbox) = mpsc::unbounded_channel::<Message>();
         tokio::spawn(async move {
@@ -104,8 +165,11 @@ impl CodexServer {
                 }
             }
         });
-        let pending = std::sync::Arc::new(Pending::default());
+        let pending = Arc::new(Pending::default());
         let (thread_tx, thread) = watch::channel(None);
+        // 받는 작업이 유일한 강한 참조다. 연결이 끊겨 작업이 끝나면 송신자가 사라져 구독자도 끝난다.
+        let thread_tx = Arc::new(thread_tx);
+        let weak_tx = Arc::downgrade(&thread_tx);
         let replies = pending.clone();
         tokio::spawn(async move {
             while let Some(Ok(msg)) = stream.next().await {
@@ -115,26 +179,23 @@ impl CodexServer {
                     receive(value, &replies, &thread_tx);
                 }
             }
-            // 연결이 끊겼다. 기다리는 요청을 모두 실패로 끝낸다. `thread_tx`가 사라져 구독자도 끝난다.
+            // 연결이 끊겼다. 기다리는 요청을 모두 실패로 끝낸다.
             for (_, reply) in replies.lock().unwrap().drain() {
                 let _ = reply.send(Err("app-server connection closed".into()));
             }
         });
         let server = Self {
             url,
-            child: Mutex::new(child),
             pid,
             to_server,
             pending,
             next_id: AtomicU64::new(0),
             thread,
+            thread_tx: weak_tx,
         };
         let init =
             json!({ "clientInfo": { "name": "loom", "version": env!("CARGO_PKG_VERSION") } });
-        if let Err(e) = server.call("initialize", init).await {
-            server.stop();
-            return Err(e);
-        }
+        server.call("initialize", init).await?;
         server.notify("initialized");
         Ok(server)
     }
@@ -193,47 +254,7 @@ impl CodexServer {
         if let Some(root) = self.pid {
             Snapshot::now().kill_trees([root]);
         }
-        // 이미 끝났으면 실패한다. 할 일이 없다.
-        let _ = self.child.lock().unwrap().start_kill();
     }
-}
-
-/// stderr에서 듣는 주소를 찾아 연결한다. 그 뒤의 stderr도 계속 읽어 버린다. 읽지 않으면 파이프가 차서 서버가 멈춘다.
-async fn connect(
-    stderr: tokio::process::ChildStderr,
-) -> Result<
-    (
-        String,
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    ),
-    String,
-> {
-    let mut lines = BufReader::new(stderr).lines();
-    let url = loop {
-        match lines.next_line().await {
-            Ok(Some(line)) => {
-                if let Some(url) = line.split_once(LISTENING).map(|(_, u)| u.trim().to_owned()) {
-                    break url;
-                }
-            }
-            _ => return Err("exited before announcing its address".into()),
-        }
-    };
-    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
-    let (socket, _) = tokio_tungstenite::connect_async(url.as_str())
-        .await
-        .map_err(|e| format!("could not connect to {url}: {e}"))?;
-    Ok((url, socket))
-}
-
-fn stop_after(mut child: Child, pid: Option<u32>, why: String) -> String {
-    if let Some(root) = pid {
-        Snapshot::now().kill_trees([root]);
-    }
-    let _ = child.start_kill();
-    format!("`codex app-server`: {why}")
 }
 
 /// 서버가 보낸 메시지 하나. 응답은 기다리는 요청에 넘기고, 스레드 알림은 상태로 바꾼다. 나머지는 버린다.

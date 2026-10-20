@@ -1,89 +1,104 @@
 //! OpenCode 2 서버 프로세스와 HTTP 연결. 노드마다 `opencode2 serve` 하나를 띄운다.
+//! 서버는 노드처럼 데몬이 다시 시작해도 산다. 새 데몬은 DB에 남긴 주소·비밀번호로 다시 붙는다(`connect`).
 //! 바뀌는 이유는 서버의 시작 방식과 API 경로다. 무엇을 언제 보낼지는 `mod.rs`가 정한다.
 //! API 근거: `opencode2 serve`가 내는 `/openapi.json`(2.0.32). docs/design.md 「실측 근거」.
 
 use std::ffi::OsString;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::watch;
 
-use crate::process_tree::Snapshot;
+use crate::process_tree::{self, Snapshot};
 
 /// 서버가 뜨고 요청 하나에 답하는 상한. 첫 실행은 플러그인·모델 목록을 읽어 몇 초 걸린다.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
-/// 서버가 듣는 주소를 stdout에 쓰는 줄의 앞머리. 포트는 OS가 고른다(`--port 0`).
-const LISTENING: &str = "server listening on ";
 /// Basic 인증의 사용자 이름. 서버가 정한 값이다(실측: 다른 이름과 Bearer는 401).
 const USER: &str = "opencode";
 /// SSE 이벤트 본문 줄의 앞머리. 서버는 이벤트 하나를 `data:` 한 줄로 쓴다(실측).
 const SSE_DATA: &str = "data: ";
 
+/// 서버 하나와 데몬의 연결. 서버 프로세스는 데몬과 따로 산다. 데몬이 다시 시작하면 `connect`로 다시 붙는다.
 pub struct Server {
     url: String,
     password: String,
     /// `Authorization` 머리글 값.
     auth: String,
-    /// 셸을 찾는 뿌리.
+    /// 셸을 찾고 서버를 끝내는 뿌리.
     pid: Option<u32>,
-    /// 서버 프로세스가 끝나면 `true`가 된다.
-    stopped: watch::Receiver<bool>,
+    /// 이벤트 연결이 끊기면(서버가 끝나면) `true`가 된다.
+    stopped: Arc<watch::Sender<bool>>,
 }
 
 impl Server {
-    /// `cwd`에서 서버를 띄우고 듣는 주소를 기다린다. 서버는 HTTP Basic `password`만 받는다.
+    /// `cwd`에서 서버를 띄우고 들을 때까지 기다린다. 서버는 HTTP Basic `password`만 받는다.
     pub async fn start(
         program: &str,
         cwd: &Path,
         node_env: &[(&'static str, OsString)],
         password: String,
     ) -> Result<Self, String> {
-        let mut cmd = Command::from(crate::process_tree::command(program));
-        cmd.args(["serve", "--hostname", "127.0.0.1", "--port", "0"])
-            .current_dir(cwd)
-            .envs(node_env.iter().map(|(k, v)| (k, v)))
-            .env(super::PASSWORD_ENV, &password);
-        crate::process_tree::end_with_daemon(&mut cmd);
-        let mut child = cmd
+        let port = process_tree::free_port()?;
+        let mut cmd = process_tree::command(program);
+        cmd.args([
+            "serve",
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+        ])
+        .current_dir(cwd)
+        .envs(node_env.iter().map(|(k, v)| (k, v)))
+        .env(super::PASSWORD_ENV, &password);
+        // 노드가 데몬보다 오래 살므로 서버도 따로 산다. 출력은 읽지 않는다. 데몬이 끝나면 읽을 쪽이 없다.
+        process_tree::detach(&mut cmd);
+        let mut child = Command::from(cmd)
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
+            .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .kill_on_drop(true)
             .spawn()
             .map_err(|e| e.to_string())?;
         let pid = child.id();
-        let stdout = child.stdout.take().expect("stdout을 piped로 열었다");
-        let url = match tokio::time::timeout(REPLY_TIMEOUT, listening(stdout)).await {
-            Ok(Ok(url)) => url,
-            failed => {
-                if let Some(root) = pid {
-                    Snapshot::now().kill_trees([root]);
-                }
-                let why = match failed {
-                    Ok(Err(e)) => e,
-                    _ => "did not announce its address".into(),
-                };
-                return Err(why);
+        let listening = tokio::time::timeout(
+            REPLY_TIMEOUT,
+            process_tree::until_listening(&mut child, port),
+        )
+        .await
+        .unwrap_or_else(|_| Err("did not listen".into()));
+        // 이 데몬이 띄운 서버는 끝날 때 이 데몬이 거둔다.
+        tokio::spawn(async move { child.wait().await });
+        if let Err(e) = listening {
+            if let Some(root) = pid {
+                Snapshot::now().kill_trees([root]);
             }
-        };
-        let (done, stopped) = watch::channel(false);
-        tokio::spawn(async move {
-            let _ = child.wait().await;
-            done.send_replace(true);
-        });
+            return Err(e);
+        }
+        Ok(Self::connect(
+            format!("http://127.0.0.1:{port}"),
+            password,
+            pid,
+        ))
+    }
+
+    /// 듣고 있는 서버에 붙는다. 요청을 보내기 전에는 서버를 부르지 않는다.
+    pub fn connect(url: String, password: String, pid: Option<u32>) -> Self {
         let basic = base64::engine::general_purpose::STANDARD.encode(format!("{USER}:{password}"));
-        Ok(Self {
+        Self {
             url,
             password,
             auth: format!("Basic {basic}"),
             pid,
-            stopped,
-        })
+            stopped: Arc::new(watch::channel(false).0),
+        }
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        self.pid
     }
 
     pub fn url(&self) -> &str {
@@ -94,17 +109,20 @@ impl Server {
         &self.password
     }
 
-    /// 서버 프로세스가 끝나면 `true`가 된다.
+    /// 이벤트 연결이 끊기면(서버가 끝나면) `true`가 된다.
     pub fn stopped(&self) -> watch::Receiver<bool> {
-        self.stopped.clone()
+        self.stopped.subscribe()
     }
 
     /// 서버 이벤트(`GET /api/event`, SSE)를 받을 때마다 `on_event`에 `data` JSON을 넘기는 스레드를 띄운다.
-    /// 서버가 끝나 연결이 닫히면 스레드도 끝난다.
+    /// 서버가 끝나 연결이 닫히면 스레드도 끝나고 `stopped`가 `true`가 된다.
+    /// 다시 시작한 데몬은 서버의 자식이 아니라 기다릴 수 없다. 그래서 끝남을 이 연결로 안다.
     pub fn follow_events(&self, mut on_event: impl FnMut(Value) + Send + 'static) {
         let url = format!("{}/api/event", self.url);
         let auth = self.auth.clone();
+        let stopped = self.stopped.clone();
         std::thread::spawn(move || {
+            let _ended = Ended(stopped);
             // 이벤트는 끝없이 오므로 응답 상한을 두지 않는다.
             let agent: ureq::Agent = ureq::Agent::config_builder().build().into();
             let Ok(mut res) = agent.get(&url).header("authorization", &auth).call() else {
@@ -185,7 +203,7 @@ impl Server {
         snapshot.kill_trees(pids.into_iter().filter(|&p| snapshot.descends(p, root)));
     }
 
-    /// 서버와 그 아래 프로세스를 모두 끝낸다. `stopped`가 `true`가 된다.
+    /// 서버와 그 아래 프로세스를 모두 끝낸다. 이벤트 연결이 끊겨 `stopped`가 `true`가 된다.
     pub fn stop(&self) {
         if let Some(root) = self.pid {
             Snapshot::now().kill_trees([root]);
@@ -239,19 +257,11 @@ fn request(method: &str, url: &str, auth: &str, body: Option<Value>) -> Result<V
     serde_json::from_str(&text).map_err(|e| format!("unknown reply: {e}"))
 }
 
-/// stdout에서 듣는 주소를 찾는다. 그 뒤의 stdout도 계속 읽어 버린다. 읽지 않으면 파이프가 차서 서버가 멈춘다.
-async fn listening(stdout: tokio::process::ChildStdout) -> Result<String, String> {
-    let mut lines = BufReader::new(stdout).lines();
-    let url = loop {
-        match lines.next_line().await {
-            Ok(Some(line)) => {
-                if let Some((_, url)) = line.split_once(LISTENING) {
-                    break url.trim().trim_end_matches('/').to_owned();
-                }
-            }
-            _ => return Err("exited before announcing its address".into()),
-        }
-    };
-    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
-    Ok(url)
+/// 버려질 때 `stopped`를 `true`로 둔다. 이벤트 스레드가 어느 길로 끝나든 알린다.
+struct Ended(Arc<watch::Sender<bool>>);
+
+impl Drop for Ended {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
 }

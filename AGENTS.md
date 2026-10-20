@@ -22,6 +22,7 @@
 | Rust 검사 | `memcap -m 8G cargo clippy --all-targets` |
 | Rust 테스트, TS 타입 생성 | `memcap -m 8G cargo test` |
 | 화면 타입·순환 검사 | `npm --prefix web run check` |
+| 화면 배치 테스트(vitest, 한 번 실행) | `npm --prefix web test` |
 | 화면 빌드 | `npm --prefix web run build` |
 | 데몬 띄우기(시험) | `memcap -m 8G cargo build` 뒤 `HOME=/tmp/<이름> target/debug/loom serve --listen 127.0.0.1:<빈 포트>`. 다른 `HOME`이라 사람의 DB(`~/.loom`)를 건드리지 않는다. `cargo run`은 쓰지 않는다(바꾼 `HOME`에서 rustup이 판을 찾지 못한다) |
 | 사람이 쓰는 loom 올리기 | 원래 체크아웃(main)에서 `bash scripts/host.sh`. `~/loom/bin/loom`을 바꾸고 데몬(포트 7420)을 다시 띄운다. 노드는 그대로 산다 |

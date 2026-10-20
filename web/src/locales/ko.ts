@@ -116,7 +116,6 @@ const ko: typeof en = {
     noMatch: '일치하는 프로필 없음',
     account: '계정: {{name}} · {{usage}}',
     bypass: '모든 권한 허용으로 시작합니다. ‘설정 › 에이전트’에서 끌 수 있습니다.',
-    create: '만들기',
   },
   settings: {
     title: '설정',

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isTauri } from '@tauri-apps/api/core';
 import { check, type Update as Release } from '@tauri-apps/plugin-updater';
@@ -10,29 +10,42 @@ type Step =
   | { kind: 'ready' }
   | { kind: 'error'; message: string; retry: () => void };
 
+/** 다음 자동 확인까지의 시간. Orca(`src/main/updater-events.ts`)와 같다: 확인에 성공하면 하루, 실패하면 한 시간 뒤다. */
+const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
+const RETRY_AFTER_MS = 60 * 60 * 1000;
+
 /**
  * Windows 앱의 업데이트 카드(docs/mockups/update.html, Orca의 업데이트 카드를 따른다).
- * 화면을 열 때 한 번 확인한다. 브라우저에서 열면 아무것도 하지 않는다.
+ * 화면을 열 때와 그 뒤 하루마다 확인한다. 받기를 시작하면 더 확인하지 않는다. 브라우저에서 열면 아무것도 하지 않는다.
  * Windows: 설치는 설치 파일을 띄우고 앱을 끝낸다. 설치 파일이 새 판을 다시 띄운다.
  */
 export function UpdateCard() {
   const { t } = useTranslation();
   const [release, setRelease] = useState<Release | null>(null);
   const [step, setStep] = useState<Step | null>(null);
+  const next = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   function fail(retry: () => void) {
     return (err: unknown) => setStep({ kind: 'error', message: String(err), retry });
   }
 
   function find() {
-    setStep(null);
-    check().then((found) => {
-      setRelease(found);
-      setStep(found && { kind: 'available' });
-    }, fail(find));
+    clearTimeout(next.current);
+    check().then(
+      (found) => {
+        setRelease(found);
+        setStep(found && { kind: 'available' });
+        next.current = setTimeout(find, CHECK_EVERY_MS);
+      },
+      (err: unknown) => {
+        fail(find)(err);
+        next.current = setTimeout(find, RETRY_AFTER_MS);
+      },
+    );
   }
 
   function download(found: Release) {
+    clearTimeout(next.current);
     let total = 0;
     let done = 0;
     setStep({ kind: 'downloading', percent: 0 });
@@ -52,6 +65,7 @@ export function UpdateCard() {
 
   useEffect(() => {
     if (isTauri()) find();
+    return () => clearTimeout(next.current);
   }, []);
 
   if (!step) return null;

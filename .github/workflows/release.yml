@@ -1,8 +1,10 @@
-# 사람이 손으로 돌릴 때만 Windows 설치 파일과 Linux 실행 파일을 만들어 Release `v<판>`으로 올린다.
+# 사람이 판 태그(`v<판>`)를 push하거나 손으로 돌릴 때 Windows 설치 파일과 Linux 실행 파일을 만들어 Release `v<판>`으로 올린다.
 # 앱은 가장 새 Release의 `latest.json`으로 새 판을 찾는다. 근거: docs/design.md 「Windows 앱」 「배포」.
 name: release
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -43,6 +45,11 @@ jobs:
           sed -i "s/^version = \".*\"$/version = \"$version\"/" Cargo.toml
           sed -i "s/^name = \"loom-app\"$/&\nversion = \"$version\"/" app/Cargo.toml
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # 태그로 돌면 태그 이름이 판과 같아야 한다. 다르면 Release 이름과 앱 판이 어긋난다.
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "태그 $GITHUB_REF_NAME 이(가) 판 v$version 과 다르다. 'git tag v\$(sh scripts/version.sh)'로 태그를 붙인다." >&2
+            exit 1
+          fi
       - name: 화면 빌드
         run: npm ci && npm run build
         working-directory: web

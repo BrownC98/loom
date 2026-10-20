@@ -3,6 +3,7 @@
 [package]
 name = "loom-app"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 # `tauri::generate_context!`가 `plugins` 설정을 이 크레이트로 푼다.

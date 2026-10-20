@@ -20,6 +20,7 @@ import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
 import type { RenameNode } from './gen/RenameNode';
+import type { RenameWorktree } from './gen/RenameWorktree';
 import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
@@ -72,6 +73,8 @@ export const removeRepo = (repo: RepoId) => call<null>('DELETE', `/api/repos/${r
 export const getFolders = (path?: string) => call<FolderList>('GET', path === undefined ? '/api/folders' : `/api/folders?${new URLSearchParams({ path })}`);
 export const createWorktree = (repo: RepoId, req: NewWorktree) => call<RepoView>('POST', `/api/repos/${repo}/worktrees`, req);
 const worktreeQuery = (path: string) => `path=${encodeURIComponent(path)}`;
+/** 브랜치 이름만 바꾼다(`git branch -m`). 폴더와 노드는 그대로다. */
+export const renameWorktree = (repo: RepoId, path: string, name: string) => call<RepoView>('PUT', `/api/repos/${repo}/worktrees/name`, { path, name } satisfies RenameWorktree);
 /** 삭제하면 잃는 변경. 줄마다 `git status --porcelain` 한 줄이다. */
 export const getWorktreeChanges = (repo: RepoId, path: string) => call<string[]>('GET', `/api/repos/${repo}/worktrees/changes?${worktreeQuery(path)}`);
 /** 그 묶음의 노드를 끝내고 폴더를 지운다(`--force`). `deleteBranch`면 브랜치도 지운다. */

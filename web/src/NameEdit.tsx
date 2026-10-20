@@ -1,9 +1,12 @@
-// 노드 이름 바꾸기(docs/mockups/node-rename.html): 이름 글자를 두 번 누르거나 F2를 누르면 그 자리가 입력창이 된다.
-// 사이드바 트리 줄, 표준 카드 머리, 노드 정보(심플 카드·오른쪽 칸 머리)가 함께 쓴다.
+// 이름 바꾸기(docs/mockups/node-rename.html): 이름 글자를 두 번 누르거나 F2를 누르면 그 자리가 입력창이 된다.
+// 사이드바 트리 줄(노드, 워크트리 브랜치), 표준 카드 머리, 노드 정보(심플 카드·오른쪽 칸 머리)가 함께 쓴다.
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { renameNode } from './api';
 import type { NodeId } from './gen/NodeId';
+
+/** 새 이름을 데몬에 보낸다. 거절하면 데몬의 문장을 담은 Error로 끝난다. */
+export type SaveName = (name: string) => Promise<unknown>;
 
 /** 편집을 여닫는 쪽. 트리는 줄마다, 카드와 오른쪽 칸은 하나씩 가진다. F2를 받는 쪽이 `open`을 부른다. */
 export type Rename = { editing: boolean; open: () => void; close: () => void };
@@ -28,7 +31,7 @@ export function useRename(home?: RefObject<HTMLElement | null>): Rename {
   };
 }
 
-function Editor(props: { id: NodeId; name: string; onClose: () => void }) {
+function Editor(props: { name: string; label: string; save: SaveName; onClose: () => void }) {
   const { t } = useTranslation();
   const tipId = useId();
   const input = useRef<HTMLInputElement>(null);
@@ -42,7 +45,7 @@ function Editor(props: { id: NodeId; name: string; onClose: () => void }) {
   const save = () => {
     if (value.trim() === props.name) return props.onClose();
     setSaving(true);
-    renameNode(props.id, value).then(props.onClose, (e: Error) => {
+    props.save(value).then(props.onClose, (e: Error) => {
       setSaving(false);
       setError(e.message);
     });
@@ -53,7 +56,7 @@ function Editor(props: { id: NodeId; name: string; onClose: () => void }) {
       <input
         ref={input}
         name="name"
-        aria-label={t('rename.label')}
+        aria-label={props.label}
         autoComplete="off"
         spellCheck={false}
         value={value}
@@ -85,14 +88,15 @@ function Editor(props: { id: NodeId; name: string; onClose: () => void }) {
   );
 }
 
-/** 이름 글자. 편집 중이면 입력창이다. 거절되면 입력창에 남아 사유를 보인다. */
-export function NameEdit(props: { id: NodeId; name: string; rename: Rename }) {
+/** 이름 글자. 편집 중이면 입력창이다. 거절되면 입력창에 남아 사유를 보인다. `label`은 입력창의 이름, `detail`은 툴팁 앞줄이다. */
+export function NameField(props: { name: string; label: string; detail?: string; rename: Rename; save: SaveName }) {
   const { t } = useTranslation();
-  if (props.rename.editing) return <Editor id={props.id} name={props.name} onClose={props.rename.close} />;
+  if (props.rename.editing) return <Editor name={props.name} label={props.label} save={props.save} onClose={props.rename.close} />;
   return (
     <span
       className="name renamable"
-      title={t('rename.title')}
+      translate="no"
+      title={props.detail === undefined ? t('rename.title') : `${props.detail}\n${t('rename.title')}`}
       onDoubleClick={(e) => {
         e.stopPropagation();
         props.rename.open();
@@ -101,4 +105,10 @@ export function NameEdit(props: { id: NodeId; name: string; rename: Rename }) {
       {props.name}
     </span>
   );
+}
+
+/** 노드 이름. */
+export function NameEdit(props: { id: NodeId; name: string; rename: Rename }) {
+  const { t } = useTranslation();
+  return <NameField name={props.name} label={t('rename.label')} rename={props.rename} save={(name) => renameNode(props.id, name)} />;
 }

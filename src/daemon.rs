@@ -212,6 +212,14 @@ pub struct WorktreePath {
     pub path: String,
 }
 
+/// [이름 바꾸기]. `path` 워크트리의 브랜치 이름을 `name`으로 바꾼다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct RenameWorktree {
+    pub path: String,
+    pub name: String,
+}
+
 /// [워크트리 삭제]. `delete_branch`가 참이면 그 워크트리의 브랜치도 지운다(삭제 창의 확인란).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -393,6 +401,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             post(create_worktree).delete(delete_worktree),
         )
         .route("/api/repos/{id}/worktrees/changes", get(worktree_changes))
+        .route("/api/repos/{id}/worktrees/name", put(rename_worktree))
         .route("/api/repos/{id}/commits", get(commits))
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
@@ -522,6 +531,19 @@ async fn worktree_changes(
         Ok(listed) => Ok(Json(worktree::changes(&listed).await?)),
         Err(_) => Ok(Json(Vec::new())),
     }
+}
+
+/// 브랜치 이름만 바꾼다. 폴더와 노드는 그대로다.
+async fn rename_worktree(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+    Json(req): Json<RenameWorktree>,
+) -> Result<Json<RepoView>, Problem> {
+    let id = RepoId(id);
+    let repo = app.repos.path(id)?;
+    let listed = worktree::find(&repo, &req.path).await?;
+    worktree::rename(&repo, &listed, &req.name).await?;
+    Ok(Json(worktree::view(id, &repo).await))
 }
 
 /// 그 묶음의 노드를 끝내고 그래프에서 지운 뒤 폴더를 지운다. 근거: docs/design.md 「저장소와 워크트리」.

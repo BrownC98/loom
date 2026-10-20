@@ -60,6 +60,12 @@ export function useShowNodes(): (ids: NodeId[]) => void {
   return (ids) => flow.fitView({ nodes: ids.map((id) => ({ id: String(id) })), duration: MOVE_MS, maxZoom: 1 });
 }
 
+/** 그래프 화면을 `path` 워크트리 묶음으로 옮긴다. 묶음 노드의 id는 워크트리 경로다. 아직 그리지 않은 묶음이면(저장소를 막 바꿈) React Flow가 노드를 잰 뒤 옮긴다. */
+export function useShowGroup(): (path: string) => void {
+  const flow = useReactFlow();
+  return (path) => flow.fitView({ nodes: [{ id: path }], duration: MOVE_MS, maxZoom: 1 });
+}
+
 /** `onDelete`가 없으면 지울 수 없다(원래 체크아웃). */
 type GroupData = {
   branch: string;

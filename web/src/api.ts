@@ -28,15 +28,21 @@ import { problemText } from './problem';
 const RECONNECT_MS = 1000;
 
 /** 실패하면 데몬이 보낸 코드(`Problem`)를 현재 언어로 바꾼 문장을 담은 Error를 던진다. */
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }): Promise<T> {
   const res = await fetch(path, {
     method,
-    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: body === undefined ? undefined : { 'content-type': body.type },
+    body: body?.data,
   });
   if (!res.ok) throw new Error(problemText((await res.json()) as Problem));
   return res.json();
 }
+
+const call = <T>(method: string, path: string, body?: unknown) =>
+  request<T>(method, path, body === undefined ? undefined : { type: 'application/json', data: JSON.stringify(body) });
+
+/** 붙여넣은 그림을 데몬이 파일로 남기고 그 절대 경로를 돌려준다. */
+export const savePastedImage = (image: Blob) => request<string>('POST', '/api/pastes', { type: image.type, data: image });
 
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
 /** 노드 하나를 지운다. 자식은 부모 없이 남는다(docs/design.md 「노드 제거와 입양」). */

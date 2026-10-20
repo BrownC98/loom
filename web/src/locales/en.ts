@@ -289,6 +289,7 @@ const en = {
       git: 'Git failed: {{value}}',
     },
     noLogin: 'This login window no longer exists.',
+    unsupportedImage: 'This image format cannot be pasted: {{value}}. Use PNG, JPEG, GIF, or WebP.',
     internal: 'Internal error: {{value}}',
   },
   usageProblem: {

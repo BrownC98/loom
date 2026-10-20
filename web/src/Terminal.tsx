@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { attachPty } from './api';
+import { attachPty, savePastedImage } from './api';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
@@ -25,10 +25,6 @@ export function navDirection(e: KeyboardEvent | ReactKeyboardEvent): Direction |
 function plainCtrl(e: KeyboardEvent, code: string): boolean {
   return e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === code;
 }
-
-/** 글이 없는 붙여넣기(그림)는 예전처럼 `^V`로 보낸다. Claude Code·Codex는 `^V`를 받으면 클립보드 그림을 스스로 읽는다. */
-const CTRL_V = '\x16';
-
 export type XtermFontValue = { family: string; size: number };
 /**
  * 기본 글꼴 Jetendard(번들, styles.css)는 한글이 꼭 두 칸이라 글자 사이에 틈이 없다. 기본 글꼴로 카드가 80열이다(`.card`의 폭).
@@ -138,10 +134,17 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
         // 기본 동작을 막지 않으므로 브라우저가 paste 이벤트를 내고 xterm이 그 글을 보낸다.
         return !plainCtrl(e, 'KeyV');
       });
+      // 글이 없는 그림 붙여넣기는 데몬이 그림을 파일로 남기고, 그 경로를 붙여넣는다. 에이전트 CLI는 그림 경로를 첨부로 바꾼다.
       const pasteImage = (e: ClipboardEvent) => {
-        if (e.clipboardData?.getData('text/plain')) return;
+        if (!e.clipboardData || e.clipboardData.getData('text/plain')) return;
+        const image = [...e.clipboardData.files].find((file) => file.type.startsWith('image/'));
+        if (!image) return;
         e.stopPropagation();
-        link.sendInput(CTRL_V);
+        e.preventDefault();
+        savePastedImage(image).then(
+          (path) => xterm.paste(path),
+          (err: Error) => xterm.write(`\r\n${err.message}\r\n`),
+        );
       };
       // xterm의 paste 처리기보다 먼저 받는다.
       el.addEventListener('paste', pasteImage, true);

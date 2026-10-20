@@ -290,6 +290,7 @@ const ko: typeof en = {
       git: 'git이 실패했습니다: {{value}}',
     },
     noLogin: '로그인 창이 더 이상 없습니다.',
+    unsupportedImage: '이 그림 형식은 붙여넣을 수 없습니다: {{value}}. PNG·JPEG·GIF·WebP를 쓰십시오.',
     internal: '내부 오류: {{value}}',
   },
   usageProblem: {

@@ -13,11 +13,12 @@ use std::pin::pin;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
+use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,7 @@ use crate::graph::{
     Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
 };
 use crate::node_host::NodeHost;
+use crate::paste;
 use crate::process_tree;
 use crate::profile::codex::{self, Status};
 use crate::profile::opencode2;
@@ -81,6 +83,8 @@ pub enum Problem {
     Repo(RepoProblem),
     /// 없는 로그인 창이다.
     NoLogin,
+    /// 붙여넣은 그림의 형식을 받지 않는다. 값은 MIME 형식이다.
+    UnsupportedImage(String),
     /// DB·파일 오류처럼 요청을 고쳐도 낫지 않는 실패. 값은 원인 글이다.
     Internal(String),
 }
@@ -91,7 +95,10 @@ impl Problem {
             Problem::Refused(Refusal::Db(_)) | Problem::Internal(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
-            Problem::Refused(_) | Problem::Launch(_) | Problem::Repo(_) => StatusCode::BAD_REQUEST,
+            Problem::Refused(_)
+            | Problem::Launch(_)
+            | Problem::Repo(_)
+            | Problem::UnsupportedImage(_) => StatusCode::BAD_REQUEST,
             Problem::NoLogin => StatusCode::NOT_FOUND,
         }
     }
@@ -132,6 +139,7 @@ fn for_agent(e: impl Into<Problem>) -> AgentError {
         Problem::Launch(e) => e.to_string(),
         Problem::Repo(e) => e.to_string(),
         Problem::NoLogin => "없는 로그인 창이다.".into(),
+        Problem::UnsupportedImage(mime) => format!("{mime}: 받지 않는 그림 형식이다."),
         Problem::Internal(e) => e.clone(),
     };
     (problem.status(), text)
@@ -372,6 +380,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/pty", get(pty))
+        .route(
+            "/api/pastes",
+            post(save_paste).layer(DefaultBodyLimit::max(paste::LIMIT_BYTES)),
+        )
         .route("/api/events", get(events))
         .route("/api/events/log", get(event_log))
         .merge(settings::routes())
@@ -953,6 +965,18 @@ async fn create_node(
     let repo = app.repos.path(req.place.repo)?;
     worktree::find(&repo, &req.place.worktree).await?;
     Ok(Json(app.start_root(&req.place, &req.start).await?))
+}
+
+/// 터미널에 붙여넣은 그림을 파일로 남기고 그 절대 경로를 돌려준다. 몸통은 그림 그대로, 형식은 `content-type`이다.
+async fn save_paste(headers: HeaderMap, body: Bytes) -> Result<Json<String>, Problem> {
+    let mime = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let image =
+        paste::Image::new(mime, &body).ok_or_else(|| Problem::UnsupportedImage(mime.to_owned()))?;
+    let path = image.save().map_err(internal)?;
+    Ok(Json(path.to_string_lossy().into_owned()))
 }
 
 /// 노드 하나를 지우고 프로세스를 끝낸다. 프로세스가 끝나면 `launch`의 `on_exit`가 app-server를 끝낸다.

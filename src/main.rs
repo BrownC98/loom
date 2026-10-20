@@ -7,6 +7,7 @@ mod db;
 mod git;
 mod graph;
 mod node_host;
+mod paste;
 mod process_tree;
 mod profile;
 mod settings;

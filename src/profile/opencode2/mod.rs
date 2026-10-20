@@ -436,7 +436,7 @@ mod tests {
         assert_eq!(calls[0], "interrupt");
         assert!(calls[1].starts_with("steer msg_"), "{}", calls[1]);
         assert!(calls[1].ends_with(
-            "loom 메시지 #1 (보낸 노드: 부모, 방식: 중단. 하던 일을 멈추고 이 본문을 따른다)\n멈춰라"
+            "loom message #1 (from: 부모, mode: interrupt. Stop current work and follow this body)\n멈춰라"
         ));
         assert_eq!(calls.len(), 2);
     }

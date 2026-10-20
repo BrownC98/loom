@@ -141,8 +141,8 @@ fn for_agent(e: impl Into<Problem>) -> AgentError {
         Problem::Refused(e) => e.to_string(),
         Problem::Launch(e) => e.to_string(),
         Problem::Repo(e) => e.to_string(),
-        Problem::NoLogin => "없는 로그인 창이다.".into(),
-        Problem::UnsupportedImage(mime) => format!("{mime}: 받지 않는 그림 형식이다."),
+        Problem::NoLogin => "No such login window.".into(),
+        Problem::UnsupportedImage(mime) => format!("{mime}: this image type is not supported."),
         Problem::Internal(e) => e.clone(),
     };
     (problem.status(), text)
@@ -795,7 +795,7 @@ impl App {
         };
         node.ok_or((
             StatusCode::UNAUTHORIZED,
-            "loom 노드 안에서만 부른다.".into(),
+            "Run this only inside a loom node.".into(),
         ))
     }
 
@@ -1297,7 +1297,7 @@ async fn agent_wait(
             .map_err(|_| {
                 (
                     StatusCode::REQUEST_TIMEOUT,
-                    "메시지 대기 시간이 끝났다.".to_owned(),
+                    "Timed out while waiting for a message.".to_owned(),
                 )
             })?,
         None => wait.await,
@@ -1461,7 +1461,7 @@ mod tests {
         assert_eq!(Problem::NoLogin.status(), StatusCode::NOT_FOUND);
         assert_eq!(
             for_agent(Refusal::EmptyName),
-            (StatusCode::BAD_REQUEST, "이름을 적는다.".into())
+            (StatusCode::BAD_REQUEST, "Give a name.".into())
         );
     }
 }

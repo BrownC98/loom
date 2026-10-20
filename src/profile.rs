@@ -350,26 +350,30 @@ pub enum LaunchError {
 impl std::fmt::Display for LaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LaunchError::UnknownAgent(id) => write!(f, "{}: 카탈로그에 없는 에이전트다.", id.0),
+            LaunchError::UnknownAgent(id) => {
+                write!(f, "{}: this agent is not in the catalog.", id.0)
+            }
             LaunchError::NotInstalled { agent, command } => write!(
                 f,
-                "{agent}: 데몬 PATH에서 실행 파일(`{command}`)을 찾지 못했다. 설치한 뒤 설정에서 [다시 찾기]를 누른다."
+                "{agent}: the daemon PATH has no `{command}`. Install it, then click Find again in settings."
             ),
             LaunchError::BriefTooLong { len, limit } => write!(
                 f,
-                "첫 지시문이 {len}바이트다. {limit}바이트 이하로 줄이고, 긴 자료는 파일 경로를 적는다."
+                "The brief is {len} bytes. Make it {limit} bytes or less, and put long material in a file and send its path."
             ),
             LaunchError::Server { program, cause } => {
-                write!(f, "`{program}`를 띄우지 못했다: {cause}")
+                write!(f, "Could not start `{program}`: {cause}")
             }
-            LaunchError::NoServer(agent) => write!(f, "{agent}: 노드가 붙을 서버를 띄우지 못했다."),
+            LaunchError::NoServer(agent) => {
+                write!(f, "{agent}: could not start the server for the node.")
+            }
             LaunchError::NoModelChoice(agent) => write!(
                 f,
-                "{agent}: `--model`·`--effort`를 받지 않는다. Claude·Codex만 받는다. 빼고 다시 만든다."
+                "{agent}: does not take `--model` or `--effort` (only Claude and Codex do). Remove them and try again."
             ),
             LaunchError::NoBrief(agent) => write!(
                 f,
-                "{agent}: 첫 지시문을 받지 않는다. 지시문을 비우고 만든 뒤 터미널에 입력한다."
+                "{agent}: does not take a brief. Start it without a brief and type into its terminal."
             ),
         }
     }
@@ -505,7 +509,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
 Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with loom 메시지 and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
+Messages begin with loom message and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
 
 /// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
@@ -523,16 +527,16 @@ pub fn message_text(taken: &[Delivery]) -> String {
         .iter()
         .map(|d| {
             let how = match d.kind {
-                Kind::Queue => "큐",
-                Kind::Steer => "조정",
-                Kind::Interrupt => "중단. 하던 일을 멈추고 이 본문을 따른다",
+                Kind::Queue => "queue",
+                Kind::Steer => "steer",
+                Kind::Interrupt => "interrupt. Stop current work and follow this body",
             };
             let reply = d
                 .reply_to
-                .map(|id| format!(", 답변 대상: #{}", id.0))
+                .map(|id| format!(", reply to: #{}", id.0))
                 .unwrap_or_default();
             format!(
-                "loom 메시지 #{} (보낸 노드: {}, 방식: {how}{reply})\n{}",
+                "loom message #{} (from: {}, mode: {how}{reply})\n{}",
                 d.id.0, d.from, d.body
             )
         })

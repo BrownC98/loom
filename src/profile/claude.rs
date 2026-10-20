@@ -290,7 +290,7 @@ mod tests {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason":
-                    "loom 메시지 #1 (보낸 노드: 총괄, 방식: 중단. 하던 일을 멈추고 이 본문을 따른다)\n멈춰라",
+                    "loom message #1 (from: 총괄, mode: interrupt. Stop current work and follow this body)\n멈춰라",
             } }))
         );
     }
@@ -303,7 +303,7 @@ mod tests {
             stop.reply(&[delivery(Kind::Queue, "a"), delivery(Kind::Steer, "b")]),
             Some(json!({
                 "decision": "block",
-                "reason": "loom 메시지 #1 (보낸 노드: 총괄, 방식: 큐)\na\n\nloom 메시지 #1 (보낸 노드: 총괄, 방식: 조정)\nb",
+                "reason": "loom message #1 (from: 총괄, mode: queue)\na\n\nloom message #1 (from: 총괄, mode: steer)\nb",
             }))
         );
     }
@@ -325,7 +325,7 @@ mod tests {
                 event(input).reply(&[delivery(Kind::Steer, "b")]),
                 Some(json!({ "hookSpecificOutput": {
                     "hookEventName": name,
-                    "additionalContext": "loom 메시지 #1 (보낸 노드: 총괄, 방식: 조정)\nb",
+                    "additionalContext": "loom message #1 (from: 총괄, mode: steer)\nb",
                 } }))
             );
         }

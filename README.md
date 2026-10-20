@@ -1,44 +1,71 @@
-# loom
+<h1 align="center">
+  <img src="docs/images/icon.png" alt="" width="64" valign="middle"> loom
+</h1>
 
-loom은 여러 코딩 에이전트를 한 화면에서 함께 쓰는 개발 도구입니다. 에이전트 하나가 그래프의 노드 하나이고, 노드 카드에 그 에이전트의 터미널이 보입니다.
+<p align="center">
+  <a href="https://github.com/BrownC98/loom/releases/latest"><img src="https://img.shields.io/github/v/release/BrownC98/loom?style=flat&color=2E5BD6" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/license-MIT-2E5BD6?style=flat" alt="License: MIT">
+  <img src="https://img.shields.io/badge/Windows%20%7C%20Linux-2E5BD6?style=flat" alt="Platforms: Windows and Linux">
+</p>
 
-- 에이전트 터미널: Claude Code, Codex, OpenCode 2 같은 CLI를 노드로 띄웁니다. 에이전트 CLI는 사람이 따로 설치합니다.
-- 워크트리 묶음: git 워크트리마다 노드를 묶어 보입니다.
-- 에이전트 사이 메시징: 부모와 자식 노드가 `loom` 명령으로 일을 나누고 결과를 보고합니다.
-- 커밋 그래프와 이벤트 콘솔: 저장소의 커밋과 노드 사이 메시지를 봅니다.
+<p align="center">
+  <b>English</b> · <a href="README.ko.md">한국어</a>
+</p>
 
-설계와 결정은 [docs/design.md](docs/design.md)에 있습니다.
+<p align="center">
+  <strong>Run different AI agents as one team, on a graph you can watch.</strong><br>
+  Each agent is a node card with its real terminal. Parents spawn children, children report back, and each message shows on the edge between them.
+</p>
 
-## 설치
+<p align="center">
+  <img src="docs/images/hero.png" alt="loom in Simple view: a three-level graph. A Claude Code lead on main has two coordinators (Codex auth, Claude Code ui), each in its own worktree group with two workers (Claude Code, Codex, OpenCode 2). Each card shows the summary, model and state. The edges show messages lead → auth, auth → tests and form → ui. The right panel shows the live terminal of auth with a loom message header." width="960">
+</p>
 
-[가장 새 Release](https://github.com/BrownC98/loom/releases/latest)에서 받습니다.
+## Features
 
-- Windows: `loom_<판>_x64-setup.exe`를 실행합니다. 설치 파일에 제거 프로그램이 들어 있습니다. Windows 「설정 › 앱」에서 지웁니다.
-- Linux(x86-64): `loom-x86_64-linux`를 받아 `loom serve`로 띄우고, 브라우저로 출력된 주소를 엽니다.
-
-## Code signing policy
-
-Windows 설치 파일과 실행 파일의 서명 정책입니다.
-
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-- 서명하는 파일은 이 저장소의 소스에서 GitHub Actions([.github/workflows/release.yml](.github/workflows/release.yml))가 빌드한 파일뿐입니다.
-- 서명 요청마다 승인 담당이 손으로 승인합니다.
-
-| 역할 | 담당 |
+| Feature | What it does |
 |---|---|
-| Authors(커밋) | [@BrownC98](https://github.com/BrownC98) |
-| Reviewers(외부 기여 리뷰) | [@BrownC98](https://github.com/BrownC98) |
-| Approvers(서명 승인) | [@BrownC98](https://github.com/BrownC98) |
+| **Live terminals as nodes** | Each agent runs in a real TUI. Click a card to type into it. Double-click to enlarge it. |
+| **Mix agent CLIs** | Different agents work in one tree. Each card head shows the CLI and the model. |
+| **Small messaging CLI** | Agents use `loom spawn`, `send`, `wait` and `done` to split work and report results. |
+| **Worktree groups** | Nodes are grouped by git worktree. `--worktree <branch>` makes a new group. |
+| **Commit graph and event console** | See the commits of all branches and each message between nodes. |
+
+<p align="center">
+  <a href="docs/images/standard.png"><img src="docs/images/standard.png" alt="loom in Standard view: the same seven nodes, and each card is a live terminal." width="960"></a><br>
+  <em>Standard view: every card is a live terminal. Click to open full size.</em>
+</p>
+
+## How agents talk
+
+An agent runs these commands in its own terminal. loom gives each node its address and token.
+
+```sh
+loom spawn tests --agent codex --file brief.md   # make a child in this worktree
+loom send tests "Please stand by for review."    # queue a message
+loom wait --json                                 # wait for the next message
+loom done "Added one toggle() test"              # report to the parent
+```
+
+## Install
+
+Get the files from the [latest release](https://github.com/BrownC98/loom/releases/latest).
+
+- **Windows:** run `loom_<version>_x64-setup.exe`. To remove loom, use Windows **Settings › Apps**.
+- **Linux (x86-64):** download `loom-x86_64-linux`, run `loom serve`, and open the address that it prints.
+
+Install the agent CLIs (Claude Code, Codex, OpenCode 2) yourself. loom finds them on `PATH`.
+
+Design and decisions (Korean): [docs/design.md](docs/design.md).
 
 ## Privacy policy
 
-loom은 사람이 정하지 않은 곳에 데이터를 보내지 않습니다. 밖으로 나가는 요청은 아래뿐입니다.
+loom sends no data to a place that you did not choose. These are the only requests that go out:
 
-- 업데이트 확인(Windows 앱): 창을 열 때 한 번 GitHub의 이 저장소 Release에서 `latest.json`을 읽습니다. 보내는 개인 데이터는 없습니다.
-- 사용량 표시: 사람이 loom 설정에서 로그인한 Claude 계정의 사용량을 그 계정의 토큰으로 Anthropic(`api.anthropic.com`)에 묻습니다. 다른 곳에는 보내지 않습니다.
-- 에이전트 CLI: 사람이 설치하고 고른 에이전트(Claude Code, Codex 등)는 각 제공자의 정책에 따라 통신합니다. loom은 그 통신에 데이터를 더하지 않습니다.
+- **Update check (Windows app):** when the window opens, loom reads `latest.json` from the releases of this repository on GitHub. It sends no personal data.
+- **Usage display:** for a Claude account that you signed in to in loom settings, loom asks Anthropic (`api.anthropic.com`) for the usage of that account, with the token of that account. It sends this to no other place.
+- **Agent CLIs:** the agents that you install and choose (Claude Code, Codex and others) communicate under the policy of each provider. loom adds no data to that communication.
 
-## 라이선스
+## License
 
 [MIT](LICENSE)

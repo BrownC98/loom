@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서비스 이름 시안</title>
+<style>
+  /* 토큰은 web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light;
+    --bg: oklch(97% 0 0);
+    --panel: oklch(98.5% 0 0);
+    --surface: oklch(100% 0 0);
+    --line: oklch(92.2% 0 0);
+    --line-strong: oklch(80% 0 0);
+    --ink: oklch(20.5% 0 0);
+    --ink-2: oklch(37.1% 0 0);
+    --ink-3: oklch(50% 0 0);
+    --accent: oklch(20.5% 0 0);
+    --accent-ink: oklch(98.5% 0 0);
+    --run: oklch(54.6% 0.245 263);
+    --bad: oklch(50% 0.19 27);
+    --warn: oklch(52% 0.13 75);
+    --ok: oklch(50% 0.13 149);
+    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+    --mono: 'Jetendard', 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+  ::selection { background: var(--accent); color: var(--accent-ink); }
+  header p { font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  h2 { font-size: 16px; margin: 40px 0 4px; }
+  .lead { max-width: 80ch; color: var(--ink-2); font-size: 13px; }
+  .lead + .lead { margin-top: 4px; }
+  code { font-family: var(--mono); font-size: 12px; }
+  a { color: var(--run); text-underline-offset: 2px; }
+  .rec { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); white-space: nowrap; }
+  .cur { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--ink-2); white-space: nowrap; }
+
+  table { border-collapse: collapse; margin-top: 12px; font-size: 12.5px; background: var(--surface); border: 1px solid var(--line); }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--panel); white-space: nowrap; }
+  td.name { font-weight: 700; font-size: 14px; white-space: nowrap; }
+  td.name small { display: block; font-weight: 400; font-size: 12px; color: var(--ink-3); }
+  tr.pick td { background: oklch(54.6% 0.245 263 / 0.05); }
+  .verdict { font-weight: 600; white-space: nowrap; }
+  .verdict.bad { color: var(--bad); }
+  .verdict.mid { color: var(--warn); }
+  .verdict.good { color: var(--ok); }
+  .names { width: 100%; }
+  .names td:nth-child(2) { max-width: 260px; }
+  .names td:nth-child(n+5):not(:last-child) { color: var(--ink-2); max-width: 170px; }
+
+  .notes { max-width: 90ch; font-size: 13px; color: var(--ink-2); padding-left: 18px; margin-top: 10px; }
+  .notes li + li { margin-top: 4px; }
+  .notes b { color: var(--ink); }
+  .cost td:nth-child(4) { white-space: nowrap; font-weight: 600; }
+  .keep { color: var(--ok); }
+  .change { color: var(--run); }
+</style>
+
+<header>
+  <p>응답할 곳: 총괄 · claude-1</p>
+  <p>연 담당: 총괄 · claude-1</p>
+  <p><b>결정: 이름·아이콘 현행 유지 (2026-10-20)</b></p>
+  <h1>서비스 이름 시안</h1>
+  <p class="lead">2차 이름 후보 8개(짧고 소리 내기 쉬운 이름), 1차 이름 후보 6개, 이름을 바꿀 때 드는 비용을 보인다. 아이콘은 지금 것을 둔다. 마지막 「결정할 것」 표에서 고른다. 이 페이지는 목업이다. 제품 코드는 바꾸지 않았다.</p>
+</header>
+
+<section aria-labelledby="h-names2">
+  <h2 id="h-names2">1. 2차 이름 후보</h2>
+  <p class="lead">규칙: 1~2음절, 3~5자, 한국어와 영어 사용자가 모두 쉽게 소리 낸다(어려운 자음 묶음 없음, 들은 대로 적는다). 직물 낱말(weft, skein, heddle)은 뺐다. 조사 방법은 1차와 같고, 2026-10-20에 했다. 상표 등록은 찾지 않았다. 모든 후보의 상표 상태는 가설이다.</p>
+  <table class="names">
+    <thead>
+      <tr><th>이름</th><th>뜻 · 맞는 이유</th><th>읽기</th><th>CLI</th><th>crates.io</th><th>npm</th><th>winget</th><th>GitHub 같은 이름 저장소</th><th>개발 도구 웹 검색</th><th>판정</th></tr>
+    </thead>
+    <tbody>
+      <tr class="pick">
+        <td class="name">Tali<span class="rec">권장</span><small>밧줄</small></td>
+        <td>말레이·인도네시아어로 「밧줄, 끈」. 에이전트를 줄로 이어 묶는다. 2음절이고 받침이 없다.</td>
+        <td>탈리 / TAH-lee</td>
+        <td><code>tali spawn</code> (4자)</td>
+        <td>없음</td>
+        <td><code>tali</code> 있음 (작은 번들 도구)</td>
+        <td>없음</td>
+        <td>같은 이름 저장소 없음</td>
+        <td>개발 도구 없음. <a href="https://tali.ai/install">Tali AI</a>(캐나다 의료 기록 AI)가 있다. 분야가 다르다</td>
+        <td><span class="verdict good">충돌 적음</span></td>
+      </tr>
+      <tr>
+        <td class="name">Mura<small>村 · 마을</small></td>
+        <td>일본어 「마을」. 에이전트가 모여 사는 곳. 단, 린 생산 용어 斑(mura, 「불균일」 낭비)과 같은 소리다.</td>
+        <td>무라 / MOO-rah</td>
+        <td><code>mura spawn</code> (4자)</td>
+        <td>없음</td>
+        <td><code>mura</code> 있음 (설명 없는 빈 패키지)</td>
+        <td>없음</td>
+        <td>같은 이름 저장소 없음</td>
+        <td>같은 이름의 개발 도구를 찾지 못했다</td>
+        <td><span class="verdict good">충돌 적음</span></td>
+      </tr>
+      <tr>
+        <td class="name">Hilo<small>실</small></td>
+        <td>스페인어 「실」. 프로그래밍에서 스레드도 hilo다.</td>
+        <td>힐로 / HEE-loh</td>
+        <td><code>hilo spawn</code> (4자)</td>
+        <td><code>hilo</code> 22 (“Agent-first metadata filesystem”)</td>
+        <td><code>hilo</code> 있음 (JS 프레임워크)</td>
+        <td>없음</td>
+        <td>hiloteam/Hilo ★5.9k (HTML5 게임 엔진)</td>
+        <td>에이전트 도구는 찾지 못했다. 하와이 도시 이름과 같다</td>
+        <td><span class="verdict mid">중간</span></td>
+      </tr>
+      <tr>
+        <td class="name">Fila<small>줄 · 실</small></td>
+        <td>스페인어 「줄(대기열)」, 라틴어 filum 「실」. 메시지 대기열과 실을 함께 뜻한다.</td>
+        <td>필라 / FEE-lah</td>
+        <td><code>fila spawn</code> (4자)</td>
+        <td><code>fila</code> 1,529 (PostgreSQL 작업 큐)</td>
+        <td><code>fila</code> 있음 (비동기 작업 큐)</td>
+        <td>없음</td>
+        <td>같은 이름 저장소 없음</td>
+        <td>에이전트 도구는 없다. 스포츠 브랜드 FILA와 철자가 같다(상표 위험은 가설)</td>
+        <td><span class="verdict mid">중간</span></td>
+      </tr>
+      <tr>
+        <td class="name">Nodo<small>매듭 · 노드</small></td>
+        <td>스페인어·이탈리아어 「매듭, 노드」. 뜻은 가장 잘 맞는다.</td>
+        <td>노도 / NOH-doh</td>
+        <td><code>nodo spawn</code> (4자)</td>
+        <td><code>nodo</code> 1만 (로봇 프레임워크)</td>
+        <td><code>nodo</code> 있음 (할 일 CLI)</td>
+        <td>없음</td>
+        <td>mtgrosser/nodo ★134</td>
+        <td>같은 분야 둘: <a href="https://github.com/stgavs77-ctrl/NODO">NODO</a>(macOS AI 에이전트 작업 공간), <a href="https://nodo.com/">nodo.com</a>(에이전트용 MCP)</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+      <tr>
+        <td class="name">Dari<small>다리</small></td>
+        <td>한국어 「다리」. 에이전트 사이를 잇는다.</td>
+        <td>다리 / DAH-ree</td>
+        <td><code>dari spawn</code> (4자)</td>
+        <td>없음</td>
+        <td>없음</td>
+        <td>없음</td>
+        <td>easyhooon/dari ★36</td>
+        <td><a href="https://dari.dev/">dari.dev</a>(YC, 에이전트 라우터)가 CLI <code>dari claude</code>를 쓴다. 같은 명령 이름이다</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+      <tr>
+        <td class="name">Ito<small>糸 · 실</small></td>
+        <td>일본어 「실」. 3자로 가장 짧다.</td>
+        <td>이토 / EE-toh</td>
+        <td><code>ito spawn</code> (3자)</td>
+        <td>없음</td>
+        <td><code>ito</code> 있음 (로그 형식기)</td>
+        <td>없음</td>
+        <td>OpenBioLink/ITO ★79</td>
+        <td><a href="https://www.ito.ai/">ito.ai</a>(에이전트로 PR을 실행하는 AI 코드 리뷰)가 같은 분야다</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+      <tr>
+        <td class="name">Moa<small>모아</small></td>
+        <td>한국어 「모아(모으다)」. 에이전트를 모은다.</td>
+        <td>모아 / MOH-ah</td>
+        <td><code>moa spawn</code> (3자)</td>
+        <td><code>moa</code> 11 (군집 알고리즘)</td>
+        <td><code>moa</code> 있음</td>
+        <td>없음</td>
+        <td>togethercomputer/MoA ★3k</td>
+        <td>MoA는 AI 분야에서 「Mixture-of-Agents」 기법 이름으로 이미 쓴다</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <ul class="notes">
+    <li><b>Tali의 약점:</b> 영어 사용자가 tally(집계)로 적을 수 있다. 가설: 이 혼동은 처음 한 번뿐이다.</li>
+    <li><b>Kumi</b>(1차 권장)도 2차 규칙에 맞는다: 2음절, 4자, 충돌 적음. 아래 1차 표에 있다.</li>
+    <li><b>winget:</b> 8개 모두 공식 색인에 id·이름·별칭·명령이 없다. <b>GitHub:</b> <code>gh search repos "&lt;이름&gt; in:name" --sort stars</code>에서 저장소 이름이 꼭 같은 것만 적었다.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="h-names">
+  <h2 id="h-names">2. 1차 이름 후보 (참고)</h2>
+  <p class="lead">CLI 이름은 사람과 에이전트가 <code>&lt;이름&gt; spawn …</code>처럼 매번 친다. 짧을수록 좋다. 충돌 조사는 2026-10-20에 직접 했다. 출처와 방법은 표 아래에 있다.</p>
+  <table class="names">
+    <thead>
+      <tr><th>이름</th><th>뜻 · 맞는 이유</th><th>읽기</th><th>CLI</th><th>crates.io</th><th>npm</th><th>winget</th><th>GitHub 별 상위</th><th>개발 도구 웹 검색</th><th>판정</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="name">loom<span class="cur">현재</span><small>베틀</small></td>
+        <td>날실·씨실을 엮는 베틀. 에이전트 여럿을 한 그래프로 엮는다.</td>
+        <td>룸 / loom</td>
+        <td><code>loom spawn</code> (4자)</td>
+        <td><code>loom</code> 7,299만 내려받기 (tokio-rs 동시성 테스트)</td>
+        <td><code>loom</code> 있음 (생성기 도구)</td>
+        <td><code>Loom.Loom</code>(Atlassian)과 <code>Teradata.Loom</code>이 별칭 <code>loom</code>을 쓴다</td>
+        <td>CapSoftware/Cap ★23k(Loom 대체품), tokio-rs/loom ★2.8k</td>
+        <td>Atlassian Loom(loom.com 영상 메시지)이 검색 첫 화면을 차지한다. 등록 상표 여부는 가설: 확인하지 않음</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+      <tr class="pick">
+        <td class="name">Kumi<span class="cur">1차 권장</span><small>組 · 구미</small></td>
+        <td>일본어 組(조·팀)와 組紐(쿠미히모, 끈 땋기). 팀과 엮기를 한 낱말에 담는다. 짧고 소리가 쉽다.</td>
+        <td>쿠미 / KOO-mee</td>
+        <td><code>kumi spawn</code> (4자)</td>
+        <td>없음</td>
+        <td><code>kumi</code> 있음 (작은 스타일 생성기)</td>
+        <td>없음</td>
+        <td>별 200 이하. 관계없는 저장소뿐(kumiko 만화 자르기 등)</td>
+        <td>같은 이름의 개발 도구를 찾지 못했다. kumicare/kumi-tools(가족 비서 봇)만 있다</td>
+        <td><span class="verdict good">충돌 적음</span></td>
+      </tr>
+      <tr>
+        <td class="name">Clotho<small>클로토</small></td>
+        <td>그리스 신화에서 생명의 실을 잣는 운명의 여신. 노드(실)를 뽑아 내는 도구.</td>
+        <td>클로토 / KLOH-thoh</td>
+        <td><code>clotho spawn</code> (6자)</td>
+        <td><code>clotho</code> 8천 (AWS 서명 검증)</td>
+        <td><code>clotho</code> 있음 (DOM 빌더)</td>
+        <td>없음</td>
+        <td>별 200 이하. 관계없음</td>
+        <td>개발 도구 없음. 합성생물학 플랫폼, clotho.ai(법과학), clotho.one(이미지 생성)</td>
+        <td><span class="verdict mid">중간</span></td>
+      </tr>
+      <tr>
+        <td class="name">Bobbin<small>보빈 · 실패</small></td>
+        <td>실을 감는 실패. 일을 감아 두었다가 풀어 준다. 친근한 소리.</td>
+        <td>보빈 / BOB-in</td>
+        <td><code>bobbin spawn</code> (6자)</td>
+        <td><code>bobbin</code> 예약만 됨</td>
+        <td><code>bobbin</code> 있음 (“thread-like worker processes”, 뜻이 가깝다)</td>
+        <td>없음</td>
+        <td>radiatoryang/bobbin ★194, bobbin-rs(임베디드, 관리 중단)</td>
+        <td>scbrown/skein 에이전트 묶음에 “bobbin” 부품이 있다. bobbin.now(Threads 앱)</td>
+        <td><span class="verdict mid">중간</span></td>
+      </tr>
+      <tr>
+        <td class="name">Weft<small>씨실</small></td>
+        <td>베틀의 씨실. 지금 비유를 그대로 둔다.</td>
+        <td>웨프트 / weft</td>
+        <td><code>weft spawn</code> (4자)</td>
+        <td><code>weft</code> 3,724 (HTML 템플릿)</td>
+        <td><code>weft</code> 있음 (Google 글꼴)</td>
+        <td>없음</td>
+        <td>WeaveMindAI/weft ★2k (AI 오케스트레이션 언어)</td>
+        <td>같은 분야 셋: WeaveMind Weft, Weft CLI(<code>brew install weft</code>, 에이전트 CLI), letsweft.com(에이전트 작업 판)</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+      <tr>
+        <td class="name">Skein<small>실타래</small></td>
+        <td>실타래, 그리고 V자로 나는 기러기 떼. 팀 비유가 좋다.</td>
+        <td>스케인 / skayn</td>
+        <td><code>skein spawn</code> (5자)</td>
+        <td><code>skein</code> 41만 (해시 함수)</td>
+        <td><code>skein</code> 있음 (암호화)</td>
+        <td>없음</td>
+        <td>rust-adventure/skein ★328</td>
+        <td>에이전트 도구가 7개 넘는다. rambaarde/skein은 “저장소별로 묶은 에이전트 보기”로 loom과 거의 같다. getskein.ai(상용)</td>
+        <td><span class="verdict bad">충돌 큼</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <ul class="notes">
+    <li><b>발견:</b> 직물 낱말(weft, skein, heddle)은 2026년 AI 에이전트 도구가 이미 많이 쓴다. heddle도 에이전트 터미널·오케스트레이터가 셋 이상 있어 표에서 뺐다. 그래서 직물 비유를 바로 쓰지 않는 Kumi를 권장한다.</li>
+    <li><b>crates.io:</b> <code>curl https://crates.io/api/v1/crates/&lt;이름&gt;</code>. <b>npm:</b> <code>npm view &lt;이름&gt;</code>. <b>GitHub:</b> <code>gh search repos &lt;이름&gt; --sort stars -L 3</code>.</li>
+    <li><b>winget:</b> winget 공식 색인(<code>cdn.winget.microsoft.com/cache/source2.msix</code>의 <code>index.db</code>)에서 id·이름·별칭·명령을 찾았다. 우리 <code>BrownC98.loom</code>은 아직 이 색인에 없다. 첫 등록 PR이 열려 있다(4절 표).</li>
+    <li><b>웹 검색:</b> “&lt;이름&gt; AI agent developer tool”로 찾았다. 상표 등록(KIPRIS, USPTO)은 찾지 않았다. 모든 후보의 상표 상태는 가설이다.</li>
+    <li><b>Kumi의 약점:</b> 한국어 사용자에게 뜻이 바로 보이지 않는다. 일본어 낱말이다.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="h-icons">
+  <h2 id="h-icons">3. 아이콘</h2>
+  <p class="lead">지금 아이콘(<code>app/icons/icon.ico</code>, 파란 바탕의 흰 짜임)을 그대로 둔다(2026-10-20 사용자 결정). 1차 시안 A~D는 이 페이지에서 뺐다.</p>
+</section>
+
+<section aria-labelledby="h-cost">
+  <h2 id="h-cost">4. 이름을 바꿀 때 바뀌는 곳</h2>
+  <p class="lead">저장소에서 <code>loom</code>을 쓰는 곳은 48개 파일, 397줄이다(<code>git grep -i loom</code>, 목업 제외). 아래 표에서 「둔다」는 낮은 비용 안(표시 이름만 바꾸기)에서 바꾸지 않는 곳이다.</p>
+  <table class="cost">
+    <thead><tr><th>곳</th><th>지금 값</th><th>바꾸면 생기는 일</th><th>낮은 비용 안</th></tr></thead>
+    <tbody>
+      <tr><td>앱 표시 이름, 창 제목, README·docs 제목</td><td><code>productName: "loom"</code></td><td>문구만 바뀐다. 위험 없음.</td><td class="change">바꾼다</td></tr>
+      <tr><td>아이콘</td><td><code>app/icons/icon.ico</code></td><td>바꾸지 않는다(사용자 결정).</td><td class="keep">둔다</td></tr>
+      <tr><td>winget id</td><td><code>BrownC98.loom</code> (색인에 아직 없음)</td><td>첫 등록 PR <a href="https://github.com/microsoft/winget-pkgs/pull/456767">microsoft/winget-pkgs#456767</a>(BrownC98.loom 0.1.270)이 열려 있다. id를 바꾸면 이 PR을 닫고 새 id로 다시 낸다. 병합 뒤에 바꾸면 새 패키지가 되어 기존 설치는 업데이트를 받지 못한다.</td><td class="change">바꾼다</td></tr>
+      <tr><td>GitHub 저장소 이름</td><td><code>BrownC98/loom</code></td><td>GitHub가 옛 주소를 새 주소로 넘긴다. 업데이트 확인 주소는 확인해야 한다(가설: 넘김이 릴리스 내려받기에도 맞다).</td><td class="change">바꾼다</td></tr>
+      <tr><td>CLI·실행 파일 이름</td><td><code>loom</code> (Cargo <code>name = "loom"</code>)</td><td>에이전트 스킬(<code>~/.agents/skills/loom-mode</code>)과 브리프, 실행 중 에이전트가 모두 <code>loom spawn</code>을 친다. 한꺼번에 바꿔야 한다.</td><td class="keep">둔다</td></tr>
+      <tr><td>환경 변수</td><td><code>LOOM_URL</code>, <code>LOOM_TOKEN</code>, <code>LOOM_SPAWN_URL</code>, <code>LOOM_VERSION</code>, <code>LOOM_PORT</code></td><td>실행 중인 노드는 옛 이름을 가진다. 데몬을 다시 띄우면 그 노드의 CLI 호출이 실패한다.</td><td class="keep">둔다</td></tr>
+      <tr><td>데이터 폴더</td><td><code>~/.loom</code> (DB, 계정)</td><td>옮기는 코드가 필요하다. 빠뜨리면 노드·계정 기록이 사라진 것처럼 보인다.</td><td class="keep">둔다</td></tr>
+      <tr><td>Tauri identifier</td><td><code>io.github.brownc98.loom</code></td><td>설치한 앱이 새 판을 같은 앱으로 보지 않는다. 앱 안 업데이트가 끊기고 다시 설치해야 한다.</td><td class="keep">둔다</td></tr>
+    </tbody>
+  </table>
+  <ul class="notes">
+    <li><b>권장:</b> 사용자에게 보이는 곳(표시 이름, 저장소, winget id, README)만 새 이름(Tali)으로 바꾼다. 안쪽 이름(CLI <code>loom</code>, <code>LOOM_*</code>, <code>~/.loom</code>, Tauri id)은 둔다. 충돌이 생기는 곳은 검색·winget·상표이고, 이것은 모두 보이는 곳이다.</li>
+    <li><b>낮은 비용 안의 단점:</b> 제품 이름(Tali)과 명령(<code>loom</code>)이 다르다. 나중에 CLI도 바꾸려면 별도 작업으로 한 번에 바꾼다(스킬·브리프·환경 변수를 함께).</li>
+  </ul>
+</section>
+
+<section aria-labelledby="h-decide">
+  <h2 id="h-decide">5. 결정할 것</h2>
+  <table>
+    <thead><tr><th>결정</th><th>권장안</th><th>다른 안</th></tr></thead>
+    <tbody>
+      <tr><td>서비스 이름</td><td><b>Tali</b><span class="rec">권장</span> — 2음절 4자, 개발 도구 충돌 없음, 뜻(밧줄)이 잇기와 맞다</td><td>Kumi(1차 권장, 2차 규칙에도 맞음) · Mura · Hilo · Fila · loom 유지(비용 0, 충돌 남음)</td></tr>
+      <tr><td>바꾸는 범위</td><td><b>보이는 곳만</b><span class="rec">권장</span> — 표시 이름, 저장소, winget id, README</td><td>CLI·환경 변수·데이터 폴더까지 전부(실행 중 노드와 스킬을 함께 바꿔야 함)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+</html>

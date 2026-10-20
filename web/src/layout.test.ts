@@ -53,7 +53,7 @@ describe('edgeSides', () => {
   });
 });
 
-const sized = () => ({ width: 100, height: 50 });
+const sized = () => ({ size: { width: 100, height: 50 } });
 
 describe('arrangeTree (parent centered over the span of its children)', () => {
   // 1 -> {2, 3}, 2 -> {4}
@@ -103,10 +103,10 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
 
   it('mixed sizes still do not overlap', () => {
     const big = { width: 200, height: 80 };
-    const size = (id: number) => (id === 2 || id === 4 ? big : sized());
+    const size = (id: number) => (id === 2 || id === 4 ? big : sized().size);
     const views = [view(1, null), view(2, 1), view(3, 1), view(4, 3), view(5, 2)];
     for (const direction of ['down', 'right', 'up', 'left'] as const) {
-      const at = arrangeTree(views, size, direction);
+      const at = arrangeTree(views, (id) => ({ size: size(id) }), direction);
       const rects = views.map((v) => ({ ...at.get(v.id)!, ...size(v.id) }));
       for (const [i, a] of rects.entries()) {
         for (const b of rects.slice(i + 1)) {
@@ -157,5 +157,53 @@ describe('placeGroups', () => {
     const dragged = placeGroups([g(null), g(0, { dragged: { x: 500, y: 600 } })], 'down', start);
     expect(dragged[1]).toEqual({ x: 500, y: 600 });
     expect(dragged[0]).toEqual(plain[0]);
+  });
+});
+
+// 목업 docs/mockups/overlap.html 「원인」의 다섯 장면. 끈 것과 배치가 겹치면 형제가 늘어서는 쪽으로 민다.
+describe('overlap after drag (untangle)', () => {
+  const card = { width: 100, height: 50 };
+  const g = (parent: number | null, extra: Partial<GroupSlot> = {}): GroupSlot => ({ size: { width: 100, height: 50 }, parent, ...extra });
+  const start = { x: 10, y: 20 };
+
+  it('a new card in the slot under a dragged card moves past it', () => {
+    // 끌기 전: 1 at 0, 2 at 120. 2를 230으로 끌고 3을 띄우면 3의 칸(240)이 2와 겹친다.
+    const slot = (id: number) => ({ size: card, dragged: id === 2 ? { x: 230, y: 0 } : undefined });
+    const at = arrangeTree([view(1, null), view(2, null), view(3, null)], slot, 'down');
+    expect(at.get(2)).toEqual({ x: 230, y: 0 });
+    expect(at.get(3)).toEqual({ x: 350, y: 0 });
+  });
+
+  it('a group that grows into a dragged group pushes it along the lane', () => {
+    const at = placeGroups([g(null, { size: { width: 400, height: 50 } }), g(null, { dragged: { x: 300, y: 20 } })], 'down', start);
+    expect(at[0]).toEqual({ x: 10, y: 20 });
+    expect(at[1]).toEqual({ x: 442, y: 20 });
+  });
+
+  it('the box being dragged now stays; the box under it moves aside', () => {
+    const at = placeGroups([g(null), g(null, { dragged: { x: 10, y: 20 }, dragging: true })], 'down', start);
+    expect(at[1]).toEqual({ x: 10, y: 20 });
+    expect(at[0]).toEqual({ x: 142, y: 20 });
+  });
+
+  it('wider cards after a view switch push the dragged card that they now cover', () => {
+    const wide = { width: 600, height: 400 };
+    const slot = (id: number) => ({ size: wide, dragged: id === 2 ? { x: 300, y: 0 } : undefined });
+    const at = arrangeTree([view(1, null), view(2, null)], slot, 'down');
+    expect(at.get(1)).toEqual({ x: 0, y: 0 });
+    expect(at.get(2)).toEqual({ x: 620, y: 0 });
+  });
+
+  it('a group that moves in the group tree does not land on a dragged group', () => {
+    // 1이 0의 자식 묶음이 되어 (10, 102)로 간다. 2는 그 자리로 끌려 있었다.
+    const at = placeGroups([g(null), g(0), g(null, { dragged: { x: 10, y: 102 } })], 'down', start);
+    expect(at[0]).toEqual({ x: 10, y: 20 });
+    expect(at[1]).toEqual({ x: 10, y: 102 });
+    expect(at[2]).toEqual({ x: 142, y: 102 });
+  });
+
+  it('right pushes along y', () => {
+    const at = placeGroups([g(null, { size: { width: 100, height: 200 } }), g(null, { dragged: { x: 10, y: 100 } })], 'right', start);
+    expect(at[1]).toEqual({ x: 10, y: 252 });
   });
 });

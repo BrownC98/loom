@@ -1,4 +1,4 @@
-//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 화면 언어,
+//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 그래프 범위, 화면 언어,
 //! 워크스페이스 폴더, 노드 나무 상한. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
@@ -30,6 +30,9 @@ pub struct SettingsView {
     pub terminal_font: TerminalFont,
     #[serde(default)]
     pub card_view: CardView,
+    /// 옛 설정에는 없다. 없으면 `Repo`(저장소 하나)로 읽는다.
+    #[serde(default)]
+    pub graph_scope: GraphScope,
     /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
     #[serde(default)]
     pub language: Language,
@@ -84,6 +87,16 @@ pub enum CardView {
     #[default]
     Standard,
     Simple,
+}
+
+/// 그래프 하나가 보이는 저장소. `Repo`는 사이드바에서 고른 저장소 하나, `All`은 더한 저장소 모두다.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum GraphScope {
+    #[default]
+    Repo,
+    All,
 }
 
 /// 화면 테마. `System`은 OS 설정(`prefers-color-scheme`)을 따른다.
@@ -174,6 +187,7 @@ mod tests {
         assert_eq!(got.terminal_theme, TerminalTheme::default());
         assert_eq!(got.terminal_font, TerminalFont::default());
         assert_eq!(got.card_view, CardView::Standard);
+        assert_eq!(got.graph_scope, GraphScope::Repo);
         assert_eq!(got.language, Language::System);
     }
 }

@@ -155,8 +155,8 @@ function Refs({ commit, worktrees, color }: { commit: Commit; worktrees: Worktre
   );
 }
 
-/** 칸이 열린 동안 붙어 있다. 닫으면 다시 읽기를 멈춘다. */
-export function CommitGraph(props: { repo: RepoId }) {
+/** 칸이 열린 동안 붙어 있다. 닫으면 다시 읽기를 멈춘다. `name`은 칸 머리 앞에 붙이는 저장소 이름이다(목업 repo-scope.html 4번). */
+export function CommitGraph(props: { repo: RepoId; name: string }) {
   const { t } = useTranslation();
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -187,7 +187,11 @@ export function CommitGraph(props: { repo: RepoId }) {
 
   return (
     <>
-      <p className="dock-head hint">{t('commits.scope')}</p>
+      <p className="dock-head hint">
+        <span>
+          <b translate="no">{props.name}</b> · {t('commits.scope')}
+        </span>
+      </p>
       {error !== null ? (
         <p className="dock-note error" role="alert">
           {error}

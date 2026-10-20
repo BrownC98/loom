@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>그래프 범위</title>
+<style>
+  /* 토큰은 web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light;
+    --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+    --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+    --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+    --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+    --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+    --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+    --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+    --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+    --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+    --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+    --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+    --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+    --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+    --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+    --mono: 'Jetendard', 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+  ::selection { background: var(--accent); color: var(--accent-ink); }
+  header p { font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  h2 { font-size: 16px; margin: 36px 0 4px; }
+  .lead { max-width: 76ch; color: var(--ink-2); font-size: 13px; }
+  .row { display: flex; gap: 24px; align-items: flex-start; margin-top: 12px; }
+  figure { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  figcaption { font-size: 13px; font-weight: 600; }
+  figcaption .rec, td .rec { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+  .shot { border: 1px solid var(--line); border-radius: 8px; display: block; }
+  .notes { max-width: 300px; font-size: 13px; color: var(--ink-2); padding-left: 18px; }
+  .notes.wide { max-width: 90ch; }
+  .notes li + li { margin-top: 6px; }
+  .notes b { color: var(--ink); }
+  svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .pin { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; flex: none; }
+  .pin.abs { position: absolute; z-index: 3; }
+
+  /* 설정 창 UI 탭(web/src/styles.css .settings와 같은 값). 새 것: 「그래프 범위」 칸. */
+  .dialog { width: 640px; display: grid; grid-template-columns: 170px 1fr; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .dialog nav { border-right: 1px solid var(--line); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+  .dialog nav b { padding: 0 8px 10px; font-size: 15px; }
+  .dialog nav span { padding: 6px 10px; border-radius: 6px; color: var(--ink-2); }
+  .dialog nav span.on { background: var(--surface-hover); color: var(--ink); }
+  .dialog .body { padding: 18px 22px 24px; display: flex; flex-direction: column; gap: 18px; }
+  .dialog h3 { font-size: 15px; }
+  .dialog h4 { font-size: 12px; font-weight: 500; color: var(--ink-2); margin-bottom: 6px; }
+  .choice { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; font-size: 13px; }
+  .choice span { padding: 5px 12px; color: var(--ink-2); }
+  .choice span + span { border-left: 1px solid var(--line); }
+  .choice span.on { background: var(--surface-hover); color: var(--ink); font-weight: 600; }
+  .hint { display: block; margin-top: 6px; font-size: 12px; color: var(--ink-3); }
+  .new { position: relative; outline: 2px solid var(--run); outline-offset: 6px; border-radius: 4px; }
+  .select { border: 1px solid var(--line-strong); border-radius: 6px; padding: 5px 10px; font-size: 13px; background: var(--surface); }
+
+  /* 화면 전체. 사이드바·오른쪽 칸 폭은 styles.css 기본값(260, 320)이다. 카드는 작게 그렸다. */
+  .app { width: 1376px; height: 600px; display: grid; grid-template-columns: 260px 1fr 320px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); font-size: 12px; }
+  .side { background: var(--panel); border-right: 1px solid var(--line); padding: 10px 6px; --step: 10px; }
+  .brand { font-weight: 700; font-size: 14px; padding: 0 8px 10px; }
+  .side-head { font-size: 11px; font-weight: 600; color: var(--ink-3); padding: 0 8px 4px; }
+  .tree { list-style: none; padding: 0; }
+  .tree li { position: relative; }
+  .tree-row { display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 6px 0 calc(4px + var(--depth) * var(--step)); border-radius: 5px; white-space: nowrap; overflow: hidden; }
+  .tree-row.cur { background: var(--accent-wash); }
+  .tree-row.press { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .tree-row .name, .tree-row .branch { font-weight: 600; }
+  .tree-row .sub { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+  .tree-row svg { width: 12px; height: 12px; stroke: var(--ink-3); flex: none; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--run); flex: none; }
+  .dot.done { background: var(--ok); }
+
+  .canvas { position: relative; overflow: hidden; background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 16px 16px; }
+  .repo { position: absolute; border: 1.5px solid var(--line-strong); border-radius: 12px; background: color-mix(in oklch, var(--panel) 70%, transparent); }
+  .repo-head { display: flex; align-items: baseline; gap: 8px; height: 36px; padding: 9px 14px 0; border-bottom: 1px solid var(--line); }
+  .repo-head b { font-size: 14px; }
+  .repo-head .sub { font-size: 11px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group { position: absolute; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--bg); }
+  .group-head { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 10px; border-bottom: 1px dashed var(--line); font-size: 11px; }
+  .group-head b { font-weight: 600; }
+  .group-head > * { white-space: nowrap; flex: none; }
+  .group-head .kind { color: var(--ink-3); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .group-head .spacer { flex: 1 1 0; }
+  .group-head .spacer { flex: 1; }
+  .group-head .add { color: var(--ink-2); display: inline-flex; align-items: center; gap: 3px; }
+  .group-head svg { width: 11px; height: 11px; }
+  .card { position: absolute; width: 140px; height: 82px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 7px 9px; font-size: 11px; box-shadow: 0 1px 2px oklch(0% 0 0 / 0.06); }
+  .card .top { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 12px; }
+  .card .top .st { margin-left: auto; font-weight: 500; color: var(--run); font-size: 11px; }
+  .card p { color: var(--ink-2); margin-top: 3px; line-height: 1.35; }
+  .card .meta { color: var(--ink-3); margin-top: 3px; font-size: 11px; }
+  .card.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .edges { position: absolute; inset: 0; width: 100%; height: 100%; stroke: var(--line-strong); stroke-width: 1.5; pointer-events: none; }
+  .minimap { position: absolute; right: 10px; bottom: 10px; width: 150px; height: 84px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+  .minimap i { position: absolute; border: 1px solid var(--line-strong); border-radius: 2px; }
+
+  .dock { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+  .dock-head { font-size: 11px; font-weight: 600; color: var(--ink-3); padding: 10px 10px 6px; }
+  .seg { margin: 0 10px 6px; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; text-align: center; }
+  .seg span { padding: 4px 0; color: var(--ink-2); }
+  .seg span.on { background: var(--surface-hover); color: var(--ink); font-weight: 600; }
+  .tabs { display: flex; gap: 14px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); margin-top: 6px; }
+  .tabs span { padding-bottom: 6px; color: var(--ink-2); }
+  .tabs span.on { color: var(--ink); font-weight: 600; border-bottom: 2px solid var(--accent); }
+  .commit-scope { position: relative; padding: 8px 10px; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+  .commit-scope b { color: var(--ink); }
+  .commit { display: flex; align-items: center; gap: 6px; padding: 6px 10px; }
+  .commit .ref { font: 600 11px var(--mono); border: 1px solid var(--line-strong); border-radius: 9px; padding: 0 6px; }
+  .commit .msg { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  table { border-collapse: collapse; margin-top: 12px; font-size: 13px; max-width: 1376px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  td.chg { background: var(--accent-wash); }
+</style>
+
+<header>
+  <p>응답할 곳: 총괄 · claude-1</p>
+  <p>연 담당: 총괄 · claude-1</p>
+  <h1>그래프 범위: 저장소 하나 · 모든 저장소</h1>
+  <p class="lead">사람 지시 "여러개의 저장소 그래프를 하나의 그래프 화면에 전부 표시하는건 어떻게 생각해", "현방식과 새 방식을 설정에서 스위칭 할 수 있게 옵션으로 제공". 기본값은 지금 방식(저장소 하나)입니다. Orca에는 저장소 그래프가 없어 참고 화면이 없습니다. Orca 사이드바는 모든 저장소를 한 목록에 보입니다.</p>
+</header>
+
+<h2>설정 「UI」 탭에 「그래프 범위」를 더한다</h2>
+<p class="lead">카드 보기와 같은 모양의 두 칸 선택입니다. 값은 설정 DB에 둡니다(카드 보기와 같은 곳). 오른쪽 사이드바 「보기」에는 더하지 않습니다.</p>
+<div class="row">
+  <figure>
+    <figcaption>지금</figcaption>
+    <img class="shot" src="repo-scope-before-settings.png" width="560" alt="지금의 설정 UI 탭: 테마, 카드 보기, 언어">
+  </figure>
+  <figure>
+    <figcaption>새</figcaption>
+    <div class="dialog" role="img" aria-label="새 설정 UI 탭: 카드 보기 아래에 그래프 범위 선택이 있다">
+      <nav><b>설정</b><span>에이전트</span><span>계정</span><span>워크스페이스</span><span class="on">UI</span><span>터미널</span></nav>
+      <div class="body">
+        <h3>UI</h3>
+        <section><h4>테마</h4><div class="choice"><span class="on">시스템</span><span>라이트</span><span>다크</span></div></section>
+        <section><h4>카드 보기</h4><div class="choice"><span>심플</span><span class="on">표준</span></div></section>
+        <section class="new">
+          <h4>그래프 범위</h4>
+          <div class="choice"><span>저장소 하나</span><span class="on">모든 저장소</span></div>
+          <span class="hint">‘모든 저장소’면 더한 저장소를 한 그래프에 모두 보입니다. 사이드바에서 줄을 누르면 그 자리로 옮겨 갑니다.</span>
+        </section>
+        <section><h4>언어</h4><div class="select">시스템</div></section>
+      </div>
+    </div>
+  </figure>
+</div>
+
+<h2>‘모든 저장소’ 그래프</h2>
+<p class="lead">지금 방식의 화면은 아래 캡처입니다. 새 방식에서는 저장소마다 바깥 상자가 있고 그 안에 워크트리 묶음이 있습니다. 묶음 배치는 지금 규칙(나무 배치, 정렬 방향) 그대로이고, 저장소 상자도 같은 규칙으로 사이드바 순서대로 옆에 늘어섭니다. 그림은 심플 보기이고 카드를 작게 그렸습니다.</p>
+<div class="row">
+  <figure>
+    <figcaption>지금(저장소 하나)</figcaption>
+    <img class="shot" src="repo-scope-before-graph.png" width="576" alt="지금의 그래프 화면: 그래프 위에 저장소 이름 loom이 있고 loom의 묶음만 보인다">
+  </figure>
+  <ol class="notes">
+    <li>그래프 위 제목이 저장소 하나(loom)를 말합니다. acme-api를 보려면 사이드바에서 acme-api 줄을 누릅니다.</li>
+    <li>오른쪽 커밋 그래프도 그 저장소 하나입니다.</li>
+  </ol>
+</div>
+
+<div class="row" style="flex-direction:column">
+  <figure>
+    <figcaption>새(모든 저장소)</figcaption>
+    <div class="app" role="img" aria-label="모든 저장소 그래프: loom 상자와 acme-api 상자가 옆으로 늘어서고 사이드바에서 acme-api 줄이 현재 저장소다">
+      <nav class="side">
+        <div class="brand">loom</div>
+        <div class="side-head">저장소</div>
+        <ul class="tree">
+          <li><div class="tree-row" style="--depth:0"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="name">loom</span><span class="sub">~/src/loom</span></div></li>
+          <li><div class="tree-row" style="--depth:1"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="branch">main</span><span class="sub">원래 체크아웃</span></div></li>
+          <li><div class="tree-row" style="--depth:2"><span class="dot"></span><b>총괄</b><span class="sub">Claude Code</span></div></li>
+          <li><div class="tree-row" style="--depth:1"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="branch">저장소범위</span></div></li>
+          <li><div class="tree-row" style="--depth:2"><span class="dot"></span><b>코디</b><span class="sub">Claude Code</span></div></li>
+          <li style="position:relative"><span class="pin abs" style="left:-4px;top:4px">1</span><div class="tree-row cur press" style="--depth:0"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="name">acme-api</span><span class="sub">~/src/acme-api</span></div></li>
+          <li><div class="tree-row" style="--depth:1"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="branch">main</span><span class="sub">원래 체크아웃</span></div></li>
+          <li><div class="tree-row" style="--depth:2"><span class="dot done"></span><b>검색총괄</b><span class="sub">Codex</span></div></li>
+          <li style="position:relative"><span class="pin abs" style="left:-4px;top:4px">2</span><div class="tree-row" style="--depth:1"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="branch">색인개선</span></div></li>
+          <li><div class="tree-row" style="--depth:2"><span class="dot"></span><b>색인워커</b><span class="sub">Claude Code</span></div></li>
+          <li><div class="tree-row" style="--depth:2"><span class="dot"></span><b>테스트워커</b><span class="sub">Claude Code</span></div></li>
+        </ul>
+      </nav>
+
+      <main class="canvas">
+        <span class="pin abs" style="left:12px;top:12px">3</span>
+        <!-- loom 저장소 상자 -->
+        <section class="repo" style="left:14px;top:34px;width:368px;height:208px">
+          <div class="repo-head"><b>loom</b><span class="sub">~/src/loom</span></div>
+          <div class="group" style="left:12px;top:48px;width:164px;height:146px">
+            <div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span><span class="spacer"></span><span class="add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</span></div>
+            <div class="card" style="left:12px;top:46px"><div class="top"><span class="dot"></span>총괄<span class="st">실행 중</span></div><p>그래프 범위 브리프 검토</p><div class="meta">opus · high</div></div>
+          </div>
+          <div class="group" style="left:192px;top:48px;width:164px;height:146px">
+            <div class="group-head"><b>저장소범위</b><span class="spacer"></span><span class="add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</span></div>
+            <div class="card" style="left:12px;top:46px"><div class="top"><span class="dot"></span>코디<span class="st">실행 중</span></div><p>목업 만들기</p><div class="meta">opus · high</div></div>
+          </div>
+        </section>
+        <!-- acme-api 저장소 상자 -->
+        <section class="repo" style="left:406px;top:34px;width:344px;height:340px">
+          <div class="repo-head"><b>acme-api</b><span class="sub">~/src/acme-api</span></div>
+          <div class="group" style="left:90px;top:48px;width:164px;height:146px">
+            <div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span><span class="spacer"></span><span class="add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</span></div>
+            <div class="card" style="left:12px;top:46px"><div class="top"><span class="dot done"></span>검색총괄<span class="st" style="color:var(--ok)">끝남</span></div><p>색인 작업 배정</p><div class="meta">gpt · medium</div></div>
+          </div>
+          <div class="group" style="left:12px;top:212px;width:320px;height:116px">
+            <div class="group-head"><b>색인개선</b><span class="spacer"></span><span class="add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</span></div>
+            <div class="card" style="left:12px;top:28px;height:76px"><div class="top"><span class="dot"></span>색인워커<span class="st">실행 중</span></div><p>색인 쿼리 고치기</p></div>
+            <div class="card" style="left:168px;top:28px;height:76px"><div class="top"><span class="dot"></span>테스트워커<span class="st">실행 중</span></div><p>회귀 테스트</p></div>
+          </div>
+          <svg class="edges" viewBox="0 0 344 340"><path d="M172 176 C172 210 94 206 94 240"/><path d="M172 176 C172 210 250 206 250 240"/></svg>
+        </section>
+        <div class="minimap"><i style="left:8px;top:10px;width:62px;height:30px"></i><i style="left:76px;top:10px;width:62px;height:50px;border-color:var(--ink-2)"></i></div>
+      </main>
+
+      <aside class="dock">
+        <div class="dock-head">보기</div>
+        <div class="seg"><span class="on">심플</span><span>표준</span></div>
+        <div class="tabs"><span>이벤트</span><span class="on">커밋 그래프</span></div>
+        <div class="commit-scope"><span class="pin abs" style="right:8px;top:8px">4</span><b>acme-api</b> · 모든 브랜치 · 최근 1,000개</div>
+        <div class="commit"><span class="dot"></span><span class="ref">색인개선</span><span class="msg">색인 쿼리 고치기</span></div>
+        <div class="commit"><span class="dot done"></span><span class="ref">main</span><span class="msg">init</span></div>
+      </aside>
+    </div>
+  </figure>
+  <ol class="notes wide">
+    <li><b>저장소 줄을 누르면</b> 그래프가 그 저장소 상자로 옮겨 가고, 그 저장소가 「현재 저장소」가 됩니다(옅은 바탕).</li>
+    <li><b>워크트리 줄을 누르면</b> 그 묶음으로 옮겨 갑니다(지금과 같음). 노드 줄은 그 카드로 옮겨 가고 고릅니다(지금과 같음). 두 줄 모두 현재 저장소를 그 저장소로 바꿉니다.</li>
+    <li><b>그래프 위 저장소 이름은 없습니다.</b> 저장소 이름은 각 상자 머리에 있습니다. 상자 머리에는 단추를 두지 않습니다. [새 워크트리]·[목록에서 빼기]는 사이드바 저장소 줄에 그대로 있습니다. 저장소 상자는 끌지 않습니다. 순서는 사이드바 순서입니다.</li>
+    <li><b>커밋 그래프 칸은 현재 저장소 하나</b>를 보입니다. 어느 저장소인지 칸 머리 앞에 저장소 이름을 붙입니다(두 범위 모두). 그래프에서 카드를 골라도 현재 저장소가 그 카드의 저장소로 바뀝니다.</li>
+  </ol>
+</div>
+
+<h2>사이드바 줄을 누를 때</h2>
+<table>
+  <thead><tr><th>줄</th><th>저장소 하나(지금, 그대로)</th><th>모든 저장소(새)</th></tr></thead>
+  <tbody>
+    <tr><td>저장소</td><td>그래프가 그 저장소로 바뀝니다</td><td class="chg">그래프가 그 저장소 상자로 옮겨 갑니다. 현재 저장소가 바뀝니다</td></tr>
+    <tr><td>워크트리</td><td>다른 저장소면 그 저장소로 바꾼 뒤 묶음으로 옮겨 갑니다</td><td class="chg">그 묶음으로 옮겨 갑니다. 현재 저장소가 바뀝니다</td></tr>
+    <tr><td>노드</td><td>다른 저장소면 그 저장소로 바꾼 뒤 카드로 옮겨 가고 고릅니다</td><td class="chg">카드로 옮겨 가고 고릅니다. 현재 저장소가 바뀝니다</td></tr>
+  </tbody>
+</table>
+
+<h2>결정할 것</h2>
+<table>
+  <thead><tr><th>항목</th><th>권장</th><th>다른 안</th></tr></thead>
+  <tbody>
+    <tr><td>스위치 위치</td><td>설정 「UI」 탭에만 둡니다<span class="rec">권장</span></td><td>오른쪽 사이드바 「보기」에도 둡니다(카드 보기처럼)</td></tr>
+    <tr><td>저장소 상자 머리</td><td>이름과 경로만 둡니다<span class="rec">권장</span></td><td>[새 워크트리] 단추도 둡니다</td></tr>
+    <tr><td>저장소 상자 순서</td><td>사이드바 순서로 고정합니다<span class="rec">권장</span></td><td>묶음처럼 머리를 끌어 순서를 바꿉니다(이 페이지를 연 동안만)</td></tr>
+  </tbody>
+</table>
+</html>

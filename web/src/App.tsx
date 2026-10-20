@@ -68,6 +68,7 @@ const EMPTY_SETTINGS: SettingsView = {
   terminalTheme: RESET_TERMINAL_THEME,
   terminalFont: { family: null, size: null },
   cardView: 'standard',
+  graphScope: 'repo',
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
   // 설정을 받기 전 자리값이다. 기본값의 원천은 Rust `TreeLimits::default`다.
@@ -141,6 +142,10 @@ export function App() {
   const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, viewport - sideShown - DOCK_MIN_GRAPH) };
   const [dockWidth, setDockWidth] = usePaneWidth(dockPane);
   const simpleCards = settings.cardView === 'simple';
+  // 그래프가 그리는 저장소(docs/design.md 「그래프와 화면」). 저장소 하나 범위면 현재 저장소만이다.
+  const shown = settings.graphScope === 'all' ? repos : repo ? [repo] : [];
+  // 저장소가 하나면 그래프 위에 그 이름을 보인다. 둘 이상이면 저장소 상자 머리가 이름을 보인다.
+  const title = shown.length === 1 ? shown[0].name : null;
   const dockedView = simpleCards && selected !== null ? nodes.get(selected) : undefined;
   const tabs: readonly DockTab[] = dockedView ? ['events', 'commits', 'terminal'] : ['events', 'commits'];
   // 터미널 탭을 보다가 노드 고르기를 풀면 커밋 그래프로 돌아간다.
@@ -206,7 +211,7 @@ export function App() {
   /** 심플 보기에서는 노드를 고를 때 오른쪽 사이드바를 펴고 그 터미널 탭을 연다. 카드에는 터미널이 없다. */
   const selectNode = (id: NodeId | null) => {
     setSelected(id);
-    // 다른 저장소의 노드(트리, 이벤트 기록)를 고르면 그래프를 그 저장소로 바꾼다.
+    // 다른 저장소의 노드(트리, 이벤트 기록, 모든 저장소 그래프)를 고르면 현재 저장소를 그 저장소로 바꾼다.
     const place = id === null ? undefined : nodes.get(id)?.place;
     if (place && place.repo !== repo?.id) selectRepo(place.repo);
     if (simpleCards && id !== null) {
@@ -340,12 +345,12 @@ export function App() {
               </button>
             </nav>
           )}
-          <main className="canvas" aria-label={t('app.graphLabel', { repo: repo?.name ?? '' })}>
-            <h1 className="canvas-title">{repo?.name}</h1>
-            {repo && <Graph
-              repo={repo}
+          <main className="canvas" aria-label={title === null ? t('app.allGraphLabel') : t('app.graphLabel', { repo: title })}>
+            {title !== null && <h1 className="canvas-title">{title}</h1>}
+            {shown.length > 0 && <Graph
+              repos={shown}
               onRepo={putRepo}
-              views={new Map([...nodes].filter(([, v]) => v.place.repo === repo.id))}
+              views={new Map([...nodes].filter(([, v]) => shown.some((r) => r.id === v.place.repo)))}
               pulses={pulses}
               agents={agents}
               settings={settings}
@@ -373,7 +378,7 @@ export function App() {
               }
             >
               {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} />}
-              {shownTab === 'commits' && repo && <CommitGraph repo={repo.id} />}
+              {shownTab === 'commits' && repo && <CommitGraph repo={repo.id} name={repo.name} />}
               {shownTab === 'terminal' && dockedView && (
                 <TerminalDock
                   view={dockedView}

@@ -14,7 +14,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import { AddRepoPopover } from './AddRepoPopover';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { useShowGroup, useShowNodes } from './Graph';
+import { useShowGroups, useShowNodes } from './Graph';
 import i18next from './i18n';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
@@ -25,7 +25,7 @@ import { groupParents, groupsOf, inGroup, type Group } from './repos';
 
 /** 줄 끝 단추 하나(docs/mockups/sidebar-crud.html 2번). `run`은 누른 줄의 단추를 받는다. 팝오버를 그 줄 옆에 띄운다. */
 type Action = { label: string; icon: ReactNode; run: (row: HTMLElement) => void; disabled?: boolean };
-/** `rename`은 줄의 이름 바꾸기 동작이다. F2 키도 부른다. `remove`는 줄의 지우기 동작이다. 단추 끝에 오고 Delete 키도 부른다. `show`는 줄을 누르면 그래프를 옮긴다(워크트리 줄). */
+/** `rename`은 줄의 이름 바꾸기 동작이다. F2 키도 부른다. `remove`는 줄의 지우기 동작이다. 단추 끝에 오고 Delete 키도 부른다. `show`는 줄을 누르면 그래프를 옮긴다(저장소 줄, 워크트리 줄). */
 type Item = { key: string; row: ReactNode; node: NodeId | null; repo?: RepoId; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
 
 /** 줄 단추로 연 팝오버. 그릴 때 저장소와 묶음을 다시 찾는다. 그 사이에 사라졌으면 그리지 않는다. */
@@ -109,7 +109,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
 
 export function Tree(props: {
   repos: RepoView[];
-  /** 그래프가 그리는 저장소. */
+  /** 현재 저장소. 저장소 하나 범위면 그래프가 그리는 저장소이고, 커밋 그래프 칸이 보이는 저장소다. */
   current: RepoId | null;
   onRepo: (id: RepoId) => void;
   onAdded: (repo: RepoView) => void;
@@ -126,7 +126,7 @@ export function Tree(props: {
 }) {
   const { t } = useTranslation();
   const show = useShowNodes();
-  const showGroup = useShowGroup();
+  const showGroups = useShowGroups();
   const [adding, setAdding] = useState(false);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const repoKey = (id: RepoId) => `repo:${id}`;
@@ -195,7 +195,7 @@ export function Tree(props: {
         // 다른 저장소의 묶음이면 그래프를 그 저장소로 바꾼다. 그 묶음을 아직 그리지 않았어도 `showGroup`이 잰 뒤 옮긴다.
         show: () => {
           if (repo.id !== props.current) props.onRepo(repo.id);
-          showGroup(group.path);
+          showGroups([group.path]);
         },
         row: (
           <>
@@ -232,6 +232,11 @@ export function Tree(props: {
     ],
     // 폴더는 그대로 둔다. 노드가 남았으면 데몬이 거절한다.
     remove: { label: t('tree.removeRepo'), icon: <ListX />, run: () => removeRepo(repo.id).then(() => props.onRepoRemoved(repo.id), refuse(repoKey(repo.id))) },
+    // 그 저장소를 현재 저장소로 두고 그 묶음이 모두 보이게 옮긴다(목업 repo-scope.html 1번). 저장소 하나 범위면 그래프가 그 저장소로 바뀐다.
+    show: () => {
+      props.onRepo(repo.id);
+      showGroups(groupsOf(repo, views).map((g) => g.path));
+    },
     row: (
       <>
         <span className="name">{repo.name}</span>
@@ -286,12 +291,7 @@ export function Tree(props: {
               onFocus={() => setActive(item.key)}
               aria-current={(item.node !== null && item.node === props.selected) || (item.repo !== undefined && item.repo === props.current) ? 'true' : undefined}
               onClick={(e) => {
-                // 저장소 줄은 그래프를 그 저장소로 바꾼다. 고른 저장소 줄을 다시 누르면 접고 편다.
-                if (item.repo !== undefined && item.repo !== props.current) {
-                  toggle(item.key, true);
-                  return props.onRepo(item.repo);
-                }
-                // 워크트리 줄은 그래프를 그 묶음으로 옮긴다. 화살표를 누르면 접고 편다.
+                // 저장소 줄과 워크트리 줄은 그래프를 그 자리로 옮긴다. 화살표를 누르면 접고 편다.
                 if (item.show && !(e.target as Element).closest('.chev')) return item.show();
                 if (item.node === null) return toggle(item.key, !open);
                 show([item.node]);

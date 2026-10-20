@@ -11,6 +11,7 @@ const ko: typeof en = {
   app: {
     sideLabel: '저장소와 노드',
     graphLabel: '{{repo}} 그래프',
+    allGraphLabel: '모든 저장소 그래프',
     commitGraph: '커밋 그래프',
     sideCollapse: '사이드바 접기',
     sideExpand: '사이드바 펴기',
@@ -207,6 +208,12 @@ const ko: typeof en = {
     simple: '심플',
     standard: '표준',
     hint: '‘심플’이면 카드에 머리 정보만 보이고, 카드를 누르면 터미널이 오른쪽 칸에 열립니다.',
+  },
+  graphScope: {
+    heading: '그래프 범위',
+    repo: '저장소 하나',
+    all: '모든 저장소',
+    hint: '‘모든 저장소’면 더한 저장소를 한 그래프에 모두 보입니다. 사이드바에서 줄을 누르면 그 자리로 옮겨 갑니다.',
   },
   theme: {
     heading: '테마',

@@ -384,7 +384,12 @@ async fn create_worktree(
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
     let workspace = app.workspace()?;
-    worktree::create(&repo, &repo, &workspace, &req.branch, &req.base).await?;
+    let made = worktree::create(&repo, &repo, &workspace, &req.branch, &req.base).await?;
+    app.setup(&Place {
+        repo: id,
+        worktree: made,
+    })
+    .await?;
     Ok(Json(worktree::view(id, &repo).await))
 }
 
@@ -441,6 +446,29 @@ impl App {
             .map(PathBuf::from)
             .or_else(worktree::default_workspace)
             .ok_or_else(|| internal("홈 폴더를 찾지 못했다"))
+    }
+
+    /// 부모 없는 노드를 `place`에서 띄운다.
+    async fn start_root(self: &Arc<Self>, place: &Place, start: &Start) -> Result<NodeId, Problem> {
+        let cwd = std::path::Path::new(&place.worktree);
+        let prepared = self.prepare(start, cwd).await?;
+        let discard = prepared.discarder();
+        let id = self
+            .graph
+            .add_root(place, start.agent(), start.brief(), |id| {
+                self.launch(id, prepared)
+            })
+            .inspect_err(|_| discard())?;
+        Ok(id)
+    }
+
+    /// 새 워크트리에서 저장소 설정 스크립트를 명령 노드로 띄운다. 카드가 출력과 종료 코드를 보인다.
+    /// 스크립트가 없으면 아무것도 하지 않는다. 근거: docs/design.md 「저장소와 워크트리」.
+    async fn setup(self: &Arc<Self>, place: &Place) -> Result<(), Problem> {
+        if let Some(line) = worktree::setup_script(std::path::Path::new(&place.worktree)) {
+            self.start_root(place, &Start::Command { line }).await?;
+        }
+        Ok(())
     }
 
     /// 노드 하나를 그래프에서 지우고 프로세스를 끝낸다.
@@ -740,16 +768,7 @@ async fn create_node(
 ) -> Result<Json<NodeId>, Problem> {
     let repo = app.repos.path(req.place.repo)?;
     worktree::find(&repo, &req.place.worktree).await?;
-    let cwd = std::path::Path::new(&req.place.worktree);
-    let prepared = app.prepare(&req.start, cwd).await?;
-    let discard = prepared.discarder();
-    let id = app
-        .graph
-        .add_root(&req.place, req.start.agent(), req.start.brief(), |id| {
-            app.launch(id, prepared)
-        })
-        .inspect_err(|_| discard())?;
-    Ok(Json(id))
+    Ok(Json(app.start_root(&req.place, &req.start).await?))
 }
 
 /// 노드 하나를 지우고 프로세스를 끝낸다. 프로세스가 끝나면 `launch`의 `on_exit`가 app-server를 끝낸다.
@@ -797,11 +816,16 @@ async fn agent_spawn(
             let repo = app.repos.path(place.repo).map_err(for_agent)?;
             let workspace = app.workspace().map_err(for_agent)?;
             let from = std::path::Path::new(&place.worktree);
-            Some(
-                worktree::create(&repo, from, &workspace, branch, "HEAD")
-                    .await
-                    .map_err(for_agent)?,
-            )
+            let made = worktree::create(&repo, from, &workspace, branch, "HEAD")
+                .await
+                .map_err(for_agent)?;
+            app.setup(&Place {
+                repo: place.repo,
+                worktree: made.clone(),
+            })
+            .await
+            .map_err(for_agent)?;
+            Some(made)
         }
         None => None,
     };

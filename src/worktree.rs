@@ -292,6 +292,15 @@ fn folder_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// 새 워크트리에서 돌릴 설정 스크립트: 그 워크트리의 `orca.yaml`에 있는 `scripts.setup`.
+/// Orca와 같은 파일과 같은 키를 읽어 저장소 설정 하나가 둘 다에 쓰인다. 파일이 없거나 읽지 못하면 없다(Orca와 같다).
+pub fn setup_script(worktree: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(worktree.join("orca.yaml")).ok()?;
+    let docs = yaml_rust2::YamlLoader::load_from_str(&text).ok()?;
+    let script = docs.first()?["scripts"]["setup"].as_str()?;
+    (!script.trim().is_empty()).then(|| script.to_owned())
+}
+
 /// Orca 기본값(`<홈>/orca/workspaces`)과 같은 모양이다. 근거: docs/design.md 「저장소와 워크트리」.
 pub fn default_workspace() -> Option<PathBuf> {
     std::env::home_dir().map(|home| home.join("loom").join("workspaces"))
@@ -384,6 +393,19 @@ mod tests {
         assert_eq!(path, Path::new(plain));
         assert_eq!(repos.path(start), Ok(PathBuf::from(plain)));
         assert_eq!(repos.path(RepoId(99)), Err(RepoProblem::NoRepo));
+    }
+
+    #[test]
+    fn setup_script_is_scripts_setup_of_orca_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(setup_script(dir.path()), None);
+        let yaml = dir.path().join("orca.yaml");
+        std::fs::write(&yaml, "scripts:\n  setup: |\n    a\n    b\n  archive: c\n").unwrap();
+        assert_eq!(setup_script(dir.path()), Some("a\nb\n".into()));
+        std::fs::write(&yaml, "scripts:\n  archive: c\n").unwrap();
+        assert_eq!(setup_script(dir.path()), None);
+        std::fs::write(&yaml, "scripts:\n  setup: '  '\n").unwrap();
+        assert_eq!(setup_script(dir.path()), None);
     }
 
     #[tokio::test]

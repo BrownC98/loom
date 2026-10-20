@@ -65,7 +65,7 @@ jobs:
           tauriScript: npx --yes @tauri-apps/cli@2.12.3
           tagName: v${{ steps.version.outputs.version }}
           releaseName: loom ${{ steps.version.outputs.version }}
-          releaseBody: ${{ github.ref_name }} ${{ github.sha }} 빌드. 설치 파일(`-setup.exe`)을 실행하면 loom 창이 열린다.
+          releaseBody: ${{ github.ref_name }} ${{ github.sha }} 빌드. 설치 파일(`-setup.exe`)을 실행하면 loom 창이 열린다. Code signing policy: https://github.com/BrownC98/loom#code-signing-policy
 
   # Release는 위 단계가 만든다. 정적 실행 파일(musl)이라 glibc 판과 관계없이 x86-64 Linux에서 돈다.
   linux:

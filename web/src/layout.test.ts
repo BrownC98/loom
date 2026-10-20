@@ -119,7 +119,7 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
 });
 
 describe('placeGroups', () => {
-  const g = (parent: number | null, extra: Partial<GroupSlot> = {}): GroupSlot => ({ size: { width: 100, height: 50 }, parent, ...extra });
+  const g = (parent: number | null, extra: Partial<GroupSlot> = {}): GroupSlot => ({ size: { width: 100, height: 50 }, parent, lead: 0, ...extra });
   const start = { x: 10, y: 20 };
 
   it('roots sit side by side in order with GROUP_GAP 32', () => {
@@ -163,8 +163,15 @@ describe('placeGroups', () => {
 // 목업 docs/mockups/overlap.html 「원인」의 다섯 장면. 끈 것과 배치가 겹치면 형제가 늘어서는 쪽으로 민다.
 describe('overlap after drag (untangle)', () => {
   const card = { width: 100, height: 50 };
-  const g = (parent: number | null, extra: Partial<GroupSlot> = {}): GroupSlot => ({ size: { width: 100, height: 50 }, parent, ...extra });
+  const g = (parent: number | null, extra: Partial<GroupSlot> = {}): GroupSlot => ({ size: { width: 100, height: 50 }, parent, lead: 0, ...extra });
   const start = { x: 10, y: 20 };
+
+  it('a group whose card is dragged out past its left edge widens to the left of its slot', () => {
+    // 카드를 왼쪽 테두리 밖 40으로 끌었다. 상자는 자리보다 40 왼쪽에서 시작하고, 끈 묶음도 같다.
+    const at = placeGroups([g(null, { lead: 40, size: { width: 140, height: 50 } }), g(null, { lead: 40, size: { width: 140, height: 50 }, dragged: { x: 500, y: 20 } })], 'down', start);
+    expect(at[0]).toEqual({ x: -30, y: 20 });
+    expect(at[1]).toEqual({ x: 460, y: 20 });
+  });
 
   it('a new card in the slot under a dragged card moves past it', () => {
     // 끌기 전: 1 at 0, 2 at 120. 2를 230으로 끌고 3을 띄우면 3의 칸(240)이 2와 겹친다.

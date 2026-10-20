@@ -108,19 +108,26 @@ const GROUP_GAP = 32;
 
 export type Box = { at: Point; size: Size };
 
-/** 묶음 자리 계산의 입력. `parent`는 부모 묶음의 번호(`groups` 안)이고, 없으면 뿌리 묶음이다. 순환 없는 나무여야 한다(`groupParents`). */
-export type GroupSlot = CardSlot & { parent: number | null };
+/**
+ * 묶음 자리 계산의 입력. `parent`는 부모 묶음의 번호(`groups` 안)이고, 없으면 뿌리 묶음이다. 순환 없는 나무여야 한다(`groupParents`).
+ * `lead`는 카드를 왼쪽 테두리 밖으로 끌어 묶음이 자리 왼쪽으로 넓어진 폭이다. `size`는 그 폭을 넣은 크기이고, 끈 자리는 넓어지기 전 왼쪽 위다.
+ */
+export type GroupSlot = CardSlot & { parent: number | null; lead: number };
 
 /**
  * 묶음 자리(사용자 요청 2026-10-20 "자동정렬하면 … 트리 방식으로 정렬"). 묶음도 카드와 같은 나무 배치다.
  * 부모 묶음이 없는 뿌리 묶음은 `groups` 순서대로 옆으로 늘어선다. 단계와 틈은 잰 묶음 크기와 `GROUP_GAP`이다.
  * 사람이 끈 묶음(`dragged`)은 그 자리에 두고, 그 뒤 겹친 묶음을 `untangle`로 민다.
+ * 돌려주는 값은 묶음 상자의 왼쪽 위다. 자리보다 `lead`만큼 왼쪽이다.
  */
 export function placeGroups(groups: readonly GroupSlot[], direction: ArrangeDirection, start: Point): Point[] {
   const items = groups.map((g, i) => ({ id: i, parent: g.parent, size: g.size }));
   const tree = layoutTree(items, direction, { depth: GROUP_GAP, lane: GROUP_GAP });
   return untangle(
-    groups.map((g, i) => ({ ...g, at: g.dragged ?? { x: start.x + tree.get(i)!.x, y: start.y + tree.get(i)!.y } })),
+    groups.map((g, i) => {
+      const at = g.dragged ?? { x: start.x + tree.get(i)!.x, y: start.y + tree.get(i)!.y };
+      return { ...g, at: { x: at.x - g.lead, y: at.y } };
+    }),
     direction,
     GROUP_GAP,
   );

@@ -1,4 +1,3 @@
-import { X } from 'lucide-react';
 // 커밋 그래프 칸(docs/mockups/graph-panels.html 그림 B). 읽기만 한다.
 //
 // 차선 계산(`lanes`)과 줄 그리기(`LaneSvg`)는 VS Code에서 옮겼다.
@@ -8,6 +7,7 @@ import { X } from 'lucide-react';
 // 라이선스: MIT, Copyright (c) Microsoft Corporation.
 // 바꾼 점: 부모 없는 커밋에서도 다른 차선을 이어 간다(원본은 그 줄에서 다른 차선을 버린다).
 // 옮기지 않은 것: Incoming/Outgoing 줄, 참조 색 지도, 마우스 올림 설명 창.
+import { X } from 'lucide-react';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getCommits } from './api';

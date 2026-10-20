@@ -203,8 +203,12 @@ function ThemePicker(props: { label: string; value: TerminalThemeName; onChoose:
   const list = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState<TerminalThemeName | null>(null);
   useEffect(() => {
-    // 고른 테마가 목록 아래쪽에 있어도 창을 열면 보이게 한다.
-    list.current?.querySelector(':checked')?.scrollIntoView({ block: 'nearest' });
+    // 고른 테마가 목록 아래쪽에 있어도 창을 열면 보이게 한다. scrollIntoView는 설정 창까지 밀어 올리므로 목록만 굴린다.
+    const box = list.current;
+    const row = box?.querySelector(':checked')?.closest('label');
+    if (!box || !row) return;
+    const top = row.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    box.scrollTop = top - (box.clientHeight - row.offsetHeight) / 2;
   }, []);
   return (
     <fieldset className="tpick" disabled={props.disabled}>

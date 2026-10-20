@@ -460,6 +460,8 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .choice label:has(input:checked) { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
 .choice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .choice input, .tlist input { position: absolute; opacity: 0; pointer-events: none; }
+/* 숨은 입력은 자기 줄 안에 둔다. 밖에 두면 고르거나 포커스를 줄 때 브라우저가 설정 창 전체를 그 입력 쪽으로 밀어 올린다. */
+.choice label, .tlist label { position: relative; }
 .choice svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .pane .switch { justify-self: start; }
 .tpick { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; border: 0; padding: 0; min-width: 0; }

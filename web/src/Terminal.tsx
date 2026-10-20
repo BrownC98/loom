@@ -52,8 +52,10 @@ export const XtermTheme = createContext<ITheme>(TERMINAL_THEMES[DEFAULT_TERMINAL
 /** 모든 터미널의 글꼴. `App`이 설정으로 정한다. */
 export const XtermFont = createContext<XtermFontValue>(DEFAULT_TERMINAL_FONT);
 
-/** `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). */
-export function Terminal(props: { src: string; focused: boolean; onFocus: () => void; onNavigate: (dir: Direction) => void }) {
+/**
+ * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). `loadRenderer`는 연 뒤에 렌더러 애드온을 붙인다. 없으면 DOM 렌더러로 그린다.
+ */
+export function Terminal(props: { src: string; focused: boolean; onFocus: () => void; onNavigate: (dir: Direction) => void; loadRenderer?: (xterm: XTerm) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm | null>(null);
   const latest = useRef(props);
@@ -91,6 +93,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
       const fitAddon = new FitAddon();
       xterm.loadAddon(fitAddon);
       xterm.open(el);
+      latest.current.loadRenderer?.(xterm);
       term.current = xterm;
       fit.current = fitAddon;
       const link = attachPty(props.src, {

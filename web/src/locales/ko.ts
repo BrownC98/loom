@@ -28,6 +28,8 @@ const ko: typeof en = {
     group: '묶음 {{branch}}',
     newNode: '새 노드',
     arrange: '정렬',
+    direction: '정렬 방향',
+    directions: { down: '아래로', right: '오른쪽으로', up: '위로', left: '왼쪽으로' },
     empty: '‘새 노드’를 눌러 첫 에이전트를 시작합니다.',
     minimap: '미니맵',
     messages: '메시지 {{n}}',
@@ -167,9 +169,9 @@ const ko: typeof en = {
   },
   cardView: {
     heading: '카드 보기',
-    terminal: '터미널',
-    header: '머리만',
-    hint: '‘머리만’이면 카드를 누를 때 그 노드의 터미널이 오른쪽 칸에 열립니다.',
+    simple: '심플',
+    standard: '표준',
+    hint: '‘심플’이면 카드에 머리 정보만 보이고, 카드를 누르면 터미널이 오른쪽 칸에 열립니다.',
   },
   theme: {
     heading: '테마',

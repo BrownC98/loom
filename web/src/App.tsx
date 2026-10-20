@@ -18,6 +18,7 @@ import { NewWorktreePopover } from './NewWorktreePopover';
 import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
+import { CardViewSwitch } from './ThemeSettings';
 import { Splitter, usePaneWidth, type Pane } from './Splitter';
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
@@ -42,7 +43,7 @@ const EMPTY_SETTINGS: SettingsView = {
   theme: (document.documentElement.dataset.theme as Theme | undefined) ?? 'system',
   terminalTheme: RESET_TERMINAL_THEME,
   terminalFont: { family: null, size: null },
-  cardView: 'terminal',
+  cardView: 'standard',
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
 };
@@ -138,13 +139,13 @@ export function App() {
     putSettings(next).catch(() => getSettings().then(setSettings));
   };
   const usage: Usage = { accounts, fetchedAt, loading, refresh: refreshUsage };
-  const headerCards = settings.cardView === 'header';
-  /** 카드를 머리만 보면 노드를 고를 때 오른쪽 칸에 그 터미널을 연다. */
+  const simpleCards = settings.cardView === 'simple';
+  /** 심플 보기에서는 노드를 고를 때 오른쪽 칸에 그 터미널을 연다. 카드에는 터미널이 없다. */
   const selectNode = (id: NodeId | null) => {
     setSelected(id);
-    if (headerCards && id !== null) setDock('terminal');
+    if (simpleCards && id !== null) setDock('terminal');
   };
-  const dockedView = dock === 'terminal' && headerCards && selected !== null ? nodes.get(selected) : undefined;
+  const dockedView = dock === 'terminal' && simpleCards && selected !== null ? nodes.get(selected) : undefined;
   const shownDock = dock === 'terminal' && !dockedView ? null : dock;
 
   useEffect(() => {
@@ -246,10 +247,11 @@ export function App() {
               </button>
             </div>
           </nav>
-          <main className="canvas" data-card-view={settings.cardView} aria-label={t('app.graphLabel', { repo: repo?.name ?? '' })}>
+          <main className="canvas" aria-label={t('app.graphLabel', { repo: repo?.name ?? '' })}>
             <div className="toolbar">
               <h1>{repo?.name}</h1>
               <span className="spacer" />
+              <CardViewSwitch value={settings.cardView} onChange={(cardView) => saveSettings({ ...settings, cardView })} />
               {repo && (
                 <button className="btn" aria-expanded={creatingWorktree} onClick={() => setCreatingWorktree(true)}>
                   <svg viewBox="0 0 24 24" aria-hidden="true">

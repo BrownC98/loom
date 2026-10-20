@@ -105,7 +105,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .toolbar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; z-index: 5; pointer-events: none; }
 .toolbar h1 { font-size: 18px; font-weight: 600; }
 .toolbar .spacer { flex: 1; }
-.toolbar .btn { pointer-events: all; }
+.toolbar .btn, .toolbar .choice { pointer-events: all; }
 .btn[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
 
 /* 미니맵: 그래프 오른쪽 아래. 카드는 상태 색, 묶음은 점선 테두리 */
@@ -179,6 +179,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .group-head .kind { font-size: 12px; color: var(--ink-3); }
 .group-head .spacer { flex: 1; }
 .group-empty { padding: 16px 14px; color: var(--ink-3); font-size: 13px; }
+/* 정렬 나눈 버튼과 방향 메뉴(ArrangeButton.tsx). */
+.split { position: relative; display: inline-flex; }
+.split .caret { padding: 0 4px; gap: 0; }
+.split .caret svg + svg { width: 12px; height: 12px; }
+.menu { position: fixed; z-index: 30; width: 180px; display: grid; padding: 6px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); }
+.menu button { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.menu button:hover { background: var(--surface-hover); }
+.menu button:focus-visible { background: var(--surface-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
+.menu svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.menu .check { margin-left: auto; color: var(--ink-2); }
 
 .card { width: 600px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -188,12 +198,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .agent-logo { width: 14px; height: 14px; flex-shrink: 0; display: inline-grid; place-items: center; color: var(--ink-2); }
 span.agent-logo[style] { background: currentColor; mask: var(--logo) center / contain no-repeat; }
 .agent-logo svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.dock-head .agent { font-size: 12px; color: var(--ink-3); }
 .card-head .model { font-size: 12px; color: var(--ink-3); font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .spacer { flex: 1; }
 .card-head:last-child { border-bottom: 0; }
-/* 머리만 보는 카드. 폭은 Graph.tsx `CARD_LAYOUT.header.width`다. */
-.canvas[data-card-view="header"] .card { width: 400px; }
+/* 심플 카드와 오른쪽 칸 터미널 머리의 노드 정보(NodeCard.tsx NodeSummary). 목업 docs/mockups/card-view.html. 폭은 Graph.tsx `CARD_SIZE.simple`이다. */
+.card.simple { width: 260px; padding: 8px 8px 8px 12px; background: var(--surface); cursor: grab; }
+.summary { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.summary-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px; }
+.summary-row .name { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-row .spacer { flex: 1; }
+.summary-row .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
+/* 지금 하는 일은 두 줄까지다. 비어도 자리를 지켜 카드 높이가 같다. */
+.summary .topic { margin: 0; font-size: 13px; line-height: 18px; min-height: 36px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.summary-model { min-height: 18px; min-width: 0; display: flex; }
+.summary-model .model { font: 12px var(--mono); color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.running { color: var(--run); }

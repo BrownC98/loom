@@ -10,9 +10,11 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
+import { ArrangeButton, loadDirection, saveDirection } from './ArrangeButton';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
+import { arrangeTree, type ArrangeDirection, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
-import { NodeCard } from './NodeCard';
+import { NodeCard, SimpleCard } from './NodeCard';
 import { groupsOf, inGroup } from './repos';
 import { Terminal, type Direction } from './Terminal';
 
@@ -24,13 +26,19 @@ const GROUP_GAP = 32;
 const CARD_X = 20;
 const CARD_TOP = 60;
 /**
- * 카드 보기마다 배치 값. `width`는 styles.css `.card`의 폭이다. `height`는 카드를 재기 전에 쓰는 높이다(재면 잰 값을 쓴다).
- * `step`은 카드 높이에 간선이 지나갈 틈을 더한 세로 간격, `columnStep`은 카드 폭에 틈을 더한 가로 간격이다.
+ * 카드를 재기 전에 쓰는 크기. 재면 잰 크기로 배치한다. `width`는 styles.css `.card`·`.card.simple`의 폭이다.
+ * 표준 높이는 머리, 80×24 터미널(styles.css `.term`), 발 줄의 합이다. 심플 높이는 목업 docs/mockups/card-view.html에서 쟀다.
  */
-const CARD_LAYOUT: Record<CardView, { width: number; height: number; step: number; columnStep: number }> = {
-  // 기본 글꼴로 터미널이 80×24다(styles.css `.term`). 높이는 머리, 터미널, 발 줄의 합이다.
-  terminal: { width: 600, height: 466, step: 512, columnStep: 620 },
-  header: { width: 400, height: 36, step: 96, columnStep: 420 },
+const CARD_SIZE: Record<CardView, Size> = {
+  standard: { width: 600, height: 466 },
+  simple: { width: 260, height: 134 },
+};
+/** 간선이 붙는 쪽. 부모 쪽(`target`)과 자식 쪽(`source`)이 나무가 뻗는 쪽을 따른다. */
+const HANDLES: Record<ArrangeDirection, { target: Position; source: Position }> = {
+  down: { target: Position.Top, source: Position.Bottom },
+  up: { target: Position.Bottom, source: Position.Top },
+  right: { target: Position.Left, source: Position.Right },
+  left: { target: Position.Right, source: Position.Left },
 };
 /** 카드는 묶음 머리 위나 왼쪽 테두리 밖으로 끌 수 없다. 오른쪽·아래로 끌면 묶음이 따라 커진다. 좌표는 묶음 기준이다. */
 const CARD_EXTENT: CoordinateExtent = [
@@ -68,12 +76,24 @@ export function useShowNodes(): (ids: NodeId[]) => void {
 }
 
 /** `onDelete`가 없으면 지울 수 없다(원래 체크아웃). */
-type GroupData = { branch: string; original: boolean; empty: boolean; creating: boolean; deleting: boolean; onOpen: () => void; onArrange: () => void; onDelete?: () => void };
-/** `ownsPty`: 이 카드가 터미널을 연다. 확대 창이나 오른쪽 칸이 열면 카드는 머리만 그린다. PTY 크기를 한쪽만 정하게 한다. `onExpand`가 없으면 확대가 없다. */
-type CardData = { view: NodeView; agentLabel: string; parentName: string | null; selected: boolean; ownsPty: boolean; onSelect: () => void; onNavigate: (dir: Direction) => void; onExpand?: () => void; onRemove: () => void };
+type GroupData = {
+  branch: string;
+  original: boolean;
+  empty: boolean;
+  creating: boolean;
+  deleting: boolean;
+  direction: ArrangeDirection;
+  onOpen: () => void;
+  onArrange: (direction: ArrangeDirection) => void;
+  onDelete?: () => void;
+};
+type CardBase = { view: NodeView; agentLabel: string; selected: boolean; handles: (typeof HANDLES)[ArrangeDirection]; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
+/** 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 확대 창이 열면 카드는 터미널을 그리지 않는다. PTY 크기를 한쪽만 정하게 한다. */
+type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 type CardNode = Node<CardData, 'card'>;
-type FlowNode = GroupNode | CardNode;
+type SimpleNode = Node<CardBase, 'simple'>;
+type FlowNode = GroupNode | CardNode | SimpleNode;
 
 function Group({ data }: NodeProps<GroupNode>) {
   const { t } = useTranslation();
@@ -85,16 +105,7 @@ function Group({ data }: NodeProps<GroupNode>) {
         </span>
         <span className="kind">{t(data.original ? 'worktree.original' : 'worktree.linked')}</span>
         <span className="spacer" />
-        {!data.empty && (
-          <button className="btn ghost sm" onClick={data.onArrange}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <rect x="3" y="3" width="7" height="7" rx="1" />
-              <rect x="14" y="14" width="7" height="7" rx="1" />
-              <path d="M6.5 10v4.5H14" />
-            </svg>
-            {t('graph.arrange')}
-          </button>
-        )}
+        {!data.empty && <ArrangeButton direction={data.direction} onArrange={data.onArrange} />}
         <button className="btn ghost sm" aria-expanded={data.creating} onClick={data.onOpen}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
@@ -126,21 +137,43 @@ function Card({ data }: NodeProps<CardNode>) {
         onDoubleClickHead={data.onExpand}
         headAction={
           <>
-            {data.onExpand && <IconButton label={t('node.expand')} title={t('node.expandTitle')} path={ICON.expand} onClick={data.onExpand} />}
-            <IconButton label={t('node.remove')} title={t('node.remove')} path={ICON.remove} onClick={data.onRemove} />
+            <IconButton label={t('node.expand')} title={t('node.expandTitle')} path={ICON.expand} onClick={data.onExpand} />
+            <RemoveButton onRemove={data.onRemove} />
           </>
         }
       >
         {data.ownsPty && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
       </NodeCard>
-      {/* 간선이 붙는 자리. 아래 잇기 점을 끌어 다른 카드에 놓으면 그 카드의 부모가 된다(onConnectEnd). */}
-      <Handle type="target" position={Position.Top} isConnectable={false} />
-      <Handle type="source" position={Position.Bottom} className="port" />
+      <Ports handles={data.handles} />
     </>
   );
 }
 
-const nodeTypes = { worktree: Group, card: Card };
+function Simple({ data }: NodeProps<SimpleNode>) {
+  return (
+    <>
+      <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={<RemoveButton onRemove={data.onRemove} />} />
+      <Ports handles={data.handles} />
+    </>
+  );
+}
+
+function RemoveButton(props: { onRemove: () => void }) {
+  const { t } = useTranslation();
+  return <IconButton label={t('node.remove')} title={t('node.remove')} path={ICON.remove} onClick={props.onRemove} />;
+}
+
+/** 간선이 붙는 자리. 자식 쪽 잇기 점을 끌어 다른 카드에 놓으면 그 카드의 부모가 된다(onConnectEnd). */
+function Ports(props: { handles: (typeof HANDLES)[ArrangeDirection] }) {
+  return (
+    <>
+      <Handle type="target" position={props.handles.target} isConnectable={false} />
+      <Handle type="source" position={props.handles.source} className="port" />
+    </>
+  );
+}
+
+const nodeTypes = { worktree: Group, card: Card, simple: Simple };
 
 /** `from`에서 `dir` 쪽으로 가장 가까운 카드. 가로·세로 어긋남은 두 배로 친다. */
 function neighbor(positions: Map<NodeId, XYPosition>, from: NodeId, dir: Direction): NodeId | null {
@@ -159,41 +192,6 @@ function neighbor(positions: Map<NodeId, XYPosition>, from: NodeId, dir: Directi
   return best;
 }
 
-type Slot = { column: number; row: number };
-
-function slotPosition({ column, row }: Slot, layout: (typeof CARD_LAYOUT)[CardView]): XYPosition {
-  return { x: CARD_X + column * layout.columnStep, y: CARD_TOP + row * layout.step };
-}
-
-/**
- * 나무 배치: 자식은 부모 아래 줄에, 형제는 오른쪽 칸에 놓는다. 잎마다 새 칸을 쓰고 부모는 첫 자식의 칸에 둔다.
- * 사람이 띄운 노드(뿌리)는 앞 뿌리의 나무 아래에 쌓는다. 형제는 만든 순서다.
- */
-function treeLayout(views: ReadonlyMap<NodeId, NodeView>): Map<NodeId, Slot> {
-  const children = new Map<NodeId | null, NodeView[]>();
-  for (const view of [...views.values()].sort((a, b) => a.id - b.id)) {
-    // 부모를 지우면 `removed` 뒤에 자식의 새 상태가 온다. 그 사이에는 그래프에 없는 부모를 가리키므로 뿌리로 놓는다.
-    const parent = view.parent !== null && views.has(view.parent) ? view.parent : null;
-    children.set(parent, [...(children.get(parent) ?? []), view]);
-  }
-  const slots = new Map<NodeId, Slot>();
-  let firstRow = 0;
-  for (const root of children.get(null) ?? []) {
-    let column = 0;
-    let lastRow = firstRow;
-    const place = (view: NodeView, row: number) => {
-      slots.set(view.id, { column, row });
-      lastRow = Math.max(lastRow, row);
-      const kids = children.get(view.id) ?? [];
-      if (kids.length === 0) column++;
-      for (const kid of kids) place(kid, row + 1);
-    };
-    place(root, firstRow);
-    firstRow = lastRow + 1;
-  }
-  return slots;
-}
-
 function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): string | null {
   return view.parent === null ? null : (views.get(view.parent)?.name ?? null);
 }
@@ -202,7 +200,7 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
 export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null };
 
 /**
- * `cardView`: 카드에 터미널을 그릴지, 머리만 그릴지. 머리만이면 터미널은 부르는 쪽(오른쪽 칸)이 연다.
+ * `cardView`: 그래프 전체의 카드 보기. 심플이면 카드에 터미널이 없고, 터미널은 부르는 쪽(오른쪽 칸)이 연다.
  * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
  * `selected`: 입력을 받는 카드. 트리도 고르므로 부르는 쪽이 가진다.
  * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드. 그 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다. 바탕을 누르면 끈다.
@@ -239,21 +237,36 @@ export function Graph(props: {
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
   // 사람이 끈 카드의 위치만 둔다. 나머지 카드는 늘 나무 배치를 따르므로, 노드를 지우면 빈자리를 채운다.
   const [dragged, setDragged] = useState<ReadonlyMap<string, XYPosition>>(new Map());
+  const [direction, setDirection] = useState(loadDirection);
 
   const views = [...props.views.values()];
-  const layout = CARD_LAYOUT[props.cardView];
-  /** 끈 위치를 버려 모든 카드를 나무 배치 자리로 되돌린다. */
-  const arrange = () => setDragged(new Map());
+  const estimate = CARD_SIZE[props.cardView];
+  /** 잰 카드 크기. 재기 전에는 보기마다 정한 크기다. */
+  const size = (id: NodeId): Size => {
+    const measured = flowState.get(String(id))?.measured;
+    return measured?.width && measured.height ? { width: measured.width, height: measured.height } : estimate;
+  };
+  /** 끈 위치를 버려 모든 카드를 `next` 방향의 나무 배치 자리로 되돌린다. */
+  const arrange = (next: ArrangeDirection) => {
+    setDirection(next);
+    saveDirection(next);
+    setDragged(new Map());
+  };
   // 묶음마다 나무 배치를 따로 한다. 카드 위치는 묶음 기준, `positions`는 키보드 이동에 쓰는 화면 기준이다.
   const positions = new Map<NodeId, XYPosition>();
   let nextX = GROUP_POSITION.x;
   const groups = groupsOf(props.repo, views).map((group) => {
     const members = inGroup(views, group);
-    const slots = treeLayout(new Map(members.map((v) => [v.id, v])));
-    const local = new Map<NodeId, XYPosition>(members.map((v) => [v.id, dragged.get(String(v.id)) ?? slotPosition(slots.get(v.id)!, layout)]));
+    const tree = arrangeTree(members, size, direction);
+    const local = new Map<NodeId, XYPosition>(
+      members.map((v) => {
+        const at = tree.get(v.id)!;
+        return [v.id, dragged.get(String(v.id)) ?? { x: CARD_X + at.x, y: CARD_TOP + at.y }];
+      }),
+    );
     // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
-    const right = Math.max(CARD_X + layout.width, ...[...local.values()].map((p) => p.x + layout.width)) + CARD_X;
-    const bottom = Math.max(...members.map((v) => local.get(v.id)!.y + (flowState.get(String(v.id))?.measured?.height ?? layout.height))) + CARD_X;
+    const right = Math.max(CARD_X + estimate.width, ...members.map((v) => local.get(v.id)!.x + size(v.id).width)) + CARD_X;
+    const bottom = Math.max(...members.map((v) => local.get(v.id)!.y + size(v.id).height)) + CARD_X;
     const origin = { x: nextX, y: GROUP_POSITION.y };
     nextX += right + GROUP_GAP;
     for (const [id, p] of local) positions.set(id, { x: origin.x + p.x, y: origin.y + p.y });
@@ -275,7 +288,7 @@ export function Graph(props: {
     if (to !== null) setSelected(to);
   };
   useImperativeHandle(props.ref, () => ({ neighbor: (from, dir) => neighbor(positions, from, dir) }));
-  const terminalCards = props.cardView === 'terminal';
+  const standard = props.cardView === 'standard';
   const keep = <N extends FlowNode>(node: N): N => ({ ...node, measured: flowState.get(node.id)?.measured });
 
   const nodes: FlowNode[] = groups.flatMap(({ group, members, local, origin, right, bottom }) => [
@@ -295,6 +308,7 @@ export function Graph(props: {
           setDeleting(null);
           setCreating(group.path);
         },
+        direction,
         onArrange: arrange,
         onDelete: group.original
           ? undefined
@@ -304,34 +318,41 @@ export function Graph(props: {
             },
       },
     }),
-    ...members.map((view) =>
-      keep<CardNode>({
+    ...members.map((view): FlowNode => {
+      const base = {
         id: String(view.id),
-        type: 'card',
         parentId: group.path,
         extent: CARD_EXTENT,
-        dragHandle: '.card-head',
         className: lit(view.id),
         position: local.get(view.id)!,
+      };
+      const data: CardBase = {
+        view,
+        agentLabel: agentLabel(props.agents, view.agent),
+        selected: selected === view.id,
+        handles: HANDLES[direction],
+        onSelect: () => setSelected(view.id),
+        onNavigate: navigate(view.id),
+        // 확인 없이 바로 지운다(docs/design.md 「노드 제거와 입양」). 실패하면 입양 거절과 같은 자리에 보인다.
+        onRemove: () => removeNode(view.id).catch((err: Error) => setRefusal(err.message)),
+      };
+      // 심플 카드는 카드 전체가 끌기 손잡이다. 표준 카드는 터미널을 고를 수 있게 머리만 손잡이다.
+      if (!standard) return keep<SimpleNode>({ ...base, type: 'simple', data });
+      return keep<CardNode>({
+        ...base,
+        type: 'card',
+        dragHandle: '.card-head',
         data: {
-          view,
-          agentLabel: agentLabel(props.agents, view.agent),
+          ...data,
           parentName: parentName(props.views, view),
-          selected: selected === view.id,
-          ownsPty: terminalCards && expanded !== view.id,
-          onSelect: () => setSelected(view.id),
-          onNavigate: navigate(view.id),
-          onExpand: terminalCards
-            ? () => {
-                setSelected(view.id);
-                setExpanded(view.id);
-              }
-            : undefined,
-          // 확인 없이 바로 지운다(docs/design.md 「노드 제거와 입양」). 실패하면 입양 거절과 같은 자리에 보인다.
-          onRemove: () => removeNode(view.id).catch((err: Error) => setRefusal(err.message)),
+          ownsPty: expanded !== view.id,
+          onExpand: () => {
+            setSelected(view.id);
+            setExpanded(view.id);
+          },
         },
-      }),
-    ),
+      });
+    }),
   ]);
 
   const edges: Edge[] = views.flatMap((view) => {
@@ -367,17 +388,22 @@ export function Graph(props: {
     const lost = [...store.getState().nodeLookup.values()].filter((n) => n.measured.width && !n.internals.handleBounds).map((n) => n.id);
     if (lost.length > 0) remeasure(lost);
   });
+  // 정렬 방향이 바뀌면 간선이 붙는 쪽(`HANDLES`)이 바뀐다. React Flow는 핸들 자리를 다시 재야 간선을 옮긴다.
+  const cardIds = views.map((v) => String(v.id)).join(',');
+  useEffect(() => {
+    if (cardIds) remeasure(cardIds.split(','));
+  }, [direction, cardIds, remeasure]);
 
   /** 잇기 점을 놓은 자리의 카드가 끌기 시작한 카드를 새 부모로 받는다. 대상 핸들 대신 카드 전체를 놓는 자리로 쓴다. */
   const onConnectEnd = (event: MouseEvent | TouchEvent, connection: FinalConnectionState) => {
     if (!connection.fromNode) return;
     const point = 'changedTouches' in event ? event.changedTouches[0] : event;
-    const target = document.elementFromPoint(point.clientX, point.clientY)?.closest('.react-flow__node-card')?.getAttribute('data-id');
+    const target = document.elementFromPoint(point.clientX, point.clientY)?.closest('.react-flow__node-card, .react-flow__node-simple')?.getAttribute('data-id');
     if (!target || target === connection.fromNode.id) return;
     adoptNode(Number(target), Number(connection.fromNode.id)).catch((err: Error) => setRefusal(err.message));
   };
 
-  const zoomedView = expanded === null || !terminalCards ? undefined : props.views.get(expanded);
+  const zoomedView = expanded === null || !standard ? undefined : props.views.get(expanded);
 
   return (
     <>
@@ -394,7 +420,7 @@ export function Graph(props: {
           setRefusal('');
         }}
         // 카드 머리는 끌기 손잡이라 React Flow가 mousedown 전파를 막는다. 머리 클릭은 여기서 고른다.
-        onNodeClick={(_, node) => node.type === 'card' && setSelected(Number(node.id))}
+        onNodeClick={(_, node) => node.type !== 'worktree' && setSelected(Number(node.id))}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements
@@ -408,7 +434,7 @@ export function Graph(props: {
         <MiniMap
           pannable
           ariaLabel={t('graph.minimap')}
-          nodeClassName={(node) => (node.type === 'card' ? (node as CardNode).data.view.state.kind : 'worktree')}
+          nodeClassName={(node) => (node.type === 'worktree' ? 'worktree' : (node as CardNode | SimpleNode).data.view.state.kind)}
           onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
         />
         {groups.map(({ group, members, origin, right }) => (

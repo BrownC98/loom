@@ -161,6 +161,9 @@ export function App() {
   /** 심플 보기에서는 노드를 고를 때 오른쪽 칸에 그 터미널을 연다. 카드에는 터미널이 없다. */
   const selectNode = (id: NodeId | null) => {
     setSelected(id);
+    // 다른 저장소의 노드(트리, 이벤트 기록)를 고르면 그래프를 그 저장소로 바꾼다.
+    const place = id === null ? undefined : nodes.get(id)?.place;
+    if (place && place.repo !== repo?.id) selectRepo(place.repo);
     if (simpleCards && id !== null) setDock('terminal');
   };
   const dockedView = dock === 'terminal' && simpleCards && selected !== null ? nodes.get(selected) : undefined;

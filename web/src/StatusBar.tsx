@@ -71,6 +71,12 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
           );
         })}
       </button>
+      {/* 팝오버를 열지 않고 사용량을 다시 읽는다(2026-10-20 사람 지시 "하단 사용량 표시 섹션에 사용량 조회 새로고침 버튼 만들어"). */}
+      <button className="btn ghost sm icon refresh" data-loading={usage.loading || undefined} disabled={usage.loading} aria-label={t('statusBar.refresh')} title={t('statusBar.refresh')} onClick={usage.refresh}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" />
+        </svg>
+      </button>
       <span className="app-version">v{VERSION}</span>
       {open && usage.accounts && (
         <UsagePopover
@@ -101,15 +107,7 @@ function UsagePopover(props: {
   const [expanded, setExpanded] = useState<Provider | null>(null);
   return (
     <div className="pop usage-pop" role="dialog" aria-label={t('statusBar.usage')}>
-      <h3>
-        {t('statusBar.usage')}
-        <span className="spacer" />
-        <button className="btn ghost sm icon refresh" data-loading={usage.loading || undefined} disabled={usage.loading} aria-label={t('statusBar.refresh')} title={t('statusBar.refresh')} onClick={usage.refresh}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" />
-          </svg>
-        </button>
-      </h3>
+      <h3>{t('statusBar.usage')}</h3>
       {PROVIDERS.map((provider) => (
         <ProviderSection
           key={provider}

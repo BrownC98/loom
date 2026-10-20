@@ -77,30 +77,17 @@ function layoutTree(items: readonly TreeItem[], direction: ArrangeDirection, gap
 const CARD_GAP: TreeGap = { depth: 46, lane: 20 };
 
 /**
- * 사람이 끌 수 있는 상자(카드·묶음) 하나의 입력. `dragged`는 사람이 끈 자리, `pinned`는 사람이 마지막에 놓은 상자다(겹쳐도 밀리지 않는다).
- * 끈 자리의 좌표는 배치 결과와 같은 기준이다.
- */
-export type CardSlot = { size: Size; dragged?: Point; pinned?: boolean };
-
-/**
- * 카드 위치(묶음 안 카드 자리의 왼쪽 위 기준). `slot`은 잰 카드 크기와 끈 자리다.
+ * 카드 위치(묶음 안 카드 자리의 왼쪽 위 기준). `size`는 잰 카드 크기다.
  * 뿌리(사람이 띄운 노드, 부모가 다른 묶음에 있는 노드)도 같은 레벨이라 첫 단계에 옆으로 늘어선다
- * (2026-10-20 사람 지시 "정렬방식은 같은레벨에 있으면 수평으로 확장되게 해줘"). 형제는 만든 순서다.
- * 끈 카드는 끈 자리에 두고, 그 뒤 겹친 카드를 `untangle`로 민다.
+ * (2026-10-20 사람 지시 "정렬방식은 같은레벨에 있으면 수평으로 확장되게 해줘").
+ * 형제는 `rank`가 작은 쪽부터, 같으면 만든 순서다. `rank`는 사람이 끌어 바꾼 순서다(`reorder`).
  */
-export function arrangeTree(views: readonly NodeView[], slot: (id: NodeId) => CardSlot, direction: ArrangeDirection): Map<NodeId, Point> {
+export function arrangeTree(views: readonly NodeView[], size: (id: NodeId) => Size, rank: (id: NodeId) => number, direction: ArrangeDirection): Map<NodeId, Point> {
   const ids = new Set(views.map((v) => v.id));
-  const sorted = [...views].sort((a, b) => a.id - b.id);
-  const slots = sorted.map((v) => slot(v.id));
+  const sorted = [...views].sort((a, b) => rank(a.id) - rank(b.id) || a.id - b.id);
   // 부모를 지우면 `removed` 뒤에 자식의 새 상태가 온다. 그 사이에는 그래프에 없는 부모를 가리키므로 뿌리로 놓는다.
-  const items = sorted.map((v, i) => ({ id: v.id, parent: v.parent !== null && ids.has(v.parent) ? v.parent : null, size: slots[i].size }));
-  const tree = layoutTree(items, direction, CARD_GAP);
-  const at = untangle(
-    slots.map((s, i) => ({ ...s, at: s.dragged ?? tree.get(sorted[i].id)! })),
-    direction,
-    CARD_GAP.lane,
-  );
-  return new Map(sorted.map((v, i) => [v.id, at[i]]));
+  const items = sorted.map((v) => ({ id: v.id, parent: v.parent !== null && ids.has(v.parent) ? v.parent : null, size: size(v.id) }));
+  return layoutTree(items, direction, CARD_GAP);
 }
 
 /** 옆 묶음과의 틈(목업 docs/mockups/card-view.html 2번). */
@@ -110,27 +97,56 @@ export type Box = { at: Point; size: Size };
 
 /**
  * 묶음 자리 계산의 입력. `parent`는 부모 묶음의 번호(`groups` 안)이고, 없으면 뿌리 묶음이다. 순환 없는 나무여야 한다(`groupParents`).
- * `lead`는 카드를 왼쪽 테두리 밖으로 끌어 묶음이 자리 왼쪽으로 넓어진 폭이다. `size`는 그 폭을 넣은 크기이고, 끈 자리는 넓어지기 전 왼쪽 위다.
+ * `rank`는 사람이 끌어 바꾼 순서다(`reorder`). 형제는 `rank`가 작은 쪽부터, 같으면 `groups` 순서다.
  */
-export type GroupSlot = CardSlot & { parent: number | null; lead: number };
+export type GroupSlot = { size: Size; parent: number | null; rank: number };
 
 /**
  * 묶음 자리(사용자 요청 2026-10-20 "자동정렬하면 … 트리 방식으로 정렬"). 묶음도 카드와 같은 나무 배치다.
- * 부모 묶음이 없는 뿌리 묶음은 `groups` 순서대로 옆으로 늘어선다. 단계와 틈은 잰 묶음 크기와 `GROUP_GAP`이다.
- * 사람이 끈 묶음(`dragged`)은 그 자리에 두고, 그 뒤 겹친 묶음을 `untangle`로 민다.
- * 돌려주는 값은 묶음 상자의 왼쪽 위다. 자리보다 `lead`만큼 왼쪽이다.
+ * 부모 묶음이 없는 뿌리 묶음은 옆으로 늘어선다. 단계와 틈은 잰 묶음 크기와 `GROUP_GAP`이다. 돌려주는 값은 묶음 상자의 왼쪽 위다.
  */
 export function placeGroups(groups: readonly GroupSlot[], direction: ArrangeDirection, start: Point): Point[] {
-  const items = groups.map((g, i) => ({ id: i, parent: g.parent, size: g.size }));
+  const items = groups.map((g, i) => ({ id: i, parent: g.parent, size: g.size })).sort((a, b) => groups[a.id].rank - groups[b.id].rank || a.id - b.id);
   const tree = layoutTree(items, direction, { depth: GROUP_GAP, lane: GROUP_GAP });
-  return untangle(
-    groups.map((g, i) => {
-      const at = g.dragged ?? { x: start.x + tree.get(i)!.x, y: start.y + tree.get(i)!.y };
-      return { ...g, at: { x: at.x - g.lead, y: at.y } };
-    }),
-    direction,
-    GROUP_GAP,
-  );
+  return groups.map((_, i) => ({ x: start.x + tree.get(i)!.x, y: start.y + tree.get(i)!.y }));
+}
+
+/** 묶음 테두리와 카드 사이 틈. `top`은 묶음 위 테두리(머리 포함), `side`는 왼쪽·오른쪽·아래다. */
+export type Inset = { top: number; side: number };
+
+/**
+ * 끄는 카드를 담게 넓힌 묶음(2026-10-20 사람 지시 "노드를 묶음 위로 움직일때도 묶음이 확장되도록 해줘"). 네 쪽 모두 넓어진다.
+ * `size`는 끌기 전 묶음 크기, `card`는 끌기 전 묶음 왼쪽 위 기준 끄는 카드 자리다. 카드와 테두리 사이에 `inset`을 둔다.
+ * `lead`는 왼쪽·위로 넓어진 폭이다. 묶음 왼쪽 위를 그만큼 옮기고 카드를 그만큼 반대로 옮기면 카드는 화면에서 제자리다.
+ */
+export function growBox(size: Size, card: Box, inset: Inset): { lead: Point; size: Size } {
+  const lead = { x: Math.max(0, inset.side - card.at.x), y: Math.max(0, inset.top - card.at.y) };
+  return {
+    lead,
+    size: {
+      width: Math.max(size.width, card.at.x + card.size.width + inset.side) + lead.x,
+      height: Math.max(size.height, card.at.y + card.size.height + inset.side) + lead.y,
+    },
+  };
+}
+
+/** 끄는 상자의 형제 하나. `key`는 부르는 쪽이 붙인 상자 이름이다. */
+export type Sibling = Box & { key: string };
+
+/**
+ * 끄는 상자가 형제 사이에 설 순서(2026-10-20 사람 지시 "순서 바꾸기로 구현하는게 좋겠어, 터미널이 모두 잘보여야 하므로 겹치기는 적절하지 않다").
+ * `siblings`는 지금 순서의 형제이고 끄는 상자도 들어 있다. 자리는 배치 자리다. `dragged`는 끄는 상자의 지금 자리다.
+ * 형제가 늘어서는 축(아래·위로 정렬이면 x, 오른쪽·왼쪽으로면 y)에서 끄는 상자의 중심이 형제의 중심선을 넘으면 그 형제와 순서가 바뀐다.
+ * 순서가 바뀌면 넘은 형제가 끄는 상자의 옛 자리 쪽으로 가므로, 같은 자리에서 순서가 오가지 않는다.
+ */
+export function reorder(siblings: readonly Sibling[], dragged: Sibling, direction: ArrangeDirection): string[] {
+  const vertical = direction === 'down' || direction === 'up';
+  const center = (b: Box) => (vertical ? b.at.x + b.size.width / 2 : b.at.y + b.size.height / 2);
+  const others = siblings.filter((s) => s.key !== dragged.key);
+  const index = others.filter((s) => center(s) < center(dragged)).length;
+  const keys = others.map((s) => s.key);
+  keys.splice(index, 0, dragged.key);
+  return keys;
 }
 
 /** 간선이 붙는 카드의 변. */
@@ -146,7 +162,7 @@ export const TREE_SIDES: Record<ArrangeDirection, { parent: Side; child: Side }>
 
 /**
  * 부모와 자식 카드(화면 기준 상자)를 잇는 간선의 변. 자식이 부모보다 나무가 뻗는 쪽에 있으면 `TREE_SIDES[direction]`이다.
- * 아니면(다른 묶음의 자식, 끈 카드) 두 카드 사이 빈 틈이 더 큰 축을 따라 서로 마주 보는 변이다.
+ * 아니면(다른 묶음의 자식) 두 카드 사이 빈 틈이 더 큰 축을 따라 서로 마주 보는 변이다.
  * 중심 거리로 축을 고르면 가로로 겹친 카드(틈이 좁다)에서 간선이 카드 옆 틈을 돌아 나가 꺾인다.
  */
 export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection): { parent: Side; child: Side } {
@@ -164,71 +180,4 @@ export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection):
   const horizontal = Math.max(gapRight, gapLeft) > Math.max(gapDown, gapUp);
   const toward: ArrangeDirection = horizontal ? (gapRight > gapLeft ? 'right' : 'left') : gapDown > gapUp ? 'down' : 'up';
   return TREE_SIDES[toward];
-}
-
-const overlaps = (a: Box, b: Box) =>
-  a.at.x < b.at.x + b.size.width && b.at.x < a.at.x + a.size.width && a.at.y < b.at.y + b.size.height && b.at.y < a.at.y + a.size.height;
-
-/**
- * 겹친 상자를 푼다(목업 docs/mockups/overlap.html A안). 마지막에 놓은 상자(`pinned`)가 다른 상자에 걸치면,
- * 걸친 상자는 그대로 두고 놓은 상자를 그 옆으로 붙인다. 놓은 상자의 중심이 걸친 상자의 중심보다 앞(형제가 늘어서는 쪽의 반대)이면 앞에, 뒤면 뒤에 붙인다.
- * 그래서 중심선을 넘어야 순서가 바뀐다(2026-10-20 사람 지시 "중앙선 넘어가야 포지션 바뀌게 해줘").
- * 붙일 자리가 다른 상자와 겹치면 끼워 넣는다: 놓은 상자를 두 상자 사이에 두고 뒤 상자부터 `spread`로 민다.
- */
-function untangle(boxes: readonly Pinnable[], direction: ArrangeDirection, lane: number): Point[] {
-  const p = boxes.findIndex((b) => b.pinned);
-  if (p < 0) return spread(boxes, direction, lane);
-  const vertical = direction === 'down' || direction === 'up';
-  const others = boxes.filter((_, i) => i !== p);
-  const placed: Box[] = spread(others, direction, lane).map((at, i) => ({ at, size: others[i].size }));
-  const dropped = boxes[p];
-  // 형제가 늘어서는 축 위의 시작·길이·중심.
-  const start = (b: Box) => (vertical ? b.at.x : b.at.y);
-  const length = (b: Box) => (vertical ? b.size.width : b.size.height);
-  const center = (b: Box) => start(b) + length(b) / 2;
-  const hits = placed.filter((b) => overlaps(b, dropped));
-  if (hits.length === 0) return spread(boxes, direction, lane);
-  const hit = hits.reduce((a, b) => (Math.abs(center(b) - center(dropped)) < Math.abs(center(a) - center(dropped)) ? b : a));
-  const at = (to: number) => (vertical ? { x: to, y: dropped.at.y } : { x: dropped.at.x, y: to });
-  const free = (to: number) => !placed.some((b) => overlaps(b, { at: at(to), size: dropped.size }));
-  const before = start(hit) - lane - length(dropped);
-  // 뒤에 붙일 자리가 막히면 `spread`가 막은 상자를 민다. 앞에 붙일 자리가 막히면 걸친 상자의 자리를 차지하고 그 상자를 민다.
-  const to = center(dropped) >= center(hit) ? start(hit) + length(hit) + lane : free(before) ? before : start(hit);
-  const beside = at(to);
-  return spread(
-    boxes.map((b, i) => (i === p ? { ...b, at: beside } : b)),
-    direction,
-    lane,
-  );
-}
-
-type Pinnable = Box & { pinned?: boolean };
-
-/**
- * 겹친 상자를 형제가 늘어서는 쪽(아래·위로 정렬이면 오른쪽, 오른쪽·왼쪽으로면 아래)으로 민다.
- * 놓은 상자(`pinned`)를 먼저 두고, 나머지는 그 축에서 앞선 상자부터 둔다. 앞에 둔 상자와 겹치면 그 상자 너머 `lane` 틈 자리로 민다.
- * 겹침이 없으면 아무것도 옮기지 않는다. 민 거리는 기록하지 않으므로 겹침이 사라지면 원래 자리로 돌아온다.
- */
-function spread(boxes: readonly Pinnable[], direction: ArrangeDirection, lane: number): Point[] {
-  const vertical = direction === 'down' || direction === 'up';
-  const laneOf = (p: Point) => (vertical ? p.x : p.y);
-  const alongOf = (p: Point) => (vertical ? p.y : p.x);
-  const order = boxes
-    .map((_, i) => i)
-    .sort((a, b) => {
-      const [p, q] = [boxes[a], boxes[b]];
-      return Number(!!q.pinned) - Number(!!p.pinned) || laneOf(p.at) - laneOf(q.at) || alongOf(p.at) - alongOf(q.at) || a - b;
-    });
-  const out: Point[] = boxes.map((b) => b.at);
-  const placed: Box[] = [];
-  for (const i of order) {
-    const { size } = boxes[i];
-    const hit = (at: Point) => placed.find((p) => overlaps(p, { at, size }));
-    let at = boxes[i].at;
-    // 앞에 둔 상자 너머로만 옮기므로 같은 상자에 다시 걸리지 않는다. 그래서 끝난다.
-    for (let h = hit(at); h; h = hit(at)) at = vertical ? { x: h.at.x + h.size.width + lane, y: at.y } : { x: at.x, y: h.at.y + h.size.height + lane };
-    out[i] = at;
-    placed.push({ at, size });
-  }
-  return out;
 }

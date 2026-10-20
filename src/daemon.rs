@@ -341,17 +341,26 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let db_path = db::default_path()?;
     let open = || db::open(&db_path).map_err(std::io::Error::other);
     let repos = Repos::new(open()?);
-    let (start, start_path) = repos
-        .add_start(&std::env::current_dir()?)
-        .await
-        .map_err(std::io::Error::other)?;
+    // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: Windows 앱은 앱 설정 폴더에서 띄우고, 사람은 화면에서 저장소를 더한다.
+    match repos.add(&std::env::current_dir()?.to_string_lossy()).await {
+        Ok(_) | Err(RepoProblem::NotGit(_) | RepoProblem::NotFound(_)) => {}
+        Err(problem) => return Err(std::io::Error::other(problem.to_string())),
+    }
     let graph = Graph::open(open()?).map_err(std::io::Error::other)?;
-    graph
-        .settle(&Place {
-            repo: start,
-            worktree: start_path.to_string_lossy().into_owned(),
-        })
-        .map_err(std::io::Error::other)?;
+    // 옛 노드(DB 9단계 전)는 저장소 목록 첫째로 옮긴다. 저장소가 없으면 그대로 둔다.
+    if let Some((repo, path)) = repos
+        .list()
+        .map_err(std::io::Error::other)?
+        .into_iter()
+        .next()
+    {
+        graph
+            .settle(&Place {
+                repo,
+                worktree: path.to_string_lossy().into_owned(),
+            })
+            .map_err(std::io::Error::other)?;
+    }
     // 근거: docs/design.md 「저장」.
     let pty_dir = db_path.with_file_name("pty");
     let app = Arc::new(App {

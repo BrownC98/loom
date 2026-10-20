@@ -105,9 +105,12 @@ enum Cli {
 
 fn main() -> ExitCode {
     let result = match Cli::parse() {
-        Cli::Serve { listen } => tokio::runtime::Runtime::new()
-            .and_then(|rt| rt.block_on(daemon::serve(listen)))
-            .map_err(|e| e.to_string()),
+        Cli::Serve { listen } => {
+            forget_launcher_env();
+            tokio::runtime::Runtime::new()
+                .and_then(|rt| rt.block_on(daemon::serve(listen)))
+                .map_err(|e| e.to_string())
+        }
         Cli::Spawn {
             name,
             worktree,
@@ -146,5 +149,17 @@ fn main() -> ExitCode {
             eprintln!("loom: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// 데몬을 띄운 터미널의 변수를 지운다(`profile::is_launcher_env`). 노드, Codex app-server, 사용량 조회가 모두 이 환경을 물려받는다.
+fn forget_launcher_env() {
+    let keys: Vec<_> = std::env::vars_os()
+        .filter_map(|(key, _)| key.into_string().ok())
+        .filter(|key| profile::is_launcher_env(key))
+        .collect();
+    for key in keys {
+        // SAFETY: 런타임을 만들기 전이라 다른 스레드가 없다.
+        unsafe { std::env::remove_var(key) };
     }
 }

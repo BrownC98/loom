@@ -233,6 +233,9 @@ export function App() {
             return next;
           });
           break;
+        case 'snapshot':
+          setNodes(new Map(event.nodes.map((view) => [view.id, view])));
+          break;
         case 'node':
           setNodes((prev) => new Map(prev).set(event.id, event));
           break;

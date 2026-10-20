@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="loom 그래프: 한 워크트리에 Claude Code 총괄과 Codex 자식, OpenCode 2 자식이 있다. 카드마다 실시간 터미널과 모델이 보인다. 간선에 1 msg → tests, 1 msg → docs가 보인다. 카드 터미널에 loom message 머리말이 보인다. 오른쪽에 커밋 그래프가 있다." width="960">
+  <img src="docs/images/hero.ko.png" alt="세 단계 loom 그래프: main에 Claude Code 총괄이 있고, 코디 둘(Codex 인증, Claude Code 화면)이 각자 워크트리 묶음에서 워커 둘(Claude Code, Codex, OpenCode 2)을 둔다. 카드마다 실시간 터미널과 모델이 보인다. 간선에 총괄 → 인증, 인증 → 테스트, 폼 → 화면 메시지가 보이고, 터미널에 loom message 머리말이 보인다. 오른쪽에 커밋 그래프가 있다." width="960">
 </p>
 
 ## 기능

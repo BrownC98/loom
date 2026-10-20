@@ -103,23 +103,35 @@ pub enum RepoProblem {
 impl fmt::Display for RepoProblem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RepoProblem::NotFound(path) => write!(f, "{path}: 데몬이 보는 파일 시스템에 없다."),
-            RepoProblem::NotGit(path) => write!(f, "{path}: git 저장소가 아니다."),
-            RepoProblem::NotAbsolute(path) => write!(f, "{path}: 절대 경로를 적는다."),
-            RepoProblem::NoWorkspace(path) => write!(f, "{path}: 워크스페이스 폴더가 없다."),
-            RepoProblem::NoRepo => write!(f, "없는 저장소다."),
-            RepoProblem::NotInRepo(path) => write!(f, "{path}: 이 저장소의 워크트리가 아니다."),
-            RepoProblem::Original => write!(f, "원래 체크아웃은 지우거나 이름을 바꾸지 않는다."),
-            RepoProblem::Detached => write!(f, "분리된 HEAD다. 이름을 바꿀 브랜치가 없다."),
-            RepoProblem::EmptyBranch => write!(f, "브랜치 이름을 적는다."),
-            RepoProblem::NoCommit => write!(f, "첫 커밋 전 저장소다. 커밋한 뒤 워크트리를 만든다."),
-            RepoProblem::BadName(name) => write!(f, "'{name}': 폴더 이름으로 쓸 수 없다."),
-            RepoProblem::NotEmpty(path) => write!(f, "{path}: 이미 있고 비어 있지 않다."),
-            RepoProblem::Exists(path) => write!(f, "{path}: 이미 있다."),
-            RepoProblem::HasNodes(n) => {
-                write!(f, "노드 {n}개가 남은 저장소다. 노드를 먼저 지운다.")
+            RepoProblem::NotFound(path) => {
+                write!(f, "{path}: not on the file system that the daemon sees.")
             }
-            RepoProblem::Git(e) => write!(f, "git 오류: {e}"),
+            RepoProblem::NotGit(path) => write!(f, "{path}: not a git repository."),
+            RepoProblem::NotAbsolute(path) => write!(f, "{path}: give an absolute path."),
+            RepoProblem::NoWorkspace(path) => {
+                write!(f, "{path}: the workspace folder does not exist.")
+            }
+            RepoProblem::NoRepo => write!(f, "No such repository."),
+            RepoProblem::NotInRepo(path) => write!(f, "{path}: not a worktree of this repository."),
+            RepoProblem::Original => {
+                write!(f, "The original checkout cannot be removed or renamed.")
+            }
+            RepoProblem::Detached => write!(f, "Detached HEAD. There is no branch to rename."),
+            RepoProblem::EmptyBranch => write!(f, "Give a branch name."),
+            RepoProblem::NoCommit => write!(
+                f,
+                "The repository has no commit yet. Commit first, then make a worktree."
+            ),
+            RepoProblem::BadName(name) => write!(f, "'{name}': cannot be a folder name."),
+            RepoProblem::NotEmpty(path) => write!(f, "{path}: already exists and is not empty."),
+            RepoProblem::Exists(path) => write!(f, "{path}: already exists."),
+            RepoProblem::HasNodes(n) => {
+                write!(
+                    f,
+                    "{n} nodes are still in this repository. Remove the nodes first."
+                )
+            }
+            RepoProblem::Git(e) => write!(f, "git error: {e}"),
         }
     }
 }

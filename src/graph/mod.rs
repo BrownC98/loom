@@ -152,7 +152,7 @@ impl Default for TreeLimits {
     }
 }
 
-/// 규칙에 맞지 않아 거부한 요청. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
+/// 규칙에 맞지 않아 거부한 요청. 에이전트에게는 영어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
 /// 이벤트 기록에도 남기므로 읽을 수 있어야 한다(`Deserialize`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "code", content = "value", rename_all = "camelCase")]
@@ -186,56 +186,68 @@ pub enum Refusal {
 impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Refusal::EmptyName => write!(f, "이름을 적는다."),
+            Refusal::EmptyName => write!(f, "Give a name."),
             Refusal::NameTaken(name) => {
-                write!(f, "{name}: 부모·형제·자식 노드가 이미 쓰는 이름이다.")
+                write!(
+                    f,
+                    "{name}: a parent, sibling or child node already uses this name."
+                )
             }
             Refusal::ReservedName(name) => write!(
                 f,
-                "{name}: #으로 시작하는 이름은 노드 번호 표기에 쓴다. #을 뺀다."
+                "{name}: names that start with # are for node IDs. Remove the #."
             ),
-            Refusal::TooDeep => write!(f, "중첩 깊이 상한을 넘는다. 자식을 더 만들지 않는다."),
+            Refusal::TooDeep => write!(
+                f,
+                "The tree depth limit is reached. Do not make more children."
+            ),
             Refusal::TooManyChildren(max) => write!(
                 f,
-                "자식이 이미 {max}개다. 끝난 자식을 지우거나 자식에게 일을 맡긴다."
+                "You already have {max} children. Remove a finished child or give the work to a child."
             ),
             Refusal::BriefTooLong(len) => write!(
                 f,
-                "본문이 {len}바이트다. {BRIEF_LIMIT_BYTES}바이트 이하로 줄이고, 긴 자료는 파일 경로를 적는다."
+                "The body is {len} bytes. Make it {BRIEF_LIMIT_BYTES} bytes or less, and put long material in a file and send its path."
             ),
             Refusal::SummaryTooLong(len) => write!(
                 f,
-                "요약이 {len}바이트다. {SUMMARY_LIMIT_BYTES}바이트 이하로 줄이거나 `loom done --file <경로>`를 쓴다."
+                "The summary is {len} bytes. Make it {SUMMARY_LIMIT_BYTES} bytes or less, or use `loom done --file <path>`."
             ),
             Refusal::MailboxFull(name) => write!(
                 f,
-                "{name}의 메일함에 메시지가 {MAILBOX_LIMIT}개 쌓였다. 받는 노드가 `loom wait`로 읽은 뒤 다시 보낸다."
+                "The inbox of {name} has {MAILBOX_LIMIT} messages. Send again after that node reads them with `loom wait`."
             ),
             Refusal::NotRelated(name) => {
                 write!(
                     f,
-                    "{name}: 내 부모나 자식이 아니다. 메시지는 부모와 자식 사이에만 보낸다."
+                    "{name}: not your parent or child. Send messages only between a parent and its children."
                 )
             }
-            Refusal::Ended(name) => write!(f, "{name}: 노드 프로세스가 끝났다."),
-            Refusal::AlreadyDone => write!(f, "이 노드는 이미 done이다."),
+            Refusal::Ended(name) => write!(f, "{name}: the node process has ended."),
+            Refusal::AlreadyDone => write!(f, "This node is already done."),
             Refusal::HeldFull => write!(
                 f,
-                "부모가 없어 보관한 메시지가 {MAILBOX_LIMIT}개다. 새 부모가 생긴 뒤 다시 보낸다."
+                "You have no parent, and {MAILBOX_LIMIT} kept messages wait for one. Send again after a new parent adopts you."
             ),
-            Refusal::Cycle => write!(f, "자기 자신이나 자기 자손을 부모로 정하지 않는다."),
-            Refusal::NotFound(name) => write!(f, "{name}: 그런 이름의 노드가 없다."),
+            Refusal::Cycle => write!(
+                f,
+                "A node cannot have itself or its descendant as its parent."
+            ),
+            Refusal::NotFound(name) => write!(f, "{name}: no node has this name."),
             Refusal::NotSteerable(name) => write!(
                 f,
-                "{name}: 조정·중단을 받지 못하는 노드다(Claude·Codex·OpenCode 2 노드만 받는다). `loom send`로 보낸다."
+                "{name}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Use `loom send`."
             ),
             Refusal::Ambiguous(name) => write!(
                 f,
-                "{name}: 이 이름의 노드가 둘 이상이다. `loom status`로 번호를 찾고 `#번호`로 보낸다."
+                "{name}: more than one node has this name. Find the ID with `loom status` and send to `#<id>`."
             ),
-            Refusal::NoRepo => write!(f, "목록에 없는 저장소다. 저장소를 다시 더한다."),
-            Refusal::Launch(e) => write!(f, "노드를 띄우지 못했다: {e}"),
-            Refusal::Db(e) => write!(f, "DB 오류: {e}"),
+            Refusal::NoRepo => write!(
+                f,
+                "The repository is not in the list. Add the repository again."
+            ),
+            Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
+            Refusal::Db(e) => write!(f, "DB error: {e}"),
         }
     }
 }

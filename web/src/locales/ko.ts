@@ -51,6 +51,11 @@ const ko: typeof en = {
     expandTitle: '확대(머리글을 두 번 클릭)',
     collapse: '축소',
     remove: '노드 제거',
+    state: {
+      running: '실행 중',
+      done: '완료',
+      exited: '종료({{code}})',
+    },
     foot: {
       doneHeld: '부모 없음 · 새 부모에게 요약을 전달합니다',
       done: '요약: {{summary}}',

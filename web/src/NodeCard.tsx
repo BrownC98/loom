@@ -9,13 +9,14 @@ import { NameEdit, useRename, type Rename } from './NameEdit';
 import { navDirection, type Direction } from './Terminal';
 
 export function stateLabel(state: NodeState): string {
+  const t = i18next.t;
   switch (state.kind) {
     case 'running':
-      return 'running';
+      return t('node.state.running');
     case 'done':
-      return 'done';
+      return t('node.state.done');
     case 'exited':
-      return `exited(${state.code ?? '?'})`;
+      return t('node.state.exited', { code: state.code ?? '?' });
   }
 }
 

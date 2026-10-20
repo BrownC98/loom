@@ -79,7 +79,10 @@ pub fn reply(message: u32, body: String) -> Result<(), String> {
 fn print_sent(sent: &Sent) {
     match sent.recipient {
         Some(to) => println!("loom message #{} → node #{}", sent.id.0, to.0),
-        None => println!("Kept loom message #{}. A new parent gets it.", sent.id.0),
+        None => println!(
+            "Kept loom message #{}. You have no parent now; your next parent gets it.",
+            sent.id.0
+        ),
     }
 }
 
@@ -171,7 +174,9 @@ pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String
         None => summary.unwrap_or_default(),
     };
     call::<()>("done", &DoneRequest { summary }, None)?;
-    println!("Sent the result to the parent. With no parent, a new parent gets it.");
+    println!(
+        "Reported to your parent. If you have no parent, loom keeps the report for your next parent."
+    );
     Ok(())
 }
 

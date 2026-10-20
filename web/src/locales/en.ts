@@ -49,6 +49,11 @@ const en = {
     expandTitle: 'Expand (or double-click the header)',
     collapse: 'Collapse',
     remove: 'Remove node',
+    state: {
+      running: 'running',
+      done: 'done',
+      exited: 'exited({{code}})',
+    },
     foot: {
       doneHeld: 'No parent · the summary goes to the new parent',
       done: 'Summary: {{summary}}',

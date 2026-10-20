@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="loom graph: a Claude Code lead with a Codex child and an OpenCode 2 child in one worktree. Each card shows a live terminal and its model. The edges show 1 msg → tests and 1 msg → docs, and the terminals show loom message headers. The commit graph is on the right." width="960">
+  <img src="docs/images/hero.png" alt="loom graph in three levels: a Claude Code lead on main, and two coordinators (Codex auth, Claude Code ui), each in its own worktree group with two workers (Claude Code, Codex, OpenCode 2). Each card shows a live terminal and its model. The edges show messages lead → auth, auth → tests and form → ui, and the terminals show loom message headers. The commit graph is on the right." width="960">
 </p>
 
 ## Features

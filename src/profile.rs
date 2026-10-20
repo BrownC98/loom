@@ -350,26 +350,30 @@ pub enum LaunchError {
 impl std::fmt::Display for LaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LaunchError::UnknownAgent(id) => write!(f, "{}: 카탈로그에 없는 에이전트다.", id.0),
+            LaunchError::UnknownAgent(id) => {
+                write!(f, "{}: this agent is not in the catalog.", id.0)
+            }
             LaunchError::NotInstalled { agent, command } => write!(
                 f,
-                "{agent}: 데몬 PATH에서 실행 파일(`{command}`)을 찾지 못했다. 설치한 뒤 설정에서 [다시 찾기]를 누른다."
+                "{agent}: the daemon PATH has no `{command}`. Install it, then click Find again in settings."
             ),
             LaunchError::BriefTooLong { len, limit } => write!(
                 f,
-                "첫 지시문이 {len}바이트다. {limit}바이트 이하로 줄이고, 긴 자료는 파일 경로를 적는다."
+                "The brief is {len} bytes. Make it {limit} bytes or less, and put long material in a file and send its path."
             ),
             LaunchError::Server { program, cause } => {
-                write!(f, "`{program}`를 띄우지 못했다: {cause}")
+                write!(f, "Could not start `{program}`: {cause}")
             }
-            LaunchError::NoServer(agent) => write!(f, "{agent}: 노드가 붙을 서버를 띄우지 못했다."),
+            LaunchError::NoServer(agent) => {
+                write!(f, "{agent}: could not start the server for the node.")
+            }
             LaunchError::NoModelChoice(agent) => write!(
                 f,
-                "{agent}: `--model`·`--effort`를 받지 않는다. Claude·Codex만 받는다. 빼고 다시 만든다."
+                "{agent}: does not take `--model` or `--effort` (only Claude and Codex do). Remove them and try again."
             ),
             LaunchError::NoBrief(agent) => write!(
                 f,
-                "{agent}: 첫 지시문을 받지 않는다. 지시문을 비우고 만든 뒤 터미널에 입력한다."
+                "{agent}: does not take a brief. Start it without a brief and type into its terminal."
             ),
         }
     }

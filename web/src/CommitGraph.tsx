@@ -7,7 +7,7 @@
 // 라이선스: MIT, Copyright (c) Microsoft Corporation.
 // 바꾼 점: 부모 없는 커밋에서도 다른 차선을 이어 간다(원본은 그 줄에서 다른 차선을 버린다).
 // 옮기지 않은 것: Incoming/Outgoing 줄, 참조 색 지도, 마우스 올림 설명 창.
-import { X } from 'lucide-react';
+import { Folder, X } from 'lucide-react';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getCommits } from './api';
@@ -116,14 +116,6 @@ function LaneSvg({ row, width }: { row: Row; width: number }) {
       ) : (
         <circle cx={x(circle.lane)} cy={LANE_WIDTH} r={CIRCLE_RADIUS + 1} fill={fill} />
       )}
-    </svg>
-  );
-}
-
-function Folder() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     </svg>
   );
 }

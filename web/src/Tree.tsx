@@ -1,6 +1,6 @@
 // 사이드바 트리(docs/mockups/graph-panels.html 1번): 저장소 > 워크트리 묶음 > 노드 > 자식 노드.
 // 그래프와 같은 노드 목록을 그린다. 트리만의 상태는 접힌 줄, 이름 편집, 줄 단추로 연 팝오버와 그 거절 글이다.
-import { ChevronDown, ChevronsUpDown, CornerLeftUp, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronsUpDown, CornerLeftUp, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useLayoutEffect, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeNode, removeRepo } from './api';
@@ -42,18 +42,6 @@ const MAX_VISUAL_DEPTH = 8;
 
 function Chevron({ open }: { open: boolean }) {
   return <ChevronDown className={open ? 'chev' : 'chev closed'} />;
-}
-
-/** 줄 폭 안에서 이름 앞에 오는 git-branch 아이콘(묶음 줄). */
-function BranchIcon() {
-  return (
-    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
-      <line x1="6" x2="6" y1="3" y2="15" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="6" cy="18" r="3" />
-      <path d="M18 9a9 9 0 0 1-9 9" />
-    </svg>
-  );
 }
 
 /** 부모가 나무의 부모 묶음 밖에 있는 노드의 표시(corner-left-up). `title`이 부모 노드와 묶음을 말한다. */
@@ -199,7 +187,7 @@ export function Tree(props: {
       remove: group.kind === 'linked' ? { label: t('deleteWorktree.action'), icon: <Trash2 />, run: (row) => openPop(row, { kind: 'deleteWorktree', repo: repo.id, path: group.path }) } : undefined,
       row: (
         <>
-          <BranchIcon />
+          <GitBranch className="icon" />
           {/* 긴 브랜치는 한 줄에서 줄임표로 자른다. 툴팁이 전체 이름과 경로를 보인다. 들여쓰기가 워크트리 층을 보이므로 원래 체크아웃에만 꼬리표를 단다(Orca 사이드바). */}
           <span className="branch" translate="no" title={`${group.label}\n${group.path}`}>
             {group.label}

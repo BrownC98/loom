@@ -150,9 +150,7 @@ impl Repos {
     /// 폴더가 속한 저장소를 더한다. 원래 체크아웃 경로로 저장하므로 같은 저장소의 다른 워크트리를 적어도 하나다.
     pub async fn add(&self, path: &str) -> Result<RepoId, RepoProblem> {
         let folder = Path::new(path);
-        if !folder.is_dir() {
-            return Err(RepoProblem::NotFound(path.to_owned()));
-        }
+        check(folder).await?;
         let original = original_checkout(folder)
             .await
             .ok_or_else(|| RepoProblem::NotGit(path.to_owned()))?;
@@ -254,6 +252,18 @@ impl Repos {
 }
 
 /// 저장소 하나를 화면에 보일 모양으로 읽는다.
+/// 폴더가 있고 git 저장소인지 본다. 목록에 넣은 뒤에도 사람이 폴더나 `.git`을 지울 수 있다.
+pub async fn check(path: &Path) -> Result<(), RepoProblem> {
+    let text = || path.to_string_lossy().into_owned();
+    if !path.is_dir() {
+        return Err(RepoProblem::NotFound(text()));
+    }
+    git::run(path, &["rev-parse", "--git-dir"])
+        .await
+        .map(drop)
+        .map_err(|_| RepoProblem::NotGit(text()))
+}
+
 pub async fn view(id: RepoId, path: &Path) -> RepoView {
     let branches = git::run(path, &["branch", "--format=%(refname:short)"])
         .await

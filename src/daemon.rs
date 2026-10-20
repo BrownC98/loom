@@ -589,8 +589,18 @@ async fn commits(
     Path(id): Path<u32>,
 ) -> Result<Json<CommitGraph>, Problem> {
     let repo = app.repos.path(RepoId(id))?;
+    let commits = match commit_graph::read(&repo).await {
+        Ok(commits) => commits,
+        // 목록에 넣은 뒤 폴더나 `.git`이 없어졌으면 그 까닭을 보인다. 그 밖은 git의 글 그대로다.
+        Err(e) => {
+            return Err(worktree::check(&repo)
+                .await
+                .err()
+                .map_or_else(|| internal(e), Into::into));
+        }
+    };
     Ok(Json(CommitGraph {
-        commits: commit_graph::read(&repo).await.map_err(internal)?,
+        commits,
         worktrees: worktree::worktrees(&repo).await,
     }))
 }

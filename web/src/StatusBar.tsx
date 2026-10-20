@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
@@ -15,17 +15,17 @@ export type Usage = {
   refresh: () => void;
 };
 
-/** 화면 맨 아래에 늘 보이는 줄: 공급자마다 계정과 남은 사용량(목업 1·2번). [설정]은 사이드바에 있다(graph-panels.html 1번). */
+/** 화면 맨 아래에 늘 보이는 줄. Orca처럼 모든 공급자의 사용량이 버튼 하나다(목업 usage.html). [설정]은 사이드바에 있다(graph-panels.html 1번). */
 export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState<Provider | null>(null);
+  const [open, setOpen] = useState(false);
   const bar = useRef<HTMLElement>(null);
   const { usage } = props;
 
   useEffect(() => {
-    if (open === null) return;
+    if (!open) return;
     const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !bar.current?.contains(e.target as Node)) setOpen(null);
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !bar.current?.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', close);
@@ -35,71 +35,71 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
     };
   }, [open]);
 
-  const toggle = (provider: Provider) => {
-    if (open === provider) return setOpen(null);
-    setOpen(provider);
-    usage.refresh();
+  const toggle = () => {
+    if (!open) usage.refresh();
+    setOpen(!open);
   };
+  const active = (provider: Provider) => (usage.accounts ? activeAccount(usage.accounts, props.settings, provider) : undefined);
+  const summary = PROVIDERS.map((provider) => {
+    const a = active(provider);
+    return `${PROVIDER_LABEL[provider]} ${a ? `${accountName(a)}, ${windowsText(a.usage.limits)}` : t('statusBar.summaryLoading')}`;
+  }).join('; ');
 
   return (
     <footer className="statusbar" aria-label={t('statusBar.label')} ref={bar}>
-      {PROVIDERS.map((provider, i) => {
-        const active = usage.accounts ? activeAccount(usage.accounts, props.settings, provider) : undefined;
-        const label = PROVIDER_LABEL[provider];
-        const summary = active ? `${accountName(active)}, ${windowsText(active.usage.limits)}` : t('statusBar.summaryLoading');
-        return (
-          <div className="seg" key={provider}>
-            {i > 0 && <span className="sep" aria-hidden="true" />}
-            <button
-              className="seg-btn"
-              data-loading={usage.loading || undefined}
-              aria-expanded={open === provider}
-              aria-label={t('statusBar.segLabel', { provider: label, summary })}
-              onClick={() => toggle(provider)}
-            >
-              <span className="who">{label}</span>
-              {active === undefined ? (
+      <button className="usage-btn" data-loading={usage.loading || undefined} aria-expanded={open} aria-label={t('statusBar.buttonLabel', { summary })} onClick={toggle}>
+        {PROVIDERS.map((provider, i) => {
+          const a = active(provider);
+          return (
+            <Fragment key={provider}>
+              {i > 0 && <span className="sep" aria-hidden="true" />}
+              <span className="who">{PROVIDER_LABEL[provider]}</span>
+              {a === undefined ? (
                 <span>{t('statusBar.loading')}</span>
-              ) : active.usage.limits.kind === 'needsLogin' ? (
+              ) : a.usage.limits.kind === 'needsLogin' ? (
                 <span>{t('statusBar.loginToSee')}</span>
               ) : (
                 <>
-                  <span className="acct-name">{accountName(active)}</span>
-                  <InlineWindows limits={active.usage.limits} />
-                  {active.usage.limits.kind === 'failed' && <span className="seg-err">{t('statusBar.unavailable')}</span>}
+                  <span className="acct-name">{accountName(a)}</span>
+                  <InlineWindows limits={a.usage.limits} />
+                  {a.usage.limits.kind === 'failed' && <span className="seg-err">{t('statusBar.unavailable')}</span>}
                 </>
               )}
-            </button>
-            {open === provider && usage.accounts && (
-              <UsagePopover
-                provider={provider}
-                accounts={usage.accounts.filter((a) => a.provider === provider)}
-                active={active}
-                usage={usage}
-                onChoose={(id) => props.onChoose(provider, id)}
-                onManage={() => {
-                  setOpen(null);
-                  props.onManage();
-                }}
-              />
-            )}
-          </div>
-        );
-      })}
+            </Fragment>
+          );
+        })}
+      </button>
+      {open && usage.accounts && (
+        <UsagePopover
+          accounts={usage.accounts}
+          active={active}
+          usage={usage}
+          onChoose={props.onChoose}
+          onManage={() => {
+            setOpen(false);
+            props.onManage();
+          }}
+        />
+      )}
     </footer>
   );
 }
 
-function UsagePopover(props: { provider: Provider; accounts: AccountView[]; active: AccountView | undefined; usage: Usage; onChoose: (id: AccountId | null) => void; onManage: () => void }) {
+function UsagePopover(props: {
+  accounts: AccountView[];
+  active: (provider: Provider) => AccountView | undefined;
+  usage: Usage;
+  onChoose: (provider: Provider, id: AccountId | null) => void;
+  onManage: () => void;
+}) {
   const { t } = useTranslation();
-  const { active, usage } = props;
-  const label = PROVIDER_LABEL[props.provider];
-  const problem = active && limitsProblem(active.usage.limits);
-  const notes = [active && resetText(active.usage.limits), usage.fetchedAt !== null && fetchedText(usage.fetchedAt, Date.now())].filter(Boolean);
+  const { usage } = props;
+  /** 계정 목록을 펼친 공급자. Orca는 공급자 줄을 누르면 계정 바꾸기를 연다. */
+  const [expanded, setExpanded] = useState<Provider | null>(null);
   return (
-    <div className="pop usage-pop" role="dialog" aria-label={t('statusBar.usageLabel', { provider: label })}>
+    <div className="pop usage-pop" role="dialog" aria-label={t('statusBar.usage')}>
       <h3>
-        {label}
+        {t('statusBar.usage')}
         <span className="spacer" />
         <button className="btn ghost sm" aria-label={t('statusBar.refresh')} disabled={usage.loading} onClick={usage.refresh}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -107,30 +107,70 @@ function UsagePopover(props: { provider: Provider; accounts: AccountView[]; acti
           </svg>
         </button>
       </h3>
+      {PROVIDERS.map((provider) => (
+        <ProviderSection
+          key={provider}
+          provider={provider}
+          accounts={props.accounts.filter((a) => a.provider === provider)}
+          active={props.active(provider)}
+          expanded={expanded === provider}
+          onToggle={() => setExpanded(expanded === provider ? null : provider)}
+          onChoose={(id) => props.onChoose(provider, id)}
+        />
+      ))}
+      <div className="usage-foot">
+        {usage.fetchedAt !== null && fetchedText(usage.fetchedAt, Date.now())}
+        <button className="btn ghost sm" onClick={props.onManage}>
+          {t('statusBar.manage')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProviderSection(props: {
+  provider: Provider;
+  accounts: AccountView[];
+  active: AccountView | undefined;
+  expanded: boolean;
+  onToggle: () => void;
+  onChoose: (id: AccountId | null) => void;
+}) {
+  const { t } = useTranslation();
+  const { active } = props;
+  const label = PROVIDER_LABEL[props.provider];
+  const problem = active && limitsProblem(active.usage.limits);
+  const reset = active && resetText(active.usage.limits);
+  return (
+    <section className="prov-sec" aria-label={t('statusBar.usageLabel', { provider: label })}>
+      <button className="prov" aria-expanded={props.expanded} onClick={props.onToggle}>
+        <span className="who">{label}</span>
+        {active && <span className="acct-name">{accountName(active)}</span>}
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d={props.expanded ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
+        </svg>
+      </button>
       <div className="win" aria-live="polite">
         {active && <WindowLines limits={active.usage.limits} />}
         {problem && <span className="error">{problem}</span>}
-        {notes.length > 0 && <span className="reset">{notes.join(' · ')}</span>}
+        {reset && <span className="reset">{reset}</span>}
       </div>
-      <hr className="divider" />
-      <ul className="acct-list" aria-label={t('statusBar.accountsLabel', { provider: label })}>
-        {props.accounts.map((a) => {
-          const current = a === active;
-          const session = a.usage.limits.kind === 'ready' ? a.usage.limits.session : null;
-          return (
-            <li key={a.id ?? 'system'}>
-              <button className="acct" aria-current={current || undefined} onClick={() => props.onChoose(a.id)}>
-                <span className="acct-name">{accountName(a)}</span>
-                <span className="sub">{current ? t('accounts.current') : session ? t('usage.left', { n: session.remaining }) : a.usage.limits.kind === 'needsLogin' ? t('usage.loginRequired') : ''}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      <hr className="divider" />
-      <button className="btn ghost sm manage" onClick={props.onManage}>
-        {t('statusBar.manage')}
-      </button>
-    </div>
+      {props.expanded && (
+        <ul className="acct-list" aria-label={t('statusBar.accountsLabel', { provider: label })}>
+          {props.accounts.map((a) => {
+            const current = a === active;
+            const session = a.usage.limits.kind === 'ready' ? a.usage.limits.session : null;
+            return (
+              <li key={a.id ?? 'system'}>
+                <button className="acct" aria-current={current || undefined} onClick={() => props.onChoose(a.id)}>
+                  <span className="acct-name">{accountName(a)}</span>
+                  <span className="sub">{current ? t('accounts.current') : session ? t('usage.left', { n: session.remaining }) : a.usage.limits.kind === 'needsLogin' ? t('usage.loginRequired') : ''}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

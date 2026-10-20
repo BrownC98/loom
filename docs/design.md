@@ -15,7 +15,7 @@
 
 ## 그래프와 화면
 
-화면의 모양과 토큰은 승인한 목업 [docs/mockups/main.html](mockups/main.html)이 명세다. 설정 창, 하단 상태 줄, 새 노드 창은 [docs/mockups/settings.html](mockups/settings.html)이 명세다. 사이드바, 미니맵, 커밋 그래프 칸, 이벤트 콘솔은 [docs/mockups/graph-panels.html](mockups/graph-panels.html)이 명세다. 이 절은 동작만 적는다.
+화면의 모양과 토큰은 승인한 목업 [docs/mockups/main.html](mockups/main.html)이 명세다. 설정 창, 새 노드 창은 [docs/mockups/settings.html](mockups/settings.html)이, 하단 상태 줄과 사용량 팝오버는 [docs/mockups/usage.html](mockups/usage.html)이 명세다. 사이드바, 미니맵, 커밋 그래프 칸, 이벤트 콘솔은 [docs/mockups/graph-panels.html](mockups/graph-panels.html)이 명세다. 이 절은 동작만 적는다.
 
 - 그래프 하나에는 저장소 하나만 보인다. 화면 왼쪽 사이드바의 트리에서 저장소를 바꾼다. 저장소는 경로를 글로 입력해 더한다. 규칙은 「[저장소와 워크트리](#저장소와-워크트리)」에 있다.
 - 워크트리는 묶음(React Flow group node)이다. 저장소의 원래 체크아웃도 묶음 하나다.
@@ -141,14 +141,15 @@
 
 | 공급자 | 계정 정보 | 사용량 |
 |---|---|---|
-| Claude | `claude auth status --json`(`loggedIn`, `email`, `subscriptionType`, `configDirectory`) | `<configDirectory>/.credentials.json`의 OAuth 토큰으로 `GET https://api.anthropic.com/api/oauth/usage`(`anthropic-beta: oauth-2025-04-20`). `five_hour`·`seven_day`의 `utilization`(사용한 %)과 `resets_at` |
+| Claude | `claude auth status --json`(`loggedIn`, `email`, `subscriptionType`, `configDirectory`) | `<configDirectory>/.credentials.json`의 OAuth 토큰으로 `GET https://api.anthropic.com/api/oauth/usage`(`anthropic-beta: oauth-2025-04-20`, Orca와 같은 `User-Agent: claude-code/2.1.0`). `five_hour`·`seven_day`의 `utilization`(사용한 %)과 `resets_at`. 모델별 주간 창은 `limits` 가운데 `kind`가 `weekly_scoped`인 항목의 `scope.model.display_name`, `percent`, `resets_at` |
 | Codex | `codex app-server`의 `account/read`(`email`, `planType`) | 같은 서버의 `account/rateLimits/read`. `primary`·`secondary`의 `usedPercent`, `windowDurationMins`, `resetsAt`. 창 길이 300분 이하가 5시간 창이다 |
 
+- 상태 줄의 사용량은 Orca처럼 버튼 하나다. 누르면 팝오버 하나에 모든 공급자의 5시간·주간·모델별 창을 보인다. 공급자 줄을 누르면 그 공급자의 계정 목록이 펼쳐지고, 계정을 눌러 쓰는 계정을 바꾼다.
 - 화면은 남은 비율만 보인다(100 − 사용한 %). 막대도 남은 양만큼 차고, 25% 이하면 노란색이다.
 - 사용량은 화면이 읽을 때마다 데몬이 그 자리에서 읽는다(`GET /api/accounts`). 화면은 5분마다, 사용량 팝오버를 열 때, [새로 고침]을 누를 때 읽는다. 데몬은 저장하지 않는다.
 - 읽는 상한은 계정마다 15초다. 넘거나 실패하면 그 계정만 오류 한 줄을 보인다.
-- 한계: Claude 토큰을 macOS 키체인에 둔 로그인과 API 키 로그인은 사용량을 볼 수 없다. 토큰이 만료돼 401이면 「이 계정으로 Claude를 한 번 실행하면 갱신된다」를 보인다. loom은 토큰을 갱신하지 않는다. 갱신은 로그인 폴더를 고치는 일이다.
-- 넣지 않은 Orca 기능: Codex 한도 초기화 크레딧, 추가 사용량, 상태 줄 표시 방식(간단·자세히, 사용·남음) 바꾸기, 상태 줄 항목 고르기, Codex 계정을 바꾼 뒤 세션 다시 시작.
+- 한계: Claude 토큰을 macOS 키체인에 둔 로그인과 API 키 로그인은 사용량을 볼 수 없다. 토큰이 만료돼 401이면 「이 계정으로 Claude를 한 번 실행하면 갱신됩니다」를 보인다. loom은 토큰을 갱신하지 않는다. 갱신은 로그인 폴더를 고치는 일이다.
+- 넣지 않은 Orca 기능: Codex 한도 초기화 크레딧, 추가 사용량, 상태 줄 표시 방식(간단·자세히, 사용·남음) 바꾸기, 상태 줄 항목 고르기, Codex 계정을 바꾼 뒤 세션 다시 시작, 사용량 기록 화면, 요금제 이름, 많이 쓴 공급자부터 줄 세우기.
 
 ### 설정
 
@@ -180,6 +181,19 @@
 | 이미 보인 오류 | 오류 문장은 실패한 때의 언어로 만든다. 언어를 바꿔도 이미 보인 오류 문장은 바뀌지 않는다 | 오류는 다음 시도나 창을 닫으면 사라진다. 코드를 들고 다니며 다시 번역할 만큼 오래 남지 않는다 |
 | 원인 글 | OS·app-server 오류 글은 번역하지 않고 값으로 붙인다. `src/codex_server.rs`의 원인 글은 영어다 | 시스템이 낸 글이라 loom이 번역할 수 없다 |
 | 재발 방지 | `npm run check`가 `web/scripts/no-hangul.mjs`를 돌린다. `src`의 문자열·JSX 글자에 한글이 있으면 실패한다(`locales/`, `gen/` 제외) | 새 문구가 번역 파일을 거치게 한다 |
+
+### 화면 문구
+
+`web/src/locales/`의 모든 문구는 아래 규칙을 따른다. 출처는 [Apple HIG Writing](https://developer.apple.com/design/human-interface-guidelines/writing)과 Apple 한국어 UI, 그다음 [Toss UX 라이팅 원칙](https://toss.tech/article/8-writing-principles-of-toss)이다. 둘이 다르면 Apple을 따른다(2026-10-20 사람 지시 "안내 문구들을 ui/ux 가이드에 맞게", "애플을 우선순위 더 높게").
+
+- 말투: 문장은 합니다체로 끝낸다. 할 일을 시킬 때는 "-하십시오"를 쓴다. Apple 한국어 UI와 같다.
+- 라벨·상태·버튼: 문장으로 쓰지 않고 명사로 끝낸다. 예: 「설치 안 됨」「사용 중」「불러오는 중…」.
+- 버튼: 결과를 말하는 짧은 동작 이름이다. 예: 「만들기」「다시 찾기」「삭제」. 입력을 더 받는 메뉴는 끝에 「…」를 붙인다.
+- 오류: 무엇이 안 됐는지와 할 일을 한 문장씩 쓴다. 사람을 탓하지 않고 감탄사·"우리"를 쓰지 않는다.
+- 빈 상태: 비어 있다는 사실과 다음 동작을 쓴다. 로딩은 「…하는 중…」이다.
+- 도움말: 켜면 무엇이 되는지만 쓴다. 끄면 반대라고 짐작할 수 있으면 쓰지 않는다. 화면이 이미 보이는 것은 설명하지 않는다.
+- 화면 요소 이름은 작은따옴표로 감싼다: ‘새 노드’, 영어는 “New node”. 메뉴 경로는 「›」로 잇는다. 줄임표는 한 글자 「…」다.
+- 영어: 모든 요소가 sentence case다. 짧은 능동문으로 쓰고 "please"를 쓰지 않는다.
 
 ## 메시징
 
@@ -356,6 +370,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 - Codex `turn/interrupt`는 턴만 멈춘다. 실행 중이던 셸 명령은 끝까지 돌았다.
 - tmux로 글자와 Enter를 한 번에 보내면 Codex는 Enter를 줄바꿈으로 받았다. PTY에 글자를 쓰지 않는 원칙의 근거다.
 - 사용량 출처(「계정과 사용량」): Claude `api/oauth/usage`가 `five_hour`·`seven_day`를 돌려줬다. Codex `account/rateLimits/read`는 `primary`에 주간 창(10080분)을 주고 `secondary`는 `null`이었다. 그래서 창은 위치가 아니라 길이로 가른다.
+- 2026-10-20 Claude `api/oauth/usage`의 `limits`에 `weekly_scoped`(모델 「Fable」) 창이 있었다. `seven_day_opus`·`seven_day_sonnet`은 `null`이었다. 기본 User-Agent(`ureq/…`)로 부르면 429, `claude-code/2.1.0`이면 200이었다.
 - stdio로 띄운 Codex `app-server`는 stdin이 닫히면 답하기 전에 끝난다. 데몬은 답을 받을 때까지 stdin을 열어 두고, 받은 뒤 프로세스를 끝낸다.
 - Claude 권한(기본 권한 모드, `claude -p`): PreToolUse `updatedInput`만 넣고 `permissionDecision`을 비우면, 허용 규칙을 바꾼 명령으로 판정했다. `Bash(touch /tmp/original-file)`이 있어도 바꾼 `touch /tmp/rewritten-file`은 승인을 요구했다. 앞에 줄을 붙인 `id -u && touch /tmp/original-file`은 사용자 규칙대로 허용됐다.
 - Claude Bash 도구 셸은 자기 세션의 리더다. 셸 안 명령은 다른 프로세스 그룹으로 떴다. 그래서 그룹 하나가 아니라 셸의 프로세스 나무를 끝낸다.

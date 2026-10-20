@@ -4,14 +4,11 @@
 #![windows_subsystem = "windows"]
 
 use std::io::BufRead;
-use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const WINDOW: &str = "main";
-/// 마지막에 연 저장소 경로. 앱 설정 폴더에 둔다.
-const LAST_REPO: &str = "last-repo.txt";
 /// 데몬의 시작 줄 앞부분. 근거: `src/daemon.rs`의 `serve`.
 const READY_PREFIX: &str = "loom: ";
 
@@ -27,17 +24,10 @@ fn main() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // 시작 폴더는 git 저장소가 아니라 데몬이 저장소로 더하지 않는다. 저장소는 DB에 남고, 사람이 화면에서 더한다.
             let config_dir = app.path().app_config_dir()?;
-            let Some(repo) = choose_repo(&config_dir) else {
-                app.handle().exit(0);
-                return Ok(());
-            };
             std::fs::create_dir_all(&config_dir)?;
-            std::fs::write(
-                config_dir.join(LAST_REPO),
-                repo.as_os_str().as_encoded_bytes(),
-            )?;
-            let (daemon, url) = start_daemon(&repo)?;
+            let (daemon, url) = start_daemon(&config_dir)?;
             app.manage(daemon);
             WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(url.parse()?))
                 .title(format!("loom {}", app.package_info().version))
@@ -49,28 +39,13 @@ fn main() {
         .expect("loom 앱을 시작하지 못했다");
 }
 
-/// 저장소: 명령줄 인자 → 마지막에 연 폴더 → 폴더 고르기 창. 고르기를 취소하면 `None`이다.
-fn choose_repo(config_dir: &std::path::Path) -> Option<PathBuf> {
-    let last = std::fs::read_to_string(config_dir.join(LAST_REPO)).ok();
-    std::env::args_os()
-        .nth(1)
-        .map(PathBuf::from)
-        .or(last.map(PathBuf::from))
-        .filter(|path| path.is_dir())
-        .or_else(|| {
-            rfd::FileDialog::new()
-                .set_title("loom: 저장소 폴더")
-                .pick_folder()
-        })
-}
-
-/// 저장소 폴더에서 데몬을 띄우고, 시작 줄의 주소를 읽는다.
-fn start_daemon(repo: &std::path::Path) -> Result<(Child, String), Box<dyn std::error::Error>> {
+/// `folder`에서 데몬을 띄우고, 시작 줄의 주소를 읽는다.
+fn start_daemon(folder: &std::path::Path) -> Result<(Child, String), Box<dyn std::error::Error>> {
     let exe = std::env::current_exe()?.with_file_name("loom.exe");
     let mut command = Command::new(exe);
     command
         .args(["serve", "--listen", "127.0.0.1:0"])
-        .current_dir(repo)
+        .current_dir(folder)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());

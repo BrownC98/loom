@@ -148,15 +148,6 @@ impl Repos {
             .map_err(|e| RepoProblem::Git(e.to_string()))
     }
 
-    /// 데몬의 시작 폴더를 더한다. 화면으로 더할 때와 달리 git 저장소가 아니어도 그 폴더 그대로 더한다.
-    /// 근거: 데몬은 늘 시작 폴더를 첫 저장소로 보였다(docs/design.md 「저장소와 워크트리」).
-    pub async fn add_start(&self, folder: &Path) -> rusqlite::Result<(RepoId, PathBuf)> {
-        let original = original_checkout(folder)
-            .await
-            .unwrap_or_else(|| folder.to_owned());
-        Ok((self.insert(&original)?, original))
-    }
-
     /// `url`을 `<parent>/<주소 마지막 마디에서 .git을 뺀 이름>`에 복제하고 더한다.
     /// 그 폴더가 있고 비어 있으면 그 안에 복제한다. 실패하면 git이 자기가 만든 것만 지운다. loom은 지우지 않는다.
     pub async fn clone(&self, url: &str, parent: &str) -> Result<RepoId, RepoProblem> {
@@ -605,10 +596,6 @@ mod tests {
             repos.add("/nowhere/at/all").await,
             Err(RepoProblem::NotFound("/nowhere/at/all".into()))
         );
-        // 시작 폴더는 git 저장소가 아니어도 더한다.
-        let (start, path) = repos.add_start(Path::new(plain)).await.unwrap();
-        assert_eq!(path, Path::new(plain));
-        assert_eq!(repos.path(start), Ok(PathBuf::from(plain)));
         assert_eq!(repos.path(RepoId(99)), Err(RepoProblem::NoRepo));
     }
 

@@ -22,6 +22,7 @@ const en = {
     expandAll: 'Expand all',
     label: 'Node tree',
     addRepo: 'Add repository',
+    parent: 'Parent: {{node}} · {{group}}',
   },
   graph: {
     group: 'Group {{branch}}',

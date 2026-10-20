@@ -24,6 +24,7 @@ const ko: typeof en = {
     expandAll: '모두 펼치기',
     label: '노드 트리',
     addRepo: '저장소 추가',
+    parent: '부모: {{node}} · {{group}}',
   },
   graph: {
     group: '묶음 {{branch}}',

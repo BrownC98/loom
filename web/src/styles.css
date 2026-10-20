@@ -61,21 +61,25 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .side-head { display: flex; align-items: center; padding: 8px 8px 6px 16px; }
 .side-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .side-head .spacer { flex: 1; }
-.tree { list-style: none; padding: 0 8px; font-size: 13px; flex: 1; min-height: 0; overflow: auto; }
+.tree { --step: 12px; list-style: none; padding: 0 8px; font-size: 13px; flex: 1; min-height: 0; overflow: auto; }
 .tree ul { list-style: none; padding: 0; }
-.tree-row { display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 8px 0 calc(4px + var(--depth, 0) * 16px); border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; }
+.tree-row { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 8px 0 calc(4px + var(--depth, 0) * var(--step)); border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; }
 .tree-row:hover { background: var(--surface-hover); }
 .tree-row[aria-current="true"] { background: var(--accent-wash); }
 /* 트리는 스크롤 칸이라 바깥 고리가 잘린다. */
 .tree-row:focus-visible { outline-offset: -2px; }
-.tree-row .chev { width: 14px; height: 14px; flex: none; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tree-row :is(.chev, .icon, .from) { flex: none; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tree-row :is(.chev, .icon) { width: 14px; height: 14px; }
 .tree-row .chev.closed { transform: rotate(-90deg); }
 .tree-row .leaf { width: 14px; flex: none; }
-/* 좁으면 에이전트 이름이 먼저 준다. 노드 이름은 줄 폭의 60%를 넘을 때만 자른다. */
-.tree-row .name { flex-shrink: 0; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-row .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tree-row .from { width: 12px; height: 12px; }
+/* 조상 층마다 세로선 하나. 가운데는 그 층 쪽 화살표(chev) 가운데(4px + 층 × 칸 + 6.5px)다. */
+.tree-row .guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-strong); opacity: 0.6; pointer-events: none; left: calc(4px + var(--level) * var(--step) + 6.5px); }
+/* 좁으면 에이전트 이름(.sub)과 꼬리표(.tag)가 먼저 준다. 그다음 이름이 줄 폭의 60% 안에서 준다. */
+.tree-row .name { flex-shrink: 1; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .sub { flex-shrink: 1000; font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tree-row .branch { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-row .tag { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.tree-row .tag { flex-shrink: 1000; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 .tree-row .spacer { flex: 1; }
 .kept { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--ink-2); white-space: nowrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }

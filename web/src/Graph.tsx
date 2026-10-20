@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, nodePty } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -15,12 +15,20 @@ import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
-const GROUP_MIN_HEIGHT = 768;
+/** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
+const CARD_WIDTH = 400;
+/** 카드를 재기 전에 쓰는 높이. 재면 잰 값을 쓴다. */
+const CARD_HEIGHT = 330;
+/** 카드는 묶음 머리 위나 왼쪽 테두리 밖으로 끌 수 없다. 오른쪽·아래로 끌면 묶음이 따라 커진다. 좌표는 묶음 기준이다. */
+const CARD_EXTENT: CoordinateExtent = [
+  [0, CARD_TOP],
+  [Infinity, Infinity],
+];
 /** 카드 높이에 간선이 지나갈 틈을 더한 세로 간격. */
 const CARD_STEP = 376;
-/** 카드 폭(400)에 틈을 더한 가로 간격. 한 칸이면 묶음 폭이 목업과 같은 440이다. */
+/** 카드 폭에 틈을 더한 가로 간격. 한 칸이면 묶음 폭이 목업과 같은 440이다. */
 const CARD_COLUMN_STEP = 420;
 /** 묶음 왼쪽 위에서 잰 새 노드 팝오버 위치. */
 const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
@@ -151,7 +159,7 @@ function slotPosition({ column, row }: Slot): XYPosition {
  * 나무 배치: 자식은 부모 아래 줄에, 형제는 오른쪽 칸에 놓는다. 잎마다 새 칸을 쓰고 부모는 첫 자식의 칸에 둔다.
  * 사람이 띄운 노드(뿌리)는 앞 뿌리의 나무 아래에 쌓는다. 형제는 만든 순서다.
  */
-function treeLayout(views: ReadonlyMap<NodeId, NodeView>): { slots: Map<NodeId, Slot>; columns: number } {
+function treeLayout(views: ReadonlyMap<NodeId, NodeView>): Map<NodeId, Slot> {
   const children = new Map<NodeId | null, NodeView[]>();
   for (const view of [...views.values()].sort((a, b) => a.id - b.id)) {
     // 부모를 지우면 `removed` 뒤에 자식의 새 상태가 온다. 그 사이에는 그래프에 없는 부모를 가리키므로 뿌리로 놓는다.
@@ -159,7 +167,6 @@ function treeLayout(views: ReadonlyMap<NodeId, NodeView>): { slots: Map<NodeId, 
     children.set(parent, [...(children.get(parent) ?? []), view]);
   }
   const slots = new Map<NodeId, Slot>();
-  let columns = 1;
   let firstRow = 0;
   for (const root of children.get(null) ?? []) {
     let column = 0;
@@ -172,10 +179,9 @@ function treeLayout(views: ReadonlyMap<NodeId, NodeView>): { slots: Map<NodeId, 
       for (const kid of kids) place(kid, row + 1);
     };
     place(root, firstRow);
-    columns = Math.max(columns, column);
     firstRow = lastRow + 1;
   }
-  return { slots, columns };
+  return slots;
 }
 
 function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): string | null {
@@ -215,11 +221,13 @@ export function Graph(props: {
   const [dragged, setDragged] = useState<ReadonlyMap<string, XYPosition>>(new Map());
 
   const views = [...props.views.values()];
-  const { slots, columns } = treeLayout(props.views);
+  const slots = treeLayout(props.views);
   const positions = new Map<NodeId, XYPosition>(views.map((v) => [v.id, dragged.get(String(v.id)) ?? slotPosition(slots.get(v.id)!)]));
   /** 끈 위치를 버려 모든 카드를 나무 배치 자리로 되돌린다. */
   const arrange = () => setDragged(new Map());
-  const lowest = Math.max(0, ...[...positions.values()].map((p) => p.y));
+  // 묶음은 가장 오른쪽·아래 카드까지만 덮는다. 빈 묶음은 머리와 안내 글만큼이다(높이를 비워 내용에 맞춘다).
+  const right = Math.max(CARD_X + CARD_WIDTH, ...[...positions.values()].map((p) => p.x + CARD_WIDTH)) + CARD_X;
+  const bottom = Math.max(...views.map((v) => positions.get(v.id)!.y + (flowState.get(String(v.id))?.measured?.height ?? CARD_HEIGHT))) + CARD_X;
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
     if (to !== null) setSelected(to);
@@ -231,7 +239,7 @@ export function Graph(props: {
       id: MAIN_GROUP,
       type: 'worktree',
       position: GROUP_POSITION,
-      style: { width: CARD_X + columns * CARD_COLUMN_STEP, height: Math.max(GROUP_MIN_HEIGHT, lowest + CARD_STEP) },
+      style: { width: right, height: views.length > 0 ? bottom : undefined },
       draggable: false,
       data: { branch: MAIN_GROUP, empty: views.length === 0, creating, onOpen: () => setCreating(true), onArrange: arrange },
     }),
@@ -240,7 +248,7 @@ export function Graph(props: {
         id: String(view.id),
         type: 'card',
         parentId: MAIN_GROUP,
-        extent: 'parent',
+        extent: CARD_EXTENT,
         dragHandle: '.card-head',
         className: lit(view.id),
         position: positions.get(view.id)!,

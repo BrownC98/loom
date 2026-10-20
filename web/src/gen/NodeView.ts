@@ -2,6 +2,7 @@
 import type { AgentId } from "./AgentId";
 import type { NodeId } from "./NodeId";
 import type { NodeState } from "./NodeState";
+import type { Place } from "./Place";
 
 export type NodeView = { id: NodeId, name: string, 
 /**
@@ -15,4 +16,4 @@ unread: number,
 /**
  * 부모가 없어 보관한 메시지 수. 새 부모가 생기면 그 부모가 받는다.
  */
-held: number, };
+held: number, place: Place, };

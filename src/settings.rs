@@ -1,4 +1,5 @@
-//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어. SQLite에 한 줄로 둔다.
+//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마, 화면 언어, 워크스페이스 폴더.
+//! SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
 use std::sync::Mutex;
@@ -27,6 +28,8 @@ pub struct SettingsView {
     /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
     #[serde(default)]
     pub language: Language,
+    /// 새 워크트리를 만드는 폴더. 데몬이 보는 절대 경로다. 없으면 기본값이고, 데몬이 화면에 보낼 때 채운다.
+    pub workspace_dir: Option<String>,
 }
 
 /// 화면 언어. `System`은 브라우저 언어(`navigator.language`)를 따른다. Orca의 `uiLanguage`와 같은 자리다.

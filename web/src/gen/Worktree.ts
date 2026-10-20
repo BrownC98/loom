@@ -2,7 +2,11 @@
 
 export type Worktree = { 
 /**
- * 체크아웃한 커밋.
+ * 절대 경로. 노드는 이 경로로 묶음을 가리킨다.
+ */
+path: string, 
+/**
+ * 체크아웃한 커밋. git을 읽지 못하면 비어 있다.
  */
 head: string, 
 /**
@@ -10,6 +14,6 @@ head: string,
  */
 branch: string | null, 
 /**
- * 데몬이 보이는 저장소 폴더 자신이면 「원래 체크아웃」, 아니면 추가한 워크트리다.
+ * 원래 체크아웃이면 참이다. 닫을 수 없다.
  */
 original: boolean, };

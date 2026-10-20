@@ -2,8 +2,7 @@
 import type { Commit } from "./Commit";
 import type { Worktree } from "./Worktree";
 
-export type CommitGraph = { 
 /**
- * 자식이 부모보다 먼저 온다(`--topo-order`). 화면의 차선 계산이 이 순서를 쓴다.
+ * 커밋 그래프 칸이 읽는 것: 커밋과, 워크트리마다 체크아웃한 커밋.
  */
-commits: Array<Commit>, worktrees: Array<Worktree>, };
+export type CommitGraph = { commits: Array<Commit>, worktrees: Array<Worktree>, };

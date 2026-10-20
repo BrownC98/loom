@@ -2,9 +2,18 @@ use std::path::Path;
 
 use super::*;
 use crate::db;
+use crate::worktree::RepoId;
 
 fn open(path: &Path) -> Graph {
     Graph::open(db::open(path).unwrap()).unwrap()
+}
+
+/// 테스트 노드가 도는 자리.
+fn home() -> Place {
+    Place {
+        repo: RepoId(1),
+        worktree: "/repo".into(),
+    }
 }
 
 fn launched(_: NodeId) -> Result<(), String> {
@@ -13,11 +22,12 @@ fn launched(_: NodeId) -> Result<(), String> {
 
 /// 에이전트 id가 `agent`인 루트. 이름은 `<agent>-1`이다.
 fn root(g: &Graph, agent: &str) -> NodeId {
-    g.add_root(Some(AgentId(agent.into())), launched).unwrap()
+    g.add_root(&home(), Some(AgentId(agent.into())), launched)
+        .unwrap()
 }
 
 fn child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
-    g.add_child(parent, name, None, "", launched).unwrap()
+    g.add_child(parent, name, None, None, "", launched).unwrap()
 }
 
 /// 메시지 하나를 꺼내고 받음을 확인한다. 보낸 노드, 방식, 본문을 돌려준다.
@@ -60,7 +70,7 @@ fn parent_and_child_exchange_messages() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let worker = g
-        .add_child(lead, "구현", None, "node_host를 고쳐라", launched)
+        .add_child(lead, "구현", None, None, "node_host를 고쳐라", launched)
         .unwrap();
 
     assert_eq!(take(&g, worker), delivery("총괄-1", "node_host를 고쳐라"));
@@ -101,7 +111,7 @@ fn child_names_are_unique_among_siblings_and_parent() {
     let lead = root(&g, "총괄");
     child(&g, lead, "a");
 
-    let refused = |name| g.add_child(lead, name, None, "", launched);
+    let refused = |name| g.add_child(lead, name, None, None, "", launched);
     assert!(matches!(refused("a"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("총괄-1"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("  "), Err(Refusal::EmptyName)));
@@ -117,13 +127,13 @@ fn limits_are_enforced() {
 
     // 중첩 깊이 2
     assert!(matches!(
-        g.add_child(a1, "a2", None, "", launched),
+        g.add_child(a1, "a2", None, None, "", launched),
         Err(Refusal::TooDeep)
     ));
     // 지시문 4KB
     let brief = "x".repeat(4097);
     assert!(matches!(
-        g.add_child(lead, "b", None, &brief, launched),
+        g.add_child(lead, "b", None, None, &brief, launched),
         Err(Refusal::BriefTooLong(4097))
     ));
     assert!(matches!(
@@ -155,7 +165,7 @@ fn failed_launch_leaves_nothing() {
     let fail = |_| Err("없는 명령".to_owned());
 
     assert!(matches!(
-        g.add_child(lead, "a", None, "지시", fail),
+        g.add_child(lead, "a", None, None, "지시", fail),
         Err(Refusal::Launch(_))
     ));
     assert_eq!(g.subscribe().unwrap().0.len(), 1);
@@ -209,7 +219,9 @@ fn restart_keeps_nodes_and_messages() {
     let (lead, a) = {
         let g = open(&path);
         let lead = root(&g, "총괄");
-        let a = g.add_child(lead, "a", None, "지시", launched).unwrap();
+        let a = g
+            .add_child(lead, "a", None, None, "지시", launched)
+            .unwrap();
         g.done(a, "요약").unwrap();
         (lead, a)
     };
@@ -619,7 +631,10 @@ fn records_refusals_and_skips_rolled_back_changes() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
-    assert!(g.add_root(None, |_| Err("없는 명령".into())).is_err());
+    assert!(
+        g.add_root(&home(), None, |_| Err("없는 명령".into()))
+            .is_err()
+    );
     g.record_refusal(lead, "없음", Kind::Steer, &Refusal::NotFound("없음".into()))
         .unwrap();
 
@@ -709,7 +724,7 @@ fn reopening_records_running_nodes_as_exited() {
 fn roots_take_the_smallest_free_number() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    g.add_root(None, launched).unwrap();
+    g.add_root(&home(), None, launched).unwrap();
     let first = root(&g, "claude");
     root(&g, "claude");
     // 자식 이름은 사람이 띄운 노드의 번호를 막지 않는다.
@@ -737,4 +752,43 @@ fn reads_adoptions_recorded_before_the_held_count() {
         serde_json::from_str(old).unwrap(),
         events::Entry::Adopted { held: 0, .. }
     ));
+}
+
+#[test]
+fn children_stay_in_the_parent_place_unless_given_a_worktree() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("t.db"));
+    let lead = root(&g, "claude");
+    let same = child(&g, lead, "a");
+    let moved = g
+        .add_child(lead, "b", Some("/ws/repo/feat"), None, "", launched)
+        .unwrap();
+    assert_eq!(view(&g, same).place, home());
+    assert_eq!(
+        g.place_of(moved).unwrap(),
+        Place {
+            repo: RepoId(1),
+            worktree: "/ws/repo/feat".into()
+        }
+    );
+    assert_eq!(g.running_in("/ws/repo/feat").unwrap(), 1);
+    assert_eq!(g.nodes_in("/repo").unwrap(), [lead, same]);
+    g.done(moved, "끝").unwrap();
+    assert_eq!(g.running_in("/ws/repo/feat").unwrap(), 0);
+}
+
+#[test]
+fn settle_moves_nodes_without_a_place_to_the_start_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.db");
+    db::open(&path)
+        .unwrap()
+        .execute_batch(
+            r#"INSERT INTO nodes (name, agent, state) VALUES ('claude-1', '"claude"', '{"kind":"running"}');"#,
+        )
+        .unwrap();
+    let g = open(&path);
+    g.settle(&home()).unwrap();
+    let views = g.subscribe().unwrap().0;
+    assert_eq!(views[0].place, home());
 }

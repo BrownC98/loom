@@ -88,28 +88,8 @@ const GROUP_GAP = 32;
 
 export type Box = { at: Point; size: Size };
 
-/** 묶음 자리 계산의 입력. `parent`는 부모 묶음의 번호(`groups` 안)이고, 없으면 뿌리 묶음이다. */
+/** 묶음 자리 계산의 입력. `parent`는 부모 묶음의 번호(`groups` 안)이고, 없으면 뿌리 묶음이다. 순환 없는 나무여야 한다(`groupParents`). */
 export type GroupSlot = { size: Size; parent: number | null; dragged?: Point };
-
-/**
- * 묶음 나무의 부모. 순환(A↔B)이면 고리에서 뒤 묶음을 뿌리로 둔다: 부모 줄을 거슬러 올라가다 이미 본 묶음을 만나면 그 고리의 가장 뒤 묶음의 부모를 끊는다.
- */
-function breakCycles(parents: readonly (number | null)[]): (number | null)[] {
-  const fixed = [...parents];
-  for (let i = 0; i < fixed.length; i++) {
-    const seen = new Set<number>([i]);
-    for (let at = fixed[i]; at !== null; at = fixed[at]) {
-      if (seen.has(at)) {
-        const ring = [at];
-        for (let k = fixed[at]!; k !== at; k = fixed[k]!) ring.push(k);
-        fixed[Math.max(...ring)] = null;
-        break;
-      }
-      seen.add(at);
-    }
-  }
-  return fixed;
-}
 
 /**
  * 묶음 자리(사용자 요청 2026-10-20 "자동정렬하면 … 트리 방식으로 정렬"). 묶음을 카드처럼 나무로 놓는다.
@@ -121,7 +101,7 @@ export function placeGroups(groups: readonly GroupSlot[], direction: ArrangeDire
   const vertical = direction === 'down' || direction === 'up';
   const along = (size: Size) => (vertical ? size.height : size.width);
   const across = (size: Size) => (vertical ? size.width : size.height);
-  const parents = breakCycles(groups.map((g) => g.parent));
+  const parents = groups.map((g) => g.parent);
   const kids = groups.map((_, i) => parents.flatMap((p, k) => (p === i ? [k] : [])));
   const depthOf = (i: number): number => (parents[i] === null ? 0 : depthOf(parents[i]!) + 1);
   const depthSizes: number[] = [];

@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry};
 use super::{
-    Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, TreeLimits, first_line,
-    from_json, mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
+    Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
+    first_line, from_json, mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
 
@@ -106,7 +106,7 @@ impl Graph {
         tx.commit()?;
         self.publish_node(&db, id)?;
         if has_brief {
-            self.publish_message(id);
+            self.publish_message(id, Toward::Child);
         }
         Ok(id)
     }
@@ -179,7 +179,7 @@ impl Graph {
             && let Some(parent) = parent
         {
             self.publish_node(&db, parent)?;
-            self.publish_message(id);
+            self.publish_message(id, Toward::Parent);
         }
         Ok(())
     }
@@ -408,7 +408,11 @@ impl Graph {
         for &to in &relatives {
             self.publish_node(&db, to)?;
             // 간선은 자식 id로 가리킨다.
-            self.publish_message(if Some(to) == parent { id } else { to });
+            if Some(to) == parent {
+                self.publish_message(id, Toward::Parent);
+            } else {
+                self.publish_message(to, Toward::Child);
+            }
         }
         Ok(())
     }
@@ -480,7 +484,7 @@ impl Graph {
         for node in [Some(child), Some(parent), told_old].into_iter().flatten() {
             self.publish_node(&db, node)?;
         }
-        self.publish_message(child);
+        self.publish_message(child, Toward::Child);
         Ok(())
     }
 }

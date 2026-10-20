@@ -13,8 +13,9 @@ import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
+import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
-import { Graph, type GraphHandle } from './Graph';
+import { Graph, type GraphHandle, type Pulse } from './Graph';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
@@ -108,8 +109,8 @@ export function App() {
   // 노드가 모르는 워크트리에 있으면(`loom spawn --worktree`, 터미널에서 만든 워크트리) 목록을 다시 읽는다. 경로마다 한 번만 읽는다.
   const askedWorktrees = useRef(new Set<string>());
   const [nodes, setNodes] = useState<ReadonlyMap<NodeId, NodeView>>(new Map());
-  // 자식 id → 강조하는 동안 그 자식의 간선으로 오간 메시지 수.
-  const [pulses, setPulses] = useState<ReadonlyMap<NodeId, number>>(new Map());
+  // 자식 id → 강조하는 동안 그 자식의 간선으로 오간 메시지 수(가는 쪽마다).
+  const [pulses, setPulses] = useState<ReadonlyMap<NodeId, Pulse>>(new Map());
   const pulseTimers = useRef(new Map<NodeId, number>());
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [settings, setSettings] = useState<SettingsView>(EMPTY_SETTINGS);
@@ -205,8 +206,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const pulse = (child: NodeId) => {
-      setPulses((prev) => new Map(prev).set(child, (prev.get(child) ?? 0) + 1));
+    const pulse = (child: NodeId, toward: Toward) => {
+      setPulses((prev) => {
+        const counts = prev.get(child) ?? { parent: 0, child: 0 };
+        return new Map(prev).set(child, { ...counts, [toward]: counts[toward] + 1 });
+      });
       clearTimeout(pulseTimers.current.get(child));
       const timer = window.setTimeout(() => {
         setPulses((prev) => {
@@ -220,7 +224,7 @@ export function App() {
     return watchGraph((event) => {
       switch (event.kind) {
         case 'message':
-          pulse(event.child);
+          pulse(event.child, event.toward);
           break;
         case 'removed':
           setNodes((prev) => {

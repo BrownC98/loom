@@ -103,9 +103,10 @@ pub struct Model {
 #[ts(export)]
 pub enum GraphEvent {
     Node(NodeView),
-    /// `child`와 그 부모 사이 간선으로 메시지가 오갔다. 방향은 화면에 보이지 않는다.
+    /// `child`와 그 부모 사이 간선으로 메시지가 `toward` 쪽으로 갔다.
     Message {
         child: NodeId,
+        toward: Toward,
     },
     /// 노드를 지웠다. 자식은 부모 없이 남고 `Node` 이벤트로 따로 온다.
     Removed {
@@ -115,6 +116,15 @@ pub enum GraphEvent {
     Recorded {
         record: EventRecord,
     },
+}
+
+/// 간선 위 메시지가 가는 쪽.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Toward {
+    Parent,
+    Child,
 }
 
 /// 노드 나무의 상한. 사람이 설정에서 바꾼다. 근거: docs/design.md 「상한」.
@@ -379,8 +389,8 @@ impl Graph {
         self.mail.notified()
     }
 
-    fn publish_message(&self, child: NodeId) {
-        let _ = self.events.send(GraphEvent::Message { child });
+    fn publish_message(&self, child: NodeId, toward: Toward) {
+        let _ = self.events.send(GraphEvent::Message { child, toward });
         self.mail.notify_waiters();
     }
 }

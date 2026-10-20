@@ -13,21 +13,20 @@
 
 ## 개발 환경
 
-도커 컨테이너에서만 빌드·실행한다. 저장소 폴더에서 아래 명령을 쓴다.
+호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드는 `memcap -m 8G` 아래에서 돌린다.
 
 | 할 일 | 명령 |
 |---|---|
-| 컨테이너 띄우기, 화면 패키지 설치 | `bash scripts/worktree/setup.sh`. 워크트리마다 컨테이너와 호스트 포트(`.env`의 `LOOM_PORT`)가 따로다 |
-| Rust 포맷 | `docker compose exec dev cargo fmt` |
-| Rust 검사 | `docker compose exec dev cargo clippy --all-targets` |
-| Rust 테스트, TS 타입 생성 | `docker compose exec dev cargo test` |
-| 화면 타입·순환 검사 | `docker compose exec -w /work/web dev npm run check` |
-| 화면 빌드 | `docker compose exec -w /work/web dev npm run build` |
-| Windows 검사·빌드 | `docker compose exec dev sh scripts/windows.sh`. 화면 빌드를 먼저 한다. 결과는 `target/x86_64-pc-windows-msvc/release/`의 `loom.exe`, `loom-app.exe`다 |
-| 데몬 띄우기(시험) | `docker compose exec dev sh -c 'cargo run -- serve --listen 127.0.0.1:$LOOM_PORT'` 뒤 `http://127.0.0.1:<LOOM_PORT>` |
-| 사람이 쓰는 데몬 | 원래 체크아웃에서 `docker compose exec -w "$PWD" dev sh -c 'cargo run --manifest-path /work/Cargo.toml -- serve --listen 127.0.0.1:$LOOM_PORT'`. 저장소 폴더를 아래 `compose.override.yaml`로 넣은 뒤에 쓴다 |
+| 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부른다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
+| Rust 포맷 | `cargo fmt` |
+| Rust 검사 | `memcap -m 8G cargo clippy --all-targets` |
+| Rust 테스트, TS 타입 생성 | `memcap -m 8G cargo test` |
+| 화면 타입·순환 검사 | `npm --prefix web run check` |
+| 화면 빌드 | `npm --prefix web run build` |
+| 데몬 띄우기(시험) | `memcap -m 8G cargo build` 뒤 `HOME=/tmp/<이름> target/debug/loom serve --listen 127.0.0.1:<빈 포트>`. 다른 `HOME`이라 사람의 DB(`~/.loom`)를 건드리지 않는다. `cargo run`은 쓰지 않는다(바꾼 `HOME`에서 rustup이 판을 찾지 못한다) |
+| 사람이 쓰는 loom 올리기 | 원래 체크아웃(main)에서 `bash scripts/host.sh`. `~/loom/bin/loom`을 바꾸고 데몬(포트 7420)을 다시 띄운다. 노드는 그대로 산다 |
 
-- 사람의 저장소 폴더는 원래 체크아웃의 `compose.override.yaml`(커밋하지 않는다. setup.sh가 docker 소켓과 기본 워크스페이스 폴더 `~/loom/workspaces`를 넣어 처음 만든다)의 `volumes`에 호스트와 같은 경로로 한 줄씩 넣는다. 예: `- /srv:/srv`. 설정에서 워크스페이스 폴더를 바꾸면 그 폴더도 넣는다. 그 뒤 `bash scripts/worktree/setup.sh`를 다시 실행한다. 근거: docs/design.md 「저장소와 워크트리」 「경로와 컨테이너」.
+- Windows 빌드는 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 한다. 호스트에는 Windows 빌드 도구가 없다.
 
 - API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.
 

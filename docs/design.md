@@ -60,13 +60,13 @@
 | 시작 폴더 | 데몬은 시작할 때 시작 폴더를 저장소로 더한다. git 저장소가 아니어도 더한다. 처음 띄운 데몬의 시작 폴더가 첫 저장소다 | 앞의 동작(시작 폴더 = 저장소)을 지킨다. Windows 앱의 폴더 고르기 창이 고른 폴더도 이 길로 들어간다 |
 | 옛 노드 | DB 9단계 전 노드는 데몬이 시작할 때 시작 폴더 저장소의 원래 체크아웃으로 옮긴다. 지우지 않는다 | 총괄 결정(2026-10-20). 보관한 메시지를 잃지 않는다 |
 | 묶음의 원천 | `git worktree list`. loom은 워크트리를 저장하지 않는다. 노드는 띄운 워크트리 경로를 남긴다 | 같은 사실을 두 곳에 두지 않는다. 사람이 터미널에서 만든 워크트리도 묶음이 된다 |
-| 워크스페이스 폴더 | 설정 「워크스페이스」 탭의 글 입력 하나. 처음 값은 `~/loom/workspaces`. 절대 경로만 받는다. 처음 값 폴더는 loom이 만들고 `setup.sh`가 컨테이너에 같은 경로로 넣는다. 사람이 고른 폴더가 없으면 [새 워크트리]가 그 폴더를 컨테이너에 넣으라는 오류를 보인다 | Orca 「Workspace Directory」(기본 `~/orca/workspaces`)와 같은 모양이다. [찾아보기]는 브라우저가 데몬 기계의 폴더를 고르지 못해 넣지 않았다 |
+| 워크스페이스 폴더 | 설정 「워크스페이스」 탭의 글 입력 하나. 처음 값은 `~/loom/workspaces`. 절대 경로만 받는다. 처음 값 폴더는 loom이 만든다. 사람이 고른 폴더가 없으면 [새 워크트리]가 폴더를 만들거나 다른 폴더를 고르라는 오류를 보인다 | Orca 「Workspace Directory」(기본 `~/orca/workspaces`)와 같은 모양이다. [찾아보기]는 브라우저가 데몬 기계의 폴더를 고르지 못해 넣지 않았다 |
 | 폴더 배치 | `<워크스페이스 폴더>/<저장소 이름>/<브랜치 마지막 마디>`. 늘 중첩한다 | Orca 「Nest Workspaces」 기본값과 같다. 끄는 요구가 없어 스위치를 두지 않았다 |
 | [새 워크트리] | 그래프 도구 줄. 브랜치 이름과 기준 브랜치(로컬 브랜치, 처음 값은 원래 체크아웃의 브랜치)를 받아 `git worktree add -b`를 부른다 | 그래프가 저장소 하나라 도구 줄에 둔다 |
 | 설정 스크립트 | [새 워크트리]와 `loom spawn --worktree`가 워크트리를 만든 뒤, 새 워크트리의 `orca.yaml`에 `scripts.setup`이 있으면 그 글을 명령 노드로 그 묶음에 띄운다. 카드 터미널이 출력을, 카드 상태가 종료 코드(`exited(0)`은 성공)를 보인다. `loom spawn`의 자식은 설정이 끝나기를 기다리지 않는다 | Orca와 같은 파일·키라 저장소 설정 하나가 둘 다에 쓰인다(Orca: 새 워크트리의 `orca.yaml`, `/bin/bash`, 작업 폴더는 워크트리). 출력과 실패를 보일 화면을 새로 만들지 않고 노드 카드를 다시 썼다. Orca가 더 넣는 `ORCA_ROOT_PATH`·`ORCA_WORKTREE_PATH`는 쓰는 저장소(loom, acme-api)가 없어 넣지 않았다. 명령 노드처럼 `sh -c`(Windows `cmd /C`)로 돈다 |
 | `loom spawn --worktree` | 부모 워크트리의 `HEAD`에서 새 브랜치로 워크트리를 만든다. 자식을 띄우지 못해도 워크트리는 남는다 | 부모가 체크아웃한 커밋에서 일을 나눈다. 남은 워크트리는 사람이 지운다 |
-| [워크트리 삭제] | 추가한 워크트리 묶음 머리에 둔다. 누르면 경고 창이 워크트리 이름, 잃는 것(커밋하지 않은 파일과 추적하지 않는 파일 목록, 끝낼 `running` 노드, 지울 노드)을 보인다. [삭제]는 그 묶음의 노드를 끝내고 그래프에서 지운 뒤 `git worktree remove --force`를 부른다. 「브랜치도 삭제」 확인란(처음 값 꺼짐)을 켜면 `git branch -D`도 부른다 | 사람 지시(2026-10-20) "워크트리도 삭제 가능하게 만들어라(워크트리는 삭제시 경고 팝업출력할 것)". Orca 「Delete Workspace」 창과 같다(`--force`, 「Any uncommitted or untracked changes … will be permanently deleted.」). Orca 창에는 브랜치 선택이 없고 Orca가 만든 브랜치를 안에서 지운다. loom은 병합하지 않은 커밋을 잃지 않게 확인란으로 고르게 했다. 노드를 먼저 끝낸다: Windows는 프로세스가 쓰는 폴더를 지우지 못한다 |
-| 경로와 컨테이너 | 경로는 데몬이 보는 파일 시스템의 경로다. 없으면 화면은 「폴더를 찾을 수 없습니다: <경로>」만 보인다. 데몬은 컨테이너에서 돈다. 사람의 저장소 폴더는 `compose.override.yaml`이 호스트와 같은 경로로 넣는다. 사람이 쓰는 데몬은 원래 체크아웃의 호스트 경로를 시작 폴더로 띄운다(`/work`가 아니다). 컨테이너는 호스트 docker 소켓을 받아 설정 스크립트의 `docker compose`가 호스트 docker로 돈다. 소켓도 같은 파일에 있다. `setup.sh`가 켠 채로 파일을 처음 만들고, 지우면 끈다. 에이전트 CLI 버전은 이미지에 고정한다. 호스트에만 있는 도구(예: `orca`)는 컨테이너에 없다 | 도커는 배포 형태다(2026-10-20 사람 결정 "도커는 배포 용이성을 위해 선택한 것이다"). 같은 경로라서 화면·노드·호스트(Orca, 편집기)가 같은 경로를 쓰고, git이 워크트리에 적는 경로도 호스트에서 맞다. `/work`에서 만든 워크트리는 `.git` 파일이 `/work`를 가리켜 호스트에서 깨진다. 넣는 폴더 목록은 사람마다 달라 저장소에 넣지 않는다. 넣지 않은 폴더는 데몬이 보지 못한다. 위험: 소켓은 컨테이너에 호스트 root와 같은 권한을 준다. 끄면 docker를 부르는 설정 스크립트만 돌지 않고, 설정 노드 카드가 그 오류를 보인다 |
+| [워크트리 삭제] | 추가한 워크트리 묶음 머리에 둔다. 누르면 경고 창이 워크트리 이름, 잃는 것(커밋하지 않은 파일과 추적하지 않는 파일 목록, 끝낼 `running` 노드, 지울 노드)을 보인다. [삭제]는 그 묶음의 노드를 끝내고 그래프에서 지운 뒤 `git worktree remove --force`를 부른다. 「브랜치도 삭제」 확인란(처음 값 꺼짐)을 켜면 `git branch -D`도 부른다 | 사람 지시(2026-10-20) "워크트리도 삭제 가능하게 만들어라(워크트리는 삭제시 경고 팝업출력할 것)". Orca 「Delete Workspace」 창과 같다(`--force`, 「Any uncommitted or untracked changes … will be permanently deleted.」). Orca 창에는 브랜치 선택이 없고 Orca가 만든 브랜치를 안에서 지운다. loom은 병합하지 않은 커밋을 잃지 않게 확인란으로 고르게 했다. 노드를 먼저 끝낸다: Windows는 프로세스가 쓰는 폴더를 지우지 못한다. Orca와 달리 `orca.yaml`의 `scripts.archive`는 돌리지 않는다. 지울 컨테이너·볼륨이 없고, 빌드 산출물(`target/`)은 워크트리 폴더 안에 있어 함께 지워진다 |
+| 경로 | 경로는 데몬이 보는 파일 시스템(호스트)의 경로다. 없으면 화면은 「폴더를 찾을 수 없습니다: <경로>」만 보인다 | 데몬이 호스트에서 돈다(「[배포](#배포)」). 화면·노드·Orca·편집기가 같은 경로를 쓰고, git이 워크트리에 적는 경로도 같다 |
 
 ## 에이전트 실행
 
@@ -76,7 +76,7 @@
   - 데몬과 호스트 사이 프레임은 판 번호를 첫 프레임에 넣는다([src/node_host/wire.rs](../src/node_host/wire.rs)). 낸 판의 프레임은 바꾸지 않는다. 새 데몬이 옛 실행 파일이 띄운 호스트와 말해야 하기 때문이다.
   - 호스트는 프로세스가 끝나면 종료 코드를 데몬에 넘기고 끝난다. 붙은 데몬이 없으면 10분 기다린다. 그 사이 다시 시작한 데몬은 코드를 받는다.
   - 데몬이 시작할 때 다시 붙지 않은 호스트는 끝낸다: 데몬이 꺼진 동안 지운 노드, 앞 데몬의 로그인 창(창 번호는 데몬마다 0부터 센다).
-  - 개발 컨테이너에서는 사람이 데몬(`cargo run -- serve`)만 다시 띄운다. 호스트는 데몬과 다른 프로세스 그룹이라 데몬 터미널의 Ctrl+C를 받지 않고, 데몬이 끝나면 컨테이너의 init(`init: true`)이 부모가 된다. 컨테이너를 다시 만들면(`compose.yaml`을 바꾼 뒤 `docker compose up`) 컨테이너 안의 호스트도 끝난다. 그때 새 데몬은 그 노드를 `exited(?)`로 바꾼다.
+  - 호스트에서는 `scripts/host.sh`가 데몬만 다시 띄운다(「[배포](#배포)」). PTY 호스트는 데몬과 다른 프로세스 그룹이라 데몬 터미널의 Ctrl+C를 받지 않고, 데몬이 끝나면 init이 부모가 된다. 실행 파일은 새 파일로 바꿔 넣는다(rename). 도는 호스트는 옛 파일을 계속 쓴다.
   - Windows는 이번에 유지하지 않는다. 데몬이 자기를 kill-on-close Job Object에 넣고, 호스트와 서버도 그 Job에 든다. 그래서 데몬이 끝나면 노드도 끝나고, 다시 시작한 데몬은 노드를 `exited(?)`로 바꾼다. 앱의 업데이트 카드 문구(「다시 시작하면 실행 중인 노드가 종료됩니다」)도 그대로 맞다.
 - CLI마다 실행 프로필을 둔다. 프로필은 메시지 연동(훅·app-server·서버 API)이 있는 에이전트다. 지금은 Claude Code, Codex, OpenCode 2 셋이다. 프로필이 바뀌는 이유는 CLI 버전이다.
 - 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 쓰지 않는다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다. 예: OpenCode 2의 `--standalone`은 `--server`와 함께 쓸 수 없다.
@@ -316,7 +316,6 @@
 - 메일함, 노드 목록, 저장소 목록, 카드 위치, 설정, 이벤트 기록을 모두 여기에 둔다. 워크트리 묶음은 git이 갖는다(「저장소와 워크트리」). 데몬이 다시 시작해도 메시지는 남는다.
 - 이벤트 기록은 바꾼 트랜잭션 안에서 함께 쓴다. 되돌린 변경은 기록에 남지 않는다. 메시지 본문은 복사하지 않고 메시지 id로 가리킨다. 최근 10,000개만 남긴다.
 - 계정 로그인 폴더는 같은 폴더의 `accounts/`에, PTY 호스트 주소 파일은 `pty/`에 둔다.
-- 개발 컨테이너는 `~/.loom`을 이름 있는 볼륨(`loom_home`)에 둔다. 컨테이너를 다시 만들어도 DB와 계정 폴더가 남는다.
 
 ## 규모
 
@@ -331,9 +330,21 @@
 - 화면: React, React Flow, xterm.js. 빌드한 화면을 실행 파일에 넣는다. Linux·macOS에서는 사람이 브라우저로 연다. Windows에서는 앱 창이 연다(「Windows 앱」).
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
 - 워크트리와 커밋 그래프는 `git` CLI를 부른다.
-- 개발 환경은 도커 컨테이너(`compose.yaml`)다. 호스트에는 Rust·Node를 설치하지 않는다. 실행 명령은 [AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)에 있다.
+- 개발 환경은 배포 환경과 같은 호스트다(「[배포](#배포)」). 실행 명령은 [AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)에 있다.
 - 노드를 띄울 때 `LOOM_URL`(노드 문 주소), `LOOM_SPAWN_URL`(데몬 주소), `LOOM_TOKEN`(노드마다 무작위 값) 환경 변수를 넣는다. 에이전트용 명령은 이 값으로 데몬의 `/api/agent/*`에 HTTP로 요청한다. 데몬은 토큰으로 보낸 노드를 찾는다. 토큰은 노드와 함께 DB에 둔다. 노드 프로세스는 데몬이 다시 시작해도 살아 옛 토큰을 계속 낸다.
 - 노드의 `PATH` 앞에 `loom` 실행 파일의 폴더를 넣는다. 노드는 설치 없이 `loom`을 부른다.
+
+## 배포
+
+Linux에서 loom은 호스트 실행 파일 하나다. Orca처럼 사람이 호스트에서 띄운다. 목표는 loom으로 loom을 개발하는 것이다(2026-10-20 사람 결정 "loom을 호스트 바이너리로 배포한다", 그 뒤 도커를 개발에서도 뺐다).
+
+| 결정 | 이유 |
+|---|---|
+| 에이전트 CLI(`claude`, `codex`, `opencode2` 등)는 사람이 호스트에 설치한다. loom은 넣지도 고정하지도 않고 데몬의 `PATH`에서 찾는다(「[에이전트](#에이전트)」 탐지) | 사람 지시 "코덱스나, 클로드코드등은 배포 컨테이너에 포함하지 말고 사람들이 자율적으로 설치하도록". 실측한 판과 다르면 데몬은 경고만 띄운다(「에이전트 실행」) |
+| 개발도 같은 호스트에서 한다. 도커를 쓰지 않는다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다 | 개발 환경과 배포 환경이 같다. 컨테이너와 호스트 사이를 맞추던 부품(같은 경로 마운트, docker 소켓, 이미지의 CLI, 볼륨)이 모두 필요 없다 |
+| 사람이 쓰는 loom은 `~/loom/bin/loom`이다. 원래 체크아웃(main)에서 `scripts/host.sh`가 빌드하고, 파일을 바꿔 넣고, 데몬을 다시 띄운다. 데몬은 `127.0.0.1:7420`에서 듣고 시작 폴더는 그 체크아웃이다. 출력은 `~/.loom/serve.log`, PID는 `~/.loom/serve.pid`다 | 명령 하나로 main을 올린다. 노드는 그대로 산다(「에이전트 실행」). 데몬은 새 세션(`setsid`)이라 터미널을 닫아도 산다 |
+| `host.sh`는 그 호스트의 glibc용으로 빌드한다 | 같은 기계에서만 돈다. 호스트에 musl 도구를 설치하지 않는다 |
+| 다른 Linux 기계용 실행 파일은 Release의 `loom-x86_64-linux`다. 정적 링크(musl)라 glibc 판과 관계없이 x86-64에서 돈다. Windows 설치 파일과 같은 Actions 실행(`release.yml`, 손으로 돌린다)이 같은 Release에 올린다 | Release 하나에 한 판의 파일이 모두 있다. Linux 파일만 따로 Release를 만들면 가장 새 Release에 `latest.json`이 없어 Windows 앱이 새 판을 찾지 못한다 |
 
 ## Windows 앱
 
@@ -352,10 +363,10 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 PTY 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
 | 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 루트 `Cargo.toml`의 `version` 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수다. 계산은 `scripts/version.sh` 한 곳이고, 화면 빌드(`npm run build`)와 CI가 함께 쓴다. CI는 그 값을 두 `Cargo.toml`에 쓴다. 그래서 `MAJOR.MINOR`를 올리면 PATCH는 0부터 다시 센다(SemVer 관례). 로컬 Rust 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |
-| 사람이 손으로 돌릴 때만(`workflow_dispatch`) GitHub Actions(`.github/workflows/windows.yml`)가 `tauri-apps/tauri-action`으로 설치 파일, 서명(`.sig`), `latest.json`을 만들어 Release `v<판>`에 올린다. 처음 설치하는 링크는 https://github.com/BrownC98/loom/releases/latest 다 | 판마다 파일이 바뀌지 않아 `latest.json`과 설치 파일이 어긋나지 않는다. 옛 파일을 지우는 스크립트가 없다. Release는 쌓인다 |
-| 기능이 어느 정도 완성될 때까지 에이전트는 Windows 빌드(Actions, `scripts/windows.sh`)를 돌리지 않는다(2026-10-20 사람 지시 "당분간, 기능이 어느정도 완성되기전에는 윈도우 빌드하지마 개발 시간만 잡아먹는다") | 빌드가 개발 시간을 잡아먹는다 |
+| 사람이 손으로 돌릴 때만(`workflow_dispatch`) GitHub Actions(`.github/workflows/release.yml`)가 `tauri-apps/tauri-action`으로 설치 파일, 서명(`.sig`), `latest.json`을 만들어 Release `v<판>`에 올린다. 처음 설치하는 링크는 https://github.com/BrownC98/loom/releases/latest 다 | 판마다 파일이 바뀌지 않아 `latest.json`과 설치 파일이 어긋나지 않는다. 옛 파일을 지우는 스크립트가 없다. Release는 쌓인다 |
+| 기능이 어느 정도 완성될 때까지 에이전트는 Windows 빌드(Actions)를 돌리지 않는다(2026-10-20 사람 지시 "당분간, 기능이 어느정도 완성되기전에는 윈도우 빌드하지마 개발 시간만 잡아먹는다") | 빌드가 개발 시간을 잡아먹는다 |
 | 업데이트: 화면을 열 때 한 번 `latest.json`을 확인하고, 새 판이 있으면 오른쪽 아래 카드로 알린다([update.html](mockups/update.html), Orca의 업데이트 카드). [업데이트] → 다운로드 → [다시 시작하여 업데이트]다. 화면이 `@tauri-apps/plugin-updater` JS API를 부른다. 권한(`app/capabilities/update.json`)은 `http://127.0.0.1:*` 화면의 `check`·`download`·`install`뿐이다 | 문구는 화면 i18n을 쓴다. 서명 공개 키는 `app/tauri.conf.json`, 개인 키는 GitHub Actions 비밀값 `TAURI_SIGNING_PRIVATE_KEY`(`_PASSWORD`)와 사람이 보관하는 사본뿐이다 |
-| 로컬 확인은 컨테이너의 `cargo-xwin` 크로스 빌드다([AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)). 설치 파일은 Actions만 만든다 | NSIS 묶기는 Windows 러너에서 공식 경로로 돈다 |
+| Windows 빌드는 Actions만 한다. 호스트에는 Windows 빌드 도구가 없다 | 개발·배포 환경이 Linux 호스트 하나다. 크로스 빌드 도구(`cargo-xwin`, Windows SDK)는 옛 개발 컨테이너에만 있었다. NSIS 묶기는 Windows 러너에서 공식 경로로 돈다 |
 
 ## 레이어
 
@@ -402,7 +413,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 - `default_permissions`를 app-server와 TUI 모두에 `-c`로 넘겨도 스레드는 `workspace-write`(네트워크 꺼짐)였다. TUI가 `thread/start`에 `sandbox: "workspace-write"`, `permissions: null`을 보냈다.
 - loom 노드(Codex 0.159.2, 기본 승인 정책 `on-request`): `loom send`와 `loom done`이 승인 창 없이 부모에게 닿았다. `curl`로 `127.0.0.1`의 다른 포트, 데몬 주소, `example.com`은 프록시가 막았다. `loom spawn`은 샌드박스 안에서 연결이 거부됐고, 샌드박스 밖 실행을 승인하자 자식을 띄웠다.
 - Codex 허용 규칙(`prefix_rule`, `allow`)에 맞은 명령은 샌드박스 밖에서 돌았다. 규칙은 설정 폴더의 `rules/`에서만 읽고 `-c`로 넘길 수 없다. 시스템 기본 계정의 설정 폴더는 사용자의 `~/.codex`라 이 방법을 쓰지 않았다.
-- 개발 컨테이너에 `bubblewrap`을 넣어도 Docker 기본 seccomp가 사용자 네임스페이스를 막아 Codex 샌드박스가 동작하지 않았다. `seccomp=unconfined`이면 동작했다.
+- 옛 개발 컨테이너에 `bubblewrap`을 넣어도 Docker 기본 seccomp가 사용자 네임스페이스를 막아 Codex 샌드박스가 동작하지 않았다. `seccomp=unconfined`이면 동작했다.
 - 모든 권한 허용 인자(loom 노드로 띄움): Claude `--dangerously-skip-permissions`는 첫 실행에 동의 창을 띄웠고, 동의 뒤 같은 계정 폴더의 두 번째 노드에는 띄우지 않았다. 훅 5개는 그대로 돌았다. Codex `--dangerously-bypass-approvals-and-sandbox`는 `--remote`와 함께 써도 「permissions: YOLO mode」로 떴다. 동의 창은 없었고 `loom spawn`과 `example.com` 접속이 승인 없이 됐다. OpenCode 2.0.32 `--auto`는 「Build auto」로 떴고 동의 창이 없었다.
 - `--listen ws://`로 띄운 app-server는 stdin이 닫혀도, TUI와 데몬 연결이 끊겨도 끝나지 않았다. `codex` wrapper(node)에 보낸 TERM은 실행 파일까지 끝냈다.
 - OpenCode 2 `serve`: stdout에 `server listening on http://127.0.0.1:<포트>`를 쓴다. API 명세는 `/openapi.json`이다. `OPENCODE_PASSWORD`를 주면 Basic `opencode:<값>`만 받았다. Bearer와 쿼리 값은 401이었다.

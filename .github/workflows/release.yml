@@ -1,6 +1,6 @@
-# 사람이 손으로 돌릴 때만 Windows 설치 파일을 만들어 Release `v<판>`으로 올린다.
-# 앱은 가장 새 Release의 `latest.json`으로 새 판을 찾는다. 근거: docs/design.md 「Windows 앱」.
-name: windows
+# 사람이 손으로 돌릴 때만 Windows 설치 파일과 Linux 실행 파일을 만들어 Release `v<판>`으로 올린다.
+# 앱은 가장 새 Release의 `latest.json`으로 새 판을 찾는다. 근거: docs/design.md 「Windows 앱」 「배포」.
+name: release
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: windows-release
+  group: release
   cancel-in-progress: true
 
 env:
@@ -18,6 +18,8 @@ env:
 jobs:
   installer:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     defaults:
       run:
         shell: bash
@@ -28,7 +30,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v7.1.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
       - uses: Swatinem/rust-cache@v2.9.2
@@ -64,3 +66,33 @@ jobs:
           tagName: v${{ steps.version.outputs.version }}
           releaseName: loom ${{ steps.version.outputs.version }}
           releaseBody: ${{ github.ref_name }} ${{ github.sha }} 빌드. 설치 파일(`-setup.exe`)을 실행하면 loom 창이 열린다.
+
+  # Release는 위 단계가 만든다. 정적 실행 파일(musl)이라 glibc 판과 관계없이 x86-64 Linux에서 돈다.
+  linux:
+    needs: installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # 화면 빌드가 scripts/version.sh로 판을 센다.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: 판 쓰기
+        run: sed -i "s/^version = \".*\"$/version = \"${{ needs.installer.outputs.version }}\"/" Cargo.toml
+      - name: 화면 빌드
+        run: npm ci && npm run build
+        working-directory: web
+      - name: loom 빌드, Release에 올리기
+        run: |
+          sudo apt-get install -y --no-install-recommends musl-tools
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --target x86_64-unknown-linux-musl
+          cp target/x86_64-unknown-linux-musl/release/loom loom-x86_64-linux
+          gh release upload "v${{ needs.installer.outputs.version }}" loom-x86_64-linux --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -1,8 +1,6 @@
 /target/
 /web/node_modules/
 /web/dist/
-/.env
-/compose.override.yaml
 /app/binaries/
 /app/target/
 /app/gen/

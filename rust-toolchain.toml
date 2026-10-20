@@ -1,0 +1,5 @@
+[toolchain]
+# 개발과 배포가 같은 호스트에서 돈다(2026-10-20 사람 결정). rustup이 이 판을 받는다.
+channel = "1.99"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

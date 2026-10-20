@@ -47,12 +47,12 @@ pub struct Worktree {
 #[serde(tag = "code", content = "value", rename_all = "camelCase")]
 #[ts(export)]
 pub enum RepoProblem {
-    /// 데몬이 보는 파일 시스템에 이 폴더가 없다. 개발 컨테이너의 데몬은 `compose.yaml`이 넣은 폴더만 본다.
+    /// 데몬이 보는 파일 시스템에 이 폴더가 없다.
     NotFound(String),
     NotGit(String),
     /// 워크스페이스 폴더는 절대 경로다.
     NotAbsolute(String),
-    /// 워크스페이스 폴더가 없다. 개발 컨테이너면 `compose.override.yaml`이 넣지 않은 폴더다.
+    /// 워크스페이스 폴더가 없다.
     NoWorkspace(String),
     /// 없는 저장소 id다.
     NoRepo,
@@ -310,7 +310,7 @@ pub fn setup_script(worktree: &Path) -> Option<String> {
 }
 
 /// Orca 기본값(`<홈>/orca/workspaces`)과 같은 모양이다. Orca처럼 없으면 만든다. 사람이 고른 폴더는 만들지 않는다.
-/// `scripts/worktree/setup.sh`가 같은 경로를 컨테이너에 넣는다. 근거: docs/design.md 「저장소와 워크트리」.
+/// 근거: docs/design.md 「저장소와 워크트리」.
 pub fn default_workspace() -> std::io::Result<PathBuf> {
     let home =
         std::env::home_dir().ok_or_else(|| std::io::Error::other("홈 폴더를 찾지 못했다"))?;

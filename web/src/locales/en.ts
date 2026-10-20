@@ -33,7 +33,7 @@ const en = {
     directions: { down: 'Down', right: 'Right', up: 'Up', left: 'Left' },
     empty: 'Click “New node” to start the first agent.',
     minimap: 'Minimap',
-    messageTo: '→ {{name}} {{n}}',
+    messageTo: '{{n}} msg → {{name}}',
   },
   node: {
     label: 'Node {{name}}',

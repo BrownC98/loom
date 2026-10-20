@@ -35,7 +35,7 @@ const ko: typeof en = {
     directions: { down: '아래로', right: '오른쪽으로', up: '위로', left: '왼쪽으로' },
     empty: '‘새 노드’를 눌러 첫 에이전트를 시작합니다.',
     minimap: '미니맵',
-    messageTo: '→ {{name}} {{n}}',
+    messageTo: '{{name}}에게 메시지 {{n}}건',
   },
   node: {
     label: '노드 {{name}}',

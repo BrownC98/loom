@@ -9,6 +9,7 @@ const en = {
   app: {
     sideLabel: 'Repositories and nodes',
     graphLabel: '{{repo}} graph',
+    allGraphLabel: 'All repositories graph',
     commitGraph: 'Commit graph',
     sideCollapse: 'Collapse sidebar',
     sideExpand: 'Expand sidebar',
@@ -206,6 +207,12 @@ const en = {
     simple: 'Simple',
     standard: 'Standard',
     hint: 'With “Simple”, cards show only node details, and clicking a card opens its terminal in the right panel.',
+  },
+  graphScope: {
+    heading: 'Graph scope',
+    repo: 'One repository',
+    all: 'All repositories',
+    hint: 'With “All repositories”, the graph shows every added repository. Clicking a sidebar row moves the view there.',
   },
   theme: {
     heading: 'Theme',

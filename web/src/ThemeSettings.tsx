@@ -2,6 +2,7 @@ import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 're
 import { Monitor, Moon, RotateCcw, Sun, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { CardView } from './gen/CardView';
+import type { GraphScope } from './gen/GraphScope';
 import type { Language } from './gen/Language';
 import type { SettingsView } from './gen/SettingsView';
 import type { TerminalFont } from './gen/TerminalFont';
@@ -21,6 +22,8 @@ const THEME_CHOICES = [
 const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
 /** 설정과 오른쪽 사이드바가 같은 순서로 보인다(목업 card-view.html). */
 export const CARD_VIEWS = ['simple', 'standard'] as const satisfies readonly CardView[];
+/** 목업 repo-scope.html 1번. 기본값(저장소 하나)이 앞이다. */
+const GRAPH_SCOPES = ['repo', 'all'] as const satisfies readonly GraphScope[];
 
 /** 카드 보기 고르기. 설정 「UI」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
 export function CardViewSwitch(props: { value: CardView; onChange: (value: CardView) => void }) {
@@ -38,7 +41,7 @@ export function CardViewSwitch(props: { value: CardView; onChange: (value: CardV
   );
 }
 
-/** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html): 화면 테마, 카드 보기, 언어. 언어 이름은 번역하지 않는다. */
+/** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html, repo-scope.html): 화면 테마, 카드 보기, 그래프 범위, 언어. 언어 이름은 번역하지 않는다. */
 export function UiTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
@@ -60,6 +63,18 @@ export function UiTab({ settings, onSettings }: TabProps) {
         <h4>{t('cardView.heading')}</h4>
         <CardViewSwitch value={settings.cardView} onChange={(cardView) => onSettings({ ...settings, cardView })} />
         <span className="hint">{t('cardView.hint')}</span>
+      </section>
+      <section>
+        <h4 id="t-scope">{t('graphScope.heading')}</h4>
+        <div className="choice" role="radiogroup" aria-labelledby="t-scope">
+          {GRAPH_SCOPES.map((v) => (
+            <label key={v}>
+              <input type="radio" name="graphScope" checked={settings.graphScope === v} onChange={() => onSettings({ ...settings, graphScope: v })} />
+              {t(`graphScope.${v}`)}
+            </label>
+          ))}
+        </div>
+        <span className="hint">{t('graphScope.hint')}</span>
       </section>
       <section>
         <h4>

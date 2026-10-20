@@ -16,7 +16,7 @@ import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { arrangeTree, edgeSides, growBox, placeGroups, reorder, SIDES, TREE_SIDES, type ArrangeDirection, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
-import { groupParents, groupsOf, inGroup, type GroupKind } from './repos';
+import { groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
 import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
@@ -42,6 +42,8 @@ const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Ri
 const POPOVER_GAP = 6;
 /** 묶음 오른쪽 위에서 잰 삭제 경고 위치. 경고는 [워크트리 삭제] 아래에 오른쪽을 맞춰 연다. */
 const DELETE_OFFSET: XYPosition = { x: -8, y: 40 };
+/** 저장소 상자 테두리와 묶음 사이 틈. `top`은 머리를 포함한다(목업 docs/mockups/repo-scope.html). */
+const REPO_INSET = { top: 52, side: 16 };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
 
@@ -60,10 +62,10 @@ export function useShowNodes(): (ids: NodeId[]) => void {
   return (ids) => flow.fitView({ nodes: ids.map((id) => ({ id: String(id) })), duration: MOVE_MS, maxZoom: 1 });
 }
 
-/** 그래프 화면을 `path` 워크트리 묶음으로 옮긴다. 묶음 노드의 id는 워크트리 경로다. 아직 그리지 않은 묶음이면(저장소를 막 바꿈) React Flow가 노드를 잰 뒤 옮긴다. */
-export function useShowGroup(): (path: string) => void {
+/** 그래프 화면을 `paths` 워크트리 묶음이 모두 보이게 옮긴다. 묶음 노드의 id는 워크트리 경로다. 아직 그리지 않은 묶음이면(저장소를 막 바꿈) React Flow가 노드를 잰 뒤 옮긴다. */
+export function useShowGroups(): (paths: string[]) => void {
   const flow = useReactFlow();
-  return (path) => flow.fitView({ nodes: [{ id: path }], duration: MOVE_MS, maxZoom: 1 });
+  return (paths) => flow.fitView({ nodes: paths.map((id) => ({ id })), duration: MOVE_MS, maxZoom: 1 });
 }
 
 /** `onDelete`가 없으면 지울 수 없다(원래 체크아웃). */
@@ -80,10 +82,13 @@ type GroupData = {
 type CardBase = { view: NodeView; agentLabel: string; selected: boolean; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /** 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 확대 창이 열면 카드는 터미널을 그리지 않는다. PTY 크기를 한쪽만 정하게 한다. */
 type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void };
+type RepoData = { name: string; path: string };
 type GroupNode = Node<GroupData, 'worktree'>;
+/** 모든 저장소 범위에서 저장소마다 묶음을 두르는 상자. 끌지 않는다. 순서는 사이드바 순서다. */
+type RepoNode = Node<RepoData, 'repo'>;
 type CardNode = Node<CardData, 'card'>;
 type SimpleNode = Node<CardBase, 'simple'>;
-type FlowNode = GroupNode | CardNode | SimpleNode;
+type FlowNode = RepoNode | GroupNode | CardNode | SimpleNode;
 
 function Group({ data }: NodeProps<GroupNode>) {
   const { t } = useTranslation();
@@ -106,6 +111,19 @@ function Group({ data }: NodeProps<GroupNode>) {
         )}
       </div>
       {data.empty && <p className="group-empty">{t('graph.empty')}</p>}
+    </section>
+  );
+}
+
+function Repo({ data }: NodeProps<RepoNode>) {
+  return (
+    <section className="repo-box" aria-label={data.name}>
+      <div className="repo-head">
+        <span className="name">{data.name}</span>
+        <span className="sub" translate="no" title={data.path}>
+          {data.path}
+        </span>
+      </div>
     </section>
   );
 }
@@ -169,7 +187,7 @@ function Ports(props: { port: Side }) {
   ));
 }
 
-const nodeTypes = { worktree: Group, card: Card, simple: Simple };
+const nodeTypes = { repo: Repo, worktree: Group, card: Card, simple: Simple };
 
 /** `from`에서 `dir` 쪽으로 가장 가까운 카드. 가로·세로 어긋남은 두 배로 친다. */
 function neighbor(positions: Map<NodeId, XYPosition>, from: NodeId, dir: Direction): NodeId | null {
@@ -205,8 +223,8 @@ export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId |
  * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드. 그 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다. 바탕을 누르면 끈다.
  */
 export function Graph(props: {
-  /** 그래프가 그리는 저장소. `views`는 이 저장소의 노드만이다. */
-  repo: RepoView;
+  /** 그래프가 그리는 저장소. 둘 이상이면 저장소마다 상자를 두른다. `views`는 이 저장소들의 노드만이다. */
+  repos: readonly RepoView[];
   onRepo: (repo: RepoView) => void;
   views: ReadonlyMap<NodeId, NodeView>;
   pulses: ReadonlyMap<NodeId, Pulse>;
@@ -264,9 +282,8 @@ export function Graph(props: {
   };
   // 묶음마다 나무 배치를 따로 한다. 카드 위치는 묶음 기준, `positions`는 키보드 이동에 쓰는 화면 기준이다.
   const positions = new Map<NodeId, XYPosition>();
-  const allGroups = groupsOf(props.repo, views);
-  const laid = allGroups.map((group) => {
-    const members = inGroup(views, group);
+  /** 묶음 하나의 카드 배치와 묶음 크기. 자리는 묶음 왼쪽 위 기준이다. */
+  const layGroup = (group: Group, members: NodeView[]) => {
     const tree = arrangeTree(members, size, (id) => rank(String(id)), direction);
     // 나무 배치는 카드 자리 기준이라 `CARD_X`·`CARD_TOP`만큼 옮긴다. 가장 왼쪽·위 카드를 그 틈에 맞춰 네 쪽 모두 빈 곳이 없게 한다.
     // `slot`은 넓어지기 전 묶음 기준이다.
@@ -295,20 +312,41 @@ export function Graph(props: {
     const [right, bottom] = [box.size.width, box.size.height];
     const height = members.length > 0 ? bottom : (flowState.get(group.path)?.measured?.height ?? EMPTY_GROUP_HEIGHT);
     return { group, members, local, drawn, lead, right, bottom, height };
+  };
+  // 저장소가 둘 이상이면(모든 저장소 범위) 저장소마다 상자를 두르고 그 안에 묶음을 놓는다(목업 docs/mockups/repo-scope.html).
+  const framed = props.repos.length > 1;
+  const start = framed ? { x: REPO_INSET.side, y: REPO_INSET.top } : { x: 0, y: 0 };
+  const repos = props.repos.map((repo) => {
+    const repoViews = views.filter((v) => v.place.repo === repo.id);
+    const repoGroups = groupsOf(repo, repoViews);
+    const laid = repoGroups.map((group) => layGroup(group, inGroup(repoViews, group)));
+    // 묶음끼리도 부모 묶음 다음 단계에 놓는 나무다. 자리는 저장소 상자 왼쪽 위 기준이다.
+    const parents = groupParents(repoGroups, repoViews);
+    const at = placeGroups(
+      // 왼쪽·위로 넓어진 폭은 자리 밖이다. 묶음 상자는 자리보다 `lead`만큼 왼쪽 위에서 시작한다.
+      laid.map((g, i) => ({ size: { width: g.right - g.lead.x, height: g.height - g.lead.y }, parent: parents[i], rank: rank(g.group.path) })),
+      direction,
+      start,
+    ).map((p, i) => ({ x: p.x - laid[i].lead.x, y: p.y - laid[i].lead.y }));
+    // 저장소 상자는 가장 오른쪽·아래 묶음까지 덮는다. 끄는 카드로 묶음이 넓어지면 함께 넓어진다.
+    const size = {
+      width: Math.max(0, ...laid.map((g, i) => at[i].x + g.right)) + REPO_INSET.side,
+      height: Math.max(0, ...laid.map((g, i) => at[i].y + g.height)) + REPO_INSET.side,
+    };
+    return { repo, laid, parents, at, size };
   });
-  // 묶음끼리도 부모 묶음 다음 단계에 놓는 나무다.
-  const parentGroups = groupParents(allGroups, views);
-  const origins = placeGroups(
-    // 왼쪽·위로 넓어진 폭은 자리 밖이다. 묶음 상자는 자리보다 `lead`만큼 왼쪽 위에서 시작한다.
-    laid.map((g, i) => ({ size: { width: g.right - g.lead.x, height: g.height - g.lead.y }, parent: parentGroups[i], rank: rank(g.group.path) })),
+  // 저장소 상자도 같은 나무 배치다. 모두 뿌리라 사이드바 순서로 옆에 늘어선다. 끌어 순서를 바꾸지 않는다.
+  const repoOrigins = placeGroups(
+    repos.map((r, i) => ({ size: r.size, parent: null, rank: i })),
     direction,
     GROUP_POSITION,
-  ).map((at, i) => ({ x: at.x - laid[i].lead.x, y: at.y - laid[i].lead.y }));
-  share(laid.map((g, i) => ({ key: g.group.path, at: origins[i], size: { width: g.right, height: g.height }, parent: parentGroups[i] })));
-  const groups = laid.map((g, i) => {
-    const origin = origins[i];
-    for (const [id, p] of g.local) positions.set(id, { x: origin.x + p.x, y: origin.y + p.y });
-    return { ...g, origin };
+  );
+  const groups = repos.flatMap((r, ri) => {
+    const laid = r.laid.map((g, i) => ({ ...g, repo: r.repo.id, origin: { x: repoOrigins[ri].x + r.at[i].x, y: repoOrigins[ri].y + r.at[i].y } }));
+    // 묶음의 형제는 같은 저장소에서 부모 묶음이 같은 묶음이다.
+    share(laid.map((g, i) => ({ key: g.group.path, at: g.origin, size: { width: g.right, height: g.height }, parent: `${r.repo.id}:${r.parents[i]}` })));
+    for (const g of laid) for (const [id, p] of g.local) positions.set(id, { x: g.origin.x + p.x, y: g.origin.y + p.y });
+    return laid;
   });
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
@@ -327,7 +365,21 @@ export function Graph(props: {
     return { ...node, measured: live?.measured, ...(live?.dragging && { position: node.parentId ? node.position : live.position, dragging: true, zIndex: DRAGGING_Z }) };
   };
 
-  const nodes: FlowNode[] = groups.flatMap(({ group, members, local, drawn, origin, right, bottom }) => [
+  // 저장소 상자를 먼저 넣어 묶음과 카드 아래에 그린다.
+  const repoNodes: RepoNode[] = framed
+    ? repos.map((r, i) =>
+        keep<RepoNode>({
+          id: `repo:${r.repo.id}`,
+          type: 'repo',
+          position: repoOrigins[i],
+          // 상자는 클릭을 받지 않는다. 상자 안 빈 곳 클릭은 바탕 클릭이다(고르기를 푼다).
+          style: { width: r.size.width, height: r.size.height, pointerEvents: 'none' },
+          draggable: false,
+          data: { name: r.repo.name, path: r.repo.path },
+        }),
+      )
+    : [];
+  const nodes: FlowNode[] = [...repoNodes, ...groups.flatMap(({ group, members, local, drawn, origin, right, bottom }) => [
     keep<GroupNode>({
       id: group.path,
       type: 'worktree',
@@ -391,7 +443,7 @@ export function Graph(props: {
         },
       });
     }),
-  ]);
+  ])];
 
   const edges: Edge[] = views.flatMap((view) => {
     if (view.parent === null) return [];
@@ -423,7 +475,7 @@ export function Graph(props: {
     setFlowState(next);
     // 카드나 묶음을 끌 때만 위치 변경이 온다(키보드 이동은 껐다). 끄는 동안 순서를 바로 바꾼다. 놓으면 끄는 상자가 배치 자리로 간다.
     // 카드 자리는 넓어진 지금 묶음 기준이라 `lead`를 빼 넓어지기 전 묶음 기준으로 바꾼다.
-    const leads = new Map(laid.map((g) => [g.group.path, g.lead]));
+    const leads = new Map(groups.map((g) => [g.group.path, g.lead]));
     for (const c of changes) {
       if (c.type !== 'position') continue;
       const node = next.get(c.id);
@@ -478,7 +530,7 @@ export function Graph(props: {
           setRefusal('');
         }}
         // 카드 머리는 끌기 손잡이라 React Flow가 mousedown 전파를 막는다. 머리 클릭은 여기서 고른다.
-        onNodeClick={(_, node) => node.type !== 'worktree' && setSelected(Number(node.id))}
+        onNodeClick={(_, node) => (node.type === 'card' || node.type === 'simple') && setSelected(Number(node.id))}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements
@@ -492,10 +544,10 @@ export function Graph(props: {
         <MiniMap
           pannable
           ariaLabel={t('graph.minimap')}
-          nodeClassName={(node) => (node.type === 'worktree' ? 'worktree' : (node as CardNode | SimpleNode).data.view.state.kind)}
+          nodeClassName={(node) => (node.type === 'repo' || node.type === 'worktree' ? node.type : (node as CardNode | SimpleNode).data.view.state.kind)}
           onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
         />
-        {groups.map(({ group, members, origin, right }) => {
+        {groups.map(({ group, repo, members, origin, right }) => {
           const at = creating === group.path && anchor ? { x: origin.x + anchor.x, y: origin.y + anchor.y } : null;
           return (
             // 묶음 노드 안에 두면 자식 카드가 팝오버를 덮는다. 뷰포트 층에 그려 카드 위에 둔다.
@@ -512,7 +564,7 @@ export function Graph(props: {
                   {creating === group.path ? (
                     <NewNodePopover
                       branch={group.label}
-                      place={{ repo: props.repo.id, worktree: group.path }}
+                      place={{ repo, worktree: group.path }}
                       agents={props.agents}
                       recent={recentAgent(views)}
                       settings={props.settings}
@@ -525,7 +577,7 @@ export function Graph(props: {
                     />
                   ) : (
                     <DeleteWorktreePopover
-                      repo={props.repo.id}
+                      repo={repo}
                       group={group}
                       views={members}
                       onDeleted={(repo) => {

@@ -165,8 +165,9 @@ function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; o
   const { t } = useTranslation();
   const limits = settings.treeLimits;
   const setDepth = (text: string) => {
-    const maxDepth = inRange(text, DEPTH_RANGE);
-    if (maxDepth !== null) onSettings({ ...settings, treeLimits: { ...limits, maxDepth } });
+    // 비우면 상한이 없다(2026-10-20 사람 지시 "에이전트 중첩깊이 공란이면 상한 없음으로 처리"). 자식 수 칸과 같다.
+    const maxDepth = text.trim() === '' ? null : inRange(text, DEPTH_RANGE);
+    if (maxDepth !== null || text.trim() === '') onSettings({ ...settings, treeLimits: { ...limits, maxDepth } });
   };
   const setChildren = (text: string) => {
     const maxChildren = text.trim() === '' ? null : inRange(text, CHILDREN_RANGE);
@@ -178,7 +179,14 @@ function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; o
       <div className="limit-fields">
         <div className="field">
           <label htmlFor="tree-depth">{t('settings.maxDepth')}</label>
-          <input id="tree-depth" type="number" {...DEPTH_RANGE} defaultValue={limits.maxDepth} onChange={(e) => setDepth(e.target.value)} />
+          <input
+            id="tree-depth"
+            type="number"
+            {...DEPTH_RANGE}
+            placeholder={t('settings.noLimit')}
+            defaultValue={limits.maxDepth ?? ''}
+            onChange={(e) => setDepth(e.target.value)}
+          />
         </div>
         <div className="field">
           <label htmlFor="tree-children">{t('settings.maxChildren')}</label>

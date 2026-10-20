@@ -238,20 +238,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pop.confirm { width: 300px; gap: 10px; }
 .pop.confirm ul { padding-left: 18px; color: var(--ink-2); font-size: 13px; display: grid; gap: 2px; }
 
-/* 하단 상태 줄과 사용량 팝오버(docs/mockups/settings.html 1·2번) */
+/* 하단 상태 줄과 사용량 팝오버(docs/mockups/usage.html) */
 .app { grid-template-rows: minmax(0, 1fr) 28px; }
 a { color: var(--accent); }
-.statusbar { grid-column: 1 / -1; display: flex; align-items: stretch; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); padding: 0 4px; min-width: 0; }
-.statusbar .seg { position: relative; display: flex; }
-.statusbar .sep { width: 1px; background: var(--line); margin: 6px 2px; }
-.seg-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; font-size: 12px; }
-.seg-btn:hover { background: var(--surface-hover); color: var(--ink); }
-.seg-btn[aria-expanded="true"] { background: var(--accent-wash); color: var(--ink); }
-.seg-btn[data-loading] { animation: loading 1.2s ease-in-out infinite alternate; }
+.statusbar { grid-column: 1 / -1; position: relative; display: flex; align-items: stretch; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); padding: 0 4px; min-width: 0; }
+.usage-btn .sep { width: 1px; align-self: stretch; background: var(--line); margin: 6px 2px; }
+.usage-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; font-size: 12px; }
+.usage-btn:hover { background: var(--surface-hover); color: var(--ink); }
+.usage-btn[aria-expanded="true"] { background: var(--accent-wash); color: var(--ink); }
+.usage-btn[data-loading] { animation: loading 1.2s ease-in-out infinite alternate; }
 @keyframes loading { to { opacity: 0.5; } }
-@media (prefers-reduced-motion: reduce) { .seg-btn[data-loading] { animation: none; opacity: 0.7; } }
-.seg-btn .who { font-weight: 600; color: var(--ink); }
-.seg-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; }
+@media (prefers-reduced-motion: reduce) { .usage-btn[data-loading] { animation: none; opacity: 0.7; } }
+.usage-btn .who { font-weight: 600; color: var(--ink); }
 .seg-err { color: var(--err); }
 .acct-name { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lim { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -260,7 +258,15 @@ a { color: var(--accent); }
 .meter i { display: block; height: 100%; background: var(--accent); }
 .meter i.low { background: var(--warn); }
 .update-pop { position: fixed; right: 16px; bottom: 40px; width: 360px; z-index: 20; }
-.usage-pop { left: 0; bottom: calc(100% + 6px); width: 320px; z-index: 20; }
+.usage-pop { left: 4px; bottom: calc(100% + 6px); width: 360px; z-index: 20; }
+.prov-sec { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.prov { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 13px; color: inherit; }
+.prov:hover, .prov[aria-expanded="true"] { background: var(--surface-hover); }
+.prov .who { font-weight: 600; }
+.prov .acct-name { color: var(--ink-2); }
+.prov svg { margin-left: auto; flex: none; width: 14px; height: 14px; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.usage-foot { display: flex; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }
+.usage-foot .btn { margin-left: auto; }
 .pop h3 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .pop h3 .spacer { flex: 1; }
 .win { gap: 6px; display: grid; }
@@ -273,8 +279,6 @@ a { color: var(--accent); }
 .acct:hover { background: var(--surface-hover); }
 .acct[aria-current="true"] { background: var(--accent-wash); }
 .acct .sub { white-space: nowrap; font-size: 12px; color: var(--ink-3); margin-left: auto; }
-.divider { border: 0; border-top: 1px solid var(--line); }
-.manage { justify-self: start; }
 
 /* 설정 창(3·4번). <dialog>라 브라우저가 최상층에 띄운다. */
 dialog { padding: 0; border: 0; color: var(--ink); }

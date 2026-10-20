@@ -21,6 +21,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 /// Codex 창 길이가 이 값 이하면 5시간 창이다. Codex는 5시간 창(300분)과 주간 창(10080분)을 primary·secondary 순서 없이 준다.
 const SESSION_WINDOW_MAX_MINS: u64 = 300;
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
+/// Orca가 보내는 값과 같다. 기본 User-Agent(`ureq/…`)는 429를 받았다(2026-10-20, docs/design.md 「실측 근거」).
+const CLAUDE_USER_AGENT: &str = "claude-code/2.1.0";
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +35,16 @@ pub struct Window {
     pub resets_at: Option<i64>,
 }
 
+/// 모델 하나에만 걸린 주간 창. 예: Claude 「Fable」.
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ModelWindow {
+    /// 출처가 준 모델 표시 이름 그대로다.
+    pub model: String,
+    pub window: Window,
+}
+
 #[derive(Clone, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -40,6 +52,7 @@ pub enum Limits {
     Ready {
         session: Option<Window>,
         weekly: Option<Window>,
+        models: Vec<ModelWindow>,
     },
     /// 로그인하지 않았거나 로그인이 끝났다.
     NeedsLogin,
@@ -159,12 +172,20 @@ fn claude_limits(config_dir: &Path) -> Limits {
         .get(CLAUDE_USAGE_URL)
         .header("Authorization", format!("Bearer {token}"))
         .header("anthropic-beta", "oauth-2025-04-20")
+        .header("User-Agent", CLAUDE_USER_AGENT)
         .call();
     match response {
         Ok(mut res) => match res.body_mut().read_json::<Value>() {
             Ok(body) => Limits::Ready {
-                session: claude_window(&body["five_hour"]),
-                weekly: claude_window(&body["seven_day"]),
+                session: claude_window(
+                    &body["five_hour"]["utilization"],
+                    &body["five_hour"]["resets_at"],
+                ),
+                weekly: claude_window(
+                    &body["seven_day"]["utilization"],
+                    &body["seven_day"]["resets_at"],
+                ),
+                models: claude_models(&body["limits"]),
             },
             Err(_) => failed(UsageProblem::ResponseFormat),
         },
@@ -173,15 +194,32 @@ fn claude_limits(config_dir: &Path) -> Limits {
     }
 }
 
-/// `{"utilization": 사용한 %, "resets_at": ISO 8601}`.
-fn claude_window(v: &Value) -> Option<Window> {
+/// `used`는 사용한 %, `resets_at`은 ISO 8601 시각이다.
+fn claude_window(used: &Value, resets_at: &Value) -> Option<Window> {
     Some(Window {
-        remaining: remaining(v["utilization"].as_f64()?),
-        resets_at: v["resets_at"]
+        remaining: remaining(used.as_f64()?),
+        resets_at: resets_at
             .as_str()
             .and_then(|s| s.parse::<jiff::Timestamp>().ok())
             .map(|t| t.as_second()),
     })
+}
+
+/// `limits` 가운데 모델 하나에 걸린 주간 창: `{"kind": "weekly_scoped", "percent": 사용한 %, "resets_at", "scope": {"model": {"display_name"}}}`.
+fn claude_models(limits: &Value) -> Vec<ModelWindow> {
+    let Some(items) = limits.as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter(|v| v["kind"] == "weekly_scoped")
+        .filter_map(|v| {
+            Some(ModelWindow {
+                model: v["scope"]["model"]["display_name"].as_str()?.to_owned(),
+                window: claude_window(&v["percent"], &v["resets_at"])?,
+            })
+        })
+        .collect()
 }
 
 fn codex(home: Option<&Path>) -> Usage {
@@ -228,7 +266,11 @@ fn codex_limits(rate_limits: &Value) -> Limits {
             weekly = window;
         }
     }
-    Limits::Ready { session, weekly }
+    Limits::Ready {
+        session,
+        weekly,
+        models: Vec::new(),
+    }
 }
 
 /// `account/read`와 `account/rateLimits/read`의 결과를 순서대로 돌려준다.
@@ -317,20 +359,34 @@ mod tests {
 
     fn ready(limits: Limits) -> (Option<Window>, Option<Window>) {
         match limits {
-            Limits::Ready { session, weekly } => (session, weekly),
+            Limits::Ready {
+                session, weekly, ..
+            } => (session, weekly),
             _ => panic!("Ready가 아니다"),
         }
     }
 
     #[test]
     fn claude_window_reads_used_percent_and_iso_time() {
-        let w = claude_window(
-            &json!({"utilization": 45.0, "resets_at": "2026-10-19T11:29:59.565320+00:00"}),
-        )
-        .unwrap();
+        let w = claude_window(&json!(45.0), &json!("2026-10-19T11:29:59.565320+00:00")).unwrap();
         assert_eq!(w.remaining, 55);
         assert_eq!(w.resets_at, Some(1792409399));
-        assert!(claude_window(&Value::Null).is_none());
+        assert!(claude_window(&Value::Null, &Value::Null).is_none());
+    }
+
+    #[test]
+    fn claude_models_read_weekly_scoped_limits() {
+        let models = claude_models(&json!([
+            {"kind": "session", "percent": 54, "resets_at": "2026-10-20T02:29:59Z", "scope": null},
+            {"kind": "weekly_scoped", "percent": 12, "resets_at": "2026-10-24T12:00:00+00:00",
+             "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null}},
+            {"kind": "weekly_scoped", "percent": 5, "scope": {"model": null, "surface": "cowork"}},
+        ]));
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model, "Fable");
+        assert_eq!(models[0].window.remaining, 88);
+        assert_eq!(models[0].window.resets_at, Some(1792843200));
+        assert!(claude_models(&Value::Null).is_empty());
     }
 
     #[test]

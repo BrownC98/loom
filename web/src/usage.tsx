@@ -8,7 +8,7 @@ import type { Window } from './gen/Window';
 import i18next, { ago, weekdayAndTime } from './i18n';
 import { usageProblemText } from './problem';
 
-/** 이 비율 이하로 남으면 막대가 노란색이다(목업 1번). */
+/** 이 비율 이하로 남으면 막대가 노란색이다(목업 usage.html). */
 const LOW_REMAINING = 25;
 
 export const PROVIDERS: Provider[] = ['claude', 'codex'];
@@ -53,63 +53,57 @@ export function Meter(props: { remaining: number }) {
   );
 }
 
-const WINDOWS = ['session', 'weekly'] as const;
+type NamedWindow = { label: string; window: Window };
 
-function windowLabel(key: (typeof WINDOWS)[number]): string {
-  return i18next.t(`usage.window.${key}`);
+/** 공급자 전체에 걸린 창: 5시간, 주간. 사용량이 없으면 빈 목록이다. */
+function accountWindows(limits: Limits): NamedWindow[] {
+  if (limits.kind !== 'ready') return [];
+  return (['session', 'weekly'] as const).flatMap((key) => {
+    const w = limits[key];
+    return w ? [{ label: i18next.t(`usage.window.${key}`), window: w }] : [];
+  });
+}
+
+/** 보일 창 목록: 공급자 전체 창 뒤에 모델별 주간 창(예: Fable). */
+function windows(limits: Limits): NamedWindow[] {
+  const models = limits.kind === 'ready' ? limits.models.map((m) => ({ label: m.model, window: m.window })) : [];
+  return [...accountWindows(limits), ...models];
 }
 
 /** 창마다 이름, 막대, 남은 비율 한 줄. 사용량이 없으면 아무것도 그리지 않는다. */
 export function WindowLines(props: { limits: Limits }) {
-  if (props.limits.kind !== 'ready') return null;
-  const limits = props.limits;
-  return WINDOWS.map((key) => {
-    const w = limits[key];
-    return (
-      w && (
-        <span className="win-line" key={key}>
-          <span>{windowLabel(key)}</span>
-          <Meter remaining={w.remaining} />
-          <span className="pct">{w.remaining}%</span>
-        </span>
-      )
-    );
-  });
+  return windows(props.limits).map(({ label, window: w }) => (
+    <span className="win-line" key={label}>
+      <span>{label}</span>
+      <Meter remaining={w.remaining} />
+      <span className="pct">{w.remaining}%</span>
+    </span>
+  ));
 }
 
-/** 상태 줄 칸 안의 짧은 표시: 막대와 「5시간 58%」. */
+/** 상태 줄 안의 짧은 표시: 막대와 「5시간 58%」. */
 export function InlineWindows(props: { limits: Limits }) {
-  if (props.limits.kind !== 'ready') return null;
-  const limits = props.limits;
-  return WINDOWS.map((key) => {
-    const w = limits[key];
-    return (
-      w && (
-        <span className="lim" key={key}>
-          <Meter remaining={w.remaining} />
-          {windowLabel(key)} {w.remaining}%
-        </span>
-      )
-    );
-  });
+  return windows(props.limits).map(({ label, window: w }) => (
+    <span className="lim" key={label}>
+      <Meter remaining={w.remaining} />
+      {label} {w.remaining}%
+    </span>
+  ));
 }
 
 /** 읽는 사람에게 들리는 한 줄. 예: 「5시간 58% 남음, 주간 82% 남음」. */
 export function windowsText(limits: Limits): string {
   if (limits.kind !== 'ready') return limitsProblem(limits) ?? '';
-  return WINDOWS.flatMap((key) => {
-    const w = limits[key];
-    return w ? [i18next.t('usage.windowLeft', { window: windowLabel(key), n: w.remaining })] : [];
-  }).join(', ');
+  return windows(limits)
+    .map(({ label, window: w }) => i18next.t('usage.windowLeft', { window: label, n: w.remaining }))
+    .join(', ');
 }
 
-/** 예: 「5시간 창 초기화 (월) 15:40 · 주간 창 초기화 (목) 09:00」. */
+/** 예: 「5시간 창 초기화 (월) 15:40 · 주간 창 초기화 (목) 09:00」. 모델 창은 주간 창과 함께 초기화되므로 넣지 않는다(목업 usage.html). */
 export function resetText(limits: Limits): string {
-  if (limits.kind !== 'ready') return '';
-  return WINDOWS.flatMap((key) => {
-    const w: Window | null = limits[key];
-    return w?.resetsAt ? [i18next.t('usage.reset', { window: windowLabel(key), time: weekdayAndTime(w.resetsAt * 1000) })] : [];
-  }).join(' · ');
+  return accountWindows(limits)
+    .flatMap(({ label, window: w }) => (w.resetsAt === null ? [] : [i18next.t('usage.reset', { window: label, time: weekdayAndTime(w.resetsAt * 1000) })]))
+    .join(' · ');
 }
 
 /** 예: 「2분 전 갱신」. */

@@ -55,24 +55,26 @@ describe('edgeSides', () => {
 
 const sized = () => ({ width: 100, height: 50 });
 
-describe('arrangeTree (today: parent at the first child lane)', () => {
+describe('arrangeTree (parent centered over the span of its children)', () => {
   // 1 -> {2, 3}, 2 -> {4}
   const tree = [view(1, null), view(2, 1), view(3, 1), view(4, 2)];
 
-  it('down: child at the next depth, siblings in the next lane, parent at the first child lane', () => {
+  it('down: children at the next depth, the parent centered over them', () => {
     const at = arrangeTree(tree, sized, 'down');
-    expect(at.get(1)).toEqual({ x: 0, y: 0 });
+    // children of 1: 100 + 20 + 100 = 220 wide, so 1 (100 wide) sits at (220 - 100) / 2 = 60.
+    expect(at.get(1)).toEqual({ x: 60, y: 0 });
     expect(at.get(2)).toEqual({ x: 0, y: 96 });
-    expect(at.get(4)).toEqual({ x: 0, y: 192 });
     expect(at.get(3)).toEqual({ x: 120, y: 96 });
+    // 4 is the only child of 2: centered under it.
+    expect(at.get(4)).toEqual({ x: 0, y: 192 });
   });
 
-  it('right: same slots with depth along x and lane along y', () => {
+  it('right: depth along x, siblings along y, the parent centered', () => {
     const at = arrangeTree(tree, sized, 'right');
-    expect(at.get(1)).toEqual({ x: 0, y: 0 });
+    expect(at.get(1)).toEqual({ x: 0, y: 35 });
     expect(at.get(2)).toEqual({ x: 146, y: 0 });
-    expect(at.get(4)).toEqual({ x: 292, y: 0 });
     expect(at.get(3)).toEqual({ x: 146, y: 70 });
+    expect(at.get(4)).toEqual({ x: 292, y: 0 });
   });
 
   it('up mirrors down along depth; left mirrors right', () => {
@@ -99,11 +101,20 @@ describe('arrangeTree (today: parent at the first child lane)', () => {
     expect(at.get(6)).toEqual({ x: 120, y: 0 });
   });
 
-  it('depth and lane sizes follow the largest card, so mixed sizes do not overlap', () => {
-    const size = (id: number) => (id === 2 ? { width: 200, height: 80 } : sized());
-    const at = arrangeTree([view(1, null), view(2, 1), view(3, 1)], size, 'down');
-    expect(at.get(2)).toEqual({ x: 0, y: 96 });
-    expect(at.get(3)).toEqual({ x: 220, y: 96 });
+  it('mixed sizes still do not overlap', () => {
+    const big = { width: 200, height: 80 };
+    const size = (id: number) => (id === 2 || id === 4 ? big : sized());
+    const views = [view(1, null), view(2, 1), view(3, 1), view(4, 3), view(5, 2)];
+    for (const direction of ['down', 'right', 'up', 'left'] as const) {
+      const at = arrangeTree(views, size, direction);
+      const rects = views.map((v) => ({ ...at.get(v.id)!, ...size(v.id) }));
+      for (const [i, a] of rects.entries()) {
+        for (const b of rects.slice(i + 1)) {
+          const apart = a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+          expect(apart).toBe(true);
+        }
+      }
+    }
   });
 });
 

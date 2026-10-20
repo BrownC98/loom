@@ -1369,18 +1369,18 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let shell = g.add_root(&home(), None, "", launched).unwrap();
-    assert!(g.discard_empty_shell(shell).unwrap());
+    assert!(g.discard_finished_shell(shell).unwrap());
     assert!(g.subscribe().unwrap().0.is_empty());
-    assert!(!g.discard_empty_shell(shell).unwrap());
+    assert!(!g.discard_finished_shell(shell).unwrap());
 
     let agent = root(&g, "codex");
-    assert!(!g.discard_empty_shell(agent).unwrap());
+    assert!(!g.discard_finished_shell(agent).unwrap());
     let nested = child(&g, agent, "nested");
-    assert!(!g.discard_empty_shell(nested).unwrap());
+    assert!(!g.discard_finished_shell(nested).unwrap());
 
     let parent = g.add_root(&home(), None, "", launched).unwrap();
     let worker = child(&g, parent, "worker");
-    assert!(!g.discard_empty_shell(parent).unwrap());
+    assert!(!g.discard_finished_shell(parent).unwrap());
     g.send(
         worker,
         &view(&g, parent).name,
@@ -1389,16 +1389,16 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     )
     .unwrap();
     g.remove(worker).unwrap();
-    assert!(!g.discard_empty_shell(parent).unwrap());
+    assert!(!g.discard_finished_shell(parent).unwrap());
     assert_eq!(take(&g, parent), delivery("worker", "review this output"));
 
     let completed = g.add_root(&home(), None, "", launched).unwrap();
     g.done(completed, "result to preserve").unwrap();
-    assert!(!g.discard_empty_shell(completed).unwrap());
+    assert!(!g.discard_finished_shell(completed).unwrap());
     assert_eq!(view(&g, completed).held, 1);
 
     let failed = g.add_root(&home(), None, "", launched).unwrap();
     g.exited(failed, 1).unwrap();
-    assert!(!g.discard_empty_shell(failed).unwrap());
+    assert!(!g.discard_finished_shell(failed).unwrap());
     assert_eq!(view(&g, failed).state, NodeState::Exited { code: Some(1) });
 }

@@ -3,7 +3,7 @@
 
 mod settings;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::future::IntoFuture;
 use std::hash::Hash;
@@ -61,6 +61,8 @@ struct App {
     codex: Mutex<HashMap<NodeId, Arc<CodexServer>>>,
     /// OpenCode 2 노드마다 그 노드의 서버와 세션. 노드 프로세스가 끝나면 지우고 끝낸다.
     opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
+    /// 끝나지 않은 설정 스크립트 노드. 성공하면 출력이 있어도 지운다. 근거: docs/design.md 「저장소와 워크트리」.
+    setups: Mutex<HashSet<NodeId>>,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     version_warnings: HashMap<Profile, VersionMismatch>,
     /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 비어 있다.
@@ -338,6 +340,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         logins: settings::Logins::new(pty_dir.join("logins")),
         codex: Mutex::default(),
         opencode2: Mutex::default(),
+        setups: Mutex::default(),
         version_warnings: profile::version_warnings(codex_version.as_deref()),
         codex_sandbox: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
@@ -553,11 +556,22 @@ impl App {
     }
 
     /// 새 워크트리에서 저장소 설정 스크립트를 명령 노드로 띄운다. 카드가 출력과 종료 코드를 보인다.
-    /// 스크립트가 없으면 아무것도 하지 않는다. 근거: docs/design.md 「저장소와 워크트리」.
+    /// 성공하면 노드를 지운다. 스크립트가 없으면 아무것도 하지 않는다. 근거: docs/design.md 「저장소와 워크트리」.
     async fn setup(self: &Arc<Self>, place: &Place) -> Result<(), Problem> {
-        if let Some(line) = worktree::setup_script(std::path::Path::new(&place.worktree)) {
-            self.start_root(place, &Start::Command { line }).await?;
-        }
+        let cwd = std::path::Path::new(&place.worktree);
+        let Some(line) = worktree::setup_script(cwd) else {
+            return Ok(());
+        };
+        let start = Start::Command { line };
+        let prepared = self.prepare(&start, cwd).await?;
+        let discard = prepared.discarder();
+        self.graph
+            .add_root(place, start.agent(), start.brief(), |id| {
+                // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
+                self.setups.lock().unwrap().insert(id);
+                self.launch(id, prepared)
+            })
+            .inspect_err(|_| discard())?;
         Ok(())
     }
 
@@ -666,9 +680,10 @@ impl App {
             discard();
             app.codex.lock().unwrap().remove(&id);
             app.opencode2.lock().unwrap().remove(&id);
+            let setup = app.setups.lock().unwrap().remove(&id);
             if code == 0
-                && !app.host.has_output(id)
-                && app.graph.discard_empty_shell(id).unwrap_or(false)
+                && (setup || !app.host.has_output(id))
+                && app.graph.discard_finished_shell(id).unwrap_or(false)
             {
                 app.host.kill(id);
                 return;

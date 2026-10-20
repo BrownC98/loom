@@ -111,8 +111,8 @@ impl Graph {
         Ok(id)
     }
 
-    /// 출력 없이 정상 종료한 셸만 부른다. 관계나 메시지가 있으면 보존한다.
-    pub fn discard_empty_shell(&self, id: NodeId) -> rusqlite::Result<bool> {
+    /// 정상 종료해 지워도 되는 셸만 부른다(출력이 없거나 성공한 설정 스크립트). 관계나 메시지가 있으면 보존한다.
+    pub fn discard_finished_shell(&self, id: NodeId) -> rusqlite::Result<bool> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let eligible: bool = tx.query_row(

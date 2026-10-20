@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<title>loom 저장소 추가 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+:root {
+  color-scheme: light;
+  --bg: oklch(97% 0 0);
+  --panel: oklch(98.5% 0 0);
+  --surface: oklch(100% 0 0);
+  --surface-hover: oklch(93.7% 0 0);
+  --line: oklch(92.2% 0 0);
+  --line-strong: oklch(80% 0 0);
+  --ink: oklch(20.5% 0 0);
+  --ink-2: oklch(37.1% 0 0);
+  --ink-3: oklch(50% 0 0);
+  --accent: oklch(20.5% 0 0);
+  --accent-wash: oklch(20.5% 0 0 / 0.07);
+  --accent-ink: oklch(98.5% 0 0);
+  --run: oklch(54.6% 0.245 263);
+  --err: oklch(55% 0.22 28);
+  --dot: oklch(86% 0 0);
+  --shadow: oklch(0% 0 0 / 0.16);
+  --font: 'Pretendard Variable', system-ui, sans-serif;
+  --mono: 'Jetendard', ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: oklch(90% 0 0); color: var(--ink); font: 14px/1.5 var(--font); }
+body { padding: 24px 0 64px; }
+::selection { background: var(--accent-wash); }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--run); outline-offset: 1px; }
+.note { width: 1440px; margin: 32px auto 10px; }
+.note h2 { font-size: 16px; }
+.frame { width: 1440px; height: 520px; margin: 0 auto; display: grid; grid-template-columns: 260px 1fr; background: var(--bg); border: 1px solid var(--line); position: relative; overflow: hidden; }
+.side { background: var(--panel); border-right: 1px solid var(--line); }
+.side-head { display: flex; align-items: center; padding: 14px 12px 6px 16px; gap: 4px; }
+.side-head h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.spacer { flex: 1; }
+.icon { width: 26px; height: 26px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--ink-2); }
+.icon.on { background: var(--surface-hover); color: var(--ink); }
+svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.tree { list-style: none; padding: 0 8px; }
+.row { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px calc(8px + var(--d, 0) * 14px); border-radius: 6px; font-size: 13px; }
+.row.cur { background: var(--accent-wash); }
+.row .name { font-weight: 600; }
+.row .sub { color: var(--ink-3); font-size: 12px; }
+.row .branch { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.canvas { position: relative; background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.toolbar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; }
+.toolbar h1 { font-size: 18px; font-weight: 600; }
+.reason { font-size: 12px; color: var(--ink-3); }
+.group { position: absolute; left: 16px; top: 64px; width: 300px; height: 150px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.group-head .branch { font-family: var(--mono); font-weight: 600; }
+.group-head .kind { color: var(--ink-3); }
+.pop { position: absolute; left: 236px; top: 40px; width: 440px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 8px 28px var(--shadow); padding: 14px; }
+.pop h4 { font-size: 14px; margin-bottom: 10px; }
+.tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; }
+.tabs button { border: 0; background: none; border-radius: 6px; padding: 4px 0; font-size: 13px; color: var(--ink-2); }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px var(--shadow); }
+.field { display: grid; gap: 4px; margin-bottom: 10px; font-size: 12px; color: var(--ink-2); }
+.field input { padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); font-size: 13px; color: var(--ink); width: 100%; }
+.field input:disabled { color: var(--ink-3); }
+.mono { font-family: var(--mono); }
+.dirs { list-style: none; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); height: 140px; overflow: hidden; margin: -4px 0 10px; }
+.dirs li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; font-size: 13px; color: var(--ink); }
+.dirs li.sel { background: var(--accent-wash); }
+.dirs li svg { color: var(--ink-3); }
+.tag { margin-left: auto; font-size: 11px; color: var(--ink-3); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; }
+.hint { font-size: 12px; color: var(--ink-3); margin-bottom: 12px; }
+.hint code { font-family: var(--mono); color: var(--ink-2); }
+.err { font-size: 12px; color: var(--err); margin-bottom: 12px; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:disabled { opacity: 0.55; }
+.callout { position: absolute; background: oklch(80% 0.15 87); color: oklch(20% 0 0); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+.before img { width: 720px; border: 1px solid var(--line); display: block; margin: 0 auto 0 calc(50% - 720px); }
+</style>
+</head>
+<body>
+
+<div class="note"><h2>현재: 사이드바 「저장소」 [+]는 폴더 경로를 글로만 받습니다</h2></div>
+<div class="before"><img src="sidebar-before.png" width="1024" height="640" alt="현재 loom 화면 캡처. 사이드바 저장소 머리에 추가 버튼이 있습니다"></div>
+
+<div class="note"><h2>1. 기존 폴더 — 폴더 목록은 세 탭이 함께 씁니다. 처음 위치는 loom 폴더입니다</h2></div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h3>저장소</h3><span class="spacer"></span>
+      <button class="icon on" aria-label="저장소 추가" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <ul class="tree"><li class="row cur"><span class="name">loom</span><span class="sub">/home/me/loom</span></li></ul>
+  </aside>
+  <div class="canvas"></div>
+  <form class="pop" aria-label="저장소 추가">
+    <h4>저장소 추가</h4>
+    <div class="tabs" role="tablist"><button type="button" role="tab" aria-selected="true">기존 폴더</button><button type="button" role="tab" aria-selected="false">URL 복제</button><button type="button" role="tab" aria-selected="false">새 프로젝트</button></div>
+    <label class="field">폴더<input name="path" class="mono" value="/home/me/loom" spellcheck="false" autocomplete="off" translate="no"></label>
+    <ul class="dirs" role="listbox" aria-label="폴더 목록" translate="no">
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>..</li>
+      <li class="sel" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>acme-api<span class="tag">git</span></li>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>bin</li>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>workspaces</li>
+    </ul>
+    <p class="hint">추가할 폴더: <code translate="no">/home/me/loom/acme-api</code></p>
+    <div class="actions"><button type="button" class="btn">취소</button><button type="submit" class="btn primary">추가</button></div>
+  </form>
+  <span class="callout" style="left: 690px; top: 40px;">1</span>
+</div>
+
+<div class="note"><h2>2. URL 복제 — 복제하는 동안 (부모 폴더 칸을 누르면 1의 폴더 목록이 열립니다)</h2></div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h3>저장소</h3><span class="spacer"></span>
+      <button class="icon on" aria-label="저장소 추가" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <ul class="tree"><li class="row cur"><span class="name">loom</span><span class="sub">/home/me/loom</span></li></ul>
+  </aside>
+  <div class="canvas"></div>
+  <form class="pop" aria-label="저장소 추가" aria-busy="true">
+    <h4>저장소 추가</h4>
+    <div class="tabs" role="tablist"><button type="button" role="tab" aria-selected="false" disabled>기존 폴더</button><button type="button" role="tab" aria-selected="true">URL 복제</button><button type="button" role="tab" aria-selected="false" disabled>새 프로젝트</button></div>
+    <label class="field">Git URL<input type="url" name="url" class="mono" value="https://github.com/team/app.git" spellcheck="false" autocomplete="off" translate="no" disabled></label>
+    <label class="field">부모 폴더<input name="parent" class="mono" value="/home/me/loom" spellcheck="false" autocomplete="off" translate="no" disabled></label>
+    <p class="hint" aria-live="polite">만들 폴더: <code translate="no">/home/me/loom/app</code></p>
+    <div class="actions"><button type="button" class="btn">취소</button><button type="submit" class="btn primary" disabled>복제하는 중…</button></div>
+  </form>
+  <span class="callout" style="left: 690px; top: 40px;">2</span>
+</div>
+
+<div class="note"><h2>3. URL 복제 — 실패</h2></div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h3>저장소</h3><span class="spacer"></span>
+      <button class="icon on" aria-label="저장소 추가" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <ul class="tree"><li class="row cur"><span class="name">loom</span><span class="sub">/home/me/loom</span></li></ul>
+  </aside>
+  <div class="canvas"></div>
+  <form class="pop" aria-label="저장소 추가">
+    <h4>저장소 추가</h4>
+    <div class="tabs" role="tablist"><button type="button" role="tab" aria-selected="false">기존 폴더</button><button type="button" role="tab" aria-selected="true">URL 복제</button><button type="button" role="tab" aria-selected="false">새 프로젝트</button></div>
+    <label class="field">Git URL<input type="url" name="url" class="mono" value="https://github.com/team/app.git" spellcheck="false" autocomplete="off" translate="no"></label>
+    <label class="field">부모 폴더<input name="parent" class="mono" value="/home/me/loom" spellcheck="false" autocomplete="off" translate="no"></label>
+    <p class="err" role="alert"><span translate="no">/home/me/loom/app</span> 폴더가 이미 있고 비어 있지 않습니다. 다른 부모 폴더를 고르십시오. 그 폴더는 건드리지 않았습니다.</p>
+    <div class="actions"><button type="button" class="btn">취소</button><button type="submit" class="btn primary">복제</button></div>
+  </form>
+  <span class="callout" style="left: 690px; top: 40px;">3</span>
+</div>
+
+<div class="note"><h2>4. URL 복제 — 성공: 창이 닫히고 새 저장소를 엽니다</h2></div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h3>저장소</h3><span class="spacer"></span>
+      <button class="icon" aria-label="저장소 추가"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <ul class="tree">
+      <li class="row"><span class="name">loom</span><span class="sub">/home/me/loom</span></li>
+      <li class="row cur"><span class="name">app</span><span class="sub">/home/me/loom/app</span></li>
+      <li class="row" style="--d:1"><span class="branch">main</span><span class="sub">원래 체크아웃</span></li>
+    </ul>
+  </aside>
+  <div class="canvas">
+    <div class="toolbar"><h1>app</h1><span class="spacer"></span><button class="btn">새 워크트리</button><button class="btn">이벤트</button><button class="btn">커밋 그래프</button></div>
+    <div class="group"><div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span></div></div>
+  </div>
+  <span class="callout" style="left: 270px; top: 66px;">4</span>
+</div>
+
+<div class="note"><h2>5. 새 프로젝트 — 빈 git 저장소를 만듭니다. 첫 커밋은 만들지 않습니다</h2></div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h3>저장소</h3><span class="spacer"></span>
+      <button class="icon on" aria-label="저장소 추가" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <ul class="tree"><li class="row cur"><span class="name">loom</span><span class="sub">/home/me/loom</span></li></ul>
+  </aside>
+  <div class="canvas"></div>
+  <form class="pop" aria-label="저장소 추가">
+    <h4>저장소 추가</h4>
+    <div class="tabs" role="tablist"><button type="button" role="tab" aria-selected="false">기존 폴더</button><button type="button" role="tab" aria-selected="false">URL 복제</button><button type="button" role="tab" aria-selected="true">새 프로젝트</button></div>
+    <label class="field">이름<input name="name" value="my-app" spellcheck="false" autocomplete="off"></label>
+    <label class="field">부모 폴더<input name="parent" class="mono" value="/home/me/loom" spellcheck="false" autocomplete="off" translate="no"></label>
+    <p class="hint">만들 폴더: <code translate="no">/home/me/loom/my-app</code></p>
+    <div class="actions"><button type="button" class="btn">취소</button><button type="submit" class="btn primary">만들기</button></div>
+  </form>
+  <span class="callout" style="left: 690px; top: 40px;">5</span>
+</div>
+
+<div class="note"><h2>6. 커밋이 없는 저장소 — [새 워크트리]를 끄고 이유를 보입니다</h2></div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h3>저장소</h3><span class="spacer"></span>
+      <button class="icon" aria-label="저장소 추가"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <ul class="tree">
+      <li class="row"><span class="name">loom</span><span class="sub">/home/me/loom</span></li>
+      <li class="row cur"><span class="name">my-app</span><span class="sub">/home/me/loom/my-app</span></li>
+      <li class="row" style="--d:1"><span class="branch">main</span><span class="sub">커밋 없음</span></li>
+    </ul>
+  </aside>
+  <div class="canvas">
+    <div class="toolbar"><h1>my-app</h1><span class="spacer"></span><span class="reason" id="no-commit">첫 커밋 뒤에 만들 수 있습니다</span><button class="btn" disabled aria-describedby="no-commit">새 워크트리</button><button class="btn">이벤트</button><button class="btn">커밋 그래프</button></div>
+    <div class="group"><div class="group-head"><span class="branch">main</span><span class="kind">커밋 없음</span></div></div>
+  </div>
+  <span class="callout" style="left: 1040px; top: 50px;">6</span>
+</div>
+
+</body>
+</html>

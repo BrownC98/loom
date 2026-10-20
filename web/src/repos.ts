@@ -7,12 +7,15 @@ import type { RepoView } from './gen/RepoView';
 /** 그래프를 그리는 저장소를 이 브라우저에 남기는 키. */
 const REPO_KEY = 'loom.repo';
 
+/** 원래 체크아웃은 첫 커밋 전이면 `unborn`이다. 트리·그래프는 `linked`가 아니면 `worktree.<kind>` 꼬리표를 단다. */
+export type GroupKind = 'original' | 'unborn' | 'linked';
+
 export type Group = {
   /** 워크트리 절대 경로. 노드의 `place.worktree`와 같은 글자다. */
   path: string;
   /** 브랜치. 분리된 HEAD나 git에 없는 워크트리면 폴더 이름이다. */
   label: string;
-  original: boolean;
+  kind: GroupKind;
   /** 지울 때 함께 지울 수 있는 브랜치. */
   branch: string | null;
 };
@@ -23,10 +26,10 @@ export function folderName(path: string): string {
 
 /** git이 주는 워크트리 순서(첫째가 원래 체크아웃) 뒤에, git에 없지만 노드가 남은 워크트리를 붙인다. */
 export function groupsOf(repo: RepoView, views: NodeView[]): Group[] {
-  const groups: Group[] = repo.worktrees.map((w) => ({ path: w.path, label: w.branch ?? folderName(w.path), original: w.original, branch: w.branch }));
+  const groups: Group[] = repo.worktrees.map((w) => ({ path: w.path, label: w.branch ?? folderName(w.path), kind: !w.original ? 'linked' : repo.hasCommits ? 'original' : 'unborn', branch: w.branch }));
   for (const v of views) {
     if (v.place.repo === repo.id && !groups.some((g) => g.path === v.place.worktree)) {
-      groups.push({ path: v.place.worktree, label: folderName(v.place.worktree), original: false, branch: null });
+      groups.push({ path: v.place.worktree, label: folderName(v.place.worktree), kind: 'linked', branch: null });
     }
   }
   return groups;

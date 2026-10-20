@@ -102,7 +102,7 @@ export function Tree(props: {
           <span className="branch" translate="no" title={`${group.label}\n${group.path}`}>
             {group.label}
           </span>
-          {group.original && <span className="tag">{t('worktree.original')}</span>}
+          {group.kind !== 'linked' && <span className="tag">{t(`worktree.${group.kind}`)}</span>}
         </>
       ),
       children: nodeItems(inGroup(views, group), null, props.agents),

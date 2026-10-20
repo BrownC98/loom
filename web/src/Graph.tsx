@@ -209,22 +209,16 @@ export function Graph(props: {
   const [removing, setRemoving] = useState<NodeId | null>(null);
   // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
   const [refusal, setRefusal] = useState('');
-  // React Flow가 잰 크기와 끈 위치. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
+  // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
+  // 사람이 끈 카드의 위치만 둔다. 나머지 카드는 늘 나무 배치를 따르므로, 노드를 지우면 빈자리를 채운다.
+  const [dragged, setDragged] = useState<ReadonlyMap<string, XYPosition>>(new Map());
 
   const views = [...props.views.values()];
   const { slots, columns } = treeLayout(props.views);
-  const positions = new Map<NodeId, XYPosition>(views.map((v) => [v.id, flowState.get(String(v.id))?.position ?? slotPosition(slots.get(v.id)!)]));
-  /** 끈 위치를 나무 배치 자리로 되돌린다. 잰 크기는 그대로 둔다. */
-  const arrange = () =>
-    setFlowState(
-      new Map(
-        [...flowState].map(([id, n]) => {
-          const slot = slots.get(Number(id));
-          return [id, slot ? { ...n, position: slotPosition(slot) } : n];
-        }),
-      ),
-    );
+  const positions = new Map<NodeId, XYPosition>(views.map((v) => [v.id, dragged.get(String(v.id)) ?? slotPosition(slots.get(v.id)!)]));
+  /** 끈 위치를 버려 모든 카드를 나무 배치 자리로 되돌린다. */
+  const arrange = () => setDragged(new Map());
   const lowest = Math.max(0, ...[...positions.values()].map((p) => p.y));
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
@@ -287,6 +281,9 @@ export function Graph(props: {
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     setFlowState(new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n])));
+    // 카드를 끌 때만 위치 변경이 온다(묶음은 끌 수 없고 키보드 이동은 껐다).
+    const moved = changes.flatMap((c) => (c.type === 'position' && c.position ? [[c.id, c.position] as const] : []));
+    if (moved.length > 0) setDragged((prev) => new Map([...prev, ...moved]));
   };
 
   // React Flow는 `nodes`를 effect에서 받는다. 새 카드를 재기 전에 시작한 렌더의 effect가 잰 뒤에 돌면

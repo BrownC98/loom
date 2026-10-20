@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>사이드바 너비·툴팁</title>
+<style>
+  body { margin: 0; padding: 24px; background: #e9ecf1; font: 13px/1.4 Pretendard, system-ui, sans-serif; color: #1f2328; }
+  h2 { font-size: 13px; margin: 0 0 8px; }
+  .shot { position: relative; width: 1440px; height: 900px; background: url(sidebar-before.png) no-repeat; box-shadow: 0 2px 12px #0002; }
+  .grip { position: absolute; top: 0; bottom: 28px; width: 6px; margin-left: -3px; background: #2f6feb; opacity: 0.85; cursor: col-resize; }
+  .tag { position: absolute; padding: 3px 8px; border-radius: 4px; background: #2f6feb; color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tip { position: absolute; max-width: 420px; padding: 6px 9px; border-radius: 5px; background: #1f2328; color: #fff; font-size: 12px; box-shadow: 0 4px 12px #0003; }
+  .ring { position: absolute; border: 2px solid #e5534b; border-radius: 4px; }
+</style>
+
+<h2>왼쪽 트리·오른쪽 칸 경계를 끌어 너비를 바꾼다 / 잘린 글자에 마우스를 올리면 전문</h2>
+<div class="shot">
+  <div class="grip" style="left:260px"></div>
+  <div class="tag" style="left:270px; top:440px">← 끌기 →</div>
+  <div class="grip" style="left:920px"></div>
+  <div class="tag" style="left:840px; top:440px">← 끌기 →</div>
+
+  <div class="ring" style="left:965px; top:410px; width:332px; height:20px"></div>
+  <div class="tip" style="left:990px; top:434px">docs: 화면 언어 목업을 그림 셋으로 줄이고 새 main 화면으로 다시 찍는다</div>
+</div>
+</html>

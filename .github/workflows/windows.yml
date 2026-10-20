@@ -1,10 +1,8 @@
-# main에 push할 때마다 Windows 설치 파일을 만들어 Release `v<판>`으로 올린다.
+# 사람이 손으로 돌릴 때만 Windows 설치 파일을 만들어 Release `v<판>`으로 올린다.
 # 앱은 가장 새 Release의 `latest.json`으로 새 판을 찾는다. 근거: docs/design.md 「Windows 앱」.
 name: windows
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

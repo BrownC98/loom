@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type CoordinateExtent, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
-import { adoptNode, nodePty } from './api';
+import { adoptNode, nodePty, removeNode } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -11,7 +11,6 @@ import type { NodeView } from './gen/NodeView';
 import type { SettingsView } from './gen/SettingsView';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard } from './NodeCard';
-import { RemovePopover } from './RemovePopover';
 import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
@@ -37,9 +36,6 @@ const CARD_EXTENT: CoordinateExtent = [
 const POPOVER_OFFSET: XYPosition = { x: 184, y: 40 };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
-/** 제거 확인 창은 오른쪽 끝을 카드에 맞추고 머리 바로 아래에 둔다. 폭은 styles.css `.pop.confirm`이다. */
-const REMOVE_WIDTH = 300;
-const REMOVE_TOP = 38;
 
 /** 카드 머리 아이콘(목업 docs/mockups/main.html). */
 const ICON = {
@@ -222,7 +218,6 @@ export function Graph(props: {
   const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
   const [creating, setCreating] = useState(false);
-  const [removing, setRemoving] = useState<NodeId | null>(null);
   // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
   const [refusal, setRefusal] = useState('');
   // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
@@ -279,7 +274,8 @@ export function Graph(props: {
                 setExpanded(view.id);
               }
             : undefined,
-          onRemove: () => setRemoving(view.id),
+          // 확인 없이 바로 지운다(docs/design.md 「노드 제거와 입양」). 실패하면 입양 거절과 같은 자리에 보인다.
+          onRemove: () => removeNode(view.id).catch((err: Error) => setRefusal(err.message)),
         },
       }),
     ),
@@ -329,8 +325,6 @@ export function Graph(props: {
   };
 
   const zoomedView = expanded === null || !terminalCards ? undefined : props.views.get(expanded);
-  const removingView = removing === null ? undefined : props.views.get(removing);
-  const removingAt = removingView && positions.get(removingView.id)!;
 
   return (
     <>
@@ -379,13 +373,6 @@ export function Graph(props: {
                 }}
                 onCancel={() => setCreating(false)}
               />
-            </div>
-          </ViewportPortal>
-        )}
-        {removingView && removingAt && (
-          <ViewportPortal>
-            <div style={{ position: 'absolute', transform: `translate(${GROUP_POSITION.x + removingAt.x + layout.width - REMOVE_WIDTH}px, ${GROUP_POSITION.y + removingAt.y + REMOVE_TOP}px)` }}>
-              <RemovePopover view={removingView} childNames={views.filter((v) => v.parent === removingView.id).map((v) => v.name)} onClose={() => setRemoving(null)} />
             </div>
           </ViewportPortal>
         )}

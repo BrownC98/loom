@@ -143,7 +143,7 @@
   - 디자인 언어: 회색은 무채색(채도 0)이고 값은 Orca 토큰(shadcn neutral)을 따른다. 강조도 Orca primary처럼 무채색이고, 실행 중 상태만 파랑(`--run`)이다. 출처가 다르면 Orca, [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/color), [Toss TDS](https://tossmini-docs.toss.im/tds-mobile/foundation/colors/) 순서로 고른다. Apple에서는 글자 대비 4.5:1을 가져왔다(2026-10-20 사람 지시 "다크모드에서 파란색 톤을 제거하고 무채색으로", "애플을 우선순위 더 높게"). 명세는 [neutral-palette.html](mockups/neutral-palette.html)이다.
 - 터미널 테마는 loom 테마 2개와 Orca 내장 테마 30개 가운데 다크 모드용과 라이트 모드용을 하나씩 고른다. 기본값은 지금 loom 모양인 「Loom Dark」와 「Loom Light」다. 「라이트 모드에서도 다크 모드 테마를 쓴다」를 켜면 라이트 모드에서도 다크 모드용을 쓴다.
   - 색 값은 `web/src/terminalThemes.ts` 한 곳에만 있다. Orca 테마는 Orca 번들에서 기계로 꺼냈다. 데몬은 이름만 저장한다. 이름이 없거나 목록에 없으면 화면이 기본값을 쓴다. [터미널 테마 초기화]는 저장한 이름을 비운다.
-- 터미널 글꼴은 Orca처럼 글꼴 크기와 글꼴(CSS `font-family` 문자열) 두 칸이다. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다. 기본값은 `"JetBrains Mono", "Nanum Gothic Coding", monospace`, 12px다. 번들한 Nanum Gothic Coding은 한글 폭이 JetBrains Mono 두 칸과 같게 키워 한글 사이에 틈이 없다. 카드는 기본 글꼴로 80열이다.
+- 터미널 글꼴은 Orca처럼 글꼴 크기와 글꼴(CSS `font-family` 문자열) 두 칸이다. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다. 기본값은 `"Jetendard", monospace`, 12px다(2026-10-20 사람 지시 "터미널 폰트는 디폴트로 jetendard를 사용하라"). Jetendard는 JetBrains Mono에 Pretendard 한글을 두 칸으로 넣은 글꼴(OFL 1.1)이라 한글 사이에 틈이 없다. 번들한다. 카드는 기본 글꼴로 80열이다.
 - 카드 보기(설정 「UI」 탭)는 「터미널」과 「머리만」이다. 「머리만」이면 카드에 머리만 보이고, 카드를 고르면 그 노드의 터미널이 오른쪽 칸(이벤트·커밋 그래프와 같은 자리)에 열린다. 화면 모양을 바꾸는 설정이라 「UI」 탭에 둔다. 「머리만」에는 확대가 없다. PTY 크기는 오른쪽 칸 하나가 정한다.
   - 열린 터미널(xterm)은 모드나 고른 테마가 바뀌면 바로 다시 칠한다. 명세는 [settings.html 6번](mockups/settings.html#u-theme)이다.
 
@@ -197,7 +197,7 @@
 
 사람 지시(2026-10-19): 부모를 지워도 자식은 지우지 않는다. 다른 노드가 언제든 부모 역할을 맡는다.
 
-- 사람은 카드의 [노드 제거]로 노드 하나를 지운다. 데몬은 그 노드 프로세스를 끝낸다. Codex 노드면 app-server도 끝낸다. DB에서 노드와 그 노드가 받은 메시지, 보관한 메시지를 지운다.
+- 사람은 카드의 [노드 제거]로 노드 하나를 지운다. 확인 창 없이 바로 지운다(2026-10-20 사람 지시 "노드 제거시 경고 팝업 안뜨고 바로 삭제되도록 만들어"). 데몬은 그 노드 프로세스를 끝낸다. Codex 노드면 app-server도 끝낸다. DB에서 노드와 그 노드가 받은 메시지, 보관한 메시지를 지운다.
 - 자식은 계속 돈다. 자식의 부모는 비고, 자식은 뿌리가 된다.
 - 지운 노드가 `running`이었고 부모가 남으면 부모 메일함에 `removed` 한 줄을 넣는다. 이 줄은 메일함 상한을 넘어도 넣는다. 버리면 부모가 끝없이 기다린다.
 - 메시지는 보낸 노드 이름을 함께 저장한다. 보낸 노드를 지워도 받는 노드는 보낸 이름을 읽는다.

@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import hangulCss from '@fontsource/nanum-gothic-coding/400.css?inline';
 import { attachPty } from './api';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
@@ -22,47 +21,12 @@ export function navDirection(e: KeyboardEvent | ReactKeyboardEvent): Direction |
   return NAV_KEYS[e.key] ?? null;
 }
 
-/** 번들한 한글 글꼴. 원래 한글 폭(1em)이 JetBrains Mono 두 칸(7/6em)보다 좁아 xterm이 글자 사이에 틈을 둔다. 그래서 7/6배로 키운다. */
-const HANGUL_FONT = 'Nanum Gothic Coding';
-const HANGUL_SIZE_ADJUST = `${(700 / 6).toFixed(2)}%`;
-const HANGUL_BLOCKS = [
-  [0x1100, 0x11ff],
-  [0x3130, 0x318f],
-  [0xac00, 0xd7af],
-] as const;
-
-declare global {
-  // 브라우저에는 있지만 TypeScript DOM 타입에 아직 없다(CSS Fonts 5).
-  interface FontFaceDescriptors {
-    sizeAdjust?: string;
-  }
-}
-
-/**
- * 번들 CSS의 조각마다 한글 범위만 남긴 글꼴을 등록한다. 그 글꼴의 다른 글자(라틴, 상자 글자 `─│` 같은 기호)는 전각이라
- * 한 칸에 그리면 깨진다. 빠진 글자는 목록의 다음 글꼴이 그린다. CSS로 선언한 글꼴은 Chrome이 범위를 바꿔도 따르지 않아 새로 만든다.
- */
-function registerHangulFont() {
-  const sheet = new CSSStyleSheet();
-  sheet.replaceSync(hangulCss);
-  for (const rule of sheet.cssRules) {
-    if (!(rule instanceof CSSFontFaceRule)) continue;
-    const ranges = rule.style
-      .getPropertyValue('unicode-range')
-      .split(',')
-      .flatMap((part) => {
-        const [lo, hi = lo] = part.trim().slice(2).split('-').map((hex) => parseInt(hex, 16));
-        return HANGUL_BLOCKS.filter(([first, last]) => lo <= last && hi >= first).map(([first, last]) => `U+${Math.max(lo, first).toString(16)}-${Math.min(hi, last).toString(16)}`);
-      });
-    if (ranges.length === 0) continue;
-    document.fonts.add(new FontFace(HANGUL_FONT, rule.style.getPropertyValue('src'), { unicodeRange: ranges.join(','), sizeAdjust: HANGUL_SIZE_ADJUST }));
-  }
-}
-registerHangulFont();
-
 export type XtermFontValue = { family: string; size: number };
-/** 기본 글꼴로 카드가 80열이다(`.card`의 폭). 근거: docs/design.md 「설정」. */
-export const DEFAULT_TERMINAL_FONT: XtermFontValue = { family: `"JetBrains Mono", "${HANGUL_FONT}", monospace`, size: 12 };
+/**
+ * 기본 글꼴 Jetendard(번들, styles.css)는 한글이 꼭 두 칸이라 글자 사이에 틈이 없다. 기본 글꼴로 카드가 80열이다(`.card`의 폭).
+ * 근거: docs/design.md 「설정」.
+ */
+export const DEFAULT_TERMINAL_FONT: XtermFontValue = { family: '"Jetendard", monospace', size: 12 };
 /** Orca의 글꼴 크기 칸과 같은 범위다. */
 export const FONT_SIZE_RANGE = { min: 10, max: 24 } as const;
 

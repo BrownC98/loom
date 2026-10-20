@@ -50,11 +50,6 @@ const ko: typeof en = {
       exited: '프로세스가 코드 {{code}}로 끝났다',
     },
   },
-  removeNode: {
-    erase: '터미널 기록과 받은 메시지를 지운다.',
-    stop: '실행 중인 프로세스를 끝낸다.',
-    orphans: '자식 노드 {{n}}개({{names}})는 부모 없이 계속 돈다.',
-  },
   newNode: {
     profile: '프로필',
     search: '이름으로 찾는다',

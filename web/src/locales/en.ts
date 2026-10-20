@@ -48,11 +48,6 @@ const en = {
       exited: 'The process ended with code {{code}}',
     },
   },
-  removeNode: {
-    erase: 'Deletes the terminal history and received messages.',
-    stop: 'Stops the running process.',
-    orphans: 'Child nodes ({{names}}) keep running without a parent.',
-  },
   newNode: {
     profile: 'Profile',
     search: 'Find by name',

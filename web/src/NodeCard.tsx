@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AgentMark } from './AgentMark';
 import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
 import i18next from './i18n';
@@ -69,7 +70,7 @@ export function NodeCard(props: {
     >
       <div className="card-head" onDoubleClick={props.onDoubleClickHead}>
         <span className="name">{view.name}</span>
-        <span className="agent">{props.agentLabel}</span>
+        <AgentMark agent={view.agent} label={props.agentLabel} />
         {(view.model || view.effort) && (
           <span className="model" translate="no">
             {[view.model, view.effort].filter(Boolean).join(' · ')}

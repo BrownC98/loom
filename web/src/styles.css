@@ -1,3 +1,7 @@
+/* 터미널 기본 글꼴. kuskhan/jetendard v0.1.0 웹 글꼴(OFL 1.1, fonts/jetendard/LICENSE). JetBrains Mono에 Pretendard 한글을 두 칸으로 넣었다. */
+@font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+
 /* 토큰 원천: docs/mockups/main.html :root(2026-10-19 승인). 값을 바꾸면 목업도 같은 커밋에서 바꾼다. */
 :root {
   color-scheme: light dark;
@@ -180,6 +184,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
 .card-head .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
+.agent-logo { width: 14px; height: 14px; flex-shrink: 0; display: inline-grid; place-items: center; color: var(--ink-2); }
+span.agent-logo[style] { background: currentColor; mask: var(--logo) center / contain no-repeat; }
+.agent-logo svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.dock-head .agent { font-size: 12px; color: var(--ink-3); }
 .card-head .model { font-size: 12px; color: var(--ink-3); font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .spacer { flex: 1; }
 .card-head:last-child { border-bottom: 0; }
@@ -241,10 +249,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pick [aria-disabled="true"]:hover { background: none; }
 .pick .tag { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .pick .recent { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
-
-/* 노드 제거 확인 */
-.pop.confirm { width: 300px; gap: 10px; }
-.pop.confirm ul { padding-left: 18px; color: var(--ink-2); font-size: 13px; display: grid; gap: 2px; }
 
 /* 하단 상태 줄과 사용량 팝오버(docs/mockups/usage.html) */
 .app { grid-template-rows: minmax(0, 1fr) 28px; }

@@ -2,6 +2,7 @@
 import type { AgentId } from "./AgentId";
 import type { NodeId } from "./NodeId";
 import type { NodeState } from "./NodeState";
+import type { Place } from "./Place";
 
 export type NodeView = { id: NodeId, name: string, 
 /**
@@ -23,4 +24,4 @@ model: string | null,
 /**
  * CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
  */
-effort: string | null, };
+effort: string | null, place: Place, };

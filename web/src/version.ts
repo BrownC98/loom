@@ -1,4 +1,2 @@
-// 제품 버전의 원천은 루트 Cargo.toml이다. Windows 빌드는 화면 빌드 전에 PATCH를 이 줄에 쓴다.
-import cargo from '../../Cargo.toml?raw';
-
-export const VERSION = /^version = "(.+)"$/m.exec(cargo)![1];
+// 제품 버전. `npm run build`가 scripts/version.sh의 값을 넣는다. 개발 서버에서는 비어 있다.
+export const VERSION: string = import.meta.env.VITE_LOOM_VERSION ?? 'dev';

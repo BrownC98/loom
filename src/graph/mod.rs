@@ -23,6 +23,7 @@ pub use events::EventRecord;
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
+use crate::worktree::RepoId;
 
 /// 화면 하나가 밀려도 버티는 이벤트 수.
 const EVENT_QUEUE: usize = 256;
@@ -52,6 +53,14 @@ pub enum NodeState {
     },
 }
 
+/// 노드가 도는 자리: 저장소와 그 워크트리(묶음). `worktree`는 `git worktree list`가 적는 절대 경로다.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Place {
+    pub repo: RepoId,
+    pub worktree: String,
+}
+
 #[derive(Clone, Serialize, TS)]
 #[ts(export)]
 pub struct NodeView {
@@ -69,6 +78,7 @@ pub struct NodeView {
     pub model: Option<String>,
     /// CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
     pub effort: Option<String>,
+    pub place: Place,
 }
 
 /// 프로필이 CLI에서 읽은 지금 모델과 추론 강도. 값은 CLI가 쓴 글 그대로다. 근거: docs/design.md 「에이전트 실행」.
@@ -187,7 +197,7 @@ pub struct Graph {
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
-    n.model, n.effort
+    n.model, n.effort, n.repo, n.worktree
     FROM nodes n";
 
 struct Store {
@@ -245,6 +255,27 @@ impl Graph {
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
         })
+    }
+
+    /// 자리가 없는 옛 노드(DB 9단계 전)를 `home`으로 옮긴다. 데몬이 시작할 때 한 번 부른다.
+    pub fn settle(&self, home: &Place) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "UPDATE nodes SET repo = ?1, worktree = ?2 WHERE repo IS NULL",
+            params![home.repo.0, home.worktree],
+        )?;
+        Ok(())
+    }
+
+    pub fn place_of(&self, id: NodeId) -> rusqlite::Result<Place> {
+        place_of(&self.lock(), id)
+    }
+
+    /// 그 워크트리 안의 노드 id. 워크트리를 지울 때 함께 지운다.
+    pub fn nodes_in(&self, worktree: &str) -> rusqlite::Result<Vec<NodeId>> {
+        self.lock()
+            .prepare("SELECT id FROM nodes WHERE worktree = ?1 ORDER BY id")?
+            .query_map([worktree], |row| Ok(NodeId(row.get(0)?)))?
+            .collect()
     }
 
     /// 지금 목록과 그 뒤의 이벤트를 빈틈없이 받는다.
@@ -321,6 +352,10 @@ fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
         held: row.get(6)?,
         model: row.get(7)?,
         effort: row.get(8)?,
+        place: Place {
+            repo: RepoId(row.get(9)?),
+            worktree: row.get(10)?,
+        },
     })
 }
 
@@ -344,6 +379,19 @@ fn parent_of(db: &Connection, id: NodeId) -> rusqlite::Result<Option<NodeId>> {
     db.query_row("SELECT parent FROM nodes WHERE id = ?1", [id.0], |row| {
         Ok(row.get::<_, Option<u32>>(0)?.map(NodeId))
     })
+}
+
+fn place_of(db: &Connection, id: NodeId) -> rusqlite::Result<Place> {
+    db.query_row(
+        "SELECT repo, worktree FROM nodes WHERE id = ?1",
+        [id.0],
+        |row| {
+            Ok(Place {
+                repo: RepoId(row.get(0)?),
+                worktree: row.get(1)?,
+            })
+        },
+    )
 }
 
 fn name_of(db: &Connection, id: NodeId) -> rusqlite::Result<String> {

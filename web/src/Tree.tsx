@@ -6,13 +6,15 @@ import { agentLabel } from './catalog';
 import type { AgentView } from './gen/AgentView';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
-import { MAIN_GROUP, useShowNodes } from './Graph';
+import { AddRepoPopover } from './AddRepoPopover';
+import { useShowNodes } from './Graph';
 import i18next from './i18n';
+import { groupsOf, inGroup } from './repos';
 
-type Item = { key: string; row: ReactNode; node: NodeId | null; children: Item[] };
+type Item = { key: string; row: ReactNode; node: NodeId | null; repo?: RepoId; children: Item[] };
 
-const REPO_KEY = 'repo';
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -22,9 +24,10 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+/** `parent`가 없으면 묶음의 뿌리: 부모가 없거나 부모가 다른 묶음에 있는 노드다. */
 function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]): Item[] {
   return views
-    .filter((v) => v.parent === parent)
+    .filter((v) => (parent === null ? !views.some((p) => p.id === v.parent) : v.parent === parent))
     .sort((a, b) => a.id - b.id)
     .map((v) => ({
       key: `node:${v.id}`,
@@ -51,12 +54,24 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
     }));
 }
 
-export function Tree(props: { repo: RepoView; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[]; selected: NodeId | null; onSelect: (id: NodeId) => void }) {
+export function Tree(props: {
+  repos: RepoView[];
+  /** 그래프가 그리는 저장소. */
+  current: RepoId | null;
+  onRepo: (id: RepoId) => void;
+  onAdded: (repo: RepoView) => void;
+  views: ReadonlyMap<NodeId, NodeView>;
+  agents: AgentView[];
+  selected: NodeId | null;
+  onSelect: (id: NodeId) => void;
+}) {
   const { t } = useTranslation();
   const show = useShowNodes();
+  const [adding, setAdding] = useState(false);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const repoKey = (id: RepoId) => `repo:${id}`;
   // Tab으로 들어올 때 포커스를 받는 줄(roving tabindex).
-  const [active, setActive] = useState(REPO_KEY);
+  const [active, setActive] = useState('');
   const toggle = (key: string, open: boolean) =>
     setClosed((prev) => {
       const next = new Set(prev);
@@ -65,41 +80,41 @@ export function Tree(props: { repo: RepoView; views: ReadonlyMap<NodeId, NodeVie
       return next;
     });
 
-  const root: Item = {
-    key: REPO_KEY,
+  const views = [...props.views.values()];
+  const roots: Item[] = props.repos.map((repo) => ({
+    key: repoKey(repo.id),
     node: null,
+    repo: repo.id,
     row: (
       <>
-        <span className="name">{props.repo.name}</span>
-        <span className="sub" translate="no">
-          {props.repo.path}
+        <span className="name">{repo.name}</span>
+        <span className="sub" translate="no" title={repo.path}>
+          {repo.path}
         </span>
       </>
     ),
-    children: [
-      {
-        key: `group:${MAIN_GROUP}`,
-        node: null,
-        row: (
-          <>
-            <span className="branch" translate="no">
-              {MAIN_GROUP}
-            </span>
-            <span className="sub">{t('worktree.original')}</span>
-          </>
-        ),
-        children: nodeItems([...props.views.values()], null, props.agents),
-      },
-    ],
-  };
-
+    children: groupsOf(repo, views).map((group) => ({
+      key: `group:${group.path}`,
+      node: null,
+      row: (
+        <>
+          {/* 긴 브랜치는 한 줄에서 줄임표로 자른다. 툴팁이 전체 이름과 경로를 보인다. 들여쓰기가 워크트리 층을 보이므로 원래 체크아웃에만 꼬리표를 단다(Orca 사이드바). */}
+          <span className="branch" translate="no" title={`${group.label}\n${group.path}`}>
+            {group.label}
+          </span>
+          {group.original && <span className="tag">{t('worktree.original')}</span>}
+        </>
+      ),
+      children: nodeItems(inGroup(views, group), null, props.agents),
+    })),
+  }));
   const visible = new Set<string>();
   const walk = (item: Item) => {
     visible.add(item.key);
     if (!closed.has(item.key)) item.children.forEach(walk);
   };
-  walk(root);
-  const tabStop = visible.has(active) ? active : REPO_KEY;
+  roots.forEach(walk);
+  const tabStop = visible.has(active) ? active : (roots[0]?.key ?? '');
 
   const render = (item: Item, depth: number, parentKey: string | null): ReactNode => {
     const open = !closed.has(item.key);
@@ -114,8 +129,13 @@ export function Tree(props: { repo: RepoView; views: ReadonlyMap<NodeId, NodeVie
           data-open={branch ? open : undefined}
           tabIndex={item.key === tabStop ? 0 : -1}
           onFocus={() => setActive(item.key)}
-          aria-current={item.node !== null && item.node === props.selected ? 'true' : undefined}
+          aria-current={(item.node !== null && item.node === props.selected) || (item.repo !== undefined && item.repo === props.current) ? 'true' : undefined}
           onClick={() => {
+            // 저장소 줄은 그래프를 그 저장소로 바꾼다. 고른 저장소 줄을 다시 누르면 접고 편다.
+            if (item.repo !== undefined && item.repo !== props.current) {
+              toggle(item.key, true);
+              return props.onRepo(item.repo);
+            }
             if (item.node === null) return toggle(item.key, !open);
             show([item.node]);
             props.onSelect(item.node);
@@ -150,6 +170,11 @@ export function Tree(props: { repo: RepoView; views: ReadonlyMap<NodeId, NodeVie
       <div className="side-head">
         <h2>{t('tree.repos')}</h2>
         <span className="spacer" />
+        <button className="btn ghost sm" aria-label={t('tree.addRepo')} title={t('tree.addRepo')} aria-expanded={adding} onClick={() => setAdding(true)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
         <button className="btn ghost sm" aria-label={t('tree.expandAll')} title={t('tree.expandAll')} onClick={() => setClosed(new Set())}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M7 15l5 5 5-5M7 9l5-5 5 5" />
@@ -157,8 +182,17 @@ export function Tree(props: { repo: RepoView; views: ReadonlyMap<NodeId, NodeVie
         </button>
       </div>
       <ul className="tree" role="tree" aria-label={t('tree.label')} onKeyDown={onKeyDown}>
-        {render(root, 0, null)}
+        {roots.map((root) => render(root, 0, null))}
       </ul>
+      {adding && (
+        <AddRepoPopover
+          onClose={() => setAdding(false)}
+          onAdded={(repo) => {
+            setAdding(false);
+            props.onAdded(repo);
+          }}
+        />
+      )}
     </>
   );
 }

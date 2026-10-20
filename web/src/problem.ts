@@ -18,6 +18,8 @@ export function problemText(p: Problem): string {
       return i18next.t(`problem.refused.${p.value.code}`, vars(p.value));
     case 'launch':
       return i18next.t(`problem.launch.${p.value.code}`, vars(p.value));
+    case 'repo':
+      return i18next.t(`problem.repo.${p.value.code}`, vars(p.value));
     case 'noLogin':
       return i18next.t('problem.noLogin');
     case 'internal':

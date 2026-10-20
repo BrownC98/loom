@@ -21,6 +21,7 @@ use crate::settings::SettingsView;
 #[cfg(test)]
 use crate::settings::{Language, Theme};
 use crate::usage::{self, Usage, UsageProblem};
+use crate::worktree::{self, RepoProblem};
 
 const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
 
@@ -109,14 +110,25 @@ fn with_settings(page: &str, settings: &SettingsView) -> String {
     )
 }
 
+/// 워크스페이스 폴더가 비어 있으면 기본값을 채워 보낸다. 화면은 늘 실제로 쓸 폴더를 보인다.
 async fn get_settings(State(app): State<Arc<App>>) -> Result<Json<SettingsView>, Problem> {
-    Ok(Json(app.settings.get().map_err(internal)?))
+    let mut view = app.settings.get().map_err(internal)?;
+    if view.workspace_dir.is_none() {
+        view.workspace_dir =
+            worktree::default_workspace().map(|p| p.to_string_lossy().into_owned());
+    }
+    Ok(Json(view))
 }
 
 async fn put_settings(
     State(app): State<Arc<App>>,
     Json(view): Json<SettingsView>,
 ) -> Result<Json<()>, Problem> {
+    if let Some(dir) = &view.workspace_dir
+        && !std::path::Path::new(dir).is_absolute()
+    {
+        return Err(Problem::Repo(RepoProblem::NotAbsolute(dir.clone())));
+    }
     app.settings.put(&view).map_err(internal)?;
     Ok(Json(()))
 }

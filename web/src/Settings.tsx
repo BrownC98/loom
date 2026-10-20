@@ -11,10 +11,11 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Usage } from './StatusBar';
 import { Terminal } from './Terminal';
 import { TerminalTab, UiTab } from './ThemeSettings';
+import { WorkspaceTab } from './WorkspaceSettings';
 import { accountName, activeAccount, fetchedText, limitsProblem, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines, withAccount } from './usage';
 
 /** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
-export const SETTINGS_TABS = ['agents', 'accounts', 'ui', 'terminal'] as const;
+export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 /** 로그인 창이 로그인이 끝났는지 묻는 간격. */
 const LOGIN_POLL_MS = 1000;
@@ -73,6 +74,7 @@ export function Settings(props: {
         </div>
         {props.tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} />}
+        {props.tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
       </div>

@@ -11,6 +11,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getCommits } from './api';
 import type { Commit } from './gen/Commit';
+import type { RepoId } from './gen/RepoId';
 import type { CommitGraph as Graph } from './gen/CommitGraph';
 import type { Worktree } from './gen/Worktree';
 import i18next, { ago } from './i18n';
@@ -162,7 +163,7 @@ function Refs({ commit, worktrees, color }: { commit: Commit; worktrees: Worktre
 }
 
 /** 칸이 열린 동안 붙어 있다. 닫으면 다시 읽기를 멈춘다. */
-export function CommitGraph(props: { onClose: () => void }) {
+export function CommitGraph(props: { repo: RepoId; onClose: () => void }) {
   const { t } = useTranslation();
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -171,7 +172,7 @@ export function CommitGraph(props: { onClose: () => void }) {
   useEffect(() => {
     let last = '';
     const read = () =>
-      getCommits()
+      getCommits(props.repo)
         .then((next) => {
           setError(null);
           setNow(Date.now());
@@ -186,7 +187,7 @@ export function CommitGraph(props: { onClose: () => void }) {
     read();
     const timer = window.setInterval(read, REFRESH_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [props.repo]);
 
   const rows = graph ? lanes(graph.commits) : [];
   const width = LANE_WIDTH * (Math.max(1, ...rows.map(laneCount)) + 1);

@@ -17,7 +17,7 @@
 
 화면의 모양과 토큰은 승인한 목업 [docs/mockups/main.html](mockups/main.html)이 명세다. 설정 창, 새 노드 창은 [docs/mockups/settings.html](mockups/settings.html)이, 하단 상태 줄과 사용량 팝오버는 [docs/mockups/usage.html](mockups/usage.html)이 명세다. 사이드바, 미니맵, 커밋 그래프 칸, 이벤트 콘솔은 [docs/mockups/graph-panels.html](mockups/graph-panels.html)이 명세다. 이 절은 동작만 적는다.
 
-- 그래프 하나에는 저장소 하나만 보인다. 화면 왼쪽 사이드바의 트리에서 저장소를 바꾼다. 저장소는 경로를 글로 입력해 더한다. 최근 경로 목록을 함께 보인다.
+- 그래프 하나에는 저장소 하나만 보인다. 화면 왼쪽 사이드바의 트리에서 저장소를 바꾼다. 저장소는 경로를 글로 입력해 더한다. 규칙은 「[저장소와 워크트리](#저장소와-워크트리)」에 있다.
 - 워크트리는 묶음(React Flow group node)이다. 저장소의 원래 체크아웃도 묶음 하나다.
 - 노드는 늘 묶음 하나 안에 있다.
   - 사람: [새 워크트리]로 묶음을 만든다(브랜치 이름, 기준 브랜치). 그 묶음 안에서 [새 노드]를 누르고 프로필 하나를 고른다. 첫 지시문은 노드를 띄운 뒤 카드 터미널에 입력한다.
@@ -25,7 +25,7 @@
 - 간선은 부모-자식 관계다. 묶음 경계를 넘어도 된다. 메시지가 오가면 그 간선을 잠깐 강조한다.
 - 배치: 묶음 안은 나무 모양으로 자동 배치한다. 자식은 부모 아래 줄에, 형제는 오른쪽 칸에 놓는다. 사람이 띄운 노드는 앞 노드의 나무 아래에 쌓는다. 묶음끼리는 나란히 놓는다. 사람이 끌어 옮긴 위치는 저장한다. 끌지 않은 카드는 늘 나무 배치를 따른다. 그래서 노드를 지우면 남은 카드가 빈자리를 채우고, 끈 카드는 제자리에 남는다. 묶음 머리의 [정렬]은 끈 위치를 버리고 묶음 안 카드를 다시 나무 모양으로 놓는다(목업 `docs/mockups/arrange.html`).
 - 병합은 사람이나 부모 에이전트가 `git`으로 한다. loom은 병합하지 않는다.
-- [워크트리 닫기]는 사람만 한다. 미커밋 변경이 있거나 안에 `running` 노드가 있으면 거부한다.
+- [워크트리 삭제]는 사람만 한다. 삭제 전에 경고 창을 띄운다. 원래 체크아웃은 지우지 않는다. 규칙은 「[저장소와 워크트리](#저장소와-워크트리)」에 있다.
 - 카드 터미널은 입력을 받는다. 고른 카드만 입력을 받는다. 카드를 두 번 누르면 확대한다.
 - 노드 상태는 `running`, `done`, `exited(<코드>)` 셋이다. 카드에는 읽지 않은 메시지 수도 보인다. 부모 없는 카드와 그 트리 줄에는 보관한 메시지 수(「보관 N」)를 보인다.
 - 노드를 지우고 부모를 바꾸는 규칙은 「[노드 제거와 입양](#노드-제거와-입양)」에 있다.
@@ -47,6 +47,24 @@
   - [노드]·[메시지]로 종류를 거르고, 노드 이름으로 거른다. 워크트리 이벤트가 생기면 [워크트리]를 더한다.
   - 줄을 누르면 그 이벤트에 관여한 노드와 그 사이 간선을 강조한다. 나머지는 흐리게 한다. 시점은 그 노드들로 옮긴다. 같은 줄을 다시 누르거나, 그래프 바탕을 누르거나, Esc를 누르면 강조를 끈다. 터미널 안의 Esc는 터미널 앱이 쓴다.
   - 지운 노드는 흐린 이름으로 보인다. 메시지 본문은 첫 줄만 보이고, 여러 줄이면 [펼치기]로 연다.
+
+### 저장소와 워크트리
+
+명세는 [workspace.html](mockups/workspace.html)이다(2026-10-20 사람 지시 "orca처럼 사용자가 원하는 경로에 워크스페이스 만들 수 있도록").
+
+| 결정 | 정한 것 | 이유 |
+|---|---|---|
+| 저장소 목록 | `repos` 테이블. 원래 체크아웃의 절대 경로로 저장한다. 같은 저장소의 다른 워크트리를 적어도 한 줄이다 | 그래프 하나가 저장소 하나다. 워크트리마다 저장소가 생기면 묶음이 나뉜다 |
+| 더하기 | 사이드바 「저장소」 머리의 [+]. 폴더가 없거나 git 저장소가 아니면 거절한다. 목록을 지우는 기능은 없다 | Orca 「프로젝트」 머리의 [+]와 같다. 트리가 더한 저장소를 모두 보이므로 최근 경로 목록은 두지 않는다 |
+| 시작 폴더 | 데몬은 시작할 때 시작 폴더를 저장소로 더한다. git 저장소가 아니어도 더한다. 처음 띄운 데몬의 시작 폴더가 첫 저장소다 | 앞의 동작(시작 폴더 = 저장소)을 지킨다. Windows 앱의 폴더 고르기 창이 고른 폴더도 이 길로 들어간다 |
+| 옛 노드 | DB 9단계 전 노드는 데몬이 시작할 때 시작 폴더 저장소의 원래 체크아웃으로 옮긴다. 지우지 않는다 | 총괄 결정(2026-10-20). 보관한 메시지를 잃지 않는다 |
+| 묶음의 원천 | `git worktree list`. loom은 워크트리를 저장하지 않는다. 노드는 띄운 워크트리 경로를 남긴다 | 같은 사실을 두 곳에 두지 않는다. 사람이 터미널에서 만든 워크트리도 묶음이 된다 |
+| 워크스페이스 폴더 | 설정 「워크스페이스」 탭의 글 입력 하나. 처음 값은 `~/loom/workspaces`. 절대 경로만 받는다 | Orca 「Workspace Directory」(기본 `~/orca/workspaces`)와 같은 모양이다. [찾아보기]는 브라우저가 데몬 기계의 폴더를 고르지 못해 넣지 않았다 |
+| 폴더 배치 | `<워크스페이스 폴더>/<저장소 이름>/<브랜치 마지막 마디>`. 늘 중첩한다 | Orca 「Nest Workspaces」 기본값과 같다. 끄는 요구가 없어 스위치를 두지 않았다 |
+| [새 워크트리] | 그래프 도구 줄. 브랜치 이름과 기준 브랜치(로컬 브랜치, 처음 값은 원래 체크아웃의 브랜치)를 받아 `git worktree add -b`를 부른다 | 그래프가 저장소 하나라 도구 줄에 둔다 |
+| `loom spawn --worktree` | 부모 워크트리의 `HEAD`에서 새 브랜치로 워크트리를 만든다. 자식을 띄우지 못해도 워크트리는 남는다 | 부모가 체크아웃한 커밋에서 일을 나눈다. 남은 워크트리는 사람이 지운다 |
+| [워크트리 삭제] | 추가한 워크트리 묶음 머리에 둔다. 누르면 경고 창이 워크트리 이름, 잃는 것(커밋하지 않은 파일과 추적하지 않는 파일 목록, 끝낼 `running` 노드, 지울 노드)을 보인다. [삭제]는 그 묶음의 노드를 끝내고 그래프에서 지운 뒤 `git worktree remove --force`를 부른다. 「브랜치도 삭제」 확인란(처음 값 꺼짐)을 켜면 `git branch -D`도 부른다 | 사람 지시(2026-10-20) "워크트리도 삭제 가능하게 만들어라(워크트리는 삭제시 경고 팝업출력할 것)". Orca 「Delete Workspace」 창과 같다(`--force`, 「Any uncommitted or untracked changes … will be permanently deleted.」). Orca 창에는 브랜치 선택이 없고 Orca가 만든 브랜치를 안에서 지운다. loom은 병합하지 않은 커밋을 잃지 않게 확인란으로 고르게 했다. 노드를 먼저 끝낸다: Windows는 프로세스가 쓰는 폴더를 지우지 못한다 |
+| 경로와 컨테이너 | 경로는 데몬이 보는 파일 시스템의 경로다. 없으면 화면은 「폴더를 찾을 수 없습니다: <경로>」만 보인다. 개발 컨테이너의 데몬은 `compose.yaml`이 넣은 폴더만 본다 | 웹 화면은 데몬 기계의 경로를 모른다. 마운트를 넓히지 않았다 |
 
 ## 에이전트 실행
 
@@ -138,14 +156,14 @@
 ### 설정
 
 - 설정은 `settings` 테이블 한 줄(JSON)이다: 모든 권한 허용을 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 화면 언어. 저장한 JSON에 없는 값은 기본값으로 읽는다.
-- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 오른쪽 끝에 제품 버전(`v<루트 Cargo.toml version>`)을 보인다(2026-10-20 사람 지시 "버전 번호는 우하단에 보여주면 될듯, 사용량 보여주는 섹션에"). 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
+- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 오른쪽 끝에 제품 버전(`v<scripts/version.sh 값>`)을 보인다(2026-10-20 사람 지시 "버전 번호는 우하단에 보여주면 될듯, 사용량 보여주는 섹션에"). 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
   - 색 토큰은 `light-dark(라이트, 다크)` 한 벌이다. 테마는 `color-scheme` 하나만 바꾼다.
   - 디자인 언어: 회색은 무채색(채도 0)이고 값은 Orca 토큰(shadcn neutral)을 따른다. 강조도 Orca primary처럼 무채색이고, 실행 중 상태만 파랑(`--run`)이다. 출처가 다르면 Orca, [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/color), [Toss TDS](https://tossmini-docs.toss.im/tds-mobile/foundation/colors/) 순서로 고른다. Apple에서는 글자 대비 4.5:1을 가져왔다(2026-10-20 사람 지시 "다크모드에서 파란색 톤을 제거하고 무채색으로", "애플을 우선순위 더 높게"). 명세는 [neutral-palette.html](mockups/neutral-palette.html)이다.
 - 터미널 테마는 loom 테마 2개와 Orca 내장 테마 30개 가운데 다크 모드용과 라이트 모드용을 하나씩 고른다. 기본값은 지금 loom 모양인 「Loom Dark」와 「Loom Light」다. 「라이트 모드에서도 다크 모드 테마를 쓴다」를 켜면 라이트 모드에서도 다크 모드용을 쓴다.
   - 색 값은 `web/src/terminalThemes.ts` 한 곳에만 있다. Orca 테마는 Orca 번들에서 기계로 꺼냈다. 데몬은 이름만 저장한다. 이름이 없거나 목록에 없으면 화면이 기본값을 쓴다. [터미널 테마 초기화]는 저장한 이름을 비운다.
-- 터미널 글꼴은 Orca처럼 글꼴 크기와 글꼴(CSS `font-family` 문자열) 두 칸이다. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다. 기본값은 `"Jetendard", monospace`, 12px다(2026-10-20 사람 지시 "터미널 폰트는 디폴트로 jetendard를 사용하라"). Jetendard는 JetBrains Mono에 Pretendard 한글을 두 칸으로 넣은 글꼴(OFL 1.1)이라 한글 사이에 틈이 없다. 번들한다. 카드는 기본 글꼴로 80열이다.
+- 터미널 글꼴은 Orca처럼 글꼴 크기와 글꼴(CSS `font-family` 문자열) 두 칸이다. 글자마다 목록에서 그 글자가 있는 첫 글꼴을 쓴다. 기본값은 `"Jetendard", monospace`, 12px다(2026-10-20 사람 지시 "터미널 폰트는 디폴트로 jetendard를 사용하라"). Jetendard는 JetBrains Mono에 Pretendard 한글을 두 칸으로 넣은 글꼴(OFL 1.1)이라 한글 사이에 틈이 없다. 번들한다. 카드는 기본 글꼴로 80열이다. 화면의 고정폭 글자(`--mono`)도 Jetendard다. 브랜치·워크트리 이름은 화면 글꼴(Pretendard)로 보인다(2026-10-20 사람 지시 "글꼴도 이상하니 pretendard로 하고").
 - 카드 보기(설정 「UI」 탭)는 「터미널」과 「머리만」이다. 「머리만」이면 카드에 머리만 보이고, 카드를 고르면 그 노드의 터미널이 오른쪽 칸(이벤트·커밋 그래프와 같은 자리)에 열린다. 화면 모양을 바꾸는 설정이라 「UI」 탭에 둔다. 「머리만」에는 확대가 없다. PTY 크기는 오른쪽 칸 하나가 정한다.
   - 열린 터미널(xterm)은 모드나 고른 테마가 바뀌면 바로 다시 칠한다. 명세는 [settings.html 6번](mockups/settings.html#u-theme)이다.
 
@@ -180,6 +198,7 @@
 - 도움말: 켜면 무엇이 되는지만 쓴다. 끄면 반대라고 짐작할 수 있으면 쓰지 않는다. 화면이 이미 보이는 것은 설명하지 않는다.
 - 화면 요소 이름은 작은따옴표로 감싼다: ‘새 노드’, 영어는 “New node”. 메뉴 경로는 「›」로 잇는다. 줄임표는 한 글자 「…」다.
 - 영어: 모든 요소가 sentence case다. 짧은 능동문으로 쓰고 "please"를 쓰지 않는다.
+- 안쪽 말 금지: 데몬·PTY·PATH·app-server·DB·파일 시스템 같은 구현 낱말을 쓰지 않는다. 사람이 아는 말(loom, 에이전트, 노드, 터미널, 폴더)로 쓴다(2026-10-20 사람 지시 "이런구문을 쓰면 사용자는 이해 못한다").
 
 ## 메시징
 
@@ -195,7 +214,7 @@
 
 | 명령 | 누가 부르나 | 뜻 |
 |---|---|---|
-| `loom spawn <이름> [--worktree <브랜치>] (--agent <id> \| -- <명령>)` | 에이전트 | 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다. `--agent`는 카탈로그 에이전트를 그 프로필·계정으로 띄운다. `<명령>`은 ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다 |
+| `loom spawn <이름> [--worktree <브랜치>] (--agent <id> \| -- <명령>)` | 에이전트 | 자식 노드를 만든다. `--worktree`는 내 워크트리의 HEAD에서 새 워크트리를 만들고 그 안에 띄운다. 지시문은 stdin이나 `--file`로 받는다. `--agent`는 카탈로그 에이전트를 그 프로필·계정으로 띄운다. `<명령>`은 ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다 |
 | `loom send <이름> <본문>` | 에이전트 | 큐: 받는 노드의 턴을 끊지 않는다 |
 | `loom steer <이름> <본문>` | 에이전트 | 조정: 턴을 멈추지 않고 다음 도구 호출 사이에 넣는다 |
 | `loom interrupt <이름> <본문>` | 에이전트 | 중단: 지금 동작을 멈추고 메시지를 바로 따르게 한다 |
@@ -281,7 +300,7 @@
 ## 저장
 
 - SQLite 파일 하나: `<데이터 폴더>/loom.db`, WAL 모드. 데이터 폴더는 `~/.loom`이고, Windows는 앱 설정 관례대로 `%APPDATA%\loom`이다. 라이브러리는 `rusqlite`다.
-- 메일함, 노드 목록, 워크트리 묶음, 카드 위치, 설정, 이벤트 기록을 모두 여기에 둔다. 데몬이 다시 시작해도 메시지는 남는다.
+- 메일함, 노드 목록, 저장소 목록, 카드 위치, 설정, 이벤트 기록을 모두 여기에 둔다. 워크트리 묶음은 git이 갖는다(「저장소와 워크트리」). 데몬이 다시 시작해도 메시지는 남는다.
 - 이벤트 기록은 바꾼 트랜잭션 안에서 함께 쓴다. 되돌린 변경은 기록에 남지 않는다. 메시지 본문은 복사하지 않고 메시지 id로 가리킨다. 최근 10,000개만 남긴다.
 - 계정 로그인 폴더는 같은 폴더의 `accounts/`에 둔다.
 - 개발 컨테이너는 `~/.loom`을 이름 있는 볼륨(`loom_home`)에 둔다. 컨테이너를 다시 만들어도 DB와 계정 폴더가 남는다.
@@ -319,7 +338,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 노드 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
-| 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 CI가 루트 `Cargo.toml`의 `version` 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수로 정해 두 `Cargo.toml`에 쓴다. 그래서 `MAJOR.MINOR`를 올리면 PATCH는 0부터 다시 센다(SemVer 관례). 로컬 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |
+| 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 루트 `Cargo.toml`의 `version` 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수다. 계산은 `scripts/version.sh` 한 곳이고, 화면 빌드(`npm run build`)와 CI가 함께 쓴다. CI는 그 값을 두 `Cargo.toml`에 쓴다. 그래서 `MAJOR.MINOR`를 올리면 PATCH는 0부터 다시 센다(SemVer 관례). 로컬 Rust 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |
 | 사람이 손으로 돌릴 때만(`workflow_dispatch`) GitHub Actions(`.github/workflows/windows.yml`)가 `tauri-apps/tauri-action`으로 설치 파일, 서명(`.sig`), `latest.json`을 만들어 Release `v<판>`에 올린다. 처음 설치하는 링크는 https://github.com/BrownC98/loom/releases/latest 다 | 판마다 파일이 바뀌지 않아 `latest.json`과 설치 파일이 어긋나지 않는다. 옛 파일을 지우는 스크립트가 없다. Release는 쌓인다 |
 | 기능이 어느 정도 완성될 때까지 에이전트는 Windows 빌드(Actions, `scripts/windows.sh`)를 돌리지 않는다(2026-10-20 사람 지시 "당분간, 기능이 어느정도 완성되기전에는 윈도우 빌드하지마 개발 시간만 잡아먹는다") | 빌드가 개발 시간을 잡아먹는다 |
 | 업데이트: 화면을 열 때 한 번 `latest.json`을 확인하고, 새 판이 있으면 오른쪽 아래 카드로 알린다([update.html](mockups/update.html), Orca의 업데이트 카드). [업데이트] → 다운로드 → [다시 시작하여 업데이트]다. 화면이 `@tauri-apps/plugin-updater` JS API를 부른다. 권한(`app/capabilities/update.json`)은 `http://127.0.0.1:*` 화면의 `check`·`download`·`install`뿐이다 | 문구는 화면 i18n을 쓴다. 서명 공개 키는 `app/tauri.conf.json`, 개인 키는 GitHub Actions 비밀값 `TAURI_SIGNING_PRIVATE_KEY`(`_PASSWORD`)와 사람이 보관하는 사본뿐이다 |
@@ -332,11 +351,11 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 레이어 | 모듈 |
 |---|---|
 | 상호작용 | 화면, CLI 명령(`src/cli.rs`), Windows 앱 창(`app/`) |
-| 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다 |
-| 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 워크트리, 커밋 그래프(`src/commit_graph.rs`: `git log`·`git worktree list` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
-| 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |
+| 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다. 예: 워크트리 닫기는 그래프의 `running` 수, `worktree::close`, 노드 지우기를 차례로 부른다 |
+| 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록), 노드 호스트(`src/node_host.rs`: PTY, 중단할 셸), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
+| 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |
 
-- 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `AgentId`, `Profile`, `Provider`, `AccountId`, `Delivery`, `Kind`)만 쓴다.
+- 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `RepoId`, `AgentId`, `Profile`, `Provider`, `AccountId`, `Delivery`, `Kind`)만 쓴다.
 - `Profile`은 메시지 연동이고 `Provider`는 계정이다. OpenCode 2는 프로필은 있고 공급자는 없다.
 - 프로필의 전달 작업은 그래프를 모른다. 데몬이 노드 메일함을 `profile::Mailbox`(꺼내기와 변화 알림)로 넘긴다.
 - 노드 호스트는 키에 대해 제네릭이다. 노드 PTY(`NodeId`)와 로그인 창 PTY(`LoginId`)가 같은 코드를 쓴다.

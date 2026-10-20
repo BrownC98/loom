@@ -1,11 +1,12 @@
-//! 커밋 그래프 데이터: 저장소의 모든 브랜치 커밋과, 워크트리마다 체크아웃한 커밋. 읽기만 한다.
+//! 커밋 그래프 데이터: 저장소의 모든 브랜치 커밋. 읽기만 한다. 워크트리마다 체크아웃한 커밋은 `worktree`가 읽는다.
 //! 차선 배치와 그리기는 화면(`web/src/CommitGraph.tsx`)이 한다.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Serialize;
-use tokio::process::Command;
 use ts_rs::TS;
+
+use crate::git;
 
 /// 그리는 커밋 수 상한. 화면은 최근 이력을 본다. 1,000줄은 화면이 가상 스크롤 없이 그린다(목업 실측 중앙값 39.8ms).
 const MAX_COMMITS: u32 = 1000;
@@ -13,14 +14,6 @@ const MAX_COMMITS: u32 = 1000;
 const SEPARATOR: char = '\0';
 /// `%D`의 태그 앞말.
 const TAG_PREFIX: &str = "tag: ";
-
-#[derive(Serialize, TS)]
-#[ts(export)]
-pub struct CommitGraph {
-    /// 자식이 부모보다 먼저 온다(`--topo-order`). 화면의 차선 계산이 이 순서를 쓴다.
-    pub commits: Vec<Commit>,
-    pub worktrees: Vec<Worktree>,
-}
 
 #[derive(Serialize, TS, PartialEq, Debug)]
 #[ts(export)]
@@ -44,22 +37,9 @@ pub enum GitRef {
     Tag(String),
 }
 
-#[derive(Serialize, TS, PartialEq, Debug)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct Worktree {
-    /// 체크아웃한 커밋.
-    pub head: String,
-    /// 분리된 HEAD면 없다.
-    pub branch: Option<String>,
-    /// 데몬이 보이는 저장소 폴더 자신이면 「원래 체크아웃」, 아니면 추가한 워크트리다.
-    pub original: bool,
-}
-
-/// `repo`는 데몬이 보이는 저장소다.
-pub async fn read(repo: &Path) -> Result<CommitGraph, String> {
-    let worktrees = git(repo, &["worktree", "list", "--porcelain"]).await?;
-    let log = git(
+/// 자식이 부모보다 먼저 온다(`--topo-order`). 화면의 차선 계산이 이 순서를 쓴다.
+pub async fn read(repo: &Path) -> Result<Vec<Commit>, String> {
+    let log = git::run(
         repo,
         &[
             "log",
@@ -73,24 +53,7 @@ pub async fn read(repo: &Path) -> Result<CommitGraph, String> {
         ],
     )
     .await?;
-    Ok(CommitGraph {
-        commits: log.lines().filter_map(commit).collect(),
-        worktrees: parse_worktrees(repo, &worktrees),
-    })
-}
-
-async fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .output()
-        .await
-        .map_err(|e| format!("git을 실행하지 못했다: {e}"))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(log.lines().filter_map(commit).collect())
 }
 
 fn commit(line: &str) -> Option<Commit> {
@@ -120,31 +83,6 @@ fn commit(line: &str) -> Option<Commit> {
             })
             .collect(),
     })
-}
-
-/// `porcelain`은 `git worktree list --porcelain` 출력이다.
-fn parse_worktrees(repo: &Path, porcelain: &str) -> Vec<Worktree> {
-    let repo = canonical(repo);
-    porcelain
-        .split("\n\n")
-        .filter_map(|block| {
-            let field = |key: &str| {
-                block
-                    .lines()
-                    .find_map(|line| line.strip_prefix(key)?.strip_prefix(' '))
-            };
-            Some(Worktree {
-                original: canonical(Path::new(field("worktree")?)) == repo,
-                head: field("HEAD")?.to_owned(),
-                branch: field("branch")
-                    .map(|b| b.strip_prefix("refs/heads/").unwrap_or(b).to_owned()),
-            })
-        })
-        .collect()
-}
-
-fn canonical(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_owned())
 }
 
 #[cfg(test)]
@@ -191,30 +129,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn worktrees_name_original_checkout_and_detached_head() {
-        let porcelain = "worktree /nowhere/repo\nHEAD aaa\nbranch refs/heads/main\n\n\
-                         worktree /nowhere/wt\nHEAD bbb\ndetached\n";
-        assert_eq!(
-            parse_worktrees(Path::new("/nowhere/repo"), porcelain),
-            [
-                Worktree {
-                    head: "aaa".into(),
-                    branch: Some("main".into()),
-                    original: true
-                },
-                Worktree {
-                    head: "bbb".into(),
-                    branch: None,
-                    original: false
-                },
-            ]
-        );
-    }
-
     /// 실제 git으로 브랜치·병합·태그·워크트리·stash가 있는 저장소를 만들고 읽는다.
     #[tokio::test]
-    async fn reads_all_branches_merges_and_worktrees() {
+    async fn reads_all_branches_and_merges() {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
         let wt = dir.path().join("wt");
@@ -237,40 +154,23 @@ mod tests {
         run(&repo, &["add", "f"]);
         run(&repo, &["stash", "-q"]);
 
-        let graph = read(&repo).await.unwrap();
-        let subjects: Vec<&str> = graph.commits.iter().map(|c| c.subject.as_str()).collect();
+        let commits = read(&repo).await.unwrap();
+        let subjects: Vec<&str> = commits.iter().map(|c| c.subject.as_str()).collect();
         // stash 커밋(WIP, index)은 없다. 자식이 부모보다 먼저 온다.
         assert_eq!(subjects.len(), 5);
         let at = |s: &str| subjects.iter().position(|x| *x == s).unwrap();
         assert!(at("m") < at("c") && at("m") < at("b") && at("d") < at("b") && at("b") < at("a"));
-        let merge = &graph.commits[at("m")];
+        let merge = &commits[at("m")];
         assert_eq!(merge.parents.len(), 2);
         assert_eq!(merge.refs, [GitRef::Branch("main".into())]);
-        assert_eq!(graph.commits[at("a")].refs, [GitRef::Tag("v1".into())]);
-
-        let head = |rev: &str| run(&repo, &["rev-parse", rev]);
-        assert_eq!(
-            graph.worktrees,
-            [
-                Worktree {
-                    head: head("main"),
-                    branch: Some("main".into()),
-                    original: true
-                },
-                Worktree {
-                    head: head("feat"),
-                    branch: Some("feat".into()),
-                    original: false
-                },
-            ]
-        );
+        assert_eq!(commits[at("a")].refs, [GitRef::Tag("v1".into())]);
     }
 
     #[tokio::test]
     async fn repository_without_commits_is_empty() {
         let dir = tempfile::tempdir().unwrap();
         run(dir.path(), &["init", "-q"]);
-        assert!(read(dir.path()).await.unwrap().commits.is_empty());
+        assert!(read(dir.path()).await.unwrap().is_empty());
     }
 
     #[tokio::test]

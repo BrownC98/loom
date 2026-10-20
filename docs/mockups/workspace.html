@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: dark">
+<head>
+<meta charset="utf-8">
+<title>loom 저장소·워크트리 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: ui-monospace, 'JetBrains Mono', monospace;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: oklch(14% 0 0); color: var(--ink); font: 14px/1.5 var(--font); }
+body { padding: 24px 0 64px; }
+button, input, select { font: inherit; color: inherit; }
+.note { width: 1440px; margin: 32px auto 10px; color: var(--ink-2); font-size: 13px; }
+.note h2 { color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+.note li { margin-left: 18px; }
+.frame { width: 1440px; height: 720px; margin: 0 auto; display: grid; grid-template-columns: 260px 1fr; background: var(--bg); border: 1px solid var(--line); position: relative; overflow: hidden; }
+.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.side-head { display: flex; align-items: center; padding: 14px 12px 6px 16px; gap: 4px; }
+.side-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.spacer { flex: 1; }
+.icon { width: 26px; height: 26px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
+.icon:hover, .icon.on { background: var(--surface-hover); color: var(--ink); }
+.icon svg, .btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.tree { list-style: none; padding: 0 8px; }
+.row { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px calc(8px + var(--d, 0) * 14px); border-radius: 6px; font-size: 13px; min-width: 0; }
+.row:hover { background: var(--surface-hover); }
+.row.cur { background: var(--accent-wash); }
+.row .name { font-weight: 600; }
+.row .sub { color: var(--ink-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .branch { font-family: var(--mono); font-size: 12px; }
+.chev { width: 10px; color: var(--ink-3); font-size: 10px; }
+.st { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; }
+.st.done { background: var(--ok); }
+.st.exit { background: var(--ink-3); }
+.side-foot { margin-top: auto; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 13px; }
+.main { display: flex; flex-direction: column; min-width: 0; }
+.bar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.bar h1 { font-size: 15px; }
+.bar .path { color: var(--ink-3); font-size: 12px; font-family: var(--mono); }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; cursor: pointer; }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.ghost:hover { background: var(--surface-hover); color: var(--ink); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.sm { padding: 3px 8px; font-size: 12px; }
+.canvas { flex: 1; position: relative; background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.group { position: absolute; top: 28px; border: 1px solid var(--line-strong); border-radius: 10px; background: color-mix(in oklch, var(--panel) 60%, transparent); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.group-head .branch { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.group-head .kind { font-size: 12px; color: var(--ink-3); }
+.card { position: absolute; width: 300px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); box-shadow: 0 2px 10px var(--shadow); overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 12px; border-bottom: 1px solid var(--line); }
+.card-term { height: 120px; background: var(--term); font: 11px/1.5 var(--mono); color: var(--ink-2); padding: 8px; }
+.edge { position: absolute; border-left: 1px dashed var(--line-strong); }
+.pop { position: absolute; width: 380px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 8px 28px var(--shadow); padding: 14px; z-index: 2; }
+.pop h3 { font-size: 14px; margin-bottom: 10px; }
+.field { display: grid; gap: 4px; margin-bottom: 10px; font-size: 12px; color: var(--ink-2); }
+.field input, .field select { padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); font-size: 13px; color: var(--ink); }
+.field input.mono { font-family: var(--mono); }
+.hint { font-size: 12px; color: var(--ink-3); }
+.hint code { font-family: var(--mono); color: var(--ink-2); }
+.err { font-size: 12px; color: var(--err); margin-bottom: 10px; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
+.callout { position: absolute; background: oklch(80% 0.15 87); color: oklch(20% 0 0); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; z-index: 3; }
+.settings { position: absolute; inset: 40px 140px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 12px 40px var(--shadow); display: grid; grid-template-columns: 200px 1fr; overflow: hidden; }
+.settings nav { border-right: 1px solid var(--line); padding: 16px 8px; display: grid; align-content: start; gap: 2px; }
+.settings nav a { padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--ink-2); }
+.settings nav a.cur { background: var(--accent-wash); color: var(--ink); }
+.settings section { padding: 24px 32px; }
+.settings h2 { font-size: 18px; margin-bottom: 4px; }
+.settings .desc { color: var(--ink-3); font-size: 13px; margin-bottom: 20px; }
+.set-row { display: grid; gap: 6px; padding: 14px 0; border-top: 1px solid var(--line); }
+.set-row .label { font-weight: 600; font-size: 14px; }
+.inline { display: flex; gap: 8px; }
+.inline input { flex: 1; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); font: 13px var(--mono); color: var(--ink); }
+.ref { width: 1440px; margin: 0 auto; display: flex; gap: 24px; align-items: flex-start; }
+.ref img { width: 325px; border: 1px solid var(--line); }
+.ref table { border-collapse: collapse; font-size: 13px; color: var(--ink-2); }
+.ref td, .ref th { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.ref th { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="note">
+  <h2>1. 저장소 추가와 트리에서 저장소 바꾸기</h2>
+</div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h2>저장소</h2><span class="spacer"></span>
+      <button class="icon on" aria-label="저장소 추가"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="icon" aria-label="모두 펴기"><svg viewBox="0 0 24 24"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg></button>
+    </div>
+    <ul class="tree">
+      <li class="row"><span class="chev">▸</span><span class="name">acme-api</span><span class="sub">/home/me/acme-api</span></li>
+      <li class="row cur"><span class="chev">▾</span><span class="name">loom</span><span class="sub">/home/me/loom</span></li>
+      <li class="row" style="--d:1"><span class="chev">▾</span><span class="branch">main</span><span class="sub">원래 체크아웃</span></li>
+      <li class="row" style="--d:2"><span class="st"></span>claude-1</li>
+      <li class="row" style="--d:3"><span class="st done"></span>구현</li>
+      <li class="row" style="--d:1"><span class="chev">▾</span><span class="branch">BrownC98/WS-저장소</span><span class="sub">워크트리</span></li>
+      <li class="row" style="--d:2"><span class="st"></span>shell-1</li>
+    </ul>
+    <div class="side-foot">⚙ 설정</div>
+  </aside>
+  <div class="main">
+    <div class="bar"><h1>loom</h1><span class="path">/home/me/loom</span><span class="spacer"></span><button class="btn ghost sm">새 워크트리</button><button class="btn ghost sm">커밋 그래프</button><button class="btn ghost sm">이벤트</button></div>
+    <div class="canvas"></div>
+  </div>
+  <div class="pop" style="left: 160px; top: 44px;">
+    <h3>저장소 추가</h3>
+    <label class="field">폴더 경로<input class="mono" value="/mnt/c/Users/me/work/app"></label>
+    <p class="err">폴더를 찾을 수 없습니다: /mnt/c/Users/me/work/app</p>
+    <p class="hint" style="margin-bottom:12px">git 저장소 폴더의 전체 경로를 적으십시오.</p>
+    <div class="actions"><button class="btn">취소</button><button class="btn primary">추가</button></div>
+  </div>
+  <span class="callout" style="left: 210px; top: 18px;">1</span>
+</div>
+
+<div class="note">
+  <h2>2. 새 워크트리 창</h2>
+</div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h2>저장소</h2><span class="spacer"></span><button class="icon"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></div>
+    <ul class="tree">
+      <li class="row cur"><span class="chev">▾</span><span class="name">loom</span><span class="sub">/home/me/loom</span></li>
+      <li class="row" style="--d:1"><span class="chev">▾</span><span class="branch">main</span><span class="sub">원래 체크아웃</span></li>
+      <li class="row" style="--d:2"><span class="st"></span>claude-1</li>
+    </ul>
+    <div class="side-foot">⚙ 설정</div>
+  </aside>
+  <div class="main">
+    <div class="bar"><h1>loom</h1><span class="path">/home/me/loom</span><span class="spacer"></span><button class="btn sm" aria-expanded="true">새 워크트리</button><button class="btn ghost sm">커밋 그래프</button><button class="btn ghost sm">이벤트</button></div>
+    <div class="canvas"></div>
+  </div>
+  <div class="pop" style="right: 170px; top: 50px;">
+    <h3>새 워크트리</h3>
+    <label class="field">브랜치 이름<input class="mono" value="BrownC98/TERM-터미널-가독성"></label>
+    <label class="field">기준 브랜치<select><option>main</option><option>BrownC98/WS-저장소</option></select></label>
+    <p class="hint" style="margin-bottom:12px">만들 폴더: <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code></p>
+    <div class="actions"><button class="btn">취소</button><button class="btn primary">만들기</button></div>
+  </div>
+  <span class="callout" style="right: 530px; top: 50px;">2</span>
+</div>
+
+<div class="note">
+  <h2>3. 그래프의 두 묶음과 [워크트리 삭제] 경고 창</h2>
+</div>
+<div class="frame">
+  <aside class="side">
+    <div class="side-head"><h2>저장소</h2><span class="spacer"></span><button class="icon"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></div>
+    <ul class="tree">
+      <li class="row cur"><span class="chev">▾</span><span class="name">loom</span><span class="sub">/home/me/loom</span></li>
+      <li class="row" style="--d:1"><span class="chev">▾</span><span class="branch">main</span><span class="sub">원래 체크아웃</span></li>
+      <li class="row" style="--d:2"><span class="st"></span>claude-1</li>
+      <li class="row" style="--d:1"><span class="chev">▾</span><span class="branch">BrownC98/TERM-터미널-가독성</span><span class="sub">워크트리</span></li>
+      <li class="row" style="--d:2"><span class="st"></span>구현</li>
+    </ul>
+    <div class="side-foot">⚙ 설정</div>
+  </aside>
+  <div class="main">
+    <div class="bar"><h1>loom</h1><span class="path">/home/me/loom</span><span class="spacer"></span><button class="btn ghost sm">새 워크트리</button><button class="btn ghost sm">커밋 그래프</button><button class="btn ghost sm">이벤트</button></div>
+    <div class="canvas">
+      <div class="group" style="left: 28px; width: 360px; height: 260px;">
+        <div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn ghost sm">정렬</button><button class="btn ghost sm">+ 새 노드</button></div>
+        <div class="card" style="left: 30px; top: 60px;"><div class="card-head"><span class="st"></span><b>claude-1</b><span class="sub">Claude Code</span></div><div class="card-term">&gt; 구현을 워크트리에서 맡긴다<br>$ loom spawn 구현 --worktree BrownC98/TERM-터미널-가독성 --agent claude</div></div>
+      </div>
+      <div class="edge" style="left: 360px; top: 220px; width: 120px; height: 0; border-left: 0; border-top: 1px dashed var(--line-strong);"></div>
+      <div class="group" style="left: 420px; width: 470px; height: 260px;">
+        <div class="group-head"><span class="branch">BrownC98/TERM-터미널-가독성</span><span class="kind">워크트리</span><span class="spacer"></span><button class="btn ghost sm">정렬</button><button class="btn ghost sm">+ 새 노드</button><button class="btn ghost sm" aria-expanded="true">워크트리 삭제</button></div>
+        <div class="card" style="left: 30px; top: 60px;"><div class="card-head"><span class="st"></span><b>구현</b><span class="sub">Claude Code · 부모 claude-1</span></div><div class="card-term">&gt; 카드 크기를 고친다…</div></div>
+      </div>
+      <div class="pop" role="alertdialog" style="left: 520px; top: 50px; width: 420px;">
+        <h3>워크트리 삭제</h3>
+        <p class="hint" style="margin-bottom:8px">‘BrownC98/TERM-터미널-가독성’ 워크트리 폴더 <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code>를 삭제합니다.</p>
+        <p class="err" style="margin-bottom:4px">커밋하지 않은 변경과 추적하지 않는 파일은 영구히 삭제됩니다.</p>
+        <div style="font: 11px/1.5 var(--mono); color: var(--ink-2); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;">&nbsp;M web/src/NodeCard.tsx<br>?? web/src/notes.md</div>
+        <p class="hint" style="margin-bottom:8px">실행 중인 노드 1개(‘구현’)를 끝내고, 이 묶음의 노드 1개를 그래프에서 삭제합니다.</p>
+        <label class="hint" style="display:flex; gap:6px; align-items:center; margin-bottom:12px; color: var(--ink-2)"><input type="checkbox"> 브랜치도 삭제(<code>BrownC98/TERM-터미널-가독성</code>)</label>
+        <div class="actions"><button class="btn">취소</button><button class="btn" style="background: var(--err); color: oklch(98.5% 0 0); border-color: var(--err)">삭제</button></div>
+      </div>
+    </div>
+  </div>
+  <span class="callout" style="left: 1100px; top: 100px;">3</span>
+</div>
+
+<div class="note">
+  <h2>4. 설정: 워크스페이스 폴더</h2>
+</div>
+<div class="frame">
+  <aside class="side"><div class="side-head"><h2>저장소</h2></div><div class="side-foot">⚙ 설정</div></aside>
+  <div class="main"><div class="bar"><h1>loom</h1></div><div class="canvas"></div></div>
+  <div class="settings">
+    <nav><a>에이전트</a><a>계정</a><a class="cur">워크스페이스</a><a>UI</a><a>터미널</a></nav>
+    <section>
+      <h2>워크스페이스</h2>
+      <p class="desc">새 워크트리를 만들 폴더입니다.</p>
+      <div class="set-row">
+        <span class="label">워크스페이스 폴더</span>
+        <span class="hint">새 워크트리를 &lt;이 폴더&gt;/&lt;저장소 이름&gt;/ 안에 만듭니다.</span>
+        <div class="inline"><input value="/home/me/loom/workspaces"></div>
+        <span class="hint">예: <code>/home/me/loom/workspaces/loom/TERM-터미널-가독성</code></span>
+      </div>
+    </section>
+  </div>
+  <span class="callout" style="left: 400px; top: 60px;">4</span>
+</div>
+
+<div class="note">
+  <h2>참고: Orca 사이드바(2026-10-20 캡처)</h2>
+</div>
+<div class="ref">
+  <img src="ws-orca-sidebar.png" alt="Orca 사이드바 캡처">
+</div>
+</body>
+</html>

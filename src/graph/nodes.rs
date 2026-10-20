@@ -5,8 +5,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::events::{self, Entry};
 use super::{
-    Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Refusal, mailbox, name_of,
-    parent_of, set_state, state_of, to_json,
+    Graph, GraphEvent, Kind, MAX_DEPTH, Model, NodeId, NodeState, Place, Refusal, mailbox, name_of,
+    parent_of, place_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -18,13 +18,14 @@ impl Graph {
     /// `launch`가 실패하면 노드를 남기지 않는다.
     pub fn add_root(
         &self,
+        place: &Place,
         agent: Option<AgentId>,
         launch: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
-        let id = insert(&tx, &name, &agent, None)?;
+        let id = insert(&tx, &name, &agent, None, place)?;
         launch(id).map_err(Refusal::Launch)?;
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -32,10 +33,12 @@ impl Graph {
     }
 
     /// `parent`의 자식을 더하고 `brief`를 자식 메일함의 첫 메시지로 넣는다. `launch`가 실패하면 아무것도 남기지 않는다.
+    /// 자식은 `worktree`가 없으면 부모와 같은 워크트리에 든다. 저장소는 늘 부모와 같다.
     pub fn add_child(
         &self,
         parent: NodeId,
         name: &str,
+        worktree: Option<&str>,
         agent: Option<AgentId>,
         brief: &str,
         launch: impl FnOnce(NodeId) -> Result<(), String>,
@@ -57,7 +60,12 @@ impl Graph {
         if taken {
             return Err(Refusal::NameTaken(name.to_owned()));
         }
-        let id = insert(&tx, name, &agent, Some(parent))?;
+        let place = place_of(&tx, parent)?;
+        let place = Place {
+            worktree: worktree.map_or(place.worktree, str::to_owned),
+            ..place
+        };
+        let id = insert(&tx, name, &agent, Some(parent), &place)?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
             mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
@@ -264,14 +272,17 @@ fn insert(
     name: &str,
     agent: &Option<AgentId>,
     parent: Option<NodeId>,
+    place: &Place,
 ) -> rusqlite::Result<NodeId> {
     db.execute(
-        "INSERT INTO nodes (name, agent, parent, state) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO nodes (name, agent, parent, state, repo, worktree) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             name,
             to_json(agent),
             parent.map(|p| p.0),
-            to_json(&NodeState::Running)
+            to_json(&NodeState::Running),
+            place.repo.0,
+            place.worktree,
         ],
     )?;
     let id = NodeId(db.last_insert_rowid() as u32);

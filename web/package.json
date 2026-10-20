@@ -3,11 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && VITE_LOOM_VERSION=$(sh ../scripts/version.sh) vite build",
     "check": "tsc --noEmit && madge --circular --extensions ts,tsx src && node scripts/no-hangul.mjs"
   },
   "dependencies": {
-    "@fontsource/jetbrains-mono": "^5.3.0",
     "@lobehub/icons-static-svg": "^1.95.1",
     "@tauri-apps/api": "2.12.1",
     "@tauri-apps/plugin-updater": "2.13.1",

@@ -18,7 +18,8 @@ const LANE_GAP = 20;
 
 /**
  * 나무 칸: 자식은 부모 다음 단계에, 형제는 다음 칸에 놓는다. 잎마다 새 칸을 쓰고 부모는 첫 자식의 칸에 둔다.
- * 사람이 띄운 노드(뿌리)는 앞 뿌리의 나무 다음 단계에 쌓는다. 형제는 만든 순서다.
+ * 뿌리(사람이 띄운 노드, 부모가 다른 묶음에 있는 노드)도 같은 레벨이라 첫 단계에서 앞 뿌리 나무의 다음 칸에 놓는다
+ * (2026-10-20 사람 지시 "정렬방식은 같은레벨에 있으면 수평으로 확장되게 해줘"). 형제는 만든 순서다.
  */
 function treeSlots(views: readonly NodeView[]): Map<NodeId, Slot> {
   const ids = new Set(views.map((v) => v.id));
@@ -29,20 +30,14 @@ function treeSlots(views: readonly NodeView[]): Map<NodeId, Slot> {
     children.set(parent, [...(children.get(parent) ?? []), view]);
   }
   const slots = new Map<NodeId, Slot>();
-  let firstDepth = 0;
-  for (const root of children.get(null) ?? []) {
-    let lane = 0;
-    let lastDepth = firstDepth;
-    const place = (view: NodeView, depth: number) => {
-      slots.set(view.id, { lane, depth });
-      lastDepth = Math.max(lastDepth, depth);
-      const kids = children.get(view.id) ?? [];
-      if (kids.length === 0) lane++;
-      for (const kid of kids) place(kid, depth + 1);
-    };
-    place(root, firstDepth);
-    firstDepth = lastDepth + 1;
-  }
+  let lane = 0;
+  const place = (view: NodeView, depth: number) => {
+    slots.set(view.id, { lane, depth });
+    const kids = children.get(view.id) ?? [];
+    if (kids.length === 0) lane++;
+    for (const kid of kids) place(kid, depth + 1);
+  };
+  for (const root of children.get(null) ?? []) place(root, 0);
   return slots;
 }
 

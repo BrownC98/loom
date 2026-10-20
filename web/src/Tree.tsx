@@ -60,26 +60,29 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
   return views
     .filter((v) => (parent === null ? !views.some((p) => p.id === v.parent) : v.parent === parent))
     .sort((a, b) => a.id - b.id)
-    .map((v) => ({
-      key: `node:${v.id}`,
-      node: v.id,
-      row: (
-        <>
-          <span className={`dot ${v.state.kind}`} aria-label={v.state.kind} />
-          <NameEdit id={v.id} name={v.name} rename={rename(v.id)} />
-          {note(v) !== null && <FromIcon title={note(v)!} />}
-          <span className="sub">{agentLabel(agents, v.agent)}</span>
-          {(v.unread > 0 || v.held > 0) && <span className="spacer" />}
-          {v.unread > 0 && <Unread n={v.unread}>{v.unread}</Unread>}
-          {v.held > 0 && (
-            <span className="kept" title={i18next.t('node.heldTitle', { n: v.held })}>
-              {i18next.t('node.held', { n: v.held })}
-            </span>
-          )}
-        </>
-      ),
-      children: nodeItems(views, v.id, agents, rename, note),
-    }));
+    .map((v) => {
+      const from = note(v);
+      return {
+        key: `node:${v.id}`,
+        node: v.id,
+        row: (
+          <>
+            <span className={`dot ${v.state.kind}`} aria-label={v.state.kind} />
+            <NameEdit id={v.id} name={v.name} rename={rename(v.id)} />
+            {from !== null && <FromIcon title={from} />}
+            <span className="sub">{agentLabel(agents, v.agent)}</span>
+            {(v.unread > 0 || v.held > 0) && <span className="spacer" />}
+            {v.unread > 0 && <Unread n={v.unread}>{v.unread}</Unread>}
+            {v.held > 0 && (
+              <span className="kept" title={i18next.t('node.heldTitle', { n: v.held })}>
+                {i18next.t('node.held', { n: v.held })}
+              </span>
+            )}
+          </>
+        ),
+        children: nodeItems(views, v.id, agents, rename, note),
+    };
+    });
 }
 
 export function Tree(props: {

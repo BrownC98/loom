@@ -92,7 +92,7 @@ function socketUrl(path: string): string {
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`;
 }
 
-/** 그래프 이벤트를 받는다. 연결할 때마다 노드 목록 전체를 노드 이벤트로 먼저 받는다. 반환값은 구독 해제 함수다. */
+/** 그래프 이벤트를 받는다. 연결할 때마다 노드 목록 전체(`snapshot`)를 먼저 받는다. 반환값은 구독 해제 함수다. */
 export function watchGraph(onEvent: (event: GraphEvent) => void): () => void {
   let socket: WebSocket;
   let stopped = false;

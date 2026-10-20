@@ -28,8 +28,8 @@ const CARD_TOP = 60;
  * `step`은 카드 높이에 간선이 지나갈 틈을 더한 세로 간격, `columnStep`은 카드 폭에 틈을 더한 가로 간격이다.
  */
 const CARD_LAYOUT: Record<CardView, { width: number; height: number; step: number; columnStep: number }> = {
-  // 기본 글꼴로 터미널이 80열을 넘는다(TUI가 80열로 그린다).
-  terminal: { width: 600, height: 330, step: 376, columnStep: 620 },
+  // 기본 글꼴로 터미널이 80×24다(styles.css `.term`). 높이는 머리, 터미널, 발 줄의 합이다.
+  terminal: { width: 600, height: 466, step: 512, columnStep: 620 },
   header: { width: 400, height: 36, step: 96, columnStep: 420 },
 };
 /** 카드는 묶음 머리 위나 왼쪽 테두리 밖으로 끌 수 없다. 오른쪽·아래로 끌면 묶음이 따라 커진다. 좌표는 묶음 기준이다. */

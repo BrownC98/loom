@@ -205,7 +205,7 @@ fn until<M: Machine>(m: &mut M, done: impl Fn(&M) -> bool, failure: &str) -> Res
 }
 
 /// `mine`이 `theirs`보다 새 판이다. 판은 `MAJOR.MINOR.PATCH`다(`scripts/version.sh`). 읽지 못하면 같은 판으로 본다.
-fn newer(mine: &str, theirs: &str) -> bool {
+pub fn newer(mine: &str, theirs: &str) -> bool {
     fn parts(version: &str) -> Option<[u64; 3]> {
         let mut numbers = version.split('.').map(|n| n.parse().ok());
         let parts = [numbers.next()??, numbers.next()??, numbers.next()??];
@@ -293,9 +293,21 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-/// 이 실행 파일로 `loom serve`를 띄운다. 부른 터미널·바로 가기·앱이 끝나도 산다. 출력은 `serve.log`에 붙인다.
+/// 이 실행 파일로 `loom serve`를 띄운다.
 fn start_daemon(listen: SocketAddr) -> Result<Child, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    spawn_detached(&exe, &["serve", "--listen", &listen.to_string()])
+        .map_err(|e| format!("could not start the daemon: {e}"))
+}
+
+/// 업데이트한 실행 파일의 `start`로 이 데몬을 바꾼다. 새 판이 이기므로 그 `start`가 이 데몬을 끝내고 새 판을 띄운다.
+/// 주소는 이 데몬이 듣는 주소뿐이다. 다른 주소를 주면 다른 데이터 폴더의 데몬을 끝낼 수 있다(`daemons_not_in_our_file_are_never_stopped`).
+pub fn restart_with(exe: &Path, this_daemon: SocketAddr) -> Result<(), String> {
+    spawn_detached(exe, &["start", "--listen", &this_daemon.to_string()]).map(drop)
+}
+
+/// `exe`를 새 세션에 띄운다. 부른 터미널·바로 가기·앱·데몬이 끝나도 산다. 출력은 `serve.log`에 붙인다.
+pub fn spawn_detached(exe: &Path, args: &[&str]) -> Result<Child, String> {
     let log_path = data_file("serve.log").map_err(|e| e.to_string())?;
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -303,7 +315,7 @@ fn start_daemon(listen: SocketAddr) -> Result<Child, String> {
         .open(&log_path)
         .map_err(|e| format!("{}: {e}", log_path.display()))?;
     let mut cmd = Command::new(exe);
-    cmd.args(["serve", "--listen", &listen.to_string()])
+    cmd.args(args)
         // 데몬은 시작 폴더가 git 저장소면 첫 저장소로 더한다. 바로 가기·앱에는 고른 폴더가 없다.
         // 루트는 저장소가 아니다. 홈은 dotfiles 저장소일 수 있다. 사람은 화면의 [+]로 저장소를 더한다.
         .current_dir(Path::new(std::path::MAIN_SEPARATOR_STR))
@@ -311,8 +323,7 @@ fn start_daemon(listen: SocketAddr) -> Result<Child, String> {
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
     detach(&mut cmd);
-    cmd.spawn()
-        .map_err(|e| format!("could not start the daemon: {e}"))
+    cmd.spawn().map_err(|e| format!("{}: {e}", exe.display()))
 }
 
 #[cfg(unix)]

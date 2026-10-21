@@ -1,6 +1,7 @@
 //! 데스크톱 앱(Windows, macOS): 옆에 놓인 `loom start`로 기계의 데몬 하나에 붙고(없으면 띄우고), 그 주소를 창에 연다.
 //! 화면은 브라우저용과 같고 데몬도 같다. 앱을 닫아도 데몬과 노드는 산다. 앱을 업데이트하면 새 판의 `loom start`가 옛 판 데몬을 바꾼다.
 //! 업데이트는 화면이 `tauri-plugin-updater` JS API로 한다(`web/src/Update.tsx`).
+//! 데몬이 `--update`로 앱을 띄우면(브라우저에서 앱 안의 데몬을 업데이트) 화면 주소에 `?update`를 붙인다. 화면은 묻지 않고 받아 설치한다.
 #![windows_subsystem = "windows"]
 
 use std::io::BufRead;
@@ -12,11 +13,22 @@ use tauri_plugin_window_state::StateFlags;
 const WINDOW: &str = "main";
 /// `loom start`가 출력하는 줄의 앞부분. 근거: `src/launch.rs`의 `start`.
 const READY_PREFIX: &str = "loom: ";
+/// 데몬이 앱을 띄울 때 주는 업데이트 표시. 근거: `src/update.rs`의 `APP_UPDATE_FLAG`.
+const UPDATE_FLAG: &str = "--update";
+/// 화면에 업데이트 표시를 넘기는 주소 물음. 근거: `web/src/Update.tsx`.
+const UPDATE_QUERY: &str = "update";
 
 fn main() {
     tauri::Builder::default()
         // 두 번째 실행은 창을 띄우지 않고 이미 있는 창을 앞으로 가져온다.
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        // 업데이트 표시가 있으면 창을 업데이트 주소로 다시 연다.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if args.iter().any(|a| a == UPDATE_FLAG)
+                && let Some(window) = app.get_webview_window(WINDOW)
+                && let Ok(url) = window.url()
+            {
+                let _ = window.navigate(for_update(url));
+            }
             bring_back(app)
         }))
         // 제목 줄은 화면이 그린다(아래 `frame`). 옛 판이 저장한 「OS 제목 줄 있음」을 되살리지 않는다.
@@ -39,11 +51,14 @@ fn main() {
             let _ = (window, event);
         })
         .setup(|app| {
-            let url = start_daemon()?;
+            let mut url: tauri::Url = start_daemon()?.parse()?;
+            if std::env::args().any(|a| a == UPDATE_FLAG) {
+                url = for_update(url);
+            }
             frame(WebviewWindowBuilder::new(
                 app,
                 WINDOW,
-                WebviewUrl::External(url.parse()?),
+                WebviewUrl::External(url),
             ))
             .title(format!("loom {}", app.package_info().version))
             .inner_size(1280.0, 800.0)
@@ -62,6 +77,12 @@ fn main() {
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         });
+}
+
+/// 화면이 묻지 않고 업데이트하게 하는 주소.
+fn for_update(mut url: tauri::Url) -> tauri::Url {
+    url.set_query(Some(UPDATE_QUERY));
+    url
 }
 
 /// 숨기거나 최소화한 창을 앞으로 가져온다.

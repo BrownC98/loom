@@ -15,11 +15,13 @@ import type { Usage } from './StatusBar';
 import { Modal } from './Modal';
 import { SizingTerminal } from './Terminal';
 import { TerminalTab, UiTab } from './ThemeSettings';
+import type { Updates } from './Update';
+import { VERSION } from './version';
 import { WorkspaceTab } from './WorkspaceSettings';
 import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
 
 /** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
-export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal'] as const;
+export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal', 'about'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 /** 로그인 창이 로그인이 끝났는지 묻는 간격. */
 const LOGIN_POLL_MS = 1000;
@@ -35,6 +37,7 @@ export function Settings(props: {
   onSettings: (next: SettingsView) => void;
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
+  updates: Updates;
 }) {
   const { t } = useTranslation();
   return (
@@ -60,8 +63,60 @@ export function Settings(props: {
         {props.tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
+        {props.tab === 'about' && <AboutTab updates={props.updates} />}
       </div>
     </Modal>
+  );
+}
+
+/** 판과 업데이트(docs/mockups/web-update.html ④). [업데이트]는 알림 카드와 같은 일을 하고, 진행은 그 카드가 보인다. */
+function AboutTab({ updates }: { updates: Updates }) {
+  const { t } = useTranslation();
+  const [checking, setChecking] = useState(false);
+  // 이 탭에서 확인한 결과. 확인하기 전에는 아무것도 보이지 않는다.
+  const [result, setResult] = useState<{ kind: 'latest' } | { kind: 'new' } | { kind: 'error'; message: string } | null>(null);
+  const runCheck = () => {
+    setChecking(true);
+    updates
+      .check()
+      .then(
+        (latest) => setResult({ kind: latest ? 'new' : 'latest' }),
+        (err: unknown) => setResult({ kind: 'error', message: err instanceof Error ? err.message : String(err) }),
+      )
+      .finally(() => setChecking(false));
+  };
+  const busy = updates.step?.kind === 'downloading' || updates.step?.kind === 'restarting';
+  return (
+    <section>
+      <h4>{t('about.version')}</h4>
+      <div className="about-versions" translate="no">
+        <span>{t('about.daemon')}</span>
+        <b>loom v{VERSION}</b>
+        {updates.appVersion && updates.appVersion !== VERSION && (
+          <>
+            <span>{t('about.app')}</span>
+            <b>loom v{updates.appVersion}</b>
+          </>
+        )}
+      </div>
+      {updates.checks && (
+        <div className="about-actions">
+          <button className="btn sm" disabled={checking} onClick={runCheck}>
+            {t('about.check')}
+          </button>
+          {result?.kind === 'latest' && !updates.latest && <span className="hint">{t('about.upToDate')}</span>}
+          {result?.kind === 'error' && <span className="error">{result.message}</span>}
+          {updates.latest && (
+            <>
+              <span className="hint">{t('about.newVersion', { version: updates.latest })}</span>
+              <button className="btn primary sm" disabled={busy} onClick={updates.install}>
+                {t('update.update')}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

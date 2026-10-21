@@ -569,6 +569,10 @@ dialog::backdrop { background: var(--scrim); }
 .row-main .meta { flex-basis: 100%; font: 12px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-main .desc { flex-basis: 100%; font-size: 12px; color: var(--ink-3); }
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+/* 설정 › 정보(docs/mockups/web-update.html ④). */
+.about-versions { display: grid; grid-template-columns: 90px 1fr; gap: 6px 12px; font-size: 13px; }
+.about-versions b { font: 600 13px var(--mono); }
+.about-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .row .off { font-size: 12px; color: var(--ink-3); }
 .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
 .badge.warn { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }

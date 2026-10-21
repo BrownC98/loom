@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/BrownC98/loom/releases/latest"><img src="https://img.shields.io/github/v/release/BrownC98/loom?style=flat&color=2E5BD6" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/license-MIT-2E5BD6?style=flat" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Windows%20%7C%20Linux-2E5BD6?style=flat" alt="Platforms: Windows and Linux">
+  <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-2E5BD6?style=flat" alt="Platforms: Windows, macOS and Linux">
 </p>
 
 <p align="center">
@@ -49,10 +49,10 @@ loom done "Added one toggle() test"              # report to the parent
 
 ## Built-in skills
 
-loom ships four skills: `o-mode` (orchestration mode), `ste-100`, `user-doc` and `raptor-3`. You do not install anything.
+loom ships five skills: `o-mode` (orchestration mode), `ste-100`, `user-doc`, `raptor-3` and `ask-human`. You do not install anything.
 
 - Call a skill by name. Claude Code: `/loom:<name>`. Codex: `loom:<name>`. OpenCode 2: `<name>`.
-- Always on, without a call: STE-100 and the raptor-3 work rules go to every node. A node without a parent (a node you start) also gets the full `o-mode` procedure and acts as the lead. A child gets only the common brief rules of `o-mode`.
+- Always on, without a call: `ask-human` (how an agent asks you: one line in the question inbox), STE-100 and the raptor-3 work rules go to every node. You can turn off all but `ask-human` in **Settings › Agents › Built-in skills**. A node without a parent (a node you start) also gets the full `o-mode` procedure and acts as the lead. A child gets only the common brief rules of `o-mode`.
 - A node reads the skill text when it starts. After you update loom, restart running nodes to give them the new text.
 
 Details (Korean): [docs/design.md 「내장 스킬」](docs/design.md#내장-스킬).
@@ -71,11 +71,11 @@ Get the files from the [latest release](https://github.com/BrownC98/loom/release
   To remove loom, move it from the Applications folder to the Trash.
 - **Linux and WSL (x86-64), web version:** see "Web version" below.
 
-Install the agent CLIs (Claude Code, Codex, OpenCode 2) yourself. loom finds them on `PATH`.
+Install the agent CLIs (Claude Code, Codex, OpenCode 2, Cursor CLI) yourself. loom finds them on `PATH`.
 
 ### Web version (Linux and WSL)
 
-One daemon also serves the screen. You use it in a browser.
+One daemon also serves the screen. You use it in a browser. The release has only an x86-64 Linux binary; on macOS and Windows, use the desktop app.
 
 1. Download the binary and save it with the name `loom`. Agents in nodes call the `loom` command, so the name must be `loom`. The daemon puts its own folder first on each node's `PATH`.
 
@@ -96,9 +96,12 @@ One daemon also serves the screen. You use it in a browser.
 
 3. Open http://127.0.0.1:7420 in a browser. On WSL, open the same address in a Windows browser.
 4. Add repositories in the left sidebar, and start agents with [New node] on a worktree group.
+5. Click a card to type into its terminal. When an agent asks you something, the question shows in the **Questions** pill at the top of the graph and in the **Questions** tab of the right panel. Click it to go to that node, and answer in its terminal.
+
+To stop the daemon, press Ctrl+C in its terminal. If it runs in the background, find its PID with `ps -eo pid,args | grep 'loom serve'` and run `kill <PID>`. Do not end all `loom` processes: each node runs in its own `loom pty-host` process, and that would end the nodes too.
 
 - **Data:** `~/.loom` (database, logs, built-in skills). If you delete it, the node history is lost.
-- **Update:** replace the file and restart only the daemon. Nodes (agent processes) live apart from the daemon, and the new daemon attaches to them again.
+- **Update:** download the file again (step 1) and restart only the daemon. Nodes (agent processes) live apart from the daemon, and the new daemon attaches to them again.
 - **Address:** by default only this machine can open it (loopback). loom assumes one user and has no sign-in, so do not open it to other machines with `--listen`.
 
 Design and decisions (Korean): [docs/design.md](docs/design.md).

@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/BrownC98/loom/releases/latest"><img src="https://img.shields.io/github/v/release/BrownC98/loom?style=flat&color=2E5BD6" alt="최신 릴리스"></a>
   <img src="https://img.shields.io/badge/license-MIT-2E5BD6?style=flat" alt="라이선스: MIT">
-  <img src="https://img.shields.io/badge/Windows%20%7C%20Linux-2E5BD6?style=flat" alt="플랫폼: Windows, Linux">
+  <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-2E5BD6?style=flat" alt="플랫폼: Windows, macOS, Linux">
 </p>
 
 <p align="center">
@@ -49,10 +49,10 @@ loom done "Added one toggle() test"              # 부모에게 보고한다
 
 ## 내장 스킬
 
-loom은 스킬 네 개를 싣습니다: `o-mode`(orchestration mode), `ste-100`, `user-doc`, `raptor-3`. 따로 설치할 것은 없습니다.
+loom은 스킬 다섯 개를 싣습니다: `o-mode`(orchestration mode), `ste-100`, `user-doc`, `raptor-3`, `ask-human`. 따로 설치할 것은 없습니다.
 
 - 스킬은 이름으로 부릅니다. Claude Code는 `/loom:<이름>`, Codex는 `loom:<이름>`, OpenCode 2는 `<이름>`입니다.
-- 부르지 않아도 늘 적용되는 글: 모든 노드가 STE-100과 랩터-3 작업 규칙을 받습니다. 부모 없는 노드(사람이 띄운 노드)는 `o-mode` 절차 전체도 받아 총괄이 됩니다. 자식은 `o-mode`의 브리프 공통 규칙만 받습니다.
+- 부르지 않아도 늘 적용되는 글: 모든 노드가 `ask-human`(에이전트가 사람에게 묻는 방법: 질문함에 한 줄로 올린다), STE-100, 랩터-3 작업 규칙을 받습니다. `ask-human` 말고는 **설정 › 에이전트 › 내장 스킬**에서 끌 수 있습니다. 부모 없는 노드(사람이 띄운 노드)는 `o-mode` 절차 전체도 받아 총괄이 됩니다. 자식은 `o-mode`의 브리프 공통 규칙만 받습니다.
 - 노드는 시작할 때 스킬 글을 읽습니다. loom을 올린 뒤에는 떠 있는 노드를 다시 시작해야 새 글을 받습니다.
 
 자세한 내용은 [docs/design.md 「내장 스킬」](docs/design.md#내장-스킬)에 있습니다.
@@ -71,11 +71,11 @@ loom은 스킬 네 개를 싣습니다: `o-mode`(orchestration mode), `ste-100`,
   지울 때는 응용 프로그램 폴더의 loom을 휴지통으로 옮깁니다.
 - **Linux·WSL(x86-64), 웹 버전:** 아래 「웹 버전」을 봅니다.
 
-에이전트 CLI(Claude Code, Codex, OpenCode 2)는 따로 설치합니다. loom은 `PATH`에서 찾습니다.
+에이전트 CLI(Claude Code, Codex, OpenCode 2, Cursor CLI)는 따로 설치합니다. loom은 `PATH`에서 찾습니다.
 
 ### 웹 버전(Linux·WSL)
 
-데몬 하나가 화면도 함께 냅니다. 브라우저로 씁니다.
+데몬 하나가 화면도 함께 냅니다. 브라우저로 씁니다. 릴리스에는 x86-64 Linux 실행 파일만 있습니다. macOS와 Windows에서는 데스크톱 앱을 씁니다.
 
 1. 실행 파일을 받아 `loom`이라는 이름으로 둡니다. 노드 안의 에이전트가 `loom` 명령을 부르므로 이름이 `loom`이어야 합니다. 데몬은 자기 폴더를 노드의 `PATH` 맨 앞에 넣습니다.
 
@@ -96,9 +96,12 @@ loom은 스킬 네 개를 싣습니다: `o-mode`(orchestration mode), `ste-100`,
 
 3. 브라우저로 http://127.0.0.1:7420 을 엽니다. WSL이면 Windows 브라우저에서 같은 주소를 엽니다.
 4. 왼쪽 사이드바에서 저장소를 더하고, 워크트리 묶음의 [새 노드]로 에이전트를 띄웁니다.
+5. 카드를 누르면 그 터미널에 글을 쓸 수 있습니다. 에이전트가 사람에게 물으면 그래프 위 가운데의 **질문** 알약과 오른쪽 칸의 **질문** 탭에 뜹니다. 누르면 그 노드로 갑니다. 답은 그 노드 터미널에 씁니다.
+
+데몬을 끝내려면 그 터미널에서 Ctrl+C를 누릅니다. 백그라운드에서 돌면 `ps -eo pid,args | grep 'loom serve'`로 PID를 찾아 `kill <PID>`를 실행합니다. `loom` 프로세스를 모두 끝내지 않습니다. 노드마다 따로 `loom pty-host` 프로세스에서 돌아서 노드도 끝납니다.
 
 - **데이터:** `~/.loom`(DB, 로그, 내장 스킬). 지우면 노드 기록이 사라집니다.
-- **업데이트:** 새 파일로 바꾸고 데몬만 다시 띄웁니다. 노드(에이전트 프로세스)는 데몬과 따로 살아 새 데몬이 다시 붙습니다.
+- **업데이트:** 1단계로 파일을 다시 받고 데몬만 다시 띄웁니다. 노드(에이전트 프로세스)는 데몬과 따로 살아 새 데몬이 다시 붙습니다.
 - **주소:** 기본은 이 기계에서만 열립니다(루프백). 사용자는 한 명이라는 가정이라 인증이 없으므로, `--listen`으로 바깥에 열지 않습니다.
 
 설계와 결정은 [docs/design.md](docs/design.md)에 있습니다.

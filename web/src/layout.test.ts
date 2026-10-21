@@ -62,7 +62,7 @@ function family(nodes: readonly N[], groups: number, direction: ArrangeDirection
 const contains = (outer: Box, inner: Box) =>
   inner.at.x >= outer.at.x && inner.at.y >= outer.at.y && inner.at.x + inner.size.width <= outer.at.x + outer.size.width && inner.at.y + inner.size.height <= outer.at.y + outer.size.height;
 const center = (b: Box) => b.at.x + b.size.width / 2;
-/** 목업 docs/mockups/arrange-family.html v4 ①에 자식 없는 뿌리 규칙(docs/mockups/arrange-root.html v1 ④)을 더한 값. 카드 1은 첫 줄에서 카드 2 왼쪽에 선다. */
+/** 목업 docs/mockups/arrange-family.html v4 ①에 자식 없는 뿌리 규칙(docs/mockups/arrange-root.html v2 ④)을 더한 값. 카드 1은 첫 줄에서 카드 2 왼쪽에 선다. */
 const PERSON_CARDS = [{ x: 92, y: 60 }, { x: 712, y: 60 }, { x: 376, y: 638 }, { x: 1028, y: 638 }, { x: 40, y: 1216 }, { x: 712, y: 1216 }];
 const PERSON_BOXES = [[0, 0, 1668, 1722], [1008, 578, 640, 546], [20, 1156, 640, 546], [692, 1156, 640, 546]];
 
@@ -90,7 +90,7 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
   const base = [n(1, null, 0), n(2, null, 0), n(3, null, 0), n(4, 2, 0), n(5, 2, 1)];
   const person = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 2, 1), n(5, 3, 2), n(6, 3, 3)];
   const tree = [n(1, null, 1), n(2, 1, 2), n(3, 1, 3), n(4, 1, 4)];
-  /** 사람 화면 캡처(docs/mockups/arrange-root.html v1): 자식 없는 뿌리 1, 자식 묶음 넷을 둔 나무 2. */
+  /** 사람 화면 캡처(docs/mockups/arrange-root.html v2): 자식 없는 뿌리 1, 자식 묶음 넷을 둔 나무 2. */
   const screen = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 3, 1), n(5, 3, 2), n(6, 2, 3), n(7, 6, 3), n(8, 2, 4)];
   const cases: [string, N[], number, ArrangeDirection][] = [
     ['① person picture', person, 4, 'down'],
@@ -153,7 +153,7 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
     }
   });
 
-  it('① matches the approved picture (arrange-root.html v1 ④)', () => {
+  it('① matches the approved picture (arrange-root.html v2 ④)', () => {
     const { cards, boxes } = family(person, 4);
     expect([1, 2, 3, 4, 5, 6].map((id) => cards.get(id)!.at)).toEqual(PERSON_CARDS);
     expect(boxes.map((b) => [b.at.x, b.at.y, b.size.width, b.size.height])).toEqual(PERSON_BOXES);
@@ -171,13 +171,14 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
   it.each([
     ['② in-group child', [...screen, n(9, 1, 0)], 5],
     ['③ child group', [...screen, n(9, 1, 5)], 6],
-  ] as [string, N[], number][])('M19 %s: only the grown root and its child move, to the right end; the other tree keeps its spots', (_, nodes, groups) => {
+  ] as [string, N[], number][])('M19 %s: the grown root keeps its place left of the other tree; the other tree shifts right as one piece', (_, nodes, groups) => {
     const before = family(screen, 5);
     const after = family(nodes, groups);
-    for (const id of [2, 3, 4, 5, 6, 7, 8]) expect(after.cards.get(id)!.at, `card ${id}`).toEqual(before.cards.get(id)!.at);
-    for (const g of [1, 2, 3, 4]) expect(after.boxes[g], `group ${g}`).toEqual(before.boxes[g]);
-    const right = Math.max(...[1, 2, 3, 4].map((g) => before.boxes[g].at.x + before.boxes[g].size.width));
-    expect(after.cards.get(1)!.at.x).toBeGreaterThan(right);
+    const dx = after.cards.get(2)!.at.x - before.cards.get(2)!.at.x;
+    expect(dx).toBeGreaterThan(0);
+    for (const id of [3, 4, 5, 6, 7, 8]) expect(after.cards.get(id)!.at, `card ${id}`).toEqual({ x: before.cards.get(id)!.at.x + dx, y: before.cards.get(id)!.at.y });
+    const others = [2, 3, 4, 5, 6, 7, 8].map((id) => after.cards.get(id)!.at.x);
+    expect(after.cards.get(1)!.at.x + CARD.width).toBeLessThan(Math.min(...others));
     expect(center(after.cards.get(1)!)).toBe(center(after.cards.get(9)!));
   });
 

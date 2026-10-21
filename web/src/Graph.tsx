@@ -2,7 +2,7 @@ import { GitBranchPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow 
 import { Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
-import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putSizes, putSpots, removeNode } from './api';
+import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putArranged, putSizes, putSpots, removeNode } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -16,7 +16,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, sameSpots, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
@@ -472,6 +472,8 @@ export function Graph(props: {
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
   // 사람이 끌어 놓은 자리(React Flow 노드 id → 저장한 자리). 원점의 기준은 `Spot`이 적는다.
   const [spots, setSpots] = useState<ReadonlyMap<string, Placed>>(new Map());
+  // 정렬한 모양을 지키는 저장소. [정렬]이 넣고, 그 저장소의 묶음·카드를 끌어 놓으면 뺀다(데몬 DB `arranged_repos`).
+  const [arrangedRepos, setArrangedRepos] = useState<ReadonlySet<RepoId>>(new Set());
   // 끄는 동안 움직인 상자(끄는 상자와 비킨 상자)의 원점. 놓으면 저장하고 비운다.
   const [moving, setMoving] = useState<ReadonlyMap<string, XYPosition>>(new Map());
   // 끄는 상자 중심이 형제 중심선의 어느 쪽에 있었는지. 겹친 채 쪽이 바뀌면 그 형제가 비킨다(사람 결정 2026-10-21, 목업 v4 ②).
@@ -481,7 +483,10 @@ export function Graph(props: {
   const [resizing, setResizing] = useState<{ id: NodeId; size: Size } | null>(null);
   useEffect(() => {
     getSpots()
-      .then((all) => setSpots(new Map(all.map((p) => [flowId(p.spot), p]))))
+      .then((layout) => {
+        setSpots(new Map(layout.placed.map((p) => [flowId(p.spot), p])));
+        setArrangedRepos(new Set(layout.arranged));
+      })
       .catch((err: Error) => setRefusal(err.message));
     getSizes()
       .then((all) => setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }]))))
@@ -491,9 +496,13 @@ export function Graph(props: {
   const placedAt = (key: string): XYPosition | undefined => moving.get(key) ?? spots.get(key)?.at;
 
   // [정렬]을 누를 때 화면에 보이던 카드·묶음의 가로지르는 축 자리(카드는 노드 번호, 묶음은 경로가 키). 자동 배치는 형제를 이 순서로 놓는다(목업 docs/mockups/arrange-wide.html 규칙 4).
-  // [정렬]은 이 순서로 구한 자리를 저장하므로(`arranging`) 다시 열어도 순서가 남는다.
+  // [정렬]은 이 순서로 구한 자리를 저장하므로(`arranging`) 다시 열어도 순서가 남는다. 저장한 자리가 있는 형제는 그 자리 순서다.
+  // 형제는 같은 좌표계(같은 묶음의 카드, 같은 저장소의 묶음)라 저장한 자리끼리 견줄 수 있다.
   const [order, setOrder] = useState<ReadonlyMap<string, number>>(new Map());
-  const rank = (key: string) => order.get(key) ?? Infinity;
+  const rank = (key: string) => {
+    const saved = spots.get(key)?.at;
+    return saved ? (direction === 'down' || direction === 'up' ? saved.x : saved.y) : (order.get(key) ?? Infinity);
+  };
   const byRank = <T,>(items: readonly T[], key: (item: T) => string, tie: (a: T, b: T) => number) => [...items].sort((a, b) => rank(key(a)) - rank(key(b)) || tie(a, b));
   const views = byRank([...props.views.values()], (v) => String(v.id), (a, b) => a.id - b.id);
   const estimate = CARD_SIZE[props.cardView];
@@ -899,12 +908,27 @@ export function Graph(props: {
     }
     return done;
   };
-  /** 상자 원점을 한 요청으로 저장한다. `after`가 있으면 그 요청보다 먼저 보낸다. */
+  /**
+   * 상자 원점을 한 요청으로 저장한다. `after`가 있으면 그 요청보다 먼저 보낸다.
+   * 묶음·카드를 놓은 저장소는 정렬한 모양을 더 지키지 않는다(데몬 `Spots::put`과 같은 규칙).
+   */
   const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
     if (done.size === 0) return;
+    const placed = place(done);
+    const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : [p.spot.repo])));
+    setArrangedRepos((prev) => new Set([...prev].filter((id) => !inside.has(id))));
+    after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
+  };
+  /** 자동 배치 자리를 저장하고 `ids` 저장소가 정렬한 모양을 지키게 한다. */
+  const saveArranged = (ids: readonly RepoId[], done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
+    const placed = place(done);
+    setArrangedRepos((prev) => new Set([...prev, ...ids]));
+    after.then(() => putArranged({ repos: [...ids], placed })).catch((err: Error) => setRefusal(err.message));
+  };
+  const place = (done: ReadonlyMap<string, XYPosition>): Placed[] => {
     const placed = [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p }));
     setSpots((prev) => new Map([...prev, ...placed.map((p): [string, Placed] => [flowId(p.spot), p])]));
-    after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
+    return placed;
   };
   // 부분 정렬(목업 v5 ⑥⑦). 정렬한 상자의 왼쪽 위와 바깥·형제 상자는 지금 자리에 둔다. 다음 렌더에서 커진 상자가 옆 상자를 비킨다(`lastSizes`).
   const keepAround = (key: string, newLead: XYPosition): Map<string, XYPosition> => {
@@ -943,6 +967,7 @@ export function Graph(props: {
   const clearRepos = (ids: readonly RepoId[]) => {
     setOrder((prev) => new Map([...prev, ...onScreen()]));
     setSpots((prev) => new Map([...prev].filter(([, p]) => !ids.includes(p.spot.repo))));
+    setArrangedRepos((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
   };
   useEffect(() => {
     if (arranging === null) return;
@@ -950,18 +975,31 @@ export function Graph(props: {
     const { scope } = arranging;
     const done = scope.kind === 'shown' ? repos : repos.filter((r) => r.repo.id === scope.id);
     const boxes = scope.kind === 'shown' && framed ? repos.map((r, i): [string, XYPosition] => [r.key, { x: repoAuto[i].x - r.lead.x, y: repoAuto[i].y - r.lead.y }]) : [];
-    save(new Map([...done.flatMap((r) => [...r.arranged]), ...boxes]), arranging.after);
+    saveArranged(
+      done.map((r) => r.repo.id),
+      new Map([...done.flatMap((r) => [...r.arranged]), ...boxes]),
+      arranging.after,
+    );
   });
   // 끌지 않고 커진 상자(새 카드·묶음이 든 바깥 상자, 카드·터미널 크기, 정렬)는 끌어 놓을 때와 같은 규칙으로 겹친 옆 상자를 민다.
   // 끄는 동안과 테두리를 끄는 동안(`moving`)은 놓을 때 민다. 크기만 기억한다. 안쪽 상자부터 민다(`levels`는 카드, 묶음, 저장소 순서다).
+  // 정렬한 모양을 지키는 저장소(`arrangedRepos`)는 자동 배치가 저장한 자리와 다르면(새 카드·묶음, 커진 카드, 화면을 닫은 동안 생긴 상자) 밀지 않고 새 자동 배치를 저장한다.
+  // 2026-10-21 사람 지시 "우측 부하테스트 총괄에 자식이 생기면 자식기준으로 다른 트리가 밀려나도록", "계정 전환 노드 만들어졌을때, main이 가운데 배치가 안되는 문제".
+  // 그 저장소의 상자는 앞 크기를 기억해 두고, 새 자동 배치로 그린 다음 렌더에서 그 크기와 견주어 커진 저장소 상자가 옆 저장소를 민다.
   const lastSizes = useRef<ReadonlyMap<string, Size>>(new Map());
   useEffect(() => {
     const now = new Map([...levels].map(([key, level]): [string, Size] => [key, level.boxes.find((b) => b.key === key)!.size]));
     const before = lastSizes.current;
     lastSizes.current = now;
     if (moving.size > 0) return;
+    const saved = new Map([...spots].map(([key, p]) => [key, p.at]));
+    const kept = repos.filter((r) => arrangedRepos.has(r.repo.id) && !sameSpots(saved, r.arranged));
+    if (kept.length > 0) saveArranged(kept.map((r) => r.repo.id), new Map(kept.flatMap((r) => [...r.arranged])));
     const done = new Map<string, XYPosition>();
+    const skip = new Set(kept.flatMap((r) => [r.key, ...r.arranged.keys()]));
+    lastSizes.current = new Map([...now].map(([key, size]) => [key, (skip.has(key) && before.get(key)) || size]));
     for (const key of grew(before, now)) {
+      if (skip.has(key)) continue;
       // 앞 상자가 이미 민 상자는 민 자리에서 민다.
       const level = levels.get(key)!;
       const self = level.boxes.find((b) => b.key === key)!;

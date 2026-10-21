@@ -105,12 +105,12 @@ th { background: var(--surface-hover); }
 </head>
 <body>
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M23</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 스킬옵션</b></span><span>v2 · 2026-10-21</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M23</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 스킬옵션</b></span><span>v3 · 2026-10-21</span></div>
   <h1>설정: 내장 스킬 네 개를 켜고 끄기</h1>
   <p class="lead">사람 지시: 설정 창에 기본 켜짐 옵션을 둔다(STE-100, 랩터-3). 고친 지시 "o-mode·user-doc 도 옵션에 추가해". 바꾼 뒤 새로 띄우는 노드부터 적용한다. 점선이 바뀌는 곳이다. 흐린 구역은 지금 그대로다.</p>
 
   <div class="fig">
-    <h2>① 권장: 「에이전트」 탭에 구역 하나 <span class="tag">설치 안 됨 아래, 하위 노드 상한 위</span></h2>
+    <h2>① 「에이전트」 탭에 구역 하나 <span class="tag">설치 안 됨 아래, 하위 노드 상한 위</span></h2>
     <div class="dlg"><nav><h2>설정</h2><button class="tab" aria-current="page">에이전트</button><button class="tab">계정</button><button class="tab">워크스페이스</button><button class="tab">UI</button><button class="tab">터미널</button></nav><div class="pane">
       <h3>에이전트</h3>
       <section class="faded"><h4>설치됨 9개</h4><div class="rows"><div class="row"><span class="row-main"><span class="name">Claude</span><span class="meta">/home/ktadev/.local/bin/claude · 메시지 연동</span></span><label class="switch"><input type="checkbox" checked>모든 권한 허용</label></div><div class="row"><span class="row-main"><span class="name">… 8개</span></span><span></span></div></div><span class="hint">켜면 승인 요청 없이 모든 명령을 실행합니다. …</span></section>
@@ -149,42 +149,8 @@ th { background: var(--surface-hover); }
   </div>
 
   <div class="fig">
-    <h2>② 다른 안: 새 「스킬」 탭 <span class="tag">탭 6개</span></h2>
-    <div class="dlg"><nav><h2>설정</h2><button class="tab">에이전트</button><button class="tab">계정</button><button class="tab">워크스페이스</button><button class="tab">UI</button><button class="tab">터미널</button><button class="tab" aria-current="page">스킬</button></nav><div class="pane">
-      <h3>스킬</h3>
-      <section class="new">
-        <p class="hint">loom이 노드에 주는 스킬입니다.</p>
-        <div class="rows">
-          <div class="row">
-            <span class="row-main"><span class="name">loom 절차(o-mode)</span><span class="meta desc">총괄·코디·워커의 배정, 통신, 검수, 병합과 회수 절차입니다.</span><span class="meta desc">끄면 노드는 loom 명령만 알고 역할·병합·회수 절차를 모릅니다.</span></span>
-            <label class="switch"><input type="checkbox" checked aria-label="loom 절차(o-mode) 주기">켜짐</label>
-          </div><div class="row">
-            <span class="row-main"><span class="name">사용자 문서(user-doc)</span><span class="meta desc">목업과 보고서를 HTML 한 파일로 만들고 브라우저에 띄웁니다.</span></span>
-            <label class="switch"><input type="checkbox" checked aria-label="사용자 문서(user-doc) 주기">켜짐</label>
-          </div><div class="row">
-            <span class="row-main"><span class="name">글쓰기 규칙(STE-100)</span><span class="meta desc">사람에게 보이는 글은 사람의 언어로, 에이전트끼리는 영어로 짧고 쉽게 씁니다.</span></span>
-            <label class="switch"><input type="checkbox" checked aria-label="글쓰기 규칙(STE-100) 주기">켜짐</label>
-          </div><div class="row">
-            <span class="row-main"><span class="name">부품 최소화(랩터-3)</span><span class="meta desc">코드를 쓰기 전과 커밋하기 전에 요구가 없는 부품을 지웁니다.</span></span>
-            <label class="switch"><input type="checkbox" checked aria-label="부품 최소화(랩터-3) 주기">켜짐</label>
-          </div>
-        </div>
-        <span class="hint">새로 띄우는 노드부터 적용합니다. 이미 뜬 노드는 그대로입니다. 끈 스킬은 새 노드에 주지 않습니다. 시작 지시에 넣지 않고 <code>loom:&lt;이름&gt;</code>으로 부를 수도 없습니다.</span>
-      </section>
-    </div></div>
-    <ul class="note">
-      <li>에이전트 탭이 길어지지 않습니다. 탭이 하나 늘어납니다.</li>
-    </ul>
-  </div>
-
-  <div class="fig">
-    <h2>승인할 것</h2>
-    <table>
-      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
-      <tr><td>자리</td><td>① 「에이전트」 탭 구역</td><td>② 새 「스킬」 탭</td></tr>
-      <tr><td>이름</td><td>「loom 절차(o-mode)」, 「사용자 문서(user-doc)」, 「글쓰기 규칙(STE-100)」, 「부품 최소화(랩터-3)」, 구역 제목 「내장 스킬」</td><td>다른 문구</td></tr>
-      <tr><td>끈 스킬</td><td>새 노드에 주지 않는다(시작 지시와 스킬 폴더 모두)</td><td>시작 지시에서만 빼고 부를 수 있게 둔다</td></tr>
-    </table>
+    <h2>승인함</h2>
+    <ul class="note"><li>2026-10-21 사람 승인("권장안대로"): ① 자리, 네 이름, 끈 스킬은 새 노드에 주지 않음(시작 지시와 스킬 폴더 모두).</li></ul>
   </div>
 </main>
 <button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>

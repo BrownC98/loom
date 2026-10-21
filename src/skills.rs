@@ -47,12 +47,12 @@ impl Plugin {
         AlwaysOn::all().map(|on| self.dir(on))
     }
 
-    /// 켠 스킬만 든 폴더. 모두 켠 조합은 옛 판과 같은 `plugin`이다. 판을 올려도 이미 뜬 노드가 그 폴더를 계속 읽는다.
+    /// 켠 스킬만 든 폴더. 끈 스킬이 있으면 `plugin-off/<끈 스킬>`이다. 모두 켠 조합은 옛 판과 같은 `plugin`이다. 판을 올려도 이미 뜬 노드가 그 폴더를 계속 읽는다.
     pub fn dir(&self, on: AlwaysOn) -> PathBuf {
         let off: Vec<&str> = SKILLS.into_iter().filter(|s| !on.has(s)).collect();
         match off.is_empty() {
             true => self.0.join("plugin"),
-            false => self.0.join(format!("plugin-off-{}", off.join("+"))),
+            false => self.0.join("plugin-off").join(off.join("+")),
         }
     }
 

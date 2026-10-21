@@ -373,6 +373,7 @@ const en = {
     error: 'Update error',
     version: 'loom v{{version}}',
     update: 'Update',
+    keep: 'Running nodes and their work continue without interruption.',
     percent: 'Downloading… {{percent}}%',
     restart: 'Restart to update',
     retry: 'Try again',

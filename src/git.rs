@@ -6,7 +6,13 @@ use tokio::process::Command;
 
 /// `dir`에서 `git <args>`를 돌리고 표준 출력을 돌려준다. 실패하면 git의 오류 글이다.
 pub async fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
+    // Windows git은 소유자가 다른 폴더(`\\wsl.localhost\…`)를 "dubious ownership"으로 거부한다.
+    // loom은 사람이 고른 저장소와 그 워크트리에서만 git을 부른다. 그 폴더만 믿는다.
+    let mut safe = std::ffi::OsString::from("safe.directory=");
+    safe.push(dir);
     let out = Command::new("git")
+        .arg("-c")
+        .arg(safe)
         .arg("-C")
         .arg(dir)
         .args(args)

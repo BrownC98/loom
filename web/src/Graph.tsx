@@ -929,10 +929,9 @@ export function Graph(props: {
     const of = sides.current.of;
     const targets: string[] = [];
     for (const o of others) {
-      const now = centerSide(dragged, o);
       const before = of.get(o.key);
-      if (!overlaps(dragged, o) || before === undefined) of.set(o.key, now);
-      else if (crossed(before, now)) targets.push(o.key);
+      if (!overlaps(dragged, o) || before === undefined) of.set(o.key, centerSide(dragged, o));
+      else if (crossed(before, dragged, o)) targets.push(o.key);
     }
     const pushed = push(others, dragged, targets, FREE_GAP);
     for (const [k, at] of pushed) of.set(k, centerSide(dragged, { at, size: others.find((o) => o.key === k)!.size }));

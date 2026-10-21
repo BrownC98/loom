@@ -237,18 +237,26 @@ export function push(siblings: readonly Sibling[], mover: Box, targets: readonly
   return out;
 }
 
-/** 끄는 상자 중심이 상자 중심선의 어느 쪽에 있는지(-1, 0, 1). `crossed`에 넘긴다. */
+/** 끄는 상자가 겹치기 전에 상자의 어느 쪽에서 오는지(-1, 1). 그 축에서 두 상자가 맞물려 있으면 0이다. `crossed`에 넘긴다. */
 export type CenterSide = { x: number; y: number };
 
+const center = (b: Box) => ({ x: b.at.x + b.size.width / 2, y: b.at.y + b.size.height / 2 });
+
+/**
+ * 떨어진 축만 센다. 같은 줄에서 옆으로 다가오면 세로 중심이 거의 같아 손 떨림 1픽셀도 가로 중심선을 넘는다.
+ * 그래서 다가온 쪽의 중심선만 센다(재현: 같은 높이 묶음 두 개, 2026-10-21 사람 "드래그를 놓기도 전에 먼저 밀려나는 문제").
+ */
 export function centerSide(dragged: Box, box: Box): CenterSide {
-  const c = (b: Box) => ({ x: b.at.x + b.size.width / 2, y: b.at.y + b.size.height / 2 });
-  const [d, o] = [c(dragged), c(box)];
-  return { x: Math.sign(d.x - o.x), y: Math.sign(d.y - o.y) };
+  const [d, o] = [center(dragged), center(box)];
+  const apartX = dragged.at.x + dragged.size.width <= box.at.x || box.at.x + box.size.width <= dragged.at.x;
+  const apartY = dragged.at.y + dragged.size.height <= box.at.y || box.at.y + box.size.height <= dragged.at.y;
+  return { x: apartX ? Math.sign(d.x - o.x) : 0, y: apartY ? Math.sign(d.y - o.y) : 0 };
 }
 
-/** 사람 결정(2026-10-21) "밀려나는 타이밍은 사람이 드래그 잡은게 중앙선 넘엇을경우". 겹치기 전 쪽(`before`)과 지금 쪽이 가로나 세로에서 다르면 넘었다. */
-export function crossed(before: CenterSide, now: CenterSide): boolean {
-  return before.x !== now.x || before.y !== now.y;
+/** 사람 결정(2026-10-21) "밀려나는 타이밍은 사람이 드래그 잡은게 중앙선 넘엇을경우". 겹치기 전 쪽(`before`)의 중심선에 끄는 상자 중심이 닿거나 넘었다. */
+export function crossed(before: CenterSide, dragged: Box, box: Box): boolean {
+  const [d, o] = [center(dragged), center(box)];
+  return (before.x !== 0 && Math.sign(d.x - o.x) !== before.x) || (before.y !== 0 && Math.sign(d.y - o.y) !== before.y);
 }
 
 /** 자리를 저장하지 않은 새 상자의 자리. `box`가 `others`와 겹치면 겹치지 않을 때까지 겹친 상자 오른쪽으로 `gap`을 두고 옮긴다. */

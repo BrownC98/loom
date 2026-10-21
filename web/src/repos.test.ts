@@ -16,7 +16,7 @@ const view = (id: number, parent: number | null, worktree: string, repo = 1): No
   place: { repo, worktree },
   topic: null,
   bookmark: null,
-  wait: null,
+  waits: [],
 });
 
 const group = (path: string): Group => ({ path, label: path, kind: 'linked', branch: null });

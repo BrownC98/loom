@@ -645,16 +645,22 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
 }
 
 /// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
-/// 훅이 넘기는 글: 꺼낸 메시지, 새로 기다리는 큐 메시지 알림(`Take::BetweenTools`), 사람 입력 때 열린 `loom ask` 질문. 모두 없으면 없다.
+/// 훅이 넘기는 글: 꺼낸 메시지, 새로 기다리는 큐 메시지 알림(`Take::BetweenTools`), 사람 입력 때 열린 `loom ask` 질문들. 모두 없으면 없다.
 pub fn hook_text(
     taken: &[Delivery],
     queued_from: &[String],
-    open_question: Option<&OpenQuestion>,
+    open_questions: &[OpenQuestion],
 ) -> Option<String> {
     let mut parts = Vec::new();
-    if let Some(OpenQuestion { id, text }) = open_question {
+    if !open_questions.is_empty() {
+        let list: Vec<String> = open_questions
+            .iter()
+            .map(|OpenQuestion { id, text }| format!("{id}: {text}"))
+            .collect();
         parts.push(format!(
-            "Open loom ask question {id}: {text}. If this input answers it, call loom answered first, then act. If not, leave it open."
+            "Open loom ask questions: {}. If this input answers some of them, call `loom answered <Q ids>` (for example `loom answered {}`) first, then act. Leave the others open.",
+            list.join(" | "),
+            open_questions[0].id
         ));
     }
     if !taken.is_empty() {

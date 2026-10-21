@@ -1,26 +1,34 @@
-import { ArrowRight, ArrowUp, Check, ChevronDown, Copy, ExternalLink, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, dismissWait, openWaitDoc } from './api';
 import { choices } from './choices';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
+import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
 import { useOutsideClose } from './popover';
 
-type Waiting = NodeView & { wait: HumanWait };
+/** 노드에서 가장 오래 기다린 대기. 대기가 없는 노드는 받지 않는다(`waitingNodes`가 거른다). */
+const oldest = (v: NodeView): HumanWait => v.waits.reduce((a, b) => (b.since < a.since ? b : a));
 
-/** 사람 응답을 기다리는 노드, 오래 기다린 것부터. 알약은 첫 노드를 보인다. 새 질문이 와도 알약이 가리키는 노드가 바뀌지 않는다. 받은편지함·시스템 알림은 `NodeView.wait`만 읽는다(docs/design.md 「사람 응답 대기」). */
-export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): Waiting[] {
-  return [...nodes.values()].filter((v): v is Waiting => v.wait !== null).sort((a, b) => a.wait.since - b.wait.since);
+/**
+ * 사람 응답을 기다리는 노드, 가장 오래 기다린 대기의 차례로. 알약은 첫 노드의 가장 오래된 대기를 보인다. 새 질문이 와도 알약이 가리키는 대기가 바뀌지 않는다.
+ * 받은편지함·시스템 알림은 `NodeView.waits`만 읽는다(docs/design.md 「사람 응답 대기」).
+ */
+export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
+  return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => oldest(a).since - oldest(b).since);
 }
+
+/** 알약과 「질문」 탭 배지의 수: 모든 노드의 대기 수(목업 M28: 노드 수가 아니라 질문 수). */
+export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v.waits.length, 0);
 
 /**
  * 그래프 칸 위 가운데에 뜨는 [질문 N] 알약과 그 목록(목업 docs/mockups/question-inbox-place.html ②, question-pill-many.html ①). 기다리는 노드가 없으면 알약도 없다.
  * 알약 몸통, 줄, 시스템 알림을 누르면 사이드바 클릭처럼 그래프를 그 노드로 옮기고 고른다. 목록은 알약 끝 [▾]만 연다. `notify`는 설정 「시스템 알림」이다.
  */
-export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (id: NodeId) => void }) {
+export function Inbox(props: { waiting: NodeView[]; notify: boolean; onSelect: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const show = useShowNodes();
@@ -30,8 +38,9 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
   };
   useOsNotify(props.waiting, props.notify, go);
   const home = useOutsideClose<HTMLDivElement>(() => setOpen(false));
-  const n = props.waiting.length;
+  const n = waitCount(props.waiting);
   const first = props.waiting[0];
+  const firstWait = first && oldest(first);
 
   // 마지막 대기가 사라지면 목록을 닫는다. 다음 질문이 생길 때 목록이 저절로 열리지 않는다.
   useEffect(() => {
@@ -64,9 +73,9 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
             >
               <b>{t('inbox.button')}</b>
               <span className="count">{n}</span>
-              <span className="qid">Q{first.wait.id}</span>
+              <span className="qid">Q{firstWait.id}</span>
               <span className="preview">
-                {first.name}: {first.wait.text || t(`wait.${first.wait.kind}`)}
+                {first.name}: {firstWait.text || t(`wait.${firstWait.kind}`)}
               </span>
             </button>
             <button type="button" className="more" aria-expanded={open} aria-label={t('inbox.listLabel', { count: n })} onClick={() => setOpen(!open)}>
@@ -92,7 +101,7 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
 }
 
 /** 오른쪽 사이드바 「질문」 탭(2026-10-21 사람 지시 "예비용으로 질문함은 … 우측 사이드 챗에 유지해줘"). 알약 목록과 같은 줄을 보인다. 대기가 없으면 한 줄만 보인다. */
-export function InboxPanel(props: { waiting: Waiting[]; onSelect: (id: NodeId) => void }) {
+export function InboxPanel(props: { waiting: NodeView[]; onSelect: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const show = useShowNodes();
   if (props.waiting.length === 0) return <p className="inbox-empty">{t('inbox.empty')}</p>;
@@ -108,23 +117,44 @@ export function InboxPanel(props: { waiting: Waiting[]; onSelect: (id: NodeId) =
 }
 
 /**
- * 대기 줄 목록. 알약 목록과 「질문」 탭이 함께 쓴다(목업 docs/mockups/question-id.html v3). 이름을 누르면 `onGo`, [×]는 대기를 지운다.
- * 질문은 전문을 보인다. `loom ask` 질문은 여기서 답한다: 선택지 버튼은 바로 보내고, 입력창은 Enter로 보낸다. 번호 칩은 「Q12: 」를 복사한다.
- * 다른 대기(승인 창·폴더 신뢰·로그인)는 그 노드 터미널에서만 답하므로 [터미널에서 답하기]만 둔다.
+ * 대기 목록. 알약 목록과 「질문」 탭이 함께 쓴다(목업 docs/mockups/multi-question.html M28, question-id.html M25 v3).
+ * 노드로 묶는다: 노드 이름은 한 번만 보이고(누르면 `onGo`), 그 아래에 대기가 물은 차례대로 있다. 질문이 여럿이면 이름 옆에 수를 보인다.
  */
-function WaitList(props: { waiting: Waiting[]; onGo: (id: NodeId) => void }) {
+function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void }) {
+  const { t } = useTranslation();
   return (
     <ul className="wait-list">
       {props.waiting.map((v) => (
-        <WaitRow key={v.id} view={v} onGo={() => props.onGo(v.id)} />
+        <li key={v.id} className="wait-node">
+          <button type="button" className="go" aria-label={t('inbox.jumpLabel', { name: v.name })} onClick={() => props.onGo(v.id)}>
+            <span className="dot waiting" aria-hidden="true" />
+            <b>{v.name}</b>
+            {v.waits.length > 1 && (
+              <>
+                {' '}
+                · {t('inbox.button')} <span className="count">{v.waits.length}</span>
+              </>
+            )}
+          </button>
+          <ul className="wait-rows">
+            {v.waits.map((w) => (
+              <WaitRow key={w.id} wait={w} onGo={() => props.onGo(v.id)} />
+            ))}
+          </ul>
+        </li>
       ))}
     </ul>
   );
 }
 
-function WaitRow(props: { view: Waiting; onGo: () => void }) {
+/**
+ * 대기 한 줄. 질문은 전문을 보인다. [×]는 이 대기 하나를 지운다.
+ * `loom ask` 질문은 여기서 답한다: 선택지 버튼은 바로 보내고, 입력창은 Enter로 보낸다.
+ * 다른 대기(승인 창·폴더 신뢰·로그인)는 그 노드 터미널에서만 답하므로 [터미널에서 답하기]만 둔다.
+ */
+function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
-  const { wait, name } = props.view;
+  const { wait } = props;
   const qid = `Q${wait.id}`;
   const [refusal, setRefusal] = useState<string | null>(null);
   const send = (text: string) => {
@@ -132,14 +162,11 @@ function WaitRow(props: { view: Waiting; onGo: () => void }) {
     answerWait(wait.id, text).catch((err: Error) => setRefusal(err.message));
   };
   return (
-    <li>
+    <li className="wait-row">
       <div className="top">
-        <span className="dot waiting" aria-hidden="true" />
-        {wait.answerable ? <CopyId qid={qid} /> : <span className="qid">{qid}</span>}
-        <button type="button" className="go" aria-label={t('inbox.jumpLabel', { name })} onClick={props.onGo}>
-          <b>{name}</b> · {t(`wait.${wait.kind}`)}
-        </button>
-        <DismissButton id={props.view.id} />
+        <span className="qid">{qid}</span>
+        <span className="kind">{t(`wait.${wait.kind}`)}</span>
+        <DismissButton wait={wait.id} />
       </div>
       {(wait.text || wait.doc) && (
         <p className="full">
@@ -219,47 +246,8 @@ function AnswerForm(props: { qid: string; onSend: (text: string) => void }) {
   );
 }
 
-/** 질문 번호 칩. 누르면 「Q12: 」를 복사하고 잠깐 「Q12: 복사됨」으로 바뀐다. 사람은 노드 터미널에 붙여 「Q12: A」처럼 답한다. */
-function CopyId(props: { qid: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), COPIED_SHOWN_MS);
-    return () => clearTimeout(timer);
-  }, [copied]);
-  const label = t('inbox.copyId', { id: props.qid });
-  return (
-    <button
-      type="button"
-      className="qid copy"
-      data-copied={copied || undefined}
-      aria-label={copied ? t('inbox.copied', { id: props.qid }) : label}
-      title={label}
-      onClick={() => {
-        navigator.clipboard.writeText(`${props.qid}: `).then(() => setCopied(true), console.error);
-      }}
-    >
-      {copied ? (
-        <>
-          <Check aria-hidden="true" />
-          {t('inbox.copied', { id: props.qid })}
-        </>
-      ) : (
-        <>
-          {props.qid}
-          <Copy aria-hidden="true" />
-        </>
-      )}
-    </button>
-  );
-}
-
-/** 「복사됨」을 보이는 시간. 눌렀음을 알아볼 만큼만 보인다. */
-const COPIED_SHOWN_MS = 1500;
-
-/** 줄의 [×]. 사람이 그 노드 터미널에 키를 누른 것처럼 대기를 지운다. 카드의 「응답 대기」도 같은 값이라 함께 사라진다. 거절되면 툴팁이 이유를 보인다. */
-function DismissButton(props: { id: NodeId }) {
+/** 줄의 [×]. 그 대기 하나를 지운다. 카드의 「응답 대기」도 같은 값이라 마지막 대기면 함께 사라진다. 거절되면 툴팁이 이유를 보인다. */
+function DismissButton(props: { wait: WaitId }) {
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   return (
@@ -271,7 +259,7 @@ function DismissButton(props: { id: NodeId }) {
       data-refused={refusal !== null || undefined}
       onClick={() => {
         setRefusal(null);
-        dismissWait(props.id).catch((err: Error) => setRefusal(err.message));
+        dismissWait(props.wait).catch((err: Error) => setRefusal(err.message));
       }}
     >
       <X aria-hidden="true" />
@@ -283,25 +271,27 @@ function DismissButton(props: { id: NodeId }) {
  * 설정이 켜져 있고 창이 보이지 않을 때, 새로 생긴 대기마다 시스템 알림을 띄운다. 누르면 창을 앞으로 가져오고 그 노드로 간다.
  * 허용은 설정을 켤 때 묻는다(`requestNotifyPermission`). 화면을 열 때는 묻지 않는다.
  */
-function useOsNotify(waiting: Waiting[], enabled: boolean, onSelect: (id: NodeId) => void) {
+function useOsNotify(waiting: NodeView[], enabled: boolean, onSelect: (id: NodeId) => void) {
   const { t } = useTranslation();
-  // 이미 알린 대기(노드와 시작 시각). 화면을 연 뒤 처음 본 대기는 알리지 않는다.
-  const seen = useRef<Set<string> | null>(null);
+  // 이미 알린 대기 번호. 화면을 연 뒤 처음 본 대기는 알리지 않는다.
+  const seen = useRef<Set<WaitId> | null>(null);
   const select = useRef(onSelect);
   select.current = onSelect;
   useEffect(() => {
-    const keys = new Set(waiting.map((v) => `${v.id}:${v.wait.since}`));
+    const keys = new Set(waiting.flatMap((v) => v.waits.map((w) => w.id)));
     const before = seen.current;
     seen.current = keys;
     if (before === null || !enabled || !document.hidden || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
     for (const v of waiting) {
-      if (before.has(`${v.id}:${v.wait.since}`)) continue;
-      const note = new Notification(`${v.name} · ${t(`wait.${v.wait.kind}`)}`, { body: v.wait.text, tag: `loom-wait-${v.id}` });
-      note.onclick = () => {
-        window.focus();
-        select.current(v.id);
-        note.close();
-      };
+      for (const w of v.waits) {
+        if (before.has(w.id)) continue;
+        const note = new Notification(`${v.name} · ${t(`wait.${w.kind}`)}`, { body: w.text, tag: `loom-wait-${w.id}` });
+        note.onclick = () => {
+          window.focus();
+          select.current(v.id);
+          note.close();
+        };
+      }
     }
   }, [waiting, enabled]);
 }

@@ -177,83 +177,131 @@ fn topic_prefers_summary_then_title_then_brief() {
 }
 
 #[test]
-fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
+fn signal_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "claude");
     let worker = child(&g, lead, "w");
-    let wait = |id| view(&g, id).wait.map(|w| (w.kind, w.text));
+    let waits = |id| {
+        view(&g, id)
+            .waits
+            .into_iter()
+            .map(|w| (w.kind, w.text))
+            .collect::<Vec<_>>()
+    };
 
     // 턴 끝 질문 검사는 대기 없는 루트만 본다.
     assert_eq!(g.unasked_root(lead), Ok(true));
     assert_eq!(g.unasked_root(worker), Ok(false));
-    // 사람에게는 사람이 띄운 노드만 묻는다.
-    assert_eq!(g.ask(worker, "A?", None), Err(Refusal::HasParent));
-    assert_eq!(g.ask(lead, "  ", None), Err(Refusal::EmptyQuestion));
-    // `loom ask` 질문은 줄바꿈까지 전문을 남긴다.
-    let asked = g.ask(lead, "A or B?\nmore", None).unwrap();
-    assert_eq!(
-        wait(lead),
-        Some((WaitKind::Question, "A or B?\nmore".into()))
-    );
-    assert_eq!(g.unasked_root(lead), Ok(false));
-    assert_eq!(
-        g.open_question(lead),
-        Ok(Some(OpenQuestion {
-            id: asked,
-            text: "A or B?\nmore".into()
-        }))
-    );
-
     // 다른 신호는 자기가 건 대기만 거둔다.
-    g.set_wait(lead, WaitSource::Screen, None).unwrap();
-    assert!(wait(lead).is_some());
-    // 사람의 키 입력은 `loom ask` 대기를 남긴다. 에이전트가 답으로 판단하면 `loom answered`로 지운다.
-    g.typed(lead).unwrap();
-    assert!(wait(lead).is_some());
-    g.set_wait(lead, WaitSource::Screen, None).unwrap();
+    let trust = (WaitKind::Trust, "Trust?");
+    g.set_wait(lead, WaitSource::Screen, Some(trust)).unwrap();
+    assert_eq!(g.unasked_root(lead), Ok(false));
     g.set_wait(lead, WaitSource::Hook, None).unwrap();
-    assert!(wait(lead).is_some());
-    g.set_wait(lead, WaitSource::Ask, None).unwrap();
-    assert_eq!(wait(lead), None);
-    // 받은편지함 [×]는 어느 신호의 대기든 지운다.
-    g.ask(lead, "A or B?", None).unwrap();
-    g.clear_wait(lead).unwrap();
-    assert_eq!(wait(lead), None);
-    assert_eq!(g.open_question(lead), Ok(None));
-    // 다른 신호의 대기는 키 입력이 지운다.
-    g.set_wait(lead, WaitSource::Screen, Some((WaitKind::Trust, "Trust?")))
-        .unwrap();
+    assert_eq!(waits(lead), [(WaitKind::Trust, "Trust?".into())]);
+    // 사람의 키 입력이 신호의 대기를 지운다.
     g.typed(lead).unwrap();
-    assert_eq!(wait(lead), None);
+    assert_eq!(waits(lead), []);
 
     let mut events = g.subscribe().unwrap().1;
     g.set_wait(worker, WaitSource::Codex, Some((WaitKind::Approval, "")))
         .unwrap();
-    let since = view(&g, worker).wait.unwrap().since;
+    let since = view(&g, worker).waits[0].since;
     // 같은 대기는 다시 알리지 않고 시작 시각을 지킨다.
     g.set_wait(worker, WaitSource::Codex, Some((WaitKind::Approval, "")))
         .unwrap();
-    assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.wait.is_some()));
+    assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.waits.len() == 1));
     assert!(events.try_recv().is_err());
-    assert_eq!(view(&g, worker).wait.unwrap().since, since);
+    assert_eq!(view(&g, worker).waits[0].since, since);
     g.set_wait(worker, WaitSource::Codex, None).unwrap();
-    assert_eq!(wait(worker), None);
+    assert_eq!(waits(worker), []);
 
     // 프로세스가 끝나면 지운다.
     g.set_wait(worker, WaitSource::Screen, Some((WaitKind::Trust, "t")))
         .unwrap();
     g.exited(worker, 0).unwrap();
-    assert_eq!(wait(worker), None);
+    assert_eq!(waits(worker), []);
 
-    // 훅 대기: 다음 훅이 거두고(`loom hook`), 사람이 받은편지함 [×]로도 지운다(`DELETE /api/nodes/{id}/wait`).
+    // 훅 대기: 다음 훅이 거두고(`loom hook`), 사람이 받은편지함 [×]로도 지운다(`DELETE /api/waits/{wait}`).
     let permission = Some((WaitKind::Approval, "Claude needs your permission"));
     g.set_wait(lead, WaitSource::Hook, permission).unwrap();
     g.set_wait(lead, WaitSource::Hook, None).unwrap();
-    assert_eq!(wait(lead), None);
+    assert_eq!(waits(lead), []);
     g.set_wait(lead, WaitSource::Hook, permission).unwrap();
+    g.dismiss(view(&g, lead).waits[0].id).unwrap();
+    assert_eq!(waits(lead), []);
+}
+
+/// 노드 하나가 질문 여럿을 연다(목업 M28). 새 질문은 앞 질문을 지우지 않고, 신호의 대기와 따로 산다.
+/// `loom answered`는 번호로 닫는다. 번호 없이는 열린 질문이 하나일 때만 닫는다.
+#[test]
+fn a_node_keeps_several_questions_and_closes_them_by_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = child(&g, lead, "w");
+    let ids = |id| {
+        view(&g, id)
+            .waits
+            .into_iter()
+            .map(|w| w.id)
+            .collect::<Vec<_>>()
+    };
+
+    // 사람에게는 사람이 띄운 노드만 묻는다.
+    assert_eq!(g.ask(worker, "A?", None), Err(Refusal::HasParent));
+    assert_eq!(g.ask(lead, "  ", None), Err(Refusal::EmptyQuestion));
+    // `loom ask` 질문은 줄바꿈까지 전문을 남긴다.
+    let q1 = g.ask(lead, "A or B?\nmore", None).unwrap();
+    let q2 = g.ask(lead, "C?", None).unwrap();
+    let q3 = g.ask(lead, "D?", None).unwrap();
+    assert_eq!(g.unasked_root(lead), Ok(false));
+    assert_eq!(
+        g.open_questions(lead),
+        Ok(vec![
+            OpenQuestion {
+                id: q1,
+                text: "A or B?\nmore".into()
+            },
+            OpenQuestion {
+                id: q2,
+                text: "C?".into()
+            },
+            OpenQuestion {
+                id: q3,
+                text: "D?".into()
+            },
+        ])
+    );
+    // 신호의 대기는 질문 뒤에 온다. 키 입력과 신호는 질문을 지우지 않는다.
+    g.set_wait(lead, WaitSource::Hook, Some((WaitKind::Approval, "Bash")))
+        .unwrap();
+    let hook = view(&g, lead).waits[3].id;
+    assert_eq!(ids(lead), [q1, q2, q3, hook]);
+    g.typed(lead).unwrap();
+    assert_eq!(ids(lead), [q1, q2, q3]);
+
+    // 번호 없는 `loom answered`는 여럿이 열려 있으면 거절한다.
+    assert_eq!(
+        g.answered(lead, &[]),
+        Err(Refusal::SeveralOpen(vec![q1, q2, q3]))
+    );
+    assert_eq!(g.answered(lead, &[q2, q3]), Ok(vec![q2, q3]));
+    // 다른 노드의 질문이나 닫힌 질문은 닫지 못한다.
+    assert_eq!(g.answered(lead, &[q2]), Err(Refusal::NoWait(q2)));
+    assert_eq!(g.answered(lead, &[]), Ok(vec![q1]));
+    assert_eq!(g.answered(lead, &[]), Ok(vec![]));
+    assert_eq!(g.unasked_root(lead), Ok(true));
+
+    // [×]는 그 질문 하나만, 재시작은 모두 지운다.
+    let q4 = g.ask(lead, "E?", None).unwrap();
+    let q5 = g.ask(lead, "F?", None).unwrap();
+    g.dismiss(q4).unwrap();
+    assert_eq!(ids(lead), [q5]);
+    assert_eq!(g.dismiss(q4), Err(Refusal::NoWait(q4)));
+    g.ask(lead, "G?", None).unwrap();
     g.clear_wait(lead).unwrap();
-    assert_eq!(wait(lead), None);
+    assert_eq!(ids(lead), []);
 }
 
 /// 대기 번호는 데몬 전체에서 늘기만 한다. 지운 번호도, 같은 질문을 다시 물어도 새 번호다. 다시 열어도 이어진다.
@@ -265,7 +313,7 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
     let g = open(&path);
     let lead = root(&g, "총괄");
     let other = root(&g, "다른");
-    let id = |node| view(&g, node).wait.map(|w| w.id);
+    let id = |node| view(&g, node).waits.first().map(|w| w.id);
 
     let first = g.ask(lead, "A or B?", None).unwrap();
     let screen = g
@@ -273,11 +321,11 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
         .map(|()| id(other).unwrap())
         .unwrap();
     assert!(screen.0 > first.0);
-    assert!(!view(&g, other).wait.unwrap().answerable);
+    assert!(!view(&g, other).waits[0].answerable);
     g.clear_wait(lead).unwrap();
     let again = g.ask(lead, "A or B?", None).unwrap();
     assert!(again.0 > screen.0);
-    assert!(view(&g, lead).wait.unwrap().answerable);
+    assert!(view(&g, lead).waits[0].answerable);
 
     // 다른 신호의 대기와 지운 질문에는 답하지 못한다.
     assert_eq!(g.answer(screen, "y"), Err(Refusal::NoWait(screen)));
@@ -307,9 +355,9 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
         path: dir.path().join("m.html"),
     };
     let with_doc = g.ask(lead, "승인할까요?", Some(attached)).unwrap();
-    assert_eq!(view(&g, lead).wait.unwrap().doc, Some(doc));
+    assert_eq!(view(&g, lead).waits[0].doc, Some(doc));
     assert_eq!(g.wait_doc(with_doc), Ok(dir.path().join("m.html")));
-    g.set_wait(lead, WaitSource::Ask, None).unwrap();
+    g.answered(lead, &[]).unwrap();
     assert_eq!(g.wait_doc(with_doc), Err(Refusal::NoWait(with_doc)));
 
     drop(g);

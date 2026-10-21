@@ -136,6 +136,8 @@ pub enum GraphEvent {
     Recorded {
         record: EventRecord,
     },
+    /// 설정, 카드 자리, 카드 크기 가운데 하나가 바뀌었다. 값은 담지 않는다. 다른 화면은 세 가지를 다시 읽는다.
+    ViewChanged,
 }
 
 /// 간선 위 메시지가 가는 쪽.
@@ -454,6 +456,11 @@ impl Graph {
     /// 다음 메시지가 들어올 때 끝나는 future. 메일함을 보기 전에 `enable()`해야 그 사이에 온 메시지를 놓치지 않는다.
     pub fn mail_changed(&self) -> Notified<'_> {
         self.mail.notified()
+    }
+
+    /// 화면 상태(설정·자리·크기)를 쓴 뒤 부른다. 보는 화면이 없으면 버린다.
+    pub fn publish_view_changed(&self) {
+        let _ = self.events.send(GraphEvent::ViewChanged);
     }
 
     fn publish_message(&self, child: NodeId, toward: Toward) {

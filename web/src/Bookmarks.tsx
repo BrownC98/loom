@@ -10,13 +10,12 @@ import type { RepoView } from './gen/RepoView';
 import { useShowNodes } from './Graph';
 import { stateClass } from './NodeCard';
 import { groupsOf } from './repos';
-import { usePaneOpen } from './Splitter';
 
 /** 사이드바 북마크 영역. 모든 저장소의 북마크를 북마크한 차례로 보인다. 줄을 누르면 트리의 노드 줄과 같다. */
-export function Bookmarks(props: { views: ReadonlyMap<NodeId, NodeView>; repos: RepoView[]; selected: NodeId | null; onSelect: (id: NodeId) => void }) {
+export function Bookmarks(props: { views: ReadonlyMap<NodeId, NodeView>; repos: RepoView[]; selected: NodeId | null; onSelect: (id: NodeId) => void; open: boolean; onOpen: (open: boolean) => void }) {
   const { t } = useTranslation();
   const show = useShowNodes();
-  const [open, setOpen] = usePaneOpen('loom.bookmarksOpen');
+  const { open, onOpen: setOpen } = props;
   const [refusal, setRefusal] = useState<{ node: NodeId; text: string } | null>(null);
   const views = [...props.views.values()];
   const marked = views.filter((v) => v.bookmark !== null).sort((a, b) => a.bookmark! - b.bookmark!);

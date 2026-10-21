@@ -403,6 +403,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 한 번만 실행한다. 두 번째 실행은 있는 창을 앞으로 가져온다 | Orca와 같다 |
 | 창 위치·크기를 기억한다(`tauri-plugin-window-state`) | Orca와 같다 |
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
+| 「기본 셸」 노드는 `%ComSpec%`로 띄운다. 폴더가 WSL 폴더(`\\wsl.localhost\<배포판>\…`, `\\wsl$\…`)면 `wsl.exe -d <배포판> --cd <Linux 경로>`로 띄운다 | `cmd.exe`는 UNC 폴더에서 시작하지 못하고 「UNC 경로는 지원되지 않습니다」를 쓴 뒤 `C:\Windows`에서 연다. 명령 노드(`cmd /C`)는 명령 글이 Windows 명령이라 그대로 둔다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 PTY 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
 | 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 루트 `Cargo.toml`의 `version` 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수다. 계산은 `scripts/version.sh` 한 곳이고, 화면 빌드(`npm run build`)와 CI가 함께 쓴다. CI는 그 값을 두 `Cargo.toml`에 쓴다. 그래서 `MAJOR.MINOR`를 올리면 PATCH는 0부터 다시 센다(SemVer 관례). 로컬 Rust 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |

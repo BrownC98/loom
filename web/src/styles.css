@@ -520,12 +520,13 @@ button.qid { cursor: pointer; }
 button.qid:hover { background: color-mix(in oklch, var(--warn) 22%, var(--surface)); }
 button.qid[data-copied] { border-color: var(--warn); background: var(--warn); color: var(--warn-ink); }
 button.qid[data-copied] svg { color: var(--warn-ink); }
-.wait-list .doc-link, .wait-list .to-terminal { justify-self: start; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 13px); min-width: 0; height: 28px; margin-left: 13px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
-.wait-list .doc-link { padding: 0 8px 0 4px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); background: var(--surface); color: var(--ink); }
-.wait-list .doc-link:hover { background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+
+.wait-list .to-terminal { justify-self: start; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 13px); min-width: 0; height: 28px; margin-left: 13px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
+.wait-list .doc-link { display: inline; padding: 0; border: 0; background: none; color: var(--warn); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.wait-list .doc-link:hover { text-decoration-thickness: 2px; }
 .wait-list .doc-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.wait-list .doc-link svg, .wait-list .to-terminal svg { flex: none; width: 12px; height: 12px; }
-.wait-list .doc-link svg { color: var(--warn); }
+.wait-list .to-terminal svg { flex: none; width: 12px; height: 12px; }
+.wait-list .doc-link svg { display: inline; width: 12px; height: 12px; margin-left: 3px; vertical-align: -1px; }
 .wait-list .to-terminal { padding: 0 8px; border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
 .wait-list .to-terminal:hover { background: var(--surface-hover); color: var(--ink); }
 .wait-list .choices { display: flex; flex-wrap: wrap; gap: 6px; margin-left: 13px; }
@@ -537,7 +538,8 @@ button.qid[data-copied] svg { color: var(--warn-ink); }
 .wait-list .answer { display: flex; gap: 6px; margin-left: 13px; }
 .wait-list .answer input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
 .wait-list .answer input::placeholder { color: var(--ink-3); }
-.wait-list .answer input:focus-visible { outline: 2px solid var(--warn); outline-offset: 0; border-color: var(--warn); }
+/* 포커스는 테두리 색만 바꾼다. 두꺼운 테두리는 2026-10-21 사람 지시 "텍스트 입력창 포커싱 테두리가 너무 두꺼움"으로 뺐다. */
+.wait-list .answer input:focus-visible { outline: none; border-color: var(--warn); }
 .wait-list .send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: var(--warn); color: var(--warn-ink); cursor: pointer; }
 .wait-list .send:disabled { opacity: 0.45; cursor: default; }
 .wait-list .send svg { width: 14px; height: 14px; }

@@ -141,19 +141,25 @@ function WaitRow(props: { view: Waiting; onGo: () => void }) {
         </button>
         <DismissButton id={props.view.id} />
       </div>
-      {wait.text && <p className="full">{wait.text}</p>}
-      {wait.doc && (
-        <button
-          type="button"
-          className="doc-link"
-          title={t('inbox.openDocLabel', { id: wait.doc.id, title: wait.doc.title })}
-          onClick={() => openWaitDoc(wait.id).catch((err: Error) => setRefusal(err.message))}
-        >
-          <span className="qid">{wait.doc.id}</span>
-          <span className="doc-title">{wait.doc.title}</span>
-          {t('inbox.openDoc')}
-          <ExternalLink aria-hidden="true" />
-        </button>
+      {(wait.text || wait.doc) && (
+        <p className="full">
+          {wait.text}
+          {wait.doc && (
+            // 문서는 따로 단추가 아니라 질문 글 끝의 링크다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
+            <>
+              {' '}
+              <button
+                type="button"
+                className="doc-link"
+                title={t('inbox.openDocLabel', { id: wait.doc.id, title: wait.doc.title })}
+                onClick={() => openWaitDoc(wait.id).catch((err: Error) => setRefusal(err.message))}
+              >
+                {wait.doc.id} {wait.doc.title}
+                <ExternalLink aria-hidden="true" />
+              </button>
+            </>
+          )}
+        </p>
       )}
       {wait.answerable ? (
         <>

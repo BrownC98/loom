@@ -155,6 +155,16 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
           <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
         </>
       );
+    case 'accountSwitched':
+    case 'noAccountLeft':
+      // 계정 이름은 이 목록이 모른다. 상태 줄 알림이 이름으로 보인다.
+      return (
+        <>
+          <span className="kind">{t(`events.kind.${entry.kind}`)}</span>
+          {t(`switch.provider.${entry.provider}`)}
+          {entry.kind === 'accountSwitched' && <span className="note">{t('switch.notice.counts', { moved: entry.moved, later: entry.later, failed: entry.failed })}</span>}
+        </>
+      );
   }
 }
 

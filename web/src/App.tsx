@@ -465,6 +465,7 @@ export function App() {
           )}
           <main className="canvas" aria-label={title === null ? t('app.allGraphLabel') : t('app.graphLabel', { repo: title })}>
             {title !== null && <h1 className="canvas-title">{title}</h1>}
+            <Inbox waiting={waitingNodes(nodes)} notify={settings.osNotify} onSelect={selectNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               onRepo={putRepo}
@@ -528,7 +529,6 @@ export function App() {
             onChoose={chooseAccount}
             notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}
-            inbox={<Inbox waiting={waitingNodes(nodes)} notify={settings.osNotify} onSelect={selectNode} />}
           />
           <UpdateCard />
           {settingsTab && (

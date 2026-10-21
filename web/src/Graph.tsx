@@ -210,7 +210,16 @@ type Fn = (...args: never[]) => unknown;
 function Group({ data }: NodeProps<GroupNode>) {
   const { t } = useTranslation();
   return (
-    <section className="group" aria-label={t('graph.group', { branch: data.branch })}>
+    // 빈 곳을 끌면 바탕을 끌 때처럼 화면이 움직인다(2026-10-21 사람 지시 "묶음의 헤더가 아닌 빈공간도 잡아서 카메라 이동할 수 있게 해줘").
+    // React Flow는 끌 수 있는 노드 안의 mousedown으로 화면을 옮기지 않는다. 그래서 같은 mousedown을 바탕에 다시 보낸다. 움직였으면 React Flow가 클릭을 막는다.
+    <section
+      className="group"
+      aria-label={t('graph.group', { branch: data.branch })}
+      onMouseDown={(e) => {
+        if (e.button !== 0 || (e.target as Element).closest('.group-head')) return;
+        e.currentTarget.closest('.react-flow')?.querySelector('.react-flow__pane')?.dispatchEvent(new MouseEvent('mousedown', e.nativeEvent));
+      }}
+    >
       <div className="group-head">
         <span className="branch" translate="no" title={data.branch}>
           {data.branch}
@@ -929,10 +938,9 @@ export function Graph(props: {
     const of = sides.current.of;
     const targets: string[] = [];
     for (const o of others) {
-      const now = centerSide(dragged, o);
       const before = of.get(o.key);
-      if (!overlaps(dragged, o) || before === undefined) of.set(o.key, now);
-      else if (crossed(before, now)) targets.push(o.key);
+      if (!overlaps(dragged, o) || before === undefined) of.set(o.key, centerSide(dragged, o));
+      else if (crossed(before, dragged, o)) targets.push(o.key);
     }
     const pushed = push(others, dragged, targets, FREE_GAP);
     for (const [k, at] of pushed) of.set(k, centerSide(dragged, { at, size: others.find((o) => o.key === k)!.size }));
@@ -1196,6 +1204,9 @@ export function Graph(props: {
           if (node.type === 'card' || node.type === 'simple') return setSelected(Number(node.id));
           setChosenBox(node.id);
         }}
+        // 화면을 끄는 동안(바탕·묶음 빈 곳·가운데 버튼) 커서가 어디에 있든 잡은 손이다(2026-10-21 사람 "휠클릭으로 그게 되긴하는데, 커서 변화가 없음"). 휠 확대는 뺀다.
+        onMoveStart={(event) => document.documentElement.classList.toggle('panning', event?.type === 'mousedown')}
+        onMoveEnd={() => document.documentElement.classList.remove('panning')}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements

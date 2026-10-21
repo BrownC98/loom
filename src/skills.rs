@@ -1,4 +1,4 @@
-//! loom이 싣는 스킬(`skills/`)과 모든 노드가 늘 보는 지시(STE-100, 랩터-3 「작업 중」, o-mode).
+//! loom이 싣는 스킬(`skills/`)과 모든 노드가 늘 보는 지시(사람에게 묻기, STE-100, 랩터-3 「작업 중」, o-mode).
 //! 노드 에이전트는 사람이 스킬을 설치하지 않아도 이 스킬을 쓴다. 바뀌는 이유는 스킬 글과 그 배포 방식이다.
 //! 근거: docs/design.md 「내장 스킬」.
 
@@ -62,8 +62,12 @@ impl Plugin {
     }
 }
 
-/// 실은 스킬 폴더 이름. 설정이 하나씩 켜고 끈다. 새 스킬을 더하면 `AlwaysOn`에도 더한다(테스트가 막는다).
+/// 설정이 하나씩 켜고 끄는 스킬 폴더 이름. 새 스킬을 더하면 `AlwaysOn`에도 더한다(테스트가 막는다).
 const SKILLS: [&str; 4] = ["o-mode", "user-doc", "ste-100", "raptor-3"];
+
+/// 끌 수 없는 스킬: 사람에게 묻는 표준. 모든 조합의 폴더와 모든 시작 지시에 든다.
+/// 근거: 2026-10-21 사람 지시 "질문 방식을 가르치는 스킬은 별도로 분리해서 loom에서 상시 포함되는 스킬로 만들어라".
+const ASK: &str = "ask-human";
 
 /// 실은 파일 경로(`o-mode/SKILL.md`)의 스킬 이름.
 fn skill_of(name: &str) -> &str {
@@ -116,6 +120,7 @@ impl AlwaysOn {
             "user-doc" => self.user_doc,
             "ste-100" => self.ste100,
             "raptor-3" => self.raptor3,
+            ASK => true,
             _ => unreachable!("`SKILLS`에 없는 스킬 폴더: {skill}"),
         }
     }
@@ -138,11 +143,12 @@ pub struct Launch {
     pub skills: AlwaysOn,
 }
 
-/// 모든 노드의 시작 지시에 붙이는 글: STE-100 본문, 랩터-3 「작업 중」 절, o-mode 글. 설정이 끈 스킬의 글은 뺀다.
+/// 모든 노드의 시작 지시에 붙이는 글: 사람에게 묻기 본문, STE-100 본문, 랩터-3 「작업 중」 절, o-mode 글. 설정이 끈 스킬의 글은 뺀다.
 /// 부모 없는 노드는 o-mode 절차 전체, 자식은 브리프 공통 규칙을 받는다. 자식에게 총괄 절차를 주지 않는다.
 /// 링크만 주면 모델이 읽지 않고 지나친다. 그래서 본문을 그대로 넣는다.
 pub fn always_on(launch: Launch) -> String {
-    let mut parts = Vec::new();
+    // 질문 규칙을 맨 앞에 둔다. loom 기능과 직결된다(`ASK`).
+    let mut parts = vec![ask_rules()];
     if launch.skills.ste100 {
         parts.push(body(&text("ste-100/SKILL.md")).to_owned());
     }
@@ -162,6 +168,11 @@ pub fn always_on(launch: Launch) -> String {
         parts.push(format!("{MODE_NOTE}\n\n{}", body(&mode)));
     }
     parts.join("\n\n")
+}
+
+/// 끌 수 없는 질문 규칙(`ASK`)의 본문.
+pub fn ask_rules() -> String {
+    body(&text(&format!("{ASK}/SKILL.md"))).to_owned()
 }
 
 /// 시작 지시에 넣은 o-mode 글의 상대 링크는 시작 지시 안에서 열리지 않는다.
@@ -196,13 +207,16 @@ mod tests {
     fn always_on_has_the_ste_body_and_only_the_raptor_work_section() {
         for position in [Position::Root, Position::Child] {
             let text = always_on(launch(position));
-            assert!(text.starts_with("# STE-100\n"), "{text}");
+            assert!(text.starts_with("# 사람에게 묻기\n"), "{text}");
+            assert!(text.contains("\n# STE-100\n"));
             assert!(!text.contains("name: ste-100"));
             assert!(text.contains("\n# 랩터-3 작업 중\n"));
             assert!(text.contains("완료 보고에는 `랩터-3:` 한 줄로"));
             assert!(!text.contains("## 화면(UI/UX) 감사"));
             assert!(!text.contains("## 5단계"));
             assert!(!text.contains("name: o-mode"));
+            assert_eq!(text.matches("# 사람에게 묻기\n").count(), 1);
+            assert!(!text.contains("name: ask-human"));
         }
     }
 
@@ -234,12 +248,12 @@ mod tests {
             ..on
         });
         assert!(!no_ste.contains("# STE-100"));
-        assert!(no_ste.starts_with("# 랩터-3 작업 중\n"), "{no_ste}");
+        assert!(no_ste.contains("\n# 랩터-3 작업 중\n"), "{no_ste}");
         let no_raptor = off(AlwaysOn {
             raptor3: false,
             ..on
         });
-        assert!(no_raptor.starts_with("# STE-100\n"));
+        assert!(no_raptor.contains("\n# STE-100\n"));
         assert!(!no_raptor.contains("랩터-3 작업 중"));
         let no_mode = off(AlwaysOn {
             o_mode: false,
@@ -252,9 +266,17 @@ mod tests {
             o_mode: true,
             ..AlwaysOn::all().next().unwrap()
         });
-        assert!(mode_only.starts_with(MODE_NOTE), "{mode_only}");
+        assert_eq!(
+            mode_only,
+            format!(
+                "{}\n\n{MODE_NOTE}\n\n{}",
+                ask_rules(),
+                body(&text("o-mode/SKILL.md"))
+            )
+        );
+        // 끌 수 없는 스킬의 글만 남는다.
         let none = off(AlwaysOn::all().next().unwrap());
-        assert_eq!(none, "");
+        assert_eq!(none, ask_rules());
     }
 
     /// 옛 설정 줄에는 이 값이 없다. 없으면 켜짐이다.
@@ -285,7 +307,7 @@ mod tests {
             serde_json::from_slice(&std::fs::read(dir.join(".claude-plugin/plugin.json")).unwrap())
                 .unwrap();
         assert_eq!(manifest["name"], "loom");
-        for skill in ["o-mode", "ste-100", "user-doc", "raptor-3"] {
+        for skill in ["o-mode", "ste-100", "user-doc", "raptor-3", ASK] {
             assert!(
                 plugin.skills(on).join(skill).join("SKILL.md").is_file(),
                 "{skill}"
@@ -311,16 +333,17 @@ mod tests {
                 let file = plugin.skills(on).join(skill).join("SKILL.md");
                 assert_eq!(file.is_file(), on.has(skill), "{on:?} {skill}");
             }
+            assert!(plugin.skills(on).join(ASK).join("SKILL.md").is_file());
         }
     }
 
-    /// 실은 스킬 폴더마다 설정 스위치가 있다.
+    /// 실은 스킬 폴더마다 설정 스위치가 있다. 끌 수 없는 스킬만 예외다.
     #[test]
     fn every_shipped_skill_has_a_switch() {
         let shipped: std::collections::BTreeSet<_> =
             Files::iter().map(|n| skill_of(&n).to_owned()).collect();
         let switched: std::collections::BTreeSet<_> =
-            SKILLS.iter().map(|s| s.to_string()).collect();
+            SKILLS.iter().chain([&ASK]).map(|s| s.to_string()).collect();
         assert_eq!(shipped, switched);
     }
 

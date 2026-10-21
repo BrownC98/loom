@@ -621,7 +621,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom steer <name-or-id> <body>: insert guidance between tool calls. Steer and interrupt go only to your parent or children.
 - loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
 - loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language.
-- loom ask <question>: only when you have no parent. Every time you ask the human anything (a question, a choice, an approval, a permission), you must call loom ask with that question as one line in this form: <question> (A: <option> / B: <option>, recommended: A). Write all of it, the word \"recommended\" too, in the language the human uses with you. Leave out the options part only for a yes/no question. Then end your turn. Never end a turn with a question only in your text: the human sees questions only in the inbox. The human answers in your terminal. With a parent, ask the parent with loom send.
+- loom ask <question>: put one question in the human's inbox. When you have no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only with loom ask, in the one-line form of the ask-human rules below, then end your turn. Never end a turn with a question only in your text. With a parent, ask your parent with loom send, never the human.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
 - loom rm <name-or-id>: remove your own child and end its process. Its children become your children; reclaim them next.
 Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
@@ -715,6 +715,28 @@ pub fn shell(line: &str) -> CommandBuilder {
     let mut cmd = CommandBuilder::new("cmd");
     cmd.args(["/C", line]);
     cmd
+}
+
+/// 런타임마다 시작 지시에 질문 규칙이 둘 다 든다: 사용법의 필수 한 줄과 `ask-human` 본문 한 번.
+/// 자리와 스위치가 무엇이든 든다. `texts`는 한 시작의 (사용법 글, 상시 지시 글)이다.
+/// 근거: 2026-10-21 사람 지시 "loom 기능과 직결되므로 스킬이 되었든 다른 방식이 되었든 각 에이전트에 강하게 명시되어야 함".
+#[cfg(test)]
+pub fn assert_every_launch_asks(texts: impl Fn(Launch) -> (String, String)) {
+    use crate::skills::{AlwaysOn, Position};
+    let off = AlwaysOn {
+        o_mode: false,
+        user_doc: false,
+        ste100: false,
+        raptor3: false,
+    };
+    for position in [Position::Root, Position::Child] {
+        for skills in [AlwaysOn::default(), off] {
+            let (usage, rules) = texts(Launch { position, skills });
+            assert!(usage.contains("you MUST ask the human anything"), "{usage}");
+            let ask = crate::skills::ask_rules();
+            assert_eq!(rules.matches(&ask).count(), 1, "{position:?} {skills:?}");
+        }
+    }
 }
 
 #[cfg(test)]

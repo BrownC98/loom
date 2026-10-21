@@ -9,11 +9,11 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
-    AckRequest, AdoptRequest, AskRequest, Asked, DoneRequest, GuardRequest, HookWaitRequest,
-    IdleRequest, RemoveRequest, ReplyRequest, SaidRequest, SendRequest, SpawnRequest, SpawnRun,
-    TakeRequest, Taken, WaitRequest,
+    AckRequest, AdoptRequest, AnsweredRequest, AskRequest, Asked, DoneRequest, GuardRequest,
+    HookWaitRequest, IdleRequest, RemoveRequest, ReplyRequest, SaidRequest, SendRequest,
+    SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
 };
-use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent};
+use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{BETWEEN_TOOLS_KINDS, Take, cursor};
@@ -202,11 +202,7 @@ pub fn hook() -> Result<(), String> {
         human_input: matches!(event, claude::Event::UserPromptSubmit),
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
-    if let Some(reply) = event.reply(
-        &taken.messages,
-        &taken.queued_from,
-        taken.open_question.as_ref(),
-    ) {
+    if let Some(reply) = event.reply(&taken.messages, &taken.queued_from, &taken.open_questions) {
         println!("{reply}");
     }
     // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
@@ -276,23 +272,19 @@ pub fn cursor_hook() -> Result<(), String> {
         None | Some(Take::Never) => Taken {
             messages: Vec::new(),
             queued_from: Vec::new(),
-            open_question: None,
+            open_questions: Vec::new(),
         },
         Some(Take::WhenIdle) => Taken {
             messages: wait_for_mail(&IdleRequest::default())?,
             queued_from: Vec::new(),
-            open_question: None,
+            open_questions: Vec::new(),
         },
         Some(Take::Now(kinds)) => take_now(kinds, false)?,
         Some(Take::BetweenTools) => take_now(BETWEEN_TOOLS_KINDS, true)?,
     };
     println!(
         "{}",
-        event.reply(
-            &taken.messages,
-            &taken.queued_from,
-            taken.open_question.as_ref(),
-        )
+        event.reply(&taken.messages, &taken.queued_from, &taken.open_questions,)
     );
     std::io::stdout().flush().map_err(|e| e.to_string())?;
     acknowledge(&taken.messages, Some(timeout));
@@ -382,15 +374,36 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
         .map(|doc| format!(" with {} ({})", doc.id, doc.title))
         .unwrap_or_default();
     println!("{} in the inbox{with}: {}", asked.id, question.trim());
+    if asked.open.len() > 1 {
+        let open: Vec<String> = asked.open.iter().map(WaitId::to_string).collect();
+        println!("Open questions: {}.", open.join(", "));
+    }
     println!(
         "The question is in the human's inbox. End your turn now. The human answers in your terminal or in the inbox."
     );
     Ok(())
 }
 
-pub fn answered() -> Result<(), String> {
-    call::<()>("answered", &(), None)?;
-    println!("The question is no longer in the human's inbox.");
+/// `ids`는 `Q12`나 `12`다. 없으면 열린 질문이 하나일 때만 그것을 닫는다.
+pub fn answered(ids: Vec<String>) -> Result<(), String> {
+    let ids = ids
+        .iter()
+        .map(|id| {
+            id.trim_start_matches(['Q', 'q'])
+                .parse()
+                .map(WaitId)
+                .map_err(|_| format!("{id}: give a question number such as Q12."))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let closed: Vec<WaitId> = call("answered", &AnsweredRequest { ids }, None)?;
+    let closed: Vec<String> = closed.iter().map(WaitId::to_string).collect();
+    match closed.is_empty() {
+        true => println!("No question was open."),
+        false => println!(
+            "Closed {}. They are no longer in the human's inbox.",
+            closed.join(", ")
+        ),
+    }
     Ok(())
 }
 

@@ -32,7 +32,7 @@ import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
 import { Splitter, usePaneOpen, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
 import { StatusBar, type Usage } from './StatusBar';
-import { Inbox, InboxPanel, waitingNodes } from './Inbox';
+import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
@@ -504,7 +504,7 @@ export function App() {
             <Dock
               tabs={tabs}
               tab={shownTab}
-              waiting={waiting.length}
+              waiting={waitCount(waiting)}
               onTab={setTab}
               onCollapse={() => openDock(false)}
               tools={
@@ -531,7 +531,7 @@ export function App() {
           ) : (
             <DockRail
               tabs={tabs}
-              waiting={waiting.length}
+              waiting={waitCount(waiting)}
               onArrange={() => arrange(direction)}
               onExpand={(next) => {
                 if (next) setTab(next);

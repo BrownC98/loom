@@ -36,6 +36,7 @@ topic: string | null,
  */
 bookmark: number | null, 
 /**
- * 사람의 답·승인을 기다린다. 근거: docs/design.md 「사람 응답 대기」.
+ * 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
+ * 근거: docs/design.md 「사람 응답 대기」.
  */
-wait: HumanWait | null, };
+waits: Array<HumanWait>, };

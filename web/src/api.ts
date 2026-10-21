@@ -70,7 +70,7 @@ export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/
 export const bookmarkNode = (id: NodeId) => call<null>('PUT', `/api/nodes/${id}/bookmark`);
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
 /** 사람 응답 대기를 지운다. 터미널에 키를 누른 것과 같다(docs/design.md 「사람 응답 대기」). */
-export const dismissWait = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/wait`);
+export const dismissWait = (wait: WaitId) => call<null>('DELETE', `/api/waits/${wait}`);
 /** 화면에서 `loom ask` 질문에 답한다. 답은 사람이 보낸 메시지로 그 노드에 가고 질문은 사라진다. */
 export const answerWait = (wait: WaitId, text: string) => call<null>('POST', `/api/waits/${wait}/answer`, { text } satisfies AnswerWait);
 /** 질문에 붙은 문서를 데몬이 그 기계의 기본 브라우저로 연다. 데스크톱 앱에서도 앱 창이 아니라 브라우저로 연다. */

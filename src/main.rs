@@ -127,8 +127,8 @@ enum Cli {
         #[arg(long)]
         doc: Option<PathBuf>,
     },
-    /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다.
-    Answered,
+    /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다. 열린 질문이 여럿이면 번호(`Q12 Q13`)를 준다
+    Answered { ids: Vec<String> },
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
     /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
@@ -197,7 +197,7 @@ fn main() -> ExitCode {
         Cli::Status { all: true } => cli::directory(),
         Cli::Done { summary, file } => cli::done(summary, file),
         Cli::Ask { question, doc } => cli::ask(question, doc),
-        Cli::Answered => cli::answered(),
+        Cli::Answered { ids } => cli::answered(ids),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),
         Cli::Show { file } => user_doc::show(&file),

@@ -10,7 +10,7 @@ import { navDirection, type Direction } from './Terminal';
 
 /** 점·상태 칸의 클래스. 사람 응답 대기는 실행 상태보다 앞선다(목업 docs/mockups/human-question.html ④). */
 export function stateClass(view: NodeView): string {
-  return view.wait ? 'waiting' : view.state.kind;
+  return view.waits.length > 0 ? 'waiting' : view.state.kind;
 }
 
 export function stateLabel(state: NodeState): string {
@@ -78,7 +78,9 @@ function Badges(props: { view: NodeView }) {
         </span>
       )}
       <span className={`state ${stateClass(view)}`} aria-live="polite" translate="no">
-        {view.wait ? t('wait.label') : stateLabel(view.state)}
+        {view.waits.length > 0 ? t('wait.label') : stateLabel(view.state)}
+        {/* 질문이 2개 이상일 때만 수를 붙인다(목업 M28). */}
+        {view.waits.length > 1 && <span className="count">{view.waits.length}</span>}
       </span>
     </>
   );
@@ -132,7 +134,7 @@ function CardShell(props: ShellProps & { className: string; children: (rename: R
       tabIndex={0}
       aria-label={t('node.label', { name: props.view.name })}
       data-selected={props.selected || undefined}
-      data-waiting={props.view.wait !== null || undefined}
+      data-waiting={props.view.waits.length > 0 || undefined}
       onMouseDown={props.onSelect}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;

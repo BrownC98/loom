@@ -327,9 +327,9 @@ pub struct TakeRequest {
 pub struct Taken {
     pub messages: Vec<Delivery>,
     pub queued_from: Vec<String>,
-    /// 사람 입력 훅에서만: 아직 열린 `loom ask` 질문. 에이전트가 그 입력이 답인지 판단한다.
+    /// 사람 입력 훅에서만: 아직 열린 `loom ask` 질문들. 에이전트가 그 입력이 어느 질문의 답인지 판단한다.
     #[serde(default)]
-    pub open_question: Option<OpenQuestion>,
+    pub open_questions: Vec<OpenQuestion>,
 }
 
 /// 쉬는 노드의 훅 요청(`loom hook`, `loom cursor-hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
@@ -375,11 +375,20 @@ pub struct AskRequest {
     pub doc: Option<PathBuf>,
 }
 
-/// `loom ask`의 답: 질문 번호와 붙은 문서.
+/// `loom ask`의 답: 질문 번호, 붙은 문서, 이 질문을 더한 뒤 열린 질문 번호들.
 #[derive(Serialize, Deserialize)]
 pub struct Asked {
     pub id: WaitId,
     pub doc: Option<WaitDoc>,
+    #[serde(default)]
+    pub open: Vec<WaitId>,
+}
+
+/// `loom answered`: 사람의 입력이 답한 질문 번호들. 비면 열린 질문이 하나일 때만 그것이다.
+#[derive(Default, Serialize, Deserialize)]
+pub struct AnsweredRequest {
+    #[serde(default)]
+    pub ids: Vec<WaitId>,
 }
 
 /// 사람이 화면에서 `loom ask` 질문에 쓴 답.
@@ -539,7 +548,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             "/api/nodes/{id}/bookmark",
             put(bookmark_node).delete(unbookmark_node),
         )
-        .route("/api/nodes/{id}/wait", delete(dismiss_wait))
+        .route("/api/waits/{wait}", delete(dismiss_wait))
         .route("/api/waits/{wait}/answer", post(answer_wait))
         .route("/api/waits/{wait}/doc", post(open_wait_doc))
         .route("/api/nodes/{id}/pty", get(pty))
@@ -1257,8 +1266,8 @@ impl Mailbox for NodeMailbox {
     }
 
     fn human_input(&self) -> Option<String> {
-        let question = self.app.graph.open_question(self.node).ok()??;
-        profile::hook_text(&[], &[], Some(&question))
+        let questions = self.app.graph.open_questions(self.node).ok()?;
+        profile::hook_text(&[], &[], &questions)
     }
 }
 
@@ -1374,12 +1383,11 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
 /// 사람이 TUI에 입력해 턴이 시작했다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
 /// Codex에는 입력 훅이 없어 턴 안에 넣는다(`turn/steer`).
 async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread: &str) {
-    let question = match app.graph.open_question(node) {
-        Ok(Some(question)) => question,
-        Ok(None) => return,
+    let questions = match app.graph.open_questions(node) {
+        Ok(questions) => questions,
         Err(e) => return eprintln!("loom: 노드 {}의 열린 질문을 읽지 못했다: {e}", node.0),
     };
-    let Some(text) = profile::hook_text(&[], &[], Some(&question)) else {
+    let Some(text) = profile::hook_text(&[], &[], &questions) else {
         return;
     };
     let call = |method, params| server.call(method, params);
@@ -1510,12 +1518,12 @@ async fn unbookmark_node(
     Ok(Json(()))
 }
 
-/// 받은편지함의 [×]: 어느 신호든 그 노드의 대기를 지운다. 근거: docs/design.md 「사람 응답 대기」.
+/// 받은편지함 줄의 [×]: 그 번호의 대기 하나(질문이든 신호의 대기든)를 지운다. 근거: docs/design.md 「사람 응답 대기」.
 async fn dismiss_wait(
     State(app): State<Arc<App>>,
-    Path(id): Path<u32>,
+    Path(wait): Path<u32>,
 ) -> Result<Json<()>, Problem> {
-    app.graph.clear_wait(NodeId(id)).map_err(Refusal::from)?;
+    app.graph.dismiss(WaitId(wait))?;
     Ok(Json(()))
 }
 
@@ -1707,14 +1715,14 @@ async fn agent_take(
     } else {
         Vec::new()
     };
-    let open_question = match req.human_input {
-        true => app.graph.open_question(node).map_err(for_agent)?,
-        false => None,
+    let open_questions = match req.human_input {
+        true => app.graph.open_questions(node).map_err(for_agent)?,
+        false => Vec::new(),
     };
     Ok(Json(Taken {
         messages,
         queued_from,
-        open_question,
+        open_questions,
     }))
 }
 
@@ -1836,19 +1844,24 @@ async fn agent_ask(
         .graph
         .ask(node, &req.question, attached)
         .map_err(for_agent)?;
-    Ok(Json(Asked { id, doc }))
+    let open = app.graph.open_questions(node).map_err(for_agent)?;
+    Ok(Json(Asked {
+        id,
+        doc,
+        open: open.into_iter().map(|q| q.id).collect(),
+    }))
 }
 
-/// `loom answered`: 사람의 입력이 `loom ask` 질문의 답이라고 에이전트가 판단했다. 그 질문만 지운다. 다른 대기와 부모 있는 노드에는 할 일이 없다.
+/// `loom answered`: 사람의 입력이 `loom ask` 질문의 답이라고 에이전트가 판단했다. 그 질문만 지우고 지운 번호를 돌려준다. 다른 대기는 남는다.
+/// 옛 CLI는 몸통 없이(`null`) 부른다. 번호 없는 호출과 같다.
 async fn agent_answered(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-) -> Result<Json<()>, AgentError> {
+    Json(req): Json<Option<AnsweredRequest>>,
+) -> Result<Json<Vec<WaitId>>, AgentError> {
     let node = app.caller(&headers)?;
-    app.graph
-        .set_wait(node, WaitSource::Ask, None)
-        .map_err(|e| for_agent(Refusal::from(e)))?;
-    Ok(Json(()))
+    let ids = req.unwrap_or_default().ids;
+    Ok(Json(app.graph.answered(node, &ids).map_err(for_agent)?))
 }
 
 async fn agent_said(

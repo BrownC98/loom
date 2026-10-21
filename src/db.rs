@@ -173,6 +173,19 @@ const STEPS: &[M] = &[
             WHERE wait IS NOT NULL;
         INSERT INTO sqlite_sequence (name, seq) VALUES ('wait_ids', (SELECT ifnull(max(id), 0) FROM nodes));",
     ),
+    // 24: 노드마다 여러 `loom ask` 질문(graph `waits`, 목업 M28). `wait`은 serde JSON `Asked`이고 `id`는 그 질문 번호다(`wait_ids`에서 받는다).
+    // 열린 `loom ask` 대기는 `nodes.wait`에서 이 표로 옮긴다. `nodes.wait`에는 훅·Codex·화면 신호의 대기만 남는다.
+    M::up(
+        "CREATE TABLE questions (
+            id INTEGER PRIMARY KEY,
+            node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            wait TEXT NOT NULL
+        );
+        CREATE INDEX questions_node ON questions(node);
+        INSERT INTO questions (id, node, wait)
+            SELECT wait ->> 'id', id, json_remove(wait, '$.source') FROM nodes WHERE wait ->> 'source' = 'ask';
+        UPDATE nodes SET wait = NULL WHERE wait ->> 'source' = 'ask';",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -229,7 +242,7 @@ mod tests {
             (10, 'c', 'null', '{}', NULL);"#,
         )
         .unwrap();
-        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 23).unwrap();
         let waits = conn
             .prepare("SELECT wait ->> 'id', wait ->> 'answerable' FROM nodes WHERE wait IS NOT NULL ORDER BY id")
             .unwrap()
@@ -241,6 +254,37 @@ mod tests {
         conn.execute("INSERT INTO wait_ids DEFAULT VALUES", [])
             .unwrap();
         assert_eq!(conn.last_insert_rowid(), 11);
+    }
+
+    /// 열린 `loom ask` 대기는 질문 표로 옮기고, 신호의 대기는 노드에 남긴다.
+    #[test]
+    fn step_24_moves_open_asks_to_questions() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 23).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO nodes (id, name, agent, state, wait) VALUES
+            (4, 'a', 'null', '{}', '{"id":7,"kind":"question","text":"A?","since":1,"answerable":true,"doc":null,"source":"ask","doc_path":"/m.html"}'),
+            (9, 'b', 'null', '{}', '{"id":8,"kind":"trust","text":"","since":1,"answerable":false,"doc":null,"source":"screen"}');"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let moved: (u32, u32, String) = conn
+            .query_row("SELECT id, node, wait FROM questions", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(
+            moved,
+            (7, 4, r#"{"id":7,"kind":"question","text":"A?","since":1,"answerable":true,"doc":null,"doc_path":"/m.html"}"#.into())
+        );
+        let left: Vec<Option<String>> = conn
+            .prepare("SELECT wait ->> 'source' FROM nodes ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(left, [None, Some("screen".into())]);
     }
 
     /// 앞 묶음 자리는 저장소 기준이라 지운다. 카드 자리와 정렬한 저장소는 남긴다.

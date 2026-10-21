@@ -18,6 +18,18 @@ describe('choices', () => {
     ]);
   });
 
+  it('keeps parentheses inside options and reads only the last top-level group', () => {
+    expect(choices('Ship (v2)? (A: now (fast) / B: later (after review), Recommended: A)')).toEqual([
+      { key: 'A', label: 'now (fast)', recommended: true },
+      { key: 'B', label: 'later (after review)', recommended: false },
+    ]);
+    expect(choices('Which? (A: red (x, y) / B: green)')).toEqual([
+      { key: 'A', label: 'red (x, y)', recommended: false },
+      { key: 'B', label: 'green', recommended: false },
+    ]);
+    expect(choices('Which? (A: x / B: y))')).toEqual([]);
+  });
+
   it('gives nothing for other questions', () => {
     expect(choices('Delete 3 worktrees?')).toEqual([]);
     expect(choices('Delete? (note: no undo)')).toEqual([]);

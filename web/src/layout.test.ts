@@ -265,12 +265,27 @@ describe('push (people decision 2026-10-21, mockup v4 ②)', () => {
 });
 
 describe('crossed', () => {
-  it('changes when the dragged center passes a center line', () => {
-    const other = box(100, 0);
+  it('changes when the dragged center passes the center line it came toward', () => {
+    const other = box(150, 0);
     const before = centerSide(box(0, 0), other);
-    expect(crossed(before, centerSide(box(90, 0), other))).toBe(false);
-    expect(crossed(before, centerSide(box(110, 0), other))).toBe(true);
-    expect(crossed(before, centerSide(box(0, 10), other))).toBe(true);
+    expect(crossed(before, box(90, 0), other)).toBe(false);
+    expect(crossed(before, box(160, 0), other)).toBe(true);
+  });
+
+  it('a 1px jitter across the other center line does not count (repro: two same-height groups in one row)', () => {
+    // 같은 줄, 같은 높이: 세로 중심이 같다. 옆에서 다가와 3 겹친 채 1 아래로 흔들려도 비키지 않는다.
+    const other = box(688, 64, 640, 517);
+    const before = centerSide(box(16, 64, 640, 517), other);
+    expect(crossed(before, box(51, 65, 640, 517), other)).toBe(false);
+    expect(crossed(before, box(51, 63, 640, 517), other)).toBe(false);
+    expect(crossed(before, box(700, 65, 640, 517), other)).toBe(true);
+  });
+
+  it('coming from a corner counts both lines', () => {
+    const other = box(100, 100);
+    const before = centerSide(box(0, 0), other);
+    expect(crossed(before, box(50, 60), other)).toBe(false);
+    expect(crossed(before, box(50, 110), other)).toBe(true);
   });
 });
 

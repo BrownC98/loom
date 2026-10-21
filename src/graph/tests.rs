@@ -1263,7 +1263,7 @@ async fn waiting_for_a_reply_keeps_unrelated_mail_and_can_be_cancelled() {
     );
 }
 
-/// loom-mode 한 바퀴: 총괄이 코디를, 코디가 워커를 띄운다. 묻고 답하고, 완료와 반려를 주고받는다.
+/// o-mode 한 바퀴: 총괄이 코디를, 코디가 워커를 띄운다. 묻고 답하고, 완료와 반려를 주고받는다.
 /// 회수는 데몬 `delete_worktree`와 같이 워크트리마다 `nodes_in` 다음 `remove`를 부른다.
 #[tokio::test]
 async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {

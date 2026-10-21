@@ -125,6 +125,8 @@ export function Tree(props: {
   /** 현재 저장소. 저장소 하나 범위면 그래프가 그리는 저장소이고, 커밋 그래프 칸이 보이는 저장소다. */
   current: RepoId | null;
   onRepo: (id: RepoId) => void;
+  /** 「저장소」 제목을 누르면 모든 저장소를 한 화면에 담고 고른 노드·상자·저장소 포커스를 지운다. */
+  onClear: () => void;
   onAdded: (repo: RepoView) => void;
   views: ReadonlyMap<NodeId, NodeView>;
   agents: AgentView[];
@@ -458,7 +460,12 @@ export function Tree(props: {
     <>
       <div className="side-head">
         <h2>
-          <button type="button" className="side-title" title={t('tree.showAll')} onClick={showAll}>
+          <button type="button" className="side-title" title={t('tree.showAll')}
+            onClick={() => {
+              showAll();
+              props.onClear();
+            }}
+          >
             {t('tree.repos')}
           </button>
         </h2>

@@ -5,6 +5,7 @@ import type { CardView } from './gen/CardView';
 import type { EdgeStyle } from './gen/EdgeStyle';
 import type { GraphScope } from './gen/GraphScope';
 import type { Language } from './gen/Language';
+import type { QuestionPill } from './gen/QuestionPill';
 import type { SettingsView } from './gen/SettingsView';
 import type { TerminalFont } from './gen/TerminalFont';
 import type { TerminalTheme } from './gen/TerminalTheme';
@@ -30,6 +31,8 @@ export const CARD_VIEWS = ['simple', 'standard'] as const satisfies readonly Car
 const GRAPH_SCOPES = ['repo', 'all'] as const satisfies readonly GraphScope[];
 /** 기본값(계단)이 앞이다. */
 const EDGE_STYLES = ['step', 'curve'] as const satisfies readonly EdgeStyle[];
+/** 기본값(한 줄)이 앞이다. */
+const QUESTION_PILLS = ['line', 'answer'] as const satisfies readonly QuestionPill[];
 
 /** 카드 보기 고르기. 설정 「UI」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
 export function CardViewSwitch(props: { value: CardView; onChange: (value: CardView) => void }) {
@@ -130,6 +133,21 @@ export function UiTab({ settings, onSettings }: TabProps) {
           ))}
         </div>
         <span className="hint">{t('edgeStyle.hint')}</span>
+      </section>
+      <section>
+        <h4>
+          <span id="t-pill">{t('questionPill.heading')}</span>
+          <FieldReset path={['questionPill']} />
+        </h4>
+        <div className="choice" role="radiogroup" aria-labelledby="t-pill">
+          {QUESTION_PILLS.map((v) => (
+            <label key={v}>
+              <input type="radio" name="questionPill" checked={settings.questionPill === v} onChange={() => onSettings({ ...settings, questionPill: v })} />
+              {t(`questionPill.${v}`)}
+            </label>
+          ))}
+        </div>
+        <span className="hint">{t('questionPill.hint')}</span>
       </section>
       <OsNotifySection settings={settings} onSettings={onSettings} />
       <section>

@@ -38,6 +38,9 @@ pub struct SettingsView {
     /// 옛 설정에는 없다. 없으면 `Step`(계단)으로 읽는다.
     #[serde(default)]
     pub edge_style: EdgeStyle,
+    /// 옛 설정에는 없다. 없으면 `Line`(한 줄 알약)으로 읽는다.
+    #[serde(default)]
+    pub question_pill: QuestionPill,
     /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
     #[serde(default)]
     pub language: Language,
@@ -169,6 +172,17 @@ pub enum EdgeStyle {
     #[default]
     Step,
     Curve,
+}
+
+/// 그래프 위 질문 알약의 꼴. `Line`은 한 줄이고 목록을 펼쳐 답한다. `Answer`는 가장 오래된 질문 하나와 답 칸을 펼쳐 보인다(목업 M31 ②).
+/// 근거: 2026-10-22 사람 지시 "질문 다시 알약으로 바꿔", "알약으로 할지 펼칠지는 설정에 옵션으로 제공".
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum QuestionPill {
+    #[default]
+    Line,
+    Answer,
 }
 
 /// 뜻마다 사람이 고른 색. 라이트·다크를 따로 고른다(목업 docs/mockups/color-themes.html v3). 테마마다 쓸 색은 화면이 고른 색에서 만든다(`web/src/uiColors.ts`).

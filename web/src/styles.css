@@ -511,12 +511,15 @@ a { color: var(--accent); }
 .inbox { position: absolute; top: 12px; left: 16px; right: 16px; z-index: 7; display: grid; justify-items: center; gap: 6px; pointer-events: none; }
 .inbox > * { pointer-events: auto; max-width: 100%; }
 /* 펼치지 않은 알약은 가장 오래된 대기 하나와 답 칸이다(목업 docs/mockups/question-pill-tone.html M31 ②). 바탕은 카드·창과 같은 무채색이고, 질문 색은 테두리·배지·번호 칩에만 쓴다(M31 ①). */
-.inbox-pill { width: 520px; max-width: 100%; border: 1px solid var(--warn); border-radius: 14px; background: var(--surface); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
+.inbox-pill { width: 520px; max-width: 100%; border: 1px solid var(--warn); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
+/* 한 줄 알약(설정 「질문 알약」 기본값). 바탕·글자는 질문 탭 본문과 같다(2026-10-22 사람 지시 "텍스트는 질문 본문처럼 흰색으로, 배경도 본문처럼"). */
+.inbox-pill[data-view="line"] { width: auto; max-width: min(520px, 100%); border-radius: 17px; }
+.inbox-pill[data-view="line"] .head { border-bottom: 0; }
 .inbox-pill .head { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
 .inbox-pill .head > b { white-space: nowrap; }
-.inbox-pill .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.inbox-pill .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .inbox-pill .go b { color: var(--ink); font-size: 13px; }
-.inbox-pill .go:hover { background: var(--surface-hover); }
+.inbox-pill .go:hover, .inbox-pill .go[aria-expanded="true"] { background: var(--surface-hover); }
 .inbox-pill .rest { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 .inbox-pill .icon[aria-expanded="true"] { background: var(--line); color: var(--ink); }
 .inbox-pill > .wait-body { padding: 10px 12px 12px; }
@@ -573,7 +576,7 @@ a { color: var(--accent); }
 .wait-body .to-terminal { padding: 0 8px; border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
 .wait-body .to-terminal:hover { background: var(--surface-hover); color: var(--ink); }
 .wait-body .choices { display: flex; flex-wrap: wrap; gap: 6px; }
-.wait-body .choice { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.wait-body .choice { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 3px 10px; text-align: left; line-height: 1.4; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .wait-body .choice:hover { background: var(--surface-hover); }
 .wait-body .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
 .wait-body .choice[data-recommended] { border-color: var(--warn); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }

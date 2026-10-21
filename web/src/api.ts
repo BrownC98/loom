@@ -64,6 +64,9 @@ export const removeNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}
 /** `parent`가 `child`의 새 부모가 된다. 거절하면 데몬의 문장을 담은 Error를 던진다. */
 export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/api/nodes/${child}/parent/${parent}`);
 /** 이름을 바꾸고 부모·자식에게 알린다. 거절하면 데몬의 문장을 담은 Error를 던진다. */
+/** 노드를 사이드바 북마크 영역에 더하거나 뺀다(docs/mockups/bookmarks.html). */
+export const bookmarkNode = (id: NodeId) => call<null>('PUT', `/api/nodes/${id}/bookmark`);
+export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
 
 export const openFile = (path: string) => call<null>('POST', '/api/files/open', { path } satisfies OpenFile);

@@ -117,6 +117,11 @@ pub enum GraphEvent {
         child: NodeId,
         toward: Toward,
     },
+    /// 부모·자식이 아닌 두 노드 사이로 메시지가 `from`에서 `to`로 갔다. 둘 사이에는 간선이 없다.
+    Hop {
+        from: NodeId,
+        to: NodeId,
+    },
     /// 노드를 지웠다. 자식은 부모 없이 남고 `Node` 이벤트로 따로 온다.
     Removed {
         id: NodeId,
@@ -432,6 +437,11 @@ impl Graph {
 
     fn publish_message(&self, child: NodeId, toward: Toward) {
         let _ = self.events.send(GraphEvent::Message { child, toward });
+        self.mail.notify_waiters();
+    }
+
+    fn publish_hop(&self, from: NodeId, to: NodeId) {
+        let _ = self.events.send(GraphEvent::Hop { from, to });
         self.mail.notify_waiters();
     }
 }

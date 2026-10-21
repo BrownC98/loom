@@ -202,8 +202,7 @@ impl Graph {
             } else if parent_of(&db, to_id)? == Some(from) {
                 self.publish_message(to_id, Toward::Child);
             } else {
-                // 부모·자식이 아닌 두 노드 사이에는 간선이 없다. 기다리는 쪽만 깨운다.
-                self.mail.notify_waiters();
+                self.publish_hop(from, to_id);
             }
         } else {
             self.publish_node(&db, from)?;

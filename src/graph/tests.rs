@@ -277,6 +277,31 @@ async fn roots_in_different_repos_send_and_reply() {
 }
 
 #[test]
+fn messages_between_unrelated_nodes_pulse_as_hops() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let (left, right) = two_repos(&g);
+    let w = child(&g, right, "워커");
+    let (_, mut events) = g.subscribe().unwrap();
+    let pulses = |events: &mut broadcast::Receiver<GraphEvent>| {
+        std::iter::from_fn(|| events.try_recv().ok())
+            .filter_map(|e| match e {
+                GraphEvent::Hop { from, to } => Some(format!("hop {from}->{to}")),
+                GraphEvent::Message { child, toward } => Some(format!("{child} {toward:?}")),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    g.send(left, "워커", Kind::Queue, "x").unwrap();
+    g.send(w, "codex-1", Kind::Queue, "y").unwrap();
+    assert_eq!(
+        pulses(&mut events),
+        [format!("hop {left}->{w}"), format!("{w} Parent")]
+    );
+}
+
+#[test]
 fn messages_between_unrelated_nodes_are_recorded() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));

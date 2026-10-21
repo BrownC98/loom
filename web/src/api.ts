@@ -2,6 +2,7 @@
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
+import type { CardSize } from './gen/CardSize';
 import type { CloneRepo } from './gen/CloneRepo';
 import type { CommitGraph } from './gen/CommitGraph';
 import type { CreateRepo } from './gen/CreateRepo';
@@ -70,6 +71,11 @@ export const getSpots = () => call<Placed[]>('GET', '/api/spots');
 export const putSpots = (placed: Placed[]) => call<null>('PUT', '/api/spots', placed);
 /** [정렬]: 그 저장소의 자리를 지운다. */
 export const clearSpots = (repo: RepoId) => call<null>('DELETE', `/api/repos/${repo}/spots`);
+/** 사람이 바꾼 표준 카드 크기(docs/mockups/card-resize.html). 저장한 크기가 없는 카드는 기본 크기다. */
+export const getSizes = () => call<CardSize[]>('GET', '/api/sizes');
+export const putSizes = (sizes: CardSize[]) => call<null>('PUT', '/api/sizes', sizes);
+/** 그 카드들을 기본 크기로 되돌린다. */
+export const clearSizes = (nodes: NodeId[]) => call<null>('DELETE', '/api/sizes', nodes);
 export const addRepo = (req: NewRepo) => call<RepoView>('POST', '/api/repos', req);
 export const cloneRepo = (req: CloneRepo) => call<RepoView>('POST', '/api/repos/clone', req);
 export const createRepo = (req: CreateRepo) => call<RepoView>('POST', '/api/repos/create', req);

@@ -1,8 +1,8 @@
-import { GitBranchPlus, Maximize2, Minimize2, Plus, Trash2, Workflow } from 'lucide-react';
+import { GitBranchPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
 import { Fragment, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
-import { adoptNode, clearSpots, getSpots, nodePty, putSpots, removeNode } from './api';
+import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putSizes, putSpots, removeNode } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -46,6 +46,8 @@ const CARD_SIZE: Record<CardView, Size> = {
   standard: { width: 600, height: 466 },
   simple: { width: 260, height: 134 },
 };
+/** 사람이 줄일 수 있는 가장 작은 표준 카드. 머리 줄과 터미널 8줄이다. 더 좁으면 머리의 이름과 버튼이 겹친다(목업 docs/mockups/card-resize.html). 가장 큰 크기는 없다. */
+const MIN_CARD: Size = { width: 360, height: 200 };
 const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left };
 /** [새 노드]·[새 워크트리] 버튼 아래로 띄우는 팝오버의 틈. 팝오버 오른쪽 끝을 버튼 오른쪽 끝에 맞춘다. */
 const POPOVER_GAP = 6;
@@ -125,8 +127,12 @@ type GroupData = {
   onArrange: () => void;
 };
 type CardBase = { view: NodeView; agentLabel: string; selected: boolean; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
-/** 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 확대 창이 열면 카드는 터미널을 그리지 않는다. PTY 크기를 한쪽만 정하게 한다. */
-type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void };
+/**
+ * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 확대 창이 열면 카드는 터미널을 그리지 않는다. PTY 크기를 한쪽만 정하게 한다.
+ * `sized`: 사람이 크기를 바꿨다. 그 카드만 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③).
+ * `onResize`: 테두리를 끄는 동안 크기. `onResized`: 놓은 크기. 저장한다.
+ */
+type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResize: (size: Size) => void; onResized: (size: Size) => void; onResetSize: () => void };
 /**
  * `onArrange`: 이 저장소의 묶음과 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑦).
  * `onNewWorktree`: 누른 [새 워크트리] 버튼 아래에 새 워크트리 창을 연다(목업 docs/mockups/repo-new-worktree.html). 첫 커밋 전에는 버튼을 끈다.
@@ -195,10 +201,38 @@ function Repo({ data }: NodeProps<RepoNode>) {
   );
 }
 
+/** 크기를 바꾸는 테두리: 오른쪽 변, 아래 변, 오른쪽 아래 모서리. 보이지 않고 커서만 바뀐다(styles.css `.react-flow__resize-control`). */
+const RESIZE_EDGES = [
+  { position: 'right', variant: ResizeControlVariant.Line },
+  { position: 'bottom', variant: ResizeControlVariant.Line },
+  { position: 'bottom-right', variant: ResizeControlVariant.Handle },
+] as const;
+
 function Card({ data }: NodeProps<CardNode>) {
   const { t } = useTranslation();
+  // 끄는 동안 터미널 칸을 시작 크기에 묶는다. 그러면 터미널 열·줄(PTY 크기)은 놓을 때 한 번 바뀐다.
+  const termBox = useRef<HTMLDivElement>(null);
+  const [hold, setHold] = useState<Size | null>(null);
   return (
     <>
+      {RESIZE_EDGES.map((edge) => (
+        <NodeResizeControl
+          key={edge.position}
+          position={edge.position}
+          variant={edge.variant}
+          minWidth={MIN_CARD.width}
+          minHeight={MIN_CARD.height}
+          onResizeStart={() => {
+            const el = termBox.current;
+            if (el) setHold({ width: el.offsetWidth, height: el.offsetHeight });
+          }}
+          onResize={(_, p) => data.onResize({ width: p.width, height: p.height })}
+          onResizeEnd={(_, p) => {
+            setHold(null);
+            data.onResized({ width: p.width, height: p.height });
+          }}
+        />
+      ))}
       <NodeCard
         view={data.view}
         agentLabel={data.agentLabel}
@@ -209,6 +243,11 @@ function Card({ data }: NodeProps<CardNode>) {
         onDoubleClickHead={data.onExpand}
         headAction={
           <>
+            {data.sized && (
+              <IconButton label={t('node.resetSize')} title={t('node.resetSize')} onClick={data.onResetSize}>
+                <RotateCcw />
+              </IconButton>
+            )}
             <IconButton label={t('node.expand')} title={t('node.expandTitle')} onClick={data.onExpand}>
               <Maximize2 />
             </IconButton>
@@ -216,7 +255,9 @@ function Card({ data }: NodeProps<CardNode>) {
           </>
         }
       >
-        {data.ownsPty && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+        <div ref={termBox} className="term-hold" style={hold ?? undefined}>
+          {data.ownsPty && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+        </div>
       </NodeCard>
       <Ports port={data.port} />
     </>
@@ -304,8 +345,11 @@ export type Lit = { keys: ReadonlySet<string>; current: string | null };
 /** 강조하는 동안 한 간선으로 오간 메시지 수. 가는 쪽마다 센다. */
 export type Pulse = Readonly<Record<Toward, number>>;
 
-/** `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끌어 놓은 자리를 지우고 자동 배치로 되돌린다(오른쪽 사이드바의 [정렬]). */
-export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void };
+/**
+ * `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끌어 놓은 자리를 지우고 자동 배치로 되돌린다(오른쪽 사이드바의 [정렬]).
+ * `hasSizes`·`resetSizes`: 보이는 카드 가운데 크기를 바꾼 카드가 있는지, 그 카드들을 기본 크기로 되돌린다([정렬] 메뉴, 목업 docs/mockups/card-resize.html ④).
+ */
+export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void; hasSizes: () => boolean; resetSizes: () => void };
 
 /**
  * `cardView`: 그래프 전체의 카드 보기. 심플이면 카드에 터미널이 없고, 터미널은 부르는 쪽(오른쪽 칸)이 연다.
@@ -359,9 +403,15 @@ export function Graph(props: {
   const [moving, setMoving] = useState<ReadonlyMap<string, XYPosition>>(new Map());
   // 끄는 상자 중심이 형제 중심선의 어느 쪽에 있었는지. 겹친 채 쪽이 바뀌면 그 형제가 비킨다(사람 결정 2026-10-21, 목업 v4 ②).
   const sides = useRef<{ key: string; of: Map<string, CenterSide> } | null>(null);
+  // 사람이 바꾼 표준 카드 크기와, 테두리를 끄는 동안의 크기. 놓으면 `sizes`에 넣고 저장한다.
+  const [sizes, setSizes] = useState<ReadonlyMap<NodeId, Size>>(new Map());
+  const [resizing, setResizing] = useState<{ id: NodeId; size: Size } | null>(null);
   useEffect(() => {
     getSpots()
       .then((all) => setSpots(new Map(all.map((p) => [flowId(p.spot), p]))))
+      .catch((err: Error) => setRefusal(err.message));
+    getSizes()
+      .then((all) => setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }]))))
       .catch((err: Error) => setRefusal(err.message));
   }, []);
   const { direction } = props;
@@ -369,10 +419,13 @@ export function Graph(props: {
 
   const views = [...props.views.values()];
   const estimate = CARD_SIZE[props.cardView];
-  /** 잰 카드 크기. 재기 전에는 보기마다 정한 크기다. */
+  const standard = props.cardView === 'standard';
+  /** 사람이 정한 표준 카드 크기. 없으면 CSS가 정한 기본 크기다. */
+  const chosenSize = (id: NodeId): Size | undefined => (!standard ? undefined : resizing?.id === id ? resizing.size : sizes.get(id));
+  /** 잰 카드 크기. 재기 전에는 사람이 정한 크기, 그것도 없으면 보기마다 정한 크기다. */
   const size = (id: NodeId): Size => {
     const measured = flowState.get(String(id))?.measured;
-    return measured?.width && measured.height ? { width: measured.width, height: measured.height } : estimate;
+    return measured?.width && measured.height ? { width: measured.width, height: measured.height } : (chosenSize(id) ?? estimate);
   };
   // 상자 id → 그 상자의 형제들. 끄는 동안과 놓을 때 쓴다. `spotOf`는 상자 id → 저장할 자리 이름이다.
   const levels = new Map<string, Level>();
@@ -479,8 +532,22 @@ export function Graph(props: {
       setSpots((prev) => new Map([...prev].filter(([, p]) => !shown.has(p.spot.repo))));
       for (const id of shown) clearSpots(id).catch((err: Error) => setRefusal(err.message));
     },
+    hasSizes: () => views.some((v) => sizes.has(v.id)),
+    resetSizes: () => resetSizes(views.filter((v) => sizes.has(v.id)).map((v) => v.id)),
   }));
-  const standard = props.cardView === 'standard';
+  // 크기만 되돌린다. 카드 자리와 밀린 이웃은 그대로다.
+  const resetSizes = (ids: NodeId[]) => {
+    if (ids.length === 0) return;
+    setSizes((prev) => new Map([...prev].filter(([id]) => !ids.includes(id))));
+    clearSizes(ids).catch((err: Error) => setRefusal(err.message));
+  };
+  /** 크기를 바꾸는 카드가 `next` 크기일 때 겹친 이웃과 커진 바깥 상자의 옆 상자를 민다. 줄여도 민 상자는 돌아오지 않는다. */
+  const resizeTo = (id: NodeId, next: Size, done: ReadonlyMap<string, XYPosition>) => {
+    const key = String(id);
+    const level = levels.get(key)!;
+    const self = level.boxes.find((b) => b.key === key)!;
+    return spread(key, level, { at: self.at, size: next }, pinned(level, done));
+  };
   // 끄는 상자는 React Flow가 옮긴 자리에 그린다. React Flow가 그 노드에 `dragging` 클래스를 붙여 반투명하게 보인다.
   // 끄는 카드는 계산한 자리다. React Flow 자리는 넓어지기 전 묶음 기준이라 묶음이 넓어지면 어긋난다.
   // 늘 맨 위다(2026-10-20 사람 지시 "드래그로 잡은건 겹칠때 항상 최상위 z 인덱스 적용"). 묶음을 끌면 그 카드도 함께 올라온다.
@@ -579,12 +646,28 @@ export function Graph(props: {
       };
       // 심플 카드는 카드 전체가 끌기 손잡이다. 표준 카드는 터미널을 고를 수 있게 머리만 손잡이다.
       if (!standard) return keep<SimpleNode>({ ...base, type: 'simple', data });
+      const chosen = chosenSize(view.id);
       return keep<CardNode>({
         ...base,
         type: 'card',
         dragHandle: '.card-head',
+        ...(chosen && { width: chosen.width, height: chosen.height, className: [base.className, 'sized'].filter(Boolean).join(' ') }),
         data: {
           ...data,
+          sized: sizes.has(view.id),
+          onResize: (next) => {
+            setResizing({ id: view.id, size: next });
+            setMoving(resizeTo(view.id, next, moving));
+          },
+          onResized: (next) => {
+            const rounded = { width: Math.round(next.width), height: Math.round(next.height) };
+            setResizing(null);
+            setSizes((prev) => new Map([...prev, [view.id, rounded]]));
+            putSizes([{ node: view.id, ...rounded }]).catch((err: Error) => setRefusal(err.message));
+            setMoving(new Map());
+            save(resizeTo(view.id, rounded, moving));
+          },
+          onResetSize: () => resetSizes([view.id]),
           parentName: parentName(props.views, view),
           ownsPty: expanded !== view.id,
           onExpand: () => {
@@ -698,7 +781,7 @@ export function Graph(props: {
       const outer = levels.get(lv.parent);
       if (!outer) break;
       // 바깥 상자 = 원점 + 안의 상자를 덮는 상자.
-      const contents = boxes.map((b) => (pushed.has(b.key) ? { ...b, at: pushed.get(b.key)! } : b.key === at ? { ...b, at: mover.at } : b));
+      const contents = boxes.map((b) => (pushed.has(b.key) ? { ...b, at: pushed.get(b.key)! } : b.key === at ? { ...b, ...mover } : b));
       const shell = cover(contents, spotOf.get(lv.parent)?.kind === 'worktree' ? { top: CARD_TOP, side: CARD_X } : REPO_INSET);
       const self = outer.boxes.find((b) => b.key === lv.parent)!;
       const origin = done.get(self.key) ?? originOf(outer, self.key, self.at);

@@ -49,7 +49,7 @@ use crate::profile::{
 };
 use crate::settings::Settings;
 use crate::skills;
-use crate::spots::{Placed, Spots};
+use crate::spots::{CardSize, Placed, Spots};
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
 #[derive(Embed)]
@@ -437,6 +437,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/repos/{id}/commits", get(commits))
         .route("/api/repos/{id}/spots", delete(clear_spots))
         .route("/api/spots", get(list_spots).put(put_spot))
+        .route(
+            "/api/sizes",
+            get(list_sizes).put(put_sizes).delete(clear_sizes),
+        )
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
         .route("/api/nodes/{id}", delete(remove_node))
@@ -628,6 +632,27 @@ async fn clear_spots(
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
     app.spots.clear(RepoId(id)).map_err(internal)?;
+    Ok(Json(()))
+}
+
+async fn list_sizes(State(app): State<Arc<App>>) -> Result<Json<Vec<CardSize>>, Problem> {
+    Ok(Json(app.spots.sizes().map_err(internal)?))
+}
+
+async fn put_sizes(
+    State(app): State<Arc<App>>,
+    Json(sizes): Json<Vec<CardSize>>,
+) -> Result<Json<()>, Problem> {
+    app.spots.put_sizes(&sizes).map_err(internal)?;
+    Ok(Json(()))
+}
+
+/// [기본 크기로 되돌리기]와 [모든 카드 기본 크기로].
+async fn clear_sizes(
+    State(app): State<Arc<App>>,
+    Json(nodes): Json<Vec<NodeId>>,
+) -> Result<Json<()>, Problem> {
+    app.spots.clear_sizes(&nodes).map_err(internal)?;
     Ok(Json(()))
 }
 

@@ -278,14 +278,19 @@ export function shrank(before: ReadonlyMap<string, Size>, now: ReadonlyMap<strin
 
 /**
  * 사람 결정(2026-10-21) "권장안대로": 끌지 않고 커진 상자가 민 상자는 민 상자가 줄거나 사라지면 밀기 전 자리(`home`) 쪽으로 돌아간다.
- * `box`를 `home`까지 곧게 옮기되 다른 형제와 `gap` 안으로 들어가기 직전에 멈춘다. 지금 이미 `gap` 안에 있는 형제는 막지 않는다. 돌아갈 자리(왼쪽 위)를 준다.
+ * `box`를 `home`까지 곧게 옮기되 다른 형제와 `gap` 안으로 들어가기 직전에 멈춘다. 지금 이미 `gap`보다 가까운 형제에게는 지금 거리보다 다가가지 않는다.
+ * 민 상자가 민 뒤에 조금 더 커지면(잰 크기가 어림보다 크다) 틈이 `gap`보다 좁아진다. 그 형제를 건너뛰면 돌아가는 상자가 그 형제를 뚫고 겹친다.
+ * 지금 겹친 형제는 막지 않는다. 돌아갈 자리(왼쪽 위)를 준다.
  */
 export function retreat(siblings: readonly Box[], box: Box, home: Point, gap: number): Point {
   const d = { x: home.x - box.at.x, y: home.y - box.at.y };
   let t = 1;
   for (const o of siblings) {
-    const wide = { at: { x: o.at.x - gap, y: o.at.y - gap }, size: { width: o.size.width + 2 * gap, height: o.size.height + 2 * gap } };
-    if (overlaps(box, wide)) continue;
+    if (overlaps(box, o)) continue;
+    // 지금 거리(두 축 가운데 큰 틈). `gap`보다 가까우면 그 거리를 조금 줄여 쓴다. 그 자리에서 멀어지는 움직임은 막지 않는다.
+    const now = Math.max(o.at.x - (box.at.x + box.size.width), box.at.x - (o.at.x + o.size.width), o.at.y - (box.at.y + box.size.height), box.at.y - (o.at.y + o.size.height));
+    const g = now >= gap ? gap : now - 0.01;
+    const wide = { at: { x: o.at.x - g, y: o.at.y - g }, size: { width: o.size.width + 2 * g, height: o.size.height + 2 * g } };
     // 한 축에서 겹치는 t 구간(열린 구간). 움직이지 않는 축은 늘 겹치거나 늘 겹치지 않는다.
     const span = (p: number, len: number, dp: number, lo: number, hi: number): [number, number] => {
       if (dp === 0) return p < hi && p + len > lo ? [-Infinity, Infinity] : [Infinity, -Infinity];

@@ -351,9 +351,23 @@ describe('return after growth goes away (people decision 2026-10-21, approved re
     expect(retreat([a, c], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32)).toEqual({ x: 532, y: 0 });
   });
 
-  it('a box already inside the gap of a sibling does not block, a box on another row does not block', () => {
-    const near = box(610, 0, 10, 10); // within B's gap now
+  it('a box on another row does not block', () => {
     const below = box(500, 700, 100, 100);
-    expect(retreat([a, near, below], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32)).toEqual({ x: 432, y: 0 });
+    expect(retreat([a, below], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32)).toEqual({ x: 432, y: 0 });
+  });
+
+  it('a pusher that grew again after the push (gap now 25) still blocks: B does not pass through it', () => {
+    // Real case 2026-10-21: A widened to 1375 and pushed B to 1423, then the new box measured 7 px wider (A = 1382 wide).
+    const grown = box(16, 64, 1382, 378);
+    const pushed = { at: { x: 1423, y: 64 }, size: { width: 354, height: 175 } };
+    const to = retreat([grown], pushed, { x: 1091, y: 64 }, 32);
+    expect(to.x).toBeGreaterThanOrEqual(1423 - 0.5);
+    expect(overlaps({ at: to, size: pushed.size }, grown)).toBe(false);
+  });
+
+  it('a box nearer than the gap blocks at its current distance; moving away from it is free', () => {
+    const near = box(610, 0, 10, 10); // 12 px left of B
+    expect(retreat([near], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32).x).toBeGreaterThan(631.5);
+    expect(retreat([near], { at: { x: 632, y: 0 }, size: b.size }, { x: 832, y: 0 }, 32)).toEqual({ x: 832, y: 0 });
   });
 });

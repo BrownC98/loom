@@ -279,7 +279,7 @@ describe('crossed', () => {
     expect(crossed(before, box(50, 0), other)).toBe(true);
   });
 
-  it('a big group swaps when it covers half of a small sibling, not only when its center passes (repro: 맥판 640 wide over 279 wide)', () => {
+  it('a big group swaps when it covers half of a small sibling, not only when its center passes (repro: a 640 wide group over a 279 wide one)', () => {
     // 사람 "묶음을 드래그할때는 터미널처럼 서로 포지션이 바뀌는 동작이 안일어남". 중심으로 세면 x 520까지 끌어야 했다.
     const other = box(700, 0, 279, 238);
     const before = centerSide(box(0, 0, 640, 517), other);

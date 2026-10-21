@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>섞인 자식 정렬 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.canvas { background: var(--panel); border-radius: 12px; padding: 12px; width: fit-content; }
+.canvas svg { display: block; }
+.grp { fill: var(--surface-hover); fill-opacity: .35; stroke: var(--line-strong); }
+.grp.new, .card.new { stroke: var(--warn); stroke-dasharray: 6 4; stroke-width: 2; }
+.card { fill: var(--surface); stroke: var(--line-strong); }
+.lbl { font: 600 15px var(--font); fill: var(--ink); }
+.glbl { font: 13px var(--mono); fill: var(--ink-3); }
+.edge { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.edge.hit { stroke: var(--err); stroke-width: 2; }
+.stats { font: 12px var(--mono); color: var(--ink-3); }
+.row3 { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+table { border-collapse: collapse; font-size: 13px; max-width: 1200px; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--surface-hover); }
+td.num { font-family: var(--mono); text-align: right; }
+code { font-family: var(--mono); font-size: 12px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>그래프 › [정렬]: 같은 워크트리 자식과 자식 워크트리가 섞인 경우</h1>
+  <p class="lead">사람 지시: "적절한 방안을 목업으로 제시해"(ktasearch 저장소에서 [정렬]을 누른 화면). main 묶음에 뿌리 카드 2장(ktasearch-총괄, 피드백 반영)이 있다. 피드백 반영은 같은 워크트리 자식 매뉴얼체계-코디와 자식 워크트리 판정근거-범위를 가진다. 판정근거-범위에는 판정근거-코디와 그 같은 워크트리 자식 판정근거-관문이 있다. 카드는 표준 크기(600×466)다. 바꾸는 곳은 [정렬]이 놓는 자리뿐이다. 점선이 바뀌는 곳이고, 빨간 간선은 다른 카드를 지나는 간선이다.</p>
+
+  <div class="fig">
+    <h2>① 지금 <span class="tag">web/src/layout.ts 실제 출력</span></h2>
+    <div class="canvas"><svg id="s1"></svg></div>
+    <p class="stats" id="t1"></p>
+    <ul class="note">
+      <li>규칙 2(M8): 다른 워크트리 자식 묶음은 부모 묶음 아래 줄에 선다. 그래서 그림이 카드 4줄 높이다.</li>
+      <li>규칙 1: 피드백 반영이 매뉴얼체계-코디와 자식 묶음 줄의 가운데 위에 선다. 그래서 매뉴얼체계-코디가 왼쪽으로 밀리고, 자식 묶음은 오른쪽 아래 끝에 선다.</li>
+      <li>그 결과 왼쪽 아래(ktasearch-총괄·매뉴얼체계-코디 아래)가 비고, 피드백 반영에서 판정근거-코디로 가는 간선이 main 묶음 오른쪽을 따라 길게 내려간다.</li>
+      <li>판정근거-범위가 높은 이유는 같은 워크트리 자식이 아래 줄에 서기 때문이다(M1 안 B). 이 규칙은 바꾸지 않는다. 묶음 안에서 옆으로 놓으면 나무 방향이 묶음마다 달라진다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 권장: 끝 카드의 자식 묶음 하나는 부모 묶음 옆, 부모 카드 다음 줄에 선다</h2>
+    <div class="canvas"><svg id="s2"></svg></div>
+    <p class="stats" id="t2"></p>
+    <ul class="note">
+      <li>규칙 2 보강: 아래 세 조건이 모두 맞으면 자식 묶음은 부모 묶음 오른쪽 옆에 서고, 위 끝을 부모 카드 다음 줄(매뉴얼체계-코디 줄)에 맞춘다.
+        <ul class="note"><li>부모 카드가 묶음의 끝 카드다(그 카드와 자손 오른쪽에 다른 카드가 없다).</li><li>그 카드의 자식 묶음이 하나다.</li><li>부모 묶음에 부모 카드보다 아래 줄이 있다. 없으면 지금 규칙과 높이가 같으므로 지금처럼 아래 줄 가운데에 선다.</li></ul></li>
+      <li>규칙 1 변경: 이때 부모 카드는 묶음 안 자식(매뉴얼체계-코디)의 가운데 위에 선다. 자식 묶음은 바로 오른쪽 아래에 있어 간선이 짧다.</li>
+      <li>그림이 카드 3줄 높이로 준다. 간선은 카드 위를 지나지 않는다. 자식 묶음은 여전히 부모 카드보다 아래 줄이라 나무 방향(아래로)이 지켜진다.</li>
+      <li>M8 ②(loom 총괄 아래 자식 묶음 4개)는 자식 묶음이 넷이라 조건이 맞지 않는다. 그 그림은 바뀌지 않는다.</li>
+      <li>그대로인 규칙: 규칙 3(부모 카드와 자식 묶음 사이에 다른 카드 없음), 규칙 4(형제는 화면 순서), 줄 사이 틈 32, 다른 방향은 같은 규칙을 돌려 쓴다(오른쪽으로 정렬이면 「옆」은 아래쪽이다).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 다른 안: 자식 묶음이 부모 묶음과 같은 줄에 선다</h2>
+    <div class="canvas"><svg id="s3"></svg></div>
+    <p class="stats" id="t3"></p>
+    <ul class="note">
+      <li>②와 조건이 같고, 자식 묶음 위 끝을 부모 묶음 위 끝에 맞춘다. 카드 2줄 높이로 가장 작다.</li>
+      <li>간선이 피드백 반영 오른쪽 변에서 옆으로 나간다. 자식 묶음이 부모와 같은 줄에 서므로 「자식은 부모 다음 줄」 규칙이 깨진다. 형제 묶음과 자식 묶음을 줄로 구별할 수 없다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>비교</h2>
+    <table id="cmp"><tr><th>안</th><th>그림 크기(px)</th><th>가로:세로</th><th>간선 길이 합</th><th>카드를 지나는 간선</th><th>빈 넓이</th><th>자식은 부모 다음 줄</th></tr></table>
+    <ul class="note"><li>빈 넓이는 그림 넓이에서 카드 넓이를 뺀 비율이다. 그래프 칸은 가로:세로 약 3이다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
+      <tr><td>배치 안</td><td><b>② 옆, 부모 카드 다음 줄</b>: 4줄 → 3줄, 빈 곳과 긴 간선이 준다. 나무 방향을 지킨다.</td><td>③ 옆, 같은 줄: 2줄로 가장 작다. 자식 묶음이 부모와 같은 줄이다. ① 지금 그대로.</td></tr>
+      <tr><td>조건</td><td><b>끝 카드 · 자식 묶음 하나 · 부모 묶음에 아래 줄 있음</b>: M8 ② 그림은 그대로다.</td><td>자식 묶음이 여럿이어도 옆에 세로로 쌓는다: 부모가 자식들 가운데 위에 설 수 없다(M8 피드백과 충돌).</td></tr>
+      <tr><td>규칙 1(가운데)</td><td><b>이 경우만 묶음 안 자식의 가운데</b>: 자식 묶음은 부모 묶음 밖이라 가운데에 둘 수 없다.</td><td>—</td></tr>
+      <tr><td>같은 워크트리 자식</td><td><b>그대로 아래 줄</b>(M1 안 B): 나무 방향이 묶음마다 같다.</td><td>묶음 안에서만 옆으로: 판정근거-범위가 낮아지지만 방향이 섞인다.</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+// 좌표는 그래프 px(저장소 원점 기준). 카드 600×466, 묶음 머리 60·옆 20, 묶음 틈 32.
+// ①은 layout.ts의 arrangeTree·placeGroups를 이 모양으로 돌린 값이다.
+const CW = 600, CH = 466, SCALE = 0.3;
+const names = { A: 'ktasearch-총괄', B: '피드백 반영', C: '매뉴얼체계-코디', D: '판정근거-코디', E: '판정근거-관문' };
+const parent = { C: 'B', D: 'B', E: 'D' };
+const plans = {
+  s1: { label: '① 지금', cards: { A: [20, 60], B: [640, 60], C: [294, 638], D: [950, 1216], E: [950, 1794] }, groups: [['main', 0, 0, 1240, 1124], ['판정근거-범위', 930, 1156, 640, 1124]], changed: [] },
+  s2: { label: '② 권장', cards: { A: [20, 60], B: [640, 60], C: [640, 638], D: [1292, 638], E: [1292, 1216] }, groups: [['main', 0, 0, 1240, 1124], ['판정근거-범위', 1272, 578, 640, 1124]], changed: ['C', '판정근거-범위', 'D', 'E'] },
+  s3: { label: '③ 같은 줄', cards: { A: [20, 60], B: [640, 60], C: [640, 638], D: [1292, 60], E: [1292, 638] }, groups: [['main', 0, 0, 1240, 1124], ['판정근거-범위', 1272, 0, 640, 1124]], changed: ['C', '판정근거-범위', 'D', 'E'] },
+};
+// layout.ts edgeSides와 같다: 자식이 부모보다 아래면 아래→위, 아니면 틈이 큰 축의 마주 보는 변.
+function ends(p, c) {
+  if (c[1] >= p[1] + CH) return { a: [p[0] + CW / 2, p[1] + CH], b: [c[0] + CW / 2, c[1]], v: true };
+  return c[0] > p[0] ? { a: [p[0] + CW, p[1] + CH / 2], b: [c[0], c[1] + CH / 2], v: false } : { a: [p[0], p[1] + CH / 2], b: [c[0] + CW, c[1] + CH / 2], v: false };
+}
+const rows = [];
+for (const [id, plan] of Object.entries(plans)) {
+  const at = plan.cards;
+  const W = Math.max(...plan.groups.map((g) => g[1] + g[3])), H = Math.max(...plan.groups.map((g) => g[2] + g[4]));
+  let out = '', hits = 0, len = 0;
+  for (const [n, x, y, w, h] of plan.groups) out += `<rect class="grp${plan.changed.includes(n) ? ' new' : ''}" x="${x}" y="${y}" width="${w}" height="${h}" rx="10"/><text class="glbl" x="${x + 16}" y="${y + 36}" style="font-size:40px">${n}</text>`;
+  for (const [k, p] of Object.entries(parent)) {
+    const { a, b, v } = ends(at[p], at[k]);
+    const m = v ? (b[1] - a[1]) / 2 : (b[0] - a[0]) / 2;
+    const c1 = v ? [a[0], a[1] + m] : [a[0] + m, a[1]], c2 = v ? [b[0], b[1] - m] : [b[0] - m, b[1]];
+    const pt = (t) => { const u = 1 - t; return [0, 1].map((i) => u*u*u*a[i] + 3*u*u*t*c1[i] + 3*u*t*t*c2[i] + t*t*t*b[i]); };
+    let hit = false, prev = a;
+    for (let i = 1; i <= 400; i++) {
+      const q = pt(i / 400); len += Math.hypot(q[0] - prev[0], q[1] - prev[1]); prev = q;
+      for (const o of Object.keys(at)) if (o !== k && o !== p && q[0] > at[o][0] && q[0] < at[o][0] + CW && q[1] > at[o][1] && q[1] < at[o][1] + CH) hit = true;
+    }
+    if (hit) hits++;
+    out += `<path class="edge${hit ? ' hit' : ''}" style="stroke-width:5" d="M${a} C${c1} ${c2} ${b}"/>`;
+  }
+  for (const [k, [x, y]] of Object.entries(at)) out += `<rect class="card${plan.changed.includes(k) ? ' new' : ''}" x="${x}" y="${y}" width="${CW}" height="${CH}" rx="12" style="stroke-width:3"/><text class="lbl" x="${x + 24}" y="${y + 56}" style="font-size:40px">${names[k]}</text>`;
+  const svg = document.getElementById(id);
+  svg.setAttribute('viewBox', `-10 -10 ${W + 20} ${H + 20}`);
+  svg.setAttribute('width', Math.round((W + 20) * SCALE));
+  svg.setAttribute('height', Math.round((H + 20) * SCALE));
+  svg.innerHTML = out;
+  const empty = 1 - (Object.keys(at).length * CW * CH) / (W * H);
+  const full = [`${W} × ${H}`, (W / H).toFixed(2), `${Math.round(len)}px`, `${hits}개`, `${Math.round(empty * 100)}%`];
+  document.getElementById('t' + id.slice(1)).textContent = `그림 ${full[0]}px (가로:세로 ${full[1]}) · 간선 길이 합 ${full[2]} · 카드를 지나는 간선 ${full[3]} · 빈 넓이 ${full[4]}`;
+  rows.push(`<tr><td>${plan.label}</td>${full.map((f) => `<td class="num">${f}</td>`).join('')}<td>${id === 's3' ? '아니요' : '예'}</td></tr>`);
+}
+document.getElementById('cmp').insertAdjacentHTML('beforeend', rows.join(''));
+</script>
+</body>
+</html>

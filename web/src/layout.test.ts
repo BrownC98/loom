@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeNested, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, overlaps, push, sameSpots, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size } from './layout';
+import { arrangeNested, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size } from './layout';
 
 const box = (x: number, y: number, width = 100, height = 50): Box => ({ at: { x, y }, size: { width, height } });
 
@@ -283,5 +283,49 @@ describe('sameSpots (an arranged repo saves the new auto layout when it differs)
   it('a moved box or a new box without a saved spot: not same', () => {
     expect(sameSpots(m(['1', 0], ['2', 700]), m(['1', 310], ['2', 1340]))).toBe(false);
     expect(sameSpots(m(['1', 0], ['2', 700]), m(['1', 0], ['2', 700], ['6', 0]))).toBe(false);
+  });
+});
+
+describe('return after growth goes away (people decision 2026-10-21, approved recommendation)', () => {
+  // Repo boxes A | B. A is 400 wide at 0, B is at 432 (gap 32). A new worktree widens A to 600 and pushes B.
+  const a = box(0, 0, 400, 600);
+  const wideA = box(0, 0, 600, 600);
+  const b = box(432, 0, 400, 600);
+
+  it('push → shrink → return: B goes back to its pre-push spot', () => {
+    expect(shrank(new Map([['A', wideA.size], ['B', b.size], ['W', b.size]]), new Map([['A', a.size], ['B', b.size]]))).toEqual(['A', 'W']);
+    const pushed = push([{ key: 'B', ...b }], wideA, ['B'], 32).get('B')!;
+    expect(pushed).toEqual({ x: 632, y: 0 });
+    const home = pushedHome(undefined, b.at);
+    // While A is still wide, B cannot move.
+    expect(retreat([wideA], { at: pushed, size: b.size }, home, 32)).toEqual(pushed);
+    // A shrinks back: B returns all the way and forgets its home.
+    const back = retreat([a], { at: pushed, size: b.size }, home, 32);
+    expect(back).toEqual({ x: 432, y: 0 });
+    expect(samePoint(back, home)).toBe(true);
+  });
+
+  it('a second push keeps the first pre-push spot', () => {
+    const first = pushedHome(undefined, b.at);
+    expect(pushedHome({ at: { x: 632, y: 0 }, home: first }, { x: 632, y: 0 })).toEqual({ x: 432, y: 0 });
+  });
+
+  it('a hand move (or arrange) forgets the pre-push spot; an unmoved box keeps it', () => {
+    const saved = { at: { x: 632, y: 0 }, home: { x: 432, y: 0 } };
+    expect(keptHome(saved, { x: 900, y: 50 })).toBeNull();
+    expect(keptHome(saved, { x: 632.2, y: 0 })).toEqual({ x: 432, y: 0 });
+    expect(keptHome(undefined, { x: 0, y: 0 })).toBeNull();
+  });
+
+  it('partial return when blocked: B stops one gap before the blocking box', () => {
+    // A shrinks, but the human put C at 450..500 between A and B's home.
+    const c = box(450, 0, 50, 600);
+    expect(retreat([a, c], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32)).toEqual({ x: 532, y: 0 });
+  });
+
+  it('a box already inside the gap of a sibling does not block, a box on another row does not block', () => {
+    const near = box(610, 0, 10, 10); // within B's gap now
+    const below = box(500, 700, 100, 100);
+    expect(retreat([a, near, below], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32)).toEqual({ x: 432, y: 0 });
   });
 });

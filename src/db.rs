@@ -157,6 +157,8 @@ const STEPS: &[M] = &[
             DELETE FROM spots WHERE spot ->> 'kind' = 'worktree' AND repo = NEW.repo AND spot ->> 'path' = NEW.worktree;
         END;",
     ),
+    // 20: 끌지 않고 커진 상자가 민 상자의 밀기 전 자리(spots). 민 상자가 줄거나 사라지면 화면이 그 자리 쪽으로 되돌린다. 사람이 옮기면 NULL이다.
+    M::up("ALTER TABLE spots ADD COLUMN home_x REAL; ALTER TABLE spots ADD COLUMN home_y REAL;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

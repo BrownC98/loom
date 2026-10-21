@@ -165,7 +165,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow { --xy-minimap-background-color: var(--panel); --xy-minimap-mask-background-color: color-mix(in oklch, var(--bg) 70%, transparent); --xy-minimap-mask-stroke-color: var(--line-strong); --xy-minimap-mask-stroke-width: 1; }
 .react-flow__minimap { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; cursor: pointer; }
 /* 미니맵 오른쪽 아래 모서리에 겹친 배율. 같은 패널 여백이라 미니맵 안쪽에 놓인다. */
-.react-flow__panel.zoom-level { padding: 2px 6px; font: 11px/1.4 var(--mono); color: var(--ink-2); pointer-events: none; }
+.react-flow__panel.zoom-level { pointer-events: none; }
+.zoom-level span, .zoom-level input { pointer-events: auto; display: block; padding: 2px 6px; font: 11px/1.4 var(--mono); color: var(--ink-2); }
+.zoom-level span { cursor: text; user-select: none; }
+.zoom-level input { width: 6ch; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); color: var(--ink); text-align: right; }
 .react-flow__minimap-node.repo { fill: none; stroke: var(--ink-3); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.worktree { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.running { fill: var(--run); }

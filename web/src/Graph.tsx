@@ -103,11 +103,43 @@ function PopAt(props: { at: XYPosition; children: ReactNode }) {
 /** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
 /**
  * 지금 배율(2026-10-21 사람 지시 "현재 배율을 미니맵에 표시해줘"). React Flow 미니맵은 자식을 받지 않는다.
- * 그래서 같은 오른쪽 아래 패널로 미니맵 위 오른쪽 아래 모서리에 겹쳐 그린다. 클릭은 미니맵이 받는다.
+ * 그래서 같은 오른쪽 아래 패널로 미니맵 위 오른쪽 아래 모서리에 겹쳐 그린다. 숫자 밖 클릭은 미니맵이 받는다.
  */
 function ZoomLevel() {
+  const { t } = useTranslation();
+  const flow = useReactFlow();
   const zoom = useStore((s) => s.transform[2]);
-  return <Panel position="bottom-right" className="zoom-level">{Math.round(zoom * 100)}%</Panel>;
+  // 더블클릭하면 숫자를 바로 고친다(같은 날 "배율 더블클릭시 직접 수정 가능하게"). Enter로 바꾸고 Esc·바깥 클릭으로 그만둔다.
+  // 한계 밖 값은 React Flow가 MIN_ZOOM~MAX_ZOOM으로 자른다.
+  const [draft, setDraft] = useState<string | null>(null);
+  const apply = () => {
+    const percent = Number(draft);
+    if (draft !== null && draft.trim() !== '' && Number.isFinite(percent) && percent > 0) flow.zoomTo(percent / 100, { duration: MOVE_MS });
+    setDraft(null);
+  };
+  return (
+    <Panel position="bottom-right" className="zoom-level">
+      {draft === null ? (
+        <span title={t('graph.zoomEdit')} onDoubleClick={() => setDraft(String(Math.round(zoom * 100)))}>
+          {Math.round(zoom * 100)}%
+        </span>
+      ) : (
+        <input
+          aria-label={t('graph.zoomEdit')}
+          inputMode="numeric"
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          value={draft}
+          onChange={(e) => setDraft(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') apply();
+            if (e.key === 'Escape') setDraft(null);
+          }}
+          onBlur={() => setDraft(null)}
+        />
+      )}
+    </Panel>
+  );
 }
 
 function IconButton(props: { label: string; title: string; children: ReactNode; onClick: () => void }) {

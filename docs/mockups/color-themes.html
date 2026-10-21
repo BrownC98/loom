@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>테마별 색 설정 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 화면 그림의 토큰·알약·카드·설정 창 모양은 web/src/styles.css와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --edge: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --repo-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+/* 사람이 고른 예시 색: 질문은 라이트 보라·다크 노랑, 관계선은 두 테마 청록. 밝기는 테마마다 그 줄의 기본 밝기다(지금 규칙). */
+.picked {
+  --warn: light-dark(oklch(54% 0.2 293), oklch(80% 0.15 87));
+  --edge: light-dark(oklch(80% 0.12 182), oklch(44% 0.08 182));
+}
+[data-scheme="light"] { color-scheme: light; }
+[data-scheme="dark"] { color-scheme: dark; }
+
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 900px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed oklch(60% 0.15 250); outline-offset: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.shot { width: 1000px; border: 1px solid var(--line); border-radius: var(--radius); }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 설정 창(web/src/styles.css .tab, .pane, .choice, .hint) */
+.modal { display: grid; grid-template-columns: 180px 700px; width: max-content; background: var(--surface); border-radius: 12px; box-shadow: 0 12px 32px var(--shadow); overflow: hidden; }
+.modal nav { background: var(--panel); border-right: 1px solid var(--line); padding: 16px 8px; display: grid; align-content: start; gap: 2px; }
+.modal nav h3 { font-size: 15px; padding: 4px 8px 10px; }
+.tab { text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 10px; color: var(--ink-2); }
+.tab[aria-current="page"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.pane { padding: 18px 22px; display: grid; align-content: start; gap: 18px; }
+.pane > h3 { font-size: 15px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.choice { justify-self: start; display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.choice span { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 5px 14px; border-right: 1px solid var(--line); }
+.choice span:last-child { border-right: 0; }
+.choice span.on { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.hint { font-size: 12px; color: var(--ink-3); }
+
+/* 새 「색」 묶음: 뜻마다 한 줄 */
+.colors { display: grid; border: 1px solid var(--line); border-radius: var(--radius); }
+.crow { display: grid; grid-template-columns: 28px 140px 90px 1fr auto; align-items: center; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.crow:last-child { border-bottom: 0; }
+.sw { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; cursor: pointer; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; }
+.sw i { display: block; }
+.crow .hex { font: 12px var(--mono); color: var(--ink-3); }
+.crow .use { font-size: 12px; color: var(--ink-3); }
+.reset { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.reset:disabled { opacity: 0.4; cursor: default; }
+.preview { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.preview .lbl { font-size: 12px; color: var(--ink-3); }
+
+/* 주 화면 조각(web/src/styles.css .inbox-pill, .count, .card[data-waiting], .dot.waiting, .badge.warn) */
+.pill { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border: 1px solid var(--warn); border-radius: 16px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; color: var(--ink); white-space: nowrap; }
+.count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
+.dot.running { background: var(--run); }
+.dot.done { background: var(--ok); }
+.dot.err { background: var(--err); }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; }
+.badge.warn { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }
+.mini { display: inline-flex; align-items: center; gap: 0; padding: 4px; border: 2px solid var(--repo-line); border-radius: 8px; }
+.mini .g { display: inline-flex; align-items: center; padding: 4px; border: 1.5px solid var(--group-line); border-radius: 6px; }
+.mini .c { width: 22px; height: 14px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--term); }
+.mini .e { width: 14px; height: 2px; background: var(--edge); }
+.cpop { position: absolute; top: 58px; left: 14px; width: 360px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); border: 1px solid var(--line); }
+.cpop h3 { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.cpop h3 .sp { flex: 1; }
+.cpop .x { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 5px; background: none; color: var(--ink-3); }
+.cpop .lab { font-size: 12px; color: var(--ink-3); }
+.presets { display: grid; grid-template-columns: repeat(8, 28px); gap: 6px; }
+.presets button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; cursor: pointer; }
+.presets button[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+.hexrow { display: flex; gap: 6px; align-items: center; }
+.hexrow .now { width: 28px; height: 28px; border: 1px solid var(--line-strong); border-radius: 6px; flex: none; }
+.hexrow input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--ink); font: 12px var(--mono); }
+.btn2 { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.both { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.both > div { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 12px; }
+.both .ratio { margin-left: auto; font: 11px var(--mono); color: var(--ink-3); }
+.cpop .foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.cpop .foot .sp { flex: 1; }
+
+/* 바뀌는 곳 */
+.crow { grid-template-columns: 28px 140px 200px 1fr auto; }
+.crow .hex small { font: 11px var(--font); color: var(--ink-3); margin-right: 3px; }
+.crow .hex .sep { margin: 0 6px; color: var(--line-strong); }
+.cpop { position: static; width: 360px; border: 0; }
+.cpop .choice { justify-self: stretch; display: grid; grid-template-columns: repeat(3, 1fr); }
+.cpop .choice span { justify-content: center; }
+.both > div.on { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+.both .side { margin-left: 4px; font: 11px var(--mono); color: var(--ink-3); }
+.pops { display: flex; gap: 28px; align-items: start; }
+.cap { font-size: 12px; color: var(--ink-3); }
+.cell { display: grid; gap: 6px; }
+.shots { display: flex; gap: 24px; align-items: start; }
+.shots img { border: 1px solid var(--line); border-radius: var(--radius); }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 색라이트다크</b></span><span>v1 · 2026-10-22</span></div>
+  <h1>색을 라이트·다크 따로 고르기</h1>
+  <p class="lead">사람 지시: 「색 설정은 라이트, 다크 따로 설정할 수 있게 해, 지금은 불가함」. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>지금 <span class="tag">시험 데몬 캡처, 설정 › UI 「색」과 색 고르기 창</span></h2>
+    <div class="shots"><img src="color-themes-now.png" width="656" alt="지금: 색 줄마다 색 값 하나, 기본값 버튼 하나"><img src="color-themes-pop-now.png" width="340" alt="지금: 색 고르기 창. 한 색을 고르면 라이트와 다크에 함께 쓴다"></div>
+    <ul class="note"><li>한 색을 고르면 두 테마에 함께 쓴다. 테마마다 다른 색을 고를 수 없다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>① 설정 › UI 「색」 <span class="tag">질문은 라이트 보라·다크 노랑, 관계선은 두 테마 청록</span></h2>
+    <div class="modal-frag" style="width:760px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:12px">
+    <div class="colors picked">
+<div class="crow"><button class="sw"><i style="background:oklch(54% 0.2 293)"></i><i style="background:oklch(80% 0.15 87)"></i></button><b>질문·응답 대기</b><span class="hex"><span class="new"><small>라이트</small>#8b5cf6<span class="sep">|</span><small>다크</small>#eab308</span></span><span class="use">질문 알약·배지, 대기 카드 테두리, 점</span><button class="reset"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+<div class="crow"><button class="sw"><i style="background:oklch(54.6% 0.245 263)"></i><i style="background:oklch(70.7% 0.165 255)"></i></button><b>실행 중</b><span class="hex">기본</span><span class="use">실행 중 점·상태 글자</span><button class="reset" disabled><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+<div class="crow"><button class="sw"><i style="background:oklch(50% 0.13 149)"></i><i style="background:oklch(76% 0.15 149)"></i></button><b>완료·성공</b><span class="hex">기본</span><span class="use">완료 점, 성공 알림</span><button class="reset" disabled><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+<div class="crow"><button class="sw"><i style="background:oklch(80% 0.12 182)"></i><i style="background:oklch(44% 0.08 182)"></i></button><b>관계선</b><span class="hex">#14b8a6</span><span class="use">부모와 자식 노드를 잇는 선</span><button class="reset"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+<div class="crow"><button class="sw"><i style="background:oklch(57% 0 0)"></i><i style="background:oklch(58% 0.16 47)"></i></button><b>저장소</b><span class="hex"><span class="new"><small>라이트</small>기본<span class="sep">|</span><small>다크</small>#f97316</span></span><span class="use">저장소 상자 테두리(모든 저장소 범위)</span><button class="reset"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+      <div class="crow"><span></span><span class="hint" style="grid-column:2/-1">… 오류, 워크트리, 강조 줄은 지금과 같다</span></div>
+    </div></div>
+    <ul class="note">
+      <li>색 칸은 지금처럼 왼쪽 반이 라이트, 오른쪽 반이 다크다. 두 테마 색이 다르면 값 칸에 「라이트 #… | 다크 #…」로 둘 다 보인다. 같으면 지금처럼 값 하나다.</li>
+      <li>한쪽만 바꾸면 다른 쪽은 「기본」이다(저장소 줄).</li>
+      <li>줄의 <b>[기본값]</b>은 지금처럼 두 테마를 함께 처음 색으로 되돌린다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 색 고르기 창 <span class="tag">위에 「두 테마 / 라이트 / 다크」를 더한다</span></h2>
+    <div class="pops">
+      <div class="cell"><span class="cap">「라이트」를 고른 뒤: 라이트만 바꾼다</span>
+<div class="cpop picked" role="dialog" aria-label="질문·응답 대기">
+  <h3>질문·응답 대기<span class="sp"></span><button class="x" aria-label="닫기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></h3>
+  <div class="choice new"><span>두 테마</span><span class="on">라이트</span><span>다크</span></div>
+  <span class="lab">추천 색</span>
+  <div class="presets"><button><i style="background:oklch(54% 0.2 28)"></i><i style="background:oklch(54% 0.2 28)"></i></button><button><i style="background:oklch(54% 0.2 47)"></i><i style="background:oklch(54% 0.2 47)"></i></button><button><i style="background:oklch(54% 0.2 87)"></i><i style="background:oklch(54% 0.2 87)"></i></button><button><i style="background:oklch(54% 0.2 149)"></i><i style="background:oklch(54% 0.2 149)"></i></button><button><i style="background:oklch(54% 0.2 182)"></i><i style="background:oklch(54% 0.2 182)"></i></button><button><i style="background:oklch(54% 0.2 263)"></i><i style="background:oklch(54% 0.2 263)"></i></button><button aria-pressed="true"><i style="background:oklch(54% 0.2 293)"></i><i style="background:oklch(54% 0.2 293)"></i></button><button><i style="background:oklch(54% 0.2 354)"></i><i style="background:oklch(54% 0.2 354)"></i></button></div>
+  <span class="lab">색 값</span>
+  <div class="hexrow"><input aria-label="색 값(#rrggbb)" value="#8b5cf6"><button class="btn2"><svg class="i" viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>직접 고르기</button></div>
+  <span class="lab">테마마다 쓰는 색</span>
+  <div class="both new"><div data-scheme="light" class="on"><span class="count">3</span>라이트<span class="ratio">5.6:1</span></div><div data-scheme="dark" class="off"><span class="count">3</span>다크<span class="ratio">10.1:1</span></div></div>
+  <div class="foot"><button class="btn2 new"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>라이트 기본값</button><span class="sp"></span><span class="lab">고르면 바로 저장합니다</span></div>
+</div>
+      </div>
+      <div class="cell"><span class="cap">「다크」를 고른 뒤: 다크만 바꾼다</span>
+<div class="cpop picked" role="dialog" aria-label="질문·응답 대기">
+  <h3>질문·응답 대기<span class="sp"></span><button class="x" aria-label="닫기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></h3>
+  <div class="choice new"><span>두 테마</span><span>라이트</span><span class="on">다크</span></div>
+  <span class="lab">추천 색</span>
+  <div class="presets"><button><i style="background:oklch(80% 0.12 28)"></i><i style="background:oklch(80% 0.12 28)"></i></button><button><i style="background:oklch(80% 0.12 47)"></i><i style="background:oklch(80% 0.12 47)"></i></button><button aria-pressed="true"><i style="background:oklch(80% 0.12 87)"></i><i style="background:oklch(80% 0.12 87)"></i></button><button><i style="background:oklch(80% 0.12 149)"></i><i style="background:oklch(80% 0.12 149)"></i></button><button><i style="background:oklch(80% 0.12 182)"></i><i style="background:oklch(80% 0.12 182)"></i></button><button><i style="background:oklch(80% 0.12 263)"></i><i style="background:oklch(80% 0.12 263)"></i></button><button><i style="background:oklch(80% 0.12 293)"></i><i style="background:oklch(80% 0.12 293)"></i></button><button><i style="background:oklch(80% 0.12 354)"></i><i style="background:oklch(80% 0.12 354)"></i></button></div>
+  <span class="lab">색 값</span>
+  <div class="hexrow"><input aria-label="색 값(#rrggbb)" value="#eab308"><button class="btn2"><svg class="i" viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>직접 고르기</button></div>
+  <span class="lab">테마마다 쓰는 색</span>
+  <div class="both new"><div data-scheme="light" class="off"><span class="count">3</span>라이트<span class="ratio">5.6:1</span></div><div data-scheme="dark" class="on"><span class="count">3</span>다크<span class="ratio">10.1:1</span></div></div>
+  <div class="foot"><button class="btn2 new"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>다크 기본값</button><span class="sp"></span><span class="lab">고르면 바로 저장합니다</span></div>
+</div>
+      </div>
+      <div class="cell"><span class="cap">「두 테마」: 지금과 같다</span>
+<div class="cpop picked" style="--warn: light-dark(oklch(54% 0.2 293), oklch(80% 0.12 293))" role="dialog" aria-label="질문·응답 대기">
+  <h3>질문·응답 대기<span class="sp"></span><button class="x" aria-label="닫기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></h3>
+  <div class="choice new"><span class="on">두 테마</span><span>라이트</span><span>다크</span></div>
+  <span class="lab">추천 색</span>
+  <div class="presets"><button><i style="background:oklch(54% 0.2 28)"></i><i style="background:oklch(80% 0.12 28)"></i></button><button><i style="background:oklch(54% 0.2 47)"></i><i style="background:oklch(80% 0.12 47)"></i></button><button><i style="background:oklch(54% 0.2 87)"></i><i style="background:oklch(80% 0.12 87)"></i></button><button><i style="background:oklch(54% 0.2 149)"></i><i style="background:oklch(80% 0.12 149)"></i></button><button><i style="background:oklch(54% 0.2 182)"></i><i style="background:oklch(80% 0.12 182)"></i></button><button><i style="background:oklch(54% 0.2 263)"></i><i style="background:oklch(80% 0.12 263)"></i></button><button aria-pressed="true"><i style="background:oklch(54% 0.2 293)"></i><i style="background:oklch(80% 0.12 293)"></i></button><button><i style="background:oklch(54% 0.2 354)"></i><i style="background:oklch(80% 0.12 354)"></i></button></div>
+  <span class="lab">색 값</span>
+  <div class="hexrow"><input aria-label="색 값(#rrggbb)" value="#8b5cf6"><button class="btn2"><svg class="i" viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>직접 고르기</button></div>
+  <span class="lab">테마마다 쓰는 색</span>
+  <div class="both new"><div data-scheme="light" class="on"><span class="count">3</span>라이트<span class="ratio">5.6:1</span></div><div data-scheme="dark" class="on"><span class="count">3</span>다크<span class="ratio">8.2:1</span></div></div>
+  <div class="foot"><button class="btn2 new"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button><span class="sp"></span><span class="lab">고르면 바로 저장합니다</span></div>
+</div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>창 맨 위에서 바꿀 테마를 고른다. 추천 색, 색 값, [직접 고르기]는 고른 테마에만 쓴다.</li>
+      <li>창을 열면 두 테마 색이 같을 때(바꾸지 않았을 때 포함) 「두 테마」, 다를 때 지금 화면의 테마가 먼저 골라져 있다.</li>
+      <li>「두 테마」에서 색을 고르면 지금처럼 두 테마에 같은 색을 쓴다. 따로 고른 색은 이 색으로 바뀐다.</li>
+      <li>추천 색 칸은 고른 테마에서 쓰는 색만 보인다. 「테마마다 쓰는 색」은 지금처럼 테마마다 쓰는 색과 대비다. 바꾸는 테마에 테두리가 생긴다.</li>
+      <li>아래 <b>[라이트 기본값]·[다크 기본값]</b>은 그 테마만 되돌린다. 「두 테마」에서는 지금처럼 둘 다 되돌린다.</li>
+      <li>밝기는 지금 규칙을 쓴다. 고른 색의 색상·채도를 쓰고 밝기는 그 테마의 기본 밝기다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="decide">
+      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
+      <tr><td>테마를 고르는 곳</td><td><b>색 고르기 창 맨 위 「두 테마 / 라이트 / 다크」</b></td><td>줄의 색 칸을 반씩 따로 누른다(누를 곳이 14px로 작다)</td></tr>
+      <tr><td>따로 고른 색의 밝기</td><td><b>지금 규칙(테마의 기본 밝기, 대비 4.5:1 보장)</b></td><td>고른 색 그대로 쓴다(대비가 모자랄 수 있다)</td></tr>
+      <tr><td>되돌리기</td><td><b>줄 [기본값]은 두 테마, 창 [라이트 기본값]·[다크 기본값]은 한 테마</b></td><td>줄에도 테마마다 버튼을 둔다</td></tr>
+      <tr><td>지금 저장된 색</td><td><b>두 테마에 같은 색으로 그대로 읽는다</b></td><td>—</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

@@ -56,6 +56,8 @@ fn main() {
                 .inner_size(1280.0, 800.0)
                 // 화면이 테마를 따르는 제목 줄을 그린다(`web/src/TitleBar.tsx`). 제목은 작업 표시줄에 남는다.
                 .decorations(false)
+                // 앱이 끌어다 놓은 파일을 가로채지 않게 한다. 화면이 HTML 놓기로 받아 데몬에 올린다(`web/src/Terminal.tsx`).
+                .disable_drag_drop_handler()
                 .build()?;
             Ok(())
         })

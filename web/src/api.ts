@@ -27,7 +27,7 @@ import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
-import { problemText } from './problem';
+import { problemText, statusText } from './problem';
 
 /** 끊긴 WebSocket을 다시 여는 간격. 데몬이 다시 시작하는 동안 기다린다. */
 const RECONNECT_MS = 1000;
@@ -39,15 +39,20 @@ async function request<T>(method: string, path: string, body?: { type: string; d
     headers: body === undefined ? undefined : { 'content-type': body.type },
     body: body?.data,
   });
-  if (!res.ok) throw new Error(problemText((await res.json()) as Problem));
+  // 데몬이 아는 거절은 Problem JSON으로 온다. 본문이 JSON이 아니면 화면이 데몬보다 오래된 판이라 없는 경로를 불렀을 가능성이 크다.
+  if (!res.ok) {
+    const problem = (await res.json().catch(() => null)) as Problem | null;
+    throw new Error(problem ? problemText(problem) : statusText(res.status));
+  }
   return res.json();
 }
 
 const call = <T>(method: string, path: string, body?: unknown) =>
   request<T>(method, path, body === undefined ? undefined : { type: 'application/json', data: JSON.stringify(body) });
 
-/** 붙여넣은 그림을 데몬이 파일로 남기고 그 절대 경로를 돌려준다. */
-export const savePastedImage = (image: Blob) => request<string>('POST', '/api/pastes', { type: image.type, data: image });
+/** 붙여넣거나 끌어다 놓은 파일을 데몬이 같은 이름으로 남기고 그 절대 경로를 돌려준다. */
+export const savePastedFile = (file: File) =>
+  request<string>('POST', `/api/pastes/${encodeURIComponent(file.name)}`, { type: file.type || 'application/octet-stream', data: file });
 
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
 /** 노드 하나를 지운다. 자식은 부모 없이 남는다(docs/design.md 「노드 제거와 입양」). */

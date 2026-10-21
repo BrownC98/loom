@@ -280,8 +280,13 @@ const en = {
   },
   terminal: {
     gone: 'loom restarted, so this terminal is closed. Create a new node.',
+    drop: 'Drop to type the file paths',
+    dropCount: 'Files: {{count}} · up to {{limit}} MB each',
+    tooBig: '{{name}}: the file is too large ({{size}} MB). The limit is {{limit}} MB.',
+    folder: '{{name}}: folders cannot be dropped. Select files.',
   },
   problem: {
+    status: 'The daemon sent a {{status}} response. The screen may be older than the daemon. Reload the page.',
     refused: {
       emptyName: 'Enter a name.',
       nameTaken: '{{value}}: a parent, sibling, or child node already uses this name. Enter a different name.',
@@ -338,7 +343,6 @@ const en = {
       git: 'Git failed: {{value}}',
     },
     noLogin: 'This login window no longer exists.',
-    unsupportedImage: 'This image format cannot be pasted: {{value}}. Use PNG, JPEG, GIF, or WebP.',
     internal: 'Internal error: {{value}}',
   },
   usageProblem: {

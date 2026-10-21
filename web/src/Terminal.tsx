@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { attachPty, openFile, savePastedImage } from './api';
+import { attachPty, openFile, savePastedFile } from './api';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
@@ -117,6 +117,41 @@ function unscaleMouse(xterm: XTerm) {
   mouse.getMouseReportCoords = (event, element) => getMouseReportCoords.call(mouse, unscale(event, element), element);
 }
 
+/** 한 파일의 상한. 데몬 `src/paste.rs`의 `LIMIT_BYTES`와 같다. 큰 파일은 오래 올리지 않게 올리기 전에 거른다. */
+const PASTE_LIMIT_BYTES = 32 * 1024 * 1024;
+const MB = 1024 * 1024;
+
+/** 셸처럼 작은따옴표로 묶는다. 빈칸·한글 이름도 경로 하나로 읽힌다. 이름 속 `'`는 `'\''`로 쓴다. */
+function quotePath(path: string): string {
+  return `'${path.replaceAll("'", "'\\''")}'`;
+}
+
+/** 파일을 끄는 중인가. 글·링크를 끄면 아니다. */
+const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files');
+
+/**
+ * 놓은 파일을 데몬에 올리고 경로를 붙여넣는다(목업 docs/mockups/terminal-drop.html). 엔터는 사람이 누른다.
+ * 폴더와 큰 파일은 오류 줄을 터미널 화면에만 쓰고, 나머지 파일은 그대로 붙여넣는다.
+ */
+async function pasteDropped(xterm: XTerm, data: DataTransfer) {
+  const files: File[] = [];
+  const errors: string[] = [];
+  // `items`는 놓기 처리기가 끝나면 비므로 먼저 모두 읽는다.
+  for (const item of [...data.items]) {
+    const file = item.kind === 'file' ? item.getAsFile() : null;
+    if (!file) continue;
+    if (item.webkitGetAsEntry()?.isDirectory) errors.push(i18next.t('terminal.folder', { name: file.name }));
+    else if (file.size > PASTE_LIMIT_BYTES)
+      errors.push(i18next.t('terminal.tooBig', { name: file.name, size: Math.ceil(file.size / MB), limit: PASTE_LIMIT_BYTES / MB }));
+    else files.push(file);
+  }
+  const saved = await Promise.allSettled(files.map(savePastedFile));
+  const paths = saved.flatMap((r) => (r.status === 'fulfilled' ? [quotePath(r.value)] : []));
+  errors.push(...saved.flatMap((r) => (r.status === 'rejected' ? [(r.reason as Error).message] : [])));
+  if (errors.length) xterm.write(`\r\n${errors.join('\r\n')}\r\n`);
+  if (paths.length) xterm.paste(`${paths.join(' ')} `);
+}
+
 function focusSoon(xterm: XTerm) {
   requestAnimationFrame(() => {
     if (!(document.activeElement instanceof HTMLInputElement)) xterm.focus();
@@ -143,6 +178,8 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
   const latestFont = useRef(font);
   latestFont.current = font;
   const fit = useRef<FitAddon | null>(null);
+  // 끄는 파일 수. 끄지 않으면 없다.
+  const [dragging, setDragging] = useState<number | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -222,7 +259,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
         if (!image) return;
         e.stopPropagation();
         e.preventDefault();
-        savePastedImage(image).then(
+        savePastedFile(image).then(
           (path) => xterm.paste(path),
           (err: Error) => xterm.write(`\r\n${err.message}\r\n`),
         );
@@ -273,10 +310,40 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
     else term.current?.blur();
   }, [props.focused]);
 
+  const onDragOver = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    setDragging([...e.dataTransfer.items].filter((item) => item.kind === 'file').length);
+  };
+  const onDragLeave = (e: DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(null);
+  };
+  const onDrop = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(null);
+    const xterm = term.current;
+    if (!xterm) return;
+    xterm.focus();
+    void pasteDropped(xterm, e.dataTransfer);
+  };
+
   // 바깥 칸이 여백과 바탕을 갖는다. FitAddon은 안쪽 칸의 크기로 열 수를 잰다.
   return (
-    <div className="xterm-box" style={{ background: theme.background }}>
+    <div className="xterm-box" style={{ background: theme.background }} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <div ref={box} />
+      {dragging !== null && (
+        <div className="drop-cover">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+          </svg>
+          <span>{i18next.t('terminal.drop')}</span>
+          <span className="sub">{i18next.t('terminal.dropCount', { count: dragging, limit: PASTE_LIMIT_BYTES / MB })}</span>
+        </div>
+      )}
     </div>
   );
 }

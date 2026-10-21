@@ -20,7 +20,7 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{Entry, EventRecord, SwitchCause, UsageWindow};
+pub use events::{Entry, EventRecord, SwitchCause};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, NewChild, Relations};
 

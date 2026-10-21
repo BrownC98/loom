@@ -27,9 +27,9 @@ describe('noticeOf', () => {
     expect(n.warn).toBe(false);
   });
 
-  it('auto usage switch names the old account and the window', () => {
-    const n = noticeOf(switched({ why: { kind: 'usage', window: 'session', used: 96 }, moved: 3 }), name, time, t);
-    expect(n.text).toContain('switch.notice.auto|switch.provider.claude|acct1|acct2|switch.notice.causeUsage|usage.window.session|96');
+  it('auto switch names the old account and the rate limit cause', () => {
+    const n = noticeOf(switched({ why: { kind: 'rateLimit' }, moved: 3 }), name, time, t);
+    expect(n.text).toContain('switch.notice.auto|switch.provider.claude|acct1|acct2|switch.notice.causeRateLimit');
   });
 
   it('rate limit cause and null account use the system default name', () => {

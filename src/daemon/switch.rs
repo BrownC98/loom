@@ -16,19 +16,16 @@ use ts_rs::TS;
 
 use super::{App, Problem, internal};
 use crate::accounts::{self, AccountId};
-use crate::graph::{Active, Entry, NodeId, SwitchCause, UsageWindow};
+use crate::graph::{Active, Entry, NodeId, SwitchCause};
 use crate::profile::codex::{self, Status};
 use crate::profile::{self, ModelChoice, Profile, Provider, Start};
 use crate::skills::Position;
 use crate::usage::{self, Limits, Window};
 
-/// 자동 전환이 쓰는 계정의 사용량을 읽는 간격. 사용량 API를 자주 부르지 않으면서 창이 다 차기 전에 바꾼다.
-const POLL_EVERY: Duration = Duration::from_secs(5 * 60);
-/// 이 비율(%) 이상 쓴 창이 있으면 계정을 바꾸고, 이 비율 이상 쓴 계정으로는 바꾸지 않는다.
-/// 100%가 되면 턴이 멈추므로 한 번 읽는 간격(`POLL_EVERY`) 동안 쓸 몫을 남긴다.
-const SWITCH_AT_USED: u8 = 95;
-/// 같은 공급자를 다시 자동 전환하지 않는 시간. 사용량 값이 늦게 갱신되어 계정을 오가는 일을 막는다.
-/// 「남은 계정 없음」 기록도 이 간격에 한 번만 남긴다.
+/// 이 비율(%)을 쓴 창이 있는 계정은 다 썼다. 그 계정으로는 바꾸지 않는다.
+const EXHAUSTED_AT: u8 = 100;
+/// 같은 공급자를 다시 자동 전환하지 않는 시간. 같은 계정의 노드 여럿이 한꺼번에 한도로 멈추면
+/// 멈춤마다 다시 바꾸어 계정을 오가는 일을 막는다. 「남은 계정 없음」 기록도 이 간격에 한 번만 남긴다.
 const COOLDOWN: Duration = Duration::from_secs(10 * 60);
 /// 옛 노드 프로세스가 끝나기를 기다리는 상한. PTY 호스트는 끝내기 요청을 받으면 바로 프로세스 나무를 끝낸다.
 const EXIT_WAIT: Duration = Duration::from_secs(10);
@@ -263,10 +260,11 @@ impl App {
     }
 
     /// 노드가 한도로 턴을 멈췄다. 옮길 때 이어 가라는 입력을 넣는다. 자동 전환이 켜져 있으면 바로 바꾼다.
+    /// 자동 전환은 이 이벤트로만 시작한다. 사용량을 미리 읽어 바꾸지 않는다.
     pub(super) fn rate_limited(self: &Arc<Self>, node: NodeId, provider: Provider) {
         self.switch.limited.lock().unwrap().insert(node);
         let app = self.clone();
-        tokio::spawn(async move { app.auto_switch(provider, true).await });
+        tokio::spawn(async move { app.auto_switch(provider).await });
     }
 
     /// 노드 프로세스를 설정의 계정으로 다시 띄운다. 새 로그인 폴더에 세션 기록을 복사하고 이어 간다.
@@ -377,18 +375,8 @@ impl App {
         Ok(thread)
     }
 
-    /// 켜져 있으면 공급자마다 `POLL_EVERY`마다 쓰는 계정의 사용량을 본다. 데몬이 시작할 때 한 번 띄운다.
-    pub(super) async fn auto_switch_loop(self: Arc<Self>) {
-        loop {
-            tokio::time::sleep(POLL_EVERY).await;
-            for provider in [Provider::Claude, Provider::Codex] {
-                self.auto_switch(provider, false).await;
-            }
-        }
-    }
-
-    /// 자동 전환이 켜져 있고 쓰는 계정이 기준을 넘었거나(`rate_limited`가 참) 노드가 한도로 멈췄으면, 남은 계정으로 바꾼다.
-    async fn auto_switch(self: &Arc<Self>, provider: Provider, rate_limited: bool) {
+    /// 자동 전환이 켜져 있으면 같은 공급자의 다른 계정 사용량을 그 자리에서 읽고, 남은 계정으로 바꾼다.
+    async fn auto_switch(self: &Arc<Self>, provider: Provider) {
         let Ok(mut settings) = self.settings.get() else {
             return;
         };
@@ -396,12 +384,6 @@ impl App {
             return;
         }
         let current = settings.account(provider).cloned();
-        let why = if rate_limited {
-            Some(SwitchCause::RateLimit)
-        } else {
-            trigger(&self.probe(provider, current.clone()).await)
-        };
-        let Some(why) = why else { return };
         let mut ids = vec![None];
         ids.extend(
             self.accounts
@@ -433,7 +415,7 @@ impl App {
             eprintln!("loom: 자동 전환한 계정을 저장하지 못했다: {e}");
             return;
         }
-        if let Err(e) = self.switch_nodes(provider, why).await {
+        if let Err(e) = self.switch_nodes(provider, SwitchCause::RateLimit).await {
             eprintln!("loom: 자동 전환으로 노드를 옮기지 못했다: {e:?}");
         }
     }
@@ -542,30 +524,7 @@ fn most_used(accounts: impl Iterator<Item = Option<AccountId>>) -> Option<Accoun
     best.cloned().flatten()
 }
 
-/// 자동 전환을 시작하는 창. 세션 창을 먼저 본다.
-fn trigger(limits: &Limits) -> Option<SwitchCause> {
-    let Limits::Ready {
-        session, weekly, ..
-    } = limits
-    else {
-        return None;
-    };
-    [
-        (UsageWindow::Session, session),
-        (UsageWindow::Weekly, weekly),
-    ]
-    .into_iter()
-    .find_map(|(window, w)| {
-        w.as_ref()
-            .filter(|w| w.used >= SWITCH_AT_USED)
-            .map(|w| SwitchCause::Usage {
-                window,
-                used: w.used,
-            })
-    })
-}
-
-/// 사용량을 읽은 계정 가운데 가장 많이 쓴 창이 가장 적은 계정. 그 값이 `SWITCH_AT_USED` 미만이어야 한다.
+/// 사용량을 읽은 계정 가운데 가장 많이 쓴 창이 가장 적은 계정. 그 값이 `EXHAUSTED_AT` 미만이어야 한다.
 /// 읽지 못한 계정은 건너뛴다. 같은 값이면 앞 계정(시스템 기본, 만든 순서)이다.
 fn pick_target(candidates: &[(Option<AccountId>, Limits)]) -> Option<Option<AccountId>> {
     candidates
@@ -580,7 +539,7 @@ fn pick_target(candidates: &[(Option<AccountId>, Limits)]) -> Option<Option<Acco
                     .map(|w| w.used)
                     .max()
                     .unwrap_or(0);
-                (used < SWITCH_AT_USED).then_some((id, used))
+                (used < EXHAUSTED_AT).then_some((id, used))
             }
             _ => None,
         })
@@ -626,38 +585,20 @@ mod tests {
     }
 
     #[test]
-    fn trigger_at_95_session_first() {
-        assert_eq!(trigger(&ready(94, 94)), None);
-        assert_eq!(
-            trigger(&ready(95, 99)),
-            Some(SwitchCause::Usage {
-                window: UsageWindow::Session,
-                used: 95
-            })
-        );
-        assert_eq!(
-            trigger(&ready(10, 97)),
-            Some(SwitchCause::Usage {
-                window: UsageWindow::Weekly,
-                used: 97
-            })
-        );
-        assert_eq!(trigger(&Limits::NeedsLogin), None);
-    }
-
-    #[test]
-    fn target_is_the_least_used_readable_account_below_95() {
+    fn target_is_the_least_used_readable_account_with_quota_left() {
         let candidates = vec![
             (None, ready(50, 60)),
             (id(1), Limits::NeedsLogin),
             (id(2), ready(10, 40)),
             (id(3), ready(10, 40)),
-            (id(4), ready(0, 96)),
+            (id(4), ready(0, 100)),
         ];
         assert_eq!(pick_target(&candidates), Some(id(2)));
-        let full = vec![(None, ready(95, 0)), (id(1), Limits::NeedsLogin)];
+        let nearly = vec![(None, ready(100, 0)), (id(1), ready(99, 99))];
+        assert_eq!(pick_target(&nearly), Some(id(1)));
+        let full = vec![(None, ready(100, 0)), (id(1), Limits::NeedsLogin)];
         assert_eq!(pick_target(&full), None);
-        assert_eq!(earliest_reset(full.iter().map(|(_, l)| l)), Some(195));
+        assert_eq!(earliest_reset(full.iter().map(|(_, l)| l)), Some(200));
     }
 
     #[test]

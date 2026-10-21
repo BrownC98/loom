@@ -108,18 +108,8 @@ pub enum Entry {
 pub enum SwitchCause {
     /// 사람이 [모두 바꾸기]를 눌렀다.
     Manual,
-    /// 자동 전환: 옛 계정의 한 창이 기준을 넘었다. `window`는 화면의 창 이름 키(`session`, `weekly`)다.
-    Usage { window: UsageWindow, used: u8 },
     /// 자동 전환: 노드가 한도 오류로 멈췄다.
     RateLimit,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum UsageWindow {
-    Session,
-    Weekly,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]

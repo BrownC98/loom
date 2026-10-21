@@ -415,7 +415,6 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         path: node_path()?,
     });
     app.resume().await.map_err(std::io::Error::other)?;
-    tokio::spawn(app.clone().auto_switch_loop());
     // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
     let node_routes = Router::new()
         .route("/api/agent/send", post(agent_send))

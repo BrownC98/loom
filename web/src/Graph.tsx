@@ -1,4 +1,4 @@
-import { Maximize2, Minimize2, Plus, Trash2 } from 'lucide-react';
+import { Maximize2, Minimize2, Plus, Trash2, Workflow } from 'lucide-react';
 import { Fragment, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
@@ -79,11 +79,14 @@ type GroupData = {
   /** 누른 [새 노드] 버튼. 창을 그 버튼 옆에 띄우려고 자리를 잰다. */
   onOpen: (button: HTMLElement) => void;
   onDelete?: () => void;
+  /** 이 묶음 안 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑥). */
+  onArrange: () => void;
 };
 type CardBase = { view: NodeView; agentLabel: string; selected: boolean; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /** 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 확대 창이 열면 카드는 터미널을 그리지 않는다. PTY 크기를 한쪽만 정하게 한다. */
 type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void };
-type RepoData = { name: string; path: string };
+/** `onArrange`: 이 저장소의 묶음과 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑦). */
+type RepoData = { name: string; path: string; onArrange: () => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 /** 모든 저장소 범위에서 저장소마다 묶음을 두르는 상자. 머리를 끌어 옮긴다. */
 type RepoNode = Node<RepoData, 'repo'>;
@@ -101,6 +104,9 @@ function Group({ data }: NodeProps<GroupNode>) {
         </span>
         {data.kind !== 'linked' && <span className="kind">{t(`worktree.${data.kind}`)}</span>}
         <span className="spacer" />
+        <IconButton label={t('graph.arrangeGroup')} title={t('graph.arrangeGroup')} onClick={data.onArrange}>
+          <Workflow />
+        </IconButton>
         <button className="btn ghost sm nodrag" aria-expanded={data.creating} onClick={(e) => data.onOpen(e.currentTarget)}>
           <Plus />
           {t('graph.newNode')}
@@ -117,6 +123,7 @@ function Group({ data }: NodeProps<GroupNode>) {
 }
 
 function Repo({ data }: NodeProps<RepoNode>) {
+  const { t } = useTranslation();
   return (
     <section className="repo-box" aria-label={data.name}>
       <div className="repo-head">
@@ -124,6 +131,10 @@ function Repo({ data }: NodeProps<RepoNode>) {
         <span className="sub" translate="no" title={data.path}>
           {data.path}
         </span>
+        <span className="spacer" />
+        <IconButton label={t('graph.arrangeRepo')} title={t('graph.arrangeRepo')} onClick={data.onArrange}>
+          <Workflow />
+        </IconButton>
       </div>
     </section>
   );
@@ -330,9 +341,8 @@ export function Graph(props: {
     const tree = arrangeTree(members, size, direction, step);
     // 나무 배치는 카드 자리 기준이라 `CARD_X`·`CARD_TOP`만큼 옮긴다. 가장 왼쪽·위 카드를 그 틈에 맞춘다.
     const min = { x: Math.min(...[...tree.values()].map((p) => p.x)), y: Math.min(...[...tree.values()].map((p) => p.y)) };
-    const local = settle(
-      members.map((v) => ({ key: String(v.id), size: size(v.id), lead: { x: 0, y: 0 }, auto: { x: CARD_X + tree.get(v.id)!.x - min.x, y: CARD_TOP + tree.get(v.id)!.y - min.y } })),
-    );
+    const auto = new Map(members.map((v) => [String(v.id), { x: CARD_X + tree.get(v.id)!.x - min.x, y: CARD_TOP + tree.get(v.id)!.y - min.y }]));
+    const local = settle(members.map((v) => ({ key: String(v.id), size: size(v.id), lead: { x: 0, y: 0 }, auto: auto.get(String(v.id))! })));
     for (const v of members) spotOf.set(String(v.id), { kind: 'node', repo: v.place.repo, node: v.id });
     share({ boxes: members.map((v) => ({ key: String(v.id), at: local.get(String(v.id))!, size: size(v.id) })), lead: new Map(), parent: group.path });
     // 묶음은 카드를 모두 덮는다(네 쪽). 빈 묶음은 머리와 안내 글 크기다(높이·폭을 비워 내용에 맞춘다).
@@ -341,7 +351,7 @@ export function Graph(props: {
       members.length > 0
         ? cover(members.map((v) => ({ at: local.get(String(v.id))!, size: size(v.id) })), { top: CARD_TOP, side: CARD_X })
         : { at: { x: 0, y: 0 }, size: { width: measured?.width ?? EMPTY_GROUP.width, height: measured?.height ?? EMPTY_GROUP.height } };
-    return { group, members, local, lead: box.at, size: box.size };
+    return { group, members, local, auto, lead: box.at, size: box.size };
   };
   // 저장소가 둘 이상이면(모든 저장소 범위) 저장소마다 상자를 두르고 그 안에 묶음을 놓는다(목업 docs/mockups/repo-scope.html).
   const framed = props.repos.length > 1;
@@ -425,7 +435,7 @@ export function Graph(props: {
           // 상자는 머리만 클릭을 받는다(머리를 끌어 옮긴다). 상자 안 빈 곳 클릭은 바탕 클릭이다(고르기를 푼다).
           style: { width: r.size.width, height: r.size.height, pointerEvents: 'none' },
           dragHandle: '.repo-head',
-          data: { name: r.repo.name, path: r.repo.path },
+          data: { name: r.repo.name, path: r.repo.path, onArrange: () => arrangeRepo(r) },
         }),
       )
     : [];
@@ -443,6 +453,7 @@ export function Graph(props: {
         empty: members.length === 0,
         creating: creating === group.path,
         deleting: deleting === group.path,
+        onArrange: () => arrangeGroup(group.path),
         onOpen: (button) => {
           setDeleting(null);
           setCreating(group.path);
@@ -576,9 +587,12 @@ export function Graph(props: {
    */
   const onDrop = (key: string, level: Level, dragged: Box) => {
     sides.current = null;
-    const done = new Map(moving);
-    done.set(key, originOf(level, key, dragged.at));
-    let [at, mover, lv] = [key, dragged, level];
+    setMoving(new Map());
+    save(spread(key, level, dragged, new Map([...moving, [key, originOf(level, key, dragged.at)]])));
+  };
+  /** `key` 상자가 `mover` 자리·크기일 때 겹친 형제를 비키고, 커진 바깥 상자도 같은 규칙으로 따른다. `done`(상자 → 원점)에 더해 돌려준다. */
+  const spread = (key: string, level: Level, mover: Box, done: Map<string, XYPosition>): Map<string, XYPosition> => {
+    let [at, lv] = [key, level];
     for (;;) {
       const boxes = lv.boxes.map((b) => {
         const o = done.get(b.key);
@@ -598,10 +612,42 @@ export function Graph(props: {
       const origin = done.get(self.key) ?? originOf(outer, self.key, self.at);
       [at, mover, lv] = [self.key, { at: { x: origin.x + shell.at.x, y: origin.y + shell.at.y }, size: shell.size }, outer];
     }
-    setMoving(new Map());
-    setSpots((prev) => new Map([...prev, ...[...done].map(([k, p]): [string, Placed] => [k, { spot: spotOf.get(k)!, at: p }])]));
-    putSpots([...done].map(([k, p]) => ({ spot: spotOf.get(k)!, at: p }))).catch((err: Error) => setRefusal(err.message));
+    return done;
   };
+  /** 상자 원점을 한 요청으로 저장한다. `after`가 있으면 그 요청보다 먼저 보낸다. */
+  const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
+    if (done.size === 0) return;
+    const placed = [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p }));
+    setSpots((prev) => new Map([...prev, ...placed.map((p): [string, Placed] => [flowId(p.spot), p])]));
+    after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
+  };
+  // 부분 정렬(목업 v5 ⑥⑦). 정렬한 상자의 왼쪽 위와 바깥·형제 상자는 지금 자리에 둔다. 다음 렌더에서 바뀐 크기로 옆 상자를 비킨다(`grown`).
+  const [grown, setGrown] = useState<string | null>(null);
+  const keepAround = (key: string, newLead: XYPosition): Map<string, XYPosition> => {
+    const level = levels.get(key)!;
+    const self = level.boxes.find((b) => b.key === key)!;
+    return new Map([...pinned(level, new Map()), [key, { x: self.at.x - newLead.x, y: self.at.y - newLead.y }]]);
+  };
+  // 자동 배치 카드 자리는 카드 틈에서 시작하므로 묶음 상자 왼쪽 위가 원점이다.
+  const arrangeGroup = (path: string) => {
+    const g = groups.find((g) => g.group.path === path)!;
+    save(new Map([...keepAround(path, { x: 0, y: 0 }), ...g.auto]));
+    setGrown(path);
+  };
+  // 자동 배치 묶음 자리는 저장소 원점에서 시작하므로 상자 왼쪽 위는 원점에서 `REPO_INSET`만큼 왼쪽 위다.
+  const arrangeRepo = (r: (typeof repos)[number]) => {
+    const kept = keepAround(r.key, { x: -REPO_INSET.side, y: -REPO_INSET.top });
+    setSpots((prev) => new Map([...prev].filter(([, p]) => p.spot.repo !== r.repo.id)));
+    save(kept, clearSpots(r.repo.id));
+    setGrown(r.key);
+  };
+  useEffect(() => {
+    if (grown === null) return;
+    setGrown(null);
+    const level = levels.get(grown);
+    const self = level?.boxes.find((b) => b.key === grown);
+    if (level && self) save(spread(grown, level, self, new Map()));
+  });
 
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     const next = new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n]));

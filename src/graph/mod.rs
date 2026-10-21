@@ -93,6 +93,8 @@ pub struct NodeView {
     /// 노드가 지금 하는 일 한 줄. 근거: docs/design.md 「그래프와 화면」.
     /// `done` 요약, CLI 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄이다. 모두 없으면 없다.
     pub topic: Option<String>,
+    /// 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
+    pub bookmark: Option<u32>,
 }
 
 /// 프로필이 CLI에서 읽은 지금 모델과 추론 강도. 값은 CLI가 쓴 글 그대로다. 근거: docs/design.md 「에이전트 실행」.
@@ -296,7 +298,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    n.brief
+    n.brief, n.bookmark
     FROM nodes n";
 
 struct Store {
@@ -465,6 +467,7 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
             repo: RepoId(row.get(9)?),
             worktree: row.get(10)?,
         },
+        bookmark: row.get(12)?,
     })
 }
 

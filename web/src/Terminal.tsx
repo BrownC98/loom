@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { attachPty, openFile, savePastedFile } from './api';
+import { attachPty, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { Resize } from './gen/Resize';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
@@ -119,8 +119,6 @@ function unscaleMouse(xterm: XTerm) {
   mouse.getMouseReportCoords = (event, element) => getMouseReportCoords.call(mouse, unscale(event, element), element);
 }
 
-/** 한 파일의 상한. 데몬 `src/paste.rs`의 `LIMIT_BYTES`와 같다. 큰 파일은 오래 올리지 않게 올리기 전에 거른다. */
-const PASTE_LIMIT_BYTES = 32 * 1024 * 1024;
 const MB = 1024 * 1024;
 
 /** 셸처럼 작은따옴표로 묶는다. 빈칸·한글 이름도 경로 하나로 읽힌다. 이름 속 `'`는 `'\''`로 쓴다. */

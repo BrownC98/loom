@@ -262,6 +262,10 @@ const en = {
     send: 'Send the answer to {{id}}',
     recommended: 'recommended',
     openDocLabel: '{{id}} {{title}}: open in the browser',
+    dropImage: 'Drop to attach to the {{id}} answer',
+    dropLimit: 'Up to {{limit}} MB per image',
+    removeImage: 'Remove image',
+    notImage: '{{name}}: not an image. Only images can be attached.',
     toTerminal: 'Answer in the terminal',
   },
   wait: {

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::db;
@@ -328,12 +328,12 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
     assert!(view(&g, lead).waits[0].answerable);
 
     // 다른 신호의 대기와 지운 질문에는 답하지 못한다.
-    assert_eq!(g.answer(screen, "y"), Err(Refusal::NoWait(screen)));
-    assert_eq!(g.answer(first, "A"), Err(Refusal::NoWait(first)));
-    assert_eq!(g.answer(again, "  "), Err(Refusal::EmptyAnswer));
+    assert_eq!(g.answer(screen, "y", &[]), Err(Refusal::NoWait(screen)));
+    assert_eq!(g.answer(first, "A", &[]), Err(Refusal::NoWait(first)));
+    assert_eq!(g.answer(again, "  ", &[]), Err(Refusal::EmptyAnswer));
     assert_eq!(g.wait_doc(again), Err(Refusal::NoWait(again)));
 
-    g.answer(again, "A").unwrap();
+    g.answer(again, "A", &[]).unwrap();
     assert_eq!(id(lead), None);
     let (from, kind, body) = take(&g, lead).unwrap();
     assert_eq!((from.as_str(), kind), (HUMAN, Kind::Queue));
@@ -343,7 +343,22 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
         )),
         "{body}"
     );
-    assert_eq!(g.answer(again, "A"), Err(Refusal::NoWait(again)));
+    assert_eq!(g.answer(again, "A", &[]), Err(Refusal::NoWait(again)));
+
+    // 그림만 보내도 답이다. 경로는 작은따옴표로 묶어 한 줄에 붙는다.
+    let shot = g.ask(lead, "화면을 붙여 주세요", None).unwrap();
+    let images = [
+        PathBuf::from("/tmp/loom-paste/1/image.png"),
+        PathBuf::from("/tmp/loom-paste/2/it's 1.png"),
+    ];
+    g.answer(shot, " ", &images).unwrap();
+    let (_, _, body) = take(&g, lead).unwrap();
+    assert!(
+        body.starts_with(&format!(
+            "Answer to loom ask question {shot} (화면을 붙여 주세요): \nImages: '/tmp/loom-paste/1/image.png' '/tmp/loom-paste/2/it'\\''s 1.png'\n"
+        )),
+        "{body}"
+    );
 
     // 문서가 붙은 질문: 화면은 ID와 제목만 받고, 데몬은 열린 동안만 파일을 준다.
     let doc = WaitDoc {

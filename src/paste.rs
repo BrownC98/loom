@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 /// 파일 하나의 상한. 4K 화면 캡처 PNG도 들어가게 넉넉히 둔다. axum 기본값(2MB)은 작다.
-/// 화면(`web/src/Terminal.tsx`의 `PASTE_LIMIT_BYTES`)이 올리기 전에 같은 값으로 거른다.
+/// 화면(`web/src/api.ts`의 `PASTE_LIMIT_BYTES`)이 올리기 전에 같은 값으로 거른다.
 pub const LIMIT_BYTES: usize = 32 * 1024 * 1024;
 
 /// 이름이 `name`인 새 파일에 쓰고 절대 경로를 돌려준다. 파일은 OS 임시 폴더에 두므로 OS가 지운다.

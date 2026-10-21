@@ -27,6 +27,7 @@ import { applySettingsPatch, settingsPatch, type SettingsPatch } from './setting
 import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
 import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
+import { applyColors } from './uiColors';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
 import { ArrangeButton } from './ArrangeButton';
@@ -98,6 +99,7 @@ const EMPTY_SETTINGS: SettingsView = {
   paneWidths: { side: null, dock: null },
   closedPanes: { side: false, dock: false, bookmarks: false },
   closedSwitchNotice: null,
+  colors: { warn: null, run: null, ok: null, err: null, edge: null, repo: null, worktree: null, accent: null },
 };
 const SETTINGS_HASH = '#settings/';
 
@@ -281,6 +283,7 @@ export function App() {
     document.documentElement.dataset.theme = settings.theme;
   }, [settings.theme]);
   useEffect(() => applyLanguage(settings.language), [settings.language]);
+  useEffect(() => applyColors(settings.colors), [settings.colors]);
 
   const refreshUsage = useCallback(async () => {
     setLoading(true);

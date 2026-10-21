@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
@@ -7,6 +7,7 @@ import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
+import { useOutsideClose } from './popover';
 import { VERSION } from './version';
 
 export type Usage = {
@@ -22,20 +23,17 @@ export type Usage = {
 export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const bar = useRef<HTMLElement>(null);
+  // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 다른 팝오버처럼 pointerdown을 먼저 받는다.
+  const bar = useOutsideClose<HTMLElement>(() => setOpen(false));
   const { usage } = props;
 
   useEffect(() => {
     if (!open) return;
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !bar.current?.contains(e.target as Node)) setOpen(false);
+    const close = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
     };
-    document.addEventListener('mousedown', close);
     document.addEventListener('keydown', close);
-    return () => {
-      document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', close);
-    };
+    return () => document.removeEventListener('keydown', close);
   }, [open]);
 
   const toggle = () => {

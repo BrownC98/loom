@@ -387,7 +387,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let listen = listener.local_addr()?;
     // 포트는 데몬 포트와 같다. 노드 환경의 `LOOM_URL`은 노드가 끝날 때까지 바뀌지 않으므로, 다시 시작한 데몬도 같은 주소에서 듣는다.
     // 그 포트를 쓸 수 없으면(예: `--listen 0.0.0.0:<포트>`) OS가 고른다. 그때 앞 데몬의 노드는 다시 시작한 뒤 loom 명령이 닿지 않는다.
-    // macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없다(확인하지 않았다).
+    // macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없다(2026-10-21 macos-14 실측).
     // 그때는 노드 문 없이 데몬 주소를 쓰고, Codex는 loom 명령마다 승인을 묻는다.
     let node_door = match tokio::net::TcpListener::bind((NODE_IP, listen.port())).await {
         Ok(door) => Some(door),

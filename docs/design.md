@@ -522,6 +522,7 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 | 화면의 단축키는 명령 키+Shift다. 명령 키는 macOS에서 ⌘, 다른 OS에서 Ctrl이다. 터미널의 복사·붙여넣기도 명령 키다(macOS ⌘C·⌘V, 다른 OS Ctrl+C·Ctrl+V). macOS 터미널의 Ctrl+C는 늘 `^C`다. 판별은 `web/src/platform.ts` 한 곳이다. 브라우저 화면도 같다 | 맥 관례다. 툴팁과 `aria-keyshortcuts`가 OS에 맞는 키(`⌘⇧F` 등)를 보인다 |
 | macOS: 앱은 Apple 개발자 서명과 공증 없이 낸다. 묶음은 ad-hoc 서명(`signingIdentity: "-"`)이다. 사람은 `.dmg`에서 앱을 응용 프로그램 폴더로 끌고, 처음 한 번 `xattr -cr /Applications/loom.app`을 실행한다 | 사람 결정(2026-10-21) "디벨롭 계정 없음". 브라우저로 받은 서명 없는 앱은 Gatekeeper가 「손상되었기 때문에 열 수 없습니다」로 막는다. `xattr`가 받은 파일 표시(`com.apple.quarantine`)를 지운다. Apple Silicon은 서명 없는 실행 파일을 띄우지 않아 ad-hoc 서명은 둔다 |
 | macOS 업데이트: Tauri 업데이터가 `.app.tar.gz`를 받아 서명(`.sig`, Windows와 같은 키)을 확인하고 앱 묶음을 바꾼다. 그 뒤 화면이 앱을 다시 띄운다(`tauri-plugin-process`의 `relaunch`, 권한 `process:allow-restart`). Windows는 설치 파일이 앱을 끝내 `relaunch`에 닿지 않는다 | 업데이터는 Apple 서명을 보지 않는다. 받은 파일은 메모리에서 풀어 쓰므로 받은 파일 표시가 붙지 않는다(`tauri-plugin-updater` 2.13.1 소스). 그래서 업데이트 뒤에 `xattr`를 다시 하지 않는다 |
+| macOS에서 다른 것(고치지 않는다): 노드 문(`127.76.77.1`)을 듣지 못해 Codex 노드는 loom 명령마다 승인을 묻는다(「실측 근거」의 macOS). 고치려면 루트 권한으로 `lo0`에 주소를 더해야 한다. Claude Code는 로그인을 키체인에 두어 `.credentials.json`이 없다. 그래서 Claude 계정의 사용량 비율 대신 「이 로그인 방식(API 키 등)은 사용량을 볼 수 없습니다.」가 보이고, 자동 전환은 Claude 대상 계정을 찾지 못한다. 로그인과 손으로 하는 계정 전환은 CLI가 `CLAUDE_CONFIG_DIR`마다 키체인을 따로 쓰므로 loom 코드가 필요 없다(Orca 소스 `claude-auth-capture.ts`). 저장소가 문서·데스크탑·다운로드 폴더에 있으면 macOS가 처음 한 번 폴더 접근을 묻는다 | 키체인을 읽는 코드는 사람 승인 없이 더하지 않는다(총괄 지시 2026-10-21) |
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
 | 「기본 셸」 노드는 `%ComSpec%`로 띄운다. 폴더가 WSL 폴더(`\\wsl.localhost\<배포판>\…`, `\\wsl$\…`)면 `wsl.exe -d <배포판> --cd <Linux 경로>`로 띄운다 | `cmd.exe`는 UNC 폴더에서 시작하지 못하고 「UNC 경로는 지원되지 않습니다」를 쓴 뒤 `C:\Windows`에서 연다. 명령 노드(`cmd /C`)는 명령 글이 Windows 명령이라 그대로 둔다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
@@ -597,13 +598,14 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 - Windows Job Object(같은 날, PowerShell P/Invoke): kill-on-close Job에 넣은 부모가 Job에 든 뒤 자식을 띄우고 Job 핸들을 닫았다. silent breakaway가 없으면 부모와 자식이 모두 끝났고, 있으면 부모만 끝나고 자식은 살았다.
 - 설치 훅(같은 날, Ubuntu `nsis` 3.09로 훅 파일을 넣은 시험 설치 파일): 도는 노드가 없으면 `.old`가 남지 않았다. 도는 데몬 1·2개 위에 설치가 성공했고(exit 0) 데몬은 살았다. 데몬이 끝난 뒤의 설치는 그 `.old`를 지웠다. 지우기 훅은 시험 폴더의 데몬 둘만 끝내고 `.old`를 지웠다. 다른 폴더의 `loom.exe` 셋은 그대로 살았다.
 
+- macOS(2026-10-21, GitHub Actions `macos-14` arm64, 버리는 검사 워크플로): `cargo test`가 모두 통과했다. `127.76.77.1`은 듣지 못했다(노드 문 없음). `loom serve --until-stdin-closes`는 stdin이 닫히자 끝났고, 그 전에 띄운 명령 노드(`sleep 600`)는 살았다. `tauri build`가 ad-hoc 서명 `loom.app`, `.dmg`, `.app.tar.gz`와 `.sig`를 만들었다. 받은 파일 표시가 없는 `loom.app`이 떴다. 제목 줄은 신호등이 줄 안에 있었다. 데몬은 로그인 셸의 `PATH`(`~/.local/bin`, `/opt/homebrew/bin` 포함)를 받았다. 앱을 `kill -9`로 끝내자 데몬도 끝났다. 같은 PTY에서 둘째 프로세스를 띄우면 제어 터미널을 잡을 때 「No such file or directory」로 실패했다(첫 프로세스의 제어 터미널 여부와 관계없다). 제어 터미널 없이 띄우면 됐다.
 - Cursor(2026-10-21, cursor-agent 2026.10.19-6bbf2c4, 임시 폴더의 tmux와 시험 데몬): 플러그인 폴더의 훅이 돌았다. sessionStart 맥락 둘이 모두 모델에 닿았다. postToolUse 맥락이 턴 안에 들어갔다. stop 훅의 `followup_message`가 쉬는 세션에 새 턴을 띄웠다. stop 훅이 기다리는 동안 사람 입력이 바로 새 턴을 띄웠다. 플러그인 `rules/*.mdc`는 읽히지 않았다. `--trust`는 「Workspace Trust Required」 창을, `--force`는 명령 승인을 건너뛴다. 로그인하지 않은 `HOME`에서는 「Press any key to log in...」이 떴다. 시험 데몬에서 셸 부모가 띄운 Cursor 자식이 규칙을 받아 `loom send`·`loom reply`·`loom done`을 썼고, 쉬는 중 큐로 깨어 답했고, 조정이 15초 셸 뒤에 닿았고, 중단이 120초 셸을 4초에 끊었다.
 
 ## 아직 확인하지 않은 것
 
 - Windows Claude 노드의 훅과 `loom guard` 중단. 측정한 Windows PC의 Claude 로그인이 만료되어 Claude 노드를 돌리지 못했다. `loom guard`의 셸 고르기 규칙은 Git Bash 나무로만 확인했다.
-- macOS에서 노드 문(`127.76.77.1`). macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없어 듣지 못할 수 있다. 그러면 Codex 노드는 loom 명령마다 승인을 묻는다. 첫 macOS 구현 때 확인한다.
-- macOS에서 PTY 호스트와 노드 서버가 데몬이 끝난 뒤에도 사는지. Linux는 실측했다(새 프로세스 그룹). 첫 macOS 구현 때 확인한다.
+- macOS 앱 업데이트 전체 길(새 판 받기, 앱 묶음 바꾸기, 다시 띄우기, 새 데몬이 다시 붙기). Mac이 있는 사람이 두 판으로 확인한다. 근거는 「데스크톱 앱」 업데이트 줄의 소스 읽기와 아래 macOS 실측이다.
+- macOS 노드 안의 Claude Code·Codex 로그인과 계정 전환. 러너에는 두 CLI가 없었다.
 - Codex app-server를 unix 소켓으로 쓸 때의 메시지 틀. 지금은 `ws://127.0.0.1`만 쓴다.
 - Windows 앱 업데이트 전체 길(새 판 빌드, [다시 시작하여 업데이트], 새 데몬이 다시 붙기). 새 판은 Actions로만 빌드한다. 위 실측은 부품마다 따로 했다. 다시 붙기 코드는 Linux와 같다.
 

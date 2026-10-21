@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M15 묶음 테두리 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+/* 목업에만 더한 블록: 다크·라이트를 나란히 그린다. */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.pair > figure { display: grid; gap: 6px; }
+.pair figcaption { font-size: 12px; color: var(--ink-3); }
+.pair img { width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+.tbl { border-collapse: collapse; font-size: 13px; }
+.tbl th, .tbl td { border-bottom: 1px solid var(--line); padding: 6px 12px; text-align: left; }
+.new { outline: 2px dashed var(--warn); outline-offset: 3px; }
+
+/* 그래프 바탕: 값은 web/src/styles.css(제품)와 같다. */
+.stage { --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0)); --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0)); --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0)); --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0)); --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0)); --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0)); --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  padding: 20px; border-radius: 10px; color: var(--ink); background: var(--bg) radial-gradient(var(--dot) 1px, transparent 1px) 0 0 / 16px 16px; }
+.stage.dark { color-scheme: dark; }
+.stage.light { color-scheme: light; }
+.repo-box { border: 1.5px solid var(--line-strong); border-radius: 14px; background: color-mix(in oklch, var(--panel) 40%, transparent); }
+.repo-head { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.repo-head b { font-size: 14px; }
+.repo-head span { font-size: 11px; color: var(--ink-3); }
+.repo-body { padding: 14px; }
+.group { border: 1px dashed var(--line-strong); border-radius: 12px; background: color-mix(in oklch, var(--panel) 60%, transparent); }
+.group-head { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px dashed var(--line); font-size: 11px; }
+.group-head b { font-size: 12px; }
+.group-head span { color: var(--ink-3); }
+.group-body { padding: 10px; display: grid; gap: 10px; justify-items: center; }
+.row { display: flex; gap: 10px; align-items: start; justify-self: stretch; }
+.row > .group { flex: 1; }
+.card { width: 150px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--term); overflow: hidden; }
+.card i { display: block; padding: 2px 6px; font: 600 10px var(--font); font-style: normal; background: var(--surface); border-bottom: 1px solid var(--line); }
+.card u { display: block; height: 46px; }
+.chosen { border-color: var(--accent) !important; box-shadow: 0 0 0 1px var(--accent); }
+
+/* A안: 1px 실선, 진한 선 */
+.opt-a .group { border: 1px solid var(--group-line); }
+.opt-a .group-head { border-bottom-style: solid; }
+.opt-a .repo-box { border: 2px solid var(--group-line); }
+/* B안: 1.5px 실선, 단계마다 바탕에 글자색 3%를 겹친다(다크는 밝게, 라이트는 어둡게 쌓인다) */
+.opt-b .group { border: 1.5px solid var(--group-line); background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.opt-b .group-head { border-bottom-style: solid; }
+.opt-b .repo-box { border: 2px solid var(--group-line); background: color-mix(in oklch, var(--ink) 3%, transparent); }
+/* C안: 1.5px 점선, 진한 선 */
+.opt-c .group { border: 1.5px dashed var(--group-line); }
+.opt-c .repo-box { border: 2px solid var(--group-line); }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M15</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>그래프: 묶음(워크트리) 테두리를 더 또렷하게</h1>
+  <p class="lead">사용자 지시: 「묶음 테두리가 좀 더 명확히 보이게 해줘(목업먼저)」. 바뀌는 곳은 묶음과 저장소 상자의 테두리와 바탕뿐이다. 카드는 그대로다. 각 안에서 <b>A작업</b> 묶음은 선택한 상태다.</p>
+
+  <div class="fig">
+    <h2>① 지금 <span class="tag">시험 데몬 캡처 · main ⊃ A작업 ⊃ A손자, B작업</span></h2>
+    <div class="pair">
+      <figure><img src="group-border-now-dark.png" alt="지금 다크 테마의 중첩 묶음"><figcaption>다크</figcaption></figure>
+      <figure><img src="group-border-now-light.png" alt="지금 라이트 테마의 중첩 묶음"><figcaption>라이트</figcaption></figure>
+    </div>
+    <ul class="note">
+      <li>1px 점선이 바탕과 거의 같은 밝기라, 겹친 묶음의 경계가 잘 보이지 않는다.</li>
+    </ul>
+  </div>
+
+  <template id="shape">
+    <div class="repo-box"><div class="repo-head"><b>demo</b><span>/tmp/demo</span></div>
+      <div class="repo-body">
+        <div class="group"><div class="group-head"><b>main</b><span>원래 체크아웃</span></div>
+          <div class="group-body">
+            <div class="card"><i>shell-1</i><u></u></div>
+            <div class="row">
+              <div class="group chosen"><div class="group-head"><b>A작업</b></div>
+                <div class="group-body">
+                  <div class="card"><i>코디-A</i><u></u></div>
+                  <div class="group" style="justify-self: stretch"><div class="group-head"><b>A손자</b></div>
+                    <div class="group-body"><div class="card"><i>A-손자</i><u></u></div></div>
+                  </div>
+                </div>
+              </div>
+              <div class="group"><div class="group-head"><b>B작업</b></div>
+                <div class="group-body"><div class="card"><i>코디-B</i><u></u></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <div class="fig">
+    <h2>② A안: 1px 실선, 진한 선 <span class="tag">.group 1px solid · 저장소 상자 2px</span></h2>
+    <div class="pair"><div class="stage dark opt-a" data-shape></div><div class="stage light opt-a" data-shape></div></div>
+    <ul class="note">
+      <li>점선을 실선으로 바꾸고 선을 진하게 한다. 바탕은 그대로다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ B안(권장): 1.5px 실선 + 안쪽 단계마다 바탕을 한 겹 더 <span class="tag">.group 1.5px solid · 저장소 상자 2px</span></h2>
+    <div class="pair"><div class="stage dark opt-b" data-shape></div><div class="stage light opt-b" data-shape></div></div>
+    <ul class="note">
+      <li>선이 굵고 진하다. 안쪽 묶음일수록 바탕이 한 겹씩 짙어진다(다크는 밝게, 라이트는 어둡게). 겹친 단계가 선과 면 둘 다로 보인다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>④ C안: 1.5px 점선, 진한 선 <span class="tag">.group 1.5px dashed · 저장소 상자 2px</span></h2>
+    <div class="pair"><div class="stage dark opt-c" data-shape></div><div class="stage light opt-c" data-shape></div></div>
+    <ul class="note">
+      <li>지금 모양(점선)을 지키고 굵기와 밝기만 올린다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="tbl">
+      <tr><th>항목</th><th>안</th></tr>
+      <tr><td>묶음 테두리</td><td><b>B안(권장)</b> · A안 · C안 가운데 하나</td></tr>
+      <tr><td>저장소 상자</td><td>세 안 모두 2px 실선으로 묶음보다 굵게 둔다</td></tr>
+      <tr><td>선택한 묶음</td><td>지금처럼 강조색 테두리와 고리. 그대로 둔다</td></tr>
+    </table>
+  </div>
+</main>
+<script>
+const shape = document.getElementById('shape').innerHTML;
+for (const s of document.querySelectorAll('[data-shape]')) s.innerHTML = shape;
+</script>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

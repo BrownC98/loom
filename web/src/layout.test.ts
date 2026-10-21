@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
-import { arrangeTree, edgeSides, growBox, placeGroups, reorder, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, placeGroups, push, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
 
 const view = (id: number, parent: number | null): NodeView => ({
   id,
@@ -54,14 +54,13 @@ describe('edgeSides', () => {
 });
 
 const sized = () => ({ width: 100, height: 50 });
-const created = () => 0;
 
 describe('arrangeTree (parent centered over the span of its children)', () => {
   // 1 -> {2, 3}, 2 -> {4}
   const tree = [view(1, null), view(2, 1), view(3, 1), view(4, 2)];
 
   it('down: children at the next depth, the parent centered over them', () => {
-    const at = arrangeTree(tree, sized, created, 'down');
+    const at = arrangeTree(tree, sized, 'down');
     // children of 1: 100 + 20 + 100 = 220 wide, so 1 (100 wide) sits at (220 - 100) / 2 = 60.
     expect(at.get(1)).toEqual({ x: 60, y: 0 });
     expect(at.get(2)).toEqual({ x: 0, y: 96 });
@@ -71,7 +70,7 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
   });
 
   it('right: depth along x, siblings along y, the parent centered', () => {
-    const at = arrangeTree(tree, sized, created, 'right');
+    const at = arrangeTree(tree, sized, 'right');
     expect(at.get(1)).toEqual({ x: 0, y: 35 });
     expect(at.get(2)).toEqual({ x: 146, y: 0 });
     expect(at.get(3)).toEqual({ x: 146, y: 70 });
@@ -79,10 +78,10 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
   });
 
   it('up mirrors down along depth; left mirrors right', () => {
-    const down = arrangeTree(tree, sized, created, 'down');
-    const up = arrangeTree(tree, sized, created, 'up');
-    const right = arrangeTree(tree, sized, created, 'right');
-    const left = arrangeTree(tree, sized, created, 'left');
+    const down = arrangeTree(tree, sized, 'down');
+    const up = arrangeTree(tree, sized, 'up');
+    const right = arrangeTree(tree, sized, 'right');
+    const left = arrangeTree(tree, sized, 'left');
     for (const id of [1, 2, 3, 4]) {
       expect(up.get(id)).toEqual({ x: down.get(id)!.x, y: 192 - down.get(id)!.y });
       expect(left.get(id)).toEqual({ x: 292 - right.get(id)!.x, y: right.get(id)!.y });
@@ -90,14 +89,14 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
   });
 
   it('roots of the group sit side by side at depth 0, in id order', () => {
-    const at = arrangeTree([view(1, null), view(2, null), view(3, 1)], sized, created, 'down');
+    const at = arrangeTree([view(1, null), view(2, null), view(3, 1)], sized, 'down');
     expect(at.get(1)).toEqual({ x: 0, y: 0 });
     expect(at.get(3)).toEqual({ x: 0, y: 96 });
     expect(at.get(2)).toEqual({ x: 120, y: 0 });
   });
 
   it('a parent outside the group makes the node a root', () => {
-    const at = arrangeTree([view(5, 99), view(6, null)], sized, created, 'down');
+    const at = arrangeTree([view(5, 99), view(6, null)], sized, 'down');
     expect(at.get(5)).toEqual({ x: 0, y: 0 });
     expect(at.get(6)).toEqual({ x: 120, y: 0 });
   });
@@ -107,7 +106,7 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
     const size = (id: number) => (id === 2 || id === 4 ? big : sized());
     const views = [view(1, null), view(2, 1), view(3, 1), view(4, 3), view(5, 2)];
     for (const direction of ['down', 'right', 'up', 'left'] as const) {
-      const at = arrangeTree(views, size, created, direction);
+      const at = arrangeTree(views, size, direction);
       const rects = views.map((v) => ({ ...at.get(v.id)!, ...size(v.id) }));
       for (const [i, a] of rects.entries()) {
         for (const b of rects.slice(i + 1)) {
@@ -120,7 +119,7 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
 });
 
 describe('placeGroups', () => {
-  const g = (parent: number | null, extra: Partial<GroupSlot> = {}): GroupSlot => ({ size: { width: 100, height: 50 }, parent, rank: 0, ...extra });
+  const g = (parent: number | null, extra: Partial<GroupSlot> = {}): GroupSlot => ({ size: { width: 100, height: 50 }, parent, ...extra });
   const start = { x: 10, y: 20 };
 
   it('roots sit side by side in order with GROUP_GAP 32', () => {
@@ -153,89 +152,58 @@ describe('placeGroups', () => {
     expect(left[0].x).toBeGreaterThan(left[1].x);
   });
 
-  it('a lower rank puts a group first among its siblings', () => {
-    expect(placeGroups([g(null, { rank: 1 }), g(null, { rank: 0 })], 'down', start)).toEqual([
-      { x: 142, y: 20 },
-      { x: 10, y: 20 },
-    ]);
+});
+
+describe('arrangeTree packing (plan A, docs/mockups/repo-drag.html)', () => {
+  it("a leaf root sits beside a parent at depth 0, not beside the parent's children row", () => {
+    // 사람의 loom 그래프 모양: 1의 자식 2, 3. 4는 자식 없는 뿌리. 폭 640, 카드 틈 20.
+    const wide = () => ({ width: 640, height: 50 });
+    const at = arrangeTree([view(1, null), view(2, 1), view(3, 1), view(4, null)], wide, 'down');
+    // 자식 줄: 0..640, 660..1300 → 1은 가운데 330. 4는 첫 단계에서 1 바로 오른쪽: 330 + 640 + 20(지금은 1300 + 20).
+    expect(at.get(1)!.x).toBe(330);
+    expect(at.get(4)).toEqual({ x: 990, y: 0 });
   });
 });
 
-describe('arrangeTree rank', () => {
-  it('siblings follow rank, then creation order; children follow their parent', () => {
-    // 1 -> 3, 2 is a root. Rank puts 2 before 1.
-    const rank = (id: number) => (id === 2 ? 0 : Infinity);
-    const at = arrangeTree([view(1, null), view(2, null), view(3, 1), view(4, null)], sized, rank, 'down');
-    expect(at.get(2)).toEqual({ x: 0, y: 0 });
-    expect(at.get(1)).toEqual({ x: 120, y: 0 });
-    expect(at.get(3)).toEqual({ x: 120, y: 96 });
-    expect(at.get(4)).toEqual({ x: 240, y: 0 });
+describe('push (people decision 2026-10-21, mockup v4 ②)', () => {
+  const sib = (key: string, x: number, y: number, width = 100, height = 50) => ({ key, ...box(x, y, width, height) });
+
+  it('the overlapped sibling moves the shortest way out, with the gap', () => {
+    // mover 0..100 × 0..50. a는 80..180 × 0..50: 오른쪽으로 20 + 32, 왼쪽 180 - (-32) = 212.
+    expect(push([sib('a', 80, 0)], box(0, 0), ['a'], 32)).toEqual(new Map([['a', { x: 132, y: 0 }]]));
+    // a가 아래로 조금만 겹치면 아래로 비킨다: 50 + 32 - 40 = 42.
+    expect(push([sib('a', 0, 40, 400)], box(0, 0), ['a'], 32)).toEqual(new Map([['a', { x: 0, y: 82 }]]));
+  });
+
+  it('ties pick right, down, left, up in that order', () => {
+    // 같은 자리, 같은 크기: 네 쪽 모두 132. 오른쪽이다.
+    expect(push([sib('a', 0, 0, 100, 100)], box(0, 0, 100, 100), ['a'], 32)).toEqual(new Map([['a', { x: 132, y: 0 }]]));
+  });
+
+  it('a pushed sibling pushes the next one the same way (cascade)', () => {
+    const got = push([sib('a', 80, 0), sib('b', 200, 0, 100, 300)], box(0, 0), ['a'], 32);
+    // a → 132..232. b(200..)와 겹친다 → 같은 쪽(오른쪽)으로 232 + 32 = 264.
+    expect(got).toEqual(new Map([['a', { x: 132, y: 0 }], ['b', { x: 264, y: 0 }]]));
+  });
+
+  it('only targets move first; other overlaps stay until a cascade reaches them', () => {
+    expect(push([sib('a', 80, 0), sib('c', -50, 0)], box(0, 0), ['a'], 32)).toEqual(new Map([['a', { x: 132, y: 0 }]]));
   });
 });
 
-// 사람 지시 "순서 바꾸기로 구현하는게 좋겠어". 형제 a(0..100), b(120..220), c(240..340). 중심은 50, 170, 290이다.
-describe('reorder', () => {
-  const sib = (key: string, x: number, y = 0) => ({ key, ...box(x, y) });
-  const row = [sib('a', 0), sib('b', 120), sib('c', 240)];
-
-  it('before the center line of the next sibling: no change', () => {
-    // a 중심 50 + 119 = 169 < 170.
-    expect(reorder(row, sib('a', 119), 'down')).toBeNull();
-  });
-
-  it('past the center line: the order changes at once', () => {
-    expect(reorder(row, sib('a', 121), 'down')).toEqual(['b', 'a', 'c']);
-    expect(reorder(row, sib('a', 241), 'down')).toEqual(['b', 'c', 'a']);
-    expect(reorder(row, sib('c', -1), 'down')).toEqual(['c', 'a', 'b']);
-  });
-
-  it('after a swap the passed sibling takes the old slot, so the order does not flip back at the same point', () => {
-    // b와 a를 바꾼 뒤 배치: b(0..100), a(120..220). a는 여전히 121에 있다.
-    expect(reorder([sib('b', 0), sib('a', 120), sib('c', 240)], sib('a', 121), 'down')).toBeNull();
-  });
-
-  it('only the lane axis counts', () => {
-    // 아래로 정렬이면 y는 보지 않는다.
-    expect(reorder(row, sib('a', 50, 900), 'up')).toBeNull();
-    // 오른쪽으로 정렬이면 형제는 y로 늘어선다.
-    const column = [sib('a', 0, 0), sib('b', 0, 70), sib('c', 0, 140)];
-    expect(reorder(column, sib('a', 900, 71), 'right')).toEqual(['b', 'a', 'c']);
-    expect(reorder(column, sib('a', 0, 69), 'left')).toBeNull();
-  });
-
-  it('siblings come in any order: the order is their layout order', () => {
-    // 사람 보고 2026-10-21 "한번 옮겨지고 다음부턴 안움직임". 형제는 git 순서(main, winget)로 오고, 한 번 바꾼 뒤 배치는 winget(0), main(120)이다.
-    expect(reorder([sib('main', 120), sib('winget', 0)], sib('main', -1), 'down')).toEqual(['main', 'winget']);
-    expect(reorder([sib('a', 240), sib('b', 0), sib('c', 120)], sib('a', 119), 'down')).toEqual(['b', 'a', 'c']);
-  });
-
-  it('no change from the layout order: null', () => {
-    expect(reorder([sib('main', 120), sib('winget', 0)], sib('main', 121), 'down')).toBeNull();
-  });
-
-  it('wider siblings use their own center line', () => {
-    const mixed = [sib('a', 0), { key: 'b', ...box(120, 0, 400, 50) }];
-    // b 중심 320. a 중심이 그 선을 넘어야 한다.
-    expect(reorder(mixed, sib('a', 269), 'down')).toBeNull();
-    expect(reorder(mixed, sib('a', 271), 'down')).toEqual(['b', 'a']);
+describe('crossed', () => {
+  it('changes when the dragged center passes a center line', () => {
+    const other = box(100, 0);
+    const before = centerSide(box(0, 0), other);
+    expect(crossed(before, centerSide(box(90, 0), other))).toBe(false);
+    expect(crossed(before, centerSide(box(110, 0), other))).toBe(true);
+    expect(crossed(before, centerSide(box(0, 10), other))).toBe(true);
   });
 });
 
-// 끄는 카드를 담게 넓힌 묶음. 묶음 300×200, 틈은 위 60, 옆·아래 20.
-describe('growBox', () => {
-  const size = { width: 300, height: 200 };
-  const inset = { top: 60, side: 20 };
-
-  it('a card inside the box: no change', () => {
-    expect(growBox(size, box(20, 60), inset)).toEqual({ lead: { x: 0, y: 0 }, size });
-  });
-
-  it('right and down: the box grows to the card plus the inset', () => {
-    expect(growBox(size, box(250, 190), inset)).toEqual({ lead: { x: 0, y: 0 }, size: { width: 370, height: 260 } });
-  });
-
-  it('left and up: the box grows by lead, so the head stays above the card', () => {
-    // 카드가 왼쪽 테두리 밖 -40, 머리 위 -30에 있다.
-    expect(growBox(size, box(-40, -30), inset)).toEqual({ lead: { x: 60, y: 90 }, size: { width: 360, height: 290 } });
+describe('freeSpot', () => {
+  it('moves right past overlapped boxes with the gap', () => {
+    expect(freeSpot(box(0, 0), [box(50, 0), box(182, 0)], 32)).toEqual({ x: 314, y: 0 });
+    expect(freeSpot(box(0, 100), [box(50, 0)], 32)).toEqual({ x: 0, y: 100 });
   });
 });

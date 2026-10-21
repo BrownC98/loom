@@ -46,6 +46,7 @@ use crate::profile::{
     VersionMismatch,
 };
 use crate::settings::Settings;
+use crate::spots::{Placed, Spots};
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
 #[derive(Embed)]
@@ -57,6 +58,7 @@ struct App {
     host: NodeHost<NodeId>,
     graph: Arc<Graph>,
     settings: Settings,
+    spots: Spots,
     accounts: Accounts,
     logins: settings::Logins,
     /// Codex 노드마다 그 노드가 붙은 app-server. 노드 프로세스가 끝나면 지우고 끝낸다.
@@ -369,6 +371,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         host: NodeHost::new(pty_dir.join("nodes")),
         graph: Arc::new(graph),
         settings: Settings::new(open()?),
+        spots: Spots::new(open()?),
         accounts: Accounts::new(db_path.with_file_name("accounts")),
         logins: settings::Logins::new(pty_dir.join("logins")),
         codex: Mutex::default(),
@@ -413,6 +416,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/repos/{id}/worktrees/changes", get(worktree_changes))
         .route("/api/repos/{id}/worktrees/name", put(rename_worktree))
         .route("/api/repos/{id}/commits", get(commits))
+        .route("/api/repos/{id}/spots", delete(clear_spots))
+        .route("/api/spots", get(list_spots).put(put_spot))
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
         .route("/api/nodes/{id}", delete(remove_node))
@@ -575,6 +580,7 @@ async fn delete_worktree(
     for node in app.graph.nodes_in(&req.path).map_err(internal)? {
         app.remove(node).map_err(internal)?;
     }
+    app.spots.forget_worktree(id, &req.path).map_err(internal)?;
     if let Some(listed) = listed {
         worktree::remove(&repo, &listed).await?;
         if let (true, Some(branch)) = (req.delete_branch, &listed.branch) {
@@ -582,6 +588,28 @@ async fn delete_worktree(
         }
     }
     Ok(Json(worktree::view(id, &repo).await))
+}
+
+async fn list_spots(State(app): State<Arc<App>>) -> Result<Json<Vec<Placed>>, Problem> {
+    Ok(Json(app.spots.list().map_err(internal)?))
+}
+
+/// 놓은 상자 하나와 그 상자가 민 상자들. 한 번 놓기가 한 요청이다.
+async fn put_spot(
+    State(app): State<Arc<App>>,
+    Json(placed): Json<Vec<Placed>>,
+) -> Result<Json<()>, Problem> {
+    app.spots.put(&placed).map_err(internal)?;
+    Ok(Json(()))
+}
+
+/// [정렬]: 그 저장소의 자리를 지운다.
+async fn clear_spots(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.spots.clear(RepoId(id)).map_err(internal)?;
+    Ok(Json(()))
 }
 
 async fn commits(

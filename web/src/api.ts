@@ -16,6 +16,7 @@ import type { NewRepo } from './gen/NewRepo';
 import type { NewWorktree } from './gen/NewWorktree';
 import type { NodeId } from './gen/NodeId';
 import type { OpenFile } from './gen/OpenFile';
+import type { Placed } from './gen/Placed';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
@@ -64,6 +65,11 @@ export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/setti
 export const getCommits = (repo: RepoId) => call<CommitGraph>('GET', `/api/repos/${repo}/commits`);
 /** 더한 순서. 워크트리 첫째가 원래 체크아웃이다. */
 export const getRepos = () => call<RepoView[]>('GET', '/api/repos');
+/** 사람이 끌어 놓은 자리(docs/mockups/repo-drag.html v4). 한 번 놓기의 자리(놓은 상자와 비킨 상자)는 한 요청으로 쓴다. */
+export const getSpots = () => call<Placed[]>('GET', '/api/spots');
+export const putSpots = (placed: Placed[]) => call<null>('PUT', '/api/spots', placed);
+/** [정렬]: 그 저장소의 자리를 지운다. */
+export const clearSpots = (repo: RepoId) => call<null>('DELETE', `/api/repos/${repo}/spots`);
 export const addRepo = (req: NewRepo) => call<RepoView>('POST', '/api/repos', req);
 export const cloneRepo = (req: CloneRepo) => call<RepoView>('POST', '/api/repos/clone', req);
 export const createRepo = (req: CreateRepo) => call<RepoView>('POST', '/api/repos/create', req);

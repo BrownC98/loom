@@ -105,6 +105,22 @@ const STEPS: &[M] = &[
         ALTER TABLE messages ADD COLUMN reply_to INTEGER;
         CREATE INDEX messages_replies ON messages(recipient, reply_to) WHERE reply_to IS NOT NULL;",
     ),
+    // 15: 사람이 끌어 놓은 자리(spots). `spot`은 serde JSON 문자열(`Spot`)이다. 저장소와 노드를 지우면 같은 트랜잭션에서 자리도 지운다.
+    // 저장소·노드 번호는 AUTOINCREMENT라 다시 쓰지 않는다. 워크트리는 표가 없어 지울 때 데몬이 자리를 지운다(`Spots::forget_worktree`).
+    M::up(
+        "CREATE TABLE spots (
+            spot TEXT PRIMARY KEY,
+            repo INTEGER NOT NULL,
+            x REAL NOT NULL,
+            y REAL NOT NULL
+        );
+        CREATE TRIGGER spots_of_repo AFTER DELETE ON repos BEGIN
+            DELETE FROM spots WHERE repo = OLD.id;
+        END;
+        CREATE TRIGGER spots_of_node AFTER DELETE ON nodes BEGIN
+            DELETE FROM spots WHERE spot ->> 'kind' = 'node' AND spot ->> 'node' = OLD.id;
+        END;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

@@ -257,7 +257,19 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_millis(20));
                 Snapshot::now()
             })
-            .find(|s| s.parents.values().filter(|&&p| p == pid).count() == 2)
+            // 두 자식이 모두 `sleep`이 된 뒤에 본다. 그 전에는 perl이 아직 `setsid`를 부르지 않았을 수 있다.
+            .find(|s| {
+                s.parents
+                    .iter()
+                    .filter(|&(&child, &p)| {
+                        p == pid
+                            && s.system
+                                .process(Pid::from_u32(child))
+                                .is_some_and(|c| c.name() == "sleep")
+                    })
+                    .count()
+                    == 2
+            })
             .unwrap();
         let leaders = snapshot.session_leaders_under(pid);
         assert_eq!(leaders.len(), 1);

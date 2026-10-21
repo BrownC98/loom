@@ -21,6 +21,8 @@ jobs:
       - name: web
         run: npm ci && npm run check && npm test && npm run build
         working-directory: web
+      - name: pty probe
+        run: python3 .github/pty-probe.py
       - name: cargo test
         continue-on-error: true
         run: cargo test
@@ -53,6 +55,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
+          perl -pi -e 's/^name = "loom-app"$/$&\nversion = "0.0.1"/' app/Cargo.toml
           mkdir -p app/binaries
           cp target/release/loom app/binaries/loom-$(rustc -vV | sed -n 's/^host: //p')
           cd app && npx --yes @tauri-apps/cli@2.12.3 build

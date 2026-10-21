@@ -60,6 +60,9 @@ const REPO_SIDE = 16;
 const REPO_INSET = { top: REPO_HEAD + REPO_SIDE, side: REPO_SIDE };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
+/** 손으로 바꾸는 확대·축소 한계. 2026-10-21 사람 지시 "줌인/아웃 상한 50%씩 증가"(전: 0.4~1). 맞춰 보기(fitView)는 1을 넘기지 않는다. */
+const MIN_ZOOM = 0.4 / 1.5;
+const MAX_ZOOM = 1.5;
 
 /**
  * 그래프 위 팝오버. `at`(흐름 좌표)에 팝오버 오른쪽 끝을 맞춘다.
@@ -799,8 +802,8 @@ export function Graph(props: {
         nodesFocusable={false}
         deleteKeyCode={null}
         zoomOnDoubleClick={false}
-        minZoom={0.4}
-        maxZoom={1}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
       >
         <MiniMap
           pannable

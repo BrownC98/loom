@@ -289,15 +289,28 @@ impl Graph {
     }
 
     /// 사람이 받은편지함 줄의 [×]를 눌렀다. 그 번호의 대기 하나(질문이든 신호의 대기든)를 지운다.
+    /// `loom ask` 질문이면 그 노드에 짧은 큐 메시지로 알린다. 에이전트가 오지 않을 답을 기다리지 않게 한다(2026-10-22 사람 지시 "Q257은 답 없이 닫혔다. 라고만 보내라").
     pub fn dismiss(&self, wait: WaitId) -> Result<(), Refusal> {
-        let db = self.lock();
-        let node: Option<u32> = db
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let node: Option<u32> = tx
             .query_row(
                 "DELETE FROM questions WHERE id = ?1 RETURNING node",
                 [wait.0],
                 |row| row.get(0),
             )
             .optional()?;
+        if let Some(node) = node {
+            mailbox::enqueue_human(
+                &tx,
+                NodeId(node),
+                &format!("{wait} was closed without an answer."),
+            )?;
+        }
+        tx.commit()?;
+        if node.is_some() {
+            self.mail.notify_waiters();
+        }
         let node = match node {
             Some(node) => node,
             None => db

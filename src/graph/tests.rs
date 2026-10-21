@@ -298,6 +298,11 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
     let q5 = g.ask(lead, "F?", None).unwrap();
     g.dismiss(q4).unwrap();
     assert_eq!(ids(lead), [q5]);
+    // 닫은 질문은 사람이 보낸 짧은 큐 메시지로 그 노드에 알린다.
+    assert_eq!(
+        take(&g, lead),
+        delivery("human", &format!("{q4} was closed without an answer."))
+    );
     assert_eq!(g.dismiss(q4), Err(Refusal::NoWait(q4)));
     g.ask(lead, "G?", None).unwrap();
     g.clear_wait(lead).unwrap();

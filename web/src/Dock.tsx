@@ -14,6 +14,11 @@ const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'inbox.button'
   terminal: 'dock.terminal',
 };
 
+/** 「질문」 탭의 대기 수 배지. 펼친 탭과 접힌 줄이 함께 쓴다. */
+function Count(props: { tab: DockTab; waiting: number }) {
+  return props.tab === 'questions' && props.waiting > 0 ? <span className="count">{props.waiting}</span> : null;
+}
+
 /** 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있어, 누른 뒤 같은 id로 포커스를 옮긴다. */
 export const DOCK_TOGGLE = 'dock-toggle';
 /** 접기·펴기 키(Terminal.tsx `paneKey`). 툴팁과 `aria-keyshortcuts`에 보인다. */
@@ -53,7 +58,7 @@ export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; waiting: n
             <button key={tab} id={`dock-tab-${tab}`} role="tab" aria-selected={on} aria-controls="dock-panel" tabIndex={on ? 0 : -1} onClick={() => props.onTab(tab)}>
               <Icon />
               {t(LABEL[tab])}
-              {tab === 'questions' && props.waiting > 0 && <span className="count">{props.waiting}</span>}
+              <Count tab={tab} waiting={props.waiting} />
             </button>
           );
         })}
@@ -65,8 +70,8 @@ export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; waiting: n
   );
 }
 
-/** 접힌 오른쪽 사이드바: 펴기, 지금 방향으로 정렬, 칸 아이콘. 칸 아이콘은 그 탭으로 편다. */
-export function DockRail(props: { tabs: readonly DockTab[]; onExpand: (tab: DockTab | null) => void; onArrange: () => void }) {
+/** 접힌 오른쪽 사이드바: 펴기, 지금 방향으로 정렬, 칸 아이콘. 칸 아이콘은 그 탭으로 편다. 「질문」 아이콘에도 대기 수 배지를 단다(2026-10-21 사람 "여기에도 개수 배지 표시해줘"). */
+export function DockRail(props: { tabs: readonly DockTab[]; waiting: number; onExpand: (tab: DockTab | null) => void; onArrange: () => void }) {
   const { t } = useTranslation();
   return (
     <aside className="rail dock-rail" id="dock" aria-label={t('dock.label')}>
@@ -80,9 +85,12 @@ export function DockRail(props: { tabs: readonly DockTab[]; onExpand: (tab: Dock
       <hr />
       {props.tabs.map((tab) => {
         const Icon = ICON[tab];
+        // 접근 이름은 펼친 탭의 글자(「질문 2」)와 같게 수를 붙인다.
+        const label = tab === 'questions' && props.waiting > 0 ? `${t(LABEL[tab])} ${props.waiting}` : t(LABEL[tab]);
         return (
-          <button key={tab} className="btn ghost icon" aria-label={t(LABEL[tab])} title={t(LABEL[tab])} onClick={() => props.onExpand(tab)}>
+          <button key={tab} className="btn ghost icon" aria-label={label} title={label} onClick={() => props.onExpand(tab)}>
             <Icon />
+            <Count tab={tab} waiting={props.waiting} />
           </button>
         );
       })}

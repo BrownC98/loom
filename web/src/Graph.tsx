@@ -1,7 +1,7 @@
 import { GitBranchPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putSizes, putSpots, removeNode } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -181,9 +181,11 @@ type CardBase = { view: NodeView; agentLabel: string; selected: boolean; port: S
 /**
  * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 확대 창이 열면 카드는 터미널을 그리지 않는다. PTY 크기를 한쪽만 정하게 한다.
  * `sized`: 사람이 크기를 바꿨다. 그 카드만 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③).
- * `onResize`: 테두리를 끄는 동안 크기. `onResized`: 놓은 크기. 저장한다.
+ * `onResizeStart`: 테두리를 잡았다. `onResize`: 끄는 동안 크기와 왼쪽 위가 옮긴 거리. `onResized`: 놓은 값. 저장한다.
  */
-type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResize: (size: Size) => void; onResized: (size: Size) => void; onResetSize: () => void };
+type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
+/** 테두리를 끄는 동안의 카드: 크기와, 잡을 때부터 왼쪽 위가 옮긴 거리. 왼쪽·위 테두리를 끌면 왼쪽 위가 옮기고 맞은편 변은 그대로다. */
+type Resized = { shift: XYPosition; size: Size };
 /**
  * `onArrange`: 이 저장소의 묶음과 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑦).
  * `onNewWorktree`: 누른 [새 워크트리] 버튼 아래에 새 워크트리 창을 연다(목업 docs/mockups/repo-new-worktree.html). 첫 커밋 전에는 버튼을 끈다.
@@ -254,10 +256,15 @@ function Repo({ data }: NodeProps<RepoNode>) {
   );
 }
 
-/** 크기를 바꾸는 테두리: 오른쪽 변, 아래 변, 오른쪽 아래 모서리. 보이지 않고 커서만 바뀐다(styles.css `.react-flow__resize-control`). */
+/** 크기를 바꾸는 테두리: 네 변과 네 모서리. 보이지 않고 커서만 바뀐다(styles.css `.react-flow__resize-control`). */
 const RESIZE_EDGES = [
+  { position: 'left', variant: ResizeControlVariant.Line },
   { position: 'right', variant: ResizeControlVariant.Line },
+  { position: 'top', variant: ResizeControlVariant.Line },
   { position: 'bottom', variant: ResizeControlVariant.Line },
+  { position: 'top-left', variant: ResizeControlVariant.Handle },
+  { position: 'top-right', variant: ResizeControlVariant.Handle },
+  { position: 'bottom-left', variant: ResizeControlVariant.Handle },
   { position: 'bottom-right', variant: ResizeControlVariant.Handle },
 ] as const;
 
@@ -266,26 +273,11 @@ function Card({ data }: NodeProps<CardNode>) {
   // 끄는 동안 터미널 칸을 시작 크기에 묶는다. 그러면 터미널 열·줄(PTY 크기)은 놓을 때 한 번 바뀐다.
   const termBox = useRef<HTMLDivElement>(null);
   const [hold, setHold] = useState<Size | null>(null);
+  // 잡을 때 노드 자리. React Flow가 주는 자리에서 이 자리를 빼서 왼쪽 위가 옮긴 거리를 구한다.
+  const start = useRef<XYPosition>({ x: 0, y: 0 });
+  const step = (p: ResizeParams): Resized => ({ shift: { x: p.x - start.current.x, y: p.y - start.current.y }, size: { width: p.width, height: p.height } });
   return (
     <>
-      {RESIZE_EDGES.map((edge) => (
-        <NodeResizeControl
-          key={edge.position}
-          position={edge.position}
-          variant={edge.variant}
-          minWidth={MIN_CARD.width}
-          minHeight={MIN_CARD.height}
-          onResizeStart={() => {
-            const el = termBox.current;
-            if (el) setHold({ width: el.offsetWidth, height: el.offsetHeight });
-          }}
-          onResize={(_, p) => data.onResize({ width: p.width, height: p.height })}
-          onResizeEnd={(_, p) => {
-            setHold(null);
-            data.onResized({ width: p.width, height: p.height });
-          }}
-        />
-      ))}
       <NodeCard
         view={data.view}
         agentLabel={data.agentLabel}
@@ -312,6 +304,27 @@ function Card({ data }: NodeProps<CardNode>) {
           {data.ownsPty && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
         </div>
       </NodeCard>
+      {/* 카드 다음에 그려 카드 머리·터미널 위에 놓는다. 그래서 테두리 안쪽 3px도 잡힌다. 잇기 점(`Ports`)은 그 위다. */}
+      {RESIZE_EDGES.map((edge) => (
+        <NodeResizeControl
+          key={edge.position}
+          position={edge.position}
+          variant={edge.variant}
+          minWidth={MIN_CARD.width}
+          minHeight={MIN_CARD.height}
+          onResizeStart={(_, p) => {
+            start.current = { x: p.x, y: p.y };
+            const el = termBox.current;
+            if (el) setHold({ width: el.offsetWidth, height: el.offsetHeight });
+            data.onResizeStart();
+          }}
+          onResize={(_, p) => data.onResize(step(p))}
+          onResizeEnd={(_, p) => {
+            setHold(null);
+            data.onResized(step(p));
+          }}
+        />
+      ))}
       <Ports port={data.port} />
     </>
   );
@@ -614,20 +627,22 @@ export function Graph(props: {
     setSizes((prev) => new Map([...prev].filter(([id]) => !ids.includes(id))));
     clearSizes(ids).catch((err: Error) => setRefusal(err.message));
   };
-  /** 크기를 바꾸는 카드가 `next` 크기일 때 겹친 이웃과 커진 바깥 상자의 옆 상자를 민다. 줄여도 민 상자는 돌아오지 않는다. */
-  const resizeTo = (id: NodeId, next: Size, done: ReadonlyMap<string, XYPosition>) => {
-    const key = String(id);
+  // 테두리를 잡을 때 카드 자리(형제 기준 왼쪽 위). 끄는 동안 React Flow가 주는 카드 자리 변경은 이 자리로 대신하고 무시한다(`onNodesChange`).
+  const resizeFrom = useRef<{ key: string; at: XYPosition } | null>(null);
+  /** 크기를 바꾸는 카드가 `step`일 때 겹친 이웃과 커진 바깥 상자의 옆 상자를 민다. 줄여도 민 상자는 돌아오지 않는다. */
+  const resizeTo = (key: string, step: Resized, done: ReadonlyMap<string, XYPosition>) => {
     const level = levels.get(key)!;
-    const self = level.boxes.find((b) => b.key === key)!;
-    return spread(key, level, { at: self.at, size: next }, pinned(level, done));
+    const from = resizeFrom.current!.at;
+    const at = { x: from.x + step.shift.x, y: from.y + step.shift.y };
+    return spread(key, level, { at, size: step.size }, new Map([...pinned(level, done), [key, originOf(level, key, at)]]));
   };
   // 끄는 상자는 React Flow가 옮긴 자리에 그린다. React Flow가 그 노드에 `dragging` 클래스를 붙여 반투명하게 보인다.
   // 끄는 카드는 계산한 자리다. React Flow 자리는 넓어지기 전 묶음 기준이라 묶음이 넓어지면 어긋난다.
   // 늘 맨 위다(2026-10-20 사람 지시 "드래그로 잡은건 겹칠때 항상 최상위 z 인덱스 적용"). 묶음을 끌면 그 카드도 함께 올라온다.
   // 끄는 상자와 함께 움직이는 상자(끄는 묶음의 카드, 끄는 상자를 덮는 묶음·저장소 상자)는 옮김 애니메이션을 끈다. 켜 두면 커서보다 늦게 따라온다.
-  const carried = new Set<string>();
-  for (const [id, n] of flowState) {
-    if (!n.dragging) continue;
+  // 테두리를 끄는 카드도 같다. 왼쪽·위 테두리를 끌면 카드 자리가 옮긴다. 켜 두면 맞은편 변이 흔들린다.
+  const carried = new Set<string>(resizing ? [String(resizing.id)] : []);
+  for (const id of [...[...flowState.values()].filter((n) => n.dragging).map((n) => n.id), ...carried]) {
     for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) carried.add(outer);
   }
   // data의 함수를 노드·이름마다 같은 함수로 바꾼다. 부르면 마지막 렌더의 함수를 부른다. 그래서 끄는 동안 다른 노드는 다시 그리지 않는다(`sameData`).
@@ -742,17 +757,22 @@ export function Graph(props: {
         data: {
           ...data,
           sized: sizes.has(view.id),
-          onResize: (next) => {
-            setResizing({ id: view.id, size: next });
-            setMoving(resizeTo(view.id, next, moving));
+          onResizeStart: () => {
+            const key = String(view.id);
+            resizeFrom.current = { key, at: levels.get(key)!.boxes.find((b) => b.key === key)!.at };
           },
-          onResized: (next) => {
-            const rounded = { width: Math.round(next.width), height: Math.round(next.height) };
+          onResize: (step) => {
+            setResizing({ id: view.id, size: step.size });
+            setMoving(resizeTo(String(view.id), step, moving));
+          },
+          onResized: (step) => {
+            const rounded = { shift: { x: Math.round(step.shift.x), y: Math.round(step.shift.y) }, size: { width: Math.round(step.size.width), height: Math.round(step.size.height) } };
             setResizing(null);
-            setSizes((prev) => new Map([...prev, [view.id, rounded]]));
-            putSizes([{ node: view.id, ...rounded }]).catch((err: Error) => setRefusal(err.message));
+            setSizes((prev) => new Map([...prev, [view.id, rounded.size]]));
+            putSizes([{ node: view.id, ...rounded.size }]).catch((err: Error) => setRefusal(err.message));
             setMoving(new Map());
-            save(resizeTo(view.id, rounded, moving));
+            save(resizeTo(String(view.id), rounded, moving));
+            resizeFrom.current = null;
           },
           onResetSize: () => resetSizes([view.id]),
           parentName: parentName(props.views, view),
@@ -969,9 +989,9 @@ export function Graph(props: {
     const next = new Map(applyNodeChanges(changes, nodes.map((n) => lastFlow.current.get(n.id) ?? n)).map((n) => [n.id, n]));
     lastFlow.current = next;
     setFlowState(next);
-    // 카드·묶음·저장소 상자를 끌 때만 위치 변경이 온다(키보드 이동은 껐다).
+    // 카드·묶음·저장소 상자를 끌 때와 카드 테두리를 끌 때 위치 변경이 온다(키보드 이동은 껐다). 테두리는 `resizeTo`가 맡는다.
     for (const c of changes) {
-      if (c.type !== 'position') continue;
+      if (c.type !== 'position' || c.id === resizeFrom.current?.key) continue;
       const node = next.get(c.id);
       const level = levels.get(c.id);
       if (!node || !level) continue;

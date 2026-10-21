@@ -40,6 +40,14 @@ const en = {
     minimap: 'Minimap',
     messageTo: '{{n}} msg → {{name}}',
   },
+  find: {
+    open: 'Find nodes and worktrees',
+    placeholder: 'Node or worktree name',
+    none: 'None',
+    prev: 'Previous match',
+    next: 'Next match',
+    close: 'Close find',
+  },
   node: {
     label: 'Node {{name}}',
     unread: 'Unread messages: {{n}}',

@@ -223,7 +223,7 @@ function parentName(views: ReadonlyMap<NodeId, NodeView>, view: NodeView): strin
 }
 
 /** 자리의 React Flow 노드 id. 묶음 노드의 id는 워크트리 경로다. */
-function flowId(spot: Spot): string {
+export function flowId(spot: Spot): string {
   return spot.kind === 'repo' ? `repo:${spot.repo}` : spot.kind === 'worktree' ? spot.path : String(spot.node);
 }
 
@@ -243,6 +243,9 @@ function cover(contents: readonly Box[], inset: { top: number; side: number }): 
  */
 type Level = { boxes: Sibling[]; lead: ReadonlyMap<string, XYPosition>; parent: string | null };
 
+/** 강조하는 상자(React Flow 노드 id, `flowId`). `current`는 찾기의 현재 일치이고 테두리를 하나 더 그린다. */
+export type Lit = { keys: ReadonlySet<string>; current: string | null };
+
 /** 강조하는 동안 한 간선으로 오간 메시지 수. 가는 쪽마다 센다. */
 export type Pulse = Readonly<Record<Toward, number>>;
 
@@ -253,7 +256,8 @@ export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId |
  * `cardView`: 그래프 전체의 카드 보기. 심플이면 카드에 터미널이 없고, 터미널은 부르는 쪽(오른쪽 칸)이 연다.
  * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수(가는 쪽마다). `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
  * `selected`: 입력을 받는 카드. 트리도 고르므로 부르는 쪽이 가진다.
- * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드. 그 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다. 바탕을 누르면 끈다.
+ * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드, 또는 찾기의 일치(노드와 묶음). 그 상자와 그 사이 간선을 강조하고 나머지는 흐리게 한다.
+ * 바탕을 누르면 `onClearHighlight`를 부른다.
  */
 export function Graph(props: {
   /** 그래프가 그리는 저장소. 둘 이상이면 저장소마다 상자를 두른다. `views`는 이 저장소들의 노드만이다. */
@@ -266,7 +270,7 @@ export function Graph(props: {
   accounts: AccountView[] | null;
   selected: NodeId | null;
   onSelect: (id: NodeId | null) => void;
-  highlight: ReadonlySet<NodeId> | null;
+  highlight: Lit | null;
   onClearHighlight: () => void;
   cardView: CardView;
   /** 나무가 뻗는 쪽. 오른쪽 사이드바의 [정렬] 메뉴가 고른다. */
@@ -275,8 +279,11 @@ export function Graph(props: {
 }) {
   const { t } = useTranslation();
   const { highlight } = props;
-  /** 강조 중이면 `ids`가 모두 관여한 쪽은 `hl`, 아니면 `dim`. */
-  const lit = (...ids: NodeId[]) => (highlight === null ? undefined : ids.every((id) => highlight.has(id)) ? 'hl' : 'dim');
+  /** 강조 중이면 `keys`가 모두 강조한 상자인 쪽은 `hl`, 아니면 `dim`. */
+  const lit = (...keys: string[]) => (highlight === null ? undefined : keys.every((key) => highlight.keys.has(key)) ? 'hl' : 'dim');
+  /** 묶음은 강조한 카드를 담으면 흐리게 하지 않는다. */
+  const litGroup = (path: string, members: NodeView[]) => (highlight !== null && !highlight.keys.has(path) && members.some((v) => highlight.keys.has(String(v.id))) ? undefined : lit(path));
+  const classes = (key: string, base: string | undefined) => [base, highlight?.current === key ? 'cur' : undefined].filter(Boolean).join(' ') || undefined;
   const { selected, onSelect: setSelected } = props;
   const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
@@ -443,6 +450,7 @@ export function Graph(props: {
     keep<GroupNode>({
       id: group.path,
       type: 'worktree',
+      className: classes(group.path, litGroup(group.path, members)),
       position: origin,
       style: members.length > 0 ? { width: box.width, height: box.height } : undefined,
       // 묶음 머리를 끌어 묶음을 옮긴다. 카드는 묶음 기준 위치라 함께 옮겨진다.
@@ -474,7 +482,7 @@ export function Graph(props: {
       const base = {
         id: String(view.id),
         parentId: group.path,
-        className: lit(view.id),
+        className: classes(String(view.id), lit(String(view.id))),
         position: { x: local.get(String(view.id))!.x - lead.x, y: local.get(String(view.id))!.y - lead.y },
       };
       const data: CardBase = {
@@ -522,7 +530,7 @@ export function Graph(props: {
         target: String(view.id),
         sourceHandle: sides.parent,
         targetHandle: sides.child,
-        className: [pulse ? 'live' : undefined, flow, lit(view.id, view.parent)].filter(Boolean).join(' ') || undefined,
+        className: [pulse ? 'live' : undefined, flow, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
         label: pulse ? receivers.map(([toward, id]) => t('graph.messageTo', { name: props.views.get(id)?.name ?? `#${id}`, n: pulse[toward] })).join(' · ') : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,

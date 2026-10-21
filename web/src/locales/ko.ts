@@ -42,6 +42,14 @@ const ko: typeof en = {
     minimap: '미니맵',
     messageTo: '{{n}} 메시지 → {{name}}',
   },
+  find: {
+    open: '노드·워크트리 찾기',
+    placeholder: '노드·워크트리 이름',
+    none: '없음',
+    prev: '이전 일치',
+    next: '다음 일치',
+    close: '찾기 닫기',
+  },
   node: {
     label: '노드 {{name}}',
     unread: '읽지 않은 메시지 {{n}}개',

@@ -6,7 +6,7 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$url = if ($env:LOOM_DOWNLOAD_URL) { $env:LOOM_DOWNLOAD_URL } else { 'https://github.com/BrownC98/loom/releases/latest/download/loom-x86_64-windows.exe' }
+$url = if ($env:LOOM_DOWNLOAD_URL) { $env:LOOM_DOWNLOAD_URL } else { 'https://github.com/BrownC98/loom/releases/latest/download/loom-web-windows-x64.exe' }
 $raw = 'https://raw.githubusercontent.com/BrownC98/loom/main'
 # 노드 안의 에이전트가 `loom` 명령을 부른다. 그래서 이름은 `loom.exe`다.
 $home_dir = Join-Path $env:LOCALAPPDATA 'loom'

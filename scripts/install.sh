@@ -7,7 +7,7 @@
 set -eu
 
 case "$(uname -s)/$(uname -m)" in
-Linux/x86_64) asset=loom-x86_64-linux ;;
+Linux/x86_64) asset=loom-web-linux-x64 ;;
 Darwin/*)
   # 데스크톱 앱이 있으면 앱 안의 loom을 쓴다. 두 번째 실행 파일을 받지 않는다: 같은 데몬을 앱과 브라우저가 함께 본다.
   # 앱이 띄운 데몬이 적은 실행 파일을 먼저 쓰고, 없으면 기본 설치 자리를 본다. 웹 버전 데몬이 적은 `~/loom/bin/loom`은 앱이 아니다.
@@ -29,7 +29,7 @@ Darwin/*)
     echo "macOS 웹 버전은 Apple Silicon만 있습니다." >&2
     exit 1
   fi
-  asset=loom-aarch64-macos
+  asset=loom-web-macos-arm64
   ;;
 *)
   echo "이 스크립트는 x86-64 Linux·WSL·macOS용입니다. Windows는 PowerShell에서 'irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex'를 실행하거나 데스크톱 앱을 씁니다: https://github.com/BrownC98/loom/releases/latest" >&2
@@ -49,13 +49,13 @@ mkdir -p "$(dirname "$bin")" "$data"
 curl -fL --progress-bar -o "$bin.new" "$url"
 chmod +x "$bin.new"
 # macOS는 받은 파일 표시가 있으면 실행을 막는다. curl은 표시를 붙이지 않지만 다른 길로 받은 파일도 같게 둔다.
-if [ "$asset" = loom-aarch64-macos ]; then xattr -c "$bin.new" 2>/dev/null || true; fi
+if [ "$asset" = loom-web-macos-arm64 ]; then xattr -c "$bin.new" 2>/dev/null || true; fi
 mv "$bin.new" "$bin"
 
 # 아이콘을 받지 못하면 기본 아이콘으로 둔다.
 icon() { curl -fsL -o "$data/$1" "$raw/app/icons/$1" || rm -f "$data/$1"; }
 
-if [ "$asset" = loom-aarch64-macos ]; then
+if [ "$asset" = loom-web-macos-arm64 ]; then
   # 응용 프로그램 폴더의 `.command`를 누르면 터미널이 `loom open`을 부른다. 브라우저를 연 뒤 끝난다.
   launcher="$HOME/Applications/loom.command"
   mkdir -p "$HOME/Applications"

@@ -101,15 +101,15 @@ jobs:
           # 본문은 먼저 끝난 플랫폼이 Release를 만들 때 한 번 쓴다. 그래서 두 플랫폼의 안내를 함께 둔다.
           releaseBody: |
             ${{ github.ref_name }} ${{ github.sha }} 빌드.
-            - Windows: 설치 파일(`-setup.exe`)을 실행하면 loom 창이 열린다.
-            - macOS(Apple Silicon): `.dmg`를 열어 loom을 응용 프로그램 폴더로 끈다. 서명하지 않은 앱이라 처음 한 번 터미널에서 `xattr -cr /Applications/loom.app`를 실행한 뒤 연다.
-            - 웹 버전(앱 없이 브라우저로): Linux·WSL·macOS `curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh`, Windows PowerShell `irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex`.
+            - Windows 앱: `loom_<판>_x64-setup.exe`를 받아 실행하면 loom 창이 열린다.
+            - macOS 앱(Apple Silicon): `loom_<판>_aarch64.dmg`를 열어 loom을 응용 프로그램 폴더로 끈다. 서명하지 않은 앱이라 처음 한 번 터미널에서 `xattr -cr /Applications/loom.app`를 실행한 뒤 연다.
+            - 웹 버전(앱 없이 브라우저로, `loom-web-*` 파일): 아래 명령이 받는다. Linux·WSL·macOS `curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh`, Windows PowerShell `irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex`.
       # 웹 버전 실행 파일. 앱 안의 loom과 같은 빌드다. `install.ps1`·`install.sh`(macOS)가 받고, 웹 버전 데몬이 업데이트로 받는다(`src/update.rs`의 `asset_name`).
       - name: 웹 버전 실행 파일 올리기
         run: |
           case "$RUNNER_OS" in
-          Windows) cp target/release/loom.exe loom-x86_64-windows.exe; asset=loom-x86_64-windows.exe ;;
-          macOS) cp target/release/loom loom-aarch64-macos; asset=loom-aarch64-macos ;;
+          Windows) cp target/release/loom.exe loom-web-windows-x64.exe; asset=loom-web-windows-x64.exe ;;
+          macOS) cp target/release/loom loom-web-macos-arm64; asset=loom-web-macos-arm64 ;;
           esac
           gh release upload "v${{ steps.version.outputs.version }}" "$asset" --clobber
         env:
@@ -140,7 +140,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends musl-tools
           rustup target add x86_64-unknown-linux-musl
           cargo build --release --target x86_64-unknown-linux-musl
-          cp target/x86_64-unknown-linux-musl/release/loom loom-x86_64-linux
-          gh release upload "v${{ needs.installer.outputs.version }}" loom-x86_64-linux --clobber
+          cp target/x86_64-unknown-linux-musl/release/loom loom-web-linux-x64
+          gh release upload "v${{ needs.installer.outputs.version }}" loom-web-linux-x64 --clobber
         env:
           GH_TOKEN: ${{ github.token }}

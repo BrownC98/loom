@@ -491,7 +491,8 @@ a { color: var(--accent); }
 .update-pop .btn { justify-content: center; }
 /* 질문 알약(목업 docs/mockups/question-inbox-place.html ②, question-pill-many.html ①): 그래프 칸 위 가운데. 제목(.canvas-title)보다 위에 뜬다.
    칸 폭 전체에 깔고 가운데에 놓는다. 빈 자리는 마우스를 그래프로 넘긴다. */
-.inbox { position: absolute; top: 12px; left: 16px; right: 16px; z-index: 7; display: grid; justify-items: center; gap: 6px; pointer-events: none; }
+/* 칸은 그래프 칸 폭에 묶는다. 묶지 않으면 긴 질문 글이 칸을 넓혀 알약이 오른쪽으로 밀린다. */
+.inbox { position: absolute; top: 12px; left: 16px; right: 16px; z-index: 7; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 6px; pointer-events: none; }
 .inbox > * { pointer-events: auto; max-width: 100%; }
 /* 펼치지 않은 알약은 가장 오래된 대기 하나와 답 칸이다(목업 docs/mockups/question-pill-tone.html M31 ②). 바탕은 카드·창과 같은 무채색이고, 질문 색은 테두리·배지·번호 칩에만 쓴다(M31 ①). */
 .inbox-pill { width: 520px; max-width: 100%; border: 1px solid var(--warn); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }

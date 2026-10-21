@@ -326,7 +326,6 @@ pub struct DoneRequest {
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
 pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
-    process_tree::end_descendants_on_exit()?;
     let listener = tokio::net::TcpListener::bind(listen).await?;
     // 포트 0이면 OS가 고른 포트다. 노드 주소와 시작 줄은 실제 주소를 쓴다. Windows 앱은 시작 줄에서 주소를 읽는다.
     let listen = listener.local_addr()?;

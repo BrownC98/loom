@@ -1,6 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
@@ -22,22 +21,26 @@ import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
 import { Find, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
+import { isTauri } from '@tauri-apps/api/core';
+import { exit } from '@tauri-apps/plugin-process';
+import { applySettingsPatch, settingsPatch, type SettingsPatch } from './settingsPatch';
 import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
-import { useSelectedRepo } from './repos';
+import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
-import { ArrangeButton, loadDirection, saveDirection } from './ArrangeButton';
+import { ArrangeButton } from './ArrangeButton';
 import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
-import { Splitter, usePaneOpen, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
+import { Splitter, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
+import type { ClosedPanes } from './gen/ClosedPanes';
 import { StatusBar, type Usage } from './StatusBar';
 import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
 import { TitleBar } from './TitleBar';
-import { UpdateCard } from './Update';
+import { UpdateCard, useUpdates } from './Update';
 import { shortcut } from './platform';
 import { activeFont, findKey, paneKey, XtermFont, XtermTheme } from './Terminal';
 import { TerminalDock } from './TerminalDock';
@@ -58,11 +61,11 @@ const REPOS_REFRESH_MS = 5000;
  * 기본 너비는 목업 graph-panels.html의 값이다. 왼쪽 칸은 480이 상한이라 1440 화면에서도 그래프 칸이 160px 남는다.
  * 오른쪽 칸(터미널·이벤트·커밋)은 상한을 창 폭에 맞춘다: `dockPane`이 창 폭에서 왼쪽 칸을 뺀 만큼을 넘긴다(사람 지시 2026-10-20 「심플 모드의 사이드바 터미널 너비는 원하는 만큼」).
  */
-const SIDE_PANE: Pane = { key: 'loom.sideWidth', initial: 260, min: 180, max: 480, grow: 1 };
+const SIDE_PANE: Pane = { key: 'side', initial: 260, min: 180, max: 480, grow: 1 };
 /** 오른쪽 칸은 가장 좁은 너비로 시작한다(사람 지시 2026-10-20 「우측 사이드바 최소 너비를 디폴트로 설정」). */
 const DOCK_MIN_WIDTH = 320;
 /** `max`는 App이 창 폭으로 바꿔 넘긴다. 여기 값은 아직 창 폭을 모를 때의 자리값이다. */
-const DOCK_PANE: Pane = { key: 'loom.dockWidth', initial: DOCK_MIN_WIDTH, min: DOCK_MIN_WIDTH, max: 800, grow: -1 };
+const DOCK_PANE: Pane = { key: 'dock', initial: DOCK_MIN_WIDTH, min: DOCK_MIN_WIDTH, max: 800, grow: -1 };
 /** 접힌 사이드바(양쪽)의 줄 폭. 아이콘 단추(30) 하나와 여백이 들어간다(목업 docs/mockups/toolbar.html 4번). */
 const RAIL_WIDTH = 40;
 /** 왼쪽 사이드바 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있다. */
@@ -89,6 +92,12 @@ const EMPTY_SETTINGS: SettingsView = {
   autoSwitch: false,
   osNotify: false,
   alwaysOn: { oMode: true, userDoc: true, ste100: true, raptor3: true },
+  arrangeDirection: 'down',
+  minimapFolded: false,
+  repo: null,
+  paneWidths: { side: null, dock: null },
+  closedPanes: { side: false, dock: false, bookmarks: false },
+  closedSwitchNotice: null,
 };
 const SETTINGS_HASH = '#settings/';
 
@@ -129,11 +138,10 @@ function useColorMode(theme: Theme): ColorMode {
 export function App() {
   const { t } = useTranslation();
   const [repos, setRepos] = useState<RepoView[]>([]);
-  const [repo, saveRepo] = useSelectedRepo(repos);
   // 사이드바 저장소 줄의 포커스와 커밋 그래프. 바탕이나 사이드바 「저장소」 제목을 누르면 지운다. 그래프가 그리는 저장소(`repo`)는 그대로다. 2026-10-21 사람 지시.
   const [repoFocused, setRepoFocused] = useState(true);
   const selectRepo = (id: RepoId) => {
-    saveRepo(id);
+    editSettings((s) => ({ ...s, repo: id }));
     setRepoFocused(true);
   };
   const clearFocus = () => {
@@ -153,7 +161,22 @@ export function App() {
   const [hops, setHops] = useState<ReadonlyMap<string, Hop>>(new Map());
   const hopTimers = useRef(new Map<string, number>());
   const [agents, setAgents] = useState<AgentView[]>([]);
-  const [settings, setSettings] = useState<SettingsView>(EMPTY_SETTINGS);
+  // 화면 상태는 데몬 설정에 있다(프론트는 뷰어). 다른 화면이 바꾸면 `ViewChanged` 이벤트가 알려 다시 읽는다.
+  const [settings, setSettingsState] = useState<SettingsView>(EMPTY_SETTINGS);
+  // 가장 새 설정. 이벤트 핸들러가 낡은 렌더의 설정 위에 덮어쓰지 않게 한다.
+  const settingsRef = useRef(settings);
+  const setSettings = (next: SettingsView) => {
+    settingsRef.current = next;
+    setSettingsState(next);
+  };
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  // 보내는 중인 칸. 다시 읽은 설정 위에 얹어, 아직 저장되지 않은 내 변경이 되돌아가 보이지 않게 한다.
+  const pending = useRef<SettingsPatch[]>([]);
+  const showFetched = (view: SettingsView) => setSettings(pending.current.reduce(applySettingsPatch, view));
+  // 설정 밖의 화면 상태(카드 자리·크기)를 다시 읽으라는 신호. 그래프가 본다.
+  const [viewVersion, setViewVersion] = useState(0);
+  const updates = useUpdates(viewVersion);
+  const repo = chosenRepo(repos, settings.repo);
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -163,18 +186,24 @@ export function App() {
   const [selected, setSelected] = useState<NodeId | null>(null);
   // 고른 묶음·저장소 상자(`flowId`). 카드와 함께 고르지 않는다(2026-10-21 사람 지시 "묶음도 클릭하면 포커싱 표시되게 해줘", "사이드바에서 클릭시에도 동작해야함").
   const [chosenBox, setChosenBox] = useState<string | null>(null);
-  const [direction, setDirection] = useState(loadDirection);
+  const direction = settings.arrangeDirection;
   // 오른쪽 사이드바 아래 칸 하나를 이벤트 콘솔, 커밋 그래프, 고른 노드의 터미널(심플 보기)이 탭으로 번갈아 쓴다.
   const [tab, setTab] = useState<DockTab>('commits');
-  const [sideOpen, setSideOpen] = usePaneOpen('loom.sideOpen');
-  const [dockOpen, setDockOpen] = usePaneOpen('loom.dockOpen');
+  const sideOpen = !settings.closedPanes.side;
+  const dockOpen = !settings.closedPanes.dock;
+  const setPaneOpen = (pane: keyof ClosedPanes, open: boolean) => editSettings((s) => ({ ...s, closedPanes: { ...s.closedPanes, [pane]: !open } }));
+  const setSideOpen = (open: boolean) => setPaneOpen('side', open);
+  const setDockOpen = (open: boolean) => setPaneOpen('dock', open);
   const graph = useRef<GraphHandle>(null);
-  const [sideWidth, setSideWidth] = usePaneWidth(SIDE_PANE);
+  const saveWidth = (pane: Pane) => (width: number) => editSettings((s) => ({ ...s, paneWidths: { ...s.paneWidths, [pane.key]: width } }));
+  const side = usePaneWidth(SIDE_PANE, settings.paneWidths.side, saveWidth(SIDE_PANE));
+  const sideWidth = side.width;
   const sideShown = sideOpen ? sideWidth : RAIL_WIDTH;
   const viewport = useViewportWidth();
   // 오른쪽 칸은 창 폭에서 왼쪽 칸과 그래프 최소 폭을 뺀 만큼까지 늘어난다. 창을 넓히면 한도도 넓어진다.
   const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, viewport - sideShown - DOCK_MIN_GRAPH) };
-  const [dockWidth, setDockWidth] = usePaneWidth(dockPane);
+  const dock = usePaneWidth(dockPane, settings.paneWidths.dock, saveWidth(dockPane));
+  const dockWidth = dock.width;
   const simpleCards = settings.cardView === 'simple';
   // 그래프가 그리는 저장소(docs/design.md 「그래프와 화면」). 저장소 하나 범위면 현재 저장소만이다.
   const shown = settings.graphScope === 'all' ? repos : repo ? [repo] : [];
@@ -242,8 +271,7 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [sideOpen, dockOpen]);
   const arrange = (next: ArrangeDirection) => {
-    setDirection(next);
-    saveDirection(next);
+    editSettings((s) => ({ ...s, arrangeDirection: next }));
     graph.current?.arrange();
   };
   const mode = useColorMode(settings.theme);
@@ -263,15 +291,28 @@ export function App() {
       setLoading(false);
     }
   }, []);
+  // 데몬을 끈 뒤: 앱은 함께 끝난다. 앱이 남으면 아이콘이 남은 창만 앞으로 가져와 데몬을 다시 띄우지 않는다. 브라우저는 꺼짐 안내를 보인다.
+  const afterStop = () => (isTauri() ? exit(0) : setStopped(true));
   const rescan = () => getAgents().then(setAgents);
   // 화면이 먼저 바뀌고 저장은 뒤따른다. 저장이 실패하면 데몬 값으로 되돌린다.
+  // 바꾼 칸만 보낸다. 다른 화면이 같은 때 다른 칸을 바꿔도 데몬이 둘 다 합친다(`src/settings.rs` `Settings::patch`).
+  // 저장이 끝나면 다시 읽는다. 실패했으면 데몬 값으로 돌아간다.
   const saveSettings = (next: SettingsView) => {
+    const patch = settingsPatch(settingsRef.current, next);
+    if (!patch) return Promise.resolve();
     setSettings(next);
-    return putSettings(next).catch(() => getSettings().then(setSettings));
+    pending.current.push(patch);
+    return putSettings(patch)
+      .catch(() => {})
+      .finally(() => {
+        pending.current = pending.current.filter((p) => p !== patch);
+        return getSettings().then(showFetched);
+      });
   };
+  const editSettings = (edit: (current: SettingsView) => SettingsView) => saveSettings(edit(settingsRef.current));
   // 데몬이 스스로 계정을 바꿨다. 쓰는 계정과 사용량을 다시 읽는다.
-  const notice = useSwitchNotice(() => {
-    getSettings().then(setSettings);
+  const notice = useSwitchNotice(settings.closedSwitchNotice, (id) => editSettings((s) => ({ ...s, closedSwitchNotice: id })), () => {
+    getSettings().then(showFetched);
     refreshUsage();
   });
   // 계정 고르기: 그 계정이 아닌 노드가 없으면 바로 저장한다. 있으면 확인 창이 묻는다(취소하면 아무것도 바꾸지 않는다).
@@ -306,7 +347,9 @@ export function App() {
 
   useEffect(() => {
     rescan();
-    getSettings().then(setSettings);
+    getSettings()
+      .then(setSettings)
+      .finally(() => setSettingsLoaded(true));
     refreshUsage();
     const timer = window.setInterval(refreshUsage, USAGE_REFRESH_MS);
     return () => clearInterval(timer);
@@ -391,6 +434,10 @@ export function App() {
         case 'node':
           setNodes((prev) => new Map(prev).set(event.id, event));
           break;
+        case 'viewChanged':
+          getSettings().then(showFetched);
+          setViewVersion((n) => n + 1);
+          break;
         case 'recorded':
           // 두 `onRecord`는 ref와 setState만 쓴다(알림의 `onAuto`도 setState와 안정된 함수만 부른다). 처음 만든 것을 계속 불러도 된다.
           log.onRecord(event.record);
@@ -407,14 +454,16 @@ export function App() {
       </main>
     );
 
+  // 설정을 받기 전에는 그리지 않는다. 기본 너비와 펼침으로 먼저 그리면 저장한 모양으로 튄다.
+  if (!settingsLoaded) return null;
   return (
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <XtermFont.Provider value={activeFont(settings.terminalFont)}>
       <ReactFlowProvider>
         <TitleBar />
         <div className="app" style={{ '--side-w': `${sideShown}px`, '--dock-w': `${dockOpen ? dockWidth : RAIL_WIDTH}px` } as CSSProperties}>
-          {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} onWidth={setSideWidth} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />}
-          {dockOpen && <Splitter pane={dockPane} width={dockWidth} onWidth={setDockWidth} label={t('app.resize', { pane: t('dock.label') })} style={{ right: dockWidth }} />}
+          {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} onDrag={side.drag} onCommit={side.commit} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />}
+          {dockOpen && <Splitter pane={dockPane} width={dockWidth} onDrag={dock.drag} onCommit={dock.commit} label={t('app.resize', { pane: t('dock.label') })} style={{ right: dockWidth }} />}
           {sideOpen ? (
             <nav className="side" id="side" aria-label={t('app.sideLabel')}>
               {/* 사이드바 맨 위 줄: 찾기 칸과 접기 단추(목업 docs/mockups/sidebar-head.html). */}
@@ -433,7 +482,7 @@ export function App() {
                   <PanelLeftClose />
                 </button>
               </div>
-              <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} />
+              <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} open={!settings.closedPanes.bookmarks} onOpen={(open) => setPaneOpen('bookmarks', open)} />
               <Tree
                 repos={repos}
                 current={repoFocused ? (repo?.id ?? null) : null}
@@ -481,6 +530,8 @@ export function App() {
             <Inbox waiting={waiting} notify={settings.osNotify} onSelect={selectNode} />
             {shown.length > 0 && <Graph
               repos={shown}
+              viewVersion={viewVersion}
+              onMinimapFold={(minimapFolded) => editSettings((s) => ({ ...s, minimapFolded }))}
               onRepo={putRepo}
               views={new Map([...nodes].filter(([, v]) => shown.some((r) => r.id === v.place.repo)))}
               pulses={pulses}
@@ -546,7 +597,7 @@ export function App() {
             notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}
           />
-          <UpdateCard />
+          <UpdateCard updates={updates} />
           {settingsTab && (
             <Settings
               tab={settingsTab}
@@ -558,7 +609,8 @@ export function App() {
               onSettings={saveSettings}
               usage={usage}
               onChoose={chooseAccount}
-              onStop={isTauri() ? undefined : () => void shutdown().then(() => setStopped(true))}
+              updates={updates}
+              onStop={() => void shutdown().then(afterStop)}
             />
           )}
           {switching && (

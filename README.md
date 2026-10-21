@@ -69,29 +69,38 @@ Get the files from the [latest release](https://github.com/BrownC98/loom/release
   ```
 
   To remove loom, move it from the Applications folder to the Trash.
-- **Linux and WSL (x86-64), web version:** see "Web version" below.
+- **Web version (Linux, WSL, macOS, Windows, no app needed):** see "Web version" below.
 
 Install the agent CLIs (Claude Code, Codex, OpenCode 2, Cursor CLI) yourself. loom finds them on `PATH`.
 
-### Web version (Linux and WSL)
+### Web version (every OS)
 
-One daemon also serves the screen. You use it in a browser. The release has only an x86-64 Linux binary; on macOS and Windows, use the desktop app.
+One daemon also serves the screen. You use it in a browser. You can install it without the app. If you also use the app, the app window and the browser tab show the same daemon: the same nodes, card places, settings and terminals.
 
-1. In a terminal (on WSL, a WSL terminal), run one line. It downloads `~/loom/bin/loom`, puts a loom icon on the desktop, and opens loom in the browser.
+1. Run one line. It downloads loom, puts a loom icon on the desktop, and opens loom in the browser.
+   - Linux, WSL and macOS: in a terminal (on WSL, a WSL terminal)
 
-   ```sh
-   curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
-   ```
+     ```sh
+     curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
+     ```
 
-2. After that, click the **loom** icon on the desktop: the Windows desktop on WSL, the desktop and the app menu on Linux. If loom is not running, the icon starts it and opens the browser. You do not need a terminal.
-3. When you close the browser tab, loom continues to run. To stop it, run `~/loom/bin/loom stop`. Nodes (agents) do not stop, and loom attaches to them again at the next start.
+     If the loom app is on the Mac, the script uses the loom in the app and downloads nothing.
+   - Windows: in PowerShell
+
+     ```powershell
+     irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex
+     ```
+
+     If you installed the Windows app, **loom (browser)** in the Start menu does the same.
+2. After that, click the **loom** icon on the desktop. If loom is not running, the icon starts it and opens the browser. You do not need a terminal.
+3. When you close the browser tab, loom continues to run. To stop it, run `loom stop`. Nodes (agents) do not stop, and loom attaches to them again at the next start.
 4. Add repositories in the left sidebar, and start agents with [New node] on a worktree group.
 5. Click a card to type into its terminal. When an agent asks you something, the question shows in the **Questions** pill at the top of the graph and in the **Questions** tab of the right panel. Click it to go to that node, and answer in its terminal.
 
-Manual install: download [loom-x86_64-linux](https://github.com/BrownC98/loom/releases/latest/download/loom-x86_64-linux) to `~/loom/bin/loom`, run `chmod +x`, then run `~/loom/bin/loom open`. The name must be `loom`, because agents in nodes call the `loom` command. Do not end all `loom` processes: each node runs in its own `loom pty-host` process, and that would end the nodes too.
+Manual install: download the file for your OS from the release (`loom-x86_64-linux`, `loom-aarch64-macos`, `loom-x86_64-windows.exe`), rename it to `loom` (`loom.exe` on Windows), then run `loom open`. The name must be `loom`, because agents in nodes call the `loom` command. Do not end all `loom` processes: each node runs in its own `loom pty-host` process, and that would end the nodes too.
 
-- **Data:** `~/.loom` (database, logs, built-in skills). If you delete it, the node history is lost.
-- **Update:** run the line in step 1 again. It replaces the file and restarts only the daemon. Nodes (agent processes) live apart from the daemon, and the new daemon attaches to them again.
+- **Data:** `~/.loom` (`%APPDATA%\loom` on Windows) holds the database, logs and built-in skills. If you delete it, the node history is lost. Only one daemon runs on one machine.
+- **Update:** when a new version is out, a card shows at the bottom right. Click [Update]: loom downloads it, replaces itself and starts again. **Settings › About** shows the version, and [Check for updates] checks now. If the daemon is the loom inside the app, the app installs the update. Nodes (agent processes) live apart from the daemon, and the new daemon attaches to them again. You can also run the line in step 1 again.
 - **Address:** by default only this machine can open it (loopback). loom assumes one user and has no sign-in, so do not open it to other machines with `--listen`.
 
 Design and decisions (Korean): [docs/design.md](docs/design.md).

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
-import { attachCards, groupParents, groupsOf, inGroup, type Group } from './repos';
+import { attachCards, chosenRepo, groupParents, groupsOf, inGroup, type Group } from './repos';
 
 const view = (id: number, parent: number | null, worktree: string, repo = 1): NodeView => ({
   id,
@@ -90,5 +90,16 @@ describe('inGroup', () => {
   it('keeps the nodes in the worktree, including roots whose parent is in another group', () => {
     const views = [view(1, null, '/a'), view(2, 1, '/b'), view(3, 2, '/b')];
     expect(inGroup(views, group('/b')).map((v) => v.id)).toEqual([2, 3]);
+  });
+});
+
+describe('chosenRepo', () => {
+  const repos = [{ ...repo([]), id: 1 }, { ...repo([]), id: 2 }];
+
+  it('uses the saved repo, else the first, else none', () => {
+    expect(chosenRepo(repos, 2)?.id).toBe(2);
+    expect(chosenRepo(repos, 9)?.id).toBe(1);
+    expect(chosenRepo(repos, null)?.id).toBe(1);
+    expect(chosenRepo([], 2)).toBeNull();
   });
 });

@@ -1,27 +1,36 @@
-//! 데스크톱 앱(Windows, macOS): 옆에 놓인 `loom serve`를 띄우고, 데몬이 출력한 주소를 창에 연다.
-//! 화면은 브라우저용과 같다. 앱이 끝나면 데몬의 stdin 파이프가 닫혀 데몬만 끝난다. 노드는 살고, 다음에 띄운 데몬이 다시 붙는다.
+//! 데스크톱 앱(Windows, macOS): 옆에 놓인 `loom start`로 기계의 데몬 하나에 붙고(없으면 띄우고), 그 주소를 창에 연다.
+//! 화면은 브라우저용과 같고 데몬도 같다. 앱을 닫아도 데몬과 노드는 산다. 앱을 업데이트하면 새 판의 `loom start`가 옛 판 데몬을 바꾼다.
 //! 업데이트는 화면이 `tauri-plugin-updater` JS API로 한다(`web/src/Update.tsx`).
+//! 데몬이 `--update`로 앱을 띄우면(브라우저에서 앱 안의 데몬을 업데이트) 화면 주소에 `?update`를 붙인다. 화면은 묻지 않고 받아 설치한다.
 #![windows_subsystem = "windows"]
 
 use std::io::BufRead;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
 
 const WINDOW: &str = "main";
-/// 데몬의 시작 줄 앞부분. 근거: `src/daemon.rs`의 `serve`.
+/// `loom start`가 출력하는 줄의 앞부분. 근거: `src/launch.rs`의 `start`.
 const READY_PREFIX: &str = "loom: ";
-/// 데몬이 들은 포트를 적는 파일(앱 설정 폴더 안). 노드 환경의 `LOOM_URL`은 데몬 포트를 담는다.
-/// 업데이트나 다시 열기 뒤의 데몬이 같은 포트에서 들어야 살아 있는 노드의 loom 명령이 닿는다.
-const PORT_FILE: &str = "daemon-port";
-/// 지난 포트를 쓸 수 없을 때 OS가 포트를 고르게 하는 값.
-const ANY_PORT: u16 = 0;
+/// 데몬이 앱을 띄울 때 주는 업데이트 표시. 근거: `src/update.rs`의 `APP_UPDATE_FLAG`.
+const UPDATE_FLAG: &str = "--update";
+/// 화면에 업데이트 표시를 넘기는 주소 물음. 근거: `web/src/Update.tsx`.
+const UPDATE_QUERY: &str = "update";
 
 fn main() {
     tauri::Builder::default()
         // 두 번째 실행은 창을 띄우지 않고 이미 있는 창을 앞으로 가져온다.
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| bring_back(app)))
+        // 업데이트 표시가 있으면 창을 업데이트 주소로 다시 연다.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if args.iter().any(|a| a == UPDATE_FLAG)
+                && let Some(window) = app.get_webview_window(WINDOW)
+                && let Ok(url) = window.url()
+            {
+                let _ = window.navigate(for_update(url));
+            }
+            bring_back(app)
+        }))
         // 제목 줄은 화면이 그린다(아래 `frame`). 옛 판이 저장한 「OS 제목 줄 있음」을 되살리지 않는다.
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -42,28 +51,20 @@ fn main() {
             let _ = (window, event);
         })
         .setup(|app| {
-            // 시작 폴더는 git 저장소가 아니라 데몬이 저장소로 더하지 않는다. 저장소는 DB에 남고, 사람이 화면에서 더한다.
-            let config_dir = app.path().app_config_dir()?;
-            std::fs::create_dir_all(&config_dir)?;
-            let port_file = config_dir.join(PORT_FILE);
-            let last_port = std::fs::read_to_string(&port_file)
-                .ok()
-                .and_then(|text| text.trim().parse().ok());
-            // 지난 포트를 다른 프로그램이 쓰면 데몬이 듣지 못하고 끝난다. 그때는 새 포트로 띄운다.
-            let (daemon, url) = match last_port.map(|port| start_daemon(&config_dir, port)) {
-                Some(Ok(started)) => started,
-                _ => start_daemon(&config_dir, ANY_PORT)?,
-            };
-            if let Some((_, port)) = url.rsplit_once(':') {
-                std::fs::write(&port_file, port)?;
+            let mut url: tauri::Url = start_daemon()?.parse()?;
+            if std::env::args().any(|a| a == UPDATE_FLAG) {
+                url = for_update(url);
             }
-            app.manage(daemon);
-            frame(WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(url.parse()?)))
-                .title(format!("loom {}", app.package_info().version))
-                .inner_size(1280.0, 800.0)
-                // 앱이 끌어다 놓은 파일을 가로채지 않게 한다. 화면이 HTML 놓기로 받아 데몬에 올린다(`web/src/Terminal.tsx`).
-                .disable_drag_drop_handler()
-                .build()?;
+            frame(WebviewWindowBuilder::new(
+                app,
+                WINDOW,
+                WebviewUrl::External(url),
+            ))
+            .title(format!("loom {}", app.package_info().version))
+            .inner_size(1280.0, 800.0)
+            // 앱이 끌어다 놓은 파일을 가로채지 않게 한다. 화면이 HTML 놓기로 받아 데몬에 올린다(`web/src/Terminal.tsx`).
+            .disable_drag_drop_handler()
+            .build()?;
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -76,6 +77,12 @@ fn main() {
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         });
+}
+
+/// 화면이 묻지 않고 업데이트하게 하는 주소.
+fn for_update(mut url: tauri::Url) -> tauri::Url {
+    url.set_query(Some(UPDATE_QUERY));
+    url
 }
 
 /// 숨기거나 최소화한 창을 앞으로 가져온다.
@@ -111,42 +118,33 @@ fn frame<'a, R: tauri::Runtime, M: Manager<R>>(
         .traffic_light_position(TRAFFIC_LIGHTS)
 }
 
-/// `folder`에서 루프백 `port`를 듣는 데몬을 띄우고, 시작 줄의 주소를 읽는다.
-fn start_daemon(
-    folder: &std::path::Path,
-    port: u16,
-) -> Result<(Child, String), Box<dyn std::error::Error>> {
-    let exe = std::env::current_exe()?
-        .with_file_name(format!("loom{}", std::env::consts::EXE_SUFFIX));
+/// 옆에 놓인 `loom start`를 부르고, 출력한 주소를 읽는다.
+fn start_daemon() -> Result<String, Box<dyn std::error::Error>> {
+    let exe =
+        std::env::current_exe()?.with_file_name(format!("loom{}", std::env::consts::EXE_SUFFIX));
     let mut command = Command::new(exe);
     command
-        .args([
-            "serve",
-            "--listen",
-            &format!("127.0.0.1:{port}"),
-            "--until-stdin-closes",
-        ])
-        .current_dir(folder)
-        // 쓰는 끝은 `Child`가 쥔다. 앱이 어떻게 끝나든(창 닫기, 강제 종료, 업데이트) OS가 닫아 데몬이 끝난다.
-        // 그래서 데몬 둘이 한 DB를 쓰지 않는다. 앱이 띄운 업데이트 설치 파일은 앱이 끝난 뒤에도 돈다.
-        .stdin(Stdio::piped())
+        .arg("start")
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     hide_console(&mut command);
+    // `start`가 띄운 데몬이 이 `PATH`를 물려받는다.
     login_path(&mut command);
-    let mut daemon = command.spawn()?;
+    let mut start = command.spawn()?;
+    // 끝까지 읽지 않고 한 줄만 읽는다. Windows는 `start`가 띄운 데몬도 이 파이프를 물려받아, 끝(EOF)이 데몬과 함께 온다.
     let mut line = String::new();
-    // 파이프는 `Child`에 남겨 둔다. 데몬이 뒤에 쓰는 출력이 닫힌 파이프에 막히지 않는다.
-    let stdout = daemon.stdout.as_mut().ok_or("데몬 stdout이 없다")?;
+    let stdout = start.stdout.take().ok_or("loom start stdout이 없다")?;
     std::io::BufReader::new(stdout).read_line(&mut line)?;
+    start.wait()?;
     let url = line
         .trim()
         .strip_prefix(READY_PREFIX)
-        .ok_or_else(|| format!("데몬이 시작하지 못했다: {line:?}"))?;
-    Ok((daemon, url.to_owned()))
+        .ok_or("데몬이 시작하지 못했다. 데이터 폴더의 serve.log를 본다")?;
+    Ok(url.to_owned())
 }
 
-/// 콘솔 프로그램인 데몬과, 데몬이 띄우는 콘솔 프로그램이 새 콘솔 창을 열지 않게 한다.
+/// 콘솔 프로그램인 `loom start`가 새 콘솔 창을 열지 않게 한다. 데몬은 `start`가 숨은 콘솔로 띄운다(`src/launch.rs`).
 #[cfg(windows)]
 fn hide_console(command: &mut Command) {
     use std::os::windows::process::CommandExt;

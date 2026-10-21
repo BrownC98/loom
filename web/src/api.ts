@@ -32,6 +32,8 @@ import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
+import type { UpdateView } from './gen/UpdateView';
+import type { SettingsPatch } from './settingsPatch';
 import type { WaitId } from './gen/WaitId';
 import { problemText, statusText } from './problem';
 
@@ -87,7 +89,14 @@ export const openFile = (path: string) => call<null>('POST', '/api/files/open', 
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');
-export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/settings', view);
+/** 바꾼 칸만 보낸다. 데몬이 지금 설정에 합친다. */
+export const putSettings = (patch: SettingsPatch) => call<null>('PUT', '/api/settings', patch);
+/** 데몬의 업데이트 상태(docs/mockups/web-update.html). */
+export const getUpdate = () => call<UpdateView>('GET', '/api/update');
+/** 데몬이 지금 `latest.json`을 본다. */
+export const checkUpdate = () => call<UpdateView>('POST', '/api/update/check');
+/** 데몬이 새 판을 받아 바꾸고 다시 뜬다. 바로 돌아오고, 진행은 상태로 본다. */
+export const installUpdate = () => call<UpdateView>('POST', '/api/update/install');
 /** 모든 브랜치의 최근 커밋과 워크트리마다 체크아웃한 커밋. */
 export const getCommits = (repo: RepoId) => call<CommitGraph>('GET', `/api/repos/${repo}/commits`);
 /** 더한 순서. 워크트리 첫째가 원래 체크아웃이다. */

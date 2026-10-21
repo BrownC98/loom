@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M26 loom 업데이트 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.new { outline: 2px dashed var(--warn); outline-offset: 3px; border-radius: 10px; }
+.row { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+.stage { width: 520px; height: 260px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; position: relative; overflow: hidden; background-image: radial-gradient(oklch(86% 0 0) 1px, transparent 1px); background-size: 16px 16px; }
+.stage .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: var(--panel); border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--ink-3); display: flex; align-items: center; padding: 0 10px; gap: 12px; }
+.pop { position: absolute; right: 14px; bottom: 40px; width: 340px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px oklch(0% 0 0 / 0.16); padding: 14px; display: grid; gap: 12px; }
+.pop h3 { display: flex; font-size: 14px; font-weight: 600; }
+.pop h3 .spacer { flex: 1; }
+.pop .x { color: var(--ink-3); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: oklch(98.5% 0 0); font-weight: 600; justify-content: center; }
+.meter { display: block; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.cap { font-size: 12px; color: var(--ink-3); margin-top: 6px; max-width: 520px; }
+.set { width: 760px; height: 300px; display: grid; grid-template-columns: 160px 1fr; background: var(--panel); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.set nav { display: grid; align-content: start; gap: 2px; padding: 12px 8px; border-right: 1px solid var(--line); }
+.set nav span { padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--ink-2); }
+.set nav span[aria-current] { background: var(--surface-hover); color: var(--ink); font-weight: 600; }
+.set .body { padding: 16px 20px; display: grid; align-content: start; gap: 14px; }
+.set h3 { font-size: 15px; }
+.set h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.kv { display: grid; grid-template-columns: 90px 1fr; gap: 6px 12px; font-size: 13px; }
+.kv b { font: 600 13px var(--mono); }
+.acts { display: flex; gap: 8px; align-items: center; }
+.ok { font-size: 12px; color: oklch(50% 0.13 149); }
+table { border-collapse: collapse; font-size: 13px; max-width: 1100px; }
+th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); font-weight: 600; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M26</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 데몬하나</b></span><span>v2 · 2026-10-21</span></div>
+  <h1>업데이트 알림과 설정의 판·업데이트: 데몬이 새 판을 찾고, 누르면 받아 바꾸고 다시 뜬다</h1>
+  <p class="lead">사람 승인(안 A): 「데몬이 latest.json을 보고 화면에 알리고, 누르면 받아 바꾸고 다시 뜬다(노드는 산다, 목업 먼저)」. 앱 창의 업데이트 카드(<code>docs/mockups/update.html</code>)와 같은 자리·모양·문구를 쓴다. 바뀌는 곳은 오른쪽 아래 카드와 설정의 새 「정보」 탭이다(점선). 사람 지시: 「그리고 설정에 현재 버전과 업데이트 확인 및 수동 업데이트 버튼 추가」.</p>
+
+  <div class="fig">
+    <h2>① 웹 버전만 설치한 데몬 <span class="tag">Linux·WSL·Windows·macOS · 데몬이 자기 실행 파일을 바꾼다</span></h2>
+    <div class="row">
+      <div><div class="stage"><div class="pop new"><h3>업데이트 가능<span class="spacer"></span><span class="x">×</span></h3><p class="hint">loom v0.2.5</p><p class="hint">실행 중인 노드와 작업은 끊기지 않고 그대로 이어집니다.</p><button class="btn primary">업데이트</button></div><div class="bar">loom v0.2.3</div></div><div class="cap">데몬이 시작할 때와 그 뒤 6시간마다 GitHub Release의 latest.json을 본다. 새 판이면 모든 뷰어에 이 카드가 뜬다.</div></div>
+      <div><div class="stage"><div class="pop new"><h3>업데이트 다운로드 중<span class="spacer"></span><span class="x">×</span></h3><p class="hint">loom v0.2.5</p><span class="meter"><i style="width:46%"></i></span><p class="hint">다운로드 중… 46%</p></div><div class="bar">loom v0.2.3</div></div><div class="cap">[업데이트]: 데몬이 같은 Release에서 자기 OS의 파일(loom-x86_64-linux, loom-x86_64-windows.exe, loom-aarch64-macos)을 받는다. 앱 카드와 같은 진행 막대다.</div></div>
+      <div><div class="stage"><div class="pop new"><h3>다시 시작하는 중<span class="spacer"></span></h3><p class="hint">loom v0.2.5</p><p class="hint">데몬을 바꾸고 다시 띄웁니다. 화면은 잠시 뒤 저절로 다시 붙습니다.</p></div><div class="bar">loom v0.2.3 · 연결 끊김, 다시 붙는 중…</div></div><div class="cap">받으면 실행 파일을 새 파일로 바꿔 넣고(Windows는 도는 파일 이름을 먼저 바꾼다) 새 판 데몬을 띄운다. 새 판이 이기므로 옛 데몬은 끝난다. 노드는 산다. 화면은 다시 붙은 뒤 새 판을 보인다(상태 줄 판 번호).</div></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>② 데스크톱 앱에 든 데몬을 브라우저로 볼 때 <span class="tag">v2: 단추 하나 · 앱 업데이터가 바로 설치</span></h2>
+    <div class="row">
+      <div><div class="stage"><div class="pop new"><h3>업데이트 가능<span class="spacer"></span><span class="x">×</span></h3><p class="hint">loom v0.2.5</p><p class="hint">실행 중인 노드와 작업은 끊기지 않고 그대로 이어집니다.</p><button class="btn primary">업데이트</button></div><div class="bar">loom v0.2.3 · Windows 앱의 데몬</div></div><div class="cap">누른 뒤: 앱 창이 뜨고 앱의 진행 카드(다운로드 → 다시 시작)가 보인다. 이 탭은 데몬이 바뀐 뒤 저절로 다시 붙는다.</div></div>
+    </div>
+    <ul class="note">
+      <li>①과 같은 카드, 같은 [업데이트] 단추다. 사람은 데몬이 어디서 왔는지 고르지 않는다.</li>
+      <li>[업데이트]: 데몬이 옆의 앱을 업데이트 표시와 함께 띄운다. 앱은 묻지 않고 받아 설치하고 다시 뜬다. 새 판이 이기므로 데몬도 바뀐다. 노드는 산다.</li>
+      <li>v1의 「loom 앱 창에서 업데이트합니다」 안내와 [loom 앱 열기] 단추는 지운다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 데스크톱 앱 창 <span class="tag">바뀌지 않음</span></h2>
+    <ul class="note">
+      <li>지금 카드 그대로다(Tauri 업데이터). 새 앱이 뜨면 새 판이 이기므로 옛 데몬을 바꾼다. 노드는 산다.</li>
+      <li>앱 창에는 ①②의 데몬 카드를 띄우지 않는다. 같은 알림이 둘 뜨지 않게 한다. 업데이트 표시로 뜬 앱은 [업데이트]를 다시 묻지 않는다.</li>
+      <li>사람이 쓰는 개발 빌드(<code>scripts/host.sh</code>)는 Release 판이 아니라 알림을 띄우지 않는다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>④ 설정 › 정보 <span class="tag">새 탭 · 알림 카드와 같은 업데이트 경로</span></h2>
+    <div class="row">
+      <div><div class="set"><nav><span>에이전트</span><span>계정</span><span>워크스페이스</span><span>UI</span><span>터미널</span><span aria-current="page" class="new">정보</span></nav><div class="body new"><h3>정보</h3><section style="display:grid;gap:10px"><h4>판</h4><div class="kv"><span>데몬</span><b>loom v0.2.3</b></div><div class="acts"><button class="btn">업데이트 확인</button><span class="ok">최신 판입니다</span></div></section></div></div><div class="cap">[업데이트 확인]: 데몬이 latest.json을 지금 본다. 새 판이 없으면 옆에 「최신 판입니다」.</div></div>
+      <div><div class="set"><nav><span>에이전트</span><span>계정</span><span>워크스페이스</span><span>UI</span><span>터미널</span><span aria-current="page" class="new">정보</span></nav><div class="body new"><h3>정보</h3><section style="display:grid;gap:10px"><h4>판</h4><div class="kv"><span>데몬</span><b>loom v0.2.3</b></div><div class="acts"><button class="btn">업데이트 확인</button><span class="hint">새 판 v0.2.5</span><button class="btn primary">업데이트</button></div></section></div></div><div class="cap">새 판이 있으면 [업데이트]가 보인다. 누르면 알림 카드와 같은 일을 하고, 진행은 오른쪽 아래 카드(①)가 보인다.</div></div>
+    </div>
+    <div class="row">
+      <div><div class="set"><nav><span>에이전트</span><span>계정</span><span>워크스페이스</span><span>UI</span><span>터미널</span><span aria-current="page" class="new">정보</span></nav><div class="body new"><h3>정보</h3><section style="display:grid;gap:10px"><h4>판</h4><div class="kv"><span>데몬</span><b>loom v0.2.3</b><span>앱</span><b>loom v0.2.3</b></div><div class="acts"><button class="btn">업데이트 확인</button><span class="hint">새 판 v0.2.5</span><button class="btn primary">업데이트</button></div></section></div></div><div class="cap">데스크톱 앱 창: 앱 판이 데몬 판과 다르면 「앱」 줄도 보인다(같으면 한 줄). [업데이트]는 앱 업데이터(③의 카드)다.</div></div>
+      <div><div class="set"><nav><span>에이전트</span><span>계정</span><span>워크스페이스</span><span>UI</span><span>터미널</span><span aria-current="page" class="new">정보</span></nav><div class="body new"><h3>정보</h3><section style="display:grid;gap:10px"><h4>판</h4><div class="kv"><span>데몬</span><b>loom v0.2.3</b></div><div class="acts"><button class="btn">업데이트 확인</button><span class="hint">새 판 v0.2.5</span><button class="btn primary">업데이트</button></div></section></div></div><div class="cap">앱 묶음 안의 데몬을 브라우저로 볼 때(②): 같은 [업데이트]다. 누르면 앱이 바로 설치한다.</div></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>항목</th><th>안</th></tr>
+      <tr><td>① 문구와 세 단계</td><td>위 그림대로(앱 카드 문구 재사용, 「다시 시작하는 중」만 새 문구)</td></tr>
+      <tr><td>② 앱 안의 데몬 (v2)</td><td>단추 하나: 앱을 업데이트 표시로 띄워 바로 설치</td></tr>
+      <tr><td>④ 설정의 자리</td><td>새 탭 「정보」(맨 끝). 판 줄, [업데이트 확인], 새 판이면 [업데이트]</td></tr>
+      <tr><td>확인 간격</td><td>시작할 때와 6시간마다(앱 카드는 하루마다)</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

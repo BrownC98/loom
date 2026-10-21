@@ -153,7 +153,7 @@ const ko: typeof en = {
     tabsLabel: '설정 탭',
     stop: 'loom 끄기',
     stopHint: '노드는 계속 돕니다',
-    tab: { agents: '에이전트', accounts: '계정', workspace: '워크스페이스', ui: 'UI', terminal: '터미널' },
+    tab: { agents: '에이전트', accounts: '계정', workspace: '워크스페이스', ui: 'UI', terminal: '터미널', about: '정보' },
     language: '언어',
     installed: '설치됨 {{n}}개',
     rescan: '다시 찾기',
@@ -465,6 +465,16 @@ const ko: typeof en = {
     percent: '다운로드 중… {{percent}}%',
     restart: '다시 시작하여 업데이트',
     retry: '다시 시도',
+    restarting: '다시 시작하는 중',
+    restartingHint: '데몬을 바꾸고 다시 띄웁니다. 화면은 잠시 뒤 저절로 다시 붙습니다.',
+  },
+  about: {
+    version: '판',
+    daemon: '데몬',
+    app: '앱',
+    check: '업데이트 확인',
+    upToDate: '최신 판입니다',
+    newVersion: '새 판 v{{version}}',
   },
 };
 

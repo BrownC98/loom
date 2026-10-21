@@ -41,6 +41,7 @@ use crate::graph::{
     NodeId, OpenQuestion, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc,
     WaitId, WaitKind, WaitSource,
 };
+use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
@@ -56,6 +57,7 @@ use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
 use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
+use crate::update::{UpdateView, Updater};
 use crate::user_doc;
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
@@ -97,6 +99,7 @@ struct App {
     spawn_url: String,
     /// 노드의 `PATH`. 앞에 이 실행 파일의 폴더를 넣어 노드가 `loom`을 바로 부르게 한다.
     path: OsString,
+    update: Arc<Updater>,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -254,8 +257,9 @@ pub struct CommitGraph {
     pub worktrees: Vec<Worktree>,
 }
 
-/// PTY WebSocket의 텍스트 프레임. 바이너리 프레임은 키 입력과 터미널 출력이다.
-#[derive(Deserialize, TS)]
+/// PTY 크기. 화면이 보내면 PTY 크기를 바꾸고, 데몬은 바뀐 크기를 모든 화면에 알린다(`PtyNotice::Size`).
+/// 바이너리 프레임은 키 입력과 터미널 출력이다.
+#[derive(Clone, Copy, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Resize {
     pub cols: u16,
@@ -425,8 +429,10 @@ const SCREEN_QUIET: Duration = Duration::from_millis(500);
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
 pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
+    // 데이터 폴더마다 데몬 하나. 둘이 한 DB와 노드를 쥐지 않게 주소보다 먼저 잡고 끝날 때까지 쥔다.
+    let claim = launch::Claim::take()?;
     let listener = tokio::net::TcpListener::bind(listen).await?;
-    // 포트 0이면 OS가 고른 포트다. 노드 주소와 시작 줄은 실제 주소를 쓴다. 데스크톱 앱은 시작 줄에서 주소를 읽는다.
+    // 포트 0이면 OS가 고른 포트다. 노드 주소, 시작 줄, `daemon.json`은 실제 주소를 쓴다.
     let listen = listener.local_addr()?;
     // 포트는 데몬 포트와 같다. 노드 환경의 `LOOM_URL`은 노드가 끝날 때까지 바뀌지 않으므로, 다시 시작한 데몬도 같은 주소에서 듣는다.
     // 그 포트를 쓸 수 없으면(예: `--listen 0.0.0.0:<포트>`) OS가 고른다. 그때 앞 데몬의 노드는 다시 시작한 뒤 loom 명령이 닿지 않는다.
@@ -438,9 +444,9 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     };
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
-    let open = || db::open(&db_path).map_err(std::io::Error::other);
+    let open = || db::open(&db_path);
     let repos = Repos::new(open()?);
-    // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: 데스크톱 앱은 앱 설정 폴더에서 띄우고, 사람은 화면에서 저장소를 더한다.
+    // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: `loom start`는 루트(`/`)에서 띄우고, 사람은 화면에서 저장소를 더한다.
     match repos.add(&std::env::current_dir()?.to_string_lossy()).await {
         Ok(_) | Err(RepoProblem::NotGit(_) | RepoProblem::NotFound(_)) => {}
         Err(problem) => return Err(std::io::Error::other(problem.to_string())),
@@ -462,10 +468,15 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     }
     // 근거: docs/design.md 「저장」.
     let pty_dir = db_path.with_file_name("pty");
+    let graph = Arc::new(graph);
+    let update = Arc::new(Updater::new(listen, {
+        let graph = graph.clone();
+        move || graph.publish_view_changed()
+    }));
     let app = Arc::new(App {
         repos,
         host: NodeHost::new(pty_dir.join("nodes")),
-        graph: Arc::new(graph),
+        graph,
         settings: Settings::new(open()?),
         spots: Spots::new(open()?),
         accounts: Accounts::new(db_path.with_file_name("accounts")),
@@ -496,6 +507,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         },
         spawn_url: node_url(listen),
         path: node_path()?,
+        update: update.clone(),
     });
     app.resume().await.map_err(std::io::Error::other)?;
     // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
@@ -558,6 +570,9 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         )
         .route("/api/files/open", post(open_file))
         .route("/api/shutdown", post(shutdown))
+        .route("/api/update", get(update_view))
+        .route("/api/update/check", post(check_update))
+        .route("/api/update/install", post(install_update))
         .route("/api/events", get(events))
         .route("/api/events/log", get(event_log))
         .merge(settings::routes())
@@ -565,6 +580,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .fallback(asset)
         .layer(axum::middleware::from_fn(origin::same_site))
         .with_state(app.clone());
+    claim.announce(&node_url(listen))?;
+    tokio::spawn(update.run());
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     match node_door {
@@ -711,6 +728,7 @@ async fn delete_worktree(
         app.remove(node).map_err(internal)?;
     }
     app.spots.forget_worktree(id, &req.path).map_err(internal)?;
+    app.graph.publish_view_changed();
     if let Some(listed) = listed {
         worktree::remove(&repo, &listed).await?;
         if let (true, Some(branch)) = (req.delete_branch, &listed.branch) {
@@ -730,6 +748,7 @@ async fn put_spot(
     Json(placed): Json<Vec<Placed>>,
 ) -> Result<Json<()>, Problem> {
     app.spots.put(&placed).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -739,6 +758,7 @@ async fn put_arranged(
     Json(arranged): Json<Arranged>,
 ) -> Result<Json<()>, Problem> {
     app.spots.put_arranged(&arranged).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -748,6 +768,7 @@ async fn clear_spots(
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
     app.spots.clear(RepoId(id)).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -760,6 +781,7 @@ async fn put_sizes(
     Json(sizes): Json<Vec<CardSize>>,
 ) -> Result<Json<()>, Problem> {
     app.spots.put_sizes(&sizes).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -769,6 +791,7 @@ async fn clear_sizes(
     Json(nodes): Json<Vec<NodeId>>,
 ) -> Result<Json<()>, Problem> {
     app.spots.clear_sizes(&nodes).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -1483,13 +1506,27 @@ async fn open_file(Json(req): Json<OpenFile>) -> Result<Json<()>, Problem> {
 const SHUTDOWN_AFTER: Duration = Duration::from_millis(200);
 
 /// 사람이 `loom stop`이나 화면으로 데몬만 끝낸다. 노드의 PTY 호스트와 서버는 따로 도는 프로세스라 산다(`process_tree::detach`).
-/// 데스크톱 앱이 창을 닫을 때와 같다(`--until-stdin-closes`). 다음 데몬이 노드에 다시 붙는다.
+/// 다음 데몬이 노드에 다시 붙는다. 새 판의 `loom start`도 옛 판 데몬을 이 길로 끝낸다(`launch::ensure`).
 async fn shutdown() -> StatusCode {
     tokio::spawn(async {
         tokio::time::sleep(SHUTDOWN_AFTER).await;
         std::process::exit(0);
     });
     StatusCode::NO_CONTENT
+}
+
+async fn update_view(State(app): State<Arc<App>>) -> Json<UpdateView> {
+    Json(app.update.view())
+}
+
+/// 설정 › 정보의 [업데이트 확인]. 확인한 뒤의 상태를 돌려준다.
+async fn check_update(State(app): State<Arc<App>>) -> Result<Json<UpdateView>, Problem> {
+    app.update.clone().check().await.map(Json).map_err(internal)
+}
+
+/// [업데이트]. 받기·바꾸기·다시 뜨기는 뒤에서 하고, 단계가 바뀔 때마다 `ViewChanged`로 알린다.
+async fn install_update(State(app): State<Arc<App>>) -> Result<Json<UpdateView>, Problem> {
+    app.update.clone().install().map(Json).map_err(internal)
 }
 
 /// 사람이 화면에서 노드 이름을 바꾼다. 에이전트는 이 길을 쓰지 않는다(노드 문에 없다).
@@ -1944,6 +1981,8 @@ async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<Ap
 pub enum PtyNotice {
     /// 이 PTY가 없다. 데몬이 다시 시작할 때 호스트가 사라졌거나, 앞 데몬에서 끝난 노드다.
     Gone,
+    /// PTY의 열·줄. 붙을 때 backlog보다 먼저, 그 뒤 바뀔 때마다 보낸다. 화면은 이 크기로 그리고 칸에 맞게 늘이거나 줄인다.
+    Size(Resize),
 }
 
 /// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
@@ -1968,6 +2007,10 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
     ws.on_upgrade(move |socket| async move {
         let (mut to_view, mut from_view) = socket.split();
         let mut output = attached.output;
+        let mut size = attached.size;
+        if send_size(&mut to_view, &mut size).await.is_err() {
+            return;
+        }
         if to_view
             .send(Message::Binary(attached.backlog))
             .await
@@ -1982,6 +2025,11 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
                     // 밀린 화면은 끊는다. 화면이 다시 붙으면 backlog로 따라잡는다.
                     Err(RecvError::Lagged(_) | RecvError::Closed) => return,
                 },
+                changed = size.changed() => {
+                    if changed.is_err() || send_size(&mut to_view, &mut size).await.is_err() {
+                        return;
+                    }
+                }
                 msg = from_view.next() => match msg {
                     Some(Ok(Message::Binary(bytes))) => {
                         host(&app).write(id, &bytes);
@@ -2000,6 +2048,17 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
             }
         }
     })
+}
+
+/// 지금 PTY 크기를 화면에 알리고 본 값으로 표시한다.
+async fn send_size(
+    to_view: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    size: &mut tokio::sync::watch::Receiver<node_host::PtySize>,
+) -> Result<(), axum::Error> {
+    let node_host::PtySize { cols, rows } = *size.borrow_and_update();
+    let notice = serde_json::to_string(&PtyNotice::Size(Resize { cols, rows }))
+        .expect("PtyNotice는 늘 직렬화된다");
+    to_view.send(Message::Text(notice.into())).await
 }
 
 async fn event_log(State(app): State<Arc<App>>) -> Result<Json<Vec<EventRecord>>, Problem> {

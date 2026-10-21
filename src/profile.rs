@@ -559,7 +559,7 @@ fn default_shell(_cwd: &Path) -> CommandBuilder {
 /// `cmd.exe`는 UNC 폴더에서 시작하지 못하고 `C:\Windows`로 간다. WSL 폴더면 그 배포판의 셸을 그 폴더에서 연다.
 #[cfg(windows)]
 fn default_shell(cwd: &Path) -> CommandBuilder {
-    match cwd.to_str().and_then(wsl_location) {
+    match cwd.to_str().and_then(crate::wsl::location) {
         Some(wsl) => {
             let mut cmd = CommandBuilder::new("wsl.exe");
             cmd.args(["-d", wsl.distro.as_str(), "--cd", wsl.path.as_str()]);
@@ -567,34 +567,6 @@ fn default_shell(cwd: &Path) -> CommandBuilder {
         }
         None => CommandBuilder::new_default_prog(),
     }
-}
-
-/// Windows가 WSL 배포판 파일을 보이는 UNC 경로(`\\wsl.localhost\<배포판>\…`)를 가리키는 배포판 안의 위치.
-#[derive(Debug, PartialEq)]
-struct WslPath {
-    distro: String,
-    /// 배포판 안의 Linux 절대 경로.
-    path: String,
-}
-
-/// `\\wsl.localhost\…`, `\\wsl$\…`, 그 `/` 표기와 `\\?\UNC\` 표기를 읽는다. 다른 경로는 없다.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn wsl_location(cwd: &str) -> Option<WslPath> {
-    let cwd = cwd.replace('/', "\\");
-    let rest = cwd
-        .strip_prefix(r"\\?\UNC\")
-        .or_else(|| cwd.strip_prefix(r"\\"))?;
-    let mut parts = rest.split('\\').filter(|p| !p.is_empty());
-    let host = parts.next()?;
-    if !host.eq_ignore_ascii_case("wsl.localhost") && !host.eq_ignore_ascii_case("wsl$") {
-        return None;
-    }
-    let distro = parts.next()?.to_owned();
-    let path = parts.fold(String::new(), |acc, p| acc + "/" + p);
-    Some(WslPath {
-        distro,
-        path: if path.is_empty() { "/".into() } else { path },
-    })
 }
 
 /// 명령 한 줄을 도는 셸. 명령 노드와 설정 스크립트가 쓴다.
@@ -615,50 +587,6 @@ pub fn shell(line: &str) -> CommandBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn wsl(distro: &str, path: &str) -> Option<WslPath> {
-        Some(WslPath {
-            distro: distro.into(),
-            path: path.into(),
-        })
-    }
-
-    #[test]
-    fn wsl_location_reads_wsl_unc_paths() {
-        let home = wsl("Ubuntu-24.04", "/home/ktadev/src/loom");
-        assert_eq!(
-            wsl_location(r"\\wsl.localhost\Ubuntu-24.04\home\ktadev\src\loom"),
-            home
-        );
-        assert_eq!(
-            wsl_location("//wsl.localhost/Ubuntu-24.04/home/ktadev/src/loom/"),
-            home
-        );
-        assert_eq!(
-            wsl_location(r"\\wsl$\Ubuntu-24.04\home\ktadev\src\loom"),
-            home
-        );
-        assert_eq!(
-            wsl_location("//WSL$/Ubuntu-24.04/home/ktadev/src/loom"),
-            home
-        );
-        assert_eq!(
-            wsl_location(r"\\?\UNC\wsl.localhost\Ubuntu-24.04\home\ktadev\src\loom"),
-            home
-        );
-        assert_eq!(wsl_location(r"\\wsl.localhost\Ubuntu"), wsl("Ubuntu", "/"));
-        assert_eq!(wsl_location("//wsl$/Ubuntu/"), wsl("Ubuntu", "/"));
-    }
-
-    #[test]
-    fn wsl_location_ignores_other_paths() {
-        assert_eq!(wsl_location(r"\\server\share\loom"), None);
-        assert_eq!(wsl_location(r"\\wsl.localhost"), None);
-        assert_eq!(wsl_location(r"C:\Users\me\loom"), None);
-        assert_eq!(wsl_location("C:/Users/me/loom"), None);
-        assert_eq!(wsl_location(r"\\?\C:\Users\me\loom"), None);
-        assert_eq!(wsl_location("/home/ktadev/src/loom"), None);
-    }
 
     #[test]
     fn catalog_parses_and_ids_are_unique() {

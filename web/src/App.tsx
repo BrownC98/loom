@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
@@ -15,7 +15,7 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
 import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
-import { Find } from './Find';
+import { Find, FIND_ARIA_KEY, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
 import { flowId, Graph, type GraphHandle, type Lit, type Pulse } from './Graph';
 import { useSelectedRepo } from './repos';
@@ -31,7 +31,7 @@ import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThe
 import { Tree } from './Tree';
 import { TitleBar } from './TitleBar';
 import { UpdateCard } from './Update';
-import { activeFont, paneKey, XtermFont, XtermTheme } from './Terminal';
+import { activeFont, findKey, paneKey, XtermFont, XtermTheme } from './Terminal';
 import { TerminalDock } from './TerminalDock';
 import { withAccount } from './usage';
 
@@ -159,11 +159,12 @@ export function App() {
   useEffect(() => {
     if (!dockOpen || shownTab !== 'events') setHighlight(null);
   }, [dockOpen, shownTab]);
-  // 그래프 찾기(목업 docs/mockups/search.html). `null`이면 닫혔다. `at`은 현재 일치 번호다. 모든 저장소에서 찾는다.
-  const [find, setFind] = useState<{ query: string; at: number } | null>(null);
-  const found = find === null ? [] : findSpots(repos, [...nodes.values()], find.query);
+  // 사이드바 찾기(목업 docs/mockups/sidebar-find.html). 빈 글자면 꺼졌다. `at`은 현재 일치 번호다. 모든 저장소에서 찾는다.
+  const [find, setFind] = useState({ query: '', at: 0 });
+  const found = findSpots(repos, [...nodes.values()], find.query);
   // 노드가 사라져 일치가 줄면 마지막 일치에 머문다.
-  const foundAt = Math.min(find?.at ?? 0, Math.max(found.length - 1, 0));
+  const foundAt = Math.min(find.at, Math.max(found.length - 1, 0));
+  const finding = find.query.trim() !== '';
   // 찾기 일치가 있으면 이벤트 강조보다 앞선다.
   const lit: Lit | null =
     found.length > 0
@@ -171,6 +172,17 @@ export function App() {
       : highlight && { keys: new Set(involved(highlight.entry).map(String)), current: null };
   /** 접기·펴기 단추를 누른 뒤 포커스를 바뀐 자리의 같은 단추(접힌 줄 ↔ 사이드바)로 옮긴다. */
   const focusToggle = (id: string) => requestAnimationFrame(() => document.getElementById(id)?.focus());
+  /** 사이드바를 펴고 찾기 칸의 글자를 모두 고른다. 접혀 있었으면 칸이 그려진 다음 프레임에 고른다. */
+  const focusFind = () => {
+    setSideOpen(true);
+    requestAnimationFrame(() => (document.getElementById(FIND_INPUT) as HTMLInputElement | null)?.select());
+  };
+  const clearFind = () => {
+    // 지울 때 현재 일치가 노드면 그 노드를 고른다. 찾는 동안 고르면 그 터미널이 포커스를 가져가 입력이 끊긴다.
+    const current = found[foundAt];
+    setFind({ query: '', at: 0 });
+    if (current?.kind === 'node') selectNode(current.node);
+  };
   const openSide = (open: boolean) => {
     setSideOpen(open);
     focusToggle(SIDE_TOGGLE);
@@ -182,6 +194,11 @@ export function App() {
   // `Ctrl+Shift+[`·`]`로 사이드바를 접고 편다. 포커스는 그대로 둔다(터미널에서 눌러도 터미널에 남는다).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // `Ctrl+Shift+F`는 사이드바를 펴고 찾기 칸으로 간다. 터미널도 이 키를 창으로 올려 보낸다.
+      if (findKey(e)) {
+        e.preventDefault();
+        return focusFind();
+      }
       const side = paneKey(e);
       if (!side) return;
       e.preventDefault();
@@ -324,6 +341,16 @@ export function App() {
                   <PanelLeftClose />
                 </button>
               </div>
+              <Find
+                query={find.query}
+                found={found}
+                at={foundAt}
+                repo={repo?.id ?? null}
+                onRepo={selectRepo}
+                onQuery={(query) => setFind({ query, at: 0 })}
+                onStep={(step) => setFind((prev) => (found.length > 0 ? { ...prev, at: (foundAt + step + found.length) % found.length } : prev))}
+                onClear={clearFind}
+              />
               <Tree
                 repos={repos}
                 current={repo?.id ?? null}
@@ -341,6 +368,7 @@ export function App() {
                 onRepoChanged={putRepo}
                 // 그래프가 그리던 저장소면 `useSelectedRepo`가 남은 첫 저장소로 바꾼다.
                 onRepoRemoved={(id) => setRepos((prev) => prev.filter((r) => r.id !== id))}
+                find={!finding ? null : { query: find.query, found, at: foundAt, onAt: (at) => setFind((prev) => ({ ...prev, at })) }}
               />
               <div className="side-foot">
                 <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
@@ -354,6 +382,10 @@ export function App() {
               <button id={SIDE_TOGGLE} className="btn ghost icon" aria-expanded={false} aria-controls="side" aria-label={t('app.sideExpand')} aria-keyshortcuts={SIDE_ARIA_KEY} title={`${t('app.sideExpand')} (${SIDE_KEY})`} onClick={() => openSide(true)}>
                 <PanelLeftOpen />
               </button>
+              {/* 글자가 남아 그래프가 강조 중이면 점을 찍는다(목업 sidebar-find.html ④). */}
+              <button className={finding ? 'btn ghost icon finding' : 'btn ghost icon'} aria-label={t('find.open')} aria-keyshortcuts={FIND_ARIA_KEY} title={`${t('find.open')} (${FIND_KEY})`} onClick={focusFind}>
+                <Search />
+              </button>
               <button className="btn ghost icon rail-end" aria-label={t('settings.title')} title={t('settings.title')} onClick={() => setSettingsTab('agents')}>
                 <SettingsIcon />
               </button>
@@ -361,21 +393,6 @@ export function App() {
           )}
           <main className="canvas" aria-label={title === null ? t('app.allGraphLabel') : t('app.graphLabel', { repo: title })}>
             {title !== null && <h1 className="canvas-title">{title}</h1>}
-            <Find
-              query={find?.query ?? null}
-              found={found}
-              at={foundAt}
-              repo={repo?.id ?? null}
-              onRepo={selectRepo}
-              onQuery={(query) => setFind({ query, at: 0 })}
-              onStep={(step) => setFind((prev) => prev && found.length > 0 ? { ...prev, at: (foundAt + step + found.length) % found.length } : prev)}
-              onClose={() => {
-                // 닫을 때 현재 일치가 노드면 그 노드를 고른다. 열린 동안 고르면 그 터미널이 포커스를 가져가 입력이 끊긴다.
-                const current = found[foundAt];
-                setFind(null);
-                if (current?.kind === 'node') selectNode(current.node);
-              }}
-            />
             {shown.length > 0 && <Graph
               repos={shown}
               onRepo={putRepo}

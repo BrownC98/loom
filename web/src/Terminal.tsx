@@ -202,7 +202,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           e.preventDefault();
           return false;
         }
-        // 접기·찾기 키는 막지 않고 창으로 올려 보낸다. 창의 키 처리(App, Find)가 사이드바를 바꾸고 찾기를 연다.
+        // 접기·찾기 키는 막지 않고 창으로 올려 보낸다. 창의 키 처리(App)가 사이드바를 바꾸고 찾기 칸으로 간다.
         if (paneKey(e) || findKey(e)) return false;
         // 선택이 없으면 Ctrl+C는 터미널 앱에 `^C`로 간다. 복사한 뒤 선택을 지워 다음 Ctrl+C가 `^C`가 되게 한다.
         if (plainCtrl(e, 'KeyC') && xterm.hasSelection()) {

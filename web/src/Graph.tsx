@@ -24,7 +24,14 @@ import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
-/** 끄는 상자의 z. React Flow가 고른 노드에 더하는 1000(`SELECTED_NODE_Z`)과 그 묶음의 카드보다 높아야 한다. */
+/**
+ * 층(z). React Flow는 `zIndexMode="manual"`이라 이 값을 그대로 쓴다. 카드는 묶음 z + 1이다(React Flow 규칙).
+ * 저장소 상자 < 간선 = 묶음 < 고른 카드의 간선 = 카드 < 끄는 상자. 같은 z면 간선이 노드 아래다(DOM 순서).
+ * 간선은 묶음 머리를 덮지 않는다. 고른 카드의 간선만 묶음 위로 올린다(2026-10-21 사람 승인).
+ */
+const REPO_Z = -1;
+const SELECTED_EDGE_Z = 1;
+/** 끄는 상자의 z. 그 묶음의 카드보다 높아야 한다. */
 const DRAGGING_Z = 2000;
 /** 빈 묶음을 재기 전에 쓰는 크기(머리와 안내 글). 재면 잰 크기다. 빈 묶음은 카드 폭을 차지하지 않는다(목업 docs/mockups/repo-drag.html 안 A). */
 const EMPTY_GROUP: Size = { width: 320, height: 100 };
@@ -53,6 +60,9 @@ const REPO_SIDE = 16;
 const REPO_INSET = { top: REPO_HEAD + REPO_SIDE, side: REPO_SIDE };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
+/** 손으로 바꾸는 확대·축소 한계. 2026-10-21 사람 지시 "줌인/아웃 상한 50%씩 증가"(전: 0.4~1). 맞춰 보기(fitView)는 1을 넘기지 않는다. */
+const MIN_ZOOM = 0.4 / 1.5;
+const MAX_ZOOM = 1.5;
 
 /**
  * 그래프 위 팝오버. `at`(흐름 좌표)에 팝오버 오른쪽 끝을 맞춘다.
@@ -500,6 +510,7 @@ export function Graph(props: {
           position: repoAt.get(r.key)!,
           // 상자는 머리만 클릭을 받는다(머리를 끌어 옮긴다). 상자 안 빈 곳 클릭은 바탕 클릭이다(고르기를 푼다).
           style: { width: r.size.width, height: r.size.height, pointerEvents: 'none' },
+          zIndex: REPO_Z,
           dragHandle: '.repo-head',
           data: {
             name: r.repo.name,
@@ -594,6 +605,7 @@ export function Graph(props: {
     const from = positions.get(view.parent);
     const to = positions.get(view.id);
     const sides = from && to ? edgeSides({ at: from, size: size(view.parent) }, { at: to, size: size(view.id) }, direction) : TREE_SIDES[direction];
+    const chosen = selected === view.id || selected === view.parent;
     return [
       {
         id: `edge-${view.id}`,
@@ -601,7 +613,8 @@ export function Graph(props: {
         target: String(view.id),
         sourceHandle: sides.parent,
         targetHandle: sides.child,
-        className: [pulse ? 'live' : undefined, flow, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
+        className: [chosen ? 'sel' : undefined, pulse ? 'live' : undefined, flow, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
+        zIndex: chosen ? SELECTED_EDGE_Z : undefined,
         label: pulse ? receivers.map(([toward, id]) => t('graph.messageTo', { name: props.views.get(id)?.name ?? `#${id}`, n: pulse[toward] })).join(' · ') : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,
@@ -784,12 +797,13 @@ export function Graph(props: {
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements
+        zIndexMode="manual"
         elementsSelectable={false}
         nodesFocusable={false}
         deleteKeyCode={null}
         zoomOnDoubleClick={false}
-        minZoom={0.4}
-        maxZoom={1}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
       >
         <MiniMap
           pannable

@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, ImagePlus, X } from 'lucide-react';
-import { useEffect, useRef, useState, type DOMAttributes } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { answerWait, dismissWait, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import { choices } from './choices';
@@ -25,8 +25,9 @@ export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
 export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v.waits.length, 0);
 
 /**
- * 그래프 칸 위 가운데에 뜨는 [질문 N] 알약과 그 목록(목업 docs/mockups/question-inbox-place.html ②, question-pill-many.html ①). 기다리는 노드가 없으면 알약도 없다.
- * 알약 몸통, 줄, 시스템 알림을 누르면 사이드바 클릭처럼 그래프를 그 노드로 옮기고 고른다. 목록은 알약 끝 [▾]만 연다. `notify`는 설정 「시스템 알림」이다.
+ * 그래프 칸 위 가운데에 뜨는 [질문 N] 알약과 그 목록(목업 docs/mockups/question-inbox-place.html ②, question-pill-tone.html M31 ②). 기다리는 노드가 없으면 알약도 없다.
+ * 알약은 펼치지 않아도 가장 오래된 대기 하나의 전문과 답 칸을 보인다. 노드 이름, 목록 줄의 노드 이름, 시스템 알림을 누르면 사이드바 클릭처럼 그래프를 그 노드로 옮기고 고른다.
+ * 목록은 알약 머리의 [⌄]만 연다. `notify`는 설정 「시스템 알림」이다.
  */
 export function Inbox(props: { waiting: NodeView[]; notify: boolean; onSelect: (id: NodeId) => void }) {
   const { t } = useTranslation();
@@ -58,32 +59,34 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; onSelect: (
 
   return (
     <div className="inbox" ref={home}>
-      {/* 알약이 나타나거나 수가 바뀌면 화면 읽기 프로그램이 읽는다. 목록은 이 영역 밖이라 열어도 읽지 않는다. */}
-      <div className="inbox-live" aria-live="polite">
-        {first && (
-          <div className="inbox-pill">
+      {/* 펼치지 않은 알약: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
+      {first && (
+        <div className="inbox-pill">
+          {/* 머리 줄이 바뀌면(새 알약, 수, 다음 질문) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다. */}
+          <div className="head" aria-live="polite">
+            <b>{t('inbox.button')}</b>
+            <span className="count">{n}</span>
+            <span className="qid">Q{firstWait.id}</span>
             <button
               type="button"
-              className="jump"
+              className="go"
               aria-label={t('inbox.jumpLabel', { name: first.name })}
               onClick={() => {
                 setOpen(false);
                 go(first.id);
               }}
             >
-              <b>{t('inbox.button')}</b>
-              <span className="count">{n}</span>
-              <span className="qid">Q{firstWait.id}</span>
-              <span className="preview">
-                {first.name}: {firstWait.text || t(`wait.${firstWait.kind}`)}
-              </span>
+              <b>{first.name}</b> · {t(`wait.${firstWait.kind}`)}
             </button>
-            <button type="button" className="more" aria-expanded={open} aria-label={t('inbox.listLabel', { count: n })} onClick={() => setOpen(!open)}>
+            {n > 1 && <span className="rest">{t('inbox.rest', { count: n - 1 })}</span>}
+            <button type="button" className="icon" aria-expanded={open} aria-label={t('inbox.listLabel', { count: n })} onClick={() => setOpen(!open)}>
               <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />
             </button>
+            <DismissButton wait={firstWait.id} />
           </div>
-        )}
-      </div>
+          <WaitBody key={firstWait.id} wait={firstWait} onGo={() => go(first.id)} />
+        </div>
+      )}
       {open && n > 0 && (
         <div className="pop inbox-pop" role="dialog" aria-label={t('inbox.title', { count: n })}>
           <h2>{t('inbox.title', { count: n })}</h2>
@@ -147,18 +150,37 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void }) {
   );
 }
 
+/** 목록의 대기 한 줄: 번호, 종류, [×]와 본문. */
+function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
+  const { t } = useTranslation();
+  const { wait } = props;
+  return (
+    <li className="wait-row">
+      <div className="top">
+        <span className="qid">Q{wait.id}</span>
+        <span className="kind">{t(`wait.${wait.kind}`)}</span>
+        <DismissButton wait={wait.id} />
+      </div>
+      <WaitBody wait={wait} onGo={props.onGo} />
+    </li>
+  );
+}
+
 /**
- * 대기 한 줄. 질문은 전문을 보인다. [×]는 이 대기 하나를 지운다.
- * `loom ask` 질문은 여기서 답한다: 선택지 버튼은 바로 보내고, 입력창은 Enter로 보낸다. 입력창에 그림을 붙여넣거나 줄 위에 끌어 놓으면 답에 붙는다(목업 docs/mockups/answer-image.html M30).
+ * 대기 본문. 목록 줄과 펼치지 않은 알약이 함께 쓴다. 질문은 전문을 보인다. 글이 칸보다 길면(알약은 4줄) [더 보기]가 생긴다.
+ * `loom ask` 질문은 여기서 답한다: 선택지 버튼은 바로 보내고, 입력창은 Enter로 보낸다. 입력창에 그림을 붙여넣거나 본문 위에 끌어 놓으면 답에 붙는다(목업 docs/mockups/answer-image.html M30).
  * 다른 대기(승인 창·폴더 신뢰·로그인)는 그 노드 터미널에서만 답하므로 [터미널에서 답하기]만 둔다.
  */
-function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
+function WaitBody(props: { wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
   const qid = `Q${wait.id}`;
   const [refusal, setRefusal] = useState<string | null>(null);
   const images = useImages(setRefusal);
   const [dragging, setDragging] = useState(false);
+  const full = useRef<HTMLParagraphElement>(null);
+  const cut = useCut(full);
+  const [more, setMore] = useState(false);
   const send = (text: string) => {
     setRefusal(null);
     answerWait(
@@ -167,8 +189,8 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
       images.list.map((i) => i.path),
     ).catch((err: Error) => setRefusal(err.message));
   };
-  // 그림 끌어 놓기는 화면에서 답하는 질문 줄만 받는다. 줄 안의 자식으로 옮겨 가도 덮개를 끄지 않는다.
-  const drop: DOMAttributes<HTMLLIElement> = wait.answerable
+  // 그림 끌어 놓기는 화면에서 답하는 질문만 받는다. 본문 안의 자식으로 옮겨 가도 덮개를 끄지 않는다.
+  const drop: DOMAttributes<HTMLDivElement> = wait.answerable
     ? {
         onDragOver: (e) => {
           if (!e.dataTransfer.types.includes('Files')) return;
@@ -188,14 +210,9 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
       }
     : {};
   return (
-    <li className="wait-row" data-dragging={dragging || undefined} {...drop}>
-      <div className="top">
-        <span className="qid">{qid}</span>
-        <span className="kind">{t(`wait.${wait.kind}`)}</span>
-        <DismissButton wait={wait.id} />
-      </div>
+    <div className="wait-body" data-dragging={dragging || undefined} {...drop}>
       {(wait.text || wait.doc) && (
-        <p className="full">
+        <p className="full" ref={full} data-more={more || undefined}>
           {wait.text}
           {wait.doc && (
             // 문서는 따로 단추가 아니라 질문 글 끝의 링크다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
@@ -213,6 +230,11 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
             </>
           )}
         </p>
+      )}
+      {cut && !more && (
+        <button type="button" className="more-text" onClick={() => setMore(true)}>
+          {t('inbox.moreText')}
+        </button>
       )}
       {wait.answerable ? (
         <>
@@ -249,8 +271,23 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
           <span className="sub">{t('inbox.dropLimit', { limit: PASTE_LIMIT_BYTES / MB })}</span>
         </div>
       )}
-    </li>
+    </div>
   );
+}
+
+/** 글 칸이 CSS 줄 수 상한(알약의 `-webkit-line-clamp`)에 잘렸는가. 칸 크기가 바뀔 때마다 다시 잰다. */
+function useCut(el: RefObject<HTMLElement | null>): boolean {
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const node = el.current;
+    if (!node) return;
+    const measure = () => setCut(node.scrollHeight > node.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [el]);
+  return cut;
 }
 
 const MB = 1024 * 1024;

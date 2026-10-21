@@ -258,7 +258,7 @@ const en = {
     dismiss: 'Dismiss',
     empty: 'No questions',
     answerLabel: 'Answer to {{id}}',
-    answerPlaceholder: 'Type an answer, Enter to send',
+    answerPlaceholder: 'Type an answer or paste an image, Enter to send',
     send: 'Send the answer to {{id}}',
     recommended: 'recommended',
     openDocLabel: '{{id}} {{title}}: open in the browser',
@@ -266,6 +266,8 @@ const en = {
     dropLimit: 'Up to {{limit}} MB per image',
     removeImage: 'Remove image',
     notImage: '{{name}}: not an image. Only images can be attached.',
+    rest: 'Next questions: {{count}}',
+    moreText: 'Show more',
     toTerminal: 'Answer in the terminal',
   },
   wait: {

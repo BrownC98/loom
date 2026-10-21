@@ -77,31 +77,21 @@ Install the agent CLIs (Claude Code, Codex, OpenCode 2, Cursor CLI) yourself. lo
 
 One daemon also serves the screen. You use it in a browser. The release has only an x86-64 Linux binary; on macOS and Windows, use the desktop app.
 
-1. Download the binary and save it with the name `loom`. Agents in nodes call the `loom` command, so the name must be `loom`. The daemon puts its own folder first on each node's `PATH`.
+1. In a terminal (on WSL, a WSL terminal), run one line. It downloads `~/loom/bin/loom`, puts a loom icon on the desktop, and opens loom in the browser.
 
    ```sh
-   mkdir -p ~/loom/bin
-   curl -fL -o ~/loom/bin/loom https://github.com/BrownC98/loom/releases/latest/download/loom-x86_64-linux
-   chmod +x ~/loom/bin/loom
+   curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
    ```
 
-2. Start the daemon in a repository folder. The first folder becomes the first repository.
-
-   ```sh
-   cd <repository folder>
-   ~/loom/bin/loom serve            # default address 127.0.0.1:7420
-   ```
-
-   To keep it running after you close the terminal: `setsid nohup ~/loom/bin/loom serve >>~/.loom/serve.log 2>&1 </dev/null &`
-
-3. Open http://127.0.0.1:7420 in a browser. On WSL, open the same address in a Windows browser.
+2. After that, click the **loom** icon on the desktop: the Windows desktop on WSL, the desktop and the app menu on Linux. If loom is not running, the icon starts it and opens the browser. You do not need a terminal.
+3. When you close the browser tab, loom continues to run. To stop it, run `~/loom/bin/loom stop`. Nodes (agents) do not stop, and loom attaches to them again at the next start.
 4. Add repositories in the left sidebar, and start agents with [New node] on a worktree group.
 5. Click a card to type into its terminal. When an agent asks you something, the question shows in the **Questions** pill at the top of the graph and in the **Questions** tab of the right panel. Click it to go to that node, and answer in its terminal.
 
-To stop the daemon, press Ctrl+C in its terminal. If it runs in the background, find its PID with `ps -eo pid,args | grep 'loom serve'` and run `kill <PID>`. Do not end all `loom` processes: each node runs in its own `loom pty-host` process, and that would end the nodes too.
+Manual install: download [loom-x86_64-linux](https://github.com/BrownC98/loom/releases/latest/download/loom-x86_64-linux) to `~/loom/bin/loom`, run `chmod +x`, then run `~/loom/bin/loom open`. The name must be `loom`, because agents in nodes call the `loom` command. Do not end all `loom` processes: each node runs in its own `loom pty-host` process, and that would end the nodes too.
 
 - **Data:** `~/.loom` (database, logs, built-in skills). If you delete it, the node history is lost.
-- **Update:** download the file again (step 1) and restart only the daemon. Nodes (agent processes) live apart from the daemon, and the new daemon attaches to them again.
+- **Update:** run the line in step 1 again. It replaces the file and restarts only the daemon. Nodes (agent processes) live apart from the daemon, and the new daemon attaches to them again.
 - **Address:** by default only this machine can open it (loopback). loom assumes one user and has no sign-in, so do not open it to other machines with `--listen`.
 
 Design and decisions (Korean): [docs/design.md](docs/design.md).

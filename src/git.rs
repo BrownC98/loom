@@ -4,6 +4,7 @@ use std::path::Path;
 
 use tokio::process::Command;
 
+use crate::process_tree;
 use crate::wsl::{self, WslPath};
 
 /// `dir`에서 `git <args>`를 돌리고 표준 출력을 돌려준다. 실패하면 git의 오류 글이다.
@@ -92,29 +93,9 @@ fn clone_command(url: &str, target: &Path) -> Command {
         .env_remove("WAYLAND_DISPLAY")
         .env("GCM_INTERACTIVE", "never")
         .stdin(std::process::Stdio::null());
-    detach_terminal(&mut cmd);
+    // ssh는 비밀번호·암호문·호스트 키 질문을 제어 터미널(`/dev/tty`)이나 콘솔에서 읽는다. 새 세션에는 둘 다 없다.
+    process_tree::new_session(cmd.as_std_mut());
     cmd
-}
-
-/// ssh는 비밀번호·암호문·호스트 키 질문을 제어 터미널(`/dev/tty`)에서 읽는다. 새 세션에는 제어 터미널이 없다.
-#[cfg(unix)]
-fn detach_terminal(cmd: &mut Command) {
-    // SAFETY: `setsid`는 fork 뒤 exec 전에 불러도 되는 함수(async-signal-safe)다.
-    unsafe {
-        cmd.pre_exec(|| {
-            if libc::setsid() == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-}
-
-/// 콘솔 없이 띄운다. ssh가 질문을 읽을 콘솔이 없다.
-#[cfg(windows)]
-fn detach_terminal(cmd: &mut Command) {
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    cmd.creation_flags(DETACHED_PROCESS);
 }
 
 #[cfg(test)]

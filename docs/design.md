@@ -341,6 +341,8 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 | `loom hook` | Claude 훅 | stdin의 훅 이벤트를 받아 전달할 메시지를 돌려준다 |
 | `loom guard` | Claude PreToolUse 훅 | 훅이 포그라운드 Bash 명령 앞에 이 줄을 붙인다. 부른 셸을 중단 대상으로 데몬에 알린다 |
 | `loom serve` | 사람 | 데몬과 화면을 띄운다 |
+| `loom open` | 사람, 바탕 화면 아이콘 | 데몬이 없으면 띄우고 화면을 기본 브라우저로 연다(「[배포](#배포)」) |
+| `loom stop` | 사람 | 데몬만 끝낸다(`POST /api/shutdown`). 노드는 산다 |
 
 - 프로필이 없는 노드에 `steer`나 `interrupt`를 보내면 오류를 내고 보내지 않는다. 큐로 바꿔 보내지 않는다.
 - 답변은 내가 받은 메시지의 보낸 노드에게 간다. 다른 노드가 받은 메시지에 답하거나 남이 보낸 질문을 기다릴 수 없다.
@@ -506,6 +508,11 @@ Linux에서 loom은 호스트 실행 파일 하나다. Orca처럼 사람이 호�
 | 에이전트 CLI(`claude`, `codex`, `opencode2` 등)는 사람이 호스트에 설치한다. loom은 넣지도 고정하지도 않고 데몬의 `PATH`에서 찾는다(「[에이전트](#에이전트)」 탐지) | 사람 지시 "코덱스나, 클로드코드등은 배포 컨테이너에 포함하지 말고 사람들이 자율적으로 설치하도록". 실측한 판과 다르면 데몬은 경고만 띄운다(「에이전트 실행」) |
 | 개발도 같은 호스트에서 한다. 도커를 쓰지 않는다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다 | 개발 환경과 배포 환경이 같다. 컨테이너와 호스트 사이를 맞추던 부품(같은 경로 마운트, docker 소켓, 이미지의 CLI, 볼륨)이 모두 필요 없다 |
 | 사람이 쓰는 loom은 `~/loom/bin/loom`이다. 원래 체크아웃(main)에서 `scripts/host.sh`가 빌드하고, 파일을 바꿔 넣고, 데몬을 다시 띄운다. 데몬은 `127.0.0.1:7420`에서 듣고 시작 폴더는 그 체크아웃이다. 출력은 `~/.loom/serve.log`, PID는 `~/.loom/serve.pid`다 | 명령 하나로 main을 올린다. 노드는 그대로 산다(「에이전트 실행」). 데몬은 새 세션(`setsid`)이라 터미널을 닫아도 산다 |
+| 다른 사람은 `scripts/install.sh` 한 줄(`curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh \| sh`)로 설치한다. Release의 `loom-x86_64-linux`를 `~/loom/bin/loom`에 바꿔 넣고(rename), 바탕 화면 아이콘을 만들고, 돌던 데몬만 끝낸 뒤 `loom open`을 부른다. 다시 부르면 업데이트다 | 사람 지시(2026-10-21) "exe 처럼 다른거 신경쓸것 없이 클릭 한번에 웹브라우저에 loom 띄우기" |
+| 아이콘: WSL은 Windows 바탕 화면(`[Environment]::GetFolderPath('Desktop')`, OneDrive 바탕 화면 포함)의 `loom.lnk`다. 대상은 `wsl.exe -d <배포판> -- ~/loom/bin/loom open`, 창은 최소화(WindowStyle 7)다. Linux는 `~/.local/share/applications/loom.desktop`과 그 사본(XDG 바탕 화면)이다 | `loom open`은 브라우저를 열고 곧 끝나서 콘솔 창이 남지 않는다. `.vbs`로 창을 숨기는 방법은 Windows가 VBScript를 없애는 중이라 쓰지 않는다 |
+| `loom open`은 기본 주소를 묻고, 답이 없으면 같은 실행 파일로 `loom serve`를 새 세션(`setsid`)에 띄워 답할 때까지(30초) 기다린다. 출력은 `~/.loom/serve.log`, PID는 `~/.loom/serve.pid`다. 둘이 함께 띄우면 늦은 데몬은 주소를 잡지 못해 끝나고, 둘 다 먼저 뜬 데몬을 연다. 시작 폴더는 루트(`/`)다 | 아이콘에는 고른 폴더가 없다. 홈은 dotfiles 저장소일 수 있어 첫 저장소로 잘못 더해진다. 루트는 저장소가 아니다. 사람은 화면의 [+]로 저장소를 더한다 |
+| 브라우저: WSL은 `explorer.exe <주소>`(Windows 기본 브라우저), macOS는 `open`, Linux는 `xdg-open`이다. `LOOM_BROWSER`가 있으면 그 프로그램을 쓴다 | 파일 링크 열기(`src/open.rs`)와 같은 부품이다. 시험은 `LOOM_BROWSER`에 기록기를 넣어 사람의 브라우저를 열지 않는다 |
+| 웹 버전은 탭을 닫아도 데몬이 산다. `loom stop`(`POST /api/shutdown`)이 데몬만 끝낸다 | 사람 결정(2026-10-21, A안). 데스크톱 앱이 창을 닫을 때와 같다 |
 | `host.sh`는 그 호스트의 glibc용으로 빌드한다 | 같은 기계에서만 돈다. 호스트에 musl 도구를 설치하지 않는다 |
 | 다른 Linux 기계용 실행 파일은 Release의 `loom-x86_64-linux`다. 정적 링크(musl)라 glibc 판과 관계없이 x86-64에서 돈다. Windows 설치 파일과 같은 Actions 실행(`release.yml`, 손으로 돌린다)이 같은 Release에 올린다 | Release 하나에 한 판의 파일이 모두 있다. Linux 파일만 따로 Release를 만들면 가장 새 Release에 `latest.json`이 없어 Windows 앱이 새 판을 찾지 못한다 |
 | 이름은 `loom`, 앱 아이콘은 지금 것(`app/icons/icon.ico`)을 둔다(2026-10-20 사람 결정 "아이콘, 이름 현행 유지") | 바꿀 이름 후보 14개와 충돌 조사(crates.io, npm, winget 색인, GitHub, 웹 검색), 바꾸는 비용은 [brand.html](mockups/brand.html)에 있다. Atlassian Loom과 winget 별칭 `loom`이 겹치는 문제는 남는다 |
@@ -553,7 +560,7 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 
 | 레이어 | 모듈 |
 |---|---|
-| 상호작용 | 화면, CLI 명령(`src/cli.rs`), 데스크톱 앱 창(`app/`) |
+| 상호작용 | 화면, CLI 명령(`src/cli.rs`), 데몬 켜기·끄기(`src/launch.rs`: `loom open`·`loom stop`), 데스크톱 앱 창(`app/`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다. 예: 워크트리 닫기는 그래프의 `running` 수, `worktree::close`, 노드 지우기를 차례로 부른다 |
 | 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록, 사람 응답 대기(`waits.rs`)), 노드 호스트(`src/node_host/`: PTY 호스트에 붙어 출력 나누기, 중단할 셸(`mod.rs`), PTY 호스트 프로세스(`host.rs`), 프레임(`wire.rs`)), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 화면 확인 창 찾기(`src/screen.rs`), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기, Windows에서 WSL 저장소는 그 배포판의 git), WSL 경로(`src/wsl.rs`: `\\wsl.localhost\…` UNC와 Linux 경로 바꾸기), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |

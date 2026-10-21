@@ -118,6 +118,29 @@ pub fn detach(cmd: &mut std::process::Command) {
 #[cfg(not(unix))]
 pub fn detach(_: &mut std::process::Command) {}
 
+/// `cmd`로 띄운 프로세스를 제어 터미널·콘솔이 없는 새 세션에 넣는다. 부른 터미널이 닫혀도 산다.
+/// git 복제(질문을 읽을 터미널을 없앤다)와 `loom open`이 띄우는 데몬이 쓴다.
+#[cfg(unix)]
+pub fn new_session(cmd: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: `setsid`는 fork 뒤 exec 전에 불러도 되는 함수(async-signal-safe)다.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(windows)]
+pub fn new_session(cmd: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    cmd.creation_flags(DETACHED_PROCESS);
+}
+
 /// 서버 프로세스에 넘길 루프백 포트. OS가 고른 빈 포트를 놓고 그 번호를 돌려준다.
 /// 서버가 고르게(`--port 0`) 하면 주소를 서버 출력에서 읽어야 한다. 그 파이프는 데몬과 함께 닫혀 서버가 쓰기에 실패한다.
 pub fn free_port() -> Result<u16, String> {

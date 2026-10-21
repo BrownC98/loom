@@ -490,7 +490,7 @@ export function Graph(props: {
       const sibs = siblings.get(c.id) ?? [];
       if (sibs.length < 2) continue;
       const keys = reorder(sibs, { ...sibs.find((b) => b.key === c.id)!, at }, direction);
-      if (keys.some((k, i) => k !== sibs[i].key)) setOrder((prev) => [...prev.filter((k) => !keys.includes(k)), ...keys]);
+      if (keys) setOrder((prev) => [...prev.filter((k) => !keys.includes(k)), ...keys]);
     }
   };
 

@@ -135,18 +135,19 @@ export type Sibling = Box & { key: string };
 
 /**
  * 끄는 상자가 형제 사이에 설 순서(2026-10-20 사람 지시 "순서 바꾸기로 구현하는게 좋겠어, 터미널이 모두 잘보여야 하므로 겹치기는 적절하지 않다").
- * `siblings`는 지금 순서의 형제이고 끄는 상자도 들어 있다. 자리는 배치 자리다. `dragged`는 끄는 상자의 지금 자리다.
+ * `siblings`는 형제이고 끄는 상자도 들어 있다. 자리는 배치 자리이고, 지금 순서는 그 자리 순서다(배열 순서가 아니다). `dragged`는 끄는 상자의 지금 자리다.
  * 형제가 늘어서는 축(아래·위로 정렬이면 x, 오른쪽·왼쪽으로면 y)에서 끄는 상자의 중심이 형제의 중심선을 넘으면 그 형제와 순서가 바뀐다.
- * 순서가 바뀌면 넘은 형제가 끄는 상자의 옛 자리 쪽으로 가므로, 같은 자리에서 순서가 오가지 않는다.
+ * 순서가 바뀌면 넘은 형제가 끄는 상자의 옛 자리 쪽으로 가므로, 같은 자리에서 순서가 오가지 않는다. 순서가 그대로면 null이다.
  */
-export function reorder(siblings: readonly Sibling[], dragged: Sibling, direction: ArrangeDirection): string[] {
+export function reorder(siblings: readonly Sibling[], dragged: Sibling, direction: ArrangeDirection): string[] | null {
   const vertical = direction === 'down' || direction === 'up';
   const center = (b: Box) => (vertical ? b.at.x + b.size.width / 2 : b.at.y + b.size.height / 2);
-  const others = siblings.filter((s) => s.key !== dragged.key);
+  const now = [...siblings].sort((a, b) => center(a) - center(b));
+  const others = now.filter((s) => s.key !== dragged.key);
   const index = others.filter((s) => center(s) < center(dragged)).length;
   const keys = others.map((s) => s.key);
   keys.splice(index, 0, dragged.key);
-  return keys;
+  return keys.some((k, i) => k !== now[i].key) ? keys : null;
 }
 
 /** 간선이 붙는 카드의 변. */

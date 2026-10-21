@@ -180,7 +180,7 @@ describe('reorder', () => {
 
   it('before the center line of the next sibling: no change', () => {
     // a 중심 50 + 119 = 169 < 170.
-    expect(reorder(row, sib('a', 119), 'down')).toEqual(['a', 'b', 'c']);
+    expect(reorder(row, sib('a', 119), 'down')).toBeNull();
   });
 
   it('past the center line: the order changes at once', () => {
@@ -191,22 +191,32 @@ describe('reorder', () => {
 
   it('after a swap the passed sibling takes the old slot, so the order does not flip back at the same point', () => {
     // b와 a를 바꾼 뒤 배치: b(0..100), a(120..220). a는 여전히 121에 있다.
-    expect(reorder([sib('b', 0), sib('a', 120), sib('c', 240)], sib('a', 121), 'down')).toEqual(['b', 'a', 'c']);
+    expect(reorder([sib('b', 0), sib('a', 120), sib('c', 240)], sib('a', 121), 'down')).toBeNull();
   });
 
   it('only the lane axis counts', () => {
     // 아래로 정렬이면 y는 보지 않는다.
-    expect(reorder(row, sib('a', 50, 900), 'up')).toEqual(['a', 'b', 'c']);
+    expect(reorder(row, sib('a', 50, 900), 'up')).toBeNull();
     // 오른쪽으로 정렬이면 형제는 y로 늘어선다.
     const column = [sib('a', 0, 0), sib('b', 0, 70), sib('c', 0, 140)];
     expect(reorder(column, sib('a', 900, 71), 'right')).toEqual(['b', 'a', 'c']);
-    expect(reorder(column, sib('a', 0, 69), 'left')).toEqual(['a', 'b', 'c']);
+    expect(reorder(column, sib('a', 0, 69), 'left')).toBeNull();
+  });
+
+  it('siblings come in any order: the order is their layout order', () => {
+    // 사람 보고 2026-10-21 "한번 옮겨지고 다음부턴 안움직임". 형제는 git 순서(main, winget)로 오고, 한 번 바꾼 뒤 배치는 winget(0), main(120)이다.
+    expect(reorder([sib('main', 120), sib('winget', 0)], sib('main', -1), 'down')).toEqual(['main', 'winget']);
+    expect(reorder([sib('a', 240), sib('b', 0), sib('c', 120)], sib('a', 119), 'down')).toEqual(['b', 'a', 'c']);
+  });
+
+  it('no change from the layout order: null', () => {
+    expect(reorder([sib('main', 120), sib('winget', 0)], sib('main', 121), 'down')).toBeNull();
   });
 
   it('wider siblings use their own center line', () => {
     const mixed = [sib('a', 0), { key: 'b', ...box(120, 0, 400, 50) }];
     // b 중심 320. a 중심이 그 선을 넘어야 한다.
-    expect(reorder(mixed, sib('a', 269), 'down')).toEqual(['a', 'b']);
+    expect(reorder(mixed, sib('a', 269), 'down')).toBeNull();
     expect(reorder(mixed, sib('a', 271), 'down')).toEqual(['b', 'a']);
   });
 });

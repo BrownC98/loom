@@ -215,6 +215,15 @@ fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
         .unwrap();
     g.exited(worker, 0).unwrap();
     assert_eq!(wait(worker), None);
+
+    // 훅 대기: 다음 훅이 거두고(`loom hook`), 사람이 받은편지함 [×]로도 지운다(`DELETE /api/nodes/{id}/wait`).
+    let permission = Some((WaitKind::Approval, "Claude needs your permission"));
+    g.set_wait(lead, WaitSource::Hook, permission).unwrap();
+    g.set_wait(lead, WaitSource::Hook, None).unwrap();
+    assert_eq!(wait(lead), None);
+    g.set_wait(lead, WaitSource::Hook, permission).unwrap();
+    g.clear_wait(lead).unwrap();
+    assert_eq!(wait(lead), None);
 }
 
 #[test]

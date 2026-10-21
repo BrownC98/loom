@@ -1,6 +1,6 @@
 //! 사람 응답 대기: 노드가 사람의 답·승인을 기다린다는 표시 하나. 화면의 받은편지함·카드·사이드바가 이것만 읽는다.
 //! 신호(에이전트의 `loom ask`, Claude 훅, Codex 스레드 상태, 터미널 화면)는 모두 `set_wait` 하나로 들어온다.
-//! 지우는 길: 신호 쪽이 거두기(`set_wait(.., None)`), 사람의 키 입력·노드 재시작(`clear_wait`), 프로세스 끝(`end_process`).
+//! 지우는 길: 신호 쪽이 거두기(`set_wait(.., None)`), 사람의 키 입력·받은편지함 [×]·노드 재시작(`clear_wait`), 프로세스 끝(`end_process`).
 //! 근거: docs/design.md 「사람 응답 대기」.
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -117,7 +117,7 @@ impl Graph {
         Ok(self.set_wait(id, WaitSource::Ask, Some((WaitKind::Question, question)))?)
     }
 
-    /// 사람이 그 노드 터미널에 키를 눌렀거나 노드 프로세스를 다시 띄웠다. 어느 신호의 대기든 지운다.
+    /// 사람이 그 노드 터미널에 키를 눌렀거나, 받은편지함에서 지웠거나, 노드 프로세스를 다시 띄웠다. 어느 신호의 대기든 지운다.
     pub fn clear_wait(&self, id: NodeId) -> rusqlite::Result<()> {
         let db = self.lock();
         let changed = db.execute(

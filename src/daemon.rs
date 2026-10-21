@@ -358,11 +358,10 @@ pub struct AskRequest {
     pub question: String,
 }
 
-/// Claude 훅(`loom hook`)이 알린 사람 응답 대기.
+/// Claude 훅(`loom hook`)이 알린 사람 응답 대기. `None`이면 훅이 건 대기를 거둔다.
 #[derive(Serialize, Deserialize)]
 pub struct HookWaitRequest {
-    pub kind: WaitKind,
-    pub text: String,
+    pub wait: Option<(WaitKind, String)>,
 }
 
 /// `loom done`의 요청. `summary`는 요약이나 결과 파일 경로다.
@@ -495,6 +494,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             "/api/nodes/{id}/bookmark",
             put(bookmark_node).delete(unbookmark_node),
         )
+        .route("/api/nodes/{id}/wait", delete(dismiss_wait))
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
             "/api/pastes/{name}",
@@ -1349,6 +1349,15 @@ async fn unbookmark_node(
     Ok(Json(()))
 }
 
+/// 받은편지함의 [×]: 사람이 터미널에 키를 누른 것처럼 그 노드의 대기를 지운다. 근거: docs/design.md 「사람 응답 대기」.
+async fn dismiss_wait(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.graph.clear_wait(NodeId(id)).map_err(Refusal::from)?;
+    Ok(Json(()))
+}
+
 async fn agent_spawn(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -1640,7 +1649,11 @@ async fn agent_hook_wait(
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.graph
-        .set_wait(node, WaitSource::Hook, Some((req.kind, &req.text)))
+        .set_wait(
+            node,
+            WaitSource::Hook,
+            req.wait.as_ref().map(|(kind, text)| (*kind, text.as_str())),
+        )
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))
 }

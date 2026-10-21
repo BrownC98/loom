@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>저장소 상자 끌기</title>
+<style>
+  /* 토큰은 web/src/styles.css :root와 같다. */
+  :root {
+    color-scheme: light;
+    --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+    --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+    --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+    --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+    --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+    --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+    --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+    --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+    --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+    --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+    --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+    --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+    --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+    --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
+    --mono: 'Jetendard', 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+  header p { font-size: 13px; color: var(--ink-2); }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  h2 { font-size: 16px; margin: 32px 0 4px; }
+  .lead { max-width: 80ch; color: var(--ink-2); font-size: 13px; }
+  .row { display: flex; gap: 24px; align-items: flex-start; margin-top: 12px; }
+  figure { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  figcaption { font-size: 13px; font-weight: 600; }
+  .shot { border: 1px solid var(--line); border-radius: 8px; display: block; }
+  .notes { max-width: 320px; font-size: 13px; color: var(--ink-2); padding-left: 18px; }
+  .notes li + li { margin-top: 6px; }
+  .notes b { color: var(--ink); }
+  .pin { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; position: absolute; z-index: 5; }
+
+  /* 그래프 칸만 그렸다. 값은 web/src/styles.css .repo-box, .repo-head, .group-head와 같다. */
+  .canvas { position: relative; width: 860px; height: 250px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background-color: var(--bg); background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 16px 16px; font-size: 12px; }
+  .repo { position: absolute; top: 40px; height: 166px; border: 1.5px solid var(--line-strong); border-radius: 14px; background: color-mix(in oklch, var(--panel) 40%, transparent); }
+  .repo-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: grab; }
+  .repo-head b { font-size: 15px; }
+  .repo-head .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+  .repo.dragging { opacity: .6; z-index: 4; box-shadow: 0 8px 24px oklch(0% 0 0 / 0.12); }
+  .repo.dragging .repo-head { cursor: grabbing; }
+  .group { position: absolute; top: 56px; height: 96px; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--bg); }
+  .group-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); }
+  .group-head .kind { color: var(--ink-3); }
+  .group p { padding: 12px 14px; color: var(--ink-2); }
+  .cursor { position: absolute; z-index: 6; width: 18px; height: 18px; }
+
+  table { border-collapse: collapse; margin-top: 12px; font-size: 13px; max-width: 980px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  .rec { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+</style>
+
+<header>
+  <p>응답할 곳: 총괄 · claude-1</p>
+  <p>연 담당: 총괄 · claude-1</p>
+  <h1>저장소 상자를 끌어 순서 바꾸기</h1>
+  <p class="lead">사람 지시 "저장소 묶음도 드래그로 이동할 수 있게 해줘". 그래프 범위가 ‘모든 저장소’일 때 보이는 저장소 상자를, 워크트리 묶음과 같은 방법으로 머리를 끌어 순서를 바꿉니다. 새 단추·손잡이 그림은 없습니다. 끄는 모양과 규칙은 지금 묶음 끌기와 같습니다.</p>
+</header>
+
+<h2>지금</h2>
+<div class="row">
+  <figure>
+    <figcaption>저장소 상자는 끌리지 않습니다(시험 데몬, 저장소 alpha·beta)</figcaption>
+    <img class="shot" src="repo-drag-before.png" width="860" alt="지금 그래프: alpha 상자와 beta 상자가 사이드바 순서로 옆에 있다">
+  </figure>
+</div>
+
+<h2>새: 끄는 중</h2>
+<div class="row">
+  <figure>
+    <figcaption>alpha 머리를 잡아 beta 중심선 너머로 끌었습니다</figcaption>
+<div class="canvas" role="img" aria-label="끄는 중: 반투명한 alpha 상자가 맨 위에 있고 beta 상자는 왼쪽 첫 자리로 옮겨 갔다"><section class="repo " style="left:24px;width:220px"><div class="repo-head"><b>beta</b><span class="sub">/tmp/repodrag/src/beta</span></div><div class="group" style="left:12px;width:194px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span></div><p>노드 없음</p></div></section><section class="repo dragging" style="left:300px;width:400px"><div class="repo-head"><b>alpha</b><span class="sub">/tmp/repodrag/src/alpha</span></div><div class="group" style="left:12px;width:180px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span></div><p>노드 없음</p></div><div class="group" style="left:206px;width:180px"><div class="group-head"><b>feat</b><span class="kind"></span></div><p>노드 없음</p></div></section><span class="pin" style="left:306px;top:30px">1</span><span class="pin" style="left:30px;top:30px">2</span><svg class="cursor" style="left:360px;top:62px" viewBox="0 0 24 24" fill="var(--ink)" stroke="var(--surface)" stroke-width="1.5"><path d="M5 3l14 8-6 2-3 6z"/></svg></div>
+  </figure>
+  <ol class="notes">
+    <li><b>끄는 상자</b>: 머리(이름·경로 줄)가 손잡이입니다. 끄는 동안 반투명하고 맨 위에 그립니다. 그 안의 묶음·카드도 함께 움직입니다.</li>
+    <li><b>형제 상자</b>: 끄는 상자의 중심이 형제의 중심선을 넘으면 바로 순서가 바뀌고, 형제가 새 자리로 옮겨 갑니다.</li>
+  </ol>
+</div>
+
+<h2>새: 놓은 뒤</h2>
+<div class="row">
+  <figure>
+    <figcaption>alpha는 beta 다음 자리로 갑니다. 상자는 겹치지 않습니다</figcaption>
+<div class="canvas" role="img" aria-label="놓은 뒤: beta 상자 다음에 alpha 상자가 있다"><section class="repo " style="left:24px;width:220px"><div class="repo-head"><b>beta</b><span class="sub">/tmp/repodrag/src/beta</span></div><div class="group" style="left:12px;width:194px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span></div><p>노드 없음</p></div></section><section class="repo " style="left:276px;width:400px"><div class="repo-head"><b>alpha</b><span class="sub">/tmp/repodrag/src/alpha</span></div><div class="group" style="left:12px;width:180px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span></div><p>노드 없음</p></div><div class="group" style="left:206px;width:180px"><div class="group-head"><b>feat</b><span class="kind"></span></div><p>노드 없음</p></div></section></div>
+  </figure>
+  <ol class="notes">
+    <li>바꾼 순서는 이 페이지를 연 동안만 남습니다. [정렬]을 누르면 사이드바 순서로 돌아갑니다(묶음·카드와 같음).</li>
+    <li>저장소가 하나뿐이면 상자가 없어 바뀌는 것이 없습니다.</li>
+  </ol>
+</div>
+
+<h2>결정할 것</h2>
+<table>
+  <thead><tr><th>항목</th><th>권장</th><th>다른 안</th></tr></thead>
+  <tbody>
+    <tr><td>사이드바 순서</td><td>그대로 둡니다. 그래프 순서만 바뀝니다(묶음 끌기와 같음)<span class="rec">권장</span></td><td>사이드바 저장소 순서도 함께 바꾸고 저장합니다(데몬에 순서 열이 새로 필요)</td></tr>
+    <tr><td>순서 저장</td><td>이 페이지를 연 동안만 남깁니다(묶음·카드와 같음)<span class="rec">권장</span></td><td>브라우저에 저장해 새로고침 뒤에도 남깁니다</td></tr>
+  </tbody>
+</table>
+</html>

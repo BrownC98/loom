@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M7 사이드바 찾기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.pane { width: 700px; padding: 18px 22px; background: var(--panel); border-radius: 12px; display: grid; gap: 18px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.pane code { font-family: var(--mono); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.rows { border: 1px solid var(--line); border-radius: var(--radius); }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.acct-row:last-child { border-bottom: 0; }
+.acct-row[aria-current="true"] { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+.row-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.row-main .name { font-weight: 600; }
+.row-main .meta { flex-basis: 100%; font: 12px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-actions { display: flex; gap: 4px; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
+.badge.warn { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }
+.win { display: grid; grid-template-columns: 64px minmax(0, 1fr) 44px auto; gap: 6px 8px; }
+.win > :not(.win-line) { grid-column: 1 / -1; }
+.win-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; font-size: 12px; color: var(--ink-2); }
+.meter { display: block; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.pct { font-family: var(--mono); text-align: right; }
+.left { white-space: nowrap; font-family: var(--mono); color: var(--ink-3); }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+
+.confirm { width: 420px; padding: 16px; background: var(--surface); border-radius: 10px; border: 1px solid var(--line); display: grid; gap: 12px; font-size: 13px; }
+.confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.login { width: 700px; padding: 14px; background: var(--surface); border-radius: 10px; display: grid; gap: 10px; }
+.login h3 { display: flex; align-items: center; font-size: 14px; }
+.login h3 .spacer { flex: 1; }
+.term { background: oklch(16% 0 0); color: oklch(90% 0 0); font: 12px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; white-space: pre; height: 150px; }
+.term .dim { color: oklch(65% 0 0); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+/* 이 목업에 더한 블록. 그래프 칸 값은 web/src/styles.css와 같다(심플 보기). */
+.row2 { display: flex; gap: 24px; align-items: flex-start; }
+.row2 > div { display: grid; gap: 6px; }
+.cap { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.frame { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background-color: var(--bg); background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 16px 16px; }
+.zoom { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.group { position: absolute; border: 1px dashed var(--line-strong); border-radius: 12px; background: color-mix(in oklch, var(--panel) 60%, transparent); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); font-size: 13px; font-weight: 600; }
+.group-head .kind { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.card { position: absolute; width: 260px; height: 134px; padding: 8px 8px 8px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); font-size: 13px; z-index: 2; }
+.card .top { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.card .top i { width: 7px; height: 7px; border-radius: 50%; background: oklch(54.6% 0.245 263); }
+.card .top .st { margin-left: auto; font-weight: 500; font-size: 12px; color: var(--ink-3); }
+.card p { margin-top: 6px; color: var(--ink-2); font-size: 12px; }
+.card.mark { outline: 2px dashed var(--warn); outline-offset: 3px; }
+.edges { position: absolute; inset: 0; overflow: visible; z-index: 1; }
+.edges path { fill: none; stroke: var(--ink-3); stroke-width: 2; }
+.edges path.hot { stroke: var(--err); stroke-width: 3; }
+.edges path.side { stroke-dasharray: 6 5; }
+table { border-collapse: collapse; font-size: 13px; max-width: 1200px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+td:first-child { font-weight: 600; white-space: nowrap; }
+.rec { margin-left: 6px; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
+
+/* 이 목업에 더한 블록. 사이드바·트리·그래프 값은 web/src/styles.css와 같다. */
+.app { display: grid; grid-template-columns: 260px 1100px; height: 440px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.app.railed { grid-template-columns: 46px 1100px; }
+.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; font-size: 13px; }
+.brand { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 16px; padding: 12px 8px 8px 16px; }
+.ib { width: 26px; height: 26px; display: inline-grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--ink-2); padding: 0; }
+.ib:disabled { opacity: 0.4; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.sfind { margin: 0 8px 6px; display: flex; align-items: center; gap: 2px; }
+.sfind .q { flex: 1; min-width: 0; height: 28px; padding: 0 8px; display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); }
+.sfind .q svg { color: var(--ink-3); }
+.sfind .q .ph { color: var(--ink-3); }
+.sfind .q.focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
+.sfind .q.none { border-color: var(--err); box-shadow: 0 0 0 2px color-mix(in oklch, var(--err) 15%, transparent); }
+.sfind .q .caret { display: inline-block; width: 1px; height: 15px; background: var(--ink); margin-left: -5px; }
+.sfind .q .count { margin-left: auto; font: 12px var(--mono); color: var(--ink-3); white-space: nowrap; }
+.sfind .q .count.none { font-family: var(--font); color: var(--err); }
+.side-head { display: flex; align-items: center; padding: 8px 8px 6px 16px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.tree { padding: 0 8px; flex: 1; overflow: hidden; }
+.row { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 calc(4px + var(--d) * 12px); border-radius: 6px; white-space: nowrap; }
+.row .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.row .sub { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+.row .dot { width: 7px; height: 7px; border-radius: 50%; background: oklch(54.6% 0.245 263); flex: none; margin: 0 3px; }
+.row .dot.g { background: oklch(62% 0.17 150); }
+.row .lf { width: 14px; flex: none; }
+.row.sel { background: var(--accent-wash); }
+.row.ctx { opacity: 0.55; }
+.row.at { outline: 2px solid var(--warn); outline-offset: -2px; }
+.row mark { background: color-mix(in oklch, var(--warn) 28%, transparent); color: inherit; border-radius: 2px; }
+.tree .msg { padding: 8px 12px; font-size: 12px; color: var(--ink-3); }
+.side-foot { padding: 8px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; color: var(--ink-2); padding-left: 16px; }
+.rail { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; }
+.rail .ib { width: 30px; height: 30px; }
+.rail .end { margin-top: auto; }
+.graph { position: relative; overflow: hidden; background-color: var(--bg); background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 16px 16px; }
+.graph .canvas-title { position: absolute; top: 12px; left: 16px; font-size: 18px; font-weight: 600; z-index: 5; }
+.gone { position: absolute; top: 12px; right: 12px; z-index: 6; width: 30px; height: 30px; display: grid; place-items: center; border: 1px dashed var(--err); border-radius: 6px; color: var(--ink-3); background: var(--surface); text-decoration: line-through; }
+.gone::after { content: ""; position: absolute; left: -3px; right: -3px; top: 50%; border-top: 2px solid var(--err); transform: rotate(-45deg); }
+.group.hl { border: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.card.hl { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash), 0 0 0 1px var(--accent); }
+.dim { opacity: 0.4; }
+.cur { outline: 3px solid var(--warn); outline-offset: 5px; }
+.side-only { width: 260px; height: 330px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; }
+.side-only .side { flex: 1; border-right: 0; }
+img.shot { width: 1100px; border: 1px solid var(--line); border-radius: 10px; }
+kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M7</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>찾기를 왼쪽 사이드바로 옮기고, 결과를 그래프와 트리에 함께 보이기</h1>
+  <p class="lead">사람 지시 "찾기 버튼은 우측 사이드바에 위치해서 그래프랑 사이드바 같이 결과나오는 방식이 좋겠음", "우측이 아니라 좌측". 찾기 입력 칸이 왼쪽 사이드바 맨 위로 온다. 글자 하나로 그래프(지금과 같은 강조·이동)와 사이드바 트리(맞는 줄만 남김)에 결과가 함께 보인다. 그래프 오른쪽 위의 찾기 단추와 막대(M3)는 지운다. 점선이 새로 생기는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 지금 화면 <span class="tag">찾기는 그래프 오른쪽 위 단추(M3)</span></h2>
+    <img class="shot" src="sidebar-find-before.png" alt="지금 loom 화면: 그래프 오른쪽 위에 찾기 단추가 있다">
+    <ul class="note"><li>찾기 단추가 그래프 칸 오른쪽 위에 있고, 결과는 그래프에만 보인다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 찾기 칸 <span class="tag">빈 칸: 트리와 그래프는 그대로</span></h2>
+    <div id="f-empty"></div>
+    <ul class="note">
+      <li>입력 칸은 사이드바 이름(loom) 줄 아래에 늘 보인다. 열기·닫기 상태가 없다.</li>
+      <li>그래프 오른쪽 위의 찾기 단추(빨간 선)와 떠 있는 막대는 지운다. 찾기는 한 곳에만 있다.</li>
+      <li><kbd>Ctrl+Shift+F</kbd>는 지금처럼 터미널 안에서도 듣고, 이 칸에 포커스를 주고 글자를 모두 고른다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 이름을 친다 <span class="tag">“모니터링” → 일치 5개, 2/5 노드 「모니터링-코디」</span></h2>
+    <div id="f-hit"></div>
+    <ul class="note">
+      <li>트리: 맞는 줄과 그 위 줄(저장소·워크트리·부모 노드)만 남긴다. 위 줄은 흐리게 그린다. 맞는 글자에 노란 바탕을 칠한다. 맞는 줄이 없는 저장소(loom)는 숨긴다.</li>
+      <li>그래프: 지금과 같다. 맞는 카드·묶음은 밝게, 나머지는 흐리게, 현재 일치는 노란 테두리로 그리고 가운데로 옮긴다.</li>
+      <li>현재 일치는 트리에서도 노란 테두리다. 칸 안 숫자는 「현재/전체」다. <kbd>Enter</kbd>·<kbd>↓</kbd>는 다음, <kbd>Shift+Enter</kbd>·<kbd>↑</kbd>는 이전 일치다. ↑·↓ 단추는 지운다(키와 줄 클릭이 같은 일을 한다).</li>
+      <li>트리에서 맞는 줄을 클릭하면 그 줄이 현재 일치가 되고 그래프가 그리로 옮긴다. 노드 줄이면 지금처럼 그 노드도 고른다.</li>
+      <li>칸 끝 ×나 <kbd>Esc</kbd>는 글자를 지운다. 트리와 그래프가 ②로 돌아간다. 현재 일치가 노드면 그 노드를 고른 채로 둔다(지금과 같다).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>④ 접힌 사이드바 <span class="tag">레일에 찾기 아이콘</span></h2>
+    <div id="f-rail"></div>
+    <ul class="note">
+      <li>레일의 펼치기 단추 아래에 찾기 아이콘을 둔다. 클릭하거나 <kbd>Ctrl+Shift+F</kbd>를 누르면 사이드바를 펼치고 찾기 칸에 포커스를 준다.</li>
+      <li>글자가 남은 채로 사이드바를 접으면 그래프 강조는 남는다. 레일 아이콘에 점을 찍어 찾기가 켜져 있음을 알린다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>⑤ 일치 없음 <span class="tag">“배포2”</span></h2>
+    <div id="f-none"></div>
+    <ul class="note">
+      <li>칸 테두리가 빨갛고 숫자 자리에 「없음」이 보인다. 트리는 「맞는 이름이 없습니다」 한 줄만 보인다.</li>
+      <li>그래프는 흐리게 하지 않고 옮기지 않는다(지금과 같다).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>⑥ 다른 안: 트리를 거르지 않고 강조만 <span class="tag">비교용</span></h2>
+    <div id="f-alt" style="display:flex;gap:24px"></div>
+    <ul class="note">
+      <li>모든 줄을 그대로 두고 맞는 줄만 강조, 나머지는 흐리게 한다. 맞는 줄이 접힌 묶음 안에 있으면 펼쳐야 한다.</li>
+      <li>노드가 많으면 맞는 줄이 화면 밖으로 흩어진다. 그래서 ③(거르기)을 권장한다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <thead><tr><th>항목</th><th>권장</th><th>다른 안</th></tr></thead>
+      <tbody>
+        <tr><td>찾기 칸 자리</td><td>사이드바 이름 줄 아래, 늘 보이는 입력 칸(②)<span class="rec">권장</span></td><td>사이드바 머리의 돋보기 단추를 눌러야 칸이 열린다</td></tr>
+        <tr><td>그래프 찾기 막대</td><td>지운다. 찾기는 사이드바 한 곳<span class="rec">권장</span></td><td>둘 다 둔다(같은 글자를 공유)</td></tr>
+        <tr><td>트리 결과</td><td>맞는 줄과 그 위 줄만 남긴다(③)<span class="rec">권장</span></td><td>모든 줄을 두고 강조만(⑥)</td></tr>
+        <tr><td>이전·다음</td><td>키(<kbd>Enter</kbd>·<kbd>↑</kbd>·<kbd>↓</kbd>)와 트리 줄 클릭. ↑·↓ 단추는 지운다<span class="rec">권장</span></td><td>칸 옆에 ↑·↓ 단추를 남긴다</td></tr>
+        <tr><td>접힌 사이드바</td><td>레일에 찾기 아이콘. 누르면 펼치고 칸에 포커스(④)<span class="rec">권장</span></td><td>레일에는 두지 않고 <kbd>Ctrl+Shift+F</kbd>만 펼친다</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+const I = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+  branch: '<circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 8v8M18 10c0 4-6 3-10 6"/>',
+  close: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M16 15l-3-3 3-3"/>',
+  open: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M14 9l3 3-3 3"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+};
+const ic = (k, extra = '') => `<svg class="i" viewBox="0 0 24 24" ${extra}>${I[k]}</svg>`;
+// 트리 줄: [깊이, 종류(repo|wt|node), 이름, 덧말, 키]
+const TREE = [
+  [0, 'repo', 'loom', '/home/ktadev/src/loom', 'r-loom'],
+  [1, 'wt', 'main', 'original checkout', 'w-main'],
+  [2, 'node', 'loom 총괄', 'Claude', 'n-chong'],
+  [2, 'node', 'claude-1', 'Claude', 'n-c1'],
+  [1, 'wt', '그래프새워크트리', '', 'w-g'],
+  [2, 'node', '그래프새워크트리', 'Claude', 'n-g'],
+  [1, 'wt', '찾기사이드바', '', 'w-f'],
+  [2, 'node', '찾기사이드바', 'Claude', 'n-f'],
+  [0, 'repo', 'ktasearch', '/srv/ktasearch', 'r-kta'],
+  [1, 'wt', 'main', 'original checkout', 'w-kmain'],
+  [2, 'node', 'ktasearch 총괄', 'Claude', 'n-kc', 'g'],
+  [1, 'wt', '관리자-모니터링', '', 'w-am'],
+  [2, 'node', '모니터링-코디', 'Claude', 'n-mc', 'g'],
+  [3, 'node', '모니터링-백엔드', 'Claude', 'n-mb', 'g'],
+  [3, 'wt', '관리자-모니터링-화면', '', 'w-amh'],
+  [4, 'node', '모니터링-화면', 'Claude', 'n-mh', 'g'],
+];
+const mark = (name, q) => {
+  const i = q ? name.indexOf(q) : -1;
+  return i < 0 ? name : `${name.slice(0, i)}<mark>${q}</mark>${name.slice(i + q.length)}`;
+};
+/** mode: 'all' | 'filter' | 'hl' | 'none'. */
+function tree({ q = '', mode = 'all', at = null, sel = null }) {
+  if (mode === 'none') return '<div class="msg">맞는 이름이 없습니다</div>';
+  const hit = (r) => r[2].includes(q) && q !== '';
+  const keep = TREE.map((r, i) => {
+    if (mode !== 'filter') return true;
+    if (hit(r)) return true;
+    // 위 줄: 뒤에 오는 더 깊은 줄 가운데 맞는 줄이 있다.
+    for (let j = i + 1; j < TREE.length && TREE[j][0] > r[0]; j++) if (hit(TREE[j])) return true;
+    return false;
+  });
+  return TREE.filter((_, i) => keep[i]).map((r) => {
+    const [d, kind, name, sub, key, color] = r;
+    const h = hit(r);
+    const cls = ['row', key === sel ? 'sel' : '', key === at ? 'at' : '', q && !h ? 'ctx' : ''].join(' ');
+    const lead = kind === 'node' ? `<span class="lf"></span><span class="dot ${color || ''}"></span>` : ic('chev') + (kind === 'wt' ? ic('branch') : '');
+    return `<div class="${cls}" style="--d:${d}">${lead}<span class="nm">${mark(name, q)}</span><span class="sub">${sub}</span></div>`;
+  }).join('');
+}
+function side({ q = '', state = '', count = '', countCls = '', treeOpts = {} }) {
+  const box = q
+    ? `${ic('search')}<span>${q}</span><span class="caret"></span><span class="count ${countCls}">${count}</span>`
+    : `${ic('search')}<span class="ph">노드·워크트리 찾기</span>`;
+  return `<nav class="side"><div class="brand">loom<button class="ib">${ic('close')}</button></div>
+    <div class="sfind new"><span class="q ${state}">${box}</span>${q ? `<button class="ib" title="지우기 (Esc)">${ic('x')}</button>` : ''}</div>
+    <div class="side-head"><span style="flex:1">Repositories</span>${ic('plus')}</div>
+    <div class="tree">${tree({ q, ...treeOpts })}</div>
+    <div class="side-foot">${ic('gear')}Settings</div></nav>`;
+}
+// 그래프(ktasearch, 심플 보기를 줄여 그림).
+const G = [
+  ['g', 'w-kmain', 'main', 40, 40, 300, 230],
+  ['g', 'w-am', '관리자-모니터링', 372, 300, 632, 214],
+  ['g', 'w-amh', '관리자-모니터링-화면', 1036, 300, 300, 214],
+  ['c', 'n-kc', 'ktasearch 총괄', 60, 100, '총괄'],
+  ['c', 'n-mc', '모니터링-코디', 392, 360, '코디'],
+  ['c', 'n-mb', '모니터링-백엔드', 724, 360, '워커'],
+  ['c', 'n-mh', '모니터링-화면', 1056, 360, '워커'],
+];
+const EDGES = '<path d="M190 234 C190 300 522 290 522 360"/><path d="M652 427 C690 427 690 427 724 427"/><path d="M522 494 C522 560 1186 560 1186 494"/>';
+function graph({ q = '', at = null, gone = false, shift = 0 }) {
+  const on = (name) => q !== '' && name.includes(q);
+  const st = (name, key) => (q === '' ? '' : on(name) ? 'hl' : 'dim') + (key === at ? ' cur' : '');
+  const body = G.map(([t, key, name, x, y, w, h]) => t === 'g'
+    ? `<div class="group ${st(name, key)}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><div class="group-head">${name}</div></div>`
+    : `<div class="card ${st(name, key)}" style="left:${x}px;top:${y}px"><div class="top"><i style="background:oklch(62% 0.17 150)"></i>${name}<span class="st">실행 중</span></div><p>${w}</p></div>`).join('');
+  return `<div class="graph"><span class="canvas-title">ktasearch</span>${gone ? `<span class="gone">${ic('search')}</span>` : ''}
+    <div class="zoom" style="width:1830px;height:700px;transform:translate(${shift}px,40px) scale(0.6)"><svg class="edges"><g class="${q ? 'dim' : ''}">${EDGES}</g></svg>${body}</div></div>`;
+}
+const app = (s, g) => `<div class="app">${side(s)}${graph(g)}</div>`;
+document.getElementById('f-empty').innerHTML = app({}, { gone: true });
+document.getElementById('f-hit').innerHTML = app(
+  { q: '모니터링', state: 'focus', count: '2/5', treeOpts: { mode: 'filter', at: 'n-mc', sel: 'n-mc' } },
+  { q: '모니터링', at: 'n-mc', shift: -60 });
+document.getElementById('f-none').innerHTML = app(
+  { q: '배포2', state: 'none', count: '없음', countCls: 'none', treeOpts: { mode: 'none' } }, {});
+document.getElementById('f-rail').innerHTML = `<div class="app railed"><nav class="rail"><button class="ib">${ic('open')}</button><button class="ib new" title="노드·워크트리 찾기 (Ctrl+Shift+F)" style="position:relative">${ic('search')}<i style="position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;background:var(--warn)"></i></button><button class="ib end">${ic('gear')}</button></nav>${graph({ q: '모니터링', at: 'n-mc', shift: -60 })}</div>`;
+document.getElementById('f-alt').innerHTML = `<div><span class="cap">⑥ 강조만(다른 안)</span><div class="side-only" style="height:560px">${side({ q: '모니터링', state: 'focus', count: '2/5', treeOpts: { mode: 'hl', at: 'n-mc', sel: 'n-mc' } })}</div></div><div><span class="cap">③ 거르기(권장)</span><div class="side-only" style="height:560px">${side({ q: '모니터링', state: 'focus', count: '2/5', treeOpts: { mode: 'filter', at: 'n-mc', sel: 'n-mc' } })}</div></div>`;
+</script>
+</body>
+</html>

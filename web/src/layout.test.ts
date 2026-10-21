@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
-import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, keepsArranged, overlaps, placeGroups, push, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, sameSpots, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
 
 const view = (id: number, parent: number | null): NodeView => ({
   id,
@@ -480,21 +480,15 @@ describe('the left tree grows children (target picture: two root trees, child gr
   });
 });
 
-describe('keepsArranged (live growth keeps the arranged shape)', () => {
+describe('sameSpots (an arranged repo saves the new auto layout when it differs)', () => {
   const m = (...e: [string, number][]) => new Map(e.map(([k, x]) => [k, { x, y: 0 }]));
-  const before = m(['1', 0], ['2', 700]);
 
-  it('saved = previous auto, and a new card changes the auto layout: follow it', () => {
-    expect(keepsArranged(m(['1', 0], ['2', 700]), before, m(['1', 310], ['2', 1340], ['6', 0]))).toBe(true);
+  it('equal, or off by less than half a pixel: same', () => {
+    expect(sameSpots(m(['1', 0], ['2', 700]), m(['1', 0], ['2', 700.3]))).toBe(true);
   });
 
-  it('a box the person dragged keeps the drag: no follow', () => {
-    expect(keepsArranged(m(['1', 0], ['2', 900]), before, m(['1', 310], ['2', 1340], ['6', 0]))).toBe(false);
-  });
-
-  it('nothing changed, or nothing arranged yet: no follow', () => {
-    expect(keepsArranged(m(['1', 0], ['2', 700]), before, before)).toBe(false);
-    expect(keepsArranged(new Map(), new Map(), before)).toBe(false);
-    expect(keepsArranged(m(['1', 0]), before, m(['1', 0], ['2', 800]))).toBe(false);
+  it('a moved box or a new box without a saved spot: not same', () => {
+    expect(sameSpots(m(['1', 0], ['2', 700]), m(['1', 310], ['2', 1340]))).toBe(false);
+    expect(sameSpots(m(['1', 0], ['2', 700]), m(['1', 0], ['2', 700], ['6', 0]))).toBe(false);
   });
 });

@@ -49,7 +49,7 @@ use crate::profile::{
 };
 use crate::settings::Settings;
 use crate::skills::{self, Position};
-use crate::spots::{CardSize, Placed, Spots};
+use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
 #[derive(Embed)]
@@ -428,6 +428,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/repos/{id}/commits", get(commits))
         .route("/api/repos/{id}/spots", delete(clear_spots))
         .route("/api/spots", get(list_spots).put(put_spot))
+        .route("/api/spots/arranged", put(put_arranged))
         .route(
             "/api/sizes",
             get(list_sizes).put(put_sizes).delete(clear_sizes),
@@ -604,8 +605,8 @@ async fn delete_worktree(
     Ok(Json(worktree::view(id, &repo).await))
 }
 
-async fn list_spots(State(app): State<Arc<App>>) -> Result<Json<Vec<Placed>>, Problem> {
-    Ok(Json(app.spots.list().map_err(internal)?))
+async fn list_spots(State(app): State<Arc<App>>) -> Result<Json<Layout>, Problem> {
+    Ok(Json(app.spots.layout().map_err(internal)?))
 }
 
 /// 놓은 상자 하나와 그 상자가 민 상자들. 한 번 놓기가 한 요청이다.
@@ -614,6 +615,15 @@ async fn put_spot(
     Json(placed): Json<Vec<Placed>>,
 ) -> Result<Json<()>, Problem> {
     app.spots.put(&placed).map_err(internal)?;
+    Ok(Json(()))
+}
+
+/// [정렬]이 구한 자리, 정렬한 저장소의 새 자동 배치.
+async fn put_arranged(
+    State(app): State<Arc<App>>,
+    Json(arranged): Json<Arranged>,
+) -> Result<Json<()>, Problem> {
+    app.spots.put_arranged(&arranged).map_err(internal)?;
     Ok(Json(()))
 }
 

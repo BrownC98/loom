@@ -294,14 +294,12 @@ export function grew(before: ReadonlyMap<string, Size>, now: ReadonlyMap<string,
   });
 }
 
-/**
- * 정렬한 모양을 지키는 저장소인가(2026-10-21 사람 지시 "우측 부하테스트 총괄에 자식이 생기면 자식기준으로 다른 트리가 밀려나도록").
- * 저장한 자리(`saved`)가 앞 렌더의 자동 배치(`before`)와 모두 같고 새 자동 배치(`now`)와 다르면 참이다. 그때 부르는 쪽이 `now`를 저장한다.
- * 그래서 새 카드·묶음이 생기거나 카드가 커지면 나무마다 자손 폭을 다시 잡고 옆 나무를 통째로 민다. 사람이 끌어 놓은 자리가 하나라도 있으면 거짓이다.
- */
-export function keepsArranged(saved: ReadonlyMap<string, Point>, before: ReadonlyMap<string, Point>, now: ReadonlyMap<string, Point>): boolean {
-  const same = (a: Point | undefined, b: Point) => a !== undefined && Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5;
-  return before.size > 0 && [...before].every(([key, p]) => same(saved.get(key), p)) && [...now].some(([key, p]) => !same(saved.get(key), p));
+/** `now`의 자리가 모두 `saved`에 있고 같은가. 정렬한 모양을 지키는 저장소는 다르면 `now`(새 자동 배치)를 저장한다. */
+export function sameSpots(saved: ReadonlyMap<string, Point>, now: ReadonlyMap<string, Point>): boolean {
+  return [...now].every(([key, p]) => {
+    const s = saved.get(key);
+    return s !== undefined && Math.abs(s.x - p.x) < 0.5 && Math.abs(s.y - p.y) < 0.5;
+  });
 }
 
 /** 간선이 붙는 카드의 변. */

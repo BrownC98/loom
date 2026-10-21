@@ -37,7 +37,7 @@ import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThe
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
 import { TitleBar } from './TitleBar';
-import { UpdateCard } from './Update';
+import { UpdateCard, useUpdates } from './Update';
 import { shortcut } from './platform';
 import { activeFont, findKey, paneKey, XtermFont, XtermTheme } from './Terminal';
 import { TerminalDock } from './TerminalDock';
@@ -171,6 +171,7 @@ export function App() {
   const saving = useRef(0);
   // 설정 밖의 화면 상태(카드 자리·크기)를 다시 읽으라는 신호. 그래프가 본다.
   const [viewVersion, setViewVersion] = useState(0);
+  const updates = useUpdates(viewVersion);
   const repo = chosenRepo(repos, settings.repo);
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
@@ -575,7 +576,7 @@ export function App() {
             notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}
           />
-          <UpdateCard />
+          <UpdateCard updates={updates} />
           {settingsTab && (
             <Settings
               tab={settingsTab}
@@ -587,6 +588,7 @@ export function App() {
               onSettings={saveSettings}
               usage={usage}
               onChoose={chooseAccount}
+              updates={updates}
             />
           )}
           {switching && (

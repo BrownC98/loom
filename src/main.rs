@@ -16,6 +16,7 @@ mod screen;
 mod settings;
 mod skills;
 mod spots;
+mod update;
 mod usage;
 mod user_doc;
 mod worktree;

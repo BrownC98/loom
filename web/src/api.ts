@@ -31,6 +31,7 @@ import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
+import type { UpdateView } from './gen/UpdateView';
 import { problemText, statusText } from './problem';
 
 /** 끊긴 WebSocket을 다시 여는 간격. 데몬이 다시 시작하는 동안 기다린다. */
@@ -76,6 +77,12 @@ export const openFile = (path: string) => call<null>('POST', '/api/files/open', 
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');
 export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/settings', view);
+/** 데몬의 업데이트 상태(docs/mockups/web-update.html). */
+export const getUpdate = () => call<UpdateView>('GET', '/api/update');
+/** 데몬이 지금 `latest.json`을 본다. */
+export const checkUpdate = () => call<UpdateView>('POST', '/api/update/check');
+/** 데몬이 새 판을 받아 바꾸고 다시 뜬다. 바로 돌아오고, 진행은 상태로 본다. */
+export const installUpdate = () => call<UpdateView>('POST', '/api/update/install');
 /** 모든 브랜치의 최근 커밋과 워크트리마다 체크아웃한 커밋. */
 export const getCommits = (repo: RepoId) => call<CommitGraph>('GET', `/api/repos/${repo}/commits`);
 /** 더한 순서. 워크트리 첫째가 원래 체크아웃이다. */

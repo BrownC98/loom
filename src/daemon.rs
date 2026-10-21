@@ -56,6 +56,7 @@ use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
 use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
+use crate::update::{UpdateView, Updater};
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
 #[derive(Embed)]
@@ -96,6 +97,7 @@ struct App {
     spawn_url: String,
     /// 노드의 `PATH`. 앞에 이 실행 파일의 폴더를 넣어 노드가 `loom`을 바로 부르게 한다.
     path: OsString,
+    update: Arc<Updater>,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -438,10 +440,15 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     }
     // 근거: docs/design.md 「저장」.
     let pty_dir = db_path.with_file_name("pty");
+    let graph = Arc::new(graph);
+    let update = Arc::new(Updater::new(listen, {
+        let graph = graph.clone();
+        move || graph.publish_view_changed()
+    }));
     let app = Arc::new(App {
         repos,
         host: NodeHost::new(pty_dir.join("nodes")),
-        graph: Arc::new(graph),
+        graph,
         settings: Settings::new(open()?),
         spots: Spots::new(open()?),
         accounts: Accounts::new(db_path.with_file_name("accounts")),
@@ -472,6 +479,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         },
         spawn_url: node_url(listen),
         path: node_path()?,
+        update: update.clone(),
     });
     app.resume().await.map_err(std::io::Error::other)?;
     // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
@@ -532,6 +540,9 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         )
         .route("/api/files/open", post(open_file))
         .route("/api/shutdown", post(shutdown))
+        .route("/api/update", get(update_view))
+        .route("/api/update/check", post(check_update))
+        .route("/api/update/install", post(install_update))
         .route("/api/events", get(events))
         .route("/api/events/log", get(event_log))
         .merge(settings::routes())
@@ -540,6 +551,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .layer(axum::middleware::from_fn(origin::same_site))
         .with_state(app.clone());
     claim.announce(&node_url(listen))?;
+    tokio::spawn(update.run());
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     match node_door {
@@ -1472,6 +1484,20 @@ async fn shutdown() -> StatusCode {
         std::process::exit(0);
     });
     StatusCode::NO_CONTENT
+}
+
+async fn update_view(State(app): State<Arc<App>>) -> Json<UpdateView> {
+    Json(app.update.view())
+}
+
+/// 설정 › 정보의 [업데이트 확인]. 확인한 뒤의 상태를 돌려준다.
+async fn check_update(State(app): State<Arc<App>>) -> Result<Json<UpdateView>, Problem> {
+    app.update.clone().check().await.map(Json).map_err(internal)
+}
+
+/// [업데이트]. 받기·바꾸기·다시 뜨기는 뒤에서 하고, 단계가 바뀔 때마다 `ViewChanged`로 알린다.
+async fn install_update(State(app): State<Arc<App>>) -> Result<Json<UpdateView>, Problem> {
+    app.update.clone().install().map(Json).map_err(internal)
 }
 
 /// 사람이 화면에서 노드 이름을 바꾼다. 에이전트는 이 길을 쓰지 않는다(노드 문에 없다).

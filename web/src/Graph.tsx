@@ -9,6 +9,7 @@ import type { AgentView } from './gen/AgentView';
 import type { CardView } from './gen/CardView';
 import type { Toward } from './gen/Toward';
 import type { NodeId } from './gen/NodeId';
+import type { RepoId } from './gen/RepoId';
 import type { NodeView } from './gen/NodeView';
 import type { Placed } from './gen/Placed';
 import type { RepoView } from './gen/RepoView';
@@ -284,26 +285,6 @@ export function flowId(spot: Spot): string {
   return spot.kind === 'repo' ? `repo:${spot.repo}` : spot.kind === 'worktree' ? spot.path : String(spot.node);
 }
 
-/** [정렬] 순서(`order`)를 남기는 키. 정렬 방향처럼 화면 상태라 이 브라우저에만 둔다. */
-const ORDER_KEY = 'loom.arrangeOrder';
-
-function loadOrder(): ReadonlyMap<string, number> {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]');
-    return new Map(Array.isArray(saved) ? saved.filter((e): e is [string, number] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'number') : []);
-  } catch {
-    return new Map();
-  }
-}
-
-function saveOrder(order: ReadonlyMap<string, number>) {
-  try {
-    localStorage.setItem(ORDER_KEY, JSON.stringify([...order]));
-  } catch {
-    // 저장할 수 없으면 이 화면에서만 쓴다.
-  }
-}
-
 /** `contents`(그 상자 안 좌표)를 모두 덮는 상자. `inset`은 내용과 테두리 사이 틈이다(`top`은 머리를 포함한다). */
 function cover(contents: readonly Box[], inset: { top: number; side: number }): Box {
   const x = Math.min(...contents.map((b) => b.at.x)) - inset.side;
@@ -390,14 +371,8 @@ export function Graph(props: {
   const placedAt = (key: string): XYPosition | undefined => moving.get(key) ?? spots.get(key)?.at;
 
   // [정렬]을 누를 때 화면에 보이던 카드·묶음의 가로지르는 축 자리(카드는 노드 번호, 묶음은 경로가 키). 자동 배치는 형제를 이 순서로 놓는다(목업 docs/mockups/arrange-wide.html 규칙 4).
-  // [정렬]은 저장한 자리를 지우므로 다시 열어도 같은 순서가 되게 이 브라우저에 남긴다.
-  const [order, setOrderState] = useState<ReadonlyMap<string, number>>(loadOrder);
-  // 한 저장소만 보일 때 다른 저장소의 순서는 그대로 둔다.
-  const setOrder = (shown: ReadonlyMap<string, number>) => {
-    const next = new Map([...order, ...shown]);
-    setOrderState(next);
-    saveOrder(next);
-  };
+  // [정렬]은 이 순서로 구한 자리를 저장하므로(`arranging`) 다시 열어도 순서가 남는다.
+  const [order, setOrder] = useState<ReadonlyMap<string, number>>(new Map());
   const rank = (key: string) => order.get(key) ?? Infinity;
   const byRank = <T,>(items: readonly T[], key: (item: T) => string, tie: (a: T, b: T) => number) => [...items].sort((a, b) => rank(key(a)) - rank(key(b)) || tie(a, b));
   const views = byRank([...props.views.values()], (v) => String(v.id), (a, b) => a.id - b.id);
@@ -477,7 +452,9 @@ export function Graph(props: {
     share({ boxes: laid.map((g) => ({ key: g.group.path, at: at.get(g.group.path)!, size: g.size })), lead: new Map(laid.map((g) => [g.group.path, g.lead])), parent: framed ? key : null });
     // 저장소 상자는 묶음을 모두 덮는다(네 쪽). 끄는 카드로 묶음이 넓어지면 함께 넓어진다.
     const box = cover(laid.map((g) => ({ at: at.get(g.group.path)!, size: g.size })), REPO_INSET);
-    return { repo, key, laid: laid.map((g) => ({ ...g, at: at.get(g.group.path)! })), lead: box.at, size: box.size };
+    // 자동 배치 자리를 저장할 원점(카드는 묶음 기준, 묶음은 저장소 기준). [정렬]이 저장한다.
+    const arranged = new Map([...laid.flatMap((g) => [...g.auto]), ...laid.map((g, i): [string, XYPosition] => [g.group.path, { x: auto[i].x - g.lead.x, y: auto[i].y - g.lead.y }])]);
+    return { repo, key, laid: laid.map((g) => ({ ...g, at: at.get(g.group.path)! })), lead: box.at, size: box.size, arranged };
   });
   // 저장소 상자도 같은 규칙이다. 자동 배치는 모두 뿌리라 사이드바 순서로 옆에 늘어선다.
   const repoAuto = placeGroups(
@@ -513,11 +490,10 @@ export function Graph(props: {
     neighbor: (from, dir) => neighbor(positions, from, dir),
     // [정렬]: 보이는 저장소의 자리를 지운다. 지우지 못한 저장소는 다음에 다시 읽으면 저장한 자리로 돌아간다.
     arrange: () => {
-      setOrder(onScreen());
-      const shown = new Set(props.repos.map((r) => r.id));
+      const shown = props.repos.map((r) => r.id);
       setMoving(new Map());
-      setSpots((prev) => new Map([...prev].filter(([, p]) => !shown.has(p.spot.repo))));
-      for (const id of shown) clearSpots(id).catch((err: Error) => setRefusal(err.message));
+      clearRepos(shown);
+      setArranging({ scope: { kind: 'shown' }, after: Promise.all(shown.map(clearSpots)) });
     },
   }));
   const standard = props.cardView === 'standard';
@@ -764,7 +740,7 @@ export function Graph(props: {
   // 묶음 정렬은 저장한 카드 자리를 자동 자리로 바꾼다. 자동 자리를 지금 화면 순서로 다시 구한 다음 렌더에서 저장한다(`ordering`).
   const [ordering, setOrdering] = useState<string | null>(null);
   const arrangeGroup = (path: string) => {
-    setOrder(onScreen());
+    setOrder((prev) => new Map([...prev, ...onScreen()]));
     setOrdering(path);
   };
   useEffect(() => {
@@ -777,12 +753,31 @@ export function Graph(props: {
   });
   // 자동 배치 묶음 자리는 저장소 원점에서 시작하므로 상자 왼쪽 위는 원점에서 `REPO_INSET`만큼 왼쪽 위다.
   const arrangeRepo = (r: (typeof repos)[number]) => {
-    setOrder(onScreen());
     const kept = keepAround(r.key, { x: -REPO_INSET.side, y: -REPO_INSET.top });
-    setSpots((prev) => new Map([...prev].filter(([, p]) => p.spot.repo !== r.repo.id)));
-    save(kept, clearSpots(r.repo.id));
+    clearRepos([r.repo.id]);
+    const after = clearSpots(r.repo.id);
+    save(kept, after);
+    setArranging({ scope: { kind: 'repo', id: r.repo.id }, after });
     setGrown(r.key);
   };
+  /**
+   * [정렬]과 저장소 정렬. 지금 화면 순서를 잡고 저장한 자리를 지운다. 다음 렌더에서 구한 자동 배치 자리를 저장한다.
+   * 그래서 순서와 자리는 데몬 DB(`spots`) 하나에 남고, 브라우저와 Windows 앱이 같은 그림을 본다.
+   * 보이는 저장소 모두(`shown`)면 저장소 상자 자리도 저장한다. 저장소 하나면 그 상자는 지금 자리에 남는다(`keepAround`). `after`는 지우기 요청이다.
+   */
+  const [arranging, setArranging] = useState<{ scope: { kind: 'shown' } | { kind: 'repo'; id: RepoId }; after: Promise<unknown> } | null>(null);
+  const clearRepos = (ids: readonly RepoId[]) => {
+    setOrder((prev) => new Map([...prev, ...onScreen()]));
+    setSpots((prev) => new Map([...prev].filter(([, p]) => !ids.includes(p.spot.repo))));
+  };
+  useEffect(() => {
+    if (arranging === null) return;
+    setArranging(null);
+    const { scope } = arranging;
+    const done = scope.kind === 'shown' ? repos : repos.filter((r) => r.repo.id === scope.id);
+    const boxes = scope.kind === 'shown' && framed ? repos.map((r, i): [string, XYPosition] => [r.key, { x: repoAuto[i].x - r.lead.x, y: repoAuto[i].y - r.lead.y }]) : [];
+    save(new Map([...done.flatMap((r) => [...r.arranged]), ...boxes]), arranging.after);
+  });
   useEffect(() => {
     if (grown === null) return;
     setGrown(null);

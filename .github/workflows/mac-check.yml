@@ -22,9 +22,9 @@ jobs:
         run: npm ci && npm run check && npm test && npm run build
         working-directory: web
       - name: pty probe
-        timeout-minutes: 2
+        timeout-minutes: 15
         continue-on-error: true
-        run: python3 -u .github/pty-probe.py
+        run: cargo test probe_second -- --nocapture 2>&1 | grep -A3 PROBE
       - name: cargo test
         continue-on-error: true
         run: cargo test

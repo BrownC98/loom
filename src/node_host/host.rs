@@ -368,3 +368,48 @@ impl State {
         sent
     }
 }
+
+// TEMP mac probe, delete before merge.
+#[cfg(all(test, unix))]
+mod mac_probe {
+    use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+
+    fn sh(script: &str) -> CommandBuilder {
+        let mut cmd = CommandBuilder::new("sh");
+        cmd.args(["-c", script]);
+        cmd
+    }
+
+    #[test]
+    fn probe_second_spawn() {
+        for (first_tty, second_tty, cwd) in [
+            (true, true, false),
+            (true, true, true),
+            (false, true, false),
+            (true, false, false),
+            (false, false, false),
+        ] {
+            let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+            let mut reader = pair.master.try_clone_reader().unwrap();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                while let Ok(n @ 1..) = std::io::Read::read(&mut reader, &mut buf) {
+                    let _ = n;
+                }
+            });
+            let mut first = sh("echo first");
+            first.set_controlling_tty(first_tty);
+            let mut child = pair.slave.spawn_command(first).unwrap();
+            let one = child.wait();
+            let mut second = sh("echo second; exit 4");
+            second.set_controlling_tty(second_tty);
+            if cwd {
+                second.cwd("/");
+            }
+            let two = pair.slave.spawn_command(second).map(|mut c| c.wait());
+            eprintln!(
+                "PROBE first_tty={first_tty} second_tty={second_tty} cwd={cwd}: first={one:?} second={two:#?}"
+            );
+        }
+    }
+}

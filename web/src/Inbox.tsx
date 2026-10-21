@@ -1,6 +1,7 @@
 import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, ImagePlus, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { QuestionPill } from './gen/QuestionPill';
 import { answerWait, dismissWait, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import { choices } from './choices';
 import type { HumanWait } from './gen/HumanWait';
@@ -29,7 +30,7 @@ export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v
  * 알약은 펼치지 않아도 가장 오래된 대기 하나의 전문과 답 칸을 보인다. 노드 이름, 목록 줄의 노드 이름, 시스템 알림을 누르면 사이드바 클릭처럼 그래프를 그 노드로 옮기고 고른다.
  * 목록은 알약 머리의 [⌄]만 연다. `notify`는 설정 「시스템 알림」이다.
  */
-export function Inbox(props: { waiting: NodeView[]; notify: boolean; onSelect: (id: NodeId) => void }) {
+export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; onSelect: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const show = useShowNodes();
@@ -42,6 +43,12 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; onSelect: (
   const n = waitCount(props.waiting);
   const first = props.waiting[0];
   const firstWait = first && oldest(first);
+  const line = props.pill === 'line';
+  const toList = () => setOpen(!open);
+  const toNode = () => {
+    setOpen(false);
+    if (first) go(first.id);
+  };
 
   // 마지막 대기가 사라지면 목록을 닫는다. 다음 질문이 생길 때 목록이 저절로 열리지 않는다.
   useEffect(() => {
@@ -59,32 +66,38 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; onSelect: (
 
   return (
     <div className="inbox" ref={home}>
-      {/* 펼치지 않은 알약: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
+      {/* 알약 꼴은 설정 「질문 알약」이다. `line`: 한 줄. `answer`: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
       {first && (
-        <div className="inbox-pill">
+        <div className="inbox-pill" data-view={props.pill}>
           {/* 머리 줄이 바뀌면(새 알약, 수, 다음 질문) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다. */}
           <div className="head" aria-live="polite">
             <b>{t('inbox.button')}</b>
             <span className="count">{n}</span>
             <span className="qid">Q{firstWait.id}</span>
+            {/* 한 줄 알약은 몸통이 목록을 펴고 오른쪽 단추가 그 노드로 간다. 펼친 알약은 거꾸로다(2026-10-22 사람 지시 "알약 본문 클릭하면 펼쳐지고 우측 구역 클릭하면 해당 터미널로 이동"). */}
             <button
               type="button"
               className="go"
-              aria-label={t('inbox.jumpLabel', { name: first.name })}
-              onClick={() => {
-                setOpen(false);
-                go(first.id);
-              }}
+              aria-expanded={line ? open : undefined}
+              aria-label={line ? t('inbox.listLabel', { count: n }) : t('inbox.jumpLabel', { name: first.name })}
+              onClick={line ? toList : toNode}
             >
-              <b>{first.name}</b> · {t(`wait.${firstWait.kind}`)}
+              <b>{first.name}</b>
+              {line ? `: ${firstWait.text || t(`wait.${firstWait.kind}`)}` : ` · ${t(`wait.${firstWait.kind}`)}`}
             </button>
             {n > 1 && <span className="rest">{t('inbox.rest', { count: n - 1 })}</span>}
-            <button type="button" className="icon" aria-expanded={open} aria-label={t('inbox.listLabel', { count: n })} onClick={() => setOpen(!open)}>
-              <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />
-            </button>
+            {line ? (
+              <button type="button" className="icon" aria-label={t('inbox.jumpLabel', { name: first.name })} title={t('inbox.jumpLabel', { name: first.name })} onClick={toNode}>
+                <ArrowRight aria-hidden="true" />
+              </button>
+            ) : (
+              <button type="button" className="icon" aria-expanded={open} aria-label={t('inbox.listLabel', { count: n })} onClick={toList}>
+                <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />
+              </button>
+            )}
             <DismissButton wait={firstWait.id} />
           </div>
-          <WaitBody key={firstWait.id} wait={firstWait} onGo={() => go(first.id)} />
+          {!line && <WaitBody key={firstWait.id} wait={firstWait} onGo={() => go(first.id)} />}
         </div>
       )}
       {open && n > 0 && (

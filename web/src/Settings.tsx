@@ -33,7 +33,7 @@ const TAB_SETTINGS = {
   agents: ['bypassOff', 'alwaysOn', 'treeLimits'],
   accounts: ['autoSwitch'],
   workspace: ['workspaceDir'],
-  ui: ['theme', 'colors', 'cardView', 'graphScope', 'edgeStyle', 'osNotify', 'language'],
+  ui: ['theme', 'colors', 'cardView', 'graphScope', 'edgeStyle', 'questionPill', 'osNotify', 'language'],
   terminal: ['terminalTheme', 'terminalFont'],
   about: [],
 } as const satisfies Record<(typeof SETTINGS_TABS)[number], readonly (keyof SettingsView)[]>;

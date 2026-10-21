@@ -9,6 +9,7 @@ import type { EdgeStyle } from "./EdgeStyle";
 import type { GraphScope } from "./GraphScope";
 import type { Language } from "./Language";
 import type { PaneWidths } from "./PaneWidths";
+import type { QuestionPill } from "./QuestionPill";
 import type { RepoId } from "./RepoId";
 import type { TerminalFont } from "./TerminalFont";
 import type { TerminalTheme } from "./TerminalTheme";
@@ -37,6 +38,10 @@ graphScope: GraphScope,
  * 옛 설정에는 없다. 없으면 `Step`(계단)으로 읽는다.
  */
 edgeStyle: EdgeStyle, 
+/**
+ * 옛 설정에는 없다. 없으면 `Line`(한 줄 알약)으로 읽는다.
+ */
+questionPill: QuestionPill, 
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽는다.
  */

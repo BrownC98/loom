@@ -106,6 +106,8 @@ enum Cli {
     },
     /// 사람에게 질문 한 줄을 묻는다. 받은편지함에 뜨고, 사람은 이 노드 터미널에 답한다. 사람이 띄운 노드만 쓴다.
     Ask { question: String },
+    /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다.
+    Answered,
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
     /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
@@ -172,6 +174,7 @@ fn main() -> ExitCode {
         Cli::Status { all: true } => cli::directory(),
         Cli::Done { summary, file } => cli::done(summary, file),
         Cli::Ask { question } => cli::ask(question),
+        Cli::Answered => cli::answered(),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),
         Cli::Show { file } => user_doc::show(&file),

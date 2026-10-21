@@ -42,7 +42,7 @@ fn usage(launch: Launch) -> String {
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 12] = [
+const ALLOWED: [&str; 13] = [
     "Bash(loom guard)",
     "Bash(loom send:*)",
     "Bash(loom steer:*)",
@@ -53,6 +53,7 @@ const ALLOWED: [&str; 12] = [
     "Bash(loom status)",
     "Bash(loom done:*)",
     "Bash(loom ask:*)",
+    "Bash(loom answered)",
     "Bash(loom adopt:*)",
     "Bash(loom rm:*)",
 ];
@@ -278,6 +279,12 @@ pub fn reported_model(event: &Event, input: &Value) -> Option<Model> {
     last_model(&transcript_tail(&path)?)
 }
 
+/// 턴을 끝낸 답 글. 턴 끝 질문 검사가 쓴다. `Stop` 입력의 `last_assistant_message`(2.1.306 스키마)다.
+/// 기록 파일은 읽지 않는다. 훅이 돌 때 마지막 답 줄이 아직 기록 파일에 없었다(2.1.306 실측).
+pub fn last_reply(input: &Value) -> Option<String> {
+    input["last_assistant_message"].as_str().map(str::to_owned)
+}
+
 fn transcript_tail(path: &Path) -> Option<String> {
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
@@ -493,6 +500,13 @@ mod tests {
     }
 
     /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
+    #[test]
+    fn last_reply_is_the_stop_input_text() {
+        let stop = json!({ "hook_event_name": "Stop", "last_assistant_message": "병합할까요?" });
+        assert_eq!(last_reply(&stop).as_deref(), Some("병합할까요?"));
+        assert_eq!(last_reply(&json!({ "hook_event_name": "Stop" })), None);
+    }
+
     #[test]
     fn transcript_gives_the_last_main_chain_reply() {
         let tail = r#"{"type":"assistant","isSidechain":false,"effort":"medium","message":{"model":"claude-opus-5-5","role":"assistant"}}

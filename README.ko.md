@@ -47,6 +47,16 @@ loom wait --json                                 # 다음 메시지를 기다린
 loom done "Added one toggle() test"              # 부모에게 보고한다
 ```
 
+## 내장 스킬
+
+loom은 스킬 네 개를 싣습니다: `o-mode`(orchestration mode), `ste-100`, `user-doc`, `raptor-3`. 따로 설치할 것은 없습니다.
+
+- 스킬은 이름으로 부릅니다. Claude Code는 `/loom:<이름>`, Codex는 `loom:<이름>`, OpenCode 2는 `<이름>`입니다.
+- 부르지 않아도 늘 적용되는 글: 모든 노드가 STE-100과 랩터-3 작업 규칙을 받습니다. 부모 없는 노드(사람이 띄운 노드)는 `o-mode` 절차 전체도 받아 총괄이 됩니다. 자식은 `o-mode`의 브리프 공통 규칙만 받습니다.
+- 노드는 시작할 때 스킬 글을 읽습니다. loom을 올린 뒤에는 떠 있는 노드를 다시 시작해야 새 글을 받습니다.
+
+자세한 내용은 [docs/design.md 「내장 스킬」](docs/design.md#내장-스킬)에 있습니다.
+
 ## 설치
 
 [가장 새 릴리스](https://github.com/BrownC98/loom/releases/latest)에서 받습니다.

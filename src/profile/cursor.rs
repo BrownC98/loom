@@ -64,7 +64,7 @@ pub const POSITION_ENV: &str = "LOOM_POSITION";
 /// 노드 프로세스에 넣는 스킬 스위치(`AlwaysOn` JSON). 같은 이유로 환경 변수다.
 pub const SKILLS_ENV: &str = "LOOM_SKILLS";
 /// Cursor는 훅 `additional_context` 한 개가 이 글자 수를 넘으면 버린다(실측 번들의 상한).
-/// 그래서 사용법과 상시 지시를 sessionStart 훅 둘로 나눈다. 부모 없는 노드의 상시 지시는 약 11,000자다.
+/// 그래서 사용법과 상시 지시를 sessionStart 훅 둘로 나눈다. 부모 없는 노드의 상시 지시는 약 9,100자다(2026-10-21 실측).
 #[cfg(test)]
 const CONTEXT_LIMIT_CHARS: usize = 10_000;
 /// 훅 한 번에 넘기는 본문 합의 상한.
@@ -415,6 +415,17 @@ mod tests {
     }
 
     /// Cursor가 버리지 않게 sessionStart 글마다 상한 아래로 둔다.
+    #[test]
+    fn session_start_contexts_have_the_ask_rules() {
+        super::super::assert_every_launch_asks(|launch| {
+            let rules = rules(launch)["additional_context"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            (usage(), rules)
+        });
+    }
+
     #[test]
     fn each_session_start_context_fits() {
         assert!(usage().chars().count() <= CONTEXT_LIMIT_CHARS);

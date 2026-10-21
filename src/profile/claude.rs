@@ -338,6 +338,11 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn launch_text_has_the_ask_rules() {
+        super::super::assert_every_launch_asks(|launch| (usage(launch), usage(launch)));
+    }
+
     fn event(input: Value) -> Event {
         serde_json::from_value(input).unwrap()
     }

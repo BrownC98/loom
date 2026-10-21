@@ -323,6 +323,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_text_has_the_ask_rules() {
+        super::super::assert_every_launch_asks(|launch| (usage(launch), usage(launch)));
+    }
     use serde_json::json;
     use std::sync::Mutex;
 

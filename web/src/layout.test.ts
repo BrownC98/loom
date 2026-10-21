@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeNested, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
+import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
 
 const box = (x: number, y: number, width = 100, height = 50): Box => ({ at: { x, y }, size: { width, height } });
 
@@ -450,5 +450,21 @@ describe('return after growth goes away (people decision 2026-10-21, approved re
     const near = box(610, 0, 10, 10); // 12 px left of B
     expect(retreat([near], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32).x).toBeGreaterThan(631.5);
     expect(retreat([near], { at: { x: 632, y: 0 }, size: b.size }, { x: 832, y: 0 }, 32)).toEqual({ x: 832, y: 0 });
+  });
+});
+
+describe('followCard', () => {
+  it('keeps the moved card at the same screen spot', () => {
+    const camera = { x: 40, y: -10, zoom: 2 };
+    const old = { x: 100, y: 50 };
+    const now = { x: 160, y: 20 };
+    const next = followCard(old, now, camera);
+    expect(next.zoom).toBe(2);
+    expect({ x: now.x * next.zoom + next.x, y: now.y * next.zoom + next.y }).toEqual({ x: old.x * camera.zoom + camera.x, y: old.y * camera.zoom + camera.y });
+  });
+
+  it('does not move the camera when the card did not move', () => {
+    const camera = { x: 5, y: 7, zoom: 0.5 };
+    expect(followCard({ x: 3, y: 4 }, { x: 3, y: 4 }, camera)).toEqual(camera);
   });
 });

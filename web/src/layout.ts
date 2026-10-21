@@ -428,3 +428,13 @@ export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection):
   const toward: ArrangeDirection = horizontal ? (gapRight > gapLeft ? 'right' : 'left') : gapDown > gapUp ? 'down' : 'up';
   return TREE_SIDES[toward];
 }
+
+/** 화면 시점(React Flow viewport). 화면 자리 = 그래프 자리 × `zoom` + (`x`, `y`). */
+export type Camera = { x: number; y: number; zoom: number };
+
+/**
+ * 포커스 카드가 그래프에서 `old`에서 `now`로 옮겨 갈 때 그 카드가 화면의 같은 자리에 남는 시점(2026-10-21 사람 지시 "그래프에서 포커스된 터미널은 레이아웃이 변경되더라도 카메라에 대한 상대 위치를 유지하도록 구현하라").
+ */
+export function followCard(old: Point, now: Point, camera: Camera): Camera {
+  return { x: camera.x - (now.x - old.x) * camera.zoom, y: camera.y - (now.y - old.y) * camera.zoom, zoom: camera.zoom };
+}

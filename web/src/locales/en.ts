@@ -236,7 +236,6 @@ const en = {
     button: 'Questions',
     buttonLabel: '{{count}} nodes wait for you. Open the list',
     title: 'Nodes waiting for you {{count}}',
-    empty: 'No node waits for you.',
     dismiss: 'Dismiss',
   },
   wait: {

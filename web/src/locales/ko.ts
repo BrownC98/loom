@@ -237,7 +237,6 @@ const ko: typeof en = {
     button: '질문',
     buttonLabel: '응답을 기다리는 노드 {{count}}개. 목록 열기',
     title: '응답을 기다리는 노드 {{count}}',
-    empty: '응답을 기다리는 노드가 없습니다.',
     dismiss: '알림 지우기',
   },
   wait: {

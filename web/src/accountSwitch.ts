@@ -48,7 +48,7 @@ export function noticeOf(entry: SwitchEntry, name: (provider: Provider, id: Acco
     entry.later > 0 ? t('switch.notice.later', { n: entry.later }) : null,
     entry.failed > 0 ? t('switch.notice.failed', { n: entry.failed }) : null,
   ].filter((p) => p !== null);
-  return { text: [head, ...parts].join(' · '), warn: entry.failed > 0 };
+  return { text: [head, ...parts].join(' · '), warn: false };
 }
 
 /** 확인 창 줄의 상태 글: 쉬는 노드는 바로, 일하는 노드는 턴이 끝나면 바꾼다. */

@@ -38,10 +38,10 @@ describe('noticeOf', () => {
     expect(n.text).toContain('switch.notice.causeRateLimit');
   });
 
-  it('failed nodes add a count and a warning', () => {
+  it('failed nodes add a count only', () => {
     const n = noticeOf(switched({ failed: 1 }), name, time, t);
     expect(n.text.endsWith('switch.notice.failed|1')).toBe(true);
-    expect(n.warn).toBe(true);
+    expect(n.warn).toBe(false);
   });
 
   it('no account left shows the earliest reset when known', () => {

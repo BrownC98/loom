@@ -104,25 +104,6 @@ function PopAt(props: { at: XYPosition; children: ReactNode }) {
 }
 
 /** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
-/** 미니맵 접힘은 보는 사람마다 하나다. 정렬 방향처럼 이 브라우저에만 둔다. */
-const MINIMAP_KEY = 'loom.minimapFolded';
-
-function loadMinimapFolded(): boolean {
-  try {
-    return localStorage.getItem(MINIMAP_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function saveMinimapFolded(folded: boolean) {
-  try {
-    localStorage.setItem(MINIMAP_KEY, String(folded));
-  } catch {
-    // 저장할 수 없으면 이 화면에서만 쓴다.
-  }
-}
-
 /**
  * 지금 배율(2026-10-21 사람 지시 "현재 배율을 미니맵에 표시해줘"). React Flow 미니맵은 자식을 받지 않는다.
  * 그래서 같은 오른쪽 아래 패널로 미니맵 위 오른쪽 아래 모서리에 겹쳐 그린다. 숫자 밖 클릭은 미니맵이 받는다.
@@ -492,6 +473,9 @@ export function Graph(props: {
   hops: ReadonlyMap<string, Hop>;
   agents: AgentView[];
   settings: SettingsView;
+  /** 데몬이 카드 자리·크기가 바뀌었다고 알릴 때마다 늘어난다. 바뀌면 둘을 다시 읽는다. */
+  viewVersion: number;
+  onMinimapFold: (folded: boolean) => void;
   accounts: AccountView[] | null;
   selected: NodeId | null;
   onSelect: (id: NodeId | null) => void;
@@ -528,7 +512,7 @@ export function Graph(props: {
   const [branching, setBranching] = useState<{ key: string; anchor: XYPosition } | null>(null);
   // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
   const [refusal, setRefusal] = useState('');
-  const [minimapFolded, setMinimapFolded] = useState(loadMinimapFolded);
+  const minimapFolded = props.settings.minimapFolded;
   // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
   // 사람이 끌어 놓은 자리(React Flow 노드 id → 저장한 자리). 원점의 기준은 `Spot`이 적는다.
@@ -552,7 +536,7 @@ export function Graph(props: {
     getSizes()
       .then((all) => setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }]))))
       .catch((err: Error) => setRefusal(err.message));
-  }, []);
+  }, [props.viewVersion]);
   const { direction } = props;
   // 묶음마다 지난 렌더의 바깥 상자. 바뀌면 그 묶음의 저장한 자리를 버린다(`stale`).
   const outers = useRef<ReadonlyMap<string, string>>(new Map());
@@ -1254,10 +1238,7 @@ export function Graph(props: {
         )}
         <ZoomLevel
           folded={minimapFolded}
-          onFold={(folded) => {
-            setMinimapFolded(folded);
-            saveMinimapFolded(folded);
-          }}
+          onFold={props.onMinimapFold}
         />
         {groups.map(({ group, repo, members, origin, right }) => {
           const at = creating === group.path && anchor ? { x: origin.x + anchor.x, y: origin.y + anchor.y } : null;

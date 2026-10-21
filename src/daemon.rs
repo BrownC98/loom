@@ -681,6 +681,7 @@ async fn delete_worktree(
         app.remove(node).map_err(internal)?;
     }
     app.spots.forget_worktree(id, &req.path).map_err(internal)?;
+    app.graph.publish_view_changed();
     if let Some(listed) = listed {
         worktree::remove(&repo, &listed).await?;
         if let (true, Some(branch)) = (req.delete_branch, &listed.branch) {
@@ -700,6 +701,7 @@ async fn put_spot(
     Json(placed): Json<Vec<Placed>>,
 ) -> Result<Json<()>, Problem> {
     app.spots.put(&placed).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -709,6 +711,7 @@ async fn put_arranged(
     Json(arranged): Json<Arranged>,
 ) -> Result<Json<()>, Problem> {
     app.spots.put_arranged(&arranged).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -718,6 +721,7 @@ async fn clear_spots(
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
     app.spots.clear(RepoId(id)).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -730,6 +734,7 @@ async fn put_sizes(
     Json(sizes): Json<Vec<CardSize>>,
 ) -> Result<Json<()>, Problem> {
     app.spots.put_sizes(&sizes).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 
@@ -739,6 +744,7 @@ async fn clear_sizes(
     Json(nodes): Json<Vec<NodeId>>,
 ) -> Result<Json<()>, Problem> {
     app.spots.clear_sizes(&nodes).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 

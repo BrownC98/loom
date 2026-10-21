@@ -161,6 +161,7 @@ async fn put_settings(
         return Err(Problem::Repo(RepoProblem::NotAbsolute(dir.clone())));
     }
     app.settings.put(&view).map_err(internal)?;
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 

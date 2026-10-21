@@ -1,8 +1,9 @@
 // 묶음 안의 나무 배치. 그래프 화면(React Flow)과 무관한 계산만 둔다.
+import type { ArrangeDirection } from './gen/ArrangeDirection';
 import type { NodeId } from './gen/NodeId';
 
 /** 나무가 뿌리에서 뻗는 쪽(목업 docs/mockups/card-view.html 「정렬 방향」). */
-export type ArrangeDirection = 'down' | 'right' | 'up' | 'left';
+export type { ArrangeDirection };
 export const ARRANGE_DIRECTIONS: readonly ArrangeDirection[] = ['down', 'right', 'up', 'left'];
 
 export type Size = { width: number; height: number };

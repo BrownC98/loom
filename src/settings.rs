@@ -12,6 +12,7 @@ use crate::accounts::AccountId;
 use crate::graph::TreeLimits;
 use crate::profile::{AgentId, Provider};
 use crate::skills::AlwaysOn;
+use crate::worktree::RepoId;
 
 #[derive(Clone, Default, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -56,6 +57,48 @@ pub struct SettingsView {
     /// 새 노드에 주는 내장 스킬. 옛 설정에는 없다. 없으면 모두 켜짐이다. 근거: docs/design.md 「내장 스킬」.
     #[serde(default)]
     pub always_on: AlwaysOn,
+    /// 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 여섯 칸은 옛 설정에 없다.
+    /// [정렬]과 나무 간선이 향하는 방향. 없으면 `Down`이다.
+    pub arrange_direction: ArrangeDirection,
+    /// 그래프 미니맵을 접었는지. 없으면 펼침이다.
+    pub minimap_folded: bool,
+    /// 사이드바에서 고른 저장소. 없거나 목록에 없으면 화면이 첫 저장소를 쓴다.
+    pub repo: Option<RepoId>,
+    pub pane_widths: PaneWidths,
+    pub closed_panes: ClosedPanes,
+    /// 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
+    pub closed_switch_notice: Option<u32>,
+}
+
+/// [정렬] 방향. 나무가 뻗는 쪽이다.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ArrangeDirection {
+    #[default]
+    Down,
+    Right,
+    Up,
+    Left,
+}
+
+/// 사람이 끌어 바꾼 사이드바 너비(px). 없으면 화면이 칸의 기본 너비를 쓴다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct PaneWidths {
+    pub side: Option<u16>,
+    pub dock: Option<u16>,
+}
+
+/// 접은 칸(사이드바, 오른쪽 칸)과 절(북마크). 처음에는 모두 펼침이다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct ClosedPanes {
+    pub side: bool,
+    pub dock: bool,
+    pub bookmarks: bool,
 }
 
 /// 화면 언어. `System`은 브라우저 언어(`navigator.language`)를 따른다. Orca의 `uiLanguage`와 같은 자리다.
@@ -223,5 +266,40 @@ mod tests {
         assert_eq!(got.graph_scope, GraphScope::Repo);
         assert_eq!(got.language, Language::System);
         assert_eq!(got.always_on, AlwaysOn::default());
+        assert_eq!(got.arrange_direction, ArrangeDirection::Down);
+        assert!(!got.minimap_folded);
+        assert_eq!(got.repo, None);
+        assert_eq!(got.pane_widths, PaneWidths::default());
+        assert_eq!(got.closed_panes, ClosedPanes::default());
+        assert_eq!(got.closed_switch_notice, None);
+    }
+
+    #[test]
+    fn view_state_round_trips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let view = SettingsView {
+            arrange_direction: ArrangeDirection::Left,
+            minimap_folded: true,
+            repo: Some(RepoId(3)),
+            pane_widths: PaneWidths {
+                side: Some(300),
+                dock: None,
+            },
+            closed_panes: ClosedPanes {
+                bookmarks: true,
+                ..Default::default()
+            },
+            closed_switch_notice: Some(9),
+            ..Default::default()
+        };
+        settings.put(&view).unwrap();
+        let got = settings.get().unwrap();
+        assert_eq!(got.arrange_direction, ArrangeDirection::Left);
+        assert!(got.minimap_folded);
+        assert_eq!(got.repo, Some(RepoId(3)));
+        assert_eq!(got.pane_widths, view.pane_widths);
+        assert_eq!(got.closed_panes, view.closed_panes);
+        assert_eq!(got.closed_switch_notice, Some(9));
     }
 }

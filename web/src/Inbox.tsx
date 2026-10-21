@@ -83,13 +83,8 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
       {open && n > 0 && (
         <div className="pop inbox-pop" role="dialog" aria-label={t('inbox.title', { count: n })}>
           <h2>{t('inbox.title', { count: n })}</h2>
-          <WaitList
-            waiting={props.waiting}
-            onGo={(id) => {
-              setOpen(false);
-              go(id);
-            }}
-          />
+          {/* 노드로 가도 목록은 열린 채로 둔다. 이어서 다른 질문을 보고 답한다(2026-10-22 사람 지시 "총괄클릭해서 이동할때 팝오버 유지되도록"). */}
+          <WaitList waiting={props.waiting} onGo={go} />
         </div>
       )}
     </div>

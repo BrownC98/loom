@@ -269,8 +269,9 @@ impl App {
         tokio::spawn(async move { app.auto_switch(provider, true).await });
     }
 
-    /// 노드 프로세스를 설정의 계정으로 다시 띄운다. 세션이 있으면 새 로그인 폴더에 기록을 복사하고 이어 간다.
-    /// 세션이 아직 없으면 잃을 대화가 없으므로 새로 띄운다. 새 노드를 준비하지 못하면 옛 프로세스를 그대로 둔다.
+    /// 노드 프로세스를 설정의 계정으로 다시 띄운다. 새 로그인 폴더에 세션 기록을 복사하고 이어 간다.
+    /// 남긴 세션이 없으면(이 기능 전에 뜬 노드가 아직 훅을 부르지 않았다, Codex 스레드 전) 옮기지 않는다.
+    /// 새로 띄우면 사람이 친 대화와 첫 지시를 잃는다. 새 노드를 준비하지 못해도 옛 프로세스를 그대로 둔다.
     async fn relaunch(self: &Arc<Self>, node: Active) -> Result<(), String> {
         let profile = node.agent.as_ref().and_then(profile::profile_of);
         let (Some(agent), Some(provider)) = (node.agent.clone(), provider_of(&node)) else {
@@ -291,26 +292,19 @@ impl App {
         let resume = match profile {
             Some(Profile::Codex) => self.copy_codex_thread(node.id, &new_root).await?,
             _ => {
+                let session = copy_claude_session(node.transcript.as_deref(), &new_root)?;
                 // 시스템 기본 폴더는 고치지 않는다(「저장」). 그때 사람이 새 확인 창에 답한다.
                 if let Some(to) = self.accounts.config_dir(provider, target.as_ref()) {
                     let from = self.accounts.config_dir(provider, node.account.as_ref());
                     accounts::carry_claude_consent(from.as_deref(), &to, cwd)
                         .map_err(|e| format!("{}: {e}", to.display()))?;
                 }
-                copy_claude_session(node.transcript.as_deref(), &new_root)?
+                session
             }
         };
-        // 그래프는 첫 지시의 첫 줄만 남긴다. 세션 없이 새로 띄우면 그 지시를 다시 줄 수 없으므로 옛 계정에 둔다.
-        if resume.is_none() && node.has_brief {
-            return Err(format!(
-                "노드 {}는 이어 갈 세션이 없고 첫 지시를 다시 줄 수 없다",
-                node.id.0
-            ));
-        }
-        let limited = self.switch.limited.lock().unwrap().contains(&node.id);
-        let brief = match (&resume, limited) {
-            (Some(_), true) => CONTINUE_PROMPT.to_owned(),
-            _ => String::new(),
+        let brief = match self.switch.limited.lock().unwrap().contains(&node.id) {
+            true => CONTINUE_PROMPT.to_owned(),
+            false => String::new(),
         };
         let start = Start::Agent {
             agent: agent.clone(),
@@ -319,7 +313,7 @@ impl App {
                 model: node.model.model.clone(),
                 effort: node.model.effort.clone(),
             },
-            resume: resume.clone(),
+            resume: Some(resume.clone()),
         };
         let position = match self.graph.relations(node.id) {
             Ok(r) if r.parent.is_some() => Position::Child,
@@ -330,14 +324,14 @@ impl App {
             .prepare(&start, cwd, position)
             .await
             .map_err(|e| format!("{e:?}"))?;
-        if let (Some(server), Some(thread)) = (&prepared.codex, resume) {
+        if let Some(server) = &prepared.codex {
             let bypass = !settings.bypass_off.contains(&agent);
             let call = |method, params| server.call(method, params);
-            if let Err(e) = codex::resume(call, &thread, bypass).await {
+            if let Err(e) = codex::resume(call, &resume, bypass).await {
                 prepared.discarder()();
                 return Err(e);
             }
-            server.follow_thread(thread).await;
+            server.follow_thread(resume).await;
         }
         let discard = prepared.discarder();
         // 옛 프로세스가 끝난 뒤 띄운다. 옛 PTY 호스트가 끝나며 지우는 주소 파일을 새 호스트가 함께 쓴다.
@@ -366,23 +360,21 @@ impl App {
             .map_err(|e| e.to_string())
     }
 
-    /// Codex 노드 스레드의 기록 파일을 새 `CODEX_HOME`에 복사하고 스레드 id를 돌려준다. 스레드가 아직 없으면 없다.
-    async fn copy_codex_thread(
-        &self,
-        node: NodeId,
-        new_root: &Path,
-    ) -> Result<Option<String>, String> {
-        let Some(server) = self.codex.lock().unwrap().get(&node).cloned() else {
-            return Ok(None);
+    /// Codex 노드 스레드의 기록 파일을 새 `CODEX_HOME`에 복사하고 스레드 id를 돌려준다. 스레드나 기록 파일이 없으면 실패다.
+    async fn copy_codex_thread(&self, node: NodeId, new_root: &Path) -> Result<String, String> {
+        let server = self.codex.lock().unwrap().get(&node).cloned();
+        let thread = server
+            .as_ref()
+            .and_then(|s| s.thread().borrow().as_ref().map(|t| t.id.clone()));
+        let (Some(server), Some(thread)) = (server, thread) else {
+            return Err(format!("노드 {}에는 이어 갈 Codex 스레드가 없다", node.0));
         };
-        let Some(thread) = server.thread().borrow().as_ref().map(|t| t.id.clone()) else {
-            return Ok(None);
-        };
-        let Some(rollout) = server.rollout(&thread).await? else {
-            return Ok(None);
-        };
+        let rollout = server
+            .rollout(&thread)
+            .await?
+            .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
         copy_session(Path::new(&rollout), CODEX_ROLLOUT_DEPTH, new_root)?;
-        Ok(Some(thread))
+        Ok(thread)
     }
 
     /// 켜져 있으면 공급자마다 `POLL_EVERY`마다 쓰는 계정의 사용량을 본다. 데몬이 시작할 때 한 번 띄운다.
@@ -480,17 +472,16 @@ fn default_config_dir(provider: Provider) -> Option<PathBuf> {
 }
 
 /// Claude 세션 기록과 그 곁 폴더(`<세션>/`, 하위 에이전트 기록)를 새 로그인 폴더에 복사하고 세션 id를 돌려준다.
-/// 기록 파일이 없으면(세션 전, 첫 입력 전) 없다. 세션 id는 기록 파일 이름이다.
-fn copy_claude_session(
-    transcript: Option<&str>,
-    new_root: &Path,
-) -> Result<Option<String>, String> {
-    let Some(file) = transcript.map(Path::new).filter(|f| f.is_file()) else {
-        return Ok(None);
-    };
-    let Some(session) = file.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
-        return Ok(None);
-    };
+/// 기록 파일이 없으면 실패다. 그 노드는 옮기지 않는다. 세션 id는 기록 파일 이름이다.
+fn copy_claude_session(transcript: Option<&str>, new_root: &Path) -> Result<String, String> {
+    let file = transcript
+        .map(Path::new)
+        .filter(|f| f.is_file())
+        .ok_or("이어 갈 Claude 세션 기록이 없다")?;
+    let session = file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .ok_or("세션 기록 파일 이름이 없다")?;
     copy_session(file, CLAUDE_TRANSCRIPT_DEPTH, new_root)?;
     let side = file.with_extension("");
     if side.is_dir()
@@ -499,7 +490,7 @@ fn copy_claude_session(
     {
         copy_dir(&side, &to).map_err(|e| format!("{}: {e}", side.display()))?;
     }
-    Ok(Some(session))
+    Ok(session)
 }
 
 fn copy_session(file: &Path, depth: usize, new_root: &Path) -> Result<(), String> {
@@ -709,7 +700,7 @@ mod tests {
         let transcript = old.join("s1.jsonl");
         assert_eq!(
             copy_claude_session(transcript.to_str(), &new).unwrap(),
-            Some("s1".into())
+            "s1"
         );
         assert_eq!(
             std::fs::read_to_string(new.join("projects/-w/s1.jsonl")).unwrap(),
@@ -719,11 +710,16 @@ mod tests {
             std::fs::read_to_string(new.join("projects/-w/s1/subagents/a.jsonl")).unwrap(),
             "y"
         );
-        // 첫 입력 전에는 기록 파일이 없다. 새로 띄운다.
-        assert_eq!(
-            copy_claude_session(Some("/없음/a.jsonl"), &new).unwrap(),
-            None
-        );
-        assert_eq!(copy_claude_session(None, &new).unwrap(), None);
+    }
+
+    /// 남긴 세션이 없는 노드(이 기능 전에 뜬 노드, 첫 입력 전)를 새로 띄우면 대화를 잃는다. 실패로 세고 아무것도 쓰지 않는다.
+    #[test]
+    fn no_stored_session_fails_and_writes_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let new = tmp.path().join("new");
+        assert!(copy_claude_session(None, &new).is_err());
+        let missing = tmp.path().join("old/projects/-w/gone.jsonl");
+        assert!(copy_claude_session(missing.to_str(), &new).is_err());
+        assert!(!new.exists());
     }
 }

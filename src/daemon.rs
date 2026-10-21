@@ -301,6 +301,19 @@ pub struct WaitRequest {
 pub struct TakeRequest {
     pub kinds: Vec<Kind>,
     pub limit_bytes: usize,
+    /// 훅 입력의 `transcript_path`(Claude 세션 기록 파일). 계정 전환이 쓴다. 옛 `loom hook`은 보내지 않는다.
+    #[serde(default)]
+    pub transcript: Option<String>,
+}
+
+/// 쉬는 Claude 노드의 비동기 훅 요청(`loom hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IdleRequest {
+    /// 훅 입력의 `transcript_path`. 계정 전환이 쓴다.
+    pub transcript: Option<String>,
+    /// 계정 한도로 턴이 끝났다(`StopFailure`의 `rate_limit`).
+    pub rate_limited: bool,
 }
 
 /// `loom guard`의 요청. `caller`는 `loom guard` 프로세스의 PID다. 끝낼 셸은 데몬이 그 조상에서 고른다.
@@ -414,7 +427,6 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/ack", post(agent_ack))
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/model", post(agent_model))
-        .route("/api/agent/report", post(agent_report))
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/rm", post(agent_remove));
@@ -1381,6 +1393,7 @@ async fn agent_take(
     let node = app.caller(&headers)?;
     // 훅이 불렸으면 턴이 돈다. 일하는 중의 메시지는 그 훅들이 넘긴다.
     app.idle.end(node);
+    keep_transcript(&app, node, req.transcript.as_deref())?;
     let taken = app.graph.take(node, &req.kinds, req.limit_bytes);
     Ok(Json(taken.map_err(for_agent)?))
 }
@@ -1390,13 +1403,19 @@ async fn agent_take(
 async fn agent_idle(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
+    Json(req): Json<Option<IdleRequest>>,
 ) -> Result<Json<Vec<Delivery>>, AgentError> {
     let node = app.caller(&headers)?;
+    let req = req.unwrap_or_default();
+    keep_transcript(&app, node, req.transcript.as_deref())?;
     // 프로세스 종료를 보기 전에 연다. 그 사이에 끝나면 `on_exit`가 이 대기를 끝낸다.
     let end = app.idle.open(node);
     if !app.graph.relations(node).map_err(for_agent)?.me.alive {
         app.idle.end(node);
         return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
+    }
+    if req.rate_limited {
+        app.rate_limited(node, profile::Provider::Claude);
     }
     app.turn_ended(node);
     tokio::select! {
@@ -1438,21 +1457,15 @@ async fn agent_model(
     Ok(Json(()))
 }
 
-/// `loom hook`이 Claude 훅 입력에서 읽은 세션 사실. 근거: docs/design.md 「계정 전환」.
-async fn agent_report(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(report): Json<claude::Report>,
-) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
-    match report {
-        claude::Report::Transcript(path) => app
+/// 훅 입력의 Claude 세션 기록 파일을 남긴다. 계정 전환이 그 파일을 새 계정으로 복사한다. 근거: docs/design.md 「계정 전환」.
+fn keep_transcript(app: &App, node: NodeId, path: Option<&str>) -> Result<(), AgentError> {
+    match path {
+        Some(path) => app
             .graph
-            .set_transcript(node, &path)
-            .map_err(|e| for_agent(Refusal::from(e)))?,
-        claude::Report::RateLimited => app.rate_limited(node, profile::Provider::Claude),
+            .set_transcript(node, path)
+            .map_err(|e| for_agent(Refusal::from(e))),
+        None => Ok(()),
     }
-    Ok(Json(()))
 }
 
 async fn agent_wait(

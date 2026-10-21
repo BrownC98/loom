@@ -44,8 +44,6 @@ pub struct Active {
     /// Claude 세션의 기록 파일. `Graph::set_transcript`가 남긴다.
     pub transcript: Option<String>,
     pub model: Model,
-    /// 첫 지시를 받고 띄웠다. 그래프는 첫 줄만 남기므로 세션 없이 다시 띄우면 그 지시를 다시 줄 수 없다.
-    pub has_brief: bool,
 }
 
 impl Graph {
@@ -216,7 +214,7 @@ impl Graph {
     pub fn active(&self) -> rusqlite::Result<Vec<Active>> {
         self.lock()
             .prepare(
-                "SELECT id, name, agent, server, account, transcript, model, effort, brief IS NOT NULL
+                "SELECT id, name, agent, server, account, transcript, model, effort
                  FROM nodes WHERE process_exited = 0 ORDER BY id",
             )?
             .query_map([], |row| {
@@ -231,7 +229,6 @@ impl Graph {
                         model: row.get(6)?,
                         effort: row.get(7)?,
                     },
-                    has_brief: row.get(8)?,
                 })
             })?
             .collect()
@@ -242,10 +239,10 @@ impl Graph {
         keep(&self.lock(), id, launched)
     }
 
-    /// Claude 노드 세션의 기록 파일. 세션을 시작하거나 이어 갈 때마다 훅이 알린다.
+    /// Claude 노드 세션의 기록 파일. 훅마다 알린다. 이 기능 전에 뜬 노드도 다음 훅에서 남는다.
     pub fn set_transcript(&self, id: NodeId, path: &str) -> rusqlite::Result<()> {
         self.lock().execute(
-            "UPDATE nodes SET transcript = ?2 WHERE id = ?1",
+            "UPDATE nodes SET transcript = ?2 WHERE id = ?1 AND transcript IS NOT ?2",
             params![id.0, path],
         )?;
         Ok(())

@@ -5,7 +5,7 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::graph::{Delivery, Kind, Model};
@@ -111,10 +111,9 @@ pub fn args(plugin: &Path, position: Position) -> Vec<String> {
 #[derive(Deserialize)]
 #[serde(tag = "hook_event_name")]
 pub enum Event {
-    /// 세션 시작과 이어 가기. 모델과 기록 파일을 알린다(실측: 2.1.304 입력의 `model`, 2.1.306 `transcript_path`).
+    /// 세션 시작. 모델만 알린다(실측: 2.1.304 입력의 `model`).
     SessionStart {
         model: Option<String>,
-        transcript_path: Option<String>,
     },
     UserPromptSubmit,
     PreToolUse {
@@ -133,16 +132,6 @@ pub enum Event {
 
 /// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
 const RATE_LIMIT_ERROR: &str = "rate_limit";
-
-/// 훅이 데몬에 알리는 세션 사실(`/api/agent/report`). 계정 전환이 쓴다. 근거: docs/design.md 「계정 전환」.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Report {
-    /// 세션 기록 파일. 새 계정으로 옮길 때 이 파일을 복사한다.
-    Transcript(String),
-    /// 계정 한도로 턴이 끝났다.
-    RateLimited,
-}
 
 /// 훅이 메시지를 꺼내는 때.
 #[derive(Debug, PartialEq)]
@@ -165,16 +154,9 @@ impl Event {
         }
     }
 
-    /// 데몬에 알릴 세션 사실. 없으면 알리지 않는다.
-    pub fn report(&self) -> Option<Report> {
-        match self {
-            Event::SessionStart {
-                transcript_path: Some(path),
-                ..
-            } => Some(Report::Transcript(path.clone())),
-            Event::StopFailure { error } if error == RATE_LIMIT_ERROR => Some(Report::RateLimited),
-            _ => None,
-        }
+    /// 계정 한도로 턴이 끝났다. 계정 전환이 쓴다.
+    pub fn rate_limited(&self) -> bool {
+        matches!(self, Event::StopFailure { error } if error == RATE_LIMIT_ERROR)
     }
 
     /// 훅 출력 JSON. 없으면 아무것도 출력하지 않는다.
@@ -398,23 +380,15 @@ mod tests {
         );
     }
 
-    /// 입력 모양은 2.1.306 실측이다. 한도가 아닌 API 오류는 알리지 않는다.
+    /// 입력 모양은 2.1.306 실측이다. 한도가 아닌 API 오류는 한도 멈춤이 아니다.
     #[test]
-    fn session_start_reports_the_transcript_and_rate_limit_stop_is_reported() {
-        let start = event(json!({
-            "session_id": "17dde44e", "hook_event_name": "SessionStart", "source": "resume",
-            "transcript_path": "/c/projects/-w/17dde44e.jsonl", "model": "claude-opus-5-5",
-        }));
-        assert_eq!(
-            start.report(),
-            Some(Report::Transcript("/c/projects/-w/17dde44e.jsonl".into()))
-        );
+    fn stop_failure_waits_for_mail_and_tells_a_rate_limit() {
         let limited = event(json!({ "hook_event_name": "StopFailure", "error": "rate_limit" }));
         assert_eq!(limited.take(), Take::WhenIdle);
-        assert_eq!(limited.report(), Some(Report::RateLimited));
+        assert!(limited.rate_limited());
         let overloaded = event(json!({ "hook_event_name": "StopFailure", "error": "overloaded" }));
-        assert_eq!(overloaded.report(), None);
-        assert_eq!(event(json!({ "hook_event_name": "Stop" })).report(), None);
+        assert!(!overloaded.rate_limited());
+        assert!(!event(json!({ "hook_event_name": "Stop" })).rate_limited());
     }
 
     /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.

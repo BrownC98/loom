@@ -9,8 +9,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
-    AckRequest, AdoptRequest, DoneRequest, GuardRequest, RemoveRequest, ReplyRequest, SendRequest,
-    SpawnRequest, SpawnRun, TakeRequest, WaitRequest,
+    AckRequest, AdoptRequest, DoneRequest, GuardRequest, IdleRequest, RemoveRequest, ReplyRequest,
+    SendRequest, SpawnRequest, SpawnRun, TakeRequest, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, MessageId, NodeId, Relations, Sent};
 use crate::profile::claude::{self, Take};
@@ -143,18 +143,20 @@ pub fn hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the model: {e}");
     }
-    if let Some(report) = event.report()
-        && let Err(e) = call::<()>("report", &report, Some(timeout))
-    {
-        eprintln!("loom: could not report the session: {e}");
-    }
+    let transcript = input["transcript_path"].as_str().map(str::to_owned);
     let kinds = match event.take() {
         Take::Now(kinds) => kinds,
-        Take::WhenIdle => return wake_on_mail(),
+        Take::WhenIdle => {
+            return wake_on_mail(&IdleRequest {
+                transcript,
+                rate_limited: event.rate_limited(),
+            });
+        }
     };
     let request = TakeRequest {
         kinds: kinds.to_vec(),
         limit_bytes: claude::HOOK_LIMIT_BYTES,
+        transcript,
     };
     let taken: Vec<Delivery> = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken) {
@@ -172,11 +174,11 @@ pub fn hook() -> Result<(), String> {
 
 /// 쉬는 노드의 비동기 훅: 메시지가 오면 본문을 stderr에 쓰고 `REWAKE_EXIT`로 끝난다.
 /// 데몬이 대기를 끝내면(새 대기, 새 턴) 아무것도 쓰지 않고 끝난다.
-fn wake_on_mail() -> Result<(), String> {
+fn wake_on_mail(request: &IdleRequest) -> Result<(), String> {
     let mut unreachable_since = None;
     let taken: Vec<Delivery> = loop {
         let attempt = Instant::now();
-        match call("idle", &(), None) {
+        match call("idle", request, None) {
             Ok(taken) => break taken,
             Err(CallError::Unreachable(e)) => {
                 // 오래 붙어 있다 끊겼으면 데몬이 방금 다시 시작했다. 상한을 처음부터 잰다.

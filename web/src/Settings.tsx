@@ -38,8 +38,8 @@ export function Settings(props: {
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
   updates: Updates;
-  /** 웹 버전만 준다. 데스크톱 앱은 창을 닫으면 꺼진다(목업 web-stop.html ①). */
-  onStop?: () => void;
+  /** 데몬만 끈다(목업 web-stop.html ①). 앱을 닫아도 데몬은 살므로 웹 버전과 앱 모두 이 단추로 끈다. */
+  onStop: () => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -51,12 +51,10 @@ export function Settings(props: {
             {t(`settings.tab.${tab}`)}
           </button>
         ))}
-        {props.onStop && (
-          <button className="btn ghost stop" title={t('settings.stopHint')} onClick={props.onStop}>
-            <Power />
-            {t('settings.stop')}
-          </button>
-        )}
+        <button type="button" className="btn ghost stop" title={t('settings.stopHint')} onClick={props.onStop}>
+          <Power />
+          {t('settings.stop')}
+        </button>
       </nav>
       <div className="pane">
         <div className="pane-head">

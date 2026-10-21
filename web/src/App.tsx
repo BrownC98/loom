@@ -1,6 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
@@ -22,6 +21,9 @@ import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
 import { Find, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
+import { isTauri } from '@tauri-apps/api/core';
+import { exit } from '@tauri-apps/plugin-process';
+import { applySettingsPatch, settingsPatch, type SettingsPatch } from './settingsPatch';
 import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
 import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
@@ -168,8 +170,9 @@ export function App() {
     setSettingsState(next);
   };
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  // 저장 요청이 도는 동안은 다시 읽은 값을 버린다. 끝난 저장의 이벤트가 새로 바꾼 값을 되돌리지 않게 한다. 마지막 저장의 이벤트가 다시 읽는다.
-  const saving = useRef(0);
+  // 보내는 중인 칸. 다시 읽은 설정 위에 얹어, 아직 저장되지 않은 내 변경이 되돌아가 보이지 않게 한다.
+  const pending = useRef<SettingsPatch[]>([]);
+  const showFetched = (view: SettingsView) => setSettings(pending.current.reduce(applySettingsPatch, view));
   // 설정 밖의 화면 상태(카드 자리·크기)를 다시 읽으라는 신호. 그래프가 본다.
   const [viewVersion, setViewVersion] = useState(0);
   const updates = useUpdates(viewVersion);
@@ -288,21 +291,28 @@ export function App() {
       setLoading(false);
     }
   }, []);
+  // 데몬을 끈 뒤: 앱은 함께 끝난다. 앱이 남으면 아이콘이 남은 창만 앞으로 가져와 데몬을 다시 띄우지 않는다. 브라우저는 꺼짐 안내를 보인다.
+  const afterStop = () => (isTauri() ? exit(0) : setStopped(true));
   const rescan = () => getAgents().then(setAgents);
   // 화면이 먼저 바뀌고 저장은 뒤따른다. 저장이 실패하면 데몬 값으로 되돌린다.
+  // 바꾼 칸만 보낸다. 다른 화면이 같은 때 다른 칸을 바꿔도 데몬이 둘 다 합친다(`src/settings.rs` `Settings::patch`).
+  // 저장이 끝나면 다시 읽는다. 실패했으면 데몬 값으로 돌아간다.
   const saveSettings = (next: SettingsView) => {
+    const patch = settingsPatch(settingsRef.current, next);
+    if (!patch) return Promise.resolve();
     setSettings(next);
-    saving.current += 1;
-    return putSettings(next)
-      .catch(() => getSettings().then(setSettings))
+    pending.current.push(patch);
+    return putSettings(patch)
+      .catch(() => {})
       .finally(() => {
-        saving.current -= 1;
+        pending.current = pending.current.filter((p) => p !== patch);
+        return getSettings().then(showFetched);
       });
   };
   const editSettings = (edit: (current: SettingsView) => SettingsView) => saveSettings(edit(settingsRef.current));
   // 데몬이 스스로 계정을 바꿨다. 쓰는 계정과 사용량을 다시 읽는다.
   const notice = useSwitchNotice(settings.closedSwitchNotice, (id) => editSettings((s) => ({ ...s, closedSwitchNotice: id })), () => {
-    getSettings().then(setSettings);
+    getSettings().then(showFetched);
     refreshUsage();
   });
   // 계정 고르기: 그 계정이 아닌 노드가 없으면 바로 저장한다. 있으면 확인 창이 묻는다(취소하면 아무것도 바꾸지 않는다).
@@ -425,7 +435,7 @@ export function App() {
           setNodes((prev) => new Map(prev).set(event.id, event));
           break;
         case 'viewChanged':
-          if (saving.current === 0) getSettings().then(setSettings);
+          getSettings().then(showFetched);
           setViewVersion((n) => n + 1);
           break;
         case 'recorded':
@@ -600,7 +610,7 @@ export function App() {
               usage={usage}
               onChoose={chooseAccount}
               updates={updates}
-              onStop={isTauri() ? undefined : () => void shutdown().then(() => setStopped(true))}
+              onStop={() => void shutdown().then(afterStop)}
             />
           )}
           {switching && (

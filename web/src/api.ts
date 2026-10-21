@@ -33,6 +33,7 @@ import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
 import type { UpdateView } from './gen/UpdateView';
+import type { SettingsPatch } from './settingsPatch';
 import type { WaitId } from './gen/WaitId';
 import { problemText, statusText } from './problem';
 
@@ -88,7 +89,8 @@ export const openFile = (path: string) => call<null>('POST', '/api/files/open', 
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');
-export const putSettings = (view: SettingsView) => call<null>('PUT', '/api/settings', view);
+/** 바꾼 칸만 보낸다. 데몬이 지금 설정에 합친다. */
+export const putSettings = (patch: SettingsPatch) => call<null>('PUT', '/api/settings', patch);
 /** 데몬의 업데이트 상태(docs/mockups/web-update.html). */
 export const getUpdate = () => call<UpdateView>('GET', '/api/update');
 /** 데몬이 지금 `latest.json`을 본다. */

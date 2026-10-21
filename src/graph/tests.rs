@@ -188,12 +188,22 @@ fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     assert_eq!(g.unasked_root(lead), Ok(true));
     assert_eq!(g.unasked_root(worker), Ok(false));
     // 사람에게는 사람이 띄운 노드만 묻는다.
-    assert_eq!(g.ask(worker, "A?"), Err(Refusal::HasParent));
-    assert_eq!(g.ask(lead, "  "), Err(Refusal::EmptyQuestion));
-    g.ask(lead, "A or B?\nmore").unwrap();
-    assert_eq!(wait(lead), Some((WaitKind::Question, "A or B?".into())));
+    assert_eq!(g.ask(worker, "A?", None), Err(Refusal::HasParent));
+    assert_eq!(g.ask(lead, "  ", None), Err(Refusal::EmptyQuestion));
+    // `loom ask` 질문은 줄바꿈까지 전문을 남긴다.
+    let asked = g.ask(lead, "A or B?\nmore", None).unwrap();
+    assert_eq!(
+        wait(lead),
+        Some((WaitKind::Question, "A or B?\nmore".into()))
+    );
     assert_eq!(g.unasked_root(lead), Ok(false));
-    assert_eq!(g.open_question(lead), Ok(Some("A or B?".into())));
+    assert_eq!(
+        g.open_question(lead),
+        Ok(Some(OpenQuestion {
+            id: asked,
+            text: "A or B?\nmore".into()
+        }))
+    );
 
     // 다른 신호는 자기가 건 대기만 거둔다.
     g.set_wait(lead, WaitSource::Screen, None).unwrap();
@@ -207,7 +217,7 @@ fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     g.set_wait(lead, WaitSource::Ask, None).unwrap();
     assert_eq!(wait(lead), None);
     // 받은편지함 [×]는 어느 신호의 대기든 지운다.
-    g.ask(lead, "A or B?").unwrap();
+    g.ask(lead, "A or B?", None).unwrap();
     g.clear_wait(lead).unwrap();
     assert_eq!(wait(lead), None);
     assert_eq!(g.open_question(lead), Ok(None));
@@ -244,6 +254,67 @@ fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     g.set_wait(lead, WaitSource::Hook, permission).unwrap();
     g.clear_wait(lead).unwrap();
     assert_eq!(wait(lead), None);
+}
+
+/// 대기 번호는 데몬 전체에서 늘기만 한다. 지운 번호도, 같은 질문을 다시 물어도 새 번호다. 다시 열어도 이어진다.
+/// 사람이 화면에서 답하면 사람이 보낸 큐 메시지가 그 노드에 가고 질문은 바로 사라진다. 문서는 열린 질문의 것만 준다.
+#[test]
+fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let g = open(&path);
+    let lead = root(&g, "총괄");
+    let other = root(&g, "다른");
+    let id = |node| view(&g, node).wait.map(|w| w.id);
+
+    let first = g.ask(lead, "A or B?", None).unwrap();
+    let screen = g
+        .set_wait(other, WaitSource::Screen, Some((WaitKind::Trust, "Trust?")))
+        .map(|()| id(other).unwrap())
+        .unwrap();
+    assert!(screen.0 > first.0);
+    assert!(!view(&g, other).wait.unwrap().answerable);
+    g.clear_wait(lead).unwrap();
+    let again = g.ask(lead, "A or B?", None).unwrap();
+    assert!(again.0 > screen.0);
+    assert!(view(&g, lead).wait.unwrap().answerable);
+
+    // 다른 신호의 대기와 지운 질문에는 답하지 못한다.
+    assert_eq!(g.answer(screen, "y"), Err(Refusal::NoWait(screen)));
+    assert_eq!(g.answer(first, "A"), Err(Refusal::NoWait(first)));
+    assert_eq!(g.answer(again, "  "), Err(Refusal::EmptyAnswer));
+    assert_eq!(g.wait_doc(again), Err(Refusal::NoWait(again)));
+
+    g.answer(again, "A").unwrap();
+    assert_eq!(id(lead), None);
+    let (from, kind, body) = take(&g, lead).unwrap();
+    assert_eq!((from.as_str(), kind), (HUMAN, Kind::Queue));
+    assert!(
+        body.starts_with(&format!(
+            "Answer to loom ask question {again} (A or B?): A\n"
+        )),
+        "{body}"
+    );
+    assert_eq!(g.answer(again, "A"), Err(Refusal::NoWait(again)));
+
+    // 문서가 붙은 질문: 화면은 ID와 제목만 받고, 데몬은 열린 동안만 파일을 준다.
+    let doc = WaitDoc {
+        id: "M3".into(),
+        title: "목업".into(),
+    };
+    let attached = Attached {
+        doc: doc.clone(),
+        path: dir.path().join("m.html"),
+    };
+    let with_doc = g.ask(lead, "승인할까요?", Some(attached)).unwrap();
+    assert_eq!(view(&g, lead).wait.unwrap().doc, Some(doc));
+    assert_eq!(g.wait_doc(with_doc), Ok(dir.path().join("m.html")));
+    g.set_wait(lead, WaitSource::Ask, None).unwrap();
+    assert_eq!(g.wait_doc(with_doc), Err(Refusal::NoWait(with_doc)));
+
+    drop(g);
+    let g = open(&path);
+    assert!(g.ask(lead, "다시?", None).unwrap().0 > with_doc.0);
 }
 
 #[test]

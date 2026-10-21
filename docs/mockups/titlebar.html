@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M5 loom 앱 상단바 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+
+.window { width: 1100px; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; background: var(--bg); color: var(--ink); box-shadow: 0 8px 28px oklch(0% 0 0 / 0.18); }
+.native { height: 32px; display: flex; align-items: center; background: oklch(17% 0 0); color: oklch(92% 0 0); font: 12px 'Segoe UI', system-ui, sans-serif; }
+.native .ico { width: 16px; height: 16px; margin: 0 8px 0 10px; background: oklch(92% 0 0); border-radius: 3px; }
+.native .t { flex: 1; }
+.native .caps .cap { color: oklch(92% 0 0); }
+.titlebar { height: 36px; display: flex; align-items: center; background: var(--panel); border-bottom: 1px solid var(--line); user-select: none; }
+.tb-left { display: flex; align-items: center; padding: 0 10px 0 14px; }
+.mark { width: 16px; height: 16px; fill: var(--ink-2); }
+.drag { flex: 1; align-self: stretch; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--ink-3); background: repeating-linear-gradient(135deg, transparent 0 8px, var(--accent-wash) 8px 9px); }
+.caps { display: flex; align-self: stretch; }
+.cap { width: 46px; height: 100%; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: var(--ink-3); cursor: pointer; }
+.cap svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; }
+.cap:hover, .cap.hov { background: var(--surface-hover); color: var(--ink); }
+.cap.close:hover, .cap.close.hov { background: #c42b1c; color: #fff; }
+.titlebar.new { outline: 2px dashed var(--warn); outline-offset: -2px; }
+.below { display: grid; grid-template-columns: 220px 1fr 300px; height: 92px; font-size: 13px; }
+.b-side { background: var(--panel); border-right: 1px solid var(--line); }
+.b-brand { display: flex; justify-content: space-between; font-weight: 700; font-size: 16px; padding: 12px 10px 8px 16px; }
+.b-brand .ic { color: var(--ink-3); font-weight: 400; font-size: 14px; }
+.b-row { padding: 2px 16px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.b-canvas { background-color: var(--bg); background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 20px 20px; padding: 12px 16px; }
+.b-title { font-weight: 600; }
+.b-dock { background: var(--panel); border-left: 1px solid var(--line); }
+.b-dhead { display: flex; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--ink-3); }
+.b-dhead span:first-child { color: var(--ink); font-weight: 600; }
+.states { display: grid; grid-template-columns: repeat(2, 540px); gap: 16px; }
+.states .window { width: 540px; }
+.states .cap-label { font-size: 12px; color: var(--ink-3); margin-bottom: 6px; }
+table { border-collapse: collapse; font-size: 13px; max-width: 1100px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+td.rec { font-weight: 600; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M5</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>Windows 앱 상단바: 기본 제목 줄을 loom이 그린 줄로 바꾼다</h1>
+  <p class="lead">사람 지시: 「orca 처럼 상단 앱바를 기본 ui 말고 세련되게 할 수 없나」. 바뀌는 곳은 Windows 앱 창의 맨 위 줄뿐이다. 점선이 바뀌는 곳이다. 브라우저에서 연 화면(127.0.0.1)은 바뀌지 않는다.</p>
+
+  <div class="fig">
+    <h2>① 지금 <span class="tag">Windows 기본 제목 줄</span></h2>
+    <div class="window" style="color-scheme:dark"><div class="native"><span class="ico"></span><span class="t">loom 0.1.328</span><span class="caps"><span class="cap"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></span><span class="cap"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></span><span class="cap"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></span></span></div><div class="below"><div class="b-side"><div class="b-brand">loom <span class="ic">⫷</span></div><div class="b-row">저장소</div></div><div class="b-canvas"><span class="b-title">loom</span></div><div class="b-dock"><div class="b-dhead"><span>커밋</span><span>이벤트</span></div></div></div></div>
+    <ul class="note">
+      <li>Windows가 그린 줄이다. loom 테마(라이트·다크)를 따르지 않는다. 판 번호는 아래 상태 줄에 이미 있다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 제안: 라이트 <span class="tag">높이 36px, Orca와 같음</span></h2>
+    <div class="window" style="color-scheme:light"><div class="titlebar new"><span class="tb-left"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2.5" width="4" height="2.5"/><rect x="9" y="1.5" width="2.5" height="4.5"/><rect x="1.5" y="7" width="4.5" height="2.5"/><rect x="7" y="6" width="2.5" height="4.5"/><rect x="10.5" y="7" width="4" height="2.5"/><rect x="2.5" y="11" width="2.5" height="3.5"/><rect x="6.5" y="11.5" width="4.5" height="2.5"/><rect x="12" y="11" width="1.5" height="3"/></svg></span><span class="drag">끌기 · 두 번 누르기 = 최대화</span><span class="caps"><button class="cap" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button><button class="cap" aria-label="최대화"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button><button class="cap close" aria-label="닫기"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button></span></div><div class="below"><div class="b-side"><div class="b-brand">loom <span class="ic">⫷</span></div><div class="b-row">저장소</div></div><div class="b-canvas"><span class="b-title">loom</span></div><div class="b-dock"><div class="b-dhead"><span>커밋</span><span>이벤트</span></div></div></div></div>
+    <ul class="note">
+      <li>왼쪽: loom 마크(앱 아이콘의 짜임 무늬)만 둔다. 이름 「loom」은 바로 아래 사이드바 머리에 있고, 판 번호는 상태 줄에 있다.</li>
+      <li>빗금 구역: 끌면 창이 옮겨진다. 두 번 누르면 최대화·이전 크기가 바뀐다. 빗금은 목업 표시이며 실제 화면에는 없다.</li>
+      <li>오른쪽: 최소화·최대화·닫기(각 46×36px, Windows 기본 크기). 색은 화면 토큰(<code>--panel</code>·<code>--ink-3</code>)을 따른다.</li>
+      <li>창 가장자리를 끌어 크기를 바꾸는 동작과 창 그림자는 지금과 같다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 제안: 다크</h2>
+    <div class="window" style="color-scheme:dark"><div class="titlebar new"><span class="tb-left"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2.5" width="4" height="2.5"/><rect x="9" y="1.5" width="2.5" height="4.5"/><rect x="1.5" y="7" width="4.5" height="2.5"/><rect x="7" y="6" width="2.5" height="4.5"/><rect x="10.5" y="7" width="4" height="2.5"/><rect x="2.5" y="11" width="2.5" height="3.5"/><rect x="6.5" y="11.5" width="4.5" height="2.5"/><rect x="12" y="11" width="1.5" height="3"/></svg></span><span class="drag">끌기 · 두 번 누르기 = 최대화</span><span class="caps"><button class="cap" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button><button class="cap" aria-label="최대화"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button><button class="cap close" aria-label="닫기"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button></span></div><div class="below"><div class="b-side"><div class="b-brand">loom <span class="ic">⫷</span></div><div class="b-row">저장소</div></div><div class="b-canvas"><span class="b-title">loom</span></div><div class="b-dock"><div class="b-dhead"><span>커밋</span><span>이벤트</span></div></div></div></div>
+  </div>
+
+  <div class="fig">
+    <h2>④ 버튼 상태</h2>
+    <div class="states">
+      <div><div class="cap-label">최소화에 마우스 (라이트)</div><div class="window" style="width:540px"><div style="color-scheme:light"><div class="titlebar new"><span class="tb-left"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2.5" width="4" height="2.5"/><rect x="9" y="1.5" width="2.5" height="4.5"/><rect x="1.5" y="7" width="4.5" height="2.5"/><rect x="7" y="6" width="2.5" height="4.5"/><rect x="10.5" y="7" width="4" height="2.5"/><rect x="2.5" y="11" width="2.5" height="3.5"/><rect x="6.5" y="11.5" width="4.5" height="2.5"/><rect x="12" y="11" width="1.5" height="3"/></svg></span><span class="drag">끌기 · 두 번 누르기 = 최대화</span><span class="caps"><button class="cap hov" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button><button class="cap" aria-label="최대화"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button><button class="cap close" aria-label="닫기"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button></span></div></div></div></div>
+      <div><div class="cap-label">닫기에 마우스 (라이트)</div><div class="window" style="width:540px"><div style="color-scheme:light"><div class="titlebar new"><span class="tb-left"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2.5" width="4" height="2.5"/><rect x="9" y="1.5" width="2.5" height="4.5"/><rect x="1.5" y="7" width="4.5" height="2.5"/><rect x="7" y="6" width="2.5" height="4.5"/><rect x="10.5" y="7" width="4" height="2.5"/><rect x="2.5" y="11" width="2.5" height="3.5"/><rect x="6.5" y="11.5" width="4.5" height="2.5"/><rect x="12" y="11" width="1.5" height="3"/></svg></span><span class="drag">끌기 · 두 번 누르기 = 최대화</span><span class="caps"><button class="cap" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button><button class="cap" aria-label="최대화"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button><button class="cap close hov" aria-label="닫기"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button></span></div></div></div></div>
+      <div><div class="cap-label">최대화한 창: 가운데 버튼이 「이전 크기로」 (다크)</div><div class="window" style="width:540px"><div style="color-scheme:dark"><div class="titlebar new"><span class="tb-left"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2.5" width="4" height="2.5"/><rect x="9" y="1.5" width="2.5" height="4.5"/><rect x="1.5" y="7" width="4.5" height="2.5"/><rect x="7" y="6" width="2.5" height="4.5"/><rect x="10.5" y="7" width="4" height="2.5"/><rect x="2.5" y="11" width="2.5" height="3.5"/><rect x="6.5" y="11.5" width="4.5" height="2.5"/><rect x="12" y="11" width="1.5" height="3"/></svg></span><span class="drag">끌기 · 두 번 누르기 = 최대화</span><span class="caps"><button class="cap" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button><button class="cap" aria-label="이전 크기로"><svg viewBox="0 0 10 10"><rect x=".5" y="2.5" width="7" height="7"/><path d="M2.5 2.5V.5h7v7h-2"/></svg></button><button class="cap close" aria-label="닫기"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button></span></div></div></div></div>
+      <div><div class="cap-label">닫기에 마우스 (다크)</div><div class="window" style="width:540px"><div style="color-scheme:dark"><div class="titlebar new"><span class="tb-left"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2.5" width="4" height="2.5"/><rect x="9" y="1.5" width="2.5" height="4.5"/><rect x="1.5" y="7" width="4.5" height="2.5"/><rect x="7" y="6" width="2.5" height="4.5"/><rect x="10.5" y="7" width="4" height="2.5"/><rect x="2.5" y="11" width="2.5" height="3.5"/><rect x="6.5" y="11.5" width="4.5" height="2.5"/><rect x="12" y="11" width="1.5" height="3"/></svg></span><span class="drag">끌기 · 두 번 누르기 = 최대화</span><span class="caps"><button class="cap" aria-label="최소화"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button><button class="cap" aria-label="최대화"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button><button class="cap close hov" aria-label="닫기"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button></span></div></div></div></div>
+    </div>
+    <ul class="note">
+      <li>마우스를 올리면 바탕이 <code>--surface-hover</code>가 된다. 닫기만 Windows 빨강(<code>#c42b1c</code>)과 흰 글자다(Orca와 같다).</li>
+      <li>버튼마다 이름표(최소화, 최대화·이전 크기로, 닫기)를 둔다. 화면 낭독기가 읽는다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>#</th><th>정할 것</th><th>권장안</th><th>다른 안</th></tr>
+      <tr><td>1</td><td>줄 배치</td><td class="rec">화면 맨 위에 따로 한 줄(②)</td><td>Orca처럼 사이드바·도크 머리에 겹쳐 줄을 아낀다. 접힌 사이드바·도크마다 자리를 따로 맞춰야 해 고칠 곳이 늘어난다</td></tr>
+      <tr><td>2</td><td>줄에 둘 것</td><td class="rec">마크와 창 버튼만</td><td>「loom」 이름과 판 번호도 둔다. 사이드바 머리·상태 줄과 겹친다</td></tr>
+      <tr><td>3</td><td>Windows 11 스냅 레이아웃 팝업(최대화 버튼에 마우스)</td><td class="rec">두지 않는다. Win+Z, 화면 가장자리로 끌기 스냅은 그대로 된다</td><td>팝업을 살리는 Tauri 플러그인(<code>tauri-plugin-decorum</code>)을 더한다. 의존성이 하나 늘고 Windows에서만 시험할 수 있다</td></tr>
+      <tr><td>4</td><td>높이</td><td class="rec">36px(Orca와 같다)</td><td>32px(Windows 기본 제목 줄과 같다)</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

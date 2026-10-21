@@ -7,6 +7,7 @@ use std::io::BufRead;
 use std::process::{Child, Command, Stdio};
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_window_state::StateFlags;
 
 const WINDOW: &str = "main";
 /// 데몬의 시작 줄 앞부분. 근거: `src/daemon.rs`의 `serve`.
@@ -26,7 +27,12 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 제목 줄은 화면이 그린다(아래 `decorations(false)`). 옛 판이 저장한 「OS 제목 줄 있음」을 되살리지 않는다.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::all() - StateFlags::DECORATIONS)
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // 시작 폴더는 git 저장소가 아니라 데몬이 저장소로 더하지 않는다. 저장소는 DB에 남고, 사람이 화면에서 더한다.
@@ -48,6 +54,8 @@ fn main() {
             WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(url.parse()?))
                 .title(format!("loom {}", app.package_info().version))
                 .inner_size(1280.0, 800.0)
+                // 화면이 테마를 따르는 제목 줄을 그린다(`web/src/TitleBar.tsx`). 제목은 작업 표시줄에 남는다.
+                .decorations(false)
                 .build()?;
             Ok(())
         })

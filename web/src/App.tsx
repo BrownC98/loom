@@ -29,6 +29,7 @@ import { Splitter, usePaneOpen, usePaneWidth, useViewportWidth, type Pane } from
 import { StatusBar, type Usage } from './StatusBar';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Tree } from './Tree';
+import { TitleBar } from './TitleBar';
 import { UpdateCard } from './Update';
 import { activeFont, paneKey, XtermFont, XtermTheme } from './Terminal';
 import { TerminalDock } from './TerminalDock';
@@ -311,6 +312,7 @@ export function App() {
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <XtermFont.Provider value={activeFont(settings.terminalFont)}>
       <ReactFlowProvider>
+        <TitleBar />
         <div className="app" style={{ '--side-w': `${sideShown}px`, '--dock-w': `${dockOpen ? dockWidth : RAIL_WIDTH}px` } as CSSProperties}>
           {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} onWidth={setSideWidth} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />}
           {dockOpen && <Splitter pane={dockPane} width={dockWidth} onWidth={setDockWidth} label={t('app.resize', { pane: t('dock.label') })} style={{ right: dockWidth }} />}

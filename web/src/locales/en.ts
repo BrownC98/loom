@@ -350,6 +350,11 @@ const en = {
     tokenExpired: 'The token expired. Run Claude once with this account to refresh it.',
     unavailable: 'Usage unavailable: {{value}}',
   },
+  titlebar: {
+    minimize: 'Minimize',
+    maximize: 'Maximize',
+    restore: 'Restore',
+  },
   update: {
     available: 'Update available',
     downloading: 'Downloading update',

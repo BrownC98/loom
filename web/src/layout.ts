@@ -26,6 +26,7 @@ export type NestGroup = { parent: number | null; card: NodeId | null; members: r
  * 자식 워크트리 묶음은 부모 카드의 묶음 상자 안, 부모 카드 다음 세대 줄에 선다. 부모 카드는 자식 전체(같은 묶음 카드와 안에 든 자식 묶음)의 가운데에 선다.
  * 세대는 저장소 전체에서 한 줄이다. 카드끼리 틈은 20, 상자가 낀 틈은 32다. 형제 나무는 앞 나무의 가장 깊은 줄보다 깊은 줄을 앞 나무 오른쪽 끝 뒤에 둔다(M11 규칙 5).
  * 맨 위 묶음 가운데 자식 묶음이 없는 묶음(빈 묶음 포함)은 나무 뒤에 선다(같은 목업 ⑫).
+ * 맨 위 묶음의 자식 없는 뿌리는 제 줄만 차지한다(docs/mockups/arrange-root.html v1, `packRoots`).
  * `parentOf`는 카드의 부모 카드다. 돌려주는 값은 카드와 묶음 상자의 왼쪽 위다(가장 위·왼쪽이 0).
  */
 export function arrangeNested(
@@ -87,18 +88,29 @@ export function arrangeNested(
     lo: merged(a.lo, b.lo, (x, y) => x < y),
     hi: merged(a.hi, b.hi, (x, y) => x > y),
   });
-  const pack = (shapes: readonly Shape[]): Shape | null =>
-    shapes.reduce<Shape | null>((acc, s) => {
-      if (!acc) return s;
+  // 뒤 나무의 깊은 줄(앞 나무의 가장 깊은 줄보다 깊은 줄)은 앞 나무들의 `claim` 가운데 가장 오른쪽 뒤에 선다. -Infinity만 있으면 막지 않는다.
+  const rightOf = (s: Shape) => Math.max(...[...s.hi.values()].map((e) => e.at));
+  const pack = (shapes: readonly Shape[], claim: (s: Shape) => number = rightOf): Shape | null => {
+    let acc: Shape | null = null;
+    let right = -Infinity;
+    for (const s of shapes) {
+      if (!acc) {
+        acc = s;
+        right = claim(s);
+        continue;
+      }
       const deepest = Math.max(...acc.hi.keys());
-      const right = Math.max(...[...acc.hi.values()].map((e) => e.at));
       let by = -Infinity;
       for (const [r, lo] of s.lo) {
-        const edge = acc.hi.get(r) ?? (r > deepest ? { at: right, box: true } : undefined);
+        const edge = acc.hi.get(r) ?? (r > deepest && right > -Infinity ? { at: right, box: true } : undefined);
         if (edge) by = Math.max(by, edge.at + (edge.box || lo.box ? GROUP_GAP : CARD_LANE) - lo.at);
       }
-      return join(acc, shift(s, by === -Infinity ? 0 : by));
-    }, null);
+      const moved = shift(s, by === -Infinity ? 0 : by);
+      acc = join(acc, moved);
+      right = Math.max(right, claim(moved));
+    }
+    return acc;
+  };
   const layCard = (id: NodeId): Shape => {
     const r = rowOf(id);
     const kids = pack([...kidCards(id).map(layCard), ...kidGroups(id).map(layGroup)]);
@@ -108,12 +120,22 @@ export function arrangeNested(
     const me: Shape = { at: new Map([[id, x]]), boxes: new Map(), lo: new Map([[r, { at: x, box: false }]]), hi: new Map([[r, { at: x + own, box: false }]]) };
     return kids ? join(kids, me) : me;
   };
+  // 맨 위 묶음의 뿌리(목업 docs/mockups/arrange-root.html v1, 2026-10-21 사람 승인). 자식 없는 뿌리가 앞이고 제 줄만 차지한다. 뒤 나무의 깊은 줄은 그 아래로 들어온다.
+  // 자식이 있는 뿌리는 첫 자식 번호 순서다. 자식이 생긴 뿌리만 앞 나무 오른쪽 끝 뒤로 가고, 앞 나무는 움직이지 않는다.
+  const branched = (id: NodeId) => {
+    const kids = groups.flatMap((g) => g.members.filter((k) => parentOf(k) === id));
+    return kids.length === 0 ? -Infinity : Math.min(...kids);
+  };
+  const packRoots = (ids: readonly NodeId[]): Shape => {
+    const ordered = [...ids].sort((a, b) => Math.sign(branched(a) - branched(b) || 0));
+    return pack(ordered.map(layCard), (s) => (s.hi.size === 1 ? -Infinity : rightOf(s)))!;
+  };
   const layGroup = (i: number): Shape => {
     if (groups[i].members.length === 0) {
       const w = across(groups[i].empty);
       return { at: new Map(), boxes: new Map([[i, { lo: 0, hi: w, r0: 0, r1: 0 }]]), lo: new Map([[0, { at: 0, box: true }]]), hi: new Map([[0, { at: w, box: true }]]) };
     }
-    const s = pack(roots(i).map(layCard))!;
+    const s = groups[i].card === null ? packRoots(roots(i)) : pack(roots(i).map(layCard))!;
     const rs = [...s.lo.keys()];
     const [r0, r1] = [Math.min(...rs), Math.max(...rs)];
     const lo = Math.min(...[...s.lo.values()].map((e) => e.at)) - pad.lo;

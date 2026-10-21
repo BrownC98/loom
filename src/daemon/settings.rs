@@ -254,7 +254,7 @@ async fn login(
     };
     app.logins
         .host
-        .spawn(login, cmd, |_| {}, on_exit)
+        .spawn(login, cmd, None, |_| {}, on_exit)
         .map_err(|e| {
             app.logins.states.lock().unwrap().remove(&login);
             discard();

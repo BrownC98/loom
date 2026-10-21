@@ -632,7 +632,7 @@ impl App {
         Ok(id)
     }
 
-    /// 새 워크트리에서 저장소 설정 스크립트를 명령 노드로 띄운다. 카드가 출력과 종료 코드를 보인다.
+    /// [새 워크트리]가 만든 워크트리에서 저장소 설정 스크립트를 명령 노드로 띄운다. 카드가 출력과 종료 코드를 보인다.
     /// 성공하면 노드를 지운다. 스크립트가 없으면 아무것도 하지 않는다. 근거: docs/design.md 「저장소와 워크트리」.
     async fn setup(self: &Arc<Self>, place: &Place) -> Result<(), Problem> {
         let cwd = std::path::Path::new(&place.worktree);
@@ -664,6 +664,7 @@ impl App {
     fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<Launched, String> {
         let Prepared {
             cmd,
+            setup,
             token,
             profile,
             codex,
@@ -676,7 +677,7 @@ impl App {
         };
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host
-            .spawn(id, cmd, self.on_title(id, profile), on_exit)?;
+            .spawn(id, cmd, setup, self.on_title(id, profile), on_exit)?;
         self.follow_servers(id, codex, opencode2);
         Ok(Launched { token, server })
     }
@@ -863,6 +864,7 @@ impl App {
         }
         Ok(Prepared {
             cmd,
+            setup: None,
             token,
             profile,
             codex,
@@ -884,6 +886,8 @@ impl App {
 /// 띄울 준비가 된 노드. Codex·OpenCode 2 노드면 TUI가 붙을 서버가 이미 떠 있다.
 struct Prepared {
     cmd: portable_pty::CommandBuilder,
+    /// 같은 PTY에서 `cmd`보다 먼저 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
+    setup: Option<portable_pty::CommandBuilder>,
     /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
     token: String,
     /// 터미널 제목에서 카드 주제를 꺼내는 프로필. 없으면 제목을 쓰지 않는다.
@@ -1143,30 +1147,17 @@ async fn agent_spawn(
     let made = worktree.as_ref().map(|(_, made)| made.as_str());
     let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
     let spawned = spawn_child(&app, parent, &req.name, &start, &queued_brief, made, cwd).await;
-    match (&worktree, &spawned) {
-        // 자식을 띄우지 못하면 이 요청이 만든 워크트리와 브랜치를 지운다. 거절만 남긴다.
-        (Some((repo, made)), Err(_)) => {
-            if let Err(e) = worktree::discard(repo, made).await {
-                eprintln!("loom: 띄우지 못한 자식의 워크트리 {made}를 지우지 못했다: {e}");
-            }
-        }
-        // 설정 스크립트는 자식이 뜬 뒤에 띄운다. 그래서 되돌릴 설정 노드가 없다. 자식은 설정을 기다리지 않는다.
-        (Some((_, made)), Ok(_)) => {
-            let setup = Place {
-                repo: place.repo,
-                worktree: made.clone(),
-            };
-            if let Err(e) = app.setup(&setup).await {
-                let (_, e) = for_agent(e);
-                eprintln!("loom: 워크트리 {made}의 설정 스크립트를 띄우지 못했다: {e}");
-            }
-        }
-        (None, _) => {}
+    // 자식을 띄우지 못하면 이 요청이 만든 워크트리와 브랜치를 지운다. 거절만 남긴다.
+    if let (Some((repo, made)), Err(_)) = (&worktree, &spawned)
+        && let Err(e) = worktree::discard(repo, made).await
+    {
+        eprintln!("loom: 띄우지 못한 자식의 워크트리 {made}를 지우지 못했다: {e}");
     }
     spawned.map(Json)
 }
 
 /// `agent_spawn`에서 워크트리를 만든 뒤의 단계: 준비하고 그래프에 자식을 더해 띄운다.
+/// 새 워크트리면 그 설정 스크립트를 자식의 PTY에서 먼저 돌린다. 근거: docs/design.md 「저장소와 워크트리」.
 async fn spawn_child(
     app: &Arc<App>,
     parent: NodeId,
@@ -1176,7 +1167,10 @@ async fn spawn_child(
     worktree: Option<&str>,
     cwd: &std::path::Path,
 ) -> Result<NodeId, AgentError> {
-    let prepared = app.prepare(start, cwd).await.map_err(for_agent)?;
+    let mut prepared = app.prepare(start, cwd).await.map_err(for_agent)?;
+    if worktree.is_some() {
+        prepared.setup = worktree::setup_script(cwd).map(|line| profile::shell(&line));
+    }
     let discard = prepared.discarder();
     let limits = app
         .tree_limits()

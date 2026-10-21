@@ -1,6 +1,7 @@
 //! PTY 호스트(`loom pty-host`): PTY 하나와 그 프로세스, 최근 출력을 쥐고 데몬보다 오래 산다.
 //! 데몬이 다시 시작하거나 새 실행 파일로 바뀌어도 노드 프로세스는 끝나지 않는다. 근거: docs/design.md 「에이전트 실행」.
 //! 띄울 명령은 stdin의 JSON(`CommandBuilder`)으로 받고, 듣는 주소를 stdout 한 줄로 알린다. 그 뒤로 stdout은 쓰지 않는다.
+//! 설정 스크립트가 있으면 같은 PTY에서 먼저 돌리고, 성공하면 명령을 띄운다. 근거: docs/design.md 「저장소와 워크트리」.
 //! 데몬 연결은 한 번에 하나다. 새 연결이 오면 앞 연결을 닫는다(다시 시작한 데몬이 앞 데몬의 자리를 받는다).
 
 use std::ffi::OsString;
@@ -10,7 +11,9 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{
+    Child, ChildKiller, CommandBuilder, MasterPty, PtySize, SlavePty, native_pty_system,
+};
 use serde::{Deserialize, Serialize};
 
 use super::Backlog;
@@ -37,8 +40,7 @@ const EXIT_KEEP: Duration = Duration::from_secs(600);
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct Host {
-    pid: Option<u32>,
-    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    process: Mutex<Process>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     input: Mutex<Box<dyn Write + Send>>,
     state: Mutex<State>,
@@ -46,8 +48,17 @@ struct Host {
     delivered: mpsc::Sender<()>,
 }
 
+/// 지금 PTY에서 도는 프로세스(설정 스크립트나 명령)를 끝내는 손잡이.
+struct Process {
+    killer: Box<dyn ChildKiller + Send + Sync>,
+    /// 데몬이 끝내기를 보냈다. 설정 스크립트 뒤의 명령을 띄우지 않는다.
+    killed: bool,
+}
+
 #[derive(Default)]
 struct State {
+    /// 지금 PTY에서 도는 프로세스의 PID.
+    pid: Option<u32>,
     backlog: Backlog,
     /// 지금 붙은 데몬. 번호는 끊긴 연결이 새 연결을 지우지 않게 가린다.
     client: Option<(u64, TcpStream)>,
@@ -57,15 +68,18 @@ struct State {
 
 /// 데몬이 stdin으로 넘기는 명령. `CommandBuilder`는 env 맵의 키가 `OsString`이라 JSON으로 바꿀 수 없어 값만 옮긴다.
 /// 환경은 데몬이 본 전체 환경이다. 호스트의 환경은 쓰지 않는다.
+/// `setup`은 명령 앞에 같은 폴더·환경으로 돌릴 설정 스크립트의 `argv`다. 없는 필드는 옛 데몬과 같은 뜻(없음)이다.
 #[derive(Serialize, Deserialize)]
 pub struct Spec {
     argv: Vec<OsString>,
     cwd: Option<OsString>,
     env: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    setup: Option<Vec<OsString>>,
 }
 
 impl Spec {
-    pub fn of(cmd: &CommandBuilder) -> Self {
+    pub fn of(cmd: &CommandBuilder, setup: Option<&CommandBuilder>) -> Self {
         Self {
             argv: cmd.get_argv().clone(),
             cwd: cmd.get_cwd().cloned(),
@@ -73,27 +87,32 @@ impl Spec {
                 .iter_full_env_as_str()
                 .map(|(k, v)| (k.to_owned(), v.to_owned()))
                 .collect(),
+            setup: setup.map(|s| s.get_argv().clone()),
         }
     }
 
-    /// 빈 `argv`는 기본 셸이다(`CommandBuilder::new_default_prog`와 같다).
-    pub(super) fn command(self) -> CommandBuilder {
-        let mut cmd = CommandBuilder::from_argv(self.argv);
-        cmd.env_clear();
-        for (key, value) in self.env {
-            cmd.env(key, value);
-        }
-        if let Some(cwd) = self.cwd {
-            cmd.cwd(cwd);
-        }
-        cmd
+    /// 명령과 설정 스크립트. 빈 `argv`는 기본 셸이다(`CommandBuilder::new_default_prog`와 같다).
+    pub(super) fn commands(self) -> (CommandBuilder, Option<CommandBuilder>) {
+        let build = |argv| {
+            let mut cmd = CommandBuilder::from_argv(argv);
+            cmd.env_clear();
+            for (key, value) in &self.env {
+                cmd.env(key, value);
+            }
+            if let Some(cwd) = &self.cwd {
+                cmd.cwd(cwd);
+            }
+            cmd
+        };
+        (build(self.argv), self.setup.map(build))
     }
 }
 
 pub fn run() -> Result<(), String> {
     let spec: Spec =
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("command: {e}"))?;
-    let started = start(spec.command())?;
+    let (cmd, setup) = spec.commands();
+    let started = start(cmd, setup)?;
     let mut stdout = std::io::stdout();
     writeln!(stdout, "{}", started.address)
         .and_then(|()| stdout.flush())
@@ -107,28 +126,47 @@ pub struct Started {
     pub address: SocketAddr,
     host: Arc<Host>,
     child: Box<dyn Child + Send + Sync>,
+    /// 설정 스크립트가 도는 동안: 그 뒤에 띄울 명령과 PTY.
+    next: Option<(CommandBuilder, Box<dyn SlavePty + Send>)>,
     /// 출력 읽기가 끝나면 닫힌다.
     output_done: mpsc::Receiver<()>,
     delivered: mpsc::Receiver<()>,
 }
 
-pub fn start(cmd: CommandBuilder) -> Result<Started, String> {
+/// `setup`이 있으면 그것을 먼저 띄우고, `cmd`는 `Started::wait`가 설정이 성공한 뒤 띄운다.
+pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Started, String> {
     let pair = native_pty_system()
         .openpty(INITIAL_SIZE)
         .map_err(|e| e.to_string())?;
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    drop(pair.slave);
+    let (first, next) = match setup {
+        Some(setup) => (setup, Some(cmd)),
+        None => (cmd, None),
+    };
+    let child = pair.slave.spawn_command(first).map_err(|e| e.to_string())?;
+    // 설정 뒤에 띄울 명령이 없으면 PTY를 놓는다. 그래야 프로세스가 끝날 때 출력 읽기가 끝난다.
+    let next = match next {
+        Some(cmd) => Some((cmd, pair.slave)),
+        None => {
+            drop(pair.slave);
+            None
+        }
+    };
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let input = pair.master.take_writer().map_err(|e| e.to_string())?;
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
     let address = listener.local_addr().map_err(|e| e.to_string())?;
     let (delivered_tx, delivered) = mpsc::channel();
     let host = Arc::new(Host {
-        pid: child.process_id(),
-        killer: Mutex::new(child.clone_killer()),
+        process: Mutex::new(Process {
+            killer: child.clone_killer(),
+            killed: false,
+        }),
         master: Mutex::new(pair.master),
         input: Mutex::new(input),
-        state: Mutex::default(),
+        state: Mutex::new(State {
+            pid: child.process_id(),
+            ..State::default()
+        }),
         delivered: delivered_tx,
     });
     let (drained, output_done) = mpsc::channel::<()>();
@@ -148,6 +186,7 @@ pub fn start(cmd: CommandBuilder) -> Result<Started, String> {
         address,
         host,
         child,
+        next,
         output_done,
         delivered,
     })
@@ -155,12 +194,42 @@ pub fn start(cmd: CommandBuilder) -> Result<Started, String> {
 
 impl Started {
     /// 프로세스가 끝날 때까지 기다리고, 종료 코드를 데몬에 넘긴 뒤(또는 `EXIT_KEEP` 뒤) 돌아온다.
+    /// 설정 스크립트가 성공하면 명령을 띄우고 그 명령을 기다린다. 실패하면 그 종료 코드로 끝나고 출력에 까닭을 덧붙인다.
     pub fn wait(mut self) {
-        let code = self.child.wait().map(|s| s.exit_code()).unwrap_or(u32::MAX);
+        let mut code = exit_code(&mut self.child);
+        let mut note = None;
+        if let Some((cmd, slave)) = self.next.take() {
+            match code {
+                0 => match self.host.replace(&*slave, cmd) {
+                    Ok(Some(child)) => {
+                        drop(slave);
+                        self.child = child;
+                        code = exit_code(&mut self.child);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        code = u32::MAX;
+                        note = Some(format!("loom: 에이전트를 띄우지 못했다: {e}"));
+                    }
+                },
+                _ => {
+                    note = Some(format!(
+                        "loom: 설정 스크립트가 실패했다(종료 코드 {code}). 에이전트를 띄우지 않았다."
+                    ))
+                }
+            }
+        }
         let _ = self.output_done.recv_timeout(DRAIN_AFTER_EXIT);
+        if let Some(note) = note {
+            self.host.note(&note);
+        }
         self.host.exited(code);
         let _ = self.delivered.recv_timeout(EXIT_KEEP);
     }
+}
+
+fn exit_code(child: &mut Box<dyn Child + Send + Sync>) -> u32 {
+    child.wait().map(|s| s.exit_code()).unwrap_or(u32::MAX)
 }
 
 impl Host {
@@ -189,6 +258,34 @@ impl Host {
         }
     }
 
+    /// 설정 스크립트 뒤에 명령을 띄우고 붙은 데몬에 새 PID를 알린다. 데몬이 끝내기를 보냈으면 띄우지 않는다.
+    fn replace(
+        &self,
+        slave: &dyn SlavePty,
+        cmd: CommandBuilder,
+    ) -> Result<Option<Box<dyn Child + Send + Sync>>, String> {
+        let mut process = self.process.lock().unwrap();
+        if process.killed {
+            return Ok(None);
+        }
+        let child = slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        process.killer = child.clone_killer();
+        let mut state = self.state.lock().unwrap();
+        state.pid = child.process_id();
+        if let Some(pid) = state.pid {
+            state.send(&Frame::Pid(pid));
+        }
+        Ok(Some(child))
+    }
+
+    /// 프로세스가 아니라 호스트가 쓰는 한 줄. 화면이 터미널 출력으로 본다.
+    fn note(&self, text: &str) {
+        let line = format!("\r\n{text}\r\n").into_bytes();
+        let mut state = self.state.lock().unwrap();
+        state.backlog.push(&line);
+        state.send(&Frame::Data(line));
+    }
+
     fn exited(&self, code: u32) {
         let mut state = self.state.lock().unwrap();
         state.exit = Some(code);
@@ -199,9 +296,10 @@ impl Host {
 
     /// 데몬 연결 하나. 인사 뒤 backlog(와 끝났으면 종료 코드)를 보내고 그 연결을 지금 연결로 둔다.
     fn serve(&self, mut stream: TcpStream) {
+        let greeted_pid = self.state.lock().unwrap().pid;
         let greeted = stream
             .set_read_timeout(Some(HELLO_TIMEOUT))
-            .and_then(|()| wire::welcome(&mut stream, self.pid))
+            .and_then(|()| wire::welcome(&mut stream, greeted_pid))
             .and_then(|()| stream.set_read_timeout(None));
         let Ok(mut reader) = greeted.and_then(|()| stream.try_clone()) else {
             return;
@@ -209,8 +307,10 @@ impl Host {
         let me = {
             let mut state = self.state.lock().unwrap();
             let backlog = state.backlog.to_vec();
-            let sent = (backlog.is_empty()
-                || wire::write(&mut stream, &Frame::Data(backlog)).is_ok())
+            // 인사한 뒤 설정 스크립트가 끝나 명령이 떴으면 새 PID를 먼저 알린다.
+            let pid = state.pid.filter(|&pid| Some(pid) != greeted_pid);
+            let sent = pid.is_none_or(|pid| wire::write(&mut stream, &Frame::Pid(pid)).is_ok())
+                && (backlog.is_empty() || wire::write(&mut stream, &Frame::Data(backlog)).is_ok())
                 && state
                     .exit
                     .is_none_or(|code| wire::write(&mut stream, &Frame::Exit(code)).is_ok());
@@ -244,9 +344,11 @@ impl Host {
                 }
                 // 이미 끝난 프로세스면 실패한다. 할 일이 없다.
                 Frame::Kill => {
-                    let _ = self.killer.lock().unwrap().kill();
+                    let mut process = self.process.lock().unwrap();
+                    process.killed = true;
+                    let _ = process.killer.kill();
                 }
-                Frame::Hello { .. } | Frame::Exit(_) => {}
+                Frame::Hello { .. } | Frame::Exit(_) | Frame::Pid(_) => {}
             }
         }
         let mut state = self.state.lock().unwrap();

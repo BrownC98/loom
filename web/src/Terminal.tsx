@@ -34,6 +34,11 @@ export function paneKey(e: KeyboardEvent | ReactKeyboardEvent): PaneSide | null 
   return PANE_KEYS[e.code] ?? null;
 }
 
+/** `Ctrl+Shift+F`는 그래프 찾기를 연다(목업 docs/mockups/search.html ①). 접기 키처럼 터미널 앱에 넘기지 않는다. 자리(`code`)를 본다. */
+export function findKey(e: KeyboardEvent | ReactKeyboardEvent): boolean {
+  return e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyF';
+}
+
 /**
  * Shift+Enter는 줄바꿈이다. xterm은 Enter와 같은 `\r`을 보내 에이전트 CLI가 바로 제출한다.
  * 대신 `\n`(Ctrl+J)을 보낸다. Claude Code·Codex·OpenCode가 Ctrl+J를 줄바꿈으로 받는다.
@@ -197,8 +202,8 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           e.preventDefault();
           return false;
         }
-        // 접기 키는 막지 않고 창으로 올려 보낸다. 창의 키 처리(App)가 사이드바를 바꾼다.
-        if (paneKey(e)) return false;
+        // 접기·찾기 키는 막지 않고 창으로 올려 보낸다. 창의 키 처리(App, Find)가 사이드바를 바꾸고 찾기를 연다.
+        if (paneKey(e) || findKey(e)) return false;
         // 선택이 없으면 Ctrl+C는 터미널 앱에 `^C`로 간다. 복사한 뒤 선택을 지워 다음 Ctrl+C가 `^C`가 되게 한다.
         if (plainCtrl(e, 'KeyC') && xterm.hasSelection()) {
           if (e.type === 'keydown') {

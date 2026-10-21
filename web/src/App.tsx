@@ -15,7 +15,9 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
 import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
-import { Graph, type GraphHandle, type Pulse } from './Graph';
+import { Find } from './Find';
+import { findSpots } from './find';
+import { flowId, Graph, type GraphHandle, type Lit, type Pulse } from './Graph';
 import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
@@ -156,6 +158,16 @@ export function App() {
   useEffect(() => {
     if (!dockOpen || shownTab !== 'events') setHighlight(null);
   }, [dockOpen, shownTab]);
+  // 그래프 찾기(목업 docs/mockups/search.html). `null`이면 닫혔다. `at`은 현재 일치 번호다. 모든 저장소에서 찾는다.
+  const [find, setFind] = useState<{ query: string; at: number } | null>(null);
+  const found = find === null ? [] : findSpots(repos, [...nodes.values()], find.query);
+  // 노드가 사라져 일치가 줄면 마지막 일치에 머문다.
+  const foundAt = Math.min(find?.at ?? 0, Math.max(found.length - 1, 0));
+  // 찾기 일치가 있으면 이벤트 강조보다 앞선다.
+  const lit: Lit | null =
+    found.length > 0
+      ? { keys: new Set(found.map(flowId)), current: flowId(found[foundAt]) }
+      : highlight && { keys: new Set(involved(highlight.entry).map(String)), current: null };
   /** 접기·펴기 단추를 누른 뒤 포커스를 바뀐 자리의 같은 단추(접힌 줄 ↔ 사이드바)로 옮긴다. */
   const focusToggle = (id: string) => requestAnimationFrame(() => document.getElementById(id)?.focus());
   const openSide = (open: boolean) => {
@@ -347,6 +359,21 @@ export function App() {
           )}
           <main className="canvas" aria-label={title === null ? t('app.allGraphLabel') : t('app.graphLabel', { repo: title })}>
             {title !== null && <h1 className="canvas-title">{title}</h1>}
+            <Find
+              query={find?.query ?? null}
+              found={found}
+              at={foundAt}
+              repo={repo?.id ?? null}
+              onRepo={selectRepo}
+              onQuery={(query) => setFind({ query, at: 0 })}
+              onStep={(step) => setFind((prev) => prev && found.length > 0 ? { ...prev, at: (foundAt + step + found.length) % found.length } : prev)}
+              onClose={() => {
+                // 닫을 때 현재 일치가 노드면 그 노드를 고른다. 열린 동안 고르면 그 터미널이 포커스를 가져가 입력이 끊긴다.
+                const current = found[foundAt];
+                setFind(null);
+                if (current?.kind === 'node') selectNode(current.node);
+              }}
+            />
             {shown.length > 0 && <Graph
               repos={shown}
               onRepo={putRepo}
@@ -357,7 +384,7 @@ export function App() {
               accounts={accounts}
               selected={selected}
               onSelect={selectNode}
-              highlight={highlight && new Set(involved(highlight.entry))}
+              highlight={lit}
               onClearHighlight={() => setHighlight(null)}
               cardView={settings.cardView}
               direction={direction}

@@ -76,7 +76,7 @@ function Badges(props: { view: NodeView }) {
 }
 
 /**
- * 노드 정보 전체: 로고·이름·버튼(`actions`), 지금 하는 일, 모델 · 추론 강도, 상태와 수. 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
+ * 노드 정보 전체: 로고·이름·상태와 수·버튼(`actions`), 지금 하는 일, 모델 · 추론 강도. 상태는 이름 줄 오른쪽이다(2026-10-21 사람 지시). 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
  * 목업 docs/mockups/card-view.html 1번.
  */
 export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode; rename: Rename }) {
@@ -87,6 +87,7 @@ export function NodeSummary(props: { view: NodeView; agentLabel: string; actions
         <AgentMark agent={view.agent} label={props.agentLabel} />
         <NameEdit id={view.id} name={view.name} rename={props.rename} />
         <span className="spacer" />
+        <Badges view={view} />
         {props.actions}
       </div>
       {view.topic && (
@@ -99,9 +100,6 @@ export function NodeSummary(props: { view: NodeView; agentLabel: string; actions
           <ModelText view={view} />
         </div>
       )}
-      <div className="summary-row">
-        <Badges view={view} />
-      </div>
     </div>
   );
 }

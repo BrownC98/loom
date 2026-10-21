@@ -54,14 +54,15 @@ describe('edgeSides', () => {
 });
 
 const sized = () => ({ width: 100, height: 50 });
+const none = new Map<number, number>();
 
 describe('arrangeTree (parent centered over the span of its children)', () => {
   // 1 -> {2, 3}, 2 -> {4}
   const tree = [view(1, null), view(2, 1), view(3, 1), view(4, 2)];
 
   it('down: children at the next depth, the parent centered over them', () => {
-    const at = arrangeTree(tree, sized, 'down', 96);
-    // children of 1: 100 + 20 + 100 = 220 wide, so 1 (100 wide) sits at (220 - 100) / 2 = 60.
+    const at = arrangeTree(tree, sized, 'down', 46, none).cards;
+    // children of 1: 100 + 20 + 100 = 220 wide, so 1 (100 wide) sits at (220 - 100) / 2 = 60. Rows: 50 + 46.
     expect(at.get(1)).toEqual({ x: 60, y: 0 });
     expect(at.get(2)).toEqual({ x: 0, y: 96 });
     expect(at.get(3)).toEqual({ x: 120, y: 96 });
@@ -70,7 +71,7 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
   });
 
   it('right: depth along x, siblings along y, the parent centered', () => {
-    const at = arrangeTree(tree, sized, 'right', 146);
+    const at = arrangeTree(tree, sized, 'right', 46, none).cards;
     expect(at.get(1)).toEqual({ x: 0, y: 35 });
     expect(at.get(2)).toEqual({ x: 146, y: 0 });
     expect(at.get(3)).toEqual({ x: 146, y: 70 });
@@ -78,27 +79,34 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
   });
 
   it('up mirrors down along depth; left mirrors right', () => {
-    const down = arrangeTree(tree, sized, 'down', 96);
-    const up = arrangeTree(tree, sized, 'up', 96);
-    const right = arrangeTree(tree, sized, 'right', 146);
-    const left = arrangeTree(tree, sized, 'left', 146);
+    const down = arrangeTree(tree, sized, 'down', 46, none).cards;
+    const up = arrangeTree(tree, sized, 'up', 46, none).cards;
+    const right = arrangeTree(tree, sized, 'right', 46, none).cards;
+    const left = arrangeTree(tree, sized, 'left', 46, none).cards;
     for (const id of [1, 2, 3, 4]) {
       expect(up.get(id)).toEqual({ x: down.get(id)!.x, y: 192 - down.get(id)!.y });
       expect(left.get(id)).toEqual({ x: 292 - right.get(id)!.x, y: right.get(id)!.y });
     }
   });
 
-  it('roots of the group sit side by side at depth 0, in id order', () => {
-    const at = arrangeTree([view(1, null), view(2, null), view(3, 1)], sized, 'down', 96);
-    expect(at.get(1)).toEqual({ x: 0, y: 0 });
-    expect(at.get(3)).toEqual({ x: 0, y: 96 });
-    expect(at.get(2)).toEqual({ x: 120, y: 0 });
+  it('siblings follow the input order, not the id', () => {
+    const at = arrangeTree([view(2, null), view(1, null), view(3, 1)], sized, 'down', 46, none).cards;
+    expect(at.get(2)).toEqual({ x: 0, y: 0 });
+    expect(at.get(1)).toEqual({ x: 120, y: 0 });
+    expect(at.get(3)).toEqual({ x: 120, y: 96 });
   });
 
   it('a parent outside the group makes the node a root', () => {
-    const at = arrangeTree([view(5, 99), view(6, null)], sized, 'down', 96);
+    const at = arrangeTree([view(5, 99), view(6, null)], sized, 'down', 46, none).cards;
     expect(at.get(5)).toEqual({ x: 0, y: 0 });
     expect(at.get(6)).toEqual({ x: 120, y: 0 });
+  });
+
+  it('a row is as tall as its tallest card; the gap between rows is constant', () => {
+    // 1 (300 tall) and 2 (50) are roots; 3 is the child of 2.
+    const size = (id: number) => (id === 1 ? { width: 100, height: 300 } : sized());
+    const at = arrangeTree([view(1, null), view(2, null), view(3, 2)], size, 'down', 46, none).cards;
+    expect(at.get(3)!.y).toBe(300 + 46);
   });
 
   it('mixed sizes still do not overlap', () => {
@@ -106,7 +114,7 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
     const size = (id: number) => (id === 2 || id === 4 ? big : sized());
     const views = [view(1, null), view(2, 1), view(3, 1), view(4, 3), view(5, 2)];
     for (const direction of ['down', 'right', 'up', 'left'] as const) {
-      const at = arrangeTree(views, size, direction, 250);
+      const at = arrangeTree(views, size, direction, 46, none).cards;
       const rects = views.map((v) => ({ ...at.get(v.id)!, ...size(v.id) }));
       for (const [i, a] of rects.entries()) {
         for (const b of rects.slice(i + 1)) {
@@ -118,70 +126,116 @@ describe('arrangeTree (parent centered over the span of its children)', () => {
   });
 });
 
+// 목업 docs/mockups/arrange-wide.html 규칙 1·3·4.
+describe('arrangeTree with two parents in one group', () => {
+  const center = (at: Map<number, { x: number }>, id: number) => at.get(id)!.x + 50;
+  const span = (at: Map<number, { x: number }>, ids: number[]) => ({ lo: Math.min(...ids.map((id) => at.get(id)!.x)), hi: Math.max(...ids.map((id) => at.get(id)!.x + 100)) });
+
+  it.each([
+    ['1 first', [1, 2]],
+    ['2 first', [2, 1]],
+  ])('each parent is centered over its children and the edges do not cross (%s)', (_, roots) => {
+    const kids: Record<number, number[]> = { 1: [3, 4], 2: [5, 6, 7] };
+    const views = [...roots.map((r) => view(r, null)), ...roots.flatMap((r) => kids[r].map((k) => view(k, r)))];
+    const at = arrangeTree(views, sized, 'down', 46, none).cards;
+    for (const r of roots) {
+      const s = span(at, kids[r]);
+      expect(center(at, r)).toBe((s.lo + s.hi) / 2);
+    }
+    // 부모 순서와 자식 줄 순서가 같다: 왼쪽 부모의 자식은 모두 오른쪽 부모의 자식보다 왼쪽이다.
+    const [left, right] = roots;
+    expect(center(at, left)).toBeLessThan(center(at, right));
+    expect(span(at, kids[left]).hi).toBeLessThan(span(at, kids[right]).lo);
+  });
+
+  it('a parent with child groups stands over its band, and no card stands between them', () => {
+    // 1은 다른 묶음에 자식이 있다(줄 폭 400). 2의 자식 3, 4, 5는 이 묶음 안이다.
+    const views = [view(2, null), view(1, null), view(3, 2), view(4, 2), view(5, 2)];
+    const laid = arrangeTree(views, sized, 'down', 46, new Map([[1, 400]]));
+    const at = laid.cards;
+    const band = { lo: laid.bands.get(1)!, hi: laid.bands.get(1)! + 400 };
+    // 1은 자식 줄 자리의 가운데 위다.
+    expect(center(at, 1)).toBe(band.lo + 200);
+    expect(span(at, [3, 4, 5]).hi).toBeLessThanOrEqual(band.lo);
+    expect(center(at, 2)).toBeLessThan(center(at, 1));
+  });
+});
+
 describe('placeGroups', () => {
-  const g = (parent: number | null, extra: Partial<GroupSlot> = {}): GroupSlot => ({ size: { width: 100, height: 50 }, parent, start: 1, ...extra });
-  const start = { x: 10, y: 20 };
+  const g = (parent: number | null, card: number | null = parent === null ? null : 7): GroupSlot => ({ parent, card });
+  // `bands`는 줄 자리의 시작이다. 줄은 그 뒤 GROUP_GAP / 2에서 시작한다.
+  const lay = (sizes: { width: number; height: number }[], bands: Record<number, number> = {}) => (i: number) => ({ size: sizes[i], band: (card: number) => bands[card] });
+  const s = (width: number, height: number) => ({ width, height });
 
   it('roots sit side by side in order with GROUP_GAP 32', () => {
-    expect(placeGroups([g(null), g(null)], 'down', start, 82)).toEqual([
-      { x: 10, y: 20 },
-      { x: 142, y: 20 },
+    expect(placeGroups([g(null), g(null)], lay([s(100, 50), s(100, 50)]), 'down')).toEqual([
+      { x: 0, y: 0 },
+      { x: 132, y: 0 },
     ]);
   });
 
-  it('child groups sit one level down and the parent is centered over their span', () => {
-    const at = placeGroups([g(null), g(0), g(0)], 'down', start, 82);
-    // children span 100 + 32 + 100 = 232, parent (100 wide) is centered: offset 66.
-    expect(at[0]).toEqual({ x: 76, y: 20 });
-    expect(at[1]).toEqual({ x: 10, y: 102 });
-    expect(at[2]).toEqual({ x: 142, y: 102 });
+  it('child groups sit in the band slot under the parent group', () => {
+    const at = placeGroups([g(null), g(0), g(0)], lay([s(300, 100), s(100, 50), s(100, 50)], { 7: 93 }), 'down');
+    // 줄 자리는 93에서 시작하고 줄은 93 + 16 = 109에서 시작한다.
+    expect(at).toEqual([
+      { x: 0, y: 0 },
+      { x: 109, y: 132 },
+      { x: 241, y: 132 },
+    ]);
   });
 
-  it('right puts levels along x and siblings along y', () => {
-    const at = placeGroups([g(null), g(0), g(0)], 'right', start, 132);
-    expect(at[1]).toEqual({ x: 142, y: 20 });
-    expect(at[2]).toEqual({ x: 142, y: 102 });
-    // children span 50 + 32 + 50 = 132 along y, parent (50 tall) is centered: offset 41.
-    expect(at[0]).toEqual({ x: 10, y: 61 });
+  it('a band wider than the parent group pushes the parent group right', () => {
+    const at = placeGroups([g(null), g(0), g(0), g(0), g(0)], lay([s(100, 50), ...Array(4).fill(s(100, 50))], { 7: -214 }), 'down');
+    expect(at.map((p) => p.x)).toEqual([198, 0, 132, 264, 396]);
   });
 
-  it('up and left mirror the level order', () => {
-    const up = placeGroups([g(null), g(0)], 'up', start, 82);
+  it('bands of two parent cards in one group keep GROUP_GAP (with arrangeTree)', () => {
+    // 묶음 0의 뿌리 카드 7, 8이 각각 다른 묶음에 자식이 있다.
+    const groups = [g(null), g(0, 7), g(0, 8)];
+    const sizes = [s(0, 0), s(200, 50), s(200, 50)];
+    const at = placeGroups(
+      groups,
+      (i, bands) => {
+        if (i > 0) return { size: sizes[i], band: () => 0 };
+        const laid = arrangeTree([view(7, null), view(8, null)], sized, 'down', 46, bands);
+        return { size: s(laid.cards.get(8)!.x + 100, 50), band: (card) => laid.bands.get(card)! };
+      },
+      'down',
+    );
+    expect(at[1].x + 200 + 32).toBeLessThanOrEqual(at[2].x);
+  });
+
+  it('the gap under a parent group is GROUP_GAP even when the child is much taller (two repos of different heights)', () => {
+    // 사람 화면: loom은 카드 높이가 비슷하고, ktasearch는 자식 묶음 카드가 훨씬 크다.
+    for (const sizes of [[s(300, 400), s(300, 420)], [s(300, 200), s(300, 900)]]) {
+      const at = placeGroups([g(null), g(0)], lay(sizes, { 7: 150 }), 'down');
+      expect(at[1].y - (at[0].y + sizes[0].height)).toBe(32);
+    }
+  });
+
+  it('right puts depth along x and the band along y', () => {
+    const at = placeGroups([g(null), g(0), g(0)], lay([s(100, 300), s(100, 50), s(100, 50)], { 7: 68 }), 'right');
+    expect(at).toEqual([
+      { x: 0, y: 0 },
+      { x: 132, y: 84 },
+      { x: 132, y: 166 },
+    ]);
+  });
+
+  it('up and left mirror the depth order', () => {
+    const sizes = lay([s(100, 50), s(100, 50)], { 7: 50 });
+    const up = placeGroups([g(null), g(0)], sizes, 'up');
     expect(up[0].y).toBeGreaterThan(up[1].y);
-    const left = placeGroups([g(null), g(0)], 'left', start, 132);
+    const left = placeGroups([g(null), g(0)], sizes, 'left');
     expect(left[0].x).toBeGreaterThan(left[1].x);
   });
-
-  // 안 B(docs/mockups/same-worktree.html): 한 단계 82. 두 단계 묶음은 82 * 2 - 32 = 132 높이다.
-  const tall = { size: { width: 100, height: 132 } };
-  it('a child group that starts inside the parent rows stands beside the parent, at the child row', () => {
-    // 0은 총괄과 같은 워크트리 자식(두 단계). 1, 2는 총괄의 다른 워크트리 자식(단계 1).
-    const at = placeGroups([g(null, tall), g(0), g(0)], 'down', start, 82);
-    expect(at[0]).toEqual({ x: 10, y: 20 });
-    expect(at[1]).toEqual({ x: 142, y: 102 });
-    expect(at[2]).toEqual({ x: 274, y: 102 });
-  });
-
-  it('a child group that starts below the parent rows sits under it, the parent centered', () => {
-    const at = placeGroups([g(null, tall), g(0, { start: 2 })], 'down', start, 82);
-    expect(at[0]).toEqual({ x: 10, y: 20 });
-    expect(at[1]).toEqual({ x: 10, y: 184 });
-  });
-
-  it('up keeps the same rows mirrored: the beside child is one row above the parent bottom', () => {
-    const at = placeGroups([g(null, tall), g(0)], 'up', start, 82);
-    expect(at[0]).toEqual({ x: 10, y: 20 });
-    expect(at[1]).toEqual({ x: 142, y: 20 });
-  });
-
 });
 
 describe('arrangeTree packing (plan A, docs/mockups/repo-drag.html)', () => {
   it("a leaf root sits beside a parent at depth 0, not beside the parent's children row", () => {
     // 사람의 loom 그래프 모양: 1의 자식 2, 3. 4는 자식 없는 뿌리. 폭 640, 카드 틈 20.
     const wide = () => ({ width: 640, height: 50 });
-    const at = arrangeTree([view(1, null), view(2, 1), view(3, 1), view(4, null)], wide, 'down', 96);
-    // 자식 줄: 0..640, 660..1300 → 1은 가운데 330. 4는 첫 단계에서 1 바로 오른쪽: 330 + 640 + 20(지금은 1300 + 20).
+    const at = arrangeTree([view(1, null), view(2, 1), view(3, 1), view(4, null)], wide, 'down', 46, none).cards;
     expect(at.get(1)!.x).toBe(330);
     expect(at.get(4)).toEqual({ x: 990, y: 0 });
   });

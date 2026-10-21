@@ -19,7 +19,7 @@ import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
-import { attachLevels, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
+import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
 import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
@@ -38,6 +38,8 @@ const EMPTY_GROUP: Size = { width: 320, height: 100 };
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
+/** 묶음 안 카드 줄 사이 틈. 예전에 줄마다 두던 자식 묶음 머리·테두리와 묶음 틈의 합과 같다. */
+const CARD_ROW_GAP: Record<'vertical' | 'horizontal', number> = { vertical: CARD_TOP + CARD_X + GROUP_GAP, horizontal: 2 * CARD_X + GROUP_GAP };
 /**
  * 카드를 재기 전에 쓰는 크기. 재면 잰 크기로 배치한다. `width`는 styles.css `.card`·`.card.simple`의 폭이다.
  * 표준 높이는 머리, 80×24 터미널(styles.css `.term`), 발 줄의 합이다. 심플 높이는 목업 docs/mockups/card-view.html에서 쟀다.
@@ -282,6 +284,26 @@ export function flowId(spot: Spot): string {
   return spot.kind === 'repo' ? `repo:${spot.repo}` : spot.kind === 'worktree' ? spot.path : String(spot.node);
 }
 
+/** [정렬] 순서(`order`)를 남기는 키. 정렬 방향처럼 화면 상태라 이 브라우저에만 둔다. */
+const ORDER_KEY = 'loom.arrangeOrder';
+
+function loadOrder(): ReadonlyMap<string, number> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]');
+    return new Map(Array.isArray(saved) ? saved.filter((e): e is [string, number] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'number') : []);
+  } catch {
+    return new Map();
+  }
+}
+
+function saveOrder(order: ReadonlyMap<string, number>) {
+  try {
+    localStorage.setItem(ORDER_KEY, JSON.stringify([...order]));
+  } catch {
+    // 저장할 수 없으면 이 화면에서만 쓴다.
+  }
+}
+
 /** `contents`(그 상자 안 좌표)를 모두 덮는 상자. `inset`은 내용과 테두리 사이 틈이다(`top`은 머리를 포함한다). */
 function cover(contents: readonly Box[], inset: { top: number; side: number }): Box {
   const x = Math.min(...contents.map((b) => b.at.x)) - inset.side;
@@ -367,7 +389,18 @@ export function Graph(props: {
   const { direction } = props;
   const placedAt = (key: string): XYPosition | undefined => moving.get(key) ?? spots.get(key)?.at;
 
-  const views = [...props.views.values()];
+  // [정렬]을 누를 때 화면에 보이던 카드·묶음의 가로지르는 축 자리(카드는 노드 번호, 묶음은 경로가 키). 자동 배치는 형제를 이 순서로 놓는다(목업 docs/mockups/arrange-wide.html 규칙 4).
+  // [정렬]은 저장한 자리를 지우므로 다시 열어도 같은 순서가 되게 이 브라우저에 남긴다.
+  const [order, setOrderState] = useState<ReadonlyMap<string, number>>(loadOrder);
+  // 한 저장소만 보일 때 다른 저장소의 순서는 그대로 둔다.
+  const setOrder = (shown: ReadonlyMap<string, number>) => {
+    const next = new Map([...order, ...shown]);
+    setOrderState(next);
+    saveOrder(next);
+  };
+  const rank = (key: string) => order.get(key) ?? Infinity;
+  const byRank = <T,>(items: readonly T[], key: (item: T) => string, tie: (a: T, b: T) => number) => [...items].sort((a, b) => rank(key(a)) - rank(key(b)) || tie(a, b));
+  const views = byRank([...props.views.values()], (v) => String(v.id), (a, b) => a.id - b.id);
   const estimate = CARD_SIZE[props.cardView];
   /** 잰 카드 크기. 재기 전에는 보기마다 정한 크기다. */
   const size = (id: NodeId): Size => {
@@ -401,8 +434,9 @@ export function Graph(props: {
     return at;
   };
   /** 묶음 하나의 카드 자리(묶음 원점 기준)와 묶음 상자(원점 기준 `lead`와 크기). */
-  const layGroup = (group: Group, members: NodeView[], step: number) => {
-    const tree = arrangeTree(members, size, direction, step);
+  const layGroup = (group: Group, members: NodeView[], bands: ReadonlyMap<NodeId, number>) => {
+    const vertical = direction === 'down' || direction === 'up';
+    const { cards: tree, bands: slots } = arrangeTree(members, size, direction, CARD_ROW_GAP[vertical ? 'vertical' : 'horizontal'], bands);
     // 나무 배치는 카드 자리 기준이라 `CARD_X`·`CARD_TOP`만큼 옮긴다. 가장 왼쪽·위 카드를 그 틈에 맞춘다.
     const min = { x: Math.min(...[...tree.values()].map((p) => p.x)), y: Math.min(...[...tree.values()].map((p) => p.y)) };
     const auto = new Map(members.map((v) => [String(v.id), { x: CARD_X + tree.get(v.id)!.x - min.x, y: CARD_TOP + tree.get(v.id)!.y - min.y }]));
@@ -415,26 +449,27 @@ export function Graph(props: {
       members.length > 0
         ? cover(members.map((v) => ({ at: local.get(String(v.id))!, size: size(v.id) })), { top: CARD_TOP, side: CARD_X })
         : { at: { x: 0, y: 0 }, size: { width: measured?.width ?? EMPTY_GROUP.width, height: measured?.height ?? EMPTY_GROUP.height } };
-    return { group, members, local, auto, lead: box.at, size: box.size };
+    // 자식 묶음 줄 자리의 시작(묶음 상자 기준). 사람이 카드를 옮겼으면 줄 자리도 카드를 따라간다.
+    const cross = (p: XYPosition) => (vertical ? p.x : p.y);
+    const band = (card: NodeId) => cross(local.get(String(card))!) - cross(box.at) + slots.get(card)! - cross(tree.get(card)!);
+    return { group, members, local, auto, lead: box.at, size: box.size, band };
   };
   // 저장소가 둘 이상이면(모든 저장소 범위) 저장소마다 상자를 두르고 그 안에 묶음을 놓는다(목업 docs/mockups/repo-scope.html).
   const framed = props.repos.length > 1;
   const repos = props.repos.map((repo) => {
     const repoViews = views.filter((v) => v.place.repo === repo.id);
-    const repoGroups = groupsOf(repo, repoViews);
-    // 한 단계는 가장 큰 카드에 묶음 머리·테두리와 묶음 틈을 더한 크기다. 그래서 깊이가 같은 카드는 묶음과 관계없이 같은 줄에 선다(목업 docs/mockups/same-worktree.html 안 B).
-    const vertical = direction === 'down' || direction === 'up';
-    const along = (s: Size) => (vertical ? s.height : s.width);
-    const step = (repoViews.length > 0 ? Math.max(...repoViews.map((v) => along(size(v.id)))) : along(estimate)) + (vertical ? CARD_TOP + CARD_X : 2 * CARD_X) + GROUP_GAP;
-    const laid = repoGroups.map((group) => layGroup(group, inGroup(repoViews, group), step));
-    // 자동 배치는 부모 카드 다음 단계에 놓는 나무다. 자리는 저장소 원점 기준 묶음 상자 왼쪽 위다.
+    const repoGroups = byRank(groupsOf(repo, repoViews), (g) => g.path, () => 0);
+    // 자동 배치는 부모 카드 아래 줄에 자식 묶음을 놓는 나무다. 자리는 저장소 원점 기준 묶음 상자 왼쪽 위다.
     const parents = groupParents(repoGroups, repoViews);
-    const starts = attachLevels(repoGroups, repoViews, parents);
+    const cards = attachCards(repoGroups, repoViews, parents);
+    const laid: ReturnType<typeof layGroup>[] = [];
     const auto = placeGroups(
-      laid.map((g, i) => ({ size: g.size, parent: parents[i], start: starts[i] })),
+      repoGroups.map((_, i) => ({ parent: parents[i], card: cards[i] })),
+      (i, bands) => {
+        const g = (laid[i] = layGroup(repoGroups[i], inGroup(repoViews, repoGroups[i]), bands));
+        return { size: g.size, band: g.band };
+      },
       direction,
-      { x: 0, y: 0 },
-      step,
     );
     const at = settle(laid.map((g, i) => ({ key: g.group.path, size: g.size, lead: g.lead, auto: auto[i] })));
     for (const g of laid) spotOf.set(g.group.path, { kind: 'worktree', repo: repo.id, path: g.group.path });
@@ -446,11 +481,10 @@ export function Graph(props: {
   });
   // 저장소 상자도 같은 규칙이다. 자동 배치는 모두 뿌리라 사이드바 순서로 옆에 늘어선다.
   const repoAuto = placeGroups(
-    repos.map((r) => ({ size: r.size, parent: null, start: 1 })),
+    repos.map(() => ({ parent: null, card: null })),
+    (i) => ({ size: repos[i].size, band: () => 0 }),
     direction,
-    GROUP_POSITION,
-    Math.max(...repos.map((r) => (direction === 'down' || direction === 'up' ? r.size.height : r.size.width))) + GROUP_GAP,
-  );
+  ).map((p) => ({ x: GROUP_POSITION.x + p.x, y: GROUP_POSITION.y + p.y }));
   const repoAt = settle(repos.map((r, i) => ({ key: r.key, size: r.size, lead: r.lead, auto: repoAuto[i] })));
   for (const r of repos) spotOf.set(r.key, { kind: 'repo', repo: r.repo.id });
   if (framed) share({ boxes: repos.map((r) => ({ key: r.key, at: repoAt.get(r.key)!, size: r.size })), lead: new Map(repos.map((r) => [r.key, r.lead])), parent: null });
@@ -466,6 +500,11 @@ export function Graph(props: {
       return { ...g, repo: r.repo.id, origin, right: g.size.width };
     });
   });
+  /** 보이는 카드·묶음의 가로지르는 축 자리. [정렬]이 형제 순서로 쓴다(`order`). */
+  const onScreen = (): Map<string, number> => {
+    const cross = (p: XYPosition) => (direction === 'down' || direction === 'up' ? p.x : p.y);
+    return new Map([...[...positions].map(([id, p]): [string, number] => [String(id), cross(p)]), ...groups.map((g): [string, number] => [g.group.path, cross(g.origin)])]);
+  };
   const navigate = (from: NodeId) => (dir: Direction) => {
     const to = neighbor(positions, from, dir);
     if (to !== null) setSelected(to);
@@ -474,6 +513,7 @@ export function Graph(props: {
     neighbor: (from, dir) => neighbor(positions, from, dir),
     // [정렬]: 보이는 저장소의 자리를 지운다. 지우지 못한 저장소는 다음에 다시 읽으면 저장한 자리로 돌아간다.
     arrange: () => {
+      setOrder(onScreen());
       const shown = new Set(props.repos.map((r) => r.id));
       setMoving(new Map());
       setSpots((prev) => new Map([...prev].filter(([, p]) => !shown.has(p.spot.repo))));
@@ -721,13 +761,23 @@ export function Graph(props: {
     return new Map([...pinned(level, new Map()), [key, { x: self.at.x - newLead.x, y: self.at.y - newLead.y }]]);
   };
   // 자동 배치 카드 자리는 카드 틈에서 시작하므로 묶음 상자 왼쪽 위가 원점이다.
+  // 묶음 정렬은 저장한 카드 자리를 자동 자리로 바꾼다. 자동 자리를 지금 화면 순서로 다시 구한 다음 렌더에서 저장한다(`ordering`).
+  const [ordering, setOrdering] = useState<string | null>(null);
   const arrangeGroup = (path: string) => {
-    const g = groups.find((g) => g.group.path === path)!;
-    save(new Map([...keepAround(path, { x: 0, y: 0 }), ...g.auto]));
-    setGrown(path);
+    setOrder(onScreen());
+    setOrdering(path);
   };
+  useEffect(() => {
+    if (ordering === null) return;
+    setOrdering(null);
+    const g = groups.find((g) => g.group.path === ordering);
+    if (!g) return;
+    save(new Map([...keepAround(ordering, { x: 0, y: 0 }), ...g.auto]));
+    setGrown(ordering);
+  });
   // 자동 배치 묶음 자리는 저장소 원점에서 시작하므로 상자 왼쪽 위는 원점에서 `REPO_INSET`만큼 왼쪽 위다.
   const arrangeRepo = (r: (typeof repos)[number]) => {
+    setOrder(onScreen());
     const kept = keepAround(r.key, { x: -REPO_INSET.side, y: -REPO_INSET.top });
     setSpots((prev) => new Map([...prev].filter(([, p]) => p.spot.repo !== r.repo.id)));
     save(kept, clearSpots(r.repo.id));

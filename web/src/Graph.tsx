@@ -1,5 +1,5 @@
 import { GitBranchPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
-import { Fragment, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putSizes, putSpots, removeNode } from './api';
@@ -897,6 +897,11 @@ export function Graph(props: {
       else if (moving.has(c.id)) onDrop(c.id, level, dragged);
     }
   };
+  // React Flow는 처리기도 effect에서 받는다. 부하가 크면 effect가 늦어 지난 렌더의 처리기가 불린다. 그 처리기는 지난 노드로
+  // `flowState`를 다시 써서, 끄는 묶음을 제자리로 되돌린다(저장소 상자만 커서를 따른다). 그래서 늘 마지막 렌더의 처리기를 부른다.
+  const latestChange = useRef(onNodesChange);
+  latestChange.current = onNodesChange;
+  const onChange = useCallback((changes: NodeChange<FlowNode>[]) => latestChange.current(changes), []);
 
   // React Flow는 `nodes`를 effect에서 받는다. 새 카드를 재기 전에 시작한 렌더의 effect가 잰 뒤에 돌면
   // `measured` 없는 노드가 잰 핸들 위치를 지운다. 그 뒤 크기가 돌아와도 크기가 그대로라 다시 재지 않아 간선이 빠진다.
@@ -925,7 +930,7 @@ export function Graph(props: {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
+        onNodesChange={onChange}
         onPaneClick={() => {
           setSelected(null);
           props.onClearHighlight();

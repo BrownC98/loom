@@ -19,9 +19,9 @@ pub mod protocol {
 }
 
 use protocol::{
-    TextUserInputType, Thread, ThreadReadParams, ThreadReadResponse, ThreadTurnsListParams,
-    ThreadTurnsListResponse, TurnInterruptParams, TurnItemsView, TurnStartParams, TurnStatus,
-    TurnSteerParams, UserInput,
+    AbsolutePathBuf, SkillsExtraRootsSetParams, TextUserInputType, Thread, ThreadReadParams,
+    ThreadReadResponse, ThreadTurnsListParams, ThreadTurnsListResponse, TurnInterruptParams,
+    TurnItemsView, TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
 };
 
 /// `src/profile/codex/schema/`를 만든 Codex 버전.
@@ -31,8 +31,9 @@ pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 
 fn usage() -> String {
     format!(
-        "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.",
-        super::COMMUNICATION_USAGE
+        "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.\n\n{}",
+        super::COMMUNICATION_USAGE,
+        crate::skills::always_on()
     )
 }
 
@@ -49,19 +50,22 @@ pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
     args
 }
 
-/// `codex` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
-/// `-c` 값은 TOML로 읽힌다. JSON 문자열은 TOML 기본 문자열과 같은 이스케이프를 쓴다.
-/// 터미널 제목은 스레드 제목만 쓴다. 기본 제목(`<스피너> | <폴더>`)에는 카드 주제가 없다(`Profile::topic`).
+/// `codex` 시작 인자. 터미널 제목은 스레드 제목만 쓴다. 기본 제목(`<스피너> | <폴더>`)에는 카드 주제가 없다(`Profile::topic`).
 pub fn args(app_server: &str) -> Vec<String> {
-    let usage = serde_json::to_string(&usage()).expect("문자열은 늘 직렬화된다");
     vec![
         "--remote".into(),
         app_server.into(),
         "-c".into(),
-        format!("developer_instructions={usage}"),
-        "-c".into(),
         r#"tui.terminal_title=["thread-title"]"#.into(),
     ]
+}
+
+/// `codex app-server` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
+/// TUI(`--remote`)에 넘긴 `developer_instructions`는 서버가 만든 스레드에 들어가지 않는다(0.159.2 실측).
+/// `-c` 값은 TOML로 읽힌다. JSON 문자열은 TOML 기본 문자열과 같은 이스케이프를 쓴다.
+pub fn server_args() -> Vec<String> {
+    let usage = serde_json::to_string(&usage()).expect("문자열은 늘 직렬화된다");
+    vec!["-c".into(), format!("developer_instructions={usage}")]
 }
 
 /// `codex app-server`의 `workspace-write` 샌드박스에 `daemon` 주소로 가는 길 하나만 연다.
@@ -122,6 +126,20 @@ where
     };
     let read: ThreadReadResponse = rpc.send("thread/read", &params).await?;
     Ok(thread_model(&read.thread))
+}
+
+/// loom이 싣는 스킬 폴더(`skills::Plugin::skills`)를 서버의 스킬 폴더에 더한다. Codex에는 시작 인자로 스킬 폴더를
+/// 더하는 방법이 없다. 서버가 가진 값이라 TUI가 만드는 노드 스레드도 이 스킬을 본다(0.159.2 실측).
+pub async fn add_skills<F, Fut>(call: F, skills: &std::path::Path) -> Result<(), String>
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: Future<Output = Result<Value, String>>,
+{
+    let params = SkillsExtraRootsSetParams {
+        extra_roots: vec![AbsolutePathBuf(skills.to_string_lossy().into_owned())],
+    };
+    let params = serde_json::to_value(params).expect("요청 타입은 늘 직렬화된다");
+    call("skills/extraRoots/set", params).await.map(drop)
 }
 
 fn thread_model(thread: &Thread) -> Model {
@@ -441,13 +459,21 @@ mod tests {
     }
 
     #[test]
-    fn args_pass_usage_as_a_toml_string() {
-        let args = args("ws://127.0.0.1:1");
-        assert_eq!(args[..3], ["--remote", "ws://127.0.0.1:1", "-c"]);
-        let (key, value) = args[3].split_once('=').unwrap();
+    fn server_args_pass_usage_as_a_toml_string() {
+        let args = server_args();
+        assert_eq!(args[0], "-c");
+        let (key, value) = args[1].split_once('=').unwrap();
         assert_eq!(key, "developer_instructions");
         assert_eq!(serde_json::from_str::<String>(value).unwrap(), usage());
-        assert_eq!(args[4..], ["-c", r#"tui.terminal_title=["thread-title"]"#]);
+        assert_eq!(
+            super::args("ws://127.0.0.1:1"),
+            [
+                "--remote",
+                "ws://127.0.0.1:1",
+                "-c",
+                r#"tui.terminal_title=["thread-title"]"#
+            ]
+        );
         assert_eq!(version_warning("codex-cli 0.159.2"), None);
         assert_eq!(
             version_warning("codex-cli 0.160.0\n"),

@@ -12,6 +12,7 @@ mod paste;
 mod process_tree;
 mod profile;
 mod settings;
+mod skills;
 mod spots;
 mod usage;
 mod worktree;

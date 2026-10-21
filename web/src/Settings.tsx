@@ -1,6 +1,8 @@
-import { Plus, Power, RotateCw } from 'lucide-react';
+import { Plus, Power, RotateCcw, RotateCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { FieldDefaults, FieldReset } from './FieldReset';
+import type { SettingsPatch } from './settingsPatch';
 import { closeLogin, getLogin, loginPty, logoutSystem, removeAccount, startLogin } from './api';
 import { canBypass } from './catalog';
 import type { AlwaysOn } from './gen/AlwaysOn';
@@ -22,6 +24,21 @@ import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, P
 
 /** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
 export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal', 'about'] as const;
+/**
+ * 탭마다 [이 탭 초기화]가 기본값으로 되돌리는 설정 칸. 「모든 설정 초기화」는 이 칸을 모두 되돌린다(2026-10-22 사람 지시 "모든 설정 초기화도 넣고, 각 탭별 초기화를 넣어라").
+ * 고른 계정(`claudeAccount`·`codexAccount`)은 넣지 않는다: 바꾸면 노드가 계정을 바꾸므로 계정 탭의 고르기(확인 창)로만 바꾼다.
+ * 기본값은 Rust에만 있다. `null`을 보내면 데몬이 칸을 지우고 기본값으로 읽는다.
+ */
+const TAB_SETTINGS = {
+  agents: ['bypassOff', 'alwaysOn', 'treeLimits'],
+  accounts: ['autoSwitch'],
+  workspace: ['workspaceDir'],
+  ui: ['theme', 'colors', 'cardView', 'graphScope', 'edgeStyle', 'osNotify', 'language'],
+  terminal: ['terminalTheme', 'terminalFont'],
+  about: [],
+} as const satisfies Record<(typeof SETTINGS_TABS)[number], readonly (keyof SettingsView)[]>;
+const ALL_SETTINGS = Object.values(TAB_SETTINGS).flat();
+const nulls = (keys: readonly (keyof SettingsView)[]): SettingsPatch => Object.fromEntries(keys.map((key) => [key, null]));
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 /** 로그인 창이 로그인이 끝났는지 묻는 간격. */
 const LOGIN_POLL_MS = 1000;
@@ -35,8 +52,10 @@ export function Settings(props: {
   onRescan: () => void;
   settings: SettingsView;
   onSettings: (next: SettingsView) => void;
-  /** 「UI」 탭의 칸(`UI_SETTINGS`)을 데몬 기본값으로 되돌린다. */
-  onResetUi: () => void;
+  /** 데몬의 기본 설정. 칸마다 [기본값] 단추를 보일지 정한다. */
+  defaults: SettingsView | null;
+  /** 이 칸들을 데몬 기본값으로 되돌린다(`null` 칸). */
+  onReset: (patch: SettingsPatch) => void;
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
   updates: Updates;
@@ -45,6 +64,7 @@ export function Settings(props: {
 }) {
   const { t } = useTranslation();
   return (
+    <FieldDefaults.Provider value={{ settings: props.settings, defaults: props.defaults, reset: props.onReset }}>
     <Modal className="dialog" label={t('settings.title')} onClose={props.onClose}>
       <nav aria-label={t('settings.tabsLabel')}>
         <h2>{t('settings.title')}</h2>
@@ -53,6 +73,10 @@ export function Settings(props: {
             {t(`settings.tab.${tab}`)}
           </button>
         ))}
+        <button type="button" className="btn ghost reset-all" onClick={() => confirm(t('settings.confirmResetAll')) && props.onReset(nulls(ALL_SETTINGS))}>
+          <RotateCcw />
+          {t('settings.resetAll')}
+        </button>
         <button type="button" className="btn ghost stop" title={t('settings.stopHint')} onClick={props.onStop}>
           <Power />
           {t('settings.stop')}
@@ -62,6 +86,12 @@ export function Settings(props: {
         <div className="pane-head">
           <h3>{t(`settings.tab.${props.tab}`)}</h3>
           <span className="spacer" />
+          {TAB_SETTINGS[props.tab].length > 0 && (
+            <button type="button" className="btn ghost sm" onClick={() => confirm(t('settings.confirmResetTab', { tab: t(`settings.tab.${props.tab}`) })) && props.onReset(nulls(TAB_SETTINGS[props.tab]))}>
+              <RotateCcw />
+              {t('settings.resetTab')}
+            </button>
+          )}
           <button className="btn ghost close" aria-label={t('common.close')} onClick={props.onClose}>
             ×
           </button>
@@ -69,11 +99,12 @@ export function Settings(props: {
         {props.tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
         {props.tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
-        {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} onReset={props.onResetUi} />}
+        {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'about' && <AboutTab updates={props.updates} />}
       </div>
     </Modal>
+    </FieldDefaults.Provider>
   );
 }
 
@@ -142,6 +173,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
       <section>
         <h4>
           {t('settings.installed', { n: installed.length })}
+          <FieldReset path={['bypassOff']} />
           <button className="btn ghost sm" onClick={props.onRescan}>
             <RotateCw />
             {t('settings.rescan')}
@@ -203,7 +235,10 @@ function SkillsSection({ settings, onSettings }: { settings: SettingsView; onSet
   const { t } = useTranslation();
   return (
     <section>
-      <h4>{t('settings.skills')}</h4>
+      <h4>
+        {t('settings.skills')}
+        <FieldReset path={['alwaysOn']} />
+      </h4>
       <div className="rows">
         {SKILLS.map((key) => {
           const on = settings.alwaysOn[key];
@@ -254,7 +289,10 @@ function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; o
   };
   return (
     <section>
-      <h4>{t('settings.treeLimits')}</h4>
+      <h4>
+        {t('settings.treeLimits')}
+        <FieldReset path={['treeLimits']} />
+      </h4>
       <div className="limit-fields">
         <div className="field">
           <label htmlFor="tree-depth">{t('settings.maxDepth')}</label>
@@ -329,6 +367,7 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
           <input type="checkbox" checked={settings.autoSwitch} onChange={(e) => props.onSettings({ ...settings, autoSwitch: e.target.checked })} />
           {t('accounts.autoSwitch')}
         </label>
+        <FieldReset path={['autoSwitch']} />
         <span className="hint">{t('accounts.autoSwitchHint')}</span>
       </div>
       {usage.accounts === null && <p className="hint">{t('accounts.loading')}</p>}

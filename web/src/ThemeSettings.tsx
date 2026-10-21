@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { Monitor, Moon, RotateCcw, Sun, type LucideIcon } from 'lucide-react';
+import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { CardView } from './gen/CardView';
 import type { EdgeStyle } from './gen/EdgeStyle';
@@ -10,13 +10,12 @@ import type { TerminalFont } from './gen/TerminalFont';
 import type { TerminalTheme } from './gen/TerminalTheme';
 import type { Theme } from './gen/Theme';
 import { activeFont, DEFAULT_TERMINAL_FONT, FONT_SIZE_RANGE } from './Terminal';
-import { chosenTheme, DEFAULT_TERMINAL_THEME, RESET_TERMINAL_THEME, TERMINAL_THEMES, type TerminalThemeName } from './terminalThemes';
+import { chosenTheme, TERMINAL_THEMES, type TerminalThemeName } from './terminalThemes';
 import { requestNotifyPermission } from './Inbox';
 import { ColorsSection } from './ColorSettings';
+import { FieldReset } from './FieldReset';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
-/** 「UI」 탭의 설정 칸. [UI 설정 초기화]가 이 칸들을 데몬 기본값으로 되돌린다(2026-10-22 사람 지시 "ui 쪽 설정은 초기화 기능 넣어"). */
-export const UI_SETTINGS = ['theme', 'colors', 'cardView', 'graphScope', 'edgeStyle', 'osNotify', 'language'] as const satisfies readonly (keyof SettingsView)[];
 
 const THEME_CHOICES = [
   { value: 'system', label: 'common.system', icon: Monitor },
@@ -60,7 +59,10 @@ function OsNotifySection({ settings, onSettings }: TabProps) {
   };
   return (
     <section>
-      <h4>{t('osNotify.heading')}</h4>
+      <h4>
+        {t('osNotify.heading')}
+        <FieldReset path={['osNotify']} />
+      </h4>
       <label className="switch">
         <input type="checkbox" checked={settings.osNotify} onChange={(e) => toggle(e.target.checked)} />
         {t('osNotify.label')}
@@ -70,12 +72,15 @@ function OsNotifySection({ settings, onSettings }: TabProps) {
   );
 }
 
-export function UiTab({ settings, onSettings, onReset }: TabProps & { onReset: () => void }) {
+export function UiTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
     <>
       <section>
-        <h4 id="t-theme">{t('theme.heading')}</h4>
+        <h4>
+          <span id="t-theme">{t('theme.heading')}</span>
+          <FieldReset path={['theme']} />
+        </h4>
         <div className="choice" role="radiogroup" aria-labelledby="t-theme">
           {THEME_CHOICES.map((c) => (
             <label key={c.value}>
@@ -89,12 +94,18 @@ export function UiTab({ settings, onSettings, onReset }: TabProps & { onReset: (
       </section>
       <ColorsSection colors={settings.colors} onColors={(colors) => onSettings({ ...settings, colors })} />
       <section>
-        <h4>{t('cardView.heading')}</h4>
+        <h4>
+          {t('cardView.heading')}
+          <FieldReset path={['cardView']} />
+        </h4>
         <CardViewSwitch value={settings.cardView} onChange={(cardView) => onSettings({ ...settings, cardView })} />
         <span className="hint">{t('cardView.hint')}</span>
       </section>
       <section>
-        <h4 id="t-scope">{t('graphScope.heading')}</h4>
+        <h4>
+          <span id="t-scope">{t('graphScope.heading')}</span>
+          <FieldReset path={['graphScope']} />
+        </h4>
         <div className="choice" role="radiogroup" aria-labelledby="t-scope">
           {GRAPH_SCOPES.map((v) => (
             <label key={v}>
@@ -106,7 +117,10 @@ export function UiTab({ settings, onSettings, onReset }: TabProps & { onReset: (
         <span className="hint">{t('graphScope.hint')}</span>
       </section>
       <section>
-        <h4 id="t-edge">{t('edgeStyle.heading')}</h4>
+        <h4>
+          <span id="t-edge">{t('edgeStyle.heading')}</span>
+          <FieldReset path={['edgeStyle']} />
+        </h4>
         <div className="choice" role="radiogroup" aria-labelledby="t-edge">
           {EDGE_STYLES.map((v) => (
             <label key={v}>
@@ -121,6 +135,7 @@ export function UiTab({ settings, onSettings, onReset }: TabProps & { onReset: (
       <section>
         <h4>
           <label htmlFor="t-lang">{t('settings.language')}</label>
+          <FieldReset path={['language']} />
         </h4>
         <div className="field narrow">
           <select id="t-lang" value={settings.language} onChange={(e) => onSettings({ ...settings, language: e.target.value as Language })}>
@@ -131,15 +146,6 @@ export function UiTab({ settings, onSettings, onReset }: TabProps & { onReset: (
             ))}
           </select>
         </div>
-      </section>
-      <section>
-        <div>
-          <button className="btn" onClick={onReset}>
-            <RotateCcw />
-            {t('theme.uiReset')}
-          </button>
-        </div>
-        <span className="hint">{t('theme.uiResetHint')}</span>
       </section>
     </>
   );
@@ -154,26 +160,24 @@ export function TerminalTab({ settings, onSettings }: TabProps) {
     <>
       <FontFields settings={settings} onSettings={onSettings} />
       <section>
-        <h4>{t('theme.darkTheme')}</h4>
+        <h4>
+          {t('theme.darkTheme')}
+          <FieldReset path={['terminalTheme', 'dark']} />
+        </h4>
         <ThemePicker label={t('theme.darkPicker')} value={chosenTheme(saved, 'dark')} onChoose={(dark) => save({ dark })} />
         <span className="hint">{t('theme.previewHint')}</span>
       </section>
       <section>
-        <h4>{t('theme.lightTheme')}</h4>
+        <h4>
+          {t('theme.lightTheme')}
+          <FieldReset path={['terminalTheme', 'light']} />
+          <FieldReset path={['terminalTheme', 'matchDark']} />
+        </h4>
         <label className="switch">
           <input type="checkbox" checked={saved.matchDark} onChange={(e) => save({ matchDark: e.target.checked })} />
           {t('theme.matchDark')}
         </label>
         <ThemePicker label={t('theme.lightPicker')} value={chosenTheme(saved, 'light')} onChoose={(light) => save({ light })} disabled={saved.matchDark} />
-      </section>
-      <section>
-        <div>
-          <button className="btn" onClick={() => onSettings({ ...settings, terminalTheme: RESET_TERMINAL_THEME })}>
-            <RotateCcw />
-            {t('theme.reset')}
-          </button>
-        </div>
-        <span className="hint">{t('theme.resetHint', DEFAULT_TERMINAL_THEME)}</span>
       </section>
     </>
   );
@@ -197,6 +201,7 @@ function FontFields({ settings, onSettings }: TabProps) {
       <section>
         <h4>
           <label htmlFor="t-font-size">{t('terminalFont.size')}</label>
+          <FieldReset path={['terminalFont', 'size']} />
         </h4>
         <div className="stepper">
           <button className="btn icon" aria-label={t('terminalFont.smaller')} disabled={size <= FONT_SIZE_RANGE.min} onClick={() => saveSize(size - 1)}>
@@ -223,6 +228,7 @@ function FontFields({ settings, onSettings }: TabProps) {
       <section>
         <h4>
           <label htmlFor="t-font-family">{t('terminalFont.family')}</label>
+          <FieldReset path={['terminalFont', 'family']} />
         </h4>
         <div className="field">
           <input

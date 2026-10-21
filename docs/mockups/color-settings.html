@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M29 UI 색 설정 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 화면 그림의 토큰·알약·카드·설정 창 모양은 web/src/styles.css와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --edge: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --repo-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+/* 사람이 고른 예시 색. 고른 색의 색상과 채도를 쓰고, 밝기는 그 줄의 기본 색 밝기(테마마다)를 쓴다. 배지 글자(-ink)는 테마마다 대비로 정한다. */
+.purple {
+  --warn: light-dark(oklch(54% 0.2 293), oklch(80% 0.12 293));
+  --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --edge: light-dark(oklch(80% 0.12 182), oklch(44% 0.08 182));
+  --repo-line: light-dark(oklch(57% 0.16 47), oklch(58% 0.16 47));
+  --group-line: light-dark(oklch(57% 0.2 354), oklch(58% 0.2 354));
+}
+.force-light { color-scheme: light; }
+.force-dark { color-scheme: dark; }
+
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 900px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed oklch(60% 0.15 250); outline-offset: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.shot { width: 1000px; border: 1px solid var(--line); border-radius: var(--radius); }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 설정 창(web/src/styles.css .tab, .pane, .choice, .hint) */
+.modal { display: grid; grid-template-columns: 180px 700px; width: max-content; background: var(--surface); border-radius: 12px; box-shadow: 0 12px 32px var(--shadow); overflow: hidden; }
+.modal nav { background: var(--panel); border-right: 1px solid var(--line); padding: 16px 8px; display: grid; align-content: start; gap: 2px; }
+.modal nav h3 { font-size: 15px; padding: 4px 8px 10px; }
+.tab { text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 10px; color: var(--ink-2); }
+.tab[aria-current="page"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.pane { padding: 18px 22px; display: grid; align-content: start; gap: 18px; }
+.pane > h3 { font-size: 15px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.choice { justify-self: start; display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.choice span { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 5px 14px; border-right: 1px solid var(--line); }
+.choice span:last-child { border-right: 0; }
+.choice span.on { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.hint { font-size: 12px; color: var(--ink-3); }
+
+/* 새 「색」 묶음: 뜻마다 한 줄 */
+.colors { display: grid; border: 1px solid var(--line); border-radius: var(--radius); }
+.crow { display: grid; grid-template-columns: 28px 140px 90px 1fr auto; align-items: center; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.crow:last-child { border-bottom: 0; }
+.sw { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; cursor: pointer; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; }
+.sw i { display: block; }
+.crow .hex { font: 12px var(--mono); color: var(--ink-3); }
+.crow .use { font-size: 12px; color: var(--ink-3); }
+.reset { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.reset:disabled { opacity: 0.4; cursor: default; }
+.preview { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.preview .lbl { font-size: 12px; color: var(--ink-3); }
+
+/* 주 화면 조각(web/src/styles.css .inbox-pill, .count, .card[data-waiting], .dot.waiting, .badge.warn) */
+.pill { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border: 1px solid var(--warn); border-radius: 16px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; color: var(--ink); white-space: nowrap; }
+.count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.qid { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); font: 600 11px/18px var(--mono); }
+.pv { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
+.dot.running { background: var(--run); }
+.dot.done { background: var(--ok); }
+.dot.err { background: var(--err); }
+.mcard { width: 260px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.mcard[data-waiting] { border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 35%, transparent); }
+.mcard .head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.mcard .head b { font-weight: 600; }
+.mcard .head .sp { flex: 1; }
+.mcard .state { font-size: 12px; font-weight: 600; color: var(--warn); }
+.mcard .state.run { color: var(--run); font-weight: 400; }
+.mcard pre { margin: 0; padding: 8px 10px; height: 56px; font: 11px/1.5 var(--mono); color: var(--ink-3); }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; }
+.badge.warn { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }
+.screen { position: relative; display: grid; justify-items: center; gap: 16px; width: 640px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 16px 16px; color: var(--ink); }
+.screen .cards { display: flex; align-items: center; }
+.edge { flex: none; width: 36px; height: 2px; background: var(--edge); }
+/* 저장소 상자·워크트리 묶음(web/src/styles.css .repo-box, .group) */
+.rbox { justify-self: stretch; border: 2px solid var(--repo-line); border-radius: 14px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.rbox > .rh { display: flex; align-items: baseline; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+.rbox > .rh b { font-size: 15px; }
+.rbox > .rh span, .gbox > .gh span { font-size: 12px; color: var(--ink-3); }
+.gbox { margin: 12px; border: 1.5px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.gbox > .gh { display: flex; align-items: baseline; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.gbox > .cards { padding: 12px; }
+.screen .mcard { width: 220px; }
+.mini { display: inline-flex; align-items: center; gap: 0; padding: 4px; border: 2px solid var(--repo-line); border-radius: 8px; }
+.mini .g { display: inline-flex; align-items: center; padding: 4px; border: 1.5px solid var(--group-line); border-radius: 6px; }
+.mini .c { width: 22px; height: 14px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--term); }
+.mini .e { width: 14px; height: 2px; background: var(--edge); }
+.tabsbar { display: flex; gap: 2px; justify-self: stretch; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.tabsbar span { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px; font-size: 13px; color: var(--ink-2); }
+.tabsbar span.on { color: var(--ink); font-weight: 600; border-bottom: 2px solid var(--accent); }
+.tabsbar span.count { display: inline-block; height: 18px; padding: 0 5px; font-size: 11px; color: var(--warn-ink); }
+.pair { display: flex; gap: 20px; align-items: start; }
+.cap { font-size: 12px; color: var(--ink-3); }
+.cell { display: grid; gap: 6px; }
+.pick { position: relative; width: 880px; height: 420px; }
+.pick .modal-frag { position: absolute; inset: 0 auto auto 0; width: 700px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 12px; display: grid; gap: 0; }
+.cpop { position: absolute; top: 58px; left: 14px; width: 360px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); border: 1px solid var(--line); }
+.cpop h3 { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.cpop h3 .sp { flex: 1; }
+.cpop .x { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 5px; background: none; color: var(--ink-3); }
+.cpop .lab { font-size: 12px; color: var(--ink-3); }
+.presets { display: grid; grid-template-columns: repeat(8, 28px); gap: 6px; }
+.presets button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; cursor: pointer; }
+.presets button[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+.hexrow { display: flex; gap: 6px; align-items: center; }
+.hexrow .now { width: 28px; height: 28px; border: 1px solid var(--line-strong); border-radius: 6px; flex: none; }
+.hexrow input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--ink); font: 12px var(--mono); }
+.btn2 { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.both { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.both > div { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 12px; }
+.both .ratio { margin-left: auto; font: 11px var(--mono); color: var(--ink-3); }
+.cpop .foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.cpop .foot .sp { flex: 1; }
+.native { position: absolute; top: 40px; left: 560px; width: 240px; border-radius: 8px; box-shadow: 0 12px 32px var(--shadow); background: var(--surface); border: 1px solid var(--line); padding: 10px; display: grid; gap: 8px; }
+.native .sq { height: 120px; border-radius: 4px; background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(258 90% 66%)); position: relative; }
+.native .sq i { position: absolute; left: 62%; top: 12%; width: 12px; height: 12px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #0006; }
+.native .hue { height: 10px; border-radius: 5px; background: linear-gradient(to right, red, yellow, lime, cyan, blue, magenta, red); }
+.native .row { display: flex; gap: 6px; font: 11px var(--mono); color: var(--ink-3); }
+.native .row span { flex: 1; border: 1px solid var(--line-strong); border-radius: 4px; padding: 2px 6px; color: var(--ink); }
+.arrow { position: absolute; top: 230px; left: 378px; width: 178px; border-top: 1.5px dashed var(--ink-3); }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M29</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 색설정</b></span><span>v3 · 2026-10-22</span></div>
+  <h1>UI 색 설정</h1>
+  <p class="lead">사람 지시: 「목업에 색 선택화면 추가」(v3). 「관계선, 저장소, 워크트리 색 지정 옵션도 추가」(v2). 처음 지시: 「설정에서 ui 색 자유롭게 바꿀 수 있는 옵션 제공 (예: 질문과 관련된 색을 보라색으로 변경)」. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>지금 <span class="tag">시험 데몬 캡처, 설정 › UI</span></h2>
+    <img class="shot" src="color-settings-before.png" alt="지금: 설정 UI 탭에 테마·카드 보기·그래프 범위·간선 모양·시스템 알림·언어가 있고 색 설정은 없다">
+    <ul class="note"><li>색을 바꾸는 곳이 없다. 라이트·다크 테마만 고른다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>① 설정 › UI 「색」 <span class="tag">질문·관계선·저장소·워크트리 색을 바꾼 뒤</span></h2>
+    <div class="modal purple">
+      <nav><h3>설정</h3><span class="tab">에이전트</span><span class="tab">계정</span><span class="tab">워크스페이스</span><span class="tab" aria-current="page">UI</span><span class="tab">터미널</span></nav>
+      <div class="pane">
+        <h3>UI</h3>
+        <section>
+          <h4>테마</h4>
+          <div class="choice"><span>시스템</span><span class="on">라이트</span><span>다크</span></div>
+          <span class="hint">‘시스템’은 OS의 라이트·다크 설정을 따릅니다.</span>
+        </section>
+        <section class="new">
+          <h4>색</h4>
+          <div class="colors">
+            <div class="crow"><button class="sw" aria-label="질문·응답 대기 색 고르기"><i style="background:oklch(54% 0.2 293)"></i><i style="background:oklch(78% 0.13 293)"></i></button><b>질문·응답 대기</b><span class="hex">#8b5cf6</span><span class="use">질문 알약·배지, 대기 카드 테두리, 점</span><button class="reset"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+            <div class="crow"><button class="sw" aria-label="실행 중 색 고르기"><i style="background:oklch(54.6% 0.245 263)"></i><i style="background:oklch(70.7% 0.165 255)"></i></button><b>실행 중</b><span class="hex">기본</span><span class="use">실행 중 점·상태 글자</span><button class="reset" disabled><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+            <div class="crow"><button class="sw" aria-label="완료·성공 색 고르기"><i style="background:oklch(50% 0.13 149)"></i><i style="background:oklch(76% 0.15 149)"></i></button><b>완료·성공</b><span class="hex">기본</span><span class="use">완료 점, 성공 알림</span><button class="reset" disabled><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+            <div class="crow"><button class="sw" aria-label="오류 색 고르기"><i style="background:oklch(55% 0.22 28)"></i><i style="background:oklch(70.4% 0.188 22)"></i></button><b>오류</b><span class="hex">기본</span><span class="use">끝난 노드 점, 오류 글자</span><button class="reset" disabled><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+            <div class="crow"><button class="sw" aria-label="관계선 색 고르기"><i style="background:oklch(80% 0.12 182)"></i><i style="background:oklch(44% 0.08 182)"></i></button><b>관계선</b><span class="hex">#14b8a6</span><span class="use">부모와 자식 노드를 잇는 선</span><button class="reset"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+            <div class="crow"><button class="sw" aria-label="저장소 색 고르기"><i style="background:oklch(57% 0.16 47)"></i><i style="background:oklch(58% 0.16 47)"></i></button><b>저장소</b><span class="hex">#f97316</span><span class="use">저장소 상자 테두리(모든 저장소 범위)</span><button class="reset"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+            <div class="crow"><button class="sw" aria-label="워크트리 색 고르기"><i style="background:oklch(57% 0.2 354)"></i><i style="background:oklch(58% 0.2 354)"></i></button><b>워크트리</b><span class="hex">#ec4899</span><span class="use">워크트리 묶음 테두리</span><button class="reset"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+            <div class="crow"><button class="sw" aria-label="강조 색 고르기"><i style="background:oklch(20.5% 0 0)"></i><i style="background:oklch(92.2% 0 0)"></i></button><b>강조</b><span class="hex">기본</span><span class="use">고른 카드·탭, 켠 스위치, 포커스 테두리</span><button class="reset" disabled><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div>
+          </div>
+          <div class="preview"><span class="lbl">미리 보기</span><span class="pill"><b>질문</b><span class="count">3</span></span><span class="badge warn">대기</span><span class="dot waiting"></span><span class="dot running"></span><span class="dot done"></span><span class="dot err"></span><span class="mini" aria-label="저장소·워크트리·관계선"><span class="g"><span class="c"></span><span class="e"></span><span class="c"></span></span></span></div>
+          <span class="hint">한 번 고르면 라이트·다크에 맞는 밝기를 자동으로 씁니다. 모든 창에 바로 보입니다.</span>
+        </section>
+        <section>
+          <h4>카드 보기</h4>
+          <div class="choice"><span>심플</span><span class="on">표준</span></div>
+        </section>
+      </div>
+    </div>
+    <ul class="note">
+      <li>뜻마다 한 줄이다. 칸(색 네모)을 누르면 색 고르기 창(②)이 열린다. 왼쪽 반은 라이트, 오른쪽 반은 다크에서 쓰는 색이다.</li>
+      <li>고른 색의 색상과 채도는 그대로 두고, 밝기는 그 줄의 기본 색 밝기를 테마마다 쓴다. 그래서 선과 테두리가 바탕에서 보이는 정도가 지금과 같다. 배지 숫자 글자는 바탕과 대비가 4.5:1 이상인 흰색이나 검정을 고른다.</li>
+      <li><b>[기본값]</b>은 그 줄만 처음 색으로 되돌린다. 바꾸지 않은 줄은 「기본」으로 보이고 버튼이 흐리다.</li>
+      <li>색은 데몬 설정에 저장한다. 열린 모든 창(브라우저·앱)이 바로 같은 색을 보인다.</li>
+      <li><b>관계선·저장소·워크트리</b> 줄은 v2에서 더했다. 셋은 지금 무채색 회색이다. 지금은 저장소와 워크트리가 같은 회색을 함께 쓴다. 줄마다 따로 바꾼다.</li>
+      <li>바탕·글자·구분선 같은 나머지 무채색은 고르지 않는다. 라이트·다크 테마가 맡는다.</li>
+    </ul>
+  </div>
+
+
+  <div class="fig">
+    <h2>② 색 고르기 창 <span class="tag">「질문·응답 대기」 줄의 색 칸을 누른 뒤</span></h2>
+    <div class="pick purple">
+      <div class="modal-frag"><div class="crow"><button class="sw" aria-label="질문·응답 대기 색 고르기" style="outline:2px solid var(--accent);outline-offset:2px"><i style="background:oklch(54% 0.2 293)"></i><i style="background:oklch(80% 0.12 293)"></i></button><b>질문·응답 대기</b><span class="hex">#8b5cf6</span><span class="use">질문 알약·배지, 대기 카드 테두리, 점</span><button class="reset"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></div></div>
+      <div class="cpop new" role="dialog" aria-label="질문·응답 대기 색">
+        <h3>질문·응답 대기 색<span class="sp"></span><button class="x" aria-label="닫기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></h3>
+        <span class="lab">추천 색</span>
+        <div class="presets"><button aria-label="28" ><i style="background:oklch(54% 0.2 28)"></i><i style="background:oklch(80% 0.12 28)"></i></button><button aria-label="47" ><i style="background:oklch(54% 0.2 47)"></i><i style="background:oklch(80% 0.12 47)"></i></button><button aria-label="87" ><i style="background:oklch(54% 0.2 87)"></i><i style="background:oklch(80% 0.12 87)"></i></button><button aria-label="149" ><i style="background:oklch(54% 0.2 149)"></i><i style="background:oklch(80% 0.12 149)"></i></button><button aria-label="182" ><i style="background:oklch(54% 0.2 182)"></i><i style="background:oklch(80% 0.12 182)"></i></button><button aria-label="263" ><i style="background:oklch(54% 0.2 263)"></i><i style="background:oklch(80% 0.12 263)"></i></button><button aria-label="293" aria-pressed="true"><i style="background:oklch(54% 0.2 293)"></i><i style="background:oklch(80% 0.12 293)"></i></button><button aria-label="354" ><i style="background:oklch(54% 0.2 354)"></i><i style="background:oklch(80% 0.12 354)"></i></button></div>
+        <span class="lab">색 값</span>
+        <div class="hexrow"><span class="now" style="background:#8b5cf6"></span><input aria-label="색 값(#rrggbb)" value="#8b5cf6"><button class="btn2"><svg class="i" viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>직접 고르기</button></div>
+        <span class="lab">테마마다 쓰는 색</span>
+        <div class="both"><div class="force-light"><span class="count">3</span>라이트<span class="ratio">5.5:1</span></div><div class="force-dark"><span class="count">3</span>다크<span class="ratio">9.2:1</span></div></div>
+        <div class="foot"><button class="btn2"><svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button><span class="sp"></span><span class="lab">고르면 바로 저장합니다</span></div>
+      </div>
+      <span class="arrow" aria-hidden="true"></span>
+      <div class="native" aria-label="운영체제·브라우저 색 고르기 창(예: Chromium)"><span class="lab">[직접 고르기] → 브라우저 색 창</span><div class="sq"><i></i></div><div class="hue"></div><div class="row"><span>139</span><span>92</span><span>246</span></div></div>
+    </div>
+    <ul class="note">
+      <li>색 칸을 누르면 그 줄 아래에 작은 창이 뜬다. 창 밖을 누르거나 Esc를 누르면 닫힌다.</li>
+      <li><b>추천 색</b> 8개 중 하나를 누르면 바로 바뀐다. 추천 색도 왼쪽 반은 라이트, 오른쪽 반은 다크에서 쓰는 색이다.</li>
+      <li><b>색 값</b>에 #rrggbb를 쓰면 바로 바뀐다. 틀린 값이면 바꾸지 않고 입력창 테두리만 오류 색이 된다.</li>
+      <li><b>[직접 고르기]</b>는 브라우저·앱의 기본 색 고르기 창(오른쪽 그림)을 연다. 이 창의 모양은 브라우저마다 다르다.</li>
+      <li><b>테마마다 쓰는 색</b>은 라이트·다크에서 실제로 쓰는 색과 배지 숫자의 대비다.</li>
+      <li><b>[기본값]</b>은 그 줄을 처음 색으로 되돌리고 창을 닫는다.</li>
+    </ul>
+  </div>
+  <div class="fig">
+    <h2>③ 주 화면 <span class="tag">질문 보라, 관계선 청록, 저장소 주황, 워크트리 분홍 · 라이트·다크</span></h2>
+    <div class="pair">
+      <div class="cell"><span class="cap">라이트</span><div class="screen purple force-light new">
+        <span class="pill"><b>질문</b><span class="count">2</span><span class="qid">Q12</span><span class="pv">shell-1: 목업을 승인할까요? (A: 승인 / B: 수정, 권장: A)</span></span>
+        <div class="rbox"><div class="rh"><b>loom</b><span>~/src/loom</span></div><div class="gbox"><div class="gh"><b>색설정</b><span>워크트리</span></div><div class="cards">
+          <div class="mcard" data-waiting><div class="head"><span class="dot waiting"></span><b>shell-1</b><span class="sp"></span><span class="state">질문</span></div><pre>Q12 in the inbox …</pre></div><span class="edge" aria-hidden="true"></span>
+          <div class="mcard"><div class="head"><span class="dot running"></span><b>shell-2</b><span class="sp"></span><span class="state run">실행 중</span></div><pre>cargo test …</pre></div>
+        </div></div></div>
+        <div class="tabsbar"><span>이벤트</span><span>커밋 그래프</span><span class="on">질문 <span class="count">2</span></span></div>
+      </div></div>
+      <div class="cell"><span class="cap">다크</span><div class="screen purple force-dark new">
+        <span class="pill"><b>질문</b><span class="count">2</span><span class="qid">Q12</span><span class="pv">shell-1: 목업을 승인할까요? (A: 승인 / B: 수정, 권장: A)</span></span>
+        <div class="rbox"><div class="rh"><b>loom</b><span>~/src/loom</span></div><div class="gbox"><div class="gh"><b>색설정</b><span>워크트리</span></div><div class="cards">
+          <div class="mcard" data-waiting><div class="head"><span class="dot waiting"></span><b>shell-1</b><span class="sp"></span><span class="state">질문</span></div><pre>Q12 in the inbox …</pre></div><span class="edge" aria-hidden="true"></span>
+          <div class="mcard"><div class="head"><span class="dot running"></span><b>shell-2</b><span class="sp"></span><span class="state run">실행 중</span></div><pre>cargo test …</pre></div>
+        </div></div></div>
+        <div class="tabsbar"><span>이벤트</span><span>커밋 그래프</span><span class="on">질문 <span class="count">2</span></span></div>
+      </div></div>
+    </div>
+    <ul class="note">
+      <li>질문과 관련된 모든 곳(알약 테두리·바탕, 수 배지, 번호 칩, 대기 카드 테두리, 점, 「질문」 탭 배지)이 같은 보라 한 톤으로 바뀐다.</li>
+      <li>다크의 배지는 바탕이 밝아 숫자를 검정으로 쓴다. 라이트는 흰색이다.</li>
+      <li>관계선, 저장소 상자 테두리, 워크트리 묶음 테두리도 고른 색으로 바뀐다. 고른 카드·묶음 표시는 지금처럼 강조 색이다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="decide">
+      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
+      <tr><td>고를 수 있는 색</td><td><b>뜻 8개</b>(질문·응답 대기, 실행 중, 완료·성공, 오류, 관계선, 저장소, 워크트리, 강조)</td><td>질문 색 하나만 / 바탕·글자까지 모두</td></tr>
+      <tr><td>라이트·다크 색</td><td><b>한 번 고르고 밝기는 자동</b></td><td>테마마다 따로 고른다</td></tr>
+      <tr><td>색 고르기 창</td><td><b>loom 작은 창</b>(추천 색 8개, 색 값 입력, [직접 고르기]로 브라우저 창, [기본값])</td><td>브라우저 기본 색 창만 연다(모양이 브라우저마다 다르고 기본값·대비 표시가 없다)</td></tr>
+      <tr><td>되돌리기</td><td><b>줄마다 [기본값]</b></td><td>묶음 전체 [모두 기본값]도 둔다</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

@@ -343,7 +343,13 @@ fn repo_name(url: &str) -> &str {
 /// 첫째가 원래 체크아웃이다(git이 그 순서로 준다). git을 읽지 못하면 `repo` 하나다.
 pub async fn worktrees(repo: &Path) -> Vec<Worktree> {
     match git::run(repo, &["worktree", "list", "--porcelain"]).await {
-        Ok(porcelain) => parse_worktrees(&porcelain),
+        Ok(porcelain) => parse_worktrees(&porcelain)
+            .into_iter()
+            .map(|w| Worktree {
+                path: git::from_git_path(repo, &w.path),
+                ..w
+            })
+            .collect(),
         Err(_) => vec![Worktree {
             path: repo.to_string_lossy().into_owned(),
             head: String::new(),
@@ -419,7 +425,8 @@ pub async fn create(
     let parent = workspace.join(folder_name(repo));
     std::fs::create_dir_all(&parent).map_err(|e| RepoProblem::Git(e.to_string()))?;
     let path = parent.join(leaf).to_string_lossy().into_owned();
-    git::run(from, &["worktree", "add", "-b", branch, &path, base])
+    let target = git::to_git_path(from, &path);
+    git::run(from, &["worktree", "add", "-b", branch, &target, base])
         .await
         .map_err(RepoProblem::Git)?;
     // git이 적는 경로와 같은 글자로 돌려준다. 노드는 이 글자로 묶음을 가리킨다.
@@ -451,7 +458,8 @@ pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem>
     if worktree.original {
         return Err(RepoProblem::Original);
     }
-    git::run(repo, &["worktree", "remove", "--force", &worktree.path])
+    let target = git::to_git_path(repo, &worktree.path);
+    git::run(repo, &["worktree", "remove", "--force", &target])
         .await
         .map_err(RepoProblem::Git)?;
     Ok(())

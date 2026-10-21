@@ -1,6 +1,9 @@
-/* 터미널 기본 글꼴이자 화면의 고정폭 글꼴(--mono). kuskhan/jetendard v0.1.0 웹 글꼴(OFL 1.1, fonts/jetendard/LICENSE). JetBrains Mono에 Pretendard 한글을 두 칸으로 넣었다. */
+/* 터미널 기본 글꼴(Terminal.tsx). kuskhan/jetendard v0.1.0 웹 글꼴(OFL 1.1, fonts/jetendard/LICENSE). JetBrains Mono에 Pretendard 한글을 두 칸으로 넣었다. */
 @font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+/* 화면의 고정폭 글꼴(--mono)은 같은 파일의 한글 밖 글자만 쓴다. 두 칸 한글은 글자 사이가 0.27em 떠서 문장(「폴더 … 를 삭제합니다.」)이 띄엄띄엄 보인다. 한글은 --font로 간다. */
+@font-face { font-family: 'Jetendard Latin'; src: url('./fonts/jetendard/Jetendard-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; unicode-range: U+0000-10FF, U+2000-2BFF; }
+@font-face { font-family: 'Jetendard Latin'; src: url('./fonts/jetendard/Jetendard-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; unicode-range: U+0000-10FF, U+2000-2BFF; }
 
 /* 토큰 원천: docs/mockups/main.html :root(2026-10-19 승인). 값을 바꾸면 목업도 같은 커밋에서 바꾼다. */
 :root {
@@ -31,7 +34,7 @@
   --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5));
   --radius: 8px;
   --font: 'Pretendard Variable', system-ui, sans-serif;
-  --mono: 'Jetendard', ui-monospace, monospace;
+  --mono: 'Jetendard Latin', 'Pretendard Variable', system-ui, monospace;
   /* 커밋 그래프 차선 색 5개. 다크는 Orca git-graph-lane 값 그대로, 라이트는 같은 색상을 흰 바탕에서 보이게 어둡게 했다. 차선은 차례로 돌려 쓴다. */
   --lane-1: light-dark(oklch(58% 0.14 76), oklch(81.2% 0.17 76));
   --lane-2: light-dark(oklch(55% 0.2 358), oklch(59.5% 0.222 358));

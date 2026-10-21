@@ -174,6 +174,10 @@ pub trait Mailbox: Send + Sync + 'static {
     fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String>;
     /// 꺼낸 메시지를 받는 쪽에 넘겼다고 확인한다. 확인하지 않은 메시지는 나중에 다시 꺼낸다.
     fn ack(&self, taken: &[Delivery]) -> Result<(), String>;
+    /// 턴이 끝났다. `reply`는 그 턴의 마지막 답 글이다. 다시 일하게 할 글이 있으면 돌려준다(턴 끝 질문 검사).
+    fn turn_ended(&self, reply: Option<String>) -> Option<String>;
+    /// 사람이 입력해 턴이 시작했다. 그 턴에 더할 글(열린 `loom ask` 질문)이 있으면 돌려준다.
+    fn human_input(&self) -> Option<String>;
 }
 
 /// 첫 지시문을 넘기는 방법. Orca의 `promptInjectionMode`를 옮겼다.
@@ -641,9 +645,18 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
 }
 
 /// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
-/// 훅이 넘기는 글: 꺼낸 메시지와 새로 기다리는 큐 메시지 알림(`Take::BetweenTools`). 둘 다 없으면 없다.
-pub fn hook_text(taken: &[Delivery], queued_from: &[String]) -> Option<String> {
+/// 훅이 넘기는 글: 꺼낸 메시지, 새로 기다리는 큐 메시지 알림(`Take::BetweenTools`), 사람 입력 때 열린 `loom ask` 질문. 모두 없으면 없다.
+pub fn hook_text(
+    taken: &[Delivery],
+    queued_from: &[String],
+    open_question: Option<&str>,
+) -> Option<String> {
     let mut parts = Vec::new();
+    if let Some(question) = open_question {
+        parts.push(format!(
+            "Open loom ask question: {question}. If this input answers it, call loom answered first, then act. If not, leave it open."
+        ));
+    }
     if !taken.is_empty() {
         parts.push(message_text(taken));
     }

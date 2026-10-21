@@ -443,10 +443,11 @@ Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Curso
 | Claude | `Stop` 입력의 `last_assistant_message`(2.1.306). 기록 파일은 훅이 돈 뒤에 마지막 답 줄을 쓴다(실측) | `Stop` 비동기 훅이 `turn-end`를 부르고 exit 2로 다시 깨운다. 그 훅은 메시지를 꺼내지 않는다 |
 | Cursor | `afterAgentResponse` 훅의 `text`(`said`) | stop 훅의 `followup_message` |
 | Codex | 쉰 스레드의 마지막 턴 `agentMessage`(`thread/turns/list`) | 데몬의 전달 작업이 `turn/start` |
-| OpenCode 2 | 없음 | 검사하지 않는다. loom이 이 런타임의 턴 끝 신호를 아직 받지 않는다 |
+| OpenCode 2 | 서버 이벤트 `session.text.ended`의 `text`(2.0.32 실측) | `session.execution.succeeded`에 전달 작업이 큐로 넣는다(`Mailbox::turn_ended`). 실패·중단한 턴은 검사하지 않는다 |
 
 - 폴더 신뢰 창이 떠 있는 동안 Claude는 훅을 부르지 않는다(2.1.306 실측). 그래서 화면 문구로 찾는다. loom은 `~/.claude.json`에 신뢰를 써서 창을 없애지 않는다. Claude는 저장소 원래 체크아웃의 신뢰를 워크트리에 이어 쓴다(실측). 그래서 이 창은 신뢰하지 않은 저장소의 첫 노드에서만 뜬다.
 - OpenCode 2 세션은 모두 허용으로 띄워(「에이전트 실행」) 승인 창이 없다. 평문 질문은 `loom ask`다.
+- 열린 질문 알림: `loom ask` 대기가 있는 노드에 사람이 입력하면 그 턴에 한 줄을 더한다(「Open loom ask question: <질문>. If this input answers it, call loom answered first, then act. If not, leave it open.」, `profile::hook_text`). 대기가 없으면 더하지 않는다(2026-10-21 사람 지시 "질문이 걸려있는 상태에서는 답변이 왔는지 확인하는 훅을 거는게 어때". 총괄이 답을 받고 `loom answered`를 잊었다). Claude는 `UserPromptSubmit` 맥락, Cursor는 `beforeSubmitPrompt`의 `additional_context`다. Codex와 OpenCode 2에는 입력 훅이 없어 사람이 연 턴 안에 조정으로 넣는다. Codex는 loom이 `turn/start`로 열지 않은 턴, OpenCode 2는 loom이 넣지 않은 입력함 id(`session.inbox.enqueued`)를 사람 입력으로 본다. OpenCode 2는 첫 단계 뒤에 닿는다(실측).
 - 시스템 알림: 「설정 › UI」에서 켠다. 기본은 꺼짐이다. 켤 때 브라우저가 허용을 묻는다. 켜 두면 창이 보이지 않을 때 새 대기마다 알림을 띄우고, 누르면 그 노드로 간다.
 
 ### 맥락과 크기

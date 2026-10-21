@@ -128,6 +128,15 @@ impl Graph {
         Ok(stored(&db, id)?.is_some_and(|wait| wait.is_none()))
     }
 
+    /// 아직 열린 `loom ask` 질문의 글. 사람 입력 훅이 에이전트에 알린다.
+    /// 근거: 2026-10-21 사람 지시 "질문이 걸려있는 상태에서는 답변이 왔는지 확인하는 훅을 거는게 어때".
+    pub fn open_question(&self, id: NodeId) -> Result<Option<String>, Refusal> {
+        Ok(stored(&self.lock(), id)?
+            .flatten()
+            .filter(|now| now.source == WaitSource::Ask)
+            .map(|now| now.wait.text))
+    }
+
     /// 사람이 그 노드 터미널에 키를 눌렀다. `loom ask` 대기만 남기고 지운다. 그 입력이 답인지는 에이전트가 판단해 `loom answered`로 지운다.
     /// 근거: 2026-10-21 사람 지시 "사람이 정말 답변을 했을때만 알림이 제거되도록 알림제거는 사용자 입력을 에이전트가 판단하여 제거하도록 하라".
     pub fn typed(&self, id: NodeId) -> rusqlite::Result<()> {

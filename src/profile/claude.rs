@@ -233,8 +233,13 @@ impl Event {
     }
 
     /// 훅 출력 JSON. 없으면 아무것도 출력하지 않는다.
-    pub fn reply(&self, taken: &[Delivery], queued_from: &[String]) -> Option<Value> {
-        let Some(text) = super::hook_text(taken, queued_from) else {
+    pub fn reply(
+        &self,
+        taken: &[Delivery],
+        queued_from: &[String],
+        open_question: Option<&str>,
+    ) -> Option<Value> {
+        let Some(text) = super::hook_text(taken, queued_from, open_question) else {
             return match self {
                 Event::PreToolUse {
                     tool_name,
@@ -369,17 +374,17 @@ mod tests {
         let post = event(json!({ "hook_event_name": "PostToolUse" }));
         let notice = "loom: 3 new queued message(s) waiting (from: 총괄, b). Run `loom wait --json` now if they may change your current task.";
         assert_eq!(
-            post.reply(&[], &["총괄".into(), "b".into(), "총괄".into()]),
+            post.reply(&[], &["총괄".into(), "b".into(), "총괄".into()], None),
             Some(context("PostToolUse", notice.into()))
         );
         assert_eq!(
-            post.reply(&[delivery(Kind::Steer, "b")], &["총괄".into()]),
+            post.reply(&[delivery(Kind::Steer, "b")], &["총괄".into()], None),
             Some(context(
                 "PostToolUse",
                 "loom message #1 (from: 총괄, mode: steer)\nb\n\nloom: 1 new queued message(s) waiting (from: 총괄). Run `loom wait --json` now if they may change your current task.".into()
             ))
         );
-        assert_eq!(post.reply(&[], &[]), None);
+        assert_eq!(post.reply(&[], &[], None), None);
     }
 
     #[test]
@@ -405,7 +410,7 @@ mod tests {
             "tool_input": { "command": "npm test && echo ok", "timeout": 1000 },
         }));
         assert_eq!(
-            pre.reply(&[], &[]),
+            pre.reply(&[], &[], None),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "updatedInput": { "command": "loom guard\nnpm test && echo ok", "timeout": 1000 },
@@ -419,12 +424,12 @@ mod tests {
             "hook_event_name": "PreToolUse", "tool_name": "Bash",
             "tool_input": { "command": "loom wait", "run_in_background": true },
         }));
-        assert_eq!(background.reply(&[], &[]), None);
+        assert_eq!(background.reply(&[], &[], None), None);
         let read = event(json!({
             "hook_event_name": "PreToolUse", "tool_name": "Read",
             "tool_input": { "file_path": "/a" },
         }));
-        assert_eq!(read.reply(&[], &[]), None);
+        assert_eq!(read.reply(&[], &[], None), None);
     }
 
     #[test]
@@ -434,7 +439,7 @@ mod tests {
             "tool_input": { "command": "npm test" },
         }));
         assert_eq!(
-            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], &[]),
+            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], &[], None),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
@@ -458,7 +463,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                event(input).reply(&[delivery(Kind::Steer, "b")], &[]),
+                event(input).reply(&[delivery(Kind::Steer, "b")], &[], None),
                 Some(json!({ "hookSpecificOutput": {
                     "hookEventName": name,
                     "additionalContext": "loom message #1 (from: 총괄, mode: steer)\nb",
@@ -500,6 +505,18 @@ mod tests {
     }
 
     /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
+    /// 사람 입력 턴에 열린 `loom ask` 질문이 있으면 맥락 한 줄로 알린다. 없으면 아무것도 넣지 않는다.
+    #[test]
+    fn human_input_gets_the_open_question_line() {
+        let prompt = event(json!({ "hook_event_name": "UserPromptSubmit" }));
+        assert_eq!(prompt.reply(&[], &[], None), None);
+        let reply = prompt.reply(&[], &[], Some("A or B?")).unwrap();
+        let text = reply["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap();
+        assert!(text.starts_with("Open loom ask question: A or B?. If this input answers it, call loom answered first"), "{text}");
+    }
+
     #[test]
     fn last_reply_is_the_stop_input_text() {
         let stop = json!({ "hook_event_name": "Stop", "last_assistant_message": "병합할까요?" });

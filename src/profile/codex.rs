@@ -220,6 +220,15 @@ where
     Rpc { call, thread }.start(input(text.to_owned())).await
 }
 
+/// 진행 중인 턴에 글 하나를 더한다. 사람 입력 턴에 열린 질문을 알릴 때 쓴다.
+pub async fn steer<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: Future<Output = Result<Value, String>>,
+{
+    Rpc { call, thread }.steer(input(text.to_owned())).await
+}
+
 fn input(text: String) -> Vec<UserInput> {
     vec![UserInput::TextUserInput {
         text,

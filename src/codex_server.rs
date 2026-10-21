@@ -19,12 +19,13 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::graph::WaitKind;
 use crate::process_tree::{self, Snapshot};
 use crate::profile::ServerLink;
 use crate::profile::codex::Status;
 use crate::profile::codex::protocol::{
-    ThreadReadParams, ThreadReadResponse, ThreadStartedNotification, ThreadStatus,
-    ThreadStatusChangedNotification,
+    ThreadActiveFlag, ThreadReadParams, ThreadReadResponse, ThreadStartedNotification,
+    ThreadStatus, ThreadStatusChangedNotification,
 };
 
 /// 서버가 뜨고 요청 하나에 답하는 상한. 첫 실행은 로그인 확인과 플러그인 읽기로 몇 초 걸린다.
@@ -35,6 +36,30 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 pub struct Thread {
     pub id: String,
     pub status: Status,
+    /// 승인·답을 기다리는 스레드(`ThreadActiveFlag`). 근거: docs/design.md 「사람 응답 대기」.
+    pub waiting: Option<WaitKind>,
+}
+
+impl Thread {
+    fn new(id: String, status: &ThreadStatus) -> Self {
+        let waiting = match status {
+            ThreadStatus::Active(flags) => flags.first().map(|f| match f {
+                ThreadActiveFlag::WaitingOnApproval => WaitKind::Approval,
+                ThreadActiveFlag::WaitingOnUserInput => WaitKind::Question,
+            }),
+            _ => None,
+        };
+        Self {
+            id,
+            status: match status {
+                ThreadStatus::Active(_) => Status::Busy,
+                ThreadStatus::Idle | ThreadStatus::NotLoaded | ThreadStatus::SystemError => {
+                    Status::Idle
+                }
+            },
+            waiting,
+        }
+    }
 }
 
 type Pending = Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>;
@@ -127,12 +152,13 @@ impl CodexServer {
     /// 상태를 읽지 못하면 쉬는 중으로 둔다. 다음 `thread/status/changed`가 고친다.
     pub async fn follow_thread(&self, id: String) {
         let status = self
-            .read_status(&id)
+            .read(&id)
             .await
+            .map(|read| read.thread.status)
             .inspect_err(|e| eprintln!("loom: Codex 스레드 {id}의 상태를 읽지 못했다: {e}"))
-            .unwrap_or(Status::Idle);
+            .unwrap_or(ThreadStatus::Idle);
         if let Some(tx) = self.thread_tx.upgrade() {
-            tx.send_replace(Some(Thread { id, status }));
+            tx.send_replace(Some(Thread::new(id, &status)));
         }
     }
 
@@ -144,10 +170,6 @@ impl CodexServer {
     /// 계정 한도로 끝난 턴의 수. 값이 바뀌면 한도에 닿았다.
     pub fn limited(&self) -> watch::Receiver<u64> {
         self.limited.clone()
-    }
-
-    async fn read_status(&self, thread: &str) -> Result<Status, String> {
-        Ok(status(&self.read(thread).await?.thread.status))
     }
 
     async fn read(&self, thread: &str) -> Result<ThreadReadResponse, String> {
@@ -304,10 +326,7 @@ fn receive(msg: Value, pending: &Pending, thread: &watch::Sender<Option<Thread>>
                 return;
             };
             if !started.thread.ephemeral {
-                thread.send_replace(Some(Thread {
-                    id: started.thread.id,
-                    status: status(&started.thread.status),
-                }));
+                thread.send_replace(Some(Thread::new(started.thread.id, &started.thread.status)));
             }
         }
         Some("thread/status/changed") => {
@@ -317,7 +336,7 @@ fn receive(msg: Value, pending: &Pending, thread: &watch::Sender<Option<Thread>>
             };
             thread.send_if_modified(|now| match now {
                 Some(t) if t.id == changed.thread_id => {
-                    t.status = status(&changed.status);
+                    *t = Thread::new(changed.thread_id, &changed.status);
                     true
                 }
                 _ => false,
@@ -335,9 +354,29 @@ fn is_usage_limit(msg: &Value) -> bool {
         && msg["params"]["error"]["codexErrorInfo"] == "usageLimitExceeded"
 }
 
-fn status(status: &ThreadStatus) -> Status {
-    match status {
-        ThreadStatus::Active(_) => Status::Busy,
-        ThreadStatus::Idle | ThreadStatus::NotLoaded | ThreadStatus::SystemError => Status::Idle,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 0.159.2 스키마 `ThreadStatusChangedNotification` 모양의 알림.
+    fn changed(status: Value) -> Thread {
+        let note: ThreadStatusChangedNotification =
+            serde_json::from_value(json!({ "threadId": "t", "status": status })).unwrap();
+        Thread::new(note.thread_id, &note.status)
+    }
+
+    #[test]
+    fn active_flags_become_the_human_wait() {
+        let approval = changed(json!({ "type": "active", "activeFlags": ["waitingOnApproval"] }));
+        assert_eq!(
+            (approval.status, approval.waiting),
+            (Status::Busy, Some(WaitKind::Approval))
+        );
+        let input = changed(json!({ "type": "active", "activeFlags": ["waitingOnUserInput"] }));
+        assert_eq!(input.waiting, Some(WaitKind::Question));
+        let working = changed(json!({ "type": "active", "activeFlags": [] }));
+        assert_eq!((working.status, working.waiting), (Status::Busy, None));
+        let idle = changed(json!({ "type": "idle" }));
+        assert_eq!((idle.status, idle.waiting), (Status::Idle, None));
     }
 }

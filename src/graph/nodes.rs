@@ -189,7 +189,7 @@ impl Graph {
         };
         let tx = db.transaction()?;
         let changed = tx.execute(
-            "UPDATE nodes SET process_exited = 1 WHERE id = ?1 AND process_exited = 0",
+            "UPDATE nodes SET process_exited = 1, wait = NULL WHERE id = ?1 AND process_exited = 0",
             [id.0],
         )?;
         if changed == 0 {

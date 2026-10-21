@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::graph::{Delivery, Kind, Model};
+use crate::graph::{Delivery, Kind, Model, WaitKind};
+use crate::screen::Dialog;
 use crate::skills::Position;
 
 /// 훅 한 번에 넘기는 본문 합의 상한.
@@ -40,7 +41,7 @@ fn usage(position: Position) -> String {
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 11] = [
+const ALLOWED: [&str; 12] = [
     "Bash(loom guard)",
     "Bash(loom send:*)",
     "Bash(loom steer:*)",
@@ -50,6 +51,7 @@ const ALLOWED: [&str; 11] = [
     "Bash(loom reply:*)",
     "Bash(loom status)",
     "Bash(loom done:*)",
+    "Bash(loom ask:*)",
     "Bash(loom adopt:*)",
     "Bash(loom rm:*)",
 ];
@@ -95,6 +97,12 @@ pub fn args(plugin: &Path, position: Position) -> Vec<String> {
             "Stop": idle,
             // API 오류(한도 포함)로 끝난 턴은 `Stop` 대신 이 훅을 부른다. 없으면 그 노드가 다시 깨지 않는다.
             "StopFailure": idle,
+            // 사람의 승인·답을 기다리는 창. 다른 알림(`idle_prompt` 등)은 훅을 부르지 않는다.
+            "Notification": [{ "matcher": HUMAN_NOTIFICATIONS, "hooks": [{
+                "type": "command",
+                "command": "loom hook",
+                "timeout": HOOK_TIMEOUT_SECS,
+            }] }],
         },
     });
     vec![
@@ -106,6 +114,44 @@ pub fn args(plugin: &Path, position: Position) -> Vec<String> {
         plugin.to_string_lossy().into_owned(),
     ]
 }
+
+/// 훅이 불리지 않는 확인 창(2.1.306 화면 문구). 폴더 신뢰 창이 떠 있는 동안에는 훅이 하나도 불리지 않는다(실측).
+pub const DIALOGS: [Dialog; 5] = [
+    // 새 계정 폴더의 첫 실행: 테마 고르기 뒤 로그인이 이어진다.
+    Dialog {
+        text: "Choose the text style that looks best with your terminal",
+        kind: WaitKind::Auth,
+        at_end: false,
+    },
+    Dialog {
+        text: "Yes, I trust this folder",
+        kind: WaitKind::Trust,
+        at_end: false,
+    },
+    // 모든 권한 허용 모드의 첫 경고.
+    Dialog {
+        text: "Yes, I accept",
+        kind: WaitKind::Approval,
+        at_end: false,
+    },
+    Dialog {
+        text: "Select login method:",
+        kind: WaitKind::Auth,
+        at_end: false,
+    },
+    // 계정 한도에 닿았을 때 고르는 창.
+    Dialog {
+        text: "Stop and wait for limit to reset",
+        kind: WaitKind::Auth,
+        at_end: false,
+    },
+];
+
+/// 사람의 답을 기다리는 `Notification` 종류(`notification_type`). 훅 설정의 matcher다.
+const HUMAN_NOTIFICATIONS: &str = "permission_prompt|elicitation_dialog";
+/// 사람에게 묻는 도구. 도구를 부르기 전에(`PreToolUse`) 창이 뜬다.
+const ASK_TOOL: &str = "AskUserQuestion";
+const PLAN_TOOL: &str = "ExitPlanMode";
 
 /// 훅 입력에서 loom이 보는 필드만 읽는다. 다른 필드는 버린다.
 #[derive(Deserialize)]
@@ -128,6 +174,13 @@ pub enum Event {
         #[serde(default)]
         error: String,
     },
+    /// Claude가 사람에게 알린다. `HUMAN_NOTIFICATIONS`만 이 훅을 부른다.
+    Notification {
+        #[serde(default)]
+        notification_type: String,
+        #[serde(default)]
+        message: String,
+    },
 }
 
 /// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
@@ -140,6 +193,8 @@ pub enum Take {
     Now(&'static [Kind]),
     /// 턴이 없다(세션 시작, 턴 끝). 비동기 훅이 메시지가 올 때까지 기다린다.
     WhenIdle,
+    /// 메시지를 꺼내지 않는다(알림).
+    Never,
 }
 
 impl Event {
@@ -151,6 +206,34 @@ impl Event {
             Event::UserPromptSubmit => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(&[Kind::Steer]),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
+            Event::Notification { .. } => Take::Never,
+        }
+    }
+
+    /// 이 훅이 알리는 사람 응답 대기. 근거: docs/design.md 「사람 응답 대기」.
+    pub fn human_wait(&self) -> Option<(WaitKind, String)> {
+        match self {
+            Event::PreToolUse {
+                tool_name,
+                tool_input,
+            } if tool_name == ASK_TOOL => {
+                let question = tool_input["questions"][0]["question"].as_str();
+                Some((WaitKind::Question, question.unwrap_or_default().to_owned()))
+            }
+            Event::PreToolUse { tool_name, .. } if tool_name == PLAN_TOOL => {
+                Some((WaitKind::Approval, String::new()))
+            }
+            Event::Notification {
+                notification_type,
+                message,
+            } => {
+                let kind = match notification_type.as_str() {
+                    "elicitation_dialog" => WaitKind::Question,
+                    _ => WaitKind::Approval,
+                };
+                Some((kind, message.clone()))
+            }
+            _ => None,
         }
     }
 
@@ -178,7 +261,10 @@ impl Event {
         let text = super::message_text(taken);
         match self {
             // 비동기 훅은 JSON을 읽지 않는다. 본문은 stderr로 넘긴다(`cli::hook`).
-            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => None,
+            Event::SessionStart { .. }
+            | Event::Stop
+            | Event::StopFailure { .. }
+            | Event::Notification { .. } => None,
             Event::PreToolUse { .. } => Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
@@ -435,7 +521,44 @@ mod tests {
     }
 
     #[test]
-    fn settings_register_the_seven_hooks_and_allow_messaging_but_not_spawn() {
+    fn question_plan_and_permission_hooks_report_a_human_wait() {
+        let ask = event(json!({
+            "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
+            "tool_input": { "questions": [{ "question": "A or B?", "options": [] }] },
+        }));
+        assert_eq!(
+            ask.human_wait(),
+            Some((WaitKind::Question, "A or B?".into()))
+        );
+        let plan = event(json!({
+            "hook_event_name": "PreToolUse", "tool_name": "ExitPlanMode", "tool_input": {},
+        }));
+        assert_eq!(plan.human_wait(), Some((WaitKind::Approval, String::new())));
+        let permission = event(json!({
+            "hook_event_name": "Notification", "notification_type": "permission_prompt",
+            "message": "Claude needs your permission to use Bash",
+        }));
+        assert_eq!(permission.take(), Take::Never);
+        assert_eq!(
+            permission.human_wait(),
+            Some((
+                WaitKind::Approval,
+                "Claude needs your permission to use Bash".into()
+            ))
+        );
+        let elicitation = event(json!({
+            "hook_event_name": "Notification", "notification_type": "elicitation_dialog",
+            "message": "Server asks",
+        }));
+        assert_eq!(elicitation.human_wait().unwrap().0, WaitKind::Question);
+        let bash = event(json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls" },
+        }));
+        assert_eq!(bash.human_wait(), None);
+    }
+
+    #[test]
+    fn settings_register_the_eight_hooks_and_allow_messaging_but_not_spawn() {
         let args = args(Path::new("/p"), Position::Root);
         assert_eq!(args[2], "--settings");
         assert_eq!(args[4..], ["--plugin-dir", "/p"]);
@@ -445,6 +568,7 @@ mod tests {
         assert_eq!(
             events,
             [
+                "Notification",
                 "PostToolUse",
                 "PostToolUseFailure",
                 "PreToolUse",
@@ -466,6 +590,10 @@ mod tests {
             assert_eq!(hook["asyncRewake"] == true, idle, "{name}");
             assert!(hook["timeout"].as_u64().unwrap() * 1000 < i32::MAX as u64);
         }
+        assert_eq!(
+            settings["hooks"]["Notification"][0]["matcher"],
+            HUMAN_NOTIFICATIONS
+        );
         let allow = settings["permissions"]["allow"].as_array().unwrap();
         assert!(allow.contains(&json!(format!("Bash({GUARD})"))));
         assert!(allow.contains(&json!("Bash(loom wait)")));

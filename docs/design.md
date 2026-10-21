@@ -249,7 +249,7 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
 
 ### 설정
 
-- 설정은 `settings` 테이블 한 줄(JSON)이다: 모든 권한 허용을 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 그래프 범위, 간선 모양, 화면 언어, 워크스페이스 폴더, 노드 나무 상한(「상한」). 저장한 JSON에 없는 값은 기본값으로 읽는다.
+- 설정은 `settings` 테이블 한 줄(JSON)이다: 모든 권한 허용을 끈 에이전트 목록, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 그래프 범위, 간선 모양, 화면 언어, 워크스페이스 폴더, 노드 나무 상한(「상한」), 시스템 알림(「사람 응답 대기」). 저장한 JSON에 없는 값은 기본값으로 읽는다.
 - 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 오른쪽 끝에 제품 버전(`v<scripts/version.sh 값>`)을 보인다(2026-10-20 사람 지시 "버전 번호는 우하단에 보여주면 될듯, 사용량 보여주는 섹션에"). 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
@@ -327,6 +327,7 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
 | `loom interrupt <이름> <본문>` | 에이전트 | 중단: 지금 동작을 멈추고 메시지를 바로 따르게 한다. 부모·자식에게만 |
 | `loom wait [--reply-to <메시지 번호>] [--timeout <초>] [--json]` | 에이전트 | 일반 메시지나 지정한 요청의 첫 답변을 기다린다. 메시지 종류도 출력한다 |
 | `loom done <요약>` / `loom done --file <경로>` | 에이전트 | 결과를 부모에게 보내고 노드를 `done`으로 바꾼다 |
+| `loom ask <질문>` | 에이전트 | 사람에게 고르기·승인을 한 줄로 묻는다. 받은편지함에 뜨고 바로 끝난다. 에이전트는 턴을 끝내고, 사람은 노드 터미널에 답한다. 부모가 있는 노드는 거절한다(부모에게 묻는다) |
 | `loom adopt <이름>` | 에이전트 | 부르는 노드가 그 노드의 새 부모가 된다. 이름은 그래프 전체에서 찾는다. 같은 이름이 둘 이상이면 거절한다 |
 | `loom hook` | Claude 훅 | stdin의 훅 이벤트를 받아 전달할 메시지를 돌려준다 |
 | `loom guard` | Claude PreToolUse 훅 | 훅이 포그라운드 Bash 명령 앞에 이 줄을 붙인다. 부른 셸을 중단 대상으로 데몬에 알린다 |
@@ -401,6 +402,25 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
 - OpenCode 2 중단: 데몬은 서버 셸 목록(`GET /api/shell`)에서 그 세션의 셸 PID를 읽는다. 서버의 자손인 셸과 그 자손을 끝낸 뒤 메시지를 넣는다. 전달 작업은 중단을 꺼내면 `interrupt`를 보낸 뒤 본문을 입력함 `steer`로 넣는다. `interrupt`는 셸의 프로세스 그룹만 끝낸다. 셸보다 먼저 보내면 셸이 목록에서 빠지고, `setsid` 자손은 부모를 잃어 찾을 수 없다.
 - OpenCode 2: 중단 전에 입력함에 있던 큐는 중단 본문의 실행이 끝난 뒤 들어간다(실측).
 - Windows Codex 중단: Windows에는 세션 리더가 없어 데몬은 셸을 찾지 않는다. Codex가 `turn/interrupt` 때 셸을 스스로 끝낸다(「실측 근거」).
+
+### 사람 응답 대기
+
+노드가 사람의 답·승인을 기다리면 화면에 알린다(목업 [human-question.html](mockups/human-question.html) v3, 2026-10-21 사람 지시 "에이전트가 사람에게 승인 또는 선택을 하게끔 하는 질문을 loom 시스템에서 표준화"). 표준은 하나다.
+
+- 기록: 노드마다 대기 하나(`graph::HumanWait`: 종류 `Question`·`Approval`·`Trust`·`Auth`·`Input`, 한 줄 글, 시작 시각)를 DB `nodes.wait`에 둔다. 데몬을 다시 띄워도 남는다. 화면은 `NodeView.wait`만 읽는다. 받은편지함(상태 줄의 [질문]), 카드의 주황 테두리와 「응답 대기」, 사이드바의 주황 점, 시스템 알림이 모두 이 값이다. 런타임을 아는 화면 코드는 없다.
+- 거는 길: 모든 신호가 `Graph::set_wait(노드, 신호, 대기)` 하나를 부른다. 신호는 자기가 건 대기만 거둔다.
+
+| 신호 | 경우 |
+|---|---|
+| `loom ask`(`Ask`) | 모든 런타임의 평문 질문. 사람이 띄운 노드만 쓴다 |
+| Claude 훅(`Hook`) | `PreToolUse`의 `AskUserQuestion`(질문)과 `ExitPlanMode`(계획 승인). `Notification`의 `permission_prompt`(권한 승인)와 `elicitation_dialog`(MCP 질문) |
+| Codex 스레드 상태(`Codex`) | `thread/status/changed`의 `waitingOnApproval`(승인)과 `waitingOnUserInput`(질문). 표시가 사라지면 거둔다 |
+| 터미널 화면(`Screen`) | 신호가 없는 창. 노드 출력이 0.5초 멎으면 지금 터미널 화면(`NodeHost::screen`: backlog를 `vt100`으로 다시 그린 글. 지운 창의 글은 남지 않는다)에서 프로필이 가진 문구(`profile::dialogs`)를 찾는다. 없으면 거둔다. Claude: 첫 실행 테마 고르기, 폴더 신뢰, 모든 권한 허용 경고, 로그인, 한도 창. Codex: 폴더 신뢰, 로그인. 셸·명령 노드: 마지막 줄의 password·passphrase·(yes/no·[y/n]·Username for |
+
+- 지우는 길: 신호가 거둔다. 사람이 그 노드 터미널에 키를 누른다(터미널이 스스로 보내는 초점·커서·마우스 응답은 키가 아니다, `node_host::typed`). 프로세스가 끝나거나 계정 전환으로 다시 뜬다.
+- 폴더 신뢰 창이 떠 있는 동안 Claude는 훅을 부르지 않는다(2.1.306 실측). 그래서 화면 문구로 찾는다. loom은 `~/.claude.json`에 신뢰를 써서 창을 없애지 않는다. Claude는 저장소 원래 체크아웃의 신뢰를 워크트리에 이어 쓴다(실측). 그래서 이 창은 신뢰하지 않은 저장소의 첫 노드에서만 뜬다.
+- OpenCode 2 세션은 모두 허용으로 띄워(「에이전트 실행」) 승인 창이 없다. 평문 질문은 `loom ask`다.
+- 시스템 알림: 「설정 › UI」에서 켠다. 기본은 꺼짐이다. 켤 때 브라우저가 허용을 묻는다. 켜 두면 창이 보이지 않을 때 새 대기마다 알림을 띄우고, 누르면 그 노드로 간다.
 
 ### 맥락과 크기
 
@@ -501,7 +521,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 |---|---|
 | 상호작용 | 화면, CLI 명령(`src/cli.rs`), Windows 앱 창(`app/`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다. 예: 워크트리 닫기는 그래프의 `running` 수, `worktree::close`, 노드 지우기를 차례로 부른다 |
-| 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록), 노드 호스트(`src/node_host/`: PTY 호스트에 붙어 출력 나누기, 중단할 셸(`mod.rs`), PTY 호스트 프로세스(`host.rs`), 프레임(`wire.rs`)), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
+| 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록, 사람 응답 대기(`waits.rs`)), 노드 호스트(`src/node_host/`: PTY 호스트에 붙어 출력 나누기, 중단할 셸(`mod.rs`), PTY 호스트 프로세스(`host.rs`), 프레임(`wire.rs`)), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 화면 확인 창 찾기(`src/screen.rs`), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기, Windows에서 WSL 저장소는 그 배포판의 git), WSL 경로(`src/wsl.rs`: `\\wsl.localhost\…` UNC와 Linux 경로 바꾸기), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |
 
 - 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `RepoId`, `AgentId`, `Profile`, `Provider`, `AccountId`, `Delivery`, `Kind`)만 쓴다.

@@ -72,8 +72,9 @@ function Badges(props: { view: NodeView }) {
           {t('node.held', { n: view.held })}
         </span>
       )}
-      <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
-        {stateLabel(view.state)}
+      {/* 사람 응답 대기는 실행 상태보다 앞선다(목업 docs/mockups/human-question.html ④). */}
+      <span className={`state ${view.wait ? 'waiting' : view.state.kind}`} aria-live="polite" translate="no">
+        {view.wait ? t('wait.label') : stateLabel(view.state)}
       </span>
     </>
   );
@@ -127,6 +128,7 @@ function CardShell(props: ShellProps & { className: string; children: (rename: R
       tabIndex={0}
       aria-label={t('node.label', { name: props.view.name })}
       data-selected={props.selected || undefined}
+      data-waiting={props.view.wait !== null || undefined}
       onMouseDown={props.onSelect}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;

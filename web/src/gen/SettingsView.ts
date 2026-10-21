@@ -47,4 +47,9 @@ treeLimits: TreeLimits,
  * 쓰는 계정이 한도에 닿으면 같은 공급자의 남은 계정으로 바꾸고 실행 중인 노드도 옮긴다. 옛 설정에는 없다. 없으면 꺼짐이다.
  * 근거: docs/design.md 「계정 전환」, 목업 docs/mockups/account-switch.html ②.
  */
-autoSwitch: boolean, };
+autoSwitch: boolean, 
+/**
+ * 화면이 가려져 있을 때 사람 응답 대기를 시스템 알림으로도 띄운다. 옛 설정에는 없다. 없으면 꺼짐이다.
+ * 받은편지함이 늘 보이므로 기본은 꺼짐이다. 근거: 목업 docs/mockups/human-question.html ⑥.
+ */
+osNotify: boolean, };

@@ -100,7 +100,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
         node: v.id,
         row: (
           <>
-            <span className={`dot ${v.state.kind}`} aria-label={v.state.kind} />
+            <span className={`dot ${v.wait ? 'waiting' : v.state.kind}`} aria-label={v.wait ? 'waiting' : v.state.kind} />
             <NameEdit id={v.id} name={v.name} rename={rename(`node:${v.id}`)} />
             {from !== null && <FromIcon title={from} />}
             <span className="sub">{agentLabel(agents, v.agent)}</span>

@@ -9,8 +9,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
-    AckRequest, AdoptRequest, DoneRequest, GuardRequest, IdleRequest, RemoveRequest, ReplyRequest,
-    SendRequest, SpawnRequest, SpawnRun, TakeRequest, WaitRequest,
+    AckRequest, AdoptRequest, AskRequest, DoneRequest, GuardRequest, HookWaitRequest, IdleRequest,
+    RemoveRequest, ReplyRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent};
 use crate::profile::claude::{self, Take};
@@ -152,9 +152,15 @@ pub fn hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the model: {e}");
     }
+    if let Some((kind, text)) = event.human_wait()
+        && let Err(e) = call::<()>("hook-wait", &HookWaitRequest { kind, text }, Some(timeout))
+    {
+        eprintln!("loom: could not report the human wait: {e}");
+    }
     let transcript = input["transcript_path"].as_str().map(str::to_owned);
     let kinds = match event.take() {
         Take::Now(kinds) => kinds,
+        Take::Never => return Ok(()),
         Take::WhenIdle => {
             return wake_on_mail(&IdleRequest {
                 transcript,
@@ -220,6 +226,15 @@ fn wake_on_mail(request: &IdleRequest) -> Result<(), String> {
 pub fn guard() -> Result<(), String> {
     let caller = std::process::id();
     Ok(call::<()>("guard", &GuardRequest { caller }, None)?)
+}
+
+/// 사람에게 묻는다: 받은편지함에 질문 한 줄을 띄우고 바로 끝난다. 답은 사람이 노드 터미널에 쓴다.
+pub fn ask(question: String) -> Result<(), String> {
+    call::<()>("ask", &AskRequest { question }, None)?;
+    println!(
+        "The question is in the human's inbox. End your turn now. The human answers in your terminal."
+    );
+    Ok(())
 }
 
 pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String> {

@@ -14,6 +14,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
@@ -35,9 +36,9 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
-    NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
+    NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitKind, WaitSource,
 };
-use crate::node_host::{Exit, NodeHost};
+use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
 use crate::process_tree;
@@ -48,6 +49,7 @@ use crate::profile::{
     self, AgentId, LaunchError, Mailbox, ModelChoice, Profile, Remote, ServerLink, Start,
     VersionMismatch,
 };
+use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Position};
 use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
@@ -340,6 +342,19 @@ pub struct RemoveRequest {
     pub name: String,
 }
 
+/// `loom ask`의 요청. 질문 한 줄이다.
+#[derive(Serialize, Deserialize)]
+pub struct AskRequest {
+    pub question: String,
+}
+
+/// Claude 훅(`loom hook`)이 알린 사람 응답 대기.
+#[derive(Serialize, Deserialize)]
+pub struct HookWaitRequest {
+    pub kind: WaitKind,
+    pub text: String,
+}
+
 /// `loom done`의 요청. `summary`는 요약이나 결과 파일 경로다.
 #[derive(Serialize, Deserialize)]
 pub struct DoneRequest {
@@ -348,6 +363,10 @@ pub struct DoneRequest {
 
 /// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
 /// 다른 서비스가 쓰지 않는 주소를 골라, `127.0.0.1`의 다른 포트는 샌드박스 안에서 계속 막힌다.
+/// 화면에서 확인 창을 찾기 전에 출력이 멎어 있어야 하는 시간. TUI는 창 하나를 수십 ms 안에 다 그린다.
+/// 일하는 에이전트는 진행 표시를 계속 그리므로 그동안은 찾지 않는다.
+const SCREEN_QUIET: Duration = Duration::from_millis(500);
+
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
 pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
@@ -428,6 +447,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/model", post(agent_model))
         .route("/api/agent/done", post(agent_done))
+        .route("/api/agent/ask", post(agent_ask))
+        .route("/api/agent/hook-wait", post(agent_hook_wait))
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/rm", post(agent_remove));
     let router = node_routes
@@ -772,6 +793,7 @@ impl App {
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host
             .spawn(id, cmd, setup, self.on_title(id, profile), on_exit)?;
+        self.follow_screen(id, profile);
         self.follow_servers(id, codex, opencode2);
         Ok(Launched {
             token,
@@ -824,6 +846,7 @@ impl App {
                 self.graph.lost(node.id)?;
                 continue;
             }
+            self.follow_screen(node.id, profile);
             self.follow_servers(node.id, codex, opencode2);
         }
         self.host.end_others();
@@ -879,6 +902,46 @@ impl App {
     }
 
     /// 노드 서버의 상태를 따라가고 메일함을 넘기기 시작한다.
+    /// 노드 출력이 멎을 때마다 지금 터미널 화면에서 확인 창을 찾아 사람 응답 대기로 옮긴다. 화면 상태를 보므로 다시 시작한 데몬도 같은 답을 낸다.
+    /// 근거: docs/design.md 「사람 응답 대기」.
+    fn follow_screen(self: &Arc<Self>, id: NodeId, profile: Option<Profile>) {
+        let dialogs = profile::dialogs(profile);
+        let Some(attached) = self.host.attach(id) else {
+            return;
+        };
+        if dialogs.is_empty() {
+            return;
+        }
+        let app = self.clone();
+        tokio::spawn(async move {
+            let mut output = attached.output;
+            // backlog도 화면이다. 붙은 직후 한 번 본다.
+            let mut changed = true;
+            loop {
+                if !changed {
+                    match output.recv().await {
+                        Ok(_) | Err(RecvError::Lagged(_)) => {}
+                        Err(RecvError::Closed) => return,
+                    }
+                }
+                // 출력이 멎을 때까지 기다린다. 그리는 중인 창을 반쯤 읽지 않는다.
+                loop {
+                    match tokio::time::timeout(SCREEN_QUIET, output.recv()).await {
+                        Ok(Ok(_) | Err(RecvError::Lagged(_))) => {}
+                        Ok(Err(RecvError::Closed)) => return,
+                        Err(_) => break,
+                    }
+                }
+                changed = false;
+                let found = screen::find(dialogs, &app.host.screen(id));
+                let wait = found.as_ref().map(|(kind, text)| (*kind, text.as_str()));
+                if let Err(e) = app.graph.set_wait(id, WaitSource::Screen, wait) {
+                    eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
+                }
+            }
+        });
+    }
+
     fn follow_servers(
         self: &Arc<Self>,
         id: NodeId,
@@ -1096,15 +1159,22 @@ async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receive
     }
 }
 
-/// Codex 노드 스레드가 생기거나 상태가 바뀔 때마다 모델을 다시 읽어 그래프에 옮긴다. 서버가 끝나면 끝난다.
+/// Codex 노드 스레드가 생기거나 상태가 바뀔 때마다 사람 응답 대기를 옮기고 모델을 다시 읽어 그래프에 옮긴다. 서버가 끝나면 끝난다.
 /// 스레드가 새로 생기면 다시 붙는 값(`ServerLink`)도 그래프에 남긴다. 다시 시작한 데몬은 `thread/started`를 다시 받지 못한다.
 async fn follow_codex_model(graph: Arc<Graph>, node: NodeId, server: Arc<CodexServer>) {
     let mut thread = server.thread();
     let mut kept = thread.borrow().as_ref().map(|t| t.id.clone());
     while thread.changed().await.is_ok() {
-        let Some(id) = thread.borrow_and_update().as_ref().map(|t| t.id.clone()) else {
+        let Some((id, waiting)) = thread
+            .borrow_and_update()
+            .as_ref()
+            .map(|t| (t.id.clone(), t.waiting))
+        else {
             continue;
         };
+        if let Err(e) = graph.set_wait(node, WaitSource::Codex, waiting.map(|kind| (kind, ""))) {
+            eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
+        }
         if kept.as_ref() != Some(&id) {
             if let Err(e) = graph.set_server(node, &server.link()) {
                 eprintln!("loom: 노드 {}의 스레드를 쓰지 못했다: {e}", node.0);
@@ -1506,6 +1576,29 @@ async fn agent_done(
     Ok(Json(app.graph.done(node, &req.summary).map_err(for_agent)?))
 }
 
+/// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드는 부모에게 묻는다.
+async fn agent_ask(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<AskRequest>,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.graph.ask(node, &req.question).map_err(for_agent)?;
+    Ok(Json(()))
+}
+
+async fn agent_hook_wait(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<HookWaitRequest>,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.graph
+        .set_wait(node, WaitSource::Hook, Some((req.kind, &req.text)))
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    Ok(Json(()))
+}
+
 async fn agent_adopt(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -1535,7 +1628,13 @@ async fn agent_remove(
 }
 
 async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<App>>) -> Response {
-    serve_pty(ws, app, |app| &app.host, NodeId(id))
+    // 사람이 그 노드 터미널에 키를 누르면 답한 것으로 본다. 근거: docs/design.md 「사람 응답 대기」.
+    let typed = |app: &App, id| {
+        if let Err(e) = app.graph.clear_wait(id) {
+            eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
+        }
+    };
+    serve_pty(ws, app, |app| &app.host, typed, NodeId(id))
 }
 
 /// PTY 웹소켓의 글 프레임. 터미널 출력은 바이너리 프레임으로 간다.
@@ -1548,10 +1647,12 @@ pub enum PtyNotice {
 }
 
 /// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
+/// 사람이 누른 키(터미널이 스스로 보내는 응답은 빼고)가 오면 `typed`를 부른다.
 fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
     ws: WebSocketUpgrade,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
+    typed: fn(&App, K),
     id: K,
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
@@ -1582,7 +1683,12 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
                     Err(RecvError::Lagged(_) | RecvError::Closed) => return,
                 },
                 msg = from_view.next() => match msg {
-                    Some(Ok(Message::Binary(bytes))) => host(&app).write(id, &bytes),
+                    Some(Ok(Message::Binary(bytes))) => {
+                        host(&app).write(id, &bytes);
+                        if node_host::typed(&bytes) {
+                            typed(&app, id);
+                        }
+                    }
                     Some(Ok(Message::Text(text))) => {
                         if let Ok(Resize { cols, rows }) = serde_json::from_str(&text) {
                             host(&app).resize(id, cols, rows);

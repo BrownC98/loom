@@ -11,6 +11,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::io::{BufRead, Write};
 use std::net::TcpStream;
+use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, RwLock};
@@ -78,6 +79,8 @@ struct Pty {
     /// 호스트로 가는 연결. 키 입력, 크기, 끝내기를 보낸다.
     host: Mutex<TcpStream>,
     output: Mutex<Output>,
+    /// 화면이 마지막으로 알린 PTY 크기(행, 열). `screen`이 출력을 이 크기의 화면에 다시 그린다.
+    size: Mutex<(u16, u16)>,
 }
 
 /// 호스트가 보낸 출력의 사본과 화면 구독. 붙을 때 호스트가 backlog를 먼저 보내므로 다시 시작한 뒤에도 같다.
@@ -141,6 +144,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 backlog: Backlog::default(),
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
             }),
+            size: Mutex::new(host::INITIAL_ROWS_COLS),
         });
         self.nodes.write().unwrap().insert(id, pty.clone());
         std::thread::spawn(move || {
@@ -217,6 +221,19 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
     }
 
+    /// 지금 터미널 화면의 글. backlog를 마지막 PTY 크기의 화면에 다시 그린다. 지운 줄과 덮어쓴 글은 남지 않는다.
+    pub fn screen(&self, id: K) -> String {
+        let Some(pty) = self.pty(id) else {
+            return String::new();
+        };
+        let (rows, cols) = *pty.size.lock().unwrap();
+        let bytes = pty.output.lock().unwrap().backlog.to_vec();
+        let size = |n: u16| NonZeroU16::new(n.max(1)).expect("1 이상이다");
+        let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
+        parser.process(&bytes);
+        parser.screen().contents()
+    }
+
     /// backlog와 그 뒤의 출력을 빈틈없이 받는다.
     pub fn attach(&self, id: K) -> Option<Attached> {
         let pty = self.pty(id)?;
@@ -236,6 +253,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 
     pub fn resize(&self, id: K, cols: u16, rows: u16) {
         if let Some(pty) = self.pty(id) {
+            *pty.size.lock().unwrap() = (rows, cols);
             pty.send(&Frame::Resize { cols, rows });
         }
     }
@@ -434,6 +452,58 @@ fn osc(seq: &[u8]) -> Osc {
     Osc::Ended {
         title,
         len: 2 + end + terminator,
+    }
+}
+
+/// 화면이 보낸 입력에 사람이 누른 키가 있다. 터미널이 스스로 보내는 응답은 키가 아니다:
+/// 초점(`CSI I`·`CSI O`), 커서 위치(`CSI … R`), 장치 속성(`CSI ? … c`, `CSI > … c`), 상태(`CSI … n`), 모드(`CSI … $ y`),
+/// 키보드 플래그(`CSI ? … u`), 창 크기(`CSI … t`), 마우스(`CSI < … M/m`, `CSI M xyz`), 문자열 응답(OSC·DCS·APC).
+pub fn typed(input: &[u8]) -> bool {
+    let mut rest = input;
+    while !rest.is_empty() {
+        let Some(len) = report_len(rest) else {
+            return true;
+        };
+        rest = &rest[len..];
+    }
+    false
+}
+
+/// `seq`가 터미널 응답으로 시작하면 그 길이.
+fn report_len(seq: &[u8]) -> Option<usize> {
+    if seq.first() != Some(&ESC) {
+        return None;
+    }
+    match seq.get(1)? {
+        // OSC·DCS·APC: BEL이나 ST(`ESC \`)까지.
+        b']' | b'P' | b'_' => {
+            let end = seq[2..]
+                .iter()
+                .enumerate()
+                .find(|&(i, &b)| b == BEL || (b == ESC && seq.get(i + 3) == Some(&b'\\')))?;
+            Some(2 + end.0 + if *end.1 == BEL { 1 } else { 2 })
+        }
+        b'[' => {
+            let body = &seq[2..];
+            // X10 마우스: `CSI M`과 세 바이트.
+            if body.first() == Some(&b'M') {
+                return (body.len() >= 4).then_some(6);
+            }
+            let end = body.iter().position(|b| (0x40..=0x7e).contains(b))?;
+            let (params, last) = (&body[..end], body[end]);
+            let prefixed = |p: u8| params.first() == Some(&p);
+            let report = match last {
+                b'I' | b'O' => params.is_empty(),
+                b'R' | b'n' | b't' => true,
+                b'c' => prefixed(b'?') || prefixed(b'>'),
+                b'y' => params.ends_with(b"$"),
+                b'u' => prefixed(b'?'),
+                b'M' | b'm' => prefixed(b'<'),
+                _ => false,
+            };
+            report.then_some(2 + end + 1)
+        }
+        _ => None,
     }
 }
 
@@ -707,5 +777,36 @@ mod tests {
         long.extend(vec![b'x'; TITLE_CARRY_BYTES]);
         assert_eq!(titles.scan(&long), None);
         assert_eq!(titles.scan(b"\x07\x1b]0;ok\x07"), Some("ok".into()));
+    }
+
+    #[test]
+    fn keys_are_typed_but_terminal_replies_are_not() {
+        for key in [
+            &b"y"[..],
+            b"\r",
+            b"\x1b",
+            b"\x1b[A",
+            b"\x1bOB",
+            b"\x1b[97u",
+            b"\x1b[200~hi\x1b[201~",
+            b"\x1b[I1",
+        ] {
+            assert!(typed(key), "{key:?}");
+        }
+        for reply in [
+            &b"\x1b[I"[..],
+            b"\x1b[O",
+            b"\x1b[12;40R",
+            b"\x1b[?1;2c",
+            b"\x1b[>0;276;0c",
+            b"\x1b[0n",
+            b"\x1b[?2004;1$y",
+            b"\x1b[?7u",
+            b"\x1b[<0;10;5M\x1b[<0;10;5m",
+            b"\x1b]11;rgb:0000/0000/0000\x1b\\",
+            b"\x1b]10;rgb:ffff/ffff/ffff\x07",
+        ] {
+            assert!(!typed(reply), "{reply:?}");
+        }
     }
 }

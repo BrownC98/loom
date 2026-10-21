@@ -226,7 +226,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .group { width: 100%; height: 100%; border: 1px dashed var(--line-strong); border-radius: 12px; background: color-mix(in oklch, var(--panel) 60%, transparent); }
 /* 저장소 상자(모든 저장소 범위, 목업 repo-scope.html). 묶음보다 굵은 실선이다. 머리는 저장소 이름과 경로만 있고 단추가 없다. */
 .repo-box { width: 100%; height: 100%; border: 1.5px solid var(--line-strong); border-radius: 14px; background: color-mix(in oklch, var(--panel) 40%, transparent); }
-.repo-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: grab; }
+/* 높이는 Graph.tsx `REPO_HEAD`와 같다. 묶음 자리가 이 값에서 나온다. */
+.repo-head { box-sizing: border-box; height: 46px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--line); cursor: grab; }
 .repo-head .name { flex: none; font-size: 15px; font-weight: 600; }
 .repo-head .sub { min-width: 0; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* React Flow는 묶음 노드에 pointer-events: none을 준다. 저장소 상자는 Graph.tsx가 준다. 머리와 팝오버만 받고, 빈 곳 클릭은 바탕 클릭으로 둔다. */

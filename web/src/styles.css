@@ -279,9 +279,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 저장소 상자는 Graph.tsx가 pointer-events: none을 준다. 머리와 팝오버만 받고, 빈 곳은 바탕이다. */
 .repo-head, .group-head, .pop { pointer-events: all; }
 /* 팝오버를 그리는 뷰포트 층. 노드는 z-index를 인라인으로 받으므로 그보다 위에 둔다. */
+.react-flow__viewport-portal { z-index: 2000; pointer-events: none; }
 /* 화면을 끄는 동안(Graph.tsx `onMoveStart`). 바탕의 .dragging과 같은 커서를 카드·묶음 위에서도 보인다. */
 .panning * { cursor: grabbing !important; }
-.react-flow__viewport-portal { z-index: 2000; pointer-events: none; }
 .group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); cursor: grab; }
 .group-head .branch { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-head .kind { font-size: 12px; color: var(--ink-3); }

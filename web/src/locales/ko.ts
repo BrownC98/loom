@@ -381,6 +381,8 @@ const ko: typeof en = {
     lightPicker: '라이트 모드 터미널 테마',
     reset: '터미널 테마 초기화',
     resetHint: '다크 ‘{{dark}}’, 라이트 ‘{{light}}’로 되돌리고 스위치를 끕니다.',
+    uiReset: 'UI 설정 초기화',
+    uiResetHint: '이 탭의 설정(테마, 색, 카드 보기, 그래프 범위, 간선 모양, 시스템 알림, 언어)을 기본값으로 되돌립니다.',
     preview: '미리보기 · {{name}}',
   },
   commits: {

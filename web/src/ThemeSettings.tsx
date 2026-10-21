@@ -15,6 +15,8 @@ import { requestNotifyPermission } from './Inbox';
 import { ColorsSection } from './ColorSettings';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
+/** 「UI」 탭의 설정 칸. [UI 설정 초기화]가 이 칸들을 데몬 기본값으로 되돌린다(2026-10-22 사람 지시 "ui 쪽 설정은 초기화 기능 넣어"). */
+export const UI_SETTINGS = ['theme', 'colors', 'cardView', 'graphScope', 'edgeStyle', 'osNotify', 'language'] as const satisfies readonly (keyof SettingsView)[];
 
 const THEME_CHOICES = [
   { value: 'system', label: 'common.system', icon: Monitor },
@@ -68,7 +70,7 @@ function OsNotifySection({ settings, onSettings }: TabProps) {
   );
 }
 
-export function UiTab({ settings, onSettings }: TabProps) {
+export function UiTab({ settings, onSettings, onReset }: TabProps & { onReset: () => void }) {
   const { t } = useTranslation();
   return (
     <>
@@ -129,6 +131,15 @@ export function UiTab({ settings, onSettings }: TabProps) {
             ))}
           </select>
         </div>
+      </section>
+      <section>
+        <div>
+          <button className="btn" onClick={onReset}>
+            <RotateCcw />
+            {t('theme.uiReset')}
+          </button>
+        </div>
+        <span className="hint">{t('theme.uiResetHint')}</span>
       </section>
     </>
   );

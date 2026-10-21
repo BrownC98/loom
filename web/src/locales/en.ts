@@ -380,6 +380,8 @@ const en = {
     lightPicker: 'Light mode terminal theme',
     reset: 'Reset terminal theme',
     resetHint: 'Restores dark “{{dark}}” and light “{{light}}” and turns the switch off.',
+    uiReset: 'Reset UI settings',
+    uiResetHint: 'Restores the settings on this tab (theme, colors, card view, graph scope, edge shape, system notifications, language) to their defaults.',
     preview: 'Preview · {{name}}',
   },
   commits: {

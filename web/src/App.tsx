@@ -29,7 +29,7 @@ import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { applyColors } from './uiColors';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
-import { CardViewSwitch } from './ThemeSettings';
+import { CardViewSwitch, UI_SETTINGS } from './ThemeSettings';
 import { ArrangeButton } from './ArrangeButton';
 import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
@@ -313,6 +313,10 @@ export function App() {
       });
   };
   const editSettings = (edit: (current: SettingsView) => SettingsView) => saveSettings(edit(settingsRef.current));
+  // `null`은 칸을 지우고, 데몬은 지운 칸을 기본값으로 읽는다(`Settings::patch`). 기본값은 Rust에만 둔다.
+  const resetUi = () => void putSettings(Object.fromEntries(UI_SETTINGS.map((key) => [key, null])))
+    .catch(() => {})
+    .finally(() => getSettings().then(showFetched));
   // 데몬이 스스로 계정을 바꿨다. 쓰는 계정과 사용량을 다시 읽는다.
   const notice = useSwitchNotice(settings.closedSwitchNotice, (id) => editSettings((s) => ({ ...s, closedSwitchNotice: id })), () => {
     getSettings().then(showFetched);
@@ -610,6 +614,7 @@ export function App() {
               onRescan={rescan}
               settings={settings}
               onSettings={saveSettings}
+              onResetUi={resetUi}
               usage={usage}
               onChoose={chooseAccount}
               updates={updates}

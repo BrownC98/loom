@@ -62,9 +62,37 @@ loom은 스킬 네 개를 싣습니다: `o-mode`(orchestration mode), `ste-100`,
 [가장 새 릴리스](https://github.com/BrownC98/loom/releases/latest)에서 받습니다.
 
 - **Windows:** `loom_<판>_x64-setup.exe`를 실행합니다. 지울 때는 Windows **설정 › 앱**을 씁니다.
-- **Linux(x86-64):** `loom-x86_64-linux`를 받아 `loom serve`로 띄우고, 출력된 주소를 브라우저로 엽니다.
+- **Linux·WSL(x86-64), 웹 버전:** 아래 「웹 버전」을 봅니다.
 
 에이전트 CLI(Claude Code, Codex, OpenCode 2)는 따로 설치합니다. loom은 `PATH`에서 찾습니다.
+
+### 웹 버전(Linux·WSL)
+
+데몬 하나가 화면도 함께 냅니다. 브라우저로 씁니다.
+
+1. 실행 파일을 받아 `loom`이라는 이름으로 둡니다. 노드 안의 에이전트가 `loom` 명령을 부르므로 이름이 `loom`이어야 합니다. 데몬은 자기 폴더를 노드의 `PATH` 맨 앞에 넣습니다.
+
+   ```sh
+   mkdir -p ~/loom/bin
+   curl -fL -o ~/loom/bin/loom https://github.com/BrownC98/loom/releases/latest/download/loom-x86_64-linux
+   chmod +x ~/loom/bin/loom
+   ```
+
+2. 저장소 폴더에서 데몬을 띄웁니다. 처음 띄운 폴더가 첫 저장소가 됩니다.
+
+   ```sh
+   cd <저장소 폴더>
+   ~/loom/bin/loom serve            # 기본 주소 127.0.0.1:7420
+   ```
+
+   터미널을 닫아도 살게 하려면: `setsid nohup ~/loom/bin/loom serve >>~/.loom/serve.log 2>&1 </dev/null &`
+
+3. 브라우저로 http://127.0.0.1:7420 을 엽니다. WSL이면 Windows 브라우저에서 같은 주소를 엽니다.
+4. 왼쪽 사이드바에서 저장소를 더하고, 워크트리 묶음의 [새 노드]로 에이전트를 띄웁니다.
+
+- **데이터:** `~/.loom`(DB, 로그, 내장 스킬). 지우면 노드 기록이 사라집니다.
+- **업데이트:** 새 파일로 바꾸고 데몬만 다시 띄웁니다. 노드(에이전트 프로세스)는 데몬과 따로 살아 새 데몬이 다시 붙습니다.
+- **주소:** 기본은 이 기계에서만 열립니다(루프백). 사용자는 한 명이라는 가정이라 인증이 없으므로, `--listen`으로 바깥에 열지 않습니다.
 
 설계와 결정은 [docs/design.md](docs/design.md)에 있습니다.
 

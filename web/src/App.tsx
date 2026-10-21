@@ -336,22 +336,22 @@ export function App() {
           {dockOpen && <Splitter pane={dockPane} width={dockWidth} onWidth={setDockWidth} label={t('app.resize', { pane: t('dock.label') })} style={{ right: dockWidth }} />}
           {sideOpen ? (
             <nav className="side" id="side" aria-label={t('app.sideLabel')}>
-              <div className="brand">
-                loom
+              {/* 사이드바 맨 위 줄: 찾기 칸과 접기 단추(목업 docs/mockups/sidebar-head.html). */}
+              <div className="side-top">
+                <Find
+                  query={find.query}
+                  found={found}
+                  at={foundAt}
+                  repo={repo?.id ?? null}
+                  onRepo={selectRepo}
+                  onQuery={(query) => setFind({ query, at: 0 })}
+                  onStep={(step) => setFind((prev) => (found.length > 0 ? { ...prev, at: (foundAt + step + found.length) % found.length } : prev))}
+                  onClear={clearFind}
+                />
                 <button id={SIDE_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="side" aria-label={t('app.sideCollapse')} aria-keyshortcuts={SIDE_ARIA_KEY} title={`${t('app.sideCollapse')} (${SIDE_KEY})`} onClick={() => openSide(false)}>
                   <PanelLeftClose />
                 </button>
               </div>
-              <Find
-                query={find.query}
-                found={found}
-                at={foundAt}
-                repo={repo?.id ?? null}
-                onRepo={selectRepo}
-                onQuery={(query) => setFind({ query, at: 0 })}
-                onStep={(step) => setFind((prev) => (found.length > 0 ? { ...prev, at: (foundAt + step + found.length) % found.length } : prev))}
-                onClear={clearFind}
-              />
               <Tree
                 repos={repos}
                 current={repo?.id ?? null}

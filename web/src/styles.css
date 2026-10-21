@@ -81,6 +81,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .rail-end { margin-top: auto; }
 .side-head { display: flex; align-items: center; padding: 8px 8px 6px 16px; }
 .side-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.side-title { padding: 2px 4px; margin: -2px -4px; border: 0; border-radius: 4px; background: none; font: inherit; color: inherit; cursor: pointer; }
+.side-title:hover { background: var(--surface-hover); color: var(--ink); }
 .side-head .spacer { flex: 1; }
 .tree { --step: 12px; list-style: none; padding: 0 8px; font-size: 13px; flex: 1; min-height: 0; overflow: auto; }
 .tree ul { list-style: none; padding: 0; }
@@ -96,7 +98,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tree-row .leaf { width: 14px; flex: none; }
 .tree-row .from { width: 12px; height: 12px; }
 /* 조상 층마다 세로선 하나. 가운데는 그 층 쪽 화살표(chev) 가운데(4px + 층 × 칸 + 6.5px)다. */
-.tree-row .guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-strong); opacity: 0.6; pointer-events: none; left: calc(4px + var(--level) * var(--step) + 6.5px); }
 /* 좁으면 에이전트 이름(.sub)과 꼬리표(.tag)가 먼저 준다. 그다음 이름이 줄 폭의 60% 안에서 준다. */
 .tree-row .name { flex-shrink: 1; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .sub { flex-shrink: 1000; font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -133,7 +134,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .side-find .count { font: 12px var(--mono); color: var(--ink-3); white-space: nowrap; }
 .side-find .count.none { font-family: inherit; color: var(--err); }
 .side-find .count:empty { display: none; }
-.tree-row[data-found="context"] > :not(.guide) { opacity: 0.55; }
+.tree-row[data-found="context"] > * { opacity: 0.55; }
 .tree-row[data-found="current"] { outline: 2px solid var(--warn); outline-offset: -2px; }
 ::highlight(find) { background-color: color-mix(in oklch, var(--warn) 30%, transparent); }
 .tree-none { padding: 8px 16px; font-size: 12px; color: var(--ink-3); flex: 1; }

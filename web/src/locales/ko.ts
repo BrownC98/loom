@@ -24,6 +24,7 @@ const ko: typeof en = {
   },
   tree: {
     repos: '저장소',
+    showAll: '모든 저장소가 한 화면에 보이게 줄이기',
     expandAll: '모두 펼치기',
     label: '노드 트리',
     addRepo: '저장소 추가',

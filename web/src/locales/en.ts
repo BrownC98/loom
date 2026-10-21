@@ -22,6 +22,7 @@ const en = {
   },
   tree: {
     repos: 'Repositories',
+    showAll: 'Zoom out to fit all repositories',
     expandAll: 'Expand all',
     label: 'Node tree',
     addRepo: 'Add repository',

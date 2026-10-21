@@ -23,7 +23,7 @@ import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
-import { SizingTerminal, Terminal, type Direction } from './Terminal';
+import { SizingTerminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
@@ -191,7 +191,7 @@ type GroupData = {
 };
 type CardBase = { view: NodeView; agentLabel: string; selected: boolean; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /**
- * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 이 화면에서 카드를 펼치면 카드는 터미널을 그리지 않는다. PTY 크기는 카드가 정하고(`SizingTerminal`), 펼친 카드는 그 크기를 늘여 보인다.
+ * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 이 화면에서 카드를 펼치면 카드는 터미널을 그리지 않는다. PTY 크기는 카드가 정한다(`SizingTerminal`). 펼친 카드는 펼친 동안 PTY 크기를 자기 칸에 맞추고, 접으면 카드가 다시 정한다.
  * `sized`: 사람이 크기를 바꿨다. 그 카드만 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③).
  * `onResizeStart`: 테두리를 잡았다. `onResize`: 끄는 동안 크기와 왼쪽 위가 옮긴 거리. `onResized`: 놓은 값. 저장한다.
  */
@@ -1362,7 +1362,7 @@ export function Graph(props: {
               </>
             }
           >
-            <Terminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
+            <SizingTerminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
           </NodeCard>
         </div>
       )}

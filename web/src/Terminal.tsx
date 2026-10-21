@@ -167,7 +167,7 @@ type TerminalProps = { src: string; focused: boolean; onFocus: () => void; onNav
 
 /**
  * PTY 크기를 따르는 터미널. 데몬이 알린 열·줄(`PtyNotice` `size`)로 그리고, 칸에 맞게 글자를 늘이거나 줄인다(목업 docs/mockups/terminal-size.html 안 A).
- * PTY 크기는 바꾸지 않는다. 펼친 카드와 심플 보기 오른쪽 칸이 쓴다.
+ * PTY 크기는 바꾸지 않는다. 심플 보기 오른쪽 칸이 쓴다.
  * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). `loadRenderer`는 연 뒤에 렌더러 애드온을 붙인다. 없으면 DOM 렌더러로 그린다.
  */
 export function Terminal(props: TerminalProps) {

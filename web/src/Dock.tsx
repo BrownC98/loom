@@ -1,13 +1,18 @@
-import { AlignLeft, GitCommitVertical, PanelRightClose, PanelRightOpen, SquareTerminal, Workflow, type LucideIcon } from 'lucide-react';
+import { AlignLeft, GitCommitVertical, MessageCircleQuestion, PanelRightClose, PanelRightOpen, SquareTerminal, Workflow, type LucideIcon } from 'lucide-react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { shortcut } from './platform';
 
-/** 오른쪽 사이드바 아래 칸. 한 번에 하나만 보인다. 터미널은 심플 보기에서 노드를 골랐을 때만 있다. */
-export type DockTab = 'events' | 'commits' | 'terminal';
+/** 오른쪽 사이드바 아래 칸. 한 번에 하나만 보인다. 터미널은 심플 보기에서 노드를 골랐을 때만 있다. 질문은 알약 목록의 예비 자리다. */
+export type DockTab = 'events' | 'commits' | 'questions' | 'terminal';
 
-const ICON: Record<DockTab, LucideIcon> = { events: AlignLeft, commits: GitCommitVertical, terminal: SquareTerminal };
-const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'dock.terminal'> = { events: 'events.title', commits: 'app.commitGraph', terminal: 'dock.terminal' };
+const ICON: Record<DockTab, LucideIcon> = { events: AlignLeft, commits: GitCommitVertical, questions: MessageCircleQuestion, terminal: SquareTerminal };
+const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'inbox.button' | 'dock.terminal'> = {
+  events: 'events.title',
+  commits: 'app.commitGraph',
+  questions: 'inbox.button',
+  terminal: 'dock.terminal',
+};
 
 /** 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있어, 누른 뒤 같은 id로 포커스를 옮긴다. */
 export const DOCK_TOGGLE = 'dock-toggle';
@@ -15,9 +20,9 @@ export const DOCK_TOGGLE = 'dock-toggle';
 const KEY = shortcut(']');
 
 /**
- * 오른쪽 사이드바(목업 docs/mockups/toolbar.html E안). 위 「보기」에 그래프 보기 도구(`tools`)를 두고, 아래 탭이 칸(`children`)을 고른다.
+ * 오른쪽 사이드바(목업 docs/mockups/toolbar.html E안). 위 「보기」에 그래프 보기 도구(`tools`)를 두고, 아래 탭이 칸(`children`)을 고른다. `waiting`은 「질문」 탭 배지의 수다.
  */
-export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; onTab: (tab: DockTab) => void; onCollapse: () => void; tools: ReactNode; children: ReactNode }) {
+export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; waiting: number; onTab: (tab: DockTab) => void; onCollapse: () => void; tools: ReactNode; children: ReactNode }) {
   const { t } = useTranslation();
   const { tabs } = props;
   // 탭 목록은 ←·→로 옆 탭을 고른다(WAI-ARIA 탭 패턴).
@@ -48,6 +53,7 @@ export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; onTab: (ta
             <button key={tab} id={`dock-tab-${tab}`} role="tab" aria-selected={on} aria-controls="dock-panel" tabIndex={on ? 0 : -1} onClick={() => props.onTab(tab)}>
               <Icon />
               {t(LABEL[tab])}
+              {tab === 'questions' && props.waiting > 0 && <span className="count">{props.waiting}</span>}
             </button>
           );
         })}

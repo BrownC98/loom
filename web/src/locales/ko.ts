@@ -9,6 +9,8 @@ const ko: typeof en = {
     close: '닫기',
   },
   app: {
+    stopped: 'loom이 꺼졌습니다',
+    stoppedHint: '바탕 화면의 loom 아이콘을 다시 누르면 열립니다.',
     sideLabel: '저장소와 노드',
     graphLabel: '{{repo}} 그래프',
     allGraphLabel: '모든 저장소 그래프',
@@ -149,6 +151,8 @@ const ko: typeof en = {
   settings: {
     title: '설정',
     tabsLabel: '설정 탭',
+    stop: 'loom 끄기',
+    stopHint: '노드는 계속 돕니다',
     tab: { agents: '에이전트', accounts: '계정', workspace: '워크스페이스', ui: 'UI', terminal: '터미널' },
     language: '언어',
     installed: '설치됨 {{n}}개',

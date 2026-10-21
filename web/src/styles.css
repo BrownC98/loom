@@ -543,7 +543,11 @@ dialog { padding: 0; border: 0; color: var(--ink); }
 dialog::backdrop { background: var(--scrim); }
 .dialog { width: 880px; max-width: calc(100vw - 32px); height: 600px; max-height: calc(100vh - 32px); margin: auto; background: var(--panel); border-radius: 12px; box-shadow: 0 18px 48px var(--shadow); overscroll-behavior: contain; }
 .dialog[open] { display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
-.dialog nav { border-right: 1px solid var(--line); padding: 16px 8px; display: grid; align-content: start; gap: 2px; }
+.dialog nav { border-right: 1px solid var(--line); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; }
+.dialog nav .stop { margin-top: auto; justify-content: flex-start; }
+.stopped { height: 100vh; display: grid; place-content: center; gap: 6px; text-align: center; background: var(--bg); }
+.stopped b { font-size: 16px; }
+.stopped span { font-size: 12px; color: var(--ink-3); }
 .dialog nav h2 { font-size: 15px; padding: 0 8px 10px; }
 .tab { text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 10px; cursor: pointer; color: var(--ink-2); }
 .tab:hover { background: var(--surface-hover); }

@@ -7,6 +7,8 @@ const en = {
     close: 'Close',
   },
   app: {
+    stopped: 'loom is stopped',
+    stoppedHint: 'Click the loom icon on the desktop to open it again.',
     sideLabel: 'Repositories and nodes',
     graphLabel: '{{repo}} graph',
     allGraphLabel: 'All repositories graph',
@@ -147,6 +149,8 @@ const en = {
   settings: {
     title: 'Settings',
     tabsLabel: 'Settings tabs',
+    stop: 'Stop loom',
+    stopHint: 'Nodes keep running',
     tab: { agents: 'Agents', accounts: 'Accounts', workspace: 'Workspace', ui: 'UI', terminal: 'Terminal' },
     language: 'Language',
     installed: 'Installed {{n}}',

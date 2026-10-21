@@ -344,7 +344,7 @@ const en = {
   },
   colors: {
     heading: 'Colors',
-    hint: 'Pick once and loom sets the brightness for light and dark. Every open window shows it at once.',
+    hint: 'loom sets the brightness for light and dark from the color you pick. Click a theme box at the top of the picker to change only that theme. Every open window shows it at once.',
     default: 'Default',
     reset: 'Default',
     pick: 'Pick the {{name}} color',
@@ -357,6 +357,8 @@ const en = {
     valueLabel: 'Color value (#rrggbb)',
     native: 'Pick yourself',
     schemes: 'Color per theme',
+    bothThemes: 'Change both themes',
+    onlyTheme: 'Change {{theme}} only',
     saved: 'Saved as you pick',
     name: {
       warn: 'Questions, waiting',

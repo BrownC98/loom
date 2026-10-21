@@ -95,7 +95,7 @@ export function UiTab({ settings, onSettings }: TabProps) {
         </div>
         <span className="hint">{t('theme.systemHint')}</span>
       </section>
-      <ColorsSection colors={settings.colors} onColors={(colors) => onSettings({ ...settings, colors })} />
+      <ColorsSection colors={settings.colors} theme={settings.theme} onColors={(colors) => onSettings({ ...settings, colors })} />
       <section>
         <h4>
           {t('cardView.heading')}

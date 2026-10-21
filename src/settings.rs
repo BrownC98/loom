@@ -185,28 +185,60 @@ pub enum QuestionPill {
     Answer,
 }
 
-/// 뜻마다 사람이 고른 색. `None`은 기본 색이다. 라이트·다크 색은 화면이 이 한 색에서 만든다(`web/src/uiColors.ts`).
+/// 뜻마다 사람이 고른 색. 라이트·다크를 따로 고른다(목업 docs/mockups/color-themes.html v3). 테마마다 쓸 색은 화면이 고른 색에서 만든다(`web/src/uiColors.ts`).
 /// 칸 이름은 화면의 CSS 토큰(`web/src/styles.css`)과 짝이다.
 #[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 #[ts(export)]
 pub struct UiColors {
     /// 질문·응답 대기(`--warn`).
-    pub warn: Option<HexColor>,
+    pub warn: ThemedColor,
     /// 실행 중(`--run`).
-    pub run: Option<HexColor>,
+    pub run: ThemedColor,
     /// 완료·성공(`--ok`).
-    pub ok: Option<HexColor>,
+    pub ok: ThemedColor,
     /// 오류(`--err`).
-    pub err: Option<HexColor>,
+    pub err: ThemedColor,
     /// 관계선(`--edge`).
-    pub edge: Option<HexColor>,
+    pub edge: ThemedColor,
     /// 저장소 상자(`--repo-line`).
-    pub repo: Option<HexColor>,
+    pub repo: ThemedColor,
     /// 워크트리 묶음(`--group-line`).
-    pub worktree: Option<HexColor>,
+    pub worktree: ThemedColor,
     /// 강조(`--accent`).
-    pub accent: Option<HexColor>,
+    pub accent: ThemedColor,
+}
+
+/// 한 뜻의 테마별 색. `None`은 그 테마의 기본 색이다. 두 테마에 같은 색을 쓰면 두 칸이 같다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct ThemedColor {
+    pub light: Option<HexColor>,
+    pub dark: Option<HexColor>,
+}
+
+/// 옛 설정은 뜻마다 두 테마에 쓰는 색 하나(`"#rrggbb"`)를 저장했다. 그 값은 두 테마에 같은 색으로 읽는다.
+impl<'de> Deserialize<'de> for ThemedColor {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Stored {
+            Both(HexColor),
+            Themes {
+                #[serde(default)]
+                light: Option<HexColor>,
+                #[serde(default)]
+                dark: Option<HexColor>,
+            },
+        }
+        Ok(match Stored::deserialize(d)? {
+            Stored::Both(hex) => Self {
+                light: Some(hex.clone()),
+                dark: Some(hex),
+            },
+            Stored::Themes { light, dark } => Self { light, dark },
+        })
+    }
 }
 
 /// `#rrggbb` 꼴의 색. 다른 꼴은 읽지 않는다. 그래서 틀린 색이 설정에 들어가지 않는다.
@@ -476,24 +508,78 @@ mod tests {
         assert!(settings.get().unwrap().minimap_folded);
     }
 
-    /// 색은 `#rrggbb`만 받고, `null`은 그 색을 기본값으로 돌린다.
+    /// 색은 `#rrggbb`만 받고, `null`은 그 칸을 기본값으로 돌린다. 테마마다 따로 바꾸고 따로 되돌린다.
     #[test]
     fn colors_take_only_hex_and_null_resets() {
         let tmp = tempfile::tempdir().unwrap();
         let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let hex = |h: &str| Some(HexColor(h.into()));
         let got = settings
-            .patch(&serde_json::json!({"colors": {"warn": "#8B5CF6"}}))
+            .patch(
+                &serde_json::json!({"colors": {"warn": {"light": "#8B5CF6", "dark": "#8b5cf6"}}}),
+            )
             .unwrap();
-        assert_eq!(got.colors.warn, Some(HexColor("#8b5cf6".into())));
+        assert_eq!(
+            got.colors.warn,
+            ThemedColor {
+                light: hex("#8b5cf6"),
+                dark: hex("#8b5cf6")
+            }
+        );
+        let got = settings
+            .patch(&serde_json::json!({"colors": {"warn": {"dark": "#eab308"}}}))
+            .unwrap();
+        assert_eq!(
+            got.colors.warn,
+            ThemedColor {
+                light: hex("#8b5cf6"),
+                dark: hex("#eab308")
+            }
+        );
         for bad in ["purple", "#8b5cf", "8b5cf6", "#8b5cfg"] {
             assert!(matches!(
-                settings.patch(&serde_json::json!({"colors": {"edge": bad}})),
+                settings.patch(&serde_json::json!({"colors": {"edge": {"light": bad}}})),
                 Err(PatchProblem::Shape(_))
             ));
         }
         let got = settings
+            .patch(&serde_json::json!({"colors": {"warn": {"light": null}}}))
+            .unwrap();
+        assert_eq!(
+            got.colors.warn,
+            ThemedColor {
+                light: None,
+                dark: hex("#eab308")
+            }
+        );
+        let got = settings
             .patch(&serde_json::json!({"colors": {"warn": null}}))
             .unwrap();
         assert_eq!(got.colors, UiColors::default());
+    }
+
+    /// 옛 설정의 한 색(`"#rrggbb"`)은 두 테마에 같은 색이다. 다음 패치가 한 테마만 바꿔도 다른 테마의 색이 남는다.
+    #[test]
+    fn old_single_color_reads_as_both_themes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = crate::db::open(&tmp.path().join("t.db")).unwrap();
+        db.execute(
+            "INSERT INTO settings (id, value) VALUES (1, ?1)",
+            [r##"{"colors": {"warn": "#8b5cf6"}}"##],
+        )
+        .unwrap();
+        let settings = Settings::new(db);
+        let both = Some(HexColor("#8b5cf6".into()));
+        assert_eq!(
+            settings.get().unwrap().colors.warn,
+            ThemedColor {
+                light: both.clone(),
+                dark: both.clone()
+            }
+        );
+        let got = settings
+            .patch(&serde_json::json!({"colors": {"warn": {"dark": "#eab308"}}}))
+            .unwrap();
+        assert_eq!(got.colors.warn.light, both);
     }
 }

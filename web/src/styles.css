@@ -7,7 +7,7 @@
 
 /* 토큰 원천: docs/mockups/main.html :root(2026-10-19 승인). 값을 바꾸면 목업도 같은 커밋에서 바꾼다. */
 /* 브라우저는 사용자 정의 속성 안의 light-dark()를 선언한 요소에서 정한다. 그래서 한 테마의 색을 보일 요소(설정 「색」의 견본)는
-   data-scheme을 달아 토큰을 다시 선언받는다. 고른 색(web/src/uiColors.ts)도 같은 선택자로 얹는다. */
+   data-scheme을 달아 토큰을 다시 선언받는다. 고른 색(web/src/uiColors.ts)은 테마별 토큰(-light, -dark)을 같은 선택자로 바꾼다. */
 :root, [data-scheme] {
   color-scheme: light dark;
   /* 무채색(채도 0). 회색 값은 Orca 1.4 다크·라이트 토큰(shadcn neutral)이다. 근거와 출처는 docs/design.md의 「디자인 언어」 줄이다. */
@@ -19,25 +19,42 @@
   --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
   --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
   /* 워크트리 묶음(--group-line)·저장소 상자(--repo-line) 테두리(docs/mockups/group-border.html B안). 그래프 바탕과 가장 안쪽 묶음 바탕에 대비 3:1 이상이다(WCAG 1.4.11). */
-  /* 설정 「색」이 뜻마다 한 토큰을 바꾼다(web/src/uiColors.ts, 목업 docs/mockups/color-settings.html v3). 밝기 값을 바꾸면 uiColors.ts의 표도 바꾼다(uiColors.test.ts가 검사한다). */
-  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
-  --repo-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  /* 설정 「색」이 뜻마다 테마별 토큰(-light, -dark)을 바꾼다(web/src/uiColors.ts, 목업 docs/mockups/color-themes.html v3). 밝기 값을 바꾸면 uiColors.ts의 표도 바꾼다(uiColors.test.ts가 검사한다). */
+  --group-line-light: oklch(57% 0 0);
+  --group-line-dark: oklch(58% 0 0);
+  --group-line: light-dark(var(--group-line-light), var(--group-line-dark));
+  --repo-line-light: oklch(57% 0 0);
+  --repo-line-dark: oklch(58% 0 0);
+  --repo-line: light-dark(var(--repo-line-light), var(--repo-line-dark));
   /* 노드 사이 관계선 */
-  --edge: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --edge-light: oklch(80% 0 0);
+  --edge-dark: oklch(43.9% 0 0);
+  --edge: light-dark(var(--edge-light), var(--edge-dark));
   --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
   --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
   --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
   /* 강조는 Orca primary처럼 무채색이다. 실행 중 상태는 강조와 다른 뜻이라 --run이 따로 맡는다. */
-  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
-  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-light: oklch(20.5% 0 0);
+  --accent-dark: oklch(92.2% 0 0);
+  --accent: light-dark(var(--accent-light), var(--accent-dark));
+  /* 고른 줄·선택 바탕. 강조 색을 바꾸면 같이 바뀐다. */
+  --accent-wash: light-dark(oklch(from var(--accent-light) l c h / 0.07), oklch(from var(--accent-dark) l c h / 0.12));
   --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
   /* 상태 색: Orca의 색상(hue)을 쓰고 밝기는 글자 대비 4.5:1 이상으로 맞췄다. */
-  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
-  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
-  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --run-light: oklch(54.6% 0.245 263);
+  --run-dark: oklch(70.7% 0.165 255);
+  --run: light-dark(var(--run-light), var(--run-dark));
+  --ok-light: oklch(50% 0.13 149);
+  --ok-dark: oklch(76% 0.15 149);
+  --ok: light-dark(var(--ok-light), var(--ok-dark));
+  --warn-light: oklch(54% 0.12 87);
+  --warn-dark: oklch(80% 0.15 87);
+  --warn: light-dark(var(--warn-light), var(--warn-dark));
   /* --warn 바탕에 얹는 글자(질문 수 배지). 다크의 --warn은 밝아 흰 글자 대비가 모자라서 어두운 글자를 쓴다. --err-ink와 같다. */
   --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
-  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --err-light: oklch(55% 0.22 28);
+  --err-dark: oklch(70.4% 0.188 22);
+  --err: light-dark(var(--err-light), var(--err-dark));
   --err-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
   --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
   --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
@@ -669,9 +686,10 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .pane .switch { justify-self: start; }
 /* 설정 「색」(docs/mockups/color-settings.html v3). 색 칸은 왼쪽 반 라이트, 오른쪽 반 다크다. */
 .colors { display: grid; border: 1px solid var(--line); border-radius: var(--radius); }
-.crow { position: relative; display: grid; grid-template-columns: 28px 120px 70px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.crow { position: relative; display: grid; grid-template-columns: 28px 120px 190px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .crow:last-child { border-bottom: 0; }
-.crow .hex { font: 12px var(--mono); color: var(--ink-3); }
+.crow .hex { display: flex; gap: 10px; font: 12px var(--mono); color: var(--ink-3); }
+.crow .hex small { margin-right: 4px; font: 11px var(--font); }
 .crow .use { min-width: 0; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sw, .presets button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; background: none; overflow: hidden; cursor: pointer; }
 .halves { display: grid; grid-template-columns: 1fr 1fr; width: 100%; height: 100%; }
@@ -685,7 +703,11 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 /* 브라우저 색 창은 [직접 고르기]가 연다. 창이 버튼 근처에 뜨게 자리는 남기고 보이지 않게 둔다. */
 .hexrow input.native { width: 0; height: 0; padding: 0; border: 0; opacity: 0; }
 .schemes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.schemes > div { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 12px; }
+.schemes > button { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 12px; text-align: left; cursor: pointer; }
+/* 한 테마만 바꿀 때: 그 칸에 테두리, 다른 칸은 흐리게. 테두리 색은 창의 글자색이다(칸의 data-scheme이 --ink를 다시 정하기 전에 .color-pop에서 정한다). */
+.color-pop { --chosen: var(--ink); }
+.schemes > button[data-target="only"] { outline: 2px solid var(--chosen); outline-offset: 2px; }
+.schemes > button[data-target="other"] { opacity: 0.45; }
 .schemes .sample { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
 .schemes .ratio { margin-left: auto; font: 11px var(--mono); color: var(--ink-3); }
 .pop-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }

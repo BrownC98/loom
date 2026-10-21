@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import css from './styles.css?raw';
 import { COLOR_ROWS, contrast, PRESETS, tonedColor } from './uiColors';
 
-/** styles.css :root의 `token: light-dark(oklch(L% …), oklch(L% …))`에서 두 밝기. */
+/** styles.css :root에서 `token`의 두 밝기. 고르는 토큰은 `token-light`·`token-dark` 두 줄, 나머지는 `light-dark(oklch(L% …), oklch(L% …))` 한 줄이다. */
 function tone(token: string) {
+  const light = css.match(new RegExp(`\\n\\s*${token}-light: oklch\\(([\\d.]+)% `));
+  const dark = css.match(new RegExp(`\\n\\s*${token}-dark: oklch\\(([\\d.]+)% `));
+  if (light && dark) return { light: Number(light[1]), dark: Number(dark[1]) };
   const found = css.match(new RegExp(`\\n\\s*${token}: light-dark\\(oklch\\(([\\d.]+)% [^)]*\\), oklch\\(([\\d.]+)% `));
   if (!found) throw new Error(`${token} is missing from styles.css`);
   return { light: Number(found[1]), dark: Number(found[2]) };

@@ -345,7 +345,6 @@ const ko: typeof en = {
     ready: '설치 준비됨',
     error: '업데이트 오류',
     version: 'loom v{{version}}',
-    nodesEnd: '다시 시작하면 실행 중인 노드가 종료됩니다.',
     update: '업데이트',
     percent: '다운로드 중… {{percent}}%',
     restart: '다시 시작하여 업데이트',

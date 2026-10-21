@@ -82,7 +82,6 @@ export function UpdateCard() {
       {step.kind === 'available' && release && (
         <>
           <p className="hint">{version}</p>
-          <p className="hint">{t('update.nodesEnd')}</p>
           <button type="button" className="btn primary" onClick={() => download(release)}>
             {t('update.update')}
           </button>
@@ -99,9 +98,7 @@ export function UpdateCard() {
       )}
       {step.kind === 'ready' && release && (
         <>
-          <p className="hint">
-            {version}. {t('update.nodesEnd')}
-          </p>
+          <p className="hint">{version}</p>
           <button type="button" className="btn primary" onClick={() => install(release)}>
             {t('update.restart')}
           </button>

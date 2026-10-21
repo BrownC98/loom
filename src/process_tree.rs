@@ -109,7 +109,7 @@ impl Snapshot {
 
 /// `cmd`로 띄운 프로세스가 데몬이 끝나도 살게 한다. 노드의 PTY 호스트와 서버(Codex app-server, OpenCode 2)가 쓴다.
 /// Unix: 새 프로세스 그룹에 넣는다. 데몬 터미널의 Ctrl+C·HUP는 데몬의 그룹에만 간다.
-/// Windows: 할 일이 없다. 자손은 `end_descendants_on_exit`의 Job에 들어 데몬과 함께 끝난다(「에이전트 실행」).
+/// Windows: 할 일이 없다. 앱이 데몬을 넣은 Job은 데몬이 띄운 프로세스를 넣지 않는다(`app/src/main.rs`의 `end_with_app`).
 #[cfg(unix)]
 pub fn detach(cmd: &mut std::process::Command) {
     std::os::unix::process::CommandExt::process_group(cmd, 0);
@@ -143,25 +143,6 @@ pub async fn until_listening(child: &mut tokio::process::Child, port: u16) -> Re
             _ = tokio::time::sleep(POLL) => {}
         }
     }
-}
-
-/// 이 프로세스가 어떻게 끝나든 그 자손(노드, Codex app-server, 셸)도 함께 끝나게 한다.
-/// Windows: 이 프로세스를 `KILL_ON_JOB_CLOSE` Job Object에 넣는다. 자손은 Job을 물려받는다.
-/// 핸들은 닫지 않는다. 프로세스가 끝나면 OS가 닫고, 그때 Job 안의 프로세스를 모두 끝낸다.
-/// 다른 OS: 할 일이 없다. 노드와 그 서버는 데몬이 다시 시작해도 산다(`detach`).
-#[cfg(windows)]
-pub fn end_descendants_on_exit() -> std::io::Result<()> {
-    let job = win32job::Job::create_with_limit_info(
-        win32job::ExtendedLimitInfo::new().limit_kill_on_job_close(),
-    )?;
-    job.assign_current_process()?;
-    job.into_handle();
-    Ok(())
-}
-
-#[cfg(not(windows))]
-pub fn end_descendants_on_exit() -> std::io::Result<()> {
-    Ok(())
 }
 
 /// 이 가운데 아직 도는 PID만 남긴다.

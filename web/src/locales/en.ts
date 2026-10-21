@@ -344,7 +344,6 @@ const en = {
     ready: 'Ready to install',
     error: 'Update error',
     version: 'loom v{{version}}',
-    nodesEnd: 'Restarting ends running nodes.',
     update: 'Update',
     percent: 'Downloading… {{percent}}%',
     restart: 'Restart to update',

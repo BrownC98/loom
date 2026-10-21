@@ -12,9 +12,16 @@ use crate::graph::{Delivery, Kind, Model, WaitKind};
 use crate::screen::Dialog;
 use crate::skills::Position;
 
-/// 훅이 알리지 않는 TUI 확인 창(2026.10.19 화면 문구). 폴더 신뢰는 실측, 나머지는 번들 글이다.
+/// 훅이 알리지 않는 TUI 확인 창(2026.10.19 화면 문구). 폴더 신뢰·명령 승인·로그인·질문은 실측, 나머지는 번들 글이다.
 /// "Run this command"는 샌드박스 밖 실행 창("Run this command outside the sandbox?")도 맞춘다.
-pub const DIALOGS: [Dialog; 7] = [
+/// 질문 도구(AskQuestion)는 preToolUse 훅을 부르지 않는다(실측). 그래서 질문도 화면으로 찾는다.
+pub const DIALOGS: [Dialog; 8] = [
+    Dialog {
+        // 창 제목(예: "Clarifying Questions")은 모델이 정한다. 도움말 줄은 고정이다(실측).
+        text: "Enter next/submit",
+        kind: WaitKind::Question,
+        at_end: false,
+    },
     Dialog {
         text: "Do you trust the contents of this directory?",
         kind: WaitKind::Trust,
@@ -244,6 +251,21 @@ mod tests {
         assert_eq!(
             crate::screen::find(&DIALOGS, screen).map(|(kind, _)| kind),
             Some(WaitKind::Trust)
+        );
+    }
+
+    /// cursor-agent 2026.10.19가 그린 질문 창과 명령 승인 창(실측).
+    #[test]
+    fn question_and_approval_boxes_are_found() {
+        let question = "│ 색상 선택 │\n│ Question 1 of 1 │\n│ 1. Which color do you choose: red or blue? │\n│   › [ ] Red │\n│ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip │";
+        assert_eq!(
+            crate::screen::find(&DIALOGS, question).map(|(kind, _)| kind),
+            Some(WaitKind::Question)
+        );
+        let approval = "  $ touch y.txt Waiting for approval...\n $  touch y.txt in .\n Run this command?\n Not in allowlist: touch\n  → Run (once) (y)";
+        assert_eq!(
+            crate::screen::find(&DIALOGS, approval).map(|(kind, _)| kind),
+            Some(WaitKind::Approval)
         );
     }
 

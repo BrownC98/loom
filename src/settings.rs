@@ -1,4 +1,4 @@
-//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 그래프 범위, 화면 언어,
+//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 그래프 범위, 간선 모양, 화면 언어,
 //! 워크스페이스 폴더, 노드 나무 상한. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
@@ -33,6 +33,9 @@ pub struct SettingsView {
     /// 옛 설정에는 없다. 없으면 `Repo`(저장소 하나)로 읽는다.
     #[serde(default)]
     pub graph_scope: GraphScope,
+    /// 옛 설정에는 없다. 없으면 `Step`(계단)으로 읽는다.
+    #[serde(default)]
+    pub edge_style: EdgeStyle,
     /// 옛 설정에는 없다. 없으면 `System`으로 읽는다.
     #[serde(default)]
     pub language: Language,
@@ -97,6 +100,17 @@ pub enum GraphScope {
     #[default]
     Repo,
     All,
+}
+
+/// 그래프 나무 간선(자식이 나무가 뻗는 쪽에 있는 부모-자식 간선)의 모양. 다른 간선은 늘 곡선이다.
+/// `Step`은 부모 카드 아래에서 꺾어 카드를 지나지 않는다(목업 docs/mockups/arrange-mixed.html v5 규칙 6). `Curve`는 곡선이다(2026-10-21 사람 지시 "꺽은선, 곡선은 옵션에서 선택할 수 있게 해줘").
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum EdgeStyle {
+    #[default]
+    Step,
+    Curve,
 }
 
 /// 화면 테마. `System`은 OS 설정(`prefers-color-scheme`)을 따른다.

@@ -776,7 +776,7 @@ export function Graph(props: {
     const to = positions.get(view.id);
     const boxes = from && to ? ([{ at: from, size: size(view.parent) }, { at: to, size: size(view.id) }] as const) : null;
     const sides = boxes ? edgeSides(...boxes, direction) : TREE_SIDES[direction];
-    const step = boxes ? stepAt(...boxes, direction, STEP_BEND) : null;
+    const step = boxes && props.settings.edgeStyle === 'step' ? stepAt(...boxes, direction, STEP_BEND) : null;
     const chosen = selected === view.id || selected === view.parent;
     return [
       {

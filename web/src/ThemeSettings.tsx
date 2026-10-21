@@ -2,6 +2,7 @@ import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 're
 import { Monitor, Moon, RotateCcw, Sun, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { CardView } from './gen/CardView';
+import type { EdgeStyle } from './gen/EdgeStyle';
 import type { GraphScope } from './gen/GraphScope';
 import type { Language } from './gen/Language';
 import type { SettingsView } from './gen/SettingsView';
@@ -24,6 +25,8 @@ const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
 export const CARD_VIEWS = ['simple', 'standard'] as const satisfies readonly CardView[];
 /** 목업 repo-scope.html 1번. 기본값(저장소 하나)이 앞이다. */
 const GRAPH_SCOPES = ['repo', 'all'] as const satisfies readonly GraphScope[];
+/** 기본값(계단)이 앞이다. */
+const EDGE_STYLES = ['step', 'curve'] as const satisfies readonly EdgeStyle[];
 
 /** 카드 보기 고르기. 설정 「UI」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
 export function CardViewSwitch(props: { value: CardView; onChange: (value: CardView) => void }) {
@@ -41,7 +44,7 @@ export function CardViewSwitch(props: { value: CardView; onChange: (value: CardV
   );
 }
 
-/** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html, repo-scope.html): 화면 테마, 카드 보기, 그래프 범위, 언어. 언어 이름은 번역하지 않는다. */
+/** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html, repo-scope.html): 화면 테마, 카드 보기, 그래프 범위, 간선 모양, 언어. 언어 이름은 번역하지 않는다. */
 export function UiTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
@@ -75,6 +78,18 @@ export function UiTab({ settings, onSettings }: TabProps) {
           ))}
         </div>
         <span className="hint">{t('graphScope.hint')}</span>
+      </section>
+      <section>
+        <h4 id="t-edge">{t('edgeStyle.heading')}</h4>
+        <div className="choice" role="radiogroup" aria-labelledby="t-edge">
+          {EDGE_STYLES.map((v) => (
+            <label key={v}>
+              <input type="radio" name="edgeStyle" checked={settings.edgeStyle === v} onChange={() => onSettings({ ...settings, edgeStyle: v })} />
+              {t(`edgeStyle.${v}`)}
+            </label>
+          ))}
+        </div>
+        <span className="hint">{t('edgeStyle.hint')}</span>
       </section>
       <section>
         <h4>

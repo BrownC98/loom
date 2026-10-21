@@ -1,5 +1,5 @@
-//! 그래프에서 사람이 끌어 놓은 자리(저장소 상자, 워크트리 묶음, 카드). [정렬]이 저장소마다 지운다.
-//! 근거: docs/design.md 「저장소와 워크트리」 배치, 승인 목업 docs/mockups/repo-drag.html v3.
+//! 그래프에서 사람이 끌어 놓은 자리(저장소 상자, 워크트리 묶음, 카드)와 바꾼 카드 크기. [정렬]이 저장소마다 자리를 지운다. 크기는 지킨다.
+//! 근거: docs/design.md 「저장소와 워크트리」 배치, 승인 목업 docs/mockups/repo-drag.html v3, docs/mockups/card-resize.html v3.
 
 use std::sync::Mutex;
 
@@ -50,6 +50,15 @@ pub struct Point {
 pub struct Placed {
     pub spot: Spot,
     pub at: Point,
+}
+
+/// 사람이 바꾼 표준 카드 크기(그래프 px). 저장한 크기가 없는 카드는 기본 크기다.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CardSize {
+    pub node: NodeId,
+    pub width: f64,
+    pub height: f64,
 }
 
 pub struct Spots {
@@ -110,6 +119,42 @@ impl Spots {
             .unwrap()
             .execute("DELETE FROM spots WHERE spot = ?1", [key])?;
         Ok(())
+    }
+
+    /// 저장한 카드 크기 모두.
+    pub fn sizes(&self) -> rusqlite::Result<Vec<CardSize>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT node, width, height FROM card_sizes")?;
+        stmt.query_map([], |row| {
+            Ok(CardSize {
+                node: NodeId(row.get(0)?),
+                width: row.get(1)?,
+                height: row.get(2)?,
+            })
+        })?
+        .collect()
+    }
+
+    pub fn put_sizes(&self, sizes: &[CardSize]) -> rusqlite::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        for s in sizes {
+            tx.execute(
+                "INSERT OR REPLACE INTO card_sizes (node, width, height) VALUES (?1, ?2, ?3)",
+                rusqlite::params![s.node.0, s.width, s.height],
+            )?;
+        }
+        tx.commit()
+    }
+
+    /// 그 카드들을 기본 크기로 되돌린다.
+    pub fn clear_sizes(&self, nodes: &[NodeId]) -> rusqlite::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        for node in nodes {
+            tx.execute("DELETE FROM card_sizes WHERE node = ?1", [node.0])?;
+        }
+        tx.commit()
     }
 
     /// [정렬]: 그 저장소의 저장소 상자·묶음·카드 자리를 모두 지운다.
@@ -182,6 +227,24 @@ mod tests {
         spots.clear(a).unwrap();
         assert_eq!(spots.list().unwrap(), [at(Spot::Repo { repo: b }, 3.0)]);
     }
+
+    #[test]
+    fn sizes_survive_clear_and_reset_per_card() {
+        let (_tmp, spots) = spots();
+        let size = |node, width| CardSize {
+            node: NodeId(node),
+            width,
+            height: 300.0,
+        };
+        spots.put_sizes(&[size(1, 700.0), size(2, 800.0)]).unwrap();
+        spots.put_sizes(&[size(1, 900.0)]).unwrap();
+        spots.clear(RepoId(1)).unwrap();
+        let mut got = spots.sizes().unwrap();
+        got.sort_by_key(|s| s.node.0);
+        assert_eq!(got, [size(1, 900.0), size(2, 800.0)]);
+        spots.clear_sizes(&[NodeId(2), NodeId(3)]).unwrap();
+        assert_eq!(spots.sizes().unwrap(), [size(1, 900.0)]);
+    }
 }
 
 #[cfg(test)]
@@ -189,7 +252,7 @@ mod trigger_tests {
     use super::*;
 
     #[test]
-    fn removing_a_repo_or_node_removes_its_spots() {
+    fn removing_a_repo_or_node_removes_its_spots_and_size() {
         let tmp = tempfile::tempdir().unwrap();
         let conn = crate::db::open(&tmp.path().join("t.db")).unwrap();
         conn.execute_batch(
@@ -212,9 +275,17 @@ mod trigger_tests {
             repo: RepoId(2),
             node: NodeId(7),
         });
+        spots
+            .put_sizes(&[CardSize {
+                node: NodeId(7),
+                width: 1.0,
+                height: 1.0,
+            }])
+            .unwrap();
         let db = |sql: &str| spots.db.lock().unwrap().execute(sql, []).unwrap();
         db("DELETE FROM repos WHERE id = 1");
         db("DELETE FROM nodes WHERE id = 7");
+        assert_eq!(spots.sizes().unwrap(), []);
         assert_eq!(
             spots.list().unwrap(),
             [Placed {

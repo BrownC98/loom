@@ -121,6 +121,17 @@ const STEPS: &[M] = &[
             DELETE FROM spots WHERE spot ->> 'kind' = 'node' AND spot ->> 'node' = OLD.id;
         END;",
     ),
+    // 16: 사람이 바꾼 표준 카드 크기(목업 docs/mockups/card-resize.html). [정렬]은 자리만 지우고 크기는 지킨다. 노드를 지우면 크기도 지운다.
+    M::up(
+        "CREATE TABLE card_sizes (
+            node INTEGER PRIMARY KEY,
+            width REAL NOT NULL,
+            height REAL NOT NULL
+        );
+        CREATE TRIGGER card_sizes_of_node AFTER DELETE ON nodes BEGIN
+            DELETE FROM card_sizes WHERE node = OLD.id;
+        END;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

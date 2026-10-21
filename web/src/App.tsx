@@ -419,7 +419,7 @@ export function App() {
               tools={
                 <>
                   <CardViewSwitch value={settings.cardView} onChange={(cardView) => saveSettings({ ...settings, cardView })} />
-                  {repo && <ArrangeButton direction={direction} onArrange={arrange} />}
+                  {repo && <ArrangeButton direction={direction} onArrange={arrange} hasSizes={() => graph.current?.hasSizes() ?? false} onResetSizes={() => graph.current?.resetSizes()} />}
                 </>
               }
             >

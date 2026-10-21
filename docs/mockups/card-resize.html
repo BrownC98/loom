@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M9 loom 카드 크기 조정 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+code { font-family: var(--mono); font-size: 12px; }
+/* 그래프 칸. 실제 크기의 60%로 그린다. */
+.graph { width: 1360px; height: var(--h, 400px); position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 16px 16px; }
+.graph .scale { position: absolute; left: 24px; top: 24px; zoom: 0.6; }
+.group { position: absolute; border: 1px solid var(--line-strong); border-radius: 12px; background: color-mix(in oklch, var(--panel) 80%, transparent); }
+.group .gh { height: 44px; display: flex; align-items: center; padding: 0 16px; font-weight: 600; font-size: 14px; gap: 8px; }
+.group .gh .sub { font: 12px var(--mono); color: var(--ink-3); font-weight: 400; }
+.card { position: absolute; background: oklch(16% 0 0); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: visible; }
+.card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; border-radius: var(--radius) var(--radius) 0 0; }
+.card-head .name { font-weight: 600; }
+.card-head .model { font: 12px var(--mono); color: var(--ink-3); }
+.card-head .spacer { flex: 1; }
+.state { font: 12px var(--mono); color: oklch(60% 0.15 250); display: inline-flex; gap: 5px; align-items: center; }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ib { width: 26px; height: 26px; display: inline-grid; place-items: center; border-radius: 6px; color: var(--ink-2); position: relative; }
+.ib svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ib.hover { background: var(--surface-hover); color: var(--ink); }
+.tip { position: absolute; top: 32px; right: -4px; width: max-content; padding: 4px 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line-strong); font-size: 12px; color: var(--ink-2); z-index: 3; box-shadow: 0 4px 12px oklch(0% 0 0 / 0.15); }
+.term { flex: 1; overflow: hidden; color: oklch(88% 0 0); font: 12px/16px var(--mono); padding: 8px 10px; white-space: pre; border-radius: 0 0 var(--radius) var(--radius); }
+.term .dim { color: oklch(62% 0 0); }
+/* 크기 손잡이: 오른쪽 변, 아래 변, 오른쪽 아래 모서리 */
+.h-r { position: absolute; top: 40%; height: 80px; right: -6px; width: 10px; border-radius: 5px; background: var(--surface); border: 2px solid var(--accent); }
+.h-b { position: absolute; left: 40%; width: 80px; bottom: -6px; height: 10px; border-radius: 5px; background: var(--surface); border: 2px solid var(--accent); }
+.h-c { position: absolute; right: -8px; bottom: -8px; width: 16px; height: 16px; border-radius: 3px; background: var(--surface); border: 2px solid var(--accent); }
+.zone { position: absolute; z-index: 3; background: repeating-linear-gradient(45deg, var(--warn) 0 3px, transparent 3px 6px); outline: 1px dashed var(--warn); }
+.zlabel { position: absolute; z-index: 3; white-space: nowrap; font: 600 20px var(--font); color: var(--warn); background: var(--surface); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--warn); }
+.ghost-size { position: absolute; z-index: 2; border: 3px dashed oklch(75% 0 0); border-radius: var(--radius); pointer-events: none; }
+.cursor { position: absolute; z-index: 4; width: 22px; height: 22px; }
+.cursor svg { width: 22px; height: 22px; stroke: oklch(10% 0 0); fill: oklch(100% 0 0); stroke-width: 1.4; }
+.arrow { position: absolute; font: 600 26px var(--font); color: var(--warn); }
+.label { position: absolute; z-index: 2; white-space: nowrap; color: oklch(80% 0 0) !important; font: 600 22px var(--font); color: var(--ink-3); }
+
+.dockp { width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 12px; display: grid; gap: 8px; position: relative; height: 330px; align-content: start; }
+.dockp h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.choice { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.choice span { flex: 1; text-align: center; height: 28px; line-height: 28px; font-size: 13px; }
+.choice span.on { background: var(--accent-wash); font-weight: 600; }
+.splitb { display: flex; }
+.splitb .btn { height: 30px; }
+.splitb .btn:first-child { flex: 1; justify-content: center; border-radius: 6px 0 0 6px; }
+.splitb .btn.caret { border-left: 0; border-radius: 0 6px 6px 0; padding: 0 6px; gap: 0; }
+.btn svg, .mn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mn { position: absolute; right: 12px; top: 112px; width: 220px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px; box-shadow: 0 6px 18px oklch(0% 0 0 / 0.14); display: grid; gap: 1px; }
+.mn span.it { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
+.mn span.it.hover { background: var(--surface-hover); }
+.mn span.it.off { color: var(--ink-3); opacity: 0.6; }
+.mn .ck { margin-left: auto; color: var(--ink-2); }
+.mn hr { border: 0; border-top: 1px solid var(--line); margin: 3px 4px; }
+.pairs { display: flex; gap: 32px; }
+table { border-collapse: collapse; width: 1360px; font-size: 13px; }
+th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); font-weight: 600; }
+td.rec { font-weight: 600; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M9</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v3 · 2026-10-21</span></div>
+  <h1>그래프: 터미널 카드 크기를 마우스로 조정</h1>
+  <p class="lead">사람 지시: 「현재 터미널 노드 크기를 디폴트로하되, 마우스로 노드 터미널 크기를 자유롭게 조정할 수 있게 해줘, 크기 초기화 버튼도 추가할 것」. 그림은 실제 크기의 60%다. 점선이 바뀌는 곳이다.</p>
+<div class="fig"><h2>① 기본 크기 카드에 마우스를 올림 <span class="tag">600×466, 80×24 터미널</span></h2><div class="graph" style="--h:400px"><div class="scale"><div class="group " style="left:0px;top:0px;width:1272px;height:546px"><div class="gh">카드크기 <span class="sub">~/loom/workspaces/loom/카드크기</span></div></div><div class="card " style="left:20px;top:60px;width:600px;height:466px">
+<div class="card-head"><span class="name">카드크기</span><span class="model">claude-opus-5-5 · high</span><span class="spacer"></span><span class="state">running</span><span class="ib"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span><span class="ib"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></span></div>
+<div class="term"><span class="dim">$ claude</span>
+● 카드 크기 목업을 만듭니다.
+  ⎿ web/src/Graph.tsx 읽음
+  ⎿ web/src/NodeCard.tsx 읽음
+
+● 부품 목록
+  - NodeResizer (@xyflow/react)
+  - 크기 저장 표
+
+<span class="dim">&gt; </span></div></div><div class="card " style="left:652px;top:60px;width:600px;height:466px">
+<div class="card-head"><span class="name">정렬개선</span><span class="model">gpt-6-astra · medium</span><span class="spacer"></span><span class="state">running</span><span class="ib"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span><span class="ib"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></span></div>
+<div class="term"><span class="dim">$ codex</span>
+• 정렬 규칙을 고칩니다.
+  └ layout.ts
+
+<span class="dim">&gt; </span></div></div><span class="zone" style="left:617px;top:60px;width:6px;height:454px"></span><span class="zone" style="left:20px;top:523px;width:588px;height:6px"></span><span class="zone corner" style="left:608px;top:514px;width:15px;height:15px"></span><span class="cursor" style="left:609px;top:300px;transform:rotate(-45deg)"><svg viewBox="0 0 24 24"><path d="M4 4h7l-2.5 2.5 9 9L20 13v7h-7l2.5-2.5-9-9L4 11z"/></svg></span><span class="zlabel" style="left:640px;top:262px">오른쪽 변: ew-resize</span><span class="cursor" style="left:300px;top:515px;transform:rotate(45deg)"><svg viewBox="0 0 24 24"><path d="M4 4h7l-2.5 2.5 9 9L20 13v7h-7l2.5-2.5-9-9L4 11z"/></svg></span><span class="zlabel" style="left:250px;top:548px">아래 변: ns-resize</span><span class="cursor" style="left:611px;top:517px;transform:rotate(0deg)"><svg viewBox="0 0 24 24"><path d="M4 4h7l-2.5 2.5 9 9L20 13v7h-7l2.5-2.5-9-9L4 11z"/></svg></span><span class="zlabel" style="left:600px;top:548px">모서리: nwse-resize</span></div></div><ul class="note"><li>손잡이는 그리지 않는다. 마우스가 카드 테두리에 오면 커서만 바뀐다: 오른쪽 변은 ↔, 아래 변은 ↕, 오른쪽 아래 모서리는 ↘. 거기서 끌면 크기가 바뀐다.</li><li>빗금 띠는 설명용이다. 화면에는 없다. 감지 폭은 테두리 안팎 3px씩, 모두 6px다. 모서리는 12×12px다.</li><li>머리의 다른 곳을 끌면 지금처럼 카드를 옮긴다. 터미널 안은 지금처럼 글자를 고른다.</li><li>기본 크기 카드의 머리에는 지금과 같은 버튼(확대, 삭제)만 있다.</li></ul></div>
+<div class="fig"><h2>② 모서리를 끄는 중 <span class="tag">820×560으로 넓힘</span></h2><div class="graph" style="--h:436px"><div class="scale"><div class="group new" style="left:0px;top:0px;width:1492px;height:640px"><div class="gh">카드크기 <span class="sub">~/loom/workspaces/loom/카드크기</span></div></div><div class="ghost-size" style="left:20px;top:60px;width:600px;height:466px"></div><div class="card sel" style="left:20px;top:60px;width:820px;height:560px">
+<div class="card-head"><span class="name">카드크기</span><span class="model">claude-opus-5-5 · high</span><span class="spacer"></span><span class="state">running</span><span class="ib"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span><span class="ib"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></span></div>
+<div class="term"><span class="dim">$ claude</span>
+● 카드 크기 목업을 만듭니다.
+  ⎿ web/src/Graph.tsx 읽음
+  ⎿ web/src/NodeCard.tsx 읽음
+
+● 부품 목록
+  - NodeResizer (@xyflow/react)
+  - 크기 저장 표
+
+<span class="dim">&gt; </span></div></div><div class="card new" style="left:872px;top:60px;width:600px;height:466px">
+<div class="card-head"><span class="name">정렬개선</span><span class="model">gpt-6-astra · medium</span><span class="spacer"></span><span class="state">running</span><span class="ib"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span><span class="ib"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></span></div>
+<div class="term"><span class="dim">$ codex</span>
+• 정렬 규칙을 고칩니다.
+  └ layout.ts
+
+<span class="dim">&gt; </span></div></div><span class="cursor" style="left:829px;top:609px"><svg viewBox="0 0 24 24"><path d="M4 4h7l-2.5 2.5 9 9L20 13v7h-7l2.5-2.5-9-9L4 11z"/></svg></span><span class="arrow" style="left:842px;top:300px">→</span><span class="label" style="left:440px;top:480px">기본 600×466</span></div></div><ul class="note"><li>회색 점선은 기본 크기다(설명용). 카드는 커서를 따라 커진다. 끄는 동안 커서는 ↘ 모양이다.</li><li>오른쪽 이웃 카드는 끌 때와 같은 규칙으로 밀린다. 틈은 32px를 지킨다.</li><li>워크트리 묶음 상자도 같이 커진다. 손을 떼면 터미널 열·줄을 새 크기에 맞추고 크기를 저장한다.</li></ul></div>
+<div class="fig"><h2>③ 크기를 바꾼 카드 <span class="tag">머리에 [기본 크기로 되돌리기]</span></h2><div class="graph" style="--h:436px"><div class="scale"><div class="group " style="left:0px;top:0px;width:1492px;height:640px"><div class="gh">카드크기 <span class="sub">~/loom/workspaces/loom/카드크기</span></div></div><div class="card sel" style="left:20px;top:60px;width:820px;height:560px">
+<div class="card-head"><span class="name">카드크기</span><span class="model">claude-opus-5-5 · high</span><span class="spacer"></span><span class="state">running</span><span class="ib hover new"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg><span class="tip">기본 크기로 되돌리기</span></span><span class="ib"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span><span class="ib"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></span></div>
+<div class="term"><span class="dim">$ claude</span>
+● 카드 크기 목업을 만듭니다.
+  ⎿ web/src/Graph.tsx 읽음
+  ⎿ web/src/NodeCard.tsx 읽음
+
+● 부품 목록
+  - NodeResizer (@xyflow/react)
+  - 크기 저장 표
+
+<span class="dim">&gt; </span></div></div><div class="card " style="left:872px;top:60px;width:600px;height:466px">
+<div class="card-head"><span class="name">정렬개선</span><span class="model">gpt-6-astra · medium</span><span class="spacer"></span><span class="state">running</span><span class="ib"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></span><span class="ib"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></span></div>
+<div class="term"><span class="dim">$ codex</span>
+• 정렬 규칙을 고칩니다.
+  └ layout.ts
+
+<span class="dim">&gt; </span></div></div></div></div><ul class="note"><li>크기를 바꾼 카드에만 [기본 크기로 되돌리기] 아이콘이 [확대] 앞에 보인다. 마우스를 올리면 이름이 보인다.</li><li>누르면 600×466으로 돌아가고 버튼이 없어진다. 터미널은 80×24로 돌아간다.</li><li>오른쪽 카드는 기본 크기라 버튼이 없다.</li></ul></div>
+  <div class="fig"><h2>④ 모든 카드를 기본 크기로 <span class="tag">오른쪽 칸 「보기」 › [정렬] ▾ 메뉴</span></h2>
+<div class="pairs"><div class="fig"><span class="hint">크기를 바꾼 카드가 있음</span><div class="dockp"><h4>보기</h4><div class="choice"><span class="on">터미널</span><span>머리만</span></div>
+<div class="splitb"><span class="btn"><svg viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>정렬</span><span class="btn caret"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span></div>
+<div class="mn"><span class="it"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>아래로<span class="ck"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span></span><span class="it"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>오른쪽으로</span><span class="it"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>위로</span><span class="it"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>왼쪽으로</span><hr><span class="it hover new"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>모든 카드 기본 크기로</span></div></div></div><div class="fig"><span class="hint">모든 카드가 기본 크기임: 꺼짐</span><div class="dockp"><h4>보기</h4><div class="choice"><span class="on">터미널</span><span>머리만</span></div>
+<div class="splitb"><span class="btn"><svg viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>정렬</span><span class="btn caret"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span></div>
+<div class="mn"><span class="it"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>아래로<span class="ck"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span></span><span class="it"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>오른쪽으로</span><span class="it"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>위로</span><span class="it"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>왼쪽으로</span><hr><span class="it off new"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>모든 카드 기본 크기로</span></div></div></div></div>
+<ul class="note"><li>[정렬] 옆 ▾ 메뉴의 방향 목록 아래에 줄을 긋고 [모든 카드 기본 크기로]를 둔다.</li><li>범위는 지금 보이는 그래프의 모든 카드다. 누르면 확인 창 없이 바로 바꾼다. 카드 크기만 바뀌고 터미널 내용과 카드 자리는 그대로다.</li><li>크기를 바꾼 카드가 하나도 없으면 꺼진다. 마우스를 올려도 이유 글은 없다.</li><li>방향을 고르면 지금처럼 그 방향으로 정렬한다. 이 항목은 정렬하지 않고 크기만 되돌린다.</li></ul></div>
+<div class="fig">
+    <h2>⑤ 승인할 것</h2>
+    <table><thead><tr><th>정할 것</th><th>권장안</th><th>다른 안</th><th>이유</th></tr></thead><tbody><tr><td>크기를 바꾸는 카드</td><td class="rec">표준(터미널) 카드만 (권장)</td><td>표준과 심플 모두</td><td>심플 카드는 머리 정보만 있다. 크게 해도 보일 것이 늘지 않는다.</td></tr><tr><td>크기를 바꾸는 테두리</td><td class="rec">오른쪽 변, 아래 변, 오른쪽 아래 모서리 (권장)</td><td>네 변과 네 모서리</td><td>왼쪽 위 모서리가 그대로라 카드 자리(spot)를 다시 저장하지 않는다.</td></tr><tr><td>손잡이 모양</td><td class="rec">그리지 않음. 테두리 6px 띠에서 커서만 바뀜 (사람 지시)</td><td>손잡이를 그림(v1)</td><td>v1 피드백.</td></tr><tr><td>가장 작은 크기 / 가장 큰 크기</td><td class="rec">360×200 (머리 줄과 터미널 8줄) / 한계 없음 (권장)</td><td>기본 크기보다 작게는 못 함</td><td>360px보다 좁으면 머리의 이름과 버튼이 겹친다.</td></tr><tr><td>터미널 줄·열을 맞출 때</td><td class="rec">손을 뗄 때 한 번 (권장)</td><td>끄는 동안 계속</td><td>끄는 동안 PTY 크기를 계속 바꾸면 에이전트 화면이 여러 번 다시 그려진다. 끄는 동안 글자는 그대로 두고 칸만 커진다.</td></tr><tr><td>이웃 카드</td><td class="rec">끌 때와 같은 밀기 규칙(가장 짧은 쪽, 틈 32px)으로 민다. 줄일 때는 이웃이 제자리에 있다 (권장)</td><td>줄이면 이웃을 당긴다</td><td>끌기와 같은 규칙 하나만 둔다.</td></tr><tr><td>[기본 크기로 되돌리기] 버튼</td><td class="rec">크기를 바꾼 카드에만 머리에 보인다(③) (권장)</td><td>늘 보이고, 기본이면 꺼짐</td><td>머리 버튼 수를 늘리지 않는다.</td></tr><tr><td>정렬 버튼을 누를 때</td><td class="rec">바꾼 크기를 지키고 그 크기로 정렬한다 (권장)</td><td>정렬이 모든 크기를 기본으로 되돌린다</td><td>크기는 사람이 고른 것이다. 되돌리기는 ③ 버튼이 한다.</td></tr><tr><td>크기를 저장할 곳</td><td class="rec">데몬 DB(새로고침·재시작 뒤에도 남는다) (권장)</td><td>브라우저 저장소</td><td>자리(spot)와 같이 모든 창에서 같다.</td></tr><tr><td>모든 카드를 한 번에 되돌리기</td><td class="rec">[정렬] ▾ 메뉴의 [모든 카드 기본 크기로]. 지금 보이는 그래프 전체, 바꾼 카드가 없으면 꺼짐(④) (총괄 지시)</td><td>저장소·묶음 머리마다 버튼 / 정렬이 크기도 되돌림</td><td>머리 버튼을 늘리지 않는다. 정렬은 크기를 지킨다(위 줄).</td></tr></tbody></table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

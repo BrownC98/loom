@@ -2,14 +2,17 @@ import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getRepos, getSettings, putSettings, watchGraph } from './api';
+import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, watchGraph } from './api';
+import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import { CommitGraph } from './CommitGraph';
 import { EventConsole, involved, useEventLog } from './EventConsole';
 import type { EventRecord } from './gen/EventRecord';
+import type { MovableNode } from './gen/MovableNode';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import type { Provider } from './gen/Provider';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
@@ -33,7 +36,9 @@ import { TitleBar } from './TitleBar';
 import { UpdateCard } from './Update';
 import { activeFont, findKey, paneKey, XtermFont, XtermTheme } from './Terminal';
 import { TerminalDock } from './TerminalDock';
-import { withAccount } from './usage';
+import { SwitchDialog } from './SwitchDialog';
+import { accountName, withAccount } from './usage';
+import { useSwitchNotice } from './useSwitchNotice';
 
 /** 메시지가 오간 간선을 강조하는 시간. 마지막 메시지부터 잰다. */
 const PULSE_MS = 3000;
@@ -237,7 +242,24 @@ export function App() {
   // 화면이 먼저 바뀌고 저장은 뒤따른다. 저장이 실패하면 데몬 값으로 되돌린다.
   const saveSettings = (next: SettingsView) => {
     setSettings(next);
-    putSettings(next).catch(() => getSettings().then(setSettings));
+    return putSettings(next).catch(() => getSettings().then(setSettings));
+  };
+  // 데몬이 스스로 계정을 바꿨다. 쓰는 계정과 사용량을 다시 읽는다.
+  const notice = useSwitchNotice(() => {
+    getSettings().then(setSettings);
+    refreshUsage();
+  });
+  // 계정 고르기: 그 계정이 아닌 노드가 없으면 바로 저장한다. 있으면 확인 창이 묻는다(취소하면 아무것도 바꾸지 않는다).
+  const [switching, setSwitching] = useState<{ provider: Provider; to: AccountId | null; nodes: MovableNode[] } | null>(null);
+  const chooseAccount = async (provider: Provider, to: AccountId | null) => {
+    const nodes = await getMovableNodes(provider, to).catch(() => []);
+    if (nodes.length > 0) setSwitching({ provider, to, nodes });
+    else saveSettings(withAccount(settings, provider, to));
+  };
+  const switchingName = (s: NonNullable<typeof switching>) => {
+    const own = accounts?.filter((a) => a.provider === s.provider) ?? [];
+    const a = own.find((x) => x.id === s.to);
+    return a ? accountName(a) : t('usage.systemDefault');
   };
   const usage: Usage = { accounts, fetchedAt, loading, refresh: refreshUsage };
   /** 심플 보기에서는 노드를 고를 때 오른쪽 사이드바를 펴고 그 터미널 탭을 연다. 카드에는 터미널이 없다. */
@@ -321,8 +343,9 @@ export function App() {
           setNodes((prev) => new Map(prev).set(event.id, event));
           break;
         case 'recorded':
-          // `onRecord`는 ref와 setState만 쓴다. 처음 만든 것을 계속 불러도 된다.
+          // 두 `onRecord`는 ref와 setState만 쓴다(알림의 `onAuto`도 setState와 안정된 함수만 부른다). 처음 만든 것을 계속 불러도 된다.
           log.onRecord(event.record);
+          notice.onRecord(event.record);
       }
     });
   }, []);
@@ -451,7 +474,8 @@ export function App() {
           <StatusBar
             usage={usage}
             settings={settings}
-            onChoose={(provider, id) => saveSettings(withAccount(settings, provider, id))}
+            onChoose={chooseAccount}
+            notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}
           />
           <UpdateCard />
@@ -465,6 +489,24 @@ export function App() {
               settings={settings}
               onSettings={saveSettings}
               usage={usage}
+              onChoose={chooseAccount}
+            />
+          )}
+          {switching && (
+            <SwitchDialog
+              provider={switching.provider}
+              to={switchingName(switching)}
+              nodes={switching.nodes}
+              onKeep={() => {
+                saveSettings(withAccount(settings, switching.provider, switching.to));
+                setSwitching(null);
+              }}
+              onMoveAll={async () => {
+                await saveSettings(withAccount(settings, switching.provider, switching.to));
+                await moveNodes(switching.provider);
+                setSwitching(null);
+              }}
+              onCancel={() => setSwitching(null)}
             />
           )}
         </div>

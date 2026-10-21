@@ -1,10 +1,13 @@
-import { ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
+import { ArrowLeftRight, ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
+import { noticeOf } from './accountSwitch';
+import { weekdayAndTime } from './i18n';
+import type { SwitchRecord } from './useSwitchNotice';
 import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
 import { useOutsideClose } from './popover';
@@ -20,7 +23,7 @@ export type Usage = {
 };
 
 /** 화면 맨 아래에 늘 보이는 줄. Orca처럼 모든 공급자의 사용량이 버튼 하나다(목업 usage.html). [설정]은 사이드바에 있다(graph-panels.html 1번). */
-export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void }) {
+export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void; notice: { record: SwitchRecord | null; onClose: () => void } }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 다른 팝오버처럼 pointerdown을 먼저 받는다.
@@ -76,6 +79,7 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
       <button className="btn ghost sm icon refresh" data-loading={usage.loading || undefined} disabled={usage.loading} aria-label={t('statusBar.refresh')} title={t('statusBar.refresh')} onClick={usage.refresh}>
         <RotateCw />
       </button>
+      {props.notice.record && <SwitchNotice record={props.notice.record} accounts={usage.accounts} onClose={props.notice.onClose} />}
       <span className="app-version">v{VERSION}</span>
       {open && usage.accounts && (
         <UsagePopover
@@ -90,6 +94,25 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
         />
       )}
     </footer>
+  );
+}
+
+/** 가장 새 전환 기록 한 줄. 닫거나 다음 기록이 덮기 전에는 남는다(목업 account-switch.html ③). */
+function SwitchNotice(props: { record: SwitchRecord; accounts: AccountView[] | null; onClose: () => void }) {
+  const { t } = useTranslation();
+  const name = (provider: Provider, id: AccountId | null) => {
+    const a = props.accounts?.find((x) => x.provider === provider && x.id === id);
+    return a ? accountName(a) : t(id === null ? 'usage.systemDefault' : 'usage.notLoggedIn');
+  };
+  const { text, warn } = noticeOf(props.record.entry, name, (at) => weekdayAndTime(at * 1000), t);
+  return (
+    <span className="notice" data-warn={warn || undefined} role="status">
+      {!warn && <ArrowLeftRight aria-hidden="true" />}
+      {text}
+      <button className="x" aria-label={t('switch.notice.close')} onClick={props.onClose}>
+        ×
+      </button>
+    </span>
   );
 }
 

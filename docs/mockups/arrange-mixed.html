@@ -52,7 +52,7 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 </head>
 <body>
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M11</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v3 · 2026-10-21</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M11</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v4 · 2026-10-21</span></div>
   <h1>그래프 › [정렬]: 같은 워크트리 자식과 자식 워크트리가 섞인 경우</h1>
   <div class="fig">
     <h2>① 지금 <span class="tag">그래프 › ktasearch 저장소 › [정렬] 뒤</span></h2>
@@ -60,27 +60,21 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
     <p class="stats" id="t1"></p>
   </div>
   <div class="fig">
-    <h2>② 권장: 자식 묶음이 부모 묶음 옆, 부모 카드 다음 줄, 부모는 자식 가운데 위 <span class="tag">그래프 › ktasearch 저장소 › [정렬] 뒤</span></h2>
+    <h2>② 권장: 자식 카드는 다른 카드 아래에 서지 않는다 <span class="tag">그래프 › ktasearch 저장소 › [정렬] 뒤</span></h2>
     <div class="canvas"><svg id="s2"></svg></div>
     <p class="stats" id="t2"></p>
-  </div>
-  <div class="fig">
-    <h2>③ 다른 안: 자식 묶음이 부모 묶음 옆, 같은 줄 <span class="tag">그래프 › ktasearch 저장소 › [정렬] 뒤</span></h2>
-    <div class="canvas"><svg id="s3"></svg></div>
-    <p class="stats" id="t3"></p>
   </div>
 </main>
 <button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
 <script>
 // 좌표는 그래프 px(저장소 원점 기준). 카드 600×466, 묶음 머리 60·옆 20, 묶음 틈 32.
-// ①은 layout.ts의 arrangeTree·placeGroups를 이 모양으로 돌린 값이다.
+// ①은 layout.ts의 arrangeTree·placeGroups를 이 모양으로 돌린 값이다. ②는 형제 나무를 겹치지 않게 붙이도록 고친 layout.ts의 값이다.
 const CW = 600, CH = 466, SCALE = 0.3;
 const names = { A: 'ktasearch-총괄', B: '피드백 반영', C: '매뉴얼체계-코디', D: '판정근거-코디', E: '판정근거-관문' };
 const parent = { C: 'B', D: 'B', E: 'D' };
 const plans = {
   s1: { cards: { A: [20, 60], B: [640, 60], C: [294, 638], D: [950, 1216], E: [950, 1794] }, groups: [['main', 0, 0, 1240, 1124], ['판정근거-범위', 930, 1156, 640, 1124]], changed: [] },
-  s2: { cards: { A: [20, 60], B: [692, 60], C: [20, 638], D: [1364, 638], E: [1364, 1216] }, groups: [['main', 0, 0, 1312, 1124], ['판정근거-범위', 1344, 578, 640, 1124]], changed: ['B', 'C', '판정근거-범위', 'D', 'E'] },
-  s3: { cards: { A: [20, 60], B: [640, 60], C: [640, 638], D: [1292, 60], E: [1292, 638] }, groups: [['main', 0, 0, 1240, 1124], ['판정근거-범위', 1272, 0, 640, 1124]], changed: ['C', '판정근거-범위', 'D', 'E'] },
+  s2: { cards: { A: [20, 60], B: [986, 60], C: [640, 638], D: [1296, 1216], E: [1296, 1794] }, groups: [['main', 0, 0, 1606, 1124], ['판정근거-범위', 1276, 1156, 640, 1124]], changed: ['B', 'C', '판정근거-범위', 'D', 'E'] },
 };
 // layout.ts edgeSides와 같다: 자식이 부모보다 아래면 아래→위, 아니면 틈이 큰 축의 마주 보는 변.
 function ends(p, c) {

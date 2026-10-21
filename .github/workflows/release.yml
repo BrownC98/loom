@@ -49,9 +49,9 @@ jobs:
         id: version
         run: |
           version=$(sh scripts/version.sh)
-          # macOS의 sed는 `-i` 문법이 달라 perl로 고친다.
-          perl -pi -e "s/^version = \".*\"\$/version = \"$version\"/" Cargo.toml
-          perl -pi -e "s/^name = \"loom-app\"\$/\$&\nversion = \"$version\"/" app/Cargo.toml
+          # macOS의 sed는 `-i` 문법이 달라 perl로 고친다. Windows 러너의 체크아웃은 줄 끝이 CRLF라 `\r`을 남긴다.
+          perl -pi -e "s/^version = \".*\"(\r?)\$/version = \"$version\"\$1/" Cargo.toml
+          perl -pi -e "s/^name = \"loom-app\"(\r?)\$/\$&\nversion = \"$version\"\$1/" app/Cargo.toml
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # 태그로 돌면 태그 이름이 판과 같아야 한다. 다르면 Release 이름과 앱 판이 어긋난다.
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then

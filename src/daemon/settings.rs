@@ -17,9 +17,9 @@ use super::{App, Problem, internal, serve_pty};
 use crate::accounts::{self, AccountId};
 use crate::node_host::{Exit, NodeHost};
 use crate::profile::{self, AgentView, Provider};
-use crate::settings::SettingsView;
 #[cfg(test)]
 use crate::settings::{Language, Theme};
+use crate::settings::{PatchProblem, SettingsView};
 use crate::usage::{self, Usage, UsageProblem};
 use crate::worktree::{self, RepoProblem};
 
@@ -151,16 +151,23 @@ async fn get_settings(State(app): State<Arc<App>>) -> Result<Json<SettingsView>,
     Ok(Json(view))
 }
 
+/// 화면이 바꾼 칸만 보낸다(`Settings::patch`). 합친 설정이 규칙에 맞지 않으면 쓰지 않는다.
 async fn put_settings(
     State(app): State<Arc<App>>,
-    Json(view): Json<SettingsView>,
+    Json(patch): Json<serde_json::Value>,
 ) -> Result<Json<()>, Problem> {
-    if let Some(dir) = &view.workspace_dir
+    if let Some(dir) = patch.get("workspaceDir").and_then(|dir| dir.as_str())
         && !std::path::Path::new(dir).is_absolute()
     {
-        return Err(Problem::Repo(RepoProblem::NotAbsolute(dir.clone())));
+        return Err(Problem::Repo(RepoProblem::NotAbsolute(dir.to_owned())));
     }
-    app.settings.put(&view).map_err(internal)?;
+    // 모양이 틀린 칸은 화면의 잘못이다. 사람이 고칠 수 없으므로 내부 오류로 알린다.
+    match app.settings.patch(&patch) {
+        Ok(_) => {}
+        Err(PatchProblem::Db(e)) => return Err(internal(e)),
+        Err(PatchProblem::Shape(e)) => return Err(internal(e)),
+    }
+    app.graph.publish_view_changed();
     Ok(Json(()))
 }
 

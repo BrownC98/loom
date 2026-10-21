@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 이 체크아웃으로 호스트(Linux)의 loom을 바꾸고 데몬을 다시 띄운다. 사람이 쓰는 loom을 올릴 때 원래 체크아웃(main)에서 부른다.
-# 노드는 데몬과 따로 살아 새 데몬이 다시 붙는다. 데몬은 이 폴더를 시작 폴더로, LOOM_PORT(기본 7420)에서 듣는다.
+# 노드는 데몬과 따로 살아 새 데몬이 다시 붙는다. 데몬은 LOOM_PORT(기본 7420)에서 듣는다.
 # 출력은 ~/.loom/serve.log다. 근거: docs/design.md 「배포」.
 # 빌드는 이 체크아웃의 커밋(HEAD)만 쓴다. 작업 폴더의 미커밋 변경은 올라가지 않는다. 그래서 다른 작업이 커밋하지 않은 변경이 있어도 바로 올릴 수 있다.
 set -euo pipefail
@@ -26,18 +26,9 @@ mkdir -p "$(dirname "$bin")" "$HOME/.loom"
 cp "$build/target/release/loom" "$bin.new"
 mv "$bin.new" "$bin"
 
-pidfile=$HOME/.loom/serve.pid
-# 옛 데몬만 끝낸다. 파일의 PID가 다른 프로세스로 다시 쓰였으면 건드리지 않는다.
-if pid=$(cat "$pidfile" 2>/dev/null) && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q "^$bin serve "; then
-  kill "$pid"
-  while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
-fi
-# 새 세션이라 이 터미널을 닫아도 데몬이 산다.
-setsid nohup "$bin" serve --listen "127.0.0.1:$port" >>"$HOME/.loom/serve.log" 2>&1 </dev/null 9>&- &
-echo $! >"$pidfile"
-for _ in $(seq 50); do
-  curl -sf "http://127.0.0.1:$port/" >/dev/null && echo "$("$bin" --version): http://127.0.0.1:$port" && exit 0
-  sleep 0.2
-done
-echo "데몬이 응답하지 않는다. $HOME/.loom/serve.log를 본다." >&2
-exit 1
+# 같은 판이라도 늘 바꾼다: main 빌드는 커밋마다 판이 같을 수 있어 `start`만으로는 옛 데몬에 붙는다.
+# `stop`은 데몬이 다 끝난 뒤에 돌아온다. `start`는 새 세션에 데몬을 띄워 이 터미널을 닫아도 산다.
+# `daemon.json` 전의 데몬도 `stop`이 이 포트로 찾는다.
+"$bin" stop --listen "127.0.0.1:$port"
+rm -f "$HOME/.loom/serve.pid"
+"$bin" start --listen "127.0.0.1:$port" 9>&- && "$bin" --version

@@ -4,26 +4,6 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { ARRANGE_DIRECTIONS, type ArrangeDirection } from './layout';
 
-/** 정렬 방향은 보는 사람마다 하나다. 끈 카드 위치처럼 화면 상태라 이 브라우저에만 둔다. */
-const STORAGE_KEY = 'loom.arrangeDirection';
-
-export function loadDirection(): ArrangeDirection {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return ARRANGE_DIRECTIONS.find((d) => d === saved) ?? 'down';
-  } catch {
-    return 'down';
-  }
-}
-
-export function saveDirection(direction: ArrangeDirection) {
-  try {
-    localStorage.setItem(STORAGE_KEY, direction);
-  } catch {
-    // 저장할 수 없으면 이 화면에서만 쓴다.
-  }
-}
-
 const ARROW: Record<ArrangeDirection, LucideIcon> = { down: ArrowDown, right: ArrowRight, up: ArrowUp, left: ArrowLeft };
 
 function Arrow(props: { direction: ArrangeDirection }) {

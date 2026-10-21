@@ -1,12 +1,8 @@
 // 저장소의 워크트리 묶음. 트리와 그래프가 같은 목록을 그린다. 근거: docs/design.md 「저장소와 워크트리」.
-import { useState } from 'react';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
-
-/** 그래프를 그리는 저장소를 이 브라우저에 남기는 키. */
-const REPO_KEY = 'loom.repo';
 
 /** 원래 체크아웃은 첫 커밋 전이면 `unborn`이다. 트리·그래프는 `linked`가 아니면 `worktree.<kind>` 꼬리표를 단다. */
 export type GroupKind = 'original' | 'unborn' | 'linked';
@@ -92,23 +88,7 @@ function breakCycles(parents: readonly (number | null)[]): (number | null)[] {
   return fixed;
 }
 
-/** 고른 저장소. 저장한 저장소가 목록에 없으면 첫 저장소다. 저장은 이 브라우저에만 한다. */
-export function useSelectedRepo(repos: RepoView[]): [RepoView | null, (id: RepoId) => void] {
-  const [saved, setSaved] = useState<RepoId | null>(() => {
-    try {
-      const value = Number(localStorage.getItem(REPO_KEY));
-      return value > 0 ? value : null;
-    } catch {
-      return null;
-    }
-  });
-  const select = (id: RepoId) => {
-    setSaved(id);
-    try {
-      localStorage.setItem(REPO_KEY, String(id));
-    } catch {
-      // 저장하지 못해도 이 페이지에서는 고른 저장소를 그린다.
-    }
-  };
-  return [repos.find((r) => r.id === saved) ?? repos[0] ?? null, select];
+/** 그래프가 그리는 저장소. 설정(`SettingsView.repo`)에 고른 저장소가 목록에 없으면 첫 저장소다. */
+export function chosenRepo(repos: RepoView[], saved: RepoId | null): RepoView | null {
+  return repos.find((r) => r.id === saved) ?? repos[0] ?? null;
 }

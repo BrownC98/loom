@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use portable_pty::CommandBuilder;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 use crate::process_tree::{self, Snapshot};
 use wire::Frame;
@@ -62,6 +62,15 @@ impl Exit {
 pub struct Attached {
     pub backlog: Bytes,
     pub output: broadcast::Receiver<Bytes>,
+    /// PTY의 열·줄. 붙을 때의 값을 먼저 보고, 바뀌면 다시 깬다. 모든 화면이 이 크기로 그린다(docs/design.md 「데몬 하나」).
+    pub size: watch::Receiver<PtySize>,
+}
+
+/// PTY 하나의 크기. 화면에 가는 값이다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PtySize {
+    pub cols: u16,
+    pub rows: u16,
 }
 
 pub struct NodeHost<K> {
@@ -80,7 +89,7 @@ struct Pty {
     host: Mutex<TcpStream>,
     output: Mutex<Output>,
     /// 화면이 마지막으로 알린 PTY 크기(행, 열). `screen`이 출력을 이 크기의 화면에 다시 그린다.
-    size: Mutex<(u16, u16)>,
+    size: watch::Sender<PtySize>,
 }
 
 /// 호스트가 보낸 출력의 사본과 화면 구독. 붙을 때 호스트가 backlog를 먼저 보내므로 다시 시작한 뒤에도 같다.
@@ -144,7 +153,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 backlog: Backlog::default(),
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
             }),
-            size: Mutex::new(host::INITIAL_ROWS_COLS),
+            size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
         });
         self.nodes.write().unwrap().insert(id, pty.clone());
         std::thread::spawn(move || {
@@ -160,6 +169,10 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     Ok(Frame::Exit(code)) => break Exit::Command(code),
                     Ok(Frame::SetupFailed(code)) => break Exit::Setup(code),
                     Ok(Frame::Pid(pid)) => *pty.pid.lock().unwrap() = Some(pid),
+                    // 호스트가 인사 뒤에 알리는 지금 크기. 데몬이 다시 시작해도 크기가 이어진다. 옛 호스트는 알리지 않아 처음 크기다.
+                    Ok(Frame::Resize { cols, rows }) => {
+                        pty.size.send_replace(PtySize { cols, rows });
+                    }
                     Ok(_) => {}
                     Err(_) => break Exit::Command(LOST_CODE),
                 }
@@ -226,7 +239,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         let Some(pty) = self.pty(id) else {
             return String::new();
         };
-        let (rows, cols) = *pty.size.lock().unwrap();
+        let PtySize { cols, rows } = *pty.size.borrow();
         let bytes = pty.output.lock().unwrap().backlog.to_vec();
         let size = |n: u16| NonZeroU16::new(n.max(1)).expect("1 이상이다");
         let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
@@ -241,6 +254,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         Some(Attached {
             backlog: Bytes::from(output.backlog.to_vec()),
             output: output.tx.subscribe(),
+            size: pty.size.subscribe(),
         })
     }
 
@@ -253,8 +267,13 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 
     pub fn resize(&self, id: K, cols: u16, rows: u16) {
         if let Some(pty) = self.pty(id) {
-            *pty.size.lock().unwrap() = (rows, cols);
-            pty.send(&Frame::Resize { cols, rows });
+            let changed = pty.size.send_if_modified(|size| {
+                let next = PtySize { cols, rows };
+                std::mem::replace(size, next) != next
+            });
+            if changed {
+                pty.send(&Frame::Resize { cols, rows });
+            }
         }
     }
 

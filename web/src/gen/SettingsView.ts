@@ -2,6 +2,7 @@
 import type { AccountId } from "./AccountId";
 import type { AgentId } from "./AgentId";
 import type { CardView } from "./CardView";
+import type { EdgeStyle } from "./EdgeStyle";
 import type { GraphScope } from "./GraphScope";
 import type { Language } from "./Language";
 import type { TerminalFont } from "./TerminalFont";
@@ -26,6 +27,10 @@ theme: Theme, terminalTheme: TerminalTheme, terminalFont: TerminalFont, cardView
  * 옛 설정에는 없다. 없으면 `Repo`(저장소 하나)로 읽는다.
  */
 graphScope: GraphScope, 
+/**
+ * 옛 설정에는 없다. 없으면 `Step`(계단)으로 읽는다.
+ */
+edgeStyle: EdgeStyle, 
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽는다.
  */

@@ -72,6 +72,7 @@ const EMPTY_SETTINGS: SettingsView = {
   terminalFont: { family: null, size: null },
   cardView: 'standard',
   graphScope: 'repo',
+  edgeStyle: 'step',
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
   // 설정을 받기 전 자리값이다. 기본값의 원천은 Rust `TreeLimits::default`다.

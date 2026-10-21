@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
-import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, grew, placeGroups, push, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
 
 const view = (id: number, parent: number | null): NodeView => ({
   id,
@@ -238,6 +238,143 @@ describe('arrangeTree packing (plan A, docs/mockups/repo-drag.html)', () => {
     const at = arrangeTree([view(1, null), view(2, 1), view(3, 1), view(4, null)], wide, 'down', 46, none).cards;
     expect(at.get(1)!.x).toBe(330);
     expect(at.get(4)).toEqual({ x: 990, y: 0 });
+  });
+});
+
+describe('arrangeTree packing (rule 5, docs/mockups/arrange-mixed.html v5)', () => {
+  const card = () => ({ width: 600, height: 466 });
+
+  it('a later tree does not go under an earlier tree deeper than its deepest card (screenshot shape ②)', () => {
+    // main 묶음: 1은 자식 없는 뿌리, 2의 자식 3은 같은 묶음, 2의 자식 묶음 줄 폭 672(묶음 640 + 묶음 틈).
+    const laid = arrangeTree([view(1, null), view(2, null), view(3, 2)], card, 'down', 112, new Map([[2, 672]]));
+    const at = laid.cards;
+    expect(at.get(3)).toEqual({ x: 620, y: 578 });
+    expect(laid.bands.get(2)).toBe(1240);
+    // 2는 자식 3과 자식 묶음 줄 전체의 가운데 위다.
+    expect(at.get(2)!.x + 300).toBe((620 + 1240 + 672) / 2);
+  });
+});
+
+/**
+ * 그래프 자동 배치(Graph.tsx layGroup + placeGroups)를 같은 순서로 돌린다. 카드 600×466, 묶음 머리 60, 옆 20, 묶음 안 줄 틈 112.
+ * 돌려주는 것은 카드의 그래프 기준 상자다. 묶음의 부모는 그 묶음 노드의 부모가 있는 다른 묶음이다.
+ */
+function arrangeGraph(nodes: { id: number; parent: number | null; group: number; size?: { width: number; height: number } }[], direction: ArrangeDirection) {
+  const [side, top] = [20, 60];
+  const vertical = direction === 'down' || direction === 'up';
+  const size = (id: number) => nodes.find((n) => n.id === id)!.size ?? { width: 600, height: 466 };
+  const groupIds = [...new Set(nodes.map((n) => n.group))];
+  const groupOf = new Map(nodes.map((n) => [n.id, n.group]));
+  const slots = groupIds.map((g): GroupSlot => {
+    const hit = nodes.find((n) => n.group === g && n.parent !== null && groupOf.get(n.parent) !== g);
+    return hit ? { parent: groupIds.indexOf(groupOf.get(hit.parent!)!), card: hit.parent } : { parent: null, card: null };
+  });
+  const local: Map<number, { x: number; y: number }>[] = [];
+  const at = placeGroups(
+    slots,
+    (i, bands) => {
+      const members = nodes.filter((n) => n.group === groupIds[i]);
+      const ids = new Set(members.map((m) => m.id));
+      const laid = arrangeTree(members.map((m) => view(m.id, m.parent !== null && ids.has(m.parent) ? m.parent : null)), size, direction, vertical ? top + side + GROUP_GAP : 2 * side + GROUP_GAP, bands);
+      const ps = [...laid.cards];
+      const mx = Math.min(...ps.map(([, p]) => p.x));
+      const my = Math.min(...ps.map(([, p]) => p.y));
+      local[i] = new Map(ps.map(([id, p]) => [id, { x: side + p.x - mx, y: top + p.y - my }]));
+      const right = Math.max(...ps.map(([id, p]) => p.x + size(id).width));
+      const bottom = Math.max(...ps.map(([id, p]) => p.y + size(id).height));
+      return {
+        size: { width: right - mx + 2 * side, height: bottom - my + top + side },
+        band: (c) => (vertical ? side + laid.bands.get(c)! - mx : top + laid.bands.get(c)! - my),
+      };
+    },
+    direction,
+  );
+  return new Map(
+    nodes.map((n) => {
+      const i = groupIds.indexOf(n.group);
+      const p = local[i].get(n.id)!;
+      return [n.id, { at: { x: at[i].x + p.x, y: at[i].y + p.y }, size: size(n.id) }];
+    }),
+  );
+}
+
+/** 나무 간선(계단)의 꼭짓점. 부모 변 가운데 → 꺾는 자리 → 자식 변 가운데. */
+function stepPath(parent: Box, child: Box, direction: ArrangeDirection, bend: number) {
+  const step = stepAt(parent, child, direction, bend);
+  if (step === null) return null;
+  const c = (b: Box) => ({ x: b.at.x + b.size.width / 2, y: b.at.y + b.size.height / 2 });
+  const [p, q] = [c(parent), c(child)];
+  if (direction === 'down' || direction === 'up') {
+    const sign = direction === 'down' ? 1 : -1;
+    const a = p.y + (sign * parent.size.height) / 2;
+    const b = q.y - (sign * child.size.height) / 2;
+    const at = a + (b - a) * step;
+    return [{ x: p.x, y: a }, { x: p.x, y: at }, { x: q.x, y: at }, { x: q.x, y: b }];
+  }
+  const sign = direction === 'right' ? 1 : -1;
+  const a = p.x + (sign * parent.size.width) / 2;
+  const b = q.x - (sign * child.size.width) / 2;
+  const at = a + (b - a) * step;
+  return [{ x: a, y: p.y }, { x: at, y: p.y }, { x: at, y: q.y }, { x: b, y: q.y }];
+}
+
+describe('catalogue (docs/mockups/arrange-mixed.html v5): every tree edge is a step edge and crosses no card', () => {
+  type N = { id: number; parent: number | null; group: number; size?: { width: number; height: number } };
+  const n = (id: number, parent: number | null, group: number, size?: { width: number; height: number }): N => ({ id, parent, group, size });
+  const screenshot = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 2, 1), n(5, 4, 1)];
+  const cases: [string, N[], ArrangeDirection][] = [
+    ['② mixed (screenshot)', screenshot, 'down'],
+    ['③ in-group children only', [n(1, null, 0), n(2, 1, 0), n(3, 1, 0), n(4, 1, 0)], 'down'],
+    ['④ one child group', [n(1, null, 0), n(2, 1, 1)], 'down'],
+    ['⑤ many child groups', [n(1, null, 0), n(2, 1, 1), n(3, 1, 2), n(4, 1, 3)], 'down'],
+    ['⑥ parent in the middle', [n(1, null, 0), n(2, null, 0), n(3, null, 0), n(4, 2, 0), n(5, 2, 1)], 'down'],
+    ['⑦ deep chain', [n(1, null, 0), n(2, 1, 1), n(3, 2, 1), n(4, 2, 2), n(5, 2, 3), n(6, 5, 3)], 'down'],
+    ['⑧ several root groups', [n(1, null, 0), n(2, null, 1), n(3, 2, 1), n(4, 1, 2)], 'down'],
+    ['⑨ wide and tall cards', [n(1, null, 0), n(2, 1, 0, { width: 1000, height: 300 }), n(3, 1, 0, { width: 400, height: 800 }), n(4, 1, 1)], 'down'],
+    ['⑩ M8', [n(1, null, 0), n(2, 1, 0), n(3, 1, 0), n(4, 1, 0), n(5, null, 0), n(6, 5, 1), n(7, 5, 2), n(8, 5, 3), n(9, 5, 4)], 'down'],
+    ['⑪ mixed, right', screenshot, 'right'],
+    ['⑪ mixed, up', screenshot, 'up'],
+    ['⑪ mixed, left', screenshot, 'left'],
+  ];
+  const inside = (pt: { x: number; y: number }, b: Box) => pt.x > b.at.x && pt.x < b.at.x + b.size.width && pt.y > b.at.y && pt.y < b.at.y + b.size.height;
+
+  it.each(cases)('%s', (_, nodes, direction) => {
+    const boxes = arrangeGraph(nodes, direction);
+    for (const [, a] of boxes) for (const [, b] of boxes) if (a !== b) expect(overlaps(a, b)).toBe(false);
+    for (const child of nodes) {
+      if (child.parent === null) continue;
+      const path = stepPath(boxes.get(child.parent)!, boxes.get(child.id)!, direction, 36);
+      expect(path).not.toBeNull();
+      for (let s = 1; s < path!.length; s++) {
+        const [p, q] = [path![s - 1], path![s]];
+        for (let t = 0; t <= 200; t++) {
+          const pt = { x: p.x + ((q.x - p.x) * t) / 200, y: p.y + ((q.y - p.y) * t) / 200 };
+          for (const [id, b] of boxes) if (id !== child.id && id !== child.parent) expect(inside(pt, b), `edge ${child.parent}→${child.id} crosses ${id}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('the screenshot shape matches the approved picture ②', () => {
+    const boxes = arrangeGraph(screenshot, 'down');
+    expect([1, 2, 3, 4, 5].map((id) => boxes.get(id)!.at)).toEqual([
+      { x: 20, y: 60 },
+      { x: 986, y: 60 },
+      { x: 640, y: 638 },
+      { x: 1296, y: 1216 },
+      { x: 1296, y: 1794 },
+    ]);
+  });
+});
+
+describe('stepAt', () => {
+  it('bends `bend` past the parent, as a share of the gap', () => {
+    expect(stepAt(box(0, 0), box(0, 162), 'down', 36)).toBe(36 / 112);
+    expect(stepAt(box(0, 162), box(0, 0), 'up', 36)).toBe(36 / 112);
+  });
+  it('a gap narrower than two bends bends in the middle; a child behind gets a curve (null)', () => {
+    expect(stepAt(box(0, 0), box(0, 100), 'down', 36)).toBe(0.5);
+    expect(stepAt(box(0, 0), box(300, 0), 'down', 36)).toBeNull();
   });
 });
 

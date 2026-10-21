@@ -236,6 +236,12 @@ const en = {
     all: 'All repositories',
     hint: 'With “All repositories”, the graph shows every added repository. Clicking a sidebar row moves the view there.',
   },
+  edgeStyle: {
+    heading: 'Edge style',
+    step: 'Step',
+    curve: 'Curve',
+    hint: 'The shape of edges from a parent to its children. Step edges do not cross cards.',
+  },
   theme: {
     heading: 'Theme',
     light: 'Light',

@@ -100,8 +100,8 @@ function AboutTab({ updates }: { updates: Updates }) {
         )}
       </div>
       {updates.checks && (
-        <div className="about-actions">
-          <button className="btn sm" disabled={checking} onClick={runCheck}>
+        <div className="about-actions" aria-live="polite">
+          <button type="button" className="btn sm" disabled={checking} onClick={runCheck}>
             {t('about.check')}
           </button>
           {result?.kind === 'latest' && !updates.latest && <span className="hint">{t('about.upToDate')}</span>}
@@ -109,7 +109,7 @@ function AboutTab({ updates }: { updates: Updates }) {
           {updates.latest && (
             <>
               <span className="hint">{t('about.newVersion', { version: updates.latest })}</span>
-              <button className="btn primary sm" disabled={busy} onClick={updates.install}>
+              <button type="button" className="btn primary sm" disabled={busy} onClick={updates.install}>
                 {t('update.update')}
               </button>
             </>

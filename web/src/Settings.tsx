@@ -35,6 +35,8 @@ export function Settings(props: {
   onRescan: () => void;
   settings: SettingsView;
   onSettings: (next: SettingsView) => void;
+  /** 「UI」 탭의 칸(`UI_SETTINGS`)을 데몬 기본값으로 되돌린다. */
+  onResetUi: () => void;
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
   updates: Updates;
@@ -67,7 +69,7 @@ export function Settings(props: {
         {props.tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
         {props.tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
-        {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
+        {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} onReset={props.onResetUi} />}
         {props.tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'about' && <AboutTab updates={props.updates} />}
       </div>

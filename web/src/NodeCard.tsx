@@ -17,6 +17,8 @@ export function stateLabel(state: NodeState): string {
       return t('node.state.done');
     case 'exited':
       return t('node.state.exited', { code: state.code ?? '?' });
+    case 'setupFailed':
+      return t('node.state.setupFailed');
   }
 }
 
@@ -31,6 +33,8 @@ function footText(state: NodeState, parentName: string | null, held: boolean): s
       if (held) return t('node.foot.exitedHeld', { code: state.code });
       if (parentName !== null) return t('node.foot.exitedSent', { code: state.code, parent: parentName });
       return t('node.foot.exited', { code: state.code });
+    case 'setupFailed':
+      return t('node.foot.setupFailed', { code: state.code });
     case 'running':
       return null;
   }

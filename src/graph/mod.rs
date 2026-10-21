@@ -58,6 +58,10 @@ pub enum NodeState {
     Exited {
         code: Option<u32>,
     },
+    /// `loom spawn --worktree`의 설정 스크립트가 이 코드로 끝나 에이전트를 띄우지 않았다.
+    SetupFailed {
+        code: u32,
+    },
 }
 
 /// 노드가 도는 자리: 저장소와 그 워크트리(묶음). `worktree`는 `git worktree list`가 적는 절대 경로다.

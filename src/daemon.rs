@@ -36,7 +36,7 @@ use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, MessageId, Model, NewChild, NodeId,
     Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
 };
-use crate::node_host::NodeHost;
+use crate::node_host::{Exit, NodeHost};
 use crate::open;
 use crate::paste;
 use crate::process_tree;
@@ -818,22 +818,22 @@ impl App {
         }
     }
 
-    /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다.
+    /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다. 설정 스크립트가 실패했으면 그 출력의 끝을 함께 넘긴다.
     /// 서버는 맵이 아니라 이 클로저가 쥔다. 다시 붙은 호스트는 붙자마자 종료 코드를 보낼 수 있다.
     fn on_exit(
         self: &Arc<Self>,
         id: NodeId,
         codex: &Option<Arc<CodexServer>>,
         opencode2: &Option<Arc<opencode2::Node>>,
-    ) -> impl FnOnce(u32) + use<> {
+    ) -> impl FnOnce(Exit) + use<> {
         let app = self.clone();
         let discard = discarder(codex, opencode2);
-        move |code| {
+        move |exit| {
             discard();
             app.codex.lock().unwrap().remove(&id);
             app.opencode2.lock().unwrap().remove(&id);
             let setup = app.setups.lock().unwrap().remove(&id);
-            if code == 0
+            if exit == Exit::Command(0)
                 && (setup || !app.host.has_output(id))
                 && app.graph.discard_finished_shell(id).unwrap_or(false)
             {
@@ -841,7 +841,10 @@ impl App {
                 return;
             }
             // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
-            let _ = app.graph.exited(id, code);
+            let _ = match exit {
+                Exit::Command(code) => app.graph.exited(id, code),
+                Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
+            };
             // 종료를 적은 뒤 끝낸다. 남은 훅 프로세스가 다시 열면 `agent_idle`이 거절한다.
             app.idle.end(id);
         }

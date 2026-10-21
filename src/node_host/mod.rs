@@ -37,6 +37,27 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// 호스트가 끝났는데 종료 코드가 오지 않았을 때 쓰는 코드. 호스트가 죽으면 PTY가 닫혀 노드도 끝난다.
 const LOST_CODE: u32 = u32::MAX;
 
+/// 설정 스크립트가 실패했을 때 부모에게 보이는 출력 끝 줄 수. 근거: 오류는 보통 마지막 몇 줄에 있다(npm·tsc·cargo).
+const TAIL_LINES: usize = 20;
+
+/// PTY 호스트가 알린 끝.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Exit {
+    /// 명령이 이 코드로 끝났다. 설정 스크립트가 있었으면 그것이 성공한 뒤의 명령이다.
+    Command(u32),
+    /// 설정 스크립트가 이 코드로 끝나 명령을 띄우지 않았다.
+    Setup(u32),
+}
+
+impl Exit {
+    fn frame(self) -> Frame {
+        match self {
+            Exit::Command(code) => Frame::Exit(code),
+            Exit::Setup(code) => Frame::SetupFailed(code),
+        }
+    }
+}
+
 pub struct Attached {
     pub backlog: Bytes,
     pub output: broadcast::Receiver<Bytes>,
@@ -79,14 +100,14 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 
     /// 명령을 새 PTY 호스트에서 띄우고 붙는다. 프로그램이 터미널 제목(OSC 0·2)을 바꾸면 `on_title`에 그 글을 넘긴다.
     /// `setup`이 있으면 호스트가 그것을 같은 PTY에서 먼저 돌리고, 성공할 때만 명령을 띄운다.
-    /// 프로세스가 끝나면 `on_exit`에 종료 코드를 넘긴다. 설정이 실패하면 그 종료 코드다.
+    /// 프로세스가 끝나면 `on_exit`에 그 끝을 넘긴다.
     pub fn spawn(
         &self,
         id: K,
         cmd: CommandBuilder,
         setup: Option<CommandBuilder>,
         on_title: impl FnMut(String) + Send + 'static,
-        on_exit: impl FnOnce(u32) + Send + 'static,
+        on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> Result<(), String> {
         let address = start_host(&cmd, setup.as_ref())?;
         std::fs::create_dir_all(&self.dir)
@@ -100,7 +121,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         &self,
         id: K,
         mut on_title: impl FnMut(String) + Send + 'static,
-        on_exit: impl FnOnce(u32) + Send + 'static,
+        on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> Result<(), String> {
         let file = self.file(id);
         let connected = connect(&file);
@@ -124,7 +145,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         self.nodes.write().unwrap().insert(id, pty.clone());
         std::thread::spawn(move || {
             let mut titles = TitleScanner::default();
-            let code = loop {
+            let exit = loop {
                 match wire::read(&mut reader) {
                     Ok(Frame::Data(chunk)) => {
                         pty.output.lock().unwrap().push(&chunk);
@@ -132,14 +153,15 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                             on_title(title);
                         }
                     }
-                    Ok(Frame::Exit(code)) => break code,
+                    Ok(Frame::Exit(code)) => break Exit::Command(code),
+                    Ok(Frame::SetupFailed(code)) => break Exit::Setup(code),
                     Ok(Frame::Pid(pid)) => *pty.pid.lock().unwrap() = Some(pid),
                     Ok(_) => {}
-                    Err(_) => break LOST_CODE,
+                    Err(_) => break Exit::Command(LOST_CODE),
                 }
             };
             let _ = std::fs::remove_file(file);
-            on_exit(code);
+            on_exit(exit);
         });
         Ok(())
     }
@@ -175,6 +197,24 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             .unwrap()
             .get(&id)
             .is_none_or(|pty| !pty.output.lock().unwrap().backlog.0.is_empty())
+    }
+
+    /// 최근 출력의 끝 `TAIL_LINES`줄. 터미널 제어 시퀀스를 지우고, 한 줄을 `\r`로 덮어쓴 진행 표시는 마지막 글만 남긴다.
+    pub fn tail(&self, id: K) -> String {
+        let Some(pty) = self.pty(id) else {
+            return String::new();
+        };
+        let bytes = pty.output.lock().unwrap().backlog.to_vec();
+        // `strip`은 `\r`도 지우므로 줄을 먼저 고른다.
+        let lines: Vec<String> = String::from_utf8_lossy(&bytes)
+            .lines()
+            .filter_map(|line| {
+                line.split('\r')
+                    .map(strip_ansi_escapes::strip_str)
+                    .rfind(|part| !part.trim().is_empty())
+            })
+            .collect();
+        lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
     }
 
     /// backlog와 그 뒤의 출력을 빈틈없이 받는다.
@@ -443,7 +483,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
-                (0, expected)
+                (Exit::Command(0), expected)
             );
             assert!(nodes.has_output(99));
             nodes.kill(1);
@@ -473,12 +513,12 @@ mod tests {
         let mut attached = second.attach(1).unwrap();
         second.write(1, b"x\n");
         assert!(read_until(&mut attached, "got x").contains("before"));
-        assert_eq!(rx.recv().unwrap(), 3);
+        assert_eq!(rx.recv().unwrap(), Exit::Command(3));
         assert!(!dir.path().join("1").exists());
     }
 
     /// 설정 스크립트가 성공하면 같은 PTY에서 명령이 뜨고, 데몬은 명령의 PID를 받는다.
-    /// 실패하면 명령을 띄우지 않고 설정의 종료 코드로 끝난다.
+    /// 실패하면 명령을 띄우지 않고 `Exit::Setup`으로 끝난다. `tail`은 설정 출력의 끝을 제어 시퀀스 없이 돌려준다.
     #[cfg(unix)]
     #[test]
     fn setup_runs_first_and_gates_the_command() {
@@ -487,9 +527,13 @@ mod tests {
             cmd.args(["-c", script]);
             cmd
         };
-        for (setup, code, has_agent) in [
-            ("echo setup-ok", 4, true),
-            ("echo setup-bad; exit 3", 3, false),
+        for (setup, exit, has_agent) in [
+            ("echo setup-ok", Exit::Command(4), true),
+            (
+                "printf 'progress 1\\rprogress 2\\n\\033[31msetup-bad\\033[0m\\n'; exit 3",
+                Exit::Setup(3),
+                false,
+            ),
         ] {
             let dir = tempfile::tempdir().unwrap();
             let started = host::start(sh("echo agent $$; exit 4"), Some(sh(setup))).unwrap();
@@ -501,18 +545,16 @@ mod tests {
                 .resume(1, |_| {}, move |code| tx.send(code).unwrap())
                 .unwrap();
             let mut attached = nodes.attach(1).unwrap();
-            assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), code);
+            assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), exit);
             let mut seen = String::from_utf8_lossy(&attached.backlog).into_owned();
             while let Ok(chunk) = attached.output.try_recv() {
                 seen.push_str(&String::from_utf8_lossy(&chunk));
             }
             assert!(seen.contains("setup-"), "{seen}");
             assert_eq!(seen.contains("agent "), has_agent, "{seen}");
-            assert_eq!(
-                seen.contains("설정 스크립트가 실패했다(종료 코드 3)"),
-                !has_agent,
-                "{seen}"
-            );
+            if !has_agent {
+                assert_eq!(nodes.tail(1), "progress 2\nsetup-bad");
+            }
             if has_agent {
                 let agent: u32 = seen
                     .split("agent ")
@@ -560,7 +602,10 @@ mod tests {
             .unwrap();
         assert_eq!(*nodes.pty(1).unwrap().pid.lock().unwrap(), Some(42));
         nodes.write(1, b"x");
-        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), 5);
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Exit::Command(5)
+        );
         let attached = nodes.attach(1).unwrap();
         assert_eq!(&attached.backlog[..], b"old host");
         host.join().unwrap();

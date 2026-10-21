@@ -58,6 +58,27 @@ export function groupParents(groups: readonly Group[], views: readonly NodeView[
 }
 
 /**
+ * 묶음마다 부모 묶음(`parents`) 첫 단계에서 이 묶음 첫 단계까지의 단계 수. 부모 묶음 안에서 이 묶음 노드의 부모가 있는 가장 얕은 단계의 다음이다.
+ * 뿌리 묶음은 1이다. 그래프 자동 배치가 깊이가 같은 카드를 같은 줄에 둘 때 쓴다(목업 docs/mockups/same-worktree.html 안 B).
+ */
+export function attachLevels(groups: readonly Group[], views: readonly NodeView[], parents: readonly (number | null)[]): number[] {
+  const byId = new Map(views.map((v) => [v.id, v]));
+  const depth = (v: NodeView): number => {
+    const up = v.parent === null ? undefined : byId.get(v.parent);
+    return up && up.place.worktree === v.place.worktree ? depth(up) + 1 : 0;
+  };
+  return groups.map((group, i) => {
+    const parent = parents[i];
+    if (parent === null) return 1;
+    const levels = views.flatMap((v) => {
+      const up = v.parent === null ? undefined : byId.get(v.parent);
+      return v.place.worktree === group.path && up && up.place.worktree === groups[parent].path ? [depth(up) + 1] : [];
+    });
+    return Math.min(...levels);
+  });
+}
+
+/**
  * 순환(A↔B)이면 고리에서 뒤 묶음을 뿌리로 둔다: 부모 줄을 거슬러 올라가다 이미 본 묶음을 만나면 그 고리의 가장 뒤 묶음의 부모를 끊는다.
  */
 function breakCycles(parents: readonly (number | null)[]): (number | null)[] {

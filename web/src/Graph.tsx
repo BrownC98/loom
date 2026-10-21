@@ -16,7 +16,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, keepsArranged, overlaps, placeGroups, push, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
@@ -934,14 +934,24 @@ export function Graph(props: {
   });
   // 끌지 않고 커진 상자(새 카드·묶음이 든 바깥 상자, 카드·터미널 크기, 정렬)는 끌어 놓을 때와 같은 규칙으로 겹친 옆 상자를 민다.
   // 끄는 동안과 테두리를 끄는 동안(`moving`)은 놓을 때 민다. 크기만 기억한다. 안쪽 상자부터 민다(`levels`는 카드, 묶음, 저장소 순서다).
+  // 정렬한 모양을 지키는 저장소(`keepsArranged`)는 밀지 않고 새 자동 배치를 저장한다. 그 저장소의 상자는 앞 크기를 기억해 두고,
+  // 새 자동 배치로 그린 다음 렌더에서 그 크기와 견주어 커진 저장소 상자가 옆 저장소를 민다.
   const lastSizes = useRef<ReadonlyMap<string, Size>>(new Map());
+  const lastArranged = useRef<ReadonlyMap<RepoId, ReadonlyMap<string, XYPosition>>>(new Map());
   useEffect(() => {
     const now = new Map([...levels].map(([key, level]): [string, Size] => [key, level.boxes.find((b) => b.key === key)!.size]));
     const before = lastSizes.current;
     lastSizes.current = now;
+    const arranged = lastArranged.current;
+    lastArranged.current = new Map(repos.map((r) => [r.repo.id, r.arranged]));
     if (moving.size > 0) return;
-    const done = new Map<string, XYPosition>();
+    const saved = new Map([...spots].map(([key, p]) => [key, p.at]));
+    const kept = repos.filter((r) => keepsArranged(saved, arranged.get(r.repo.id) ?? new Map(), r.arranged));
+    const done = new Map(kept.flatMap((r) => [...r.arranged]));
+    const skip = new Set(kept.flatMap((r) => [r.key, ...r.arranged.keys()]));
+    lastSizes.current = new Map([...now].map(([key, size]) => [key, (skip.has(key) && before.get(key)) || size]));
     for (const key of grew(before, now)) {
+      if (skip.has(key)) continue;
       // 앞 상자가 이미 민 상자는 민 자리에서 민다.
       const level = levels.get(key)!;
       const self = level.boxes.find((b) => b.key === key)!;

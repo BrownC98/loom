@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
-import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, keepsArranged, overlaps, placeGroups, push, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
 
 const view = (id: number, parent: number | null): NodeView => ({
   id,
@@ -438,5 +438,63 @@ describe('growth without a drag (repro: new card in row 2 of main)', () => {
 
   it('a new group whose auto spot is on a grown saved group goes to its right', () => {
     expect(freeSpot(box(480, 440, 500, 400), [box(0, 0, 1000, 840)], 32)).toEqual({ x: 1032, y: 440 });
+  });
+});
+
+describe('the left tree grows children (target picture: two root trees, child groups under the right tree)', () => {
+  type N = { id: number; parent: number | null; group: number };
+  const n = (id: number, parent: number | null, group: number): N => ({ id, parent, group });
+  // main 묶음(0): 1은 왼쪽 뿌리, 2 → 3. 3의 자식 묶음 1, 2.
+  const target = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 3, 1), n(5, 3, 2)];
+  const center = (b: Box) => b.at.x + b.size.width / 2;
+  const span = (boxes: Map<number, Box>, ids: number[]) => ({ lo: Math.min(...ids.map((id) => boxes.get(id)!.at.x)), hi: Math.max(...ids.map((id) => boxes.get(id)!.at.x + boxes.get(id)!.size.width)) });
+
+  it('the target picture: 1 and 2 side by side, 3 straight under 2, child groups centred under 3', () => {
+    const at = arrangeGraph(target, 'down');
+    expect(at.get(1)!.at.y).toBe(at.get(2)!.at.y);
+    expect(center(at.get(3)!)).toBe(center(at.get(2)!));
+    const kids = span(at, [4, 5]);
+    expect((kids.lo + kids.hi) / 2).toBe(center(at.get(3)!));
+    expect(at.get(4)!.at.y).toBe(at.get(5)!.at.y);
+    expect(at.get(4)!.at.y).toBeGreaterThan(at.get(3)!.at.y + 466);
+  });
+
+  it.each([
+    ['(a) one child in the same group', [n(6, 1, 0)], [6]],
+    ['(b) one child group', [n(6, 1, 3)], [6]],
+    ['(c) four children, wider than the gap', [n(6, 1, 0), n(7, 1, 0), n(8, 1, 0), n(9, 1, 0)], [6, 7, 8, 9]],
+    ['(b+c) three child groups', [n(6, 1, 3), n(7, 1, 4), n(8, 1, 5)], [6, 7, 8]],
+  ] as [string, N[], number[]][])('%s: 1 stays centred over its children, the right tree moves right as a whole', (_, added, kids) => {
+    const before = arrangeGraph(target, 'down');
+    const at = arrangeGraph([...target, ...added], 'down');
+    for (const [a, x] of at) for (const [b, y] of at) if (a !== b) expect(overlaps(x, y), `${a} and ${b}`).toBe(false);
+    const left = span(at, [1, ...kids]);
+    expect(center(at.get(1)!)).toBe((span(at, kids).lo + span(at, kids).hi) / 2);
+    const right = span(at, [2, 3, 4, 5]);
+    expect(right.lo).toBeGreaterThan(left.hi);
+    // 오른쪽 나무는 모양을 지키고 통째로 옮겨 간다.
+    const shift = at.get(2)!.at.x - before.get(2)!.at.x;
+    expect(shift).toBeGreaterThanOrEqual(0);
+    for (const id of [3, 4, 5]) expect(at.get(id)!.at.x - before.get(id)!.at.x).toBe(shift);
+    if (kids.length > 1) expect(shift).toBeGreaterThan(0);
+  });
+});
+
+describe('keepsArranged (live growth keeps the arranged shape)', () => {
+  const m = (...e: [string, number][]) => new Map(e.map(([k, x]) => [k, { x, y: 0 }]));
+  const before = m(['1', 0], ['2', 700]);
+
+  it('saved = previous auto, and a new card changes the auto layout: follow it', () => {
+    expect(keepsArranged(m(['1', 0], ['2', 700]), before, m(['1', 310], ['2', 1340], ['6', 0]))).toBe(true);
+  });
+
+  it('a box the person dragged keeps the drag: no follow', () => {
+    expect(keepsArranged(m(['1', 0], ['2', 900]), before, m(['1', 310], ['2', 1340], ['6', 0]))).toBe(false);
+  });
+
+  it('nothing changed, or nothing arranged yet: no follow', () => {
+    expect(keepsArranged(m(['1', 0], ['2', 700]), before, before)).toBe(false);
+    expect(keepsArranged(new Map(), new Map(), before)).toBe(false);
+    expect(keepsArranged(m(['1', 0]), before, m(['1', 0], ['2', 800]))).toBe(false);
   });
 });

@@ -72,12 +72,26 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 .term { background: var(--surface); color: var(--ink); font: 11px/1.5 var(--mono); padding: 10px 12px; white-space: pre; overflow: hidden; }
 .term .dim { color: var(--ink-3); }
 .q { color: var(--warn); }
-.toasts { position: absolute; top: 12px; right: 12px; display: grid; gap: 8px; width: 320px; }
-.toast { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: var(--radius); box-shadow: 0 4px 16px oklch(0% 0 0 / 0.12); cursor: pointer; font-size: 13px; }
-.toast .ic { grid-row: span 2; width: 18px; height: 18px; color: var(--warn); }
-.toast .ic svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.toast b { font-weight: 600; }
-.toast .line { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage { height: 420px; }
+.bar { position: absolute; left: 0; right: 0; bottom: 0; height: 28px; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); z-index: 2; }
+.bar .spacer { flex: 1; }
+.bar .ver { font-family: var(--mono); color: var(--ink-3); }
+.inbox-btn { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border: 0; border-radius: 5px; background: none; color: var(--ink-2); font-size: 12px; cursor: pointer; }
+.inbox-btn[aria-expanded="true"] { background: var(--surface-hover); color: var(--ink); }
+.inbox-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.count { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--warn); color: var(--surface); font: 600 11px/16px var(--font); text-align: center; }
+.inbox { position: absolute; right: 70px; bottom: 34px; width: 360px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 8px 24px oklch(0% 0 0 / 0.14); z-index: 3; font-size: 13px; }
+.inbox h5 { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 8px 12px 4px; }
+.inbox ul { list-style: none; padding: 0 4px 4px; display: grid; }
+.inbox li { margin: 0; display: grid; grid-template-columns: 7px 1fr; gap: 0 8px; align-items: baseline; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.inbox li:hover, .inbox li.hover { background: var(--surface-hover); }
+.inbox li .dot { background: var(--warn); align-self: center; }
+.inbox li b { font-weight: 600; }
+.inbox li .kind { font-size: 12px; color: var(--ink-3); font-weight: 400; }
+.inbox li .line { grid-column: 2; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set { width: 560px; padding: 16px 20px; background: var(--panel); border-radius: 12px; display: grid; gap: 8px; font-size: 13px; }
+.set h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.set label { display: flex; align-items: center; gap: 8px; }
 .os { width: 380px; padding: 12px 14px; background: oklch(25% 0 0); color: oklch(95% 0 0); border-radius: 8px; display: grid; gap: 4px; font-size: 13px; box-shadow: 0 8px 24px oklch(0% 0 0 / 0.3); }
 .os .app { font-size: 12px; color: oklch(75% 0 0); }
 table { border-collapse: collapse; font-size: 13px; }
@@ -87,7 +101,7 @@ th { background: var(--panel); font-weight: 600; }
 </head>
 <body>
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M17</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v2 · 2026-10-21</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M17</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v3 · 2026-10-21</span></div>
   <h1>사람 응답 대기 알림</h1>
   <p class="lead">사람 지시: “에이전트가 사람에게 승인 또는 선택을 하게끔 하는 질문을 loom 시스템에서 표준화 하여, 사람이 응답하거나, 승인해야하는 부분이 생기면 알림이 발생하여 해당 알림 클릭하면 질문이 발생한 노드로 이동할 수 있게 해줘”. 점선이 바뀌는 곳이다. 답은 지금처럼 노드 터미널에 쓴다.</p>
 
@@ -98,101 +112,75 @@ th { background: var(--panel); font-weight: 600; }
   </div>
 
   <div class="fig">
-    <h2>② 질문이 생김 <span class="tag">그래프가 다른 곳을 보는 중</span></h2>
-    <div class="stage">
-      <div class="side">
-        <div class="trow head">repo</div>
-        <div class="trow"><span class="dot"></span><b>총괄</b><span class="sub">Claude</span></div>
-        <div class="trow"><span class="dot ask new"></span><b>코디-화면</b><span class="sub">Claude</span></div>
-        <div class="trow"><span class="dot ask new"></span><b>워커-1</b><span class="sub">Codex</span></div>
-      </div>
-      <div class="card" style="left: 290px; top: 70px;">
-        <div class="card-head">총괄<span class="spacer"></span><span class="state">실행 중</span></div>
-        <div class="term"><span class="dim">● 자식 결과를 기다립니다.</span></div>
-      </div>
-      <div class="toasts new">
-        <div class="toast"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01"/></svg></span><b>코디-화면 · 질문</b><span class="line">목업 A·B 가운데 어느 쪽으로 할까요?</span></div>
-        <div class="toast"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg></span><b>워커-1 · 승인 요청</b><span class="line">명령 실행을 승인해야 합니다</span></div>
-      </div>
-    </div>
+    <h2>② 질문이 생김 <span class="tag">받은편지함은 접힌 채</span></h2>
+    <div class="stage"><div class="side"><div class="trow head">repo</div><div class="trow"><span class="dot"></span><b>총괄</b><span class="sub">Claude</span></div><div class="trow"><span class="dot ask"></span><b>코디-화면</b><span class="sub">Claude</span></div><div class="trow"><span class="dot ask"></span><b>워커-1</b><span class="sub">Codex</span></div></div><div class="card" style="left:300px; top:40px; width:400px;"><div class="card-head">총괄<span class="spacer"></span><span class="state">실행 중</span></div><div class="term"><span class="dim">● 자식 결과를 기다립니다.</span></div></div><div class="bar"><span>✳ 5시간 34%</span><span class="spacer"></span><button class="inbox-btn new" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg>질문<span class="count">2</span></button><span class="ver">v0.1.505</span></div></div>
     <ul class="note">
-      <li>오른쪽 위 알림: 기다리는 노드마다 하나. 최근 3개만 보이고 나머지는 「+n」 줄 하나로 줄인다. 「질문」은 에이전트가 쓴 한 줄, 「승인 요청」은 CLI의 권한·승인 창이다.</li>
+      <li>상태 줄 오른쪽, 버전 옆에 [질문] 단추가 늘 있다. 기다리는 노드가 있으면 주황 숫자가 붙는다. 그래프 위를 가리지 않는다.</li>
       <li>사이드바: 기다리는 노드의 점이 주황 고리로 바뀐다.</li>
-      <li>알림을 닫는 단추는 없다. 답하면 사라진다(아래 ⑤).</li>
     </ul>
   </div>
 
   <div class="fig">
-    <h2>③ 알림을 클릭함 <span class="tag">사이드바 클릭과 같은 이동</span></h2>
-    <div class="stage">
-      <div class="side">
-        <div class="trow head">repo</div>
-        <div class="trow"><span class="dot"></span><b>총괄</b><span class="sub">Claude</span></div>
-        <div class="trow" aria-current="true"><span class="dot ask"></span><b>코디-화면</b><span class="sub">Claude</span></div>
-        <div class="trow"><span class="dot ask"></span><b>워커-1</b><span class="sub">Codex</span></div>
-      </div>
-      <div class="card ask sel new" style="left: 330px; top: 70px; width: 400px;">
-        <div class="card-head">코디-화면<span class="spacer"></span><span class="state ask new">응답 대기</span></div>
-        <div class="term">● 목업 두 판을 만들었습니다.
-<span class="q">? 목업 A·B 가운데 어느 쪽으로 할까요?</span>
-  <span class="q">❯ 1. A — 알림을 오른쪽 위에</span>
-    2. B — 알림을 아래 상태 줄에
-<span class="dim">Enter로 고르기 · Esc 취소</span></div>
-      </div>
-      <div class="toasts">
-        <div class="toast"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01"/></svg></span><b>코디-화면 · 질문</b><span class="line">목업 A·B 가운데 어느 쪽으로 할까요?</span></div>
-        <div class="toast"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg></span><b>워커-1 · 승인 요청</b><span class="line">명령 실행을 승인해야 합니다</span></div>
-      </div>
-    </div>
+    <h2>③ 받은편지함을 엶 <span class="tag">[질문] 클릭</span></h2>
+    <div class="stage"><div class="side"><div class="trow head">repo</div><div class="trow"><span class="dot"></span><b>총괄</b><span class="sub">Claude</span></div><div class="trow"><span class="dot ask"></span><b>코디-화면</b><span class="sub">Claude</span></div><div class="trow"><span class="dot ask"></span><b>워커-1</b><span class="sub">Codex</span></div></div><div class="card" style="left:300px; top:40px; width:400px;"><div class="card-head">총괄<span class="spacer"></span><span class="state">실행 중</span></div><div class="term"><span class="dim">● 자식 결과를 기다립니다.</span></div></div><div class="inbox new"><h5>응답을 기다리는 노드 2</h5><ul>
+<li class="hover"><span class="dot"></span><b>코디-화면 <span class="kind">· 질문</span></b><span class="line">목업 A·B 가운데 어느 쪽으로 할까요?</span></li>
+<li><span class="dot"></span><b>워커-1 <span class="kind">· 승인 요청</span></b><span class="line">명령 실행을 승인해야 합니다</span></li>
+</ul></div><div class="bar"><span>✳ 5시간 34%</span><span class="spacer"></span><button class="inbox-btn" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg>질문<span class="count">2</span></button><span class="ver">v0.1.505</span></div></div>
     <ul class="note">
-      <li>그래프가 그 노드로 옮겨 가고 카드를 고른다. 사이드바도 그 노드를 고른다. 터미널에 입력 초점이 간다.</li>
+      <li>기다리는 노드마다 한 줄: 노드 이름, 종류(질문·승인 요청), 질문 한 줄. 최근 것이 위다. 줄이 많으면 목록 안에서 스크롤한다.</li>
+      <li>「질문」은 에이전트가 <code>loom ask</code>로 쓴 한 줄, 「승인 요청」은 CLI의 권한·승인 창이다.</li>
+      <li>바깥을 클릭하거나 Esc를 누르면 닫힌다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>④ 줄을 클릭함 <span class="tag">사이드바 클릭과 같은 이동</span></h2>
+    <div class="stage"><div class="side"><div class="trow head">repo</div><div class="trow"><span class="dot"></span><b>총괄</b><span class="sub">Claude</span></div><div class="trow" aria-current="true"><span class="dot ask"></span><b>코디-화면</b><span class="sub">Claude</span></div><div class="trow"><span class="dot ask"></span><b>워커-1</b><span class="sub">Codex</span></div></div><div class="new" style="position:absolute; left:326px; top:36px; width:408px; height:228px;"></div><div class="card ask sel" style="left:330px; top:40px; width:400px;"><div class="card-head">코디-화면<span class="spacer"></span><span class="state ask">응답 대기</span></div><div class="term">● 목업 두 판을 만들었습니다.
+<span class="q">? 목업 A·B 가운데 어느 쪽으로 할까요?</span>
+  <span class="q">❯ 1. A — 받은편지함을 상태 줄에</span>
+    2. B — 받은편지함을 그래프 위에
+<span class="dim">Enter로 고르기 · Esc 취소</span></div></div><div class="bar"><span>✳ 5시간 34%</span><span class="spacer"></span><button class="inbox-btn" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg>질문<span class="count">2</span></button><span class="ver">v0.1.505</span></div></div>
+    <ul class="note">
+      <li>그래프가 그 노드로 옮겨 가고 카드를 고른다. 사이드바도 그 노드를 고른다. 터미널에 입력 초점이 간다. 받은편지함은 닫힌다.</li>
       <li>기다리는 카드: 주황 테두리, 상태 칸은 「응답 대기」.</li>
     </ul>
   </div>
 
   <div class="fig">
-    <h2>④ loom 창이 가려져 있음 <span class="tag">브라우저·Windows 앱 알림</span></h2>
-    <div class="os new">
+    <h2>⑤ 답함 <span class="tag">노드 터미널에 입력</span></h2>
+    <div class="stage"><div class="side"><div class="trow head">repo</div><div class="trow"><span class="dot"></span><b>총괄</b><span class="sub">Claude</span></div><div class="trow" aria-current="true"><span class="dot"></span><b>코디-화면</b><span class="sub">Claude</span></div><div class="trow"><span class="dot ask"></span><b>워커-1</b><span class="sub">Codex</span></div></div><div class="card sel" style="left:330px; top:40px; width:400px;"><div class="card-head">코디-화면<span class="spacer"></span><span class="state">실행 중</span></div><div class="term">● 목업 두 판을 만들었습니다.
+<span class="dim">⎿ A — 받은편지함을 상태 줄에</span>
+● A로 구현합니다.</div></div><div class="bar"><span>✳ 5시간 34%</span><span class="spacer"></span><button class="inbox-btn" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg>질문<span class="count">1</span></button><span class="ver">v0.1.505</span></div></div>
+    <ul class="note"><li>사람이 그 터미널에 키를 입력하면 그 줄과 주황 표시가 사라지고 숫자가 준다. 노드가 끝나도 사라진다. 0이면 숫자를 숨긴다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>⑥ 설정 › UI: 시스템 알림 <span class="tag">기본 꺼짐</span></h2>
+    <div class="set new">
+      <h4>시스템 알림</h4>
+      <label><input type="checkbox"> loom 창이 보이지 않을 때 질문을 시스템 알림으로 알림</label>
+      <span class="hint">켜면 브라우저가 알림 허용을 한 번 묻습니다.</span>
+    </div>
+    <div class="os">
       <span class="app">loom</span>
       <b>코디-화면 · 질문</b>
       <span>목업 A·B 가운데 어느 쪽으로 할까요?</span>
     </div>
     <ul class="note">
-      <li>창이 보이지 않을 때만 시스템 알림을 띄운다. 클릭하면 loom 창이 앞으로 오고 ③이 된다.</li>
-      <li>알림 허용은 사람이 ②의 알림을 처음 클릭할 때 한 번만 묻는다. 화면을 열 때는 묻지 않는다. 허용하지 않으면 ②만 보인다.</li>
+      <li>기본은 꺼짐이다. 받은편지함이 늘 보이므로 시스템 알림은 더 원하는 사람만 켠다. 허용 요청도 이 체크를 켤 때만 나온다.</li>
+      <li>켜 두면 창이 가려져 있을 때 시스템 알림(아래 검은 상자)을 띄운다. 클릭하면 loom 창이 앞으로 오고 ④가 된다.</li>
     </ul>
-  </div>
-
-  <div class="fig">
-    <h2>⑤ 답함 <span class="tag">노드 터미널에 입력</span></h2>
-    <div class="stage" style="height: 280px;">
-      <div class="side">
-        <div class="trow head">repo</div>
-        <div class="trow"><span class="dot"></span><b>총괄</b><span class="sub">Claude</span></div>
-        <div class="trow" aria-current="true"><span class="dot"></span><b>코디-화면</b><span class="sub">Claude</span></div>
-        <div class="trow"><span class="dot ask"></span><b>워커-1</b><span class="sub">Codex</span></div>
-      </div>
-      <div class="card sel" style="left: 330px; top: 30px; width: 400px;">
-        <div class="card-head">코디-화면<span class="spacer"></span><span class="state">실행 중</span></div>
-        <div class="term">● 목업 두 판을 만들었습니다.
-<span class="dim">⎿ A — 알림을 오른쪽 위에</span>
-● A로 구현합니다.</div>
-      </div>
-      <div class="toasts">
-        <div class="toast"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg></span><b>워커-1 · 승인 요청</b><span class="line">명령 실행을 승인해야 합니다</span></div>
-      </div>
-    </div>
-    <ul class="note"><li>사람이 그 터미널에 키를 입력하면 알림·주황 표시가 사라진다. 노드가 끝나도 사라진다.</li></ul>
   </div>
 
   <div class="fig">
     <h2>승인할 것</h2>
     <table>
       <tr><th>항목</th><th>권장안</th><th>다른 안</th></tr>
-      <tr><td>②~⑤ 화면과 문구</td><td>이대로</td><td>—</td></tr>
-      <tr><td>에이전트가 묻는 표준</td><td><b>권장</b>: <code>loom ask "&lt;질문 한 줄&gt;"</code> 뒤 턴을 끝낸다. 답은 터미널에 쓴다. CLI 권한·승인 창은 자동으로 알린다</td><td>화면에 따로 답하는 창을 둔다(부품이 늘고 터미널과 겹친다)</td></tr>
-      <tr><td>누가 사람에게 묻나</td><td><b>권장</b>: 사람이 띄운 노드(총괄)만 <code>loom ask</code>. 코디·워커는 지금처럼 부모에게 묻는다. 권한 창은 모든 노드가 알린다</td><td>모든 노드가 사람에게 바로 묻는다</td></tr>
-      <tr><td>알림 닫기</td><td><b>권장</b>: 닫는 단추 없음. 답하면 사라진다</td><td>× 단추로 숨긴다(카드 표시는 남는다)</td></tr>
+      <tr><td>②~⑥ 화면과 문구</td><td>이대로</td><td>—</td></tr>
+      <tr><td>받은편지함 자리</td><td><b>권장</b>: 상태 줄 오른쪽(그래프를 가리지 않는다)</td><td>그래프 오른쪽 위</td></tr>
+      <tr><td>시스템 알림 기본값</td><td><b>권장</b>: 꺼짐</td><td>켜짐(처음 화면을 열 때 허용을 물을 수 없어 결국 켤 때 묻는다)</td></tr>
+      <tr><td>에이전트가 묻는 표준</td><td>v2와 같음: <code>loom ask "&lt;질문 한 줄&gt;"</code> 뒤 턴을 끝낸다. 답은 터미널에 쓴다. CLI 권한·승인 창은 자동으로 알린다</td><td>—</td></tr>
+      <tr><td>누가 사람에게 묻나</td><td>v2와 같음: 사람이 띄운 노드만 <code>loom ask</code>. 코디·워커는 부모에게 묻는다</td><td>—</td></tr>
     </table>
   </div>
 </main>

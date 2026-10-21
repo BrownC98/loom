@@ -47,14 +47,52 @@ loom wait --json                                 # wait for the next message
 loom done "Added one toggle() test"              # report to the parent
 ```
 
+## Built-in skills
+
+loom ships four skills: `o-mode` (orchestration mode), `ste-100`, `user-doc` and `raptor-3`. You do not install anything.
+
+- Call a skill by name. Claude Code: `/loom:<name>`. Codex: `loom:<name>`. OpenCode 2: `<name>`.
+- Always on, without a call: STE-100 and the raptor-3 work rules go to every node. A node without a parent (a node you start) also gets the full `o-mode` procedure and acts as the lead. A child gets only the common brief rules of `o-mode`.
+- A node reads the skill text when it starts. After you update loom, restart running nodes to give them the new text.
+
+Details (Korean): [docs/design.md 「내장 스킬」](docs/design.md#내장-스킬).
+
 ## Install
 
 Get the files from the [latest release](https://github.com/BrownC98/loom/releases/latest).
 
 - **Windows:** run `loom_<version>_x64-setup.exe`. To remove loom, use Windows **Settings › Apps**.
-- **Linux (x86-64):** download `loom-x86_64-linux`, run `loom serve`, and open the address that it prints.
+- **Linux and WSL (x86-64), web version:** see "Web version" below.
 
 Install the agent CLIs (Claude Code, Codex, OpenCode 2) yourself. loom finds them on `PATH`.
+
+### Web version (Linux and WSL)
+
+One daemon also serves the screen. You use it in a browser.
+
+1. Download the binary and save it with the name `loom`. Agents in nodes call the `loom` command, so the name must be `loom`. The daemon puts its own folder first on each node's `PATH`.
+
+   ```sh
+   mkdir -p ~/loom/bin
+   curl -fL -o ~/loom/bin/loom https://github.com/BrownC98/loom/releases/latest/download/loom-x86_64-linux
+   chmod +x ~/loom/bin/loom
+   ```
+
+2. Start the daemon in a repository folder. The first folder becomes the first repository.
+
+   ```sh
+   cd <repository folder>
+   ~/loom/bin/loom serve            # default address 127.0.0.1:7420
+   ```
+
+   To keep it running after you close the terminal: `setsid nohup ~/loom/bin/loom serve >>~/.loom/serve.log 2>&1 </dev/null &`
+
+3. Open http://127.0.0.1:7420 in a browser. On WSL, open the same address in a Windows browser.
+4. Add repositories in the left sidebar, and start agents with [New node] on a worktree group.
+
+- **Data:** `~/.loom` (database, logs, built-in skills). If you delete it, the node history is lost.
+- **Update:** replace the file and restart only the daemon. Nodes (agent processes) live apart from the daemon, and the new daemon attaches to them again.
+- **Address:** by default only this machine can open it (loopback). loom assumes one user and has no sign-in, so do not open it to other machines with `--listen`.
 
 Design and decisions (Korean): [docs/design.md](docs/design.md).
 

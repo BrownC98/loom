@@ -35,6 +35,7 @@ const en = {
     arrangeGroup: 'Arrange this group',
     arrangeRepo: 'Arrange this repository',
     direction: 'Arrange direction',
+    resetSizes: 'Reset all card sizes',
     directions: { down: 'Down', right: 'Right', up: 'Up', left: 'Left' },
     empty: 'Click “New node” to start the first agent.',
     minimap: 'Minimap',
@@ -55,6 +56,7 @@ const en = {
     terminal: 'Terminal',
     expand: 'Expand',
     expandTitle: 'Expand (or double-click the header)',
+    resetSize: 'Reset to default size',
     collapse: 'Collapse',
     remove: 'Remove node',
     state: {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
-import { attachLevels, groupParents, groupsOf, inGroup, type Group } from './repos';
+import { attachCards, groupParents, groupsOf, inGroup, type Group } from './repos';
 
 const view = (id: number, parent: number | null, worktree: string, repo = 1): NodeView => ({
   id,
@@ -47,18 +47,18 @@ describe('groupParents', () => {
   });
 });
 
-describe('attachLevels', () => {
+describe('attachCards', () => {
   const groups = [group('/a'), group('/b'), group('/c')];
 
-  it('is one level below the parent node inside the parent group', () => {
-    // /a: 1 -> 2. /b: 3 (parent 1, level 0), /c: 4 (parent 2, level 1).
+  it('is the parent node inside the parent group', () => {
+    // /a: 1 -> 2. /b: 3 (parent 1), /c: 4 (parent 2).
     const views = [view(1, null, '/a'), view(2, 1, '/a'), view(3, 1, '/b'), view(4, 2, '/c')];
-    expect(attachLevels(groups, views, groupParents(groups, views))).toEqual([1, 1, 2]);
+    expect(attachCards(groups, views, groupParents(groups, views))).toEqual([null, 1, 2]);
   });
 
-  it('the shallowest parent node wins', () => {
+  it('the first child in views order wins', () => {
     const views = [view(1, null, '/a'), view(2, 1, '/a'), view(3, 2, '/b'), view(4, 1, '/b')];
-    expect(attachLevels(groups, views, groupParents(groups, views))[1]).toBe(1);
+    expect(attachCards(groups, views, groupParents(groups, views))[1]).toBe(2);
   });
 });
 

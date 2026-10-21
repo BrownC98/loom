@@ -1,0 +1,176 @@
+//! `loom show`: user-doc 스킬의 문서를 점검하고, 문서 ID를 붙이고, 그 기계의 기본 앱으로 연다.
+//! bash가 없는 Windows 노드에서도 같은 일을 하도록 Rust에 둔다. 렌더 그림과 창 확인은 `show.sh`가 한다.
+//! 근거: skills/user-doc/SKILL.md 「보이기」.
+
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use crate::open;
+
+/// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
+const ID_OPEN: &str = r#"<span class="doc-id">"#;
+const WHO: &str = r#"<div class="who">"#;
+
+pub fn show(path: &Path) -> Result<(), String> {
+    let doc = real_path(path)?;
+    let html = fs::read_to_string(&doc).map_err(|e| format!("{}: {e}", doc.display()))?;
+    check(&html)?;
+    let id = doc_id(&doc)?;
+    fs::write(&doc, stamp(&html, &id)).map_err(|e| e.to_string())?;
+    println!("show: 문서 ID {id}");
+    open::open(&doc).map_err(|e| e.to_string())?;
+    println!("show: 열었다: {}", doc.display());
+    Ok(())
+}
+
+/// 같은 문서가 언제나 같은 표 열쇠를 갖게 링크를 푼다. Windows의 `\\?\C:\…`는 앱이 못 읽으므로 `C:\…`로 둔다.
+fn real_path(path: &Path) -> Result<PathBuf, String> {
+    let real = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(without_verbatim(real))
+}
+
+fn without_verbatim(real: PathBuf) -> PathBuf {
+    let drive = real
+        .to_string_lossy()
+        .strip_prefix(r"\\?\")
+        .filter(|rest| !rest.starts_with(r"UNC\"))
+        .map(PathBuf::from);
+    drive.unwrap_or(real)
+}
+
+/// style.html에서 시작한 문서인지 본다.
+fn check(html: &str) -> Result<(), String> {
+    if title(html).is_none_or(str::is_empty) {
+        return Err("<title>이 없다".into());
+    }
+    let marks = [
+        (
+            r#"style="color-scheme: light""#,
+            r#"<html style="color-scheme: light">가 없다(기본은 라이트)"#,
+        ),
+        (
+            r#"class="theme-toggle""#,
+            "라이트/다크 전환 버튼(.theme-toggle)이 없다",
+        ),
+        ("응답할 곳", "머리 줄 「응답할 곳」이 없다"),
+        (WHO, r#"머리 줄(<div class="who">)이 없다"#),
+    ];
+    match marks.iter().find(|(mark, _)| !html.contains(mark)) {
+        Some((_, missing)) => Err((*missing).into()),
+        None => Ok(()),
+    }
+}
+
+fn title(html: &str) -> Option<&str> {
+    let start = html.find("<title>")? + "<title>".len();
+    let len = html[start..].find('<').unwrap_or(html.len() - start);
+    Some(&html[start..start + len])
+}
+
+/// 사람이 어느 문서에 답하는지 짧게 말하게 한다. 같은 경로는 판이 바뀌어도 같은 ID다.
+/// 목업(`docs/mockups/` 아래)은 M, 보고서는 R에 번호를 붙인다. 표는 경로와 ID 두 열이다.
+fn doc_id(doc: &Path) -> Result<String, String> {
+    let home = std::env::home_dir().ok_or("홈 폴더를 찾지 못했다")?;
+    let table = home.join(".cache").join("user-doc").join("ids.tsv");
+    fs::create_dir_all(table.parent().unwrap_or(&home)).map_err(|e| e.to_string())?;
+    let rows = fs::read_to_string(&table).unwrap_or_default();
+    let key = doc.to_string_lossy();
+    let (id, new) = lookup(&rows, &key, mockup(doc));
+    if new {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&table)
+            .map_err(|e| format!("{}: {e}", table.display()))?;
+        writeln!(file, "{key}\t{id}").map_err(|e| e.to_string())?;
+    }
+    Ok(id)
+}
+
+fn mockup(doc: &Path) -> bool {
+    doc.ancestors().any(|dir| dir.ends_with("docs/mockups"))
+}
+
+/// 표에 있는 ID를 돌려준다. 없으면 같은 종류의 다음 번호를 만들고 `true`를 같이 준다.
+fn lookup(rows: &str, key: &str, mockup: bool) -> (String, bool) {
+    let rows = rows.lines().filter_map(|row| row.split_once('\t'));
+    if let Some((_, id)) = rows.clone().find(|(path, _)| *path == key) {
+        return (id.to_string(), false);
+    }
+    let kind = if mockup { 'M' } else { 'R' };
+    let used = rows.filter(|(_, id)| id.starts_with(kind)).count();
+    (format!("{kind}{}", used + 1), true)
+}
+
+/// 머리 줄 맨 앞과 `<title>` 앞에 ID를 붙인다. 이미 붙어 있으면 바꾸고, 제목에는 한 번만 붙인다.
+fn stamp(html: &str, id: &str) -> String {
+    let tag = format!("{ID_OPEN}문서 ID: <b>{id}</b></span>");
+    let mut out = match html.find(ID_OPEN) {
+        Some(start) => {
+            let end = html[start..]
+                .find("</span>")
+                .map_or(html.len(), |i| start + i + "</span>".len());
+            format!("{}{tag}{}", &html[..start], &html[end..])
+        }
+        None => html.replacen(WHO, &format!("{WHO}{tag}"), 1),
+    };
+    if let Some(old) = title(&out).filter(|t| !t.starts_with(&format!("{id} "))) {
+        let old = format!("<title>{old}");
+        out = out.replacen(&old, &format!("<title>{id} {}", &old["<title>".len()..]), 1);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DOC: &str = r#"<html style="color-scheme: light"><head><title>문서</title></head>
+<body><button class="theme-toggle"></button><div class="who">응답할 곳: 총괄</div></body></html>"#;
+
+    #[test]
+    fn stamp_adds_id_once() {
+        let once = stamp(DOC, "M3");
+        assert!(once.contains("<title>M3 문서</title>"));
+        assert!(once.contains(
+            r#"<div class="who"><span class="doc-id">문서 ID: <b>M3</b></span>응답할 곳"#
+        ));
+        assert_eq!(stamp(&once, "M3"), once);
+        assert!(check(&once).is_ok());
+    }
+
+    #[test]
+    fn check_names_the_missing_mark() {
+        let err = check(&DOC.replace("theme-toggle", "x")).unwrap_err();
+        assert!(err.contains(".theme-toggle"));
+        assert!(check(&DOC.replace("<title>문서", "<title>")).is_err());
+    }
+
+    #[test]
+    fn lookup_keeps_ids_and_counts_per_kind() {
+        let rows = "/a/x.html\tM1\n/b/y.html\tR1\n/c/z.html\tM2\n";
+        assert_eq!(lookup(rows, "/b/y.html", true), ("R1".into(), false));
+        assert_eq!(lookup(rows, "/d/n.html", true), ("M3".into(), true));
+        assert_eq!(lookup(rows, "/d/n.html", false), ("R2".into(), true));
+    }
+
+    #[test]
+    fn mockups_are_under_docs_mockups() {
+        assert!(mockup(Path::new("/r/docs/mockups/a.html")));
+        assert!(mockup(Path::new("/r/docs/mockups/old/a.html")));
+        assert!(!mockup(Path::new("/r/docs/a.html")));
+    }
+
+    #[test]
+    fn windows_paths_lose_only_the_drive_verbatim_prefix() {
+        let plain = |p: &str| without_verbatim(PathBuf::from(p));
+        assert_eq!(
+            plain(r"\\?\C:\Users\me\a.html"),
+            PathBuf::from(r"C:\Users\me\a.html")
+        );
+        let unc = r"\\?\UNC\wsl.localhost\Ubuntu\a.html";
+        assert_eq!(plain(unc), PathBuf::from(unc));
+        assert_eq!(plain("/home/me/a.html"), PathBuf::from("/home/me/a.html"));
+    }
+}

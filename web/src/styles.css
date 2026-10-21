@@ -164,6 +164,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 미니맵: 그래프 오른쪽 아래. 카드는 상태 색, 묶음은 점선 테두리 */
 .react-flow { --xy-minimap-background-color: var(--panel); --xy-minimap-mask-background-color: color-mix(in oklch, var(--bg) 70%, transparent); --xy-minimap-mask-stroke-color: var(--line-strong); --xy-minimap-mask-stroke-width: 1; }
 .react-flow__minimap { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; cursor: pointer; }
+/* 미니맵 오른쪽 아래 모서리에 겹친 배율. 같은 패널 여백이라 미니맵 안쪽에 놓인다. */
+.react-flow__panel.zoom-level { padding: 2px 6px; font: 11px/1.4 var(--mono); color: var(--ink-2); pointer-events: none; }
 .react-flow__minimap-node.repo { fill: none; stroke: var(--ink-3); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.worktree { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.running { fill: var(--run); }
@@ -268,7 +270,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .split .caret svg + svg { width: 12px; height: 12px; }
 .menu { position: fixed; z-index: 30; width: 180px; display: grid; padding: 6px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); }
 .menu button { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
-.menu button:hover { background: var(--surface-hover); }
+.menu button:hover:enabled { background: var(--surface-hover); }
+.menu button:disabled { color: var(--ink-3); cursor: default; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
 .menu button:focus-visible { background: var(--surface-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
 .menu svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .menu .check { margin-left: auto; color: var(--ink-2); }
@@ -319,6 +323,16 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .term { --rows: 24; height: calc(var(--rows) * 16px + 16px); cursor: text; }
 /* 터미널 칸. 바탕은 터미널 테마가 칠한다(Terminal.tsx). */
 .xterm-box { height: 100%; padding: 8px 10px; }
+/* 사람이 크기를 바꾼 표준 카드(Graph.tsx `RESIZE_EDGES`, 목업 docs/mockups/card-resize.html). 카드가 노드 크기를 채우고 터미널이 남은 높이를 채운다. */
+.react-flow__node-card.sized .card { width: 100%; height: 100%; }
+.react-flow__node-card.sized .term { height: auto; flex: 1; min-height: 0; }
+/* 끄는 동안 Graph.tsx `Card`가 시작 크기를 px로 묶는다. */
+.term-hold { height: 100%; }
+/* 크기를 바꾸는 테두리는 보이지 않는다. 테두리 안팎 3px씩 6px 띠, 모서리는 12×12px다. 커서는 React Flow가 정한다. */
+.react-flow__resize-control.line { border-width: 0; border-color: transparent; }
+.react-flow__resize-control.line.right { width: 6px; }
+.react-flow__resize-control.line.bottom { height: 6px; }
+.react-flow__resize-control.handle { width: 12px; height: 12px; border: 0; background: none; }
 .xterm-box > div { height: 100%; }
 .card-foot { font-size: 12px; color: var(--ink-3); padding: 5px 10px; border-top: 1px solid var(--line); }
 .card[data-selected] .card-foot { color: var(--accent); }

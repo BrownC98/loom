@@ -37,6 +37,7 @@ const ko: typeof en = {
     arrangeGroup: '이 묶음 정렬',
     arrangeRepo: '이 저장소 정렬',
     direction: '정렬 방향',
+    resetSizes: '모든 카드 기본 크기로',
     directions: { down: '아래로', right: '오른쪽으로', up: '위로', left: '왼쪽으로' },
     empty: '‘새 노드’를 눌러 첫 에이전트를 시작합니다.',
     minimap: '미니맵',
@@ -57,6 +58,7 @@ const ko: typeof en = {
     terminal: '터미널',
     expand: '확대',
     expandTitle: '확대(머리글을 두 번 클릭)',
+    resetSize: '기본 크기로 되돌리기',
     collapse: '축소',
     remove: '노드 제거',
     state: {

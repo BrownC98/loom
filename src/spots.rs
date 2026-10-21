@@ -59,6 +59,8 @@ pub struct Point {
 pub struct Placed {
     pub spot: Spot,
     pub at: Point,
+    /// 끌지 않고 커진 상자가 이 상자를 밀기 전의 자리. 민 상자가 줄거나 사라지면 화면이 이 자리 쪽으로 되돌린다. 사람이 옮기면 없다.
+    pub home: Option<Point>,
 }
 
 /// 저장한 자리 모두와 정렬한 모양을 지키는 저장소.
@@ -113,25 +115,30 @@ impl Spots {
     /// 저장한 자리 모두.
     fn list(&self) -> rusqlite::Result<Vec<Placed>> {
         let db = self.db.lock().unwrap();
-        let mut stmt = db.prepare("SELECT spot, x, y FROM spots")?;
+        let mut stmt = db.prepare("SELECT spot, x, y, home_x, home_y FROM spots")?;
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?))
+            let home = match (row.get(3)?, row.get(4)?) {
+                (Some(x), Some(y)) => Some(Point { x, y }),
+                _ => None,
+            };
+            Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?, home))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (spot, x, y) = row?;
+            let (spot, x, y, home) = row?;
             // 형식이 옛것인 줄은 버린다. 그 상자는 자동 배치 자리에 선다.
             if let Ok(spot) = serde_json::from_str(&spot) {
                 out.push(Placed {
                     spot,
                     at: Point { x, y },
+                    home,
                 });
             }
         }
         Ok(out)
     }
 
-    /// 놓은 상자와 그 상자가 민 상자들의 자리를 한 트랜잭션에 쓴다. 묶음·카드를 놓은 저장소는 정렬한 모양을 더 지키지 않는다.
+    /// 놓은 상자와 그 상자가 민 상자들의 자리(밀기 전 자리 포함)를 한 트랜잭션에 쓴다. 묶음·카드를 놓은 저장소는 정렬한 모양을 더 지키지 않는다.
     pub fn put(&self, placed: &[Placed]) -> rusqlite::Result<()> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction()?;
@@ -220,8 +227,15 @@ fn write(tx: &rusqlite::Transaction, placed: &[Placed]) -> rusqlite::Result<()> 
     for p in placed {
         let key = serde_json::to_string(&p.spot).expect("자리는 늘 직렬화된다");
         tx.execute(
-            "INSERT OR REPLACE INTO spots (spot, repo, x, y) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![key, p.spot.repo().0, p.at.x, p.at.y],
+            "INSERT OR REPLACE INTO spots (spot, repo, x, y, home_x, home_y) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                key,
+                p.spot.repo().0,
+                p.at.x,
+                p.at.y,
+                p.home.map(|h| h.x),
+                p.home.map(|h| h.y)
+            ],
         )?;
     }
     Ok(())
@@ -241,6 +255,7 @@ mod tests {
         Placed {
             spot,
             at: Point { x, y: 1.0 },
+            home: None,
         }
     }
 
@@ -286,6 +301,24 @@ mod tests {
         assert_eq!(spots.list().unwrap().len(), 2);
         spots.clear(a).unwrap();
         assert_eq!(spots.list().unwrap(), [at(Spot::Repo { repo: b }, 3.0)]);
+    }
+
+    #[test]
+    fn home_is_written_with_the_spot_and_put_again_replaces_it() {
+        let (_tmp, spots) = spots();
+        let pushed = Placed {
+            home: Some(Point { x: 0.0, y: 1.0 }),
+            ..at(Spot::Repo { repo: RepoId(2) }, 9.0)
+        };
+        spots.put(std::slice::from_ref(&pushed)).unwrap();
+        assert_eq!(spots.list().unwrap(), [pushed]);
+        spots
+            .put(&[at(Spot::Repo { repo: RepoId(2) }, 0.0)])
+            .unwrap();
+        assert_eq!(
+            spots.list().unwrap(),
+            [at(Spot::Repo { repo: RepoId(2) }, 0.0)]
+        );
     }
 
     #[test]
@@ -350,6 +383,7 @@ mod trigger_tests {
                 .put(&[Placed {
                     spot,
                     at: Point { x: 0.0, y: 0.0 },
+                    home: None,
                 }])
                 .unwrap()
         };
@@ -374,7 +408,8 @@ mod trigger_tests {
             spots.list().unwrap(),
             [Placed {
                 spot: Spot::Repo { repo: RepoId(2) },
-                at: Point { x: 0.0, y: 0.0 }
+                at: Point { x: 0.0, y: 0.0 },
+                home: None,
             }]
         );
     }
@@ -399,6 +434,7 @@ mod trigger_tests {
                 .put(&[Placed {
                     spot,
                     at: Point { x: 5.0, y: 5.0 },
+                    home: None,
                 }])
                 .unwrap()
         };

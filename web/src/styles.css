@@ -64,9 +64,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .caption svg { width: 14px; height: 14px; stroke-width: 1.5; }
 .caption:hover { background: var(--surface-hover); color: var(--ink); }
 .caption.close:hover { background: #c42b1c; color: #fff; }
-/* 사이드바 경계(sidebar-resize.html). 칸 사이 선 위에 7px 폭으로 겹친다. 맨 아래 상태 줄(28px)은 덮지 않는다. */
+/* 사이드바 경계(sidebar-resize.html). 칸 사이 선 위에 7px 폭으로 겹친다. 맨 아래 상태 줄(--status-h)은 덮지 않는다. */
 /* 경계는 사이드바·그래프 칸 바로 위(1)에만 둔다. 더 높으면 그 위에 뜬 창(저장소 추가, 줄 창)을 뚫고 마우스를 받는다. */
-.splitter { position: absolute; top: 0; bottom: 28px; width: 7px; margin-left: -3px; margin-right: -4px; z-index: 1; cursor: col-resize; touch-action: none; }
+.splitter { position: absolute; top: 0; bottom: var(--status-h); width: 7px; margin-left: -3px; margin-right: -4px; z-index: 1; cursor: col-resize; touch-action: none; }
 .splitter:hover, .splitter:focus-visible, .splitter:active { background: color-mix(in oklch, var(--accent) 55%, transparent); outline: none; }
 
 /* 사이드바: 트리와 맨 아래 [설정](docs/mockups/graph-panels.html 1번) */
@@ -421,11 +421,12 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .pick .tag { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .pick .recent { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
 
-/* 하단 상태 줄과 사용량 팝오버(docs/mockups/usage.html) */
-.app { grid-template-rows: minmax(0, 1fr) 28px; }
+/* 하단 상태 줄과 사용량 팝오버(docs/mockups/usage.html). 높이는 Orca 상태 줄에 맞췄다. */
+:root { --status-h: 22px; }
+.app { grid-template-rows: minmax(0, 1fr) var(--status-h); }
 a { color: var(--accent); }
 .statusbar { grid-column: 1 / -1; position: relative; display: flex; align-items: stretch; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); padding: 0 4px; min-width: 0; }
-.usage-btn .sep { width: 1px; align-self: stretch; background: var(--line); margin: 6px 2px; }
+.usage-btn .sep { width: 1px; align-self: stretch; background: var(--line); margin: 4px 2px; }
 .usage-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; font-size: 12px; }
 .usage-btn:hover { background: var(--surface-hover); color: var(--ink); }
 .usage-btn[aria-expanded="true"] { background: var(--accent-wash); color: var(--ink); }

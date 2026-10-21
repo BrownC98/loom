@@ -287,7 +287,9 @@ fn reconnecting<T>(
                 if started.elapsed() >= RECONNECT_AFTER {
                     unreachable_since = None;
                 }
-                let gave_up = unreachable_since.get_or_insert(started).elapsed() >= RECONNECT_FOR;
+                // 끊긴 때부터 잰다. 긴 대기를 시작한 때부터 재면 10분 넘게 기다린 대기는 끊기자마자 포기한다(2026-10-21 배포 때 총괄의 `loom wait`).
+                let gave_up =
+                    unreachable_since.get_or_insert_with(Instant::now).elapsed() >= RECONNECT_FOR;
                 if gave_up || deadline.is_some_and(|d| Instant::now() + RECONNECT_AFTER >= d) {
                     return Err(e);
                 }

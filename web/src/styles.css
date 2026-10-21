@@ -107,7 +107,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
 .dot.running { background: var(--run); }
 .dot.done { background: var(--ok); }
-.dot.exited { background: var(--err); }
+.dot.exited, .dot.setupFailed { background: var(--err); }
 /* 줄 끝 동작 단추(docs/mockups/sidebar-crud.html 2번). 마우스를 올리거나 줄에 포커스가 있을 때만 보인다.
    줄 끝 글자 위에 덮고, 왼쪽 그라데이션이 잘린 글자를 가린다. 바탕은 줄 바탕과 같다(고른 줄은 패널 위 accent-wash). */
 .row-acts { --row-base: var(--panel); position: absolute; top: 3px; right: 4px; height: 24px; display: none; gap: 2px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--row-wash, transparent) 16px), linear-gradient(to right, transparent, var(--row-base) 16px); }
@@ -173,7 +173,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__minimap-node.worktree { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.running { fill: var(--run); }
 .react-flow__minimap-node.done { fill: var(--ok); }
-.react-flow__minimap-node.exited { fill: var(--err); }
+.react-flow__minimap-node.exited, .react-flow__minimap-node.setupFailed { fill: var(--err); }
 /* 이벤트 강조(graph-panels.html 3번): 관여한 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다 */
 .react-flow__node.hl .card { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash), 0 0 0 1px var(--accent); }
 .react-flow__node.dim, .react-flow__edge.dim { opacity: 0.4; }
@@ -318,7 +318,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.running { color: var(--run); }
 .state.done { color: var(--ok); }
-.state.exited { color: var(--err); }
+.state.exited, .state.setupFailed { color: var(--err); }
 .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .unread svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .held { height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--ink-2); font-size: 12px; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -16,8 +16,8 @@ use portable_pty::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::Backlog;
 use super::wire::{self, Frame};
+use super::{Backlog, Exit};
 
 /// 화면이 크기를 보내기 전에 쓰는 PTY 크기.
 const INITIAL_SIZE: PtySize = PtySize {
@@ -63,7 +63,7 @@ struct State {
     /// 지금 붙은 데몬. 번호는 끊긴 연결이 새 연결을 지우지 않게 가린다.
     client: Option<(u64, TcpStream)>,
     next_client: u64,
-    exit: Option<u32>,
+    exit: Option<Exit>,
 }
 
 /// 데몬이 stdin으로 넘기는 명령. `CommandBuilder`는 env 맵의 키가 `OsString`이라 JSON으로 바꿀 수 없어 값만 옮긴다.
@@ -193,37 +193,32 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
 }
 
 impl Started {
-    /// 프로세스가 끝날 때까지 기다리고, 종료 코드를 데몬에 넘긴 뒤(또는 `EXIT_KEEP` 뒤) 돌아온다.
-    /// 설정 스크립트가 성공하면 명령을 띄우고 그 명령을 기다린다. 실패하면 그 종료 코드로 끝나고 출력에 까닭을 덧붙인다.
+    /// 프로세스가 끝날 때까지 기다리고, 끝을 데몬에 넘긴 뒤(또는 `EXIT_KEEP` 뒤) 돌아온다.
+    /// 설정 스크립트가 성공하면 명령을 띄우고 그 명령을 기다린다. 실패하면 명령을 띄우지 않고 `Exit::Setup`으로 끝난다.
     pub fn wait(mut self) {
-        let mut code = exit_code(&mut self.child);
+        let code = exit_code(&mut self.child);
         let mut note = None;
-        if let Some((cmd, slave)) = self.next.take() {
-            match code {
-                0 => match self.host.replace(&*slave, cmd) {
-                    Ok(Some(child)) => {
-                        drop(slave);
-                        self.child = child;
-                        code = exit_code(&mut self.child);
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        code = u32::MAX;
-                        note = Some(format!("loom: 에이전트를 띄우지 못했다: {e}"));
-                    }
-                },
-                _ => {
-                    note = Some(format!(
-                        "loom: 설정 스크립트가 실패했다(종료 코드 {code}). 에이전트를 띄우지 않았다."
-                    ))
+        let exit = match self.next.take() {
+            None => Exit::Command(code),
+            Some(_) if code != 0 => Exit::Setup(code),
+            Some((cmd, slave)) => match self.host.replace(&*slave, cmd) {
+                Ok(Some(child)) => {
+                    drop(slave);
+                    self.child = child;
+                    Exit::Command(exit_code(&mut self.child))
                 }
-            }
-        }
+                Ok(None) => Exit::Command(code),
+                Err(e) => {
+                    note = Some(format!("loom: 에이전트를 띄우지 못했다: {e}"));
+                    Exit::Command(u32::MAX)
+                }
+            },
+        };
         let _ = self.output_done.recv_timeout(DRAIN_AFTER_EXIT);
         if let Some(note) = note {
             self.host.note(&note);
         }
-        self.host.exited(code);
+        self.host.exited(exit);
         let _ = self.delivered.recv_timeout(EXIT_KEEP);
     }
 }
@@ -286,10 +281,10 @@ impl Host {
         state.send(&Frame::Data(line));
     }
 
-    fn exited(&self, code: u32) {
+    fn exited(&self, exit: Exit) {
         let mut state = self.state.lock().unwrap();
-        state.exit = Some(code);
-        if state.send(&Frame::Exit(code)) {
+        state.exit = Some(exit);
+        if state.send(&exit.frame()) {
             let _ = self.delivered.send(());
         }
     }
@@ -313,7 +308,7 @@ impl Host {
                 && (backlog.is_empty() || wire::write(&mut stream, &Frame::Data(backlog)).is_ok())
                 && state
                     .exit
-                    .is_none_or(|code| wire::write(&mut stream, &Frame::Exit(code)).is_ok());
+                    .is_none_or(|exit| wire::write(&mut stream, &exit.frame()).is_ok());
             if !sent {
                 return;
             }
@@ -348,7 +343,7 @@ impl Host {
                     process.killed = true;
                     let _ = process.killer.kill();
                 }
-                Frame::Hello { .. } | Frame::Exit(_) | Frame::Pid(_) => {}
+                Frame::Hello { .. } | Frame::Exit(_) | Frame::Pid(_) | Frame::SetupFailed(_) => {}
             }
         }
         let mut state = self.state.lock().unwrap();

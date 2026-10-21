@@ -144,15 +144,35 @@ impl Graph {
 
     /// 완료한 노드의 요약은 남기고 프로세스 종료만 따로 적는다.
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
-        self.end_process(id, Some(code))
+        self.end_process(
+            id,
+            NodeState::Exited { code: Some(code) },
+            format!("exited({code})"),
+        )
     }
 
     /// 데몬이 다시 붙지 못한 프로세스도 부모에게 알린다.
     pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
-        self.end_process(id, None)
+        self.end_process(
+            id,
+            NodeState::Exited { code: None },
+            "exited(unknown)".to_owned(),
+        )
     }
 
-    fn end_process(&self, id: NodeId, code: Option<u32>) -> rusqlite::Result<()> {
+    /// 설정 스크립트가 실패해 에이전트가 뜨지 않았다. 부모는 까닭(`output`, 설정 출력의 끝)을 함께 받는다.
+    /// 노드를 지우면 터미널 출력도 사라지므로 메시지가 그 증거를 남긴다. 본문은 지시문 상한 안에서 끝 쪽을 남긴다.
+    pub fn setup_failed(&self, id: NodeId, code: u32, output: &str) -> rusqlite::Result<()> {
+        let head = format!("setup failed (exit {code}):\n");
+        let room = BRIEF_LIMIT_BYTES.saturating_sub(head.len());
+        let mut start = output.len().saturating_sub(room);
+        while !output.is_char_boundary(start) {
+            start += 1;
+        }
+        self.end_process(id, NodeState::SetupFailed { code }, head + &output[start..])
+    }
+
+    fn end_process(&self, id: NodeId, ended: NodeState, notice: String) -> rusqlite::Result<()> {
         let mut db = self.lock();
         self.titles.lock().unwrap().remove(&id);
         let Some(state) = state_of(&db, id).optional()? else {
@@ -168,11 +188,7 @@ impl Graph {
         }
         let parent = parent_of(&tx, id)?;
         if state == NodeState::Running {
-            set_state(&tx, id, &NodeState::Exited { code })?;
-            let notice = code.map_or_else(
-                || "exited(unknown)".to_owned(),
-                |code| format!("exited({code})"),
-            );
+            set_state(&tx, id, &ended)?;
             mailbox::enqueue(&tx, id, parent, Kind::Queue, &notice)?;
         }
         tx.commit()?;

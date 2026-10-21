@@ -448,6 +448,8 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .app { grid-template-rows: minmax(0, 1fr) var(--status-h); }
 a { color: var(--accent); }
 .statusbar { grid-column: 1 / -1; position: relative; display: flex; align-items: stretch; background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); padding: 0 4px; min-width: 0; }
+/* 상태 줄 단추는 줄 높이(`--status-h`)를 따른다. `.btn.sm`의 26px가 줄을 넘으면 창에 세로 스크롤바가 생긴다. */
+.statusbar .btn { height: auto; }
 .usage-btn .sep { width: 1px; align-self: stretch; background: var(--line); margin: 4px 2px; }
 .usage-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; font-size: 12px; }
 .usage-btn:hover { background: var(--surface-hover); color: var(--ink); }
@@ -471,7 +473,7 @@ a { color: var(--accent); }
 /* 받은편지함은 버전 바로 왼쪽이다(목업 human-question.html ②). 오른쪽으로 미는 여백은 받은편지함이 갖는다. */
 .inbox { position: relative; display: flex; align-items: center; margin-left: auto; }
 .inbox + .app-version { margin-left: 0; }
-.inbox-btn { display: inline-flex; align-items: center; gap: 6px; height: 22px; margin: auto 0; padding: 0 8px; border: 0; border-radius: 5px; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
+.inbox-btn { display: inline-flex; align-items: center; gap: 6px; height: calc(var(--status-h) - 4px); margin: auto 0; padding: 0 8px; border: 0; border-radius: 5px; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
 .inbox-btn:hover, .inbox-btn[aria-expanded="true"] { background: var(--surface-hover); color: var(--ink); }
 .inbox-btn svg { width: 14px; height: 14px; }
 .inbox-btn .count { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--warn); color: var(--surface); font-size: 11px; font-weight: 600; line-height: 16px; text-align: center; }

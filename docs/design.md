@@ -105,7 +105,7 @@
 | 프로필 | loom 사용법 지시 | 상태·전달 경로 |
 |---|---|---|
 | Claude Code | `--append-system-prompt` | `--settings`로 넘긴 훅 6개가 `loom hook`을 부른다(SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop). 형식과 인자는 [src/profile/claude.rs](../src/profile/claude.rs)에 있다 |
-| Codex | `-c developer_instructions=…` | 데몬이 노드마다 `codex app-server --listen ws://127.0.0.1:0`을 띄우고 TUI를 `codex --remote <주소>`로 붙인다. 데몬도 같은 서버에 연결해 스레드 상태를 보고 `turn/*` 요청으로 전달한다. 훅은 쓰지 않는다. 연결은 [src/codex_server.rs](../src/codex_server.rs), 요청 내용은 [src/profile/codex.rs](../src/profile/codex.rs)에 있다 |
+| Codex | app-server의 `-c developer_instructions=…`(TUI에 넘기면 스레드에 들어가지 않는다) | 데몬이 노드마다 `codex app-server --listen ws://127.0.0.1:0`을 띄우고 TUI를 `codex --remote <주소>`로 붙인다. 데몬도 같은 서버에 연결해 스레드 상태를 보고 `turn/*` 요청으로 전달한다. 훅은 쓰지 않는다. 연결은 [src/codex_server.rs](../src/codex_server.rs), 요청 내용은 [src/profile/codex.rs](../src/profile/codex.rs)에 있다 |
 | OpenCode 2 | 세션 지시 항목 `loom`(`PUT /api/experimental/session/{id}/instructions/entries/loom`) | 데몬이 노드마다 `opencode2 serve --hostname 127.0.0.1 --port 0`을 띄우고 `POST /api/session`으로 세션을 만든다. TUI는 `opencode2 --server <주소> --session <id>`로 붙는다. 데몬은 세션 입력함(`POST /api/session/{id}/prompt`)으로 전달한다. 규칙과 전달 작업은 [src/profile/opencode2/mod.rs](../src/profile/opencode2/mod.rs), 서버 연결은 [src/profile/opencode2/server.rs](../src/profile/opencode2/server.rs)에 있다 |
 | 프로필 없음 | 없음 | `loom wait`로만 메시지를 받는다 |
 
@@ -127,7 +127,7 @@
   - Windows에서는 위 인자를 넘기지 않는다. Codex는 Windows에서 `workspace-write`를 `read-only`로 낮추고, 프록시는 관리자 권한 Windows 샌드박스가 있어야 뜬다(「실측 근거」). 그래서 Codex 노드는 loom 명령마다 승인을 묻는다.
 - 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode` 파일은 고치지 않는다. OpenCode 설정은 명령 인자, 환경 변수, 세션 API로만 넘긴다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다. 계정 설정의 시스템 기본 [로그인]·[로그아웃]도 CLI가 쓴다(「계정과 사용량」).
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
-- 고정한 스키마는 쓰는 요청·알림 7개만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
+- 고정한 스키마는 쓰는 요청·알림의 파일만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
 - 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
 - Codex 셸 명령은 TUI가 아니라 app-server 아래에서 돈다. 그래서 app-server도 노드 환경(`LOOM_URL`, `LOOM_SPAWN_URL`, `LOOM_TOKEN`, `PATH`)을 받는다. Codex 셸 스냅샷은 로그인 셸의 `PATH`를 다시 적용한다. 그래서 `-c shell_environment_policy.set.PATH=<노드 PATH>`로 노드 `PATH`를 다시 넣는다.
 - 노드 문의 포트는 데몬 포트와 같다. 노드 환경의 `LOOM_URL`은 노드가 끝날 때까지 바뀌지 않으므로, 다시 시작한 데몬도 같은 주소에서 들어야 한다. 그 포트를 쓸 수 없으면(예: `--listen 0.0.0.0:<포트>`) OS가 고른다. 그때 앞 데몬의 노드는 다시 시작한 뒤 loom 명령이 닿지 않는다.
@@ -138,6 +138,21 @@
 - OpenCode 2 셸 명령도 TUI가 아니라 서버 아래에서 돈다. 서버가 노드 환경을 받는다. 셸은 서버 환경을 그대로 받아 `PATH`를 다시 넣지 않아도 된다(실측).
 - OpenCode 2 권한: 데몬은 노드 세션을 만들 때 `permissions`에 모든 권한 허용 규칙(`*` → `allow`)을 넣는다. 사용자 설정이 `bash`를 `ask`로 두어도 노드는 승인 창을 띄우지 않는다(「실측 근거」). 사용자 설정 파일은 고치지 않는다.
 - 데몬은 시작할 때 `opencode2 --version`도 확인한다. 고정한 버전(2.0.32)과 다르면 Codex와 같이 화면에 경고를 띄운다.
+
+### 내장 스킬
+
+loom은 스킬 네 개를 싣는다: `loom-mode`, `ste-100`, `user-doc`, `raptor-3`(2026-10-21 사람 지시 "loom 모드, ste, 사용자 문서 작성 스킬도 loom 에 내장시켜줘"). 노드 에이전트는 사람이 스킬을 설치하지 않아도 이 스킬을 쓴다.
+
+- 원본은 저장소 [skills/](../skills/)다. 사람의 `~/.agents/skills`의 같은 스킬은 이 폴더를 가리키는 링크다. 실은 스킬은 같이 실은 파일만 링크한다(테스트가 막는다). STE-100 원문 PDF는 싣지 않는다. ASD가 허가 없는 복제를 금지한다.
+- 실행 파일이 `rust-embed`로 [skills/](../skills/)를 넣는다. 데몬은 시작할 때 `<데이터 폴더>/plugin`을 지우고 다시 푼다. 그 폴더는 Claude 플러그인 꼴이다(`.claude-plugin/plugin.json`, `skills/<이름>/`). 코드는 [src/skills.rs](../src/skills.rs)에 있다.
+
+| 프로필 | 스킬을 넘기는 길 | 보이는 이름 |
+|---|---|---|
+| Claude Code | `--plugin-dir <데이터 폴더>/plugin` | `loom:<이름>` |
+| Codex | 데몬이 app-server에 `skills/extraRoots/set`으로 `plugin/skills`를 더한다. 시작 인자로 더하는 길이 없다 | `loom:<이름>` |
+| OpenCode 2 | 서버 환경 `OPENCODE_CONFIG_CONTENT={"skills":[…]}`. 사람의 설정 위에 합쳐진다 | `<이름>` |
+
+- 상시 지시: STE-100 본문과 랩터-3 「작업 중」 절을 loom 사용법 지시 끝에 붙인다(위 표의 「loom 사용법 지시」 길). 모든 노드가 처음부터 본다. 사람의 STE 플러그인이 프롬프트마다 넣는 한 줄 알림은 loom에 없다.
 
 ### 에이전트
 

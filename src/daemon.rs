@@ -48,6 +48,7 @@ use crate::profile::{
     VersionMismatch,
 };
 use crate::settings::Settings;
+use crate::skills;
 use crate::spots::{Placed, Spots};
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
@@ -71,10 +72,12 @@ struct App {
     setups: Mutex<HashSet<NodeId>>,
     /// 쉬는 Claude 노드마다 메시지를 기다리는 비동기 훅 하나.
     idle: idle::IdleWaits,
+    /// 노드 에이전트가 쓰는 내장 스킬. 데몬이 시작할 때 데이터 폴더에 푼다.
+    plugin: skills::Plugin,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     version_warnings: HashMap<Profile, VersionMismatch>,
-    /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 비어 있다.
-    codex_sandbox: Vec<String>,
+    /// Codex app-server에 넘길 `-c` 인자: 사용법 지시와 샌드박스. 샌드박스 인자는 노드 문이 없거나 버전이 다르면 없다.
+    codex_config: Vec<String>,
     /// 노드 안에서 `loom` 명령이 쓰는 노드 문 주소(`LOOM_URL`).
     url: String,
     /// `loom spawn`이 쓰는 데몬 주소(`LOOM_SPAWN_URL`). Codex 샌드박스는 이 주소를 막는다.
@@ -381,11 +384,15 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         opencode2: Mutex::default(),
         setups: Mutex::default(),
         idle: idle::IdleWaits::default(),
+        plugin: skills::Plugin::install(db_path.with_file_name("plugin"))?,
         version_warnings: profile::version_warnings(codex_version.as_deref()),
-        codex_sandbox: match (&codex_version, &node_door) {
+        codex_config: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
             _ => Vec::new(),
-        },
+        }
+        .into_iter()
+        .chain(codex::server_args())
+        .collect(),
         url: match &node_door {
             Some(door) => format!("http://{}", door.local_addr()?),
             None => node_url(listen),
@@ -861,12 +868,17 @@ impl App {
         let codex = match profile {
             Some(Profile::Codex) => {
                 let home = self.accounts.config_dir(profile::Provider::Codex, account);
-                let server = CodexServer::start(cwd, home.as_deref(), &env, &self.codex_sandbox)
+                let server = CodexServer::start(cwd, home.as_deref(), &env, &self.codex_config)
                     .await
                     .map_err(|cause| LaunchError::Server {
                         program: "codex app-server".into(),
                         cause,
                     })?;
+                // 실패해도 노드는 띄운다. 다른 Codex 버전에는 이 요청이 없을 수 있다. 그때 노드는 내장 스킬만 없다.
+                let call = |method, params| server.call(method, params);
+                if let Err(e) = codex::add_skills(call, &self.plugin.skills()).await {
+                    eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
+                }
                 Some(Arc::new(server))
             }
             _ => None,
@@ -874,7 +886,7 @@ impl App {
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
-                let node = opencode2::Node::start(cwd, &env, password)
+                let node = opencode2::Node::start(cwd, &env, &self.plugin.skills(), password)
                     .await
                     .map_err(|cause| LaunchError::Server {
                         program: format!("{} serve", opencode2::CMD),
@@ -890,7 +902,7 @@ impl App {
             _ => None,
         };
         let discard = discarder(&codex, &opencode2);
-        let mut cmd = profile::command(start, cwd, remote, &settings.bypass_off)
+        let mut cmd = profile::command(start, cwd, remote, &settings.bypass_off, self.plugin.dir())
             .inspect_err(|_| discard())?;
         for (key, value) in &env {
             cmd.env(key, value);

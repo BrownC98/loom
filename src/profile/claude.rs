@@ -31,8 +31,9 @@ const GUARD: &str = "loom guard";
 
 fn usage() -> String {
     format!(
-        "{}\nWhen no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.",
-        super::COMMUNICATION_USAGE
+        "{}\nWhen no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.\n\n{}",
+        super::COMMUNICATION_USAGE,
+        crate::skills::always_on()
     )
 }
 
@@ -64,7 +65,8 @@ pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
 }
 
 /// `claude` 시작 인자. 사용자의 `~/.claude` 파일을 고치지 않으려고 훅을 `--settings`로만 넘긴다.
-pub fn args() -> Vec<String> {
+/// `plugin`은 loom이 싣는 스킬 플러그인 폴더다(`skills::Plugin`). 스킬은 `loom:<이름>`으로 뜬다.
+pub fn args(plugin: &Path) -> Vec<String> {
     let hook = json!([{ "hooks": [{
         "type": "command",
         "command": "loom hook",
@@ -95,6 +97,8 @@ pub fn args() -> Vec<String> {
         usage(),
         "--settings".into(),
         settings.to_string(),
+        "--plugin-dir".into(),
+        plugin.to_string_lossy().into_owned(),
     ]
 }
 
@@ -403,8 +407,9 @@ mod tests {
 
     #[test]
     fn settings_register_the_six_hooks_and_allow_messaging_but_not_spawn() {
-        let args = args();
+        let args = args(Path::new("/p"));
         assert_eq!(args[2], "--settings");
+        assert_eq!(args[4..], ["--plugin-dir", "/p"]);
         let settings: Value = serde_json::from_str(&args[3]).unwrap();
         let mut events: Vec<_> = settings["hooks"].as_object().unwrap().keys().collect();
         events.sort();

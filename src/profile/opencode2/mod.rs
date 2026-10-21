@@ -28,11 +28,15 @@ pub const CMD: &str = "opencode2";
 const PROMPT_ATTEMPTS: u32 = 5;
 const PROMPT_RETRY_DELAY: Duration = Duration::from_secs(1);
 
+/// 서버가 사람의 설정 위에 합치는 설정 글(JSON). 근거: opencode 2.0.32 `OPENCODE_CONFIG_CONTENT`.
+const CONFIG_ENV: &str = "OPENCODE_CONFIG_CONTENT";
+
 /// 세션 지시 항목(`instructions/entries/loom`). 모델이 모든 턴에 본다(실측).
 fn usage() -> String {
     format!(
-        "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages arrive as new input automatically. Do not run an unbounded loom wait.",
-        super::COMMUNICATION_USAGE
+        "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages arrive as new input automatically. Do not run an unbounded loom wait.\n\n{}",
+        super::COMMUNICATION_USAGE,
+        crate::skills::always_on()
     )
 }
 
@@ -90,12 +94,18 @@ impl Node {
     /// 서버를 띄우고 `cwd`에 세션을 만든 뒤 사용법을 지시 항목으로 넣는다.
     /// `node_env`는 노드 프로세스와 같은 환경이다. 셸 명령은 이 서버 아래에서 돌므로 `loom`이 그 값을 읽는다.
     /// `password`는 노드마다 새로 만든 서버 비밀번호다.
+    /// `skills`는 loom이 싣는 스킬 폴더다(`skills::Plugin::skills`). 설정 글 변수로 서버의 스킬 폴더에 더한다.
+    /// 이 변수는 사람의 설정 파일을 덮지 않고 그 위에 합쳐진다.
     pub async fn start(
         cwd: &Path,
         node_env: &[(&'static str, OsString)],
+        skills: &Path,
         password: String,
     ) -> Result<Self, String> {
-        let server = Server::start(CMD, cwd, node_env, password).await?;
+        let config = serde_json::json!({ "skills": [skills] }).to_string();
+        let mut env = node_env.to_vec();
+        env.push((CONFIG_ENV, config.into()));
+        let server = Server::start(CMD, cwd, &env, password).await?;
         let session = match server.create_session(cwd).await {
             Ok(session) => session,
             Err(e) => {

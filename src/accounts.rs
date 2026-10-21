@@ -1,7 +1,8 @@
 //! 계정: 공급자마다 loom이 만든 로그인 폴더(`~/.loom/accounts/<공급자>/<id>`).
-//! 「시스템 기본」은 사용자의 `~/.claude`·`~/.codex`다. loom은 그 폴더를 고치지 않는다.
+//! 「시스템 기본」은 사용자의 `~/.claude`·`~/.codex`다. loom은 사람이 [로그인]·[로그아웃]을 누를 때만 CLI로 그 폴더를 바꾼다.
 //! 근거: docs/design.md 「계정과 사용량」.
 
+use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -10,7 +11,8 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::{self, Provider};
+use crate::process_tree;
+use crate::profile::{self, LaunchError, Provider};
 
 /// 만든 시각(밀리초)의 16진수 16자리. 이름 순서가 만든 순서다.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
@@ -82,25 +84,6 @@ impl Accounts {
         }
     }
 
-    /// 그 계정 폴더로 CLI 로그인을 띄우는 명령.
-    pub fn login(&self, provider: Provider, id: &AccountId) -> io::Result<CommandBuilder> {
-        let mut cmd = match provider {
-            Provider::Claude => {
-                let mut cmd = CommandBuilder::new("claude");
-                cmd.args(["auth", "login"]);
-                cmd
-            }
-            Provider::Codex => {
-                let mut cmd = CommandBuilder::new("codex");
-                cmd.arg("login");
-                cmd
-            }
-        };
-        cmd.env(config_env(provider), self.dir(provider, id)?);
-        profile::color_terminal(&mut cmd);
-        Ok(cmd)
-    }
-
     fn provider_dir(&self, provider: Provider) -> PathBuf {
         self.root.join(match provider {
             Provider::Claude => "claude",
@@ -111,6 +94,42 @@ impl Accounts {
     fn dir(&self, provider: Provider, id: &AccountId) -> io::Result<PathBuf> {
         Ok(self.provider_dir(provider).join(id.checked()?))
     }
+}
+
+/// CLI 로그인을 띄우는 명령. 시스템 기본 폴더에 로그인한다. loom 계정은 `Accounts::apply`로 폴더를 넣는다.
+pub fn login(provider: Provider) -> Result<CommandBuilder, LaunchError> {
+    let mut cmd = CommandBuilder::from_argv(cli(provider)?);
+    cmd.args(match provider {
+        Provider::Claude => &["auth", "login"][..],
+        Provider::Codex => &["login"],
+    });
+    profile::color_terminal(&mut cmd);
+    Ok(cmd)
+}
+
+/// 시스템 기본 폴더의 로그인을 지우는 명령. loom이 만든 계정은 폴더를 지운다(`Accounts::remove`).
+pub fn logout(provider: Provider) -> Result<std::process::Command, LaunchError> {
+    let mut argv = cli(provider)?.into_iter();
+    let mut cmd = std::process::Command::new(argv.next().expect("argv는 비지 않는다"));
+    cmd.args(argv);
+    cmd.args(match provider {
+        Provider::Claude => &["auth", "logout"][..],
+        Provider::Codex => &["logout"],
+    });
+    Ok(cmd)
+}
+
+/// 노드를 띄울 때처럼 `PATH`에서 CLI를 찾는다. Windows npm 배치 파일(`codex.cmd`)은 그 프로그램을 바로 띄운다.
+fn cli(provider: Provider) -> Result<Vec<OsString>, LaunchError> {
+    let (label, command) = match provider {
+        Provider::Claude => ("Claude", "claude"),
+        Provider::Codex => ("Codex", "codex"),
+    };
+    let path = which::which(command).map_err(|_| LaunchError::NotInstalled {
+        agent: label.into(),
+        command: command.into(),
+    })?;
+    Ok(process_tree::argv(&path))
 }
 
 /// CLI가 로그인 폴더를 고르는 환경 변수.

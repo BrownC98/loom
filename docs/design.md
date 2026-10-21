@@ -119,7 +119,7 @@
   - 위험: 모든 주소(`0.0.0.0`)에서 듣는 다른 서비스는 샌드박스 안에서 `127.76.77.1`로 닿는다. 데몬을 `--listen 0.0.0.0:<포트>`로 띄우면 `spawn`도 그 길로 닿는다. Codex 도메인 규칙은 포트를 가리지 않고, unix 소켓 허용은 macOS만 된다(「실측 근거」). 그래서 더 좁힐 수 없다.
   - 신뢰하지 않은 폴더에서는 TUI가 `read-only`를 보낸다. `read-only`는 네트워크를 열지 않아 loom 명령마다 승인을 묻는다.
   - Windows에서는 위 인자를 넘기지 않는다. Codex는 Windows에서 `workspace-write`를 `read-only`로 낮추고, 프록시는 관리자 권한 Windows 샌드박스가 있어야 뜬다(「실측 근거」). 그래서 Codex 노드는 loom 명령마다 승인을 묻는다.
-- 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode` 파일은 고치지 않는다. OpenCode 설정은 명령 인자, 환경 변수, 세션 API로만 넘긴다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다.
+- 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode` 파일은 고치지 않는다. OpenCode 설정은 명령 인자, 환경 변수, 세션 API로만 넘긴다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다. 계정 설정의 시스템 기본 [로그인]·[로그아웃]도 CLI가 쓴다(「계정과 사용량」).
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
 - 고정한 스키마는 쓰는 요청·알림 7개만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
 - 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
@@ -161,6 +161,9 @@
 ### 계정과 사용량
 
 - 공급자(Claude, Codex)마다 계정을 여럿 둔다. 「시스템 기본」은 사용자의 `~/.claude`·`~/.codex`다. 지울 수 없다.
+  - 시스템 기본 줄은 CLI가 준 이메일을 이름으로 보이고 「시스템 기본」 배지를 단다. 로그인하지 않았으면 [로그인], 로그인했으면 [로그아웃]을 둔다. [로그인]은 아래 로그인 창에서 로그인 폴더 변수 없이 `claude auth login`·`codex login`을 띄운다. [로그아웃]은 확인 뒤 데몬이 `claude auth logout`·`codex logout`을 돌린다.
+  - loom은 사람이 이 두 버튼을 누를 때만 CLI로 시스템 기본 폴더를 바꾼다. 처음에는 바꾸지 않고 셸 명령만 알렸다. Windows 사용자는 그 명령을 칠 터미널이 가깝지 않아, 기본 계정이 누구인지 모르고 잘못 연결된 기본 계정을 끊지 못했다(2026-10-21 사람 보고 "기본계정이 뭔지도 표시가 안되고 잘못된 연결 해제도 할 수 없음"). 목업 [accounts-system.html](mockups/accounts-system.html).
+  - CLI가 `PATH`에 없으면 그 공급자의 [계정 추가]를 끄고 시스템 기본 줄에 「설치 안 됨」을 보인다. 로그인·로그아웃 명령은 노드처럼 `PATH`에서 CLI를 찾고 npm 배치 파일(`codex.cmd`)은 그 프로그램을 바로 띄운다. 못 찾으면 노드 만들기와 같은 `LaunchError::NotInstalled`로 거절한다.
 - loom이 만든 계정은 로그인 폴더 `~/.loom/accounts/<claude|codex>/<id>`를 쓴다. `id`는 만든 시각(밀리초)의 16진수 16자리라 이름 순서가 만든 순서다.
 - 새 노드는 설정에서 고른 계정(공급자마다 하나, 「쓰는 중」)으로 뜬다. 데몬이 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`을 그 폴더로 넣는다. 시스템 기본이면 넣지 않는다. 고른 계정의 폴더가 없으면 시스템 기본으로 띄운다. 이미 도는 노드는 계정을 바꿔도 그대로다.
   - 시스템 기본은 그 CLI가 `HOME` 아래에서 고르는 폴더다. 데몬은 시작할 때 자기를 띄운 터미널의 변수(로그인 폴더, 에이전트 세션 표지, `ORCA_*`, `LOOM_*`)를 지운다. 그래서 노드는 데몬을 띄운 곳과 관계없이 같은 환경으로 뜬다. API 키(`*_API_KEY`)는 남긴다. 목록은 [src/profile.rs](../src/profile.rs)의 `is_launcher_env`에 있다.

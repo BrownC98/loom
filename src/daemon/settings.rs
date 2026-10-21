@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{App, Problem, internal, serve_pty};
-use crate::accounts::AccountId;
+use crate::accounts::{self, AccountId};
 use crate::node_host::NodeHost;
 use crate::profile::{self, AgentView, Provider};
 use crate::settings::SettingsView;
@@ -79,11 +79,17 @@ pub struct AccountView {
     pub usage: Usage,
 }
 
-/// `id`가 있으면 그 계정에 다시 로그인한다. 없으면 계정을 새로 만든다.
+/// 로그인 창이 로그인할 곳.
 #[derive(Deserialize, TS)]
+#[serde(tag = "kind", content = "id", rename_all = "camelCase")]
 #[ts(export)]
-pub struct Login {
-    pub id: Option<AccountId>,
+pub enum LoginTarget {
+    /// loom 계정을 새로 만든다. 로그인이 실패하거나 창을 닫으면 만든 폴더를 지운다.
+    New,
+    /// 그 loom 계정에 다시 로그인한다.
+    Account(AccountId),
+    /// 시스템 기본(`~/.claude`·`~/.codex`)에 로그인한다.
+    System,
 }
 
 pub fn routes() -> Router<Arc<App>> {
@@ -93,6 +99,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/settings", get(get_settings).put(put_settings))
         .route("/api/accounts", get(accounts))
         .route("/api/accounts/{provider}", post(login))
+        .route("/api/accounts/{provider}/logout", post(logout))
         .route("/api/accounts/{provider}/{id}", delete(remove_account))
         .route("/api/logins/{id}", get(login_state).delete(close_login))
         .route("/api/logins/{id}/pty", get(login_pty))
@@ -199,28 +206,29 @@ async fn remove_account(
 async fn login(
     State(app): State<Arc<App>>,
     Path(provider): Path<Provider>,
-    Json(req): Json<Login>,
+    Json(target): Json<LoginTarget>,
 ) -> Result<Json<LoginId>, Problem> {
-    let created = req.id.is_none();
-    let id = match req.id {
-        Some(id) => id,
-        None => app.accounts.create(provider).map_err(internal)?,
+    // CLI가 없으면 폴더를 만들기 전에 거절한다.
+    let mut cmd = accounts::login(provider)?;
+    let (id, created) = match target {
+        LoginTarget::System => (None, false),
+        LoginTarget::Account(id) => (Some(id), false),
+        LoginTarget::New => (Some(app.accounts.create(provider).map_err(internal)?), true),
     };
+    if let Some(id) = &id {
+        // `apply`는 폴더가 없으면 시스템 기본으로 둔다. 사라진 계정은 시스템 기본에 로그인하지 않게 거절한다.
+        if app.accounts.config_dir(provider, Some(id)).is_none() {
+            return Err(internal("the account folder is gone"));
+        }
+        app.accounts.apply(&mut cmd, provider, Some(id));
+    }
     let discard = {
         let app = app.clone();
-        let id = id.clone();
         move || {
-            if created {
+            if created && let Some(id) = &id {
                 // 지우지 못하면 빈 폴더가 「다시 로그인 필요」로 목록에 남는다. 사용자가 지울 수 있다.
-                let _ = app.accounts.remove(provider, &id);
+                let _ = app.accounts.remove(provider, id);
             }
-        }
-    };
-    let cmd = match app.accounts.login(provider, &id) {
-        Ok(cmd) => cmd,
-        Err(e) => {
-            discard();
-            return Err(internal(e));
         }
     };
     let login = LoginId(app.logins.next.fetch_add(1, Ordering::Relaxed));
@@ -253,6 +261,21 @@ async fn login(
             internal(e)
         })?;
     Ok(Json(login))
+}
+
+/// 시스템 기본의 로그인을 지운다. CLI가 끝날 때까지 기다린다.
+async fn logout(Path(provider): Path<Provider>) -> Result<Json<()>, Problem> {
+    let mut cmd = accounts::logout(provider)?;
+    let out = tokio::task::spawn_blocking(move || cmd.stdin(std::process::Stdio::null()).output())
+        .await
+        .map_err(internal)?
+        .map_err(internal)?;
+    if !out.status.success() {
+        return Err(internal(
+            String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+        ));
+    }
+    Ok(Json(()))
 }
 
 async fn login_state(

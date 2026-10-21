@@ -252,8 +252,9 @@ pub struct CommitGraph {
     pub worktrees: Vec<Worktree>,
 }
 
-/// PTY WebSocket의 텍스트 프레임. 바이너리 프레임은 키 입력과 터미널 출력이다.
-#[derive(Deserialize, TS)]
+/// PTY 크기. 화면이 보내면 PTY 크기를 바꾸고, 데몬은 바뀐 크기를 모든 화면에 알린다(`PtyNotice::Size`).
+/// 바이너리 프레임은 키 입력과 터미널 출력이다.
+#[derive(Clone, Copy, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Resize {
     pub cols: u16,
@@ -1885,6 +1886,8 @@ async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<Ap
 pub enum PtyNotice {
     /// 이 PTY가 없다. 데몬이 다시 시작할 때 호스트가 사라졌거나, 앞 데몬에서 끝난 노드다.
     Gone,
+    /// PTY의 열·줄. 붙을 때 backlog보다 먼저, 그 뒤 바뀔 때마다 보낸다. 화면은 이 크기로 그리고 칸에 맞게 늘이거나 줄인다.
+    Size(Resize),
 }
 
 /// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
@@ -1909,6 +1912,10 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
     ws.on_upgrade(move |socket| async move {
         let (mut to_view, mut from_view) = socket.split();
         let mut output = attached.output;
+        let mut size = attached.size;
+        if send_size(&mut to_view, &mut size).await.is_err() {
+            return;
+        }
         if to_view
             .send(Message::Binary(attached.backlog))
             .await
@@ -1923,6 +1930,11 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
                     // 밀린 화면은 끊는다. 화면이 다시 붙으면 backlog로 따라잡는다.
                     Err(RecvError::Lagged(_) | RecvError::Closed) => return,
                 },
+                changed = size.changed() => {
+                    if changed.is_err() || send_size(&mut to_view, &mut size).await.is_err() {
+                        return;
+                    }
+                }
                 msg = from_view.next() => match msg {
                     Some(Ok(Message::Binary(bytes))) => {
                         host(&app).write(id, &bytes);
@@ -1941,6 +1953,17 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
             }
         }
     })
+}
+
+/// 지금 PTY 크기를 화면에 알리고 본 값으로 표시한다.
+async fn send_size(
+    to_view: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    size: &mut tokio::sync::watch::Receiver<node_host::PtySize>,
+) -> Result<(), axum::Error> {
+    let node_host::PtySize { cols, rows } = *size.borrow_and_update();
+    let notice = serde_json::to_string(&PtyNotice::Size(Resize { cols, rows }))
+        .expect("PtyNotice는 늘 직렬화된다");
+    to_view.send(Message::Text(notice.into())).await
 }
 
 async fn event_log(State(app): State<Arc<App>>) -> Result<Json<Vec<EventRecord>>, Problem> {

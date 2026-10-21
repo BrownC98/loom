@@ -370,6 +370,9 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .react-flow__resize-control.line.top, .react-flow__resize-control.line.bottom { height: 6px; }
 .react-flow__resize-control.handle { width: 12px; height: 12px; border: 0; background: none; }
 .xterm-box > div { height: 100%; }
+/* xterm은 PTY 열·줄의 크기로 그리고 Terminal.tsx `scaleToBox`가 칸에 맞게 늘이거나 줄인다. 그래서 칸 폭을 채우지 않는다. */
+.xterm-box > div { overflow: hidden; }
+.xterm-box > div > .xterm { display: inline-block; transform-origin: 0 0; }
 .card-foot { font-size: 12px; color: var(--ink-3); padding: 5px 10px; border-top: 1px solid var(--line); }
 .card[data-selected] .card-foot { color: var(--accent); }
 

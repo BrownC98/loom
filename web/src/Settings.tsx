@@ -13,7 +13,7 @@ import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Usage } from './StatusBar';
 import { Modal } from './Modal';
-import { Terminal } from './Terminal';
+import { SizingTerminal } from './Terminal';
 import { TerminalTab, UiTab } from './ThemeSettings';
 import { WorkspaceTab } from './WorkspaceSettings';
 import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
@@ -399,7 +399,7 @@ function LoginDialog(props: { login: OpenLogin; onDone: () => void }) {
         </button>
       </h3>
       <div className="login-term" translate="no">
-        <Terminal src={loginPty(login.id)} focused onFocus={() => {}} onNavigate={() => {}} />
+        <SizingTerminal src={loginPty(login.id)} focused onFocus={() => {}} onNavigate={() => {}} />
       </div>
       {failed ? (
         <p className="error" role="alert">

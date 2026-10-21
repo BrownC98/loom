@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type DragEvent,
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { attachPty, openFile, savePastedFile } from './api';
+import type { Resize } from './gen/Resize';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
 import { commandKey } from './platform';
@@ -164,10 +165,44 @@ export const XtermTheme = createContext<ITheme>(TERMINAL_THEMES[DEFAULT_TERMINAL
 /** 모든 터미널의 글꼴. `App`이 설정으로 정한다. */
 export const XtermFont = createContext<XtermFontValue>(DEFAULT_TERMINAL_FONT);
 
+type TerminalProps = { src: string; focused: boolean; onFocus: () => void; onNavigate: (dir: Direction) => void; loadRenderer?: (xterm: XTerm) => void };
+
 /**
+ * PTY 크기를 따르는 터미널. 데몬이 알린 열·줄(`PtyNotice` `size`)로 그리고, 칸에 맞게 글자를 늘이거나 줄인다(목업 docs/mockups/terminal-size.html 안 A).
+ * PTY 크기는 바꾸지 않는다. 펼친 카드와 심플 보기 오른쪽 칸이 쓴다.
  * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). `loadRenderer`는 연 뒤에 렌더러 애드온을 붙인다. 없으면 DOM 렌더러로 그린다.
  */
-export function Terminal(props: { src: string; focused: boolean; onFocus: () => void; onNavigate: (dir: Direction) => void; loadRenderer?: (xterm: XTerm) => void }) {
+export function Terminal(props: TerminalProps) {
+  return <XtermView {...props} sizing={FOLLOW} />;
+}
+
+/** 칸 크기로 PTY 크기를 정하는 터미널. 표준 카드(카드 크기는 데몬 상태다)와 로그인 창이 쓴다. 그래프 확대·축소는 칸 크기를 바꾸지 않는다. */
+export function SizingTerminal(props: TerminalProps) {
+  return <XtermView {...props} sizing={SET} />;
+}
+
+/** 칸이 바뀔 때 할 일. `FOLLOW`는 PTY 크기를 두고, `SET`은 칸에 들어가는 열·줄을 PTY에 보낸다. */
+type Sizing = (fit: FitAddon, send: (size: Resize) => void) => void;
+const FOLLOW: Sizing = () => {};
+const SET: Sizing = (fit, send) => {
+  const proposed = fit.proposeDimensions();
+  if (proposed && proposed.cols > 0 && proposed.rows > 0) send({ cols: proposed.cols, rows: proposed.rows });
+};
+
+/** xterm을 칸 가운데에 맞춘다. 칸보다 크면 줄이고 작으면 늘인다. 마우스 위치는 `unscaleMouse`가 배율을 뺀다. */
+function scaleToBox(xterm: XTerm, box: HTMLElement) {
+  const el = xterm.element;
+  if (!el) return;
+  el.style.transform = '';
+  const width = el.offsetWidth;
+  const height = el.offsetHeight;
+  if (width === 0 || height === 0 || box.clientWidth === 0 || box.clientHeight === 0) return;
+  const scale = Math.min(box.clientWidth / width, box.clientHeight / height);
+  const left = (box.clientWidth - width * scale) / 2;
+  el.style.transform = `translateX(${left}px) scale(${scale})`;
+}
+
+function XtermView(props: TerminalProps & { sizing: Sizing }) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm | null>(null);
   const latest = useRef(props);
@@ -178,7 +213,8 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
   const font = useContext(XtermFont);
   const latestFont = useRef(font);
   latestFont.current = font;
-  const fit = useRef<FitAddon | null>(null);
+  // 칸이나 글꼴이 바뀌면 부른다. 크기를 정하는 터미널은 PTY 크기를 보내고, 모든 터미널은 배율을 다시 잰다.
+  const redecide = useRef<() => void>(() => {});
   // 끄는 파일 수. 끄지 않으면 없다.
   const [dragging, setDragging] = useState<number | null>(null);
 
@@ -212,19 +248,23 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
       unscaleMouse(xterm);
       latest.current.loadRenderer?.(xterm);
       term.current = xterm;
-      fit.current = fitAddon;
+      const rescale = () => scaleToBox(xterm, el);
+      const decide = () => latest.current.sizing(fitAddon, (size) => link.sendResize(size));
+      redecide.current = () => {
+        decide();
+        rescale();
+      };
       const link = attachPty(props.src, {
         onAttach: () => {
           // 다시 붙으면 backlog를 처음부터 받으므로 화면을 비운다.
           xterm.reset();
-          link.sendResize({ cols: xterm.cols, rows: xterm.rows });
+          decide();
         },
         onOutput: (bytes) => xterm.write(bytes),
         onNotice: (notice) => {
-          switch (notice) {
-            case 'gone':
-              xterm.write(`${i18next.t('terminal.gone')}\r\n`);
-          }
+          if (notice === 'gone') xterm.write(`${i18next.t('terminal.gone')}\r\n`);
+          // backlog보다 먼저 온다. 그 크기로 backlog를 그린다.
+          else xterm.resize(notice.size.cols, notice.size.rows);
         },
       });
       // xterm은 Ctrl+C·Ctrl+V를 늘 `^C`·`^V`로 보내고 브라우저 복사·붙여넣기를 막는다. 복사·붙여넣기는 명령 키(macOS ⌘, 다른 OS Ctrl)로 한다.
@@ -268,11 +308,11 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
       // xterm의 paste 처리기보다 먼저 받는다.
       el.addEventListener('paste', pasteImage, true);
       const input = xterm.onData((data) => link.sendInput(data));
-      const resize = xterm.onResize((size) => link.sendResize(size));
+      // 크기가 바뀐 뒤 그린 칸 크기로 배율을 다시 잰다.
+      const resize = xterm.onResize(() => requestAnimationFrame(rescale));
       xterm.textarea?.addEventListener('focus', () => latest.current.onFocus());
-      const observer = new ResizeObserver(() => fitAddon.fit());
+      const observer = new ResizeObserver(() => redecide.current());
       observer.observe(el);
-      fitAddon.fit();
       if (latest.current.focused) focusSoon(xterm);
       return () => {
         observer.disconnect();
@@ -282,7 +322,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
         link.close();
         xterm.dispose();
         term.current = null;
-        fit.current = null;
+        redecide.current = () => {};
       };
     }
   }, [props.src]);
@@ -291,7 +331,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
     if (term.current) term.current.options.theme = theme;
   }, [theme]);
 
-  // 글꼴이 바뀌면 다시 그리고 열·행 수를 다시 잰다. 바뀐 열·행은 `onResize`가 PTY에 보낸다.
+  // 글꼴이 바뀌면 다시 그리고, 크기를 정하는 터미널은 열·행 수를 다시 잰다. 글자 칸 크기가 바뀌므로 배율도 다시 잰다.
   useEffect(() => {
     let disposed = false;
     loadFont(font.family).then(() => {
@@ -299,7 +339,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
       if (disposed || !xterm) return;
       xterm.options.fontFamily = font.family;
       xterm.options.fontSize = font.size;
-      fit.current?.fit();
+      requestAnimationFrame(() => redecide.current());
     });
     return () => {
       disposed = true;
@@ -332,7 +372,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
     void pasteDropped(xterm, e.dataTransfer);
   };
 
-  // 바깥 칸이 여백과 바탕을 갖는다. FitAddon은 안쪽 칸의 크기로 열 수를 잰다.
+  // 바깥 칸이 여백과 바탕을 갖는다. FitAddon은 안쪽 칸의 크기로 열 수를 재고, 배율도 안쪽 칸에 맞춘다.
   return (
     <div className="xterm-box" style={{ background: theme.background }} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <div ref={box} />

@@ -2,6 +2,6 @@
 import type { AccountId } from "./AccountId";
 
 /**
- * `id`가 있으면 그 계정에 다시 로그인한다. 없으면 계정을 새로 만든다.
+ * 로그인 창이 로그인할 곳.
  */
-export type Login = { id: AccountId | null, };
+export type LoginTarget = { "kind": "new" } | { "kind": "account", "id": AccountId } | { "kind": "system" };

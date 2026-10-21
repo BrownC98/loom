@@ -81,7 +81,7 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 </head>
 <body>
 <main class="doc">
-  <div class="who"><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>총괄 · claude-1</b></span><span>v1 · 2026-10-21</span></div>
+  <div class="who"><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>총괄 · claude-1</b></span><span>v2 · 2026-10-21</span></div>
   <h1>설정 › 계정: 시스템 기본 계정 표시와 로그인·로그아웃</h1>
   <p class="lead">Windows 사용자 보고: 기본 계정이 어떤 계정인지 보이지 않고, 잘못 연결된 기본 계정을 끊을 수 없고, Codex 계정 추가가 오류로 끝났다. 바뀌는 구역은 계정 탭의 줄뿐이다. 점선이 바뀌는 곳이다.</p>
 
@@ -174,9 +174,30 @@ Paste code here if prompted &gt; </div>
   </div>
 
   <div class="fig">
+    <h2>⑥ 로그인 코드 입력 칸 (v2에 더함) <span class="tag">Claude 로그인 창만</span></h2>
+    <div class="login">
+      <h3>Claude 시스템 기본 로그인<span class="spacer"></span><button class="btn ghost sm">취소</button></h3>
+<div class="term"><span class="dim">$ claude auth login</span>
+Opening browser to sign in…
+If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?…
+Paste code here if prompted &gt; </div>
+      <form class="new" style="display:flex; gap:8px; align-items:center">
+        <label for="code" style="font-size:13px; white-space:nowrap">로그인 코드</label>
+        <input id="code" type="password" value="abcdefghijklmnop#qrstuvwxyz" style="flex:1; height:30px; padding:0 8px; border-radius:6px; border:1px solid var(--line-strong); background:var(--panel); color:var(--ink); font:12px var(--mono)">
+        <button class="btn sm" type="submit">보내기</button>
+      </form>
+      <span class="hint">브라우저가 보인 코드를 붙여 넣고 ‘보내기’를 클릭하십시오. 로그인을 마치면 창이 닫히고 목록이 바뀝니다.</span>
+    </div>
+    <ul class="note">
+      <li>원인: Claude CLI(Windows 2.1.228, Linux 2.1.305)가 터미널 글자 표시(echo)를 끈 채로 코드를 받는다. 일반 Linux 터미널에서도 입력한 글자가 보이지 않았다. 입력은 CLI에 닿는다(가짜 코드에 「Login failed: 400」).</li>
+      <li>그래서 loom이 칸을 하나 둔다. 붙여 넣은 코드는 점(●)으로 보인다. [보내기]나 Enter를 누르면 코드와 줄바꿈을 터미널로 보내고 칸을 비운다. 터미널에 직접 붙여 넣는 길도 그대로 둔다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
     <h2>승인할 것</h2>
     <ul class="note">
-      <li>①~⑤ 화면과 문구.</li>
+      <li>①~⑤ 화면과 문구(v1 승인됨). ⑥ 코드 입력 칸(v2 새로 승인 필요).</li>
       <li>규칙 변경: 지금 설계는 「loom은 <code>~/.claude</code>·<code>~/.codex</code>를 고치지 않는다」이다. 시스템 기본에 로그인·로그아웃을 두면 loom이 CLI를 불러 그 폴더를 바꾼다. 바꾸는 일은 사람이 버튼을 누를 때만 한다.</li>
     </ul>
   </div>

@@ -14,7 +14,7 @@ const HIGH_USED = 75;
 
 export const PROVIDERS: Provider[] = ['claude', 'codex'];
 export const PROVIDER_LABEL: Record<Provider, string> = { claude: 'Claude', codex: 'Codex' };
-/** 시스템 기본 계정의 로그인 폴더. loom은 읽기만 한다. */
+/** 시스템 기본 계정의 로그인 폴더. loom은 사람이 [로그인]·[로그아웃]을 누를 때만 CLI로 바꾼다. */
 export const SYSTEM_DIR: Record<Provider, string> = { claude: '~/.claude', codex: '~/.codex' };
 
 /** 새 노드가 쓰는 계정. 설정이 고른 계정이 없거나 지워졌으면 시스템 기본이다. */
@@ -29,9 +29,9 @@ export function withAccount(settings: SettingsView, provider: Provider, id: Acco
   return provider === 'claude' ? { ...settings, claudeAccount: id } : { ...settings, codexAccount: id };
 }
 
+/** 이메일을 알면 이메일이다. 시스템 기본은 「시스템 기본」 배지가 따로 붙는다. */
 export function accountName(account: AccountView): string {
-  if (account.id === null) return i18next.t('usage.systemDefault');
-  return account.usage.email ?? i18next.t('usage.notLoggedIn');
+  return account.usage.email ?? i18next.t(account.id === null ? 'usage.systemDefault' : 'usage.notLoggedIn');
 }
 
 /** 사용량을 보일 수 없는 이유. 보일 수 있으면 null. */

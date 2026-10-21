@@ -1,0 +1,84 @@
+# Throwaway: macOS proof for branch 맥판. Deleted before merge.
+name: mac-check
+on:
+  push:
+    branches: ['맥판']
+jobs:
+  mac:
+    runs-on: macos-14
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: web
+        run: npm ci && npm run check && npm test && npm run build
+        working-directory: web
+      - name: cargo test
+        run: cargo test
+      - name: node door bind
+        run: python3 -c "import socket; s=socket.socket(); s.bind(('127.76.77.1',0)); print('bind ok')" || echo "bind FAILED"
+      - name: daemon ends on stdin close, PTY host survives
+        run: |
+          daemons() { ps -axo pid=,command= | awk '$2 ~ /\/loom$/ && $3 == "serve" {print $1}'; }
+          sleeps() { ps -axo pid=,command= | awk '$2 == "sleep" && $3 == "600" {print $1}'; }
+          cargo build --release
+          export HOME=$RUNNER_TEMP/h; mkdir -p $HOME
+          bin=$PWD/target/release/loom
+          (sleep 20) | "$bin" serve --listen 127.0.0.1:7499 --until-stdin-closes > $RUNNER_TEMP/serve.log 2>&1 &
+          for _ in $(seq 50); do curl -sf http://127.0.0.1:7499/ >/dev/null && break; sleep 0.2; done
+          repo=$(curl -sf http://127.0.0.1:7499/api/repos)
+          echo "$repo" | head -c 300; echo
+          id=$(echo "$repo" | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
+          curl -sf -X POST -H 'content-type: application/json' http://127.0.0.1:7499/api/nodes \
+            -d "{\"start\":{\"kind\":\"command\",\"line\":\"sleep 600\"},\"place\":{\"repo\":$id,\"worktree\":\"$PWD\"}}"; echo
+          sleep 2; ps -axo pid,pgid,command | grep -E "loom|sleep 600" | grep -v grep
+          sleep 25
+          echo "--- after stdin closed"
+          ps -axo pid,pgid,command | grep -E "loom|sleep 600" | grep -v grep || true
+          cat $RUNNER_TEMP/serve.log
+          [ -z "$(daemons)" ] || { echo "DAEMON STILL RUNNING"; exit 1; }
+          [ -n "$(sleeps)" ] && echo "node survived" || { echo "NODE DIED"; exit 1; }
+          kill $(sleeps)
+      - name: tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          mkdir -p app/binaries
+          cp target/release/loom app/binaries/loom-$(rustc -vV | sed -n 's/^host: //p')
+          cd app && npx --yes @tauri-apps/cli@2.12.3 build
+          find $CARGO_TARGET_DIR/release/bundle -maxdepth 2 | head -30
+          ls -la $CARGO_TARGET_DIR/release/bundle/macos/loom.app/Contents/MacOS
+          codesign -dv $CARGO_TARGET_DIR/release/bundle/macos/loom.app 2>&1 || true
+      - name: run app
+        run: |
+          daemons() { ps -axo pid=,command= | awk '$2 ~ /\/loom$/ && $3 == "serve" {print $1}'; }
+          app=$CARGO_TARGET_DIR/release/bundle/macos/loom.app
+          rm -rf /Applications/loom.app; cp -R "$app" /Applications/
+          xattr -l /Applications/loom.app || true
+          open /Applications/loom.app
+          sleep 20
+          ps -axo pid,ppid,command | grep -i loom | grep -v grep
+          d=$(daemons | head -1)
+          echo "daemon PATH:"; ps eww -p "$d" | tr ' ' '\n' | grep '^PATH=' || echo "no PATH visible"
+          screencapture -x $RUNNER_TEMP/app.png
+          kill -9 $(pgrep -x loom-app)
+          sleep 3
+          [ -z "$(daemons)" ] && echo "daemon ended with app" || { echo "DAEMON SURVIVED APP KILL"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-proof
+          path: |
+            ${{ runner.temp }}/app.png
+            ${{ runner.temp }}/serve.log
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/macos/*.tar.gz*

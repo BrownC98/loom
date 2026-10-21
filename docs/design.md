@@ -110,7 +110,7 @@
   - 호스트는 프로세스가 끝나면 종료 코드를 데몬에 넘기고 끝난다. 붙은 데몬이 없으면 10분 기다린다. 그 사이 다시 시작한 데몬은 코드를 받는다.
   - 데몬이 시작할 때 다시 붙지 않은 호스트는 끝낸다: 데몬이 꺼진 동안 지운 노드, 앞 데몬의 로그인 창(창 번호는 데몬마다 0부터 센다).
   - 호스트에서는 `scripts/host.sh`가 데몬만 다시 띄운다(「[배포](#배포)」). PTY 호스트는 데몬과 다른 프로세스 그룹이라 데몬 터미널의 Ctrl+C를 받지 않고, 데몬이 끝나면 init이 부모가 된다. 실행 파일은 새 파일로 바꿔 넣는다(rename). 도는 호스트는 옛 파일을 계속 쓴다.
-  - Windows도 같다. 앱 업데이트, 앱 창 닫기, 앱 강제 종료 뒤에도 노드가 살고, 다음에 연 앱의 데몬이 다시 붙는다(2026-10-21 사람 지시 "exe 업데이트할때 노드 작업 없어지지 않고 작업이 계속 진행되도록 해줘 orca처럼"). 방법은 「[Windows 앱](#windows-앱)」에 있다.
+  - Windows도 같다. 앱 업데이트, 앱 창 닫기, 앱 강제 종료 뒤에도 노드가 살고, 다음에 연 앱의 데몬이 다시 붙는다(2026-10-21 사람 지시 "exe 업데이트할때 노드 작업 없어지지 않고 작업이 계속 진행되도록 해줘 orca처럼"). 방법은 「[데스크톱 앱](#데스크톱-앱)」에 있다.
 - CLI마다 실행 프로필을 둔다. 프로필은 메시지 연동(훅·app-server·서버 API)이 있는 에이전트다. 지금은 Claude Code, Codex, OpenCode 2, Cursor 넷이다. 프로필이 바뀌는 이유는 CLI 버전이다.
 - 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 쓰지 않는다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다. 예: OpenCode 2의 `--standalone`은 `--server`와 함께 쓸 수 없다.
 
@@ -475,7 +475,7 @@ Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Curso
 
 - `loom` Rust 실행 파일 하나가 데몬과 모든 명령을 맡는다. Windows, macOS, Linux에서 같은 코드가 돈다.
 - 데몬: `tokio`, `axum`, `portable-pty`(Windows ConPTY 포함), `rusqlite`, `rust-embed`, `sysinfo`(중단할 셸의 프로세스 나무), `tokio-tungstenite`(Codex app-server 연결), `typify`(빌드 때 Codex 스키마에서 타입 생성), `ureq`·`base64`(OpenCode 2 서버 HTTP와 Basic 인증)
-- 화면: React, React Flow, xterm.js. 빌드한 화면을 실행 파일에 넣는다. Linux·macOS에서는 사람이 브라우저로 연다. Windows에서는 앱 창이 연다(「Windows 앱」).
+- 화면: React, React Flow, xterm.js. 빌드한 화면을 실행 파일에 넣는다. Linux·macOS에서는 사람이 브라우저로 연다. Windows·macOS에서는 앱 창도 연다(「데스크톱 앱」).
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
 - 워크트리와 커밋 그래프는 `git` CLI를 부른다.
 - 개발 환경은 배포 환경과 같은 호스트다(「[배포](#배포)」). 실행 명령은 [AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)에 있다.
@@ -495,15 +495,15 @@ Linux에서 loom은 호스트 실행 파일 하나다. Orca처럼 사람이 호�
 | 다른 Linux 기계용 실행 파일은 Release의 `loom-x86_64-linux`다. 정적 링크(musl)라 glibc 판과 관계없이 x86-64에서 돈다. Windows 설치 파일과 같은 Actions 실행(`release.yml`, 손으로 돌린다)이 같은 Release에 올린다 | Release 하나에 한 판의 파일이 모두 있다. Linux 파일만 따로 Release를 만들면 가장 새 Release에 `latest.json`이 없어 Windows 앱이 새 판을 찾지 못한다 |
 | 이름은 `loom`, 앱 아이콘은 지금 것(`app/icons/icon.ico`)을 둔다(2026-10-20 사람 결정 "아이콘, 이름 현행 유지") | 바꿀 이름 후보 14개와 충돌 조사(crates.io, npm, winget 색인, GitHub, 웹 검색), 바꾸는 비용은 [brand.html](mockups/brand.html)에 있다. Atlassian Loom과 winget 별칭 `loom`이 겹치는 문제는 남는다 |
 
-## Windows 앱
+## 데스크톱 앱
 
-Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 지시 "exe 로도 만들어서 윈도우에서 네이티브로 쓸 수 있게 해줘").
+Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연다(2026-10-19 사람 지시 "exe 로도 만들어서 윈도우에서 네이티브로 쓸 수 있게 해줘", 2026-10-21 사람 지시 "애플 실리콘, 디벨롭 계정 없음, 윈도우, 웹, 맥 버전의 코드 차이를 최소화 하는 방향으로 진행"). 두 OS가 같은 코드를 쓴다. OS마다 다른 곳은 앱 창 설정(`app/src/main.rs`), 화면의 `web/src/platform.ts`, 묶음 설정(`app/tauri.macos.conf.json`)뿐이다. 맥에서는 맥의 관례를 따른다(사람 결정 2026-10-21 "맥에선 맥의 법칙을 따르라"). 아래 표는 두 OS에 같고, 「macOS」 줄만 맥의 차이다.
 
 | 결정 | 이유 |
 |---|---|
 | 창은 Tauri 2 앱(`app/`)이다. wry+tao를 직접 쓰지 않는다 | 한 번만 실행, 창 위치 기억, NSIS 설치 파일, WebView2 설치를 Tauri와 공식 플러그인이 맡는다. wry+tao로는 이 넷을 직접 만들어야 한다 |
-| 앱은 옆에 놓인 `loom.exe serve --listen 127.0.0.1:0`을 띄우고, 데몬이 출력한 첫 줄의 주소를 창에 연다 | 노드가 부르는 `loom` 명령이 같은 실행 파일이다. 데몬 코드는 플랫폼마다 하나로 둔다 |
-| 앱은 데몬을 kill-on-close Job Object에 넣는다. Job은 silent breakaway를 허용해, 데몬이 띄운 프로세스(PTY 호스트, 노드 서버)는 Job에 들지 않는다. 앱 자신도 Job에 들지 않는다. Job Object는 `win32job` 크레이트로 만든다 | 앱이 어떻게 끝나든(창 닫기, 강제 종료, 업데이트) 데몬은 함께 끝나 데몬 둘이 한 DB를 쓰지 않는다. 노드는 Linux처럼 데몬보다 오래 산다(「에이전트 실행」). 앱이 띄운 업데이트 설치 파일은 앱이 끝난 뒤에도 돈다 |
+| 앱은 옆에 놓인 `loom serve --listen 127.0.0.1:0 --until-stdin-closes`(Windows `loom.exe`, macOS `loom.app/Contents/MacOS/loom`)를 띄우고, 데몬이 출력한 첫 줄의 주소를 창에 연다 | 노드가 부르는 `loom` 명령이 같은 실행 파일이다. 데몬 코드는 플랫폼마다 하나로 둔다 |
+| 앱은 데몬의 stdin을 파이프로 주고 쓰는 끝을 쥔다. 데몬은 `--until-stdin-closes`를 받으면 stdin이 닫힐 때 끝난다. 데몬이 띄운 프로세스(PTY 호스트, 노드 서버)는 따로 도는 프로세스라 함께 끝나지 않는다 | 앱이 어떻게 끝나든(창 닫기, 강제 종료, 업데이트) OS가 파이프를 닫아 데몬은 함께 끝나고, 데몬 둘이 한 DB를 쓰지 않는다. 노드는 Linux처럼 데몬보다 오래 산다(「에이전트 실행」). 앱이 띄운 업데이트 설치 파일은 앱이 끝난 뒤에도 돈다. 한 방법이 두 OS에 같다. 전의 Windows Job Object(`win32job`)는 macOS에 없어 바꿨다. 사람이 띄운 데몬(`host.sh`, 터미널)은 이 인자가 없어 stdin과 관계없다 |
 | 창을 닫아도 노드는 계속 돈다. 데몬은 끝나고, 다시 연 앱의 데몬이 노드에 다시 붙는다. 창이 없는 동안 노드의 loom 명령(메시지, 훅)은 데몬에 닿지 않아 실패한다 | 사람 결정(2026-10-21, 총괄 경유) "Orca와 같게". Orca는 앱을 끝내도 터미널 데몬을 끝내지 않는다(`src/main/startup/main-process-quit.ts`의 `disconnectDaemon`) |
 | 앱은 데몬이 들은 포트를 앱 설정 폴더의 `daemon-port`에 적고, 다음 실행에서 그 포트로 먼저 띄운다. 그 포트를 쓸 수 없으면 OS가 고른 포트로 띄운다 | 노드 환경의 `LOOM_URL`은 데몬 포트를 담는다. 새 포트로 띄우면 살아 있는 노드의 loom 명령이 닿지 않는다. 지난 포트를 다른 프로그램이 쓰면 그 노드의 loom 명령은 실패한다: 아무도 듣지 않으면 「Could not connect to the daemon」, 다른 프로그램이 답하면 그 답을 오류로 보인다 |
 | 설치 파일은 `loom.exe`를 쓰기 전에 옛 `loom.exe`를 지운다. 지우지 못하면(도는 노드가 쓴다) 이름을 `loom.exe.<틱>.old`로 바꾼다. 앞 설치가 남긴 `.old`는 그때 지운다. 훅은 `app/windows/installer-hooks.nsh`의 설치 전 훅이다 | 도는 실행 파일은 덮어 쓰지도 지우지도 못하지만 이름은 바꿀 수 있다(「실측 근거」). 도는 PTY 호스트는 이름을 바꾼 옛 파일을 계속 쓴다. Linux `host.sh`의 rename과 같은 방법이다. Orca는 데몬을 `%LOCALAPPDATA%`에 복사해 띄운다. 그 방법은 데몬 복사본 관리가 더 든다 |
@@ -515,15 +515,21 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 한 번만 실행한다. 두 번째 실행은 있는 창을 앞으로 가져온다 | Orca와 같다 |
 | 창 위치·크기를 기억한다(`tauri-plugin-window-state`) | Orca와 같다 |
 | 창에는 OS 제목 줄이 없다(`decorations(false)`). 화면이 앱에서만 맨 위에 36px 줄을 그린다: 왼쪽 loom 마크, 빈 곳 끌기·두 번 눌러 최대화, 오른쪽 최소화·최대화·닫기([titlebar.html](mockups/titlebar.html), `web/src/TitleBar.tsx`). 권한(`app/capabilities/window.json`)은 끌기·최대화 상태 읽기·최소화·최대화·닫기뿐이다. 창 상태 플러그인은 제목 줄 여부를 저장하지 않는다. Windows 11 스냅 레이아웃 팝업(최대화 버튼에 마우스)은 없다. Win+Z와 가장자리로 끌기 스냅은 된다 | 사람 지시(2026-10-21) "orca 처럼 상단 앱바를 기본 ui 말고 세련되게 할 수 없나". 줄이 loom 테마(라이트·다크)를 따른다. 팝업을 살리는 플러그인(`tauri-plugin-decorum`)은 의존성이 늘어 넣지 않았다(사람 승인, 목업 M5). 판 번호는 상태 줄에, 이름은 사이드바 머리에 있어 줄에 두지 않는다 |
+| macOS: 앱은 사람의 셸(`$SHELL -ilc`)에서 `PATH`를 한 번 읽어 데몬에 준다. 읽지 못하면 받은 `PATH`를 쓴다 | Finder·Dock에서 띄운 앱은 로그인 셸의 `PATH`를 받지 않는다(`/usr/bin:/bin:/usr/sbin:/sbin`). 그러면 `~/.local/bin`·Homebrew의 `claude`·`codex`를 찾지 못한다. `-i`는 `~/.zshrc`에 `PATH`를 더한 설치(Claude Code 안내)도 읽기 위해서다. Windows 앱은 사용자 `PATH`를 받는다 |
+| macOS: 창 맨 위는 OS가 왼쪽에 창 버튼(신호등)만 그리고(`titleBarStyle: Overlay`, 제목 숨김), 화면이 같은 36px 줄을 그린다. 줄은 왼쪽 64px을 비우고 오른쪽 창 버튼을 그리지 않는다([mac-titlebar.html](mockups/mac-titlebar.html) 안 B) | 사람 결정(2026-10-21) "맥에선 맥의 법칙을 따르라". 줄 색·높이·마크는 Windows와 같다 |
+| macOS: 창을 닫으면 앱은 끝나지 않고 창만 숨긴다. Dock 아이콘을 누르면 다시 보인다. ⌘Q가 앱(과 데몬)을 끝낸다. 메뉴 막대는 Tauri 기본 메뉴(앱·편집·창)다 | 맥 관례다. 편집 메뉴가 있어야 화면에서 ⌘C·⌘V가 된다 |
+| 화면의 단축키는 명령 키+Shift다. 명령 키는 macOS에서 ⌘, 다른 OS에서 Ctrl이다. 터미널의 복사·붙여넣기도 명령 키다(macOS ⌘C·⌘V, 다른 OS Ctrl+C·Ctrl+V). macOS 터미널의 Ctrl+C는 늘 `^C`다. 판별은 `web/src/platform.ts` 한 곳이다. 브라우저 화면도 같다 | 맥 관례다. 툴팁과 `aria-keyshortcuts`가 OS에 맞는 키(`⌘⇧F` 등)를 보인다 |
+| macOS: 앱은 Apple 개발자 서명과 공증 없이 낸다. 묶음은 ad-hoc 서명(`signingIdentity: "-"`)이다. 사람은 `.dmg`에서 앱을 응용 프로그램 폴더로 끌고, 처음 한 번 `xattr -cr /Applications/loom.app`을 실행한다 | 사람 결정(2026-10-21) "디벨롭 계정 없음". 브라우저로 받은 서명 없는 앱은 Gatekeeper가 「손상되었기 때문에 열 수 없습니다」로 막는다. `xattr`가 받은 파일 표시(`com.apple.quarantine`)를 지운다. Apple Silicon은 서명 없는 실행 파일을 띄우지 않아 ad-hoc 서명은 둔다 |
+| macOS 업데이트: Tauri 업데이터가 `.app.tar.gz`를 받아 서명(`.sig`, Windows와 같은 키)을 확인하고 앱 묶음을 바꾼다. 그 뒤 화면이 앱을 다시 띄운다(`tauri-plugin-process`의 `relaunch`, 권한 `process:allow-restart`). Windows는 설치 파일이 앱을 끝내 `relaunch`에 닿지 않는다 | 업데이터는 Apple 서명을 보지 않는다. 받은 파일은 메모리에서 풀어 쓰므로 받은 파일 표시가 붙지 않는다(`tauri-plugin-updater` 2.13.1 소스). 그래서 업데이트 뒤에 `xattr`를 다시 하지 않는다 |
 | 노드는 Windows 프로세스다: `PATH`의 `claude`·`codex`·`opencode`, PowerShell | WSL 노드(`wsl.exe`)는 2단계다. 그때는 카탈로그 명령 앞에 `wsl.exe --cd <WSL 경로> --`를 붙이고 `LOOM_*`를 `WSLENV`로 넘긴다. 노드 문은 WSL 안에서 Windows 루프백에 닿는지 먼저 실측한다 |
 | 「기본 셸」 노드는 `%ComSpec%`로 띄운다. 폴더가 WSL 폴더(`\\wsl.localhost\<배포판>\…`, `\\wsl$\…`)면 `wsl.exe -d <배포판> --cd <Linux 경로>`로 띄운다 | `cmd.exe`는 UNC 폴더에서 시작하지 못하고 「UNC 경로는 지원되지 않습니다」를 쓴 뒤 `C:\Windows`에서 연다. 명령 노드(`cmd /C`)는 명령 글이 Windows 명령이라 그대로 둔다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 PTY 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |
 | 판은 `MAJOR.MINOR.PATCH`다. 사람은 루트 `Cargo.toml`의 `MAJOR.MINOR`만 고친다. PATCH는 루트 `Cargo.toml`의 `version` 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수다. 계산은 `scripts/version.sh` 한 곳이고, 화면 빌드(`npm run build`)와 CI가 함께 쓴다. CI는 그 값을 두 `Cargo.toml`에 쓴다. 그래서 `MAJOR.MINOR`를 올리면 PATCH는 0부터 다시 센다(SemVer 관례). 로컬 Rust 빌드는 루트 `0.1.0`, 앱 `0.0.0`이다 | 손으로 고치는 곳이 하나다. 같은 커밋이면 같은 판이 다시 나온다. `loom --version`, 창 제목, 설치 파일 이름이 같은 판을 보인다 |
-| 사람이 판 태그를 push하거나(`git tag v$(sh scripts/version.sh) && git push origin --tags`) 손으로 돌릴 때(`workflow_dispatch`) GitHub Actions(`.github/workflows/release.yml`)가 `tauri-apps/tauri-action`으로 설치 파일, 서명(`.sig`), `latest.json`을 만들어 Release `v<판>`에 올린다. 처음 설치하는 링크는 https://github.com/BrownC98/loom/releases/latest 다 | 판을 내는 때는 사람이 정한다(2026-10-20 사람 결정, 일반 관례). main push마다 내면 사용자가 자주 다시 시작해야 하고 노드가 끝난다. 태그 이름이 판과 다르면 빌드가 실패한다. 판마다 파일이 바뀌지 않아 `latest.json`과 설치 파일이 어긋나지 않는다. 옛 파일을 지우는 스크립트가 없다. Release는 쌓인다 |
+| 사람이 판 태그를 push하거나(`git tag v$(sh scripts/version.sh) && git push origin --tags`) 손으로 돌릴 때(`workflow_dispatch`) GitHub Actions(`.github/workflows/release.yml`)가 `tauri-apps/tauri-action`으로 설치 파일(Windows `-setup.exe`, macOS `.dmg`와 업데이트용 `.app.tar.gz`), 서명(`.sig`), `latest.json`(`windows-x86_64`, `darwin-aarch64`)을 만들어 Release `v<판>`에 올린다. 두 OS는 한 작업의 행렬(`windows-latest`, `macos-14`)이고 하나씩 돈다. 함께 돌면 `latest.json`을 함께 고쳐 한 플랫폼이 빠질 수 있다. 처음 설치하는 링크는 https://github.com/BrownC98/loom/releases/latest 다 | 판을 내는 때는 사람이 정한다(2026-10-20 사람 결정, 일반 관례). main push마다 내면 사용자가 자주 다시 시작해야 하고 노드가 끝난다. 태그 이름이 판과 다르면 빌드가 실패한다. 판마다 파일이 바뀌지 않아 `latest.json`과 설치 파일이 어긋나지 않는다. 옛 파일을 지우는 스크립트가 없다. Release는 쌓인다 |
 | 기능이 어느 정도 완성될 때까지 에이전트는 Windows 빌드(Actions)를 돌리지 않는다(2026-10-20 사람 지시 "당분간, 기능이 어느정도 완성되기전에는 윈도우 빌드하지마 개발 시간만 잡아먹는다") | 빌드가 개발 시간을 잡아먹는다 |
 | 업데이트: 화면을 열 때와 그 뒤 하루마다 `latest.json`을 확인하고(실패하면 한 시간 뒤 다시, Orca와 같다. 받기를 시작하면 멈춘다), 새 판이 있으면 오른쪽 아래 카드로 알린다([update.html](mockups/update.html), Orca의 업데이트 카드). [업데이트] → 다운로드 → [다시 시작하여 업데이트]다. 화면이 `@tauri-apps/plugin-updater` JS API를 부른다. 권한(`app/capabilities/update.json`)은 `http://127.0.0.1:*` 화면의 `check`·`download`·`install`뿐이다 | 문구는 화면 i18n을 쓴다. 서명 공개 키는 `app/tauri.conf.json`, 개인 키는 GitHub Actions 비밀값 `TAURI_SIGNING_PRIVATE_KEY`(`_PASSWORD`)와 사람이 보관하는 사본뿐이다 |
-| Windows 빌드는 Actions만 한다. 호스트에는 Windows 빌드 도구가 없다 | 개발·배포 환경이 Linux 호스트 하나다. 크로스 빌드 도구(`cargo-xwin`, Windows SDK)는 옛 개발 컨테이너에만 있었다. NSIS 묶기는 Windows 러너에서 공식 경로로 돈다 |
+| Windows·macOS 빌드는 Actions만 한다. 호스트에는 두 OS의 빌드 도구가 없다 | 개발·배포 환경이 Linux 호스트 하나다. 크로스 빌드 도구(`cargo-xwin`, Windows SDK)는 옛 개발 컨테이너에만 있었다. NSIS 묶기는 Windows 러너에서 공식 경로로 돈다 |
 
 ## 레이어
 
@@ -531,7 +537,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 
 | 레이어 | 모듈 |
 |---|---|
-| 상호작용 | 화면, CLI 명령(`src/cli.rs`), Windows 앱 창(`app/`) |
+| 상호작용 | 화면, CLI 명령(`src/cli.rs`), 데스크톱 앱 창(`app/`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다. 예: 워크트리 닫기는 그래프의 `running` 수, `worktree::close`, 노드 지우기를 차례로 부른다 |
 | 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록, 사람 응답 대기(`waits.rs`)), 노드 호스트(`src/node_host/`: PTY 호스트에 붙어 출력 나누기, 중단할 셸(`mod.rs`), PTY 호스트 프로세스(`host.rs`), 프레임(`wire.rs`)), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 화면 확인 창 찾기(`src/screen.rs`), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기, Windows에서 WSL 저장소는 그 배포판의 git), WSL 경로(`src/wsl.rs`: `\\wsl.localhost\…` UNC와 Linux 경로 바꾸기), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |
@@ -585,7 +591,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 - Windows Codex 셸은 `codex.exe` 바로 아래의 `powershell.exe -Command`다. 부모 `loom interrupt`가 120초 셸 명령을 0.3초 안에 끝냈고(`Failed (exit -1)`), 셸 뒤의 파일 쓰기는 일어나지 않았다. 자식 `done`이 `loom wait`로 쉬던 부모를 깨웠다.
 - Windows OpenCode 2(2.0.32): `opencode.exe` 서버와 TUI가 떴다. 부모 `loom interrupt`가 120초 셸 명령을 끝냈고 셸 뒤의 파일 쓰기는 일어나지 않았다. 큐와 자식 `done`이 쉬던 부모를 깨웠다. 첫 지시문이 줄바꿈(CRLF)으로 끝나면 TUI가 `--prompt`를 입력창에 넣기만 하고 제출하지 않았다. 그래서 데몬은 첫 지시문 끝의 공백·줄바꿈을 지운다.
 - Windows Git Bash: `bash -c '<명령>'`의 프로세스 나무는 호출자 → `Git\bin\bash.exe`(껍데기) → bash → fork 흉내용 bash → 명령이다. fork 흉내용 bash는 명령과 함께 끝난다.
-- Windows 앱: 창이 열려 브라우저와 같은 화면을 보였다. 그 안에서 PowerShell 노드, Codex 노드, OpenCode 2 노드가 떴다. (이 판은 창을 닫으면 노드도 끝냈다. 지금은 노드가 산다, 「Windows 앱」.)
+- Windows 앱: 창이 열려 브라우저와 같은 화면을 보였다. 그 안에서 PowerShell 노드, Codex 노드, OpenCode 2 노드가 떴다. (이 판은 창을 닫으면 노드도 끝냈다. 지금은 노드가 산다, 「데스크톱 앱」.)
 - Windows 업데이트 중 노드 유지(2026-10-21, 설치한 0.1.314 `loom.exe` 사본을 임시 폴더에서): 도는 `loom.exe`는 덮어 쓰기(사용 중)와 지우기(액세스 거부)가 실패하고, 이름 바꾸기는 성공했다. 바꾼 뒤 옛 이름에 새 파일을 쓸 수 있었고 도는 데몬은 계속 HTTP에 답했다. 바꾼 파일은 프로세스가 끝난 뒤에만 지워졌다. 끝낸 데몬의 포트에 0.3초 뒤 새 데몬이 들었다. 이름을 바꾼 파일로 도는 프로세스의 `ExecutablePath`는 처음 이름 그대로였다. NSIS `$INSTDIR`이 `$TEMP` 아래면 짧은 이름(8.3)이었다.
 - Windows Job Object(같은 날, PowerShell P/Invoke): kill-on-close Job에 넣은 부모가 Job에 든 뒤 자식을 띄우고 Job 핸들을 닫았다. silent breakaway가 없으면 부모와 자식이 모두 끝났고, 있으면 부모만 끝나고 자식은 살았다.
 - 설치 훅(같은 날, Ubuntu `nsis` 3.09로 훅 파일을 넣은 시험 설치 파일): 도는 노드가 없으면 `.old`가 남지 않았다. 도는 데몬 1·2개 위에 설치가 성공했고(exit 0) 데몬은 살았다. 데몬이 끝난 뒤의 설치는 그 `.old`를 지웠다. 지우기 훅은 시험 폴더의 데몬 둘만 끝내고 `.old`를 지웠다. 다른 폴더의 `loom.exe` 셋은 그대로 살았다.

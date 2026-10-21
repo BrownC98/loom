@@ -49,7 +49,7 @@
 :root[data-theme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; margin: 0; }
 html, body, #root { height: 100%; }
-/* Windows 앱은 #root 맨 위에 제목 줄을 두고 .app이 남은 높이를 쓴다. 브라우저에서는 .app 하나다. */
+/* 데스크톱 앱은 #root 맨 위에 제목 줄을 두고 .app이 남은 높이를 쓴다. 브라우저에서는 .app 하나다. */
 #root { display: flex; flex-direction: column; }
 html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
 ::selection { background: var(--accent-wash); color: var(--ink); }
@@ -58,9 +58,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .app { position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--dock-w); flex: 1; min-height: 0; }
 
-/* Windows 앱 제목 줄(docs/mockups/titlebar.html). 높이·버튼 크기는 Orca와 같다(36px, 46px). 닫기 빨강은 Windows 닫기 버튼 색이다. */
+/* 앱 제목 줄(docs/mockups/titlebar.html, mac-titlebar.html). 높이·버튼 크기는 Orca와 같다(36px, 46px). 닫기 빨강은 Windows 닫기 버튼 색이다. */
 .titlebar { display: flex; align-items: stretch; height: 36px; flex: none; background: var(--panel); border-bottom: 1px solid var(--line); user-select: none; }
 .titlebar .spacer { flex: 1; }
+/* macOS 창 버튼(신호등, `app/src/main.rs`의 `TRAFFIC_LIGHTS`)이 왼쪽 64px을 쓴다. */
+.titlebar.mac { padding-left: 64px; }
 .titlebar-mark { width: 16px; height: 16px; margin: 0 10px 0 14px; align-self: center; fill: var(--ink-2); }
 .caption { width: 46px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: var(--ink-3); cursor: pointer; }
 .caption svg { width: 14px; height: 14px; stroke-width: 1.5; }

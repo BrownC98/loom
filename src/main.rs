@@ -44,6 +44,9 @@ enum Cli {
         /// 데몬이 듣는 주소. 사용자는 한 명이므로 기본값은 루프백이다.
         #[arg(long, default_value = "127.0.0.1:7420")]
         listen: SocketAddr,
+        /// stdin이 닫히면 끝난다. 데스크톱 앱이 쓴다: 앱이 어떻게 끝나든 OS가 파이프를 닫아 데몬도 끝난다.
+        #[arg(long)]
+        until_stdin_closes: bool,
     },
     /// 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다.
     Spawn {
@@ -124,8 +127,14 @@ enum Cli {
 
 fn main() -> ExitCode {
     let result = match Cli::parse() {
-        Cli::Serve { listen } => {
+        Cli::Serve {
+            listen,
+            until_stdin_closes,
+        } => {
             forget_launcher_env();
+            if until_stdin_closes {
+                end_when_stdin_closes();
+            }
             tokio::runtime::Runtime::new()
                 .and_then(|rt| rt.block_on(daemon::serve(listen)))
                 .map_err(|e| e.to_string())
@@ -175,6 +184,15 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// stdin이 닫히면 데몬을 끝낸다. 노드의 PTY 호스트와 서버는 따로 도는 프로세스라 함께 끝나지 않는다(`process_tree::detach`).
+/// 근거: docs/design.md 「데스크톱 앱」.
+fn end_when_stdin_closes() {
+    std::thread::spawn(|| {
+        let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
+        std::process::exit(0);
+    });
 }
 
 /// 데몬을 띄운 터미널의 변수를 지운다(`profile::is_launcher_env`). 노드, Codex app-server, 사용량 조회가 모두 이 환경을 물려받는다.

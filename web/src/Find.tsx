@@ -6,10 +6,10 @@ import { useTranslation } from 'react-i18next';
 import type { Found } from './findSpots';
 import type { RepoId } from './gen/RepoId';
 import { flowId, useShowGroups, useShowNodes } from './Graph';
+import { shortcut } from './platform';
 
 /** 여는 키(Terminal.tsx `findKey`). 툴팁과 `aria-keyshortcuts`에 보인다. */
-export const FIND_KEY = 'Ctrl+Shift+F';
-export const FIND_ARIA_KEY = 'Control+Shift+F';
+export const FIND_KEY = shortcut('F');
 /** 입력 칸 id. App이 여는 키·레일 단추로 이 칸에 포커스를 준다. */
 export const FIND_INPUT = 'find-input';
 
@@ -49,7 +49,7 @@ export function Find(props: {
         type="text"
         name="find"
         aria-label={t('find.open')}
-        aria-keyshortcuts={FIND_ARIA_KEY}
+        aria-keyshortcuts={FIND_KEY.aria}
         aria-invalid={none}
         placeholder={t('find.open')}
         title={`${t('find.open')} (${FIND_KEY})`}

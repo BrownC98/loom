@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { attachPty, openFile, savePastedFile } from './api';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
+import { commandKey } from './platform';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
 
 export type Direction = 'left' | 'right' | 'up' | 'down';
@@ -15,9 +16,9 @@ const NAV_KEYS: Record<string, Direction> = {
   ArrowDown: 'down',
 };
 
-/** `Ctrl+Shift+`방향키는 터미널 앱에 넘기지 않고 옆 카드 고르기에 쓴다(목업 「터미널에서 빠져나오기」). */
+/** 명령 키(macOS ⌘, 다른 OS Ctrl)+Shift+방향키는 터미널 앱에 넘기지 않고 옆 카드 고르기에 쓴다(목업 「터미널에서 빠져나오기」). */
 export function navDirection(e: KeyboardEvent | ReactKeyboardEvent): Direction | null {
-  if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return null;
+  if (!commandKey(e) || !e.shiftKey || e.altKey) return null;
   return NAV_KEYS[e.key] ?? null;
 }
 
@@ -26,17 +27,17 @@ export type PaneSide = 'left' | 'right';
 const PANE_KEYS: Record<string, PaneSide> = { BracketLeft: 'left', BracketRight: 'right' };
 
 /**
- * `Ctrl+Shift+[`·`]`는 왼쪽·오른쪽 사이드바를 접고 편다(목업 toolbar.html 4번). 방향키처럼 터미널 앱에 넘기지 않는다.
+ * 명령 키+Shift+`[`·`]`는 왼쪽·오른쪽 사이드바를 접고 편다(목업 toolbar.html 4번). 방향키처럼 터미널 앱에 넘기지 않는다.
  * 터미널은 `Ctrl+Shift+[`와 `Ctrl+[`(Esc)를 구별하지 못한다. Shift 없는 `Ctrl+[`는 그대로 터미널에 간다. 한글 입력 중에도 맞도록 자리(`code`)를 본다.
  */
 export function paneKey(e: KeyboardEvent | ReactKeyboardEvent): PaneSide | null {
-  if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return null;
+  if (!commandKey(e) || !e.shiftKey || e.altKey) return null;
   return PANE_KEYS[e.code] ?? null;
 }
 
-/** `Ctrl+Shift+F`는 그래프 찾기를 연다(목업 docs/mockups/search.html ①). 접기 키처럼 터미널 앱에 넘기지 않는다. 자리(`code`)를 본다. */
+/** 명령 키+Shift+`F`는 그래프 찾기를 연다(목업 docs/mockups/search.html ①). 접기 키처럼 터미널 앱에 넘기지 않는다. 자리(`code`)를 본다. */
 export function findKey(e: KeyboardEvent | ReactKeyboardEvent): boolean {
-  return e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyF';
+  return commandKey(e) && e.shiftKey && !e.altKey && e.code === 'KeyF';
 }
 
 /**
@@ -48,9 +49,9 @@ function isShiftEnter(e: KeyboardEvent | ReactKeyboardEvent): boolean {
   return e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
 }
 
-/** 다른 수식 키 없는 Ctrl+글쇠. 한글 입력 중에도 맞도록 글자(`key`)가 아니라 자리(`code`)를 본다. */
-function plainCtrl(e: KeyboardEvent, code: string): boolean {
-  return e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === code;
+/** 다른 수식 키 없는 명령 키+글쇠(복사·붙여넣기). 한글 입력 중에도 맞도록 글자(`key`)가 아니라 자리(`code`)를 본다. */
+function plainCommand(e: KeyboardEvent, code: string): boolean {
+  return commandKey(e) && !e.shiftKey && !e.altKey && e.code === code;
 }
 export type XtermFontValue = { family: string; size: number };
 /**
@@ -226,7 +227,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           }
         },
       });
-      // xterm은 Ctrl+C·Ctrl+V를 늘 `^C`·`^V`로 보내고 브라우저 복사·붙여넣기를 막는다.
+      // xterm은 Ctrl+C·Ctrl+V를 늘 `^C`·`^V`로 보내고 브라우저 복사·붙여넣기를 막는다. 복사·붙여넣기는 명령 키(macOS ⌘, 다른 OS Ctrl)로 한다.
       xterm.attachCustomKeyEventHandler((e) => {
         const dir = navDirection(e);
         if (dir) {
@@ -241,8 +242,8 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
         }
         // 접기·찾기 키는 막지 않고 창으로 올려 보낸다. 창의 키 처리(App)가 사이드바를 바꾸고 찾기 칸으로 간다.
         if (paneKey(e) || findKey(e)) return false;
-        // 선택이 없으면 Ctrl+C는 터미널 앱에 `^C`로 간다. 복사한 뒤 선택을 지워 다음 Ctrl+C가 `^C`가 되게 한다.
-        if (plainCtrl(e, 'KeyC') && xterm.hasSelection()) {
+        // 선택이 없으면 명령 키+C는 터미널 앱에 간다(macOS는 Ctrl+C가 늘 `^C`다). 복사한 뒤 선택을 지워 다음 Ctrl+C가 `^C`가 되게 한다.
+        if (plainCommand(e, 'KeyC') && xterm.hasSelection()) {
           if (e.type === 'keydown') {
             void navigator.clipboard.writeText(xterm.getSelection());
             xterm.clearSelection();
@@ -250,7 +251,7 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
           return false;
         }
         // 기본 동작을 막지 않으므로 브라우저가 paste 이벤트를 내고 xterm이 그 글을 보낸다.
-        return !plainCtrl(e, 'KeyV');
+        return !plainCommand(e, 'KeyV');
       });
       // 글이 없는 그림 붙여넣기는 데몬이 그림을 파일로 남기고, 그 경로를 붙여넣는다. 에이전트 CLI는 그림 경로를 첨부로 바꾼다.
       const pasteImage = (e: ClipboardEvent) => {

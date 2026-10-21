@@ -1,7 +1,7 @@
 ; Tauri NSIS 설치 프로그램의 훅. `app/tauri.conf.json`의 `bundle.windows.nsis.installerHooks`가 가리킨다.
 
 ; 노드의 PTY 호스트는 앱과 데몬이 끝난 뒤에도 옛 loom.exe로 돈다. 도는 실행 파일은 덮어 쓰지도 지우지도 못하지만
-; 이름은 바꿀 수 있다(실측, docs/design.md 「Windows 앱」). 그래서 옛 파일의 이름을 바꿔 두고 새 파일을 쓴다.
+; 이름은 바꿀 수 있다(실측, docs/design.md 「데스크톱 앱」). 그래서 옛 파일의 이름을 바꿔 두고 새 파일을 쓴다.
 ; 도는 노드가 없으면 그냥 지운다. 바꾼 파일은 그 노드가 모두 끝난 뒤의 다음 설치가 지운다.
 !macro NSIS_HOOK_PREINSTALL
   Delete "$INSTDIR\loom.exe.*.old"

@@ -62,6 +62,13 @@ Details (Korean): [docs/design.md 「내장 스킬」](docs/design.md#내장-스
 Get the files from the [latest release](https://github.com/BrownC98/loom/releases/latest).
 
 - **Windows:** run `loom_<version>_x64-setup.exe`. To remove loom, use Windows **Settings › Apps**.
+- **macOS (Apple Silicon):** open `loom_<version>_aarch64.dmg` and drag loom to the Applications folder. The app has no Apple signature, so macOS says it "is damaged". Before you open it the first time, run this command in Terminal:
+
+  ```sh
+  xattr -cr /Applications/loom.app
+  ```
+
+  To remove loom, move it from the Applications folder to the Trash.
 - **Linux and WSL (x86-64), web version:** see "Web version" below.
 
 Install the agent CLIs (Claude Code, Codex, OpenCode 2) yourself. loom finds them on `PATH`.
@@ -100,7 +107,7 @@ Design and decisions (Korean): [docs/design.md](docs/design.md).
 
 loom sends no data to a place that you did not choose. These are the only requests that go out:
 
-- **Update check (Windows app):** when the window opens, loom reads `latest.json` from the releases of this repository on GitHub. It sends no personal data.
+- **Update check (desktop app):** when the window opens, loom reads `latest.json` from the releases of this repository on GitHub. It sends no personal data.
 - **Usage display:** for a Claude account that you signed in to in loom settings, loom asks Anthropic (`api.anthropic.com`) for the usage of that account, with the token of that account. It sends this to no other place.
 - **Agent CLIs:** the agents that you install and choose (Claude Code, Codex and others) communicate under the policy of each provider. loom adds no data to that communication.
 

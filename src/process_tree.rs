@@ -109,7 +109,7 @@ impl Snapshot {
 
 /// `cmd`로 띄운 프로세스가 데몬이 끝나도 살게 한다. 노드의 PTY 호스트와 서버(Codex app-server, OpenCode 2)가 쓴다.
 /// Unix: 새 프로세스 그룹에 넣는다. 데몬 터미널의 Ctrl+C·HUP는 데몬의 그룹에만 간다.
-/// Windows: 할 일이 없다. 앱이 데몬을 넣은 Job은 데몬이 띄운 프로세스를 넣지 않는다(`app/src/main.rs`의 `end_with_app`).
+/// Windows: 할 일이 없다. 부모가 끝나도 자식은 끝나지 않는다.
 #[cfg(unix)]
 pub fn detach(cmd: &mut std::process::Command) {
     std::os::unix::process::CommandExt::process_group(cmd, 0);

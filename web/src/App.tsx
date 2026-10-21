@@ -19,7 +19,7 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
 import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
-import { Find, FIND_ARIA_KEY, FIND_INPUT, FIND_KEY } from './Find';
+import { Find, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
 import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
 import { useSelectedRepo } from './repos';
@@ -37,6 +37,7 @@ import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
 import { TitleBar } from './TitleBar';
 import { UpdateCard } from './Update';
+import { shortcut } from './platform';
 import { activeFont, findKey, paneKey, XtermFont, XtermTheme } from './Terminal';
 import { TerminalDock } from './TerminalDock';
 import { SwitchDialog } from './SwitchDialog';
@@ -66,8 +67,7 @@ const RAIL_WIDTH = 40;
 /** 왼쪽 사이드바 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있다. */
 const SIDE_TOGGLE = 'side-toggle';
 /** 왼쪽 접기·펴기 키(Terminal.tsx `paneKey`). 툴팁과 `aria-keyshortcuts`에 보인다. */
-const SIDE_KEY = 'Ctrl+Shift+[';
-const SIDE_ARIA_KEY = 'Control+Shift+[';
+const SIDE_KEY = shortcut('[');
 /** 오른쪽 칸과 그래프 사이에 늘 남기는 폭. 그래프를 다 덮어 되돌릴 수 없게 되는 것을 막는다. */
 const DOCK_MIN_GRAPH = 120;
 const EMPTY_SETTINGS: SettingsView = {
@@ -218,10 +218,10 @@ export function App() {
     setDockOpen(open);
     focusToggle(DOCK_TOGGLE);
   };
-  // `Ctrl+Shift+[`·`]`로 사이드바를 접고 편다. 포커스는 그대로 둔다(터미널에서 눌러도 터미널에 남는다).
+  // 명령 키+Shift+`[`·`]`로 사이드바를 접고 편다. 포커스는 그대로 둔다(터미널에서 눌러도 터미널에 남는다).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // `Ctrl+Shift+F`는 사이드바를 펴고 찾기 칸으로 간다. 터미널도 이 키를 창으로 올려 보낸다.
+      // 명령 키+Shift+`F`는 사이드바를 펴고 찾기 칸으로 간다. 터미널도 이 키를 창으로 올려 보낸다.
       if (findKey(e)) {
         e.preventDefault();
         return focusFind();
@@ -416,7 +416,7 @@ export function App() {
                   onStep={(step) => setFind((prev) => (found.length > 0 ? { ...prev, at: (foundAt + step + found.length) % found.length } : prev))}
                   onClear={clearFind}
                 />
-                <button id={SIDE_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="side" aria-label={t('app.sideCollapse')} aria-keyshortcuts={SIDE_ARIA_KEY} title={`${t('app.sideCollapse')} (${SIDE_KEY})`} onClick={() => openSide(false)}>
+                <button id={SIDE_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="side" aria-label={t('app.sideCollapse')} aria-keyshortcuts={SIDE_KEY.aria} title={`${t('app.sideCollapse')} (${SIDE_KEY.label})`} onClick={() => openSide(false)}>
                   <PanelLeftClose />
                 </button>
               </div>
@@ -451,11 +451,11 @@ export function App() {
             </nav>
           ) : (
             <nav className="rail side-rail" id="side" aria-label={t('app.sideLabel')}>
-              <button id={SIDE_TOGGLE} className="btn ghost icon" aria-expanded={false} aria-controls="side" aria-label={t('app.sideExpand')} aria-keyshortcuts={SIDE_ARIA_KEY} title={`${t('app.sideExpand')} (${SIDE_KEY})`} onClick={() => openSide(true)}>
+              <button id={SIDE_TOGGLE} className="btn ghost icon" aria-expanded={false} aria-controls="side" aria-label={t('app.sideExpand')} aria-keyshortcuts={SIDE_KEY.aria} title={`${t('app.sideExpand')} (${SIDE_KEY.label})`} onClick={() => openSide(true)}>
                 <PanelLeftOpen />
               </button>
               {/* 글자가 남아 그래프가 강조 중이면 점을 찍는다(목업 sidebar-find.html ④). */}
-              <button className={finding ? 'btn ghost icon finding' : 'btn ghost icon'} aria-label={t('find.open')} aria-keyshortcuts={FIND_ARIA_KEY} title={`${t('find.open')} (${FIND_KEY})`} onClick={focusFind}>
+              <button className={finding ? 'btn ghost icon finding' : 'btn ghost icon'} aria-label={t('find.open')} aria-keyshortcuts={FIND_KEY.aria} title={`${t('find.open')} (${FIND_KEY.label})`} onClick={focusFind}>
                 <Search />
               </button>
               <button className="btn ghost icon rail-end" aria-label={t('settings.title')} title={t('settings.title')} onClick={() => setSettingsTab('agents')}>

@@ -184,17 +184,35 @@ fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     let worker = child(&g, lead, "w");
     let wait = |id| view(&g, id).wait.map(|w| (w.kind, w.text));
 
+    // 턴 끝 질문 검사는 대기 없는 루트만 본다.
+    assert_eq!(g.unasked_root(lead), Ok(true));
+    assert_eq!(g.unasked_root(worker), Ok(false));
     // 사람에게는 사람이 띄운 노드만 묻는다.
     assert_eq!(g.ask(worker, "A?"), Err(Refusal::HasParent));
     assert_eq!(g.ask(lead, "  "), Err(Refusal::EmptyQuestion));
     g.ask(lead, "A or B?\nmore").unwrap();
     assert_eq!(wait(lead), Some((WaitKind::Question, "A or B?".into())));
+    assert_eq!(g.unasked_root(lead), Ok(false));
 
     // 다른 신호는 자기가 건 대기만 거둔다.
     g.set_wait(lead, WaitSource::Screen, None).unwrap();
     assert!(wait(lead).is_some());
-    // 사람이 키를 누르면 어느 신호의 대기든 지운다.
+    // 사람의 키 입력은 `loom ask` 대기를 남긴다. 에이전트가 답으로 판단하면 `loom answered`로 지운다.
+    g.typed(lead).unwrap();
+    assert!(wait(lead).is_some());
+    g.set_wait(lead, WaitSource::Screen, None).unwrap();
+    g.set_wait(lead, WaitSource::Hook, None).unwrap();
+    assert!(wait(lead).is_some());
+    g.set_wait(lead, WaitSource::Ask, None).unwrap();
+    assert_eq!(wait(lead), None);
+    // 받은편지함 [×]는 어느 신호의 대기든 지운다.
+    g.ask(lead, "A or B?").unwrap();
     g.clear_wait(lead).unwrap();
+    assert_eq!(wait(lead), None);
+    // 다른 신호의 대기는 키 입력이 지운다.
+    g.set_wait(lead, WaitSource::Screen, Some((WaitKind::Trust, "Trust?")))
+        .unwrap();
+    g.typed(lead).unwrap();
     assert_eq!(wait(lead), None);
 
     let mut events = g.subscribe().unwrap().1;

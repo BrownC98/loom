@@ -21,9 +21,9 @@ pub mod protocol {
 }
 
 use protocol::{
-    AbsolutePathBuf, SkillsExtraRootsSetParams, TextUserInputType, Thread, ThreadReadParams,
-    ThreadReadResponse, ThreadTurnsListParams, ThreadTurnsListResponse, TurnInterruptParams,
-    TurnItemsView, TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
+    AbsolutePathBuf, SkillsExtraRootsSetParams, TextUserInputType, Thread, ThreadItem,
+    ThreadReadParams, ThreadReadResponse, ThreadTurnsListParams, ThreadTurnsListResponse,
+    TurnInterruptParams, TurnItemsView, TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
 };
 
 /// `src/profile/codex/schema/`를 만든 Codex 버전.
@@ -193,6 +193,41 @@ pub fn kinds(status: Status) -> &'static [Kind] {
     }
 }
 
+/// 마지막 턴의 마지막 답 글. 턴 끝 질문 검사가 쓴다. 이 연결은 구독하지 않아 답 알림(`item/completed`)을 받지 못한다.
+pub async fn last_reply<F, Fut>(call: F, thread: &str) -> Result<Option<String>, String>
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: Future<Output = Result<Value, String>>,
+{
+    let rpc = Rpc { call, thread };
+    let list: ThreadTurnsListResponse = rpc
+        .send("thread/turns/list", &rpc.last_turn(TurnItemsView::Full))
+        .await?;
+    Ok(list.data.into_iter().next().and_then(|turn| {
+        turn.items.into_iter().rev().find_map(|item| match item {
+            ThreadItem::AgentMessage { text, .. } => Some(text),
+            _ => None,
+        })
+    }))
+}
+
+/// 쉬는 스레드에 새 턴을 연다. 턴 끝 질문 검사가 다시 일하게 할 때 쓴다.
+pub async fn start_turn<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: Future<Output = Result<Value, String>>,
+{
+    Rpc { call, thread }.start(input(text.to_owned())).await
+}
+
+fn input(text: String) -> Vec<UserInput> {
+    vec![UserInput::TextUserInput {
+        text,
+        text_elements: Vec::new(),
+        type_: TextUserInputType::Text,
+    }]
+}
+
 /// 꺼낸 메시지를 `turn/*` 요청으로 넘긴다. `call`은 JSON-RPC 요청 하나를 보내고 결과를 돌려준다.
 /// 첫 요청이 실패하면 다른 요청으로 한 번 더 넘긴다. 그래도 실패하면 받음을 확인하지 않고, 데몬이 `REDELIVER_AFTER` 뒤에 다시 꺼낸다.
 /// - 쉬는 중: `turn/start`. 그 사이 턴이 시작돼 실패하면 그 턴에 `turn/steer`.
@@ -209,11 +244,7 @@ where
     Fut: Future<Output = Result<Value, String>>,
 {
     let rpc = Rpc { call, thread };
-    let input = vec![UserInput::TextUserInput {
-        text: super::message_text(taken),
-        text_elements: Vec::new(),
-        type_: TextUserInputType::Text,
-    }];
+    let input = input(super::message_text(taken));
     match status {
         Status::Idle => rpc.start_or_steer(input).await,
         Status::Busy if taken.iter().any(|d| d.kind == Kind::Interrupt) => {
@@ -301,15 +332,20 @@ where
         self.send::<Value>("turn/steer", &params).await.map(drop)
     }
 
-    /// 진행 중인 턴의 id. 턴은 TUI도 시작하므로 그때마다 서버에서 읽는다.
-    async fn current_turn(&self) -> Result<Option<String>, String> {
-        let params = ThreadTurnsListParams {
+    /// 마지막 턴 하나를 읽는 요청. 서버는 새 턴부터 준다.
+    fn last_turn(&self, items: TurnItemsView) -> ThreadTurnsListParams {
+        ThreadTurnsListParams {
             thread_id: self.thread.to_owned(),
             limit: Some(1),
             cursor: None,
-            items_view: Some(TurnItemsView::NotLoaded),
+            items_view: Some(items),
             sort_direction: None,
-        };
+        }
+    }
+
+    /// 진행 중인 턴의 id. 턴은 TUI도 시작하므로 그때마다 서버에서 읽는다.
+    async fn current_turn(&self) -> Result<Option<String>, String> {
+        let params = self.last_turn(TurnItemsView::NotLoaded);
         let list: ThreadTurnsListResponse = self.send("thread/turns/list", &params).await?;
         Ok(list
             .data
@@ -466,6 +502,32 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.starts_with("turn/start 실패"), "{err}");
+    }
+
+    /// 마지막 턴의 마지막 `agentMessage`가 답 글이다. 요청은 마지막 턴 하나를 항목과 함께 읽는다.
+    #[tokio::test]
+    async fn last_reply_is_the_last_agent_message_of_the_last_turn() {
+        let sent = Mutex::new(Vec::new());
+        let call = |method: &'static str, params: Value| {
+            sent.lock().unwrap().push((method, params));
+            async move {
+                Ok(
+                    json!({ "data": [{ "id": "t", "itemsView": "full", "status": "completed", "error": null, "items": [
+                    { "type": "userMessage", "id": "1", "content": [] },
+                    { "type": "agentMessage", "id": "2", "text": "살펴본다." },
+                    { "type": "agentMessage", "id": "3", "text": "병합할까요?" },
+                ] }] }),
+                )
+            }
+        };
+        assert_eq!(
+            last_reply(call, "th").await.unwrap().as_deref(),
+            Some("병합할까요?")
+        );
+        let sent = sent.into_inner().unwrap();
+        assert_eq!(sent[0].0, "thread/turns/list");
+        assert_eq!(sent[0].1["limit"], 1);
+        assert_eq!(sent[0].1["itemsView"], "full");
     }
 
     /// 0.159.2 `thread/read` 응답의 모양이다(필수 필드만 남겼다). TUI `/model` 뒤 다음 턴에 이 값이 바뀐다(실측).

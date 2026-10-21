@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
     AckRequest, AdoptRequest, AskRequest, DoneRequest, GuardRequest, HookWaitRequest, IdleRequest,
-    RemoveRequest, ReplyRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken,
-    WaitRequest,
+    RemoveRequest, ReplyRequest, SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest,
+    Taken, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent};
 use crate::profile::claude;
@@ -175,6 +175,13 @@ pub fn hook() -> Result<(), String> {
         Take::BetweenTools => (BETWEEN_TOOLS_KINDS, true),
         Take::Never => return Ok(()),
         Take::WhenIdle => {
+            if let claude::Event::Stop = event
+                && let Some(nudge) = turn_end(claude::last_reply(&input), timeout)
+            {
+                // 메시지는 꺼내지 않는다. 다시 일한 턴이 끝나면 이 훅이 다시 꺼낸다.
+                to_model(&nudge)?;
+                std::process::exit(REWAKE_EXIT)
+            }
             let taken = wait_for_mail(&IdleRequest {
                 transcript,
                 rate_limited: event.rate_limited(),
@@ -182,10 +189,7 @@ pub fn hook() -> Result<(), String> {
             if taken.is_empty() {
                 return Ok(());
             }
-            let mut stderr = std::io::stderr();
-            writeln!(stderr, "{}", crate::profile::message_text(&taken))
-                .map_err(|e| e.to_string())?;
-            stderr.flush().map_err(|e| e.to_string())?;
+            to_model(&crate::profile::message_text(&taken))?;
             acknowledge(&taken, None);
             std::process::exit(REWAKE_EXIT)
         }
@@ -203,6 +207,27 @@ pub fn hook() -> Result<(), String> {
     // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
     acknowledge(&taken.messages, Some(timeout));
     Ok(())
+}
+
+/// 비동기 훅의 글은 stderr로 모델에 간다(`REWAKE_EXIT`와 함께).
+fn to_model(text: &str) -> Result<(), String> {
+    let mut stderr = std::io::stderr();
+    writeln!(stderr, "{text}").map_err(|e| e.to_string())?;
+    stderr.flush().map_err(|e| e.to_string())
+}
+
+/// 턴 끝 질문 검사. `reply`는 이 턴의 답 글이다(Cursor는 `afterAgentResponse` 훅이 먼저 넘겼다).
+/// 다시 일하게 할 글이 있으면 돌려준다. 데몬에 닿지 못하면 검사하지 않는다.
+fn turn_end(reply: Option<String>, timeout: Duration) -> Option<String> {
+    if let Some(text) = reply
+        && let Err(e) = call::<()>("said", &SaidRequest { text }, Some(timeout))
+    {
+        eprintln!("loom: could not report the reply: {e}");
+    }
+    call::<Option<String>>("turn-end", &(), Some(timeout)).unwrap_or_else(|e| {
+        eprintln!("loom: could not check the turn end: {e}");
+        None
+    })
 }
 
 /// Cursor 훅: Claude 훅과 같은 일을 Cursor 입출력 형식으로 한다. 출력이 늘 JSON이어야 Cursor가 훅을 실패로 보지 않는다.
@@ -229,6 +254,18 @@ pub fn cursor_hook() -> Result<(), String> {
             Some(timeout),
         )
     };
+    if let cursor::Event::AfterAgentResponse { text } = &event
+        && let Err(e) = call::<()>("said", &SaidRequest { text: text.clone() }, Some(timeout))
+    {
+        eprintln!("loom: could not report the reply: {e}");
+    }
+    if let cursor::Event::Stop { .. } = event
+        && let Some(nudge) = turn_end(None, timeout)
+    {
+        // 메시지는 꺼내지 않는다. 다시 일한 턴의 stop 훅이 꺼낸다.
+        println!("{}", serde_json::json!({ "followup_message": nudge }));
+        return Ok(());
+    }
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {
             messages: Vec::new(),
@@ -317,6 +354,12 @@ pub fn ask(question: String) -> Result<(), String> {
     println!(
         "The question is in the human's inbox. End your turn now. The human answers in your terminal."
     );
+    Ok(())
+}
+
+pub fn answered() -> Result<(), String> {
+    call::<()>("answered", &(), None)?;
+    println!("The question is no longer in the human's inbox.");
     Ok(())
 }
 

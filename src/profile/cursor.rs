@@ -102,6 +102,7 @@ fn hooks() -> Value {
             "preToolUse": hook,
             "postToolUse": hook,
             "postToolUseFailure": hook,
+            "afterAgentResponse": hook,
             "stop": [{ "command": "loom cursor-hook", "timeout": IDLE_HOOK_TIMEOUT_SECS, "loop_limit": null }],
         },
     })
@@ -183,6 +184,11 @@ pub enum Event {
     Stop {
         model: Option<String>,
     },
+    /// 모델이 답 글을 다 냈다. stop 훅보다 먼저 온다. 턴 끝 질문 검사가 쓴다(2026.10.19 번들의 입력 `text`).
+    AfterAgentResponse {
+        #[serde(default)]
+        text: String,
+    },
 }
 
 impl Event {
@@ -190,7 +196,7 @@ impl Event {
     /// sessionStart는 꺼내지 않는다. Cursor는 그 훅이 끝나야 첫 턴을 띄운다. 쉬는 동안의 메시지는 첫 stop 훅이 넘긴다.
     pub fn take(&self) -> Option<Take> {
         Some(match self {
-            Event::SessionStart { .. } => return None,
+            Event::SessionStart { .. } | Event::AfterAgentResponse { .. } => return None,
             Event::Stop { .. } => Take::WhenIdle,
             Event::BeforeSubmitPrompt { .. } => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::BetweenTools,
@@ -234,6 +240,7 @@ impl Event {
             Event::BeforeSubmitPrompt { .. } | Event::PostToolUse | Event::PostToolUseFailure => {
                 json!({ "continue": true, "additional_context": text })
             }
+            Event::AfterAgentResponse { .. } => json!({}),
             Event::PreToolUse { .. } => json!({
                 "permission": "deny",
                 "user_message": "loom message",
@@ -415,6 +422,16 @@ mod tests {
     }
 
     /// Cursor가 버리지 않게 sessionStart 글마다 상한 아래로 둔다.
+    /// 답 글 훅은 메시지를 꺼내지 않고 답 글만 넘긴다(`cli::cursor_hook`). 출력은 빈 JSON이다.
+    #[test]
+    fn after_agent_response_carries_the_reply_text() {
+        let said = event(json!({ "hook_event_name": "afterAgentResponse", "text": "병합할까요?" }));
+        assert!(matches!(&said, Event::AfterAgentResponse { text } if text == "병합할까요?"));
+        assert_eq!(said.take(), None);
+        assert_eq!(said.reply(&[], &[]), json!({}));
+        assert!(hooks()["hooks"]["afterAgentResponse"].is_array());
+    }
+
     #[test]
     fn session_start_contexts_have_the_ask_rules() {
         super::super::assert_every_launch_asks(|launch| {

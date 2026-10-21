@@ -1,6 +1,7 @@
 //! 사람 응답 대기: 노드가 사람의 답·승인을 기다린다는 표시 하나. 화면의 받은편지함·카드·사이드바가 이것만 읽는다.
 //! 신호(에이전트의 `loom ask`, Claude 훅, Codex 스레드 상태, 터미널 화면)는 모두 `set_wait` 하나로 들어온다.
-//! 지우는 길: 신호 쪽이 거두기(`set_wait(.., None)`), 사람의 키 입력·받은편지함 [×]·노드 재시작(`clear_wait`), 프로세스 끝(`end_process`).
+//! 지우는 길: 신호 쪽이 거두기(`set_wait(.., None)`. `loom ask` 대기는 에이전트의 `loom answered`), 사람의 키 입력(`typed`, `loom ask` 대기는 남긴다),
+//! 받은편지함 [×]·노드 재시작(`clear_wait`), 프로세스 끝(`end_process`).
 //! 근거: docs/design.md 「사람 응답 대기」.
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -117,7 +118,29 @@ impl Graph {
         Ok(self.set_wait(id, WaitSource::Ask, Some((WaitKind::Question, question)))?)
     }
 
-    /// 사람이 그 노드 터미널에 키를 눌렀거나, 받은편지함에서 지웠거나, 노드 프로세스를 다시 띄웠다. 어느 신호의 대기든 지운다.
+    /// 사람이 띄운 노드(부모 없음)이고 지금 사람 응답 대기가 없다. 턴 끝 질문 검사(`daemon::turn_end`)가 쓴다.
+    /// 이번 턴에 `loom ask`나 Claude 질문 도구로 물었으면 대기가 남아 있다.
+    pub fn unasked_root(&self, id: NodeId) -> Result<bool, Refusal> {
+        let db = self.lock();
+        if parent_of(&db, id)?.is_some() {
+            return Ok(false);
+        }
+        Ok(stored(&db, id)?.is_some_and(|wait| wait.is_none()))
+    }
+
+    /// 사람이 그 노드 터미널에 키를 눌렀다. `loom ask` 대기만 남기고 지운다. 그 입력이 답인지는 에이전트가 판단해 `loom answered`로 지운다.
+    /// 근거: 2026-10-21 사람 지시 "사람이 정말 답변을 했을때만 알림이 제거되도록 알림제거는 사용자 입력을 에이전트가 판단하여 제거하도록 하라".
+    pub fn typed(&self, id: NodeId) -> rusqlite::Result<()> {
+        let asked = stored(&self.lock(), id)?
+            .flatten()
+            .is_some_and(|now| now.source == WaitSource::Ask);
+        match asked {
+            true => Ok(()),
+            false => self.clear_wait(id),
+        }
+    }
+
+    /// 사람이 받은편지함에서 지웠거나 노드 프로세스를 다시 띄웠다. 어느 신호의 대기든 지운다.
     pub fn clear_wait(&self, id: NodeId) -> rusqlite::Result<()> {
         let db = self.lock();
         let changed = db.execute(

@@ -6,6 +6,7 @@ mod origin;
 mod sessions;
 mod settings;
 mod switch;
+mod turn_end;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -80,6 +81,8 @@ struct App {
     idle: idle::IdleWaits,
     /// 계정 전환으로 옮기는 중이거나 턴 끝에 옮길 노드.
     switch: switch::Switches,
+    /// 턴 끝 질문 검사(`turn_end`).
+    turn_ends: turn_end::TurnEnds,
     /// 노드 에이전트가 쓰는 내장 스킬. 데몬이 시작할 때 데이터 폴더에 푼다.
     plugin: skills::Plugin,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
@@ -361,6 +364,12 @@ pub struct AskRequest {
     pub question: String,
 }
 
+/// 에이전트 답 글(Claude 기록 파일의 마지막 답, Cursor `afterAgentResponse`). 턴 끝 질문 검사가 쓴다.
+#[derive(Serialize, Deserialize)]
+pub struct SaidRequest {
+    pub text: String,
+}
+
 /// Claude 훅(`loom hook`)이 알린 사람 응답 대기. `None`이면 훅이 건 대기를 거둔다.
 #[derive(Serialize, Deserialize)]
 pub struct HookWaitRequest {
@@ -433,6 +442,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         setups: Mutex::default(),
         idle: idle::IdleWaits::default(),
         switch: switch::Switches::default(),
+        turn_ends: turn_end::TurnEnds::default(),
         plugin: {
             let plugin =
                 skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
@@ -469,6 +479,9 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/ask", post(agent_ask))
         .route("/api/agent/hook-wait", post(agent_hook_wait))
+        .route("/api/agent/answered", post(agent_answered))
+        .route("/api/agent/said", post(agent_said))
+        .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/rm", post(agent_remove));
     let router = node_routes
@@ -1254,11 +1267,18 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
     let mut thread = server.thread();
     // `turn/start`를 보낸 뒤 서버의 active 알림이 오기 전까지 일하는 중으로 본다. 그래야 큐를 두 턴으로 나눠 보내지 않는다.
     let mut started = false;
+    let mut busy = false;
     loop {
         let mut mail = pin!(app.graph.mail_changed());
         mail.as_mut().enable();
         let now = thread.borrow_and_update().clone();
         if let Some(now) = now {
+            // 턴이 끝났다(일하는 중 → 쉬는 중). 다시 일하게 하면 이번에는 메시지를 넘기지 않는다.
+            let ended = std::mem::replace(&mut busy, now.status == Status::Busy) && !busy;
+            if ended && !started && codex_turn_end(&app, node, &server, &now.id).await {
+                started = true;
+                continue;
+            }
             let status = if started { Status::Busy } else { now.status };
             match app
                 .graph
@@ -1296,6 +1316,28 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                 }
                 started = false;
             }
+        }
+    }
+}
+
+/// Codex 턴 끝 질문 검사. 다시 일하게 했으면 참이다. 대기 없는 루트만 답 글을 읽는다.
+async fn codex_turn_end(app: &App, node: NodeId, server: &CodexServer, thread: &str) -> bool {
+    let call = |method, params| server.call(method, params);
+    if app.graph.unasked_root(node).unwrap_or(false) {
+        match codex::last_reply(call, thread).await {
+            Ok(Some(text)) => app.turn_ends.said(node, text),
+            Ok(None) => {}
+            Err(e) => eprintln!("loom: 노드 {}의 답 글을 읽지 못했다: {e}", node.0),
+        }
+    }
+    let Some(nudge) = app.turn_end(node) else {
+        return false;
+    };
+    match codex::start_turn(call, thread, nudge).await {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0);
+            false
         }
     }
 }
@@ -1387,7 +1429,7 @@ async fn unbookmark_node(
     Ok(Json(()))
 }
 
-/// 받은편지함의 [×]: 사람이 터미널에 키를 누른 것처럼 그 노드의 대기를 지운다. 근거: docs/design.md 「사람 응답 대기」.
+/// 받은편지함의 [×]: 어느 신호든 그 노드의 대기를 지운다. 근거: docs/design.md 「사람 응답 대기」.
 async fn dismiss_wait(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
@@ -1680,6 +1722,37 @@ async fn agent_ask(
     Ok(Json(()))
 }
 
+/// `loom answered`: 사람의 입력이 `loom ask` 질문의 답이라고 에이전트가 판단했다. 그 질문만 지운다. 다른 대기와 부모 있는 노드에는 할 일이 없다.
+async fn agent_answered(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.graph
+        .set_wait(node, WaitSource::Ask, None)
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    Ok(Json(()))
+}
+
+async fn agent_said(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<SaidRequest>,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.turn_ends.said(node, req.text);
+    Ok(Json(()))
+}
+
+/// 훅이 부르는 턴 끝. 다시 일하게 할 글이 있으면 돌려준다. 훅은 그 글로 모델을 다시 깨우고 메시지를 꺼내지 않는다.
+async fn agent_turn_end(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<Option<String>>, AgentError> {
+    let node = app.caller(&headers)?;
+    Ok(Json(app.turn_end(node).map(str::to_owned)))
+}
+
 async fn agent_hook_wait(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -1725,9 +1798,9 @@ async fn agent_remove(
 }
 
 async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<App>>) -> Response {
-    // 사람이 그 노드 터미널에 키를 누르면 답한 것으로 본다. 근거: docs/design.md 「사람 응답 대기」.
+    // 사람이 그 노드 터미널에 키를 누르면 답한 것으로 본다. `loom ask` 대기는 에이전트가 판단해 지운다. 근거: docs/design.md 「사람 응답 대기」.
     let typed = |app: &App, id| {
-        if let Err(e) = app.graph.clear_wait(id) {
+        if let Err(e) = app.graph.typed(id) {
             eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
         }
     };

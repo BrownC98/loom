@@ -16,7 +16,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeNested, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, overlaps, push, sameSpots, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type NestGroup, type Side, type Sibling, type Size } from './layout';
+import { arrangeNested, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type NestGroup, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
@@ -950,9 +950,9 @@ export function Graph(props: {
    * 상자 원점을 한 요청으로 저장한다. `after`가 있으면 그 요청보다 먼저 보낸다.
    * 묶음·카드를 놓은 저장소는 정렬한 모양을 더 지키지 않는다(데몬 `Spots::put`과 같은 규칙).
    */
-  const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
+  const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve(), homes: ReadonlyMap<string, XYPosition | null> = new Map()) => {
     if (done.size === 0) return;
-    const placed = place(done);
+    const placed = place(done, homes);
     const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : [p.spot.repo])));
     setArrangedRepos((prev) => new Set([...prev].filter((id) => !inside.has(id))));
     after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
@@ -963,8 +963,9 @@ export function Graph(props: {
     setArrangedRepos((prev) => new Set([...prev, ...ids]));
     after.then(() => putArranged({ repos: [...ids], placed })).catch((err: Error) => setRefusal(err.message));
   };
-  const place = (done: ReadonlyMap<string, XYPosition>): Placed[] => {
-    const placed = [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p }));
+  /** `homes`는 끌지 않고 커진 상자가 민 상자와 되돌린 상자의 밀기 전 자리다(다 돌아가면 null). 다른 상자는 `keptHome`을 따른다. */
+  const place = (done: ReadonlyMap<string, XYPosition>, homes: ReadonlyMap<string, XYPosition | null> = new Map()): Placed[] => {
+    const placed = [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p, home: homes.has(k) ? homes.get(k)! : keptHome(spots.get(k), p) }));
     setSpots((prev) => new Map([...prev, ...placed.map((p): [string, Placed] => [flowId(p.spot), p])]));
     return placed;
   };
@@ -1049,7 +1050,39 @@ export function Graph(props: {
       const lead = level.lead.get(key) ?? { x: 0, y: 0 };
       spread(key, level, o ? { at: { x: o.x + lead.x, y: o.y + lead.y }, size: self.size } : self, done);
     }
-    save(done);
+    // 민 상자는 밀기 전 자리를 기억한다(DB `spots.home_x`·`home_y`). 또 밀려도 처음 자리를 지킨다.
+    const homes = new Map([...done.keys()].map((k): [string, XYPosition | null] => {
+      const level = levels.get(k)!;
+      return [k, pushedHome(spots.get(k), originOf(level, k, level.boxes.find((b) => b.key === k)!.at))];
+    }));
+    // 어떤 상자가 줄거나 사라지면 기억한 상자가 밀기 전 자리 쪽으로 겹치지 않는 데까지 돌아간다. 다 가면 그 자리를 잊는다.
+    // 정렬한 모양을 지키는 저장소 안은 자동 배치가 놓으므로(`skip`) 돌리지 않는다. 한 상자가 비키면 다음 상자가 갈 수 있어 움직임이 없을 때까지 돈다.
+    if (shrank(before, now).length > 0) {
+      const back = [...spots].filter(([k, p]) => p.home && levels.has(k) && !skip.has(k) && !done.has(k));
+      const boxNow = (level: Level, b: Sibling): Sibling => {
+        const o = done.get(b.key);
+        const lead = level.lead.get(b.key) ?? { x: 0, y: 0 };
+        return o ? { ...b, at: { x: o.x + lead.x, y: o.y + lead.y } } : b;
+      };
+      for (let moved = true; moved; ) {
+        moved = false;
+        for (const [k, p] of back) {
+          const home = p.home!;
+          const level = levels.get(k)!;
+          const lead = level.lead.get(k) ?? { x: 0, y: 0 };
+          const boxes = level.boxes.map((b) => boxNow(level, b));
+          const self = boxes.find((b) => b.key === k)!;
+          const from = originOf(level, k, self.at);
+          const to = originOf(level, k, retreat(boxes.filter((b) => b.key !== k), self, { x: home.x + lead.x, y: home.y + lead.y }, FREE_GAP));
+          const reached = samePoint(to, home);
+          if (samePoint(from, to) && (!reached || homes.has(k))) continue;
+          done.set(k, reached ? home : to);
+          homes.set(k, reached ? null : home);
+          moved ||= !samePoint(from, to);
+        }
+      }
+    }
+    save(done, undefined, homes);
   });
 
   // 바뀜은 마지막 결과에 더한다. 렌더 전에 바뀜이 여럿 오면(끄는 자리, 그래서 커진 바깥 상자의 크기) 렌더한 노드에 더할 때

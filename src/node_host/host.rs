@@ -25,8 +25,11 @@ const INITIAL_SIZE: PtySize = PtySize {
     pixel_width: 0,
     pixel_height: 0,
 };
-/// `NodeHost::screen`이 화면이 크기를 알리기 전에 쓰는 크기(행, 열). 다시 시작한 데몬도 이 값에서 시작한다.
-pub(super) const INITIAL_ROWS_COLS: (u16, u16) = (INITIAL_SIZE.rows, INITIAL_SIZE.cols);
+/// 데몬이 호스트에게 지금 크기를 듣기 전에 쓰는 크기. 크기를 알리지 않는 옛 호스트도 이 값이다.
+pub(super) const INITIAL_SIZE_VIEW: super::PtySize = super::PtySize {
+    cols: INITIAL_SIZE.cols,
+    rows: INITIAL_SIZE.rows,
+};
 /// Windows ConPTY는 첫 출력으로 커서 위치를 묻고, 답이 올 때까지 프로그램을 멈춘다.
 /// portable-pty가 `PSEUDOCONSOLE_INHERIT_CURSOR`를 늘 켜고 연다. 화면이 붙지 않은 노드(`loom spawn` 자식)도 뜨도록
 /// 호스트가 왼쪽 위로 답하고 이 질의를 출력에서 지운다. 그래서 나중에 붙은 xterm이 한 번 더 답하지 않는다.
@@ -323,6 +326,24 @@ impl Host {
         let Ok(mut reader) = greeted.and_then(|()| stream.try_clone()) else {
             return;
         };
+        // 지금 PTY 크기를 먼저 알린다. 다시 시작한 데몬이 화면에 같은 크기를 준다.
+        let size = self
+            .master
+            .lock()
+            .unwrap()
+            .get_size()
+            .unwrap_or(INITIAL_SIZE);
+        if wire::write(
+            &mut stream,
+            &Frame::Resize {
+                cols: size.cols,
+                rows: size.rows,
+            },
+        )
+        .is_err()
+        {
+            return;
+        }
         let me = {
             let mut state = self.state.lock().unwrap();
             let backlog = state.backlog.to_vec();

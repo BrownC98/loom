@@ -12,6 +12,7 @@ use crate::accounts::AccountId;
 use crate::graph::TreeLimits;
 use crate::profile::{AgentId, Provider};
 use crate::skills::AlwaysOn;
+use crate::worktree::RepoId;
 
 #[derive(Clone, Default, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -56,6 +57,48 @@ pub struct SettingsView {
     /// 새 노드에 주는 내장 스킬. 옛 설정에는 없다. 없으면 모두 켜짐이다. 근거: docs/design.md 「내장 스킬」.
     #[serde(default)]
     pub always_on: AlwaysOn,
+    /// 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 여섯 칸은 옛 설정에 없다.
+    /// [정렬]과 나무 간선이 향하는 방향. 없으면 `Down`이다.
+    pub arrange_direction: ArrangeDirection,
+    /// 그래프 미니맵을 접었는지. 없으면 펼침이다.
+    pub minimap_folded: bool,
+    /// 사이드바에서 고른 저장소. 없거나 목록에 없으면 화면이 첫 저장소를 쓴다.
+    pub repo: Option<RepoId>,
+    pub pane_widths: PaneWidths,
+    pub closed_panes: ClosedPanes,
+    /// 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
+    pub closed_switch_notice: Option<u32>,
+}
+
+/// [정렬] 방향. 나무가 뻗는 쪽이다.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ArrangeDirection {
+    #[default]
+    Down,
+    Right,
+    Up,
+    Left,
+}
+
+/// 사람이 끌어 바꾼 사이드바 너비(px). 없으면 화면이 칸의 기본 너비를 쓴다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct PaneWidths {
+    pub side: Option<u16>,
+    pub dock: Option<u16>,
+}
+
+/// 접은 칸(사이드바, 오른쪽 칸)과 절(북마크). 처음에는 모두 펼침이다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct ClosedPanes {
+    pub side: bool,
+    pub dock: bool,
+    pub bookmarks: bool,
 }
 
 /// 화면 언어. `System`은 브라우저 언어(`navigator.language`)를 따른다. Orca의 `uiLanguage`와 같은 자리다.
@@ -164,27 +207,96 @@ impl Settings {
     }
 
     pub fn get(&self) -> rusqlite::Result<SettingsView> {
-        let text: Option<String> = self
-            .db
-            .lock()
-            .unwrap()
-            .query_row("SELECT value FROM settings WHERE id = 1", [], |row| {
-                row.get(0)
-            })
-            .optional()?;
-        // 형식이 옛것이면 기본값으로 시작한다. 다음 저장이 덮어쓴다.
-        Ok(text
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default())
+        Ok(read(&self.db.lock().unwrap())?.0)
     }
 
-    pub fn put(&self, view: &SettingsView) -> rusqlite::Result<()> {
-        let text = serde_json::to_string(view).expect("설정은 늘 직렬화된다");
-        self.db.lock().unwrap().execute(
+    /// 화면이 바꾼 칸만 받아 지금 설정에 합친다(JSON Merge Patch, RFC 7386: 객체는 칸마다 합치고 다른 값은 바꾼다).
+    /// 읽기·합치기·쓰기를 한 잠금과 한 트랜잭션에서 한다. 그래서 두 화면이 같은 때 다른 칸을 바꿔도 둘 다 남는다.
+    /// 합친 값이 `SettingsView`가 아니면 쓰지 않는다. 합친 설정을 돌려준다.
+    pub fn patch(&self, patch: &serde_json::Value) -> Result<SettingsView, PatchProblem> {
+        self.write(|_, value| {
+            merge(value, patch);
+            serde_json::from_value(value.clone()).map_err(|e| PatchProblem::Shape(e.to_string()))
+        })
+    }
+
+    /// 데몬이 설정 하나를 바꾼다(예: 자동 전환한 계정). `patch`와 같은 잠금 안에서 읽고 쓴다.
+    pub fn update(&self, edit: impl FnOnce(&mut SettingsView)) -> rusqlite::Result<()> {
+        let result = self.write(|mut view, value| {
+            edit(&mut view);
+            *value = serde_json::to_value(&view).expect("설정은 늘 직렬화된다");
+            Ok(view)
+        });
+        match result {
+            Ok(_) => Ok(()),
+            Err(PatchProblem::Db(e)) => Err(e),
+            Err(PatchProblem::Shape(_)) => unreachable!("데몬이 만든 설정은 늘 맞는 모양이다"),
+        }
+    }
+
+    fn write(
+        &self,
+        change: impl FnOnce(SettingsView, &mut serde_json::Value) -> Result<SettingsView, PatchProblem>,
+    ) -> Result<SettingsView, PatchProblem> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        let (view, mut value) = read(&tx)?;
+        let next = change(view, &mut value)?;
+        tx.execute(
             "INSERT OR REPLACE INTO settings (id, value) VALUES (1, ?1)",
-            [text],
+            [serde_json::to_string(&next).expect("설정은 늘 직렬화된다")],
         )?;
-        Ok(())
+        tx.commit()?;
+        Ok(next)
+    }
+}
+
+/// 설정 한 줄과 그 JSON. 형식이 옛것이면 기본값으로 시작한다. 다음 저장이 덮어쓴다.
+fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> {
+    let text: Option<String> = db
+        .query_row("SELECT value FROM settings WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    let view: SettingsView = text
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let value = serde_json::to_value(&view).expect("설정은 늘 직렬화된다");
+    Ok((view, value))
+}
+
+/// RFC 7386. `null`은 칸을 지운다. 지운 칸은 읽을 때 기본값(없음·꺼짐)이 된다.
+fn merge(target: &mut serde_json::Value, patch: &serde_json::Value) {
+    let serde_json::Value::Object(fields) = patch else {
+        *target = patch.clone();
+        return;
+    };
+    if !target.is_object() {
+        *target = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let map = target.as_object_mut().expect("바로 위에서 객체로 만들었다");
+    for (key, value) in fields {
+        if value.is_null() {
+            map.remove(key);
+        } else {
+            merge(
+                map.entry(key.clone()).or_insert(serde_json::Value::Null),
+                value,
+            );
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum PatchProblem {
+    Db(rusqlite::Error),
+    /// 합친 값이 설정 모양이 아니다. 화면이 보낸 칸이 틀렸다.
+    Shape(String),
+}
+
+impl From<rusqlite::Error> for PatchProblem {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Db(e)
     }
 }
 
@@ -201,7 +313,7 @@ mod tests {
             bypass_off: vec![AgentId("codex".into())],
             ..Default::default()
         };
-        settings.put(&view).unwrap();
+        settings.update(|v| *v = view.clone()).unwrap();
         assert_eq!(settings.get().unwrap().bypass_off, view.bypass_off);
     }
 
@@ -223,5 +335,83 @@ mod tests {
         assert_eq!(got.graph_scope, GraphScope::Repo);
         assert_eq!(got.language, Language::System);
         assert_eq!(got.always_on, AlwaysOn::default());
+        assert_eq!(got.arrange_direction, ArrangeDirection::Down);
+        assert!(!got.minimap_folded);
+        assert_eq!(got.repo, None);
+        assert_eq!(got.pane_widths, PaneWidths::default());
+        assert_eq!(got.closed_panes, ClosedPanes::default());
+        assert_eq!(got.closed_switch_notice, None);
+    }
+
+    #[test]
+    fn view_state_round_trips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let view = SettingsView {
+            arrange_direction: ArrangeDirection::Left,
+            minimap_folded: true,
+            repo: Some(RepoId(3)),
+            pane_widths: PaneWidths {
+                side: Some(300),
+                dock: None,
+            },
+            closed_panes: ClosedPanes {
+                bookmarks: true,
+                ..Default::default()
+            },
+            closed_switch_notice: Some(9),
+            ..Default::default()
+        };
+        settings.update(|v| *v = view.clone()).unwrap();
+        let got = settings.get().unwrap();
+        assert_eq!(got.arrange_direction, ArrangeDirection::Left);
+        assert!(got.minimap_folded);
+        assert_eq!(got.repo, Some(RepoId(3)));
+        assert_eq!(got.pane_widths, view.pane_widths);
+        assert_eq!(got.closed_panes, view.closed_panes);
+        assert_eq!(got.closed_switch_notice, Some(9));
+    }
+
+    /// 두 화면이 다른 칸을 따로 보낸다. 앞 쓰기가 뒤 쓰기에 지워지지 않는다. 안쪽 객체도 칸마다 합친다.
+    #[test]
+    fn partial_writes_of_different_fields_both_stay() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        settings
+            .patch(&serde_json::json!({"minimapFolded": true, "paneWidths": {"side": 300}}))
+            .unwrap();
+        settings
+            .patch(&serde_json::json!({"arrangeDirection": "left", "paneWidths": {"dock": 400}}))
+            .unwrap();
+        let got = settings.get().unwrap();
+        assert!(got.minimap_folded);
+        assert_eq!(got.arrange_direction, ArrangeDirection::Left);
+        assert_eq!(
+            got.pane_widths,
+            PaneWidths {
+                side: Some(300),
+                dock: Some(400)
+            }
+        );
+        // `null`은 칸을 지워 기본값으로 돌린다.
+        settings
+            .patch(&serde_json::json!({"paneWidths": {"side": null}}))
+            .unwrap();
+        assert_eq!(settings.get().unwrap().pane_widths.side, None);
+    }
+
+    /// 모양이 틀린 칸은 쓰지 않는다.
+    #[test]
+    fn wrong_shape_is_refused_and_not_written() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        settings
+            .patch(&serde_json::json!({"minimapFolded": true}))
+            .unwrap();
+        assert!(matches!(
+            settings.patch(&serde_json::json!({"minimapFolded": "yes"})),
+            Err(PatchProblem::Shape(_))
+        ));
+        assert!(settings.get().unwrap().minimap_folded);
     }
 }

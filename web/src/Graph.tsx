@@ -23,7 +23,7 @@ import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
-import { Terminal, type Direction } from './Terminal';
+import { SizingTerminal, Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
@@ -104,25 +104,6 @@ function PopAt(props: { at: XYPosition; children: ReactNode }) {
 }
 
 /** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
-/** 미니맵 접힘은 보는 사람마다 하나다. 정렬 방향처럼 이 브라우저에만 둔다. */
-const MINIMAP_KEY = 'loom.minimapFolded';
-
-function loadMinimapFolded(): boolean {
-  try {
-    return localStorage.getItem(MINIMAP_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function saveMinimapFolded(folded: boolean) {
-  try {
-    localStorage.setItem(MINIMAP_KEY, String(folded));
-  } catch {
-    // 저장할 수 없으면 이 화면에서만 쓴다.
-  }
-}
-
 /**
  * 지금 배율(2026-10-21 사람 지시 "현재 배율을 미니맵에 표시해줘"). React Flow 미니맵은 자식을 받지 않는다.
  * 그래서 같은 오른쪽 아래 패널로 미니맵 위 오른쪽 아래 모서리에 겹쳐 그린다. 숫자 밖 클릭은 미니맵이 받는다.
@@ -210,7 +191,7 @@ type GroupData = {
 };
 type CardBase = { view: NodeView; agentLabel: string; selected: boolean; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /**
- * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 확대 창이 열면 카드는 터미널을 그리지 않는다. PTY 크기를 한쪽만 정하게 한다.
+ * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 이 화면에서 카드를 펼치면 카드는 터미널을 그리지 않는다. PTY 크기는 카드가 정하고(`SizingTerminal`), 펼친 카드는 그 크기를 늘여 보인다.
  * `sized`: 사람이 크기를 바꿨다. 그 카드만 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③).
  * `onResizeStart`: 테두리를 잡았다. `onResize`: 끄는 동안 크기와 왼쪽 위가 옮긴 거리. `onResized`: 놓은 값. 저장한다.
  */
@@ -342,7 +323,7 @@ function Card({ data }: NodeProps<CardNode>) {
         }
       >
         <div ref={termBox} className="term-hold" style={hold ?? undefined}>
-          {data.ownsPty && <Terminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+          {data.ownsPty && <SizingTerminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
         </div>
       </NodeCard>
       {/* 카드 다음에 그려 카드 머리·터미널 위에 놓는다. 그래서 테두리 안쪽 3px도 잡힌다. 잇기 점(`Ports`)은 그 위다. */}
@@ -492,6 +473,9 @@ export function Graph(props: {
   hops: ReadonlyMap<string, Hop>;
   agents: AgentView[];
   settings: SettingsView;
+  /** 데몬이 카드 자리·크기가 바뀌었다고 알릴 때마다 늘어난다. 바뀌면 둘을 다시 읽는다. */
+  viewVersion: number;
+  onMinimapFold: (folded: boolean) => void;
   accounts: AccountView[] | null;
   selected: NodeId | null;
   onSelect: (id: NodeId | null) => void;
@@ -528,7 +512,7 @@ export function Graph(props: {
   const [branching, setBranching] = useState<{ key: string; anchor: XYPosition } | null>(null);
   // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
   const [refusal, setRefusal] = useState('');
-  const [minimapFolded, setMinimapFolded] = useState(loadMinimapFolded);
+  const minimapFolded = props.settings.minimapFolded;
   // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
   // 사람이 끌어 놓은 자리(React Flow 노드 id → 저장한 자리). 원점의 기준은 `Spot`이 적는다.
@@ -552,7 +536,7 @@ export function Graph(props: {
     getSizes()
       .then((all) => setSizes(new Map(all.map((s) => [s.node, { width: s.width, height: s.height }]))))
       .catch((err: Error) => setRefusal(err.message));
-  }, []);
+  }, [props.viewVersion]);
   const { direction } = props;
   // 묶음마다 지난 렌더의 바깥 상자. 바뀌면 그 묶음의 저장한 자리를 버린다(`stale`).
   const outers = useRef<ReadonlyMap<string, string>>(new Map());
@@ -755,6 +739,23 @@ export function Graph(props: {
     lastFocus.current = selected !== null && focusAt ? { id: selected, at: focusAt } : null;
     if (follow) void flow.setViewport(followCard(follow.from, follow.to, flow.getViewport()));
   });
+  // 왼쪽 사이드바 너비가 바뀌어 그래프 칸의 왼쪽 변이 옮겨도 그래프는 화면의 같은 자리에 둔다. 사이드바가 그래프를 덮는 것처럼 보인다.
+  // 2026-10-22 사람 지시 "좌측 사이드바 너비 조정해도 그래프 안밀리게 해, 사이드바가 그래프를 덮는 느낌으로".
+  const pane = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = pane.current;
+    if (!el) return;
+    let left = el.getBoundingClientRect().left;
+    const keep = new ResizeObserver(() => {
+      const now = el.getBoundingClientRect().left;
+      if (now === left) return;
+      const { x, y, zoom } = flow.getViewport();
+      void flow.setViewport({ x: x - (now - left), y, zoom });
+      left = now;
+    });
+    keep.observe(el);
+    return () => keep.disconnect();
+  }, [flow]);
   const insideDragged = (id: string) => {
     for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) if (dragged.has(outer)) return true;
     return false;
@@ -1228,6 +1229,7 @@ export function Graph(props: {
   return (
     <>
       <ReactFlow
+        ref={pane}
         nodes={nodes}
         edges={[...edges, ...hopEdges]}
         edgeTypes={EDGE_TYPES}
@@ -1275,10 +1277,7 @@ export function Graph(props: {
         )}
         <ZoomLevel
           folded={minimapFolded}
-          onFold={(folded) => {
-            setMinimapFolded(folded);
-            saveMinimapFolded(folded);
-          }}
+          onFold={props.onMinimapFold}
         />
         {groups.map(({ group, repo, members, origin, right }) => {
           const at = creating === group.path && anchor ? { x: origin.x + anchor.x, y: origin.y + anchor.y } : null;

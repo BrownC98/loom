@@ -2,10 +2,14 @@
 import type { AccountId } from "./AccountId";
 import type { AgentId } from "./AgentId";
 import type { AlwaysOn } from "./AlwaysOn";
+import type { ArrangeDirection } from "./ArrangeDirection";
 import type { CardView } from "./CardView";
+import type { ClosedPanes } from "./ClosedPanes";
 import type { EdgeStyle } from "./EdgeStyle";
 import type { GraphScope } from "./GraphScope";
 import type { Language } from "./Language";
+import type { PaneWidths } from "./PaneWidths";
+import type { RepoId } from "./RepoId";
 import type { TerminalFont } from "./TerminalFont";
 import type { TerminalTheme } from "./TerminalTheme";
 import type { Theme } from "./Theme";
@@ -57,4 +61,21 @@ osNotify: boolean,
 /**
  * 새 노드에 주는 내장 스킬. 옛 설정에는 없다. 없으면 모두 켜짐이다. 근거: docs/design.md 「내장 스킬」.
  */
-alwaysOn: AlwaysOn, };
+alwaysOn: AlwaysOn, 
+/**
+ * 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 여섯 칸은 옛 설정에 없다.
+ * [정렬]과 나무 간선이 향하는 방향. 없으면 `Down`이다.
+ */
+arrangeDirection: ArrangeDirection, 
+/**
+ * 그래프 미니맵을 접었는지. 없으면 펼침이다.
+ */
+minimapFolded: boolean, 
+/**
+ * 사이드바에서 고른 저장소. 없거나 목록에 없으면 화면이 첫 저장소를 쓴다.
+ */
+repo: RepoId | null, paneWidths: PaneWidths, closedPanes: ClosedPanes, 
+/**
+ * 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
+ */
+closedSwitchNotice: number | null, };

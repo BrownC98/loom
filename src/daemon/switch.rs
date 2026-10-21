@@ -379,7 +379,7 @@ impl App {
 
     /// 자동 전환이 켜져 있으면 같은 공급자의 다른 계정 사용량을 그 자리에서 읽고, 남은 계정으로 바꾼다.
     async fn auto_switch(self: &Arc<Self>, provider: Provider) {
-        let Ok(mut settings) = self.settings.get() else {
+        let Ok(settings) = self.settings.get() else {
             return;
         };
         if !settings.auto_switch || self.cooling_down(provider) {
@@ -412,8 +412,8 @@ impl App {
             }
             return;
         };
-        settings.set_account(provider, to);
-        if let Err(e) = self.settings.put(&settings) {
+        // 사용량을 읽는 동안 화면이 다른 설정을 바꿨을 수 있다. 계정 칸만 바꾼다.
+        if let Err(e) = self.settings.update(|view| view.set_account(provider, to)) {
             eprintln!("loom: 자동 전환한 계정을 저장하지 못했다: {e}");
             return;
         }

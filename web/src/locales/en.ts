@@ -151,7 +151,7 @@ const en = {
     tabsLabel: 'Settings tabs',
     stop: 'Stop loom',
     stopHint: 'Nodes keep running',
-    tab: { agents: 'Agents', accounts: 'Accounts', workspace: 'Workspace', ui: 'UI', terminal: 'Terminal' },
+    tab: { agents: 'Agents', accounts: 'Accounts', workspace: 'Workspace', ui: 'UI', terminal: 'Terminal', about: 'About' },
     language: 'Language',
     installed: 'Installed {{n}}',
     rescan: 'Rescan',
@@ -465,6 +465,16 @@ const en = {
     percent: 'Downloading… {{percent}}%',
     restart: 'Restart to update',
     retry: 'Try again',
+    restarting: 'Restarting',
+    restartingHint: 'Replacing the daemon and starting it again. This page reconnects by itself in a moment.',
+  },
+  about: {
+    version: 'Version',
+    daemon: 'Daemon',
+    app: 'App',
+    check: 'Check for updates',
+    upToDate: 'You have the latest version',
+    newVersion: 'New version v{{version}}',
   },
 };
 

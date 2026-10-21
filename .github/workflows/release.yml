@@ -1,4 +1,4 @@
-# 사람이 판 태그(`v<판>`)를 push하거나 손으로 돌릴 때 Windows·macOS(Apple Silicon) 앱과 Linux 실행 파일을 만들어 Release `v<판>`으로 올린다.
+# 사람이 판 태그(`v<판>`)를 push하거나 손으로 돌릴 때 Windows·macOS(Apple Silicon) 앱과 웹 버전 실행 파일(Linux·Windows·macOS)을 만들어 Release `v<판>`으로 올린다.
 # 앱은 가장 새 Release의 `latest.json`으로 새 판을 찾는다. 근거: docs/design.md 「데스크톱 앱」 「배포」.
 name: release
 
@@ -18,6 +18,8 @@ env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
   # 설치 파일을 만드는 Tauri CLI 판. 설치 템플릿도 같은 판에서 받는다.
   TAURI_CLI: 2.12.3
+  # 데몬이 새 판을 찾는 Release 주소. 이 값이 있는 빌드만 업데이트를 확인한다(`src/update.rs`). `host.sh`·개발 빌드에는 없다.
+  LOOM_RELEASES: https://github.com/${{ github.repository }}/releases
 
 jobs:
   installer:
@@ -99,6 +101,17 @@ jobs:
             ${{ github.ref_name }} ${{ github.sha }} 빌드.
             - Windows: 설치 파일(`-setup.exe`)을 실행하면 loom 창이 열린다.
             - macOS(Apple Silicon): `.dmg`를 열어 loom을 응용 프로그램 폴더로 끈다. 서명하지 않은 앱이라 처음 한 번 터미널에서 `xattr -cr /Applications/loom.app`를 실행한 뒤 연다.
+            - 웹 버전(앱 없이 브라우저로): Linux·WSL·macOS `curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh`, Windows PowerShell `irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex`.
+      # 웹 버전 실행 파일. 앱 안의 loom과 같은 빌드다. `install.ps1`·`install.sh`(macOS)가 받고, 웹 버전 데몬이 업데이트로 받는다(`src/update.rs`의 `asset_name`).
+      - name: 웹 버전 실행 파일 올리기
+        run: |
+          case "$RUNNER_OS" in
+          Windows) cp target/release/loom.exe loom-x86_64-windows.exe; asset=loom-x86_64-windows.exe ;;
+          macOS) cp target/release/loom loom-aarch64-macos; asset=loom-aarch64-macos ;;
+          esac
+          gh release upload "v${{ steps.version.outputs.version }}" "$asset" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # Release는 위 단계가 만든다. 정적 실행 파일(musl)이라 glibc 판과 관계없이 x86-64 Linux에서 돈다.
   linux:

@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M27 loom 터미널 크기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.new { outline: 2px dashed var(--warn); outline-offset: 3px; border-radius: 6px; }
+.row { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+.cap { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+.card { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 2px 8px oklch(0% 0 0 / 0.08); overflow: hidden; display: flex; flex-direction: column; }
+.card .head { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.card .head b { font-weight: 600; }
+.card .head .dot { width: 8px; height: 8px; border-radius: 50%; background: oklch(54.6% 0.245 263); }
+.card .head .sp { flex: 1; }
+.card .head .meta { font: 11px var(--mono); color: var(--ink-3); }
+.viewport { flex: 1; background: oklch(99.4% 0 0); display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+.xt { width: 80ch; height: calc(18 * 1.35em); overflow: hidden; flex: none; font: 12px/1.35 var(--mono); color: oklch(25% 0 0); white-space: pre; transform-origin: center; background: oklch(99.4% 0 0); }
+.letter { background: repeating-linear-gradient(45deg, oklch(95% 0 0) 0 6px, oklch(97.5% 0 0) 6px 12px); }
+.size { position: absolute; right: 8px; bottom: 6px; font: 11px var(--mono); color: var(--ink-3); background: var(--surface); padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); }
+.pane-graph { width: 980px; height: 520px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; position: relative; padding: 14px; display: flex; }
+.pane-graph .card { flex: 1; }
+.dock { width: 420px; height: 520px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; }
+.dock .card { flex: 1; border: 0; border-radius: 0; box-shadow: none; }
+.side { width: 520px; height: 520px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; display: grid; align-content: start; gap: 8px; padding: 14px; }
+.side .s { height: 44px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px; }
+.side .s.sel { outline: 2px solid var(--accent); }
+.bad { color: var(--err); }
+table { border-collapse: collapse; font-size: 13px; max-width: 1100px; }
+th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); font-weight: 600; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M27</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 데몬하나</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>터미널 크기를 상태로 둔다: 펼친 카드와 오른쪽 칸은 늘리지 않고 확대한다</h1>
+  <p class="lead">사람 결정: 「상태를 하나로 통일하고 프론트는 뷰어의 역할에 충실하게 한다」. 지금은 터미널을 보는 화면이 저마다 자기 칸에 맞춰 PTY 크기를 바꾼다. 마지막에 연 화면이 이기므로, 앱 창과 브라우저가 같은 노드를 보면 한쪽 터미널의 줄이 깨진다. 바뀐 뒤에는 PTY 크기가 카드 크기 하나만 따르고, 다른 크기로 보는 곳은 글자를 확대·축소한다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 그래프의 표준 카드 <span class="tag">바뀌지 않음 · 크기의 원천</span></h2>
+    <div class="row"><div class="card " style="width:584px;height:330px"><div class="head"><span class="dot"></span><b>데몬하나-실행</b><span class="meta">claude · opus</span><span class="sp"></span><span class="meta"></span></div><div class="viewport"><div class="xt">$ cargo test
+   Compiling loom v0.1.0 (/home/ktadev/src/loom)
+    Finished `test` profile in 41.2s
+     Running unittests src/main.rs
+running 214 tests
+test db::tests::migrations_are_valid ... ok
+test launch::tests::newer_client_takes_over ... ok
+test launch::tests::older_client_attaches ... ok
+test spots::tests::sizes_follow_node ... ok
+
+test result: ok. 214 passed; 0 failed
+
+● 검사를 모두 통과했습니다.
+> </div><span class="size">80×18</span></div></div></div>
+    <ul class="note">
+      <li>PTY의 열·줄은 이 카드 크기를 기본 글꼴 크기(설정 › 터미널 글꼴)로 잰 값이다. 사람이 카드 모서리를 끌어 크기를 바꿀 때만 바뀐다.</li>
+      <li>④처럼 그래프 확대·축소는 지금처럼 카드 그림만 키우고 줄인다. 열·줄은 그대로다.</li>
+      <li>오른쪽 아래 <code>80×18</code> 표시는 설명용이다. 화면에는 그리지 않는다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 펼친 카드 <span class="tag">지금: PTY를 창 크기로 늘림 → 바뀐 뒤: 같은 80×18을 확대</span></h2>
+    <div class="row">
+      <div><div class="pane-graph"><div class="card"><div class="head"><span class="dot"></span><b>데몬하나-실행</b><span class="sp"></span><span class="meta">지금 · 168×34</span></div><div class="viewport" style="justify-content:flex-start;align-items:flex-start;padding:6px 8px"><div class="xt">$ cargo test
+   Compiling loom v0.1.0 (/home/ktadev/src/loom)
+    Finished `test` profile in 41.2s
+     Running unittests src/main.rs
+running 214 tests
+test db::tests::migrations_are_valid ... ok
+test launch::tests::newer_client_takes_over ... ok
+test launch::tests::older_client_attaches ... ok
+test spots::tests::sizes_follow_node ... ok
+
+test result: ok. 214 passed; 0 failed
+
+● 검사를 모두 통과했습니다.
+> </div></div></div></div><div class="cap">지금: 글자 크기는 같고 열이 168개로 는다. 같은 노드를 보는 다른 창의 카드도 168열이 되어 줄이 접힌다.</div></div>
+    </div>
+    <div class="row">
+      <div><div class="pane-graph new"><div class="card " ><div class="head"><span class="dot"></span><b>데몬하나-실행</b><span class="meta">claude · opus</span><span class="sp"></span><span class="meta">바뀐 뒤 · 80×18</span></div><div class="viewport letter"><div class="xt" style="transform:scale(1.5)">$ cargo test
+   Compiling loom v0.1.0 (/home/ktadev/src/loom)
+    Finished `test` profile in 41.2s
+     Running unittests src/main.rs
+running 214 tests
+test db::tests::migrations_are_valid ... ok
+test launch::tests::newer_client_takes_over ... ok
+test launch::tests::older_client_attaches ... ok
+test spots::tests::sizes_follow_node ... ok
+
+test result: ok. 214 passed; 0 failed
+
+● 검사를 모두 통과했습니다.
+> </div><span class="size">80×18 · 150%</span></div></div></div><div class="cap">바뀐 뒤: 열·줄은 카드와 같다. 칸에 맞게 글자를 키운다. 비율이 맞지 않는 쪽은 빈 여백(빗금)이다.</div></div>
+    </div>
+    <ul class="note">
+      <li>펼친 카드에서 더 많은 열을 보려면 그래프에서 카드를 크게 끈다. 그러면 모든 창의 카드가 함께 커진다.</li>
+      <li>마우스 선택·클릭 위치는 지금 그래프 카드처럼 배율을 뺀다(<code>unscaleMouse</code>).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 심플 보기의 오른쪽 칸 <span class="tag">지금: PTY를 칸 폭으로 바꿈 → 바뀐 뒤: 칸 폭에 맞게 축소</span></h2>
+    <div class="row">
+      <div class="side"><div class="s sel"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:oklch(54.6% 0.245 263)"></span><b>데몬하나-실행</b></div><div class="s">데몬하나-화면상태</div><div class="s">데몬하나</div></div>
+      <div><div class="dock new"><div class="card " ><div class="head"><span class="dot"></span><b>데몬하나-실행</b><span class="meta">claude · opus</span><span class="sp"></span><span class="meta">80×18</span></div><div class="viewport letter"><div class="xt" style="transform:scale(0.68)">$ cargo test
+   Compiling loom v0.1.0 (/home/ktadev/src/loom)
+    Finished `test` profile in 41.2s
+     Running unittests src/main.rs
+running 214 tests
+test db::tests::migrations_are_valid ... ok
+test launch::tests::newer_client_takes_over ... ok
+test launch::tests::older_client_attaches ... ok
+test spots::tests::sizes_follow_node ... ok
+
+test result: ok. 214 passed; 0 failed
+
+● 검사를 모두 통과했습니다.
+> </div><span class="size">80×18 · 68%</span></div></div></div><div class="cap">칸이 카드보다 좁으면 글자가 작아진다. 칸 폭을 넓히면(경계 끌기) 다시 커진다.</div></div>
+    </div>
+    <ul class="note">
+      <li>심플 보기에는 그래프 카드가 보이지 않아도 크기는 그 노드의 표준 카드 크기를 쓴다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>④ 두 창이 같은 노드를 볼 때 <span class="tag">앱 창 + 브라우저 탭</span></h2>
+    <div class="row">
+      <div><div class="card " style="width:584px;height:330px"><div class="head"><span class="dot"></span><b>데몬하나-실행</b><span class="meta">claude · opus</span><span class="sp"></span><span class="meta">앱 창</span></div><div class="viewport"><div class="xt">$ cargo test
+   Compiling loom v0.1.0 (/home/ktadev/src/loom)
+    Finished `test` profile in 41.2s
+     Running unittests src/main.rs
+running 214 tests
+test db::tests::migrations_are_valid ... ok
+test launch::tests::newer_client_takes_over ... ok
+test launch::tests::older_client_attaches ... ok
+test spots::tests::sizes_follow_node ... ok
+
+test result: ok. 214 passed; 0 failed
+
+● 검사를 모두 통과했습니다.
+> </div><span class="size">80×18</span></div></div><div class="cap">앱 창: 그래프 카드</div></div>
+      <div><div class="card " style="width:584px;height:330px"><div class="head"><span class="dot"></span><b>데몬하나-실행</b><span class="meta">claude · opus</span><span class="sp"></span><span class="meta">브라우저</span></div><div class="viewport"><div class="xt">$ cargo test
+   Compiling loom v0.1.0 (/home/ktadev/src/loom)
+    Finished `test` profile in 41.2s
+     Running unittests src/main.rs
+running 214 tests
+test db::tests::migrations_are_valid ... ok
+test launch::tests::newer_client_takes_over ... ok
+test launch::tests::older_client_attaches ... ok
+test spots::tests::sizes_follow_node ... ok
+
+test result: ok. 214 passed; 0 failed
+
+● 검사를 모두 통과했습니다.
+> </div><span class="size">80×18</span></div></div><div class="cap">브라우저: 같은 카드. 한쪽에서 펼쳐도 다른 쪽 줄이 깨지지 않는다.</div></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>안</th><th>펼친 카드·오른쪽 칸</th><th>장점</th><th>단점</th></tr>
+      <tr><td><b>A (권장)</b></td><td>②③처럼 PTY 크기는 그대로, 글자를 확대·축소한다</td><td>모든 창이 늘 같은 터미널을 본다. 상태 하나만 있다</td><td>펼쳐도 열이 늘지 않는다. 큰 칸에서는 글자가 커진다</td></tr>
+      <tr><td>B</td><td>펼치기도 상태로 둔다. 펼치면 모든 창에서 PTY가 펼친 크기가 되고, 다른 창의 작은 카드는 그 터미널을 축소해 보인다</td><td>펼치면 더 많은 열을 본다</td><td>한 창의 펼치기가 다른 창의 카드 글자를 작게 만든다. 펼친 크기를 정할 창이 둘 이상이면 다시 「마지막 창이 이김」이 된다</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

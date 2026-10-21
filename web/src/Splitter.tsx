@@ -1,10 +1,11 @@
 import { useEffect, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
+import type { PaneWidths } from './gen/PaneWidths';
 
 /**
  * 너비를 바꿀 수 있는 사이드바(목업 docs/mockups/sidebar-resize.html).
  * `grow`: 경계가 오른쪽으로 1px 갈 때 늘어나는 너비. 왼쪽 칸은 1, 오른쪽 칸은 -1이다.
  */
-export type Pane = { key: string; initial: number; min: number; max: number; grow: 1 | -1 };
+export type Pane = { key: keyof PaneWidths; initial: number; min: number; max: number; grow: 1 | -1 };
 
 /** ←·→ 한 번에 바꾸는 너비. */
 const KEY_STEP = 16;
@@ -22,50 +23,51 @@ export function useViewportWidth(): number {
   return width;
 }
 
-/** 사이드바 너비. 이 브라우저에만 남긴다. 저장소를 쓸 수 없으면(사생활 보호 창 등) 기본 너비를 쓴다. */
-export function usePaneWidth(pane: Pane): [number, (width: number) => void] {
-  const [width, setWidth] = useState(() => {
-    try {
-      const saved = Number(localStorage.getItem(pane.key));
-      return saved ? clamp(pane, saved) : pane.initial;
-    } catch {
-      return pane.initial;
-    }
-  });
-  // 상한이 줄면(창을 좁히면) 저장한 너비도 그 안으로 당긴다.
-  useEffect(() => {
-    setWidth((w) => clamp(pane, w));
-  }, [pane.max]);
-  const set = (next: number) => {
-    const w = clamp(pane, next);
-    setWidth(w);
-    try {
-      localStorage.setItem(pane.key, String(w));
-    } catch {
-      // 저장하지 못해도 이번 창에서는 바뀐 너비를 쓴다.
-    }
+/**
+ * 사이드바 너비. 저장한 값(`saved`)은 데몬 설정(`PaneWidths`)에 있다. 끄는 동안은 이 화면의 값만 바뀌고, 놓을 때 한 번 저장한다(`commit`).
+ * 그래서 다른 화면이 설정을 다시 읽어도 끄는 중인 너비는 움직이지 않는다. 상한이 줄면(창을 좁히면) 너비도 그 안으로 당긴다.
+ */
+export function usePaneWidth(pane: Pane, saved: number | null, onSave: (width: number) => void) {
+  const [dragging, setDragging] = useState<number | null>(null);
+  return {
+    width: clamp(pane, dragging ?? saved ?? pane.initial),
+    drag: (next: number) => setDragging(clamp(pane, next)),
+    commit: (next: number) => {
+      setDragging(null);
+      onSave(clamp(pane, next));
+    },
   };
-  return [width, set];
 }
 
 /** 사이드바 경계. 끌거나 ←·→로 너비를 바꾸고, 두 번 누르면 기본 너비로 돌린다. */
-export function Splitter(props: { pane: Pane; width: number; onWidth: (width: number) => void; label: string; style: CSSProperties }) {
-  const { pane, width, onWidth } = props;
+export function Splitter(props: { pane: Pane; width: number; onDrag: (width: number) => void; onCommit: (width: number) => void; label: string; style: CSSProperties }) {
+  const { pane, width, onDrag, onCommit } = props;
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     // 두 번 누르면 옆 글자가 선택된다. 그 위에서 끌기를 시작하면 브라우저가 글자 끌기로 바꾸고 포인터 캡처를 끊는다. 그래서 기본 동작을 막는다.
     e.preventDefault();
     const el = e.currentTarget;
     const startX = e.clientX;
     el.setPointerCapture(e.pointerId);
-    const move = (ev: globalThis.PointerEvent) => onWidth(width + pane.grow * (ev.clientX - startX));
+    let last: number | null = null;
+    const move = (ev: globalThis.PointerEvent) => {
+      last = width + pane.grow * (ev.clientX - startX);
+      onDrag(last);
+    };
     el.addEventListener('pointermove', move);
-    el.addEventListener('lostpointercapture', () => el.removeEventListener('pointermove', move), { once: true });
+    el.addEventListener(
+      'lostpointercapture',
+      () => {
+        el.removeEventListener('pointermove', move);
+        if (last !== null) onCommit(last);
+      },
+      { once: true },
+    );
   };
   const onKeyDown = (e: KeyboardEvent) => {
     const step = e.key === 'ArrowRight' ? KEY_STEP : e.key === 'ArrowLeft' ? -KEY_STEP : 0;
     if (step === 0) return;
     e.preventDefault();
-    onWidth(width + pane.grow * step);
+    onCommit(width + pane.grow * step);
   };
   return (
     <div
@@ -80,31 +82,7 @@ export function Splitter(props: { pane: Pane; width: number; onWidth: (width: nu
       style={props.style}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
-      onDoubleClick={() => onWidth(pane.initial)}
+      onDoubleClick={() => onCommit(pane.initial)}
     />
   );
 }
-
-/** 칸(사이드바, 오른쪽 칸)이나 절(북마크)을 펼쳤는지. 너비처럼 이 브라우저에만 남긴다. 처음에는 펼친다(목업 docs/mockups/toolbar.html E안). */
-export function usePaneOpen(key: string): [boolean, (open: boolean) => void] {
-  const [open, setOpen] = useState(() => {
-    try {
-      return localStorage.getItem(key) !== CLOSED;
-    } catch {
-      return true;
-    }
-  });
-  const set = (next: boolean) => {
-    setOpen(next);
-    try {
-      if (next) localStorage.removeItem(key);
-      else localStorage.setItem(key, CLOSED);
-    } catch {
-      // 저장하지 못해도 이번 창에서는 바뀐 상태를 쓴다.
-    }
-  };
-  return [open, set];
-}
-
-/** `usePaneOpen`이 접힌 사이드바에 남기는 값. 펼침은 값이 없는 것이다. */
-const CLOSED = 'closed';

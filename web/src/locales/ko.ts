@@ -374,6 +374,7 @@ const ko: typeof en = {
     error: '업데이트 오류',
     version: 'loom v{{version}}',
     update: '업데이트',
+    keep: '실행 중인 노드와 작업은 끊기지 않고 그대로 이어집니다.',
     percent: '다운로드 중… {{percent}}%',
     restart: '다시 시작하여 업데이트',
     retry: '다시 시도',

@@ -10,20 +10,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
     AckRequest, AdoptRequest, AskRequest, DoneRequest, GuardRequest, HookWaitRequest, IdleRequest,
-    RemoveRequest, ReplyRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, WaitRequest,
+    RemoveRequest, ReplyRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken,
+    WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent};
 use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
-use crate::profile::{Take, cursor};
+use crate::profile::{BETWEEN_TOOLS_KINDS, Take, cursor};
 
 /// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
-/// 쉬는 노드의 훅이 데몬에 닿지 않을 때 다시 붙는 간격과 상한.
+/// 기다리는 명령(`loom wait`, 쉬는 노드의 훅)이 데몬에 닿지 않을 때 다시 붙는 간격과 상한.
 /// 데몬은 `scripts/host.sh`·앱 업데이트로 다시 시작해도 노드는 산다. 그동안 끊긴 대기를 다시 연다.
+/// 2초: 다시 시작은 보통 몇 초 걸린다. 그 사이 요청을 몇 번만 보낸다.
 /// 상한이 지나면 끝낸다. Claude가 죽고 훅만 남았을 때 데몬도 없으면 끝없이 돌지 않게 한다.
-const IDLE_RETRY_AFTER: Duration = Duration::from_secs(2);
-const IDLE_RETRY_FOR: Duration = Duration::from_secs(10 * 60);
+const RECONNECT_AFTER: Duration = Duration::from_secs(2);
+const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
 /// Claude `asyncRewake` 훅이 이 코드로 끝나면 stderr를 모델에 넘기고 깨운다.
 const REWAKE_EXIT: i32 = 2;
 
@@ -114,14 +116,19 @@ pub fn directory() -> Result<(), String> {
 }
 
 /// 출력을 다 쓴 뒤 받음을 확인한다. 확인 전에 죽으면 같은 메시지를 다시 받는다.
+/// 데몬이 다시 시작하는 동안에는 다시 붙어 기다린다. 끊긴 대기가 꺼낸 메시지는 데몬이 `REDELIVER_AFTER` 뒤에 다시 준다.
 pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Result<(), String> {
-    let request = WaitRequest {
-        reply_to: reply_to.map(MessageId),
-        timeout_secs,
-    };
-    let timeout =
-        timeout_secs.map(|secs| Duration::from_secs(secs.saturating_add(WAIT_RESPONSE_GRACE_SECS)));
-    let delivery: Delivery = call("wait", &request, timeout)?;
+    let deadline = timeout_secs.map(|secs| Instant::now() + Duration::from_secs(secs));
+    let delivery: Delivery = reconnecting(deadline, |remaining| {
+        let timeout_secs = remaining.map(|left| left.as_secs());
+        let request = WaitRequest {
+            reply_to: reply_to.map(MessageId),
+            timeout_secs,
+        };
+        let timeout = timeout_secs
+            .map(|secs| Duration::from_secs(secs.saturating_add(WAIT_RESPONSE_GRACE_SECS)));
+        call("wait", &request, timeout)
+    })?;
     let id = delivery.id;
     if json {
         println!(
@@ -133,7 +140,10 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Res
     }
     // 파이프에 본문을 넘기기 전에 확인하지 않는다.
     std::io::Write::flush(&mut std::io::stdout()).map_err(|e| e.to_string())?;
-    call::<()>("ack", &AckRequest { ids: vec![id] }, None).map_err(|e| {
+    reconnecting(None, |_| {
+        call::<()>("ack", &AckRequest { ids: vec![id] }, None)
+    })
+    .map_err(|e| {
         format!(
             "Could not acknowledge: {e}. Message #{} can come again.",
             id.0
@@ -159,8 +169,9 @@ pub fn hook() -> Result<(), String> {
         eprintln!("loom: could not report the human wait: {e}");
     }
     let transcript = input["transcript_path"].as_str().map(str::to_owned);
-    let kinds = match event.take() {
-        Take::Now(kinds) => kinds,
+    let (kinds, notice_queue) = match event.take() {
+        Take::Now(kinds) => (kinds, false),
+        Take::BetweenTools => (BETWEEN_TOOLS_KINDS, true),
         Take::Never => return Ok(()),
         Take::WhenIdle => {
             let taken = wait_for_mail(&IdleRequest {
@@ -182,13 +193,14 @@ pub fn hook() -> Result<(), String> {
         kinds: kinds.to_vec(),
         limit_bytes: claude::HOOK_LIMIT_BYTES,
         transcript,
+        notice_queue,
     };
-    let taken: Vec<Delivery> = call("take", &request, Some(timeout))?;
-    if let Some(reply) = event.reply(&taken) {
+    let taken: Taken = call("take", &request, Some(timeout))?;
+    if let Some(reply) = event.reply(&taken.messages, &taken.queued_from) {
         println!("{reply}");
     }
     // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
-    acknowledge(&taken, Some(timeout));
+    acknowledge(&taken.messages, Some(timeout));
     Ok(())
 }
 
@@ -204,22 +216,33 @@ pub fn cursor_hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the model: {e}");
     }
-    let taken = match event.take() {
-        None | Some(Take::Never) => Vec::new(),
-        Some(Take::WhenIdle) => wait_for_mail(&IdleRequest::default())?,
-        Some(Take::Now(kinds)) => call(
+    let take_now = |kinds: &[Kind], notice_queue| {
+        call(
             "take",
             &TakeRequest {
                 kinds: kinds.to_vec(),
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
                 transcript: None,
+                notice_queue,
             },
             Some(timeout),
-        )?,
+        )
     };
-    println!("{}", event.reply(&taken));
+    let taken = match event.take() {
+        None | Some(Take::Never) => Taken {
+            messages: Vec::new(),
+            queued_from: Vec::new(),
+        },
+        Some(Take::WhenIdle) => Taken {
+            messages: wait_for_mail(&IdleRequest::default())?,
+            queued_from: Vec::new(),
+        },
+        Some(Take::Now(kinds)) => take_now(kinds, false)?,
+        Some(Take::BetweenTools) => take_now(BETWEEN_TOOLS_KINDS, true)?,
+    };
+    println!("{}", event.reply(&taken.messages, &taken.queued_from));
     std::io::stdout().flush().map_err(|e| e.to_string())?;
-    acknowledge(&taken, Some(timeout));
+    acknowledge(&taken.messages, Some(timeout));
     Ok(())
 }
 
@@ -244,24 +267,34 @@ fn acknowledge(taken: &[Delivery], timeout: Option<Duration>) {
 /// 쉬는 노드의 훅이 메시지를 기다린다. Claude 훅은 본문을 stderr에 쓰고 `REWAKE_EXIT`로, Cursor 훅은 새 턴 입력으로 넘긴다.
 /// 데몬이 대기를 끝내면(새 대기, 새 턴) 빈 목록이다.
 fn wait_for_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
+    reconnecting(None, |_| call("idle", request, None))
+}
+
+/// 데몬에 닿지 않으면 `RECONNECT_AFTER`마다 다시 부른다. 데몬의 거절은 바로 돌려준다.
+/// `attempt`는 `deadline`까지 남은 시간을 받는다. 남은 시간이 다시 붙기 전에 끝나면 닿지 않은 오류로 끝낸다.
+fn reconnecting<T>(
+    deadline: Option<Instant>,
+    mut attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
+) -> Result<T, String> {
     let mut unreachable_since = None;
-    Ok(loop {
-        let attempt = Instant::now();
-        match call("idle", request, None) {
-            Ok(taken) => break taken,
+    loop {
+        let started = Instant::now();
+        match attempt(deadline.map(|d| d.saturating_duration_since(started))) {
+            Ok(value) => return Ok(value),
             Err(CallError::Unreachable(e)) => {
                 // 오래 붙어 있다 끊겼으면 데몬이 방금 다시 시작했다. 상한을 처음부터 잰다.
-                if attempt.elapsed() >= IDLE_RETRY_AFTER {
+                if started.elapsed() >= RECONNECT_AFTER {
                     unreachable_since = None;
                 }
-                if unreachable_since.get_or_insert(attempt).elapsed() >= IDLE_RETRY_FOR {
+                let gave_up = unreachable_since.get_or_insert(started).elapsed() >= RECONNECT_FOR;
+                if gave_up || deadline.is_some_and(|d| Instant::now() + RECONNECT_AFTER >= d) {
                     return Err(e);
                 }
-                std::thread::sleep(IDLE_RETRY_AFTER);
+                std::thread::sleep(RECONNECT_AFTER);
             }
             Err(e) => return Err(e.into()),
         }
-    })
+    }
 }
 
 /// 이 명령을 부른 셸을 중단 대상으로 데몬에 알린다. Claude 훅이 Bash 명령 앞에 붙인다.
@@ -331,7 +364,7 @@ fn call<T: DeserializeOwned>(
     post(&url, ureq::Proxy::try_from_env(), action, body, timeout)
 }
 
-/// 데몬 요청의 실패. 쉬는 노드의 훅은 닿지 않을 때만 다시 붙는다.
+/// 데몬 요청의 실패. 기다리는 명령은 닿지 않을 때만 다시 붙는다(`reconnecting`).
 enum CallError {
     /// 데몬에 닿지 않았거나 응답 전에 연결이 끊겼다.
     Unreachable(String),
@@ -380,6 +413,13 @@ fn post<T: DeserializeOwned>(
         .map_err(|e| {
             CallError::Unreachable(format!("Could not connect to the daemon: {e}. In a sandbox, get approval to run outside the sandbox and try again."))
         })?;
+    // 데몬 앞의 프록시(Codex 샌드박스)는 데몬이 다시 시작하는 동안 이 코드로 답한다. 데몬은 쓰지 않는다.
+    if matches!(res.status().as_u16(), 502..=504) {
+        return Err(CallError::Unreachable(format!(
+            "Could not reach the daemon through the proxy: {}.",
+            res.status()
+        )));
+    }
     if !res.status().is_success() {
         return Err(CallError::Refused(
             res.body_mut().read_to_string().unwrap_or_default(),
@@ -388,4 +428,46 @@ fn post<T: DeserializeOwned>(
     res.body_mut()
         .read_json()
         .map_err(|e| CallError::Refused(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unreachable() -> CallError {
+        CallError::Unreachable("down".into())
+    }
+
+    #[test]
+    fn reconnects_while_the_daemon_restarts_and_keeps_the_deadline() {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut left = Vec::new();
+        let got = reconnecting(Some(deadline), |remaining| {
+            left.push(remaining.unwrap());
+            if left.len() < 2 {
+                Err(unreachable())
+            } else {
+                Ok("mail")
+            }
+        });
+        assert_eq!(got, Ok("mail"));
+        // 다시 붙을 때는 남은 시간만 기다린다.
+        assert!(left[1] <= left[0] - RECONNECT_AFTER);
+    }
+
+    #[test]
+    fn stops_at_the_deadline_and_on_refusal() {
+        let started = Instant::now();
+        let mut calls = 0;
+        let got: Result<(), String> = reconnecting(Some(started + Duration::from_secs(1)), |_| {
+            calls += 1;
+            Err(unreachable())
+        });
+        assert_eq!(got, Err("down".into()));
+        assert_eq!(calls, 1);
+        assert!(started.elapsed() < RECONNECT_AFTER);
+        let got: Result<(), String> =
+            reconnecting(None, |_| Err(CallError::Refused("gone".into())));
+        assert_eq!(got, Err("gone".into()));
+    }
 }

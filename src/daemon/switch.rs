@@ -355,7 +355,9 @@ impl App {
         self.switch.limited.lock().unwrap().remove(&node.id);
         self.graph
             .relaunched(node.id, &launched)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        // 옛 프로세스의 창은 사라졌다. 새 프로세스가 다시 묻으면 신호가 다시 건다.
+        self.graph.clear_wait(node.id).map_err(|e| e.to_string())
     }
 
     /// Codex 노드 스레드의 기록 파일을 새 `CODEX_HOME`에 복사하고 스레드 id를 돌려준다. 스레드나 기록 파일이 없으면 실패다.

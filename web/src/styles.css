@@ -108,6 +108,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tree-row .spacer { flex: 1; }
 .kept { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--ink-2); white-space: nowrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+/* 사람 응답 대기(목업 docs/mockups/human-question.html). 실행 상태보다 앞선다. */
+.dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
 .dot.running { background: var(--run); }
 .dot.done { background: var(--ok); }
 .dot.exited, .dot.setupFailed { background: var(--err); }
@@ -300,6 +302,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .card { width: 600px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card[data-waiting] { border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 35%, transparent); }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
 .card-head .name { font-weight: 600; min-width: 0; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 노드 이름 바꾸기(NameEdit, docs/mockups/node-rename.html). 입력창은 이름 글자 자리에 같은 높이로 든다. 저장·취소 단추는 없다(Enter·Esc). */
@@ -335,6 +338,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .state { display: inline-flex; flex: none; white-space: nowrap; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.running { color: var(--run); }
+.state.waiting { color: var(--warn); font-family: var(--font); font-weight: 600; }
 .state.done { color: var(--ok); }
 .state.exited, .state.setupFailed { color: var(--err); }
 .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -464,6 +468,23 @@ a { color: var(--accent); }
 .meter i.low { background: var(--warn); }
 .update-pop { position: fixed; right: 16px; bottom: 40px; width: 360px; z-index: 20; }
 .update-pop .btn { justify-content: center; }
+/* 받은편지함은 버전 바로 왼쪽이다(목업 human-question.html ②). 오른쪽으로 미는 여백은 받은편지함이 갖는다. */
+.inbox { position: relative; display: flex; align-items: center; margin-left: auto; }
+.inbox + .app-version { margin-left: 0; }
+.inbox-btn { display: inline-flex; align-items: center; gap: 6px; height: 22px; margin: auto 0; padding: 0 8px; border: 0; border-radius: 5px; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
+.inbox-btn:hover, .inbox-btn[aria-expanded="true"] { background: var(--surface-hover); color: var(--ink); }
+.inbox-btn svg { width: 14px; height: 14px; }
+.inbox-btn .count { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--warn); color: var(--surface); font-size: 11px; font-weight: 600; line-height: 16px; text-align: center; }
+.inbox-pop { right: 0; bottom: calc(100% + 6px); width: 360px; z-index: 20; gap: 6px; padding: 10px 6px 6px; }
+.inbox-pop h2 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
+.inbox-pop .hint { padding: 0 8px 6px; }
+.inbox-pop ul { list-style: none; margin: 0; padding: 0; display: grid; max-height: 50vh; overflow: auto; }
+.inbox-pop li button { display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 0 8px; align-items: baseline; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.inbox-pop li button:hover, .inbox-pop li button:focus-visible { background: var(--surface-hover); }
+.inbox-pop .dot { align-self: center; box-shadow: none; }
+.inbox-pop .who { color: var(--ink-3); font-size: 12px; }
+.inbox-pop .who b { color: var(--ink); font-size: 13px; }
+.inbox-pop .line { grid-column: 2; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .usage-pop { left: 4px; bottom: calc(100% + 6px); width: 360px; z-index: 20; }
 .prov-sec { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .prov { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 13px; color: inherit; }

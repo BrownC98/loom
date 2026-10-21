@@ -8,6 +8,11 @@ import i18next from './i18n';
 import { NameEdit, useRename, type Rename } from './NameEdit';
 import { navDirection, type Direction } from './Terminal';
 
+/** 점·상태 칸의 클래스. 사람 응답 대기는 실행 상태보다 앞선다(목업 docs/mockups/human-question.html ④). */
+export function stateClass(view: NodeView): string {
+  return view.wait ? 'waiting' : view.state.kind;
+}
+
 export function stateLabel(state: NodeState): string {
   const t = i18next.t;
   switch (state.kind) {
@@ -72,8 +77,8 @@ function Badges(props: { view: NodeView }) {
           {t('node.held', { n: view.held })}
         </span>
       )}
-      <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
-        {stateLabel(view.state)}
+      <span className={`state ${stateClass(view)}`} aria-live="polite" translate="no">
+        {view.wait ? t('wait.label') : stateLabel(view.state)}
       </span>
     </>
   );
@@ -127,6 +132,7 @@ function CardShell(props: ShellProps & { className: string; children: (rename: R
       tabIndex={0}
       aria-label={t('node.label', { name: props.view.name })}
       data-selected={props.selected || undefined}
+      data-waiting={props.view.wait !== null || undefined}
       onMouseDown={props.onSelect}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;

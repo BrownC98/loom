@@ -31,6 +31,7 @@ import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
 import { Splitter, usePaneOpen, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
 import { StatusBar, type Usage } from './StatusBar';
+import { Inbox, waitingNodes } from './Inbox';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
@@ -85,6 +86,7 @@ const EMPTY_SETTINGS: SettingsView = {
   // 설정을 받기 전 자리값이다. 기본값의 원천은 Rust `TreeLimits::default`다.
   treeLimits: { maxDepth: 2, maxChildren: null },
   autoSwitch: false,
+  osNotify: false,
 };
 const SETTINGS_HASH = '#settings/';
 
@@ -521,6 +523,7 @@ export function App() {
             onChoose={chooseAccount}
             notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}
+            inbox={<Inbox waiting={waitingNodes(nodes)} notify={settings.osNotify} onSelect={selectNode} />}
           />
           <UpdateCard />
           {settingsTab && (

@@ -177,6 +177,47 @@ fn topic_prefers_summary_then_title_then_brief() {
 }
 
 #[test]
+fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = child(&g, lead, "w");
+    let wait = |id| view(&g, id).wait.map(|w| (w.kind, w.text));
+
+    // 사람에게는 사람이 띄운 노드만 묻는다.
+    assert_eq!(g.ask(worker, "A?"), Err(Refusal::HasParent));
+    assert_eq!(g.ask(lead, "  "), Err(Refusal::EmptyQuestion));
+    g.ask(lead, "A or B?\nmore").unwrap();
+    assert_eq!(wait(lead), Some((WaitKind::Question, "A or B?".into())));
+
+    // 다른 신호는 자기가 건 대기만 거둔다.
+    g.set_wait(lead, WaitSource::Screen, None).unwrap();
+    assert!(wait(lead).is_some());
+    // 사람이 키를 누르면 어느 신호의 대기든 지운다.
+    g.clear_wait(lead).unwrap();
+    assert_eq!(wait(lead), None);
+
+    let mut events = g.subscribe().unwrap().1;
+    g.set_wait(worker, WaitSource::Codex, Some((WaitKind::Approval, "")))
+        .unwrap();
+    let since = view(&g, worker).wait.unwrap().since;
+    // 같은 대기는 다시 알리지 않고 시작 시각을 지킨다.
+    g.set_wait(worker, WaitSource::Codex, Some((WaitKind::Approval, "")))
+        .unwrap();
+    assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.wait.is_some()));
+    assert!(events.try_recv().is_err());
+    assert_eq!(view(&g, worker).wait.unwrap().since, since);
+    g.set_wait(worker, WaitSource::Codex, None).unwrap();
+    assert_eq!(wait(worker), None);
+
+    // 프로세스가 끝나면 지운다.
+    g.set_wait(worker, WaitSource::Screen, Some((WaitKind::Trust, "t")))
+        .unwrap();
+    g.exited(worker, 0).unwrap();
+    assert_eq!(wait(worker), None);
+}
+
+#[test]
 fn parent_and_child_exchange_messages() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));

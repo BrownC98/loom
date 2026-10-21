@@ -8,8 +8,49 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model};
+use crate::graph::{Delivery, Kind, Model, WaitKind};
+use crate::screen::Dialog;
 use crate::skills::Position;
+
+/// 훅이 알리지 않는 TUI 확인 창(2026.10.19 화면 문구). 폴더 신뢰는 실측, 나머지는 번들 글이다.
+/// "Run this command"는 샌드박스 밖 실행 창("Run this command outside the sandbox?")도 맞춘다.
+pub const DIALOGS: [Dialog; 7] = [
+    Dialog {
+        text: "Do you trust the contents of this directory?",
+        kind: WaitKind::Trust,
+        at_end: false,
+    },
+    Dialog {
+        text: "Run this command",
+        kind: WaitKind::Approval,
+        at_end: false,
+    },
+    Dialog {
+        text: "Run this MCP tool?",
+        kind: WaitKind::Approval,
+        at_end: false,
+    },
+    Dialog {
+        text: "Read this file?",
+        kind: WaitKind::Approval,
+        at_end: false,
+    },
+    Dialog {
+        text: "Write to this file?",
+        kind: WaitKind::Approval,
+        at_end: false,
+    },
+    Dialog {
+        text: "Delete this file?",
+        kind: WaitKind::Approval,
+        at_end: false,
+    },
+    Dialog {
+        text: "Press any key to log in",
+        kind: WaitKind::Auth,
+        at_end: false,
+    },
+];
 
 /// 노드 프로세스에 넣는 시작 자리. 훅은 모든 노드가 같은 파일을 쓰므로 자리를 환경 변수로 받는다.
 pub const POSITION_ENV: &str = "LOOM_POSITION";
@@ -196,6 +237,16 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_trust_box_is_a_trust_wait() {
+        // cursor-agent 2026.10.19가 신뢰하지 않은 폴더에서 그린 화면(실측).
+        let screen = "│  Do you trust the contents of this directory?  │\n│  ▶ [a] Trust this workspace  │\n│    [q] Quit  │";
+        assert_eq!(
+            crate::screen::find(&DIALOGS, screen).map(|(kind, _)| kind),
+            Some(WaitKind::Trust)
+        );
+    }
 
     fn event(input: Value) -> Event {
         serde_json::from_value(input).unwrap()

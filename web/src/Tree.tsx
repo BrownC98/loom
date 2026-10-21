@@ -21,7 +21,7 @@ import i18next from './i18n';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
-import { Unread } from './NodeCard';
+import { stateClass, Unread } from './NodeCard';
 import { useOutsideClose } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
 
@@ -101,7 +101,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
         node: v.id,
         row: (
           <>
-            <span className={`dot ${v.state.kind}`} aria-label={v.state.kind} />
+            <span className={`dot ${stateClass(v)}`} aria-label={stateClass(v)} />
             <NameEdit id={v.id} name={v.name} rename={rename(`node:${v.id}`)} />
             {from !== null && <FromIcon title={from} />}
             <span className="sub">{agentLabel(agents, v.agent)}</span>

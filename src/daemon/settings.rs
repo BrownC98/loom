@@ -300,7 +300,7 @@ async fn login_pty(
     Path(id): Path<u32>,
     State(app): State<Arc<App>>,
 ) -> Response {
-    serve_pty(ws, app, |app| &app.logins.host, LoginId(id))
+    serve_pty(ws, app, |app| &app.logins.host, |_, _| {}, LoginId(id))
 }
 
 #[cfg(test)]

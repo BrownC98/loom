@@ -17,7 +17,8 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::graph::{Delivery, Kind};
+use crate::graph::{Delivery, Kind, WaitKind};
+use crate::screen::Dialog;
 use crate::skills::Position;
 
 /// 첫 지시문 상한. 근거: docs/design.md 「맥락과 크기」.
@@ -51,6 +52,8 @@ pub enum Take {
     Now(&'static [Kind]),
     /// 턴이 없다(세션 시작, 턴 끝). 훅이 메시지가 올 때까지 기다린다.
     WhenIdle,
+    /// 메시지를 꺼내지 않는다(알림).
+    Never,
 }
 
 impl Profile {
@@ -278,6 +281,46 @@ fn installed_version(cmd: &str) -> Option<String> {
 }
 
 /// 메시지 연동이 있는 에이전트면 그 프로필이다.
+/// 셸·명령 노드와 프로필 없는 에이전트의 확인 창: 마지막 줄의 입력 요청(sudo, ssh, git, y/n).
+const SHELL_DIALOGS: [Dialog; 5] = [
+    Dialog {
+        text: "password",
+        kind: WaitKind::Input,
+        at_end: true,
+    },
+    Dialog {
+        text: "passphrase",
+        kind: WaitKind::Input,
+        at_end: true,
+    },
+    Dialog {
+        text: "(yes/no",
+        kind: WaitKind::Input,
+        at_end: true,
+    },
+    Dialog {
+        text: "[y/n]",
+        kind: WaitKind::Input,
+        at_end: true,
+    },
+    Dialog {
+        text: "Username for '",
+        kind: WaitKind::Input,
+        at_end: true,
+    },
+];
+
+/// 노드 터미널 화면에서 찾을 확인 창(`screen::find`). OpenCode 2 세션은 모두 허용으로 띄워 창이 없다.
+pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
+    match profile {
+        Some(Profile::Claude) => &claude::DIALOGS,
+        Some(Profile::Codex) => &codex::DIALOGS,
+        Some(Profile::Cursor) => &cursor::DIALOGS,
+        Some(Profile::OpenCode2) => &[],
+        None => &SHELL_DIALOGS,
+    }
+}
+
 pub fn profile_of(id: &AgentId) -> Option<Profile> {
     find(id).and_then(|a| a.profile)
 }
@@ -568,6 +611,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom steer <name-or-id> <body>: insert guidance between tool calls. Steer and interrupt go only to your parent or children.
 - loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
 - loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language.
+- loom ask <question>: only when you have no parent. Put a decision or approval for the human in the human's inbox as one line, then end your turn. The human answers in your terminal. With a parent, ask the parent with loom send.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
 - loom rm <name-or-id>: remove your own child and end its process. Its children become your children; reclaim them next.
 Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.

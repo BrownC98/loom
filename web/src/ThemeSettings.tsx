@@ -11,6 +11,7 @@ import type { TerminalTheme } from './gen/TerminalTheme';
 import type { Theme } from './gen/Theme';
 import { activeFont, DEFAULT_TERMINAL_FONT, FONT_SIZE_RANGE } from './Terminal';
 import { chosenTheme, DEFAULT_TERMINAL_THEME, RESET_TERMINAL_THEME, TERMINAL_THEMES, type TerminalThemeName } from './terminalThemes';
+import { requestNotifyPermission } from './Inbox';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
@@ -45,6 +46,27 @@ export function CardViewSwitch(props: { value: CardView; onChange: (value: CardV
 }
 
 /** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html, repo-scope.html): 화면 테마, 카드 보기, 그래프 범위, 간선 모양, 언어. 언어 이름은 번역하지 않는다. */
+/** 시스템 알림(목업 docs/mockups/human-question.html ⑥). 켤 때만 브라우저 허용을 묻는다. 막히면 꺼진 채로 둔다. */
+function OsNotifySection({ settings, onSettings }: TabProps) {
+  const { t } = useTranslation();
+  const [blocked, setBlocked] = useState(false);
+  const toggle = async (on: boolean) => {
+    const allowed = on && (await requestNotifyPermission());
+    setBlocked(on && !allowed);
+    onSettings({ ...settings, osNotify: allowed });
+  };
+  return (
+    <section>
+      <h4>{t('osNotify.heading')}</h4>
+      <label className="switch">
+        <input type="checkbox" checked={settings.osNotify} onChange={(e) => toggle(e.target.checked)} />
+        {t('osNotify.label')}
+      </label>
+      <span className="hint">{blocked ? t('osNotify.blocked') : t('osNotify.hint')}</span>
+    </section>
+  );
+}
+
 export function UiTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
@@ -91,6 +113,7 @@ export function UiTab({ settings, onSettings }: TabProps) {
         </div>
         <span className="hint">{t('edgeStyle.hint')}</span>
       </section>
+      <OsNotifySection settings={settings} onSettings={onSettings} />
       <section>
         <h4>
           <label htmlFor="t-lang">{t('settings.language')}</label>

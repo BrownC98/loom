@@ -8,6 +8,7 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
 import { useShowNodes } from './Graph';
+import { stateClass } from './NodeCard';
 import { groupsOf } from './repos';
 import { usePaneOpen } from './Splitter';
 
@@ -56,7 +57,7 @@ export function Bookmarks(props: { views: ReadonlyMap<NodeId, NodeView>; repos: 
                         props.onSelect(v.id);
                       }}
                     >
-                      <span className={`dot ${v.state.kind}`} aria-label={v.state.kind} />
+                      <span className={`dot ${stateClass(v)}`} aria-label={stateClass(v)} />
                       <span className="name">{v.name}</span>
                       <span className="sub">{where(v)}</span>
                     </button>

@@ -1,5 +1,5 @@
 import { ArrowLeftRight, ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
@@ -23,7 +23,7 @@ export type Usage = {
 };
 
 /** 화면 맨 아래에 늘 보이는 줄. Orca처럼 모든 공급자의 사용량이 버튼 하나다(목업 usage.html). [설정]은 사이드바에 있다(graph-panels.html 1번). */
-export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void; notice: { record: SwitchRecord | null; onClose: () => void } }) {
+export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void; notice: { record: SwitchRecord | null; onClose: () => void }; inbox: ReactNode }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 다른 팝오버처럼 pointerdown을 먼저 받는다.
@@ -80,6 +80,7 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
         <RotateCw />
       </button>
       {props.notice.record && <SwitchNotice record={props.notice.record} accounts={usage.accounts} onClose={props.notice.onClose} />}
+      {props.inbox}
       <span className="app-version">v{VERSION}</span>
       {open && usage.accounts && (
         <UsagePopover

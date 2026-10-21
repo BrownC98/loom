@@ -48,6 +48,10 @@ pub struct SettingsView {
     /// 근거: docs/design.md 「계정 전환」, 목업 docs/mockups/account-switch.html ②.
     #[serde(default)]
     pub auto_switch: bool,
+    /// 화면이 가려져 있을 때 사람 응답 대기를 시스템 알림으로도 띄운다. 옛 설정에는 없다. 없으면 꺼짐이다.
+    /// 받은편지함이 늘 보이므로 기본은 꺼짐이다. 근거: 목업 docs/mockups/human-question.html ⑥.
+    #[serde(default)]
+    pub os_notify: bool,
 }
 
 /// 화면 언어. `System`은 브라우저 언어(`navigator.language`)를 따른다. Orca의 `uiLanguage`와 같은 자리다.

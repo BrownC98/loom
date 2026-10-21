@@ -11,7 +11,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::VersionMismatch;
-use crate::graph::{Delivery, Kind, Model};
+use crate::graph::{Delivery, Kind, Model, WaitKind};
+use crate::screen::Dialog;
 use crate::skills::Position;
 
 #[allow(clippy::all, dead_code)]
@@ -27,6 +28,19 @@ use protocol::{
 
 /// `src/profile/codex/schema/`를 만든 Codex 버전.
 pub const PINNED_VERSION: &str = "0.159.2";
+/// app-server가 알리지 않는 TUI 확인 창(0.159.2 화면 문구). 승인·답 대기는 스레드 상태가 알린다(`codex_server::Thread`).
+pub const DIALOGS: [Dialog; 2] = [
+    Dialog {
+        text: "Trust this folder?",
+        kind: WaitKind::Trust,
+        at_end: false,
+    },
+    Dialog {
+        text: "Sign in with ChatGPT",
+        kind: WaitKind::Auth,
+        at_end: false,
+    },
+];
 /// 새 턴 입력 하나에 넣는 본문 합의 상한. 첫 메시지는 늘 넣는다. 남은 메시지는 다음 턴에 들어간다.
 pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 

@@ -6,6 +6,7 @@
 mod events;
 mod mailbox;
 mod nodes;
+mod waits;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -23,6 +24,7 @@ use ts_rs::TS;
 pub use events::{Entry, EventRecord, SwitchCause};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
+pub use waits::{HumanWait, WaitKind, WaitSource};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
@@ -95,6 +97,8 @@ pub struct NodeView {
     pub topic: Option<String>,
     /// 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
     pub bookmark: Option<u32>,
+    /// 사람의 답·승인을 기다린다. 근거: docs/design.md 「사람 응답 대기」.
+    pub wait: Option<HumanWait>,
 }
 
 /// 프로필이 CLI에서 읽은 지금 모델과 추론 강도. 값은 CLI가 쓴 글 그대로다. 근거: docs/design.md 「에이전트 실행」.
@@ -199,6 +203,10 @@ pub enum Refusal {
     NotSteerable(String),
     /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
     NoRepo,
+    /// `loom ask`의 질문이 비었다.
+    EmptyQuestion,
+    /// `loom ask`를 부모가 있는 노드가 불렀다. 사람에게는 사람이 띄운 노드만 묻는다.
+    HasParent,
     Launch(String),
     Db(String),
 }
@@ -272,6 +280,11 @@ impl fmt::Display for Refusal {
                 f,
                 "The repository is not in the list. Add the repository again."
             ),
+            Refusal::EmptyQuestion => write!(f, "Give the question as one line."),
+            Refusal::HasParent => write!(
+                f,
+                "You have a parent. Ask your parent with `loom send <parent> \"QUESTION: ...\"`. Only nodes that the human started ask the human."
+            ),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }
@@ -298,7 +311,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    n.brief, n.bookmark
+    n.brief, n.bookmark, n.wait
     FROM nodes n";
 
 struct Store {
@@ -452,6 +465,7 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
     let id = NodeId(row.get(0)?);
     let state = from_json(row, 4)?;
     let brief: Option<String> = row.get(11)?;
+    let wait: Option<String> = row.get(13)?;
     Ok(NodeView {
         topic: topic(&state, titles.get(&id), brief.as_deref()),
         id,
@@ -468,6 +482,10 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
             worktree: row.get(10)?,
         },
         bookmark: row.get(12)?,
+        // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
+        wait: wait
+            .and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
+            .map(|s| s.wait),
     })
 }
 

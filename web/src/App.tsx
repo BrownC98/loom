@@ -1,5 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
@@ -27,7 +27,7 @@ import { applySettingsPatch, settingsPatch, type SettingsPatch } from './setting
 import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
 import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
-import { applyColors } from './uiColors';
+import { applyColors, NO_COLOR, useColorMode } from './uiColors';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
 import { ArrangeButton } from './ArrangeButton';
@@ -37,7 +37,7 @@ import { Splitter, usePaneWidth, useViewportWidth, type Pane } from './Splitter'
 import type { ClosedPanes } from './gen/ClosedPanes';
 import { StatusBar, type Usage } from './StatusBar';
 import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
-import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
+import { activeTheme, RESET_TERMINAL_THEME } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
 import { TitleBar } from './TitleBar';
@@ -99,7 +99,7 @@ const EMPTY_SETTINGS: SettingsView = {
   paneWidths: { side: null, dock: null },
   closedPanes: { side: false, dock: false, bookmarks: false },
   closedSwitchNotice: null,
-  colors: { warn: null, run: null, ok: null, err: null, edge: null, repo: null, worktree: null, accent: null },
+  colors: { warn: NO_COLOR, run: NO_COLOR, ok: NO_COLOR, err: NO_COLOR, edge: NO_COLOR, repo: NO_COLOR, worktree: NO_COLOR, accent: NO_COLOR },
 };
 const SETTINGS_HASH = '#settings/';
 
@@ -120,21 +120,6 @@ function useSettingsTab(): [SettingsTab | null, (tab: SettingsTab | null) => voi
     setTab(next);
   };
   return [tab, go];
-}
-
-const DARK_QUERY = '(prefers-color-scheme: dark)';
-
-/** 화면이 그리는 모드. 「시스템」이면 OS 설정이 바뀔 때 바로 따라간다. */
-function useColorMode(theme: Theme): ColorMode {
-  const systemDark = useSyncExternalStore(
-    (onChange) => {
-      const query = matchMedia(DARK_QUERY);
-      query.addEventListener('change', onChange);
-      return () => query.removeEventListener('change', onChange);
-    },
-    () => matchMedia(DARK_QUERY).matches,
-  );
-  return theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
 }
 
 export function App() {

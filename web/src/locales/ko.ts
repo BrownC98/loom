@@ -339,7 +339,7 @@ const ko: typeof en = {
   },
   colors: {
     heading: '색',
-    hint: '한 번 고르면 라이트·다크에 맞는 밝기를 자동으로 씁니다. 모든 창에 바로 보입니다.',
+    hint: '고른 색에 라이트·다크마다 맞는 밝기를 자동으로 씁니다. 창 위의 테마 칸을 누르면 그 테마만 바꿉니다. 모든 창에 바로 보입니다.',
     default: '기본',
     reset: '기본값',
     pick: '{{name}} 색 고르기',
@@ -352,6 +352,8 @@ const ko: typeof en = {
     valueLabel: '색 값(#rrggbb)',
     native: '직접 고르기',
     schemes: '테마마다 쓰는 색',
+    bothThemes: '두 테마를 함께 바꾸기',
+    onlyTheme: '{{theme}}만 바꾸기',
     saved: '고르면 바로 저장합니다',
     name: {
       warn: '질문·응답 대기',

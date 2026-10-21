@@ -28,10 +28,11 @@ const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
 /**
  * 층(z). React Flow는 `zIndexMode="manual"`이라 이 값을 그대로 쓴다. 카드는 묶음 z + 1이다(React Flow 규칙).
  * 저장소 상자 < 간선 = 묶음 < 고른 카드의 간선 = 카드 < 끄는 상자. 같은 z면 간선이 노드 아래다(DOM 순서).
- * 간선은 묶음 머리를 덮지 않는다. 고른 카드의 간선만 묶음 위로 올린다(2026-10-21 사람 승인).
+ * 간선은 묶음 머리를 덮지 않는다. 고른 카드의 간선과 메시지가 지나는 간선만 묶음 위로 올린다
+ * (2026-10-21 사람 승인, 같은 날 "메시지 이동시에는 해당 관계선을 묶음 위로 보이게 해줘").
  */
 const REPO_Z = -1;
-const SELECTED_EDGE_Z = 1;
+const RAISED_EDGE_Z = 1;
 /** 끄는 상자의 z. 그 묶음의 카드보다 높아야 한다. */
 const DRAGGING_Z = 2000;
 /** 빈 묶음을 재기 전에 쓰는 크기(머리와 안내 글). 재면 잰 크기다. 빈 묶음은 카드 폭을 차지하지 않는다(목업 docs/mockups/repo-drag.html 안 A). */
@@ -726,7 +727,7 @@ export function Graph(props: {
         sourceHandle: sides.parent,
         targetHandle: sides.child,
         className: [chosen ? 'sel' : undefined, pulse ? 'live' : undefined, flow, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
-        zIndex: chosen ? SELECTED_EDGE_Z : undefined,
+        zIndex: chosen || pulse ? RAISED_EDGE_Z : undefined,
         label: pulse ? receivers.map(([toward, id]) => t('graph.messageTo', { name: props.views.get(id)?.name ?? `#${id}`, n: pulse[toward] })).join(' · ') : undefined,
         labelBgPadding: [8, 2],
         labelBgBorderRadius: 10,

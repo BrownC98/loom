@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loom 터미널 파일 드롭 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table { border-collapse: collapse; max-width: 1100px; font-size: 13px; }
+th:first-child { width: 140px; }
+th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); font-weight: 600; }
+code { font-family: var(--mono); font-size: 12px; }
+
+/* 카드: 머리 + 터미널. 실제 카드처럼 그린다. */
+.row { display: flex; gap: 24px; align-items: flex-start; }
+.card { width: 600px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; }
+.card-head .meta { margin-left: auto; font: 12px var(--mono); color: var(--ink-3); }
+.term-wrap { position: relative; }
+.term { background: oklch(16% 0 0); color: oklch(90% 0 0); font: 12px/1.5 var(--mono); padding: 10px 12px; white-space: pre-wrap; word-break: break-all; height: 150px; overflow: hidden; }
+.term .dim { color: oklch(65% 0 0); }
+.term .err { color: oklch(72% 0.17 25); }
+.term .typed { background: oklch(35% 0.08 250); }
+.cursor { display: inline-block; width: 7px; height: 14px; vertical-align: -2px; background: oklch(90% 0 0); }
+/* 끌고 있는 동안 터미널 위에 덮는 층 */
+.drop { position: absolute; inset: 6px; border: 2px dashed oklch(80% 0 0); border-radius: 8px; background: oklch(16% 0 0 / 0.78); display: grid; place-content: center; justify-items: center; gap: 6px; color: oklch(95% 0 0); font-size: 14px; }
+.drop svg { width: 28px; height: 28px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.drop .sub { font-size: 12px; color: oklch(75% 0 0); }
+.ghost-file { position: absolute; right: 60px; bottom: 14px; display: flex; gap: 6px; align-items: center; padding: 4px 8px; border-radius: 6px; background: oklch(98% 0 0); color: oklch(20% 0 0); font-size: 12px; box-shadow: 0 2px 8px oklch(0% 0 0 / 0.35); }
+.ghost-file .n { font-weight: 600; background: oklch(55% 0.15 250); color: white; border-radius: 9px; padding: 0 6px; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 파일드롭</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>노드 터미널: 파일을 끌어다 놓아 경로 입력</h1>
+  <p class="lead">사람 지시: 「loom 터미널 파일입력 방식에 드래그앤드랍 구현」. 탐색기·바탕 화면에서 파일을 노드 터미널(카드, 펼친 터미널, 오른쪽 칸)에 끌어다 놓으면 loom이 파일 경로를 그 터미널에 붙여넣는다. 에이전트 CLI는 그 경로로 파일을 읽거나 첨부한다. 바뀌는 구역은 터미널 위뿐이다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 끌고 있음 <span class="tag">터미널 위에 파일 2개</span></h2>
+    <div class="row">
+      <div class="card">
+        <div class="card-head"><span class="name">파일드롭</span><span class="badge">running</span><span class="meta">claude-opus-5-5 · medium</span></div>
+        <div class="term-wrap">
+<div class="term"><span class="dim">✻ Welcome to Claude Code · ~/loom/workspaces/loom/파일드롭</span>
+
+&gt; </div>
+          <div class="drop new">
+            <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+            <span>놓으면 파일 경로를 입력합니다</span>
+            <span class="sub">파일 2개 · 파일마다 32MB까지</span>
+          </div>
+          <div class="ghost-file"><span class="n">2</span>보고서 초안.pdf</div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>포인터가 있는 터미널 하나에만 층을 덮는다. 터미널 밖으로 나가면 층이 사라진다.</li>
+      <li>글이나 링크를 끌면 층을 보이지 않고 아무것도 넣지 않는다. 파일만 받는다.</li>
+      <li>카드 터미널, 펼친 터미널, 오른쪽 칸 터미널 모두 같다. 머리만 보기 카드에는 터미널이 없으므로 받지 않는다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 놓은 뒤 <span class="tag">경로를 붙여넣음, 엔터는 누르지 않음</span></h2>
+    <div class="row">
+      <div class="card">
+        <div class="card-head"><span class="name">파일드롭</span><span class="badge">running</span><span class="meta">claude-opus-5-5 · medium</span></div>
+        <div class="term-wrap">
+<div class="term"><span class="dim">✻ Welcome to Claude Code · ~/loom/workspaces/loom/파일드롭</span>
+
+&gt; <span class="typed new">'/tmp/loom-paste/1761030512/보고서 초안.pdf' '/tmp/loom-paste/1761030513/로그.txt' </span><span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>파일마다 데몬에 올린다. 데몬은 원래 파일 이름 그대로 임시 폴더(<code>&lt;임시&gt;/loom-paste/&lt;번호&gt;/</code>)에 쓰고, 그 경로를 돌려준다. 그림 붙여넣기와 같은 폴더·같은 경로 방식이다.</li>
+      <li>경로는 작은따옴표로 묶고 빈칸으로 나눈다. 끝에 빈칸 하나를 둔다. 빈칸·한글 이름도 그대로 읽힌다.</li>
+      <li>붙여넣기만 한다. 엔터는 사람이 누른다. 놓은 터미널에 포커스가 간다.</li>
+      <li>강조(파란 바탕)는 목업에서 붙여넣은 글을 보이려는 표시다. 실제 화면에는 없다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 너무 큰 파일 · 폴더 <span class="tag">오류 줄, 다른 파일은 그대로 입력</span></h2>
+    <div class="row">
+      <div class="card">
+        <div class="card-head"><span class="name">파일드롭</span><span class="badge">running</span><span class="meta">claude-opus-5-5 · medium</span></div>
+        <div class="term-wrap">
+<div class="term"><span class="dim">✻ Welcome to Claude Code · ~/loom/workspaces/loom/파일드롭</span>
+
+<span class="err new">녹화.mp4: 파일이 너무 큽니다(412MB). 32MB까지 넣을 수 있습니다.
+사진들: 폴더는 넣을 수 없습니다. 파일을 고르십시오.</span>
+&gt; '/tmp/loom-paste/1761030520/로그.txt' <span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>오류는 지금 그림 붙여넣기 오류와 같이 터미널 화면에만 쓴다. 에이전트 입력에는 들어가지 않는다.</li>
+      <li>큰 파일은 올리기 전에 화면이 거른다. 오래 걸리는 업로드가 생기지 않는다.</li>
+      <li>받을 수 있는 파일만 ②처럼 붙여넣는다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>결정</th><th>권장안</th><th>다른 안</th></tr>
+      <tr><td>①~③ 화면과 문구</td><td>그대로</td><td>—</td></tr>
+      <tr><td>경로 얻는 방식</td><td><b>권장:</b> 브라우저·Windows 앱 모두 파일을 데몬에 올리고 그 임시 경로를 붙여넣는다. 데몬이 WSL에 있어도 노드가 읽는 경로가 된다.</td><td>Windows 앱만 원래 경로(<code>C:\Users\…</code>)를 붙여넣는다. WSL 노드는 그 경로를 읽지 못해 <code>/mnt/c/…</code>로 바꾸는 부품이 더 든다. 원본을 고치면 에이전트가 원본을 고치는 차이도 생긴다.</td></tr>
+      <tr><td>받는 파일 종류</td><td><b>권장:</b> 모든 파일. 에이전트가 글·PDF·코드·그림을 모두 읽는다.</td><td>글·그림만 받는다.</td></tr>
+      <tr><td>크기 상한</td><td><b>권장:</b> 파일마다 32MB(그림 붙여넣기와 같다).</td><td>더 크게(예: 200MB). 업로드 동안 기다림이 생긴다.</td></tr>
+      <tr><td>폴더</td><td><b>권장:</b> 받지 않고 ③ 오류를 보인다.</td><td>폴더 안 파일을 모두 올린다.</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

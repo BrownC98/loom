@@ -4,7 +4,7 @@
 
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use portable_pty::CommandBuilder;
@@ -78,8 +78,13 @@ impl Accounts {
     }
 
     /// 로그인 폴더를 CLI에 알리는 환경 변수를 `cmd`에 넣는다. 시스템 기본이면 넣지 않는다.
+    /// Claude 폴더에는 첫 실행 안내를 마쳤다고 적는다(`mark_claude_onboarded`).
     pub fn apply(&self, cmd: &mut CommandBuilder, provider: Provider, id: Option<&AccountId>) {
         if let Some(dir) = self.config_dir(provider, id) {
+            if provider == Provider::Claude {
+                // 적지 못하면 Claude가 첫 실행 안내를 보인다. 노드는 그대로 띄운다.
+                let _ = mark_claude_onboarded(&dir);
+            }
             cmd.env(config_env(provider), dir);
         }
     }
@@ -132,6 +137,26 @@ fn cli(provider: Provider) -> Result<Vec<OsString>, LaunchError> {
     Ok(process_tree::argv(&path))
 }
 
+/// Claude 설정(`.claude.json`)에서 첫 실행 안내를 마쳤다는 키.
+const CLAUDE_ONBOARDED: &str = "hasCompletedOnboarding";
+
+/// loom 계정 폴더의 `.claude.json`에 `hasCompletedOnboarding: true`를 넣는다.
+/// Claude 2.1.228은 이 값이 없으면 로그인한 폴더에서도 첫 실행에 로그인 방법을 다시 묻는다. 2.1.305는 묻지 않는다(2026-10-21 실측).
+/// 값이 이미 있으면 쓰지 않는다. 그 폴더로 도는 노드가 쓰는 파일을 덮지 않기 위해서다.
+fn mark_claude_onboarded(dir: &Path) -> io::Result<()> {
+    let path = dir.join(".claude.json");
+    let mut config: serde_json::Map<String, serde_json::Value> = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => serde_json::Map::new(),
+        Err(e) => return Err(e),
+    };
+    if config.get(CLAUDE_ONBOARDED) == Some(&serde_json::Value::Bool(true)) {
+        return Ok(());
+    }
+    config.insert(CLAUDE_ONBOARDED.into(), true.into());
+    std::fs::write(&path, serde_json::to_vec_pretty(&config)?)
+}
+
 /// CLI가 로그인 폴더를 고르는 환경 변수.
 fn config_env(provider: Provider) -> &'static str {
     match provider {
@@ -155,6 +180,36 @@ mod tests {
         assert!(accounts.config_dir(Provider::Claude, Some(&id)).is_some());
         accounts.remove(Provider::Claude, &id).unwrap();
         assert!(accounts.config_dir(Provider::Claude, Some(&id)).is_none());
+    }
+
+    #[test]
+    fn claude_account_skips_first_run_guide() {
+        let tmp = tempfile::tempdir().unwrap();
+        let accounts = Accounts::new(tmp.path().to_path_buf());
+        let id = accounts.create(Provider::Claude).unwrap();
+        let file = accounts
+            .config_dir(Provider::Claude, Some(&id))
+            .unwrap()
+            .join(".claude.json");
+        std::fs::write(&file, r#"{"oauthAccount":{"emailAddress":"a@b.c"}}"#).unwrap();
+        accounts.apply(
+            &mut CommandBuilder::new("claude"),
+            Provider::Claude,
+            Some(&id),
+        );
+        let config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(config["hasCompletedOnboarding"], true);
+        assert_eq!(config["oauthAccount"]["emailAddress"], "a@b.c");
+
+        let codex = accounts.create(Provider::Codex).unwrap();
+        accounts.apply(
+            &mut CommandBuilder::new("codex"),
+            Provider::Codex,
+            Some(&codex),
+        );
+        let dir = accounts.config_dir(Provider::Codex, Some(&codex)).unwrap();
+        assert!(!dir.join(".claude.json").exists());
     }
 
     #[test]

@@ -739,6 +739,23 @@ export function Graph(props: {
     lastFocus.current = selected !== null && focusAt ? { id: selected, at: focusAt } : null;
     if (follow) void flow.setViewport(followCard(follow.from, follow.to, flow.getViewport()));
   });
+  // 왼쪽 사이드바 너비가 바뀌어 그래프 칸의 왼쪽 변이 옮겨도 그래프는 화면의 같은 자리에 둔다. 사이드바가 그래프를 덮는 것처럼 보인다.
+  // 2026-10-22 사람 지시 "좌측 사이드바 너비 조정해도 그래프 안밀리게 해, 사이드바가 그래프를 덮는 느낌으로".
+  const pane = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = pane.current;
+    if (!el) return;
+    let left = el.getBoundingClientRect().left;
+    const keep = new ResizeObserver(() => {
+      const now = el.getBoundingClientRect().left;
+      if (now === left) return;
+      const { x, y, zoom } = flow.getViewport();
+      void flow.setViewport({ x: x - (now - left), y, zoom });
+      left = now;
+    });
+    keep.observe(el);
+    return () => keep.disconnect();
+  }, [flow]);
   const insideDragged = (id: string) => {
     for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) if (dragged.has(outer)) return true;
     return false;
@@ -1212,6 +1229,7 @@ export function Graph(props: {
   return (
     <>
       <ReactFlow
+        ref={pane}
         nodes={nodes}
         edges={[...edges, ...hopEdges]}
         edgeTypes={EDGE_TYPES}

@@ -31,7 +31,7 @@ import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
 import { Splitter, usePaneOpen, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
 import { StatusBar, type Usage } from './StatusBar';
-import { Inbox, waitingNodes } from './Inbox';
+import { Inbox, InboxPanel, waitingNodes } from './Inbox';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
@@ -178,7 +178,8 @@ export function App() {
   // 저장소가 하나면 그래프 위에 그 이름을 보인다. 둘 이상이면 저장소 상자 머리가 이름을 보인다.
   const title = shown.length === 1 ? shown[0].name : null;
   const dockedView = simpleCards && selected !== null ? nodes.get(selected) : undefined;
-  const tabs: readonly DockTab[] = dockedView ? ['events', 'commits', 'terminal'] : ['events', 'commits'];
+  const tabs: readonly DockTab[] = dockedView ? ['events', 'commits', 'questions', 'terminal'] : ['events', 'commits', 'questions'];
+  const waiting = waitingNodes(nodes);
   // 터미널 탭을 보다가 노드 고르기를 풀면 커밋 그래프로 돌아간다.
   const shownTab = tabs.includes(tab) ? tab : 'commits';
   const log = useEventLog(dockOpen && shownTab === 'events');
@@ -466,7 +467,7 @@ export function App() {
           )}
           <main className="canvas" aria-label={title === null ? t('app.allGraphLabel') : t('app.graphLabel', { repo: title })}>
             {title !== null && <h1 className="canvas-title">{title}</h1>}
-            <Inbox waiting={waitingNodes(nodes)} notify={settings.osNotify} onSelect={selectNode} />
+            <Inbox waiting={waiting} notify={settings.osNotify} onSelect={selectNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               onRepo={putRepo}
@@ -492,6 +493,7 @@ export function App() {
             <Dock
               tabs={tabs}
               tab={shownTab}
+              waiting={waiting.length}
               onTab={setTab}
               onCollapse={() => openDock(false)}
               tools={
@@ -503,6 +505,7 @@ export function App() {
             >
               {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} />}
               {shownTab === 'commits' && repo && repoFocused && <CommitGraph repo={repo.id} name={repo.name} />}
+              {shownTab === 'questions' && <InboxPanel waiting={waiting} onSelect={selectNode} />}
               {shownTab === 'terminal' && dockedView && (
                 <TerminalDock
                   view={dockedView}

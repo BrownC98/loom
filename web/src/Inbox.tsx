@@ -76,29 +76,53 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
       {open && n > 0 && (
         <div className="pop inbox-pop" role="dialog" aria-label={t('inbox.title', { count: n })}>
           <h2>{t('inbox.title', { count: n })}</h2>
-          <ul>
-            {props.waiting.map((v) => (
-              <li key={v.id}>
-                <button
-                  className="go"
-                  onClick={() => {
-                    setOpen(false);
-                    go(v.id);
-                  }}
-                >
-                  <span className="dot waiting" aria-hidden="true" />
-                  <span className="who">
-                    <b>{v.name}</b> · {t(`wait.${v.wait.kind}`)}
-                  </span>
-                  {v.wait.text && <span className="line">{v.wait.text}</span>}
-                </button>
-                <DismissButton id={v.id} />
-              </li>
-            ))}
-          </ul>
+          <WaitList
+            waiting={props.waiting}
+            onGo={(id) => {
+              setOpen(false);
+              go(id);
+            }}
+          />
         </div>
       )}
     </div>
+  );
+}
+
+/** 오른쪽 사이드바 「질문」 탭(2026-10-21 사람 지시 "예비용으로 질문함은 … 우측 사이드 챗에 유지해줘"). 알약 목록과 같은 줄을 보인다. 대기가 없으면 한 줄만 보인다. */
+export function InboxPanel(props: { waiting: Waiting[]; onSelect: (id: NodeId) => void }) {
+  const { t } = useTranslation();
+  const show = useShowNodes();
+  if (props.waiting.length === 0) return <p className="inbox-empty">{t('inbox.empty')}</p>;
+  return (
+    <WaitList
+      waiting={props.waiting}
+      onGo={(id) => {
+        show([id]);
+        props.onSelect(id);
+      }}
+    />
+  );
+}
+
+/** 대기 줄 목록. 알약 목록과 「질문」 탭이 함께 쓴다. 줄을 누르면 `onGo`, [×]는 대기를 지운다. */
+function WaitList(props: { waiting: Waiting[]; onGo: (id: NodeId) => void }) {
+  const { t } = useTranslation();
+  return (
+    <ul className="wait-list">
+      {props.waiting.map((v) => (
+        <li key={v.id}>
+          <button className="go" onClick={() => props.onGo(v.id)}>
+            <span className="dot waiting" aria-hidden="true" />
+            <span className="who">
+              <b>{v.name}</b> · {t(`wait.${v.wait.kind}`)}
+            </span>
+            {v.wait.text && <span className="line">{v.wait.text}</span>}
+          </button>
+          <DismissButton id={v.id} />
+        </li>
+      ))}
+    </ul>
   );
 }
 

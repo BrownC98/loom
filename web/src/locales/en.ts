@@ -250,6 +250,7 @@ const en = {
     listLabel: 'Open the question list, {{count}}',
     title: 'Nodes waiting for you {{count}}',
     dismiss: 'Dismiss',
+    empty: 'No questions',
   },
   wait: {
     label: 'waiting for you',

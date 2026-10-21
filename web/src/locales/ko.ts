@@ -251,6 +251,7 @@ const ko: typeof en = {
     listLabel: '질문 목록 열기, {{count}}개',
     title: '응답을 기다리는 노드 {{count}}',
     dismiss: '알림 지우기',
+    empty: '질문 없음',
   },
   wait: {
     label: '응답 대기',

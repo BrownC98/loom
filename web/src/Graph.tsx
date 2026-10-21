@@ -1,5 +1,5 @@
 import { GitBranchPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putSizes, putSpots, removeNode } from './api';
@@ -193,6 +193,8 @@ type RepoNode = Node<RepoData, 'repo'>;
 type CardNode = Node<CardData, 'card'>;
 type SimpleNode = Node<CardBase, 'simple'>;
 type FlowNode = RepoNode | GroupNode | CardNode | SimpleNode;
+/** 노드 data에 담는 처리기. */
+type Fn = (...args: never[]) => unknown;
 
 function Group({ data }: NodeProps<GroupNode>) {
   const { t } = useTranslation();
@@ -344,7 +346,14 @@ function Ports(props: { port: Side }) {
   ));
 }
 
-const nodeTypes = { repo: Repo, worktree: Group, card: Card, simple: Simple };
+/** 노드는 data 값이 바뀔 때만 다시 그린다. 끄는 동안 자리만 바뀐 노드는 그대로 둔다. data의 함수는 `steady`가 늘 같은 함수로 준다. */
+function sameData(a: { data: object }, b: { data: object }): boolean {
+  const [x, y] = [a.data as Record<string, unknown>, b.data as Record<string, unknown>];
+  const keys = Object.keys(x);
+  return keys.length === Object.keys(y).length && keys.every((k) => x[k] === y[k]);
+}
+
+const nodeTypes = { repo: memo(Repo, sameData), worktree: memo(Group, sameData), card: memo(Card, sameData), simple: memo(Simple, sameData) };
 
 /** `from`에서 `dir` 쪽으로 가장 가까운 카드. 가로·세로 어긋남은 두 배로 친다. */
 function neighbor(positions: Map<NodeId, XYPosition>, from: NodeId, dir: Direction): NodeId | null {
@@ -619,11 +628,25 @@ export function Graph(props: {
     if (!n.dragging) continue;
     for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) carried.add(outer);
   }
+  // data의 함수를 노드·이름마다 같은 함수로 바꾼다. 부르면 마지막 렌더의 함수를 부른다. 그래서 끄는 동안 다른 노드는 다시 그리지 않는다(`sameData`).
+  const callers = useRef(new Map<string, { fn: Fn; call: Fn }>());
+  const steady = <D extends object>(id: string, data: D): D =>
+    Object.fromEntries(
+      Object.entries(data).map(([k, v]) => {
+        if (typeof v !== 'function') return [k, v];
+        const key = `${id} ${k}`;
+        const caller: { fn: Fn; call: Fn } = callers.current.get(key) ?? { fn: v as Fn, call: (...args: never[]) => caller.fn(...args) };
+        caller.fn = v as Fn;
+        callers.current.set(key, caller);
+        return [k, caller.call];
+      }),
+    ) as D;
   const keep = <N extends FlowNode>(node: N): N => {
     const live = flowState.get(node.id);
     const moved = carried.has(node.id) || (node.parentId !== undefined && flowState.get(node.parentId)?.dragging);
     return {
       ...node,
+      data: steady(node.id, node.data),
       measured: live?.measured,
       ...(moved && { className: [node.className, 'carried'].filter(Boolean).join(' ') }),
       ...(live?.dragging && { position: node.parentId ? node.position : live.position, dragging: true, zIndex: DRAGGING_Z }),
@@ -915,8 +938,12 @@ export function Graph(props: {
     if (level && self) save(spread(grown, level, self, new Map()));
   });
 
+  // 바뀜은 마지막 결과에 더한다. 렌더 전에 바뀜이 여럿 오면(끄는 자리, 그래서 커진 바깥 상자의 크기) 렌더한 노드에 더할 때
+  // 앞 바뀜을 잃는다. 그러면 끄는 상자가 앞 자리로 돌아가 커서를 따르지 않는다(바깥 상자 벽에 닿을 때).
+  const lastFlow = useRef(flowState);
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
-    const next = new Map(applyNodeChanges(changes, nodes).map((n) => [n.id, n]));
+    const next = new Map(applyNodeChanges(changes, nodes.map((n) => lastFlow.current.get(n.id) ?? n)).map((n) => [n.id, n]));
+    lastFlow.current = next;
     setFlowState(next);
     // 카드·묶음·저장소 상자를 끌 때만 위치 변경이 온다(키보드 이동은 껐다).
     for (const c of changes) {
@@ -930,8 +957,8 @@ export function Graph(props: {
       else if (moving.has(c.id)) onDrop(c.id, level, dragged);
     }
   };
-  // React Flow는 처리기도 effect에서 받는다. 부하가 크면 effect가 늦어 지난 렌더의 처리기가 불린다. 그 처리기는 지난 노드로
-  // `flowState`를 다시 써서, 끄는 묶음을 제자리로 되돌린다(저장소 상자만 커서를 따른다). 그래서 늘 마지막 렌더의 처리기를 부른다.
+  // React Flow는 처리기도 effect에서 받는다. 부하가 크면 effect가 늦어 지난 렌더의 처리기가 불린다. 그 처리기는 지난 `moving`으로
+  // 놓은 자리를 저장한다. 그래서 늘 마지막 렌더의 처리기를 부른다.
   const latestChange = useRef(onNodesChange);
   latestChange.current = onNodesChange;
   const onChange = useCallback((changes: NodeChange<FlowNode>[]) => latestChange.current(changes), []);

@@ -146,6 +146,16 @@ export function watchGraph(onEvent: (event: GraphEvent) => void): () => void {
   };
 }
 
+/**
+ * 데몬이 지금 내는 index.html의 진입 스크립트가 이 화면을 띄운 것과 다른가. `scripts/host.sh`가 데몬을 새 판으로 바꾸면 참이다.
+ * 진입 스크립트 이름에는 빌드 해시가 붙는다. Windows 앱도 화면을 자기 데몬에서 받으므로 같은 규칙이다.
+ */
+export async function newBuildServed(): Promise<boolean> {
+  const html = await (await fetch('/', { cache: 'no-store' })).text();
+  const entry = (doc: Document) => doc.querySelector('script[type="module"][src]')?.getAttribute('src');
+  return entry(new DOMParser().parseFromString(html, 'text/html')) !== entry(document);
+}
+
 export interface PtyLink {
   sendInput(data: string | Uint8Array): void;
   sendResize(size: Resize): void;

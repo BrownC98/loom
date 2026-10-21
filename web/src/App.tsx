@@ -2,7 +2,7 @@ import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, watchGraph } from './api';
+import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, newBuildServed, watchGraph } from './api';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -377,6 +377,11 @@ export function App() {
           break;
         case 'snapshot':
           setNodes(new Map(event.nodes.map((view) => [view.id, view])));
+          // 연결할 때마다 온다. 데몬을 새 판으로 바꾼 뒤 다시 붙으면 한 번 다시 읽는다. 옛 화면 코드가 새 데몬에 옛 규칙으로 자리를 쓰지 않게 한다.
+          // 근거: 2026-10-21 총괄 결정. 사람 시험에서 밀린 저장소 상자가 밀기 전 자리 없이 저장됐고, 지금 코드는 시험 데몬에서 그렇게 저장하지 않았다(되돌리기3).
+          newBuildServed()
+            .then((stale) => stale && location.reload())
+            .catch(() => {});
           break;
         case 'node':
           setNodes((prev) => new Map(prev).set(event.id, event));

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M13 가계도 정렬 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.fig { display: grid; gap: 10px; }
+
+.canvas { background: var(--panel); border-radius: 12px; padding: 12px; width: fit-content; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; align-items: start; }
+.canvas svg { display: block; }
+.grp { fill: var(--surface-hover); fill-opacity: .35; stroke: var(--line-strong); }
+.grp.new, .card.new { stroke: var(--warn); stroke-dasharray: 6 4; stroke-width: 2; }
+.card { fill: var(--surface); stroke: var(--line-strong); }
+.lbl { font: 600 15px var(--font); fill: var(--ink); }
+.glbl { font: 13px var(--mono); fill: var(--ink-3); }
+.edge { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.edge.hit { stroke: var(--err); stroke-width: 2; }
+.stats { font: 12px var(--mono); color: var(--ink-3); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M13</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>그래프 › [정렬]: 가계도처럼 세대마다 한 줄</h1>
+  <div class="grid" id="grid"></div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+// 그림은 손으로 그리지 않았다. 사례마다 가계도 규칙 시제품(세대마다 한 줄, 부모 묶음이 그 줄에 있으면 자식 묶음은 옆, 없으면 아래)을 돌린 출력이다.
+const CASES = [{"key":"person","title":"① 사람 그림: 다른 묶음 자식이 형제와 같은 줄","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":1628,"h":1124},{"name":"모델설정-잠금해제","x":1660,"y":578,"w":640,"h":546},{"name":"매뉴얼-목업","x":652,"y":1156,"w":640,"h":546},{"name":"매뉴얼-개편","x":1324,"y":1156,"w":640,"h":546}],"cards":[{"id":1,"name":"ktasearch-총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":1008,"y":60,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":1008,"y":638,"w":600,"h":466},{"id":4,"name":"모델설정-코디","x":1680,"y":638,"w":600,"h":466},{"id":5,"name":"매뉴얼-목업","x":672,"y":1216,"w":600,"h":466},{"id":6,"name":"매뉴얼-개편","x":1344,"y":1216,"w":600,"h":466}],"edges":[{"from":2,"to":3,"parent":"bottom","child":"top"},{"from":2,"to":4,"parent":"bottom","child":"top"},{"from":3,"to":5,"parent":"bottom","child":"top"},{"from":3,"to":6,"parent":"bottom","child":"top"}]},{"key":"mixed","title":"② 섞인 자식(M11 ②)","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":1260,"h":1124},{"name":"판정근거-범위","x":1292,"y":578,"w":640,"h":1124}],"cards":[{"id":1,"name":"ktasearch-총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":640,"y":60,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":640,"y":638,"w":600,"h":466},{"id":4,"name":"판정근거-코디","x":1312,"y":638,"w":600,"h":466},{"id":5,"name":"판정근거-관문","x":1312,"y":1216,"w":600,"h":466}],"edges":[{"from":2,"to":3,"parent":"bottom","child":"top"},{"from":2,"to":4,"parent":"bottom","child":"top"},{"from":4,"to":5,"parent":"bottom","child":"top"}]},{"key":"ingroup","title":"③ 묶음 안 자식만","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":1880,"h":1124}],"cards":[{"id":1,"name":"총괄","x":640,"y":60,"w":600,"h":466},{"id":2,"name":"워커-1","x":20,"y":638,"w":600,"h":466},{"id":3,"name":"워커-2","x":640,"y":638,"w":600,"h":466},{"id":4,"name":"워커-3","x":1260,"y":638,"w":600,"h":466}],"edges":[{"from":1,"to":2,"parent":"bottom","child":"top"},{"from":1,"to":3,"parent":"bottom","child":"top"},{"from":1,"to":4,"parent":"bottom","child":"top"}]},{"key":"one","title":"④ 자식 묶음 하나","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":640,"h":546},{"name":"작업-1","x":0,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"코디-1","x":20,"y":638,"w":600,"h":466}],"edges":[{"from":1,"to":2,"parent":"bottom","child":"top"}]},{"key":"many","title":"⑤ 자식 묶음 여럿","dir":"down","groups":[{"name":"main","x":672,"y":0,"w":640,"h":546},{"name":"작업-1","x":0,"y":578,"w":640,"h":546},{"name":"작업-2","x":672,"y":578,"w":640,"h":546},{"name":"작업-3","x":1344,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"총괄","x":692,"y":60,"w":600,"h":466},{"id":2,"name":"코디-1","x":20,"y":638,"w":600,"h":466},{"id":3,"name":"코디-2","x":692,"y":638,"w":600,"h":466},{"id":4,"name":"코디-3","x":1364,"y":638,"w":600,"h":466}],"edges":[{"from":1,"to":2,"parent":"bottom","child":"top"},{"from":1,"to":3,"parent":"bottom","child":"top"},{"from":1,"to":4,"parent":"bottom","child":"top"}]},{"key":"middle","title":"⑥ 부모가 묶음 가운데","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":1880,"h":1124},{"name":"작업-1","x":1912,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"총괄-A","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"피드백","x":640,"y":60,"w":600,"h":466},{"id":3,"name":"총괄-B","x":1260,"y":60,"w":600,"h":466},{"id":4,"name":"매뉴얼-코디","x":640,"y":638,"w":600,"h":466},{"id":5,"name":"판정-코디","x":1932,"y":638,"w":600,"h":466}],"edges":[{"from":2,"to":4,"parent":"bottom","child":"top"},{"from":2,"to":5,"parent":"bottom","child":"top"}]},{"key":"deep","title":"⑦ 깊은 사슬: 자식 묶음의 자식 묶음","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":640,"h":546},{"name":"작업-1","x":0,"y":578,"w":640,"h":1124},{"name":"작업-1a","x":672,"y":1156,"w":640,"h":546},{"name":"작업-1b","x":1344,"y":1156,"w":640,"h":1124}],"cards":[{"id":1,"name":"총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"코디-1","x":20,"y":638,"w":600,"h":466},{"id":3,"name":"워커-1","x":20,"y":1216,"w":600,"h":466},{"id":4,"name":"워커-a","x":692,"y":1216,"w":600,"h":466},{"id":5,"name":"워커-b","x":1364,"y":1216,"w":600,"h":466},{"id":6,"name":"평가-b","x":1364,"y":1794,"w":600,"h":466}],"edges":[{"from":1,"to":2,"parent":"bottom","child":"top"},{"from":2,"to":3,"parent":"bottom","child":"top"},{"from":2,"to":4,"parent":"bottom","child":"top"},{"from":2,"to":5,"parent":"bottom","child":"top"},{"from":5,"to":6,"parent":"bottom","child":"top"}]},{"key":"roots","title":"⑧ 뿌리 묶음 여럿","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":640,"h":546},{"name":"실험","x":672,"y":0,"w":640,"h":1124},{"name":"작업-1","x":0,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"사람이 띄움","x":692,"y":60,"w":600,"h":466},{"id":3,"name":"워커","x":692,"y":638,"w":600,"h":466},{"id":4,"name":"코디-1","x":20,"y":638,"w":600,"h":466}],"edges":[{"from":2,"to":3,"parent":"bottom","child":"top"},{"from":1,"to":4,"parent":"bottom","child":"top"}]},{"key":"sizes","title":"⑨ 넓은 카드와 높은 카드","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":1460,"h":1458},{"name":"작업-1","x":1492,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"총괄","x":430,"y":60,"w":600,"h":466},{"id":2,"name":"넓은 워커","x":20,"y":638,"w":1000,"h":300},{"id":3,"name":"높은 워커","x":1040,"y":638,"w":400,"h":800},{"id":4,"name":"코디-1","x":1512,"y":638,"w":600,"h":466}],"edges":[{"from":1,"to":2,"parent":"bottom","child":"top"},{"from":1,"to":3,"parent":"bottom","child":"top"},{"from":1,"to":4,"parent":"bottom","child":"top"}]},{"key":"m8","title":"⑩ M8 승인 모양","dir":"down","groups":[{"name":"main","x":0,"y":0,"w":1880,"h":1124},{"name":"묶음끌기","x":1912,"y":578,"w":640,"h":546},{"name":"오픈코드","x":2584,"y":578,"w":640,"h":546},{"name":"윈도우삭제","x":3256,"y":578,"w":640,"h":546},{"name":"찾기","x":3928,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"claude-1","x":640,"y":60,"w":600,"h":466},{"id":2,"name":"max워커","x":20,"y":638,"w":600,"h":466},{"id":3,"name":"max평가자","x":640,"y":638,"w":600,"h":466},{"id":4,"name":"max코디","x":1260,"y":638,"w":600,"h":466},{"id":5,"name":"loom 총괄","x":1260,"y":60,"w":600,"h":466},{"id":6,"name":"묶음끌기","x":1932,"y":638,"w":600,"h":466},{"id":7,"name":"오픈코드","x":2604,"y":638,"w":600,"h":466},{"id":8,"name":"윈도우삭제","x":3276,"y":638,"w":600,"h":466},{"id":9,"name":"찾기","x":3948,"y":638,"w":600,"h":466}],"edges":[{"from":1,"to":2,"parent":"bottom","child":"top"},{"from":1,"to":3,"parent":"bottom","child":"top"},{"from":1,"to":4,"parent":"bottom","child":"top"},{"from":5,"to":6,"parent":"bottom","child":"top"},{"from":5,"to":7,"parent":"bottom","child":"top"},{"from":5,"to":8,"parent":"bottom","child":"top"},{"from":5,"to":9,"parent":"bottom","child":"top"}]},{"key":"right","title":"⑪ 오른쪽으로 정렬: ①과 같은 모양","dir":"right","groups":[{"name":"main","x":0,"y":0,"w":1312,"h":1373},{"name":"모델설정-잠금해제","x":672,"y":1405,"w":640,"h":546},{"name":"매뉴얼-목업","x":1344,"y":558,"w":640,"h":546},{"name":"매뉴얼-개편","x":1344,"y":1136,"w":640,"h":546}],"cards":[{"id":1,"name":"ktasearch-총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":20,"y":887,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":692,"y":887,"w":600,"h":466},{"id":4,"name":"모델설정-코디","x":692,"y":1465,"w":600,"h":466},{"id":5,"name":"매뉴얼-목업","x":1364,"y":618,"w":600,"h":466},{"id":6,"name":"매뉴얼-개편","x":1364,"y":1196,"w":600,"h":466}],"edges":[{"from":2,"to":3,"parent":"right","child":"left"},{"from":2,"to":4,"parent":"right","child":"left"},{"from":3,"to":5,"parent":"right","child":"left"},{"from":3,"to":6,"parent":"right","child":"left"}]}];
+const MAXW = 620, MAXH = 560;
+// 부모 카드 아래에서 꺾는 거리: 묶음 옆 20 + 묶음 틈 32의 절반. 자식 묶음 머리 앞의 빈 틈 가운데다.
+const BEND = 36;
+const anchor = (k, side) => ({ top: [k.x + k.w / 2, k.y], bottom: [k.x + k.w / 2, k.y + k.h], left: [k.x, k.y + k.h / 2], right: [k.x + k.w, k.y + k.h / 2] })[side];
+const normal = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
+const grid = document.getElementById('grid');
+for (const c of CASES) {
+  const W = Math.max(...c.groups.map((g) => g.x + g.w)), H = Math.max(...c.groups.map((g) => g.y + g.h));
+  const scale = Math.min(MAXW / W, MAXH / H);
+  const byId = Object.fromEntries(c.cards.map((k) => [k.id, k]));
+  let out = '', hits = 0, len = 0;
+  for (const g of c.groups) out += '<rect class="grp" x="' + g.x + '" y="' + g.y + '" width="' + g.w + '" height="' + g.h + '" rx="10"/><text class="glbl" x="' + (g.x + 16) + '" y="' + (g.y + 40) + '" style="font-size:40px">' + g.name + '</text>';
+  // 계단 간선: 나무 쪽 간선은 부모 카드 바로 아래 틈에서 꺾는다(규칙 E). 그 밖의 간선과 ①(지금)은 베지어다.
+  const tree = { down: ['bottom', 'top'], up: ['top', 'bottom'], right: ['right', 'left'], left: ['left', 'right'] }[c.dir];
+  for (const e of c.edges) {
+    const p = byId[e.from], q = byId[e.to];
+    const a = anchor(p, e.parent), b = anchor(q, e.child);
+    let pts;
+    if (e.parent === tree[0] && e.child === tree[1]) {
+      const v = c.dir === 'down' || c.dir === 'up', i = v ? 1 : 0, n = normal[e.parent][i];
+      const bend = a[i] + n * Math.min(BEND, Math.abs(b[i] - a[i]) / 2);
+      pts = v ? [a, [a[0], bend], [b[0], bend], b] : [a, [bend, a[1]], [bend, b[1]], b];
+    } else {
+      const d = Math.max(40, Math.hypot(b[0] - a[0], b[1] - a[1]) / 2);
+      const c1 = [a[0] + normal[e.parent][0] * d, a[1] + normal[e.parent][1] * d], c2 = [b[0] + normal[e.child][0] * d, b[1] + normal[e.child][1] * d];
+      pts = Array.from({ length: 41 }, (_, t) => { t /= 40; const u = 1 - t; return [0, 1].map((k) => u*u*u*a[k] + 3*u*u*t*c1[k] + 3*u*t*t*c2[k] + t*t*t*b[k]); });
+    }
+    let hit = false;
+    for (let s = 1; s < pts.length; s++) {
+      const [p0, p1] = [pts[s - 1], pts[s]], steps = 100;
+      len += Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+      for (let t = 0; t <= steps; t++) {
+        const r = [p0[0] + (p1[0] - p0[0]) * t / steps, p0[1] + (p1[1] - p0[1]) * t / steps];
+        for (const o of c.cards) if (o.id !== p.id && o.id !== q.id && r[0] > o.x && r[0] < o.x + o.w && r[1] > o.y && r[1] < o.y + o.h) hit = true;
+      }
+    }
+    if (hit) hits++;
+    out += '<polyline class="edge' + (hit ? ' hit' : '') + '" style="stroke-width:' + (1.5 / scale) + '" points="' + pts.map((r) => r.join(',')).join(' ') + '"/>';
+  }
+  for (const k of c.cards) out += '<rect class="card" x="' + k.x + '" y="' + k.y + '" width="' + k.w + '" height="' + k.h + '" rx="12" style="stroke-width:3"/><text class="lbl" x="' + (k.x + 24) + '" y="' + (k.y + 60) + '" style="font-size:44px">' + k.name + '</text>';
+  const fig = document.createElement('div');
+  fig.className = 'fig';
+  fig.innerHTML = '<h2>' + c.title + ' <span class="tag">그래프 › [정렬] 뒤' + (c.dir === 'down' ? '' : ' · 오른쪽으로') + '</span></h2><div class="canvas"><svg viewBox="-10 -10 ' + (W + 20) + ' ' + (H + 20) + '" width="' + Math.round((W + 20) * scale) + '" height="' + Math.round((H + 20) * scale) + '">' + out + '</svg></div><p class="stats">그림 ' + W + ' × ' + H + 'px · 간선 길이 합 ' + Math.round(len) + 'px · 카드를 지나는 간선 ' + hits + '개</p>';
+  grid.appendChild(fig);
+}
+</script>
+</body>
+</html>

@@ -490,9 +490,9 @@ a { color: var(--accent); }
 .inbox-pill .more { flex: none; width: 30px; justify-content: center; border-left: 1px solid var(--warn); border-radius: 0 15px 15px 0; color: var(--ink-3); }
 .inbox-pill b { white-space: nowrap; }
 .inbox-pill .count, .tabs .count, .rail .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
-/* 접힌 줄의 아이콘 단추는 글자 자리가 없다. 배지를 오른쪽 위 모서리에 겹친다. */
+/* 접힌 줄의 아이콘 단추는 글자 자리가 없다. 배지를 단추 안 오른쪽 위에 겹친다. 줄은 창 끝에 붙어 있어서 단추 밖으로 나가면 잘린다. */
 .rail .btn:has(.count) { position: relative; }
-.rail .count { position: absolute; top: -4px; right: -6px; pointer-events: none; }
+.rail .count { position: absolute; top: -3px; right: -2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; font-size: 10px; line-height: 15px; pointer-events: none; }
 .inbox-pill .preview { min-width: 0; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inbox-pill .chev { width: 14px; height: 14px; }
 .inbox-pill .chev.open { transform: rotate(180deg); }

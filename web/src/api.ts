@@ -93,6 +93,8 @@ export const openFile = (path: string) => call<null>('POST', '/api/files/open', 
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');
+/** 모든 칸이 기본값인 설정. 설정 창이 칸마다 [기본값] 단추를 보일지 견준다. */
+export const getDefaultSettings = () => call<SettingsView>('GET', '/api/settings/default');
 /** 바꾼 칸만 보낸다. 데몬이 지금 설정에 합친다. */
 export const putSettings = (patch: SettingsPatch) => call<null>('PUT', '/api/settings', patch);
 /** 데몬의 업데이트 상태(docs/mockups/web-update.html). */

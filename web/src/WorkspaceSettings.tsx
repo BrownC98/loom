@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { FieldReset } from './FieldReset';
 import type { SettingsView } from './gen/SettingsView';
 
 /** 절대 경로: `/…`, `C:\…`, `\\서버\…`. 데몬도 같은 규칙으로 거절한다. */
@@ -27,6 +28,7 @@ export function WorkspaceTab({ settings, onSettings }: { settings: SettingsView;
       <section>
         <h4>
           <label htmlFor="ws-dir">{t('workspace.folder')}</label>
+          <FieldReset path={['workspaceDir']} />
         </h4>
         <div className="field">
           <input

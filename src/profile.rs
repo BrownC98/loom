@@ -54,7 +54,13 @@ pub enum Take {
     WhenIdle,
     /// 메시지를 꺼내지 않는다(알림).
     Never,
+    /// 일하는 노드의 도구 호출 뒤. 조정만 꺼내고, 턴 끝까지 기다리는 큐 메시지가 새로 있으면 한 줄로 알린다.
+    /// 에이전트가 지금 `loom wait`로 읽을지 고른다. 근거: docs/design.md 「전달 지점」.
+    BetweenTools,
 }
+
+/// `Take::BetweenTools`에서 꺼내는 방식.
+pub const BETWEEN_TOOLS_KINDS: &[Kind] = &[Kind::Steer];
 
 impl Profile {
     /// 계정을 고르는 프로필이면 그 공급자다. OpenCode 2는 공급자가 여럿이라 loom 계정이 없다.
@@ -630,6 +636,28 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
 }
 
 /// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
+/// 훅이 넘기는 글: 꺼낸 메시지와 새로 기다리는 큐 메시지 알림(`Take::BetweenTools`). 둘 다 없으면 없다.
+pub fn hook_text(taken: &[Delivery], queued_from: &[String]) -> Option<String> {
+    let mut parts = Vec::new();
+    if !taken.is_empty() {
+        parts.push(message_text(taken));
+    }
+    if !queued_from.is_empty() {
+        let mut from: Vec<&str> = Vec::new();
+        for name in queued_from {
+            if !from.contains(&name.as_str()) {
+                from.push(name);
+            }
+        }
+        parts.push(format!(
+            "loom: {} new queued message(s) waiting (from: {}). Run `loom wait --json` now if they may change your current task.",
+            queued_from.len(),
+            from.join(", ")
+        ));
+    }
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
+}
+
 pub fn message_text(taken: &[Delivery]) -> String {
     taken
         .iter()

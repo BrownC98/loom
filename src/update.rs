@@ -76,9 +76,9 @@ impl Install {
 /// Release에 올린 웹 버전 파일 이름. `release.yml`이 같은 이름으로 올린다.
 fn asset_name(os: &str, arch: &str) -> Option<&'static str> {
     match (os, arch) {
-        ("linux", "x86_64") => Some("loom-x86_64-linux"),
-        ("windows", "x86_64") => Some("loom-x86_64-windows.exe"),
-        ("macos", "aarch64") => Some("loom-aarch64-macos"),
+        ("linux", "x86_64") => Some("loom-web-linux-x64"),
+        ("windows", "x86_64") => Some("loom-web-windows-x64.exe"),
+        ("macos", "aarch64") => Some("loom-web-macos-arm64"),
         _ => None,
     }
 }
@@ -350,20 +350,20 @@ mod tests {
 
     #[test]
     fn assets_match_release_files() {
-        assert_eq!(asset_name("linux", "x86_64"), Some("loom-x86_64-linux"));
+        assert_eq!(asset_name("linux", "x86_64"), Some("loom-web-linux-x64"));
         assert_eq!(
             asset_name("windows", "x86_64"),
-            Some("loom-x86_64-windows.exe")
+            Some("loom-web-windows-x64.exe")
         );
-        assert_eq!(asset_name("macos", "aarch64"), Some("loom-aarch64-macos"));
+        assert_eq!(asset_name("macos", "aarch64"), Some("loom-web-macos-arm64"));
         assert_eq!(asset_name("linux", "aarch64"), None);
         assert_eq!(asset_name("macos", "x86_64"), None);
         // `release.yml`이 올리는 이름과 같아야 한다.
         let workflow = include_str!("../.github/workflows/release.yml");
         for asset in [
-            "loom-x86_64-linux",
-            "loom-x86_64-windows.exe",
-            "loom-aarch64-macos",
+            "loom-web-linux-x64",
+            "loom-web-windows-x64.exe",
+            "loom-web-macos-arm64",
         ] {
             assert!(workflow.contains(asset), "{asset} is not uploaded");
         }
@@ -377,8 +377,8 @@ mod tests {
             "https://github.com/BrownC98/loom/releases/latest/download/latest.json"
         );
         assert_eq!(
-            asset_url(base, "0.2.5", "loom-x86_64-linux"),
-            "https://github.com/BrownC98/loom/releases/download/v0.2.5/loom-x86_64-linux"
+            asset_url(base, "0.2.5", "loom-web-linux-x64"),
+            "https://github.com/BrownC98/loom/releases/download/v0.2.5/loom-web-linux-x64"
         );
     }
 
@@ -393,10 +393,10 @@ mod tests {
         let exe = dir.path().join("loom");
         std::fs::write(&exe, "").unwrap();
         assert_eq!(
-            Install::of(&exe, Some("loom-x86_64-linux")),
+            Install::of(&exe, Some("loom-web-linux-x64")),
             Install::Standalone {
                 exe: exe.clone(),
-                asset: "loom-x86_64-linux"
+                asset: "loom-web-linux-x64"
             }
         );
         assert_eq!(Install::of(&exe, None), Install::Unsupported);
@@ -406,7 +406,7 @@ mod tests {
             .join(format!("loom-app{}", std::env::consts::EXE_SUFFIX));
         std::fs::write(&app, "").unwrap();
         assert_eq!(
-            Install::of(&exe, Some("loom-aarch64-macos")),
+            Install::of(&exe, Some("loom-web-macos-arm64")),
             Install::App { app: app.clone() }
         );
         assert_eq!(Install::of(&exe, None), Install::App { app });

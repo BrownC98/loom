@@ -322,6 +322,8 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 
 /* 간선: 부모-자식. 메시지가 오가면 잠깐 점선과 「메시지 N」을 보인다 */
 .react-flow__edge-path { stroke: var(--line-strong); stroke-width: 1.5; }
+/* 고른 카드의 간선은 묶음 위에 진하게 그린다. */
+.react-flow__edge.sel .react-flow__edge-path { stroke: var(--ink-2); stroke-width: 2.25; }
 .react-flow__edge.live .react-flow__edge-path { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
 .react-flow__edge.to-child .react-flow__edge-path { animation: edge-flow 0.6s linear infinite; }
 .react-flow__edge.to-parent .react-flow__edge-path { animation: edge-flow 0.6s linear infinite reverse; }

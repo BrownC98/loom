@@ -34,6 +34,15 @@ export function paneKey(e: KeyboardEvent | ReactKeyboardEvent): PaneSide | null 
   return PANE_KEYS[e.code] ?? null;
 }
 
+/**
+ * Shift+Enter는 줄바꿈이다. xterm은 Enter와 같은 `\r`을 보내 에이전트 CLI가 바로 제출한다.
+ * 대신 `\n`(Ctrl+J)을 보낸다. Claude Code·Codex·OpenCode가 Ctrl+J를 줄바꿈으로 받는다.
+ */
+const SHIFT_ENTER_INPUT = '\n';
+function isShiftEnter(e: KeyboardEvent | ReactKeyboardEvent): boolean {
+  return e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+}
+
 /** 다른 수식 키 없는 Ctrl+글쇠. 한글 입력 중에도 맞도록 글자(`key`)가 아니라 자리(`code`)를 본다. */
 function plainCtrl(e: KeyboardEvent, code: string): boolean {
   return e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === code;
@@ -180,6 +189,11 @@ export function Terminal(props: { src: string; focused: boolean; onFocus: () => 
         const dir = navDirection(e);
         if (dir) {
           if (e.type === 'keydown') latest.current.onNavigate(dir);
+          e.preventDefault();
+          return false;
+        }
+        if (isShiftEnter(e) && !e.isComposing) {
+          if (e.type === 'keydown') link.sendInput(SHIFT_ENTER_INPUT);
           e.preventDefault();
           return false;
         }

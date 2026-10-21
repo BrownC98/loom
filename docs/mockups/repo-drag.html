@@ -1,138 +1,144 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" style="color-scheme: dark">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>저장소 상자 끌기</title>
+<title>저장소 상자 끌기·묶음 배치 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-  /* 토큰은 web/src/styles.css :root와 같다. */
-  :root {
-    color-scheme: light;
-    --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
-    --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
-    --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
-    --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
-    --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
-    --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
-    --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
-    --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
-    --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
-    --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
-    --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
-    --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
-    --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
-    --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
-    --font: 'Pretendard Variable', Pretendard, system-ui, sans-serif;
-    --mono: 'Jetendard', 'JetBrains Mono', monospace;
-  }
-  * { box-sizing: border-box; margin: 0; }
-  body { padding: 24px 32px 48px; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
-  header p { font-size: 13px; color: var(--ink-2); }
-  h1 { font-size: 20px; margin: 4px 0 8px; }
-  h2 { font-size: 16px; margin: 32px 0 4px; }
-  .lead { max-width: 80ch; color: var(--ink-2); font-size: 13px; }
-  .row { display: flex; gap: 24px; align-items: flex-start; margin-top: 12px; }
-  figure { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-  figcaption { font-size: 13px; font-weight: 600; }
-  .shot { border: 1px solid var(--line); border-radius: 8px; display: block; }
-  .notes { max-width: 320px; font-size: 13px; color: var(--ink-2); padding-left: 18px; }
-  .notes li + li { margin-top: 6px; }
-  .notes b { color: var(--ink); }
-  .pin { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; position: absolute; z-index: 5; }
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(다크). */
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
 
-  /* 그래프 칸만 그렸다. 값은 web/src/styles.css .repo-box, .repo-head, .group-head와 같다. */
-  .canvas { position: relative; width: 860px; height: 250px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background-color: var(--bg); background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 16px 16px; font-size: 12px; }
-  .repo { position: absolute; top: 40px; height: 166px; border: 1.5px solid var(--line-strong); border-radius: 14px; background: color-mix(in oklch, var(--panel) 40%, transparent); }
-  .repo-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: grab; }
-  .repo-head b { font-size: 15px; }
-  .repo-head .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
-  .repo.dragging { opacity: .6; z-index: 4; box-shadow: 0 8px 24px oklch(0% 0 0 / 0.12); }
-  .repo.dragging .repo-head { cursor: grabbing; }
-  .group { position: absolute; top: 56px; height: 96px; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--bg); }
-  .group-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); }
-  .group-head .kind { color: var(--ink-3); }
-  .group p { padding: 12px 14px; color: var(--ink-2); }
-  .cursor { position: absolute; z-index: 6; width: 18px; height: 18px; }
+.btn { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--ink-2); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+.gap { position: absolute; background: repeating-linear-gradient(45deg, color-mix(in oklch, var(--err) 18%, transparent) 0 8px, transparent 8px 16px); outline: 2px dashed var(--err); outline-offset: -2px; border-radius: 6px; }
 
-  .mini { position: relative; background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 8px 8px; border: 1px solid var(--line); border-radius: 8px; }
-  .mrepo { position: absolute; border: 1.5px solid var(--line-strong); border-radius: 6px; background: color-mix(in oklch, var(--panel) 40%, transparent); }
-  .mrepo > span { position: absolute; left: 6px; top: 1px; font-size: 10px; font-weight: 600; }
-  .mgroup { position: absolute; border: 1px dashed var(--line-strong); border-radius: 4px; background: var(--bg); }
-  .mgroup > span { position: absolute; left: 4px; top: 2px; font-size: 9px; font-weight: 600; white-space: nowrap; }
-  .mgroup.empty { border-color: var(--run); }
-  .mgroup i { position: absolute; left: 5px; right: 5px; top: 15px; bottom: 5px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); }
-  .col { display: flex; flex-direction: column; gap: 20px; margin-top: 12px; }
-  .wide { max-width: 90ch; }
-  table { border-collapse: collapse; margin-top: 12px; font-size: 13px; max-width: 980px; }
-  th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
-  th { font-size: 12px; font-weight: 600; color: var(--ink-3); }
-  td:first-child { font-weight: 600; white-space: nowrap; }
-  .rec { margin-left: 6px; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+/* 그래프 칸. 값은 web/src/styles.css와 같다. 화면 크기(px) 그대로 그리고 .zoom으로 줄였다. */
+.frame { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background-color: var(--bg); background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 16px 16px; }
+.zoom { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.repo-box { position: absolute; border: 1.5px solid var(--line-strong); border-radius: 14px; background: color-mix(in oklch, var(--panel) 40%, transparent); }
+.repo-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.repo-head .name { font-size: 15px; font-weight: 600; }
+.repo-head .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.repo-box.dragging { opacity: .6; z-index: 5; box-shadow: 0 10px 28px oklch(0% 0 0 / 0.18); }
+.group { position: absolute; border: 1px dashed var(--line-strong); border-radius: 12px; background: color-mix(in oklch, var(--panel) 60%, transparent); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px dashed var(--line); }
+.group-head .branch { font-weight: 600; font-size: 13px; white-space: nowrap; }
+.group-head .kind { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.group-head .spacer { flex: 1; }
+.group-empty { padding: 16px 14px; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
+.card { position: absolute; left: 20px; top: 60px; width: 600px; height: 437px; background: oklch(16% 0 0); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; }
+.card-head .st { margin-left: auto; font-weight: 500; font-size: 12px; color: var(--ink-3); }
+.card pre { padding: 8px 10px; font: 12px/1.5 var(--mono); color: oklch(70% 0 0); }
+.cursor { position: absolute; z-index: 6; width: 22px; height: 22px; }
+.pin { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--bg); font-size: 12px; font-weight: 700; position: absolute; z-index: 7; }
+table { border-collapse: collapse; font-size: 13px; max-width: 1100px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+td:first-child { font-weight: 600; white-space: nowrap; }
+.rec { margin-left: 6px; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
 </style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>총괄 · claude-1</b></span><span>v2 · 2026-10-21</span></div>
+  <h1>그래프: 저장소 상자 끌기와 묶음 배치 공간 줄이기</h1>
+  <p class="lead">사람 지시 "저장소 묶음도 드래그로 이동할 수 있게 해줘", "공간낭비 해결방안 마련하라". 바뀌는 구역은 ‘모든 저장소’ 범위 그래프의 저장소 상자와 워크트리 묶음 배치뿐이다. 점선이 바뀌는 곳이고, 빗금은 지금 비는 곳이다. 그림은 실제 화면 크기로 그리고 줄였다.</p>
 
-<header>
-  <p>응답할 곳: 총괄 · claude-1</p>
-  <p>연 담당: 총괄 · claude-1</p>
-  <h1>저장소 상자 끌기 · 묶음 배치 공간 줄이기</h1>
-  <p class="lead">사람 지시 "저장소 묶음도 드래그로 이동할 수 있게 해줘". 그래프 범위가 ‘모든 저장소’일 때 보이는 저장소 상자를, 워크트리 묶음과 같은 방법으로 머리를 끌어 순서를 바꿉니다. 새 단추·손잡이 그림은 없습니다. 끄는 모양과 규칙은 지금 묶음 끌기와 같습니다.</p>
-</header>
+  <div class="fig">
+    <h2>① 저장소 상자를 끄는 중 <span class="tag">모든 저장소 · 저장소 둘 이상</span></h2>
+    <div class="frame" style="width:1341.2px;height:138.4px"><div class="zoom" style="width:2160px;height:220px;transform:scale(0.62)"><section class="repo-box " style="left:24px;top:24px;width:672px;height:165px"><div class="repo-head new"><span class="name">beta</span><span class="sub">/tmp/repodrag/src/beta</span></div><div class="group " style="left:16px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div></section><section class="repo-box dragging" style="left:780px;top:24px;width:1344px;height:165px"><div class="repo-head new"><span class="name">alpha</span><span class="sub">/tmp/repodrag/src/alpha</span></div><div class="group " style="left:16px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div><div class="group " style="left:688px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">feat</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div></section><svg class="cursor" style="left:880px;top:44px" viewBox="0 0 24 24" fill="var(--ink)" stroke="var(--bg)" stroke-width="1.5"><path d="M5 3l14 8-6 2-3 6z"/></svg></div></div>
+    <ul class="note">
+      <li>저장소 상자 머리(이름·경로 줄)가 끌기 손잡이다. 지금은 끌리지 않는다. 새 단추나 손잡이 그림은 없다.</li>
+      <li>끄는 상자는 반투명하고 맨 위에 그린다. 안의 묶음·카드도 함께 움직인다. 워크트리 묶음 끌기와 같은 모양이다.</li>
+      <li>끄는 상자 중심이 옆 상자의 중심선을 넘으면 바로 순서가 바뀌고 옆 상자(beta)가 새 자리로 간다.</li>
+    </ul>
+  </div>
 
-<h2>지금</h2>
-<div class="row">
-  <figure>
-    <figcaption>저장소 상자는 끌리지 않습니다(시험 데몬, 저장소 alpha·beta)</figcaption>
-    <img class="shot" src="repo-drag-before.png" width="860" alt="지금 그래프: alpha 상자와 beta 상자가 사이드바 순서로 옆에 있다">
-  </figure>
-</div>
+  <div class="fig">
+    <h2>② 놓은 뒤 <span class="tag">페이지를 연 동안만</span></h2>
+    <div class="frame" style="width:1341.2px;height:138.4px"><div class="zoom" style="width:2160px;height:220px;transform:scale(0.62)"><section class="repo-box " style="left:24px;top:24px;width:672px;height:165px"><div class="repo-head "><span class="name">beta</span><span class="sub">/tmp/repodrag/src/beta</span></div><div class="group " style="left:16px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div></section><section class="repo-box " style="left:728px;top:24px;width:1344px;height:165px"><div class="repo-head "><span class="name">alpha</span><span class="sub">/tmp/repodrag/src/alpha</span></div><div class="group " style="left:16px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div><div class="group " style="left:688px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">feat</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div></section></div></div>
+    <ul class="note">
+      <li>alpha는 beta 다음 자리로 가고 상자는 겹치지 않는다.</li>
+      <li>[정렬]을 누르면 사이드바 순서로 돌아간다. 사이드바 순서는 바뀌지 않는다.</li>
+    </ul>
+  </div>
 
-<h2>새: 끄는 중</h2>
-<div class="row">
-  <figure>
-    <figcaption>alpha 머리를 잡아 beta 중심선 너머로 끌었습니다</figcaption>
-<div class="canvas" role="img" aria-label="끄는 중: 반투명한 alpha 상자가 맨 위에 있고 beta 상자는 왼쪽 첫 자리로 옮겨 갔다"><section class="repo " style="left:24px;width:220px"><div class="repo-head"><b>beta</b><span class="sub">/tmp/repodrag/src/beta</span></div><div class="group" style="left:12px;width:194px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span></div><p>노드 없음</p></div></section><section class="repo dragging" style="left:300px;width:400px"><div class="repo-head"><b>alpha</b><span class="sub">/tmp/repodrag/src/alpha</span></div><div class="group" style="left:12px;width:180px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span></div><p>노드 없음</p></div><div class="group" style="left:206px;width:180px"><div class="group-head"><b>feat</b><span class="kind"></span></div><p>노드 없음</p></div></section><span class="pin" style="left:306px;top:30px">1</span><span class="pin" style="left:30px;top:30px">2</span><svg class="cursor" style="left:360px;top:62px" viewBox="0 0 24 24" fill="var(--ink)" stroke="var(--surface)" stroke-width="1.5"><path d="M5 3l14 8-6 2-3 6z"/></svg></div>
-  </figure>
-  <ol class="notes">
-    <li><b>끄는 상자</b>: 머리(이름·경로 줄)가 손잡이입니다. 끄는 동안 반투명하고 맨 위에 그립니다. 그 안의 묶음·카드도 함께 움직입니다.</li>
-    <li><b>형제 상자</b>: 끄는 상자의 중심이 형제의 중심선을 넘으면 바로 순서가 바뀌고, 형제가 새 자리로 옮겨 갑니다.</li>
-  </ol>
-</div>
+  <div class="fig">
+    <h2>③ 묶음 배치: 지금 <span class="tag">저장소 상자 폭 3360px</span></h2>
+    <div class="frame" style="width:1301.6px;height:454.2px"><div class="zoom" style="width:3420px;height:1190px;transform:scale(0.38)"><section class="repo-box " style="left:24px;top:24px;width:3360px;height:1134px"><div class="repo-head "><span class="name">loom</span><span class="sub">/home/ktadev/src/loom</span></div><div class="group " style="left:352px;top:52px;width:640px;height:517px"><div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button></div><div class="card"><div class="card-head">claude-1<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group " style="left:16px;top:601px;width:640px;height:517px"><div class="group-head"><span class="branch">윈도우계정</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><div class="card"><div class="card-head">윈도우계정<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group " style="left:688px;top:601px;width:640px;height:517px"><div class="group-head"><span class="branch">저장소드래그</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><div class="card"><div class="card-head">저장소드래그<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group " style="left:1360px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">WSL셸</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div><div class="group " style="left:2032px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">winget배포</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div><div class="group " style="left:2704px;top:52px;width:640px;height:97px"><div class="group-head"><span class="branch">줄바꿈</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div></section><div class="gap" style="left:40px;top:76px;width:304px;height:517px"></div><div class="gap" style="left:1048px;top:76px;width:304px;height:517px"></div><div class="gap" style="left:1384px;top:189px;width:1984px;height:937px"></div></div></div>
+    <ul class="note">
+      <li>사람의 loom 그래프와 같은 모양을 시험 데몬에 만들고 잰 자리다. main 노드의 자식이 윈도우계정·저장소드래그 묶음에 있다.</li>
+      <li>원인 1: 빈 묶음도 표준 카드 한 장 폭(640px)이다. 높이만 내용에 맞춘다.</li>
+      <li>원인 2: main은 자식 묶음 둘(1312px)의 폭을 첫 줄에서도 차지한다. 그래서 main 양옆과 빈 묶음 아래가 빈다.</li>
+    </ul>
+  </div>
 
-<h2>새: 놓은 뒤</h2>
-<div class="row">
-  <figure>
-    <figcaption>alpha는 beta 다음 자리로 갑니다. 상자는 겹치지 않습니다</figcaption>
-<div class="canvas" role="img" aria-label="놓은 뒤: beta 상자 다음에 alpha 상자가 있다"><section class="repo " style="left:24px;width:220px"><div class="repo-head"><b>beta</b><span class="sub">/tmp/repodrag/src/beta</span></div><div class="group" style="left:12px;width:194px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span></div><p>노드 없음</p></div></section><section class="repo " style="left:276px;width:400px"><div class="repo-head"><b>alpha</b><span class="sub">/tmp/repodrag/src/alpha</span></div><div class="group" style="left:12px;width:180px"><div class="group-head"><b>main</b><span class="kind">원래 체크아웃</span></div><p>노드 없음</p></div><div class="group" style="left:206px;width:180px"><div class="group-head"><b>feat</b><span class="kind"></span></div><p>노드 없음</p></div></section></div>
-  </figure>
-  <ol class="notes">
-    <li>바꾼 순서는 이 페이지를 연 동안만 남습니다. [정렬]을 누르면 사이드바 순서로 돌아갑니다(묶음·카드와 같음).</li>
-    <li>저장소가 하나뿐이면 상자가 없어 바뀌는 것이 없습니다.</li>
-  </ol>
-</div>
+  <div class="fig">
+    <h2>④ 안 A <span class="tag">2064px · 권장</span></h2>
+    <div class="frame" style="width:807.6px;height:454.2px"><div class="zoom" style="width:2120px;height:1190px;transform:scale(0.38)"><section class="repo-box " style="left:24px;top:24px;width:2064px;height:1134px"><div class="repo-head "><span class="name">loom</span><span class="sub">/home/ktadev/src/loom</span></div><div class="group " style="left:352px;top:52px;width:640px;height:517px"><div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button></div><div class="card"><div class="card-head">claude-1<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group " style="left:16px;top:601px;width:640px;height:517px"><div class="group-head"><span class="branch">윈도우계정</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><div class="card"><div class="card-head">윈도우계정<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group " style="left:688px;top:601px;width:640px;height:517px"><div class="group-head"><span class="branch">저장소드래그</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><div class="card"><div class="card-head">저장소드래그<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group new" style="left:1024px;top:52px;width:320px;height:97px"><div class="group-head"><span class="branch">WSL셸</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div><div class="group new" style="left:1376px;top:52px;width:320px;height:97px"><div class="group-head"><span class="branch">winget배포</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div><div class="group new" style="left:1728px;top:52px;width:320px;height:97px"><div class="group-head"><span class="branch">줄바꿈</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div></section><div class="gap" style="left:40px;top:76px;width:304px;height:517px"></div></div></div>
+    <ul class="note">
+      <li>빈 묶음 폭은 머리와 안내 글에 맞춘다(점선).</li>
+      <li>옆 묶음과의 틈 32px은 두 묶음이 함께 있는 줄에서만 지킨다. 자식이 없는 묶음은 main 바로 옆 첫 줄에 선다. 상자는 겹치지 않는다.</li>
+      <li>부모는 지금처럼 자식들 가운데에 선다. 그래서 main 왼쪽은 빈다(빗금). 묶음 안 카드도 같은 규칙으로 놓는다.</li>
+    </ul>
+  </div>
 
-<h2 id="space">공간 줄이기: 묶음 사이 큰 빈 곳</h2>
-<p class="lead">사람 지시 "공간낭비 해결방안 마련하라". 아래 그림은 사람의 loom 그래프(표준 보기)를 시험 데몬에 같은 모양으로 만들고 잰 값을 1/4로 줄여 그렸습니다. main에 노드 하나, 그 자식 노드가 윈도우계정·저장소드래그 묶음에 있고, WSL셸·winget배포·줄바꿈은 빈 묶음입니다. 파란 테두리가 빈 묶음입니다.</p>
-<ol class="notes wide">
-  <li><b>원인 1, 빈 묶음 폭</b>: 빈 묶음도 카드 한 장 폭(표준 600 + 틈 40 = 640px)을 차지합니다. 높이는 이미 내용에 맞추지만 폭은 맞추지 않습니다(web/src/Graph.tsx <code>fit.width</code>).</li>
-  <li><b>원인 2, 나무 배치</b>: 묶음 하나는 자기 자손 전체의 폭(<code>spanOf</code>)을 모든 단계에서 차지합니다(web/src/layout.ts <code>layoutTree</code>). main은 자식 묶음 둘(1312px)의 가운데에 서고, 오른쪽 뿌리 묶음은 1312px 다음에 섭니다. 그래서 첫 줄에 main 양옆으로 336px씩 빈 곳이 생깁니다.</li>
-  <li>저장해 둔 위치나 상자 폭에 맞춘 벌리기는 없습니다. 저장소 상자 폭은 이미 내용에 맞춥니다. 내용이 넓게 놓인 것이 원인입니다.</li>
-</ol>
-<div class="col">
-<figure><figcaption>지금 — 저장소 상자 폭 3360px</figcaption><div class="mini" role="img" aria-label="지금: 저장소 상자 3360px. 첫 줄에 main 양옆 빈 곳과 640px 폭의 빈 묶음 셋" style="width:864.0px;height:307.5px"><div class="mrepo" style="left:12px;top:12px;width:840.0px;height:283.5px"><span>loom</span></div><div class="mgroup" style="left:100.0px;top:25.0px;width:160.0px;height:129.25px"><span>main</span><i></i></div><div class="mgroup" style="left:16.0px;top:162.25px;width:160.0px;height:129.25px"><span>윈도우계정</span><i></i></div><div class="mgroup" style="left:184.0px;top:162.25px;width:160.0px;height:129.25px"><span>저장소드래그</span><i></i></div><div class="mgroup empty" style="left:352.0px;top:25.0px;width:160.0px;height:24.25px"><span>WSL셸</span></div><div class="mgroup empty" style="left:520.0px;top:25.0px;width:160.0px;height:24.25px"><span>winget배포</span></div><div class="mgroup empty" style="left:688.0px;top:25.0px;width:160.0px;height:24.25px"><span>줄바꿈</span></div></div></figure>
-<figure><figcaption>안 A (권장) — 2184px. 빈 묶음은 머리·안내 글 폭만큼만, 단계마다 겹치지 않는 만큼만 띄운다. 부모는 지금처럼 자식들 가운데</figcaption><div class="mini" role="img" aria-label="안 A: 저장소 상자 2184px. 빈 묶음은 내용 폭이고 main 바로 옆에 선다" style="width:570.0px;height:307.5px"><div class="mrepo" style="left:12px;top:12px;width:546.0px;height:283.5px"><span>loom</span></div><div class="mgroup" style="left:100.0px;top:25.0px;width:160.0px;height:129.25px"><span>main</span><i></i></div><div class="mgroup" style="left:16.0px;top:162.25px;width:160.0px;height:129.25px"><span>윈도우계정</span><i></i></div><div class="mgroup" style="left:184.0px;top:162.25px;width:160.0px;height:129.25px"><span>저장소드래그</span><i></i></div><div class="mgroup empty" style="left:268.0px;top:25.0px;width:90.0px;height:24.25px"><span>WSL셸</span></div><div class="mgroup empty" style="left:366.0px;top:25.0px;width:90.0px;height:24.25px"><span>winget배포</span></div><div class="mgroup empty" style="left:464.0px;top:25.0px;width:90.0px;height:24.25px"><span>줄바꿈</span></div></div></figure>
-<figure><figcaption>안 B — 1848px. A에 더해 부모를 자식들 가운데가 아니라 첫 자식 왼쪽에 맞춘다</figcaption><div class="mini" role="img" aria-label="안 B: 저장소 상자 1848px. 부모 묶음이 첫 자식 왼쪽에 맞춰 선다" style="width:486.0px;height:307.5px"><div class="mrepo" style="left:12px;top:12px;width:462.0px;height:283.5px"><span>loom</span></div><div class="mgroup" style="left:16.0px;top:25.0px;width:160.0px;height:129.25px"><span>main</span><i></i></div><div class="mgroup" style="left:16.0px;top:162.25px;width:160.0px;height:129.25px"><span>윈도우계정</span><i></i></div><div class="mgroup" style="left:184.0px;top:162.25px;width:160.0px;height:129.25px"><span>저장소드래그</span><i></i></div><div class="mgroup empty" style="left:184.0px;top:25.0px;width:90.0px;height:24.25px"><span>WSL셸</span></div><div class="mgroup empty" style="left:282.0px;top:25.0px;width:90.0px;height:24.25px"><span>winget배포</span></div><div class="mgroup empty" style="left:380.0px;top:25.0px;width:90.0px;height:24.25px"><span>줄바꿈</span></div></div></figure>
-</div>
-<ol class="notes wide">
-  <li><b>빈 묶음</b>: 폭을 머리(브랜치·꼬리표·[새 노드]·[워크트리 삭제])와 안내 글에 맞춥니다. 높이와 같은 방식입니다.</li>
-  <li><b>단계별로 붙이기</b>: 옆 형제와의 틈은 두 형제가 함께 있는 단계에서만 지킵니다(32px). 자식이 없는 묶음은 자식이 넓은 묶음 바로 옆 첫 줄에 섭니다. 상자는 겹치지 않습니다. 같은 규칙을 묶음 안 카드 배치에도 씁니다(배치 규칙 하나).</li>
-  <li>안 B는 더 좁지만 지금 규칙 「부모는 자식들이 차지한 폭의 가운데」(2026-10-20 지시 "트리 방식으로 정렬")를 바꿉니다. 카드에도 같이 적용됩니다.</li>
-</ol>
+  <div class="fig">
+    <h2>⑤ 안 B <span class="tag">1728px</span></h2>
+    <div class="frame" style="width:682.2px;height:454.2px"><div class="zoom" style="width:1790px;height:1190px;transform:scale(0.38)"><section class="repo-box " style="left:24px;top:24px;width:1728px;height:1134px"><div class="repo-head "><span class="name">loom</span><span class="sub">/home/ktadev/src/loom</span></div><div class="group " style="left:16px;top:52px;width:640px;height:517px"><div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button></div><div class="card"><div class="card-head">claude-1<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group " style="left:16px;top:601px;width:640px;height:517px"><div class="group-head"><span class="branch">윈도우계정</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><div class="card"><div class="card-head">윈도우계정<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group " style="left:688px;top:601px;width:640px;height:517px"><div class="group-head"><span class="branch">저장소드래그</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><div class="card"><div class="card-head">저장소드래그<span class="st">실행 중</span></div><pre>&gt; </pre></div></div><div class="group new" style="left:688px;top:52px;width:320px;height:97px"><div class="group-head"><span class="branch">WSL셸</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div><div class="group new" style="left:1040px;top:52px;width:320px;height:97px"><div class="group-head"><span class="branch">winget배포</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div><div class="group new" style="left:1392px;top:52px;width:320px;height:97px"><div class="group-head"><span class="branch">줄바꿈</span><span class="spacer"></span><button class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>새 노드</button><button class="btn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>워크트리 삭제</button></div><p class="group-empty">‘새 노드’를 눌러 첫 에이전트를 시작합니다.</p></div></section></div></div>
+    <ul class="note">
+      <li>안 A에 더해 부모를 자식들 가운데가 아니라 첫 자식 왼쪽에 맞춘다. 빈 곳이 없다.</li>
+      <li>지금 규칙 「부모는 자식들이 차지한 폭의 가운데」를 바꾼다. 카드 나무도 왼쪽 맞춤이 된다.</li>
+    </ul>
+  </div>
 
-<h2>결정할 것</h2>
-<table>
-  <thead><tr><th>항목</th><th>권장</th><th>다른 안</th></tr></thead>
-  <tbody>
-    <tr><td>사이드바 순서</td><td>그대로 둡니다. 그래프 순서만 바뀝니다(묶음 끌기와 같음)<span class="rec">권장</span></td><td>사이드바 저장소 순서도 함께 바꾸고 저장합니다(데몬에 순서 열이 새로 필요)</td></tr>
-    <tr><td>순서 저장</td><td>이 페이지를 연 동안만 남깁니다(묶음·카드와 같음)<span class="rec">권장</span></td><td>브라우저에 저장해 새로고침 뒤에도 남깁니다</td></tr>
-    <tr><td>공간 줄이기</td><td>안 A: 빈 묶음 폭을 내용에 맞추고, 단계별로 붙인다. 부모는 자식들 가운데<span class="rec">권장</span></td><td>안 B: A에 더해 부모를 첫 자식 왼쪽에 맞춘다(더 좁다, 지금 나무 모양이 바뀐다)</td></tr>
-  </tbody>
-</table>
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <thead><tr><th>항목</th><th>권장</th><th>다른 안</th></tr></thead>
+      <tbody>
+        <tr><td>①② 저장소 상자 끌기</td><td>그림대로 머리를 끌어 순서를 바꾼다<span class="rec">권장</span></td><td>—</td></tr>
+        <tr><td>사이드바 순서</td><td>그대로 둔다. 그래프 순서만 바뀐다<span class="rec">권장</span></td><td>사이드바 순서도 바꾸고 저장한다(데몬에 순서 열이 새로 필요)</td></tr>
+        <tr><td>바꾼 순서 저장</td><td>페이지를 연 동안만 남긴다(묶음·카드와 같음)<span class="rec">권장</span></td><td>브라우저에 저장해 새로고침 뒤에도 남긴다</td></tr>
+        <tr><td>③ 공간 줄이기</td><td>④ 안 A<span class="rec">권장</span></td><td>⑤ 안 B(더 좁다, 나무 모양이 바뀐다)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
 </html>

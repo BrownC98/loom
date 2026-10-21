@@ -263,7 +263,6 @@ const en = {
     answerPlaceholder: 'Type an answer, Enter to send',
     send: 'Send the answer to {{id}}',
     recommended: 'recommended',
-    openDoc: 'Open',
     openDocLabel: '{{id}} {{title}}: open in the browser',
     toTerminal: 'Answer in the terminal',
   },

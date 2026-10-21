@@ -264,7 +264,6 @@ const ko: typeof en = {
     answerPlaceholder: '답변 입력, Enter로 보내기',
     send: '{{id}} 답변 보내기',
     recommended: '권장',
-    openDoc: '열기',
     openDocLabel: '{{id}} {{title}}: 브라우저에서 열기',
     toTerminal: '터미널에서 답하기',
   },

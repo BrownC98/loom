@@ -367,9 +367,9 @@ fn call<T: DeserializeOwned>(
 
 /// 데몬 요청의 실패. 기다리는 명령은 닿지 않을 때만 다시 붙는다(`reconnecting`).
 enum CallError {
-    /// 데몬에 닿지 않았거나 응답 전에 연결이 끊겼다.
+    /// 데몬에 닿지 않았거나, 데몬이 지금 답하지 못했거나(5xx), 응답을 다 받기 전에 연결이 끊겼다. 다시 부르면 된다.
     Unreachable(String),
-    /// 데몬이 거절했거나 응답을 읽지 못했다.
+    /// 데몬이 거절했거나(4xx) 응답 형식을 읽지 못했다. 다시 불러도 같다.
     Refused(String),
 }
 
@@ -399,6 +399,17 @@ fn post<T: DeserializeOwned>(
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
     let token = env_var("LOOM_TOKEN").map_err(CallError::Refused)?;
+    post_as(url, &token, proxy, action, body, timeout)
+}
+
+fn post_as<T: DeserializeOwned>(
+    url: &str,
+    token: &str,
+    proxy: Option<ureq::Proxy>,
+    action: &str,
+    body: &impl Serialize,
+    timeout: Option<Duration>,
+) -> Result<T, CallError> {
     // 거부 문장을 본문에서 읽으려고 4xx·5xx를 오류로 바꾸지 않는다.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -414,21 +425,23 @@ fn post<T: DeserializeOwned>(
         .map_err(|e| {
             CallError::Unreachable(format!("Could not connect to the daemon: {e}. In a sandbox, get approval to run outside the sandbox and try again."))
         })?;
-    // 데몬 앞의 프록시(Codex 샌드박스)는 데몬이 다시 시작하는 동안 이 코드로 답한다. 데몬은 쓰지 않는다.
-    if matches!(res.status().as_u16(), 502..=504) {
+    let status = res.status();
+    // 데몬이 응답 도중에 끝나면(다시 시작) 본문이 끊긴다. 쉬는 노드의 훅이 이 오류로 끝나면 그 노드는 다시 깨지 않는다.
+    let text = res.body_mut().read_to_string().map_err(|e| {
+        CallError::Unreachable(format!(
+            "The daemon closed the connection before its answer was complete: {e}."
+        ))
+    })?;
+    // 5xx: 데몬이 지금 답하지 못했다. 데몬 앞의 프록시(Codex 샌드박스)는 데몬이 다시 시작하는 동안 502~504로 답한다.
+    if status.is_server_error() {
         return Err(CallError::Unreachable(format!(
-            "Could not reach the daemon through the proxy: {}.",
-            res.status()
+            "The daemon could not answer ({status}): {text}"
         )));
     }
-    if !res.status().is_success() {
-        return Err(CallError::Refused(
-            res.body_mut().read_to_string().unwrap_or_default(),
-        ));
+    if !status.is_success() {
+        return Err(CallError::Refused(text));
     }
-    res.body_mut()
-        .read_json()
-        .map_err(|e| CallError::Refused(e.to_string()))
+    serde_json::from_str(&text).map_err(|e| CallError::Refused(e.to_string()))
 }
 
 #[cfg(test)]
@@ -470,5 +483,42 @@ mod tests {
         let got: Result<(), String> =
             reconnecting(None, |_| Err(CallError::Refused("gone".into())));
         assert_eq!(got, Err("gone".into()));
+    }
+
+    /// 요청 하나를 다 읽고 `answer`를 그대로 쓴 뒤 연결을 끊는 서버의 주소.
+    fn answering(answer: &'static str) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0; 1024];
+            // 몸통은 `null`이다. 다 읽기 전에 끊으면 클라이언트가 연결 재설정을 받는다.
+            while !request.ends_with(b"null") {
+                let n = stream.read(&mut buf).unwrap();
+                request.extend_from_slice(&buf[..n]);
+            }
+            stream.write_all(answer.as_bytes()).unwrap();
+        });
+        url
+    }
+
+    fn ask(url: &str) -> Result<Vec<u32>, CallError> {
+        post_as(url, "token", None, "idle", &(), None)
+    }
+
+    /// 쉬는 노드의 훅은 데몬이 답하지 못한 동안(5xx, 끊긴 응답)에도 계속 기다린다. 2026-10-21 #169가 85분 깨지 않았다.
+    #[test]
+    fn a_failed_or_cut_answer_is_retried_but_a_refusal_is_not() {
+        let failed = "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 6\r\n\r\nlocked";
+        let cut = "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 50\r\n\r\n[{\"id\"";
+        let mail =
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 3\r\n\r\n[7]";
+        let urls = [answering(failed), answering(cut), answering(mail)];
+        let mut next = urls.iter();
+        let got = reconnecting(None, |_| ask(next.next().unwrap()));
+        assert_eq!(got, Ok(vec![7]));
+        let gone = "HTTP/1.1 410 Gone\r\ncontent-length: 4\r\n\r\ngone";
+        assert!(matches!(ask(&answering(gone)), Err(CallError::Refused(e)) if e == "gone"));
     }
 }

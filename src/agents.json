@@ -32,7 +32,7 @@
   {"id": "freebuff", "label": "Freebuff", "cmd": "freebuff", "prompt": "none", "homepage": "https://freebuff.com/cli"},
   {"id": "command-code", "label": "Command Code", "cmd": "command-code", "args": ["--trust"], "prompt": "argv", "homepage": "https://commandcode.ai/docs/quickstart"},
   {"id": "continue", "label": "Continue", "cmd": "cn", "prompt": "none", "homepage": "https://docs.continue.dev/guides/cli"},
-  {"id": "cursor", "label": "Cursor", "cmd": "cursor-agent", "prompt": "argv", "homepage": "https://cursor.com/cli"},
+  {"id": "cursor", "label": "Cursor", "cmd": "cursor-agent", "prompt": "argv", "profile": "cursor", "bypass": ["--force", "--trust"], "homepage": "https://cursor.com/cli"},
   {"id": "droid", "label": "Droid", "cmd": "droid", "prompt": "argv", "homepage": "https://docs.factory.ai/cli/getting-started/quickstart"},
   {"id": "kimi", "label": "Kimi", "cmd": "kimi", "aliases": ["kimi-code"], "prompt": "none", "homepage": "https://www.kimi.com/code/docs/en/kimi-code-cli/getting-started.html"},
   {"id": "mistral-vibe", "label": "Mistral Vibe", "cmd": "vibe", "aliases": ["mistral-vibe"], "prompt": "none", "homepage": "https://github.com/mistralai/mistral-vibe"},

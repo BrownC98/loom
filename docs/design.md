@@ -48,7 +48,7 @@
 - 카드 터미널은 입력을 받는다. 고른 카드만 입력을 받는다. 카드 머리를 두 번 누르면 확대하고, 확대한 카드의 머리를 다시 두 번 누르면 원래 크기로 돌아간다.
 - 부모·자식·메시지·터미널 출력이 없는 셸은 정상 종료하면 자동 제거한다. 설정 스크립트 노드는 출력이 있어도 성공하면 자동 제거한다(사람 지시 "다 쓴 하위 에이전트, 쉘, 워크트리등은 ... 바로 회수하도록 해라"). 에이전트, 실패한 셸, 출력이나 결과가 있는 다른 노드는 보존한다.
 - 노드 상태는 `running`, `done`, `exited(<코드>)`, `setupFailed(<코드>)` 넷이다. 카드 배지와 이벤트 콘솔은 상태를 화면 언어로 보인다(「실행 중」「완료」「종료(<코드>)」「설정 실패」). 카드와 트리 줄에는 읽지 않은 메시지 수를 봉투 아이콘과 함께 보인다(카드 「안 읽음 N」, 트리 줄은 수만. 목업 `docs/mockups/unread-badge.html` C안). 부모 없는 카드와 그 트리 줄에는 보관한 메시지 수(「보관 N」)를 보인다.
-- 카드 주제(`NodeView.topic`)는 노드가 지금 하는 일 한 줄이다. 데몬은 새 LLM 호출 없이 `done` 요약, CLI 터미널 제목(OSC 0·2, Claude `✳ <주제>`, Codex `tui.terminal_title=["thread-title"]`의 스레드 제목, OpenCode 2 `OC | <제목>`), 첫 지시문(사람이 띄운 노드는 CLI에 넘긴 첫 지시, 자식은 부모가 준 지시) 순서로 처음 있는 것의 첫 줄을 쓴다(2026-10-20 사람 질문 "각자가 현재 무슨 일을 하고 있는지 요약해서 각 노드에 표시"). 첫 지시의 첫 줄은 `nodes.brief`에 둔다. 제목은 PTY와 함께 사라지므로 기억에만 둔다. 셸 제목은 쓰지 않는다. 모두 없으면 비운다.
+- 카드 주제(`NodeView.topic`)는 노드가 지금 하는 일 한 줄이다. 데몬은 새 LLM 호출 없이 `done` 요약, CLI 터미널 제목(OSC 0·2, Claude `✳ <주제>`, Codex `tui.terminal_title=["thread-title"]`의 스레드 제목, OpenCode 2 `OC | <제목>`, Cursor `<주제> - ⏳ Working`·`<주제> - ✅ Ready`), 첫 지시문(사람이 띄운 노드는 CLI에 넘긴 첫 지시, 자식은 부모가 준 지시) 순서로 처음 있는 것의 첫 줄을 쓴다(2026-10-20 사람 질문 "각자가 현재 무슨 일을 하고 있는지 요약해서 각 노드에 표시"). 첫 지시의 첫 줄은 `nodes.brief`에 둔다. 제목은 PTY와 함께 사라지므로 기억에만 둔다. 셸 제목은 쓰지 않는다. 모두 없으면 비운다.
 - 노드를 지우고 부모를 바꾸는 규칙은 「[노드 제거와 입양](#노드-제거와-입양)」에 있다.
 - 데몬이 다시 시작하면 `running`이던 노드의 PTY 호스트에 다시 붙는다(「에이전트 실행」). 호스트가 없는 노드만 코드 없는 `exited(?)`로 바꾼다.
 - 사이드바는 트리와 맨 아래 [설정]이다. [설정]이 설정 창을 연다. Orca도 설정 단추를 사이드바 맨 아래에 둔다.
@@ -109,7 +109,7 @@
   - 데몬이 시작할 때 다시 붙지 않은 호스트는 끝낸다: 데몬이 꺼진 동안 지운 노드, 앞 데몬의 로그인 창(창 번호는 데몬마다 0부터 센다).
   - 호스트에서는 `scripts/host.sh`가 데몬만 다시 띄운다(「[배포](#배포)」). PTY 호스트는 데몬과 다른 프로세스 그룹이라 데몬 터미널의 Ctrl+C를 받지 않고, 데몬이 끝나면 init이 부모가 된다. 실행 파일은 새 파일로 바꿔 넣는다(rename). 도는 호스트는 옛 파일을 계속 쓴다.
   - Windows도 같다. 앱 업데이트, 앱 창 닫기, 앱 강제 종료 뒤에도 노드가 살고, 다음에 연 앱의 데몬이 다시 붙는다(2026-10-21 사람 지시 "exe 업데이트할때 노드 작업 없어지지 않고 작업이 계속 진행되도록 해줘 orca처럼"). 방법은 「[Windows 앱](#windows-앱)」에 있다.
-- CLI마다 실행 프로필을 둔다. 프로필은 메시지 연동(훅·app-server·서버 API)이 있는 에이전트다. 지금은 Claude Code, Codex, OpenCode 2 셋이다. 프로필이 바뀌는 이유는 CLI 버전이다.
+- CLI마다 실행 프로필을 둔다. 프로필은 메시지 연동(훅·app-server·서버 API)이 있는 에이전트다. 지금은 Claude Code, Codex, OpenCode 2, Cursor 넷이다. 프로필이 바뀌는 이유는 CLI 버전이다.
 - 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 쓰지 않는다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다. 예: OpenCode 2의 `--standalone`은 `--server`와 함께 쓸 수 없다.
 
 | 프로필 | loom 사용법 지시 | 상태·전달 경로 |
@@ -117,9 +117,10 @@
 | Claude Code | `--append-system-prompt` | `--settings`로 넘긴 훅 6개가 `loom hook`을 부른다(SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop). 형식과 인자는 [src/profile/claude.rs](../src/profile/claude.rs)에 있다 |
 | Codex | app-server의 `-c developer_instructions=…`(TUI에 넘기면 스레드에 들어가지 않는다) | 데몬이 노드마다 `codex app-server --listen ws://127.0.0.1:0`을 띄우고 TUI를 `codex --remote <주소>`로 붙인다. 데몬도 같은 서버에 연결해 스레드 상태를 보고 `turn/*` 요청으로 전달한다. 훅은 쓰지 않는다. 연결은 [src/codex_server.rs](../src/codex_server.rs), 요청 내용은 [src/profile/codex.rs](../src/profile/codex.rs)에 있다 |
 | OpenCode 2 | 세션 지시 항목 `loom`(`PUT /api/experimental/session/{id}/instructions/entries/loom`) | 데몬이 노드마다 `opencode2 serve --hostname 127.0.0.1 --port 0`을 띄우고 `POST /api/session`으로 세션을 만든다. TUI는 `opencode2 --server <주소> --session <id>`로 붙는다. 데몬은 세션 입력함(`POST /api/session/{id}/prompt`)으로 전달한다. 규칙과 전달 작업은 [src/profile/opencode2/mod.rs](../src/profile/opencode2/mod.rs), 서버 연결은 [src/profile/opencode2/server.rs](../src/profile/opencode2/server.rs)에 있다 |
+| Cursor | sessionStart 훅 둘의 `additional_context`: 통신 명령(`loom cursor-hook`)과 상시 지시(`loom cursor-rules`). Cursor는 훅 하나의 맥락이 10,000자를 넘으면 버린다 | `--plugin-dir <데이터 폴더>/plugin`. 그 폴더의 `.cursor-plugin/plugin.json`이 훅 파일 `cursor-hooks.json`을 가리킨다. 훅(sessionStart, beforeSubmitPrompt, preToolUse, postToolUse, postToolUseFailure, stop)이 `loom cursor-hook`을 부른다. 형식과 인자는 [src/profile/cursor.rs](../src/profile/cursor.rs)에 있다 |
 | 프로필 없음 | 없음 | `loom wait`로만 메시지를 받는다 |
 
-- 카드 머리의 모델·추론 강도(`NodeView.model`·`effort`)는 CLI가 알린 글 그대로다. 알리지 않으면 비운다. Claude: SessionStart 훅의 `model`, 그 뒤 훅마다 기록 파일 마지막 응답의 `message.model`·`effort`. Codex: 스레드 상태가 바뀔 때마다 `thread/read`의 `model`·`reasoningEffort`(구독하지 않은 연결에는 `thread/settings/updated`가 오지 않는다). OpenCode 2: `GET /api/event`의 `session.model.selected`(`<providerID>/<id>`, `variant`). 셋 다 TUI에서 바꾼 값은 다음 입력 뒤에 보인다(실측).
+- 카드 머리의 모델·추론 강도(`NodeView.model`·`effort`)는 CLI가 알린 글 그대로다. 알리지 않으면 비운다. Claude: SessionStart 훅의 `model`, 그 뒤 훅마다 기록 파일 마지막 응답의 `message.model`·`effort`. Codex: 스레드 상태가 바뀔 때마다 `thread/read`의 `model`·`reasoningEffort`(구독하지 않은 연결에는 `thread/settings/updated`가 오지 않는다). OpenCode 2: `GET /api/event`의 `session.model.selected`(`<providerID>/<id>`, `variant`). Cursor: sessionStart·beforeSubmitPrompt·stop 훅 입력의 `model`(강도를 붙인 id, 예: `gpt-5.3-codex-low`). 도구 훅의 `model`은 강도를 뺀 이름이라 쓰지 않는다. 셋 다 TUI에서 바꾼 값은 다음 입력 뒤에 보인다(실측).
 
 - 모든 권한 허용: 노드는 처음부터 승인 창 없이 모든 권한으로 뜬다. 사람이 띄운 노드와 `loom spawn` 자식이 같다. 인자는 카탈로그 항목의 `bypass` 필드다(「에이전트」). 설정에서 에이전트마다 끌 수 있다(`bypassOff`). `bypass`가 빈 에이전트는 CLI 기본 권한 모드로 뜬다.
   - 끄면 아래의 좁은 길을 쓴다: Claude는 loom 명령만 허용 목록에 넣고, Codex는 샌드박스에서 노드 문 주소만 연다. 켜면 이 길은 쓰이지 않지만 그대로 넘긴다.
@@ -135,7 +136,7 @@
   - 위험: 모든 주소(`0.0.0.0`)에서 듣는 다른 서비스는 샌드박스 안에서 `127.76.77.1`로 닿는다. 데몬을 `--listen 0.0.0.0:<포트>`로 띄우면 `spawn`도 그 길로 닿는다. Codex 도메인 규칙은 포트를 가리지 않고, unix 소켓 허용은 macOS만 된다(「실측 근거」). 그래서 더 좁힐 수 없다.
   - 신뢰하지 않은 폴더에서는 TUI가 `read-only`를 보낸다. `read-only`는 네트워크를 열지 않아 loom 명령마다 승인을 묻는다.
   - Windows에서는 위 인자를 넘기지 않는다. Codex는 Windows에서 `workspace-write`를 `read-only`로 낮추고, 프록시는 관리자 권한 Windows 샌드박스가 있어야 뜬다(「실측 근거」). 그래서 Codex 노드는 loom 명령마다 승인을 묻는다.
-- 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode` 파일은 고치지 않는다. OpenCode 설정은 명령 인자, 환경 변수, 세션 API로만 넘긴다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다. 계정 설정의 시스템 기본 [로그인]·[로그아웃]도 CLI가 쓴다(「계정과 사용량」). 하나의 예외: 노드를 시스템 기본 계정으로 옮길 때 그 세션 기록 파일을 같은 상대 경로로 복사한다(「계정 전환」).
+- 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.cursor`, `~/.config/opencode`, `~/.local/share/opencode` 파일은 고치지 않는다. OpenCode 설정은 명령 인자, 환경 변수, 세션 API로만 넘긴다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다. 계정 설정의 시스템 기본 [로그인]·[로그아웃]도 CLI가 쓴다(「계정과 사용량」). 하나의 예외: 노드를 시스템 기본 계정으로 옮길 때 그 세션 기록 파일을 같은 상대 경로로 복사한다(「계정 전환」).
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
 - 고정한 스키마는 쓰는 요청·알림의 파일만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
 - 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
@@ -161,12 +162,13 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
 | Claude Code | `--plugin-dir <데이터 폴더>/plugin` | `loom:<이름>` |
 | Codex | 데몬이 app-server에 `skills/extraRoots/set`으로 `plugin/skills`를 더한다. 시작 인자로 더하는 길이 없다 | `loom:<이름>` |
 | OpenCode 2 | 서버 환경 `OPENCODE_CONFIG_CONTENT={"skills":[…]}`. 사람의 설정 위에 합쳐진다 | `<이름>` |
+| Cursor | `--plugin-dir <데이터 폴더>/plugin`. 데몬이 같은 폴더에 `.cursor-plugin/plugin.json`을 더 쓴다. Cursor는 이 표지를 `.claude-plugin`보다 먼저 읽는다 | `<이름>` |
 
 - 상시 지시: STE-100 본문, 랩터-3 「작업 중」 절, o-mode 글을 loom 사용법 지시 끝에 붙인다(위 표의 「loom 사용법 지시」 길). 모든 노드가 처음부터 본다. 사람의 STE 플러그인이 프롬프트마다 넣는 한 줄 알림은 loom에 없다.
   - o-mode 글은 노드가 시작할 때의 자리로 고른다(2026-10-21 사람 지시 "o-mode도 다른 스킬 처럼 상시 적용이었으면 한다"). 부모 없는 노드(사람이 띄운 노드)는 `o-mode/SKILL.md` 전체를 받아 총괄이 된다. `loom spawn`으로 뜬 자식은 `o-mode/agent-rules.md`만 받는다. 역할은 브리프가 정한다. 자식에게 총괄 절차를 주지 않는다.
   - 자리는 띄울 때 한 번 정한다. 뒤에 부모가 바뀌어도(`loom adopt`, `loom rm`의 손자 옮기기) 뜬 노드의 지시는 그대로다. 부모를 잃은 노드는 자식 규칙을 지닌 채 남는다. 총괄 절차가 필요하면 `o-mode` 스킬을 부른다.
   - 같은 글을 따로 두지 않는다. 상시 지시는 실은 스킬 파일을 그대로 읽는다. 스킬은 전처럼 `loom:o-mode`로 부를 수 있다. 브리프에는 공통 규칙 경로를 적지 않는다.
-  - 크기: 자식은 약 1,900자(3.8KB), 부모 없는 노드는 약 6,900자(14KB)가 더해진다. Windows 명령 줄 상한(32,767자)보다 작다. Claude는 이 글을 시작 인자로 받는다.
+  - 크기: 자식은 약 1,900자(3.8KB), 부모 없는 노드는 약 6,900자(14KB)가 더해진다. Windows 명령 줄 상한(32,767자)보다 작다. Claude는 이 글을 시작 인자로 받는다. Cursor는 훅 출력으로 받는다. 상시 지시만 sessionStart 훅 하나로 넘기고(부모 없는 노드 8,448자), 테스트가 10,000자 상한을 지킨다.
 
 ### 에이전트
 
@@ -369,6 +371,8 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
 | 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 데몬이 `loom guard`로 알린 셸과 그 자손 프로세스를 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` | 세션의 셸과 그 자손을 끝내고 `POST …/interrupt` 뒤에 입력함 `steer` |
 | 조정·중단 | 쉬는 중 | 큐와 같다 | 큐와 같다 | 입력함 `steer`가 새 실행을 시작한다 |
 
+Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Cursor」 항목).
+
 - Claude: 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 불린 훅이 그 상태다. 훅마다 꺼내는 방식: UserPromptSubmit은 모두, PostToolUse는 조정, PreToolUse·PostToolUseFailure는 중단. SessionStart·Stop은 턴이 없는 때라 비동기 훅으로 모두 기다린다.
 - Claude 쉬는 노드 깨우기: Stop·SessionStart 훅은 `asyncRewake`다. Claude는 이 훅을 뒤에서 돌리고, exit 2로 끝나면 stderr를 모델에 넘겨 쉬던 세션을 깨운다. 입력창에 사람이 쓰던 글은 그대로 남는다(「실측 근거」). loom은 PTY에 글자를 쓰지 않는다.
   - 그 훅의 `loom hook`은 `/api/agent/idle`로 메시지가 올 때까지 기다린다. 오면 본문을 stderr에 쓰고 받음을 확인한 뒤 exit 2로 끝난다.
@@ -378,6 +382,11 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
   - 데몬이 다시 시작하는 동안 닿지 않으면 훅은 2초마다 다시 붙는다. 10분 넘게 닿지 않으면 끝난다. 노드는 데몬보다 오래 살기 때문이다.
   - 훅 `timeout`은 2,000,000초(약 23일)다. Claude는 이 값을 밀리초 JavaScript 타이머로 재고, 2^31-1밀리초를 넘기면 타이머가 바로 끝난다. 이보다 오래 쉰 노드는 다음 사람 입력 때 메시지를 받는다.
   - `rewakeMessage`(모델이 읽는 머리말)와 `rewakeSummary`(터미널 한 줄)는 Claude 설정 형식에서 내부용(`@internal`)이다. 다음 판에서 없어지면 Claude 기본 머리말("Stop hook blocking error …")로 같은 본문이 간다.
+- Cursor: 꺼내는 표는 Claude와 같다. beforeSubmitPrompt는 모두, postToolUse는 조정, preToolUse·postToolUseFailure는 중단. 맥락은 `additional_context`, 중단은 `permission: deny`와 `agent_message`로 넘긴다.
+  - 쉬는 노드: stop 훅이 `/api/agent/idle`로 기다리다 메시지가 오면 `followup_message`로 새 턴을 띄운다. Cursor는 stop 훅이 기다리는 동안에도 사람 입력을 받아 새 턴을 띄운다(실측). 그 턴의 beforeSubmitPrompt가 대기를 끝낸다. 훅의 `loop_limit`은 `null`이다. 기본값이면 몇 번 깨운 뒤 부르지 않는다.
+  - sessionStart는 꺼내지 않는다. Cursor는 그 훅이 끝나야 첫 턴을 띄운다. 그 사이의 메시지는 첫 stop 훅이 넘긴다.
+  - preToolUse는 포그라운드 Shell 명령 앞에 `loom guard` 줄을 붙인다(`updated_input`). `permission`은 넣지 않는다. 넣으면 사람이 끈 모든 권한 허용을 훅이 대신 허용한다.
+  - 한계: Cursor TUI는 `~/.cursor/hooks.json`이나 `<작업 폴더>/.cursor/hooks.json`에 그 이벤트 항목이 있을 때만 stop·beforeSubmitPrompt 훅을 부른다(cursor-agent 2026.10.19 번들의 `userHooks?.hooks.stop?.length||projectHooks?.hooks.stop?.length`). 플러그인 훅만으로는 부르지 않는다. 그 항목이 없는 컴퓨터에서 Cursor 노드는 쉬는 동안 메시지로 깨지 않는다. 다음 사람 입력이나 도구 호출 때 받는다. Orca는 이 두 항목을 `~/.cursor/hooks.json`에 넣는다. loom은 그 파일을 고치지 않는다(2026-10-21 총괄 결정 A안). 대신 사용법 지시가 그 항목이 없으면 기다리는 답을 `loom wait --reply-to`로 받으라고 적는다.
 - 훅 한 번에 꺼내는 본문 합은 8KB 이하다. Claude는 `additionalContext` 한 개를 10,000자에서 자른다. 남은 메시지는 다음 훅이 꺼낸다.
 - PreToolUse 훅은 중단 메시지가 없으면 포그라운드 Bash 명령 앞에 `loom guard` 줄을 붙인다(`updatedInput`). 명령을 감싸지 않는 이유: Claude는 권한 규칙을 바꾼 명령으로 판정한다. 감싸면 사용자의 Bash 허용 규칙이 맞지 않는다. 줄을 앞에 붙이면 Claude가 줄마다 판정해 규칙이 그대로 맞는다.
 - `loom guard`는 자기 PID를 보낸다. 데몬은 그 조상 가운데 부모가 노드 프로세스인 것(노드의 Bash 도구 셸)을 끝낼 셸로 고른다. 근거: Windows Git Bash는 첫 명령을 fork 흉내용 bash 아래에서 띄우고, 그 bash는 명령과 함께 끝난다. 부모 PID를 셸로 보면 이미 끝난 프로세스를 가리킨다.
@@ -505,7 +514,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기, Windows에서 WSL 저장소는 그 배포판의 git), WSL 경로(`src/wsl.rs`: `\\wsl.localhost\…` UNC와 Linux 경로 바꾸기), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |
 
 - 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `RepoId`, `AgentId`, `Profile`, `Provider`, `AccountId`, `Delivery`, `Kind`)만 쓴다.
-- `Profile`은 메시지 연동이고 `Provider`는 계정이다. OpenCode 2는 프로필은 있고 공급자는 없다.
+- `Profile`은 메시지 연동이고 `Provider`는 계정이다. OpenCode 2와 Cursor는 프로필은 있고 공급자는 없다. Cursor 노드는 Cursor CLI의 로그인을 쓴다.
 - 프로필의 전달 작업은 그래프를 모른다. 데몬이 노드 메일함을 `profile::Mailbox`(꺼내기와 변화 알림)로 넘긴다.
 - 노드 호스트는 키에 대해 제네릭이다. 노드 PTY(`NodeId`)와 로그인 창 PTY(`LoginId`)가 같은 코드를 쓴다.
 - 노드 목록과 메일함은 한 모듈이다. 부모-자식 규칙(깊이, 이름, 메시지 방향)이 둘을 함께 보고, `done`처럼 둘을 한 트랜잭션에서 바꿔야 하기 때문이다.
@@ -557,6 +566,8 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 - Windows 업데이트 중 노드 유지(2026-10-21, 설치한 0.1.314 `loom.exe` 사본을 임시 폴더에서): 도는 `loom.exe`는 덮어 쓰기(사용 중)와 지우기(액세스 거부)가 실패하고, 이름 바꾸기는 성공했다. 바꾼 뒤 옛 이름에 새 파일을 쓸 수 있었고 도는 데몬은 계속 HTTP에 답했다. 바꾼 파일은 프로세스가 끝난 뒤에만 지워졌다. 끝낸 데몬의 포트에 0.3초 뒤 새 데몬이 들었다. 이름을 바꾼 파일로 도는 프로세스의 `ExecutablePath`는 처음 이름 그대로였다. NSIS `$INSTDIR`이 `$TEMP` 아래면 짧은 이름(8.3)이었다.
 - Windows Job Object(같은 날, PowerShell P/Invoke): kill-on-close Job에 넣은 부모가 Job에 든 뒤 자식을 띄우고 Job 핸들을 닫았다. silent breakaway가 없으면 부모와 자식이 모두 끝났고, 있으면 부모만 끝나고 자식은 살았다.
 - 설치 훅(같은 날, Ubuntu `nsis` 3.09로 훅 파일을 넣은 시험 설치 파일): 도는 노드가 없으면 `.old`가 남지 않았다. 도는 데몬 1·2개 위에 설치가 성공했고(exit 0) 데몬은 살았다. 데몬이 끝난 뒤의 설치는 그 `.old`를 지웠다. 지우기 훅은 시험 폴더의 데몬 둘만 끝내고 `.old`를 지웠다. 다른 폴더의 `loom.exe` 셋은 그대로 살았다.
+
+- Cursor(2026-10-21, cursor-agent 2026.10.19-6bbf2c4, 임시 폴더의 tmux와 시험 데몬): 플러그인 폴더의 훅이 돌았다. sessionStart 맥락 둘이 모두 모델에 닿았다. postToolUse 맥락이 턴 안에 들어갔다. stop 훅의 `followup_message`가 쉬는 세션에 새 턴을 띄웠다. stop 훅이 기다리는 동안 사람 입력이 바로 새 턴을 띄웠다. 플러그인 `rules/*.mdc`는 읽히지 않았다. `--trust`는 「Workspace Trust Required」 창을, `--force`는 명령 승인을 건너뛴다. 로그인하지 않은 `HOME`에서는 「Press any key to log in...」이 떴다. 시험 데몬에서 셸 부모가 띄운 Cursor 자식이 규칙을 받아 `loom send`·`loom reply`·`loom done`을 썼고, 쉬는 중 큐로 깨어 답했고, 조정이 15초 셸 뒤에 닿았고, 중단이 120초 셸을 4초에 끊었다.
 
 ## 아직 확인하지 않은 것
 

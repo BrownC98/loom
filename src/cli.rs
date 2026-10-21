@@ -13,8 +13,9 @@ use crate::daemon::{
     SendRequest, SpawnRequest, SpawnRun, TakeRequest, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent};
-use crate::profile::claude::{self, Take};
+use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
+use crate::profile::{Take, cursor};
 
 /// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
@@ -156,10 +157,19 @@ pub fn hook() -> Result<(), String> {
     let kinds = match event.take() {
         Take::Now(kinds) => kinds,
         Take::WhenIdle => {
-            return wake_on_mail(&IdleRequest {
+            let taken = wait_for_mail(&IdleRequest {
                 transcript,
                 rate_limited: event.rate_limited(),
-            });
+            })?;
+            if taken.is_empty() {
+                return Ok(());
+            }
+            let mut stderr = std::io::stderr();
+            writeln!(stderr, "{}", crate::profile::message_text(&taken))
+                .map_err(|e| e.to_string())?;
+            stderr.flush().map_err(|e| e.to_string())?;
+            acknowledge(&taken, None);
+            std::process::exit(REWAKE_EXIT)
         }
     };
     let request = TakeRequest {
@@ -171,21 +181,65 @@ pub fn hook() -> Result<(), String> {
     if let Some(reply) = event.reply(&taken) {
         println!("{reply}");
     }
-    if !taken.is_empty() {
-        // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
-        let ids = taken.iter().map(|d| d.id).collect();
-        if let Err(e) = call::<()>("ack", &AckRequest { ids }, Some(timeout)) {
-            eprintln!("loom: could not acknowledge: {e}");
-        }
-    }
+    // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
+    acknowledge(&taken, Some(timeout));
     Ok(())
 }
 
-/// 쉬는 노드의 비동기 훅: 메시지가 오면 본문을 stderr에 쓰고 `REWAKE_EXIT`로 끝난다.
-/// 데몬이 대기를 끝내면(새 대기, 새 턴) 아무것도 쓰지 않고 끝난다.
-fn wake_on_mail(request: &IdleRequest) -> Result<(), String> {
+/// Cursor 훅: Claude 훅과 같은 일을 Cursor 입출력 형식으로 한다. 출력이 늘 JSON이어야 Cursor가 훅을 실패로 보지 않는다.
+/// 쉬는 노드의 stop 훅은 메시지를 새 턴 입력으로 넘긴다. 사람이 그 사이에 입력하면 데몬이 대기를 끝낸다.
+pub fn cursor_hook() -> Result<(), String> {
+    let input: serde_json::Value =
+        serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
+    let event = cursor::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
+    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
+    if let Some(model) = event.model()
+        && let Err(e) = call::<()>("model", &model, Some(timeout))
+    {
+        eprintln!("loom: could not report the model: {e}");
+    }
+    let taken = match event.take() {
+        None => Vec::new(),
+        Some(Take::WhenIdle) => wait_for_mail(&IdleRequest::default())?,
+        Some(Take::Now(kinds)) => call(
+            "take",
+            &TakeRequest {
+                kinds: kinds.to_vec(),
+                limit_bytes: cursor::HOOK_LIMIT_BYTES,
+                transcript: None,
+            },
+            Some(timeout),
+        )?,
+    };
+    println!("{}", event.reply(&taken));
+    std::io::stdout().flush().map_err(|e| e.to_string())?;
+    acknowledge(&taken, Some(timeout));
+    Ok(())
+}
+
+/// Cursor의 둘째 sessionStart 훅: 상시 지시를 넘긴다. 첫 훅과 나누는 이유는 `cursor::CONTEXT_LIMIT_CHARS`다.
+pub fn cursor_rules() -> Result<(), String> {
+    let position = cursor::position_from(std::env::var(cursor::POSITION_ENV).ok().as_deref());
+    println!("{}", cursor::rules(position));
+    Ok(())
+}
+
+/// 꺼낸 메시지를 받는 쪽에 넘겼다고 데몬에 알린다. 실패해도 훅은 끝낸다. 데몬이 다시 준다.
+fn acknowledge(taken: &[Delivery], timeout: Option<Duration>) {
+    if taken.is_empty() {
+        return;
+    }
+    let ids = taken.iter().map(|d| d.id).collect();
+    if let Err(e) = call::<()>("ack", &AckRequest { ids }, timeout) {
+        eprintln!("loom: could not acknowledge: {e}");
+    }
+}
+
+/// 쉬는 노드의 훅이 메시지를 기다린다. Claude 훅은 본문을 stderr에 쓰고 `REWAKE_EXIT`로, Cursor 훅은 새 턴 입력으로 넘긴다.
+/// 데몬이 대기를 끝내면(새 대기, 새 턴) 빈 목록이다.
+fn wait_for_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
     let mut unreachable_since = None;
-    let taken: Vec<Delivery> = loop {
+    Ok(loop {
         let attempt = Instant::now();
         match call("idle", request, None) {
             Ok(taken) => break taken,
@@ -201,18 +255,7 @@ fn wake_on_mail(request: &IdleRequest) -> Result<(), String> {
             }
             Err(e) => return Err(e.into()),
         }
-    };
-    if taken.is_empty() {
-        return Ok(());
-    }
-    let mut stderr = std::io::stderr();
-    writeln!(stderr, "{}", crate::profile::message_text(&taken)).map_err(|e| e.to_string())?;
-    stderr.flush().map_err(|e| e.to_string())?;
-    let ids = taken.iter().map(|d| d.id).collect();
-    if let Err(e) = call::<()>("ack", &AckRequest { ids }, None) {
-        eprintln!("loom: could not acknowledge: {e}");
-    }
-    std::process::exit(REWAKE_EXIT)
+    })
 }
 
 /// 이 명령을 부른 셸을 중단 대상으로 데몬에 알린다. Claude 훅이 Bash 명령 앞에 붙인다.

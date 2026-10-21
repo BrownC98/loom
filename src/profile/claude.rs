@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::Take;
 use crate::graph::{Delivery, Kind, Model};
 use crate::skills::Position;
 
@@ -132,15 +133,6 @@ pub enum Event {
 
 /// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
 const RATE_LIMIT_ERROR: &str = "rate_limit";
-
-/// 훅이 메시지를 꺼내는 때.
-#[derive(Debug, PartialEq)]
-pub enum Take {
-    /// 턴 안의 지점. 이 방식의 메시지만 바로 꺼낸다.
-    Now(&'static [Kind]),
-    /// 턴이 없다(세션 시작, 턴 끝). 비동기 훅이 메시지가 올 때까지 기다린다.
-    WhenIdle,
-}
 
 impl Event {
     /// 이 지점에서 꺼내는 방법. 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 어느 훅이 불렸는지가 그 상태다.

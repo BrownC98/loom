@@ -39,6 +39,9 @@ function whoOf(entry: Entry): Who[] {
       return [entry.from, ...(entry.to ? [entry.to] : [])];
     case 'refused':
       return [entry.from];
+    case 'accountSwitched':
+    case 'noAccountLeft':
+      return [];
   }
 }
 

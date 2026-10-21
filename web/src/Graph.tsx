@@ -17,7 +17,7 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge } from './HopEdge';
-import { arrangeNested, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
+import { arrangeNested, edgeSides, followCard, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
@@ -740,6 +740,21 @@ export function Graph(props: {
   for (const id of [...dragged, ...carried]) {
     for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) carried.add(outer);
   }
+  // 포커스 카드가 그래프에서 옮겨 가면(노드 추가·제거, [정렬], 놓을 때 밀림, 묶음·카드 크기 변화) 시점을 같은 만큼 옮겨 카드를 화면의 같은 자리에 둔다.
+  // 2026-10-21 사람 지시 "그래프에서 포커스된 터미널은 레이아웃이 변경되더라도 카메라에 대한 상대 위치를 유지하도록 구현하라".
+  // 사람이 끌거나 크기를 바꾸는 동안과 시점이 움직이는 동안(화면 끌기, 노드로 옮겨 가기 애니메이션)은 옮기지 않는다.
+  // 그 밖에는 포커스 카드의 옮김 애니메이션을 늘 끈다(`carried`). 옮길 때만 끄면 React Flow가 새 자리를 그리기 전에 다음 렌더가 클래스를 지워 카드가 미끄러진다.
+  const lastFocus = useRef<{ id: NodeId; at: XYPosition } | null>(null);
+  const cameraMoving = useRef(false);
+  const focusAt = selected === null ? undefined : positions.get(selected);
+  const last = lastFocus.current;
+  const handsOff = dragged.size === 0 && resizing === null;
+  const follow = focusAt && last?.id === selected && !samePoint(last.at, focusAt) && handsOff && !cameraMoving.current ? { from: last.at, to: focusAt } : null;
+  if (selected !== null && handsOff) carried.add(String(selected));
+  useLayoutEffect(() => {
+    lastFocus.current = selected !== null && focusAt ? { id: selected, at: focusAt } : null;
+    if (follow) void flow.setViewport(followCard(follow.from, follow.to, flow.getViewport()));
+  });
   const insideDragged = (id: string) => {
     for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) if (dragged.has(outer)) return true;
     return false;
@@ -1231,8 +1246,14 @@ export function Graph(props: {
           setChosenBox(node.id);
         }}
         // 화면을 끄는 동안(바탕·묶음 빈 곳·가운데 버튼) 커서가 어디에 있든 잡은 손이다(2026-10-21 사람 "휠클릭으로 그게 되긴하는데, 커서 변화가 없음"). 휠 확대는 뺀다.
-        onMoveStart={(event) => document.documentElement.classList.toggle('panning', event?.type === 'mousedown')}
-        onMoveEnd={() => document.documentElement.classList.remove('panning')}
+        onMoveStart={(event) => {
+          cameraMoving.current = true;
+          document.documentElement.classList.toggle('panning', event?.type === 'mousedown');
+        }}
+        onMoveEnd={() => {
+          cameraMoving.current = false;
+          document.documentElement.classList.remove('panning');
+        }}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements

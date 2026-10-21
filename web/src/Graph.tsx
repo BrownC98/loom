@@ -16,7 +16,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, overlaps, placeGroups, push, SIDES, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, SIDES, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
@@ -881,8 +881,7 @@ export function Graph(props: {
     setSpots((prev) => new Map([...prev, ...placed.map((p): [string, Placed] => [flowId(p.spot), p])]));
     after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
   };
-  // 부분 정렬(목업 v5 ⑥⑦). 정렬한 상자의 왼쪽 위와 바깥·형제 상자는 지금 자리에 둔다. 다음 렌더에서 바뀐 크기로 옆 상자를 비킨다(`grown`).
-  const [grown, setGrown] = useState<string | null>(null);
+  // 부분 정렬(목업 v5 ⑥⑦). 정렬한 상자의 왼쪽 위와 바깥·형제 상자는 지금 자리에 둔다. 다음 렌더에서 커진 상자가 옆 상자를 비킨다(`lastSizes`).
   const keepAround = (key: string, newLead: XYPosition): Map<string, XYPosition> => {
     const level = levels.get(key)!;
     const self = level.boxes.find((b) => b.key === key)!;
@@ -901,7 +900,6 @@ export function Graph(props: {
     const g = groups.find((g) => g.group.path === ordering);
     if (!g) return;
     save(new Map([...keepAround(ordering, { x: 0, y: 0 }), ...g.auto]));
-    setGrown(ordering);
   });
   // 자동 배치 묶음 자리는 저장소 원점에서 시작하므로 상자 왼쪽 위는 원점에서 `REPO_INSET`만큼 왼쪽 위다.
   const arrangeRepo = (r: (typeof repos)[number]) => {
@@ -910,7 +908,6 @@ export function Graph(props: {
     const after = clearSpots(r.repo.id);
     save(kept, after);
     setArranging({ scope: { kind: 'repo', id: r.repo.id }, after });
-    setGrown(r.key);
   };
   /**
    * [정렬]과 저장소 정렬. 지금 화면 순서를 잡고 저장한 자리를 지운다. 다음 렌더에서 구한 자동 배치 자리를 저장한다.
@@ -930,12 +927,24 @@ export function Graph(props: {
     const boxes = scope.kind === 'shown' && framed ? repos.map((r, i): [string, XYPosition] => [r.key, { x: repoAuto[i].x - r.lead.x, y: repoAuto[i].y - r.lead.y }]) : [];
     save(new Map([...done.flatMap((r) => [...r.arranged]), ...boxes]), arranging.after);
   });
+  // 끌지 않고 커진 상자(새 카드·묶음이 든 바깥 상자, 카드·터미널 크기, 정렬)는 끌어 놓을 때와 같은 규칙으로 겹친 옆 상자를 민다.
+  // 끄는 동안과 테두리를 끄는 동안(`moving`)은 놓을 때 민다. 크기만 기억한다. 안쪽 상자부터 민다(`levels`는 카드, 묶음, 저장소 순서다).
+  const lastSizes = useRef<ReadonlyMap<string, Size>>(new Map());
   useEffect(() => {
-    if (grown === null) return;
-    setGrown(null);
-    const level = levels.get(grown);
-    const self = level?.boxes.find((b) => b.key === grown);
-    if (level && self) save(spread(grown, level, self, new Map()));
+    const now = new Map([...levels].map(([key, level]): [string, Size] => [key, level.boxes.find((b) => b.key === key)!.size]));
+    const before = lastSizes.current;
+    lastSizes.current = now;
+    if (moving.size > 0) return;
+    const done = new Map<string, XYPosition>();
+    for (const key of grew(before, now)) {
+      // 앞 상자가 이미 민 상자는 민 자리에서 민다.
+      const level = levels.get(key)!;
+      const self = level.boxes.find((b) => b.key === key)!;
+      const o = done.get(key);
+      const lead = level.lead.get(key) ?? { x: 0, y: 0 };
+      spread(key, level, o ? { at: { x: o.x + lead.x, y: o.y + lead.y }, size: self.size } : self, done);
+    }
+    save(done);
   });
 
   // 바뀜은 마지막 결과에 더한다. 렌더 전에 바뀜이 여럿 오면(끄는 자리, 그래서 커진 바깥 상자의 크기) 렌더한 노드에 더할 때

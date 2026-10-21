@@ -281,6 +281,14 @@ export function freeSpot(box: Box, others: readonly Box[], gap: number): Point {
   return at;
 }
 
+/** `before`에도 있던 상자 가운데 폭이나 높이가 커진 상자의 이름. 새 상자는 `freeSpot`이 자리를 잡으므로 넣지 않는다. */
+export function grew(before: ReadonlyMap<string, Size>, now: ReadonlyMap<string, Size>): string[] {
+  return [...now].flatMap(([key, size]) => {
+    const was = before.get(key);
+    return was && (size.width > was.width || size.height > was.height) ? [key] : [];
+  });
+}
+
 /** 간선이 붙는 카드의 변. */
 export type Side = 'top' | 'right' | 'bottom' | 'left';
 export const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];

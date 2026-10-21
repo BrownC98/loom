@@ -22,8 +22,6 @@ export function problemText(p: Problem): string {
       return i18next.t(`problem.repo.${p.value.code}`, vars(p.value));
     case 'noLogin':
       return i18next.t('problem.noLogin');
-    case 'unsupportedImage':
-      return i18next.t('problem.unsupportedImage', { value: p.value });
     case 'internal':
       return i18next.t('problem.internal', { value: p.value });
   }

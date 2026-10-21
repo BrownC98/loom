@@ -1,40 +1,25 @@
-//! 터미널에 붙여넣은 그림을 파일로 남긴다. 화면이 그 경로를 터미널에 붙여넣으면 에이전트 CLI가 첨부로 바꾼다.
-//! 그림은 브라우저 클립보드에 있다. 노드가 도는 기계의 클립보드 도구(`wl-paste`·`xclip`)에 기대지 않는다.
-//! 근거: docs/design.md 「저장」.
+//! 터미널에 붙여넣거나 끌어다 놓은 파일을 데몬 기계에 남긴다. 화면이 그 경로를 터미널에 붙여넣으면 에이전트 CLI가 읽거나 첨부한다.
+//! 파일은 브라우저에 있다. 브라우저는 원래 경로를 알려 주지 않고, 데몬(WSL)은 Windows 경로를 읽지 못한다.
+//! 근거: docs/design.md 「저장」, 목업 docs/mockups/terminal-drop.html.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-/// 한 번에 받는 그림의 상한. 4K 화면 캡처 PNG도 들어가게 넉넉히 둔다. axum 기본값(2MB)은 작다.
+/// 파일 하나의 상한. 4K 화면 캡처 PNG도 들어가게 넉넉히 둔다. axum 기본값(2MB)은 작다.
+/// 화면(`web/src/Terminal.tsx`의 `PASTE_LIMIT_BYTES`)이 올리기 전에 같은 값으로 거른다.
 pub const LIMIT_BYTES: usize = 32 * 1024 * 1024;
 
-/// 형식을 확인한 그림.
-pub struct Image<'a> {
-    extension: &'static str,
-    bytes: &'a [u8],
-}
-
-impl<'a> Image<'a> {
-    /// Claude Code·Codex·Cursor CLI가 모두 첨부로 읽는 형식만 받는다. 아니면 없다.
-    pub fn new(mime: &str, bytes: &'a [u8]) -> Option<Self> {
-        let extension = match mime {
-            "image/png" => "png",
-            "image/jpeg" => "jpg",
-            "image/gif" => "gif",
-            "image/webp" => "webp",
-            _ => return None,
-        };
-        Some(Self { extension, bytes })
-    }
-
-    /// 새 파일에 쓰고 절대 경로를 돌려준다. 파일은 OS 임시 폴더에 두므로 OS가 지운다.
-    pub fn save(&self) -> std::io::Result<PathBuf> {
-        let dir = std::env::temp_dir().join("loom-paste");
-        std::fs::create_dir_all(&dir)?;
-        let name = jiff::Timestamp::now().as_nanosecond();
-        let path = dir.join(format!("{name}.{}", self.extension));
-        std::fs::write(&path, self.bytes)?;
-        Ok(path)
-    }
+/// 이름이 `name`인 새 파일에 쓰고 절대 경로를 돌려준다. 파일은 OS 임시 폴더에 두므로 OS가 지운다.
+/// 이름이 같은 파일끼리 겹치지 않게 파일마다 새 폴더에 둔다. 에이전트가 원래 이름을 보게 이름은 바꾸지 않는다.
+pub fn save(name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    // 경로 조각(`../`)으로 폴더 밖에 쓰지 못하게 마지막 이름만 쓴다.
+    let name = Path::new(name).file_name().unwrap_or("file".as_ref());
+    let dir = std::env::temp_dir()
+        .join("loom-paste")
+        .join(jiff::Timestamp::now().as_nanosecond().to_string());
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(name);
+    std::fs::write(&path, bytes)?;
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -42,12 +27,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn saves_supported_images_and_refuses_others() {
-        let path = Image::new("image/jpeg", b"jpg").unwrap().save().unwrap();
+    fn saves_under_original_name_inside_its_own_folder() {
+        let path = save("보고서 초안.pdf", b"pdf").unwrap();
         assert!(path.is_absolute());
-        assert_eq!(path.extension().unwrap(), "jpg");
-        assert_eq!(std::fs::read(&path).unwrap(), b"jpg");
-        std::fs::remove_file(path).unwrap();
-        assert!(Image::new("image/tiff", b"x").is_none());
+        assert_eq!(path.file_name().unwrap(), "보고서 초안.pdf");
+        assert_eq!(std::fs::read(&path).unwrap(), b"pdf");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+
+        let path = save("../../escape.txt", b"x").unwrap();
+        assert_eq!(
+            path.parent().unwrap().parent().unwrap(),
+            std::env::temp_dir().join("loom-paste")
+        );
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }

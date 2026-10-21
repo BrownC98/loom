@@ -281,6 +281,10 @@ const ko: typeof en = {
   },
   terminal: {
     gone: 'loom을 다시 시작해서 이 터미널은 닫혔습니다. 새 노드를 만드십시오.',
+    drop: '놓으면 파일 경로를 입력합니다',
+    dropCount: '파일 {{count}}개 · 파일마다 {{limit}}MB까지',
+    tooBig: '{{name}}: 파일이 너무 큽니다({{size}}MB). {{limit}}MB까지 넣을 수 있습니다.',
+    folder: '{{name}}: 폴더는 넣을 수 없습니다. 파일을 고르십시오.',
   },
   problem: {
     refused: {
@@ -339,7 +343,6 @@ const ko: typeof en = {
       git: 'git이 실패했습니다: {{value}}',
     },
     noLogin: '로그인 창이 더 이상 없습니다.',
-    unsupportedImage: '이 그림 형식은 붙여넣을 수 없습니다: {{value}}. PNG·JPEG·GIF·WebP를 쓰십시오.',
     internal: '내부 오류: {{value}}',
   },
   usageProblem: {

@@ -6,4 +6,4 @@ import type { RepoProblem } from "./RepoProblem";
 /**
  * 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
  */
-export type Problem = { "code": "refused", "value": Refusal } | { "code": "launch", "value": LaunchError } | { "code": "repo", "value": RepoProblem } | { "code": "noLogin" } | { "code": "unsupportedImage", "value": string } | { "code": "internal", "value": string };
+export type Problem = { "code": "refused", "value": Refusal } | { "code": "launch", "value": LaunchError } | { "code": "repo", "value": RepoProblem } | { "code": "noLogin" } | { "code": "internal", "value": string };

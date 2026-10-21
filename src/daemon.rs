@@ -96,8 +96,6 @@ pub enum Problem {
     Repo(RepoProblem),
     /// 없는 로그인 창이다.
     NoLogin,
-    /// 붙여넣은 그림의 형식을 받지 않는다. 값은 MIME 형식이다.
-    UnsupportedImage(String),
     /// DB·파일 오류처럼 요청을 고쳐도 낫지 않는 실패. 값은 원인 글이다.
     Internal(String),
 }
@@ -108,10 +106,7 @@ impl Problem {
             Problem::Refused(Refusal::Db(_)) | Problem::Internal(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
-            Problem::Refused(_)
-            | Problem::Launch(_)
-            | Problem::Repo(_)
-            | Problem::UnsupportedImage(_) => StatusCode::BAD_REQUEST,
+            Problem::Refused(_) | Problem::Launch(_) | Problem::Repo(_) => StatusCode::BAD_REQUEST,
             Problem::NoLogin => StatusCode::NOT_FOUND,
         }
     }
@@ -152,7 +147,6 @@ fn for_agent(e: impl Into<Problem>) -> AgentError {
         Problem::Launch(e) => e.to_string(),
         Problem::Repo(e) => e.to_string(),
         Problem::NoLogin => "No such login window.".into(),
-        Problem::UnsupportedImage(mime) => format!("{mime}: this image type is not supported."),
         Problem::Internal(e) => e.clone(),
     };
     (problem.status(), text)
@@ -445,7 +439,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/nodes/{id}/name", put(rename_node))
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
-            "/api/pastes",
+            "/api/pastes/{name}",
             post(save_paste).layer(DefaultBodyLimit::max(paste::LIMIT_BYTES)),
         )
         .route("/api/files/open", post(open_file))
@@ -1159,15 +1153,9 @@ async fn create_node(
     Ok(Json(app.start_root(&req.place, &req.start).await?))
 }
 
-/// 터미널에 붙여넣은 그림을 파일로 남기고 그 절대 경로를 돌려준다. 몸통은 그림 그대로, 형식은 `content-type`이다.
-async fn save_paste(headers: HeaderMap, body: Bytes) -> Result<Json<String>, Problem> {
-    let mime = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-    let image =
-        paste::Image::new(mime, &body).ok_or_else(|| Problem::UnsupportedImage(mime.to_owned()))?;
-    let path = image.save().map_err(internal)?;
+/// 터미널에 붙여넣거나 끌어다 놓은 파일을 남기고 그 절대 경로를 돌려준다. 몸통은 파일 그대로, 경로 끝은 원래 파일 이름이다.
+async fn save_paste(Path(name): Path<String>, body: Bytes) -> Result<Json<String>, Problem> {
+    let path = paste::save(&name, &body).map_err(internal)?;
     Ok(Json(path.to_string_lossy().into_owned()))
 }
 

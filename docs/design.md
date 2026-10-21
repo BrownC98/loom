@@ -142,7 +142,7 @@
 
 ### 내장 스킬
 
-loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`(2026-10-21 사람 지시 "loom 모드, ste, 사용자 문서 작성 스킬도 loom 에 내장시켜줘"). Loom 절차 스킬도 `o-mode`(orchestration mode)라 부른다. 사람은 Orca에서도 loom에서도 `o-mode`로 부르고, 실행 환경이 절차를 고른다: loom 노드는 이 스킬, 그 밖은 사람의 Orca 판 `o-mode`(2026-10-21 사람 지시 "둘다 o-mode 이름으로 호출하고 싶고 실행환경에 따라서만 적용 스킬을 다르게 하고 싶다"). 사람의 Orca 판은 첫 줄에서 `LOOM_TOKEN`이 있으면 이 스킬로 넘긴다. 노드 에이전트는 사람이 스킬을 설치하지 않아도 이 스킬을 쓴다.
+loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`(2026-10-21 사람 지시 "loom 모드, ste, 사용자 문서 작성 스킬도 loom 에 내장시켜줘"). Loom 절차 스킬도 `o-mode`(orchestration mode)라 부른다. 사람은 Orca에서도 loom에서도 `o-mode`로 부르고, 실행 환경이 절차를 고른다: loom 노드는 이 스킬, 그 밖은 사람의 Orca 판 `o-mode`(2026-10-21 사람 지시 "둘다 o-mode 이름으로 호출하고 싶고 실행환경에 따라서만 적용 스킬을 다르게 하고 싶다"). 사람의 Orca 판은 첫 줄에서 `LOOM_TOKEN`이 있으면 이 스킬로 넘긴다. Claude에서는 두 판을 플러그인 이름으로 가른다: loom 판 `loom:o-mode`, 사람의 Orca 판 `orca:o-mode`(사람 쪽 로컬 플러그인 `orca`, 2026-10-21 사람 지시 "이 스킬을 orca:o-mode로 만들어"). 노드 에이전트는 사람이 스킬을 설치하지 않아도 이 스킬을 쓴다.
 
 - 원본은 저장소 [skills/](../skills/)다. 사람의 `~/.agents/skills`의 같은 스킬은 이 폴더를 가리키는 링크다. 실은 스킬은 같이 실은 파일만 링크한다(테스트가 막는다). STE-100 원문 PDF는 싣지 않는다. ASD가 허가 없는 복제를 금지한다.
 - 실행 파일이 `rust-embed`로 [skills/](../skills/)를 넣는다. 데몬은 시작할 때 `<데이터 폴더>/plugin`을 지우고 다시 푼다. 그 폴더는 Claude 플러그인 꼴이다(`.claude-plugin/plugin.json`, `skills/<이름>/`). 코드는 [src/skills.rs](../src/skills.rs)에 있다.

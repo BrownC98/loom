@@ -29,7 +29,7 @@
 
 - Windows 빌드는 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 한다. 호스트에는 Windows 빌드 도구가 없다.
 
-- `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-100/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다.  loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다(설계 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
+- `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-100/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(설계 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
 
 - API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.
 

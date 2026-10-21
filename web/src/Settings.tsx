@@ -1,12 +1,13 @@
 import { Plus, RotateCw } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Trans, useTranslation } from 'react-i18next';
-import { closeLogin, getLogin, loginPty, removeAccount, startLogin } from './api';
+import { useTranslation } from 'react-i18next';
+import { closeLogin, getLogin, loginPty, logoutSystem, removeAccount, startLogin } from './api';
 import { canBypass } from './catalog';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { LoginId } from './gen/LoginId';
+import type { LoginTarget } from './gen/LoginTarget';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Usage } from './StatusBar';
@@ -205,7 +206,7 @@ function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; o
   );
 }
 
-type OpenLogin = { provider: Provider; id: LoginId; title: string };
+type OpenLogin = { target: LoginTarget; id: LoginId; title: string };
 
 function AccountsTab(props: { settings: SettingsView; onSettings: (next: SettingsView) => void; usage: Usage }) {
   const { t } = useTranslation();
@@ -221,12 +222,19 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
       setError((err as Error).message);
     }
   };
-  const openLogin = (provider: Provider, id: AccountId | null, title: string) =>
-    run(async () => setLogin({ provider, title, id: await startLogin(provider, { id }) }));
+  const openLogin = (provider: Provider, target: LoginTarget, title: string) =>
+    run(async () => setLogin({ target, title, id: await startLogin(provider, target) }));
   const remove = (a: AccountView, id: AccountId) => {
     if (!confirm(t('accounts.confirmRemove', { name: accountName(a) }))) return;
     run(async () => {
       await removeAccount(a.provider, id);
+      usage.refresh();
+    });
+  };
+  const logout = (a: AccountView) => {
+    if (!confirm(t('accounts.confirmLogout', { provider: PROVIDER_LABEL[a.provider], name: accountName(a) }))) return;
+    run(async () => {
+      await logoutSystem(a.provider);
       usage.refresh();
     });
   };
@@ -244,11 +252,18 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
           const label = PROVIDER_LABEL[provider];
           const accounts = usage.accounts!.filter((a) => a.provider === provider);
           const active = activeAccount(usage.accounts!, settings, provider);
+          // CLI가 없으면 모든 줄이 같은 문제다. 시스템 기본 줄로 본다.
+          const missing = accounts.some((a) => a.id === null && notInstalled(a));
           return (
             <section key={provider} aria-busy={usage.loading}>
               <h4>
                 {label}
-                <button className="btn ghost sm" onClick={() => openLogin(provider, null, t('accounts.addTitle', { provider: label }))}>
+                <button
+                  className="btn ghost sm"
+                  disabled={missing}
+                  title={missing ? t('accounts.addNeedsCli', { provider: label }) : undefined}
+                  onClick={() => openLogin(provider, { kind: 'new' }, t('accounts.addTitle', { provider: label }))}
+                >
                   <Plus />
                   {t('accounts.add')}
                 </button>
@@ -258,27 +273,41 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
                   const current = a === active;
                   const problem = limitsProblem(a.usage.limits);
                   const needsLogin = a.usage.limits.kind === 'needsLogin';
-                  const meta = [a.id === null ? t('accounts.readOnly', { dir: SYSTEM_DIR[provider] }) : null, a.usage.plan, usage.fetchedAt !== null ? fetchedText(usage.fetchedAt, Date.now()) : null].filter(Boolean).join(' · ');
+                  const system = a.id === null;
+                  const absent = notInstalled(a);
+                  const meta = [system ? SYSTEM_DIR[provider] : null, a.usage.plan, usage.fetchedAt !== null && !absent ? fetchedText(usage.fetchedAt, Date.now()) : null].filter(Boolean).join(' · ');
                   return (
                     <div className="acct-row" key={a.id ?? 'system'} aria-current={current || undefined}>
                       <span className="row-main">
                         <span className="name acct-name">{accountName(a)}</span>
+                        {system && a.usage.email && <span className="badge">{t('usage.systemDefault')}</span>}
                         {current && <span className="badge">{t('accounts.current')}</span>}
-                        {needsLogin && <span className="badge warn">{t('accounts.needsLogin')}</span>}
+                        {needsLogin && <span className="badge warn">{system ? t('usage.loginRequired') : t('accounts.needsLogin')}</span>}
+                        {absent && <span className="badge warn">{t('accounts.notInstalled')}</span>}
                         <span className="meta" translate="no">
                           {meta}
                         </span>
                       </span>
-                      <span className="win">{problem && !needsLogin ? <span className="hint">{problem}</span> : <WindowLines limits={a.usage.limits} />}</span>
+                      <span className="win">{needsLogin ? <span className="hint">{t('statusBar.loginToSee')}</span> : problem ? <span className="hint">{problem}</span> : <WindowLines limits={a.usage.limits} />}</span>
                       <span className="row-actions">
-                        {!current && !needsLogin && (
+                        {!current && !needsLogin && !absent && (
                           <button className="btn sm" onClick={() => props.onSettings(withAccount(settings, provider, a.id))}>
                             {t('accounts.use')}
                           </button>
                         )}
                         {needsLogin && a.id !== null && (
-                          <button className="btn sm" onClick={() => openLogin(provider, a.id, t('accounts.reloginTitle', { name: accountName(a) }))}>
+                          <button className="btn sm" onClick={() => openLogin(provider, { kind: 'account', id: a.id! }, t('accounts.reloginTitle', { name: accountName(a) }))}>
                             {t('accounts.relogin')}
+                          </button>
+                        )}
+                        {needsLogin && system && (
+                          <button className="btn sm" onClick={() => openLogin(provider, { kind: 'system' }, t('accounts.systemLoginTitle', { provider: label }))}>
+                            {t('accounts.login')}
+                          </button>
+                        )}
+                        {system && !needsLogin && !absent && (
+                          <button className="btn ghost sm" aria-label={t('accounts.logoutLabel', { name: accountName(a) })} onClick={() => logout(a)}>
+                            {t('accounts.logout')}
                           </button>
                         )}
                         {a.id !== null && (
@@ -291,7 +320,6 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
                   );
                 })}
               </div>
-              {active?.id === null && <NeedsLoginHint account={active} provider={provider} />}
             </section>
           );
         })}
@@ -308,15 +336,9 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
   );
 }
 
-/** 시스템 기본이 로그인하지 않았으면 사용자 셸에서 로그인하는 명령을 보인다. loom은 그 폴더를 고치지 않는다. */
-function NeedsLoginHint({ account, provider }: { account: AccountView; provider: Provider }) {
-  if (account.usage.limits.kind !== 'needsLogin') return null;
-  const command = provider === 'claude' ? 'claude auth login' : 'codex login';
-  return (
-    <span className="hint">
-      <Trans i18nKey="accounts.systemLogin" values={{ command }} components={{ code: <code translate="no" /> }} />
-    </span>
-  );
+/** 그 계정의 CLI가 `PATH`에 없다. */
+function notInstalled(a: AccountView): boolean {
+  return a.usage.limits.kind === 'failed' && a.usage.limits.problem.code === 'notInstalled';
 }
 
 /** CLI 로그인을 띄운 터미널. 로그인이 끝나면 닫힌다. 취소하면 데몬이 새로 만든 폴더를 지운다. */
@@ -367,7 +389,7 @@ function LoginDialog(props: { login: OpenLogin; onDone: () => void }) {
           {t('accounts.loginFailed')}
         </p>
       ) : (
-        <span className="hint">{t('accounts.loginHint')}</span>
+        <span className="hint">{t(login.target.kind === 'new' ? 'accounts.loginHint' : 'accounts.reloginHint')}</span>
       )}
     </Modal>
   );

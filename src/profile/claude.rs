@@ -16,6 +16,12 @@ pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 /// 그래야 Claude가 훅을 먼저 끝내 꺼낸 본문을 버리는 일이 드물다. 버려도 받음 확인 전이므로 데몬이 다시 준다.
 pub const HOOK_HTTP_TIMEOUT_SECS: u64 = 5;
 const HOOK_TIMEOUT_SECS: u64 = 10;
+/// 쉬는 노드의 비동기 훅 상한. 이 시간보다 오래 쉬면 다음 사람 입력까지 깨우지 못한다.
+/// Claude는 상한을 밀리초 타이머로 잰다. JavaScript 타이머는 2^31-1 밀리초(약 24.8일)를 넘기면 바로 끝난다.
+const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
+/// 비동기 훅이 깨울 때 모델이 읽는 머리말과 터미널 한 줄 요약(Claude 기본값은 "Stop hook feedback").
+const REWAKE_MESSAGE: &str = "Messages from loom:";
+const REWAKE_SUMMARY: &str = "loom message";
 /// 기록 파일(transcript)에서 마지막 응답을 찾는 끝부분의 크기. 응답 한 줄은 보통 수 KB다.
 const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 /// Claude가 API 응답 없이 쓴 응답(오류·중단)의 모델 값. 실제 모델이 아니다.
@@ -25,7 +31,7 @@ const GUARD: &str = "loom guard";
 
 fn usage() -> String {
     format!(
-        "{}\nWhen no independent work remains, run loom wait with Bash run_in_background and end your turn. Its completed output is the incoming message. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.",
+        "{}\nWhen no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.",
         super::COMMUNICATION_USAGE
     )
 }
@@ -64,15 +70,24 @@ pub fn args() -> Vec<String> {
         "command": "loom hook",
         "timeout": HOOK_TIMEOUT_SECS,
     }] }]);
+    // 턴이 없는 동안 메시지를 기다리고, 오면 exit 2로 모델을 깨운다. 사용자가 입력하던 글은 그대로 남는다.
+    let idle = json!([{ "hooks": [{
+        "type": "command",
+        "command": "loom hook",
+        "asyncRewake": true,
+        "timeout": IDLE_HOOK_TIMEOUT_SECS,
+        "rewakeMessage": REWAKE_MESSAGE,
+        "rewakeSummary": REWAKE_SUMMARY,
+    }] }]);
     let settings = json!({
         "permissions": { "allow": ALLOWED },
         "hooks": {
-            "SessionStart": hook,
+            "SessionStart": idle,
             "UserPromptSubmit": hook,
             "PreToolUse": hook,
             "PostToolUse": hook,
             "PostToolUseFailure": hook,
-            "Stop": hook,
+            "Stop": idle,
         },
     });
     vec![
@@ -101,16 +116,24 @@ pub enum Event {
     Stop,
 }
 
+/// 훅이 메시지를 꺼내는 때.
+#[derive(Debug, PartialEq)]
+pub enum Take {
+    /// 턴 안의 지점. 이 방식의 메시지만 바로 꺼낸다.
+    Now(&'static [Kind]),
+    /// 턴이 없다(세션 시작, 턴 끝). 비동기 훅이 메시지가 올 때까지 기다린다.
+    WhenIdle,
+}
+
 impl Event {
-    /// 이 지점에서 꺼내는 전달 방식. 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 어느 훅이 불렸는지가 그 상태다.
-    pub fn kinds(&self) -> &'static [Kind] {
+    /// 이 지점에서 꺼내는 방법. 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 어느 훅이 불렸는지가 그 상태다.
+    pub fn take(&self) -> Take {
         match self {
-            // 아직 턴이 없다. 첫 턴은 UserPromptSubmit이 받는다.
-            Event::SessionStart { .. } => &[],
-            // 쉬는 중이던 노드의 다음 턴, 일하던 노드의 턴 끝: 모두 넘긴다.
-            Event::UserPromptSubmit | Event::Stop => Kind::ALL,
-            Event::PostToolUse => &[Kind::Steer],
-            Event::PreToolUse { .. } | Event::PostToolUseFailure => &[Kind::Interrupt],
+            Event::SessionStart { .. } | Event::Stop => Take::WhenIdle,
+            // 쉬는 중이던 노드의 다음 턴: 모두 넘긴다.
+            Event::UserPromptSubmit => Take::Now(Kind::ALL),
+            Event::PostToolUse => Take::Now(&[Kind::Steer]),
+            Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
         }
     }
 
@@ -131,18 +154,18 @@ impl Event {
             };
         }
         let text = super::message_text(taken);
-        Some(match self {
-            Event::Stop => json!({ "decision": "block", "reason": text }),
-            Event::PreToolUse { .. } => json!({ "hookSpecificOutput": {
+        match self {
+            // 비동기 훅은 JSON을 읽지 않는다. 본문은 stderr로 넘긴다(`cli::hook`).
+            Event::SessionStart { .. } | Event::Stop => None,
+            Event::PreToolUse { .. } => Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": text,
-            } }),
-            Event::SessionStart { .. } => context("SessionStart", text),
-            Event::UserPromptSubmit => context("UserPromptSubmit", text),
-            Event::PostToolUse => context("PostToolUse", text),
-            Event::PostToolUseFailure => context("PostToolUseFailure", text),
-        })
+            } })),
+            Event::UserPromptSubmit => Some(context("UserPromptSubmit", text)),
+            Event::PostToolUse => Some(context("PostToolUse", text)),
+            Event::PostToolUseFailure => Some(context("PostToolUseFailure", text)),
+        }
     }
 }
 
@@ -240,12 +263,12 @@ mod tests {
             "tool_input": { "command": "npm test", "description": "테스트" }, "tool_use_id": "t1",
         }));
         assert!(matches!(&pre, Event::PreToolUse { tool_name, .. } if tool_name == "Bash"));
-        assert_eq!(pre.kinds(), [Kind::Interrupt]);
+        assert_eq!(pre.take(), Take::Now(&[Kind::Interrupt]));
         let stop = event(json!({ "hook_event_name": "Stop", "stop_hook_active": true }));
-        assert_eq!(stop.kinds(), Kind::ALL);
+        assert_eq!(stop.take(), Take::WhenIdle);
         assert_eq!(
-            event(json!({ "hook_event_name": "PostToolUse" })).kinds(),
-            [Kind::Steer]
+            event(json!({ "hook_event_name": "PostToolUse" })).take(),
+            Take::Now(&[Kind::Steer])
         );
     }
 
@@ -296,19 +319,6 @@ mod tests {
     }
 
     #[test]
-    fn stop_blocks_with_every_message() {
-        let stop = event(json!({ "hook_event_name": "Stop" }));
-        assert_eq!(stop.reply(&[]), None);
-        assert_eq!(
-            stop.reply(&[delivery(Kind::Queue, "a"), delivery(Kind::Steer, "b")]),
-            Some(json!({
-                "decision": "block",
-                "reason": "loom message #1 (from: 총괄, mode: queue)\na\n\nloom message #1 (from: 총괄, mode: steer)\nb",
-            }))
-        );
-    }
-
-    #[test]
     fn prompt_and_tool_results_get_context() {
         for (name, input) in [
             (
@@ -332,13 +342,13 @@ mod tests {
     }
 
     #[test]
-    fn session_start_reports_the_model_and_takes_nothing() {
+    fn session_start_reports_the_model_and_waits_for_mail() {
         let input = json!({
             "session_id": "17dde44e", "hook_event_name": "SessionStart",
             "source": "startup", "model": "claude-opus-5-5",
         });
         let start = event(input.clone());
-        assert_eq!(start.kinds(), [] as [Kind; 0]);
+        assert_eq!(start.take(), Take::WhenIdle);
         assert_eq!(
             reported_model(&start, &input),
             Some(Model {
@@ -409,6 +419,17 @@ mod tests {
                 "UserPromptSubmit"
             ]
         );
+        // 턴이 없는 지점만 비동기로 기다린다. 턴 안의 훅이 비동기면 거부·맥락을 넘기지 못한다.
+        for (name, idle) in [
+            ("SessionStart", true),
+            ("Stop", true),
+            ("UserPromptSubmit", false),
+            ("PreToolUse", false),
+        ] {
+            let hook = &settings["hooks"][name][0]["hooks"][0];
+            assert_eq!(hook["asyncRewake"] == true, idle, "{name}");
+            assert!(hook["timeout"].as_u64().unwrap() * 1000 < i32::MAX as u64);
+        }
         let allow = settings["permissions"]["allow"].as_array().unwrap();
         assert!(allow.contains(&json!(format!("Bash({GUARD})"))));
         assert!(allow.contains(&json!("Bash(loom wait)")));

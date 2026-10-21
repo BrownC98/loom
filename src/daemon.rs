@@ -1,6 +1,7 @@
 //! 조합 레이어: HTTP·WebSocket 라우트. 아래 기능 모듈을 부르고 결과를 엮기만 한다.
 //! 설정·계정·사용량 라우트는 `settings.rs`에 둔다.
 
+mod idle;
 mod origin;
 mod settings;
 
@@ -39,6 +40,7 @@ use crate::node_host::NodeHost;
 use crate::open;
 use crate::paste;
 use crate::process_tree;
+use crate::profile::claude;
 use crate::profile::codex::{self, Status};
 use crate::profile::opencode2;
 use crate::profile::{
@@ -65,6 +67,8 @@ struct App {
     opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
     /// 끝나지 않은 설정 스크립트 노드. 성공하면 출력이 있어도 지운다. 근거: docs/design.md 「저장소와 워크트리」.
     setups: Mutex<HashSet<NodeId>>,
+    /// 쉬는 Claude 노드마다 메시지를 기다리는 비동기 훅 하나.
+    idle: idle::IdleWaits,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     version_warnings: HashMap<Profile, VersionMismatch>,
     /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 비어 있다.
@@ -373,6 +377,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         codex: Mutex::default(),
         opencode2: Mutex::default(),
         setups: Mutex::default(),
+        idle: idle::IdleWaits::default(),
         version_warnings: profile::version_warnings(codex_version.as_deref()),
         codex_sandbox: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
@@ -393,6 +398,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/reply", post(agent_reply))
         .route("/api/agent/status", post(agent_status))
         .route("/api/agent/take", post(agent_take))
+        .route("/api/agent/idle", post(agent_idle))
         .route("/api/agent/ack", post(agent_ack))
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/model", post(agent_model))
@@ -767,6 +773,8 @@ impl App {
             }
             // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
             let _ = app.graph.exited(id, code);
+            // 종료를 적은 뒤 끝낸다. 남은 훅 프로세스가 다시 열면 `agent_idle`이 거절한다.
+            app.idle.end(id);
         }
     }
 
@@ -1259,8 +1267,29 @@ async fn agent_take(
     Json(req): Json<TakeRequest>,
 ) -> Result<Json<Vec<Delivery>>, AgentError> {
     let node = app.caller(&headers)?;
+    // 훅이 불렸으면 턴이 돈다. 일하는 중의 메시지는 그 훅들이 넘긴다.
+    app.idle.end(node);
     let taken = app.graph.take(node, &req.kinds, req.limit_bytes);
     Ok(Json(taken.map_err(for_agent)?))
+}
+
+/// 쉬는 Claude 노드의 비동기 훅이 부른다. 메시지가 오면 모두 꺼낸다(본문 합 상한은 훅과 같다).
+/// 같은 노드의 새 대기나 다른 훅이 오면 빈 목록으로 끝난다. 그 훅은 아무것도 넘기지 않고 끝난다.
+async fn agent_idle(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Delivery>>, AgentError> {
+    let node = app.caller(&headers)?;
+    // 프로세스 종료를 보기 전에 연다. 그 사이에 끝나면 `on_exit`가 이 대기를 끝낸다.
+    let end = app.idle.open(node);
+    if !app.graph.relations(node).map_err(for_agent)?.me.alive {
+        app.idle.end(node);
+        return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
+    }
+    tokio::select! {
+        taken = app.graph.next(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => Ok(Json(taken.map_err(for_agent)?)),
+        () = end.notified() => Ok(Json(Vec::new())),
+    }
 }
 
 async fn agent_ack(

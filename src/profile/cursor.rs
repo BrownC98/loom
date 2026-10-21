@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::Take;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Dialog, Place};
-use crate::skills::Position;
+use crate::skills::{AlwaysOn, Launch, Position};
 
 /// 훅이 알리지 않는 TUI 확인 창(2026.10.19 화면 문구). 폴더 신뢰·명령 승인·로그인·질문은 실측, 나머지는 번들 글이다.
 /// "Run this command"는 샌드박스 밖 실행 창("Run this command outside the sandbox?")도 맞춘다.
@@ -61,6 +61,8 @@ pub const DIALOGS: [Dialog; 8] = [
 
 /// 노드 프로세스에 넣는 시작 자리. 훅은 모든 노드가 같은 파일을 쓰므로 자리를 환경 변수로 받는다.
 pub const POSITION_ENV: &str = "LOOM_POSITION";
+/// 노드 프로세스에 넣는 스킬 스위치(`AlwaysOn` JSON). 같은 이유로 환경 변수다.
+pub const SKILLS_ENV: &str = "LOOM_SKILLS";
 /// Cursor는 훅 `additional_context` 한 개가 이 글자 수를 넘으면 버린다(실측 번들의 상한).
 /// 그래서 사용법과 상시 지시를 sessionStart 훅 둘로 나눈다. 부모 없는 노드의 상시 지시는 약 11,000자다.
 #[cfg(test)]
@@ -126,6 +128,18 @@ pub fn position_from(value: Option<&str>) -> Position {
     }
 }
 
+/// 스킬 스위치를 환경 변수 값으로.
+pub fn skills_value(skills: AlwaysOn) -> String {
+    serde_json::to_string(&skills).expect("스위치는 늘 직렬화된다")
+}
+
+/// 값이 없거나 읽지 못하면 모두 켜짐으로 본다. 이 변수 전에 뜬 노드가 그렇다.
+pub fn skills_from(value: Option<&str>) -> AlwaysOn {
+    value
+        .and_then(|v| serde_json::from_str(v).ok())
+        .unwrap_or_default()
+}
+
 /// 첫 sessionStart 훅의 글: 통신 명령과 Cursor 대기 방식.
 pub fn usage() -> String {
     format!(
@@ -135,8 +149,8 @@ pub fn usage() -> String {
 }
 
 /// 둘째 sessionStart 훅의 출력: 상시 지시.
-pub fn rules(position: Position) -> Value {
-    json!({ "additional_context": crate::skills::always_on(position) })
+pub fn rules(launch: Launch) -> Value {
+    json!({ "additional_context": crate::skills::always_on(launch) })
 }
 
 /// `--model` 시작 인자. Cursor 모델 id는 추론 강도를 이름 끝에 붙인다(`--list-models`, 예: `claude-opus-5-5-high`).
@@ -405,12 +419,28 @@ mod tests {
     fn each_session_start_context_fits() {
         assert!(usage().chars().count() <= CONTEXT_LIMIT_CHARS);
         for position in [Position::Root, Position::Child] {
-            let text = rules(position)["additional_context"]
+            let launch = Launch {
+                position,
+                skills: AlwaysOn::default(),
+            };
+            let text = rules(launch)["additional_context"]
                 .as_str()
                 .unwrap()
                 .to_owned();
             assert!(text.chars().count() <= CONTEXT_LIMIT_CHARS, "{position:?}");
         }
+    }
+
+    /// 이 변수 전에 뜬 노드(값 없음)는 모든 스킬을 받는다. 데몬이 쓴 값은 그대로 읽는다.
+    #[test]
+    fn skills_env_round_trips_and_defaults_to_all_on() {
+        assert_eq!(skills_from(None), AlwaysOn::default());
+        assert_eq!(skills_from(Some("x")), AlwaysOn::default());
+        let off = AlwaysOn {
+            o_mode: false,
+            ..AlwaysOn::default()
+        };
+        assert_eq!(skills_from(Some(&skills_value(off))), off);
     }
 
     #[test]

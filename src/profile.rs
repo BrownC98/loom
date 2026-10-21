@@ -19,7 +19,7 @@ use ts_rs::TS;
 
 use crate::graph::{Delivery, Kind, WaitKind};
 use crate::screen::{Dialog, Place};
-use crate::skills::Position;
+use crate::skills::Launch;
 
 /// 첫 지시문 상한. 근거: docs/design.md 「맥락과 크기」.
 pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
@@ -462,14 +462,14 @@ pub struct VersionMismatch {
 /// `remote`는 노드 TUI가 붙을 서버다. 서버를 쓰는 프로필(Codex, OpenCode 2)에만 쓴다.
 /// `bypass_off`에 없는 에이전트는 모든 권한 허용 인자(`bypass`)로 띄운다.
 /// `plugin`은 loom이 싣는 스킬 플러그인 폴더다. Claude·Cursor만 시작 인자로 받는다. 다른 프로필은 서버가 받는다.
-/// `position`은 상시 지시를 고른다(`skills::always_on`). Claude는 시작 인자로, Cursor는 훅이 읽는 환경 변수로 받는다.
+/// `launch`는 상시 지시를 고른다(`skills::always_on`). Claude는 시작 인자로, Cursor는 훅이 읽는 환경 변수로 받는다.
 pub fn command(
     start: &Start,
     cwd: &Path,
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
     plugin: &Path,
-    position: Position,
+    launch: Launch,
 ) -> Result<CommandBuilder, LaunchError> {
     let mut cmd = match start {
         Start::Agent {
@@ -485,7 +485,7 @@ pub fn command(
             remote,
             bypass_off,
             plugin,
-            position,
+            launch,
         )?,
         Start::Command { line } if line.trim().is_empty() => default_shell(cwd),
         Start::Command { line } => shell(line),
@@ -536,7 +536,7 @@ fn agent_command(
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
     plugin: &Path,
-    position: Position,
+    launch: Launch,
 ) -> Result<CommandBuilder, LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
     let choice_args = choice_args(agent, choice)?;
@@ -555,10 +555,14 @@ fn agent_command(
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
     match (agent.profile, remote) {
-        (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, position)),
+        (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, launch)),
         (Some(Profile::Cursor), _) => {
             cmd.args(cursor::args(plugin));
-            cmd.env(cursor::POSITION_ENV, cursor::position_value(position));
+            cmd.env(
+                cursor::POSITION_ENV,
+                cursor::position_value(launch.position),
+            );
+            cmd.env(cursor::SKILLS_ENV, cursor::skills_value(launch.skills));
         }
         (Some(Profile::Codex), Some(Remote::Codex { url })) => cmd.args(codex::args(url)),
         (

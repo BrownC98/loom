@@ -14,7 +14,7 @@ use serde_json::Value;
 use tokio::sync::watch;
 
 use crate::graph::{Delivery, Kind, Model};
-use crate::skills::Position;
+use crate::skills::Launch;
 
 use super::{Mailbox, VersionMismatch};
 use server::Server;
@@ -33,11 +33,11 @@ const PROMPT_RETRY_DELAY: Duration = Duration::from_secs(1);
 const CONFIG_ENV: &str = "OPENCODE_CONFIG_CONTENT";
 
 /// 세션 지시 항목(`instructions/entries/loom`). 모델이 모든 턴에 본다(실측).
-fn usage(position: Position) -> String {
+fn usage(launch: Launch) -> String {
     format!(
         "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages arrive as new input automatically. Do not run an unbounded loom wait.\n\n{}",
         super::COMMUNICATION_USAGE,
-        crate::skills::always_on(position)
+        crate::skills::always_on(launch)
     )
 }
 
@@ -102,7 +102,7 @@ impl Node {
         node_env: &[(&'static str, OsString)],
         skills: &Path,
         password: String,
-        position: Position,
+        launch: Launch,
     ) -> Result<Self, String> {
         let config = serde_json::json!({ "skills": [skills] }).to_string();
         let mut env = node_env.to_vec();
@@ -116,7 +116,7 @@ impl Node {
             }
         };
         if let Err(e) = server
-            .put_instructions(&session, "loom", &usage(position))
+            .put_instructions(&session, "loom", &usage(launch))
             .await
         {
             server.stop();

@@ -14,6 +14,7 @@ import type { TerminalFont } from "./TerminalFont";
 import type { TerminalTheme } from "./TerminalTheme";
 import type { Theme } from "./Theme";
 import type { TreeLimits } from "./TreeLimits";
+import type { UiColors } from "./UiColors";
 
 export type SettingsView = { 
 /**
@@ -62,6 +63,10 @@ osNotify: boolean,
  * 새 노드에 주는 내장 스킬. 옛 설정에는 없다. 없으면 모두 켜짐이다. 근거: docs/design.md 「내장 스킬」.
  */
 alwaysOn: AlwaysOn, 
+/**
+ * 사람이 고른 화면 색. 옛 설정에는 없다. 없으면 모든 색이 기본값이다. 근거: 목업 docs/mockups/color-settings.html v3.
+ */
+colors: UiColors, 
 /**
  * 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 여섯 칸은 옛 설정에 없다.
  * [정렬]과 나무 간선이 향하는 방향. 없으면 `Down`이다.

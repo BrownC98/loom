@@ -1,5 +1,5 @@
 //! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 그래프 범위, 간선 모양, 화면 언어,
-//! 워크스페이스 폴더, 노드 나무 상한. SQLite에 한 줄로 둔다.
+//! 워크스페이스 폴더, 노드 나무 상한, 화면 색. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
 use std::sync::Mutex;
@@ -57,6 +57,9 @@ pub struct SettingsView {
     /// 새 노드에 주는 내장 스킬. 옛 설정에는 없다. 없으면 모두 켜짐이다. 근거: docs/design.md 「내장 스킬」.
     #[serde(default)]
     pub always_on: AlwaysOn,
+    /// 사람이 고른 화면 색. 옛 설정에는 없다. 없으면 모든 색이 기본값이다. 근거: 목업 docs/mockups/color-settings.html v3.
+    #[serde(default)]
+    pub colors: UiColors,
     /// 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 여섯 칸은 옛 설정에 없다.
     /// [정렬]과 나무 간선이 향하는 방향. 없으면 `Down`이다.
     pub arrange_direction: ArrangeDirection,
@@ -166,6 +169,49 @@ pub enum EdgeStyle {
     #[default]
     Step,
     Curve,
+}
+
+/// 뜻마다 사람이 고른 색. `None`은 기본 색이다. 라이트·다크 색은 화면이 이 한 색에서 만든다(`web/src/uiColors.ts`).
+/// 칸 이름은 화면의 CSS 토큰(`web/src/styles.css`)과 짝이다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct UiColors {
+    /// 질문·응답 대기(`--warn`).
+    pub warn: Option<HexColor>,
+    /// 실행 중(`--run`).
+    pub run: Option<HexColor>,
+    /// 완료·성공(`--ok`).
+    pub ok: Option<HexColor>,
+    /// 오류(`--err`).
+    pub err: Option<HexColor>,
+    /// 관계선(`--edge`).
+    pub edge: Option<HexColor>,
+    /// 저장소 상자(`--repo-line`).
+    pub repo: Option<HexColor>,
+    /// 워크트리 묶음(`--group-line`).
+    pub worktree: Option<HexColor>,
+    /// 강조(`--accent`).
+    pub accent: Option<HexColor>,
+}
+
+/// `#rrggbb` 꼴의 색. 다른 꼴은 읽지 않는다. 그래서 틀린 색이 설정에 들어가지 않는다.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, TS)]
+#[ts(export, type = "string")]
+pub struct HexColor(String);
+
+impl<'de> Deserialize<'de> for HexColor {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        let hex = text.strip_prefix('#').unwrap_or("");
+        if hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            Ok(Self(text.to_ascii_lowercase()))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "색은 #rrggbb 꼴이다: {text}"
+            )))
+        }
+    }
 }
 
 /// 화면 테마. `System`은 OS 설정(`prefers-color-scheme`)을 따른다.
@@ -335,6 +381,7 @@ mod tests {
         assert_eq!(got.graph_scope, GraphScope::Repo);
         assert_eq!(got.language, Language::System);
         assert_eq!(got.always_on, AlwaysOn::default());
+        assert_eq!(got.colors, UiColors::default());
         assert_eq!(got.arrange_direction, ArrangeDirection::Down);
         assert!(!got.minimap_folded);
         assert_eq!(got.repo, None);
@@ -413,5 +460,26 @@ mod tests {
             Err(PatchProblem::Shape(_))
         ));
         assert!(settings.get().unwrap().minimap_folded);
+    }
+
+    /// 색은 `#rrggbb`만 받고, `null`은 그 색을 기본값으로 돌린다.
+    #[test]
+    fn colors_take_only_hex_and_null_resets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let got = settings
+            .patch(&serde_json::json!({"colors": {"warn": "#8B5CF6"}}))
+            .unwrap();
+        assert_eq!(got.colors.warn, Some(HexColor("#8b5cf6".into())));
+        for bad in ["purple", "#8b5cf", "8b5cf6", "#8b5cfg"] {
+            assert!(matches!(
+                settings.patch(&serde_json::json!({"colors": {"edge": bad}})),
+                Err(PatchProblem::Shape(_))
+            ));
+        }
+        let got = settings
+            .patch(&serde_json::json!({"colors": {"warn": null}}))
+            .unwrap();
+        assert_eq!(got.colors, UiColors::default());
     }
 }

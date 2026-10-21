@@ -6,7 +6,9 @@
 @font-face { font-family: 'Jetendard Latin'; src: url('./fonts/jetendard/Jetendard-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; unicode-range: U+0000-10FF, U+2000-2BFF; }
 
 /* 토큰 원천: docs/mockups/main.html :root(2026-10-19 승인). 값을 바꾸면 목업도 같은 커밋에서 바꾼다. */
-:root {
+/* 브라우저는 사용자 정의 속성 안의 light-dark()를 선언한 요소에서 정한다. 그래서 한 테마의 색을 보일 요소(설정 「색」의 견본)는
+   data-scheme을 달아 토큰을 다시 선언받는다. 고른 색(web/src/uiColors.ts)도 같은 선택자로 얹는다. */
+:root, [data-scheme] {
   color-scheme: light dark;
   /* 무채색(채도 0). 회색 값은 Orca 1.4 다크·라이트 토큰(shadcn neutral)이다. 근거와 출처는 docs/design.md의 「디자인 언어」 줄이다. */
   --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
@@ -16,8 +18,12 @@
   --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
   --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
   --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
-  /* 묶음·저장소 상자 테두리(docs/mockups/group-border.html B안). 그래프 바탕과 가장 안쪽 묶음 바탕에 대비 3:1 이상이다(WCAG 1.4.11). */
+  /* 워크트리 묶음(--group-line)·저장소 상자(--repo-line) 테두리(docs/mockups/group-border.html B안). 그래프 바탕과 가장 안쪽 묶음 바탕에 대비 3:1 이상이다(WCAG 1.4.11). */
+  /* 설정 「색」이 뜻마다 한 토큰을 바꾼다(web/src/uiColors.ts, 목업 docs/mockups/color-settings.html v3). 밝기 값을 바꾸면 uiColors.ts의 표도 바꾼다(uiColors.test.ts가 검사한다). */
   --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --repo-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  /* 노드 사이 관계선 */
+  --edge: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
   --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
   --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
   --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
@@ -49,6 +55,8 @@
 /* 「시스템」은 위 기본값(OS 설정)을 따른다. 데몬이 첫 페이지에 data-theme을 넣는다. */
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
+[data-scheme="light"] { color-scheme: light; }
+[data-scheme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; margin: 0; }
 html, body, #root { height: 100%; }
 /* 데스크톱 앱은 #root 맨 위에 제목 줄을 두고 .app이 남은 높이를 쓴다. 브라우저에서는 .app 하나다. */
@@ -275,7 +283,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 바탕은 글자색 3%를 겹친다. 안쪽 묶음일수록 겹이 쌓여 다크는 밝게, 라이트는 어둡게 보인다(group-border.html B안). */
 .group { width: 100%; height: 100%; border: 1.5px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
 /* 저장소 상자(모든 저장소 범위, 목업 repo-scope.html). 묶음보다 굵은 실선이다. 머리는 저장소 이름과 경로만 있고 단추가 없다. */
-.repo-box { width: 100%; height: 100%; border: 2px solid var(--group-line); border-radius: 14px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.repo-box { width: 100%; height: 100%; border: 2px solid var(--repo-line); border-radius: 14px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
 .react-flow__node.chosen > :is(.group, .repo-box) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 /* 높이는 Graph.tsx `REPO_HEAD`와 같다. 묶음 자리가 이 값에서 나온다. */
 .repo-head { box-sizing: border-box; height: 46px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--line); cursor: grab; }
@@ -378,7 +386,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .card[data-selected] .card-foot { color: var(--accent); }
 
 /* 간선: 부모-자식. 메시지가 오가면 잠깐 점선과 「메시지 N」을 보인다 */
-.react-flow__edge-path { stroke: var(--line-strong); stroke-width: 1.5; }
+.react-flow__edge-path { stroke: var(--edge); stroke-width: 1.5; }
 /* 고른 카드의 간선은 묶음 위에 진하게 그린다. */
 .react-flow__edge.sel .react-flow__edge-path { stroke: var(--ink-2); stroke-width: 2.25; }
 .react-flow__edge.live .react-flow__edge-path { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
@@ -654,6 +662,35 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .choice label, .tlist label { position: relative; }
 .choice svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .pane .switch { justify-self: start; }
+/* 설정 「색」(docs/mockups/color-settings.html v3). 색 칸은 왼쪽 반 라이트, 오른쪽 반 다크다. */
+.colors { display: grid; border: 1px solid var(--line); border-radius: var(--radius); }
+.crow { position: relative; display: grid; grid-template-columns: 28px 120px 70px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.crow:last-child { border-bottom: 0; }
+.crow .hex { font: 12px var(--mono); color: var(--ink-3); }
+.crow .use { min-width: 0; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw, .presets button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 6px; background: none; overflow: hidden; cursor: pointer; }
+.halves { display: grid; grid-template-columns: 1fr 1fr; width: 100%; height: 100%; }
+.presets { display: flex; gap: 6px; }
+.presets button[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+.color-pop { top: calc(100% - 2px); left: 0; }
+.color-pop h2 { display: flex; align-items: center; justify-content: space-between; }
+.hexrow { display: flex; gap: 6px; }
+.hexrow input.mono { flex: 1; min-width: 0; height: 26px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); font-size: 12px; }
+.hexrow input.mono[aria-invalid="true"] { border-color: var(--err); outline-color: var(--err); }
+/* 브라우저 색 창은 [직접 고르기]가 연다. 창이 버튼 근처에 뜨게 자리는 남기고 보이지 않게 둔다. */
+.hexrow input.native { width: 0; height: 0; padding: 0; border: 0; opacity: 0; }
+.schemes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.schemes > div { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 12px; }
+.schemes .sample { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.schemes .ratio { margin-left: auto; font: 11px var(--mono); color: var(--ink-3); }
+.pop-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.color-preview { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.color-preview .pill { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--warn); border-radius: 14px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); font-size: 12px; }
+.color-preview .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.color-preview .mini { display: inline-flex; padding: 4px; border: 2px solid var(--repo-line); border-radius: 8px; }
+.color-preview .mini .g { display: inline-flex; align-items: center; padding: 4px; border: 1.5px solid var(--group-line); border-radius: 6px; }
+.color-preview .mini .c { width: 22px; height: 14px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--term); }
+.color-preview .mini .e { width: 14px; height: 2px; background: var(--edge); }
 .tpick { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; border: 0; padding: 0; min-width: 0; }
 .tpick:disabled { opacity: 0.5; }
 .tpick:disabled .tlist { pointer-events: none; }

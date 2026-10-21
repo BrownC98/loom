@@ -12,6 +12,7 @@ import type { Theme } from './gen/Theme';
 import { activeFont, DEFAULT_TERMINAL_FONT, FONT_SIZE_RANGE } from './Terminal';
 import { chosenTheme, DEFAULT_TERMINAL_THEME, RESET_TERMINAL_THEME, TERMINAL_THEMES, type TerminalThemeName } from './terminalThemes';
 import { requestNotifyPermission } from './Inbox';
+import { ColorsSection } from './ColorSettings';
 
 type TabProps = { settings: SettingsView; onSettings: (next: SettingsView) => void };
 
@@ -45,7 +46,7 @@ export function CardViewSwitch(props: { value: CardView; onChange: (value: CardV
   );
 }
 
-/** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html, repo-scope.html): 화면 테마, 카드 보기, 그래프 범위, 간선 모양, 언어. 언어 이름은 번역하지 않는다. */
+/** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html, repo-scope.html, color-settings.html): 화면 테마, 색, 카드 보기, 그래프 범위, 간선 모양, 언어. 언어 이름은 번역하지 않는다. */
 /** 시스템 알림(목업 docs/mockups/human-question.html ⑥). 켤 때만 브라우저 허용을 묻는다. 막히면 꺼진 채로 둔다. */
 function OsNotifySection({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
@@ -84,6 +85,7 @@ export function UiTab({ settings, onSettings }: TabProps) {
         </div>
         <span className="hint">{t('theme.systemHint')}</span>
       </section>
+      <ColorsSection colors={settings.colors} onColors={(colors) => onSettings({ ...settings, colors })} />
       <section>
         <h4>{t('cardView.heading')}</h4>
         <CardViewSwitch value={settings.cardView} onChange={(cardView) => onSettings({ ...settings, cardView })} />

@@ -253,10 +253,15 @@ export function centerSide(dragged: Box, box: Box): CenterSide {
   return { x: apartX ? Math.sign(d.x - o.x) : 0, y: apartY ? Math.sign(d.y - o.y) : 0 };
 }
 
-/** 사람 결정(2026-10-21) "밀려나는 타이밍은 사람이 드래그 잡은게 중앙선 넘엇을경우". 겹치기 전 쪽(`before`)의 중심선에 끄는 상자 중심이 닿거나 넘었다. */
+/**
+ * 사람 결정(2026-10-21) "밀려나는 타이밍은 사람이 드래그 잡은게 중앙선 넘엇을경우". 겹치기 전 쪽(`before`)의 중심선에 끄는 상자의 앞 변(그 쪽에서 먼 변)이 닿거나 넘었다.
+ * 상자 중심으로 세면 큰 묶음은 형제를 거의 다 덮어야 넘어 비키지 않았다(사람 "묶음을 드래그할때는 터미널처럼 서로 포지션이 바뀌는 동작이 안일어남").
+ * 앞 변으로 세면 끄는 상자 크기와 잡은 자리에 상관없이 형제의 절반을 덮을 때 비킨다. 카드·묶음·저장소 상자가 같다.
+ */
 export function crossed(before: CenterSide, dragged: Box, box: Box): boolean {
-  const [d, o] = [center(dragged), center(box)];
-  return (before.x !== 0 && Math.sign(d.x - o.x) !== before.x) || (before.y !== 0 && Math.sign(d.y - o.y) !== before.y);
+  const o = center(box);
+  const lead = { x: before.x < 0 ? dragged.at.x + dragged.size.width : dragged.at.x, y: before.y < 0 ? dragged.at.y + dragged.size.height : dragged.at.y };
+  return (before.x !== 0 && Math.sign(lead.x - o.x) !== before.x) || (before.y !== 0 && Math.sign(lead.y - o.y) !== before.y);
 }
 
 /** 자리를 저장하지 않은 새 상자의 자리. `box`가 `others`와 겹치면 겹치지 않을 때까지 겹친 상자 오른쪽으로 `gap`을 두고 옮긴다. */

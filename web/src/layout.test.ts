@@ -265,11 +265,33 @@ describe('push (people decision 2026-10-21, mockup v4 ②)', () => {
 });
 
 describe('crossed', () => {
-  it('changes when the dragged center passes the center line it came toward', () => {
+  it('changes when the leading edge passes the center line it came toward', () => {
     const other = box(150, 0);
     const before = centerSide(box(0, 0), other);
-    expect(crossed(before, box(90, 0), other)).toBe(false);
-    expect(crossed(before, box(160, 0), other)).toBe(true);
+    expect(crossed(before, box(99, 0), other)).toBe(false);
+    expect(crossed(before, box(100, 0), other)).toBe(true);
+  });
+
+  it('coming from the right counts the left edge', () => {
+    const other = box(0, 0);
+    const before = centerSide(box(150, 0), other);
+    expect(crossed(before, box(51, 0), other)).toBe(false);
+    expect(crossed(before, box(50, 0), other)).toBe(true);
+  });
+
+  it('a big group swaps when it covers half of a small sibling, not only when its center passes (repro: a 640 wide group over a 279 wide one)', () => {
+    // 사람 "묶음을 드래그할때는 터미널처럼 서로 포지션이 바뀌는 동작이 안일어남". 중심으로 세면 x 520까지 끌어야 했다.
+    const other = box(700, 0, 279, 238);
+    const before = centerSide(box(0, 0, 640, 517), other);
+    expect(crossed(before, box(199, 0, 640, 517), other)).toBe(false);
+    expect(crossed(before, box(200, 0, 640, 517), other)).toBe(true);
+  });
+
+  it('a small group over a big sibling follows the same rule', () => {
+    const other = box(300, 0, 640, 517);
+    const before = centerSide(box(0, 0, 279, 238), other);
+    expect(crossed(before, box(340, 0, 279, 238), other)).toBe(false);
+    expect(crossed(before, box(341, 0, 279, 238), other)).toBe(true);
   });
 
   it('a 1px jitter across the other center line does not count (repro: two same-height groups in one row)', () => {
@@ -284,8 +306,8 @@ describe('crossed', () => {
   it('coming from a corner counts both lines', () => {
     const other = box(100, 100);
     const before = centerSide(box(0, 0), other);
-    expect(crossed(before, box(50, 60), other)).toBe(false);
-    expect(crossed(before, box(50, 110), other)).toBe(true);
+    expect(crossed(before, box(40, 60), other)).toBe(false);
+    expect(crossed(before, box(40, 80), other)).toBe(true);
   });
 });
 

@@ -5,7 +5,7 @@ import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
-import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
+import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
 import { useOutsideClose } from './popover';
 import { VERSION } from './version';
@@ -59,6 +59,8 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
                 <span>{t('statusBar.loading')}</span>
               ) : a.usage.limits.kind === 'needsLogin' ? (
                 <span>{t('statusBar.loginToSee')}</span>
+              ) : notInstalled(a) ? (
+                <span>{t('accounts.notInstalled')}</span>
               ) : (
                 <>
                   <span className="acct-name">{accountName(a)}</span>

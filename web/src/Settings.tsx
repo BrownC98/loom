@@ -14,7 +14,7 @@ import type { Usage } from './StatusBar';
 import { Terminal } from './Terminal';
 import { TerminalTab, UiTab } from './ThemeSettings';
 import { WorkspaceTab } from './WorkspaceSettings';
-import { accountName, activeAccount, fetchedText, limitsProblem, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines, withAccount } from './usage';
+import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines, withAccount } from './usage';
 
 /** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
 export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal'] as const;
@@ -334,11 +334,6 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
       )}
     </>
   );
-}
-
-/** 그 계정의 CLI가 `PATH`에 없다. */
-function notInstalled(a: AccountView): boolean {
-  return a.usage.limits.kind === 'failed' && a.usage.limits.problem.code === 'notInstalled';
 }
 
 /** CLI 로그인을 띄운 터미널. 로그인이 끝나면 닫힌다. 취소하면 데몬이 새로 만든 폴더를 지운다. */

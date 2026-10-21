@@ -346,7 +346,8 @@ impl Graph {
     }
 
     /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 부모가 없으면 보관한다.
-    pub fn done(&self, node: NodeId, summary: &str) -> Result<(), Refusal> {
+    /// 돌려준 값은 프로세스가 아직 사는 자식 이름이다. 거절하지 않는다. 회수하지 않은 자식이 고아로 남지 않게 부르는 쪽이 알린다.
+    pub fn done(&self, node: NodeId, summary: &str) -> Result<Vec<String>, Refusal> {
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
         }
@@ -364,13 +365,17 @@ impl Graph {
             },
         )?;
         enqueue(&tx, node, parent, Kind::Queue, &format!("done: {summary}"))?;
+        let alive_children = tx
+            .prepare("SELECT name FROM nodes WHERE parent = ?1 AND process_exited = 0 ORDER BY id")?
+            .query_map([node.0], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
         tx.commit()?;
         self.publish_node(&db, node)?;
         if let Some(parent) = parent {
             self.publish_node(&db, parent)?;
             self.publish_message(node, Toward::Parent);
         }
-        Ok(())
+        Ok(alive_children)
     }
 }
 
@@ -441,7 +446,7 @@ fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
     })
 }
 
-fn recipient(
+pub(super) fn recipient(
     db: &Connection,
     from: NodeId,
     to: &str,

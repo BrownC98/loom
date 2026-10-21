@@ -286,6 +286,8 @@ const ko: typeof en = {
       mailboxFull_nameless: '메일함이 가득 찼습니다. 받는 노드가 `loom wait`로 읽은 뒤 다시 보내십시오.',
       notRelated: '{{value}}: 부모나 자식 노드가 아닙니다. 메시지는 부모와 자식 사이에만 보낼 수 있습니다.',
       notRelated_nameless: '부모나 자식 노드가 아닙니다. 메시지는 부모와 자식 사이에만 보낼 수 있습니다.',
+      notChild: '{{value}}: 자식 노드가 아닙니다. 자기 자식만 지울 수 있습니다.',
+      childrenStay: '{{value}}. 이 자식들을 데려올 수 없어 아무것도 바꾸지 않았습니다.',
       ended: '{{value}}: 이미 종료된 노드입니다.',
       ended_nameless: '이미 종료된 노드입니다.',
       alreadyDone: '이 노드는 이미 done 상태입니다.',

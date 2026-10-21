@@ -507,6 +507,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
 - loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
+- loom rm <name-or-id>: remove your own child and end its process. Its children become your children; reclaim them next.
 Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
 Messages begin with loom message and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
 

@@ -324,6 +324,12 @@ pub struct AdoptRequest {
     pub name: String,
 }
 
+/// `loom rm`의 요청. 부르는 노드가 자기 자식 `name`(이름이나 `#번호`)을 지운다.
+#[derive(Serialize, Deserialize)]
+pub struct RemoveRequest {
+    pub name: String,
+}
+
 /// `loom done`의 요청. `summary`는 요약이나 결과 파일 경로다.
 #[derive(Serialize, Deserialize)]
 pub struct DoneRequest {
@@ -413,7 +419,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/model", post(agent_model))
         .route("/api/agent/done", post(agent_done))
-        .route("/api/agent/adopt", post(agent_adopt));
+        .route("/api/agent/adopt", post(agent_adopt))
+        .route("/api/agent/rm", post(agent_remove));
     let router = node_routes
         .clone()
         .route("/api/repos", get(list_repos).post(add_repo))
@@ -1384,10 +1391,9 @@ async fn agent_done(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<DoneRequest>,
-) -> Result<Json<()>, AgentError> {
+) -> Result<Json<Vec<String>>, AgentError> {
     let node = app.caller(&headers)?;
-    app.graph.done(node, &req.summary).map_err(for_agent)?;
-    Ok(Json(()))
+    Ok(Json(app.graph.done(node, &req.summary).map_err(for_agent)?))
 }
 
 async fn agent_adopt(
@@ -1400,6 +1406,22 @@ async fn agent_adopt(
     let limits = app.tree_limits().map_err(for_agent)?;
     app.graph.adopt(parent, child, limits).map_err(for_agent)?;
     Ok(Json(()))
+}
+
+/// 사람의 [노드 제거]와 같이 프로세스를 끝낸다. 지운 노드의 자식은 부르는 노드가 데려간다. 돌려준 값은 데려간 노드 이름이다.
+async fn agent_remove(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<RemoveRequest>,
+) -> Result<Json<Vec<String>>, AgentError> {
+    let caller = app.caller(&headers)?;
+    let limits = app.tree_limits().map_err(for_agent)?;
+    let (removed, moved) = app
+        .graph
+        .remove_child(caller, &req.name, limits)
+        .map_err(for_agent)?;
+    app.host.kill(removed);
+    Ok(Json(moved))
 }
 
 async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<App>>) -> Response {

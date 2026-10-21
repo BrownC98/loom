@@ -1518,3 +1518,85 @@ fn a_node_does_not_enter_a_repo_outside_the_list() {
     );
     assert!(g.subscribe().unwrap().0.is_empty());
 }
+
+#[test]
+fn remove_child_refuses_nodes_that_are_not_my_children() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    let b = child(&g, lead, "b");
+
+    assert!(
+        matches!(g.remove_child(a, "총괄-1", TreeLimits::default()), Err(Refusal::NotChild(n)) if n == "총괄-1")
+    );
+    assert!(matches!(
+        g.remove_child(a, "b", TreeLimits::default()),
+        Err(Refusal::NotRelated(_))
+    ));
+    assert_eq!(view(&g, b).parent, Some(lead));
+    assert_eq!(view(&g, lead).parent, None);
+}
+
+#[test]
+fn remove_child_moves_grandchildren_to_the_caller() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let coord = child(&g, lead, "코디");
+    let worker = child(&g, coord, "워커");
+    g.send(worker, "코디", Kind::Queue, "결과").unwrap();
+
+    let (removed, moved) = g
+        .remove_child(lead, &format!("#{}", coord.0), TreeLimits::default())
+        .unwrap();
+
+    assert_eq!(removed, coord);
+    assert_eq!(moved, ["워커"]);
+    assert!(g.find("코디").is_err());
+    assert_eq!(view(&g, worker).parent, Some(lead));
+    // 지운 노드에게 가던 메시지는 새 부모가 보낸 순서대로 받는다.
+    assert_eq!(take(&g, lead), delivery("워커", "결과"));
+    assert_eq!(take(&g, lead), delivery("코디", "removed"));
+    assert_eq!(
+        take(&g, worker).map(|(_, _, body)| body),
+        Some(format!(
+            "parent: 총괄-1 (#{}). Use loom status to inspect current relationships.",
+            lead.0
+        ))
+    );
+}
+
+#[test]
+fn remove_child_changes_nothing_when_a_grandchild_cannot_move() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let coord = child(&g, lead, "코디");
+    child(&g, coord, "w1");
+    let w2 = child(&g, coord, "w2");
+    let one_child = TreeLimits {
+        max_children: Some(1),
+        ..TreeLimits::default()
+    };
+
+    let refused = g.remove_child(lead, "코디", one_child).unwrap_err();
+
+    assert!(matches!(&refused, Refusal::ChildrenStay(list) if list.starts_with("코디: w2 (")));
+    assert_eq!(view(&g, coord).parent, Some(lead));
+    assert_eq!(view(&g, w2).parent, Some(coord));
+    assert_eq!(take(&g, lead), None);
+}
+
+#[test]
+fn done_returns_children_whose_process_still_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let coord = child(&g, lead, "코디");
+    let ended = child(&g, coord, "끝난워커");
+    child(&g, coord, "워커");
+    g.exited(ended, 0).unwrap();
+
+    assert_eq!(g.done(coord, "요약").unwrap(), ["워커"]);
+}

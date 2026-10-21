@@ -163,6 +163,16 @@ const STEPS: &[M] = &[
     M::up("ALTER TABLE nodes ADD COLUMN bookmark INTEGER;"),
     // 22: 사람 응답 대기(graph `waits`). serde JSON `Stored`(종류, 한 줄, 시작 시각, 신호)이고 대기가 없으면 NULL이다.
     M::up("ALTER TABLE nodes ADD COLUMN wait TEXT;"),
+    // 23: 대기 번호(graph `waits`, 사람이 `Q12`로 부른다). `wait_ids`는 번호만 내주고 줄은 바로 지운다. AUTOINCREMENT라 번호를 다시 쓰지 않는다.
+    // 이미 열린 대기는 노드 번호를 대기 번호로 받고, 다음 번호는 그 뒤부터다. `loom ask` 대기는 화면에서 답할 수 있다.
+    M::up(
+        "CREATE TABLE wait_ids (id INTEGER PRIMARY KEY AUTOINCREMENT);
+        UPDATE nodes SET wait = json_set(wait, '$.id', id,
+            '$.answerable', json(CASE json_extract(wait, '$.source') WHEN 'ask' THEN 'true' ELSE 'false' END),
+            '$.doc', json('null'))
+            WHERE wait IS NOT NULL;
+        INSERT INTO sqlite_sequence (name, seq) VALUES ('wait_ids', (SELECT ifnull(max(id), 0) FROM nodes));",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -239,6 +249,32 @@ mod tests {
     #[test]
     fn migrations_are_valid() {
         super::MIGRATIONS.validate().unwrap();
+    }
+
+    /// 열린 대기는 노드 번호를 대기 번호로 받고, 새 번호는 그 뒤부터다. `loom ask` 대기만 화면에서 답할 수 있다.
+    #[test]
+    fn step_23_numbers_open_waits_and_continues_after_them() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 22).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO nodes (id, name, agent, state, wait) VALUES
+            (4, 'a', 'null', '{}', '{"kind":"question","text":"A?","since":1,"source":"ask"}'),
+            (9, 'b', 'null', '{}', '{"kind":"trust","text":"","since":1,"source":"screen"}'),
+            (10, 'c', 'null', '{}', NULL);"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let waits = conn
+            .prepare("SELECT wait ->> 'id', wait ->> 'answerable' FROM nodes WHERE wait IS NOT NULL ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(waits, [(4, true), (9, false)]);
+        conn.execute("INSERT INTO wait_ids DEFAULT VALUES", [])
+            .unwrap();
+        assert_eq!(conn.last_insert_rowid(), 11);
     }
 
     /// 앞 묶음 자리는 저장소 기준이라 지운다. 카드 자리와 정렬한 저장소는 남긴다.

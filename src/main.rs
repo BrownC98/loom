@@ -121,15 +121,20 @@ enum Cli {
         #[arg(long, conflicts_with = "summary")]
         file: Option<PathBuf>,
     },
-    /// 사람에게 질문 한 줄을 묻는다. 받은편지함에 뜨고, 사람은 이 노드 터미널에 답한다. 사람이 띄운 노드만 쓴다.
-    Ask { question: String },
+    /// 사람에게 질문 한 줄을 묻는다. 받은편지함에 번호(`Q12`)와 함께 뜨고, 사람은 이 노드 터미널이나 받은편지함에서 답한다. 사람이 띄운 노드만 쓴다.
+    Ask {
+        question: String,
+        /// 질문에 붙일 user-doc 문서(목업·보고서 HTML). 사람은 질문 줄의 링크로 연다.
+        #[arg(long)]
+        doc: Option<PathBuf>,
+    },
     /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다.
     Answered,
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
     /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
     Rm { name: String },
-    /// user-doc 문서(HTML)를 점검하고 문서 ID를 붙여 기본 브라우저로 연다.
+    /// user-doc 문서(HTML)를 점검하고 문서 ID를 붙인다. 브라우저는 열지 않는다. 사람에게는 `loom ask --doc`으로 보인다.
     Show { file: PathBuf },
     /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
     Hook,
@@ -187,7 +192,7 @@ fn main() -> ExitCode {
         Cli::Status { all: false } => cli::status(),
         Cli::Status { all: true } => cli::directory(),
         Cli::Done { summary, file } => cli::done(summary, file),
-        Cli::Ask { question } => cli::ask(question),
+        Cli::Ask { question, doc } => cli::ask(question, doc),
         Cli::Answered => cli::answered(),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),

@@ -1,27 +1,40 @@
-//! `loom show`: user-doc 스킬의 문서를 점검하고, 문서 ID를 붙이고, 그 기계의 기본 앱으로 연다.
-//! bash가 없는 Windows 노드에서도 같은 일을 하도록 Rust에 둔다. 렌더 그림과 창 확인은 `show.sh`가 한다.
+//! `loom show`와 `loom ask --doc`: user-doc 스킬의 문서를 점검하고 문서 ID를 붙인다. 사람의 브라우저는 열지 않는다.
+//! 사람은 질문 줄의 문서 링크로 연다(2026-10-21 사람 지시 "목업이나 보고서 승인도 질문탭에 링크로 달아두는 식으루 구현하라, 직접 브라우저에 띄우지 말고").
+//! bash가 없는 Windows 노드에서도 같은 일을 하도록 Rust에 둔다. 렌더 그림은 `show.sh`가 한다.
 //! 근거: skills/user-doc/SKILL.md 「보이기」.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::open;
+use crate::graph::{Attached, WaitDoc};
 
 /// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
 
 pub fn show(path: &Path) -> Result<(), String> {
-    let doc = real_path(path)?;
-    let html = fs::read_to_string(&doc).map_err(|e| format!("{}: {e}", doc.display()))?;
-    check(&html)?;
-    let id = doc_id(&doc)?;
-    fs::write(&doc, stamp(&html, &id)).map_err(|e| e.to_string())?;
-    println!("show: 문서 ID {id}");
-    open::open(&doc).map_err(|e| e.to_string())?;
-    println!("show: 열었다: {}", doc.display());
+    let Attached { doc, path } = attach(path)?;
+    println!("show: 문서 ID {} ({})", doc.id, doc.title);
+    println!(
+        "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
+        path.display()
+    );
     Ok(())
+}
+
+/// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
+pub fn attach(path: &Path) -> Result<Attached, String> {
+    let path = real_path(path)?;
+    let html = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    check(&html)?;
+    let id = doc_id(&path)?;
+    let title = bare_title(title(&html).unwrap_or_default()).to_owned();
+    fs::write(&path, stamp(&html, &id)).map_err(|e| e.to_string())?;
+    Ok(Attached {
+        doc: WaitDoc { id, title },
+        path,
+    })
 }
 
 /// 같은 문서가 언제나 같은 표 열쇠를 갖게 링크를 푼다. Windows의 `\\?\C:\…`는 앱이 못 읽으므로 `C:\…`로 둔다.
@@ -66,6 +79,19 @@ fn title(html: &str) -> Option<&str> {
     let start = html.find("<title>")? + "<title>".len();
     let len = html[start..].find('<').unwrap_or(html.len() - start);
     Some(&html[start..start + len])
+}
+
+/// 앞에 붙은 문서 ID(`M3 `, `R12 `)를 모두 뗀 제목. 다른 HOME의 ID 표에서 붙은 ID도 뗀다. 화면은 ID를 따로 보인다.
+fn bare_title(title: &str) -> &str {
+    let mut bare = title;
+    while let Some(rest) = bare.strip_prefix(['M', 'R']) {
+        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        match rest[digits..].strip_prefix(' ') {
+            Some(next) if digits > 0 => bare = next,
+            _ => break,
+        }
+    }
+    bare
 }
 
 /// 사람이 어느 문서에 답하는지 짧게 말하게 한다. 같은 경로는 판이 바뀌어도 같은 ID다.
@@ -115,9 +141,9 @@ fn stamp(html: &str, id: &str) -> String {
         }
         None => html.replacen(WHO, &format!("{WHO}{tag}"), 1),
     };
-    if let Some(old) = title(&out).filter(|t| !t.starts_with(&format!("{id} "))) {
-        let old = format!("<title>{old}");
-        out = out.replacen(&old, &format!("<title>{id} {}", &old["<title>".len()..]), 1);
+    if let Some(old) = title(&out).map(str::to_owned) {
+        let new = format!("<title>{id} {}", bare_title(&old));
+        out = out.replacen(&format!("<title>{old}"), &new, 1);
     }
     out
 }
@@ -137,7 +163,19 @@ mod tests {
             r#"<div class="who"><span class="doc-id">문서 ID: <b>M3</b></span>응답할 곳"#
         ));
         assert_eq!(stamp(&once, "M3"), once);
+        // 다른 ID 표에서 붙은 ID는 바꾼다.
+        assert!(stamp(&once, "M7").contains("<title>M7 문서</title>"));
         assert!(check(&once).is_ok());
+    }
+
+    #[test]
+    fn bare_title_drops_only_a_leading_doc_id() {
+        assert_eq!(bare_title("M25 질문 목업"), "질문 목업");
+        assert_eq!(bare_title("R3 보고서"), "보고서");
+        assert_eq!(bare_title("M1 M25 질문 목업"), "질문 목업");
+        assert_eq!(bare_title("Mockup of M25"), "Mockup of M25");
+        assert_eq!(bare_title("M 목업"), "M 목업");
+        assert_eq!(bare_title("목업"), "목업");
     }
 
     #[test]

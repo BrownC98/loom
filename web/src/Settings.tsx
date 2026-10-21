@@ -1,4 +1,4 @@
-import { Plus, RotateCw } from 'lucide-react';
+import { Plus, Power, RotateCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { closeLogin, getLogin, loginPty, logoutSystem, removeAccount, startLogin } from './api';
@@ -38,6 +38,8 @@ export function Settings(props: {
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
   updates: Updates;
+  /** 웹 버전만 준다. 데스크톱 앱은 창을 닫으면 꺼진다(목업 web-stop.html ①). */
+  onStop?: () => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -49,6 +51,12 @@ export function Settings(props: {
             {t(`settings.tab.${tab}`)}
           </button>
         ))}
+        {props.onStop && (
+          <button className="btn ghost stop" title={t('settings.stopHint')} onClick={props.onStop}>
+            <Power />
+            {t('settings.stop')}
+          </button>
+        )}
       </nav>
       <div className="pane">
         <div className="pane-head">

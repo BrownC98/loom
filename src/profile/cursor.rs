@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model, WaitKind};
+use crate::graph::{Delivery, Kind, Model, OpenQuestion, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::{AlwaysOn, Launch, Position};
 
@@ -222,7 +222,7 @@ impl Event {
         &self,
         taken: &[Delivery],
         queued_from: &[String],
-        open_question: Option<&str>,
+        open_question: Option<&OpenQuestion>,
     ) -> Value {
         let Some(text) = super::hook_text(taken, queued_from, open_question) else {
             return match self {

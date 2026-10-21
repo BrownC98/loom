@@ -38,7 +38,8 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
-    NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitKind, WaitSource,
+    NodeId, OpenQuestion, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc,
+    WaitId, WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -57,6 +58,7 @@ use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
 use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
 use crate::update::{UpdateView, Updater};
+use crate::user_doc;
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
 #[derive(Embed)]
@@ -331,7 +333,7 @@ pub struct Taken {
     pub queued_from: Vec<String>,
     /// 사람 입력 훅에서만: 아직 열린 `loom ask` 질문. 에이전트가 그 입력이 답인지 판단한다.
     #[serde(default)]
-    pub open_question: Option<String>,
+    pub open_question: Option<OpenQuestion>,
 }
 
 /// 쉬는 노드의 훅 요청(`loom hook`, `loom cursor-hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
@@ -372,6 +374,23 @@ pub struct RemoveRequest {
 #[derive(Serialize, Deserialize)]
 pub struct AskRequest {
     pub question: String,
+    /// `--doc`: 질문에 붙일 user-doc 문서의 절대 경로.
+    #[serde(default)]
+    pub doc: Option<PathBuf>,
+}
+
+/// `loom ask`의 답: 질문 번호와 붙은 문서.
+#[derive(Serialize, Deserialize)]
+pub struct Asked {
+    pub id: WaitId,
+    pub doc: Option<WaitDoc>,
+}
+
+/// 사람이 화면에서 `loom ask` 질문에 쓴 답.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct AnswerWait {
+    pub text: String,
 }
 
 /// 에이전트 답 글(Claude 기록 파일의 마지막 답, Cursor `afterAgentResponse`). 턴 끝 질문 검사가 쓴다.
@@ -533,6 +552,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             put(bookmark_node).delete(unbookmark_node),
         )
         .route("/api/nodes/{id}/wait", delete(dismiss_wait))
+        .route("/api/waits/{wait}/answer", post(answer_wait))
+        .route("/api/waits/{wait}/doc", post(open_wait_doc))
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
             "/api/pastes/{name}",
@@ -1535,6 +1556,27 @@ async fn dismiss_wait(
     Ok(Json(()))
 }
 
+/// 사람이 화면에서 `loom ask` 질문에 답했다. 답은 사람이 보낸 메시지로 그 노드에 간다.
+async fn answer_wait(
+    State(app): State<Arc<App>>,
+    Path(wait): Path<u32>,
+    Json(req): Json<AnswerWait>,
+) -> Result<Json<()>, Problem> {
+    app.graph.answer(WaitId(wait), &req.text)?;
+    Ok(Json(()))
+}
+
+/// 사람이 질문 줄의 문서 링크를 눌렀다. 데몬이 그 기계의 기본 앱(브라우저)으로 연다. 화면이 브라우저든 데스크톱 앱이든 같다.
+/// 열린 질문에 붙은 문서만 연다. 파일을 매번 새로 열므로 새 판이 보인다.
+async fn open_wait_doc(
+    State(app): State<Arc<App>>,
+    Path(wait): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    let path = app.graph.wait_doc(WaitId(wait))?;
+    open::open(&path).map_err(internal)?;
+    Ok(Json(()))
+}
+
 async fn agent_spawn(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -1818,10 +1860,20 @@ async fn agent_ask(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<AskRequest>,
-) -> Result<Json<()>, AgentError> {
+) -> Result<Json<Asked>, AgentError> {
     let node = app.caller(&headers)?;
-    app.graph.ask(node, &req.question).map_err(for_agent)?;
-    Ok(Json(()))
+    let attached = req
+        .doc
+        .as_deref()
+        .map(user_doc::attach)
+        .transpose()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let doc = attached.as_ref().map(|a| a.doc.clone());
+    let id = app
+        .graph
+        .ask(node, &req.question, attached)
+        .map_err(for_agent)?;
+    Ok(Json(Asked { id, doc }))
 }
 
 /// `loom answered`: 사람의 입력이 `loom ask` 질문의 답이라고 에이전트가 판단했다. 그 질문만 지운다. 다른 대기와 부모 있는 노드에는 할 일이 없다.

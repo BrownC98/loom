@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model, WaitKind};
+use crate::graph::{Delivery, Kind, Model, OpenQuestion, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::Launch;
 
@@ -237,7 +237,7 @@ impl Event {
         &self,
         taken: &[Delivery],
         queued_from: &[String],
-        open_question: Option<&str>,
+        open_question: Option<&OpenQuestion>,
     ) -> Option<Value> {
         let Some(text) = super::hook_text(taken, queued_from, open_question) else {
             return match self {
@@ -349,6 +349,7 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::WaitId;
 
     #[test]
     fn launch_text_has_the_ask_rules() {
@@ -510,11 +511,15 @@ mod tests {
     fn human_input_gets_the_open_question_line() {
         let prompt = event(json!({ "hook_event_name": "UserPromptSubmit" }));
         assert_eq!(prompt.reply(&[], &[], None), None);
-        let reply = prompt.reply(&[], &[], Some("A or B?")).unwrap();
+        let question = OpenQuestion {
+            id: WaitId(12),
+            text: "A or B?".into(),
+        };
+        let reply = prompt.reply(&[], &[], Some(&question)).unwrap();
         let text = reply["hookSpecificOutput"]["additionalContext"]
             .as_str()
             .unwrap();
-        assert!(text.starts_with("Open loom ask question: A or B?. If this input answers it, call loom answered first"), "{text}");
+        assert!(text.starts_with("Open loom ask question Q12: A or B?. If this input answers it, call loom answered first"), "{text}");
     }
 
     #[test]

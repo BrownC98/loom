@@ -11,8 +11,8 @@ use ts_rs::TS;
 
 use super::events::{self, Entry, Step};
 use super::{
-    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward, ambiguous,
-    from_json, parent_of, set_state, state_of, to_json,
+    Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward,
+    ambiguous, from_json, parent_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -450,6 +450,28 @@ pub(super) fn enqueue(
         from: events::who(db, from)?,
         to: to.map(|to| events::who(db, to)).transpose()?,
         step: if to.is_some() { Step::Sent } else { Step::Held },
+    };
+    events::write(db, &entry, Some(id))?;
+    Ok(id)
+}
+
+/// 사람이 화면에서 `loom ask` 질문에 답한 큐 메시지(`Graph::answer`). 보낸 노드가 없으므로 `sender`는 비우고 이름은 `HUMAN`이다.
+pub(super) fn enqueue_human(db: &Connection, to: NodeId, body: &str) -> Result<MessageId, Refusal> {
+    let name = super::name_of(db, to)?;
+    check_room(db, to, &name)?;
+    db.execute(
+        "INSERT INTO messages (recipient, sender, sender_name, kind, body) VALUES (?1, NULL, ?2, ?3, ?4)",
+        params![to.0, HUMAN, to_json(&Kind::Queue), body],
+    )?;
+    let id = MessageId(db.last_insert_rowid() as u32);
+    let entry = Entry::Message {
+        how: Kind::Queue,
+        from: events::Who {
+            id: None,
+            name: HUMAN.into(),
+        },
+        to: Some(events::who(db, to)?),
+        step: Step::Sent,
     };
     events::write(db, &entry, Some(id))?;
     Ok(id)

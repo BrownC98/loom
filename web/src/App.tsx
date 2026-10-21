@@ -1,8 +1,9 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, newBuildServed, watchGraph } from './api';
+import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -177,6 +178,8 @@ export function App() {
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
+  // 사람이 [loom 끄기]로 데몬을 끈 뒤다(목업 web-stop.html ③).
+  const [stopped, setStopped] = useState(false);
   const [selected, setSelected] = useState<NodeId | null>(null);
   // 고른 묶음·저장소 상자(`flowId`). 카드와 함께 고르지 않는다(2026-10-21 사람 지시 "묶음도 클릭하면 포커싱 표시되게 해줘", "사이드바에서 클릭시에도 동작해야함").
   const [chosenBox, setChosenBox] = useState<string | null>(null);
@@ -433,6 +436,14 @@ export function App() {
     });
   }, []);
 
+  if (stopped)
+    return (
+      <main className="stopped">
+        <b>{t('app.stopped')}</b>
+        <span>{t('app.stoppedHint')}</span>
+      </main>
+    );
+
   // 설정을 받기 전에는 그리지 않는다. 기본 너비와 펼침으로 먼저 그리면 저장한 모양으로 튄다.
   if (!settingsLoaded) return null;
   return (
@@ -589,6 +600,7 @@ export function App() {
               usage={usage}
               onChoose={chooseAccount}
               updates={updates}
+              onStop={isTauri() ? undefined : () => void shutdown().then(() => setStopped(true))}
             />
           )}
           {switching && (

@@ -3,6 +3,7 @@
 
 mod idle;
 mod origin;
+mod sessions;
 mod settings;
 mod switch;
 
@@ -49,7 +50,7 @@ use crate::profile::{
     self, AgentId, LaunchError, Mailbox, ModelChoice, Profile, Remote, ServerLink, Start,
     VersionMismatch,
 };
-use crate::screen::{self, Session};
+use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Position};
 use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
@@ -71,9 +72,8 @@ struct App {
     codex: Mutex<HashMap<NodeId, Arc<CodexServer>>>,
     /// OpenCode 2 노드마다 그 노드의 서버와 세션. 노드 프로세스가 끝나면 지우고 끝낸다.
     opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
-    /// 노드마다 런타임의 세션 단계. 화면 감지가 본다.
-    /// 프로세스를 띄울 때마다 `follow_screen`이 새로 만든다. 근거: docs/design.md 「사람 응답 대기」.
-    sessions: Mutex<HashMap<NodeId, watch::Sender<Session>>>,
+    /// 노드마다 런타임의 세션 단계. 프로세스를 띄울 때마다 `follow_screen`이 새로 연다.
+    sessions: sessions::Sessions,
     /// 끝나지 않은 설정 스크립트 노드. 성공하면 출력이 있어도 지운다. 근거: docs/design.md 「저장소와 워크트리」.
     setups: Mutex<HashSet<NodeId>>,
     /// 쉬는 Claude 노드마다 메시지를 기다리는 비동기 훅 하나.
@@ -429,7 +429,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         logins: settings::Logins::new(pty_dir.join("logins")),
         codex: Mutex::default(),
         opencode2: Mutex::default(),
-        sessions: Mutex::default(),
+        sessions: sessions::Sessions::default(),
         setups: Mutex::default(),
         idle: idle::IdleWaits::default(),
         switch: switch::Switches::default(),
@@ -815,8 +815,8 @@ impl App {
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host
             .spawn(id, cmd, setup, self.on_title(id, profile), on_exit)?;
-        self.follow_screen(id, profile);
-        self.follow_servers(id, codex, opencode2);
+        self.follow_screen(id, profile, &token);
+        self.follow_servers(id, codex, opencode2, &token);
         Ok(Launched {
             token,
             server,
@@ -868,8 +868,8 @@ impl App {
                 self.graph.lost(node.id)?;
                 continue;
             }
-            self.follow_screen(node.id, profile);
-            self.follow_servers(node.id, codex, opencode2);
+            self.follow_screen(node.id, profile, &node.token);
+            self.follow_servers(node.id, codex, opencode2, &node.token);
         }
         self.host.end_others();
         self.logins.end_others();
@@ -905,7 +905,7 @@ impl App {
             }
             app.codex.lock().unwrap().remove(&id);
             app.opencode2.lock().unwrap().remove(&id);
-            app.sessions.lock().unwrap().remove(&id);
+            app.sessions.exited(id);
             let setup = app.setups.lock().unwrap().remove(&id);
             if exit == Exit::Command(0)
                 && (setup || !app.host.has_output(id))
@@ -927,7 +927,8 @@ impl App {
     /// 노드 서버의 상태를 따라가고 메일함을 넘기기 시작한다.
     /// 노드 출력이 멎을 때마다, 그리고 세션이 시작할 때 지금 터미널 화면에서 확인 창을 찾아 사람 응답 대기로 옮긴다.
     /// 화면 상태를 보므로 다시 시작한 데몬도 같은 답을 낸다. 근거: docs/design.md 「사람 응답 대기」.
-    fn follow_screen(self: &Arc<Self>, id: NodeId, profile: Option<Profile>) {
+    /// `token`은 이 프로세스의 토큰이다. 같은 토큰의 호출만 세션을 시작한다(`Sessions::started`).
+    fn follow_screen(self: &Arc<Self>, id: NodeId, profile: Option<Profile>, token: &str) {
         let dialogs = profile::dialogs(profile);
         let Some(attached) = self.host.attach(id) else {
             return;
@@ -935,8 +936,7 @@ impl App {
         if dialogs.is_empty() {
             return;
         }
-        let (session, mut started) = watch::channel(Session::NotStarted);
-        self.sessions.lock().unwrap().insert(id, session);
+        let mut started = self.sessions.launched(id, token);
         let app = self.clone();
         tokio::spawn(async move {
             let mut output = attached.output;
@@ -979,6 +979,7 @@ impl App {
         id: NodeId,
         codex: Option<Arc<CodexServer>>,
         opencode2: Option<Arc<opencode2::Node>>,
+        token: &str,
     ) {
         if let Some(server) = codex {
             self.codex.lock().unwrap().insert(id, server.clone());
@@ -990,10 +991,10 @@ impl App {
             });
             tokio::spawn(follow_codex_model(self.graph.clone(), id, server.clone()));
             // Codex는 훅이 없다. 폴더 신뢰·로그인 창이 닫혀야 스레드가 생긴다.
-            let (app, mut thread) = (self.clone(), server.thread());
+            let (app, mut thread, token) = (self.clone(), server.thread(), token.to_owned());
             tokio::spawn(async move {
                 if thread.wait_for(Option::is_some).await.is_ok() {
-                    app.session_started(id);
+                    app.sessions.started(id, &token);
                 }
             });
             tokio::spawn(deliver_to_codex(self.clone(), id, server));
@@ -1014,27 +1015,21 @@ impl App {
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "));
-        let node = match token {
-            Some(token) => self
-                .graph
-                .caller(token)
-                .map_err(|e| for_agent(Refusal::from(e)))?,
-            None => None,
+        let unauthorized = || {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Run this only inside a loom node.".into(),
+            )
         };
-        let node = node.ok_or((
-            StatusCode::UNAUTHORIZED,
-            "Run this only inside a loom node.".into(),
-        ))?;
-        self.session_started(node);
+        let token = token.ok_or_else(unauthorized)?;
+        let node = self
+            .graph
+            .caller(token)
+            .map_err(|e| for_agent(Refusal::from(e)))?
+            .ok_or_else(unauthorized)?;
+        // 노드의 런타임이 세션을 시작했다. 첫 확인 창(폴더 신뢰, 로그인)은 세션 전에만 뜬다.
+        self.sessions.started(node, token);
         Ok(node)
-    }
-
-    /// 노드의 런타임이 세션을 시작했다. 첫 확인 창(폴더 신뢰, 로그인)은 세션 전에만 뜬다. 화면 감지가 다시 본다.
-    fn session_started(&self, id: NodeId) {
-        if let Some(session) = self.sessions.lock().unwrap().get(&id) {
-            session
-                .send_if_modified(|s| std::mem::replace(s, Session::Started) != Session::Started);
-        }
     }
 
     /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.

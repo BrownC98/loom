@@ -305,6 +305,32 @@ mod tests {
         }
     }
 
+    /// 에이전트가 가로줄과 표를 출력한 뒤 창 글을 쓴 화면(2026.10.19 실측, 2026-10-21 다시 찍음, 가로를 줄였다).
+    /// 대화 기록은 2칸 들여 그린다. 창 테두리는 왼쪽 끝에 그린다(위 `QUESTION`, `APPROVAL`).
+    const PRINTED: &str = "  Reply with exactly this text.\n\n\n  ┌───┬───┐\n  │ A │ B │\n  ├───┼───┤\n  │ 1 │ 2 │\n  └───┴───┘\n\n  ─────\n  Run this command?\n  Enter next/submit\n  done\n\n\n\n\n  → Add a follow-up\n\n\n  Auto Balance Balance  [----------] 5%  cur @ master\n";
+    /// 같은 버전이 에이전트가 그린 표 아래에 띄운 질문 창(2026-10-21 실측, 가로를 줄였다).
+    const QUESTION_BELOW_TABLE: &str = "  ┌───┬───┐\n  │ A │ B │\n  ├───┼───┤\n  │ 1 │ 2 │\n  └───┴───┘\n\n ┌──────────────────┐\n │ Clarifying Questions │\n │ Question 1 of 1 │\n │ 1. Red or blue? │\n │   › [ ] red │\n │     [ ] blue │\n │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip │\n └──────────────────┘\n";
+
+    /// 에이전트가 출력한 가로줄·상자 안이나 아래의 창 글은 창이 아니다. 창 테두리만 왼쪽 끝에 있다.
+    #[test]
+    fn dialog_text_below_a_printed_rule_or_box_is_not_a_box() {
+        let in_box = idle_after(
+            "┌───────────────────┐\n  │ Run this command? │\n  │ Enter next/submit │\n  └───────────────────┘",
+        );
+        let working = PRINTED.replace("→ Add a follow-up", "⠠⠛ Working\n\n  → Add a follow-up");
+        for screen in [PRINTED, &in_box, &working] {
+            assert_eq!(
+                crate::screen::find(&DIALOGS, screen, Session::Started),
+                None,
+                "{screen}"
+            );
+        }
+        assert_eq!(
+            crate::screen::find(&DIALOGS, QUESTION_BELOW_TABLE, Session::Started),
+            Some((WaitKind::Question, "Enter next/submit".into()))
+        );
+    }
+
     fn event(input: Value) -> Event {
         serde_json::from_value(input).unwrap()
     }

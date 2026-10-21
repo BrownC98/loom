@@ -1,6 +1,7 @@
-import { Inbox as InboxIcon } from 'lucide-react';
+import { Inbox as InboxIcon, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { dismissWait } from './api';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
@@ -56,6 +57,7 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
               {props.waiting.map((v) => (
                 <li key={v.id}>
                   <button
+                    className="go"
                     onClick={() => {
                       setOpen(false);
                       go(v.id);
@@ -67,6 +69,7 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
                     </span>
                     {v.wait.text && <span className="line">{v.wait.text}</span>}
                   </button>
+                  <DismissButton id={v.id} />
                 </li>
               ))}
             </ul>
@@ -74,6 +77,27 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
         </div>
       )}
     </div>
+  );
+}
+
+/** 줄의 [×]. 사람이 그 노드 터미널에 키를 누른 것처럼 대기를 지운다. 카드의 「응답 대기」도 같은 값이라 함께 사라진다. 거절되면 툴팁이 이유를 보인다. */
+function DismissButton(props: { id: NodeId }) {
+  const { t } = useTranslation();
+  const [refusal, setRefusal] = useState<string | null>(null);
+  return (
+    <button
+      type="button"
+      className="dismiss"
+      aria-label={t('inbox.dismiss')}
+      title={refusal ?? t('inbox.dismiss')}
+      data-refused={refusal !== null || undefined}
+      onClick={() => {
+        setRefusal(null);
+        dismissWait(props.id).catch((err: Error) => setRefusal(err.message));
+      }}
+    >
+      <X aria-hidden="true" />
+    </button>
   );
 }
 

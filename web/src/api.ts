@@ -67,6 +67,8 @@ export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/
 /** 노드를 사이드바 북마크 영역에 더하거나 뺀다(docs/mockups/bookmarks.html). */
 export const bookmarkNode = (id: NodeId) => call<null>('PUT', `/api/nodes/${id}/bookmark`);
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
+/** 사람 응답 대기를 지운다. 터미널에 키를 누른 것과 같다(docs/design.md 「사람 응답 대기」). */
+export const dismissWait = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/wait`);
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
 
 export const openFile = (path: string) => call<null>('POST', '/api/files/open', { path } satisfies OpenFile);

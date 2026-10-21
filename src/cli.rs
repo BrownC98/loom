@@ -163,9 +163,10 @@ pub fn hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the model: {e}");
     }
-    if let Some((kind, text)) = event.human_wait()
-        && let Err(e) = call::<()>("hook-wait", &HookWaitRequest { kind, text }, Some(timeout))
-    {
+    let request = HookWaitRequest {
+        wait: event.human_wait(),
+    };
+    if let Err(e) = call::<()>("hook-wait", &request, Some(timeout)) {
         eprintln!("loom: could not report the human wait: {e}");
     }
     let transcript = input["transcript_path"].as_str().map(str::to_owned);

@@ -200,7 +200,8 @@ impl Event {
         }
     }
 
-    /// 이 훅이 알리는 사람 응답 대기. 근거: docs/design.md 「사람 응답 대기」.
+    /// 이 훅이 알리는 사람 응답 대기. `None`이면 에이전트가 다시 일한다: 훅이 건 대기를 거둔다.
+    /// 권한 창이 시간 초과로 닫히면 Claude는 `PostToolUse`를 부르지 않는다. 다음 훅이 거둔다(2.1.306 실측). 근거: docs/design.md 「사람 응답 대기」.
     pub fn human_wait(&self) -> Option<(WaitKind, String)> {
         match self {
             Event::PreToolUse {
@@ -558,10 +559,21 @@ mod tests {
             "message": "Server asks",
         }));
         assert_eq!(elicitation.human_wait().unwrap().0, WaitKind::Question);
-        let bash = event(json!({
-            "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls" },
-        }));
-        assert_eq!(bash.human_wait(), None);
+    }
+
+    /// 권한 창이 시간 초과로 닫히면 `PostToolUse`가 없다. 다음 훅이 대기를 거둔다(2.1.306 기록: 위험한 `rm` 확인 창).
+    #[test]
+    fn hooks_after_the_dialog_clear_the_wait() {
+        for input in [
+            json!({ "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls" } }),
+            json!({ "hook_event_name": "PostToolUse" }),
+            json!({ "hook_event_name": "PostToolUseFailure" }),
+            json!({ "hook_event_name": "UserPromptSubmit" }),
+            json!({ "hook_event_name": "Stop" }),
+            json!({ "hook_event_name": "StopFailure", "error": "rate_limit" }),
+        ] {
+            assert_eq!(event(input.clone()).human_wait(), None, "{input}");
+        }
     }
 
     #[test]

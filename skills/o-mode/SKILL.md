@@ -54,6 +54,8 @@ description: o-mode(orchestration mode)의 Loom 판. Loom 노드에서 저장소
 
 `--worktree`는 부모 워크트리의 `HEAD`에서 갈라진다. 총괄은 기준 체크아웃에서, 코디는 자기 브랜치에서 자식을 만든다. 같은 워크트리에 편집자를 여럿 두지 않는다.
 
+`--worktree` 자식은 부모의 커밋된 `HEAD`로 저장소 설정 스크립트를 돌린다. 그래서 설정(빌드 포함)이 통과하는 `HEAD`를 커밋한 뒤 띄운다. 부모가 `setup failed (exit <코드>): <출력 끝>`을 받으면 그 출력으로 원인을 고치고 커밋한다. 그 뒤 실패한 자식을 `loom rm`으로 지우고, 그 워크트리와 브랜치를 `git worktree remove`·`git branch -d`로 지운 뒤 같은 이름으로 다시 띄운다.
+
 ## 목업 승인
 
 - 사람에게 보이는 목업·보고서의 형식, 스타일, 브라우저에 띄우기는 [user-doc](../user-doc/SKILL.md)이 정한다. 아래는 loom 역할만 정한다.

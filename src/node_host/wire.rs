@@ -7,8 +7,8 @@ use std::io::{self, Read, Write};
 /// 첫 프레임의 표지. 주소 파일의 포트를 다른 프로그램이 받았으면 여기서 가린다.
 const MAGIC: &[u8; 8] = b"loom-pty";
 /// 이 실행 파일이 말하는 판. 판 2는 `Pid`를 더했다(설정 스크립트 뒤에 에이전트를 띄운 호스트가 보낸다).
-/// 판 1 데몬은 판 2 호스트를 인사에서 거절하므로, 판 2 호스트는 붙은 데몬에 `Pid`를 보내도 된다.
-pub const VERSION: u32 = 2;
+/// 판 3은 `SetupFailed`를 더했다. 옛 판 데몬은 새 판 호스트를 인사에서 거절하므로, 호스트는 붙은 데몬에 자기 판의 프레임을 보내도 된다.
+pub const VERSION: u32 = 3;
 /// 본문 하나의 상한. 출력 조각(8KB)과 backlog(256KB)보다 크다. 넘으면 깨진 연결로 본다.
 const MAX_BODY: usize = 1 << 20;
 
@@ -18,6 +18,7 @@ const RESIZE: u8 = 2;
 const KILL: u8 = 3;
 const EXIT: u8 = 4;
 const PID: u8 = 5;
+const SETUP_FAILED: u8 = 6;
 
 #[derive(Debug, PartialEq)]
 pub enum Frame {
@@ -38,6 +39,8 @@ pub enum Frame {
     Exit(u32),
     /// 호스트→데몬: PTY의 프로세스가 바뀌었다(설정 스크립트가 끝나고 에이전트가 떴다). 값은 새 PID다.
     Pid(u32),
+    /// 호스트→데몬: 설정 스크립트가 끝났고 명령은 띄우지 않았다. 값은 설정의 종료 코드다. `Exit` 자리에 보낸다.
+    SetupFailed(u32),
 }
 
 pub fn write(to: &mut impl Write, frame: &Frame) -> io::Result<()> {
@@ -53,6 +56,7 @@ pub fn write(to: &mut impl Write, frame: &Frame) -> io::Result<()> {
         Frame::Kill => (KILL, Vec::new()),
         Frame::Exit(code) => (EXIT, code.to_le_bytes().to_vec()),
         Frame::Pid(pid) => (PID, pid.to_le_bytes().to_vec()),
+        Frame::SetupFailed(code) => (SETUP_FAILED, code.to_le_bytes().to_vec()),
     };
     let mut buf = Vec::with_capacity(5 + body.len());
     buf.push(kind);
@@ -88,6 +92,7 @@ pub fn read(from: &mut impl Read) -> io::Result<Frame> {
         KILL => Ok(Frame::Kill),
         EXIT => Ok(Frame::Exit(u32_at(0)?)),
         PID => Ok(Frame::Pid(u32_at(0)?)),
+        SETUP_FAILED => Ok(Frame::SetupFailed(u32_at(0)?)),
         _ => Err(invalid("unknown frame")),
     }
 }
@@ -177,6 +182,15 @@ mod tests {
         write(&mut out, &Frame::Pid(9)).unwrap();
         assert_eq!(out, [5, 4, 0, 0, 0, 9, 0, 0, 0]);
         assert_eq!(read(&mut out.as_slice()).unwrap(), Frame::Pid(9));
+    }
+
+    /// 판 3이 더한 프레임의 바이트 모양.
+    #[test]
+    fn version_3_setup_failed_bytes_are_frozen() {
+        let mut out = Vec::new();
+        write(&mut out, &Frame::SetupFailed(2)).unwrap();
+        assert_eq!(out, [6, 4, 0, 0, 0, 2, 0, 0, 0]);
+        assert_eq!(read(&mut out.as_slice()).unwrap(), Frame::SetupFailed(2));
     }
 
     /// 데몬은 자기 판 이하의 호스트와 말하고, 더 새 판과 다른 프로그램은 거절한다.

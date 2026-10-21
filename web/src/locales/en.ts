@@ -22,6 +22,7 @@ const en = {
   },
   tree: {
     repos: 'Repositories',
+    showAll: 'Zoom out to fit all repositories',
     expandAll: 'Expand all',
     label: 'Node tree',
     addRepo: 'Add repository',
@@ -64,6 +65,7 @@ const en = {
       running: 'running',
       done: 'done',
       exited: 'exited({{code}})',
+      setupFailed: 'setup failed',
     },
     foot: {
       doneHeld: 'No parent · the summary goes to the new parent',
@@ -72,6 +74,7 @@ const en = {
       exitedHeld: 'No parent · exited({{code}}) goes to the new parent',
       exitedSent: 'Sent exited({{code}}) to the parent ({{parent}})',
       exited: 'Ended with exit code {{code}}',
+      setupFailed: 'The setup script ended with exit code {{code}}. The agent did not start',
     },
   },
   rename: {

@@ -15,7 +15,7 @@ use ts_rs::TS;
 
 use super::{App, Problem, internal, serve_pty};
 use crate::accounts::{self, AccountId};
-use crate::node_host::NodeHost;
+use crate::node_host::{Exit, NodeHost};
 use crate::profile::{self, AgentView, Provider};
 use crate::settings::SettingsView;
 #[cfg(test)]
@@ -240,8 +240,8 @@ async fn login(
     let on_exit = {
         let app = app.clone();
         let discard = discard.clone();
-        move |code: u32| {
-            let state = if code == 0 {
+        move |exit| {
+            let state = if exit == Exit::Command(0) {
                 LoginState::Succeeded
             } else {
                 discard();

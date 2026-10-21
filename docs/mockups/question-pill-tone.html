@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M31 질문 알약 바탕과 바로 답하기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 알약 모양·토큰은 web/src/styles.css .inbox-pill과 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+/* M29 설정 「색」에서 질문 색을 보라 #8b5cf6으로 고른 경우 */
+.purple { --warn: light-dark(oklch(54% 0.2 293), oklch(80% 0.12 293)); }
+.force-light { color-scheme: light; }
+.force-dark { color-scheme: dark; }
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 900px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed oklch(60% 0.15 250); outline-offset: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.grid { display: grid; grid-template-columns: 90px repeat(2, 560px); gap: 12px 20px; align-items: center; }
+.grid .h { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+.stage { display: grid; place-items: center; height: 76px; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 16px 16px; color: var(--ink); }
+.stage img { height: 44px; }
+/* 알약(web/src/styles.css .inbox-pill). 바뀌는 곳은 바탕과 마우스를 올린 바탕뿐이다. */
+.pill { display: inline-flex; height: 32px; max-width: 480px; border: 1px solid var(--warn); border-radius: 16px; background: var(--surface); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.pill button { display: inline-flex; align-items: center; border: 0; background: none; cursor: pointer; }
+.pill .jump { gap: 8px; min-width: 0; padding: 0 10px; border-radius: 15px 0 0 15px; }
+.pill .more { flex: none; width: 30px; justify-content: center; border-left: 1px solid var(--warn); border-radius: 0 15px 15px 0; color: var(--ink-3); }
+.pill .hover, .pill button:hover { background: var(--surface-hover); }
+.pill b { white-space: nowrap; }
+.count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.qid { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); font: 600 11px/16px var(--mono); }
+.pv { min-width: 0; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage.big { height: auto; padding: 16px; place-items: start center; }
+/* ② 펼치지 않은 알약: 머리 줄 + 가장 오래된 질문 하나 */
+.qpill { width: 520px; border: 1px solid var(--warn); border-radius: 14px; background: var(--surface); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; overflow: hidden; }
+.qpill .head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
+.qpill .head .sp { flex: 1; }
+.qpill .head .who { display: inline; font-size: 12px; color: var(--ink-3); }
+.qpill .head .who b { color: var(--ink); font-size: 13px; }
+.qpill .rest { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.ib { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.ib:hover { background: var(--surface-hover); color: var(--ink); }
+.qpill .body { display: grid; gap: 8px; padding: 10px 12px 12px; }
+.qpill .full { color: var(--ink); }
+.opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.opt { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; cursor: pointer; }
+.opt .k { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt.rec { border-color: var(--warn); }
+.opt .r { font-size: 11px; color: var(--warn); font-weight: 600; }
+.ans { display: flex; gap: 6px; }
+.ans input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.ans input::placeholder { color: var(--ink-3); }
+.send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: var(--warn); color: var(--warn-ink); cursor: pointer; }
+.thumbs { display: flex; gap: 8px; padding-top: 4px; }
+.thumb { position: relative; width: 64px; height: 44px; border: 1px solid var(--line-strong); border-radius: 6px; background: linear-gradient(var(--line-strong) 0 0) 6px 10px / 40px 3px no-repeat, linear-gradient(var(--line-strong) 0 0) 6px 18px / 30px 3px no-repeat, var(--panel); }
+.thumb .rm { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: var(--ink); color: var(--surface); }
+.thumb .rm svg { width: 11px; height: 11px; }
+.toterm { justify-self: start; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; cursor: pointer; }
+.steps { display: grid; grid-template-columns: repeat(2, 560px); gap: 16px 20px; }
+.cap { font-size: 12px; color: var(--ink-3); }
+.cell { display: grid; gap: 6px; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M31</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 색설정</b></span><span>v1 · 2026-10-22</span></div>
+  <h1>질문 알약: 바탕 색과 펼치지 않고 바로 답하기</h1>
+  <p class="lead">사람 지시: 「승인하되, 질문 알약 배경색을 loom 테마와 톤을 맞출 것 이에대한 목업 작성」. loom 테마의 바탕·카드·창은 무채색이다. 지금 알약만 바탕에 질문 색이 10% 섞여 노랗게 뜬다(①). 이어서 사람 지시: 「그리고 알약 펼치지 않은 상태에서는 오래된 순으로 질문 하나씩 보여줘서 펼치지 않고 바로 답변 가능하게 해줘」(②). 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 지금과 바꾼 뒤 <span class="tag">위: 시험 데몬 캡처 · 아래: 바꾼 뒤</span></h2>
+    <div class="grid">
+      <span></span><span class="h">라이트</span><span class="h">다크</span>
+      <span class="h">지금</span>
+      <div class="stage force-light"><img src="question-pill-tone-now-light.png" alt="지금 라이트: 알약 바탕이 노란 기가 돈다"></div>
+      <div class="stage force-dark"><img src="question-pill-tone-now-dark.png" alt="지금 다크: 알약 바탕이 누런 기가 돈다"></div>
+      <span class="h">바꾼 뒤</span>
+      <div class="stage force-light"><span class="pill new"><button class="jump"><b>질문</b><span class="count">1</span><span class="qid">Q1</span><span class="pv">shell-1: 목업 v1을 승인할까요? (A: 승인 / B: 수정, 권장:…</span></button><button class="more" aria-label="질문 목록 열기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span></div>
+      <div class="stage force-dark"><span class="pill new"><button class="jump"><b>질문</b><span class="count">1</span><span class="qid">Q1</span><span class="pv">shell-1: 목업 v1을 승인할까요? (A: 승인 / B: 수정, 권장:…</span></button><button class="more" aria-label="질문 목록 열기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span></div>
+      <span class="h">마우스</span>
+      <div class="stage force-light"><span class="pill new"><button class="jump hover"><b>질문</b><span class="count">1</span><span class="qid">Q1</span><span class="pv">shell-1: 목업 v1을 승인할까요? (A: 승인 / B: 수정, 권장:…</span></button><button class="more" aria-label="질문 목록 열기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span></div>
+      <div class="stage force-dark"><span class="pill new"><button class="jump hover"><b>질문</b><span class="count">1</span><span class="qid">Q1</span><span class="pv">shell-1: 목업 v1을 승인할까요? (A: 승인 / B: 수정, 권장:…</span></button><button class="more" aria-label="질문 목록 열기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span></div>
+      <span class="h">질문 색 보라</span>
+      <div class="stage force-light purple"><span class="pill new"><button class="jump"><b>질문</b><span class="count">1</span><span class="qid">Q1</span><span class="pv">shell-1: 목업 v1을 승인할까요? (A: 승인 / B: 수정, 권장:…</span></button><button class="more" aria-label="질문 목록 열기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span></div>
+      <div class="stage force-dark purple"><span class="pill new"><button class="jump"><b>질문</b><span class="count">1</span><span class="qid">Q1</span><span class="pv">shell-1: 목업 v1을 승인할까요? (A: 승인 / B: 수정, 권장:…</span></button><button class="more" aria-label="질문 목록 열기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></span></div>
+    </div>
+    <ul class="note">
+      <li>알약 바탕은 카드·창과 같은 무채색 바탕(<code>--surface</code>)이다. 마우스를 올린 바탕도 다른 버튼과 같은 회색(<code>--surface-hover</code>)이다.</li>
+      <li>질문 색은 테두리, 수 배지, 번호 칩에만 남는다. 그래서 알약이 질문이라는 것은 지금처럼 보인다.</li>
+      <li>설정 「색」(M29)에서 질문 색을 바꾸면 테두리·배지·칩만 바뀐다. 바탕은 바뀌지 않는다(맨 아래 줄).</li>
+    </ul>
+  </div>
+
+
+  <div class="fig">
+    <h2>② 펼치지 않고 바로 답하기 <span class="tag">바꾼 바탕 색 · 질문 3개가 차례로</span></h2>
+    <div class="steps">
+      <div class="cell"><span class="cap">ⓐ 질문 3개. 가장 오래된 Q12가 보인다</span><div class="stage big force-light"><div class="qpill new"><div class="head"><b>질문</b><span class="count">3</span><span class="qid">Q12</span><span class="who"><b>shell-1</b> · 질문</span><span class="sp"></span><span class="rest">다음 질문 2개</span><button class="ib" aria-label="질문 목록 펼치기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><button class="ib" aria-label="Q12 알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="body"><div class="full">목업 v2를 승인할까요? 승인하면 main을 병합한 뒤 바로 구현합니다. 수정이 필요하면 고칠 곳을 적어 주세요 (A: 승인 / B: 수정, 권장: A)</div><div class="opts"><button class="opt rec"><span class="k">A</span>승인<span class="r">권장</span></button><button class="opt"><span class="k">B</span>수정</button></div><div class="ans"><input aria-label="Q12 답변" placeholder="답변 입력, 그림 붙여넣기, Enter로 보내기" value=""><button class="send" aria-label="Q12 답변 보내기"><svg class="i" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></svg></button></div></div></div></div></div>
+      <div class="cell"><span class="cap">ⓑ Q12에 답한 뒤. 다음으로 오래된 Q13, 그림을 붙인 답</span><div class="stage big force-light"><div class="qpill new"><div class="head"><b>질문</b><span class="count">2</span><span class="qid">Q13</span><span class="who"><b>화면-점검</b> · 질문</span><span class="sp"></span><span class="rest">다음 질문 1개</span><button class="ib" aria-label="질문 목록 펼치기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><button class="ib" aria-label="Q13 알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="body"><div class="full">설정 화면의 버튼이 겹쳐 보이나요? 보이는 화면을 붙여 주세요</div><div class="thumbs"><div class="thumb"><button class="rm" aria-label="그림 빼기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div></div><div class="ans"><input aria-label="Q13 답변" placeholder="답변 입력, 그림 붙여넣기, Enter로 보내기" value="왼쪽 위 저장 버튼이 겹칩니다"><button class="send" aria-label="Q13 답변 보내기"><svg class="i" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></svg></button></div></div></div></div></div>
+      <div class="cell"><span class="cap">ⓒ 터미널에서만 답하는 대기(승인 창)</span><div class="stage big force-dark"><div class="qpill new"><div class="head"><b>질문</b><span class="count">1</span><span class="qid">Q14</span><span class="who"><b>shell-3</b> · 승인 요청</span><span class="sp"></span><button class="ib" aria-label="질문 목록 펼치기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><button class="ib" aria-label="Q14 알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="body"><div class="full">Bash: cargo clean</div><button class="toterm">터미널에서 답하기 <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div></div></div></div>
+      <div class="cell"><span class="cap">ⓓ 다크 · ⓐ와 같은 상태</span><div class="stage big force-dark"><div class="qpill new"><div class="head"><b>질문</b><span class="count">3</span><span class="qid">Q12</span><span class="who"><b>shell-1</b> · 질문</span><span class="sp"></span><span class="rest">다음 질문 2개</span><button class="ib" aria-label="질문 목록 펼치기"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><button class="ib" aria-label="Q12 알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="body"><div class="full">목업 v2를 승인할까요? 승인하면 main을 병합한 뒤 바로 구현합니다. 수정이 필요하면 고칠 곳을 적어 주세요 (A: 승인 / B: 수정, 권장: A)</div><div class="opts"><button class="opt rec"><span class="k">A</span>승인<span class="r">권장</span></button><button class="opt"><span class="k">B</span>수정</button></div><div class="ans"><input aria-label="Q12 답변" placeholder="답변 입력, 그림 붙여넣기, Enter로 보내기" value=""><button class="send" aria-label="Q12 답변 보내기"><svg class="i" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></svg></button></div></div></div></div></div>
+    </div>
+    <ul class="note">
+      <li>알약을 펼치지 않아도 <b>가장 오래된 질문 하나</b>의 전문과 답 칸이 보인다. 머리 줄에 수 배지(남은 질문 모두), 번호 칩, 노드 이름이 있다.</li>
+      <li>선택지 버튼을 누르거나 입력창에 쓰고 Enter를 누르면 그 노드에 답이 간다. 그 질문은 사라지고 다음으로 오래된 질문이 그 자리에 보인다. 수 배지가 하나 준다.</li>
+      <li>입력창에 그림을 붙여넣거나 끌어 놓을 수 있다(M30 답에 그림 붙이기와 같다).</li>
+      <li>승인 창·폴더 신뢰·로그인은 지금처럼 <b>[터미널에서 답하기]</b>로 그 노드에 간다(ⓒ).</li>
+      <li><b>[⌄]</b>는 지금처럼 질문 목록 전체를 펼친다. <b>[×]</b>는 보이는 질문의 알림만 지운다.</li>
+      <li>바탕은 ①처럼 무채색이다. 질문 색은 테두리·배지·번호 칩·권장 표시·보내기 버튼에만 쓴다.</li>
+    </ul>
+  </div>
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="decide">
+      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
+      <tr><td>알약 바탕</td><td><b>무채색 바탕</b>(카드·창과 같다)</td><td>질문 색을 지금(10%)보다 옅게 4%만 섞는다</td></tr>
+      <tr><td>펼치지 않은 알약의 질문</td><td><b>가장 오래된 질문 하나</b>와 답 칸, 답하면 다음 질문</td><td>가장 최근 질문 하나</td></tr>
+      <tr><td>그래프를 가리는 높이</td><td><b>질문 전문을 다 보인다</b>(긴 질문은 4줄까지, 넘으면 [더 보기])</td><td>한 줄로 줄이고 누르면 전문</td></tr>
+      <tr><td>번호 칩(Q1) 바탕</td><td><b>지금처럼 질문 색을 옅게 섞는다</b>(질문 목록의 칩과 같다)</td><td>칩도 무채색 바탕</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

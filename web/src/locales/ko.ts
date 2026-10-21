@@ -44,11 +44,9 @@ const ko: typeof en = {
   },
   find: {
     open: '노드·워크트리 찾기',
-    placeholder: '노드·워크트리 이름',
     none: '없음',
-    prev: '이전 일치',
-    next: '다음 일치',
-    close: '찾기 닫기',
+    noMatch: '맞는 이름이 없습니다',
+    clear: '찾기 지우기',
   },
   node: {
     label: '노드 {{name}}',

@@ -120,6 +120,22 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 줄 단추로 연 팝오버. 누른 줄 높이에서 사이드바 경계 밖에 붙는다. */
 .row-pop { position: fixed; z-index: 8; }
 .row-pop > .pop { position: static; max-height: calc(100vh - 16px); overflow: auto; }
+/* 찾기 칸(목업 sidebar-find.html ②). 찾는 동안 트리는 일치 줄과 그 위 줄(흐리게)만 보이고, 현재 일치는 노란 테두리다. */
+.side-find { display: flex; align-items: center; gap: 6px; height: 30px; margin: 0 8px 6px; padding: 0 2px 0 8px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; }
+.side-find:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
+.side-find:has(input[aria-invalid="true"]) { border-color: var(--err); box-shadow: 0 0 0 2px color-mix(in oklch, var(--err) 15%, transparent); }
+.side-find > svg { width: 14px; height: 14px; color: var(--ink-3); flex: none; }
+.side-find input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; font-size: 13px; color: var(--ink); outline: none; }
+.side-find input::placeholder { color: var(--ink-3); }
+.side-find .count { font: 12px var(--mono); color: var(--ink-3); white-space: nowrap; }
+.side-find .count.none { font-family: inherit; color: var(--err); }
+.side-find .count:empty { display: none; }
+.tree-row[data-found="context"] > :not(.guide) { opacity: 0.55; }
+.tree-row[data-found="current"] { outline: 2px solid var(--warn); outline-offset: -2px; }
+::highlight(find) { background-color: color-mix(in oklch, var(--warn) 30%, transparent); }
+.tree-none { padding: 8px 16px; font-size: 12px; color: var(--ink-3); flex: 1; }
+.rail .finding { position: relative; }
+.rail .finding::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 .side-foot { padding: 8px; border-top: 1px solid var(--line); }
 .side-foot .btn { width: 100%; justify-content: flex-start; }
 
@@ -139,16 +155,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 그래프 */
 /* 이 칸 안의 z-index(확대 보기 7, 카드 인라인 값, 끄는 중 2000)는 칸 안에서만 비교한다. 사이드바의 창(저장소 추가, 줄 창)이 그 아래로 숨지 않는다. */
 .canvas { position: relative; overflow: hidden; min-width: 0; isolation: isolate; }
-/* 찾기 막대는 그래프 칸 오른쪽 위다(목업 docs/mockups/search.html ①). 입양 거절 글은 그 아래에 뜬다. */
-.find-open, .find { position: absolute; top: 12px; right: 12px; z-index: 6; }
-.find { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 4px 0 10px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 4px 14px oklch(0% 0 0 / 0.12); }
-.find > svg { width: 15px; height: 15px; color: var(--ink-3); flex: none; }
-.find input { width: 200px; height: 26px; margin: 0 4px 0 6px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 8px; font-size: 13px; color: var(--ink); }
-.find input::placeholder { color: var(--ink-3); }
-.find input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
-.find input[aria-invalid="true"] { border-color: var(--err); box-shadow: 0 0 0 2px color-mix(in oklch, var(--err) 15%, transparent); }
-.find .count { min-width: 56px; text-align: center; font: 12px var(--mono); color: var(--ink-3); }
-.find .count.none { font-family: inherit; color: var(--err); }
 .canvas .react-flow { background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
 .canvas-title { position: absolute; top: 16px; left: 16px; z-index: 5; font-size: 18px; font-weight: 600; pointer-events: none; }
 

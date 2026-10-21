@@ -1,7 +1,7 @@
 // 사이드바 트리(docs/mockups/graph-panels.html 1번): 저장소 > 워크트리 묶음 > 노드 > 자식 노드.
 // 그래프와 같은 노드 목록을 그린다. 트리만의 상태는 접힌 줄, 이름 편집, 줄 단추로 연 팝오버와 그 거절 글이다.
 import { ChevronDown, ChevronsUpDown, CornerLeftUp, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useLayoutEffect, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeNode, removeRepo, renameWorktree } from './api';
 import { agentLabel, recentAgent } from './catalog';
@@ -14,6 +14,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import { AddRepoPopover } from './AddRepoPopover';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
+import type { Found } from './findSpots';
 import { useShowGroups, useShowNodes } from './Graph';
 import i18next from './i18n';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
@@ -35,6 +36,17 @@ type Opened = { target: Target; key: string; top: number; left: number };
 
 /** 팝오버와 사이드바 오른쪽 경계 사이 틈, 창 아래 끝과 남기는 틈. */
 const POP_GAP = 8;
+
+/** 찾기 일치의 줄 키(`Item.key`). */
+const foundKey = (f: Found) => (f.kind === 'node' ? `node:${f.node}` : `group:${f.path}`);
+
+/** 찾는 동안 남기는 줄: 일치 줄과 그 위 줄(목업 sidebar-find.html ③). */
+function keepFound(items: Item[], hits: ReadonlySet<string>): Item[] {
+  return items.flatMap((item) => {
+    const children = keepFound(item.children, hits);
+    return hits.has(item.key) || children.length > 0 ? [{ ...item, children }] : [];
+  });
+}
 
 /** 들여쓰기 깊이의 화면 상한. 더 깊은 줄은 같은 자리에 두어 이름이 보일 폭을 지킨다(styles.css `--step` 12px × 8 = 96px). */
 const MAX_VISUAL_DEPTH = 8;
@@ -123,12 +135,17 @@ export function Tree(props: {
   onRepoChanged: (repo: RepoView) => void;
   /** 저장소를 목록에서 뺐다. 그래프가 그 저장소를 그리면 App이 다른 저장소로 바꾼다. */
   onRepoRemoved: (id: RepoId) => void;
+  /** 찾는 중이면 일치 목록(App의 `findSpots`), 현재 일치 번호, 줄을 눌러 현재 일치를 바꾸는 동작. 그동안 트리는 일치 줄과 그 위 줄만 보이고 모두 편다. */
+  find: { query: string; found: readonly Found[]; at: number; onAt: (at: number) => void } | null;
 }) {
   const { t } = useTranslation();
   const show = useShowNodes();
   const showGroups = useShowGroups();
   const [adding, setAdding] = useState(false);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const list = useRef<HTMLUListElement>(null);
+  const hits = props.find?.found.map(foundKey) ?? [];
+  const isOpen = (key: string) => props.find !== null || !closed.has(key);
   const repoKey = (id: RepoId) => `repo:${id}`;
   // Tab으로 들어올 때 포커스를 받는 줄(roving tabindex).
   const [active, setActive] = useState('');
@@ -218,7 +235,7 @@ export function Tree(props: {
     const childGroups = (parent: number | null): Item[] => groups.flatMap((g, i) => (parents[i] === parent ? [groupItem(g, i)] : []));
     return childGroups(null);
   };
-  const roots: Item[] = props.repos.map((repo) => ({
+  const all: Item[] = props.repos.map((repo) => ({
     key: repoKey(repo.id),
     node: null,
     repo: repo.id,
@@ -247,17 +264,19 @@ export function Tree(props: {
     ),
     children: rootGroups(repo),
   }));
+  const roots = props.find === null ? all : keepFound(all, new Set(hits));
   // 보이는 줄. Delete 키가 줄의 지우기 동작을 찾는다.
   const visible = new Map<string, Item>();
   const walk = (item: Item) => {
     visible.set(item.key, item);
-    if (!closed.has(item.key)) item.children.forEach(walk);
+    if (isOpen(item.key)) item.children.forEach(walk);
   };
   roots.forEach(walk);
   const tabStop = visible.has(active) ? active : (roots[0]?.key ?? '');
 
   const render = (item: Item, depth: number, parentKey: string | null): ReactNode => {
-    const open = !closed.has(item.key);
+    const open = isOpen(item.key);
+    const hit = hits.indexOf(item.key);
     const branch = item.children.length > 0;
     const shown = Math.min(depth, MAX_VISUAL_DEPTH);
     const head = (
@@ -287,10 +306,12 @@ export function Tree(props: {
               data-parent={parentKey ?? undefined}
               data-open={branch ? open : undefined}
               data-node={item.node ?? undefined}
+              data-found={props.find === null ? undefined : hit < 0 ? 'context' : hit === props.find.at ? 'current' : 'hit'}
               tabIndex={item.key === tabStop ? 0 : -1}
               onFocus={() => setActive(item.key)}
               aria-current={(item.node !== null && item.node === props.selected) || (item.repo !== undefined && item.repo === props.current) ? 'true' : undefined}
               onClick={(e) => {
+                if (hit >= 0) props.find?.onAt(hit);
                 // 저장소 줄과 워크트리 줄은 그래프를 그 자리로 옮긴다. 화살표를 누르면 접고 편다.
                 if (item.show && !(e.target as Element).closest('.chev')) return item.show();
                 if (item.node === null) return toggle(item.key, !open);
@@ -354,6 +375,28 @@ export function Tree(props: {
     e.preventDefault();
   };
 
+  // 일치 줄의 맞는 글자를 칠한다. DOM을 바꾸지 않는 CSS Custom Highlight API다(styles.css `::highlight(find)`).
+  useEffect(() => {
+    const needle = props.find?.query.trim().toLocaleLowerCase();
+    if (!needle || !list.current || !('highlights' in CSS)) return;
+    const ranges = [...list.current.querySelectorAll('.tree-row:is([data-found="hit"], [data-found="current"]) :is(.name, .branch)')].flatMap((el) => {
+      const text = el.firstChild;
+      const at = text instanceof Text ? text.data.toLocaleLowerCase().indexOf(needle) : -1;
+      if (!(text instanceof Text) || at < 0 || at + needle.length > text.length) return [];
+      const range = new Range();
+      range.setStart(text, at);
+      range.setEnd(text, at + needle.length);
+      return [range];
+    });
+    CSS.highlights.set('find', new Highlight(...ranges));
+    return () => void CSS.highlights.delete('find');
+  });
+  // 현재 일치 줄이 트리 칸 밖이면 보이게 굴린다.
+  const currentHit = props.find && hits[props.find.at];
+  useEffect(() => {
+    list.current?.querySelector('[data-found="current"]')?.scrollIntoView({ block: 'nearest' });
+  }, [currentHit]);
+
   /** 열린 줄 팝오버. 내용은 그래프의 팝오버 그대로다. */
   const popContent = ({ target }: Opened): ReactNode => {
     const repo = props.repos.find((r) => r.id === target.repo);
@@ -415,9 +458,10 @@ export function Tree(props: {
           <ChevronsUpDown />
         </button>
       </div>
-      <ul className="tree" role="tree" aria-label={t('tree.label')} onKeyDown={onKeyDown}>
+      <ul ref={list} className="tree" role="tree" aria-label={t('tree.label')} onKeyDown={onKeyDown}>
         {roots.map((root) => render(root, 0, null))}
       </ul>
+      {props.find !== null && roots.length === 0 && <p className="tree-none">{t('find.noMatch')}</p>}
       {opened && content && (
         <RowPop top={opened.top} left={opened.left} onClose={closePop}>
           {content}

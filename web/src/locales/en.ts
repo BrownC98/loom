@@ -42,11 +42,9 @@ const en = {
   },
   find: {
     open: 'Find nodes and worktrees',
-    placeholder: 'Node or worktree name',
     none: 'None',
-    prev: 'Previous match',
-    next: 'Next match',
-    close: 'Close find',
+    noMatch: 'No matching names',
+    clear: 'Clear find',
   },
   node: {
     label: 'Node {{name}}',

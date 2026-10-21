@@ -426,7 +426,7 @@ Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Curso
 | `loom ask`(`Ask`) | 모든 런타임의 평문 질문. 사람이 띄운 노드만 쓴다 |
 | Claude 훅(`Hook`) | `PreToolUse`의 `AskUserQuestion`(질문)과 `ExitPlanMode`(계획 승인). `Notification`의 `permission_prompt`(권한 승인)와 `elicitation_dialog`(MCP 질문) |
 | Codex 스레드 상태(`Codex`) | `thread/status/changed`의 `waitingOnApproval`(승인)과 `waitingOnUserInput`(질문). 표시가 사라지면 거둔다 |
-| 터미널 화면(`Screen`) | 신호가 없는 창. 노드 출력이 0.5초 멎으면 지금 터미널 화면(`NodeHost::screen`: backlog를 `vt100`으로 다시 그린 글. 지운 창의 글은 남지 않는다)에서 프로필이 가진 문구(`profile::dialogs`)를 찾는다. 없으면 거둔다. Claude: 첫 실행 테마 고르기, 폴더 신뢰, 모든 권한 허용 경고, 로그인, 한도 창. Codex: 폴더 신뢰, 로그인. Cursor: 폴더 신뢰, 명령·MCP·파일 승인, 로그인. 셸·명령 노드: 마지막 줄의 password·passphrase·(yes/no·[y/n]·Username for |
+| 터미널 화면(`Screen`) | 신호가 없는 창. 노드 출력이 0.5초 멎으면 지금 터미널 화면(`NodeHost::screen`: backlog를 `vt100`으로 다시 그린 글. 지운 창의 글은 남지 않는다)에서 프로필이 가진 문구(`profile::dialogs`)를 찾는다. 없으면 거둔다. Claude: 첫 실행 테마 고르기, 폴더 신뢰, 모든 권한 허용 경고, 로그인, 한도 창. Codex: 폴더 신뢰, 로그인. Cursor: 폴더 신뢰, 명령·MCP·파일 승인, 로그인, 질문 창(도움말 줄 「Enter next/submit」. 창 제목은 모델이 정한다). Cursor의 질문 도구는 훅을 부르지 않는다(2026.10.19 실측). 그래서 Cursor는 훅 신호가 없다. 셸·명령 노드: 마지막 줄의 password·passphrase·(yes/no·[y/n]·Username for |
 
 - 지우는 길: 신호가 거둔다. 사람이 그 노드 터미널에 키를 누른다(터미널이 스스로 보내는 초점·커서·마우스 응답은 키가 아니다, `node_host::typed`). 프로세스가 끝나거나 계정 전환으로 다시 뜬다.
 - 폴더 신뢰 창이 떠 있는 동안 Claude는 훅을 부르지 않는다(2.1.306 실측). 그래서 화면 문구로 찾는다. loom은 `~/.claude.json`에 신뢰를 써서 창을 없애지 않는다. Claude는 저장소 원래 체크아웃의 신뢰를 워크트리에 이어 쓴다(실측). 그래서 이 창은 신뢰하지 않은 저장소의 첫 노드에서만 뜬다.

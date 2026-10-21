@@ -4,6 +4,7 @@
 
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod opencode2;
 
 use std::collections::HashMap;
@@ -41,15 +42,28 @@ pub enum Profile {
     Codex,
     #[serde(rename = "opencode2")]
     OpenCode2,
+    Cursor,
+}
+
+/// 훅이 메시지를 꺼내는 때. 훅으로 전달하는 프로필(Claude, Cursor)이 쓴다.
+#[derive(Debug, PartialEq)]
+pub enum Take {
+    /// 턴 안의 지점. 이 방식의 메시지만 바로 꺼낸다.
+    Now(&'static [Kind]),
+    /// 턴이 없다(세션 시작, 턴 끝). 훅이 메시지가 올 때까지 기다린다.
+    WhenIdle,
+    /// 메시지를 꺼내지 않는다(알림).
+    Never,
 }
 
 impl Profile {
     /// 계정을 고르는 프로필이면 그 공급자다. OpenCode 2는 공급자가 여럿이라 loom 계정이 없다.
+    /// Cursor는 계정 전환을 아직 두지 않는다. 노드는 Cursor CLI의 로그인을 쓴다.
     pub fn provider(self) -> Option<Provider> {
         match self {
             Profile::Claude => Some(Provider::Claude),
             Profile::Codex => Some(Provider::Codex),
-            Profile::OpenCode2 => None,
+            Profile::OpenCode2 | Profile::Cursor => None,
         }
     }
 }
@@ -75,6 +89,12 @@ impl Profile {
             .filter(|t| !is_uuid(t)),
             // `OC | <세션 제목>`. 제목이 생기기 전에는 `OpenCode`다.
             Profile::OpenCode2 => title.strip_prefix("OC | "),
+            // `<주제> - ⏳ Working ...`, 쉬면 `<주제> - ✅ Ready`다. 주제가 생기기 전에는 `Cursor Agent`다(가설).
+            Profile::Cursor => Some(match title.rsplit_once(" - ") {
+                Some((rest, state)) if state.split(' ').next().is_some_and(is_spinner) => rest,
+                _ => title,
+            })
+            .filter(|t| *t != "Cursor Agent"),
         };
         topic
             .map(str::trim)
@@ -295,6 +315,7 @@ pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
     match profile {
         Some(Profile::Claude) => &claude::DIALOGS,
         Some(Profile::Codex) => &codex::DIALOGS,
+        Some(Profile::Cursor) => &cursor::DIALOGS,
         Some(Profile::OpenCode2) => &[],
         None => &SHELL_DIALOGS,
     }
@@ -414,7 +435,7 @@ impl std::fmt::Display for LaunchError {
             }
             LaunchError::NoModelChoice(agent) => write!(
                 f,
-                "{agent}: does not take `--model` or `--effort` (only Claude and Codex do). Remove them and try again."
+                "{agent}: does not take this `--model` or `--effort` (Claude and Codex take both, Cursor takes `--model` with an optional `--effort`). Fix them and try again."
             ),
             LaunchError::NoBrief(agent) => write!(
                 f,
@@ -434,8 +455,8 @@ pub struct VersionMismatch {
 
 /// `remote`는 노드 TUI가 붙을 서버다. 서버를 쓰는 프로필(Codex, OpenCode 2)에만 쓴다.
 /// `bypass_off`에 없는 에이전트는 모든 권한 허용 인자(`bypass`)로 띄운다.
-/// `plugin`은 loom이 싣는 스킬 플러그인 폴더다. Claude만 시작 인자로 받는다. 다른 프로필은 서버가 받는다.
-/// `position`은 상시 지시를 고른다(`skills::always_on`). Claude만 시작 인자로 받는다.
+/// `plugin`은 loom이 싣는 스킬 플러그인 폴더다. Claude·Cursor만 시작 인자로 받는다. 다른 프로필은 서버가 받는다.
+/// `position`은 상시 지시를 고른다(`skills::always_on`). Claude는 시작 인자로, Cursor는 훅이 읽는 환경 변수로 받는다.
 pub fn command(
     start: &Start,
     cwd: &Path,
@@ -529,6 +550,10 @@ fn agent_command(
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
     match (agent.profile, remote) {
         (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, position)),
+        (Some(Profile::Cursor), _) => {
+            cmd.args(cursor::args(plugin));
+            cmd.env(cursor::POSITION_ENV, cursor::position_value(position));
+        }
         (Some(Profile::Codex), Some(Remote::Codex { url })) => cmd.args(codex::args(url)),
         (
             Some(Profile::OpenCode2),
@@ -598,6 +623,8 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
         _ if choice.is_empty() => Ok(Vec::new()),
         Some(Profile::Claude) => Ok(claude::choice_args(choice)),
         Some(Profile::Codex) => Ok(codex::choice_args(choice)),
+        Some(Profile::Cursor) => cursor::choice_args(choice)
+            .ok_or_else(|| LaunchError::NoModelChoice(agent.label.clone())),
         Some(Profile::OpenCode2) | None => Err(LaunchError::NoModelChoice(agent.label.clone())),
     }
 }
@@ -771,10 +798,10 @@ mod tests {
             .filter(|a| a.can_bypass)
             .map(|a| a.id.0)
             .collect();
-        assert_eq!(ids, ["claude", "codex", "opencode2"]);
+        assert_eq!(ids, ["claude", "codex", "opencode2", "cursor"]);
     }
 
-    /// 실측한 제목(2026-10-20, Claude Code 2.1.304, Codex 0.159.2, OpenCode 2).
+    /// 실측한 제목(2026-10-20, Claude Code 2.1.304, Codex 0.159.2, OpenCode 2; 2026-10-21, Cursor 2026.10.19).
     #[test]
     fn topic_comes_from_each_cli_title() {
         let cases = [
@@ -801,6 +828,16 @@ mod tests {
                 Some("a.txt 파일 내용 한 줄 요약"),
             ),
             (Profile::OpenCode2, "OpenCode", None),
+            (
+                Profile::Cursor,
+                "Sleep Then Done - ⏳ Working ..·",
+                Some("Sleep Then Done"),
+            ),
+            (
+                Profile::Cursor,
+                "Secret Word Node - ✅ Ready",
+                Some("Secret Word Node"),
+            ),
             (
                 Profile::Codex,
                 "읽고 b.rs에 주석 추가해",

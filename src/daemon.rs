@@ -308,7 +308,7 @@ pub struct TakeRequest {
     pub transcript: Option<String>,
 }
 
-/// 쉬는 Claude 노드의 비동기 훅 요청(`loom hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
+/// 쉬는 노드의 훅 요청(`loom hook`, `loom cursor-hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IdleRequest {
@@ -420,7 +420,11 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         setups: Mutex::default(),
         idle: idle::IdleWaits::default(),
         switch: switch::Switches::default(),
-        plugin: skills::Plugin::install(db_path.with_file_name("plugin"))?,
+        plugin: {
+            let plugin = skills::Plugin::install(db_path.with_file_name("plugin"))?;
+            profile::cursor::write_plugin(plugin.dir())?;
+            plugin
+        },
         version_warnings: profile::version_warnings(codex_version.as_deref()),
         codex_config: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
@@ -1445,7 +1449,8 @@ fn send(app: &App, from: NodeId, req: &SendRequest) -> Result<Sent, Refusal> {
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
-        if req.kind == Kind::Interrupt && profile == Profile::Claude {
+        // 셸 앞에 `loom guard`를 붙이는 프로필만 그 셸을 끝낸다.
+        if req.kind == Kind::Interrupt && matches!(profile, Profile::Claude | Profile::Cursor) {
             return app.graph.interrupt(from, &target, &req.body, |to| {
                 app.host.stop_guarded(to);
             });

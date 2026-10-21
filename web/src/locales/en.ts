@@ -155,6 +155,7 @@ const en = {
       claude: 'claude {{installed}} · pinned {{pinned}}',
       codex: 'codex {{installed}} · pinned {{pinned}} · approval needed for every loom command',
       opencode2: 'opencode2 {{installed}} · pinned {{pinned}}',
+      cursor: 'cursor-agent {{installed}} · pinned {{pinned}}',
     },
     messaging: 'messaging',
     terminalOnly: 'terminal only',

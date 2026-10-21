@@ -111,6 +111,10 @@ enum Cli {
     Show { file: PathBuf },
     /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
     Hook,
+    /// Cursor 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
+    CursorHook,
+    /// Cursor 세션 시작 훅이 부른다. 상시 지시를 출력한다.
+    CursorRules,
     /// Claude 훅이 Bash 명령 앞에 붙인다. 부른 셸을 중단 대상으로 알린다.
     Guard,
     /// 데몬이 노드마다 띄운다. PTY 하나를 쥐고 데몬보다 오래 산다.
@@ -146,6 +150,8 @@ fn main() -> ExitCode {
         Cli::Steer { name, body } => cli::send(name, Kind::Steer, body),
         Cli::Interrupt { name, body } => cli::send(name, Kind::Interrupt, body),
         Cli::Hook => cli::hook(),
+        Cli::CursorHook => cli::cursor_hook(),
+        Cli::CursorRules => cli::cursor_rules(),
         Cli::Guard => cli::guard(),
         Cli::Wait {
             reply_to,

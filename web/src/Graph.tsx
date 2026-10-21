@@ -460,6 +460,8 @@ export function Graph(props: {
   accounts: AccountView[] | null;
   selected: NodeId | null;
   onSelect: (id: NodeId | null) => void;
+  /** 바탕을 누르면 고른 노드·상자와 사이드바 저장소 포커스를 지운다. */
+  onClear: () => void;
   /** 고른 묶음·저장소 상자(React Flow 노드 id, `flowId`). 카드를 고르면 App이 비운다. */
   chosenBox: string | null;
   onChooseBox: (key: string | null) => void;
@@ -1179,8 +1181,7 @@ export function Graph(props: {
         nodeTypes={nodeTypes}
         onNodesChange={onChange}
         onPaneClick={() => {
-          setSelected(null);
-          setChosenBox(null);
+          props.onClear();
           props.onClearHighlight();
           setCreating(null);
           setDeleting(null);

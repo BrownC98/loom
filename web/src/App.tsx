@@ -13,6 +13,7 @@ import type { MovableNode } from './gen/MovableNode';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { Provider } from './gen/Provider';
+import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
@@ -126,7 +127,18 @@ function useColorMode(theme: Theme): ColorMode {
 export function App() {
   const { t } = useTranslation();
   const [repos, setRepos] = useState<RepoView[]>([]);
-  const [repo, selectRepo] = useSelectedRepo(repos);
+  const [repo, saveRepo] = useSelectedRepo(repos);
+  // 사이드바 저장소 줄의 포커스와 커밋 그래프. 바탕이나 사이드바 「저장소」 제목을 누르면 지운다. 그래프가 그리는 저장소(`repo`)는 그대로다. 2026-10-21 사람 지시.
+  const [repoFocused, setRepoFocused] = useState(true);
+  const selectRepo = (id: RepoId) => {
+    saveRepo(id);
+    setRepoFocused(true);
+  };
+  const clearFocus = () => {
+    setSelected(null);
+    setChosenBox(null);
+    setRepoFocused(false);
+  };
   /** 저장소 하나의 새 모양(워크트리를 만들거나 지운 뒤)을 목록에 넣는다. 처음 보는 저장소면 끝에 더한다. */
   const putRepo = (next: RepoView) => setRepos((prev) => (prev.some((r) => r.id === next.id) ? prev.map((r) => (r.id === next.id ? next : r)) : [...prev, next]));
   // 노드가 모르는 워크트리에 있으면(`loom spawn --worktree`, 터미널에서 만든 워크트리) 목록을 다시 읽는다. 경로마다 한 번만 읽는다.
@@ -280,7 +292,7 @@ export function App() {
     if (id !== null) setChosenBox(null);
     // 다른 저장소의 노드(트리, 이벤트 기록, 모든 저장소 그래프)를 고르면 현재 저장소를 그 저장소로 바꾼다.
     const place = id === null ? undefined : nodes.get(id)?.place;
-    if (place && place.repo !== repo?.id) selectRepo(place.repo);
+    if (place) selectRepo(place.repo);
     if (simpleCards && id !== null) {
       setTab('terminal');
       setDockOpen(true);
@@ -406,8 +418,9 @@ export function App() {
               <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} />
               <Tree
                 repos={repos}
-                current={repo?.id ?? null}
+                current={repoFocused ? (repo?.id ?? null) : null}
                 onRepo={selectRepo}
+                onClear={clearFocus}
                 onAdded={(added) => {
                   putRepo(added);
                   selectRepo(added.id);
@@ -460,6 +473,7 @@ export function App() {
               onSelect={selectNode}
               chosenBox={chosenBox}
               onChooseBox={chooseBox}
+              onClear={clearFocus}
               highlight={lit}
               onClearHighlight={() => setHighlight(null)}
               cardView={settings.cardView}
@@ -481,7 +495,7 @@ export function App() {
               }
             >
               {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} />}
-              {shownTab === 'commits' && repo && <CommitGraph repo={repo.id} name={repo.name} />}
+              {shownTab === 'commits' && repo && repoFocused && <CommitGraph repo={repo.id} name={repo.name} />}
               {shownTab === 'terminal' && dockedView && (
                 <TerminalDock
                   view={dockedView}

@@ -264,6 +264,39 @@ export function crossed(before: CenterSide, dragged: Box, box: Box): boolean {
   return (before.x !== 0 && Math.sign(lead.x - o.x) !== before.x) || (before.y !== 0 && Math.sign(lead.y - o.y) !== before.y);
 }
 
+/**
+ * 끄는 동안의 자리 바꿈. `slot`은 끄는 상자의 빈자리다(처음에는 끌기 전 자리, 바꾼 뒤에는 바꾼 형제의 앞 자리).
+ * `sides`는 형제마다 끄는 상자가 겹치기 전에 있던 쪽, `at`은 자리를 바꾼 형제의 지금 자리다.
+ */
+export type Swap = { slot: Box; sides: ReadonlyMap<string, CenterSide>; at: ReadonlyMap<string, Point> };
+
+/**
+ * 사람 결정(2026-10-21) "밀려나는건 마우스를 놓는 시점에 밀려나야하고, 드래그로 이동시키다가 중간선을 넘으면 서로 위치를 교환하는 식으로".
+ * 끄는 동안은 밀지 않는다. 끄는 상자의 앞 변이 겹친 형제의 중심선을 넘으면(`crossed`) 그 형제가 빈자리(`slot`)로 바로 간다. 빈자리는 그 형제의 앞 자리가 된다.
+ * 넘은 축에서는 형제가 움직이는 쪽의 변을 빈자리의 같은 변에 맞춘다. 넘지 않은 축(겹치기 전부터 맞물린 축)에서는 형제가 제 자리를 지킨다.
+ * 그래서 큰 묶음과 작은 카드가 바꾸어도 둘이 차지하던 구간 안에서 순서만 바뀐다. 다시 넘으면 같은 규칙으로 되돌아간다.
+ * `others`는 끌기 전 형제 자리다. 바꾼 자리는 `at`에서 읽는다.
+ */
+export function swap(state: Swap, others: readonly Sibling[], dragged: Box): Swap {
+  let slot = state.slot;
+  const sides = new Map(state.sides);
+  const at = new Map(state.at);
+  for (const s of others) {
+    const o = { ...s, at: at.get(s.key) ?? s.at };
+    const before = sides.get(o.key);
+    if (!overlaps(dragged, o) || before === undefined) {
+      sides.set(o.key, centerSide(dragged, o));
+      continue;
+    }
+    if (!crossed(before, dragged, o)) continue;
+    const edge = (side: number, now: number, from: number, len: number, own: number) => (side === 0 ? now : side > 0 ? from + len - own : from);
+    at.set(o.key, { x: edge(before.x, o.at.x, slot.at.x, slot.size.width, o.size.width), y: edge(before.y, o.at.y, slot.at.y, slot.size.height, o.size.height) });
+    slot = o;
+    sides.set(o.key, { x: -before.x, y: -before.y });
+  }
+  return { slot, sides, at };
+}
+
 /** 자리를 저장하지 않은 새 상자의 자리. `box`가 `others`와 겹치면 겹치지 않을 때까지 겹친 상자 오른쪽으로 `gap`을 두고 옮긴다. */
 export function freeSpot(box: Box, others: readonly Box[], gap: number): Point {
   let at = box.at;

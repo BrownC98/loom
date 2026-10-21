@@ -9,8 +9,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
-    AckRequest, AdoptRequest, DoneRequest, GuardRequest, ReplyRequest, SendRequest, SpawnRequest,
-    SpawnRun, TakeRequest, WaitRequest,
+    AckRequest, AdoptRequest, DoneRequest, GuardRequest, RemoveRequest, ReplyRequest, SendRequest,
+    SpawnRequest, SpawnRun, TakeRequest, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, MessageId, NodeId, Relations, Sent};
 use crate::profile::claude::{self, Take};
@@ -215,16 +215,34 @@ pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String
             .to_string(),
         None => summary.unwrap_or_default(),
     };
-    call::<()>("done", &DoneRequest { summary }, None)?;
+    let alive_children: Vec<String> = call("done", &DoneRequest { summary }, None)?;
     println!(
         "Reported to your parent. If you have no parent, loom keeps the report for your next parent."
     );
+    if !alive_children.is_empty() {
+        println!(
+            "Warning: these children are still running: {}. Reclaim each with `loom rm <name>` when you keep its results, or they stay in the graph.",
+            alive_children.join(", ")
+        );
+    }
     Ok(())
 }
 
 pub fn adopt(name: String) -> Result<(), String> {
     call::<()>("adopt", &AdoptRequest { name }, None)?;
     println!("You are the parent now. Messages that node kept move to your inbox.");
+    Ok(())
+}
+
+pub fn remove(name: String) -> Result<(), String> {
+    let moved: Vec<String> = call("rm", &RemoveRequest { name: name.clone() }, None)?;
+    println!("Removed {name}.");
+    if !moved.is_empty() {
+        println!(
+            "Its children are now your children: {}. Reclaim them next with `loom rm <name>` when you keep their results.",
+            moved.join(", ")
+        );
+    }
     Ok(())
 }
 

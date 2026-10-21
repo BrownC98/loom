@@ -293,6 +293,8 @@ const en = {
       mailboxFull_nameless: 'The mailbox is full. Send again after the receiver reads it with `loom wait`.',
       notRelated: '{{value}}: not my parent or child. Messages go only between parent and child.',
       notRelated_nameless: 'Not my parent or child. Messages go only between parent and child.',
+      notChild: '{{value}}: not my child. I can remove only my own children.',
+      childrenStay: '{{value}}. These children cannot move here, so nothing changed.',
       ended: '{{value}} has already ended.',
       ended_nameless: 'This node has already ended.',
       alreadyDone: 'This node is already done.',

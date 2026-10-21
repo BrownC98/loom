@@ -294,48 +294,56 @@ impl Graph {
     pub fn remove(&self, id: NodeId) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let Some(state) = state_of(&tx, id).optional()? else {
+        let Some(removal) = remove_in(&tx, id)? else {
             return Ok(());
         };
-        let children = tx
-            .prepare("SELECT id FROM nodes WHERE parent = ?1")?
-            .query_map([id.0], |row| Ok(NodeId(row.get(0)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let waiting_parent = parent_of(&tx, id)?.filter(|_| state == NodeState::Running);
-        // 보낸 노드 이름을 읽으므로 지우기 전에 넣는다.
-        if let Some(parent) = waiting_parent {
-            mailbox::enqueue(&tx, id, Some(parent), Kind::Queue, "removed")?;
-        }
-        tx.execute(
-            "UPDATE messages SET recipient = NULL
-             WHERE recipient = ?1 AND delivered = 0 AND kind = ?2
-             AND sender IN (SELECT id FROM nodes WHERE parent = ?1)",
-            params![id.0, to_json(&Kind::Queue)],
-        )?;
-        tx.execute(
-            "DELETE FROM messages WHERE recipient IS NULL AND sender = ?1",
-            [id.0],
-        )?;
-        events::write(
-            &tx,
-            &Entry::Removed {
-                node: events::who(&tx, id)?,
-            },
-            None,
-        )?;
-        tx.execute("UPDATE nodes SET parent = NULL WHERE parent = ?1", [id.0])?;
-        tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
-        self.titles.lock().unwrap().remove(&id);
-        let _ = self.events.send(GraphEvent::Removed { id });
-        for child in children {
-            self.publish_node(&db, child)?;
+        removal.publish(self, &db)
+    }
+
+    /// `loom rm`: `caller`가 자기 자식 `name`(이름이나 `#번호`)을 지운다. 그 자식의 자식은 같은 트랜잭션에서 `caller`가 데려간다.
+    /// 하나라도 데려갈 수 없으면 아무것도 바꾸지 않고 거절한다. 돌려준 값은 지운 노드와 데려간 노드 이름이다.
+    pub fn remove_child(
+        &self,
+        caller: NodeId,
+        name: &str,
+        limits: TreeLimits,
+    ) -> Result<(NodeId, Vec<String>), Refusal> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let id = mailbox::recipient(&tx, caller, name)?.0;
+        if parent_of(&tx, id)? != Some(caller) {
+            return Err(Refusal::NotChild(name.to_owned()));
         }
-        if let Some(parent) = waiting_parent {
-            self.publish_node(&db, parent)?;
-            self.mail.notify_waiters();
+        let removal = remove_in(&tx, id)?.ok_or_else(|| Refusal::NotFound(name.to_owned()))?;
+        let mut adoptions = Vec::new();
+        let mut moved = Vec::new();
+        let mut refused = Vec::new();
+        for &child in &removal.children {
+            let child_name = name_of(&tx, child)?;
+            match adopt_in(&tx, caller, child, limits) {
+                Ok(adoption) => {
+                    adoptions.extend(adoption);
+                    moved.push(child_name);
+                }
+                Err(Refusal::NameTaken(_)) => refused.push(format!(
+                    "{child_name} (you, your parent or a child of yours has this name)"
+                )),
+                Err(e) => refused.push(format!("{child_name} ({e})")),
+            }
         }
-        Ok(())
+        if !refused.is_empty() {
+            return Err(Refusal::ChildrenStay(format!(
+                "{name}: {}",
+                refused.join(", ")
+            )));
+        }
+        tx.commit()?;
+        removal.publish(self, &db)?;
+        for adoption in adoptions {
+            adoption.publish(self, &db)?;
+        }
+        Ok((id, moved))
     }
 
     /// 그래프 전체에서 이름이 `name`인 노드 하나를 찾는다.
@@ -419,78 +427,173 @@ impl Graph {
         Ok(())
     }
 
-    /// `parent`를 `child`의 새 부모로 정한다. 이미 그 부모면 아무것도 하지 않는다.
-    /// `child`가 보관한 메시지는 보낸 순서대로 새 부모 메일함에 넣는다. 보관할 때 상한을 봤으므로 메일함 상한은 보지 않는다.
-    /// 실행 중인 노드를 데려가면 옛 부모 메일함에 `adopted: <새 부모>` 한 줄을 넣는다. 옛 부모가 끝없이 기다리지 않게 한다.
+    /// `parent`를 `child`의 새 부모로 정한다. 이미 그 부모면 아무것도 하지 않는다. 규칙은 `adopt_in`에 있다.
     pub fn adopt(&self, parent: NodeId, child: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let old = parent_of(&tx, child)?;
-        if old == Some(parent) {
+        let Some(adoption) = adopt_in(&tx, parent, child, limits)? else {
             return Ok(());
-        }
-        let above = ancestors(&tx, parent)?;
-        if parent == child || above.contains(&child) {
-            return Err(Refusal::Cycle);
-        }
-        if let Some(max) = limits.max_depth
-            && above.len() as u32 + 1 + height(&tx, child)? > max
-        {
-            return Err(Refusal::TooDeep);
-        }
-        check_children(&tx, parent, limits)?;
-        let name = name_of(&tx, child)?;
-        let taken: bool = tx.query_row(
-            "SELECT EXISTS (SELECT 1 FROM nodes WHERE id != ?3 AND
-                ((name = ?2 AND (parent = ?1 OR id = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)))
-                 OR (parent = ?3 AND name = (SELECT name FROM nodes WHERE id = ?1))))",
-            params![parent.0, name, child.0],
-            |row| row.get(0),
-        )?;
-        if taken {
-            return Err(Refusal::NameTaken(name));
-        }
-        let told_old = old.filter(|_| state_of(&tx, child).ok() == Some(NodeState::Running));
-        if let Some(old) = told_old {
-            let notice = format!("adopted: {}", name_of(&tx, parent)?);
-            mailbox::enqueue(&tx, child, Some(old), Kind::Queue, &notice)?;
-        }
-        tx.execute(
-            "UPDATE nodes SET parent = ?2 WHERE id = ?1",
-            params![child.0, parent.0],
-        )?;
-        mailbox::enqueue(
-            &tx,
-            parent,
-            Some(child),
-            Kind::Queue,
-            &format!(
-                "parent: {} (#{}). Use loom status to inspect current relationships.",
-                name_of(&tx, parent)?,
-                parent.0
-            ),
-        )?;
-        let moved = tx.execute(
-            "UPDATE messages SET recipient = ?2 WHERE recipient IS NULL AND sender = ?1",
-            params![child.0, parent.0],
-        )?;
-        events::write(
-            &tx,
-            &Entry::Adopted {
-                node: events::who(&tx, child)?,
-                from: old.map(|old| events::who(&tx, old)).transpose()?,
-                to: events::who(&tx, parent)?,
-                held: moved as u32,
-            },
-            None,
-        )?;
+        };
         tx.commit()?;
-        for node in [Some(child), Some(parent), told_old].into_iter().flatten() {
-            self.publish_node(&db, node)?;
+        Ok(adoption.publish(self, &db)?)
+    }
+}
+
+/// 커밋 뒤 알릴 노드 제거.
+struct Removal {
+    id: NodeId,
+    children: Vec<NodeId>,
+    waiting_parent: Option<NodeId>,
+}
+
+impl Removal {
+    fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
+        graph.titles.lock().unwrap().remove(&self.id);
+        let _ = graph.events.send(GraphEvent::Removed { id: self.id });
+        for child in self.children {
+            graph.publish_node(db, child)?;
         }
-        self.publish_message(child, Toward::Child);
+        if let Some(parent) = self.waiting_parent {
+            graph.publish_node(db, parent)?;
+            graph.mail.notify_waiters();
+        }
         Ok(())
     }
+}
+
+/// 노드 하나를 지운다. 자식은 뿌리가 된다. 노드가 없으면 `None`이다.
+fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
+    let Some(state) = state_of(tx, id).optional()? else {
+        return Ok(None);
+    };
+    let children = tx
+        .prepare("SELECT id FROM nodes WHERE parent = ?1 ORDER BY id")?
+        .query_map([id.0], |row| Ok(NodeId(row.get(0)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let waiting_parent = parent_of(tx, id)?.filter(|_| state == NodeState::Running);
+    // 보낸 노드 이름을 읽으므로 지우기 전에 넣는다.
+    if let Some(parent) = waiting_parent {
+        mailbox::enqueue(tx, id, Some(parent), Kind::Queue, "removed")?;
+    }
+    tx.execute(
+        "UPDATE messages SET recipient = NULL
+         WHERE recipient = ?1 AND delivered = 0 AND kind = ?2
+         AND sender IN (SELECT id FROM nodes WHERE parent = ?1)",
+        params![id.0, to_json(&Kind::Queue)],
+    )?;
+    tx.execute(
+        "DELETE FROM messages WHERE recipient IS NULL AND sender = ?1",
+        [id.0],
+    )?;
+    events::write(
+        tx,
+        &Entry::Removed {
+            node: events::who(tx, id)?,
+        },
+        None,
+    )?;
+    tx.execute("UPDATE nodes SET parent = NULL WHERE parent = ?1", [id.0])?;
+    tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
+    Ok(Some(Removal {
+        id,
+        children,
+        waiting_parent,
+    }))
+}
+
+/// 커밋 뒤 알릴 입양.
+struct Adoption {
+    parent: NodeId,
+    child: NodeId,
+    told_old: Option<NodeId>,
+}
+
+impl Adoption {
+    fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
+        for node in [Some(self.child), Some(self.parent), self.told_old]
+            .into_iter()
+            .flatten()
+        {
+            graph.publish_node(db, node)?;
+        }
+        graph.publish_message(self.child, Toward::Child);
+        Ok(())
+    }
+}
+
+/// `parent`를 `child`의 새 부모로 정한다. 이미 그 부모면 `None`이다. 거절하면 아무것도 쓰지 않는다.
+/// `child`가 보관한 메시지는 보낸 순서대로 새 부모 메일함에 넣는다. 보관할 때 상한을 봤으므로 메일함 상한은 보지 않는다.
+/// 실행 중인 노드를 데려가면 옛 부모 메일함에 `adopted: <새 부모>` 한 줄을 넣는다. 옛 부모가 끝없이 기다리지 않게 한다.
+fn adopt_in(
+    tx: &Connection,
+    parent: NodeId,
+    child: NodeId,
+    limits: TreeLimits,
+) -> Result<Option<Adoption>, Refusal> {
+    let old = parent_of(tx, child)?;
+    if old == Some(parent) {
+        return Ok(None);
+    }
+    let above = ancestors(tx, parent)?;
+    if parent == child || above.contains(&child) {
+        return Err(Refusal::Cycle);
+    }
+    if let Some(max) = limits.max_depth
+        && above.len() as u32 + 1 + height(tx, child)? > max
+    {
+        return Err(Refusal::TooDeep);
+    }
+    check_children(tx, parent, limits)?;
+    let name = name_of(tx, child)?;
+    let taken: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM nodes WHERE id != ?3 AND
+            ((name = ?2 AND (parent = ?1 OR id = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)))
+             OR (parent = ?3 AND name = (SELECT name FROM nodes WHERE id = ?1))))",
+        params![parent.0, name, child.0],
+        |row| row.get(0),
+    )?;
+    if taken {
+        return Err(Refusal::NameTaken(name));
+    }
+    let told_old = old.filter(|_| state_of(tx, child).ok() == Some(NodeState::Running));
+    if let Some(old) = told_old {
+        let notice = format!("adopted: {}", name_of(tx, parent)?);
+        mailbox::enqueue(tx, child, Some(old), Kind::Queue, &notice)?;
+    }
+    tx.execute(
+        "UPDATE nodes SET parent = ?2 WHERE id = ?1",
+        params![child.0, parent.0],
+    )?;
+    mailbox::enqueue(
+        tx,
+        parent,
+        Some(child),
+        Kind::Queue,
+        &format!(
+            "parent: {} (#{}). Use loom status to inspect current relationships.",
+            name_of(tx, parent)?,
+            parent.0
+        ),
+    )?;
+    let moved = tx.execute(
+        "UPDATE messages SET recipient = ?2 WHERE recipient IS NULL AND sender = ?1",
+        params![child.0, parent.0],
+    )?;
+    events::write(
+        tx,
+        &Entry::Adopted {
+            node: events::who(tx, child)?,
+            from: old.map(|old| events::who(tx, old)).transpose()?,
+            to: events::who(tx, parent)?,
+            held: moved as u32,
+        },
+        None,
+    )?;
+    Ok(Some(Adoption {
+        parent,
+        child,
+        told_old,
+    }))
 }
 
 /// `<prefix>-<번호>`. 번호는 사람이 띄운 노드 사이에서 겹치지 않는 가장 작은 수다.

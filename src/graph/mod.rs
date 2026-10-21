@@ -169,6 +169,10 @@ pub enum Refusal {
     SummaryTooLong(#[ts(type = "number")] usize),
     MailboxFull(String),
     NotRelated(String),
+    /// `loom rm`의 대상이 부르는 노드의 자식이 아니다.
+    NotChild(String),
+    /// `loom rm`의 대상이 가진 자식을 부르는 노드가 데려갈 수 없다. 값은 대상 이름과 데려갈 수 없는 자식과 이유다.
+    ChildrenStay(String),
     Ended(String),
     AlreadyDone,
     HeldFull,
@@ -223,6 +227,14 @@ impl fmt::Display for Refusal {
                     "{name}: not your parent or child. Send messages only between a parent and its children."
                 )
             }
+            Refusal::NotChild(name) => write!(
+                f,
+                "{name}: not your child. You can remove only your own children."
+            ),
+            Refusal::ChildrenStay(list) => write!(
+                f,
+                "{list}. These children cannot move to you, so nothing changed. Remove or move them first."
+            ),
             Refusal::Ended(name) => write!(f, "{name}: the node process has ended."),
             Refusal::AlreadyDone => write!(f, "This node is already done."),
             Refusal::HeldFull => write!(

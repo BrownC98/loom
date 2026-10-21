@@ -39,7 +39,7 @@ fn usage() -> String {
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 10] = [
+const ALLOWED: [&str; 11] = [
     "Bash(loom guard)",
     "Bash(loom send:*)",
     "Bash(loom steer:*)",
@@ -50,6 +50,7 @@ const ALLOWED: [&str; 10] = [
     "Bash(loom status)",
     "Bash(loom done:*)",
     "Bash(loom adopt:*)",
+    "Bash(loom rm:*)",
 ];
 
 /// `--model`·`--effort` 시작 인자(Claude Code 2.1.304 도움말).

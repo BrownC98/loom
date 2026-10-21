@@ -96,6 +96,8 @@ enum Cli {
     },
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
+    /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
+    Rm { name: String },
     /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
     Hook,
     /// Claude 훅이 Bash 명령 앞에 붙인다. 부른 셸을 중단 대상으로 알린다.
@@ -143,6 +145,7 @@ fn main() -> ExitCode {
         Cli::Status => cli::status(),
         Cli::Done { summary, file } => cli::done(summary, file),
         Cli::Adopt { name } => cli::adopt(name),
+        Cli::Rm { name } => cli::remove(name),
         Cli::PtyHost => node_host::run(),
     };
     match result {

@@ -125,6 +125,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .row-acts .act:disabled { opacity: 0.4; cursor: default; }
 .row-acts .act svg { width: 14px; height: 14px; }
 .row-refusal { margin: 2px 8px 4px calc(26px + var(--depth) * var(--step)); font-size: 12px; color: var(--err); }
+/* 북마크(목업 docs/mockups/bookmarks.html). 켠 단추는 채운 책갈피다. 거절된 카드 머리 단추는 빨갛고 툴팁이 이유를 보인다. */
+:is(.bookmark, .act)[aria-pressed="true"] { color: var(--ink); }
+:is(.bookmark, .act)[aria-pressed="true"] svg { fill: currentColor; }
+.bookmark[data-refused] { color: var(--err); }
+/* 사이드바 북마크 영역: 찾기 칸 아래, 저장소 트리 위. 줄이 많으면 사이드바의 40%까지 커지고 안에서 스크롤한다. */
+.bookmarks { flex: none; max-height: 40%; display: flex; flex-direction: column; min-height: 0; }
+.bookmarks-title { display: inline-flex; align-items: center; gap: 4px; }
+.bookmarks-title .chev { width: 14px; height: 14px; }
+.bookmarks-title .chev.closed { transform: rotate(-90deg); }
+.bookmarks-count { margin-left: 2px; font-weight: 400; }
+.bookmarks-list { flex: 1 1 auto; }
+.bookmarks-list .row-refusal { --depth: 0; }
+.bookmarks-empty { padding: 0 16px 6px; font-size: 12px; color: var(--ink-3); }
 /* 줄 단추로 연 팝오버. 누른 줄 높이에서 사이드바 경계 밖에 붙는다. */
 .row-pop { position: fixed; z-index: 8; }
 .row-pop > .pop { position: static; max-height: calc(100vh - 16px); overflow: auto; }

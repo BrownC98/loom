@@ -32,6 +32,7 @@ import { Splitter, usePaneOpen, usePaneWidth, useViewportWidth, type Pane } from
 import { StatusBar, type Usage } from './StatusBar';
 import { Inbox, waitingNodes } from './Inbox';
 import { activeTheme, RESET_TERMINAL_THEME, type ColorMode } from './terminalThemes';
+import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
 import { TitleBar } from './TitleBar';
 import { UpdateCard } from './Update';
@@ -402,6 +403,7 @@ export function App() {
                   <PanelLeftClose />
                 </button>
               </div>
+              <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} />
               <Tree
                 repos={repos}
                 current={repo?.id ?? null}

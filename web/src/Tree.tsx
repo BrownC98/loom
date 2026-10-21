@@ -1,6 +1,6 @@
 // 사이드바 트리(docs/mockups/graph-panels.html 1번): 저장소 > 워크트리 묶음 > 노드 > 자식 노드.
 // 그래프와 같은 노드 목록을 그린다. 트리만의 상태는 접힌 줄, 이름 편집, 줄 단추로 연 팝오버와 그 거절 글이다.
-import { ChevronDown, ChevronsUpDown, CornerLeftUp, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Bookmark, ChevronDown, ChevronsUpDown, CornerLeftUp, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeNode, removeRepo, renameWorktree } from './api';
@@ -13,6 +13,7 @@ import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import { AddRepoPopover } from './AddRepoPopover';
+import { bookmarkToggle } from './BookmarkButton';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import type { Found } from './findSpots';
 import { useShowAll, useShowGroups, useShowNodes } from './Graph';
@@ -20,12 +21,12 @@ import i18next from './i18n';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
-import { Unread } from './NodeCard';
+import { stateClass, Unread } from './NodeCard';
 import { useOutsideClose } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
 
-/** 줄 끝 단추 하나(docs/mockups/sidebar-crud.html 2번). `run`은 누른 줄의 단추를 받는다. 팝오버를 그 줄 옆에 띄운다. */
-type Action = { label: string; icon: ReactNode; run: (row: HTMLElement) => void; disabled?: boolean };
+/** 줄 끝 단추 하나(docs/mockups/sidebar-crud.html 2번). `run`은 누른 줄의 단추를 받는다. 팝오버를 그 줄 옆에 띄운다. `pressed`가 있으면 켜고 끄는 단추다(북마크). */
+type Action = { label: string; icon: ReactNode; run: (row: HTMLElement) => void; disabled?: boolean; pressed?: boolean };
 /** `rename`은 줄의 이름 바꾸기 동작이다. F2 키도 부른다. `remove`는 줄의 지우기 동작이다. 단추 끝에 오고 Delete 키도 부른다. `show`는 줄을 누르면 그래프를 옮긴다(저장소 줄, 워크트리 줄). */
 type Item = { key: string; row: ReactNode; node: NodeId | null; repo?: RepoId; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
 
@@ -67,7 +68,7 @@ function FromIcon({ title }: { title: string }) {
 
 /** 노드 줄의 `부모: … · …` 문구를 돌려준다. 문구가 없으면 표시도 없다. */
 type ParentNote = (v: NodeView) => string | null;
-type NodeActions = (id: NodeId) => Pick<Item, 'actions' | 'rename' | 'remove'>;
+type NodeActions = (view: NodeView) => Pick<Item, 'actions' | 'rename' | 'remove'>;
 
 /** 줄 옆 팝오버 자리. 창 아래로 넘치면 위로 올린다. 내용이 늦게 와 커져도(새 노드의 프로필 목록) 다시 맞춘다. 밖을 누르면 닫는다(새 노드 팝오버는 스스로 닫지 않는다). */
 function RowPop(props: { top: number; left: number; onClose: () => void; children: ReactNode }) {
@@ -100,7 +101,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
         node: v.id,
         row: (
           <>
-            <span className={`dot ${v.wait ? 'waiting' : v.state.kind}`} aria-label={v.wait ? 'waiting' : v.state.kind} />
+            <span className={`dot ${stateClass(v)}`} aria-label={stateClass(v)} />
             <NameEdit id={v.id} name={v.name} rename={rename(`node:${v.id}`)} />
             {from !== null && <FromIcon title={from} />}
             <span className="sub">{agentLabel(agents, v.agent)}</span>
@@ -114,7 +115,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
           </>
         ),
         children: nodeItems(views, v.id, agents, rename, note, acts),
-        ...acts(v.id),
+        ...acts(v),
       };
     });
 }
@@ -169,12 +170,16 @@ export function Tree(props: {
     if (key) returnFocus(() => rowOf(key));
   };
   const refuse = (key: string) => (err: Error) => setRefusal({ key, text: err.message });
-  const nodeActions: NodeActions = (id) => ({
-    actions: [],
+  const nodeActions: NodeActions = (view) => {
+    const id = view.id;
+    const bookmark = bookmarkToggle(view);
+    return {
+      actions: [{ label: bookmark.label, icon: <Bookmark />, pressed: bookmark.pressed, run: () => bookmark.run().catch(refuse(`node:${id}`)) }],
     rename: { label: t('rename.action'), icon: <Pencil />, run: () => setRenaming(`node:${id}`) },
     // 카드와 같이 확인 없이 바로 지운다(docs/design.md 「노드 제거와 입양」).
     remove: { label: t('node.remove'), icon: <Trash2 />, run: () => removeNode(id).catch(refuse(`node:${id}`)) },
-  });
+    };
+  };
   const rename = (key: string): Rename => ({
     editing: renaming === key,
     open: () => setRenaming(key),
@@ -334,6 +339,7 @@ export function Tree(props: {
                   aria-label={action.label}
                   title={action.label}
                   disabled={action.disabled}
+                  aria-pressed={action.pressed}
                   onClick={(e) => {
                     setRefusal(null);
                     action.run(e.currentTarget.closest('.tree-line')!.querySelector<HTMLElement>('.tree-row')!);

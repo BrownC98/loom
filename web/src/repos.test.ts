@@ -15,6 +15,7 @@ const view = (id: number, parent: number | null, worktree: string, repo = 1): No
   effort: null,
   place: { repo, worktree },
   topic: null,
+  bookmark: null,
   wait: null,
 });
 

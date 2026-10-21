@@ -1,6 +1,7 @@
 import { WebglAddon } from '@xterm/addon-webgl';
 import type { Terminal as XTerm } from '@xterm/xterm';
 import { nodePty } from './api';
+import { BookmarkButton } from './BookmarkButton';
 import type { NodeView } from './gen/NodeView';
 import { useRename } from './NameEdit';
 import { NodeSummary } from './NodeCard';
@@ -28,7 +29,7 @@ export function TerminalDock(props: { view: NodeView; agentLabel: string; onNavi
   return (
     <>
       <div className="dock-head">
-        <NodeSummary view={view} agentLabel={props.agentLabel} rename={rename} actions={null} />
+        <NodeSummary view={view} agentLabel={props.agentLabel} rename={rename} actions={<BookmarkButton view={view} />} />
       </div>
       {/* 노드를 바꾸면 새 터미널을 연다. 앞 노드의 연결은 닫는다. */}
       <div className="dock-term" translate="no">

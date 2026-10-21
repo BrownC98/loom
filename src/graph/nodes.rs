@@ -335,6 +335,34 @@ impl Graph {
         Ok(())
     }
 
+    /// 사람이 노드를 북마크한다. 이미 북마크했으면 차례를 그대로 둔다.
+    pub fn bookmark(&self, id: NodeId) -> Result<(), Refusal> {
+        self.set_bookmark(
+            id,
+            "UPDATE nodes SET bookmark = (SELECT coalesce(max(bookmark), 0) + 1 FROM nodes)
+             WHERE id = ?1 AND bookmark IS NULL",
+        )
+    }
+
+    /// 사람이 노드를 북마크에서 뺀다.
+    pub fn unbookmark(&self, id: NodeId) -> Result<(), Refusal> {
+        self.set_bookmark(
+            id,
+            "UPDATE nodes SET bookmark = NULL WHERE id = ?1 AND bookmark IS NOT NULL",
+        )
+    }
+
+    fn set_bookmark(&self, id: NodeId, update: &str) -> Result<(), Refusal> {
+        let db = self.lock();
+        name_of(&db, id)
+            .optional()?
+            .ok_or_else(|| Refusal::NotFound(format!("#{}", id.0)))?;
+        if db.execute(update, [id.0])? > 0 {
+            self.publish_node(&db, id)?;
+        }
+        Ok(())
+    }
+
     /// 노드 CLI의 터미널 제목에서 꺼낸 주제를 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
     /// 노드마다 PTY 출력을 읽는 스레드 하나만 부른다. 그래서 비교와 바꾸기 사이에 다른 값이 끼지 않는다.
     pub fn set_title(&self, id: NodeId, title: Option<String>) -> rusqlite::Result<()> {

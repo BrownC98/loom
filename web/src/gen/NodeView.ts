@@ -32,6 +32,10 @@ effort: string | null, place: Place,
  */
 topic: string | null, 
 /**
+ * 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
+ */
+bookmark: number | null, 
+/**
  * 사람의 답·승인을 기다린다. 근거: docs/design.md 「사람 응답 대기」.
  */
 wait: HumanWait | null, };

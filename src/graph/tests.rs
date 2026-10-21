@@ -1842,3 +1842,34 @@ fn done_returns_children_whose_process_still_runs() {
 
     assert_eq!(g.done(coord, "요약").unwrap(), ["워커"]);
 }
+
+#[test]
+fn bookmarks_keep_their_order_and_vanish_with_the_node() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let g = open(&path);
+    let (a, b) = (root(&g, "codex"), root(&g, "codex"));
+    g.bookmark(b).unwrap();
+    g.bookmark(a).unwrap();
+    // 다시 북마크해도 차례가 그대로다.
+    g.bookmark(b).unwrap();
+    assert_eq!(
+        (view(&g, a).bookmark, view(&g, b).bookmark),
+        (Some(2), Some(1))
+    );
+    g.unbookmark(b).unwrap();
+    assert_eq!(view(&g, b).bookmark, None);
+    assert!(matches!(g.bookmark(NodeId(99)), Err(Refusal::NotFound(_))));
+    drop(g);
+    // 데몬을 다시 띄워도 남는다.
+    let g = open(&path);
+    assert_eq!(view(&g, a).bookmark, Some(2));
+    g.remove(a).unwrap();
+    assert!(
+        g.subscribe()
+            .unwrap()
+            .0
+            .iter()
+            .all(|v| v.bookmark.is_none())
+    );
+}

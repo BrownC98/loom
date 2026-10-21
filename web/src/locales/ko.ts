@@ -51,6 +51,13 @@ const ko: typeof en = {
     noMatch: '맞는 이름이 없습니다',
     clear: '찾기 지우기',
   },
+  bookmark: {
+    title: '북마크',
+    add: '북마크에 더하기',
+    remove: '북마크에서 빼기',
+    empty: '노드의 북마크 버튼으로 더합니다.',
+    label: '북마크한 노드',
+  },
   node: {
     label: '노드 {{name}}',
     unread: '읽지 않은 메시지 {{n}}개',

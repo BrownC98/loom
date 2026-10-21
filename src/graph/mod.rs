@@ -95,6 +95,8 @@ pub struct NodeView {
     /// 노드가 지금 하는 일 한 줄. 근거: docs/design.md 「그래프와 화면」.
     /// `done` 요약, CLI 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄이다. 모두 없으면 없다.
     pub topic: Option<String>,
+    /// 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
+    pub bookmark: Option<u32>,
     /// 사람의 답·승인을 기다린다. 근거: docs/design.md 「사람 응답 대기」.
     pub wait: Option<HumanWait>,
 }
@@ -309,7 +311,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    n.brief, n.wait
+    n.brief, n.bookmark, n.wait
     FROM nodes n";
 
 struct Store {
@@ -463,7 +465,7 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
     let id = NodeId(row.get(0)?);
     let state = from_json(row, 4)?;
     let brief: Option<String> = row.get(11)?;
-    let wait: Option<String> = row.get(12)?;
+    let wait: Option<String> = row.get(13)?;
     Ok(NodeView {
         topic: topic(&state, titles.get(&id), brief.as_deref()),
         id,
@@ -479,6 +481,7 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
             repo: RepoId(row.get(9)?),
             worktree: row.get(10)?,
         },
+        bookmark: row.get(12)?,
         // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
         wait: wait
             .and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())

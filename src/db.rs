@@ -159,7 +159,9 @@ const STEPS: &[M] = &[
     ),
     // 20: 끌지 않고 커진 상자가 민 상자의 밀기 전 자리(spots). 민 상자가 줄거나 사라지면 화면이 그 자리 쪽으로 되돌린다. 사람이 옮기면 NULL이다.
     M::up("ALTER TABLE spots ADD COLUMN home_x REAL; ALTER TABLE spots ADD COLUMN home_y REAL;"),
-    // 21: 사람 응답 대기(graph `waits`). serde JSON `Stored`(종류, 한 줄, 시작 시각, 신호)이고 대기가 없으면 NULL이다.
+    // 21: 북마크 차례(graph). 북마크하지 않은 노드는 NULL이다. 노드를 지우면 줄과 함께 사라진다.
+    M::up("ALTER TABLE nodes ADD COLUMN bookmark INTEGER;"),
+    // 22: 사람 응답 대기(graph `waits`). serde JSON `Stored`(종류, 한 줄, 시작 시각, 신호)이고 대기가 없으면 NULL이다.
     M::up("ALTER TABLE nodes ADD COLUMN wait TEXT;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);

@@ -139,6 +139,8 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
   const [selected, setSelected] = useState<NodeId | null>(null);
+  // 고른 묶음·저장소 상자(`flowId`). 카드와 함께 고르지 않는다(2026-10-21 사람 지시 "묶음도 클릭하면 포커싱 표시되게 해줘", "사이드바에서 클릭시에도 동작해야함").
+  const [chosenBox, setChosenBox] = useState<string | null>(null);
   const [direction, setDirection] = useState(loadDirection);
   // 오른쪽 사이드바 아래 칸 하나를 이벤트 콘솔, 커밋 그래프, 고른 노드의 터미널(심플 보기)이 탭으로 번갈아 쓴다.
   const [tab, setTab] = useState<DockTab>('commits');
@@ -263,8 +265,13 @@ export function App() {
   };
   const usage: Usage = { accounts, fetchedAt, loading, refresh: refreshUsage };
   /** 심플 보기에서는 노드를 고를 때 오른쪽 사이드바를 펴고 그 터미널 탭을 연다. 카드에는 터미널이 없다. */
+  const chooseBox = (key: string | null) => {
+    setChosenBox(key);
+    if (key !== null) setSelected(null);
+  };
   const selectNode = (id: NodeId | null) => {
     setSelected(id);
+    if (id !== null) setChosenBox(null);
     // 다른 저장소의 노드(트리, 이벤트 기록, 모든 저장소 그래프)를 고르면 현재 저장소를 그 저장소로 바꾼다.
     const place = id === null ? undefined : nodes.get(id)?.place;
     if (place && place.repo !== repo?.id) selectRepo(place.repo);
@@ -388,6 +395,7 @@ export function App() {
                 agents={agents}
                 selected={selected}
                 onSelect={selectNode}
+                onChooseBox={chooseBox}
                 settings={settings}
                 accounts={accounts}
                 onRepoChanged={putRepo}
@@ -428,6 +436,8 @@ export function App() {
               accounts={accounts}
               selected={selected}
               onSelect={selectNode}
+              chosenBox={chosenBox}
+              onChooseBox={chooseBox}
               highlight={lit}
               onClearHighlight={() => setHighlight(null)}
               cardView={settings.cardView}

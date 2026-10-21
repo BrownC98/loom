@@ -446,6 +446,9 @@ export function Graph(props: {
   accounts: AccountView[] | null;
   selected: NodeId | null;
   onSelect: (id: NodeId | null) => void;
+  /** 고른 묶음·저장소 상자(React Flow 노드 id, `flowId`). 카드를 고르면 App이 비운다. */
+  chosenBox: string | null;
+  onChooseBox: (key: string | null) => void;
   highlight: Lit | null;
   onClearHighlight: () => void;
   cardView: CardView;
@@ -460,7 +463,7 @@ export function Graph(props: {
   /** 묶음은 강조한 카드를 담으면 흐리게 하지 않는다. */
   const litGroup = (path: string, members: NodeView[]) => (highlight !== null && !highlight.keys.has(path) && members.some((v) => highlight.keys.has(String(v.id))) ? undefined : lit(path));
   const classes = (key: string, base: string | undefined) => [base, highlight?.current === key ? 'cur' : undefined].filter(Boolean).join(' ') || undefined;
-  const { selected, onSelect: setSelected } = props;
+  const { selected, onSelect: setSelected, chosenBox, onChooseBox: setChosenBox } = props;
   const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
   // 새 노드 창이나 삭제 경고를 연 묶음(워크트리 경로).
@@ -707,7 +710,9 @@ export function Graph(props: {
       ...node,
       data: steady(node.id, node.data),
       measured: live?.measured,
-      ...(moved && { className: [node.className, 'carried'].filter(Boolean).join(' ') }),
+      ...((moved || node.id === chosenBox) && {
+        className: [node.className, moved && 'carried', node.id === chosenBox && 'chosen'].filter(Boolean).join(' '),
+      }),
       ...(live?.dragging && { position: node.parentId ? node.position : live.position, dragging: true, zIndex: DRAGGING_Z }),
     };
   };
@@ -1102,13 +1107,17 @@ export function Graph(props: {
         onNodesChange={onChange}
         onPaneClick={() => {
           setSelected(null);
+          setChosenBox(null);
           props.onClearHighlight();
           setCreating(null);
           setDeleting(null);
           setRefusal('');
         }}
         // 카드 머리는 끌기 손잡이라 React Flow가 mousedown 전파를 막는다. 머리 클릭은 여기서 고른다.
-        onNodeClick={(_, node) => (node.type === 'card' || node.type === 'simple') && setSelected(Number(node.id))}
+        onNodeClick={(_, node) => {
+          if (node.type === 'card' || node.type === 'simple') return setSelected(Number(node.id));
+          setChosenBox(node.id);
+        }}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements

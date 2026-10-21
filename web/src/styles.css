@@ -71,7 +71,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* 사이드바: 트리와 맨 아래 [설정](docs/mockups/graph-panels.html 1번) */
 .side { position: relative; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.side-top { display: flex; align-items: center; gap: 4px; padding: 8px 8px 6px; }
+.side-top { display: flex; align-items: center; gap: 8px; padding: 8px; }
 /* 접힌 사이드바(목업 toolbar.html 4번): 아이콘 단추만 세로로 둔다. */
 .rail { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; min-height: 0; background: var(--panel); }
 .side-rail { border-right: 1px solid var(--line); }
@@ -253,6 +253,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .group { width: 100%; height: 100%; border: 1px dashed var(--line-strong); border-radius: 12px; background: color-mix(in oklch, var(--panel) 60%, transparent); }
 /* 저장소 상자(모든 저장소 범위, 목업 repo-scope.html). 묶음보다 굵은 실선이다. 머리는 저장소 이름과 경로만 있고 단추가 없다. */
 .repo-box { width: 100%; height: 100%; border: 1.5px solid var(--line-strong); border-radius: 14px; background: color-mix(in oklch, var(--panel) 40%, transparent); }
+.react-flow__node.chosen > :is(.group, .repo-box) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 /* 높이는 Graph.tsx `REPO_HEAD`와 같다. 묶음 자리가 이 값에서 나온다. */
 .repo-head { box-sizing: border-box; height: 46px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--line); cursor: grab; }
 .repo-head .name { flex: none; font-size: 15px; font-weight: 600; }

@@ -15,10 +15,10 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, overlaps, placeGroups, push, SIDES, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, overlaps, placeGroups, push, SIDES, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
-import { groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
+import { attachLevels, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
 import { Terminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
@@ -326,8 +326,8 @@ export function Graph(props: {
     return at;
   };
   /** 묶음 하나의 카드 자리(묶음 원점 기준)와 묶음 상자(원점 기준 `lead`와 크기). */
-  const layGroup = (group: Group, members: NodeView[]) => {
-    const tree = arrangeTree(members, size, direction);
+  const layGroup = (group: Group, members: NodeView[], step: number) => {
+    const tree = arrangeTree(members, size, direction, step);
     // 나무 배치는 카드 자리 기준이라 `CARD_X`·`CARD_TOP`만큼 옮긴다. 가장 왼쪽·위 카드를 그 틈에 맞춘다.
     const min = { x: Math.min(...[...tree.values()].map((p) => p.x)), y: Math.min(...[...tree.values()].map((p) => p.y)) };
     const local = settle(
@@ -348,13 +348,19 @@ export function Graph(props: {
   const repos = props.repos.map((repo) => {
     const repoViews = views.filter((v) => v.place.repo === repo.id);
     const repoGroups = groupsOf(repo, repoViews);
-    const laid = repoGroups.map((group) => layGroup(group, inGroup(repoViews, group)));
-    // 자동 배치는 부모 묶음 다음 단계에 놓는 나무다. 자리는 저장소 원점 기준 묶음 상자 왼쪽 위다.
+    // 한 단계는 가장 큰 카드에 묶음 머리·테두리와 묶음 틈을 더한 크기다. 그래서 깊이가 같은 카드는 묶음과 관계없이 같은 줄에 선다(목업 docs/mockups/same-worktree.html 안 B).
+    const vertical = direction === 'down' || direction === 'up';
+    const along = (s: Size) => (vertical ? s.height : s.width);
+    const step = (repoViews.length > 0 ? Math.max(...repoViews.map((v) => along(size(v.id)))) : along(estimate)) + (vertical ? CARD_TOP + CARD_X : 2 * CARD_X) + GROUP_GAP;
+    const laid = repoGroups.map((group) => layGroup(group, inGroup(repoViews, group), step));
+    // 자동 배치는 부모 카드 다음 단계에 놓는 나무다. 자리는 저장소 원점 기준 묶음 상자 왼쪽 위다.
     const parents = groupParents(repoGroups, repoViews);
+    const starts = attachLevels(repoGroups, repoViews, parents);
     const auto = placeGroups(
-      laid.map((g, i) => ({ size: g.size, parent: parents[i] })),
+      laid.map((g, i) => ({ size: g.size, parent: parents[i], start: starts[i] })),
       direction,
       { x: 0, y: 0 },
+      step,
     );
     const at = settle(laid.map((g, i) => ({ key: g.group.path, size: g.size, lead: g.lead, auto: auto[i] })));
     for (const g of laid) spotOf.set(g.group.path, { kind: 'worktree', repo: repo.id, path: g.group.path });
@@ -366,9 +372,10 @@ export function Graph(props: {
   });
   // 저장소 상자도 같은 규칙이다. 자동 배치는 모두 뿌리라 사이드바 순서로 옆에 늘어선다.
   const repoAuto = placeGroups(
-    repos.map((r) => ({ size: r.size, parent: null })),
+    repos.map((r) => ({ size: r.size, parent: null, start: 1 })),
     direction,
     GROUP_POSITION,
+    Math.max(...repos.map((r) => (direction === 'down' || direction === 'up' ? r.size.height : r.size.width))) + GROUP_GAP,
   );
   const repoAt = settle(repos.map((r, i) => ({ key: r.key, size: r.size, lead: r.lead, auto: repoAuto[i] })));
   for (const r of repos) spotOf.set(r.key, { kind: 'repo', repo: r.repo.id });

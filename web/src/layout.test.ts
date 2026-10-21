@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeNested, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size } from './layout';
+import { arrangeNested, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
 
 const box = (x: number, y: number, width = 100, height = 50): Box => ({ at: { x, y }, size: { width, height } });
 
@@ -308,6 +308,50 @@ describe('crossed', () => {
     const before = centerSide(box(0, 0), other);
     expect(crossed(before, box(40, 60), other)).toBe(false);
     expect(crossed(before, box(40, 80), other)).toBe(true);
+  });
+});
+
+describe('swap while dragging (people decision 2026-10-21: swap at the center line, push only on drop)', () => {
+  // 사람 화면(ktasearch main 묶음): 카드 「피드백 반영」 위, 자식 묶음 「매뉴얼그림」 아래.
+  const card = { key: 'card', ...box(0, 0, 505, 392) };
+  const group = { key: 'group', ...box(49, 424, 539, 505) };
+  /** `key` 상자를 `path` 자리로 차례로 끈다. 지나간 단계마다 바꾼 형제 자리를 돌려준다. */
+  const drag = (moving: typeof card, others: (typeof card)[], path: [number, number][]) => {
+    let state: Swap = { slot: moving, sides: new Map(), at: new Map() };
+    return path.map(([x, y]) => (state = swap(state, others, box(x, y, moving.size.width, moving.size.height))).at);
+  };
+
+  it('nothing moves before the leading edge reaches the center line, even while overlapping (no push during drag)', () => {
+    // 묶음 위 변이 카드 중심선(196)에 닿기 전: 카드와 300 넘게 겹쳐도 움직이지 않는다.
+    const steps = drag(group, [card], [[49, 424], [49, 300], [49, 197]]);
+    expect(steps.every((at) => at.size === 0)).toBe(true);
+  });
+
+  it('a big group dragged up swaps with a small card; the card takes the bottom of the group slot', () => {
+    const [, at] = drag(group, [card], [[49, 424], [49, 196]]);
+    // 카드 아래 변이 묶음의 끌기 전 아래 변(929)에 선다: 929 - 392 = 537. 둘이 차지하던 0..929 안에서 순서만 바뀐다. 넘지 않은 가로축은 제 자리(0)다.
+    expect(at).toEqual(new Map([['card', { x: 0, y: 537 }]]));
+  });
+
+  it('dragging back past the moved card swaps again and the card returns home', () => {
+    // 카드 중심은 537 + 196 = 733. 묶음 아래 변(y + 505)이 그 선에 닿으면(y 228) 돌아간다.
+    const steps = drag(group, [card], [[49, 424], [49, 196], [49, 227], [49, 228]]);
+    expect(steps[2]).toEqual(new Map([['card', { x: 0, y: 537 }]]));
+    expect(steps[3]).toEqual(new Map([['card', { x: 0, y: 0 }]]));
+  });
+
+  it('a small card dragged down swaps with a big group; the group takes the top of the card slot', () => {
+    // 묶음 중심 676.5. 카드 아래 변(y + 392)이 닿으면(y 284.5) 바꾼다.
+    const steps = drag(card, [group], [[0, 0], [0, 284], [0, 285]]);
+    expect(steps[1].size).toBe(0);
+    expect(steps[2]).toEqual(new Map([['group', { x: 49, y: 0 }]]));
+  });
+
+  it('only crossed siblings move; others stay even when the dragged box overlaps them', () => {
+    const side = { key: 'side', ...box(600, -150, 505, 392) };
+    // 묶음(100..639 × 196..701)이 오른쪽 위 카드와 39 × 46 겹친다. 앞 변은 그 카드의 중심선(852, 46)에 닿지 않는다.
+    const [, at] = drag(group, [card, side], [[49, 424], [100, 196]]);
+    expect([...at.keys()]).toEqual(['card']);
   });
 });
 

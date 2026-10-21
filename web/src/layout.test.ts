@@ -1,20 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { NodeView } from './gen/NodeView';
-import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, sameSpots, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
-
-const view = (id: number, parent: number | null): NodeView => ({
-  id,
-  name: `n${id}`,
-  agent: null,
-  parent,
-  state: { kind: 'running' },
-  unread: 0,
-  held: 0,
-  model: null,
-  effort: null,
-  place: { repo: 1, worktree: '/w' },
-  topic: null,
-});
+import { arrangeNested, centerSide, crossed, edgeSides, freeSpot, GROUP_GAP, grew, overlaps, push, sameSpots, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size } from './layout';
 
 const box = (x: number, y: number, width = 100, height = 50): Box => ({ at: { x, y }, size: { width, height } });
 
@@ -53,250 +38,33 @@ describe('edgeSides', () => {
   });
 });
 
-const sized = () => ({ width: 100, height: 50 });
-const none = new Map<number, number>();
-
-describe('arrangeTree (parent centered over the span of its children)', () => {
-  // 1 -> {2, 3}, 2 -> {4}
-  const tree = [view(1, null), view(2, 1), view(3, 1), view(4, 2)];
-
-  it('down: children at the next depth, the parent centered over them', () => {
-    const at = arrangeTree(tree, sized, 'down', 46, none).cards;
-    // children of 1: 100 + 20 + 100 = 220 wide, so 1 (100 wide) sits at (220 - 100) / 2 = 60. Rows: 50 + 46.
-    expect(at.get(1)).toEqual({ x: 60, y: 0 });
-    expect(at.get(2)).toEqual({ x: 0, y: 96 });
-    expect(at.get(3)).toEqual({ x: 120, y: 96 });
-    // 4 is the only child of 2: centered under it.
-    expect(at.get(4)).toEqual({ x: 0, y: 192 });
-  });
-
-  it('right: depth along x, siblings along y, the parent centered', () => {
-    const at = arrangeTree(tree, sized, 'right', 46, none).cards;
-    expect(at.get(1)).toEqual({ x: 0, y: 35 });
-    expect(at.get(2)).toEqual({ x: 146, y: 0 });
-    expect(at.get(3)).toEqual({ x: 146, y: 70 });
-    expect(at.get(4)).toEqual({ x: 292, y: 0 });
-  });
-
-  it('up mirrors down along depth; left mirrors right', () => {
-    const down = arrangeTree(tree, sized, 'down', 46, none).cards;
-    const up = arrangeTree(tree, sized, 'up', 46, none).cards;
-    const right = arrangeTree(tree, sized, 'right', 46, none).cards;
-    const left = arrangeTree(tree, sized, 'left', 46, none).cards;
-    for (const id of [1, 2, 3, 4]) {
-      expect(up.get(id)).toEqual({ x: down.get(id)!.x, y: 192 - down.get(id)!.y });
-      expect(left.get(id)).toEqual({ x: 292 - right.get(id)!.x, y: right.get(id)!.y });
-    }
-  });
-
-  it('siblings follow the input order, not the id', () => {
-    const at = arrangeTree([view(2, null), view(1, null), view(3, 1)], sized, 'down', 46, none).cards;
-    expect(at.get(2)).toEqual({ x: 0, y: 0 });
-    expect(at.get(1)).toEqual({ x: 120, y: 0 });
-    expect(at.get(3)).toEqual({ x: 120, y: 96 });
-  });
-
-  it('a parent outside the group makes the node a root', () => {
-    const at = arrangeTree([view(5, 99), view(6, null)], sized, 'down', 46, none).cards;
-    expect(at.get(5)).toEqual({ x: 0, y: 0 });
-    expect(at.get(6)).toEqual({ x: 120, y: 0 });
-  });
-
-  it('a row is as tall as its tallest card; the gap between rows is constant', () => {
-    // 1 (300 tall) and 2 (50) are roots; 3 is the child of 2.
-    const size = (id: number) => (id === 1 ? { width: 100, height: 300 } : sized());
-    const at = arrangeTree([view(1, null), view(2, null), view(3, 2)], size, 'down', 46, none).cards;
-    expect(at.get(3)!.y).toBe(300 + 46);
-  });
-
-  it('mixed sizes still do not overlap', () => {
-    const big = { width: 200, height: 80 };
-    const size = (id: number) => (id === 2 || id === 4 ? big : sized());
-    const views = [view(1, null), view(2, 1), view(3, 1), view(4, 3), view(5, 2)];
-    for (const direction of ['down', 'right', 'up', 'left'] as const) {
-      const at = arrangeTree(views, size, direction, 46, none).cards;
-      const rects = views.map((v) => ({ ...at.get(v.id)!, ...size(v.id) }));
-      for (const [i, a] of rects.entries()) {
-        for (const b of rects.slice(i + 1)) {
-          const apart = a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
-          expect(apart).toBe(true);
-        }
-      }
-    }
-  });
-});
-
-// 목업 docs/mockups/arrange-wide.html 규칙 1·3·4.
-describe('arrangeTree with two parents in one group', () => {
-  const center = (at: Map<number, { x: number }>, id: number) => at.get(id)!.x + 50;
-  const span = (at: Map<number, { x: number }>, ids: number[]) => ({ lo: Math.min(...ids.map((id) => at.get(id)!.x)), hi: Math.max(...ids.map((id) => at.get(id)!.x + 100)) });
-
-  it.each([
-    ['1 first', [1, 2]],
-    ['2 first', [2, 1]],
-  ])('each parent is centered over its children and the edges do not cross (%s)', (_, roots) => {
-    const kids: Record<number, number[]> = { 1: [3, 4], 2: [5, 6, 7] };
-    const views = [...roots.map((r) => view(r, null)), ...roots.flatMap((r) => kids[r].map((k) => view(k, r)))];
-    const at = arrangeTree(views, sized, 'down', 46, none).cards;
-    for (const r of roots) {
-      const s = span(at, kids[r]);
-      expect(center(at, r)).toBe((s.lo + s.hi) / 2);
-    }
-    // 부모 순서와 자식 줄 순서가 같다: 왼쪽 부모의 자식은 모두 오른쪽 부모의 자식보다 왼쪽이다.
-    const [left, right] = roots;
-    expect(center(at, left)).toBeLessThan(center(at, right));
-    expect(span(at, kids[left]).hi).toBeLessThan(span(at, kids[right]).lo);
-  });
-
-  it('a parent with child groups stands over its band, and no card stands between them', () => {
-    // 1은 다른 묶음에 자식이 있다(줄 폭 400). 2의 자식 3, 4, 5는 이 묶음 안이다.
-    const views = [view(2, null), view(1, null), view(3, 2), view(4, 2), view(5, 2)];
-    const laid = arrangeTree(views, sized, 'down', 46, new Map([[1, 400]]));
-    const at = laid.cards;
-    const band = { lo: laid.bands.get(1)!, hi: laid.bands.get(1)! + 400 };
-    // 1은 자식 줄 자리의 가운데 위다.
-    expect(center(at, 1)).toBe(band.lo + 200);
-    expect(span(at, [3, 4, 5]).hi).toBeLessThanOrEqual(band.lo);
-    expect(center(at, 2)).toBeLessThan(center(at, 1));
-  });
-});
-
-describe('placeGroups', () => {
-  const g = (parent: number | null, card: number | null = parent === null ? null : 7): GroupSlot => ({ parent, card });
-  // `bands`는 줄 자리의 시작이다. 줄은 그 뒤 GROUP_GAP / 2에서 시작한다.
-  const lay = (sizes: { width: number; height: number }[], bands: Record<number, number> = {}) => (i: number) => ({ size: sizes[i], band: (card: number) => bands[card] });
-  const s = (width: number, height: number) => ({ width, height });
-
-  it('roots sit side by side in order with GROUP_GAP 32', () => {
-    expect(placeGroups([g(null), g(null)], lay([s(100, 50), s(100, 50)]), 'down')).toEqual([
-      { x: 0, y: 0 },
-      { x: 132, y: 0 },
-    ]);
-  });
-
-  it('child groups sit in the band slot under the parent group', () => {
-    const at = placeGroups([g(null), g(0), g(0)], lay([s(300, 100), s(100, 50), s(100, 50)], { 7: 93 }), 'down');
-    // 줄 자리는 93에서 시작하고 줄은 93 + 16 = 109에서 시작한다.
-    expect(at).toEqual([
-      { x: 0, y: 0 },
-      { x: 109, y: 132 },
-      { x: 241, y: 132 },
-    ]);
-  });
-
-  it('a band wider than the parent group pushes the parent group right', () => {
-    const at = placeGroups([g(null), g(0), g(0), g(0), g(0)], lay([s(100, 50), ...Array(4).fill(s(100, 50))], { 7: -214 }), 'down');
-    expect(at.map((p) => p.x)).toEqual([198, 0, 132, 264, 396]);
-  });
-
-  it('bands of two parent cards in one group keep GROUP_GAP (with arrangeTree)', () => {
-    // 묶음 0의 뿌리 카드 7, 8이 각각 다른 묶음에 자식이 있다.
-    const groups = [g(null), g(0, 7), g(0, 8)];
-    const sizes = [s(0, 0), s(200, 50), s(200, 50)];
-    const at = placeGroups(
-      groups,
-      (i, bands) => {
-        if (i > 0) return { size: sizes[i], band: () => 0 };
-        const laid = arrangeTree([view(7, null), view(8, null)], sized, 'down', 46, bands);
-        return { size: s(laid.cards.get(8)!.x + 100, 50), band: (card) => laid.bands.get(card)! };
-      },
-      'down',
-    );
-    expect(at[1].x + 200 + 32).toBeLessThanOrEqual(at[2].x);
-  });
-
-  it('the gap under a parent group is GROUP_GAP even when the child is much taller (two repos of different heights)', () => {
-    // 사람 화면: loom은 카드 높이가 비슷하고, ktasearch는 자식 묶음 카드가 훨씬 크다.
-    for (const sizes of [[s(300, 400), s(300, 420)], [s(300, 200), s(300, 900)]]) {
-      const at = placeGroups([g(null), g(0)], lay(sizes, { 7: 150 }), 'down');
-      expect(at[1].y - (at[0].y + sizes[0].height)).toBe(32);
-    }
-  });
-
-  it('right puts depth along x and the band along y', () => {
-    const at = placeGroups([g(null), g(0), g(0)], lay([s(100, 300), s(100, 50), s(100, 50)], { 7: 68 }), 'right');
-    expect(at).toEqual([
-      { x: 0, y: 0 },
-      { x: 132, y: 84 },
-      { x: 132, y: 166 },
-    ]);
-  });
-
-  it('up and left mirror the depth order', () => {
-    const sizes = lay([s(100, 50), s(100, 50)], { 7: 50 });
-    const up = placeGroups([g(null), g(0)], sizes, 'up');
-    expect(up[0].y).toBeGreaterThan(up[1].y);
-    const left = placeGroups([g(null), g(0)], sizes, 'left');
-    expect(left[0].x).toBeGreaterThan(left[1].x);
-  });
-});
-
-describe('arrangeTree packing (plan A, docs/mockups/repo-drag.html)', () => {
-  it("a leaf root sits beside a parent at depth 0, not beside the parent's children row", () => {
-    // 사람의 loom 그래프 모양: 1의 자식 2, 3. 4는 자식 없는 뿌리. 폭 640, 카드 틈 20.
-    const wide = () => ({ width: 640, height: 50 });
-    const at = arrangeTree([view(1, null), view(2, 1), view(3, 1), view(4, null)], wide, 'down', 46, none).cards;
-    expect(at.get(1)!.x).toBe(330);
-    expect(at.get(4)).toEqual({ x: 990, y: 0 });
-  });
-});
-
-describe('arrangeTree packing (rule 5, docs/mockups/arrange-mixed.html v5)', () => {
-  const card = () => ({ width: 600, height: 466 });
-
-  it('a later tree does not go under an earlier tree deeper than its deepest card (screenshot shape ②)', () => {
-    // main 묶음: 1은 자식 없는 뿌리, 2의 자식 3은 같은 묶음, 2의 자식 묶음 줄 폭 672(묶음 640 + 묶음 틈).
-    const laid = arrangeTree([view(1, null), view(2, null), view(3, 2)], card, 'down', 112, new Map([[2, 672]]));
-    const at = laid.cards;
-    expect(at.get(3)).toEqual({ x: 620, y: 578 });
-    expect(laid.bands.get(2)).toBe(1240);
-    // 2는 자식 3과 자식 묶음 줄 전체의 가운데 위다.
-    expect(at.get(2)!.x + 300).toBe((620 + 1240 + 672) / 2);
-  });
-});
+type N = { id: number; parent: number | null; group: number; size?: Size };
+const n = (id: number, parent: number | null, group: number, size?: Size): N => ({ id, parent, group, size });
+const CARD: Size = { width: 600, height: 466 };
+const EMPTY: Size = { width: 320, height: 100 };
 
 /**
- * 그래프 자동 배치(Graph.tsx layGroup + placeGroups)를 같은 순서로 돌린다. 카드 600×466, 묶음 머리 60, 옆 20, 묶음 안 줄 틈 112.
- * 돌려주는 것은 카드의 그래프 기준 상자다. 묶음의 부모는 그 묶음 노드의 부모가 있는 다른 묶음이다.
+ * 그래프 자동 배치(Graph.tsx)와 같은 입력으로 `arrangeNested`를 돌린다. 카드 600×466, 묶음 머리 60, 옆 20.
+ * 묶음의 부모는 그 묶음 노드 가운데 부모가 다른 묶음에 있는 첫 노드의 부모 카드다(repos.ts `groupParents`·`attachCards`). `groups`는 묶음 수다.
  */
-function arrangeGraph(nodes: { id: number; parent: number | null; group: number; size?: { width: number; height: number } }[], direction: ArrangeDirection) {
-  const [side, top] = [20, 60];
-  const vertical = direction === 'down' || direction === 'up';
-  const size = (id: number) => nodes.find((n) => n.id === id)!.size ?? { width: 600, height: 466 };
-  const groupIds = [...new Set(nodes.map((n) => n.group))];
-  const groupOf = new Map(nodes.map((n) => [n.id, n.group]));
-  const slots = groupIds.map((g): GroupSlot => {
-    const hit = nodes.find((n) => n.group === g && n.parent !== null && groupOf.get(n.parent) !== g);
-    return hit ? { parent: groupIds.indexOf(groupOf.get(hit.parent!)!), card: hit.parent } : { parent: null, card: null };
+function family(nodes: readonly N[], groups: number, direction: ArrangeDirection = 'down') {
+  const groupOf = new Map(nodes.map((x) => [x.id, x.group]));
+  const input = Array.from({ length: groups }, (_, g): NestGroup => {
+    const hit = nodes.find((x) => x.group === g && x.parent !== null && groupOf.get(x.parent) !== g);
+    return { parent: hit ? groupOf.get(hit.parent!)! : null, card: hit ? hit.parent : null, members: nodes.filter((x) => x.group === g).map((x) => x.id), empty: EMPTY };
   });
-  const local: Map<number, { x: number; y: number }>[] = [];
-  const at = placeGroups(
-    slots,
-    (i, bands) => {
-      const members = nodes.filter((n) => n.group === groupIds[i]);
-      const ids = new Set(members.map((m) => m.id));
-      const laid = arrangeTree(members.map((m) => view(m.id, m.parent !== null && ids.has(m.parent) ? m.parent : null)), size, direction, vertical ? top + side + GROUP_GAP : 2 * side + GROUP_GAP, bands);
-      const ps = [...laid.cards];
-      const mx = Math.min(...ps.map(([, p]) => p.x));
-      const my = Math.min(...ps.map(([, p]) => p.y));
-      local[i] = new Map(ps.map(([id, p]) => [id, { x: side + p.x - mx, y: top + p.y - my }]));
-      const right = Math.max(...ps.map(([id, p]) => p.x + size(id).width));
-      const bottom = Math.max(...ps.map(([id, p]) => p.y + size(id).height));
-      return {
-        size: { width: right - mx + 2 * side, height: bottom - my + top + side },
-        band: (c) => (vertical ? side + laid.bands.get(c)! - mx : top + laid.bands.get(c)! - my),
-      };
-    },
-    direction,
-  );
-  return new Map(
-    nodes.map((n) => {
-      const i = groupIds.indexOf(n.group);
-      const p = local[i].get(n.id)!;
-      return [n.id, { at: { x: at[i].x + p.x, y: at[i].y + p.y }, size: size(n.id) }];
-    }),
-  );
+  const size = (id: number) => nodes.find((x) => x.id === id)!.size ?? CARD;
+  const laid = arrangeNested(input, (id) => nodes.find((x) => x.id === id)!.parent, size, direction, { top: 60, side: 20 });
+  const cards = new Map(nodes.map((x): [number, Box] => [x.id, { at: laid.cards.get(x.id)!, size: size(x.id) }]));
+  return { cards, boxes: laid.boxes, input };
 }
+
+const contains = (outer: Box, inner: Box) =>
+  inner.at.x >= outer.at.x && inner.at.y >= outer.at.y && inner.at.x + inner.size.width <= outer.at.x + outer.size.width && inner.at.y + inner.size.height <= outer.at.y + outer.size.height;
+const center = (b: Box) => b.at.x + b.size.width / 2;
+/** 목업 docs/mockups/arrange-family.html v4 ①을 그린 원형(nested.mjs)의 값. */
+const PERSON_CARDS = [{ x: 20, y: 60 }, { x: 1344, y: 60 }, { x: 1008, y: 638 }, { x: 1660, y: 638 }, { x: 672, y: 1216 }, { x: 1344, y: 1216 }];
+const PERSON_BOXES = [[0, 0, 2300, 1722], [1640, 578, 640, 546], [652, 1156, 640, 546], [1324, 1156, 640, 546]];
 
 /** 나무 간선(계단)의 꼭짓점. 부모 변 가운데 → 꺾는 자리 → 자식 변 가운데. */
 function stepPath(parent: Box, child: Box, direction: ArrangeDirection, bend: number) {
@@ -318,52 +86,116 @@ function stepPath(parent: Box, child: Box, direction: ArrangeDirection, bend: nu
   return [{ x: a, y: p.y }, { x: at, y: p.y }, { x: at, y: q.y }, { x: b, y: q.y }];
 }
 
-describe('catalogue (docs/mockups/arrange-mixed.html v5): every tree edge is a step edge and crosses no card', () => {
-  type N = { id: number; parent: number | null; group: number; size?: { width: number; height: number } };
-  const n = (id: number, parent: number | null, group: number, size?: { width: number; height: number }): N => ({ id, parent, group, size });
-  const screenshot = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 2, 1), n(5, 4, 1)];
-  const cases: [string, N[], ArrangeDirection][] = [
-    ['② mixed (screenshot)', screenshot, 'down'],
-    ['③ in-group children only', [n(1, null, 0), n(2, 1, 0), n(3, 1, 0), n(4, 1, 0)], 'down'],
-    ['④ one child group', [n(1, null, 0), n(2, 1, 1)], 'down'],
-    ['⑤ many child groups', [n(1, null, 0), n(2, 1, 1), n(3, 1, 2), n(4, 1, 3)], 'down'],
-    ['⑥ parent in the middle', [n(1, null, 0), n(2, null, 0), n(3, null, 0), n(4, 2, 0), n(5, 2, 1)], 'down'],
-    ['⑦ deep chain', [n(1, null, 0), n(2, 1, 1), n(3, 2, 1), n(4, 2, 2), n(5, 2, 3), n(6, 5, 3)], 'down'],
-    ['⑧ several root groups', [n(1, null, 0), n(2, null, 1), n(3, 2, 1), n(4, 1, 2)], 'down'],
-    ['⑨ wide and tall cards', [n(1, null, 0), n(2, 1, 0, { width: 1000, height: 300 }), n(3, 1, 0, { width: 400, height: 800 }), n(4, 1, 1)], 'down'],
-    ['⑩ M8', [n(1, null, 0), n(2, 1, 0), n(3, 1, 0), n(4, 1, 0), n(5, null, 0), n(6, 5, 1), n(7, 5, 2), n(8, 5, 3), n(9, 5, 4)], 'down'],
-    ['⑪ mixed, right', screenshot, 'right'],
-    ['⑪ mixed, up', screenshot, 'up'],
-    ['⑪ mixed, left', screenshot, 'left'],
+describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => {
+  const base = [n(1, null, 0), n(2, null, 0), n(3, null, 0), n(4, 2, 0), n(5, 2, 1)];
+  const person = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 2, 1), n(5, 3, 2), n(6, 3, 3)];
+  const tree = [n(1, null, 1), n(2, 1, 2), n(3, 1, 3), n(4, 1, 4)];
+  const cases: [string, N[], number, ArrangeDirection][] = [
+    ['① person picture', person, 4, 'down'],
+    ['② mixed', [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 2, 1), n(5, 4, 1)], 2, 'down'],
+    ['③ in-group children only', [n(1, null, 0), n(2, 1, 0), n(3, 1, 0), n(4, 1, 0)], 1, 'down'],
+    ['④ one child group', [n(1, null, 0), n(2, 1, 1)], 2, 'down'],
+    ['⑤ many child groups', [n(1, null, 0), n(2, 1, 1), n(3, 1, 2), n(4, 1, 3)], 4, 'down'],
+    ['⑥ parent in the middle', base, 2, 'down'],
+    ['⑥a A gets an in-group child', [...base, n(6, 1, 0)], 2, 'down'],
+    ['⑥b B gets an in-group child', [...base, n(6, 3, 0)], 2, 'down'],
+    ['⑥c A gets a child group', [...base, n(6, 1, 2)], 3, 'down'],
+    ['⑥d B gets a child group', [...base, n(6, 3, 2)], 3, 'down'],
+    ['⑦ deep chain', [n(1, null, 0), n(2, 1, 1), n(3, 2, 1), n(4, 2, 2), n(5, 2, 3), n(6, 5, 3)], 4, 'down'],
+    ['⑧ several root groups', [n(1, null, 0), n(2, null, 1), n(3, 2, 1), n(4, 1, 2)], 3, 'down'],
+    ['⑨ wide and tall cards', [n(1, null, 0), n(2, 1, 0, { width: 1000, height: 300 }), n(3, 1, 0, { width: 400, height: 800 }), n(4, 1, 1)], 2, 'down'],
+    ['⑩ M8', [n(1, null, 0), n(2, 1, 0), n(3, 1, 0), n(4, 1, 0), n(5, null, 0), n(6, 5, 1), n(7, 5, 2), n(8, 5, 3), n(9, 5, 4)], 5, 'down'],
+    ['⑪ person, right', person, 4, 'right'],
+    ['⑪ person, up', person, 4, 'up'],
+    ['⑪ person, left', person, 4, 'left'],
+    ['⑫a one empty worktree', tree, 5, 'down'],
+    ['⑫b two empty worktrees', tree, 6, 'down'],
   ];
   const inside = (pt: { x: number; y: number }, b: Box) => pt.x > b.at.x && pt.x < b.at.x + b.size.width && pt.y > b.at.y && pt.y < b.at.y + b.size.height;
 
-  it.each(cases)('%s', (_, nodes, direction) => {
-    const boxes = arrangeGraph(nodes, direction);
-    for (const [, a] of boxes) for (const [, b] of boxes) if (a !== b) expect(overlaps(a, b)).toBe(false);
+  it.each(cases)('%s: no overlap, boxes nest, edges cross no card, parents centred', (_, nodes, groups, direction) => {
+    const { cards, boxes, input } = family(nodes, groups, direction);
+    for (const [a, x] of cards) for (const [b, y] of cards) if (a !== b) expect(overlaps(x, y), `cards ${a} and ${b}`).toBe(false);
+    // 상자끼리는 떨어져 있거나 하나가 다른 하나를 담는다. 자식 묶음은 부모 카드의 묶음 안이다.
+    for (const [i, x] of boxes.entries()) for (const [k, y] of boxes.entries()) if (i !== k && overlaps(x, y)) expect(contains(x, y) || contains(y, x), `boxes ${i} and ${k}`).toBe(true);
+    for (const [i, g] of input.entries()) {
+      if (g.parent !== null) expect(contains(boxes[g.parent], boxes[i]), `group ${i} in ${g.parent}`).toBe(true);
+      for (const id of g.members) expect(contains(boxes[i], cards.get(id)!), `card ${id} in group ${i}`).toBe(true);
+    }
     for (const child of nodes) {
       if (child.parent === null) continue;
-      const path = stepPath(boxes.get(child.parent)!, boxes.get(child.id)!, direction, 36);
+      const path = stepPath(cards.get(child.parent)!, cards.get(child.id)!, direction, 36);
       expect(path).not.toBeNull();
       for (let s = 1; s < path!.length; s++) {
         const [p, q] = [path![s - 1], path![s]];
         for (let t = 0; t <= 200; t++) {
           const pt = { x: p.x + ((q.x - p.x) * t) / 200, y: p.y + ((q.y - p.y) * t) / 200 };
-          for (const [id, b] of boxes) if (id !== child.id && id !== child.parent) expect(inside(pt, b), `edge ${child.parent}→${child.id} crosses ${id}`).toBe(false);
+          for (const [id, b] of cards) if (id !== child.id && id !== child.parent) expect(inside(pt, b), `edge ${child.parent}→${child.id} crosses ${id}`).toBe(false);
         }
       }
     }
+    // 부모 카드는 다음 줄 자식(같은 묶음 카드와 자식 묶음 상자) 전체의 가운데다.
+    if (direction !== 'down') return;
+    for (const parent of nodes) {
+      const kids = [
+        ...nodes.filter((x) => x.parent === parent.id && x.group === parent.group).map((x) => cards.get(x.id)!),
+        ...input.flatMap((g, i) => (g.card === parent.id ? [boxes[i]] : [])),
+      ];
+      if (kids.length === 0) continue;
+      const lo = Math.min(...kids.map((b) => b.at.x));
+      const hi = Math.max(...kids.map((b) => b.at.x + b.size.width));
+      expect(center(cards.get(parent.id)!), `parent ${parent.id}`).toBe((lo + hi) / 2);
+    }
   });
 
-  it('the screenshot shape matches the approved picture ②', () => {
-    const boxes = arrangeGraph(screenshot, 'down');
-    expect([1, 2, 3, 4, 5].map((id) => boxes.get(id)!.at)).toEqual([
-      { x: 20, y: 60 },
-      { x: 986, y: 60 },
-      { x: 640, y: 638 },
-      { x: 1296, y: 1216 },
-      { x: 1296, y: 1794 },
-    ]);
+  it('① matches the approved picture (prototype nested.mjs)', () => {
+    const { cards, boxes } = family(person, 4);
+    expect([1, 2, 3, 4, 5, 6].map((id) => cards.get(id)!.at)).toEqual(PERSON_CARDS);
+    expect(boxes.map((b) => [b.at.x, b.at.y, b.size.width, b.size.height])).toEqual(PERSON_BOXES);
+  });
+
+  it('⑥c and ⑥d: a child group stands inside the parent card\'s group, under the parent card', () => {
+    for (const card of [1, 3]) {
+      const { cards, boxes } = family([...base, n(6, card, 2)], 3);
+      expect(contains(boxes[0], boxes[2])).toBe(true);
+      expect(center(cards.get(card)!)).toBe(center(boxes[2]));
+      expect(boxes[2].at.y).toBeGreaterThan(cards.get(card)!.at.y + CARD.height);
+    }
+  });
+
+  it('⑫: a top group with no child group (an empty one too) stands after the trees', () => {
+    const { boxes } = family(tree, 6);
+    // 0(계정전환-화면)과 5(빈-작업)는 빈 묶음이다. 나무(1) 뒤에 선다.
+    expect(boxes[1].at.x).toBe(0);
+    expect(boxes[0].at.x).toBe(boxes[1].at.x + boxes[1].size.width + GROUP_GAP);
+    expect(boxes[5].at.x).toBe(boxes[0].at.x + EMPTY.width + GROUP_GAP);
+    expect(boxes[0].at.y).toBe(0);
+    expect(boxes[0].size).toEqual(EMPTY);
+  });
+
+  it('removing the parent worktree: the child group moves up to a top group on the first row', () => {
+    // 부모 묶음 1의 노드 2를 지우면 3은 뿌리가 된다(노드 제거와 입양: 부모가 없으면 뿌리).
+    const before = family([n(1, null, 0), n(2, 1, 1), n(3, 2, 2)], 3);
+    expect(contains(before.boxes[1], before.boxes[2])).toBe(true);
+    const after = family([n(1, null, 0), n(3, null, 2)], 3);
+    expect(after.input[2].parent).toBeNull();
+    expect(after.cards.get(3)!.at.y).toBe(after.cards.get(1)!.at.y);
+    expect(overlaps(after.boxes[0], after.boxes[2])).toBe(false);
+    // 손자 묶음이 조부모 카드에 입양되면 조부모 묶음 안으로 올라온다.
+    const adopted = family([n(1, null, 0), n(3, 1, 2)], 3);
+    expect(adopted.input[2]).toMatchObject({ parent: 0, card: 1 });
+    expect(contains(adopted.boxes[0], adopted.boxes[2])).toBe(true);
+  });
+
+  it('gaps: card to card 20, any pair with a box 32; the row gap holds the closing feet', () => {
+    const { cards, boxes } = family([n(1, null, 0), n(2, 1, 0), n(3, 1, 1)], 2);
+    // 2(카드)와 3의 묶음(상자) 사이는 32다.
+    expect(boxes[1].at.x - (cards.get(2)!.at.x + CARD.width)).toBe(GROUP_GAP);
+    // 1 아래 줄: 카드 아래 20(먼 쪽) 없이, 틈 32와 자식 묶음 머리 60. 머리 줄은 자식 묶음 상자 위다.
+    expect(boxes[1].at.y - (cards.get(1)!.at.y + CARD.height)).toBe(20 + GROUP_GAP);
+    expect(cards.get(3)!.at.y - boxes[1].at.y).toBe(60);
+    // 바깥 상자 아래는 안쪽 상자 아래 + 20이다.
+    expect(boxes[0].at.y + boxes[0].size.height).toBe(boxes[1].at.y + boxes[1].size.height + 20);
   });
 });
 
@@ -438,45 +270,6 @@ describe('growth without a drag (repro: new card in row 2 of main)', () => {
 
   it('a new group whose auto spot is on a grown saved group goes to its right', () => {
     expect(freeSpot(box(480, 440, 500, 400), [box(0, 0, 1000, 840)], 32)).toEqual({ x: 1032, y: 440 });
-  });
-});
-
-describe('the left tree grows children (target picture: two root trees, child groups under the right tree)', () => {
-  type N = { id: number; parent: number | null; group: number };
-  const n = (id: number, parent: number | null, group: number): N => ({ id, parent, group });
-  // main 묶음(0): 1은 왼쪽 뿌리, 2 → 3. 3의 자식 묶음 1, 2.
-  const target = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 3, 1), n(5, 3, 2)];
-  const center = (b: Box) => b.at.x + b.size.width / 2;
-  const span = (boxes: Map<number, Box>, ids: number[]) => ({ lo: Math.min(...ids.map((id) => boxes.get(id)!.at.x)), hi: Math.max(...ids.map((id) => boxes.get(id)!.at.x + boxes.get(id)!.size.width)) });
-
-  it('the target picture: 1 and 2 side by side, 3 straight under 2, child groups centred under 3', () => {
-    const at = arrangeGraph(target, 'down');
-    expect(at.get(1)!.at.y).toBe(at.get(2)!.at.y);
-    expect(center(at.get(3)!)).toBe(center(at.get(2)!));
-    const kids = span(at, [4, 5]);
-    expect((kids.lo + kids.hi) / 2).toBe(center(at.get(3)!));
-    expect(at.get(4)!.at.y).toBe(at.get(5)!.at.y);
-    expect(at.get(4)!.at.y).toBeGreaterThan(at.get(3)!.at.y + 466);
-  });
-
-  it.each([
-    ['(a) one child in the same group', [n(6, 1, 0)], [6]],
-    ['(b) one child group', [n(6, 1, 3)], [6]],
-    ['(c) four children, wider than the gap', [n(6, 1, 0), n(7, 1, 0), n(8, 1, 0), n(9, 1, 0)], [6, 7, 8, 9]],
-    ['(b+c) three child groups', [n(6, 1, 3), n(7, 1, 4), n(8, 1, 5)], [6, 7, 8]],
-  ] as [string, N[], number[]][])('%s: 1 stays centred over its children, the right tree moves right as a whole', (_, added, kids) => {
-    const before = arrangeGraph(target, 'down');
-    const at = arrangeGraph([...target, ...added], 'down');
-    for (const [a, x] of at) for (const [b, y] of at) if (a !== b) expect(overlaps(x, y), `${a} and ${b}`).toBe(false);
-    const left = span(at, [1, ...kids]);
-    expect(center(at.get(1)!)).toBe((span(at, kids).lo + span(at, kids).hi) / 2);
-    const right = span(at, [2, 3, 4, 5]);
-    expect(right.lo).toBeGreaterThan(left.hi);
-    // 오른쪽 나무는 모양을 지키고 통째로 옮겨 간다.
-    const shift = at.get(2)!.at.x - before.get(2)!.at.x;
-    expect(shift).toBeGreaterThanOrEqual(0);
-    for (const id of [3, 4, 5]) expect(at.get(id)!.at.x - before.get(id)!.at.x).toBe(shift);
-    if (kids.length > 1) expect(shift).toBeGreaterThan(0);
   });
 });
 

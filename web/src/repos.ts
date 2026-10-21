@@ -60,7 +60,7 @@ export function groupParents(groups: readonly Group[], views: readonly NodeView[
 
 /**
  * 묶음마다 부모 묶음(`parents`) 안의 부모 카드. 이 묶음 노드 가운데 부모가 부모 묶음에 있는 첫 노드(`views` 순서)의 부모다. 뿌리 묶음은 null이다.
- * 그래프 자동 배치가 자식 묶음 줄을 이 카드 아래 가운데에 둔다(목업 docs/mockups/arrange-wide.html ②).
+ * 그래프 자동 배치가 자식 묶음을 이 카드가 든 묶음 상자 안, 이 카드 아래 가운데에 둔다(목업 docs/mockups/arrange-family.html v4).
  */
 export function attachCards(groups: readonly Group[], views: readonly NodeView[], parents: readonly (number | null)[]): (NodeId | null)[] {
   const byId = new Map(views.map((v) => [v.id, v]));

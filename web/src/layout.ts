@@ -1,6 +1,5 @@
 // 묶음 안의 나무 배치. 그래프 화면(React Flow)과 무관한 계산만 둔다.
 import type { NodeId } from './gen/NodeId';
-import type { NodeView } from './gen/NodeView';
 
 /** 나무가 뿌리에서 뻗는 쪽(목업 docs/mockups/card-view.html 「정렬 방향」). */
 export type ArrangeDirection = 'down' | 'right' | 'up' | 'left';
@@ -8,200 +7,161 @@ export const ARRANGE_DIRECTIONS: readonly ArrangeDirection[] = ['down', 'right',
 
 export type Size = { width: number; height: number };
 type Point = { x: number; y: number };
-/**
- * 나무 배치의 입력 한 칸. `parent`가 null이면 뿌리다. 순환 없는 나무여야 한다.
- * 자식은 부모 다음 단계에서 시작한다. `rows`는 차지하는 단계 수다(카드는 1, 자식 묶음 줄 자리는 그 줄까지).
- */
-type TreeItem = { id: number; parent: number | null; size: Size; rows: number };
-/** `level`은 단계 사이 틈, `lane`은 형제 사이 틈이다. */
-type TreeGap = { level: number; lane: number };
-
-/**
- * 카드 나무 배치(왼쪽 위가 0,0). 자식은 부모 다음 단계(나무가 뻗는 쪽)에 놓고, 부모는 바로 아래 자식들의 가운데에 둔다.
- * 형제와 뿌리는 `items` 순서대로 옆으로 늘어선다. 옆 나무와는 두 나무가 함께 있는 단계마다 틈을 지킨다.
- * 단계의 크기는 그 단계에서 가장 큰 칸이고, 단계 사이는 늘 `gap.level`이다(2026-10-21 사람 피드백, 목업 docs/mockups/arrange-wide.html 「줄 사이 틈」).
- * 위로·왼쪽으로는 아래로·오른쪽으로 배치를 뒤집는다.
- */
-function layoutTree(items: readonly TreeItem[], direction: ArrangeDirection, gap: TreeGap): Map<number, Point> {
-  const vertical = direction === 'down' || direction === 'up';
-  const across = (size: Size) => (vertical ? size.width : size.height);
-  const along = (size: Size) => (vertical ? size.height : size.width);
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const kids = new Map<number | null, number[]>();
-  for (const item of items) kids.set(item.parent, [...(kids.get(item.parent) ?? []), item.id]);
-  const kidsOf = (id: number | null) => kids.get(id) ?? [];
-  const levels = new Map<number, number>();
-  // 한 칸과 그 자손의 배치. `at`은 가로지르는 축의 시작 자리, `lo`·`hi`는 단계마다 차지한 양 끝이다.
-  type Sub = { at: Map<number, number>; lo: Map<number, number>; hi: Map<number, number> };
-  const moved = (m: Map<number, number>, by: number) => new Map([...m].map(([k, x]) => [k, x + by]));
-  const merged = (a: Map<number, number>, b: Map<number, number>, f: (x: number, y: number) => number) => {
-    const out = new Map(a);
-    for (const [k, x] of b) out.set(k, out.has(k) ? f(out.get(k)!, x) : x);
-    return out;
-  };
-  // 형제 나무를 차례로 오른쪽에 붙인다. 두 나무가 함께 있는 단계에서는 그 단계끼리 `gap.lane`을 지킨다(2026-10-21 사람 지시 "공간낭비 해결방안 마련하라", 목업 docs/mockups/repo-drag.html 안 A).
-  // 앞 나무의 가장 깊은 단계보다 깊은 단계는 앞 나무 오른쪽 끝 뒤에 선다. 앞 나무 카드 아래 빈 곳에 서면 그 카드의 자식처럼 보인다(2026-10-21 사람 승인, 목업 docs/mockups/arrange-mixed.html v5 규칙 5).
-  const pack = (subs: readonly Sub[]): Sub | null =>
-    subs.reduce<Sub | null>((acc, sub) => {
-      if (!acc) return sub;
-      const deepest = Math.max(...acc.hi.keys());
-      const right = Math.max(...acc.hi.values());
-      let by = -Infinity;
-      for (const [level, lo] of sub.lo) {
-        const edge = acc.hi.get(level) ?? (level > deepest ? right : undefined);
-        if (edge !== undefined) by = Math.max(by, edge + gap.lane - lo);
-      }
-      return { at: new Map([...acc.at, ...moved(sub.at, by)]), lo: merged(acc.lo, moved(sub.lo, by), Math.min), hi: merged(acc.hi, moved(sub.hi, by), Math.max) };
-    }, null);
-  const lay = (id: number, level: number): Sub => {
-    const item = byId.get(id)!;
-    levels.set(id, level);
-    const own = across(item.size);
-    const row = pack(kidsOf(id).map((k) => lay(k, level + 1)));
-    // 부모는 바로 아래 단계 자식들이 차지한 폭의 가운데에 선다.
-    const x = row ? (row.lo.get(level + 1)! + row.hi.get(level + 1)!) / 2 - own / 2 : 0;
-    const mine = Array.from({ length: item.rows }, (_, r) => level + r);
-    return {
-      at: new Map([...(row?.at ?? []), [id, x]]),
-      lo: merged(row?.lo ?? new Map(), new Map(mine.map((l) => [l, x])), Math.min),
-      hi: merged(row?.hi ?? new Map(), new Map(mine.map((l) => [l, x + own])), Math.max),
-    };
-  };
-  const all = pack(kidsOf(null).map((root) => lay(root, 0)));
-  const min = all ? Math.min(...all.lo.values()) : 0;
-  // 단계마다 시작 자리. 단계 크기는 그 단계에서 가장 큰 칸이다.
-  const last = Math.max(0, ...items.map((item) => levels.get(item.id)!));
-  const size = Array.from({ length: last + 1 }, (_, l) => Math.max(0, ...items.filter((item) => levels.get(item.id) === l).map((item) => along(item.size))));
-  const start = size.reduce<number[]>((acc, _, l) => [...acc, l === 0 ? 0 : acc[l - 1] + size[l - 1] + gap.level], []);
-  const end = start[last] + size[last];
-  const reversed = direction === 'up' || direction === 'left';
-  return new Map(
-    items.map(({ id, size: s }) => {
-      const level = levels.get(id)!;
-      const a = reversed ? end - start[level] - along(s) : start[level];
-      const c = all!.at.get(id)! - min;
-      return [id, vertical ? { x: c, y: a } : { x: a, y: c }];
-    }),
-  );
-}
-
 /** 카드 형제 틈. */
 const CARD_LANE = 20;
 
-/**
- * 묶음 하나의 카드 위치(카드 자리의 왼쪽 위 기준). `size`는 잰 카드 크기, `gap`은 카드 줄 사이 틈이다.
- * 뿌리(사람이 띄운 노드, 부모가 다른 묶음에 있는 노드)는 첫 단계에 옆으로 늘어선다
- * (2026-10-20 사람 지시 "정렬방식은 같은레벨에 있으면 수평으로 확장되게 해줘").
- * 형제는 `views` 순서다. 부르는 쪽이 지금 화면 순서로 넘긴다(목업 docs/mockups/arrange-wide.html 규칙 4).
- * `bands`는 다른 묶음에 자식이 있는 카드마다 묶음 아래 자식 묶음 줄의 폭이다. 줄은 그 카드의 자식처럼 놓이고,
- * 카드와 줄 사이에는 다른 카드가 서지 않는다(같은 목업 규칙 1·3). 돌려주는 `bands`는 줄의 시작 자리(가로지르는 축)다.
- */
-export function arrangeTree(
-  views: readonly NodeView[],
-  size: (id: NodeId) => Size,
-  direction: ArrangeDirection,
-  gap: number,
-  bands: ReadonlyMap<NodeId, number>,
-): { cards: Map<NodeId, Point>; bands: Map<NodeId, number> } {
-  const ids = new Set(views.map((v) => v.id));
-  // 부모를 지우면 `removed` 뒤에 자식의 새 상태가 온다. 그 사이에는 그래프에 없는 부모를 가리키므로 뿌리로 놓는다.
-  const parentOf = (v: NodeView) => (v.parent !== null && ids.has(v.parent) ? v.parent : null);
-  const byId = new Map(views.map((v) => [v.id, v]));
-  const depth = (v: NodeView): number => {
-    const up = parentOf(v);
-    return up === null ? 0 : depth(byId.get(up)!) + 1;
-  };
-  const deepest = Math.max(...views.map(depth));
-  const vertical = direction === 'down' || direction === 'up';
-  // 줄 자리는 카드 아래 단계부터 묶음 아래 첫 단계까지 차지한다. 번호는 카드 번호와 겹치지 않게 음수다.
-  const band = (id: NodeId) => -1 - id;
-  const items = [
-    ...views.map((v) => ({ id: v.id as number, parent: parentOf(v) as number | null, size: size(v.id), rows: 1 })),
-    ...views.flatMap((v) => {
-      const width = bands.get(v.id);
-      return width === undefined ? [] : [{ id: band(v.id), parent: v.id as number, size: vertical ? { width, height: 0 } : { width: 0, height: width }, rows: deepest + 1 - depth(v) }];
-    }),
-  ];
-  const at = layoutTree(items, direction, { level: gap, lane: CARD_LANE });
-  return {
-    cards: new Map(views.map((v) => [v.id, at.get(v.id)!])),
-    bands: new Map([...bands.keys()].map((id) => [id, vertical ? at.get(band(id))!.x : at.get(band(id))!.y])),
-  };
-}
-
-/** 옆 묶음과의 틈(목업 docs/mockups/card-view.html 2번). */
+/** 옆 묶음과의 틈(목업 docs/mockups/card-view.html 2번). 상자가 낀 두 상자 사이도 이 틈이다. */
 export const GROUP_GAP = 32;
 
 export type Box = { at: Point; size: Size };
 
 /**
- * 묶음 자리 계산의 입력. `parent`는 부모 묶음의 번호(`groups` 안)이고, 없으면 뿌리 묶음이다. 순환 없는 나무여야 한다(`groupParents`).
- * `card`는 부모 묶음 안의 부모 카드다(`attachCards`). 형제는 `groups` 순서다.
+ * 묶음 하나의 입력. `parent`는 부모 묶음 번호(`groups` 안), `card`는 그 안의 부모 카드다(`groupParents`, `attachCards`). 둘 다 null이면 맨 위 묶음이다.
+ * `members`는 이 묶음의 카드이고 형제 순서다. `empty`는 카드가 없을 때 상자 크기다.
  */
-export type GroupSlot = { parent: number | null; card: NodeId | null };
-
-/** 묶음 하나를 놓은 결과. `band`는 그 카드 아래 자식 묶음 줄 자리의 시작을 묶음 상자 시작에서 가로지르는 축으로 잰 값이다. */
-export type LaidGroup = { size: Size; band: (card: NodeId) => number };
+export type NestGroup = { parent: number | null; card: NodeId | null; members: readonly NodeId[]; empty: Size };
 
 /**
- * 묶음 자리(목업 docs/mockups/arrange-wide.html ②). 다른 묶음의 자식은 부모 묶음 아래 줄에 선다. 줄 자리는 `lay`가 부모 카드의 자식으로 잡는다.
- * 자식부터 놓는다. `lay(i, bands)`는 묶음 `i`의 카드를 놓고 크기를 돌려준다. `bands`는 카드마다 그 아래 자식 묶음 줄의 폭에 `GROUP_GAP`을 더한 값이다.
- * 줄은 그 자리 가운데에 선다. 그래서 `arrangeTree`가 줄 자리를 카드 틈으로 붙여도 두 카드의 줄 사이는 `GROUP_GAP`보다 넓다.
- * 묶음 깊이가 같으면 같은 줄이다. 줄의 크기는 그 줄에서 가장 큰 묶음이고, 줄 사이와 옆 묶음 사이는 `GROUP_GAP`이다.
- * 돌려주는 값은 묶음 상자의 왼쪽 위다(가장 위·왼쪽이 0).
+ * 저장소 하나의 자동 배치(목업 docs/mockups/arrange-family.html v4, 2026-10-21 사람 승인).
+ * 자식 워크트리 묶음은 부모 카드의 묶음 상자 안, 부모 카드 다음 세대 줄에 선다. 부모 카드는 자식 전체(같은 묶음 카드와 안에 든 자식 묶음)의 가운데에 선다.
+ * 세대는 저장소 전체에서 한 줄이다. 카드끼리 틈은 20, 상자가 낀 틈은 32다. 형제 나무는 앞 나무의 가장 깊은 줄보다 깊은 줄을 앞 나무 오른쪽 끝 뒤에 둔다(M11 규칙 5).
+ * 맨 위 묶음 가운데 자식 묶음이 없는 묶음(빈 묶음 포함)은 나무 뒤에 선다(같은 목업 ⑫).
+ * `parentOf`는 카드의 부모 카드다. 돌려주는 값은 카드와 묶음 상자의 왼쪽 위다(가장 위·왼쪽이 0).
  */
-export function placeGroups(groups: readonly GroupSlot[], lay: (i: number, bands: ReadonlyMap<NodeId, number>) => LaidGroup, direction: ArrangeDirection): Point[] {
+export function arrangeNested(
+  groups: readonly NestGroup[],
+  parentOf: (id: NodeId) => NodeId | null,
+  size: (id: NodeId) => Size,
+  direction: ArrangeDirection,
+  /** 묶음 상자의 안쪽 여백. `top`은 머리 줄이다(Graph.tsx `cover`와 같은 모양). */
+  inset: { top: number; side: number },
+): { cards: Map<NodeId, Point>; boxes: Box[] } {
   const vertical = direction === 'down' || direction === 'up';
-  const across = (size: Size) => (vertical ? size.width : size.height);
-  const along = (size: Size) => (vertical ? size.height : size.width);
-  const kids = groups.map((_, i) => groups.flatMap((g, k) => (g.parent === i ? [k] : [])));
-  const laid: LaidGroup[] = [];
-  // 묶음과 그 자손 줄이 가로지르는 축으로 차지하는 양 끝(묶음 상자 시작 기준)과 깊이.
-  const lo: number[] = [];
-  const hi: number[] = [];
-  const depth: number[] = [];
-  const cards = (i: number) => [...new Set(kids[i].map((k) => groups[k].card!))];
-  const width = (k: number) => hi[k] - lo[k];
-  const bandOf = (i: number, card: NodeId) => kids[i].filter((k) => groups[k].card === card);
-  const bandWidth = (i: number, card: NodeId) => bandOf(i, card).reduce((sum, k, n) => sum + width(k) + (n > 0 ? GROUP_GAP : 0), 0);
-  const measure = (i: number, d: number) => {
-    depth[i] = d;
-    for (const k of kids[i]) measure(k, d + 1);
-    laid[i] = lay(i, new Map(cards(i).map((card) => [card, bandWidth(i, card) + GROUP_GAP])));
-    lo[i] = 0;
-    hi[i] = across(laid[i].size);
-    for (const card of cards(i)) {
-      const b = laid[i].band(card) + GROUP_GAP / 2;
-      lo[i] = Math.min(lo[i], b);
-      hi[i] = Math.max(hi[i], b + bandWidth(i, card));
-    }
-  };
-  const roots = groups.flatMap((g, i) => (g.parent === null ? [i] : []));
-  for (const r of roots) measure(r, 0);
-  const cross: number[] = [];
-  const put = (i: number, x: number) => {
-    cross[i] = x;
-    for (const card of cards(i)) {
-      let cursor = x + laid[i].band(card) + GROUP_GAP / 2;
-      for (const k of bandOf(i, card)) {
-        put(k, cursor - lo[k]);
-        cursor += width(k) + GROUP_GAP;
-      }
-    }
-  };
-  roots.reduce((cursor, r) => {
-    put(r, cursor - lo[r]);
-    return cursor + width(r) + GROUP_GAP;
-  }, 0);
-  const deepest = Math.max(0, ...depth);
-  const size = Array.from({ length: deepest + 1 }, (_, d) => Math.max(0, ...groups.flatMap((_, i) => (depth[i] === d ? [along(laid[i].size)] : []))));
-  const start = size.reduce<number[]>((acc, _, d) => [...acc, d === 0 ? 0 : acc[d - 1] + size[d - 1] + GROUP_GAP], []);
-  const end = start[deepest] + size[deepest];
   const reversed = direction === 'up' || direction === 'left';
-  return groups.map((_, i) => {
-    const a = reversed ? end - start[depth[i]] - along(laid[i].size) : start[depth[i]];
-    return vertical ? { x: cross[i], y: a } : { x: a, y: cross[i] };
+  const across = (s: Size) => (vertical ? s.width : s.height);
+  const along = (s: Size) => (vertical ? s.height : s.width);
+  // 묶음 상자 여백. 가로지르는 축은 앞(lo)·뒤(hi), 뻗는 축은 뿌리 쪽(near)·먼 쪽(far)이다. 머리 줄은 늘 위다.
+  const pad = {
+    lo: vertical ? inset.side : inset.top,
+    hi: inset.side,
+    near: direction === 'down' ? inset.top : inset.side,
+    far: direction === 'up' ? inset.top : inset.side,
+  };
+  const groupOf = new Map(groups.flatMap((g, i) => g.members.map((id): [NodeId, number] => [id, i])));
+  const kidCards = (id: NodeId) => groups[groupOf.get(id)!].members.filter((k) => parentOf(k) === id);
+  const kidGroups = (id: NodeId) => groups.flatMap((g, i) => (g.card === id ? [i] : []));
+  const nestedIn = (i: number) => groups.flatMap((g, k) => (g.parent === i ? [k] : []));
+  const roots = (i: number) => groups[i].members.filter((id) => {
+    const up = parentOf(id);
+    return up === null || groupOf.get(up) !== i;
   });
+  // 카드의 세대 줄. 묶음의 뿌리 카드는 부모 카드 다음 줄이고, 맨 위 묶음의 뿌리는 0이다.
+  const rows = new Map<NodeId, number>();
+  const rowOf = (id: NodeId): number => {
+    if (rows.has(id)) return rows.get(id)!;
+    const i = groupOf.get(id)!;
+    const up = parentOf(id);
+    const card = up !== null && groupOf.get(up) === i ? up : groups[i].card;
+    const r = card === null ? 0 : rowOf(card) + 1;
+    rows.set(id, r);
+    return r;
+  };
+
+  // 나무 한 덩이: 가로지르는 축의 시작 자리, 묶음 상자 양 끝과 줄 범위, 줄마다 양 끝과 그 끝이 카드인지 상자인지.
+  type Edge = { at: number; box: boolean };
+  type Shape = { at: Map<NodeId, number>; boxes: Map<number, { lo: number; hi: number; r0: number; r1: number }>; lo: Map<number, Edge>; hi: Map<number, Edge> };
+  const shift = (s: Shape, by: number): Shape => ({
+    at: new Map([...s.at].map(([k, x]) => [k, x + by])),
+    boxes: new Map([...s.boxes].map(([k, b]) => [k, { ...b, lo: b.lo + by, hi: b.hi + by }])),
+    lo: new Map([...s.lo].map(([k, e]) => [k, { ...e, at: e.at + by }])),
+    hi: new Map([...s.hi].map(([k, e]) => [k, { ...e, at: e.at + by }])),
+  });
+  const merged = (a: Map<number, Edge>, b: Map<number, Edge>, outer: (x: number, y: number) => boolean) => {
+    const out = new Map(a);
+    for (const [k, e] of b) if (!out.has(k) || outer(e.at, out.get(k)!.at)) out.set(k, e);
+    return out;
+  };
+  const join = (a: Shape, b: Shape): Shape => ({
+    at: new Map([...a.at, ...b.at]),
+    boxes: new Map([...a.boxes, ...b.boxes]),
+    lo: merged(a.lo, b.lo, (x, y) => x < y),
+    hi: merged(a.hi, b.hi, (x, y) => x > y),
+  });
+  const pack = (shapes: readonly Shape[]): Shape | null =>
+    shapes.reduce<Shape | null>((acc, s) => {
+      if (!acc) return s;
+      const deepest = Math.max(...acc.hi.keys());
+      const right = Math.max(...[...acc.hi.values()].map((e) => e.at));
+      let by = -Infinity;
+      for (const [r, lo] of s.lo) {
+        const edge = acc.hi.get(r) ?? (r > deepest ? { at: right, box: true } : undefined);
+        if (edge) by = Math.max(by, edge.at + (edge.box || lo.box ? GROUP_GAP : CARD_LANE) - lo.at);
+      }
+      return join(acc, shift(s, by === -Infinity ? 0 : by));
+    }, null);
+  const layCard = (id: NodeId): Shape => {
+    const r = rowOf(id);
+    const kids = pack([...kidCards(id).map(layCard), ...kidGroups(id).map(layGroup)]);
+    const own = across(size(id));
+    // 부모는 다음 줄 자식 전체의 가운데에 선다.
+    const x = kids ? (kids.lo.get(r + 1)!.at + kids.hi.get(r + 1)!.at) / 2 - own / 2 : 0;
+    const me: Shape = { at: new Map([[id, x]]), boxes: new Map(), lo: new Map([[r, { at: x, box: false }]]), hi: new Map([[r, { at: x + own, box: false }]]) };
+    return kids ? join(kids, me) : me;
+  };
+  const layGroup = (i: number): Shape => {
+    if (groups[i].members.length === 0) {
+      const w = across(groups[i].empty);
+      return { at: new Map(), boxes: new Map([[i, { lo: 0, hi: w, r0: 0, r1: 0 }]]), lo: new Map([[0, { at: 0, box: true }]]), hi: new Map([[0, { at: w, box: true }]]) };
+    }
+    const s = pack(roots(i).map(layCard))!;
+    const rs = [...s.lo.keys()];
+    const [r0, r1] = [Math.min(...rs), Math.max(...rs)];
+    const lo = Math.min(...[...s.lo.values()].map((e) => e.at)) - pad.lo;
+    const hi = Math.max(...[...s.hi.values()].map((e) => e.at)) + pad.hi;
+    s.boxes.set(i, { lo, hi, r0, r1 });
+    for (let r = r0; r <= r1; r++) {
+      s.lo.set(r, { at: lo, box: true });
+      s.hi.set(r, { at: hi, box: true });
+    }
+    return s;
+  };
+  const top = groups.flatMap((g, i) => (g.card === null ? [i] : []));
+  const linked = (i: number) => groups[i].members.some((id) => kidGroups(id).length > 0);
+  top.sort((a, b) => Number(!linked(a)) - Number(!linked(b)));
+  const all = pack(top.map(layGroup));
+  if (!all) return { cards: new Map(), boxes: [] };
+  const min = Math.min(...[...all.boxes.values()].map((b) => b.lo));
+
+  // 뻗는 축: 줄 크기는 그 줄에서 가장 큰 카드다. 줄 뒤 틈은 거기서 끝나는 상자들의 먼 쪽 여백, 상자 틈, 다음 줄 상자의 뿌리 쪽 여백이다.
+  const cards = groups.flatMap((g) => g.members);
+  const last = Math.max(0, ...cards.map(rowOf));
+  const rowSize = Array.from({ length: last + 1 }, (_, r) => Math.max(0, ...cards.filter((id) => rowOf(id) === r).map((id) => along(size(id)))));
+  const endRow = (i: number) => all.boxes.get(i)!.r1;
+  const closing = (i: number): number => 1 + Math.max(0, ...nestedIn(i).filter((k) => endRow(k) === endRow(i)).map(closing));
+  const close = (r: number) => Math.max(1, ...groups.flatMap((_, i) => (endRow(i) === r ? [closing(i)] : [])));
+  const start: number[] = [];
+  for (let r = 0; r <= last; r++) start[r] = r === 0 ? pad.near : start[r - 1] + rowSize[r - 1] + pad.far * close(r - 1) + GROUP_GAP + pad.near;
+  // 묶음 상자의 뻗는 축 끝: 자기 카드와 안에 든 상자 가운데 가장 먼 곳에 먼 쪽 여백을 더한다.
+  const end = (i: number): number => {
+    if (groups[i].members.length === 0) return along(groups[i].empty);
+    return Math.max(...groups[i].members.map((id) => start[rowOf(id)] + along(size(id))), ...nestedIn(i).map(end)) + pad.far;
+  };
+  const total = Math.max(...top.map(end));
+  // 위로·왼쪽으로는 뻗는 축을 뒤집는다.
+  const place = (a: number, length: number, c: number): Point => {
+    const t = reversed ? total - a - length : a;
+    return vertical ? { x: c, y: t } : { x: t, y: c };
+  };
+  return {
+    cards: new Map(cards.map((id) => [id, place(start[rowOf(id)], along(size(id)), all.at.get(id)! - min)])),
+    boxes: groups.map((g, i) => {
+      const b = all.boxes.get(i)!;
+      const t = g.members.length === 0 ? 0 : start[b.r0] - pad.near;
+      const e = end(i);
+      const at = place(t, e - t, b.lo - min);
+      return { at, size: vertical ? { width: b.hi - b.lo, height: e - t } : { width: e - t, height: b.hi - b.lo } };
+    }),
+  };
 }
 
 /** 끄는 상자의 형제 하나. `key`는 부르는 쪽이 붙인 상자 이름이다. */
@@ -330,7 +290,7 @@ function aheadGap(parent: Box, child: Box, direction: ArrangeDirection): number 
 /**
  * 나무 간선(계단 모양)이 꺾이는 자리. 부모 카드에서 `bend`만큼 간 곳이고, 부모와 자식 사이 틈에 대한 비율로 준다(React Flow `stepPosition`).
  * 자식이 나무가 뻗는 쪽에 없으면 null이다. 그 간선은 곡선이다. 틈이 `bend`의 두 배보다 좁으면 가운데에서 꺾는다.
- * 사람 승인(2026-10-21) "꺽은선 유지 하는걸로 승인", 목업 docs/mockups/arrange-mixed.html v5 규칙 6: 자식 묶음으로 가는 간선이 비워 둔 줄 자리로만 내려가 카드를 지나지 않는다.
+ * 사람 승인(2026-10-21) "꺽은선 유지 하는걸로 승인", 목업 docs/mockups/arrange-mixed.html v5 규칙 6: 자식 묶음 상자는 부모 카드 아래에 있어 간선이 카드를 지나지 않는다(arrange-family.html v4).
  */
 export function stepAt(parent: Box, child: Box, direction: ArrangeDirection, bend: number): number | null {
   const gap = aheadGap(parent, child, direction);

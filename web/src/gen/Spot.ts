@@ -4,6 +4,6 @@ import type { RepoId } from "./RepoId";
 
 /**
  * 자리를 가진 상자. 자리의 기준은 상자마다 다르다.
- * 저장소 상자는 그래프 좌표, 묶음은 저장소 상자 안 좌표, 카드는 묶음 안 좌표다. 그래서 상자를 옮겨도 안의 자리는 그대로다.
+ * 저장소 상자는 그래프 좌표, 맨 위 묶음은 저장소 상자 안 좌표, 자식 묶음과 카드는 묶음 안 좌표다. 그래서 상자를 옮겨도 안의 자리는 그대로다.
  */
 export type Spot = { "kind": "repo", repo: RepoId, } | { "kind": "worktree", repo: RepoId, path: string, } | { "kind": "node", repo: RepoId, node: NodeId, };

@@ -235,7 +235,8 @@ const ko: typeof en = {
   },
   inbox: {
     button: '질문',
-    buttonLabel: '응답을 기다리는 노드 {{count}}개. 목록 열기',
+    jumpLabel: '{{name}} 질문으로 가기',
+    listLabel: '질문 목록 열기, {{count}}개',
     title: '응답을 기다리는 노드 {{count}}',
     dismiss: '알림 지우기',
   },

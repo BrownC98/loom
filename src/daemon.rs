@@ -40,6 +40,7 @@ use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
     NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitKind, WaitSource,
 };
+use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
@@ -398,8 +399,10 @@ const SCREEN_QUIET: Duration = Duration::from_millis(500);
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
 pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
+    // 데이터 폴더마다 데몬 하나. 둘이 한 DB와 노드를 쥐지 않게 주소보다 먼저 잡고 끝날 때까지 쥔다.
+    let claim = launch::Claim::take()?;
     let listener = tokio::net::TcpListener::bind(listen).await?;
-    // 포트 0이면 OS가 고른 포트다. 노드 주소와 시작 줄은 실제 주소를 쓴다. 데스크톱 앱은 시작 줄에서 주소를 읽는다.
+    // 포트 0이면 OS가 고른 포트다. 노드 주소, 시작 줄, `daemon.json`은 실제 주소를 쓴다.
     let listen = listener.local_addr()?;
     // 포트는 데몬 포트와 같다. 노드 환경의 `LOOM_URL`은 노드가 끝날 때까지 바뀌지 않으므로, 다시 시작한 데몬도 같은 주소에서 듣는다.
     // 그 포트를 쓸 수 없으면(예: `--listen 0.0.0.0:<포트>`) OS가 고른다. 그때 앞 데몬의 노드는 다시 시작한 뒤 loom 명령이 닿지 않는다.
@@ -411,9 +414,9 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     };
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
-    let open = || db::open(&db_path).map_err(std::io::Error::other);
+    let open = || db::open(&db_path);
     let repos = Repos::new(open()?);
-    // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: 데스크톱 앱은 앱 설정 폴더에서 띄우고, 사람은 화면에서 저장소를 더한다.
+    // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: `loom start`는 루트(`/`)에서 띄우고, 사람은 화면에서 저장소를 더한다.
     match repos.add(&std::env::current_dir()?.to_string_lossy()).await {
         Ok(_) | Err(RepoProblem::NotGit(_) | RepoProblem::NotFound(_)) => {}
         Err(problem) => return Err(std::io::Error::other(problem.to_string())),
@@ -536,6 +539,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .fallback(asset)
         .layer(axum::middleware::from_fn(origin::same_site))
         .with_state(app.clone());
+    claim.announce(&node_url(listen))?;
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     match node_door {
@@ -1461,7 +1465,7 @@ async fn open_file(Json(req): Json<OpenFile>) -> Result<Json<()>, Problem> {
 const SHUTDOWN_AFTER: Duration = Duration::from_millis(200);
 
 /// 사람이 `loom stop`이나 화면으로 데몬만 끝낸다. 노드의 PTY 호스트와 서버는 따로 도는 프로세스라 산다(`process_tree::detach`).
-/// 데스크톱 앱이 창을 닫을 때와 같다(`--until-stdin-closes`). 다음 데몬이 노드에 다시 붙는다.
+/// 다음 데몬이 노드에 다시 붙는다. 새 판의 `loom start`도 옛 판 데몬을 이 길로 끝낸다(`launch::ensure`).
 async fn shutdown() -> StatusCode {
     tokio::spawn(async {
         tokio::time::sleep(SHUTDOWN_AFTER).await;

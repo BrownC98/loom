@@ -1,14 +1,30 @@
 #!/bin/sh
 # Linux·WSL에 loom 웹 버전을 설치하고 바탕 화면에 loom 아이콘을 만든다. 아이콘을 누르면 `loom open`이 데몬을 띄우고 브라우저를 연다.
 # 사람은 한 줄로 부른다: curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
-# 다시 부르면 업데이트다: 파일을 바꿔 넣고 데몬만 다시 띄운다. 노드는 그대로 산다. 근거: docs/design.md 「배포」.
+# 다시 부르면 업데이트다: 파일을 바꿔 넣고 옛 판 데몬만 새 판으로 바꾼다. 노드는 그대로 산다. macOS는 앱 안의 loom을 여는 바로 가기만 만든다. 근거: docs/design.md 「배포」.
 # 시험용 변수: LOOM_DOWNLOAD_URL(실행 파일 주소, file:// 가능), LOOM_DESKTOP(바탕 화면 폴더, Linux 경로), LOOM_PORT(기본 7420).
 set -eu
 
 case "$(uname -s)/$(uname -m)" in
 Linux/x86_64) ;;
+Darwin/*)
+  # macOS는 데스크톱 앱 안의 loom을 쓴다. 두 번째 실행 파일을 받지 않는다: 같은 데몬을 앱과 브라우저가 함께 본다.
+  # 앱이 띄운 데몬이 적은 실행 파일을 먼저 쓰고, 없으면 기본 설치 자리를 본다.
+  exe=$(sed -n 's/.*"exe":"\([^"]*\)".*/\1/p' "$HOME/.loom/daemon.json" 2>/dev/null || true)
+  [ -x "$exe" ] || exe=/Applications/loom.app/Contents/MacOS/loom
+  if [ ! -x "$exe" ]; then
+    echo "먼저 loom 데스크톱 앱을 설치하세요: https://github.com/BrownC98/loom/releases/latest" >&2
+    exit 1
+  fi
+  launcher="$HOME/Applications/loom (browser).command"
+  mkdir -p "$HOME/Applications"
+  printf '#!/bin/sh\nexec "%s" open\n' "$exe" >"$launcher"
+  chmod +x "$launcher"
+  echo "브라우저로 여는 loom을 만들었습니다: $launcher"
+  exec "$exe" open
+  ;;
 *)
-  echo "loom 웹 버전은 x86-64 Linux·WSL만 있습니다. macOS·Windows는 데스크톱 앱을 씁니다: https://github.com/BrownC98/loom/releases/latest" >&2
+  echo "loom 웹 버전은 x86-64 Linux·WSL·macOS만 있습니다. Windows는 데스크톱 앱을 씁니다(시작 메뉴의 loom (browser)): https://github.com/BrownC98/loom/releases/latest" >&2
   exit 1
   ;;
 esac
@@ -73,10 +89,12 @@ EOF
   echo "앱 메뉴에 loom을 더했습니다: $apps/loom.desktop"
 fi
 
-# 옛 데몬만 끝낸다. 파일의 PID가 다른 프로세스로 다시 쓰였으면 건드리지 않는다. scripts/host.sh와 같은 방법이다.
+# `daemon.json` 전의 데몬(serve.pid)을 끝낸다. 그 데몬은 잠금이 없어 `open`이 찾지 못한다. 파일의 PID가 다른 프로세스로 다시 쓰였으면 건드리지 않는다.
 pidfile=$data/serve.pid
 if pid=$(cat "$pidfile" 2>/dev/null) && tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline" | grep -q "^$bin serve "; then
   kill "$pid"
   while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
 fi
+rm -f "$pidfile"
+# 도는 데몬이 옛 판이면 `open`이 새 판으로 바꾼다. 같은 판이나 새 판이면 붙는다.
 "$bin" open --listen "127.0.0.1:$port"

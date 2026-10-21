@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
-use rusqlite_migration::{M, Migrations};
+use rusqlite_migration::{M, MigrationDefinitionError, Migrations};
 
 const STEPS: &[M] = &[
     // 1: 노드 나무와 메일함(graph). `profile`과 `state`는 serde JSON 문자열이다.
@@ -190,17 +190,51 @@ fn data_dir() -> std::io::Result<PathBuf> {
 
 /// 파일을 WAL 모드로 열고 스키마를 최신으로 올린다.
 /// 연결마다 rusqlite가 busy timeout 5초를 건다(`Connection::open`). `Repos`·`Graph`·`Settings`는 같은 파일에 따로 연결하므로, 다른 연결이 쓰는 동안 바로 `database is locked`로 실패하지 않고 기다린다.
-pub fn open(path: &Path) -> Result<Connection, rusqlite_migration::Error> {
-    let mut conn = Connection::open(path)?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "foreign_keys", true)?;
-    MIGRATIONS.to_latest(&mut conn)?;
-    Ok(conn)
+/// 더 새 판의 loom이 올린 DB는 열지 않는다. 옛 판은 모르는 표·열을 깨뜨린다.
+pub fn open(path: &Path) -> std::io::Result<Connection> {
+    let mut conn = Connection::open(path).map_err(std::io::Error::other)?;
+    conn.pragma_update(None, "journal_mode", "WAL")
+        .map_err(std::io::Error::other)?;
+    conn.pragma_update(None, "foreign_keys", true)
+        .map_err(std::io::Error::other)?;
+    match MIGRATIONS.to_latest(&mut conn) {
+        Ok(()) => Ok(conn),
+        Err(rusqlite_migration::Error::MigrationDefinition(
+            MigrationDefinitionError::DatabaseTooFarAhead,
+        )) => Err(std::io::Error::other(format!(
+            "this loom ({}) is older than the data in {}. Open the newer loom.",
+            crate::VERSION,
+            path.display()
+        ))),
+        Err(e) => Err(std::io::Error::other(e)),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;
+
+    #[test]
+    fn newer_data_is_refused_with_a_clear_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        let conn = super::open(&path).unwrap();
+        let version: u32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        conn.pragma_update(None, "user_version", version + 1)
+            .unwrap();
+        drop(conn);
+        let error = super::open(&path).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            format!(
+                "this loom ({}) is older than the data in {}. Open the newer loom.",
+                crate::VERSION,
+                path.display()
+            )
+        );
+    }
 
     #[test]
     fn migrations_are_valid() {

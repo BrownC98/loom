@@ -85,7 +85,6 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
               <b>{first.name}</b>
               {line ? `: ${firstWait.text || t(`wait.${firstWait.kind}`)}` : ` · ${t(`wait.${firstWait.kind}`)}`}
             </button>
-            {n > 1 && <span className="rest">{t('inbox.rest', { count: n - 1 })}</span>}
             {line ? (
               <button type="button" className="icon" aria-label={t('inbox.jumpLabel', { name: first.name })} title={t('inbox.jumpLabel', { name: first.name })} onClick={toNode}>
                 <ArrowRight aria-hidden="true" />
@@ -351,8 +350,11 @@ function Choices(props: { question: string; onPick: (key: string) => void }) {
       {list.map((c) => (
         <button key={c.key} type="button" className="choice" data-recommended={c.recommended || undefined} onClick={() => props.onPick(c.key)}>
           <span className="key">{c.key}</span>
-          {c.label}
-          {c.recommended && <span className="mark">{t('inbox.recommended')}</span>}
+          {/* 「권장」은 글 바로 뒤에 붙는다. 글이 여러 줄이 되어도 단추 끝으로 밀려나지 않는다(2026-10-22 사람 지시 "권장이 삐져나와 삐뚤빼뚤해짐"). */}
+          <span className="label">
+            {c.label}
+            {c.recommended && <span className="mark">{t('inbox.recommended')}</span>}
+          </span>
         </button>
       ))}
     </div>

@@ -270,7 +270,6 @@ const ko: typeof en = {
     recommended: '권장',
     openDocLabel: '{{id}} {{title}}: 브라우저에서 열기',
     toTerminal: '터미널에서 답하기',
-    rest: '다음 질문 {{count}}개',
     moreText: '더 보기',
     dropImage: '그림을 놓아 {{id}} 답에 붙이기',
     dropLimit: '그림마다 {{limit}}MB까지',

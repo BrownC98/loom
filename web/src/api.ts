@@ -46,8 +46,9 @@ async function request<T>(method: string, path: string, body?: { type: string; d
 const call = <T>(method: string, path: string, body?: unknown) =>
   request<T>(method, path, body === undefined ? undefined : { type: 'application/json', data: JSON.stringify(body) });
 
-/** 붙여넣은 그림을 데몬이 파일로 남기고 그 절대 경로를 돌려준다. */
-export const savePastedImage = (image: Blob) => request<string>('POST', '/api/pastes', { type: image.type, data: image });
+/** 붙여넣거나 끌어다 놓은 파일을 데몬이 같은 이름으로 남기고 그 절대 경로를 돌려준다. */
+export const savePastedFile = (file: File) =>
+  request<string>('POST', `/api/pastes/${encodeURIComponent(file.name)}`, { type: file.type || 'application/octet-stream', data: file });
 
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
 /** 노드 하나를 지운다. 자식은 부모 없이 남는다(docs/design.md 「노드 제거와 입양」). */

@@ -280,6 +280,10 @@ const en = {
   },
   terminal: {
     gone: 'loom restarted, so this terminal is closed. Create a new node.',
+    drop: 'Drop to type the file paths',
+    dropCount: 'Files: {{count}} · up to {{limit}} MB each',
+    tooBig: '{{name}}: the file is too large ({{size}} MB). The limit is {{limit}} MB.',
+    folder: '{{name}}: folders cannot be dropped. Select files.',
   },
   problem: {
     refused: {
@@ -338,7 +342,6 @@ const en = {
       git: 'Git failed: {{value}}',
     },
     noLogin: 'This login window no longer exists.',
-    unsupportedImage: 'This image format cannot be pasted: {{value}}. Use PNG, JPEG, GIF, or WebP.',
     internal: 'Internal error: {{value}}',
   },
   usageProblem: {

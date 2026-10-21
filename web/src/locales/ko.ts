@@ -287,6 +287,7 @@ const ko: typeof en = {
     folder: '{{name}}: 폴더는 넣을 수 없습니다. 파일을 고르십시오.',
   },
   problem: {
+    status: '데몬이 {{status}} 응답을 보냈습니다. 화면이 데몬보다 오래된 판일 수 있습니다. 새로고침하십시오.',
     refused: {
       emptyName: '이름을 입력하십시오.',
       nameTaken: '{{value}}: 부모·형제·자식 노드가 이미 쓰는 이름입니다. 다른 이름을 입력하십시오.',

@@ -12,6 +12,9 @@ function vars(coded: { code: string }): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? { ...value } : { value };
 }
 
+/** 본문이 Problem이 아닌 실패 응답의 문장. */
+export const statusText = (status: number) => i18next.t('problem.status', { status });
+
 export function problemText(p: Problem): string {
   switch (p.code) {
     case 'refused':

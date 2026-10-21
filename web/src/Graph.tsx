@@ -1,7 +1,7 @@
 import { GitBranchPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
 import { Fragment, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putSizes, putSpots, removeNode } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -100,6 +100,15 @@ function PopAt(props: { at: XYPosition; children: ReactNode }) {
 }
 
 /** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
+/**
+ * 지금 배율(2026-10-21 사람 지시 "현재 배율을 미니맵에 표시해줘"). React Flow 미니맵은 자식을 받지 않는다.
+ * 그래서 같은 오른쪽 아래 패널로 미니맵 위 오른쪽 아래 모서리에 겹쳐 그린다. 클릭은 미니맵이 받는다.
+ */
+function ZoomLevel() {
+  const zoom = useStore((s) => s.transform[2]);
+  return <Panel position="bottom-right" className="zoom-level">{Math.round(zoom * 100)}%</Panel>;
+}
+
 function IconButton(props: { label: string; title: string; children: ReactNode; onClick: () => void }) {
   return (
     <button type="button" className="btn ghost sm icon nodrag" aria-label={props.label} title={props.title} onClick={props.onClick}>
@@ -943,6 +952,7 @@ export function Graph(props: {
           nodeClassName={(node) => (node.type === 'repo' || node.type === 'worktree' ? node.type : (node as CardNode | SimpleNode).data.view.state.kind)}
           onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
         />
+        <ZoomLevel />
         {groups.map(({ group, repo, members, origin, right }) => {
           const at = creating === group.path && anchor ? { x: origin.x + anchor.x, y: origin.y + anchor.y } : null;
           return (

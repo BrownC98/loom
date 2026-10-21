@@ -1,4 +1,4 @@
-import { GitBranchPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
+import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
@@ -104,11 +104,32 @@ function PopAt(props: { at: XYPosition; children: ReactNode }) {
 }
 
 /** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
+/** 미니맵 접힘은 보는 사람마다 하나다. 정렬 방향처럼 이 브라우저에만 둔다. */
+const MINIMAP_KEY = 'loom.minimapFolded';
+
+function loadMinimapFolded(): boolean {
+  try {
+    return localStorage.getItem(MINIMAP_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function saveMinimapFolded(folded: boolean) {
+  try {
+    localStorage.setItem(MINIMAP_KEY, String(folded));
+  } catch {
+    // 저장할 수 없으면 이 화면에서만 쓴다.
+  }
+}
+
 /**
  * 지금 배율(2026-10-21 사람 지시 "현재 배율을 미니맵에 표시해줘"). React Flow 미니맵은 자식을 받지 않는다.
  * 그래서 같은 오른쪽 아래 패널로 미니맵 위 오른쪽 아래 모서리에 겹쳐 그린다. 숫자 밖 클릭은 미니맵이 받는다.
+ * 미니맵을 접는 단추도 같은 줄에 둔다(같은 날 사람 "미니맵도 접거나 펴거나, 또는 on/off 할 수 있는 기능 추가").
+ * 접으면 미니맵만 사라지고 이 줄은 같은 모서리에 남는다.
  */
-function ZoomLevel() {
+function ZoomLevel(props: { folded: boolean; onFold: (folded: boolean) => void }) {
   const { t } = useTranslation();
   const flow = useReactFlow();
   const zoom = useStore((s) => s.transform[2]);
@@ -122,6 +143,9 @@ function ZoomLevel() {
   };
   return (
     <Panel position="bottom-right" className="zoom-level">
+      <IconButton label={t(props.folded ? 'graph.minimapUnfold' : 'graph.minimapFold')} title={t(props.folded ? 'graph.minimapUnfold' : 'graph.minimapFold')} onClick={() => props.onFold(!props.folded)}>
+        {props.folded ? <MapPlus /> : <MapMinus />}
+      </IconButton>
       {draft === null ? (
         <span title={t('graph.zoomEdit')} onDoubleClick={() => setDraft(String(Math.round(zoom * 100)))}>
           {Math.round(zoom * 100)}%
@@ -504,6 +528,7 @@ export function Graph(props: {
   const [branching, setBranching] = useState<{ key: string; anchor: XYPosition } | null>(null);
   // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
   const [refusal, setRefusal] = useState('');
+  const [minimapFolded, setMinimapFolded] = useState(loadMinimapFolded);
   // React Flow가 잰 크기. 노드를 새 객체로 넘겨도 이 값을 이어받아야 React Flow가 노드를 다시 숨기고 재지 않는다.
   const [flowState, setFlowState] = useState<ReadonlyMap<string, FlowNode>>(new Map());
   // 사람이 끌어 놓은 자리(React Flow 노드 id → 저장한 자리). 원점의 기준은 `Spot`이 적는다.
@@ -1219,13 +1244,21 @@ export function Graph(props: {
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
       >
-        <MiniMap
-          pannable
-          ariaLabel={t('graph.minimap')}
-          nodeClassName={(node) => (node.type === 'repo' || node.type === 'worktree' ? node.type : (node as CardNode | SimpleNode).data.view.state.kind)}
-          onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
+        {!minimapFolded && (
+          <MiniMap
+            pannable
+            ariaLabel={t('graph.minimap')}
+            nodeClassName={(node) => (node.type === 'repo' || node.type === 'worktree' ? node.type : (node as CardNode | SimpleNode).data.view.state.kind)}
+            onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
+          />
+        )}
+        <ZoomLevel
+          folded={minimapFolded}
+          onFold={(folded) => {
+            setMinimapFolded(folded);
+            saveMinimapFolded(folded);
+          }}
         />
-        <ZoomLevel />
         {groups.map(({ group, repo, members, origin, right }) => {
           const at = creating === group.path && anchor ? { x: origin.x + anchor.x, y: origin.y + anchor.y } : null;
           return (

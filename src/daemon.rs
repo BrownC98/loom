@@ -4,6 +4,7 @@
 mod idle;
 mod origin;
 mod settings;
+mod switch;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;

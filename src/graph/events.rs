@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{Kind, MessageId, NodeId, NodeState, Refusal, from_json, to_json};
-use crate::profile::AgentId;
+use crate::accounts::AccountId;
+use crate::profile::{AgentId, Provider};
 
 /// 남기는 이벤트 수 상한. 노드 50개가 각각 메시지 200개를 주고받는 하루치다.
 const KEEP: u32 = 10_000;
@@ -80,6 +81,45 @@ pub enum Entry {
         to: String,
         reason: Refusal,
     },
+    /// 공급자의 쓰는 계정을 바꾸고 실행 중인 노드를 옮겼다. 계정이 없으면 시스템 기본이다.
+    /// `moved`는 바로 옮긴 노드, `later`는 턴이 끝나면 옮길 노드, `failed`는 옛 계정으로 계속 도는 노드 수다.
+    /// 목업 docs/mockups/account-switch.html ③.
+    AccountSwitched {
+        provider: Provider,
+        from: Option<AccountId>,
+        to: Option<AccountId>,
+        why: SwitchCause,
+        moved: u32,
+        later: u32,
+        failed: u32,
+    },
+    /// 자동 전환할 계정이 없어 바꾸지 않았다. `resets_at`은 그 공급자 계정 가운데 가장 빠른 창 초기화(유닉스 초)다.
+    NoAccountLeft {
+        provider: Provider,
+        #[ts(type = "number | null")]
+        resets_at: Option<i64>,
+    },
+}
+
+/// 계정을 바꾼 이유.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum SwitchCause {
+    /// 사람이 [모두 바꾸기]를 눌렀다.
+    Manual,
+    /// 자동 전환: 옛 계정의 한 창이 기준을 넘었다. `window`는 화면의 창 이름 키(`session`, `weekly`)다.
+    Usage { window: UsageWindow, used: u8 },
+    /// 자동 전환: 노드가 한도 오류로 멈췄다.
+    RateLimit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum UsageWindow {
+    Session,
+    Weekly,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]

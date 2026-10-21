@@ -44,6 +44,10 @@ pub struct SettingsView {
     /// 옛 설정에는 없다. 없으면 깊이 2, 자식 수 상한 없음으로 읽는다.
     #[serde(default)]
     pub tree_limits: TreeLimits,
+    /// 쓰는 계정이 한도에 닿으면 같은 공급자의 남은 계정으로 바꾸고 실행 중인 노드도 옮긴다. 옛 설정에는 없다. 없으면 꺼짐이다.
+    /// 근거: docs/design.md 「계정 전환」, 목업 docs/mockups/account-switch.html ②.
+    #[serde(default)]
+    pub auto_switch: bool,
 }
 
 /// 화면 언어. `System`은 브라우저 언어(`navigator.language`)를 따른다. Orca의 `uiLanguage`와 같은 자리다.

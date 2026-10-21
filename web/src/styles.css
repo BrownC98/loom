@@ -29,6 +29,8 @@
   --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
   --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
   --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  /* 흰 글자를 얹는 주황 바탕(질문 수 배지). 두 테마에 같은 값이고 흰 글자 대비는 5.1:1이다. */
+  --warn-fill: oklch(54% 0.12 87);
   --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
   --err-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
   --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
@@ -472,22 +474,25 @@ a { color: var(--accent); }
 .meter i.low { background: var(--warn); }
 .update-pop { position: fixed; right: 16px; bottom: 40px; width: 360px; z-index: 20; }
 .update-pop .btn { justify-content: center; }
-/* 받은편지함은 버전 바로 왼쪽이다(목업 human-question.html ②). 오른쪽으로 미는 여백은 받은편지함이 갖는다. */
-/* 질문 알약(목업 docs/mockups/question-inbox-place.html ②): 그래프 칸 위 가운데. 제목(.canvas-title)보다 위에 뜬다.
+/* 질문 알약(목업 docs/mockups/question-inbox-place.html ②, question-pill-many.html ①): 그래프 칸 위 가운데. 제목(.canvas-title)보다 위에 뜬다.
    칸 폭 전체에 깔고 가운데에 놓는다. 빈 자리는 마우스를 그래프로 넘긴다. */
 .inbox { position: absolute; top: 12px; left: 16px; right: 16px; z-index: 7; display: grid; justify-items: center; gap: 6px; pointer-events: none; }
 .inbox > * { pointer-events: auto; max-width: 100%; }
 .inbox-live { max-width: min(440px, 100%); }
-.inbox-pill { display: inline-flex; align-items: center; gap: 8px; height: 32px; max-width: 100%; padding: 0 12px 0 10px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 16px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; cursor: pointer; }
-.inbox-pill:hover, .inbox-pill[aria-expanded="true"] { background: color-mix(in oklch, var(--warn) 18%, var(--surface)); }
+.inbox-pill { display: inline-flex; height: 32px; max-width: 100%; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 16px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
+.inbox-pill button { display: inline-flex; align-items: center; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.inbox-pill button:hover, .inbox-pill .more[aria-expanded="true"] { background: color-mix(in oklch, var(--warn) 18%, var(--surface)); }
+/* 몸통은 가장 오래 기다린 질문으로 바로 간다. [▾]만 목록을 연다(목업 docs/mockups/question-pill-many.html ①). */
+.inbox-pill .jump { gap: 8px; min-width: 0; padding: 0 10px; border-radius: 15px 0 0 15px; }
+.inbox-pill .more { flex: none; width: 30px; justify-content: center; border-left: 1px solid color-mix(in oklch, var(--warn) 40%, transparent); border-radius: 0 15px 15px 0; color: var(--ink-3); }
 .inbox-pill b { white-space: nowrap; }
-.inbox-pill .dot { box-shadow: none; }
+.inbox-pill .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn-fill); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 .inbox-pill .preview { min-width: 0; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.inbox-pill .chev { flex: none; width: 14px; height: 14px; color: var(--ink-3); }
+.inbox-pill .chev { width: 14px; height: 14px; }
 .inbox-pill .chev.open { transform: rotate(180deg); }
 .inbox-pop { position: static; width: 380px; max-width: 100%; gap: 6px; padding: 10px 6px 6px; }
 .inbox-pop h2 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
-.inbox-pop ul { list-style: none; margin: 0; padding: 0; display: grid; max-height: 50vh; overflow: auto; }
+.inbox-pop ul { list-style: none; margin: 0; padding: 0; display: grid; max-height: 50vh; overflow: auto; overscroll-behavior: contain; }
 .inbox-pop li { display: flex; align-items: flex-start; border-radius: 6px; }
 .inbox-pop li:hover, .inbox-pop li:focus-within { background: var(--surface-hover); }
 .inbox-pop li .go { flex: 1; min-width: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 0 8px; align-items: baseline; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }

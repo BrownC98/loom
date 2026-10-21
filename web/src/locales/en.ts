@@ -234,7 +234,8 @@ const en = {
   },
   inbox: {
     button: 'Questions',
-    buttonLabel: '{{count}} nodes wait for you. Open the list',
+    jumpLabel: 'Go to the question of {{name}}',
+    listLabel: 'Open the question list, {{count}}',
     title: 'Nodes waiting for you {{count}}',
     dismiss: 'Dismiss',
   },

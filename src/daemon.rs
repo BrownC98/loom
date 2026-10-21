@@ -306,6 +306,16 @@ pub struct TakeRequest {
     /// 훅 입력의 `transcript_path`(Claude 세션 기록 파일). 계정 전환이 쓴다. 옛 `loom hook`은 보내지 않는다.
     #[serde(default)]
     pub transcript: Option<String>,
+    /// 일하는 노드의 도구 호출 사이 훅이다. 꺼내지 않은 큐 메시지를 알린다(`Taken::queued_from`).
+    #[serde(default)]
+    pub notice_queue: bool,
+}
+
+/// `loom hook`의 응답. 꺼낸 메시지와, 알릴 때만 새로 기다리는 큐 메시지의 보낸 노드 이름(온 순서).
+#[derive(Serialize, Deserialize)]
+pub struct Taken {
+    pub messages: Vec<Delivery>,
+    pub queued_from: Vec<String>,
 }
 
 /// 쉬는 노드의 훅 요청(`loom hook`, `loom cursor-hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
@@ -1492,13 +1502,24 @@ async fn agent_take(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<TakeRequest>,
-) -> Result<Json<Vec<Delivery>>, AgentError> {
+) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
     // 훅이 불렸으면 턴이 돈다. 일하는 중의 메시지는 그 훅들이 넘긴다.
     app.idle.end(node);
     keep_transcript(&app, node, req.transcript.as_deref())?;
-    let taken = app.graph.take(node, &req.kinds, req.limit_bytes);
-    Ok(Json(taken.map_err(for_agent)?))
+    let messages = app
+        .graph
+        .take(node, &req.kinds, req.limit_bytes)
+        .map_err(for_agent)?;
+    let queued_from = if req.notice_queue {
+        app.graph.newly_queued(node).map_err(for_agent)?
+    } else {
+        Vec::new()
+    };
+    Ok(Json(Taken {
+        messages,
+        queued_from,
+    }))
 }
 
 /// 쉬는 Claude 노드의 비동기 훅이 부른다. 메시지가 오면 모두 꺼낸다(본문 합 상한은 훅과 같다).

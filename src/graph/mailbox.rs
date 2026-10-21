@@ -310,6 +310,27 @@ impl Graph {
         Ok(taken)
     }
 
+    /// 아직 꺼내지 않은 큐 메시지 가운데 지난번 뒤에 온 것의 보낸 노드 이름. 온 순서다. 꺼내지 않는다.
+    /// 일하는 노드에 큐 메시지가 기다린다고 한 번만 알리는 데 쓴다. 근거: docs/design.md 「전달 지점」.
+    pub fn newly_queued(&self, node: NodeId) -> Result<Vec<String>, Refusal> {
+        let mut db = self.lock();
+        let after = db.store.queue_noticed.get(&node).map_or(0, |id| id.0);
+        let queued = db
+            .prepare(
+                "SELECT id, sender_name FROM messages
+                 WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?2 AND id > ?3
+                 ORDER BY id",
+            )?
+            .query_map(params![node.0, to_json(&Kind::Queue), after], |row| {
+                Ok((MessageId(row.get(0)?), row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if let Some((last, _)) = queued.last() {
+            db.store.queue_noticed.insert(node, *last);
+        }
+        Ok(queued.into_iter().map(|(_, from)| from).collect())
+    }
+
     /// 받는 쪽이 `ids` 메시지를 받았다. 다시 꺼내지 않는다. 다른 노드의 메시지 id는 무시한다.
     pub fn ack(&self, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
         let mut db = self.lock();

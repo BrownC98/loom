@@ -2,7 +2,7 @@ import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getMovableNodes, getRepos, getSettings, putSettings, watchGraph } from './api';
+import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, watchGraph } from './api';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -249,13 +249,12 @@ export function App() {
     getSettings().then(setSettings);
     refreshUsage();
   });
-  // 계정 고르기: 새 계정을 저장한 뒤 옮길 노드를 읽는다(데몬은 저장한 계정과 다른 노드를 돌려준다). 있으면 확인 창이 묻고, 취소하면 이전 계정으로 되돌린다.
-  const [switching, setSwitching] = useState<{ provider: Provider; previous: AccountId | null; to: AccountId | null; nodes: MovableNode[] } | null>(null);
+  // 계정 고르기: 그 계정이 아닌 노드가 없으면 바로 저장한다. 있으면 확인 창이 묻는다(취소하면 아무것도 바꾸지 않는다).
+  const [switching, setSwitching] = useState<{ provider: Provider; to: AccountId | null; nodes: MovableNode[] } | null>(null);
   const chooseAccount = async (provider: Provider, to: AccountId | null) => {
-    const previous = provider === 'claude' ? settings.claudeAccount : settings.codexAccount;
-    await saveSettings(withAccount(settings, provider, to));
-    const nodes = await getMovableNodes(provider).catch(() => []);
-    if (nodes.length > 0) setSwitching({ provider, previous, to, nodes });
+    const nodes = await getMovableNodes(provider, to).catch(() => []);
+    if (nodes.length > 0) setSwitching({ provider, to, nodes });
+    else saveSettings(withAccount(settings, provider, to));
   };
   const switchingName = (s: NonNullable<typeof switching>) => {
     const own = accounts?.filter((a) => a.provider === s.provider) ?? [];
@@ -498,11 +497,16 @@ export function App() {
               provider={switching.provider}
               to={switchingName(switching)}
               nodes={switching.nodes}
-              onKeep={() => setSwitching(null)}
-              onCancel={() => {
-                saveSettings(withAccount(settings, switching.provider, switching.previous));
+              onKeep={() => {
+                saveSettings(withAccount(settings, switching.provider, switching.to));
                 setSwitching(null);
               }}
+              onMoveAll={async () => {
+                await saveSettings(withAccount(settings, switching.provider, switching.to));
+                await moveNodes(switching.provider);
+                setSwitching(null);
+              }}
+              onCancel={() => setSwitching(null)}
             />
           )}
         </div>

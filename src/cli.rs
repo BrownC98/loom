@@ -143,6 +143,11 @@ pub fn hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the model: {e}");
     }
+    if let Some(report) = event.report()
+        && let Err(e) = call::<()>("report", &report, Some(timeout))
+    {
+        eprintln!("loom: could not report the session: {e}");
+    }
     let kinds = match event.take() {
         Take::Now(kinds) => kinds,
         Take::WhenIdle => return wake_on_mail(),

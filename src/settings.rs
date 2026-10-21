@@ -135,6 +135,13 @@ impl SettingsView {
             Provider::Codex => self.codex_account.as_ref(),
         }
     }
+
+    pub fn set_account(&mut self, provider: Provider, id: Option<AccountId>) {
+        match provider {
+            Provider::Claude => self.claude_account = id,
+            Provider::Codex => self.codex_account = id,
+        }
+    }
 }
 
 pub struct Settings {

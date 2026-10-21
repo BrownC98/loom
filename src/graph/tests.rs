@@ -28,6 +28,7 @@ fn launched(id: NodeId) -> Result<Launched, String> {
     Ok(Launched {
         token: format!("t{}", id.0),
         server: None,
+        account: None,
     })
 }
 

@@ -9,6 +9,7 @@ use super::{
     Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
     first_line, from_json, mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
 };
+use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
 
 /// `Graph::add_child`가 더할 자식.
@@ -29,13 +30,20 @@ pub struct Launched {
     pub token: String,
     /// Codex·OpenCode 2 노드의 서버.
     pub server: Option<ServerLink>,
+    /// 노드를 띄운 Claude·Codex 계정. 시스템 기본과 다른 프로필은 없다. 계정 전환이 옮길 노드를 고를 때 쓴다.
+    pub account: Option<AccountId>,
 }
 
-/// 데몬이 시작할 때 다시 붙을 프로세스. 완료한 노드도 포함한다.
+/// 살아 있는 노드 프로세스. 완료한 노드도 포함한다. 데몬이 시작할 때 다시 붙고, 계정 전환이 다시 띄운다.
 pub struct Active {
     pub id: NodeId,
+    pub name: String,
     pub agent: Option<AgentId>,
     pub server: Option<ServerLink>,
+    pub account: Option<AccountId>,
+    /// Claude 세션의 기록 파일. `Graph::set_transcript`가 남긴다.
+    pub transcript: Option<String>,
+    pub model: Model,
 }
 
 impl Graph {
@@ -189,19 +197,39 @@ impl Graph {
     /// 작업 완료와 무관하게 살아 있는 프로세스에 다시 붙는다.
     pub fn active(&self) -> rusqlite::Result<Vec<Active>> {
         self.lock()
-            .prepare("SELECT id, agent, server FROM nodes WHERE process_exited = 0 ORDER BY id")?
+            .prepare(
+                "SELECT id, name, agent, server, account, transcript, model, effort
+                 FROM nodes WHERE process_exited = 0 ORDER BY id",
+            )?
             .query_map([], |row| {
-                let server: Option<String> = row.get(2)?;
                 Ok(Active {
                     id: NodeId(row.get(0)?),
-                    agent: from_json(row, 1)?,
-                    server: match server {
-                        Some(_) => Some(from_json(row, 2)?),
-                        None => None,
+                    name: row.get(1)?,
+                    agent: from_json(row, 2)?,
+                    server: optional_json(row, 3)?,
+                    account: optional_json(row, 4)?,
+                    transcript: row.get(5)?,
+                    model: Model {
+                        model: row.get(6)?,
+                        effort: row.get(7)?,
                     },
                 })
             })?
             .collect()
+    }
+
+    /// 계정 전환이 노드 프로세스를 새 계정으로 다시 띄웠다. 새 토큰·서버·계정을 남긴다. 노드 상태와 메일함은 그대로다.
+    pub fn relaunched(&self, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
+        keep(&self.lock(), id, launched)
+    }
+
+    /// Claude 노드 세션의 기록 파일. 세션을 시작하거나 이어 갈 때마다 훅이 알린다.
+    pub fn set_transcript(&self, id: NodeId, path: &str) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "UPDATE nodes SET transcript = ?2 WHERE id = ?1",
+            params![id.0, path],
+        )?;
+        Ok(())
     }
 
     /// 이름을 추측하지 않고 현재 부모와 자식의 번호를 찾는다.
@@ -613,6 +641,16 @@ fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
     }
 }
 
+fn optional_json<T: serde::de::DeserializeOwned>(
+    row: &rusqlite::Row,
+    idx: usize,
+) -> rusqlite::Result<Option<T>> {
+    match row.get::<_, Option<String>>(idx)? {
+        Some(_) => from_json(row, idx).map(Some),
+        None => Ok(None),
+    }
+}
+
 fn checked_name(name: &str) -> Result<&str, Refusal> {
     match name.trim() {
         "" => Err(Refusal::EmptyName),
@@ -623,8 +661,13 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
 
 fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
     db.execute(
-        "UPDATE nodes SET token = ?2, server = ?3 WHERE id = ?1",
-        params![id.0, launched.token, launched.server.as_ref().map(to_json)],
+        "UPDATE nodes SET token = ?2, server = ?3, account = ?4 WHERE id = ?1",
+        params![
+            id.0,
+            launched.token,
+            launched.server.as_ref().map(to_json),
+            launched.account.as_ref().map(to_json)
+        ],
     )?;
     Ok(())
 }

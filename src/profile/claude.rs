@@ -5,7 +5,7 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::graph::{Delivery, Kind, Model};
@@ -93,6 +93,8 @@ pub fn args(plugin: &Path, position: Position) -> Vec<String> {
             "PostToolUse": hook,
             "PostToolUseFailure": hook,
             "Stop": idle,
+            // API 오류(한도 포함)로 끝난 턴은 `Stop` 대신 이 훅을 부른다. 없으면 그 노드가 다시 깨지 않는다.
+            "StopFailure": idle,
         },
     });
     vec![
@@ -109,9 +111,10 @@ pub fn args(plugin: &Path, position: Position) -> Vec<String> {
 #[derive(Deserialize)]
 #[serde(tag = "hook_event_name")]
 pub enum Event {
-    /// 세션 시작. 모델만 알린다(실측: 2.1.304 입력의 `model`).
+    /// 세션 시작과 이어 가기. 모델과 기록 파일을 알린다(실측: 2.1.304 입력의 `model`, 2.1.306 `transcript_path`).
     SessionStart {
         model: Option<String>,
+        transcript_path: Option<String>,
     },
     UserPromptSubmit,
     PreToolUse {
@@ -121,6 +124,24 @@ pub enum Event {
     PostToolUse,
     PostToolUseFailure,
     Stop,
+    /// API 오류로 턴이 끝났다. `error`는 `rate_limit`, `overloaded`, `authentication_failed` 같은 값이다.
+    StopFailure {
+        #[serde(default)]
+        error: String,
+    },
+}
+
+/// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
+const RATE_LIMIT_ERROR: &str = "rate_limit";
+
+/// 훅이 데몬에 알리는 세션 사실(`/api/agent/report`). 계정 전환이 쓴다. 근거: docs/design.md 「계정 전환」.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Report {
+    /// 세션 기록 파일. 새 계정으로 옮길 때 이 파일을 복사한다.
+    Transcript(String),
+    /// 계정 한도로 턴이 끝났다.
+    RateLimited,
 }
 
 /// 훅이 메시지를 꺼내는 때.
@@ -136,11 +157,23 @@ impl Event {
     /// 이 지점에서 꺼내는 방법. 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 어느 훅이 불렸는지가 그 상태다.
     pub fn take(&self) -> Take {
         match self {
-            Event::SessionStart { .. } | Event::Stop => Take::WhenIdle,
+            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::WhenIdle,
             // 쉬는 중이던 노드의 다음 턴: 모두 넘긴다.
             Event::UserPromptSubmit => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(&[Kind::Steer]),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
+        }
+    }
+
+    /// 데몬에 알릴 세션 사실. 없으면 알리지 않는다.
+    pub fn report(&self) -> Option<Report> {
+        match self {
+            Event::SessionStart {
+                transcript_path: Some(path),
+                ..
+            } => Some(Report::Transcript(path.clone())),
+            Event::StopFailure { error } if error == RATE_LIMIT_ERROR => Some(Report::RateLimited),
+            _ => None,
         }
     }
 
@@ -163,7 +196,7 @@ impl Event {
         let text = super::message_text(taken);
         match self {
             // 비동기 훅은 JSON을 읽지 않는다. 본문은 stderr로 넘긴다(`cli::hook`).
-            Event::SessionStart { .. } | Event::Stop => None,
+            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => None,
             Event::PreToolUse { .. } => Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
@@ -179,7 +212,7 @@ impl Event {
 /// 훅 입력이 알리는 모델과 추론 강도. 알리지 않는 훅이면 없다.
 /// 세션 시작은 입력의 `model`을, 그 뒤 훅은 기록 파일의 마지막 응답을 쓴다. 훅 입력에는 `/model`로 바꾼 모델이 없다(실측).
 pub fn reported_model(event: &Event, input: &Value) -> Option<Model> {
-    if let Event::SessionStart { model } = event {
+    if let Event::SessionStart { model, .. } = event {
         return Some(Model {
             model: model.clone(),
             effort: None,
@@ -365,6 +398,25 @@ mod tests {
         );
     }
 
+    /// 입력 모양은 2.1.306 실측이다. 한도가 아닌 API 오류는 알리지 않는다.
+    #[test]
+    fn session_start_reports_the_transcript_and_rate_limit_stop_is_reported() {
+        let start = event(json!({
+            "session_id": "17dde44e", "hook_event_name": "SessionStart", "source": "resume",
+            "transcript_path": "/c/projects/-w/17dde44e.jsonl", "model": "claude-opus-5-5",
+        }));
+        assert_eq!(
+            start.report(),
+            Some(Report::Transcript("/c/projects/-w/17dde44e.jsonl".into()))
+        );
+        let limited = event(json!({ "hook_event_name": "StopFailure", "error": "rate_limit" }));
+        assert_eq!(limited.take(), Take::WhenIdle);
+        assert_eq!(limited.report(), Some(Report::RateLimited));
+        let overloaded = event(json!({ "hook_event_name": "StopFailure", "error": "overloaded" }));
+        assert_eq!(overloaded.report(), None);
+        assert_eq!(event(json!({ "hook_event_name": "Stop" })).report(), None);
+    }
+
     /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
     #[test]
     fn transcript_gives_the_last_main_chain_reply() {
@@ -409,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_register_the_six_hooks_and_allow_messaging_but_not_spawn() {
+    fn settings_register_the_seven_hooks_and_allow_messaging_but_not_spawn() {
         let args = args(Path::new("/p"), Position::Root);
         assert_eq!(args[2], "--settings");
         assert_eq!(args[4..], ["--plugin-dir", "/p"]);
@@ -424,6 +476,7 @@ mod tests {
                 "PreToolUse",
                 "SessionStart",
                 "Stop",
+                "StopFailure",
                 "UserPromptSubmit"
             ]
         );
@@ -431,6 +484,7 @@ mod tests {
         for (name, idle) in [
             ("SessionStart", true),
             ("Stop", true),
+            ("StopFailure", true),
             ("UserPromptSubmit", false),
             ("PreToolUse", false),
         ] {

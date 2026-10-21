@@ -20,9 +20,9 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::EventRecord;
+pub use events::{Entry, EventRecord, SwitchCause, UsageWindow};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
-pub use nodes::{Launched, NewChild, Relations};
+pub use nodes::{Active, Launched, NewChild, Relations};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
@@ -399,6 +399,11 @@ impl Graph {
             reason: reason.clone(),
         };
         events::write(&db, &entry, None)
+    }
+
+    /// 메시지·노드와 무관한 이벤트(계정 전환)를 남긴다.
+    pub fn record(&self, entry: &Entry) -> rusqlite::Result<()> {
+        events::write(&self.lock(), entry, None)
     }
 
     /// 잠금을 쥔 채 부른다. 그래야 이벤트 순서가 DB 변경 순서와 같다.

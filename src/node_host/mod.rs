@@ -615,11 +615,12 @@ mod tests {
                 .resume(1, |_| {}, move |code| tx.send(code).unwrap())
                 .unwrap();
             let mut attached = nodes.attach(1).unwrap();
-            assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), exit);
+            let code = rx.recv_timeout(Duration::from_secs(5)).unwrap();
             let mut seen = String::from_utf8_lossy(&attached.backlog).into_owned();
             while let Ok(chunk) = attached.output.try_recv() {
                 seen.push_str(&String::from_utf8_lossy(&chunk));
             }
+            assert_eq!(code, exit, "{seen}");
             assert!(seen.contains("setup-"), "{seen}");
             assert_eq!(seen.contains("agent "), has_agent, "{seen}");
             if !has_agent {

@@ -243,8 +243,12 @@ mod tests {
     #[test]
     fn session_leaders_under_skip_children_in_the_parent_session() {
         // `setsid`로 띄운 자식만 세션 리더다. Codex 셸과 MCP 서버를 이렇게 가른다.
+        // macOS에는 `setsid` 명령이 없어 perl의 POSIX `setsid`를 쓴다.
         let mut parent = std::process::Command::new("sh")
-            .args(["-c", "setsid sleep 30 & sleep 30 & wait"])
+            .args([
+                "-c",
+                "perl -MPOSIX -e 'setsid; exec @ARGV' sleep 30 & sleep 30 & wait",
+            ])
             .spawn()
             .unwrap();
         let pid = parent.id();

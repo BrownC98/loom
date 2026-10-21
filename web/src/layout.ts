@@ -294,6 +294,14 @@ export function grew(before: ReadonlyMap<string, Size>, now: ReadonlyMap<string,
   });
 }
 
+/** `now`의 자리가 모두 `saved`에 있고 같은가. 정렬한 모양을 지키는 저장소는 다르면 `now`(새 자동 배치)를 저장한다. */
+export function sameSpots(saved: ReadonlyMap<string, Point>, now: ReadonlyMap<string, Point>): boolean {
+  return [...now].every(([key, p]) => {
+    const s = saved.get(key);
+    return s !== undefined && Math.abs(s.x - p.x) < 0.5 && Math.abs(s.y - p.y) < 0.5;
+  });
+}
+
 /** 간선이 붙는 카드의 변. */
 export type Side = 'top' | 'right' | 'bottom' | 'left';
 export const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];

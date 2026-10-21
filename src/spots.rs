@@ -1,4 +1,5 @@
 //! 그래프에서 사람이 끌어 놓은 자리(저장소 상자, 워크트리 묶음, 카드)와 바꾼 카드 크기. [정렬]이 저장소마다 자리를 지운다. 크기는 지킨다.
+//! 정렬한 모양을 지키는 저장소도 둔다. 그 저장소는 카드·묶음이 생기거나 커지면 화면이 자동 배치를 다시 저장한다.
 //! 근거: docs/design.md 「저장소와 워크트리」 배치, 승인 목업 docs/mockups/repo-drag.html v3, docs/mockups/card-resize.html v3.
 
 use std::sync::Mutex;
@@ -36,6 +37,14 @@ impl Spot {
             Spot::Repo { repo } | Spot::Worktree { repo, .. } | Spot::Node { repo, .. } => *repo,
         }
     }
+
+    /// 저장소 안의 상자(묶음, 카드)면 그 저장소. 저장소 상자는 저장소 밖 자리다.
+    fn inside(&self) -> Option<RepoId> {
+        match self {
+            Spot::Repo { .. } => None,
+            Spot::Worktree { repo, .. } | Spot::Node { repo, .. } => Some(*repo),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize, TS)]
@@ -50,6 +59,22 @@ pub struct Point {
 pub struct Placed {
     pub spot: Spot,
     pub at: Point,
+}
+
+/// 저장한 자리 모두와 정렬한 모양을 지키는 저장소.
+#[derive(Clone, PartialEq, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct Layout {
+    pub placed: Vec<Placed>,
+    pub arranged: Vec<RepoId>,
+}
+
+/// [정렬]이나 정렬한 저장소의 새 자동 배치. `repos`는 정렬한 모양을 지킬 저장소다.
+#[derive(Clone, PartialEq, Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct Arranged {
+    pub repos: Vec<RepoId>,
+    pub placed: Vec<Placed>,
 }
 
 /// 사람이 바꾼 표준 카드 크기(그래프 px). 저장한 크기가 없는 카드는 기본 크기다.
@@ -72,8 +97,21 @@ impl Spots {
         }
     }
 
+    pub fn layout(&self) -> rusqlite::Result<Layout> {
+        let db = self.db.lock().unwrap();
+        let arranged = db
+            .prepare("SELECT repo FROM arranged_repos")?
+            .query_map([], |row| Ok(RepoId(row.get(0)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        drop(db);
+        Ok(Layout {
+            placed: self.list()?,
+            arranged,
+        })
+    }
+
     /// 저장한 자리 모두.
-    pub fn list(&self) -> rusqlite::Result<Vec<Placed>> {
+    fn list(&self) -> rusqlite::Result<Vec<Placed>> {
         let db = self.db.lock().unwrap();
         let mut stmt = db.prepare("SELECT spot, x, y FROM spots")?;
         let rows = stmt.query_map([], |row| {
@@ -93,15 +131,26 @@ impl Spots {
         Ok(out)
     }
 
-    /// 놓은 상자와 그 상자가 민 상자들의 자리를 한 트랜잭션에 쓴다.
+    /// 놓은 상자와 그 상자가 민 상자들의 자리를 한 트랜잭션에 쓴다. 묶음·카드를 놓은 저장소는 정렬한 모양을 더 지키지 않는다.
     pub fn put(&self, placed: &[Placed]) -> rusqlite::Result<()> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction()?;
-        for p in placed {
-            let key = serde_json::to_string(&p.spot).expect("자리는 늘 직렬화된다");
+        write(&tx, placed)?;
+        for repo in placed.iter().filter_map(|p| p.spot.inside()) {
+            tx.execute("DELETE FROM arranged_repos WHERE repo = ?1", [repo.0])?;
+        }
+        tx.commit()
+    }
+
+    /// 자동 배치 자리를 쓰고 그 저장소들이 정렬한 모양을 지키게 한다.
+    pub fn put_arranged(&self, arranged: &Arranged) -> rusqlite::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        write(&tx, &arranged.placed)?;
+        for repo in &arranged.repos {
             tx.execute(
-                "INSERT OR REPLACE INTO spots (spot, repo, x, y) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![key, p.spot.repo().0, p.at.x, p.at.y],
+                "INSERT OR IGNORE INTO arranged_repos (repo) VALUES (?1)",
+                [repo.0],
             )?;
         }
         tx.commit()
@@ -157,14 +206,25 @@ impl Spots {
         tx.commit()
     }
 
-    /// [정렬]: 그 저장소의 저장소 상자·묶음·카드 자리를 모두 지운다.
+    /// [정렬]: 그 저장소의 저장소 상자·묶음·카드 자리를 모두 지운다. 정렬한 자리는 `put_arranged`가 다시 쓴다.
     pub fn clear(&self, repo: RepoId) -> rusqlite::Result<()> {
-        self.db
-            .lock()
-            .unwrap()
-            .execute("DELETE FROM spots WHERE repo = ?1", [repo.0])?;
-        Ok(())
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        tx.execute("DELETE FROM spots WHERE repo = ?1", [repo.0])?;
+        tx.execute("DELETE FROM arranged_repos WHERE repo = ?1", [repo.0])?;
+        tx.commit()
     }
+}
+
+fn write(tx: &rusqlite::Transaction, placed: &[Placed]) -> rusqlite::Result<()> {
+    for p in placed {
+        let key = serde_json::to_string(&p.spot).expect("자리는 늘 직렬화된다");
+        tx.execute(
+            "INSERT OR REPLACE INTO spots (spot, repo, x, y) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![key, p.spot.repo().0, p.at.x, p.at.y],
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -226,6 +286,30 @@ mod tests {
         assert_eq!(spots.list().unwrap().len(), 2);
         spots.clear(a).unwrap();
         assert_eq!(spots.list().unwrap(), [at(Spot::Repo { repo: b }, 3.0)]);
+    }
+
+    #[test]
+    fn arranged_repo_stays_until_a_box_inside_it_is_placed() {
+        let (_tmp, spots) = spots();
+        let (a, b) = (RepoId(1), RepoId(2));
+        let card = Spot::Node {
+            repo: a,
+            node: NodeId(3),
+        };
+        spots
+            .put_arranged(&Arranged {
+                repos: vec![a, b],
+                placed: vec![at(card.clone(), 1.0)],
+            })
+            .unwrap();
+        assert_eq!(spots.layout().unwrap().placed, [at(card.clone(), 1.0)]);
+        // 저장소 상자를 옮겨도 안의 모양은 그대로다.
+        spots.put(&[at(Spot::Repo { repo: a }, 2.0)]).unwrap();
+        assert_eq!(spots.layout().unwrap().arranged, [a, b]);
+        spots.put(&[at(card, 4.0)]).unwrap();
+        assert_eq!(spots.layout().unwrap().arranged, [b]);
+        spots.clear(b).unwrap();
+        assert_eq!(spots.layout().unwrap().arranged, []);
     }
 
     #[test]

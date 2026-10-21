@@ -37,7 +37,7 @@ use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, MessageId, Model, NewChild, NodeId,
     Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
 };
-use crate::node_host::NodeHost;
+use crate::node_host::{Exit, NodeHost};
 use crate::open;
 use crate::paste;
 use crate::process_tree;
@@ -50,7 +50,7 @@ use crate::profile::{
 };
 use crate::settings::Settings;
 use crate::skills::{self, Position};
-use crate::spots::{CardSize, Placed, Spots};
+use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
 #[derive(Embed)]
@@ -434,6 +434,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/repos/{id}/commits", get(commits))
         .route("/api/repos/{id}/spots", delete(clear_spots))
         .route("/api/spots", get(list_spots).put(put_spot))
+        .route("/api/spots/arranged", put(put_arranged))
         .route(
             "/api/sizes",
             get(list_sizes).put(put_sizes).delete(clear_sizes),
@@ -611,8 +612,8 @@ async fn delete_worktree(
     Ok(Json(worktree::view(id, &repo).await))
 }
 
-async fn list_spots(State(app): State<Arc<App>>) -> Result<Json<Vec<Placed>>, Problem> {
-    Ok(Json(app.spots.list().map_err(internal)?))
+async fn list_spots(State(app): State<Arc<App>>) -> Result<Json<Layout>, Problem> {
+    Ok(Json(app.spots.layout().map_err(internal)?))
 }
 
 /// 놓은 상자 하나와 그 상자가 민 상자들. 한 번 놓기가 한 요청이다.
@@ -621,6 +622,15 @@ async fn put_spot(
     Json(placed): Json<Vec<Placed>>,
 ) -> Result<Json<()>, Problem> {
     app.spots.put(&placed).map_err(internal)?;
+    Ok(Json(()))
+}
+
+/// [정렬]이 구한 자리, 정렬한 저장소의 새 자동 배치.
+async fn put_arranged(
+    State(app): State<Arc<App>>,
+    Json(arranged): Json<Arranged>,
+) -> Result<Json<()>, Problem> {
+    app.spots.put_arranged(&arranged).map_err(internal)?;
     Ok(Json(()))
 }
 
@@ -820,17 +830,17 @@ impl App {
         }
     }
 
-    /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다.
+    /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다. 설정 스크립트가 실패했으면 그 출력의 끝을 함께 넘긴다.
     /// 서버는 맵이 아니라 이 클로저가 쥔다. 다시 붙은 호스트는 붙자마자 종료 코드를 보낼 수 있다.
     fn on_exit(
         self: &Arc<Self>,
         id: NodeId,
         codex: &Option<Arc<CodexServer>>,
         opencode2: &Option<Arc<opencode2::Node>>,
-    ) -> impl FnOnce(u32) + use<> {
+    ) -> impl FnOnce(Exit) + use<> {
         let app = self.clone();
         let discard = discarder(codex, opencode2);
-        move |code| {
+        move |exit| {
             discard();
             // 계정 전환이 끝낸 프로세스다. 노드는 새 프로세스로 산다.
             if app.switch.exited(id) {
@@ -839,7 +849,7 @@ impl App {
             app.codex.lock().unwrap().remove(&id);
             app.opencode2.lock().unwrap().remove(&id);
             let setup = app.setups.lock().unwrap().remove(&id);
-            if code == 0
+            if exit == Exit::Command(0)
                 && (setup || !app.host.has_output(id))
                 && app.graph.discard_finished_shell(id).unwrap_or(false)
             {
@@ -847,7 +857,10 @@ impl App {
                 return;
             }
             // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
-            let _ = app.graph.exited(id, code);
+            let _ = match exit {
+                Exit::Command(code) => app.graph.exited(id, code),
+                Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
+            };
             // 종료를 적은 뒤 끝낸다. 남은 훅 프로세스가 다시 열면 `agent_idle`이 거절한다.
             app.idle.end(id);
         }

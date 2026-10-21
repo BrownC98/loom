@@ -24,6 +24,7 @@ const ko: typeof en = {
   },
   tree: {
     repos: '저장소',
+    showAll: '모든 저장소가 한 화면에 보이게 줄이기',
     expandAll: '모두 펼치기',
     label: '노드 트리',
     addRepo: '저장소 추가',
@@ -66,6 +67,7 @@ const ko: typeof en = {
       running: '실행 중',
       done: '완료',
       exited: '종료({{code}})',
+      setupFailed: '설정 실패',
     },
     foot: {
       doneHeld: '부모 없음 · 새 부모에게 요약을 전달합니다',
@@ -74,6 +76,7 @@ const ko: typeof en = {
       exitedHeld: '부모 없음 · 새 부모에게 exited({{code}})를 전달합니다',
       exitedSent: '부모({{parent}})에게 exited({{code}})를 보냈습니다',
       exited: '종료 코드 {{code}}로 끝났습니다',
+      setupFailed: '설정 스크립트가 종료 코드 {{code}}로 끝나 에이전트를 띄우지 않았습니다',
     },
   },
   rename: {
@@ -374,6 +377,7 @@ const ko: typeof en = {
     error: '업데이트 오류',
     version: 'loom v{{version}}',
     update: '업데이트',
+    keep: '실행 중인 노드와 작업은 끊기지 않고 그대로 이어집니다.',
     percent: '다운로드 중… {{percent}}%',
     restart: '다시 시작하여 업데이트',
     retry: '다시 시도',

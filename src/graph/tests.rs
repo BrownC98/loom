@@ -405,6 +405,33 @@ fn exit_without_done_tells_parent_even_when_mailbox_is_full() {
     ));
 }
 
+/// 설정이 실패하면 부모는 까닭과 출력 끝을 받는다. 긴 출력은 지시문 상한 안에서 끝 쪽(오류)을 남긴다.
+#[test]
+fn setup_failure_tells_parent_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    g.setup_failed(a, 2, "npm ci\nerror TS2322: 틀린 타입")
+        .unwrap();
+    assert_eq!(view(&g, a).state, NodeState::SetupFailed { code: 2 });
+    assert_eq!(
+        take(&g, lead),
+        delivery(
+            "a",
+            "setup failed (exit 2):\nnpm ci\nerror TS2322: 틀린 타입"
+        )
+    );
+
+    let b = child(&g, lead, "b");
+    let long = format!("{}\n마지막 오류", "가".repeat(3000));
+    g.setup_failed(b, 1, &long).unwrap();
+    let (_, _, body) = take(&g, lead).unwrap();
+    assert!(body.len() <= BRIEF_LIMIT_BYTES, "{}", body.len());
+    assert!(body.starts_with("setup failed (exit 1):\n가"), "{body}");
+    assert!(body.ends_with("\n마지막 오류"), "{body}");
+}
+
 #[test]
 fn restart_keeps_nodes_and_messages() {
     let dir = tempfile::tempdir().unwrap();

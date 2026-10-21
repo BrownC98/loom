@@ -132,7 +132,15 @@ const STEPS: &[M] = &[
             DELETE FROM card_sizes WHERE node = OLD.id;
         END;",
     ),
-    // 17: 계정 전환(graph). `account`는 노드를 띄운 계정(serde JSON `AccountId`)이고 시스템 기본·옛 노드는 NULL이다.
+    // 17: 정렬한 모양을 지키는 저장소(spots). [정렬]이 넣고, 사람이 그 저장소의 묶음·카드를 끌어 놓으면 뺀다.
+    // 화면을 닫은 동안 생긴 카드·묶음도 다음에 열 때 정렬한 모양으로 놓는다. 저장소를 지우면 함께 지운다.
+    M::up(
+        "CREATE TABLE arranged_repos (repo INTEGER PRIMARY KEY);
+        CREATE TRIGGER arranged_of_repo AFTER DELETE ON repos BEGIN
+            DELETE FROM arranged_repos WHERE repo = OLD.id;
+        END;",
+    ),
+    // 18: 계정 전환(graph). `account`는 노드를 띄운 계정(serde JSON `AccountId`)이고 시스템 기본·옛 노드는 NULL이다.
     // `transcript`는 Claude 노드 세션의 기록 파일 경로다. 세션을 시작하기 전과 다른 프로필은 NULL이다.
     M::up("ALTER TABLE nodes ADD COLUMN account TEXT; ALTER TABLE nodes ADD COLUMN transcript TEXT;"),
 ];

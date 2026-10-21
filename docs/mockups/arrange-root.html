@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M19 자식 없는 뿌리 정렬 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+  --plan: light-dark(oklch(55% 0.15 250), oklch(70% 0.13 250));
+  --plan-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
+.side { display: grid; gap: 6px; justify-items: start; }
+.side.plan .canvas { outline: 2px solid var(--plan); }
+.canvas { background: var(--panel); border-radius: 12px; padding: 12px; }
+.canvas svg { display: block; }
+.grp { fill: var(--surface-hover); fill-opacity: .35; stroke: var(--line-strong); }
+.card { fill: var(--surface); stroke: var(--line-strong); }
+.card.new { stroke: var(--warn); stroke-dasharray: 18 12; stroke-width: 6; }
+.lbl { font: 600 15px var(--font); fill: var(--ink); }
+.glbl { font: 13px var(--mono); fill: var(--ink-3); }
+.edge { fill: none; stroke: var(--ink-3); }
+.stats { font: 12px var(--mono); color: var(--ink-3); }
+.tag { display: inline-block; font: 600 12px var(--font); padding: 2px 8px; border-radius: 999px; }
+.tag.now { background: var(--surface-hover); color: var(--ink-2); border: 1px solid var(--line-strong); }
+.tag.plan { background: var(--plan); color: var(--plan-ink); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M19</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v2 · 2026-10-21</span></div>
+  <h1>그래프 › [정렬]: 자식 없는 맨 위 노드</h1>
+  <p class="lead">사람 지시: “정렬하면 이렇게 있다가 좌측 최상위 노드가 자식 생기면 그 때 해당 부모노드가 이동하도록 해, 최대한 공간낭비를 적게하도록 하라”</p>
+  <div id="cases"></div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <ul class="note">
+      <li>①: 자식 없는 맨 위 노드는 첫 줄 왼쪽에 선다. 옆 나무의 아랫줄이 그 밑으로 들어온다.</li>
+      <li>②③: 자식이 생긴 노드는 왼쪽 자리를 지키고 자식 아래 열을 차지한다. 옆 나무가 오른쪽으로 비킨다. 맨 위 노드 순서는 지금과 같다(사람 결정).</li>
+      <li>④: 승인한 가계도 그림(M14 ①)도 같은 규칙으로 바뀐다.</li>
+      <li>자식 노드 아래의 형제 배치(M14)는 바꾸지 않는다.</li>
+    </ul>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+// 그림은 손으로 그리지 않았다. 「지금」은 web/src/layout.ts(main) 출력, 「제안」은 브랜치 루트배치 출력이다(카드 600×466).
+const CASES = [{"key":"a","now":{"groups":[{"name":"main","x":0,"y":0,"w":3328,"h":1722},{"name":"매뉴얼-개편","x":652,"y":1156,"w":640,"h":546},{"name":"매뉴얼-책임","x":1324,"y":1156,"w":640,"h":546},{"name":"프롬프트-전체보기","x":1996,"y":578,"w":640,"h":1124},{"name":"판정사유-순서","x":2668,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"부하테스트 총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":1858,"y":60,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":1008,"y":638,"w":600,"h":466},{"id":4,"name":"매뉴얼-개편","x":672,"y":1216,"w":600,"h":466},{"id":5,"name":"매뉴얼-책임","x":1344,"y":1216,"w":600,"h":466},{"id":6,"name":"프롬프트보기-코디","x":2016,"y":638,"w":600,"h":466},{"id":7,"name":"프롬프트보기-구현","x":2016,"y":1216,"w":600,"h":466},{"id":8,"name":"판정사유-순서","x":2688,"y":638,"w":600,"h":466}],"edges":[{"from":2,"to":3},{"from":3,"to":4},{"from":3,"to":5},{"from":2,"to":6},{"from":6,"to":7},{"from":2,"to":8}]},"plan":{"groups":[{"name":"main","x":0,"y":0,"w":2696,"h":1722},{"name":"매뉴얼-개편","x":20,"y":1156,"w":640,"h":546},{"name":"매뉴얼-책임","x":692,"y":1156,"w":640,"h":546},{"name":"프롬프트-전체보기","x":1364,"y":578,"w":640,"h":1124},{"name":"판정사유-순서","x":2036,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"부하테스트 총괄","x":606,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":1226,"y":60,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":376,"y":638,"w":600,"h":466},{"id":4,"name":"매뉴얼-개편","x":40,"y":1216,"w":600,"h":466},{"id":5,"name":"매뉴얼-책임","x":712,"y":1216,"w":600,"h":466},{"id":6,"name":"프롬프트보기-코디","x":1384,"y":638,"w":600,"h":466},{"id":7,"name":"프롬프트보기-구현","x":1384,"y":1216,"w":600,"h":466},{"id":8,"name":"판정사유-순서","x":2056,"y":638,"w":600,"h":466}],"edges":[{"from":2,"to":3},{"from":3,"to":4},{"from":3,"to":5},{"from":2,"to":6},{"from":6,"to":7},{"from":2,"to":8}]}},{"key":"b1","now":{"groups":[{"name":"main","x":0,"y":0,"w":3328,"h":1722},{"name":"매뉴얼-개편","x":652,"y":1156,"w":640,"h":546},{"name":"매뉴얼-책임","x":1324,"y":1156,"w":640,"h":546},{"name":"프롬프트-전체보기","x":1996,"y":578,"w":640,"h":1124},{"name":"판정사유-순서","x":2668,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"부하테스트 총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":1858,"y":60,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":1008,"y":638,"w":600,"h":466},{"id":4,"name":"매뉴얼-개편","x":672,"y":1216,"w":600,"h":466},{"id":5,"name":"매뉴얼-책임","x":1344,"y":1216,"w":600,"h":466},{"id":6,"name":"프롬프트보기-코디","x":2016,"y":638,"w":600,"h":466},{"id":7,"name":"프롬프트보기-구현","x":2016,"y":1216,"w":600,"h":466},{"id":8,"name":"판정사유-순서","x":2688,"y":638,"w":600,"h":466},{"id":9,"name":"새 자식","x":20,"y":638,"w":600,"h":466}],"edges":[{"from":2,"to":3},{"from":3,"to":4},{"from":3,"to":5},{"from":2,"to":6},{"from":6,"to":7},{"from":2,"to":8},{"from":1,"to":9}]},"plan":{"groups":[{"name":"main","x":0,"y":0,"w":3328,"h":1722},{"name":"매뉴얼-개편","x":652,"y":1156,"w":640,"h":546},{"name":"매뉴얼-책임","x":1324,"y":1156,"w":640,"h":546},{"name":"프롬프트-전체보기","x":1996,"y":578,"w":640,"h":1124},{"name":"판정사유-순서","x":2668,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"부하테스트 총괄","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":1858,"y":60,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":1008,"y":638,"w":600,"h":466},{"id":4,"name":"매뉴얼-개편","x":672,"y":1216,"w":600,"h":466},{"id":5,"name":"매뉴얼-책임","x":1344,"y":1216,"w":600,"h":466},{"id":6,"name":"프롬프트보기-코디","x":2016,"y":638,"w":600,"h":466},{"id":7,"name":"프롬프트보기-구현","x":2016,"y":1216,"w":600,"h":466},{"id":8,"name":"판정사유-순서","x":2688,"y":638,"w":600,"h":466},{"id":9,"name":"새 자식","x":20,"y":638,"w":600,"h":466}],"edges":[{"from":2,"to":3},{"from":3,"to":4},{"from":3,"to":5},{"from":2,"to":6},{"from":6,"to":7},{"from":2,"to":8},{"from":1,"to":9}]}},{"key":"m14","now":{"groups":[{"name":"main","x":0,"y":0,"w":2300,"h":1722},{"name":"묶음 1","x":1640,"y":578,"w":640,"h":546},{"name":"묶음 2","x":652,"y":1156,"w":640,"h":546},{"name":"묶음 3","x":1324,"y":1156,"w":640,"h":546}],"cards":[{"id":1,"name":"A","x":20,"y":60,"w":600,"h":466},{"id":2,"name":"B","x":1344,"y":60,"w":600,"h":466},{"id":3,"name":"C","x":1008,"y":638,"w":600,"h":466},{"id":4,"name":"D","x":1660,"y":638,"w":600,"h":466},{"id":5,"name":"E","x":672,"y":1216,"w":600,"h":466},{"id":6,"name":"F","x":1344,"y":1216,"w":600,"h":466}],"edges":[{"from":2,"to":3},{"from":2,"to":4},{"from":3,"to":5},{"from":3,"to":6}]},"plan":{"groups":[{"name":"main","x":0,"y":0,"w":1668,"h":1722},{"name":"묶음 1","x":1008,"y":578,"w":640,"h":546},{"name":"묶음 2","x":20,"y":1156,"w":640,"h":546},{"name":"묶음 3","x":692,"y":1156,"w":640,"h":546}],"cards":[{"id":1,"name":"A","x":92,"y":60,"w":600,"h":466},{"id":2,"name":"B","x":712,"y":60,"w":600,"h":466},{"id":3,"name":"C","x":376,"y":638,"w":600,"h":466},{"id":4,"name":"D","x":1028,"y":638,"w":600,"h":466},{"id":5,"name":"E","x":40,"y":1216,"w":600,"h":466},{"id":6,"name":"F","x":712,"y":1216,"w":600,"h":466}],"edges":[{"from":2,"to":3},{"from":2,"to":4},{"from":3,"to":5},{"from":3,"to":6}]}},{"key":"b2","now":{"groups":[{"name":"main","x":0,"y":0,"w":3368,"h":1722},{"name":"매뉴얼-개편","x":692,"y":1156,"w":640,"h":546},{"name":"매뉴얼-책임","x":1364,"y":1156,"w":640,"h":546},{"name":"프롬프트-전체보기","x":2036,"y":578,"w":640,"h":1124},{"name":"판정사유-순서","x":2708,"y":578,"w":640,"h":546},{"name":"새 워크트리","x":20,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"부하테스트 총괄","x":40,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":1898,"y":60,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":1048,"y":638,"w":600,"h":466},{"id":4,"name":"매뉴얼-개편","x":712,"y":1216,"w":600,"h":466},{"id":5,"name":"매뉴얼-책임","x":1384,"y":1216,"w":600,"h":466},{"id":6,"name":"프롬프트보기-코디","x":2056,"y":638,"w":600,"h":466},{"id":7,"name":"프롬프트보기-구현","x":2056,"y":1216,"w":600,"h":466},{"id":8,"name":"판정사유-순서","x":2728,"y":638,"w":600,"h":466},{"id":10,"name":"새 자식","x":40,"y":638,"w":600,"h":466}],"edges":[{"from":2,"to":3},{"from":3,"to":4},{"from":3,"to":5},{"from":2,"to":6},{"from":6,"to":7},{"from":2,"to":8},{"from":1,"to":10}]},"plan":{"groups":[{"name":"main","x":0,"y":0,"w":3368,"h":1722},{"name":"매뉴얼-개편","x":692,"y":1156,"w":640,"h":546},{"name":"매뉴얼-책임","x":1364,"y":1156,"w":640,"h":546},{"name":"프롬프트-전체보기","x":2036,"y":578,"w":640,"h":1124},{"name":"판정사유-순서","x":2708,"y":578,"w":640,"h":546},{"name":"새 워크트리","x":20,"y":578,"w":640,"h":546}],"cards":[{"id":1,"name":"부하테스트 총괄","x":40,"y":60,"w":600,"h":466},{"id":2,"name":"피드백 반영","x":1898,"y":60,"w":600,"h":466},{"id":3,"name":"매뉴얼체계-코디","x":1048,"y":638,"w":600,"h":466},{"id":4,"name":"매뉴얼-개편","x":712,"y":1216,"w":600,"h":466},{"id":5,"name":"매뉴얼-책임","x":1384,"y":1216,"w":600,"h":466},{"id":6,"name":"프롬프트보기-코디","x":2056,"y":638,"w":600,"h":466},{"id":7,"name":"프롬프트보기-구현","x":2056,"y":1216,"w":600,"h":466},{"id":8,"name":"판정사유-순서","x":2728,"y":638,"w":600,"h":466},{"id":10,"name":"새 자식","x":40,"y":638,"w":600,"h":466}],"edges":[{"from":2,"to":3},{"from":3,"to":4},{"from":3,"to":5},{"from":2,"to":6},{"from":6,"to":7},{"from":2,"to":8},{"from":1,"to":10}]}}];
+const TITLES = {
+  a: ['① [정렬] 뒤: 왼쪽 맨 위 노드에 자식이 없음', '화면 캡처와 같은 모양'],
+  b1: ['② 그 노드에 같은 워크트리 자식이 생김', '노란 점선: 움직인 카드'],
+  b2: ['③ 그 노드에 자식 워크트리가 생김', '노란 점선: 움직인 카드'],
+  m14: ['④ 승인한 가계도 그림(M14 ①)', 'A: 자식 없는 맨 위 노드'],
+};
+const ORDER = ['a', 'b1', 'b2', 'm14'];
+const W = 640;
+function draw(c, moved) {
+  const w = Math.max(...c.groups.map((g) => g.x + g.w)), h = Math.max(...c.groups.map((g) => g.y + g.h));
+  const s = W / 3400;
+  const by = Object.fromEntries(c.cards.map((k) => [k.id, k]));
+  let out = '';
+  for (const g of [...c.groups].sort((a, b) => b.w * b.h - a.w * a.h)) out += `<rect class="grp" x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" rx="10" style="stroke-width:3"/><text class="glbl" x="${g.x + 16}" y="${g.y + 42}" style="font-size:40px">${g.name}</text>`;
+  for (const e of c.edges) {
+    const p = by[e.from], q = by[e.to];
+    const a = [p.x + p.w / 2, p.y + p.h], b = [q.x + q.w / 2, q.y];
+    const bend = a[1] + Math.min(40, (b[1] - a[1]) / 2);
+    out += `<polyline class="edge" style="stroke-width:5" points="${a} ${a[0]},${bend} ${b[0]},${bend} ${b}"/>`;
+  }
+  for (const k of c.cards) out += `<rect class="card${moved.has(k.id) ? ' new' : ''}" x="${k.x}" y="${k.y}" width="${k.w}" height="${k.h}" rx="12" style="${moved.has(k.id) ? '' : 'stroke-width:3'}"/><text class="lbl" x="${k.x + 24}" y="${k.y + 64}" style="font-size:46px">${k.name}</text>`;
+  return { svg: `<div class="canvas"><svg viewBox="-10 -10 ${w + 20} ${h + 20}" width="${Math.round((w + 20) * s)}" height="${Math.round((h + 20) * s)}">${out}</svg></div>`, w, h };
+}
+const before = (key) => (key === 'b1' || key === 'b2' ? CASES.find((c) => c.key === 'a') : null);
+const root = document.getElementById('cases');
+root.style.display = 'grid';
+root.style.gap = '36px';
+for (const key of ORDER) {
+  const c = CASES.find((x) => x.key === key);
+  const side = (tag, label, which) => {
+    const prev = before(key);
+    const was = prev ? new Map(prev[which].cards.map((k) => [k.id, k.x])) : new Map();
+    const moved = new Set(prev ? c[which].cards.filter((k) => !was.has(k.id) || was.get(k.id) !== k.x).map((k) => k.id) : []);
+    const d = draw(c[which], moved);
+    return `<div class="side ${which}"><span class="tag ${tag}">${label}</span>${d.svg}<span class="stats">폭 ${d.w}px · 움직인 카드 ${moved.size}개</span></div>`;
+  };
+  const [title, hint] = TITLES[key];
+  root.insertAdjacentHTML('beforeend', `<div class="fig"><h2>${title} <span class="tag">${hint}</span></h2><div class="pair">${side('now', '지금', 'now')}${side('plan', '제안', 'plan')}</div></div>`);
+}
+</script>
+</body>
+</html>

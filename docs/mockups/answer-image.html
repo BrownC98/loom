@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M30 답변에 그림 붙이기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 화면 그림의 토큰·알약·줄 모양은 web/src/styles.css와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 900px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 3px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.shot { width: 1000px; border: 1px solid var(--line); border-radius: var(--radius); }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.waiting { background: var(--warn); }
+.grid2 { display: grid; grid-template-columns: repeat(2, 680px); gap: 20px; align-items: start; }
+.cell { display: grid; gap: 6px; }
+.cap { font-size: 12px; color: var(--ink-3); }
+/* 그래프 칸(실제 1280 폭 창에서 그래프 칸은 약 700px). 여기서는 680px로 그린다. */
+.graph { position: relative; height: 200px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 16px 16px; padding: 14px 14px; }
+.graph.tall { height: 560px; }
+.scope { font-size: 18px; font-weight: 600; }
+.repo { margin-top: 40px; border: 1px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--panel) 70%, transparent); padding: 8px 10px 10px; width: max-content; }
+.moved { transform: translateX(40px); }
+.repo-head { font-size: 13px; color: var(--ink-3); }
+.repo-head b { color: var(--ink); }
+.cards { display: flex; gap: 12px; margin-top: 8px; }
+.card { width: 200px; height: 80px; border-radius: 10px; border: 2px solid var(--warn); background: var(--surface); padding: 6px 10px; font-size: 13px; }
+.card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card .h { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.card .h .spacer { flex: 1; }
+.card .st { font-size: 12px; font-weight: 400; color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
+.card .t { margin-top: 6px; font: 11px/1.5 var(--mono); color: var(--ink-3); }
+.pill-home { position: absolute; top: 10px; left: 14px; right: 14px; z-index: 2; display: grid; justify-items: center; gap: 6px; }
+/* 알약 바탕·테두리·그림자는 web/src/styles.css .inbox-pill과 같다 */
+.split, .chip { border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); }
+.split { display: inline-flex; max-width: 100%; height: 32px; border-radius: 16px; }
+.split button { display: inline-flex; align-items: center; border: 0; background: none; cursor: pointer; font-size: 13px; }
+.split .jump { gap: 8px; min-width: 0; padding: 0 10px 0 10px; border-radius: 16px 0 0 16px; }
+.split .more { flex: none; width: 30px; justify-content: center; border-left: 1px solid color-mix(in oklch, var(--warn) 40%, transparent); border-radius: 0 16px 16px 0; color: var(--ink-2); }
+.split .jump:hover, .split .more:hover, .split .more[aria-expanded="true"] { background: color-mix(in oklch, var(--warn) 18%, var(--surface)); }
+.split b, .chip b { white-space: nowrap; }
+/* 질문 수 배지: 흰 글자, 바탕은 두 테마 같은 값(web/src/styles.css --warn-fill, 흰 글자 대비 5.1:1) */
+.count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: oklch(54% 0.12 87); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.pv { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.chips { display: flex; justify-content: center; gap: 6px; max-width: 100%; border-radius: 16px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; flex: 0 1 auto; min-width: 0; max-width: 170px; padding: 0 10px; border-radius: 15px; font-size: 13px; cursor: pointer; }
+.chip.more { flex: none; color: var(--ink); font-weight: 600; }
+.pill-pop { width: 380px; max-width: 100%; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); padding: 10px 0 6px; display: grid; gap: 6px; }
+.pill-pop h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 0 14px; }
+.q { list-style: none; margin: 0; padding: 0 6px; display: grid; max-height: 380px; overflow: auto; }
+.q li { display: flex; align-items: flex-start; border-radius: 6px; }
+.q li:hover { background: var(--surface-hover); }
+.q .go { flex: 1; min-width: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 5px 8px; border: 0; background: none; text-align: left; cursor: pointer; }
+.q .go .dot { align-self: center; }
+.q .who2 { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q .who2 b { color: var(--ink); font-size: 13px; }
+.q .line { grid-column: 2; color: var(--ink-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q .x { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 4px 4px 0 0; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+
+.pill-pop { width: 440px; }
+.pill-home { grid-template-columns: minmax(0, 1fr); }
+.pill-home > .split { max-width: min(440px, 100%); }
+.dock .tabs span.count { height: 18px; padding: 0 5px; font-size: 11px; color: #fff; }
+/* 질문과 관련된 색은 --warn 한 톤(알약 테두리·배지·카드 대기 테두리와 같다). 채운 바탕은 배지와 같은 --warn-fill에 흰 글자. */
+.qid { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; font: 600 11px/18px var(--mono); padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); color: var(--ink); }
+.qid.copy { cursor: pointer; }
+.qid.copy:hover { background: color-mix(in oklch, var(--warn) 22%, var(--surface)); }
+.qid.copy svg { width: 12px; height: 12px; color: var(--warn); }
+.qid.done { background: oklch(54% 0.12 87); border-color: oklch(54% 0.12 87); color: #fff; }
+.qid.done svg { color: #fff; }
+li.row { list-style: none; display: grid; align-items: stretch; gap: 6px; padding: 8px 8px 10px; border-radius: 6px; }
+li.row + li.row { border-top: 1px solid var(--line); border-radius: 0; }
+.row .top { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.row .top b { color: var(--ink); font-size: 13px; }
+.row .top .sp { flex: 1; }
+.row .full { color: var(--ink); font-size: 13px; padding-left: 13px; white-space: normal; }
+.ib { flex: none; position: relative; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.ib:hover { background: var(--line); color: var(--ink); }
+.opts { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 13px; }
+.opt { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; cursor: pointer; }
+.opt:hover { background: var(--surface-hover); }
+.opt .k { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt.rec { border-color: var(--warn); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+.opt .r { font-size: 11px; color: var(--warn); font-weight: 600; }
+.ans { display: flex; gap: 6px; padding-left: 13px; }
+.ans input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.ans input::placeholder { color: var(--ink-3); }
+.send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: oklch(54% 0.12 87); color: #fff; cursor: pointer; }
+.send:hover { background: oklch(48% 0.12 87); }
+.ans input:focus-visible { outline: 2px solid var(--warn); outline-offset: 0; border-color: var(--warn); }
+.toterm { margin-left: 13px; justify-self: start; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.toterm:hover { background: var(--surface-hover); color: var(--ink); }
+.dock { width: 320px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.dock .tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.dock .tabs span { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; font-size: 13px; color: var(--ink-2); }
+.dock .tabs span.on { color: var(--ink); font-weight: 600; border-bottom: 2px solid var(--accent); }
+.dock ul { margin: 0; padding: 6px; }
+.term { width: 680px; border: 1px solid var(--line-strong); padding: 12px 14px; border-radius: var(--radius); background: oklch(20.5% 0 0); color: oklch(92% 0 0); font: 12px/1.6 var(--mono); white-space: pre-wrap; }
+.term .dim { color: oklch(65% 0 0); }
+.term .new2 { outline: 2px dashed var(--warn); outline-offset: 2px; }
+.doclink { margin-left: 13px; justify-self: start; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 13px); min-width: 0; height: 28px; padding: 0 8px 0 4px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12px; text-decoration: none; }
+.doclink:hover { background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+.doclink .dt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.doclink svg { width: 12px; height: 12px; color: var(--warn); }
+.flex2 { display: flex; gap: 20px; align-items: start; }
+</style>
+<style>
+.gh { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; font-size: 12px; color: var(--ink-3); }
+.gh b { color: var(--ink); font-size: 13px; }
+.dock ul.rows { margin: 0; padding: 0 6px 6px 27px; display: grid; grid-template-columns: minmax(0, 1fr); }
+.dock ul.rows li.row { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+li.row { padding: 6px 8px 10px 0; }
+.row .full, .opts, .ans { padding-left: 0; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+.thumb { position: relative; width: 64px; height: 44px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); overflow: visible; }
+.thumb .pic { position: absolute; inset: 0; border-radius: 5px; overflow: hidden; background: linear-gradient(var(--line) 0 0) 6px 6px / 22px 4px no-repeat, linear-gradient(var(--line-strong) 0 0) 6px 14px / 50px 3px no-repeat, linear-gradient(var(--line-strong) 0 0) 6px 20px / 40px 3px no-repeat, linear-gradient(color-mix(in oklch, var(--run) 60%, transparent) 0 0) 6px 30px / 18px 8px no-repeat, linear-gradient(color-mix(in oklch, var(--run) 40%, transparent) 0 0) 16px 32px / 18px 8px no-repeat, var(--panel); }
+.thumb .rm { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: var(--ink); color: var(--surface); cursor: pointer; }
+.thumb .rm svg { width: 11px; height: 11px; }
+.drop { position: relative; }
+.drop .cover { position: absolute; inset: 0 0 4px -4px; display: grid; place-items: center; align-content: center; gap: 2px; border: 2px dashed var(--warn); border-radius: 8px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); font-size: 13px; font-weight: 600; color: var(--ink); }
+.drop .cover span { font-size: 12px; font-weight: 400; color: var(--ink-2); }
+.send.on { opacity: 1; }
+.send.off { opacity: 0.45; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M30</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 질문여러개</b></span><span>v1 · 2026-10-22</span></div>
+  <h1>답변에 그림 붙이기</h1>
+  <p class="lead">사람 지시: 「그리고 답변 입력창에 이미지 입력도 가능하게 해줘」. 질문 줄의 답 입력창에 그림을 붙여넣거나(Ctrl+V) 끌어 놓는다. 알약 목록과 「질문」 탭이 같다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>지금 <span class="tag">시험 데몬 캡처, 「질문」 탭</span></h2>
+    <img class="shot" style="width:320px" src="answer-image-now.png" alt="지금: 답 입력창은 글자만 받는다">
+    <ul class="note"><li>입력창은 글자만 받는다. 그림을 붙여도 아무 일이 없다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>① 그림을 붙인 뒤</h2>
+    <div class="dock"><div class="tabs"><span>이벤트</span><span>커밋 그래프</span><span class="on">질문 <span class="count">1</span></span></div><div class="gh"><span class="dot waiting"></span><b>화면-점검</b></div><ul class="rows"><li class="row"><div class="top"><span class="qid">Q1</span>질문<span class="sp"></span><button class="ib" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="full">설정 화면의 버튼이 겹쳐 보이나요? 보이는 화면을 붙여 주세요</div><div class="thumbs new"><div class="thumb"><div class="pic"></div><button class="rm" aria-label="그림 빼기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="thumb"><div class="pic"></div><button class="rm" aria-label="그림 빼기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div></div><div class="ans"><input aria-label="Q1 답변" value="왼쪽 위 저장 버튼이 겹칩니다"><button class="send" aria-label="Q1 답변 보내기"><svg class="i" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></svg></button></div></li></ul></div>
+    <ul class="note">
+      <li>입력창에서 Ctrl+V로 그림을 붙이거나, 그림 파일을 줄 위에 끌어 놓는다. 입력창 위에 작은 그림이 생긴다.</li>
+      <li>그림의 <b>[×]</b>로 그 그림을 뺀다. 그림은 여러 장 붙일 수 있다.</li>
+      <li>Enter나 [↑]로 글과 그림을 함께 보낸다. 글 없이 그림만 보내도 된다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 끌어 놓는 중</h2>
+    <div class="dock"><div class="tabs"><span>이벤트</span><span>커밋 그래프</span><span class="on">질문 <span class="count">1</span></span></div><div class="gh"><span class="dot waiting"></span><b>화면-점검</b></div><ul class="rows"><li class="row drop"><div class="top"><span class="qid">Q1</span>질문<span class="sp"></span><button class="ib" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="full">설정 화면의 버튼이 겹쳐 보이나요? 보이는 화면을 붙여 주세요</div><div class="ans"><input aria-label="Q1 답변" placeholder="답변 입력, Enter로 보내기"><button class="send off" aria-label="Q1 답변 보내기"><svg class="i" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></svg></button></div><div class="cover">그림을 놓아 Q1 답에 붙이기<span>그림마다 32MB까지</span></div></li></ul></div>
+    <ul class="note"><li>그림을 줄 위로 끌면 그 질문 줄만 점선으로 바뀐다. 그림이 아닌 파일은 받지 않는다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 에이전트가 받는 메시지</h2>
+    <div class="term"><span class="dim">loom message #12 (from: human):</span> Answer to loom ask question Q1 (설정 화면의 버튼이 겹쳐 보이나요? …): 왼쪽 위 저장 버튼이 겹칩니다
+<span class="new2">Images: /tmp/loom-paste/1792601234000000000/image.png /tmp/loom-paste/1792601234100000000/설정.png</span>
+<span class="dim">The human answered from the loom inbox. The question is closed: do not call loom answered.</span></div>
+    <ul class="note">
+      <li>그림은 데몬 기계에 파일로 남고, 답 메시지에 그 절대 경로가 붙는다. Claude·Codex·Cursor·OpenCode가 경로로 그림을 읽는다.</li>
+      <li>터미널에 그림을 붙여넣을 때와 같은 폴더·같은 상한을 쓴다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="decide">
+      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
+      <tr><td>그림을 두는 곳</td><td><b>터미널 붙여넣기와 같은 OS 임시 폴더</b>(<code>loom-paste</code>, OS가 지운다)</td><td>loom 데이터 폴더 <code>answers/Q1-1.png</code>(남지만 지우는 규칙이 더 필요하다)</td></tr>
+      <tr><td>받는 파일</td><td><b>그림만</b></td><td>모든 파일(터미널 끌어 놓기처럼)</td></tr>
+      <tr><td>글 없이 그림만 보내기</td><td><b>된다</b></td><td>글이 있어야 보낸다</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

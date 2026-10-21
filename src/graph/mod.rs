@@ -97,8 +97,9 @@ pub struct NodeView {
     pub topic: Option<String>,
     /// 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
     pub bookmark: Option<u32>,
-    /// 사람의 답·승인을 기다린다. 근거: docs/design.md 「사람 응답 대기」.
-    pub wait: Option<HumanWait>,
+    /// 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
+    /// 근거: docs/design.md 「사람 응답 대기」.
+    pub waits: Vec<HumanWait>,
 }
 
 /// 프로필이 CLI에서 읽은 지금 모델과 추론 강도. 값은 CLI가 쓴 글 그대로다. 근거: docs/design.md 「에이전트 실행」.
@@ -213,6 +214,8 @@ pub enum Refusal {
     NoWait(WaitId),
     /// 화면에서 보낸 답이 비었다.
     EmptyAnswer,
+    /// 번호 없는 `loom answered`인데 열린 질문이 여럿이다. 값은 열린 번호다.
+    SeveralOpen(Vec<WaitId>),
     Launch(String),
     Db(String),
 }
@@ -293,6 +296,15 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NoWait(wait) => write!(f, "{wait}: this question is not open."),
             Refusal::EmptyAnswer => write!(f, "Write an answer."),
+            Refusal::SeveralOpen(open) => {
+                let open: Vec<String> = open.iter().map(WaitId::to_string).collect();
+                write!(
+                    f,
+                    "Open questions: {}. Name the ones this input answers, for example `loom answered {}`.",
+                    open.join(", "),
+                    open.join(" ")
+                )
+            }
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }
@@ -319,7 +331,8 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    n.brief, n.bookmark, n.wait
+    n.brief, n.bookmark, n.wait,
+    (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id)
     FROM nodes n";
 
 struct Store {
@@ -485,6 +498,18 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
     let state = from_json(row, 4)?;
     let brief: Option<String> = row.get(11)?;
     let wait: Option<String> = row.get(13)?;
+    let asked: String = row.get(14)?;
+    // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
+    let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Asked>>(&asked)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|q| q.wait)
+        .collect();
+    waits.sort_by_key(|w| w.id.0);
+    waits.extend(
+        wait.and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
+            .map(|s| s.wait),
+    );
     Ok(NodeView {
         topic: topic(&state, titles.get(&id), brief.as_deref()),
         id,
@@ -501,10 +526,7 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
             worktree: row.get(10)?,
         },
         bookmark: row.get(12)?,
-        // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
-        wait: wait
-            .and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
-            .map(|s| s.wait),
+        waits,
     })
 }
 

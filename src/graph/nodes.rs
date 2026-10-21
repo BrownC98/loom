@@ -197,6 +197,7 @@ impl Graph {
         if changed == 0 {
             return Ok(());
         }
+        tx.execute("DELETE FROM questions WHERE node = ?1", [id.0])?;
         let parent = parent_of(&tx, id)?;
         if state == NodeState::Running {
             set_state(&tx, id, &ended)?;

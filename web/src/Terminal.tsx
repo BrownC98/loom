@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { attachPty, openFile, savePastedFile } from './api';
+import { attachPty, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { Resize } from './gen/Resize';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
@@ -119,8 +119,6 @@ function unscaleMouse(xterm: XTerm) {
   mouse.getMouseReportCoords = (event, element) => getMouseReportCoords.call(mouse, unscale(event, element), element);
 }
 
-/** 한 파일의 상한. 데몬 `src/paste.rs`의 `LIMIT_BYTES`와 같다. 큰 파일은 오래 올리지 않게 올리기 전에 거른다. */
-const PASTE_LIMIT_BYTES = 32 * 1024 * 1024;
 const MB = 1024 * 1024;
 
 /** 셸처럼 작은따옴표로 묶는다. 빈칸·한글 이름도 경로 하나로 읽힌다. 이름 속 `'`는 `'\''`로 쓴다. */
@@ -169,7 +167,7 @@ type TerminalProps = { src: string; focused: boolean; onFocus: () => void; onNav
 
 /**
  * PTY 크기를 따르는 터미널. 데몬이 알린 열·줄(`PtyNotice` `size`)로 그리고, 칸에 맞게 글자를 늘이거나 줄인다(목업 docs/mockups/terminal-size.html 안 A).
- * PTY 크기는 바꾸지 않는다. 펼친 카드와 심플 보기 오른쪽 칸이 쓴다.
+ * PTY 크기는 바꾸지 않는다. 심플 보기 오른쪽 칸이 쓴다.
  * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). `loadRenderer`는 연 뒤에 렌더러 애드온을 붙인다. 없으면 DOM 렌더러로 그린다.
  */
 export function Terminal(props: TerminalProps) {

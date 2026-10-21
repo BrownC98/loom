@@ -16,7 +16,7 @@ const view = (id: number, name: string, parent: number | null, worktree: string,
   place: { repo, worktree },
   topic: null,
   bookmark: null,
-  wait: null,
+  waits: [],
 });
 
 const repo = (id: number, worktrees: [string, string | null][]): RepoView => ({

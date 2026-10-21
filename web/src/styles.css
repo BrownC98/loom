@@ -354,6 +354,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.running { color: var(--run); }
 .state.waiting { color: var(--warn); font-family: var(--font); font-weight: 600; }
+.state .count { display: inline-block; margin-left: 4px; }
 .state.done { color: var(--ok); }
 .state.exited, .state.setupFailed { color: var(--err); }
 .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -492,72 +493,86 @@ a { color: var(--accent); }
    칸 폭 전체에 깔고 가운데에 놓는다. 빈 자리는 마우스를 그래프로 넘긴다. */
 .inbox { position: absolute; top: 12px; left: 16px; right: 16px; z-index: 7; display: grid; justify-items: center; gap: 6px; pointer-events: none; }
 .inbox > * { pointer-events: auto; max-width: 100%; }
-.inbox-live { max-width: min(440px, 100%); }
-.inbox-pill { display: inline-flex; height: 32px; max-width: 100%; border: 1px solid var(--warn); border-radius: 16px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
-.inbox-pill button { display: inline-flex; align-items: center; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
-.inbox-pill button:hover, .inbox-pill .more[aria-expanded="true"] { background: color-mix(in oklch, var(--warn) 18%, var(--surface)); }
-/* 몸통은 가장 오래 기다린 질문으로 바로 간다. [▾]만 목록을 연다(목업 docs/mockups/question-pill-many.html ①). */
-.inbox-pill .jump { gap: 8px; min-width: 0; padding: 0 10px; border-radius: 15px 0 0 15px; }
-.inbox-pill .more { flex: none; width: 30px; justify-content: center; border-left: 1px solid var(--warn); border-radius: 0 15px 15px 0; color: var(--ink-3); }
-.inbox-pill b { white-space: nowrap; }
-.inbox-pill .count, .tabs .count, .rail .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+/* 펼치지 않은 알약은 가장 오래된 대기 하나와 답 칸이다(목업 docs/mockups/question-pill-tone.html M31 ②). 바탕은 카드·창과 같은 무채색이고, 질문 색은 테두리·배지·번호 칩에만 쓴다(M31 ①). */
+.inbox-pill { width: 520px; max-width: 100%; border: 1px solid var(--warn); border-radius: 14px; background: var(--surface); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
+.inbox-pill .head { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
+.inbox-pill .head > b { white-space: nowrap; }
+.inbox-pill .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.inbox-pill .go b { color: var(--ink); font-size: 13px; }
+.inbox-pill .go:hover { background: var(--surface-hover); }
+.inbox-pill .rest { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.inbox-pill .icon[aria-expanded="true"] { background: var(--line); color: var(--ink); }
+.inbox-pill > .wait-body { padding: 10px 12px 12px; }
+/* 알약은 그래프를 덜 가리게 글을 4줄까지 보이고, 넘으면 [더 보기]로 편다. */
+.inbox-pill .full:not([data-more]) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.wait-body .more-text { justify-self: start; padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.wait-body .more-text:hover { color: var(--ink); }
+.inbox-pill .count, .tabs .count, .rail .count, .wait-node .count, .state .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 /* 접힌 줄의 아이콘 단추는 글자 자리가 없다. 배지를 단추 안 오른쪽 위에 겹친다. 줄은 창 끝에 붙어 있어서 단추 밖으로 나가면 잘린다. */
 .rail .btn:has(.count) { position: relative; }
 .rail .count { position: absolute; top: -3px; right: -2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; font-size: 10px; line-height: 15px; pointer-events: none; }
-.inbox-pill .preview { min-width: 0; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inbox-pill .chev { width: 14px; height: 14px; }
 .inbox-pill .chev.open { transform: rotate(180deg); }
-.inbox-pop { position: static; width: 440px; max-width: 100%; gap: 6px; padding: 10px 6px 6px; }
+.inbox-pop { position: static; width: 520px; max-width: 100%; gap: 6px; padding: 10px 6px 6px; }
 .inbox-pop h2 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
 .wait-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: auto; overscroll-behavior: contain; }
 .inbox-pop .wait-list { max-height: 60vh; }
 .dock-panel .wait-list { flex: 1; min-height: 0; align-content: start; padding: 6px; }
 .inbox-empty { margin: 0; padding: 12px 14px; color: var(--ink-3); font-size: 13px; }
 /* 질문 줄(목업 docs/mockups/question-id.html v3). 질문과 관련된 색은 알약·배지와 같은 --warn 한 톤이다(2026-10-21 사람 지시 "질문과 관련된 색은 동일한 톤 사용 원칙 지켜"). */
-.wait-list li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px 8px 10px; }
-.wait-list li + li { border-top: 1px solid var(--line); }
-.wait-list .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wait-node { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 4px 0; }
+.wait-node + .wait-node { border-top: 1px solid var(--line); }
+.wait-node > .go { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; cursor: pointer; }
+.wait-node > .go b { color: var(--ink); font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+.wait-node > .go:hover { background: var(--surface-hover); }
 .wait-list .dot { flex: none; box-shadow: none; }
-.wait-list .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.wait-list .go b { color: var(--ink); font-size: 13px; }
-.wait-list .go:hover { background: var(--surface-hover); }
-.wait-list .full, .wait-list .refusal { margin: 0 0 0 13px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.wait-list .full { color: var(--ink); }
-.wait-list .refusal { color: var(--err); font-size: 12px; }
+.wait-rows { list-style: none; margin: 0; padding: 0 0 0 21px; display: grid; grid-template-columns: minmax(0, 1fr); }
+.wait-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 8px 10px 0; }
+.wait-row + .wait-row { border-top: 1px dashed var(--line); }
+.wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */
+.wait-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.answer-images { list-style: none; margin: 0; padding: 4px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.answer-images li { position: relative; width: 64px; height: 44px; }
+.answer-images img { width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); }
+.answer-images button { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: var(--ink); color: var(--surface); cursor: pointer; }
+.answer-images button svg { width: 11px; height: 11px; }
+.wait-body > .drop-cover { position: absolute; inset: -4px; pointer-events: none; display: grid; place-content: center; justify-items: center; gap: 2px; border: 2px dashed var(--warn); border-radius: 8px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); color: var(--ink); font-size: 13px; font-weight: 600; }
+.wait-body > .drop-cover svg { width: 20px; height: 20px; color: var(--warn); }
+.wait-body > .drop-cover .sub { font-size: 12px; font-weight: 400; color: var(--ink-2); }
+.wait-body .full, .wait-body .refusal { margin: 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wait-body .full { color: var(--ink); }
+.wait-body .refusal { color: var(--err); font-size: 12px; }
 .qid { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); color: var(--ink); font: 600 11px/18px var(--mono); white-space: nowrap; }
 .inbox-pill .qid { height: 18px; }
-.qid svg { width: 12px; height: 12px; color: var(--warn); }
-button.qid { cursor: pointer; }
-button.qid:hover { background: color-mix(in oklch, var(--warn) 22%, var(--surface)); }
-button.qid[data-copied] { border-color: var(--warn); background: var(--warn); color: var(--warn-ink); }
-button.qid[data-copied] svg { color: var(--warn-ink); }
 
-.wait-list .to-terminal { justify-self: start; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 13px); min-width: 0; height: 28px; margin-left: 13px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
-.wait-list .doc-link { display: inline; padding: 0; border: 0; background: none; color: var(--warn); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.wait-list .doc-link:hover { text-decoration-thickness: 2px; }
-.wait-list .doc-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.wait-list .to-terminal svg { flex: none; width: 12px; height: 12px; }
-.wait-list .doc-link svg { display: inline; width: 12px; height: 12px; margin-left: 3px; vertical-align: -1px; }
-.wait-list .to-terminal { padding: 0 8px; border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
-.wait-list .to-terminal:hover { background: var(--surface-hover); color: var(--ink); }
-.wait-list .choices { display: flex; flex-wrap: wrap; gap: 6px; margin-left: 13px; }
-.wait-list .choice { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
-.wait-list .choice:hover { background: var(--surface-hover); }
-.wait-list .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
-.wait-list .choice[data-recommended] { border-color: var(--warn); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
-.wait-list .choice .mark { color: var(--warn); font-size: 11px; font-weight: 600; }
-.wait-list .answer { display: flex; gap: 6px; margin-left: 13px; }
-.wait-list .answer input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
-.wait-list .answer input::placeholder { color: var(--ink-3); }
+.wait-body .to-terminal { justify-self: start; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; height: 28px; margin-left: -8px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
+.wait-body .doc-link { display: inline; padding: 0; border: 0; background: none; color: var(--warn); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.wait-body .doc-link:hover { text-decoration-thickness: 2px; }
+.wait-body .doc-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.wait-body .to-terminal svg { flex: none; width: 12px; height: 12px; }
+.wait-body .doc-link svg { display: inline; width: 12px; height: 12px; margin-left: 3px; vertical-align: -1px; }
+.wait-body .to-terminal { padding: 0 8px; border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
+.wait-body .to-terminal:hover { background: var(--surface-hover); color: var(--ink); }
+.wait-body .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.wait-body .choice { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.wait-body .choice:hover { background: var(--surface-hover); }
+.wait-body .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.wait-body .choice[data-recommended] { border-color: var(--warn); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+.wait-body .choice .mark { color: var(--warn); font-size: 11px; font-weight: 600; }
+.wait-body .answer { display: flex; gap: 6px; }
+.wait-body .answer input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.wait-body .answer input::placeholder { color: var(--ink-3); }
 /* 포커스는 테두리 색만 바꾼다. 두꺼운 테두리는 2026-10-21 사람 지시 "텍스트 입력창 포커싱 테두리가 너무 두꺼움"으로 뺐다. */
-.wait-list .answer input:focus-visible { outline: none; border-color: var(--warn); }
-.wait-list .send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: var(--warn); color: var(--warn-ink); cursor: pointer; }
-.wait-list .send:disabled { opacity: 0.45; cursor: default; }
-.wait-list .send svg { width: 14px; height: 14px; }
-.wait-list .dismiss { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
-.wait-list .dismiss:hover, .wait-list .dismiss:focus-visible { background: var(--line); color: var(--ink); }
-.wait-list .dismiss[data-refused] { color: var(--err); }
-.wait-list .dismiss svg { width: 14px; height: 14px; }
+.wait-body .answer input:focus-visible { outline: none; border-color: var(--warn); }
+.wait-body .send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: var(--warn); color: var(--warn-ink); cursor: pointer; }
+.wait-body .send:disabled { opacity: 0.45; cursor: default; }
+.wait-body .send svg { width: 14px; height: 14px; }
+:is(.wait-list, .inbox-pill) :is(.dismiss, .icon) { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+:is(.wait-list, .inbox-pill) :is(.dismiss, .icon):is(:hover, :focus-visible) { background: var(--line); color: var(--ink); }
+:is(.wait-list, .inbox-pill) .dismiss[data-refused] { color: var(--err); }
+:is(.wait-list, .inbox-pill) :is(.dismiss, .icon) svg { width: 14px; height: 14px; }
 .usage-pop { left: 4px; bottom: calc(100% + 6px); width: 360px; z-index: 20; }
 .prov-sec { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .prov { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 13px; color: inherit; }

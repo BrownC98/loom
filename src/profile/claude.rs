@@ -42,7 +42,7 @@ fn usage(launch: Launch) -> String {
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 13] = [
+const ALLOWED: [&str; 14] = [
     "Bash(loom guard)",
     "Bash(loom send:*)",
     "Bash(loom steer:*)",
@@ -54,6 +54,7 @@ const ALLOWED: [&str; 13] = [
     "Bash(loom done:*)",
     "Bash(loom ask:*)",
     "Bash(loom answered)",
+    "Bash(loom answered:*)",
     "Bash(loom adopt:*)",
     "Bash(loom rm:*)",
 ];
@@ -237,9 +238,9 @@ impl Event {
         &self,
         taken: &[Delivery],
         queued_from: &[String],
-        open_question: Option<&OpenQuestion>,
+        open_questions: &[OpenQuestion],
     ) -> Option<Value> {
-        let Some(text) = super::hook_text(taken, queued_from, open_question) else {
+        let Some(text) = super::hook_text(taken, queued_from, open_questions) else {
             return match self {
                 Event::PreToolUse {
                     tool_name,
@@ -375,17 +376,17 @@ mod tests {
         let post = event(json!({ "hook_event_name": "PostToolUse" }));
         let notice = "loom: 3 new queued message(s) waiting (from: 총괄, b). Run `loom wait --json` now if they may change your current task.";
         assert_eq!(
-            post.reply(&[], &["총괄".into(), "b".into(), "총괄".into()], None),
+            post.reply(&[], &["총괄".into(), "b".into(), "총괄".into()], &[]),
             Some(context("PostToolUse", notice.into()))
         );
         assert_eq!(
-            post.reply(&[delivery(Kind::Steer, "b")], &["총괄".into()], None),
+            post.reply(&[delivery(Kind::Steer, "b")], &["총괄".into()], &[]),
             Some(context(
                 "PostToolUse",
                 "loom message #1 (from: 총괄, mode: steer)\nb\n\nloom: 1 new queued message(s) waiting (from: 총괄). Run `loom wait --json` now if they may change your current task.".into()
             ))
         );
-        assert_eq!(post.reply(&[], &[], None), None);
+        assert_eq!(post.reply(&[], &[], &[]), None);
     }
 
     #[test]
@@ -411,7 +412,7 @@ mod tests {
             "tool_input": { "command": "npm test && echo ok", "timeout": 1000 },
         }));
         assert_eq!(
-            pre.reply(&[], &[], None),
+            pre.reply(&[], &[], &[]),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "updatedInput": { "command": "loom guard\nnpm test && echo ok", "timeout": 1000 },
@@ -425,12 +426,12 @@ mod tests {
             "hook_event_name": "PreToolUse", "tool_name": "Bash",
             "tool_input": { "command": "loom wait", "run_in_background": true },
         }));
-        assert_eq!(background.reply(&[], &[], None), None);
+        assert_eq!(background.reply(&[], &[], &[]), None);
         let read = event(json!({
             "hook_event_name": "PreToolUse", "tool_name": "Read",
             "tool_input": { "file_path": "/a" },
         }));
-        assert_eq!(read.reply(&[], &[], None), None);
+        assert_eq!(read.reply(&[], &[], &[]), None);
     }
 
     #[test]
@@ -440,7 +441,7 @@ mod tests {
             "tool_input": { "command": "npm test" },
         }));
         assert_eq!(
-            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], &[], None),
+            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], &[], &[]),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
@@ -464,7 +465,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                event(input).reply(&[delivery(Kind::Steer, "b")], &[], None),
+                event(input).reply(&[delivery(Kind::Steer, "b")], &[], &[]),
                 Some(json!({ "hookSpecificOutput": {
                     "hookEventName": name,
                     "additionalContext": "loom message #1 (from: 총괄, mode: steer)\nb",
@@ -510,16 +511,22 @@ mod tests {
     #[test]
     fn human_input_gets_the_open_question_line() {
         let prompt = event(json!({ "hook_event_name": "UserPromptSubmit" }));
-        assert_eq!(prompt.reply(&[], &[], None), None);
-        let question = OpenQuestion {
-            id: WaitId(12),
-            text: "A or B?".into(),
-        };
-        let reply = prompt.reply(&[], &[], Some(&question)).unwrap();
+        assert_eq!(prompt.reply(&[], &[], &[]), None);
+        let questions = [
+            OpenQuestion {
+                id: WaitId(12),
+                text: "A or B?".into(),
+            },
+            OpenQuestion {
+                id: WaitId(13),
+                text: "Delete?".into(),
+            },
+        ];
+        let reply = prompt.reply(&[], &[], &questions).unwrap();
         let text = reply["hookSpecificOutput"]["additionalContext"]
             .as_str()
             .unwrap();
-        assert!(text.starts_with("Open loom ask question Q12: A or B?. If this input answers it, call loom answered first"), "{text}");
+        assert!(text.starts_with("Open loom ask questions: Q12: A or B? | Q13: Delete?. If this input answers some of them, call `loom answered <Q ids>`"), "{text}");
     }
 
     #[test]

@@ -337,8 +337,8 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .term-hold { height: 100%; }
 /* 크기를 바꾸는 테두리는 보이지 않는다. 테두리 안팎 3px씩 6px 띠, 모서리는 12×12px다. 커서는 React Flow가 정한다. */
 .react-flow__resize-control.line { border-width: 0; border-color: transparent; }
-.react-flow__resize-control.line.right { width: 6px; }
-.react-flow__resize-control.line.bottom { height: 6px; }
+.react-flow__resize-control.line.left, .react-flow__resize-control.line.right { width: 6px; }
+.react-flow__resize-control.line.top, .react-flow__resize-control.line.bottom { height: 6px; }
 .react-flow__resize-control.handle { width: 12px; height: 12px; border: 0; background: none; }
 .xterm-box > div { height: 100%; }
 .card-foot { font-size: 12px; color: var(--ink-3); padding: 5px 10px; border-top: 1px solid var(--line); }

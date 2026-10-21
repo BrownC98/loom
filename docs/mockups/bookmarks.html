@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M18 노드 북마크 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+  /* 제품 그림에만 쓴다(web/src/styles.css). */
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+table { border-collapse: collapse; font-size: 13px; width: 100%; max-width: 1100px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-3); font-weight: 600; }
+code { font: 12px var(--mono); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+/* 제품 그림 */
+.row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+.cell { display: grid; gap: 6px; }
+.shot { display: block; border: 1px solid var(--line); border-radius: 6px; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg.i.on { fill: currentColor; }
+.ib { width: 26px; height: 26px; display: inline-grid; place-items: center; border-radius: 6px; color: var(--ink-2); }
+.ib.on { color: var(--ink); }
+.ib.hover { background: var(--surface-hover); color: var(--ink); }
+.card { width: 600px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; }
+.mark { font: 12px var(--mono); color: var(--ink-3); }
+.spacer { flex: 1; }
+.state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--run); }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.term { height: 40px; padding: 6px 10px; font: 12px/1.4 var(--mono); color: var(--ink-2); }
+.card.simple { width: 260px; padding: 8px 8px 8px 12px; background: var(--surface); }
+.summary-row { display: flex; align-items: center; gap: 8px; min-height: 24px; font-size: 13px; }
+.summary-row .name { font-weight: 600; }
+.tip { font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--ink); color: var(--bg); width: max-content; }
+
+.side { width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding-bottom: 12px; font-size: 13px; }
+.side-top { display: flex; align-items: center; gap: 8px; padding: 12px 12px 4px; }
+.find { flex: 1; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink-3); }
+.side-head { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px 16px; }
+.side-head h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; align-items: center; gap: 4px; }
+.side-head .count { font: 11px var(--mono); color: var(--ink-3); }
+.list { padding: 0 8px; }
+.tree-line { position: relative; }
+.tree-row { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 calc(4px + var(--depth, 0) * 12px); border-radius: 6px; }
+.tree-row.hover { background: var(--surface-hover); }
+.tree-row[aria-current="true"] { background: var(--accent-wash); }
+.tree-row .chev { width: 14px; height: 14px; color: var(--ink-3); }
+.tree-row .leaf { width: 14px; flex: none; }
+.tree-row .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+.tree-row .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tree-row .tag { font-size: 12px; color: var(--ink-3); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--run); }
+.dot.done { background: var(--ok); }
+.row-acts { position: absolute; top: 3px; right: 4px; height: 24px; display: flex; gap: 2px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--surface-hover) 16px); }
+.act { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; color: var(--ink-2); }
+.act.on { color: var(--ink); }
+.empty { padding: 2px 16px 6px; font-size: 12px; color: var(--ink-3); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.sep { height: 1px; background: var(--line); margin: 6px 16px 0; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="bm" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></symbol>
+  <symbol id="max" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="min" viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></symbol>
+  <symbol id="pen" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="updown" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></symbol>
+  <symbol id="branch" viewBox="0 0 24 24"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+</svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M18</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>노드 북마크</h1>
+  <p class="lead">사람 요청: “노드 북마크 기능 추가, 헤더, 사이드탭에 북마크 버튼 추가, 사이드탭에 북마크 모아보는 영역 만들어”. 점선이 바뀌는 곳이다. 북마크는 데몬 DB에 남아 브라우저와 Windows 앱이 같은 목록을 본다.</p>
+
+  <div class="fig">
+    <h2>① 지금 화면</h2>
+    <div class="row">
+      <div class="cell"><img class="shot" src="bookmarks-before-side.png" width="260" alt="지금 사이드바: 저장소 아래 master, shell-1~3. shell-1 줄에 연필·휴지통"><span class="hint">사이드바. 줄에 마우스를 올리면 연필·휴지통</span></div>
+      <div class="cell"><img class="shot" src="bookmarks-before-head.png" width="598" alt="지금 표준 카드 머리: shell-1, 실행 중, 확대, 휴지통"><span class="hint">표준 카드 머리</span>
+        <img class="shot" src="bookmarks-before-simple.png" width="260" alt="지금 심플 카드: shell-1, 실행 중, 휴지통" style="margin-top:12px"><span class="hint">심플 카드</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>② 카드 머리 버튼 <span class="tag">표준 · 심플 · 크게 보기</span></h2>
+    <div class="row">
+      <div class="cell"><span class="hint">표준, 꺼짐</span>
+        <div class="card"><div class="card-head"><span class="name">shell-1</span><span class="mark">&gt;_</span><span class="spacer"></span><span class="state">실행 중</span><span class="ib new"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#max"/></svg></span><span class="ib"><svg class="i"><use href="#trash"/></svg></span></div><div class="term">ktadev@host:~/repo$</div></div>
+        <span class="tip">북마크에 더하기</span></div>
+      <div class="cell"><span class="hint">표준, 켜짐</span>
+        <div class="card"><div class="card-head"><span class="name">shell-1</span><span class="mark">&gt;_</span><span class="spacer"></span><span class="state">실행 중</span><span class="ib on new"><svg class="i on"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#max"/></svg></span><span class="ib"><svg class="i"><use href="#trash"/></svg></span></div><div class="term">ktadev@host:~/repo$</div></div>
+        <span class="tip">북마크에서 빼기</span></div>
+    </div>
+    <div class="row">
+      <div class="cell"><span class="hint">심플, 꺼짐</span><div class="card simple"><div class="summary-row"><span class="mark">&gt;_</span><span class="name">shell-1</span><span class="spacer"></span><span class="state">실행 중</span><span class="ib new"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#trash"/></svg></span></div></div></div>
+      <div class="cell"><span class="hint">심플, 켜짐</span><div class="card simple"><div class="summary-row"><span class="mark">&gt;_</span><span class="name">shell-1</span><span class="spacer"></span><span class="state">실행 중</span><span class="ib on new"><svg class="i on"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#trash"/></svg></span></div></div></div>
+      <div class="cell"><span class="hint">크게 보기, 켜짐</span><div class="card"><div class="card-head"><span class="name">shell-1</span><span class="mark">&gt;_</span><span class="spacer"></span><span class="state">실행 중</span><span class="ib on new"><svg class="i on"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#min"/></svg></span></div></div></div>
+    </div>
+    <ul class="note">
+      <li>버튼은 상태 글자 바로 오른쪽, 다른 머리 버튼 왼쪽에 늘 보인다. 꺼지면 빈 책갈피, 켜지면 채운 책갈피다.</li>
+      <li>한 번 누르면 켜고 다시 누르면 끈다. 확인 창은 없다.</li>
+      <li>오른쪽 칸 터미널 머리는 심플 카드와 같은 부품이라 함께 바뀐다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 사이드바 트리 줄 버튼</h2>
+    <div class="row">
+      <div class="cell"><span class="hint">꺼진 노드에 마우스</span>
+        <div class="side"><div class="list">
+          <div class="tree-line"><div class="tree-row" style="--depth:1"><svg class="i chev"><use href="#down"/></svg><svg class="i chev"><use href="#branch"/></svg><span class="name">master</span><span class="tag">원래 체크아웃</span></div></div>
+          <div class="tree-line"><div class="tree-row hover" style="--depth:2"><span class="leaf"></span><span class="dot"></span><span class="name">shell-1</span><span class="sub">터미널</span></div><span class="row-acts"><span class="act new"><svg class="i"><use href="#bm"/></svg></span><span class="act"><svg class="i"><use href="#pen"/></svg></span><span class="act"><svg class="i"><use href="#trash"/></svg></span></span></div>
+          <div class="tree-line"><div class="tree-row" style="--depth:2"><span class="leaf"></span><span class="dot"></span><span class="name">shell-2</span><span class="sub">터미널</span></div></div>
+        </div></div></div>
+      <div class="cell"><span class="hint">켜진 노드에 마우스</span>
+        <div class="side"><div class="list">
+          <div class="tree-line"><div class="tree-row" style="--depth:1"><svg class="i chev"><use href="#down"/></svg><svg class="i chev"><use href="#branch"/></svg><span class="name">master</span><span class="tag">원래 체크아웃</span></div></div>
+          <div class="tree-line"><div class="tree-row hover" style="--depth:2"><span class="leaf"></span><span class="dot"></span><span class="name">shell-1</span><span class="sub">터미널</span></div><span class="row-acts"><span class="act on new"><svg class="i on"><use href="#bm"/></svg></span><span class="act"><svg class="i"><use href="#pen"/></svg></span><span class="act"><svg class="i"><use href="#trash"/></svg></span></span></div>
+          <div class="tree-line"><div class="tree-row" style="--depth:2"><span class="leaf"></span><span class="dot"></span><span class="name">shell-2</span><span class="sub">터미널</span></div></div>
+        </div></div></div>
+    </div>
+    <ul class="note">
+      <li>지금 연필·휴지통처럼 마우스를 올리거나 줄에 포커스가 있을 때만 보인다. 맨 앞에 책갈피를 더한다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>④ 사이드바 북마크 영역 <span class="tag">권장: 「저장소」 위, 접는 절</span></h2>
+    <div class="row">
+      <div class="cell"><span class="hint">북마크 3개, shell-1을 고름</span>
+        <div class="side">
+          <div class="side-top"><span class="find"><svg class="i"><use href="#search"/></svg>노드·워크트리 찾기</span></div>
+          <div class="new" style="margin:4px 6px 0">
+            <div class="side-head" style="padding-left:10px"><h3><svg class="i"><use href="#down"/></svg>북마크</h3><span class="count">3</span></div>
+            <div class="list" style="padding:0 2px">
+              <div class="tree-line"><div class="tree-row" aria-current="true"><span class="dot"></span><span class="name">shell-1</span><span class="sub">repo · master</span></div></div>
+              <div class="tree-line"><div class="tree-row hover"><span class="dot done"></span><span class="name">리뷰어</span><span class="sub">loom · 북마크</span></div><span class="row-acts"><span class="act on"><svg class="i on"><use href="#bm"/></svg></span></span></div>
+              <div class="tree-line"><div class="tree-row"><span class="dot"></span><span class="name">loom 총괄</span><span class="sub">loom · main</span></div></div>
+            </div>
+          </div>
+          <div class="side-head"><h3>저장소</h3><span class="spacer"></span><span class="ib"><svg class="i"><use href="#plus"/></svg></span><span class="ib"><svg class="i"><use href="#updown"/></svg></span></div>
+          <div class="list">
+            <div class="tree-line"><div class="tree-row"><svg class="i chev"><use href="#down"/></svg><span class="name">repo</span><span class="sub">/home/ktadev/repo</span></div></div>
+            <div class="tree-line"><div class="tree-row" style="--depth:1"><svg class="i chev"><use href="#down"/></svg><svg class="i chev"><use href="#branch"/></svg><span class="name">master</span><span class="tag">원래 체크아웃</span></div></div>
+            <div class="tree-line"><div class="tree-row" style="--depth:2" aria-current="true"><span class="leaf"></span><span class="dot"></span><span class="name">shell-1</span><span class="sub">터미널</span></div></div>
+          </div>
+        </div></div>
+      <div class="cell"><span class="hint">북마크 없음</span>
+        <div class="side">
+          <div class="side-top"><span class="find"><svg class="i"><use href="#search"/></svg>노드·워크트리 찾기</span></div>
+          <div class="new" style="margin:4px 6px 0">
+            <div class="side-head" style="padding-left:10px"><h3><svg class="i"><use href="#down"/></svg>북마크</h3></div>
+            <p class="empty" style="padding-left:12px">노드의 <svg class="i"><use href="#bm"/></svg> 버튼으로 더합니다.</p>
+          </div>
+          <div class="side-head"><h3>저장소</h3><span class="spacer"></span><span class="ib"><svg class="i"><use href="#plus"/></svg></span><span class="ib"><svg class="i"><use href="#updown"/></svg></span></div>
+          <div class="list"><div class="tree-line"><div class="tree-row"><svg class="i chev"><use href="#down"/></svg><span class="name">repo</span><span class="sub">/home/ktadev/repo</span></div></div></div>
+        </div></div>
+      <div class="cell"><span class="hint">접음</span>
+        <div class="side">
+          <div class="side-top"><span class="find"><svg class="i"><use href="#search"/></svg>노드·워크트리 찾기</span></div>
+          <div class="new" style="margin:4px 6px 0">
+            <div class="side-head" style="padding-left:10px"><h3><svg class="i"><use href="#right"/></svg>북마크</h3><span class="count">3</span></div>
+          </div>
+          <div class="side-head"><h3>저장소</h3><span class="spacer"></span><span class="ib"><svg class="i"><use href="#plus"/></svg></span><span class="ib"><svg class="i"><use href="#updown"/></svg></span></div>
+          <div class="list"><div class="tree-line"><div class="tree-row"><svg class="i chev"><use href="#down"/></svg><span class="name">repo</span><span class="sub">/home/ktadev/repo</span></div></div></div>
+        </div></div>
+    </div>
+    <ul class="note">
+      <li>줄: 상태 점, 노드 이름, 저장소 · 브랜치. 모든 저장소의 북마크를 북마크한 차례로 보인다.</li>
+      <li>줄을 누르면 트리의 노드 줄을 누를 때와 같다. 노드를 고르고 그래프를 옮긴다. 크게 보기 중이면 그 노드를 크게 본다.</li>
+      <li>줄에 마우스를 올리면 채운 책갈피가 보인다. 누르면 목록에서 뺀다.</li>
+      <li>제목 줄을 누르면 접고 편다. 접은 상태는 이 브라우저에만 남는다. 줄이 많으면 영역 높이를 사이드바의 40%로 두고 안에서 스크롤한다.</li>
+      <li>노드를 지우면 목록에서 바로 빠진다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>항목</th><th>권장안</th><th>다른 안</th></tr>
+      <tr><td>②③ 버튼 자리와 모양</td><td><b>권장</b>: 그림 그대로. 머리에는 늘 보이고, 트리 줄은 마우스를 올릴 때</td><td>—</td></tr>
+      <tr><td>④ 영역 자리</td><td><b>권장</b>: 찾기 칸 아래, 「저장소」 위의 접는 절</td><td>—</td></tr>
+      <tr><td>④ 북마크가 없을 때</td><td><b>권장</b>: 제목과 안내 한 줄을 보인다. 기능을 찾을 수 있다</td><td>영역을 숨긴다. 첫 북마크 때 나타난다</td></tr>
+      <tr><td>④ 줄 차례</td><td><b>권장</b>: 북마크한 차례</td><td>이름 차례</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

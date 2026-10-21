@@ -85,7 +85,7 @@ export function Splitter(props: { pane: Pane; width: number; onWidth: (width: nu
   );
 }
 
-/** 사이드바를 펼쳤는지. 너비처럼 이 브라우저에만 남긴다. 처음에는 펼친다(목업 docs/mockups/toolbar.html E안). */
+/** 칸(사이드바, 오른쪽 칸)이나 절(북마크)을 펼쳤는지. 너비처럼 이 브라우저에만 남긴다. 처음에는 펼친다(목업 docs/mockups/toolbar.html E안). */
 export function usePaneOpen(key: string): [boolean, (open: boolean) => void] {
   const [open, setOpen] = useState(() => {
     try {

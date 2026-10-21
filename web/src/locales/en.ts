@@ -49,6 +49,13 @@ const en = {
     noMatch: 'No matching names',
     clear: 'Clear find',
   },
+  bookmark: {
+    title: 'Bookmarks',
+    add: 'Bookmark',
+    remove: 'Remove bookmark',
+    empty: 'Add nodes with their bookmark button.',
+    label: 'Bookmarked nodes',
+  },
   node: {
     label: 'Node {{name}}',
     unread: 'Unread messages: {{n}}',

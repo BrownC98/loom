@@ -20,6 +20,7 @@ import { HopEdge } from './HopEdge';
 import { arrangeNested, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type NestGroup, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
+import { BookmarkButton } from './BookmarkButton';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
 import { Terminal, type Direction } from './Terminal';
@@ -294,6 +295,7 @@ function Card({ data }: NodeProps<CardNode>) {
         onDoubleClickHead={data.onExpand}
         headAction={
           <>
+            <BookmarkButton view={data.view} />
             {data.sized && (
               <IconButton label={t('node.resetSize')} title={t('node.resetSize')} onClick={data.onResetSize}>
                 <RotateCcw />
@@ -339,7 +341,13 @@ function Card({ data }: NodeProps<CardNode>) {
 function Simple({ data }: NodeProps<SimpleNode>) {
   return (
     <>
-      <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={<RemoveButton onRemove={data.onRemove} />} />
+      <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={
+          <>
+            <BookmarkButton view={data.view} />
+            <RemoveButton onRemove={data.onRemove} />
+          </>
+        }
+      />
       <Ports port={data.port} />
     </>
   );
@@ -472,6 +480,8 @@ export function Graph(props: {
   const { selected, onSelect: setSelected, chosenBox, onChooseBox: setChosenBox } = props;
   const flow = useReactFlow();
   const [expanded, setExpanded] = useState<NodeId | null>(null);
+  // 크게 보는 동안 다른 노드를 고르면(사이드바 줄 클릭 등) 그 노드를 크게 본다. 2026-10-21 사람 지시.
+  const zoomed = expanded !== null && selected !== null && props.views.has(selected) ? selected : expanded;
   // 새 노드 창이나 삭제 경고를 연 묶음(워크트리 경로).
   const [creating, setCreating] = useState<string | null>(null);
   // [새 노드] 버튼의 오른쪽 아래 모서리(묶음 왼쪽 위에서 잰 자리). 창을 그 자리에 오른쪽을 맞춰 띄운다. 묶음을 끌면 함께 움직인다.
@@ -829,7 +839,7 @@ export function Graph(props: {
           },
           onResetSize: () => resetSizes([view.id]),
           parentName: parentName(props.views, view),
-          ownsPty: expanded !== view.id,
+          ownsPty: zoomed !== view.id,
           onExpand: () => {
             setSelected(view.id);
             setExpanded(view.id);
@@ -1158,7 +1168,7 @@ export function Graph(props: {
     adoptNode(Number(target), Number(connection.fromNode.id)).catch((err: Error) => setRefusal(err.message));
   };
 
-  const zoomedView = expanded === null || !standard ? undefined : props.views.get(expanded);
+  const zoomedView = zoomed === null || !standard ? undefined : props.views.get(zoomed);
 
   return (
     <>
@@ -1274,9 +1284,12 @@ export function Graph(props: {
             onNavigate={() => {}}
             onDoubleClickHead={() => setExpanded(null)}
             headAction={
-              <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
-                <Minimize2 />
-              </IconButton>
+              <>
+                <BookmarkButton view={zoomedView} />
+                <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
+                  <Minimize2 />
+                </IconButton>
+              </>
             }
           >
             <Terminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />

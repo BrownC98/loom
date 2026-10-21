@@ -54,7 +54,6 @@ const REPO_INSET = { top: REPO_HEAD + REPO_SIDE, side: REPO_SIDE };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
 
-/** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
 /**
  * 그래프 위 팝오버. `at`(흐름 좌표)에 팝오버 오른쪽 끝을 맞춘다.
  * 그러면 팝오버가 그래프 칸 왼쪽 끝을 넘을 때 넘는 만큼 오른쪽으로 민다. 확대·이동할 때마다 다시 잰다.
@@ -81,6 +80,7 @@ function PopAt(props: { at: XYPosition; children: ReactNode }) {
   );
 }
 
+/** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
 function IconButton(props: { label: string; title: string; children: ReactNode; onClick: () => void }) {
   return (
     <button type="button" className="btn ghost sm icon nodrag" aria-label={props.label} title={props.title} onClick={props.onClick}>

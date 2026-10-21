@@ -86,6 +86,7 @@ const EMPTY_SETTINGS: SettingsView = {
   cardView: 'standard',
   graphScope: 'repo',
   edgeStyle: 'step',
+  questionPill: 'line',
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
   // 설정을 받기 전 자리값이다. 기본값의 원천은 Rust `TreeLimits::default`다.
@@ -537,7 +538,7 @@ export function App() {
           )}
           <main className="canvas" aria-label={title === null ? t('app.allGraphLabel') : t('app.graphLabel', { repo: title })}>
             {title !== null && <h1 className="canvas-title">{title}</h1>}
-            <Inbox waiting={waiting} notify={settings.osNotify} onSelect={selectNode} />
+            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} onSelect={selectNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               viewVersion={viewVersion}

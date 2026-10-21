@@ -330,6 +330,12 @@ const en = {
     all: 'All repositories',
     hint: 'With “All repositories”, the graph shows every added repository. Clicking a sidebar row moves the view there.',
   },
+  questionPill: {
+    heading: 'Question pill',
+    line: 'One line',
+    answer: 'Answer here',
+    hint: '“Answer here” shows the oldest question and its answer box in the pill. With “One line”, open the list to answer.',
+  },
   edgeStyle: {
     heading: 'Edge style',
     step: 'Step',

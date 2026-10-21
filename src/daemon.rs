@@ -4,6 +4,7 @@
 mod idle;
 mod origin;
 mod settings;
+mod switch;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -28,7 +29,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 use ts_rs::TS;
 
-use crate::accounts::Accounts;
+use crate::accounts::{AccountId, Accounts};
 use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
@@ -72,6 +73,8 @@ struct App {
     setups: Mutex<HashSet<NodeId>>,
     /// 쉬는 Claude 노드마다 메시지를 기다리는 비동기 훅 하나.
     idle: idle::IdleWaits,
+    /// 계정 전환으로 옮기는 중이거나 턴 끝에 옮길 노드.
+    switch: switch::Switches,
     /// 노드 에이전트가 쓰는 내장 스킬. 데몬이 시작할 때 데이터 폴더에 푼다.
     plugin: skills::Plugin,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
@@ -298,6 +301,19 @@ pub struct WaitRequest {
 pub struct TakeRequest {
     pub kinds: Vec<Kind>,
     pub limit_bytes: usize,
+    /// 훅 입력의 `transcript_path`(Claude 세션 기록 파일). 계정 전환이 쓴다. 옛 `loom hook`은 보내지 않는다.
+    #[serde(default)]
+    pub transcript: Option<String>,
+}
+
+/// 쉬는 Claude 노드의 비동기 훅 요청(`loom hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IdleRequest {
+    /// 훅 입력의 `transcript_path`. 계정 전환이 쓴다.
+    pub transcript: Option<String>,
+    /// 계정 한도로 턴이 끝났다(`StopFailure`의 `rate_limit`).
+    pub rate_limited: bool,
 }
 
 /// `loom guard`의 요청. `caller`는 `loom guard` 프로세스의 PID다. 끝낼 셸은 데몬이 그 조상에서 고른다.
@@ -384,6 +400,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         opencode2: Mutex::default(),
         setups: Mutex::default(),
         idle: idle::IdleWaits::default(),
+        switch: switch::Switches::default(),
         plugin: skills::Plugin::install(db_path.with_file_name("plugin"))?,
         version_warnings: profile::version_warnings(codex_version.as_deref()),
         codex_config: match (&codex_version, &node_door) {
@@ -398,6 +415,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         path: node_path()?,
     });
     app.resume().await.map_err(std::io::Error::other)?;
+    tokio::spawn(app.clone().auto_switch_loop());
     // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
     let node_routes = Router::new()
         .route("/api/agent/send", post(agent_send))
@@ -447,6 +465,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/events", get(events))
         .route("/api/events/log", get(event_log))
         .merge(settings::routes())
+        .merge(switch::routes())
         .fallback(asset)
         .layer(axum::middleware::from_fn(origin::same_site))
         .with_state(app.clone());
@@ -740,6 +759,7 @@ impl App {
             cmd,
             setup,
             token,
+            account,
             profile,
             codex,
             opencode2,
@@ -753,7 +773,11 @@ impl App {
         self.host
             .spawn(id, cmd, setup, self.on_title(id, profile), on_exit)?;
         self.follow_servers(id, codex, opencode2);
-        Ok(Launched { token, server })
+        Ok(Launched {
+            token,
+            server,
+            account,
+        })
     }
 
     /// 앞 데몬이 띄운 `running` 노드의 PTY 호스트와 서버에 다시 붙는다. 데몬이 시작할 때 한 번 부른다.
@@ -830,6 +854,10 @@ impl App {
         let discard = discarder(codex, opencode2);
         move |exit| {
             discard();
+            // 계정 전환이 끝낸 프로세스다. 노드는 새 프로세스로 산다.
+            if app.switch.exited(id) {
+                return;
+            }
             app.codex.lock().unwrap().remove(&id);
             app.opencode2.lock().unwrap().remove(&id);
             let setup = app.setups.lock().unwrap().remove(&id);
@@ -859,6 +887,12 @@ impl App {
     ) {
         if let Some(server) = codex {
             self.codex.lock().unwrap().insert(id, server.clone());
+            let (app, mut limited) = (self.clone(), server.limited());
+            tokio::spawn(async move {
+                while limited.changed().await.is_ok() {
+                    app.rate_limited(id, profile::Provider::Codex);
+                }
+            });
             tokio::spawn(follow_codex_model(self.graph.clone(), id, server.clone()));
             tokio::spawn(deliver_to_codex(self.clone(), id, server));
         }
@@ -969,6 +1003,7 @@ impl App {
             cmd,
             setup: None,
             token,
+            account: account.cloned(),
             profile,
             codex,
             opencode2,
@@ -993,6 +1028,8 @@ struct Prepared {
     setup: Option<portable_pty::CommandBuilder>,
     /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
     token: String,
+    /// 노드가 쓰는 Claude·Codex 계정. 그래프가 노드와 함께 남긴다.
+    account: Option<AccountId>,
     /// 터미널 제목에서 카드 주제를 꺼내는 프로필. 없으면 제목을 쓰지 않는다.
     profile: Option<Profile>,
     codex: Option<Arc<CodexServer>>,
@@ -1220,6 +1257,7 @@ async fn agent_spawn(
                 agent,
                 brief: req.brief,
                 choice: req.choice,
+                resume: None,
             },
             String::new(),
         ),
@@ -1355,6 +1393,7 @@ async fn agent_take(
     let node = app.caller(&headers)?;
     // 훅이 불렸으면 턴이 돈다. 일하는 중의 메시지는 그 훅들이 넘긴다.
     app.idle.end(node);
+    keep_transcript(&app, node, req.transcript.as_deref())?;
     let taken = app.graph.take(node, &req.kinds, req.limit_bytes);
     Ok(Json(taken.map_err(for_agent)?))
 }
@@ -1364,14 +1403,21 @@ async fn agent_take(
 async fn agent_idle(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
+    Json(req): Json<Option<IdleRequest>>,
 ) -> Result<Json<Vec<Delivery>>, AgentError> {
     let node = app.caller(&headers)?;
+    let req = req.unwrap_or_default();
+    keep_transcript(&app, node, req.transcript.as_deref())?;
     // 프로세스 종료를 보기 전에 연다. 그 사이에 끝나면 `on_exit`가 이 대기를 끝낸다.
     let end = app.idle.open(node);
     if !app.graph.relations(node).map_err(for_agent)?.me.alive {
         app.idle.end(node);
         return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
     }
+    if req.rate_limited {
+        app.rate_limited(node, profile::Provider::Claude);
+    }
+    app.turn_ended(node);
     tokio::select! {
         taken = app.graph.next(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => Ok(Json(taken.map_err(for_agent)?)),
         () = end.notified() => Ok(Json(Vec::new())),
@@ -1409,6 +1455,17 @@ async fn agent_model(
         .set_model(node, &model)
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))
+}
+
+/// 훅 입력의 Claude 세션 기록 파일을 남긴다. 계정 전환이 그 파일을 새 계정으로 복사한다. 근거: docs/design.md 「계정 전환」.
+fn keep_transcript(app: &App, node: NodeId, path: Option<&str>) -> Result<(), AgentError> {
+    match path {
+        Some(path) => app
+            .graph
+            .set_transcript(node, path)
+            .map_err(|e| for_agent(Refusal::from(e))),
+        None => Ok(()),
+    }
 }
 
 async fn agent_wait(

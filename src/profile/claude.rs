@@ -93,6 +93,8 @@ pub fn args(plugin: &Path, position: Position) -> Vec<String> {
             "PostToolUse": hook,
             "PostToolUseFailure": hook,
             "Stop": idle,
+            // API 오류(한도 포함)로 끝난 턴은 `Stop` 대신 이 훅을 부른다. 없으면 그 노드가 다시 깨지 않는다.
+            "StopFailure": idle,
         },
     });
     vec![
@@ -121,7 +123,15 @@ pub enum Event {
     PostToolUse,
     PostToolUseFailure,
     Stop,
+    /// API 오류로 턴이 끝났다. `error`는 `rate_limit`, `overloaded`, `authentication_failed` 같은 값이다.
+    StopFailure {
+        #[serde(default)]
+        error: String,
+    },
 }
+
+/// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
+const RATE_LIMIT_ERROR: &str = "rate_limit";
 
 /// 훅이 메시지를 꺼내는 때.
 #[derive(Debug, PartialEq)]
@@ -136,12 +146,17 @@ impl Event {
     /// 이 지점에서 꺼내는 방법. 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 어느 훅이 불렸는지가 그 상태다.
     pub fn take(&self) -> Take {
         match self {
-            Event::SessionStart { .. } | Event::Stop => Take::WhenIdle,
+            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::WhenIdle,
             // 쉬는 중이던 노드의 다음 턴: 모두 넘긴다.
             Event::UserPromptSubmit => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(&[Kind::Steer]),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
         }
+    }
+
+    /// 계정 한도로 턴이 끝났다. 계정 전환이 쓴다.
+    pub fn rate_limited(&self) -> bool {
+        matches!(self, Event::StopFailure { error } if error == RATE_LIMIT_ERROR)
     }
 
     /// 훅 출력 JSON. 없으면 아무것도 출력하지 않는다.
@@ -163,7 +178,7 @@ impl Event {
         let text = super::message_text(taken);
         match self {
             // 비동기 훅은 JSON을 읽지 않는다. 본문은 stderr로 넘긴다(`cli::hook`).
-            Event::SessionStart { .. } | Event::Stop => None,
+            Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => None,
             Event::PreToolUse { .. } => Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
@@ -179,7 +194,7 @@ impl Event {
 /// 훅 입력이 알리는 모델과 추론 강도. 알리지 않는 훅이면 없다.
 /// 세션 시작은 입력의 `model`을, 그 뒤 훅은 기록 파일의 마지막 응답을 쓴다. 훅 입력에는 `/model`로 바꾼 모델이 없다(실측).
 pub fn reported_model(event: &Event, input: &Value) -> Option<Model> {
-    if let Event::SessionStart { model } = event {
+    if let Event::SessionStart { model, .. } = event {
         return Some(Model {
             model: model.clone(),
             effort: None,
@@ -365,6 +380,17 @@ mod tests {
         );
     }
 
+    /// 입력 모양은 2.1.306 실측이다. 한도가 아닌 API 오류는 한도 멈춤이 아니다.
+    #[test]
+    fn stop_failure_waits_for_mail_and_tells_a_rate_limit() {
+        let limited = event(json!({ "hook_event_name": "StopFailure", "error": "rate_limit" }));
+        assert_eq!(limited.take(), Take::WhenIdle);
+        assert!(limited.rate_limited());
+        let overloaded = event(json!({ "hook_event_name": "StopFailure", "error": "overloaded" }));
+        assert!(!overloaded.rate_limited());
+        assert!(!event(json!({ "hook_event_name": "Stop" })).rate_limited());
+    }
+
     /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
     #[test]
     fn transcript_gives_the_last_main_chain_reply() {
@@ -409,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_register_the_six_hooks_and_allow_messaging_but_not_spawn() {
+    fn settings_register_the_seven_hooks_and_allow_messaging_but_not_spawn() {
         let args = args(Path::new("/p"), Position::Root);
         assert_eq!(args[2], "--settings");
         assert_eq!(args[4..], ["--plugin-dir", "/p"]);
@@ -424,6 +450,7 @@ mod tests {
                 "PreToolUse",
                 "SessionStart",
                 "Stop",
+                "StopFailure",
                 "UserPromptSubmit"
             ]
         );
@@ -431,6 +458,7 @@ mod tests {
         for (name, idle) in [
             ("SessionStart", true),
             ("Stop", true),
+            ("StopFailure", true),
             ("UserPromptSubmit", false),
             ("PreToolUse", false),
         ] {

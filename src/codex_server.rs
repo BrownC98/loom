@@ -50,6 +50,8 @@ pub struct CodexServer {
     thread: watch::Receiver<Option<Thread>>,
     /// `reconnect`가 읽은 스레드 상태를 넣는 길.
     thread_tx: Weak<watch::Sender<Option<Thread>>>,
+    /// 계정 한도로 턴이 끝날 때마다 하나씩 는다(`error` 알림의 `usageLimitExceeded`). 계정 전환이 본다.
+    limited: watch::Receiver<u64>,
 }
 
 impl CodexServer {
@@ -116,28 +118,46 @@ impl CodexServer {
     ) -> Result<Self, String> {
         let server = Self::connect(url, pid).await?;
         if let Some(id) = thread {
-            let status = server
-                .read_status(&id)
-                .await
-                .inspect_err(|e| eprintln!("loom: Codex 스레드 {id}의 상태를 읽지 못했다: {e}"))
-                .unwrap_or(Status::Idle);
-            if let Some(tx) = server.thread_tx.upgrade() {
-                tx.send_replace(Some(Thread { id, status }));
-            }
+            server.follow_thread(id).await;
         }
         Ok(server)
     }
 
+    /// 이 서버가 만들지 않은 스레드(다시 붙기, 계정 전환으로 이어 간 스레드)를 노드 스레드로 둔다. 상태를 읽어 둔다.
+    /// 상태를 읽지 못하면 쉬는 중으로 둔다. 다음 `thread/status/changed`가 고친다.
+    pub async fn follow_thread(&self, id: String) {
+        let status = self
+            .read_status(&id)
+            .await
+            .inspect_err(|e| eprintln!("loom: Codex 스레드 {id}의 상태를 읽지 못했다: {e}"))
+            .unwrap_or(Status::Idle);
+        if let Some(tx) = self.thread_tx.upgrade() {
+            tx.send_replace(Some(Thread { id, status }));
+        }
+    }
+
+    /// 스레드 기록 파일(rollout)의 경로. 계정 전환이 새 `CODEX_HOME`으로 복사한다.
+    pub async fn rollout(&self, thread: &str) -> Result<Option<String>, String> {
+        Ok(self.read(thread).await?.thread.path)
+    }
+
+    /// 계정 한도로 끝난 턴의 수. 값이 바뀌면 한도에 닿았다.
+    pub fn limited(&self) -> watch::Receiver<u64> {
+        self.limited.clone()
+    }
+
     async fn read_status(&self, thread: &str) -> Result<Status, String> {
+        Ok(status(&self.read(thread).await?.thread.status))
+    }
+
+    async fn read(&self, thread: &str) -> Result<ThreadReadResponse, String> {
         let params = ThreadReadParams {
             thread_id: thread.to_owned(),
             include_turns: Some(false),
         };
         let params = serde_json::to_value(params).map_err(|e| e.to_string())?;
         let read = self.call("thread/read", params).await?;
-        let read: ThreadReadResponse =
-            serde_json::from_value(read).map_err(|e| format!("thread/read: {e}"))?;
-        Ok(status(&read.thread.status))
+        serde_json::from_value(read).map_err(|e| format!("thread/read: {e}"))
     }
 
     /// 다시 붙는 데 쓰는 값. DB에 남긴다.
@@ -172,12 +192,16 @@ impl CodexServer {
         // 받는 작업이 유일한 강한 참조다. 연결이 끊겨 작업이 끝나면 송신자가 사라져 구독자도 끝난다.
         let thread_tx = Arc::new(thread_tx);
         let weak_tx = Arc::downgrade(&thread_tx);
+        let (limited_tx, limited) = watch::channel(0);
         let replies = pending.clone();
         tokio::spawn(async move {
             while let Some(Ok(msg)) = stream.next().await {
                 if let Message::Text(text) = msg
                     && let Ok(value) = serde_json::from_str::<Value>(&text)
                 {
+                    if is_usage_limit(&value) {
+                        limited_tx.send_modify(|n| *n += 1);
+                    }
                     receive(value, &replies, &thread_tx);
                 }
             }
@@ -194,6 +218,7 @@ impl CodexServer {
             next_id: AtomicU64::new(0),
             thread,
             thread_tx: weak_tx,
+            limited,
         };
         let init =
             json!({ "clientInfo": { "name": "loom", "version": env!("CARGO_PKG_VERSION") } });
@@ -300,6 +325,14 @@ fn receive(msg: Value, pending: &Pending, thread: &watch::Sender<Option<Thread>>
         }
         _ => {}
     }
+}
+
+/// 계정 한도로 턴이 끝났다는 `error` 알림(`codexErrorInfo: "usageLimitExceeded"`, 0.159.2 스키마 `ErrorNotification`).
+/// 다시 시도하는 오류(`willRetry`)는 턴을 끝내지 않는다.
+fn is_usage_limit(msg: &Value) -> bool {
+    msg["method"] == "error"
+        && msg["params"]["willRetry"] != true
+        && msg["params"]["error"]["codexErrorInfo"] == "usageLimitExceeded"
 }
 
 fn status(status: &ThreadStatus) -> Status {

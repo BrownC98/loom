@@ -144,17 +144,83 @@ const CLAUDE_ONBOARDED: &str = "hasCompletedOnboarding";
 /// Claude 2.1.228은 이 값이 없으면 로그인한 폴더에서도 첫 실행에 로그인 방법을 다시 묻는다. 2.1.305는 묻지 않는다(2026-10-21 실측).
 /// 값이 이미 있으면 쓰지 않는다. 그 폴더로 도는 노드가 쓰는 파일을 덮지 않기 위해서다.
 fn mark_claude_onboarded(dir: &Path) -> io::Result<()> {
-    let path = dir.join(".claude.json");
-    let mut config: serde_json::Map<String, serde_json::Value> = match std::fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => serde_json::Map::new(),
-        Err(e) => return Err(e),
+    update_json(&dir.join(".claude.json"), |config| {
+        config.insert(CLAUDE_ONBOARDED.into(), true.into()) != Some(true.into())
+    })
+}
+
+/// 옛 Claude 로그인 폴더에서 사람이 이미 받아들인 확인을 loom 계정 폴더 `to`로 옮긴다: `cwd` 폴더 신뢰와 모든 권한 허용 경고.
+/// 계정 전환으로 다시 띄운 노드가 사람 없이 그 확인 창에서 멈추지 않게 한다(2.1.306 실측: 새 계정 폴더는 두 창을 다시 보인다).
+/// `from`이 `None`이면 시스템 기본(`~/.claude.json`, `~/.claude/settings.json`)에서 읽는다. 시스템 기본에는 쓰지 않는다.
+/// 옛 폴더에 없는 값은 옮기지 않는다. 새 폴더에 이미 있으면 쓰지 않는다.
+pub fn carry_claude_consent(from: Option<&Path>, to: &Path, cwd: &Path) -> io::Result<()> {
+    let home = std::env::home_dir().unwrap_or_default();
+    let (config, settings) = match from {
+        Some(dir) => (dir.join(".claude.json"), dir.join("settings.json")),
+        None => (
+            home.join(".claude.json"),
+            home.join(".claude/settings.json"),
+        ),
     };
-    if config.get(CLAUDE_ONBOARDED) == Some(&serde_json::Value::Bool(true)) {
-        return Ok(());
+    let cwd = cwd.to_string_lossy();
+    let trusted = read_json(&config)?.and_then(|c| {
+        c.get("projects")?
+            .get(cwd.as_ref())?
+            .get(CLAUDE_TRUSTED)
+            .cloned()
+    }) == Some(true.into());
+    if trusted {
+        update_json(&to.join(".claude.json"), |config| {
+            let projects = config
+                .entry("projects")
+                .or_insert_with(|| serde_json::json!({}));
+            let Some(project) = projects.as_object_mut().map(|p| {
+                p.entry(cwd.as_ref())
+                    .or_insert_with(|| serde_json::json!({}))
+            }) else {
+                return false;
+            };
+            if project[CLAUDE_TRUSTED] == true {
+                return false;
+            }
+            project[CLAUDE_TRUSTED] = true.into();
+            true
+        })?;
     }
-    config.insert(CLAUDE_ONBOARDED.into(), true.into());
-    std::fs::write(&path, serde_json::to_vec_pretty(&config)?)
+    let bypass = read_json(&settings)?.and_then(|c| c.get(CLAUDE_BYPASS_ACCEPTED).cloned())
+        == Some(true.into());
+    if bypass {
+        update_json(&to.join("settings.json"), |settings| {
+            settings.insert(CLAUDE_BYPASS_ACCEPTED.into(), true.into()) != Some(true.into())
+        })?;
+    }
+    Ok(())
+}
+
+/// `.claude.json`의 폴더별 신뢰 키와 `settings.json`의 모든 권한 허용 경고를 받아들였다는 키(2.1.306).
+const CLAUDE_TRUSTED: &str = "hasTrustDialogAccepted";
+const CLAUDE_BYPASS_ACCEPTED: &str = "skipDangerousModePermissionPrompt";
+
+fn read_json(path: &Path) -> io::Result<Option<serde_json::Map<String, serde_json::Value>>> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(io::Error::other),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// JSON 객체 파일을 읽어 `change`로 고친다. `change`가 거짓이면 쓰지 않는다. 파일이 없으면 빈 객체에서 시작한다.
+fn update_json(
+    path: &Path,
+    change: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> bool,
+) -> io::Result<()> {
+    let mut config = read_json(path)?.unwrap_or_default();
+    if change(&mut config) {
+        std::fs::write(path, serde_json::to_vec_pretty(&config)?)?;
+    }
+    Ok(())
 }
 
 /// CLI가 로그인 폴더를 고르는 환경 변수.
@@ -210,6 +276,38 @@ mod tests {
         );
         let dir = accounts.config_dir(Provider::Codex, Some(&codex)).unwrap();
         assert!(!dir.join(".claude.json").exists());
+    }
+
+    #[test]
+    fn consent_moves_only_what_the_old_folder_accepted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (old, new) = (tmp.path().join("old"), tmp.path().join("new"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(
+            old.join(".claude.json"),
+            r#"{"projects":{"/w":{"hasTrustDialogAccepted":true},"/x":{"hasTrustDialogAccepted":false}}}"#,
+        )
+        .unwrap();
+        std::fs::write(new.join(".claude.json"), r#"{"oauthAccount":{"a":1}}"#).unwrap();
+        carry_claude_consent(Some(&old), &new, Path::new("/w")).unwrap();
+        carry_claude_consent(Some(&old), &new, Path::new("/x")).unwrap();
+        let config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(new.join(".claude.json")).unwrap()).unwrap();
+        assert_eq!(config["projects"]["/w"]["hasTrustDialogAccepted"], true);
+        assert!(config["projects"].get("/x").is_none());
+        assert_eq!(config["oauthAccount"]["a"], 1);
+        // 옛 폴더가 경고를 받아들이지 않았으면 옮기지 않는다.
+        assert!(!new.join("settings.json").exists());
+        std::fs::write(
+            old.join("settings.json"),
+            r#"{"skipDangerousModePermissionPrompt":true}"#,
+        )
+        .unwrap();
+        carry_claude_consent(Some(&old), &new, Path::new("/w")).unwrap();
+        let settings: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(new.join("settings.json")).unwrap()).unwrap();
+        assert_eq!(settings["skipDangerousModePermissionPrompt"], true);
     }
 
     #[test]

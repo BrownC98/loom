@@ -69,6 +69,27 @@ pub fn server_args(position: Position) -> Vec<String> {
     vec!["-c".into(), format!("developer_instructions={usage}")]
 }
 
+/// 계정 전환으로 새 서버에서 이어 갈 스레드를 TUI보다 먼저 연다(`thread/resume`). 권한은 처음 띄울 때 TUI가 쓴 값과 같게 둔다.
+/// `codex resume --remote`는 권한 인자를 받지 않고, 신뢰하지 않은 폴더에서는 `read-only`로 이었다(0.159.2 실측).
+/// `bypass`는 모든 권한 허용 인자로 띄운 노드다. 아니면 Codex TUI 기본(`workspace-write`, `on-request`)이다.
+pub async fn resume<F, Fut>(call: F, thread: &str, bypass: bool) -> Result<(), String>
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: Future<Output = Result<Value, String>>,
+{
+    let (sandbox, approval) = match bypass {
+        true => ("danger-full-access", "never"),
+        false => ("workspace-write", "on-request"),
+    };
+    let params = serde_json::json!({
+        "threadId": thread,
+        "sandbox": sandbox,
+        "approvalPolicy": approval,
+        "excludeTurns": true,
+    });
+    call("thread/resume", params).await.map(drop)
+}
+
 /// `codex app-server`의 `workspace-write` 샌드박스에 `daemon` 주소로 가는 길 하나만 연다.
 /// 네트워크를 켜면 셸 명령은 Codex 프록시로만 밖에 닿고, 프록시는 `daemon` 말고 모든 주소를 막는다.
 /// 권한 프로필(`default_permissions`)은 쓰지 않는다. TUI가 `thread/start`에 `sandbox`를 넣어 덮는다.

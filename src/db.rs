@@ -140,6 +140,9 @@ const STEPS: &[M] = &[
             DELETE FROM arranged_repos WHERE repo = OLD.id;
         END;",
     ),
+    // 18: 계정 전환(graph). `account`는 노드를 띄운 계정(serde JSON `AccountId`)이고 시스템 기본·옛 노드는 NULL이다.
+    // `transcript`는 Claude 노드 세션의 기록 파일 경로다. 세션을 시작하기 전과 다른 프로필은 NULL이다.
+    M::up("ALTER TABLE nodes ADD COLUMN account TEXT; ALTER TABLE nodes ADD COLUMN transcript TEXT;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

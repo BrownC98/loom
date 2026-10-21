@@ -1,5 +1,5 @@
 import { Plus, RotateCw } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { closeLogin, getLogin, loginPty, logoutSystem, removeAccount, startLogin } from './api';
 import { canBypass } from './catalog';
@@ -11,38 +11,17 @@ import type { LoginTarget } from './gen/LoginTarget';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Usage } from './StatusBar';
+import { Modal } from './Modal';
 import { Terminal } from './Terminal';
 import { TerminalTab, UiTab } from './ThemeSettings';
 import { WorkspaceTab } from './WorkspaceSettings';
-import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines, withAccount } from './usage';
+import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
 
 /** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
 export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 /** 로그인 창이 로그인이 끝났는지 묻는 간격. */
 const LOGIN_POLL_MS = 1000;
-
-/** 화면 최상층에 띄운 창(`<dialog>`). Esc와 포커스 가두기는 브라우저가 한다. */
-function Modal(props: { className: string; label: string; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const onClose = useRef(props.onClose);
-  onClose.current = props.onClose;
-  useEffect(() => {
-    const dialog = ref.current!;
-    dialog.showModal();
-    const close = (e: Event) => {
-      e.preventDefault();
-      onClose.current();
-    };
-    dialog.addEventListener('cancel', close);
-    return () => dialog.removeEventListener('cancel', close);
-  }, []);
-  return (
-    <dialog ref={ref} className={props.className} aria-label={props.label}>
-      {props.children}
-    </dialog>
-  );
-}
 
 /** 설정 창(목업 3·4·6번). 열린 탭은 URL 해시(`#settings/agents`)가 갖는다. */
 export function Settings(props: {
@@ -54,6 +33,7 @@ export function Settings(props: {
   settings: SettingsView;
   onSettings: (next: SettingsView) => void;
   usage: Usage;
+  onChoose: (provider: Provider, id: AccountId | null) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -75,7 +55,7 @@ export function Settings(props: {
           </button>
         </div>
         {props.tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
-        {props.tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} />}
+        {props.tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
         {props.tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
         {props.tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
@@ -208,7 +188,7 @@ function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; o
 
 type OpenLogin = { target: LoginTarget; id: LoginId; title: string };
 
-function AccountsTab(props: { settings: SettingsView; onSettings: (next: SettingsView) => void; usage: Usage }) {
+function AccountsTab(props: { settings: SettingsView; onSettings: (next: SettingsView) => void; usage: Usage; onChoose: (provider: Provider, id: AccountId | null) => void }) {
   const { t } = useTranslation();
   const { settings, usage } = props;
   const [login, setLogin] = useState<OpenLogin | null>(null);
@@ -246,6 +226,13 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
           {error}
         </p>
       )}
+      <div className="auto-switch">
+        <label className="switch">
+          <input type="checkbox" checked={settings.autoSwitch} onChange={(e) => props.onSettings({ ...settings, autoSwitch: e.target.checked })} />
+          {t('accounts.autoSwitch')}
+        </label>
+        <span className="hint">{t('accounts.autoSwitchHint')}</span>
+      </div>
       {usage.accounts === null && <p className="hint">{t('accounts.loading')}</p>}
       {usage.accounts &&
         PROVIDERS.map((provider) => {
@@ -291,7 +278,7 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
                       <span className="win">{needsLogin ? <span className="hint">{t('statusBar.loginToSee')}</span> : problem ? <span className="hint">{problem}</span> : <WindowLines limits={a.usage.limits} />}</span>
                       <span className="row-actions">
                         {!current && !needsLogin && !absent && (
-                          <button className="btn sm" onClick={() => props.onSettings(withAccount(settings, provider, a.id))}>
+                          <button className="btn sm" onClick={() => props.onChoose(provider, a.id)}>
                             {t('accounts.use')}
                           </button>
                         )}

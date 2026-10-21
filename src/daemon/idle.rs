@@ -25,6 +25,11 @@ impl IdleWaits {
         end
     }
 
+    /// 노드가 쉬며 메시지를 기다린다. 턴 중이면 거짓이다.
+    pub fn is_open(&self, node: NodeId) -> bool {
+        self.ends.lock().unwrap().contains_key(&node)
+    }
+
     /// 노드가 턴을 시작했거나 프로세스가 끝났다. 그 노드의 대기를 끝낸다.
     pub fn end(&self, node: NodeId) {
         if let Some(old) = self.ends.lock().unwrap().remove(&node) {

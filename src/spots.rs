@@ -12,7 +12,7 @@ use crate::graph::NodeId;
 use crate::worktree::RepoId;
 
 /// 자리를 가진 상자. 자리의 기준은 상자마다 다르다.
-/// 저장소 상자는 그래프 좌표, 묶음은 저장소 상자 안 좌표, 카드는 묶음 안 좌표다. 그래서 상자를 옮겨도 안의 자리는 그대로다.
+/// 저장소 상자는 그래프 좌표, 맨 위 묶음은 저장소 상자 안 좌표, 자식 묶음과 카드는 묶음 안 좌표다. 그래서 상자를 옮겨도 안의 자리는 그대로다.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -377,5 +377,55 @@ mod trigger_tests {
                 at: Point { x: 0.0, y: 0.0 }
             }]
         );
+    }
+
+    /// 자식 워크트리 묶음 자리는 부모 묶음 안 좌표다. 다른 워크트리 부모를 가진 노드가 생기거나 부모가 바뀌면 바깥 상자가 바뀌므로 그 묶음 자리를 지운다.
+    #[test]
+    fn a_new_cross_worktree_parent_or_adoption_removes_the_worktree_spot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&tmp.path().join("t.db")).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO repos (id, path) VALUES (1, '/a');
+            INSERT INTO nodes (id, name, agent, state, repo, worktree) VALUES (1, 'main', 'null', '{}', 1, '/a');"#,
+        )
+        .unwrap();
+        let spots = Spots::new(conn);
+        let worktree = |path: &str| Spot::Worktree {
+            repo: RepoId(1),
+            path: path.into(),
+        };
+        let put = |spot| {
+            spots
+                .put(&[Placed {
+                    spot,
+                    at: Point { x: 5.0, y: 5.0 },
+                }])
+                .unwrap()
+        };
+        let kept = || {
+            spots
+                .list()
+                .unwrap()
+                .into_iter()
+                .map(|p| p.spot)
+                .collect::<Vec<_>>()
+        };
+        let db = |sql: &str| spots.db.lock().unwrap().execute(sql, []).unwrap();
+        put(worktree("/a"));
+        put(worktree("/w"));
+        // 같은 워크트리 부모: 바깥 상자가 그대로다.
+        db(
+            "INSERT INTO nodes (id, name, agent, parent, state, repo, worktree) VALUES (2, 'w', 'null', 1, '{}', 1, '/a')",
+        );
+        assert_eq!(kept(), [worktree("/a"), worktree("/w")]);
+        // 다른 워크트리 부모: /w 묶음이 main 카드의 묶음 안으로 간다.
+        db(
+            "INSERT INTO nodes (id, name, agent, parent, state, repo, worktree) VALUES (3, 'c', 'null', 1, '{}', 1, '/w')",
+        );
+        assert_eq!(kept(), [worktree("/a")]);
+        // 부모 노드를 지우면 자식은 뿌리가 되고 그 묶음 자리를 지운다.
+        put(worktree("/w"));
+        db("UPDATE nodes SET parent = NULL WHERE parent = 1");
+        assert_eq!(kept(), []);
     }
 }

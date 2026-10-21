@@ -220,14 +220,14 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
 목업 [account-switch.html](mockups/account-switch.html) v2(2026-10-21 사람 승인). 코드는 [src/daemon/switch.rs](../src/daemon/switch.rs)에 있다.
 
 - 노드는 띄운 계정을 그래프에 남긴다(`nodes.account`, 시스템 기본은 NULL). Claude 노드는 세션 기록 파일 경로도 남긴다(`nodes.transcript`). `loom hook`이 `SessionStart` 입력의 `transcript_path`를 알린다(`/api/agent/report`). 세션 id는 그 파일 이름이다.
-- `GET /api/accounts/{provider}/nodes`는 옮길 노드를 준다. 그 공급자의 실행 중인 노드 가운데 설정의 계정과 다른 계정으로 띄운 노드다. `busy`는 턴 중이라는 뜻이다. Claude는 쉬는 대기(`agent_idle`)가 없으면, Codex는 스레드가 일하는 중이면 턴 중이다.
+- `GET /api/accounts/{provider}/nodes?to=<계정 id>`는 옮길 노드를 준다. 그 공급자의 실행 중인 노드 가운데 `to`와 다른 계정으로 띄운 노드다. `to`가 없으면 시스템 기본이다. 화면은 설정을 저장하기 전에 확인 창 목록을 읽는다. `busy`는 턴 중이라는 뜻이다. Claude는 쉬는 대기(`agent_idle`)가 없으면, Codex는 스레드가 일하는 중이면 턴 중이다.
 - `POST /api/accounts/{provider}/move`는 그 노드를 모두 설정의 계정으로 옮긴다. 화면이 설정을 먼저 저장한다. 결과(`moved`, `later`, `failed`)를 이벤트 기록 `accountSwitched` 한 줄로도 남긴다. `from`은 옮길 노드가 가장 많이 쓰던 계정이다. 같은 수면 번호가 작은 노드의 계정이다.
 - 옮기기는 노드 프로세스를 새 계정으로 다시 띄우고 같은 세션을 잇는 일이다. 노드 번호, 이름, 카드, 부모와 자식, 메일함은 그대로다. 토큰은 새로 받는다. 옛 프로세스의 남은 훅이 노드 대신 데몬을 부르지 못하게 하기 위해서다.
   1. 세션 기록을 새 로그인 폴더의 같은 상대 경로로 복사한다. Claude는 `projects/<작업 폴더>/<세션>.jsonl`과 곁 폴더 `<세션>/`이다. Codex는 `thread/read`가 준 `sessions/<년>/<월>/<일>/rollout-…-<스레드>.jsonl`이다. 복사하지 않으면 CLI가 「세션 없음」으로 실패한다(2.1.306, 0.159.2 실측). 로그인 파일은 복사하지 않는다. 세션 안의 `/login`도 쓰지 않는다.
   2. Claude는 옛 폴더에서 사람이 받아들인 확인을 새 폴더로 옮긴다: 작업 폴더 신뢰(`.claude.json`의 `hasTrustDialogAccepted`)와 모든 권한 허용 경고(`settings.json`의 `skipDangerousModePermissionPrompt`). 옮기지 않으면 새 폴더가 두 확인 창을 다시 보여, 사람 없는 노드가 멈춘다(2.1.306 실측). 옛 폴더에 없는 값은 옮기지 않는다. 시스템 기본으로 옮길 때는 옮기지 않는다. 시스템 기본 파일은 고치지 않는다.
   3. 새 노드 명령을 준비한다. 모델과 추론 강도는 노드의 지금 값이다. Claude는 `claude --resume <세션>`이다. Codex는 새 `CODEX_HOME`으로 새 app-server를 띄우고, 데몬이 그 서버에서 스레드를 먼저 연다(`thread/resume`). TUI는 `codex resume <스레드> --remote <주소>`다. TUI에는 권한 인자를 넘기지 않는다. 넘기면 「Permission overrides are not supported when resuming a remote task」로 끝난다. 그 대신 데몬이 `thread/resume`에 처음 권한을 넣는다(모든 권한 허용 노드는 `danger-full-access`·`never`, 아니면 `workspace-write`·`on-request`). 넣지 않으면 신뢰하지 않은 폴더에서 `read-only`로 이었다(0.159.2 실측).
   4. 옛 프로세스를 끝내고 끝나기를 기다린 뒤 새 프로세스를 띄운다. 옛 프로세스의 종료는 노드를 `exited`로 두지 않는다. 옛 PTY 호스트가 끝나며 지우는 주소 파일을 새 호스트가 같은 이름으로 쓰므로 순서를 지킨다.
-- 세션이 아직 없는 노드(첫 입력 전, Codex 스레드 전)는 잃을 대화가 없다. 새 계정으로 새로 띄운다.
+- 세션이 아직 없는 노드(첫 입력 전, Codex 스레드 전)는 잃을 대화가 없다. 첫 지시 없이 띄운 노드면 새 계정으로 새로 띄운다. 첫 지시를 받은 노드면 옮기지 않는다(`failed`). 그래프는 그 지시의 첫 줄만 남겨 다시 줄 수 없다.
 - 준비가 실패한 노드는 옛 계정으로 계속 돈다(`failed`). 한 노드의 실패는 다른 노드를 막지 않는다.
 - 턴 중인 노드는 턴이 끝나면 옮긴다(`later`). Claude는 쉬는 대기가 열릴 때, Codex는 스레드가 쉴 때다. 이 목록은 기억에만 둔다. 데몬이 다시 시작하면 그 노드는 옛 계정에 남고, 확인 창 목록에 다시 나온다.
 - 한도 멈춤: Claude는 API 오류로 끝난 턴에 `Stop` 대신 `StopFailure` 훅을 부른다. loom은 이 훅을 쉬는 대기 훅으로도 건다. 그래야 한도로 멈춘 노드도 메시지에 깬다(2.1.306 실측: `asyncRewake` 훅이 `StopFailure`에서도 모델을 깨운다). 값이 `rate_limit`이면 `loom hook`이 데몬에 알린다. Codex는 app-server의 `error` 알림(`codexErrorInfo: usageLimitExceeded`, `willRetry` 아님)이다. 한도로 멈춘 노드는 옮긴 뒤 「Your account was switched after a usage limit. Continue the task where you stopped.」를 첫 입력으로 받는다.

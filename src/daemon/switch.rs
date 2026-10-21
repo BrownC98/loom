@@ -6,11 +6,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{Path as UrlPath, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::future::join_all;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use ts_rs::TS;
 
@@ -94,11 +94,19 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/accounts/{provider}/move", post(move_all))
 }
 
+/// `GET /api/accounts/{provider}/nodes`의 질의. `to`는 옮겨 갈 계정이다. 없으면 시스템 기본이다.
+/// 화면은 설정을 저장하기 전에 확인 창 목록을 읽는다.
+#[derive(Deserialize)]
+struct MovableQuery {
+    to: Option<AccountId>,
+}
+
 async fn movable(
     State(app): State<Arc<App>>,
     UrlPath(provider): UrlPath<Provider>,
+    Query(query): Query<MovableQuery>,
 ) -> Result<Json<Vec<MovableNode>>, Problem> {
-    let nodes = app.movable(provider).map_err(internal)?;
+    let nodes = app.movable(provider, query.to.as_ref()).map_err(internal)?;
     Ok(Json(
         nodes
             .into_iter()
@@ -127,10 +135,12 @@ enum Moved {
 }
 
 impl App {
-    /// 실행 중인 그 공급자 노드 가운데 설정의 계정과 다른 계정으로 띄운 노드.
-    fn movable(&self, provider: Provider) -> rusqlite::Result<Vec<Active>> {
-        let settings = self.settings.get()?;
-        let target = settings.account(provider);
+    /// 실행 중인 그 공급자 노드 가운데 `target` 계정과 다른 계정으로 띄운 노드. `None`은 시스템 기본이다.
+    fn movable(
+        &self,
+        provider: Provider,
+        target: Option<&AccountId>,
+    ) -> rusqlite::Result<Vec<Active>> {
         let exiting: HashSet<NodeId> = self
             .switch
             .exiting
@@ -167,13 +177,13 @@ impl App {
         provider: Provider,
         why: SwitchCause,
     ) -> Result<MoveResult, Problem> {
-        let nodes = self.movable(provider).map_err(internal)?;
         let to = self
             .settings
             .get()
             .map_err(internal)?
             .account(provider)
             .cloned();
+        let nodes = self.movable(provider, to.as_ref()).map_err(internal)?;
         let from = most_used(nodes.iter().map(|n| n.account.clone()));
         let outcomes = join_all(nodes.into_iter().map(|node| self.move_or_queue(node))).await;
         let mut result = MoveResult::default();
@@ -290,6 +300,13 @@ impl App {
                 copy_claude_session(node.transcript.as_deref(), &new_root)?
             }
         };
+        // 그래프는 첫 지시의 첫 줄만 남긴다. 세션 없이 새로 띄우면 그 지시를 다시 줄 수 없으므로 옛 계정에 둔다.
+        if resume.is_none() && node.has_brief {
+            return Err(format!(
+                "노드 {}는 이어 갈 세션이 없고 첫 지시를 다시 줄 수 없다",
+                node.id.0
+            ));
+        }
         let limited = self.switch.limited.lock().unwrap().contains(&node.id);
         let brief = match (&resume, limited) {
             (Some(_), true) => CONTINUE_PROMPT.to_owned(),

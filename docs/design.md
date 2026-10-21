@@ -134,7 +134,7 @@
   - 위험: 모든 주소(`0.0.0.0`)에서 듣는 다른 서비스는 샌드박스 안에서 `127.76.77.1`로 닿는다. 데몬을 `--listen 0.0.0.0:<포트>`로 띄우면 `spawn`도 그 길로 닿는다. Codex 도메인 규칙은 포트를 가리지 않고, unix 소켓 허용은 macOS만 된다(「실측 근거」). 그래서 더 좁힐 수 없다.
   - 신뢰하지 않은 폴더에서는 TUI가 `read-only`를 보낸다. `read-only`는 네트워크를 열지 않아 loom 명령마다 승인을 묻는다.
   - Windows에서는 위 인자를 넘기지 않는다. Codex는 Windows에서 `workspace-write`를 `read-only`로 낮추고, 프록시는 관리자 권한 Windows 샌드박스가 있어야 뜬다(「실측 근거」). 그래서 Codex 노드는 loom 명령마다 승인을 묻는다.
-- 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode` 파일은 고치지 않는다. OpenCode 설정은 명령 인자, 환경 변수, 세션 API로만 넘긴다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다. 계정 설정의 시스템 기본 [로그인]·[로그아웃]도 CLI가 쓴다(「계정과 사용량」).
+- 사용자의 `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.config/opencode`, `~/.local/share/opencode` 파일은 고치지 않는다. OpenCode 설정은 명령 인자, 환경 변수, 세션 API로만 넘긴다. loom이 그 폴더로 CLI(`claude auth status`, `codex app-server`)를 부를 때 CLI가 스스로 쓰는 것은 사용자가 CLI를 실행할 때와 같다. 계정 설정의 시스템 기본 [로그인]·[로그아웃]도 CLI가 쓴다(「계정과 사용량」). 하나의 예외: 노드를 시스템 기본 계정으로 옮길 때 그 세션 기록 파일을 같은 상대 경로로 복사한다(「계정 전환」).
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
 - 고정한 스키마는 쓰는 요청·알림의 파일만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
 - 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
@@ -200,7 +200,7 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
   - CLI가 `PATH`에 없으면 그 공급자의 [계정 추가]를 끄고 시스템 기본 줄에 「설치 안 됨」을 보인다. 로그인·로그아웃 명령은 노드처럼 `PATH`에서 CLI를 찾고 npm 배치 파일(`codex.cmd`)은 그 프로그램을 바로 띄운다. 못 찾으면 노드 만들기와 같은 `LaunchError::NotInstalled`로 거절한다.
   - Codex 데스크톱 앱이 넣은 `%LOCALAPPDATA%\OpenAI\Codex\bin\<해시>\codex.exe`는 찾지 않는다. 해시 폴더는 앱을 업데이트할 때마다 바뀌고 공개 약속이 아니다. 사용자는 npm으로 Codex CLI를 설치한다(2026-10-21 사람 결정 「권장안대로」).
 - loom이 만든 계정은 로그인 폴더 `~/.loom/accounts/<claude|codex>/<id>`를 쓴다. `id`는 만든 시각(밀리초)의 16진수 16자리라 이름 순서가 만든 순서다.
-- 새 노드는 설정에서 고른 계정(공급자마다 하나, 「쓰는 중」)으로 뜬다. 데몬이 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`을 그 폴더로 넣는다. 시스템 기본이면 넣지 않는다. 고른 계정의 폴더가 없으면 시스템 기본으로 띄운다. 이미 도는 노드는 계정을 바꿔도 그대로다.
+- 새 노드는 설정에서 고른 계정(공급자마다 하나, 「쓰는 중」)으로 뜬다. 데몬이 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`을 그 폴더로 넣는다. 시스템 기본이면 넣지 않는다. 고른 계정의 폴더가 없으면 시스템 기본으로 띄운다. 이미 도는 노드를 새 계정으로 옮기는 일은 「계정 전환」에 있다.
   - loom 계정 폴더로 Claude를 띄울 때 그 폴더 `.claude.json`에 `hasCompletedOnboarding: true`가 없으면 넣는다. Claude 2.1.228은 이 값이 없으면 로그인한 폴더에서도 첫 실행에 로그인 방법을 다시 묻는다. 2.1.305는 묻지 않는다(2026-10-21 Windows 실측, 사람 지시 "이전버전에도 대응 되도록 만들어"). 시스템 기본 폴더는 고치지 않는다.
   - 시스템 기본은 그 CLI가 `HOME` 아래에서 고르는 폴더다. 데몬은 시작할 때 자기를 띄운 터미널의 변수(로그인 폴더, 에이전트 세션 표지, `ORCA_*`, `LOOM_*`, Claude 설정이 넣은 `ANTHROPIC_BASE_URL`)를 지운다. 그래서 노드는 데몬을 띄운 곳과 관계없이 같은 환경으로 뜬다. API 키(`*_API_KEY`)는 남긴다. 목록은 [src/profile.rs](../src/profile.rs)의 `is_launcher_env`에 있다.
 - [계정 추가]: 데몬이 폴더를 만들고, 그 폴더로 `claude auth login`·`codex login`을 PTY에서 띄운다. 화면은 이 PTY를 노드 카드와 같은 터미널로 보인다. 그래프에는 나타나지 않는다.
@@ -221,7 +221,31 @@ loom은 스킬 네 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor-3`
 - 사용량은 화면이 읽을 때마다 데몬이 그 자리에서 읽는다(`GET /api/accounts`). 화면은 5분마다, 사용량 팝오버를 열 때, [새로 고침]을 누를 때 읽는다. 데몬은 저장하지 않는다.
 - 읽는 상한은 계정마다 15초다. 넘거나 실패하면 그 계정만 오류 한 줄을 보인다.
 - 한계: Claude 토큰을 macOS 키체인에 둔 로그인과 API 키 로그인은 사용량을 볼 수 없다. 토큰이 만료돼 401이면 「이 계정으로 Claude를 한 번 실행하면 갱신됩니다」를 보인다. loom은 토큰을 갱신하지 않는다. 갱신은 로그인 폴더를 고치는 일이다.
-- 넣지 않은 Orca 기능: Codex 한도 초기화 크레딧, 추가 사용량, 상태 줄 표시 방식(간단·자세히, 사용·남음) 바꾸기 스위치, 상태 줄 항목 고르기, Codex 계정을 바꾼 뒤 세션 다시 시작, 사용량 기록 화면, 요금제 이름, 많이 쓴 공급자부터 줄 세우기.
+- 넣지 않은 Orca 기능: Codex 한도 초기화 크레딧, 추가 사용량, 상태 줄 표시 방식(간단·자세히, 사용·남음) 바꾸기 스위치, 상태 줄 항목 고르기, 사용량 기록 화면, 요금제 이름, 많이 쓴 공급자부터 줄 세우기.
+
+### 계정 전환
+
+목업 [account-switch.html](mockups/account-switch.html) v2(2026-10-21 사람 승인). 코드는 [src/daemon/switch.rs](../src/daemon/switch.rs)에 있다.
+
+- 노드는 띄운 계정을 그래프에 남긴다(`nodes.account`, 시스템 기본은 NULL). Claude 노드는 세션 기록 파일 경로도 남긴다(`nodes.transcript`). `loom hook`이 훅 입력의 `transcript_path`를 이미 부르는 요청(`take`, `idle`)에 실어 보낸다. 따로 요청하지 않는다. 이 기능 전에 뜬 노드도 새 `loom`으로 바꾼 뒤 다음 훅에서 남긴다. 세션 id는 그 파일 이름이다.
+- `GET /api/accounts/{provider}/nodes?to=<계정 id>`는 옮길 노드를 준다. 그 공급자의 실행 중인 노드 가운데 `to`와 다른 계정으로 띄운 노드다. `to`가 없으면 시스템 기본이다. 화면은 설정을 저장하기 전에 확인 창 목록을 읽는다. `busy`는 턴 중이라는 뜻이다. Claude는 쉬는 대기(`agent_idle`)가 없으면, Codex는 스레드가 일하는 중이면 턴 중이다.
+- `POST /api/accounts/{provider}/move`는 그 노드를 모두 설정의 계정으로 옮긴다. 화면이 설정을 먼저 저장한다. 결과(`moved`, `later`, `failed`)를 이벤트 기록 `accountSwitched` 한 줄로도 남긴다. `from`은 옮길 노드가 가장 많이 쓰던 계정이다. 같은 수면 번호가 작은 노드의 계정이다.
+- 옮기기는 노드 프로세스를 새 계정으로 다시 띄우고 같은 세션을 잇는 일이다. 노드 번호, 이름, 카드, 부모와 자식, 메일함은 그대로다. 토큰은 새로 받는다. 옛 프로세스의 남은 훅이 노드 대신 데몬을 부르지 못하게 하기 위해서다.
+  1. 세션 기록을 새 로그인 폴더의 같은 상대 경로로 복사한다. Claude는 `projects/<작업 폴더>/<세션>.jsonl`과 곁 폴더 `<세션>/`이다. Codex는 `thread/read`가 준 `sessions/<년>/<월>/<일>/rollout-…-<스레드>.jsonl`이다. 복사하지 않으면 CLI가 「세션 없음」으로 실패한다(2.1.306, 0.159.2 실측). 로그인 파일은 복사하지 않는다. 세션 안의 `/login`도 쓰지 않는다.
+  2. Claude는 옛 폴더에서 사람이 받아들인 확인을 새 폴더로 옮긴다: 작업 폴더 신뢰(`.claude.json`의 `hasTrustDialogAccepted`)와 모든 권한 허용 경고(`settings.json`의 `skipDangerousModePermissionPrompt`). 옮기지 않으면 새 폴더가 두 확인 창을 다시 보여, 사람 없는 노드가 멈춘다(2.1.306 실측). 옛 폴더에 없는 값은 옮기지 않는다. 시스템 기본으로 옮길 때는 옮기지 않는다. 시스템 기본 파일은 고치지 않는다.
+  3. 새 노드 명령을 준비한다. 모델과 추론 강도는 노드의 지금 값이다. Claude는 `claude --resume <세션>`이다. Codex는 새 `CODEX_HOME`으로 새 app-server를 띄우고, 데몬이 그 서버에서 스레드를 먼저 연다(`thread/resume`). TUI는 `codex resume <스레드> --remote <주소>`다. TUI에는 권한 인자를 넘기지 않는다. 넘기면 「Permission overrides are not supported when resuming a remote task」로 끝난다. 그 대신 데몬이 `thread/resume`에 처음 권한을 넣는다(모든 권한 허용 노드는 `danger-full-access`·`never`, 아니면 `workspace-write`·`on-request`). 넣지 않으면 신뢰하지 않은 폴더에서 `read-only`로 이었다(0.159.2 실측).
+  4. 옛 프로세스를 끝내고 끝나기를 기다린 뒤 새 프로세스를 띄운다. 옛 프로세스의 종료는 노드를 `exited`로 두지 않는다. 옛 PTY 호스트가 끝나며 지우는 주소 파일을 새 호스트가 같은 이름으로 쓰므로 순서를 지킨다.
+- 남긴 세션이 없는 노드(이 기능 전에 뜬 노드가 아직 훅을 부르지 않았다, 기록 파일이 없다, Codex 스레드 전)는 옮기지 않는다(`failed`). 옛 계정으로 계속 돈다. 새로 띄우면 사람이 친 대화와 첫 지시를 잃는다. 그래프는 첫 지시의 첫 줄만 남긴다.
+- 준비가 실패한 노드는 옛 계정으로 계속 돈다(`failed`). 한 노드의 실패는 다른 노드를 막지 않는다.
+- 턴 중인 노드는 턴이 끝나면 옮긴다(`later`). Claude는 쉬는 대기가 열릴 때, Codex는 스레드가 쉴 때다. 이 목록은 기억에만 둔다. 데몬이 다시 시작하면 그 노드는 옛 계정에 남고, 확인 창 목록에 다시 나온다.
+- 한도 멈춤: Claude는 API 오류로 끝난 턴에 `Stop` 대신 `StopFailure` 훅을 부른다. loom은 이 훅을 쉬는 대기 훅으로도 건다. 그래야 한도로 멈춘 노드도 메시지에 깬다(2.1.306 실측: `asyncRewake` 훅이 `StopFailure`에서도 모델을 깨운다). 값이 `rate_limit`이면 `loom hook`이 쉬는 대기 요청(`idle`)에 실어 알린다. Codex는 app-server의 `error` 알림(`codexErrorInfo: usageLimitExceeded`, `willRetry` 아님)이다. 한도로 멈춘 노드는 옮긴 뒤 「Your account was switched after a usage limit. Continue the task where you stopped.」를 첫 입력으로 받는다.
+- 자동 전환(설정 `autoSwitch`, 처음 값은 꺼짐): 켜져 있으면 데몬이 공급자마다 5분마다 쓰는 계정의 사용량을 읽는다. 노드가 한도로 멈추면 바로 본다.
+  - 시작 조건: 세션 창이나 주간 창을 95% 이상 썼다. 또는 노드가 한도로 멈췄다.
+  - 대상: 같은 공급자의 다른 계정 가운데 사용량을 읽은 계정이다. 가장 많이 쓴 창의 비율이 가장 낮고 95% 미만이어야 한다. 읽지 못한 계정은 건너뛴다.
+  - 대상을 설정의 계정으로 저장하고, 확인 창 없이 모든 노드를 옮긴다. 이벤트 기록의 `why`는 `usage`(창 이름, 비율)나 `rateLimit`이다.
+  - 대상이 없으면 바꾸지 않는다. `noAccountLeft`에 계정들의 가장 빠른 창 초기화 시각을 남긴다.
+  - 같은 공급자는 10분 안에 다시 자동 전환하지 않는다. `noAccountLeft`도 이 간격에 한 번만 남긴다. 사용량 값이 늦게 갱신되어 계정을 오가는 일을 막는다.
+  - 수치의 근거는 `switch.rs`의 이름 있는 상수에 있다.
 
 ### 설정
 

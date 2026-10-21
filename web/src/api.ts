@@ -12,6 +12,8 @@ import type { GraphEvent } from './gen/GraphEvent';
 import type { LoginId } from './gen/LoginId';
 import type { LoginState } from './gen/LoginState';
 import type { LoginTarget } from './gen/LoginTarget';
+import type { MovableNode } from './gen/MovableNode';
+import type { MoveResult } from './gen/MoveResult';
 import type { NewNode } from './gen/NewNode';
 import type { NewRepo } from './gen/NewRepo';
 import type { NewWorktree } from './gen/NewWorktree';
@@ -104,6 +106,11 @@ export const deleteWorktree = (repo: RepoId, path: string, deleteBranch: boolean
 export const getEventLog = () => call<EventRecord[]>('GET', '/api/events/log');
 /** 계정마다 사용량을 그 자리에서 읽는다. 몇 초 걸린다. */
 export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
+/** 그 공급자에서 `to` 계정이 아닌 계정으로 도는 노드. `to`가 null이면 시스템 기본이 아닌 노드다. */
+export const getMovableNodes = (provider: Provider, to: AccountId | null) =>
+  call<MovableNode[]>('GET', `/api/accounts/${provider}/nodes${to === null ? '' : `?${new URLSearchParams({ to })}`}`);
+/** 그 노드들을 설정에 저장한 계정으로 옮긴다. */
+export const moveNodes = (provider: Provider) => call<MoveResult>('POST', `/api/accounts/${provider}/move`);
 export const removeAccount = (provider: Provider, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}`);
 export const startLogin = (provider: Provider, target: LoginTarget) => call<LoginId>('POST', `/api/accounts/${provider}`, target);
 export const logoutSystem = (provider: Provider) => call<null>('POST', `/api/accounts/${provider}/logout`);

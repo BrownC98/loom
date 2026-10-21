@@ -140,7 +140,10 @@ const STEPS: &[M] = &[
             DELETE FROM arranged_repos WHERE repo = OLD.id;
         END;",
     ),
-    // 18: 자식 워크트리 묶음은 부모 카드의 묶음 안에 선다(목업 docs/mockups/arrange-family.html v4). 묶음 자리는 바깥 상자(저장소 상자나 부모 묶음) 안 좌표다.
+    // 18: 계정 전환(graph). `account`는 노드를 띄운 계정(serde JSON `AccountId`)이고 시스템 기본·옛 노드는 NULL이다.
+    // `transcript`는 Claude 노드 세션의 기록 파일 경로다. 세션을 시작하기 전과 다른 프로필은 NULL이다.
+    M::up("ALTER TABLE nodes ADD COLUMN account TEXT; ALTER TABLE nodes ADD COLUMN transcript TEXT;"),
+    // 19: 자식 워크트리 묶음은 부모 카드의 묶음 안에 선다(목업 docs/mockups/arrange-family.html v4). 묶음 자리는 바깥 상자(저장소 상자나 부모 묶음) 안 좌표다.
     // 앞 묶음 자리는 모두 저장소 기준이라 지운다. 카드 자리와 정렬한 저장소는 남긴다. 정렬한 저장소는 화면이 새 자동 배치를 저장한다.
     // 바깥 상자는 다른 워크트리 부모를 가진 노드가 정한다(web/src/repos.ts `groupParents`). 그 노드가 생기거나 부모가 바뀌면 그 묶음 자리를 지운다.
     M::up(
@@ -200,9 +203,9 @@ mod tests {
 
     /// 앞 묶음 자리는 저장소 기준이라 지운다. 카드 자리와 정렬한 저장소는 남긴다.
     #[test]
-    fn step_18_drops_worktree_spots_and_keeps_card_spots() {
+    fn step_19_drops_worktree_spots_and_keeps_card_spots() {
         let mut conn = Connection::open_in_memory().unwrap();
-        super::MIGRATIONS.to_version(&mut conn, 17).unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 18).unwrap();
         conn.execute_batch(
             r#"INSERT INTO spots (spot, repo, x, y) VALUES
             ('{"kind":"worktree","repo":1,"path":"/w"}', 1, 0, 0),

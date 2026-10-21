@@ -541,3 +541,17 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .tprev pre { font: 12px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--line); height: 216px; overflow: hidden; margin: 0; }
 .tprev .chips { display: inline-flex; gap: 3px; }
 .tprev .chips b { width: 18px; height: 12px; border-radius: 2px; display: inline-block; }
+
+/* 계정 전환(목업 docs/mockups/account-switch.html): 설정의 자동 전환 줄, 상태 줄 알림, 확인 창. */
+.auto-switch { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.auto-switch .switch { font-size: 13px; color: var(--ink); }
+.statusbar .notice { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-left: 1px solid var(--line); margin: 4px 0; white-space: nowrap; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.statusbar .notice[data-warn] { color: var(--warn); }
+.statusbar .notice svg { width: 12px; height: 12px; flex: none; }
+.statusbar .notice .x { border: 0; background: none; color: var(--ink-3); cursor: pointer; padding: 0 4px; font: inherit; }
+.switch-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; width: min(440px, calc(100vw - 32px)); padding: 0; }
+.switch-dialog:not([open]) { display: none; }
+.switch-body { padding: 16px; display: grid; gap: 10px; font-size: 13px; }
+.switch-list { list-style: none; margin: 0; padding: 8px 10px; display: grid; gap: 2px; font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 6px; max-height: 200px; overflow: auto; }
+.switch-list li { display: flex; justify-content: space-between; gap: 12px; }
+.switch-list .st { color: var(--ink-3); }

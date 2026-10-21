@@ -275,6 +275,10 @@ pub enum Start {
         #[serde(default)]
         #[ts(skip)]
         choice: ModelChoice,
+        /// 이어 갈 세션(Claude 세션 id, Codex 스레드 id). 계정 전환만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
+        #[serde(skip)]
+        #[ts(skip)]
+        resume: Option<String>,
     },
     /// `line`이 비어 있으면 사용자의 기본 셸을 띄운다.
     Command { line: String },
@@ -405,7 +409,17 @@ pub fn command(
             agent,
             brief,
             choice,
-        } => agent_command(agent, brief, choice, remote, bypass_off, plugin, position)?,
+            resume,
+        } => agent_command(
+            agent,
+            brief,
+            choice,
+            resume.as_deref(),
+            remote,
+            bypass_off,
+            plugin,
+            position,
+        )?,
         Start::Command { line } if line.trim().is_empty() => default_shell(cwd),
         Start::Command { line } => shell(line),
     };
@@ -446,10 +460,12 @@ pub fn is_launcher_env(key: &str) -> bool {
         )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn agent_command(
     id: &AgentId,
     brief: &str,
     choice: &ModelChoice,
+    resume: Option<&str>,
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
     plugin: &Path,
@@ -468,11 +484,9 @@ fn agent_command(
         });
     }
     let mut cmd = CommandBuilder::from_argv(crate::process_tree::argv(&program));
+    cmd.args(leading_args(agent, resume, !bypass_off.contains(id)));
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
-    if !bypass_off.contains(id) {
-        cmd.args(&agent.bypass);
-    }
     match (agent.profile, remote) {
         (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, position)),
         (Some(Profile::Codex), Some(Remote::Codex { url })) => cmd.args(codex::args(url)),
@@ -504,6 +518,21 @@ fn agent_command(
         }
     }
     Ok(cmd)
+}
+
+/// 다른 인자보다 앞에 넣는 인자: 이어 갈 세션(계정 전환)과 모든 권한 허용. Codex `resume`은 하위 명령이라 맨 앞이다.
+/// `codex resume --remote`는 권한 인자를 받지 않는다("Permission overrides are not supported when resuming a remote task",
+/// 0.159.2 실측). 그 권한은 데몬이 서버에서 스레드를 열 때 넘긴다(`codex::resume`).
+fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String> {
+    let mut args = match (agent.profile, resume) {
+        (Some(Profile::Claude), Some(session)) => vec!["--resume".into(), session.into()],
+        (Some(Profile::Codex), Some(thread)) => return vec!["resume".into(), thread.into()],
+        _ => Vec::new(),
+    };
+    if bypass {
+        args.extend(agent.bypass.iter().cloned());
+    }
+    args
 }
 
 /// 모든 프로필이 받는 통신 명령. 프로필별 대기 방식은 각 실행 지시가 정한다.
@@ -591,6 +620,22 @@ pub fn shell(line: &str) -> CommandBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_comes_first_and_codex_resume_takes_no_permission_args() {
+        let claude = find(&AgentId("claude".into())).unwrap();
+        let codex = find(&AgentId("codex".into())).unwrap();
+        assert_eq!(
+            leading_args(claude, Some("s1"), true),
+            ["--resume", "s1", "--dangerously-skip-permissions"]
+        );
+        assert_eq!(leading_args(claude, None, false), Vec::<String>::new());
+        assert_eq!(leading_args(codex, Some("t1"), true), ["resume", "t1"]);
+        assert_eq!(
+            leading_args(codex, None, true),
+            ["--dangerously-bypass-approvals-and-sandbox"]
+        );
+    }
 
     #[test]
     fn catalog_parses_and_ids_are_unique() {

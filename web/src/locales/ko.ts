@@ -349,6 +349,11 @@ const ko: typeof en = {
     tokenExpired: '토큰이 만료되었습니다. 이 계정으로 Claude를 한 번 실행하면 갱신됩니다.',
     unavailable: '지금은 사용량을 볼 수 없습니다: {{value}}',
   },
+  titlebar: {
+    minimize: '최소화',
+    maximize: '최대화',
+    restore: '이전 크기로',
+  },
   update: {
     available: '업데이트 가능',
     downloading: '업데이트 다운로드 중',

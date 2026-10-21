@@ -45,6 +45,8 @@ pub struct Active {
     /// Claude 세션의 기록 파일. `Graph::set_transcript`가 남긴다.
     pub transcript: Option<String>,
     pub model: Model,
+    /// 이 프로세스가 데몬을 부를 때 내는 토큰(`Launched::token`).
+    pub token: String,
 }
 
 impl Graph {
@@ -215,7 +217,7 @@ impl Graph {
     pub fn active(&self) -> rusqlite::Result<Vec<Active>> {
         self.lock()
             .prepare(
-                "SELECT id, name, agent, server, account, transcript, model, effort
+                "SELECT id, name, agent, server, account, transcript, model, effort, token
                  FROM nodes WHERE process_exited = 0 ORDER BY id",
             )?
             .query_map([], |row| {
@@ -230,6 +232,7 @@ impl Graph {
                         model: row.get(6)?,
                         effort: row.get(7)?,
                     },
+                    token: row.get(8)?,
                 })
             })?
             .collect()

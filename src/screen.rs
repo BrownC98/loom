@@ -26,23 +26,24 @@ pub enum Place {
     /// 세션이 시작하기 전 화면 어디든(TUI 첫 창: 폴더 신뢰, 로그인, 테마). 이 창이 떠 있는 동안 런타임은 세션을 시작하지 않는다.
     /// 시작한 뒤 화면의 같은 글은 에이전트 출력이다(2026-10-21 Claude 노드가 답에 "Yes, I trust this folder"를 써서 대기가 걸렸다).
     BeforeSession,
-    /// 화면 아래 창 칸: 마지막 가로줄(`─`·`┌`로 시작하는 줄) 아래. 세션 중에 뜨고 훅이 알리지 않는 창이다(Cursor 승인·질문, 2026.10.19 실측).
+    /// 화면 아래 창 칸: 대화 기록보다 덜 들여 쓴 마지막 가로줄(`─`·`┌`로 시작하는 줄) 아래. 세션 중에 뜨고 훅이 알리지 않는 창이다(Cursor 승인·질문).
+    /// Cursor는 대화 기록을 `TRANSCRIPT_INDENT`칸 들여 그리고 창 테두리는 왼쪽 끝에 그린다(2026.10.19 실측).
+    /// 그래서 에이전트가 출력한 가로줄·표 아래의 같은 글은 창으로 보지 않는다.
     Panel,
 }
+
+/// Cursor가 대화 기록(에이전트 답, 도구 출력, 표)을 들여 그리는 칸 수(2026.10.19 실측). `Place::Panel`의 창 테두리는 이보다 왼쪽이다.
+const TRANSCRIPT_INDENT: usize = 2;
 
 /// `screen`(지금 터미널 화면의 글, `NodeHost::screen`)에서 맞는 확인 창과 그 한 줄 글. 여럿이 맞으면 화면 끝에 가장 가까운 것이다.
 /// 지나간 창의 글이 끝 쪽에 남아 있어도 지금 창을 고른다(Claude 첫 실행: 테마 창 뒤 로그인 창, 2.1.306 실측).
 /// 셸 프롬프트는 마지막 줄을, TUI 창은 찾을 글을 한 줄 글로 쓴다.
 pub fn find(dialogs: &[Dialog], screen: &str, session: Session) -> Option<(WaitKind, String)> {
-    let lines: Vec<&str> = screen
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
-    let last = *lines.last()?;
+    let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
+    let last = lines.last()?.trim();
     let panel_start = lines
         .iter()
-        .rposition(|l| l.starts_with(['─', '┌']))
+        .rposition(|l| is_panel_edge(l))
         .map_or(lines.len(), |i| i + 1);
     let squeezed = squeeze(&lines.concat());
     let panel_at = squeezed.len() - squeeze(&lines[panel_start..].concat()).len();
@@ -61,6 +62,12 @@ pub fn find(dialogs: &[Dialog], screen: &str, session: Session) -> Option<(WaitK
         })
         .max_by_key(|(at, ..)| *at)
         .map(|(_, kind, text)| (kind, text.to_owned()))
+}
+
+/// 창 칸의 위 테두리. 들여 쓴 칸을 세려고 줄 앞 공백을 자르지 않은 줄을 받는다.
+fn is_panel_edge(line: &str) -> bool {
+    let body = line.trim_start_matches(' ');
+    line.len() - body.len() < TRANSCRIPT_INDENT && body.starts_with(['─', '┌'])
 }
 
 fn squeeze(text: &str) -> String {

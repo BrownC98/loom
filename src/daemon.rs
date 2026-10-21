@@ -395,11 +395,13 @@ pub struct AnsweredRequest {
     pub ids: Vec<WaitId>,
 }
 
-/// 사람이 화면에서 `loom ask` 질문에 쓴 답.
+/// 사람이 화면에서 `loom ask` 질문에 쓴 답. `images`는 답에 붙인 그림의 데몬 기계 경로다(`POST /api/pastes`가 준 값, 목업 M30).
 #[derive(Deserialize, TS)]
 #[ts(export)]
 pub struct AnswerWait {
     pub text: String,
+    #[serde(default)]
+    pub images: Vec<PathBuf>,
 }
 
 /// 에이전트 답 글(Claude 기록 파일의 마지막 답, Cursor `afterAgentResponse`). 턴 끝 질문 검사가 쓴다.
@@ -1570,7 +1572,7 @@ async fn answer_wait(
     Path(wait): Path<u32>,
     Json(req): Json<AnswerWait>,
 ) -> Result<Json<()>, Problem> {
-    app.graph.answer(WaitId(wait), &req.text)?;
+    app.graph.answer(WaitId(wait), &req.text, &req.images)?;
     Ok(Json(()))
 }
 

@@ -185,15 +185,30 @@ impl Graph {
 
     /// 사람이 화면에서 `loom ask` 질문에 답했다. 답은 사람이 보낸 큐 메시지로 그 노드에 가고, 그 질문만 바로 지운다.
     /// 에이전트가 답인지 판단할 일이 없다. 근거: 2026-10-21 사람 지시 "질문마다 답변 입력창을 두는 방안".
-    pub fn answer(&self, wait: WaitId, text: &str) -> Result<MessageId, Refusal> {
+    /// `images`는 답에 붙인 그림 파일이다. 메시지에 작은따옴표로 묶은 절대 경로를 한 줄로 붙인다. 에이전트는 경로로 그림을 읽는다.
+    /// 그림만 보내도 답이다(2026-10-22 목업 M30 승인, 사람 지시 "답변 입력창에 이미지 입력도 가능하게 해줘").
+    pub fn answer(
+        &self,
+        wait: WaitId,
+        text: &str,
+        images: &[PathBuf],
+    ) -> Result<MessageId, Refusal> {
         let text = text.trim();
-        if text.is_empty() {
+        if text.is_empty() && images.is_empty() {
             return Err(Refusal::EmptyAnswer);
         }
         let mut db = self.lock();
         let (node, question) = open_ask(&db, wait)?;
+        let images = match images {
+            [] => String::new(),
+            paths => {
+                let quoted: Vec<String> =
+                    paths.iter().map(|p| quote(&p.to_string_lossy())).collect();
+                format!("\nImages: {}", quoted.join(" "))
+            }
+        };
         let body = format!(
-            "Answer to loom ask question {wait} ({}): {text}\nThe human answered from the loom inbox. The question is closed: do not call loom answered.",
+            "Answer to loom ask question {wait} ({}): {text}{images}\nThe human answered from the loom inbox. The question is closed: do not call loom answered.",
             question.wait.text
         );
         let tx = db.transaction()?;
@@ -374,6 +389,11 @@ fn questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Vec<Aske
         .iter()
         .filter_map(|t| serde_json::from_str(t).ok())
         .collect())
+}
+
+/// 셸처럼 작은따옴표로 묶는다. 빈칸·한글 이름도 경로 하나로 읽힌다(화면 터미널 붙여넣기 `quotePath`와 같은 꼴).
+fn quote(path: &str) -> String {
+    format!("'{}'", path.replace('\'', "'\\''"))
 }
 
 /// 비지 않은 첫 줄을 `TEXT_LIMIT_CHARS`자까지.

@@ -1,7 +1,7 @@
-import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, ImagePlus, X } from 'lucide-react';
+import { useEffect, useRef, useState, type DOMAttributes } from 'react';
 import { useTranslation } from 'react-i18next';
-import { answerWait, dismissWait, openWaitDoc } from './api';
+import { answerWait, dismissWait, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import { choices } from './choices';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
@@ -149,7 +149,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void }) {
 
 /**
  * 대기 한 줄. 질문은 전문을 보인다. [×]는 이 대기 하나를 지운다.
- * `loom ask` 질문은 여기서 답한다: 선택지 버튼은 바로 보내고, 입력창은 Enter로 보낸다.
+ * `loom ask` 질문은 여기서 답한다: 선택지 버튼은 바로 보내고, 입력창은 Enter로 보낸다. 입력창에 그림을 붙여넣거나 줄 위에 끌어 놓으면 답에 붙는다(목업 docs/mockups/answer-image.html M30).
  * 다른 대기(승인 창·폴더 신뢰·로그인)는 그 노드 터미널에서만 답하므로 [터미널에서 답하기]만 둔다.
  */
 function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
@@ -157,12 +157,38 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
   const { wait } = props;
   const qid = `Q${wait.id}`;
   const [refusal, setRefusal] = useState<string | null>(null);
+  const images = useImages(setRefusal);
+  const [dragging, setDragging] = useState(false);
   const send = (text: string) => {
     setRefusal(null);
-    answerWait(wait.id, text).catch((err: Error) => setRefusal(err.message));
+    answerWait(
+      wait.id,
+      text,
+      images.list.map((i) => i.path),
+    ).catch((err: Error) => setRefusal(err.message));
   };
+  // 그림 끌어 놓기는 화면에서 답하는 질문 줄만 받는다. 줄 안의 자식으로 옮겨 가도 덮개를 끄지 않는다.
+  const drop: DOMAttributes<HTMLLIElement> = wait.answerable
+    ? {
+        onDragOver: (e) => {
+          if (!e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          setDragging(true);
+        },
+        onDragLeave: (e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        },
+        onDrop: (e) => {
+          if (!e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          setDragging(false);
+          images.attach([...e.dataTransfer.files]);
+        },
+      }
+    : {};
   return (
-    <li className="wait-row">
+    <li className="wait-row" data-dragging={dragging || undefined} {...drop}>
       <div className="top">
         <span className="qid">{qid}</span>
         <span className="kind">{t(`wait.${wait.kind}`)}</span>
@@ -191,7 +217,19 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
       {wait.answerable ? (
         <>
           <Choices question={wait.text} onPick={send} />
-          <AnswerForm qid={qid} onSend={send} />
+          {images.list.length > 0 && (
+            <ul className="answer-images">
+              {images.list.map((image) => (
+                <li key={image.path}>
+                  <img src={image.url} alt={image.name} />
+                  <button type="button" aria-label={t('inbox.removeImage')} title={t('inbox.removeImage')} onClick={() => images.remove(image)}>
+                    <X aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <AnswerForm qid={qid} hasImages={images.list.length > 0} onSend={send} onPasteImages={images.attach} />
         </>
       ) : (
         <button type="button" className="to-terminal" onClick={props.onGo}>
@@ -204,8 +242,53 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
           {refusal}
         </p>
       )}
+      {dragging && (
+        <div className="drop-cover" aria-hidden="true">
+          <ImagePlus />
+          {t('inbox.dropImage', { id: qid })}
+          <span className="sub">{t('inbox.dropLimit', { limit: PASTE_LIMIT_BYTES / MB })}</span>
+        </div>
+      )}
     </li>
   );
+}
+
+const MB = 1024 * 1024;
+
+/** 답에 붙인 그림 하나. `path`는 데몬 기계의 파일, `url`은 작은 그림을 그리는 브라우저 주소다. */
+type AttachedImage = { path: string; url: string; name: string };
+
+/**
+ * 답에 붙일 그림들. 그림은 붙이는 대로 데몬에 올린다(`POST /api/pastes`, 터미널 붙여넣기와 같은 폴더와 상한). 그림이 아니거나 크면 받지 않고 이유를 알린다.
+ * 줄이 사라지면 브라우저 주소를 놓는다. 데몬의 파일은 OS가 지운다.
+ */
+function useImages(onError: (message: string) => void) {
+  const { t } = useTranslation();
+  const [list, setList] = useState<AttachedImage[]>([]);
+  const shown = useRef<AttachedImage[]>([]);
+  shown.current = list;
+  useEffect(() => () => shown.current.forEach((i) => URL.revokeObjectURL(i.url)), []);
+  const attach = (files: File[]) => {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        onError(t('inbox.notImage', { name: file.name }));
+        continue;
+      }
+      if (file.size > PASTE_LIMIT_BYTES) {
+        onError(t('terminal.tooBig', { name: file.name, size: Math.ceil(file.size / MB), limit: PASTE_LIMIT_BYTES / MB }));
+        continue;
+      }
+      savePastedFile(file).then(
+        (path) => setList((now) => [...now, { path, url: URL.createObjectURL(file), name: file.name }]),
+        (err: Error) => onError(err.message),
+      );
+    }
+  };
+  const remove = (image: AttachedImage) => {
+    URL.revokeObjectURL(image.url);
+    setList((now) => now.filter((i) => i !== image));
+  };
+  return { list, attach, remove };
 }
 
 /** 표준 꼴 질문의 선택지 버튼. 누르면 그 글자(`A`)를 바로 답으로 보낸다. 권장안은 표시한다. */
@@ -227,19 +310,32 @@ function Choices(props: { question: string; onPick: (key: string) => void }) {
 }
 
 /** 답 입력창. Enter나 [↑]로 보낸다. 보내면 질문이 사라지므로 비우지 않는다. 거절되면 글이 남아 다시 보낼 수 있다. */
-function AnswerForm(props: { qid: string; onSend: (text: string) => void }) {
+function AnswerForm(props: { qid: string; hasImages: boolean; onSend: (text: string) => void; onPasteImages: (files: File[]) => void }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
+  // 그림만 붙여도 보낼 수 있다(목업 M30).
+  const ready = text.trim() !== '' || props.hasImages;
   return (
     <form
       className="answer"
       onSubmit={(e) => {
         e.preventDefault();
-        if (text.trim()) props.onSend(text);
+        if (ready) props.onSend(text);
       }}
     >
-      <input value={text} onChange={(e) => setText(e.target.value)} aria-label={t('inbox.answerLabel', { id: props.qid })} placeholder={t('inbox.answerPlaceholder')} />
-      <button type="submit" className="send" aria-label={t('inbox.send', { id: props.qid })} disabled={!text.trim()}>
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onPaste={(e) => {
+          const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
+          if (files.length === 0) return;
+          e.preventDefault();
+          props.onPasteImages(files);
+        }}
+        aria-label={t('inbox.answerLabel', { id: props.qid })}
+        placeholder={t('inbox.answerPlaceholder')}
+      />
+      <button type="submit" className="send" aria-label={t('inbox.send', { id: props.qid })} disabled={!ready}>
         <ArrowUp aria-hidden="true" />
       </button>
     </form>

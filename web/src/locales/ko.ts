@@ -264,6 +264,10 @@ const ko: typeof en = {
     recommended: '권장',
     openDocLabel: '{{id}} {{title}}: 브라우저에서 열기',
     toTerminal: '터미널에서 답하기',
+    dropImage: '그림을 놓아 {{id}} 답에 붙이기',
+    dropLimit: '그림마다 {{limit}}MB까지',
+    removeImage: '그림 빼기',
+    notImage: '{{name}}: 그림이 아닙니다. 그림만 붙일 수 있습니다.',
   },
   wait: {
     label: '응답 대기',

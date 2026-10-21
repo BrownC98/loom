@@ -58,7 +58,10 @@ async function request<T>(method: string, path: string, body?: { type: string; d
 const call = <T>(method: string, path: string, body?: unknown) =>
   request<T>(method, path, body === undefined ? undefined : { type: 'application/json', data: JSON.stringify(body) });
 
-/** 붙여넣거나 끌어다 놓은 파일을 데몬이 같은 이름으로 남기고 그 절대 경로를 돌려준다. */
+/** 한 파일의 상한. 데몬 `src/paste.rs`의 `LIMIT_BYTES`와 같다. 큰 파일은 오래 올리지 않게 올리기 전에 거른다. */
+export const PASTE_LIMIT_BYTES = 32 * 1024 * 1024;
+
+/** 붙여넣거나 끌어다 놓은 파일을 데몬이 같은 이름으로 남기고 그 절대 경로를 돌려준다. 터미널과 질문 답의 그림이 쓴다. */
 export const savePastedFile = (file: File) =>
   request<string>('POST', `/api/pastes/${encodeURIComponent(file.name)}`, { type: file.type || 'application/octet-stream', data: file });
 
@@ -73,8 +76,9 @@ export const bookmarkNode = (id: NodeId) => call<null>('PUT', `/api/nodes/${id}/
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
 /** 사람 응답 대기를 지운다. 터미널에 키를 누른 것과 같다(docs/design.md 「사람 응답 대기」). */
 export const dismissWait = (wait: WaitId) => call<null>('DELETE', `/api/waits/${wait}`);
-/** 화면에서 `loom ask` 질문에 답한다. 답은 사람이 보낸 메시지로 그 노드에 가고 질문은 사라진다. */
-export const answerWait = (wait: WaitId, text: string) => call<null>('POST', `/api/waits/${wait}/answer`, { text } satisfies AnswerWait);
+/** 화면에서 `loom ask` 질문에 답한다. `images`는 `savePastedFile`이 준 그림 경로다. 답은 사람이 보낸 메시지로 그 노드에 가고 질문은 사라진다. */
+export const answerWait = (wait: WaitId, text: string, images: string[]) =>
+  call<null>('POST', `/api/waits/${wait}/answer`, { text, images } satisfies AnswerWait);
 /** 질문에 붙은 문서를 데몬이 그 기계의 기본 브라우저로 연다. 데스크톱 앱에서도 앱 창이 아니라 브라우저로 연다. */
 export const openWaitDoc = (wait: WaitId) => call<null>('POST', `/api/waits/${wait}/doc`);
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);

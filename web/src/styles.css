@@ -518,6 +518,16 @@ a { color: var(--accent); }
 .wait-row + .wait-row { border-top: 1px dashed var(--line); }
 .wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */
+.wait-row { position: relative; }
+.answer-images { list-style: none; margin: 0; padding: 4px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.answer-images li { position: relative; width: 64px; height: 44px; }
+.answer-images img { width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); }
+.answer-images button { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: var(--ink); color: var(--surface); cursor: pointer; }
+.answer-images button svg { width: 11px; height: 11px; }
+.wait-row > .drop-cover { position: absolute; inset: 0 0 4px -4px; pointer-events: none; display: grid; place-content: center; justify-items: center; gap: 2px; border: 2px dashed var(--warn); border-radius: 8px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); color: var(--ink); font-size: 13px; font-weight: 600; }
+.wait-row > .drop-cover svg { width: 20px; height: 20px; color: var(--warn); }
+.wait-row > .drop-cover .sub { font-size: 12px; font-weight: 400; color: var(--ink-2); }
 .wait-list .full, .wait-list .refusal { margin: 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wait-list .full { color: var(--ink); }
 .wait-list .refusal { color: var(--err); font-size: 12px; }

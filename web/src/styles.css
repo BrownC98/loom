@@ -186,8 +186,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 미니맵: 그래프 오른쪽 아래. 카드는 상태 색, 묶음은 점선 테두리 */
 .react-flow { --xy-minimap-background-color: var(--panel); --xy-minimap-mask-background-color: color-mix(in oklch, var(--bg) 70%, transparent); --xy-minimap-mask-stroke-color: var(--line-strong); --xy-minimap-mask-stroke-width: 1; }
 .react-flow__minimap { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; cursor: pointer; }
-/* 미니맵 오른쪽 아래 모서리에 겹친 배율. 같은 패널 여백이라 미니맵 안쪽에 놓인다. */
-.react-flow__panel.zoom-level { pointer-events: none; }
+/* 미니맵 오른쪽 아래 모서리에 겹친 접기 단추와 배율. 같은 패널 여백이라 미니맵 안쪽에 놓인다. 접으면 같은 모서리에 남는다. */
+.react-flow__panel.zoom-level { pointer-events: none; display: flex; align-items: center; }
+.zoom-level .btn { pointer-events: auto; }
 .zoom-level span, .zoom-level input { pointer-events: auto; display: block; padding: 2px 6px; font: 11px/1.4 var(--mono); color: var(--ink-2); }
 .zoom-level span { cursor: text; user-select: none; }
 .zoom-level input { width: 6ch; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); color: var(--ink); text-align: right; }

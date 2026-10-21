@@ -43,6 +43,8 @@ const ko: typeof en = {
     empty: '‘새 노드’를 눌러 첫 에이전트를 시작합니다.',
     zoomEdit: '배율(%) — 더블클릭해 입력',
     minimap: '미니맵',
+    minimapFold: '미니맵 접기',
+    minimapUnfold: '미니맵 펴기',
     messageTo: '{{n}} 메시지 → {{name}}',
   },
   find: {

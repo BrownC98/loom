@@ -41,6 +41,8 @@ const en = {
     empty: 'Click “New node” to start the first agent.',
     zoomEdit: 'Zoom (%) — double-click to type',
     minimap: 'Minimap',
+    minimapFold: 'Fold minimap',
+    minimapUnfold: 'Unfold minimap',
     messageTo: '{{n}} msg → {{name}}',
   },
   find: {

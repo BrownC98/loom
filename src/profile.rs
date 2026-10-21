@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::graph::{Delivery, Kind, WaitKind};
-use crate::screen::Dialog;
+use crate::screen::{Dialog, Place};
 use crate::skills::Position;
 
 /// 첫 지시문 상한. 근거: docs/design.md 「맥락과 크기」.
@@ -292,27 +292,27 @@ const SHELL_DIALOGS: [Dialog; 5] = [
     Dialog {
         text: "password",
         kind: WaitKind::Input,
-        at_end: true,
+        place: Place::LastLine,
     },
     Dialog {
         text: "passphrase",
         kind: WaitKind::Input,
-        at_end: true,
+        place: Place::LastLine,
     },
     Dialog {
         text: "(yes/no",
         kind: WaitKind::Input,
-        at_end: true,
+        place: Place::LastLine,
     },
     Dialog {
         text: "[y/n]",
         kind: WaitKind::Input,
-        at_end: true,
+        place: Place::LastLine,
     },
     Dialog {
         text: "Username for '",
         kind: WaitKind::Input,
-        at_end: true,
+        place: Place::LastLine,
     },
 ];
 

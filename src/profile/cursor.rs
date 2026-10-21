@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::Take;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::Dialog;
+use crate::screen::{Dialog, Place};
 use crate::skills::Position;
 
 /// 훅이 알리지 않는 TUI 확인 창(2026.10.19 화면 문구). 폴더 신뢰·명령 승인·로그인·질문은 실측, 나머지는 번들 글이다.
@@ -20,42 +20,42 @@ pub const DIALOGS: [Dialog; 8] = [
         // 창 제목(예: "Clarifying Questions")은 모델이 정한다. 도움말 줄은 고정이다(실측).
         text: "Enter next/submit",
         kind: WaitKind::Question,
-        at_end: false,
+        place: Place::Panel,
     },
     Dialog {
         text: "Do you trust the contents of this directory?",
         kind: WaitKind::Trust,
-        at_end: false,
+        place: Place::BeforeSession,
     },
     Dialog {
         text: "Run this command",
         kind: WaitKind::Approval,
-        at_end: false,
+        place: Place::Panel,
     },
     Dialog {
         text: "Run this MCP tool?",
         kind: WaitKind::Approval,
-        at_end: false,
+        place: Place::Panel,
     },
     Dialog {
         text: "Read this file?",
         kind: WaitKind::Approval,
-        at_end: false,
+        place: Place::Panel,
     },
     Dialog {
         text: "Write to this file?",
         kind: WaitKind::Approval,
-        at_end: false,
+        place: Place::Panel,
     },
     Dialog {
         text: "Delete this file?",
         kind: WaitKind::Approval,
-        at_end: false,
+        place: Place::Panel,
     },
     Dialog {
         text: "Press any key to log in",
         kind: WaitKind::Auth,
-        at_end: false,
+        place: Place::BeforeSession,
     },
 ];
 
@@ -243,30 +243,66 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::screen::Session;
 
     #[test]
     fn the_trust_box_is_a_trust_wait() {
-        // cursor-agent 2026.10.19가 신뢰하지 않은 폴더에서 그린 화면(실측).
+        // cursor-agent 2026.10.19가 신뢰하지 않은 폴더에서 그린 화면(실측). sessionStart 훅은 신뢰한 뒤에 불린다(실측).
         let screen = "│  Do you trust the contents of this directory?  │\n│  ▶ [a] Trust this workspace  │\n│    [q] Quit  │";
         assert_eq!(
-            crate::screen::find(&DIALOGS, screen).map(|(kind, _)| kind),
+            crate::screen::find(&DIALOGS, screen, Session::NotStarted).map(|(kind, _)| kind),
             Some(WaitKind::Trust)
+        );
+        assert_eq!(
+            crate::screen::find(&DIALOGS, screen, Session::Started),
+            None
         );
     }
 
-    /// cursor-agent 2026.10.19가 그린 질문 창과 명령 승인 창(실측).
+    /// cursor-agent 2026.10.19가 100×30 터미널에 그린 질문 창(실측, 가로를 줄였다).
+    const QUESTION: &str = "  Use your ask-question tool to ask me one multiple-choice question: red or blue.\n\n  I'll ask that now.\n\n ┌──────────────────┐\n │ Clarifying Questions │\n │ Question 1 of 1 │\n │ 1. Red or blue? │\n │   › [ ] Red │\n │     [ ] Blue │\n │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip │\n └──────────────────┘\n";
+    /// 같은 버전의 명령 승인 창(실측). 창 위에 가로줄이 있다.
+    const APPROVAL: &str = "  I'll create the directory and stop there.\n\n  $ mkdir zz_dir Waiting for approval...\n\n──────────────────────\n $  mkdir zz_dir in .\n\n Run this command?\n Not in allowlist: mkdir\n  → Run (once) (y)\n    Add Shell(mkdir) to allowlist? (tab)\n    Run Everything (shift+tab)\n    Skip & tell the agent what to do instead (esc or n)\n\n\n";
+    /// 같은 버전이 쉴 때의 화면 아래(실측). 답의 마지막 줄 아래에 입력 칸과 상태 줄만 있다.
+    fn idle_after(answer: &str) -> String {
+        format!(
+            "  $ touch y.txt 558ms\n\n  {answer}\n\n\n  → Add a follow-up\n\n\n  Claude Sonnet 5 300K High  [----------] 7%  cur @ master\n"
+        )
+    }
+
     #[test]
-    fn question_and_approval_boxes_are_found() {
-        let question = "│ 색상 선택 │\n│ Question 1 of 1 │\n│ 1. Which color do you choose: red or blue? │\n│   › [ ] Red │\n│ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip │";
+    fn question_and_approval_boxes_are_found_in_a_session() {
         assert_eq!(
-            crate::screen::find(&DIALOGS, question).map(|(kind, _)| kind),
+            crate::screen::find(&DIALOGS, QUESTION, Session::Started).map(|(kind, _)| kind),
             Some(WaitKind::Question)
         );
-        let approval = "  $ touch y.txt Waiting for approval...\n $  touch y.txt in .\n Run this command?\n Not in allowlist: touch\n  → Run (once) (y)";
         assert_eq!(
-            crate::screen::find(&DIALOGS, approval).map(|(kind, _)| kind),
+            crate::screen::find(&DIALOGS, APPROVAL, Session::Started).map(|(kind, _)| kind),
             Some(WaitKind::Approval)
         );
+    }
+
+    /// 에이전트가 창 글을 출력해도 창이 아니다(2026-10-21 Claude 노드의 거짓 대기와 같은 경우).
+    #[test]
+    fn dialog_text_in_agent_output_is_not_a_box() {
+        for text in [
+            "Run this command?",
+            "Enter next/submit",
+            "Do you trust the contents of this directory?",
+        ] {
+            let middle = idle_after(&format!("{text}\n  Done."));
+            assert_eq!(
+                crate::screen::find(&DIALOGS, &middle, Session::Started),
+                None,
+                "{text}"
+            );
+            let last = idle_after(text);
+            assert_eq!(
+                crate::screen::find(&DIALOGS, &last, Session::Started),
+                None,
+                "{text}"
+            );
+        }
     }
 
     fn event(input: Value) -> Event {

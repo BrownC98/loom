@@ -1028,7 +1028,11 @@ export function Graph(props: {
     setOrdering(null);
     const g = groups.find((g) => g.group.path === ordering);
     if (!g) return;
-    save(new Map([...keepAround(ordering, { x: 0, y: 0 }), ...g.auto]));
+    // 정렬한 모양을 지키는 저장소의 묶음 정렬은 그 모양을 바꾸지 않는다. 표시를 지우면 그 뒤에 생기거나 사라진 묶음이 옛 자리에 남는다.
+    // 2026-10-21 사람 지시 "되돌리기 없어지니까 이 레이아웃을 유지하고 있음, 해결하라".
+    const done = new Map([...keepAround(ordering, { x: 0, y: 0 }), ...g.auto]);
+    if (arrangedRepos.has(g.repo)) saveArranged([g.repo], done);
+    else save(done);
   });
   // 자동 배치 묶음 자리는 저장소 원점에서 시작하므로 상자 왼쪽 위는 원점에서 `REPO_INSET`만큼 왼쪽 위다.
   const arrangeRepo = (r: (typeof repos)[number]) => {

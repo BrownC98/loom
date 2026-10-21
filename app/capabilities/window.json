@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "window",
-  "description": "데몬이 내는 화면(127.0.0.1)이 OS 제목 줄 대신 그린 제목 줄(web/src/TitleBar.tsx)로 창을 옮기고, 최소화·최대화·닫기를 한다. 근거: docs/design.md 「Windows 앱」.",
+  "description": "데몬이 내는 화면(127.0.0.1)이 OS 제목 줄 대신 그린 제목 줄(web/src/TitleBar.tsx)로 창을 옮기고, 최소화·최대화·닫기를 한다(macOS는 OS 창 버튼을 쓴다). 근거: docs/design.md 「데스크톱 앱」.",
   "windows": ["main"],
   "remote": { "urls": ["http://127.0.0.1:*"] },
   "permissions": [

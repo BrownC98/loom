@@ -1,5 +1,5 @@
-# 사람이 판 태그(`v<판>`)를 push하거나 손으로 돌릴 때 Windows 설치 파일과 Linux 실행 파일을 만들어 Release `v<판>`으로 올린다.
-# 앱은 가장 새 Release의 `latest.json`으로 새 판을 찾는다. 근거: docs/design.md 「Windows 앱」 「배포」.
+# 사람이 판 태그(`v<판>`)를 push하거나 손으로 돌릴 때 Windows·macOS(Apple Silicon) 앱과 Linux 실행 파일을 만들어 Release `v<판>`으로 올린다.
+# 앱은 가장 새 Release의 `latest.json`으로 새 판을 찾는다. 근거: docs/design.md 「데스크톱 앱」 「배포」.
 name: release
 
 on:
@@ -21,7 +21,12 @@ env:
 
 jobs:
   installer:
-    runs-on: windows-latest
+    strategy:
+      # 하나씩 돈다. 둘이 함께 `latest.json`을 고치면 한쪽 플랫폼이 빠질 수 있다. tauri-action이 앞 판의 `latest.json`에 플랫폼을 더한다.
+      max-parallel: 1
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
     outputs:
       version: ${{ steps.version.outputs.version }}
     defaults:
@@ -44,8 +49,9 @@ jobs:
         id: version
         run: |
           version=$(sh scripts/version.sh)
-          sed -i "s/^version = \".*\"$/version = \"$version\"/" Cargo.toml
-          sed -i "s/^name = \"loom-app\"$/&\nversion = \"$version\"/" app/Cargo.toml
+          # macOS의 sed는 `-i` 문법이 달라 perl로 고친다.
+          perl -pi -e "s/^version = \".*\"\$/version = \"$version\"/" Cargo.toml
+          perl -pi -e "s/^name = \"loom-app\"\$/\$&\nversion = \"$version\"/" app/Cargo.toml
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # 태그로 돌면 태그 이름이 판과 같아야 한다. 다르면 Release 이름과 앱 판이 어긋난다.
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
@@ -58,14 +64,18 @@ jobs:
         env:
           # build 스크립트가 sh 문법으로 판을 넣는다. Windows 기본 셸(cmd)로는 돌지 않는다.
           NPM_CONFIG_SCRIPT_SHELL: bash
-      - name: loom.exe 빌드
+      # Tauri sidecar 이름은 `loom-<러너의 대상 triple>`이다(Windows는 `.exe`가 붙는다).
+      - name: loom 빌드
         run: |
           cargo build --release
           mkdir -p app/binaries
-          cp target/release/loom.exe app/binaries/loom-x86_64-pc-windows-msvc.exe
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          exe=$([ "$RUNNER_OS" = Windows ] && echo .exe || true)
+          cp "target/release/loom$exe" "app/binaries/loom-$triple$exe"
       # 이전 판이 깔려 있으면 Tauri 템플릿은 「먼저 지우기/지우지 않기」 화면과 옛 판 제거 마법사를 띄운다.
-      # 그 화면을 건너뛰고 같은 폴더에 덮어 설치한다(앱 업데이트의 /UPDATE와 같은 길). 근거: docs/design.md 「Windows 앱」.
+      # 그 화면을 건너뛰고 같은 폴더에 덮어 설치한다(앱 업데이트의 /UPDATE와 같은 길). 근거: docs/design.md 「데스크톱 앱」.
       - name: 설치 템플릿 받기
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           nsi=app/windows/installer.nsi
@@ -84,8 +94,11 @@ jobs:
           tauriScript: npx --yes @tauri-apps/cli@${{ env.TAURI_CLI }}
           tagName: v${{ steps.version.outputs.version }}
           releaseName: loom ${{ steps.version.outputs.version }}
+          # 본문은 먼저 끝난 플랫폼이 Release를 만들 때 한 번 쓴다. 그래서 두 플랫폼의 안내를 함께 둔다.
           releaseBody: |
-            ${{ github.ref_name }} ${{ github.sha }} 빌드. 설치 파일(`-setup.exe`)을 실행하면 loom 창이 열린다.
+            ${{ github.ref_name }} ${{ github.sha }} 빌드.
+            - Windows: 설치 파일(`-setup.exe`)을 실행하면 loom 창이 열린다.
+            - macOS(Apple Silicon): `.dmg`를 열어 loom을 응용 프로그램 폴더로 끈다. 서명하지 않은 앱이라 처음 한 번 터미널에서 `xattr -cr /Applications/loom.app`를 실행한 뒤 연다.
 
   # Release는 위 단계가 만든다. 정적 실행 파일(musl)이라 glibc 판과 관계없이 x86-64 Linux에서 돈다.
   linux:

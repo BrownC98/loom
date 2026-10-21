@@ -1,7 +1,8 @@
 //! PTY 호스트(`loom pty-host`): PTY 하나와 그 프로세스, 최근 출력을 쥐고 데몬보다 오래 산다.
 //! 데몬이 다시 시작하거나 새 실행 파일로 바뀌어도 노드 프로세스는 끝나지 않는다. 근거: docs/design.md 「에이전트 실행」.
 //! 띄울 명령은 stdin의 JSON(`CommandBuilder`)으로 받고, 듣는 주소를 stdout 한 줄로 알린다. 그 뒤로 stdout은 쓰지 않는다.
-//! 설정 스크립트가 있으면 같은 PTY에서 먼저 돌리고, 성공하면 명령을 띄운다. 근거: docs/design.md 「저장소와 워크트리」.
+//! 설정 스크립트가 있으면 먼저 돌리고, 성공하면 새 PTY에서 명령을 띄운다. 화면에는 한 터미널로 이어 보인다.
+//! 같은 PTY에서 다시 띄우면 macOS는 새 프로세스가 제어 터미널을 잡지 못한다(실측). 근거: docs/design.md 「저장소와 워크트리」.
 //! 데몬 연결은 한 번에 하나다. 새 연결이 오면 앞 연결을 닫는다(다시 시작한 데몬이 앞 데몬의 자리를 받는다).
 
 use std::ffi::OsString;
@@ -11,9 +12,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use portable_pty::{
-    Child, ChildKiller, CommandBuilder, MasterPty, PtySize, SlavePty, native_pty_system,
-};
+use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 
 use super::wire::{self, Frame};
@@ -50,7 +49,7 @@ struct Host {
     delivered: mpsc::Sender<()>,
 }
 
-/// 지금 PTY에서 도는 프로세스(설정 스크립트나 명령)를 끝내는 손잡이.
+/// 도는 프로세스(설정 스크립트나 명령)를 끝내는 손잡이.
 struct Process {
     killer: Box<dyn ChildKiller + Send + Sync>,
     /// 데몬이 끝내기를 보냈다. 설정 스크립트 뒤의 명령을 띄우지 않는다.
@@ -127,11 +126,9 @@ pub fn run() -> Result<(), String> {
 pub struct Started {
     pub address: SocketAddr,
     host: Arc<Host>,
-    child: Box<dyn Child + Send + Sync>,
-    /// 설정 스크립트가 도는 동안: 그 뒤에 띄울 명령과 PTY.
-    next: Option<(CommandBuilder, Box<dyn SlavePty + Send>)>,
-    /// 출력 읽기가 끝나면 닫힌다.
-    output_done: mpsc::Receiver<()>,
+    running: Running,
+    /// 설정 스크립트가 도는 동안: 그 뒤에 띄울 명령.
+    next: Option<CommandBuilder>,
     delivered: mpsc::Receiver<()>,
 }
 
@@ -145,14 +142,8 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
         None => (cmd, None),
     };
     let child = pair.slave.spawn_command(first).map_err(|e| e.to_string())?;
-    // 설정 뒤에 띄울 명령이 없으면 PTY를 놓는다. 그래야 프로세스가 끝날 때 출력 읽기가 끝난다.
-    let next = match next {
-        Some(cmd) => Some((cmd, pair.slave)),
-        None => {
-            drop(pair.slave);
-            None
-        }
-    };
+    // PTY를 놓는다. 그래야 프로세스가 끝날 때 출력 읽기가 끝난다.
+    drop(pair.slave);
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let input = pair.master.take_writer().map_err(|e| e.to_string())?;
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
@@ -171,12 +162,7 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
         }),
         delivered: delivered_tx,
     });
-    let (drained, output_done) = mpsc::channel::<()>();
-    let pty = host.clone();
-    std::thread::spawn(move || {
-        pty.read_output(reader);
-        drop(drained);
-    });
+    let output_done = host.read_in_background(reader);
     let accepting = host.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -187,9 +173,8 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
     Ok(Started {
         address,
         host,
-        child,
+        running: Running { child, output_done },
         next,
-        output_done,
         delivered,
     })
 }
@@ -198,25 +183,28 @@ impl Started {
     /// 프로세스가 끝날 때까지 기다리고, 끝을 데몬에 넘긴 뒤(또는 `EXIT_KEEP` 뒤) 돌아온다.
     /// 설정 스크립트가 성공하면 명령을 띄우고 그 명령을 기다린다. 실패하면 명령을 띄우지 않고 `Exit::Setup`으로 끝난다.
     pub fn wait(mut self) {
-        let code = exit_code(&mut self.child);
+        let code = self.running.exit_code();
         let mut note = None;
         let exit = match self.next.take() {
             None => Exit::Command(code),
             Some(_) if code != 0 => Exit::Setup(code),
-            Some((cmd, slave)) => match self.host.replace(&*slave, cmd) {
-                Ok(Some(child)) => {
-                    drop(slave);
-                    self.child = child;
-                    Exit::Command(exit_code(&mut self.child))
+            // 설정 출력을 다 읽은 뒤 명령의 PTY로 바꾼다. 그래야 출력 순서가 지켜진다.
+            Some(cmd) => {
+                self.running.drain();
+                match self.host.replace(cmd) {
+                    Ok(Some(running)) => {
+                        self.running = running;
+                        Exit::Command(self.running.exit_code())
+                    }
+                    Ok(None) => Exit::Command(code),
+                    Err(e) => {
+                        note = Some(format!("loom: 에이전트를 띄우지 못했다: {e}"));
+                        Exit::Command(u32::MAX)
+                    }
                 }
-                Ok(None) => Exit::Command(code),
-                Err(e) => {
-                    note = Some(format!("loom: 에이전트를 띄우지 못했다: {e}"));
-                    Exit::Command(u32::MAX)
-                }
-            },
+            }
         };
-        let _ = self.output_done.recv_timeout(DRAIN_AFTER_EXIT);
+        self.running.drain();
         if let Some(note) = note {
             self.host.note(&note);
         }
@@ -225,11 +213,36 @@ impl Started {
     }
 }
 
-fn exit_code(child: &mut Box<dyn Child + Send + Sync>) -> u32 {
-    child.wait().map(|s| s.exit_code()).unwrap_or(u32::MAX)
+/// PTY에서 도는 프로세스와 그 PTY의 출력 읽기.
+struct Running {
+    child: Box<dyn Child + Send + Sync>,
+    /// 출력 읽기가 끝나면 닫힌다.
+    output_done: mpsc::Receiver<()>,
+}
+
+impl Running {
+    fn exit_code(&mut self) -> u32 {
+        self.child.wait().map(|s| s.exit_code()).unwrap_or(u32::MAX)
+    }
+
+    /// 남은 출력을 읽을 때까지(상한 `DRAIN_AFTER_EXIT`) 기다린다.
+    fn drain(&self) {
+        let _ = self.output_done.recv_timeout(DRAIN_AFTER_EXIT);
+    }
 }
 
 impl Host {
+    /// `reader`를 다른 스레드에서 끝까지 읽는다. 돌려준 채널은 읽기가 끝나면 닫힌다.
+    fn read_in_background(self: &Arc<Self>, reader: Box<dyn Read + Send>) -> mpsc::Receiver<()> {
+        let (drained, output_done) = mpsc::channel::<()>();
+        let pty = self.clone();
+        std::thread::spawn(move || {
+            pty.read_output(reader);
+            drop(drained);
+        });
+        output_done
+    }
+
     fn read_output(&self, mut reader: Box<dyn Read + Send>) {
         let mut buf = [0u8; 8192];
         let mut first = true;
@@ -255,24 +268,33 @@ impl Host {
         }
     }
 
-    /// 설정 스크립트 뒤에 명령을 띄우고 붙은 데몬에 새 PID를 알린다. 데몬이 끝내기를 보냈으면 띄우지 않는다.
-    fn replace(
-        &self,
-        slave: &dyn SlavePty,
-        cmd: CommandBuilder,
-    ) -> Result<Option<Box<dyn Child + Send + Sync>>, String> {
+    /// 설정 스크립트 뒤에 새 PTY(지금 크기)에서 명령을 띄우고 붙은 데몬에 새 PID를 알린다.
+    /// 데몬이 끝내기를 보냈으면 띄우지 않는다. 돌려준 채널은 새 PTY의 출력 읽기가 끝나면 닫힌다.
+    fn replace(self: &Arc<Self>, cmd: CommandBuilder) -> Result<Option<Running>, String> {
         let mut process = self.process.lock().unwrap();
         if process.killed {
             return Ok(None);
         }
-        let child = slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        // 바꾸는 동안 크기 바꾸기를 막는다. 그래야 새 PTY가 마지막 크기를 받는다.
+        let mut master = self.master.lock().unwrap();
+        let size = master.get_size().unwrap_or(INITIAL_SIZE);
+        let pair = native_pty_system()
+            .openpty(size)
+            .map_err(|e| e.to_string())?;
+        let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        drop(pair.slave);
+        let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+        *self.input.lock().unwrap() = pair.master.take_writer().map_err(|e| e.to_string())?;
+        *master = pair.master;
+        drop(master);
         process.killer = child.clone_killer();
         let mut state = self.state.lock().unwrap();
         state.pid = child.process_id();
         if let Some(pid) = state.pid {
             state.send(&Frame::Pid(pid));
         }
-        Ok(Some(child))
+        let output_done = self.read_in_background(reader);
+        Ok(Some(Running { child, output_done }))
     }
 
     /// 프로세스가 아니라 호스트가 쓰는 한 줄. 화면이 터미널 출력으로 본다.

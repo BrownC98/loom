@@ -17,7 +17,7 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge } from './HopEdge';
-import { arrangeNested, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type NestGroup, type Side, type Sibling, type Size } from './layout';
+import { arrangeNested, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
@@ -510,10 +510,10 @@ export function Graph(props: {
   const [spots, setSpots] = useState<ReadonlyMap<string, Placed>>(new Map());
   // 정렬한 모양을 지키는 저장소. [정렬]이 넣고, 그 저장소의 묶음·카드를 끌어 놓으면 뺀다(데몬 DB `arranged_repos`).
   const [arrangedRepos, setArrangedRepos] = useState<ReadonlySet<RepoId>>(new Set());
-  // 끄는 동안 움직인 상자(끄는 상자와 비킨 상자)의 원점. 놓으면 저장하고 비운다.
+  // 끄는 동안 움직인 상자(끄는 상자, 자리를 바꾼 형제, 묶어 둔 형제와 바깥 상자)의 원점. 놓으면 저장하고 비운다.
   const [moving, setMoving] = useState<ReadonlyMap<string, XYPosition>>(new Map());
-  // 끄는 상자가 형제 중심선의 어느 쪽에 있었는지. 겹친 채 앞 변이 그 선을 넘으면 그 형제가 비킨다(사람 결정 2026-10-21, 목업 v4 ②).
-  const sides = useRef<{ key: string; of: Map<string, CenterSide> } | null>(null);
+  // 끄는 상자와 그 상자의 자리 바꿈(`swap`). 앞 변이 형제 중심선을 넘으면 그 형제와 자리를 바꾼다(사람 결정 2026-10-21).
+  const swaps = useRef<{ key: string; swap: Swap } | null>(null);
   // 사람이 바꾼 표준 카드 크기와, 테두리를 끄는 동안의 크기. 놓으면 `sizes`에 넣고 저장한다.
   const [sizes, setSizes] = useState<ReadonlyMap<NodeId, Size>>(new Map());
   const [resizing, setResizing] = useState<{ id: NodeId; size: Size } | null>(null);
@@ -934,26 +934,14 @@ export function Graph(props: {
     return { x: at.x - lead.x, y: at.y - lead.y };
   };
   /**
-   * 끄는 동안: 끄는 상자의 앞 변이 겹친 형제의 중심선을 넘으면 그 형제가 비킨다(목업 v4 ②). 커진 바깥 상자는 놓을 때와 같이 옆 상자를 민다.
-   * 카드·묶음·저장소 상자가 같은 규칙이다(사람 "묶음 드래그 로직을 터미널 노드랑 같은 규칙을 사용해").
+   * 끄는 동안: 아무것도 밀지 않는다. 끄는 상자의 앞 변이 겹친 형제의 중심선을 넘으면 그 형제와 자리를 바꾼다(`swap`). 바깥 상자는 끄는 상자를 덮게 늘기만 한다.
+   * 카드·묶음·저장소 상자가 같은 규칙이다. 사람 결정(2026-10-21) "밀려나는건 마우스를 놓는 시점에 밀려나야하고".
    */
   const onDrag = (key: string, level: Level, dragged: Box) => {
-    const others = level.boxes.filter((b) => b.key !== key);
-    if (sides.current?.key !== key) sides.current = { key, of: new Map() };
-    const of = sides.current.of;
-    const targets: string[] = [];
-    for (const o of others) {
-      const before = of.get(o.key);
-      if (!overlaps(dragged, o) || before === undefined) of.set(o.key, centerSide(dragged, o));
-      else if (crossed(before, dragged, o)) targets.push(o.key);
-    }
-    const pushed = push(others, dragged, targets, FREE_GAP);
-    for (const [k, at] of pushed) of.set(k, centerSide(dragged, { at, size: others.find((o) => o.key === k)!.size }));
-    setMoving((prev) => {
-      const done = new Map([...pinned(level, prev), [key, originOf(level, key, dragged.at)], ...[...pushed].map(([k, at]): [string, XYPosition] => [k, originOf(level, k, at)])]);
-      for (let s = shellOf({ key, level, mover: dragged }, done); s !== null; s = shellOf(s, done)) pushOverlaps(s, done);
-      return done;
-    });
+    if (swaps.current?.key !== key) swaps.current = { key, swap: { slot: level.boxes.find((b) => b.key === key)!, sides: new Map(), at: new Map() } };
+    const next = swap(swaps.current.swap, level.boxes.filter((b) => b.key !== key), dragged);
+    swaps.current.swap = next;
+    setMoving((prev) => new Map([...pinned(level, prev), [key, originOf(level, key, dragged.at)], ...[...next.at].map(([k, at]): [string, XYPosition] => [k, originOf(level, k, at)])]));
   };
   /**
    * 형제와 바깥 상자(묶음, 저장소 상자)를 지금 자리에 묶는다. 자리를 저장하지 않은 상자는 자동 배치 자리라 끄는 상자를 피해 옮겨 가고,
@@ -976,7 +964,7 @@ export function Graph(props: {
    * 놓은 상자와 비킨 상자의 자리를 한 요청으로 저장한다.
    */
   const onDrop = (key: string, level: Level, dragged: Box) => {
-    sides.current = null;
+    swaps.current = null;
     setMoving(new Map());
     save(spread(key, level, dragged, new Map([...moving, [key, originOf(level, key, dragged.at)]])));
   };
@@ -1065,7 +1053,7 @@ export function Graph(props: {
   };
   /**
    * [정렬]과 저장소 정렬. 지금 화면 순서를 잡고 저장한 자리를 지운다. 다음 렌더에서 구한 자동 배치 자리를 저장한다.
-   * 그래서 순서와 자리는 데몬 DB(`spots`) 하나에 남고, 브라우저와 Windows 앱이 같은 그림을 본다.
+   * 그래서 순서와 자리는 데몬 DB(`spots`) 하나에 남고, 브라우저와 데스크톱 앱이 같은 그림을 본다.
    * 보이는 저장소 모두(`shown`)면 저장소 상자 자리도 저장한다. 저장소 하나면 그 상자는 지금 자리에 남는다(`keepAround`). `after`는 지우기 요청이다.
    */
   const [arranging, setArranging] = useState<{ scope: { kind: 'shown' } | { kind: 'repo'; id: RepoId }; after: Promise<unknown> } | null>(null);

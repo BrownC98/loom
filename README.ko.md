@@ -62,6 +62,13 @@ loom은 스킬 네 개를 싣습니다: `o-mode`(orchestration mode), `ste-100`,
 [가장 새 릴리스](https://github.com/BrownC98/loom/releases/latest)에서 받습니다.
 
 - **Windows:** `loom_<판>_x64-setup.exe`를 실행합니다. 지울 때는 Windows **설정 › 앱**을 씁니다.
+- **macOS(Apple Silicon):** `loom_<판>_aarch64.dmg`를 열고 loom을 응용 프로그램 폴더로 끕니다. 앱에 Apple 서명이 없어 macOS가 「손상되었기 때문에 열 수 없습니다」라고 합니다. 처음 열기 전에 터미널에서 아래 명령을 한 번 실행합니다.
+
+  ```sh
+  xattr -cr /Applications/loom.app
+  ```
+
+  지울 때는 응용 프로그램 폴더의 loom을 휴지통으로 옮깁니다.
 - **Linux·WSL(x86-64), 웹 버전:** 아래 「웹 버전」을 봅니다.
 
 에이전트 CLI(Claude Code, Codex, OpenCode 2)는 따로 설치합니다. loom은 `PATH`에서 찾습니다.
@@ -100,7 +107,7 @@ loom은 스킬 네 개를 싣습니다: `o-mode`(orchestration mode), `ste-100`,
 
 loom은 사람이 정하지 않은 곳에 데이터를 보내지 않습니다. 밖으로 나가는 요청은 아래뿐입니다.
 
-- **업데이트 확인(Windows 앱):** 창을 열 때 GitHub의 이 저장소 릴리스에서 `latest.json`을 읽습니다. 보내는 개인 데이터는 없습니다.
+- **업데이트 확인(데스크톱 앱):** 창을 열 때 GitHub의 이 저장소 릴리스에서 `latest.json`을 읽습니다. 보내는 개인 데이터는 없습니다.
 - **사용량 표시:** 사람이 loom 설정에서 로그인한 Claude 계정의 사용량을 그 계정의 토큰으로 Anthropic(`api.anthropic.com`)에 묻습니다. 다른 곳에는 보내지 않습니다.
 - **에이전트 CLI:** 사람이 설치하고 고른 에이전트(Claude Code, Codex 등)는 각 제공자의 정책에 따라 통신합니다. loom은 그 통신에 데이터를 더하지 않습니다.
 

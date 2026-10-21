@@ -109,7 +109,7 @@ impl Snapshot {
 
 /// `cmd`로 띄운 프로세스가 데몬이 끝나도 살게 한다. 노드의 PTY 호스트와 서버(Codex app-server, OpenCode 2)가 쓴다.
 /// Unix: 새 프로세스 그룹에 넣는다. 데몬 터미널의 Ctrl+C·HUP는 데몬의 그룹에만 간다.
-/// Windows: 할 일이 없다. 앱이 데몬을 넣은 Job은 데몬이 띄운 프로세스를 넣지 않는다(`app/src/main.rs`의 `end_with_app`).
+/// Windows: 할 일이 없다. 부모가 끝나도 자식은 끝나지 않는다.
 #[cfg(unix)]
 pub fn detach(cmd: &mut std::process::Command) {
     std::os::unix::process::CommandExt::process_group(cmd, 0);
@@ -243,8 +243,12 @@ mod tests {
     #[test]
     fn session_leaders_under_skip_children_in_the_parent_session() {
         // `setsid`로 띄운 자식만 세션 리더다. Codex 셸과 MCP 서버를 이렇게 가른다.
+        // macOS에는 `setsid` 명령이 없어 perl의 POSIX `setsid`를 쓴다.
         let mut parent = std::process::Command::new("sh")
-            .args(["-c", "setsid sleep 30 & sleep 30 & wait"])
+            .args([
+                "-c",
+                "perl -MPOSIX -e 'setsid; exec @ARGV' sleep 30 & sleep 30 & wait",
+            ])
             .spawn()
             .unwrap();
         let pid = parent.id();
@@ -253,7 +257,19 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_millis(20));
                 Snapshot::now()
             })
-            .find(|s| s.parents.values().filter(|&&p| p == pid).count() == 2)
+            // 두 자식이 모두 `sleep`이 된 뒤에 본다. 그 전에는 perl이 아직 `setsid`를 부르지 않았을 수 있다.
+            .find(|s| {
+                s.parents
+                    .iter()
+                    .filter(|&(&child, &p)| {
+                        p == pid
+                            && s.system
+                                .process(Pid::from_u32(child))
+                                .is_some_and(|c| c.name() == "sleep")
+                    })
+                    .count()
+                    == 2
+            })
             .unwrap();
         let leaders = snapshot.session_leaders_under(pid);
         assert_eq!(leaders.len(), 1);

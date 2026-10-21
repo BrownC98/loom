@@ -1,4 +1,4 @@
-import { Inbox as InboxIcon, X } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { dismissWait } from './api';
@@ -16,8 +16,8 @@ export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): Waiting[] {
 }
 
 /**
- * 상태 줄의 [질문] 단추와 그 목록. 줄이나 시스템 알림을 누르면 사이드바 클릭처럼 그래프를 그 노드로 옮기고 고른다(목업 docs/mockups/human-question.html ②~④).
- * `notify`는 설정 「시스템 알림」이다.
+ * 그래프 칸 위 가운데에 뜨는 [질문 N] 알약과 그 목록(목업 docs/mockups/question-inbox-place.html ②). 기다리는 노드가 없으면 알약도 없다.
+ * 줄이나 시스템 알림을 누르면 사이드바 클릭처럼 그래프를 그 노드로 옮기고 고른다. `notify`는 설정 「시스템 알림」이다.
  */
 export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (id: NodeId) => void }) {
   const { t } = useTranslation();
@@ -30,6 +30,12 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
   useOsNotify(props.waiting, props.notify, go);
   const home = useOutsideClose<HTMLDivElement>(() => setOpen(false));
   const n = props.waiting.length;
+  const latest = props.waiting[0];
+
+  // 마지막 대기가 사라지면 목록을 닫는다. 다음 질문이 생길 때 목록이 저절로 열리지 않는다.
+  useEffect(() => {
+    if (n === 0) setOpen(false);
+  }, [n]);
 
   useEffect(() => {
     if (!open) return;
@@ -42,38 +48,44 @@ export function Inbox(props: { waiting: Waiting[]; notify: boolean; onSelect: (i
 
   return (
     <div className="inbox" ref={home}>
-      <button className="inbox-btn" aria-expanded={open} aria-label={t('inbox.buttonLabel', { count: n })} onClick={() => setOpen(!open)}>
-        <InboxIcon aria-hidden="true" />
-        {t('inbox.button')}
-        {n > 0 && <span className="count">{n}</span>}
-      </button>
-      {open && (
+      {/* 알약이 나타나거나 수가 바뀌면 화면 읽기 프로그램이 읽는다. 목록은 이 영역 밖이라 열어도 읽지 않는다. */}
+      <div className="inbox-live" aria-live="polite">
+        {latest && (
+          <button type="button" className="inbox-pill" aria-expanded={open} aria-label={t('inbox.buttonLabel', { count: n })} onClick={() => setOpen(!open)}>
+            <span className="dot waiting" aria-hidden="true" />
+            <b>
+              {t('inbox.button')} {n}
+            </b>
+            <span className="preview">
+              {latest.name}: {latest.wait.text || t(`wait.${latest.wait.kind}`)}
+            </span>
+            <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+      {open && n > 0 && (
         <div className="pop inbox-pop" role="dialog" aria-label={t('inbox.title', { count: n })}>
           <h2>{t('inbox.title', { count: n })}</h2>
-          {n === 0 ? (
-            <p className="hint">{t('inbox.empty')}</p>
-          ) : (
-            <ul>
-              {props.waiting.map((v) => (
-                <li key={v.id}>
-                  <button
-                    className="go"
-                    onClick={() => {
-                      setOpen(false);
-                      go(v.id);
-                    }}
-                  >
-                    <span className="dot waiting" aria-hidden="true" />
-                    <span className="who">
-                      <b>{v.name}</b> · {t(`wait.${v.wait.kind}`)}
-                    </span>
-                    {v.wait.text && <span className="line">{v.wait.text}</span>}
-                  </button>
-                  <DismissButton id={v.id} />
-                </li>
-              ))}
-            </ul>
-          )}
+          <ul>
+            {props.waiting.map((v) => (
+              <li key={v.id}>
+                <button
+                  className="go"
+                  onClick={() => {
+                    setOpen(false);
+                    go(v.id);
+                  }}
+                >
+                  <span className="dot waiting" aria-hidden="true" />
+                  <span className="who">
+                    <b>{v.name}</b> · {t(`wait.${v.wait.kind}`)}
+                  </span>
+                  {v.wait.text && <span className="line">{v.wait.text}</span>}
+                </button>
+                <DismissButton id={v.id} />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

@@ -473,15 +473,20 @@ a { color: var(--accent); }
 .update-pop { position: fixed; right: 16px; bottom: 40px; width: 360px; z-index: 20; }
 .update-pop .btn { justify-content: center; }
 /* 받은편지함은 버전 바로 왼쪽이다(목업 human-question.html ②). 오른쪽으로 미는 여백은 받은편지함이 갖는다. */
-.inbox { position: relative; display: flex; align-items: center; margin-left: auto; }
-.inbox + .app-version { margin-left: 0; }
-.inbox-btn { display: inline-flex; align-items: center; gap: 6px; height: calc(var(--status-h) - 4px); margin: auto 0; padding: 0 8px; border: 0; border-radius: 5px; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
-.inbox-btn:hover, .inbox-btn[aria-expanded="true"] { background: var(--surface-hover); color: var(--ink); }
-.inbox-btn svg { width: 14px; height: 14px; }
-.inbox-btn .count { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--warn); color: var(--surface); font-size: 11px; font-weight: 600; line-height: 16px; text-align: center; }
-.inbox-pop { right: 0; bottom: calc(100% + 6px); width: 360px; z-index: 20; gap: 6px; padding: 10px 6px 6px; }
+/* 질문 알약(목업 docs/mockups/question-inbox-place.html ②): 그래프 칸 위 가운데. 제목(.canvas-title)보다 위에 뜬다.
+   칸 폭 전체에 깔고 가운데에 놓는다. 빈 자리는 마우스를 그래프로 넘긴다. */
+.inbox { position: absolute; top: 12px; left: 16px; right: 16px; z-index: 7; display: grid; justify-items: center; gap: 6px; pointer-events: none; }
+.inbox > * { pointer-events: auto; max-width: 100%; }
+.inbox-live { max-width: min(440px, 100%); }
+.inbox-pill { display: inline-flex; align-items: center; gap: 8px; height: 32px; max-width: 100%; padding: 0 12px 0 10px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 16px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; cursor: pointer; }
+.inbox-pill:hover, .inbox-pill[aria-expanded="true"] { background: color-mix(in oklch, var(--warn) 18%, var(--surface)); }
+.inbox-pill b { white-space: nowrap; }
+.inbox-pill .dot { box-shadow: none; }
+.inbox-pill .preview { min-width: 0; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inbox-pill .chev { flex: none; width: 14px; height: 14px; color: var(--ink-3); }
+.inbox-pill .chev.open { transform: rotate(180deg); }
+.inbox-pop { position: static; width: 380px; max-width: 100%; gap: 6px; padding: 10px 6px 6px; }
 .inbox-pop h2 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
-.inbox-pop .hint { padding: 0 8px 6px; }
 .inbox-pop ul { list-style: none; margin: 0; padding: 0; display: grid; max-height: 50vh; overflow: auto; }
 .inbox-pop li { display: flex; align-items: flex-start; border-radius: 6px; }
 .inbox-pop li:hover, .inbox-pop li:focus-within { background: var(--surface-hover); }

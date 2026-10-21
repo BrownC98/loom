@@ -87,7 +87,11 @@ enum Cli {
     /// 받은 메시지 번호를 지정해 보낸 노드에게 답한다.
     Reply { message: u32, body: String },
     /// 내 번호, 현재 부모와 자식, 프로세스 생존 여부를 출력한다.
-    Status,
+    Status {
+        /// 그래프의 모든 노드를 번호, 이름, 부모, 자리, 상태, 생존 여부로 출력한다.
+        #[arg(long)]
+        all: bool,
+    },
     /// 결과를 부모에게 보내고 이 노드를 done으로 바꾼다.
     Done {
         #[arg(required_unless_present = "file")]
@@ -146,7 +150,8 @@ fn main() -> ExitCode {
             json,
         } => cli::wait(reply_to, timeout_secs, json),
         Cli::Reply { message, body } => cli::reply(message, body),
-        Cli::Status => cli::status(),
+        Cli::Status { all: false } => cli::status(),
+        Cli::Status { all: true } => cli::directory(),
         Cli::Done { summary, file } => cli::done(summary, file),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),

@@ -34,8 +34,8 @@ use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::graph::{
-    Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, MessageId, Model, NewChild, NodeId,
-    Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
+    Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
+    NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
 };
 use crate::node_host::{Exit, NodeHost};
 use crate::open;
@@ -421,6 +421,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/wait", post(agent_wait))
         .route("/api/agent/reply", post(agent_reply))
         .route("/api/agent/status", post(agent_status))
+        .route("/api/agent/nodes", post(agent_nodes))
         .route("/api/agent/take", post(agent_take))
         .route("/api/agent/idle", post(agent_idle))
         .route("/api/agent/ack", post(agent_ack))
@@ -1349,7 +1350,7 @@ async fn agent_send(
 
 fn send(app: &App, from: NodeId, req: &SendRequest) -> Result<Sent, Refusal> {
     if req.kind != Kind::Queue {
-        let (to, agent) = app.graph.recipient(from, &req.to)?;
+        let (to, agent) = app.graph.child(from, &req.to)?;
         let target = format!("#{}", to.0);
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));
@@ -1382,6 +1383,14 @@ async fn agent_status(
 ) -> Result<Json<Relations>, AgentError> {
     let node = app.caller(&headers)?;
     app.graph.relations(node).map(Json).map_err(for_agent)
+}
+
+async fn agent_nodes(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Listed>>, AgentError> {
+    app.caller(&headers)?;
+    app.graph.directory().map(Json).map_err(for_agent)
 }
 
 async fn agent_take(

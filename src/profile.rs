@@ -536,14 +536,14 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
 }
 
 /// 모든 프로필이 받는 통신 명령. 프로필별 대기 방식은 각 실행 지시가 정한다.
-pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell commands to communicate with your parent and children only.
+pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell commands to communicate. You can send to any node; talk to your parent and children first, and report to your parent.
 - loom spawn <name> --agent <agent-id>: create a child. Supply its brief on stdin or with --file. --worktree <branch> gives it a new worktree.
-- loom status: inspect your ID, current parent and children, and their process availability.
-- loom send <name> <body>: queue a message without interrupting a turn. Sending prints the message ID.
-- loom send '#<node-id>' <body>: address a parent or child by stable ID. Use IDs if names are ambiguous.
+- loom status: inspect your ID, current parent and children, and their process availability. loom status --all lists every node with its ID, parent and place.
+- loom send <name> <body>: queue a message without interrupting a turn. A name finds your parent or child first, then a live node with that unique name. Sending prints the message ID.
+- loom send '#<node-id>' <body>: address any node by stable ID. Use IDs if names are ambiguous.
 - loom reply <message-id> <body>: reply to a received message. The reply names its request ID.
 - loom wait --reply-to <message-id> --timeout <seconds> --json: wait for a particular reply. This also finds replies already delivered by another consumer. Other messages stay in the inbox. A timeout exits with an error.
-- loom steer <name-or-id> <body>: insert guidance between tool calls.
+- loom steer <name-or-id> <body>: insert guidance between tool calls. Steer and interrupt go only to your own children.
 - loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
 - loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.

@@ -129,6 +129,8 @@ export function Tree(props: {
   agents: AgentView[];
   selected: NodeId | null;
   onSelect: (id: NodeId) => void;
+  /** 묶음·저장소 줄을 누르면 그래프의 그 상자를 고른다(`flowId`). */
+  onChooseBox: (key: string) => void;
   settings: SettingsView;
   accounts: AccountView[] | null;
   /** 워크트리를 만들거나 지운 뒤 저장소의 새 모양. */
@@ -213,6 +215,7 @@ export function Tree(props: {
         // 다른 저장소의 묶음이면 그래프를 그 저장소로 바꾼다. 그 묶음을 아직 그리지 않았어도 `showGroup`이 잰 뒤 옮긴다.
         show: () => {
           if (repo.id !== props.current) props.onRepo(repo.id);
+          props.onChooseBox(group.path);
           showGroups([group.path]);
         },
         row: (
@@ -253,6 +256,7 @@ export function Tree(props: {
     // 그 저장소를 현재 저장소로 두고 그 묶음이 모두 보이게 옮긴다(목업 repo-scope.html 1번). 저장소 하나 범위면 그래프가 그 저장소로 바뀐다.
     show: () => {
       props.onRepo(repo.id);
+      props.onChooseBox(`repo:${repo.id}`);
       showGroups(groupsOf(repo, views).map((g) => g.path));
     },
     row: (

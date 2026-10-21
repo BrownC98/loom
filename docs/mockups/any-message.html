@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관계없는 노드 사이 메시지 표시</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+.opt { display: grid; gap: 8px; max-width: 660px; }
+.opt h3 { font-size: 14px; display: flex; gap: 8px; align-items: center; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
+svg.graph { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+.repo rect { fill: none; stroke: var(--line-strong); }
+.repo text { fill: var(--ink-3); font: 600 12px var(--font); }
+.card rect { fill: var(--surface); stroke: var(--line-strong); }
+.card text { fill: var(--ink); font: 600 13px var(--font); }
+.card .dot { fill: oklch(62% 0.17 150); }
+.edge { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
+.hop { stroke: var(--accent); stroke-width: 2; fill: none; stroke-dasharray: 6 5; animation: flow 0.6s linear infinite; }
+.hop.both { animation: none; }
+@keyframes flow { to { stroke-dashoffset: -11; } }
+@media (prefers-reduced-motion: reduce) { .hop { animation: none; } }
+.new { stroke: var(--warn) !important; }
+.mark { width: max-content; outline: 2px dashed var(--warn); outline-offset: 3px; border-radius: 12px; }
+.pill rect { fill: var(--accent); }
+.pill text { fill: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0)); font: 600 12px var(--font); text-anchor: middle; dominant-baseline: central; }
+.glow rect { stroke: var(--accent); stroke-width: 2; }
+table { border-collapse: collapse; font-size: 13px; max-width: 900px; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); font-weight: 600; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>그래프: 부모·자식이 아닌 노드 사이 메시지 표시</h1>
+  <p class="lead">사람 지시: 「loom에서 모든 터미널은 다른 모든 터미널에 메시지를 보낼 수 있도록 해」. 이제 다른 나무·다른 저장소의 노드에도 메시지가 갑니다. 두 노드 사이에는 간선이 없어 지금 화면은 아무것도 보이지 않습니다. 바뀌는 구역은 그래프 위 메시지 표시뿐입니다. 점선(노란색)이 새로 그리는 것입니다. 그림의 점선은 실제처럼 움직입니다.</p>
+
+  <div class="fig">
+    <h2>① 지금 <span class="tag">전체메시지 → 화면워커, 표시 없음</span></h2>
+    <svg class="graph" width="640" height="300" viewBox="0 0 640 300">
+<g class="repo"><rect x="16" y="16" width="290" height="268" rx="12"/><text x="30" y="36">loom</text></g>
+<g class="repo"><rect x="334" y="16" width="290" height="268" rx="12"/><text x="348" y="36">ktasearch</text></g>
+<g class="card "><rect x="96" y="56" width="130" height="40" rx="8"/><circle class="dot" cx="112" cy="76" r="4"/><text x="124" y="81">loom 총괄</text></g>
+<g class="card "><rect x="36" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="52" cy="226" r="4"/><text x="64" y="231">전체메시지</text></g>
+<g class="card "><rect x="176" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="192" cy="226" r="4"/><text x="204" y="231">되돌리기</text></g>
+<g class="card "><rect x="414" y="56" width="130" height="40" rx="8"/><circle class="dot" cx="430" cy="76" r="4"/><text x="442" y="81">검색 총괄</text></g>
+<g class="card "><rect x="414" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="430" cy="226" r="4"/><text x="442" y="231">화면워커</text></g>
+<path class="edge" d="M161 96 V151 H101 V206 M161 151 H241 V206"/>
+<path class="edge" d="M479 96 V206"/>
+</svg>
+    <ul class="note"><li>부모·자식 간선의 메시지는 지금처럼 3초 동안 점선으로 흐르고 「2 메시지 → 총괄」을 적습니다. 이것은 바꾸지 않습니다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 한쪽으로 보냄</h2>
+    <div class="row">
+      <div class="opt"><h3>A. 잠깐 보이는 선 <span class="badge">권장</span></h3><div class="mark"><svg class="graph" width="640" height="300" viewBox="0 0 640 300">
+<g class="repo"><rect x="16" y="16" width="290" height="268" rx="12"/><text x="30" y="36">loom</text></g>
+<g class="repo"><rect x="334" y="16" width="290" height="268" rx="12"/><text x="348" y="36">ktasearch</text></g>
+<g class="card "><rect x="96" y="56" width="130" height="40" rx="8"/><circle class="dot" cx="112" cy="76" r="4"/><text x="124" y="81">loom 총괄</text></g>
+<g class="card "><rect x="36" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="52" cy="226" r="4"/><text x="64" y="231">전체메시지</text></g>
+<g class="card "><rect x="176" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="192" cy="226" r="4"/><text x="204" y="231">되돌리기</text></g>
+<g class="card "><rect x="414" y="56" width="130" height="40" rx="8"/><circle class="dot" cx="430" cy="76" r="4"/><text x="442" y="81">검색 총괄</text></g>
+<g class="card "><rect x="414" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="430" cy="226" r="4"/><text x="442" y="231">화면워커</text></g>
+<path class="edge" d="M161 96 V151 H101 V206 M161 151 H241 V206"/>
+<path class="edge" d="M479 96 V206"/>
+<path class="hop new" d="M101 206 C 101 140, 479 140, 479 206"/>
+<g class="pill"><rect x="228.0" y="145" width="124" height="22" rx="11"/><text x="290" y="156">1 메시지 → 화면워커</text></g>
+</svg></div>
+        <ul class="note">
+          <li>두 카드의 위 변을 잇는 점선 곡선을 3초 동안 그립니다. 곡선은 위로 휘어 사이 카드를 되도록 지나지 않습니다. 간선 강조와 같은 모양·시간이고, 받는 쪽으로 흐릅니다.</li>
+          <li>라벨은 간선과 같은 「1 메시지 → 화면워커」입니다. 3초 안에 다시 오면 수가 늘고 시간이 다시 시작합니다.</li>
+          <li>선은 다른 카드·상자 위에 그립니다(강조한 간선과 같은 층). 3초 뒤 사라지고 남지 않습니다.</li>
+          <li>한쪽 카드가 화면 밖이면 선은 화면 가장자리까지만 보입니다. 시점은 옮기지 않습니다.</li>
+        </ul></div>
+      <div class="opt"><h3>B. 받는 카드만 강조</h3><div class="mark"><svg class="graph" width="640" height="300" viewBox="0 0 640 300">
+<g class="repo"><rect x="16" y="16" width="290" height="268" rx="12"/><text x="30" y="36">loom</text></g>
+<g class="repo"><rect x="334" y="16" width="290" height="268" rx="12"/><text x="348" y="36">ktasearch</text></g>
+<g class="card "><rect x="96" y="56" width="130" height="40" rx="8"/><circle class="dot" cx="112" cy="76" r="4"/><text x="124" y="81">loom 총괄</text></g>
+<g class="card "><rect x="36" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="52" cy="226" r="4"/><text x="64" y="231">전체메시지</text></g>
+<g class="card "><rect x="176" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="192" cy="226" r="4"/><text x="204" y="231">되돌리기</text></g>
+<g class="card "><rect x="414" y="56" width="130" height="40" rx="8"/><circle class="dot" cx="430" cy="76" r="4"/><text x="442" y="81">검색 총괄</text></g>
+<g class="card glow"><rect x="414" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="430" cy="226" r="4"/><text x="442" y="231">화면워커</text></g>
+<path class="edge" d="M161 96 V151 H101 V206 M161 151 H241 V206"/>
+<path class="edge" d="M479 96 V206"/>
+<g class="pill"><rect x="403.0" y="179" width="152" height="22" rx="11"/><text x="479" y="190">1 메시지 ← 전체메시지</text></g>
+</svg></div>
+        <ul class="note">
+          <li>선 없이 받는 카드 테두리를 3초 동안 강조하고 위에 「1 메시지 ← 전체메시지」를 적습니다.</li>
+          <li>보낸 카드가 어디 있는지는 보이지 않습니다. 이름이 같은 노드가 여럿이면 구별하기 어렵습니다.</li>
+        </ul></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>③ 3초 안에 서로 보냄 (A안)</h2>
+    <div class="mark" style="width:max-content"><svg class="graph" width="640" height="300" viewBox="0 0 640 300">
+<g class="repo"><rect x="16" y="16" width="290" height="268" rx="12"/><text x="30" y="36">loom</text></g>
+<g class="repo"><rect x="334" y="16" width="290" height="268" rx="12"/><text x="348" y="36">ktasearch</text></g>
+<g class="card "><rect x="96" y="56" width="130" height="40" rx="8"/><circle class="dot" cx="112" cy="76" r="4"/><text x="124" y="81">loom 총괄</text></g>
+<g class="card "><rect x="36" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="52" cy="226" r="4"/><text x="64" y="231">전체메시지</text></g>
+<g class="card "><rect x="176" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="192" cy="226" r="4"/><text x="204" y="231">되돌리기</text></g>
+<g class="card "><rect x="414" y="56" width="130" height="40" rx="8"/><circle class="dot" cx="430" cy="76" r="4"/><text x="442" y="81">검색 총괄</text></g>
+<g class="card "><rect x="414" y="206" width="130" height="40" rx="8"/><circle class="dot" cx="430" cy="226" r="4"/><text x="442" y="231">화면워커</text></g>
+<path class="edge" d="M161 96 V151 H101 V206 M161 151 H241 V206"/>
+<path class="edge" d="M479 96 V206"/>
+<path class="hop both new" d="M101 206 C 101 140, 479 140, 479 206"/>
+<g class="pill"><rect x="172.0" y="145" width="236" height="22" rx="11"/><text x="290" y="156">1 메시지 → 화면워커 · 1 메시지 → 전체메시지</text></g>
+</svg></div>
+    <ul class="note"><li>간선과 같은 규칙입니다. 라벨에 두 쪽을 「 · 」로 잇고, 점선은 흐르지 않습니다.</li>
+    <li>움직임 줄이기 설정이면 점선이 멈추고 라벨만 남습니다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>항목</th><th>권장안</th><th>다른 안</th></tr>
+      <tr><td>표시 방법</td><td>A. 3초 동안 두 카드를 잇는 점선 곡선과 「n 메시지 → 받는 노드」 라벨</td><td>B. 받는 카드 강조와 「n 메시지 ← 보낸 노드」 라벨</td></tr>
+      <tr><td>이벤트 콘솔</td><td>지금처럼 보낸 노드·받는 노드 줄을 남깁니다. 줄을 누르면 두 카드를 강조합니다(간선은 없음)</td><td>-</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

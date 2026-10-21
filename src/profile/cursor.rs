@@ -238,6 +238,16 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_trust_box_is_a_trust_wait() {
+        // cursor-agent 2026.10.19가 신뢰하지 않은 폴더에서 그린 화면(실측).
+        let screen = "│  Do you trust the contents of this directory?  │\n│  ▶ [a] Trust this workspace  │\n│    [q] Quit  │";
+        assert_eq!(
+            crate::screen::find(&DIALOGS, screen).map(|(kind, _)| kind),
+            Some(WaitKind::Trust)
+        );
+    }
+
     fn event(input: Value) -> Event {
         serde_json::from_value(input).unwrap()
     }

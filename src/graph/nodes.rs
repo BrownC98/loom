@@ -379,7 +379,10 @@ impl Graph {
     ) -> Result<(NodeId, Vec<String>), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let id = mailbox::child(&tx, caller, name)?.0;
+        let id = mailbox::related(&tx, caller, name)?.0;
+        if parent_of(&tx, id)? != Some(caller) {
+            return Err(Refusal::NotChild(name.to_owned()));
+        }
         let removal = remove_in(&tx, id)?.ok_or_else(|| Refusal::NotFound(name.to_owned()))?;
         let mut adoptions = Vec::new();
         let mut moved = Vec::new();

@@ -1350,7 +1350,7 @@ async fn agent_send(
 
 fn send(app: &App, from: NodeId, req: &SendRequest) -> Result<Sent, Refusal> {
     if req.kind != Kind::Queue {
-        let (to, agent) = app.graph.child(from, &req.to)?;
+        let (to, agent) = app.graph.related(from, &req.to)?;
         let target = format!("#{}", to.0);
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));

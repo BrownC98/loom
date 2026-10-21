@@ -1,4 +1,4 @@
-//! 메일함: 노드 사이 메시지. 큐 메시지는 어느 노드에나 가고, 조정·중단은 부모가 자식에게만 보낸다. 전달 방식(`Kind`)마다 꺼내는 지점이 다르다.
+//! 메일함: 노드 사이 메시지. 큐 메시지는 어느 노드에나 가고, 조정·중단은 부모와 자식 사이에만 간다. 전달 방식(`Kind`)마다 꺼내는 지점이 다르다.
 //! 부모 없는 노드가 부모에게 보내는 메시지는 보관했다가 새 부모에게 전한다.
 //! 근거: docs/design.md 「전달 지점」.
 
@@ -67,9 +67,9 @@ struct Outgoing<'a> {
 }
 
 impl Graph {
-    /// 조정·중단을 받을 자식을 이름이나 `#노드번호`로 찾는다. 자식이 아니면 거절한다.
-    pub fn child(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
-        child(&self.lock(), from, to)
+    /// 조정·중단을 받을 부모·자식을 이름이나 `#노드번호`로 찾는다. 여러 노드가 맞으면 거절한다.
+    pub fn related(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
+        related(&self.lock(), from, to)
     }
 
     pub fn send(&self, from: NodeId, to: &str, kind: Kind, body: &str) -> Result<Sent, Refusal> {
@@ -147,7 +147,7 @@ impl Graph {
         let mut db = self.lock();
         let found = match kind {
             Kind::Queue => address(&db, from, to),
-            Kind::Steer | Kind::Interrupt => child(&db, from, to).map(|(id, _)| id),
+            Kind::Steer | Kind::Interrupt => related(&db, from, to).map(|(id, _)| id),
         };
         let to_id = match found {
             Ok(to_id) => Some(to_id),
@@ -461,7 +461,7 @@ fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
         };
     }
     match related(db, from, to) {
-        Err(Refusal::NotFound(_)) => {}
+        Err(Refusal::NotRelated(_)) => {}
         found => return found.map(|(id, _)| id),
     }
     let named = db
@@ -483,24 +483,12 @@ fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
     }
 }
 
-/// 조정·중단과 `loom rm`의 대상: 부르는 노드의 자식.
-pub(super) fn child(
+/// 부모·자식 가운데 이름이나 `#노드번호`가 맞는 노드. 여러 노드가 맞으면 거절한다.
+pub(super) fn related(
     db: &Connection,
     from: NodeId,
     to: &str,
 ) -> Result<(NodeId, Option<AgentId>), Refusal> {
-    let found = match related(db, from, to) {
-        Err(Refusal::NotFound(_)) => return Err(Refusal::NotChild(to.to_owned())),
-        found => found?,
-    };
-    if parent_of(db, found.0)? != Some(from) {
-        return Err(Refusal::NotChild(to.to_owned()));
-    }
-    Ok(found)
-}
-
-/// 부모·자식 가운데 이름이나 `#노드번호`가 맞는 노드. 여러 노드가 맞으면 거절한다.
-fn related(db: &Connection, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
     let id = to.strip_prefix('#').and_then(|id| id.parse::<u32>().ok());
     let found = db.prepare(
         "SELECT id, agent FROM nodes WHERE (CASE WHEN ?3 IS NULL THEN name = ?2 ELSE id = ?3 END)
@@ -509,7 +497,7 @@ fn related(db: &Connection, from: NodeId, to: &str) -> Result<(NodeId, Option<Ag
         .collect::<rusqlite::Result<Vec<_>>>()?;
     match found.as_slice() {
         [one] => Ok(one.clone()),
-        [] => Err(Refusal::NotFound(to.to_owned())),
+        [] => Err(Refusal::NotRelated(to.to_owned())),
         _ => {
             let ids: Vec<NodeId> = found.iter().map(|(id, _)| *id).collect();
             Err(ambiguous(db, to, &ids)?)

@@ -204,7 +204,7 @@ fn parent_and_child_exchange_messages() {
 }
 
 #[test]
-fn messages_go_to_any_node_but_steer_only_to_children() {
+fn messages_go_to_any_node_but_steer_only_between_parent_and_child() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
@@ -220,15 +220,13 @@ fn messages_go_to_any_node_but_steer_only_to_children() {
     assert_eq!(take(&g, lead), delivery("a1", "z"));
 
     for kind in [Kind::Steer, Kind::Interrupt] {
-        assert!(matches!(g.send(a, "b", kind, "x"), Err(Refusal::NotChild(n)) if n == "b"));
-        assert!(matches!(
-            g.send(a1, "a", kind, "x"),
-            Err(Refusal::NotChild(_))
-        ));
+        assert!(matches!(g.send(a, "b", kind, "x"), Err(Refusal::NotRelated(n)) if n == "b"));
         assert!(matches!(
             g.send(lead, &format!("#{}", a1.0), kind, "x"),
-            Err(Refusal::NotChild(_))
+            Err(Refusal::NotRelated(_))
         ));
+        // 자식도 부모를 조정·중단한다.
+        assert_eq!(g.send(a1, "a", kind, "x").unwrap().recipient, Some(a));
     }
     g.send(lead, "a", Kind::Steer, "x").unwrap();
     assert!(matches!(
@@ -276,6 +274,35 @@ async fn roots_in_different_repos_send_and_reply() {
     // 번호로도 보낸다.
     g.send(right, &format!("#{}", left.0), Kind::Queue, "by id")
         .unwrap();
+}
+
+#[test]
+fn messages_between_unrelated_nodes_are_recorded() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let (left, right) = two_repos(&g);
+    g.send(left, "codex-1", Kind::Queue, "hi").unwrap();
+    take(&g, right);
+
+    let message = |step| {
+        (
+            Entry::Message {
+                how: Kind::Queue,
+                from: who(left, "claude-1"),
+                to: Some(who(right, "codex-1")),
+                step,
+            },
+            Some("hi".to_owned()),
+        )
+    };
+    let records = recorded(&g);
+    assert_eq!(
+        records[records.len() - 2..],
+        [
+            message(events::Step::Sent),
+            message(events::Step::Delivered)
+        ]
+    );
 }
 
 #[test]
@@ -702,7 +729,7 @@ fn take_stops_at_the_byte_limit_but_always_takes_the_first() {
 }
 
 #[test]
-fn child_names_the_node_and_its_agent() {
+fn related_names_the_node_and_its_agent() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "claude");
@@ -719,11 +746,14 @@ fn child_names_the_node_and_its_agent() {
         .unwrap();
 
     assert_eq!(
-        g.child(lead, "a").unwrap(),
+        g.related(lead, "a").unwrap(),
         (a, Some(AgentId("codex".into())))
     );
-    assert!(matches!(g.child(a, "claude-1"), Err(Refusal::NotChild(_))));
-    assert!(matches!(g.child(lead, "b"), Err(Refusal::NotChild(_))));
+    assert_eq!(
+        g.related(a, "claude-1").unwrap(),
+        (lead, Some(AgentId("claude".into())))
+    );
+    assert!(matches!(g.related(lead, "b"), Err(Refusal::NotRelated(_))));
 }
 
 #[test]
@@ -787,7 +817,7 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
     // 받을 노드가 정해지지 않은 조정은 보관하지 않는다.
     assert!(matches!(
         g.send(worker, "옛 총괄", Kind::Steer, "x"),
-        Err(Refusal::NotChild(_))
+        Err(Refusal::NotRelated(_))
     ));
     assert_eq!(view(&g, worker).held, 3);
 
@@ -1678,7 +1708,7 @@ fn remove_child_refuses_nodes_that_are_not_my_children() {
     );
     assert!(matches!(
         g.remove_child(a, "b", TreeLimits::default()),
-        Err(Refusal::NotChild(_))
+        Err(Refusal::NotRelated(_))
     ));
     assert_eq!(view(&g, b).parent, Some(lead));
     assert_eq!(view(&g, lead).parent, None);

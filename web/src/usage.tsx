@@ -34,6 +34,11 @@ export function accountName(account: AccountView): string {
   return account.usage.email ?? i18next.t(account.id === null ? 'usage.systemDefault' : 'usage.notLoggedIn');
 }
 
+/** 그 계정의 CLI가 `PATH`에 없다. */
+export function notInstalled(a: AccountView): boolean {
+  return a.usage.limits.kind === 'failed' && a.usage.limits.problem.code === 'notInstalled';
+}
+
 /** 사용량을 보일 수 없는 이유. 보일 수 있으면 null. */
 export function limitsProblem(limits: Limits): string | null {
   switch (limits.kind) {

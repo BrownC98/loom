@@ -1053,7 +1053,7 @@ export function Graph(props: {
   };
   /**
    * [정렬]과 저장소 정렬. 지금 화면 순서를 잡고 저장한 자리를 지운다. 다음 렌더에서 구한 자동 배치 자리를 저장한다.
-   * 그래서 순서와 자리는 데몬 DB(`spots`) 하나에 남고, 브라우저와 Windows 앱이 같은 그림을 본다.
+   * 그래서 순서와 자리는 데몬 DB(`spots`) 하나에 남고, 브라우저와 데스크톱 앱이 같은 그림을 본다.
    * 보이는 저장소 모두(`shown`)면 저장소 상자 자리도 저장한다. 저장소 하나면 그 상자는 지금 자리에 남는다(`keepAround`). `after`는 지우기 요청이다.
    */
   const [arranging, setArranging] = useState<{ scope: { kind: 'shown' } | { kind: 'repo'; id: RepoId }; after: Promise<unknown> } | null>(null);

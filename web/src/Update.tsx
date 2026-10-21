@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isTauri } from '@tauri-apps/api/core';
+import { relaunch } from '@tauri-apps/plugin-process';
 import { check, type Update as Release } from '@tauri-apps/plugin-updater';
 
 /** 카드가 보이는 단계. 오류는 실패한 단계를 다시 부를 함수를 든다. */
@@ -15,9 +16,10 @@ const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
 const RETRY_AFTER_MS = 60 * 60 * 1000;
 
 /**
- * Windows 앱의 업데이트 카드(docs/mockups/update.html, Orca의 업데이트 카드를 따른다).
+ * 앱의 업데이트 카드(docs/mockups/update.html, Orca의 업데이트 카드를 따른다).
  * 화면을 열 때와 그 뒤 하루마다 확인한다. 받기를 시작하면 더 확인하지 않는다. 브라우저에서 열면 아무것도 하지 않는다.
- * Windows: 설치는 설치 파일을 띄우고 앱을 끝낸다. 설치 파일이 새 판을 다시 띄운다.
+ * Windows: 설치는 설치 파일을 띄우고 앱을 끝낸다. 설치 파일이 새 판을 다시 띄운다. 그래서 `relaunch`에 닿지 않는다.
+ * macOS: 설치는 앱 묶음(`loom.app`)을 바꾸고 돌아온다. 그 뒤 앱을 다시 띄운다.
  */
 export function UpdateCard() {
   const { t } = useTranslation();
@@ -60,7 +62,7 @@ export function UpdateCard() {
   }
 
   function install(found: Release) {
-    found.install().catch(fail(() => install(found)));
+    found.install().then(relaunch).catch(fail(() => install(found)));
   }
 
   useEffect(() => {

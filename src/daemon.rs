@@ -383,11 +383,11 @@ const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
 
 pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(listen).await?;
-    // 포트 0이면 OS가 고른 포트다. 노드 주소와 시작 줄은 실제 주소를 쓴다. Windows 앱은 시작 줄에서 주소를 읽는다.
+    // 포트 0이면 OS가 고른 포트다. 노드 주소와 시작 줄은 실제 주소를 쓴다. 데스크톱 앱은 시작 줄에서 주소를 읽는다.
     let listen = listener.local_addr()?;
     // 포트는 데몬 포트와 같다. 노드 환경의 `LOOM_URL`은 노드가 끝날 때까지 바뀌지 않으므로, 다시 시작한 데몬도 같은 주소에서 듣는다.
     // 그 포트를 쓸 수 없으면(예: `--listen 0.0.0.0:<포트>`) OS가 고른다. 그때 앞 데몬의 노드는 다시 시작한 뒤 loom 명령이 닿지 않는다.
-    // macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없다(확인하지 않았다).
+    // macOS는 `127.0.0.1` 말고 루프백 주소가 기본으로 없다(2026-10-21 macos-14 실측).
     // 그때는 노드 문 없이 데몬 주소를 쓰고, Codex는 loom 명령마다 승인을 묻는다.
     let node_door = match tokio::net::TcpListener::bind((NODE_IP, listen.port())).await {
         Ok(door) => Some(door),
@@ -397,7 +397,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let db_path = db::default_path()?;
     let open = || db::open(&db_path).map_err(std::io::Error::other);
     let repos = Repos::new(open()?);
-    // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: Windows 앱은 앱 설정 폴더에서 띄우고, 사람은 화면에서 저장소를 더한다.
+    // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: 데스크톱 앱은 앱 설정 폴더에서 띄우고, 사람은 화면에서 저장소를 더한다.
     match repos.add(&std::env::current_dir()?.to_string_lossy()).await {
         Ok(_) | Err(RepoProblem::NotGit(_) | RepoProblem::NotFound(_)) => {}
         Err(problem) => return Err(std::io::Error::other(problem.to_string())),
@@ -1131,7 +1131,7 @@ impl App {
 /// 띄울 준비가 된 노드. Codex·OpenCode 2 노드면 TUI가 붙을 서버가 이미 떠 있다.
 struct Prepared {
     cmd: portable_pty::CommandBuilder,
-    /// 같은 PTY에서 `cmd`보다 먼저 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
+    /// `cmd`보다 먼저(같은 터미널 화면에서) 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
     setup: Option<portable_pty::CommandBuilder>,
     /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
     token: String,

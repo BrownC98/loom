@@ -1,4 +1,4 @@
-# Windows 앱 창. 데몬은 옆에 놓인 `loom.exe`(sidecar)다. 근거: docs/design.md 「Windows 앱」.
+# 데스크톱 앱(Windows, macOS) 창. 데몬은 옆에 놓인 `loom`(sidecar)이다. 근거: docs/design.md 「데스크톱 앱」.
 # 루트 크레이트와 따로 빌드한다. Linux 개발 명령(`cargo test` 등)은 이 크레이트를 빌드하지 않는다.
 [package]
 name = "loom-app"
@@ -9,12 +9,10 @@ license = "MIT"
 # `tauri::generate_context!`가 `plugins` 설정을 이 크레이트로 푼다.
 serde_json = "1.0.154"
 tauri = "2.12.4"
+tauri-plugin-process = "2.4.0"
 tauri-plugin-single-instance = "2.5.4"
 tauri-plugin-updater = "2.13.1"
 tauri-plugin-window-state = "2.5.0"
-
-[target.'cfg(windows)'.dependencies]
-win32job = "2.0.3"
 
 [build-dependencies]
 tauri-build = "2.7.3"

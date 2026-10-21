@@ -5,7 +5,7 @@
 //! - DNS 재바인딩: 공격자 도메인이 127.0.0.1을 가리키게 바꾸면 같은 출처가 되어 모든 API를 부른다.
 //!
 //! 그래서 `Host`는 IP 주소나 `localhost`만 받고, `Origin`이 있으면 `http://<Host>`와 같아야 한다.
-//! 노드의 `loom` 명령과 Windows 앱(데몬 주소를 그대로 연다)은 이 조건을 늘 지킨다.
+//! 노드의 `loom` 명령과 데스크톱 앱(데몬 주소를 그대로 연다)은 이 조건을 늘 지킨다.
 
 use axum::extract::Request;
 use axum::http::{HeaderMap, StatusCode, header};

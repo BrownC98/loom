@@ -16,7 +16,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, SIDES, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, overlaps, placeGroups, push, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { NodeCard, SimpleCard } from './NodeCard';
@@ -40,6 +40,8 @@ const EMPTY_GROUP: Size = { width: 320, height: 100 };
 /** 카드와 묶음 테두리 사이 틈. 왼쪽·오른쪽·아래가 같다. */
 const CARD_X = 20;
 const CARD_TOP = 60;
+/** 나무 간선이 부모 카드에서 꺾이는 거리. 묶음 아래 틈(카드 틈 `CARD_X` + 묶음 틈 절반)의 가운데라 자식 묶음 머리 앞에서 꺾는다(목업 docs/mockups/arrange-mixed.html v5). */
+const STEP_BEND = CARD_X + GROUP_GAP / 2;
 /** 묶음 안 카드 줄 사이 틈. 예전에 줄마다 두던 자식 묶음 머리·테두리와 묶음 틈의 합과 같다. */
 const CARD_ROW_GAP: Record<'vertical' | 'horizontal', number> = { vertical: CARD_TOP + CARD_X + GROUP_GAP, horizontal: 2 * CARD_X + GROUP_GAP };
 /**
@@ -772,7 +774,9 @@ export function Graph(props: {
     const flow = receivers.length === 1 ? `to-${receivers[0][0]}` : undefined;
     const from = positions.get(view.parent);
     const to = positions.get(view.id);
-    const sides = from && to ? edgeSides({ at: from, size: size(view.parent) }, { at: to, size: size(view.id) }, direction) : TREE_SIDES[direction];
+    const boxes = from && to ? ([{ at: from, size: size(view.parent) }, { at: to, size: size(view.id) }] as const) : null;
+    const sides = boxes ? edgeSides(...boxes, direction) : TREE_SIDES[direction];
+    const step = boxes ? stepAt(...boxes, direction, STEP_BEND) : null;
     const chosen = selected === view.id || selected === view.parent;
     return [
       {
@@ -781,6 +785,7 @@ export function Graph(props: {
         target: String(view.id),
         sourceHandle: sides.parent,
         targetHandle: sides.child,
+        ...(step === null ? {} : { type: 'smoothstep', pathOptions: { offset: 0, stepPosition: step } }),
         className: [chosen ? 'sel' : undefined, pulse ? 'live' : undefined, flow, lit(String(view.id), String(view.parent))].filter(Boolean).join(' ') || undefined,
         zIndex: chosen || pulse ? RAISED_EDGE_Z : undefined,
         label: pulse ? receivers.map(([toward, id]) => t('graph.messageTo', { name: props.views.get(id)?.name ?? `#${id}`, n: pulse[toward] })).join(' · ') : undefined,

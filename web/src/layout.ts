@@ -39,13 +39,18 @@ function layoutTree(items: readonly TreeItem[], direction: ArrangeDirection, gap
     for (const [k, x] of b) out.set(k, out.has(k) ? f(out.get(k)!, x) : x);
     return out;
   };
-  // 형제 나무를 차례로 오른쪽에 붙인다. 두 나무가 함께 있는 단계에서만 `gap.lane`을 지킨다(2026-10-21 사람 지시 "공간낭비 해결방안 마련하라", 목업 docs/mockups/repo-drag.html 안 A).
+  // 형제 나무를 차례로 오른쪽에 붙인다. 두 나무가 함께 있는 단계에서는 그 단계끼리 `gap.lane`을 지킨다(2026-10-21 사람 지시 "공간낭비 해결방안 마련하라", 목업 docs/mockups/repo-drag.html 안 A).
+  // 앞 나무의 가장 깊은 단계보다 깊은 단계는 앞 나무 오른쪽 끝 뒤에 선다. 앞 나무 카드 아래 빈 곳에 서면 그 카드의 자식처럼 보인다(2026-10-21 사람 승인, 목업 docs/mockups/arrange-mixed.html v5 규칙 5).
   const pack = (subs: readonly Sub[]): Sub | null =>
     subs.reduce<Sub | null>((acc, sub) => {
       if (!acc) return sub;
+      const deepest = Math.max(...acc.hi.keys());
+      const right = Math.max(...acc.hi.values());
       let by = -Infinity;
-      for (const [level, lo] of sub.lo) if (acc.hi.has(level)) by = Math.max(by, acc.hi.get(level)! + gap.lane - lo);
-      if (by === -Infinity) by = Math.max(...acc.hi.values()) + gap.lane - Math.min(...sub.lo.values());
+      for (const [level, lo] of sub.lo) {
+        const edge = acc.hi.get(level) ?? (level > deepest ? right : undefined);
+        if (edge !== undefined) by = Math.max(by, edge + gap.lane - lo);
+      }
       return { at: new Map([...acc.at, ...moved(sub.at, by)]), lo: merged(acc.lo, moved(sub.lo, by), Math.min), hi: merged(acc.hi, moved(sub.hi, by), Math.max) };
     }, null);
   const lay = (id: number, level: number): Sub => {
@@ -300,19 +305,38 @@ export const TREE_SIDES: Record<ArrangeDirection, { parent: Side; child: Side }>
   left: { parent: 'left', child: 'right' },
 };
 
+/** 부모 카드 끝에서 자식 카드까지 나무가 뻗는 쪽으로 잰 틈. 음수면 자식이 나무가 뻗는 쪽에 있지 않다. */
+function aheadGap(parent: Box, child: Box, direction: ArrangeDirection): number {
+  switch (direction) {
+    case 'down':
+      return child.at.y - (parent.at.y + parent.size.height);
+    case 'up':
+      return parent.at.y - (child.at.y + child.size.height);
+    case 'right':
+      return child.at.x - (parent.at.x + parent.size.width);
+    case 'left':
+      return parent.at.x - (child.at.x + child.size.width);
+  }
+}
+
+/**
+ * 나무 간선(계단 모양)이 꺾이는 자리. 부모 카드에서 `bend`만큼 간 곳이고, 부모와 자식 사이 틈에 대한 비율로 준다(React Flow `stepPosition`).
+ * 자식이 나무가 뻗는 쪽에 없으면 null이다. 그 간선은 곡선이다. 틈이 `bend`의 두 배보다 좁으면 가운데에서 꺾는다.
+ * 사람 승인(2026-10-21) "꺽은선 유지 하는걸로 승인", 목업 docs/mockups/arrange-mixed.html v5 규칙 6: 자식 묶음으로 가는 간선이 비워 둔 줄 자리로만 내려가 카드를 지나지 않는다.
+ */
+export function stepAt(parent: Box, child: Box, direction: ArrangeDirection, bend: number): number | null {
+  const gap = aheadGap(parent, child, direction);
+  if (gap < 0) return null;
+  return gap >= 2 * bend ? bend / gap : 0.5;
+}
+
 /**
  * 부모와 자식 카드(화면 기준 상자)를 잇는 간선의 변. 자식이 부모보다 나무가 뻗는 쪽에 있으면 `TREE_SIDES[direction]`이다.
  * 아니면(다른 묶음의 자식) 두 카드 사이 빈 틈이 더 큰 축을 따라 서로 마주 보는 변이다.
  * 중심 거리로 축을 고르면 가로로 겹친 카드(틈이 좁다)에서 간선이 카드 옆 틈을 돌아 나가 꺾인다.
  */
 export function edgeSides(parent: Box, child: Box, direction: ArrangeDirection): { parent: Side; child: Side } {
-  const ahead: Record<ArrangeDirection, boolean> = {
-    down: child.at.y >= parent.at.y + parent.size.height,
-    up: child.at.y + child.size.height <= parent.at.y,
-    right: child.at.x >= parent.at.x + parent.size.width,
-    left: child.at.x + child.size.width <= parent.at.x,
-  };
-  if (ahead[direction]) return TREE_SIDES[direction];
+  if (aheadGap(parent, child, direction) >= 0) return TREE_SIDES[direction];
   const gapRight = child.at.x - (parent.at.x + parent.size.width);
   const gapLeft = parent.at.x - (child.at.x + child.size.width);
   const gapDown = child.at.y - (parent.at.y + parent.size.height);

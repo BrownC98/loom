@@ -166,9 +166,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__node.hl .group { border: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
 /* 찾기의 현재 일치(목업 docs/mockups/search.html ②③). */
 .react-flow__node.cur .card, .react-flow__node.cur .group { outline: 3px solid var(--warn); outline-offset: 5px; }
-/* 끄는 카드·묶음은 반투명하다. 비운 자리가 비쳐 보인다. 순서가 바뀌면 형제가 새 자리로 미끄러진다. 끄는 상자는 손을 바로 따른다. */
+/* 끄는 카드·묶음은 반투명하다. 비운 자리가 비쳐 보인다. 순서가 바뀌면 형제가 새 자리로 미끄러진다. 끄는 상자와 함께 움직이는 상자(`carried`)는 손을 바로 따른다. */
 .react-flow__node.dragging { opacity: 0.6; }
 .react-flow__node:not(.dragging) { transition: transform 0.15s; }
+.react-flow__node.carried { transition: none; }
 .react-flow__edge.hl .react-flow__edge-path { stroke: var(--accent); stroke-width: 3; }
 .react-flow__attribution { background: none; color: var(--ink-3); }
 .react-flow__attribution a { color: inherit; }

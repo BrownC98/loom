@@ -430,9 +430,21 @@ export function Graph(props: {
   // 끄는 상자는 React Flow가 옮긴 자리에 그린다. React Flow가 그 노드에 `dragging` 클래스를 붙여 반투명하게 보인다.
   // 끄는 카드는 계산한 자리다. React Flow 자리는 넓어지기 전 묶음 기준이라 묶음이 넓어지면 어긋난다.
   // 늘 맨 위다(2026-10-20 사람 지시 "드래그로 잡은건 겹칠때 항상 최상위 z 인덱스 적용"). 묶음을 끌면 그 카드도 함께 올라온다.
+  // 끄는 상자와 함께 움직이는 상자(끄는 묶음의 카드, 끄는 상자를 덮는 묶음·저장소 상자)는 옮김 애니메이션을 끈다. 켜 두면 커서보다 늦게 따라온다.
+  const carried = new Set<string>();
+  for (const [id, n] of flowState) {
+    if (!n.dragging) continue;
+    for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) carried.add(outer);
+  }
   const keep = <N extends FlowNode>(node: N): N => {
     const live = flowState.get(node.id);
-    return { ...node, measured: live?.measured, ...(live?.dragging && { position: node.parentId ? node.position : live.position, dragging: true, zIndex: DRAGGING_Z }) };
+    const moved = carried.has(node.id) || (node.parentId !== undefined && flowState.get(node.parentId)?.dragging);
+    return {
+      ...node,
+      measured: live?.measured,
+      ...(moved && { className: [node.className, 'carried'].filter(Boolean).join(' ') }),
+      ...(live?.dragging && { position: node.parentId ? node.position : live.position, dragging: true, zIndex: DRAGGING_Z }),
+    };
   };
 
   // 저장소 상자를 먼저 넣어 묶음과 카드 아래에 그린다.

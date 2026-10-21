@@ -528,6 +528,44 @@ mod tests {
         }
     }
 
+    /// 판 1 호스트(이 판 전에 띄운 노드)는 `Pid`를 보내지 않는다. 판 2 데몬은 인사의 PID로 그대로 다룬다.
+    #[test]
+    fn a_version_1_host_still_works() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("1"),
+            listener.local_addr().unwrap().to_string(),
+        )
+        .unwrap();
+        let host = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            assert!(matches!(
+                wire::read(&mut stream).unwrap(),
+                Frame::Hello { .. }
+            ));
+            let hello = Frame::Hello {
+                version: 1,
+                pid: Some(42),
+            };
+            wire::write(&mut stream, &hello).unwrap();
+            wire::write(&mut stream, &Frame::Data(b"old host".to_vec())).unwrap();
+            assert_eq!(wire::read(&mut stream).unwrap(), Frame::Data(b"x".to_vec()));
+            wire::write(&mut stream, &Frame::Exit(5)).unwrap();
+        });
+        let nodes = NodeHost::new(dir.path().to_path_buf());
+        let (tx, rx) = std::sync::mpsc::channel();
+        nodes
+            .resume(1, |_| {}, move |code| tx.send(code).unwrap())
+            .unwrap();
+        assert_eq!(*nodes.pty(1).unwrap().pid.lock().unwrap(), Some(42));
+        nodes.write(1, b"x");
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), 5);
+        let attached = nodes.attach(1).unwrap();
+        assert_eq!(&attached.backlog[..], b"old host");
+        host.join().unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn stop_guarded_ends_the_shell_and_its_children() {

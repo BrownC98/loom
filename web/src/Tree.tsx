@@ -15,7 +15,7 @@ import type { SettingsView } from './gen/SettingsView';
 import { AddRepoPopover } from './AddRepoPopover';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import type { Found } from './findSpots';
-import { useShowGroups, useShowNodes } from './Graph';
+import { useShowAll, useShowGroups, useShowNodes } from './Graph';
 import i18next from './i18n';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
@@ -141,6 +141,7 @@ export function Tree(props: {
   const { t } = useTranslation();
   const show = useShowNodes();
   const showGroups = useShowGroups();
+  const showAll = useShowAll();
   const [adding, setAdding] = useState(false);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const list = useRef<HTMLUListElement>(null);
@@ -281,9 +282,6 @@ export function Tree(props: {
     const shown = Math.min(depth, MAX_VISUAL_DEPTH);
     const head = (
       <>
-        {Array.from({ length: shown }, (_, level) => (
-          <span key={level} className="guide" style={{ '--level': level } as CSSProperties} aria-hidden="true" />
-        ))}
         {branch ? <Chevron open={open} /> : <span className="leaf" />}
         {item.row}
       </>
@@ -449,7 +447,11 @@ export function Tree(props: {
   return (
     <>
       <div className="side-head">
-        <h2>{t('tree.repos')}</h2>
+        <h2>
+          <button type="button" className="side-title" title={t('tree.showAll')} onClick={showAll}>
+            {t('tree.repos')}
+          </button>
+        </h2>
         <span className="spacer" />
         <button className="btn ghost sm" aria-label={t('tree.addRepo')} title={t('tree.addRepo')} aria-expanded={adding} onClick={() => setAdding(true)}>
           <Plus />

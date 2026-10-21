@@ -164,6 +164,12 @@ export function useShowGroups(): (paths: string[]) => void {
   return (paths) => flow.fitView({ nodes: paths.map((id) => ({ id })), duration: MOVE_MS, maxZoom: 1 });
 }
 
+/** 그래프 화면을 그린 노드가 모두 보이게 줄인다. 사이드바의 [저장소] 제목을 누를 때 쓴다. */
+export function useShowAll(): () => void {
+  const flow = useReactFlow();
+  return () => flow.fitView({ duration: MOVE_MS, maxZoom: 1 });
+}
+
 /** `onDelete`가 없으면 지울 수 없다(원래 체크아웃). */
 type GroupData = {
   branch: string;

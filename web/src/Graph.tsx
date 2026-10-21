@@ -656,10 +656,16 @@ export function Graph(props: {
   // 늘 맨 위다(2026-10-20 사람 지시 "드래그로 잡은건 겹칠때 항상 최상위 z 인덱스 적용"). 묶음을 끌면 그 카드도 함께 올라온다.
   // 끄는 상자와 함께 움직이는 상자(끄는 묶음의 카드, 끄는 상자를 덮는 묶음·저장소 상자)는 옮김 애니메이션을 끈다. 켜 두면 커서보다 늦게 따라온다.
   // 테두리를 끄는 카드도 같다. 왼쪽·위 테두리를 끌면 카드 자리가 옮긴다. 켜 두면 맞은편 변이 흔들린다.
+  // 끄는 저장소·묶음 안의 모든 상자(손주 카드까지)도 같다(2026-10-21 사람 지시 "묶음 들고 옮길때 내부 요소 관성 효과 제거").
   const carried = new Set<string>(resizing ? [String(resizing.id)] : []);
-  for (const id of [...[...flowState.values()].filter((n) => n.dragging).map((n) => n.id), ...carried]) {
+  const dragged = new Set([...flowState.values()].filter((n) => n.dragging).map((n) => n.id));
+  for (const id of [...dragged, ...carried]) {
     for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) carried.add(outer);
   }
+  const insideDragged = (id: string) => {
+    for (let outer = levels.get(id)?.parent ?? null; outer !== null; outer = levels.get(outer)?.parent ?? null) if (dragged.has(outer)) return true;
+    return false;
+  };
   // data의 함수를 노드·이름마다 같은 함수로 바꾼다. 부르면 마지막 렌더의 함수를 부른다. 그래서 끄는 동안 다른 노드는 다시 그리지 않는다(`sameData`).
   const callers = useRef(new Map<string, { fn: Fn; call: Fn }>());
   const steady = <D extends object>(id: string, data: D): D =>
@@ -675,7 +681,7 @@ export function Graph(props: {
     ) as D;
   const keep = <N extends FlowNode>(node: N): N => {
     const live = flowState.get(node.id);
-    const moved = carried.has(node.id) || (node.parentId !== undefined && flowState.get(node.parentId)?.dragging);
+    const moved = carried.has(node.id) || insideDragged(node.id);
     return {
       ...node,
       data: steady(node.id, node.data),

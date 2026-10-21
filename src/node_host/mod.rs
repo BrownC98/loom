@@ -102,7 +102,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     }
 
     /// 명령을 새 PTY 호스트에서 띄우고 붙는다. 프로그램이 터미널 제목(OSC 0·2)을 바꾸면 `on_title`에 그 글을 넘긴다.
-    /// `setup`이 있으면 호스트가 그것을 같은 PTY에서 먼저 돌리고, 성공할 때만 명령을 띄운다.
+    /// `setup`이 있으면 호스트가 그것을 먼저 돌리고, 성공할 때만 명령을 띄운다.
     /// 프로세스가 끝나면 `on_exit`에 그 끝을 넘긴다.
     pub fn spawn(
         &self,
@@ -587,7 +587,7 @@ mod tests {
         assert!(!dir.path().join("1").exists());
     }
 
-    /// 설정 스크립트가 성공하면 같은 PTY에서 명령이 뜨고, 데몬은 명령의 PID를 받는다.
+    /// 설정 스크립트가 성공하면 새 PTY에서 명령이 뜨고(출력은 한 터미널로 이어진다), 데몬은 명령의 PID를 받는다.
     /// 실패하면 명령을 띄우지 않고 `Exit::Setup`으로 끝난다. `tail`은 설정 출력의 끝을 제어 시퀀스 없이 돌려준다.
     #[cfg(unix)]
     #[test]

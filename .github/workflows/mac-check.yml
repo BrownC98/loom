@@ -24,7 +24,7 @@ jobs:
       - name: pty probe
         timeout-minutes: 15
         continue-on-error: true
-        run: cargo test probe_second -- --nocapture 2>&1 | grep -A3 PROBE
+        run: echo skip
       - name: cargo test
         continue-on-error: true
         run: cargo test

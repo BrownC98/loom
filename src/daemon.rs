@@ -1131,7 +1131,7 @@ impl App {
 /// 띄울 준비가 된 노드. Codex·OpenCode 2 노드면 TUI가 붙을 서버가 이미 떠 있다.
 struct Prepared {
     cmd: portable_pty::CommandBuilder,
-    /// 같은 PTY에서 `cmd`보다 먼저 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
+    /// `cmd`보다 먼저(같은 터미널 화면에서) 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
     setup: Option<portable_pty::CommandBuilder>,
     /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
     token: String,

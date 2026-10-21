@@ -35,7 +35,7 @@ impl Kind {
 
 /// 꺼낸 메시지를 받는 쪽이 확인하지 않으면 이 시간 뒤에 다시 준다.
 /// 근거: 꺼내고 확인하기까지 가장 오래 걸리는 쪽은 Claude 훅이다. Claude는 훅을 10초(`timeout`)에 끝낸다. 그 3배를 둔다.
-/// 다음 호출 때 바로 다시 주지 않는 이유: Claude 노드는 백그라운드 `loom wait`와 훅이 같은 메일함을 함께 꺼낸다.
+/// 다음 호출 때 바로 다시 주지 않는 이유: Claude 노드는 `loom wait`와 훅들이 같은 메일함을 함께 꺼낸다.
 /// 바로 다시 주면 한쪽이 확인하기 전에 다른 쪽이 같은 메시지를 또 받는다.
 pub const REDELIVER_AFTER: Duration = Duration::from_secs(30);
 
@@ -213,33 +213,50 @@ impl Graph {
         node: NodeId,
         reply_to: Option<MessageId>,
     ) -> Result<Delivery, Refusal> {
-        if let Some(request) = reply_to {
-            let owns: bool = self.lock().query_row(
-                "SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?1 AND sender = ?2)",
-                params![request.0, node.0],
-                |row| row.get(0),
-            )?;
-            if !owns {
-                return Err(Refusal::NotFound(format!("메시지 #{}", request.0)));
-            }
+        let Some(request) = reply_to else {
+            let mut taken = self.next(node, Kind::ALL, 0).await?;
+            return Ok(taken.remove(0));
+        };
+        let owns: bool = self.lock().query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?1 AND sender = ?2)",
+            params![request.0, node.0],
+            |row| row.get(0),
+        )?;
+        if !owns {
+            return Err(Refusal::NotFound(format!("메시지 #{}", request.0)));
         }
         loop {
             let mut notified = pin!(self.mail_changed());
             notified.as_mut().enable();
-            let delivery = match reply_to {
-                Some(request) => self
-                    .lock()
-                    .query_row(
-                        "SELECT id, sender_name, kind, body, reply_to FROM messages
+            let delivery = self
+                .lock()
+                .query_row(
+                    "SELECT id, sender_name, kind, body, reply_to FROM messages
                      WHERE recipient = ?1 AND reply_to = ?2 ORDER BY id LIMIT 1",
-                        params![node.0, request.0],
-                        read_delivery,
-                    )
-                    .optional()?,
-                None => self.take(node, Kind::ALL, 0)?.pop(),
-            };
+                    params![node.0, request.0],
+                    read_delivery,
+                )
+                .optional()?;
             if let Some(delivery) = delivery {
                 return Ok(delivery);
+            }
+            let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
+        }
+    }
+
+    /// 메시지가 올 때까지 기다렸다가 `take`처럼 꺼낸다. 버려도 꺼낸 메시지를 잃지 않는다. 꺼내기와 돌려주기 사이에 기다림이 없다.
+    pub async fn next(
+        &self,
+        node: NodeId,
+        kinds: &[Kind],
+        limit_bytes: usize,
+    ) -> Result<Vec<Delivery>, Refusal> {
+        loop {
+            let mut notified = pin!(self.mail_changed());
+            notified.as_mut().enable();
+            let taken = self.take(node, kinds, limit_bytes)?;
+            if !taken.is_empty() {
+                return Ok(taken);
             }
             let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
         }

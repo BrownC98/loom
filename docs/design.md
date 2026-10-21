@@ -299,13 +299,21 @@
 | 방식 | 받는 노드 상태 | Claude Code | Codex | OpenCode 2 |
 |---|---|---|---|---|
 | 큐 | `loom wait` 안 | `loom wait`가 본문을 돌려준다 | 같다 | 같다 |
-| 큐 | 일하는 중 | Stop 훅이 `block`과 본문을 돌려준다. 같은 턴을 이어 간다 | `turn/completed` 뒤에 `turn/start` | 입력함 `queue`. 지금 실행이 끝난 뒤 같은 실행에 들어간다 |
-| 큐 | 쉬는 중 | 다음 턴의 UserPromptSubmit 훅 맥락. 부모가 결과를 기다리면 백그라운드 `loom wait`로 깨어난다 | `turn/start`로 깨운다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 | 입력함 `queue`가 새 실행을 시작한다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 |
+| 큐 | 일하는 중 | 턴이 끝나면 Stop 비동기 훅이 꺼내 바로 다음 턴으로 깨운다 | `turn/completed` 뒤에 `turn/start` | 입력함 `queue`. 지금 실행이 끝난 뒤 같은 실행에 들어간다 |
+| 큐 | 쉬는 중 | Stop·SessionStart 비동기 훅(`asyncRewake`)이 기다리다 꺼내고 exit 2로 끝난다. Claude가 그 stderr로 새 턴을 시작한다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 | `turn/start`로 깨운다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 | 입력함 `queue`가 새 실행을 시작한다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 |
 | 조정 | 일하는 중 | PostToolUse 훅 맥락 | `turn/steer` | 입력함 `steer`. 다음 단계 사이(도구 호출 뒤)에 들어간다 |
 | 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 데몬이 `loom guard`로 알린 셸과 그 자손 프로세스를 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` | 세션의 셸과 그 자손을 끝내고 `POST …/interrupt` 뒤에 입력함 `steer` |
 | 조정·중단 | 쉬는 중 | 큐와 같다 | 큐와 같다 | 입력함 `steer`가 새 실행을 시작한다 |
 
-- Claude: 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 불린 훅이 그 상태다. 훅마다 꺼내는 방식: UserPromptSubmit·Stop은 모두, PostToolUse는 조정, PreToolUse·PostToolUseFailure는 중단.
+- Claude: 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 불린 훅이 그 상태다. 훅마다 꺼내는 방식: UserPromptSubmit은 모두, PostToolUse는 조정, PreToolUse·PostToolUseFailure는 중단. SessionStart·Stop은 턴이 없는 때라 비동기 훅으로 모두 기다린다.
+- Claude 쉬는 노드 깨우기: Stop·SessionStart 훅은 `asyncRewake`다. Claude는 이 훅을 뒤에서 돌리고, exit 2로 끝나면 stderr를 모델에 넘겨 쉬던 세션을 깨운다. 입력창에 사람이 쓰던 글은 그대로 남는다(「실측 근거」). loom은 PTY에 글자를 쓰지 않는다.
+  - 그 훅의 `loom hook`은 `/api/agent/idle`로 메시지가 올 때까지 기다린다. 오면 본문을 stderr에 쓰고 받음을 확인한 뒤 exit 2로 끝난다.
+  - Claude는 새 턴이 시작해도 옛 비동기 훅을 끝내지 않는다(실측). 그래서 데몬은 노드마다 대기를 하나만 둔다. 같은 노드의 새 대기, 턴 안의 훅(`/api/agent/take`), 노드 프로세스 종료가 옛 대기를 빈 목록으로 끝낸다. 그 훅은 아무것도 쓰지 않고 exit 0으로 끝난다.
+  - 세션 시작 훅의 대기가 첫 턴의 UserPromptSubmit보다 늦게 열리면 그 턴 동안 산다. 그 사이에 온 메시지는 Claude가 턴 안의 다음 입력으로 넣는다. 잃지는 않는다.
+  - 프로세스가 끝난 노드의 대기는 거절한다(410). Claude가 죽고 훅만 남아도 다시 붙지 못한다.
+  - 데몬이 다시 시작하는 동안 닿지 않으면 훅은 2초마다 다시 붙는다. 10분 넘게 닿지 않으면 끝난다. 노드는 데몬보다 오래 살기 때문이다.
+  - 훅 `timeout`은 2,000,000초(약 23일)다. Claude는 이 값을 밀리초 JavaScript 타이머로 재고, 2^31-1밀리초를 넘기면 타이머가 바로 끝난다. 이보다 오래 쉰 노드는 다음 사람 입력 때 메시지를 받는다.
+  - `rewakeMessage`(모델이 읽는 머리말)와 `rewakeSummary`(터미널 한 줄)는 Claude 설정 형식에서 내부용(`@internal`)이다. 다음 판에서 없어지면 Claude 기본 머리말("Stop hook blocking error …")로 같은 본문이 간다.
 - 훅 한 번에 꺼내는 본문 합은 8KB 이하다. Claude는 `additionalContext` 한 개를 10,000자에서 자른다. 남은 메시지는 다음 훅이 꺼낸다.
 - PreToolUse 훅은 중단 메시지가 없으면 포그라운드 Bash 명령 앞에 `loom guard` 줄을 붙인다(`updatedInput`). 명령을 감싸지 않는 이유: Claude는 권한 규칙을 바꾼 명령으로 판정한다. 감싸면 사용자의 Bash 허용 규칙이 맞지 않는다. 줄을 앞에 붙이면 Claude가 줄마다 판정해 규칙이 그대로 맞는다.
 - `loom guard`는 자기 PID를 보낸다. 데몬은 그 조상 가운데 부모가 노드 프로세스인 것(노드의 Bash 도구 셸)을 끝낼 셸로 고른다. 근거: Windows Git Bash는 첫 명령을 fork 흉내용 bash 아래에서 띄우고, 그 bash는 명령과 함께 끝난다. 부모 PID를 셸로 보면 이미 끝난 프로세스를 가리킨다.
@@ -317,7 +325,7 @@
 - 전달 확정(최소 한 번 전달): 데몬은 꺼낸 메시지에 꺼낸 시각을 적는다. 받는 쪽이 본문을 넣은 뒤 받음을 확인하면 `delivered`로 바꾼다.
   - `loom wait`: 본문을 출력한 뒤 `/api/agent/ack`로 확인한다. `loom hook`: 훅 출력을 쓴 뒤 확인한다. Codex 전달 작업: `turn/*` 요청이 성공한 뒤 확인한다.
   - 확인 없이 30초(`REDELIVER_AFTER`)가 지나면 다음 꺼내기가 같은 메시지를 먼저 다시 준다. 데몬이 다시 시작해도 꺼낸 시각이 DB에 남아 다시 준다.
-  - 다음 꺼내기에서 바로 다시 주지 않는다. Claude 노드는 백그라운드 `loom wait`와 훅이 같은 메일함을 함께 꺼낸다. 바로 다시 주면 한쪽이 확인하기 전에 다른 쪽이 같은 메시지를 또 받는다. 30초는 가장 오래 걸리는 Claude 훅 `timeout`(10초)의 3배다.
+  - 다음 꺼내기에서 바로 다시 주지 않는다. Claude 노드는 `loom wait`와 훅들이 같은 메일함을 함께 꺼낸다. 바로 다시 주면 한쪽이 확인하기 전에 다른 쪽이 같은 메시지를 또 받는다. 30초는 가장 오래 걸리는 Claude 훅 `timeout`(10초)의 3배다.
   - 한계: 받는 쪽이 본문을 넣은 뒤 확인하기 전에 죽으면 같은 메시지가 두 번 간다. 그래서 본문 머리에 메시지 번호를 넣는다(`loom message #12 (from: 총괄, mode: queue)`). 에이전트는 같은 번호로 같은 메시지임을 안다. 머리말, `loom` 명령의 출력, 에이전트가 받는 거절 문장은 에이전트가 읽는 글이라 영어다(2026-10-20 사람 결정 "머리말 영어로 바꿈"). 화면은 거절을 코드로 받아 화면 언어로 보인다. 사람이 보는 화면 글은 화면 언어를 따른다.
 - `loom hook`의 응답 상한(5초)을 훅 `timeout`(10초)보다 짧게 둔다. 그래서 Claude가 훅을 먼저 끝내 꺼낸 본문을 버리는 일이 드물다. 버려도 확인 전이므로 다시 간다.
 - Codex: 데몬은 노드마다 전달 작업 하나를 둔다. 이 작업은 메일함이나 스레드 상태가 바뀔 때 꺼낸다. 쉬면 모두, 일하면 조정·중단만 꺼낸다. 한 번에 꺼내는 본문 합은 Claude와 같은 8KB다.
@@ -445,6 +453,8 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 - Claude `--settings` 훅: Stop `block`, UserPromptSubmit·PostToolUse 맥락, PreToolUse `updatedInput`이 모두 동작했다.
 - Claude 중단: 90초 셸 명령을 8초에 끊었다. PostToolUseFailure 훅이 본문을 전했고, 전체가 15초에 끝났다.
 - Claude 깨우기: 쉬는 TUI가 백그라운드 명령 완료 알림으로 새 턴을 시작했다.
+- 2026-10-21 Claude Code 2.1.305 `asyncRewake` Stop 훅: 쉬는 TUI에서 훅이 exit 2로 끝나자 stderr 본문으로 새 턴을 시작했다. 입력창에 쓰던 글은 그대로 남았다. 새 턴이 시작해도 옛 비동기 훅은 계속 돌았다(턴마다 하나씩 쌓였다). `rewakeMessage`·`rewakeSummary`가 모델 머리말과 터미널 줄에 보였다.
+- 2026-10-21 loom 4단위(셸 → Claude A → B → C, 모두 haiku, 백그라운드 `loom wait` 없음): 셸이 쉬는 A에 보낸 큐·조정·중단이 A·B·C를 차례로 깨우고 답이 돌아왔다. 왕복은 각각 9초, 9초, 8초였다. 쉬는 동안 노드마다 `loom hook` 대기가 하나만 있었다. 시험 데몬을 끄고 다시 띄우자 같은 대기 프로세스가 다시 붙어 다음 큐를 전했다. 일하는 A에 1초 사이로 보낸 큐 둘이 모두 돌아왔다. C의 Claude를 SIGKILL로 끝내자 그 훅도 사라졌고, `exited(1)`이 쉬던 B를 깨웠다. 노드 기록에 `loom wait` 호출이 없었다.
 - Codex `-c`로 넘긴 훅은 실행되지 않았다. Codex는 사람이 검토해 신뢰한 훅만 실행한다.
 - Codex app-server: TUI를 `--remote`로 붙인 상태에서 다른 클라이언트가 `turn/steer`, `turn/interrupt`, `turn/start`를 보냈다. 셋 다 동작했고 TUI 화면에도 보였다.
 - 두 TUI 모두 위 전달 중에 사용자가 쓰다 만 입력창 글이 그대로 남았다.
@@ -455,7 +465,7 @@ Windows에서는 설치 파일 하나로 loom 창을 연다(2026-10-19 사람 �
 - stdio로 띄운 Codex `app-server`는 stdin이 닫히면 답하기 전에 끝난다. 데몬은 답을 받을 때까지 stdin을 열어 두고, 받은 뒤 프로세스를 끝낸다.
 - Claude 권한(기본 권한 모드, `claude -p`): PreToolUse `updatedInput`만 넣고 `permissionDecision`을 비우면, 허용 규칙을 바꾼 명령으로 판정했다. `Bash(touch /tmp/original-file)`이 있어도 바꾼 `touch /tmp/rewritten-file`은 승인을 요구했다. 앞에 줄을 붙인 `id -u && touch /tmp/original-file`은 사용자 규칙대로 허용됐다.
 - Claude Bash 도구 셸은 자기 세션의 리더다. 셸 안 명령은 다른 프로세스 그룹으로 떴다. 그래서 그룹 하나가 아니라 셸의 프로세스 나무를 끝낸다.
-- loom 3단위(Claude 노드 부모·자식): 조정은 자식의 다음 PostToolUse 맥락으로 들어갔다. 중단은 120초 셸 명령을 보낸 뒤 0.08초 만에 끝냈고 PostToolUseFailure가 본문을 전했다. 큐는 자식의 Stop `block`으로 들어갔다. 자식 `done` 뒤 0.03초 만에 쉬던 부모의 백그라운드 `loom wait`가 끝나 부모가 새 턴을 시작했다.
+- loom 3단위(Claude 노드 부모·자식): 조정은 자식의 다음 PostToolUse 맥락으로 들어갔다. 중단은 120초 셸 명령을 보낸 뒤 0.08초 만에 끝냈고 PostToolUseFailure가 본문을 전했다. 큐는 자식의 Stop `block`으로 들어갔다. 자식 `done` 뒤 0.03초 만에 쉬던 부모의 백그라운드 `loom wait`가 끝나 부모가 새 턴을 시작했다(2026-10-21 전 방식).
 - loom 4단위(Claude 부모 → Codex 자식): 셸 명령을 돌리는 자식에게 보낸 큐는 메일함에 남았고 조정은 바로 꺼내졌다. 중단은 120초 셸 명령을 끝내고 0.06초 만에 돌아왔다(`loom interrupt` 왕복). 끊긴 턴 뒤의 새 턴이 중단 본문을 따랐다. 그 턴이 끝나자 큐가 `turn/start`로 들어갔다. 자식이 `done`으로 보낸 본문에 조정·중단·큐 본문이 모두 있었다. 쉬던 Claude 부모가 바로 깨어났다.
 - loom 4단위(Codex 부모 → Claude 자식): `loom spawn --agent claude`가 동작했다. 자식 `done`이 쉬던 Codex 부모를 `turn/start`로 깨웠다. 부모 입력창에 사람이 쓰다 만 글은 그대로 남았고 턴에 섞이지 않았다.
 - Codex 셸 명령은 app-server 아래의 `/bin/sh -c` 세션 리더다. `item/started`의 `processId`는 OS PID가 아니다. 그래서 프로세스 나무에서 셸을 찾는다.

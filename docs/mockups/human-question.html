@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>loom 시스템 기본 계정 목업</title>
+<title>M17 loom 시스템 기본 계정 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -87,7 +87,7 @@ th { background: var(--panel); font-weight: 600; }
 </head>
 <body>
 <main class="doc">
-  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v1 · 2026-10-21</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M17</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v2 · 2026-10-21</span></div>
   <h1>사람 응답 대기 알림</h1>
   <p class="lead">사람 지시: “에이전트가 사람에게 승인 또는 선택을 하게끔 하는 질문을 loom 시스템에서 표준화 하여, 사람이 응답하거나, 승인해야하는 부분이 생기면 알림이 발생하여 해당 알림 클릭하면 질문이 발생한 노드로 이동할 수 있게 해줘”. 점선이 바뀌는 곳이다. 답은 지금처럼 노드 터미널에 쓴다.</p>
 
@@ -116,7 +116,7 @@ th { background: var(--panel); font-weight: 600; }
       </div>
     </div>
     <ul class="note">
-      <li>오른쪽 위 알림: 기다리는 노드마다 하나. 「질문」은 에이전트가 쓴 한 줄, 「승인 요청」은 CLI의 권한·승인 창이다.</li>
+      <li>오른쪽 위 알림: 기다리는 노드마다 하나. 최근 3개만 보이고 나머지는 「+n」 줄 하나로 줄인다. 「질문」은 에이전트가 쓴 한 줄, 「승인 요청」은 CLI의 권한·승인 창이다.</li>
       <li>사이드바: 기다리는 노드의 점이 주황 고리로 바뀐다.</li>
       <li>알림을 닫는 단추는 없다. 답하면 사라진다(아래 ⑤).</li>
     </ul>
@@ -159,7 +159,7 @@ th { background: var(--panel); font-weight: 600; }
     </div>
     <ul class="note">
       <li>창이 보이지 않을 때만 시스템 알림을 띄운다. 클릭하면 loom 창이 앞으로 오고 ③이 된다.</li>
-      <li>처음 한 번 브라우저가 알림 허용을 묻는다. 허용하지 않으면 ②만 보인다.</li>
+      <li>알림 허용은 사람이 ②의 알림을 처음 클릭할 때 한 번만 묻는다. 화면을 열 때는 묻지 않는다. 허용하지 않으면 ②만 보인다.</li>
     </ul>
   </div>
 

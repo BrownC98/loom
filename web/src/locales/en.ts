@@ -286,6 +286,7 @@ const en = {
     folder: '{{name}}: folders cannot be dropped. Select files.',
   },
   problem: {
+    status: 'The daemon sent a {{status}} response. The screen may be older than the daemon. Reload the page.',
     refused: {
       emptyName: 'Enter a name.',
       nameTaken: '{{value}}: a parent, sibling, or child node already uses this name. Enter a different name.',

@@ -27,7 +27,7 @@ import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
 import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
-import { problemText } from './problem';
+import { problemText, statusText } from './problem';
 
 /** 끊긴 WebSocket을 다시 여는 간격. 데몬이 다시 시작하는 동안 기다린다. */
 const RECONNECT_MS = 1000;
@@ -39,7 +39,11 @@ async function request<T>(method: string, path: string, body?: { type: string; d
     headers: body === undefined ? undefined : { 'content-type': body.type },
     body: body?.data,
   });
-  if (!res.ok) throw new Error(problemText((await res.json()) as Problem));
+  // 데몬이 아는 거절은 Problem JSON으로 온다. 본문이 JSON이 아니면 화면이 데몬보다 오래된 판이라 없는 경로를 불렀을 가능성이 크다.
+  if (!res.ok) {
+    const problem = (await res.json().catch(() => null)) as Problem | null;
+    throw new Error(problem ? problemText(problem) : statusText(res.status));
+  }
   return res.json();
 }
 

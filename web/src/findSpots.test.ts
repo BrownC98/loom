@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
-import { findSpots } from './find';
+import { findSpots } from './findSpots';
 
 const view = (id: number, name: string, parent: number | null, worktree: string, repo = 1): NodeView => ({
   id,

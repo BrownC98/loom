@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc --noEmit && VITE_LOOM_VERSION=$(sh ../scripts/version.sh) vite build",
     "test": "vitest run",
-    "check": "tsc --noEmit && madge --circular --extensions ts,tsx src && node scripts/no-hangul.mjs"
+    "check": "tsc --noEmit && madge --circular --extensions ts,tsx src && node scripts/no-hangul.mjs && node scripts/case-names.mjs"
   },
   "dependencies": {
     "@lobehub/icons-static-svg": "^1.95.1",

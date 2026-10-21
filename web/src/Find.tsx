@@ -2,7 +2,7 @@
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Found } from './find';
+import type { Found } from './findSpots';
 import type { RepoId } from './gen/RepoId';
 import { flowId, useShowGroups, useShowNodes } from './Graph';
 import { findKey } from './Terminal';

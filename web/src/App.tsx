@@ -16,7 +16,7 @@ import type { Theme } from './gen/Theme';
 import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
 import { Find } from './Find';
-import { findSpots } from './find';
+import { findSpots } from './findSpots';
 import { flowId, Graph, type GraphHandle, type Lit, type Pulse } from './Graph';
 import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';

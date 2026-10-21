@@ -16,6 +16,7 @@ mod skills;
 mod spots;
 mod usage;
 mod worktree;
+mod wsl;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

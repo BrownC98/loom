@@ -53,6 +53,15 @@
   .group p { padding: 12px 14px; color: var(--ink-2); }
   .cursor { position: absolute; z-index: 6; width: 18px; height: 18px; }
 
+  .mini { position: relative; background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 8px 8px; border: 1px solid var(--line); border-radius: 8px; }
+  .mrepo { position: absolute; border: 1.5px solid var(--line-strong); border-radius: 6px; background: color-mix(in oklch, var(--panel) 40%, transparent); }
+  .mrepo > span { position: absolute; left: 6px; top: 1px; font-size: 10px; font-weight: 600; }
+  .mgroup { position: absolute; border: 1px dashed var(--line-strong); border-radius: 4px; background: var(--bg); }
+  .mgroup > span { position: absolute; left: 4px; top: 2px; font-size: 9px; font-weight: 600; white-space: nowrap; }
+  .mgroup.empty { border-color: var(--run); }
+  .mgroup i { position: absolute; left: 5px; right: 5px; top: 15px; bottom: 5px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); }
+  .col { display: flex; flex-direction: column; gap: 20px; margin-top: 12px; }
+  .wide { max-width: 90ch; }
   table { border-collapse: collapse; margin-top: 12px; font-size: 13px; max-width: 980px; }
   th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
   th { font-size: 12px; font-weight: 600; color: var(--ink-3); }
@@ -63,7 +72,7 @@
 <header>
   <p>응답할 곳: 총괄 · claude-1</p>
   <p>연 담당: 총괄 · claude-1</p>
-  <h1>저장소 상자를 끌어 순서 바꾸기</h1>
+  <h1>저장소 상자 끌기 · 묶음 배치 공간 줄이기</h1>
   <p class="lead">사람 지시 "저장소 묶음도 드래그로 이동할 수 있게 해줘". 그래프 범위가 ‘모든 저장소’일 때 보이는 저장소 상자를, 워크트리 묶음과 같은 방법으로 머리를 끌어 순서를 바꿉니다. 새 단추·손잡이 그림은 없습니다. 끄는 모양과 규칙은 지금 묶음 끌기와 같습니다.</p>
 </header>
 
@@ -99,12 +108,31 @@
   </ol>
 </div>
 
+<h2 id="space">공간 줄이기: 묶음 사이 큰 빈 곳</h2>
+<p class="lead">사람 지시 "공간낭비 해결방안 마련하라". 아래 그림은 사람의 loom 그래프(표준 보기)를 시험 데몬에 같은 모양으로 만들고 잰 값을 1/4로 줄여 그렸습니다. main에 노드 하나, 그 자식 노드가 윈도우계정·저장소드래그 묶음에 있고, WSL셸·winget배포·줄바꿈은 빈 묶음입니다. 파란 테두리가 빈 묶음입니다.</p>
+<ol class="notes wide">
+  <li><b>원인 1, 빈 묶음 폭</b>: 빈 묶음도 카드 한 장 폭(표준 600 + 틈 40 = 640px)을 차지합니다. 높이는 이미 내용에 맞추지만 폭은 맞추지 않습니다(web/src/Graph.tsx <code>fit.width</code>).</li>
+  <li><b>원인 2, 나무 배치</b>: 묶음 하나는 자기 자손 전체의 폭(<code>spanOf</code>)을 모든 단계에서 차지합니다(web/src/layout.ts <code>layoutTree</code>). main은 자식 묶음 둘(1312px)의 가운데에 서고, 오른쪽 뿌리 묶음은 1312px 다음에 섭니다. 그래서 첫 줄에 main 양옆으로 336px씩 빈 곳이 생깁니다.</li>
+  <li>저장해 둔 위치나 상자 폭에 맞춘 벌리기는 없습니다. 저장소 상자 폭은 이미 내용에 맞춥니다. 내용이 넓게 놓인 것이 원인입니다.</li>
+</ol>
+<div class="col">
+<figure><figcaption>지금 — 저장소 상자 폭 3360px</figcaption><div class="mini" role="img" aria-label="지금: 저장소 상자 3360px. 첫 줄에 main 양옆 빈 곳과 640px 폭의 빈 묶음 셋" style="width:864.0px;height:307.5px"><div class="mrepo" style="left:12px;top:12px;width:840.0px;height:283.5px"><span>loom</span></div><div class="mgroup" style="left:100.0px;top:25.0px;width:160.0px;height:129.25px"><span>main</span><i></i></div><div class="mgroup" style="left:16.0px;top:162.25px;width:160.0px;height:129.25px"><span>윈도우계정</span><i></i></div><div class="mgroup" style="left:184.0px;top:162.25px;width:160.0px;height:129.25px"><span>저장소드래그</span><i></i></div><div class="mgroup empty" style="left:352.0px;top:25.0px;width:160.0px;height:24.25px"><span>WSL셸</span></div><div class="mgroup empty" style="left:520.0px;top:25.0px;width:160.0px;height:24.25px"><span>winget배포</span></div><div class="mgroup empty" style="left:688.0px;top:25.0px;width:160.0px;height:24.25px"><span>줄바꿈</span></div></div></figure>
+<figure><figcaption>안 A (권장) — 2184px. 빈 묶음은 머리·안내 글 폭만큼만, 단계마다 겹치지 않는 만큼만 띄운다. 부모는 지금처럼 자식들 가운데</figcaption><div class="mini" role="img" aria-label="안 A: 저장소 상자 2184px. 빈 묶음은 내용 폭이고 main 바로 옆에 선다" style="width:570.0px;height:307.5px"><div class="mrepo" style="left:12px;top:12px;width:546.0px;height:283.5px"><span>loom</span></div><div class="mgroup" style="left:100.0px;top:25.0px;width:160.0px;height:129.25px"><span>main</span><i></i></div><div class="mgroup" style="left:16.0px;top:162.25px;width:160.0px;height:129.25px"><span>윈도우계정</span><i></i></div><div class="mgroup" style="left:184.0px;top:162.25px;width:160.0px;height:129.25px"><span>저장소드래그</span><i></i></div><div class="mgroup empty" style="left:268.0px;top:25.0px;width:90.0px;height:24.25px"><span>WSL셸</span></div><div class="mgroup empty" style="left:366.0px;top:25.0px;width:90.0px;height:24.25px"><span>winget배포</span></div><div class="mgroup empty" style="left:464.0px;top:25.0px;width:90.0px;height:24.25px"><span>줄바꿈</span></div></div></figure>
+<figure><figcaption>안 B — 1848px. A에 더해 부모를 자식들 가운데가 아니라 첫 자식 왼쪽에 맞춘다</figcaption><div class="mini" role="img" aria-label="안 B: 저장소 상자 1848px. 부모 묶음이 첫 자식 왼쪽에 맞춰 선다" style="width:486.0px;height:307.5px"><div class="mrepo" style="left:12px;top:12px;width:462.0px;height:283.5px"><span>loom</span></div><div class="mgroup" style="left:16.0px;top:25.0px;width:160.0px;height:129.25px"><span>main</span><i></i></div><div class="mgroup" style="left:16.0px;top:162.25px;width:160.0px;height:129.25px"><span>윈도우계정</span><i></i></div><div class="mgroup" style="left:184.0px;top:162.25px;width:160.0px;height:129.25px"><span>저장소드래그</span><i></i></div><div class="mgroup empty" style="left:184.0px;top:25.0px;width:90.0px;height:24.25px"><span>WSL셸</span></div><div class="mgroup empty" style="left:282.0px;top:25.0px;width:90.0px;height:24.25px"><span>winget배포</span></div><div class="mgroup empty" style="left:380.0px;top:25.0px;width:90.0px;height:24.25px"><span>줄바꿈</span></div></div></figure>
+</div>
+<ol class="notes wide">
+  <li><b>빈 묶음</b>: 폭을 머리(브랜치·꼬리표·[새 노드]·[워크트리 삭제])와 안내 글에 맞춥니다. 높이와 같은 방식입니다.</li>
+  <li><b>단계별로 붙이기</b>: 옆 형제와의 틈은 두 형제가 함께 있는 단계에서만 지킵니다(32px). 자식이 없는 묶음은 자식이 넓은 묶음 바로 옆 첫 줄에 섭니다. 상자는 겹치지 않습니다. 같은 규칙을 묶음 안 카드 배치에도 씁니다(배치 규칙 하나).</li>
+  <li>안 B는 더 좁지만 지금 규칙 「부모는 자식들이 차지한 폭의 가운데」(2026-10-20 지시 "트리 방식으로 정렬")를 바꿉니다. 카드에도 같이 적용됩니다.</li>
+</ol>
+
 <h2>결정할 것</h2>
 <table>
   <thead><tr><th>항목</th><th>권장</th><th>다른 안</th></tr></thead>
   <tbody>
     <tr><td>사이드바 순서</td><td>그대로 둡니다. 그래프 순서만 바뀝니다(묶음 끌기와 같음)<span class="rec">권장</span></td><td>사이드바 저장소 순서도 함께 바꾸고 저장합니다(데몬에 순서 열이 새로 필요)</td></tr>
     <tr><td>순서 저장</td><td>이 페이지를 연 동안만 남깁니다(묶음·카드와 같음)<span class="rec">권장</span></td><td>브라우저에 저장해 새로고침 뒤에도 남깁니다</td></tr>
+    <tr><td>공간 줄이기</td><td>안 A: 빈 묶음 폭을 내용에 맞추고, 단계별로 붙인다. 부모는 자식들 가운데<span class="rec">권장</span></td><td>안 B: A에 더해 부모를 첫 자식 왼쪽에 맞춘다(더 좁다, 지금 나무 모양이 바뀐다)</td></tr>
   </tbody>
 </table>
 </html>

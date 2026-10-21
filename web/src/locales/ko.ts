@@ -34,6 +34,8 @@ const ko: typeof en = {
     group: '묶음 {{branch}}',
     newNode: '새 노드',
     arrange: '정렬',
+    arrangeGroup: '이 묶음 정렬',
+    arrangeRepo: '이 저장소 정렬',
     direction: '정렬 방향',
     directions: { down: '아래로', right: '오른쪽으로', up: '위로', left: '왼쪽으로' },
     empty: '‘새 노드’를 눌러 첫 에이전트를 시작합니다.',

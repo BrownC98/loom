@@ -32,6 +32,8 @@ const en = {
     group: 'Group {{branch}}',
     newNode: 'New node',
     arrange: 'Arrange',
+    arrangeGroup: 'Arrange this group',
+    arrangeRepo: 'Arrange this repository',
     direction: 'Arrange direction',
     directions: { down: 'Down', right: 'Right', up: 'Up', left: 'Left' },
     empty: 'Click “New node” to start the first agent.',

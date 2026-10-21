@@ -30,7 +30,7 @@ export function NewWorktreePopover(props: { repo: RepoView; workspaceDir: string
   }
 
   return (
-    <form ref={box} className="pop worktree-pop" aria-label={t('repo.newWorktree')} onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && props.onClose()}>
+    <form ref={box} className="pop worktree-pop nodrag nowheel" aria-label={t('repo.newWorktree')} onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && props.onClose()}>
       <h2>{t('repo.newWorktree')}</h2>
       <div className="field">
         <label htmlFor="wt-branch">{t('repo.branch')}</label>

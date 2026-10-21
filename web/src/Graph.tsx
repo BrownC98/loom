@@ -1,7 +1,7 @@
 import { GitBranchPlus, Maximize2, Minimize2, Plus, Trash2, Workflow } from 'lucide-react';
-import { Fragment, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
+import { Fragment, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MiniMap, Position, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSpots, getSpots, nodePty, putSpots, removeNode } from './api';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -42,6 +42,8 @@ const CARD_SIZE: Record<CardView, Size> = {
 const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left };
 /** [새 노드]·[새 워크트리] 버튼 아래로 띄우는 팝오버의 틈. 팝오버 오른쪽 끝을 버튼 오른쪽 끝에 맞춘다. */
 const POPOVER_GAP = 6;
+/** 팝오버와 그래프 칸 왼쪽 끝 사이에 남기는 틈(화면 px). */
+const POPOVER_EDGE = 8;
 /** 묶음 오른쪽 위에서 잰 삭제 경고 위치. 경고는 [워크트리 삭제] 아래에 오른쪽을 맞춰 연다. */
 const DELETE_OFFSET: XYPosition = { x: -8, y: 40 };
 /** 저장소 상자 머리 높이(테두리 줄 포함). styles.css `.repo-head` 높이와 같다. */
@@ -53,6 +55,32 @@ const REPO_INSET = { top: REPO_HEAD + REPO_SIDE, side: REPO_SIDE };
 const MOVE_MS = 300;
 
 /** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
+/**
+ * 그래프 위 팝오버. `at`(흐름 좌표)에 팝오버 오른쪽 끝을 맞춘다.
+ * 그러면 팝오버가 그래프 칸 왼쪽 끝을 넘을 때 넘는 만큼 오른쪽으로 민다. 확대·이동할 때마다 다시 잰다.
+ */
+function PopAt(props: { at: XYPosition; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [shift, setShift] = useState(0);
+  const transform = useStore((s) => s.transform);
+  useLayoutEffect(() => {
+    const pop = box.current?.firstElementChild;
+    const pane = box.current?.closest('.react-flow');
+    if (!pop || !pane) return;
+    const zoom = transform[2];
+    // 민 만큼을 빼서 밀기 전 왼쪽 끝을 잰다.
+    const left = pop.getBoundingClientRect().left - shift * zoom;
+    const next = Math.max(0, (pane.getBoundingClientRect().left + POPOVER_EDGE - left) / zoom);
+    // 0.5px 아래 차이는 버린다. 소수점 오차로 재기와 다시 그리기가 되풀이되지 않게 한다.
+    if (Math.abs(next - shift) > 0.5) setShift(next);
+  }, [props.at.x, props.at.y, transform, shift]);
+  return (
+    <div ref={box} className="pop-end" style={{ position: 'absolute', transform: `translate(${props.at.x + shift}px, ${props.at.y}px)` }}>
+      {props.children}
+    </div>
+  );
+}
+
 function IconButton(props: { label: string; title: string; children: ReactNode; onClick: () => void }) {
   return (
     <button type="button" className="btn ghost sm icon nodrag" aria-label={props.label} title={props.title} onClick={props.onClick}>
@@ -763,14 +791,8 @@ export function Graph(props: {
             // 묶음 노드 안에 두면 자식 카드가 팝오버를 덮는다. 뷰포트 층에 그려 카드 위에 둔다.
             (creating === group.path || deleting === group.path) && (
               <ViewportPortal key={group.path}>
-                <div
-                  className="pop-end"
-                  style={{
-                    position: 'absolute',
-                    // 새 노드 창은 누른 [새 노드] 버튼의 오른쪽 아래 모서리에 오른쪽을 맞춰 붙인다.
-                    transform: at ? `translate(${at.x}px, ${at.y}px)` : `translate(${origin.x + right + DELETE_OFFSET.x}px, ${origin.y + DELETE_OFFSET.y}px)`,
-                  }}
-                >
+                {/* 새 노드 창은 누른 [새 노드] 버튼의 오른쪽 아래 모서리에 오른쪽을 맞춰 붙인다. */}
+                <PopAt at={at ?? { x: origin.x + right + DELETE_OFFSET.x, y: origin.y + DELETE_OFFSET.y }}>
                   {creating === group.path ? (
                     <NewNodePopover
                       branch={group.label}
@@ -797,7 +819,7 @@ export function Graph(props: {
                       onClose={() => setDeleting(null)}
                     />
                   )}
-                </div>
+                </PopAt>
               </ViewportPortal>
             )
           );
@@ -807,7 +829,7 @@ export function Graph(props: {
             (r) =>
               branching?.key === r.key && (
                 <ViewportPortal key={r.key}>
-                  <div className="pop-end" style={{ position: 'absolute', transform: `translate(${repoAt.get(r.key)!.x + branching.anchor.x}px, ${repoAt.get(r.key)!.y + branching.anchor.y}px)` }}>
+                  <PopAt at={{ x: repoAt.get(r.key)!.x + branching.anchor.x, y: repoAt.get(r.key)!.y + branching.anchor.y }}>
                     <NewWorktreePopover
                       repo={r.repo}
                       workspaceDir={props.settings.workspaceDir ?? ''}
@@ -817,7 +839,7 @@ export function Graph(props: {
                         props.onRepo(repo);
                       }}
                     />
-                  </div>
+                  </PopAt>
                 </ViewportPortal>
               ),
           )}

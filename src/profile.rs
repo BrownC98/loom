@@ -426,13 +426,20 @@ pub fn color_terminal(cmd: &mut CommandBuilder) {
 ///   ("inherited CLAUDE_CODE_CHILD_SESSION marker", 2.1.304 실측). Orca 훅 변수는 노드의 훅 보고를 Orca로 보낸다.
 /// - 로그인 폴더(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG_DIR`): 기본 계정이 데몬을 띄운 곳의 계정이 된다.
 ///   다른 `HOME`으로 띄운 시험 데몬도 사람의 `~/.codex`를 썼다. 다른 계정은 loom 계정 설정으로 고른다.
+/// - `ANTHROPIC_BASE_URL`: Claude Code는 `settings.json`의 `env`를 자기 셸 명령에 넣는다. 그 세션에서 띄운 데몬이 받으면
+///   loom 계정 노드도 시스템 기본 계정의 중계 서버로 요청하고, 그 서버가 다른 토큰을 거절했다(2026-10-21 「401 인증 실패」).
+///   시스템 기본 노드는 Claude가 `~/.claude/settings.json`에서 다시 읽으므로 그대로다.
 pub fn is_launcher_env(key: &str) -> bool {
     ["CLAUDE_CODE_", "CODEX_", "OPENCODE", "ORCA_", "LOOM_"]
         .iter()
         .any(|prefix| key.starts_with(prefix))
         || matches!(
             key,
-            "CLAUDECODE" | "CLAUDE_PID" | "CLAUDE_EFFORT" | "CLAUDE_CONFIG_DIR"
+            "CLAUDECODE"
+                | "CLAUDE_PID"
+                | "CLAUDE_EFFORT"
+                | "CLAUDE_CONFIG_DIR"
+                | "ANTHROPIC_BASE_URL"
         )
 }
 
@@ -680,6 +687,7 @@ mod tests {
             "OPENCODE",
             "ORCA_AGENT_HOOK_PORT",
             "LOOM_TOKEN",
+            "ANTHROPIC_BASE_URL",
         ] {
             assert!(is_launcher_env(key), "{key}");
         }

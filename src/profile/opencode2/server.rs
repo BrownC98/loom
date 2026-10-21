@@ -18,6 +18,9 @@ use crate::process_tree::{self, Snapshot};
 
 /// 서버가 뜨고 요청 하나에 답하는 상한. 첫 실행은 플러그인·모델 목록을 읽어 몇 초 걸린다.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
+/// 서버가 듣기 시작한 뒤 준비될 때까지 다시 묻는 간격. 실측(2.0.32): 듣기와 준비 사이가 약 50ms다.
+/// 서버가 주는 `retry-after: 1`은 1초라 노드를 띄울 때마다 1초를 버린다. 그래서 짧게 묻는다.
+const READY_POLL: Duration = Duration::from_millis(50);
 /// Basic 인증의 사용자 이름. 서버가 정한 값이다(실측: 다른 이름과 Bearer는 401).
 const USER: &str = "opencode";
 /// SSE 이벤트 본문 줄의 앞머리. 서버는 이벤트 하나를 `data:` 한 줄로 쓴다(실측).
@@ -72,17 +75,43 @@ impl Server {
         .unwrap_or_else(|_| Err("did not listen".into()));
         // 이 데몬이 띄운 서버는 끝날 때 이 데몬이 거둔다.
         tokio::spawn(async move { child.wait().await });
-        if let Err(e) = listening {
-            if let Some(root) = pid {
-                Snapshot::now().kill_trees([root]);
-            }
+        let server = Self::connect(format!("http://127.0.0.1:{port}"), password, pid);
+        // 듣기 시작과 첫 요청을 받는 때가 다르다. 듣기만 보고 요청을 보내면 503 `service_starting`을 받는다.
+        let ready = match listening {
+            Ok(()) => server.ready().await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = ready {
+            server.stop();
             return Err(e);
         }
-        Ok(Self::connect(
-            format!("http://127.0.0.1:{port}"),
-            password,
-            pid,
-        ))
+        Ok(server)
+    }
+
+    /// 서버가 듣기 시작했지만 기동 중이면 503을 준다. 실측(2.0.32): `/api/info`는 그때 정보 본문과 `503`을 함께 주고,
+    /// 다른 경로는 `{"code":"service_starting"}`과 함께 준다. 그 창은 약 50ms다.
+    /// 그래서 첫 요청 전에 `/api/info`로 준비를 기다린다. 이 경로는 기동 중에도 답한다(실측).
+    /// 503이 아닌 거부는 바로 돌려준다. 서버가 실패한 뒤 15초를 버리지 않는다.
+    async fn ready(&self) -> Result<(), String> {
+        let info = format!("{}/api/info", self.url);
+        let deadline = tokio::time::Instant::now() + REPLY_TIMEOUT;
+        loop {
+            let url = info.clone();
+            let auth = self.auth.clone();
+            let asked = tokio::task::spawn_blocking(move || request("GET", &url, &auth, None))
+                .await
+                .map_err(|e| e.to_string())??;
+            if (200..300).contains(&asked.status) {
+                return Ok(());
+            }
+            if asked.status != 503 {
+                return Err(asked.refusal());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(format!("did not get ready: {}", asked.refusal()));
+            }
+            tokio::time::sleep(READY_POLL).await;
+        }
     }
 
     /// 듣고 있는 서버에 붙는다. 요청을 보내기 전에는 서버를 부르지 않는다.
@@ -223,12 +252,13 @@ impl Server {
         let reply = tokio::task::spawn_blocking(move || request(method, &url, &auth, body))
             .await
             .map_err(|e| e.to_string())
-            .flatten();
+            .flatten()
+            .and_then(Reply::json);
         reply.map_err(|e| format!("{what}: {e}"))
     }
 }
 
-fn request(method: &str, url: &str, auth: &str, body: Option<Value>) -> Result<Value, String> {
+fn request(method: &str, url: &str, auth: &str, body: Option<Value>) -> Result<Reply, String> {
     // 거부 문장을 본문에서 읽으려고 4xx·5xx를 오류로 바꾸지 않는다.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -247,14 +277,33 @@ fn request(method: &str, url: &str, auth: &str, body: Option<Value>) -> Result<V
     }
     .map_err(|e| e.to_string())?;
     let mut res = agent.run(request).map_err(|e| e.to_string())?;
+    let status = res.status().as_u16();
     let text = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
-    if !res.status().is_success() {
-        return Err(format!("{} {text}", res.status()));
+    Ok(Reply { status, text })
+}
+
+/// 서버의 답 하나. 상태 코드를 남겨 기동 중(503)과 진짜 거부를 가른다.
+struct Reply {
+    status: u16,
+    text: String,
+}
+
+impl Reply {
+    /// 응답 본문의 JSON. 본문이 없으면(204) `null`이다.
+    fn json(self) -> Result<Value, String> {
+        if !(200..300).contains(&self.status) {
+            return Err(self.refusal());
+        }
+        if self.text.is_empty() {
+            return Ok(Value::Null);
+        }
+        serde_json::from_str(&self.text).map_err(|e| format!("unknown reply: {e}"))
     }
-    if text.is_empty() {
-        return Ok(Value::Null);
+
+    /// 화면·로그에 보일 거부 문장. `loom: Could not start ...: <이 문장>`이 된다.
+    fn refusal(&self) -> String {
+        format!("{} {}", self.status, self.text)
     }
-    serde_json::from_str(&text).map_err(|e| format!("unknown reply: {e}"))
 }
 
 /// 버려질 때 `stopped`를 `true`로 둔다. 이벤트 스레드가 어느 길로 끝나든 알린다.
@@ -263,5 +312,77 @@ struct Ended(Arc<watch::Sender<bool>>);
 impl Drop for Ended {
     fn drop(&mut self) {
         self.0.send_replace(true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// 정해진 답을 차례로 주는 서버. 답이 떨어지면 마지막 답을 다시 준다. 받은 요청 수를 센다.
+    /// 서버는 `Connection: close`로 답하므로 연결마다 요청 하나다.
+    fn fake_server(replies: &[(u16, &'static str)]) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let asked = Arc::new(AtomicUsize::new(0));
+        let seen = asked.clone();
+        let replies: Vec<(u16, String)> =
+            replies.iter().map(|(s, b)| (*s, b.to_string())).collect();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                let n = seen.fetch_add(1, Ordering::Relaxed);
+                let (status, body) = &replies[n.min(replies.len() - 1)];
+                let reply = format!(
+                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(reply.as_bytes());
+            }
+        });
+        (url, asked)
+    }
+
+    /// 듣기 시작과 첫 요청을 받는 때가 다르다. 그 창에 `/api/info`는 정보 본문과 503을 함께 준다(실측).
+    /// 그래서 띄우기는 준비될 때까지 다시 묻고, 그 뒤 첫 요청을 보낸다.
+    #[tokio::test]
+    async fn the_starting_window_is_waited_out_before_the_first_request() {
+        let (url, asked) = fake_server(&[
+            (503, r#"{"version":"2.0.32","pid":1}"#),
+            (
+                200,
+                r#"{"version":"2.0.32","pid":1,"capabilities":{"persistentPty":true}}"#,
+            ),
+        ]);
+        let server = Server::connect(url, "pw".into(), None);
+        server.ready().await.unwrap();
+        assert_eq!(asked.load(Ordering::Relaxed), 2);
+    }
+
+    /// 기동 중이 아닌 거부는 다시 묻지 않고 바로 알린다. 끝난 서버를 15초 동안 기다리지 않는다.
+    #[tokio::test]
+    async fn a_service_that_failed_is_reported_without_another_try() {
+        let (url, asked) = fake_server(&[(
+            500,
+            r#"{"code":"service_failed","message":"The background service could not start."}"#,
+        )]);
+        let server = Server::connect(url, "pw".into(), None);
+        let err = server.ready().await.unwrap_err();
+        assert!(err.contains("service_failed"), "{err}");
+        assert_eq!(asked.load(Ordering::Relaxed), 1);
+    }
+
+    /// 다른 오류의 답 문장은 예전과 같다. 화면에 보이는 `Could not start ...: <상태> <본문>`이 바뀌지 않는다.
+    #[tokio::test]
+    async fn other_errors_keep_the_old_message_shape() {
+        let (url, _) = fake_server(&[(401, r#"{"code":"unauthorized"}"#)]);
+        let server = Server::connect(url, "pw".into(), None);
+        let err = server.create_session(Path::new(".")).await.unwrap_err();
+        assert_eq!(err, r#"POST /api/session: 401 {"code":"unauthorized"}"#);
     }
 }

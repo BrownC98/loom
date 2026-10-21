@@ -71,6 +71,12 @@ export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/$
 export const dismissWait = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/wait`);
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
 
+/** 데몬만 끝낸다. 노드는 산다(docs/design.md 「배포」). 응답에 본문이 없다. */
+export async function shutdown(): Promise<void> {
+  const res = await fetch('/api/shutdown', { method: 'POST' });
+  if (!res.ok) throw new Error(statusText(res.status));
+}
+
 export const openFile = (path: string) => call<null>('POST', '/api/files/open', { path } satisfies OpenFile);
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');

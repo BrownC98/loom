@@ -9,6 +9,12 @@ bin=$HOME/loom/bin/loom
 port=${LOOM_PORT:-7420}
 build=$HOME/.loom/host-build
 
+# 한 번에 하나만 빌드한다. git 훅과 손으로 부른 실행이 같은 빌드 폴더를 함께 쓰면 npm 설치가 깨졌다(2026-10-21 「tsc: not found」).
+# 잠금은 fd 9가 쥔다. 데몬에는 넘기지 않는다(아래 `9>&-`). 넘기면 데몬과 PTY 호스트가 잠금을 영영 쥔다.
+mkdir -p "$HOME/.loom"
+exec 9>"$HOME/.loom/host.lock"
+flock 9
+
 # 빌드 전용 복제를 HEAD로 옮긴다. 워크트리로 두지 않는다: 화면이 `git worktree list`를 묶음으로 보이기 때문이다.
 # target 폴더를 다시 써서 빌드가 빠르다.
 [ -e "$build/.git" ] || git clone --quiet --no-checkout . "$build"
@@ -27,7 +33,7 @@ if pid=$(cat "$pidfile" 2>/dev/null) && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev
   while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
 fi
 # 새 세션이라 이 터미널을 닫아도 데몬이 산다.
-setsid nohup "$bin" serve --listen "127.0.0.1:$port" >>"$HOME/.loom/serve.log" 2>&1 </dev/null &
+setsid nohup "$bin" serve --listen "127.0.0.1:$port" >>"$HOME/.loom/serve.log" 2>&1 </dev/null 9>&- &
 echo $! >"$pidfile"
 for _ in $(seq 50); do
   curl -sf "http://127.0.0.1:$port/" >/dev/null && echo "$("$bin" --version): http://127.0.0.1:$port" && exit 0

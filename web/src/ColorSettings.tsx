@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pipette, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { FieldReset } from './FieldReset';
 import type { UiColors } from './gen/UiColors';
 import { useOutsideClose } from './popover';
 import { COLOR_ROWS, contrast, isHex, PRESETS, tonedColor, type ColorRow, type ColorScheme } from './uiColors';
@@ -27,7 +28,10 @@ export function ColorsSection({ colors, onColors }: Props) {
   const set = (row: ColorRow, hex: string | null) => onColors({ ...colors, [row.key]: hex });
   return (
     <section>
-      <h4>{t('colors.heading')}</h4>
+      <h4>
+        {t('colors.heading')}
+        <FieldReset path={['colors']} />
+      </h4>
       <div className="colors">
         {COLOR_ROWS.map((row) => {
           const hex = colors[row.key];

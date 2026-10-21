@@ -604,7 +604,8 @@ dialog::backdrop { background: var(--scrim); }
 .dialog { width: 880px; max-width: calc(100vw - 32px); height: 600px; max-height: calc(100vh - 32px); margin: auto; background: var(--panel); border-radius: 12px; box-shadow: 0 18px 48px var(--shadow); overscroll-behavior: contain; }
 .dialog[open] { display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
 .dialog nav { border-right: 1px solid var(--line); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; }
-.dialog nav .stop { margin-top: auto; justify-content: flex-start; }
+.dialog nav .reset-all { margin-top: auto; justify-content: flex-start; }
+.dialog nav .stop { justify-content: flex-start; }
 .stopped { height: 100vh; display: grid; place-content: center; gap: 6px; text-align: center; background: var(--bg); }
 .stopped b { font-size: 16px; }
 .stopped span { font-size: 12px; color: var(--ink-3); }

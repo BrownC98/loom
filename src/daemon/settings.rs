@@ -97,6 +97,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/", get(index))
         .route("/api/agents", get(agents))
         .route("/api/settings", get(get_settings).put(put_settings))
+        .route("/api/settings/default", get(default_settings))
         .route("/api/accounts", get(accounts))
         .route("/api/accounts/{provider}", post(login))
         .route("/api/accounts/{provider}/logout", post(logout))
@@ -142,13 +143,22 @@ fn with_settings(page: &str, settings: &SettingsView) -> String {
 
 /// 워크스페이스 폴더가 비어 있으면 기본값을 채워 보낸다. 화면은 늘 실제로 쓸 폴더를 보인다.
 async fn get_settings(State(app): State<Arc<App>>) -> Result<Json<SettingsView>, Problem> {
-    let mut view = app.settings.get().map_err(internal)?;
+    Ok(Json(shown(app.settings.get().map_err(internal)?)))
+}
+
+/// 모든 칸이 기본값인 설정. 화면이 칸마다 [기본값] 단추를 보일지 견준다. 기본값은 여기(Rust)에만 있다.
+async fn default_settings() -> Json<SettingsView> {
+    Json(shown(SettingsView::default()))
+}
+
+/// 화면에 보이는 설정. 작업 폴더가 비면 기본 작업 폴더를 넣는다.
+fn shown(mut view: SettingsView) -> SettingsView {
     if view.workspace_dir.is_none() {
         view.workspace_dir = worktree::default_workspace()
             .ok()
             .map(|p| p.to_string_lossy().into_owned());
     }
-    Ok(Json(view))
+    view
 }
 
 /// 화면이 바꾼 칸만 보낸다(`Settings::patch`). 합친 설정이 규칙에 맞지 않으면 쓰지 않는다.

@@ -2,7 +2,7 @@ import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
+import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -29,7 +29,7 @@ import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { applyColors } from './uiColors';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
-import { CardViewSwitch, UI_SETTINGS } from './ThemeSettings';
+import { CardViewSwitch } from './ThemeSettings';
 import { ArrangeButton } from './ArrangeButton';
 import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
@@ -172,6 +172,9 @@ export function App() {
     setSettingsState(next);
   };
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  // 데몬의 기본 설정. 설정 창의 칸마다 [기본값] 단추가 견준다. 판이 바뀌기 전에는 바뀌지 않아 한 번만 읽는다.
+  const [defaultSettings, setDefaultSettings] = useState<SettingsView | null>(null);
+  useEffect(() => void getDefaultSettings().then(setDefaultSettings, () => {}), []);
   // 보내는 중인 칸. 다시 읽은 설정 위에 얹어, 아직 저장되지 않은 내 변경이 되돌아가 보이지 않게 한다.
   const pending = useRef<SettingsPatch[]>([]);
   const showFetched = (view: SettingsView) => setSettings(pending.current.reduce(applySettingsPatch, view));
@@ -314,7 +317,7 @@ export function App() {
   };
   const editSettings = (edit: (current: SettingsView) => SettingsView) => saveSettings(edit(settingsRef.current));
   // `null`은 칸을 지우고, 데몬은 지운 칸을 기본값으로 읽는다(`Settings::patch`). 기본값은 Rust에만 둔다.
-  const resetUi = () => void putSettings(Object.fromEntries(UI_SETTINGS.map((key) => [key, null])))
+  const resetSettings = (patch: SettingsPatch) => void putSettings(patch)
     .catch(() => {})
     .finally(() => getSettings().then(showFetched));
   // 데몬이 스스로 계정을 바꿨다. 쓰는 계정과 사용량을 다시 읽는다.
@@ -614,7 +617,8 @@ export function App() {
               onRescan={rescan}
               settings={settings}
               onSettings={saveSettings}
-              onResetUi={resetUi}
+              defaults={defaultSettings}
+              onReset={resetSettings}
               usage={usage}
               onChoose={chooseAccount}
               updates={updates}

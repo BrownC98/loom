@@ -193,6 +193,7 @@ fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     g.ask(lead, "A or B?\nmore").unwrap();
     assert_eq!(wait(lead), Some((WaitKind::Question, "A or B?".into())));
     assert_eq!(g.unasked_root(lead), Ok(false));
+    assert_eq!(g.open_question(lead), Ok(Some("A or B?".into())));
 
     // 다른 신호는 자기가 건 대기만 거둔다.
     g.set_wait(lead, WaitSource::Screen, None).unwrap();
@@ -209,6 +210,7 @@ fn human_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     g.ask(lead, "A or B?").unwrap();
     g.clear_wait(lead).unwrap();
     assert_eq!(wait(lead), None);
+    assert_eq!(g.open_question(lead), Ok(None));
     // 다른 신호의 대기는 키 입력이 지운다.
     g.set_wait(lead, WaitSource::Screen, Some((WaitKind::Trust, "Trust?")))
         .unwrap();

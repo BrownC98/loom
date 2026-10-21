@@ -315,6 +315,9 @@ pub struct TakeRequest {
     /// 일하는 노드의 도구 호출 사이 훅이다. 꺼내지 않은 큐 메시지를 알린다(`Taken::queued_from`).
     #[serde(default)]
     pub notice_queue: bool,
+    /// 사람이 입력한 턴의 첫 훅이다. 열린 `loom ask` 질문을 알린다(`Taken::open_question`).
+    #[serde(default)]
+    pub human_input: bool,
 }
 
 /// `loom hook`의 응답. 꺼낸 메시지와, 알릴 때만 새로 기다리는 큐 메시지의 보낸 노드 이름(온 순서).
@@ -322,6 +325,9 @@ pub struct TakeRequest {
 pub struct Taken {
     pub messages: Vec<Delivery>,
     pub queued_from: Vec<String>,
+    /// 사람 입력 훅에서만: 아직 열린 `loom ask` 질문. 에이전트가 그 입력이 답인지 판단한다.
+    #[serde(default)]
+    pub open_question: Option<String>,
 }
 
 /// 쉬는 노드의 훅 요청(`loom hook`, `loom cursor-hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
@@ -1019,7 +1025,7 @@ impl App {
             self.opencode2.lock().unwrap().insert(id, node.clone());
             tokio::spawn(follow_model(self.graph.clone(), id, node.model()));
             let mailbox = NodeMailbox {
-                graph: self.graph.clone(),
+                app: self.clone(),
                 node: id,
             };
             tokio::spawn(async move { node.run(mailbox).await });
@@ -1192,13 +1198,13 @@ fn discarder(
 
 /// 그래프에 있는 노드 하나의 메일함. 프로필의 전달 작업에 넘긴다.
 struct NodeMailbox {
-    graph: Arc<Graph>,
+    app: Arc<App>,
     node: NodeId,
 }
 
 impl Mailbox for NodeMailbox {
     fn changed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        let mut changed = Box::pin(self.graph.mail_changed());
+        let mut changed = Box::pin(self.app.graph.mail_changed());
         changed.as_mut().enable();
         // 확인 없이 둔 메시지는 새 메시지 알림 없이 다시 꺼낼 수 있게 된다.
         Box::pin(async move {
@@ -1207,14 +1213,30 @@ impl Mailbox for NodeMailbox {
     }
 
     fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String> {
-        self.graph
+        self.app
+            .graph
             .take(self.node, kinds, limit_bytes)
             .map_err(|e| e.to_string())
     }
 
     fn ack(&self, taken: &[Delivery]) -> Result<(), String> {
         let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
-        self.graph.ack(self.node, &ids).map_err(|e| e.to_string())
+        self.app
+            .graph
+            .ack(self.node, &ids)
+            .map_err(|e| e.to_string())
+    }
+
+    fn turn_ended(&self, reply: Option<String>) -> Option<String> {
+        if let Some(text) = reply {
+            self.app.turn_ends.said(self.node, text);
+        }
+        self.app.turn_end(self.node).map(str::to_owned)
+    }
+
+    fn human_input(&self) -> Option<String> {
+        let question = self.app.graph.open_question(self.node).ok()??;
+        profile::hook_text(&[], &[], Some(&question))
     }
 }
 
@@ -1268,15 +1290,21 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
     // `turn/start`를 보낸 뒤 서버의 active 알림이 오기 전까지 일하는 중으로 본다. 그래야 큐를 두 턴으로 나눠 보내지 않는다.
     let mut started = false;
     let mut busy = false;
+    // 이 작업이 `turn/start`로 연 턴이 아직 시작되지 않았다. 아니면 새 턴은 사람이 TUI에 입력한 턴이다.
+    let mut ours = false;
     loop {
         let mut mail = pin!(app.graph.mail_changed());
         mail.as_mut().enable();
         let now = thread.borrow_and_update().clone();
         if let Some(now) = now {
+            let was_busy = std::mem::replace(&mut busy, now.status == Status::Busy);
+            if !was_busy && busy && !std::mem::take(&mut ours) {
+                codex_human_input(&app, node, &server, &now.id).await;
+            }
             // 턴이 끝났다(일하는 중 → 쉬는 중). 다시 일하게 하면 이번에는 메시지를 넘기지 않는다.
-            let ended = std::mem::replace(&mut busy, now.status == Status::Busy) && !busy;
-            if ended && !started && codex_turn_end(&app, node, &server, &now.id).await {
+            if was_busy && !busy && !started && codex_turn_end(&app, node, &server, &now.id).await {
                 started = true;
+                ours = true;
                 continue;
             }
             let status = if started { Status::Busy } else { now.status };
@@ -1292,6 +1320,7 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                     match codex::deliver(call, &now.id, status, &taken).await {
                         Ok(()) => {
                             started = true;
+                            ours |= status == Status::Idle;
                             let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
                             if let Err(e) = app.graph.ack(node, &ids) {
                                 eprintln!("loom: 노드 {}의 받음 확인을 쓰지 못했다: {e}", node.0);
@@ -1317,6 +1346,23 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                 started = false;
             }
         }
+    }
+}
+
+/// 사람이 TUI에 입력해 턴이 시작했다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
+/// Codex에는 입력 훅이 없어 턴 안에 넣는다(`turn/steer`).
+async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread: &str) {
+    let question = match app.graph.open_question(node) {
+        Ok(Some(question)) => question,
+        Ok(None) => return,
+        Err(e) => return eprintln!("loom: 노드 {}의 열린 질문을 읽지 못했다: {e}", node.0),
+    };
+    let Some(text) = profile::hook_text(&[], &[], Some(&question)) else {
+        return;
+    };
+    let call = |method, params| server.call(method, params);
+    if let Err(e) = codex::steer(call, thread, &text).await {
+        eprintln!("loom: 노드 {}에 열린 질문을 알리지 못했다: {e}", node.0);
     }
 }
 
@@ -1605,9 +1651,14 @@ async fn agent_take(
     } else {
         Vec::new()
     };
+    let open_question = match req.human_input {
+        true => app.graph.open_question(node).map_err(for_agent)?,
+        false => None,
+    };
     Ok(Json(Taken {
         messages,
         queued_from,
+        open_question,
     }))
 }
 

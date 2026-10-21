@@ -4,14 +4,16 @@
 
 mod server;
 
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use crate::graph::{Delivery, Kind, Model};
 use crate::skills::Launch;
@@ -84,11 +86,51 @@ fn selected_model(event: &Value, session: &str) -> Option<Model> {
     })
 }
 
+/// 세션 이벤트 가운데 턴 끝 질문 검사가 보는 것(2.0.32 실측: `session.execution.started` → `session.text.ended` → `session.execution.succeeded`).
+#[derive(Debug, PartialEq)]
+enum TurnEvent {
+    Started,
+    /// 답 글 하나를 다 냈다. 한 턴에 여럿이면 마지막이 턴을 끝낸 답이다.
+    Said(String),
+    /// 턴이 끝났다. 실패·중단으로 끝난 턴은 검사하지 않는다.
+    Succeeded,
+    /// 사용자 입력 하나가 입력함에 들어왔다. id가 loom이 넣은 것이 아니면 사람이 TUI에 친 글이다.
+    Enqueued(String),
+}
+
+/// `run`이 받는 세션 사건.
+enum Turn {
+    /// 턴이 끝났다. 그 턴의 마지막 답 글.
+    Ended(Option<String>),
+    /// 사람이 TUI에 입력했다.
+    HumanInput,
+}
+
+fn turn_event(event: &Value, session: &str) -> Option<TurnEvent> {
+    let data = &event["data"];
+    if data["sessionID"] != session {
+        return None;
+    }
+    match event["type"].as_str()? {
+        "session.execution.started" => Some(TurnEvent::Started),
+        "session.text.ended" => Some(TurnEvent::Said(data["text"].as_str()?.to_owned())),
+        "session.execution.succeeded" => Some(TurnEvent::Succeeded),
+        "session.inbox.enqueued" if data["item"]["type"] == "user" => {
+            Some(TurnEvent::Enqueued(data["inboxID"].as_str()?.to_owned()))
+        }
+        _ => None,
+    }
+}
+
 /// 노드 하나의 서버와 세션. 데몬이 노드를 띄우기 전에 만든다.
 pub struct Node {
     server: Server,
     session: String,
     model: watch::Receiver<Model>,
+    /// 세션 사건. `run`이 한 번 가져간다.
+    turns: Mutex<Option<mpsc::UnboundedReceiver<Turn>>>,
+    /// loom이 입력함에 넣은 메시지 id. 이벤트가 오면 지운다.
+    sent: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Node {
@@ -143,16 +185,33 @@ impl Node {
     /// 서버 이벤트에서 세션의 모델을 읽기 시작한다.
     fn follow(server: Server, session: String) -> Self {
         let (tx, model) = watch::channel(Model::default());
+        let (tx_turns, turns) = mpsc::unbounded_channel();
+        let sent = Arc::new(Mutex::new(HashSet::new()));
         let ours = session.clone();
+        let ours_sent = sent.clone();
+        let mut said = None;
         server.follow_events(move |event| {
             if let Some(selected) = selected_model(&event, &ours) {
                 tx.send_replace(selected);
+            }
+            match turn_event(&event, &ours) {
+                Some(TurnEvent::Started) => said = None,
+                Some(TurnEvent::Said(text)) => said = Some(text),
+                Some(TurnEvent::Succeeded) => {
+                    let _ = tx_turns.send(Turn::Ended(said.take()));
+                }
+                Some(TurnEvent::Enqueued(id)) if !ours_sent.lock().unwrap().remove(&id) => {
+                    let _ = tx_turns.send(Turn::HumanInput);
+                }
+                Some(TurnEvent::Enqueued(_)) | None => {}
             }
         });
         Self {
             server,
             session,
             model,
+            turns: Mutex::new(Some(turns)),
+            sent,
         }
     }
 
@@ -187,8 +246,10 @@ impl Node {
         let api = Session {
             server: &self.server,
             id: &self.session,
+            sent: &self.sent,
         };
         let mut stopped = self.server.stopped();
+        let mut turns = self.turns.lock().unwrap().take();
         loop {
             // 메일함을 보기 전에 만든다. 그래야 그 사이에 온 메시지를 놓치지 않는다.
             let changed = mailbox.changed();
@@ -214,9 +275,23 @@ impl Node {
                 Ok(None) => {}
                 Err(e) => eprintln!("loom: OpenCode 2 노드의 메일함을 읽지 못했다: {e}"),
             }
-            tokio::select! {
-                _ = changed => {}
+            let turn = tokio::select! {
+                _ = changed => continue,
                 _ = stopped.wait_for(|s| *s) => return,
+                Some(turn) = async { turns.as_mut()?.recv().await } => turn,
+            };
+            // 다시 일하게 하는 글은 턴 뒤에, 열린 질문은 사람이 연 턴 안에 넣는다.
+            let (text, inbox) = match turn {
+                Turn::Ended(reply) => (mailbox.turn_ended(reply), Inbox::Queue),
+                Turn::HumanInput => (mailbox.human_input(), Inbox::Steer),
+            };
+            if let Some(text) = text
+                && let Err(e) = put(&api, &text, inbox, PROMPT_RETRY_DELAY).await
+            {
+                eprintln!(
+                    "loom: OpenCode 2 세션 {}을 다시 일하게 하지 못했다: {e}",
+                    self.session
+                );
             }
         }
     }
@@ -278,6 +353,7 @@ trait Api {
 struct Session<'a> {
     server: &'a Server,
     id: &'a str,
+    sent: &'a Mutex<HashSet<String>>,
 }
 
 impl Api for Session<'_> {
@@ -286,6 +362,8 @@ impl Api for Session<'_> {
     }
 
     async fn prompt(&self, id: &str, text: &str, inbox: Inbox) -> Result<(), String> {
+        // 이벤트가 넣기 응답보다 먼저 올 수 있다. 그래서 보내기 전에 적는다.
+        self.sent.lock().unwrap().insert(id.to_owned());
         self.server.prompt(self.id, id, text, inbox.as_str()).await
     }
 }
@@ -299,11 +377,26 @@ async fn deliver(api: &impl Api, batch: &Batch, retry_delay: Duration) -> Result
         // 멈추지 못해도 본문은 조정으로 들어간다.
         eprintln!("loom: OpenCode 2 실행을 멈추지 못했다: {e}");
     }
+    put(
+        api,
+        &super::message_text(&batch.taken),
+        batch.inbox,
+        retry_delay,
+    )
+    .await
+}
+
+/// 글 하나를 새 메시지 id로 세션 입력함에 넣는다. 실패하면 같은 id로 `PROMPT_ATTEMPTS`번까지 다시 넣는다.
+async fn put(
+    api: &impl Api,
+    text: &str,
+    inbox: Inbox,
+    retry_delay: Duration,
+) -> Result<(), String> {
     let id = message_id();
-    let text = super::message_text(&batch.taken);
     let mut attempt = 1;
     loop {
-        match api.prompt(&id, &text, batch.inbox).await {
+        match api.prompt(&id, text, inbox).await {
             Ok(()) => return Ok(()),
             Err(e) if attempt == PROMPT_ATTEMPTS => return Err(e),
             Err(_) => {
@@ -387,6 +480,72 @@ mod tests {
         fn ack(&self, _taken: &[Delivery]) -> Result<(), String> {
             Ok(())
         }
+
+        fn turn_ended(&self, _reply: Option<String>) -> Option<String> {
+            None
+        }
+
+        fn human_input(&self) -> Option<String> {
+            None
+        }
+    }
+
+    /// 2.0.32 이벤트(실측한 모양에서 필요한 필드만 남겼다). 다른 세션의 이벤트는 보지 않는다.
+    #[test]
+    fn turn_events_come_from_this_session_only() {
+        let event = |kind: &str, data: Value| json!({ "type": kind, "data": data });
+        let ours = |extra: Value| {
+            let mut data = json!({ "sessionID": "s" });
+            data.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            data
+        };
+        assert_eq!(
+            turn_event(&event("session.execution.started", ours(json!({}))), "s"),
+            Some(TurnEvent::Started)
+        );
+        assert_eq!(
+            turn_event(
+                &event(
+                    "session.text.ended",
+                    ours(json!({ "text": "Shall I go?", "ordinal": 0 }))
+                ),
+                "s"
+            ),
+            Some(TurnEvent::Said("Shall I go?".into()))
+        );
+        assert_eq!(
+            turn_event(&event("session.execution.succeeded", ours(json!({}))), "s"),
+            Some(TurnEvent::Succeeded)
+        );
+        assert_eq!(
+            turn_event(
+                &event("session.execution.succeeded", ours(json!({}))),
+                "other"
+            ),
+            None
+        );
+        assert_eq!(
+            turn_event(
+                &event("session.text.delta", ours(json!({ "delta": "x" }))),
+                "s"
+            ),
+            None
+        );
+        let enqueued = |kind: &str| {
+            ours(
+                json!({ "inboxID": "msg_1", "item": { "type": kind, "payload": { "text": "hi" } } }),
+            )
+        };
+        assert_eq!(
+            turn_event(&event("session.inbox.enqueued", enqueued("user")), "s"),
+            Some(TurnEvent::Enqueued("msg_1".into()))
+        );
+        assert_eq!(
+            turn_event(&event("session.inbox.enqueued", enqueued("other")), "s"),
+            None
+        );
     }
 
     /// 보낸 요청을 적는 가짜 서버. 처음 `fail`번의 넣기는 실패한다.

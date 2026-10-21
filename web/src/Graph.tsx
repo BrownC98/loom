@@ -43,8 +43,11 @@ const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Ri
 const POPOVER_GAP = 6;
 /** 묶음 오른쪽 위에서 잰 삭제 경고 위치. 경고는 [워크트리 삭제] 아래에 오른쪽을 맞춰 연다. */
 const DELETE_OFFSET: XYPosition = { x: -8, y: 40 };
-/** 저장소 상자 테두리와 묶음 사이 틈. `top`은 머리를 포함한다(목업 docs/mockups/repo-scope.html). */
-const REPO_INSET = { top: 52, side: 16 };
+/** 저장소 상자 머리 높이(테두리 줄 포함). styles.css `.repo-head` 높이와 같다. */
+const REPO_HEAD = 46;
+/** 저장소 상자 테두리와 묶음 사이 틈. `top`은 머리를 포함한다. 머리 아래 틈은 옆 틈과 같다(2026-10-21 사람 지시 "상단 간격 좀 띄워, 좌우 패딩값과 일치하게"). */
+const REPO_SIDE = 16;
+const REPO_INSET = { top: REPO_HEAD + REPO_SIDE, side: REPO_SIDE };
 /** 노드로 옮겨 가는 화면 이동 시간. */
 const MOVE_MS = 300;
 

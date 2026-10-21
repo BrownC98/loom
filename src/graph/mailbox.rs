@@ -1,4 +1,4 @@
-//! 메일함: 부모와 자식 사이 메시지. 전달 방식(`Kind`)마다 꺼내는 지점이 다르다.
+//! 메일함: 노드 사이 메시지. 큐 메시지는 어느 노드에나 가고, 조정·중단은 부모와 자식 사이에만 간다. 전달 방식(`Kind`)마다 꺼내는 지점이 다르다.
 //! 부모 없는 노드가 부모에게 보내는 메시지는 보관했다가 새 부모에게 전한다.
 //! 근거: docs/design.md 「전달 지점」.
 
@@ -11,8 +11,8 @@ use ts_rs::TS;
 
 use super::events::{self, Entry, Step};
 use super::{
-    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward, from_json,
-    parent_of, set_state, state_of, to_json,
+    Graph, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward, ambiguous,
+    from_json, parent_of, set_state, state_of, to_json,
 };
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
@@ -67,9 +67,9 @@ struct Outgoing<'a> {
 }
 
 impl Graph {
-    /// 부모·자식을 이름이나 `#노드번호`로 찾는다. 여러 노드가 맞으면 거절한다.
-    pub fn recipient(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
-        recipient(&self.lock(), from, to)
+    /// 조정·중단을 받을 부모·자식을 이름이나 `#노드번호`로 찾는다. 여러 노드가 맞으면 거절한다.
+    pub fn related(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
+        related(&self.lock(), from, to)
     }
 
     pub fn send(&self, from: NodeId, to: &str, kind: Kind, body: &str) -> Result<Sent, Refusal> {
@@ -105,7 +105,7 @@ impl Graph {
         )
     }
 
-    /// 내가 받은 메시지의 보낸 노드에게 답한다. 현재 부모·자식 관계도 검사한다.
+    /// 내가 받은 메시지의 보낸 노드에게 답한다.
     pub fn reply(&self, from: NodeId, request: MessageId, body: &str) -> Result<Sent, Refusal> {
         let sender: Option<u32> = self
             .lock()
@@ -145,14 +145,18 @@ impl Graph {
             return Err(Refusal::BriefTooLong(body.len()));
         }
         let mut db = self.lock();
-        let to_id = match recipient(&db, from, to) {
-            Ok((to_id, _)) => Some(to_id),
-            Err(Refusal::NotRelated(_))
+        let found = match kind {
+            Kind::Queue => address(&db, from, to),
+            Kind::Steer | Kind::Interrupt => related(&db, from, to).map(|(id, _)| id),
+        };
+        let to_id = match found {
+            Ok(to_id) => Some(to_id),
+            // 지운 부모의 이름은 그래프에 없다. 부모 없는 노드가 그 이름으로 보내면 보관한다.
+            Err(Refusal::NotFound(_))
                 if kind == Kind::Queue
                     && reply_to.is_none()
                     && !to.starts_with('#')
-                    && parent_of(&db, from)?.is_none()
-                    && !name_exists(&db, to)? =>
+                    && parent_of(&db, from)?.is_none() =>
             {
                 None
             }
@@ -195,8 +199,10 @@ impl Graph {
             self.publish_node(&db, to_id)?;
             if parent_of(&db, from)? == Some(to_id) {
                 self.publish_message(from, Toward::Parent);
-            } else {
+            } else if parent_of(&db, to_id)? == Some(from) {
                 self.publish_message(to_id, Toward::Child);
+            } else {
+                self.publish_hop(from, to_id);
             }
         } else {
             self.publish_node(&db, from)?;
@@ -391,14 +397,6 @@ fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
-fn name_exists(db: &Connection, name: &str) -> rusqlite::Result<bool> {
-    db.query_row(
-        "SELECT EXISTS (SELECT 1 FROM nodes WHERE name = ?1)",
-        [name],
-        |row| row.get(0),
-    )
-}
-
 /// 부모 없는 노드가 보관한 메시지도 상한을 둔다. 새 부모가 한꺼번에 받으므로 같은 상한을 쓴다.
 fn check_held_room(db: &Connection, from: NodeId) -> Result<(), Refusal> {
     let held: u32 = db.query_row(
@@ -446,7 +444,46 @@ fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
     })
 }
 
-pub(super) fn recipient(
+/// 큐 메시지를 받을 노드. `#번호`는 그 노드다. 이름은 부모·자식을 먼저 보고, 없으면 그래프 전체에서 프로세스가 사는 노드를 본다.
+/// 근거: docs/design.md 「메시징 › 원칙」.
+fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
+    if let Some(id) = to.strip_prefix('#').and_then(|id| id.parse::<u32>().ok()) {
+        let exists: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND id != ?2)",
+            params![id, from.0],
+            |row| row.get(0),
+        )?;
+        return if exists {
+            Ok(NodeId(id))
+        } else {
+            Err(Refusal::NotFound(to.to_owned()))
+        };
+    }
+    match related(db, from, to) {
+        Err(Refusal::NotRelated(_)) => {}
+        found => return found.map(|(id, _)| id),
+    }
+    let named = db
+        .prepare("SELECT id, process_exited FROM nodes WHERE name = ?1 AND id != ?2 ORDER BY id")?
+        .query_map(params![to, from.0], |row| {
+            Ok((NodeId(row.get(0)?), row.get::<_, bool>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let live: Vec<NodeId> = named
+        .iter()
+        .filter(|(_, exited)| !exited)
+        .map(|(id, _)| *id)
+        .collect();
+    match live[..] {
+        [one] => Ok(one),
+        [] if named.is_empty() => Err(Refusal::NotFound(to.to_owned())),
+        [] => Err(Refusal::Ended(to.to_owned())),
+        _ => Err(ambiguous(db, to, &live)?),
+    }
+}
+
+/// 부모·자식 가운데 이름이나 `#노드번호`가 맞는 노드. 여러 노드가 맞으면 거절한다.
+pub(super) fn related(
     db: &Connection,
     from: NodeId,
     to: &str,
@@ -454,12 +491,15 @@ pub(super) fn recipient(
     let id = to.strip_prefix('#').and_then(|id| id.parse::<u32>().ok());
     let found = db.prepare(
         "SELECT id, agent FROM nodes WHERE (CASE WHEN ?3 IS NULL THEN name = ?2 ELSE id = ?3 END)
-         AND (parent = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)) LIMIT 2",
+         AND (parent = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)) ORDER BY id",
     )?.query_map(params![from.0, to, id], |row| Ok((NodeId(row.get(0)?), from_json(row, 1)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     match found.as_slice() {
         [one] => Ok(one.clone()),
         [] => Err(Refusal::NotRelated(to.to_owned())),
-        _ => Err(Refusal::Ambiguous(to.to_owned())),
+        _ => {
+            let ids: Vec<NodeId> = found.iter().map(|(id, _)| *id).collect();
+            Err(ambiguous(db, to, &ids)?)
+        }
     }
 }

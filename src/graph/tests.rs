@@ -204,24 +204,184 @@ fn parent_and_child_exchange_messages() {
 }
 
 #[test]
-fn messages_go_only_between_parent_and_child() {
+fn messages_go_to_any_node_but_steer_only_between_parent_and_child() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
-    child(&g, lead, "b");
+    let b = child(&g, lead, "b");
     let a1 = child(&g, a, "a1");
 
-    assert!(matches!(g.send(a, "b", Kind::Queue, "x"), Err(Refusal::NotRelated(n)) if n == "b"));
+    assert_eq!(g.send(a, "b", Kind::Queue, "x").unwrap().recipient, Some(b));
+    assert_eq!(take(&g, b), delivery("a", "x"));
+    g.send(lead, "a1", Kind::Queue, "y").unwrap();
+    assert_eq!(take(&g, a1), delivery("총괄-1", "y"));
+    g.send(a1, "총괄-1", Kind::Queue, "z").unwrap();
+    assert_eq!(take(&g, lead), delivery("a1", "z"));
+
+    for kind in [Kind::Steer, Kind::Interrupt] {
+        assert!(matches!(g.send(a, "b", kind, "x"), Err(Refusal::NotRelated(n)) if n == "b"));
+        assert!(matches!(
+            g.send(lead, &format!("#{}", a1.0), kind, "x"),
+            Err(Refusal::NotRelated(_))
+        ));
+        // 자식도 부모를 조정·중단한다.
+        assert_eq!(g.send(a1, "a", kind, "x").unwrap().recipient, Some(a));
+    }
+    g.send(lead, "a", Kind::Steer, "x").unwrap();
     assert!(matches!(
-        g.send(lead, "a1", Kind::Queue, "x"),
-        Err(Refusal::NotRelated(_))
+        g.send(a, "a", Kind::Queue, "x"),
+        Err(Refusal::NotFound(_))
     ));
+}
+
+/// 다른 저장소의 두 뿌리 노드. `repo 2`를 목록에 더한다.
+fn two_repos(g: &Graph) -> (NodeId, NodeId) {
+    g.lock()
+        .execute("INSERT INTO repos (id, path) VALUES (2, '/src/other')", [])
+        .unwrap();
+    let left = root(g, "claude");
+    let other = Place {
+        repo: RepoId(2),
+        worktree: "/ws/other/화면".into(),
+    };
+    let right = g
+        .add_root(&other, Some(AgentId("codex".into())), "", launched)
+        .unwrap();
+    (left, right)
+}
+
+#[tokio::test]
+async fn roots_in_different_repos_send_and_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let (left, right) = two_repos(&g);
+
+    let question = g.send(left, "codex-1", Kind::Queue, "QUESTION").unwrap();
+    assert_eq!(question.recipient, Some(right));
+    let got = g.take(right, Kind::ALL, 0).unwrap().pop().unwrap();
+    assert_eq!(
+        (got.from.as_str(), got.body.as_str()),
+        ("claude-1", "QUESTION")
+    );
+    g.ack(right, &[got.id]).unwrap();
+    g.reply(right, question.id, "ANSWER").unwrap();
+    let answer = g.wait(left, Some(question.id)).await.unwrap();
+    assert_eq!(
+        (answer.body.as_str(), answer.reply_to),
+        ("ANSWER", Some(question.id))
+    );
+    // 번호로도 보낸다.
+    g.send(right, &format!("#{}", left.0), Kind::Queue, "by id")
+        .unwrap();
+}
+
+#[test]
+fn messages_between_unrelated_nodes_pulse_as_hops() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let (left, right) = two_repos(&g);
+    let w = child(&g, right, "워커");
+    let (_, mut events) = g.subscribe().unwrap();
+    let pulses = |events: &mut broadcast::Receiver<GraphEvent>| {
+        std::iter::from_fn(|| events.try_recv().ok())
+            .filter_map(|e| match e {
+                GraphEvent::Hop { from, to } => Some(format!("hop {from}->{to}")),
+                GraphEvent::Message { child, toward } => Some(format!("{child} {toward:?}")),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    g.send(left, "워커", Kind::Queue, "x").unwrap();
+    g.send(w, "codex-1", Kind::Queue, "y").unwrap();
+    assert_eq!(
+        pulses(&mut events),
+        [format!("hop {left}->{w}"), format!("{w} Parent")]
+    );
+}
+
+#[test]
+fn messages_between_unrelated_nodes_are_recorded() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let (left, right) = two_repos(&g);
+    g.send(left, "codex-1", Kind::Queue, "hi").unwrap();
+    take(&g, right);
+
+    let message = |step| {
+        (
+            Entry::Message {
+                how: Kind::Queue,
+                from: who(left, "claude-1"),
+                to: Some(who(right, "codex-1")),
+                step,
+            },
+            Some("hi".to_owned()),
+        )
+    };
+    let records = recorded(&g);
+    assert_eq!(
+        records[records.len() - 2..],
+        [
+            message(events::Step::Sent),
+            message(events::Step::Delivered)
+        ]
+    );
+}
+
+#[test]
+fn a_name_shared_by_live_nodes_is_refused_with_candidates() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let (left, right) = two_repos(&g);
+    let sender = root(&g, "shell");
+    let w1 = child(&g, left, "워커");
+    let w2 = child(&g, right, "워커");
+
+    let refused = g.send(sender, "워커", Kind::Queue, "x").unwrap_err();
+    assert_eq!(
+        refused,
+        Refusal::Ambiguous {
+            name: "워커".into(),
+            candidates: format!("#{w1} 워커 (repo/repo), #{w2} 워커 (other/화면)"),
+        }
+    );
+    // 프로세스가 끝난 노드는 후보가 아니다. 모두 끝났으면 끝났다고 알린다.
+    g.exited(w2, 0).unwrap();
+    assert_eq!(
+        g.send(sender, "워커", Kind::Queue, "x").unwrap().recipient,
+        Some(w1)
+    );
+    g.exited(w1, 0).unwrap();
     assert!(matches!(
-        g.send(a1, "총괄-1", Kind::Queue, "x"),
-        Err(Refusal::NotRelated(_))
+        g.send(sender, "워커", Kind::Queue, "x"),
+        Err(Refusal::Ended(_))
     ));
-    g.send(a1, "a", Kind::Queue, "x").unwrap();
+}
+
+#[test]
+fn directory_lists_every_node_with_its_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let (left, right) = two_repos(&g);
+    let w = child(&g, right, "워커");
+    g.exited(w, 3).unwrap();
+
+    let rows: Vec<_> = g
+        .directory()
+        .unwrap()
+        .into_iter()
+        .map(|l| (l.id, l.name, l.parent, l.place, l.alive))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (left, "claude-1".into(), None, "repo/repo".into(), true),
+            (right, "codex-1".into(), None, "other/화면".into(), true),
+            (w, "워커".into(), Some(right), "other/화면".into(), false),
+        ]
+    );
 }
 
 #[test]
@@ -594,19 +754,31 @@ fn take_stops_at_the_byte_limit_but_always_takes_the_first() {
 }
 
 #[test]
-fn recipient_names_the_node_and_its_agent() {
+fn related_names_the_node_and_its_agent() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "claude");
-    let a = child(&g, lead, "a");
+    let a = g
+        .add_child(
+            lead,
+            NewChild {
+                agent: Some(AgentId("codex".into())),
+                ..named("a")
+            },
+            TreeLimits::default(),
+            launched,
+        )
+        .unwrap();
 
-    let (id, agent) = g.recipient(a, "claude-1").unwrap();
-    assert_eq!((id, agent), (lead, Some(AgentId("claude".into()))));
-    assert_eq!(g.recipient(lead, "a").unwrap(), (a, None));
-    assert!(matches!(
-        g.recipient(lead, "b"),
-        Err(Refusal::NotRelated(_))
-    ));
+    assert_eq!(
+        g.related(lead, "a").unwrap(),
+        (a, Some(AgentId("codex".into())))
+    );
+    assert_eq!(
+        g.related(a, "claude-1").unwrap(),
+        (lead, Some(AgentId("claude".into())))
+    );
+    assert!(matches!(g.related(lead, "b"), Err(Refusal::NotRelated(_))));
 }
 
 #[test]
@@ -747,7 +919,7 @@ fn adopt_refuses_cycles_depth_and_taken_names() {
     assert!(
         matches!(g.adopt(lead, twin, TreeLimits::default()), Err(Refusal::NameTaken(n)) if n == "a")
     );
-    assert!(matches!(g.find("a"), Err(Refusal::Ambiguous(_))));
+    assert!(matches!(g.find("a"), Err(Refusal::Ambiguous { .. })));
     assert!(matches!(g.find("없음"), Err(Refusal::NotFound(_))));
     assert_eq!(g.find("검토-1").unwrap(), other);
     assert_eq!(view(&g, other).parent, None);
@@ -1106,7 +1278,7 @@ fn recipient_names_cannot_collide_across_three_generations() {
         .unwrap();
     assert!(matches!(
         g.send(middle, "lead-1", Kind::Queue, "message"),
-        Err(Refusal::Ambiguous(_))
+        Err(Refusal::Ambiguous { .. })
     ));
     let sent = g
         .send(middle, &format!("#{}", leaf.0), Kind::Queue, "leaf only")
@@ -1338,11 +1510,12 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
         g.add_child(worker, named("손자"), TreeLimits::default(), launched),
         Err(Refusal::TooDeep)
     ));
-    // 메시지는 한 단계씩만 간다.
-    assert!(matches!(
-        g.send(lead, "워커-1-화면", Kind::Queue, "x"),
-        Err(Refusal::NotRelated(_))
-    ));
+    // 총괄도 손자에게 바로 보낸다.
+    g.send(lead, "워커-1-화면", Kind::Queue, "x").unwrap();
+    assert_eq!(
+        take(&g, worker).map(|(_, _, body)| body).as_deref(),
+        Some("x")
+    );
 
     let question = g
         .send(worker, "코디-1", Kind::Queue, "QUESTION: 색은?")

@@ -12,7 +12,7 @@ use crate::daemon::{
     AckRequest, AdoptRequest, DoneRequest, GuardRequest, IdleRequest, RemoveRequest, ReplyRequest,
     SendRequest, SpawnRequest, SpawnRun, TakeRequest, WaitRequest,
 };
-use crate::graph::{Delivery, Kind, MessageId, NodeId, Relations, Sent};
+use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent};
 use crate::profile::claude::{self, Take};
 use crate::profile::{AgentId, ModelChoice};
 
@@ -99,6 +99,15 @@ pub fn status() -> Result<(), String> {
     println!(
         "{}",
         serde_json::to_string_pretty(&relations).map_err(|e| e.to_string())?
+    );
+    Ok(())
+}
+
+pub fn directory() -> Result<(), String> {
+    let listed: Vec<Listed> = call("nodes", &(), None)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&listed).map_err(|e| e.to_string())?
     );
     Ok(())
 }

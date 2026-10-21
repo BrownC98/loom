@@ -1,5 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getSettings, putSettings, watchGraph } from './api';
@@ -20,7 +20,7 @@ import type { Toward } from './gen/Toward';
 import { agentLabel } from './catalog';
 import { Find, FIND_ARIA_KEY, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
-import { flowId, Graph, type GraphHandle, type Lit, type Pulse } from './Graph';
+import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
 import { useSelectedRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
@@ -132,6 +132,9 @@ export function App() {
   // 자식 id → 강조하는 동안 그 자식의 간선으로 오간 메시지 수(가는 쪽마다).
   const [pulses, setPulses] = useState<ReadonlyMap<NodeId, Pulse>>(new Map());
   const pulseTimers = useRef(new Map<NodeId, number>());
+  // 부모·자식이 아닌 두 노드 쌍(작은 id-큰 id) → 강조하는 동안 오간 메시지 수.
+  const [hops, setHops] = useState<ReadonlyMap<string, Hop>>(new Map());
+  const hopTimers = useRef(new Map<string, number>());
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [settings, setSettings] = useState<SettingsView>(EMPTY_SETTINGS);
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
@@ -316,25 +319,39 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const pulse = (child: NodeId, toward: Toward) => {
-      setPulses((prev) => {
-        const counts = prev.get(child) ?? { parent: 0, child: 0 };
-        return new Map(prev).set(child, { ...counts, [toward]: counts[toward] + 1 });
-      });
-      clearTimeout(pulseTimers.current.get(child));
+    /** `key`의 값을 `bump`로 바꾸고 `PULSE_MS` 뒤에 지운다. 그 사이에 다시 오면 시간을 다시 잰다. */
+    const flash = <K, V>(set: Dispatch<SetStateAction<ReadonlyMap<K, V>>>, timers: Map<K, number>, key: K, bump: (prev: V | undefined) => V) => {
+      set((prev) => new Map(prev).set(key, bump(prev.get(key))));
+      clearTimeout(timers.get(key));
       const timer = window.setTimeout(() => {
-        setPulses((prev) => {
+        set((prev) => {
           const next = new Map(prev);
-          next.delete(child);
+          next.delete(key);
           return next;
         });
       }, PULSE_MS);
-      pulseTimers.current.set(child, timer);
+      timers.set(key, timer);
+    };
+    const pulse = (child: NodeId, toward: Toward) =>
+      flash(setPulses, pulseTimers.current, child, (prev) => {
+        const counts = prev ?? { parent: 0, child: 0 };
+        return { ...counts, [toward]: counts[toward] + 1 };
+      });
+    const hop = (from: NodeId, to: NodeId) => {
+      const [source, target] = from < to ? [from, to] : [to, from];
+      const toward = to === target ? 'target' : 'source';
+      flash(setHops, hopTimers.current, `${source}-${target}`, (prev) => {
+        const counts = prev?.counts ?? { source: 0, target: 0 };
+        return { source, target, counts: { ...counts, [toward]: counts[toward] + 1 } };
+      });
     };
     return watchGraph((event) => {
       switch (event.kind) {
         case 'message':
           pulse(event.child, event.toward);
+          break;
+        case 'hop':
+          hop(event.from, event.to);
           break;
         case 'removed':
           setNodes((prev) => {
@@ -431,6 +448,7 @@ export function App() {
               onRepo={putRepo}
               views={new Map([...nodes].filter(([, v]) => shown.some((r) => r.id === v.place.repo)))}
               pulses={pulses}
+              hops={hops}
               agents={agents}
               settings={settings}
               accounts={accounts}

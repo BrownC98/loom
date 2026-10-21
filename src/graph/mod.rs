@@ -1,6 +1,6 @@
 //! 그래프: 노드 나무와 메일함. SQLite에 두고, 바뀔 때마다 화면에 이벤트 하나를 보낸다.
 //! 바뀐 일은 이벤트 기록(`events`)에도 남긴다.
-//! 부모-자식 규칙(깊이, 이름, 메시지 방향)은 나무와 메시지를 함께 보므로 이 모듈 한 곳에 둔다.
+//! 나무 규칙(깊이, 이름, 받는 노드 찾기)은 나무와 메시지를 함께 보므로 이 모듈 한 곳에 둔다.
 //! 근거: docs/design.md 「메시징」.
 
 mod events;
@@ -22,7 +22,7 @@ use ts_rs::TS;
 
 pub use events::{Entry, EventRecord, SwitchCause};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
-pub use nodes::{Active, Launched, NewChild, Relations};
+pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
@@ -117,6 +117,11 @@ pub enum GraphEvent {
         child: NodeId,
         toward: Toward,
     },
+    /// 부모·자식이 아닌 두 노드 사이로 메시지가 `from`에서 `to`로 갔다. 둘 사이에는 간선이 없다.
+    Hop {
+        from: NodeId,
+        to: NodeId,
+    },
     /// 노드를 지웠다. 자식은 부모 없이 남고 `Node` 이벤트로 따로 온다.
     Removed {
         id: NodeId,
@@ -172,6 +177,7 @@ pub enum Refusal {
     BriefTooLong(#[ts(type = "number")] usize),
     SummaryTooLong(#[ts(type = "number")] usize),
     MailboxFull(String),
+    /// 조정·중단의 대상이 부르는 노드의 부모나 자식이 아니다.
     NotRelated(String),
     /// `loom rm`의 대상이 부르는 노드의 자식이 아니다.
     NotChild(String),
@@ -182,7 +188,11 @@ pub enum Refusal {
     HeldFull,
     Cycle,
     NotFound(String),
-    Ambiguous(String),
+    /// 이름이 맞는 노드가 둘 이상이다. `candidates`는 `#<번호> <이름> (<저장소>/<워크트리>)`를 쉼표로 이은 글이다.
+    Ambiguous {
+        name: String,
+        candidates: String,
+    },
     /// 조정·중단을 받지 못하는 노드다. 값은 보낸 쪽이 적은 이름이다.
     NotSteerable(String),
     /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
@@ -225,12 +235,10 @@ impl fmt::Display for Refusal {
                 f,
                 "The inbox of {name} has {MAILBOX_LIMIT} messages. Send again after that node reads them with `loom wait`."
             ),
-            Refusal::NotRelated(name) => {
-                write!(
-                    f,
-                    "{name}: not your parent or child. Send messages only between a parent and its children."
-                )
-            }
+            Refusal::NotRelated(name) => write!(
+                f,
+                "{name}: not your parent or child. Steer and interrupt go only between a parent and its children. Use `loom send`."
+            ),
             Refusal::NotChild(name) => write!(
                 f,
                 "{name}: not your child. You can remove only your own children."
@@ -254,9 +262,9 @@ impl fmt::Display for Refusal {
                 f,
                 "{name}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Use `loom send`."
             ),
-            Refusal::Ambiguous(name) => write!(
+            Refusal::Ambiguous { name, candidates } => write!(
                 f,
-                "{name}: more than one node has this name. Find the ID with `loom status` and send to `#<id>`."
+                "{name}: more than one node has this name: {candidates}. Use `#<id>`."
             ),
             Refusal::NoRepo => write!(
                 f,
@@ -431,6 +439,11 @@ impl Graph {
         let _ = self.events.send(GraphEvent::Message { child, toward });
         self.mail.notify_waiters();
     }
+
+    fn publish_hop(&self, from: NodeId, to: NodeId) {
+        let _ = self.events.send(GraphEvent::Hop { from, to });
+        self.mail.notify_waiters();
+    }
 }
 
 fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Result<NodeView> {
@@ -506,6 +519,38 @@ fn place_of(db: &Connection, id: NodeId) -> rusqlite::Result<Place> {
             })
         },
     )
+}
+
+/// 노드가 도는 자리를 사람이 읽는 글로: `<저장소 폴더>/<워크트리 폴더>`.
+fn place_label(repo_path: &str, worktree: &str) -> String {
+    let base = |path: &str| {
+        path.rsplit(['/', '\\'])
+            .find(|part| !part.is_empty())
+            .unwrap_or(path)
+            .to_owned()
+    };
+    format!("{}/{}", base(repo_path), base(worktree))
+}
+
+/// 이름이 `name`인 노드가 `ids` 여럿이라 거절한다. 다시 보낼 수 있게 후보를 번호와 자리로 적는다.
+fn ambiguous(db: &Connection, name: &str, ids: &[NodeId]) -> rusqlite::Result<Refusal> {
+    let mut found = db.prepare(
+        "SELECT n.name, coalesce(r.path, ''), coalesce(n.worktree, '') FROM nodes n
+         LEFT JOIN repos r ON r.id = n.repo WHERE n.id = ?1",
+    )?;
+    let candidates = ids
+        .iter()
+        .map(|id| {
+            found.query_row([id.0], |row| {
+                let place = place_label(&row.get::<_, String>(1)?, &row.get::<_, String>(2)?);
+                Ok(format!("#{id} {} ({place})", row.get::<_, String>(0)?))
+            })
+        })
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(Refusal::Ambiguous {
+        name: name.to_owned(),
+        candidates: candidates.join(", "),
+    })
 }
 
 fn name_of(db: &Connection, id: NodeId) -> rusqlite::Result<String> {

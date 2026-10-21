@@ -16,6 +16,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
+import { HopEdge } from './HopEdge';
 import { arrangeNested, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type NestGroup, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
@@ -33,6 +34,7 @@ const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
  */
 const REPO_Z = -1;
 const RAISED_EDGE_Z = 1;
+const EDGE_TYPES = { hop: HopEdge };
 /** 끄는 상자의 z. 그 묶음의 카드보다 높아야 한다. */
 const DRAGGING_Z = 2000;
 /** 빈 묶음을 재기 전에 쓰는 크기(머리와 안내 글). 재면 잰 크기다. 빈 묶음은 카드 폭을 차지하지 않는다(목업 docs/mockups/repo-drag.html 안 A). */
@@ -422,6 +424,9 @@ export type Lit = { keys: ReadonlySet<string>; current: string | null };
 /** 강조하는 동안 한 간선으로 오간 메시지 수. 가는 쪽마다 센다. */
 export type Pulse = Readonly<Record<Toward, number>>;
 
+/** 강조하는 동안 부모·자식이 아닌 두 노드 사이로 오간 메시지 수. `counts`는 받은 쪽(`source`·`target`)마다 센다. 근거: 목업 docs/mockups/any-message.html v1 A. */
+export type Hop = Readonly<{ source: NodeId; target: NodeId; counts: Readonly<Record<'source' | 'target', number>> }>;
+
 /**
  * `neighbor`: 그래프 밖(오른쪽 칸의 터미널)에서 옆 카드를 고를 때 쓴다. `arrange`: 끌어 놓은 자리를 지우고 자동 배치로 되돌린다(오른쪽 사이드바의 [정렬]).
  * `hasSizes`·`resetSizes`: 보이는 카드 가운데 크기를 바꾼 카드가 있는지, 그 카드들을 기본 크기로 되돌린다([정렬] 메뉴, 목업 docs/mockups/card-resize.html ④).
@@ -430,7 +435,7 @@ export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId |
 
 /**
  * `cardView`: 그래프 전체의 카드 보기. 심플이면 카드에 터미널이 없고, 터미널은 부르는 쪽(오른쪽 칸)이 연다.
- * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수(가는 쪽마다). `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
+ * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수(가는 쪽마다). `hops`: 간선 없는 두 노드 사이 메시지. 두 카드의 위 변을 잇는 곡선으로 잠깐 그린다. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
  * `selected`: 입력을 받는 카드. 트리도 고르므로 부르는 쪽이 가진다.
  * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드, 또는 찾기의 일치(노드와 묶음). 그 상자와 그 사이 간선을 강조하고 나머지는 흐리게 한다.
  * 바탕을 누르면 `onClearHighlight`를 부른다.
@@ -441,6 +446,7 @@ export function Graph(props: {
   onRepo: (repo: RepoView) => void;
   views: ReadonlyMap<NodeId, NodeView>;
   pulses: ReadonlyMap<NodeId, Pulse>;
+  hops: ReadonlyMap<string, Hop>;
   agents: AgentView[];
   settings: SettingsView;
   accounts: AccountView[] | null;
@@ -863,6 +869,29 @@ export function Graph(props: {
     ];
   });
 
+  // 간선 강조와 같은 모양·시간·층이다. 한쪽 카드가 그래프에 없으면 그리지 않는다.
+  const hopEdges: Edge[] = [...props.hops].flatMap(([key, hop]) => {
+    if (!props.views.has(hop.source) || !props.views.has(hop.target)) return [];
+    const receivers = (['source', 'target'] as const).filter((end) => hop.counts[end] > 0);
+    const flow = receivers.length === 1 ? (receivers[0] === 'target' ? 'to-child' : 'to-parent') : undefined;
+    return [
+      {
+        id: `hop-${key}`,
+        type: 'hop',
+        source: String(hop.source),
+        target: String(hop.target),
+        sourceHandle: 'top',
+        targetHandle: 'top',
+        className: ['live', flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
+        zIndex: RAISED_EDGE_Z,
+        label: receivers.map((end) => t('graph.messageTo', { name: props.views.get(hop[end])?.name ?? `#${hop[end]}`, n: hop.counts[end] })).join(' · '),
+        labelBgPadding: [8, 2],
+        labelBgBorderRadius: 10,
+        focusable: false,
+      },
+    ];
+  });
+
   /** 상자의 지금 자리(형제와 같은 좌표의 상자 왼쪽 위). React Flow 자리는 카드면 묶음 상자 기준, 아니면 그래프 기준이다. */
   const boxAt = (node: FlowNode): XYPosition => {
     if (node.parentId) {
@@ -1135,7 +1164,8 @@ export function Graph(props: {
     <>
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={[...edges, ...hopEdges]}
+        edgeTypes={EDGE_TYPES}
         nodeTypes={nodeTypes}
         onNodesChange={onChange}
         onPaneClick={() => {

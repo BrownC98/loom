@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use super::events::{self, Entry};
 use super::{
     Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
-    first_line, from_json, mailbox, name_of, parent_of, place_of, set_state, state_of, to_json,
+    ambiguous, first_line, from_json, mailbox, name_of, parent_of, place_label, place_of,
+    set_state, state_of, to_json,
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
@@ -279,6 +280,29 @@ impl Graph {
         })
     }
 
+    /// `loom status --all`: 그래프의 모든 노드. 부모·자식이 아닌 노드에 보낼 번호를 찾는다.
+    pub fn directory(&self) -> Result<Vec<Listed>, Refusal> {
+        let db = self.lock();
+        let listed = db
+            .prepare(
+                "SELECT n.id, n.name, n.parent, coalesce(r.path, ''), coalesce(n.worktree, ''),
+                 n.state, n.process_exited
+                 FROM nodes n LEFT JOIN repos r ON r.id = n.repo ORDER BY n.id",
+            )?
+            .query_map([], |row| {
+                Ok(Listed {
+                    id: NodeId(row.get(0)?),
+                    name: row.get(1)?,
+                    parent: row.get::<_, Option<u32>>(2)?.map(NodeId),
+                    place: place_label(&row.get::<_, String>(3)?, &row.get::<_, String>(4)?),
+                    state: from_json(row, 5)?,
+                    alive: !row.get::<_, bool>(6)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(listed)
+    }
+
     /// 토큰을 낸 노드. 지운 노드의 토큰은 없다.
     pub fn caller(&self, token: &str) -> rusqlite::Result<Option<NodeId>> {
         self.lock()
@@ -355,7 +379,7 @@ impl Graph {
     ) -> Result<(NodeId, Vec<String>), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let id = mailbox::recipient(&tx, caller, name)?.0;
+        let id = mailbox::related(&tx, caller, name)?.0;
         if parent_of(&tx, id)? != Some(caller) {
             return Err(Refusal::NotChild(name.to_owned()));
         }
@@ -392,20 +416,20 @@ impl Graph {
 
     /// 그래프 전체에서 이름이 `name`인 노드 하나를 찾는다.
     pub fn find(&self, name: &str) -> Result<NodeId, Refusal> {
-        let ids = self
-            .lock()
-            .prepare("SELECT id FROM nodes WHERE name = ?1 LIMIT 2")?
+        let db = self.lock();
+        let ids = db
+            .prepare("SELECT id FROM nodes WHERE name = ?1 ORDER BY id")?
             .query_map([name], |row| Ok(NodeId(row.get(0)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         match ids[..] {
             [id] => Ok(id),
             [] => Err(Refusal::NotFound(name.to_owned())),
-            _ => Err(Refusal::Ambiguous(name.to_owned())),
+            _ => Err(ambiguous(&db, name, &ids)?),
         }
     }
 
     /// 사람이 노드 이름을 바꾼다. 이름이 그대로면 아무것도 하지 않는다.
-    /// 메시지를 이름으로 찾는 범위(`mailbox::recipient`)에서 겹치지 않게 한다: 부모, 조부모, 형제(부모가 없으면 다른 뿌리), 자식, 손자.
+    /// 메시지를 이름으로 먼저 찾는 범위(부모·자식, `mailbox::related`)에서 겹치지 않게 한다: 부모, 조부모, 형제(부모가 없으면 다른 뿌리), 자식, 손자.
     /// 부모와 자식이 옛 이름으로 보내면 받는 노드를 찾지 못하므로 그들 메일함에 바뀐 이름을 한 줄 넣는다.
     pub fn rename(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
         let name = checked_name(name)?;
@@ -769,6 +793,17 @@ fn height(db: &Connection, id: NodeId) -> rusqlite::Result<u32> {
 pub struct Peer {
     pub id: NodeId,
     pub name: String,
+    pub state: NodeState,
+    pub alive: bool,
+}
+
+/// `loom status --all`의 한 줄. `place`는 `<저장소 폴더>/<워크트리 폴더>`다.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Listed {
+    pub id: NodeId,
+    pub name: String,
+    pub parent: Option<NodeId>,
+    pub place: String,
     pub state: NodeState,
     pub alive: bool,
 }

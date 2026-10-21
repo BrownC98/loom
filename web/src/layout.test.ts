@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
-import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, placeGroups, push, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
+import { arrangeTree, centerSide, crossed, edgeSides, freeSpot, grew, placeGroups, push, TREE_SIDES, type ArrangeDirection, type Box, type GroupSlot } from './layout';
 
 const view = (id: number, parent: number | null): NodeView => ({
   id,
@@ -281,5 +281,25 @@ describe('freeSpot', () => {
   it('moves right past overlapped boxes with the gap', () => {
     expect(freeSpot(box(0, 0), [box(50, 0), box(182, 0)], 32)).toEqual({ x: 314, y: 0 });
     expect(freeSpot(box(0, 100), [box(50, 0)], 32)).toEqual({ x: 0, y: 100 });
+  });
+});
+
+describe('growth without a drag (repro: new card in row 2 of main)', () => {
+  it('grew lists only boxes that were there before and got wider or taller', () => {
+    const size = (width: number, height: number) => ({ width, height });
+    const before = new Map([['main', size(1000, 400)], ['side', size(500, 400)], ['small', size(300, 300)]]);
+    const now = new Map([['main', size(1000, 840)], ['side', size(500, 400)], ['small', size(200, 400)], ['new', size(500, 400)]]);
+    expect(grew(before, now)).toEqual(['main', 'small']);
+  });
+
+  it('a group that grows down pushes the saved group under it the shortest way, with the gap', () => {
+    // main 0..1000 × 0..400 grows to 840 high (a card in row 2). 판정근거-범위 at 480..980 × 440..840.
+    // right 1000 + 32 - 480 = 552, down 840 + 32 - 440 = 432, left 1012, up 872: down.
+    const moved = push([{ key: 'g', ...box(480, 440, 500, 400) }], box(0, 0, 1000, 840), ['g'], 32);
+    expect(moved).toEqual(new Map([['g', { x: 480, y: 872 }]]));
+  });
+
+  it('a new group whose auto spot is on a grown saved group goes to its right', () => {
+    expect(freeSpot(box(480, 440, 500, 400), [box(0, 0, 1000, 840)], 32)).toEqual({ x: 1032, y: 440 });
   });
 });

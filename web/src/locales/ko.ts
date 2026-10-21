@@ -40,6 +40,7 @@ const ko: typeof en = {
     resetSizes: '모든 카드 기본 크기로',
     directions: { down: '아래로', right: '오른쪽으로', up: '위로', left: '왼쪽으로' },
     empty: '‘새 노드’를 눌러 첫 에이전트를 시작합니다.',
+    zoomEdit: '배율(%) — 더블클릭해 입력',
     minimap: '미니맵',
     messageTo: '{{n}} 메시지 → {{name}}',
   },

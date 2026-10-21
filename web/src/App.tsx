@@ -87,6 +87,7 @@ const EMPTY_SETTINGS: SettingsView = {
   treeLimits: { maxDepth: 2, maxChildren: null },
   autoSwitch: false,
   osNotify: false,
+  alwaysOn: { oMode: true, userDoc: true, ste100: true, raptor3: true },
 };
 const SETTINGS_HASH = '#settings/';
 

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { closeLogin, getLogin, loginPty, logoutSystem, removeAccount, startLogin } from './api';
 import { canBypass } from './catalog';
+import type { AlwaysOn } from './gen/AlwaysOn';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -125,8 +126,42 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
           </div>
         </details>
       </section>
+      <SkillsSection settings={settings} onSettings={props.onSettings} />
       <TreeLimitsSection settings={settings} onSettings={props.onSettings} />
     </>
+  );
+}
+
+/** 「내장 스킬」 줄 순서(목업 skill-options.html ①). */
+const SKILLS = ['oMode', 'userDoc', 'ste100', 'raptor3'] as const satisfies readonly (keyof AlwaysOn)[];
+
+/** 「내장 스킬」 구역(목업 skill-options.html ①). 끈 스킬은 새로 띄우는 노드에 주지 않는다. */
+function SkillsSection({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
+  const { t } = useTranslation();
+  return (
+    <section>
+      <h4>{t('settings.skills')}</h4>
+      <div className="rows">
+        {SKILLS.map((key) => {
+          const on = settings.alwaysOn[key];
+          const name = t(`settings.skill.${key}.name`);
+          return (
+            <div className="row" key={key}>
+              <span className="row-main">
+                <span className="name">{name}</span>
+                <span className="desc">{t(`settings.skill.${key}.desc`)}</span>
+                {key === 'oMode' && <span className="desc">{t('settings.oModeOff')}</span>}
+              </span>
+              <label className="switch">
+                <input type="checkbox" checked={on} aria-label={t('settings.skillLabel', { skill: name })} onChange={(e) => onSettings({ ...settings, alwaysOn: { ...settings.alwaysOn, [key]: e.target.checked } })} />
+                {t(on ? 'settings.skillOn' : 'settings.skillOff')}
+              </label>
+            </div>
+          );
+        })}
+      </div>
+      <span className="hint">{t('settings.skillsHint')}</span>
+    </section>
   );
 }
 

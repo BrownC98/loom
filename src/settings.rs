@@ -11,6 +11,7 @@ use ts_rs::TS;
 use crate::accounts::AccountId;
 use crate::graph::TreeLimits;
 use crate::profile::{AgentId, Provider};
+use crate::skills::AlwaysOn;
 
 #[derive(Clone, Default, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -52,6 +53,9 @@ pub struct SettingsView {
     /// 받은편지함이 늘 보이므로 기본은 꺼짐이다. 근거: 목업 docs/mockups/human-question.html ⑥.
     #[serde(default)]
     pub os_notify: bool,
+    /// 새 노드에 주는 내장 스킬. 옛 설정에는 없다. 없으면 모두 켜짐이다. 근거: docs/design.md 「내장 스킬」.
+    #[serde(default)]
+    pub always_on: AlwaysOn,
 }
 
 /// 화면 언어. `System`은 브라우저 언어(`navigator.language`)를 따른다. Orca의 `uiLanguage`와 같은 자리다.
@@ -218,5 +222,6 @@ mod tests {
         assert_eq!(got.card_view, CardView::Standard);
         assert_eq!(got.graph_scope, GraphScope::Repo);
         assert_eq!(got.language, Language::System);
+        assert_eq!(got.always_on, AlwaysOn::default());
     }
 }

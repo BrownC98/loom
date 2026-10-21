@@ -249,8 +249,12 @@ pub fn cursor_hook() -> Result<(), String> {
 
 /// Cursor의 둘째 sessionStart 훅: 상시 지시를 넘긴다. 첫 훅과 나누는 이유는 `cursor::CONTEXT_LIMIT_CHARS`다.
 pub fn cursor_rules() -> Result<(), String> {
-    let position = cursor::position_from(std::env::var(cursor::POSITION_ENV).ok().as_deref());
-    println!("{}", cursor::rules(position));
+    let env = |key| std::env::var(key).ok();
+    let launch = crate::skills::Launch {
+        position: cursor::position_from(env(cursor::POSITION_ENV).as_deref()),
+        skills: cursor::skills_from(env(cursor::SKILLS_ENV).as_deref()),
+    };
+    println!("{}", cursor::rules(launch));
     Ok(())
 }
 

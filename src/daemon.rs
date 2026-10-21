@@ -52,7 +52,7 @@ use crate::profile::{
 };
 use crate::screen;
 use crate::settings::Settings;
-use crate::skills::{self, Position};
+use crate::skills::{self, Launch, Position};
 use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
@@ -434,8 +434,11 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         idle: idle::IdleWaits::default(),
         switch: switch::Switches::default(),
         plugin: {
-            let plugin = skills::Plugin::install(db_path.with_file_name("plugin"))?;
-            profile::cursor::write_plugin(plugin.dir())?;
+            let plugin =
+                skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
+            for dir in plugin.dirs() {
+                profile::cursor::write_plugin(&dir)?;
+            }
             plugin
         },
         version_warnings: profile::version_warnings(codex_version.as_deref()),
@@ -1044,6 +1047,10 @@ impl App {
         let profile = start.profile();
         let provider = profile.and_then(Profile::provider);
         let settings = self.settings.get().map_err(internal)?;
+        let launch = Launch {
+            position,
+            skills: settings.always_on,
+        };
         let account = provider.and_then(|p| settings.account(p));
         let token = new_token().map_err(internal)?;
         let env = self.node_env(&token);
@@ -1054,7 +1061,7 @@ impl App {
                     .codex_config
                     .iter()
                     .cloned()
-                    .chain(codex::server_args(position))
+                    .chain(codex::server_args(launch))
                     .collect();
                 let server = CodexServer::start(cwd, home.as_deref(), &env, &config)
                     .await
@@ -1064,7 +1071,7 @@ impl App {
                     })?;
                 // 실패해도 노드는 띄운다. 다른 Codex 버전에는 이 요청이 없을 수 있다. 그때 노드는 내장 스킬만 없다.
                 let call = |method, params| server.call(method, params);
-                if let Err(e) = codex::add_skills(call, &self.plugin.skills()).await {
+                if let Err(e) = codex::add_skills(call, &self.plugin.skills(launch.skills)).await {
                     eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
                 }
                 Some(Arc::new(server))
@@ -1074,13 +1081,18 @@ impl App {
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
-                let node =
-                    opencode2::Node::start(cwd, &env, &self.plugin.skills(), password, position)
-                        .await
-                        .map_err(|cause| LaunchError::Server {
-                            program: format!("{} serve", opencode2::CMD),
-                            cause,
-                        })?;
+                let node = opencode2::Node::start(
+                    cwd,
+                    &env,
+                    &self.plugin.skills(launch.skills),
+                    password,
+                    launch,
+                )
+                .await
+                .map_err(|cause| LaunchError::Server {
+                    program: format!("{} serve", opencode2::CMD),
+                    cause,
+                })?;
                 Some(Arc::new(node))
             }
             _ => None,
@@ -1096,8 +1108,8 @@ impl App {
             cwd,
             remote,
             &settings.bypass_off,
-            self.plugin.dir(),
-            position,
+            &self.plugin.dir(launch.skills),
+            launch,
         )
         .inspect_err(|_| discard())?;
         for (key, value) in &env {

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M23 loom 상시 스킬 옵션 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.pane { width: 700px; padding: 18px 22px; background: var(--panel); border-radius: 12px; display: grid; gap: 18px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.pane code { font-family: var(--mono); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.rows { border: 1px solid var(--line); border-radius: var(--radius); }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.acct-row:last-child { border-bottom: 0; }
+.acct-row[aria-current="true"] { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+.row-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.row-main .name { font-weight: 600; }
+.row-main .meta { flex-basis: 100%; font: 12px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-actions { display: flex; gap: 4px; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
+.badge.warn { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }
+.win { display: grid; grid-template-columns: 64px minmax(0, 1fr) 44px auto; gap: 6px 8px; }
+.win > :not(.win-line) { grid-column: 1 / -1; }
+.win-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; font-size: 12px; color: var(--ink-2); }
+.meter { display: block; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.pct { font-family: var(--mono); text-align: right; }
+.left { white-space: nowrap; font-family: var(--mono); color: var(--ink-3); }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+
+.confirm { width: 420px; padding: 16px; background: var(--surface); border-radius: 10px; border: 1px solid var(--line); display: grid; gap: 12px; font-size: 13px; }
+.confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.login { width: 700px; padding: 14px; background: var(--surface); border-radius: 10px; display: grid; gap: 10px; }
+.login h3 { display: flex; align-items: center; font-size: 14px; }
+.login h3 .spacer { flex: 1; }
+.term { background: oklch(16% 0 0); color: oklch(90% 0 0); font: 12px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; white-space: pre; height: 150px; }
+.term .dim { color: oklch(65% 0 0); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row-main .meta.desc { font-family: var(--font); white-space: normal; }
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; min-width: 64px; }
+.switch input { appearance: none; width: 30px; height: 18px; border-radius: 9px; background: var(--line-strong); position: relative; cursor: pointer; margin: 0; }
+.switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform 0.15s; }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { transform: translateX(12px); background: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0)); }
+.dlg { width: 880px; display: grid; grid-template-columns: 180px 1fr; background: var(--panel); border-radius: 12px; border: 1px solid var(--line); overflow: hidden; }
+.dlg nav { border-right: 1px solid var(--line); padding: 16px 8px; display: grid; align-content: start; gap: 2px; }
+.dlg nav h2 { font-size: 15px; padding: 0 8px 10px; }
+.tab { text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 10px; color: var(--ink-2); }
+.tab[aria-current="page"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.dlg .pane { width: auto; border-radius: 0; }
+.dlg .pane h3 { font-size: 15px; }
+.faded { opacity: 0.45; }
+.field { display: grid; gap: 5px; }
+.field label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.field input { width: 120px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
+.limit-fields { display: flex; gap: 16px; }
+table { border-collapse: collapse; font-size: 13px; max-width: 900px; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--surface-hover); }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M23</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 스킬옵션</b></span><span>v3 · 2026-10-21</span></div>
+  <h1>설정: 내장 스킬 네 개를 켜고 끄기</h1>
+  <p class="lead">사람 지시: 설정 창에 기본 켜짐 옵션을 둔다(STE-100, 랩터-3). 고친 지시 "o-mode·user-doc 도 옵션에 추가해". 바꾼 뒤 새로 띄우는 노드부터 적용한다. 점선이 바뀌는 곳이다. 흐린 구역은 지금 그대로다.</p>
+
+  <div class="fig">
+    <h2>① 「에이전트」 탭에 구역 하나 <span class="tag">설치 안 됨 아래, 하위 노드 상한 위</span></h2>
+    <div class="dlg"><nav><h2>설정</h2><button class="tab" aria-current="page">에이전트</button><button class="tab">계정</button><button class="tab">워크스페이스</button><button class="tab">UI</button><button class="tab">터미널</button></nav><div class="pane">
+      <h3>에이전트</h3>
+      <section class="faded"><h4>설치됨 9개</h4><div class="rows"><div class="row"><span class="row-main"><span class="name">Claude</span><span class="meta">/home/ktadev/.local/bin/claude · 메시지 연동</span></span><label class="switch"><input type="checkbox" checked>모든 권한 허용</label></div><div class="row"><span class="row-main"><span class="name">… 8개</span></span><span></span></div></div><span class="hint">켜면 승인 요청 없이 모든 명령을 실행합니다. …</span></section>
+      <section class="faded"><span class="hint">▸ 설치 안 됨 35개</span></section>
+      <section class="new">
+        <h4>내장 스킬</h4>
+        <div class="rows">
+          <div class="row">
+            <span class="row-main"><span class="name">loom 절차(o-mode)</span><span class="meta desc">총괄·코디·워커의 배정, 통신, 검수, 병합과 회수 절차입니다.</span><span class="meta desc">끄면 노드는 loom 명령만 알고 역할·병합·회수 절차를 모릅니다.</span></span>
+            <label class="switch"><input type="checkbox" checked aria-label="loom 절차(o-mode) 주기">켜짐</label>
+          </div><div class="row">
+            <span class="row-main"><span class="name">사용자 문서(user-doc)</span><span class="meta desc">목업과 보고서를 HTML 한 파일로 만들고 브라우저에 띄웁니다.</span></span>
+            <label class="switch"><input type="checkbox" checked aria-label="사용자 문서(user-doc) 주기">켜짐</label>
+          </div><div class="row">
+            <span class="row-main"><span class="name">글쓰기 규칙(STE-100)</span><span class="meta desc">사람에게 보이는 글은 사람의 언어로, 에이전트끼리는 영어로 짧고 쉽게 씁니다.</span></span>
+            <label class="switch"><input type="checkbox" checked aria-label="글쓰기 규칙(STE-100) 주기">켜짐</label>
+          </div><div class="row">
+            <span class="row-main"><span class="name">부품 최소화(랩터-3)</span><span class="meta desc">코드를 쓰기 전과 커밋하기 전에 요구가 없는 부품을 지웁니다.</span></span>
+            <label class="switch"><input type="checkbox" checked aria-label="부품 최소화(랩터-3) 주기">켜짐</label>
+          </div>
+        </div>
+        <span class="hint">새로 띄우는 노드부터 적용합니다. 이미 뜬 노드는 그대로입니다. 끈 스킬은 새 노드에 주지 않습니다. 시작 지시에 넣지 않고 <code>loom:&lt;이름&gt;</code>으로 부를 수도 없습니다.</span>
+      </section>
+      <section class="faded">
+        <h4>하위 노드 상한</h4>
+        <div class="limit-fields"><div class="field"><label>중첩 깊이</label><input value="2"></div><div class="field"><label>부모 하나의 자식 수</label><input placeholder="상한 없음"></div></div>
+        <span class="hint">직접 만든 노드가 깊이 0입니다. …</span>
+      </section>
+    </div></div>
+    <ul class="note">
+      <li>네 옵션은 「하위 노드 상한」처럼 새 노드에 적용합니다. 그래서 같은 탭에 둡니다. 탭 수가 그대로입니다.</li>
+      <li>스위치는 「모든 권한 허용」과 같은 모양입니다. 켜면 「켜짐」, 끄면 「꺼짐」을 보입니다.</li>
+      <li>끄면 그 스킬을 새 노드에 주지 않습니다. 시작 지시에서 글을 빼고, 노드가 읽는 스킬 폴더에서도 뺍니다. loom 명령 사용법은 스킬이 아니라서 늘 들어갑니다.</li><li>사용자 문서는 시작 지시에 글이 없습니다. 끄면 노드가 이 스킬을 부를 수 없게 됩니다.</li>
+      <li>글쓰기 규칙은 이제 한국어를 고정하지 않습니다. 사람에게 보이는 글은 사람이 노드에 쓰는 언어로 씁니다. 이 컴퓨터의 사람에게는 그대로 한국어입니다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인함</h2>
+    <ul class="note"><li>2026-10-21 사람 승인("권장안대로"): ① 자리, 네 이름, 끈 스킬은 새 노드에 주지 않음(시작 지시와 스킬 폴더 모두).</li></ul>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

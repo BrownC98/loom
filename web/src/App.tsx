@@ -520,6 +520,7 @@ export function App() {
           ) : (
             <DockRail
               tabs={tabs}
+              waiting={waiting.length}
               onArrange={() => arrange(direction)}
               onExpand={(next) => {
                 if (next) setTab(next);

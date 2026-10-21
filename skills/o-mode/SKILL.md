@@ -1,6 +1,6 @@
 ---
-name: loom-mode
-description: Loom 노드에서 저장소 작업을 병렬로 개발하는 독립 절차. 총괄·코디·워커의 배정, 통신, 검수, 병합과 회수를 Loom과 Git으로 한다. LOOM_TOKEN과 LOOM_URL이 있는 세션에서 쓴다.
+name: o-mode
+description: o-mode(orchestration mode)의 Loom 판. Loom 노드에서 저장소 작업을 병렬로 개발하는 독립 절차. 총괄·코디·워커의 배정, 통신, 검수, 병합과 회수를 Loom과 Git으로 한다. LOOM_TOKEN과 LOOM_URL이 있는 세션에서 쓴다.
 ---
 
 # Loom 병렬 개발

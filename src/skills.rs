@@ -96,13 +96,16 @@ mod tests {
             serde_json::from_slice(&std::fs::read(dir.join(".claude-plugin/plugin.json")).unwrap())
                 .unwrap();
         assert_eq!(manifest["name"], "loom");
-        for skill in ["loom-mode", "ste-100", "user-doc", "raptor-3"] {
+        for skill in ["o-mode", "ste-100", "user-doc", "raptor-3"] {
             assert!(
                 plugin.skills().join(skill).join("SKILL.md").is_file(),
                 "{skill}"
             );
         }
-        assert!(plugin.skills().join("loom-mode/agent-rules.md").is_file());
+        assert!(plugin.skills().join("o-mode/agent-rules.md").is_file());
+        // 사람은 Orca와 loom 모두 `o-mode`로 부른다. loom 노드에서는 이 스킬이 그 이름을 받는다.
+        let loom_mode = std::fs::read_to_string(plugin.skills().join("o-mode/SKILL.md")).unwrap();
+        assert!(loom_mode.contains("\nname: o-mode\n"));
         assert!(plugin.skills().join("user-doc/scripts/show.sh").is_file());
     }
 

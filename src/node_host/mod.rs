@@ -50,7 +50,8 @@ pub struct NodeHost<K> {
 
 struct Pty {
     /// PTY에서 띄운 프로세스. 중단할 셸이 이 프로세스의 자손인지 볼 때 쓴다.
-    pid: Option<u32>,
+    /// 설정 스크립트가 끝나 명령이 뜨면 호스트가 새 값을 보낸다.
+    pid: Mutex<Option<u32>>,
     /// 중단이 오면 끝낼 셸(`loom guard`가 알린 Bash 도구 셸).
     guarded: Mutex<Vec<u32>>,
     /// 호스트로 가는 연결. 키 입력, 크기, 끝내기를 보낸다.
@@ -77,15 +78,17 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     }
 
     /// 명령을 새 PTY 호스트에서 띄우고 붙는다. 프로그램이 터미널 제목(OSC 0·2)을 바꾸면 `on_title`에 그 글을 넘긴다.
-    /// 프로세스가 끝나면 `on_exit`에 종료 코드를 넘긴다.
+    /// `setup`이 있으면 호스트가 그것을 같은 PTY에서 먼저 돌리고, 성공할 때만 명령을 띄운다.
+    /// 프로세스가 끝나면 `on_exit`에 종료 코드를 넘긴다. 설정이 실패하면 그 종료 코드다.
     pub fn spawn(
         &self,
         id: K,
         cmd: CommandBuilder,
+        setup: Option<CommandBuilder>,
         on_title: impl FnMut(String) + Send + 'static,
         on_exit: impl FnOnce(u32) + Send + 'static,
     ) -> Result<(), String> {
-        let address = start_host(&cmd)?;
+        let address = start_host(&cmd, setup.as_ref())?;
         std::fs::create_dir_all(&self.dir)
             .and_then(|()| std::fs::write(self.file(id), &address))
             .map_err(|e| e.to_string())?;
@@ -110,7 +113,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         };
         let host = reader.try_clone().map_err(|e| e.to_string())?;
         let pty = Arc::new(Pty {
-            pid,
+            pid: Mutex::new(pid),
             guarded: Mutex::default(),
             host: Mutex::new(host),
             output: Mutex::new(Output {
@@ -130,6 +133,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                         }
                     }
                     Ok(Frame::Exit(code)) => break code,
+                    Ok(Frame::Pid(pid)) => *pty.pid.lock().unwrap() = Some(pid),
                     Ok(_) => {}
                     Err(_) => break LOST_CODE,
                 }
@@ -208,10 +212,8 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     /// 노드 프로세스의 자손이 아니면 두지 않는다. 이미 끝난 셸은 이때 목록에서 지운다.
     pub fn guard(&self, id: K, caller: u32) {
         let Some(pty) = self.pty(id) else { return };
-        let Some(shell) = pty
-            .pid
-            .and_then(|root| Snapshot::now().child_on_path(root, caller))
-        else {
+        let root = *pty.pid.lock().unwrap();
+        let Some(shell) = root.and_then(|root| Snapshot::now().child_on_path(root, caller)) else {
             return;
         };
         let mut shells = pty.guarded.lock().unwrap();
@@ -226,7 +228,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     pub fn stop_guarded(&self, id: K) -> usize {
         let Some(pty) = self.pty(id) else { return 0 };
         let shells = std::mem::take(&mut *pty.guarded.lock().unwrap());
-        let Some(root) = pty.pid.filter(|_| !shells.is_empty()) else {
+        let Some(root) = pty.pid.lock().unwrap().filter(|_| !shells.is_empty()) else {
             return 0;
         };
         let snapshot = Snapshot::now();
@@ -247,7 +249,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 }
 
 /// `loom pty-host`를 데몬과 따로 사는 프로세스로 띄우고, 듣는 주소를 받는다.
-fn start_host(cmd: &CommandBuilder) -> Result<String, String> {
+fn start_host(cmd: &CommandBuilder, setup: Option<&CommandBuilder>) -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut host = std::process::Command::new(exe);
     host.arg("pty-host")
@@ -256,7 +258,7 @@ fn start_host(cmd: &CommandBuilder) -> Result<String, String> {
         .stderr(Stdio::null());
     process_tree::detach(&mut host);
     let mut child = host.spawn().map_err(|e| format!("pty-host: {e}"))?;
-    let spec = serde_json::to_vec(&host::Spec::of(cmd)).map_err(|e| e.to_string())?;
+    let spec = serde_json::to_vec(&host::Spec::of(cmd, setup)).map_err(|e| e.to_string())?;
     let sent = child
         .stdin
         .take()
@@ -402,7 +404,7 @@ mod tests {
     /// 호스트를 이 테스트 프로세스 안에 띄우고 주소 파일을 쓴다. `loom pty-host`와 같은 코드다.
     #[cfg(unix)]
     fn in_process(dir: &std::path::Path, id: u32, cmd: CommandBuilder) {
-        let started = host::start(cmd).unwrap();
+        let started = host::start(cmd, None).unwrap();
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(dir.join(id.to_string()), started.address.to_string()).unwrap();
         std::thread::spawn(move || started.wait());
@@ -458,7 +460,7 @@ mod tests {
         let first = NodeHost::new(dir.path().to_path_buf());
         first.resume(1, |_| {}, |_| {}).unwrap();
         read_until(&mut first.attach(1).unwrap(), "before");
-        let first_pid = first.pty(1).unwrap().pid;
+        let first_pid = *first.pty(1).unwrap().pid.lock().unwrap();
 
         // 다시 시작한 데몬. 앞 데몬의 연결은 호스트가 닫는다.
         let second = NodeHost::new(dir.path().to_path_buf());
@@ -466,13 +468,64 @@ mod tests {
         second
             .resume(1, |_| {}, move |code| tx.send(code).unwrap())
             .unwrap();
-        assert_eq!(second.pty(1).unwrap().pid, first_pid);
+        assert_eq!(*second.pty(1).unwrap().pid.lock().unwrap(), first_pid);
         // backlog는 붙은 직후에 오므로 `attach`의 backlog나 그 뒤 출력 가운데 하나로 온다.
         let mut attached = second.attach(1).unwrap();
         second.write(1, b"x\n");
         assert!(read_until(&mut attached, "got x").contains("before"));
         assert_eq!(rx.recv().unwrap(), 3);
         assert!(!dir.path().join("1").exists());
+    }
+
+    /// 설정 스크립트가 성공하면 같은 PTY에서 명령이 뜨고, 데몬은 명령의 PID를 받는다.
+    /// 실패하면 명령을 띄우지 않고 설정의 종료 코드로 끝난다.
+    #[cfg(unix)]
+    #[test]
+    fn setup_runs_first_and_gates_the_command() {
+        let sh = |script: &str| {
+            let mut cmd = CommandBuilder::new("sh");
+            cmd.args(["-c", script]);
+            cmd
+        };
+        for (setup, code, has_agent) in [
+            ("echo setup-ok", 4, true),
+            ("echo setup-bad; exit 3", 3, false),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let started = host::start(sh("echo agent $$; exit 4"), Some(sh(setup))).unwrap();
+            std::fs::write(dir.path().join("1"), started.address.to_string()).unwrap();
+            std::thread::spawn(move || started.wait());
+            let nodes = NodeHost::new(dir.path().to_path_buf());
+            let (tx, rx) = std::sync::mpsc::channel();
+            nodes
+                .resume(1, |_| {}, move |code| tx.send(code).unwrap())
+                .unwrap();
+            let mut attached = nodes.attach(1).unwrap();
+            assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), code);
+            let mut seen = String::from_utf8_lossy(&attached.backlog).into_owned();
+            while let Ok(chunk) = attached.output.try_recv() {
+                seen.push_str(&String::from_utf8_lossy(&chunk));
+            }
+            assert!(seen.contains("setup-"), "{seen}");
+            assert_eq!(seen.contains("agent "), has_agent, "{seen}");
+            assert_eq!(
+                seen.contains("설정 스크립트가 실패했다(종료 코드 3)"),
+                !has_agent,
+                "{seen}"
+            );
+            if has_agent {
+                let agent: u32 = seen
+                    .split("agent ")
+                    .nth(1)
+                    .unwrap()
+                    .split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                assert_eq!(*nodes.pty(1).unwrap().pid.lock().unwrap(), Some(agent));
+            }
+        }
     }
 
     #[cfg(unix)]
@@ -508,9 +561,10 @@ mod tests {
         cmd.cwd("/tmp");
         cmd.env("LOOM_TOKEN", "t1");
         cmd.env_remove("HOME");
-        let json = serde_json::to_string(&host::Spec::of(&cmd)).unwrap();
+        let json = serde_json::to_string(&host::Spec::of(&cmd, None)).unwrap();
         let back: host::Spec = serde_json::from_str(&json).unwrap();
-        let back = back.command();
+        let (back, setup) = back.commands();
+        assert!(setup.is_none());
         assert_eq!(back.get_argv(), cmd.get_argv());
         assert_eq!(back.get_cwd().unwrap(), "/tmp");
         assert_eq!(back.get_env("LOOM_TOKEN").unwrap(), "t1");

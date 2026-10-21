@@ -586,15 +586,16 @@ fn wsl_location(cwd: &str) -> Option<WslPath> {
     })
 }
 
+/// 명령 한 줄을 도는 셸. 명령 노드와 설정 스크립트가 쓴다.
 #[cfg(unix)]
-fn shell(line: &str) -> CommandBuilder {
+pub fn shell(line: &str) -> CommandBuilder {
     let mut cmd = CommandBuilder::new("sh");
     cmd.args(["-c", line]);
     cmd
 }
 
 #[cfg(windows)]
-fn shell(line: &str) -> CommandBuilder {
+pub fn shell(line: &str) -> CommandBuilder {
     let mut cmd = CommandBuilder::new("cmd");
     cmd.args(["/C", line]);
     cmd

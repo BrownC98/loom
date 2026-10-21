@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M21 질문함 위치 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 화면 그림의 토큰·줄 모양은 web/src/styles.css와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.shot { width: 1000px; border: 1px solid var(--line); border-radius: var(--radius); }
+.pair { display: flex; gap: 24px; align-items: flex-start; }
+
+/* 화면 그림: 앱 틀(사이드바 260 · 그래프 · 상태 줄) */
+.app { position: relative; width: 1000px; height: 440px; display: grid; grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 22px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--bg); }
+.app.railed { grid-template-columns: 40px minmax(0, 1fr); }
+.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; font-size: 13px; }
+.find { margin: 12px 12px 4px; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink-3); }
+.side-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 6px 16px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.side-head .spacer { flex: 1; }
+.empty { padding: 0 16px 6px; font-size: 12px; color: var(--ink-3); }
+.rows { list-style: none; padding: 0 8px; margin: 0; }
+.row { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 4px; border-radius: 6px; }
+.row .name { font-weight: 600; white-space: nowrap; }
+.row .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
+.dot.running { background: var(--run); }
+.side-foot { margin-top: auto; padding: 8px 16px; border-top: 1px solid var(--line); color: var(--ink-2); }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* 질문 줄: 받은편지함 팝오버의 줄과 같은 모양(점, 이름 · 종류, 한 줄 질문, ×) */
+.q { list-style: none; margin: 0; padding: 0 6px; display: grid; }
+.q li { display: flex; align-items: flex-start; border-radius: 6px; }
+.q li:hover { background: var(--surface-hover); }
+.q .go { flex: 1; min-width: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 5px 8px; border: 0; background: none; text-align: left; cursor: pointer; }
+.q .go .dot { align-self: center; box-shadow: none; }
+.q .who2 { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q .who2 b { color: var(--ink); font-size: 13px; }
+.q .line { grid-column: 2; color: var(--ink-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q .x { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 4px 4px 0 0; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); }
+.count { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--warn); color: var(--surface); font-size: 11px; font-weight: 600; line-height: 16px; text-align: center; }
+/* ① 사이드바 질문 칸: 바탕을 주황으로 옅게 칠해 북마크·트리와 구별한다 */
+.asks { margin: 4px 8px 4px; padding-bottom: 4px; border-radius: var(--radius); background: color-mix(in oklch, var(--warn) 9%, var(--panel)); border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); }
+.asks .side-head { padding-left: 8px; color: var(--ink); }
+.asks .q { padding: 0 2px; }
+.asks .q li:hover { background: color-mix(in oklch, var(--warn) 14%, var(--panel)); }
+
+.rail { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; background: var(--panel); border-right: 1px solid var(--line); }
+.rail .ib { position: relative; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; color: var(--ink-2); }
+.rail .ib.ask { color: var(--warn); background: color-mix(in oklch, var(--warn) 12%, transparent); }
+.rail .ib .count { position: absolute; top: -3px; right: -5px; min-width: 15px; height: 15px; padding: 0 4px; line-height: 15px; font-size: 10px; }
+.rail hr { width: 18px; margin: 4px 0; border: 0; border-top: 1px solid var(--line-strong); }
+.rail .end { margin-top: auto; }
+
+/* 그래프 칸 */
+.graph { position: relative; min-width: 0; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 16px 16px; padding: 18px 16px; }
+.scope { font-size: 18px; font-weight: 600; }
+.repo { margin-top: 16px; border: 1px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--panel) 70%, transparent); padding: 10px 12px 12px; }
+.repo-head { font-size: 13px; color: var(--ink-3); }
+.repo-head b { color: var(--ink); }
+.cards { display: flex; gap: 14px; margin-top: 10px; }
+.card { width: 230px; height: 96px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); padding: 8px 10px; font-size: 13px; }
+.card.wait { border: 2px solid var(--warn); }
+.card .h { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.card .h .spacer { flex: 1; }
+.card .st { font-size: 12px; font-weight: 400; color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
+.card .t { margin-top: 8px; font: 11px/1.5 var(--mono); color: var(--ink-3); }
+
+.status { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 10px; font-size: 12px; color: var(--ink-2); background: var(--panel); border-top: 1px solid var(--line); }
+.status .spacer { flex: 1; }
+.status .gone { text-decoration: line-through; color: var(--ink-3); display: inline-flex; align-items: center; gap: 4px; }
+.status .ver { font-family: var(--mono); color: var(--ink-3); }
+
+/* ② 그래프 위 가운데 알약 */
+.pill-home { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2; display: grid; justify-items: center; gap: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 8px; height: 32px; max-width: 440px; padding: 0 12px 0 10px; border-radius: 16px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); cursor: pointer; font-size: 13px; }
+.pill b { white-space: nowrap; }
+.pill .pv { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pill .chev { color: var(--ink-3); }
+.pill-pop { width: 380px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); padding: 10px 0 6px; display: grid; gap: 6px; }
+.pill-pop h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 0 14px; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M21</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 질문함위치</b></span><span>v1 · 2026-10-21</span></div>
+  <h1>질문함 자리 옮기기</h1>
+  <p class="lead">사람 지시: 「오른쪽 아래 질문함이 좀 더 눈에 잘 띄는 곳에 있었으면 좋겠는데 어디가 좋을까」, 「아예 화면 상단 중앙에 플로팅 버튼으로 띄우는건 어떻게 생각함」. 두 안 모두 상태 줄의 [질문] 단추를 지우고 한 곳에만 둔다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>지금 <span class="tag">시험 데몬 캡처, 목록을 연 상태</span></h2>
+    <img class="shot" src="question-inbox-place-now.png" alt="지금 화면: 상태 줄 오른쪽 끝의 질문 단추와 그 위에 열린 목록">
+    <ul class="note">
+      <li>상태 줄 오른쪽 끝의 작은 [질문 2]만 있다. 눈이 가지 않는 자리이고, 눌러야 질문이 보인다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>① 왼쪽 사이드바 맨 위 <span class="tag">찾기 칸 아래, 북마크 위</span></h2>
+    <div class="pair">
+      <div class="app">
+        <aside class="side">
+          <div class="find"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>노드·워크트리 찾기</div>
+          <section class="asks new" aria-label="질문">
+            <div class="side-head"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>질문<span class="count">2</span></div>
+            <ul class="q">
+              <li><button class="go"><span class="dot waiting"></span><span class="who2"><b>shell-1</b> · 질문</span><span class="line">질문함을 왼쪽 사이드바 위로 옮길까요? (A: 사이드바 / B: 상단 중앙…</span></button><button class="x" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></li>
+              <li><button class="go"><span class="dot waiting"></span><span class="who2"><b>shell-2</b> · 질문</span><span class="line">main에 병합하고 원격에 올릴까요?</span></button><button class="x" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></li>
+            </ul>
+          </section>
+          <div class="side-head"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>북마크</div>
+          <p class="empty">노드의 북마크 버튼으로 더합니다.</p>
+          <div class="side-head">저장소<span class="spacer"></span></div>
+          <ul class="rows">
+            <li class="row"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="name">repo</span><span class="sub">/tmp/qbox/repo</span></li>
+            <li class="row" style="padding-left:16px"><span class="name">main</span><span class="sub">원래 체크아웃</span></li>
+            <li class="row" style="padding-left:30px"><span class="dot waiting"></span><span class="name">shell-1</span><span class="sub">터미널</span></li>
+            <li class="row" style="padding-left:30px"><span class="dot waiting"></span><span class="name">shell-2</span><span class="sub">터미널</span></li>
+            <li class="row" style="padding-left:30px"><span class="dot running"></span><span class="name">shell-3</span><span class="sub">터미널</span></li>
+          </ul>
+          <div class="side-foot">설정</div>
+        </aside>
+        <div class="graph">
+          <div class="scope">repo</div>
+          <div class="repo"><div class="repo-head"><b>main</b> 원래 체크아웃</div>
+            <div class="cards">
+              <div class="card wait"><div class="h">shell-1<span class="spacer"></span><span class="st"><span class="dot waiting"></span>응답 대기</span></div><div class="t">The question is in the human's inbox.</div></div>
+              <div class="card wait"><div class="h">shell-2<span class="spacer"></span><span class="st"><span class="dot waiting"></span>응답 대기</span></div><div class="t">The question is in the human's inbox.</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="status"><span>로그인하면 사용량을 볼 수 있습니다</span><span class="spacer"></span><span class="gone new">질문 2</span><span class="ver">v0.1.574</span></div>
+      </div>
+      <div class="app railed" style="width:220px">
+        <nav class="rail">
+          <span class="ib"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></span>
+          <span class="ib"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+          <span class="ib ask new" title="질문 2개. 사이드바 펴기"><svg class="i" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg><span class="count">2</span></span>
+          <span class="ib end"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+        </nav>
+        <div class="graph"><div class="scope">repo</div></div>
+        <div class="status"></div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>질문이 있으면 찾기 칸 바로 아래에 「질문 N」 칸이 생긴다. 질문이 없으면 칸이 없다. 누르지 않아도 질문이 보인다.</li>
+      <li>줄을 누르면 그 노드로 간다. [×]는 알림을 지운다. 줄 모양은 지금 목록과 같다.</li>
+      <li>사이드바를 접으면(오른쪽 그림) 레일에 개수 배지 아이콘이 생긴다. 누르면 사이드바가 펴진다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 그래프 위 가운데 떠 있는 알약 <span class="tag">사람 제안</span></h2>
+    <div class="pair">
+      <div class="app" style="width:640px; grid-template-columns: minmax(0,1fr)">
+        <div class="graph">
+          <div class="pill-home new">
+            <button class="pill" aria-expanded="false"><span class="dot waiting"></span><b>질문 2</b><span class="pv">shell-1: 질문함을 왼쪽 사이드바 위로 옮길까요?</span><svg class="i chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="scope">repo</div>
+          <div class="repo"><div class="repo-head"><b>main</b> 원래 체크아웃</div>
+            <div class="cards">
+              <div class="card wait"><div class="h">shell-1<span class="spacer"></span><span class="st"><span class="dot waiting"></span>응답 대기</span></div><div class="t">The question is in the human's inbox.</div></div>
+              <div class="card wait"><div class="h">shell-2<span class="spacer"></span><span class="st"><span class="dot waiting"></span>응답 대기</span></div><div class="t">The question is in the human's inbox.</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="status"><span>로그인하면 사용량을 볼 수 있습니다</span><span class="spacer"></span><span class="gone new">질문 2</span><span class="ver">v0.1.574</span></div>
+      </div>
+      <div class="app" style="width:640px; grid-template-columns: minmax(0,1fr)">
+        <div class="graph">
+          <div class="pill-home">
+            <button class="pill" aria-expanded="true"><span class="dot waiting"></span><b>질문 2</b><span class="pv">shell-1: 질문함을 왼쪽 사이드바 위로 옮길까요?</span><svg class="i chev" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
+            <div class="pill-pop new" role="dialog" aria-label="응답을 기다리는 노드 2">
+              <h3>응답을 기다리는 노드 2</h3>
+              <ul class="q">
+                <li><button class="go"><span class="dot waiting"></span><span class="who2"><b>shell-1</b> · 질문</span><span class="line">질문함을 왼쪽 사이드바 위로 옮길까요? (A: 사이드바 / B: 상단 중앙…</span></button><button class="x" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></li>
+                <li><button class="go"><span class="dot waiting"></span><span class="who2"><b>shell-2</b> · 질문</span><span class="line">main에 병합하고 원격에 올릴까요?</span></button><button class="x" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></li>
+              </ul>
+            </div>
+          </div>
+          <div class="scope">repo</div>
+        </div>
+        <div class="status"></div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>질문이 있을 때만 그래프 칸 위 가운데에 뜬다. 사이드바를 접어도, 심플 보기에서도 같은 자리에 보인다.</li>
+      <li>알약에는 개수와 가장 최근 질문 한 줄이 보인다. 누르면 아래로 목록이 열린다(오른쪽 그림). 줄 동작은 지금과 같다. Esc나 바깥 클릭으로 닫는다.</li>
+      <li>그래프 칸 안에 뜨므로 Windows 제목 줄(끌기 자리)을 덮지 않는다. 확대 단추와 미니맵은 오른쪽 아래라 겹치지 않는다. 알약 밑의 카드는 그래프를 끌어 옮기면 보인다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="decide">
+      <tr><th>안</th><th>좋은 점</th><th>약한 점</th></tr>
+      <tr><td><b>② 그래프 위 가운데 (권장)</b></td><td>눈이 먼저 가는 자리다. 사이드바·보기 상태와 관계없이 늘 같은 자리에 보인다. 질문이 생길 때 나타나서 그 자체가 알림이다.</td><td>목록을 보려면 한 번 누른다. 그래프 위쪽 일부(폭 최대 440px, 높이 32px)를 덮는다.</td></tr>
+      <tr><td>① 사이드바 맨 위</td><td>누르지 않아도 모든 질문이 보인다. 그래프를 덮지 않는다.</td><td>사이드바를 접으면 작은 배지만 남는다. 북마크·트리와 같은 줄 모양이라 묻힐 수 있다.</td></tr>
+    </table>
+    <ul class="note">
+      <li>①과 ②를 함께 두지 않는다. 한 곳에만 둔다. 상태 줄의 [질문] 단추는 지운다.</li>
+    </ul>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

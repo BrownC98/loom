@@ -18,7 +18,7 @@ export function latestSwitch(log: EventRecord[]): (EventRecord & { entry: Switch
   return (log.find((r) => isSwitchEntry(r.entry)) as (EventRecord & { entry: SwitchEntry }) | undefined) ?? null;
 }
 
-/** 사용량이나 한도 오류로 데몬이 스스로 바꾼 기록이다. 이때 화면이 설정과 사용량을 다시 읽는다. */
+/** 한도 오류로 데몬이 스스로 바꾼 기록이다. 이때 화면이 설정과 사용량을 다시 읽는다. */
 export function isAutoSwitch(entry: Entry): boolean {
   return entry.kind === 'accountSwitched' && entry.why.kind !== 'manual';
 }
@@ -41,7 +41,7 @@ export function noticeOf(entry: SwitchEntry, name: (provider: Provider, id: Acco
           provider,
           from: name(entry.provider, entry.from),
           to,
-          cause: why.kind === 'usage' ? t('switch.notice.causeUsage', { window: t(`usage.window.${why.window}`), used: why.used }) : t('switch.notice.causeRateLimit'),
+          cause: t('switch.notice.causeRateLimit'),
         });
   const parts = [
     entry.moved > 0 ? t('switch.notice.moved', { n: entry.moved }) : null,

@@ -177,7 +177,7 @@ const ko: typeof en = {
     remove: '삭제',
     removeLabel: '{{name}} 삭제',
     autoSwitch: '한도에 닿으면 남은 계정으로 자동 전환',
-    autoSwitchHint: '쓰는 계정의 5시간 또는 주간 사용량이 95%를 넘거나 노드가 한도 오류로 멈추면, 같은 공급자에서 남은 양이 가장 많은 계정으로 바꿉니다. 실행 중인 노드도 옮기고, 한도로 멈춘 노드는 이어서 일합니다. 사용량을 읽지 못한 계정은 고르지 않습니다.',
+    autoSwitchHint: '노드가 한도 오류로 멈추면, 그때 같은 공급자의 다른 계정 사용량을 읽고 남은 양이 가장 많은 계정으로 바꿉니다. 사용량을 미리 보고 바꾸지 않습니다. 실행 중인 노드도 옮기고, 한도로 멈춘 노드는 이어서 일합니다. 사용량을 읽지 못한 계정은 고르지 않습니다.',
     notInstalled: '설치 안 됨',
     addNeedsCli: '{{provider}} CLI를 설치하면 계정을 추가할 수 있습니다.',
     login: '로그인',
@@ -215,7 +215,6 @@ const ko: typeof en = {
     notice: {
       manual: '{{provider}} 계정 전환 → {{to}}',
       auto: '{{provider}} 자동 전환: {{from}}({{cause}}) → {{to}}',
-      causeUsage: '{{window}} {{used}}%',
       causeRateLimit: '한도 오류',
       moved: '노드 {{n}}개 옮김',
       later: '{{n}}개는 턴이 끝나면 옮김',

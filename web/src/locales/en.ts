@@ -176,7 +176,7 @@ const en = {
     remove: 'Remove',
     removeLabel: 'Remove {{name}}',
     autoSwitch: 'Switch to another account automatically at the limit',
-    autoSwitchHint: 'When the 5-hour or weekly usage of the active account passes 95%, or a node stops on a rate-limit error, loom switches to the account of the same provider with the most left. It moves running nodes too, and nodes stopped by the limit continue their work. An account whose usage cannot be read is not chosen.',
+    autoSwitchHint: 'When a node stops on a rate-limit error, loom reads the usage of the other accounts of the same provider at that time and switches to the one with the most left. It does not switch early on usage alone. It moves running nodes too, and nodes stopped by the limit continue their work. An account whose usage cannot be read is not chosen.',
     notInstalled: 'Not installed',
     addNeedsCli: 'Install the {{provider}} CLI to add an account.',
     login: 'Log in',
@@ -214,7 +214,6 @@ const en = {
     notice: {
       manual: '{{provider}} account switched → {{to}}',
       auto: '{{provider}} automatic switch: {{from}} ({{cause}}) → {{to}}',
-      causeUsage: '{{window}} {{used}}%',
       causeRateLimit: 'rate limit',
       moved: '{{n}} nodes moved',
       later: '{{n}} move when the turn ends',

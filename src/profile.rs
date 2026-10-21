@@ -17,7 +17,7 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::graph::{Delivery, Kind, WaitKind};
+use crate::graph::{Delivery, Kind, OpenQuestion, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::Launch;
 
@@ -649,12 +649,12 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
 pub fn hook_text(
     taken: &[Delivery],
     queued_from: &[String],
-    open_question: Option<&str>,
+    open_question: Option<&OpenQuestion>,
 ) -> Option<String> {
     let mut parts = Vec::new();
-    if let Some(question) = open_question {
+    if let Some(OpenQuestion { id, text }) = open_question {
         parts.push(format!(
-            "Open loom ask question: {question}. If this input answers it, call loom answered first, then act. If not, leave it open."
+            "Open loom ask question {id}: {text}. If this input answers it, call loom answered first, then act. If not, leave it open."
         ));
     }
     if !taken.is_empty() {

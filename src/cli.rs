@@ -9,9 +9,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
-    AckRequest, AdoptRequest, AskRequest, DoneRequest, GuardRequest, HookWaitRequest, IdleRequest,
-    RemoveRequest, ReplyRequest, SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest,
-    Taken, WaitRequest,
+    AckRequest, AdoptRequest, AskRequest, Asked, DoneRequest, GuardRequest, HookWaitRequest,
+    IdleRequest, RemoveRequest, ReplyRequest, SaidRequest, SendRequest, SpawnRequest, SpawnRun,
+    TakeRequest, Taken, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent};
 use crate::profile::claude;
@@ -205,7 +205,7 @@ pub fn hook() -> Result<(), String> {
     if let Some(reply) = event.reply(
         &taken.messages,
         &taken.queued_from,
-        taken.open_question.as_deref(),
+        taken.open_question.as_ref(),
     ) {
         println!("{reply}");
     }
@@ -291,7 +291,7 @@ pub fn cursor_hook() -> Result<(), String> {
         event.reply(
             &taken.messages,
             &taken.queued_from,
-            taken.open_question.as_deref(),
+            taken.open_question.as_ref(),
         )
     );
     std::io::stdout().flush().map_err(|e| e.to_string())?;
@@ -364,10 +364,26 @@ pub fn guard() -> Result<(), String> {
 }
 
 /// 사람에게 묻는다: 받은편지함에 질문 한 줄을 띄우고 바로 끝난다. 답은 사람이 노드 터미널에 쓴다.
-pub fn ask(question: String) -> Result<(), String> {
-    call::<()>("ask", &AskRequest { question }, None)?;
+/// `doc`(`--doc`)은 user-doc 문서 하나를 질문에 붙인다. 사람은 질문 줄의 링크로 연다. 데몬이 다른 폴더에서 읽으므로 절대 경로로 보낸다.
+pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
+    let doc = doc
+        .map(|path| std::fs::canonicalize(&path).map_err(|e| format!("{}: {e}", path.display())))
+        .transpose()?;
+    let asked: Asked = call(
+        "ask",
+        &AskRequest {
+            question: question.clone(),
+            doc,
+        },
+        None,
+    )?;
+    let with = asked
+        .doc
+        .map(|doc| format!(" with {} ({})", doc.id, doc.title))
+        .unwrap_or_default();
+    println!("{} in the inbox{with}: {}", asked.id, question.trim());
     println!(
-        "The question is in the human's inbox. End your turn now. The human answers in your terminal."
+        "The question is in the human's inbox. End your turn now. The human answers in your terminal or in the inbox."
     );
     Ok(())
 }

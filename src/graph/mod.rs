@@ -24,7 +24,7 @@ use ts_rs::TS;
 pub use events::{Entry, EventRecord, SwitchCause};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
-pub use waits::{HumanWait, WaitKind, WaitSource};
+pub use waits::{Attached, HUMAN, HumanWait, OpenQuestion, WaitDoc, WaitId, WaitKind, WaitSource};
 
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
@@ -207,6 +207,10 @@ pub enum Refusal {
     EmptyQuestion,
     /// `loom ask`를 부모가 있는 노드가 불렀다. 사람에게는 사람이 띄운 노드만 묻는다.
     HasParent,
+    /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
+    NoWait(WaitId),
+    /// 화면에서 보낸 답이 비었다.
+    EmptyAnswer,
     Launch(String),
     Db(String),
 }
@@ -285,6 +289,8 @@ impl fmt::Display for Refusal {
                 f,
                 "You have a parent. Ask your parent with `loom send <parent> \"QUESTION: ...\"`. Only nodes that the human started ask the human."
             ),
+            Refusal::NoWait(wait) => write!(f, "{wait}: this question is not open."),
+            Refusal::EmptyAnswer => write!(f, "Write an answer."),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }

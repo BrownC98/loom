@@ -1,4 +1,4 @@
-//! loom이 싣는 스킬(`skills/`)과 모든 노드가 늘 보는 지시(STE-100, 랩터-3 「작업 중」).
+//! loom이 싣는 스킬(`skills/`)과 모든 노드가 늘 보는 지시(STE-100, 랩터-3 「작업 중」, o-mode).
 //! 노드 에이전트는 사람이 스킬을 설치하지 않아도 이 스킬을 쓴다. 바뀌는 이유는 스킬 글과 그 배포 방식이다.
 //! 근거: docs/design.md 「내장 스킬」.
 
@@ -49,20 +49,48 @@ fn write(path: &Path, data: &[u8]) -> io::Result<()> {
     std::fs::write(path, data)
 }
 
-/// 모든 노드의 시작 지시에 붙이는 글: STE-100 본문과 랩터-3 「작업 중」 절.
+/// 노드가 시작할 때 그래프에서 선 자리. 시작 지시(`always_on`)를 고른다.
+/// 뒤에 부모가 바뀌어도(`loom adopt`, `loom rm`의 손자 옮기기) 이미 뜬 노드의 시작 지시는 그대로다.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Position {
+    /// 부모가 없다. 사람이 띄운 노드이고 o-mode 총괄이다.
+    Root,
+    /// 부모가 `loom spawn`으로 띄웠다. 역할은 브리프가 정한다.
+    Child,
+}
+
+/// 모든 노드의 시작 지시에 붙이는 글: STE-100 본문, 랩터-3 「작업 중」 절, o-mode 글.
+/// 부모 없는 노드는 o-mode 절차 전체, 자식은 브리프 공통 규칙을 받는다. 자식에게 총괄 절차를 주지 않는다.
 /// 링크만 주면 모델이 읽지 않고 지나친다. 그래서 본문을 그대로 넣는다.
-pub fn always_on() -> String {
-    let ste = text("ste-100/SKILL.md");
-    let ste = ste
-        .strip_prefix("---\n")
-        .and_then(|rest| rest.split_once("\n---\n"))
-        .map_or(ste.as_str(), |(_, body)| body);
+pub fn always_on(position: Position) -> String {
     let raptor = text("raptor-3/SKILL.md");
     let (_, rest) = raptor
         .split_once("\n## 작업 중\n")
         .expect("랩터-3에 「작업 중」 절이 있다");
     let section = rest.split("\n## ").next().unwrap_or(rest);
-    format!("{}\n\n# 랩터-3 작업 중\n\n{}", ste.trim(), section.trim())
+    let mode = match position {
+        Position::Root => text("o-mode/SKILL.md"),
+        Position::Child => text("o-mode/agent-rules.md"),
+    };
+    format!(
+        "{}\n\n# 랩터-3 작업 중\n\n{}\n\n{}\n\n{}",
+        body(&text("ste-100/SKILL.md")),
+        section.trim(),
+        MODE_NOTE,
+        body(&mode)
+    )
+}
+
+/// 시작 지시에 넣은 o-mode 글의 상대 링크는 시작 지시 안에서 열리지 않는다.
+const MODE_NOTE: &str = "아래 o-mode 글은 늘 적용한다. 상대 링크는 내장 스킬 `o-mode` 폴더 기준이다. 링크한 절이 필요하면 그 스킬을 불러 읽는다.";
+
+/// 머리말(`---` 사이)을 뺀 본문.
+fn body(skill: &str) -> &str {
+    skill
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .map_or(skill, |(_, body)| body)
+        .trim()
 }
 
 fn text(name: &str) -> String {
@@ -76,13 +104,29 @@ mod tests {
 
     #[test]
     fn always_on_has_the_ste_body_and_only_the_raptor_work_section() {
-        let text = always_on();
-        assert!(text.starts_with("# STE-100\n"), "{text}");
-        assert!(!text.contains("name: ste-100"));
-        assert!(text.contains("\n# 랩터-3 작업 중\n"));
-        assert!(text.contains("완료 보고에는 `랩터-3:` 한 줄로"));
-        assert!(!text.contains("## 화면(UI/UX) 감사"));
-        assert!(!text.contains("## 5단계"));
+        for position in [Position::Root, Position::Child] {
+            let text = always_on(position);
+            assert!(text.starts_with("# STE-100\n"), "{text}");
+            assert!(!text.contains("name: ste-100"));
+            assert!(text.contains("\n# 랩터-3 작업 중\n"));
+            assert!(text.contains("완료 보고에는 `랩터-3:` 한 줄로"));
+            assert!(!text.contains("## 화면(UI/UX) 감사"));
+            assert!(!text.contains("## 5단계"));
+            assert!(!text.contains("name: o-mode"));
+        }
+    }
+
+    /// 부모 없는 노드는 총괄 절차, 자식은 브리프 공통 규칙만 받는다.
+    #[test]
+    fn root_gets_the_o_mode_procedure_and_child_gets_the_brief_rules() {
+        let root = always_on(Position::Root);
+        assert!(root.contains("\n# Loom 병렬 개발\n"));
+        assert!(root.contains("## 병합과 회수"));
+        assert!(!root.contains("# Loom 브리프 공통 규칙"));
+        let child = always_on(Position::Child);
+        assert!(child.contains("\n# Loom 브리프 공통 규칙\n"));
+        assert!(!child.contains("# Loom 병렬 개발"));
+        assert!(!child.contains("## 병합과 회수"));
     }
 
     #[test]

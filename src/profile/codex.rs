@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use super::VersionMismatch;
 use crate::graph::{Delivery, Kind, Model};
+use crate::skills::Position;
 
 #[allow(clippy::all, dead_code)]
 pub mod protocol {
@@ -29,11 +30,11 @@ pub const PINNED_VERSION: &str = "0.159.2";
 /// 새 턴 입력 하나에 넣는 본문 합의 상한. 첫 메시지는 늘 넣는다. 남은 메시지는 다음 턴에 들어간다.
 pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 
-fn usage() -> String {
+fn usage(position: Position) -> String {
     format!(
         "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.\n\n{}",
         super::COMMUNICATION_USAGE,
-        crate::skills::always_on()
+        crate::skills::always_on(position)
     )
 }
 
@@ -63,8 +64,8 @@ pub fn args(app_server: &str) -> Vec<String> {
 /// `codex app-server` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
 /// TUI(`--remote`)에 넘긴 `developer_instructions`는 서버가 만든 스레드에 들어가지 않는다(0.159.2 실측).
 /// `-c` 값은 TOML로 읽힌다. JSON 문자열은 TOML 기본 문자열과 같은 이스케이프를 쓴다.
-pub fn server_args() -> Vec<String> {
-    let usage = serde_json::to_string(&usage()).expect("문자열은 늘 직렬화된다");
+pub fn server_args(position: Position) -> Vec<String> {
+    let usage = serde_json::to_string(&usage(position)).expect("문자열은 늘 직렬화된다");
     vec!["-c".into(), format!("developer_instructions={usage}")]
 }
 
@@ -460,11 +461,14 @@ mod tests {
 
     #[test]
     fn server_args_pass_usage_as_a_toml_string() {
-        let args = server_args();
+        let args = server_args(Position::Child);
         assert_eq!(args[0], "-c");
         let (key, value) = args[1].split_once('=').unwrap();
         assert_eq!(key, "developer_instructions");
-        assert_eq!(serde_json::from_str::<String>(value).unwrap(), usage());
+        assert_eq!(
+            serde_json::from_str::<String>(value).unwrap(),
+            usage(Position::Child)
+        );
         assert_eq!(
             super::args("ws://127.0.0.1:1"),
             [

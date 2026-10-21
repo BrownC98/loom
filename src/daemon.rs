@@ -48,7 +48,7 @@ use crate::profile::{
     VersionMismatch,
 };
 use crate::settings::Settings;
-use crate::skills;
+use crate::skills::{self, Position};
 use crate::spots::{Placed, Spots};
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 
@@ -76,7 +76,7 @@ struct App {
     plugin: skills::Plugin,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     version_warnings: HashMap<Profile, VersionMismatch>,
-    /// Codex app-server에 넘길 `-c` 인자: 사용법 지시와 샌드박스. 샌드박스 인자는 노드 문이 없거나 버전이 다르면 없다.
+    /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 없다. 사용법 지시는 노드마다 더한다.
     codex_config: Vec<String>,
     /// 노드 안에서 `loom` 명령이 쓰는 노드 문 주소(`LOOM_URL`).
     url: String,
@@ -395,10 +395,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         codex_config: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
             _ => Vec::new(),
-        }
-        .into_iter()
-        .chain(codex::server_args())
-        .collect(),
+        },
         url: match &node_door {
             Some(door) => format!("http://{}", door.local_addr()?),
             None => node_url(listen),
@@ -669,7 +666,7 @@ impl App {
     /// 부모 없는 노드를 `place`에서 띄운다.
     async fn start_root(self: &Arc<Self>, place: &Place, start: &Start) -> Result<NodeId, Problem> {
         let cwd = std::path::Path::new(&place.worktree);
-        let prepared = self.prepare(start, cwd).await?;
+        let prepared = self.prepare(start, cwd, Position::Root).await?;
         let discard = prepared.discarder();
         let id = self
             .graph
@@ -688,7 +685,7 @@ impl App {
             return Ok(());
         };
         let start = Start::Command { line };
-        let prepared = self.prepare(&start, cwd).await?;
+        let prepared = self.prepare(&start, cwd, Position::Root).await?;
         let discard = prepared.discarder();
         self.graph
             .add_root(place, start.agent(), start.brief(), |id| {
@@ -864,8 +861,13 @@ impl App {
 
     /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.
     /// OpenCode 2면 노드 서버와 세션을 먼저 띄운다.
-    /// `cwd`는 노드가 도는 워크트리다.
-    async fn prepare(&self, start: &Start, cwd: &std::path::Path) -> Result<Prepared, Problem> {
+    /// `cwd`는 노드가 도는 워크트리다. `position`은 상시 지시를 고른다(`skills::always_on`).
+    async fn prepare(
+        &self,
+        start: &Start,
+        cwd: &std::path::Path,
+        position: Position,
+    ) -> Result<Prepared, Problem> {
         let profile = start.profile();
         let provider = profile.and_then(Profile::provider);
         let settings = self.settings.get().map_err(internal)?;
@@ -875,7 +877,13 @@ impl App {
         let codex = match profile {
             Some(Profile::Codex) => {
                 let home = self.accounts.config_dir(profile::Provider::Codex, account);
-                let server = CodexServer::start(cwd, home.as_deref(), &env, &self.codex_config)
+                let config: Vec<String> = self
+                    .codex_config
+                    .iter()
+                    .cloned()
+                    .chain(codex::server_args(position))
+                    .collect();
+                let server = CodexServer::start(cwd, home.as_deref(), &env, &config)
                     .await
                     .map_err(|cause| LaunchError::Server {
                         program: "codex app-server".into(),
@@ -893,12 +901,13 @@ impl App {
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
-                let node = opencode2::Node::start(cwd, &env, &self.plugin.skills(), password)
-                    .await
-                    .map_err(|cause| LaunchError::Server {
-                        program: format!("{} serve", opencode2::CMD),
-                        cause,
-                    })?;
+                let node =
+                    opencode2::Node::start(cwd, &env, &self.plugin.skills(), password, position)
+                        .await
+                        .map_err(|cause| LaunchError::Server {
+                            program: format!("{} serve", opencode2::CMD),
+                            cause,
+                        })?;
                 Some(Arc::new(node))
             }
             _ => None,
@@ -909,8 +918,15 @@ impl App {
             _ => None,
         };
         let discard = discarder(&codex, &opencode2);
-        let mut cmd = profile::command(start, cwd, remote, &settings.bypass_off, self.plugin.dir())
-            .inspect_err(|_| discard())?;
+        let mut cmd = profile::command(
+            start,
+            cwd,
+            remote,
+            &settings.bypass_off,
+            self.plugin.dir(),
+            position,
+        )
+        .inspect_err(|_| discard())?;
         for (key, value) in &env {
             cmd.env(key, value);
         }
@@ -1222,7 +1238,10 @@ async fn spawn_child(
     worktree: Option<&str>,
     cwd: &std::path::Path,
 ) -> Result<NodeId, AgentError> {
-    let mut prepared = app.prepare(start, cwd).await.map_err(for_agent)?;
+    let mut prepared = app
+        .prepare(start, cwd, Position::Child)
+        .await
+        .map_err(for_agent)?;
     if worktree.is_some() {
         prepared.setup = worktree::setup_script(cwd).map(|line| profile::shell(&line));
     }

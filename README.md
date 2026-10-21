@@ -47,6 +47,16 @@ loom wait --json                                 # wait for the next message
 loom done "Added one toggle() test"              # report to the parent
 ```
 
+## Built-in skills
+
+loom ships four skills: `o-mode` (orchestration mode), `ste-100`, `user-doc` and `raptor-3`. You do not install anything.
+
+- Call a skill by name. Claude Code: `/loom:<name>`. Codex: `loom:<name>`. OpenCode 2: `<name>`.
+- Always on, without a call: STE-100 and the raptor-3 work rules go to every node. A node without a parent (a node you start) also gets the full `o-mode` procedure and acts as the lead. A child gets only the common brief rules of `o-mode`.
+- A node reads the skill text when it starts. After you update loom, restart running nodes to give them the new text.
+
+Details (Korean): [docs/design.md 「내장 스킬」](docs/design.md#내장-스킬).
+
 ## Install
 
 Get the files from the [latest release](https://github.com/BrownC98/loom/releases/latest).

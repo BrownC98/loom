@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::Take;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::Dialog;
+use crate::screen::{Dialog, Place};
 use crate::skills::Position;
 
 /// 훅 한 번에 넘기는 본문 합의 상한.
@@ -117,34 +117,28 @@ pub fn args(plugin: &Path, position: Position) -> Vec<String> {
 }
 
 /// 훅이 불리지 않는 확인 창(2.1.306 화면 문구). 폴더 신뢰 창이 떠 있는 동안에는 훅이 하나도 불리지 않는다(실측).
-pub const DIALOGS: [Dialog; 5] = [
+pub const DIALOGS: [Dialog; 4] = [
     // 새 계정 폴더의 첫 실행: 테마 고르기 뒤 로그인이 이어진다.
     Dialog {
         text: "Choose the text style that looks best with your terminal",
         kind: WaitKind::Auth,
-        at_end: false,
+        place: Place::BeforeSession,
     },
     Dialog {
         text: "Yes, I trust this folder",
         kind: WaitKind::Trust,
-        at_end: false,
+        place: Place::BeforeSession,
     },
     // 모든 권한 허용 모드의 첫 경고.
     Dialog {
         text: "Yes, I accept",
         kind: WaitKind::Approval,
-        at_end: false,
+        place: Place::BeforeSession,
     },
     Dialog {
         text: "Select login method:",
         kind: WaitKind::Auth,
-        at_end: false,
-    },
-    // 계정 한도에 닿았을 때 고르는 창.
-    Dialog {
-        text: "Stop and wait for limit to reset",
-        kind: WaitKind::Auth,
-        at_end: false,
+        place: Place::BeforeSession,
     },
 ];
 
@@ -186,6 +180,8 @@ pub enum Event {
 
 /// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
 const RATE_LIMIT_ERROR: &str = "rate_limit";
+/// 한도 대기의 한 줄 글. 한도 창의 첫 선택지다(2.1.306 화면 문구).
+const RATE_LIMIT_TEXT: &str = "Stop and wait for limit to reset";
 
 impl Event {
     /// 이 지점에서 꺼내는 방법. 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 어느 훅이 불렸는지가 그 상태다.
@@ -224,6 +220,8 @@ impl Event {
                 };
                 Some((kind, message.clone()))
             }
+            // 한도 창(「Stop and wait for limit to reset」)이 뜬다. 사람이 고르거나 계정을 바꿀 때까지 기다린다.
+            event if event.rate_limited() => Some((WaitKind::Auth, RATE_LIMIT_TEXT.to_owned())),
             _ => None,
         }
     }
@@ -474,12 +472,16 @@ mod tests {
         );
     }
 
-    /// 입력 모양은 2.1.306 실측이다. 한도가 아닌 API 오류는 한도 멈춤이 아니다.
+    /// 입력 모양은 2.1.306 실측이다. 한도 멈춤은 한도 창의 대기다. 한도가 아닌 API 오류는 한도 멈춤이 아니다.
     #[test]
-    fn stop_failure_waits_for_mail_and_tells_a_rate_limit() {
+    fn stop_failure_waits_for_mail_and_raises_a_rate_limit_wait() {
         let limited = event(json!({ "hook_event_name": "StopFailure", "error": "rate_limit" }));
         assert_eq!(limited.take(), Take::WhenIdle);
         assert!(limited.rate_limited());
+        assert_eq!(
+            limited.human_wait(),
+            Some((WaitKind::Auth, RATE_LIMIT_TEXT.into()))
+        );
         let overloaded = event(json!({ "hook_event_name": "StopFailure", "error": "overloaded" }));
         assert!(!overloaded.rate_limited());
         assert!(!event(json!({ "hook_event_name": "Stop" })).rate_limited());
@@ -570,7 +572,7 @@ mod tests {
             json!({ "hook_event_name": "PostToolUseFailure" }),
             json!({ "hook_event_name": "UserPromptSubmit" }),
             json!({ "hook_event_name": "Stop" }),
-            json!({ "hook_event_name": "StopFailure", "error": "rate_limit" }),
+            json!({ "hook_event_name": "StopFailure", "error": "overloaded" }),
         ] {
             assert_eq!(event(input.clone()).human_wait(), None, "{input}");
         }

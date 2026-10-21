@@ -9,25 +9,54 @@ pub struct Dialog {
     /// 화면 글. 비교할 때 공백과 대소문자를 무시한다. TUI는 공백을 커서 이동으로 그리기 때문이다(Claude 2.1.306 실측).
     pub text: &'static str,
     pub kind: WaitKind,
-    /// 마지막 줄에 있어야 맞는다(셸 프롬프트: 답하면 다음 줄이 생겨 맞지 않는다). 아니면 끝 쪽 화면 어디에 있어도 맞는다(TUI 창).
-    pub at_end: bool,
+    pub place: Place,
+}
+
+/// 노드 런타임의 세션 단계. 노드가 데몬을 처음 부르거나(훅, `loom` 명령) Codex 스레드가 생기면 시작한 것이다.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Session {
+    NotStarted,
+    Started,
+}
+
+/// 확인 창 글이 있어야 하는 자리. 에이전트가 같은 글을 출력해도 창으로 보지 않게 한다.
+pub enum Place {
+    /// 마지막 줄(셸 프롬프트: 답하면 다음 줄이 생겨 맞지 않는다).
+    LastLine,
+    /// 세션이 시작하기 전 화면 어디든(TUI 첫 창: 폴더 신뢰, 로그인, 테마). 이 창이 떠 있는 동안 런타임은 세션을 시작하지 않는다.
+    /// 시작한 뒤 화면의 같은 글은 에이전트 출력이다(2026-10-21 Claude 노드가 답에 "Yes, I trust this folder"를 써서 대기가 걸렸다).
+    BeforeSession,
+    /// 화면 아래 창 칸: 마지막 가로줄(`─`·`┌`로 시작하는 줄) 아래. 세션 중에 뜨고 훅이 알리지 않는 창이다(Cursor 승인·질문, 2026.10.19 실측).
+    Panel,
 }
 
 /// `screen`(지금 터미널 화면의 글, `NodeHost::screen`)에서 맞는 확인 창과 그 한 줄 글. 여럿이 맞으면 화면 끝에 가장 가까운 것이다.
 /// 지나간 창의 글이 끝 쪽에 남아 있어도 지금 창을 고른다(Claude 첫 실행: 테마 창 뒤 로그인 창, 2.1.306 실측).
 /// 셸 프롬프트는 마지막 줄을, TUI 창은 찾을 글을 한 줄 글로 쓴다.
-pub fn find(dialogs: &[Dialog], tail: &str) -> Option<(WaitKind, String)> {
-    let last = tail.lines().rev().map(str::trim).find(|l| !l.is_empty())?;
-    let (squeezed_tail, squeezed_last) = (squeeze(tail), squeeze(last));
+pub fn find(dialogs: &[Dialog], screen: &str, session: Session) -> Option<(WaitKind, String)> {
+    let lines: Vec<&str> = screen
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let last = *lines.last()?;
+    let panel_start = lines
+        .iter()
+        .rposition(|l| l.starts_with(['─', '┌']))
+        .map_or(lines.len(), |i| i + 1);
+    let squeezed = squeeze(&lines.concat());
+    let panel_at = squeezed.len() - squeeze(&lines[panel_start..].concat()).len();
+    let squeezed_last = squeeze(last);
     dialogs
         .iter()
         .filter_map(|d| {
             let needle = squeeze(d.text);
-            let at = match d.at_end {
-                true => squeezed_last.contains(&needle).then_some(usize::MAX),
-                false => squeezed_tail.rfind(&needle),
-            }?;
-            let text = if d.at_end { last } else { d.text };
+            let (at, text) = match d.place {
+                Place::LastLine => (squeezed_last.contains(&needle).then_some(usize::MAX)?, last),
+                Place::BeforeSession if session == Session::Started => return None,
+                Place::BeforeSession => (squeezed.rfind(&needle)?, d.text),
+                Place::Panel => (panel_at + squeezed[panel_at..].rfind(&needle)?, d.text),
+            };
             Some((at, d.kind, text))
         })
         .max_by_key(|(at, ..)| *at)
@@ -49,12 +78,12 @@ mod tests {
         Dialog {
             text: "Yes, I trust this folder",
             kind: WaitKind::Trust,
-            at_end: false,
+            place: Place::BeforeSession,
         },
         Dialog {
             text: "password",
             kind: WaitKind::Input,
-            at_end: true,
+            place: Place::LastLine,
         },
     ];
 
@@ -62,21 +91,35 @@ mod tests {
     fn tui_text_matches_without_spaces() {
         let tail = "Quick safety check\n❯1.Yes,Itrustthisfolder\n  2. No, exit\nEnter to confirm";
         assert_eq!(
-            find(&DIALOGS, tail),
+            find(&DIALOGS, tail, Session::NotStarted),
             Some((WaitKind::Trust, "Yes, I trust this folder".into()))
         );
+    }
+
+    /// 2026-10-21 Claude 노드가 답에 창 글을 써서 거짓 대기가 걸렸다. 세션이 시작한 뒤에는 화면 가운데에도 마지막 줄에도 맞지 않는다.
+    #[test]
+    fn first_dialogs_do_not_match_after_the_session_starts() {
+        let middle = "⏺ The dialog says \"Yes, I trust this folder\".\n  Done.\n\n❯ ";
+        let last = "⏺ Done.\n  Yes, I trust this folder";
+        for screen in [middle, last] {
+            assert_eq!(find(&DIALOGS, screen, Session::Started), None, "{screen}");
+            assert_eq!(
+                find(&DIALOGS, screen, Session::NotStarted).unwrap().0,
+                WaitKind::Trust
+            );
+        }
     }
 
     #[test]
     fn shell_prompt_matches_only_on_the_last_line() {
         let waiting = "$ sudo ls\n[sudo] password for me: ";
         assert_eq!(
-            find(&DIALOGS, waiting),
+            find(&DIALOGS, waiting, Session::Started),
             Some((WaitKind::Input, "[sudo] password for me:".into()))
         );
         let answered = "$ sudo ls\n[sudo] password for me:\nfile\nme@host:~$ ";
-        assert_eq!(find(&DIALOGS, answered), None);
-        assert_eq!(find(&DIALOGS, ""), None);
+        assert_eq!(find(&DIALOGS, answered, Session::Started), None);
+        assert_eq!(find(&DIALOGS, "", Session::NotStarted), None);
     }
 
     #[test]
@@ -85,15 +128,18 @@ mod tests {
             Dialog {
                 text: "Choose the text style",
                 kind: WaitKind::Auth,
-                at_end: false,
+                place: Place::BeforeSession,
             },
             Dialog {
                 text: "Select login method:",
                 kind: WaitKind::Auth,
-                at_end: false,
+                place: Place::BeforeSession,
             },
         ];
         let tail = "Choose the text style\n❯ Dark\nSelect login method:\n❯ 1. Claude account";
-        assert_eq!(find(&dialogs, tail).unwrap().1, "Select login method:");
+        assert_eq!(
+            find(&dialogs, tail, Session::NotStarted).unwrap().1,
+            "Select login method:"
+        );
     }
 }

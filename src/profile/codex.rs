@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::VersionMismatch;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::Dialog;
+use crate::screen::{Dialog, Place};
 use crate::skills::Position;
 
 #[allow(clippy::all, dead_code)]
@@ -33,12 +33,12 @@ pub const DIALOGS: [Dialog; 2] = [
     Dialog {
         text: "Trust this folder?",
         kind: WaitKind::Trust,
-        at_end: false,
+        place: Place::BeforeSession,
     },
     Dialog {
         text: "Sign in with ChatGPT",
         kind: WaitKind::Auth,
-        at_end: false,
+        place: Place::BeforeSession,
     },
 ];
 /// 새 턴 입력 하나에 넣는 본문 합의 상한. 첫 메시지는 늘 넣는다. 남은 메시지는 다음 턴에 들어간다.

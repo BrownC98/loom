@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <strong>Run different AI agents as one team, on a graph you can watch.</strong><br>
+  <strong>loom is a desktop and web app that runs AI coding agents (Claude Code, Codex, OpenCode 2, Cursor CLI) as one team across git worktrees, and shows them as a graph of live terminals.</strong><br>
   Each agent is a node card with its real terminal. Parents spawn children, children report back, and each message shows on the edge between them.
 </p>
 

@@ -434,6 +434,8 @@ function cover(contents: readonly Box[], inset: { top: number; side: number }): 
  * `lead`는 상자 원점에서 상자 왼쪽 위까지다(카드는 0). 자리는 원점으로 저장한다. `parent`는 이 상자들을 덮는 바깥 상자의 id다.
  */
 type Level = { boxes: Sibling[]; lead: ReadonlyMap<string, XYPosition>; parent: string | null };
+/** `level`의 `key` 상자가 `mover` 자리·크기다. */
+type Step = { key: string; level: Level; mover: Box };
 
 /** 강조하는 상자(React Flow 노드 id, `flowId`). `current`는 찾기의 현재 일치이고 테두리를 하나 더 그린다. */
 export type Lit = { keys: ReadonlySet<string>; current: string | null };
@@ -510,7 +512,7 @@ export function Graph(props: {
   const [arrangedRepos, setArrangedRepos] = useState<ReadonlySet<RepoId>>(new Set());
   // 끄는 동안 움직인 상자(끄는 상자와 비킨 상자)의 원점. 놓으면 저장하고 비운다.
   const [moving, setMoving] = useState<ReadonlyMap<string, XYPosition>>(new Map());
-  // 끄는 상자 중심이 형제 중심선의 어느 쪽에 있었는지. 겹친 채 쪽이 바뀌면 그 형제가 비킨다(사람 결정 2026-10-21, 목업 v4 ②).
+  // 끄는 상자가 형제 중심선의 어느 쪽에 있었는지. 겹친 채 앞 변이 그 선을 넘으면 그 형제가 비킨다(사람 결정 2026-10-21, 목업 v4 ②).
   const sides = useRef<{ key: string; of: Map<string, CenterSide> } | null>(null);
   // 사람이 바꾼 표준 카드 크기와, 테두리를 끄는 동안의 크기. 놓으면 `sizes`에 넣고 저장한다.
   const [sizes, setSizes] = useState<ReadonlyMap<NodeId, Size>>(new Map());
@@ -931,7 +933,10 @@ export function Graph(props: {
     const lead = level.lead.get(key) ?? { x: 0, y: 0 };
     return { x: at.x - lead.x, y: at.y - lead.y };
   };
-  /** 끄는 동안: 끄는 상자 중심이 겹친 형제의 중심선을 넘으면 그 형제가 비킨다(목업 v4 ②). */
+  /**
+   * 끄는 동안: 끄는 상자의 앞 변이 겹친 형제의 중심선을 넘으면 그 형제가 비킨다(목업 v4 ②). 커진 바깥 상자는 놓을 때와 같이 옆 상자를 민다.
+   * 카드·묶음·저장소 상자가 같은 규칙이다(사람 "묶음 드래그 로직을 터미널 노드랑 같은 규칙을 사용해").
+   */
   const onDrag = (key: string, level: Level, dragged: Box) => {
     const others = level.boxes.filter((b) => b.key !== key);
     if (sides.current?.key !== key) sides.current = { key, of: new Map() };
@@ -944,7 +949,11 @@ export function Graph(props: {
     }
     const pushed = push(others, dragged, targets, FREE_GAP);
     for (const [k, at] of pushed) of.set(k, centerSide(dragged, { at, size: others.find((o) => o.key === k)!.size }));
-    setMoving((prev) => new Map([...pinned(level, prev), [key, originOf(level, key, dragged.at)], ...[...pushed].map(([k, at]): [string, XYPosition] => [k, originOf(level, k, at)])]));
+    setMoving((prev) => {
+      const done = new Map([...pinned(level, prev), [key, originOf(level, key, dragged.at)], ...[...pushed].map(([k, at]): [string, XYPosition] => [k, originOf(level, k, at)])]);
+      for (let s = shellOf({ key, level, mover: dragged }, done); s !== null; s = shellOf(s, done)) pushOverlaps(s, done);
+      return done;
+    });
   };
   /**
    * 형제와 바깥 상자(묶음, 저장소 상자)를 지금 자리에 묶는다. 자리를 저장하지 않은 상자는 자동 배치 자리라 끄는 상자를 피해 옮겨 가고,
@@ -971,28 +980,32 @@ export function Graph(props: {
     setMoving(new Map());
     save(spread(key, level, dragged, new Map([...moving, [key, originOf(level, key, dragged.at)]])));
   };
+  /** `level`의 상자를 `done`(상자 → 원점)의 자리에 둔다. */
+  const placed = (level: Level, done: ReadonlyMap<string, XYPosition>) =>
+    level.boxes.map((b) => {
+      const o = done.get(b.key);
+      const lead = level.lead.get(b.key) ?? { x: 0, y: 0 };
+      return o ? { ...b, at: { x: o.x + lead.x, y: o.y + lead.y } } : b;
+    });
+  /** `key` 상자가 `mover` 자리·크기일 때 겹친 형제를 비킨다. 비킨 자리를 `done`에 더한다. */
+  const pushOverlaps = ({ key, level, mover }: Step, done: Map<string, XYPosition>) => {
+    const others = placed(level, done).filter((b) => b.key !== key);
+    for (const [k, p] of push(others, mover, others.filter((o) => overlaps(o, mover)).map((o) => o.key), FREE_GAP)) done.set(k, originOf(level, k, p));
+  };
+  /** `done` 자리의 안의 상자를 덮는 바깥 상자(바깥 상자 = 원점 + 안의 상자를 덮는 상자). 바깥 상자가 없으면 null이다. */
+  const shellOf = ({ key, level, mover }: Step, done: ReadonlyMap<string, XYPosition>): Step | null => {
+    if (level.parent === null) return null;
+    const outer = levels.get(level.parent);
+    if (!outer) return null;
+    const contents = placed(level, done).map((b) => (b.key === key ? { ...b, ...mover } : b));
+    const shell = cover(contents, spotOf.get(level.parent)?.kind === 'worktree' ? { top: CARD_TOP, side: CARD_X } : REPO_INSET);
+    const self = outer.boxes.find((b) => b.key === level.parent)!;
+    const origin = done.get(self.key) ?? originOf(outer, self.key, self.at);
+    return { key: self.key, level: outer, mover: { at: { x: origin.x + shell.at.x, y: origin.y + shell.at.y }, size: shell.size } };
+  };
   /** `key` 상자가 `mover` 자리·크기일 때 겹친 형제를 비키고, 커진 바깥 상자도 같은 규칙으로 따른다. `done`(상자 → 원점)에 더해 돌려준다. */
   const spread = (key: string, level: Level, mover: Box, done: Map<string, XYPosition>): Map<string, XYPosition> => {
-    let [at, lv] = [key, level];
-    for (;;) {
-      const boxes = lv.boxes.map((b) => {
-        const o = done.get(b.key);
-        const lead = lv.lead.get(b.key) ?? { x: 0, y: 0 };
-        return o ? { ...b, at: { x: o.x + lead.x, y: o.y + lead.y } } : b;
-      });
-      const others = boxes.filter((b) => b.key !== at);
-      const pushed = push(others, mover, others.filter((o) => overlaps(o, mover)).map((o) => o.key), FREE_GAP);
-      for (const [k, p] of pushed) done.set(k, originOf(lv, k, p));
-      if (lv.parent === null) break;
-      const outer = levels.get(lv.parent);
-      if (!outer) break;
-      // 바깥 상자 = 원점 + 안의 상자를 덮는 상자.
-      const contents = boxes.map((b) => (pushed.has(b.key) ? { ...b, at: pushed.get(b.key)! } : b.key === at ? { ...b, ...mover } : b));
-      const shell = cover(contents, spotOf.get(lv.parent)?.kind === 'worktree' ? { top: CARD_TOP, side: CARD_X } : REPO_INSET);
-      const self = outer.boxes.find((b) => b.key === lv.parent)!;
-      const origin = done.get(self.key) ?? originOf(outer, self.key, self.at);
-      [at, mover, lv] = [self.key, { at: { x: origin.x + shell.at.x, y: origin.y + shell.at.y }, size: shell.size }, outer];
-    }
+    for (let s: Step | null = { key, level, mover }; s !== null; s = shellOf(s, done)) pushOverlaps(s, done);
     return done;
   };
   /**

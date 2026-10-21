@@ -456,6 +456,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/name", put(rename_node))
+        .route(
+            "/api/nodes/{id}/bookmark",
+            put(bookmark_node).delete(unbookmark_node),
+        )
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
             "/api/pastes/{name}",
@@ -1242,6 +1246,22 @@ async fn rename_node(
     Json(req): Json<RenameNode>,
 ) -> Result<Json<()>, Problem> {
     app.graph.rename(NodeId(id), &req.name)?;
+    Ok(Json(()))
+}
+
+async fn bookmark_node(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.graph.bookmark(NodeId(id))?;
+    Ok(Json(()))
+}
+
+async fn unbookmark_node(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.graph.unbookmark(NodeId(id))?;
     Ok(Json(()))
 }
 

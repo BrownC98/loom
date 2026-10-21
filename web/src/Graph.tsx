@@ -20,6 +20,7 @@ import { HopEdge } from './HopEdge';
 import { arrangeNested, centerSide, crossed, edgeSides, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, TREE_SIDES, type ArrangeDirection, type Box, type CenterSide, type NestGroup, type Side, type Sibling, type Size } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { NewWorktreePopover } from './NewWorktreePopover';
+import { BookmarkButton } from './BookmarkButton';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
 import { Terminal, type Direction } from './Terminal';
@@ -294,6 +295,7 @@ function Card({ data }: NodeProps<CardNode>) {
         onDoubleClickHead={data.onExpand}
         headAction={
           <>
+            <BookmarkButton view={data.view} />
             {data.sized && (
               <IconButton label={t('node.resetSize')} title={t('node.resetSize')} onClick={data.onResetSize}>
                 <RotateCcw />
@@ -339,7 +341,13 @@ function Card({ data }: NodeProps<CardNode>) {
 function Simple({ data }: NodeProps<SimpleNode>) {
   return (
     <>
-      <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={<RemoveButton onRemove={data.onRemove} />} />
+      <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={
+          <>
+            <BookmarkButton view={data.view} />
+            <RemoveButton onRemove={data.onRemove} />
+          </>
+        }
+      />
       <Ports port={data.port} />
     </>
   );
@@ -1276,9 +1284,12 @@ export function Graph(props: {
             onNavigate={() => {}}
             onDoubleClickHead={() => setExpanded(null)}
             headAction={
-              <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
-                <Minimize2 />
-              </IconButton>
+              <>
+                <BookmarkButton view={zoomedView} />
+                <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
+                  <Minimize2 />
+                </IconButton>
+              </>
             }
           >
             <Terminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />

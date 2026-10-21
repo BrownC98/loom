@@ -77,31 +77,21 @@ loom은 스킬 다섯 개를 싣습니다: `o-mode`(orchestration mode), `ste-10
 
 데몬 하나가 화면도 함께 냅니다. 브라우저로 씁니다. 릴리스에는 x86-64 Linux 실행 파일만 있습니다. macOS와 Windows에서는 데스크톱 앱을 씁니다.
 
-1. 실행 파일을 받아 `loom`이라는 이름으로 둡니다. 노드 안의 에이전트가 `loom` 명령을 부르므로 이름이 `loom`이어야 합니다. 데몬은 자기 폴더를 노드의 `PATH` 맨 앞에 넣습니다.
+1. 터미널(WSL이면 WSL 터미널)에서 한 줄을 실행합니다. `~/loom/bin/loom`을 받고, 바탕 화면에 loom 아이콘을 만들고, 브라우저에 loom을 엽니다.
 
    ```sh
-   mkdir -p ~/loom/bin
-   curl -fL -o ~/loom/bin/loom https://github.com/BrownC98/loom/releases/latest/download/loom-x86_64-linux
-   chmod +x ~/loom/bin/loom
+   curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
    ```
 
-2. 저장소 폴더에서 데몬을 띄웁니다. 처음 띄운 폴더가 첫 저장소가 됩니다.
-
-   ```sh
-   cd <저장소 폴더>
-   ~/loom/bin/loom serve            # 기본 주소 127.0.0.1:7420
-   ```
-
-   터미널을 닫아도 살게 하려면: `setsid nohup ~/loom/bin/loom serve >>~/.loom/serve.log 2>&1 </dev/null &`
-
-3. 브라우저로 http://127.0.0.1:7420 을 엽니다. WSL이면 Windows 브라우저에서 같은 주소를 엽니다.
+2. 다음부터는 바탕 화면의 **loom** 아이콘을 누릅니다. WSL이면 Windows 바탕 화면, Linux면 바탕 화면과 앱 메뉴에 있습니다. loom이 꺼져 있으면 켜고 브라우저를 엽니다. 터미널은 필요 없습니다.
+3. 브라우저 탭을 닫아도 loom은 계속 돕니다. 끄려면 `~/loom/bin/loom stop`을 실행합니다. 노드(에이전트)는 꺼지지 않고, 다음에 켜면 다시 붙습니다.
 4. 왼쪽 사이드바에서 저장소를 더하고, 워크트리 묶음의 [새 노드]로 에이전트를 띄웁니다.
 5. 카드를 누르면 그 터미널에 글을 쓸 수 있습니다. 에이전트가 사람에게 물으면 그래프 위 가운데의 **질문** 알약과 오른쪽 칸의 **질문** 탭에 뜹니다. 누르면 그 노드로 갑니다. 답은 그 노드 터미널에 씁니다.
 
-데몬을 끝내려면 그 터미널에서 Ctrl+C를 누릅니다. 백그라운드에서 돌면 `ps -eo pid,args | grep 'loom serve'`로 PID를 찾아 `kill <PID>`를 실행합니다. `loom` 프로세스를 모두 끝내지 않습니다. 노드마다 따로 `loom pty-host` 프로세스에서 돌아서 노드도 끝납니다.
+손으로 설치하려면: [loom-x86_64-linux](https://github.com/BrownC98/loom/releases/latest/download/loom-x86_64-linux)를 `~/loom/bin/loom`으로 받고 `chmod +x` 한 뒤 `~/loom/bin/loom open`을 실행합니다. 이름은 `loom`이어야 합니다. 노드 안의 에이전트가 `loom` 명령을 부릅니다. `loom` 프로세스를 모두 끝내지 않습니다. 노드마다 따로 `loom pty-host` 프로세스에서 돌아서 노드도 끝납니다.
 
 - **데이터:** `~/.loom`(DB, 로그, 내장 스킬). 지우면 노드 기록이 사라집니다.
-- **업데이트:** 1단계로 파일을 다시 받고 데몬만 다시 띄웁니다. 노드(에이전트 프로세스)는 데몬과 따로 살아 새 데몬이 다시 붙습니다.
+- **업데이트:** 1단계의 한 줄을 다시 실행합니다. 파일을 바꾸고 데몬만 다시 띄웁니다. 노드(에이전트 프로세스)는 데몬과 따로 살아 새 데몬이 다시 붙습니다.
 - **주소:** 기본은 이 기계에서만 열립니다(루프백). 사용자는 한 명이라는 가정이라 인증이 없으므로, `--listen`으로 바깥에 열지 않습니다.
 
 설계와 결정은 [docs/design.md](docs/design.md)에 있습니다.

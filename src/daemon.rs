@@ -527,6 +527,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             post(save_paste).layer(DefaultBodyLimit::max(paste::LIMIT_BYTES)),
         )
         .route("/api/files/open", post(open_file))
+        .route("/api/shutdown", post(shutdown))
         .route("/api/events", get(events))
         .route("/api/events/log", get(event_log))
         .merge(settings::routes())
@@ -1447,6 +1448,19 @@ async fn adopt_node(
 async fn open_file(Json(req): Json<OpenFile>) -> Result<Json<()>, Problem> {
     open::open(std::path::Path::new(&req.path)).map_err(internal)?;
     Ok(Json(()))
+}
+
+/// 응답을 보낸 뒤 데몬이 끝나기까지의 여유. 응답 한 줄은 루프백에서 1ms 안에 간다.
+const SHUTDOWN_AFTER: Duration = Duration::from_millis(200);
+
+/// 사람이 `loom stop`이나 화면으로 데몬만 끝낸다. 노드의 PTY 호스트와 서버는 따로 도는 프로세스라 산다(`process_tree::detach`).
+/// 데스크톱 앱이 창을 닫을 때와 같다(`--until-stdin-closes`). 다음 데몬이 노드에 다시 붙는다.
+async fn shutdown() -> StatusCode {
+    tokio::spawn(async {
+        tokio::time::sleep(SHUTDOWN_AFTER).await;
+        std::process::exit(0);
+    });
+    StatusCode::NO_CONTENT
 }
 
 /// 사람이 화면에서 노드 이름을 바꾼다. 에이전트는 이 길을 쓰지 않는다(노드 문에 없다).

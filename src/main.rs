@@ -6,6 +6,7 @@ mod daemon;
 mod db;
 mod git;
 mod graph;
+mod launch;
 mod node_host;
 mod open;
 mod paste;
@@ -36,17 +37,32 @@ const VERSION: &str = match option_env!("LOOM_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
+/// 데몬의 기본 주소. 사용자는 한 명이므로 루프백이다. `serve`와 `open`이 같은 값을 쓴다.
+const DEFAULT_LISTEN: &str = "127.0.0.1:7420";
+
 #[derive(Parser)]
 #[command(name = "loom", version = VERSION)]
 enum Cli {
     /// 데몬과 화면을 띄운다.
     Serve {
-        /// 데몬이 듣는 주소. 사용자는 한 명이므로 기본값은 루프백이다.
-        #[arg(long, default_value = "127.0.0.1:7420")]
+        /// 데몬이 듣는 주소.
+        #[arg(long, default_value = DEFAULT_LISTEN)]
         listen: SocketAddr,
         /// stdin이 닫히면 끝난다. 데스크톱 앱이 쓴다: 앱이 어떻게 끝나든 OS가 파이프를 닫아 데몬도 끝난다.
         #[arg(long)]
         until_stdin_closes: bool,
+    },
+    /// 데몬이 없으면 띄우고 화면을 기본 브라우저로 연다. 바탕 화면 아이콘이 부른다.
+    Open {
+        /// 데몬 주소.
+        #[arg(long, default_value = DEFAULT_LISTEN)]
+        listen: SocketAddr,
+    },
+    /// 데몬만 끝낸다. 노드는 살고, 다음 `open`·`serve`가 다시 붙는다.
+    Stop {
+        /// 데몬 주소.
+        #[arg(long, default_value = DEFAULT_LISTEN)]
+        listen: SocketAddr,
     },
     /// 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다.
     Spawn {
@@ -141,6 +157,8 @@ fn main() -> ExitCode {
                 .and_then(|rt| rt.block_on(daemon::serve(listen)))
                 .map_err(|e| e.to_string())
         }
+        Cli::Open { listen } => launch::open(listen),
+        Cli::Stop { listen } => launch::stop(listen),
         Cli::Spawn {
             name,
             worktree,

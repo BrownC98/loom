@@ -20,13 +20,13 @@ use crate::wsl::{self, WslPath};
 const NOTICE: &str = "loom moved this node from the WSL daemon to the Windows daemon and started your process again with the same conversation. Background commands that you started stopped. If a task was in progress, continue it.";
 
 /// `loom carry <옛 데이터 폴더>`. `from`은 옛 데몬의 데이터 폴더(`~/.loom`)의 UNC 경로다.
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct CarryRequest {
     pub from: String,
 }
 
 /// 옮긴 결과. `ended`는 다시 띄우지 못한 노드와 그 까닭이다.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct Carried {
     pub relaunched: Vec<String>,
     pub ended: Vec<String>,

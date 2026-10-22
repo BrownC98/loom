@@ -25,6 +25,7 @@ export const INITIAL_LANGUAGE = (document.documentElement.dataset.language as La
 let relative: Intl.RelativeTimeFormat;
 let weekdayTime: Intl.DateTimeFormat;
 let clock: Intl.DateTimeFormat;
+let dateTime: Intl.DateTimeFormat;
 let units: Record<'minute' | 'hour' | 'day', Intl.NumberFormat>;
 const unit = (locale: string, unit: 'minute' | 'hour' | 'day') => new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'narrow' });
 // `init`도 이 이벤트를 낸다.
@@ -33,6 +34,7 @@ i18next.on('languageChanged', (locale) => {
   relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
   weekdayTime = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   clock = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+  dateTime = new Intl.DateTimeFormat(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   units = { minute: unit(locale, 'minute'), hour: unit(locale, 'hour'), day: unit(locale, 'day') };
 });
 i18next.use(initReactI18next).init({
@@ -81,6 +83,11 @@ export function duration(ms: number): string {
 function joined(big: number, small: number, bigUnit: 'hour' | 'day', smallUnit: 'minute' | 'hour'): string {
   const bigText = units[bigUnit].format(big);
   return small === 0 ? bigText : `${bigText} ${units[smallUnit].format(small)}`;
+}
+
+/** 예: 「10. 22. 15:40」, 「10/22, 15:40」. */
+export function dateAndTime(time: number): string {
+  return dateTime.format(time);
 }
 
 /** 예: 「(월) 15:40」, 「Mon 15:40」. */

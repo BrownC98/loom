@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>휴대폰 연결 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: user-doc style.html. 화면 그림의 색은 web/src/styles.css 토큰과 mobile.html(M35)의 폰 틀이다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button, input { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.note code, td code { font-family: var(--mono); font-size: 12px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.cmp { border-collapse: collapse; font-size: 13px; width: 1240px; }
+table.cmp th, table.cmp td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.pick { font-weight: 600; color: var(--warn); }
+
+/* 설정 칸(Settings.tsx 「일반」) */
+.pane { width: 700px; padding: 18px 22px; background: var(--panel); border-radius: 12px; display: grid; gap: 18px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.pane code { font-family: var(--mono); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.ready { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+.dot.warn { background: var(--warn); }
+.dot.off { background: var(--ink-3); }
+.rows { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.dev-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.dev-row:last-child { border-bottom: 0; }
+.dev-row .main { flex: 1; min-width: 0; display: grid; }
+.dev-row .name { font-weight: 600; }
+.dev-row .meta { font: 12px var(--mono); color: var(--ink-3); }
+.pair-box { display: flex; gap: 20px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.pair-box .txt { display: grid; gap: 6px; }
+.code { font: 600 22px var(--mono); letter-spacing: 2px; }
+.qr { width: 148px; height: 148px; flex: none; background: #fff; padding: 8px; border-radius: 6px; border: 1px solid var(--line); }
+.qr svg { width: 100%; height: 100%; display: block; }
+ol.hint li { margin-left: 18px; }
+
+/* 폰 틀(M35와 같은 크기) */
+.row { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+.shot { display: grid; gap: 10px; width: 390px; }
+.cap { font-size: 13px; font-weight: 600; }
+.phone { width: 390px; height: 700px; border: 1px solid var(--line-strong); border-radius: 28px; background: var(--bg); overflow: hidden; display: grid; grid-template-rows: 44px minmax(0, 1fr); }
+.os { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-size: 13px; font-weight: 600; }
+.card { margin: 120px 20px 0; align-self: start; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 12px; }
+.card h3 { font-size: 17px; }
+.card p { font-size: 14px; color: var(--ink-2); }
+.mark { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font: 700 16px var(--mono); }
+.pbtn { min-height: 44px; border-radius: 10px; font-size: 15px; }
+.field { min-height: 48px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); font: 600 20px var(--mono); letter-spacing: 2px; display: flex; align-items: center; }
+.field.empty { color: var(--ink-3); font: 15px var(--font); letter-spacing: 0; }
+.err { font-size: 13px; color: var(--err); }
+
+/* 흐름 그림 */
+.flow { width: 1240px; height: auto; background: var(--panel); border-radius: 12px; }
+.flow .box { fill: var(--surface); stroke: var(--line-strong); }
+.flow .box.hub { stroke: var(--ink); stroke-width: 1.6; }
+.flow .t { fill: var(--ink); font: 600 14px var(--font); text-anchor: middle; }
+.flow .s { fill: var(--ink-3); font: 12px var(--font); text-anchor: middle; }
+.flow .a { stroke: var(--ink-2); stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+.flow .lb { fill: var(--ink-2); font: 12px var(--font); }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 폰연결</b></span><span>v1 · 2026-10-22</span></div>
+  <h1>휴대폰 연결: Orca처럼 QR로 짝짓기</h1>
+  <p class="lead">사람 지시: "pc loom과 앱 연결은 orca의 방식을 참고하여 구현하라"(Q359: 폰과 PC 데몬의 연결). Orca는 PC 설정에서 QR을 만들고, 폰이 그 QR을 찍으면 기기마다 토큰을 받고, PC의 「페어링된 장치」 목록에서 끊는다. loom은 길(Tailscale Serve, HTTPS)을 그대로 두고, 「Tailscale 로그인 적기」를 이 짝짓기로 바꾼다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 연결 흐름 <span class="tag">길은 지금과 같다 · 신원 확인만 바뀐다</span></h2>
+    <svg class="flow" viewBox="0 0 1240 230" role="img" aria-label="PC 설정에서 QR을 만들고 폰이 찍어 기기 토큰을 받는 흐름">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor" style="color: var(--ink-2)"/></marker></defs>
+      <rect class="box" x="30" y="40" width="230" height="70" rx="10"/><text class="t" x="145" y="70">PC 설정 › 일반</text><text class="s" x="145" y="92">[휴대폰 연결] → QR·코드(10분, 한 번)</text>
+      <rect class="box" x="360" y="40" width="230" height="70" rx="10"/><text class="t" x="475" y="70">폰 카메라 · 브라우저</text><text class="s" x="475" y="92">https://pc.tailnet.ts.net/#pair=코드</text>
+      <rect class="box" x="690" y="40" width="230" height="70" rx="10"/><text class="t" x="805" y="70">Tailscale Serve</text><text class="s" x="805" y="92">HTTPS 끝냄 → 127.0.0.1:7420</text>
+      <rect class="box hub" x="1010" y="40" width="200" height="70" rx="10"/><text class="t" x="1110" y="70">loom 데몬</text><text class="s" x="1110" y="92">코드 확인 → 기기 토큰 쿠키</text>
+      <path class="a" d="M260 75H356"/><text class="lb" x="278" y="66">QR 찍기</text>
+      <path class="a" d="M590 75H686"/><text class="lb" x="606" y="66">tailnet</text>
+      <path class="a" d="M920 75H1006"/>
+      <rect class="box" x="360" y="150" width="560" height="56" rx="10"/><text class="t" x="640" y="175">다음 요청부터: 쿠키의 기기 토큰이 데몬 목록에 있으면 통과, 없으면 「연결되지 않은 기기」</text><text class="s" x="640" y="195">PC에서 [연결 끊기]를 누르면 그 기기의 다음 요청부터 막힌다</text>
+      <path class="a" d="M1110 110V178H924"/>
+    </svg>
+    <ul class="note">
+      <li>코드는 주소의 <code>#</code> 뒤에 둔다. 브라우저는 이 부분을 서버에 보내지 않는다(Orca 브라우저 링크와 같다). 페이지가 코드를 한 번 보내고 주소에서 지운다.</li>
+      <li>지우는 것: 설정 <code>remoteLogin</code>, 그 입력 칸, 「이 로그인은 허용되지 않았습니다」 쪽. 남기는 것: tailnet 이름·Origin 검사(DNS 재바인딩 막기).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② PC 설정 › 일반 「휴대폰 연결」 · 준비됨 <span class="tag">원격 접속 칸을 바꾼다</span></h2>
+    <div class="pane">
+      <section class="new">
+        <h4>휴대폰 연결</h4>
+        <div class="ready"><span class="dot"></span><span>Tailscale 켜짐 · <code>ktadev-pc.tail8c2f.ts.net</code> · Serve 켜짐(7420)</span></div>
+        <div class="pair-box">
+          <div class="qr" id="qr"></div>
+          <div class="txt">
+            <b>폰 카메라로 QR을 찍습니다</b>
+            <span class="hint">홈 화면 앱에서는 아래 코드를 적습니다.</span>
+            <span class="code">K7QP-M2XD</span>
+            <span class="hint">9분 42초 남음 · 한 번만 씁니다</span>
+            <span><button class="btn sm">닫기</button></span>
+          </div>
+        </div>
+      </section>
+      <section class="new">
+        <h4>연결된 기기</h4>
+        <div class="rows">
+          <div class="dev-row"><span class="main"><span class="name">iPhone · Safari</span><span class="meta">10-22 14:05 연결 · 방금 씀</span></span><button class="btn ghost sm">연결 끊기</button></div>
+          <div class="dev-row"><span class="main"><span class="name">Android · Chrome</span><span class="meta">10-20 09:12 연결 · 2일 전 씀</span></span><button class="btn ghost sm">연결 끊기</button></div>
+        </div>
+      </section>
+    </div>
+    <ul class="note">
+      <li>[휴대폰 연결]을 누르면 QR과 8자 코드가 나온다. 코드는 10분 뒤나 한 번 쓰면 없어진다. 폰이 연결하면 상자가 닫히고 목록에 줄이 생긴다.</li>
+      <li>기기 이름은 폰 브라우저 정보에서 만든다. [연결 끊기]는 그 기기 토큰을 지운다. 확인 창은 없다(다시 짝지으면 된다).</li>
+      <li>QR이 없을 때 이 자리에는 <button class="btn sm primary">휴대폰 연결</button> 단추만 있다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ PC 설정 · 준비 안 됨 <span class="tag">데몬이 tailscale status·serve status를 읽는다</span></h2>
+    <div class="row">
+      <div class="pane" style="width: 560px">
+        <section class="new">
+          <h4>휴대폰 연결</h4>
+          <div class="ready"><span class="dot off"></span><span>Tailscale을 찾지 못했습니다</span></div>
+          <ol class="hint">
+            <li>이 컴퓨터와 폰에 Tailscale을 설치하고 같은 계정으로 로그인합니다.</li>
+            <li>이 화면으로 돌아와 [다시 확인]을 누릅니다.</li>
+          </ol>
+          <span><button class="btn sm">다시 확인</button></span>
+        </section>
+      </div>
+      <div class="pane" style="width: 560px">
+        <section class="new">
+          <h4>휴대폰 연결</h4>
+          <div class="ready"><span class="dot warn"></span><span>Tailscale 켜짐 · <code>ktadev-pc.tail8c2f.ts.net</code> · Serve 꺼짐</span></div>
+          <span class="hint">폰이 이 컴퓨터에 닿게 Tailscale Serve를 켭니다(<code>tailscale serve --bg 7420</code>). tailnet 안의 기기만 닿습니다.</span>
+          <span><button class="btn sm primary">Serve 켜기</button></span>
+        </section>
+      </div>
+    </div>
+    <ul class="note">
+      <li>[Serve 켜기]는 사람이 누를 때만 데몬이 <code>tailscale serve --bg 7420</code>을 돌린다(Orca의 [휴대폰 연결 허용]이 방화벽 규칙을 넣는 것과 같다). 결정 2가 B면 이 단추 대신 명령을 보인다.</li>
+      <li>Windows 데몬은 7421을 쓴다. 명령의 포트는 그 데몬의 포트다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>④ 폰 화면 <span class="tag">Phone.tsx 앞에 서는 카드 · M35 ⑥ 거절 카드를 바꾼다</span></h2>
+    <div class="row">
+      <div class="shot">
+        <span class="cap">QR을 찍고 열었을 때</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card new"><span class="mark">L</span><h3>loom에 연결했습니다</h3><p>이 기기를 ktadev-pc에 연결했습니다. 홈 화면에 추가하면 앱처럼 씁니다.</p><button class="btn primary pbtn">시작</button></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">연결되지 않은 기기(홈 화면 앱 처음, 끊긴 기기)</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card new"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 일반 › [휴대폰 연결]에 나온 코드를 적습니다.</p><div class="field">K7QP-M2XD</div><button class="btn primary pbtn">연결</button></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">코드가 틀리거나 끝났을 때</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card new"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 일반 › [휴대폰 연결]에 나온 코드를 적습니다.</p><div class="field empty">코드 8자</div><span class="err">코드가 맞지 않거나 시간이 지났습니다. PC에서 새 코드를 만듭니다.</span><button class="btn primary pbtn">연결</button></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>iPhone의 홈 화면 앱은 Safari와 쿠키를 나누지 않는다. 그래서 홈 화면 앱은 코드 칸으로 한 번 더 짝짓는다. Android Chrome은 쿠키를 나누므로 QR 한 번이면 된다.</li>
+      <li>연결되지 않은 기기에는 노드·질문을 싣지 않는다(지금 거절 쪽과 같다). 카드는 두 언어를 보인다(화면 언어를 모름). 그림은 한국어만 그렸다.</li>
+      <li>코드 칸은 5번 틀리면 그 코드를 지운다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="cmp">
+      <tr><th>#</th><th>정할 것</th><th>안</th></tr>
+      <tr><td>1</td><td>폰의 신원 확인</td><td><span class="pick">A(권장)</span>: QR·코드로 짝지은 기기 토큰만 받는다. <code>remoteLogin</code>과 로그인 칸을 지운다. / B: 기기 토큰과 Tailscale 로그인을 둘 다 본다(칸이 남는다).</td></tr>
+      <tr><td>2</td><td>Serve 켜기</td><td><span class="pick">A(권장)</span>: ③의 [Serve 켜기] 단추로 데몬이 명령을 돌린다. / B: 명령만 보이고 사람이 터미널에서 돌린다.</td></tr>
+      <tr><td>3</td><td>Orca Relay(계정·클라우드 중계)</td><td><span class="pick">A(권장)</span>: 만들지 않는다. Tailscale이 밖에서도 닿게 한다. / B: 중계 서버를 만든다(서버 운영·계정 필요).</td></tr>
+      <tr><td>4</td><td>②~④ 화면과 문구</td><td>그대로 / 고칠 곳</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+// 그림용 가짜 QR(무늬만). 실제 QR은 구현이 만든다.
+(() => {
+  const n = 25, cells = [];
+  let s = 7;
+  const rnd = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const finder = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => x >= fx && x < fx + 7 && y >= fy && y < fy + 7);
+  const ring = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => {
+    const dx = x - fx, dy = y - fy;
+    if (dx < 0 || dy < 0 || dx > 6 || dy > 6) return false;
+    return dx === 0 || dy === 0 || dx === 6 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4);
+  });
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (finder(x, y) ? ring(x, y) : rnd() < 0.48) cells.push(`<rect x="${x}" y="${y}" width="1" height="1"/>`);
+  }
+  document.getElementById('qr').innerHTML = `<svg viewBox="0 0 ${n} ${n}" fill="#000" shape-rendering="crispEdges">${cells.join('')}</svg>`;
+})();
+</script>
+</body>
+</html>

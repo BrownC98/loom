@@ -306,8 +306,21 @@ impl Graph {
             )?;
             taken.push(delivery);
         }
+        let resumed = !taken.is_empty() && resume(&tx, node)?;
         tx.commit()?;
+        if resumed {
+            self.publish_node(&db, node)?;
+        }
         Ok(taken)
+    }
+
+    /// 사람이 노드에 입력했다. 끝낸 노드면 다시 일한다.
+    pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
+        let db = self.lock();
+        if resume(&db, node)? {
+            self.publish_node(&db, node)?;
+        }
+        Ok(())
     }
 
     /// 사람이 노드 카드의 「안 읽음」을 눌렀다. 아직 꺼내지 않은 큐 메시지를 조정으로 바꾼다.
@@ -395,6 +408,16 @@ impl Graph {
         }
         Ok(alive_children)
     }
+}
+
+/// `done` 노드가 새 일(메시지, 사람 입력)을 받으면 `running`으로 돌린다. 다시 끝내면 `loom done`을 또 부른다.
+/// 근거: 피드백으로 다시 일하는 노드가 「완료」로 보였다(2026-10-22 사람 보고 "작업중인데 완료 상태로 표시되는 문제").
+fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
+    let done = matches!(state_of(db, node), Ok(NodeState::Done { .. }));
+    if done {
+        set_state(db, node, &NodeState::Running)?;
+    }
+    Ok(done)
 }
 
 fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {

@@ -1,5 +1,5 @@
-import { Plus, Power, RotateCcw, RotateCw } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Plus, Power, RotateCcw, RotateCw, Search, X } from 'lucide-react';
+import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FieldDefaults, FieldReset } from './FieldReset';
 import type { SettingsPatch } from './settingsPatch';
@@ -63,13 +63,59 @@ export function Settings(props: {
   onStop: () => void;
 }) {
   const { t } = useTranslation();
+  const [query, setQuery] = useState('');
+  const pane = useRef<HTMLDivElement>(null);
+  const found = useSearch(pane, query.trim());
+  const body = (tab: SettingsTab) => (
+    <>
+      {tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
+      {tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
+      {tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
+      {tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
+      {tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
+      {tab === 'about' && <AboutTab updates={props.updates} />}
+    </>
+  );
+  const searching = query.trim() !== '';
   return (
     <FieldDefaults.Provider value={{ settings: props.settings, defaults: props.defaults, reset: props.onReset }}>
     <Modal className="dialog" label={t('settings.title')} onClose={props.onClose}>
       <nav aria-label={t('settings.tabsLabel')}>
         <h2>{t('settings.title')}</h2>
+        {/* 모든 탭에서 글이 맞는 칸만 보인다(목업 docs/mockups/settings-search.html M34, 2026-10-22 사람 승인 Q269 A). */}
+        <label className="settings-search">
+          <Search aria-hidden="true" />
+          <input
+            type="search"
+            value={query}
+            placeholder={t('settings.search')}
+            aria-label={t('settings.search')}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // 검색 중 Esc는 창을 닫지 않고 검색만 지운다.
+              if (e.key === 'Escape' && query !== '') {
+                e.preventDefault();
+                e.stopPropagation();
+                setQuery('');
+              }
+            }}
+          />
+          {query !== '' && (
+            <button type="button" aria-label={t('settings.searchClear')} onClick={() => setQuery('')}>
+              <X aria-hidden="true" />
+            </button>
+          )}
+        </label>
         {SETTINGS_TABS.map((tab) => (
-          <button key={tab} className="tab" aria-current={props.tab === tab ? 'page' : undefined} onClick={() => props.onTab(tab)}>
+          <button
+            key={tab}
+            className="tab"
+            aria-current={!searching && props.tab === tab ? 'page' : undefined}
+            onClick={() => {
+              setQuery('');
+              props.onTab(tab);
+            }}
+          >
             {t(`settings.tab.${tab}`)}
           </button>
         ))}
@@ -82,11 +128,11 @@ export function Settings(props: {
           {t('settings.stop')}
         </button>
       </nav>
-      <div className="pane">
+      <div className="pane" ref={pane}>
         <div className="pane-head">
-          <h3>{t(`settings.tab.${props.tab}`)}</h3>
+          <h3>{searching ? t('settings.searchResults', { query: query.trim() }) : t(`settings.tab.${props.tab}`)}</h3>
           <span className="spacer" />
-          {TAB_SETTINGS[props.tab].length > 0 && (
+          {!searching && TAB_SETTINGS[props.tab].length > 0 && (
             <button type="button" className="btn ghost sm" onClick={() => confirm(t('settings.confirmResetTab', { tab: t(`settings.tab.${props.tab}`) })) && props.onReset(nulls(TAB_SETTINGS[props.tab]))}>
               <RotateCcw />
               {t('settings.resetTab')}
@@ -96,16 +142,70 @@ export function Settings(props: {
             ×
           </button>
         </div>
-        {props.tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
-        {props.tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
-        {props.tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
-        {props.tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
-        {props.tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
-        {props.tab === 'about' && <AboutTab updates={props.updates} />}
+        {searching
+          ? SETTINGS_TABS.map((tab) => (
+              // 칸 이름 앞의 탭 이름은 CSS가 이 변수로 그린다(`.search-tab section > h4::before`).
+              <div key={tab} className="search-tab" style={{ '--tab-name': JSON.stringify(t(`settings.tab.${tab}`)) } as CSSProperties}>
+                {body(tab)}
+              </div>
+            ))
+          : body(props.tab)}
+        {searching && found === 0 && <p className="hint">{t('settings.searchNone')}</p>}
       </div>
     </Modal>
     </FieldDefaults.Provider>
   );
+}
+
+/** 맞은 글에 칠하는 이름. 글을 바꾸지 않고 칠한다(CSS Custom Highlight API). 근거: styles.css `::highlight(settings-search)`. */
+const SEARCH_HIGHLIGHT = 'settings-search';
+
+/**
+ * 검색 중이면 `pane` 안의 칸(`section`)마다 글에 `query`가 있는지 보고, 없는 칸을 숨기고 맞은 글을 칠한다. 대소문자는 가리지 않는다.
+ * 칸 글은 화면이 그린 글 그대로라 언어를 바꿔도 맞는다. 맞은 칸 수를 돌려준다(검색이 아니면 null).
+ * 칸이 늦게 그려져도(계정 사용량) 다시 거른다.
+ */
+function useSearch(pane: RefObject<HTMLDivElement | null>, query: string): number | null {
+  const [found, setFound] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const root = pane.current;
+    if (!root || query === '') {
+      CSS.highlights?.delete(SEARCH_HIGHLIGHT);
+      setFound(null);
+      return;
+    }
+    const needle = query.toLocaleLowerCase();
+    const filter = () => {
+      const ranges: Range[] = [];
+      let count = 0;
+      for (const section of root.querySelectorAll<HTMLElement>('.search-tab section')) {
+        const hit = (section.textContent ?? '').toLocaleLowerCase().includes(needle);
+        section.hidden = !hit;
+        if (!hit) continue;
+        count++;
+        const walk = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
+        while (walk.nextNode()) {
+          const text = walk.currentNode.nodeValue?.toLocaleLowerCase() ?? '';
+          for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
+            const range = new Range();
+            range.setStart(walk.currentNode, at);
+            range.setEnd(walk.currentNode, at + needle.length);
+            ranges.push(range);
+          }
+        }
+      }
+      CSS.highlights?.set(SEARCH_HIGHLIGHT, new Highlight(...ranges));
+      setFound(count);
+    };
+    filter();
+    const watch = new MutationObserver(filter);
+    watch.observe(root, { childList: true, subtree: true, characterData: true });
+    return () => {
+      watch.disconnect();
+      CSS.highlights?.delete(SEARCH_HIGHLIGHT);
+    };
+  }, [pane, query]);
+  return found;
 }
 
 /** 판과 업데이트(docs/mockups/web-update.html ④). [업데이트]는 알림 카드와 같은 일을 하고, 진행은 그 카드가 보인다. */

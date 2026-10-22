@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M34 설정 검색 목업</title>
+<style>
+/* 문서 틀: skills/user-doc/style.html. 「후」 그림은 실제 설정 창에 검색 칸과 결과를 얹어 찍었다. */
+:root { --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0)); --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0)); --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0)); --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0)); }
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, sans-serif; word-break: keep-all; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 24px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+.row { display: grid; grid-template-columns: repeat(2, 640px); gap: 24px; align-items: start; }
+.cell { display: grid; gap: 6px; }
+.cap { font-size: 13px; color: var(--ink-2); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 13px; cursor: pointer; }
+img { width: 640px; border: 1px solid var(--line); border-radius: 8px; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M34</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>만든 이: <b>총괄 · loom 총괄</b></span></div>
+  <h1>M33 설정 검색</h1>
+  <div class="row">
+    <div class="cell"><img src="settings-search-before.png" alt="지금 설정 창"><p class="cap">전: 지금 설정 창</p></div>
+    <div class="cell"><img src="settings-search-after.png" alt="검색한 설정 창"><p class="cap">후: 왼쪽 「설정」 아래 검색 칸. 모든 탭에서 글이 맞는 칸만 보이고, 칸 이름 앞에 탭 이름, 맞은 글에 밑색</p></div>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

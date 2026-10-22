@@ -178,7 +178,7 @@ type TerminalProps = {
 };
 
 /**
- * PTY 크기를 따르는 터미널. 데몬이 알린 열·줄(`PtyNotice` `size`)로 그리고, 칸에 맞게 글자를 늘이거나 줄인다(목업 docs/mockups/terminal-size.html 안 A).
+ * PTY 크기를 따르는 터미널. 데몬이 알린 열·줄(`PtyNotice` `size`)로 그리고, 글꼴 크기를 바꿔 칸에 맞춘다(목업 docs/mockups/terminal-size.html 안 A).
  * PTY 크기는 바꾸지 않는다. 심플 보기 오른쪽 칸이 쓴다.
  * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). `loadRenderer`는 연 뒤에 렌더러 애드온을 붙인다. 없으면 DOM 렌더러로 그린다.
  */
@@ -191,24 +191,58 @@ export function SizingTerminal(props: TerminalProps) {
   return <XtermView {...props} sizing={SET} />;
 }
 
-/** 칸이 바뀔 때 할 일. `FOLLOW`는 PTY 크기를 두고, `SET`은 칸에 들어가는 열·줄을 PTY에 보낸다. */
-type Sizing = (fit: FitAddon, send: (size: Resize) => void) => void;
-const FOLLOW: Sizing = () => {};
-const SET: Sizing = (fit, send) => {
-  const proposed = fit.proposeDimensions();
-  if (proposed && proposed.cols > 0 && proposed.rows > 0) send({ cols: proposed.cols, rows: proposed.rows });
+/** 칸이 바뀔 때 할 일. `decide`는 PTY 크기를 정하고, `fit`은 그린 xterm을 칸에 맞춘다. */
+type Sizing = { decide: (fit: FitAddon, send: (size: Resize) => void) => void; fit: (xterm: XTerm, box: HTMLElement) => void };
+/** PTY 크기를 두고, 글꼴 크기를 바꿔 칸에 맞춘다. CSS 배율로 늘이면 글자 비트맵이 늘어나 흐리다(2026-10-22 사람 지시 "심플모드일때 터미널이 낮은 해상도로 출력됨"). */
+const FOLLOW: Sizing = { decide: () => {}, fit: fontToBox };
+/** 칸에 들어가는 열·줄을 PTY에 보낸다. 칸이 곧 PTY 크기라 배율은 거의 1이다. */
+const SET: Sizing = {
+  decide: (fit, send) => {
+    const proposed = fit.proposeDimensions();
+    if (proposed && proposed.cols > 0 && proposed.rows > 0) send({ cols: proposed.cols, rows: proposed.rows });
+  },
+  fit: scaleToBox,
 };
 
-/** xterm을 칸 가운데에 맞춘다. 칸보다 크면 줄이고 작으면 늘인다. 마우스 위치는 `unscaleMouse`가 배율을 뺀다. */
-function scaleToBox(xterm: XTerm, box: HTMLElement) {
+/** 글꼴 크기 단위. 칸 폭이 바뀔 때마다 WebGL 글자 아틀라스를 다시 만들지 않도록 0.25px씩 바꾼다. */
+const FONT_STEP = 0.25;
+
+/** 글꼴 크기를 칸에 들어가는 가장 큰 값으로 바꾸고 칸 가운데에 둔다. 배율은 쓰지 않는다. */
+function fontToBox(xterm: XTerm, box: HTMLElement) {
   const el = xterm.element;
-  if (!el) return;
+  const scale = boxScale(xterm, box);
+  if (scale === null || !el) return;
+  const current = xterm.options.fontSize ?? DEFAULT_TERMINAL_FONT.size;
+  // 한 단계 키우면 넘칠 만큼만 남았으면 그대로 둔다.
+  if (scale < 1 || scale >= 1 + FONT_STEP / current) {
+    let size = Math.max(FONT_STEP, Math.floor((current * scale) / FONT_STEP) * FONT_STEP);
+    xterm.options.fontSize = size;
+    // 글자 칸은 기기 픽셀로 반올림되어 글꼴 크기에 딱 비례하지 않는다. 넘치면 한 단계씩 줄인다.
+    while (size > FONT_STEP && (boxScale(xterm, box) ?? 1) < 1) {
+      size -= FONT_STEP;
+      xterm.options.fontSize = size;
+    }
+  }
+  el.style.transform = `translateX(${(box.clientWidth - el.offsetWidth) / 2}px)`;
+}
+
+/** 배율 없이 그린 xterm을 칸에 넣는 배율. 아직 그리지 않았으면 `null`이다. */
+function boxScale(xterm: XTerm, box: HTMLElement): number | null {
+  const el = xterm.element;
+  if (!el) return null;
   el.style.transform = '';
   const width = el.offsetWidth;
   const height = el.offsetHeight;
-  if (width === 0 || height === 0 || box.clientWidth === 0 || box.clientHeight === 0) return;
-  const scale = Math.min(box.clientWidth / width, box.clientHeight / height);
-  const left = (box.clientWidth - width * scale) / 2;
+  if (width === 0 || height === 0 || box.clientWidth === 0 || box.clientHeight === 0) return null;
+  return Math.min(box.clientWidth / width, box.clientHeight / height);
+}
+
+/** xterm을 칸 가운데에 맞춘다. 칸보다 크면 줄이고 작으면 늘인다. 마우스 위치는 `unscaleMouse`가 배율을 뺀다. */
+function scaleToBox(xterm: XTerm, box: HTMLElement) {
+  const scale = boxScale(xterm, box);
+  const el = xterm.element;
+  if (scale === null || !el) return;
+  const left = (box.clientWidth - el.offsetWidth * scale) / 2;
   el.style.transform = `translateX(${left}px) scale(${scale})`;
 }
 
@@ -258,8 +292,8 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
       unscaleMouse(xterm);
       latest.current.loadRenderer?.(xterm);
       term.current = xterm;
-      const rescale = () => scaleToBox(xterm, el);
-      const decide = () => latest.current.sizing(fitAddon, (size) => link.sendResize(size));
+      const rescale = () => latest.current.sizing.fit(xterm, el);
+      const decide = () => latest.current.sizing.decide(fitAddon, (size) => link.sendResize(size));
       redecide.current = () => {
         decide();
         rescale();

@@ -208,10 +208,11 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
   );
 }
 
-/** 알림이 올라온 날짜·시각(2026-10-22 사람 지시 "알림은 알림이 언제 publish 되었는지 날짜,시간을 표시해"). */
+/** 알림이 올라온 날짜·시각(2026-10-22 사람 지시 "알림은 알림이 언제 publish 되었는지 날짜,시간을 표시해"). 「알림」 이름표를 붙인다. 옆의 「지시:」 줄 때문에 지시한 시각으로 읽혔다(같은 날 "저기 나온 시간이 지시를 한 시간인지, 알림이 발생한 시간인지 혼동됨"). */
 function Published(props: { wait: HumanWait }) {
+  const { t } = useTranslation();
   const at = props.wait.since * 1000;
-  return <time className="published" dateTime={new Date(at).toISOString()}>{dateAndTime(at)}</time>;
+  return <time className="published" dateTime={new Date(at).toISOString()}>{t('inbox.published', { time: dateAndTime(at) })}</time>;
 }
 
 /**

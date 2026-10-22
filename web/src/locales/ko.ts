@@ -345,6 +345,7 @@ const ko: typeof en = {
     button: '질문',
     tab: '알림',
     instruction: '지시: {{text}}',
+    published: '알림 {{time}}',
     jumpLabel: '{{name}} 질문으로 가기',
     listLabel: '질문 목록 열기, {{count}}개',
     title: '알림 {{count}}',

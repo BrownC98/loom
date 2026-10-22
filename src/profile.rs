@@ -221,28 +221,60 @@ pub struct AgentView {
     pub profile: Option<Profile>,
     /// 계정을 고르는 공급자. 프로필이 있어도 없을 수 있다(OpenCode 2).
     pub provider: Option<Provider>,
-    /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다.
+    /// 모든 권한 허용 인자가 있다. 없으면 설정에서 끄고 켤 수 없다. 위치와 관계없이 하나다.
     pub can_bypass: bool,
-    /// 데몬 PATH에서 찾은 실행 파일. 없으면 설치하지 않은 것이다.
+    /// 위치마다 찾은 결과. 첫째가 이 PC, 그 뒤가 WSL 배포판이다. 모든 에이전트가 같은 위치를 같은 순서로 갖는다.
+    pub places: Vec<AgentAt>,
+}
+
+/// 한 위치(이 PC 또는 WSL 배포판)에서 에이전트를 찾은 결과.
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AgentAt {
+    /// WSL 배포판 이름. 이 PC면 없다.
+    pub distro: Option<String>,
+    /// 그 위치의 `PATH`에서 찾은 실행 파일. 없으면 그 위치에 설치하지 않은 것이다.
     pub path: Option<String>,
     /// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있다는 경고.
     pub version_warning: Option<VersionMismatch>,
 }
 
-/// 카탈로그 전체를 데몬 PATH에서 찾는다. 부를 때마다 다시 찾는다.
-pub fn agents() -> Vec<AgentView> {
+/// 카탈로그 전체를 데몬 PATH와 `wsl`의 배포판마다 찾는다. 부를 때마다 다시 찾는다. 버전 경고는 호출자가 넣는다.
+pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
     CATALOG
         .iter()
-        .map(|a| AgentView {
-            id: a.id.clone(),
-            label: a.label.clone(),
-            homepage: a.homepage.clone(),
-            profile: a.profile,
-            provider: a.profile.and_then(Profile::provider),
-            can_bypass: !a.bypass.is_empty(),
-            path: installed(a).map(|p| p.to_string_lossy().into_owned()),
-            version_warning: None,
+        .map(|a| {
+            let names = || std::iter::once(&a.cmd).chain(&a.aliases);
+            let pc = AgentAt {
+                distro: None,
+                path: installed(a).map(|p| p.to_string_lossy().into_owned()),
+                version_warning: None,
+            };
+            let inside = wsl.iter().map(|inside| AgentAt {
+                distro: Some(inside.distro.clone()),
+                path: inside.find(names()).map(str::to_owned),
+                version_warning: None,
+            });
+            AgentView {
+                id: a.id.clone(),
+                label: a.label.clone(),
+                homepage: a.homepage.clone(),
+                profile: a.profile,
+                provider: a.profile.and_then(Profile::provider),
+                can_bypass: !a.bypass.is_empty(),
+                places: std::iter::once(pc).chain(inside).collect(),
+            }
         })
+        .collect()
+}
+
+/// 카탈로그의 모든 명령과 별칭. WSL 배포판에서 한 번에 찾는다(`wsl::inside`).
+pub fn catalog_commands() -> Vec<&'static str> {
+    CATALOG
+        .iter()
+        .flat_map(|a| std::iter::once(&a.cmd).chain(&a.aliases))
+        .map(String::as_str)
         .collect()
 }
 
@@ -271,23 +303,34 @@ fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
 
-/// 메시지 연동이 그 CLI 버전과 맞지 않을 수 있는 프로필마다 화면 경고. 데몬이 시작할 때 한 번 부른다.
+/// 고정 버전이 있는 프로필과 그 CLI 명령. 메시지 연동이 다른 버전과 맞지 않을 수 있다.
+pub const PINNED: [(Profile, &str); 2] = [
+    (Profile::Codex, "codex"),
+    (Profile::OpenCode2, opencode2::CMD),
+];
+
+/// `<명령> --version` 출력이 그 프로필의 고정 버전과 다르면 화면 경고다.
+pub fn version_warning(profile: Profile, version_output: &str) -> Option<VersionMismatch> {
+    match profile {
+        Profile::Codex => codex::version_warning(version_output),
+        Profile::OpenCode2 => opencode2::version_warning(version_output),
+        _ => None,
+    }
+}
+
+/// 이 PC의 프로필마다 화면 경고. 데몬이 시작할 때 한 번 부른다.
 /// `codex_version`은 데몬이 샌드박스 인자에도 쓰는 `codex --version` 출력이다.
 pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, VersionMismatch> {
-    let opencode2 = installed_version(opencode2::CMD);
-    [
-        (
-            Profile::Codex,
-            codex_version.and_then(codex::version_warning),
-        ),
-        (
-            Profile::OpenCode2,
-            opencode2.as_deref().and_then(opencode2::version_warning),
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(profile, warning)| Some((profile, warning?)))
-    .collect()
+    PINNED
+        .into_iter()
+        .filter_map(|(profile, cmd)| {
+            let output = match profile {
+                Profile::Codex => codex_version.map(str::to_owned),
+                _ => installed_version(cmd),
+            }?;
+            Some((profile, version_warning(profile, &output)?))
+        })
+        .collect()
 }
 
 /// 데몬 PATH의 `<cmd> --version` 출력. 설치하지 않았으면 없다.
@@ -877,7 +920,7 @@ mod tests {
     /// 모든 권한 허용 인자는 CLI 도움말로 확인한 셋에만 둔다(docs/design.md 「실측 근거」).
     #[test]
     fn only_checked_agents_can_bypass() {
-        let ids: Vec<_> = agents()
+        let ids: Vec<_> = agents(&[])
             .into_iter()
             .filter(|a| a.can_bypass)
             .map(|a| a.id.0)

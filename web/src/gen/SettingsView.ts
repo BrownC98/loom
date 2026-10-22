@@ -7,6 +7,7 @@ import type { CardView } from "./CardView";
 import type { ClosedPanes } from "./ClosedPanes";
 import type { EdgeStyle } from "./EdgeStyle";
 import type { GraphScope } from "./GraphScope";
+import type { InUse } from "./InUse";
 import type { Language } from "./Language";
 import type { PaneWidths } from "./PaneWidths";
 import type { QuestionPill } from "./QuestionPill";
@@ -23,9 +24,14 @@ export type SettingsView = {
  */
 bypassOff: Array<AgentId>, 
 /**
- * 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
+ * 이 PC 저장소의 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
  */
 claudeAccount: AccountId | null, codexAccount: AccountId | null, 
+/**
+ * WSL 배포판마다 그 배포판 저장소의 노드가 쓰는 계정. 키는 배포판 이름이다. 옛 설정에는 없다. 없는 배포판은 시스템 기본이다.
+ * 근거: 목업 docs/mockups/wsl-place.html ③ 「사용 중」은 위치마다 하나다.
+ */
+wslAccounts: { [key in string]: InUse }, 
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽고 다른 값은 그대로 둔다.
  */

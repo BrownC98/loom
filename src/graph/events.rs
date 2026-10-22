@@ -86,6 +86,9 @@ pub enum Entry {
     /// 목업 docs/mockups/account-switch.html ③.
     AccountSwitched {
         provider: Provider,
+        /// 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
+        #[serde(default)]
+        distro: Option<String>,
         from: Option<AccountId>,
         to: Option<AccountId>,
         why: SwitchCause,
@@ -96,6 +99,9 @@ pub enum Entry {
     /// 자동 전환할 계정이 없어 바꾸지 않았다. `resets_at`은 그 공급자 계정 가운데 가장 빠른 창 초기화(유닉스 초)다.
     NoAccountLeft {
         provider: Provider,
+        /// 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
+        #[serde(default)]
+        distro: Option<String>,
         #[ts(type = "number | null")]
         resets_at: Option<i64>,
     },

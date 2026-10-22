@@ -84,7 +84,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
               {!line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
             </button>
           </div>
-          {!line && (firstWait.kind === 'done' ? <DoneBody wait={firstWait} /> : <WaitBody key={firstWait.id} wait={firstWait} onGo={() => go(first.id)} />)}
+          {!line && (firstWait.kind === 'done' ? <DoneBody wait={firstWait} /> : <WaitBody key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />)}
         </div>
       )}
       {open && n > 0 && (
@@ -147,7 +147,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
           </button>
           <ul className="wait-rows">
             {v.waits.map((w) => (
-              <WaitRow key={w.id} wait={w} onGo={() => props.onGo(v.id)} onFocus={() => props.onFocus(v.id)} />
+              <WaitRow key={w.id} node={v.id} wait={w} onGo={() => props.onGo(v.id)} onFocus={() => props.onFocus(v.id)} />
             ))}
           </ul>
         </li>
@@ -160,7 +160,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
  * 목록의 대기 한 줄: 번호, 종류, [×]와 본문. 줄의 빈 곳이나 글을 누르면 그 노드로 가서 터미널에 입력 초점을 준다(2026-10-22 사람 지시 "질문 펼쳤을때 질문영역 클릭커블하게 만들고 클릭하면 해당 터미널 포커싱").
  * 단추·입력창·링크는 제 일을 한다. 키보드로는 노드 이름 단추가 같은 곳으로 간다.
  */
-function WaitRow(props: { wait: HumanWait; onGo: () => void; onFocus: () => void }) {
+function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFocus: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
   return (
@@ -187,7 +187,7 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void; onFocus: () => void
         )}
         <DismissButton wait={wait.id} />
       </div>
-      {wait.kind === 'done' ? <DoneBody wait={wait} /> : <WaitBody wait={wait} onGo={props.onGo} />}
+      {wait.kind === 'done' ? <DoneBody wait={wait} /> : <WaitBody node={props.node} wait={wait} onGo={props.onGo} />}
     </li>
   );
 }
@@ -209,12 +209,12 @@ function DoneBody(props: { wait: HumanWait }) {
  * `loom ask` 질문은 여기서 답한다: 선택지 버튼은 바로 보내고, 입력창은 Enter로 보낸다. 입력창에 그림을 붙여넣거나 본문 위에 끌어 놓으면 답에 붙는다(목업 docs/mockups/answer-image.html M30).
  * 다른 대기(승인 창·폴더 신뢰·로그인)는 그 노드 터미널에서만 답하므로 [터미널에서 답하기]만 둔다.
  */
-function WaitBody(props: { wait: HumanWait; onGo: () => void }) {
+function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
   const qid = `Q${wait.id}`;
   const [refusal, setRefusal] = useState<string | null>(null);
-  const images = useImages(setRefusal);
+  const images = useImages(props.node, setRefusal);
   const [dragging, setDragging] = useState(false);
   const full = useRef<HTMLParagraphElement>(null);
   const cut = useCut(full);
@@ -345,7 +345,7 @@ type AttachedImage = { path: string; url: string; name: string };
  * 답에 붙일 그림들. 그림은 붙이는 대로 데몬에 올린다(`POST /api/pastes`, 터미널 붙여넣기와 같은 폴더와 상한). 그림이 아니거나 크면 받지 않고 이유를 알린다.
  * 줄이 사라지면 브라우저 주소를 놓는다. 데몬의 파일은 OS가 지운다.
  */
-function useImages(onError: (message: string) => void) {
+function useImages(node: NodeId, onError: (message: string) => void) {
   const { t } = useTranslation();
   const [list, setList] = useState<AttachedImage[]>([]);
   const shown = useRef<AttachedImage[]>([]);
@@ -361,7 +361,7 @@ function useImages(onError: (message: string) => void) {
         onError(t('terminal.tooBig', { name: file.name, size: Math.ceil(file.size / MB), limit: PASTE_LIMIT_BYTES / MB }));
         continue;
       }
-      savePastedFile(file).then(
+      savePastedFile(file, node).then(
         (path) => setList((now) => [...now, { path, url: URL.createObjectURL(file), name: file.name }]),
         (err: Error) => onError(err.message),
       );

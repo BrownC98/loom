@@ -33,7 +33,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 use ts_rs::TS;
 
-use crate::accounts::{AccountId, Accounts};
+use crate::accounts::{AccountId, Site};
 use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
@@ -73,7 +73,8 @@ struct App {
     graph: Arc<Graph>,
     settings: Settings,
     spots: Spots,
-    accounts: Accounts,
+    /// 이 PC의 loom 계정 폴더. WSL 배포판의 계정은 그 배포판에 있다(`accounts::Site`).
+    accounts_root: PathBuf,
     logins: settings::Logins,
     /// Codex 노드마다 그 노드가 붙은 app-server. 노드 프로세스가 끝나면 지우고 끝낸다.
     codex: Mutex<HashMap<NodeId, Arc<CodexServer>>>,
@@ -193,6 +194,15 @@ pub struct RenameNode {
 #[ts(export)]
 pub struct OpenFile {
     pub path: String,
+    /// 링크를 누른 터미널의 노드. 로그인 창이면 없다.
+    #[serde(default)]
+    pub node: Option<NodeId>,
+}
+
+/// 붙여넣은 파일을 받을 터미널의 노드. 로그인 창이면 없다.
+#[derive(Deserialize)]
+pub struct PasteAt {
+    node: Option<NodeId>,
 }
 
 /// [저장소 추가]. `path`는 데몬이 보는 폴더다.
@@ -483,7 +493,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         graph,
         settings: Settings::new(open()?),
         spots: Spots::new(open()?),
-        accounts: Accounts::new(db_path.with_file_name("accounts")),
+        accounts_root: db_path.with_file_name("accounts"),
         logins: settings::Logins::new(pty_dir.join("logins")),
         codex: Mutex::default(),
         opencode2: Mutex::default(),
@@ -1135,19 +1145,23 @@ impl App {
             position,
             skills: settings.always_on,
         };
-        let account = provider.and_then(|p| settings.account(p));
         let token = new_token().map_err(internal)?;
-        let env = self.node_env(&token);
+        let mut env = self.node_env(&token).to_vec();
         let plugin = self.plugin.dir(launch.skills);
-        // WSL 폴더면 노드는 그 배포판 안에서 돈다. 근거: docs/design.md 「데몬 하나」.
-        let inside = match wsl::of(cwd) {
-            Some(at) => Some(
+        // WSL 폴더면 노드는 그 배포판 안에서 돌고 그 배포판의 계정을 쓴다. 근거: docs/design.md 「데몬 하나」.
+        let site = match wsl::of(cwd) {
+            Some(at) => Site::wsl(
                 wsl::inside(&at, &profile::commands(start), &self.shim, &[&plugin])
                     .await
                     .map_err(LaunchError::Wsl)?,
             ),
-            None => None,
+            None => self.pc_site(),
         };
+        let account = provider.and_then(|p| settings.account(p, site.distro()));
+        if let Some(provider) = provider {
+            env.extend(site.env(provider, account));
+        }
+        let inside = site.inside();
         // 에이전트가 읽는 스킬 플러그인 폴더와 그 안의 `skills/`. WSL 노드면 배포판 안에서 본 경로다.
         let (plugin, skills) = match inside.as_ref().and_then(|i| i.path(0)) {
             Some(inside) => (
@@ -1158,20 +1172,18 @@ impl App {
         };
         let codex = match profile {
             Some(Profile::Codex) => {
-                let home = self.accounts.config_dir(profile::Provider::Codex, account);
                 let config: Vec<String> = self
                     .codex_config
                     .iter()
                     .cloned()
                     .chain(codex::server_args(launch))
                     .collect();
-                let server =
-                    CodexServer::start(cwd, inside.as_ref(), home.as_deref(), &env, &config)
-                        .await
-                        .map_err(|cause| LaunchError::Server {
-                            program: "codex app-server".into(),
-                            cause,
-                        })?;
+                let server = CodexServer::start(cwd, inside, &env, &config)
+                    .await
+                    .map_err(|cause| LaunchError::Server {
+                        program: "codex app-server".into(),
+                        cause,
+                    })?;
                 // 실패해도 노드는 띄운다. 다른 Codex 버전에는 이 요청이 없을 수 있다. 그때 노드는 내장 스킬만 없다.
                 let call = |method, params| server.call(method, params);
                 if let Err(e) = codex::add_skills(call, &skills).await {
@@ -1184,13 +1196,12 @@ impl App {
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
-                let node =
-                    opencode2::Node::start(cwd, inside.as_ref(), &env, &skills, password, launch)
-                        .await
-                        .map_err(|cause| LaunchError::Server {
-                            program: format!("{} serve", opencode2::CMD),
-                            cause,
-                        })?;
+                let node = opencode2::Node::start(cwd, inside, &env, &skills, password, launch)
+                    .await
+                    .map_err(|cause| LaunchError::Server {
+                        program: format!("{} serve", opencode2::CMD),
+                        cause,
+                    })?;
                 Some(Arc::new(node))
             }
             _ => None,
@@ -1204,7 +1215,7 @@ impl App {
         let mut cmd = profile::command(
             start,
             cwd,
-            inside.as_ref(),
+            inside,
             remote,
             &settings.bypass_off,
             &plugin,
@@ -1214,10 +1225,7 @@ impl App {
         for (key, value) in &env {
             cmd.env(key, value);
         }
-        // WSL 노드는 그 배포판의 시스템 기본 로그인을 쓴다. loom 계정 폴더는 Windows에 있다.
-        if let (Some(provider), None) = (provider, &inside) {
-            self.accounts.apply(&mut cmd, provider, account);
-        }
+        let inside = site.into_inside();
         if let Some(inside) = &inside {
             cmd = inside.wrap(&cmd);
         }
@@ -1231,6 +1239,13 @@ impl App {
             codex,
             opencode2,
         })
+    }
+
+    /// 노드가 WSL 폴더에서 돌면 그 배포판 안의 위치다.
+    fn node_wsl(&self, node: Option<NodeId>) -> Result<Option<wsl::WslPath>, Problem> {
+        let Some(node) = node else { return Ok(None) };
+        let place = self.graph.place_of(node).map_err(internal)?;
+        Ok(wsl::of(std::path::Path::new(&place.worktree)))
     }
 
     /// 노드 안의 `loom` 명령이 쓰는 환경. Codex는 셸을 TUI가 아니라 app-server 아래에서 띄우므로 둘 다 받는다.
@@ -1526,9 +1541,24 @@ async fn create_node(
 }
 
 /// 터미널에 붙여넣거나 끌어다 놓은 파일을 남기고 그 절대 경로를 돌려준다. 몸통은 파일 그대로, 경로 끝은 원래 파일 이름이다.
-async fn save_paste(Path(name): Path<String>, body: Bytes) -> Result<Json<String>, Problem> {
-    let path = paste::save(&name, &body).map_err(internal)?;
-    Ok(Json(path.to_string_lossy().into_owned()))
+/// `node`가 WSL 노드면 그 배포판의 `/tmp`에 쓰고 배포판 안의 경로를 돌려준다. 그 노드의 CLI는 Windows 임시 폴더 경로를 읽지 못한다.
+async fn save_paste(
+    State(app): State<Arc<App>>,
+    Path(name): Path<String>,
+    Query(at): Query<PasteAt>,
+    body: Bytes,
+) -> Result<Json<String>, Problem> {
+    let wsl = app.node_wsl(at.node)?;
+    let root = match &wsl {
+        Some(wsl) => PathBuf::from(wsl.unc("/tmp")),
+        None => std::env::temp_dir(),
+    };
+    let path = paste::save(&root, &name, &body).map_err(internal)?;
+    let path = path.to_string_lossy().into_owned();
+    Ok(Json(match wsl::location(&path) {
+        Some(inside) if wsl.is_some() => inside.path,
+        _ => path,
+    }))
 }
 
 /// 노드 하나를 지우고 프로세스를 끝낸다. 프로세스가 끝나면 `launch`의 `on_exit`가 app-server를 끝낸다.
@@ -1552,8 +1582,16 @@ async fn adopt_node(
 }
 
 /// 사람이 터미널에서 누른 파일 링크를 기본 앱으로 연다. JSON 몸통이라 다른 출처의 페이지는 사전 요청에서 막힌다.
-async fn open_file(Json(req): Json<OpenFile>) -> Result<Json<()>, Problem> {
-    open::open(std::path::Path::new(&req.path)).map_err(internal)?;
+/// WSL 노드의 링크는 배포판 안의 경로(`/home/…`)다. 그 배포판의 UNC 경로로 연다.
+async fn open_file(
+    State(app): State<Arc<App>>,
+    Json(req): Json<OpenFile>,
+) -> Result<Json<()>, Problem> {
+    let path = match app.node_wsl(req.node)? {
+        Some(wsl) if req.path.starts_with('/') => wsl.unc(&req.path),
+        _ => req.path,
+    };
+    open::open(std::path::Path::new(&path)).map_err(internal)?;
     Ok(Json(()))
 }
 

@@ -64,8 +64,11 @@ const call = <T>(method: string, path: string, body?: unknown) =>
 export const PASTE_LIMIT_BYTES = 32 * 1024 * 1024;
 
 /** 붙여넣거나 끌어다 놓은 파일을 데몬이 같은 이름으로 남기고 그 절대 경로를 돌려준다. 터미널과 질문 답의 그림이 쓴다. */
-export const savePastedFile = (file: File) =>
-  request<string>('POST', `/api/pastes/${encodeURIComponent(file.name)}`, { type: file.type || 'application/octet-stream', data: file });
+export const savePastedFile = (file: File, node: NodeId | null) =>
+  request<string>('POST', `/api/pastes/${encodeURIComponent(file.name)}${node === null ? '' : `?node=${node}`}`, {
+    type: file.type || 'application/octet-stream',
+    data: file,
+  });
 
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
 /** 노드 하나를 지운다. 자식은 부모 없이 남는다(docs/design.md 「노드 제거와 입양」). */
@@ -95,7 +98,7 @@ export async function shutdown(): Promise<void> {
   if (!res.ok) throw new Error(statusText(res.status));
 }
 
-export const openFile = (path: string) => call<null>('POST', '/api/files/open', { path } satisfies OpenFile);
+export const openFile = (path: string, node: NodeId | null) => call<null>('POST', '/api/files/open', { path, node } satisfies OpenFile);
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');
@@ -148,14 +151,17 @@ export const deleteWorktree = (repo: RepoId, path: string, deleteBranch: boolean
 export const getEventLog = () => call<EventRecord[]>('GET', '/api/events/log');
 /** 계정마다 사용량을 그 자리에서 읽는다. 몇 초 걸린다. */
 export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
-/** 그 공급자에서 `to` 계정이 아닌 계정으로 도는 노드. `to`가 null이면 시스템 기본이 아닌 노드다. */
-export const getMovableNodes = (provider: Provider, to: AccountId | null) =>
-  call<MovableNode[]>('GET', `/api/accounts/${provider}/nodes${to === null ? '' : `?${new URLSearchParams({ to })}`}`);
-/** 그 노드들을 설정에 저장한 계정으로 옮긴다. */
-export const moveNodes = (provider: Provider) => call<MoveResult>('POST', `/api/accounts/${provider}/move`);
-export const removeAccount = (provider: Provider, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}`);
-export const startLogin = (provider: Provider, target: LoginTarget) => call<LoginId>('POST', `/api/accounts/${provider}`, target);
-export const logoutSystem = (provider: Provider) => call<null>('POST', `/api/accounts/${provider}/logout`);
+/** 계정 라우트의 위치 질의. `distro`가 null이면 이 PC다. */
+const at = (distro: string | null): Record<string, string> => (distro === null ? {} : { distro });
+const query = (params: Record<string, string>) => (Object.keys(params).length === 0 ? '' : `?${new URLSearchParams(params)}`);
+/** 그 위치, 그 공급자에서 `to` 계정이 아닌 계정으로 도는 노드. `to`가 null이면 시스템 기본이 아닌 노드다. */
+export const getMovableNodes = (provider: Provider, distro: string | null, to: AccountId | null) =>
+  call<MovableNode[]>('GET', `/api/accounts/${provider}/nodes${query({ ...at(distro), ...(to === null ? {} : { to }) })}`);
+/** 그 위치의 노드들을 설정에 저장한 그 위치의 계정으로 옮긴다. */
+export const moveNodes = (provider: Provider, distro: string | null) => call<MoveResult>('POST', `/api/accounts/${provider}/move${query(at(distro))}`);
+export const removeAccount = (provider: Provider, distro: string | null, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}${query(at(distro))}`);
+export const startLogin = (provider: Provider, distro: string | null, target: LoginTarget) => call<LoginId>('POST', `/api/accounts/${provider}${query(at(distro))}`, target);
+export const logoutSystem = (provider: Provider, distro: string | null) => call<null>('POST', `/api/accounts/${provider}/logout${query(at(distro))}`);
 export const getLogin = (id: LoginId) => call<LoginState>('GET', `/api/logins/${id}`);
 export const closeLogin = (id: LoginId) => call<null>('DELETE', `/api/logins/${id}`);
 export const loginPty = (id: LoginId) => `/api/logins/${id}/pty`;

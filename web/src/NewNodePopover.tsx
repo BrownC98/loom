@@ -10,7 +10,7 @@ import type { NodeId } from './gen/NodeId';
 import type { Place } from './gen/Place';
 import type { SettingsView } from './gen/SettingsView';
 import type { Start } from './gen/Start';
-import { useStarting } from './place';
+import { shortPlaceName, useStarting } from './place';
 import { accountName, activeAccount, windowsText } from './usage';
 
 /** 목록 한 줄. `agent`가 없으면 기본 셸이다. */
@@ -19,12 +19,16 @@ type Choice = { agent: AgentView | null; installed: boolean };
 /** 고를 수 있는 항목의 키. 기본 셸은 `null`이다. */
 const keyOf = (c: Choice): AgentId | null => c.agent?.id ?? null;
 
-/** 설치됨(카탈로그 순서) → 기본 셸 → 설치하지 않음. 카탈로그가 유일한 원천이다(목업 settings.html 5번). */
-function choices(agents: AgentView[]): Choice[] {
+/** 그 위치(배포판, null은 이 PC)에서 찾은 경로. 없으면 그 위치에 설치하지 않은 것이다. */
+const pathAt = (agent: AgentView, distro: string | null) => agent.places.find((p) => p.distro === distro)?.path ?? null;
+
+/** 설치됨(카탈로그 순서) → 기본 셸 → 설치하지 않음. 카탈로그가 유일한 원천이다(목업 settings.html 5번).
+ *  설치는 저장소 위치에서 본다(목업 wsl-place.html ⑥a). */
+function choices(agents: AgentView[], distro: string | null): Choice[] {
   return [
-    ...agents.filter((a) => a.path !== null).map((agent) => ({ agent, installed: true })),
+    ...agents.filter((a) => pathAt(a, distro) !== null).map((agent) => ({ agent, installed: true })),
     { agent: null, installed: true },
-    ...agents.filter((a) => a.path === null).map((agent) => ({ agent, installed: false })),
+    ...agents.filter((a) => pathAt(a, distro) === null).map((agent) => ({ agent, installed: false })),
   ];
 }
 
@@ -47,7 +51,11 @@ export function NewNodePopover(props: {
   const labelOf = (c: Choice) => c.agent?.label ?? t('newNode.shell');
   // 카탈로그는 늘 비어 있지 않다. 비었으면 데몬이 아직 PATH를 찾는 중이다(약 2초).
   const loading = props.agents.length === 0;
-  const all = loading ? [] : choices(props.agents);
+  // 저장소 위치를 아직 찾지 못했으면(배포판이 꺼져 있음) 이 PC 목록으로 고른다. 띄우기는 데몬이 그 위치에서 다시 찾는다.
+  const places = props.agents[0]?.places.map((p) => p.distro) ?? [null];
+  const distro = places.includes(props.distro) ? props.distro : null;
+  const multi = places.length > 1;
+  const all = loading ? [] : choices(props.agents, distro);
   const installed = all.filter((c) => c.installed);
   const [query, setQuery] = useState('');
   // 처음 값: 최근 프로필이 설치돼 있으면 그것, 아니면 설치한 첫째. 목록이 늦게 와도 맞게 정해지도록 렌더마다 계산한다.
@@ -65,7 +73,7 @@ export function NewNodePopover(props: {
   const active = selectable.find((c) => keyOf(c) === wanted) ?? selectable[0];
   const activeIndex = active ? shown.indexOf(active) : -1;
   const agent = active?.agent ?? null;
-  const account = agent?.provider && props.accounts ? activeAccount(props.accounts, props.settings, agent.provider) : undefined;
+  const account = agent?.provider && props.accounts ? activeAccount(props.accounts, props.settings, agent.provider, distro) : undefined;
 
   useEffect(() => {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
@@ -115,7 +123,7 @@ export function NewNodePopover(props: {
       >
         <span translate="no">{labelOf(c)}</span>
         {c.installed && props.recent !== undefined && keyOf(c) === props.recent && <span className="recent">{t('newNode.recent')}</span>}
-        {!c.installed ? <span className="tag">{t('newNode.notInstalled')}</span> : !c.agent?.profile && <span className="tag">{t('newNode.terminalOnly')}</span>}
+        {!c.installed ? <span className="tag">{multi && c.agent?.places.some((p) => p.path !== null) ? t('place.missingAt', { place: distro === null ? t('place.pcShort') : t('place.wsl') }) : t('newNode.notInstalled')}</span> : !c.agent?.profile && <span className="tag">{t('newNode.terminalOnly')}</span>}
       </li>
     );
   };
@@ -150,7 +158,9 @@ export function NewNodePopover(props: {
           )}
           {installedShown.length > 0 && (
             <li className="grp" role="presentation">
-              {t('newNode.installed', { n: installedShown.filter((c) => c.agent).length })}
+              {multi
+                ? t('newNode.installedAt', { n: installedShown.filter((c) => c.agent).length, place: shortPlaceName(distro) })
+                : t('newNode.installed', { n: installedShown.filter((c) => c.agent).length })}
             </li>
           )}
           {installedShown.map(option)}
@@ -162,7 +172,11 @@ export function NewNodePopover(props: {
           {missingShown.map(option)}
         </ul>
         {account && (
-          <span className="hint">{t('newNode.account', { name: accountName(account), usage: windowsText(account.usage.limits) })}</span>
+          <span className="hint">
+            {multi
+              ? t('newNode.accountAt', { name: accountName(account), place: shortPlaceName(distro), usage: windowsText(account.usage.limits) })
+              : t('newNode.account', { name: accountName(account), usage: windowsText(account.usage.limits) })}
+          </span>
         )}
         {agent && canBypass(agent, props.settings) && <span className="hint">{t('newNode.bypass')}</span>}
       </div>

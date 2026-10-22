@@ -1,6 +1,7 @@
 // 실행 위치(이 PC, WSL 배포판)의 화면 조각. 위치는 데몬이 저장소 경로에서 읽어 `RepoView.wsl`로 준다. 근거: 목업 docs/mockups/wsl-place.html.
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18next from './i18n';
 import type { RepoView } from './gen/RepoView';
 import type { WslPlace } from './gen/WslPlace';
 
@@ -43,3 +44,9 @@ export function useStarting(busy: boolean): boolean {
   }, [busy]);
   return busy && slow;
 }
+
+/** 위치 이름(계정 탭 머리 줄). `distro`가 null이면 이 PC다. */
+export const placeName = (distro: string | null) => (distro === null ? i18next.t('place.pc') : i18next.t('place.wslDistro', { distro }));
+
+/** 좁은 줄(에이전트 메타 줄, 새 노드 머리 줄)의 위치 이름. */
+export const shortPlaceName = (distro: string | null) => (distro === null ? i18next.t('place.pcShort') : i18next.t('place.wslDistro', { distro }));

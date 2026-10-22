@@ -11,6 +11,7 @@ const time = (s: number) => `T${s}`;
 const switched = (over: Partial<Extract<SwitchEntry, { kind: 'accountSwitched' }>>): SwitchEntry => ({
   kind: 'accountSwitched',
   provider: 'claude',
+  distro: null,
   from: '1',
   to: '2',
   why: { kind: 'manual' },
@@ -45,11 +46,11 @@ describe('noticeOf', () => {
   });
 
   it('no account left shows the earliest reset when known', () => {
-    expect(noticeOf({ kind: 'noAccountLeft', provider: 'codex', resets_at: 100 }, name, time, t)).toEqual({
+    expect(noticeOf({ kind: 'noAccountLeft', provider: 'codex', distro: null, resets_at: 100 }, name, time, t)).toEqual({
       text: 'switch.notice.noneLeft|switch.provider.codex · switch.notice.resetsAt|T100',
       warn: true,
     });
-    expect(noticeOf({ kind: 'noAccountLeft', provider: 'codex', resets_at: null }, name, time, t).text).toBe('switch.notice.noneLeft|switch.provider.codex');
+    expect(noticeOf({ kind: 'noAccountLeft', provider: 'codex', distro: null, resets_at: null }, name, time, t).text).toBe('switch.notice.noneLeft|switch.provider.codex');
   });
 });
 
@@ -64,7 +65,7 @@ describe('records', () => {
   it('only usage and rate-limit switches are automatic', () => {
     expect(isAutoSwitch(switched({}))).toBe(false);
     expect(isAutoSwitch(switched({ why: { kind: 'rateLimit' } }))).toBe(true);
-    expect(isAutoSwitch({ kind: 'noAccountLeft', provider: 'claude', resets_at: null })).toBe(false);
+    expect(isAutoSwitch({ kind: 'noAccountLeft', provider: 'claude', distro: null, resets_at: null })).toBe(false);
   });
 
   it('dialog row text depends on busy', () => {

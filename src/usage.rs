@@ -4,8 +4,8 @@
 //! 근거: docs/design.md 「계정과 사용량」.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use crate::process_tree;
-use crate::profile::Provider;
+use crate::accounts::{AccountId, Site};
+use crate::profile::{LaunchError, Provider};
 
 /// CLI나 API 하나를 기다리는 상한. 넘으면 그 계정만 「지금 볼 수 없다」가 된다.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -104,11 +104,22 @@ impl Usage {
     }
 }
 
-/// `config_dir`가 `None`이면 시스템 기본 로그인을 읽는다.
-pub fn probe(provider: Provider, config_dir: Option<&Path>) -> Usage {
+/// `site`(이 PC 또는 WSL 배포판)의 계정 `id`를 읽는다. `None`이면 그 위치의 시스템 기본 로그인이다.
+pub fn probe(provider: Provider, site: &Site, id: Option<&AccountId>) -> Usage {
+    let cmd = match provider {
+        Provider::Claude => site.command(provider, &["auth", "status", "--json"], id),
+        Provider::Codex => site.command(provider, &["app-server"], id),
+    };
+    let cmd = match cmd {
+        Ok(cmd) => cmd,
+        Err(LaunchError::NotInstalled { command, .. }) => {
+            return Usage::failed(UsageProblem::NotInstalled(command));
+        }
+        Err(e) => return Usage::failed(UsageProblem::Unavailable(e.to_string())),
+    };
     match provider {
-        Provider::Claude => claude(config_dir),
-        Provider::Codex => codex(config_dir),
+        Provider::Claude => claude(cmd, site, id),
+        Provider::Codex => codex(cmd),
     }
 }
 
@@ -119,15 +130,11 @@ struct ClaudeStatus {
     email: Option<String>,
     subscription_type: Option<String>,
     /// 2.1.228 같은 옛 판은 이 값을 내지 않는다. 그때는 CLI가 쓰는 폴더를 loom이 고른다.
-    config_directory: Option<PathBuf>,
+    config_directory: Option<String>,
 }
 
-fn claude(config_dir: Option<&Path>) -> Usage {
-    let mut cmd = process_tree::command("claude");
-    cmd.args(["auth", "status", "--json"]);
-    if let Some(dir) = config_dir {
-        cmd.env("CLAUDE_CONFIG_DIR", dir);
-    }
+/// `cmd`는 `claude auth status --json`이다.
+fn claude(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
     // 로그인하지 않았으면 0이 아닌 코드로 끝나도 JSON은 낸다. 코드는 보지 않는다.
     let status: ClaudeStatus = match cmd.stdin(Stdio::null()).stderr(Stdio::null()).output() {
         Ok(out) => match serde_json::from_slice(&out.stdout) {
@@ -138,10 +145,11 @@ fn claude(config_dir: Option<&Path>) -> Usage {
         },
         Err(e) => return Usage::failed(run_failed("claude", &e)),
     };
+    // CLI가 준 폴더는 CLI가 본 경로다. WSL이면 데몬이 읽는 UNC 경로로 바꾼다.
     let dir = status
         .config_directory
-        .or_else(|| config_dir.map(Path::to_path_buf))
-        .or_else(|| std::env::home_dir().map(|home| home.join(".claude")));
+        .map(|dir| site.local(&dir))
+        .or_else(|| site.login_dir(Provider::Claude, id));
     let limits = if !status.logged_in {
         Limits::NeedsLogin
     } else if let Some(dir) = dir {
@@ -226,8 +234,9 @@ fn claude_models(limits: &Value) -> Vec<ModelWindow> {
         .collect()
 }
 
-fn codex(home: Option<&Path>) -> Usage {
-    let replies = match app_server(home) {
+/// `cmd`는 `codex app-server`다.
+fn codex(cmd: Command) -> Usage {
+    let replies = match app_server(cmd) {
         Ok(replies) => replies,
         Err(problem) => return Usage::failed(problem),
     };
@@ -278,12 +287,7 @@ fn codex_limits(rate_limits: &Value) -> Limits {
 }
 
 /// `account/read`와 `account/rateLimits/read`의 결과를 순서대로 돌려준다.
-fn app_server(home: Option<&Path>) -> Result<[Value; 2], UsageProblem> {
-    let mut cmd = process_tree::command("codex");
-    cmd.arg("app-server");
-    if let Some(dir) = home {
-        cmd.env("CODEX_HOME", dir);
-    }
+fn app_server(mut cmd: Command) -> Result<[Value; 2], UsageProblem> {
     let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

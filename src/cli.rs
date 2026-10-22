@@ -407,10 +407,9 @@ pub fn answered(ids: Vec<String>) -> Result<(), String> {
 pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
     let summary = match file {
         // 부모가 다른 폴더에서 읽어도 찾도록 절대 경로로 보낸다. 파일이 없으면 여기서 실패한다.
-        Some(path) => std::fs::canonicalize(&path)
-            .map_err(|e| format!("{}: {e}", path.display()))?
-            .display()
-            .to_string(),
+        Some(path) => crate::wsl::for_caller(
+            &std::fs::canonicalize(&path).map_err(|e| format!("{}: {e}", path.display()))?,
+        ),
         None => summary.unwrap_or_default(),
     };
     let alive_children: Vec<String> = call("done", &DoneRequest { summary }, None)?;

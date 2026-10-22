@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type DragEvent,
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { attachPty, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
+import type { NodeId } from './gen/NodeId';
 import type { Resize } from './gen/Resize';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
@@ -83,11 +84,11 @@ function loadFont(family: string): Promise<unknown> {
  * 터미널 링크를 연다. `file://`은 데몬이 그 기계의 기본 앱으로 연다(브라우저 페이지는 열지 못한다). `http(s)`는 새 탭이다. 다른 형식은 열지 않는다.
  * Windows 경로(`file:///C:/…`)는 앞의 `/`를 뗀다.
  */
-function openLink(uri: string) {
+function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);
   if (url?.protocol === 'file:') {
     const path = decodeURIComponent(url.pathname);
-    openFile(/^\/[A-Za-z]:/.test(path) ? path.slice(1) : path).catch((err: Error) => console.error(err));
+    openFile(/^\/[A-Za-z]:/.test(path) ? path.slice(1) : path, node).catch((err: Error) => console.error(err));
   } else if (url?.protocol === 'http:' || url?.protocol === 'https:') {
     window.open(url.href, '_blank', 'noopener');
   }
@@ -133,7 +134,7 @@ const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files');
  * 놓은 파일을 데몬에 올리고 경로를 붙여넣는다(목업 docs/mockups/terminal-drop.html). 엔터는 사람이 누른다.
  * 폴더와 큰 파일은 오류 줄을 터미널 화면에만 쓰고, 나머지 파일은 그대로 붙여넣는다.
  */
-async function pasteDropped(xterm: XTerm, data: DataTransfer) {
+async function pasteDropped(xterm: XTerm, data: DataTransfer, node: NodeId | null) {
   const files: File[] = [];
   const errors: string[] = [];
   // `items`는 놓기 처리기가 끝나면 비므로 먼저 모두 읽는다.
@@ -145,7 +146,7 @@ async function pasteDropped(xterm: XTerm, data: DataTransfer) {
       errors.push(i18next.t('terminal.tooBig', { name: file.name, size: Math.ceil(file.size / MB), limit: PASTE_LIMIT_BYTES / MB }));
     else files.push(file);
   }
-  const saved = await Promise.allSettled(files.map(savePastedFile));
+  const saved = await Promise.allSettled(files.map((file) => savePastedFile(file, node)));
   const paths = saved.flatMap((r) => (r.status === 'fulfilled' ? [quotePath(r.value)] : []));
   errors.push(...saved.flatMap((r) => (r.status === 'rejected' ? [(r.reason as Error).message] : [])));
   if (errors.length) xterm.write(`\r\n${errors.join('\r\n')}\r\n`);
@@ -167,6 +168,7 @@ export const XtermFont = createContext<XtermFontValue>(DEFAULT_TERMINAL_FONT);
 /** `onSender`는 이 터미널의 PTY에 글을 보내는 함수를 받는다. 닫으면 `null`이다. 폰의 키 막대와 입력 줄이 쓴다(목업 docs/mockups/mobile.html ④). */
 type TerminalProps = {
   src: string;
+  node: NodeId | null;
   focused: boolean;
   focusAsk?: number;
   onFocus: () => void;
@@ -248,7 +250,7 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
         lineHeight: 1,
         theme: latestTheme.current,
         // 에이전트가 적은 링크(OSC 8)를 누르면 연다. 기본값은 http(s)가 아닌 링크를 무시하고, 브라우저는 file://을 열지 못한다.
-        linkHandler: { allowNonHttpProtocols: true, activate: (_event, uri) => openLink(uri) },
+        linkHandler: { allowNonHttpProtocols: true, activate: (_event, uri) => openLink(uri, latest.current.node) },
       });
       const fitAddon = new FitAddon();
       xterm.loadAddon(fitAddon);
@@ -308,7 +310,7 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
         if (!image) return;
         e.stopPropagation();
         e.preventDefault();
-        savePastedFile(image).then(
+        savePastedFile(image, latest.current.node).then(
           (path) => xterm.paste(path),
           (err: Error) => xterm.write(`\r\n${err.message}\r\n`),
         );
@@ -379,7 +381,7 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
     const xterm = term.current;
     if (!xterm) return;
     xterm.focus();
-    void pasteDropped(xterm, e.dataTransfer);
+    void pasteDropped(xterm, e.dataTransfer, props.node);
   };
 
   // 바깥 칸이 여백과 바탕을 갖는다. FitAddon은 안쪽 칸의 크기로 열 수를 재고, 배율도 안쪽 칸에 맞춘다.

@@ -3,13 +3,13 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use portable_pty::CommandBuilder;
 
 /// UNC 경로가 가리키는 배포판 안의 위치.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WslPath {
     /// `wsl.localhost` 또는 `wsl$`. 사람이 적은 글자 그대로다.
     host: String,
@@ -79,11 +79,21 @@ pub fn tilde(path: &str, home: &str) -> String {
 
 /// 설치된 배포판 이름(`wsl.exe -l -q`). 배포판을 켜지 않는다. Windows 데몬이 아니거나 WSL이 없으면 비었다.
 pub async fn distros() -> Vec<String> {
+    list(&["-l", "-q"]).await
+}
+
+/// 지금 도는 배포판. 멈춘 배포판은 켜지 않는다. Windows 데몬이 아니거나 WSL이 없으면 비었다.
+/// 근거: 목록을 보려고 배포판을 켜면, 5분마다 읽는 사용량이 배포판을 끄지 못하게 한다.
+pub async fn running() -> Vec<String> {
+    list(&["-l", "--running", "-q"]).await
+}
+
+async fn list(args: &[&str]) -> Vec<String> {
     if !cfg!(windows) {
         return Vec::new();
     }
     let out = tokio::process::Command::new("wsl.exe")
-        .args(["-l", "-q"])
+        .args(args)
         .env("WSL_UTF8", "1")
         .stdin(std::process::Stdio::null())
         .output()
@@ -150,9 +160,36 @@ impl Homes {
     }
 }
 
+/// WSL 노드가 interop으로 부른 `loom.exe`는 Linux 절대 경로(`/home/…`)를 받는다. Windows는 그 글을 현재 드라이브의 경로로 읽는다.
+/// 시작 폴더가 WSL 폴더면(interop이 그 폴더의 UNC로 띄운다) 같은 배포판의 UNC 경로로 바꾼다.
+pub fn from_caller(path: std::path::PathBuf) -> std::path::PathBuf {
+    let linux = path
+        .to_str()
+        .filter(|p| p.starts_with('/') && !p.starts_with("//"));
+    match (linux, caller()) {
+        (Some(p), Some(at)) => at.unc(p).into(),
+        _ => path,
+    }
+}
+
+/// 부른 노드가 읽는 경로 글. WSL 노드면 같은 배포판의 Linux 경로다. `loom done --file`의 경로를 부모(보통 같은 배포판)가 읽는다.
+pub fn for_caller(path: &Path) -> String {
+    let text = path.display().to_string();
+    match (caller(), location(&text)) {
+        (Some(at), Some(inside)) if at.distro == inside.distro => inside.path,
+        _ => text,
+    }
+}
+
+fn caller() -> Option<WslPath> {
+    std::env::current_dir().ok().and_then(|dir| of(&dir))
+}
+
 /// 노드를 띄우기 직전에 배포판 안에서 읽은 값. `wsl.exe` 한 번으로 읽는다(약 0.2초).
 #[derive(Debug, PartialEq)]
 pub struct Inside {
+    /// `wsl.localhost` 또는 `wsl$`. 배포판 안의 경로를 UNC로 바꿀 때 쓴다.
+    host: String,
     pub distro: String,
     /// 노드가 도는 배포판 안의 폴더.
     cwd: String,
@@ -160,6 +197,8 @@ pub struct Inside {
     bin: String,
     /// 로그인·대화형 셸(`bash -lic`)의 `PATH`. `~/.local/bin`, nvm처럼 `.profile`·`.bashrc`가 더한 곳이 든다.
     path: String,
+    /// 배포판 안의 `HOME`. 그 위치의 로그인 폴더(`~/.claude`, `~/.loom/accounts`)가 여기 있다.
+    home: String,
     /// `find`에 준 명령마다 `command -v` 결과. 없으면 빈 글이다.
     found: Vec<(String, String)>,
     /// `paths`에 준 Windows 경로마다 배포판 안의 경로(`wslpath -u`).
@@ -206,7 +245,7 @@ pub async fn inside(
 ) -> Result<Inside, InsideError> {
     let distro = at.distro.as_str();
     let script = r#"[ -n "$(ls /proc/sys/fs/binfmt_misc/WSLInterop* 2>/dev/null)" ] || { printf '\036interop-off\036'; exit 0; }
-printf '\036%s' "$PATH"
+printf '\036%s' "$PATH" "$HOME"
 while [ "$1" != -- ]; do printf '\036%s' "$(command -v "$1")"; shift; done; shift
 for p; do printf '\036%s' "$(wslpath -u "$p")"; done
 printf '\036'"#;
@@ -239,16 +278,19 @@ fn read_inside(at: &WslPath, find: &[&str], text: &str) -> Option<Inside> {
     if path == INTEROP_OFF {
         return None;
     }
+    let home = values.next()?.to_owned();
     let found = find
         .iter()
         .map(|c| (c.to_string(), values.next().unwrap_or_default().to_owned()))
         .collect();
     let bin = values.next()?.to_owned();
     Some(Inside {
+        host: at.host.clone(),
         distro: at.distro.clone(),
         cwd: at.path.clone(),
         bin,
         path: path.into(),
+        home,
         found,
         paths: values
             .filter(|v| !v.is_empty())
@@ -313,6 +355,20 @@ impl Inside {
     /// 노드가 도는 배포판 안의 폴더.
     pub fn cwd(&self) -> &str {
         &self.cwd
+    }
+
+    pub fn home(&self) -> &str {
+        &self.home
+    }
+
+    /// 배포판 안의 Linux 절대 경로를 데몬이 읽고 쓰는 UNC 경로로 바꾼다.
+    pub fn local(&self, linux: &str) -> PathBuf {
+        PathBuf::from(format!(
+            r"\\{}\{}{}",
+            self.host,
+            self.distro,
+            linux.trim_end_matches('/').replace('/', "\\")
+        ))
     }
 
     fn prefix(&self) -> [String; 7] {
@@ -434,7 +490,7 @@ mod tests {
 
     #[test]
     fn inside_reads_values_after_shell_noise() {
-        let text = "welcome from .bashrc\n\u{1e}/home/me/.local/bin:/usr/bin\u{1e}/home/me/.local/bin/claude\u{1e}\u{1e}/mnt/c/loom/wsl\u{1e}/mnt/c/loom/plugin\u{1e}";
+        let text = "welcome from .bashrc\n\u{1e}/home/me/.local/bin:/usr/bin\u{1e}/home/me\u{1e}/home/me/.local/bin/claude\u{1e}\u{1e}/mnt/c/loom/wsl\u{1e}/mnt/c/loom/plugin\u{1e}";
         let inside = read_inside(&at(), &["claude", "claude-code"], text).unwrap();
         assert_eq!(inside.path, "/home/me/.local/bin:/usr/bin");
         let names = ["claude-code".to_string(), "claude".to_string()];
@@ -443,12 +499,17 @@ mod tests {
         assert_eq!(inside.bin, "/mnt/c/loom/wsl");
         assert_eq!(inside.path(0), Some("/mnt/c/loom/plugin"));
         assert_eq!(inside.cwd, "/home/me/src/loom");
+        assert_eq!(inside.home(), "/home/me");
+        assert_eq!(
+            inside.local("/home/me/.claude/"),
+            PathBuf::from(r"\\wsl.localhost\Ubuntu-24.04\home\me\.claude")
+        );
         assert_eq!(read_inside(&at(), &[], "\u{1e}interop-off\u{1e}"), None);
     }
 
     #[test]
     fn wrap_runs_in_the_distro_with_loom_first_and_passes_set_variables() {
-        let text = "\u{1e}/usr/bin\u{1e}/home/me/.local/bin/claude\u{1e}/mnt/c/loom/wsl\u{1e}";
+        let text = "\u{1e}/usr/bin\u{1e}/home/me\u{1e}/home/me/.local/bin/claude\u{1e}/mnt/c/loom/wsl\u{1e}";
         let inside = read_inside(&at(), &["claude"], text).unwrap();
         let mut cmd = CommandBuilder::new("/home/me/.local/bin/claude");
         cmd.args(["--plugin-dir", "/mnt/c/loom/plugin", "a \"b\"\nc"]);
@@ -533,7 +594,7 @@ mod tests {
 
     #[test]
     fn server_runs_in_the_distro_and_passes_env_but_not_path() {
-        let text = "\u{1e}/usr/bin\u{1e}/mnt/c/loom/wsl\u{1e}";
+        let text = "\u{1e}/usr/bin\u{1e}/home/me\u{1e}/mnt/c/loom/wsl\u{1e}";
         let inside = read_inside(&at(), &[], text).unwrap();
         let env = [("LOOM_TOKEN", "t1"), ("PATH", r"C:\Windows")];
         let cmd = inside.server(&["codex", "app-server"], &env);

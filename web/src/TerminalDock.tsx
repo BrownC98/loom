@@ -33,7 +33,7 @@ export function TerminalDock(props: { view: NodeView; agentLabel: string; focusA
       </div>
       {/* 노드를 바꾸면 새 터미널을 연다. 앞 노드의 연결은 닫는다. */}
       <div className="dock-term" translate="no">
-        <Terminal key={view.id} src={nodePty(view.id)} focused focusAsk={props.focusAsk} onFocus={() => {}} onNavigate={props.onNavigate} loadRenderer={webglRenderer} />
+        <Terminal key={view.id} src={nodePty(view.id)} node={view.id} focused focusAsk={props.focusAsk} onFocus={() => {}} onNavigate={props.onNavigate} loadRenderer={webglRenderer} />
       </div>
     </>
   );

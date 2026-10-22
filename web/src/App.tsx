@@ -81,6 +81,7 @@ const EMPTY_SETTINGS: SettingsView = {
   bypassOff: [],
   claudeAccount: null,
   codexAccount: null,
+  wslAccounts: {},
   // 데몬이 첫 페이지에 넣은 테마(`Theme`의 serde 이름)다. 설정을 받기 전에도 같은 테마를 그린다.
   theme: (document.documentElement.dataset.theme as Theme | undefined) ?? 'system',
   terminalTheme: RESET_TERMINAL_THEME,
@@ -320,14 +321,15 @@ export function App() {
     refreshUsage();
   });
   // 계정 고르기: 그 계정이 아닌 노드가 없으면 바로 저장한다. 있으면 확인 창이 묻는다(취소하면 아무것도 바꾸지 않는다).
-  const [switching, setSwitching] = useState<{ provider: Provider; to: AccountId | null; nodes: MovableNode[] } | null>(null);
-  const chooseAccount = async (provider: Provider, to: AccountId | null) => {
-    const nodes = await getMovableNodes(provider, to).catch(() => []);
-    if (nodes.length > 0) setSwitching({ provider, to, nodes });
-    else saveSettings(withAccount(settings, provider, to));
+  // 「사용 중」은 위치(이 PC, WSL 배포판)마다 하나다. 그 위치 저장소의 노드만 옮긴다(목업 wsl-place.html ③).
+  const [switching, setSwitching] = useState<{ provider: Provider; distro: string | null; to: AccountId | null; nodes: MovableNode[] } | null>(null);
+  const chooseAccount = async (provider: Provider, distro: string | null, to: AccountId | null) => {
+    const nodes = await getMovableNodes(provider, distro, to).catch(() => []);
+    if (nodes.length > 0) setSwitching({ provider, distro, to, nodes });
+    else saveSettings(withAccount(settings, provider, distro, to));
   };
   const switchingName = (s: NonNullable<typeof switching>) => {
-    const own = accounts?.filter((a) => a.provider === s.provider) ?? [];
+    const own = accounts?.filter((a) => a.provider === s.provider && a.distro === s.distro) ?? [];
     const a = own.find((x) => x.id === s.to);
     return a ? accountName(a) : t('usage.systemDefault');
   };
@@ -526,7 +528,7 @@ export function App() {
             {treeView(openNode)}
           </>
         }
-        foot={<StatusBar usage={usage} settings={settings} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
+        foot={<StatusBar usage={usage} settings={settings} distro={repo?.wsl?.distro ?? null} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
       />,
     );
   return providers(
@@ -642,6 +644,7 @@ export function App() {
           <StatusBar
             usage={usage}
             settings={settings}
+            distro={repo?.wsl?.distro ?? null}
             onChoose={chooseAccount}
             notice={{ record: notice.record, onClose: notice.close }}
             onManage={() => setSettingsTab('accounts')}
@@ -670,12 +673,12 @@ export function App() {
               to={switchingName(switching)}
               nodes={switching.nodes}
               onKeep={() => {
-                saveSettings(withAccount(settings, switching.provider, switching.to));
+                saveSettings(withAccount(settings, switching.provider, switching.distro, switching.to));
                 setSwitching(null);
               }}
               onMoveAll={async () => {
-                await saveSettings(withAccount(settings, switching.provider, switching.to));
-                await moveNodes(switching.provider);
+                await saveSettings(withAccount(settings, switching.provider, switching.distro, switching.to));
+                await moveNodes(switching.provider, switching.distro);
                 setSwitching(null);
               }}
               onCancel={() => setSwitching(null)}

@@ -665,6 +665,11 @@ dialog::backdrop { background: var(--scrim); }
 .pane-head .close { font-size: 20px; padding: 0 8px; }
 .pane section { display: grid; gap: 8px; }
 .pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+/* 위치가 둘 이상일 때 계정 탭의 위치 묶음(목업 wsl-place.html ③). */
+.pane .place-group { gap: 14px; }
+.place-head { display: flex; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--ink); }
+.place-head svg { width: 15px; height: 15px; color: var(--ink-2); }
+.place-head .hint { font-weight: 400; }
 .pane code { font-family: var(--mono); font-size: 12px; }
 .field select { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
 .field select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
@@ -674,6 +679,10 @@ dialog::backdrop { background: var(--scrim); }
 .row-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
 .row-main .name { font-weight: 600; }
 .row-main .meta { flex-basis: 100%; font: 12px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 위치마다 한 메타 줄(목업 wsl-place.html ④). */
+.row-main .meta .where, .row-main .meta .none { font-family: var(--font); }
+.row-main .meta .where { font-weight: 600; color: var(--ink-2); margin-right: 6px; }
+.row-main .meta.warnline, .row-main .meta.warnline .where { color: var(--warn); }
 .row-main .desc { flex-basis: 100%; font-size: 12px; color: var(--ink-3); }
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
 /* 설정 › 정보(docs/mockups/web-update.html ④). */

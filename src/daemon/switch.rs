@@ -15,12 +15,13 @@ use tokio::sync::oneshot;
 use ts_rs::TS;
 
 use super::{App, Problem, internal};
-use crate::accounts::{self, AccountId};
+use crate::accounts::{self, AccountId, Site};
 use crate::graph::{Active, Entry, NodeId, SwitchCause};
 use crate::profile::codex::{self, Status};
 use crate::profile::{self, ModelChoice, Profile, Provider, Start};
 use crate::skills::Position;
 use crate::usage::{self, Limits, Window};
+use crate::wsl;
 
 /// 이 비율(%)을 쓴 창이 있는 계정은 다 썼다. 그 계정으로는 바꾸지 않는다.
 const EXHAUSTED_AT: u8 = 100;
@@ -68,8 +69,8 @@ pub struct Switches {
     later: Mutex<HashSet<NodeId>>,
     /// 한도로 턴이 멈춘 노드. 옮긴 뒤 `CONTINUE_PROMPT`를 받는다.
     limited: Mutex<HashSet<NodeId>>,
-    /// 공급자마다 마지막 자동 전환이나 「남은 계정 없음」 기록 시각.
-    last_auto: Mutex<HashMap<Provider, Instant>>,
+    /// 위치(배포판, 없으면 이 PC)와 공급자마다 마지막 자동 전환이나 「남은 계정 없음」 기록 시각.
+    last_auto: Mutex<HashMap<(Provider, Option<String>), Instant>>,
 }
 
 impl Switches {
@@ -92,10 +93,18 @@ pub fn routes() -> Router<Arc<App>> {
 }
 
 /// `GET /api/accounts/{provider}/nodes`의 질의. `to`는 옮겨 갈 계정이다. 없으면 시스템 기본이다.
+/// `distro`는 계정의 위치다. 없으면 이 PC다. 그 위치 저장소의 노드만 옮긴다.
 /// 화면은 설정을 저장하기 전에 확인 창 목록을 읽는다.
 #[derive(Deserialize)]
 struct MovableQuery {
     to: Option<AccountId>,
+    distro: Option<String>,
+}
+
+/// `POST /api/accounts/{provider}/move`의 질의. 그 위치의 노드를 그 위치의 「사용 중」 계정으로 옮긴다.
+#[derive(Deserialize)]
+struct MoveQuery {
+    distro: Option<String>,
 }
 
 async fn movable(
@@ -103,7 +112,9 @@ async fn movable(
     UrlPath(provider): UrlPath<Provider>,
     Query(query): Query<MovableQuery>,
 ) -> Result<Json<Vec<MovableNode>>, Problem> {
-    let nodes = app.movable(provider, query.to.as_ref()).map_err(internal)?;
+    let nodes = app
+        .movable(provider, query.distro.as_deref(), query.to.as_ref())
+        .map_err(internal)?;
     Ok(Json(
         nodes
             .into_iter()
@@ -120,8 +131,13 @@ async fn movable(
 async fn move_all(
     State(app): State<Arc<App>>,
     UrlPath(provider): UrlPath<Provider>,
+    Query(query): Query<MoveQuery>,
 ) -> Result<Json<MoveResult>, Problem> {
-    Ok(Json(app.switch_nodes(provider, SwitchCause::Manual).await?))
+    let distro = query.distro.as_deref();
+    Ok(Json(
+        app.switch_nodes(provider, distro, SwitchCause::Manual)
+            .await?,
+    ))
 }
 
 /// 노드 하나를 옮긴 결과.
@@ -132,10 +148,11 @@ enum Moved {
 }
 
 impl App {
-    /// 실행 중인 그 공급자 노드 가운데 `target` 계정과 다른 계정으로 띄운 노드. `None`은 시스템 기본이다.
+    /// 위치 `distro`(없으면 이 PC)에서 실행 중인 그 공급자 노드 가운데 `target` 계정과 다른 계정으로 띄운 노드. `None`은 시스템 기본이다.
     fn movable(
         &self,
         provider: Provider,
+        distro: Option<&str>,
         target: Option<&AccountId>,
     ) -> rusqlite::Result<Vec<Active>> {
         let exiting: HashSet<NodeId> = self
@@ -152,7 +169,14 @@ impl App {
             .into_iter()
             .filter(|n| provider_of(n) == Some(provider))
             .filter(|n| n.account.as_ref() != target && !exiting.contains(&n.id))
+            .filter(|n| self.distro_of(n.id).as_deref() == distro)
             .collect())
+    }
+
+    /// 노드가 도는 WSL 배포판. 이 PC 노드거나 자리를 읽지 못하면 없다.
+    fn distro_of(&self, node: NodeId) -> Option<String> {
+        let place = self.graph.place_of(node).ok()?;
+        wsl::of(Path::new(&place.worktree)).map(|at| at.distro)
     }
 
     /// 턴 중인 노드. Claude는 쉬는 대기가 없으면, Codex는 스레드가 일하는 중이면 턴 중이다.
@@ -172,15 +196,18 @@ impl App {
     async fn switch_nodes(
         self: &Arc<Self>,
         provider: Provider,
+        distro: Option<&str>,
         why: SwitchCause,
     ) -> Result<MoveResult, Problem> {
         let to = self
             .settings
             .get()
             .map_err(internal)?
-            .account(provider)
+            .account(provider, distro)
             .cloned();
-        let nodes = self.movable(provider, to.as_ref()).map_err(internal)?;
+        let nodes = self
+            .movable(provider, distro, to.as_ref())
+            .map_err(internal)?;
         let from = most_used(nodes.iter().map(|n| n.account.clone()));
         let outcomes = join_all(nodes.into_iter().map(|node| self.move_or_queue(node))).await;
         let mut result = MoveResult::default();
@@ -194,6 +221,7 @@ impl App {
         self.graph
             .record(&Entry::AccountSwitched {
                 provider,
+                distro: distro.map(str::to_owned),
                 from,
                 to,
                 why,
@@ -264,7 +292,8 @@ impl App {
     pub(super) fn rate_limited(self: &Arc<Self>, node: NodeId, provider: Provider) {
         self.switch.limited.lock().unwrap().insert(node);
         let app = self.clone();
-        tokio::spawn(async move { app.auto_switch(provider).await });
+        let distro = self.distro_of(node);
+        tokio::spawn(async move { app.auto_switch(provider, distro).await });
     }
 
     /// 노드 프로세스를 설정의 계정으로 다시 띄운다. 새 로그인 폴더에 세션 기록을 복사하고 이어 간다.
@@ -279,22 +308,25 @@ impl App {
             ));
         };
         let settings = self.settings.get().map_err(|e| e.to_string())?;
-        let target = settings.account(provider).cloned();
-        let new_root = self
-            .accounts
-            .config_dir(provider, target.as_ref())
-            .or_else(|| default_config_dir(provider))
-            .ok_or("홈 폴더를 찾지 못했다")?;
         let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let cwd = Path::new(&place.worktree);
+        // 노드의 위치(이 PC 또는 그 WSL 배포판)에서 그 위치의 「사용 중」 계정으로 옮긴다. 세션 기록도 그 위치의 폴더에 있다.
+        let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
+        let target = settings.account(provider, site.distro()).cloned();
+        let new_root = site
+            .login_dir(provider, target.as_ref())
+            .ok_or("홈 폴더를 찾지 못했다")?;
         let resume = match profile {
-            Some(Profile::Codex) => self.copy_codex_thread(node.id, &new_root).await?,
+            Some(Profile::Codex) => self.copy_codex_thread(node.id, &site, &new_root).await?,
             _ => {
-                let session = copy_claude_session(node.transcript.as_deref(), &new_root)?;
+                let transcript = node.transcript.as_deref().map(|t| site.local(t));
+                let session = copy_claude_session(transcript.as_deref(), &new_root)?;
                 // 시스템 기본 폴더는 고치지 않는다(「저장」). 그때 사람이 새 확인 창에 답한다.
-                if let Some(to) = self.accounts.config_dir(provider, target.as_ref()) {
-                    let from = self.accounts.config_dir(provider, node.account.as_ref());
-                    accounts::carry_claude_consent(from.as_deref(), &to, cwd)
+                if let (Some(to), Some(from)) = (
+                    site.accounts().config_dir(provider, target.as_ref()),
+                    site.claude_files(node.account.as_ref()),
+                ) {
+                    accounts::carry_claude_consent(&from, &to, &site.cli_cwd(cwd))
                         .map_err(|e| format!("{}: {e}", to.display()))?;
                 }
                 session
@@ -361,7 +393,12 @@ impl App {
     }
 
     /// Codex 노드 스레드의 기록 파일을 새 `CODEX_HOME`에 복사하고 스레드 id를 돌려준다. 스레드나 기록 파일이 없으면 실패다.
-    async fn copy_codex_thread(&self, node: NodeId, new_root: &Path) -> Result<String, String> {
+    async fn copy_codex_thread(
+        &self,
+        node: NodeId,
+        site: &Site,
+        new_root: &Path,
+    ) -> Result<String, String> {
         let server = self.codex.lock().unwrap().get(&node).cloned();
         let thread = server
             .as_ref()
@@ -373,39 +410,48 @@ impl App {
             .rollout(&thread)
             .await?
             .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
-        copy_session(Path::new(&rollout), CODEX_ROLLOUT_DEPTH, new_root)?;
+        copy_session(&site.local(&rollout), CODEX_ROLLOUT_DEPTH, new_root)?;
         Ok(thread)
     }
 
-    /// 자동 전환이 켜져 있으면 같은 공급자의 다른 계정 사용량을 그 자리에서 읽고, 남은 계정으로 바꾼다.
-    async fn auto_switch(self: &Arc<Self>, provider: Provider) {
+    /// 자동 전환이 켜져 있으면 같은 위치(`distro`, 없으면 이 PC), 같은 공급자의 다른 계정 사용량을 그 자리에서 읽고, 남은 계정으로 바꾼다.
+    async fn auto_switch(self: &Arc<Self>, provider: Provider, distro: Option<String>) {
         let Ok(settings) = self.settings.get() else {
             return;
         };
-        if !settings.auto_switch || self.cooling_down(provider) {
+        let key = (provider, distro.clone());
+        if !settings.auto_switch || self.cooling_down(&key) {
             return;
         }
-        let current = settings.account(provider).cloned();
+        let site = match self.site_of(distro.as_deref()).await {
+            Ok(site) => Arc::new(site),
+            Err(e) => {
+                eprintln!("loom: 자동 전환할 위치를 읽지 못했다: {e:?}");
+                return;
+            }
+        };
+        let current = settings.account(provider, distro.as_deref()).cloned();
         let mut ids = vec![None];
         ids.extend(
-            self.accounts
+            site.accounts()
                 .list(provider)
                 .unwrap_or_default()
                 .into_iter()
                 .map(Some),
         );
         ids.retain(|id| *id != current);
-        let probes = join_all(ids.iter().map(|id| self.probe(provider, id.clone()))).await;
+        let probes = join_all(ids.iter().map(|id| probe(&site, provider, id.clone()))).await;
         let candidates: Vec<_> = ids.into_iter().zip(probes).collect();
         self.switch
             .last_auto
             .lock()
             .unwrap()
-            .insert(provider, Instant::now());
+            .insert(key, Instant::now());
         let Some(to) = pick_target(&candidates) else {
             let resets_at = earliest_reset(candidates.iter().map(|(_, l)| l));
             if let Err(e) = self.graph.record(&Entry::NoAccountLeft {
                 provider,
+                distro: distro.clone(),
                 resets_at,
             }) {
                 eprintln!("loom: 「남은 계정 없음」을 남기지 못했다: {e}");
@@ -413,30 +459,36 @@ impl App {
             return;
         };
         // 사용량을 읽는 동안 화면이 다른 설정을 바꿨을 수 있다. 계정 칸만 바꾼다.
-        if let Err(e) = self.settings.update(|view| view.set_account(provider, to)) {
+        if let Err(e) = self
+            .settings
+            .update(|view| view.set_account(provider, distro.as_deref(), to))
+        {
             eprintln!("loom: 자동 전환한 계정을 저장하지 못했다: {e}");
             return;
         }
-        if let Err(e) = self.switch_nodes(provider, SwitchCause::RateLimit).await {
+        let switched = self
+            .switch_nodes(provider, distro.as_deref(), SwitchCause::RateLimit)
+            .await;
+        if let Err(e) = switched {
             eprintln!("loom: 자동 전환으로 노드를 옮기지 못했다: {e:?}");
         }
     }
 
-    fn cooling_down(&self, provider: Provider) -> bool {
+    fn cooling_down(&self, key: &(Provider, Option<String>)) -> bool {
         self.switch
             .last_auto
             .lock()
             .unwrap()
-            .get(&provider)
+            .get(key)
             .is_some_and(|at| at.elapsed() < COOLDOWN)
     }
+}
 
-    async fn probe(&self, provider: Provider, id: Option<AccountId>) -> Limits {
-        let dir = self.accounts.config_dir(provider, id.as_ref());
-        tokio::task::spawn_blocking(move || usage::probe(provider, dir.as_deref()).limits)
-            .await
-            .unwrap_or(Limits::NeedsLogin)
-    }
+async fn probe(site: &Arc<Site>, provider: Provider, id: Option<AccountId>) -> Limits {
+    let site = site.clone();
+    tokio::task::spawn_blocking(move || usage::probe(provider, &site, id.as_ref()).limits)
+        .await
+        .unwrap_or(Limits::NeedsLogin)
 }
 
 fn provider_of(node: &Active) -> Option<Provider> {
@@ -446,20 +498,10 @@ fn provider_of(node: &Active) -> Option<Provider> {
         .and_then(Profile::provider)
 }
 
-/// 시스템 기본 로그인 폴더. CLI가 환경 변수 없이 쓰는 폴더다.
-fn default_config_dir(provider: Provider) -> Option<PathBuf> {
-    let home = std::env::home_dir()?;
-    Some(home.join(match provider {
-        Provider::Claude => ".claude",
-        Provider::Codex => ".codex",
-    }))
-}
-
 /// Claude 세션 기록과 그 곁 폴더(`<세션>/`, 하위 에이전트 기록)를 새 로그인 폴더에 복사하고 세션 id를 돌려준다.
 /// 기록 파일이 없으면 실패다. 그 노드는 옮기지 않는다. 세션 id는 기록 파일 이름이다.
-fn copy_claude_session(transcript: Option<&str>, new_root: &Path) -> Result<String, String> {
+fn copy_claude_session(transcript: Option<&Path>, new_root: &Path) -> Result<String, String> {
     let file = transcript
-        .map(Path::new)
         .filter(|f| f.is_file())
         .ok_or("이어 갈 Claude 세션 기록이 없다")?;
     let session = file
@@ -641,10 +683,7 @@ mod tests {
         std::fs::write(old.join("s1/subagents/a.jsonl"), "y").unwrap();
         let new = tmp.path().join("new");
         let transcript = old.join("s1.jsonl");
-        assert_eq!(
-            copy_claude_session(transcript.to_str(), &new).unwrap(),
-            "s1"
-        );
+        assert_eq!(copy_claude_session(Some(&transcript), &new).unwrap(), "s1");
         assert_eq!(
             std::fs::read_to_string(new.join("projects/-w/s1.jsonl")).unwrap(),
             "x"
@@ -662,7 +701,7 @@ mod tests {
         let new = tmp.path().join("new");
         assert!(copy_claude_session(None, &new).is_err());
         let missing = tmp.path().join("old/projects/-w/gone.jsonl");
-        assert!(copy_claude_session(missing.to_str(), &new).is_err());
+        assert!(copy_claude_session(Some(&missing), &new).is_err());
         assert!(!new.exists());
     }
 }

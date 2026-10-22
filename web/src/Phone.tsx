@@ -202,7 +202,9 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
   const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
   const asks = asking(view);
   const first = asks[0];
-  const pillNode = props.waiting[0];
+  // 이 노드의 질문은 아래 사각형 띠가 보인다. 알약은 다른 노드의 대기만 센다(2026-10-23 사람 "질문이 들어오면 바로 밑이랑 알약이랑 두 개가 중복해서 ... 중복을 좀 제거해 줘").
+  const others = props.waiting.filter((v) => v.id !== view.id);
+  const pillNode = others[0];
 
   const key = (data: string) => {
     send.current?.(data);
@@ -286,7 +288,7 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
         {/* 모든 노드의 질문 알약(목업 R4, Q459 A). 데스크톱 「한 줄」 알약처럼 터미널 위 가운데에 뜬다. 숫자는 이 노드의 질문도 센다(알림 탭 배지와 같다). 위 사각형 띠는 이 노드의 질문만 보인다. */}
         {pillNode && (
           <div className="inbox-pill phone-pill" data-view="line" data-kind={oldestWait(pillNode).kind}>
-            <PillHead node={pillNode} wait={oldestWait(pillNode)} count={waitCount(props.waiting)} line open={sheet === 'inbox'} onToggle={() => setSheet('inbox')} />
+            <PillHead node={pillNode} wait={oldestWait(pillNode)} count={waitCount(others)} line open={sheet === 'inbox'} onToggle={() => setSheet('inbox')} />
           </div>
         )}
         <SizingTerminal src={nodePty(view.id)} node={view.id} hold={borrowSize} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} onPaster={(p) => (paster.current = p)} />

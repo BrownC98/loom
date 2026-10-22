@@ -28,6 +28,9 @@ pub fn attach(path: &Path) -> Result<Attached, String> {
     let path = real_path(path)?;
     let html = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     check(&html)?;
+    if !mockup(&path) {
+        check_report(&html)?;
+    }
     let id = doc_id(&path)?;
     let title = bare_title(title(&html).unwrap_or_default()).to_owned();
     fs::write(&path, stamp(&html, &id)).map_err(|e| e.to_string())?;
@@ -72,6 +75,16 @@ fn check(html: &str) -> Result<(), String> {
     match marks.iter().find(|(mark, _)| !html.contains(mark)) {
         Some((_, missing)) => Err((*missing).into()),
         None => Ok(()),
+    }
+}
+
+/// 보고서는 그림으로 보인다(2026-10-22 사람 지시 "다이어그램 등으로 시각화 해서 이해하기 쉽게 작성해, 앞으로 모든 보고서에 적용되는 규칙으로 설정").
+/// 목업은 화면 그림이 본문이라 보지 않는다.
+fn check_report(html: &str) -> Result<(), String> {
+    if html.contains("<svg") || html.contains("<img") {
+        Ok(())
+    } else {
+        Err("보고서에 그림(<svg>·<img>)이 없다. 결론과 구조를 다이어그램으로 보인다".into())
     }
 }
 
@@ -183,6 +196,13 @@ mod tests {
         let err = check(&DOC.replace("theme-toggle", "x")).unwrap_err();
         assert!(err.contains(".theme-toggle"));
         assert!(check(&DOC.replace("<title>문서", "<title>")).is_err());
+    }
+
+    #[test]
+    fn reports_need_a_picture() {
+        assert!(check_report(DOC).is_err());
+        assert!(check_report(&DOC.replace("</body>", "<svg></svg></body>")).is_ok());
+        assert!(check_report(&DOC.replace("</body>", r#"<img src="a.png"></body>"#)).is_ok());
     }
 
     #[test]

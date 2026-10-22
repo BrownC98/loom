@@ -924,6 +924,8 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-ask .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
 .phone-ask .qid { font: 12px var(--mono); color: var(--ink-3); }
 .phone-ask .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-ask.open { align-items: flex-start; padding-block: 12px; max-height: 50dvh; overflow-y: auto; }
+.phone-ask.open .text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .phone-term { min-height: 0; background: var(--term); }
 .phone-dock { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
 .phone-keys { display: flex; gap: 4px; }

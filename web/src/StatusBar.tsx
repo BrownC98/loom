@@ -23,7 +23,7 @@ export type Usage = {
 };
 
 /** 화면 맨 아래에 늘 보이는 줄. Orca처럼 모든 공급자의 사용량이 버튼 하나다(목업 usage.html). [설정]은 사이드바에 있다(graph-panels.html 1번). */
-export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void; notice: { record: SwitchRecord | null; onClose: () => void } }) {
+export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage?: () => void; notice: { record: SwitchRecord | null; onClose: () => void } }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 다른 팝오버처럼 pointerdown을 먼저 받는다.
@@ -81,16 +81,21 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
       </button>
       {props.notice.record && <SwitchNotice record={props.notice.record} accounts={usage.accounts} onClose={props.notice.onClose} />}
       <span className="app-version">v{VERSION}</span>
+      {/* 폰에서만 보이는 판 뒤 막. 막을 누르면 판만 닫고 그 아래 단추에 닿지 않는다(styles.css `.usage-scrim`). */}
+      {open && <div className="usage-scrim" aria-hidden="true" onClick={() => setOpen(false)} />}
       {open && usage.accounts && (
         <UsagePopover
           accounts={usage.accounts}
           active={active}
           usage={usage}
           onChoose={props.onChoose}
-          onManage={() => {
-            setOpen(false);
-            props.onManage();
-          }}
+          onManage={
+            props.onManage &&
+            (() => {
+              setOpen(false);
+              props.onManage?.();
+            })
+          }
         />
       )}
     </footer>
@@ -121,7 +126,8 @@ function UsagePopover(props: {
   active: (provider: Provider) => AccountView | undefined;
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
-  onManage: () => void;
+  /** 없으면 [계정 관리]를 두지 않는다. 폰에는 설정 창이 없다(목업 mobile.html ⑧). */
+  onManage?: () => void;
 }) {
   const { t } = useTranslation();
   const { usage } = props;
@@ -143,9 +149,11 @@ function UsagePopover(props: {
       ))}
       <div className="usage-foot">
         {usage.fetchedAt !== null && fetchedText(usage.fetchedAt, Date.now())}
-        <button className="btn ghost sm" onClick={props.onManage}>
-          {t('statusBar.manage')}
-        </button>
+        {props.onManage && (
+          <button className="btn ghost sm" onClick={props.onManage}>
+            {t('statusBar.manage')}
+          </button>
+        )}
       </div>
     </div>
   );

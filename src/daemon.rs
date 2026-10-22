@@ -572,6 +572,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/waits/{wait}", delete(dismiss_wait))
         .route("/api/waits/{wait}/answer", post(answer_wait))
         .route("/api/waits/{wait}/doc", post(open_wait_doc))
+        .route("/api/waits/{wait}/doc/", get(wait_doc))
+        .route("/api/waits/{wait}/doc/{*file}", get(wait_doc_file))
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
             "/api/pastes/{name}",
@@ -587,7 +589,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .merge(settings::routes())
         .merge(switch::routes())
         .fallback(asset)
-        .layer(axum::middleware::from_fn(origin::same_site))
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            origin::human_site,
+        ))
         .with_state(app.clone());
     claim.announce(&node_url(listen))?;
     tokio::spawn(update.run());
@@ -1641,6 +1646,44 @@ async fn open_wait_doc(
     let path = app.graph.wait_doc(WaitId(wait))?;
     open::open(&path).map_err(internal)?;
     Ok(Json(()))
+}
+
+/// 질문에 붙은 문서를 낸다. 폰과 브라우저 화면은 이 주소를 새 탭에서 연다. 앱은 `open_wait_doc`으로 기본 브라우저를 연다.
+/// 주소가 `/`로 끝나서 문서 속 상대 주소(옆 그림)는 `wait_doc_file`로 온다.
+async fn wait_doc(
+    State(app): State<Arc<App>>,
+    Path(wait): Path<u32>,
+    request: axum::extract::Request,
+) -> Result<Response, Problem> {
+    let path = app.graph.wait_doc(WaitId(wait))?;
+    serve_file(&path, request).await
+}
+
+/// 문서와 같은 폴더의 파일(목업의 그림). 폴더 밖(`..`, 절대 경로)은 내지 않는다.
+async fn wait_doc_file(
+    State(app): State<Arc<App>>,
+    Path((wait, file)): Path<(u32, String)>,
+    request: axum::extract::Request,
+) -> Result<Response, Problem> {
+    let doc = app.graph.wait_doc(WaitId(wait))?;
+    let inside = std::path::Path::new(&file)
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)));
+    match doc.parent() {
+        Some(dir) if inside => serve_file(&dir.join(&file), request).await,
+        _ => Ok(StatusCode::NOT_FOUND.into_response()),
+    }
+}
+
+async fn serve_file(
+    path: &std::path::Path,
+    request: axum::extract::Request,
+) -> Result<Response, Problem> {
+    let response = tower_http::services::ServeFile::new(path)
+        .try_call(request)
+        .await
+        .map_err(internal)?;
+    Ok(response.into_response())
 }
 
 async fn agent_spawn(

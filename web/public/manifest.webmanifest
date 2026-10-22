@@ -1,0 +1,10 @@
+{
+  "name": "loom",
+  "short_name": "loom",
+  "start_url": "/#/inbox",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f5",
+  "theme_color": "#f5f5f5",
+  "icons": [{ "src": "/icon.png", "sizes": "256x256", "type": "image/png", "purpose": "any" }]
+}

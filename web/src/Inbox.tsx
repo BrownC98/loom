@@ -1,8 +1,9 @@
-import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, ImagePlus, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
-import { answerWait, dismissWait, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile } from './api';
+import { isTauri } from '@tauri-apps/api/core';
+import { answerWait, dismissWait, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocUrl } from './api';
 import { choices } from './choices';
 import { QuestionIcon } from './Dock';
 import type { HumanWait } from './gen/HumanWait';
@@ -230,15 +231,23 @@ function WaitBody(props: { wait: HumanWait; onGo: () => void }) {
             // 문서는 따로 단추가 아니라 질문 글 끝의 링크다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
             <>
               {' '}
-              <button
-                type="button"
-                className="doc-link"
-                title={t('inbox.openDocLabel', { id: wait.doc.id, title: wait.doc.title })}
-                onClick={() => openWaitDoc(wait.id).catch((err: Error) => setRefusal(err.message))}
-              >
-                {wait.doc.id} {wait.doc.title}
-                <ExternalLink aria-hidden="true" />
-              </button>
+              {/* 앱 창은 새 탭을 열지 못해 데몬이 기본 브라우저를 연다. 브라우저와 폰은 데몬이 내는 문서를 새 탭에서 연다(목업 docs/mockups/mobile.html ②). */}
+              {isTauri() ? (
+                <button
+                  type="button"
+                  className="doc-link"
+                  title={t('inbox.openDocLabel', { id: wait.doc.id, title: wait.doc.title })}
+                  onClick={() => openWaitDoc(wait.id).catch((err: Error) => setRefusal(err.message))}
+                >
+                  {wait.doc.id} {wait.doc.title}
+                  <ExternalLink aria-hidden="true" />
+                </button>
+              ) : (
+                <a className="doc-link" href={waitDocUrl(wait.id)} target="_blank" rel="noopener" title={t('inbox.openDocTabLabel', { id: wait.doc.id, title: wait.doc.title })}>
+                  {wait.doc.id} {wait.doc.title}
+                  <ExternalLink aria-hidden="true" />
+                </a>
+              )}
             </>
           )}
         </p>
@@ -387,6 +396,20 @@ function AnswerForm(props: { qid: string; hasImages: boolean; onSend: (text: str
         aria-label={t('inbox.answerLabel', { id: props.qid })}
         placeholder={t('inbox.answerPlaceholder')}
       />
+      {/* 폰에는 붙여넣기·끌어 놓기가 없어 사진첩을 연다(목업 docs/mockups/mobile.html ②). 데스크톱 화면은 숨긴다(styles.css). */}
+      <label className="attach" title={t('inbox.attachImage')}>
+        <ImageIcon aria-hidden="true" />
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          aria-label={t('inbox.attachImage')}
+          onChange={(e) => {
+            props.onPasteImages([...(e.target.files ?? [])]);
+            e.target.value = '';
+          }}
+        />
+      </label>
       <button type="submit" className="send" aria-label={t('inbox.send', { id: props.qid })} disabled={!ready}>
         <ArrowUp aria-hidden="true" />
       </button>

@@ -191,14 +191,13 @@ svg.s { width: 16px; height: 16px; }
 .accts .sub { font-size: 12px; color: var(--ink-3); font-weight: 400; }
 [data-scheme="light"] { color-scheme: light; }
 [data-scheme="dark"] { color-scheme: dark; }
-/* v5: 질문 띠 두 안. */
+/* v5: 질문 띠(A안, 사람 결정 Q286). */
 .cmp-row { display: flex; gap: 24px; flex-wrap: wrap; }
 .cmp-cell { display: grid; gap: 6px; }
 .cmp-cell .hint { font-size: 12px; color: var(--ink-3); }
 .mini { width: 390px; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; background: var(--term); color: var(--ink); }
 .mini .xterm { height: 56px; }
 .banner.a { background: color-mix(in srgb, var(--warn) 10%, var(--panel)); }
-.banner.b { background: var(--term); border-top-width: 2px; border-bottom: 0; }
 .qicon { width: 16px; height: 16px; flex: none; color: var(--warn); stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style>
 </head>
@@ -207,7 +206,7 @@ svg.s { width: 16px; height: 16px; }
   <div class="who"><span class="doc-id">문서 ID: <b>M35</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 멀티플랫폼</b></span><span>v5 · 2026-10-22</span></div>
   <h1>폰 화면: 질문 답하기, 노드 목록, 터미널</h1>
   <p class="lead">사람 지시: "모바일에서의 ui/ux 설계 진행", "모바일은 orca처럼 컴퓨터의 작업을 통제할 수 있는 단말기 역할을 한다". 폰은 PC 데몬의 같은 웹 화면을 폰 폭(390px)으로 보인다(보고서 R13 정할 것 ①②의 권장안). 화면은 1단계(답·트리·터미널·멈추기)를 먼저 그렸다. <span class="phase">2단계</span> 표시는 보고서 정할 것 ④·⑥에 달렸다. 점선은 아직 정하지 않은 결정에 달린 곳이다.</p>
-  <p class="lead">v5에서 바뀐 곳(사람 의견 Q285 "위 막대와 구별되지 않는다"): 질문 띠 두 안 ④-1. ④ 그림은 A안이다. v4에서 바뀐 곳(사람 지시 "모서리가 조금만 둥근 사각이 아니라 화면 너비를 채우는 직사각형으로"): ④ 터미널의 질문 배너는 화면 너비를 채우는 띠다. 위아래에 노란 줄이 있고 모서리가 없다. v3에서 바뀐 곳(사람 지시 "이부분 pc 판과 동일하게 다크 테마에 노란 테두리로"): 배너 바탕이 테마의 패널 색이다. v2에서 바뀐 곳(사람 지시 "모바일 질문 ui 도 동일한 노란색 써야함, 그리고 앱에도 llm 사용량 표시 동일하기 나와야함"): 질문 보내기 단추가 질문 색(노란색)이다. 아래 탭 위에 데스크톱 상태 줄과 같은 사용량 줄이 있다. 누르면 ⑧ 사용량 판이 열린다. 질문 색과 사용량 줄은 설정 「색」에서 고른 색을 따른다. 폰 그래프는 1단계에 넣지 않는다(사람 결정 Q281).</p>
+  <p class="lead">v5에서 바뀐 곳(사람 의견 Q285 "위 막대와 구별되지 않는다", 사람 결정 Q286=A): ④-1 질문 띠는 노란빛 바탕과 노란 질문 아이콘이다. v4에서 바뀐 곳(사람 지시 "모서리가 조금만 둥근 사각이 아니라 화면 너비를 채우는 직사각형으로"): ④ 터미널의 질문 배너는 화면 너비를 채우는 띠다. 위아래에 노란 줄이 있고 모서리가 없다. v3에서 바뀐 곳(사람 지시 "이부분 pc 판과 동일하게 다크 테마에 노란 테두리로"): 배너 바탕이 테마의 패널 색이다. v2에서 바뀐 곳(사람 지시 "모바일 질문 ui 도 동일한 노란색 써야함, 그리고 앱에도 llm 사용량 표시 동일하기 나와야함"): 질문 보내기 단추가 질문 색(노란색)이다. 아래 탭 위에 데스크톱 상태 줄과 같은 사용량 줄이 있다. 누르면 ⑧ 사용량 판이 열린다. 질문 색과 사용량 줄은 설정 「색」에서 고른 색을 따른다. 폰 그래프는 1단계에 넣지 않는다(사람 결정 Q281).</p>
 
   <div class="fig">
     <h2>① 이동 <span class="tag">아래 탭 2개 + 터미널 전체 화면</span></h2>
@@ -337,35 +336,22 @@ svg.s { width: 16px; height: 16px; }
   </div>
 
   <div class="fig">
-    <h2>④-1 질문 띠 두 안 <span class="tag">v5 · 위 막대와 구별</span></h2>
+    <h2>④-1 질문 띠 <span class="tag">v5 · 위 막대와 구별</span></h2>
     <div class="cmp-row">
-      <div class="cmp-cell"><span class="cap">A 노란빛 바탕 + 질문 아이콘 (권장) · 라이트</span><div class="mini" data-scheme="light">
+      <div class="cmp-cell"><span class="cap">노란빛 바탕 + 질문 아이콘 · 라이트</span><div class="mini" data-scheme="light">
           <div class="top"><button class="ib" aria-label="뒤로"><svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><span class="title"><b>화면수정</b><span>codex · 화면수정 워크트리</span></span><span class="state waiting">응답 대기</span><button class="ib" aria-label="노드 동작"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button></div>
           <div class="banner a"><svg class="qicon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg><b>질문</b><span class="qid">Q42</span><span class="txt">오류 화면을 찍어 보내 주세요.</span><span class="spacer"></span><button class="btn">답하기</button></div>
           <div class="xterm"><span class="dim">› 설정 창의 아래쪽 여백을 고쳤습니다.</span></div>
         </div></div>
-      <div class="cmp-cell"><span class="cap">A · 다크</span><div class="mini" data-scheme="dark">
+      <div class="cmp-cell"><span class="cap">다크</span><div class="mini" data-scheme="dark">
           <div class="top"><button class="ib" aria-label="뒤로"><svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><span class="title"><b>화면수정</b><span>codex · 화면수정 워크트리</span></span><span class="state waiting">응답 대기</span><button class="ib" aria-label="노드 동작"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button></div>
           <div class="banner a"><svg class="qicon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg><b>질문</b><span class="qid">Q42</span><span class="txt">오류 화면을 찍어 보내 주세요.</span><span class="spacer"></span><button class="btn">답하기</button></div>
-          <div class="xterm"><span class="dim">› 설정 창의 아래쪽 여백을 고쳤습니다.</span></div>
-        </div></div>
-    </div>
-    <div class="cmp-row">
-      <div class="cmp-cell"><span class="cap">B 터미널 바탕 + 위 2px 노란 줄 · 라이트</span><div class="mini" data-scheme="light">
-          <div class="top"><button class="ib" aria-label="뒤로"><svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><span class="title"><b>화면수정</b><span>codex · 화면수정 워크트리</span></span><span class="state waiting">응답 대기</span><button class="ib" aria-label="노드 동작"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button></div>
-          <div class="banner b"><b>질문</b><span class="qid">Q42</span><span class="txt">오류 화면을 찍어 보내 주세요.</span><span class="spacer"></span><button class="btn">답하기</button></div>
-          <div class="xterm"><span class="dim">› 설정 창의 아래쪽 여백을 고쳤습니다.</span></div>
-        </div></div>
-      <div class="cmp-cell"><span class="cap">B · 다크</span><div class="mini" data-scheme="dark">
-          <div class="top"><button class="ib" aria-label="뒤로"><svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><span class="title"><b>화면수정</b><span>codex · 화면수정 워크트리</span></span><span class="state waiting">응답 대기</span><button class="ib" aria-label="노드 동작"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button></div>
-          <div class="banner b"><b>질문</b><span class="qid">Q42</span><span class="txt">오류 화면을 찍어 보내 주세요.</span><span class="spacer"></span><button class="btn">답하기</button></div>
           <div class="xterm"><span class="dim">› 설정 창의 아래쪽 여백을 고쳤습니다.</span></div>
         </div></div>
     </div>
     <ul class="note">
       <li>A: 화면 너비 띠, 위아래 노란 줄, 바탕은 패널 색에 질문 색(--warn) 10%를 섞는다. 「질문」 앞에 노란 질문 아이콘. 위 막대(패널 색)와 바탕 색이 다르다.</li>
-      <li>B: 바탕은 터미널 바탕이다. 위에 2px 노란 줄만 둔다. 위 막대는 패널 색 그대로다.</li>
-      <li>사람 의견(Q285): "배너가 위 막대와 구별되지 않는다". v4는 둘 다 패널 색이었다.</li>
+            <li>사람 의견(Q285): "배너가 위 막대와 구별되지 않는다". v4는 둘 다 패널 색이었다.</li>
     </ul>
   </div>
 

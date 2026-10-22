@@ -160,6 +160,31 @@ impl Homes {
     }
 }
 
+/// WSL 노드가 interop으로 부른 `loom.exe`는 Linux 절대 경로(`/home/…`)를 받는다. Windows는 그 글을 현재 드라이브의 경로로 읽는다.
+/// 시작 폴더가 WSL 폴더면(interop이 그 폴더의 UNC로 띄운다) 같은 배포판의 UNC 경로로 바꾼다.
+pub fn from_caller(path: std::path::PathBuf) -> std::path::PathBuf {
+    let linux = path
+        .to_str()
+        .filter(|p| p.starts_with('/') && !p.starts_with("//"));
+    match (linux, caller()) {
+        (Some(p), Some(at)) => at.unc(p).into(),
+        _ => path,
+    }
+}
+
+/// 부른 노드가 읽는 경로 글. WSL 노드면 같은 배포판의 Linux 경로다. `loom done --file`의 경로를 부모(보통 같은 배포판)가 읽는다.
+pub fn for_caller(path: &Path) -> String {
+    let text = path.display().to_string();
+    match (caller(), location(&text)) {
+        (Some(at), Some(inside)) if at.distro == inside.distro => inside.path,
+        _ => text,
+    }
+}
+
+fn caller() -> Option<WslPath> {
+    std::env::current_dir().ok().and_then(|dir| of(&dir))
+}
+
 /// 노드를 띄우기 직전에 배포판 안에서 읽은 값. `wsl.exe` 한 번으로 읽는다(약 0.2초).
 #[derive(Debug, PartialEq)]
 pub struct Inside {

@@ -194,6 +194,15 @@ pub struct RenameNode {
 #[ts(export)]
 pub struct OpenFile {
     pub path: String,
+    /// 링크를 누른 터미널의 노드. 로그인 창이면 없다.
+    #[serde(default)]
+    pub node: Option<NodeId>,
+}
+
+/// 붙여넣은 파일을 받을 터미널의 노드. 로그인 창이면 없다.
+#[derive(Deserialize)]
+pub struct PasteAt {
+    node: Option<NodeId>,
 }
 
 /// [저장소 추가]. `path`는 데몬이 보는 폴더다.
@@ -1232,6 +1241,13 @@ impl App {
         })
     }
 
+    /// 노드가 WSL 폴더에서 돌면 그 배포판 안의 위치다.
+    fn node_wsl(&self, node: Option<NodeId>) -> Result<Option<wsl::WslPath>, Problem> {
+        let Some(node) = node else { return Ok(None) };
+        let place = self.graph.place_of(node).map_err(internal)?;
+        Ok(wsl::of(std::path::Path::new(&place.worktree)))
+    }
+
     /// 노드 안의 `loom` 명령이 쓰는 환경. Codex는 셸을 TUI가 아니라 app-server 아래에서 띄우므로 둘 다 받는다.
     fn node_env(&self, token: &str) -> [(&'static str, OsString); 4] {
         [
@@ -1525,9 +1541,24 @@ async fn create_node(
 }
 
 /// 터미널에 붙여넣거나 끌어다 놓은 파일을 남기고 그 절대 경로를 돌려준다. 몸통은 파일 그대로, 경로 끝은 원래 파일 이름이다.
-async fn save_paste(Path(name): Path<String>, body: Bytes) -> Result<Json<String>, Problem> {
-    let path = paste::save(&name, &body).map_err(internal)?;
-    Ok(Json(path.to_string_lossy().into_owned()))
+/// `node`가 WSL 노드면 그 배포판의 `/tmp`에 쓰고 배포판 안의 경로를 돌려준다. 그 노드의 CLI는 Windows 임시 폴더 경로를 읽지 못한다.
+async fn save_paste(
+    State(app): State<Arc<App>>,
+    Path(name): Path<String>,
+    Query(at): Query<PasteAt>,
+    body: Bytes,
+) -> Result<Json<String>, Problem> {
+    let wsl = app.node_wsl(at.node)?;
+    let root = match &wsl {
+        Some(wsl) => PathBuf::from(wsl.unc("/tmp")),
+        None => std::env::temp_dir(),
+    };
+    let path = paste::save(&root, &name, &body).map_err(internal)?;
+    let path = path.to_string_lossy().into_owned();
+    Ok(Json(match wsl::location(&path) {
+        Some(inside) if wsl.is_some() => inside.path,
+        _ => path,
+    }))
 }
 
 /// 노드 하나를 지우고 프로세스를 끝낸다. 프로세스가 끝나면 `launch`의 `on_exit`가 app-server를 끝낸다.
@@ -1551,8 +1582,16 @@ async fn adopt_node(
 }
 
 /// 사람이 터미널에서 누른 파일 링크를 기본 앱으로 연다. JSON 몸통이라 다른 출처의 페이지는 사전 요청에서 막힌다.
-async fn open_file(Json(req): Json<OpenFile>) -> Result<Json<()>, Problem> {
-    open::open(std::path::Path::new(&req.path)).map_err(internal)?;
+/// WSL 노드의 링크는 배포판 안의 경로(`/home/…`)다. 그 배포판의 UNC 경로로 연다.
+async fn open_file(
+    State(app): State<Arc<App>>,
+    Json(req): Json<OpenFile>,
+) -> Result<Json<()>, Problem> {
+    let path = match app.node_wsl(req.node)? {
+        Some(wsl) if req.path.starts_with('/') => wsl.unc(&req.path),
+        _ => req.path,
+    };
+    open::open(std::path::Path::new(&path)).map_err(internal)?;
     Ok(Json(()))
 }
 

@@ -226,7 +226,7 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
         </div>
       )}
       <div className="phone-term" translate="no">
-        <SizingTerminal src={nodePty(view.id)} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} />
+        <SizingTerminal src={nodePty(view.id)} node={view.id} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} />
       </div>
       <div className="phone-dock">
         <div className="phone-keys" role="group" aria-label={t('phone.keys')}>

@@ -663,7 +663,7 @@ function LoginDialog(props: { login: OpenLogin; onDone: () => void }) {
         </button>
       </h3>
       <div className="login-term" translate="no">
-        <SizingTerminal src={loginPty(login.id)} focused onFocus={() => {}} onNavigate={() => {}} />
+        <SizingTerminal src={loginPty(login.id)} node={null} focused onFocus={() => {}} onNavigate={() => {}} />
       </div>
       {failed ? (
         <p className="error" role="alert">

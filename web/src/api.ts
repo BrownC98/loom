@@ -64,8 +64,11 @@ const call = <T>(method: string, path: string, body?: unknown) =>
 export const PASTE_LIMIT_BYTES = 32 * 1024 * 1024;
 
 /** 붙여넣거나 끌어다 놓은 파일을 데몬이 같은 이름으로 남기고 그 절대 경로를 돌려준다. 터미널과 질문 답의 그림이 쓴다. */
-export const savePastedFile = (file: File) =>
-  request<string>('POST', `/api/pastes/${encodeURIComponent(file.name)}`, { type: file.type || 'application/octet-stream', data: file });
+export const savePastedFile = (file: File, node: NodeId | null) =>
+  request<string>('POST', `/api/pastes/${encodeURIComponent(file.name)}${node === null ? '' : `?node=${node}`}`, {
+    type: file.type || 'application/octet-stream',
+    data: file,
+  });
 
 export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', req);
 /** 노드 하나를 지운다. 자식은 부모 없이 남는다(docs/design.md 「노드 제거와 입양」). */
@@ -95,7 +98,7 @@ export async function shutdown(): Promise<void> {
   if (!res.ok) throw new Error(statusText(res.status));
 }
 
-export const openFile = (path: string) => call<null>('POST', '/api/files/open', { path } satisfies OpenFile);
+export const openFile = (path: string, node: NodeId | null) => call<null>('POST', '/api/files/open', { path, node } satisfies OpenFile);
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');
 export const getSettings = () => call<SettingsView>('GET', '/api/settings');

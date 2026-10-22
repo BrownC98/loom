@@ -326,7 +326,7 @@ function Card({ data }: NodeProps<CardNode>) {
         }
       >
         <div ref={termBox} className="term-hold" style={hold ?? undefined}>
-          {data.ownsPty && <SizingTerminal src={nodePty(data.view.id)} focused={data.selected} focusAsk={data.focusAsk} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+          {data.ownsPty && <SizingTerminal src={nodePty(data.view.id)} node={data.view.id} focused={data.selected} focusAsk={data.focusAsk} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
         </div>
       </NodeCard>
       {/* 카드 다음에 그려 카드 머리·터미널 위에 놓는다. 그래서 테두리 안쪽 3px도 잡힌다. 잇기 점(`Ports`)은 그 위다. */}
@@ -1371,7 +1371,7 @@ export function Graph(props: {
               </>
             }
           >
-            <SizingTerminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} focusAsk={props.focusAsk} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
+            <SizingTerminal src={nodePty(zoomedView.id)} node={zoomedView.id} focused={selected === zoomedView.id} focusAsk={props.focusAsk} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
           </NodeCard>
         </div>
       )}

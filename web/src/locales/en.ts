@@ -165,7 +165,7 @@ const en = {
     consent: 'Serve is not enabled on your tailnet yet. Enable it on the Tailscale page, then click “Turn on Serve” again.',
     consentLink: 'Open the Tailscale page',
     scan: 'Scan the QR code with the phone camera',
-    typeCode: 'In the home-screen app, type the code below.',
+    typeCode: 'In the home-screen app, tap [Scan QR code] and scan this QR code, or enter the code below.',
     left: '{{min}} min {{sec}} s left · one use only',
     qrAlt: 'Phone connection QR code',
     devices: 'Connected devices',

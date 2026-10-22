@@ -31,8 +31,8 @@ const FORWARDED_FOR: &str = "x-forwarded-for";
 const TAILNET_SUFFIX: &str = ".ts.net";
 /// 기기 토큰 쿠키.
 pub const DEVICE_COOKIE: &str = "loom_device";
-/// 짝짓기 전 폰이 받는 것: 짝짓기 요청, 「홈 화면에 추가」가 쿠키 없이 읽는 매니페스트와 아이콘(web/public).
-const UNPAIRED_PATHS: &[&str] = &["/manifest.webmanifest", "/icon.png"];
+/// 짝짓기 전 폰이 받는 것: 짝짓기 요청, 「홈 화면에 추가」가 쿠키 없이 읽는 매니페스트와 아이콘(web/public), 짝짓기 쪽의 QR 판독기.
+const UNPAIRED_PATHS: &[&str] = &["/manifest.webmanifest", "/icon.png", phone::JSQR_PATH];
 
 /// Serve로 온 요청에 미들웨어가 넣는다. `device`는 짝지은 기기다(짝짓기 요청만 `None`).
 /// 이 표시가 있는 요청은 PC 화면만 하는 일(짝짓기 코드, 기기 목록, Serve 켜기)을 하지 못한다.
@@ -380,15 +380,17 @@ mod tests {
                 status(&d, upgrade(remote(Method::GET, "/api/events", None))).await,
                 StatusCode::UNAUTHORIZED
             );
-            // 짝짓기 요청과 홈 화면 아이콘만 쿠키 없이 닿는다.
+            // 짝짓기 요청, 홈 화면 아이콘, QR 판독기만 쿠키 없이 닿는다.
             assert_eq!(
                 status(&d, remote(Method::POST, phone::PAIR_PATH, None)).await,
                 StatusCode::OK
             );
-            assert_eq!(
-                status(&d, remote(Method::GET, "/icon.png", None)).await,
-                StatusCode::OK
-            );
+            for path in ["/icon.png", phone::JSQR_PATH] {
+                assert_eq!(
+                    status(&d, remote(Method::GET, path, None)).await,
+                    StatusCode::OK
+                );
+            }
             assert_eq!(
                 status(&d, remote(Method::GET, phone::PAIR_PATH, None)).await,
                 StatusCode::UNAUTHORIZED

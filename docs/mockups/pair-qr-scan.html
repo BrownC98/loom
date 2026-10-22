@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M2 폰 QR 찍기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: user-doc style.html. 화면 그림의 색은 web/src/styles.css 토큰과 mobile.html(M35)의 폰 틀이다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button, input { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.note code, td code { font-family: var(--mono); font-size: 12px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.cmp { border-collapse: collapse; font-size: 13px; width: 1240px; }
+table.cmp th, table.cmp td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.pick { font-weight: 600; color: var(--warn); }
+
+/* 폰 틀(M35와 같은 크기) */
+.row { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+.shot { display: grid; gap: 10px; width: 390px; }
+.cap { font-size: 13px; font-weight: 600; }
+.phone { width: 390px; height: 700px; border: 1px solid var(--line-strong); border-radius: 28px; background: var(--bg); overflow: hidden; display: grid; grid-template-rows: 44px minmax(0, 1fr); }
+.os { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-size: 13px; font-weight: 600; }
+.card { margin: 120px 20px 0; align-self: start; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 12px; }
+.card h3 { font-size: 17px; }
+.card p { font-size: 14px; color: var(--ink-2); }
+.mark { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font: 700 16px var(--mono); }
+.pbtn { min-height: 44px; border-radius: 10px; font-size: 15px; }
+.field { min-height: 48px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); font: 600 20px var(--mono); letter-spacing: 2px; display: flex; align-items: center; }
+.field.empty { color: var(--ink-3); font: 15px var(--font); letter-spacing: 0; }
+.err { font-size: 13px; color: var(--err); }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.pin { display: flex; align-items: center; gap: 6px; }
+.pin span { flex: 1; height: 48px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); display: grid; place-items: center; font: 600 20px var(--mono); }
+.pin span.at { border: 2px solid var(--ink); }
+.pin i { font: 600 20px var(--mono); color: var(--ink-3); font-style: normal; }
+.btn.pbtn.sec { background: var(--surface); }
+.btn svg { width: 18px; height: 18px; }
+.or { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-3); }
+.or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.cam { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: oklch(25% 0.01 250); display: grid; place-items: center; }
+.cam .shade { position: absolute; inset: 0; background: repeating-linear-gradient(135deg, oklch(30% 0.01 250) 0 14px, oklch(27% 0.01 250) 14px 28px); }
+.cam .frame { position: relative; width: 62%; aspect-ratio: 1; border: 3px solid oklch(98% 0 0 / 0.9); border-radius: 12px; box-shadow: 0 0 0 999px oklch(0% 0 0 / 0.35); }
+.card.top { margin-top: 64px; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M2</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 웹QR</b></span><span>v3 · 2026-10-22</span></div>
+  <h1>연결되지 않은 폰: 코드 칸 옆에 [QR 찍기]</h1>
+  <p class="lead">사람 지시: "앱에서 연결할때도 번호 없이 qr 로 연결되게 만들어줘", "정확히는 그런 옵션도 제공해줘"(Q386 A). 홈 화면 앱(iPhone PWA)은 <code>#pair</code> 없이 열려 지금은 코드 8자를 적는다. M41 ④의 「연결되지 않은 기기」 카드에 [QR 찍기]를 더한다. 폰 카메라로 PC의 QR을 찍으면 코드를 읽어 바로 연결한다. 코드 칸은 그대로 남고, v2: "핀번호 입력시 화면에 입력된대로 - 표시가 중간에 나오도록 할 것", v3: "입력창에는 ㅁㅁㅁㅁ-ㅁㅁㅁㅁ 꼴의 입력창으로 구현"(Q388). 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 연결되지 않은 기기 <span class="tag">phone.rs unpaired · M41 ④ 둘째 카드를 바꾼다</span></h2>
+    <div class="row">
+      <div class="shot">
+        <span class="cap">처음 열었을 때</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card top"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p class="new">PC의 loom 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍거나 코드를 적습니다.</p>
+            <button class="btn primary pbtn new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="9" y="9" width="6" height="6"/></svg>QR 찍기</button>
+            <div class="or new">또는 코드 적기</div>
+            <div class="pin"><span></span><span></span><span></span><span></span><i>-</i><span></span><span></span><span></span><span></span></div><button class="btn pbtn sec new">연결</button></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">코드를 적을 때(v3)</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card top"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍거나 코드를 적습니다.</p>
+            <button class="btn primary pbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="9" y="9" width="6" height="6"/></svg>QR 찍기</button>
+            <div class="or">또는 코드 적기</div>
+            <div class="pin new"><span>K</span><span>7</span><span>Q</span><span>P</span><i>-</i><span>M</span><span>2</span><span>X</span><span class="at"></span></div><button class="btn pbtn sec">연결</button></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>[QR 찍기]를 위로 올리고 채운 단추로 둔다. 코드 칸의 [연결]은 테두리 단추로 바꾼다. 적는 것보다 찍는 것이 쉽다.</li>
+      <li>코드 칸은 PC와 같은 꼴의 네모 8칸(<code>ㅁㅁㅁㅁ-ㅁㅁㅁㅁ</code>)이다. <code>-</code>는 칸 사이에 늘 있다. 한 글자를 적으면 다음 칸으로 가고, 지우기는 앞 칸으로 간다. 적을 칸은 굵은 테두리다. 8자를 붙여 넣으면(<code>-</code>가 있든 없든) 모든 칸을 채운다. 8번째 글자를 적으면 바로 연결한다. 글자는 대문자로 보인다.</li>
+      <li>카메라를 쓸 수 없는 브라우저(카메라 API 없음)면 [QR 찍기]와 「또는 코드 적기」 줄을 숨기고 지금 카드와 같게 보인다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② QR을 찍을 때 <span class="tag">새 상태</span></h2>
+    <div class="row">
+      <div class="shot">
+        <span class="cap">[QR 찍기]를 누른 뒤(뒤 카메라)</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card top new"><h3>PC 화면의 QR을 찍습니다</h3><div class="cam"><div class="shade"></div><div class="frame"></div></div><p>QR을 네모 안에 맞춥니다. 읽으면 바로 연결합니다.</p><button class="btn pbtn sec">취소</button></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">다른 QR을 찍었을 때</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card top"><h3>PC 화면의 QR을 찍습니다</h3><div class="cam"><div class="shade"></div><div class="frame"></div></div><span class="err new">이 QR은 이 loom의 연결 QR이 아닙니다. PC의 설정 › 휴대폰에 나온 QR을 찍습니다.</span><button class="btn pbtn sec">취소</button></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">카메라를 쓸 수 없을 때(허용 거부 등)</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card top"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍거나 코드를 적습니다.</p><span class="err new">카메라를 쓸 수 없습니다. 코드를 적습니다.</span><button class="btn primary pbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="9" y="9" width="6" height="6"/></svg>QR 찍기</button><div class="or">또는 코드 적기</div><div class="pin"><span></span><span></span><span></span><span></span><i>-</i><span></span><span></span><span></span><span></span></div><button class="btn pbtn sec">연결</button></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>카메라 화면은 카드 안에 둔다. 앱 밖으로 나가지 않는다. 읽기는 브라우저의 QR 판독기를 쓰고, 없으면(iPhone Safari) 데몬이 내는 작은 판독기를 쓴다. 바깥 서버(CDN)를 부르지 않는다.</li>
+      <li>QR 주소의 호스트가 이 페이지의 호스트와 같을 때만 그 코드를 보낸다. 다른 PC나 다른 사이트의 QR은 받지 않는다. 틀린 QR이어도 카메라는 계속 찍는다.</li>
+      <li>QR을 읽으면 카메라를 끄고 지금과 같이 코드를 보낸다. 맞으면 M41 ④의 「loom에 연결했습니다」, 틀리거나 시간이 지났으면 ①로 돌아와 지금 오류 줄을 보인다.</li>
+      <li>글은 지금 카드처럼 폰 언어(한국어가 아니면 영어)다. 그림은 한국어만 그렸다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="cmp">
+      <tr><th>#</th><th>정할 것</th><th>안</th></tr>
+      <tr><td>1</td><td>단추 순서</td><td><span class="pick">A(권장)</span>: [QR 찍기]를 위에 채운 단추로, 코드 칸 [연결]은 테두리 단추로 / B: 코드 칸을 위에 그대로 두고 [QR 찍기]를 아래 테두리 단추로</td></tr>
+      <tr><td>2</td><td>①② 화면과 문구(네모 8칸 코드 칸 포함)</td><td>그대로 / 고칠 곳</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

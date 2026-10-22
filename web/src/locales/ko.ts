@@ -167,7 +167,7 @@ const ko: typeof en = {
     consent: 'tailnet에서 Serve를 아직 허용하지 않았습니다. 허용 페이지에서 허용한 뒤 [Serve 켜기]를 다시 클릭합니다.',
     consentLink: '허용 페이지 열기',
     scan: '폰 카메라로 QR을 찍습니다',
-    typeCode: '홈 화면 앱에서는 아래 코드를 적습니다.',
+    typeCode: '홈 화면 앱에서는 [QR 찍기]로 이 QR을 찍거나 아래 코드를 적습니다.',
     left: '{{min}}분 {{sec}}초 남음 · 한 번만 씁니다',
     qrAlt: '폰 연결 QR 코드',
     devices: '연결된 기기',

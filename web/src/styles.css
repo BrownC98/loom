@@ -623,6 +623,19 @@ dialog::backdrop { background: var(--scrim); }
 .dialog { width: 880px; max-width: calc(100vw - 32px); height: 600px; max-height: calc(100vh - 32px); margin: auto; background: var(--panel); border-radius: 12px; box-shadow: 0 18px 48px var(--shadow); overscroll-behavior: contain; }
 .dialog[open] { display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
 .dialog nav { border-right: 1px solid var(--line); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; }
+.settings-search { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; padding: 0 6px 0 8px; height: 30px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); }
+.settings-search:focus-within { border-color: var(--accent); }
+.settings-search > svg { width: 14px; height: 14px; flex: none; }
+.settings-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; font-size: 13px; }
+.settings-search input::-webkit-search-cancel-button { display: none; }
+.settings-search button { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--ink-3); cursor: pointer; }
+.settings-search button:hover { background: var(--line); color: var(--ink); }
+.settings-search button svg { width: 12px; height: 12px; }
+/* 검색 결과: 모든 탭의 칸을 한 줄로 잇고, 칸 이름 앞에 탭 이름을 붙인다. */
+.search-tab { display: contents; }
+.search-tab section[hidden], .search-tab > :not(section) { display: none; }
+.search-tab section > h4::before { content: var(--tab-name); font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--line); color: var(--ink-2); }
+::highlight(settings-search) { background: color-mix(in oklch, var(--warn) 35%, transparent); }
 .dialog nav .reset-all { margin-top: auto; justify-content: flex-start; }
 .dialog nav .stop { justify-content: flex-start; }
 .stopped { height: 100vh; display: grid; place-content: center; gap: 6px; text-align: center; background: var(--bg); }

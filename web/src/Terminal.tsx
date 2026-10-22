@@ -93,7 +93,7 @@ function remoteScreen(): boolean {
 }
 
 /** 안드로이드 앱의 WebView다. 앱만 `loomClipboard`를 붙인다(`MainActivity`). */
-export const inApp = () => 'loomClipboard' in window;
+const inApp = () => 'loomClipboard' in window;
 
 export function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);

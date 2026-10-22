@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import type { Theme } from './gen/Theme';
 import type { ColorScheme } from './uiColors';
-import { inApp } from './Terminal';
 
 const KEY = 'loom.phoneTheme';
 const THEMES: readonly Theme[] = ['system', 'light', 'dark'];
@@ -30,7 +29,7 @@ export function usePhoneTheme() {
   return [choice, choose] as const;
 }
 
-/** 안드로이드 앱의 상태 줄 글자색과 바탕을 화면 테마에 맞춘다(`MainActivity`의 `loomChrome`). */
+/** 안드로이드 앱의 상태 줄 글자색과 바탕을 화면 테마에 맞춘다(`MainActivity`의 `loomChrome`). 옛 APK에는 이 다리가 없다. */
 export function syncAppChrome(scheme: ColorScheme) {
-  if (inApp()) (window as unknown as { loomChrome: { setScheme: (scheme: string) => void } }).loomChrome.setScheme(scheme);
+  (window as { loomChrome?: { setScheme: (scheme: string) => void } }).loomChrome?.setScheme(scheme);
 }

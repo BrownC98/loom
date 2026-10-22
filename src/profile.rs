@@ -646,7 +646,7 @@ fn agent_command(
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
     match (agent.profile, remote) {
-        (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, launch)),
+        (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, launch, brief)),
         (Some(Profile::Cursor), _) => {
             cmd.args(cursor::args(plugin));
             cmd.env(
@@ -703,24 +703,21 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
 
 /// 모든 프로필이 받는 통신 명령. 프로필별 대기 방식은 각 실행 지시가 정한다.
 /// 긴 명령 백그라운드 규칙: 앞에서 도는 긴 명령 동안 조정이 넘어가지 않아 「안 읽음」을 눌러도 고장처럼 보였다(2026-10-22 사람 결정 Q322 B).
-pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell commands to communicate. You can send to any node; talk to your parent and children first, and report to your parent.
-- loom spawn <name> --agent <agent-id>: create a child. Supply its brief on stdin or with --file. --worktree <branch> gives it a new worktree.
-- loom status: inspect your ID, current parent and children, and their process availability. loom status --all lists every node with its ID, parent and place.
-- loom send <name> <body>: queue a message without interrupting a turn. A name finds your parent or child first, then a live node with that unique name. Sending prints the message ID.
-- loom send '#<node-id>' <body>: address any node by stable ID. Use IDs if names are ambiguous.
-- loom reply <message-id> <body>: reply to a received message. The reply names its request ID.
-- loom wait --reply-to <message-id> --timeout <seconds> --json: wait for a particular reply. This also finds replies already delivered by another consumer. Other messages stay in the inbox. A timeout exits with an error.
-- loom steer <name-or-id> <body>: insert guidance between tool calls. Steer and interrupt go only to your parent or children.
-- loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
-- loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language. With no parent, each time you finish a result of the human's work that the human can use (all of it, or a part such as a merge), add --asked <the human's instruction> and --image <path> per image the human gave; this is the only way to tell the human you are done.
-- loom ask <question>: put one question in the human's inbox. When you have no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only with loom ask, in the one-line form of the ask-human rules below, then end your turn. Never end a turn with a question only in your text. With a parent, ask your parent with loom send, never the human.
-- loom answered: when the human's input answers your open loom ask question, you MUST call loom answered first, then act on the answer. If the input does not answer it, leave the question open. If you no longer need the answer, call loom answered.
-- loom adopt <name>: become this node's parent. Use loom status after a parent change.
-- loom rm <name-or-id>: remove your own child and end its process. Its children become your children; reclaim them next.
-Run a shell command that can take more than one minute in the background when your tool can do that, and get its end notice. Messages reach you only between tool calls, so a long foreground command holds back steer messages.
-When you work for a parent, your parent reads your messages, not your terminal: write no progress narration and no briefing in the terminal. End each turn with at most one short line; the result goes in loom done or loom send.
-Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with loom message and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
+pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
+- loom spawn <name> --agent <agent-id> [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>.
+- loom status: your ID, parent and children, and whether their processes are alive. loom status --all lists every node.
+- loom send <target> <body>: queue a message. A name finds your parent or child first, then a live node with that name.
+- loom reply <message-id> <body>: answer a message that you received.
+- loom wait --reply-to <message-id> --timeout <seconds> --json: wait for that reply. A timeout exits with an error.
+- loom steer <target> <body>: put guidance between tool calls. loom interrupt <target> <body>: stop current work and follow this message. Both go only to your parent or children. If you receive an interrupt, stop your previous task.
+- loom done <summary> or loom done --file <path>: report each finished result to your parent. Call it again after more work. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready.
+- loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, ask your parent with loom send.
+- loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
+- loom adopt <name>: become that node's parent. loom rm <target>: remove your child and end its process; its children become yours.
+Run commands that can take more than one minute in the background. Messages reach you only between tool calls.
+With a parent, write no progress in the terminal. Results go in loom done or loom send. End each turn with at most one short line.
+Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
+Messages begin with \"loom message #<id>\". The same ID can come again; do not repeat completed actions for that ID.";
 
 /// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {

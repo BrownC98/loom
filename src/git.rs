@@ -9,7 +9,7 @@ use crate::wsl::{self, WslPath};
 
 /// `dir`에서 `git <args>`를 돌리고 표준 출력을 돌려준다. 실패하면 git의 오류 글이다.
 pub async fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = command(dir, wsl_repo(dir).as_ref(), args)
+    let out = command(dir, wsl::of(dir).as_ref(), args)
         .output()
         .await
         .map_err(|e| format!("git을 실행하지 못했다: {e}"))?;
@@ -21,13 +21,6 @@ pub async fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
 
 /// Windows 데몬이 WSL 폴더(`\\wsl.localhost\…`)에서 부르는 git은 그 배포판의 git이다.
 /// WSL git이 워크트리 파일(`.git`, `gitdir`)에 적은 Linux 경로를 Windows git은 읽지 못한다(`worktree remove`가 "does not point back"으로 실패한다).
-fn wsl_repo(dir: &Path) -> Option<WslPath> {
-    if !cfg!(windows) {
-        return None;
-    }
-    dir.to_str().and_then(wsl::location)
-}
-
 fn command(dir: &Path, wsl: Option<&WslPath>, args: &[&str]) -> Command {
     let mut cmd = match wsl {
         Some(wsl) => {
@@ -52,7 +45,7 @@ fn command(dir: &Path, wsl: Option<&WslPath>, args: &[&str]) -> Command {
 
 /// `dir`의 git에 인자로 넘길 경로. WSL 저장소면 배포판 안의 Linux 경로다.
 pub fn to_git_path(dir: &Path, path: &str) -> String {
-    match (wsl_repo(dir), wsl::location(path)) {
+    match (wsl::of(dir), wsl::location(path)) {
         (Some(_), Some(inside)) => inside.path,
         _ => path.to_owned(),
     }
@@ -60,7 +53,7 @@ pub fn to_git_path(dir: &Path, path: &str) -> String {
 
 /// `dir`의 git이 적은 경로를 데몬이 여는 경로로 바꾼다. WSL 저장소의 Linux 경로는 Windows git이 적던 UNC 글자가 된다.
 pub fn from_git_path(dir: &Path, path: &str) -> String {
-    match wsl_repo(dir) {
+    match wsl::of(dir) {
         Some(wsl) if path.starts_with('/') => wsl.unc(path),
         _ => path.to_owned(),
     }

@@ -60,6 +60,7 @@ use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
 use crate::update::{UpdateView, Updater};
 use crate::user_doc;
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
+use crate::wsl;
 
 #[derive(Embed)]
 #[folder = "web/dist"]
@@ -89,6 +90,8 @@ struct App {
     turn_ends: turn_end::TurnEnds,
     /// 노드 에이전트가 쓰는 내장 스킬. 데몬이 시작할 때 데이터 폴더에 푼다.
     plugin: skills::Plugin,
+    /// WSL 노드의 `loom` 껍데기 폴더(`<데이터 폴더>/wsl`). Windows 데몬만 쓴다.
+    shim: PathBuf,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     version_warnings: HashMap<Profile, VersionMismatch>,
     /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 없다. 사용법 지시는 노드마다 더한다.
@@ -318,19 +321,15 @@ pub struct TakeRequest {
     /// 훅 입력의 `transcript_path`(Claude 세션 기록 파일). 계정 전환이 쓴다. 옛 `loom hook`은 보내지 않는다.
     #[serde(default)]
     pub transcript: Option<String>,
-    /// 일하는 노드의 도구 호출 사이 훅이다. 꺼내지 않은 큐 메시지를 알린다(`Taken::queued_from`).
-    #[serde(default)]
-    pub notice_queue: bool,
     /// 사람이 입력한 턴의 첫 훅이다. 열린 `loom ask` 질문을 알린다(`Taken::open_question`).
     #[serde(default)]
     pub human_input: bool,
 }
 
-/// `loom hook`의 응답. 꺼낸 메시지와, 알릴 때만 새로 기다리는 큐 메시지의 보낸 노드 이름(온 순서).
+/// `loom hook`의 응답. 꺼낸 메시지.
 #[derive(Serialize, Deserialize)]
 pub struct Taken {
     pub messages: Vec<Delivery>,
-    pub queued_from: Vec<String>,
     /// 사람 입력 훅에서만: 아직 열린 `loom ask` 질문들. 에이전트가 그 입력이 어느 질문의 답인지 판단한다.
     #[serde(default)]
     pub open_questions: Vec<OpenQuestion>,
@@ -498,6 +497,13 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             }
             plugin
         },
+        shim: {
+            let shim = db_path.with_file_name("wsl");
+            if cfg!(windows) {
+                wsl::write_shim(&shim, &std::env::current_exe()?)?;
+            }
+            shim
+        },
         version_warnings: profile::version_warnings(codex_version.as_deref()),
         codex_config: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
@@ -558,6 +564,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/name", put(rename_node))
+        .route("/api/nodes/{id}/steer-queued", post(steer_queued))
         .route(
             "/api/nodes/{id}/bookmark",
             put(bookmark_node).delete(unbookmark_node),
@@ -889,6 +896,7 @@ impl App {
             profile,
             codex,
             opencode2,
+            inside: _,
         } = prepared;
         let server = match (&codex, &opencode2) {
             (Some(server), _) => Some(server.link()),
@@ -1134,6 +1142,24 @@ impl App {
         let account = provider.and_then(|p| settings.account(p));
         let token = new_token().map_err(internal)?;
         let env = self.node_env(&token);
+        let plugin = self.plugin.dir(launch.skills);
+        // WSL 폴더면 노드는 그 배포판 안에서 돈다. 근거: docs/design.md 「데몬 하나」.
+        let inside = match wsl::of(cwd) {
+            Some(at) => Some(
+                wsl::inside(&at, &profile::commands(start), &self.shim, &[&plugin])
+                    .await
+                    .map_err(LaunchError::Wsl)?,
+            ),
+            None => None,
+        };
+        // 에이전트가 읽는 스킬 플러그인 폴더와 그 안의 `skills/`. WSL 노드면 배포판 안에서 본 경로다.
+        let (plugin, skills) = match inside.as_ref().and_then(|i| i.path(0)) {
+            Some(inside) => (
+                PathBuf::from(inside),
+                PathBuf::from(format!("{inside}/skills")),
+            ),
+            None => (plugin, self.plugin.skills(launch.skills)),
+        };
         let codex = match profile {
             Some(Profile::Codex) => {
                 let home = self.accounts.config_dir(profile::Provider::Codex, account);
@@ -1143,15 +1169,16 @@ impl App {
                     .cloned()
                     .chain(codex::server_args(launch))
                     .collect();
-                let server = CodexServer::start(cwd, home.as_deref(), &env, &config)
-                    .await
-                    .map_err(|cause| LaunchError::Server {
-                        program: "codex app-server".into(),
-                        cause,
-                    })?;
+                let server =
+                    CodexServer::start(cwd, inside.as_ref(), home.as_deref(), &env, &config)
+                        .await
+                        .map_err(|cause| LaunchError::Server {
+                            program: "codex app-server".into(),
+                            cause,
+                        })?;
                 // 실패해도 노드는 띄운다. 다른 Codex 버전에는 이 요청이 없을 수 있다. 그때 노드는 내장 스킬만 없다.
                 let call = |method, params| server.call(method, params);
-                if let Err(e) = codex::add_skills(call, &self.plugin.skills(launch.skills)).await {
+                if let Err(e) = codex::add_skills(call, &skills).await {
                     eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
                 }
                 Some(Arc::new(server))
@@ -1161,18 +1188,13 @@ impl App {
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
-                let node = opencode2::Node::start(
-                    cwd,
-                    &env,
-                    &self.plugin.skills(launch.skills),
-                    password,
-                    launch,
-                )
-                .await
-                .map_err(|cause| LaunchError::Server {
-                    program: format!("{} serve", opencode2::CMD),
-                    cause,
-                })?;
+                let node =
+                    opencode2::Node::start(cwd, inside.as_ref(), &env, &skills, password, launch)
+                        .await
+                        .map_err(|cause| LaunchError::Server {
+                            program: format!("{} serve", opencode2::CMD),
+                            cause,
+                        })?;
                 Some(Arc::new(node))
             }
             _ => None,
@@ -1186,20 +1208,26 @@ impl App {
         let mut cmd = profile::command(
             start,
             cwd,
+            inside.as_ref(),
             remote,
             &settings.bypass_off,
-            &self.plugin.dir(launch.skills),
+            &plugin,
             launch,
         )
         .inspect_err(|_| discard())?;
         for (key, value) in &env {
             cmd.env(key, value);
         }
-        if let Some(provider) = provider {
+        // WSL 노드는 그 배포판의 시스템 기본 로그인을 쓴다. loom 계정 폴더는 Windows에 있다.
+        if let (Some(provider), None) = (provider, &inside) {
             self.accounts.apply(&mut cmd, provider, account);
+        }
+        if let Some(inside) = &inside {
+            cmd = inside.wrap(&cmd);
         }
         Ok(Prepared {
             cmd,
+            inside,
             setup: None,
             token,
             account: account.cloned(),
@@ -1223,6 +1251,8 @@ impl App {
 /// 띄울 준비가 된 노드. Codex·OpenCode 2 노드면 TUI가 붙을 서버가 이미 떠 있다.
 struct Prepared {
     cmd: portable_pty::CommandBuilder,
+    /// WSL 노드면 그 배포판에서 읽은 값. 설정 스크립트도 그 배포판에서 돈다.
+    inside: Option<wsl::Inside>,
     /// `cmd`보다 먼저(같은 터미널 화면에서) 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
     setup: Option<portable_pty::CommandBuilder>,
     /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
@@ -1236,6 +1266,14 @@ struct Prepared {
 }
 
 impl Prepared {
+    /// 노드와 같은 곳(이 PC 또는 그 WSL 배포판)에서 명령 한 줄을 도는 셸.
+    fn shell(&self, line: &str) -> portable_pty::CommandBuilder {
+        match &self.inside {
+            Some(inside) => inside.wrap(&portable_pty::CommandBuilder::from_argv(wsl::shell(line))),
+            None => profile::shell(line),
+        }
+    }
+
     /// 노드를 만들지 못했으면 미리 띄운 서버를 끝내는 함수. 노드를 띄우는 클로저가 `self`를 가져가므로 따로 만든다.
     fn discarder(&self) -> impl Fn() + use<> {
         discarder(&self.codex, &self.opencode2)
@@ -1297,7 +1335,7 @@ impl Mailbox for NodeMailbox {
 
     fn human_input(&self) -> Option<String> {
         let questions = self.app.graph.open_questions(self.node).ok()?;
-        profile::hook_text(&[], &[], &questions)
+        profile::hook_text(&[], &questions)
     }
 }
 
@@ -1417,7 +1455,7 @@ async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread
         Ok(questions) => questions,
         Err(e) => return eprintln!("loom: 노드 {}의 열린 질문을 읽지 못했다: {e}", node.0),
     };
-    let Some(text) = profile::hook_text(&[], &[], &questions) else {
+    let Some(text) = profile::hook_text(&[], &questions) else {
         return;
     };
     let call = |method, params| server.call(method, params);
@@ -1543,6 +1581,14 @@ async fn rename_node(
     Json(req): Json<RenameNode>,
 ) -> Result<Json<()>, Problem> {
     app.graph.rename(NodeId(id), &req.name)?;
+    Ok(Json(()))
+}
+
+async fn steer_queued(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.graph.steer_queued(NodeId(id))?;
     Ok(Json(()))
 }
 
@@ -1692,7 +1738,7 @@ async fn spawn_child(
         .await
         .map_err(for_agent)?;
     if worktree.is_some() {
-        prepared.setup = worktree::setup_script(cwd).map(|line| profile::shell(&line));
+        prepared.setup = worktree::setup_script(cwd).map(|line| prepared.shell(&line));
     }
     let discard = prepared.discarder();
     let limits = app
@@ -1792,18 +1838,12 @@ async fn agent_take(
         .graph
         .take(node, &req.kinds, req.limit_bytes)
         .map_err(for_agent)?;
-    let queued_from = if req.notice_queue {
-        app.graph.newly_queued(node).map_err(for_agent)?
-    } else {
-        Vec::new()
-    };
     let open_questions = match req.human_input {
         true => app.graph.open_questions(node).map_err(for_agent)?,
         false => Vec::new(),
     };
     Ok(Json(Taken {
         messages,
-        queued_from,
         open_questions,
     }))
 }

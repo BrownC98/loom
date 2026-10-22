@@ -15,6 +15,7 @@ use tokio::process::Command;
 use tokio::sync::watch;
 
 use crate::process_tree::{self, Snapshot};
+use crate::wsl::Inside;
 
 /// 서버가 뜨고 요청 하나에 답하는 상한. 첫 실행은 플러그인·모델 목록을 읽어 몇 초 걸린다.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -40,24 +41,29 @@ pub struct Server {
 
 impl Server {
     /// `cwd`에서 서버를 띄우고 들을 때까지 기다린다. 서버는 HTTP Basic `password`만 받는다.
+    /// `inside`가 있으면 서버를 그 WSL 배포판의 노드 폴더에서 띄운다.
     pub async fn start(
         program: &str,
         cwd: &Path,
+        inside: Option<&Inside>,
         node_env: &[(&'static str, OsString)],
         password: String,
     ) -> Result<Self, String> {
         let port = process_tree::free_port()?;
-        let mut cmd = process_tree::command(program);
-        cmd.args([
-            "serve",
-            "--hostname",
-            "127.0.0.1",
-            "--port",
-            &port.to_string(),
-        ])
-        .current_dir(cwd)
-        .envs(node_env.iter().map(|(k, v)| (k, v)))
-        .env(super::PASSWORD_ENV, &password);
+        let port_text = port.to_string();
+        let args = ["serve", "--hostname", "127.0.0.1", "--port", &port_text];
+        let mut env = node_env.to_vec();
+        env.push((super::PASSWORD_ENV, password.clone().into()));
+        let mut cmd = match inside {
+            Some(inside) => inside.server(&[&[program][..], &args[..]].concat(), &env),
+            None => {
+                let mut cmd = process_tree::command(program);
+                cmd.args(args)
+                    .current_dir(cwd)
+                    .envs(env.iter().map(|(k, v)| (k, v)));
+                cmd
+            }
+        };
         // 노드가 데몬보다 오래 살므로 서버도 따로 산다. 출력은 읽지 않는다. 데몬이 끝나면 읽을 쪽이 없다.
         process_tree::detach(&mut cmd);
         let mut child = Command::from(cmd)

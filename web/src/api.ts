@@ -73,6 +73,8 @@ export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/
 /** 이름을 바꾸고 부모·자식에게 알린다. 거절하면 데몬의 문장을 담은 Error를 던진다. */
 /** 노드를 사이드바 북마크 영역에 더하거나 뺀다(docs/mockups/bookmarks.html). */
 export const bookmarkNode = (id: NodeId) => call<null>('PUT', `/api/nodes/${id}/bookmark`);
+/** 노드 카드 「안 읽음」: 기다리는 큐 메시지를 지금 넘긴다(조정으로 바꾼다). */
+export const steerQueued = (id: NodeId) => call<null>('POST', `/api/nodes/${id}/steer-queued`);
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
 /** 사람 응답 대기를 지운다. 터미널에 키를 누른 것과 같다(docs/design.md 「사람 응답 대기」). */
 export const dismissWait = (wait: WaitId) => call<null>('DELETE', `/api/waits/${wait}`);

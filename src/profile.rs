@@ -20,6 +20,7 @@ use ts_rs::TS;
 use crate::graph::{Delivery, Kind, OpenQuestion, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::Launch;
+use crate::wsl::Inside;
 
 /// 첫 지시문 상한. 근거: docs/design.md 「맥락과 크기」.
 pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
@@ -54,13 +55,7 @@ pub enum Take {
     WhenIdle,
     /// 메시지를 꺼내지 않는다(알림).
     Never,
-    /// 일하는 노드의 도구 호출 뒤. 조정만 꺼내고, 턴 끝까지 기다리는 큐 메시지가 새로 있으면 한 줄로 알린다.
-    /// 에이전트가 지금 `loom wait`로 읽을지 고른다. 근거: docs/design.md 「전달 지점」.
-    BetweenTools,
 }
-
-/// `Take::BetweenTools`에서 꺼내는 방식.
-pub const BETWEEN_TOOLS_KINDS: &[Kind] = &[Kind::Steer];
 
 impl Profile {
     /// 계정을 고르는 프로필이면 그 공급자다. OpenCode 2는 공급자가 여럿이라 loom 계정이 없다.
@@ -257,6 +252,21 @@ fn installed(agent: &Agent) -> Option<PathBuf> {
         .find_map(|cmd| which::which(cmd).ok())
 }
 
+/// `start`가 띄울 프로그램의 이름들(카탈로그 명령과 별칭). 명령 노드면 없다.
+pub fn commands(start: &Start) -> Vec<&'static str> {
+    match start {
+        Start::Agent { agent, .. } => find(agent)
+            .map(|a| {
+                std::iter::once(&a.cmd)
+                    .chain(&a.aliases)
+                    .map(String::as_str)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Start::Command { .. } => Vec::new(),
+    }
+}
+
 fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
@@ -403,6 +413,8 @@ pub enum LaunchError {
     NotInstalled {
         agent: String,
         command: String,
+        /// WSL 노드면 찾은 배포판이다. 없으면 데몬 PATH에서 찾았다.
+        distro: Option<String>,
     },
     BriefTooLong {
         #[ts(type = "number")]
@@ -421,6 +433,8 @@ pub enum LaunchError {
     NoBrief(String),
     /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. 값은 에이전트 이름이다.
     NoModelChoice(String),
+    /// WSL 폴더의 노드인데 그 배포판을 쓸 수 없다.
+    Wsl(crate::wsl::InsideError),
 }
 
 impl std::fmt::Display for LaunchError {
@@ -429,9 +443,21 @@ impl std::fmt::Display for LaunchError {
             LaunchError::UnknownAgent(id) => {
                 write!(f, "{}: this agent is not in the catalog.", id.0)
             }
-            LaunchError::NotInstalled { agent, command } => write!(
+            LaunchError::NotInstalled {
+                agent,
+                command,
+                distro: None,
+            } => write!(
                 f,
                 "{agent}: the daemon PATH has no `{command}`. Install it, then click Find again in settings."
+            ),
+            LaunchError::NotInstalled {
+                agent,
+                command,
+                distro: Some(distro),
+            } => write!(
+                f,
+                "{agent}: could not find `{command}` in WSL · {distro}. Install it in that distro, then click Find again in settings."
             ),
             LaunchError::BriefTooLong { len, limit } => write!(
                 f,
@@ -447,6 +473,7 @@ impl std::fmt::Display for LaunchError {
                 f,
                 "{agent}: does not take this `--model` or `--effort` (Claude and Codex take both, Cursor takes `--model` with an optional `--effort`). Fix them and try again."
             ),
+            LaunchError::Wsl(e) => e.fmt(f),
             LaunchError::NoBrief(agent) => write!(
                 f,
                 "{agent}: does not take a brief. Start it without a brief and type into its terminal."
@@ -467,9 +494,11 @@ pub struct VersionMismatch {
 /// `bypass_off`에 없는 에이전트는 모든 권한 허용 인자(`bypass`)로 띄운다.
 /// `plugin`은 loom이 싣는 스킬 플러그인 폴더다. Claude·Cursor만 시작 인자로 받는다. 다른 프로필은 서버가 받는다.
 /// `launch`는 상시 지시를 고른다(`skills::always_on`). Claude는 시작 인자로, Cursor는 훅이 읽는 환경 변수로 받는다.
+/// `inside`가 있으면 WSL 노드다: 프로그램은 그 배포판에서 찾은 것이고, 셸은 배포판의 셸이다. 호출자가 `Inside::wrap`으로 감싼다.
 pub fn command(
     start: &Start,
     cwd: &Path,
+    inside: Option<&Inside>,
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
     plugin: &Path,
@@ -486,13 +515,17 @@ pub fn command(
             brief,
             choice,
             resume.as_deref(),
+            inside,
             remote,
             bypass_off,
             plugin,
             launch,
         )?,
-        Start::Command { line } if line.trim().is_empty() => default_shell(cwd),
-        Start::Command { line } => shell(line),
+        Start::Command { line } => match inside {
+            Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),
+            None if line.trim().is_empty() => CommandBuilder::new_default_prog(),
+            None => shell(line),
+        },
     };
     cmd.cwd(cwd);
     color_terminal(&mut cmd);
@@ -537,6 +570,7 @@ fn agent_command(
     brief: &str,
     choice: &ModelChoice,
     resume: Option<&str>,
+    inside: Option<&Inside>,
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
     plugin: &Path,
@@ -544,17 +578,27 @@ fn agent_command(
 ) -> Result<CommandBuilder, LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
     let choice_args = choice_args(agent, choice)?;
-    let program = installed(agent).ok_or_else(|| LaunchError::NotInstalled {
+    let not_installed = || LaunchError::NotInstalled {
         agent: agent.label.clone(),
         command: agent.cmd.clone(),
-    })?;
+        distro: inside.map(|i| i.distro.clone()),
+    };
+    let argv = match inside {
+        Some(inside) => vec![
+            inside
+                .find(std::iter::once(&agent.cmd).chain(&agent.aliases))
+                .ok_or_else(not_installed)?
+                .into(),
+        ],
+        None => crate::process_tree::argv(&installed(agent).ok_or_else(not_installed)?),
+    };
     if brief.len() > BRIEF_LIMIT_BYTES {
         return Err(LaunchError::BriefTooLong {
             len: brief.len(),
             limit: BRIEF_LIMIT_BYTES,
         });
     }
-    let mut cmd = CommandBuilder::from_argv(crate::process_tree::argv(&program));
+    let mut cmd = CommandBuilder::from_argv(argv);
     cmd.args(leading_args(agent, resume, !bypass_off.contains(id)));
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
@@ -629,6 +673,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom answered: when the human's input answers your open loom ask question, you MUST call loom answered first, then act on the answer. If the input does not answer it, leave the question open. If you no longer need the answer, call loom answered.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
 - loom rm <name-or-id>: remove your own child and end its process. Its children become your children; reclaim them next.
+When you work for a parent, your parent reads your messages, not your terminal: write no progress narration and no briefing in the terminal. End each turn with at most one short line; the result goes in loom done or loom send.
 Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
 Messages begin with loom message and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
 
@@ -645,12 +690,8 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
 }
 
 /// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
-/// 훅이 넘기는 글: 꺼낸 메시지, 새로 기다리는 큐 메시지 알림(`Take::BetweenTools`), 사람 입력 때 열린 `loom ask` 질문들. 모두 없으면 없다.
-pub fn hook_text(
-    taken: &[Delivery],
-    queued_from: &[String],
-    open_questions: &[OpenQuestion],
-) -> Option<String> {
+/// 훅이 넘기는 글: 꺼낸 메시지, 사람 입력 때 열린 `loom ask` 질문들. 모두 없으면 없다.
+pub fn hook_text(taken: &[Delivery], open_questions: &[OpenQuestion]) -> Option<String> {
     let mut parts = Vec::new();
     if !open_questions.is_empty() {
         let list: Vec<String> = open_questions
@@ -665,19 +706,6 @@ pub fn hook_text(
     }
     if !taken.is_empty() {
         parts.push(message_text(taken));
-    }
-    if !queued_from.is_empty() {
-        let mut from: Vec<&str> = Vec::new();
-        for name in queued_from {
-            if !from.contains(&name.as_str()) {
-                from.push(name);
-            }
-        }
-        parts.push(format!(
-            "loom: {} new queued message(s) waiting (from: {}). Run `loom wait --json` now if they may change your current task.",
-            queued_from.len(),
-            from.join(", ")
-        ));
     }
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
@@ -702,24 +730,6 @@ pub fn message_text(taken: &[Delivery]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n\n")
-}
-
-#[cfg(unix)]
-fn default_shell(_cwd: &Path) -> CommandBuilder {
-    CommandBuilder::new_default_prog()
-}
-
-/// `cmd.exe`는 UNC 폴더에서 시작하지 못하고 `C:\Windows`로 간다. WSL 폴더면 그 배포판의 셸을 그 폴더에서 연다.
-#[cfg(windows)]
-fn default_shell(cwd: &Path) -> CommandBuilder {
-    match cwd.to_str().and_then(crate::wsl::location) {
-        Some(wsl) => {
-            let mut cmd = CommandBuilder::new("wsl.exe");
-            cmd.args(["-d", wsl.distro.as_str(), "--cd", wsl.path.as_str()]);
-            cmd
-        }
-        None => CommandBuilder::new_default_prog(),
-    }
 }
 
 /// 명령 한 줄을 도는 셸. 명령 노드와 설정 스크립트가 쓴다.

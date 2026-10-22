@@ -339,8 +339,6 @@ struct Store {
     conn: Connection,
     /// 화면에 보낸 마지막 이벤트 기록 id.
     published: u32,
-    /// 노드마다 기다리는 큐 메시지를 알린 마지막 id(`Graph::newly_queued`). 알림만 고르므로 DB에 두지 않는다.
-    queue_noticed: HashMap<NodeId, MessageId>,
 }
 
 /// 잠근 DB. 놓을 때 아직 보내지 않은 이벤트 기록을 보낸다.
@@ -381,11 +379,7 @@ impl Graph {
     pub fn open(conn: Connection) -> rusqlite::Result<Self> {
         let published = events::last_id(&conn)?;
         Ok(Self {
-            db: Mutex::new(Store {
-                conn,
-                published,
-                queue_noticed: HashMap::new(),
-            }),
+            db: Mutex::new(Store { conn, published }),
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
             titles: Mutex::default(),

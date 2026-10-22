@@ -30,6 +30,8 @@ const en = {
     addRepo: 'Add repository',
     removeRepo: 'Remove from list',
     parent: 'Parent: {{node}} · {{group}}',
+    rowMenu: '{{name}} menu',
+    asking: 'Asking {{n}}',
   },
   graph: {
     group: 'Group {{branch}}',

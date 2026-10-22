@@ -484,7 +484,7 @@ export function App() {
       onClear={clearFind}
     />
   );
-  const treeView = (select: (id: NodeId) => void, rowTap: 'graph' | 'fold') => (
+  const treeView = (select: (id: NodeId) => void) => (
     <Tree
       repos={repos}
       current={repoFocused ? (repo?.id ?? null) : null}
@@ -499,7 +499,6 @@ export function App() {
       selected={selected}
       onSelect={select}
       chosenBox={chosenBox}
-      rowTap={rowTap}
       onChooseBox={chooseBox}
       settings={settings}
       accounts={accounts}
@@ -532,7 +531,7 @@ export function App() {
             {findView}
             {/* 사이드바처럼 북마크를 저장소 위에 둔다(2026-10-23 사람 "앱 노드리스트에 저장소 섹션 추가", Q453 A). */}
             <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={openNode} open={!settings.closedPanes.bookmarks} onOpen={(open) => setPaneOpen('bookmarks', open)} />
-            {treeView(openNode, 'fold')}
+            {treeView(openNode)}
           </>
         }
         foot={<StatusBar usage={usage} settings={settings} distro={repo?.wsl?.distro ?? null} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
@@ -554,7 +553,7 @@ export function App() {
                 </button>
               </div>
               <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} open={!settings.closedPanes.bookmarks} onOpen={(open) => setPaneOpen('bookmarks', open)} />
-              {treeView(selectNode, 'graph')}
+              {treeView(selectNode)}
               <div className="side-foot">
                 <button className="btn ghost" onClick={() => setSettingsTab(SETTINGS_TABS[0])}>
                   <SettingsIcon />

@@ -909,13 +909,32 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .wait-body .answer .attach:has(input:focus-visible) { outline: 2px solid var(--accent); }
 .phone .answer-images li { width: 56px; height: 56px; }
 
-/* 노드 탭: 사이드바 찾기 칸과 트리. 줄은 손가락 높이다. */
+/* 노드 탭: 사이드바 찾기 칸과 트리. 줄은 손가락 높이다. 목록은 화면 폭을 넘지 않는다(긴 저장소 경로가 몸통을 870px로 늘려 [저장소 추가]와 팝오버가 화면 밖에 있었다, 목업 R3 ①). */
+.phone-body { grid-template-columns: minmax(0, 1fr); }
 .phone-body .side-find { flex: none; width: 100%; height: 44px; border-radius: 10px; background: var(--surface); }
 .phone-body .side-find input { font-size: 16px; }
 .phone-body .tree { min-height: max-content; padding: 0; font-size: 14px; overflow: visible; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
 .phone .tree-row { height: 48px; --step: 18px; }
-.phone .row-acts { top: 6px; height: 36px; }
-.phone .row-acts .act { width: 36px; height: 36px; }
+/* 줄 동작은 줄 끝 [⋮]와 길게 누르기가 여는 판이다(목업 R3 ②③, Q457 A). 길게 누를 때 글자를 고르지 않는다. */
+.phone .tree-line { display: flex; align-items: center; }
+.phone .tree-line > .tree-row { flex: 1; min-width: 0; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.row-menu { flex: none; display: grid; place-items: center; width: 44px; height: 48px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink-3); cursor: pointer; }
+.row-menu svg { width: 18px; height: 18px; }
+.phone .side-head .btn.sm { width: 44px; height: 44px; justify-content: center; }
+.phone .side-head .btn.sm svg { width: 18px; height: 18px; }
+.phone .tree-row .dot { width: 10px; height: 10px; }
+/* 긴 경로(.sub)가 줄을 채워도 이름은 줄지 않는다(시험: 「demo」가 「de…」로 잘렸다). 이름이 60%를 넘을 때만 자른다. */
+.phone .tree-row .name { flex-shrink: 0; }
+/* 상태 글은 폰 줄에만 있다. 데스크톱 사이드바는 점만 둔다. */
+.state-tag { display: none; }
+.phone .state-tag { display: block; flex: none; margin-left: auto; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.phone .state-tag.waiting { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
+.phone .state-tag.done { color: var(--ok); }
+.phone .state-tag:is(.exited, .setupFailed) { color: var(--err); }
+.phone-sheet > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }
+.phone-sheet > .btn svg { width: 18px; height: 18px; }
+/* 줄 팝오버(새 노드, 새 워크트리, 워크트리 삭제, 저장소 추가)는 판 안에 든다. 줄 옆은 화면 밖이다. */
+.phone-sheet > .pop { position: static; width: auto; max-height: none; padding: 0; box-shadow: none; }
 
 /* 노드 화면(목업 ④⑤): 질문 띠, 전체 화면 터미널, 키 막대와 입력 줄. */
 .phone-ask { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 0 8px 0 14px; background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border-block: 1px solid var(--warn); color: var(--ink); font-size: 13px; }

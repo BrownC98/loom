@@ -1,6 +1,6 @@
 // 사이드바 트리(docs/mockups/graph-panels.html 1번): 저장소 > 워크트리 묶음 > 노드 > 자식 노드.
 // 그래프와 같은 노드 목록을 그린다. 트리만의 상태는 접힌 줄, 이름 편집, 줄 단추로 연 팝오버와 그 거절 글이다.
-import { Bookmark, ChevronDown, ChevronsUpDown, CornerLeftUp, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Bookmark, ChevronDown, ChevronsUpDown, CornerLeftUp, EllipsisVertical, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeNode, removeRepo, renameWorktree } from './api';
@@ -22,14 +22,15 @@ import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { shownPath, ShortPlaceTag } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
-import { stateClass, Unread } from './NodeCard';
+import { stateClass, stateLabel, Unread } from './NodeCard';
+import { MenuSheet, Sheet, useLongPress, usePhone } from './Phone';
 import { useOutsideClose } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
 
 /** 줄 끝 단추 하나(docs/mockups/sidebar-crud.html 2번). `run`은 누른 줄의 단추를 받는다. 팝오버를 그 줄 옆에 띄운다. `pressed`가 있으면 켜고 끄는 단추다(북마크). */
 type Action = { label: string; icon: ReactNode; run: (row: HTMLElement) => void; disabled?: boolean; pressed?: boolean };
 /** `rename`은 줄의 이름 바꾸기 동작이다. F2 키도 부른다. `remove`는 줄의 지우기 동작이다. 단추 끝에 오고 Delete 키도 부른다. `show`는 줄을 누르면 그래프를 옮긴다(저장소 줄, 워크트리 줄). */
-type Item = { key: string; row: ReactNode; node: NodeId | null; /** 이 줄이 그래프에서 가리키는 상자(`flowId`). */ box?: string; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
+type Item = { key: string; /** 폰 줄 메뉴의 제목. */ title: string; row: ReactNode; node: NodeId | null; /** 이 줄이 그래프에서 가리키는 상자(`flowId`). */ box?: string; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
 
 /** 줄 단추로 연 팝오버. 그릴 때 저장소와 묶음을 다시 찾는다. 그 사이에 사라졌으면 그리지 않는다. */
 type Target = { repo: RepoId } & ({ kind: 'newWorktree' } | { kind: 'newNode'; path: string } | { kind: 'deleteWorktree'; path: string });
@@ -49,6 +50,9 @@ function keepFound(items: Item[], hits: ReadonlySet<string>): Item[] {
     return hits.has(item.key) || children.length > 0 ? [{ ...item, children }] : [];
   });
 }
+
+/** 줄 끝 단추와 폰 줄 메뉴의 차례: 줄 동작, 이름 바꾸기, 지우기. */
+const rowActions = (item: Item): Action[] => [...item.actions, ...(item.rename ? [item.rename] : []), ...(item.remove ? [item.remove] : [])];
 
 /** 들여쓰기 깊이의 화면 상한. 더 깊은 줄은 같은 자리에 두어 이름이 보일 폭을 지킨다(styles.css `--step` 12px × 8 = 96px). */
 const MAX_VISUAL_DEPTH = 8;
@@ -90,6 +94,13 @@ function RowPop(props: { top: number; left: number; onClose: () => void; childre
   );
 }
 
+/** 폰 노드 줄의 상태 글(목업 R3 ②). 사람이 볼 상태(질문, 완료, 종료, 설정 실패)만 붙이고 실행 중은 점만 둔다. 데스크톱 사이드바에서는 CSS가 숨긴다. */
+function StateTag({ view }: { view: NodeView }) {
+  const kind = stateClass(view);
+  if (kind === 'running') return null;
+  return <span className={`state-tag ${kind}`}>{kind === 'waiting' ? i18next.t('tree.asking', { n: view.waits.length }) : stateLabel(view.state)}</span>;
+}
+
 /** `parent`가 없으면 묶음의 뿌리: 부모가 없거나 부모가 다른 묶음에 있는 노드다. */
 function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[], rename: (key: string) => Rename, note: ParentNote, acts: NodeActions): Item[] {
   return views
@@ -99,6 +110,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
       const from = note(v);
       return {
         key: `node:${v.id}`,
+        title: v.name,
         node: v.id,
         row: (
           <>
@@ -113,6 +125,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
                 {i18next.t('node.held', { n: v.held })}
               </span>
             )}
+            <StateTag view={v} />
           </>
         ),
         children: nodeItems(views, v.id, agents, rename, note, acts),
@@ -135,8 +148,6 @@ export function Tree(props: {
   onSelect: (id: NodeId) => void;
   /** 묶음·저장소 줄을 누르면 그래프의 그 상자를 고른다(`flowId`). */
   chosenBox: string | null;
-  /** 묶음·저장소 줄을 누르면 하는 일. 폰은 그래프가 없어 접고 편다. */
-  rowTap: 'graph' | 'fold';
   onChooseBox: (key: string) => void;
   settings: SettingsView;
   accounts: AccountView[] | null;
@@ -151,6 +162,10 @@ export function Tree(props: {
   const show = useShowNodes();
   const showGroups = useShowGroups();
   const showAll = useShowAll();
+  // 폰은 그래프가 없어 묶음·저장소 줄을 누르면 접고 편다. 줄 동작은 마우스를 올려 보이는 단추 대신 줄 끝 [⋮]·길게 누르기의 판이다(목업 R3, Q457 A).
+  const phone = usePhone();
+  const [menu, setMenu] = useState<string | null>(null);
+  const longPress = useLongPress((row) => setMenu(row.dataset.key ?? null));
   const [adding, setAdding] = useState(false);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const list = useRef<HTMLUListElement>(null);
@@ -218,6 +233,7 @@ export function Tree(props: {
       const branch = group.kind === 'linked' ? group.branch : null;
       return {
         key: groupKey,
+        title: group.label,
         node: null,
         box: group.path,
         actions: [{ label: t('graph.newNode'), icon: <Plus />, run: (row) => openPop(row, { kind: 'newNode', repo: repo.id, path: group.path }) }],
@@ -253,6 +269,7 @@ export function Tree(props: {
   };
   const all: Item[] = props.repos.map((repo) => ({
     key: repoKey(repo.id),
+    title: repo.name,
     node: null,
     box: `repo:${repo.id}`,
     actions: [
@@ -304,7 +321,7 @@ export function Tree(props: {
       </>
     );
     const editing = item.key === renaming;
-    const actions = [...item.actions, ...(item.rename ? [item.rename] : []), ...(item.remove ? [item.remove] : [])];
+    const actions = rowActions(item);
     return (
       <li key={item.key} role="treeitem" aria-expanded={branch ? open : undefined} aria-selected={item.node !== null ? item.node === props.selected : undefined}>
         {/* 줄 단추와 동작 단추는 형제다. 단추 안에는 단추를 두지 못한다. */}
@@ -322,13 +339,14 @@ export function Tree(props: {
               data-open={branch ? open : undefined}
               data-node={item.node ?? undefined}
               data-found={props.find === null ? undefined : hit < 0 ? 'context' : hit === props.find.at ? 'current' : 'hit'}
+              {...(phone ? longPress : {})}
               tabIndex={item.key === tabStop ? 0 : -1}
               onFocus={() => setActive(item.key)}
               aria-current={(item.node !== null && item.node === props.selected) || (item.box !== undefined && item.box === props.chosenBox) ? 'true' : undefined}
               onClick={(e) => {
                 if (hit >= 0) props.find?.onAt(hit);
                 // 저장소 줄과 워크트리 줄은 그래프를 그 자리로 옮긴다. 화살표를 누르면 접고 편다.
-                if (item.show && props.rowTap === 'graph' && !(e.target as Element).closest('.chev')) return item.show();
+                if (item.show && !phone && !(e.target as Element).closest('.chev')) return item.show();
                 if (item.node === null) return toggle(item.key, !open);
                 show([item.node]);
                 props.onSelect(item.node);
@@ -337,7 +355,12 @@ export function Tree(props: {
               {head}
             </button>
           )}
-          {!editing && (
+          {!editing && phone && (
+            <button type="button" className="row-menu" aria-label={t('tree.rowMenu', { name: item.title })} aria-haspopup="dialog" onClick={() => setMenu(item.key)}>
+              <EllipsisVertical aria-hidden="true" />
+            </button>
+          )}
+          {!editing && !phone && (
             <span className="row-acts">
               {actions.map((action) => (
                 <button
@@ -462,6 +485,17 @@ export function Tree(props: {
     );
   };
   const content = opened && popContent(opened);
+  const popLabel: Record<Target['kind'], string> = { newWorktree: t('repo.newWorktree'), newNode: t('graph.newNode'), deleteWorktree: t('deleteWorktree.action') };
+  const addRepo = (
+    <AddRepoPopover
+      onClose={() => setAdding(false)}
+      onAdded={(repo) => {
+        setAdding(false);
+        props.onAdded(repo);
+      }}
+    />
+  );
+  const menuItem = menu === null ? undefined : visible.get(menu);
 
   return (
     <>
@@ -488,18 +522,41 @@ export function Tree(props: {
         {roots.map((root) => render(root, 0, null))}
       </ul>
       {props.find !== null && roots.length === 0 && <p className="tree-none">{t('find.noMatch')}</p>}
-      {opened && content && (
-        <RowPop top={opened.top} left={opened.left} onClose={closePop}>
-          {content}
-        </RowPop>
-      )}
-      {adding && (
-        <AddRepoPopover
-          onClose={() => setAdding(false)}
-          onAdded={(repo) => {
-            setAdding(false);
-            props.onAdded(repo);
-          }}
+      {opened &&
+        content &&
+        (phone ? (
+          <Sheet label={popLabel[opened.target.kind]} onClose={closePop}>
+            {content}
+          </Sheet>
+        ) : (
+          <RowPop top={opened.top} left={opened.left} onClose={closePop}>
+            {content}
+          </RowPop>
+        ))}
+      {adding &&
+        (phone ? (
+          <Sheet label={t('tree.addRepo')} onClose={() => setAdding(false)}>
+            {addRepo}
+          </Sheet>
+        ) : (
+          addRepo
+        ))}
+      {menuItem && (
+        <MenuSheet
+          title={menuItem.title}
+          onClose={() => setMenu(null)}
+          items={rowActions(menuItem).map((action) => ({
+            label: action.label,
+            icon: action.icon,
+            disabled: action.disabled,
+            danger: action === menuItem.remove,
+            // 데스크톱은 노드를 바로 지운다. 폰은 노드 화면 [⋮] 판처럼 판 안에서 한 번 더 누른다.
+            confirm: action === menuItem.remove && menuItem.node !== null,
+            run: () => {
+              setRefusal(null);
+              action.run(rowOf(menuItem.key)!);
+            },
+          }))}
         />
       )}
     </>

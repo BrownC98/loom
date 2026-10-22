@@ -168,7 +168,8 @@ jobs:
         run: |
           version=${{ needs.installer.outputs.version }}
           echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$LOOM_KEYSTORE"
-          gradle --no-daemon -PloomVersion="$version" -PloomVersionCode="$(git rev-list --count HEAD)" -PloomReleases="$LOOM_RELEASES" testReleaseUnitTest assembleRelease
+          # AGP 9는 단위 시험을 debug 빌드 유형에만 만든다. testReleaseUnitTest는 없어 v0.1.953 android 잡이 실패했다.
+          gradle --no-daemon -PloomVersion="$version" -PloomVersionCode="$(git rev-list --count HEAD)" -PloomReleases="$LOOM_RELEASES" testDebugUnitTest assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "loom_$version.apk"
           gh release upload "v$version" "loom_$version.apk" --clobber
         env:

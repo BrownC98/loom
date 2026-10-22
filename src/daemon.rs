@@ -1329,6 +1329,7 @@ impl Mailbox for NodeMailbox {
     }
 
     fn human_input(&self) -> Option<String> {
+        let _ = self.app.graph.human_input(self.node);
         let questions = self.app.graph.open_questions(self.node).ok()?;
         profile::hook_text(&[], &questions)
     }
@@ -1796,7 +1797,10 @@ async fn agent_take(
         .take(node, &req.kinds, req.limit_bytes)
         .map_err(for_agent)?;
     let open_questions = match req.human_input {
-        true => app.graph.open_questions(node).map_err(for_agent)?,
+        true => {
+            app.graph.human_input(node).map_err(for_agent)?;
+            app.graph.open_questions(node).map_err(for_agent)?
+        }
         false => Vec::new(),
     };
     Ok(Json(Taken {

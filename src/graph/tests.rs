@@ -1598,12 +1598,8 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     g.exited(worker, 0).unwrap();
     assert!(!g.relations(worker).unwrap().me.alive);
     assert!(!g.active().unwrap().iter().any(|n| n.id == worker));
-    assert_eq!(
-        view(&g, worker).state,
-        NodeState::Done {
-            summary: "finished".into()
-        }
-    );
+    // 피드백을 받아 다시 일하다 끝났다. 다시 done을 부르지 않았으므로 종료다.
+    assert_eq!(view(&g, worker).state, NodeState::Exited { code: Some(0) });
     assert!(matches!(
         g.send(lead, "worker", Kind::Queue, "more feedback"),
         Err(Refusal::Ended(_))
@@ -1746,17 +1742,13 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
         take(&g, coord),
         delivery("워커-1-화면", "done: 1-화면 커밋")
     );
-    // 완료한 워커도 반려를 받는다. 두 번째 done은 거절하므로 send로 보고한다.
+    // 완료한 워커도 반려를 받는다. 받으면 다시 일하는 중이고, 고친 뒤 done을 또 부른다.
     g.send(coord, "워커-1-화면", Kind::Queue, "Rework: 여백")
         .unwrap();
     assert_eq!(take(&g, worker), delivery("코디-1", "Rework: 여백"));
-    assert!(matches!(g.done(worker, "다시"), Err(Refusal::AlreadyDone)));
-    g.send(worker, "코디-1", Kind::Queue, "REWORK DONE: 여백")
-        .unwrap();
-    assert_eq!(
-        take(&g, coord),
-        delivery("워커-1-화면", "REWORK DONE: 여백")
-    );
+    assert_eq!(view(&g, worker).state, NodeState::Running);
+    g.done(worker, "여백 고침").unwrap();
+    assert_eq!(take(&g, coord), delivery("워커-1-화면", "done: 여백 고침"));
     g.done(coord, "1-기능 병합 준비").unwrap();
     assert_eq!(take(&g, lead), delivery("코디-1", "done: 1-기능 병합 준비"));
     let children = g.relations(lead).unwrap().children;
@@ -2064,4 +2056,18 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     );
     assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
     assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);
+}
+
+#[test]
+fn a_done_node_runs_again_when_the_human_types() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    g.done(lead, "끝").unwrap();
+    // 꺼낼 메시지가 없으면 그대로 둔다.
+    assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());
+    assert!(matches!(view(&g, lead).state, NodeState::Done { .. }));
+    g.human_input(lead).unwrap();
+    assert_eq!(view(&g, lead).state, NodeState::Running);
+    g.done(lead, "또 끝").unwrap();
 }

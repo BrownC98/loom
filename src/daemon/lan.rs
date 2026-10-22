@@ -3,6 +3,9 @@
 //! 사람 문(PC 화면)은 루프백에 그대로 둔다. 폰 문은 모든 IPv4 주소에서 듣고, 데몬이 처음 한 번 만든 자체 서명 인증서를 쓴다.
 //! 브라우저는 이 인증서를 믿지 않는다. 앱은 QR에 담은 인증서 지문(SHA-256)과 같을 때만 연다(Orca가 QR의 PC 공개 키로 확인하는 것과 같다).
 //! 문을 지나는 요청은 모두 원격이다(`origin::human_site`).
+//!
+//! 앱이 QR 없이 코드만 적으면 같은 Wi-Fi에 UDP로 묻는다(`FIND_PORT`). 열린 코드가 있으면 데몬이 폰 문 지문과 주소를
+//! 코드로 확인한 답(`pake`)과 함께 돌려준다. 그래서 같은 Wi-Fi의 다른 기기는 PC인 척하지 못한다(사람 결정 Q426 B).
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -12,11 +15,15 @@ use std::time::Duration;
 use axum::Router;
 use base64::Engine;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
+
+use crate::devices::Devices;
+use crate::pake;
 
 /// 폰 문 포트는 데몬 포트에서 이만큼 떨어진다. 앱이 저장한 주소가 데몬을 다시 띄워도 맞게 늘 같은 포트를 먼저 쓴다.
 const PORT_OFFSET: u16 = 10;
@@ -24,6 +31,11 @@ const PORT_OFFSET: u16 = 10;
 const HANDSHAKE: Duration = Duration::from_secs(10);
 /// 악수를 마친 연결을 axum에 넘기는 줄의 길이.
 const BACKLOG: usize = 64;
+/// 앱이 같은 Wi-Fi에서 PC를 찾는 UDP 포트. 앱은 데몬 포트를 모르므로 늘 같은 수다. 기본 폰 문 포트(7420+10)와 같은 수를 쓴다.
+/// TCP와 UDP는 포트를 나누지 않는다. 다른 데몬(시험)이 이미 쓰고 있으면 이 데몬은 찾기에 답하지 않는다.
+pub const FIND_PORT: u16 = 7430;
+/// 찾기 물음 하나의 최대 크기. 물음은 `pA` 256바이트의 base64(약 350바이트)다.
+const FIND_MAX: usize = 2048;
 const CERT_FILE: &str = "phone-tls.crt";
 const KEY_FILE: &str = "phone-tls.key";
 /// 가상 어댑터. 폰이 닿지 않는 주소를 QR에 넣지 않는다. Orca의 같은 표(`docker|br-|virbr|…`, `vEthernet`)를 따른다.
@@ -56,20 +68,33 @@ pub struct Opened {
     pub fingerprint: String,
 }
 
+impl Opened {
+    /// 앱이 폰 문에 붙는 값: `fp=<지문>&a=<IP:포트>,…`. QR의 `#` 뒤와 찾기 답이 같은 꼴을 쓴다.
+    pub fn door(&self, addresses: &[Ipv4Addr]) -> String {
+        let doors: Vec<String> = addresses
+            .iter()
+            .map(|ip| format!("{ip}:{}", self.port))
+            .collect();
+        format!("fp={}&a={}", self.fingerprint, doors.join(","))
+    }
+}
+
 /// 폰 문은 처음 필요할 때 연다: 짝짓기 코드를 만들 때, 또는 짝지은 기기가 있는 채로 데몬이 시작할 때.
 /// 폰을 쓰지 않는 사람의 데몬은 LAN에서 듣지 않는다(Windows 방화벽 창도 뜨지 않는다).
 pub struct Door {
     data: PathBuf,
     daemon_port: u16,
+    devices: Arc<Devices>,
     router: OnceLock<Router>,
     opened: tokio::sync::Mutex<Option<Opened>>,
 }
 
 impl Door {
-    pub fn new(data: PathBuf, daemon_port: u16) -> Self {
+    pub fn new(data: PathBuf, daemon_port: u16, devices: Arc<Devices>) -> Self {
         Self {
             data,
             daemon_port,
+            devices,
             router: OnceLock::new(),
             opened: tokio::sync::Mutex::default(),
         }
@@ -107,6 +132,12 @@ impl Door {
                 eprintln!("loom: phone door stopped: {e}");
             }
         });
+        match UdpSocket::bind((Ipv4Addr::UNSPECIFIED, FIND_PORT)).await {
+            Ok(socket) => {
+                tokio::spawn(answer_finds(socket, self.devices.clone(), open.clone()));
+            }
+            Err(e) => eprintln!("loom: phone find port {FIND_PORT}: {e}"),
+        }
         *opened = Some(open.clone());
         Ok(open)
     }
@@ -116,10 +147,60 @@ impl Door {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct Find {
+    /// `pake` 물음 값(base64url).
+    pa: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Found {
+    /// `Opened::door`. 확인값이 이 글을 묶는다.
+    door: String,
+    pb: String,
+    /// 확인값(base64url).
+    c: String,
+}
+
+/// 찾기 물음에 답한다. 꼴이 틀린 물음은 세지 않고 버린다. 원소 확인과 답은 큰 수 계산이라 블로킹 스레드에서 한 번에 하나씩 한다.
+async fn answer_finds(socket: UdpSocket, devices: Arc<Devices>, open: Opened) {
+    let b64 = &base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let mut buf = vec![0u8; FIND_MAX];
+    loop {
+        let Ok((len, peer)) = socket.recv_from(&mut buf).await else {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            continue;
+        };
+        let Some(pa) = serde_json::from_slice::<Find>(&buf[..len])
+            .ok()
+            .and_then(|find| b64.decode(find.pa).ok())
+        else {
+            continue;
+        };
+        let door = open.door(&addresses());
+        let devices = devices.clone();
+        let answered = tokio::task::spawn_blocking(move || {
+            let pa = pake::Element::parse(&pa)?;
+            let answer = devices.answer(&pa, door.as_bytes())?;
+            Some(Found {
+                door,
+                pb: b64.encode(answer.pb),
+                c: b64.encode(answer.confirm),
+            })
+        })
+        .await;
+        if let Ok(Some(found)) = answered {
+            let reply = serde_json::to_vec(&found).expect("글만 있는 구조체");
+            let _ = socket.send_to(&reply, peer).await;
+        }
+    }
+}
+
 /// 방화벽 규칙 이름. 다시 누르면 같은 규칙을 지우고 새로 넣는다.
 const FIREWALL_RULE: &str = "loom-phone";
+const FIREWALL_FIND_RULE: &str = "loom-phone-find";
 
-/// Windows 방화벽에 「개인 네트워크, 들어오는 TCP <port>, 이 실행 파일」 허용 규칙을 넣고, 이 실행 파일을 막는 규칙을 지운다.
+/// Windows 방화벽에 「개인 네트워크, 들어오는 TCP <port>와 UDP `FIND_PORT`, 이 실행 파일」 허용 규칙을 넣고, 이 실행 파일을 막는 규칙을 지운다.
 /// Orca의 [휴대폰 연결 허용]과 같은 명령이다. 관리자 권한이 있어야 해서 UAC 확인 창을 띄운다(`Start-Process -Verb RunAs`).
 /// 사람이 Windows의 첫 허용 창에서 [취소]를 누르면 Windows가 막는 규칙을 만든다. 그래서 막는 규칙도 지운다.
 pub async fn allow_firewall(port: u16) -> std::io::Result<()> {
@@ -130,13 +211,16 @@ pub async fn allow_firewall(port: u16) -> std::io::Result<()> {
     }
     let exe = ps_quote(&std::env::current_exe()?.to_string_lossy());
     let rule = ps_quote(FIREWALL_RULE);
+    let find_rule = ps_quote(FIREWALL_FIND_RULE);
     let inner = format!(
         "$ErrorActionPreference = 'Stop'\n\
          Get-NetFirewallApplicationFilter -Program {exe} -ErrorAction SilentlyContinue | Get-NetFirewallRule | \
          Where-Object {{ $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block' }} | Remove-NetFirewallRule\n\
-         Get-NetFirewallRule -Name {rule} -ErrorAction SilentlyContinue | Remove-NetFirewallRule\n\
+         Get-NetFirewallRule -Name {rule},{find_rule} -ErrorAction SilentlyContinue | Remove-NetFirewallRule\n\
          New-NetFirewallRule -Name {rule} -DisplayName 'loom phone' -Direction Inbound -Action Allow -Profile Private \
-         -Protocol TCP -LocalPort {port} -Program {exe} -EdgeTraversalPolicy Block | Out-Null"
+         -Protocol TCP -LocalPort {port} -Program {exe} -EdgeTraversalPolicy Block | Out-Null\n\
+         New-NetFirewallRule -Name {find_rule} -DisplayName 'loom phone find' -Direction Inbound -Action Allow -Profile Private \
+         -Protocol UDP -LocalPort {FIND_PORT} -Program {exe} -EdgeTraversalPolicy Block | Out-Null"
     );
     let encoded: String = base64::engine::general_purpose::STANDARD.encode(
         inner
@@ -349,6 +433,57 @@ mod tests {
         println!("phone door addresses: {found:?}");
         assert!(found.iter().all(|ip| ip.is_private() || tailnet(*ip)));
         assert!(!found.contains(&Ipv4Addr::new(10, 255, 255, 254)));
+    }
+
+    #[tokio::test]
+    async fn find_answers_only_with_the_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::open(&dir.path().join("t.db")).unwrap();
+        let devices = Arc::new(Devices::new(db));
+        let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let at = socket.local_addr().unwrap();
+        let open = Opened {
+            port: 7430,
+            fingerprint: "FP".to_owned(),
+        };
+        tokio::spawn(answer_finds(socket, devices.clone(), open));
+        let phone_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let ask = |phone: &pake::Phone| {
+            serde_json::to_vec(&Find {
+                pa: b64.encode(&phone.pa),
+            })
+            .unwrap()
+        };
+        let reply = async |request: &[u8]| {
+            phone_socket.send_to(request, at).await.unwrap();
+            let mut buf = vec![0u8; FIND_MAX];
+            let got =
+                tokio::time::timeout(Duration::from_millis(1500), phone_socket.recv(&mut buf))
+                    .await;
+            got.ok()
+                .map(|len| serde_json::from_slice::<Found>(&buf[..len.unwrap()]).unwrap())
+        };
+        // 열린 코드가 없으면 답하지 않는다.
+        let phone = pake::Phone::new("ABCD2345", 7);
+        assert!(reply(&ask(&phone)).await.is_none());
+        let code = devices.invite();
+        // 꼴이 틀린 물음은 세지 않는다.
+        assert!(reply(b"{\"pa\":\"AAAA\"}").await.is_none());
+        assert!(reply(b"not json").await.is_none());
+        let phone = pake::Phone::new(&code, 7);
+        let found = reply(&ask(&phone)).await.unwrap();
+        assert!(found.door.starts_with("fp=FP&a="));
+        let (pb, c) = (
+            b64.decode(&found.pb).unwrap(),
+            b64.decode(&found.c).unwrap(),
+        );
+        assert!(phone.confirms(&pb, found.door.as_bytes(), &c));
+        // 다른 PC가 지문을 바꿔 넘기면 확인값이 맞지 않는다.
+        assert!(!phone.confirms(&pb, b"fp=MITM&a=10.0.0.9:7430", &c));
+        let guess = pake::Phone::new("WRONGXX2", 7);
+        assert!(!guess.confirms(&pb, found.door.as_bytes(), &c));
+        assert!(devices.pair(&code, "Android · Chrome").is_ok());
     }
 
     #[test]

@@ -519,12 +519,13 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         let graph = graph.clone();
         move || graph.publish_view_changed()
     }));
+    let devices = Arc::new(Devices::new(database.clone()));
     let app = Arc::new(App {
         repos,
         host: NodeHost::new(pty_dir.join("nodes")),
         graph,
         settings: Settings::new(database.clone()),
-        devices: Arc::new(Devices::new(database.clone())),
+        devices: devices.clone(),
         port: listen.port(),
         door: lan::Door::new(
             db_path
@@ -532,6 +533,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
                 .expect("DB 파일에는 폴더가 있다")
                 .to_path_buf(),
             listen.port(),
+            devices,
         ),
         spots: Spots::new(database.clone()),
         database,

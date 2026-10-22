@@ -88,20 +88,20 @@ table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
       <div class="shot">
         <span class="cap">처음 연 앱</span>
         <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
-          <div class="card new"><span class="mark">L</span><h3>PC의 loom에 연결</h3><p>PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍습니다. 폰과 PC에 Tailscale이 켜져 있어야 합니다.</p><button class="btn primary pbtn">QR 찍기</button><span class="or">또는 PC 주소와 코드를 적습니다</span><div class="field empty">예: my-pc.example.ts.net</div><div class="pin"><span></span><span></span><span></span><span></span><i>-</i><span></span><span></span><span></span><span></span></div><button class="btn pbtn">열기</button></div>
+          <div class="card new"><span class="mark">L</span><h3>PC의 loom에 연결</h3><p>PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍습니다. 폰과 PC에 Tailscale이 켜져 있어야 합니다.</p><button class="btn primary pbtn">QR 찍기</button><span class="or">또는 PC에 나온 코드를 적습니다. 폰과 PC가 같은 Wi‑Fi에 있어야 합니다.</span><div class="pin"><span></span><span></span><span></span><span></span><i>-</i><span></span><span></span><span></span><span></span></div><button class="btn pbtn">연결</button></div>
         </div>
       </div>
       <div class="shot">
         <span class="cap">loom QR이 아닐 때</span>
         <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
-          <div class="card new"><span class="mark">L</span><h3>PC의 loom에 연결</h3><p>PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍습니다. 폰과 PC에 Tailscale이 켜져 있어야 합니다.</p><span class="err">loom QR이 아닙니다. 주소가 https://…ts.net 이어야 합니다.</span><button class="btn primary pbtn">QR 찍기</button><span class="or">또는 PC 주소와 코드를 적습니다</span><div class="field empty">예: my-pc.example.ts.net</div><div class="pin"><span></span><span></span><span></span><span></span><i>-</i><span></span><span></span><span></span><span></span></div><button class="btn pbtn">열기</button></div>
+          <div class="card new"><span class="mark">L</span><h3>PC의 loom에 연결</h3><p>PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍습니다. 폰과 PC에 Tailscale이 켜져 있어야 합니다.</p><span class="err">loom QR이 아닙니다. 주소가 https://…ts.net 이어야 합니다.</span><button class="btn primary pbtn">QR 찍기</button><span class="or">또는 PC에 나온 코드를 적습니다. 폰과 PC가 같은 Wi‑Fi에 있어야 합니다.</span><div class="pin"><span></span><span></span><span></span><span></span><i>-</i><span></span><span></span><span></span><span></span></div><button class="btn pbtn">연결</button></div>
         </div>
       </div>
     </div>
     <ul class="note">
       <li>[QR 찍기]는 Google 코드 스캐너(시스템 화면)를 연다. 앱은 카메라 권한을 묻지 않는다. QR 주소(<code>https://&lt;PC&gt;.ts.net/#pair=코드</code>)를 그대로 열어 한 번에 짝짓는다.</li>
-      <li>주소 칸은 비어 있고 흐린 예시(<code>예: my-pc.example.ts.net</code>)만 보인다.</li>
-      <li>v3: 코드 칸은 PC 짝짓기 쪽(<code>pair-qr-scan.html</code> v3)과 같은 네모 8칸(<code>□□□□-□□□□</code>)이다. <code>-</code>는 늘 있다. 한 글자를 적으면 다음 칸으로 가고, 붙여 넣으면(<code>-</code>가 있든 없든) 모든 칸을 채우고, 글자는 대문자로 보인다. 주소가 있고 8번째 글자를 적으면 바로 <code>https://&lt;주소&gt;/#pair=&lt;코드&gt;</code>를 열어 한 번에 짝짓는다(사람 지시 "번호 칸(□□□□-□□□□)과 [QR 찍기] > 이것도 apk에 있어야지"). 이미 연결한 PC면 코드를 비우고 [열기]를 누른다. 코드가 1~7자면 「코드 8자를 모두 적습니다. 이미 연결한 PC면 코드를 비웁니다.」를 보인다.</li>
+      <li>v4(사람 결정 Q426 B): 주소 칸을 뺐다. 코드만 적으면 앱이 같은 Wi‑Fi에서 PC를 찾고, 코드로 PC를 확인한다(「PC를 찾는 중」, 실패하면 「같은 Wi‑Fi에서 PC를 찾지 못했습니다」).</li>
+      <li>v3: 코드 칸은 PC 짝짓기 쪽(<code>pair-qr-scan.html</code> v3)과 같은 네모 8칸(<code>□□□□-□□□□</code>)이다. <code>-</code>는 늘 있다. 한 글자를 적으면 다음 칸으로 가고, 붙여 넣으면(<code>-</code>가 있든 없든) 모든 칸을 채우고, 글자는 대문자로 보인다. 8번째 글자를 적으면 바로 PC를 찾는다(사람 지시 "번호 칸(□□□□-□□□□)과 [QR 찍기] > 이것도 apk에 있어야지"). 코드가 1~7자면 「코드 8자를 모두 적습니다.」를 보인다.</li>
       <li>앱은 주소(<code>https://&lt;PC&gt;.ts.net</code>)만 저장한다. 코드는 저장하지 않는다. 다음 실행부터 이 카드 없이 바로 PC 화면을 연다.</li>
       <li>글은 폰 언어다(한국어가 아니면 영어). 그림은 한국어만 그렸다.</li>
     </ul>

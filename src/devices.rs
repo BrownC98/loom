@@ -13,10 +13,12 @@ use tokio::sync::watch;
 use ts_rs::TS;
 
 use crate::db::Database;
+use crate::pake;
 
 /// 코드가 사는 시간. Orca 짝짓기 코드와 같다(`MAX_INVITE_TTL_MS` 10분).
 pub const INVITE_TTL: Duration = Duration::from_secs(10 * 60);
-/// 한 코드에 틀려도 되는 횟수. 넘으면 코드를 지운다. 8자(30글자 표)는 약 39비트라 5번으로는 맞힐 수 없다.
+/// 한 코드로 맞혀 볼 수 있는 횟수: 틀린 `pair`와 처음 보는 `pA`(`answer`)를 함께 센다. 넘으면 코드를 지운다.
+/// 8자(29글자 표)는 약 39비트라 5번으로는 맞힐 수 없다.
 const INVITE_TRIES: u8 = 5;
 const CODE_LEN: usize = 8;
 /// 헷갈리는 글자(0·O, 1·I·L, U·V)를 뺐다. 사람이 폰에 옮겨 적는다.
@@ -54,7 +56,9 @@ pub enum PairRefused {
 struct Invite {
     code: String,
     until: Instant,
-    misses: u8,
+    tries: u8,
+    /// 답한 `pA`의 SHA-256. 폰이 같은 `pA`를 다시 보내면(UDP를 잃었을 때) 다시 세지 않는다.
+    asked: Vec<[u8; 32]>,
 }
 
 pub struct Devices {
@@ -80,7 +84,8 @@ impl Devices {
         *self.invite.lock().unwrap() = Some(Invite {
             code: code.clone(),
             until: Instant::now() + INVITE_TTL,
-            misses: 0,
+            tries: 0,
+            asked: Vec::new(),
         });
         code
     }
@@ -111,8 +116,8 @@ impl Devices {
                 return Err(PairRefused::Wrong);
             }
             if !bool::from(code.as_bytes().ct_eq(invite.code.as_bytes())) {
-                invite.misses += 1;
-                if invite.misses >= INVITE_TRIES {
+                invite.tries += 1;
+                if invite.tries >= INVITE_TRIES {
                     *slot = None;
                 }
                 return Err(PairRefused::Wrong);
@@ -130,6 +135,28 @@ impl Devices {
             )
             .expect("devices 표는 늘 있다");
         Ok(DeviceToken(token))
+    }
+
+    /// 같은 Wi-Fi의 폰이 코드로 PC를 찾을 때 보낸 `pA`에 답한다(`pake`). 열린 코드가 없으면 답하지 않는다.
+    /// 처음 보는 `pA`는 한 번 맞혀 보기로 센다. 다섯 번을 넘기면 코드를 지운다. 맞으면 폰이 이어서 `pair`를 부른다.
+    pub fn answer(&self, pa: &pake::Element, door: &[u8]) -> Option<pake::Answer> {
+        let code = {
+            let mut slot = self.invite.lock().unwrap();
+            let invite = slot.as_mut()?;
+            let digest = pa.digest();
+            if invite.until <= Instant::now()
+                || !invite.asked.contains(&digest) && invite.tries >= INVITE_TRIES
+            {
+                *slot = None;
+                return None;
+            }
+            if !invite.asked.contains(&digest) {
+                invite.tries += 1;
+                invite.asked.push(digest);
+            }
+            invite.code.clone()
+        };
+        Some(pake::answer(&code, pa, door))
     }
 
     /// 토큰의 기기. 해시를 모두 읽어 시간이 같은 비교로 찾는다. 기기는 몇 개뿐이다.
@@ -295,6 +322,30 @@ mod tests {
         let code = d.invite();
         for _ in 0..INVITE_TRIES - 1 {
             assert!(d.pair("WRONGXXX", "a").is_err());
+        }
+        assert!(d.pair(&code, "a").is_ok());
+    }
+
+    #[test]
+    fn answers_count_as_tries() {
+        let (_dir, d) = devices();
+        assert!(d.answer(&pake::Element::power(1), b"").is_none());
+        let code = d.invite();
+        let asks: Vec<_> = (2..2 + u32::from(INVITE_TRIES))
+            .map(pake::Element::power)
+            .collect();
+        for pa in &asks {
+            assert!(d.answer(pa, b"").is_some());
+        }
+        // 같은 `pA`를 다시 보내면 세지 않는다.
+        assert!(d.answer(&asks[0], b"").is_some());
+        assert!(d.answer(&pake::Element::power(99), b"").is_none());
+        assert!(!d.invite_open());
+        assert!(d.pair(&code, "a").is_err());
+        // 다섯째 답 뒤에도 맞는 코드로 짝짓는다.
+        let code = d.invite();
+        for pa in &asks {
+            assert!(d.answer(pa, b"").is_some());
         }
         assert!(d.pair(&code, "a").is_ok());
     }

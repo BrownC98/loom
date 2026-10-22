@@ -10,6 +10,7 @@ mod graph;
 mod launch;
 mod node_host;
 mod open;
+mod pake;
 mod paste;
 mod process_tree;
 mod profile;

@@ -222,14 +222,11 @@ fn invite_url(
     open: &lan::Opened,
     code: &str,
 ) -> String {
-    let doors: Vec<String> = addresses
-        .iter()
-        .map(|ip| format!("{ip}:{}", open.port))
-        .collect();
-    let host = serve.map_or_else(|| doors[0].clone(), str::to_owned);
+    let host = serve.map_or_else(|| format!("{}:{}", addresses[0], open.port), str::to_owned);
     let mut url = format!("https://{host}/#pair={code}");
-    if !doors.is_empty() {
-        url.push_str(&format!("&fp={}&a={}", open.fingerprint, doors.join(",")));
+    if !addresses.is_empty() {
+        url.push('&');
+        url.push_str(&open.door(addresses));
     }
     url
 }

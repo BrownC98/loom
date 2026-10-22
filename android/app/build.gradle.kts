@@ -14,6 +14,8 @@ android {
         // release.yml이 판(scripts/version.sh)과 전체 커밋 수를 넘긴다. 커밋 수는 판을 올려도 줄지 않아 업데이트 설치가 된다.
         versionName = providers.gradleProperty("loomVersion").getOrElse("0.0.0")
         versionCode = providers.gradleProperty("loomVersionCode").getOrElse("1").toInt()
+        // 새 판을 찾을 Release 주소. release.yml이 데몬의 LOOM_RELEASES와 같은 값을 넘긴다. 비면(개발 빌드) 찾지 않는다.
+        buildConfigField("String", "RELEASES", "\"${providers.gradleProperty("loomReleases").getOrElse("")}\"")
     }
     signingConfigs {
         // 키 저장소는 저장소에 두지 않는다. release.yml이 GitHub secret에서 풀어 넘긴다.
@@ -29,6 +31,7 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
+    buildFeatures { buildConfig = true }
     sourceSets["main"].res.directories.add(layout.buildDirectory.dir("icon").get().asFile.path)
 }
 

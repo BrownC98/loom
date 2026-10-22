@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M3 Android 앱 업데이트 알림 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: user-doc style.html. 화면 그림의 색은 web/src/styles.css 토큰과 mobile.html(M35)의 폰 틀이다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button, input { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.note code, td code { font-family: var(--mono); font-size: 12px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.cmp { border-collapse: collapse; font-size: 13px; width: 1240px; }
+table.cmp th, table.cmp td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.pick { font-weight: 600; color: var(--warn); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+/* 폰 틀(M1·M35와 같은 크기). 띠는 M35 질문 띠(.banner)와 같은 모양이다. */
+.row { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+.shot { display: grid; gap: 10px; width: 390px; }
+.cap { font-size: 13px; font-weight: 600; }
+.phone { width: 390px; height: 560px; border: 1px solid var(--line-strong); border-radius: 28px; background: var(--bg); overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 44px auto 52px minmax(0, 1fr); }
+.os { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-size: 13px; font-weight: 600; }
+.top { display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.top .title { display: grid; line-height: 1.25; }
+.top .title b { font-size: 16px; }
+.top .title span { font-size: 12px; color: var(--ink-3); }
+.lm { width: 24px; height: 24px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font: 700 13px var(--mono); }
+.pc { padding: 12px; display: grid; align-content: start; gap: 10px; }
+.ghostq { height: 120px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.banner { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 52px; padding: 0 4px 0 14px; background: var(--panel); border-block: 1px solid var(--line-strong); font-size: 13px; }
+.banner .txt { flex: 1; min-width: 0; display: grid; line-height: 1.3; }
+.banner .txt b { font-size: 14px; }
+.banner .txt span { font-size: 12px; color: var(--ink-3); }
+.banner .txt span.e { color: var(--err); }
+.banner .btn { min-height: 36px; }
+.ib { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 10px; background: none; color: var(--ink-2); flex: none; }
+svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.meter { height: 4px; border-radius: 2px; background: var(--line); margin-top: 4px; }
+.meter i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.sys { margin: 80px 20px 0; align-self: start; background: var(--surface); border-radius: 20px; padding: 22px; display: grid; gap: 14px; box-shadow: 0 8px 30px oklch(0% 0 0 / 0.2); }
+.sys h3 { font-size: 17px; display: flex; gap: 10px; align-items: center; }
+.sys p { font-size: 14px; color: var(--ink-2); }
+.sys .acts { display: flex; justify-content: flex-end; gap: 16px; font-weight: 600; color: var(--ok); }
+.dim { opacity: .35; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M3</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · APK업데이트</b></span><span>v1 · 2026-10-22</span></div>
+  <h1>Android 앱(APK): 새 판 알림과 설치</h1>
+  <p class="lead">사람 결정(2026-10-22, Q387 A): 새 APK가 있으면 앱이 알리고, 누르면 APK를 받아 Android 설치 화면을 연다. 앱은 PC 데스크톱 데몬과 같은 곳(GitHub Release의 <code>latest.json</code>)을 앱을 열 때와 6시간마다 본다. 바뀌는 곳은 PC 화면 위에 놓는 띠 하나(점선)다. PC가 내는 화면(질문·노드)은 바뀌지 않는다.</p>
+
+  <div class="fig">
+    <h2>① 새 판이 있음 <span class="tag">latest.json의 판이 앱 판보다 새로움</span></h2>
+    <div class="row">
+      <div class="shot">
+        <span class="cap">PC 화면 위의 띠</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div>
+          <div class="banner new"><span class="txt"><b>앱 새 판 0.2.7</b><span>지금 0.2.6</span></span><button class="btn primary">업데이트</button><button class="ib" aria-label="닫기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+          <div class="top"><span class="lm">L</span><span class="title"><b>질문</b><span>ktadev-pc · Tailscale로 연결됨</span></span></div>
+          <div class="pc"><div class="ghostq"></div><div class="ghostq"></div></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">받는 중</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div>
+          <div class="banner new"><span class="txt"><b>앱 새 판 0.2.7 받는 중… 42%</b><span class="meter"><i style="width:42%"></i></span></span></div>
+          <div class="top"><span class="lm">L</span><span class="title"><b>질문</b><span>ktadev-pc · Tailscale로 연결됨</span></span></div>
+          <div class="pc"><div class="ghostq"></div><div class="ghostq"></div></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>띠는 화면 맨 위(상태 줄 밑)에 놓고 PC 화면을 그만큼 아래로 민다. PC 화면의 아래 탭을 가리지 않는다. 앱의 ①·② 카드(M1) 위에도 같이 보인다.</li>
+      <li>[업데이트]는 APK(<code>loom_0.2.7.apk</code>)를 앱 캐시에 받는다. 받는 동안 단추는 없고 진행률만 보인다.</li>
+      <li>받은 파일이 loom 앱이고 판이 0.2.7인지 본 뒤에 설치 화면을 연다. 다르면 ③ 실패로 간다.</li>
+      <li>[×]는 띠를 닫는다. 앱을 다시 열거나 6시간 뒤 다시 확인하면 다시 보인다.</li>
+      <li>앱 판이 같거나 새로우면 띠가 없다. 확인에 실패해도(폰이 GitHub에 닿지 않음 등) 띠가 없다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 설치 <span class="tag">Android가 그리는 화면</span></h2>
+    <div class="row">
+      <div class="shot">
+        <span class="cap">처음 한 번: 설치 허용이 꺼져 있음</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div>
+          <div class="banner new"><span class="txt"><b>설치를 허용해야 합니다</b><span>설정에서 「이 출처 허용」을 켭니다.</span></span><button class="btn primary">설정 열기</button><button class="ib" aria-label="닫기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+          <div class="top"><span class="lm">L</span><span class="title"><b>질문</b><span>ktadev-pc · Tailscale로 연결됨</span></span></div>
+          <div class="pc"><div class="ghostq"></div><div class="ghostq"></div></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">Android 설치 화면</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div>
+          <div class="banner dim"><span class="txt"><b>앱 새 판 0.2.7</b><span>받았습니다</span></span><button class="btn primary">설치</button></div>
+          <div class="sys"><h3><span class="lm">L</span>loom</h3><p>이 앱을 업데이트하시겠습니까?</p><div class="acts"><span>취소</span><span>업데이트</span></div></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>Android는 다른 앱이 APK를 설치하려면 「알 수 없는 앱 설치」 허용을 받게 한다. 꺼져 있으면 띠가 [설정 열기]를 보이고, 누르면 loom 앱의 그 설정 화면을 연다. 켜고 돌아오면 바로 설치 화면을 연다.</li>
+      <li>설치 화면과 문구는 Android가 그린다(폰마다 조금 다르다). 같은 서명 키라 설치해도 PC 주소와 짝짓기가 남는다.</li>
+      <li>설치 화면에서 [취소]하면 띠는 [설치]로 남는다. 다시 받지 않고 받은 파일로 설치 화면을 연다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 받기 실패 <span class="tag">네트워크 끊김, 파일이 다름</span></h2>
+    <div class="row">
+      <div class="shot">
+        <span class="cap">실패</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div>
+          <div class="banner new"><span class="txt"><b>앱 새 판 0.2.7</b><span class="e">받지 못했습니다.</span></span><button class="btn primary">다시 시도</button><button class="ib" aria-label="닫기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+          <div class="top"><span class="lm">L</span><span class="title"><b>질문</b><span>ktadev-pc · Tailscale로 연결됨</span></span></div>
+          <div class="pc"><div class="ghostq"></div><div class="ghostq"></div></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>[다시 시도]는 처음부터 다시 받는다.</li>
+      <li>글은 폰 언어다(한국어가 아니면 영어). 그림은 한국어만 그렸다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="cmp">
+      <tr><th>#</th><th>정할 것</th><th>안</th></tr>
+      <tr><td>1</td><td>알림 자리와 모양</td><td><span class="pick">A(권장)</span>: 위 그림대로 화면 맨 위 띠 / B: 화면 아래(탭 위)에 뜨는 카드</td></tr>
+      <tr><td>2</td><td>[×]로 닫은 뒤</td><td><span class="pick">A(권장)</span>: 앱을 다시 열거나 6시간 뒤 다시 확인하면 다시 보인다 / B: 그 판은 다시 알리지 않는다(다음 판에만 알린다)</td></tr>
+      <tr><td>3</td><td>①~③ 문구</td><td><span class="pick">A(권장)</span>: 위 그림대로 / B: 고칠 곳을 알려 준다</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

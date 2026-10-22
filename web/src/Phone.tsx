@@ -10,6 +10,7 @@ import { QuestionIcon } from './Dock';
 import { InboxPanel } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
 import { SizingTerminal } from './Terminal';
+import { readClipboard } from './touchTerminal';
 
 /** 터치 화면이고 이 폭 아래일 때 폰 배치를 쓴다(목업 ①). 마우스 PC의 좁은 창(설치한 웹 앱 창 등)은 데스크톱 배치다(2026-10-22 사람 지적 "지금 윈도우 버전 실행하니까 왜 앱 화면이 나오냐"). */
 const PHONE_QUERY = '(max-width: 639px) and (pointer: coarse)';
@@ -170,6 +171,8 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
   const { t } = useTranslation();
   const { view } = props;
   const send = useRef<((data: string) => void) | null>(null);
+  const paster = useRef<((text: string) => void) | null>(null);
+  const [pasteFailed, setPasteFailed] = useState(false);
   const [ctrl, setCtrl] = useState(false);
   const [text, setText] = useState('');
   const [sheet, setSheet] = useState<'actions' | 'answer' | null>(null);
@@ -180,6 +183,15 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
   const key = (data: string) => {
     send.current?.(data);
     setCtrl(false);
+  };
+  const paste = () => {
+    readClipboard().then(
+      (text) => {
+        setPasteFailed(false);
+        if (text) paster.current?.(text);
+      },
+      () => setPasteFailed(true),
+    );
   };
   const arrow = (code: string) => key(ctrl ? `${ESC}[1;5${code}` : `${ESC}[${code}`);
   const submit = (e: FormEvent) => {
@@ -226,7 +238,7 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
         </div>
       )}
       <div className="phone-term" translate="no">
-        <SizingTerminal src={nodePty(view.id)} node={view.id} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} />
+        <SizingTerminal src={nodePty(view.id)} node={view.id} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} onPaster={(p) => (paster.current = p)} />
       </div>
       <div className="phone-dock">
         <div className="phone-keys" role="group" aria-label={t('phone.keys')}>
@@ -239,6 +251,9 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
           <button type="button" aria-pressed={ctrl} onClick={() => setCtrl(!ctrl)}>
             Ctrl
           </button>
+          <button type="button" className="paste" onClick={paste}>
+            {t('phone.paste')}
+          </button>
           <button type="button" aria-label={t('phone.ctrlC')} onClick={() => key(CTRL_C)}>
             ^C
           </button>
@@ -248,6 +263,11 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
             </button>
           ))}
         </div>
+        {pasteFailed && (
+          <p className="phone-note" role="alert">
+            {t('phone.pasteDenied')}
+          </p>
+        )}
         <form className="phone-input" onSubmit={submit}>
           <input value={text} onChange={(e) => type(e.target.value)} aria-label={t('phone.input')} placeholder={t('phone.input')} autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="send" />
           <button type="submit" className="send" aria-label={t('phone.send')}>

@@ -330,6 +330,8 @@ const ko: typeof en = {
     actions: '노드 동작',
     answer: '답하기',
     keys: '터미널 키',
+    paste: '붙여넣기',
+    pasteDenied: '클립보드를 읽지 못했습니다. 입력 줄에 길게 눌러 붙여넣으세요.',
     ctrlC: 'Ctrl-C',
     arrow: { left: '왼쪽', up: '위', down: '아래', right: '오른쪽' },
     input: '노드에 보낼 글',
@@ -515,6 +517,7 @@ const ko: typeof en = {
     closedBy: { human: '사람이 닫음', agent: '에이전트가 닫음', restart: '다시 시작', exit: '종료' },
   },
   terminal: {
+    copy: '복사',
     gone: 'loom을 다시 시작해서 이 터미널은 닫혔습니다. 새 노드를 만드십시오.',
     drop: '놓으면 파일 경로를 입력합니다',
     dropCount: '파일 {{count}}개 · 파일마다 {{limit}}MB까지',

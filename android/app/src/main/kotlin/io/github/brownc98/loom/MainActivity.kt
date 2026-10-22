@@ -1,5 +1,7 @@
 package io.github.brownc98.loom
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.GradientDrawable
 import android.net.http.SslCertificate
@@ -18,6 +20,7 @@ import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -92,6 +95,7 @@ class MainActivity : ComponentActivity() {
             settings.domStorageEnabled = true
             webViewClient = Client()
             webChromeClient = Chooser()
+            addJavascriptInterface(Clipboard(), "loomClipboard")
         }
         CookieManager.getInstance().setAcceptCookie(true)
         card = ScrollView(this).apply {
@@ -508,6 +512,18 @@ class MainActivity : ComponentActivity() {
         /** Serve는 데몬이 꺼져 있으면 502를 낸다. */
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
             if (request.isForMainFrame && response.statusCode >= 500) showFailed(request.url.toString())
+        }
+    }
+
+    /**
+     * 폰 화면의 [붙여넣기]가 읽는 클립보드. WebView는 `navigator.clipboard.readText`를 허락 없이 막는다.
+     * 다른 주소로 나가는 길은 `Client`가 막고 PC 화면만 열므로 이 다리는 PC 화면만 쓴다.
+     */
+    private inner class Clipboard {
+        @JavascriptInterface
+        fun read(): String {
+            val clip = (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
+            return clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString() ?: ""
         }
     }
 

@@ -38,6 +38,8 @@ const en = {
     arrangeGroup: 'Arrange this group',
     arrangeRepo: 'Arrange this repository',
     direction: 'Arrange direction',
+    keepArranged: 'Pin',
+    keepArrangedHint: 'Always arrange: when on, every repository keeps the arranged layout',
     resetSizes: 'Reset all card sizes',
     directions: { down: 'Down', right: 'Right', up: 'Up', left: 'Left' },
     empty: 'Click “New node” to start the first agent.',

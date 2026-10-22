@@ -702,6 +702,7 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
 }
 
 /// 모든 프로필이 받는 통신 명령. 프로필별 대기 방식은 각 실행 지시가 정한다.
+/// 긴 명령 백그라운드 규칙: 앞에서 도는 긴 명령 동안 조정이 넘어가지 않아 「안 읽음」을 눌러도 고장처럼 보였다(2026-10-22 사람 결정 Q322 B).
 pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell commands to communicate. You can send to any node; talk to your parent and children first, and report to your parent.
 - loom spawn <name> --agent <agent-id>: create a child. Supply its brief on stdin or with --file. --worktree <branch> gives it a new worktree.
 - loom status: inspect your ID, current parent and children, and their process availability. loom status --all lists every node with its ID, parent and place.
@@ -716,6 +717,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom answered: when the human's input answers your open loom ask question, you MUST call loom answered first, then act on the answer. If the input does not answer it, leave the question open. If you no longer need the answer, call loom answered.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
 - loom rm <name-or-id>: remove your own child and end its process. Its children become your children; reclaim them next.
+Run a shell command that can take more than one minute in the background when your tool can do that, and get its end notice. Messages reach you only between tool calls, so a long foreground command holds back steer messages.
 When you work for a parent, your parent reads your messages, not your terminal: write no progress narration and no briefing in the terminal. End each turn with at most one short line; the result goes in loom done or loom send.
 Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
 Messages begin with loom message and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";

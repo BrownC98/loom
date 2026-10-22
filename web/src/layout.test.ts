@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, grew, keptHome, overlapped, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
+import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, grew, keptHome, overlapped, overlaps, push, pushedHome, retreat, samePoint, settle, shrank, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
 
 const box = (x: number, y: number, width = 100, height = 50): Box => ({ at: { x, y }, size: { width, height } });
 
@@ -401,16 +401,20 @@ describe('growth while the screen was closed (repro 2026-10-22: repo loom grew o
   });
 });
 
-describe('sameSpots (an arranged repo saves the new auto layout when it differs)', () => {
-  const m = (...e: [string, number][]) => new Map(e.map(([k, x]) => [k, { x, y: 0 }]));
+describe('settle (an arranged repo is derived from sizes, not saved; 2026-10-22 two tabs flipped its saved layout)', () => {
+  const item = (key: string, y: number, height: number) => ({ key, size: { width: 600, height }, lead: { x: 0, y: 0 }, auto: { x: 20, y } });
+  const nothingSaved = () => undefined;
 
-  it('equal, or off by less than half a pixel: same', () => {
-    expect(sameSpots(m(['1', 0], ['2', 700]), m(['1', 0], ['2', 700.3]))).toBe(true);
+  it('without placed spots each tab gets the auto layout from its own sizes, so a grown card needs no save', () => {
+    expect(settle([item('main', 0, 437), item('kid', 549, 517)], nothingSaved, 32).get('kid')).toEqual({ x: 20, y: 549 });
+    expect(settle([item('main', 0, 502), item('kid', 614, 517)], nothingSaved, 32).get('kid')).toEqual({ x: 20, y: 614 });
   });
 
-  it('a moved box or a new box without a saved spot: not same', () => {
-    expect(sameSpots(m(['1', 0], ['2', 700]), m(['1', 310], ['2', 1340]))).toBe(false);
-    expect(sameSpots(m(['1', 0], ['2', 700]), m(['1', 0], ['2', 700], ['6', 0]))).toBe(false);
+  it('a placed spot (a box the person dropped) wins over the auto layout, and a new box goes to the free spot beside it', () => {
+    const placed = (key: string) => (key === 'main' ? { x: 20, y: 549 } : undefined);
+    const at = settle([item('main', 0, 437), item('kid', 549, 517)], placed, 32);
+    expect(at.get('main')).toEqual({ x: 20, y: 549 });
+    expect(at.get('kid')).toEqual({ x: 652, y: 549 });
   });
 });
 

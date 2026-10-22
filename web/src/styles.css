@@ -879,10 +879,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .usage-btn .acct-name, .phone .statusbar .app-version { display: none; }
 .phone .statusbar .refresh { width: 36px; }
 .phone .statusbar .refresh svg { width: 16px; height: 16px; }
-.phone .usage-pop { position: fixed; inset: auto 0 0; width: auto; max-height: 85dvh; overflow: auto; overscroll-behavior: contain; padding-bottom: calc(16px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; z-index: 30; }
-.usage-scrim { display: none; }
-.phone .usage-scrim { display: block; position: fixed; inset: 0; z-index: 29; background: var(--scrim); }
-.phone .usage-pop .acct { min-height: 44px; }
+.phone .sheet-body .acct { min-height: 44px; }
 .phone .btn.danger { background: var(--surface); border-color: var(--line-strong); color: var(--err); }
 
 /* 질문 탭: 데스크톱 「질문」 탭의 목록을 노드마다 카드로 쌓는다. 색은 질문 색(--warn)이다. */

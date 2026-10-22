@@ -1,5 +1,5 @@
 import { ArrowLeftRight, ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
@@ -10,6 +10,7 @@ import { weekdayAndTime } from './i18n';
 import type { SwitchRecord } from './useSwitchNotice';
 import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
+import { Sheet, usePhone } from './Phone';
 import { useOutsideClose } from './popover';
 import { VERSION } from './version';
 
@@ -33,6 +34,7 @@ export function StatusBar(props: {
   notice: { record: SwitchRecord | null; onClose: () => void };
 }) {
   const { t } = useTranslation();
+  const phone = usePhone();
   const [open, setOpen] = useState(false);
   // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 다른 팝오버처럼 pointerdown을 먼저 받는다.
   const bar = useOutsideClose<HTMLElement>(() => setOpen(false));
@@ -58,6 +60,22 @@ export function StatusBar(props: {
     const a = active(provider);
     return `${PROVIDER_LABEL[provider]} ${a ? `${accountName(a)}, ${windowsText(a.usage.limits)}` : t('statusBar.summaryLoading')}`;
   }).join('; ');
+
+  const body = usage.accounts && (
+    <UsageBody
+      accounts={usage.accounts.filter((a) => a.distro === distro)}
+      active={active}
+      usage={usage}
+      onChoose={(provider, id) => props.onChoose(provider, distro, id)}
+      onManage={
+        props.onManage &&
+        (() => {
+          setOpen(false);
+          props.onManage?.();
+        })
+      }
+    />
+  );
 
   return (
     <footer className="statusbar" aria-label={t('statusBar.label')} ref={bar}>
@@ -91,24 +109,7 @@ export function StatusBar(props: {
       </button>
       {props.notice.record && <SwitchNotice record={props.notice.record} accounts={usage.accounts} onClose={props.notice.onClose} />}
       <span className="app-version">v{VERSION}</span>
-      {/* 폰에서만 보이는 판 뒤 막. 막을 누르면 판만 닫고 그 아래 단추에 닿지 않는다(styles.css `.usage-scrim`). */}
-      {open && <div className="usage-scrim" aria-hidden="true" onClick={() => setOpen(false)} />}
-      {open && usage.accounts && (
-        <UsagePopover
-          accounts={usage.accounts.filter((a) => a.distro === distro)}
-          active={active}
-          usage={usage}
-          onClose={() => setOpen(false)}
-          onChoose={(provider, id) => props.onChoose(provider, distro, id)}
-          onManage={
-            props.onManage &&
-            (() => {
-              setOpen(false);
-              props.onManage?.();
-            })
-          }
-        />
-      )}
+      {open && usage.accounts && (phone ? <Sheet label={t('statusBar.usage')} onClose={() => setOpen(false)}>{body}</Sheet> : <UsagePopover onClose={() => setOpen(false)}>{body}</UsagePopover>)}
     </footer>
   );
 }
@@ -132,19 +133,9 @@ function SwitchNotice(props: { record: SwitchRecord; accounts: AccountView[] | n
   );
 }
 
-function UsagePopover(props: {
-  accounts: AccountView[];
-  active: (provider: Provider) => AccountView | undefined;
-  usage: Usage;
-  onChoose: (provider: Provider, id: AccountId | null) => void;
-  /** 없으면 [계정 관리]를 두지 않는다. 폰에는 설정 창이 없다(목업 mobile.html ⑧). */
-  onManage?: () => void;
-  onClose: () => void;
-}) {
+/** 데스크톱 팝오버. 폰은 같은 몸통을 공용 `Sheet`에 넣는다. */
+function UsagePopover(props: { onClose: () => void; children: ReactNode }) {
   const { t } = useTranslation();
-  const { usage } = props;
-  /** 계정 목록을 펼친 공급자. Orca는 공급자 줄을 누르면 계정 바꾸기를 연다. */
-  const [expanded, setExpanded] = useState<Provider | null>(null);
   return (
     <div className="pop usage-pop" role="dialog" aria-label={t('statusBar.usage')}>
       <h3>
@@ -154,6 +145,25 @@ function UsagePopover(props: {
           <ChevronDown aria-hidden="true" />
         </button>
       </h3>
+      {props.children}
+    </div>
+  );
+}
+
+function UsageBody(props: {
+  accounts: AccountView[];
+  active: (provider: Provider) => AccountView | undefined;
+  usage: Usage;
+  onChoose: (provider: Provider, id: AccountId | null) => void;
+  /** 없으면 [계정 관리]를 두지 않는다. 폰에는 설정 창이 없다(목업 mobile.html ⑧). */
+  onManage?: () => void;
+}) {
+  const { t } = useTranslation();
+  const { usage } = props;
+  /** 계정 목록을 펼친 공급자. Orca는 공급자 줄을 누르면 계정 바꾸기를 연다. */
+  const [expanded, setExpanded] = useState<Provider | null>(null);
+  return (
+    <>
       {PROVIDERS.map((provider) => (
         <ProviderSection
           key={provider}
@@ -173,7 +183,7 @@ function UsagePopover(props: {
           </button>
         )}
       </div>
-    </div>
+    </>
   );
 }
 

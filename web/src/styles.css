@@ -212,7 +212,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* 그래프 */
 /* 이 칸 안의 z-index(확대 보기 7, 카드 인라인 값, 끄는 중 2000)는 칸 안에서만 비교한다. 사이드바의 창(저장소 추가, 줄 창)이 그 아래로 숨지 않는다. */
 .canvas { position: relative; overflow: hidden; min-width: 0; isolation: isolate; }
-.canvas .react-flow { background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+/* 점의 기준을 창에 둔다. 왼쪽 사이드바 너비가 바뀌어 그래프 칸이 옮겨도 점은 화면의 같은 자리에 있다(2026-10-22 사람 지시 "좌측 사이드탭 너비 조절때 배경 좌표 점이 움직이는 문제 있음, 안움직이도록 만들어라"). */
+.canvas .react-flow { background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; background-attachment: fixed; }
 .canvas-title { position: absolute; top: 16px; left: 16px; z-index: 5; font-size: 18px; font-weight: 600; pointer-events: none; }
 
 /* 미니맵: 그래프 오른쪽 아래. 카드는 상태 색, 묶음은 점선 테두리 */

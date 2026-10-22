@@ -5,6 +5,7 @@ import { applySettingsPatch, settingsPatch } from './settingsPatch';
 const base = {
   minimapFolded: false,
   arrangeDirection: 'down',
+  alwaysArrange: false,
   paneWidths: { side: null, dock: 320 },
   bypassOff: ['claude'],
 } as unknown as SettingsView;

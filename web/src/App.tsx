@@ -99,6 +99,7 @@ const EMPTY_SETTINGS: SettingsView = {
   osNotify: false,
   alwaysOn: { oMode: true, userDoc: true, ste100: true, raptor3: true },
   arrangeDirection: 'down',
+  alwaysArrange: false,
   minimapFolded: false,
   repo: null,
   paneWidths: { side: null, dock: null },

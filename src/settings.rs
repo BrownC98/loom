@@ -70,9 +70,12 @@ pub struct SettingsView {
     /// 사람이 고른 화면 색. 옛 설정에는 없다. 없으면 모든 색이 기본값이다. 근거: 목업 docs/mockups/color-settings.html v3.
     #[serde(default)]
     pub colors: UiColors,
-    /// 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 여섯 칸은 옛 설정에 없다.
+    /// 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 일곱 칸은 옛 설정에 없다.
     /// [정렬]과 나무 간선이 향하는 방향. 없으면 `Down`이다.
     pub arrange_direction: ArrangeDirection,
+    /// 상시 정렬: 모든 저장소가 늘 정렬한 모양을 지킨다. 끌어 놓아도 형제 순서만 바뀐다. 없으면 꺼짐이다.
+    /// 2026-10-22 사람 지시 "사이드바에 상시 정렬 기능 토글 버튼 추가", 목업 docs/mockups/always-arrange.html.
+    pub always_arrange: bool,
     /// 그래프 미니맵을 접었는지. 없으면 펼침이다.
     pub minimap_folded: bool,
     /// 사이드바에서 고른 저장소. 없거나 목록에 없으면 화면이 첫 저장소를 쓴다.
@@ -500,6 +503,7 @@ mod tests {
         let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
         let view = SettingsView {
             arrange_direction: ArrangeDirection::Left,
+            always_arrange: true,
             minimap_folded: true,
             repo: Some(RepoId(3)),
             pane_widths: PaneWidths {
@@ -516,6 +520,7 @@ mod tests {
         settings.update(|v| *v = view.clone()).unwrap();
         let got = settings.get().unwrap();
         assert_eq!(got.arrange_direction, ArrangeDirection::Left);
+        assert!(got.always_arrange);
         assert!(got.minimap_folded);
         assert_eq!(got.repo, Some(RepoId(3)));
         assert_eq!(got.pane_widths, view.pane_widths);

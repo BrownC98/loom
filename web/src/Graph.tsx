@@ -511,6 +511,9 @@ export function Graph(props: {
   const [spots, setSpots] = useState<ReadonlyMap<string, Placed>>(new Map());
   // 정렬한 모양을 지키는 저장소. [정렬]이 넣고, 그 저장소의 묶음·카드를 끌어 놓으면 뺀다(데몬 DB `arranged_repos`).
   const [arrangedRepos, setArrangedRepos] = useState<ReadonlySet<RepoId>>(new Set());
+  // 상시 정렬이면 모든 저장소가 정렬한 모양을 지킨다(목업 docs/mockups/always-arrange.html).
+  const { alwaysArrange } = props.settings;
+  const keepsArranged = (repo: RepoId) => alwaysArrange || arrangedRepos.has(repo);
   // 끄는 동안 움직인 상자(끄는 상자, 자리를 바꾼 형제, 묶어 둔 형제와 바깥 상자)의 원점. 놓으면 저장하고 비운다.
   const [moving, setMoving] = useState<ReadonlyMap<string, XYPosition>>(new Map());
   // 끄는 상자와 그 상자의 자리 바꿈(`swap`). 앞 변이 형제 중심선을 넘으면 그 형제와 자리를 바꾼다(사람 결정 2026-10-21).
@@ -589,7 +592,7 @@ export function Graph(props: {
   const repos = nests.map(({ repo, repoGroups, memberOf, nest }) => {
     // 정렬한 모양을 지키는 저장소 안의 자리는 저장하지 않고 탭마다 자동 배치로 구한다. 저장한 자리는 형제 순서(`rank`)로만 읽는다.
     // 구한 자리를 저장하면 카드를 다르게 잰 두 탭이 번갈아 저장해 끝나지 않았다(2026-10-22 사람 데몬, 묶음 y 549·614를 초당 약 12번). 사람 지시 "state must be one".
-    const placedIn = arrangedRepos.has(repo.id) ? (key: string) => moving.get(key) : placedAt;
+    const placedIn = keepsArranged(repo.id) ? (key: string) => moving.get(key) : placedAt;
     const tree = arrangeNested(nest, (id) => props.views.get(id)?.parent ?? null, size, direction, { top: CARD_TOP, side: CARD_X });
     // 안쪽 묶음부터 놓는다. 묶음 상자는 카드와 자식 묶음을 모두 덮는다(네 쪽). 빈 묶음은 머리와 안내 글 크기다.
     const lay = (i: number): Laid => {
@@ -1026,17 +1029,19 @@ export function Graph(props: {
   /**
    * 상자 원점을 한 요청으로 저장한다. `after`가 있으면 그 요청보다 먼저 보낸다.
    * 묶음·카드를 놓은 저장소는 정렬한 모양을 더 지키지 않는다(데몬 `Spots::put`과 같은 규칙).
+   * 상시 정렬이면 지킨다. 놓은 자리는 형제 순서(`rank`)로만 남는다(목업 always-arrange.html ② B안).
    */
   const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
     if (done.size === 0) return;
     const placed = place(done);
     const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : [p.spot.repo])));
+    if (alwaysArrange) return keepArranged([...inside], placed, after);
     setArrangedRepos((prev) => new Set([...prev].filter((id) => !inside.has(id))));
     after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
   };
   /** 자동 배치 자리를 저장하고 `ids` 저장소가 정렬한 모양을 지키게 한다. */
-  const saveArranged = (ids: readonly RepoId[], done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
-    const placed = place(done);
+  const saveArranged = (ids: readonly RepoId[], done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => keepArranged(ids, place(done), after);
+  const keepArranged = (ids: readonly RepoId[], placed: Placed[], after: Promise<unknown>) => {
     setArrangedRepos((prev) => new Set([...prev, ...ids]));
     after.then(() => putArranged({ repos: [...ids], placed })).catch((err: Error) => setRefusal(err.message));
   };

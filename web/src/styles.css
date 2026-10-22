@@ -545,6 +545,8 @@ a { color: var(--accent); }
 .clamped.instruction { flex: 1; }
 .clamped.instruction .full { margin: 0; color: var(--ink-3); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wait-body[data-kind="done"] .full { font-weight: 600; }
+/* 완료 줄의 입력창·보내기·끌어 놓기도 완료 색이다(2026-10-22 사람 지시 "완료 입력창이 질문색임"). */
+.wait-body[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
 .inbox-pill .count, .tabs .count, .rail .count, .wait-node .count, .state .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 /* 접힌 줄의 아이콘 단추는 글자 자리가 없다. 배지를 단추 안 오른쪽 위에 겹친다. 줄은 창 끝에 붙어 있어서 단추 밖으로 나가면 잘린다. */
 .rail .btn:has(.count) { position: relative; }

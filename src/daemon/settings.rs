@@ -354,7 +354,6 @@ async fn logout(
 }
 
 impl App {
-    /// 이 PC.
     pub(super) fn pc_site(&self) -> Site {
         Site::pc(self.accounts_root.clone())
     }

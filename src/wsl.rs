@@ -332,7 +332,6 @@ impl Inside {
         &self.cwd
     }
 
-    /// 배포판 안의 `HOME`.
     pub fn home(&self) -> &str {
         &self.home
     }

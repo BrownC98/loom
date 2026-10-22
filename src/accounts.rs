@@ -224,7 +224,7 @@ impl Site {
         self.accounts.env(provider, id)
     }
 
-    /// 이 위치에서 CLI를 띄우는 명령. 로그인 폴더 변수(`login`)도 넣는다. CLI가 없으면 노드 만들기와 같은 오류다.
+    /// 이 위치에서 CLI를 띄우는 명령. 계정 `id`의 로그인 폴더 변수도 넣는다. CLI가 없으면 노드 만들기와 같은 오류다.
     pub fn command(
         &self,
         provider: Provider,

@@ -196,6 +196,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 
 - `"none"`인 에이전트는 Orca가 시작 뒤 입력창에 지시문을 써 넣는다. loom은 PTY에 글자를 쓰지 않으므로(「메시징」) 첫 지시문을 받지 않는다. 첫 지시문은 `loom spawn`만 넘긴다.
 - 탐지: 데몬이 자기 `PATH`에서 `cmd`, 그다음 `aliases`를 찾는다(`which`). 설정 창을 열 때와 [다시 찾기]를 누를 때 다시 찾는다. 노드를 띄울 때도 찾은 경로로 띄운다.
+  - Windows 데몬은 위치(아래 「계정과 사용량」)마다 찾는다. WSL 배포판은 `wsl.exe` 한 번으로 카탈로그 명령을 모두 찾고 Codex·OpenCode 2 버전을 읽는다. 설정 › 에이전트는 에이전트마다 줄 하나에 위치마다 메타 줄과 버전 경고를 둔다. 새 노드 창은 저장소 위치에 설치된 에이전트만 고르게 하고, 다른 위치에만 있으면 「WSL에 없음」·「이 PC에 없음」을 붙인다(목업 [wsl-place.html](mockups/wsl-place.html) ④·⑥a, Q282 A).
 - 새 노드 창은 프로필 하나만 고른다. 검색 입력 아래에 카탈로그 전체를 보인다. 줄을 누르거나 Enter를 누르면 그 프로필로 바로 띄운다. [만들기] 단추는 없다(2026-10-20 사람 지시 "새노드는 리스트 아이템을 클릭하면 바로 해당 노드가 생성되는걸로 변경"). 명세는 [settings.html 5번](mockups/settings.html#u5)이다.
   - 순서: 설치됨(카탈로그 순서), 「기본 셸」, 설치하지 않음. 설치하지 않은 항목은 고를 수 없다. 화면은 에이전트 이름으로 분기하지 않는다.
   - `profile`이 없는 항목에는 「터미널만」을 붙인다. 그 노드는 조정·중단을 받지 않고 `loom wait`로만 받는다.
@@ -211,8 +212,11 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
   - loom은 사람이 이 두 버튼을 누를 때만 CLI로 시스템 기본 폴더를 바꾼다. 처음에는 바꾸지 않고 셸 명령만 알렸다. Windows 사용자는 그 명령을 칠 터미널이 가깝지 않아, 기본 계정이 누구인지 모르고 잘못 연결된 기본 계정을 끊지 못했다(2026-10-21 사람 보고 "기본계정이 뭔지도 표시가 안되고 잘못된 연결 해제도 할 수 없음"). 목업 [accounts-system.html](mockups/accounts-system.html).
   - CLI가 `PATH`에 없으면 그 공급자의 [계정 추가]를 끄고 시스템 기본 줄에 「설치 안 됨」을 보인다. 로그인·로그아웃 명령은 노드처럼 `PATH`에서 CLI를 찾고 npm 배치 파일(`codex.cmd`)은 그 프로그램을 바로 띄운다. 못 찾으면 노드 만들기와 같은 `LaunchError::NotInstalled`로 거절한다.
   - Codex 데스크톱 앱이 넣은 `%LOCALAPPDATA%\OpenAI\Codex\bin\<해시>\codex.exe`는 찾지 않는다. 해시 폴더는 앱을 업데이트할 때마다 바뀌고 공개 약속이 아니다. 사용자는 npm으로 Codex CLI를 설치한다(2026-10-21 사람 결정 「권장안대로」).
+- 위치: 계정은 노드가 도는 위치(이 PC 또는 WSL 배포판)에 속한다. 위치는 저장소 경로가 정한다(「데몬 하나」). 위치 목록은 이 PC와, 더한 저장소가 있고 지금 도는 배포판이다(`wsl.exe -l --running`). 목록을 보려고 배포판을 켜지 않는다: 5분마다 읽는 사용량이 배포판을 끄지 못하게 한다. 위치가 하나면(Linux, macOS, WSL 저장소가 없는 Windows) 화면은 전과 같다. 위치가 둘 이상이면 설정 › 계정은 위치마다 머리 줄로 묶는다(목업 [wsl-place.html](mockups/wsl-place.html) ③, Q282 A).
+  - 위치마다 「시스템 기본」(그 위치의 `~/.claude`·`~/.codex`)과 loom 계정이 따로 있다. WSL의 loom 계정은 그 배포판의 `~/.loom/accounts`다. 데몬은 UNC 경로(`\\wsl.localhost\…`)로 읽고 쓰고, CLI에는 Linux 경로를 넘긴다. 그 배포판의 Linux loom이 만든 계정도 그대로 보인다. [로그인]·[로그아웃]·[계정 추가]·사용량은 그 위치의 CLI로 돈다(`accounts::Site`).
+  - 「사용 중」 계정은 위치마다 하나다(설정 `wslAccounts`, 이 PC는 옛 `claudeAccount`·`codexAccount`). 상태 줄은 고른 저장소 위치의 「사용 중」 계정을 보인다(⑦ A).
 - loom이 만든 계정은 로그인 폴더 `~/.loom/accounts/<claude|codex>/<id>`를 쓴다. `id`는 만든 시각(밀리초)의 16진수 16자리라 이름 순서가 만든 순서다.
-- 새 노드는 설정에서 고른 계정(공급자마다 하나, 「쓰는 중」)으로 뜬다. 데몬이 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`을 그 폴더로 넣는다. 시스템 기본이면 넣지 않는다. 고른 계정의 폴더가 없으면 시스템 기본으로 띄운다. 이미 도는 노드를 새 계정으로 옮기는 일은 「계정 전환」에 있다.
+- 새 노드는 설정에서 고른 그 위치의 계정(위치·공급자마다 하나, 「쓰는 중」)으로 뜬다. 데몬이 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`을 그 폴더로 넣는다. 시스템 기본이면 넣지 않는다. 고른 계정의 폴더가 없으면 시스템 기본으로 띄운다. 이미 도는 노드를 새 계정으로 옮기는 일은 「계정 전환」에 있다.
   - loom 계정 폴더로 Claude를 띄울 때 그 폴더 `.claude.json`에 `hasCompletedOnboarding: true`가 없으면 넣는다. Claude 2.1.228은 이 값이 없으면 로그인한 폴더에서도 첫 실행에 로그인 방법을 다시 묻는다. 2.1.305는 묻지 않는다(2026-10-21 Windows 실측, 사람 지시 "이전버전에도 대응 되도록 만들어"). 시스템 기본 폴더는 고치지 않는다.
   - 시스템 기본은 그 CLI가 `HOME` 아래에서 고르는 폴더다. 데몬은 시작할 때 자기를 띄운 터미널의 변수(로그인 폴더, 에이전트 세션 표지, `ORCA_*`, `LOOM_*`, Claude 설정이 넣은 `ANTHROPIC_BASE_URL`)를 지운다. 그래서 노드는 데몬을 띄운 곳과 관계없이 같은 환경으로 뜬다. API 키(`*_API_KEY`)는 남긴다. 목록은 [src/profile.rs](../src/profile.rs)의 `is_launcher_env`에 있다.
 - [계정 추가]: 데몬이 폴더를 만들고, 그 폴더로 `claude auth login`·`codex login`을 PTY에서 띄운다. 화면은 이 PTY를 노드 카드와 같은 터미널로 보인다. 그래프에는 나타나지 않는다.
@@ -252,7 +256,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 - 턴 중인 노드는 턴이 끝나면 옮긴다(`later`). Claude는 쉬는 대기가 열릴 때, Codex는 스레드가 쉴 때다. 이 목록은 기억에만 둔다. 데몬이 다시 시작하면 그 노드는 옛 계정에 남고, 확인 창 목록에 다시 나온다.
 - 한도 멈춤: Claude는 API 오류로 끝난 턴에 `Stop` 대신 `StopFailure` 훅을 부른다. loom은 이 훅을 쉬는 대기 훅으로도 건다. 그래야 한도로 멈춘 노드도 메시지에 깬다(2.1.306 실측: `asyncRewake` 훅이 `StopFailure`에서도 모델을 깨운다). 값이 `rate_limit`이면 `loom hook`이 쉬는 대기 요청(`idle`)에 실어 알린다. Codex는 app-server의 `error` 알림(`codexErrorInfo: usageLimitExceeded`, `willRetry` 아님)이다. 한도로 멈춘 노드는 옮긴 뒤 「Your account was switched after a usage limit. Continue the task where you stopped.」를 첫 입력으로 받는다.
 - 자동 전환(설정 `autoSwitch`, 처음 값은 꺼짐): 노드가 한도로 멈춘 이벤트(위 「한도 멈춤」)로만 시작한다. 사용량을 주기로 읽거나 비율 기준으로 미리 바꾸지 않는다.
-  - 대상: 그 시점에 같은 공급자의 다른 계정 사용량을 읽는다(계정마다 15초 상한). 읽은 계정 가운데 가장 많이 쓴 창의 비율이 가장 낮고 100% 미만이어야 한다. 읽지 못한 계정은 건너뛴다.
+  - 대상: 그 시점에 그 노드와 같은 위치, 같은 공급자의 다른 계정 사용량을 읽는다(계정마다 15초 상한). 손으로 하는 전환도 그 위치의 노드만 옮긴다(`?distro=`). 읽은 계정 가운데 가장 많이 쓴 창의 비율이 가장 낮고 100% 미만이어야 한다. 읽지 못한 계정은 건너뛴다.
   - 대상을 설정의 계정으로 저장하고, 확인 창 없이 모든 노드를 옮긴다. 이벤트 기록의 `why`는 `rateLimit`이다.
   - 대상이 없으면 바꾸지 않는다. `noAccountLeft`에 계정들의 가장 빠른 창 초기화 시각을 남긴다.
   - 같은 공급자는 10분 안에 다시 자동 전환하지 않는다. `noAccountLeft`도 이 간격에 한 번만 남긴다. 같은 계정의 노드 여럿이 한꺼번에 한도로 멈추면 멈춤마다 다시 바꾸어 계정을 오가는 일을 막는다. 그사이 멈춘 노드는 이미 바꾼 계정으로 옮긴다(턴이 끝나면 옮길 노드).
@@ -591,7 +595,7 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 | WSL 노드는 `wsl.exe -d <배포판> --cd <Linux 폴더> --exec env PATH=<껍데기 폴더>:<배포판 PATH> <프로그램> <인자>`로 Windows PTY 호스트(ConPTY) 안에서 뜬다. 띄우기 직전에 `wsl.exe` 한 번(`bash -lic`, 약 0.2초)으로 배포판의 `PATH`, 에이전트 명령 위치, 경로(`wslpath -u`: 껍데기 폴더, 스킬 플러그인 폴더), interop 켜짐을 읽는다(`wsl::inside`). 노드 환경 변수(`LOOM_URL`, `LOOM_TOKEN` 등)는 `WSLENV`로 넘긴다. Windows `PATH`는 넘기지 않는다. 명령 노드와 설정 스크립트는 배포판의 `sh -c`, 「기본 셸」은 배포판의 로그인 셸이다 | 실측(2026-10-22): 크기 바꾸기가 SIGWINCH, Ctrl-C가 SIGINT로 닿고, 데몬을 다시 띄워도 노드가 산다. 노드를 지우면 배포판 안의 프로세스도 끝난다. `bash -lic`라야 `.bashrc`가 더한 곳(OpenCode 2 등)이 `PATH`에 든다 |
 | WSL 노드 안의 `loom`은 껍데기다: `<데이터 폴더>\wsl\loom`(`exec "$(wslpath -u '<loom.exe>')" "$@"`)을 데몬이 시작할 때 쓴다. 노드 명령과 Claude·Cursor 훅이 interop으로 이 데몬의 `loom.exe`를 부른다 | NAT 모드 WSL은 Windows 루프백(`127.0.0.1`)에 닿지 않는다. `loom.exe`는 Windows 프로세스라 닿는다. Linux loom을 따로 깔거나 판을 맞추지 않는다. interop 한 번은 약 64ms다. interop이 꺼진 배포판(`/etc/wsl.conf`)에서는 노드를 만들지 않고 이유를 보인다 |
 | WSL의 Codex·OpenCode 2 노드는 노드 서버(`codex app-server`, `opencode2 serve`)도 같은 `wsl.exe` 규칙으로 배포판의 노드 폴더에서 띄운다. 서버는 배포판 루프백의 포트(데몬이 Windows에서 고른 빈 포트)에서 듣고, 데몬은 Windows 루프백의 같은 포트로 닿는다. Codex 셸 `PATH`와 스킬 폴더, OpenCode 2 세션 폴더는 배포판 안의 경로다 | WSL은 Windows 루프백의 포트를 배포판 쪽으로 전달한다(localhost 전달). TUI는 배포판 안에서 같은 주소로 붙는다. Windows 쪽 `wsl.exe`를 끝내면 배포판 안의 서버도 끝난다(실측). 그래서 서버 PID(=`wsl.exe`)로 끝내는 지금 코드를 그대로 쓴다. 데몬을 다시 띄워도 다시 붙는다(실측). 14번 가운데 1번 Codex 서버 연결이 15초 안에 되지 않았다. 원인은 찾지 못했다 |
-| WSL 노드는 그 배포판의 시스템 기본 로그인을 쓴다 | loom 계정 폴더는 아직 Windows에만 있다. 위치별 계정은 목업 M36 ③이다 |
+| WSL 노드는 그 배포판의 「사용 중」 계정으로 뜬다. loom 계정이면 `CLAUDE_CONFIG_DIR`·`CODEX_HOME`(배포판 안의 Linux 경로)을 `WSLENV`로 넘긴다. 계정 전환은 세션 기록을 그 배포판의 폴더 사이에서 UNC로 복사한다 | 목업 M36 ③(Q282 A). 계정이 위치에 속하므로 Windows의 로그인 폴더를 WSL CLI에 넘기지 않는다. 실측(2026-10-22): Windows 데몬이 사람의 WSL `~/.loom/accounts` 계정 셋과 시스템 기본의 사용량을 UNC로 읽었다 |
 | 이 PC 「기본 셸」 노드는 `%ComSpec%`로 띄운다 | 명령 노드(`cmd /C`)도 이 PC 저장소에서는 Windows 명령이다 |
 | npm 설치 CLI(`.cmd` 껍데기)는 껍데기가 가리키는 프로그램을 직접 띄운다. 스크립트면 `node <스크립트>`(Codex), 실행 파일이면 그 파일(OpenCode 2)이다 | `.cmd`를 PTY로 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해 지시문이 깨진다 |
 | ConPTY의 커서 위치 질의(`ESC[6n`)에 PTY 호스트가 `ESC[1;1R`로 답한다 | `portable-pty`는 늘 `PSEUDOCONSOLE_INHERIT_CURSOR`를 켠다. 그러면 conhost가 답을 받을 때까지 멈춰, 화면을 보는 사람이 없는 노드가 시작하지 못한다 |

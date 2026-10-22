@@ -316,6 +316,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         )
     }
 
+    /// 노드 프로세스의 PID. 호스트가 아직 알리지 않았으면 없다.
+    pub fn pid(&self, id: K) -> Option<u32> {
+        *self.pty(id)?.pid.lock().unwrap()
+    }
+
     fn pty(&self, id: K) -> Option<Arc<Pty>> {
         self.nodes.read().unwrap().get(&id).cloned()
     }

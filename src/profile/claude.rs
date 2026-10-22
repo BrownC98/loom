@@ -158,7 +158,11 @@ pub enum Event {
     SessionStart {
         model: Option<String>,
     },
-    UserPromptSubmit,
+    /// 사람이 입력했다. `prompt`는 그 글이다(완료 알림의 지시).
+    UserPromptSubmit {
+        #[serde(default)]
+        prompt: String,
+    },
     PreToolUse {
         tool_name: String,
         tool_input: Value,
@@ -191,7 +195,7 @@ impl Event {
         match self {
             Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::WhenIdle,
             // 쉬는 중이던 노드의 다음 턴: 모두 넘긴다.
-            Event::UserPromptSubmit => Take::Now(Kind::ALL),
+            Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
             // 일하는 노드의 도구 호출 뒤: 큐 메시지도 넘긴다. 근거: docs/design.md 「전달 지점」.
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
@@ -261,7 +265,7 @@ impl Event {
                 "permissionDecision": "deny",
                 "permissionDecisionReason": text,
             } })),
-            Event::UserPromptSubmit => Some(context("UserPromptSubmit", text)),
+            Event::UserPromptSubmit { .. } => Some(context("UserPromptSubmit", text)),
             Event::PostToolUse => Some(context("PostToolUse", text)),
             Event::PostToolUseFailure => Some(context("PostToolUseFailure", text)),
         }

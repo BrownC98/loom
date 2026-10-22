@@ -127,6 +127,31 @@ pub fn stop(listen: Option<SocketAddr>) -> Result<(), String> {
     Ok(())
 }
 
+/// `loom carry`. 옛 노드를 다시 띄우기까지 노드마다 몇 초 걸리므로 시간 상한을 두지 않는다.
+pub fn carry(from: &Path) -> Result<(), String> {
+    let url = read_daemon_file()
+        .map(|f| f.url)
+        .ok_or("loom: no daemon runs. Run `loom start` first.")?;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .proxy(None)
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let mut response = agent
+        .post(format!("{url}/api/carry"))
+        .send_json(serde_json::json!({ "from": from.to_string_lossy() }))
+        .map_err(|e| e.to_string())?;
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("loom: carry failed: {text}"));
+    }
+    println!("loom: {text}");
+    Ok(())
+}
+
 /// `ensure`가 바깥 세상에 묻는 일. 시험은 가짜로 바꾼다.
 trait Machine {
     type Started;

@@ -3,8 +3,37 @@
 # 사람은 한 줄로 부른다: curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
 # 다시 부르면 업데이트다: 파일을 바꿔 넣고 옛 판 데몬만 새 판으로 바꾼다. 노드는 그대로 산다. 그 뒤 업데이트는 화면의 [업데이트]로도 한다.
 # macOS: 데스크톱 앱이 있으면 앱 안의 loom을 여는 바로 가기만 만든다. 없으면 웹 버전 실행 파일을 받는다. 근거: docs/design.md 「배포」.
-# 시험용 변수: LOOM_DOWNLOAD_URL(실행 파일 주소, file:// 가능), LOOM_DESKTOP(바탕 화면 폴더, Linux 경로), LOOM_PORT(기본 7420).
+# WSL: Windows loom을 설치한다(install.ps1). Windows 데몬 하나가 WSL 노드도 돌린다(docs/design.md 「데몬 하나」).
+# 시험용 변수: LOOM_DOWNLOAD_URL(실행 파일 주소, file:// 가능. WSL은 Windows가 읽는 주소), LOOM_DESKTOP(바탕 화면 폴더, Linux 경로), LOOM_PORT(기본 7420).
 set -eu
+
+bin=$HOME/loom/bin/loom
+port=${LOOM_PORT:-7420}
+raw=https://raw.githubusercontent.com/BrownC98/loom/main
+
+if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+  # 옛 WSL 데몬을 끝낸다. 그래야 Windows 데몬이 같은 포트를 쓴다. 껍데기(`#!`)면 이미 바꿨다.
+  carry=
+  if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then
+    "$bin" stop --listen "127.0.0.1:$port"
+    carry=$HOME/.loom
+  fi
+  rm -f "$HOME/.loom/serve.pid"
+  # 시험용 변수는 WSLENV로 넘긴다. LOOM_DESKTOP은 Windows 경로로 바꾼다(/p).
+  export WSLENV="${WSLENV:+$WSLENV:}LOOM_DOWNLOAD_URL:LOOM_DESKTOP/p"
+  # 시작 폴더가 WSL 폴더(UNC)면 Windows 명령이 경고를 낸다.
+  (cd /mnt/c && powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; irm $raw/scripts/install.ps1 | iex")
+  # WSL 터미널의 `loom`도 Windows loom을 부른다. Linux loom을 따로 띄우면 데몬이 둘이 된다.
+  exe=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/loom/bin/loom.exe
+  mkdir -p "$(dirname "$bin")"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$exe" >"$bin.new"
+  chmod +x "$bin.new"
+  mv "$bin.new" "$bin"
+  echo "WSL의 loom 명령이 Windows loom을 부릅니다: $bin"
+  # 옛 WSL 데몬의 노드를 옮겨 같은 세션으로 다시 띄운다(docs/design.md 「데몬 하나」).
+  if [ -n "$carry" ]; then "$bin" carry "$carry"; fi
+  exit 0
+fi
 
 case "$(uname -s)/$(uname -m)" in
 Linux/x86_64) asset=loom-web-linux-x64 ;;
@@ -38,10 +67,7 @@ Darwin/*)
 esac
 
 url=${LOOM_DOWNLOAD_URL:-https://github.com/BrownC98/loom/releases/latest/download/$asset}
-raw=https://raw.githubusercontent.com/BrownC98/loom/main
 # 노드 안의 에이전트가 `loom` 명령을 부른다. 그래서 이름은 `loom`이다.
-bin=$HOME/loom/bin/loom
-port=${LOOM_PORT:-7420}
 data=$HOME/.loom
 mkdir -p "$(dirname "$bin")" "$data"
 
@@ -62,26 +88,6 @@ if [ "$asset" = loom-web-macos-arm64 ]; then
   printf '#!/bin/sh\nexec "%s" open --listen 127.0.0.1:%s\n' "$bin" "$port" >"$launcher"
   chmod +x "$launcher"
   echo "loom 아이콘을 만들었습니다: $launcher"
-elif [ -n "${WSL_DISTRO_NAME:-}" ]; then
-  # Windows 바탕 화면에 바로 가기를 만든다. OneDrive를 쓰면 바탕 화면이 OneDrive 안에 있으므로 Windows에 묻는다.
-  # 바로 가기는 최소화한 창(WindowStyle 7)으로 연다. `loom open`은 브라우저를 열고 곧 끝나므로 창이 남지 않는다.
-  icon icon.ico
-  if [ -n "${LOOM_DESKTOP:-}" ]; then
-    desktop=$(wslpath -w "$LOOM_DESKTOP")
-  else
-    desktop=$(powershell.exe -NoProfile -Command "[Environment]::GetFolderPath('Desktop')" | tr -d '\r')
-  fi
-  icon_win=
-  [ -f "$data/icon.ico" ] && icon_win=$(wslpath -w "$data/icon.ico")
-  powershell.exe -NoProfile -Command "
-    \$s = (New-Object -ComObject WScript.Shell).CreateShortcut('$desktop\\loom.lnk')
-    \$s.TargetPath = \"\$env:SystemRoot\\System32\\wsl.exe\"
-    \$s.Arguments = '-d $WSL_DISTRO_NAME -- $bin open --listen 127.0.0.1:$port'
-    \$s.WindowStyle = 7
-    \$s.Description = 'loom'
-    if ('$icon_win') { \$s.IconLocation = '$icon_win' }
-    \$s.Save()"
-  printf "%s\n" "바탕 화면에 loom 아이콘을 만들었습니다: $desktop\\loom.lnk"
 else
   icon icon.png
   apps=$HOME/.local/share/applications

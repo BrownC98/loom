@@ -67,6 +67,11 @@ enum Cli {
         #[arg(long)]
         listen: Option<SocketAddr>,
     },
+    /// 옛 WSL 데몬의 저장소·노드·설정을 이 Windows 데몬으로 옮기고 에이전트 노드를 같은 세션으로 다시 띄운다. `scripts/host.sh`가 부른다.
+    Carry {
+        /// 옛 데몬의 데이터 폴더(WSL `~/.loom`).
+        from: PathBuf,
+    },
     /// 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다.
     Spawn {
         name: String,
@@ -171,6 +176,7 @@ fn main() -> ExitCode {
         Cli::Start { listen } => launch::start(listen),
         Cli::Open { listen } => launch::open(listen),
         Cli::Stop { listen } => launch::stop(listen),
+        Cli::Carry { from } => launch::carry(&wsl::from_caller(from)),
         Cli::Spawn {
             name,
             worktree,

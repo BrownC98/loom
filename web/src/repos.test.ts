@@ -21,7 +21,7 @@ const view = (id: number, parent: number | null, worktree: string, repo = 1): No
 
 const group = (path: string): Group => ({ path, label: path, kind: 'linked', branch: null });
 
-const repo = (worktrees: RepoView['worktrees'], hasCommits = true): RepoView => ({ id: 1, name: 'r', path: '/r', worktrees, branches: [], hasCommits });
+const repo = (worktrees: RepoView['worktrees'], hasCommits = true): RepoView => ({ id: 1, name: 'r', path: '/r', worktrees, branches: [], hasCommits, wsl: null });
 
 describe('groupParents', () => {
   const groups = [group('/a'), group('/b'), group('/c')];

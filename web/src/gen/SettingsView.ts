@@ -51,6 +51,11 @@ language: Language,
  */
 workspaceDir: string | null, 
 /**
+ * WSL 저장소의 새 워크트리를 만드는 폴더. 배포판 이름마다 UNC 경로다. 없는 배포판은 그 홈의 `loom/workspaces`다.
+ * WSL git은 Windows 폴더에 워크트리를 만들지 못해 위치마다 둔다. 옛 설정에는 없다. 근거: 목업 docs/mockups/wsl-place.html ⑤.
+ */
+wslWorkspaceDirs: { [key in string]: string }, 
+/**
  * 옛 설정에는 없다. 없으면 깊이 2, 자식 수 상한 없음으로 읽는다.
  */
 treeLimits: TreeLimits, 

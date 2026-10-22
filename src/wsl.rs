@@ -1,8 +1,10 @@
 //! 기반: Windows가 WSL 배포판 파일을 보이는 UNC 경로(`\\wsl.localhost\<배포판>\…`)와 배포판 안의 Linux 경로를 서로 바꾼다.
 //! Windows 데몬이 WSL 폴더의 노드를 그 배포판 안에서 띄우는 명령(`wsl.exe`)도 만든다. 근거: docs/design.md 「데몬 하나」.
 
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
+use std::sync::Mutex;
 
 use portable_pty::CommandBuilder;
 
@@ -55,6 +57,97 @@ pub fn of(dir: &Path) -> Option<WslPath> {
         return None;
     }
     dir.to_str().and_then(location)
+}
+
+/// 배포판 안의 Linux 절대 경로 `linux`를 화면과 Windows 파일 API가 쓰는 UNC 경로(`\\wsl.localhost\<배포판>\…`)로 바꾼다.
+pub fn windows_path(distro: &str, linux: &str) -> String {
+    format!(
+        r"\\wsl.localhost\{distro}{}",
+        linux.trim_end_matches('/').replace('/', r"\")
+    )
+}
+
+/// 홈 아래의 Linux 경로는 `~/…`로 줄인다. 근거: 목업 docs/mockups/wsl-place.html ②′.
+pub fn tilde(path: &str, home: &str) -> String {
+    let home = home.trim_end_matches('/');
+    match path.strip_prefix(home) {
+        Some("") => "~".into(),
+        Some(rest) if rest.starts_with('/') && !home.is_empty() => format!("~{rest}"),
+        _ => path.into(),
+    }
+}
+
+/// 설치된 배포판 이름(`wsl.exe -l -q`). 배포판을 켜지 않는다. Windows 데몬이 아니거나 WSL이 없으면 비었다.
+pub async fn distros() -> Vec<String> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    let out = tokio::process::Command::new("wsl.exe")
+        .args(["-l", "-q"])
+        .env("WSL_UTF8", "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await;
+    match out {
+        Ok(out) if out.status.success() => read_list(&out.stdout),
+        _ => Vec::new(),
+    }
+}
+
+/// `wsl.exe -l -q` 출력. 옛 `wsl.exe`는 `WSL_UTF8`을 몰라 UTF-16LE로 쓴다.
+fn read_list(bytes: &[u8]) -> Vec<String> {
+    let text = if bytes.contains(&0) {
+        let units: Vec<u16> = bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_le_bytes(*b))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
+    };
+    text.lines()
+        .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}'))
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// 배포판마다 기본 사용자의 홈(Linux 경로). 처음 쓸 때 한 번 읽고 데몬이 끝날 때까지 둔다.
+/// 저장소 목록이 WSL 저장소마다 `wsl.exe`를 다시 부르지 않게 한다. 홈은 배포판이 도는 동안 바뀌지 않는다.
+#[derive(Default)]
+pub struct Homes(Mutex<HashMap<String, String>>);
+
+impl Homes {
+    /// 꺼진 배포판은 `wsl.exe`가 켠다(처음은 몇 초).
+    pub async fn get(&self, distro: &str) -> Result<String, InsideError> {
+        if let Some(home) = self.0.lock().unwrap().get(distro) {
+            return Ok(home.clone());
+        }
+        let out = tokio::process::Command::new("wsl.exe")
+            .args(["-d", distro, "-e", "sh", "-c", r#"printf '\036%s' "$HOME""#])
+            .env("WSL_UTF8", "1")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .await
+            .map_err(|e| InsideError::Start {
+                distro: distro.into(),
+                cause: e.to_string(),
+            })?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let home = match text.split_once(SEP) {
+            Some((_, home)) if home.starts_with('/') => home.to_owned(),
+            _ => {
+                return Err(InsideError::Start {
+                    distro: distro.into(),
+                    cause: String::from_utf8_lossy(&out.stderr).trim().into(),
+                });
+            }
+        };
+        self.0.lock().unwrap().insert(distro.into(), home.clone());
+        Ok(home)
+    }
 }
 
 /// 노드를 띄우기 직전에 배포판 안에서 읽은 값. `wsl.exe` 한 번으로 읽는다(약 0.2초).
@@ -388,6 +481,38 @@ mod tests {
             .into_owned();
         assert!(wslenv.split(':').any(|k| k == "LOOM_TOKEN"), "{wslenv}");
         assert!(!wslenv.split(':').any(|k| k == "PATH"), "{wslenv}");
+    }
+
+    #[test]
+    fn read_list_reads_utf16_and_utf8() {
+        let utf16: Vec<u8> = "\u{feff}Ubuntu-24.04\r\nDebian\r\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert_eq!(read_list(&utf16), ["Ubuntu-24.04", "Debian"]);
+        assert_eq!(read_list(b"Ubuntu\n\n"), ["Ubuntu"]);
+        assert!(read_list(b"").is_empty());
+    }
+
+    #[test]
+    fn tilde_shortens_only_paths_under_home() {
+        assert_eq!(tilde("/home/me/src/loom", "/home/me"), "~/src/loom");
+        assert_eq!(tilde("/home/me", "/home/me/"), "~");
+        assert_eq!(tilde("/home/mel/src", "/home/me"), "/home/mel/src");
+        assert_eq!(tilde("/srv/loom", "/home/me"), "/srv/loom");
+        assert_eq!(tilde("/srv/loom", "/"), "/srv/loom");
+    }
+
+    #[test]
+    fn windows_path_is_the_unc_path() {
+        assert_eq!(
+            windows_path("Ubuntu", "/home/me/"),
+            r"\\wsl.localhost\Ubuntu\home\me"
+        );
+        assert_eq!(
+            location(&windows_path("Ubuntu", "/home/me")).unwrap().path,
+            "/home/me"
+        );
     }
 
     #[test]

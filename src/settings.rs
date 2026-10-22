@@ -2,6 +2,7 @@
 //! 워크스페이스 폴더, 노드 나무 상한, 화면 색. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension};
@@ -46,6 +47,9 @@ pub struct SettingsView {
     pub language: Language,
     /// 새 워크트리를 만드는 폴더. 데몬이 보는 절대 경로다. 없으면 기본값이고, 데몬이 화면에 보낼 때 채운다.
     pub workspace_dir: Option<String>,
+    /// WSL 저장소의 새 워크트리를 만드는 폴더. 배포판 이름마다 UNC 경로다. 없는 배포판은 그 홈의 `loom/workspaces`다.
+    /// WSL git은 Windows 폴더에 워크트리를 만들지 못해 위치마다 둔다. 옛 설정에는 없다. 근거: 목업 docs/mockups/wsl-place.html ⑤.
+    pub wsl_workspace_dirs: BTreeMap<String, String>,
     /// 옛 설정에는 없다. 없으면 깊이 2, 자식 수 상한 없음으로 읽는다.
     #[serde(default)]
     pub tree_limits: TreeLimits,

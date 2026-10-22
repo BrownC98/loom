@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::git;
+use crate::wsl;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -30,6 +31,26 @@ pub struct RepoView {
     pub branches: Vec<String>,
     /// 거짓이면 첫 커밋 전이다(`git init` 직후). 워크트리를 만들 수 없다.
     pub has_commits: bool,
+    /// WSL 폴더의 저장소면 그 배포판이다. 이 PC 저장소와 다른 OS의 데몬에서는 없다. 경로에서 나온 값이다.
+    pub wsl: Option<WslPlace>,
+}
+
+/// 저장소가 도는 WSL 배포판. 근거: 목업 docs/mockups/wsl-place.html ②·②′.
+#[derive(Serialize, TS, PartialEq, Debug)]
+#[ts(export)]
+pub struct WslPlace {
+    pub distro: String,
+    /// 화면에 보일 배포판 안의 경로. 홈 아래면 `~/…`다.
+    pub path: String,
+}
+
+/// [저장소 추가] 위치 칩: 이 PC의 드라이브와 WSL 배포판. 배포판이 없으면 화면이 칩을 보이지 않는다.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct Locations {
+    /// `C:\` 꼴. Windows 데몬이 아니면 비었다.
+    pub drives: Vec<String>,
+    pub distros: Vec<String>,
 }
 
 /// [저장소 추가]의 폴더 목록: 데몬이 보는 폴더 하나의 자식 폴더.
@@ -42,6 +63,8 @@ pub struct FolderList {
     pub parent: Option<String>,
     /// 이름 순이다. 점으로 시작하는 폴더는 뺀다.
     pub folders: Vec<Folder>,
+    /// WSL 폴더면 그 배포판이다. 화면의 「실행 위치」 줄이 쓴다.
+    pub distro: Option<String>,
 }
 
 #[derive(Serialize, TS)]
@@ -77,6 +100,8 @@ pub enum RepoProblem {
     NotAbsolute(String),
     /// 워크스페이스 폴더가 없다.
     NoWorkspace(String),
+    /// 워크스페이스 폴더가 저장소와 다른 위치(이 PC, WSL 배포판)에 있다. WSL git은 Windows 경로에 워크트리를 만들지 못한다.
+    OtherPlace(String),
     /// 없는 저장소 id다.
     NoRepo,
     /// 이 저장소의 워크트리가 아니다.
@@ -111,6 +136,10 @@ impl fmt::Display for RepoProblem {
             RepoProblem::NoWorkspace(path) => {
                 write!(f, "{path}: the workspace folder does not exist.")
             }
+            RepoProblem::OtherPlace(path) => write!(
+                f,
+                "{path}: the workspace folder is not in the same place (this PC or WSL distro) as the repository."
+            ),
             RepoProblem::NoRepo => write!(f, "No such repository."),
             RepoProblem::NotInRepo(path) => write!(f, "{path}: not a worktree of this repository."),
             RepoProblem::Original => {
@@ -264,7 +293,7 @@ pub async fn check(path: &Path) -> Result<(), RepoProblem> {
         .map_err(|_| RepoProblem::NotGit(text()))
 }
 
-pub async fn view(id: RepoId, path: &Path) -> RepoView {
+pub async fn view(id: RepoId, path: &Path, wsl: Option<WslPlace>) -> RepoView {
     let branches = git::run(path, &["branch", "--format=%(refname:short)"])
         .await
         .map(|out| out.lines().map(str::to_owned).collect())
@@ -276,6 +305,7 @@ pub async fn view(id: RepoId, path: &Path) -> RepoView {
         worktrees: worktrees(path).await,
         branches,
         has_commits: has_commits(path).await,
+        wsl,
     }
 }
 
@@ -315,7 +345,27 @@ pub fn folders(path: &str) -> Result<FolderList, RepoProblem> {
         path: path.to_owned(),
         parent: dir.parent().map(|p| p.to_string_lossy().into_owned()),
         folders,
+        distro: wsl::of(dir).map(|w| w.distro),
     })
+}
+
+/// 이 PC의 드라이브(`C:\`). Windows 데몬이 아니면 없다.
+pub fn drives() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        unsafe extern "system" {
+            /// 비트 0이 `A:`다. 디스크를 읽지 않아 끊긴 네트워크 드라이브에서도 바로 돌아온다.
+            fn GetLogicalDrives() -> u32;
+        }
+        // SAFETY: 인자가 없고 값만 돌려주는 Win32 함수다.
+        let mask = unsafe { GetLogicalDrives() };
+        (b'A'..=b'Z')
+            .filter(|letter| mask & (1 << (letter - b'A')) != 0)
+            .map(|letter| format!("{}:\\", letter as char))
+            .collect()
+    }
+    #[cfg(not(windows))]
+    Vec::new()
 }
 
 /// 복제·새 프로젝트가 만들 폴더 `<parent>/<name>`. `parent`는 있는 절대 경로이고 `name`은 한 마디다.
@@ -414,6 +464,12 @@ pub async fn create(
     }
     if !workspace.is_absolute() {
         return Err(RepoProblem::NotAbsolute(
+            workspace.to_string_lossy().into_owned(),
+        ));
+    }
+    let distro = |dir: &Path| wsl::of(dir).map(|w| w.distro.to_lowercase());
+    if distro(repo) != distro(workspace) {
+        return Err(RepoProblem::OtherPlace(
             workspace.to_string_lossy().into_owned(),
         ));
     }
@@ -530,7 +586,12 @@ pub fn setup_script(worktree: &Path) -> Option<String> {
 /// Orca 기본값(`<홈>/orca/workspaces`)과 같은 모양이다. Orca처럼 없으면 만든다. 사람이 고른 폴더는 만들지 않는다.
 /// 근거: docs/design.md 「저장소와 워크트리」.
 pub fn default_workspace() -> std::io::Result<PathBuf> {
-    let dir = loom_home()?.join("workspaces");
+    workspace_in(&loom_home()?)
+}
+
+/// `<loom>/workspaces`. WSL 배포판의 기본값은 그 홈의 `loom/workspaces`다(목업 docs/mockups/wsl-place.html ⑤). 없으면 만든다.
+pub fn workspace_in(loom: &Path) -> std::io::Result<PathBuf> {
+    let dir = loom.join("workspaces");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -677,7 +738,7 @@ mod tests {
             .unwrap();
         // `<워크스페이스>/<저장소 이름>/<브랜치 마지막 마디>`.
         assert!(path.ends_with("/ws/app/feat-1"), "{path}");
-        let view = view(RepoId(1), &repo).await;
+        let view = view(RepoId(1), &repo, None).await;
         assert_eq!(view.name, "app");
         assert_eq!(view.branches, ["main", "me/feat-1"]);
         assert_eq!(
@@ -717,7 +778,10 @@ mod tests {
         assert_eq!(discard(&repo, &made).await, Ok(()));
         assert!(!Path::new(&made).exists());
         assert_eq!(run(&repo, &["branch", "--list", "me/made"]), "");
-        assert_eq!(view(RepoId(1), &repo).await.branches, ["kept", "main"]);
+        assert_eq!(
+            view(RepoId(1), &repo, None).await.branches,
+            ["kept", "main"]
+        );
         assert!(find(&repo, &kept).await.is_ok());
         // 이미 지운 워크트리는 되돌리지 못한다. 원래 체크아웃은 지우지 않는다.
         assert_eq!(
@@ -756,7 +820,10 @@ mod tests {
         assert_eq!(rename(&repo, &made, " me/new ").await, Ok(()));
         let renamed = find(&repo, &path).await.unwrap();
         assert_eq!(renamed.branch.as_deref(), Some("me/new"));
-        assert_eq!(view(RepoId(1), &repo).await.branches, ["main", "me/new"]);
+        assert_eq!(
+            view(RepoId(1), &repo, None).await.branches,
+            ["main", "me/new"]
+        );
 
         assert_eq!(
             rename(&repo, &renamed, " ").await,
@@ -800,6 +867,19 @@ mod tests {
         assert_eq!(remove(&repo, &gone).await, Ok(()));
         assert_eq!(worktrees(&repo).await.len(), 1);
         assert_eq!(run(&repo, &["branch", "--list", "feat"]), "feat");
+    }
+
+    /// WSL git은 `C:\…`를 저장소 안의 상대 폴더로 읽는다. 이 PC 저장소의 워크트리도 WSL에 두지 않는다.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn create_refuses_a_workspace_in_another_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(dir.path());
+        let ws = Path::new(r"\\wsl.localhost\NoSuchDistro\home\me\loom\workspaces");
+        assert_eq!(
+            create(&repo, &repo, ws, "feat", "main").await,
+            Err(RepoProblem::OtherPlace(ws.to_string_lossy().into_owned()))
+        );
     }
 
     #[tokio::test]
@@ -892,7 +972,7 @@ mod tests {
             repos.path(id).unwrap().canonicalize().unwrap(),
             copy.canonicalize().unwrap()
         );
-        assert!(view(id, &copy).await.has_commits);
+        assert!(view(id, &copy, None).await.has_commits);
 
         // 대상이 비어 있지 않으면 git을 부르지 않고 거절한다. 원래 파일은 남는다.
         assert_eq!(
@@ -926,7 +1006,7 @@ mod tests {
         let id = repos.create(parent, " my-app ").await.unwrap();
         let made = repos.path(id).unwrap();
         assert!(made.ends_with("my-app"), "{made:?}");
-        let made_view = view(id, &made).await;
+        let made_view = view(id, &made, None).await;
         assert!(!made_view.has_commits);
         assert_eq!(made_view.branches, Vec::<String>::new());
 
@@ -939,10 +1019,10 @@ mod tests {
         );
         assert!(!workspace.join("my-app").exists());
         run(&made, &["commit", "-q", "--allow-empty", "-m", "a"]);
-        assert!(view(id, &made).await.has_commits);
+        assert!(view(id, &made, None).await.has_commits);
         // 분리된 HEAD는 브랜치 목록과 관계없이 커밋이 있다.
         run(&made, &["checkout", "-q", "--detach"]);
-        assert!(view(id, &made).await.has_commits);
+        assert!(view(id, &made, None).await.has_commits);
         create(&made, &made, &workspace, "feat", "HEAD")
             .await
             .unwrap();

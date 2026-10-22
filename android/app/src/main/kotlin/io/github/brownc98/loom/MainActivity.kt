@@ -66,6 +66,11 @@ class MainActivity : ComponentActivity() {
     private var fresh = false
     /** 인증서 지문이 달라 페이지를 끊었다. 뒤따르는 연결 실패가 지문 카드를 덮지 않게 한다. */
     private var refused = false
+    /** 마지막 `reach`의 번호. QR을 다시 찍는 등 새 `reach`가 앞선 것의 결과를 버리게 한다. */
+    private var attempt = 0
+    private var reaching = false
+    /** 지금 메인 페이지가 401(짝짓지 않은 기기, src/daemon/origin.rs)이다. 그 쿠키는 다른 문에 퍼뜨리지 않는다. */
+    private var unpaired = false
     private val pickFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         upload?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
         upload = null
@@ -134,24 +139,27 @@ class MainActivity : ComponentActivity() {
                 if (card.visibility != View.VISIBLE && web.canGoBack()) web.goBack() else finish()
             }
         })
-        when {
-            doors.isNotEmpty() -> reach(doors)
-            else -> origin?.let(::open) ?: showStart(null)
-        }
+        // 폰 문은 `onResume`이 두드린다.
+        if (doors.isEmpty()) origin?.let(::open) ?: showStart(null)
     }
 
     /**
      * 폰 문 주소를 차례로 TCP로 두드려 먼저 답한 곳을 연다(같은 Wi-Fi가 먼저, 밖이면 Tailscale 주소).
-     * `fragment`는 처음 짝지을 때의 `#pair=<코드>`다.
+     * 아무도 답하지 않으면 `REACH_MS` 동안 다시 두드린다. `fragment`는 처음 짝지을 때의 `#pair=<코드>`다.
      */
     private fun reach(candidates: List<String>, fragment: String = "") {
+        val mine = ++attempt
+        reaching = true
         thread {
-            val found = candidates.firstOrNull { door ->
-                val host = door.substringBeforeLast(':')
-                val port = door.substringAfterLast(':').toIntOrNull() ?: return@firstOrNull false
-                runCatching { Socket().use { it.connect(InetSocketAddress(host, port), PROBE_MS) } }.isSuccess
+            val deadline = SystemClock.elapsedRealtime() + REACH_MS
+            var found: String? = null
+            while (found == null && SystemClock.elapsedRealtime() < deadline) {
+                found = candidates.firstOrNull(::answers)
+                if (found == null) Thread.sleep(RETRY_MS)
             }
             runOnUiThread {
+                if (mine != attempt) return@runOnUiThread
+                reaching = false
                 when (found) {
                     null -> showFailed("https://${candidates.first()}/")
                     else -> {
@@ -164,16 +172,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun answers(door: String): Boolean {
+        val host = door.substringBeforeLast(':')
+        val port = door.substringAfterLast(':').toIntOrNull() ?: return false
+        return runCatching { Socket().use { it.connect(InetSocketAddress(host, port), PROBE_MS) } }.isSuccess
+    }
+
     /**
-     * 기기 쿠키는 호스트마다 따로다. 같은 Wi-Fi 주소에서 짝지은 쿠키를 Tailscale 주소에도 넣어, 밖에서 다시 짝짓지 않게 한다.
-     * 쿠키 속성은 데몬의 `device_cookie`(src/daemon/phone.rs)와 같다.
+     * 기기 쿠키는 호스트마다 따로다. 쿠키가 없는 문에만 다른 문의 쿠키를 넣는다. 있는 쿠키는 `spreadCookie`가 맞춘다.
+     * 있는 쿠키를 덮으면 다시 짝지은 뒤 남은 옛 토큰(지운 기기)이 새 토큰을 덮을 수 있다.
      */
     private fun copyCookie(to: String) {
+        if (deviceCookie(to) != null) return
+        doors.firstNotNullOfOrNull(::deviceCookie)?.let { putCookies(listOf(to), it) }
+    }
+
+    /** 짝지은 기기로 열린 문의 쿠키를 다른 문에 넣는다. 같은 Wi-Fi에서 짝지은 뒤 밖에서 Tailscale 주소로 열 때 다시 짝짓지 않는다. */
+    private fun spreadCookie(from: String) {
+        val token = deviceCookie(from) ?: return
+        putCookies(doors.filter { it != from && deviceCookie(it) != token }, token)
+    }
+
+    private fun deviceCookie(door: String): String? =
+        CookieManager.getInstance().getCookie("https://$door/")?.split(';')?.map { it.trim() }?.firstOrNull { it.startsWith("$DEVICE_COOKIE=") }
+
+    /** 쿠키 속성은 데몬의 `device_cookie`(src/daemon/phone.rs)와 같다. 앱이 곧 꺼져도 남게 바로 디스크에 쓴다. */
+    private fun putCookies(to: List<String>, token: String) {
+        if (to.isEmpty()) return
         val cookies = CookieManager.getInstance()
-        val token = doors.firstNotNullOfOrNull { door ->
-            cookies.getCookie("https://$door/")?.split(';')?.map { it.trim() }?.firstOrNull { it.startsWith("$DEVICE_COOKIE=") }
-        } ?: return
-        cookies.setCookie("https://$to/", "$token; Path=/; Max-Age=$COOKIE_MAX_AGE_SECS; Secure; HttpOnly; SameSite=Strict")
+        to.forEach { cookies.setCookie("https://$it/", "$token; Path=/; Max-Age=$COOKIE_MAX_AGE_SECS; Secure; HttpOnly; SameSite=Strict") }
+        cookies.flush()
     }
 
     override fun onResume() {
@@ -183,6 +211,15 @@ class MainActivity : ComponentActivity() {
         if (checked.let { it == null || now - it >= Release.CHECK_EVERY_MS }) {
             checked = now
             thread { Release.newer()?.let { runOnUiThread { showAvailable(it) } } }
+        }
+        // 앱을 다시 앞으로 가져오면 연 문이 아직 닿는지 본다. Wi-Fi를 벗어나면 같은 Wi-Fi 주소는 닿지 않는다.
+        // 웹소켓은 같은 주소에 다시 붙기만 한다(web/src/api.ts `RECONNECT_MS`). 그래서 앱이 닿는 다른 문을 연다.
+        val at = origin?.removePrefix("https://")
+        if (doors.isNotEmpty() && !reaching) {
+            when {
+                web.url == null || at !in doors -> reach(doors)
+                card.visibility != View.VISIBLE -> thread { if (!answers(at!!)) runOnUiThread { if (!reaching) reach(doors) } }
+            }
         }
     }
 
@@ -485,13 +522,24 @@ class MainActivity : ComponentActivity() {
             return true
         }
 
+        override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+            unpaired = false
+        }
+
         override fun onPageFinished(view: WebView, url: String) {
             if (fresh && card.visibility != View.VISIBLE) view.clearHistory()
             fresh = false
+            val door = Uri.parse(url).let { "${it.host}:${it.port}" }
+            if (!unpaired && card.visibility != View.VISIBLE && door in doors) spreadCookie(door)
         }
 
+        /**
+         * 앱이 연 첫 페이지가 실패하면 실패 카드를 보인다. 그 뒤의 실패(데몬 새 판으로 바뀐 뒤 화면이 다시 읽기 등)는
+         * 폰 문을 다시 두드린다. 데몬이 다시 뜨는 몇 초를 기다린다.
+         */
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            if (request.isForMainFrame && !refused) showFailed(request.url.toString())
+            if (!request.isForMainFrame || refused) return
+            if (doors.isNotEmpty() && !fresh) reach(doors) else showFailed(request.url.toString())
         }
 
         /**
@@ -510,7 +558,9 @@ class MainActivity : ComponentActivity() {
 
         /** Serve는 데몬이 꺼져 있으면 502를 낸다. */
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-            if (request.isForMainFrame && response.statusCode >= 500) showFailed(request.url.toString())
+            if (!request.isForMainFrame) return
+            if (response.statusCode == 401) unpaired = true
+            if (response.statusCode >= 500) showFailed(request.url.toString())
         }
     }
 
@@ -553,6 +603,12 @@ class MainActivity : ComponentActivity() {
         const val COOKIE_MAX_AGE_SECS = 400 * 24 * 60 * 60
         /** 폰 문 주소 하나를 두드리는 시간. 닿지 않는 같은 Wi-Fi 주소에서 Tailscale 주소로 넘어가는 시간이다. */
         const val PROBE_MS = 1500
+        /**
+         * 아무 문도 답하지 않을 때 다시 두드리는 동안. 앱을 켠 직후 폰의 Tailscale 터널이 PC와 악수하는 데, 그리고
+         * `scripts/host.sh`가 데몬을 바꾸는 동안(멈춤 뒤 시작) 몇 초가 걸린다. 한 번만 두드리면 실패 카드가 떴다(2026-10-22 사람 보고).
+         */
+        const val REACH_MS = 10_000L
+        const val RETRY_MS = 500L
         const val TAILNET = ".ts.net"
         /** 짝짓기 코드 길이(src/daemon/phone.rs와 같다). */
         const val CODE_LENGTH = 8

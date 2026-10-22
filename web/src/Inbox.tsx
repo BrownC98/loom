@@ -237,7 +237,7 @@ function Instruction(props: { wait: HumanWait }) {
   return <p className="instruction">{t('inbox.instruction', { text: props.wait.instruction })}</p>;
 }
 
-/** 완료 알림의 그림 썸네일. 누르면 화면 위에 원래 크기로 띄운다. Esc나 바깥 누르기로 닫는다(2026-10-22 사람 지시 "썸네일 크게보기 기능 추가해줘"). */
+/** 그림 썸네일(완료 알림의 그림, 사람이 붙인 그림). 누르면 화면 위에 원래 크기로 띄운다. Esc나 바깥 누르기로 닫는다(2026-10-22 사람 지시 "썸네일 크게보기 기능 추가해줘", "사용자가 입력한 이미지 썸네일도 클릭하면 크게 볼 수 있게 해줘"). */
 function ZoomImage(props: { src: string; name: string; title: string }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -363,7 +363,7 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
             <ul className="answer-images">
               {images.list.map((image) => (
                 <li key={image.path}>
-                  <img src={image.url} alt={image.name} />
+                  <ZoomImage src={image.url} name={image.name} title={image.name} />
                   <button type="button" aria-label={t('inbox.removeImage')} title={t('inbox.removeImage')} onClick={() => images.remove(image)}>
                     <X aria-hidden="true" />
                   </button>

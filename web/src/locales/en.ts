@@ -329,6 +329,8 @@ const en = {
     actions: 'Node actions',
     answer: 'Answer',
     keys: 'Terminal keys',
+    paste: 'Paste',
+    pasteDenied: 'Could not read the clipboard. Long-press the input line to paste.',
     ctrlC: 'Ctrl-C',
     arrow: { left: 'Left', up: 'Up', down: 'Down', right: 'Right' },
     input: 'Text to send to the node',
@@ -514,6 +516,7 @@ const en = {
     closedBy: { human: 'closed by the human', agent: 'closed by the agent', restart: 'restarted', exit: 'exited' },
   },
   terminal: {
+    copy: 'Copy',
     gone: 'loom restarted, so this terminal is closed. Create a new node.',
     drop: 'Drop to type the file paths',
     dropCount: 'Files: {{count}} · up to {{limit}} MB each',

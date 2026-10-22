@@ -934,3 +934,6 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-sheet .grip { justify-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); }
 .phone-sheet h3 { font-size: 16px; }
 .phone-sheet .refusal { margin: 0; color: var(--err); font-size: 13px; }
+.phone-note { margin: 0; font-size: 12px; color: var(--err); }
+.xterm-box > .copy-picked { position: absolute; z-index: 5; transform: translateX(-50%); height: 36px; padding: 0 16px; border: 0; border-radius: 18px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px oklch(0% 0 0 / 0.4); }
+.phone-keys button.paste { flex: 1.7; }

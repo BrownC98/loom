@@ -7,6 +7,7 @@ import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
 import { commandKey } from './platform';
 import { DEFAULT_TERMINAL_THEME, TERMINAL_THEMES } from './terminalThemes';
+import { attachTouchGestures, type TouchSelection } from './touchTerminal';
 
 export type Direction = 'left' | 'right' | 'up' | 'down';
 
@@ -173,6 +174,8 @@ type TerminalProps = {
   onFocus: () => void;
   onNavigate: (dir: Direction) => void;
   onSender?: (send: ((data: string) => void) | null) => void;
+  /** 붙여넣을 글을 받는 함수. xterm이 붙여넣기 모드(bracketed paste)를 알아서 감싼다. 닫으면 `null`이다. */
+  onPaster?: (paste: ((text: string) => void) | null) => void;
 };
 
 /** 배율 없이 그린 xterm을 칸에 넣는 배율. 아직 그리지 않았으면 `null`이다. */
@@ -235,6 +238,8 @@ export function SizingTerminal(props: TerminalProps) {
   const redecide = useRef<() => void>(() => {});
   // 끄는 파일 수. 끄지 않으면 없다.
   const [dragging, setDragging] = useState<number | null>(null);
+  // 손가락으로 고른 글이 있으면 그 자리. 복사 버튼이 뜬다.
+  const [picked, setPicked] = useState<TouchSelection | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -348,6 +353,12 @@ export function SizingTerminal(props: TerminalProps) {
         link.sendInput(data);
       });
       // 크기가 바뀐 뒤 그린 칸 크기로 배율을 다시 잰다.
+      latest.current.onPaster?.((text) => xterm.paste(text));
+      const detachTouch = attachTouchGestures(xterm, el, (at) => {
+        const box = el.getBoundingClientRect();
+        setPicked({ x: at.x - box.left, y: at.y - box.top });
+      });
+      const unpick = xterm.onSelectionChange(() => xterm.hasSelection() || setPicked(null));
       const resize = xterm.onResize(() => requestAnimationFrame(rescale));
       xterm.textarea?.addEventListener('focus', () => {
         claim();
@@ -367,7 +378,10 @@ export function SizingTerminal(props: TerminalProps) {
         el.removeEventListener('paste', pasteImage, true);
         input.dispose();
         resize.dispose();
+        unpick.dispose();
+        detachTouch();
         latest.current.onSender?.(null);
+        latest.current.onPaster?.(null);
         link.close();
         xterm.dispose();
         term.current = null;
@@ -420,10 +434,22 @@ export function SizingTerminal(props: TerminalProps) {
     void pasteDropped(xterm, e.dataTransfer, props.node);
   };
 
+  const copyPicked = () => {
+    const xterm = term.current;
+    if (!xterm) return;
+    void navigator.clipboard.writeText(xterm.getSelection()).catch((err: Error) => console.error(err));
+    xterm.clearSelection();
+  };
+
   // 바깥 칸이 여백과 바탕을 갖는다. FitAddon은 안쪽 칸의 크기로 열 수를 재고, 배율도 안쪽 칸에 맞춘다.
   return (
     <div className="xterm-box" style={{ background: theme.background }} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <div ref={box} />
+      {picked && (
+        <button type="button" className="copy-picked" style={{ left: picked.x, top: picked.y + 28 }} onClick={copyPicked}>
+          {i18next.t('terminal.copy')}
+        </button>
+      )}
       {dragging !== null && (
         <div className="drop-cover">
           <svg viewBox="0 0 24 24" aria-hidden="true">

@@ -32,6 +32,8 @@
 
 - Windows 설치 파일(앱, msvc)은 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 만든다. 호스트는 mingw-w64로 `x86_64-pc-windows-gnu` 데몬만 빌드·검사·시험한다. 시험 데몬은 `APPDATA`·`LOCALAPPDATA`를 Windows 임시 폴더로 바꾸고(`WSLENV=APPDATA:LOCALAPPDATA`) 빈 포트에서 띄운다. 사람의 `%APPDATA%\loom`·`%LOCALAPPDATA%\loom`은 건드리지 않는다.
 
+- 사람의 DB(`~/.loom/loom.db`)를 볼 때는 데몬 API를 먼저 쓴다. 파일을 직접 읽으면 읽기 전용(`sqlite3.connect('file:<경로>?mode=ro', uri=True)`)으로만 연다. 쓰기 연결은 데몬의 쓰기를 막을 수 있다(docs/design.md 「저장」).
+
 - `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-100/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(설계 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
 
 - API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.

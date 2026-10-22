@@ -3,13 +3,13 @@
 //! 근거: docs/design.md 「설정」.
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::accounts::AccountId;
+use crate::db::Database;
 use crate::graph::TreeLimits;
 use crate::profile::{AgentId, Provider};
 use crate::skills::AlwaysOn;
@@ -322,18 +322,16 @@ impl SettingsView {
 }
 
 pub struct Settings {
-    db: Mutex<Connection>,
+    db: Database,
 }
 
 impl Settings {
-    pub fn new(conn: Connection) -> Self {
-        Self {
-            db: Mutex::new(conn),
-        }
+    pub fn new(db: Database) -> Self {
+        Self { db }
     }
 
     pub fn get(&self) -> rusqlite::Result<SettingsView> {
-        Ok(read(&self.db.lock().unwrap())?.0)
+        Ok(read(&self.db.lock())?.0)
     }
 
     /// 화면이 바꾼 칸만 받아 지금 설정에 합친다(JSON Merge Patch, RFC 7386: 객체는 칸마다 합치고 다른 값은 바꾼다).
@@ -364,7 +362,7 @@ impl Settings {
         &self,
         change: impl FnOnce(SettingsView, &mut serde_json::Value) -> Result<SettingsView, PatchProblem>,
     ) -> Result<SettingsView, PatchProblem> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock();
         let tx = db.transaction()?;
         let (view, mut value) = read(&tx)?;
         let next = change(view, &mut value)?;
@@ -446,13 +444,14 @@ mod tests {
     #[test]
     fn old_row_without_theme_keeps_other_values() {
         let tmp = tempfile::tempdir().unwrap();
-        let conn = crate::db::open(&tmp.path().join("t.db")).unwrap();
-        conn.execute(
-            "INSERT INTO settings (id, value) VALUES (1, ?1)",
-            [r#"{"bypassOff":["codex"],"claudeAccount":null,"codexAccount":null}"#],
-        )
-        .unwrap();
-        let got = Settings::new(conn).get().unwrap();
+        let db = crate::db::open(&tmp.path().join("t.db")).unwrap();
+        db.lock()
+            .execute(
+                "INSERT INTO settings (id, value) VALUES (1, ?1)",
+                [r#"{"bypassOff":["codex"],"claudeAccount":null,"codexAccount":null}"#],
+            )
+            .unwrap();
+        let got = Settings::new(db).get().unwrap();
         assert_eq!(got.bypass_off, [AgentId("codex".into())]);
         assert_eq!(got.theme, Theme::System);
         assert_eq!(got.terminal_theme, TerminalTheme::default());
@@ -625,11 +624,12 @@ mod tests {
     fn old_single_color_reads_as_both_themes() {
         let tmp = tempfile::tempdir().unwrap();
         let db = crate::db::open(&tmp.path().join("t.db")).unwrap();
-        db.execute(
-            "INSERT INTO settings (id, value) VALUES (1, ?1)",
-            [r##"{"colors": {"warn": "#8b5cf6"}}"##],
-        )
-        .unwrap();
+        db.lock()
+            .execute(
+                "INSERT INTO settings (id, value) VALUES (1, ?1)",
+                [r##"{"colors": {"warn": "#8b5cf6"}}"##],
+            )
+            .unwrap();
         let settings = Settings::new(db);
         let both = Some(HexColor("#8b5cf6".into()));
         assert_eq!(

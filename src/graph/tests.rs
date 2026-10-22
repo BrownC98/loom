@@ -7,13 +7,14 @@ use crate::worktree::RepoId;
 
 /// `home()`의 저장소 줄이 있는 그래프. 노드는 목록에 있는 저장소에만 든다.
 fn open(path: &Path) -> Graph {
-    let conn = db::open(path).unwrap();
-    conn.execute(
-        "INSERT OR IGNORE INTO repos (id, path) VALUES (1, '/repo')",
-        [],
-    )
-    .unwrap();
-    Graph::open(conn).unwrap()
+    let db = db::open(path).unwrap();
+    db.lock()
+        .execute(
+            "INSERT OR IGNORE INTO repos (id, path) VALUES (1, '/repo')",
+            [],
+        )
+        .unwrap();
+    Graph::open(db).unwrap()
 }
 
 /// 테스트 노드가 도는 자리.
@@ -1614,6 +1615,7 @@ fn settle_moves_nodes_without_a_place_to_the_start_repo() {
     let path = dir.path().join("t.db");
     db::open(&path)
         .unwrap()
+        .lock()
         .execute_batch(
             r#"INSERT INTO nodes (name, agent, state) VALUES ('claude-1', '"claude"', '{"kind":"running"}');"#,
         )

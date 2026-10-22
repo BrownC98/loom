@@ -19,8 +19,13 @@ export function problemText(p: Problem): string {
   switch (p.code) {
     case 'refused':
       return i18next.t(`problem.refused.${p.value.code}`, vars(p.value));
-    case 'launch':
-      return i18next.t(`problem.launch.${p.value.code}`, vars(p.value));
+    case 'launch': {
+      const launch = p.value;
+      if (launch.code === 'wsl') return i18next.t(`problem.wsl.${launch.value.code}`, { ...launch.value });
+      // WSL 노드의 에이전트가 그 배포판에 없으면 배포판 이름을 넣은 문장(`notInstalled_wsl`)이다.
+      const context = launch.code === 'notInstalled' && launch.value.distro ? 'wsl' : undefined;
+      return i18next.t(`problem.launch.${launch.code}`, { ...vars(launch), context });
+    }
     case 'repo':
       return i18next.t(`problem.repo.${p.value.code}`, vars(p.value));
     case 'noLogin':

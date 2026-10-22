@@ -470,11 +470,16 @@ const en = {
     launch: {
       unknownAgent: '{{value}}: not in the agent list.',
       notInstalled: '{{agent}}: `{{command}}` was not found. Install it, then click “Rescan” in Settings.',
+      notInstalled_wsl: '{{agent}}: `{{command}}` was not found in WSL · {{distro}}. Install it in that distro, then click “Rescan” in Settings.',
       briefTooLong: 'The first prompt is {{len}} bytes. Keep it to {{limit}} bytes or less and give a file path for longer material.',
       server: 'Could not start `{{program}}`: {{cause}}',
       noServer: '{{value}}: could not start the agent. Try again.',
       noBrief: '{{value}} does not take a first prompt. Leave it empty, create the node, then type in its terminal.',
       noModelChoice: '{{value}} does not take a model or effort. Only Claude and Codex do.',
+    },
+    wsl: {
+      start: 'Could not start {{distro}}: {{cause}}. Run `wsl -d {{distro}}` in a terminal to see the cause.',
+      interop: '{{distro}} cannot run Windows programs (WSL interop is off), so the node could not use loom commands and was not created. Set [interop] enabled=true in /etc/wsl.conf, run `wsl --shutdown`, and try again.',
     },
     repo: {
       notFound: 'Folder not found: {{value}}',

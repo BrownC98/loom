@@ -60,6 +60,7 @@ use crate::spots::{Arranged, CardSize, Layout, Placed, Spots};
 use crate::update::{UpdateView, Updater};
 use crate::user_doc;
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
+use crate::wsl;
 
 #[derive(Embed)]
 #[folder = "web/dist"]
@@ -89,6 +90,8 @@ struct App {
     turn_ends: turn_end::TurnEnds,
     /// 노드 에이전트가 쓰는 내장 스킬. 데몬이 시작할 때 데이터 폴더에 푼다.
     plugin: skills::Plugin,
+    /// WSL 노드의 `loom` 껍데기 폴더(`<데이터 폴더>/wsl`). Windows 데몬만 쓴다.
+    shim: PathBuf,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     version_warnings: HashMap<Profile, VersionMismatch>,
     /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 없다. 사용법 지시는 노드마다 더한다.
@@ -498,6 +501,13 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             }
             plugin
         },
+        shim: {
+            let shim = db_path.with_file_name("wsl");
+            if cfg!(windows) {
+                wsl::write_shim(&shim, &std::env::current_exe()?)?;
+            }
+            shim
+        },
         version_warnings: profile::version_warnings(codex_version.as_deref()),
         codex_config: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
@@ -884,6 +894,7 @@ impl App {
             profile,
             codex,
             opencode2,
+            inside: _,
         } = prepared;
         let server = match (&codex, &opencode2) {
             (Some(server), _) => Some(server.link()),
@@ -1129,6 +1140,16 @@ impl App {
         let account = provider.and_then(|p| settings.account(p));
         let token = new_token().map_err(internal)?;
         let env = self.node_env(&token);
+        let plugin = self.plugin.dir(launch.skills);
+        // WSL 폴더면 노드는 그 배포판 안에서 돈다. 근거: docs/design.md 「데몬 하나」.
+        let inside = match wsl::of(cwd) {
+            Some(at) => Some(
+                wsl::inside(&at, &profile::commands(start), &self.shim, &[&plugin])
+                    .await
+                    .map_err(LaunchError::Wsl)?,
+            ),
+            None => None,
+        };
         let codex = match profile {
             Some(Profile::Codex) => {
                 let home = self.accounts.config_dir(profile::Provider::Codex, account);
@@ -1178,23 +1199,33 @@ impl App {
             _ => None,
         };
         let discard = discarder(&codex, &opencode2);
+        let plugin = match &inside {
+            Some(inside) => inside.path(0).map(PathBuf::from).unwrap_or(plugin),
+            None => plugin,
+        };
         let mut cmd = profile::command(
             start,
             cwd,
+            inside.as_ref(),
             remote,
             &settings.bypass_off,
-            &self.plugin.dir(launch.skills),
+            &plugin,
             launch,
         )
         .inspect_err(|_| discard())?;
         for (key, value) in &env {
             cmd.env(key, value);
         }
-        if let Some(provider) = provider {
+        // WSL 노드는 그 배포판의 시스템 기본 로그인을 쓴다. loom 계정 폴더는 Windows에 있다.
+        if let (Some(provider), None) = (provider, &inside) {
             self.accounts.apply(&mut cmd, provider, account);
+        }
+        if let Some(inside) = &inside {
+            cmd = inside.wrap(&cmd);
         }
         Ok(Prepared {
             cmd,
+            inside,
             setup: None,
             token,
             account: account.cloned(),
@@ -1218,6 +1249,8 @@ impl App {
 /// 띄울 준비가 된 노드. Codex·OpenCode 2 노드면 TUI가 붙을 서버가 이미 떠 있다.
 struct Prepared {
     cmd: portable_pty::CommandBuilder,
+    /// WSL 노드면 그 배포판에서 읽은 값. 설정 스크립트도 그 배포판에서 돈다.
+    inside: Option<wsl::Inside>,
     /// `cmd`보다 먼저(같은 터미널 화면에서) 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
     setup: Option<portable_pty::CommandBuilder>,
     /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
@@ -1231,6 +1264,14 @@ struct Prepared {
 }
 
 impl Prepared {
+    /// 노드와 같은 곳(이 PC 또는 그 WSL 배포판)에서 명령 한 줄을 도는 셸.
+    fn shell(&self, line: &str) -> portable_pty::CommandBuilder {
+        match &self.inside {
+            Some(inside) => inside.wrap(&portable_pty::CommandBuilder::from_argv(wsl::shell(line))),
+            None => profile::shell(line),
+        }
+    }
+
     /// 노드를 만들지 못했으면 미리 띄운 서버를 끝내는 함수. 노드를 띄우는 클로저가 `self`를 가져가므로 따로 만든다.
     fn discarder(&self) -> impl Fn() + use<> {
         discarder(&self.codex, &self.opencode2)
@@ -1649,7 +1690,7 @@ async fn spawn_child(
         .await
         .map_err(for_agent)?;
     if worktree.is_some() {
-        prepared.setup = worktree::setup_script(cwd).map(|line| profile::shell(&line));
+        prepared.setup = worktree::setup_script(cwd).map(|line| prepared.shell(&line));
     }
     let discard = prepared.discarder();
     let limits = app

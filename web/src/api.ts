@@ -12,6 +12,8 @@ import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
 import type { DistroView } from './gen/DistroView';
 import type { GraphEvent } from './gen/GraphEvent';
+import type { DeviceId } from './gen/DeviceId';
+import type { InviteView } from './gen/InviteView';
 import type { LoginId } from './gen/LoginId';
 import type { LoginState } from './gen/LoginState';
 import type { LoginTarget } from './gen/LoginTarget';
@@ -25,9 +27,11 @@ import type { OpenFile } from './gen/OpenFile';
 import type { Arranged } from './gen/Arranged';
 import type { Layout } from './gen/Layout';
 import type { Placed } from './gen/Placed';
+import type { PhoneView } from './gen/PhoneView';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
+import type { Relaunched } from './gen/Relaunched';
 import type { RenameNode } from './gen/RenameNode';
 import type { RenameWorktree } from './gen/RenameWorktree';
 import type { RepoId } from './gen/RepoId';
@@ -90,6 +94,8 @@ export const answerWait = (wait: WaitId, text: string, images: string[]) =>
 export const openWaitDoc = (wait: WaitId) => call<null>('POST', `/api/waits/${wait}/doc`);
 /** 질문 문서의 주소. 끝의 `/` 때문에 문서 속 상대 주소(옆 그림)가 같은 폴더를 가리킨다. */
 export const waitDocUrl = (wait: WaitId) => `/api/waits/${wait}/doc/`;
+/** 완료 줄의 `index`번째 그림(`loom done --image`). 확인하지 않은 완료의 그림만 나온다. */
+export const doneImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/images/${index}`;
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
 
 /** 데몬만 끝낸다. 노드는 산다(docs/design.md 「배포」). 응답에 본문이 없다. */
@@ -162,6 +168,13 @@ export const moveNodes = (provider: Provider, distro: string | null) => call<Mov
 export const removeAccount = (provider: Provider, distro: string | null, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}${query(at(distro))}`);
 export const startLogin = (provider: Provider, distro: string | null, target: LoginTarget) => call<LoginId>('POST', `/api/accounts/${provider}${query(at(distro))}`, target);
 export const logoutSystem = (provider: Provider, distro: string | null) => call<null>('POST', `/api/accounts/${provider}/logout${query(at(distro))}`);
+/** 설정 「휴대폰」 탭(docs/design.md 「원격」). 이 기계의 화면에서만 부른다. 폰이 부르면 403이다. */
+export const getPhone = () => call<PhoneView>('GET', '/api/phone');
+/** 데몬이 `tailscale serve --bg <포트>`를 돌린다. 사람이 단추를 누를 때만 부른다. */
+export const startServe = () => call<PhoneView>('POST', '/api/phone/serve');
+/** 새 짝짓기 코드. 앞 코드는 쓸 수 없게 된다. */
+export const createInvite = () => call<InviteView>('POST', '/api/phone/invite');
+export const removeDevice = (id: DeviceId) => call<null>('DELETE', `/api/phone/devices/${id}`);
 export const getLogin = (id: LoginId) => call<LoginState>('GET', `/api/logins/${id}`);
 export const closeLogin = (id: LoginId) => call<null>('DELETE', `/api/logins/${id}`);
 export const loginPty = (id: LoginId) => `/api/logins/${id}/pty`;
@@ -243,3 +256,7 @@ export function attachPty(
     },
   };
 }
+/** 노드를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 턴이 끝난 뒤 띄운다(docs/design.md 「다시 띄우기」). */
+export const relaunchNode = (id: NodeId) => call<Relaunched>('POST', `/api/nodes/${id}/relaunch`);
+/** 그 노드가 턴 끝에 다시 뜰 차례다. */
+export const relaunchQueued = (id: NodeId) => call<boolean>('GET', `/api/nodes/${id}/relaunch`);

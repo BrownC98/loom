@@ -3,7 +3,6 @@ import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { attachPty, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { NodeId } from './gen/NodeId';
-import type { Resize } from './gen/Resize';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
 import { commandKey } from './platform';
@@ -173,46 +172,56 @@ type TerminalProps = {
   focusAsk?: number;
   onFocus: () => void;
   onNavigate: (dir: Direction) => void;
-  loadRenderer?: (xterm: XTerm) => void;
   onSender?: (send: ((data: string) => void) | null) => void;
 };
 
-/**
- * PTY 크기를 따르는 터미널. 데몬이 알린 열·줄(`PtyNotice` `size`)로 그리고, 칸에 맞게 글자를 늘이거나 줄인다(목업 docs/mockups/terminal-size.html 안 A).
- * PTY 크기는 바꾸지 않는다. 심플 보기 오른쪽 칸이 쓴다.
- * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). `loadRenderer`는 연 뒤에 렌더러 애드온을 붙인다. 없으면 DOM 렌더러로 그린다.
- */
-export function Terminal(props: TerminalProps) {
-  return <XtermView {...props} sizing={FOLLOW} />;
-}
-
-/** 칸 크기로 PTY 크기를 정하는 터미널. 표준 카드(카드 크기는 데몬 상태다)와 로그인 창이 쓴다. 그래프 확대·축소는 칸 크기를 바꾸지 않는다. */
-export function SizingTerminal(props: TerminalProps) {
-  return <XtermView {...props} sizing={SET} />;
-}
-
-/** 칸이 바뀔 때 할 일. `FOLLOW`는 PTY 크기를 두고, `SET`은 칸에 들어가는 열·줄을 PTY에 보낸다. */
-type Sizing = (fit: FitAddon, send: (size: Resize) => void) => void;
-const FOLLOW: Sizing = () => {};
-const SET: Sizing = (fit, send) => {
-  const proposed = fit.proposeDimensions();
-  if (proposed && proposed.cols > 0 && proposed.rows > 0) send({ cols: proposed.cols, rows: proposed.rows });
-};
-
-/** xterm을 칸 가운데에 맞춘다. 칸보다 크면 줄이고 작으면 늘인다. 마우스 위치는 `unscaleMouse`가 배율을 뺀다. */
-function scaleToBox(xterm: XTerm, box: HTMLElement) {
+/** 배율 없이 그린 xterm을 칸에 넣는 배율. 아직 그리지 않았으면 `null`이다. */
+function boxScale(xterm: XTerm, box: HTMLElement): number | null {
   const el = xterm.element;
-  if (!el) return;
+  if (!el) return null;
   el.style.transform = '';
   const width = el.offsetWidth;
   const height = el.offsetHeight;
-  if (width === 0 || height === 0 || box.clientWidth === 0 || box.clientHeight === 0) return;
-  const scale = Math.min(box.clientWidth / width, box.clientHeight / height);
-  const left = (box.clientWidth - width * scale) / 2;
-  el.style.transform = `translateX(${left}px) scale(${scale})`;
+  if (width === 0 || height === 0 || box.clientWidth === 0 || box.clientHeight === 0) return null;
+  return Math.min(box.clientWidth / width, box.clientHeight / height);
 }
 
-function XtermView(props: TerminalProps & { sizing: Sizing }) {
+/**
+ * xterm을 칸 가운데에 둔다. 다른 화면이 정한 PTY 크기가 칸보다 크면 줄인다. 늘이지는 않는다: 글자 그림이 늘어나 흐려진다(2026-10-22 사람 지시 "심플모드일때 터미널이 낮은 해상도로 출력됨", "배율확대 하지말고 폰트크기 원대로 유지해").
+ * 마우스 위치는 `unscaleMouse`가 배율을 뺀다.
+ */
+function scaleToBox(xterm: XTerm, box: HTMLElement) {
+  const fit = boxScale(xterm, box);
+  const el = xterm.element;
+  if (fit === null || !el) return;
+  if (fit < 1) {
+    el.style.transform = `translateX(${(box.clientWidth - el.offsetWidth * fit) / 2}px) scale(${fit})`;
+    return;
+  }
+  // 글자 캔버스가 기기 픽셀 경계에 서야 선명하다. 가운데 맞춤이나 위 칸 높이가 0.5px 같은 소수 위치에 두면 흐렸다(2026-10-22 사람 지시 "특정 터미널 크기에서 글자가 흐린 문제").
+  // 그래프 안 카드는 확대 배율 `zoom`만큼 커져 보인다. 화면 픽셀로 맞춘 뒤 칸 좌표로 되돌린다.
+  const dpr = window.devicePixelRatio || 1;
+  const at = box.getBoundingClientRect();
+  const zoom = box.offsetWidth > 0 ? at.width / box.offsetWidth : 1;
+  const snap = (v: number) => Math.round(v * dpr) / dpr;
+  const left = (snap(at.left + ((box.clientWidth - el.offsetWidth) / 2) * zoom) - at.left) / zoom;
+  el.style.transform = `translate(${left}px, ${(snap(at.top) - at.top) / zoom}px)`;
+}
+
+/** 그린 터미널마다 `scaleToBox`를 다시 부르는 함수. 칸 크기는 그대로인데 화면 위치만 바뀔 때 쓴다. */
+const aligners = new Set<() => void>();
+
+/** 그래프를 옮기거나 카드를 끈 뒤 부른다. 위치가 기기 픽셀 경계를 벗어나 글자가 흐려진다(2026-10-22 사람 지시 "그래프를 옮길 때도 위치를 다시 맞추도록 … 조치해"). */
+export function realignTerminals() {
+  for (const align of aligners) align();
+}
+
+/**
+ * 칸 크기로 PTY 열·줄을 정하는 터미널. 글꼴 크기는 설정 값 그대로다. 칸이 바뀌면 열·줄이 바뀐다(2026-10-22 사람 지시 "일반적인 터미널의 크기를 조정해도 터미널 폰트 크기는 안변하잖아, 사이드탭 터미널도 동일하게 작동하게 만들어").
+ * PTY 크기는 마지막에 칸을 바꾼 화면을 따른다. 다른 화면은 그 크기를 배율로 맞춰 보인다(`scaleToBox`). 그래프 확대·축소는 칸 크기를 바꾸지 않는다.
+ * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`).
+ */
+export function SizingTerminal(props: TerminalProps) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm | null>(null);
   const latest = useRef(props);
@@ -223,7 +232,6 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
   const font = useContext(XtermFont);
   const latestFont = useRef(font);
   latestFont.current = font;
-  // 칸이나 글꼴이 바뀌면 부른다. 크기를 정하는 터미널은 PTY 크기를 보내고, 모든 터미널은 배율을 다시 잰다.
   const redecide = useRef<() => void>(() => {});
   // 끄는 파일 수. 끄지 않으면 없다.
   const [dragging, setDragging] = useState<number | null>(null);
@@ -256,10 +264,12 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
       xterm.loadAddon(fitAddon);
       xterm.open(el);
       unscaleMouse(xterm);
-      latest.current.loadRenderer?.(xterm);
       term.current = xterm;
       const rescale = () => scaleToBox(xterm, el);
-      const decide = () => latest.current.sizing(fitAddon, (size) => link.sendResize(size));
+      const decide = () => {
+        const proposed = fitAddon.proposeDimensions();
+        if (proposed && proposed.cols > 0 && proposed.rows > 0) link.sendResize({ cols: proposed.cols, rows: proposed.rows });
+      };
       redecide.current = () => {
         decide();
         rescale();
@@ -286,7 +296,9 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
           return false;
         }
         if (isShiftEnter(e) && !e.isComposing) {
-          if (e.type === 'keydown') link.sendInput(SHIFT_ENTER_INPUT);
+          // 한글 조합을 끝내는 Enter는 compositionend 뒤 조합 없는 keydown으로 다시 온다. xterm은 조합 글자를 compositionend의 setTimeout(0)에서 보낸다.
+          // 줄바꿈도 setTimeout(0)으로 미뤄 그 뒤에 보낸다. 바로 보내면 "있"+Shift+Enter가 `\n있`이 됐다(2026-10-22 사람 보고).
+          if (e.type === 'keydown') setTimeout(() => link.sendInput(SHIFT_ENTER_INPUT));
           e.preventDefault();
           return false;
         }
@@ -323,10 +335,12 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
       const resize = xterm.onResize(() => requestAnimationFrame(rescale));
       xterm.textarea?.addEventListener('focus', () => latest.current.onFocus());
       const observer = new ResizeObserver(() => redecide.current());
+      aligners.add(rescale);
       observer.observe(el);
       if (latest.current.focused) focusSoon(xterm);
       return () => {
         observer.disconnect();
+        aligners.delete(rescale);
         el.removeEventListener('paste', pasteImage, true);
         input.dispose();
         resize.dispose();
@@ -343,7 +357,6 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
     if (term.current) term.current.options.theme = theme;
   }, [theme]);
 
-  // 글꼴이 바뀌면 다시 그리고, 크기를 정하는 터미널은 열·행 수를 다시 잰다. 글자 칸 크기가 바뀌므로 배율도 다시 잰다.
   useEffect(() => {
     let disposed = false;
     loadFont(font.family).then(() => {

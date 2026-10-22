@@ -83,6 +83,13 @@ function joined(big: number, small: number, bigUnit: 'hour' | 'day', smallUnit: 
   return small === 0 ? bigText : `${bigText} ${units[smallUnit].format(small)}`;
 }
 
+/** 예: 「2026/10/22 15:40:07」. 언어와 관계없이 이 꼴이다(2026-10-22 사람 지시 "년도/월/일 시:분:초 포맷으로 표시"). */
+export function dateAndTime(time: number): string {
+  const d = new Date(time);
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${two(d.getMonth() + 1)}/${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
+}
+
 /** 예: 「(월) 15:40」, 「Mon 15:40」. */
 export function weekdayAndTime(time: number): string {
   return weekdayTime.format(time);

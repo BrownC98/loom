@@ -171,8 +171,8 @@ pub trait Mailbox: Send + Sync + 'static {
     fn ack(&self, taken: &[Delivery]) -> Result<(), String>;
     /// 턴이 끝났다. `reply`는 그 턴의 마지막 답 글이다. 다시 일하게 할 글이 있으면 돌려준다(턴 끝 질문 검사).
     fn turn_ended(&self, reply: Option<String>) -> Option<String>;
-    /// 사람이 입력해 턴이 시작했다. `prompt`는 그 글이다(완료 알림의 지시). 그 턴에 더할 글(열린 `loom ask` 질문)이 있으면 돌려준다.
-    fn human_input(&self, prompt: &str) -> Option<String>;
+    /// 사람이 입력해 턴이 시작했다. 그 턴에 더할 글(열린 `loom ask` 질문)이 있으면 돌려준다.
+    fn human_input(&self) -> Option<String>;
 }
 
 /// 첫 지시문을 넘기는 방법. Orca의 `promptInjectionMode`를 옮겼다.
@@ -399,7 +399,7 @@ pub enum Start {
         #[serde(default)]
         #[ts(skip)]
         choice: ModelChoice,
-        /// 이어 갈 세션(Claude 세션 id, Codex 스레드 id). 계정 전환만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
+        /// 이어 갈 세션(Claude·Cursor 세션 id, Codex 스레드 id, OpenCode 2 세션 id). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
         #[serde(skip)]
         #[ts(skip)]
         resume: Option<String>,
@@ -646,7 +646,7 @@ fn agent_command(
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
     match (agent.profile, remote) {
-        (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, launch)),
+        (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, launch, brief)),
         (Some(Profile::Cursor), _) => {
             cmd.args(cursor::args(plugin));
             cmd.env(
@@ -686,12 +686,14 @@ fn agent_command(
     Ok(cmd)
 }
 
-/// 다른 인자보다 앞에 넣는 인자: 이어 갈 세션(계정 전환)과 모든 권한 허용. Codex `resume`은 하위 명령이라 맨 앞이다.
+/// 다른 인자보다 앞에 넣는 인자: 이어 갈 세션(다시 띄우기)과 모든 권한 허용. OpenCode 2는 세션을 서버가 연다(`opencode2::Node::start`). Codex `resume`은 하위 명령이라 맨 앞이다.
 /// `codex resume --remote`는 권한 인자를 받지 않는다("Permission overrides are not supported when resuming a remote task",
 /// 0.159.2 실측). 그 권한은 데몬이 서버에서 스레드를 열 때 넘긴다(`codex::resume`).
 fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String> {
     let mut args = match (agent.profile, resume) {
-        (Some(Profile::Claude), Some(session)) => vec!["--resume".into(), session.into()],
+        (Some(Profile::Claude | Profile::Cursor), Some(session)) => {
+            vec!["--resume".into(), session.into()]
+        }
         (Some(Profile::Codex), Some(thread)) => return vec!["resume".into(), thread.into()],
         _ => Vec::new(),
     };
@@ -702,23 +704,24 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
 }
 
 /// 모든 프로필이 받는 통신 명령. 프로필별 대기 방식은 각 실행 지시가 정한다.
-pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell commands to communicate. You can send to any node; talk to your parent and children first, and report to your parent.
-- loom spawn <name> --agent <agent-id>: create a child. Supply its brief on stdin or with --file. --worktree <branch> gives it a new worktree.
-- loom status: inspect your ID, current parent and children, and their process availability. loom status --all lists every node with its ID, parent and place.
-- loom send <name> <body>: queue a message without interrupting a turn. A name finds your parent or child first, then a live node with that unique name. Sending prints the message ID.
-- loom send '#<node-id>' <body>: address any node by stable ID. Use IDs if names are ambiguous.
-- loom reply <message-id> <body>: reply to a received message. The reply names its request ID.
-- loom wait --reply-to <message-id> --timeout <seconds> --json: wait for a particular reply. This also finds replies already delivered by another consumer. Other messages stay in the inbox. A timeout exits with an error.
-- loom steer <name-or-id> <body>: insert guidance between tool calls. Steer and interrupt go only to your parent or children.
-- loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
-- loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language.
-- loom ask <question>: put one question in the human's inbox. When you have no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only with loom ask, in the one-line form of the ask-human rules below, then end your turn. Never end a turn with a question only in your text. With a parent, ask your parent with loom send, never the human.
-- loom answered: when the human's input answers your open loom ask question, you MUST call loom answered first, then act on the answer. If the input does not answer it, leave the question open. If you no longer need the answer, call loom answered.
-- loom adopt <name>: become this node's parent. Use loom status after a parent change.
-- loom rm <name-or-id>: remove your own child and end its process. Its children become your children; reclaim them next.
-When you work for a parent, your parent reads your messages, not your terminal: write no progress narration and no briefing in the terminal. End each turn with at most one short line; the result goes in loom done or loom send.
-Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with loom message and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
+/// 백그라운드 규칙: 앞에서 도는 긴 명령 동안 조정이 넘어가지 않아 「안 읽음」을 눌러도 고장처럼 보였다(2026-10-22 사람 결정 Q322 B).
+/// 기준은 시간이 아니라 다음 단계에 결과가 바로 필요한가다(2026-10-22 사람 지시 "백그라운드로 넣을 수 있으면 넣는걸로 하라 시간 단위가 아니라", Q339 A). 짧은 조회까지 보내면 끝 알림마다 턴이 늘었다.
+pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
+- loom spawn <name> --agent <agent-id> [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>.
+- loom status: your ID, parent and children, and whether their processes are alive. loom status --all lists every node.
+- loom send <target> <body>: queue a message. A name finds your parent or child first, then a live node with that name.
+- loom reply <message-id> <body>: answer a message that you received.
+- loom wait --reply-to <message-id> --timeout <seconds> --json: wait for that reply. A timeout exits with an error.
+- loom steer <target> <body>: put guidance between tool calls. loom interrupt <target> <body>: stop current work and follow this message. Both go only to your parent or children. If you receive an interrupt, stop your previous task.
+- loom done <summary> or loom done --file <path>: report each finished result to your parent. Call it again after more work. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready.
+- loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, ask your parent with loom send.
+- loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
+- loom adopt <name>: become that node's parent. loom rm <target>: remove your child and end its process; its children become yours.
+- loom relaunch [<child>]: restart your own (or your child's) agent process with the current loom settings; the conversation continues after the turn ends.
+Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
+With a parent, write no progress in the terminal. Results go in loom done or loom send. End each turn with at most one short line.
+Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
+Messages begin with \"loom message #<id>\". The same ID can come again; do not repeat completed actions for that ID.";
 
 /// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
@@ -734,24 +737,32 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
 
 /// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
 /// 훅이 넘기는 글: 꺼낸 메시지, 사람 입력 때 열린 `loom ask` 질문들. 모두 없으면 없다.
-pub fn hook_text(taken: &[Delivery], open_questions: &[OpenQuestion]) -> Option<String> {
-    let mut parts = Vec::new();
-    if !open_questions.is_empty() {
-        let list: Vec<String> = open_questions
-            .iter()
-            .map(|OpenQuestion { id, text }| format!("{id}: {text}"))
-            .collect();
-        parts.push(format!(
-            "Open loom ask questions: {}. If this input answers some of them, call `loom answered <Q ids>` (for example `loom answered {}`) first, then act. Leave the others open.",
-            list.join(" | "),
-            open_questions[0].id
-        ));
-    }
+pub fn hook_text(taken: &[Delivery], note: Option<&str>) -> Option<String> {
+    let mut parts: Vec<String> = note.map(str::to_owned).into_iter().collect();
     if !taken.is_empty() {
         parts.push(message_text(taken));
     }
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
+
+/// 사람 입력에 붙이는 열린 질문 안내. 질문이 없으면 없다.
+pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
+    let first = open_questions.first()?;
+    let list: Vec<String> = open_questions
+        .iter()
+        .map(|OpenQuestion { id, text }| format!("{id}: {text}"))
+        .collect();
+    Some(format!(
+        "Open loom ask questions: {}. If this input answers some of these questions, first call loom answered with their IDs (for example: loom answered {}). Then do the work. Do not close the other questions.",
+        list.join(" | "),
+        first.id
+    ))
+}
+
+/// 부모 없는 노드의 사람 입력마다 붙이는 완료 보고 안내. 훅은 늘 지금 loom이 실행하므로 오래된 세션도 이 규칙을 받는다.
+/// 근거: 사용법은 띄울 때 한 번만 넘어가서, 규칙이 생기기 전에 뜬 루트와 잊은 루트가 완료 알림을 올리지 않았다(2026-10-22 사람 지시 "ktasearch 총괄이 완료한 작업을 알림으로 안올림, 원인 파악후 근본문제 해결해").
+/// 쓸 수 있는 결과마다 부르게 한다. 지시 전체가 끝날 때만 부르던 루트가 자식 메시지 턴에 병합하고도 알리지 않았다(2026-10-22 ktasearch-총괄 결함 보고 #1308).
+pub const DONE_NOTE: &str = "Each time you finish a result of the work that this input asks for and the human can use it (for example, a merge or a deploy), call loom done \"<what you did>\" --asked \"<this input, short>\". Do this also when other parts of the work continue, and also in a turn that a child message or a notice started. Add --image <path> for each image that the human gave. The human sees results only through loom done. Do not call it when the input is only a question and you only answer in text.";
 
 pub fn message_text(taken: &[Delivery]) -> String {
     taken
@@ -760,7 +771,9 @@ pub fn message_text(taken: &[Delivery]) -> String {
             let how = match d.kind {
                 Kind::Queue => "queue",
                 Kind::Steer => "steer",
-                Kind::Interrupt => "interrupt. Stop current work and follow this body",
+                Kind::Interrupt => {
+                    "interrupt. Stop your current work and do what this message says"
+                }
             };
             let reply = d
                 .reply_to
@@ -814,10 +827,28 @@ pub fn assert_every_launch_asks(texts: impl Fn(Launch) -> (String, String)) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn open_questions_become_one_note_line() {
+        assert_eq!(questions_note(&[]), None);
+        let note = questions_note(&[
+            OpenQuestion {
+                id: crate::graph::WaitId(12),
+                text: "A or B?".into(),
+            },
+            OpenQuestion {
+                id: crate::graph::WaitId(13),
+                text: "Delete?".into(),
+            },
+        ])
+        .unwrap();
+        assert!(note.starts_with("Open loom ask questions: Q12: A or B? | Q13: Delete?. If this input answers some of these questions, first call loom answered with their IDs (for example: loom answered Q12)."), "{note}");
+    }
+
     use super::*;
 
     #[test]
-    fn resume_comes_first_and_codex_resume_takes_no_permission_args() {
+    fn resume_comes_first_and_codex_resume_takes_no_permission_args_but_cursor_does() {
         let claude = find(&AgentId("claude".into())).unwrap();
         let codex = find(&AgentId("codex".into())).unwrap();
         assert_eq!(
@@ -826,6 +857,11 @@ mod tests {
         );
         assert_eq!(leading_args(claude, None, false), Vec::<String>::new());
         assert_eq!(leading_args(codex, Some("t1"), true), ["resume", "t1"]);
+        let cursor = find(&AgentId("cursor".into())).unwrap();
+        assert_eq!(
+            leading_args(cursor, Some("c1"), true),
+            ["--resume", "c1", "--force", "--trust"]
+        );
         assert_eq!(
             leading_args(codex, None, true),
             ["--dangerously-bypass-approvals-and-sandbox"]

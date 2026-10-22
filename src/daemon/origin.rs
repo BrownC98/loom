@@ -8,25 +8,38 @@
 //! 노드의 `loom` 명령과 데스크톱 앱(데몬 주소를 그대로 연다)은 이 조건을 늘 지킨다.
 //!
 //! 폰은 Tailscale Serve로 닿는다(docs/design.md 「원격」). Serve는 HTTPS를 끝내고 루프백의 데몬에 넘기며,
-//! 요청한 Tailscale 사용자를 `Tailscale-User-Login`에 적는다. 밖에서 온 같은 머리글은 Serve가 지운다.
-//! 다른 웹 페이지는 웹소켓과 교차 출처 요청에 이 머리글을 넣지 못한다. 그래서 이 머리글이 있는 요청은
-//! 로그인이 설정 「원격 허용 로그인」과 같고, 주소가 `*.ts.net`이고, `Origin`이 있으면 `https://<그 주소>`일 때만 받는다.
+//! `Tailscale-User-Login`·`X-Forwarded-*` 머리글을 붙인다. 다른 웹 페이지는 웹소켓과 교차 출처 요청에 이 머리글을 넣지 못한다.
+//! 이 머리글 하나라도 있으면 Serve로 온 요청으로 본다. 주소가 `*.ts.net`이고 `Origin`이 없거나 `https://<그 주소>`여야 하고,
+//! 짝지은 기기의 쿠키가 있어야 한다(`Devices`). 짝짓기 요청과 홈 화면 아이콘만 쿠키 없이 받는다.
 
 use std::sync::Arc;
 
 use axum::extract::{Request, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 
-use super::App;
+use super::phone;
+use crate::devices::{DeviceId, Devices};
 
 /// Tailscale Serve가 붙이는 요청자 로그인 머리글.
 const TAILSCALE_LOGIN: &str = "tailscale-user-login";
 /// Serve가 원래 주소를 적는 머리글. 없으면 `Host`를 본다.
 const FORWARDED_HOST: &str = "x-forwarded-host";
+const FORWARDED_FOR: &str = "x-forwarded-for";
 /// Tailscale이 기기마다 주는 HTTPS 이름(MagicDNS)의 끝.
 const TAILNET_SUFFIX: &str = ".ts.net";
+/// 기기 토큰 쿠키.
+pub const DEVICE_COOKIE: &str = "loom_device";
+/// 짝짓기 전 폰이 받는 것: 짝짓기 요청, 「홈 화면에 추가」가 쿠키 없이 읽는 매니페스트와 아이콘(web/public).
+const UNPAIRED_PATHS: &[&str] = &["/manifest.webmanifest", "/icon.png"];
+
+/// Serve로 온 요청에 미들웨어가 넣는다. `device`는 짝지은 기기다(짝짓기 요청만 `None`).
+/// 이 표시가 있는 요청은 PC 화면만 하는 일(짝짓기 코드, 기기 목록, Serve 켜기)을 하지 못한다.
+#[derive(Clone, Copy)]
+pub struct ViaServe {
+    pub device: Option<DeviceId>,
+}
 
 /// 노드 문. 노드는 늘 루프백으로 부른다.
 pub async fn same_site(request: Request, next: Next) -> Response {
@@ -37,82 +50,94 @@ pub async fn same_site(request: Request, next: Next) -> Response {
     }
 }
 
-/// 사람 문. 이 기계의 화면과 Tailscale Serve로 온 폰을 받는다.
-pub async fn human_site(State(app): State<Arc<App>>, request: Request, next: Next) -> Response {
+/// 사람 문. 이 기계의 화면과 Tailscale Serve로 온 짝지은 폰을 받는다. 라우터 전체(HTTP, 웹소켓, 문서, 파일)에 한 겹으로 씌운다.
+pub async fn human_site(
+    State(devices): State<Arc<Devices>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
     let headers = request.headers();
-    let Some(login) = headers.get(TAILSCALE_LOGIN) else {
+    if !via_serve(headers) {
         return same_site(request, next).await;
-    };
-    let allowed_login = app.settings.get().ok().and_then(|s| s.remote_login);
-    match remote(headers, login, allowed_login.as_deref()) {
-        Remote::Allowed => next.run(request).await,
-        Remote::LoginRefused(login) => refused(&login),
-        Remote::OriginRefused => StatusCode::FORBIDDEN.into_response(),
+    }
+    if !serve_site(headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let path = request.uri().path();
+    let device = cookie(headers, DEVICE_COOKIE).and_then(|token| devices.check(token));
+    let open = (request.method() == Method::POST && path == phone::PAIR_PATH)
+        || (request.method() == Method::GET && UNPAIRED_PATHS.contains(&path));
+    if device.is_none() && !open {
+        return phone::unpaired();
+    }
+    request.extensions_mut().insert(ViaServe { device });
+    next.run(request).await
+}
+
+/// 폰의 웹소켓(터미널, 로그인 창, 이벤트)을 PC에서 그 기기를 끊을 때 닫는다. 이 기계의 화면이면 `work`를 그대로 돌린다.
+/// 문은 요청마다 기기를 보지만, 열린 웹소켓은 요청이 다시 오지 않는다.
+pub async fn until_removed(
+    devices: Arc<Devices>,
+    via: Option<axum::Extension<ViaServe>>,
+    work: impl Future<Output = ()>,
+) {
+    match via.and_then(|v| v.device) {
+        Some(id) => {
+            tokio::select! {
+                () = work => {}
+                () = devices.removed(id) => {}
+            }
+        }
+        None => work.await,
     }
 }
 
-enum Remote {
-    Allowed,
-    /// 머리글의 로그인이 설정과 다르거나 설정이 비었다. 폰이 고칠 곳을 알게 그 로그인을 보인다.
-    LoginRefused(String),
-    OriginRefused,
+fn via_serve(headers: &HeaderMap) -> bool {
+    [TAILSCALE_LOGIN, FORWARDED_HOST, FORWARDED_FOR]
+        .iter()
+        .any(|name| headers.contains_key(*name))
+        || headers
+            .get(header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(tailnet)
 }
 
-fn remote(headers: &HeaderMap, login: &HeaderValue, allowed_login: Option<&str>) -> Remote {
-    let login = login.to_str().unwrap_or_default().trim();
-    if allowed_login
-        .map(str::trim)
-        .is_none_or(|allowed| allowed.is_empty() || !allowed.eq_ignore_ascii_case(login))
-    {
-        return Remote::LoginRefused(login.to_owned());
-    }
+/// Serve로 온 요청의 주소와 출처.
+fn serve_site(headers: &HeaderMap) -> bool {
     let text = |name| {
         headers
             .get(name)
             .and_then(|v: &HeaderValue| v.to_str().ok())
     };
     let Some(real_host) = text(header::HOST.as_str()) else {
-        return Remote::OriginRefused;
+        return false;
     };
     // DNS 재바인딩: 남의 페이지가 127.0.0.1로 바꾼 이름에서 같은 출처로 부르면 머리글을 마음대로 넣고 `Origin` 없이 GET할 수 있다.
     // 그 페이지의 `Host`는 자기 이름이다. 그래서 진짜 `Host`도 DNS가 바꿀 수 없는 이름(Serve가 루프백에 보내는 IP)이나 tailnet 이름이어야 한다.
     if !fixed_host(real_host) && !tailnet(real_host) {
-        return Remote::OriginRefused;
+        return false;
     }
     let host = text(FORWARDED_HOST).unwrap_or(real_host);
-    if tailnet(host)
+    tailnet(host)
         && text(header::ORIGIN.as_str()).is_none_or(|origin| origin == format!("https://{host}"))
-    {
-        Remote::Allowed
-    } else {
-        Remote::OriginRefused
-    }
+}
+
+/// `Cookie` 머리글에서 `name`의 값.
+fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(key, _)| *key == name)
+        .map(|(_, value)| value)
 }
 
 /// Tailscale이 기기에 준 HTTPS 이름(`<기기>.<tailnet>.ts.net`)이다. 포트는 떼고 본다.
 fn tailnet(host: &str) -> bool {
     let name = host.rsplit_once(':').map_or(host, |(name, _)| name);
     name.len() > TAILNET_SUFFIX.len() && name.to_ascii_lowercase().ends_with(TAILNET_SUFFIX)
-}
-
-/// 폰 브라우저에 보이는 거절 쪽(목업 mobile.html ⑥의 카드). 앱은 싣지 않는다: 거절한 로그인에 노드 목록을 보이지 않는다.
-/// 화면을 읽기 전이라 화면 언어를 모른다. 두 언어로 쓴다.
-fn refused(login: &str) -> Response {
-    let login = login
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;");
-    let page = format!(
-        r#"<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>loom</title>
-<style>:root{{color-scheme:light dark}}body{{margin:0;padding:16px;font:15px/1.5 system-ui,sans-serif;background:light-dark(#f5f5f5,#1f1f1f);color:light-dark(#171717,#fafafa)}}
-section{{display:grid;gap:8px;max-width:480px;margin:0 auto 12px;padding:14px 16px;border:1px solid light-dark(#d4d4d4,#525252);border-radius:12px;background:light-dark(#fff,#262626)}}
-h1{{margin:0;font-size:16px}}p{{margin:0;color:light-dark(#525252,#c4c4c4)}}code{{font:13px ui-monospace,monospace;overflow-wrap:anywhere}}</style></head><body>
-<section><h1>이 로그인은 허용되지 않았습니다</h1><p>PC의 loom 설정 › 원격에 이 Tailscale 로그인을 넣으십시오.</p><code>{login}</code></section>
-<section lang="en"><h1>This login is not allowed</h1><p>On the PC, open loom Settings › Remote and enter this Tailscale login.</p><code>{login}</code></section>
-</body></html>"#
-    );
-    (StatusCode::FORBIDDEN, Html(page)).into_response()
 }
 
 fn allowed(headers: &HeaderMap) -> bool {
@@ -194,140 +219,244 @@ mod tests {
         h
     }
 
-    fn verdict(
-        pairs: &[(&'static str, &'static str)],
-        allowed_login: Option<&str>,
-    ) -> &'static str {
-        let h = remote_headers(pairs);
-        match remote(&h, h.get(TAILSCALE_LOGIN).unwrap(), allowed_login) {
-            Remote::Allowed => "allowed",
-            Remote::LoginRefused(_) => "login",
-            Remote::OriginRefused => "origin",
-        }
-    }
-
     const LOGIN: (&str, &str) = ("tailscale-user-login", "me@example.com");
 
     #[test]
-    fn tailscale_owner_passes() {
-        let me = Some("me@example.com");
-        // Serve가 Host를 그대로 넘기는 경우와 X-Forwarded-Host에 적는 경우.
-        assert_eq!(
-            verdict(&[LOGIN, ("host", "pc.tail1234.ts.net")], me),
-            "allowed"
-        );
-        assert_eq!(
-            verdict(
-                &[
-                    LOGIN,
-                    ("host", "pc.tail1234.ts.net"),
-                    ("origin", "https://pc.tail1234.ts.net")
-                ],
-                me
-            ),
-            "allowed"
-        );
-        assert_eq!(
-            verdict(
-                &[
-                    LOGIN,
-                    ("host", "127.0.0.1:7420"),
-                    ("x-forwarded-host", "pc.tail1234.ts.net"),
-                    ("origin", "https://pc.tail1234.ts.net")
-                ],
-                me
-            ),
-            "allowed"
-        );
-        assert_eq!(
-            verdict(
-                &[
-                    LOGIN,
-                    ("host", "127.0.0.1:7420"),
-                    ("x-forwarded-host", "pc.tail1234.ts.net")
-                ],
-                me
-            ),
-            "allowed"
-        );
-        assert_eq!(
-            verdict(
-                &[LOGIN, ("host", "PC.Tail1234.TS.NET")],
-                Some(" ME@example.com ")
-            ),
-            "allowed"
-        );
+    fn serve_headers_mark_remote() {
+        assert!(via_serve(&remote_headers(&[LOGIN])));
+        assert!(via_serve(&remote_headers(&[(
+            "x-forwarded-for",
+            "100.64.0.2"
+        )])));
+        assert!(via_serve(&remote_headers(&[(
+            "x-forwarded-host",
+            "pc.tail1234.ts.net"
+        )])));
+        assert!(via_serve(&remote_headers(&[(
+            "host",
+            "pc.tail1234.ts.net"
+        )])));
+        assert!(!via_serve(&remote_headers(&[("host", "127.0.0.1:7420")])));
     }
 
     #[test]
-    fn tailscale_others_fail() {
-        let me = Some("me@example.com");
-        assert_eq!(
-            verdict(&[LOGIN, ("host", "pc.tail1234.ts.net")], None),
-            "login"
-        );
-        assert_eq!(
-            verdict(&[LOGIN, ("host", "pc.tail1234.ts.net")], Some("")),
-            "login"
-        );
-        assert_eq!(
-            verdict(
-                &[
-                    ("tailscale-user-login", "guest@example.com"),
-                    ("host", "pc.tail1234.ts.net")
-                ],
-                me
-            ),
-            "login"
-        );
-        assert_eq!(verdict(&[LOGIN, ("host", "127.0.0.1:7420")], me), "origin");
-        assert_eq!(verdict(&[LOGIN, ("host", "evil.example")], me), "origin");
-        assert_eq!(verdict(&[LOGIN, ("host", ".ts.net")], me), "origin");
-        // DNS 재바인딩: 남의 이름에서 같은 출처로 부른 GET(Origin 없음)은 X-Forwarded-Host를 꾸며도 막는다.
-        assert_eq!(
-            verdict(
-                &[
-                    LOGIN,
-                    ("host", "evil.com"),
-                    ("x-forwarded-host", "x.ts.net")
-                ],
-                me
-            ),
-            "origin"
-        );
-        assert_eq!(
-            verdict(
-                &[
-                    LOGIN,
-                    ("host", "127.0.0.1:7420"),
-                    ("x-forwarded-host", "evil.com")
-                ],
-                me
-            ),
-            "origin"
-        );
-        assert_eq!(
-            verdict(
-                &[
-                    LOGIN,
-                    ("host", "pc.tail1234.ts.net"),
-                    ("origin", "http://pc.tail1234.ts.net")
-                ],
-                me
-            ),
-            "origin"
-        );
-        assert_eq!(
-            verdict(
-                &[
-                    LOGIN,
-                    ("host", "pc.tail1234.ts.net"),
-                    ("origin", "https://evil.example")
-                ],
-                me
-            ),
-            "origin"
-        );
-        assert_eq!(verdict(&[LOGIN], me), "origin");
+    fn serve_site_passes() {
+        for pairs in [
+            &[LOGIN, ("host", "pc.tail1234.ts.net")][..],
+            &[
+                LOGIN,
+                ("host", "pc.tail1234.ts.net"),
+                ("origin", "https://pc.tail1234.ts.net"),
+            ],
+            &[
+                ("host", "127.0.0.1:7420"),
+                ("x-forwarded-host", "pc.tail1234.ts.net"),
+                ("origin", "https://pc.tail1234.ts.net"),
+            ],
+            &[
+                ("host", "127.0.0.1:7420"),
+                ("x-forwarded-host", "pc.tail1234.ts.net"),
+            ],
+            &[LOGIN, ("host", "PC.Tail1234.TS.NET")],
+        ] {
+            assert!(serve_site(&remote_headers(pairs)), "{pairs:?}");
+        }
+    }
+
+    #[test]
+    fn serve_site_fails() {
+        for pairs in [
+            &[LOGIN, ("host", "127.0.0.1:7420")][..],
+            &[LOGIN, ("host", "evil.example")],
+            &[LOGIN, ("host", ".ts.net")],
+            // DNS 재바인딩: 남의 이름에서 같은 출처로 부른 GET(Origin 없음)은 X-Forwarded-Host를 꾸며도 막는다.
+            &[
+                LOGIN,
+                ("host", "evil.com"),
+                ("x-forwarded-host", "x.ts.net"),
+            ],
+            &[
+                LOGIN,
+                ("host", "127.0.0.1:7420"),
+                ("x-forwarded-host", "evil.com"),
+            ],
+            &[
+                LOGIN,
+                ("host", "pc.tail1234.ts.net"),
+                ("origin", "http://pc.tail1234.ts.net"),
+            ],
+            &[
+                LOGIN,
+                ("host", "pc.tail1234.ts.net"),
+                ("origin", "https://evil.example"),
+            ],
+            &[LOGIN],
+        ] {
+            assert!(!serve_site(&remote_headers(pairs)), "{pairs:?}");
+        }
+    }
+
+    #[test]
+    fn cookie_finds_value() {
+        let h = remote_headers(&[("cookie", "a=1; loom_device=tok-en_1; b=2")]);
+        assert_eq!(cookie(&h, DEVICE_COOKIE), Some("tok-en_1"));
+        assert_eq!(cookie(&h, "loom"), None);
+        assert_eq!(cookie(&remote_headers(&[]), DEVICE_COOKIE), None);
+    }
+
+    mod gate {
+        use super::*;
+        use axum::Router;
+        use axum::body::Body;
+        use axum::extract::ws::WebSocketUpgrade;
+        use axum::routing::{get, post};
+        use tower::ServiceExt;
+
+        /// 실제 라우터처럼 한 겹을 라우터 전체에 씌운다: 보통 API, 웹소켓, 질문 문서, 정적 파일(fallback), 짝짓기.
+        fn router(devices: Arc<Devices>) -> Router {
+            Router::new()
+                .route("/api/repos", get(|| async { "repos" }))
+                .route(
+                    "/api/events",
+                    get(|ws: WebSocketUpgrade| async move { ws.on_upgrade(|_| async {}) }),
+                )
+                .route("/api/waits/{wait}/doc/", get(|| async { "doc" }))
+                .route(phone::PAIR_PATH, post(|| async { "pair" }))
+                .fallback(|| async { "asset" })
+                .layer(axum::middleware::from_fn_with_state(devices, human_site))
+        }
+
+        fn devices() -> (tempfile::TempDir, Arc<Devices>) {
+            let dir = tempfile::tempdir().unwrap();
+            let db = crate::db::open(&dir.path().join("t.db")).unwrap();
+            (dir, Arc::new(Devices::new(db)))
+        }
+
+        fn remote(method: Method, path: &str, cookie: Option<&str>) -> Request {
+            let mut b = Request::builder()
+                .method(method)
+                .uri(path)
+                .header("host", "127.0.0.1:7420")
+                .header("x-forwarded-host", "pc.tail1.ts.net")
+                .header(TAILSCALE_LOGIN, "me@example.com");
+            if let Some(c) = cookie {
+                b = b.header("cookie", format!("{DEVICE_COOKIE}={c}"));
+            }
+            b.body(Body::empty()).unwrap()
+        }
+
+        fn upgrade(mut r: Request) -> Request {
+            let h = r.headers_mut();
+            h.insert("connection", HeaderValue::from_static("upgrade"));
+            h.insert("upgrade", HeaderValue::from_static("websocket"));
+            h.insert("sec-websocket-version", HeaderValue::from_static("13"));
+            h.insert(
+                "sec-websocket-key",
+                HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
+            );
+            r
+        }
+
+        async fn status(devices: &Arc<Devices>, r: Request) -> StatusCode {
+            router(devices.clone()).oneshot(r).await.unwrap().status()
+        }
+
+        #[tokio::test]
+        async fn every_remote_route_needs_a_paired_device() {
+            let (_dir, d) = devices();
+            for path in ["/api/repos", "/api/waits/3/doc/", "/", "/assets/index.js"] {
+                assert_eq!(
+                    status(&d, remote(Method::GET, path, None)).await,
+                    StatusCode::UNAUTHORIZED,
+                    "{path}"
+                );
+                assert_eq!(
+                    status(&d, remote(Method::GET, path, Some("forged"))).await,
+                    StatusCode::UNAUTHORIZED,
+                    "{path}"
+                );
+            }
+            assert_eq!(
+                status(&d, upgrade(remote(Method::GET, "/api/events", None))).await,
+                StatusCode::UNAUTHORIZED
+            );
+            // 짝짓기 요청과 홈 화면 아이콘만 쿠키 없이 닿는다.
+            assert_eq!(
+                status(&d, remote(Method::POST, phone::PAIR_PATH, None)).await,
+                StatusCode::OK
+            );
+            assert_eq!(
+                status(&d, remote(Method::GET, "/icon.png", None)).await,
+                StatusCode::OK
+            );
+            assert_eq!(
+                status(&d, remote(Method::GET, phone::PAIR_PATH, None)).await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
+        #[tokio::test]
+        async fn paired_device_passes_until_removed() {
+            let (_dir, d) = devices();
+            let code = d.invite();
+            let token = d.pair(&code, "a").unwrap().0;
+            for path in ["/api/repos", "/api/waits/3/doc/", "/"] {
+                assert_eq!(
+                    status(&d, remote(Method::GET, path, Some(&token))).await,
+                    StatusCode::OK,
+                    "{path}"
+                );
+            }
+            // oneshot에는 진짜 연결이 없어 업그레이드 단계에서 멈춘다. 문이 막지 않았다는 것(401이 아님)만 본다.
+            assert_ne!(
+                status(
+                    &d,
+                    upgrade(remote(Method::GET, "/api/events", Some(&token)))
+                )
+                .await,
+                StatusCode::UNAUTHORIZED
+            );
+            let id = d.check(&token).unwrap();
+            d.remove(id).unwrap();
+            assert_eq!(
+                status(&d, remote(Method::GET, "/api/repos", Some(&token))).await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
+        #[tokio::test]
+        async fn open_websocket_work_ends_when_device_is_removed() {
+            let (_dir, d) = devices();
+            let code = d.invite();
+            let token = d.pair(&code, "a").unwrap().0;
+            let id = d.check(&token).unwrap();
+            let via = Some(axum::Extension(ViaServe { device: Some(id) }));
+            let work = tokio::spawn(until_removed(d.clone(), via, std::future::pending()));
+            tokio::task::yield_now().await;
+            assert!(!work.is_finished());
+            d.remove(id).unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(2), work)
+                .await
+                .unwrap()
+                .unwrap();
+            // 이 기계의 화면은 끊지 않는다.
+            let local = tokio::spawn(until_removed(d.clone(), None, async {}));
+            local.await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn local_requests_need_no_cookie_and_forged_origin_fails() {
+            let (_dir, d) = devices();
+            let local = Request::builder()
+                .uri("/api/repos")
+                .header("host", "127.0.0.1:7420")
+                .body(Body::empty())
+                .unwrap();
+            assert_eq!(status(&d, local).await, StatusCode::OK);
+            let mut bad = remote(Method::GET, "/api/repos", None);
+            bad.headers_mut()
+                .insert("origin", HeaderValue::from_static("https://evil.example"));
+            assert_eq!(status(&d, bad).await, StatusCode::FORBIDDEN);
+        }
     }
 }

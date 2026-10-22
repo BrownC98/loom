@@ -1,9 +1,9 @@
-import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
+import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, Workflow } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putArranged, putSizes, putSpots, removeNode } from './api';
-import { agentLabel, recentAgent } from './catalog';
+import { agentLabel, canResume, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { CardView } from './gen/CardView';
@@ -18,14 +18,15 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge } from './HopEdge';
-import { arrangeNested, edgeSides, followCard, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlapped, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
+import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { PlaceTag, shownPath } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
+import { NodeMenu } from './NodeMenu';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
-import { SizingTerminal, type Direction } from './Terminal';
+import { realignTerminals, SizingTerminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
@@ -191,10 +192,10 @@ type GroupData = {
   /** 이 묶음 안 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑥). */
   onArrange: () => void;
 };
-type CardBase = { view: NodeView; agentLabel: string; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
+type CardBase = { view: NodeView; agentLabel: string; resumable: boolean; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /**
  * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 이 화면에서 카드를 펼치면 카드는 터미널을 그리지 않는다. PTY 크기는 카드가 정한다(`SizingTerminal`). 펼친 카드는 펼친 동안 PTY 크기를 자기 칸에 맞추고, 접으면 카드가 다시 정한다.
- * `sized`: 사람이 크기를 바꿨다. 그 카드만 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③).
+ * `sized`: 사람이 크기를 바꿨다. 그 카드만 노드 메뉴에 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③, relaunch.html v3).
  * `onResizeStart`: 테두리를 잡았다. `onResize`: 끄는 동안 크기와 왼쪽 위가 옮긴 거리. `onResized`: 놓은 값. 저장한다.
  */
 type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
@@ -313,15 +314,10 @@ function Card({ data }: NodeProps<CardNode>) {
         headAction={
           <>
             <BookmarkButton view={data.view} />
-            {data.sized && (
-              <IconButton label={t('node.resetSize')} title={t('node.resetSize')} onClick={data.onResetSize}>
-                <RotateCcw />
-              </IconButton>
-            )}
             <IconButton label={t('node.expand')} title={t('node.expandTitle')} onClick={data.onExpand}>
               <Maximize2 />
             </IconButton>
-            <RemoveButton onRemove={data.onRemove} />
+            <NodeMenu view={data.view} resumable={data.resumable} onResetSize={data.sized ? data.onResetSize : undefined} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
         }
       >
@@ -361,21 +357,12 @@ function Simple({ data }: NodeProps<SimpleNode>) {
       <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={
           <>
             <BookmarkButton view={data.view} />
-            <RemoveButton onRemove={data.onRemove} />
+            <NodeMenu view={data.view} resumable={data.resumable} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
         }
       />
       <Ports port={data.port} />
     </>
-  );
-}
-
-function RemoveButton(props: { onRemove: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <IconButton label={t('node.remove')} title={t('node.remove')} onClick={props.onRemove}>
-      <Trash2 />
-    </IconButton>
   );
 }
 
@@ -572,26 +559,6 @@ export function Graph(props: {
   const share = (level: Level) => {
     for (const b of level.boxes) levels.set(b.key, level);
   };
-  /**
-   * 형제 상자의 자리. 저장한 자리가 있으면 그 자리, 없으면 자동 배치 자리다. 저장한 형제가 있으면 새 상자는 겹치지 않는 오른쪽으로 간다.
-   * `auto`와 돌려주는 값은 상자 왼쪽 위다.
-   */
-  const settle = (items: readonly { key: string; size: Size; lead: XYPosition; auto: XYPosition }[]): Map<string, XYPosition> => {
-    const at = new Map<string, XYPosition>();
-    const taken: Box[] = [];
-    for (const item of items) {
-      const saved = placedAt(item.key);
-      if (saved) at.set(item.key, { x: saved.x + item.lead.x, y: saved.y + item.lead.y });
-    }
-    for (const [key, p] of at) taken.push({ at: p, size: items.find((i) => i.key === key)!.size });
-    for (const item of items) {
-      if (at.has(item.key)) continue;
-      const p = freeSpot({ at: item.auto, size: item.size }, taken, FREE_GAP);
-      at.set(item.key, p);
-      taken.push({ at: p, size: item.size });
-    }
-    return at;
-  };
   /** 묶음 하나의 배치. `local`은 카드와 안에 든 자식 묶음의 상자 왼쪽 위(묶음 원점 기준), `auto`는 [정렬]이 저장할 그 원점이다. 묶음 상자는 원점 기준 `lead`와 크기다. */
   type Laid = { group: Group; members: NodeView[]; local: Map<string, XYPosition>; auto: Map<string, XYPosition>; lead: XYPosition; size: Size; kids: Laid[] };
   const emptySize = (path: string): Size => {
@@ -615,7 +582,14 @@ export function Graph(props: {
   // 데몬도 같은 때 그 자리를 지운다(DB 트리거, `Spots::forget_worktree`). 그래서 화면에 남은 값만 버린다(`outers` effect).
   const outerNow = new Map(nests.flatMap(({ repo, repoGroups, nest }) => repoGroups.map((g, i): [string, string] => [g.path, nest[i].parent === null ? `repo:${repo.id}` : repoGroups[nest[i].parent!].path])));
   const stale = new Set([...outerNow].flatMap(([path, outer]) => (outers.current.has(path) && outers.current.get(path) !== outer ? [path] : [])));
+  // 겹친 형제(커진 카드·묶음·저장소 상자 옆)는 렌더마다 민다. 민 자리는 저장하지 않으므로 커진 상자가 줄면 저장한 자리로 돌아간다.
+  // 끄는 동안은 밀지 않는다(사람 결정 2026-10-21 "밀려나는건 마우스를 놓는 시점에 밀려나야하고"). 놓을 때 `spread`가 밀고 저장한다.
+  const unpiled = (at: Map<string, XYPosition>, items: readonly { key: string; size: Size }[]) =>
+    moving.size > 0 ? at : unpile(items.map((it) => ({ key: it.key, at: at.get(it.key)!, size: it.size })), FREE_GAP);
   const repos = nests.map(({ repo, repoGroups, memberOf, nest }) => {
+    // 정렬한 모양을 지키는 저장소 안의 자리는 저장하지 않고 탭마다 자동 배치로 구한다. 저장한 자리는 형제 순서(`rank`)로만 읽는다.
+    // 구한 자리를 저장하면 카드를 다르게 잰 두 탭이 번갈아 저장해 끝나지 않았다(2026-10-22 사람 데몬, 묶음 y 549·614를 초당 약 12번). 사람 지시 "state must be one".
+    const placedIn = arrangedRepos.has(repo.id) ? (key: string) => moving.get(key) : placedAt;
     const tree = arrangeNested(nest, (id) => props.views.get(id)?.parent ?? null, size, direction, { top: CARD_TOP, side: CARD_X });
     // 안쪽 묶음부터 놓는다. 묶음 상자는 카드와 자식 묶음을 모두 덮는다(네 쪽). 빈 묶음은 머리와 안내 글 크기다.
     const lay = (i: number): Laid => {
@@ -628,7 +602,7 @@ export function Graph(props: {
         ...members.map((v) => ({ key: String(v.id), size: size(v.id), lead: { x: 0, y: 0 }, auto: rel(tree.cards.get(v.id)!) })),
         ...kids.map((k) => ({ key: k.laid.group.path, size: k.laid.size, lead: k.laid.lead, auto: rel(k.auto) })),
       ];
-      const local = settle(items);
+      const local = unpiled(settle(items, placedIn, FREE_GAP), items);
       for (const v of members) spotOf.set(String(v.id), { kind: 'node', repo: repo.id, node: v.id });
       for (const k of kids) spotOf.set(k.laid.group.path, { kind: 'worktree', repo: repo.id, path: k.laid.group.path });
       share({ boxes: items.map((it) => ({ key: it.key, at: local.get(it.key)!, size: it.size })), lead: new Map(kids.map((k) => [k.laid.group.path, k.laid.lead])), parent: group.path });
@@ -637,7 +611,8 @@ export function Graph(props: {
       return { group, members, local, auto, lead: box.at, size: box.size, kids: kids.map((k) => k.laid) };
     };
     const top = nest.flatMap((n, i) => (n.parent === null ? [{ laid: lay(i), auto: tree.boxes[i].at }] : []));
-    const at = settle(top.map(({ laid: g, auto }) => ({ key: g.group.path, size: g.size, lead: g.lead, auto })));
+    const tops = top.map(({ laid: g, auto }) => ({ key: g.group.path, size: g.size, lead: g.lead, auto }));
+    const at = unpiled(settle(tops, placedIn, FREE_GAP), tops);
     for (const { laid: g } of top) spotOf.set(g.group.path, { kind: 'worktree', repo: repo.id, path: g.group.path });
     const key = `repo:${repo.id}`;
     const laid = top.map((t) => t.laid);
@@ -658,7 +633,8 @@ export function Graph(props: {
     const along = reversed ? deepest - alongOf(r.size) : 0;
     return { x: GROUP_POSITION.x + (vertical ? across : along), y: GROUP_POSITION.y + (vertical ? along : across) };
   });
-  const repoAt = settle(repos.map((r, i) => ({ key: r.key, size: r.size, lead: r.lead, auto: repoAuto[i] })));
+  const repoItems = repos.map((r, i) => ({ key: r.key, size: r.size, lead: r.lead, auto: repoAuto[i] }));
+  const repoAt = unpiled(settle(repoItems, placedAt, FREE_GAP), repoItems);
   for (const r of repos) spotOf.set(r.key, { kind: 'repo', repo: r.repo.id });
   if (framed) share({ boxes: repos.map((r) => ({ key: r.key, at: repoAt.get(r.key)!, size: r.size })), lead: new Map(repos.map((r) => [r.key, r.lead])), parent: null });
   // 저장소 원점(그래프 좌표). 저장소 하나면 상자가 없고 원점은 `GROUP_POSITION`이다.
@@ -862,6 +838,8 @@ export function Graph(props: {
       const data: CardBase = {
         view,
         agentLabel: agentLabel(props.agents, view.agent),
+        resumable: canResume(props.agents, view.agent),
+        onRefusal: setRefusal,
         selected: selected === view.id,
         // 고른 카드만 바뀐다. 다른 카드는 다시 그리지 않는다.
         focusAsk: selected === view.id ? props.focusAsk : 0,
@@ -1049,9 +1027,9 @@ export function Graph(props: {
    * 상자 원점을 한 요청으로 저장한다. `after`가 있으면 그 요청보다 먼저 보낸다.
    * 묶음·카드를 놓은 저장소는 정렬한 모양을 더 지키지 않는다(데몬 `Spots::put`과 같은 규칙).
    */
-  const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve(), homes: ReadonlyMap<string, XYPosition | null> = new Map()) => {
+  const save = (done: ReadonlyMap<string, XYPosition>, after: Promise<unknown> = Promise.resolve()) => {
     if (done.size === 0) return;
-    const placed = place(done, homes);
+    const placed = place(done);
     const inside = new Set(placed.flatMap((p) => (p.spot.kind === 'repo' ? [] : [p.spot.repo])));
     setArrangedRepos((prev) => new Set([...prev].filter((id) => !inside.has(id))));
     after.then(() => putSpots(placed)).catch((err: Error) => setRefusal(err.message));
@@ -1062,13 +1040,12 @@ export function Graph(props: {
     setArrangedRepos((prev) => new Set([...prev, ...ids]));
     after.then(() => putArranged({ repos: [...ids], placed })).catch((err: Error) => setRefusal(err.message));
   };
-  /** `homes`는 끌지 않고 커진 상자가 민 상자와 되돌린 상자의 밀기 전 자리다(다 돌아가면 null). 다른 상자는 `keptHome`을 따른다. */
-  const place = (done: ReadonlyMap<string, XYPosition>, homes: ReadonlyMap<string, XYPosition | null> = new Map()): Placed[] => {
-    const placed = [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p, home: homes.has(k) ? homes.get(k)! : keptHome(spots.get(k), p) }));
+  const place = (done: ReadonlyMap<string, XYPosition>): Placed[] => {
+    const placed = [...done].map(([k, p]): Placed => ({ spot: spotOf.get(k)!, at: p }));
     setSpots((prev) => new Map([...prev, ...placed.map((p): [string, Placed] => [flowId(p.spot), p])]));
     return placed;
   };
-  // 부분 정렬(목업 v5 ⑥⑦). 정렬한 상자의 왼쪽 위와 바깥·형제 상자는 지금 자리에 둔다. 다음 렌더에서 커진 상자가 옆 상자를 비킨다(`lastSizes`).
+  // 부분 정렬(목업 v5 ⑥⑦). 정렬한 상자의 왼쪽 위와 바깥·형제 상자는 지금 자리에 둔다. 커진 상자는 렌더마다 옆 상자를 비킨다(`unpiled`).
   const keepAround = (key: string, newLead: XYPosition): Map<string, XYPosition> => {
     const level = levels.get(key)!;
     const self = level.boxes.find((b) => b.key === key)!;
@@ -1123,73 +1100,9 @@ export function Graph(props: {
       arranging.after,
     );
   });
-  // 끌지 않고 커진 상자(새 카드·묶음이 든 바깥 상자, 카드·터미널 크기, 정렬)는 끌어 놓을 때와 같은 규칙으로 겹친 옆 상자를 민다.
-  // 끄는 동안과 테두리를 끄는 동안(`moving`)은 놓을 때 민다. 크기만 기억한다. 안쪽 상자부터 민다(`levels`는 카드, 묶음, 저장소 순서다).
-  // 정렬한 모양을 지키는 저장소(`arrangedRepos`)는 자동 배치가 저장한 자리와 다르면(새 카드·묶음, 커진 카드, 화면을 닫은 동안 생긴 상자) 밀지 않고 새 자동 배치를 저장한다.
-  // 2026-10-21 사람 지시 "우측 부하테스트 총괄에 자식이 생기면 자식기준으로 다른 트리가 밀려나도록", "계정 전환 노드 만들어졌을때, main이 가운데 배치가 안되는 문제".
-  // 그 저장소의 상자는 앞 크기를 기억해 두고, 새 자동 배치로 그린 다음 렌더에서 그 크기와 견주어 커진 저장소 상자가 옆 저장소를 민다.
   useEffect(() => {
     outers.current = outerNow;
     if (stale.size > 0) setSpots((prev) => new Map([...prev].filter(([key]) => !stale.has(key))));
-  });
-  const lastSizes = useRef<ReadonlyMap<string, Size>>(new Map());
-  useEffect(() => {
-    const now = new Map([...levels].map(([key, level]): [string, Size] => [key, level.boxes.find((b) => b.key === key)!.size]));
-    const before = lastSizes.current;
-    lastSizes.current = now;
-    if (moving.size > 0) return;
-    const saved = new Map([...spots].map(([key, p]) => [key, p.at]));
-    const kept = repos.filter((r) => arrangedRepos.has(r.repo.id) && !sameSpots(saved, r.arranged));
-    if (kept.length > 0) saveArranged(kept.map((r) => r.repo.id), new Map(kept.flatMap((r) => [...r.arranged])));
-    const done = new Map<string, XYPosition>();
-    const skip = new Set(kept.flatMap((r) => [r.key, ...r.arranged.keys()]));
-    lastSizes.current = new Map([...now].map(([key, size]) => [key, (skip.has(key) && before.get(key)) || size]));
-    const spreadFrom = (key: string) => {
-      if (skip.has(key)) return;
-      // 앞 상자가 이미 민 상자는 민 자리에서 민다.
-      const level = levels.get(key)!;
-      const self = level.boxes.find((b) => b.key === key)!;
-      const o = done.get(key);
-      const lead = level.lead.get(key) ?? { x: 0, y: 0 };
-      spread(key, level, o ? { at: { x: o.x + lead.x, y: o.y + lead.y }, size: self.size } : self, done);
-    };
-    for (const key of grew(before, now)) spreadFrom(key);
-    // 앞 렌더가 없어 `grew`가 놓친 겹침(화면을 닫은 동안 커진 상자)도 민다. 정렬한 모양을 다시 저장하는 렌더와 잰 크기가 오기 전에는 기다린다.
-    const measured = views.every((v) => flowState.get(String(v.id))?.measured?.width);
-    if (kept.length === 0 && measured) for (const level of new Set(levels.values())) for (const key of overlapped(placed(level, done))) spreadFrom(key);
-    // 민 상자는 밀기 전 자리를 기억한다(DB `spots.home_x`·`home_y`). 또 밀려도 처음 자리를 지킨다.
-    const homes = new Map([...done.keys()].map((k): [string, XYPosition | null] => {
-      const level = levels.get(k)!;
-      return [k, pushedHome(spots.get(k), originOf(level, k, level.boxes.find((b) => b.key === k)!.at))];
-    }));
-    // 어떤 상자가 줄거나 사라지면 기억한 상자가 밀기 전 자리 쪽으로 겹치지 않는 데까지 돌아간다. 다 가면 그 자리를 잊는다.
-    // 정렬한 모양을 지키는 저장소 안은 자동 배치가 놓으므로(`skip`) 돌리지 않는다. 한 상자가 비키면 다음 상자가 갈 수 있어 움직임이 없을 때까지 돈다.
-    if (shrank(before, now).length > 0) {
-      const back = [...spots].filter(([k, p]) => p.home && levels.has(k) && !skip.has(k) && !done.has(k));
-      const boxNow = (level: Level, b: Sibling): Sibling => {
-        const o = done.get(b.key);
-        const lead = level.lead.get(b.key) ?? { x: 0, y: 0 };
-        return o ? { ...b, at: { x: o.x + lead.x, y: o.y + lead.y } } : b;
-      };
-      for (let moved = true; moved; ) {
-        moved = false;
-        for (const [k, p] of back) {
-          const home = p.home!;
-          const level = levels.get(k)!;
-          const lead = level.lead.get(k) ?? { x: 0, y: 0 };
-          const boxes = level.boxes.map((b) => boxNow(level, b));
-          const self = boxes.find((b) => b.key === k)!;
-          const from = originOf(level, k, self.at);
-          const to = originOf(level, k, retreat(boxes.filter((b) => b.key !== k), self, { x: home.x + lead.x, y: home.y + lead.y }, FREE_GAP));
-          const reached = samePoint(to, home);
-          if (samePoint(from, to) && (!reached || homes.has(k))) continue;
-          done.set(k, reached ? home : to);
-          homes.set(k, reached ? null : home);
-          moved ||= !samePoint(from, to);
-        }
-      }
-    }
-    save(done, undefined, homes);
   });
 
   // 바뀜은 마지막 결과에 더한다. 렌더 전에 바뀜이 여럿 오면(끄는 자리, 그래서 커진 바깥 상자의 크기) 렌더한 노드에 더할 때
@@ -1267,7 +1180,9 @@ export function Graph(props: {
         onMoveEnd={() => {
           cameraMoving.current = false;
           document.documentElement.classList.remove('panning');
+          realignTerminals();
         }}
+        onNodeDragStop={() => realignTerminals()}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements
@@ -1372,6 +1287,15 @@ export function Graph(props: {
                 <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
                   <Minimize2 />
                 </IconButton>
+                <NodeMenu
+                  view={zoomedView}
+                  resumable={canResume(props.agents, zoomedView.agent)}
+                  onRemove={() => {
+                    setExpanded(null);
+                    removeNode(zoomedView.id).catch((err: Error) => setRefusal(err.message));
+                  }}
+                  onRefusal={setRefusal}
+                />
               </>
             }
           >

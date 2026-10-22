@@ -219,12 +219,24 @@ function moved(box: Box, side: PushSide, distance: number): Box {
  * 비킨 상자가 다른 형제와 겹치면 그 형제도 같은 쪽으로 민다(연쇄). 쪽을 바꾸지 않으므로 끝난다. 움직인 형제의 새 자리만 돌려준다.
  */
 export function push(siblings: readonly Sibling[], mover: Box, targets: readonly string[], gap: number): Map<string, Point> {
+  return pushBy(siblings, mover, targets, gap, (box) => PUSH_SIDES.reduce((best, s) => (clearance(box, mover, s, gap) < clearance(box, mover, best, gap) ? s : best)));
+}
+
+/**
+ * 커진 상자 옆의 형제가 비키는 쪽: 오른쪽이나 아래, 형제가 커진 상자에서 이미 떨어져 선 쪽이다(왼쪽 위 차이를 커진 상자의 폭·높이로 나눠 견준다).
+ * 가장 짧은 쪽으로 비키면 크게 겹친 저장소 상자가 위로 밀렸다(2026-10-22 사람 "왜 수평으로 안가고 위로 밀려나는가?").
+ */
+function away(box: Box, mover: Box): PushSide {
+  return (box.at.x - mover.at.x) / mover.size.width >= (box.at.y - mover.at.y) / mover.size.height ? 'right' : 'down';
+}
+
+function pushBy(siblings: readonly Sibling[], mover: Box, targets: readonly string[], gap: number, sideOf: (box: Box) => PushSide): Map<string, Point> {
   const now = new Map(siblings.map((s) => [s.key, s as Box]));
   const out = new Map<string, Point>();
   for (const key of targets) {
     const box = now.get(key);
     if (!box || !overlaps(box, mover)) continue;
-    const side = PUSH_SIDES.reduce((best, s) => (clearance(box, mover, s, gap) < clearance(box, mover, best, gap) ? s : best));
+    const side = sideOf(box);
     const queue: [string, Box][] = [[key, moved(box, side, clearance(box, mover, side, gap))]];
     while (queue.length > 0) {
       const [k, b] = queue.shift()!;
@@ -307,83 +319,45 @@ export function freeSpot(box: Box, others: readonly Box[], gap: number): Point {
   return at;
 }
 
-/** `before`에도 있던 상자 가운데 폭이나 높이가 커진 상자의 이름. 새 상자는 `freeSpot`이 자리를 잡으므로 넣지 않는다. */
-export function grew(before: ReadonlyMap<string, Size>, now: ReadonlyMap<string, Size>): string[] {
-  return [...now].flatMap(([key, size]) => {
-    const was = before.get(key);
-    return was && (size.width > was.width || size.height > was.height) ? [key] : [];
-  });
-}
-
 /**
- * 뒤 형제와 겹친 상자의 이름(형제 순서). 그 상자가 서고 겹친 뒤 형제가 비킨다.
- * `grew`는 앞 렌더와 견주므로 화면을 닫은 동안 커진 상자를 놓친다(2026-10-22 사람 "요소가 추가되어 자동으로 늘어날때 주변요소를 덮는 문제 있음").
+ * 형제 상자의 자리. `placed`가 자리를 주면 그 자리, 없으면 자동 배치 자리다. 자리가 있는 형제가 있으면 새 상자는 겹치지 않는 오른쪽으로 간다.
+ * `auto`와 돌려주는 값은 상자 왼쪽 위다. `placed`는 원점(상자 왼쪽 위 - `lead`)을 준다.
  */
-export function overlapped(siblings: readonly Sibling[]): string[] {
-  return siblings.flatMap((s, i) => (siblings.slice(i + 1).some((o) => overlaps(s, o)) ? [s.key] : []));
-}
-
-/** `before`에 있던 상자 가운데 폭이나 높이가 작아졌거나 사라진 상자의 이름. 밀린 상자가 밀기 전 자리로 돌아갈 때다. */
-export function shrank(before: ReadonlyMap<string, Size>, now: ReadonlyMap<string, Size>): string[] {
-  return [...before].flatMap(([key, was]) => {
-    const size = now.get(key);
-    return !size || size.width < was.width || size.height < was.height ? [key] : [];
-  });
-}
-
-/**
- * 사람 결정(2026-10-21) "권장안대로": 끌지 않고 커진 상자가 민 상자는 민 상자가 줄거나 사라지면 밀기 전 자리(`home`) 쪽으로 돌아간다.
- * `box`를 `home`까지 곧게 옮기되 다른 형제와 `gap` 안으로 들어가기 직전에 멈춘다. 지금 이미 `gap`보다 가까운 형제에게는 지금 거리보다 다가가지 않는다.
- * 민 상자가 민 뒤에 조금 더 커지면(잰 크기가 어림보다 크다) 틈이 `gap`보다 좁아진다. 그 형제를 건너뛰면 돌아가는 상자가 그 형제를 뚫고 겹친다.
- * 지금 겹친 형제는 막지 않는다. 돌아갈 자리(왼쪽 위)를 준다.
- */
-export function retreat(siblings: readonly Box[], box: Box, home: Point, gap: number): Point {
-  const d = { x: home.x - box.at.x, y: home.y - box.at.y };
-  let t = 1;
-  for (const o of siblings) {
-    if (overlaps(box, o)) continue;
-    // 지금 거리(두 축 가운데 큰 틈). `gap`보다 가까우면 그 거리를 조금 줄여 쓴다. 그 자리에서 멀어지는 움직임은 막지 않는다.
-    const now = Math.max(o.at.x - (box.at.x + box.size.width), box.at.x - (o.at.x + o.size.width), o.at.y - (box.at.y + box.size.height), box.at.y - (o.at.y + o.size.height));
-    const g = now >= gap ? gap : now - 0.01;
-    const wide = { at: { x: o.at.x - g, y: o.at.y - g }, size: { width: o.size.width + 2 * g, height: o.size.height + 2 * g } };
-    // 한 축에서 겹치는 t 구간(열린 구간). 움직이지 않는 축은 늘 겹치거나 늘 겹치지 않는다.
-    const span = (p: number, len: number, dp: number, lo: number, hi: number): [number, number] => {
-      if (dp === 0) return p < hi && p + len > lo ? [-Infinity, Infinity] : [Infinity, -Infinity];
-      const [a, b] = [(lo - len - p) / dp, (hi - p) / dp];
-      return a < b ? [a, b] : [b, a];
-    };
-    const [x0, x1] = span(box.at.x, box.size.width, d.x, wide.at.x, wide.at.x + wide.size.width);
-    const [y0, y1] = span(box.at.y, box.size.height, d.y, wide.at.y, wide.at.y + wide.size.height);
-    const [enter, leave] = [Math.max(x0, y0), Math.min(x1, y1)];
-    if (enter < leave && enter < t && leave > 0) t = Math.max(0, enter);
+export function settle(items: readonly { key: string; size: Size; lead: Point; auto: Point }[], placed: (key: string) => Point | undefined, gap: number): Map<string, Point> {
+  const at = new Map<string, Point>();
+  const taken: Box[] = [];
+  for (const item of items) {
+    const saved = placed(item.key);
+    if (saved) at.set(item.key, { x: saved.x + item.lead.x, y: saved.y + item.lead.y });
   }
-  return { x: box.at.x + t * d.x, y: box.at.y + t * d.y };
+  for (const [key, p] of at) taken.push({ at: p, size: items.find((i) => i.key === key)!.size });
+  for (const item of items) {
+    if (at.has(item.key)) continue;
+    const p = freeSpot({ at: item.auto, size: item.size }, taken, gap);
+    at.set(item.key, p);
+    taken.push({ at: p, size: item.size });
+  }
+  return at;
 }
 
-/** 저장한 자리와 밀기 전 자리. */
-export type Kept = { at: Point; home: Point | null };
-
-/** 끌지 않고 커진 상자가 `before`에 선 상자를 밀 때 저장할 밀기 전 자리. 또 밀려도 처음 자리를 지킨다. */
-export function pushedHome(saved: Kept | undefined, before: Point): Point {
-  return saved?.home ?? before;
+/**
+ * 겹친 형제를 민다. 형제 순서로 한 상자씩 서고, 그 상자와 겹친 뒤 형제가 오른쪽이나 아래(`away`)로 `gap`을 두고 비킨다. 모든 상자의 자리(상자 왼쪽 위)를 돌려준다.
+ * 저장한 자리와 크기에서 늘 같은 값을 구한다. 그래서 커진 상자가 줄면 민 상자는 저장한 자리로 돌아온다.
+ */
+export function unpile(siblings: readonly Sibling[], gap: number): Map<string, Point> {
+  const now = new Map(siblings.map((s) => [s.key, s.at]));
+  siblings.forEach((s, i) => {
+    const boxes = siblings.map((b) => ({ ...b, at: now.get(b.key)! }));
+    const mover = boxes[i];
+    const later = boxes.slice(i + 1).filter((o) => overlaps(o, mover)).map((o) => o.key);
+    for (const [k, p] of pushBy(boxes.filter((b) => b.key !== s.key), mover, later, gap, (box) => away(box, mover))) now.set(k, p);
+  });
+  return now;
 }
 
-/** 밀기와 되돌리기 밖에서 `at`에 저장하는 상자의 밀기 전 자리. 그 자리에 그대로 선 상자는 지난 값을 지키고, 옮긴 상자(사람이 끈 상자, 끈 상자가 민 상자, [정렬])는 잊는다. */
-export function keptHome(saved: Kept | undefined, at: Point): Point | null {
-  return saved && samePoint(saved.at, at) ? saved.home : null;
-}
-
-/** 밀기 전 자리로 돌아간 상자는 그 자리를 잊는다. */
+/** 반 픽셀 안이면 같은 자리다. */
 export function samePoint(a: Point, b: Point): boolean {
   return Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5;
-}
-
-/** `now`의 자리가 모두 `saved`에 있고 같은가. 정렬한 모양을 지키는 저장소는 다르면 `now`(새 자동 배치)를 저장한다. */
-export function sameSpots(saved: ReadonlyMap<string, Point>, now: ReadonlyMap<string, Point>): boolean {
-  return [...now].every(([key, p]) => {
-    const s = saved.get(key);
-    return s !== undefined && samePoint(s, p);
-  });
 }
 
 /** 간선이 붙는 카드의 변. */

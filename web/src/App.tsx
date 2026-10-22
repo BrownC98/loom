@@ -18,7 +18,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
 import type { Toward } from './gen/Toward';
-import { agentLabel } from './catalog';
+import { agentLabel, canResume } from './catalog';
 import { Find, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
 import { isTauri } from '@tauri-apps/api/core';
@@ -93,7 +93,6 @@ const EMPTY_SETTINGS: SettingsView = {
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
   wslWorkspaceDirs: {},
-  remoteLogin: null,
   // 설정을 받기 전 자리값이다. 기본값의 원천은 Rust `TreeLimits::default`다.
   treeLimits: { maxDepth: 2, maxChildren: null },
   autoSwitch: false,
@@ -549,7 +548,7 @@ export function App() {
               <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} open={!settings.closedPanes.bookmarks} onOpen={(open) => setPaneOpen('bookmarks', open)} />
               {treeView(selectNode)}
               <div className="side-foot">
-                <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
+                <button className="btn ghost" onClick={() => setSettingsTab(SETTINGS_TABS[0])}>
                   <SettingsIcon />
                   {t('settings.title')}
                 </button>
@@ -564,7 +563,7 @@ export function App() {
               <button className={finding ? 'btn ghost icon finding' : 'btn ghost icon'} aria-label={t('find.open')} aria-keyshortcuts={FIND_KEY.aria} title={`${t('find.open')} (${FIND_KEY.label})`} onClick={focusFind}>
                 <Search />
               </button>
-              <button className="btn ghost icon rail-end" aria-label={t('settings.title')} title={t('settings.title')} onClick={() => setSettingsTab('agents')}>
+              <button className="btn ghost icon rail-end" aria-label={t('settings.title')} title={t('settings.title')} onClick={() => setSettingsTab(SETTINGS_TABS[0])}>
                 <SettingsIcon />
               </button>
             </nav>
@@ -622,6 +621,7 @@ export function App() {
                 <TerminalDock
                   view={dockedView}
                   agentLabel={agentLabel(agents, dockedView.agent)}
+                  resumable={canResume(agents, dockedView.agent)}
                   focusAsk={focusAsk}
                   onNavigate={(dir) => {
                     const to = graph.current?.neighbor(dockedView.id, dir);

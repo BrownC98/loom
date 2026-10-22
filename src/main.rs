@@ -4,6 +4,7 @@ mod codex_server;
 mod commit_graph;
 mod daemon;
 mod db;
+mod devices;
 mod git;
 mod graph;
 mod launch;
@@ -16,6 +17,7 @@ mod screen;
 mod settings;
 mod skills;
 mod spots;
+mod tailscale;
 mod update;
 mod usage;
 mod user_doc;
@@ -113,13 +115,19 @@ enum Cli {
         #[arg(long)]
         all: bool,
     },
-    /// 결과를 부모에게 보내고 이 노드를 done으로 바꾼다.
+    /// 결과를 부모에게 보내고 이 노드를 done으로 바꾼다. 부모가 없으면 사람의 받은편지함에 완료를 건다.
     Done {
         #[arg(required_unless_present = "file")]
         summary: Option<String>,
         /// 결과 파일. 부모에게는 경로만 간다.
         #[arg(long, conflicts_with = "summary")]
         file: Option<PathBuf>,
+        /// 그 일을 맡긴 사람의 지시(짧게). 부모 없는 노드는 꼭 준다. 받은편지함 완료 줄에 보인다.
+        #[arg(long)]
+        asked: Option<String>,
+        /// 사람이 그 지시에 준 그림 파일. 여러 번 준다. 받은편지함 완료 줄에 작은 그림으로 보인다.
+        #[arg(long = "image")]
+        images: Vec<PathBuf>,
     },
     /// 사람에게 질문 한 줄을 묻는다. 받은편지함에 번호(`Q12`)와 함께 뜨고, 사람은 이 노드 터미널이나 받은편지함에서 답한다. 사람이 띄운 노드만 쓴다.
     Ask {
@@ -134,6 +142,9 @@ enum Cli {
     Adopt { name: String },
     /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
     Rm { name: String },
+    /// 에이전트 프로세스를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 그 턴이 끝난 뒤 띄운다.
+    /// 이름이 없으면 이 노드 자신이고, 있으면 자기 자식이다. 받은 메시지와 열린 질문은 남는다.
+    Relaunch { name: Option<String> },
     /// user-doc 문서(HTML)를 점검하고 문서 ID를 붙인다. 브라우저는 열지 않는다. 사람에게는 `loom ask --doc`으로 보인다.
     Show { file: PathBuf },
     /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
@@ -191,11 +202,22 @@ fn main() -> ExitCode {
         Cli::Reply { message, body } => cli::reply(message, body),
         Cli::Status { all: false } => cli::status(),
         Cli::Status { all: true } => cli::directory(),
-        Cli::Done { summary, file } => cli::done(summary, file.map(wsl::from_caller)),
+        Cli::Done {
+            summary,
+            file,
+            asked,
+            images,
+        } => cli::done(
+            summary,
+            file.map(wsl::from_caller),
+            asked,
+            images.into_iter().map(wsl::from_caller).collect(),
+        ),
         Cli::Ask { question, doc } => cli::ask(question, doc.map(wsl::from_caller)),
         Cli::Answered { ids } => cli::answered(ids),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),
+        Cli::Relaunch { name } => cli::relaunch(name),
         Cli::Show { file } => user_doc::show(&wsl::from_caller(file)),
         Cli::PtyHost => node_host::run(),
     };

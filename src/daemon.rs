@@ -3,11 +3,16 @@
 
 mod idle;
 mod origin;
+mod phone;
 mod places;
+mod relaunch;
 mod sessions;
 mod settings;
+pub use relaunch::Relaunched;
 mod switch;
 mod turn_end;
+
+use origin::ViaServe;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -24,7 +29,7 @@ use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
@@ -37,10 +42,11 @@ use crate::accounts::{AccountId, Site};
 use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
+use crate::devices::Devices;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
-    NodeId, OpenQuestion, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc,
-    WaitId, WaitKind, WaitSource,
+    NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc, WaitId,
+    WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -86,7 +92,9 @@ struct App {
     setups: Mutex<HashSet<NodeId>>,
     /// 쉬는 Claude 노드마다 메시지를 기다리는 비동기 훅 하나.
     idle: idle::IdleWaits,
-    /// 계정 전환으로 옮기는 중이거나 턴 끝에 옮길 노드.
+    /// 다시 띄우는 중이거나 턴 끝에 다시 띄울 노드.
+    relaunches: relaunch::Relaunches,
+    /// 자동 계정 전환 기록.
     switch: switch::Switches,
     /// 턴 끝 질문 검사(`turn_end`).
     turn_ends: turn_end::TurnEnds,
@@ -107,6 +115,10 @@ struct App {
     /// 노드의 `PATH`. 앞에 이 실행 파일의 폴더를 넣어 노드가 `loom`을 바로 부르게 한다.
     path: OsString,
     update: Arc<Updater>,
+    /// 짝지은 폰. 사람 문(`origin::human_site`)도 같은 값을 쓴다.
+    devices: Arc<Devices>,
+    /// 사람 문이 듣는 포트. Tailscale Serve가 이 포트로 넘긴다.
+    port: u16,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -331,28 +343,28 @@ pub struct WaitRequest {
 pub struct TakeRequest {
     pub kinds: Vec<Kind>,
     pub limit_bytes: usize,
-    /// 훅 입력의 `transcript_path`(Claude 세션 기록 파일). 계정 전환이 쓴다. 옛 `loom hook`은 보내지 않는다.
+    /// 훅 입력의 `transcript_path`(Claude·Cursor 세션 기록 파일). 다시 띄우기가 쓴다. 옛 `loom hook`은 보내지 않는다.
     #[serde(default)]
     pub transcript: Option<String>,
-    /// 사람이 입력한 턴의 첫 훅이면 그 입력 글이다. 열린 `loom ask` 질문을 알리고(`Taken::open_question`), 턴 끝에 완료를 건다.
+    /// 사람이 입력한 턴의 첫 훅이다. 열린 `loom ask` 질문을 알린다(`Taken::open_question`).
     #[serde(default)]
-    pub human_input: Option<String>,
+    pub human_input: bool,
 }
 
 /// `loom hook`의 응답. 꺼낸 메시지.
 #[derive(Serialize, Deserialize)]
 pub struct Taken {
     pub messages: Vec<Delivery>,
-    /// 사람 입력 훅에서만: 아직 열린 `loom ask` 질문들. 에이전트가 그 입력이 어느 질문의 답인지 판단한다.
+    /// 사람 입력 훅에서만: 그 입력에 붙일 안내(`App::human_input`).
     #[serde(default)]
-    pub open_questions: Vec<OpenQuestion>,
+    pub note: Option<String>,
 }
 
 /// 쉬는 노드의 훅 요청(`loom hook`, `loom cursor-hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IdleRequest {
-    /// 훅 입력의 `transcript_path`. 계정 전환이 쓴다.
+    /// 훅 입력의 `transcript_path`. 다시 띄우기가 쓴다.
     pub transcript: Option<String>,
     /// 계정 한도로 턴이 끝났다(`StopFailure`의 `rate_limit`).
     pub rate_limited: bool,
@@ -380,6 +392,12 @@ pub struct AdoptRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RemoveRequest {
     pub name: String,
+}
+
+/// `loom relaunch`의 요청. `name`이 없으면 부르는 노드 자신이다. 있으면 그 자식이다.
+#[derive(Serialize, Deserialize)]
+pub struct RelaunchRequest {
+    pub name: Option<String>,
 }
 
 /// `loom ask`의 요청. 질문 한 줄이다.
@@ -432,6 +450,12 @@ pub struct HookWaitRequest {
 #[derive(Serialize, Deserialize)]
 pub struct DoneRequest {
     pub summary: String,
+    /// `--asked`: 그 일을 맡긴 사람의 지시. 부모 없는 노드는 꼭 준다(받은편지함 완료 줄).
+    #[serde(default)]
+    pub asked: Option<String>,
+    /// `--image`: 사람이 그 지시에 준 그림 파일의 절대 경로.
+    #[serde(default)]
+    pub images: Vec<PathBuf>,
 }
 
 /// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
@@ -458,14 +482,14 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     };
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
-    let open = || db::open(&db_path);
-    let repos = Repos::new(open()?);
+    let database = db::open(&db_path)?;
+    let repos = Repos::new(database.clone());
     // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: `loom start`는 루트(`/`)에서 띄우고, 사람은 화면에서 저장소를 더한다.
     match repos.add(&std::env::current_dir()?.to_string_lossy()).await {
         Ok(_) | Err(RepoProblem::NotGit(_) | RepoProblem::NotFound(_)) => {}
         Err(problem) => return Err(std::io::Error::other(problem.to_string())),
     }
-    let graph = Graph::open(open()?).map_err(std::io::Error::other)?;
+    let graph = Graph::open(database.clone()).map_err(std::io::Error::other)?;
     // 옛 노드(DB 9단계 전)는 저장소 목록 첫째로 옮긴다. 저장소가 없으면 그대로 둔다.
     if let Some((repo, path)) = repos
         .list()
@@ -491,8 +515,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         repos,
         host: NodeHost::new(pty_dir.join("nodes")),
         graph,
-        settings: Settings::new(open()?),
-        spots: Spots::new(open()?),
+        settings: Settings::new(database.clone()),
+        devices: Arc::new(Devices::new(database.clone())),
+        port: listen.port(),
+        spots: Spots::new(database),
         accounts_root: db_path.with_file_name("accounts"),
         logins: settings::Logins::new(pty_dir.join("logins")),
         codex: Mutex::default(),
@@ -500,6 +526,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         sessions: sessions::Sessions::default(),
         setups: Mutex::default(),
         idle: idle::IdleWaits::default(),
+        relaunches: relaunch::Relaunches::default(),
         switch: switch::Switches::default(),
         turn_ends: turn_end::TurnEnds::default(),
         plugin: {
@@ -551,7 +578,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/said", post(agent_said))
         .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
-        .route("/api/agent/rm", post(agent_remove));
+        .route("/api/agent/rm", post(agent_remove))
+        .route("/api/agent/relaunch", post(relaunch::agent_relaunch));
     let router = node_routes
         .clone()
         .route("/api/repos", get(list_repos).post(add_repo))
@@ -588,6 +616,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/waits/{wait}/doc", post(open_wait_doc))
         .route("/api/waits/{wait}/doc/", get(wait_doc))
         .route("/api/waits/{wait}/doc/{*file}", get(wait_doc_file))
+        .route("/api/waits/{wait}/images/{index}", get(done_image_file))
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
             "/api/pastes/{name}",
@@ -603,9 +632,11 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .merge(settings::routes())
         .merge(places::routes())
         .merge(switch::routes())
+        .merge(phone::routes())
+        .merge(relaunch::routes())
         .fallback(asset)
         .layer(axum::middleware::from_fn_with_state(
-            app.clone(),
+            app.devices.clone(),
             origin::human_site,
         ))
         .with_state(app.clone());
@@ -857,9 +888,13 @@ impl App {
         let discard = prepared.discarder();
         let id = self
             .graph
-            .add_root(place, start.agent(), start.brief(), |id| {
-                self.launch(id, prepared)
-            })
+            .add_root(
+                place,
+                start.agent(),
+                start.brief(),
+                &prepared.launched(),
+                |id| self.launch(id, prepared),
+            )
             .inspect_err(|_| discard())?;
         Ok(id)
     }
@@ -875,11 +910,17 @@ impl App {
         let prepared = self.prepare(&start, cwd, Position::Root).await?;
         let discard = prepared.discarder();
         self.graph
-            .add_root(place, start.agent(), start.brief(), |id| {
-                // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
-                self.setups.lock().unwrap().insert(id);
-                self.launch(id, prepared)
-            })
+            .add_root(
+                place,
+                start.agent(),
+                start.brief(),
+                &prepared.launched(),
+                |id| {
+                    // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
+                    self.setups.lock().unwrap().insert(id);
+                    self.launch(id, prepared)
+                },
+            )
             .inspect_err(|_| discard())?;
         Ok(())
     }
@@ -892,33 +933,23 @@ impl App {
     }
 
     /// 노드 프로세스를 띄운다. 끝나면 그래프에 알린다. Codex 노드면 메일함을 그 app-server로 넘기기 시작한다.
-    /// 돌려준 값(토큰, 서버 주소)은 그래프가 노드와 함께 남긴다. 노드가 뜨자마자 데몬을 불러도 그래프가 커밋할 때까지 기다린다.
-    fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<Launched, String> {
+    fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
         let Prepared {
             cmd,
             setup,
             token,
-            account,
             profile,
             codex,
             opencode2,
+            account: _,
             inside: _,
         } = prepared;
-        let server = match (&codex, &opencode2) {
-            (Some(server), _) => Some(server.link()),
-            (_, Some(node)) => Some(node.link()),
-            _ => None,
-        };
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host
             .spawn(id, cmd, setup, self.on_title(id, profile), on_exit)?;
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
-        Ok(Launched {
-            token,
-            server,
-            account,
-        })
+        Ok(())
     }
 
     /// 앞 데몬이 띄운 `running` 노드의 PTY 호스트와 서버에 다시 붙는다. 데몬이 시작할 때 한 번 부른다.
@@ -996,8 +1027,8 @@ impl App {
         let discard = discarder(codex, opencode2);
         move |exit| {
             discard();
-            // 계정 전환이 끝낸 프로세스다. 노드는 새 프로세스로 산다.
-            if app.switch.exited(id) {
+            // 다시 띄우기가 끝낸 프로세스다. 노드는 새 프로세스로 산다.
+            if app.relaunches.exited(id) {
                 return;
             }
             app.codex.lock().unwrap().remove(&id);
@@ -1196,12 +1227,17 @@ impl App {
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
-                let node = opencode2::Node::start(cwd, inside, &env, &skills, password, launch)
-                    .await
-                    .map_err(|cause| LaunchError::Server {
-                        program: format!("{} serve", opencode2::CMD),
-                        cause,
-                    })?;
+                let resume = match start {
+                    Start::Agent { resume, .. } => resume.as_deref(),
+                    Start::Command { .. } => None,
+                };
+                let node =
+                    opencode2::Node::start(cwd, inside, &env, &skills, password, launch, resume)
+                        .await
+                        .map_err(|cause| LaunchError::Server {
+                            program: format!("{} serve", opencode2::CMD),
+                            cause,
+                        })?;
                 Some(Arc::new(node))
             }
             _ => None,
@@ -1277,6 +1313,19 @@ struct Prepared {
 }
 
 impl Prepared {
+    /// 그래프가 노드와 함께 남기는 값(토큰, 서버 주소, 계정). 프로세스를 띄우기 전에 남겨 노드가 뜨자마자 데몬을 불러도 찾게 한다.
+    fn launched(&self) -> Launched {
+        Launched {
+            token: self.token.clone(),
+            server: match (&self.codex, &self.opencode2) {
+                (Some(server), _) => Some(server.link()),
+                (_, Some(node)) => Some(node.link()),
+                _ => None,
+            },
+            account: self.account.clone(),
+        }
+    }
+
     /// 노드와 같은 곳(이 PC 또는 그 WSL 배포판)에서 명령 한 줄을 도는 셸.
     fn shell(&self, line: &str) -> portable_pty::CommandBuilder {
         match &self.inside {
@@ -1324,8 +1373,7 @@ impl Mailbox for NodeMailbox {
 
     fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String> {
         self.app
-            .graph
-            .take(self.node, kinds, limit_bytes)
+            .take_mail(self.node, kinds, limit_bytes)
             .map_err(|e| e.to_string())
     }
 
@@ -1344,11 +1392,8 @@ impl Mailbox for NodeMailbox {
         self.app.turn_end(self.node).map(str::to_owned)
     }
 
-    fn human_input(&self, prompt: &str) -> Option<String> {
-        self.app.turn_ends.human(self.node, prompt);
-        let _ = self.app.graph.human_input(self.node);
-        let questions = self.app.graph.open_questions(self.node).ok()?;
-        profile::hook_text(&[], &questions)
+    fn human_input(&self) -> Option<String> {
+        self.app.human_input(self.node).ok().flatten()
     }
 }
 
@@ -1420,10 +1465,7 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                 continue;
             }
             let status = if started { Status::Busy } else { now.status };
-            match app
-                .graph
-                .take(node, codex::kinds(status), codex::INPUT_LIMIT_BYTES)
-            {
+            match app.take_mail(node, codex::kinds(status), codex::INPUT_LIMIT_BYTES) {
                 Ok(taken) if !taken.is_empty() => {
                     if taken.iter().any(|d| d.kind == Kind::Interrupt) {
                         server.stop_shells();
@@ -1461,27 +1503,31 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
     }
 }
 
-/// 사람이 TUI에 입력해 턴이 시작했다. 그 입력을 완료 알림의 지시로 남긴다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
+impl App {
+    /// 사람이 입력해 턴이 시작했다. 노드를 다시 일하는 상태로 두고, 그 입력에 붙일 안내를 돌려준다:
+    /// 열린 `loom ask` 질문과, 부모 없는 노드면 완료 보고 안내(`profile::DONE_NOTE`).
+    fn human_input(&self, node: NodeId) -> Result<Option<String>, Refusal> {
+        self.graph.human_input(node)?;
+        self.turn_ends.human(node);
+        let questions = profile::questions_note(&self.graph.open_questions(node)?);
+        let done = self
+            .graph
+            .relations(node)?
+            .parent
+            .is_none()
+            .then(|| profile::DONE_NOTE.to_owned());
+        let parts: Vec<String> = questions.into_iter().chain(done).collect();
+        Ok((!parts.is_empty()).then(|| parts.join("\n\n")))
+    }
+}
+
+/// 사람이 TUI에 입력해 턴이 시작했다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
 /// Codex에는 입력 훅이 없어 턴 안에 넣는다(`turn/steer`).
 async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread: &str) {
-    let call = |method, params| server.call(method, params);
-    let prompt = codex::last_prompt(call, thread).await.unwrap_or_else(|e| {
-        eprintln!("loom: 노드 {}의 입력 글을 읽지 못했다: {e}", node.0);
-        None
-    });
-    app.turn_ends.human(node, &prompt.unwrap_or_default());
-    if let Err(e) = app.graph.human_input(node) {
-        eprintln!(
-            "loom: 노드 {}를 다시 일하는 상태로 바꾸지 못했다: {e}",
-            node.0
-        );
-    }
-    let questions = match app.graph.open_questions(node) {
-        Ok(questions) => questions,
-        Err(e) => return eprintln!("loom: 노드 {}의 열린 질문을 읽지 못했다: {e}", node.0),
-    };
-    let Some(text) = profile::hook_text(&[], &questions) else {
-        return;
+    let text = match app.human_input(node) {
+        Ok(Some(text)) => text,
+        Ok(None) => return,
+        Err(e) => return eprintln!("loom: 노드 {}의 사람 입력을 처리하지 못했다: {e}", node.0),
     };
     let call = |method, params| server.call(method, params);
     if let Err(e) = codex::steer(call, thread, &text).await {
@@ -1489,10 +1535,10 @@ async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread
     }
 }
 
-/// Codex 턴 끝 질문 검사와 완료 알림. 다시 일하게 했으면 참이다. 대기 없는 루트와 사람이 연 턴만 답 글을 읽는다.
+/// Codex 턴 끝 질문 검사. 다시 일하게 했으면 참이다. 대기 없는 루트만 답 글을 읽는다.
 async fn codex_turn_end(app: &App, node: NodeId, server: &CodexServer, thread: &str) -> bool {
     let call = |method, params| server.call(method, params);
-    if app.turn_ends.human_turn(node) || app.graph.unasked_root(node).unwrap_or(false) {
+    if app.graph.unreported_root(node).unwrap_or(false) {
         match codex::last_reply(call, thread).await {
             Ok(Some(text)) => app.turn_ends.said(node, text),
             Ok(None) => {}
@@ -1672,9 +1718,7 @@ async fn answer_wait(
     Json(req): Json<AnswerWait>,
 ) -> Result<Json<()>, Problem> {
     let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
-    // 받은편지함의 답도 사람이 맡긴 일이다. 그 답으로 도는 턴이 끝나면 완료를 건다(docs/design.md 「완료 알림」).
-    app.turn_ends
-        .human(node, &format!("Q{wait}: {}", req.text.trim()));
+    app.turn_ends.human(node);
     Ok(Json(()))
 }
 
@@ -1714,6 +1758,16 @@ async fn wait_doc_file(
         Some(dir) if inside => serve_file(&dir.join(&file), request).await,
         _ => Ok(StatusCode::NOT_FOUND.into_response()),
     }
+}
+
+/// 완료 줄의 그림(`loom done --image`). 확인하지 않은 완료의 그림만 낸다.
+async fn done_image_file(
+    State(app): State<Arc<App>>,
+    Path((wait, index)): Path<(u32, usize)>,
+    request: axum::extract::Request,
+) -> Result<Response, Problem> {
+    let path = app.graph.done_image(WaitId(wait), index)?;
+    serve_file(&path, request).await
 }
 
 async fn serve_file(
@@ -1806,6 +1860,7 @@ async fn spawn_child(
                 brief: queued_brief,
             },
             limits,
+            &prepared.launched(),
             |id| app.launch(id, prepared),
         )
         .map_err(for_agent)
@@ -1883,24 +1938,17 @@ async fn agent_take(
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
     // 훅이 불렸으면 턴이 돈다. 일하는 중의 메시지는 그 훅들이 넘긴다.
-    app.idle.end(node);
+    app.idle.turn_started(node);
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let messages = app
         .graph
         .take(node, &req.kinds, req.limit_bytes)
         .map_err(for_agent)?;
-    let open_questions = match &req.human_input {
-        Some(prompt) => {
-            app.turn_ends.human(node, prompt);
-            app.graph.human_input(node).map_err(for_agent)?;
-            app.graph.open_questions(node).map_err(for_agent)?
-        }
-        None => Vec::new(),
+    let note = match req.human_input {
+        true => app.human_input(node).map_err(for_agent)?,
+        false => None,
     };
-    Ok(Json(Taken {
-        messages,
-        open_questions,
-    }))
+    Ok(Json(Taken { messages, note }))
 }
 
 /// 쉬는 Claude 노드의 비동기 훅이 부른다. 메시지가 오면 모두 꺼낸다(본문 합 상한은 훅과 같다).
@@ -1923,6 +1971,11 @@ async fn agent_idle(
         app.rate_limited(node, profile::Provider::Claude);
     }
     app.turn_ended(node);
+    if app.relaunches.holds_mail(node) {
+        // 다시 띄우기가 이 대기를 끝낸다(`idle.end`). 메시지는 새 프로세스가 받는다.
+        end.notified().await;
+        return Ok(Json(Vec::new()));
+    }
     tokio::select! {
         taken = app.graph.next(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => Ok(Json(taken.map_err(for_agent)?)),
         () = end.notified() => Ok(Json(Vec::new())),
@@ -1962,7 +2015,7 @@ async fn agent_model(
     Ok(Json(()))
 }
 
-/// 훅 입력의 Claude 세션 기록 파일을 남긴다. 계정 전환이 그 파일을 새 계정으로 복사한다. 근거: docs/design.md 「계정 전환」.
+/// 훅 입력의 세션 기록 파일(Claude, Cursor)을 남긴다. 다시 띄우기가 그 이름으로 세션을 잇고, 계정 전환이 Claude 기록을 새 계정으로 복사한다. 근거: docs/design.md 「계정 전환」.
 fn keep_transcript(app: &App, node: NodeId, path: Option<&str>) -> Result<(), AgentError> {
     match path {
         Some(path) => app
@@ -2000,7 +2053,36 @@ async fn agent_done(
     Json(req): Json<DoneRequest>,
 ) -> Result<Json<Vec<String>>, AgentError> {
     let node = app.caller(&headers)?;
-    Ok(Json(app.graph.done(node, &req.summary).map_err(for_agent)?))
+    for image in &req.images {
+        done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    }
+    let alive_children = app
+        .graph
+        .done(node, &req.summary, req.asked.as_deref(), &req.images)
+        .map_err(for_agent)?;
+    Ok(Json(alive_children))
+}
+
+/// 브라우저가 `<img>`로 그리는 그림 꼴. 받은편지함이 완료 줄의 파일을 그대로 낸다.
+const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+
+/// 완료 줄의 그림은 받은편지함이 그대로 낸다. 있는 그림 파일만 받는다.
+fn done_image(path: &std::path::Path) -> Result<(), String> {
+    let image = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| IMAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
+    if !image {
+        return Err(format!(
+            "{}: --image takes an image file ({}).",
+            path.display(),
+            IMAGE_EXTENSIONS.join(", ")
+        ));
+    }
+    if !path.is_file() {
+        return Err(format!("{}: no such file.", path.display()));
+    }
+    Ok(())
 }
 
 /// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드는 부모에게 묻는다.
@@ -2104,14 +2186,19 @@ async fn agent_remove(
     Ok(Json(moved))
 }
 
-async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<App>>) -> Response {
+async fn pty(
+    ws: WebSocketUpgrade,
+    Path(id): Path<u32>,
+    State(app): State<Arc<App>>,
+    via: Option<Extension<ViaServe>>,
+) -> Response {
     // 사람이 그 노드 터미널에 키를 누르면 답한 것으로 본다. `loom ask` 대기는 에이전트가 판단해 지운다. 근거: docs/design.md 「사람 응답 대기」.
     let typed = |app: &App, id| {
         if let Err(e) = app.graph.typed(id) {
             eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
         }
     };
-    serve_pty(ws, app, |app| &app.host, typed, NodeId(id))
+    serve_pty(ws, via, app, |app| &app.host, typed, NodeId(id))
 }
 
 /// PTY 웹소켓의 글 프레임. 터미널 출력은 바이너리 프레임으로 간다.
@@ -2127,8 +2214,10 @@ pub enum PtyNotice {
 
 /// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
 /// 사람이 누른 키(터미널이 스스로 보내는 응답은 빼고)가 오면 `typed`를 부른다.
+/// 폰의 연결은 PC에서 그 기기를 끊으면 닫는다(`origin::until_removed`).
 fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
     ws: WebSocketUpgrade,
+    via: Option<Extension<ViaServe>>,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
     typed: fn(&App, K),
@@ -2136,15 +2225,19 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
         // PTY가 없다. 화면이 안내를 보이게 알리고, 다시 붙지 않게 연결을 열어 둔다.
-        return ws.on_upgrade(|mut socket| async move {
-            let notice =
-                serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
-            if socket.send(Message::Text(notice.into())).await.is_ok() {
-                while let Some(Ok(_)) = socket.next().await {}
-            }
+        let devices = app.devices.clone();
+        return ws.on_upgrade(move |mut socket| {
+            origin::until_removed(devices, via, async move {
+                let notice =
+                    serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
+                if socket.send(Message::Text(notice.into())).await.is_ok() {
+                    while let Some(Ok(_)) = socket.next().await {}
+                }
+            })
         });
     };
-    ws.on_upgrade(move |socket| async move {
+    let devices = app.devices.clone();
+    ws.on_upgrade(move |socket| origin::until_removed(devices, via, async move {
         let (mut to_view, mut from_view) = socket.split();
         let mut output = attached.output;
         let mut size = attached.size;
@@ -2187,7 +2280,7 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
                 },
             }
         }
-    })
+    }))
 }
 
 /// 지금 PTY 크기를 화면에 알리고 본 값으로 표시한다.
@@ -2205,8 +2298,13 @@ async fn event_log(State(app): State<Arc<App>>) -> Result<Json<Vec<EventRecord>>
     app.graph.recent_events().map(Json).map_err(internal)
 }
 
-async fn events(ws: WebSocketUpgrade, State(app): State<Arc<App>>) -> Response {
-    ws.on_upgrade(move |socket| send_events(socket, app))
+async fn events(
+    ws: WebSocketUpgrade,
+    State(app): State<Arc<App>>,
+    via: Option<Extension<ViaServe>>,
+) -> Response {
+    let devices = app.devices.clone();
+    ws.on_upgrade(move |socket| origin::until_removed(devices, via, send_events(socket, app)))
 }
 
 async fn send_events(mut socket: WebSocket, app: Arc<App>) {
@@ -2232,21 +2330,50 @@ async fn send_json(socket: &mut WebSocket, value: &impl Serialize) -> Result<(),
     socket.send(Message::Text(text.into())).await
 }
 
+/// 화면 빌드(vite)가 이름에 내용 해시를 붙여 두는 폴더.
+const HASHED_ASSETS: &str = "assets/";
+
 /// 첫 페이지(`/`)는 테마를 넣어 보내는 `settings::index`가 맡는다.
+/// 해시 이름 파일은 내용이 바뀌면 이름도 바뀐다. 그래서 브라우저가 다시 묻지 않고 둔다. 이 머리가 없으면 새로 고칠 때마다 JS·글꼴 약 5MB를 다시 받았다(2026-10-22 측정).
 async fn asset(uri: Uri) -> Response {
-    match Assets::get(uri.path().trim_start_matches('/')) {
-        Some(file) => (
-            [(header::CONTENT_TYPE, file.metadata.mimetype().to_owned())],
-            file.data,
-        )
-            .into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+    let path = uri.path().trim_start_matches('/');
+    let Some(file) = Assets::get(path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut response = (
+        [(header::CONTENT_TYPE, file.metadata.mimetype().to_owned())],
+        file.data,
+    )
+        .into_response();
+    if path.starts_with(HASHED_ASSETS) {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
     }
+    response
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn only_hashed_assets_are_cached() {
+        let cache = |path: String| async move {
+            let response = asset(path.parse().unwrap()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            response.headers().get(header::CACHE_CONTROL).cloned()
+        };
+        let hashed = Assets::iter()
+            .find(|p| p.starts_with(HASHED_ASSETS))
+            .expect("web/dist has assets/");
+        assert_eq!(
+            cache(format!("/{hashed}")).await.unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(cache("/manifest.webmanifest".into()).await, None);
+    }
 
     /// 화면(`web/src/problem.ts`)이 읽는 모양이다. 바뀌면 화면 번역도 함께 고친다.
     #[test]

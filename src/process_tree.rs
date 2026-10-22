@@ -93,6 +93,15 @@ impl Snapshot {
             .collect()
     }
 
+    /// `root`와 그 자손 가운데 이름이 `name`인 프로세스가 있으면 참이다.
+    pub fn runs(&self, root: u32, name: &str) -> bool {
+        subtree(&self.parents, root).into_iter().any(|pid| {
+            self.system
+                .process(Pid::from_u32(pid))
+                .is_some_and(|p| p.name() == name)
+        })
+    }
+
     /// `roots`와 그 자손을 모두 끝내고 끝낸 프로세스 수를 돌려준다.
     pub fn kill_trees(&self, roots: impl IntoIterator<Item = u32>) -> usize {
         roots
@@ -225,6 +234,22 @@ mod tests {
         assert_eq!(child_on_path(&parents, 10, 40), Some(20));
         assert_eq!(child_on_path(&parents, 10, 20), Some(20));
         assert_eq!(child_on_path(&parents, 10, 50), None);
+    }
+
+    /// 다시 띄우기는 `loom`을 도는 셸(쉬는 대기 훅)을 백그라운드 명령으로 세지 않는다. 이름은 사진만으로 읽는다.
+    #[cfg(unix)]
+    #[test]
+    fn runs_finds_a_process_name_in_the_tree() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let snapshot = Snapshot::now();
+        let me = std::process::id();
+        assert!(snapshot.runs(me, "sleep"));
+        assert!(!snapshot.runs(child.id(), "loom"));
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[test]

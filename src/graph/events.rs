@@ -6,7 +6,7 @@ use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{Kind, MessageId, NodeId, NodeState, Refusal, from_json, to_json};
+use super::{Kind, MessageId, NodeId, NodeState, Refusal, WaitId, from_json, to_json};
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, Provider};
 
@@ -96,6 +96,12 @@ pub enum Entry {
         later: u32,
         failed: u32,
     },
+    /// 노드를 다시 띄웠다(「다시 띄우기」). `error`가 있으면 옛 프로세스로 계속 돌거나 프로세스 없이 남았다.
+    /// 턴 끝에 다시 띄운 결과를 사람이 여기서 본다. 화면은 이 기록으로 「턴이 끝나면 다시 띄움」을 거둔다.
+    Relaunched {
+        node: Who,
+        error: Option<String>,
+    },
     /// 자동 전환할 계정이 없어 바꾸지 않았다. `resets_at`은 그 공급자 계정 가운데 가장 빠른 창 초기화(유닉스 초)다.
     NoAccountLeft {
         provider: Provider,
@@ -105,6 +111,59 @@ pub enum Entry {
         #[ts(type = "number | null")]
         resets_at: Option<i64>,
     },
+    /// 사람이 띄운 노드가 `loom ask`로 사람에게 물었다. `text`는 질문 전문이다.
+    Asked {
+        node: Who,
+        wait: WaitId,
+        text: String,
+    },
+    /// 사람이 띄운 노드가 `loom done`으로 받은편지함에 완료를 걸었다. `instruction`은 `--asked`로 받은 사람의 지시다.
+    Reported {
+        node: Who,
+        wait: WaitId,
+        summary: String,
+        instruction: String,
+    },
+    /// 사람이 받은편지함에서 질문에 답했다. `images`는 답에 붙인 그림 수다.
+    Answered {
+        node: Who,
+        wait: WaitId,
+        text: String,
+        images: u32,
+    },
+    /// 사람이 받은편지함의 완료 줄에서 이어서 맡겼다. 그 완료는 닫혔다.
+    Instructed {
+        node: Who,
+        wait: WaitId,
+        text: String,
+        images: u32,
+    },
+    /// 질문이 답 없이 닫혔다.
+    Unanswered {
+        node: Who,
+        wait: WaitId,
+        by: ClosedBy,
+    },
+    /// 사람이 받은편지함의 완료를 [확인]했다.
+    Confirmed {
+        node: Who,
+        wait: WaitId,
+    },
+}
+
+/// 질문이 답 없이 닫힌 까닭.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ClosedBy {
+    /// 사람이 받은편지함에서 [×]를 눌렀다.
+    Human,
+    /// 에이전트가 `loom answered`로 닫았다. 사람이 터미널에서 답했다고 판단했다.
+    Agent,
+    /// 노드 프로세스를 다시 띄웠다.
+    Restart,
+    /// 노드 프로세스가 끝났다.
+    Exit,
 }
 
 /// 계정을 바꾼 이유.

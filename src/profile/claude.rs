@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model, OpenQuestion, WaitKind};
+use crate::graph::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::Launch;
 
@@ -29,6 +29,8 @@ const REWAKE_SUMMARY: &str = "loom message";
 const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 /// Claude가 API 응답 없이 쓴 응답(오류·중단)의 모델 값. 실제 모델이 아니다.
 const SYNTHETIC_MODEL: &str = "<synthetic>";
+/// 시작 인자의 첫 입력 없이 다시 시작한 세션(`SessionStart`의 `source`, 2.1.304 훅 문서).
+const RESTARTED_SESSION: &str = "clear|compact";
 /// Bash 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다.
 const GUARD: &str = "loom guard";
 
@@ -73,8 +75,8 @@ pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
 
 /// `claude` 시작 인자. 사용자의 `~/.claude` 파일을 고치지 않으려고 훅을 `--settings`로만 넘긴다.
 /// `plugin`은 loom이 싣는 스킬 플러그인 폴더다(`skills::Plugin`). 스킬은 `loom:<이름>`으로 뜬다.
-/// `launch`는 상시 지시를 고른다(`skills::always_on`).
-pub fn args(plugin: &Path, launch: Launch) -> Vec<String> {
+/// `launch`는 상시 지시를 고른다(`skills::always_on`). `brief`는 시작 인자로 넘기는 첫 입력이다.
+pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     let hook = json!([{ "hooks": [{
         "type": "command",
         "command": "loom hook",
@@ -89,10 +91,17 @@ pub fn args(plugin: &Path, launch: Launch) -> Vec<String> {
         "rewakeMessage": REWAKE_MESSAGE,
         "rewakeSummary": REWAKE_SUMMARY,
     }] }]);
+    // 첫 입력이 있으면 그 턴의 `UserPromptSubmit`이 메시지를 넘긴다. 시작 훅이 먼저 깨우면 Claude가 그 메시지 턴을 첫 입력보다 먼저 돌았다
+    // (2026-10-22 실측: 워크트리 설정 동안 쌓인 조정을 받은 자식이 지시문 없이 시작한 줄 알고 부모에게 지시를 다시 물었다).
+    let session_start = if brief.is_empty() {
+        idle.clone()
+    } else {
+        json!([{ "matcher": RESTARTED_SESSION, "hooks": idle[0]["hooks"] }])
+    };
     let settings = json!({
         "permissions": { "allow": ALLOWED },
         "hooks": {
-            "SessionStart": idle,
+            "SessionStart": session_start,
             "UserPromptSubmit": hook,
             "PreToolUse": hook,
             "PostToolUse": hook,
@@ -158,7 +167,7 @@ pub enum Event {
     SessionStart {
         model: Option<String>,
     },
-    /// 사람이 입력했다. `prompt`는 그 글이다(완료 알림의 지시).
+    /// 새 턴의 입력. 사람 입력이 아닐 수도 있다(`human_input`).
     UserPromptSubmit {
         #[serde(default)]
         prompt: String,
@@ -184,6 +193,8 @@ pub enum Event {
     },
 }
 
+/// Claude가 사람 입력이 아닌 턴 입력 앞에 붙이는 태그(2.1.308 실측).
+const NOTIFICATION_TAG: &str = "<task-notification>";
 /// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
 const RATE_LIMIT_ERROR: &str = "rate_limit";
 /// 한도 대기의 한 줄 글. 한도 창의 첫 선택지다(2.1.306 화면 문구).
@@ -201,6 +212,14 @@ impl Event {
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
             Event::Notification { .. } => Take::Never,
         }
+    }
+
+    /// 사람이 친 입력이 연 턴인가. 백그라운드 작업 알림과 비동기 훅의 다시 깨우기(`asyncRewake`, loom 메시지 전달)도
+    /// `UserPromptSubmit`을 부르고, 그 입력은 `<task-notification>`으로 시작한다. 훅 입력에는 출처 필드가 없고,
+    /// 기록 파일의 `origin.kind`는 훅이 돈 뒤에 쓰인다(2.1.308 실측). 그래서 입력 글로 가린다.
+    /// 전에는 이 턴들도 사람 입력으로 보아 턴 끝 검사가 거듭 깨웠다(2026-10-22 ktasearch-총괄 기록, 사람 결정 Q349 C).
+    pub fn human_input(&self) -> bool {
+        matches!(self, Event::UserPromptSubmit { prompt } if !prompt.starts_with(NOTIFICATION_TAG))
     }
 
     /// 이 훅이 알리는 사람 응답 대기. `None`이면 에이전트가 다시 일한다: 훅이 건 대기를 거둔다.
@@ -239,8 +258,8 @@ impl Event {
     }
 
     /// 훅 출력 JSON. 없으면 아무것도 출력하지 않는다.
-    pub fn reply(&self, taken: &[Delivery], open_questions: &[OpenQuestion]) -> Option<Value> {
-        let Some(text) = super::hook_text(taken, open_questions) else {
+    pub fn reply(&self, taken: &[Delivery], note: Option<&str>) -> Option<Value> {
+        let Some(text) = super::hook_text(taken, note) else {
             return match self {
                 Event::PreToolUse {
                     tool_name,
@@ -350,7 +369,6 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::WaitId;
 
     #[test]
     fn launch_text_has_the_ask_rules() {
@@ -394,7 +412,7 @@ mod tests {
             "tool_input": { "command": "npm test && echo ok", "timeout": 1000 },
         }));
         assert_eq!(
-            pre.reply(&[], &[]),
+            pre.reply(&[], None),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "updatedInput": { "command": "loom guard\nnpm test && echo ok", "timeout": 1000 },
@@ -408,12 +426,12 @@ mod tests {
             "hook_event_name": "PreToolUse", "tool_name": "Bash",
             "tool_input": { "command": "loom wait", "run_in_background": true },
         }));
-        assert_eq!(background.reply(&[], &[]), None);
+        assert_eq!(background.reply(&[], None), None);
         let read = event(json!({
             "hook_event_name": "PreToolUse", "tool_name": "Read",
             "tool_input": { "file_path": "/a" },
         }));
-        assert_eq!(read.reply(&[], &[]), None);
+        assert_eq!(read.reply(&[], None), None);
     }
 
     #[test]
@@ -423,12 +441,12 @@ mod tests {
             "tool_input": { "command": "npm test" },
         }));
         assert_eq!(
-            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], &[]),
+            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], None),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason":
-                    "loom message #1 (from: 총괄, mode: interrupt. Stop current work and follow this body)\n멈춰라",
+                    "loom message #1 (from: 총괄, mode: interrupt. Stop your current work and do what this message says)\n멈춰라",
             } }))
         );
     }
@@ -447,7 +465,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                event(input).reply(&[delivery(Kind::Steer, "b")], &[]),
+                event(input).reply(&[delivery(Kind::Steer, "b")], None),
                 Some(json!({ "hookSpecificOutput": {
                     "hookEventName": name,
                     "additionalContext": "loom message #1 (from: 총괄, mode: steer)\nb",
@@ -488,27 +506,28 @@ mod tests {
         assert!(!event(json!({ "hook_event_name": "Stop" })).rate_limited());
     }
 
-    /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
-    /// 사람 입력 턴에 열린 `loom ask` 질문이 있으면 맥락 한 줄로 알린다. 없으면 아무것도 넣지 않는다.
+    /// 2.1.308 실측 입력(본문은 줄였다): 백그라운드 작업 알림과 비동기 훅의 다시 깨우기는 사람 입력이 아니다.
     #[test]
-    fn human_input_gets_the_open_question_line() {
+    fn task_notifications_are_not_human_input() {
+        let prompt =
+            |text: &str| event(json!({ "hook_event_name": "UserPromptSubmit", "prompt": text }));
+        assert!(prompt("Reply only HELLO.").human_input());
+        assert!(!prompt("<task-notification>\n<task-id>b68lj1bk9</task-id>").human_input());
+        assert!(
+            !prompt("<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>\n<system-reminder>")
+                .human_input()
+        );
+        assert!(!event(json!({ "hook_event_name": "Stop" })).human_input());
+    }
+
+    /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
+    /// 사람 입력 턴의 안내(`App::human_input`)는 맥락으로 넘긴다. 없으면 아무것도 넣지 않는다.
+    #[test]
+    fn human_input_gets_the_note_as_context() {
         let prompt = event(json!({ "hook_event_name": "UserPromptSubmit" }));
-        assert_eq!(prompt.reply(&[], &[]), None);
-        let questions = [
-            OpenQuestion {
-                id: WaitId(12),
-                text: "A or B?".into(),
-            },
-            OpenQuestion {
-                id: WaitId(13),
-                text: "Delete?".into(),
-            },
-        ];
-        let reply = prompt.reply(&[], &questions).unwrap();
-        let text = reply["hookSpecificOutput"]["additionalContext"]
-            .as_str()
-            .unwrap();
-        assert!(text.starts_with("Open loom ask questions: Q12: A or B? | Q13: Delete?. If this input answers some of them, call `loom answered <Q ids>`"), "{text}");
+        assert_eq!(prompt.reply(&[], None), None);
+        let reply = prompt.reply(&[], Some("note")).unwrap();
+        assert_eq!(reply["hookSpecificOutput"]["additionalContext"], "note");
     }
 
     #[test]
@@ -610,13 +629,7 @@ mod tests {
 
     #[test]
     fn settings_register_the_eight_hooks_and_allow_messaging_but_not_spawn() {
-        let args = args(
-            Path::new("/p"),
-            crate::skills::Launch {
-                position: crate::skills::Position::Root,
-                skills: Default::default(),
-            },
-        );
+        let args = args(Path::new("/p"), root_launch(), "");
         assert_eq!(args[2], "--settings");
         assert_eq!(args[4..], ["--plugin-dir", "/p"]);
         let settings: Value = serde_json::from_str(&args[3]).unwrap();
@@ -655,5 +668,23 @@ mod tests {
         assert!(allow.contains(&json!(format!("Bash({GUARD})"))));
         assert!(allow.contains(&json!("Bash(loom wait)")));
         assert!(!allow.iter().any(|a| a.as_str().unwrap().contains("spawn")));
+        assert_eq!(settings["hooks"]["SessionStart"][0]["matcher"], Value::Null);
+    }
+
+    fn root_launch() -> Launch {
+        Launch {
+            position: crate::skills::Position::Root,
+            skills: Default::default(),
+        }
+    }
+
+    /// 첫 입력이 있으면 시작 훅이 기다리지 않는다. 쌓인 메시지는 첫 입력 턴의 훅이 넘긴다.
+    #[test]
+    fn a_session_with_a_brief_does_not_wait_at_startup() {
+        let args = args(Path::new("/p"), root_launch(), "지시");
+        let settings: Value = serde_json::from_str(&args[3]).unwrap();
+        let start = &settings["hooks"]["SessionStart"][0];
+        assert_eq!(start["matcher"], RESTARTED_SESSION);
+        assert_eq!(start["hooks"][0]["asyncRewake"], true);
     }
 }

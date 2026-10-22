@@ -2,6 +2,7 @@
 //! 기능 모듈이 테이블을 더하려면 `STEPS` 끝에 항목 하나를 더한다. 이미 있는 항목은 고치지 않는다.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::Connection;
 use rusqlite_migration::{M, MigrationDefinitionError, Migrations};
@@ -192,6 +193,40 @@ const STEPS: &[M] = &[
         "ALTER TABLE nodes ADD COLUMN done TEXT;
         UPDATE nodes SET done = json_remove(wait, '$.source'), wait = NULL WHERE wait ->> 'kind' = 'done';",
     ),
+    // 26: 부모 없는 노드의 완료 보고는 받은편지함에만 둔다(graph `done`). 전에 보관한 사본을 지운다. 트리에 「보관 1」만 남았다(2026-10-22 사람 지시 "문제 해결해").
+    M::up(
+        "DELETE FROM messages WHERE recipient IS NULL AND body LIKE 'done: %'
+            AND sender IN (SELECT id FROM nodes WHERE parent IS NULL);",
+    ),
+    // 27: 밀린 상자의 자리는 저장하지 않는다. 화면이 렌더마다 겹친 상자를 민다. 밀린 상자는 밀기 전 자리(`home_x`·`home_y`)로 돌아가 저장한다.
+    // 화면이 민 자리를 저장하면 카드를 다르게 잰 두 탭이 번갈아 저장했다(2026-10-22 사람 지시 "state must be one").
+    M::up(
+        "UPDATE spots SET x = home_x, y = home_y WHERE home_x IS NOT NULL AND home_y IS NOT NULL;
+        ALTER TABLE spots DROP COLUMN home_x;
+        ALTER TABLE spots DROP COLUMN home_y;",
+    ),
+    // 28: 짝지은 폰(devices). `token_hash`는 쿠키 토큰의 SHA-256이다. 시각은 Unix 밀리초다.
+    M::up(
+        "CREATE TABLE devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL,
+            token_hash BLOB NOT NULL UNIQUE,
+            paired_at INTEGER NOT NULL,
+            last_seen INTEGER NOT NULL
+        );",
+    ),
+    // 29: 노드마다 여러 완료 알림(graph `waits`). `wait`은 serde JSON `HumanWait`이고 `id`는 그 완료 번호다. `nodes.done` 자리 하나는 다음 `loom done`이 확인하지 않은 완료를 덮었다.
+    // 근거: 2026-10-22 사람 보고 "완료 알림이 확인 안눌러도 없어지는 버그가 있음"(Q368을 Q370이, Q372를 Q373이 덮었다).
+    M::up(
+        "CREATE TABLE dones (
+            id INTEGER PRIMARY KEY,
+            node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            wait TEXT NOT NULL
+        );
+        CREATE INDEX dones_node ON dones(node);
+        INSERT INTO dones (id, node, wait) SELECT done ->> 'id', id, done FROM nodes WHERE done IS NOT NULL;
+        ALTER TABLE nodes DROP COLUMN done;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -217,17 +252,31 @@ fn data_dir() -> std::io::Result<PathBuf> {
     Ok(home.join(".loom"))
 }
 
-/// 파일을 WAL 모드로 열고 스키마를 최신으로 올린다.
-/// 연결마다 rusqlite가 busy timeout 5초를 건다(`Connection::open`). `Repos`·`Graph`·`Settings`는 같은 파일에 따로 연결하므로, 다른 연결이 쓰는 동안 바로 `database is locked`로 실패하지 않고 기다린다.
+/// 데몬의 DB 연결 하나. 그래프·저장소·설정·카드 자리가 복사본을 나눠 쥐고, 이 잠금 하나로 차례를 정한다.
+/// 연결이 여럿이면 SQLite가 연결 사이 차례를 정한다. 쓰기를 기다리는 연결은 잠깐 자고 다시 보기를 되풀이하므로, 다른 연결이 짧은 커밋을 이어 가면 계속 놓친다.
+/// 커밋이 20~120 ms 걸리는 바쁜 WSL에서 기다리던 쓰기가 5초 뒤 `database is locked`로 실패했다(2026-10-22 사람 데몬, 근거: docs/design.md 「저장」).
+#[derive(Clone)]
+pub struct Database(Arc<Mutex<Connection>>);
+
+impl Database {
+    /// 쥔 동안 다른 모듈의 DB 함수를 부르지 않는다. 같은 잠금을 다시 잡아 멈춘다.
+    pub fn lock(&self) -> MutexGuard<'_, Connection> {
+        self.0.lock().unwrap()
+    }
+}
+
+/// 파일을 WAL 모드로 열고 스키마를 최신으로 올린다. 데몬은 한 번만 연다.
+/// 트랜잭션은 시작할 때 쓰기 잠금을 잡는다(IMMEDIATE). 기본(DEFERRED)은 읽은 뒤 다른 프로세스가 커밋하면 첫 쓰기가 기다리지 않고 `database is locked`(SQLITE_BUSY_SNAPSHOT)로 실패한다.
 /// 더 새 판의 loom이 올린 DB는 열지 않는다. 옛 판은 모르는 표·열을 깨뜨린다.
-pub fn open(path: &Path) -> std::io::Result<Connection> {
+pub fn open(path: &Path) -> std::io::Result<Database> {
     let mut conn = Connection::open(path).map_err(std::io::Error::other)?;
+    conn.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(std::io::Error::other)?;
     conn.pragma_update(None, "foreign_keys", true)
         .map_err(std::io::Error::other)?;
     match MIGRATIONS.to_latest(&mut conn) {
-        Ok(()) => Ok(conn),
+        Ok(()) => Ok(Database(Arc::new(Mutex::new(conn)))),
         Err(rusqlite_migration::Error::MigrationDefinition(
             MigrationDefinitionError::DatabaseTooFarAhead,
         )) => Err(std::io::Error::other(format!(
@@ -247,14 +296,16 @@ mod tests {
     fn newer_data_is_refused_with_a_clear_message() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t.db");
-        let conn = super::open(&path).unwrap();
+        let db = super::open(&path).unwrap();
+        let conn = db.lock();
         let version: u32 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         conn.pragma_update(None, "user_version", version + 1)
             .unwrap();
         drop(conn);
-        let error = super::open(&path).unwrap_err().to_string();
+        drop(db);
+        let error = super::open(&path).err().unwrap().to_string();
         assert_eq!(
             error,
             format!(
@@ -263,6 +314,31 @@ mod tests {
                 path.display()
             )
         );
+    }
+
+    /// 한 연결이 읽고 쓰는 트랜잭션 사이에 다른 프로세스가 커밋해도 쓰기가 `database is locked`로 실패하지 않는다.
+    /// 2026-10-22 사람 데몬에서 [답하기]가 이렇게 실패했다. 그때는 모듈마다 연결이 따로였다.
+    #[test]
+    fn a_read_then_write_transaction_survives_another_connections_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        let first = super::open(&path).unwrap();
+        let second = super::open(&path).unwrap();
+        let mut first = first.lock();
+        let tx = first.transaction().unwrap();
+        let _: u32 = tx
+            .query_row("SELECT count(*) FROM repos", [], |row| row.get(0))
+            .unwrap();
+        let other = std::thread::spawn(move || {
+            second
+                .lock()
+                .execute("INSERT INTO repos (path) VALUES ('/b')", [])
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        tx.execute("INSERT INTO repos (path) VALUES ('/a')", [])
+            .unwrap();
+        tx.commit().unwrap();
+        other.join().unwrap().unwrap();
     }
 
     #[test]
@@ -325,6 +401,28 @@ mod tests {
             .collect::<rusqlite::Result<_>>()
             .unwrap();
         assert_eq!(left, [None, Some("screen".into())]);
+    }
+
+    /// 노드 자리의 완료는 완료 표로 옮긴다. 번호와 내용은 그대로다.
+    #[test]
+    fn step_29_moves_done_notices_to_dones() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 28).unwrap();
+        let done = r#"{"id":7,"kind":"done","text":"끝","since":1,"answerable":true,"doc":null,"instruction":"일해","images":[]}"#;
+        conn.execute(
+            "INSERT INTO nodes (id, name, agent, state, done) VALUES (4, 'a', 'null', '{}', ?1), (9, 'b', 'null', '{}', NULL)",
+            [done],
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let moved: Vec<(u32, u32, String)> = conn
+            .prepare("SELECT id, node, wait FROM dones")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(moved, [(7, 4, done.to_owned())]);
     }
 
     /// 앞 묶음 자리는 저장소 기준이라 지운다. 카드 자리와 정렬한 저장소는 남긴다.
@@ -460,5 +558,29 @@ mod tests {
             )
             .unwrap();
         assert_eq!(row, (1, 2, "a".into(), r#""steer""#.into(), "질문".into()));
+    }
+
+    /// 밀린 상자는 밀기 전 자리로 돌아간다. 화면이 렌더마다 다시 민다. 밀리지 않은 상자는 그대로다.
+    #[test]
+    fn pushed_spots_go_back_to_their_home_and_the_home_columns_go() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        // 26단계까지 올린다. 27단계가 밀린 자리를 되돌린다.
+        super::MIGRATIONS.to_version(&mut conn, 26).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO spots (spot, repo, x, y, home_x, home_y) VALUES
+            ('{"kind":"repo","repo":71}', 71, 1448, 126, 768, 126),
+            ('{"kind":"repo","repo":9}', 9, 32, 126, NULL, NULL);"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let spots = conn
+            .prepare("SELECT repo, x, y FROM spots ORDER BY repo")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<(u32, f64, f64)>>>()
+            .unwrap();
+        assert_eq!(spots, [(9, 32.0, 126.0), (71, 768.0, 126.0)]);
+        assert!(conn.prepare("SELECT home_x FROM spots").is_err());
     }
 }

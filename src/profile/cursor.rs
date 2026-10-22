@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model, OpenQuestion, WaitKind};
+use crate::graph::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::{AlwaysOn, Launch, Position};
 
@@ -77,6 +77,9 @@ const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 /// 플러그인 표지가 가리키는 훅 파일. Claude는 `.cursor-plugin`과 이 파일을 읽지 않는다.
 const HOOKS_FILE: &str = "cursor-hooks.json";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
+/// 다시 띄운 세션의 첫 입력. 쉬는 Cursor에는 stop 훅만 메시지를 넘긴다. 입력 없이 이으면 그 훅이 돌지 않아
+/// 사람이 입력할 때까지 메시지가 쌓였다(2026-10-22 실측).
+pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
 /// Shell 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다(`claude::GUARD`와 같다).
 const GUARD: &str = "loom guard";
 
@@ -174,9 +177,6 @@ pub enum Event {
     },
     BeforeSubmitPrompt {
         model: Option<String>,
-        /// 입력한 글(완료 알림의 지시). stop 훅의 `followup_message`도 이 훅을 부른다.
-        #[serde(default)]
-        prompt: String,
     },
     PreToolUse {
         tool_name: String,
@@ -222,8 +222,8 @@ impl Event {
     }
 
     /// 훅 출력 JSON. 쉬는 노드(stop)의 메시지는 새 턴 입력(`followup_message`)으로 넘긴다.
-    pub fn reply(&self, taken: &[Delivery], open_questions: &[OpenQuestion]) -> Value {
-        let Some(text) = super::hook_text(taken, open_questions) else {
+    pub fn reply(&self, taken: &[Delivery], note: Option<&str>) -> Value {
+        let Some(text) = super::hook_text(taken, note) else {
             return match self {
                 Event::SessionStart { .. } => json!({ "additional_context": usage() }),
                 Event::BeforeSubmitPrompt { .. } => json!({ "continue": true }),
@@ -397,13 +397,13 @@ mod tests {
     #[test]
     fn idle_mail_becomes_a_followup_and_interrupt_denies_the_tool() {
         let stop = event(json!({ "hook_event_name": "stop" }));
-        let reply = stop.reply(&[delivery(Kind::Queue)], &[]);
+        let reply = stop.reply(&[delivery(Kind::Queue)], None);
         assert!(reply["followup_message"].as_str().unwrap().contains("#7"));
         let pre = event(json!({
             "hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {},
         }));
         assert_eq!(
-            pre.reply(&[delivery(Kind::Interrupt)], &[])["permission"],
+            pre.reply(&[delivery(Kind::Interrupt)], None)["permission"],
             "deny"
         );
     }
@@ -415,14 +415,14 @@ mod tests {
             "tool_input": { "command": "npm test", "timeout": 30000 },
         }));
         assert_eq!(
-            pre.reply(&[], &[])["updated_input"],
+            pre.reply(&[], None)["updated_input"],
             json!({ "command": "loom guard\nnpm test", "timeout": 30000 })
         );
         let background = event(json!({
             "hook_event_name": "preToolUse", "tool_name": "Shell",
             "tool_input": { "command": "loom wait", "is_background": true },
         }));
-        assert_eq!(background.reply(&[], &[]), json!({}));
+        assert_eq!(background.reply(&[], None), json!({}));
     }
 
     /// Cursor가 버리지 않게 sessionStart 글마다 상한 아래로 둔다.
@@ -432,7 +432,7 @@ mod tests {
         let said = event(json!({ "hook_event_name": "afterAgentResponse", "text": "병합할까요?" }));
         assert!(matches!(&said, Event::AfterAgentResponse { text } if text == "병합할까요?"));
         assert_eq!(said.take(), None);
-        assert_eq!(said.reply(&[], &[]), json!({}));
+        assert_eq!(said.reply(&[], None), json!({}));
         assert!(hooks()["hooks"]["afterAgentResponse"].is_array());
     }
 

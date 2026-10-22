@@ -151,6 +151,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
    줄 끝 글자 위에 덮고, 왼쪽 그라데이션이 잘린 글자를 가린다. 바탕은 줄 바탕과 같다(고른 줄은 패널 위 accent-wash). */
 .row-acts { --row-base: var(--panel); position: absolute; top: 3px; right: 4px; height: 24px; display: none; gap: 2px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--row-wash, transparent) 16px), linear-gradient(to right, transparent, var(--row-base) 16px); }
 .tree-line:is(:hover, :focus-within) > .row-acts { display: flex; }
+/* 동작 단추가 덮는 줄 끝 꼬리표는 감춘다. 그라데이션 밑에 반쯤 잘린 테두리만 남았다(2026-10-22 사람 지시 "문제 해결해"). */
+.tree-line:is(:hover, :focus-within) > .tree-row :is(.kept, .unread) { visibility: hidden; }
 .tree-line:hover > .row-acts { --row-base: var(--surface-hover); }
 .tree-line:has(> .tree-row[aria-current="true"]) > .row-acts { --row-base: var(--panel); --row-wash: var(--accent-wash); }
 .row-acts .act { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-2); cursor: pointer; }
@@ -259,6 +261,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dock-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
 .dock-head.hint { padding: 8px 16px; }
+.dock-refusal { margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--line); color: var(--err); font-size: 13px; }
 .dock-head.hint b { color: var(--ink); font-weight: 600; }
 .dock-term { flex: 1; min-height: 0; }
 .dock-note { padding: 16px; font-size: 13px; color: var(--ink-3); }
@@ -271,7 +274,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .filters input::placeholder { color: var(--ink-3); }
 .filters input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
 .events { list-style: none; padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
-.ev { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; font-size: 13px; }
+.ev { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; font-size: 13px; }
 .events li { border-radius: 6px; content-visibility: auto; contain-intrinsic-size: auto 40px; }
 .events li:hover { background: var(--surface-hover); }
 .events li:has(> .ev[aria-current="true"]) { background: var(--accent-wash); }
@@ -285,9 +288,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ev .note.err { color: var(--err); }
 .ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev .body.open { white-space: pre-wrap; overflow-wrap: anywhere; }
-.events .more { display: block; margin: -4px 0 0 80px; padding: 0 0 6px; font-size: 12px; color: var(--accent); background: none; border: 0; cursor: pointer; }
+/* 알림 줄 왼쪽 막대: 질문 계열은 질문 알약의 --warn, 완료 계열은 완료 알약의 --ok(목업 docs/mockups/notice-color.html A안). 글자 색은 그대로다. 라이트의 --warn 글자는 대비가 모자란다. */
+.ev[data-family]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--warn); }
+.ev[data-family="done"]::before { background: var(--ok); }
 .commits { list-style: none; padding: 6px 0; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
-.commit { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 12px 0 6px; }
+/* 줄이 1,000개까지 온다. 화면 밖 줄은 배치·그리기를 건너뛴다. 줄 높이가 22px로 고정이라 모양은 같다. 첫 그래프 표시가 약 1.2초에서 0.6초로 줄었다(2026-10-22 측정). */
+.commit { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 12px 0 6px; content-visibility: auto; contain-intrinsic-size: auto 22px; }
 .commit:hover { background: var(--surface-hover); }
 .commit .graph { flex: none; display: flex; }
 .lanes path { fill: none; stroke-width: 1; stroke-linecap: round; }
@@ -336,12 +342,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .menu button:focus-visible { background: var(--surface-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
 .menu svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .menu .check { margin-left: auto; color: var(--ink-2); }
+.menu button.danger { color: var(--err); }
 
 .card { width: 600px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .card[data-waiting] { border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 35%, transparent); }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
-.card-head .name { font-weight: 600; min-width: 0; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-head .name { font-weight: 600; min-width: 0; flex-shrink: 1; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 노드 이름 바꾸기(NameEdit, docs/mockups/node-rename.html). 입력창은 이름 글자 자리에 같은 높이로 든다. 저장·취소 단추는 없다(Enter·Esc). */
 .name.renamable:hover { text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; cursor: text; }
 .rename { position: relative; flex: 0 1 160px; min-width: 96px; }
@@ -360,6 +367,9 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .agent-logo svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .card-head .model { font-size: 12px; color: var(--ink-3); font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .spacer { flex: 1; }
+/* 좁은 머리에서는 모델, 그다음 이름이 줄어 「…」로 끝난다. 버튼·상태는 줄지 않는다(목업 docs/mockups/relaunch.html v3). */
+.card-head .btn, .card-head .state { flex-shrink: 0; }
+.card-head .model { flex-shrink: 100; }
 .card-head:last-child { border-bottom: 0; }
 /* 심플 카드와 오른쪽 칸 터미널 머리의 노드 정보(NodeCard.tsx NodeSummary). 목업 docs/mockups/card-view.html. 폭은 Graph.tsx `CARD_SIZE.simple`이다. */
 .card.simple { width: 260px; padding: 8px 8px 8px 12px; background: var(--surface); cursor: grab; }
@@ -403,7 +413,7 @@ button.unread:hover { filter: brightness(1.1); }
 .react-flow__resize-control.line.top, .react-flow__resize-control.line.bottom { height: 6px; }
 .react-flow__resize-control.handle { width: 12px; height: 12px; border: 0; background: none; }
 .xterm-box > div { height: 100%; }
-/* xterm은 PTY 열·줄의 크기로 그리고 Terminal.tsx `scaleToBox`가 칸에 맞게 늘이거나 줄인다. 그래서 칸 폭을 채우지 않는다. */
+/* xterm은 PTY 열·줄의 크기로 그리고 Terminal.tsx `scaleToBox`가 칸에 맞춘다. 그래서 칸 폭을 채우지 않는다. */
 .xterm-box > div { overflow: hidden; }
 .xterm-box > div > .xterm { display: inline-block; transform-origin: 0 0; }
 /* xterm.css가 스크롤 칸을 검게 칠한다. 칸 가장자리가 소수 픽셀에 걸리면 라이트 테마에서 회색 세로줄로 보였다. 바탕은 .xterm-box가 테마 색으로 칠한다. */
@@ -535,10 +545,11 @@ a { color: var(--accent); }
 .inbox-pill .go b { color: var(--ink); font-size: 13px; }
 .inbox-pill .go:hover, .inbox-pill .go[aria-expanded="true"] { background: var(--surface-hover); }
 .inbox-pill > .wait-body { padding: 10px 12px 12px; }
-/* 알약은 그래프를 덜 가리게 글을 4줄까지 보이고, 넘으면 [더 보기]로 편다. */
-.inbox-pill .full:not([data-more]) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
-.wait-body .more-text { justify-self: start; padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.wait-body .more-text:hover { color: var(--ink); }
+/* 알림 글은 접지 않고 다 보인다(2026-10-22 사람 지시 "완료 알림도 질문 알림처럼 더보기로 접지말고 항상 원문 다 보여줘"). */
+.wait-row .instruction { flex: 1; min-width: 0; margin: 0; color: var(--ink); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wait-body[data-kind="done"] .full { font-weight: 600; }
+/* 완료 줄의 입력창·보내기·끌어 놓기도 완료 색이다(2026-10-22 사람 지시 "완료 입력창이 질문색임"). */
+.wait-body[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
 .inbox-pill .count, .tabs .count, .rail .count, .wait-node .count, .state .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 /* 접힌 줄의 아이콘 단추는 글자 자리가 없다. 배지를 단추 안 오른쪽 위에 겹친다. 줄은 창 끝에 붙어 있어서 단추 밖으로 나가면 잘린다. */
 .rail .btn:has(.count) { position: relative; }
@@ -566,10 +577,11 @@ a { color: var(--accent); }
 .wait-row:hover { background: var(--surface-hover); border-radius: 6px; }
 .wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wait-row .published { flex: none; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .wait-row .done-mark { flex: none; width: 15px; height: 15px; color: var(--ok); }
-.wait-row .done-result { margin: 0; color: var(--ink); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+/* 지시가 여러 줄이면 체크와 [확인]은 첫 줄에 맞춘다. */
+.wait-row .top:has(> .instruction) { align-items: flex-start; }
 .wait-row .kind.done svg { flex: none; width: 14px; height: 14px; }
-.wait-body .asked { margin: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */
 .wait-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .answer-images { list-style: none; margin: 0; padding: 4px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
@@ -577,6 +589,10 @@ a { color: var(--accent); }
 .answer-images img { width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); }
 .answer-images button { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: var(--ink); color: var(--surface); cursor: pointer; }
 .answer-images button svg { width: 11px; height: 11px; }
+.answer-images button.zoom { position: static; display: block; width: 100%; height: 100%; border-radius: 6px; background: none; cursor: zoom-in; }
+.image-view { margin: auto; max-width: 92vw; max-height: 92vh; padding: 0; border: 0; border-radius: 8px; background: var(--panel); }
+.image-view::backdrop { background: rgb(0 0 0 / 0.7); }
+.image-view img { display: block; width: auto; height: auto; max-width: 92vw; max-height: 92vh; border: 0; border-radius: 0; object-fit: contain; cursor: zoom-out; }
 .wait-body > .drop-cover { position: absolute; inset: -4px; pointer-events: none; display: grid; place-content: center; justify-items: center; gap: 2px; border: 2px dashed var(--warn); border-radius: 8px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font-size: 13px; font-weight: 600; }
 .wait-body > .drop-cover svg { width: 20px; height: 20px; color: var(--warn); }
 .wait-body > .drop-cover .sub { font-size: 12px; font-weight: 400; color: var(--ink-2); }
@@ -695,6 +711,15 @@ dialog::backdrop { background: var(--scrim); }
 .row-main .meta.warnline, .row-main .meta.warnline .where { color: var(--warn); }
 .row-main .desc { flex-basis: 100%; font-size: 12px; color: var(--ink-3); }
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+/* 설정 › 휴대폰(docs/mockups/phone-pairing.html ②③). */
+.phone-ready { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.phone-ready code { font: 12px var(--mono); }
+.phone-steps { margin: 0; padding-left: 18px; }
+.pair-box { display: flex; gap: 20px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+/* QR은 밝은 바탕에서만 잘 찍힌다. 다크 테마에서도 흰 바탕이다. */
+.pair-box .qr { width: 148px; height: 148px; flex: none; background: #fff; padding: 4px; border-radius: 6px; }
+.pair-text { display: grid; gap: 6px; }
+.pair-code { font: 600 22px var(--mono); letter-spacing: 2px; }
 /* 설정 › 정보(docs/mockups/web-update.html ④). */
 .about-versions { display: grid; grid-template-columns: 90px 1fr; gap: 6px 12px; font-size: 13px; }
 .about-versions b { font: 600 13px var(--mono); }

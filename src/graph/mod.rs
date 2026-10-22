@@ -21,11 +21,12 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{Entry, EventRecord, SwitchCause};
+pub use events::{Entry, EventRecord, SwitchCause, Who};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{Attached, HUMAN, HumanWait, OpenQuestion, WaitDoc, WaitId, WaitKind, WaitSource};
 
+use crate::db::Database;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
 
@@ -178,7 +179,7 @@ impl Default for TreeLimits {
 pub enum Refusal {
     EmptyName,
     NameTaken(String),
-    /// `#`으로 시작하는 이름. `#번호`는 노드 번호 표기다.
+    /// `#`으로 시작하는 이름, 숫자만인 이름, `parent`. 받는 쪽 이름에서 노드 번호와 부모를 가리킨다.
     ReservedName(String),
     TooDeep,
     /// 값은 자식 수 상한이다.
@@ -188,12 +189,11 @@ pub enum Refusal {
     MailboxFull(String),
     /// 조정·중단의 대상이 부르는 노드의 부모나 자식이 아니다.
     NotRelated(String),
-    /// `loom rm`의 대상이 부르는 노드의 자식이 아니다.
+    /// `loom rm`·`loom relaunch`의 대상이 부르는 노드의 자식이 아니다.
     NotChild(String),
     /// `loom rm`의 대상이 가진 자식을 부르는 노드가 데려갈 수 없다. 값은 대상 이름과 데려갈 수 없는 자식과 이유다.
     ChildrenStay(String),
     Ended(String),
-    AlreadyDone,
     HeldFull,
     Cycle,
     NotFound(String),
@@ -204,10 +204,14 @@ pub enum Refusal {
     },
     /// 조정·중단을 받지 못하는 노드다. 값은 보낸 쪽이 적은 이름이다.
     NotSteerable(String),
+    /// 세션을 이어 다시 띄우지 못하는 노드다(셸·명령). 값은 노드 이름이다.
+    NoResume(String),
     /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
     NoRepo,
     /// `loom ask`의 질문이 비었다.
     EmptyQuestion,
+    /// 사람이 띄운 노드가 `--asked`(사람의 지시) 없이 `loom done`을 불렀다. 받은편지함 완료 줄에 지시가 보여야 한다.
+    NoAsked,
     /// `loom ask`를 부모가 있는 노드가 불렀다. 사람에게는 사람이 띄운 노드만 묻는다.
     HasParent,
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
@@ -232,7 +236,7 @@ impl fmt::Display for Refusal {
             }
             Refusal::ReservedName(name) => write!(
                 f,
-                "{name}: names that start with # are for node IDs. Remove the #."
+                "{name}: this name is kept for node IDs and the parent. Use a name that has a letter and does not start with #."
             ),
             Refusal::TooDeep => write!(
                 f,
@@ -260,14 +264,13 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NotChild(name) => write!(
                 f,
-                "{name}: not your child. You can remove only your own children."
+                "{name}: not your child. `loom rm` and `loom relaunch` act only on your own children."
             ),
             Refusal::ChildrenStay(list) => write!(
                 f,
                 "{list}. These children cannot move to you, so nothing changed. Remove or move them first."
             ),
             Refusal::Ended(name) => write!(f, "{name}: the node process has ended."),
-            Refusal::AlreadyDone => write!(f, "This node is already done."),
             Refusal::HeldFull => write!(
                 f,
                 "You have no parent, and {MAILBOX_LIMIT} kept messages wait for one. Send again after a new parent adopts you."
@@ -276,10 +279,17 @@ impl fmt::Display for Refusal {
                 f,
                 "A node cannot have itself or its descendant as its parent."
             ),
-            Refusal::NotFound(name) => write!(f, "{name}: no node has this name."),
+            Refusal::NotFound(name) => write!(
+                f,
+                "{name}: no node has this name. Use `parent`, or a name or ID from `loom status --all`."
+            ),
             Refusal::NotSteerable(name) => write!(
                 f,
                 "{name}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Use `loom send`."
+            ),
+            Refusal::NoResume(name) => write!(
+                f,
+                "{name}: this node runs a shell or command, which has no agent session to continue in a new process."
             ),
             Refusal::Ambiguous { name, candidates } => write!(
                 f,
@@ -290,6 +300,10 @@ impl fmt::Display for Refusal {
                 "The repository is not in the list. Add the repository again."
             ),
             Refusal::EmptyQuestion => write!(f, "Give the question as one line."),
+            Refusal::NoAsked => write!(
+                f,
+                "You have no parent, so the human reads this report in the inbox. Tell what the human asked: `loom done \"<what you did>\" --asked \"<the human's instruction>\" [--image <path>]...`."
+            ),
             Refusal::HasParent => write!(
                 f,
                 "You have a parent. Ask your parent with `loom send <parent> \"QUESTION: ...\"`. Only nodes that the human started ask the human."
@@ -318,7 +332,9 @@ impl From<rusqlite::Error> for Refusal {
 }
 
 pub struct Graph {
-    db: Mutex<Store>,
+    db: Database,
+    /// 화면에 보낸 마지막 이벤트 기록 id. `db`를 잠근 뒤에만 잠근다(`lock`).
+    published: Mutex<u32>,
     events: broadcast::Sender<GraphEvent>,
     /// 메시지를 넣을 때마다 `wait` 모두를 깨운다. 깬 쪽이 자기 메시지인지 DB에서 본다.
     mail: Notify,
@@ -327,48 +343,47 @@ pub struct Graph {
     titles: Mutex<HashMap<NodeId, String>>,
 }
 
+// 「안 읽음」은 사람이 눌러 앞당길 수 있는 메시지, 곧 아직 넘기지 않은 큐 메시지만 센다.
+// 조정·중단은 다음 단계에 넘어가므로 누를 일이 없다. 누른 뒤 칩이 그대로면 고장으로 보였다(2026-10-22 사람 보고 "작동을 안하는 것처럼 보임").
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
-    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
+    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL
+        AND m.kind = '\"queue\"'),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    n.brief, n.bookmark, n.wait, n.done,
+    n.brief, n.bookmark, n.wait,
+    (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id)
     FROM nodes n";
-
-struct Store {
-    conn: Connection,
-    /// 화면에 보낸 마지막 이벤트 기록 id.
-    published: u32,
-}
 
 /// 잠근 DB. 놓을 때 아직 보내지 않은 이벤트 기록을 보낸다.
 /// 기록은 바꾼 트랜잭션 안에서 쓴다. 되돌린 트랜잭션의 기록은 없으므로 보내지 않는다.
 struct Db<'a> {
-    store: MutexGuard<'a, Store>,
+    conn: MutexGuard<'a, Connection>,
+    published: MutexGuard<'a, u32>,
     events: &'a broadcast::Sender<GraphEvent>,
 }
 
 impl Deref for Db<'_> {
     type Target = Connection;
     fn deref(&self) -> &Connection {
-        &self.store.conn
+        &self.conn
     }
 }
 
 impl DerefMut for Db<'_> {
     fn deref_mut(&mut self) -> &mut Connection {
-        &mut self.store.conn
+        &mut self.conn
     }
 }
 
 impl Drop for Db<'_> {
     fn drop(&mut self) {
         // 잠금을 쥔 채 보낸다. 그래야 기록 순서가 DB 순서와 같다.
-        let Ok(new) = events::after(&self.store.conn, self.store.published) else {
+        let Ok(new) = events::after(&self.conn, *self.published) else {
             return;
         };
         for record in new {
-            self.store.published = record.id;
+            *self.published = record.id;
             let _ = self.events.send(GraphEvent::Recorded { record });
         }
     }
@@ -376,10 +391,11 @@ impl Drop for Db<'_> {
 
 impl Graph {
     /// 저장한 그래프를 연다. `running`이던 노드는 그대로 둔다. 프로세스가 살았는지는 데몬이 다시 붙어 보고 정한다(`active`, `lost`).
-    pub fn open(conn: Connection) -> rusqlite::Result<Self> {
-        let published = events::last_id(&conn)?;
+    pub fn open(db: Database) -> rusqlite::Result<Self> {
+        let published = events::last_id(&db.lock())?;
         Ok(Self {
-            db: Mutex::new(Store { conn, published }),
+            db,
+            published: Mutex::new(published),
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
             titles: Mutex::default(),
@@ -421,7 +437,8 @@ impl Graph {
 
     fn lock(&self) -> Db<'_> {
         Db {
-            store: self.db.lock().unwrap(),
+            conn: self.db.lock(),
+            published: self.published.lock().unwrap(),
             events: &self.events,
         }
     }
@@ -492,7 +509,7 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
     let state = from_json(row, 4)?;
     let brief: Option<String> = row.get(11)?;
     let wait: Option<String> = row.get(13)?;
-    let done: Option<String> = row.get(14)?;
+    let done: String = row.get(14)?;
     let asked: String = row.get(15)?;
     // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
     let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Asked>>(&asked)
@@ -505,7 +522,9 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
         wait.and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
             .map(|s| s.wait),
     );
-    waits.extend(done.and_then(|w| serde_json::from_str::<HumanWait>(&w).ok()));
+    let mut done: Vec<HumanWait> = serde_json::from_str(&done).unwrap_or_default();
+    done.sort_by_key(|w| w.id.0);
+    waits.extend(done);
     Ok(NodeView {
         topic: topic(&state, titles.get(&id), brief.as_deref()),
         id,

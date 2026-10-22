@@ -95,10 +95,11 @@ enum TurnEvent {
     Said(String),
     /// 턴이 끝났다. 실패·중단으로 끝난 턴은 검사하지 않는다.
     Succeeded,
+    /// 턴이 실패나 중단으로 끝났다.
+    Stopped,
     /// 사용자 입력 하나가 입력함에 들어왔다. id가 loom이 넣은 것이 아니면 사람이 TUI에 친 글이다.
     Enqueued {
         id: String,
-        text: String,
     },
 }
 
@@ -106,8 +107,8 @@ enum TurnEvent {
 enum Turn {
     /// 턴이 끝났다. 그 턴의 마지막 답 글.
     Ended(Option<String>),
-    /// 사람이 TUI에 입력했다. 그 글.
-    HumanInput(String),
+    /// 사람이 TUI에 입력했다.
+    HumanInput,
 }
 
 fn turn_event(event: &Value, session: &str) -> Option<TurnEvent> {
@@ -119,12 +120,9 @@ fn turn_event(event: &Value, session: &str) -> Option<TurnEvent> {
         "session.execution.started" => Some(TurnEvent::Started),
         "session.text.ended" => Some(TurnEvent::Said(data["text"].as_str()?.to_owned())),
         "session.execution.succeeded" => Some(TurnEvent::Succeeded),
+        "session.execution.failed" | "session.execution.interrupted" => Some(TurnEvent::Stopped),
         "session.inbox.enqueued" if data["item"]["type"] == "user" => Some(TurnEvent::Enqueued {
             id: data["inboxID"].as_str()?.to_owned(),
-            text: data["item"]["payload"]["text"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned(),
         }),
         _ => None,
     }
@@ -135,6 +133,8 @@ pub struct Node {
     server: Server,
     session: String,
     model: watch::Receiver<Model>,
+    /// 세션이 턴 중이다. 다시 띄우기가 턴 끝을 기다린다. 다시 붙은 데몬은 다음 턴 사건까지 쉰다고 본다.
+    working: watch::Receiver<bool>,
     /// 세션 사건. `run`이 한 번 가져간다.
     turns: Mutex<Option<mpsc::UnboundedReceiver<Turn>>>,
     /// loom이 입력함에 넣은 메시지 id. 이벤트가 오면 지운다.
@@ -142,7 +142,8 @@ pub struct Node {
 }
 
 impl Node {
-    /// 서버를 띄우고 `cwd`에 세션을 만든 뒤 사용법을 지시 항목으로 넣는다.
+    /// 서버를 띄우고 `cwd`에 세션을 만든 뒤 사용법을 지시 항목으로 넣는다. `resume`이 있으면 만들지 않고 그 세션을 잇는다.
+    /// 세션은 서버가 아니라 사람의 OpenCode 저장소에 남으므로 새 서버도 연다(다시 띄우기).
     /// `node_env`는 노드 프로세스와 같은 환경이다. 셸 명령은 이 서버 아래에서 돌므로 `loom`이 그 값을 읽는다.
     /// `password`는 노드마다 새로 만든 서버 비밀번호다.
     /// `skills`는 loom이 싣는 스킬 폴더다(`skills::Plugin::skills`). 설정 글 변수로 서버의 스킬 폴더에 더한다.
@@ -155,13 +156,18 @@ impl Node {
         skills: &Path,
         password: String,
         launch: Launch,
+        resume: Option<&str>,
     ) -> Result<Self, String> {
         let config = serde_json::json!({ "skills": [skills] }).to_string();
         let mut env = node_env.to_vec();
         env.push((CONFIG_ENV, config.into()));
         let server = Server::start(CMD, cwd, inside, &env, password).await?;
         let directory = inside.map_or(cwd, |inside| Path::new(inside.cwd()));
-        let session = match server.create_session(directory).await {
+        let created = match resume {
+            Some(session) => Ok(session.to_owned()),
+            None => server.create_session(directory).await,
+        };
+        let session = match created {
             Ok(session) => session,
             Err(e) => {
                 server.stop();
@@ -196,6 +202,7 @@ impl Node {
     /// 서버 이벤트에서 세션의 모델을 읽기 시작한다.
     fn follow(server: Server, session: String) -> Self {
         let (tx, model) = watch::channel(Model::default());
+        let (tx_working, working) = watch::channel(false);
         let (tx_turns, turns) = mpsc::unbounded_channel();
         let sent = Arc::new(Mutex::new(HashSet::new()));
         let ours = session.clone();
@@ -206,15 +213,20 @@ impl Node {
                 tx.send_replace(selected);
             }
             match turn_event(&event, &ours) {
-                Some(TurnEvent::Started) => said = None,
+                Some(TurnEvent::Started) => {
+                    said = None;
+                    tx_working.send_replace(true);
+                }
                 Some(TurnEvent::Said(text)) => said = Some(text),
                 Some(TurnEvent::Succeeded) => {
+                    tx_working.send_replace(false);
                     let _ = tx_turns.send(Turn::Ended(said.take()));
                 }
-                Some(TurnEvent::Enqueued { id, text })
-                    if !ours_sent.lock().unwrap().remove(&id) =>
-                {
-                    let _ = tx_turns.send(Turn::HumanInput(text));
+                Some(TurnEvent::Stopped) => {
+                    tx_working.send_replace(false);
+                }
+                Some(TurnEvent::Enqueued { id }) if !ours_sent.lock().unwrap().remove(&id) => {
+                    let _ = tx_turns.send(Turn::HumanInput);
                 }
                 Some(TurnEvent::Enqueued { .. }) | None => {}
             }
@@ -223,6 +235,7 @@ impl Node {
             server,
             session,
             model,
+            working,
             turns: Mutex::new(Some(turns)),
             sent,
         }
@@ -232,6 +245,11 @@ impl Node {
     /// 그래서 첫 입력 전에는 없다. 서버가 끝나면 `changed()`가 실패한다.
     pub fn model(&self) -> watch::Receiver<Model> {
         self.model.clone()
+    }
+
+    /// 세션이 턴 중인지. 서버가 끝나면 `changed()`가 실패한다.
+    pub fn working(&self) -> watch::Receiver<bool> {
+        self.working.clone()
     }
 
     /// TUI가 붙을 서버와 세션.
@@ -296,7 +314,7 @@ impl Node {
             // 다시 일하게 하는 글은 턴 뒤에, 열린 질문은 사람이 연 턴 안에 넣는다.
             let (text, inbox) = match turn {
                 Turn::Ended(reply) => (mailbox.turn_ended(reply), Inbox::Queue),
-                Turn::HumanInput(text) => (mailbox.human_input(&text), Inbox::Steer),
+                Turn::HumanInput => (mailbox.human_input(), Inbox::Steer),
             };
             if let Some(text) = text
                 && let Err(e) = put(&api, &text, inbox, PROMPT_RETRY_DELAY).await
@@ -498,7 +516,7 @@ mod tests {
             None
         }
 
-        fn human_input(&self, _prompt: &str) -> Option<String> {
+        fn human_input(&self) -> Option<String> {
             None
         }
     }
@@ -532,6 +550,12 @@ mod tests {
             turn_event(&event("session.execution.succeeded", ours(json!({}))), "s"),
             Some(TurnEvent::Succeeded)
         );
+        for stopped in ["session.execution.failed", "session.execution.interrupted"] {
+            assert_eq!(
+                turn_event(&event(stopped, ours(json!({}))), "s"),
+                Some(TurnEvent::Stopped)
+            );
+        }
         assert_eq!(
             turn_event(
                 &event("session.execution.succeeded", ours(json!({}))),
@@ -553,10 +577,7 @@ mod tests {
         };
         assert_eq!(
             turn_event(&event("session.inbox.enqueued", enqueued("user")), "s"),
-            Some(TurnEvent::Enqueued {
-                id: "msg_1".into(),
-                text: "hi".into()
-            })
+            Some(TurnEvent::Enqueued { id: "msg_1".into() })
         );
         assert_eq!(
             turn_event(&event("session.inbox.enqueued", enqueued("other")), "s"),
@@ -631,7 +652,7 @@ mod tests {
         assert_eq!(calls[0], "interrupt");
         assert!(calls[1].starts_with("steer msg_"), "{}", calls[1]);
         assert!(calls[1].ends_with(
-            "loom message #1 (from: 부모, mode: interrupt. Stop current work and follow this body)\n멈춰라"
+            "loom message #1 (from: 부모, mode: interrupt. Stop your current work and do what this message says)\n멈춰라"
         ));
         assert_eq!(calls.len(), 2);
     }

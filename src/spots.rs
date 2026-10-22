@@ -2,12 +2,10 @@
 //! 정렬한 모양을 지키는 저장소도 둔다. 그 저장소는 카드·묶음이 생기거나 커지면 화면이 자동 배치를 다시 저장한다.
 //! 근거: docs/design.md 「저장소와 워크트리」 배치, 승인 목업 docs/mockups/repo-drag.html v3, docs/mockups/card-resize.html v3.
 
-use std::sync::Mutex;
-
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::db::Database;
 use crate::graph::NodeId;
 use crate::worktree::RepoId;
 
@@ -59,8 +57,6 @@ pub struct Point {
 pub struct Placed {
     pub spot: Spot,
     pub at: Point,
-    /// 끌지 않고 커진 상자가 이 상자를 밀기 전의 자리. 민 상자가 줄거나 사라지면 화면이 이 자리 쪽으로 되돌린다. 사람이 옮기면 없다.
-    pub home: Option<Point>,
 }
 
 /// 저장한 자리 모두와 정렬한 모양을 지키는 저장소.
@@ -89,18 +85,16 @@ pub struct CardSize {
 }
 
 pub struct Spots {
-    db: Mutex<Connection>,
+    db: Database,
 }
 
 impl Spots {
-    pub fn new(conn: Connection) -> Self {
-        Self {
-            db: Mutex::new(conn),
-        }
+    pub fn new(db: Database) -> Self {
+        Self { db }
     }
 
     pub fn layout(&self) -> rusqlite::Result<Layout> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock();
         let arranged = db
             .prepare("SELECT repo FROM arranged_repos")?
             .query_map([], |row| Ok(RepoId(row.get(0)?)))?
@@ -114,24 +108,19 @@ impl Spots {
 
     /// 저장한 자리 모두.
     fn list(&self) -> rusqlite::Result<Vec<Placed>> {
-        let db = self.db.lock().unwrap();
-        let mut stmt = db.prepare("SELECT spot, x, y, home_x, home_y FROM spots")?;
+        let db = self.db.lock();
+        let mut stmt = db.prepare("SELECT spot, x, y FROM spots")?;
         let rows = stmt.query_map([], |row| {
-            let home = match (row.get(3)?, row.get(4)?) {
-                (Some(x), Some(y)) => Some(Point { x, y }),
-                _ => None,
-            };
-            Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?, home))
+            Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (spot, x, y, home) = row?;
+            let (spot, x, y) = row?;
             // 형식이 옛것인 줄은 버린다. 그 상자는 자동 배치 자리에 선다.
             if let Ok(spot) = serde_json::from_str(&spot) {
                 out.push(Placed {
                     spot,
                     at: Point { x, y },
-                    home,
                 });
             }
         }
@@ -140,7 +129,7 @@ impl Spots {
 
     /// 놓은 상자와 그 상자가 민 상자들의 자리(밀기 전 자리 포함)를 한 트랜잭션에 쓴다. 묶음·카드를 놓은 저장소는 정렬한 모양을 더 지키지 않는다.
     pub fn put(&self, placed: &[Placed]) -> rusqlite::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock();
         let tx = db.transaction()?;
         write(&tx, placed)?;
         for repo in placed.iter().filter_map(|p| p.spot.inside()) {
@@ -151,7 +140,7 @@ impl Spots {
 
     /// 자동 배치 자리를 쓰고 그 저장소들이 정렬한 모양을 지키게 한다.
     pub fn put_arranged(&self, arranged: &Arranged) -> rusqlite::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock();
         let tx = db.transaction()?;
         write(&tx, &arranged.placed)?;
         for repo in &arranged.repos {
@@ -172,14 +161,13 @@ impl Spots {
         .expect("자리는 늘 직렬화된다");
         self.db
             .lock()
-            .unwrap()
             .execute("DELETE FROM spots WHERE spot = ?1", [key])?;
         Ok(())
     }
 
     /// 저장한 카드 크기 모두.
     pub fn sizes(&self) -> rusqlite::Result<Vec<CardSize>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock();
         let mut stmt = db.prepare("SELECT node, width, height FROM card_sizes")?;
         stmt.query_map([], |row| {
             Ok(CardSize {
@@ -192,7 +180,7 @@ impl Spots {
     }
 
     pub fn put_sizes(&self, sizes: &[CardSize]) -> rusqlite::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock();
         let tx = db.transaction()?;
         for s in sizes {
             tx.execute(
@@ -205,7 +193,7 @@ impl Spots {
 
     /// 그 카드들을 기본 크기로 되돌린다.
     pub fn clear_sizes(&self, nodes: &[NodeId]) -> rusqlite::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock();
         let tx = db.transaction()?;
         for node in nodes {
             tx.execute("DELETE FROM card_sizes WHERE node = ?1", [node.0])?;
@@ -215,7 +203,7 @@ impl Spots {
 
     /// [정렬]: 그 저장소의 저장소 상자·묶음·카드 자리를 모두 지운다. 정렬한 자리는 `put_arranged`가 다시 쓴다.
     pub fn clear(&self, repo: RepoId) -> rusqlite::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock();
         let tx = db.transaction()?;
         tx.execute("DELETE FROM spots WHERE repo = ?1", [repo.0])?;
         tx.execute("DELETE FROM arranged_repos WHERE repo = ?1", [repo.0])?;
@@ -227,15 +215,8 @@ fn write(tx: &rusqlite::Transaction, placed: &[Placed]) -> rusqlite::Result<()> 
     for p in placed {
         let key = serde_json::to_string(&p.spot).expect("자리는 늘 직렬화된다");
         tx.execute(
-            "INSERT OR REPLACE INTO spots (spot, repo, x, y, home_x, home_y) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![
-                key,
-                p.spot.repo().0,
-                p.at.x,
-                p.at.y,
-                p.home.map(|h| h.x),
-                p.home.map(|h| h.y)
-            ],
+            "INSERT OR REPLACE INTO spots (spot, repo, x, y) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![key, p.spot.repo().0, p.at.x, p.at.y],
         )?;
     }
     Ok(())
@@ -255,7 +236,6 @@ mod tests {
         Placed {
             spot,
             at: Point { x, y: 1.0 },
-            home: None,
         }
     }
 
@@ -301,24 +281,6 @@ mod tests {
         assert_eq!(spots.list().unwrap().len(), 2);
         spots.clear(a).unwrap();
         assert_eq!(spots.list().unwrap(), [at(Spot::Repo { repo: b }, 3.0)]);
-    }
-
-    #[test]
-    fn home_is_written_with_the_spot_and_put_again_replaces_it() {
-        let (_tmp, spots) = spots();
-        let pushed = Placed {
-            home: Some(Point { x: 0.0, y: 1.0 }),
-            ..at(Spot::Repo { repo: RepoId(2) }, 9.0)
-        };
-        spots.put(std::slice::from_ref(&pushed)).unwrap();
-        assert_eq!(spots.list().unwrap(), [pushed]);
-        spots
-            .put(&[at(Spot::Repo { repo: RepoId(2) }, 0.0)])
-            .unwrap();
-        assert_eq!(
-            spots.list().unwrap(),
-            [at(Spot::Repo { repo: RepoId(2) }, 0.0)]
-        );
     }
 
     #[test]
@@ -371,19 +333,19 @@ mod trigger_tests {
     #[test]
     fn removing_a_repo_or_node_removes_its_spots_and_size() {
         let tmp = tempfile::tempdir().unwrap();
-        let conn = crate::db::open(&tmp.path().join("t.db")).unwrap();
-        conn.execute_batch(
-            r#"INSERT INTO repos (id, path) VALUES (1, '/a'), (2, '/b');
+        let db = crate::db::open(&tmp.path().join("t.db")).unwrap();
+        db.lock()
+            .execute_batch(
+                r#"INSERT INTO repos (id, path) VALUES (1, '/a'), (2, '/b');
             INSERT INTO nodes (id, name, agent, state, repo) VALUES (7, 'n', 'null', '{}', 2);"#,
-        )
-        .unwrap();
-        let spots = Spots::new(conn);
+            )
+            .unwrap();
+        let spots = Spots::new(db);
         let put = |spot| {
             spots
                 .put(&[Placed {
                     spot,
                     at: Point { x: 0.0, y: 0.0 },
-                    home: None,
                 }])
                 .unwrap()
         };
@@ -400,7 +362,7 @@ mod trigger_tests {
                 height: 1.0,
             }])
             .unwrap();
-        let db = |sql: &str| spots.db.lock().unwrap().execute(sql, []).unwrap();
+        let db = |sql: &str| spots.db.lock().execute(sql, []).unwrap();
         db("DELETE FROM repos WHERE id = 1");
         db("DELETE FROM nodes WHERE id = 7");
         assert_eq!(spots.sizes().unwrap(), []);
@@ -409,7 +371,6 @@ mod trigger_tests {
             [Placed {
                 spot: Spot::Repo { repo: RepoId(2) },
                 at: Point { x: 0.0, y: 0.0 },
-                home: None,
             }]
         );
     }
@@ -418,13 +379,13 @@ mod trigger_tests {
     #[test]
     fn a_new_cross_worktree_parent_or_adoption_removes_the_worktree_spot() {
         let tmp = tempfile::tempdir().unwrap();
-        let conn = crate::db::open(&tmp.path().join("t.db")).unwrap();
-        conn.execute_batch(
+        let db = crate::db::open(&tmp.path().join("t.db")).unwrap();
+        db.lock().execute_batch(
             r#"INSERT INTO repos (id, path) VALUES (1, '/a');
             INSERT INTO nodes (id, name, agent, state, repo, worktree) VALUES (1, 'main', 'null', '{}', 1, '/a');"#,
         )
         .unwrap();
-        let spots = Spots::new(conn);
+        let spots = Spots::new(db);
         let worktree = |path: &str| Spot::Worktree {
             repo: RepoId(1),
             path: path.into(),
@@ -434,7 +395,6 @@ mod trigger_tests {
                 .put(&[Placed {
                     spot,
                     at: Point { x: 5.0, y: 5.0 },
-                    home: None,
                 }])
                 .unwrap()
         };
@@ -446,7 +406,7 @@ mod trigger_tests {
                 .map(|p| p.spot)
                 .collect::<Vec<_>>()
         };
-        let db = |sql: &str| spots.db.lock().unwrap().execute(sql, []).unwrap();
+        let db = |sql: &str| spots.db.lock().execute(sql, []).unwrap();
         put(worktree("/a"));
         put(worktree("/w"));
         // 같은 워크트리 부모: 바깥 상자가 그대로다.

@@ -1,10 +1,11 @@
 import { ArrowRight, ArrowUp, ChevronDown, CircleCheck, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type RefObject } from 'react';
+import { useEffect, useRef, useState, type DOMAttributes } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
 import { isTauri } from '@tauri-apps/api/core';
-import { answerWait, dismissWait, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocUrl } from './api';
+import { answerWait, dismissWait, doneImageUrl, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocUrl } from './api';
 import { choices } from './choices';
+import { dateAndTime } from './i18n';
 import { QuestionIcon } from './Dock';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
@@ -12,6 +13,7 @@ import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
 import { asking } from './NodeCard';
+import { Modal } from './Modal';
 import { useOutsideClose } from './popover';
 
 /** 차례: 질문(답할 일)이 완료보다 앞이다. 완료가 질문을 가리지 않는다(목업 docs/mockups/done-notice.html M37). 같은 차례면 오래된 것이 앞이다. */
@@ -84,7 +86,12 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
               {!line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
             </button>
           </div>
-          {!line && (firstWait.kind === 'done' ? <DoneBody wait={firstWait} /> : <WaitBody key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />)}
+          {!line &&
+            (firstWait.kind === 'done' ? (
+              <DoneBody key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
+            ) : (
+              <WaitBody key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
+            ))}
         </div>
       )}
       {open && n > 0 && (
@@ -176,19 +183,21 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
     >
       {wait.kind === 'done' ? (
         <>
-          {/* 완료 줄은 한 줄 머리에 체크·지시·[확인]을 둔다. 「완료」 글자 줄을 따로 두지 않는다(2026-10-22 사람 지시 "아이콘+완료 표시가 공간 낭비"). */}
+          {/* 완료 줄은 머리에 체크·지시·[확인]을 둔다. 「완료」 글자 줄을 따로 두지 않는다(2026-10-22 사람 지시 "아이콘+완료 표시가 공간 낭비"). */}
           <div className="top">
             <CircleCheck className="done-mark" aria-label={t('wait.done')} />
-            <span className="kind">{wait.instruction ? t('inbox.instruction', { text: wait.instruction }) : t('wait.done')}</span>
+            <Instruction wait={wait} />
+            <Published wait={wait} />
             <ConfirmButton wait={wait.id} />
           </div>
-          {wait.text && <p className="done-result">{wait.text}</p>}
+          <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
         </>
       ) : (
         <>
           <div className="top">
             <span className="qid">Q{wait.id}</span>
             <span className="kind">{t(`wait.${wait.kind}`)}</span>
+            <Published wait={wait} />
             <DismissButton wait={wait.id} />
           </div>
           <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
@@ -198,21 +207,50 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
   );
 }
 
+/** 알림이 올라온 날짜·시각(2026-10-22 사람 지시 "알림은 알림이 언제 publish 되었는지 날짜,시간을 표시해"). */
+function Published(props: { wait: HumanWait }) {
+  const at = props.wait.since * 1000;
+  return <time className="published" dateTime={new Date(at).toISOString()}>{dateAndTime(at)}</time>;
+}
+
 /**
- * 완료 알림 본문: 일을 맡긴 사람의 지시와 결과(에이전트 마지막 답의 첫 줄). 줄을 누르면 그 터미널로 간다(목업 docs/mockups/done-notice.html M37 v2).
+ * 알약의 완료 알림 본문: 일을 맡긴 사람의 지시, 결과와 이어서 맡길 입력창(`WaitBody`), [확인]. 둘 다 `loom done`이 건 글이다(docs/design.md 「완료 알림」).
  * [확인]만 지운다. 입력·다음 턴·프로세스 끝으로는 지우지 않는다(2026-10-22 사람 지시 "완료 알림은 사용자가 확인 버튼 클릭하면 제거되는 걸로").
  */
-function DoneBody(props: { wait: HumanWait }) {
-  const { t } = useTranslation();
-  const { instruction, text } = props.wait;
+function DoneBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   return (
     <div className="wait-body">
-      {instruction && <p className="asked">{t('inbox.instruction', { text: instruction })}</p>}
-      {text && <p className="full">{text}</p>}
+      <Instruction wait={props.wait} />
+      <WaitBody node={props.node} wait={props.wait} onGo={props.onGo} />
       <div className="choices">
         <ConfirmButton wait={props.wait.id} />
       </div>
     </div>
+  );
+}
+
+/** 완료를 맡긴 사람의 지시(`loom done --asked`)(2026-10-22 사람 지시 "사람이 어떤 지시를 내렸었는지 확인하기 어려움"). 접지 않고 다 보인다(같은 날 "완료 알림도 질문 알림처럼 더보기로 접지말고 항상 원문 다 보여줘"). */
+function Instruction(props: { wait: HumanWait }) {
+  const { t } = useTranslation();
+  if (!props.wait.instruction) return <span className="kind">{t('wait.done')}</span>;
+  return <p className="instruction">{t('inbox.instruction', { text: props.wait.instruction })}</p>;
+}
+
+/** 완료 알림의 그림 썸네일. 누르면 화면 위에 원래 크기로 띄운다. Esc나 바깥 누르기로 닫는다(2026-10-22 사람 지시 "썸네일 크게보기 기능 추가해줘"). */
+function ZoomImage(props: { src: string; name: string; title: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="zoom" title={props.title} aria-label={t('inbox.zoomImage', { name: props.name })} onClick={() => setOpen(true)}>
+        <img src={props.src} alt={props.name} />
+      </button>
+      {open && (
+        <Modal className="image-view" label={props.name} onClose={() => setOpen(false)} outsideClose>
+          <img src={props.src} alt={props.name} onClick={() => setOpen(false)} />
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -244,13 +282,11 @@ function ConfirmButton(props: { wait: WaitId }) {
 function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
-  const qid = `Q${wait.id}`;
+  const done = wait.kind === 'done';
+  const qid = done ? t('wait.done') : `Q${wait.id}`;
   const [refusal, setRefusal] = useState<string | null>(null);
   const images = useImages(props.node, setRefusal);
   const [dragging, setDragging] = useState(false);
-  const full = useRef<HTMLParagraphElement>(null);
-  const cut = useCut(full);
-  const [more, setMore] = useState(false);
   const send = (text: string) => {
     setRefusal(null);
     answerWait(
@@ -280,9 +316,19 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       }
     : {};
   return (
-    <div className="wait-body" data-dragging={dragging || undefined} {...drop}>
+    <div className="wait-body" data-kind={wait.kind} data-dragging={dragging || undefined} {...drop}>
+      {/* 완료: 사람이 그 지시에 준 그림. 답에 붙인 그림과 같은 꼴이다(목업 docs/mockups/answer-image.html M30). */}
+      {wait.images.length > 0 && (
+        <ul className="answer-images">
+          {wait.images.map((path, index) => (
+            <li key={path}>
+              <ZoomImage src={doneImageUrl(wait.id, index)} name={path.split(/[\\/]/).pop() ?? path} title={path} />
+            </li>
+          ))}
+        </ul>
+      )}
       {(wait.text || wait.doc) && (
-        <p className="full" ref={full} data-more={more || undefined}>
+        <p className="full">
           {wait.text}
           {wait.doc && (
             // 문서는 따로 단추가 아니라 질문 글 끝의 링크다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
@@ -309,14 +355,9 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
           )}
         </p>
       )}
-      {cut && !more && (
-        <button type="button" className="more-text" onClick={() => setMore(true)}>
-          {t('inbox.moreText')}
-        </button>
-      )}
       {wait.answerable ? (
         <>
-          <Choices question={wait.text} onPick={send} />
+          {!done && <Choices question={wait.text} onPick={send} />}
           {images.list.length > 0 && (
             <ul className="answer-images">
               {images.list.map((image) => (
@@ -329,7 +370,13 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
               ))}
             </ul>
           )}
-          <AnswerForm qid={qid} hasImages={images.list.length > 0} onSend={send} onPasteImages={images.attach} />
+          <AnswerForm
+            qid={qid}
+            placeholder={t(done ? 'inbox.followUpPlaceholder' : 'inbox.answerPlaceholder')}
+            hasImages={images.list.length > 0}
+            onSend={send}
+            onPasteImages={images.attach}
+          />
         </>
       ) : (
         <button type="button" className="to-terminal" onClick={props.onGo}>
@@ -351,21 +398,6 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       )}
     </div>
   );
-}
-
-/** 글 칸이 CSS 줄 수 상한(알약의 `-webkit-line-clamp`)에 잘렸는가. 칸 크기가 바뀔 때마다 다시 잰다. */
-function useCut(el: RefObject<HTMLElement | null>): boolean {
-  const [cut, setCut] = useState(false);
-  useLayoutEffect(() => {
-    const node = el.current;
-    if (!node) return;
-    const measure = () => setCut(node.scrollHeight > node.clientHeight + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [el]);
-  return cut;
 }
 
 const MB = 1024 * 1024;
@@ -428,7 +460,7 @@ function Choices(props: { question: string; onPick: (key: string) => void }) {
 }
 
 /** 답 입력창. Enter나 [↑]로 보낸다. 보내면 질문이 사라지므로 비우지 않는다. 거절되면 글이 남아 다시 보낼 수 있다. */
-function AnswerForm(props: { qid: string; hasImages: boolean; onSend: (text: string) => void; onPasteImages: (files: File[]) => void }) {
+function AnswerForm(props: { qid: string; placeholder: string; hasImages: boolean; onSend: (text: string) => void; onPasteImages: (files: File[]) => void }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
   // 그림만 붙여도 보낼 수 있다(목업 M30).
@@ -451,7 +483,7 @@ function AnswerForm(props: { qid: string; hasImages: boolean; onSend: (text: str
           props.onPasteImages(files);
         }}
         aria-label={t('inbox.answerLabel', { id: props.qid })}
-        placeholder={t('inbox.answerPlaceholder')}
+        placeholder={props.placeholder}
       />
       {/* 폰에는 붙여넣기·끌어 놓기가 없어 사진첩을 연다(목업 docs/mockups/mobile.html ②). 데스크톱 화면은 숨긴다(styles.css). */}
       <label className="attach" title={t('inbox.attachImage')}>

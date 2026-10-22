@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
     AckRequest, AdoptRequest, AnsweredRequest, AskRequest, Asked, DoneRequest, GuardRequest,
-    HookWaitRequest, IdleRequest, RemoveRequest, ReplyRequest, SaidRequest, SendRequest,
-    SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
+    HookWaitRequest, IdleRequest, RelaunchRequest, Relaunched, RemoveRequest, ReplyRequest,
+    SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
@@ -197,13 +197,10 @@ pub fn hook() -> Result<(), String> {
         kinds: kinds.to_vec(),
         limit_bytes: claude::HOOK_LIMIT_BYTES,
         transcript,
-        human_input: match &event {
-            claude::Event::UserPromptSubmit { prompt } => Some(prompt.clone()),
-            _ => None,
-        },
+        human_input: event.human_input(),
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
-    if let Some(reply) = event.reply(&taken.messages, &taken.open_questions) {
+    if let Some(reply) = event.reply(&taken.messages, taken.note.as_deref()) {
         println!("{reply}");
     }
     // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
@@ -239,6 +236,7 @@ pub fn cursor_hook() -> Result<(), String> {
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
     let event = cursor::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
+    let transcript = input["transcript_path"].as_str().map(str::to_owned);
     if let Some(model) = event.model()
         && let Err(e) = call::<()>("model", &model, Some(timeout))
     {
@@ -250,11 +248,8 @@ pub fn cursor_hook() -> Result<(), String> {
             &TakeRequest {
                 kinds: kinds.to_vec(),
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
-                transcript: None,
-                human_input: match &event {
-                    cursor::Event::BeforeSubmitPrompt { prompt, .. } => Some(prompt.clone()),
-                    _ => None,
-                },
+                transcript: transcript.clone(),
+                human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
             },
             Some(timeout),
         )
@@ -274,15 +269,18 @@ pub fn cursor_hook() -> Result<(), String> {
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {
             messages: Vec::new(),
-            open_questions: Vec::new(),
+            note: None,
         },
         Some(Take::WhenIdle) => Taken {
-            messages: wait_for_mail(&IdleRequest::default())?,
-            open_questions: Vec::new(),
+            messages: wait_for_mail(&IdleRequest {
+                transcript,
+                rate_limited: false,
+            })?,
+            note: None,
         },
         Some(Take::Now(kinds)) => take_now(kinds)?,
     };
-    println!("{}", event.reply(&taken.messages, &taken.open_questions,));
+    println!("{}", event.reply(&taken.messages, taken.note.as_deref()));
     std::io::stdout().flush().map_err(|e| e.to_string())?;
     acknowledge(&taken.messages, Some(timeout));
     Ok(())
@@ -404,7 +402,12 @@ pub fn answered(ids: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
+pub fn done(
+    summary: Option<String>,
+    file: Option<PathBuf>,
+    asked: Option<String>,
+    images: Vec<PathBuf>,
+) -> Result<(), String> {
     let summary = match file {
         // 부모가 다른 폴더에서 읽어도 찾도록 절대 경로로 보낸다. 파일이 없으면 여기서 실패한다.
         Some(path) => crate::wsl::for_caller(
@@ -412,10 +415,20 @@ pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String
         ),
         None => summary.unwrap_or_default(),
     };
-    let alive_children: Vec<String> = call("done", &DoneRequest { summary }, None)?;
-    println!(
-        "Reported to your parent. If you have no parent, loom keeps the report for your next parent."
-    );
+    let images = images
+        .iter()
+        .map(|path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display())))
+        .collect::<Result<Vec<_>, _>>()?;
+    let alive_children: Vec<String> = call(
+        "done",
+        &DoneRequest {
+            summary,
+            asked,
+            images,
+        },
+        None,
+    )?;
+    println!("Reported to your parent, or to the human's inbox if you have no parent.");
     if !alive_children.is_empty() {
         println!(
             "Warning: these children are still running: {}. Reclaim each with `loom rm <name>` when you keep its results, or they stay in the graph.",
@@ -440,6 +453,22 @@ pub fn remove(name: String) -> Result<(), String> {
             moved.join(", ")
         );
     }
+    Ok(())
+}
+
+pub fn relaunch(name: Option<String>) -> Result<(), String> {
+    let yourself = name.is_none();
+    let when: Relaunched = call("relaunch", &RelaunchRequest { name }, None)?;
+    println!(
+        "{}",
+        match (when, yourself) {
+            (Relaunched::AtTurnEnd, true) => {
+                "You relaunch when this turn ends, and the conversation continues. End your turn now."
+            }
+            (Relaunched::AtTurnEnd, false) => "That node relaunches when its turn ends.",
+            (Relaunched::Now, _) => "Relaunched.",
+        }
+    );
     Ok(())
 }
 

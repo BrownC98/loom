@@ -17,27 +17,31 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Usage } from './StatusBar';
 import { Modal } from './Modal';
 import { SizingTerminal } from './Terminal';
-import { TerminalTab, UiTab } from './ThemeSettings';
+import { DisplayTab, GraphTab, OsNotifySection, TerminalTab } from './ThemeSettings';
 import type { Updates } from './Update';
 import { VERSION } from './version';
-import { RemoteTab } from './RemoteSettings';
-import { WorkspaceTab } from './WorkspaceSettings';
+import { PhoneTab } from './PhoneSettings';
+import { WorkspaceFields } from './WorkspaceSettings';
 import { placeName, shortPlaceName } from './place';
 import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, placesOf, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
 
-/** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
-export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'remote', 'ui', 'terminal', 'about'] as const;
+/**
+ * 탭 순서이자 URL 해시 값(`#settings/display`)이다. 첫 탭이 설정을 열 때의 탭이다.
+ * 탭마다 주제가 하나다(목업 docs/mockups/settings-groups.html, 2026-10-22 사람 지시 "설정은 관련있는것끼리 다시 구성을 정리해줘", 승인 "권장안대로").
+ */
+export const SETTINGS_TABS = ['general', 'phone', 'agents', 'accounts', 'display', 'graph', 'terminal', 'about'] as const;
 /**
  * 탭마다 [이 탭 초기화]가 기본값으로 되돌리는 설정 칸. 「모든 설정 초기화」는 이 칸을 모두 되돌린다(2026-10-22 사람 지시 "모든 설정 초기화도 넣고, 각 탭별 초기화를 넣어라").
  * 고른 계정(`claudeAccount`·`codexAccount`)은 넣지 않는다: 바꾸면 노드가 계정을 바꾸므로 계정 탭의 고르기(확인 창)로만 바꾼다.
  * 기본값은 Rust에만 있다. `null`을 보내면 데몬이 칸을 지우고 기본값으로 읽는다.
  */
 const TAB_SETTINGS = {
+  general: ['workspaceDir', 'wslWorkspaceDirs', 'osNotify'],
+  phone: [],
   agents: ['bypassOff', 'alwaysOn', 'treeLimits'],
   accounts: ['autoSwitch'],
-  workspace: ['workspaceDir', 'wslWorkspaceDirs'],
-  remote: ['remoteLogin'],
-  ui: ['theme', 'colors', 'cardView', 'graphScope', 'edgeStyle', 'questionPill', 'osNotify', 'language'],
+  display: ['theme', 'colors', 'language'],
+  graph: ['cardView', 'graphScope', 'edgeStyle', 'questionPill'],
   terminal: ['terminalTheme', 'terminalFont'],
   about: [],
 } as const satisfies Record<(typeof SETTINGS_TABS)[number], readonly (keyof SettingsView)[]>;
@@ -72,11 +76,17 @@ export function Settings(props: {
   const found = useSearch(pane, query.trim());
   const body = (tab: SettingsTab) => (
     <>
+      {tab === 'general' && (
+        <>
+          <WorkspaceFields settings={props.settings} onSettings={props.onSettings} />
+          <OsNotifySection settings={props.settings} onSettings={props.onSettings} />
+        </>
+      )}
+      {tab === 'phone' && <PhoneTab />}
       {tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
-      {tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
-      {tab === 'remote' && <RemoteTab settings={props.settings} onSettings={props.onSettings} />}
-      {tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
+      {tab === 'display' && <DisplayTab settings={props.settings} onSettings={props.onSettings} />}
+      {tab === 'graph' && <GraphTab settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'about' && <AboutTab updates={props.updates} />}
     </>
@@ -128,7 +138,8 @@ export function Settings(props: {
           <RotateCcw />
           {t('settings.resetAll')}
         </button>
-        <button type="button" className="btn ghost stop" title={t('settings.stopHint')} onClick={props.onStop}>
+        {/* 끄기 전에 무엇이 멈추고 무엇이 사는지 알린다(2026-10-22 사람 지시 "loom 끄기는 해당 버튼이 실행되면 무슨일이 일어나는지 안내하는 확인 팝업 띄워"). */}
+        <button type="button" className="btn ghost stop" onClick={() => confirm(t('settings.confirmStop')) && props.onStop()}>
           <Power />
           {t('settings.stop')}
         </button>
@@ -500,14 +511,18 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
           {error}
         </p>
       )}
-      <div className="auto-switch">
+      {/* 칸(`section`)이라 설정 찾기가 찾는다(`useSearch`). */}
+      <section className="auto-switch">
+        <h4>
+          {t('accounts.autoSwitchHeading')}
+          <FieldReset path={['autoSwitch']} />
+        </h4>
         <label className="switch">
           <input type="checkbox" checked={settings.autoSwitch} onChange={(e) => props.onSettings({ ...settings, autoSwitch: e.target.checked })} />
           {t('accounts.autoSwitch')}
         </label>
-        <FieldReset path={['autoSwitch']} />
         <span className="hint">{t(places.length > 1 ? 'accounts.autoSwitchHintPlaces' : 'accounts.autoSwitchHint')}</span>
-      </div>
+      </section>
       {usage.accounts === null && <p className="hint">{t('accounts.loading')}</p>}
       {places.length === 1 && providers(places[0])}
       {places.length > 1 &&

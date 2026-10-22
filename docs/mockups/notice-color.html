@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M39 이벤트 알림 색 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 이벤트 줄 모양과 토큰은 web/src/styles.css .events, .ev와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+.force-light { color-scheme: light; }
+.force-dark { color-scheme: dark; }
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 900px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed oklch(60% 0.15 250); outline-offset: -2px; border-radius: 6px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+
+.row2 { display: grid; grid-template-columns: repeat(2, 320px); gap: 16px 40px; }
+.cell { display: grid; gap: 6px; align-content: start; }
+.cap { font-size: 12px; color: var(--ink-3); }
+.shot { width: 320px; border: 1px solid var(--line); border-radius: var(--radius); }
+
+/* 독 칸(web/src/styles.css .dock-head, .filters, .events, .ev) */
+.dock { width: 320px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.dtabs { display: flex; gap: 18px; padding: 10px 14px 0; font-size: 13px; color: var(--ink-2); border-bottom: 1px solid var(--line); }
+.dtabs > * { padding-bottom: 8px; }
+.dtabs b { border-bottom: 2px solid var(--ink); }
+.dhead { padding: 8px 15px; font-size: 12px; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.chips { display: flex; gap: 6px; padding: 10px 15px; }
+.chip { height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 13px; font-size: 12px; line-height: 24px; background: var(--surface); }
+.search { flex: 1; height: 26px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 12px; line-height: 24px; color: var(--ink-3); }
+.events { list-style: none; padding: 4px 8px; }
+.ev { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; width: 100%; padding: 7px 8px; font-size: 13px; }
+.ev time { font: 12px var(--mono); color: var(--ink-3); padding-top: 1px; }
+.ev .what { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.ev .kind { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.ev .who { font-weight: 600; }
+.ev .note { font-size: 12px; color: var(--ink-3); }
+.ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev[data-family="ask"] { --family: var(--warn); }
+.ev[data-family="done"] { --family: var(--ok); }
+.ev .mark { display: none; }
+/* A안: 줄 왼쪽 막대 */
+.bar .ev[data-family] .mark { display: block; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--family); }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M39</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>총괄 · loom 총괄</b></span><span>v2 · 2026-10-22</span></div>
+  <h1>이벤트 목록: 알림 줄에 질문·완료 색을 붙인다</h1>
+  <p class="lead">사람 지시: 「이벤트에도 알림별 색깔 적용해 어떻게 적용할지는 목업으로제공」. 받은편지함은 질문을 노랑(--warn), 완료를 초록(--ok)으로 보인다. 이벤트 목록의 알림 줄에 같은 두 색을 붙인다. 바뀌는 곳은 점선 안의 목록이다. 글자 색과 줄 배치는 그대로 둔다.</p>
+
+  <div class="fig">
+    <h2>① 지금 <span class="tag">시험 데몬 캡처 · 질문 2, 답 1, 답 없이 닫힘 1, 완료 2, 추가 지시 1, 확인 1</span></h2>
+    <div class="row2">
+      <img class="shot" src="notice-color-now-light.png" alt="지금 라이트: 알림 줄과 다른 줄이 같은 회색">
+      <img class="shot" src="notice-color-now-dark.png" alt="지금 다크: 알림 줄과 다른 줄이 같은 회색">
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>② 바뀐 뒤: 줄 왼쪽 막대 <span class="tag">3px 막대 · 승인한 A안</span></h2>
+    <div class="row2">
+      <div class="cell bar"><span class="cap">라이트</span><div class="dock force-light"><div class="dtabs"><b>이벤트</b><span>커밋 그래프</span><span>알림</span></div><p class="dhead">최신순</p><div class="chips"><span class="chip">노드</span><span class="chip">메시지</span><span class="chip">알림</span><span class="search">노드 이름</span></div><ol class="events new"><li><span class="ev" data-family="done"><time>16:47:20</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">확인</span><span class="who">shell-2</span><span class="note">Q4</span></span></span></li><li><span class="ev" data-family="done"><time>16:47:19</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">추가 지시</span><span class="who">shell-1</span><span class="note">Q3</span></span><span class="body">쿠폰 칸도 더해 주세요</span></span></li><li><span class="ev"><time>16:47:19</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">큐</span><span class="who">human</span> → <span class="who">shell-1</span><span class="note">보냄</span></span><span class="body">New instruction from the human in the loom inbox…</span></span></li><li><span class="ev" data-family="done"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">완료 알림</span><span class="who">shell-2</span><span class="note">Q4</span></span><span class="body">로그 정리를 끝냈습니다.</span></span></li><li><span class="ev"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">상태</span><span class="who">shell-2</span><span class="note">실행 중 → 완료</span></span></span></li><li><span class="ev" data-family="done"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">완료 알림</span><span class="who">shell-1</span><span class="note">Q3</span></span><span class="body">할인 칸을 더했습니다. 검사를 모두 통과했습니다.</span></span></li><li><span class="ev" data-family="ask"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">답 없이 닫힘</span><span class="who">shell-2</span><span class="note">Q2 · 사람이 닫음</span></span></span></li><li><span class="ev" data-family="ask"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">답</span><span class="who">shell-1</span><span class="note">Q1</span></span><span class="body">A로 하세요</span></span></li><li><span class="ev" data-family="ask"><time>16:47:17</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">질문</span><span class="who">shell-2</span><span class="note">Q2</span></span><span class="body">테스트 데이터를 지워도 됩니까?</span></span></li><li><span class="ev" data-family="ask"><time>16:47:17</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">질문</span><span class="who">shell-1</span><span class="note">Q1</span></span><span class="body">결제 화면에 할인 칸을 둘까요? (A: 둔다 / B: 두지 않는다, 권장: A)</span></span></li><li><span class="ev"><time>16:47:14</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">생성</span><span class="who">shell-2</span><span class="note">터미널</span></span></span></li></ol></div></div>
+      <div class="cell bar"><span class="cap">다크</span><div class="dock force-dark"><div class="dtabs"><b>이벤트</b><span>커밋 그래프</span><span>알림</span></div><p class="dhead">최신순</p><div class="chips"><span class="chip">노드</span><span class="chip">메시지</span><span class="chip">알림</span><span class="search">노드 이름</span></div><ol class="events new"><li><span class="ev" data-family="done"><time>16:47:20</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">확인</span><span class="who">shell-2</span><span class="note">Q4</span></span></span></li><li><span class="ev" data-family="done"><time>16:47:19</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">추가 지시</span><span class="who">shell-1</span><span class="note">Q3</span></span><span class="body">쿠폰 칸도 더해 주세요</span></span></li><li><span class="ev"><time>16:47:19</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">큐</span><span class="who">human</span> → <span class="who">shell-1</span><span class="note">보냄</span></span><span class="body">New instruction from the human in the loom inbox…</span></span></li><li><span class="ev" data-family="done"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">완료 알림</span><span class="who">shell-2</span><span class="note">Q4</span></span><span class="body">로그 정리를 끝냈습니다.</span></span></li><li><span class="ev"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">상태</span><span class="who">shell-2</span><span class="note">실행 중 → 완료</span></span></span></li><li><span class="ev" data-family="done"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">완료 알림</span><span class="who">shell-1</span><span class="note">Q3</span></span><span class="body">할인 칸을 더했습니다. 검사를 모두 통과했습니다.</span></span></li><li><span class="ev" data-family="ask"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">답 없이 닫힘</span><span class="who">shell-2</span><span class="note">Q2 · 사람이 닫음</span></span></span></li><li><span class="ev" data-family="ask"><time>16:47:18</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">답</span><span class="who">shell-1</span><span class="note">Q1</span></span><span class="body">A로 하세요</span></span></li><li><span class="ev" data-family="ask"><time>16:47:17</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">질문</span><span class="who">shell-2</span><span class="note">Q2</span></span><span class="body">테스트 데이터를 지워도 됩니까?</span></span></li><li><span class="ev" data-family="ask"><time>16:47:17</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">질문</span><span class="who">shell-1</span><span class="note">Q1</span></span><span class="body">결제 화면에 할인 칸을 둘까요? (A: 둔다 / B: 두지 않는다, 권장: A)</span></span></li><li><span class="ev"><time>16:47:14</time><span class="what"><span class="mark" aria-hidden="true"></span><span class="kind">생성</span><span class="who">shell-2</span><span class="note">터미널</span></span></span></li></ol></div></div>
+    </div>
+    <ul class="note">
+      <li>알림 줄마다 왼쪽 끝에 세로 막대를 둔다. 긴 목록을 훑을 때 가장 잘 보인다.</li>
+      <li>막대가 줄을 고른 바탕(--accent-wash)과 겹쳐도 보인다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 색을 고르는 규칙</h2>
+    <table class="decide">
+      <tr><th>계열</th><th>이벤트 종류</th><th>색</th></tr>
+      <tr><td>질문</td><td>질문, 답, 답 없이 닫힘</td><td>노랑 --warn (질문 알약·배지와 같다)</td></tr>
+      <tr><td>완료</td><td>완료 알림, 추가 지시, 확인</td><td>초록 --ok (완료 알약·노드 「완료」 점과 같다)</td></tr>
+      <tr><td>없음</td><td>노드(생성·상태·입양·제거·이름 변경), 메시지, 계정</td><td>색 없음(지금과 같다)</td></tr>
+    </table>
+    <ul class="note">
+      <li>사람의 답(「답」·「추가 지시」)은 그 답이 닫은 알림의 계열을 따른다.</li>
+      <li>사람의 답이 노드에 간 메시지 줄(「큐 human → …」)은 메시지라서 색을 붙이지 않는다.</li>
+      <li>글자 색은 바꾸지 않는다. 라이트의 노랑 글자는 대비가 모자라기 때문이다. 종류 낱말이 뜻을 함께 보인다(색만으로 뜻을 보이지 않는다).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인한 것</h2>
+    <table class="decide">
+      <tr><th>항목</th><th>안</th></tr>
+      <tr><td>색을 보이는 꼴</td><td><b>A안 막대</b>(2026-10-22 사람 승인, Q356)</td></tr>
+      <tr><td>색을 고르는 규칙</td><td>③ 표대로</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

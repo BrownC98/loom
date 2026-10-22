@@ -316,6 +316,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         )
     }
 
+    /// 노드 프로세스의 PID. 호스트가 아직 알리지 않았으면 없다.
+    pub fn pid(&self, id: K) -> Option<u32> {
+        *self.pty(id)?.pid.lock().unwrap()
+    }
+
     fn pty(&self, id: K) -> Option<Arc<Pty>> {
         self.nodes.read().unwrap().get(&id).cloned()
     }
@@ -328,6 +333,12 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 /// `loom pty-host`를 데몬과 따로 사는 프로세스로 띄우고, 듣는 주소를 받는다.
 fn start_host(cmd: &CommandBuilder, setup: Option<&CommandBuilder>) -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // `scripts/host.sh`가 실행 파일을 바꾼 뒤 옛 데몬이 아직 요청을 받으면 Linux는 `<경로> (deleted)`를 준다.
+    // 같은 경로의 새 파일로 띄운다. 이 틈에 `loom spawn`이 "pty-host: No such file or directory"로 실패했다(2026-10-22 ktasearch-총괄 보고).
+    let exe = exe
+        .to_str()
+        .and_then(|path| path.strip_suffix(" (deleted)"))
+        .map_or(exe.clone(), PathBuf::from);
     let mut host = std::process::Command::new(exe);
     host.arg("pty-host")
         .stdin(Stdio::piped())

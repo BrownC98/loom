@@ -20,6 +20,7 @@ use ts_rs::TS;
 use crate::graph::{Delivery, Kind, OpenQuestion, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::Launch;
+use crate::wsl::Inside;
 
 /// 첫 지시문 상한. 근거: docs/design.md 「맥락과 크기」.
 pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
@@ -251,6 +252,21 @@ fn installed(agent: &Agent) -> Option<PathBuf> {
         .find_map(|cmd| which::which(cmd).ok())
 }
 
+/// `start`가 띄울 프로그램의 이름들(카탈로그 명령과 별칭). 명령 노드면 없다.
+pub fn commands(start: &Start) -> Vec<&'static str> {
+    match start {
+        Start::Agent { agent, .. } => find(agent)
+            .map(|a| {
+                std::iter::once(&a.cmd)
+                    .chain(&a.aliases)
+                    .map(String::as_str)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Start::Command { .. } => Vec::new(),
+    }
+}
+
 fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
@@ -397,6 +413,8 @@ pub enum LaunchError {
     NotInstalled {
         agent: String,
         command: String,
+        /// WSL 노드면 찾은 배포판이다. 없으면 데몬 PATH에서 찾았다.
+        distro: Option<String>,
     },
     BriefTooLong {
         #[ts(type = "number")]
@@ -415,6 +433,8 @@ pub enum LaunchError {
     NoBrief(String),
     /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. 값은 에이전트 이름이다.
     NoModelChoice(String),
+    /// WSL 폴더의 노드인데 그 배포판을 쓸 수 없다.
+    Wsl(crate::wsl::InsideError),
 }
 
 impl std::fmt::Display for LaunchError {
@@ -423,9 +443,21 @@ impl std::fmt::Display for LaunchError {
             LaunchError::UnknownAgent(id) => {
                 write!(f, "{}: this agent is not in the catalog.", id.0)
             }
-            LaunchError::NotInstalled { agent, command } => write!(
+            LaunchError::NotInstalled {
+                agent,
+                command,
+                distro: None,
+            } => write!(
                 f,
                 "{agent}: the daemon PATH has no `{command}`. Install it, then click Find again in settings."
+            ),
+            LaunchError::NotInstalled {
+                agent,
+                command,
+                distro: Some(distro),
+            } => write!(
+                f,
+                "{agent}: could not find `{command}` in WSL · {distro}. Install it in that distro, then click Find again in settings."
             ),
             LaunchError::BriefTooLong { len, limit } => write!(
                 f,
@@ -441,6 +473,7 @@ impl std::fmt::Display for LaunchError {
                 f,
                 "{agent}: does not take this `--model` or `--effort` (Claude and Codex take both, Cursor takes `--model` with an optional `--effort`). Fix them and try again."
             ),
+            LaunchError::Wsl(e) => e.fmt(f),
             LaunchError::NoBrief(agent) => write!(
                 f,
                 "{agent}: does not take a brief. Start it without a brief and type into its terminal."
@@ -461,9 +494,11 @@ pub struct VersionMismatch {
 /// `bypass_off`에 없는 에이전트는 모든 권한 허용 인자(`bypass`)로 띄운다.
 /// `plugin`은 loom이 싣는 스킬 플러그인 폴더다. Claude·Cursor만 시작 인자로 받는다. 다른 프로필은 서버가 받는다.
 /// `launch`는 상시 지시를 고른다(`skills::always_on`). Claude는 시작 인자로, Cursor는 훅이 읽는 환경 변수로 받는다.
+/// `inside`가 있으면 WSL 노드다: 프로그램은 그 배포판에서 찾은 것이고, 셸은 배포판의 셸이다. 호출자가 `Inside::wrap`으로 감싼다.
 pub fn command(
     start: &Start,
     cwd: &Path,
+    inside: Option<&Inside>,
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
     plugin: &Path,
@@ -480,13 +515,17 @@ pub fn command(
             brief,
             choice,
             resume.as_deref(),
+            inside,
             remote,
             bypass_off,
             plugin,
             launch,
         )?,
-        Start::Command { line } if line.trim().is_empty() => default_shell(cwd),
-        Start::Command { line } => shell(line),
+        Start::Command { line } => match inside {
+            Some(_) => CommandBuilder::from_argv(crate::wsl::shell(line)),
+            None if line.trim().is_empty() => CommandBuilder::new_default_prog(),
+            None => shell(line),
+        },
     };
     cmd.cwd(cwd);
     color_terminal(&mut cmd);
@@ -531,6 +570,7 @@ fn agent_command(
     brief: &str,
     choice: &ModelChoice,
     resume: Option<&str>,
+    inside: Option<&Inside>,
     remote: Option<Remote<'_>>,
     bypass_off: &[AgentId],
     plugin: &Path,
@@ -538,17 +578,27 @@ fn agent_command(
 ) -> Result<CommandBuilder, LaunchError> {
     let agent = find(id).ok_or_else(|| LaunchError::UnknownAgent(id.clone()))?;
     let choice_args = choice_args(agent, choice)?;
-    let program = installed(agent).ok_or_else(|| LaunchError::NotInstalled {
+    let not_installed = || LaunchError::NotInstalled {
         agent: agent.label.clone(),
         command: agent.cmd.clone(),
-    })?;
+        distro: inside.map(|i| i.distro.clone()),
+    };
+    let argv = match inside {
+        Some(inside) => vec![
+            inside
+                .find(std::iter::once(&agent.cmd).chain(&agent.aliases))
+                .ok_or_else(not_installed)?
+                .into(),
+        ],
+        None => crate::process_tree::argv(&installed(agent).ok_or_else(not_installed)?),
+    };
     if brief.len() > BRIEF_LIMIT_BYTES {
         return Err(LaunchError::BriefTooLong {
             len: brief.len(),
             limit: BRIEF_LIMIT_BYTES,
         });
     }
-    let mut cmd = CommandBuilder::from_argv(crate::process_tree::argv(&program));
+    let mut cmd = CommandBuilder::from_argv(argv);
     cmd.args(leading_args(agent, resume, !bypass_off.contains(id)));
     // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
     // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
@@ -679,24 +729,6 @@ pub fn message_text(taken: &[Delivery]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n\n")
-}
-
-#[cfg(unix)]
-fn default_shell(_cwd: &Path) -> CommandBuilder {
-    CommandBuilder::new_default_prog()
-}
-
-/// `cmd.exe`는 UNC 폴더에서 시작하지 못하고 `C:\Windows`로 간다. WSL 폴더면 그 배포판의 셸을 그 폴더에서 연다.
-#[cfg(windows)]
-fn default_shell(cwd: &Path) -> CommandBuilder {
-    match cwd.to_str().and_then(crate::wsl::location) {
-        Some(wsl) => {
-            let mut cmd = CommandBuilder::new("wsl.exe");
-            cmd.args(["-d", wsl.distro.as_str(), "--cd", wsl.path.as_str()]);
-            cmd
-        }
-        None => CommandBuilder::new_default_prog(),
-    }
 }
 
 /// 명령 한 줄을 도는 셸. 명령 노드와 설정 스크립트가 쓴다.

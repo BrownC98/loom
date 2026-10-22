@@ -472,11 +472,16 @@ const ko: typeof en = {
     launch: {
       unknownAgent: '{{value}}: 에이전트 목록에 없는 에이전트입니다.',
       notInstalled: '{{agent}}: `{{command}}` 명령을 찾지 못했습니다. 설치한 뒤 설정에서 ‘다시 찾기’를 클릭하십시오.',
+      notInstalled_wsl: '{{agent}}: `{{command}}` 명령을 WSL · {{distro}}에서 찾지 못했습니다. 그 배포판에 설치한 뒤 설정에서 ‘다시 찾기’를 클릭하십시오.',
       briefTooLong: '첫 지시문이 {{len}}바이트입니다. {{limit}}바이트 이하로 줄이고, 긴 자료는 파일 경로로 전달하십시오.',
       server: '`{{program}}`을(를) 시작하지 못했습니다: {{cause}}',
       noServer: '{{value}}: 에이전트를 시작하지 못했습니다. 다시 시도하십시오.',
       noBrief: '{{value}}: 첫 지시문을 받지 않습니다. 지시문을 비워 노드를 만든 뒤 터미널에 입력하십시오.',
       noModelChoice: '{{value}}: 모델과 추론 강도를 받지 않습니다. Claude와 Codex만 받습니다.',
+    },
+    wsl: {
+      start: '{{distro}}를 시작하지 못했습니다: {{cause}}. 터미널에서 `wsl -d {{distro}}`로 원인을 보십시오.',
+      interop: '{{distro}}에서 Windows 프로그램을 실행할 수 없습니다(WSL interop 꺼짐). 노드가 loom 명령을 쓸 수 없어 만들지 않았습니다. /etc/wsl.conf의 [interop] enabled=true로 바꾸고 `wsl --shutdown` 뒤 다시 시도하십시오.',
     },
     repo: {
       notFound: '폴더를 찾을 수 없습니다: {{value}}',

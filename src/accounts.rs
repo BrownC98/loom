@@ -133,6 +133,7 @@ fn cli(provider: Provider) -> Result<Vec<OsString>, LaunchError> {
     let path = which::which(command).map_err(|_| LaunchError::NotInstalled {
         agent: label.into(),
         command: command.into(),
+        distro: None,
     })?;
     Ok(process_tree::argv(&path))
 }

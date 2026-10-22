@@ -375,19 +375,19 @@ impl App {
             discard();
             return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
         }
-        let launched = match self.launch(node.id, prepared) {
-            Ok(launched) => launched,
-            Err(e) => {
-                discard();
-                // 옛 프로세스는 이미 끝났다. 화면이 실행 중으로 남지 않게 한다.
-                let _ = self.graph.lost(node.id);
-                return Err(e);
-            }
-        };
+        // 새 토큰을 먼저 남긴다. 새 프로세스가 뜨자마자 데몬을 불러도 찾는다.
+        if let Err(e) = self.graph.relaunched(node.id, &prepared.launched()) {
+            discard();
+            let _ = self.graph.lost(node.id);
+            return Err(e.to_string());
+        }
+        if let Err(e) = self.launch(node.id, prepared) {
+            discard();
+            // 옛 프로세스는 이미 끝났다. 화면이 실행 중으로 남지 않게 한다.
+            let _ = self.graph.lost(node.id);
+            return Err(e);
+        }
         self.switch.limited.lock().unwrap().remove(&node.id);
-        self.graph
-            .relaunched(node.id, &launched)
-            .map_err(|e| e.to_string())?;
         // 옛 프로세스의 창은 사라졌다. 새 프로세스가 다시 묻으면 신호가 다시 건다.
         self.graph.clear_wait(node.id).map_err(|e| e.to_string())
     }

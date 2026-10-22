@@ -24,18 +24,33 @@ fn home() -> Place {
     }
 }
 
-fn launched(id: NodeId) -> Result<Launched, String> {
-    Ok(Launched {
-        token: format!("t{}", id.0),
+/// 노드마다 다른 토큰.
+fn launched() -> Launched {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    Launched {
+        token: format!(
+            "t{}",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ),
         server: None,
         account: None,
-    })
+    }
+}
+
+fn started(_: NodeId) -> Result<(), String> {
+    Ok(())
 }
 
 /// 에이전트 id가 `agent`인 루트. 이름은 `<agent>-1`이다.
 fn root(g: &Graph, agent: &str) -> NodeId {
-    g.add_root(&home(), Some(AgentId(agent.into())), "", launched)
-        .unwrap()
+    g.add_root(
+        &home(),
+        Some(AgentId(agent.into())),
+        "",
+        &launched(),
+        started,
+    )
+    .unwrap()
 }
 
 /// 지시문 없이 부모 워크트리에 드는 셸 자식.
@@ -49,8 +64,14 @@ fn named(name: &str) -> NewChild<'_> {
 }
 
 fn child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
-    g.add_child(parent, named(name), TreeLimits::default(), launched)
-        .unwrap()
+    g.add_child(
+        parent,
+        named(name),
+        TreeLimits::default(),
+        &launched(),
+        started,
+    )
+    .unwrap()
 }
 
 /// 메시지 하나를 꺼내고 받음을 확인한다. 보낸 노드, 방식, 본문을 돌려준다.
@@ -126,7 +147,8 @@ fn topic_prefers_summary_then_title_then_brief() {
                 ..named("구현")
             },
             TreeLimits::default(),
-            launched,
+            &launched(),
+            started,
         )
         .unwrap();
     let quiet = child(&g, lead, "조용");
@@ -158,7 +180,8 @@ fn topic_prefers_summary_then_title_then_brief() {
             &home(),
             Some(AgentId("claude".into())),
             "로그인 화면을 고쳐라\n자세히",
-            launched,
+            &launched(),
+            started,
         )
         .unwrap();
     assert_eq!(view(&g, led).topic.as_deref(), Some("로그인 화면을 고쳐라"));
@@ -488,7 +511,8 @@ fn parent_and_child_exchange_messages() {
                 ..named("구현")
             },
             TreeLimits::default(),
-            launched,
+            &launched(),
+            started,
         )
         .unwrap();
 
@@ -545,7 +569,13 @@ fn two_repos(g: &Graph) -> (NodeId, NodeId) {
         worktree: "/ws/other/화면".into(),
     };
     let right = g
-        .add_root(&other, Some(AgentId("codex".into())), "", launched)
+        .add_root(
+            &other,
+            Some(AgentId("codex".into())),
+            "",
+            &launched(),
+            started,
+        )
         .unwrap();
     (left, right)
 }
@@ -690,7 +720,15 @@ fn child_names_are_unique_among_siblings_and_parent() {
     let lead = root(&g, "총괄");
     child(&g, lead, "a");
 
-    let refused = |name| g.add_child(lead, named(name), TreeLimits::default(), launched);
+    let refused = |name| {
+        g.add_child(
+            lead,
+            named(name),
+            TreeLimits::default(),
+            &launched(),
+            started,
+        )
+    };
     assert!(matches!(refused("a"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("총괄-1"), Err(Refusal::NameTaken(_))));
     assert!(matches!(refused("  "), Err(Refusal::EmptyName)));
@@ -706,19 +744,22 @@ fn tree_limits_come_from_the_caller() {
         max_children: None,
     };
     assert!(matches!(
-        g.add_child(lead, named("a"), flat, launched),
+        g.add_child(lead, named("a"), flat, &launched(), started),
         Err(Refusal::TooDeep)
     ));
     let two = TreeLimits {
         max_depth: Some(5),
         max_children: Some(2),
     };
-    let a = g.add_child(lead, named("a"), two, launched).unwrap();
-    g.add_child(lead, named("b"), two, launched).unwrap();
+    let a = g
+        .add_child(lead, named("a"), two, &launched(), started)
+        .unwrap();
+    g.add_child(lead, named("b"), two, &launched(), started)
+        .unwrap();
     // 끝난 자식도 센다.
     g.done(a, "끝", None, &[]).unwrap();
     assert!(matches!(
-        g.add_child(lead, named("c"), two, launched),
+        g.add_child(lead, named("c"), two, &launched(), started),
         Err(Refusal::TooManyChildren(2))
     ));
     // 입양도 같은 상한을 본다.
@@ -731,15 +772,22 @@ fn tree_limits_come_from_the_caller() {
         max_depth: Some(3),
         max_children: None,
     };
-    let a1 = g.add_child(a, named("a1"), deep, launched).unwrap();
-    let a2 = g.add_child(a1, named("a2"), deep, launched).unwrap();
+    let a1 = g
+        .add_child(a, named("a1"), deep, &launched(), started)
+        .unwrap();
+    let a2 = g
+        .add_child(a1, named("a2"), deep, &launched(), started)
+        .unwrap();
     // 깊이 상한이 없으면 더 깊이 만들고 데려온다.
     let open_depth = TreeLimits {
         max_depth: None,
         max_children: None,
     };
-    let a3 = g.add_child(a2, named("a3"), open_depth, launched).unwrap();
-    g.add_child(a3, named("a4"), open_depth, launched).unwrap();
+    let a3 = g
+        .add_child(a2, named("a3"), open_depth, &launched(), started)
+        .unwrap();
+    g.add_child(a3, named("a4"), open_depth, &launched(), started)
+        .unwrap();
     let loner = root(&g, "외톨이");
     g.adopt(a3, loner, open_depth).unwrap();
 }
@@ -763,7 +811,7 @@ fn limits_are_enforced() {
 
     // 중첩 깊이 2
     assert!(matches!(
-        g.add_child(a1, named("a2"), TreeLimits::default(), launched),
+        g.add_child(a1, named("a2"), TreeLimits::default(), &launched(), started),
         Err(Refusal::TooDeep)
     ));
     // 지시문 4KB
@@ -776,7 +824,8 @@ fn limits_are_enforced() {
                 ..named("b")
             },
             TreeLimits::default(),
-            launched
+            &launched(),
+            started
         ),
         Err(Refusal::BriefTooLong(4097))
     ));
@@ -816,12 +865,15 @@ fn failed_launch_leaves_nothing() {
                 ..named("a")
             },
             TreeLimits::default(),
+            &launched(),
             fail
         ),
         Err(Refusal::Launch(_))
     ));
     assert_eq!(g.subscribe().unwrap().0.len(), 1);
-    child(&g, lead, "a");
+    assert_eq!(take(&g, lead), None);
+    let a = child(&g, lead, "a");
+    assert_eq!(take(&g, a), None);
 }
 
 #[test]
@@ -909,7 +961,8 @@ fn restart_keeps_nodes_and_messages() {
                     ..named("a")
                 },
                 TreeLimits::default(),
-                launched,
+                &launched(),
+                started,
             )
             .unwrap();
         g.done(a, "요약", None, &[]).unwrap();
@@ -1067,7 +1120,8 @@ fn related_names_the_node_and_its_agent() {
                 ..named("a")
             },
             TreeLimits::default(),
-            launched,
+            &launched(),
+            started,
         )
         .unwrap();
 
@@ -1361,12 +1415,12 @@ fn records_node_and_message_events_in_order() {
 }
 
 #[test]
-fn records_refusals_and_skips_rolled_back_changes() {
+fn records_refusals_and_failed_launches() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     assert!(
-        g.add_root(&home(), None, "", |_| Err("없는 명령".into()))
+        g.add_root(&home(), None, "", &launched(), |_| Err("없는 명령".into()))
             .is_err()
     );
     g.record_refusal(lead, "없음", Kind::Steer, &Refusal::NotFound("없음".into()))
@@ -1381,6 +1435,15 @@ fn records_refusals_and_skips_rolled_back_changes() {
                 parent: None,
                 agent: Some(AgentId("총괄".into()))
             },
+            // 띄우지 못한 노드는 만든 뒤 지운다. 띄우는 동안 그래프를 잠그지 않으므로 줄을 먼저 커밋한다.
+            events::Entry::Created {
+                node: who(NodeId(lead.0 + 1), "shell-1"),
+                parent: None,
+                agent: None
+            },
+            events::Entry::Removed {
+                node: who(NodeId(lead.0 + 1), "shell-1"),
+            },
             events::Entry::Refused {
                 how: Kind::Steer,
                 from: who(lead, "총괄-1"),
@@ -1389,9 +1452,8 @@ fn records_refusals_and_skips_rolled_back_changes() {
             },
         ]
     );
-    // 되돌린 노드의 기록이 없으므로 번호가 비지 않는다.
     let ids: Vec<u32> = g.recent_events().unwrap().iter().map(|r| r.id).collect();
-    assert_eq!(ids, [2, 1]);
+    assert_eq!(ids, [4, 3, 2, 1]);
 }
 
 #[test]
@@ -1461,9 +1523,9 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
     assert_eq!(running[0].agent, Some(AgentId("codex".into())));
     assert_eq!(running[0].server, Some(server));
     // 다시 연 데몬도 앞 데몬이 준 토큰으로 노드를 찾는다.
-    assert_eq!(g.caller(&format!("t{}", lead.0)).unwrap(), Some(lead));
-    assert_eq!(g.caller(&format!("t{}", a.0)).unwrap(), Some(a));
-    assert_eq!(g.caller("t999").unwrap(), None);
+    assert_eq!(g.caller(&running[0].token).unwrap(), Some(lead));
+    assert_eq!(g.caller(&running[1].token).unwrap(), Some(a));
+    assert_eq!(g.caller("없는 토큰").unwrap(), None);
     g.lost(lead).unwrap();
     let records = recorded(&g);
     assert_eq!(
@@ -1488,7 +1550,7 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
 fn roots_take_the_smallest_free_number() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    g.add_root(&home(), None, "", launched).unwrap();
+    g.add_root(&home(), None, "", &launched(), started).unwrap();
     let first = root(&g, "claude");
     root(&g, "claude");
     // 자식 이름은 사람이 띄운 노드의 번호를 막지 않는다.
@@ -1532,7 +1594,8 @@ fn children_stay_in_the_parent_place_unless_given_a_worktree() {
                 ..named("b")
             },
             TreeLimits::default(),
-            launched,
+            &launched(),
+            started,
         )
         .unwrap();
     assert_eq!(view(&g, same).place, home());
@@ -1570,7 +1633,13 @@ fn recipient_names_cannot_collide_across_three_generations() {
     let lead = root(&g, "lead");
     let middle = child(&g, lead, "middle");
     assert!(matches!(
-        g.add_child(middle, named("lead-1"), TreeLimits::default(), launched),
+        g.add_child(
+            middle,
+            named("lead-1"),
+            TreeLimits::default(),
+            &launched(),
+            started
+        ),
         Err(Refusal::NameTaken(_))
     ));
     let leaf = child(&g, middle, "leaf");
@@ -1778,7 +1847,8 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
                 brief,
             },
             TreeLimits::default(),
-            launched,
+            &launched(),
+            started,
         )
         .unwrap()
     };
@@ -1805,7 +1875,13 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
     assert_eq!(view(&g, worker).place.worktree, "/ws/loom/1-화면");
     // 깊이 상한 2: 워커는 자식을 만들지 못한다.
     assert!(matches!(
-        g.add_child(worker, named("손자"), TreeLimits::default(), launched),
+        g.add_child(
+            worker,
+            named("손자"),
+            TreeLimits::default(),
+            &launched(),
+            started
+        ),
         Err(Refusal::TooDeep)
     ));
     // 총괄도 손자에게 바로 보낸다.
@@ -1848,6 +1924,14 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
     assert_eq!(children.len(), 1);
     assert!(children[0].alive);
 
+    let tokens: Vec<String> = g
+        .active()
+        .unwrap()
+        .into_iter()
+        .filter(|a| [coord, worker].contains(&a.id))
+        .map(|a| a.token)
+        .collect();
+    assert_eq!(tokens.len(), 2);
     for worktree in ["/ws/loom/1-화면", "/ws/loom/1-기능"] {
         for node in g.nodes_in(worktree).unwrap() {
             g.remove(node).unwrap();
@@ -1858,8 +1942,8 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
     assert!(g.relations(lead).unwrap().children.is_empty());
     let ids: Vec<_> = g.subscribe().unwrap().0.iter().map(|v| v.id).collect();
     assert_eq!(ids, [lead]);
-    for gone in [coord, worker] {
-        assert_eq!(g.caller(&format!("t{}", gone.0)).unwrap(), None);
+    for token in tokens {
+        assert_eq!(g.caller(&token).unwrap(), None);
     }
 }
 
@@ -1888,7 +1972,7 @@ fn current_parent_is_available_to_the_child_after_adoption() {
 fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    let shell = g.add_root(&home(), None, "", launched).unwrap();
+    let shell = g.add_root(&home(), None, "", &launched(), started).unwrap();
     assert!(g.discard_finished_shell(shell).unwrap());
     assert!(g.subscribe().unwrap().0.is_empty());
     assert!(!g.discard_finished_shell(shell).unwrap());
@@ -1898,7 +1982,7 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let nested = child(&g, agent, "nested");
     assert!(!g.discard_finished_shell(nested).unwrap());
 
-    let parent = g.add_root(&home(), None, "", launched).unwrap();
+    let parent = g.add_root(&home(), None, "", &launched(), started).unwrap();
     let worker = child(&g, parent, "worker");
     assert!(!g.discard_finished_shell(parent).unwrap());
     g.send(
@@ -1912,14 +1996,14 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     assert!(!g.discard_finished_shell(parent).unwrap());
     assert_eq!(take(&g, parent), delivery("worker", "review this output"));
 
-    let completed = g.add_root(&home(), None, "", launched).unwrap();
+    let completed = g.add_root(&home(), None, "", &launched(), started).unwrap();
     g.done(completed, "result to preserve", Some("일해"), &[])
         .unwrap();
     assert!(!g.discard_finished_shell(completed).unwrap());
     assert_eq!(view(&g, completed).held, 0);
     assert_eq!(view(&g, completed).waits.len(), 1);
 
-    let failed = g.add_root(&home(), None, "", launched).unwrap();
+    let failed = g.add_root(&home(), None, "", &launched(), started).unwrap();
     g.exited(failed, 1).unwrap();
     assert!(!g.discard_finished_shell(failed).unwrap());
     assert_eq!(view(&g, failed).state, NodeState::Exited { code: Some(1) });
@@ -1938,7 +2022,8 @@ fn rename_refuses_names_relatives_use() {
         max_depth: Some(3),
         ..TreeLimits::default()
     };
-    g.add_child(leaf, named("tip"), deep, launched).unwrap();
+    g.add_child(leaf, named("tip"), deep, &launched(), started)
+        .unwrap();
     let taken = |id, name| matches!(g.rename(id, name), Err(Refusal::NameTaken(n)) if n == name);
     assert!(taken(middle, "lead-1"), "parent");
     assert!(taken(leaf, "lead-1"), "grandparent");
@@ -1996,7 +2081,13 @@ fn child_names_cannot_start_with_hash() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "lead");
     assert!(matches!(
-        g.add_child(lead, named("#2"), TreeLimits::default(), launched),
+        g.add_child(
+            lead,
+            named("#2"),
+            TreeLimits::default(),
+            &launched(),
+            started
+        ),
         Err(Refusal::ReservedName(_))
     ));
 }
@@ -2010,7 +2101,7 @@ fn a_node_does_not_enter_a_repo_outside_the_list() {
         worktree: "/gone".into(),
     };
     assert_eq!(
-        g.add_root(&gone, None, "", |_| panic!("launched")),
+        g.add_root(&gone, None, "", &launched(), |_| panic!("launched")),
         Err(Refusal::NoRepo)
     );
     assert!(g.subscribe().unwrap().0.is_empty());

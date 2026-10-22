@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry};
 use super::{
-    Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
+    Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
     ambiguous, first_line, from_json, mailbox, name_of, parent_of, place_label, place_of,
     set_state, state_of, to_json,
 };
@@ -52,31 +52,36 @@ pub struct Active {
 impl Graph {
     /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
     /// `brief`는 사람이 쓴 첫 지시다. CLI에 인자로 넘기므로 메일함에는 넣지 않고 카드 주제에만 쓴다.
-    /// `launch`가 실패하면 노드를 남기지 않는다.
+    /// `start`는 노드 프로세스를 띄운다. 실패하면 노드를 남기지 않는다(`started`).
     pub fn add_root(
         &self,
         place: &Place,
         agent: Option<AgentId>,
         brief: &str,
-        launch: impl FnOnce(NodeId) -> Result<Launched, String>,
+        launched: &Launched,
+        start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
-        let id = insert(&tx, &name, &agent, None, place, brief)?;
-        keep(&tx, id, &launch(id).map_err(Refusal::Launch)?)?;
-        tx.commit()?;
-        self.publish_node(&db, id)?;
+        let id = {
+            let mut db = self.lock();
+            let tx = db.transaction()?;
+            let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
+            let id = insert(&tx, &name, &agent, None, place, brief)?;
+            keep(&tx, id, launched)?;
+            tx.commit()?;
+            id
+        };
+        self.started(id, start)?;
         Ok(id)
     }
 
-    /// `parent`의 자식을 더하고 `brief`를 자식 메일함의 첫 메시지로 넣는다. `launch`가 실패하면 아무것도 남기지 않는다.
+    /// `parent`의 자식을 더하고 `brief`를 자식 메일함의 첫 메시지로 넣는다. `start`가 실패하면 노드를 남기지 않는다(`started`).
     pub fn add_child(
         &self,
         parent: NodeId,
         child: NewChild,
         limits: TreeLimits,
-        launch: impl FnOnce(NodeId) -> Result<Launched, String>,
+        launched: &Launched,
+        start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
         let NewChild {
             name,
@@ -115,20 +120,41 @@ impl Graph {
         if has_brief {
             mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
         }
-        keep(&tx, id, &launch(id).map_err(Refusal::Launch)?)?;
+        keep(&tx, id, launched)?;
         tx.commit()?;
-        self.publish_node(&db, id)?;
+        drop(db);
+        self.started(id, start)?;
         if has_brief {
             self.publish_message(id, Toward::Child);
         }
         Ok(id)
     }
 
+    /// 노드 줄을 커밋한 뒤 잠금 밖에서 프로세스를 띄운다. 토큰은 이미 남겼으므로 노드가 뜨자마자 데몬을 불러도 찾는다.
+    /// 띄우기(pty-host 시작)는 바쁜 PC에서 1초를 넘었다. 그동안 잠금을 쥐면 [확인] 같은 모든 요청이 기다렸고, 다른 연결의 쓰기는 5초 뒤 `database is locked`로 실패했다(2026-10-22 ktasearch-총괄).
+    /// 화면에는 띄운 뒤에 보인다. 먼저 보이면 터미널이 PTY 없음(`Gone`)을 받고 다시 붙지 않는다.
+    fn started(
+        &self,
+        id: NodeId,
+        start: impl FnOnce(NodeId) -> Result<(), String>,
+    ) -> Result<(), Refusal> {
+        match start(id) {
+            Ok(()) => match self.publish_node(&self.lock(), id) {
+                // 바로 끝난 설정 스크립트는 이미 지워졌다(`discard_finished_shell`).
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(()),
+                published => Ok(published?),
+            },
+            Err(e) => {
+                self.discard(self.lock(), id)?;
+                Err(Refusal::Launch(e))
+            }
+        }
+    }
+
     /// 정상 종료해 지워도 되는 셸만 부른다(출력이 없거나 성공한 설정 스크립트). 관계나 메시지가 있으면 보존한다.
     pub fn discard_finished_shell(&self, id: NodeId) -> rusqlite::Result<bool> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let eligible: bool = tx.query_row(
+        let db = self.lock();
+        let eligible: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND agent = 'null'
              AND parent IS NULL AND state = ?2
              AND NOT EXISTS(SELECT 1 FROM nodes WHERE parent = ?1)
@@ -139,6 +165,13 @@ impl Graph {
         if !eligible {
             return Ok(false);
         }
+        self.discard(db, id)?;
+        Ok(true)
+    }
+
+    /// 관계와 메시지를 살피지 않고 노드 줄을 지운다. 받은 메시지는 DB가 함께 지운다.
+    fn discard(&self, mut db: Db<'_>, id: NodeId) -> rusqlite::Result<()> {
+        let tx = db.transaction()?;
         events::write(
             &tx,
             &Entry::Removed {
@@ -150,7 +183,7 @@ impl Graph {
         tx.commit()?;
         self.titles.lock().unwrap().remove(&id);
         let _ = self.events.send(GraphEvent::Removed { id });
-        Ok(true)
+        Ok(())
     }
 
     /// 완료한 노드의 요약은 남기고 프로세스 종료만 따로 적는다.

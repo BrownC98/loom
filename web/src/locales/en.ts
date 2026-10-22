@@ -424,7 +424,7 @@ const en = {
     use: {
       warn: 'Question pill and badge, waiting card border, dot',
       run: 'Running dot and state text',
-      ok: 'Done dot, success notices',
+      ok: 'Done notices and pill, done dot, success notices',
       err: 'Exited node dot, error text',
       edge: 'Lines between parent and child nodes',
       repo: 'Repository box border (all repositories)',

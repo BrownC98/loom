@@ -66,17 +66,17 @@ export function attachPinchZoom(
     if (e.touches.length < 2) from = null;
   };
 
-  root.addEventListener("touchstart", onStart, {
+  root.addEventListener('touchstart', onStart, {
     capture: true,
     passive: true,
   });
-  root.addEventListener("touchmove", onMove, { capture: true, passive: false });
-  root.addEventListener("touchend", onEnd, { capture: true, passive: true });
-  root.addEventListener("touchcancel", onEnd, { capture: true, passive: true });
+  root.addEventListener('touchmove', onMove, { capture: true, passive: false });
+  root.addEventListener('touchend', onEnd, { capture: true, passive: true });
+  root.addEventListener('touchcancel', onEnd, { capture: true, passive: true });
   return () => {
-    root.removeEventListener("touchstart", onStart, { capture: true });
-    root.removeEventListener("touchmove", onMove, { capture: true });
-    root.removeEventListener("touchend", onEnd, { capture: true });
-    root.removeEventListener("touchcancel", onEnd, { capture: true });
+    root.removeEventListener('touchstart', onStart, { capture: true });
+    root.removeEventListener('touchmove', onMove, { capture: true });
+    root.removeEventListener('touchend', onEnd, { capture: true });
+    root.removeEventListener('touchcancel', onEnd, { capture: true });
   };
 }

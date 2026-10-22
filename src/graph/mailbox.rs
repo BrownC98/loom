@@ -486,7 +486,8 @@ pub(super) fn enqueue(
     Ok(id)
 }
 
-/// 사람이 화면에서 `loom ask` 질문에 답한 큐 메시지(`Graph::answer`). 보낸 노드가 없으므로 `sender`는 비우고 이름은 `HUMAN`이다.
+/// 사람이 받은편지함에서 보낸 큐 메시지(답, 추가 지시, 답 없이 닫힘). 보낸 노드가 없으므로 `sender`는 비우고 이름은 `HUMAN`이다.
+/// 메시지 이벤트는 쓰지 않는다. 부르는 쪽이 같은 일을 알림 이벤트(답·추가 지시·답 없이 닫힘)로 한 줄 쓴다. 두 줄로 쓰면 이벤트 목록에 같은 답이 메시지로 한 번 더 보였다(2026-10-22 사람 지시 "가운데도 알림 이벤트로 나와야 하는거 아님?").
 pub(super) fn enqueue_human(db: &Connection, to: NodeId, body: &str) -> Result<MessageId, Refusal> {
     let name = super::name_of(db, to)?;
     check_room(db, to, &name)?;
@@ -494,18 +495,7 @@ pub(super) fn enqueue_human(db: &Connection, to: NodeId, body: &str) -> Result<M
         "INSERT INTO messages (recipient, sender, sender_name, kind, body) VALUES (?1, NULL, ?2, ?3, ?4)",
         params![to.0, HUMAN, to_json(&Kind::Queue), body],
     )?;
-    let id = MessageId(db.last_insert_rowid() as u32);
-    let entry = Entry::Message {
-        how: Kind::Queue,
-        from: events::Who {
-            id: None,
-            name: HUMAN.into(),
-        },
-        to: Some(events::who(db, to)?),
-        step: Step::Sent,
-    };
-    events::write(db, &entry, Some(id))?;
-    Ok(id)
+    Ok(MessageId(db.last_insert_rowid() as u32))
 }
 
 fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {

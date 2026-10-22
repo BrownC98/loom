@@ -195,9 +195,16 @@ function scaleToBox(xterm: XTerm, box: HTMLElement) {
   const fit = boxScale(xterm, box);
   const el = xterm.element;
   if (fit === null || !el) return;
-  const scale = Math.min(1, fit);
-  const left = (box.clientWidth - el.offsetWidth * scale) / 2;
-  el.style.transform = `translateX(${left}px) scale(${scale})`;
+  if (fit < 1) {
+    el.style.transform = `translateX(${(box.clientWidth - el.offsetWidth * fit) / 2}px) scale(${fit})`;
+    return;
+  }
+  // 글자 캔버스가 기기 픽셀 경계에 서야 선명하다. 가운데 맞춤이나 위 칸 높이가 0.5px 같은 소수 위치에 두면 흐렸다(2026-10-22 사람 지시 "특정 터미널 크기에서 글자가 흐린 문제").
+  const dpr = window.devicePixelRatio || 1;
+  const at = box.getBoundingClientRect();
+  const snap = (v: number) => Math.round(v * dpr) / dpr;
+  const left = snap(at.left + (box.clientWidth - el.offsetWidth) / 2) - at.left;
+  el.style.transform = `translate(${left}px, ${snap(at.top) - at.top}px)`;
 }
 
 /**

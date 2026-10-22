@@ -324,6 +324,7 @@ const ko: typeof en = {
     title: '알림 {{count}}',
     dismiss: '알림 지우기',
     confirm: '확인',
+    zoomImage: '{{name}} 크게 보기',
     empty: '알림 없음',
     answerLabel: '{{id}} 답변',
     answerPlaceholder: '답변 입력, 그림 붙여넣기, Enter로 보내기',

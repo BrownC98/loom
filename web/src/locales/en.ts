@@ -323,6 +323,7 @@ const en = {
     title: 'Notifications {{count}}',
     dismiss: 'Dismiss',
     confirm: 'OK',
+    zoomImage: 'View {{name}} large',
     empty: 'No notifications',
     answerLabel: 'Answer to {{id}}',
     answerPlaceholder: 'Type an answer or paste an image, Enter to send',

@@ -1,6 +1,7 @@
 //! 사람 응답 대기: 노드가 사람의 답·승인을 기다린다는 표시. 화면의 받은편지함·카드·사이드바가 이것만 읽는다(`NodeView::waits`).
 //! 두 가지다. 신호(Claude 훅, Codex 스레드 상태, 터미널 화면)의 대기는 노드마다 하나(`nodes.wait`)이고 `set_wait`로 들어온다.
 //! `loom ask` 질문은 노드마다 여러 개(`questions` 표)다. 새 질문은 앞 질문을 지우지 않는다(2026-10-22 목업 M28 승인, grill-me처럼 한 번에 여러 질문).
+//! `loom done --asked` 완료도 노드마다 여러 개(`dones` 표)다. 사람의 [확인](`dismiss`)과 이어서 맡기기(`answer`)만 지운다.
 //! 지우는 길: 신호 쪽이 거두기(`set_wait(.., None)`), 에이전트의 `loom answered`(`answered`), 사람의 키 입력(`typed`, 질문은 남긴다),
 //! 받은편지함 [×](`dismiss`), 노드 재시작(`clear_wait`), 프로세스 끝(`end_process`).
 //! 사람은 화면에서 질문에 바로 답할 수도 있다(`answer`). 답은 사람이 보낸 메시지로 노드에 가고 그 질문은 그때 지운다.
@@ -254,10 +255,7 @@ impl Graph {
         let tx = db.transaction()?;
         mailbox::enqueue_human(&tx, node, &body)?;
         tx.execute("DELETE FROM questions WHERE id = ?1", [wait.0])?;
-        tx.execute(
-            "UPDATE nodes SET done = NULL WHERE done ->> 'id' = ?1",
-            [wait.0],
-        )?;
+        tx.execute("DELETE FROM dones WHERE id = ?1", [wait.0])?;
         let entry = record(events::who(&tx, node)?, wait, text.to_owned(), count);
         events::write(&tx, &entry, None)?;
         tx.commit()?;
@@ -362,7 +360,7 @@ impl Graph {
             }
             None => match done_node(&tx, wait) {
                 Ok(node) => {
-                    tx.execute("UPDATE nodes SET done = NULL WHERE id = ?1", [node.0])?;
+                    tx.execute("DELETE FROM dones WHERE id = ?1", [wait.0])?;
                     let entry = Entry::Confirmed {
                         node: events::who(&tx, node)?,
                         wait,
@@ -393,11 +391,9 @@ impl Graph {
     pub fn done_image(&self, wait: WaitId, index: usize) -> Result<PathBuf, Refusal> {
         let done: Option<String> = self
             .lock()
-            .query_row(
-                "SELECT done FROM nodes WHERE done ->> 'id' = ?1",
-                [wait.0],
-                |row| row.get(0),
-            )
+            .query_row("SELECT wait FROM dones WHERE id = ?1", [wait.0], |row| {
+                row.get(0)
+            })
             .optional()?;
         done.and_then(|d| serde_json::from_str::<HumanWait>(&d).ok())
             .and_then(|d| d.images.into_iter().nth(index))
@@ -421,7 +417,7 @@ impl Graph {
     }
 }
 
-/// 사람이 띄운 노드의 `loom done`: 받은편지함에 완료를 건다. 자리(`nodes.done`)는 노드마다 하나다. 확인하지 않은 앞 완료는 이번 완료로 바꾼다.
+/// 사람이 띄운 노드의 `loom done`: 받은편지함에 완료를 더한다. 확인하지 않은 앞 완료는 남는다.
 /// 에이전트가 직접 알린다. 턴 끝에서 짐작하지 않는다(2026-10-22 사람 지시 "완료 알림 방식도 질문처럼 표준화 해라").
 pub(super) fn put_done(
     db: &rusqlite::Connection,
@@ -439,8 +435,8 @@ pub(super) fn put_done(
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
     db.execute(
-        "UPDATE nodes SET done = ?2 WHERE id = ?1",
-        params![id.0, to_json(&wait)],
+        "INSERT INTO dones (id, node, wait) VALUES (?1, ?2, ?3)",
+        params![wait.id.0, id.0, to_json(&wait)],
     )?;
     let entry = Entry::Reported {
         node: events::who(db, id)?,
@@ -550,11 +546,9 @@ fn questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Vec<Aske
 
 /// 번호가 `wait`인 확인하지 않은 완료의 노드.
 fn done_node(db: &rusqlite::Connection, wait: WaitId) -> Result<NodeId, Refusal> {
-    db.query_row(
-        "SELECT id FROM nodes WHERE done ->> 'id' = ?1",
-        [wait.0],
-        |row| row.get(0),
-    )
+    db.query_row("SELECT node FROM dones WHERE id = ?1", [wait.0], |row| {
+        row.get(0)
+    })
     .optional()?
     .map(NodeId)
     .ok_or(Refusal::NoWait(wait))

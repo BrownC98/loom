@@ -633,7 +633,8 @@ dialog::backdrop { background: var(--scrim); }
 .tab:hover { background: var(--surface-hover); }
 .tab[aria-current="page"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
 .pane { padding: 18px 22px; overflow: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 18px; }
-.pane-head { display: flex; align-items: center; gap: 8px; }
+/* 머리 줄(제목, 탭 초기화, 닫기)은 스크롤해도 위에 남는다(2026-10-22 사람 지시 "설정 x 닫기 버튼은 스크롤 영향 안받고 항상 우상단에"). 위 여백은 .pane 안쪽 여백만큼 끌어올려 덮는다. */
+.pane-head { display: flex; align-items: center; gap: 8px; position: sticky; top: -18px; z-index: 1; margin: -18px -22px 0; padding: 18px 22px 8px; background: var(--panel); }
 .pane-head h3 { font-size: 15px; }
 .pane-head .spacer { flex: 1; }
 .pane-head .close { font-size: 20px; padding: 0 8px; }

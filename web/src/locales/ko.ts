@@ -40,7 +40,7 @@ const ko: typeof en = {
     arrangeGroup: '이 묶음 정렬',
     arrangeRepo: '이 저장소 정렬',
     direction: '정렬 방향',
-    keepArranged: '고정',
+    keepArranged: '자동',
     keepArrangedHint: '상시 정렬: 켜면 모든 저장소가 늘 정렬한 모양을 지킵니다',
     resetSizes: '모든 카드 기본 크기로',
     directions: { down: '아래로', right: '오른쪽으로', up: '위로', left: '왼쪽으로' },

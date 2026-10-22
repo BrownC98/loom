@@ -545,7 +545,7 @@ a { color: var(--accent); }
 /* 완료의 지시와 결과는 3줄까지 보이고 넘으면 [더 보기]로 편다(2026-10-22 사람 지시 "사람이 어떤 지시를 내렸었는지 확인하기 어려움"). */
 .clamped.instruction .full:not([data-more]), .wait-body[data-kind="done"] .full:not([data-more]) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .clamped.instruction { flex: 1; }
-.clamped.instruction .full { margin: 0; color: var(--ink-3); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.clamped.instruction .full { margin: 0; color: var(--ink); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wait-body[data-kind="done"] .full { font-weight: 600; }
 /* 완료 줄의 입력창·보내기·끌어 놓기도 완료 색이다(2026-10-22 사람 지시 "완료 입력창이 질문색임"). */
 .wait-body[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }

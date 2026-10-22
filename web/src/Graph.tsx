@@ -25,7 +25,7 @@ import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
-import { SizingTerminal, type Direction } from './Terminal';
+import { realignTerminals, SizingTerminal, type Direction } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
@@ -1267,7 +1267,9 @@ export function Graph(props: {
         onMoveEnd={() => {
           cameraMoving.current = false;
           document.documentElement.classList.remove('panning');
+          realignTerminals();
         }}
+        onNodeDragStop={() => realignTerminals()}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
         onlyRenderVisibleElements

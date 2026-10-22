@@ -320,7 +320,9 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
           return false;
         }
         if (isShiftEnter(e) && !e.isComposing) {
-          if (e.type === 'keydown') link.sendInput(SHIFT_ENTER_INPUT);
+          // 한글 조합을 끝내는 Enter는 compositionend 뒤 조합 없는 keydown으로 다시 온다. xterm은 조합 글자를 compositionend의 setTimeout(0)에서 보낸다.
+          // 줄바꿈도 setTimeout(0)으로 미뤄 그 뒤에 보낸다. 바로 보내면 "있"+Shift+Enter가 `\n있`이 됐다(2026-10-22 사람 보고).
+          if (e.type === 'keydown') setTimeout(() => link.sendInput(SHIFT_ENTER_INPUT));
           e.preventDefault();
           return false;
         }

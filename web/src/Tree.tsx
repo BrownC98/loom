@@ -20,6 +20,7 @@ import { useShowAll, useShowGroups, useShowNodes } from './Graph';
 import i18next from './i18n';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
+import { shownPath, ShortPlaceTag } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { stateClass, Unread } from './NodeCard';
 import { useOutsideClose } from './popover';
@@ -269,8 +270,9 @@ export function Tree(props: {
     row: (
       <>
         <span className="name">{repo.name}</span>
+        <ShortPlaceTag wsl={repo.wsl} />
         <span className="sub" translate="no" title={repo.path}>
-          {repo.path}
+          {shownPath(repo)}
         </span>
       </>
     ),
@@ -430,6 +432,7 @@ export function Tree(props: {
         <NewNodePopover
           branch={group.label}
           place={{ repo: repo.id, worktree: group.path }}
+          distro={repo.wsl?.distro ?? null}
           agents={props.agents}
           recent={recentAgent(views)}
           settings={props.settings}

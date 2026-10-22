@@ -16,4 +16,8 @@ parent: string | null,
 /**
  * 이름 순이다. 점으로 시작하는 폴더는 뺀다.
  */
-folders: Array<Folder>, };
+folders: Array<Folder>, 
+/**
+ * WSL 폴더면 그 배포판이다. 화면의 「실행 위치」 줄이 쓴다.
+ */
+distro: string | null, };

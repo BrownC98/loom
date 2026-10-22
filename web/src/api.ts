@@ -9,6 +9,8 @@ import type { CommitGraph } from './gen/CommitGraph';
 import type { CreateRepo } from './gen/CreateRepo';
 import type { EventRecord } from './gen/EventRecord';
 import type { FolderList } from './gen/FolderList';
+import type { Locations } from './gen/Locations';
+import type { DistroView } from './gen/DistroView';
 import type { GraphEvent } from './gen/GraphEvent';
 import type { LoginId } from './gen/LoginId';
 import type { LoginState } from './gen/LoginState';
@@ -124,6 +126,10 @@ export const createRepo = (req: CreateRepo) => call<RepoView>('POST', '/api/repo
 /** 목록에서만 뺀다. 폴더는 그대로다. 그 저장소에 노드가 남았으면 거절한다. */
 export const removeRepo = (repo: RepoId) => call<null>('DELETE', `/api/repos/${repo}`);
 /** 데몬이 보는 폴더의 자식 폴더. `path`가 없으면 `<홈>/loom`이다. */
+/** [저장소 추가] 위치 칩. 배포판을 켜지 않는다. */
+export const getLocations = () => call<Locations>('GET', '/api/locations');
+/** 배포판의 홈과 기본 워크스페이스. 꺼진 배포판은 데몬이 켠다(몇 초). */
+export const getDistro = (name: string) => call<DistroView>('GET', `/api/distros/${encodeURIComponent(name)}`);
 export const getFolders = (path?: string) => call<FolderList>('GET', path === undefined ? '/api/folders' : `/api/folders?${new URLSearchParams({ path })}`);
 export const createWorktree = (repo: RepoId, req: NewWorktree) => call<RepoView>('POST', `/api/repos/${repo}/worktrees`, req);
 const worktreeQuery = (path: string) => `path=${encodeURIComponent(path)}`;

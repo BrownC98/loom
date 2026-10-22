@@ -196,8 +196,15 @@ async fn put_settings(
     State(app): State<Arc<App>>,
     Json(patch): Json<serde_json::Value>,
 ) -> Result<Json<()>, Problem> {
-    if let Some(dir) = patch.get("workspaceDir").and_then(|dir| dir.as_str())
-        && !std::path::Path::new(dir).is_absolute()
+    let wsl_dirs = patch
+        .get("wslWorkspaceDirs")
+        .and_then(|dirs| dirs.as_object())
+        .into_iter()
+        .flat_map(|dirs| dirs.values());
+    let dirs = patch.get("workspaceDir").into_iter().chain(wsl_dirs);
+    if let Some(dir) = dirs
+        .filter_map(|dir| dir.as_str())
+        .find(|dir| !std::path::Path::new(dir).is_absolute())
     {
         return Err(Problem::Repo(RepoProblem::NotAbsolute(dir.to_owned())));
     }

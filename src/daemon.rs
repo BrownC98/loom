@@ -94,7 +94,7 @@ struct App {
     plugin: skills::Plugin,
     /// WSL 노드의 `loom` 껍데기 폴더(`<데이터 폴더>/wsl`). Windows 데몬만 쓴다.
     shim: PathBuf,
-    /// WSL 배포판마다 홈. 저장소 경로를 `~/…`로 보인다.
+    /// WSL 배포판마다 홈. 저장소 경로를 `~/…`로 보이고 기본 워크스페이스를 정한다.
     homes: wsl::Homes,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     version_warnings: HashMap<Profile, VersionMismatch>,
@@ -593,6 +593,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/events", get(events))
         .route("/api/events/log", get(event_log))
         .merge(settings::routes())
+        .merge(places::routes())
         .merge(switch::routes())
         .fallback(asset)
         .layer(axum::middleware::from_fn(origin::same_site))
@@ -690,7 +691,7 @@ async fn create_worktree(
 ) -> Result<Json<RepoView>, Problem> {
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
-    let workspace = app.workspace()?;
+    let workspace = app.workspace(&repo).await?;
     let made = worktree::create(&repo, &repo, &workspace, &req.branch, &req.base).await?;
     app.setup(&Place {
         repo: id,
@@ -834,15 +835,6 @@ async fn commits(
 }
 
 impl App {
-    /// 설정의 워크스페이스 폴더. 없으면 기본값이다.
-    fn workspace(&self) -> Result<PathBuf, Problem> {
-        let settings = self.settings.get().map_err(internal)?;
-        match settings.workspace_dir {
-            Some(dir) => Ok(PathBuf::from(dir)),
-            None => worktree::default_workspace().map_err(internal),
-        }
-    }
-
     fn tree_limits(&self) -> Result<TreeLimits, Problem> {
         Ok(self.settings.get().map_err(internal)?.tree_limits)
     }
@@ -1656,7 +1648,7 @@ async fn agent_spawn(
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo).map_err(for_agent)?;
-            let workspace = app.workspace().map_err(for_agent)?;
+            let workspace = app.workspace(&repo).await.map_err(for_agent)?;
             let from = std::path::Path::new(&place.worktree);
             let made = worktree::create(&repo, from, &workspace, branch, "HEAD")
                 .await

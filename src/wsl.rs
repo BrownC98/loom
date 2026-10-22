@@ -59,6 +59,14 @@ pub fn of(dir: &Path) -> Option<WslPath> {
     dir.to_str().and_then(location)
 }
 
+/// 배포판 안의 Linux 절대 경로 `linux`를 화면과 Windows 파일 API가 쓰는 UNC 경로(`\\wsl.localhost\<배포판>\…`)로 바꾼다.
+pub fn windows_path(distro: &str, linux: &str) -> String {
+    format!(
+        r"\\wsl.localhost\{distro}{}",
+        linux.trim_end_matches('/').replace('/', r"\")
+    )
+}
+
 /// 홈 아래의 Linux 경로는 `~/…`로 줄인다. 근거: 목업 docs/mockups/wsl-place.html ②′.
 pub fn tilde(path: &str, home: &str) -> String {
     let home = home.trim_end_matches('/');
@@ -67,6 +75,53 @@ pub fn tilde(path: &str, home: &str) -> String {
         Some(rest) if rest.starts_with('/') && !home.is_empty() => format!("~{rest}"),
         _ => path.into(),
     }
+}
+
+/// 설치된 배포판 이름(`wsl.exe -l -q`). 배포판을 켜지 않는다. Windows 데몬이 아니거나 WSL이 없으면 비었다.
+pub async fn distros() -> Vec<String> {
+    list(&["-l", "-q"]).await
+}
+
+/// 지금 도는 배포판. 멈춘 배포판은 켜지 않는다. Windows 데몬이 아니거나 WSL이 없으면 비었다.
+/// 근거: 목록을 보려고 배포판을 켜면, 5분마다 읽는 사용량이 배포판을 끄지 못하게 한다.
+pub async fn running() -> Vec<String> {
+    list(&["-l", "--running", "-q"]).await
+}
+
+async fn list(args: &[&str]) -> Vec<String> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    let out = tokio::process::Command::new("wsl.exe")
+        .args(args)
+        .env("WSL_UTF8", "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await;
+    match out {
+        Ok(out) if out.status.success() => read_list(&out.stdout),
+        _ => Vec::new(),
+    }
+}
+
+/// `wsl.exe -l -q` 출력. 옛 `wsl.exe`는 `WSL_UTF8`을 몰라 UTF-16LE로 쓴다.
+fn read_list(bytes: &[u8]) -> Vec<String> {
+    let text = if bytes.contains(&0) {
+        let units: Vec<u16> = bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_le_bytes(*b))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
+    };
+    text.lines()
+        .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}'))
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// 배포판마다 기본 사용자의 홈(Linux 경로). 처음 쓸 때 한 번 읽고 데몬이 끝날 때까지 둔다.
@@ -149,43 +204,6 @@ impl std::fmt::Display for InsideError {
             ),
         }
     }
-}
-
-/// 지금 도는 배포판. 멈춘 배포판은 켜지 않는다. Windows 데몬이 아니거나 WSL이 없으면 비었다.
-/// 근거: 목록을 보려고 배포판을 켜면, 5분마다 읽는 사용량이 배포판을 끄지 못하게 한다.
-pub async fn running() -> Vec<String> {
-    if !cfg!(windows) {
-        return Vec::new();
-    }
-    let out = tokio::process::Command::new("wsl.exe")
-        .args(["-l", "--running", "-q"])
-        .env("WSL_UTF8", "1")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await;
-    match out {
-        Ok(out) if out.status.success() => distro_names(&out.stdout),
-        _ => Vec::new(),
-    }
-}
-
-/// `wsl.exe -l -q` 출력의 배포판 이름. `WSL_UTF8`을 모르는 옛 `wsl.exe`는 UTF-16LE로 낸다.
-fn distro_names(out: &[u8]) -> Vec<String> {
-    let (pairs, rest) = out.as_chunks::<2>();
-    let utf16 = rest.is_empty()
-        && (out.starts_with(&[0xff, 0xfe])
-            || !pairs.is_empty() && pairs.iter().all(|[_, high]| *high == 0));
-    let text = if utf16 {
-        let units: Vec<u16> = pairs.iter().map(|p| u16::from_le_bytes(*p)).collect();
-        String::from_utf16_lossy(&units)
-    } else {
-        String::from_utf8_lossy(out).into_owned()
-    };
-    text.lines()
-        .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}'))
-        .filter(|l| !l.is_empty())
-        .map(str::to_owned)
-        .collect()
 }
 
 /// 값 사이의 구분 글자(RS). `.bashrc`가 쓰는 다른 출력과 섞이지 않는다.
@@ -503,17 +521,14 @@ mod tests {
     }
 
     #[test]
-    fn distro_names_read_utf8_and_utf16() {
-        assert_eq!(
-            distro_names(b"Ubuntu-24.04\r\ndocker-desktop\r\n\r\n"),
-            ["Ubuntu-24.04", "docker-desktop"]
-        );
-        let utf16: Vec<u8> = "\u{feff}Ubuntu\r\n"
+    fn read_list_reads_utf16_and_utf8() {
+        let utf16: Vec<u8> = "\u{feff}Ubuntu-24.04\r\nDebian\r\n"
             .encode_utf16()
             .flat_map(u16::to_le_bytes)
             .collect();
-        assert_eq!(distro_names(&utf16), ["Ubuntu"]);
-        assert!(distro_names(b"").is_empty());
+        assert_eq!(read_list(&utf16), ["Ubuntu-24.04", "Debian"]);
+        assert_eq!(read_list(b"Ubuntu\n\n"), ["Ubuntu"]);
+        assert!(read_list(b"").is_empty());
     }
 
     #[test]
@@ -523,6 +538,18 @@ mod tests {
         assert_eq!(tilde("/home/mel/src", "/home/me"), "/home/mel/src");
         assert_eq!(tilde("/srv/loom", "/home/me"), "/srv/loom");
         assert_eq!(tilde("/srv/loom", "/"), "/srv/loom");
+    }
+
+    #[test]
+    fn windows_path_is_the_unc_path() {
+        assert_eq!(
+            windows_path("Ubuntu", "/home/me/"),
+            r"\\wsl.localhost\Ubuntu\home\me"
+        );
+        assert_eq!(
+            location(&windows_path("Ubuntu", "/home/me")).unwrap().path,
+            "/home/me"
+        );
     }
 
     #[test]

@@ -13,12 +13,14 @@ import type { RepoId } from './gen/RepoId';
 import type { NodeView } from './gen/NodeView';
 import type { Placed } from './gen/Placed';
 import type { RepoView } from './gen/RepoView';
+import type { WslPlace } from './gen/WslPlace';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge } from './HopEdge';
 import { arrangeNested, edgeSides, followCard, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
+import { PlaceTag, shownPath } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeCard, SimpleCard } from './NodeCard';
@@ -202,7 +204,7 @@ type Resized = { shift: XYPosition; size: Size };
  * `onArrange`: 이 저장소의 묶음과 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑦).
  * `onNewWorktree`: 누른 [새 워크트리] 버튼 아래에 새 워크트리 창을 연다(목업 docs/mockups/repo-new-worktree.html). 첫 커밋 전에는 버튼을 끈다.
  */
-type RepoData = { name: string; path: string; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
+type RepoData = { name: string; path: string; wsl: WslPlace | null; hasCommits: boolean; creating: boolean; onArrange: () => void; onNewWorktree: (button: HTMLElement) => void };
 type GroupNode = Node<GroupData, 'worktree'>;
 /** 모든 저장소 범위에서 저장소마다 묶음을 두르는 상자. 머리를 끌어 옮긴다. */
 type RepoNode = Node<RepoData, 'repo'>;
@@ -255,8 +257,9 @@ function Repo({ data }: NodeProps<RepoNode>) {
     <section className="repo-box" aria-label={data.name}>
       <div className="repo-head">
         <span className="name">{data.name}</span>
+        <PlaceTag wsl={data.wsl} />
         <span className="sub" translate="no" title={data.path}>
-          {data.path}
+          {shownPath(data)}
         </span>
         <span className="spacer" />
         <IconButton label={t('graph.arrangeRepo')} title={t('graph.arrangeRepo')} onClick={data.onArrange}>
@@ -803,6 +806,7 @@ export function Graph(props: {
           data: {
             name: r.repo.name,
             path: r.repo.path,
+            wsl: r.repo.wsl,
             hasCommits: r.repo.hasCommits,
             creating: branching?.key === r.key,
             onArrange: () => arrangeRepo(r),
@@ -1295,6 +1299,7 @@ export function Graph(props: {
                     <NewNodePopover
                       branch={group.label}
                       place={{ repo, worktree: group.path }}
+                      distro={props.repos.find((r) => r.id === repo)?.wsl?.distro ?? null}
                       agents={props.agents}
                       recent={recentAgent(views)}
                       settings={props.settings}

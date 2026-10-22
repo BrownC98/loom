@@ -175,45 +175,41 @@ type TerminalProps = {
   onSender?: (send: ((data: string) => void) | null) => void;
 };
 
-/** 배율 없이 그린 xterm을 칸에 넣는 배율. 아직 그리지 않았으면 `null`이다. */
-function boxScale(xterm: XTerm, box: HTMLElement): number | null {
+/**
+ * xterm을 칸 가운데에 두는 transform. 아직 그리지 않았으면 `null`이다. 다른 화면이 정한 PTY 크기가 칸보다 크면 줄인다. 늘이지는 않는다: 글자 그림이 늘어나 흐려진다(2026-10-22 사람 지시 "심플모드일때 터미널이 낮은 해상도로 출력됨", "배율확대 하지말고 폰트크기 원대로 유지해").
+ * 레이아웃을 읽기만 한다. `offsetWidth`는 transform을 빼고 잰다. 그래서 여러 터미널을 다 읽은 뒤 쓰면 강제 레이아웃이 한 번이다(실측: 카드 10개 확대·축소에서 터미널마다 두 번이었다).
+ * 마우스 위치는 `unscaleMouse`가 배율을 뺀다.
+ */
+function boxTransform(xterm: XTerm, box: HTMLElement): string | null {
   const el = xterm.element;
   if (!el) return null;
-  el.style.transform = '';
   const width = el.offsetWidth;
   const height = el.offsetHeight;
   if (width === 0 || height === 0 || box.clientWidth === 0 || box.clientHeight === 0) return null;
-  return Math.min(box.clientWidth / width, box.clientHeight / height);
-}
-
-/**
- * xterm을 칸 가운데에 둔다. 다른 화면이 정한 PTY 크기가 칸보다 크면 줄인다. 늘이지는 않는다: 글자 그림이 늘어나 흐려진다(2026-10-22 사람 지시 "심플모드일때 터미널이 낮은 해상도로 출력됨", "배율확대 하지말고 폰트크기 원대로 유지해").
- * 마우스 위치는 `unscaleMouse`가 배율을 뺀다.
- */
-function scaleToBox(xterm: XTerm, box: HTMLElement) {
-  const fit = boxScale(xterm, box);
-  const el = xterm.element;
-  if (fit === null || !el) return;
-  if (fit < 1) {
-    el.style.transform = `translateX(${(box.clientWidth - el.offsetWidth * fit) / 2}px) scale(${fit})`;
-    return;
-  }
+  const fit = Math.min(box.clientWidth / width, box.clientHeight / height);
+  if (fit < 1) return `translateX(${(box.clientWidth - width * fit) / 2}px) scale(${fit})`;
   // 글자 캔버스가 기기 픽셀 경계에 서야 선명하다. 가운데 맞춤이나 위 칸 높이가 0.5px 같은 소수 위치에 두면 흐렸다(2026-10-22 사람 지시 "특정 터미널 크기에서 글자가 흐린 문제").
   // 그래프 안 카드는 확대 배율 `zoom`만큼 커져 보인다. 화면 픽셀로 맞춘 뒤 칸 좌표로 되돌린다.
   const dpr = window.devicePixelRatio || 1;
   const at = box.getBoundingClientRect();
   const zoom = box.offsetWidth > 0 ? at.width / box.offsetWidth : 1;
   const snap = (v: number) => Math.round(v * dpr) / dpr;
-  const left = (snap(at.left + ((box.clientWidth - el.offsetWidth) / 2) * zoom) - at.left) / zoom;
-  el.style.transform = `translate(${left}px, ${(snap(at.top) - at.top) / zoom}px)`;
+  const left = (snap(at.left + ((box.clientWidth - width) / 2) * zoom) - at.left) / zoom;
+  return `translate(${left}px, ${(snap(at.top) - at.top) / zoom}px)`;
 }
 
-/** 그린 터미널마다 `scaleToBox`를 다시 부르는 함수. 칸 크기는 그대로인데 화면 위치만 바뀔 때 쓴다. */
-const aligners = new Set<() => void>();
+function scaleToBox(xterm: XTerm, box: HTMLElement) {
+  const transform = boxTransform(xterm, box);
+  if (transform !== null && xterm.element) xterm.element.style.transform = transform;
+}
+
+/** 그린 터미널: 칸 → xterm. 칸 크기는 그대로인데 화면 위치만 바뀔 때 다시 맞춘다. */
+const shown = new Map<HTMLElement, XTerm>();
 
 /** 그래프를 옮기거나 카드를 끈 뒤 부른다. 위치가 기기 픽셀 경계를 벗어나 글자가 흐려진다(2026-10-22 사람 지시 "그래프를 옮길 때도 위치를 다시 맞추도록 … 조치해"). */
 export function realignTerminals() {
-  for (const align of aligners) align();
+  const moves = [...shown].map(([box, xterm]) => [xterm.element, boxTransform(xterm, box)] as const);
+  for (const [el, transform] of moves) if (el && transform !== null) el.style.transform = transform;
 }
 
 /**
@@ -356,14 +352,14 @@ export function SizingTerminal(props: TerminalProps) {
       window.addEventListener('focus', claim);
       document.addEventListener('visibilitychange', claimIfShown);
       const observer = new ResizeObserver(() => redecide.current());
-      aligners.add(rescale);
+      shown.set(el, xterm);
       observer.observe(el);
       if (latest.current.focused) focusSoon(xterm);
       return () => {
         observer.disconnect();
         window.removeEventListener('focus', claim);
         document.removeEventListener('visibilitychange', claimIfShown);
-        aligners.delete(rescale);
+        shown.delete(el);
         el.removeEventListener('paste', pasteImage, true);
         input.dispose();
         resize.dispose();

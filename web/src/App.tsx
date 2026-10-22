@@ -40,6 +40,7 @@ import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
 import { activeTheme, RESET_TERMINAL_THEME } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
+import { usePhoneTheme, syncAppChrome } from './phoneTheme';
 import { Phone, usePhone, usePhoneRoute } from './Phone';
 import { TitleBar } from './TitleBar';
 import { UpdateCard, useUpdates } from './Update';
@@ -277,12 +278,16 @@ export function App() {
     editSettings((s) => ({ ...s, alwaysArrange: on }));
     if (on) graph.current?.arrange();
   };
-  const mode = useColorMode(settings.theme);
+  // 이 폰에서 고른 테마가 PC 설정보다 앞선다. 화면이 그리는 테마는 여기서 한 번만 정한다.
+  const [phoneTheme, choosePhoneTheme] = usePhoneTheme();
+  const theme = phoneTheme ?? settings.theme;
+  const mode = useColorMode(theme);
 
   useEffect(() => {
     // styles.css가 `data-theme`으로 `color-scheme`을 고른다.
-    document.documentElement.dataset.theme = settings.theme;
-  }, [settings.theme]);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+  useEffect(() => syncAppChrome(mode), [mode]);
   useEffect(() => applyLanguage(settings.language), [settings.language]);
   useEffect(() => applyColors(settings.colors), [settings.colors]);
 
@@ -520,6 +525,8 @@ export function App() {
     return providers(
       <Phone
         route={phoneRoute}
+        theme={theme}
+        onTheme={choosePhoneTheme}
         onRoute={setPhoneRoute}
         waiting={waiting}
         nodes={nodes}

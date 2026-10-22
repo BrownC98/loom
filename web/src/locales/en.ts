@@ -326,6 +326,8 @@ const en = {
     noNode: 'This node does not exist. It was removed or it is on another PC.',
     offline: 'Cannot reach the PC. Connecting again…',
     back: 'Back',
+    theme: 'Theme',
+    themeSystem: 'Follow system',
     actions: 'Node actions',
     answer: 'Answer',
     keys: 'Terminal keys',

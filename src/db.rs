@@ -192,6 +192,11 @@ const STEPS: &[M] = &[
         "ALTER TABLE nodes ADD COLUMN done TEXT;
         UPDATE nodes SET done = json_remove(wait, '$.source'), wait = NULL WHERE wait ->> 'kind' = 'done';",
     ),
+    // 26: 부모 없는 노드의 완료 보고는 받은편지함에만 둔다(graph `done`). 전에 보관한 사본을 지운다. 트리에 「보관 1」만 남았다(2026-10-22 사람 지시 "문제 해결해").
+    M::up(
+        "DELETE FROM messages WHERE recipient IS NULL AND body LIKE 'done: %'
+            AND sender IN (SELECT id FROM nodes WHERE parent IS NULL);",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

@@ -151,6 +151,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
    줄 끝 글자 위에 덮고, 왼쪽 그라데이션이 잘린 글자를 가린다. 바탕은 줄 바탕과 같다(고른 줄은 패널 위 accent-wash). */
 .row-acts { --row-base: var(--panel); position: absolute; top: 3px; right: 4px; height: 24px; display: none; gap: 2px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--row-wash, transparent) 16px), linear-gradient(to right, transparent, var(--row-base) 16px); }
 .tree-line:is(:hover, :focus-within) > .row-acts { display: flex; }
+/* 동작 단추가 덮는 줄 끝 꼬리표는 감춘다. 그라데이션 밑에 반쯤 잘린 테두리만 남았다(2026-10-22 사람 지시 "문제 해결해"). */
+.tree-line:is(:hover, :focus-within) > .tree-row :is(.kept, .unread) { visibility: hidden; }
 .tree-line:hover > .row-acts { --row-base: var(--surface-hover); }
 .tree-line:has(> .tree-row[aria-current="true"]) > .row-acts { --row-base: var(--panel); --row-wash: var(--accent-wash); }
 .row-acts .act { width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-2); cursor: pointer; }

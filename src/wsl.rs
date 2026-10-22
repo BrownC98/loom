@@ -185,23 +185,69 @@ impl Inside {
     /// `cmd`에 넣은 다른 환경 변수는 `WSLENV`로 넘긴다. 배포판 안의 `loom` 껍데기가 부르는 `loom.exe`도 그 값을 다시 받는다.
     pub fn wrap(&self, cmd: &CommandBuilder) -> CommandBuilder {
         let mut wsl = CommandBuilder::new("wsl.exe");
-        wsl.args(["-d", &self.distro, "--cd", &self.cwd, "--exec", "env"]);
-        wsl.arg(format!("PATH={}:{}", self.bin, self.path));
+        wsl.args(self.prefix());
         wsl.args(cmd.get_argv());
-        let mut names = Vec::new();
-        for (key, value) in cmd.iter_extra_env_as_str() {
-            if key.eq_ignore_ascii_case("PATH") || key.eq_ignore_ascii_case("WSLENV") {
-                continue;
-            }
+        let env: Vec<_> = cmd.iter_extra_env_as_str().collect();
+        for (key, value) in passed(&env) {
             wsl.env(key, value);
-            names.push(key.to_owned());
         }
-        wsl.env("WSLENV", names.join(":"));
+        wsl.env("WSLENV", names(&env));
         if let Some(dir) = cmd.get_cwd() {
             wsl.cwd(dir);
         }
         wsl
     }
+
+    /// 노드 서버(Codex app-server, OpenCode 2 서버)를 노드 폴더에서 띄우는 `wsl.exe` 명령. `wrap`과 같은 규칙이다.
+    /// 서버는 배포판의 루프백에서 듣는다. 데몬은 Windows 루프백의 같은 포트로 닿는다(WSL localhost 전달).
+    pub fn server<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
+        &self,
+        argv: &[impl AsRef<std::ffi::OsStr>],
+        env: &[(K, V)],
+    ) -> std::process::Command {
+        let mut wsl = std::process::Command::new("wsl.exe");
+        wsl.args(self.prefix()).args(argv);
+        wsl.envs(passed(env).map(|(k, v)| (k.as_ref(), v)));
+        wsl.env("WSLENV", names(env));
+        wsl
+    }
+
+    /// 배포판 안의 노드 `PATH`: loom 껍데기 폴더를 앞에 넣은 배포판의 `PATH`.
+    pub fn node_path(&self) -> String {
+        format!("{}:{}", self.bin, self.path)
+    }
+
+    /// 노드가 도는 배포판 안의 폴더.
+    pub fn cwd(&self) -> &str {
+        &self.cwd
+    }
+
+    fn prefix(&self) -> [String; 7] {
+        [
+            "-d".into(),
+            self.distro.clone(),
+            "--cd".into(),
+            self.cwd.clone(),
+            "--exec".into(),
+            "env".into(),
+            format!("PATH={}", self.node_path()),
+        ]
+    }
+}
+
+/// `WSLENV`로 넘길 변수. Windows `PATH`와 `WSLENV` 자신은 넘기지 않는다.
+fn passed<K: AsRef<str>, V>(env: &[(K, V)]) -> impl Iterator<Item = &(K, V)> {
+    env.iter().filter(|(k, _)| {
+        let k = k.as_ref();
+        !k.eq_ignore_ascii_case("PATH") && !k.eq_ignore_ascii_case("WSLENV")
+    })
+}
+
+fn names<K: AsRef<str>, V>(env: &[(K, V)]) -> String {
+    passed(env)
+        .map(|(k, _)| k.as_ref())
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// 배포판 안의 `loom` 명령: 이 데몬의 `loom.exe`를 interop으로 부른다. Linux loom을 따로 깔거나 판을 맞추지 않는다.
@@ -358,5 +404,44 @@ mod tests {
             .into_iter()
             .map(|a| a.to_string_lossy().into_owned())
             .collect()
+    }
+
+    #[test]
+    fn server_runs_in_the_distro_and_passes_env_but_not_path() {
+        let text = "\u{1e}/usr/bin\u{1e}/mnt/c/loom/wsl\u{1e}";
+        let inside = read_inside(&at(), &[], text).unwrap();
+        let env = [("LOOM_TOKEN", "t1"), ("PATH", r"C:\Windows")];
+        let cmd = inside.server(&["codex", "app-server"], &env);
+        let argv: Vec<_> = std::iter::once(cmd.get_program())
+            .chain(cmd.get_args())
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            argv,
+            [
+                "wsl.exe",
+                "-d",
+                "Ubuntu-24.04",
+                "--cd",
+                "/home/me/src/loom",
+                "--exec",
+                "env",
+                "PATH=/mnt/c/loom/wsl:/usr/bin",
+                "codex",
+                "app-server",
+            ]
+        );
+        let envs: Vec<_> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert!(envs.contains(&("LOOM_TOKEN".into(), Some("t1".into()))));
+        assert!(envs.contains(&("WSLENV".into(), Some("LOOM_TOKEN".into()))));
+        assert!(!envs.iter().any(|(k, _)| k == "PATH"));
     }
 }

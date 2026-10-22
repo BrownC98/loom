@@ -1352,7 +1352,7 @@ impl Mailbox for NodeMailbox {
     }
 
     fn human_input(&self) -> Option<String> {
-        let _ = self.app.graph.human_input(self.node);
+        let _ = self.app.human_input(self.node);
         let questions = self.app.graph.open_questions(self.node).ok()?;
         profile::hook_text(&[], &questions)
     }
@@ -1470,7 +1470,7 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
 /// 사람이 TUI에 입력해 턴이 시작했다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
 /// Codex에는 입력 훅이 없어 턴 안에 넣는다(`turn/steer`).
 async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread: &str) {
-    if let Err(e) = app.graph.human_input(node) {
+    if let Err(e) = app.human_input(node) {
         eprintln!(
             "loom: 노드 {}를 다시 일하는 상태로 바꾸지 못했다: {e}",
             node.0
@@ -1671,7 +1671,8 @@ async fn answer_wait(
     Path(wait): Path<u32>,
     Json(req): Json<AnswerWait>,
 ) -> Result<Json<()>, Problem> {
-    app.graph.answer(WaitId(wait), &req.text, &req.images)?;
+    let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
+    app.turn_ends.owe(node);
     Ok(Json(()))
 }
 
@@ -1898,7 +1899,7 @@ async fn agent_take(
         .map_err(for_agent)?;
     let open_questions = match req.human_input {
         true => {
-            app.graph.human_input(node).map_err(for_agent)?;
+            app.human_input(node).map_err(for_agent)?;
             app.graph.open_questions(node).map_err(for_agent)?
         }
         false => Vec::new(),
@@ -2009,11 +2010,12 @@ async fn agent_done(
     for image in &req.images {
         done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
-    Ok(Json(
-        app.graph
-            .done(node, &req.summary, req.asked.as_deref(), &req.images)
-            .map_err(for_agent)?,
-    ))
+    let alive_children = app
+        .graph
+        .done(node, &req.summary, req.asked.as_deref(), &req.images)
+        .map_err(for_agent)?;
+    app.turn_ends.paid(node);
+    Ok(Json(alive_children))
 }
 
 /// 브라우저가 `<img>`로 그리는 그림 꼴. 받은편지함이 완료 줄의 파일을 그대로 낸다.

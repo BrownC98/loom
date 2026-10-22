@@ -1146,6 +1146,14 @@ impl App {
             ),
             None => None,
         };
+        // 에이전트가 읽는 스킬 플러그인 폴더와 그 안의 `skills/`. WSL 노드면 배포판 안에서 본 경로다.
+        let (plugin, skills) = match inside.as_ref().and_then(|i| i.path(0)) {
+            Some(inside) => (
+                PathBuf::from(inside),
+                PathBuf::from(format!("{inside}/skills")),
+            ),
+            None => (plugin, self.plugin.skills(launch.skills)),
+        };
         let codex = match profile {
             Some(Profile::Codex) => {
                 let home = self.accounts.config_dir(profile::Provider::Codex, account);
@@ -1155,15 +1163,16 @@ impl App {
                     .cloned()
                     .chain(codex::server_args(launch))
                     .collect();
-                let server = CodexServer::start(cwd, home.as_deref(), &env, &config)
-                    .await
-                    .map_err(|cause| LaunchError::Server {
-                        program: "codex app-server".into(),
-                        cause,
-                    })?;
+                let server =
+                    CodexServer::start(cwd, inside.as_ref(), home.as_deref(), &env, &config)
+                        .await
+                        .map_err(|cause| LaunchError::Server {
+                            program: "codex app-server".into(),
+                            cause,
+                        })?;
                 // 실패해도 노드는 띄운다. 다른 Codex 버전에는 이 요청이 없을 수 있다. 그때 노드는 내장 스킬만 없다.
                 let call = |method, params| server.call(method, params);
-                if let Err(e) = codex::add_skills(call, &self.plugin.skills(launch.skills)).await {
+                if let Err(e) = codex::add_skills(call, &skills).await {
                     eprintln!("loom: Codex 서버에 내장 스킬을 더하지 못했다: {e}");
                 }
                 Some(Arc::new(server))
@@ -1173,18 +1182,13 @@ impl App {
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
-                let node = opencode2::Node::start(
-                    cwd,
-                    &env,
-                    &self.plugin.skills(launch.skills),
-                    password,
-                    launch,
-                )
-                .await
-                .map_err(|cause| LaunchError::Server {
-                    program: format!("{} serve", opencode2::CMD),
-                    cause,
-                })?;
+                let node =
+                    opencode2::Node::start(cwd, inside.as_ref(), &env, &skills, password, launch)
+                        .await
+                        .map_err(|cause| LaunchError::Server {
+                            program: format!("{} serve", opencode2::CMD),
+                            cause,
+                        })?;
                 Some(Arc::new(node))
             }
             _ => None,
@@ -1195,10 +1199,6 @@ impl App {
             _ => None,
         };
         let discard = discarder(&codex, &opencode2);
-        let plugin = match &inside {
-            Some(inside) => inside.path(0).map(PathBuf::from).unwrap_or(plugin),
-            None => plugin,
-        };
         let mut cmd = profile::command(
             start,
             cwd,

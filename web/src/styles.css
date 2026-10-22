@@ -518,6 +518,7 @@ a { color: var(--accent); }
 .inbox-pill[data-view="line"] .head { border-bottom: 0; }
 .inbox-pill .head { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
 .inbox-pill .head > b { white-space: nowrap; }
+.inbox-pill .qicon { flex: none; width: 16px; height: 16px; margin-right: -2px; color: var(--warn); }
 .inbox-pill .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .inbox-pill .go b { color: var(--ink); font-size: 13px; }
 .inbox-pill .go:hover, .inbox-pill .go[aria-expanded="true"] { background: var(--surface-hover); }

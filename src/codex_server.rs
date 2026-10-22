@@ -27,6 +27,7 @@ use crate::profile::codex::protocol::{
     ThreadActiveFlag, ThreadReadParams, ThreadReadResponse, ThreadStartedNotification,
     ThreadStatus, ThreadStatusChangedNotification,
 };
+use crate::wsl::Inside;
 
 /// 서버가 뜨고 요청 하나에 답하는 상한. 첫 실행은 로그인 확인과 플러그인 읽기로 몇 초 걸린다.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -83,28 +84,45 @@ impl CodexServer {
     /// `home`이 `None`이면 시스템 기본 로그인(`~/.codex`)을 쓴다.
     /// `node_env`는 노드 프로세스와 같은 환경이다. 셸 명령은 이 서버 아래에서 돌므로 `loom`이 그 값을 읽는다.
     /// `config`는 서버에 넘길 `-c` 인자다. `cwd`는 노드가 도는 워크트리다. 스레드는 서버의 작업 폴더에서 돈다.
+    /// `inside`가 있으면 서버를 그 WSL 배포판의 노드 폴더에서 띄운다.
     pub async fn start(
         cwd: &Path,
+        inside: Option<&Inside>,
         home: Option<&Path>,
         node_env: &[(&'static str, OsString)],
         config: &[String],
     ) -> Result<Self, String> {
         let port = process_tree::free_port()?;
         let url = format!("ws://127.0.0.1:{port}");
-        let mut cmd = process_tree::command("codex");
-        cmd.envs(node_env.iter().map(|(k, v)| (k, v)));
-        cmd.args(config);
+        let mut args = config.to_vec();
         // Codex 셸은 로그인 셸 스냅샷의 `PATH`를 다시 적용해 노드 `PATH`의 `loom` 폴더를 지운다(실측).
         // 셸 환경 설정으로 노드 `PATH`를 다시 넣는다. JSON 문자열은 TOML 문자열로도 읽힌다.
-        if let Some((_, path)) = node_env.iter().find(|(key, _)| *key == "PATH") {
-            let path = json!(path.to_string_lossy());
-            cmd.args(["-c", &format!("shell_environment_policy.set.PATH={path}")]);
+        let path = match inside {
+            Some(inside) => Some(inside.node_path()),
+            None => node_env
+                .iter()
+                .find(|(key, _)| *key == "PATH")
+                .map(|(_, path)| path.to_string_lossy().into_owned()),
+        };
+        if let Some(path) = path {
+            args.extend([
+                "-c".into(),
+                format!("shell_environment_policy.set.PATH={}", json!(path)),
+            ]);
         }
-        cmd.args(["app-server", "--listen", &url]);
-        cmd.current_dir(cwd);
-        if let Some(dir) = home {
-            cmd.env("CODEX_HOME", dir);
-        }
+        args.extend(["app-server".into(), "--listen".into(), url.clone()]);
+        let mut cmd = match inside {
+            Some(inside) => inside.server(&[&["codex".to_owned()], &args[..]].concat(), node_env),
+            None => {
+                let mut cmd = process_tree::command("codex");
+                cmd.args(&args).envs(node_env.iter().map(|(k, v)| (k, v)));
+                cmd.current_dir(cwd);
+                if let Some(dir) = home {
+                    cmd.env("CODEX_HOME", dir);
+                }
+                cmd
+            }
+        };
         // 노드가 데몬보다 오래 살므로 서버도 따로 산다. 출력은 읽지 않는다. 데몬이 끝나면 읽을 쪽이 없다.
         process_tree::detach(&mut cmd);
         let mut child = Command::from(cmd)

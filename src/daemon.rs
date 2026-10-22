@@ -5,6 +5,7 @@ mod carry;
 mod idle;
 mod lan;
 mod origin;
+mod passes;
 mod phone;
 mod places;
 mod relaunch;
@@ -125,6 +126,8 @@ struct App {
     port: u16,
     /// Tailscale 없이 폰 앱이 닿는 문(`lan`).
     door: lan::Door,
+    /// 폰 브라우저가 쿠키 없이 파일을 읽는 통행증(`passes`).
+    passes: passes::Passes,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -534,6 +537,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             listen.port(),
             devices,
         ),
+        passes: passes::Passes::default(),
         spots: Spots::new(database.clone()),
         database,
         accounts_root: db_path.with_file_name("accounts"),
@@ -651,6 +655,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .merge(places::routes())
         .merge(switch::routes())
         .merge(phone::routes())
+        .merge(passes::routes())
         .merge(relaunch::routes())
         .merge(carry::routes())
         .fallback(asset)
@@ -1668,17 +1673,21 @@ async fn adopt_node(
 }
 
 /// 사람이 터미널에서 누른 파일 링크를 기본 앱으로 연다. JSON 몸통이라 다른 출처의 페이지는 사전 요청에서 막힌다.
-/// WSL 노드의 링크는 배포판 안의 경로(`/home/…`)다. 그 배포판의 UNC 경로로 연다.
 async fn open_file(
     State(app): State<Arc<App>>,
     Json(req): Json<OpenFile>,
 ) -> Result<Json<()>, Problem> {
-    let path = match app.node_wsl(req.node)? {
-        Some(wsl) if req.path.starts_with('/') => wsl.shell_path(&req.path),
-        _ => req.path,
-    };
+    let path = host_path(&app, req.node, req.path)?;
     open::open(std::path::Path::new(&path)).map_err(internal)?;
     Ok(Json(()))
+}
+
+/// 화면이 보낸 파일 경로를 데몬이 여는 경로로 바꾼다. WSL 노드의 링크는 배포판 안의 경로(`/home/…`)라 그 배포판의 UNC 경로로 바꾼다.
+fn host_path(app: &App, node: Option<NodeId>, path: String) -> Result<String, Problem> {
+    Ok(match app.node_wsl(node)? {
+        Some(wsl) if path.starts_with('/') => wsl.shell_path(&path),
+        _ => path,
+    })
 }
 
 /// 터미널·받은편지함의 파일 링크를 화면이 직접 읽는다. 폰 앱처럼 데몬 PC가 아닌 화면은 PC에서 기본 앱을 열어도 사람이 보지 못한다(2026-10-23 사람 "웹버전에서도 html을 브라우저로 볼수있게 해줘", "웹 말고 앱").
@@ -1702,10 +1711,7 @@ async fn view_file(
     } else {
         format!("/{path}")
     };
-    let path = match app.node_wsl(node)? {
-        Some(wsl) if path.starts_with('/') => wsl.shell_path(&path),
-        _ => path,
-    };
+    let path = host_path(&app, node, path)?;
     serve_file(std::path::Path::new(&path), request).await
 }
 

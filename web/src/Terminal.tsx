@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type DragEvent,
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { isTauri } from '@tauri-apps/api/core';
-import { attachPty, fileViewUrl, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
+import { attachPty, filePass, fileViewUrl, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { PtyRequest } from './gen/PtyRequest';
 import type { Resize } from './gen/Resize';
@@ -92,16 +92,27 @@ function remoteScreen(): boolean {
   return !isTauri() && !['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
 }
 
+/** 안드로이드 앱의 WebView다. 앱만 `loomClipboard`를 붙인다(`MainActivity`). */
+const inApp = () => 'loomClipboard' in window;
+
 export function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);
   if (url?.protocol === 'file:') {
     const path = decodeURIComponent(url.pathname);
-    // 폰 앱·폰 브라우저는 데몬 PC가 아니다. PC에서 기본 앱을 열면 사람이 보지 못하므로 화면 안에서 연다.
-    if (remoteScreen()) return void (window.open(fileViewUrl(path, node), '_blank') ?? location.assign(fileViewUrl(path, node)));
-    openFile(/^\/[A-Za-z]:/.test(path) ? path.slice(1) : path, node).catch((err: Error) => console.error(err));
+    const hostPath = /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
+    // 앱의 WebView는 줌이 되지 않는다. 쿠키가 없는 폰 브라우저가 읽도록 통행증 주소를 연다. 앱이 그 주소를 폰 브라우저로 넘긴다.
+    if (inApp()) return void filePass(hostPath, node).then((pass) => openPage(new URL(pass, location.href).href)).catch((err: Error) => console.error(err));
+    // 폰 브라우저는 데몬 PC가 아니다. PC에서 기본 앱을 열면 사람이 보지 못하므로 화면 안에서 연다.
+    if (remoteScreen()) return openPage(fileViewUrl(path, node));
+    openFile(hostPath, node).catch((err: Error) => console.error(err));
   } else if (url?.protocol === 'http:' || url?.protocol === 'https:') {
     window.open(url.href, '_blank', 'noopener');
   }
+}
+
+/** 팝업을 막으면 이 탭에서 연다. */
+function openPage(href: string) {
+  if (!window.open(href, '_blank')) location.assign(href);
 }
 
 type Point = { clientX: number; clientY: number };

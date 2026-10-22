@@ -248,7 +248,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__attribution a { color: inherit; }
 
 /* 오른쪽 사이드바(목업 toolbar.html E안): 위는 그래프 보기 도구, 아래는 탭 하나의 칸. 칸은 이벤트 콘솔(graph-panels.html 3번), 커밋 그래프(4번), 심플 보기의 터미널이다 */
-.dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+/* `clip`: 칸을 좁히는 동안 너비를 고정한 `.dock-panel`이 창 밖으로 넘치지 않게 자른다. */
+.dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: clip; background: var(--panel); border-left: 1px solid var(--line); }
 .dock-tools { display: grid; gap: 8px; padding: 8px 12px 12px; }
 .dock-tools-head { display: flex; align-items: center; justify-content: space-between; }
 .dock-tools-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }

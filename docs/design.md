@@ -654,38 +654,46 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 
 폰 연결은 Orca의 「휴대폰 페어링」을 따른다: PC 화면이 QR·코드를 내고, 폰은 기기마다 토큰을 받고, PC가 기기를 끊는다(2026-10-22 사람 지시 "pc loom과 앱 연결은 orca의 방식을 참고하여 구현하라", 결정 Q364 A, 목업 [docs/mockups/phone-pairing.html](mockups/phone-pairing.html) M41).
 
+Android 앱은 Tailscale 없이 데몬의 폰 문에 직접 닿는다(2026-10-22 사람 지시 "앱 연동은 orca처럼 tailscail 독립적으로 구현하라, 지금은 의존성이 너무 강함", 결정 Q414: 목업 [docs/mockups/phone-direct.html](mockups/phone-direct.html) M6 권장안 승인, Q418 C). 밖에서는 Tailscale이 있으면 그 주소로 닿는다. Tailscale은 고를 수 있는 길이다.
+
 | 결정 | 이유 |
 |---|---|
-| 폰은 Tailscale Serve로 데몬에 닿는다. Serve가 HTTPS를 끝내고 `127.0.0.1:<데몬 포트>`로 넘긴다. 데몬은 루프백에서만 듣는다 | 폰 화면은 브라우저 페이지다. 평문 http로 받은 페이지는 길에서 바꿀 수 있어 HTTPS가 있어야 한다(Orca도 다른 기계의 http 페이지에서는 짝짓지 않는다). Orca의 직접 LAN 연결과 종단 암호화는 설치한 앱이라서 안전하다. Orca도 밖에서 쓰는 사람을 Tailscale로 보낸다 |
-| Orca Relay(클라우드 중계)는 만들지 않는다 | 서버 운영과 계정이 있어야 한다. Tailscale이 밖에서도 닿게 한다(결정 Q364 3A) |
+| 폰 문: 데몬은 사람 문(루프백)과 따로 `0.0.0.0:<데몬 포트+10>`(쓸 수 없으면 OS가 고른 포트)에서 HTTPS로 듣는다([src/daemon/lan.rs](../src/daemon/lan.rs)). 인증서는 처음 한 번 자체 서명으로 만들어 데이터 폴더 `phone-tls.crt`·`phone-tls.key`에 둔다. 문을 지나는 요청은 모두 원격이다 | Orca는 PC가 LAN에서 직접 듣고, QR의 PC 공개 키로 앱이 PC를 확인한다(앱 1.4.230 `app.asar` 실측: `orca://pair?code=`, ws 6768, tweetnacl). loom 앱은 WebView라서 같은 확인을 TLS 인증서 지문으로 한다. 화면 코드(fetch, 웹소켓, `Secure` 쿠키)를 그대로 쓴다. Orca식 앱 안 암호 터널은 앱·데몬 코드가 몇 배 크다(Q414 1A) |
+| 폰 문은 처음 필요할 때 연다: [휴대폰 연결]을 누를 때, 또는 짝지은 기기가 있는 채로 데몬이 시작할 때 | 폰을 쓰지 않는 사람의 데몬은 LAN에서 듣지 않는다. Windows 방화벽 창도 뜨지 않는다 |
+| QR 주소의 IP는 데몬이 읽은 네트워크 주소다: 사설 주소가 먼저, Tailscale 주소(100.64.0.0/10)가 뒤다. 가상 어댑터(WSL, Hyper-V, Docker, VMware, VirtualBox)와 WSL `lo`의 DNS 주소는 뺀다 | Orca의 주소 고르기와 같다. Tailscale 주소는 CLI 없이 찾는다. 폰도 Tailscale에 있으면 밖에서 이 주소로 같은 폰 문에 닿는다(Q414 5A) |
+| 밖(모바일 데이터, 다른 Wi-Fi)에서는 Tailscale로만 닿는다. 중계 서버, UPnP, 터널은 만들지 않는다 | 사람 결정 Q418 C. 조사(Orca Relay, Cloudflare Worker 중계, cloudflared, UPnP, WebRTC): 모두 계정·서버, 또는 평문 노출, 또는 일부 회선에서만 동작이었다 |
+| Windows: 설정 › 휴대폰 [방화벽 허용]은 관리자 확인 창(UAC)을 띄워 `loom.exe`·폰 문 포트에 「개인 네트워크, 들어오는 TCP 허용」 규칙(`loom-phone`)을 넣고, 이 실행 파일을 막는 규칙을 지운다 | Orca의 방화벽 고치기와 같은 명령이다. Windows의 첫 허용 창에서 [취소]를 누르면 막는 규칙이 남는다(Q414 4A) |
+| 폰 문의 `Host`는 IP 주소여야 하고 `Origin`은 없거나 `https://<Host>`여야 한다. 그 뒤는 Serve와 같다(쿠키, 짝짓기 쪽, `/api/phone*` 403) | 이름 주소는 DNS 재바인딩일 수 있다 |
+| 브라우저·iPhone은 Tailscale Serve로 데몬에 닿는다(선택). Serve가 HTTPS를 끝내고 `127.0.0.1:<데몬 포트>`로 넘긴다 | 브라우저는 자체 서명 인증서를 확인하지 못한다. 평문 http나 경고를 넘긴 페이지는 길에서 바꿀 수 있다(Q414 3A) |
 | `Tailscale-User-Login`·`X-Forwarded-Host`·`X-Forwarded-For` 중 하나가 있거나 `Host`가 `*.ts.net`이면 Serve로 온 요청이다. [src/daemon/origin.rs](../src/daemon/origin.rs) `human_site`가 라우터 전체(HTTP, 웹소켓, 질문 문서, 파일)에 한 겹으로 본다: 진짜 `Host`가 IP나 tailnet 이름이고, 주소(`X-Forwarded-Host`, 없으면 `Host`)가 `.ts.net`으로 끝나고, `Origin`이 없거나 `https://<주소>`여야 한다(아니면 403). 그리고 짝지은 기기의 쿠키 `loom_device`가 있어야 한다(아니면 401과 짝짓기 쪽) | 다른 웹 페이지는 교차 출처 요청과 웹소켓에 이 머리글을 넣지 못한다. 이 기계의 화면은 이 머리글을 보내지 않으므로 지금 검사(`same_site`)를 그대로 쓴다. 쿠키 없이 받는 것은 `POST /api/pair`와 「홈 화면에 추가」가 읽는 `/manifest.webmanifest`·`/icon.png`뿐이다 |
-| 짝짓기: 설정 › 휴대폰 [휴대폰 연결]이 코드 8자(헷갈리는 글자를 뺀 29글자)와 QR(`https://<기기 이름>.ts.net/#pair=<코드>`)을 낸다. 코드는 메모리에 하나만 있고, 10분 뒤나 한 번 쓰면 없어지고, 5번 틀리면 지운다. 확인과 지우기는 한 잠금 안에서 한다 | 코드는 `#` 뒤에 있어 브라우저가 서버에 보내지 않는다(Orca 브라우저 링크와 같다). 시간 10분은 Orca 코드와 같다. 8자는 약 39비트라 5번으로 맞힐 수 없다 |
+| 짝짓기: 설정 › 휴대폰 [휴대폰 연결]이 코드 8자(헷갈리는 글자를 뺀 29글자)와 QR(`https://<호스트>/#pair=<코드>&fp=<인증서 SHA-256, base64url>&a=<IP:포트>,…`)을 낸다. 호스트는 Serve가 켜져 있으면 `<기기 이름>.ts.net`, 아니면 첫 주소다. 코드 글은 Serve가 켜져 있을 때만 보인다. 코드는 메모리에 하나만 있고, 10분 뒤나 한 번 쓰면 없어지고, 5번 틀리면 지운다. 확인과 지우기는 한 잠금 안에서 한다 | 코드는 `#` 뒤에 있어 브라우저가 서버에 보내지 않는다(Orca 브라우저 링크와 같다). 시간 10분은 Orca 코드와 같다. 8자는 약 39비트라 5번으로 맞힐 수 없다 |
 | 코드가 맞으면 데몬은 32바이트 난수 토큰을 쿠키(`Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=400일`)로 주고, `devices` 표에 SHA-256만 둔다. 요청마다 모든 해시를 시간이 같은 비교(`subtle`)로 본다 | DB를 읽어도 토큰은 나오지 않는다. 다른 사이트의 요청에는 쿠키가 붙지 않는다 |
 | 연결된 기기는 설정 › 휴대폰에 브라우저 글로 만든 이름(「iPhone · Safari」), 연결 시각, 마지막으로 쓴 시각(1분마다 갱신)과 함께 보인다. [연결 끊기]는 그 줄을 지우고, 그 기기의 다음 요청과 열린 웹소켓(터미널, 로그인 창, 이벤트)을 끊는다(`origin::until_removed`) | Orca 「페어링된 장치」의 [기기 취소]와 같다 |
-| 짝짓기 관리(`/api/phone*`)는 이 기계의 화면만 한다. Serve로 온 요청은 짝지은 기기도 403이다. `POST /api/pair`는 Serve로 온 요청만 받는다 | 폰이 다른 기기를 들이거나 Serve를 바꾸지 못한다 |
-| 설정 › 휴대폰은 데몬이 읽은 `tailscale status --json`(기기 이름, 켜짐)과 `tailscale serve status --json`(데몬 포트로 넘기는지)을 보인다. CLI는 PATH의 `tailscale`, 없으면 설치 자리의 `tailscale.exe`다(WSL에는 Windows판만 있다). Serve가 꺼져 있으면 [Serve 켜기]를 누를 때만 데몬이 `tailscale serve --bg <데몬 포트>`를 돌린다. tailnet이 Serve를 허용하지 않았으면 CLI는 허용 링크(`https://login.tailscale.com/…`)를 찍고 끝나지 않는다. 데몬은 출력을 줄마다 읽어 링크가 보이면 그 CLI를 끝내고 링크를 돌려주고, 탭은 그 링크를 한 줄로 보인다. 20초 안에 끝나지 않으면 끝내고 실패로 알린다 | 사람이 터미널 명령을 칠 일을 줄인다(결정 Q364 2A). Orca의 [휴대폰 연결 허용]이 방화벽 규칙을 넣는 것과 같다 |
+| 짝짓기 관리(`/api/phone*`)는 이 기계의 화면만 한다. 원격(Serve, 폰 문)으로 온 요청은 짝지은 기기도 403이다. `POST /api/pair`는 원격으로 온 요청만 받는다 | 폰이 다른 기기를 들이거나 Serve를 바꾸지 못한다 |
+| 설정 › 휴대폰은 폰 문 주소(같은 Wi‑Fi, Tailscale)와 [휴대폰 연결]을 늘 보인다. 「브라우저(iPhone)로 쓰기 · 선택」 칸은 데몬이 읽은 `tailscale status --json`(기기 이름, 켜짐)과 `tailscale serve status --json`(데몬 포트로 넘기는지)을 보인다. CLI는 PATH의 `tailscale`, 없으면 설치 자리의 `tailscale.exe`다(WSL에는 Windows판만 있다). Serve가 꺼져 있으면 [Serve 켜기]를 누를 때만 데몬이 `tailscale serve --bg <데몬 포트>`를 돌린다. tailnet이 Serve를 허용하지 않았으면 CLI는 허용 링크(`https://login.tailscale.com/…`)를 찍고 끝나지 않는다. 데몬은 출력을 줄마다 읽어 링크가 보이면 그 CLI를 끝내고 링크를 돌려주고, 탭은 그 링크를 한 줄로 보인다. 20초 안에 끝나지 않으면 끝내고 실패로 알린다 | 사람이 터미널 명령을 칠 일을 줄인다(결정 Q364 2A). Orca의 [휴대폰 연결 허용]이 방화벽 규칙을 넣는 것과 같다 |
 | 짝짓지 않은 폰은 앱 대신 짝짓기 쪽(`phone::unpaired`)을 받는다. 주소에 `#pair=`가 있으면 바로 보내고, 없으면 [QR 찍기]와 코드 칸(네모 8칸 `ㅁㅁㅁㅁ-ㅁㅁㅁㅁ`, 8자를 적으면 보낸다)을 보인다. [QR 찍기]는 카메라로 PC의 QR을 읽고, 주소의 스킴·호스트가 이 쪽과 같을 때만 그 코드를 보낸다. 판독은 `BarcodeDetector`, 없으면(iPhone Safari) 데몬이 쿠키 없이 내는 `/jsQR.js`(web/package.json이 고정한 jsQR)다. 카메라 API가 없으면 [QR 찍기]를 숨긴다. 글은 폰 언어(한국어가 아니면 영어)다 | iPhone의 홈 화면 앱은 Safari와 쿠키를 나누지 않는다. 그래서 홈 화면 앱은 한 번 더 짝짓는다. 코드를 적지 않고 QR로 짝짓게 한다(2026-10-22 사람 지시 "앱에서 연결할때도 번호 없이 qr 로 연결되게", Q386 A, 목업 [docs/mockups/pair-qr-scan.html](mockups/pair-qr-scan.html) M2 v3, Q388). 다른 PC나 사이트의 QR로 짝짓지 않는다. 바깥 CDN을 부르지 않는다 |
 | 터치 화면(`pointer: coarse`)이고 폭 640px 미만이면 화면이 폰 배치(`web/src/Phone.tsx`)를 그린다: 아래 탭 [질문]·[노드], 노드 터미널 화면, 키 막대, 사용량 줄. 그래프는 1단계에 넣지 않는다 | 사람 결정 Q281. 폰은 질문에 답하고 노드를 다루는 데 쓴다. 마우스 PC의 좁은 창은 데스크톱 배치다(2026-10-22 사람 지적 "지금 윈도우 버전 실행하니까 왜 앱 화면이 나오냐") |
 | 폰의 질문 문서는 `GET /api/waits/{wait}/doc/`가 낸다. 문서 옆 파일은 `…/doc/<파일>`이고 폴더 밖은 404다. 앱(Tauri)은 그대로 `POST …/doc`으로 기본 브라우저를 연다 | 폰은 데몬 기계의 파일을 열지 못한다 |
 
 사람이 하는 준비(설정 › 휴대폰에도 있다):
 
-1. 컴퓨터와 폰에 Tailscale을 설치하고 같은 계정으로 로그인한다.
-2. 설정 › 휴대폰에서 [Serve 켜기]를 누른다.
-3. [휴대폰 연결]을 누르고 폰 카메라로 QR을 찍는다. 홈 화면에 추가했으면 그 앱의 [QR 찍기]로 한 번 더 찍거나 코드를 적는다.
+1. Android: 폰을 PC와 같은 Wi‑Fi에 둔다. 설정 › 휴대폰 [휴대폰 연결]을 누르고 앱의 [QR 찍기]로 찍는다. 폰이 닿지 않으면(Windows) [방화벽 허용]을 누른다. 밖에서도 쓰려면 PC와 폰에 Tailscale을 켠 채로 찍는다.
+2. 브라우저·iPhone: 컴퓨터와 폰에 Tailscale을 설치하고 같은 계정으로 로그인한다. 설정 › 휴대폰에서 [Serve 켜기]를 누른다. [휴대폰 연결]을 누르고 폰 카메라로 QR을 찍는다. 홈 화면에 추가했으면 그 앱의 [QR 찍기]로 한 번 더 찍거나 코드를 적는다.
 
 ### Android 앱
 
-사람 지시(2026-10-22) "앱 배포 apk로 해". 앱은 PC loom이 Serve로 내는 폰 화면을 여는 WebView 껍데기다(`android/`, 목업 [docs/mockups/android-app.html](mockups/android-app.html) M1 v2, 결정 Q383).
+사람 지시(2026-10-22) "앱 배포 apk로 해". 앱은 PC loom이 폰 문이나 Serve로 내는 폰 화면을 여는 WebView 껍데기다(`android/`, 목업 [docs/mockups/android-app.html](mockups/android-app.html) M1 v2, 결정 Q383).
 
 | 결정 | 이유 |
 |---|---|
 | Kotlin Activity 하나(`MainActivity.kt`)와 시스템 WebView. Tauri 모바일을 쓰지 않는다 | iOS를 미뤄 Android만 남았다. Tauri는 Rust 교차 빌드(NDK), 데스크톱 `main.rs`의 나누기, 생성한 Gradle 프로젝트 커밋이 더 있다. Tauri는 원격 페이지에도 자기 전역을 넣어 화면이 데스크톱 앱으로 알아본다(`isTauri()`) |
 | 앱이 그리는 것은 카드 둘과 새 판 띠뿐이다: PC 주소를 모를 때(QR 찍기, 또는 주소와 짝짓기 코드 적기)와 연결에 실패했을 때(다시 시도, 주소 바꾸기). 코드 칸은 PC 짝짓기 쪽과 같은 네모 8칸(`□□□□-□□□□`)이고, 코드를 적으면 `https://<주소>/#pair=<코드>`를 열어 한 번에 짝짓는다(2026-10-22 사람 지시 "번호 칸(□□□□-□□□□)과 [QR 찍기] > 이것도 apk에 있어야지", 목업 M1 v3). 나머지(짝짓기 카드, 질문·노드)는 PC가 낸다 | 화면을 둘로 만들지 않는다. 화면이 바뀌어도 앱을 다시 내지 않는다 |
-| QR은 Google 코드 스캐너(Play 서비스)로 읽는다. 앱은 카메라 권한이 없다. QR 주소(`https://<PC>.ts.net/#pair=<코드>`)를 그대로 열어 짝짓는다 | 폰 카메라 앱으로 찍으면 브라우저가 연다. `*.ts.net`은 사람마다 달라 https 앱 링크로 앱에 보낼 수 없다 |
-| 주소는 `.ts.net`으로 끝나야 한다. 앱은 `https://<PC>.ts.net`만 저장하고 코드는 저장하지 않는다 | 데몬도 `.ts.net`으로 온 요청만 폰으로 받는다(「원격」 표). 기기 토큰 쿠키는 WebView 쿠키 저장소에 남는다. `allowBackup="false"`라 클라우드 백업에 가지 않는다 |
+| QR은 Google 코드 스캐너(Play 서비스)로 읽는다. 앱은 카메라 권한이 없다. QR에 `fp`·`a`가 있으면 폰 문 주소와 지문을 저장하고, 주소를 차례로 TCP로 두드려(1.5초) 먼저 답한 곳의 `#pair=<코드>`를 연다. 없으면 QR의 `.ts.net` 주소를 연다 | 같은 Wi‑Fi 주소가 닿지 않으면 Tailscale 주소로 넘어간다. 폰 카메라 앱으로 찍으면 브라우저가 연다 |
+| 폰 문의 인증서는 `onReceivedSslError`에서 DER의 SHA-256이 QR의 지문과 같고 주소가 저장한 폰 문일 때만 `proceed`한다. 다르면 「이 주소의 PC가 짝지은 PC와 다릅니다」 카드를 보인다 | 같은 Wi‑Fi의 다른 기기가 가운데에 끼지 못한다. 가설: WebView는 같은 호스트·인증서에 내린 `proceed`를 하위 요청과 웹소켓에 다시 쓴다(Chrome과 같다). 실제 기기로 확인하지 않았다 |
+| 기기 쿠키는 호스트마다 따로다. 앱은 폰 문 주소를 열기 전에 다른 폰 문 주소의 `loom_device` 쿠키를 그 주소에도 넣는다 | 같은 Wi‑Fi에서 짝지은 뒤 밖에서 Tailscale 주소로 열 때 다시 짝짓지 않는다 |
+| 적은 주소는 `.ts.net`(Serve)만 받는다. 폰 문은 QR로만 짝짓는다. 코드는 저장하지 않는다 | 폰 문은 지문이 있어야 PC를 확인한다. 주소와 코드만 적으면 처음 받은 인증서를 믿어야 한다(Q414 2A). 기기 토큰 쿠키는 WebView 쿠키 저장소에 남는다. `allowBackup="false"`라 클라우드 백업에 가지 않는다 |
 | 같은 PC 주소의 링크(질문 문서)는 앱 안에서, 다른 사이트는 폰 브라우저로 연다. 받은편지함 그림 붙이기는 시스템 파일 고르기를 쓴다 | 질문 문서는 쿠키가 있어야 열린다 |
-| 메인 페이지를 받지 못하거나(DNS, 연결) Serve가 5xx(데몬 꺼짐)를 내면 실패 카드를 보인다 | 사람 결정 Q383: 제목 「연결에 실패했습니다.」 |
+| 메인 페이지를 받지 못하거나(DNS, 연결) Serve가 5xx(데몬 꺼짐)를 내면 실패 카드를 보인다. 폰 문이면 [다시 시도]는 주소를 다시 두드리고, [QR 다시 찍기]가 [주소 바꾸기] 자리에 선다 | 사람 결정 Q383: 제목 「연결에 실패했습니다.」. 공유기가 PC 주소를 바꾸면 QR을 다시 찍는다 |
 | 알림은 없다 | 앱이 꺼진 동안 알리려면 푸시 서버나 상시 서비스가 있어야 한다(Q383 3A) |
 | 앱 새 판(`Release.kt`, 목업 [docs/mockups/android-update.html](mockups/android-update.html) M3 v1, 결정 Q389 A): 앱을 열 때와 그 뒤 6시간마다(앱이 앞에 올 때) 데몬과 같은 `latest.json`을 본다. 새 판이면 화면 맨 위에 띠를 놓고 PC 화면을 아래로 민다. [업데이트]는 `loom_<판>.apk`를 앱 캐시에 받고, 그 파일의 패키지 이름과 판을 본 뒤 Android 설치 화면을 연다(FileProvider, `ACTION_VIEW`). 「알 수 없는 앱 설치」가 꺼져 있으면 그 설정을 열고, 돌아오면 설치 화면을 연다. [×]는 다음 확인까지 띠를 숨긴다. Release 주소는 `release.yml`이 `-PloomReleases`로 넘긴다. 없으면(개발 빌드) 확인하지 않는다 | 사람 결정(2026-10-22, Q387 A) "새 APK가 있으면 알리고, 누르면 받아 설치 화면을 연다". 상시 서비스는 두지 않는다. 같은 서명 키라 덮어 설치해도 PC 주소와 기기 쿠키가 남는다 |
 | `release.yml`의 `android` 작업이 서명한 `loom_<판>.apk`를 Release에 올린다. `versionName`은 판, `versionCode`는 전체 커밋 수다 | 판의 PATCH는 MINOR를 올리면 0으로 돌아간다. `versionCode`가 줄면 Android가 업데이트 설치를 거절한다 |

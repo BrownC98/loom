@@ -1,17 +1,20 @@
 <resources>
     <string name="start_title">PC의 loom에 연결</string>
-    <string name="start_body">PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍습니다. 폰과 PC에 Tailscale이 켜져 있어야 합니다.</string>
+    <string name="start_body">PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍습니다. 폰과 PC가 같은 Wi‑Fi에 있거나, 밖에서는 Tailscale로 닿아야 합니다.</string>
     <string name="scan">QR 찍기</string>
-    <string name="or">또는 PC 주소와 코드를 적습니다</string>
+    <string name="or">Tailscale Serve를 쓰면 주소와 코드를 적어도 됩니다</string>
     <string name="address_hint">예: my-pc.example.ts.net</string>
     <string name="open">열기</string>
-    <string name="qr_error">loom QR이 아닙니다. 주소가 https://…ts.net 이어야 합니다.</string>
+    <string name="qr_error">loom QR이 아닙니다. PC loom의 설정 › 휴대폰에 나온 QR을 찍습니다.</string>
     <string name="scan_error">QR을 찍지 못했습니다. PC 주소를 적습니다.</string>
     <string name="address_error">주소가 .ts.net으로 끝나야 합니다.</string>
     <string name="failed_title">연결에 실패했습니다.</string>
     <string name="failed_body">폰의 Tailscale이 켜져 있는지, PC와 loom이 켜져 있는지 봅니다.</string>
     <string name="retry">다시 시도</string>
     <string name="change">주소 바꾸기</string>
+    <string name="rescan">QR 다시 찍기</string>
+    <string name="failed_body_door">폰과 PC가 같은 Wi‑Fi에 있는지, PC와 loom이 켜져 있는지 봅니다. PC 주소가 바뀌었으면 QR을 다시 찍습니다.</string>
+    <string name="failed_pin">이 주소의 PC가 짝지은 PC와 다릅니다. PC loom에서 QR을 다시 찍습니다.</string>
     <string name="update_title">앱 새 판 %1$s</string>
     <string name="update_current">지금 %1$s</string>
     <string name="update">업데이트</string>

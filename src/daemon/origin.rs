@@ -11,6 +11,8 @@
 //! `Tailscale-User-Login`·`X-Forwarded-*` 머리글을 붙인다. 다른 웹 페이지는 웹소켓과 교차 출처 요청에 이 머리글을 넣지 못한다.
 //! 이 머리글 하나라도 있으면 Serve로 온 요청으로 본다. 주소가 `*.ts.net`이고 `Origin`이 없거나 `https://<그 주소>`여야 하고,
 //! 짝지은 기기의 쿠키가 있어야 한다(`Devices`). 짝짓기 요청과 홈 화면 아이콘만 쿠키 없이 받는다.
+//!
+//! 폰 문(`lan`)으로 온 요청도 원격이다. 문이 `lan::Lan`을 넣는다. `Host`는 IP 주소이고 `Origin`은 없거나 `https://<Host>`여야 한다.
 
 use std::sync::Arc;
 
@@ -19,7 +21,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
-use super::phone;
+use super::{lan, phone};
 use crate::devices::{DeviceId, Devices};
 
 /// Tailscale Serve가 붙이는 요청자 로그인 머리글.
@@ -34,10 +36,10 @@ pub const DEVICE_COOKIE: &str = "loom_device";
 /// 짝짓기 전 폰이 받는 것: 짝짓기 요청, 「홈 화면에 추가」가 쿠키 없이 읽는 매니페스트와 아이콘(web/public), 짝짓기 쪽의 QR 판독기.
 const UNPAIRED_PATHS: &[&str] = &["/manifest.webmanifest", "/icon.png", phone::JSQR_PATH];
 
-/// Serve로 온 요청에 미들웨어가 넣는다. `device`는 짝지은 기기다(짝짓기 요청만 `None`).
+/// 원격(Serve, 폰 문)으로 온 요청에 미들웨어가 넣는다. `device`는 짝지은 기기다(짝짓기 요청만 `None`).
 /// 이 표시가 있는 요청은 PC 화면만 하는 일(짝짓기 코드, 기기 목록, Serve 켜기)을 하지 못한다.
 #[derive(Clone, Copy)]
-pub struct ViaServe {
+pub struct ViaRemote {
     pub device: Option<DeviceId>,
 }
 
@@ -50,17 +52,21 @@ pub async fn same_site(request: Request, next: Next) -> Response {
     }
 }
 
-/// 사람 문. 이 기계의 화면과 Tailscale Serve로 온 짝지은 폰을 받는다. 라우터 전체(HTTP, 웹소켓, 문서, 파일)에 한 겹으로 씌운다.
+/// 사람 문. 이 기계의 화면과 Tailscale Serve·폰 문으로 온 짝지은 폰을 받는다. 라우터 전체(HTTP, 웹소켓, 문서, 파일)에 한 겹으로 씌운다.
 pub async fn human_site(
     State(devices): State<Arc<Devices>>,
     mut request: Request,
     next: Next,
 ) -> Response {
     let headers = request.headers();
-    if !via_serve(headers) {
+    let site = if request.extensions().get::<lan::Lan>().is_some() {
+        lan_site(headers)
+    } else if via_serve(headers) {
+        serve_site(headers)
+    } else {
         return same_site(request, next).await;
-    }
-    if !serve_site(headers) {
+    };
+    if !site {
         return StatusCode::FORBIDDEN.into_response();
     }
     let path = request.uri().path();
@@ -70,7 +76,7 @@ pub async fn human_site(
     if device.is_none() && !open {
         return phone::unpaired();
     }
-    request.extensions_mut().insert(ViaServe { device });
+    request.extensions_mut().insert(ViaRemote { device });
     next.run(request).await
 }
 
@@ -78,7 +84,7 @@ pub async fn human_site(
 /// 문은 요청마다 기기를 보지만, 열린 웹소켓은 요청이 다시 오지 않는다.
 pub async fn until_removed(
     devices: Arc<Devices>,
-    via: Option<axum::Extension<ViaServe>>,
+    via: Option<axum::Extension<ViaRemote>>,
     work: impl Future<Output = ()>,
 ) {
     match via.and_then(|v| v.device) {
@@ -122,6 +128,20 @@ fn serve_site(headers: &HeaderMap) -> bool {
         && text(header::ORIGIN.as_str()).is_none_or(|origin| origin == format!("https://{host}"))
 }
 
+/// 폰 문으로 온 요청의 주소와 출처. 앱은 QR의 IP 주소로 연다. 이름이면 DNS 재바인딩일 수 있다.
+fn lan_site(headers: &HeaderMap) -> bool {
+    let text = |name| {
+        headers
+            .get(name)
+            .and_then(|v: &HeaderValue| v.to_str().ok())
+    };
+    let Some(host) = text(header::HOST.as_str()) else {
+        return false;
+    };
+    host_ip(host)
+        && text(header::ORIGIN.as_str()).is_none_or(|origin| origin == format!("https://{host}"))
+}
+
 /// `Cookie` 머리글에서 `name`의 값.
 fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers
@@ -153,14 +173,22 @@ fn allowed(headers: &HeaderMap) -> bool {
 
 /// DNS가 바꿀 수 없는 이름이다. 포트는 떼고 본다.
 fn fixed_host(host: &str) -> bool {
+    host_name(host).eq_ignore_ascii_case("localhost") || host_ip(host)
+}
+
+fn host_ip(host: &str) -> bool {
+    host_name(host).parse::<std::net::IpAddr>().is_ok()
+}
+
+/// `Host`에서 포트와 IPv6 괄호를 뗀 이름.
+fn host_name(host: &str) -> &str {
     let name = match host.rsplit_once(':') {
         Some((name, port)) if !name.ends_with(':') && port.bytes().all(|b| b.is_ascii_digit()) => {
             name
         }
         _ => host,
     };
-    let name = name.trim_start_matches('[').trim_end_matches(']');
-    name.eq_ignore_ascii_case("localhost") || name.parse::<std::net::IpAddr>().is_ok()
+    name.trim_start_matches('[').trim_end_matches(']')
 }
 
 #[cfg(test)]
@@ -361,6 +389,60 @@ mod tests {
             router(devices.clone()).oneshot(r).await.unwrap().status()
         }
 
+        /// 폰 문으로 온 요청: 문이 `lan::Lan`을 넣는다. 머리글은 앱의 WebView가 보내는 그대로다.
+        fn lan(method: Method, path: &str, host: &str, origin: Option<&str>) -> Request {
+            let mut b = Request::builder()
+                .method(method)
+                .uri(path)
+                .header("host", host);
+            if let Some(o) = origin {
+                b = b.header("origin", o);
+            }
+            let mut r = b.body(Body::empty()).unwrap();
+            r.extensions_mut().insert(lan::Lan);
+            r
+        }
+
+        #[tokio::test]
+        async fn lan_door_is_remote() {
+            let (_dir, d) = devices();
+            let host = "192.168.0.12:7430";
+            // 쿠키 없는 폰 문 요청은 PC 화면과 달리 짝짓기 쪽을 받는다.
+            assert_eq!(
+                status(&d, lan(Method::GET, "/api/repos", host, None)).await,
+                StatusCode::UNAUTHORIZED
+            );
+            assert_eq!(
+                status(&d, upgrade(lan(Method::GET, "/api/events", host, None))).await,
+                StatusCode::UNAUTHORIZED
+            );
+            assert_eq!(
+                status(
+                    &d,
+                    lan(
+                        Method::POST,
+                        phone::PAIR_PATH,
+                        host,
+                        Some("https://192.168.0.12:7430")
+                    )
+                )
+                .await,
+                StatusCode::OK
+            );
+            // 이름 주소(DNS 재바인딩), 다른 출처, http 출처는 막는다.
+            for (h, o) in [
+                ("evil.example:7430", None),
+                (host, Some("https://evil.example")),
+                (host, Some("http://192.168.0.12:7430")),
+            ] {
+                assert_eq!(
+                    status(&d, lan(Method::POST, phone::PAIR_PATH, h, o)).await,
+                    StatusCode::FORBIDDEN,
+                    "{h} {o:?}"
+                );
+            }
+        }
+
         #[tokio::test]
         async fn every_remote_route_needs_a_paired_device() {
             let (_dir, d) = devices();
@@ -432,7 +514,7 @@ mod tests {
             let code = d.invite();
             let token = d.pair(&code, "a").unwrap().0;
             let id = d.check(&token).unwrap();
-            let via = Some(axum::Extension(ViaServe { device: Some(id) }));
+            let via = Some(axum::Extension(ViaRemote { device: Some(id) }));
             let work = tokio::spawn(until_removed(d.clone(), via, std::future::pending()));
             tokio::task::yield_now().await;
             assert!(!work.is_finished());

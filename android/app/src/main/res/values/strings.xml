@@ -1,17 +1,20 @@
 <resources>
     <string name="start_title">Connect to loom on your PC</string>
-    <string name="start_body">Scan the QR code from loom on your PC: Settings › Phone › [Connect phone]. Tailscale must be on for this phone and the PC.</string>
+    <string name="start_body">Scan the QR code from loom on your PC: Settings › Phone › [Connect phone]. The phone must be on the same Wi‑Fi as the PC, or on Tailscale when outside.</string>
     <string name="scan">Scan QR</string>
-    <string name="or">Or type the PC address and the code</string>
+    <string name="or">With Tailscale Serve, you can type the address and the code</string>
     <string name="address_hint">e.g. my-pc.example.ts.net</string>
     <string name="open">Open</string>
-    <string name="qr_error">This is not a loom QR code. The address must be https://…ts.net.</string>
+    <string name="qr_error">This is not a loom QR code. Scan the QR code in Settings › Phone of loom on your PC.</string>
     <string name="scan_error">Could not scan the QR code. Type the PC address.</string>
     <string name="address_error">The address must end with .ts.net.</string>
     <string name="failed_title">Connection failed.</string>
     <string name="failed_body">Make sure Tailscale is on for this phone, and that the PC and loom are on.</string>
     <string name="retry">Try again</string>
     <string name="change">Change address</string>
+    <string name="rescan">Scan QR again</string>
+    <string name="failed_body_door">Make sure the phone and the PC are on the same Wi‑Fi, and that the PC and loom are on. If the PC address changed, scan the QR code again.</string>
+    <string name="failed_pin">The PC at this address is not the paired PC. Scan the QR code again in loom on your PC.</string>
     <string name="update_title">New app version %1$s</string>
     <string name="update_current">Current %1$s</string>
     <string name="update">Update</string>

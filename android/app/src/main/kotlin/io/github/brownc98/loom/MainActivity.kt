@@ -2,6 +2,8 @@ package io.github.brownc98.loom
 
 import android.content.Intent
 import android.graphics.drawable.GradientDrawable
+import android.net.http.SslCertificate
+import android.net.http.SslError
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -16,6 +18,7 @@ import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
+import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -36,11 +39,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.security.MessageDigest
 import kotlin.concurrent.thread
 
 /**
- * PC loom이 Tailscale Serve로 내는 폰 화면을 연다. 화면은 PC가 그리고, 앱은 PC 주소를 모를 때(①)와
- * 닿지 못할 때(②)의 카드와 앱 새 판 띠만 그린다. 근거: docs/design.md 「Android 앱」, 목업 docs/mockups/android-app.html,
+ * PC loom이 내는 폰 화면을 연다. 길은 둘이다: 데몬의 폰 문(`https://<IP>:<포트>`, 자체 서명 인증서를 QR의 지문으로 확인)과
+ * Tailscale Serve(`https://<PC>.ts.net`). 화면은 PC가 그리고, 앱은 PC 주소를 모를 때(①)와 닿지 못할 때(②)의 카드와
+ * 앱 새 판 띠만 그린다. 근거: docs/design.md 「Android 앱」, 목업 docs/mockups/android-app.html, phone-direct.html ④,
  * docs/mockups/android-update.html.
  */
 class MainActivity : ComponentActivity() {
@@ -54,6 +61,8 @@ class MainActivity : ComponentActivity() {
     private var upload: ValueCallback<Array<Uri>>? = null
     /** 앱이 연 첫 페이지가 뜨면 뒤로 기록을 비운다. 실패한 페이지로 돌아가지 않게 한다. */
     private var fresh = false
+    /** 인증서 지문이 달라 페이지를 끊었다. 뒤따르는 연결 실패가 지문 카드를 덮지 않게 한다. */
+    private var refused = false
     private val pickFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         upload?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
         upload = null
@@ -61,10 +70,20 @@ class MainActivity : ComponentActivity() {
 
     private val prefs by lazy { getSharedPreferences("loom", MODE_PRIVATE) }
 
-    /** 저장한 PC 주소(`https://<PC>.ts.net`). 짝짓기 코드는 저장하지 않는다. */
+    /** 지금 연 PC 주소(`https://<IP>:<포트>` 또는 `https://<PC>.ts.net`). 짝짓기 코드는 저장하지 않는다. */
     private var origin: String?
         get() = prefs.getString(ORIGIN, null)
         set(value) = prefs.edit().putString(ORIGIN, value).apply()
+
+    /** QR의 폰 문 주소(`<IP>:<포트>`, 같은 네트워크가 먼저, Tailscale이 뒤). Serve만 쓰면 비어 있다. */
+    private var doors: List<String>
+        get() = prefs.getString(DOORS, null)?.split(',')?.filter { it.isNotEmpty() } ?: emptyList()
+        set(value) = prefs.edit().putString(DOORS, value.joinToString(",")).apply()
+
+    /** 폰 문 인증서 DER의 SHA-256(base64url, 덧붙임 없음). 이 지문이 아닌 인증서의 페이지는 열지 않는다. */
+    private var pin: String?
+        get() = prefs.getString(PIN, null)
+        set(value) = prefs.edit().putString(PIN, value).apply()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -111,7 +130,46 @@ class MainActivity : ComponentActivity() {
                 if (card.visibility != View.VISIBLE && web.canGoBack()) web.goBack() else finish()
             }
         })
-        origin?.let(::open) ?: showStart(null, "")
+        when {
+            doors.isNotEmpty() -> reach(doors)
+            else -> origin?.let(::open) ?: showStart(null, "")
+        }
+    }
+
+    /**
+     * 폰 문 주소를 차례로 TCP로 두드려 먼저 답한 곳을 연다(같은 Wi-Fi가 먼저, 밖이면 Tailscale 주소).
+     * `fragment`는 처음 짝지을 때의 `#pair=<코드>`다.
+     */
+    private fun reach(candidates: List<String>, fragment: String = "") {
+        thread {
+            val found = candidates.firstOrNull { door ->
+                val host = door.substringBeforeLast(':')
+                val port = door.substringAfterLast(':').toIntOrNull() ?: return@firstOrNull false
+                runCatching { Socket().use { it.connect(InetSocketAddress(host, port), PROBE_MS) } }.isSuccess
+            }
+            runOnUiThread {
+                when (found) {
+                    null -> showFailed("https://${candidates.first()}/")
+                    else -> {
+                        copyCookie(found)
+                        origin = "https://$found"
+                        open("https://$found/$fragment")
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 기기 쿠키는 호스트마다 따로다. 같은 Wi-Fi 주소에서 짝지은 쿠키를 Tailscale 주소에도 넣어, 밖에서 다시 짝짓지 않게 한다.
+     * 쿠키 속성은 데몬의 `device_cookie`(src/daemon/phone.rs)와 같다.
+     */
+    private fun copyCookie(to: String) {
+        val cookies = CookieManager.getInstance()
+        val token = doors.firstNotNullOfOrNull { door ->
+            cookies.getCookie("https://$door/")?.split(';')?.map { it.trim() }?.firstOrNull { it.startsWith("$DEVICE_COOKIE=") }
+        } ?: return
+        cookies.setCookie("https://$to/", "$token; Path=/; Max-Age=$COOKIE_MAX_AGE_SECS; Secure; HttpOnly; SameSite=Strict")
     }
 
     override fun onResume() {
@@ -133,6 +191,7 @@ class MainActivity : ComponentActivity() {
         getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(card.windowToken, 0)
         card.visibility = View.GONE
         fresh = true
+        refused = false
         web.loadUrl(url)
     }
 
@@ -236,16 +295,17 @@ class MainActivity : ComponentActivity() {
     }
 
     /** ② PC에 닿지 못함. */
-    private fun showFailed(failed: String) {
+    private fun showFailed(failed: String, body: Int = if (pin != null) R.string.failed_body_door else R.string.failed_body) {
         val actions = LinearLayout(this).apply {
-            addView(button(R.string.retry, primary = true) { open(failed) }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(button(R.string.retry, primary = true) { if (doors.isNotEmpty()) reach(doors) else open(failed) }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
             addView(View(this@MainActivity), dp(8), 1)
-            addView(button(R.string.change, primary = false) {
+            addView(button(if (pin != null) R.string.rescan else R.string.change, primary = false) {
                 origin = null
-                showStart(null, "")
+                if (pin != null) scan() else showStart(null, "")
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         }
-        show(R.string.failed_title, "${Uri.parse(failed).host}\n${getString(R.string.failed_body)}", null, actions)
+        val place = Uri.parse(failed).let { if (it.port > 0) "${it.host}:${it.port}" else it.host }
+        show(R.string.failed_title, "$place\n${getString(body)}", null, actions)
     }
 
     /** 앱 새 판 띠 ①: 새 판이 있음. */
@@ -332,16 +392,33 @@ class MainActivity : ComponentActivity() {
         banner.visibility = View.VISIBLE
     }
 
+    /** QR: `https://<호스트>/#pair=<코드>&fp=<지문>&a=<IP:포트>,…`(src/daemon/phone.rs `invite_url`). `fp`·`a`가 있으면 폰 문으로 붙는다. */
     private fun scan() {
         GmsBarcodeScanning.getClient(this).startScan().addOnSuccessListener { code ->
             val url = Uri.parse(code.rawValue ?: "")
-            if (url.scheme == "https") pick(url.host ?: "", R.string.qr_error, url = url.toString()) else showStart(R.string.qr_error, "")
+            val params = (url.fragment ?: "").split('&').mapNotNull { part -> part.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
+            val found = params["a"]?.split(',')?.filter { it.isNotEmpty() }.orEmpty()
+            val pair = params["pair"]
+            when {
+                url.scheme != "https" || pair == null -> showStart(R.string.qr_error, "")
+                params["fp"] != null && found.isNotEmpty() -> {
+                    pin = params["fp"]
+                    doors = found
+                    reach(found, "#pair=$pair")
+                }
+                else -> pick(url.host ?: "", R.string.qr_error, url = "https://${url.host}/#pair=$pair")
+            }
         }.addOnFailureListener { showStart(R.string.scan_error, "") }
     }
 
-    /** PC 주소가 tailnet 이름이면 저장하고 연다. 데몬도 `.ts.net`으로 온 요청만 폰으로 받는다(src/daemon/origin.rs). */
+    /**
+     * 적은 주소는 tailnet 이름(Serve)만 받는다. 폰 문은 인증서 지문이 있어야 하므로 QR로만 짝짓는다(사람 결정 Q414 2A).
+     * 데몬도 Serve 길에서는 `.ts.net`으로 온 요청만 폰으로 받는다(src/daemon/origin.rs).
+     */
     private fun pick(host: String, error: Int, url: String = "https://$host/", typed: String = "", code: String = "") {
         if (!host.endsWith(TAILNET)) return showStart(error, typed, code)
+        pin = null
+        doors = emptyList()
         origin = "https://$host"
         open(url)
     }
@@ -411,7 +488,21 @@ class MainActivity : ComponentActivity() {
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            if (request.isForMainFrame) showFailed(request.url.toString())
+            if (request.isForMainFrame && !refused) showFailed(request.url.toString())
+        }
+
+        /**
+         * 폰 문의 자체 서명 인증서: QR의 지문과 같고 폰 문 주소일 때만 연다. 다르면 가운데에 낀 기기거나 인증서를 바꾼 PC다.
+         * WebView는 같은 호스트·인증서에 내린 `proceed`를 기억해 하위 요청과 웹소켓에도 쓴다.
+         */
+        override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+            val place = Uri.parse(error.url).let { "${it.host}:${it.port}" }
+            if (pin != null && place in doors && fingerprint(error.certificate) == pin) return handler.proceed()
+            handler.cancel()
+            if (Uri.parse(error.url).host == Uri.parse(origin ?: "").host) {
+                refused = true
+                showFailed(error.url, R.string.failed_pin)
+            }
         }
 
         /** Serve는 데몬이 꺼져 있으면 502를 낸다. */
@@ -431,8 +522,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** 인증서 DER의 SHA-256. `SslCertificate.x509Certificate`는 API 29부터라 저장 묶음의 DER을 읽는다. */
+    private fun fingerprint(cert: SslCertificate): String? {
+        val der = SslCertificate.saveState(cert).getByteArray("x509-certificate") ?: return null
+        val hash = MessageDigest.getInstance("SHA-256").digest(der)
+        return android.util.Base64.encodeToString(hash, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+    }
+
     private companion object {
         const val ORIGIN = "origin"
+        const val DOORS = "doors"
+        const val PIN = "pin"
+        const val DEVICE_COOKIE = "loom_device"
+        /** 데몬 쿠키 수명(src/daemon/phone.rs `COOKIE_MAX_AGE_SECS`). */
+        const val COOKIE_MAX_AGE_SECS = 400 * 24 * 60 * 60
+        /** 폰 문 주소 하나를 두드리는 시간. 닿지 않는 같은 Wi-Fi 주소에서 Tailscale 주소로 넘어가는 시간이다. */
+        const val PROBE_MS = 1500
         const val TAILNET = ".ts.net"
         /** 짝짓기 코드 길이(src/daemon/phone.rs와 같다). */
         const val CODE_LENGTH = 8

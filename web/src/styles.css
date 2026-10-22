@@ -722,10 +722,12 @@ dialog::backdrop { background: var(--scrim); }
 .row-main .meta.warnline, .row-main .meta.warnline .where { color: var(--warn); }
 .row-main .desc { flex-basis: 100%; font-size: 12px; color: var(--ink-3); }
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
-/* 설정 › 휴대폰(docs/mockups/phone-pairing.html ②③). */
+/* 설정 › 휴대폰(docs/mockups/phone-pairing.html ②③, phone-direct.html ②③). */
 .phone-ready { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.phone-ready code { font: 12px var(--mono); }
-.phone-steps { margin: 0; padding-left: 18px; }
+.phone-ready code, .phone-addr code { font: 12px var(--mono); }
+.phone-addr { display: grid; gap: 4px; font-size: 13px; }
+.phone-addr > div { display: flex; gap: 8px; align-items: center; }
+.phone-addr .key { width: 92px; flex: none; color: var(--ink-3); font-size: 12px; }
 .pair-box { display: flex; gap: 20px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 /* QR은 밝은 바탕에서만 잘 찍힌다. 다크 테마에서도 흰 바탕이다. */
 .pair-box .qr { width: 148px; height: 148px; flex: none; background: #fff; padding: 4px; border-radius: 6px; }

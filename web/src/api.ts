@@ -6,6 +6,7 @@ import type { AnswerWait } from './gen/AnswerWait';
 import type { CardSize } from './gen/CardSize';
 import type { CloneRepo } from './gen/CloneRepo';
 import type { CommitGraph } from './gen/CommitGraph';
+import type { CommitRange } from './gen/CommitRange';
 import type { CreateRepo } from './gen/CreateRepo';
 import type { EventRecord } from './gen/EventRecord';
 import type { FolderList } from './gen/FolderList';
@@ -119,8 +120,9 @@ export const getUpdate = () => call<UpdateView>('GET', '/api/update');
 export const checkUpdate = () => call<UpdateView>('POST', '/api/update/check');
 /** 데몬이 새 판을 받아 바꾸고 다시 뜬다. 바로 돌아오고, 진행은 상태로 본다. */
 export const installUpdate = () => call<UpdateView>('POST', '/api/update/install');
-/** 모든 브랜치의 최근 커밋과 워크트리마다 체크아웃한 커밋. */
-export const getCommits = (repo: RepoId) => call<CommitGraph>('GET', `/api/repos/${repo}/commits`);
+/** 모든 브랜치 커밋의 한 구간과 워크트리마다 체크아웃한 커밋. `limit: 0`이면 지문(`version`)과 워크트리만 온다. */
+export const getCommits = (repo: RepoId, range: CommitRange) =>
+  call<CommitGraph>('GET', `/api/repos/${repo}/commits?skip=${range.skip}&limit=${range.limit}`);
 /** 더한 순서. 워크트리 첫째가 원래 체크아웃이다. */
 export const getRepos = () => call<RepoView[]>('GET', '/api/repos');
 /** 사람이 끌어 놓은 자리(docs/mockups/repo-drag.html v4). 한 번 놓기의 자리(놓은 상자와 비킨 상자)는 한 요청으로 쓴다. */

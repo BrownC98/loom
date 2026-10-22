@@ -280,11 +280,13 @@ pub struct DeleteWorktree {
     pub delete_branch: bool,
 }
 
-/// 커밋 그래프 칸이 읽는 것: 커밋과, 워크트리마다 체크아웃한 커밋.
+/// 커밋 그래프 칸이 읽는 것: 한 구간의 커밋과, 워크트리마다 체크아웃한 커밋.
 #[derive(Serialize, TS)]
 #[ts(export)]
 pub struct CommitGraph {
     pub commits: Vec<Commit>,
+    /// 참조의 지문(`commit_graph::version`). 같으면 이미 읽은 구간도 그대로다.
+    pub version: String,
     pub worktrees: Vec<Worktree>,
 }
 
@@ -863,10 +865,15 @@ async fn clear_sizes(
 async fn commits(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
+    Query(range): Query<commit_graph::CommitRange>,
 ) -> Result<Json<CommitGraph>, Problem> {
     let repo = app.repos.path(RepoId(id))?;
-    let commits = match commit_graph::read(&repo).await {
-        Ok(commits) => commits,
+    let read = tokio::try_join!(
+        commit_graph::read(&repo, range),
+        commit_graph::version(&repo)
+    );
+    let (commits, version) = match read {
+        Ok(read) => read,
         // 목록에 넣은 뒤 폴더나 `.git`이 없어졌으면 그 까닭을 보인다. 그 밖은 git의 글 그대로다.
         Err(e) => {
             return Err(worktree::check(&repo)
@@ -877,6 +884,7 @@ async fn commits(
     };
     Ok(Json(CommitGraph {
         commits,
+        version,
         worktrees: worktree::worktrees(&repo).await,
     }))
 }

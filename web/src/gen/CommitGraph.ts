@@ -3,6 +3,10 @@ import type { Commit } from "./Commit";
 import type { Worktree } from "./Worktree";
 
 /**
- * 커밋 그래프 칸이 읽는 것: 커밋과, 워크트리마다 체크아웃한 커밋.
+ * 커밋 그래프 칸이 읽는 것: 한 구간의 커밋과, 워크트리마다 체크아웃한 커밋.
  */
-export type CommitGraph = { commits: Array<Commit>, worktrees: Array<Worktree>, };
+export type CommitGraph = { commits: Array<Commit>, 
+/**
+ * 참조의 지문(`commit_graph::version`). 같으면 이미 읽은 구간도 그대로다.
+ */
+version: string, worktrees: Array<Worktree>, };

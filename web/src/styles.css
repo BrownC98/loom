@@ -248,8 +248,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__attribution a { color: inherit; }
 
 /* 오른쪽 사이드바(목업 toolbar.html E안): 위는 그래프 보기 도구, 아래는 탭 하나의 칸. 칸은 이벤트 콘솔(graph-panels.html 3번), 커밋 그래프(4번), 심플 보기의 터미널이다 */
-/* `clip`: 칸을 좁히는 동안 너비를 고정한 `.dock-panel`이 창 밖으로 넘치지 않게 자른다. */
-.dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: clip; background: var(--panel); border-left: 1px solid var(--line); }
+.dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
 .dock-tools { display: grid; gap: 8px; padding: 8px 12px 12px; }
 .dock-tools-head { display: flex; align-items: center; justify-content: space-between; }
 .dock-tools-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
@@ -263,7 +262,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
 .tabs button:focus-visible { outline-offset: -2px; }
 .tabs svg { width: 14px; height: 14px; }
-/* 탭 내용(커밋 그래프 1,000줄 등)의 배치·그리기를 칸 안에 가둔다. 사이드바를 끌 때 이 칸을 다시 그리지 않는다(왼쪽 끌기의 긴 작업 8.6초 → 1초 이하).
+/* 탭 내용(커밋 그래프 등)의 배치·그리기를 칸 안에 가둔다. 사이드바를 끌 때 이 칸을 다시 그리지 않는다(왼쪽 끌기의 긴 작업 8.6초 → 1초 이하).
    `.side`·`.dock` 전체에는 걸지 않는다. `paint`가 칸 밖으로 나오는 `.row-pop`(position: fixed)을 자른다. */
 .dock-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; contain: layout paint; }
 .dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
@@ -299,8 +298,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ev[data-family]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--warn); }
 .ev[data-family="done"]::before { background: var(--ok); }
 .commits { list-style: none; padding: 6px 0; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
-/* 줄이 1,000개까지 온다. 화면 밖 줄은 배치·그리기를 건너뛴다. 줄 높이가 22px로 고정이라 모양은 같다. 첫 그래프 표시가 약 1.2초에서 0.6초로 줄었다(2026-10-22 측정). */
-.commit { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 12px 0 6px; content-visibility: auto; contain-intrinsic-size: auto 22px; }
+/* 그리지 않은 줄의 자리(CommitGraph.tsx). 목록의 padding은 칸 높이를 넘겨 늘어나서 쓰지 않는다. */
+.commits::before { content: ""; display: block; height: var(--rows-before, 0px); }
+.commits::after { content: ""; display: block; height: var(--rows-after, 0px); }
+.commit { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 12px 0 6px; }
 .commit:hover { background: var(--surface-hover); }
 .commit .graph { flex: none; display: flex; }
 .lanes path { fill: none; stroke-width: 1; stroke-linecap: round; }

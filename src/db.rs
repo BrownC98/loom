@@ -198,6 +198,13 @@ const STEPS: &[M] = &[
         "DELETE FROM messages WHERE recipient IS NULL AND body LIKE 'done: %'
             AND sender IN (SELECT id FROM nodes WHERE parent IS NULL);",
     ),
+    // 27: 밀린 상자의 자리는 저장하지 않는다. 화면이 렌더마다 겹친 상자를 민다. 밀린 상자는 밀기 전 자리(`home_x`·`home_y`)로 돌아가 저장한다.
+    // 화면이 민 자리를 저장하면 카드를 다르게 잰 두 탭이 번갈아 저장했다(2026-10-22 사람 지시 "state must be one").
+    M::up(
+        "UPDATE spots SET x = home_x, y = home_y WHERE home_x IS NOT NULL AND home_y IS NOT NULL;
+        ALTER TABLE spots DROP COLUMN home_x;
+        ALTER TABLE spots DROP COLUMN home_y;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -507,5 +514,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(row, (1, 2, "a".into(), r#""steer""#.into(), "질문".into()));
+    }
+
+    /// 밀린 상자는 밀기 전 자리로 돌아간다. 화면이 렌더마다 다시 민다. 밀리지 않은 상자는 그대로다.
+    #[test]
+    fn pushed_spots_go_back_to_their_home_and_the_home_columns_go() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS
+            .to_version(&mut conn, super::STEPS.len() - 1)
+            .unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO spots (spot, repo, x, y, home_x, home_y) VALUES
+            ('{"kind":"repo","repo":71}', 71, 1448, 126, 768, 126),
+            ('{"kind":"repo","repo":9}', 9, 32, 126, NULL, NULL);"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let spots = conn
+            .prepare("SELECT repo, x, y FROM spots ORDER BY repo")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<(u32, f64, f64)>>>()
+            .unwrap();
+        assert_eq!(spots, [(9, 32.0, 126.0), (71, 768.0, 126.0)]);
+        assert!(conn.prepare("SELECT home_x FROM spots").is_err());
     }
 }

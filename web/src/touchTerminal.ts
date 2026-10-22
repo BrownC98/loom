@@ -20,15 +20,46 @@ function cellAt(xterm: XTerm, screen: HTMLElement, x: number, y: number): Cell {
   return { col, row: xterm.buffer.active.viewportY + row };
 }
 
+const before = (a: Cell, b: Cell) => a.row < b.row || (a.row === b.row && a.col < b.col);
+
 /** 두 칸 사이(양 끝 포함)를 고른다. 거꾸로 끌어도 된다. */
 function selectBetween(xterm: XTerm, a: Cell, b: Cell) {
-  const [from, to] = a.row < b.row || (a.row === b.row && a.col <= b.col) ? [a, b] : [b, a];
+  const [from, to] = before(b, a) ? [b, a] : [a, b];
   xterm.select(from.col, from.row, (to.row - from.row) * xterm.cols + to.col - from.col + 1);
 }
 
 /**
+ * `col` 칸을 품은 낱말의 처음·끝 열. 빈칸이나 구분 글자 위면 그 칸 하나다.
+ * `chars`는 칸마다의 글자다. 넓은 글자의 둘째 칸은 빈 문자열이라 앞 글자에 붙는다.
+ */
+export function wordBounds(chars: readonly string[], col: number, separators: string): { start: number; end: number } {
+  const inWord = (c: string) => c === '' || !(c === ' ' || separators.includes(c));
+  if (!inWord(chars[col])) return { start: col, end: col };
+  let start = col;
+  while (start > 0 && inWord(chars[start - 1])) start--;
+  let end = col;
+  while (end + 1 < chars.length && inWord(chars[end + 1])) end++;
+  return { start, end };
+}
+
+/** 길게 누른 칸의 낱말. 줄이 없으면 그 칸 하나다. */
+function wordAt(xterm: XTerm, at: Cell): { from: Cell; to: Cell } {
+  const line = xterm.buffer.active.getLine(at.row);
+  if (!line) return { from: at, to: at };
+  // 쓴 적 없는 칸도 글자가 ''이다. 너비로 넓은 글자의 둘째 칸(너비 0)과 가른다.
+  const chars = Array.from({ length: xterm.cols }, (_, x) => {
+    const cell = line.getCell(x);
+    if (!cell) return ' ';
+    return cell.getWidth() === 0 ? '' : cell.getChars() || ' ';
+  });
+  const { start, end } = wordBounds(chars, at.col, xterm.options.wordSeparator ?? '');
+  return { from: { col: start, row: at.row }, to: { col: end, row: at.row } };
+}
+
+/**
  * 폰 터미널 손가락 동작. 한 손가락 세로 쓸기는 xterm에 휠 입력으로 보낸다: 셸은 스크롤백이 움직이고,
- * 마우스 추적을 켠 TUI(Claude Code·less)는 휠을 받는다. 길게 누르면 그 칸부터 글자를 고르고, 끌면 늘어난다.
+ * 마우스 추적을 켠 TUI(Claude Code·less)는 휠을 받는다. 길게 누르면 폰 관례대로 그 낱말을 고르고, 끌면 낱말에서 손가락까지 늘어난다
+ * (2026-10-23 사람 "모바일의 일반적 관례를 따르라 예를 들면 화면을 꾹 눌렀을 때 단어 단위로 이미 지정이 된다던가").
  * 짧게 누르면 아무것도 하지 않아 xterm의 포커스(키보드)가 그대로 열린다.
  * `onSelect`는 고르기가 끝난 손가락 자리를 알린다(복사 버튼 자리). 터치 기기에서만 건다.
  */
@@ -42,7 +73,7 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   el.style.userSelect = 'none';
   const onMenu = (e: Event) => e.preventDefault();
 
-  type State = { mode: 'press' | 'scroll' | 'select'; x: number; y: number; anchor: Cell; carry: number; timer: number };
+  type State = { mode: 'press' | 'scroll' | 'select'; x: number; y: number; anchor: Cell; word: { from: Cell; to: Cell }; carry: number; timer: number };
   let state: State | null = null;
 
   const wheel = (lines: number) => {
@@ -57,10 +88,12 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
     if (state) clearTimeout(state.timer);
     if (e.touches.length !== 1) return void (state = null);
     const { clientX: x, clientY: y } = e.touches[0];
-    const next: State = { mode: 'press', x, y, anchor: cellAt(xterm, screen, x, y), carry: 0, timer: 0 };
+    const anchor = cellAt(xterm, screen, x, y);
+    const next: State = { mode: 'press', x, y, anchor, word: { from: anchor, to: anchor }, carry: 0, timer: 0 };
     next.timer = window.setTimeout(() => {
       next.mode = 'select';
-      selectBetween(xterm, next.anchor, next.anchor);
+      next.word = wordAt(xterm, next.anchor);
+      selectBetween(xterm, next.word.from, next.word.to);
     }, LONG_PRESS_MS);
     // 새로 누르면 앞 고르기는 끝낸다.
     xterm.clearSelection();
@@ -77,7 +110,11 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
       state.y = y;
     }
     e.preventDefault();
-    if (state.mode === 'select') return selectBetween(xterm, state.anchor, cellAt(xterm, screen, x, y));
+    if (state.mode === 'select') {
+      const at = cellAt(xterm, screen, x, y);
+      const { from, to } = state.word;
+      return before(at, from) ? selectBetween(xterm, at, to) : selectBetween(xterm, from, before(to, at) ? at : to);
+    }
     // 손가락이 위로 가면 내용이 위로 가고, 나중 줄이 보인다.
     const cellHeight = screen.getBoundingClientRect().height / xterm.rows;
     state.carry += (state.y - y) / cellHeight;

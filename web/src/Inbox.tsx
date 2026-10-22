@@ -1,4 +1,4 @@
-import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronDown, CircleCheck, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
@@ -11,17 +11,21 @@ import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
+import { asking } from './NodeCard';
 import { useOutsideClose } from './popover';
 
-/** 노드에서 가장 오래 기다린 대기. 대기가 없는 노드는 받지 않는다(`waitingNodes`가 거른다). */
-const oldest = (v: NodeView): HumanWait => v.waits.reduce((a, b) => (b.since < a.since ? b : a));
+/** 차례: 질문(답할 일)이 완료보다 앞이다. 완료가 질문을 가리지 않는다(목업 docs/mockups/done-notice.html M37). 같은 차례면 오래된 것이 앞이다. */
+const before = (a: HumanWait, b: HumanWait) => Number(a.kind === 'done') - Number(b.kind === 'done') || a.since - b.since;
+
+/** 노드에서 가장 앞 차례의 대기. 대기가 없는 노드는 받지 않는다(`waitingNodes`가 거른다). */
+const oldest = (v: NodeView): HumanWait => v.waits.reduce((a, b) => (before(b, a) < 0 ? b : a));
 
 /**
  * 사람 응답을 기다리는 노드, 가장 오래 기다린 대기의 차례로. 알약은 첫 노드의 가장 오래된 대기를 보인다. 새 질문이 와도 알약이 가리키는 대기가 바뀌지 않는다.
  * 받은편지함·시스템 알림은 `NodeView.waits`만 읽는다(docs/design.md 「사람 응답 대기」).
  */
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
-  return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => oldest(a).since - oldest(b).since);
+  return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => before(oldest(a), oldest(b)));
 }
 
 /** 알약과 「질문」 탭 배지의 수: 모든 노드의 대기 수(목업 M28: 노드 수가 아니라 질문 수). */
@@ -66,13 +70,13 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
     <div className="inbox" ref={home}>
       {/* 알약 꼴은 설정 「질문 알약」이다. `line`: 한 줄. `answer`: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
       {first && (
-        <div className="inbox-pill" data-view={props.pill}>
-          {/* 머리 줄이 바뀌면(새 알약, 수, 다음 질문) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다. */}
+        <div className="inbox-pill" data-view={props.pill} data-kind={firstWait.kind}>
+          {/* 머리 줄이 바뀌면(새 알약, 수, 다음 질문) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다. 완료만 남으면 완료를 보인다(목업 M37). */}
           <div className="head" aria-live="polite">
-            <QuestionIcon className="qicon" aria-hidden="true" />
-            <b>{t('inbox.button')}</b>
+            {firstWait.kind === 'done' ? <CircleCheck className="qicon" aria-hidden="true" /> : <QuestionIcon className="qicon" aria-hidden="true" />}
+            <b>{firstWait.kind === 'done' ? t('wait.done') : t('inbox.button')}</b>
             <span className="count">{n}</span>
-            <span className="qid">Q{firstWait.id}</span>
+            {firstWait.kind !== 'done' && <span className="qid">Q{firstWait.id}</span>}
             {/* 알약 머리는 목록만 편다. 노드로 가는 길은 목록 줄의 노드 이름이다(2026-10-22 사람 질문 "알약에 터미널 바로가기가 필요한가?"). */}
             <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: n })} onClick={toList}>
               <b>{first.name}</b>
@@ -80,7 +84,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
               {!line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
             </button>
           </div>
-          {!line && <WaitBody key={firstWait.id} wait={firstWait} onGo={() => go(first.id)} />}
+          {!line && (firstWait.kind === 'done' ? <DoneBody wait={firstWait} /> : <WaitBody key={firstWait.id} wait={firstWait} onGo={() => go(first.id)} />)}
         </div>
       )}
       {open && n > 0 && (
@@ -132,7 +136,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
       {props.waiting.map((v) => (
         <li key={v.id} className="wait-node">
           <button type="button" className="go" aria-label={t('inbox.jumpLabel', { name: v.name })} onClick={() => props.onGo(v.id)}>
-            <span className="dot waiting" aria-hidden="true" />
+            <span className={`dot ${asking(v).length > 0 ? 'waiting' : 'done'}`} aria-hidden="true" />
             <b>{v.name}</b>
             {v.waits.length > 1 && (
               <>
@@ -170,12 +174,33 @@ function WaitRow(props: { wait: HumanWait; onGo: () => void; onFocus: () => void
       }}
     >
       <div className="top">
-        <span className="qid">Q{wait.id}</span>
-        <span className="kind">{t(`wait.${wait.kind}`)}</span>
+        {wait.kind === 'done' ? (
+          <span className="kind done">
+            <CircleCheck aria-hidden="true" />
+            {t('wait.done')}
+          </span>
+        ) : (
+          <>
+            <span className="qid">Q{wait.id}</span>
+            <span className="kind">{t(`wait.${wait.kind}`)}</span>
+          </>
+        )}
         <DismissButton wait={wait.id} />
       </div>
-      <WaitBody wait={wait} onGo={props.onGo} />
+      {wait.kind === 'done' ? <DoneBody wait={wait} /> : <WaitBody wait={wait} onGo={props.onGo} />}
     </li>
+  );
+}
+
+/** 완료 알림 본문: 일을 맡긴 사람의 지시와 결과(에이전트 마지막 답의 첫 줄). 답할 일이 없다. 줄을 누르면 그 터미널로 간다(목업 docs/mockups/done-notice.html M37 v2). */
+function DoneBody(props: { wait: HumanWait }) {
+  const { t } = useTranslation();
+  const { instruction, text } = props.wait;
+  return (
+    <div className="wait-body">
+      {instruction && <p className="asked">{t('inbox.instruction', { text: instruction })}</p>}
+      {text && <p className="full">{text}</p>}
+    </div>
   );
 }
 

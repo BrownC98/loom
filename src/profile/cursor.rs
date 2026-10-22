@@ -174,6 +174,9 @@ pub enum Event {
     },
     BeforeSubmitPrompt {
         model: Option<String>,
+        /// 입력한 글(완료 알림의 지시). stop 훅의 `followup_message`도 이 훅을 부른다.
+        #[serde(default)]
+        prompt: String,
     },
     PreToolUse {
         tool_name: String,
@@ -209,7 +212,7 @@ impl Event {
     pub fn model(&self) -> Option<Model> {
         match self {
             Event::SessionStart { model }
-            | Event::BeforeSubmitPrompt { model }
+            | Event::BeforeSubmitPrompt { model, .. }
             | Event::Stop { model } => Some(Model {
                 model: model.clone(),
                 effort: None,

@@ -9,9 +9,12 @@ import i18next from './i18n';
 import { NameEdit, useRename, type Rename } from './NameEdit';
 import { navDirection, type Direction } from './Terminal';
 
+/** 사람의 답을 기다리는 대기. 완료 알림(`done`)은 답할 일이 없어 「응답 대기」가 아니다(목업 docs/mockups/done-notice.html M37). */
+export const asking = (view: NodeView) => view.waits.filter((w) => w.kind !== 'done');
+
 /** 점·상태 칸의 클래스. 사람 응답 대기는 실행 상태보다 앞선다(목업 docs/mockups/human-question.html ④). */
 export function stateClass(view: NodeView): string {
-  return view.waits.length > 0 ? 'waiting' : view.state.kind;
+  return asking(view).length > 0 ? 'waiting' : view.state.kind;
 }
 
 export function stateLabel(state: NodeState): string {
@@ -94,9 +97,9 @@ function Badges(props: { view: NodeView }) {
         </span>
       )}
       <span className={`state ${stateClass(view)}`} aria-live="polite" translate="no">
-        {view.waits.length > 0 ? t('wait.label') : stateLabel(view.state)}
+        {asking(view).length > 0 ? t('wait.label') : stateLabel(view.state)}
         {/* 질문이 2개 이상일 때만 수를 붙인다(목업 M28). */}
-        {view.waits.length > 1 && <span className="count">{view.waits.length}</span>}
+        {asking(view).length > 1 && <span className="count">{asking(view).length}</span>}
       </span>
     </>
   );
@@ -150,7 +153,7 @@ function CardShell(props: ShellProps & { className: string; children: (rename: R
       tabIndex={0}
       aria-label={t('node.label', { name: props.view.name })}
       data-selected={props.selected || undefined}
-      data-waiting={props.view.waits.length > 0 || undefined}
+      data-waiting={asking(props.view).length > 0 || undefined}
       onMouseDown={props.onSelect}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;

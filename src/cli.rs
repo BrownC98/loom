@@ -197,7 +197,10 @@ pub fn hook() -> Result<(), String> {
         kinds: kinds.to_vec(),
         limit_bytes: claude::HOOK_LIMIT_BYTES,
         transcript,
-        human_input: matches!(event, claude::Event::UserPromptSubmit),
+        human_input: match &event {
+            claude::Event::UserPromptSubmit { prompt } => Some(prompt.clone()),
+            _ => None,
+        },
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken.messages, &taken.open_questions) {
@@ -248,7 +251,10 @@ pub fn cursor_hook() -> Result<(), String> {
                 kinds: kinds.to_vec(),
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
                 transcript: None,
-                human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
+                human_input: match &event {
+                    cursor::Event::BeforeSubmitPrompt { prompt, .. } => Some(prompt.clone()),
+                    _ => None,
+                },
             },
             Some(timeout),
         )

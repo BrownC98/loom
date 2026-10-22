@@ -171,8 +171,8 @@ pub trait Mailbox: Send + Sync + 'static {
     fn ack(&self, taken: &[Delivery]) -> Result<(), String>;
     /// 턴이 끝났다. `reply`는 그 턴의 마지막 답 글이다. 다시 일하게 할 글이 있으면 돌려준다(턴 끝 질문 검사).
     fn turn_ended(&self, reply: Option<String>) -> Option<String>;
-    /// 사람이 입력해 턴이 시작했다. 그 턴에 더할 글(열린 `loom ask` 질문)이 있으면 돌려준다.
-    fn human_input(&self) -> Option<String>;
+    /// 사람이 입력해 턴이 시작했다. `prompt`는 그 글이다(완료 알림의 지시). 그 턴에 더할 글(열린 `loom ask` 질문)이 있으면 돌려준다.
+    fn human_input(&self, prompt: &str) -> Option<String>;
 }
 
 /// 첫 지시문을 넘기는 방법. Orca의 `promptInjectionMode`를 옮겼다.

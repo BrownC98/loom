@@ -401,6 +401,8 @@ button.unread:hover { filter: brightness(1.1); }
 /* xterm은 PTY 열·줄의 크기로 그리고 Terminal.tsx `scaleToBox`가 칸에 맞게 늘이거나 줄인다. 그래서 칸 폭을 채우지 않는다. */
 .xterm-box > div { overflow: hidden; }
 .xterm-box > div > .xterm { display: inline-block; transform-origin: 0 0; }
+/* xterm.css가 스크롤 칸을 검게 칠한다. 칸 가장자리가 소수 픽셀에 걸리면 라이트 테마에서 회색 세로줄로 보였다. 바탕은 .xterm-box가 테마 색으로 칠한다. */
+.xterm-box .xterm .xterm-viewport { background-color: transparent; }
 .card-foot { font-size: 12px; color: var(--ink-3); padding: 5px 10px; border-top: 1px solid var(--line); }
 .card[data-selected] .card-foot { color: var(--accent); }
 
@@ -520,6 +522,8 @@ a { color: var(--accent); }
 .inbox-pill[data-view="line"] .head { border-bottom: 0; }
 .inbox-pill .head { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
 .inbox-pill .head > b { white-space: nowrap; }
+/* 완료만 남은 알약: 질문 색 자리에 노드 상태 「완료」 점과 같은 초록(목업 docs/mockups/done-notice.html M37). */
+.inbox-pill[data-kind="done"] { --warn: var(--ok); }
 .inbox-pill .qicon { flex: none; width: 16px; height: 16px; margin-right: -2px; color: var(--warn); }
 .inbox-pill .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .inbox-pill .go b { color: var(--ink); font-size: 13px; }
@@ -554,6 +558,9 @@ a { color: var(--accent); }
 .wait-row:hover { background: var(--surface-hover); border-radius: 6px; }
 .wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wait-row .kind.done { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); font-weight: 600; }
+.wait-row .kind.done svg { flex: none; width: 14px; height: 14px; }
+.wait-body .asked { margin: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */
 .wait-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .answer-images { list-style: none; margin: 0; padding: 4px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }

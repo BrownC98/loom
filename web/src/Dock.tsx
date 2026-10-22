@@ -1,19 +1,19 @@
-import { AlignLeft, CircleQuestionMark, GitCommitVertical, PanelRightClose, PanelRightOpen, SquareTerminal, Workflow, type LucideIcon } from 'lucide-react';
+import { AlignLeft, Bell, CircleQuestionMark, GitCommitVertical, PanelRightClose, PanelRightOpen, SquareTerminal, Workflow, type LucideIcon } from 'lucide-react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { shortcut } from './platform';
 
-/** 오른쪽 사이드바 아래 칸. 한 번에 하나만 보인다. 터미널은 심플 보기에서 노드를 골랐을 때만 있다. 질문은 알약 목록의 예비 자리다. */
+/** 오른쪽 사이드바 아래 칸. 한 번에 하나만 보인다. 터미널은 심플 보기에서 노드를 골랐을 때만 있다. 「알림」(`questions`)은 알약 목록(질문과 완료)의 예비 자리다. */
 export type DockTab = 'events' | 'commits' | 'questions' | 'terminal';
 
-/** 사람 질문을 뜻하는 아이콘은 이것 하나다: 사이드바 질문 칸, 질문 알약, 폰 질문 띠(2026-10-22 사람 지시 "물음표 아이콘 모양 통일"). */
+/** 사람 질문을 뜻하는 아이콘은 이것 하나다: 질문 줄, 질문 알약, 폰 질문 띠(2026-10-22 사람 지시 "물음표 아이콘 모양 통일"). 질문과 완료를 함께 담는 「알림」 탭은 종(`Bell`)이다(2026-10-22 사람 결정). */
 export const QuestionIcon: LucideIcon = CircleQuestionMark;
 
-const ICON: Record<DockTab, LucideIcon> = { events: AlignLeft, commits: GitCommitVertical, questions: QuestionIcon, terminal: SquareTerminal };
-const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'inbox.button' | 'dock.terminal'> = {
+const ICON: Record<DockTab, LucideIcon> = { events: AlignLeft, commits: GitCommitVertical, questions: Bell, terminal: SquareTerminal };
+const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'inbox.tab' | 'dock.terminal'> = {
   events: 'events.title',
   commits: 'app.commitGraph',
-  questions: 'inbox.button',
+  questions: 'inbox.tab',
   terminal: 'dock.terminal',
 };
 

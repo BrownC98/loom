@@ -3,6 +3,7 @@
 
 mod idle;
 mod origin;
+mod places;
 mod sessions;
 mod settings;
 mod switch;
@@ -93,6 +94,8 @@ struct App {
     plugin: skills::Plugin,
     /// WSL 노드의 `loom` 껍데기 폴더(`<데이터 폴더>/wsl`). Windows 데몬만 쓴다.
     shim: PathBuf,
+    /// WSL 배포판마다 홈. 저장소 경로를 `~/…`로 보인다.
+    homes: wsl::Homes,
     /// 설치한 CLI 버전이 고정 버전과 다르면 설정 화면에 보일 경고. 데몬이 시작할 때 한 번 본다.
     version_warnings: HashMap<Profile, VersionMismatch>,
     /// Codex app-server에 넘길 샌드박스 `-c` 인자. 노드 문이 없거나 버전이 다르면 없다. 사용법 지시는 노드마다 더한다.
@@ -509,6 +512,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             }
             shim
         },
+        homes: wsl::Homes::default(),
         version_warnings: profile::version_warnings(codex_version.as_deref()),
         codex_config: match (&codex_version, &node_door) {
             (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
@@ -630,7 +634,7 @@ fn node_path() -> std::io::Result<OsString> {
 async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, Problem> {
     let mut views = Vec::new();
     for (id, path) in app.repos.list().map_err(internal)? {
-        views.push(worktree::view(id, &path).await);
+        views.push(app.repo_view(id, &path).await);
     }
     Ok(Json(views))
 }
@@ -640,7 +644,7 @@ async fn add_repo(
     Json(req): Json<NewRepo>,
 ) -> Result<Json<RepoView>, Problem> {
     let id = app.repos.add(req.path.trim()).await?;
-    Ok(Json(worktree::view(id, &app.repos.path(id)?).await))
+    Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
 }
 
 async fn clone_repo(
@@ -648,7 +652,7 @@ async fn clone_repo(
     Json(req): Json<CloneRepo>,
 ) -> Result<Json<RepoView>, Problem> {
     let id = app.repos.clone(&req.url, req.parent.trim()).await?;
-    Ok(Json(worktree::view(id, &app.repos.path(id)?).await))
+    Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
 }
 
 async fn create_repo(
@@ -656,7 +660,7 @@ async fn create_repo(
     Json(req): Json<CreateRepo>,
 ) -> Result<Json<RepoView>, Problem> {
     let id = app.repos.create(req.parent.trim(), &req.name).await?;
-    Ok(Json(worktree::view(id, &app.repos.path(id)?).await))
+    Ok(Json(app.repo_view(id, &app.repos.path(id)?).await))
 }
 
 /// 저장소를 목록에서 뺀다. 폴더는 그대로다. 근거: docs/design.md 「저장소와 워크트리」.
@@ -693,7 +697,7 @@ async fn create_worktree(
         worktree: made,
     })
     .await?;
-    Ok(Json(worktree::view(id, &repo).await))
+    Ok(Json(app.repo_view(id, &repo).await))
 }
 
 /// 삭제 창이 보일, 지우면 잃는 변경.
@@ -720,7 +724,7 @@ async fn rename_worktree(
     let repo = app.repos.path(id)?;
     let listed = worktree::find(&repo, &req.path).await?;
     worktree::rename(&repo, &listed, &req.name).await?;
-    Ok(Json(worktree::view(id, &repo).await))
+    Ok(Json(app.repo_view(id, &repo).await))
 }
 
 /// 그 묶음의 노드를 끝내고 그래프에서 지운 뒤 폴더를 지운다. 근거: docs/design.md 「저장소와 워크트리」.
@@ -748,7 +752,7 @@ async fn delete_worktree(
             worktree::delete_branch(&repo, branch).await?;
         }
     }
-    Ok(Json(worktree::view(id, &repo).await))
+    Ok(Json(app.repo_view(id, &repo).await))
 }
 
 async fn list_spots(State(app): State<Arc<App>>) -> Result<Json<Layout>, Problem> {

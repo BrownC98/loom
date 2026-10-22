@@ -208,6 +208,8 @@ pub enum Refusal {
     NoRepo,
     /// `loom ask`의 질문이 비었다.
     EmptyQuestion,
+    /// 사람이 띄운 노드가 `--asked`(사람의 지시) 없이 `loom done`을 불렀다. 받은편지함 완료 줄에 지시가 보여야 한다.
+    NoAsked,
     /// `loom ask`를 부모가 있는 노드가 불렀다. 사람에게는 사람이 띄운 노드만 묻는다.
     HasParent,
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
@@ -290,6 +292,10 @@ impl fmt::Display for Refusal {
                 "The repository is not in the list. Add the repository again."
             ),
             Refusal::EmptyQuestion => write!(f, "Give the question as one line."),
+            Refusal::NoAsked => write!(
+                f,
+                "You have no parent, so the human reads this report in the inbox. Tell what the human asked: `loom done \"<what you did>\" --asked \"<the human's instruction>\" [--image <path>]...`."
+            ),
             Refusal::HasParent => write!(
                 f,
                 "You have a parent. Ask your parent with `loom send <parent> \"QUESTION: ...\"`. Only nodes that the human started ask the human."

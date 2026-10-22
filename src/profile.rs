@@ -171,8 +171,8 @@ pub trait Mailbox: Send + Sync + 'static {
     fn ack(&self, taken: &[Delivery]) -> Result<(), String>;
     /// 턴이 끝났다. `reply`는 그 턴의 마지막 답 글이다. 다시 일하게 할 글이 있으면 돌려준다(턴 끝 질문 검사).
     fn turn_ended(&self, reply: Option<String>) -> Option<String>;
-    /// 사람이 입력해 턴이 시작했다. `prompt`는 그 글이다(완료 알림의 지시). 그 턴에 더할 글(열린 `loom ask` 질문)이 있으면 돌려준다.
-    fn human_input(&self, prompt: &str) -> Option<String>;
+    /// 사람이 입력해 턴이 시작했다. 그 턴에 더할 글(열린 `loom ask` 질문)이 있으면 돌려준다.
+    fn human_input(&self) -> Option<String>;
 }
 
 /// 첫 지시문을 넘기는 방법. Orca의 `promptInjectionMode`를 옮겼다.
@@ -711,7 +711,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom wait --reply-to <message-id> --timeout <seconds> --json: wait for a particular reply. This also finds replies already delivered by another consumer. Other messages stay in the inbox. A timeout exits with an error.
 - loom steer <name-or-id> <body>: insert guidance between tool calls. Steer and interrupt go only to your parent or children.
 - loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
-- loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language.
+- loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language. With no parent, when all work the human gave you is finished, add --asked <the human's instruction> and --image <path> per image the human gave; this is the only way to tell the human you are done.
 - loom ask <question>: put one question in the human's inbox. When you have no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only with loom ask, in the one-line form of the ask-human rules below, then end your turn. Never end a turn with a question only in your text. With a parent, ask your parent with loom send, never the human.
 - loom answered: when the human's input answers your open loom ask question, you MUST call loom answered first, then act on the answer. If the input does not answer it, leave the question open. If you no longer need the answer, call loom answered.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.

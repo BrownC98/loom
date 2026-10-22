@@ -90,6 +90,8 @@ export const answerWait = (wait: WaitId, text: string, images: string[]) =>
 export const openWaitDoc = (wait: WaitId) => call<null>('POST', `/api/waits/${wait}/doc`);
 /** 질문 문서의 주소. 끝의 `/` 때문에 문서 속 상대 주소(옆 그림)가 같은 폴더를 가리킨다. */
 export const waitDocUrl = (wait: WaitId) => `/api/waits/${wait}/doc/`;
+/** 완료 줄의 `index`번째 그림(`loom done --image`). 확인하지 않은 완료의 그림만 나온다. */
+export const doneImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/images/${index}`;
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
 
 /** 데몬만 끝낸다. 노드는 산다(docs/design.md 「배포」). 응답에 본문이 없다. */

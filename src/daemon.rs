@@ -334,9 +334,9 @@ pub struct TakeRequest {
     /// 훅 입력의 `transcript_path`(Claude 세션 기록 파일). 계정 전환이 쓴다. 옛 `loom hook`은 보내지 않는다.
     #[serde(default)]
     pub transcript: Option<String>,
-    /// 사람이 입력한 턴의 첫 훅이면 그 입력 글이다. 열린 `loom ask` 질문을 알리고(`Taken::open_question`), 턴 끝에 완료를 건다.
+    /// 사람이 입력한 턴의 첫 훅이다. 열린 `loom ask` 질문을 알린다(`Taken::open_question`).
     #[serde(default)]
-    pub human_input: Option<String>,
+    pub human_input: bool,
 }
 
 /// `loom hook`의 응답. 꺼낸 메시지.
@@ -432,6 +432,12 @@ pub struct HookWaitRequest {
 #[derive(Serialize, Deserialize)]
 pub struct DoneRequest {
     pub summary: String,
+    /// `--asked`: 그 일을 맡긴 사람의 지시. 부모 없는 노드는 꼭 준다(받은편지함 완료 줄).
+    #[serde(default)]
+    pub asked: Option<String>,
+    /// `--image`: 사람이 그 지시에 준 그림 파일의 절대 경로.
+    #[serde(default)]
+    pub images: Vec<PathBuf>,
 }
 
 /// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
@@ -588,6 +594,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/waits/{wait}/doc", post(open_wait_doc))
         .route("/api/waits/{wait}/doc/", get(wait_doc))
         .route("/api/waits/{wait}/doc/{*file}", get(wait_doc_file))
+        .route("/api/waits/{wait}/images/{index}", get(done_image_file))
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
             "/api/pastes/{name}",
@@ -1344,8 +1351,7 @@ impl Mailbox for NodeMailbox {
         self.app.turn_end(self.node).map(str::to_owned)
     }
 
-    fn human_input(&self, prompt: &str) -> Option<String> {
-        self.app.turn_ends.human(self.node, prompt);
+    fn human_input(&self) -> Option<String> {
         let _ = self.app.graph.human_input(self.node);
         let questions = self.app.graph.open_questions(self.node).ok()?;
         profile::hook_text(&[], &questions)
@@ -1461,15 +1467,9 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
     }
 }
 
-/// 사람이 TUI에 입력해 턴이 시작했다. 그 입력을 완료 알림의 지시로 남긴다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
+/// 사람이 TUI에 입력해 턴이 시작했다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
 /// Codex에는 입력 훅이 없어 턴 안에 넣는다(`turn/steer`).
 async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread: &str) {
-    let call = |method, params| server.call(method, params);
-    let prompt = codex::last_prompt(call, thread).await.unwrap_or_else(|e| {
-        eprintln!("loom: 노드 {}의 입력 글을 읽지 못했다: {e}", node.0);
-        None
-    });
-    app.turn_ends.human(node, &prompt.unwrap_or_default());
     if let Err(e) = app.graph.human_input(node) {
         eprintln!(
             "loom: 노드 {}를 다시 일하는 상태로 바꾸지 못했다: {e}",
@@ -1489,10 +1489,10 @@ async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread
     }
 }
 
-/// Codex 턴 끝 질문 검사와 완료 알림. 다시 일하게 했으면 참이다. 대기 없는 루트와 사람이 연 턴만 답 글을 읽는다.
+/// Codex 턴 끝 질문 검사. 다시 일하게 했으면 참이다. 대기 없는 루트만 답 글을 읽는다.
 async fn codex_turn_end(app: &App, node: NodeId, server: &CodexServer, thread: &str) -> bool {
     let call = |method, params| server.call(method, params);
-    if app.turn_ends.human_turn(node) || app.graph.unasked_root(node).unwrap_or(false) {
+    if app.graph.unasked_root(node).unwrap_or(false) {
         match codex::last_reply(call, thread).await {
             Ok(Some(text)) => app.turn_ends.said(node, text),
             Ok(None) => {}
@@ -1671,10 +1671,7 @@ async fn answer_wait(
     Path(wait): Path<u32>,
     Json(req): Json<AnswerWait>,
 ) -> Result<Json<()>, Problem> {
-    let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
-    // 받은편지함의 답도 사람이 맡긴 일이다. 그 답으로 도는 턴이 끝나면 완료를 건다(docs/design.md 「완료 알림」).
-    app.turn_ends
-        .human(node, &format!("Q{wait}: {}", req.text.trim()));
+    app.graph.answer(WaitId(wait), &req.text, &req.images)?;
     Ok(Json(()))
 }
 
@@ -1714,6 +1711,16 @@ async fn wait_doc_file(
         Some(dir) if inside => serve_file(&dir.join(&file), request).await,
         _ => Ok(StatusCode::NOT_FOUND.into_response()),
     }
+}
+
+/// 완료 줄의 그림(`loom done --image`). 확인하지 않은 완료의 그림만 낸다.
+async fn done_image_file(
+    State(app): State<Arc<App>>,
+    Path((wait, index)): Path<(u32, usize)>,
+    request: axum::extract::Request,
+) -> Result<Response, Problem> {
+    let path = app.graph.done_image(WaitId(wait), index)?;
+    serve_file(&path, request).await
 }
 
 async fn serve_file(
@@ -1889,13 +1896,12 @@ async fn agent_take(
         .graph
         .take(node, &req.kinds, req.limit_bytes)
         .map_err(for_agent)?;
-    let open_questions = match &req.human_input {
-        Some(prompt) => {
-            app.turn_ends.human(node, prompt);
+    let open_questions = match req.human_input {
+        true => {
             app.graph.human_input(node).map_err(for_agent)?;
             app.graph.open_questions(node).map_err(for_agent)?
         }
-        None => Vec::new(),
+        false => Vec::new(),
     };
     Ok(Json(Taken {
         messages,
@@ -2000,7 +2006,36 @@ async fn agent_done(
     Json(req): Json<DoneRequest>,
 ) -> Result<Json<Vec<String>>, AgentError> {
     let node = app.caller(&headers)?;
-    Ok(Json(app.graph.done(node, &req.summary).map_err(for_agent)?))
+    for image in &req.images {
+        done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    }
+    Ok(Json(
+        app.graph
+            .done(node, &req.summary, req.asked.as_deref(), &req.images)
+            .map_err(for_agent)?,
+    ))
+}
+
+/// 브라우저가 `<img>`로 그리는 그림 꼴. 받은편지함이 완료 줄의 파일을 그대로 낸다.
+const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+
+/// 완료 줄의 그림은 받은편지함이 그대로 낸다. 있는 그림 파일만 받는다.
+fn done_image(path: &std::path::Path) -> Result<(), String> {
+    let image = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| IMAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
+    if !image {
+        return Err(format!(
+            "{}: --image takes an image file ({}).",
+            path.display(),
+            IMAGE_EXTENSIONS.join(", ")
+        ));
+    }
+    if !path.is_file() {
+        return Err(format!("{}: no such file.", path.display()));
+    }
+    Ok(())
 }
 
 /// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드는 부모에게 묻는다.

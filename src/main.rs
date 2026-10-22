@@ -113,13 +113,19 @@ enum Cli {
         #[arg(long)]
         all: bool,
     },
-    /// 결과를 부모에게 보내고 이 노드를 done으로 바꾼다.
+    /// 결과를 부모에게 보내고 이 노드를 done으로 바꾼다. 부모가 없으면 사람의 받은편지함에 완료를 건다.
     Done {
         #[arg(required_unless_present = "file")]
         summary: Option<String>,
         /// 결과 파일. 부모에게는 경로만 간다.
         #[arg(long, conflicts_with = "summary")]
         file: Option<PathBuf>,
+        /// 그 일을 맡긴 사람의 지시(짧게). 부모 없는 노드는 꼭 준다. 받은편지함 완료 줄에 보인다.
+        #[arg(long)]
+        asked: Option<String>,
+        /// 사람이 그 지시에 준 그림 파일. 여러 번 준다. 받은편지함 완료 줄에 작은 그림으로 보인다.
+        #[arg(long = "image")]
+        images: Vec<PathBuf>,
     },
     /// 사람에게 질문 한 줄을 묻는다. 받은편지함에 번호(`Q12`)와 함께 뜨고, 사람은 이 노드 터미널이나 받은편지함에서 답한다. 사람이 띄운 노드만 쓴다.
     Ask {
@@ -191,7 +197,17 @@ fn main() -> ExitCode {
         Cli::Reply { message, body } => cli::reply(message, body),
         Cli::Status { all: false } => cli::status(),
         Cli::Status { all: true } => cli::directory(),
-        Cli::Done { summary, file } => cli::done(summary, file.map(wsl::from_caller)),
+        Cli::Done {
+            summary,
+            file,
+            asked,
+            images,
+        } => cli::done(
+            summary,
+            file.map(wsl::from_caller),
+            asked,
+            images.into_iter().map(wsl::from_caller).collect(),
+        ),
         Cli::Ask { question, doc } => cli::ask(question, doc.map(wsl::from_caller)),
         Cli::Answered { ids } => cli::answered(ids),
         Cli::Adopt { name } => cli::adopt(name),

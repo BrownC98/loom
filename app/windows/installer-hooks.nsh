@@ -3,8 +3,21 @@
 ; 데몬과 노드의 PTY 호스트는 앱이 끝난 뒤에도 옛 loom.exe로 돈다. 새 앱의 `loom start`가 옛 판 데몬을 바꾼다. 도는 실행 파일은 덮어 쓰지도 지우지도 못하지만
 ; 이름은 바꿀 수 있다(실측, docs/design.md 「데스크톱 앱」). 그래서 옛 파일의 이름을 바꿔 두고 새 파일을 쓴다.
 ; 도는 노드가 없으면 그냥 지운다. 바꾼 파일은 그 노드가 모두 끝난 뒤의 다음 설치가 지운다.
+; 깔린 loom.exe가 이 설치보다 새 판이면(`scripts/host.sh` 개발 빌드) `.keep`으로 비켜 두고, 설치 뒤 훅이 되돌린다.
+; 근거: 2026-10-22 앱 업데이트(0.1.716)가 도는 개발 빌드(0.1.899)를 옛 판으로 바꿨다. 「새 판이 이긴다」(docs/design.md 「데몬 하나」).
 !macro NSIS_HOOK_PREINSTALL
   Delete "$INSTDIR\loom.exe.*.old"
+  ${If} ${FileExists} "$INSTDIR\loom.exe"
+    nsExec::ExecToStack '"$INSTDIR\loom.exe" --version'
+    Pop $0
+    Pop $1
+    ${WordFind} "$1" " " "+2" $1
+    ${VersionCompare} "$1" "${VERSION}" $1
+    ${If} $0 == 0
+    ${AndIf} $1 == 1
+      Rename "$INSTDIR\loom.exe" "$INSTDIR\loom.exe.keep"
+    ${EndIf}
+  ${EndIf}
   Delete "$INSTDIR\loom.exe"
   ${If} ${FileExists} "$INSTDIR\loom.exe"
     System::Call "kernel32::GetTickCount64() l .r0"
@@ -19,6 +32,10 @@
 ; `loom open`은 콘솔 프로그램이라 창을 최소화해 띄운다. 브라우저를 연 뒤 곧 끝난다. 업데이트도 다시 만든다.
 !macro NSIS_HOOK_POSTINSTALL
   SetAutoClose true
+  ${If} ${FileExists} "$INSTDIR\loom.exe.keep"
+    Delete "$INSTDIR\loom.exe"
+    Rename "$INSTDIR\loom.exe.keep" "$INSTDIR\loom.exe"
+  ${EndIf}
   CreateShortcut "$SMPROGRAMS\loom (browser).lnk" "$INSTDIR\loom.exe" "open" "$INSTDIR\${MAINBINARYNAME}.exe" 0 SW_SHOWMINIMIZED
 !macroend
 

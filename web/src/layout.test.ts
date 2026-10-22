@@ -374,10 +374,19 @@ describe('unpile (render-time push; the pushed spot is not saved, 2026-10-22 "st
     expect(freeSpot(box(480, 440, 500, 400), [box(0, 0, 1000, 840)], 32)).toEqual({ x: 1032, y: 440 });
   });
 
-  it('repo loom grew over ktasearch: the front box stays and the box behind moves (repro 2026-10-22)', () => {
-    // right 5028 + 32 - 4388 = 672, down and up 595 + 32 = 627: down (shortest, then the tie order).
+  it('repo loom grew over ktasearch: the front box stays and the box behind moves right, the way it already lies (repro 2026-10-22)', () => {
     const at = unpile([{ key: 'repo:loom', ...box(0, 0, 5028, 595) }, { key: 'repo:ktasearch', ...box(4388, 0, 672, 595) }], 32);
-    expect(at.get('repo:ktasearch')).toEqual({ x: 4388, y: 627 });
+    expect(at.get('repo:ktasearch')).toEqual({ x: 5060, y: 0 });
+  });
+
+  it('a wide grown repo box pushes the repo beside it right, not up (human DB 2026-10-22: "왜 수평으로 안가고 위로 밀려나는가?")', () => {
+    // Saved spots loom (32, 126) and ktasearch (1448, 126); measured boxes loom 2728 × 1164, ktasearch 1384 × 1164 (or shorter).
+    // The shortest way out was down (1196) or up (shorter ktasearch), 1344 to the right.
+    const loom = { key: 'repo:9', ...box(332, 64, 2728, 1164) };
+    for (const height of [1164, 600]) {
+      const at = unpile([loom, { key: 'repo:71', ...box(1748, 64, 1384, height) }], 32);
+      expect(at.get('repo:71')).toEqual({ x: 3092, y: 64 });
+    }
   });
 
   it('boxes that only touch or are apart do not move', () => {

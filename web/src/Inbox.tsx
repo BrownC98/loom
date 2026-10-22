@@ -23,14 +23,14 @@ import { openLink } from './Terminal';
 const before = (a: HumanWait, b: HumanWait) => Number(a.kind === 'done') - Number(b.kind === 'done') || a.since - b.since;
 
 /** 노드에서 가장 앞 차례의 대기. 대기가 없는 노드는 받지 않는다(`waitingNodes`가 거른다). */
-const oldest = (v: NodeView): HumanWait => v.waits.reduce((a, b) => (before(b, a) < 0 ? b : a));
+export const oldestWait = (v: NodeView): HumanWait => v.waits.reduce((a, b) => (before(b, a) < 0 ? b : a));
 
 /**
  * 사람 응답을 기다리는 노드, 가장 오래 기다린 대기의 차례로. 알약은 첫 노드의 가장 오래된 대기를 보인다. 새 질문이 와도 알약이 가리키는 대기가 바뀌지 않는다.
  * 받은편지함·시스템 알림은 `NodeView.waits`만 읽는다(docs/design.md 「사람 응답 대기」).
  */
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
-  return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => before(oldest(a), oldest(b)));
+  return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => before(oldestWait(a), oldestWait(b)));
 }
 
 /** 알약과 「질문」 탭 배지의 수: 모든 노드의 대기 수(목업 M28: 노드 수가 아니라 질문 수). */
@@ -53,7 +53,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
   const home = useOutsideClose<HTMLDivElement>(() => setOpen(false));
   const n = waitCount(props.waiting);
   const first = props.waiting[0];
-  const firstWait = first && oldest(first);
+  const firstWait = first && oldestWait(first);
   const line = props.pill === 'line';
   const toList = () => setOpen(!open);
 
@@ -76,19 +76,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
       {/* 알약 꼴은 설정 「질문 알약」이다. `line`: 한 줄. `answer`: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
       {first && (
         <div className="inbox-pill" data-view={props.pill} data-kind={firstWait.kind}>
-          {/* 머리 줄이 바뀌면(새 알약, 수, 다음 질문) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다. 완료만 남으면 완료를 보인다(목업 M37). */}
-          <div className="head" aria-live="polite">
-            {firstWait.kind === 'done' ? <CircleCheck className="qicon" aria-hidden="true" /> : <QuestionIcon className="qicon" aria-hidden="true" />}
-            <b>{firstWait.kind === 'done' ? t('wait.done') : t('inbox.button')}</b>
-            <span className="count">{n}</span>
-            {firstWait.kind !== 'done' && <span className="qid">Q{firstWait.id}</span>}
-            {/* 알약 머리는 목록만 편다. 노드로 가는 길은 목록 줄의 노드 이름이다(2026-10-22 사람 질문 "알약에 터미널 바로가기가 필요한가?"). */}
-            <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: n })} onClick={toList}>
-              <b>{first.name}</b>
-              {line ? `: ${plainText(firstWait.text) || t(`wait.${firstWait.kind}`)}` : ` · ${t(`wait.${firstWait.kind}`)}`}
-              {!line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
-            </button>
-          </div>
+          <PillHead node={first} wait={firstWait} count={n} line={line} open={open} onToggle={toList} />
           {!line &&
             (firstWait.kind === 'done' ? (
               <DoneBody key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
@@ -111,6 +99,27 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/** 알약 머리 줄. 데스크톱 알약과 폰 노드 화면 알약(목업 R4 ②)이 함께 쓴다. `node`·`wait`는 가장 앞 차례의 대기(`waitingNodes`의 첫 노드와 `oldestWait`), `count`는 모든 대기 수다. */
+export function PillHead(props: { node: NodeView; wait: HumanWait; count: number; line: boolean; open: boolean; onToggle: () => void }) {
+  const { t } = useTranslation();
+  const { wait, open } = props;
+  return (
+    // 머리 줄이 바뀌면(새 알약, 수, 다음 질문) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다. 완료만 남으면 완료를 보인다(목업 M37).
+    <div className="head" aria-live="polite">
+      {wait.kind === 'done' ? <CircleCheck className="qicon" aria-hidden="true" /> : <QuestionIcon className="qicon" aria-hidden="true" />}
+      <b>{wait.kind === 'done' ? t('wait.done') : t('inbox.button')}</b>
+      <span className="count">{props.count}</span>
+      {wait.kind !== 'done' && <span className="qid">Q{wait.id}</span>}
+      {/* 알약 머리는 목록만 편다. 노드로 가는 길은 목록 줄의 노드 이름이다(2026-10-22 사람 질문 "알약에 터미널 바로가기가 필요한가?"). */}
+      <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.count })} onClick={props.onToggle}>
+        <b>{props.node.name}</b>
+        {props.line ? `: ${plainText(wait.text) || t(`wait.${wait.kind}`)}` : ` · ${t(`wait.${wait.kind}`)}`}
+        {!props.line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
+      </button>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
 import { QuestionIcon } from './Dock';
-import { InboxPanel } from './Inbox';
+import { InboxPanel, oldestWait, PillHead, waitCount } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
 import { borrowSize, SizingTerminal } from './Terminal';
 import { LONG_PRESS_MS, readClipboard, SLOP_PX } from './touchTerminal';
@@ -73,13 +73,13 @@ export function Phone(props: {
 }) {
   const { t } = useTranslation();
   const { route } = props;
-  const count = props.waiting.reduce((n, v) => n + v.waits.length, 0);
+  const count = waitCount(props.waiting);
   const view = route.screen === 'node' ? props.nodes.get(route.id) : undefined;
   if (route.screen === 'node')
     return (
       <div className="phone">
         {view ? (
-          <NodeScreen key={view.id} view={view} agentLabel={props.agentLabel(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
+          <NodeScreen key={view.id} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
         ) : (
           <>
             <header className="phone-top">
@@ -153,7 +153,7 @@ function controlOf(char: string): string {
 }
 
 /** 노드 하나의 전체 화면 터미널(목업 ④⑤). */
-function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
+function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitingNodes`). 알약이 보인다. */ waiting: NodeView[]; agentLabel: string; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const { view } = props;
   const send = useRef<((data: string) => void) | null>(null);
@@ -161,10 +161,11 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
   const [pasteFailed, setPasteFailed] = useState(false);
   const [ctrl, setCtrl] = useState(false);
   const [text, setText] = useState('');
-  const [sheet, setSheet] = useState<'actions' | 'answer' | null>(null);
+  const [sheet, setSheet] = useState<'actions' | 'answer' | 'inbox' | null>(null);
   const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
   const asks = asking(view);
   const first = asks[0];
+  const pillNode = props.waiting[0];
 
   const key = (data: string) => {
     send.current?.(data);
@@ -224,6 +225,12 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
         </div>
       )}
       <div className="phone-term" translate="no">
+        {/* 모든 노드의 질문 알약(목업 R4, Q459 A). 데스크톱 「한 줄」 알약처럼 터미널 위 가운데에 뜬다. 숫자는 이 노드의 질문도 센다(알림 탭 배지와 같다). 위 사각형 띠는 이 노드의 질문만 보인다. */}
+        {pillNode && (
+          <div className="inbox-pill phone-pill" data-view="line" data-kind={oldestWait(pillNode).kind}>
+            <PillHead node={pillNode} wait={oldestWait(pillNode)} count={waitCount(props.waiting)} line open={sheet === 'inbox'} onToggle={() => setSheet('inbox')} />
+          </div>
+        )}
         <SizingTerminal src={nodePty(view.id)} node={view.id} hold={borrowSize} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} onPaster={(p) => (paster.current = p)} />
       </div>
       <div className="phone-dock">
@@ -262,6 +269,22 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
         </form>
       </div>
       {sheet === 'actions' && <ActionSheet view={view} onCtrlC={() => key(CTRL_C)} onClose={() => setSheet(null)} onRemoved={props.onBack} />}
+      {sheet === 'inbox' && (
+        <Sheet label={t('phone.inbox')} onClose={() => setSheet(null)}>
+          {/* 알림 탭과 같은 목록이다. 그 자리에서 답하고, 노드 이름을 누르면 그 노드 화면을 쌓아 연다(뒤로 몸짓은 이 화면으로 온다). */}
+          <InboxPanel
+            waiting={props.waiting}
+            onSelect={(id) => {
+              setSheet(null);
+              if (id !== view.id) props.onOpen(id);
+            }}
+            onFocus={(id) => {
+              setSheet(null);
+              if (id !== view.id) props.onOpen(id);
+            }}
+          />
+        </Sheet>
+      )}
       {sheet === 'answer' && (
         <Sheet label={t('phone.answer')} onClose={() => setSheet(null)}>
           <InboxPanel waiting={[view]} onSelect={() => setSheet(null)} onFocus={() => setSheet(null)} />

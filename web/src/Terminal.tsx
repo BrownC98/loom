@@ -218,7 +218,7 @@ export function realignTerminals() {
 
 /**
  * 칸 크기로 PTY 열·줄을 정하는 터미널. 글꼴 크기는 설정 값 그대로다. 칸이 바뀌면 열·줄이 바뀐다(2026-10-22 사람 지시 "일반적인 터미널의 크기를 조정해도 터미널 폰트 크기는 안변하잖아, 사이드탭 터미널도 동일하게 작동하게 만들어").
- * PTY 크기는 마지막에 칸을 바꾼 화면을 따른다. 다른 화면은 그 크기를 배율로 맞춰 보인다(`scaleToBox`). 그래프 확대·축소는 칸 크기를 바꾸지 않는다.
+ * PTY 크기는 마지막에 칸을 바꾸거나 사람이 쓴 화면을 따른다. 다른 화면은 그 크기를 배율로 맞춰 보인다(`scaleToBox`). 그래프 확대·축소는 칸 크기를 바꾸지 않는다.
  * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`).
  */
 export function SizingTerminal(props: TerminalProps) {
@@ -266,9 +266,21 @@ export function SizingTerminal(props: TerminalProps) {
       unscaleMouse(xterm);
       term.current = xterm;
       const rescale = () => scaleToBox(xterm, el);
-      const decide = () => {
+      const propose = () => {
         const proposed = fitAddon.proposeDimensions();
-        if (proposed && proposed.cols > 0 && proposed.rows > 0) link.sendResize({ cols: proposed.cols, rows: proposed.rows });
+        return proposed && proposed.cols > 0 && proposed.rows > 0 ? { cols: proposed.cols, rows: proposed.rows } : null;
+      };
+      const decide = () => {
+        const size = propose();
+        if (size) link.sendResize(size);
+      };
+      // 사람이 지금 쓰는 화면이 PTY 크기를 다시 정한다(docs/design.md 「저장」 PTY 열·줄). xterm 크기는 데몬이 알린 PTY 크기다.
+      const claim = () => {
+        const size = propose();
+        if (size && (size.cols !== xterm.cols || size.rows !== xterm.rows)) link.sendResize(size);
+      };
+      const claimIfShown = () => {
+        if (document.visibilityState === 'visible') claim();
       };
       redecide.current = () => {
         decide();
@@ -289,6 +301,7 @@ export function SizingTerminal(props: TerminalProps) {
       });
       // xterm은 Ctrl+C·Ctrl+V를 늘 `^C`·`^V`로 보내고 브라우저 복사·붙여넣기를 막는다. 복사·붙여넣기는 명령 키(macOS ⌘, 다른 OS Ctrl)로 한다.
       xterm.attachCustomKeyEventHandler((e) => {
+        if (e.type === 'keydown') claim();
         const dir = navDirection(e);
         if (dir) {
           if (e.type === 'keydown') latest.current.onNavigate(dir);
@@ -330,16 +343,26 @@ export function SizingTerminal(props: TerminalProps) {
       // xterm의 paste 처리기보다 먼저 받는다.
       el.addEventListener('paste', pasteImage, true);
       const input = xterm.onData((data) => link.sendInput(data));
-      latest.current.onSender?.((data) => link.sendInput(data));
+      latest.current.onSender?.((data) => {
+        claim();
+        link.sendInput(data);
+      });
       // 크기가 바뀐 뒤 그린 칸 크기로 배율을 다시 잰다.
       const resize = xterm.onResize(() => requestAnimationFrame(rescale));
-      xterm.textarea?.addEventListener('focus', () => latest.current.onFocus());
+      xterm.textarea?.addEventListener('focus', () => {
+        claim();
+        latest.current.onFocus();
+      });
+      window.addEventListener('focus', claim);
+      document.addEventListener('visibilitychange', claimIfShown);
       const observer = new ResizeObserver(() => redecide.current());
       aligners.add(rescale);
       observer.observe(el);
       if (latest.current.focused) focusSoon(xterm);
       return () => {
         observer.disconnect();
+        window.removeEventListener('focus', claim);
+        document.removeEventListener('visibilitychange', claimIfShown);
         aligners.delete(rescale);
         el.removeEventListener('paste', pasteImage, true);
         input.dispose();

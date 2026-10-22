@@ -219,12 +219,24 @@ function moved(box: Box, side: PushSide, distance: number): Box {
  * 비킨 상자가 다른 형제와 겹치면 그 형제도 같은 쪽으로 민다(연쇄). 쪽을 바꾸지 않으므로 끝난다. 움직인 형제의 새 자리만 돌려준다.
  */
 export function push(siblings: readonly Sibling[], mover: Box, targets: readonly string[], gap: number): Map<string, Point> {
+  return pushBy(siblings, mover, targets, gap, (box) => PUSH_SIDES.reduce((best, s) => (clearance(box, mover, s, gap) < clearance(box, mover, best, gap) ? s : best)));
+}
+
+/**
+ * 커진 상자 옆의 형제가 비키는 쪽: 오른쪽이나 아래, 형제가 커진 상자에서 이미 떨어져 선 쪽이다(왼쪽 위 차이를 커진 상자의 폭·높이로 나눠 견준다).
+ * 가장 짧은 쪽으로 비키면 크게 겹친 저장소 상자가 위로 밀렸다(2026-10-22 사람 "왜 수평으로 안가고 위로 밀려나는가?").
+ */
+function away(box: Box, mover: Box): PushSide {
+  return (box.at.x - mover.at.x) / mover.size.width >= (box.at.y - mover.at.y) / mover.size.height ? 'right' : 'down';
+}
+
+function pushBy(siblings: readonly Sibling[], mover: Box, targets: readonly string[], gap: number, sideOf: (box: Box) => PushSide): Map<string, Point> {
   const now = new Map(siblings.map((s) => [s.key, s as Box]));
   const out = new Map<string, Point>();
   for (const key of targets) {
     const box = now.get(key);
     if (!box || !overlaps(box, mover)) continue;
-    const side = PUSH_SIDES.reduce((best, s) => (clearance(box, mover, s, gap) < clearance(box, mover, best, gap) ? s : best));
+    const side = sideOf(box);
     const queue: [string, Box][] = [[key, moved(box, side, clearance(box, mover, side, gap))]];
     while (queue.length > 0) {
       const [k, b] = queue.shift()!;
@@ -329,7 +341,7 @@ export function settle(items: readonly { key: string; size: Size; lead: Point; a
 }
 
 /**
- * 겹친 형제를 민다. 형제 순서로 한 상자씩 서고, 그 상자와 겹친 뒤 형제가 `push` 규칙으로 비킨다. 모든 상자의 자리(상자 왼쪽 위)를 돌려준다.
+ * 겹친 형제를 민다. 형제 순서로 한 상자씩 서고, 그 상자와 겹친 뒤 형제가 오른쪽이나 아래(`away`)로 `gap`을 두고 비킨다. 모든 상자의 자리(상자 왼쪽 위)를 돌려준다.
  * 저장한 자리와 크기에서 늘 같은 값을 구한다. 그래서 커진 상자가 줄면 민 상자는 저장한 자리로 돌아온다.
  */
 export function unpile(siblings: readonly Sibling[], gap: number): Map<string, Point> {
@@ -338,7 +350,7 @@ export function unpile(siblings: readonly Sibling[], gap: number): Map<string, P
     const boxes = siblings.map((b) => ({ ...b, at: now.get(b.key)! }));
     const mover = boxes[i];
     const later = boxes.slice(i + 1).filter((o) => overlaps(o, mover)).map((o) => o.key);
-    for (const [k, p] of push(boxes.filter((b) => b.key !== s.key), mover, later, gap)) now.set(k, p);
+    for (const [k, p] of pushBy(boxes.filter((b) => b.key !== s.key), mover, later, gap, (box) => away(box, mover))) now.set(k, p);
   });
   return now;
 }

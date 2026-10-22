@@ -18,7 +18,7 @@ import type { RepoView } from './gen/RepoView';
 import type { SettingsView } from './gen/SettingsView';
 import type { Theme } from './gen/Theme';
 import type { Toward } from './gen/Toward';
-import { agentLabel } from './catalog';
+import { agentLabel, canResume } from './catalog';
 import { Find, FIND_INPUT, FIND_KEY } from './Find';
 import { findSpots } from './findSpots';
 import { isTauri } from '@tauri-apps/api/core';
@@ -621,6 +621,7 @@ export function App() {
                 <TerminalDock
                   view={dockedView}
                   agentLabel={agentLabel(agents, dockedView.agent)}
+                  resumable={canResume(agents, dockedView.agent)}
                   focusAsk={focusAsk}
                   onNavigate={(dir) => {
                     const to = graph.current?.neighbor(dockedView.id, dir);

@@ -261,6 +261,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dock-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
 .dock-head.hint { padding: 8px 16px; }
+.dock-refusal { margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--line); color: var(--err); font-size: 13px; }
 .dock-head.hint b { color: var(--ink); font-weight: 600; }
 .dock-term { flex: 1; min-height: 0; }
 .dock-note { padding: 16px; font-size: 13px; color: var(--ink-3); }
@@ -341,12 +342,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .menu button:focus-visible { background: var(--surface-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
 .menu svg { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .menu .check { margin-left: auto; color: var(--ink-2); }
+.menu button.danger { color: var(--err); }
 
 .card { width: 600px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .card[data-waiting] { border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 35%, transparent); }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; cursor: grab; }
-.card-head .name { font-weight: 600; min-width: 0; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-head .name { font-weight: 600; min-width: 0; flex-shrink: 1; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 노드 이름 바꾸기(NameEdit, docs/mockups/node-rename.html). 입력창은 이름 글자 자리에 같은 높이로 든다. 저장·취소 단추는 없다(Enter·Esc). */
 .name.renamable:hover { text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; cursor: text; }
 .rename { position: relative; flex: 0 1 160px; min-width: 96px; }
@@ -365,6 +367,9 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .agent-logo svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .card-head .model { font-size: 12px; color: var(--ink-3); font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .spacer { flex: 1; }
+/* 좁은 머리에서는 모델, 그다음 이름이 줄어 「…」로 끝난다. 버튼·상태는 줄지 않는다(목업 docs/mockups/relaunch.html v3). */
+.card-head .btn, .card-head .state { flex-shrink: 0; }
+.card-head .model { flex-shrink: 100; }
 .card-head:last-child { border-bottom: 0; }
 /* 심플 카드와 오른쪽 칸 터미널 머리의 노드 정보(NodeCard.tsx NodeSummary). 목업 docs/mockups/card-view.html. 폭은 Graph.tsx `CARD_SIZE.simple`이다. */
 .card.simple { width: 260px; padding: 8px 8px 8px 12px; background: var(--surface); cursor: grab; }

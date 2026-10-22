@@ -96,6 +96,12 @@ pub enum Entry {
         later: u32,
         failed: u32,
     },
+    /// 노드를 다시 띄웠다(「다시 띄우기」). `error`가 있으면 옛 프로세스로 계속 돌거나 프로세스 없이 남았다.
+    /// 턴 끝에 다시 띄운 결과를 사람이 여기서 본다. 화면은 이 기록으로 「턴이 끝나면 다시 띄움」을 거둔다.
+    Relaunched {
+        node: Who,
+        error: Option<String>,
+    },
     /// 자동 전환할 계정이 없어 바꾸지 않았다. `resets_at`은 그 공급자 계정 가운데 가장 빠른 창 초기화(유닉스 초)다.
     NoAccountLeft {
         provider: Provider,

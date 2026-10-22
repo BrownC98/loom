@@ -1,8 +1,8 @@
 //! 계정 전환: 실행 중인 노드를 새 계정으로 다시 띄워 같은 세션을 잇고, 켜져 있으면 한도에 닿은 계정을 자동으로 바꾼다.
 //! 근거: docs/design.md 「계정 전환」, 목업 docs/mockups/account-switch.html.
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -11,15 +11,13 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
 use ts_rs::TS;
 
+use super::relaunch::{Relaunched, provider_of};
 use super::{App, Problem, internal};
-use crate::accounts::{self, AccountId, Site};
+use crate::accounts::{AccountId, Site};
 use crate::graph::{Active, Entry, NodeId, SwitchCause};
-use crate::profile::codex::{self, Status};
-use crate::profile::{self, ModelChoice, Profile, Provider, Start};
-use crate::skills::Position;
+use crate::profile::Provider;
 use crate::usage::{self, Limits, Window};
 use crate::wsl;
 
@@ -28,15 +26,6 @@ const EXHAUSTED_AT: u8 = 100;
 /// 같은 공급자를 다시 자동 전환하지 않는 시간. 같은 계정의 노드 여럿이 한꺼번에 한도로 멈추면
 /// 멈춤마다 다시 바꾸어 계정을 오가는 일을 막는다. 「남은 계정 없음」 기록도 이 간격에 한 번만 남긴다.
 const COOLDOWN: Duration = Duration::from_secs(10 * 60);
-/// 옛 노드 프로세스가 끝나기를 기다리는 상한. PTY 호스트는 끝내기 요청을 받으면 바로 프로세스 나무를 끝낸다.
-const EXIT_WAIT: Duration = Duration::from_secs(10);
-/// 한도로 멈췄던 노드를 새 계정으로 이어 갈 때 넣는 첫 입력.
-const CONTINUE_PROMPT: &str =
-    "Your account was switched after a usage limit. Continue the task where you stopped.";
-/// 세션 기록 파일이 로그인 폴더 아래 몇 단계에 있는지. 새 폴더의 같은 상대 경로로 복사한다.
-/// Claude: `projects/<작업 폴더>/<세션>.jsonl`. Codex: `sessions/<년>/<월>/<일>/rollout-…-<스레드>.jsonl`(0.159.2 실측).
-const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
-const CODEX_ROLLOUT_DEPTH: usize = 5;
 
 /// 계정을 바꿀 때 옮길 수 있는 실행 중인 노드(`GET /api/accounts/{provider}/nodes`). 확인 창 목록이다(목업 ①).
 /// 지금 계정이 설정의 계정과 같은 노드는 넣지 않는다.
@@ -60,30 +49,11 @@ pub struct MoveResult {
     pub failed: u32,
 }
 
-/// 옮기는 중이거나 옮길 노드. 기억에만 둔다. 데몬이 다시 시작하면 턴 끝을 기다리던 노드는 옛 계정에 남는다.
+/// 자동 전환 기록. 기억에만 둔다.
 #[derive(Default)]
 pub struct Switches {
-    /// 옛 프로세스를 끝내는 중인 노드. 그 프로세스가 끝나면 `on_exit`가 신호를 보내고 노드를 `exited`로 두지 않는다.
-    exiting: Mutex<HashMap<NodeId, oneshot::Sender<()>>>,
-    /// 턴이 끝나면 옮길 노드.
-    later: Mutex<HashSet<NodeId>>,
-    /// 한도로 턴이 멈춘 노드. 옮긴 뒤 `CONTINUE_PROMPT`를 받는다.
-    limited: Mutex<HashSet<NodeId>>,
     /// 위치(배포판, 없으면 이 PC)와 공급자마다 마지막 자동 전환이나 「남은 계정 없음」 기록 시각.
     last_auto: Mutex<HashMap<(Provider, Option<String>), Instant>>,
-}
-
-impl Switches {
-    /// 노드 프로세스가 끝났다. 계정 전환이 끝낸 프로세스면 기다리는 쪽에 알리고 참을 돌려준다.
-    pub fn exited(&self, node: NodeId) -> bool {
-        match self.exiting.lock().unwrap().remove(&node) {
-            Some(done) => {
-                let _ = done.send(());
-                true
-            }
-            None => false,
-        }
-    }
 }
 
 pub fn routes() -> Router<Arc<App>> {
@@ -140,13 +110,6 @@ async fn move_all(
     ))
 }
 
-/// 노드 하나를 옮긴 결과.
-enum Moved {
-    Now,
-    Later,
-    Failed,
-}
-
 impl App {
     /// 위치 `distro`(없으면 이 PC)에서 실행 중인 그 공급자 노드 가운데 `target` 계정과 다른 계정으로 띄운 노드. `None`은 시스템 기본이다.
     fn movable(
@@ -155,20 +118,12 @@ impl App {
         distro: Option<&str>,
         target: Option<&AccountId>,
     ) -> rusqlite::Result<Vec<Active>> {
-        let exiting: HashSet<NodeId> = self
-            .switch
-            .exiting
-            .lock()
-            .unwrap()
-            .keys()
-            .copied()
-            .collect();
         Ok(self
             .graph
             .active()?
             .into_iter()
             .filter(|n| provider_of(n) == Some(provider))
-            .filter(|n| n.account.as_ref() != target && !exiting.contains(&n.id))
+            .filter(|n| n.account.as_ref() != target && !self.relaunches.exiting(n.id))
             .filter(|n| self.distro_of(n.id).as_deref() == distro)
             .collect())
     }
@@ -177,18 +132,6 @@ impl App {
     fn distro_of(&self, node: NodeId) -> Option<String> {
         let place = self.graph.place_of(node).ok()?;
         wsl::of(Path::new(&place.worktree)).map(|at| at.distro)
-    }
-
-    /// 턴 중인 노드. Claude는 쉬는 대기가 없으면, Codex는 스레드가 일하는 중이면 턴 중이다.
-    fn busy(&self, node: NodeId) -> bool {
-        match self.codex.lock().unwrap().get(&node) {
-            Some(server) => server
-                .thread()
-                .borrow()
-                .as_ref()
-                .is_some_and(|t| t.status == Status::Busy),
-            None => !self.idle.is_open(node),
-        }
     }
 
     /// 옮길 노드를 모두 설정의 계정으로 옮기고 이벤트 기록에 한 줄을 남긴다.
@@ -209,13 +152,16 @@ impl App {
             .movable(provider, distro, to.as_ref())
             .map_err(internal)?;
         let from = most_used(nodes.iter().map(|n| n.account.clone()));
-        let outcomes = join_all(nodes.into_iter().map(|node| self.move_or_queue(node))).await;
+        let outcomes = join_all(nodes.into_iter().map(|node| self.relaunch_or_queue(node))).await;
         let mut result = MoveResult::default();
         for outcome in outcomes {
             match outcome {
-                Moved::Now => result.moved += 1,
-                Moved::Later => result.later += 1,
-                Moved::Failed => result.failed += 1,
+                Ok(Relaunched::Now) => result.moved += 1,
+                Ok(Relaunched::AtTurnEnd) => result.later += 1,
+                Err(e) => {
+                    eprintln!("loom: 노드를 새 계정으로 옮기지 못했다: {e}");
+                    result.failed += 1;
+                }
             }
         }
         self.graph
@@ -233,185 +179,13 @@ impl App {
         Ok(result)
     }
 
-    async fn move_or_queue(self: &Arc<Self>, node: Active) -> Moved {
-        if self.busy(node.id) {
-            self.switch.later.lock().unwrap().insert(node.id);
-            self.watch_codex_turn(node.id);
-            return Moved::Later;
-        }
-        match self.relaunch(node).await {
-            Ok(()) => Moved::Now,
-            Err(e) => {
-                eprintln!("loom: 노드를 새 계정으로 옮기지 못했다: {e}");
-                Moved::Failed
-            }
-        }
-    }
-
-    /// 턴이 끝났다(Claude 쉬는 대기가 열렸다, Codex 스레드가 쉰다). 옮길 노드면 옮긴다.
-    pub(super) fn turn_ended(self: &Arc<Self>, node: NodeId) {
-        if !self.switch.later.lock().unwrap().remove(&node) {
-            return;
-        }
-        let app = self.clone();
-        tokio::spawn(async move {
-            let found = app.graph.active().map(|nodes| {
-                nodes
-                    .into_iter()
-                    .find(|n| n.id == node)
-                    .filter(|n| provider_of(n).is_some())
-            });
-            let relaunched = match found {
-                Ok(Some(active)) => app.relaunch(active).await,
-                Ok(None) => return,
-                Err(e) => Err(e.to_string()),
-            };
-            if let Err(e) = relaunched {
-                eprintln!("loom: 노드 {}를 턴 끝에 옮기지 못했다: {e}", node.0);
-            }
-        });
-    }
-
-    /// Codex 노드는 훅이 없다. 스레드가 쉬면 `turn_ended`를 부른다.
-    fn watch_codex_turn(self: &Arc<Self>, node: NodeId) {
-        let Some(server) = self.codex.lock().unwrap().get(&node).cloned() else {
-            return;
-        };
-        let app = self.clone();
-        tokio::spawn(async move {
-            let mut thread = server.thread();
-            let idle = thread.wait_for(|t| t.as_ref().is_none_or(|t| t.status == Status::Idle));
-            if idle.await.is_ok() {
-                app.turn_ended(node);
-            }
-        });
-    }
-
     /// 노드가 한도로 턴을 멈췄다. 옮길 때 이어 가라는 입력을 넣는다. 자동 전환이 켜져 있으면 바로 바꾼다.
     /// 자동 전환은 이 이벤트로만 시작한다. 사용량을 미리 읽어 바꾸지 않는다.
     pub(super) fn rate_limited(self: &Arc<Self>, node: NodeId, provider: Provider) {
-        self.switch.limited.lock().unwrap().insert(node);
+        self.relaunches.stopped_at_limit(node);
         let app = self.clone();
         let distro = self.distro_of(node);
         tokio::spawn(async move { app.auto_switch(provider, distro).await });
-    }
-
-    /// 노드 프로세스를 설정의 계정으로 다시 띄운다. 새 로그인 폴더에 세션 기록을 복사하고 이어 간다.
-    /// 남긴 세션이 없으면(이 기능 전에 뜬 노드가 아직 훅을 부르지 않았다, Codex 스레드 전) 옮기지 않는다.
-    /// 새로 띄우면 사람이 친 대화와 첫 지시를 잃는다. 새 노드를 준비하지 못해도 옛 프로세스를 그대로 둔다.
-    async fn relaunch(self: &Arc<Self>, node: Active) -> Result<(), String> {
-        let profile = node.agent.as_ref().and_then(profile::profile_of);
-        let (Some(agent), Some(provider)) = (node.agent.clone(), provider_of(&node)) else {
-            return Err(format!(
-                "노드 {}는 계정이 있는 에이전트가 아니다",
-                node.id.0
-            ));
-        };
-        let settings = self.settings.get().map_err(|e| e.to_string())?;
-        let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
-        let cwd = Path::new(&place.worktree);
-        // 노드의 위치(이 PC 또는 그 WSL 배포판)에서 그 위치의 「사용 중」 계정으로 옮긴다. 세션 기록도 그 위치의 폴더에 있다.
-        let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
-        let target = settings.account(provider, site.distro()).cloned();
-        let new_root = site
-            .login_dir(provider, target.as_ref())
-            .ok_or("홈 폴더를 찾지 못했다")?;
-        let resume = match profile {
-            Some(Profile::Codex) => self.copy_codex_thread(node.id, &site, &new_root).await?,
-            _ => {
-                let transcript = node.transcript.as_deref().map(|t| site.local(t));
-                let session = copy_claude_session(transcript.as_deref(), &new_root)?;
-                // 시스템 기본 폴더는 고치지 않는다(「저장」). 그때 사람이 새 확인 창에 답한다.
-                if let (Some(to), Some(from)) = (
-                    site.accounts().config_dir(provider, target.as_ref()),
-                    site.claude_files(node.account.as_ref()),
-                ) {
-                    accounts::carry_claude_consent(&from, &to, &site.cli_cwd(cwd))
-                        .map_err(|e| format!("{}: {e}", to.display()))?;
-                }
-                session
-            }
-        };
-        let brief = match self.switch.limited.lock().unwrap().contains(&node.id) {
-            true => CONTINUE_PROMPT.to_owned(),
-            false => String::new(),
-        };
-        let start = Start::Agent {
-            agent: agent.clone(),
-            brief,
-            choice: ModelChoice {
-                model: node.model.model.clone(),
-                effort: node.model.effort.clone(),
-            },
-            resume: Some(resume.clone()),
-        };
-        let position = match self.graph.relations(node.id) {
-            Ok(r) if r.parent.is_some() => Position::Child,
-            Ok(_) => Position::Root,
-            Err(e) => return Err(e.to_string()),
-        };
-        let prepared = self
-            .prepare(&start, cwd, position)
-            .await
-            .map_err(|e| format!("{e:?}"))?;
-        if let Some(server) = &prepared.codex {
-            let bypass = !settings.bypass_off.contains(&agent);
-            let call = |method, params| server.call(method, params);
-            if let Err(e) = codex::resume(call, &resume, bypass).await {
-                prepared.discarder()();
-                return Err(e);
-            }
-            server.follow_thread(resume).await;
-        }
-        let discard = prepared.discarder();
-        // 옛 프로세스가 끝난 뒤 띄운다. 옛 PTY 호스트가 끝나며 지우는 주소 파일을 새 호스트가 함께 쓴다.
-        let (done, exited) = oneshot::channel();
-        self.switch.exiting.lock().unwrap().insert(node.id, done);
-        // 옛 CLI의 쉬는 대기를 끝낸다. 새 CLI가 세션을 시작하면 다시 연다.
-        self.idle.end(node.id);
-        self.host.kill(node.id);
-        if tokio::time::timeout(EXIT_WAIT, exited).await.is_err() {
-            self.switch.exiting.lock().unwrap().remove(&node.id);
-            discard();
-            return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
-        }
-        // 새 토큰을 먼저 남긴다. 새 프로세스가 뜨자마자 데몬을 불러도 찾는다.
-        if let Err(e) = self.graph.relaunched(node.id, &prepared.launched()) {
-            discard();
-            let _ = self.graph.lost(node.id);
-            return Err(e.to_string());
-        }
-        if let Err(e) = self.launch(node.id, prepared) {
-            discard();
-            // 옛 프로세스는 이미 끝났다. 화면이 실행 중으로 남지 않게 한다.
-            let _ = self.graph.lost(node.id);
-            return Err(e);
-        }
-        self.switch.limited.lock().unwrap().remove(&node.id);
-        // 옛 프로세스의 창은 사라졌다. 새 프로세스가 다시 묻으면 신호가 다시 건다.
-        self.graph.clear_wait(node.id).map_err(|e| e.to_string())
-    }
-
-    /// Codex 노드 스레드의 기록 파일을 새 `CODEX_HOME`에 복사하고 스레드 id를 돌려준다. 스레드나 기록 파일이 없으면 실패다.
-    async fn copy_codex_thread(
-        &self,
-        node: NodeId,
-        site: &Site,
-        new_root: &Path,
-    ) -> Result<String, String> {
-        let server = self.codex.lock().unwrap().get(&node).cloned();
-        let thread = server
-            .as_ref()
-            .and_then(|s| s.thread().borrow().as_ref().map(|t| t.id.clone()));
-        let (Some(server), Some(thread)) = (server, thread) else {
-            return Err(format!("노드 {}에는 이어 갈 Codex 스레드가 없다", node.0));
-        };
-        let rollout = server
-            .rollout(&thread)
-            .await?
-            .ok_or_else(|| format!("스레드 {thread}의 기록 파일이 없다"))?;
-        copy_session(&site.local(&rollout), CODEX_ROLLOUT_DEPTH, new_root)?;
-        Ok(thread)
     }
 
     /// 자동 전환이 켜져 있으면 같은 위치(`distro`, 없으면 이 PC), 같은 공급자의 다른 계정 사용량을 그 자리에서 읽고, 남은 계정으로 바꾼다.
@@ -489,70 +263,6 @@ async fn probe(site: &Arc<Site>, provider: Provider, id: Option<AccountId>) -> L
     tokio::task::spawn_blocking(move || usage::probe(provider, &site, id.as_ref()).limits)
         .await
         .unwrap_or(Limits::NeedsLogin)
-}
-
-fn provider_of(node: &Active) -> Option<Provider> {
-    node.agent
-        .as_ref()
-        .and_then(profile::profile_of)
-        .and_then(Profile::provider)
-}
-
-/// Claude 세션 기록과 그 곁 폴더(`<세션>/`, 하위 에이전트 기록)를 새 로그인 폴더에 복사하고 세션 id를 돌려준다.
-/// 기록 파일이 없으면 실패다. 그 노드는 옮기지 않는다. 세션 id는 기록 파일 이름이다.
-fn copy_claude_session(transcript: Option<&Path>, new_root: &Path) -> Result<String, String> {
-    let file = transcript
-        .filter(|f| f.is_file())
-        .ok_or("이어 갈 Claude 세션 기록이 없다")?;
-    let session = file
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .ok_or("세션 기록 파일 이름이 없다")?;
-    copy_session(file, CLAUDE_TRANSCRIPT_DEPTH, new_root)?;
-    let side = file.with_extension("");
-    if side.is_dir()
-        && let Some(to) = relocate(&side, CLAUDE_TRANSCRIPT_DEPTH, new_root)
-        && to != side
-    {
-        copy_dir(&side, &to).map_err(|e| format!("{}: {e}", side.display()))?;
-    }
-    Ok(session)
-}
-
-fn copy_session(file: &Path, depth: usize, new_root: &Path) -> Result<(), String> {
-    let to = relocate(file, depth, new_root)
-        .ok_or_else(|| format!("{}: 로그인 폴더 아래 기록 파일이 아니다", file.display()))?;
-    if to == file {
-        return Ok(());
-    }
-    let copied = to
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::copy(file, &to));
-    copied
-        .map(drop)
-        .map_err(|e| format!("{} → {}: {e}", file.display(), to.display()))
-}
-
-/// `file`의 끝 `depth` 단계를 `new_root` 아래 같은 상대 경로로 옮긴 경로.
-fn relocate(file: &Path, depth: usize, new_root: &Path) -> Option<PathBuf> {
-    let parts: Vec<_> = file.components().collect();
-    let tail = parts.get(parts.len().checked_sub(depth)?..)?;
-    Some(tail.iter().fold(new_root.to_path_buf(), |p, c| p.join(c)))
-}
-
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
 }
 
 /// 가장 많이 나온 계정. 같은 수면 먼저 나온 계정이다. 비었거나 시스템 기본이 가장 많으면 없다.
@@ -651,57 +361,5 @@ mod tests {
         assert_eq!(most_used([id(1), id(2), id(2)].into_iter()), id(2));
         assert_eq!(most_used([id(2), id(1)].into_iter()), id(2));
         assert_eq!(most_used(std::iter::empty()), None);
-    }
-
-    #[test]
-    fn session_files_keep_their_path_under_the_new_login_folder() {
-        assert_eq!(
-            relocate(
-                Path::new("/h/.claude/projects/-w/abc.jsonl"),
-                CLAUDE_TRANSCRIPT_DEPTH,
-                Path::new("/l/acc")
-            ),
-            Some(PathBuf::from("/l/acc/projects/-w/abc.jsonl"))
-        );
-        assert_eq!(
-            relocate(
-                Path::new("/h/.codex/sessions/2026/10/21/rollout-x-t1.jsonl"),
-                CODEX_ROLLOUT_DEPTH,
-                Path::new("/l/c")
-            ),
-            Some(PathBuf::from("/l/c/sessions/2026/10/21/rollout-x-t1.jsonl"))
-        );
-        assert_eq!(relocate(Path::new("a.jsonl"), 3, Path::new("/l")), None);
-    }
-
-    #[test]
-    fn claude_session_copies_the_transcript_and_its_side_folder() {
-        let tmp = tempfile::tempdir().unwrap();
-        let old = tmp.path().join("old/projects/-w");
-        std::fs::create_dir_all(old.join("s1/subagents")).unwrap();
-        std::fs::write(old.join("s1.jsonl"), "x").unwrap();
-        std::fs::write(old.join("s1/subagents/a.jsonl"), "y").unwrap();
-        let new = tmp.path().join("new");
-        let transcript = old.join("s1.jsonl");
-        assert_eq!(copy_claude_session(Some(&transcript), &new).unwrap(), "s1");
-        assert_eq!(
-            std::fs::read_to_string(new.join("projects/-w/s1.jsonl")).unwrap(),
-            "x"
-        );
-        assert_eq!(
-            std::fs::read_to_string(new.join("projects/-w/s1/subagents/a.jsonl")).unwrap(),
-            "y"
-        );
-    }
-
-    /// 남긴 세션이 없는 노드(이 기능 전에 뜬 노드, 첫 입력 전)를 새로 띄우면 대화를 잃는다. 실패로 세고 아무것도 쓰지 않는다.
-    #[test]
-    fn no_stored_session_fails_and_writes_nothing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let new = tmp.path().join("new");
-        assert!(copy_claude_session(None, &new).is_err());
-        let missing = tmp.path().join("old/projects/-w/gone.jsonl");
-        assert!(copy_claude_session(Some(&missing), &new).is_err());
-        assert!(!new.exists());
     }
 }

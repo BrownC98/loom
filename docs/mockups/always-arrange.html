@@ -56,6 +56,8 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 .choice span { flex: 1; text-align: center; font-size: 13px; font-weight: 500; color: var(--ink-2); padding: 5px 14px; border-right: 1px solid var(--line); }
 .choice span:last-child { border-right: 0; }
 .choice span.on { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.arr-row { display: flex; align-items: center; gap: 10px; }
+.arr-row .split { flex: 1; }
 .split { display: flex; }
 .split .btn:first-child { flex: 1; justify-content: center; border-radius: 6px 0 0 6px; }
 .split .caret { padding: 0 6px; gap: 0; border-left: 0; border-radius: 0 6px 6px 0; }
@@ -84,28 +86,27 @@ th { background: var(--panel); font-weight: 600; }
 </head>
 <body>
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M5</b></span><span>응답할 곳: <b>코디 · 상시정렬</b></span><span>연 담당: <b>코디 · 상시정렬</b></span><span>v1 · 2026-10-22</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M5</b></span><span>응답할 곳: <b>코디 · 상시정렬</b></span><span>연 담당: <b>코디 · 상시정렬</b></span><span>v2 · 2026-10-22</span></div>
   <h1>오른쪽 사이드바 「보기」: 상시 정렬 토글</h1>
   <p class="lead">사람 지시: "사이드바에 상시 정렬 기능 토글 버튼 추가". 지금은 [정렬]한 저장소도 사람이 카드·묶음을 끌어 놓거나 크기를 바꾸면 정렬한 모양이 끝난다. 상시 정렬을 켜면 모든 저장소(새 저장소 포함)가 늘 정렬한 모양을 지킨다. 값은 방향처럼 데몬에 하나만 둔다. 그래서 브라우저와 앱이 같다. 점선이 바뀌는 곳이다.</p>
 
   <div class="fig">
-    <h2>① 「보기」의 토글 <span class="tag">[정렬|방향] 바로 아래 한 줄</span></h2>
+    <h2>① 「보기」의 토글 <span class="tag">[정렬|방향]과 같은 줄 (v2)</span></h2>
     <div class="row">
       <div><div class="cap">꺼짐(기본값)</div><div class="dock"><div class="tools">
   <div class="tools-head"><h2>보기</h2><span class="btn ghost sm">⇥</span></div>
   <div class="choice"><span>심플</span><span class="on">표준</span></div>
-  <div class="split"><span class="btn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M6.5 10v4.5H14"/></svg>정렬</span><span class="btn caret"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg><svg viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg></span></div>
-  <label class="switch dashed"><i></i>상시 정렬</label>
+  <div class="arr-row"><div class="split"><span class="btn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M6.5 10v4.5H14"/></svg>정렬</span><span class="btn caret"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg><svg viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg></span></div><label class="switch dashed" title="켜면 모든 저장소가 늘 정렬한 모양을 지킵니다"><i></i>상시 정렬</label></div>
 </div><div class="tabs">이벤트 · 커밋 그래프</div></div></div>
       <div><div class="cap">켜짐</div><div class="dock"><div class="tools">
   <div class="tools-head"><h2>보기</h2><span class="btn ghost sm">⇥</span></div>
   <div class="choice"><span>심플</span><span class="on">표준</span></div>
-  <div class="split"><span class="btn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M6.5 10v4.5H14"/></svg>정렬</span><span class="btn caret"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg><svg viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg></span></div>
-  <label class="switch on dashed"><i></i>상시 정렬</label>
+  <div class="arr-row"><div class="split"><span class="btn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M6.5 10v4.5H14"/></svg>정렬</span><span class="btn caret"><svg viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg><svg viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg></span></div><label class="switch on dashed" title="켜면 모든 저장소가 늘 정렬한 모양을 지킵니다"><i></i>상시 정렬</label></div>
 </div><div class="tabs">이벤트 · 커밋 그래프</div></div></div>
     </div>
     <ul class="note">
-      <li>설정 「알림」과 같은 스위치(<code>.switch</code>)다. 새 부품은 없다.</li>
+      <li>v2: 사람 지적 "두개가 같은 행에 있으면 좋겠는데". [정렬], 방향 메뉴, 상시 정렬 스위치가 한 줄에 선다. [정렬]이 남은 폭을 차지한다.</li>
+      <li>설정 「알림」과 같은 스위치(<code>.switch</code>)다. 새 부품은 없다. 마우스를 올리면 「켜면 모든 저장소가 늘 정렬한 모양을 지킵니다」를 보인다.</li>
       <li>켜는 순간 지금 방향으로 [정렬]을 한 번 한다. 그 뒤로는 새 카드·묶음, 카드 크기 변화, 사라진 카드가 있을 때마다 바로 다시 정렬한다.</li>
       <li>켜져 있어도 [정렬]과 방향 메뉴는 그대로 쓴다. 방향을 고르면 그 방향으로 늘 정렬한다.</li>
       <li>끄면 지금 동작이다: 그 자리에서 정렬한 모양이 남고, 다음에 끌어 놓으면 자유 배치가 된다.</li>
@@ -147,7 +148,7 @@ th { background: var(--panel); font-weight: 600; }
     <h2>승인할 것</h2>
     <table>
       <tr><th>정할 것</th><th>A</th><th>B</th><th>C</th></tr>
-      <tr><td>토글 자리</td><td class="rec">「보기」 [정렬|방향] 아래 스위치 한 줄 (권장)</td><td>방향 메뉴 안 체크 항목. 눌러야 보여 지금 상태를 모른다</td><td>설정 「그래프」 탭. 사이드바 지시와 다르다</td></tr>
+      <tr><td>토글 자리</td><td class="rec">「보기」 [정렬|방향] 오른쪽, 같은 줄의 스위치 (권장, v2)</td><td>방향 메뉴 안 체크 항목. 눌러야 보여 지금 상태를 모른다</td><td>설정 「그래프」 탭. 사이드바 지시와 다르다</td></tr>
       <tr><td>켜짐에서 끌어 놓기</td><td>놓으면 처음 자리로 돌아간다. 끄는 동안의 자리 바꿈을 막는 새 분기가 필요하다</td><td class="rec">형제 순서만 바뀌고 정렬한 모양으로 선다 (권장). 지금의 자리 바꿈과 「형제 순서는 저장한 자리 순서」를 그대로 쓴다</td><td>—</td></tr>
       <tr><td>켤 때</td><td class="rec">지금 방향으로 [정렬]을 한 번 한다 (권장)</td><td>값만 바꾼다. 끄면 정렬하지 않은 저장소가 옛 자리로 튄다</td><td>—</td></tr>
     </table>

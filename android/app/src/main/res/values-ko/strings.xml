@@ -6,6 +6,7 @@
     <string name="address_hint">예: my-pc.example.ts.net</string>
     <string name="open">열기</string>
     <string name="qr_error">loom QR이 아닙니다. 주소가 https://…ts.net 이어야 합니다.</string>
+    <string name="scan_error">QR을 찍지 못했습니다. PC 주소를 적습니다.</string>
     <string name="address_error">주소가 .ts.net으로 끝나야 합니다.</string>
     <string name="failed_title">연결에 실패했습니다.</string>
     <string name="failed_body">폰의 Tailscale이 켜져 있는지, PC와 loom이 켜져 있는지 봅니다.</string>

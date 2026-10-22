@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var web: WebView
     private lateinit var card: ScrollView
     private var upload: ValueCallback<Array<Uri>>? = null
+    /** 앱이 연 첫 페이지가 뜨면 뒤로 기록을 비운다. 실패한 페이지로 돌아가지 않게 한다. */
+    private var fresh = false
     private val pickFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         upload?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
         upload = null
@@ -95,6 +97,7 @@ class MainActivity : ComponentActivity() {
     private fun open(url: String) {
         getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(card.windowToken, 0)
         card.visibility = View.GONE
+        fresh = true
         web.loadUrl(url)
     }
 
@@ -143,7 +146,7 @@ class MainActivity : ComponentActivity() {
         GmsBarcodeScanning.getClient(this).startScan().addOnSuccessListener { code ->
             val url = Uri.parse(code.rawValue ?: "")
             if (url.scheme == "https") pick(url.host ?: "", R.string.qr_error, url = url.toString()) else showStart(R.string.qr_error, "")
-        }
+        }.addOnFailureListener { showStart(R.string.scan_error, "") }
     }
 
     /** PC 주소가 tailnet 이름이면 저장하고 연다. 데몬도 `.ts.net`으로 온 요청만 폰으로 받는다(src/daemon/origin.rs). */
@@ -210,6 +213,11 @@ class MainActivity : ComponentActivity() {
             if (request.url.host == Uri.parse(origin ?: "").host) return false
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
             return true
+        }
+
+        override fun onPageFinished(view: WebView, url: String) {
+            if (fresh && card.visibility != View.VISIBLE) view.clearHistory()
+            fresh = false
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {

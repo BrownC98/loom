@@ -2269,21 +2269,50 @@ async fn send_json(socket: &mut WebSocket, value: &impl Serialize) -> Result<(),
     socket.send(Message::Text(text.into())).await
 }
 
+/// 화면 빌드(vite)가 이름에 내용 해시를 붙여 두는 폴더.
+const HASHED_ASSETS: &str = "assets/";
+
 /// 첫 페이지(`/`)는 테마를 넣어 보내는 `settings::index`가 맡는다.
+/// 해시 이름 파일은 내용이 바뀌면 이름도 바뀐다. 그래서 브라우저가 다시 묻지 않고 둔다. 이 머리가 없으면 새로 고칠 때마다 JS·글꼴 약 5MB를 다시 받았다(2026-10-22 측정).
 async fn asset(uri: Uri) -> Response {
-    match Assets::get(uri.path().trim_start_matches('/')) {
-        Some(file) => (
-            [(header::CONTENT_TYPE, file.metadata.mimetype().to_owned())],
-            file.data,
-        )
-            .into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+    let path = uri.path().trim_start_matches('/');
+    let Some(file) = Assets::get(path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut response = (
+        [(header::CONTENT_TYPE, file.metadata.mimetype().to_owned())],
+        file.data,
+    )
+        .into_response();
+    if path.starts_with(HASHED_ASSETS) {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
     }
+    response
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn only_hashed_assets_are_cached() {
+        let cache = |path: String| async move {
+            let response = asset(path.parse().unwrap()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            response.headers().get(header::CACHE_CONTROL).cloned()
+        };
+        let hashed = Assets::iter()
+            .find(|p| p.starts_with(HASHED_ASSETS))
+            .expect("web/dist has assets/");
+        assert_eq!(
+            cache(format!("/{hashed}")).await.unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(cache("/manifest.webmanifest".into()).await, None);
+    }
 
     /// 화면(`web/src/problem.ts`)이 읽는 모양이다. 바뀌면 화면 번역도 함께 고친다.
     #[test]

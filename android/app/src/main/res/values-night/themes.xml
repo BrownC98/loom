@@ -1,0 +1,3 @@
+<resources>
+    <style name="Loom" parent="android:Theme.Material.NoActionBar" />
+</resources>

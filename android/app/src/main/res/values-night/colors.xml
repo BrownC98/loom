@@ -1,0 +1,12 @@
+<resources>
+    <color name="bg">#171717</color>
+    <color name="surface">#262626</color>
+    <color name="line">#333333</color>
+    <color name="line_strong">#474747</color>
+    <color name="ink">#FAFAFA</color>
+    <color name="ink_2">#C4C4C4</color>
+    <color name="ink_3">#A1A1A1</color>
+    <color name="accent">#E5E5E5</color>
+    <color name="accent_ink">#171717</color>
+    <color name="err">#F2716A</color>
+</resources>

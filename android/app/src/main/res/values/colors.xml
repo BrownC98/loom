@@ -1,0 +1,13 @@
+<resources>
+    <!-- web/src/styles.css 화이트 테마 토큰(oklch)을 sRGB로 옮겼다. -->
+    <color name="bg">#F5F5F5</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="line">#E5E5E5</color>
+    <color name="line_strong">#D4D4D4</color>
+    <color name="ink">#171717</color>
+    <color name="ink_2">#404040</color>
+    <color name="ink_3">#636363</color>
+    <color name="accent">#171717</color>
+    <color name="accent_ink">#FAFAFA</color>
+    <color name="err">#D12D2D</color>
+</resources>

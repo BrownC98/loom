@@ -647,7 +647,7 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 
 ## 원격
 
-폰은 컴퓨터의 작업을 통제하는 단말이다(2026-10-22 사람 결정 Q279·Q280, 설계 보고서 R13 v2, 목업 [docs/mockups/mobile.html](mockups/mobile.html) M35 v5). 1단계는 웹 앱(PWA)이다. Tauri 모바일 앱은 필요할 때만 만든다.
+폰은 컴퓨터의 작업을 통제하는 단말이다(2026-10-22 사람 결정 Q279·Q280, 설계 보고서 R13 v2, 목업 [docs/mockups/mobile.html](mockups/mobile.html) M35 v5). 1단계는 웹 앱(PWA)이다. Android는 같은 화면을 여는 앱(APK)도 낸다(「[Android 앱](#android-앱)」). iPhone은 PWA만 쓴다(2026-10-22 사람 결정 Q382 C: iOS 앱은 미룬다. 기기에 설치하려면 유료 Apple 개발자 계정이 있어야 한다).
 
 폰 연결은 Orca의 「휴대폰 페어링」을 따른다: PC 화면이 QR·코드를 내고, 폰은 기기마다 토큰을 받고, PC가 기기를 끊는다(2026-10-22 사람 지시 "pc loom과 앱 연결은 orca의 방식을 참고하여 구현하라", 결정 Q364 A, 목업 [docs/mockups/phone-pairing.html](mockups/phone-pairing.html) M41).
 
@@ -671,13 +671,29 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 2. 설정 › 휴대폰에서 [Serve 켜기]를 누른다.
 3. [휴대폰 연결]을 누르고 폰 카메라로 QR을 찍는다. 홈 화면에 추가했으면 그 앱에서 코드를 한 번 적는다.
 
+### Android 앱
+
+사람 지시(2026-10-22) "앱 배포 apk로 해". 앱은 PC loom이 Serve로 내는 폰 화면을 여는 WebView 껍데기다(`android/`, 목업 [docs/mockups/android-app.html](mockups/android-app.html) M1 v2, 결정 Q383).
+
+| 결정 | 이유 |
+|---|---|
+| Kotlin Activity 하나(`MainActivity.kt`)와 시스템 WebView. Tauri 모바일을 쓰지 않는다 | iOS를 미뤄 Android만 남았다. Tauri는 Rust 교차 빌드(NDK), 데스크톱 `main.rs`의 나누기, 생성한 Gradle 프로젝트 커밋이 더 있다. Tauri는 원격 페이지에도 자기 전역을 넣어 화면이 데스크톱 앱으로 알아본다(`isTauri()`) |
+| 앱이 그리는 것은 카드 둘뿐이다: PC 주소를 모를 때(QR 찍기, 주소 적기)와 연결에 실패했을 때(다시 시도, 주소 바꾸기). 나머지(짝짓기 카드, 질문·노드)는 PC가 낸다 | 화면을 둘로 만들지 않는다. 화면이 바뀌어도 앱을 다시 내지 않는다 |
+| QR은 Google 코드 스캐너(Play 서비스)로 읽는다. 앱은 카메라 권한이 없다. QR 주소(`https://<PC>.ts.net/#pair=<코드>`)를 그대로 열어 짝짓는다 | 폰 카메라 앱으로 찍으면 브라우저가 연다. `*.ts.net`은 사람마다 달라 https 앱 링크로 앱에 보낼 수 없다 |
+| 주소는 `.ts.net`으로 끝나야 한다. 앱은 `https://<PC>.ts.net`만 저장하고 코드는 저장하지 않는다 | 데몬도 `.ts.net`으로 온 요청만 폰으로 받는다(「원격」 표). 기기 토큰 쿠키는 WebView 쿠키 저장소에 남는다. `allowBackup="false"`라 클라우드 백업에 가지 않는다 |
+| 같은 PC 주소의 링크(질문 문서)는 앱 안에서, 다른 사이트는 폰 브라우저로 연다. 받은편지함 그림 붙이기는 시스템 파일 고르기를 쓴다 | 질문 문서는 쿠키가 있어야 열린다 |
+| 메인 페이지를 받지 못하거나(DNS, 연결) Serve가 5xx(데몬 꺼짐)를 내면 실패 카드를 보인다 | 사람 결정 Q383: 제목 「연결에 실패했습니다.」 |
+| 알림, 앱 자동 업데이트는 없다 | 앱이 꺼진 동안 알리려면 푸시 서버나 상시 서비스가 있어야 한다(Q383 3A). 화면은 PC가 내므로 앱은 드물게 바뀐다. 새 판은 Release의 APK를 다시 설치한다 |
+| `release.yml`의 `android` 작업이 서명한 `loom_<판>.apk`를 Release에 올린다. `versionName`은 판, `versionCode`는 전체 커밋 수다 | 판의 PATCH는 MINOR를 올리면 0으로 돌아간다. `versionCode`가 줄면 Android가 업데이트 설치를 거절한다 |
+| 서명 키는 GitHub secret `ANDROID_KEYSTORE_B64`·`ANDROID_KEYSTORE_PASSWORD`에 있고(별칭 `loom`), 사본은 사람 PC의 `~/.config/loom-android/`에 있다. 저장소에 두지 않는다 | 키를 잃으면 설치한 앱을 같은 이름으로 업데이트하지 못한다 |
+
 ## 레이어
 
 기능 역할로 나눈다. 의존은 위에서 아래로만 둔다. 기능 모듈끼리는 서로 부르지 않는다.
 
 | 레이어 | 모듈 |
 |---|---|
-| 상호작용 | 화면, CLI 명령(`src/cli.rs`), 데몬 켜기·끄기(`src/launch.rs`: `loom open`·`loom stop`), 데스크톱 앱 창(`app/`) |
+| 상호작용 | 화면, CLI 명령(`src/cli.rs`), 데몬 켜기·끄기(`src/launch.rs`: `loom open`·`loom stop`), 데스크톱 앱 창(`app/`), 폰 앱(`android/`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다. 예: 워크트리 닫기는 그래프의 `running` 수, `worktree::close`, 노드 지우기를 차례로 부른다 |
 | 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록, 사람 응답 대기(`waits.rs`)), 노드 호스트(`src/node_host/`: PTY 호스트에 붙어 출력 나누기, 중단할 셸(`mod.rs`), PTY 호스트 프로세스(`host.rs`), 프레임(`wire.rs`)), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 화면 확인 창 찾기(`src/screen.rs`), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
 | 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기, Windows에서 WSL 저장소는 그 배포판의 git), WSL(`src/wsl.rs`: `\\wsl.localhost\…` UNC와 Linux 경로 바꾸기, 배포판 값 읽기, 노드를 배포판에서 띄우는 `wsl.exe` 명령), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |

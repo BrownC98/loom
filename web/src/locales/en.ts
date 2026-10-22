@@ -162,6 +162,8 @@ const en = {
     recheck: 'Check again',
     serveHint: 'Turn on Tailscale Serve so the phone can reach this computer (tailscale serve --bg {{port}}). Only devices in your tailnet can reach it.',
     serve: 'Turn on Serve',
+    consent: 'Serve is not enabled on your tailnet yet. Enable it on the Tailscale page, then click “Turn on Serve” again.',
+    consentLink: 'Open the Tailscale page',
     scan: 'Scan the QR code with the phone camera',
     typeCode: 'In the home-screen app, type the code below.',
     left: '{{min}} min {{sec}} s left · one use only',

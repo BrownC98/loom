@@ -21,6 +21,8 @@ export function PhoneTab() {
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  /** tailnet이 Serve를 허용하지 않아 CLI가 찍은 허용 페이지. */
+  const [consent, setConsent] = useState('');
 
   const refresh = useCallback(() => getPhone().then(setView, (e: Error) => setError(e.message)), []);
   useEffect(() => void refresh(), [refresh]);
@@ -55,6 +57,14 @@ export function PhoneTab() {
       createInvite().then((view) => {
         setNow(Date.now());
         setInvite({ view, until: Date.now() + view.ttlSecs * 1000 });
+      }),
+    );
+
+  const turnOnServe = () =>
+    act(() =>
+      startServe().then((served) => {
+        setConsent(served.kind === 'needsConsent' ? served.url : '');
+        return refresh();
       }),
     );
 
@@ -95,8 +105,16 @@ export function PhoneTab() {
         {tailnet.kind === 'ready' && !tailnet.serving && (
           <>
             <span className="hint">{t('pairing.serveHint', { port: location.port })}</span>
+            {consent && (
+              <span className="hint">
+                {t('pairing.consent')}{' '}
+                <a href={consent} target="_blank" rel="noopener">
+                  {t('pairing.consentLink')}
+                </a>
+              </span>
+            )}
             <span>
-              <button type="button" className="btn sm primary" disabled={busy} onClick={() => act(() => startServe().then(setView))}>
+              <button type="button" className="btn sm primary" disabled={busy} onClick={turnOnServe}>
                 {t('pairing.serve')}
               </button>
             </span>

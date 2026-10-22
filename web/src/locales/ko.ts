@@ -164,6 +164,8 @@ const ko: typeof en = {
     recheck: '다시 확인',
     serveHint: '폰이 이 컴퓨터에 닿게 Tailscale Serve를 켭니다(tailscale serve --bg {{port}}). tailnet 안의 기기만 닿습니다.',
     serve: 'Serve 켜기',
+    consent: 'tailnet에서 Serve를 아직 허용하지 않았습니다. 허용 페이지에서 허용한 뒤 [Serve 켜기]를 다시 클릭합니다.',
+    consentLink: '허용 페이지 열기',
     scan: '폰 카메라로 QR을 찍습니다',
     typeCode: '홈 화면 앱에서는 아래 코드를 적습니다.',
     left: '{{min}}분 {{sec}}초 남음 · 한 번만 씁니다',

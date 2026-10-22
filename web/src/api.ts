@@ -28,6 +28,7 @@ import type { Arranged } from './gen/Arranged';
 import type { Layout } from './gen/Layout';
 import type { Placed } from './gen/Placed';
 import type { PhoneView } from './gen/PhoneView';
+import type { Served } from './gen/Served';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
@@ -171,7 +172,7 @@ export const logoutSystem = (provider: Provider, distro: string | null) => call<
 /** 설정 「휴대폰」 탭(docs/design.md 「원격」). 이 기계의 화면에서만 부른다. 폰이 부르면 403이다. */
 export const getPhone = () => call<PhoneView>('GET', '/api/phone');
 /** 데몬이 `tailscale serve --bg <포트>`를 돌린다. 사람이 단추를 누를 때만 부른다. */
-export const startServe = () => call<PhoneView>('POST', '/api/phone/serve');
+export const startServe = () => call<Served>('POST', '/api/phone/serve');
 /** 새 짝짓기 코드. 앞 코드는 쓸 수 없게 된다. */
 export const createInvite = () => call<InviteView>('POST', '/api/phone/invite');
 export const removeDevice = (id: DeviceId) => call<null>('DELETE', `/api/phone/devices/${id}`);

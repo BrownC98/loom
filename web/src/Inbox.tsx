@@ -7,6 +7,7 @@ import { answerWait, dismissWait, doneImageUrl, openWaitDoc, PASTE_LIMIT_BYTES, 
 import { choices } from './choices';
 import { dateAndTime } from './i18n';
 import { QuestionIcon } from './Dock';
+import { notify, notifyAllowed, windowHidden } from './osNotify';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
@@ -541,24 +542,12 @@ function useOsNotify(waiting: NodeView[], enabled: boolean, onSelect: (id: NodeI
     const keys = new Set(waiting.flatMap((v) => v.waits.map((w) => w.id)));
     const before = seen.current;
     seen.current = keys;
-    if (before === null || !enabled || !document.hidden || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-    for (const v of waiting) {
-      for (const w of v.waits) {
-        if (before.has(w.id)) continue;
-        const note = new Notification(`${v.name} · ${t(`wait.${w.kind}`)}`, { body: w.text, tag: `loom-wait-${w.id}` });
-        note.onclick = () => {
-          window.focus();
-          select.current(v.id);
-          note.close();
-        };
-      }
-    }
+    if (before === null || !enabled || !notifyAllowed()) return;
+    const fresh = waiting.flatMap((v) => v.waits.filter((w) => !before.has(w.id)).map((w) => ({ v, w })));
+    if (fresh.length === 0) return;
+    windowHidden().then((hidden) => {
+      if (!hidden) return;
+      for (const { v, w } of fresh) notify(`${v.name} · ${t(`wait.${w.kind}`)}`, w.text, `loom-wait-${w.id}`, () => select.current(v.id));
+    });
   }, [waiting, enabled]);
-}
-
-/** 설정을 켤 때 부른다(사람의 클릭). 허용되면 true. 브라우저가 알림을 지원하지 않거나 막으면 false. */
-export async function requestNotifyPermission(): Promise<boolean> {
-  if (typeof Notification === 'undefined') return false;
-  if (Notification.permission === 'granted') return true;
-  return (await Notification.requestPermission()) === 'granted';
 }

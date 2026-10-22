@@ -398,7 +398,7 @@ button.unread:hover { filter: brightness(1.1); }
 .react-flow__resize-control.line.top, .react-flow__resize-control.line.bottom { height: 6px; }
 .react-flow__resize-control.handle { width: 12px; height: 12px; border: 0; background: none; }
 .xterm-box > div { height: 100%; }
-/* xterm은 PTY 열·줄의 크기로 그리고 Terminal.tsx `scaleToBox`가 칸에 맞게 늘이거나 줄인다. 그래서 칸 폭을 채우지 않는다. */
+/* xterm은 PTY 열·줄의 크기로 그리고 Terminal.tsx `Sizing.fit`이 칸에 맞춘다. 그래서 칸 폭을 채우지 않는다. */
 .xterm-box > div { overflow: hidden; }
 .xterm-box > div > .xterm { display: inline-block; transform-origin: 0 0; }
 /* xterm.css가 스크롤 칸을 검게 칠한다. 칸 가장자리가 소수 픽셀에 걸리면 라이트 테마에서 회색 세로줄로 보였다. 바탕은 .xterm-box가 테마 색으로 칠한다. */

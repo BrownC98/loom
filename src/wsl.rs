@@ -98,8 +98,10 @@ pub async fn distros() -> Vec<String> {
 fn read_list(bytes: &[u8]) -> Vec<String> {
     let text = if bytes.contains(&0) {
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_le_bytes(*b))
             .collect();
         String::from_utf16_lossy(&units)
     } else {

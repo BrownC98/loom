@@ -94,7 +94,7 @@ function RowPop(props: { top: number; left: number; onClose: () => void; childre
   );
 }
 
-/** 폰 노드 줄의 상태 글(목업 R3 ②). 사람이 볼 상태(질문, 완료, 종료, 설정 실패)만 붙이고 실행 중은 점만 둔다. 데스크톱 사이드바에서는 CSS가 숨긴다. */
+/** 노드 줄의 상태 칩(목업 R3 ②). 사람이 볼 상태(질문, 완료, 종료, 설정 실패)만 붙이고 실행 중은 점만 둔다. 폰과 데스크톱 사이드바가 같이 쓴다. */
 function StateTag({ view }: { view: NodeView }) {
   const kind = stateClass(view);
   if (kind === 'running') return null;

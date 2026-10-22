@@ -138,7 +138,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tree-row .from { width: 12px; height: 12px; }
 /* 조상 층마다 세로선 하나. 가운데는 그 층 쪽 화살표(chev) 가운데(4px + 층 × 칸 + 6.5px)다. */
 /* 좁으면 에이전트 이름(.sub)과 꼬리표(.tag)가 먼저 준다. 그다음 이름이 줄 폭의 60% 안에서 준다. */
-.tree-row .name { flex-shrink: 1; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 경로(.sub)와 칩이 줄을 채워도 이름은 줄지 않는다(시험: 「demo」가 「de…」로, 칩 옆 「shell-2」가 「s…」로 잘렸다). 이름이 60%를 넘을 때만 자른다. */
+.tree-row .name { flex-shrink: 0; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .sub { flex-shrink: 1000; font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tree-row .branch { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .tag { flex-shrink: 1000; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
@@ -920,14 +921,11 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .side-head .btn.sm { width: 44px; height: 44px; justify-content: center; }
 .phone .side-head .btn.sm svg { width: 18px; height: 18px; }
 .phone .tree-row .dot { width: 10px; height: 10px; }
-/* 긴 경로(.sub)가 줄을 채워도 이름은 줄지 않는다(시험: 「demo」가 「de…」로 잘렸다). 이름이 60%를 넘을 때만 자른다. */
-.phone .tree-row .name { flex-shrink: 0; }
-/* 상태 글은 폰 줄에만 있다. 데스크톱 사이드바는 점만 둔다. */
-.state-tag { display: none; }
-.phone .state-tag { display: block; flex: none; margin-left: auto; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
-.phone .state-tag.waiting { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
-.phone .state-tag.done { color: var(--ok); }
-.phone .state-tag:is(.exited, .setupFailed) { color: var(--err); }
+/* 상태 칩은 폰과 데스크톱 줄에 같이 있다(2026-10-23 사람 "앱 노드리스트에 완료나 질문 상태가 칩으로 뜨는 거 PC 판에도 적용시켜줘"). 데스크톱의 줄 단추는 마우스를 올릴 때 칩 위에 뜬다. */
+.state-tag { flex: none; margin-left: auto; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.state-tag.waiting { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
+.state-tag.done { color: var(--ok); }
+.state-tag:is(.exited, .setupFailed) { color: var(--err); }
 .sheet-body > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }
 .sheet-body > .btn svg { width: 18px; height: 18px; }
 .sheet-body > .btn .mark { margin-left: auto; }

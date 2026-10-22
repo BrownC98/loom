@@ -3,6 +3,7 @@
 
 mod carry;
 mod idle;
+mod lan;
 mod origin;
 mod phone;
 mod places;
@@ -13,7 +14,7 @@ pub use relaunch::Relaunched;
 mod switch;
 mod turn_end;
 
-use origin::ViaServe;
+use origin::ViaRemote;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -122,6 +123,8 @@ struct App {
     devices: Arc<Devices>,
     /// 사람 문이 듣는 포트. Tailscale Serve가 이 포트로 넘긴다.
     port: u16,
+    /// Tailscale 없이 폰 앱이 닿는 문(`lan`).
+    door: lan::Door,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -523,6 +526,13 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         settings: Settings::new(database.clone()),
         devices: Arc::new(Devices::new(database.clone())),
         port: listen.port(),
+        door: lan::Door::new(
+            db_path
+                .parent()
+                .expect("DB 파일에는 폴더가 있다")
+                .to_path_buf(),
+            listen.port(),
+        ),
         spots: Spots::new(database.clone()),
         database,
         accounts_root: db_path.with_file_name("accounts"),
@@ -647,6 +657,21 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             origin::human_site,
         ))
         .with_state(app.clone());
+    app.door.set_router(router.clone());
+    // 짝지은 폰이 있으면 시작할 때 폰 문을 연다. 없으면 [휴대폰 연결]이 연다.
+    if !app
+        .devices
+        .list()
+        .map_err(std::io::Error::other)?
+        .is_empty()
+    {
+        let app = app.clone();
+        tokio::spawn(async move {
+            if let Err(e) = app.door.open().await {
+                eprintln!("loom: phone door: {e}");
+            }
+        });
+    }
     claim.announce(&node_url(listen))?;
     tokio::spawn(update.run());
     println!("loom: http://{listen}");
@@ -2203,7 +2228,7 @@ async fn pty(
     ws: WebSocketUpgrade,
     Path(id): Path<u32>,
     State(app): State<Arc<App>>,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
 ) -> Response {
     // 사람이 그 노드 터미널에 키를 누르면 답한 것으로 본다. `loom ask` 대기는 에이전트가 판단해 지운다. 근거: docs/design.md 「사람 응답 대기」.
     let typed = |app: &App, id| {
@@ -2230,7 +2255,7 @@ pub enum PtyNotice {
 /// 폰의 연결은 PC에서 그 기기를 끊으면 닫는다(`origin::until_removed`).
 fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
     ws: WebSocketUpgrade,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
     typed: fn(&App, K),
@@ -2314,7 +2339,7 @@ async fn event_log(State(app): State<Arc<App>>) -> Result<Json<Vec<EventRecord>>
 async fn events(
     ws: WebSocketUpgrade,
     State(app): State<Arc<App>>,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
 ) -> Response {
     let devices = app.devices.clone();
     ws.on_upgrade(move |socket| origin::until_removed(devices, via, send_events(socket, app)))

@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M6 휴대폰 직접 연결 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: user-doc style.html. 화면 그림의 색은 web/src/styles.css 토큰과 mobile.html(M35)의 폰 틀이다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button, input { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.note code, td code { font-family: var(--mono); font-size: 12px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.cmp { border-collapse: collapse; font-size: 13px; width: 1240px; }
+table.cmp th, table.cmp td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.pick { font-weight: 600; color: var(--warn); }
+
+/* 설정 칸(Settings.tsx 「휴대폰」 탭) */
+.settings { display: flex; gap: 0; width: 900px; background: var(--panel); border-radius: 12px; overflow: hidden; }
+.settings nav { width: 180px; padding: 18px 8px; display: grid; align-content: start; gap: 2px; border-right: 1px solid var(--line); }
+.settings nav span { padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--ink-2); }
+.settings nav span[aria-current] { background: var(--surface-hover); color: var(--ink); font-weight: 600; }
+.settings .pane { border-radius: 0; }
+.pane { width: 700px; padding: 18px 22px; background: var(--panel); border-radius: 12px; display: grid; gap: 18px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.pane code { font-family: var(--mono); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.ready { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+.dot.warn { background: var(--warn); }
+.dot.off { background: var(--ink-3); }
+.rows { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.dev-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.dev-row:last-child { border-bottom: 0; }
+.dev-row .main { flex: 1; min-width: 0; display: grid; }
+.dev-row .name { font-weight: 600; }
+.dev-row .meta { font: 12px var(--mono); color: var(--ink-3); }
+.pair-box { display: flex; gap: 20px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.pair-box .txt { display: grid; gap: 6px; }
+.code { font: 600 22px var(--mono); letter-spacing: 2px; }
+.qr { width: 148px; height: 148px; flex: none; background: #fff; padding: 8px; border-radius: 6px; border: 1px solid var(--line); }
+.qr svg { width: 100%; height: 100%; display: block; }
+ol.hint li { margin-left: 18px; }
+
+/* 폰 틀(M35와 같은 크기) */
+.row { display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap; }
+.shot { display: grid; gap: 10px; width: 390px; }
+.cap { font-size: 13px; font-weight: 600; }
+.phone { width: 390px; height: 700px; border: 1px solid var(--line-strong); border-radius: 28px; background: var(--bg); overflow: hidden; display: grid; grid-template-rows: 44px minmax(0, 1fr); }
+.os { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-size: 13px; font-weight: 600; }
+.card { margin: 120px 20px 0; align-self: start; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 12px; }
+.card h3 { font-size: 17px; }
+.card p { font-size: 14px; color: var(--ink-2); }
+.mark { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font: 700 16px var(--mono); }
+.pbtn { min-height: 44px; border-radius: 10px; font-size: 15px; }
+.field { min-height: 48px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); font: 600 20px var(--mono); letter-spacing: 2px; display: flex; align-items: center; }
+.field.empty { color: var(--ink-3); font: 15px var(--font); letter-spacing: 0; }
+.err { font-size: 13px; color: var(--err); }
+
+/* 흐름 그림 */
+.flow { width: 1240px; height: auto; background: var(--panel); border-radius: 12px; }
+.flow .box { fill: var(--surface); stroke: var(--line-strong); }
+.flow .box.hub { stroke: var(--ink); stroke-width: 1.6; }
+.flow .t { fill: var(--ink); font: 600 14px var(--font); text-anchor: middle; }
+.flow .s { fill: var(--ink-3); font: 12px var(--font); text-anchor: middle; }
+.flow .a { stroke: var(--ink-2); stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+.flow .lb { fill: var(--ink-2); font: 12px var(--font); }
+
+.or { font-size: 12px; color: var(--ink-3); text-align: center; }
+.pin { display: flex; align-items: center; gap: 6px; }
+.pin span { flex: 1; height: 48px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); display: grid; place-items: center; font: 600 20px var(--mono); }
+.pin i { font: 600 20px var(--mono); font-style: normal; color: var(--ink-3); }
+.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.card p code { font: 13px var(--mono); }
+.opt { border-top: 1px solid var(--line); padding-top: 12px; }
+.addr { display: grid; gap: 4px; font-size: 13px; }
+.addr div { display: flex; gap: 8px; align-items: center; }
+.addr .k { width: 92px; color: var(--ink-3); font-size: 12px; }
+.del { text-decoration: line-through; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M6</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 폰직결</b></span><span>v2 · 2026-10-22</span></div>
+  <h1>휴대폰 직접 연결: Tailscale 없이 같은 Wi‑Fi에서</h1>
+  <p class="lead">사람 지시: "앱 연동은 orca처럼 tailscail 독립적으로 구현하라, 지금은 의존성이 너무 강함". Orca는 PC가 LAN 주소에서 직접 듣고, QR에 PC 주소와 PC 열쇠를 넣고, 앱이 그 열쇠로 상대가 진짜 PC인지 확인한다. loom도 같게 한다: 데몬이 폰 전용 HTTPS 문을 LAN에 열고, QR에 그 인증서의 지문을 넣고, Android 앱은 지문이 같은 PC에만 붙는다. Tailscale은 고를 수 있는 길로 남는다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 연결 흐름 <span class="tag">Serve 없이 · 앱이 인증서 지문을 확인한다</span></h2>
+    <svg class="flow" viewBox="0 0 1240 260" role="img" aria-label="PC 설정의 QR을 앱이 찍고, 같은 Wi-Fi의 PC 주소로 직접 HTTPS 연결하는 흐름">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor" style="color: var(--ink-2)"/></marker></defs>
+      <rect class="box" x="30" y="40" width="250" height="78" rx="10"/><text class="t" x="155" y="70">PC 설정 › 휴대폰</text><text class="s" x="155" y="92">[휴대폰 연결] → QR</text><text class="s" x="155" y="108">주소 · 코드 · 인증서 지문</text>
+      <rect class="box" x="370" y="40" width="250" height="78" rx="10"/><text class="t" x="495" y="70">Android 앱</text><text class="s" x="495" y="92">주소와 지문을 저장한다</text><text class="s" x="495" y="108">지문이 다르면 열지 않는다</text>
+      <rect class="box hub" x="710" y="40" width="250" height="78" rx="10"/><text class="t" x="835" y="70">loom 데몬 · 폰 문</text><text class="s" x="835" y="92">https://192.168.0.12:7430</text><text class="s" x="835" y="108">짝지은 기기 쿠키만 받는다</text>
+      <rect class="box" x="1040" y="40" width="170" height="78" rx="10"/><text class="t" x="1125" y="70">PC 화면</text><text class="s" x="1125" y="92">127.0.0.1:7420</text><text class="s" x="1125" y="108">지금과 같다</text>
+      <path class="a" d="M280 79H366"/><text class="lb" x="298" y="70">QR 찍기</text>
+      <path class="a" d="M620 79H706"/><text class="lb" x="632" y="70">같은 Wi‑Fi</text>
+      <rect class="box" x="370" y="170" width="590" height="62" rx="10"/><text class="t" x="665" y="196">선택: 폰과 PC에 Tailscale이 있으면 QR에 tailnet 주소(100.x)도 들어간다</text><text class="s" x="665" y="216">밖에서는 앱이 그 주소로 같은 폰 문에 붙는다 · Serve·tailscale 명령이 필요 없다</text>
+      <path class="a" d="M495 118V166"/><path class="a" d="M835 166V122"/>
+    </svg>
+    <ul class="note">
+      <li>폰 문은 데몬이 연 두 번째 문이다. PC 화면의 문(루프백)은 그대로다. 폰 문은 짝짓기 요청, 짝지은 기기의 요청만 받는다(지금 Serve로 온 요청과 같은 규칙).</li>
+      <li>인증서는 데몬이 처음 한 번 만들어 데이터 폴더에 둔다. 같은 Wi‑Fi의 다른 기기가 가운데에 끼어도 지문이 달라 앱이 열지 않는다(Orca의 PC 열쇠 확인과 같다).</li>
+      <li>공유기가 PC 주소를 바꾸면 앱이 닿지 않는다. 그때는 QR을 다시 찍는다(④).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② PC 설정 › 휴대폰 · Windows, Tailscale 없음 <span class="tag">Tailscale 확인 줄 → 주소 줄 · [휴대폰 연결]은 늘 보인다</span></h2>
+    <div class="settings"><nav><span>일반</span><span aria-current="page">휴대폰</span><span>에이전트</span><span>에이전트 계정</span><span>화면</span><span>그래프</span><span>터미널</span><span>정보</span></nav>
+    <div class="pane">
+      <section class="new">
+        <h4>휴대폰 연결</h4>
+        <div class="addr">
+          <div><span class="k">같은 Wi‑Fi</span><span class="dot"></span><code>192.168.0.12:7430</code></div>
+          <div><span class="k">Tailscale</span><span class="dot off"></span><span class="hint">없음 · 있으면 밖에서도 앱이 닿습니다</span></div>
+        </div>
+        <span class="hint">Android 앱으로 QR을 찍습니다. 폰이 이 컴퓨터와 같은 Wi‑Fi에 있거나, 밖에서는 Tailscale로 닿아야 합니다.</span>
+        <div class="pair-box">
+          <div class="qr" id="qr"></div>
+          <div class="txt">
+            <b>Android 앱의 [QR 찍기]로 찍습니다</b>
+            <span class="hint">9분 42초 남음 · 한 번만 씁니다</span>
+            <span><button class="btn sm">닫기</button></span>
+          </div>
+        </div>
+        <span class="hint">폰이 닿지 않으면 Windows 방화벽에서 loom을 허용합니다(관리자 확인 창이 뜹니다). <button class="btn sm">방화벽 허용</button></span>
+      </section>
+      <section>
+        <h4>연결된 기기</h4>
+        <div class="rows">
+          <div class="dev-row"><span class="main"><span class="name">Android · loom 앱</span><span class="meta">10-22 14:05 연결 · 방금 씀</span></span><button class="btn ghost sm">연결 끊기</button></div>
+        </div>
+      </section>
+      <section class="new opt">
+        <h4>브라우저(iPhone)로 쓰기 · 선택</h4>
+        <div class="ready"><span class="dot off"></span><span>Tailscale Serve 꺼짐</span></div>
+        <span class="hint">브라우저는 loom의 인증서를 확인하지 못합니다. iPhone·브라우저에서 쓰려면 Tailscale Serve를 켭니다. 그러면 QR이 <code>https://…ts.net</code> 주소도 담습니다.</span>
+        <span><button class="btn sm">Serve 켜기</button></span>
+      </section>
+    </div></div>
+    <ul class="note">
+      <li>주소 줄은 데몬이 읽은 네트워크 주소다. 가상 어댑터(WSL, Hyper‑V, Docker)는 뺀다. Tailscale 주소(100.x)는 명령 없이 네트워크 주소에서 찾는다.</li>
+      <li>QR에는 코드 칸이 없다. 앱은 QR의 지문으로 PC를 확인하므로 코드만 적어서는 같은 Wi‑Fi로 짝짓지 않는다(결정 2).</li>
+      <li>[방화벽 허용]은 Windows 데몬에만 있다. Orca와 같게 loom.exe·폰 문 포트에 「개인 네트워크, 들어오는 TCP 허용」 규칙을 넣고, loom을 막는 규칙을 지운다.</li>
+      <li>지금의 「Tailscale을 찾지 못했습니다」, 「Serve 꺼짐」 때문에 [휴대폰 연결]이 숨는 상태는 없어진다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ PC 설정 › 휴대폰 · 주소가 없을 때, Tailscale이 있을 때</h2>
+    <div class="row">
+      <div class="pane" style="width: 560px">
+        <section class="new">
+          <h4>휴대폰 연결</h4>
+          <div class="addr">
+            <div><span class="k">같은 Wi‑Fi</span><span class="dot warn"></span><span>네트워크 주소가 없습니다</span></div>
+            <div><span class="k">Tailscale</span><span class="dot off"></span><span class="hint">없음</span></div>
+          </div>
+          <span class="hint">이 컴퓨터를 Wi‑Fi나 유선 네트워크에 연결하고 [휴대폰 연결]을 다시 누릅니다.</span>
+          <span><button class="btn sm primary">휴대폰 연결</button></span>
+        </section>
+      </div>
+      <div class="pane" style="width: 560px">
+        <section class="new">
+          <h4>휴대폰 연결</h4>
+          <div class="addr">
+            <div><span class="k">같은 Wi‑Fi</span><span class="dot"></span><code>192.168.0.12:7430</code></div>
+            <div><span class="k">Tailscale</span><span class="dot"></span><code>100.101.12.7:7430</code><span class="hint">밖에서도 닿습니다</span></div>
+          </div>
+          <span><button class="btn sm primary">휴대폰 연결</button></span>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>④ Android 앱 카드 <span class="tag">M1 처음 실행·연결 실패 카드를 바꾼다</span></h2>
+    <div class="row">
+      <div class="shot">
+        <span class="cap">처음 연 앱</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card new"><span class="mark">L</span><h3>PC의 loom에 연결</h3><p>PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍습니다. 폰과 PC가 같은 Wi‑Fi에 있거나, 밖에서는 Tailscale로 닿아야 합니다.</p><button class="btn primary pbtn">QR 찍기</button><span class="or">Tailscale Serve를 쓰면 주소와 코드를 적어도 됩니다</span><div class="field empty">예: my-pc.example.ts.net</div><div class="pin"><span></span><span></span><span></span><span></span><i>-</i><span></span><span></span><span></span><span></span></div><button class="btn pbtn">열기</button></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">PC에 닿지 않을 때</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card new"><span class="mark">L</span><h3>연결에 실패했습니다.</h3><p><code>192.168.0.12:7430</code><br>폰과 PC가 같은 Wi‑Fi에 있는지, PC와 loom이 켜져 있는지 봅니다. PC 주소가 바뀌었으면 QR을 다시 찍습니다.</p><div class="acts"><button class="btn primary pbtn">다시 시도</button><button class="btn pbtn">QR 다시 찍기</button></div></div>
+        </div>
+      </div>
+      <div class="shot">
+        <span class="cap">지문이 다를 때(가운데에 낀 기기, 인증서를 바꾼 PC)</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card new"><span class="mark">L</span><h3>연결에 실패했습니다.</h3><p><code>192.168.0.12:7430</code><br>이 주소의 PC가 짝지은 PC와 다릅니다. PC loom에서 QR을 다시 찍습니다.</p><div class="acts"><button class="btn primary pbtn">다시 시도</button><button class="btn pbtn">QR 다시 찍기</button></div></div>
+        </div>
+      </div>
+    </div>
+    <ul class="note">
+      <li>앱은 QR의 주소(같은 Wi‑Fi, 있으면 Tailscale)를 차례로 시도하고 먼저 답한 곳을 연다. 화면(질문·노드)은 지금처럼 PC가 낸다.</li>
+      <li>「주소 바꾸기」는 「QR 다시 찍기」가 된다. 같은 Wi‑Fi 주소는 지문 없이 적을 수 없기 때문이다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="cmp">
+      <tr><th>#</th><th>정할 것</th><th>안</th></tr>
+      <tr><td>1</td><td>앱이 PC에 닿는 길</td><td><span class="pick">A(권장)</span>: 데몬이 LAN에 폰 전용 HTTPS 문을 열고, 앱이 QR의 인증서 지문으로 PC를 확인한다. 화면 코드는 그대로 쓴다. / B: Orca처럼 앱 안에 암호 터널을 만든다(앱·데몬 양쪽 코드가 몇 배 크다).</td></tr>
+      <tr><td>2</td><td>같은 Wi‑Fi에서 코드만 적어 짝짓기</td><td><span class="pick">A(권장)</span>: 하지 않는다. 같은 Wi‑Fi는 QR로만 짝짓고, 코드 칸은 Tailscale Serve 주소에만 남긴다. / B: 주소와 코드를 적으면 처음 받은 인증서를 믿는다(같은 Wi‑Fi에 낀 기기를 막지 못한다).</td></tr>
+      <tr><td>3</td><td>브라우저·iPhone 길(Tailscale Serve)</td><td><span class="pick">A(권장)</span>: 「선택」 칸으로 남긴다. / B: 지운다. iPhone은 iOS 앱이 나올 때까지 쓰지 못한다(Tailscale 코드 약 300줄을 지운다).</td></tr>
+      <tr><td>4</td><td>Windows 방화벽</td><td><span class="pick">A(권장)</span>: [방화벽 허용] 단추(관리자 확인 창). / B: Windows가 처음 띄우는 허용 창에만 맡긴다(한 번 거절하면 사람이 직접 고친다).</td></tr>
+      <tr><td>5</td><td>밖에서 쓰기</td><td><span class="pick">A(권장)</span>: Tailscale이 있으면 tailnet 주소를 QR에 넣는다(Serve 없이). Relay는 만들지 않는다. / B: 같은 Wi‑Fi만 쓴다.</td></tr>
+      <tr><td>6</td><td>②~④ 화면과 문구</td><td>그대로 / 고칠 곳</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+// 그림용 가짜 QR(무늬만). 실제 QR은 구현이 만든다.
+(() => {
+  const n = 25, cells = [];
+  let s = 7;
+  const rnd = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const finder = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => x >= fx && x < fx + 7 && y >= fy && y < fy + 7);
+  const ring = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => {
+    const dx = x - fx, dy = y - fy;
+    if (dx < 0 || dy < 0 || dx > 6 || dy > 6) return false;
+    return dx === 0 || dy === 0 || dx === 6 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4);
+  });
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (finder(x, y) ? ring(x, y) : rnd() < 0.48) cells.push(`<rect x="${x}" y="${y}" width="1" height="1"/>`);
+  }
+  document.getElementById('qr').innerHTML = `<svg viewBox="0 0 ${n} ${n}" fill="#000" shape-rendering="crispEdges">${cells.join('')}</svg>`;
+})();
+</script>
+</body>
+</html>

@@ -13,7 +13,7 @@ use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::origin::ViaServe;
+use super::origin::ViaRemote;
 use super::{App, Problem, internal, serve_pty};
 use crate::accounts::{AccountId, Site};
 use crate::node_host::{Exit, NodeHost};
@@ -434,7 +434,7 @@ async fn login_pty(
     ws: WebSocketUpgrade,
     Path(id): Path<u32>,
     State(app): State<Arc<App>>,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
 ) -> Response {
     serve_pty(ws, via, app, |app| &app.logins.host, |_, _| {}, LoginId(id))
 }

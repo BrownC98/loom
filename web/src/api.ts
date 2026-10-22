@@ -175,6 +175,8 @@ export const logoutSystem = (provider: Provider, distro: string | null) => call<
 export const getPhone = () => call<PhoneView>('GET', '/api/phone');
 /** 데몬이 `tailscale serve --bg <포트>`를 돌린다. 사람이 단추를 누를 때만 부른다. */
 export const startServe = () => call<Served>('POST', '/api/phone/serve');
+/** Windows 방화벽에 폰 문 포트를 연다(관리자 확인 창). */
+export const allowFirewall = () => call<null>('POST', '/api/phone/firewall');
 /** 새 짝짓기 코드. 앞 코드는 쓸 수 없게 된다. */
 export const createInvite = () => call<InviteView>('POST', '/api/phone/invite');
 export const removeDevice = (id: DeviceId) => call<null>('DELETE', `/api/phone/devices/${id}`);

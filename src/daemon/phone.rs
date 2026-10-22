@@ -1,4 +1,4 @@
-//! 설정 「휴대폰」 탭과 폰의 짝짓기 라우트. 근거: docs/design.md 「원격」, 목업 docs/mockups/phone-pairing.html.
+//! 설정 「휴대폰」 탭과 폰의 짝짓기 라우트. 근거: docs/design.md 「원격」, 목업 docs/mockups/phone-pairing.html·phone-direct.html.
 
 use std::sync::Arc;
 
@@ -10,7 +10,8 @@ use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::origin::{DEVICE_COOKIE, ViaServe};
+use super::lan;
+use super::origin::{DEVICE_COOKIE, ViaRemote};
 use super::{App, Problem, internal};
 use crate::devices::{DeviceId, DeviceView, INVITE_TTL, PairRefused};
 use crate::tailscale::{Served, Tailnet, Tailscale};
@@ -29,6 +30,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/phone", get(phone))
         .route("/api/phone/invite", post(invite))
         .route("/api/phone/serve", post(serve))
+        .route("/api/phone/firewall", post(firewall))
         .route("/api/phone/devices/{id}", delete(remove))
         .route(PAIR_PATH, post(pair))
         .route(JSQR_PATH, get(jsqr))
@@ -45,10 +47,26 @@ async fn jsqr() -> impl IntoResponse {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct PhoneView {
+    /// 폰 문이 QR에 담을 주소. 같은 네트워크(사설 주소)가 먼저, Tailscale이 뒤다.
+    pub addresses: Vec<PhoneAddress>,
+    /// 연 폰 문의 포트. [휴대폰 연결]을 누르기 전이면 없다.
+    pub port: Option<u16>,
+    /// [방화벽 허용]을 보일지. Windows 데몬만 그렇다.
+    pub firewall: bool,
+    /// 브라우저(iPhone)가 쓰는 Tailscale Serve 길의 상태.
     pub tailnet: Tailnet,
     pub devices: Vec<DeviceView>,
     /// 화면이 보인 코드를 아직 쓸 수 있는지. 폰이 쓰거나 시간이 지나면 `false`다.
     pub invite_open: bool,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PhoneAddress {
+    pub ip: String,
+    /// Tailscale 주소(100.64.0.0/10)다. 폰도 Tailscale에 있으면 밖에서도 닿는다.
+    pub tailnet: bool,
 }
 
 #[derive(Serialize, TS)]
@@ -70,7 +88,7 @@ struct PairRequest {
 }
 
 /// PC 화면만 하는 일. Serve로 온 폰(짝지은 기기도)은 403이다.
-fn local_only(via: Option<Extension<ViaServe>>) -> Result<(), StatusCode> {
+fn local_only(via: Option<Extension<ViaRemote>>) -> Result<(), StatusCode> {
     match via {
         Some(_) => Err(StatusCode::FORBIDDEN),
         None => Ok(()),
@@ -83,6 +101,15 @@ async fn phone_view(app: &App) -> Result<PhoneView, Problem> {
         None => Tailnet::Missing,
     };
     Ok(PhoneView {
+        addresses: lan::addresses()
+            .into_iter()
+            .map(|ip| PhoneAddress {
+                ip: ip.to_string(),
+                tailnet: lan::tailnet(ip),
+            })
+            .collect(),
+        port: app.door.current().await.map(|open| open.port),
+        firewall: cfg!(windows),
         tailnet,
         devices: app.devices.list().map_err(internal)?,
         invite_open: app.devices.invite_open(),
@@ -118,7 +145,7 @@ impl IntoResponse for Refused {
 
 async fn phone(
     State(app): State<Arc<App>>,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
 ) -> Result<Json<PhoneView>, Refused> {
     local_only(via)?;
     Ok(Json(phone_view(&app).await?))
@@ -126,7 +153,7 @@ async fn phone(
 
 async fn serve(
     State(app): State<Arc<App>>,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
 ) -> Result<Json<Served>, Refused> {
     local_only(via)?;
     let ts = Tailscale::find().ok_or(StatusCode::CONFLICT)?;
@@ -135,15 +162,26 @@ async fn serve(
 
 async fn invite(
     State(app): State<Arc<App>>,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
 ) -> Result<Json<InviteView>, Refused> {
     local_only(via)?;
-    let ts = Tailscale::find().ok_or(StatusCode::CONFLICT)?;
-    let Tailnet::Ready { host, .. } = ts.status(app.port).await else {
-        return Err(StatusCode::CONFLICT.into());
+    let open = app.door.open().await.map_err(internal)?;
+    let serve = match Tailscale::find() {
+        Some(ts) => match ts.status(app.port).await {
+            Tailnet::Ready {
+                host,
+                serving: true,
+            } => Some(host),
+            _ => None,
+        },
+        None => None,
     };
+    let addresses = lan::addresses();
+    if addresses.is_empty() && serve.is_none() {
+        return Err(StatusCode::CONFLICT.into());
+    }
     let code = app.devices.invite();
-    let url = format!("https://{host}/#pair={code}");
+    let url = invite_url(serve.as_deref(), &addresses, &open, &code);
     Ok(Json(InviteView {
         qr_svg: qr_svg(&url).map_err(internal)?,
         url,
@@ -154,7 +192,7 @@ async fn invite(
 
 async fn remove(
     State(app): State<Arc<App>>,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
     Path(id): Path<i64>,
 ) -> Result<Json<()>, Refused> {
     local_only(via)?;
@@ -164,10 +202,42 @@ async fn remove(
     }
 }
 
-/// Serve로 온 요청만 받는다. 이 기계의 화면은 짝짓지 않는다(쿠키가 `localhost`에 남을 뿐이다).
+/// Windows 방화벽에 폰 문 포트를 연다. 관리자 확인 창이 뜬다.
+async fn firewall(
+    State(app): State<Arc<App>>,
+    via: Option<Extension<ViaRemote>>,
+) -> Result<Json<()>, Refused> {
+    local_only(via)?;
+    let open = app.door.open().await.map_err(internal)?;
+    lan::allow_firewall(open.port).await.map_err(internal)?;
+    Ok(Json(()))
+}
+
+/// QR 주소: `https://<호스트>/#pair=<코드>&fp=<인증서 지문>&a=<IP:포트>,…`.
+/// 호스트는 Serve가 켜져 있으면 tailnet 이름(브라우저가 연다), 아니면 첫 주소다. 앱은 `fp`·`a`로 폰 문에 붙는다.
+/// `#` 뒤는 브라우저가 서버에 보내지 않는다.
+fn invite_url(
+    serve: Option<&str>,
+    addresses: &[std::net::Ipv4Addr],
+    open: &lan::Opened,
+    code: &str,
+) -> String {
+    let doors: Vec<String> = addresses
+        .iter()
+        .map(|ip| format!("{ip}:{}", open.port))
+        .collect();
+    let host = serve.map_or_else(|| doors[0].clone(), str::to_owned);
+    let mut url = format!("https://{host}/#pair={code}");
+    if !doors.is_empty() {
+        url.push_str(&format!("&fp={}&a={}", open.fingerprint, doors.join(",")));
+    }
+    url
+}
+
+/// 원격(Serve, 폰 문)으로 온 요청만 받는다. 이 기계의 화면은 짝짓지 않는다(쿠키가 `localhost`에 남을 뿐이다).
 async fn pair(
     State(app): State<Arc<App>>,
-    via: Option<Extension<ViaServe>>,
+    via: Option<Extension<ViaRemote>>,
     headers: HeaderMap,
     Json(request): Json<PairRequest>,
 ) -> Response {
@@ -188,7 +258,7 @@ async fn pair(
     }
 }
 
-/// `Secure`: Serve가 HTTPS를 끝낸다. `HttpOnly`: 화면 스크립트가 읽지 못한다. `SameSite=Strict`: 다른 사이트의 요청에 붙지 않는다.
+/// `Secure`: Serve와 폰 문이 HTTPS다. `HttpOnly`: 화면 스크립트가 읽지 못한다. `SameSite=Strict`: 다른 사이트의 요청에 붙지 않는다.
 fn device_cookie(token: &str) -> String {
     format!(
         "{DEVICE_COOKIE}={token}; Path=/; Max-Age={COOKIE_MAX_AGE_SECS}; Secure; HttpOnly; SameSite=Strict"
@@ -283,7 +353,7 @@ input.addEventListener('input',()=>{input.value=input.value.toUpperCase().replac
 for(const e of ['focus','blur','click','keyup'])input.addEventListener(e,()=>{if(e!=='blur')input.setSelectionRange(8,8);draw();});
 $('form').addEventListener('submit',e=>{e.preventDefault();pair(input.value);});
 $('start').addEventListener('click',()=>location.replace('/'));
-function codeFrom(text){try{const u=new URL(text);const m=u.hash.match(/^#pair=([A-Za-z0-9-]+)$/);return u.protocol===location.protocol&&u.host===location.host&&m?m[1]:null;}catch{return null;}}
+function codeFrom(text){try{const u=new URL(text);const m=u.hash.match(/^#pair=([A-Za-z0-9-]+)(&|$)/);return u.protocol===location.protocol&&u.host===location.host&&m?m[1]:null;}catch{return null;}}
 let stream=null;
 function stop(){if(stream)for(const tr of stream.getTracks())tr.stop();stream=null;$('video').srcObject=null;}
 async function reader(video){if('BarcodeDetector' in window&&(await BarcodeDetector.getSupportedFormats()).includes('qr_code')){const d=new BarcodeDetector({formats:['qr_code']});return async()=>(await d.detect(video))[0]?.rawValue;}
@@ -330,14 +400,38 @@ mod tests {
     }
 
     #[test]
+    fn invite_url_carries_doors_and_pin() {
+        let open = lan::Opened {
+            port: 7430,
+            fingerprint: "FP".to_owned(),
+        };
+        let lan = [
+            std::net::Ipv4Addr::new(192, 168, 0, 12),
+            std::net::Ipv4Addr::new(100, 101, 12, 7),
+        ];
+        assert_eq!(
+            invite_url(None, &lan, &open, "ABCDEFGH"),
+            "https://192.168.0.12:7430/#pair=ABCDEFGH&fp=FP&a=192.168.0.12:7430,100.101.12.7:7430"
+        );
+        assert_eq!(
+            invite_url(Some("pc.tail1.ts.net"), &lan[..1], &open, "ABCDEFGH"),
+            "https://pc.tail1.ts.net/#pair=ABCDEFGH&fp=FP&a=192.168.0.12:7430"
+        );
+        assert_eq!(
+            invite_url(Some("pc.tail1.ts.net"), &[], &open, "ABCDEFGH"),
+            "https://pc.tail1.ts.net/#pair=ABCDEFGH"
+        );
+    }
+
+    #[test]
     fn local_only_refuses_serve_requests() {
         assert!(local_only(None).is_ok());
         assert_eq!(
-            local_only(Some(Extension(ViaServe { device: None }))),
+            local_only(Some(Extension(ViaRemote { device: None }))),
             Err(StatusCode::FORBIDDEN)
         );
         assert_eq!(
-            local_only(Some(Extension(ViaServe {
+            local_only(Some(Extension(ViaRemote {
                 device: Some(DeviceId(1))
             }))),
             Err(StatusCode::FORBIDDEN)

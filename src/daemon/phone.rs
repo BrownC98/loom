@@ -13,7 +13,7 @@ use ts_rs::TS;
 use super::origin::{DEVICE_COOKIE, ViaServe};
 use super::{App, Problem, internal};
 use crate::devices::{DeviceId, DeviceView, INVITE_TTL, PairRefused};
-use crate::tailscale::{Tailnet, Tailscale};
+use crate::tailscale::{Served, Tailnet, Tailscale};
 
 /// 폰이 코드를 보내는 곳. 문(`origin::human_site`)이 쿠키 없이 받는 단 하나의 API다.
 pub const PAIR_PATH: &str = "/api/pair";
@@ -115,11 +115,10 @@ async fn phone(
 async fn serve(
     State(app): State<Arc<App>>,
     via: Option<Extension<ViaServe>>,
-) -> Result<Json<PhoneView>, Refused> {
+) -> Result<Json<Served>, Refused> {
     local_only(via)?;
     let ts = Tailscale::find().ok_or(StatusCode::CONFLICT)?;
-    ts.serve(app.port).await.map_err(internal)?;
-    Ok(Json(phone_view(&app).await?))
+    Ok(Json(ts.serve(app.port).await.map_err(internal)?))
 }
 
 async fn invite(

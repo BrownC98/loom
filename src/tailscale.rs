@@ -1,8 +1,11 @@
 //! 기반: `tailscale` CLI를 부른다. 폰은 Tailscale Serve로 데몬에 닿는다(docs/design.md 「원격」).
 
 use std::path::PathBuf;
+use std::process::Stdio;
+use std::time::Duration;
 
 use serde::Serialize;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use ts_rs::TS;
 
@@ -11,6 +14,26 @@ const INSTALLED: &[&str] = &[
     r"C:\Program Files\Tailscale\tailscale.exe",
     "/mnt/c/Program Files/Tailscale/tailscale.exe",
 ];
+
+/// `serve --bg`는 보통 1초 안에 끝난다. 이보다 오래 걸리면 끝내고 실패로 알린다. 요청이 끝없이 걸리지 않게 한다.
+#[cfg(not(test))]
+const SERVE_TIMEOUT: Duration = Duration::from_secs(20);
+#[cfg(test)]
+const SERVE_TIMEOUT: Duration = Duration::from_secs(2);
+/// tailnet에서 Serve를 허용하지 않았으면 CLI가 이 주소의 링크를 찍고 허용될 때까지 기다린다(2026-10-22 실측: Tailscale 1.102.3, `https://login.tailscale.com/f/serve?node=<id>`).
+const CONSENT_PREFIX: &str = "https://login.tailscale.com/";
+
+/// [Serve 켜기]의 결과.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Served {
+    On,
+    /// tailnet 관리자가 Serve를 허용해야 한다. `url`은 CLI가 찍은 허용 페이지다. 허용한 뒤 다시 누른다.
+    NeedsConsent {
+        url: String,
+    },
+}
 
 /// 이 컴퓨터의 Tailscale 상태.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, TS)]
@@ -67,10 +90,52 @@ impl Tailscale {
     }
 
     /// 사람이 [Serve 켜기]를 눌렀을 때만 부른다. Serve는 tailnet 안의 기기만 받는다(Funnel이 아니다).
-    pub async fn serve(&self, port: u16) -> Result<(), String> {
-        self.run(&["serve", "--bg", &port.to_string()])
+    /// CLI가 허용 링크를 찍으면 기다리지 않고 그 CLI를 끝낸 뒤 링크를 돌려준다. 다시 눌러도 기다리는 CLI가 쌓이지 않는다.
+    pub async fn serve(&self, port: u16) -> Result<Served, String> {
+        let mut child = Command::new(&self.program)
+            .args(["serve", "--bg", &port.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("tailscale을 실행하지 못했다: {e}"))?;
+        let mut lines = BufReader::new(child.stdout.take().expect("piped")).lines();
+        let watch = async {
+            let mut said = String::new();
+            while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+                if let Some(url) = line
+                    .split_whitespace()
+                    .find(|w| w.starts_with(CONSENT_PREFIX))
+                {
+                    return Ok(Served::NeedsConsent {
+                        url: url.to_owned(),
+                    });
+                }
+                said.push_str(&line);
+                said.push('\n');
+            }
+            let out = child.wait_with_output().await.map_err(|e| e.to_string())?;
+            if out.status.success() {
+                return Ok(Served::On);
+            }
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(if stderr.trim().is_empty() {
+                said
+            } else {
+                stderr.into_owned()
+            }
+            .trim()
+            .to_owned())
+        };
+        tokio::time::timeout(SERVE_TIMEOUT, watch)
             .await
-            .map(drop)
+            .unwrap_or_else(|_| {
+                Err(format!(
+                    "tailscale serve가 {}초 안에 끝나지 않았다",
+                    SERVE_TIMEOUT.as_secs()
+                ))
+            })
     }
 
     async fn json(&self, args: &[&str]) -> Result<serde_json::Value, String> {
@@ -173,8 +238,63 @@ mod tests {
     #[tokio::test]
     async fn serve_runs_background_proxy_to_port() {
         let dir = tempfile::tempdir().unwrap();
-        fake(dir.path(), RUNNING, "{}").serve(7421).await.unwrap();
+        let served = fake(dir.path(), RUNNING, "{}").serve(7421).await;
+        assert_eq!(served, Ok(Served::On));
         let calls = std::fs::read_to_string(dir.path().join("calls")).unwrap();
         assert_eq!(calls.trim(), "serve --bg 7421");
+    }
+
+    /// `serve --bg` 자리에 `body`를 도는 가짜 CLI.
+    fn fake_serve(dir: &Path, body: &str) -> Tailscale {
+        let program = dir.join("tailscale");
+        std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Tailscale::at(&program)
+    }
+
+    /// 2026-10-22 사람의 PC에서 Tailscale 1.102.3이 찍은 글 그대로다. 찍은 뒤 끝나지 않는다.
+    #[tokio::test]
+    async fn serve_returns_consent_link_and_ends_the_waiting_cli() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid = dir.path().join("pid");
+        let ts = fake_serve(
+            dir.path(),
+            &format!(
+                "echo $$ > '{}'\nprintf 'Serve is not enabled on your tailnet.\\nTo enable, visit:\\n\\n         https://login.tailscale.com/f/serve?node=n1\\n'\nexec sleep 600",
+                pid.display()
+            ),
+        );
+        assert_eq!(
+            ts.serve(7420).await,
+            Ok(Served::NeedsConsent {
+                url: "https://login.tailscale.com/f/serve?node=n1".into()
+            })
+        );
+        let pid = std::fs::read_to_string(&pid).unwrap();
+        let stat = format!("/proc/{}/stat", pid.trim());
+        for _ in 0..50 {
+            match std::fs::read_to_string(&stat) {
+                Err(_) => return,
+                Ok(s) if s.split_whitespace().nth(2) == Some("Z") => return,
+                Ok(_) => tokio::time::sleep(Duration::from_millis(20)).await,
+            }
+        }
+        panic!("the waiting tailscale serve still runs");
+    }
+
+    #[tokio::test]
+    async fn serve_reports_failure_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let ts = fake_serve(dir.path(), "echo 'not logged in' >&2\nexit 1");
+        assert_eq!(ts.serve(7420).await, Err("not logged in".into()));
+        let ts = fake_serve(dir.path(), "echo 'said on stdout'\nexit 1");
+        assert_eq!(ts.serve(7420).await, Err("said on stdout".into()));
+    }
+
+    #[tokio::test]
+    async fn serve_gives_up_when_the_cli_never_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let ts = fake_serve(dir.path(), "exec sleep 600");
+        assert!(ts.serve(7420).await.unwrap_err().contains("끝나지 않았다"));
     }
 }

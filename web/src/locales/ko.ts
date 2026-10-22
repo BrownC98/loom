@@ -32,6 +32,8 @@ const ko: typeof en = {
     addRepo: '저장소 추가',
     removeRepo: '목록에서 빼기',
     parent: '부모: {{node}} · {{group}}',
+    rowMenu: '{{name}} 메뉴',
+    asking: '질문 {{n}}',
   },
   graph: {
     group: '묶음 {{branch}}',

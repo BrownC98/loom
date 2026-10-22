@@ -1,9 +1,9 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
 
 /** 이만큼 누르고 있으면 글자 고르기다. 안드로이드 기본 길게 누르기(500ms)보다 조금 짧다. */
-const LONG_PRESS_MS = 450;
+export const LONG_PRESS_MS = 450;
 /** 손가락이 이보다 덜 움직였으면 아직 누른 자리다(스크롤·고르기로 가르는 문턱). */
-const SLOP_PX = 10;
+export const SLOP_PX = 10;
 
 /** 휠 눈금 하나의 `wheelDeltaY`. */
 const WHEEL_NOTCH = 120;

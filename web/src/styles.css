@@ -941,3 +941,8 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-note { margin: 0; font-size: 12px; color: var(--err); }
 .xterm-box > .copy-picked { position: absolute; z-index: 5; transform: translateX(-50%); height: 36px; padding: 0 16px; border: 0; border-radius: 18px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px oklch(0% 0 0 / 0.4); }
 .phone-keys button.paste { flex: 1.7; }
+/* 폰 터미널 고르기 손잡이(`touchTerminal.ts`). 폰 관례의 물방울 모양이다. 뾰족한 모서리가 고른 글의 끝을 가리킨다. 둘레 10px도 잡힌다. */
+.touch-handle { display: none; position: absolute; z-index: 5; width: 22px; height: 22px; background: var(--accent); border-radius: 50%; box-shadow: 0 1px 4px oklch(0% 0 0 / 0.4); }
+.touch-handle::before { content: ''; position: absolute; inset: -10px; }
+.touch-handle.from { transform: translateX(-100%); border-top-right-radius: 0; }
+.touch-handle.to { border-top-left-radius: 0; }

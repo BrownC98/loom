@@ -13,8 +13,8 @@ use crate::graph::NodeId;
 
 /// 다시 일하게 할 때 에이전트에 넘기는 글. 할 일이 없으면 왜 없는지 사람의 말로 한두 낱말만 답하게 해 토큰을 아낀다
 /// (2026-10-22 사람 지시 "질문아닐때의 훅 응답은 매우 짧은 텍스트로 끝내기", "훅 짧은 응답에 대해 . 대신 이 응답을 왜 하는지 짧은 한두단어로 표기하라 (사용자 언어)").
-/// 답 앞에 이 검사의 이름을 붙여 어떤 훅에 왜 답하는지 보이게 한다(같은 날 "대체 문구는 어떤 훅에 대해 어떤 상황이라 이 문구가 나오는지 설명되도록 명시해줘").
-const NUDGE: &str = "You ended the turn with text but without loom ask or loom done. If the text asks the human anything (a question, a choice, an approval), call loom ask \"<one line>\", then end your turn. If you finished a result the human can use, call loom done \"<what you did>\" --asked \"<the human's instruction>\". Otherwise reply with only one line in the language the human uses with you: the name of this check (the loom turn-end check), a colon, and one or two words that say why no ask or done is needed (for example a status report or a wait). Example in Korean: \"loom 턴 끝 확인: 진행 보고\". Then end your turn.";
+/// 검사 이름은 붙이지 않고 지금 하는 일이나 상황을 짧게 적는다(같은 날 "턴 끝 명시하지 말고, 그냥 현재 너의 작업 또는 상황을 브리핑하는 짧은 단어로 명해").
+const NUDGE: &str = "You ended the turn with text but without loom ask or loom done. If the text asks the human anything (a question, a choice, an approval), call loom ask \"<one line>\", then end your turn. If you finished a result the human can use, call loom done \"<what you did>\" --asked \"<the human's instruction>\". Otherwise reply with only a few words in the language the human uses with you that brief your current work or state. Do not name this check. Example in Korean: \"코디 결과 대기\". Then end your turn.";
 
 #[derive(Default)]
 pub struct TurnEnds {

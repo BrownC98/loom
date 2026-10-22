@@ -176,7 +176,31 @@ type TerminalProps = {
   onSender?: (send: ((data: string) => void) | null) => void;
   /** 붙여넣을 글을 받는 함수. xterm이 붙여넣기 모드(bracketed paste)를 알아서 감싼다. 닫으면 `null`이다. */
   onPaster?: (paste: ((text: string) => void) | null) => void;
+  /** 출력을 그리는 빠르기. 없으면 `live`다. */
+  draw?: Draw;
 };
+
+/**
+ * `live`: 출력이 올 때마다 그린다(xterm이 한 프레임에 한 번 그린다). `slow`: 출력을 모아 `SLOW_DRAW_MS`마다 한 번에 그린다. 모은 출력은 버리지 않는다.
+ * 터미널마다 매 프레임 줄을 다시 그리는 것이 그래프의 가장 큰 비용이었다(실측: 출력하는 카드 10개, CPU 4배 감속에서 메인 스레드 포화).
+ */
+export type Draw = 'live' | 'slow';
+/** 초당 4번. 2026-10-22 사람 결정 Q431 A "약 4fps". */
+const SLOW_DRAW_MS = 250;
+/** `slow` 터미널마다 모은 출력을 그리는 함수. 한 타이머가 모두 부른다. 터미널마다 타이머를 두면 그리는 프레임이 흩어져 프레임마다 레이아웃이 났다. */
+const slowFlushes = new Set<() => void>();
+let slowTimer: ReturnType<typeof setInterval> | undefined;
+function holdSlow(flush: () => void): () => void {
+  slowFlushes.add(flush);
+  slowTimer ??= setInterval(() => slowFlushes.forEach((f) => f()), SLOW_DRAW_MS);
+  return () => {
+    slowFlushes.delete(flush);
+    if (slowFlushes.size === 0) {
+      clearInterval(slowTimer);
+      slowTimer = undefined;
+    }
+  };
+}
 
 /**
  * xterm을 칸 가운데에 두는 transform. 아직 그리지 않았으면 `null`이다. 다른 화면이 정한 PTY 크기가 칸보다 크면 줄인다. 늘이지는 않는다: 글자 그림이 늘어나 흐려진다(2026-10-22 사람 지시 "심플모드일때 터미널이 낮은 해상도로 출력됨", "배율확대 하지말고 폰트크기 원대로 유지해").
@@ -232,6 +256,7 @@ export function SizingTerminal(props: TerminalProps) {
   const latestFont = useRef(font);
   latestFont.current = font;
   const redecide = useRef<() => void>(() => {});
+  const reflush = useRef<() => void>(() => {});
   // 끄는 파일 수. 끄지 않으면 없다.
   const [dragging, setDragging] = useState<number | null>(null);
   // 손가락으로 고른 글이 있으면 그 자리. 복사 버튼이 뜬다.
@@ -287,17 +312,31 @@ export function SizingTerminal(props: TerminalProps) {
         decide();
         rescale();
       };
+      // `slow`일 때 모은 출력과 크기 알림. 온 차례대로 xterm에 넘긴다. 크기 알림이 그 뒤 출력의 모양을 정하기 때문이다.
+      const held: (() => void)[] = [];
+      const flush = () => {
+        for (const step of held.splice(0)) step();
+      };
+      const feed = (step: () => void) => {
+        if ((latest.current.draw ?? 'live') === 'live') {
+          flush();
+          step();
+        } else held.push(step);
+      };
+      const unhold = holdSlow(flush);
+      reflush.current = flush;
       const link = attachPty(props.src, {
         onAttach: () => {
-          // 다시 붙으면 backlog를 처음부터 받으므로 화면을 비운다.
+          // 다시 붙으면 backlog를 처음부터 받으므로 화면을 비운다. 모은 출력도 지난 연결의 것이다.
+          held.length = 0;
           xterm.reset();
           decide();
         },
-        onOutput: (bytes) => xterm.write(bytes),
+        onOutput: (bytes) => feed(() => xterm.write(bytes)),
         onNotice: (notice) => {
-          if (notice === 'gone') xterm.write(`${i18next.t('terminal.gone')}\r\n`);
+          if (notice === 'gone') feed(() => xterm.write(`${i18next.t('terminal.gone')}\r\n`));
           // backlog보다 먼저 온다. 그 크기로 backlog를 그린다.
-          else xterm.resize(notice.size.cols, notice.size.rows);
+          else feed(() => xterm.resize(notice.size.cols, notice.size.rows));
         },
       });
       // xterm은 Ctrl+C·Ctrl+V를 늘 `^C`·`^V`로 보내고 브라우저 복사·붙여넣기를 막는다. 복사·붙여넣기는 명령 키(macOS ⌘, 다른 OS Ctrl)로 한다.
@@ -367,6 +406,8 @@ export function SizingTerminal(props: TerminalProps) {
       observer.observe(el);
       if (latest.current.focused) focusSoon(xterm);
       return () => {
+        unhold();
+        reflush.current = () => {};
         observer.disconnect();
         window.removeEventListener('focus', claim);
         document.removeEventListener('visibilitychange', claimIfShown);
@@ -389,6 +430,10 @@ export function SizingTerminal(props: TerminalProps) {
   useEffect(() => {
     if (term.current) term.current.options.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    if ((props.draw ?? 'live') === 'live') reflush.current();
+  }, [props.draw]);
 
   useEffect(() => {
     let disposed = false;

@@ -1,5 +1,5 @@
 import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, Workflow } from 'lucide-react';
-import { Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putArranged, putSizes, putSpots, removeNode } from './api';
@@ -26,7 +26,7 @@ import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
-import { realignTerminals, SizingTerminal, type Direction } from './Terminal';
+import { realignTerminals, SizingTerminal, XtermFont, type Direction, type Draw } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
@@ -303,8 +303,34 @@ const RESIZE_EDGES = [
   { position: 'bottom-right', variant: ResizeControlVariant.Handle },
 ] as const;
 
-function Card({ data }: NodeProps<CardNode>) {
+/** 이보다 작게 보이는 터미널 글자(화면 px)는 읽을 수 없다. 기본 글꼴 12px이면 배율 50%다(2026-10-22 사람 결정 Q431 A "50% 아래 또는 글자 약 6px 이하"). 글꼴 설정을 따르도록 글자 크기로 정했다. */
+const READABLE_TEXT_PX = 6;
+
+/**
+ * 카드 터미널을 그리는 빠르기. `null`이면 터미널을 열지 않는다.
+ * 화면과 그 둘레 한 화면(가로·세로 각각 화면 크기만큼) 안의 카드만 터미널을 연다(docs/design.md 「규모」). 화면 밖으로 나가자마자 닫으면 이동·확대·창 크기 변경마다
+ * 터미널을 다시 열고 남은 출력(256KB)을 다시 받았다(실측: 카드 10개 0.5~0.8초, 2026-10-22 총괄 승인 Q2 A). 열린 카드 가운데 화면 밖이거나 글자가 읽을 수 없게 작으면 `slow`다.
+ * 고른 카드는 늘 `live`다(`Card`). 쓰는 글이 늦게 보이면 안 되기 때문이다.
+ * 값이 바뀔 때만 카드를 다시 그린다.
+ */
+function useDraw(id: string, fontSize: number): Draw | null {
+  return useStore((s) => {
+    const node = s.nodeLookup.get(id);
+    if (!node) return null;
+    const [x, y, zoom] = s.transform;
+    const left = node.internals.positionAbsolute.x * zoom + x;
+    const top = node.internals.positionAbsolute.y * zoom + y;
+    const right = left + (node.measured.width ?? 0) * zoom;
+    const bottom = top + (node.measured.height ?? 0) * zoom;
+    if (right <= -s.width || left >= 2 * s.width || bottom <= -s.height || top >= 2 * s.height) return null;
+    const shown = right > 0 && left < s.width && bottom > 0 && top < s.height;
+    return shown && fontSize * zoom > READABLE_TEXT_PX ? 'live' : 'slow';
+  });
+}
+
+function Card({ id, data }: NodeProps<CardNode>) {
   const { t } = useTranslation();
+  const draw = useDraw(id, useContext(XtermFont).size);
   // 끄는 동안 터미널 칸을 시작 크기에 묶는다. 그러면 터미널 열·줄(PTY 크기)은 놓을 때 한 번 바뀐다.
   const termBox = useRef<HTMLDivElement>(null);
   const [hold, setHold] = useState<Size | null>(null);
@@ -332,7 +358,7 @@ function Card({ data }: NodeProps<CardNode>) {
         }
       >
         <div ref={termBox} className="term-hold" style={hold ?? undefined}>
-          {data.ownsPty && <SizingTerminal src={nodePty(data.view.id)} node={data.view.id} focused={data.selected} focusAsk={data.focusAsk} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+          {data.ownsPty && draw !== null && <SizingTerminal src={nodePty(data.view.id)} node={data.view.id} draw={data.selected ? 'live' : draw} focused={data.selected} focusAsk={data.focusAsk} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
         </div>
       </NodeCard>
       {/* 카드 다음에 그려 카드 머리·터미널 위에 놓는다. 그래서 테두리 안쪽 3px도 잡힌다. 잇기 점(`Ports`)은 그 위다. */}
@@ -1213,7 +1239,6 @@ export function Graph(props: {
         onNodeDragStop={() => realignTerminals()}
         onConnectStart={() => setRefusal('')}
         onConnectEnd={onConnectEnd}
-        onlyRenderVisibleElements
         zIndexMode="manual"
         elementsSelectable={false}
         nodesFocusable={false}

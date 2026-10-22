@@ -239,8 +239,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__node.hl .group { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
 /* 찾기의 현재 일치(목업 docs/mockups/search.html ②③). */
 .react-flow__node.cur .card, .react-flow__node.cur .group { outline: 3px solid var(--warn); outline-offset: 5px; }
-/* 끄는 카드·묶음은 반투명하다. 비운 자리가 비쳐 보인다. 순서가 바뀌면 형제가 새 자리로 미끄러진다. 끄는 상자와 함께 움직이는 상자(`carried`)는 손을 바로 따른다. */
-.react-flow__node.dragging { opacity: 0.6; }
+/* 끄는 동안 흐리게 하지 않는다(2026-10-22 사람 지시 "끄는동안 색깔 흐려지는거 하지마"). 순서가 바뀌면 형제가 새 자리로 미끄러진다. 끄는 상자와 함께 움직이는 상자(`carried`)는 손을 바로 따른다. */
 /* 끌 수 있는 머리를 누르면 그 상자 테두리가 바로 강조된다(카메라 이동과 구분). 단추(.nodrag)를 누를 때는 끌지 않으므로 강조하지 않는다. outline이라 크기가 변하지 않는다. */
 .react-flow__node.dragging :is(.card, .group, .repo-box),
 .react-flow__node:has(:is(.card-head, .group-head, .repo-head):active) :is(.card, .group, .repo-box) { outline: calc(2px * var(--unzoom, 1)) solid var(--accent); outline-offset: calc(-1px * var(--unzoom, 1)); }
@@ -908,7 +907,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 /* 노드 탭: 사이드바 찾기 칸과 트리. 줄은 손가락 높이다. */
 .phone-body .side-find { flex: none; width: 100%; height: 44px; border-radius: 10px; background: var(--surface); }
 .phone-body .side-find input { font-size: 16px; }
-.phone-body .tree { padding: 0; font-size: 14px; overflow: visible; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.phone-body .tree { min-height: max-content; padding: 0; font-size: 14px; overflow: visible; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
 .phone .tree-row { height: 48px; --step: 18px; }
 .phone .row-acts { top: 6px; height: 36px; }
 .phone .row-acts .act { width: 36px; height: 36px; }

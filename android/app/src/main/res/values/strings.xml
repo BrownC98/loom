@@ -2,12 +2,10 @@
     <string name="start_title">Connect to loom on your PC</string>
     <string name="start_body">Scan the QR code from loom on your PC: Settings › Phone › [Connect phone]. The phone must be on the same Wi‑Fi as the PC, or on Tailscale when outside.</string>
     <string name="scan">Scan QR</string>
-    <string name="or">With Tailscale Serve, you can type the address and the code</string>
-    <string name="address_hint">e.g. my-pc.example.ts.net</string>
-    <string name="open">Open</string>
+    <string name="or">Or type the code shown on the PC. The phone and the PC must be on the same Wi‑Fi.</string>
+    <string name="open">Connect</string>
     <string name="qr_error">This is not a loom QR code. Scan the QR code in Settings › Phone of loom on your PC.</string>
-    <string name="scan_error">Could not scan the QR code. Type the PC address.</string>
-    <string name="address_error">The address must end with .ts.net.</string>
+    <string name="scan_error">Could not scan the QR code. Type the code shown on the PC.</string>
     <string name="failed_title">Connection failed.</string>
     <string name="failed_body">Make sure Tailscale is on for this phone, and that the PC and loom are on.</string>
     <string name="retry">Try again</string>
@@ -27,5 +25,9 @@
     <string name="update_failed">Download failed.</string>
     <string name="close">Close</string>
     <string name="code_hint">8-character code</string>
-    <string name="code_error">Type all 8 characters of the code. For a PC that is already connected, leave the code empty.</string>
+    <string name="code_error">Type all 8 characters of the code.</string>
+    <string name="finding_title">Finding the PC</string>
+    <string name="finding_body">Looking on this Wi‑Fi for the PC that shows this code.</string>
+    <string name="not_found">Could not find the PC on this Wi‑Fi. Make sure the code is still shown on the PC. If the PC runs Windows, click Settings › Phone › [Allow in firewall].</string>
+    <string name="code_wrong">The code is wrong or expired. Make a new code on the PC.</string>
 </resources>

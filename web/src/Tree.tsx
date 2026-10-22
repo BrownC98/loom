@@ -29,7 +29,7 @@ import { groupParents, groupsOf, inGroup, type Group } from './repos';
 /** 줄 끝 단추 하나(docs/mockups/sidebar-crud.html 2번). `run`은 누른 줄의 단추를 받는다. 팝오버를 그 줄 옆에 띄운다. `pressed`가 있으면 켜고 끄는 단추다(북마크). */
 type Action = { label: string; icon: ReactNode; run: (row: HTMLElement) => void; disabled?: boolean; pressed?: boolean };
 /** `rename`은 줄의 이름 바꾸기 동작이다. F2 키도 부른다. `remove`는 줄의 지우기 동작이다. 단추 끝에 오고 Delete 키도 부른다. `show`는 줄을 누르면 그래프를 옮긴다(저장소 줄, 워크트리 줄). */
-type Item = { key: string; row: ReactNode; node: NodeId | null; repo?: RepoId; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
+type Item = { key: string; row: ReactNode; node: NodeId | null; /** 이 줄이 그래프에서 가리키는 상자(`flowId`). */ box?: string; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
 
 /** 줄 단추로 연 팝오버. 그릴 때 저장소와 묶음을 다시 찾는다. 그 사이에 사라졌으면 그리지 않는다. */
 type Target = { repo: RepoId } & ({ kind: 'newWorktree' } | { kind: 'newNode'; path: string } | { kind: 'deleteWorktree'; path: string });
@@ -134,6 +134,9 @@ export function Tree(props: {
   selected: NodeId | null;
   onSelect: (id: NodeId) => void;
   /** 묶음·저장소 줄을 누르면 그래프의 그 상자를 고른다(`flowId`). */
+  chosenBox: string | null;
+  /** 묶음·저장소 줄을 누르면 하는 일. 폰은 그래프가 없어 접고 편다. */
+  rowTap: 'graph' | 'fold';
   onChooseBox: (key: string) => void;
   settings: SettingsView;
   accounts: AccountView[] | null;
@@ -216,6 +219,7 @@ export function Tree(props: {
       return {
         key: groupKey,
         node: null,
+        box: group.path,
         actions: [{ label: t('graph.newNode'), icon: <Plus />, run: (row) => openPop(row, { kind: 'newNode', repo: repo.id, path: group.path }) }],
         rename: branch === null ? undefined : { label: t('rename.action'), icon: <Pencil />, run: () => setRenaming(groupKey) },
         // 원래 체크아웃은 지우지 않는다.
@@ -250,7 +254,7 @@ export function Tree(props: {
   const all: Item[] = props.repos.map((repo) => ({
     key: repoKey(repo.id),
     node: null,
-    repo: repo.id,
+    box: `repo:${repo.id}`,
     actions: [
       {
         label: repo.hasCommits ? t('repo.newWorktree') : `${t('repo.newWorktree')}: ${t('repo.noCommit')}`,
@@ -320,11 +324,11 @@ export function Tree(props: {
               data-found={props.find === null ? undefined : hit < 0 ? 'context' : hit === props.find.at ? 'current' : 'hit'}
               tabIndex={item.key === tabStop ? 0 : -1}
               onFocus={() => setActive(item.key)}
-              aria-current={(item.node !== null && item.node === props.selected) || (item.repo !== undefined && item.repo === props.current) ? 'true' : undefined}
+              aria-current={(item.node !== null && item.node === props.selected) || (item.box !== undefined && item.box === props.chosenBox) ? 'true' : undefined}
               onClick={(e) => {
                 if (hit >= 0) props.find?.onAt(hit);
                 // 저장소 줄과 워크트리 줄은 그래프를 그 자리로 옮긴다. 화살표를 누르면 접고 편다.
-                if (item.show && !(e.target as Element).closest('.chev')) return item.show();
+                if (item.show && props.rowTap === 'graph' && !(e.target as Element).closest('.chev')) return item.show();
                 if (item.node === null) return toggle(item.key, !open);
                 show([item.node]);
                 props.onSelect(item.node);

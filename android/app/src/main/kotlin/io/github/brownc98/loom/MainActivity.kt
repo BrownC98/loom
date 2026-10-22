@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity() {
         })
         when {
             doors.isNotEmpty() -> reach(doors)
-            else -> origin?.let(::open) ?: showStart(null, "")
+            else -> origin?.let(::open) ?: showStart(null)
         }
     }
 
@@ -199,41 +199,48 @@ class MainActivity : ComponentActivity() {
         web.loadUrl(url)
     }
 
-    /** ① 처음 실행: QR을 찍거나 PC 주소와 코드를 적는다. */
-    private fun showStart(error: Int?, typed: String, typedCode: String = "") {
-        val address = EditText(this).apply {
-            hint = getString(R.string.address_hint)
-            setText(typed)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            imeOptions = EditorInfo.IME_ACTION_NEXT
-            typeface = android.graphics.Typeface.MONOSPACE
-            background = box(R.color.surface, R.color.line_strong)
-            setPadding(dp(12), 0, dp(12), 0)
-            minHeight = dp(48)
-        }
+    /** ① 처음 실행: QR을 찍거나 PC에 나온 코드를 적는다. 코드로는 같은 Wi-Fi에서 PC를 찾는다(`find`). */
+    private fun showStart(error: Int?, typedCode: String = "") {
         lateinit var code: EditText
         val submit = {
-            val text = address.text.toString().trim()
             val pair = code.text.toString()
-            val host = text.removePrefix("https://").substringBefore('/')
-            when (pair.length) {
-                0 -> pick(host, R.string.address_error, typed = text)
-                CODE_LENGTH -> pick(host, R.string.address_error, url = "https://$host/#pair=$pair", typed = text, code = pair)
-                else -> showStart(R.string.code_error, text, pair)
-            }
+            if (pair.length == CODE_LENGTH) find(pair) else showStart(R.string.code_error, pair)
         }
-        code = codeBoxes(typedCode) { if (address.text.isNotBlank()) submit() }
-        address.setOnEditorActionListener { _, _, _ -> code.requestFocus(); true }
+        code = codeBoxes(typedCode) { submit() }
         show(
             title = R.string.start_title,
             body = getString(R.string.start_body),
             error = error,
             button(R.string.scan, primary = true) { scan() },
             text(getString(R.string.or), R.color.ink_3, 12f).apply { gravity = Gravity.CENTER },
-            address,
             code.parent as View,
             button(R.string.open, primary = false) { submit() },
         )
+    }
+
+    /**
+     * 같은 Wi-Fi에서 코드로 PC를 찾는다(`Find`). PC의 답은 코드로 확인한 폰 문 지문과 주소다. 그 뒤는 QR로 찍은 것과 같다.
+     * 사람 결정 Q426 B: 주소 칸 없이 코드만 적는다.
+     */
+    private fun find(code: String) {
+        show(R.string.finding_title, getString(R.string.finding_body), null, ProgressBar(this).apply { isIndeterminate = true })
+        thread {
+            val found = runCatching { Find.run(code) }.getOrDefault(Find.Missing)
+            runOnUiThread {
+                when (found) {
+                    is Find.Found -> pinDoor(found.fp, found.doors, code)
+                    Find.Wrong -> showStart(R.string.code_wrong, code)
+                    Find.Missing -> showStart(R.string.not_found, code)
+                }
+            }
+        }
+    }
+
+    /** 확인한 폰 문 지문과 주소를 저장하고 닿는 주소에서 `#pair=<코드>`를 연다. */
+    private fun pinDoor(fp: String, found: List<String>, code: String) {
+        pin = fp
+        doors = found
+        reach(found, "#pair=$code")
     }
 
     /**
@@ -305,7 +312,7 @@ class MainActivity : ComponentActivity() {
             addView(View(this@MainActivity), dp(8), 1)
             addView(button(if (pin != null) R.string.rescan else R.string.change, primary = false) {
                 origin = null
-                if (pin != null) scan() else showStart(null, "")
+                if (pin != null) scan() else showStart(null)
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         }
         val place = Uri.parse(failed).let { if (it.port > 0) "${it.host}:${it.port}" else it.host }
@@ -400,31 +407,23 @@ class MainActivity : ComponentActivity() {
     private fun scan() {
         GmsBarcodeScanning.getClient(this).startScan().addOnSuccessListener { code ->
             val url = Uri.parse(code.rawValue ?: "")
-            val params = (url.fragment ?: "").split('&').mapNotNull { part -> part.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
-            val found = params["a"]?.split(',')?.filter { it.isNotEmpty() }.orEmpty()
+            val params = Find.params(url.fragment ?: "")
+            val found = Find.doors(params)
             val pair = params["pair"]
+            val fp = params["fp"]
             when {
-                url.scheme != "https" || pair == null -> showStart(R.string.qr_error, "")
-                params["fp"] != null && found.isNotEmpty() -> {
-                    pin = params["fp"]
-                    doors = found
-                    reach(found, "#pair=$pair")
+                url.scheme != "https" || pair == null -> showStart(R.string.qr_error)
+                fp != null && found.isNotEmpty() -> pinDoor(fp, found, pair)
+                url.host?.endsWith(TAILNET) == true -> {
+                    // Serve만 켠 PC의 QR. 데몬도 Serve 길에서는 `.ts.net`으로 온 요청만 폰으로 받는다(src/daemon/origin.rs).
+                    pin = null
+                    doors = emptyList()
+                    origin = "https://${url.host}"
+                    open("https://${url.host}/#pair=$pair")
                 }
-                else -> pick(url.host ?: "", R.string.qr_error, url = "https://${url.host}/#pair=$pair")
+                else -> showStart(R.string.qr_error)
             }
-        }.addOnFailureListener { showStart(R.string.scan_error, "") }
-    }
-
-    /**
-     * 적은 주소는 tailnet 이름(Serve)만 받는다. 폰 문은 인증서 지문이 있어야 하므로 QR로만 짝짓는다(사람 결정 Q414 2A).
-     * 데몬도 Serve 길에서는 `.ts.net`으로 온 요청만 폰으로 받는다(src/daemon/origin.rs).
-     */
-    private fun pick(host: String, error: Int, url: String = "https://$host/", typed: String = "", code: String = "") {
-        if (!host.endsWith(TAILNET)) return showStart(error, typed, code)
-        pin = null
-        doors = emptyList()
-        origin = "https://$host"
-        open(url)
+        }.addOnFailureListener { showStart(R.string.scan_error) }
     }
 
     private fun show(title: Int, body: String, error: Int?, vararg rows: View) {

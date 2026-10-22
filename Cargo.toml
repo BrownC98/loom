@@ -13,8 +13,10 @@ futures-util = "0.3.34"
 getrandom = "0.4.3"
 if-addrs = "0.15.0"
 jiff = "0.2.38"
+num-bigint = "0.4.8"
 portable-pty = "0.9.0"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+ring = "0.17.14"
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "crypto"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rusqlite_migration = "2.6.0"

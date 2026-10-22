@@ -2,12 +2,10 @@
     <string name="start_title">PC의 loom에 연결</string>
     <string name="start_body">PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍습니다. 폰과 PC가 같은 Wi‑Fi에 있거나, 밖에서는 Tailscale로 닿아야 합니다.</string>
     <string name="scan">QR 찍기</string>
-    <string name="or">Tailscale Serve를 쓰면 주소와 코드를 적어도 됩니다</string>
-    <string name="address_hint">예: my-pc.example.ts.net</string>
-    <string name="open">열기</string>
+    <string name="or">또는 PC에 나온 코드를 적습니다. 폰과 PC가 같은 Wi‑Fi에 있어야 합니다.</string>
+    <string name="open">연결</string>
     <string name="qr_error">loom QR이 아닙니다. PC loom의 설정 › 휴대폰에 나온 QR을 찍습니다.</string>
-    <string name="scan_error">QR을 찍지 못했습니다. PC 주소를 적습니다.</string>
-    <string name="address_error">주소가 .ts.net으로 끝나야 합니다.</string>
+    <string name="scan_error">QR을 찍지 못했습니다. PC에 나온 코드를 적습니다.</string>
     <string name="failed_title">연결에 실패했습니다.</string>
     <string name="failed_body">폰의 Tailscale이 켜져 있는지, PC와 loom이 켜져 있는지 봅니다.</string>
     <string name="retry">다시 시도</string>
@@ -27,5 +25,9 @@
     <string name="update_failed">받지 못했습니다.</string>
     <string name="close">닫기</string>
     <string name="code_hint">코드 8자</string>
-    <string name="code_error">코드 8자를 모두 적습니다. 이미 연결한 PC면 코드를 비웁니다.</string>
+    <string name="code_error">코드 8자를 모두 적습니다.</string>
+    <string name="finding_title">PC를 찾는 중</string>
+    <string name="finding_body">같은 Wi‑Fi에서 이 코드를 낸 PC를 찾습니다.</string>
+    <string name="not_found">같은 Wi‑Fi에서 PC를 찾지 못했습니다. PC에 코드가 아직 나와 있는지 봅니다. PC가 Windows면 설정 › 휴대폰 [방화벽 허용]을 누릅니다.</string>
+    <string name="code_wrong">코드가 맞지 않거나 시간이 지났습니다. PC에서 새 코드를 만듭니다.</string>
 </resources>

@@ -126,12 +126,15 @@ class MainActivity : ComponentActivity() {
             addView(page, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
         }
         // targetSdk 35부터 화면이 상태 줄·키보드 밑까지 그린다. 그 자리만큼 안으로 민다.
+        // 민 자리를 WebView에 다시 넘기면 페이지의 env(safe-area-inset-*)가 한 번 더 비워 머리 위가 두 번 비었다(2026-10-22 사람 "헤더 상단 공백이 너무 큼"). 그래서 여기서 다 쓴다.
         root.setOnApplyWindowInsetsListener { view, insets ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
                 view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                WindowInsets.CONSUMED
+            } else {
+                insets
             }
-            insets
         }
         setContentView(root)
         onBackPressedDispatcher.addCallback(object : OnBackPressedCallback(true) {

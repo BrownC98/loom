@@ -5,6 +5,7 @@ import type { QuestionPill } from './gen/QuestionPill';
 import { isTauri } from '@tauri-apps/api/core';
 import { answerWait, dismissWait, doneImageUrl, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocUrl } from './api';
 import { choices } from './choices';
+import { dateAndTime } from './i18n';
 import { QuestionIcon } from './Dock';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
@@ -186,6 +187,7 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
           <div className="top">
             <CircleCheck className="done-mark" aria-label={t('wait.done')} />
             <Instruction wait={wait} />
+            <Published wait={wait} />
             <ConfirmButton wait={wait.id} />
           </div>
           <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
@@ -195,6 +197,7 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
           <div className="top">
             <span className="qid">Q{wait.id}</span>
             <span className="kind">{t(`wait.${wait.kind}`)}</span>
+            <Published wait={wait} />
             <DismissButton wait={wait.id} />
           </div>
           <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
@@ -202,6 +205,12 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
       )}
     </li>
   );
+}
+
+/** 알림이 올라온 날짜·시각(2026-10-22 사람 지시 "알림은 알림이 언제 publish 되었는지 날짜,시간을 표시해"). */
+function Published(props: { wait: HumanWait }) {
+  const at = props.wait.since * 1000;
+  return <time className="published" dateTime={new Date(at).toISOString()}>{dateAndTime(at)}</time>;
 }
 
 /**

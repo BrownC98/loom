@@ -577,6 +577,7 @@ a { color: var(--accent); }
 .wait-row:hover { background: var(--surface-hover); border-radius: 6px; }
 .wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wait-row .published { flex: none; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .wait-row .done-mark { flex: none; width: 15px; height: 15px; color: var(--ok); }
 /* 지시가 여러 줄이면 체크와 [확인]은 첫 줄에 맞춘다. */
 .wait-row .top:has(> .clamped) { align-items: flex-start; }

@@ -379,7 +379,8 @@ describe('unpile (render-time push; the pushed spot is not saved, 2026-10-22 "st
     expect(at.get('repo:ktasearch')).toEqual({ x: 5060, y: 0 });
   });
 
-  it('a wide grown repo box pushes the repo beside it right, not up (human DB 2026-10-22: "왜 수평으로 안가고 위로 밀려나는가?")', () => {
+  // 2026-10-22 사람 지적(사람 DB): "왜 수평으로 안가고 위로 밀려나는가?"
+  it('a wide grown repo box pushes the repo beside it right, not up (human DB 2026-10-22)', () => {
     // Saved spots loom (32, 126) and ktasearch (1448, 126); measured boxes loom 2728 × 1164, ktasearch 1384 × 1164 (or shorter).
     // The shortest way out was down (1196) or up (shorter ktasearch), 1344 to the right.
     const loom = { key: 'repo:9', ...box(332, 64, 2728, 1164) };

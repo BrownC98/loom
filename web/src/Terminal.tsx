@@ -181,10 +181,12 @@ type TerminalProps = {
 };
 
 /**
- * `live`: 출력이 올 때마다 그린다(xterm이 한 프레임에 한 번 그린다). `slow`: 출력을 모아 `SLOW_DRAW_MS`마다 한 번에 그린다. 모은 출력은 버리지 않는다.
+ * `live`: 출력이 올 때마다 그린다(xterm이 한 프레임에 한 번 그린다). `slow`: 출력을 모아 `SLOW_DRAW_MS`마다 한 번에 그린다.
+ * `hidden`: 화면 밖이다. 출력을 모아 두고 `live`·`slow`가 되면 그린다. 화면 밖 터미널도 그리면 문서 레이아웃이 매번 났다.
+ * 모은 출력은 버리지 않는다.
  * 터미널마다 매 프레임 줄을 다시 그리는 것이 그래프의 가장 큰 비용이었다(실측: 출력하는 카드 10개, CPU 4배 감속에서 메인 스레드 포화).
  */
-export type Draw = 'live' | 'slow';
+export type Draw = 'live' | 'slow' | 'hidden';
 /** 초당 4번. 2026-10-22 사람 결정 Q431 A "약 4fps". */
 const SLOW_DRAW_MS = 250;
 /** `slow` 터미널마다 모은 출력을 그리는 함수. 한 타이머가 모두 부른다. 터미널마다 타이머를 두면 그리는 프레임이 흩어져 프레임마다 레이아웃이 났다. */
@@ -323,7 +325,9 @@ export function SizingTerminal(props: TerminalProps) {
           step();
         } else held.push(step);
       };
-      const unhold = holdSlow(flush);
+      const unhold = holdSlow(() => {
+        if (latest.current.draw === 'slow') flush();
+      });
       reflush.current = flush;
       const link = attachPty(props.src, {
         onAttach: () => {
@@ -432,7 +436,7 @@ export function SizingTerminal(props: TerminalProps) {
   }, [theme]);
 
   useEffect(() => {
-    if ((props.draw ?? 'live') === 'live') reflush.current();
+    if ((props.draw ?? 'live') !== 'hidden') reflush.current();
   }, [props.draw]);
 
   useEffect(() => {

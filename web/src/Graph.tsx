@@ -305,12 +305,17 @@ const RESIZE_EDGES = [
 
 /** 이보다 작게 보이는 터미널 글자(화면 px)는 읽을 수 없다. 기본 글꼴 12px이면 배율 50%다(2026-10-22 사람 결정 Q431 A "50% 아래 또는 글자 약 6px 이하"). 글꼴 설정을 따르도록 글자 크기로 정했다. */
 const READABLE_TEXT_PX = 6;
+/**
+ * 화면 밖으로 나간 카드가 터미널을 닫기까지 기다리는 시간. 그 안에 돌아오면 모은 출력만 그린다(확대·축소, 작은 이동).
+ * 더 오래 열어 두면 화면 밖 터미널이 받는 출력과, 돌아올 때 한 번에 그릴 출력이 커져 이동·대기가 main보다 느렸다(2026-10-22 실측, 총괄 지시 "no scenario worse than main").
+ */
+const HIDDEN_KEEP_MS = 3000;
 
 /**
  * 카드 터미널을 그리는 빠르기. `null`이면 터미널을 열지 않는다.
  * 화면과 그 둘레 한 화면(가로·세로 각각 화면 크기만큼) 안의 카드만 터미널을 연다(docs/design.md 「규모」). 화면 밖으로 나가자마자 닫으면 이동·확대·창 크기 변경마다
- * 터미널을 다시 열고 남은 출력(256KB)을 다시 받았다(실측: 카드 10개 0.5~0.8초, 2026-10-22 총괄 승인 Q2 A). 열린 카드 가운데 화면 밖이거나 글자가 읽을 수 없게 작으면 `slow`다.
- * 고른 카드는 늘 `live`다(`Card`). 쓰는 글이 늦게 보이면 안 되기 때문이다.
+ * 터미널을 다시 열고 남은 출력(256KB)을 다시 받았다(실측: 카드 10개 0.5~0.8초, 2026-10-22 총괄 승인 Q2 A). 열린 카드 가운데 화면 밖이면 `hidden`, 글자가 읽을 수 없게 작으면 `slow`다.
+ * 화면 안의 고른 카드는 늘 `live`다(`Card`). 쓰는 글이 늦게 보이면 안 되기 때문이다.
  * 값이 바뀔 때만 카드를 다시 그린다.
  */
 function useDraw(id: string, fontSize: number): Draw | null {
@@ -324,13 +329,22 @@ function useDraw(id: string, fontSize: number): Draw | null {
     const bottom = top + (node.measured.height ?? 0) * zoom;
     if (right <= -s.width || left >= 2 * s.width || bottom <= -s.height || top >= 2 * s.height) return null;
     const shown = right > 0 && left < s.width && bottom > 0 && top < s.height;
-    return shown && fontSize * zoom > READABLE_TEXT_PX ? 'live' : 'slow';
+    if (!shown) return 'hidden';
+    return fontSize * zoom > READABLE_TEXT_PX ? 'live' : 'slow';
   });
 }
 
 function Card({ id, data }: NodeProps<CardNode>) {
   const { t } = useTranslation();
   const draw = useDraw(id, useContext(XtermFont).size);
+  // 화면 밖에 `HIDDEN_KEEP_MS`보다 오래 있었다. 터미널을 닫는다.
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    setGone(false);
+    if (draw !== 'hidden') return;
+    const timer = setTimeout(() => setGone(true), HIDDEN_KEEP_MS);
+    return () => clearTimeout(timer);
+  }, [draw]);
   // 끄는 동안 터미널 칸을 시작 크기에 묶는다. 그러면 터미널 열·줄(PTY 크기)은 놓을 때 한 번 바뀐다.
   const termBox = useRef<HTMLDivElement>(null);
   const [hold, setHold] = useState<Size | null>(null);
@@ -358,7 +372,7 @@ function Card({ id, data }: NodeProps<CardNode>) {
         }
       >
         <div ref={termBox} className="term-hold" style={hold ?? undefined}>
-          {data.ownsPty && draw !== null && <SizingTerminal src={nodePty(data.view.id)} node={data.view.id} draw={data.selected ? 'live' : draw} focused={data.selected} focusAsk={data.focusAsk} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+          {data.ownsPty && draw !== null && !gone && <SizingTerminal src={nodePty(data.view.id)} node={data.view.id} draw={data.selected && draw !== 'hidden' ? 'live' : draw} focused={data.selected} focusAsk={data.focusAsk} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
         </div>
       </NodeCard>
       {/* 카드 다음에 그려 카드 머리·터미널 위에 놓는다. 그래서 테두리 안쪽 3px도 잡힌다. 잇기 점(`Ports`)은 그 위다. */}

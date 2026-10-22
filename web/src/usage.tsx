@@ -17,16 +17,28 @@ export const PROVIDER_LABEL: Record<Provider, string> = { claude: 'Claude', code
 /** 시스템 기본 계정의 로그인 폴더. loom은 사람이 [로그인]·[로그아웃]을 누를 때만 CLI로 바꾼다. */
 export const SYSTEM_DIR: Record<Provider, string> = { claude: '~/.claude', codex: '~/.codex' };
 
-/** 새 노드가 쓰는 계정. 설정이 고른 계정이 없거나 지워졌으면 시스템 기본이다. */
-export function activeAccount(accounts: AccountView[], settings: SettingsView, provider: Provider): AccountView | undefined {
-  const chosen = provider === 'claude' ? settings.claudeAccount : settings.codexAccount;
-  const own = accounts.filter((a) => a.provider === provider);
+/** 계정 목록에 나온 위치(배포판, null은 이 PC). 데몬이 이 PC를 먼저 준다. 하나면 화면은 위치를 보이지 않는다(목업 wsl-place.html ③). */
+export function placesOf(accounts: AccountView[]): (string | null)[] {
+  return [...new Set(accounts.map((a) => a.distro))];
+}
+
+/** 위치 `distro`(null은 이 PC)의 새 노드가 쓰는 계정. 설정이 고른 계정이 없거나 지워졌으면 그 위치의 시스템 기본이다. */
+export function activeAccount(accounts: AccountView[], settings: SettingsView, provider: Provider, distro: string | null): AccountView | undefined {
+  const own = accounts.filter((a) => a.provider === provider && a.distro === distro);
+  const chosen = chosenAccount(settings, provider, distro);
   return own.find((a) => a.id !== null && a.id === chosen) ?? own.find((a) => a.id === null);
 }
 
-/** 공급자의 쓰는 계정을 바꾼 설정. `null`이면 시스템 기본이다. */
-export function withAccount(settings: SettingsView, provider: Provider, id: AccountId | null): SettingsView {
-  return provider === 'claude' ? { ...settings, claudeAccount: id } : { ...settings, codexAccount: id };
+function chosenAccount(settings: SettingsView, provider: Provider, distro: string | null): AccountId | null {
+  if (distro === null) return provider === 'claude' ? settings.claudeAccount : settings.codexAccount;
+  return settings.wslAccounts[distro]?.[provider] ?? null;
+}
+
+/** 그 위치, 그 공급자의 쓰는 계정을 바꾼 설정. `null`이면 시스템 기본이다. */
+export function withAccount(settings: SettingsView, provider: Provider, distro: string | null, id: AccountId | null): SettingsView {
+  if (distro === null) return provider === 'claude' ? { ...settings, claudeAccount: id } : { ...settings, codexAccount: id };
+  const inUse = settings.wslAccounts[distro] ?? { claude: null, codex: null };
+  return { ...settings, wslAccounts: { ...settings.wslAccounts, [distro]: { ...inUse, [provider]: id } } };
 }
 
 /** 이메일을 알면 이메일이다. 시스템 기본은 「시스템 기본」 배지가 따로 붙는다. */

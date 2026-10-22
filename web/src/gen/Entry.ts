@@ -13,4 +13,12 @@ export type Entry = { "kind": "created", node: Who, parent: Who | null, agent: A
 /**
  * 부모가 없던 동안 보관해 새 부모에게 옮긴 메시지 수. 이 수를 남기기 전 기록은 0이다.
  */
-held: number, } | { "kind": "removed", node: Who, } | { "kind": "renamed", node: Who, from: string, } | { "kind": "message", how: Kind, from: Who, to: Who | null, step: Step, } | { "kind": "refused", how: Kind, from: Who, to: string, reason: Refusal, } | { "kind": "accountSwitched", provider: Provider, from: AccountId | null, to: AccountId | null, why: SwitchCause, moved: number, later: number, failed: number, } | { "kind": "noAccountLeft", provider: Provider, resets_at: number | null, };
+held: number, } | { "kind": "removed", node: Who, } | { "kind": "renamed", node: Who, from: string, } | { "kind": "message", how: Kind, from: Who, to: Who | null, step: Step, } | { "kind": "refused", how: Kind, from: Who, to: string, reason: Refusal, } | { "kind": "accountSwitched", provider: Provider, 
+/**
+ * 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
+ */
+distro: string | null, from: AccountId | null, to: AccountId | null, why: SwitchCause, moved: number, later: number, failed: number, } | { "kind": "noAccountLeft", provider: Provider, 
+/**
+ * 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
+ */
+distro: string | null, resets_at: number | null, };

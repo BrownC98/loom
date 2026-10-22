@@ -221,6 +221,7 @@ impl App {
         self.graph
             .record(&Entry::AccountSwitched {
                 provider,
+                distro: distro.map(str::to_owned),
                 from,
                 to,
                 why,
@@ -450,6 +451,7 @@ impl App {
             let resets_at = earliest_reset(candidates.iter().map(|(_, l)| l));
             if let Err(e) = self.graph.record(&Entry::NoAccountLeft {
                 provider,
+                distro: distro.clone(),
                 resets_at,
             }) {
                 eprintln!("loom: 「남은 계정 없음」을 남기지 못했다: {e}");

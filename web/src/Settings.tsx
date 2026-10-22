@@ -1,5 +1,5 @@
-import { Plus, Power, RotateCcw, RotateCw, Search, X } from 'lucide-react';
-import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Monitor, Plus, Power, RotateCcw, RotateCw, Search, SquareTerminal, X } from 'lucide-react';
+import { type CSSProperties, Fragment, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FieldDefaults, FieldReset } from './FieldReset';
 import type { SettingsPatch } from './settingsPatch';
@@ -8,6 +8,7 @@ import { canBypass } from './catalog';
 import type { AlwaysOn } from './gen/AlwaysOn';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
+import type { AgentAt } from './gen/AgentAt';
 import type { AgentView } from './gen/AgentView';
 import type { LoginId } from './gen/LoginId';
 import type { LoginTarget } from './gen/LoginTarget';
@@ -20,7 +21,8 @@ import { TerminalTab, UiTab } from './ThemeSettings';
 import type { Updates } from './Update';
 import { VERSION } from './version';
 import { WorkspaceTab } from './WorkspaceSettings';
-import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
+import { placeName, shortPlaceName } from './place';
+import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, placesOf, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
 
 /** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
 export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal', 'about'] as const;
@@ -57,7 +59,7 @@ export function Settings(props: {
   /** 이 칸들을 데몬 기본값으로 되돌린다(`null` 칸). */
   onReset: (patch: SettingsPatch) => void;
   usage: Usage;
-  onChoose: (provider: Provider, id: AccountId | null) => void;
+  onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
   updates: Updates;
   /** 데몬만 끈다(목업 web-stop.html ①). 앱을 닫아도 데몬은 살므로 웹 버전과 앱 모두 이 단추로 끈다. */
   onStop: () => void;
@@ -262,17 +264,25 @@ function AboutTab({ updates }: { updates: Updates }) {
 function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   const { agents, settings } = props;
-  const installed = agents.filter((a) => a.path !== null);
-  const missing = agents.filter((a) => a.path === null);
+  // 모든 에이전트가 같은 위치를 같은 순서로 갖는다. 위치가 하나면 지금 화면과 같다(목업 wsl-place.html ④).
+  const places = agents[0]?.places.map((p) => p.distro) ?? [null];
+  const multi = places.length > 1;
+  const installed = agents.filter((a) => a.places.some((p) => p.path !== null));
+  const missing = agents.filter((a) => a.places.every((p) => p.path === null));
   const toggle = (agent: AgentView, on: boolean) => {
     const rest = settings.bypassOff.filter((id) => id !== agent.id);
     props.onSettings({ ...settings, bypassOff: on ? rest : [...rest, agent.id] });
   };
+  const usage = (a: AgentView) => (a.profile ? t('settings.messaging') : t('settings.terminalOnly'));
+  const versionText = (a: AgentView, at: AgentAt) => a.profile && at.versionWarning && t(`settings.versionWarning.${a.profile}`, at.versionWarning);
+  const heading = multi
+    ? `${t('settings.installedHead')} ${places.map((d, i) => t('settings.installedAt', { place: shortPlaceName(d), n: agents.filter((a) => a.places[i].path !== null).length })).join(' · ')}`
+    : t('settings.installed', { n: installed.length });
   return (
     <>
       <section>
         <h4>
-          {t('settings.installed', { n: installed.length })}
+          {heading}
           <FieldReset path={['bypassOff']} />
           <button className="btn ghost sm" onClick={props.onRescan}>
             <RotateCw />
@@ -287,10 +297,29 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
               <div className="row" key={a.id}>
                 <span className="row-main">
                   <span className="name">{a.label}</span>
-                  {a.profile && a.versionWarning && <span className="badge warn">{t(`settings.versionWarning.${a.profile}`, a.versionWarning)}</span>}
-                  <span className="meta" translate="no">
-                    {a.path} · {a.profile ? t('settings.messaging') : t('settings.terminalOnly')}
-                  </span>
+                  {multi ? (
+                    a.places.map((at) => (
+                      <Fragment key={at.distro ?? ''}>
+                        <span className="meta" translate="no">
+                          <span className="where">{shortPlaceName(at.distro)}</span>
+                          {at.path === null ? <span className="none">{t('newNode.notInstalled')}</span> : `${at.path} · ${usage(a)}`}
+                        </span>
+                        {versionText(a, at) && (
+                          <span className="meta warnline" translate="no">
+                            <span className="where">{shortPlaceName(at.distro)}</span>
+                            {versionText(a, at)}
+                          </span>
+                        )}
+                      </Fragment>
+                    ))
+                  ) : (
+                    <>
+                      {versionText(a, a.places[0]) && <span className="badge warn">{versionText(a, a.places[0])}</span>}
+                      <span className="meta" translate="no">
+                        {a.places[0].path} · {usage(a)}
+                      </span>
+                    </>
+                  )}
                 </span>
                 <a className="hint" href={a.homepage} target="_blank" rel="noreferrer">
                   {t('settings.docs')}
@@ -424,7 +453,7 @@ function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; o
 
 type OpenLogin = { target: LoginTarget; id: LoginId; title: string };
 
-function AccountsTab(props: { settings: SettingsView; onSettings: (next: SettingsView) => void; usage: Usage; onChoose: (provider: Provider, id: AccountId | null) => void }) {
+function AccountsTab(props: { settings: SettingsView; onSettings: (next: SettingsView) => void; usage: Usage; onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void }) {
   const { t } = useTranslation();
   const { settings, usage } = props;
   const [login, setLogin] = useState<OpenLogin | null>(null);
@@ -438,22 +467,28 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
       setError((err as Error).message);
     }
   };
-  const openLogin = (provider: Provider, target: LoginTarget, title: string) =>
-    run(async () => setLogin({ target, title, id: await startLogin(provider, target) }));
-  const remove = (a: AccountView, id: AccountId) => {
-    if (!confirm(t('accounts.confirmRemove', { name: accountName(a) }))) return;
-    run(async () => {
-      await removeAccount(a.provider, id);
-      usage.refresh();
-    });
+  const actions: AccountActions = {
+    openLogin: (provider, distro, target, title) => run(async () => setLogin({ target, title, id: await startLogin(provider, distro, target) })),
+    remove: (a, id) => {
+      if (!confirm(t('accounts.confirmRemove', { name: accountName(a) }))) return;
+      run(async () => {
+        await removeAccount(a.provider, a.distro, id);
+        usage.refresh();
+      });
+    },
+    logout: (a) => {
+      if (!confirm(t('accounts.confirmLogout', { provider: PROVIDER_LABEL[a.provider], name: accountName(a) }))) return;
+      run(async () => {
+        await logoutSystem(a.provider, a.distro);
+        usage.refresh();
+      });
+    },
+    choose: props.onChoose,
   };
-  const logout = (a: AccountView) => {
-    if (!confirm(t('accounts.confirmLogout', { provider: PROVIDER_LABEL[a.provider], name: accountName(a) }))) return;
-    run(async () => {
-      await logoutSystem(a.provider);
-      usage.refresh();
-    });
-  };
+  // 위치가 하나면 위치 머리 줄을 그리지 않는다. 지금 화면과 같다(목업 wsl-place.html ③).
+  const places = usage.accounts ? placesOf(usage.accounts) : [];
+  const providers = (distro: string | null) =>
+    PROVIDERS.map((provider) => <ProviderAccounts key={provider} provider={provider} distro={distro} settings={settings} usage={usage} actions={actions} />);
 
   return (
     <>
@@ -468,85 +503,22 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
           {t('accounts.autoSwitch')}
         </label>
         <FieldReset path={['autoSwitch']} />
-        <span className="hint">{t('accounts.autoSwitchHint')}</span>
+        <span className="hint">{t(places.length > 1 ? 'accounts.autoSwitchHintPlaces' : 'accounts.autoSwitchHint')}</span>
       </div>
       {usage.accounts === null && <p className="hint">{t('accounts.loading')}</p>}
-      {usage.accounts &&
-        PROVIDERS.map((provider) => {
-          const label = PROVIDER_LABEL[provider];
-          const accounts = usage.accounts!.filter((a) => a.provider === provider);
-          const active = activeAccount(usage.accounts!, settings, provider);
-          // CLI가 없으면 모든 줄이 같은 문제다. 시스템 기본 줄로 본다.
-          const missing = accounts.some((a) => a.id === null && notInstalled(a));
-          return (
-            <section key={provider} aria-busy={usage.loading}>
-              <h4>
-                {label}
-                <button
-                  className="btn ghost sm"
-                  disabled={missing}
-                  title={missing ? t('accounts.addNeedsCli', { provider: label }) : undefined}
-                  onClick={() => openLogin(provider, { kind: 'new' }, t('accounts.addTitle', { provider: label }))}
-                >
-                  <Plus />
-                  {t('accounts.add')}
-                </button>
-              </h4>
-              <div className="rows">
-                {accounts.map((a) => {
-                  const current = a === active;
-                  const problem = limitsProblem(a.usage.limits);
-                  const needsLogin = a.usage.limits.kind === 'needsLogin';
-                  const system = a.id === null;
-                  const absent = notInstalled(a);
-                  const meta = [system ? SYSTEM_DIR[provider] : null, a.usage.plan, usage.fetchedAt !== null && !absent ? fetchedText(usage.fetchedAt, Date.now()) : null].filter(Boolean).join(' · ');
-                  return (
-                    <div className="acct-row" key={a.id ?? 'system'} aria-current={current || undefined}>
-                      <span className="row-main">
-                        <span className="name acct-name">{accountName(a)}</span>
-                        {system && a.usage.email && <span className="badge">{t('usage.systemDefault')}</span>}
-                        {current && <span className="badge">{t('accounts.current')}</span>}
-                        {needsLogin && <span className="badge warn">{system ? t('usage.loginRequired') : t('accounts.needsLogin')}</span>}
-                        {absent && <span className="badge warn">{t('accounts.notInstalled')}</span>}
-                        <span className="meta" translate="no">
-                          {meta}
-                        </span>
-                      </span>
-                      <span className="win">{needsLogin ? <span className="hint">{t('statusBar.loginToSee')}</span> : problem ? <span className="hint">{problem}</span> : <WindowLines limits={a.usage.limits} />}</span>
-                      <span className="row-actions">
-                        {!current && !needsLogin && !absent && (
-                          <button className="btn sm" onClick={() => props.onChoose(provider, a.id)}>
-                            {t('accounts.use')}
-                          </button>
-                        )}
-                        {needsLogin && a.id !== null && (
-                          <button className="btn sm" onClick={() => openLogin(provider, { kind: 'account', id: a.id! }, t('accounts.reloginTitle', { name: accountName(a) }))}>
-                            {t('accounts.relogin')}
-                          </button>
-                        )}
-                        {needsLogin && system && (
-                          <button className="btn sm" onClick={() => openLogin(provider, { kind: 'system' }, t('accounts.systemLoginTitle', { provider: label }))}>
-                            {t('accounts.login')}
-                          </button>
-                        )}
-                        {system && !needsLogin && !absent && (
-                          <button className="btn ghost sm" aria-label={t('accounts.logoutLabel', { name: accountName(a) })} onClick={() => logout(a)}>
-                            {t('accounts.logout')}
-                          </button>
-                        )}
-                        {a.id !== null && (
-                          <button className="btn ghost sm" aria-label={t('accounts.removeLabel', { name: accountName(a) })} onClick={() => remove(a, a.id!)}>
-                            {t('accounts.remove')}
-                          </button>
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
+      {places.length === 1 && providers(places[0])}
+      {places.length > 1 &&
+        places.map((distro) => (
+          // 설정 찾기는 안쪽 공급자 칸마다 거르고, 맞는 칸이 없는 위치는 머리 줄까지 숨긴다(`useSearch`).
+          <section key={distro ?? ''} className="place-group">
+            <div className="place-head" translate="no">
+              {distro === null ? <Monitor aria-hidden="true" /> : <SquareTerminal aria-hidden="true" />}
+              {placeName(distro)}
+              <span className="hint">{t(distro === null ? 'place.pcUses' : 'place.wslUses')}</span>
+            </div>
+            {providers(distro)}
+          </section>
+        ))}
       {login && (
         <LoginDialog
           login={login}
@@ -557,6 +529,93 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
         />
       )}
     </>
+  );
+}
+
+type AccountActions = {
+  openLogin: (provider: Provider, distro: string | null, target: LoginTarget, title: string) => void;
+  remove: (a: AccountView, id: AccountId) => void;
+  logout: (a: AccountView) => void;
+  choose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
+};
+
+/** 한 위치, 한 공급자의 계정 줄. */
+function ProviderAccounts(props: { provider: Provider; distro: string | null; settings: SettingsView; usage: Usage; actions: AccountActions }) {
+  const { t } = useTranslation();
+  const { provider, distro, usage, actions } = props;
+  const label = PROVIDER_LABEL[provider];
+  const all = usage.accounts!;
+  const accounts = all.filter((a) => a.provider === provider && a.distro === distro);
+  const active = activeAccount(all, props.settings, provider, distro);
+  // CLI가 없으면 모든 줄이 같은 문제다. 시스템 기본 줄로 본다.
+  const missing = accounts.some((a) => a.id === null && notInstalled(a));
+  return (
+    <section aria-busy={usage.loading}>
+      <h4>
+        {label}
+        <button
+          className="btn ghost sm"
+          disabled={missing}
+          title={missing ? t('accounts.addNeedsCli', { provider: label }) : undefined}
+          onClick={() => actions.openLogin(provider, distro, { kind: 'new' }, t('accounts.addTitle', { provider: label }))}
+        >
+          <Plus />
+          {t('accounts.add')}
+        </button>
+      </h4>
+      <div className="rows">
+        {accounts.map((a) => {
+          const current = a === active;
+          const problem = limitsProblem(a.usage.limits);
+          const needsLogin = a.usage.limits.kind === 'needsLogin';
+          const system = a.id === null;
+          const absent = notInstalled(a);
+          const meta = [system ? SYSTEM_DIR[provider] : null, a.usage.plan, usage.fetchedAt !== null && !absent ? fetchedText(usage.fetchedAt, Date.now()) : null].filter(Boolean).join(' · ');
+          return (
+            <div className="acct-row" key={a.id ?? 'system'} aria-current={current || undefined}>
+              <span className="row-main">
+                <span className="name acct-name">{accountName(a)}</span>
+                {system && a.usage.email && <span className="badge">{t('usage.systemDefault')}</span>}
+                {current && <span className="badge">{t('accounts.current')}</span>}
+                {needsLogin && <span className="badge warn">{system ? t('usage.loginRequired') : t('accounts.needsLogin')}</span>}
+                {absent && <span className="badge warn">{t('accounts.notInstalled')}</span>}
+                <span className="meta" translate="no">
+                  {meta}
+                </span>
+              </span>
+              <span className="win">{needsLogin ? <span className="hint">{t('statusBar.loginToSee')}</span> : problem ? <span className="hint">{problem}</span> : <WindowLines limits={a.usage.limits} />}</span>
+              <span className="row-actions">
+                {!current && !needsLogin && !absent && (
+                  <button className="btn sm" onClick={() => actions.choose(provider, distro, a.id)}>
+                    {t('accounts.use')}
+                  </button>
+                )}
+                {needsLogin && a.id !== null && (
+                  <button className="btn sm" onClick={() => actions.openLogin(provider, distro, { kind: 'account', id: a.id! }, t('accounts.reloginTitle', { name: accountName(a) }))}>
+                    {t('accounts.relogin')}
+                  </button>
+                )}
+                {needsLogin && system && (
+                  <button className="btn sm" onClick={() => actions.openLogin(provider, distro, { kind: 'system' }, t('accounts.systemLoginTitle', { provider: label }))}>
+                    {t('accounts.login')}
+                  </button>
+                )}
+                {system && !needsLogin && !absent && (
+                  <button className="btn ghost sm" aria-label={t('accounts.logoutLabel', { name: accountName(a) })} onClick={() => actions.logout(a)}>
+                    {t('accounts.logout')}
+                  </button>
+                )}
+                {a.id !== null && (
+                  <button className="btn ghost sm" aria-label={t('accounts.removeLabel', { name: accountName(a) })} onClick={() => actions.remove(a, a.id!)}>
+                    {t('accounts.remove')}
+                  </button>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

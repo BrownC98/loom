@@ -23,7 +23,13 @@ export type Usage = {
 };
 
 /** 화면 맨 아래에 늘 보이는 줄. Orca처럼 모든 공급자의 사용량이 버튼 하나다(목업 usage.html). [설정]은 사이드바에 있다(graph-panels.html 1번). */
-export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoose: (provider: Provider, id: AccountId | null) => void; onManage: () => void; notice: { record: SwitchRecord | null; onClose: () => void } }) {
+export function StatusBar(props: {
+  usage: Usage;
+  settings: SettingsView;
+  /** 고른 저장소의 WSL 배포판. 이 PC 저장소면 null이다. 사용량은 그 위치의 「사용 중」 계정이다(목업 wsl-place.html ⑦). */
+  distro: string | null;
+  onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
+  onManage: () => void; notice: { record: SwitchRecord | null; onClose: () => void } }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 다른 팝오버처럼 pointerdown을 먼저 받는다.
@@ -43,7 +49,9 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
     if (!open) usage.refresh();
     setOpen(!open);
   };
-  const active = (provider: Provider) => (usage.accounts ? activeAccount(usage.accounts, props.settings, provider) : undefined);
+  // 고른 저장소의 위치가 아직 목록에 없으면(배포판이 꺼져 있음) 이 PC를 보인다.
+  const distro = usage.accounts?.some((a) => a.distro === props.distro) ? props.distro : null;
+  const active = (provider: Provider) => (usage.accounts ? activeAccount(usage.accounts, props.settings, provider, distro) : undefined);
   const summary = PROVIDERS.map((provider) => {
     const a = active(provider);
     return `${PROVIDER_LABEL[provider]} ${a ? `${accountName(a)}, ${windowsText(a.usage.limits)}` : t('statusBar.summaryLoading')}`;
@@ -83,10 +91,10 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
       <span className="app-version">v{VERSION}</span>
       {open && usage.accounts && (
         <UsagePopover
-          accounts={usage.accounts}
+          accounts={usage.accounts.filter((a) => a.distro === distro)}
           active={active}
           usage={usage}
-          onChoose={props.onChoose}
+          onChoose={(provider, id) => props.onChoose(provider, distro, id)}
           onManage={() => {
             setOpen(false);
             props.onManage();
@@ -101,7 +109,7 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
 function SwitchNotice(props: { record: SwitchRecord; accounts: AccountView[] | null; onClose: () => void }) {
   const { t } = useTranslation();
   const name = (provider: Provider, id: AccountId | null) => {
-    const a = props.accounts?.find((x) => x.provider === provider && x.id === id);
+    const a = props.accounts?.find((x) => x.provider === provider && x.distro === props.record.entry.distro && x.id === id);
     return a ? accountName(a) : t(id === null ? 'usage.systemDefault' : 'usage.notLoggedIn');
   };
   const { text, warn } = noticeOf(props.record.entry, name, (at) => weekdayAndTime(at * 1000), t);

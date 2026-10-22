@@ -2,6 +2,7 @@
 //! 워크스페이스 폴더, 노드 나무 상한, 화면 색. SQLite에 한 줄로 둔다.
 //! 근거: docs/design.md 「설정」.
 
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension};
@@ -20,9 +21,12 @@ use crate::worktree::RepoId;
 pub struct SettingsView {
     /// 모든 권한 허용을 끈 에이전트. 여기 없는 에이전트는 승인 창 없이 모든 권한으로 뜬다.
     pub bypass_off: Vec<AgentId>,
-    /// 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
+    /// 이 PC 저장소의 새 Claude 노드가 쓰는 계정. 없거나 폴더가 사라졌으면 시스템 기본이다.
     pub claude_account: Option<AccountId>,
     pub codex_account: Option<AccountId>,
+    /// WSL 배포판마다 그 배포판 저장소의 노드가 쓰는 계정. 키는 배포판 이름이다. 옛 설정에는 없다. 없는 배포판은 시스템 기본이다.
+    /// 근거: 목업 docs/mockups/wsl-place.html ③ 「사용 중」은 위치마다 하나다.
+    pub wsl_accounts: BTreeMap<String, InUse>,
     /// 옛 설정에는 없다. 없으면 `System`으로 읽고 다른 값은 그대로 둔다.
     #[serde(default)]
     pub theme: Theme,
@@ -74,6 +78,15 @@ pub struct SettingsView {
     pub closed_panes: ClosedPanes,
     /// 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
     pub closed_switch_notice: Option<u32>,
+}
+
+/// 한 위치에서 공급자마다 쓰는 계정. 없으면 시스템 기본이다.
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct InUse {
+    pub claude: Option<AccountId>,
+    pub codex: Option<AccountId>,
 }
 
 /// [정렬] 방향. 나무가 뻗는 쪽이다.
@@ -272,18 +285,31 @@ pub enum Theme {
 }
 
 impl SettingsView {
-    pub fn account(&self, provider: Provider) -> Option<&AccountId> {
-        match provider {
-            Provider::Claude => self.claude_account.as_ref(),
-            Provider::Codex => self.codex_account.as_ref(),
+    /// `distro`(없으면 이 PC) 저장소의 노드가 쓰는 계정.
+    pub fn account(&self, provider: Provider, distro: Option<&str>) -> Option<&AccountId> {
+        match (distro, provider) {
+            (None, Provider::Claude) => self.claude_account.as_ref(),
+            (None, Provider::Codex) => self.codex_account.as_ref(),
+            (Some(d), Provider::Claude) => self.wsl_accounts.get(d)?.claude.as_ref(),
+            (Some(d), Provider::Codex) => self.wsl_accounts.get(d)?.codex.as_ref(),
         }
     }
 
-    pub fn set_account(&mut self, provider: Provider, id: Option<AccountId>) {
-        match provider {
-            Provider::Claude => self.claude_account = id,
-            Provider::Codex => self.codex_account = id,
-        }
+    pub fn set_account(&mut self, provider: Provider, distro: Option<&str>, id: Option<AccountId>) {
+        let slot = match distro {
+            None => match provider {
+                Provider::Claude => &mut self.claude_account,
+                Provider::Codex => &mut self.codex_account,
+            },
+            Some(d) => {
+                let in_use = self.wsl_accounts.entry(d.to_owned()).or_default();
+                match provider {
+                    Provider::Claude => &mut in_use.claude,
+                    Provider::Codex => &mut in_use.codex,
+                }
+            }
+        };
+        *slot = id;
     }
 }
 
@@ -434,6 +460,34 @@ mod tests {
         assert_eq!(got.pane_widths, PaneWidths::default());
         assert_eq!(got.closed_panes, ClosedPanes::default());
         assert_eq!(got.closed_switch_notice, None);
+        assert!(got.wsl_accounts.is_empty());
+    }
+
+    /// 옛 두 칸은 이 PC다. 배포판마다 따로 고르고, 한 위치를 바꿔도 다른 위치는 그대로다.
+    #[test]
+    fn in_use_account_is_per_place() {
+        let id = |s: &str| serde_json::from_value::<AccountId>(serde_json::json!(s)).unwrap();
+        let mut view: SettingsView =
+            serde_json::from_str(r#"{"claudeAccount":"0000000000000001"}"#).unwrap();
+        assert_eq!(
+            view.account(Provider::Claude, None),
+            Some(&id("0000000000000001"))
+        );
+        assert_eq!(view.account(Provider::Claude, Some("Ubuntu")), None);
+        view.set_account(
+            Provider::Claude,
+            Some("Ubuntu"),
+            Some(id("0000000000000002")),
+        );
+        assert_eq!(
+            view.account(Provider::Claude, Some("Ubuntu")),
+            Some(&id("0000000000000002"))
+        );
+        assert_eq!(
+            view.account(Provider::Claude, None),
+            Some(&id("0000000000000001"))
+        );
+        assert_eq!(view.account(Provider::Codex, Some("Ubuntu")), None);
     }
 
     #[test]

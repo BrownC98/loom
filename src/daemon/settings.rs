@@ -1,11 +1,11 @@
 //! 설정 창과 상태 줄의 라우트: 에이전트 탐지, 설정, 계정, 사용량, 로그인 창, 테마를 넣은 첫 페이지.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::{Html, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -14,14 +14,15 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{App, Problem, internal, serve_pty};
-use crate::accounts::{self, AccountId};
+use crate::accounts::{AccountId, Site};
 use crate::node_host::{Exit, NodeHost};
-use crate::profile::{self, AgentView, Provider};
+use crate::profile::{self, AgentView, LaunchError, Profile, Provider, VersionMismatch};
 #[cfg(test)]
 use crate::settings::{Language, Theme};
 use crate::settings::{PatchProblem, SettingsView};
 use crate::usage::{self, Usage, UsageProblem};
 use crate::worktree::{self, RepoProblem};
+use crate::wsl::{self, Inside};
 
 const PROVIDERS: [Provider; 2] = [Provider::Claude, Provider::Codex];
 
@@ -74,7 +75,9 @@ impl Logins {
 #[ts(export)]
 pub struct AccountView {
     pub provider: Provider,
-    /// 없으면 시스템 기본(`~/.claude`·`~/.codex`)이다. 쓰는 계정은 설정(`SettingsView`)이 정한다.
+    /// 계정이 있는 WSL 배포판. 이 PC면 없다. 계정은 한 위치에만 속한다.
+    pub distro: Option<String>,
+    /// 없으면 그 위치의 시스템 기본(`~/.claude`·`~/.codex`)이다. 쓰는 계정은 설정(`SettingsView`)이 위치마다 정한다.
     pub id: Option<AccountId>,
     pub usage: Usage,
 }
@@ -106,16 +109,43 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/logins/{id}/pty", get(login_pty))
 }
 
-/// 부를 때마다 데몬 PATH를 다시 훑는다. 화면의 [다시 찾기]는 이것을 다시 부른다.
-/// 서버를 쓰는 프로필(Codex, OpenCode 2) 줄에는 데몬이 시작할 때 본 버전 경고를 붙인다.
+/// 부를 때마다 데몬 PATH와 도는 WSL 배포판의 PATH를 다시 훑는다. 화면의 [다시 찾기]는 이것을 다시 부른다.
+/// 서버를 쓰는 프로필(Codex, OpenCode 2) 줄에는 버전 경고를 붙인다. 이 PC는 데몬이 시작할 때 본 값, WSL은 지금 읽은 값이다.
 async fn agents(State(app): State<Arc<App>>) -> Json<Vec<AgentView>> {
-    let mut agents = profile::agents();
+    let sites = app.sites().await;
+    let wsl: Vec<_> = sites.iter().filter_map(Site::inside).collect();
+    let warnings = join_all(wsl.iter().map(|inside| wsl_version_warnings(inside))).await;
+    let mut agents = profile::agents(&wsl);
     for agent in &mut agents {
-        agent.version_warning = agent
-            .profile
-            .and_then(|p| app.version_warnings.get(&p).cloned());
+        let Some(profile) = agent.profile else {
+            continue;
+        };
+        for (i, place) in agent.places.iter_mut().enumerate() {
+            let warnings = match i {
+                0 => &app.version_warnings,
+                _ => &warnings[i - 1],
+            };
+            place.version_warning = warnings.get(&profile).cloned();
+        }
     }
     Json(agents)
+}
+
+/// 배포판 안의 고정 버전 CLI(`PINNED`)마다 `--version`을 읽어 경고를 만든다. 없는 CLI는 건너뛴다.
+async fn wsl_version_warnings(inside: &Inside) -> HashMap<Profile, VersionMismatch> {
+    let reads = profile::PINNED.into_iter().filter_map(|(profile, cmd)| {
+        let program = inside.find(&[cmd.to_owned()])?.to_owned();
+        let mut cmd = tokio::process::Command::from(
+            inside.server(&[program.as_str(), "--version"], &[] as &[(&str, &str)]),
+        );
+        cmd.stdin(std::process::Stdio::null());
+        Some(async move {
+            let out = cmd.output().await.ok()?;
+            profile::version_warning(profile, &String::from_utf8_lossy(&out.stdout))
+                .map(|w| (profile, w))
+        })
+    });
+    join_all(reads).await.into_iter().flatten().collect()
 }
 
 /// 첫 그리기 전에 테마와 언어를 정한다. 설정 값을 `<html data-theme data-language>`에 넣어 보낸다.
@@ -181,28 +211,31 @@ async fn put_settings(
     Ok(Json(()))
 }
 
-/// 계정마다 사용량을 그 자리에서 읽는다. 공급자마다 시스템 기본이 첫째다.
+/// 위치(이 PC, 도는 WSL 배포판)와 계정마다 사용량을 그 자리에서 읽는다. 위치마다, 공급자마다 시스템 기본이 첫째다.
 async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>, Problem> {
+    let sites: Vec<_> = app.sites().await.into_iter().map(Arc::new).collect();
     let mut rows = Vec::new();
-    for provider in PROVIDERS {
-        let ids = app.accounts.list(provider).map_err(internal)?;
-        rows.extend(
-            std::iter::once(None)
-                .chain(ids.into_iter().map(Some))
-                .map(|id| (provider, id)),
-        );
+    for site in &sites {
+        for provider in PROVIDERS {
+            let ids = site.accounts().list(provider).map_err(internal)?;
+            rows.extend(
+                std::iter::once(None)
+                    .chain(ids.into_iter().map(Some))
+                    .map(|id| (site.clone(), provider, id)),
+            );
+        }
     }
-    let probes = rows.iter().map(|(provider, id)| {
-        let provider = *provider;
-        let dir = app.accounts.config_dir(provider, id.as_ref());
-        tokio::task::spawn_blocking(move || usage::probe(provider, dir.as_deref()))
+    let probes = rows.iter().map(|(site, provider, id)| {
+        let (site, provider, id) = (site.clone(), *provider, id.clone());
+        tokio::task::spawn_blocking(move || usage::probe(provider, &site, id.as_ref()))
     });
     let usages = join_all(probes).await;
     let views = rows
         .into_iter()
         .zip(usages)
-        .map(|((provider, id), usage)| AccountView {
+        .map(|((site, provider, id), usage)| AccountView {
             provider,
+            distro: site.distro().map(str::to_owned),
             id,
             usage: usage
                 .unwrap_or_else(|e| Usage::failed(UsageProblem::Unavailable(e.to_string()))),
@@ -211,40 +244,54 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
     Ok(Json(views))
 }
 
+/// 계정 라우트의 위치. `distro`가 없으면 이 PC다.
+#[derive(Deserialize)]
+struct At {
+    distro: Option<String>,
+}
+
 async fn remove_account(
     State(app): State<Arc<App>>,
     Path((provider, id)): Path<(Provider, AccountId)>,
+    Query(at): Query<At>,
 ) -> Result<Json<()>, Problem> {
-    app.accounts.remove(provider, &id).map_err(internal)?;
+    let site = app.site_of(at.distro.as_deref()).await?;
+    site.accounts().remove(provider, &id).map_err(internal)?;
     Ok(Json(()))
 }
 
 /// 로그인 창을 띄운다. 새 계정이면 로그인이 실패하거나 창을 닫았을 때 만든 폴더를 지운다.
+/// 그 위치의 CLI로 로그인하고, 새 계정의 폴더도 그 위치에 만든다.
 async fn login(
     State(app): State<Arc<App>>,
     Path(provider): Path<Provider>,
+    Query(at): Query<At>,
     Json(target): Json<LoginTarget>,
 ) -> Result<Json<LoginId>, Problem> {
+    let site = Arc::new(app.site_of(at.distro.as_deref()).await?);
     // CLI가 없으면 폴더를 만들기 전에 거절한다.
-    let mut cmd = accounts::login(provider)?;
+    site.login(provider, None)?;
     let (id, created) = match target {
         LoginTarget::System => (None, false),
         LoginTarget::Account(id) => (Some(id), false),
-        LoginTarget::New => (Some(app.accounts.create(provider).map_err(internal)?), true),
+        LoginTarget::New => (
+            Some(site.accounts().create(provider).map_err(internal)?),
+            true,
+        ),
     };
-    if let Some(id) = &id {
-        // `apply`는 폴더가 없으면 시스템 기본으로 둔다. 사라진 계정은 시스템 기본에 로그인하지 않게 거절한다.
-        if app.accounts.config_dir(provider, Some(id)).is_none() {
-            return Err(internal("the account folder is gone"));
-        }
-        app.accounts.apply(&mut cmd, provider, Some(id));
+    // `login`은 폴더가 없으면 시스템 기본으로 둔다. 사라진 계정은 시스템 기본에 로그인하지 않게 거절한다.
+    if let Some(id) = &id
+        && site.accounts().config_dir(provider, Some(id)).is_none()
+    {
+        return Err(internal("the account folder is gone"));
     }
+    let cmd = site.login(provider, id.as_ref())?;
     let discard = {
-        let app = app.clone();
+        let site = site.clone();
         move || {
             if created && let Some(id) = &id {
                 // 지우지 못하면 빈 폴더가 「다시 로그인 필요」로 목록에 남는다. 사용자가 지울 수 있다.
-                let _ = app.accounts.remove(provider, id);
+                let _ = site.accounts().remove(provider, id);
             }
         }
     };
@@ -280,9 +327,13 @@ async fn login(
     Ok(Json(login))
 }
 
-/// 시스템 기본의 로그인을 지운다. CLI가 끝날 때까지 기다린다.
-async fn logout(Path(provider): Path<Provider>) -> Result<Json<()>, Problem> {
-    let mut cmd = accounts::logout(provider)?;
+/// 그 위치의 시스템 기본 로그인을 지운다. CLI가 끝날 때까지 기다린다.
+async fn logout(
+    State(app): State<Arc<App>>,
+    Path(provider): Path<Provider>,
+    Query(at): Query<At>,
+) -> Result<Json<()>, Problem> {
+    let mut cmd = app.site_of(at.distro.as_deref()).await?.logout(provider)?;
     let out = tokio::task::spawn_blocking(move || cmd.stdin(std::process::Stdio::null()).output())
         .await
         .map_err(internal)?
@@ -293,6 +344,66 @@ async fn logout(Path(provider): Path<Provider>) -> Result<Json<()>, Problem> {
         ));
     }
     Ok(Json(()))
+}
+
+impl App {
+    /// 이 PC.
+    pub(super) fn pc_site(&self) -> Site {
+        Site::pc(self.accounts_root.clone())
+    }
+
+    /// 위치 목록: 이 PC, 그리고 더한 저장소가 있고 지금 도는 WSL 배포판. 멈춘 배포판은 켜지 않는다(`wsl::running`).
+    /// 배포판마다 `wsl.exe` 한 번으로 카탈로그 명령을 모두 찾는다. 읽지 못한 배포판은 빠진다.
+    /// 위치가 하나면(Linux, macOS, WSL 저장소가 없는 Windows) 화면은 위치를 보이지 않는다.
+    pub(super) async fn sites(&self) -> Vec<Site> {
+        let running = wsl::running().await;
+        let mut found: BTreeMap<String, wsl::WslPath> = BTreeMap::new();
+        for (_, path) in self.repos.list().unwrap_or_default() {
+            if let Some(at) = wsl::of(&path)
+                && running.contains(&at.distro)
+            {
+                found.entry(at.distro.clone()).or_insert(at);
+            }
+        }
+        let commands = profile::catalog_commands();
+        let read = found
+            .values()
+            .map(|at| wsl::inside(at, &commands, &self.shim, &[]));
+        let mut sites = vec![self.pc_site()];
+        for inside in join_all(read).await {
+            match inside {
+                Ok(inside) => sites.push(Site::wsl(inside)),
+                Err(e) => eprintln!("loom: WSL 위치를 읽지 못했다: {e}"),
+            }
+        }
+        sites
+    }
+
+    /// 화면이 고른 위치. 배포판이면 그 배포판의 저장소 하나에서 읽는다. 꺼져 있으면 `wsl.exe`가 켠다.
+    pub(super) async fn site_of(&self, distro: Option<&str>) -> Result<Site, Problem> {
+        let Some(distro) = distro else {
+            return Ok(self.pc_site());
+        };
+        let repos = self.repos.list().map_err(internal)?;
+        let path = repos
+            .iter()
+            .map(|(_, path)| path)
+            .find(|path| wsl::of(path).is_some_and(|at| at.distro == distro))
+            .ok_or_else(|| internal(format!("no repository in WSL · {distro}")))?;
+        self.site_at(path).await
+    }
+
+    /// 노드 폴더 `cwd`의 위치. 그 위치의 계정과 CLI(`claude`, `codex`)를 쓴다.
+    pub(super) async fn site_at(&self, cwd: &std::path::Path) -> Result<Site, Problem> {
+        Ok(match wsl::of(cwd) {
+            Some(at) => Site::wsl(
+                wsl::inside(&at, &["claude", "codex"], &self.shim, &[])
+                    .await
+                    .map_err(LaunchError::Wsl)?,
+            ),
+            None => self.pc_site(),
+        })
+    }
 }
 
 async fn login_state(

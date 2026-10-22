@@ -81,14 +81,12 @@ pub struct CodexServer {
 }
 
 impl CodexServer {
-    /// `home`이 `None`이면 시스템 기본 로그인(`~/.codex`)을 쓴다.
-    /// `node_env`는 노드 프로세스와 같은 환경이다. 셸 명령은 이 서버 아래에서 돌므로 `loom`이 그 값을 읽는다.
+    /// `node_env`는 노드 프로세스와 같은 환경이다. loom 계정이면 그 로그인 폴더(`CODEX_HOME`)도 든다. 없으면 시스템 기본(`~/.codex`)이다. 셸 명령은 이 서버 아래에서 돌므로 `loom`이 그 값을 읽는다.
     /// `config`는 서버에 넘길 `-c` 인자다. `cwd`는 노드가 도는 워크트리다. 스레드는 서버의 작업 폴더에서 돈다.
     /// `inside`가 있으면 서버를 그 WSL 배포판의 노드 폴더에서 띄운다.
     pub async fn start(
         cwd: &Path,
         inside: Option<&Inside>,
-        home: Option<&Path>,
         node_env: &[(&'static str, OsString)],
         config: &[String],
     ) -> Result<Self, String> {
@@ -117,9 +115,6 @@ impl CodexServer {
                 let mut cmd = process_tree::command("codex");
                 cmd.args(&args).envs(node_env.iter().map(|(k, v)| (k, v)));
                 cmd.current_dir(cwd);
-                if let Some(dir) = home {
-                    cmd.env("CODEX_HOME", dir);
-                }
                 cmd
             }
         };

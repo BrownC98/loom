@@ -5,6 +5,10 @@ import type { Usage } from "./Usage";
 
 export type AccountView = { provider: Provider, 
 /**
- * 없으면 시스템 기본(`~/.claude`·`~/.codex`)이다. 쓰는 계정은 설정(`SettingsView`)이 정한다.
+ * 계정이 있는 WSL 배포판. 이 PC면 없다. 계정은 한 위치에만 속한다.
+ */
+distro: string | null, 
+/**
+ * 없으면 그 위치의 시스템 기본(`~/.claude`·`~/.codex`)이다. 쓰는 계정은 설정(`SettingsView`)이 위치마다 정한다.
  */
 id: AccountId | null, usage: Usage, };

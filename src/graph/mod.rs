@@ -26,6 +26,7 @@ pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{Attached, HUMAN, HumanWait, OpenQuestion, WaitDoc, WaitId, WaitKind, WaitSource};
 
+use crate::db::Database;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::worktree::RepoId;
 
@@ -325,7 +326,9 @@ impl From<rusqlite::Error> for Refusal {
 }
 
 pub struct Graph {
-    db: Mutex<Store>,
+    db: Database,
+    /// 화면에 보낸 마지막 이벤트 기록 id. `db`를 잠근 뒤에만 잠근다(`lock`).
+    published: Mutex<u32>,
     events: broadcast::Sender<GraphEvent>,
     /// 메시지를 넣을 때마다 `wait` 모두를 깨운다. 깬 쪽이 자기 메시지인지 DB에서 본다.
     mail: Notify,
@@ -345,40 +348,35 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id)
     FROM nodes n";
 
-struct Store {
-    conn: Connection,
-    /// 화면에 보낸 마지막 이벤트 기록 id.
-    published: u32,
-}
-
 /// 잠근 DB. 놓을 때 아직 보내지 않은 이벤트 기록을 보낸다.
 /// 기록은 바꾼 트랜잭션 안에서 쓴다. 되돌린 트랜잭션의 기록은 없으므로 보내지 않는다.
 struct Db<'a> {
-    store: MutexGuard<'a, Store>,
+    conn: MutexGuard<'a, Connection>,
+    published: MutexGuard<'a, u32>,
     events: &'a broadcast::Sender<GraphEvent>,
 }
 
 impl Deref for Db<'_> {
     type Target = Connection;
     fn deref(&self) -> &Connection {
-        &self.store.conn
+        &self.conn
     }
 }
 
 impl DerefMut for Db<'_> {
     fn deref_mut(&mut self) -> &mut Connection {
-        &mut self.store.conn
+        &mut self.conn
     }
 }
 
 impl Drop for Db<'_> {
     fn drop(&mut self) {
         // 잠금을 쥔 채 보낸다. 그래야 기록 순서가 DB 순서와 같다.
-        let Ok(new) = events::after(&self.store.conn, self.store.published) else {
+        let Ok(new) = events::after(&self.conn, *self.published) else {
             return;
         };
         for record in new {
-            self.store.published = record.id;
+            *self.published = record.id;
             let _ = self.events.send(GraphEvent::Recorded { record });
         }
     }
@@ -386,10 +384,11 @@ impl Drop for Db<'_> {
 
 impl Graph {
     /// 저장한 그래프를 연다. `running`이던 노드는 그대로 둔다. 프로세스가 살았는지는 데몬이 다시 붙어 보고 정한다(`active`, `lost`).
-    pub fn open(conn: Connection) -> rusqlite::Result<Self> {
-        let published = events::last_id(&conn)?;
+    pub fn open(db: Database) -> rusqlite::Result<Self> {
+        let published = events::last_id(&db.lock())?;
         Ok(Self {
-            db: Mutex::new(Store { conn, published }),
+            db,
+            published: Mutex::new(published),
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
             titles: Mutex::default(),
@@ -431,7 +430,8 @@ impl Graph {
 
     fn lock(&self) -> Db<'_> {
         Db {
-            store: self.db.lock().unwrap(),
+            conn: self.db.lock(),
+            published: self.published.lock().unwrap(),
             events: &self.events,
         }
     }

@@ -4,12 +4,12 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::db::Database;
 use crate::git;
 use crate::wsl;
 
@@ -166,14 +166,12 @@ impl fmt::Display for RepoProblem {
 }
 
 pub struct Repos {
-    db: Mutex<Connection>,
+    db: Database,
 }
 
 impl Repos {
-    pub fn new(conn: Connection) -> Self {
-        Self {
-            db: Mutex::new(conn),
-        }
+    pub fn new(db: Database) -> Self {
+        Self { db }
     }
 
     /// 폴더가 속한 저장소를 더한다. 원래 체크아웃 경로로 저장하므로 같은 저장소의 다른 워크트리를 적어도 하나다.
@@ -219,7 +217,7 @@ impl Repos {
 
     fn insert(&self, path: &Path) -> rusqlite::Result<RepoId> {
         let text = path.to_string_lossy();
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock();
         db.execute(
             "INSERT INTO repos (path) VALUES (?1) ON CONFLICT (path) DO NOTHING",
             [&text],
@@ -233,7 +231,6 @@ impl Repos {
     pub fn list(&self) -> rusqlite::Result<Vec<(RepoId, PathBuf)>> {
         self.db
             .lock()
-            .unwrap()
             .prepare("SELECT id, path FROM repos ORDER BY id")?
             .query_map([], |row| {
                 Ok((RepoId(row.get(0)?), PathBuf::from(row.get::<_, String>(1)?)))
@@ -244,7 +241,7 @@ impl Repos {
     /// 목록에서 뺀다. 폴더는 건드리지 않는다. 노드가 남았으면 거절한다. 보관한 메시지를 몰래 지우지 않는다.
     /// `nodes`는 같은 DB 파일이다. 검사와 삭제가 한 문장이고, 노드 넣기도 저장소 줄이 있을 때만 한다(`graph::nodes::insert`). 그래서 저장소 없는 노드가 남지 않는다.
     pub fn remove(&self, id: RepoId) -> Result<(), RepoProblem> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock();
         let fail = |e: rusqlite::Error| RepoProblem::Git(e.to_string());
         let deleted = db
             .execute(
@@ -269,7 +266,6 @@ impl Repos {
     pub fn path(&self, id: RepoId) -> Result<PathBuf, RepoProblem> {
         self.db
             .lock()
-            .unwrap()
             .query_row("SELECT path FROM repos WHERE id = ?1", [id.0], |row| {
                 row.get::<_, String>(0)
             })
@@ -696,9 +692,10 @@ mod tests {
         let repo = repo(dir.path());
         let repos = repos(dir.path());
         let id = repos.add(repo.to_str().unwrap()).await.unwrap();
-        // 노드 표는 그래프가 같은 DB 파일에 쓴다.
-        let graph = crate::db::open(&dir.path().join("t.db")).unwrap();
+        // 노드 표는 그래프가 같은 연결로 쓴다.
+        let graph = repos.db.clone();
         graph
+            .lock()
             .execute(
                 r#"INSERT INTO nodes (name, agent, state, repo) VALUES ('shell-1', 'null', '{"kind":"running"}', ?1)"#,
                 [id.0],
@@ -707,7 +704,7 @@ mod tests {
         assert_eq!(repos.remove(id), Err(RepoProblem::HasNodes(1)));
         assert_eq!(repos.list().unwrap(), [(id, repo.clone())]);
 
-        graph.execute("DELETE FROM nodes", []).unwrap();
+        graph.lock().execute("DELETE FROM nodes", []).unwrap();
         assert_eq!(repos.remove(id), Ok(()));
         assert_eq!(repos.list().unwrap(), []);
         assert!(repo.join(".git").is_dir());

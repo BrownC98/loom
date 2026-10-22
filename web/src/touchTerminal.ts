@@ -122,13 +122,24 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
     selectBetween(xterm, picked.from, picked.to);
     place();
   };
+  // xterm은 줄 수가 바뀌면 고른 글을 지운다. 길게 눌러 고를 때 키보드가 닫혀 터미널 줄 수가 바뀌었고, 고른 글이 바로 풀렸다(2026-10-23 사람 "앱에서 롱클릭 드래그가 잡혔다가 바로 풀리네 터미널에선").
+  // xterm은 공개 onResize를 알린 뒤에 지운다. 그래서 다음 프레임에 다시 고른다.
   const unpick = xterm.onSelectionChange(() => {
     if (xterm.hasSelection()) return;
     picked = null;
     place();
   });
   const scrolled = xterm.onScroll(place);
-  const resized = xterm.onResize(place);
+  const resized = xterm.onResize(() => {
+    const keep = picked;
+    place();
+    if (!keep) return;
+    requestAnimationFrame(() => {
+      if (xterm.hasSelection()) return;
+      pick(keep.from, keep.to);
+      onSelect(edge(keep.to, 'to'));
+    });
+  });
 
   const wheel = (lines: number) => {
     const event = new WheelEvent('wheel', { deltaY: lines, deltaMode: WheelEvent.DOM_DELTA_LINE, bubbles: true, cancelable: true });

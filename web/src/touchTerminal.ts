@@ -60,7 +60,9 @@ function wordAt(xterm: XTerm, at: Cell): { from: Cell; to: Cell } {
  * 폰 터미널 손가락 동작. 한 손가락 세로 쓸기는 xterm에 휠 입력으로 보낸다: 셸은 스크롤백이 움직이고,
  * 마우스 추적을 켠 TUI(Claude Code·less)는 휠을 받는다. 길게 누르면 폰 관례대로 그 낱말을 고르고, 끌면 낱말에서 손가락까지 늘어난다
  * (2026-10-23 사람 "모바일의 일반적 관례를 따르라 예를 들면 화면을 꾹 눌렀을 때 단어 단위로 이미 지정이 된다던가").
- * 짧게 누르면 아무것도 하지 않아 xterm의 포커스(키보드)가 그대로 열린다.
+ * 고른 글의 두 끝에 손잡이를 단다. 손잡이를 끌면 그 끝만 옮긴다. 손가락은 손잡이를 잡은 자리만큼 떨어져 있어 글자를 가리지 않는다.
+ * 고르는 동안과, 고른 글이 있을 때 누른 한 번은 키보드를 열지 않는다(2026-10-23 사람 "텍스트를 지정할 때는 키보드 안올라오게 해줘, 드래그 핀셋도 추가해서 정밀하게 드래그 가능하게 해줘").
+ * 고른 글이 없을 때 짧게 누르면 아무것도 하지 않아 xterm의 포커스(키보드)가 그대로 열린다.
  * `onSelect`는 고르기가 끝난 손가락 자리를 알린다(복사 버튼 자리). 터치 기기에서만 건다.
  */
 export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at: TouchSelection) => void): () => void {
@@ -71,10 +73,57 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   // Android는 약 500ms 길게 누르면 contextmenu를 내고 자기 글자 고르기를 시작하며 touchcancel을 보낸다. 그러면 우리 고르기가 끝나 끌어도 늘지 않았다(2026-10-22 사람 "스크롤은 되는데 텍스트 선택이 안됨", 실제 앱). 기본 메뉴와 고르기를 막는다.
   el.style.setProperty('-webkit-touch-callout', 'none');
   el.style.userSelect = 'none';
+  if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
   const onMenu = (e: Event) => e.preventDefault();
 
-  type State = { mode: 'press' | 'scroll' | 'select'; x: number; y: number; anchor: Cell; word: { from: Cell; to: Cell }; carry: number; timer: number };
+  type End = 'from' | 'to';
+  type State =
+    | { mode: 'press' | 'scroll' | 'select'; x: number; y: number; anchor: Cell; word: { from: Cell; to: Cell }; carry: number; timer: number; hadSelection: boolean }
+    | { mode: 'handle'; end: End; dx: number; dy: number };
   let state: State | null = null;
+  let picked: { from: Cell; to: Cell } | null = null;
+
+  const handles = { from: document.createElement('div'), to: document.createElement('div') };
+  handles.from.className = 'touch-handle from';
+  handles.to.className = 'touch-handle to';
+  el.append(handles.from, handles.to);
+
+  const cellBox = () => {
+    const rect = screen.getBoundingClientRect();
+    return { rect, width: rect.width / xterm.cols, height: rect.height / xterm.rows };
+  };
+  /** 칸 아래 모서리의 화면 좌표. `to` 끝은 칸의 오른쪽 모서리다. */
+  const edge = (cell: Cell, end: End) => {
+    const { rect, width, height } = cellBox();
+    return { x: rect.left + (cell.col + (end === 'to' ? 1 : 0)) * width, y: rect.top + (cell.row - xterm.buffer.active.viewportY + 1) * height };
+  };
+  const place = () => {
+    const box = el.getBoundingClientRect();
+    for (const end of ['from', 'to'] as const) {
+      const handle = handles[end];
+      const row = picked ? picked[end].row - xterm.buffer.active.viewportY : -1;
+      if (!picked || row < 0 || row >= xterm.rows) {
+        handle.style.display = 'none';
+        continue;
+      }
+      const at = edge(picked[end], end);
+      handle.style.display = 'block';
+      handle.style.left = `${at.x - box.left}px`;
+      handle.style.top = `${at.y - box.top}px`;
+    }
+  };
+  const pick = (from: Cell, to: Cell) => {
+    picked = before(to, from) ? { from: to, to: from } : { from, to };
+    selectBetween(xterm, picked.from, picked.to);
+    place();
+  };
+  const unpick = xterm.onSelectionChange(() => {
+    if (xterm.hasSelection()) return;
+    picked = null;
+    place();
+  });
+  const scrolled = xterm.onScroll(place);
+  const resized = xterm.onResize(place);
 
   const wheel = (lines: number) => {
     const event = new WheelEvent('wheel', { deltaY: lines, deltaMode: WheelEvent.DOM_DELTA_LINE, bubbles: true, cancelable: true });
@@ -85,15 +134,25 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   };
 
   const onStart = (e: TouchEvent) => {
-    if (state) clearTimeout(state.timer);
+    if (state?.mode !== 'handle' && state) clearTimeout(state.timer);
     if (e.touches.length !== 1) return void (state = null);
     const { clientX: x, clientY: y } = e.touches[0];
+    const end = (Object.keys(handles) as End[]).find((k) => handles[k].contains(e.target as Node));
+    if (end && picked) {
+      // 손가락과 그 끝 칸 가운데의 거리를 지킨다. 그래서 칸이 손가락에 가리지 않는다.
+      const { width, height } = cellBox();
+      const at = edge(picked[end], end);
+      state = { mode: 'handle', end, dx: at.x - (end === 'to' ? width / 2 : -width / 2) - x, dy: at.y - height / 2 - y };
+      return;
+    }
     const anchor = cellAt(xterm, screen, x, y);
-    const next: State = { mode: 'press', x, y, anchor, word: { from: anchor, to: anchor }, carry: 0, timer: 0 };
+    const next: State = { mode: 'press', x, y, anchor, word: { from: anchor, to: anchor }, carry: 0, timer: 0, hadSelection: xterm.hasSelection() };
     next.timer = window.setTimeout(() => {
       next.mode = 'select';
       next.word = wordAt(xterm, next.anchor);
-      selectBetween(xterm, next.word.from, next.word.to);
+      // 열린 키보드를 닫는다. 고른 글을 가린다.
+      xterm.blur();
+      pick(next.word.from, next.word.to);
     }, LONG_PRESS_MS);
     // 새로 누르면 앞 고르기는 끝낸다.
     xterm.clearSelection();
@@ -103,6 +162,15 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   const onMove = (e: TouchEvent) => {
     if (!state || e.touches.length !== 1) return;
     const { clientX: x, clientY: y } = e.touches[0];
+    if (state.mode === 'handle') {
+      e.preventDefault();
+      if (!picked) return;
+      const at = cellAt(xterm, screen, x + state.dx, y + state.dy);
+      const other: End = state.end === 'from' ? 'to' : 'from';
+      // 손잡이가 다른 끝을 넘으면 맡은 끝이 바뀐다.
+      if (state.end === 'from' ? before(picked.to, at) : before(at, picked.from)) state.end = other;
+      return state.end === 'from' ? pick(at, picked.to) : pick(picked.from, at);
+    }
     if (state.mode === 'press') {
       if (Math.hypot(x - state.x, y - state.y) < SLOP_PX) return;
       clearTimeout(state.timer);
@@ -113,7 +181,7 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
     if (state.mode === 'select') {
       const at = cellAt(xterm, screen, x, y);
       const { from, to } = state.word;
-      return before(at, from) ? selectBetween(xterm, at, to) : selectBetween(xterm, from, before(to, at) ? at : to);
+      return before(at, from) ? pick(at, to) : pick(from, before(to, at) ? at : to);
     }
     // 손가락이 위로 가면 내용이 위로 가고, 나중 줄이 보인다.
     const cellHeight = screen.getBoundingClientRect().height / xterm.rows;
@@ -127,11 +195,13 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
 
   const onEnd = (e: TouchEvent) => {
     if (!state) return;
-    clearTimeout(state.timer);
-    if (state.mode === 'select') {
-      e.preventDefault();
+    if (state.mode !== 'handle') clearTimeout(state.timer);
+    // 고르기를 끝낸 손가락, 고른 글을 지우려고 누른 한 번은 xterm이 포커스를 잡아 키보드를 열지 않게 한다.
+    const keepKeyboardClosed = state.mode === 'select' || state.mode === 'handle' || (state.mode === 'press' && state.hadSelection);
+    if (keepKeyboardClosed) e.preventDefault();
+    if ((state.mode === 'select' || state.mode === 'handle') && xterm.hasSelection()) {
       const touch = e.changedTouches[0];
-      if (xterm.hasSelection()) onSelect({ x: touch.clientX, y: touch.clientY });
+      onSelect({ x: touch.clientX, y: touch.clientY });
     }
     state = null;
   };
@@ -142,7 +212,12 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   el.addEventListener('touchcancel', onEnd, { passive: false });
   el.addEventListener('contextmenu', onMenu, { capture: true });
   return () => {
-    if (state) clearTimeout(state.timer);
+    if (state && state.mode !== 'handle') clearTimeout(state.timer);
+    unpick.dispose();
+    scrolled.dispose();
+    resized.dispose();
+    handles.from.remove();
+    handles.to.remove();
     el.removeEventListener('touchstart', onStart);
     el.removeEventListener('touchmove', onMove);
     el.removeEventListener('touchend', onEnd);

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::mailbox;
-use super::{Graph, NodeId, Refusal, parent_of, to_json};
+use super::{Graph, NodeId, NodeState, Refusal, parent_of, state_of, to_json};
 
 /// 사람이 할 일의 종류. 화면이 이름과 아이콘을 고른다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -272,11 +272,11 @@ impl Graph {
             .ok_or(Refusal::NoWait(wait))
     }
 
-    /// 사람이 띄운 노드(부모 없음)이고 지금 사람 응답 대기가 하나도 없다. 턴 끝 질문 검사(`daemon::turn_end`)가 쓴다.
-    /// 이번 턴에 `loom ask`나 Claude 질문 도구로 물었으면 대기가 남아 있다.
-    pub fn unasked_root(&self, id: NodeId) -> Result<bool, Refusal> {
+    /// 사람이 띄운 노드(부모 없음)이고, 지금 사람 응답 대기가 하나도 없고, 마지막 입력 뒤 `loom done`을 부르지 않았다.
+    /// 턴 끝 검사(`daemon::turn_end`)가 쓴다. 이번 턴에 `loom ask`나 Claude 질문 도구로 물었으면 대기가 남아 있다.
+    pub fn unreported_root(&self, id: NodeId) -> Result<bool, Refusal> {
         let db = self.lock();
-        if parent_of(&db, id)?.is_some() {
+        if parent_of(&db, id)?.is_some() || state_of(&db, id)? != NodeState::Running {
             return Ok(false);
         }
         Ok(stored(&db, id)?.is_some_and(|wait| wait.is_none()) && questions(&db, id)?.is_empty())

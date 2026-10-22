@@ -214,13 +214,13 @@ fn signal_wait_has_one_entry_and_clears_by_source_key_and_exit() {
             .collect::<Vec<_>>()
     };
 
-    // 턴 끝 질문 검사는 대기 없는 루트만 본다.
-    assert_eq!(g.unasked_root(lead), Ok(true));
-    assert_eq!(g.unasked_root(worker), Ok(false));
+    // 턴 끝 검사는 대기 없고 `loom done`을 부르지 않은 루트만 본다.
+    assert_eq!(g.unreported_root(lead), Ok(true));
+    assert_eq!(g.unreported_root(worker), Ok(false));
     // 다른 신호는 자기가 건 대기만 거둔다.
     let trust = (WaitKind::Trust, "Trust?");
     g.set_wait(lead, WaitSource::Screen, Some(trust)).unwrap();
-    assert_eq!(g.unasked_root(lead), Ok(false));
+    assert_eq!(g.unreported_root(lead), Ok(false));
     g.set_wait(lead, WaitSource::Hook, None).unwrap();
     assert_eq!(waits(lead), [(WaitKind::Trust, "Trust?".into())]);
     // 사람의 키 입력이 신호의 대기를 지운다.
@@ -368,7 +368,7 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
     let q1 = g.ask(lead, "A or B?\nmore", None).unwrap();
     let q2 = g.ask(lead, "C?", None).unwrap();
     let q3 = g.ask(lead, "D?", None).unwrap();
-    assert_eq!(g.unasked_root(lead), Ok(false));
+    assert_eq!(g.unreported_root(lead), Ok(false));
     assert_eq!(
         g.open_questions(lead),
         Ok(vec![
@@ -404,7 +404,7 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
     assert_eq!(g.answered(lead, &[q2]), Err(Refusal::NoWait(q2)));
     assert_eq!(g.answered(lead, &[]), Ok(vec![q1]));
     assert_eq!(g.answered(lead, &[]), Ok(vec![]));
-    assert_eq!(g.unasked_root(lead), Ok(true));
+    assert_eq!(g.unreported_root(lead), Ok(true));
 
     // [×]는 그 질문 하나만, 재시작은 모두 지운다.
     let q4 = g.ask(lead, "E?", None).unwrap();
@@ -883,11 +883,8 @@ fn done_sends_summary_and_later_exit_keeps_done() {
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
 
+    g.done(a, "처음", None, &[]).unwrap();
     g.done(a, "끝났다", None, &[]).unwrap();
-    assert!(matches!(
-        g.done(a, "다시", None, &[]),
-        Err(Refusal::AlreadyDone)
-    ));
     g.exited(a, 0).unwrap();
     assert_eq!(
         view(&g, a).state,
@@ -895,6 +892,7 @@ fn done_sends_summary_and_later_exit_keeps_done() {
             summary: "끝났다".into()
         }
     );
+    assert_eq!(take(&g, lead), delivery("a", "done: 처음"));
     assert_eq!(take(&g, lead), delivery("a", "done: 끝났다"));
     assert_eq!(take(&g, lead), None);
 }
@@ -2076,19 +2074,65 @@ fn rename_records_the_old_name_and_tells_parent_and_children() {
 }
 
 #[test]
-fn child_names_cannot_start_with_hash() {
+fn a_root_that_called_done_is_reported() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "lead");
+    assert_eq!(g.unreported_root(lead), Ok(true));
+    g.done(lead, "병합했다", Some("병합해"), &[]).unwrap();
+    assert_eq!(g.unreported_root(lead), Ok(false));
+}
+
+#[test]
+fn names_for_ids_and_the_parent_are_reserved() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    for name in ["#2", "2", "parent"] {
+        assert!(matches!(
+            g.add_child(
+                lead,
+                named(name),
+                TreeLimits::default(),
+                &launched(),
+                started
+            ),
+            Err(Refusal::ReservedName(_))
+        ));
+    }
+}
+
+/// 에이전트는 부모를 `parent`로, 노드를 `#` 없는 번호로도 가리킨다.
+#[test]
+fn parent_and_bare_ids_address_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let a = child(&g, lead, "a");
+
+    g.send(a, "parent", Kind::Queue, "up").unwrap();
+    assert_eq!(take(&g, lead), delivery("a", "up"));
+    g.send(a, "parent", Kind::Steer, "steer up").unwrap();
+    assert_eq!(
+        take(&g, lead),
+        Some(("a".into(), Kind::Steer, "steer up".into()))
+    );
+    g.send(lead, &a.0.to_string(), Kind::Queue, "down").unwrap();
+    assert_eq!(take(&g, a), delivery("lead-1", "down"));
     assert!(matches!(
-        g.add_child(
-            lead,
-            named("#2"),
-            TreeLimits::default(),
-            &launched(),
-            started
-        ),
-        Err(Refusal::ReservedName(_))
+        g.send(lead, "parent", Kind::Steer, "x"),
+        Err(Refusal::NotRelated(_))
+    ));
+    // 부모 없는 노드가 `parent`로 보낸 큐 메시지는 다음 부모를 기다린다.
+    assert_eq!(
+        g.send(lead, "parent", Kind::Queue, "kept")
+            .unwrap()
+            .recipient,
+        None
+    );
+    assert!(matches!(
+        g.send(lead, "999", Kind::Queue, "x"),
+        Err(Refusal::NotFound(_))
     ));
 }
 

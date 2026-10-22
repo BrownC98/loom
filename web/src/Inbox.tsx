@@ -12,6 +12,7 @@ import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
 import { asking } from './NodeCard';
+import { Modal } from './Modal';
 import { useOutsideClose } from './popover';
 
 /** 차례: 질문(답할 일)이 완료보다 앞이다. 완료가 질문을 가리지 않는다(목업 docs/mockups/done-notice.html M37). 같은 차례면 오래된 것이 앞이다. */
@@ -246,6 +247,24 @@ function Clamped(props: { className?: string; children: ReactNode }) {
   );
 }
 
+/** 완료 알림의 그림 썸네일. 누르면 화면 위에 원래 크기로 띄운다. Esc나 바깥 누르기로 닫는다(2026-10-22 사람 지시 "썸네일 크게보기 기능 추가해줘"). */
+function ZoomImage(props: { src: string; name: string; title: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="zoom" title={props.title} aria-label={t('inbox.zoomImage', { name: props.name })} onClick={() => setOpen(true)}>
+        <img src={props.src} alt={props.name} />
+      </button>
+      {open && (
+        <Modal className="image-view" label={props.name} onClose={() => setOpen(false)} outsideClose>
+          <img src={props.src} alt={props.name} onClick={() => setOpen(false)} />
+        </Modal>
+      )}
+    </>
+  );
+}
+
 /** 완료 알림의 [확인]. 그 알림을 지운다. 거절되면 툴팁이 이유를 보인다. */
 function ConfirmButton(props: { wait: WaitId }) {
   const { t } = useTranslation();
@@ -314,7 +333,7 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
         <ul className="answer-images">
           {wait.images.map((path, index) => (
             <li key={path}>
-              <img src={doneImageUrl(wait.id, index)} alt={path.split(/[\\/]/).pop()} title={path} />
+              <ZoomImage src={doneImageUrl(wait.id, index)} name={path.split(/[\\/]/).pop() ?? path} title={path} />
             </li>
           ))}
         </ul>

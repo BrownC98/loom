@@ -178,7 +178,7 @@ impl Default for TreeLimits {
 pub enum Refusal {
     EmptyName,
     NameTaken(String),
-    /// `#`으로 시작하는 이름. `#번호`는 노드 번호 표기다.
+    /// `#`으로 시작하는 이름, 숫자만인 이름, `parent`. 받는 쪽 이름에서 노드 번호와 부모를 가리킨다.
     ReservedName(String),
     TooDeep,
     /// 값은 자식 수 상한이다.
@@ -193,7 +193,6 @@ pub enum Refusal {
     /// `loom rm`의 대상이 가진 자식을 부르는 노드가 데려갈 수 없다. 값은 대상 이름과 데려갈 수 없는 자식과 이유다.
     ChildrenStay(String),
     Ended(String),
-    AlreadyDone,
     HeldFull,
     Cycle,
     NotFound(String),
@@ -234,7 +233,7 @@ impl fmt::Display for Refusal {
             }
             Refusal::ReservedName(name) => write!(
                 f,
-                "{name}: names that start with # are for node IDs. Remove the #."
+                "{name}: this name is kept for node IDs and the parent. Use a name that has a letter and does not start with #."
             ),
             Refusal::TooDeep => write!(
                 f,
@@ -269,7 +268,6 @@ impl fmt::Display for Refusal {
                 "{list}. These children cannot move to you, so nothing changed. Remove or move them first."
             ),
             Refusal::Ended(name) => write!(f, "{name}: the node process has ended."),
-            Refusal::AlreadyDone => write!(f, "This node is already done."),
             Refusal::HeldFull => write!(
                 f,
                 "You have no parent, and {MAILBOX_LIMIT} kept messages wait for one. Send again after a new parent adopts you."
@@ -278,7 +276,10 @@ impl fmt::Display for Refusal {
                 f,
                 "A node cannot have itself or its descendant as its parent."
             ),
-            Refusal::NotFound(name) => write!(f, "{name}: no node has this name."),
+            Refusal::NotFound(name) => write!(
+                f,
+                "{name}: no node has this name. Use `parent`, or a name or ID from `loom status --all`."
+            ),
             Refusal::NotSteerable(name) => write!(
                 f,
                 "{name}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Use `loom send`."

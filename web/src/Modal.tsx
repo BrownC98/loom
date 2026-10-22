@@ -17,7 +17,14 @@ export function Modal(props: { className: string; label: string; onClose: () => 
     return () => dialog.removeEventListener('cancel', close);
   }, []);
   return (
-    <dialog ref={ref} className={props.className} aria-label={props.label} onClick={props.outsideClose ? (e) => e.target === e.currentTarget && props.onClose() : undefined}>
+    // Esc는 이 창만 닫는다. 문서에 Esc를 건 아래 팝오버(받은편지함 목록)까지 닫히지 않게 한다.
+    <dialog
+      ref={ref}
+      className={props.className}
+      aria-label={props.label}
+      onKeyDown={(e) => e.key === 'Escape' && e.stopPropagation()}
+      onClick={props.outsideClose ? (e) => e.target === e.currentTarget && props.onClose() : undefined}
+    >
       {props.children}
     </dialog>
   );

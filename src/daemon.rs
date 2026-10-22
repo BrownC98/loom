@@ -1512,7 +1512,7 @@ async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread
 /// Codex 턴 끝 질문 검사. 다시 일하게 했으면 참이다. 대기 없는 루트만 답 글을 읽는다.
 async fn codex_turn_end(app: &App, node: NodeId, server: &CodexServer, thread: &str) -> bool {
     let call = |method, params| server.call(method, params);
-    if app.graph.unasked_root(node).unwrap_or(false) {
+    if app.graph.unreported_root(node).unwrap_or(false) {
         match codex::last_reply(call, thread).await {
             Ok(Some(text)) => app.turn_ends.said(node, text),
             Ok(None) => {}

@@ -759,7 +759,12 @@ fn optional_json<T: serde::de::DeserializeOwned>(
 fn checked_name(name: &str) -> Result<&str, Refusal> {
     match name.trim() {
         "" => Err(Refusal::EmptyName),
-        name if name.starts_with('#') => Err(Refusal::ReservedName(name.to_owned())),
+        name if name.starts_with('#')
+            || name == mailbox::PARENT
+            || name.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            Err(Refusal::ReservedName(name.to_owned()))
+        }
         name => Ok(name),
     }
 }

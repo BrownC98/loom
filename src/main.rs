@@ -140,6 +140,9 @@ enum Cli {
     Adopt { name: String },
     /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
     Rm { name: String },
+    /// 에이전트 프로세스를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 그 턴이 끝난 뒤 띄운다.
+    /// 이름이 없으면 이 노드 자신이고, 있으면 자기 자식이다. 받은 메시지와 열린 질문은 남는다.
+    Relaunch { name: Option<String> },
     /// user-doc 문서(HTML)를 점검하고 문서 ID를 붙인다. 브라우저는 열지 않는다. 사람에게는 `loom ask --doc`으로 보인다.
     Show { file: PathBuf },
     /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
@@ -212,6 +215,7 @@ fn main() -> ExitCode {
         Cli::Answered { ids } => cli::answered(ids),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),
+        Cli::Relaunch { name } => cli::relaunch(name),
         Cli::Show { file } => user_doc::show(&wsl::from_caller(file)),
         Cli::PtyHost => node_host::run(),
     };

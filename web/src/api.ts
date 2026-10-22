@@ -28,6 +28,7 @@ import type { Placed } from './gen/Placed';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
+import type { Relaunched } from './gen/Relaunched';
 import type { RenameNode } from './gen/RenameNode';
 import type { RenameWorktree } from './gen/RenameWorktree';
 import type { RepoId } from './gen/RepoId';
@@ -245,3 +246,7 @@ export function attachPty(
     },
   };
 }
+/** 노드를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 턴이 끝난 뒤 띄운다(docs/design.md 「다시 띄우기」). */
+export const relaunchNode = (id: NodeId) => call<Relaunched>('POST', `/api/nodes/${id}/relaunch`);
+/** 그 노드가 턴 끝에 다시 뜰 차례다. */
+export const relaunchQueued = (id: NodeId) => call<boolean>('GET', `/api/nodes/${id}/relaunch`);

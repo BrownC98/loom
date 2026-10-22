@@ -1,9 +1,9 @@
-import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
+import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, Workflow } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putArranged, putSizes, putSpots, removeNode } from './api';
-import { agentLabel, recentAgent } from './catalog';
+import { agentLabel, canResume, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { CardView } from './gen/CardView';
@@ -23,6 +23,7 @@ import { NewNodePopover } from './NewNodePopover';
 import { PlaceTag, shownPath } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
+import { NodeMenu } from './NodeMenu';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
 import { realignTerminals, SizingTerminal, type Direction } from './Terminal';
@@ -191,10 +192,10 @@ type GroupData = {
   /** 이 묶음 안 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑥). */
   onArrange: () => void;
 };
-type CardBase = { view: NodeView; agentLabel: string; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
+type CardBase = { view: NodeView; agentLabel: string; resumable: boolean; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /**
  * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 이 화면에서 카드를 펼치면 카드는 터미널을 그리지 않는다. PTY 크기는 카드가 정한다(`SizingTerminal`). 펼친 카드는 펼친 동안 PTY 크기를 자기 칸에 맞추고, 접으면 카드가 다시 정한다.
- * `sized`: 사람이 크기를 바꿨다. 그 카드만 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③).
+ * `sized`: 사람이 크기를 바꿨다. 그 카드만 노드 메뉴에 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③, relaunch.html v3).
  * `onResizeStart`: 테두리를 잡았다. `onResize`: 끄는 동안 크기와 왼쪽 위가 옮긴 거리. `onResized`: 놓은 값. 저장한다.
  */
 type CardData = CardBase & { parentName: string | null; ownsPty: boolean; onExpand: () => void; sized: boolean; onResizeStart: () => void; onResize: (step: Resized) => void; onResized: (step: Resized) => void; onResetSize: () => void };
@@ -313,15 +314,10 @@ function Card({ data }: NodeProps<CardNode>) {
         headAction={
           <>
             <BookmarkButton view={data.view} />
-            {data.sized && (
-              <IconButton label={t('node.resetSize')} title={t('node.resetSize')} onClick={data.onResetSize}>
-                <RotateCcw />
-              </IconButton>
-            )}
             <IconButton label={t('node.expand')} title={t('node.expandTitle')} onClick={data.onExpand}>
               <Maximize2 />
             </IconButton>
-            <RemoveButton onRemove={data.onRemove} />
+            <NodeMenu view={data.view} resumable={data.resumable} onResetSize={data.sized ? data.onResetSize : undefined} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
         }
       >
@@ -361,21 +357,12 @@ function Simple({ data }: NodeProps<SimpleNode>) {
       <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={
           <>
             <BookmarkButton view={data.view} />
-            <RemoveButton onRemove={data.onRemove} />
+            <NodeMenu view={data.view} resumable={data.resumable} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
         }
       />
       <Ports port={data.port} />
     </>
-  );
-}
-
-function RemoveButton(props: { onRemove: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <IconButton label={t('node.remove')} title={t('node.remove')} onClick={props.onRemove}>
-      <Trash2 />
-    </IconButton>
   );
 }
 
@@ -851,6 +838,8 @@ export function Graph(props: {
       const data: CardBase = {
         view,
         agentLabel: agentLabel(props.agents, view.agent),
+        resumable: canResume(props.agents, view.agent),
+        onRefusal: setRefusal,
         selected: selected === view.id,
         // 고른 카드만 바뀐다. 다른 카드는 다시 그리지 않는다.
         focusAsk: selected === view.id ? props.focusAsk : 0,
@@ -1298,6 +1287,15 @@ export function Graph(props: {
                 <IconButton label={t('node.collapse')} title={t('node.collapse')} onClick={() => setExpanded(null)}>
                   <Minimize2 />
                 </IconButton>
+                <NodeMenu
+                  view={zoomedView}
+                  resumable={canResume(props.agents, zoomedView.agent)}
+                  onRemove={() => {
+                    setExpanded(null);
+                    removeNode(zoomedView.id).catch((err: Error) => setRefusal(err.message));
+                  }}
+                  onRefusal={setRefusal}
+                />
               </>
             }
           >

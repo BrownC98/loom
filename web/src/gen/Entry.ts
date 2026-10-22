@@ -19,7 +19,7 @@ held: number, } | { "kind": "removed", node: Who, } | { "kind": "renamed", node:
 /**
  * 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
  */
-distro: string | null, from: AccountId | null, to: AccountId | null, why: SwitchCause, moved: number, later: number, failed: number, } | { "kind": "noAccountLeft", provider: Provider, 
+distro: string | null, from: AccountId | null, to: AccountId | null, why: SwitchCause, moved: number, later: number, failed: number, } | { "kind": "relaunched", node: Who, error: string | null, } | { "kind": "noAccountLeft", provider: Provider, 
 /**
  * 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
  */

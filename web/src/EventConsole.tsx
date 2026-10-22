@@ -63,6 +63,7 @@ function whoOf(entry: Entry): Who[] {
     case 'state':
     case 'removed':
     case 'renamed':
+    case 'relaunched':
     case 'asked':
     case 'reported':
     case 'answered':
@@ -182,6 +183,15 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
         <>
           <span className="kind">{t('events.kind.removed')}</span>
           {name(entry.node)}
+        </>
+      );
+    case 'relaunched':
+      // 실패한 줄은 데몬의 문장을 붙인다. 턴 끝에 다시 띄우다 실패하면 사람은 여기서만 본다.
+      return (
+        <>
+          <span className="kind">{t('events.kind.relaunched')}</span>
+          {name(entry.node)}
+          {entry.error !== null && <span className="note err">{entry.error}</span>}
         </>
       );
     case 'renamed':

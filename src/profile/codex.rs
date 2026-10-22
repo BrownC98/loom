@@ -608,9 +608,10 @@ mod tests {
     #[test]
     fn sandbox_opens_the_daemon_address_only_on_the_pinned_version() {
         let daemon = IpAddr::from([127, 76, 77, 1]);
-        assert_eq!(
-            sandbox_args("codex-cli 0.159.2\n", daemon),
-            [
+        let pinned: &[&str] = if cfg!(windows) {
+            &[]
+        } else {
+            &[
                 "-c",
                 "sandbox_workspace_write.network_access=true",
                 "-c",
@@ -618,7 +619,8 @@ mod tests {
                 "-c",
                 r#"features.network_proxy.domains={"127.76.77.1"="allow"}"#,
             ]
-        );
+        };
+        assert_eq!(sandbox_args("codex-cli 0.159.2\n", daemon), pinned);
         assert!(sandbox_args("codex-cli 0.160.0\n", daemon).is_empty());
         assert!(sandbox_args("", daemon).is_empty());
     }

@@ -98,6 +98,7 @@ export function StatusBar(props: {
           accounts={usage.accounts.filter((a) => a.distro === distro)}
           active={active}
           usage={usage}
+          onClose={() => setOpen(false)}
           onChoose={(provider, id) => props.onChoose(provider, distro, id)}
           onManage={
             props.onManage &&
@@ -138,6 +139,7 @@ function UsagePopover(props: {
   onChoose: (provider: Provider, id: AccountId | null) => void;
   /** 없으면 [계정 관리]를 두지 않는다. 폰에는 설정 창이 없다(목업 mobile.html ⑧). */
   onManage?: () => void;
+  onClose: () => void;
 }) {
   const { t } = useTranslation();
   const { usage } = props;
@@ -145,7 +147,13 @@ function UsagePopover(props: {
   const [expanded, setExpanded] = useState<Provider | null>(null);
   return (
     <div className="pop usage-pop" role="dialog" aria-label={t('statusBar.usage')}>
-      <h3>{t('statusBar.usage')}</h3>
+      <h3>
+        {t('statusBar.usage')}
+        <span className="spacer" />
+        <button type="button" className="collapse" aria-label={t('statusBar.collapse')} title={t('statusBar.collapse')} onClick={props.onClose}>
+          <ChevronDown aria-hidden="true" />
+        </button>
+      </h3>
       {PROVIDERS.map((provider) => (
         <ProviderSection
           key={provider}

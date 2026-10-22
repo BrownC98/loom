@@ -320,9 +320,7 @@ const en = {
     tabs: 'Screens',
     inbox: 'Notifications',
     nodes: 'Nodes',
-    nodeCount: 'Nodes: {{count}}',
     noQuestions: 'No notifications.',
-    toNodes: 'Show nodes',
     noNode: 'This node does not exist. It was removed or it is on another PC.',
     offline: 'Cannot reach the PC. Connecting again…',
     back: 'Back',
@@ -394,6 +392,7 @@ const en = {
     refresh: 'Refresh',
     accountsLabel: '{{provider}} accounts',
     manage: 'Manage accounts…',
+    collapse: 'Collapse',
   },
   terminalFont: {
     size: 'Font size',

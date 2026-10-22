@@ -712,7 +712,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom wait --reply-to <message-id> --timeout <seconds> --json: wait for a particular reply. This also finds replies already delivered by another consumer. Other messages stay in the inbox. A timeout exits with an error.
 - loom steer <name-or-id> <body>: insert guidance between tool calls. Steer and interrupt go only to your parent or children.
 - loom interrupt <name-or-id> <body>: stop current work and follow this message. If you receive an interrupt, stop your previous task.
-- loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language. With no parent, when all work the human gave you is finished, add --asked <the human's instruction> and --image <path> per image the human gave; this is the only way to tell the human you are done.
+- loom done <summary> or loom done --file <path>: report completion to your parent. Completion leaves the process available for feedback. People read the summary on your node card: write it in the language they use with you, not in the agent-to-agent language. With no parent, each time you finish a result of the human's work that the human can use (all of it, or a part such as a merge), add --asked <the human's instruction> and --image <path> per image the human gave; this is the only way to tell the human you are done.
 - loom ask <question>: put one question in the human's inbox. When you have no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only with loom ask, in the one-line form of the ask-human rules below, then end your turn. Never end a turn with a question only in your text. With a parent, ask your parent with loom send, never the human.
 - loom answered: when the human's input answers your open loom ask question, you MUST call loom answered first, then act on the answer. If the input does not answer it, leave the question open. If you no longer need the answer, call loom answered.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
@@ -760,7 +760,8 @@ pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
 
 /// 부모 없는 노드의 사람 입력마다 붙이는 완료 보고 안내. 훅은 늘 지금 loom이 실행하므로 오래된 세션도 이 규칙을 받는다.
 /// 근거: 사용법은 띄울 때 한 번만 넘어가서, 규칙이 생기기 전에 뜬 루트와 잊은 루트가 완료 알림을 올리지 않았다(2026-10-22 사람 지시 "ktasearch 총괄이 완료한 작업을 알림으로 안올림, 원인 파악후 근본문제 해결해").
-pub const DONE_NOTE: &str = "When you complete the work that this input asks for, call loom done \"<what you did>\" --asked \"<this input, short>\". Add --image <path> for each image that the human gave. The human sees that you are done only through loom done. Do not call it when the input is only a question and you only answer in text.";
+/// 쓸 수 있는 결과마다 부르게 한다. 지시 전체가 끝날 때만 부르던 루트가 자식 메시지 턴에 병합하고도 알리지 않았다(2026-10-22 ktasearch-총괄 결함 보고 #1308).
+pub const DONE_NOTE: &str = "Each time you finish a result of the work that this input asks for and the human can use it (for example, a merge or a deploy), call loom done \"<what you did>\" --asked \"<this input, short>\". Do this also when other parts of the work continue, and also in a turn that a child message or a notice started. Add --image <path> for each image that the human gave. The human sees results only through loom done. Do not call it when the input is only a question and you only answer in text.";
 
 pub fn message_text(taken: &[Delivery]) -> String {
     taken

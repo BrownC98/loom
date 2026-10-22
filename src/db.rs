@@ -224,9 +224,11 @@ fn data_dir() -> std::io::Result<PathBuf> {
 
 /// 파일을 WAL 모드로 열고 스키마를 최신으로 올린다.
 /// 연결마다 rusqlite가 busy timeout 5초를 건다(`Connection::open`). `Repos`·`Graph`·`Settings`는 같은 파일에 따로 연결하므로, 다른 연결이 쓰는 동안 바로 `database is locked`로 실패하지 않고 기다린다.
+/// 트랜잭션은 시작할 때 쓰기 잠금을 잡는다(IMMEDIATE). 기본(DEFERRED)은 읽은 뒤 다른 연결이 커밋하면 첫 쓰기가 기다리지 않고 `database is locked`(SQLITE_BUSY_SNAPSHOT)로 실패한다.
 /// 더 새 판의 loom이 올린 DB는 열지 않는다. 옛 판은 모르는 표·열을 깨뜨린다.
 pub fn open(path: &Path) -> std::io::Result<Connection> {
     let mut conn = Connection::open(path).map_err(std::io::Error::other)?;
+    conn.set_transaction_behavior(rusqlite::TransactionBehavior::Immediate);
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(std::io::Error::other)?;
     conn.pragma_update(None, "foreign_keys", true)
@@ -268,6 +270,28 @@ mod tests {
                 path.display()
             )
         );
+    }
+
+    /// 한 연결이 읽고 쓰는 트랜잭션 사이에 다른 연결이 커밋해도 쓰기가 `database is locked`로 실패하지 않는다.
+    /// `Graph`·`Repos`·`Settings`·`Spots`는 같은 파일에 따로 연결한다(2026-10-22 사람 데몬에서 [답하기]가 이렇게 실패했다).
+    #[test]
+    fn a_read_then_write_transaction_survives_another_connections_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        let mut first = super::open(&path).unwrap();
+        let second = super::open(&path).unwrap();
+        let tx = first.transaction().unwrap();
+        let _: u32 = tx
+            .query_row("SELECT count(*) FROM repos", [], |row| row.get(0))
+            .unwrap();
+        let other = std::thread::spawn(move || {
+            second.execute("INSERT INTO repos (path) VALUES ('/b')", [])
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        tx.execute("INSERT INTO repos (path) VALUES ('/a')", [])
+            .unwrap();
+        tx.commit().unwrap();
+        other.join().unwrap().unwrap();
     }
 
     #[test]

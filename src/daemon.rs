@@ -864,9 +864,13 @@ impl App {
         let discard = prepared.discarder();
         let id = self
             .graph
-            .add_root(place, start.agent(), start.brief(), |id| {
-                self.launch(id, prepared)
-            })
+            .add_root(
+                place,
+                start.agent(),
+                start.brief(),
+                &prepared.launched(),
+                |id| self.launch(id, prepared),
+            )
             .inspect_err(|_| discard())?;
         Ok(id)
     }
@@ -882,11 +886,17 @@ impl App {
         let prepared = self.prepare(&start, cwd, Position::Root).await?;
         let discard = prepared.discarder();
         self.graph
-            .add_root(place, start.agent(), start.brief(), |id| {
-                // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
-                self.setups.lock().unwrap().insert(id);
-                self.launch(id, prepared)
-            })
+            .add_root(
+                place,
+                start.agent(),
+                start.brief(),
+                &prepared.launched(),
+                |id| {
+                    // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
+                    self.setups.lock().unwrap().insert(id);
+                    self.launch(id, prepared)
+                },
+            )
             .inspect_err(|_| discard())?;
         Ok(())
     }
@@ -899,33 +909,23 @@ impl App {
     }
 
     /// 노드 프로세스를 띄운다. 끝나면 그래프에 알린다. Codex 노드면 메일함을 그 app-server로 넘기기 시작한다.
-    /// 돌려준 값(토큰, 서버 주소)은 그래프가 노드와 함께 남긴다. 노드가 뜨자마자 데몬을 불러도 그래프가 커밋할 때까지 기다린다.
-    fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<Launched, String> {
+    fn launch(self: &Arc<Self>, id: NodeId, prepared: Prepared) -> Result<(), String> {
         let Prepared {
             cmd,
             setup,
             token,
-            account,
             profile,
             codex,
             opencode2,
+            account: _,
             inside: _,
         } = prepared;
-        let server = match (&codex, &opencode2) {
-            (Some(server), _) => Some(server.link()),
-            (_, Some(node)) => Some(node.link()),
-            _ => None,
-        };
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host
             .spawn(id, cmd, setup, self.on_title(id, profile), on_exit)?;
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
-        Ok(Launched {
-            token,
-            server,
-            account,
-        })
+        Ok(())
     }
 
     /// 앞 데몬이 띄운 `running` 노드의 PTY 호스트와 서버에 다시 붙는다. 데몬이 시작할 때 한 번 부른다.
@@ -1284,6 +1284,19 @@ struct Prepared {
 }
 
 impl Prepared {
+    /// 그래프가 노드와 함께 남기는 값(토큰, 서버 주소, 계정). 프로세스를 띄우기 전에 남겨 노드가 뜨자마자 데몬을 불러도 찾게 한다.
+    fn launched(&self) -> Launched {
+        Launched {
+            token: self.token.clone(),
+            server: match (&self.codex, &self.opencode2) {
+                (Some(server), _) => Some(server.link()),
+                (_, Some(node)) => Some(node.link()),
+                _ => None,
+            },
+            account: self.account.clone(),
+        }
+    }
+
     /// 노드와 같은 곳(이 PC 또는 그 WSL 배포판)에서 명령 한 줄을 도는 셸.
     fn shell(&self, line: &str) -> portable_pty::CommandBuilder {
         match &self.inside {
@@ -1820,6 +1833,7 @@ async fn spawn_child(
                 brief: queued_brief,
             },
             limits,
+            &prepared.launched(),
             |id| app.launch(id, prepared),
         )
         .map_err(for_agent)

@@ -19,6 +19,7 @@ use ts_rs::TS;
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
 use crate::graph::{Active, Delivery, Entry, Kind, NodeId, Refusal, Who};
+use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
 use crate::profile::{self, ModelChoice, Profile, Provider, ServerLink, Start};
@@ -314,14 +315,33 @@ impl App {
             },
         };
         let limited = self.relaunches.limited.lock().unwrap().contains(&node.id);
-        let brief = match (limited, profile) {
-            (true, _) => CONTINUE_PROMPT,
-            (false, Profile::Cursor) => cursor::RESUMED_PROMPT,
-            (false, _) => "",
+        let first = match (limited, profile) {
+            (true, _) => Some(CONTINUE_PROMPT.to_owned()),
+            (false, Profile::Cursor) => Some(cursor::RESUMED_PROMPT.to_owned()),
+            (false, _) => None,
         };
+        // Claude Code는 이어 간 세션에 끝나지 않은 백그라운드 명령을 스스로 알린다(2.1.308 실측). 다른 CLI는 알리지 않았다(실측).
+        let stopped = match profile {
+            Profile::Claude => 0,
+            Profile::Codex | Profile::Cursor | Profile::OpenCode2 => {
+                let snapshot = Snapshot::now();
+                let loom = format!("loom{}", std::env::consts::EXE_SUFFIX);
+                let shells = self.background_shells(&snapshot, &node);
+                shells
+                    .into_iter()
+                    .filter(|&s| !snapshot.runs(s, &loom))
+                    .count()
+            }
+        };
+        let stopped = (stopped > 0).then(|| stopped_notice(stopped));
+        let brief = first
+            .into_iter()
+            .chain(stopped)
+            .collect::<Vec<_>>()
+            .join("\n");
         let start = Start::Agent {
             agent: agent.clone(),
-            brief: brief.to_owned(),
+            brief,
             choice: match profile {
                 // OpenCode 2 TUI는 모델 인자를 받지 않는다(`LaunchError::NoModelChoice`). 모델은 세션에 남아 이어진다.
                 Profile::OpenCode2 => ModelChoice::default(),
@@ -349,6 +369,9 @@ impl App {
             .lock()
             .unwrap()
             .insert(node.id, done);
+        // 옛 프로세스가 띄운 백그라운드 명령도 끝낸다. Cursor는 노드 프로세스가 끝나도 그 명령이 고아로 남았다(실측).
+        let snapshot = Snapshot::now();
+        snapshot.kill_trees(self.background_shells(&snapshot, &node));
         // 옛 CLI의 쉬는 대기를 끝낸다. 새 CLI가 세션을 시작하면 다시 연다.
         self.idle.end(node.id);
         self.host.kill(node.id);
@@ -419,6 +442,21 @@ impl App {
         Ok(session)
     }
 
+    /// 옛 프로세스가 띄운 셸: 노드 프로세스와 그 서버(Codex app-server, OpenCode 2 serve) 아래의 세션 리더.
+    /// CLI는 셸을 새 세션으로 띄운다(`CodexServer::stop_shells`와 같은 판단). 쉬는 노드라 앞에서 도는 명령은 없다.
+    /// `loom`을 도는 셸은 쉬는 대기 훅(Claude `loom hook`, Cursor `loom cursor-hook`)이다(실측). 끝내되 명령으로 세지 않는다.
+    fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
+        let server = match &node.server {
+            Some(ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) => *pid,
+            None => None,
+        };
+        [self.host.pid(node.id), server]
+            .into_iter()
+            .flatten()
+            .flat_map(|root| snapshot.session_leaders_under(root))
+            .collect()
+    }
+
     /// Codex 노드 스레드의 기록 파일을 새 `CODEX_HOME`에 복사하고 스레드 id를 돌려준다. 스레드나 기록 파일이 없으면 실패다.
     async fn copy_codex_thread(
         &self,
@@ -448,6 +486,13 @@ fn profile_of(node: &Active) -> Option<Profile> {
 
 pub(super) fn provider_of(node: &Active) -> Option<Provider> {
     profile_of(node).and_then(Profile::provider)
+}
+
+/// 다시 띄운 세션의 첫 입력에 넣는 줄. 에이전트는 끝난 명령의 결과를 기다리지 않고 필요하면 다시 띄운다.
+fn stopped_notice(count: usize) -> String {
+    format!(
+        "loom relaunched your process and stopped {count} background command(s) that you started before. Start them again if you still need them."
+    )
 }
 
 /// 세션 id는 세션 기록 파일 이름이다(Claude `<세션>.jsonl`, Cursor `agent-transcripts/<세션>/<세션>.jsonl`).

@@ -8,14 +8,14 @@
 // 바꾼 점: 부모 없는 커밋에서도 다른 차선을 이어 간다(원본은 그 줄에서 다른 차선을 버린다).
 // 옮기지 않은 것: Incoming/Outgoing 줄, 참조 색 지도, 마우스 올림 설명 창.
 import { Folder } from 'lucide-react';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getCommits } from './api';
 import type { Commit } from './gen/Commit';
 import type { RepoId } from './gen/RepoId';
 import type { CommitGraph as Graph } from './gen/CommitGraph';
 import type { Worktree } from './gen/Worktree';
-import i18next, { ago } from './i18n';
+import { ago } from './i18n';
 
 const LANE_WIDTH = 11;
 const ROW_HEIGHT = 22;
@@ -120,12 +120,10 @@ function LaneSvg({ row, width }: { row: Row; width: number }) {
   );
 }
 
-/** 묶음 머리의 종류 글과 같다. */
-function kindLabel(worktree: Worktree): string {
-  return i18next.t(worktree.original ? 'worktree.original' : 'worktree.linked');
-}
-
 function Refs({ commit, worktrees, color }: { commit: Commit; worktrees: Worktree[]; color: number }) {
+  const { t } = useTranslation();
+  // 묶음 머리의 종류 글과 같다.
+  const kindLabel = (worktree: Worktree) => t(worktree.original ? 'worktree.original' : 'worktree.linked');
   const style = { '--lane': stroke(color) } as CSSProperties;
   const here = worktrees.filter((w) => w.head === commit.hash);
   return (
@@ -155,8 +153,28 @@ function Refs({ commit, worktrees, color }: { commit: Commit; worktrees: Worktre
   );
 }
 
-/** 칸이 열린 동안 붙어 있다. 닫으면 다시 읽기를 멈춘다. `name`은 칸 머리 앞에 붙이는 저장소 이름이다(목업 repo-scope.html 4번). */
-export function CommitGraph(props: { repo: RepoId; name: string }) {
+/** 줄은 커밋 목록이나 「몇 분 전」 글이 바뀔 때만 다시 그린다. 칸은 3초마다 다시 읽는다. 줄이 1,000개라 모두 다시 그리면 그때마다 2,000 컴포넌트를 그렸다(2026-10-22 측정). */
+const CommitRow = memo(function CommitRow({ row, width, worktrees, when }: { row: Row; width: number; worktrees: Worktree[]; when: string }) {
+  return (
+    <li className="commit" title={row.commit.hash}>
+      <span className="graph">
+        <LaneSvg row={row} width={width} />
+      </span>
+      <span className="subject">
+        <Refs commit={row.commit} worktrees={worktrees} color={circleOf(row).color} />
+        <span>{row.commit.subject}</span>
+      </span>
+      <span className="author">{row.commit.author}</span>
+      <time dateTime={new Date(row.commit.time * 1000).toISOString()}>{when}</time>
+    </li>
+  );
+});
+
+/**
+ * 칸이 열린 동안 붙어 있다. 닫으면 다시 읽기를 멈춘다. `name`은 칸 머리 앞에 붙이는 저장소 이름이다(목업 repo-scope.html 4번).
+ * 앱은 노드 이벤트마다 다시 그린다. 이 칸은 props가 바뀔 때만 다시 그린다.
+ */
+export const CommitGraph = memo(function CommitGraph(props: { repo: RepoId; name: string }) {
   const { t } = useTranslation();
   const [graph, setGraph] = useState<Graph | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,7 +200,7 @@ export function CommitGraph(props: { repo: RepoId; name: string }) {
     return () => clearInterval(timer);
   }, [props.repo]);
 
-  const rows = graph ? lanes(graph.commits) : [];
+  const rows = useMemo(() => (graph ? lanes(graph.commits) : []), [graph]);
   const width = LANE_WIDTH * (Math.max(1, ...rows.map(laneCount)) + 1);
 
   return (
@@ -203,20 +221,10 @@ export function CommitGraph(props: { repo: RepoId; name: string }) {
       ) : (
         <ol className="commits" aria-label={t('commits.list')}>
           {rows.map((row) => (
-              <li key={row.commit.hash} className="commit" title={row.commit.hash}>
-                <span className="graph">
-                  <LaneSvg row={row} width={width} />
-                </span>
-                <span className="subject">
-                  <Refs commit={row.commit} worktrees={graph.worktrees} color={circleOf(row).color} />
-                  <span>{row.commit.subject}</span>
-                </span>
-                <span className="author">{row.commit.author}</span>
-                <time dateTime={new Date(row.commit.time * 1000).toISOString()}>{ago(row.commit.time * 1000, now)}</time>
-              </li>
+            <CommitRow key={row.commit.hash} row={row} width={width} worktrees={graph.worktrees} when={ago(row.commit.time * 1000, now)} />
           ))}
         </ol>
       )}
     </>
   );
-}
+});

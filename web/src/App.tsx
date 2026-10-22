@@ -484,7 +484,7 @@ export function App() {
       onClear={clearFind}
     />
   );
-  const treeView = (select: (id: NodeId) => void) => (
+  const treeView = (select: (id: NodeId) => void, rowTap: 'graph' | 'fold') => (
     <Tree
       repos={repos}
       current={repoFocused ? (repo?.id ?? null) : null}
@@ -498,6 +498,8 @@ export function App() {
       agents={agents}
       selected={selected}
       onSelect={select}
+      chosenBox={chosenBox}
+      rowTap={rowTap}
       onChooseBox={chooseBox}
       settings={settings}
       accounts={accounts}
@@ -528,7 +530,7 @@ export function App() {
         tree={
           <>
             {findView}
-            {treeView(openNode)}
+            {treeView(openNode, 'fold')}
           </>
         }
         foot={<StatusBar usage={usage} settings={settings} distro={repo?.wsl?.distro ?? null} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
@@ -550,7 +552,7 @@ export function App() {
                 </button>
               </div>
               <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} open={!settings.closedPanes.bookmarks} onOpen={(open) => setPaneOpen('bookmarks', open)} />
-              {treeView(selectNode)}
+              {treeView(selectNode, 'graph')}
               <div className="side-foot">
                 <button className="btn ghost" onClick={() => setSettingsTab(SETTINGS_TABS[0])}>
                   <SettingsIcon />

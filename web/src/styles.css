@@ -561,13 +561,13 @@ a { color: var(--accent); }
 .answer-images img { width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); }
 .answer-images button { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: var(--ink); color: var(--surface); cursor: pointer; }
 .answer-images button svg { width: 11px; height: 11px; }
-.wait-body > .drop-cover { position: absolute; inset: -4px; pointer-events: none; display: grid; place-content: center; justify-items: center; gap: 2px; border: 2px dashed var(--warn); border-radius: 8px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); color: var(--ink); font-size: 13px; font-weight: 600; }
+.wait-body > .drop-cover { position: absolute; inset: -4px; pointer-events: none; display: grid; place-content: center; justify-items: center; gap: 2px; border: 2px dashed var(--warn); border-radius: 8px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font-size: 13px; font-weight: 600; }
 .wait-body > .drop-cover svg { width: 20px; height: 20px; color: var(--warn); }
 .wait-body > .drop-cover .sub { font-size: 12px; font-weight: 400; color: var(--ink-2); }
 .wait-body .full, .wait-body .refusal { margin: 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wait-body .full { color: var(--ink); }
 .wait-body .refusal { color: var(--err); font-size: 12px; }
-.qid { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); color: var(--ink); font: 600 11px/18px var(--mono); white-space: nowrap; }
+.qid { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 600 11px/18px var(--mono); white-space: nowrap; }
 .inbox-pill .qid { height: 18px; }
 
 .wait-body .to-terminal { justify-self: start; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; height: 28px; margin-left: -8px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
@@ -582,7 +582,7 @@ a { color: var(--accent); }
 .wait-body .choice { display: inline-flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; text-align: left; line-height: 1.4; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .wait-body .choice:hover { background: var(--surface-hover); }
 .wait-body .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
-.wait-body .choice[data-recommended] { border-color: var(--warn); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+.wait-body .choice[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
 .wait-body .choice .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .wait-body .answer { display: flex; gap: 6px; }
 .wait-body .answer input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
@@ -728,7 +728,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .schemes .ratio { margin-left: auto; font: 11px var(--mono); color: var(--ink-3); }
 .pop-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
 .color-preview { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
-.color-preview .pill { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--warn); border-radius: 14px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); font-size: 12px; }
+.color-preview .pill { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid var(--warn); border-radius: 14px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font-size: 12px; }
 .color-preview .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
 .color-preview .mini { display: inline-flex; padding: 4px; border: 2px solid var(--repo-line); border-radius: 8px; }
 .color-preview .mini .g { display: inline-flex; align-items: center; padding: 4px; border: 1.5px solid var(--group-line); border-radius: 6px; }
@@ -762,3 +762,94 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .switch-list { list-style: none; margin: 0; padding: 8px 10px; display: grid; gap: 2px; font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 6px; max-height: 200px; overflow: auto; }
 .switch-list li { display: flex; justify-content: space-between; gap: 12px; }
 .switch-list .st { color: var(--ink-3); }
+
+/* 폰 폭 배치(목업 docs/mockups/mobile.html M35, web/src/Phone.tsx). 폭 640px 미만에서 App이 이 배치를 그린다(`usePhone`).
+   손가락이 누르는 것은 44px 이상, 입력 칸 글자는 16px(iOS가 확대하지 않는다), 아래 막대는 홈 표시줄만큼 띄운다. */
+.phone { display: flex; flex-direction: column; height: 100dvh; background: var(--bg); }
+.phone > * { flex: none; min-width: 0; }
+.phone > :is(.phone-body, .phone-term) { flex: 1; min-height: 0; }
+.phone :is(button, a, input, label) { touch-action: manipulation; }
+.phone-top { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: env(safe-area-inset-top) 4px 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.phone-top:has(> .phone-icon:first-child) { padding-left: 4px; }
+.phone-mark { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font: 700 13px var(--mono); }
+.phone-title { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
+.phone-title b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-title span { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink-2); cursor: pointer; }
+.phone-icon:hover { background: var(--surface-hover); }
+.phone-icon svg, .phone-tabs svg, .phone-keys svg, .phone-input .send svg, .phone-offline svg { width: 20px; height: 20px; }
+.phone-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 12px; display: grid; align-content: start; gap: 10px; }
+.phone-empty { display: grid; justify-items: start; gap: 10px; padding: 16px; color: var(--ink-2); }
+.phone-offline { display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 0; padding: 0 14px; background: color-mix(in oklch, var(--err) 10%, var(--panel)); border-bottom: 1px solid color-mix(in oklch, var(--err) 40%, transparent); color: var(--ink); font-size: 13px; }
+.phone-offline svg { width: 16px; height: 16px; color: var(--err); }
+.phone-tabs { display: grid; grid-template-columns: 1fr 1fr; padding-bottom: env(safe-area-inset-bottom); background: var(--panel); border-top: 1px solid var(--line); }
+.phone-tabs button { position: relative; display: grid; place-items: center; align-content: center; gap: 2px; min-height: 56px; border: 0; background: none; color: var(--ink-3); font-size: 12px; cursor: pointer; }
+.phone-tabs button[aria-current="page"] { color: var(--ink); font-weight: 600; }
+.phone-tabs .count { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.phone .btn { min-height: 44px; padding: 0 14px; border-radius: 10px; font-size: 14px; }
+.phone .btn.sm { min-height: 36px; font-size: 13px; }
+/* 사용량 줄: 데스크톱 상태 줄(StatusBar)을 아래 탭 위에 둔다. 폭이 좁아 계정 이름과 판 번호는 뺀다. 판은 아래에서 올라온다(목업 ⑧). */
+.phone .statusbar { height: 36px; padding: 0 4px 0 2px; overflow: hidden; }
+.phone .usage-btn { flex: 1; min-width: 0; overflow: hidden; gap: 6px; }
+.phone .usage-btn .acct-name, .phone .statusbar .app-version { display: none; }
+.phone .statusbar .refresh { width: 36px; }
+.phone .statusbar .refresh svg { width: 16px; height: 16px; }
+.phone .usage-pop { position: fixed; inset: auto 0 0; width: auto; max-height: 85dvh; overflow: auto; overscroll-behavior: contain; padding-bottom: calc(16px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; z-index: 30; }
+.usage-scrim { display: none; }
+.phone .usage-scrim { display: block; position: fixed; inset: 0; z-index: 29; background: var(--scrim); }
+.phone .usage-pop .acct { min-height: 44px; }
+.phone .btn.danger { background: var(--surface); border-color: var(--line-strong); color: var(--err); }
+
+/* 질문 탭: 데스크톱 「질문」 탭의 목록을 노드마다 카드로 쌓는다. 색은 질문 색(--warn)이다. */
+.phone-body > .wait-list { gap: 10px; overflow: visible; }
+.phone .wait-node { padding: 8px 12px 12px; background: var(--surface); border: 1px solid var(--warn); border-radius: 12px; }
+.phone .wait-node + .wait-node { border-top: 1px solid var(--warn); }
+.phone .wait-node > .go { min-height: 36px; padding: 0; }
+.phone .wait-rows { padding-left: 0; }
+.phone .wait-row:hover { background: none; }
+.phone .wait-list .dismiss { width: 36px; height: 36px; }
+.phone .wait-body .full { font-size: 14px; }
+.phone .wait-body .choices { display: grid; gap: 6px; }
+.phone .wait-body .choice { min-height: 44px; padding: 8px 14px; border-radius: 10px; font-size: 14px; align-items: center; }
+.phone .wait-body .doc-link { display: inline-flex; align-items: center; min-height: 44px; }
+.phone .wait-body .answer { align-items: center; }
+.phone .wait-body .answer input { height: 44px; padding: 0 12px; border-radius: 10px; font-size: 16px; }
+.phone .wait-body .send { width: 44px; height: 44px; border-radius: 10px; }
+.phone .wait-body .send svg { width: 20px; height: 20px; }
+.phone .wait-body .to-terminal { min-height: 44px; }
+/* 그림 붙이기는 폰에만 있다. 데스크톱은 붙여넣기와 끌어 놓기로 붙인다. */
+.wait-body .answer .attach { display: none; }
+.phone .wait-body .answer .attach { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; color: var(--ink-2); cursor: pointer; }
+.phone .wait-body .answer .attach input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.phone .wait-body .answer .attach:has(input:focus-visible) { outline: 2px solid var(--accent); }
+.phone .answer-images li { width: 56px; height: 56px; }
+
+/* 노드 탭: 사이드바 찾기 칸과 트리. 줄은 손가락 높이다. */
+.phone-body .side-find { flex: none; width: 100%; height: 44px; border-radius: 10px; background: var(--surface); }
+.phone-body .side-find input { font-size: 16px; }
+.phone-body .tree { padding: 0; font-size: 14px; overflow: visible; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.phone .tree-row { height: 48px; --step: 18px; }
+.phone .row-acts { top: 6px; height: 36px; }
+.phone .row-acts .act { width: 36px; height: 36px; }
+
+/* 노드 화면(목업 ④⑤): 질문 띠, 전체 화면 터미널, 키 막대와 입력 줄. */
+.phone-ask { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 0 8px 0 14px; background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border-block: 1px solid var(--warn); color: var(--ink); font-size: 13px; }
+.phone-ask > svg { flex: none; width: 16px; height: 16px; color: var(--warn); }
+.phone-ask b { white-space: nowrap; }
+.phone-ask .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.phone-ask .qid { font: 12px var(--mono); color: var(--ink-3); }
+.phone-ask .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-term { min-height: 0; background: var(--term); }
+.phone-dock { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
+.phone-keys { display: flex; gap: 4px; }
+.phone-keys button { flex: 1; min-width: 0; height: 40px; padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: 600 13px var(--mono); display: grid; place-items: center; cursor: pointer; }
+.phone-keys button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.phone-keys svg { width: 16px; height: 16px; }
+.phone-input { display: flex; gap: 6px; }
+.phone-input input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; }
+.phone-input .send { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+.phone-scrim { position: fixed; inset: 0; z-index: 30; display: grid; align-items: end; background: var(--scrim); }
+.phone-sheet { display: grid; gap: 8px; max-height: 85dvh; overflow: auto; overscroll-behavior: contain; padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: 0 -4px 16px var(--shadow); }
+.phone-sheet .grip { justify-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.phone-sheet h3 { font-size: 16px; }
+.phone-sheet .refusal { margin: 0; color: var(--err); font-size: 13px; }

@@ -31,9 +31,9 @@ export type PhoneRoute = { screen: 'inbox' } | { screen: 'nodes' } | { screen: '
 
 function readRoute(): PhoneRoute {
   const hash = location.hash;
-  if (hash === '#/nodes') return { screen: 'nodes' };
+  if (hash === '#/inbox') return { screen: 'inbox' };
   const node = /^#\/node\/(\d+)$/.exec(hash);
-  return node ? { screen: 'node', id: Number(node[1]) as NodeId } : { screen: 'inbox' };
+  return node ? { screen: 'node', id: Number(node[1]) as NodeId } : { screen: 'nodes' };
 }
 
 function routeHash(route: PhoneRoute): string {
@@ -54,12 +54,6 @@ export function usePhoneRoute(): [PhoneRoute, (next: PhoneRoute) => void] {
     setRoute(next);
   };
   return [route, go];
-}
-
-/** 위 막대의 기기 이름. Tailscale 주소(`pc.tail1234.ts.net`)는 앞 이름만 보인다. */
-function deviceName(): string {
-  const host = location.hostname;
-  return /^[\d.]+$|:/.test(host) ? host : host.split('.')[0];
 }
 
 export function Phone(props: {
@@ -101,23 +95,14 @@ export function Phone(props: {
   return (
     <div className="phone">
       <header className="phone-top">
-        <span className="phone-mark" aria-hidden="true">
-          L
-        </span>
         <span className="phone-title">
           <b>{inbox ? t('phone.inbox') : t('phone.nodes')}</b>
-          <span>{inbox ? deviceName() : `${deviceName()} · ${t('phone.nodeCount', { count: props.nodes.size })}`}</span>
         </span>
       </header>
       {!props.online && <Offline />}
       <main className="phone-body" aria-label={inbox ? t('phone.inbox') : t('phone.nodes')}>
         {inbox && count === 0 ? (
-          <div className="phone-empty">
-            <p>{t('phone.noQuestions')}</p>
-            <button type="button" className="btn" onClick={() => props.onRoute({ screen: 'nodes' })}>
-              {t('phone.toNodes')}
-            </button>
-          </div>
+          <p className="phone-empty center">{t('phone.noQuestions')}</p>
         ) : inbox ? (
           props.inbox
         ) : (
@@ -126,14 +111,14 @@ export function Phone(props: {
       </main>
       {props.foot}
       <nav className="phone-tabs" aria-label={t('phone.tabs')}>
+        <button type="button" aria-current={inbox ? undefined : 'page'} onClick={() => props.onRoute({ screen: 'nodes' })}>
+          <ListTree aria-hidden="true" />
+          {t('phone.nodes')}
+        </button>
         <button type="button" aria-current={inbox ? 'page' : undefined} onClick={() => props.onRoute({ screen: 'inbox' })}>
           <Bell aria-hidden="true" />
           {t('phone.inbox')}
           {count > 0 && <span className="count">{count}</span>}
-        </button>
-        <button type="button" aria-current={inbox ? undefined : 'page'} onClick={() => props.onRoute({ screen: 'nodes' })}>
-          <ListTree aria-hidden="true" />
-          {t('phone.nodes')}
         </button>
       </nav>
     </div>

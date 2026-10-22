@@ -2304,3 +2304,129 @@ fn a_done_node_runs_again_when_the_human_types() {
     assert_eq!(view(&g, lead).state, NodeState::Running);
     g.done(lead, "또 끝", Some("또 일해"), &[]).unwrap();
 }
+
+/// 받은편지함 알림과 사람의 응답은 길마다 알림 이벤트 한 줄을 남긴다. 신호의 대기는 남기지 않는다.
+#[test]
+fn records_inbox_notices_and_the_human_responses() {
+    use events::{ClosedBy, Entry};
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let me = || who(lead, "claude-1");
+    let notices = || {
+        recorded(&g)
+            .into_iter()
+            .map(|(e, _)| e)
+            .filter(|e| {
+                matches!(
+                    e,
+                    Entry::Asked { .. }
+                        | Entry::Reported { .. }
+                        | Entry::Answered { .. }
+                        | Entry::Instructed { .. }
+                        | Entry::Unanswered { .. }
+                        | Entry::Confirmed { .. }
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let q1 = g.ask(lead, "A or B?\nmore", None).unwrap();
+    g.answer(q1, " A ", &[PathBuf::from("/tmp/x.png")]).unwrap();
+    let q2 = g.ask(lead, "C?", None).unwrap();
+    g.answered(lead, &[q2]).unwrap();
+    let q3 = g.ask(lead, "D?", None).unwrap();
+    g.dismiss(q3).unwrap();
+    let q4 = g.ask(lead, "E?", None).unwrap();
+    g.clear_wait(lead).unwrap();
+    g.set_wait(lead, WaitSource::Hook, Some((WaitKind::Approval, "Bash")))
+        .unwrap();
+    g.dismiss(view(&g, lead).waits[0].id).unwrap();
+    g.done(lead, "고쳤다.", Some("고쳐"), &[]).unwrap();
+    let d1 = view(&g, lead).waits[0].id;
+    g.answer(d1, "하나 더", &[]).unwrap();
+    g.done(lead, "또 고쳤다.", Some("하나 더"), &[]).unwrap();
+    let d2 = view(&g, lead).waits[0].id;
+    g.dismiss(d2).unwrap();
+    let q5 = g.ask(lead, "F?", None).unwrap();
+    g.exited(lead, 0).unwrap();
+
+    assert_eq!(
+        notices(),
+        [
+            Entry::Asked {
+                node: me(),
+                wait: q1,
+                text: "A or B?\nmore".into()
+            },
+            Entry::Answered {
+                node: me(),
+                wait: q1,
+                text: "A".into(),
+                images: 1
+            },
+            Entry::Asked {
+                node: me(),
+                wait: q2,
+                text: "C?".into()
+            },
+            Entry::Unanswered {
+                node: me(),
+                wait: q2,
+                by: ClosedBy::Agent
+            },
+            Entry::Asked {
+                node: me(),
+                wait: q3,
+                text: "D?".into()
+            },
+            Entry::Unanswered {
+                node: me(),
+                wait: q3,
+                by: ClosedBy::Human
+            },
+            Entry::Asked {
+                node: me(),
+                wait: q4,
+                text: "E?".into()
+            },
+            Entry::Unanswered {
+                node: me(),
+                wait: q4,
+                by: ClosedBy::Restart
+            },
+            Entry::Reported {
+                node: me(),
+                wait: d1,
+                summary: "고쳤다.".into(),
+                instruction: "고쳐".into()
+            },
+            Entry::Instructed {
+                node: me(),
+                wait: d1,
+                text: "하나 더".into(),
+                images: 0
+            },
+            Entry::Reported {
+                node: me(),
+                wait: d2,
+                summary: "또 고쳤다.".into(),
+                instruction: "하나 더".into()
+            },
+            Entry::Confirmed {
+                node: me(),
+                wait: d2
+            },
+            Entry::Asked {
+                node: me(),
+                wait: q5,
+                text: "F?".into()
+            },
+            Entry::Unanswered {
+                node: me(),
+                wait: q5,
+                by: ClosedBy::Exit
+            },
+        ]
+    );
+}

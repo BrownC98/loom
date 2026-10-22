@@ -4,11 +4,11 @@
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use super::events::{self, Entry};
+use super::events::{self, ClosedBy, Entry};
 use super::{
     Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
     ambiguous, first_line, from_json, mailbox, name_of, parent_of, place_label, place_of,
-    set_state, state_of, to_json,
+    set_state, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
@@ -230,7 +230,7 @@ impl Graph {
         if changed == 0 {
             return Ok(());
         }
-        tx.execute("DELETE FROM questions WHERE node = ?1", [id.0])?;
+        waits::drop_questions(&tx, id, ClosedBy::Exit)?;
         let parent = parent_of(&tx, id)?;
         if state == NodeState::Running {
             set_state(&tx, id, &ended)?;

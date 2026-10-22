@@ -10,7 +10,8 @@ import { bookmarkToggle } from './BookmarkButton';
 import { QuestionIcon } from './Dock';
 import { InboxPanel, oldestWait, PillHead, waitCount } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
-import { borrowSize, SizingTerminal } from './Terminal';
+import { linkParts, plainText } from './links';
+import { borrowSize, openLink, SizingTerminal } from './Terminal';
 import { LONG_PRESS_MS, readClipboard, SLOP_PX } from './touchTerminal';
 
 /** 터치 화면이고 이 폭 아래일 때 폰 배치를 쓴다(목업 ①). 마우스 PC의 좁은 창(설치한 웹 앱 창 등)은 데스크톱 배치다(2026-10-22 사람 지적 "지금 윈도우 버전 실행하니까 왜 앱 화면이 나오냐"). */
@@ -162,6 +163,7 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
   const [ctrl, setCtrl] = useState(false);
   const [text, setText] = useState('');
   const [sheet, setSheet] = useState<'actions' | 'answer' | 'inbox' | null>(null);
+  const [askOpen, setAskOpen] = useState(false);
   const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
   const asks = asking(view);
   const first = asks[0];
@@ -213,13 +215,34 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
       </header>
       {!props.online && <Offline />}
       {first && (
-        <div className="phone-ask">
+        // 띠를 누르면 글 전체를 펼친다. 접힌 띠는 한 줄로 자른다(2026-10-23 사람 "앱 화면 터미널에 알림떳을때 터치하면 펼쳐지도록 해줘").
+        <div className={askOpen ? 'phone-ask open' : 'phone-ask'} onClick={() => setAskOpen((open) => !open)}>
           <QuestionIcon aria-hidden="true" />
           <b>{t('wait.question')}</b>
           {asks.length > 1 && <span className="count">{asks.length}</span>}
           <span className="qid">Q{first.id}</span>
-          <span className="text">{first.text}</span>
-          <button type="button" className="btn sm" aria-haspopup="dialog" onClick={() => setSheet('answer')}>
+          <span className="text" role="button" tabIndex={0} aria-expanded={askOpen}>
+            {askOpen
+              ? linkParts(first.text).map((part, index) =>
+                  'href' in part ? (
+                    <button key={index} type="button" className="doc-link" onClick={(e) => (e.stopPropagation(), openLink(part.href, view.id))}>
+                      {part.label}
+                    </button>
+                  ) : (
+                    part.text
+                  ),
+                )
+              : plainText(first.text)}
+          </span>
+          <button
+            type="button"
+            className="btn sm"
+            aria-haspopup="dialog"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSheet('answer');
+            }}
+          >
             {t('phone.answer')}
           </button>
         </div>

@@ -61,8 +61,9 @@ function wordAt(xterm: XTerm, at: Cell): { from: Cell; to: Cell } {
  * 마우스 추적을 켠 TUI(Claude Code·less)는 휠을 받는다. 길게 누르면 폰 관례대로 그 낱말을 고르고, 끌면 낱말에서 손가락까지 늘어난다
  * (2026-10-23 사람 "모바일의 일반적 관례를 따르라 예를 들면 화면을 꾹 눌렀을 때 단어 단위로 이미 지정이 된다던가").
  * 고른 글의 두 끝에 손잡이를 단다. 손잡이를 끌면 그 끝만 옮긴다. 손가락은 손잡이를 잡은 자리만큼 떨어져 있어 글자를 가리지 않는다.
- * 고르는 동안과, 고른 글이 있을 때 누른 한 번은 키보드를 열지 않는다(2026-10-23 사람 "텍스트를 지정할 때는 키보드 안올라오게 해줘, 드래그 핀셋도 추가해서 정밀하게 드래그 가능하게 해줘").
- * 고른 글이 없을 때 짧게 누르면 아무것도 하지 않아 xterm의 포커스(키보드)가 그대로 열린다.
+ * 고르는 동안과, 고른 글이 있을 때 누른 한 번은 키보드를 열지 않는다(누르기를 마우스로 보내지 않는다)(2026-10-23 사람 "텍스트를 지정할 때는 키보드 안올라오게 해줘, 드래그 핀셋도 추가해서 정밀하게 드래그 가능하게 해줘").
+ * 손가락 첫 닿기의 기본 동작을 막는다. 막지 않으면 Android WebView가 길게 누르기를 자기 몸짓으로 가져가 touchcancel을 보냈고, 그 뒤 끌어도 고른 범위가 늘지 않았다(2026-10-23 사람 "롱프레스시 키보드 안올라오는데 단어단위 드래그가 안잡힘", 실제 앱).
+ * 그래서 브라우저가 누르기를 마우스 누르기로 바꾸지 않는다. 고른 글이 없을 때 짧게 누르면 같은 자리에 마우스 누르기·떼기·클릭을 직접 보낸다. xterm은 그 누르기로 포커스(키보드)를 열고, 링크와 마우스 추적 TUI도 그 클릭을 받는다.
  * `onSelect`는 고르기가 끝난 손가락 자리를 알린다(복사 버튼 자리). 터치 기기에서만 건다.
  */
 export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at: TouchSelection) => void): () => void {
@@ -121,13 +122,24 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
     selectBetween(xterm, picked.from, picked.to);
     place();
   };
+  // xterm은 줄 수가 바뀌면 고른 글을 지운다. 길게 눌러 고를 때 키보드가 닫혀 터미널 줄 수가 바뀌었고, 고른 글이 바로 풀렸다(2026-10-23 사람 "앱에서 롱클릭 드래그가 잡혔다가 바로 풀리네 터미널에선").
+  // xterm은 공개 onResize를 알린 뒤에 지운다. 그래서 다음 프레임에 다시 고른다.
   const unpick = xterm.onSelectionChange(() => {
     if (xterm.hasSelection()) return;
     picked = null;
     place();
   });
   const scrolled = xterm.onScroll(place);
-  const resized = xterm.onResize(place);
+  const resized = xterm.onResize(() => {
+    const keep = picked;
+    place();
+    if (!keep) return;
+    requestAnimationFrame(() => {
+      if (xterm.hasSelection()) return;
+      pick(keep.from, keep.to);
+      onSelect(edge(keep.to, 'to'));
+    });
+  });
 
   const wheel = (lines: number) => {
     const event = new WheelEvent('wheel', { deltaY: lines, deltaMode: WheelEvent.DOM_DELTA_LINE, bubbles: true, cancelable: true });
@@ -137,9 +149,16 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
     screen.dispatchEvent(event);
   };
 
+  const tap = (clientX: number, clientY: number) => {
+    const target = document.elementFromPoint(clientX, clientY) ?? screen;
+    for (const type of ['mousedown', 'mouseup', 'click'])
+      target.dispatchEvent(new MouseEvent(type, { clientX, clientY, button: 0, buttons: type === 'mousedown' ? 1 : 0, bubbles: true, cancelable: true, view: window }));
+  };
+
   const onStart = (e: TouchEvent) => {
     if (state?.mode !== 'handle' && state) clearTimeout(state.timer);
     if (e.touches.length !== 1) return void (state = null);
+    e.preventDefault();
     const { clientX: x, clientY: y } = e.touches[0];
     const end = (Object.keys(handles) as End[]).find((k) => handles[k].contains(e.target as Node));
     if (end && picked) {
@@ -200,17 +219,13 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   const onEnd = (e: TouchEvent) => {
     if (!state) return;
     if (state.mode !== 'handle') clearTimeout(state.timer);
-    // 고르기를 끝낸 손가락, 고른 글을 지우려고 누른 한 번은 xterm이 포커스를 잡아 키보드를 열지 않게 한다.
-    const keepKeyboardClosed = state.mode === 'select' || state.mode === 'handle' || (state.mode === 'press' && state.hadSelection);
-    if (keepKeyboardClosed) e.preventDefault();
-    if ((state.mode === 'select' || state.mode === 'handle') && xterm.hasSelection()) {
-      const touch = e.changedTouches[0];
-      onSelect({ x: touch.clientX, y: touch.clientY });
-    }
+    const touch = e.changedTouches[0];
+    if ((state.mode === 'select' || state.mode === 'handle') && xterm.hasSelection()) onSelect({ x: touch.clientX, y: touch.clientY });
+    if (e.type === 'touchend' && state.mode === 'press' && !state.hadSelection) tap(touch.clientX, touch.clientY);
     state = null;
   };
 
-  el.addEventListener('touchstart', onStart, { passive: true });
+  el.addEventListener('touchstart', onStart, { passive: false });
   el.addEventListener('touchmove', onMove, { passive: false });
   el.addEventListener('touchend', onEnd, { passive: false });
   el.addEventListener('touchcancel', onEnd, { passive: false });

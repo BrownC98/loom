@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { attachPty, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
+import { isTauri } from '@tauri-apps/api/core';
+import { attachPty, fileViewUrl, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { PtyRequest } from './gen/PtyRequest';
 import type { Resize } from './gen/Resize';
@@ -86,10 +87,17 @@ function loadFont(family: string): Promise<unknown> {
  * 터미널과 받은편지함 글의 링크를 연다. `file://`은 데몬이 그 기계의 기본 앱으로 연다(브라우저 페이지는 열지 못한다). `http(s)`는 새 탭이다. 다른 형식은 열지 않는다.
  * Windows 경로(`file:///C:/…`)는 앞의 `/`를 뗀다.
  */
+/** 이 화면이 데몬 PC 밖(폰 문, Tailscale)에서 열렸다. 데스크톱 앱과 PC 브라우저는 루프백으로 연다. */
+function remoteScreen(): boolean {
+  return !isTauri() && !['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+}
+
 export function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);
   if (url?.protocol === 'file:') {
     const path = decodeURIComponent(url.pathname);
+    // 폰 앱·폰 브라우저는 데몬 PC가 아니다. PC에서 기본 앱을 열면 사람이 보지 못하므로 화면 안에서 연다.
+    if (remoteScreen()) return void (window.open(fileViewUrl(path, node), '_blank') ?? location.assign(fileViewUrl(path, node)));
     openFile(/^\/[A-Za-z]:/.test(path) ? path.slice(1) : path, node).catch((err: Error) => console.error(err));
   } else if (url?.protocol === 'http:' || url?.protocol === 'https:') {
     window.open(url.href, '_blank', 'noopener');

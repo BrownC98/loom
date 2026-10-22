@@ -325,12 +325,13 @@ impl Graph {
         Ok(())
     }
 
-    /// 사람이 노드 카드의 「안 읽음」을 눌렀다. 아직 꺼내지 않은 큐 메시지를 조정으로 바꾼다.
+    /// 사람이 노드 카드의 「안 읽음」을 눌렀다. 받았다는 확인이 없는 큐 메시지를 조정으로 바꾸고 지금 다시 꺼낼 수 있게 한다.
     /// 일하는 노드는 다음 단계 사이에, 쉬는 노드는 새 턴으로 받는다(2026-10-22 사람 지시 "칩을 클릭하면 수동으로 주입되게").
+    /// 꺼냈지만 확인이 없는 메시지도 넣는다. 훅이 꺼낸 뒤 끝나면 `REDELIVER_AFTER`까지 남아 칩을 눌러도 아무 일이 없었다(2026-10-22 사람 보고 "안읽음 버튼 눌러도 아무런 동작을 하지 않음"). 받는 쪽은 메시지 번호로 겹침을 거른다.
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
         self.lock().execute(
-            "UPDATE messages SET kind = ?2
-             WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?3",
+            "UPDATE messages SET kind = ?2, sent_at = NULL
+             WHERE recipient = ?1 AND delivered = 0 AND kind = ?3",
             params![node.0, to_json(&Kind::Steer), to_json(&Kind::Queue)],
         )?;
         self.mail.notify_waiters();

@@ -2140,15 +2140,19 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     g.send(lead, "a", Kind::Queue, "q1").unwrap();
     g.send(lead, "a", Kind::Queue, "q2").unwrap();
     g.send(lead, "b", Kind::Queue, "다른 노드").unwrap();
-    // 이미 꺼낸 메시지는 그대로 둔다.
+    // 꺼냈지만 받았다는 확인이 없는 메시지도 다시 넘긴다.
     let first = g.take(a, &[Kind::Queue], 1).unwrap();
     assert_eq!(first.len(), 1);
+    assert!(
+        g.take(a, &[Kind::Queue], usize::MAX).unwrap().len() == 1,
+        "q2 only; q1 waits for its ack"
+    );
 
     g.steer_queued(a).unwrap();
     let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
     assert_eq!(
         steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
-        ["q2"]
+        ["q1", "q2"]
     );
     assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
     assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);

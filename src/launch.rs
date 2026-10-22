@@ -141,8 +141,6 @@ trait Machine {
     fn wait(&mut self);
     /// 기다림이 실패할 때 알릴 곳.
     fn log_hint(&self) -> String;
-    /// WSL 안의 데몬이 이 기계의 루프백 포트로 답한다(Windows). WSL은 루프백 포트를 Windows와 나눈다.
-    fn sees_wsl(&self) -> bool;
 
     /// 데몬이 다 끝났다: 주소가 답하지 않고 잠금도 풀렸다.
     fn gone(&self, url: &str) -> bool {
@@ -153,15 +151,6 @@ trait Machine {
 /// 데몬 하나를 만들고 그 주소를 돌려준다. 근거: 사람 결정 "상태를 하나로 통일하고 프론트는 뷰어의 역할에 충실하게 한다".
 fn ensure<M: Machine>(m: &mut M, listen: Option<SocketAddr>, mine: &str) -> Result<String, String> {
     let found = m.daemon_file();
-    // Windows에서는 WSL 데몬이 기본 주소에서 답하면 그 데몬에 붙는다. 사람의 노드는 WSL에 있다(2026-10-22 사람 결정 Q265 A).
-    // 끝내지도 바꾸지도 않는다: 그 데몬은 다른 기계(WSL)의 데이터 폴더를 쥐었다.
-    if listen.is_none() && m.sees_wsl() {
-        let wsl = format!("http://{DEFAULT_LISTEN}");
-        let ours = found.as_ref().is_some_and(|f| f.url == wsl) && !m.lock_free();
-        if !ours && m.answers(&wsl) {
-            return Ok(wsl);
-        }
-    }
     if let Some(f) = &found
         && m.answers(&f.url)
     {
@@ -269,10 +258,6 @@ impl Machine for Host {
 
     fn wait(&mut self) {
         std::thread::sleep(POLL_EVERY);
-    }
-
-    fn sees_wsl(&self) -> bool {
-        cfg!(windows)
     }
 
     fn log_hint(&self) -> String {
@@ -398,7 +383,6 @@ mod tests {
         locked: bool,
         pending: Option<(u16, u32)>,
         ready_after: u32,
-        windows: bool,
     }
 
     impl Machine for Fake {
@@ -449,61 +433,6 @@ mod tests {
         fn log_hint(&self) -> String {
             "(see log)".into()
         }
-        fn sees_wsl(&self) -> bool {
-            self.windows
-        }
-    }
-
-    #[test]
-    fn windows_attaches_to_the_wsl_daemon_and_never_stops_it() {
-        // 앱 데몬은 다른 포트에 있고, WSL 데몬이 기본 주소에서 답한다. 이 판이 더 새 판이어도 끝내지 않는다.
-        let mut m = Fake {
-            file: Some(file("http://127.0.0.1:64474", "0.1.5")),
-            answering: vec!["http://127.0.0.1:64474".into(), OLD.into()],
-            loom_at: vec![OLD.into()],
-            locked: true,
-            windows: true,
-            ..Fake::default()
-        };
-        assert_eq!(ensure(&mut m, None, "0.1.9"), Ok(OLD.into()));
-        assert!(m.started.is_empty() && m.shutdowns.is_empty());
-        // 남은 `daemon.json`이 기본 주소를 가리켜도, 잠금이 풀렸으면 그 주소의 데몬은 WSL의 것이다.
-        let mut m = Fake {
-            file: Some(file(OLD, "0.1.5")),
-            answering: vec![OLD.into()],
-            loom_at: vec![OLD.into()],
-            windows: true,
-            ..Fake::default()
-        };
-        assert_eq!(ensure(&mut m, None, "0.1.9"), Ok(OLD.into()));
-        assert!(m.started.is_empty() && m.shutdowns.is_empty());
-    }
-
-    #[test]
-    fn windows_own_daemon_on_the_default_address_is_still_replaced() {
-        let mut m = Fake {
-            file: Some(file(OLD, "0.1.5")),
-            answering: vec![OLD.into()],
-            loom_at: vec![OLD.into()],
-            locked: true,
-            windows: true,
-            outcomes: [Some(7420)].into(),
-            ..Fake::default()
-        };
-        assert_eq!(ensure(&mut m, None, "0.1.9"), Ok(OLD.into()));
-        assert_eq!(m.shutdowns, [OLD]);
-        assert_eq!(m.started, [at(7420)]);
-    }
-
-    #[test]
-    fn windows_without_wsl_starts_its_own_daemon() {
-        let mut m = Fake {
-            windows: true,
-            outcomes: [Some(7420)].into(),
-            ..Fake::default()
-        };
-        assert_eq!(ensure(&mut m, None, "0.1.9"), Ok(OLD.into()));
-        assert_eq!(m.started, [at(7420)]);
     }
 
     fn at(port: u16) -> SocketAddr {

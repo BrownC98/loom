@@ -2,6 +2,7 @@ import { Mail } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AgentMark } from './AgentMark';
+import { steerQueued } from './api';
 import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
 import i18next from './i18n';
@@ -71,7 +72,22 @@ function Badges(props: { view: NodeView }) {
   const { view } = props;
   return (
     <>
-      {view.unread > 0 && <Unread n={view.unread}>{t('node.unreadShort', { n: view.unread })}</Unread>}
+      {/* 누르면 기다리는 메시지를 지금 넘긴다. 에이전트가 턴 끝까지 읽지 않을 때 쓴다(2026-10-22 사람 지시 "해당 칩을 클릭하면 수동으로 주입되게"). */}
+      {view.unread > 0 && (
+        <button
+          type="button"
+          className="unread nodrag"
+          title={t('node.steerQueued')}
+          aria-label={`${t('node.unread', { n: view.unread })}. ${t('node.steerQueued')}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            void steerQueued(view.id);
+          }}
+        >
+          <Mail />
+          {t('node.unreadShort', { n: view.unread })}
+        </button>
+      )}
       {view.held > 0 && (
         <span className="held" title={t('node.heldTitle', { n: view.held })}>
           {t('node.held', { n: view.held })}

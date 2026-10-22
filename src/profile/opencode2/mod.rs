@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::graph::{Delivery, Kind, Model};
 use crate::skills::Launch;
+use crate::wsl::Inside;
 
 use super::{Mailbox, VersionMismatch};
 use server::Server;
@@ -139,8 +140,10 @@ impl Node {
     /// `password`는 노드마다 새로 만든 서버 비밀번호다.
     /// `skills`는 loom이 싣는 스킬 폴더다(`skills::Plugin::skills`). 설정 글 변수로 서버의 스킬 폴더에 더한다.
     /// 이 변수는 사람의 설정 파일을 덮지 않고 그 위에 합쳐진다.
+    /// `inside`가 있으면 서버를 그 WSL 배포판에서 띄우고 세션 폴더도 배포판 안의 경로로 준다. `skills`는 서버가 보는 경로다.
     pub async fn start(
         cwd: &Path,
+        inside: Option<&Inside>,
         node_env: &[(&'static str, OsString)],
         skills: &Path,
         password: String,
@@ -149,8 +152,9 @@ impl Node {
         let config = serde_json::json!({ "skills": [skills] }).to_string();
         let mut env = node_env.to_vec();
         env.push((CONFIG_ENV, config.into()));
-        let server = Server::start(CMD, cwd, &env, password).await?;
-        let session = match server.create_session(cwd).await {
+        let server = Server::start(CMD, cwd, inside, &env, password).await?;
+        let directory = inside.map_or(cwd, |inside| Path::new(inside.cwd()));
+        let session = match server.create_session(directory).await {
             Ok(session) => session,
             Err(e) => {
                 server.stop();

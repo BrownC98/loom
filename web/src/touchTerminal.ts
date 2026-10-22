@@ -74,7 +74,11 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   el.style.setProperty('-webkit-touch-callout', 'none');
   el.style.userSelect = 'none';
   if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
-  const onMenu = (e: Event) => e.preventDefault();
+  // xterm도 contextmenu를 받아 입력 칸(textarea)을 `select()`한다. 그러면 입력 칸에 포커스가 가서 길게 누를 때 키보드가 올라왔다(2026-10-23 사람 "여전히 롱프레스시 키보드가 올라옴", 실제 앱). xterm에 닿기 전에 멈춘다.
+  const onMenu = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   type End = 'from' | 'to';
   type State =

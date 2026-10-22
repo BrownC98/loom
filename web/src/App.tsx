@@ -531,6 +531,7 @@ export function App() {
         waiting={waiting}
         nodes={nodes}
         agentLabel={(v) => agentLabel(agents, v.agent)}
+        resumable={(v) => canResume(agents, v.agent)}
         online={online}
         inbox={<InboxPanel waiting={waiting} onSelect={openNode} onFocus={openNode} />}
         tree={

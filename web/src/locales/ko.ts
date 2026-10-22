@@ -636,7 +636,7 @@ const ko: typeof en = {
     app: '앱',
     check: '업데이트 확인',
     upToDate: '최신 판입니다',
-    newVersion: '새 판 v{{version}}',
+    newVersion: '업데이트 v{{version}}',
   },
 };
 

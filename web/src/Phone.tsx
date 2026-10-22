@@ -3,7 +3,7 @@
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { nodePty, removeNode } from './api';
+import { nodePty, relaunchNode, relaunchQueued, removeNode } from './api';
 import type { Theme } from './gen/Theme';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
@@ -69,6 +69,8 @@ export function Phone(props: {
   waiting: NodeView[];
   nodes: ReadonlyMap<NodeId, NodeView>;
   agentLabel: (view: NodeView) => string;
+  /** 에이전트가 이어 띄우기를 받으면 노드 메뉴에 [다시 띄우기]를 둔다(데스크톱 `NodeMenu`와 같다). */
+  resumable: (view: NodeView) => boolean;
   online: boolean;
   /** 질문 탭 몸통: 데스크톱 「질문」 탭과 같은 목록. */
   inbox: ReactNode;
@@ -85,7 +87,7 @@ export function Phone(props: {
     return (
       <div className="phone">
         {view ? (
-          <NodeScreen key={view.id} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
+          <NodeScreen key={view.id} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
         ) : (
           <>
             <header className="phone-top">
@@ -187,7 +189,7 @@ function controlOf(char: string): string {
 }
 
 /** 노드 하나의 전체 화면 터미널(목업 ④⑤). */
-function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitingNodes`). 알약이 보인다. */ waiting: NodeView[]; agentLabel: string; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
+function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitingNodes`). 알약이 보인다. */ waiting: NodeView[]; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const { view } = props;
   const send = useRef<((data: string) => void) | null>(null);
@@ -324,7 +326,7 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
           </button>
         </form>
       </div>
-      {sheet === 'actions' && <ActionSheet view={view} onCtrlC={() => key(CTRL_C)} onClose={() => setSheet(null)} onRemoved={props.onBack} />}
+      {sheet === 'actions' && <ActionSheet view={view} resumable={props.resumable} onCtrlC={() => key(CTRL_C)} onClose={() => setSheet(null)} onRemoved={props.onBack} />}
       {sheet === 'inbox' && (
         <Sheet label={t('phone.inbox')} onClose={() => setSheet(null)}>
           {/* 알림 탭과 같은 목록이다. 그 자리에서 답하고, 노드 이름을 누르면 그 노드 화면을 쌓아 연다(뒤로 몸짓은 이 화면으로 온다). */}
@@ -512,15 +514,24 @@ function swallowNextClick() {
 }
 
 /** [⋯] 판(목업 ⑤). */
-function ActionSheet(props: { view: NodeView; onCtrlC: () => void; onClose: () => void; onRemoved: () => void }) {
+function ActionSheet(props: { view: NodeView; resumable: boolean; onCtrlC: () => void; onClose: () => void; onRemoved: () => void }) {
   const { t } = useTranslation();
   const bookmark = bookmarkToggle(props.view);
+  const resumable = props.resumable && props.view.state.kind === 'running';
+  // 열 때 데몬에 물은 값. 답이 오기 전에는 누를 수 없다(데스크톱 `NodeMenu`와 같다).
+  const [queued, setQueued] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (resumable) relaunchQueued(props.view.id).then(setQueued, () => setQueued(false));
+  }, [resumable, props.view.id]);
+  // 앱에도 터미널 다시 띄우기를 둔다(2026-10-23 사람 "터미널 다시 켜기도 앱에 추가해줘").
+  const relaunch: MenuItem[] = resumable ? [{ label: queued ? t('node.relaunchQueued') : t('node.relaunch'), disabled: queued !== false, run: () => relaunchNode(props.view.id) }] : [];
   return (
     <MenuSheet
       title={props.view.name}
       onClose={props.onClose}
       items={[
         { label: t('phone.sendCtrlC'), run: props.onCtrlC },
+        ...relaunch,
         // 앱에서도 북마크 영역을 채운다(Q453 A).
         { label: bookmark.label, run: bookmark.run },
         { label: t('phone.remove'), danger: true, confirm: true, run: () => removeNode(props.view.id).then(props.onRemoved) },

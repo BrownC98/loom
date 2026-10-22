@@ -13,10 +13,10 @@
     <string name="rescan">QR 다시 찍기</string>
     <string name="failed_body_door">폰과 PC가 같은 Wi‑Fi에 있는지, PC와 loom이 켜져 있는지 봅니다. PC 주소가 바뀌었으면 QR을 다시 찍습니다.</string>
     <string name="failed_pin">이 주소의 PC가 짝지은 PC와 다릅니다. PC loom에서 QR을 다시 찍습니다.</string>
-    <string name="update_title">앱 새 판 %1$s</string>
+    <string name="update_title">업데이트 %1$s</string>
     <string name="update_current">지금 %1$s</string>
     <string name="update">업데이트</string>
-    <string name="update_downloading">앱 새 판 %1$s 받는 중… %2$d%%</string>
+    <string name="update_downloading">업데이트 %1$s 받는 중… %2$d%%</string>
     <string name="update_permission_title">설치를 허용해야 합니다</string>
     <string name="update_permission_body">설정에서 「이 출처 허용」을 켭니다.</string>
     <string name="update_settings">설정 열기</string>

@@ -424,7 +424,7 @@ mod tests {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason":
-                    "loom message #1 (from: 총괄, mode: interrupt. Stop current work and follow this body)\n멈춰라",
+                    "loom message #1 (from: 총괄, mode: interrupt. Stop your current work and do what this message says)\n멈춰라",
             } }))
         );
     }

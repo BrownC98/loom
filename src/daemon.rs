@@ -1459,6 +1459,12 @@ async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread
         None
     });
     app.turn_ends.human(node, &prompt.unwrap_or_default());
+    if let Err(e) = app.graph.human_input(node) {
+        eprintln!(
+            "loom: 노드 {}를 다시 일하는 상태로 바꾸지 못했다: {e}",
+            node.0
+        );
+    }
     let questions = match app.graph.open_questions(node) {
         Ok(questions) => questions,
         Err(e) => return eprintln!("loom: 노드 {}의 열린 질문을 읽지 못했다: {e}", node.0),

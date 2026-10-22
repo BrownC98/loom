@@ -1,3 +1,6 @@
 <resources>
-    <style name="Loom" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- 상태 줄 뒤는 밝은 `bg`다. 글자와 아이콘을 어둡게 그린다. 이 값이 없으면 흰 바탕에 흰 시계가 보이지 않았다(2026-10-23 사람 "앱 화이트 모드일때 시스템 상태바의 텍스트와 배경이 모두 흰색이라 시간이 안보임"). -->
+    <style name="Loom" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
 </resources>

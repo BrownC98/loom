@@ -8,7 +8,7 @@ import type { WaitKind } from "./WaitKind";
  */
 export type HumanWait = { id: WaitId, kind: WaitKind, 
 /**
- * `loom ask` 질문은 전문, 다른 대기는 한 줄이다. 없으면 빈 글이고, 화면은 종류 이름만 보인다.
+ * `loom ask` 질문과 완료는 전문, 다른 대기는 한 줄이다. 없으면 빈 글이고, 화면은 종류 이름만 보인다.
  */
 text: string, 
 /**
@@ -16,10 +16,14 @@ text: string,
  */
 since: number, 
 /**
- * `loom ask` 질문이다. 화면에서 답할 수 있다(`Graph::answer`). 다른 대기는 그 노드 터미널에서만 답한다.
+ * `loom ask` 질문이나 완료다. 화면에서 답할 수 있다(`Graph::answer`). 완료의 답은 이어서 맡기는 일이다. 다른 대기는 그 노드 터미널에서만 답한다.
  */
 answerable: boolean, doc: WaitDoc | null, 
 /**
- * 완료(`Done`)만: 그 일을 맡긴 사람의 지시 첫 줄. `text`는 결과(에이전트 마지막 답의 첫 줄)다.
+ * 완료(`Done`)만: 그 일을 맡긴 사람의 지시(`loom done --asked`). `text`는 결과(`loom done`의 요약)다.
  */
-instruction?: string, };
+instruction?: string, 
+/**
+ * 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
+ */
+images: Array<string>, };

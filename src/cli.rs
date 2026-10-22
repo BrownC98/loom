@@ -197,10 +197,7 @@ pub fn hook() -> Result<(), String> {
         kinds: kinds.to_vec(),
         limit_bytes: claude::HOOK_LIMIT_BYTES,
         transcript,
-        human_input: match &event {
-            claude::Event::UserPromptSubmit { prompt } => Some(prompt.clone()),
-            _ => None,
-        },
+        human_input: matches!(event, claude::Event::UserPromptSubmit),
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken.messages, &taken.open_questions) {
@@ -251,10 +248,7 @@ pub fn cursor_hook() -> Result<(), String> {
                 kinds: kinds.to_vec(),
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
                 transcript: None,
-                human_input: match &event {
-                    cursor::Event::BeforeSubmitPrompt { prompt, .. } => Some(prompt.clone()),
-                    _ => None,
-                },
+                human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
             },
             Some(timeout),
         )
@@ -404,7 +398,12 @@ pub fn answered(ids: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
+pub fn done(
+    summary: Option<String>,
+    file: Option<PathBuf>,
+    asked: Option<String>,
+    images: Vec<PathBuf>,
+) -> Result<(), String> {
     let summary = match file {
         // 부모가 다른 폴더에서 읽어도 찾도록 절대 경로로 보낸다. 파일이 없으면 여기서 실패한다.
         Some(path) => crate::wsl::for_caller(
@@ -412,9 +411,21 @@ pub fn done(summary: Option<String>, file: Option<PathBuf>) -> Result<(), String
         ),
         None => summary.unwrap_or_default(),
     };
-    let alive_children: Vec<String> = call("done", &DoneRequest { summary }, None)?;
+    let images = images
+        .iter()
+        .map(|path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display())))
+        .collect::<Result<Vec<_>, _>>()?;
+    let alive_children: Vec<String> = call(
+        "done",
+        &DoneRequest {
+            summary,
+            asked,
+            images,
+        },
+        None,
+    )?;
     println!(
-        "Reported to your parent. If you have no parent, loom keeps the report for your next parent."
+        "Reported to your parent. If you have no parent, the report is in the human's inbox, and loom keeps it for your next parent."
     );
     if !alive_children.is_empty() {
         println!(

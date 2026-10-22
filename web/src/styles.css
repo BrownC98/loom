@@ -537,8 +537,14 @@ a { color: var(--accent); }
 .inbox-pill > .wait-body { padding: 10px 12px 12px; }
 /* 알약은 그래프를 덜 가리게 글을 4줄까지 보이고, 넘으면 [더 보기]로 편다. */
 .inbox-pill .full:not([data-more]) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
-.wait-body .more-text { justify-self: start; padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.wait-body .more-text:hover { color: var(--ink); }
+.clamped { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; }
+.clamped .more-text { justify-self: start; padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.clamped .more-text:hover { color: var(--ink); }
+/* 완료의 지시와 결과는 3줄까지 보이고 넘으면 [더 보기]로 편다(2026-10-22 사람 지시 "사람이 어떤 지시를 내렸었는지 확인하기 어려움"). */
+.clamped.instruction .full:not([data-more]), .wait-body[data-kind="done"] .full:not([data-more]) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.clamped.instruction { flex: 1; }
+.clamped.instruction .full { margin: 0; color: var(--ink-3); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wait-body[data-kind="done"] .full { font-weight: 600; }
 .inbox-pill .count, .tabs .count, .rail .count, .wait-node .count, .state .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 /* 접힌 줄의 아이콘 단추는 글자 자리가 없다. 배지를 단추 안 오른쪽 위에 겹친다. 줄은 창 끝에 붙어 있어서 단추 밖으로 나가면 잘린다. */
 .rail .btn:has(.count) { position: relative; }
@@ -567,9 +573,9 @@ a { color: var(--accent); }
 .wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wait-row .done-mark { flex: none; width: 15px; height: 15px; color: var(--ok); }
-.wait-row .done-result { margin: 0; color: var(--ink); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+/* 지시가 여러 줄이면 체크와 [확인]은 첫 줄에 맞춘다. */
+.wait-row .top:has(> .clamped) { align-items: flex-start; }
 .wait-row .kind.done svg { flex: none; width: 14px; height: 14px; }
-.wait-body .asked { margin: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */
 .wait-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .answer-images { list-style: none; margin: 0; padding: 4px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }

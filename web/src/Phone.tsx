@@ -1,9 +1,10 @@
 // 폰 폭 화면(목업 docs/mockups/mobile.html M35, 2026-10-22 사람 승인 Q279·Q280). 배치만 맡는다.
 // 질문 목록·트리·사용량 줄은 App이 데스크톱과 같은 부품으로 만들어 넘긴다. 상태 원천은 데스크톱과 같은 데몬 이벤트다.
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, TriangleAlert, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, removeNode } from './api';
+import type { Theme } from './gen/Theme';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
@@ -60,6 +61,9 @@ export function usePhoneRoute(): [PhoneRoute, (next: PhoneRoute) => void] {
 
 export function Phone(props: {
   route: PhoneRoute;
+  /** 지금 그리는 테마(이 폰에서 고른 것, 없으면 PC 설정). */
+  theme: Theme;
+  onTheme: (next: Theme) => void;
   onRoute: (next: PhoneRoute) => void;
   waiting: NodeView[];
   nodes: ReadonlyMap<NodeId, NodeView>;
@@ -100,6 +104,7 @@ export function Phone(props: {
         <span className="phone-title">
           <b>{inbox ? t('phone.inbox') : t('phone.nodes')}</b>
         </span>
+        <ThemeButton theme={props.theme} onTheme={props.onTheme} />
       </header>
       {!props.online && <Offline />}
       <main className="phone-body" aria-label={inbox ? t('phone.inbox') : t('phone.nodes')}>
@@ -124,6 +129,33 @@ export function Phone(props: {
         </button>
       </nav>
     </div>
+  );
+}
+
+const THEME_CHOICES = [
+  { value: 'system', label: 'phone.themeSystem', icon: SunMoon },
+  { value: 'light', label: 'theme.light', icon: Sun },
+  { value: 'dark', label: 'theme.dark', icon: Moon },
+] as const satisfies readonly { value: Theme; label: string; icon: LucideIcon }[];
+
+/** 머리 줄 오른쪽 단추. 지금 고른 테마의 아이콘을 보이고, 누르면 세 줄 판을 연다(목업 app-theme.html M7). */
+function ThemeButton(props: { theme: Theme; onTheme: (next: Theme) => void }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const Current = THEME_CHOICES.find((choice) => choice.value === props.theme)?.icon ?? SunMoon;
+  return (
+    <>
+      <button type="button" className="phone-icon" aria-label={t('phone.theme')} onClick={() => setOpen(true)}>
+        <Current aria-hidden="true" />
+      </button>
+      {open && (
+        <MenuSheet
+          title={t('phone.theme')}
+          onClose={() => setOpen(false)}
+          items={THEME_CHOICES.map((choice) => ({ label: t(choice.label), icon: <choice.icon />, checked: choice.value === props.theme, run: () => props.onTheme(choice.value) }))}
+        />
+      )}
+    </>
   );
 }
 
@@ -372,7 +404,7 @@ export function Sheet(props: { label: string; onClose: () => void; children: Rea
 }
 
 /** 판의 단추 하나. `confirm`이면 판 안에서 한 번 더 눌러야 한다(확인 창을 따로 띄우지 않는다). `run`이 거절하면 판 아래에 그 글을 보이고 판을 열어 둔다. */
-export type MenuItem = { label: string; icon?: ReactNode; run: () => unknown; danger?: boolean; confirm?: boolean; disabled?: boolean };
+export type MenuItem = { label: string; icon?: ReactNode; run: () => unknown; checked?: boolean; danger?: boolean; confirm?: boolean; disabled?: boolean };
 
 /** 단추 목록 판(목업 폰 노드 목록 R3 ③). 노드 화면의 [⋮]와 노드 탭 줄의 [⋮]·길게 누르기가 연다. */
 export function MenuSheet(props: { title: string; items: MenuItem[]; onClose: () => void }) {
@@ -390,6 +422,7 @@ export function MenuSheet(props: { title: string; items: MenuItem[]; onClose: ()
         <button key={item.label} type="button" className={item.danger ? 'btn danger' : 'btn'} disabled={item.disabled} onClick={() => press(item)}>
           {item.icon}
           {armed === item.label ? t('phone.removeConfirm') : item.label}
+          {item.checked && <Check className="mark" aria-hidden="true" />}
         </button>
       ))}
       <button type="button" className="btn ghost" onClick={props.onClose}>

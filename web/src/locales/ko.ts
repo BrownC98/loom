@@ -327,6 +327,8 @@ const ko: typeof en = {
     noNode: '이 노드가 없습니다. 지웠거나 다른 PC의 노드입니다.',
     offline: 'PC에 닿지 않습니다. 다시 연결하는 중…',
     back: '뒤로',
+    theme: '테마',
+    themeSystem: '시스템 설정 따름',
     actions: '노드 동작',
     answer: '답하기',
     keys: '터미널 키',

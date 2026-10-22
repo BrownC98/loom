@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var web: WebView
     private lateinit var card: ScrollView
     private lateinit var banner: LinearLayout
+    private lateinit var root: LinearLayout
     /** 마지막으로 새 판을 확인한 때(`SystemClock.elapsedRealtime`). 앱을 열 때와 그 뒤 6시간마다 확인한다. */
     private var checked: Long? = null
     /** 설치 허용을 켜러 설정에 간 동안 기다리는 APK. 돌아오면 설치 화면을 연다. */
@@ -101,6 +102,7 @@ class MainActivity : ComponentActivity() {
             webViewClient = Client()
             webChromeClient = Chooser()
             addJavascriptInterface(Clipboard(), "loomClipboard")
+            addJavascriptInterface(Chrome(), "loomChrome")
         }
         CookieManager.getInstance().setAcceptCookie(true)
         card = ScrollView(this).apply {
@@ -119,7 +121,7 @@ class MainActivity : ComponentActivity() {
             addView(card, MATCH_PARENT, MATCH_PARENT)
         }
         // 띠는 PC 화면을 아래로 민다. 위에 겹치면 PC 화면의 머리 줄을 가린다(목업 ①).
-        val root = LinearLayout(this).apply {
+        root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.bg))
             addView(banner, MATCH_PARENT, WRAP_CONTENT)
@@ -580,6 +582,28 @@ class MainActivity : ComponentActivity() {
         fun read(): String {
             val clip = (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
             return clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this@MainActivity)?.toString() ?: ""
+        }
+    }
+
+    /**
+     * 폰 화면이 고른 테마(`light`·`dark`)에 상태 줄을 맞춘다. 시스템 모드와 다른 테마를 고를 수 있어서
+     * 상태 줄 글자색과 바탕을 이 값으로 정한다(2026-10-23 Q464 A).
+     */
+    private inner class Chrome {
+        @JavascriptInterface
+        fun setScheme(scheme: String) {
+            val light = scheme == "light"
+            runOnUiThread {
+                root.setBackgroundColor(getColor(if (light) R.color.bg_light else R.color.bg_dark))
+                val flag = if (light) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    window.insetsController?.setSystemBarsAppearance(if (light) mask else 0, mask)
+                } else {
+                    @Suppress("DEPRECATION")
+                    window.decorView.systemUiVisibility = flag
+                }
+            }
         }
     }
 

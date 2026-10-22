@@ -933,6 +933,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .state-tag:is(.exited, .setupFailed) { color: var(--err); }
 .sheet-body > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }
 .sheet-body > .btn svg { width: 18px; height: 18px; }
+.sheet-body > .btn .mark { margin-left: auto; }
 /* 줄 팝오버(새 노드, 새 워크트리, 워크트리 삭제, 저장소 추가)는 판 안에 든다. 줄 옆은 화면 밖이다. */
 .sheet-body > .pop { position: static; width: auto; max-height: none; padding: 0; box-shadow: none; }
 

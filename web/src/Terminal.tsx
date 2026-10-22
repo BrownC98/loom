@@ -172,7 +172,6 @@ type TerminalProps = {
   focusAsk?: number;
   onFocus: () => void;
   onNavigate: (dir: Direction) => void;
-  loadRenderer?: (xterm: XTerm) => void;
   onSender?: (send: ((data: string) => void) | null) => void;
 };
 
@@ -220,7 +219,7 @@ export function realignTerminals() {
 /**
  * 칸 크기로 PTY 열·줄을 정하는 터미널. 글꼴 크기는 설정 값 그대로다. 칸이 바뀌면 열·줄이 바뀐다(2026-10-22 사람 지시 "일반적인 터미널의 크기를 조정해도 터미널 폰트 크기는 안변하잖아, 사이드탭 터미널도 동일하게 작동하게 만들어").
  * PTY 크기는 마지막에 칸을 바꾼 화면을 따른다. 다른 화면은 그 크기를 배율로 맞춰 보인다(`scaleToBox`). 그래프 확대·축소는 칸 크기를 바꾸지 않는다.
- * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`). `loadRenderer`는 연 뒤에 렌더러 애드온을 붙인다. 없으면 DOM 렌더러로 그린다.
+ * `src`는 PTY WebSocket 경로다(`nodePty`·`loginPty`).
  */
 export function SizingTerminal(props: TerminalProps) {
   const box = useRef<HTMLDivElement>(null);
@@ -265,7 +264,6 @@ export function SizingTerminal(props: TerminalProps) {
       xterm.loadAddon(fitAddon);
       xterm.open(el);
       unscaleMouse(xterm);
-      latest.current.loadRenderer?.(xterm);
       term.current = xterm;
       const rescale = () => scaleToBox(xterm, el);
       const decide = () => {

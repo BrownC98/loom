@@ -167,8 +167,11 @@ pub enum Event {
     SessionStart {
         model: Option<String>,
     },
-    /// 사람이 입력했다.
-    UserPromptSubmit,
+    /// 새 턴의 입력. 사람 입력이 아닐 수도 있다(`human_input`).
+    UserPromptSubmit {
+        #[serde(default)]
+        prompt: String,
+    },
     PreToolUse {
         tool_name: String,
         tool_input: Value,
@@ -190,6 +193,8 @@ pub enum Event {
     },
 }
 
+/// Claude가 사람 입력이 아닌 턴 입력 앞에 붙이는 태그(2.1.308 실측).
+const NOTIFICATION_TAG: &str = "<task-notification>";
 /// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
 const RATE_LIMIT_ERROR: &str = "rate_limit";
 /// 한도 대기의 한 줄 글. 한도 창의 첫 선택지다(2.1.306 화면 문구).
@@ -201,12 +206,20 @@ impl Event {
         match self {
             Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::WhenIdle,
             // 쉬는 중이던 노드의 다음 턴: 모두 넘긴다.
-            Event::UserPromptSubmit => Take::Now(Kind::ALL),
+            Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
             // 일하는 노드의 도구 호출 뒤: 큐 메시지도 넘긴다. 근거: docs/design.md 「전달 지점」.
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
             Event::Notification { .. } => Take::Never,
         }
+    }
+
+    /// 사람이 친 입력이 연 턴인가. 백그라운드 작업 알림과 비동기 훅의 다시 깨우기(`asyncRewake`, loom 메시지 전달)도
+    /// `UserPromptSubmit`을 부르고, 그 입력은 `<task-notification>`으로 시작한다. 훅 입력에는 출처 필드가 없고,
+    /// 기록 파일의 `origin.kind`는 훅이 돈 뒤에 쓰인다(2.1.308 실측). 그래서 입력 글로 가린다.
+    /// 전에는 이 턴들도 사람 입력으로 보아 턴 끝 검사가 거듭 깨웠다(2026-10-22 ktasearch-총괄 기록, 사람 결정 Q349 C).
+    pub fn human_input(&self) -> bool {
+        matches!(self, Event::UserPromptSubmit { prompt } if !prompt.starts_with(NOTIFICATION_TAG))
     }
 
     /// 이 훅이 알리는 사람 응답 대기. `None`이면 에이전트가 다시 일한다: 훅이 건 대기를 거둔다.
@@ -271,7 +284,7 @@ impl Event {
                 "permissionDecision": "deny",
                 "permissionDecisionReason": text,
             } })),
-            Event::UserPromptSubmit => Some(context("UserPromptSubmit", text)),
+            Event::UserPromptSubmit { .. } => Some(context("UserPromptSubmit", text)),
             Event::PostToolUse => Some(context("PostToolUse", text)),
             Event::PostToolUseFailure => Some(context("PostToolUseFailure", text)),
         }
@@ -491,6 +504,20 @@ mod tests {
         let overloaded = event(json!({ "hook_event_name": "StopFailure", "error": "overloaded" }));
         assert!(!overloaded.rate_limited());
         assert!(!event(json!({ "hook_event_name": "Stop" })).rate_limited());
+    }
+
+    /// 2.1.308 실측 입력(본문은 줄였다): 백그라운드 작업 알림과 비동기 훅의 다시 깨우기는 사람 입력이 아니다.
+    #[test]
+    fn task_notifications_are_not_human_input() {
+        let prompt =
+            |text: &str| event(json!({ "hook_event_name": "UserPromptSubmit", "prompt": text }));
+        assert!(prompt("Reply only HELLO.").human_input());
+        assert!(!prompt("<task-notification>\n<task-id>b68lj1bk9</task-id>").human_input());
+        assert!(
+            !prompt("<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>\n<system-reminder>")
+                .human_input()
+        );
+        assert!(!event(json!({ "hook_event_name": "Stop" })).human_input());
     }
 
     /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.

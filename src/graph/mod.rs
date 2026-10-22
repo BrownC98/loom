@@ -331,7 +331,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    n.brief, n.bookmark, n.wait,
+    n.brief, n.bookmark, n.wait, n.done,
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id)
     FROM nodes n";
 
@@ -492,7 +492,8 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
     let state = from_json(row, 4)?;
     let brief: Option<String> = row.get(11)?;
     let wait: Option<String> = row.get(13)?;
-    let asked: String = row.get(14)?;
+    let done: Option<String> = row.get(14)?;
+    let asked: String = row.get(15)?;
     // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
     let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Asked>>(&asked)
         .unwrap_or_default()
@@ -504,6 +505,7 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
         wait.and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
             .map(|s| s.wait),
     );
+    waits.extend(done.and_then(|w| serde_json::from_str::<HumanWait>(&w).ok()));
     Ok(NodeView {
         topic: topic(&state, titles.get(&id), brief.as_deref()),
         id,

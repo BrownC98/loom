@@ -141,7 +141,8 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
             {v.waits.length > 1 && (
               <>
                 {' '}
-                · {t('inbox.button')} <span className="count">{v.waits.length}</span>
+                {/* 질문과 완료를 함께 센 수다. 「질문」 글자를 붙이지 않는다. */}
+                {v.waits.length > 1 && <span className="count">{v.waits.length}</span>}
               </>
             )}
           </button>
@@ -173,26 +174,34 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
         props.onFocus();
       }}
     >
-      <div className="top">
-        {wait.kind === 'done' ? (
-          <span className="kind done">
-            <CircleCheck aria-hidden="true" />
-            {t('wait.done')}
-          </span>
-        ) : (
-          <>
+      {wait.kind === 'done' ? (
+        <>
+          {/* 완료 줄은 한 줄 머리에 체크·지시·[확인]을 둔다. 「완료」 글자 줄을 따로 두지 않는다(2026-10-22 사람 지시 "아이콘+완료 표시가 공간 낭비"). */}
+          <div className="top">
+            <CircleCheck className="done-mark" aria-label={t('wait.done')} />
+            <span className="kind">{wait.instruction ? t('inbox.instruction', { text: wait.instruction }) : t('wait.done')}</span>
+            <ConfirmButton wait={wait.id} />
+          </div>
+          {wait.text && <p className="done-result">{wait.text}</p>}
+        </>
+      ) : (
+        <>
+          <div className="top">
             <span className="qid">Q{wait.id}</span>
             <span className="kind">{t(`wait.${wait.kind}`)}</span>
-          </>
-        )}
-        <DismissButton wait={wait.id} />
-      </div>
-      {wait.kind === 'done' ? <DoneBody wait={wait} /> : <WaitBody node={props.node} wait={wait} onGo={props.onGo} />}
+            <DismissButton wait={wait.id} />
+          </div>
+          <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
+        </>
+      )}
     </li>
   );
 }
 
-/** 완료 알림 본문: 일을 맡긴 사람의 지시와 결과(에이전트 마지막 답의 첫 줄). 답할 일이 없다. 줄을 누르면 그 터미널로 간다(목업 docs/mockups/done-notice.html M37 v2). */
+/**
+ * 완료 알림 본문: 일을 맡긴 사람의 지시와 결과(에이전트 마지막 답의 첫 줄). 줄을 누르면 그 터미널로 간다(목업 docs/mockups/done-notice.html M37 v2).
+ * [확인]만 지운다. 입력·다음 턴·프로세스 끝으로는 지우지 않는다(2026-10-22 사람 지시 "완료 알림은 사용자가 확인 버튼 클릭하면 제거되는 걸로").
+ */
 function DoneBody(props: { wait: HumanWait }) {
   const { t } = useTranslation();
   const { instruction, text } = props.wait;
@@ -200,7 +209,30 @@ function DoneBody(props: { wait: HumanWait }) {
     <div className="wait-body">
       {instruction && <p className="asked">{t('inbox.instruction', { text: instruction })}</p>}
       {text && <p className="full">{text}</p>}
+      <div className="choices">
+        <ConfirmButton wait={props.wait.id} />
+      </div>
     </div>
+  );
+}
+
+/** 완료 알림의 [확인]. 그 알림을 지운다. 거절되면 툴팁이 이유를 보인다. */
+function ConfirmButton(props: { wait: WaitId }) {
+  const { t } = useTranslation();
+  const [refusal, setRefusal] = useState<string | null>(null);
+  return (
+    <button
+      type="button"
+      className="choice confirm"
+      title={refusal ?? undefined}
+      data-refused={refusal !== null || undefined}
+      onClick={() => {
+        setRefusal(null);
+        dismissWait(props.wait).catch((err: Error) => setRefusal(err.message));
+      }}
+    >
+      {t('inbox.confirm')}
+    </button>
   );
 }
 

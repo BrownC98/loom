@@ -46,8 +46,6 @@ pub enum WaitSource {
     Codex,
     /// 터미널 화면에서 찾은 확인 창(`screen`).
     Screen,
-    /// 사람이 연 턴의 끝(`Graph::finished`).
-    Turn,
 }
 
 /// 대기 번호. 사람은 `Q12`로 읽고 쓴다. 데몬 전체에서 늘기만 하고(DB `wait_ids`) 다시 쓰지 않는다.
@@ -163,7 +161,18 @@ impl Graph {
         self.publish_node(&db, id)
     }
 
+    /// 노드에 남은 일이 있다: 프로세스가 살아 일하는 자식(`running`)이나 아직 받지 않은 메시지.
+    pub fn busy(&self, id: NodeId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE parent = ?1 AND process_exited = 0 AND state ->> 'kind' = 'running')
+                OR EXISTS(SELECT 1 FROM messages WHERE recipient = ?1 AND delivered = 0)",
+            [id.0],
+            |row| row.get(0),
+        )
+    }
+
     /// 사람이 맡긴 일이 끝났다. 노드에 다른 대기도 열린 질문도 없을 때만 완료를 건다. 이번 턴에 물었으면 질문이 이미 알린다.
+    /// 완료는 자기 자리(`nodes.done`)에 둔다. 확인하지 않은 앞 완료는 이번 완료로 바꾼다.
     /// `instruction`은 그 턴을 연 사람의 지시, `result`는 에이전트의 마지막 답이다. 둘 다 첫 줄만 남긴다.
     /// 근거: docs/design.md 「완료 알림」, 2026-10-22 목업 M37 v2 승인.
     pub fn finished(&self, id: NodeId, instruction: &str, result: &str) -> rusqlite::Result<()> {
@@ -173,11 +182,10 @@ impl Graph {
         }
         let mut wait = new_wait(&db, WaitKind::Done, one_line(result), false, None)?;
         wait.instruction = Some(one_line(instruction));
-        let stored = Stored {
-            wait,
-            source: WaitSource::Turn,
-        };
-        put(&db, id, Some(&stored))?;
+        db.execute(
+            "UPDATE nodes SET done = ?2 WHERE id = ?1",
+            params![id.0, to_json(&wait)],
+        )?;
         self.publish_node(&db, id)
     }
 
@@ -336,7 +344,10 @@ impl Graph {
             Some(node) => node,
             None => db
                 .query_row(
-                    "UPDATE nodes SET wait = NULL WHERE json_extract(wait, '$.id') = ?1 RETURNING id",
+                    "UPDATE nodes SET
+                        wait = CASE WHEN wait ->> 'id' = ?1 THEN NULL ELSE wait END,
+                        done = CASE WHEN done ->> 'id' = ?1 THEN NULL ELSE done END
+                     WHERE wait ->> 'id' = ?1 OR done ->> 'id' = ?1 RETURNING id",
                     [wait.0],
                     |row| row.get(0),
                 )

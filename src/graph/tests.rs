@@ -255,20 +255,40 @@ fn a_finished_human_turn_shows_once_and_never_hides_a_wait() {
         done(worker),
         [(WaitKind::Done, Some("버튼 고쳐".into()), "고쳤다.".into())]
     );
-    // 다른 신호는 완료를 거두지 않는다. 사람의 키 입력이 지운다.
-    g.set_wait(worker, WaitSource::Hook, None).unwrap();
-    assert_eq!(done(worker).len(), 1);
+    // 완료는 [확인](dismiss)만 지운다. 키 입력, 다른 신호, 다시 띄우기로는 남는다.
     g.typed(worker).unwrap();
+    g.clear_wait(worker).unwrap();
+    assert_eq!(done(worker).len(), 1);
+    // 승인 창이 와도 완료를 덮지 않는다. 함께 보이고 승인 창이 먼저다.
+    let permission = (WaitKind::Approval, "Allow Bash?");
+    g.set_wait(worker, WaitSource::Hook, Some(permission))
+        .unwrap();
+    let kinds = |id| done(id).into_iter().map(|w| w.0).collect::<Vec<_>>();
+    assert_eq!(kinds(worker), [WaitKind::Approval, WaitKind::Done]);
+    g.set_wait(worker, WaitSource::Hook, None).unwrap();
+    // 확인하지 않은 완료는 다음 완료로 바뀐다.
+    g.finished(worker, "또 고쳐", "또 고쳤다.").unwrap();
+    assert_eq!(
+        done(worker),
+        [(WaitKind::Done, Some("또 고쳐".into()), "또 고쳤다.".into())]
+    );
+    g.dismiss(view(&g, worker).waits[0].id).unwrap();
     assert_eq!(done(worker), []);
 
-    // 질문이나 다른 대기가 있으면 완료를 걸지 않는다. 그 대기가 이미 사람을 부른다.
+    // 질문과 완료가 섞인다: 완료 뒤 질문을 열면 둘 다 보이고 질문이 먼저다.
+    g.finished(lead, "목업 만들어", "만들었다.").unwrap();
     g.ask(lead, "병합할까요?", None).unwrap();
+    assert_eq!(kinds(lead), [WaitKind::Question, WaitKind::Done]);
+    // 질문이 열린 턴의 끝은 완료를 걸지 않는다. 질문이 이미 사람을 부른다. 앞 완료는 그대로다.
     g.finished(lead, "병합해", "물었다.").unwrap();
-    assert!(done(lead).iter().all(|w| w.0 == WaitKind::Question));
+    assert_eq!(done(lead)[1].2, "만들었다.");
+    // 질문을 [×]로 닫아도 완료는 남는다.
+    g.dismiss(view(&g, lead).waits[0].id).unwrap();
+    assert_eq!(kinds(lead), [WaitKind::Done]);
     let trust = (WaitKind::Trust, "Trust?");
     g.set_wait(worker, WaitSource::Screen, Some(trust)).unwrap();
     g.finished(worker, "x", "y").unwrap();
-    assert_eq!(done(worker)[0].0, WaitKind::Trust);
+    assert_eq!(kinds(worker), [WaitKind::Trust]);
 }
 
 #[test]

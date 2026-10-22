@@ -56,6 +56,11 @@
   --err-dark: oklch(70.4% 0.188 22);
   --err: light-dark(var(--err-light), var(--err-dark));
   --err-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  /* 알림 수 배지(사이드바 「알림」 탭, 폰 탭). 질문 노랑·완료 초록과 다른 색이어야 둘을 함께 센 수로 읽힌다. */
+  --notice-light: oklch(56% 0.2 15);
+  --notice-dark: oklch(70% 0.17 15);
+  --notice: light-dark(var(--notice-light), var(--notice-dark));
+  --notice-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
   --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
   --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
   --scrim: light-dark(oklch(0% 0 0 / 0.3), oklch(0% 0 0 / 0.5));
@@ -537,6 +542,7 @@ a { color: var(--accent); }
 .inbox-pill .count, .tabs .count, .rail .count, .wait-node .count, .state .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 /* 접힌 줄의 아이콘 단추는 글자 자리가 없다. 배지를 단추 안 오른쪽 위에 겹친다. 줄은 창 끝에 붙어 있어서 단추 밖으로 나가면 잘린다. */
 .rail .btn:has(.count) { position: relative; }
+.tabs .count, .rail .count, .wait-node .count { background: var(--notice); color: var(--notice-ink); }
 .rail .count { position: absolute; top: -3px; right: -2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; font-size: 10px; line-height: 15px; pointer-events: none; }
 .inbox-pill .chev { width: 14px; height: 14px; margin-left: 4px; vertical-align: -2px; }
 .inbox-pill .chev.open { transform: rotate(180deg); }
@@ -554,12 +560,14 @@ a { color: var(--accent); }
 .wait-node > .go:hover { background: var(--surface-hover); }
 .wait-list .dot { flex: none; box-shadow: none; }
 .wait-rows { list-style: none; margin: 0; padding: 0 0 0 21px; display: grid; grid-template-columns: minmax(0, 1fr); }
-.wait-row { cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 8px 10px 0; }
+/* 왼쪽 여백은 누를 수 있는 바탕 안쪽 여백이다. 음수 여백으로 글 자리는 노드 이름 밑에 그대로 둔다. */
+.wait-row { cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-left: -8px; padding: 6px 8px 10px; }
 .wait-row + .wait-row { border-top: 1px dashed var(--line); }
 .wait-row:hover { background: var(--surface-hover); border-radius: 6px; }
 .wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wait-row .kind.done { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); font-weight: 600; }
+.wait-row .done-mark { flex: none; width: 15px; height: 15px; color: var(--ok); }
+.wait-row .done-result { margin: 0; color: var(--ink); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .wait-row .kind.done svg { flex: none; width: 14px; height: 14px; }
 .wait-body .asked { margin: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */
@@ -587,8 +595,10 @@ a { color: var(--accent); }
 .wait-body .to-terminal { padding: 0 8px; border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
 .wait-body .to-terminal:hover { background: var(--surface-hover); color: var(--ink); }
 .wait-body .choices { display: flex; flex-wrap: wrap; gap: 6px; }
-.wait-body .choice { display: inline-flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; text-align: left; line-height: 1.4; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.wait-body .choice, .wait-row .choice.confirm { display: inline-flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; text-align: left; line-height: 1.4; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .wait-body .choice:hover { background: var(--surface-hover); }
+.wait-row .choice.confirm { flex: none; align-items: center; }
+.wait-row .choice.confirm:hover { background: var(--surface-hover); }
 .wait-body .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
 .wait-body .choice[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
 .wait-body .choice .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
@@ -814,7 +824,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-tabs { display: grid; grid-template-columns: 1fr 1fr; padding-bottom: env(safe-area-inset-bottom); background: var(--panel); border-top: 1px solid var(--line); }
 .phone-tabs button { position: relative; display: grid; place-items: center; align-content: center; gap: 2px; min-height: 56px; border: 0; background: none; color: var(--ink-3); font-size: 12px; cursor: pointer; }
 .phone-tabs button[aria-current="page"] { color: var(--ink); font-weight: 600; }
-.phone-tabs .count { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.phone-tabs .count { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--notice); color: var(--notice-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 .phone .btn { min-height: 44px; padding: 0 14px; border-radius: 10px; font-size: 14px; }
 .phone .btn.sm { min-height: 36px; font-size: 13px; }
 /* 사용량 줄: 데스크톱 상태 줄(StatusBar)을 아래 탭 위에 둔다. 폭이 좁아 계정 이름과 판 번호는 뺀다. 판은 아래에서 올라온다(목업 ⑧). */

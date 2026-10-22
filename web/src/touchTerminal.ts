@@ -151,7 +151,8 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
 
   const tap = (clientX: number, clientY: number) => {
     const target = document.elementFromPoint(clientX, clientY) ?? screen;
-    for (const type of ['mousedown', 'mouseup', 'click'])
+    // xterm은 마우스가 올라온(`mousemove`) 칸에서만 링크를 찾고 누름을 링크로 본다. 이 이동이 없으면 터미널 링크를 눌러도 열리지 않았다(2026-10-23 Playwright 실측).
+    for (const type of ['mousemove', 'mousedown', 'mouseup', 'click'])
       target.dispatchEvent(new MouseEvent(type, { clientX, clientY, button: 0, buttons: type === 'mousedown' ? 1 : 0, bubbles: true, cancelable: true, view: window }));
   };
 

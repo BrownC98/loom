@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
             webChromeClient = Chooser()
             addJavascriptInterface(Clipboard(), "loomClipboard")
             addJavascriptInterface(Chrome(), "loomChrome")
+            addJavascriptInterface(Browser(), "loomBrowser")
         }
         CookieManager.getInstance().setAcceptCookie(true)
         card = ScrollView(this).apply {
@@ -520,13 +521,9 @@ class MainActivity : ComponentActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     private inner class Client : WebViewClient() {
-        /**
-         * 같은 PC의 페이지(질문 문서 등)는 쿠키가 있는 앱 안에서, 다른 사이트는 폰 브라우저로 연다.
-         * 파일 통행증(`/api/files/pass/`)은 같은 PC여도 폰 브라우저로 연다. 앱 안에서는 줌이 되지 않는다.
-         */
+        /** 같은 PC의 페이지는 쿠키가 있는 앱 안에서, 다른 사이트는 폰 브라우저로 연다. */
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-            val pass = request.url.path?.startsWith("/api/files/pass/") == true
-            if (request.url.host == Uri.parse(origin ?: "").host && !pass) return false
+            if (request.url.host == Uri.parse(origin ?: "").host) return false
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
             return true
         }
@@ -603,6 +600,23 @@ class MainActivity : ComponentActivity() {
                     @Suppress("DEPRECATION")
                     window.decorView.systemUiVisibility = flag
                 }
+            }
+        }
+    }
+
+    /**
+     * 파일·질문 문서의 통행증 주소(`/api/files/pass/`)를 폰 기본 브라우저(Chrome)로 연다. 앱 WebView는 줌이 되지 않는다
+     * (2026-10-23 사람 "헤드리스 브라우저고 줌인아웃도 안됨", "여전히 헤드리스 브라우저임"). `window.open`은 `shouldOverrideUrlLoading`을
+     * 거치지 않고 이 WebView에 열릴 수 있어서 화면이 이 다리를 부른다. 통행증 주소만 연다.
+     */
+    private inner class Browser {
+        @JavascriptInterface
+        fun open(url: String) {
+            val uri = Uri.parse(url)
+            if (uri.scheme != "https" && uri.scheme != "http") return
+            if (uri.path?.startsWith("/api/files/pass/") != true) return
+            runOnUiThread {
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)) }
             }
         }
     }

@@ -114,6 +114,7 @@ export function fileViewUrl(path: string, node: NodeId | null): string {
 
 /** 폰 브라우저가 쿠키 없이 그 파일의 폴더를 잠시 읽는 주소(`passes`). 경로만 오면 이 화면의 주소에 붙는다. */
 export const filePass = (path: string, node: NodeId | null) => call<string>('POST', '/api/files/pass', { path, node } satisfies OpenFile);
+export const waitDocPass = (wait: WaitId) => call<string>('POST', `/api/waits/${wait}/pass`);
 export const openFile = (path: string, node: NodeId | null) => call<null>('POST', '/api/files/open', { path, node } satisfies OpenFile);
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');

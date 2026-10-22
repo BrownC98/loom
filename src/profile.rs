@@ -673,6 +673,7 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use shell
 - loom answered: when the human's input answers your open loom ask question, you MUST call loom answered first, then act on the answer. If the input does not answer it, leave the question open. If you no longer need the answer, call loom answered.
 - loom adopt <name>: become this node's parent. Use loom status after a parent change.
 - loom rm <name-or-id>: remove your own child and end its process. Its children become your children; reclaim them next.
+When you work for a parent, your parent reads your messages, not your terminal: write no progress narration and no briefing in the terminal. End each turn with at most one short line; the result goes in loom done or loom send.
 Bodies are at most 4KB and completion summaries at most 1KB. Put longer material in a file and send its absolute path.
 Messages begin with loom message and have an ID. The same ID can be redelivered; do not repeat completed actions for that ID.";
 

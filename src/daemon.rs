@@ -1483,6 +1483,7 @@ impl App {
     /// 열린 `loom ask` 질문과, 부모 없는 노드면 완료 보고 안내(`profile::DONE_NOTE`).
     fn human_input(&self, node: NodeId) -> Result<Option<String>, Refusal> {
         self.graph.human_input(node)?;
+        self.turn_ends.human(node);
         let questions = profile::questions_note(&self.graph.open_questions(node)?);
         let done = self
             .graph
@@ -1691,7 +1692,8 @@ async fn answer_wait(
     Path(wait): Path<u32>,
     Json(req): Json<AnswerWait>,
 ) -> Result<Json<()>, Problem> {
-    app.graph.answer(WaitId(wait), &req.text, &req.images)?;
+    let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
+    app.turn_ends.human(node);
     Ok(Json(()))
 }
 

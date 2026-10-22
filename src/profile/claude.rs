@@ -29,6 +29,8 @@ const REWAKE_SUMMARY: &str = "loom message";
 const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 /// Claude가 API 응답 없이 쓴 응답(오류·중단)의 모델 값. 실제 모델이 아니다.
 const SYNTHETIC_MODEL: &str = "<synthetic>";
+/// 시작 인자의 첫 입력 없이 다시 시작한 세션(`SessionStart`의 `source`, 2.1.304 훅 문서).
+const RESTARTED_SESSION: &str = "clear|compact";
 /// Bash 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다.
 const GUARD: &str = "loom guard";
 
@@ -73,8 +75,8 @@ pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
 
 /// `claude` 시작 인자. 사용자의 `~/.claude` 파일을 고치지 않으려고 훅을 `--settings`로만 넘긴다.
 /// `plugin`은 loom이 싣는 스킬 플러그인 폴더다(`skills::Plugin`). 스킬은 `loom:<이름>`으로 뜬다.
-/// `launch`는 상시 지시를 고른다(`skills::always_on`).
-pub fn args(plugin: &Path, launch: Launch) -> Vec<String> {
+/// `launch`는 상시 지시를 고른다(`skills::always_on`). `brief`는 시작 인자로 넘기는 첫 입력이다.
+pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     let hook = json!([{ "hooks": [{
         "type": "command",
         "command": "loom hook",
@@ -89,10 +91,17 @@ pub fn args(plugin: &Path, launch: Launch) -> Vec<String> {
         "rewakeMessage": REWAKE_MESSAGE,
         "rewakeSummary": REWAKE_SUMMARY,
     }] }]);
+    // 첫 입력이 있으면 그 턴의 `UserPromptSubmit`이 메시지를 넘긴다. 시작 훅이 먼저 깨우면 Claude가 그 메시지 턴을 첫 입력보다 먼저 돌았다
+    // (2026-10-22 실측: 워크트리 설정 동안 쌓인 조정을 받은 자식이 지시문 없이 시작한 줄 알고 부모에게 지시를 다시 물었다).
+    let session_start = if brief.is_empty() {
+        idle.clone()
+    } else {
+        json!([{ "matcher": RESTARTED_SESSION, "hooks": idle[0]["hooks"] }])
+    };
     let settings = json!({
         "permissions": { "allow": ALLOWED },
         "hooks": {
-            "SessionStart": idle,
+            "SessionStart": session_start,
             "UserPromptSubmit": hook,
             "PreToolUse": hook,
             "PostToolUse": hook,
@@ -593,13 +602,7 @@ mod tests {
 
     #[test]
     fn settings_register_the_eight_hooks_and_allow_messaging_but_not_spawn() {
-        let args = args(
-            Path::new("/p"),
-            crate::skills::Launch {
-                position: crate::skills::Position::Root,
-                skills: Default::default(),
-            },
-        );
+        let args = args(Path::new("/p"), root_launch(), "");
         assert_eq!(args[2], "--settings");
         assert_eq!(args[4..], ["--plugin-dir", "/p"]);
         let settings: Value = serde_json::from_str(&args[3]).unwrap();
@@ -638,5 +641,23 @@ mod tests {
         assert!(allow.contains(&json!(format!("Bash({GUARD})"))));
         assert!(allow.contains(&json!("Bash(loom wait)")));
         assert!(!allow.iter().any(|a| a.as_str().unwrap().contains("spawn")));
+        assert_eq!(settings["hooks"]["SessionStart"][0]["matcher"], Value::Null);
+    }
+
+    fn root_launch() -> Launch {
+        Launch {
+            position: crate::skills::Position::Root,
+            skills: Default::default(),
+        }
+    }
+
+    /// 첫 입력이 있으면 시작 훅이 기다리지 않는다. 쌓인 메시지는 첫 입력 턴의 훅이 넘긴다.
+    #[test]
+    fn a_session_with_a_brief_does_not_wait_at_startup() {
+        let args = args(Path::new("/p"), root_launch(), "지시");
+        let settings: Value = serde_json::from_str(&args[3]).unwrap();
+        let start = &settings["hooks"]["SessionStart"][0];
+        assert_eq!(start["matcher"], RESTARTED_SESSION);
+        assert_eq!(start["hooks"][0]["asyncRewake"], true);
     }
 }

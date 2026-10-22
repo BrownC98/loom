@@ -26,7 +26,14 @@ pub fn show(path: &Path) -> Result<(), String> {
 /// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
 pub fn attach(path: &Path) -> Result<Attached, String> {
     let path = real_path(path)?;
-    let html = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let html = fs::read_to_string(&path).map_err(|e| match e.kind() {
+        // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
+        std::io::ErrorKind::InvalidData => format!(
+            "{}: not a text file. Attach a user-doc HTML file; put images inside it.",
+            path.display()
+        ),
+        _ => format!("{}: {e}", path.display()),
+    })?;
     check(&html)?;
     if !mockup(&path) {
         check_report(&html)?;
@@ -179,6 +186,15 @@ mod tests {
         // 다른 ID 표에서 붙은 ID는 바꾼다.
         assert!(stamp(&once, "M7").contains("<title>M7 문서</title>"));
         assert!(check(&once).is_ok());
+    }
+
+    #[test]
+    fn an_image_is_refused_with_the_file_to_attach() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("mockup.png");
+        fs::write(&png, [0x89, b'P', b'N', b'G', 0xff, 0xfe]).unwrap();
+        let refused = attach(&png).err().unwrap();
+        assert!(refused.contains("Attach a user-doc HTML file"), "{refused}");
     }
 
     #[test]

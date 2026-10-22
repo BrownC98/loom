@@ -500,7 +500,7 @@ const en = {
     refused: {
       emptyName: 'Enter a name.',
       nameTaken: '{{value}}: a parent, sibling, or child node already uses this name. Enter a different name.',
-      reservedName: '{{value}}: names that start with # are for node numbers. Remove the #.',
+      reservedName: '{{value}}: this name is kept for node numbers and the parent. Use a name that has a letter and does not start with #.',
       tooDeep: 'Nesting is too deep to add more children.',
       tooManyChildren: 'This node already has {{value}} children. Remove a finished child first.',
       briefTooLong: 'The message is {{value}} bytes. Shorten it and give a file path for longer material.',
@@ -513,7 +513,6 @@ const en = {
       childrenStay: '{{value}}. These children cannot move here, so nothing changed.',
       ended: '{{value}} has already ended.',
       ended_nameless: 'This node has already ended.',
-      alreadyDone: 'This node is already done.',
       heldFull: 'Too many messages are held while this node has no parent. Send again after it gets a new parent.',
       cycle: 'A node cannot take itself or its descendant as parent.',
       notFound: '{{value}}: no node has this name.',

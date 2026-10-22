@@ -153,11 +153,11 @@ impl Graph {
         };
         let to_id = match found {
             Ok(to_id) => Some(to_id),
-            // 지운 부모의 이름은 그래프에 없다. 부모 없는 노드가 그 이름으로 보내면 보관한다.
+            // 지운 부모의 이름과 `parent`는 그래프에 없다. 부모 없는 노드가 그 이름으로 보내면 보관한다.
             Err(Refusal::NotFound(_))
                 if kind == Kind::Queue
                     && reply_to.is_none()
-                    && !to.starts_with('#')
+                    && (to == PARENT || node_id(&db, from, to)?.is_none())
                     && parent_of(&db, from)?.is_none() =>
             {
                 None
@@ -378,7 +378,8 @@ impl Graph {
         Ok(())
     }
 
-    /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 부모가 없으면 받은편지함에 완료를 건다(`waits::put_done`).
+    /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 이미 `done`이어도 새 요약으로 다시 보낸다.
+    /// 근거: 다시 깨기 전에 부른 둘째 `loom done`을 거절하자 결과가 부모에게 가지 않았다(2026-10-22 기록에서 거절 23번). 부모가 없으면 받은편지함에 완료를 건다(`waits::put_done`).
     /// 부모 없는 노드는 `asked`(그 일을 맡긴 사람의 지시)가 있어야 한다. `images`는 사람이 그 지시에 준 그림 파일이다.
     /// 돌려준 값은 프로세스가 아직 사는 자식 이름이다. 회수하지 않은 자식이 고아로 남지 않게 부르는 쪽이 알린다.
     pub fn done(
@@ -392,9 +393,6 @@ impl Graph {
             return Err(Refusal::SummaryTooLong(summary.len()));
         }
         let mut db = self.lock();
-        if state_of(&db, node)? != NodeState::Running {
-            return Err(Refusal::AlreadyDone);
-        }
         let parent = parent_of(&db, node)?;
         let asked = asked.map(str::trim).filter(|a| !a.is_empty());
         if parent.is_none() && asked.is_none() {
@@ -520,10 +518,23 @@ fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
     })
 }
 
-/// 큐 메시지를 받을 노드. `#번호`는 그 노드다. 이름은 부모·자식을 먼저 보고, 없으면 그래프 전체에서 프로세스가 사는 노드를 본다.
+/// 부모를 가리키는 받는 쪽 이름.
+pub const PARENT: &str = "parent";
+
+/// 이름 대신 쓰는 노드 번호. `#12`·`12`는 번호, `parent`는 부르는 노드의 부모다. 부모가 없으면 없는 번호(0)다.
+/// 근거: 에이전트가 `#96` 대신 `96`(14번), 부모 이름 대신 `parent`·`#parent`(5번)로 보내 거절됐다(2026-10-20~22 이벤트 기록).
+/// 숫자만인 이름과 `parent`는 노드 이름으로 받지 않는다(`nodes::checked_name`).
+fn node_id(db: &Connection, from: NodeId, to: &str) -> Result<Option<u32>, Refusal> {
+    if to == PARENT {
+        return Ok(Some(parent_of(db, from)?.map_or(0, |p| p.0)));
+    }
+    Ok(to.strip_prefix('#').unwrap_or(to).parse::<u32>().ok())
+}
+
+/// 큐 메시지를 받을 노드. 번호(`node_id`)는 그 노드다. 이름은 부모·자식을 먼저 보고, 없으면 그래프 전체에서 프로세스가 사는 노드를 본다.
 /// 근거: docs/design.md 「메시징 › 원칙」.
 fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
-    if let Some(id) = to.strip_prefix('#').and_then(|id| id.parse::<u32>().ok()) {
+    if let Some(id) = node_id(db, from, to)? {
         let exists: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND id != ?2)",
             params![id, from.0],
@@ -564,7 +575,7 @@ pub(super) fn related(
     from: NodeId,
     to: &str,
 ) -> Result<(NodeId, Option<AgentId>), Refusal> {
-    let id = to.strip_prefix('#').and_then(|id| id.parse::<u32>().ok());
+    let id = node_id(db, from, to)?;
     let found = db.prepare(
         "SELECT id, agent FROM nodes WHERE (CASE WHEN ?3 IS NULL THEN name = ?2 ELSE id = ?3 END)
          AND (parent = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)) ORDER BY id",

@@ -855,7 +855,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-top { display: flex; align-items: center; gap: 8px; /* 안전 영역(상태 줄) 높이를 52px 위에 더한다. 52px 안에 넣으면 제목이 아래 줄에 붙었다(2026-10-22 사람 "헤더 하단에 노드, 알림 텍스트가 붙어 있는 문제 해결"). */ min-height: calc(52px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 4px 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .phone-top:has(> .phone-icon:first-child) { padding-left: 4px; }
 .phone-title { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
-.phone-title b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-title b { /* 2026-10-22 사람 "해당 글씨 자체도 더 크게 키워도 될 듯". */ font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phone-title span { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phone-icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink-2); cursor: pointer; }
 .phone-icon:hover { background: var(--surface-hover); }

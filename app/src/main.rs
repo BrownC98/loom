@@ -8,6 +8,7 @@ use std::io::BufRead;
 use std::process::{Command, Stdio};
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_window_state::StateFlags;
 
 const WINDOW: &str = "main";
@@ -40,6 +41,8 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // macOS 업데이트는 앱 묶음만 바꾼다. 화면이 설치 뒤 앱을 다시 띄운다(`web/src/Update.tsx`).
         .plugin(tauri_plugin_process::init())
+        // WebView2·WKWebView는 Web Notification을 막는다. 이 플러그인이 화면의 `window.Notification`을 OS 알림으로 바꾼다(`web/src/osNotify.ts`).
+        .plugin(tauri_plugin_notification::init())
         // macOS는 창을 닫아도 앱이 끝나지 않는다(맥 관례). 창만 숨기고, Dock 아이콘을 누르면 다시 보인다. ⌘Q가 앱을 끝낸다.
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]
@@ -51,6 +54,9 @@ fn main() {
             let _ = (window, event);
         })
         .setup(|app| {
+            // 알림을 누르면 창을 앞으로 가져온다. 화면이 그 노드를 고른다.
+            let handle = app.handle().clone();
+            app.notification().on_action(move |_| bring_back(&handle))?;
             let mut url: tauri::Url = start_daemon()?.parse()?;
             if std::env::args().any(|a| a == UPDATE_FLAG) {
                 url = for_update(url);

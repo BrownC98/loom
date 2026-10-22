@@ -12,7 +12,8 @@ import type { TerminalTheme } from './gen/TerminalTheme';
 import type { Theme } from './gen/Theme';
 import { activeFont, DEFAULT_TERMINAL_FONT, FONT_SIZE_RANGE } from './Terminal';
 import { chosenTheme, TERMINAL_THEMES, type TerminalThemeName } from './terminalThemes';
-import { requestNotifyPermission } from './Inbox';
+import { isTauri } from '@tauri-apps/api/core';
+import { requestNotifyPermission } from './osNotify';
 import { ColorsSection } from './ColorSettings';
 import { FieldReset } from './FieldReset';
 
@@ -50,7 +51,10 @@ export function CardViewSwitch(props: { value: CardView; onChange: (value: CardV
   );
 }
 
-/** 시스템 알림(목업 docs/mockups/human-question.html ⑥). 설정 「일반」에 있다. 켤 때만 브라우저 허용을 묻는다. 막히면 꺼진 채로 둔다. */
+/**
+ * 시스템 알림(목업 docs/mockups/human-question.html ⑥). 설정 「일반」에 있다. 켤 때만 브라우저 허용을 묻는다. 막히면 꺼진 채로 둔다.
+ * 앱은 허용을 묻지 않으므로 「브라우저」 문구를 보이지 않는다(사람 2026-10-22 "네이티브 버전임에도 브라우저 관련 언급이 되어 있는게 이상함").
+ */
 export function OsNotifySection({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   const [blocked, setBlocked] = useState(false);
@@ -69,7 +73,11 @@ export function OsNotifySection({ settings, onSettings }: TabProps) {
         <input type="checkbox" checked={settings.osNotify} onChange={(e) => toggle(e.target.checked)} />
         {t('osNotify.label')}
       </label>
-      <span className="hint">{blocked ? t('osNotify.blocked') : t('osNotify.hint')}</span>
+      {isTauri() ? (
+        blocked && <span className="hint">{t('osNotify.appBlocked')}</span>
+      ) : (
+        <span className="hint">{blocked ? t('osNotify.blocked') : t('osNotify.hint')}</span>
+      )}
     </section>
   );
 }

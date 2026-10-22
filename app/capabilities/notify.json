@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notify",
+  "description": "데몬이 내는 화면(127.0.0.1)이 창이 보이지 않을 때 질문을 OS 알림으로 띄우고, 누른 알림의 노드를 고른다. 근거: web/src/osNotify.ts.",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*"] },
+  "permissions": [
+    "core:window:allow-is-minimized",
+    "core:window:allow-is-visible",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
+    "notification:allow-register-listener"
+  ]
+}

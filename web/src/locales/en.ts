@@ -369,6 +369,7 @@ const en = {
     label: 'Show questions as system notifications when the loom window is not visible',
     hint: 'When you turn this on, the browser asks for permission once.',
     blocked: 'The browser did not allow notifications. Allow them in the browser settings, then turn this on again.',
+    appBlocked: 'This version of the app cannot show system notifications. Update the app, then turn this on again.',
   },
   statusBar: {
     label: 'Status bar',

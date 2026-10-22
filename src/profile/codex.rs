@@ -211,6 +211,29 @@ where
     }))
 }
 
+/// 마지막 턴을 연 사용자 입력 글. 사람이 TUI에 입력한 턴이 시작할 때 읽는다(완료 알림의 지시).
+pub async fn last_prompt<F, Fut>(call: F, thread: &str) -> Result<Option<String>, String>
+where
+    F: Fn(&'static str, Value) -> Fut,
+    Fut: Future<Output = Result<Value, String>>,
+{
+    let rpc = Rpc { call, thread };
+    let list: ThreadTurnsListResponse = rpc
+        .send("thread/turns/list", &rpc.last_turn(TurnItemsView::Full))
+        .await?;
+    Ok(list.data.into_iter().next().and_then(|turn| {
+        turn.items.into_iter().find_map(|item| match item {
+            ThreadItem::UserMessage { content, .. } => {
+                content.into_iter().find_map(|input| match input {
+                    UserInput::TextUserInput { text, .. } => Some(text),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+    }))
+}
+
 /// 쉬는 스레드에 새 턴을 연다. 턴 끝 질문 검사가 다시 일하게 할 때 쓴다.
 pub async fn start_turn<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
 where

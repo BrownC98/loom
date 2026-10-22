@@ -18,4 +18,8 @@ since: number,
 /**
  * `loom ask` 질문이다. 화면에서 답할 수 있다(`Graph::answer`). 다른 대기는 그 노드 터미널에서만 답한다.
  */
-answerable: boolean, doc: WaitDoc | null, };
+answerable: boolean, doc: WaitDoc | null, 
+/**
+ * 완료(`Done`)만: 그 일을 맡긴 사람의 지시 첫 줄. `text`는 결과(에이전트 마지막 답의 첫 줄)다.
+ */
+instruction?: string, };

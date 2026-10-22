@@ -96,15 +96,18 @@ enum TurnEvent {
     /// 턴이 끝났다. 실패·중단으로 끝난 턴은 검사하지 않는다.
     Succeeded,
     /// 사용자 입력 하나가 입력함에 들어왔다. id가 loom이 넣은 것이 아니면 사람이 TUI에 친 글이다.
-    Enqueued(String),
+    Enqueued {
+        id: String,
+        text: String,
+    },
 }
 
 /// `run`이 받는 세션 사건.
 enum Turn {
     /// 턴이 끝났다. 그 턴의 마지막 답 글.
     Ended(Option<String>),
-    /// 사람이 TUI에 입력했다.
-    HumanInput,
+    /// 사람이 TUI에 입력했다. 그 글.
+    HumanInput(String),
 }
 
 fn turn_event(event: &Value, session: &str) -> Option<TurnEvent> {
@@ -116,9 +119,13 @@ fn turn_event(event: &Value, session: &str) -> Option<TurnEvent> {
         "session.execution.started" => Some(TurnEvent::Started),
         "session.text.ended" => Some(TurnEvent::Said(data["text"].as_str()?.to_owned())),
         "session.execution.succeeded" => Some(TurnEvent::Succeeded),
-        "session.inbox.enqueued" if data["item"]["type"] == "user" => {
-            Some(TurnEvent::Enqueued(data["inboxID"].as_str()?.to_owned()))
-        }
+        "session.inbox.enqueued" if data["item"]["type"] == "user" => Some(TurnEvent::Enqueued {
+            id: data["inboxID"].as_str()?.to_owned(),
+            text: data["item"]["payload"]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        }),
         _ => None,
     }
 }
@@ -204,10 +211,12 @@ impl Node {
                 Some(TurnEvent::Succeeded) => {
                     let _ = tx_turns.send(Turn::Ended(said.take()));
                 }
-                Some(TurnEvent::Enqueued(id)) if !ours_sent.lock().unwrap().remove(&id) => {
-                    let _ = tx_turns.send(Turn::HumanInput);
+                Some(TurnEvent::Enqueued { id, text })
+                    if !ours_sent.lock().unwrap().remove(&id) =>
+                {
+                    let _ = tx_turns.send(Turn::HumanInput(text));
                 }
-                Some(TurnEvent::Enqueued(_)) | None => {}
+                Some(TurnEvent::Enqueued { .. }) | None => {}
             }
         });
         Self {
@@ -287,7 +296,7 @@ impl Node {
             // 다시 일하게 하는 글은 턴 뒤에, 열린 질문은 사람이 연 턴 안에 넣는다.
             let (text, inbox) = match turn {
                 Turn::Ended(reply) => (mailbox.turn_ended(reply), Inbox::Queue),
-                Turn::HumanInput => (mailbox.human_input(), Inbox::Steer),
+                Turn::HumanInput(text) => (mailbox.human_input(&text), Inbox::Steer),
             };
             if let Some(text) = text
                 && let Err(e) = put(&api, &text, inbox, PROMPT_RETRY_DELAY).await
@@ -489,7 +498,7 @@ mod tests {
             None
         }
 
-        fn human_input(&self) -> Option<String> {
+        fn human_input(&self, _prompt: &str) -> Option<String> {
             None
         }
     }
@@ -544,7 +553,10 @@ mod tests {
         };
         assert_eq!(
             turn_event(&event("session.inbox.enqueued", enqueued("user")), "s"),
-            Some(TurnEvent::Enqueued("msg_1".into()))
+            Some(TurnEvent::Enqueued {
+                id: "msg_1".into(),
+                text: "hi".into()
+            })
         );
         assert_eq!(
             turn_event(&event("session.inbox.enqueued", enqueued("other")), "s"),

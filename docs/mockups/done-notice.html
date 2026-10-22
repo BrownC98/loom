@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M37 완료 알림 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 알약·목록 모양과 토큰은 web/src/styles.css .inbox-pill, .wait-list와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --ok-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+.force-light { color-scheme: light; }
+.force-dark { color-scheme: dark; }
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 900px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed oklch(60% 0.15 250); outline-offset: 4px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.row2 { display: grid; grid-template-columns: repeat(2, 640px); gap: 16px 20px; }
+.cell { display: grid; gap: 6px; align-content: start; }
+.cap { font-size: 12px; color: var(--ink-3); }
+.shot { width: 640px; border: 1px solid var(--line); border-radius: var(--radius); }
+.stage { display: grid; place-items: start center; padding: 18px 16px; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 16px 16px; color: var(--ink); }
+/* 한 줄 알약(.inbox-pill[data-view="line"]) */
+.pill { display: flex; align-items: center; gap: 8px; height: 34px; max-width: 520px; padding: 0 6px 0 12px; border: 1px solid var(--warn); border-radius: 17px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.pill > b { white-space: nowrap; }
+.pill .ic { width: 16px; height: 16px; margin-right: -2px; color: var(--warn); }
+.pill .go { min-width: 0; padding: 2px 4px; border: 0; background: none; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill .go b { font-size: 13px; }
+.count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.qid { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); font: 600 11px/16px var(--mono); }
+/* 완료: 같은 알약, 색만 --ok(노드 상태 「완료」 점과 같은 초록) */
+.done { --warn: var(--ok); --warn-ink: var(--ok-ink); }
+/* 목록(.inbox-pop .wait-list) */
+.pop { width: 520px; display: grid; gap: 6px; padding: 10px 6px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); }
+.pop h3 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
+.wnode { display: grid; gap: 2px; padding: 4px 0; }
+.wnode + .wnode { border-top: 1px solid var(--line); }
+.wnode > .go { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 0; background: none; color: var(--ink-3); font-size: 12px; text-align: left; }
+.wnode > .go b { color: var(--ink); font-size: 13px; }
+.dotw { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.dotd { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.rows { display: grid; padding-left: 21px; }
+.wrow { display: grid; gap: 6px; padding: 6px 8px 10px 0; }
+.wrow + .wrow { border-top: 1px dashed var(--line); }
+.wrow .top { display: flex; align-items: center; gap: 6px; }
+.wrow .kind { flex: 1; color: var(--ink-3); font-size: 12px; }
+.wrow .ok { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); font-size: 12px; font-weight: 600; }
+.wrow .full { font-size: 13px; }
+.wrow .asked { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dismiss { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); }
+.opts { display: flex; gap: 6px; }
+.opt { display: inline-flex; gap: 6px; height: 26px; align-items: center; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; }
+.opt.rec { border-color: var(--warn); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+.opt .k { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt .r { color: var(--warn); font-size: 11px; font-weight: 600; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M37</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 완료알림</b></span><span>v2 · 2026-10-22</span></div>
+  <h1>완료 알림: 맡긴 일이 끝나면 받은편지함에 알린다</h1>
+  <p class="lead">사람 지시: 「사람이 에이전트에게 맡긴 일이 끝나면 끝났다고 질문처럼 알림이 오는 기능이 있으면 좋겠음」. 사람이 터미널에 입력했거나 받은편지함에서 답한 일이 끝나면 질문과 같은 알약·목록에 「완료」가 뜬다. 에이전트끼리 주고받은 일에는 뜨지 않는다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 지금 <span class="tag">시험 데몬 캡처 · 질문 하나</span></h2>
+    <div class="row2">
+      <img class="shot" src="done-notice-now-light.png" alt="지금 라이트: 노란 질문 알약과 응답 대기 카드">
+      <img class="shot" src="done-notice-now-dark.png" alt="지금 다크: 노란 질문 알약과 응답 대기 카드">
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>② 알약 <span class="tag">설정 「질문 알약」 기본값 「한 줄」</span></h2>
+    <div class="row2">
+      <div class="cell"><span class="cap">ⓐ 완료 하나</span><div class="stage force-light"><div class="pill done new"><svg class="i ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><b>완료</b><span class="count">1</span><span class="go"><b>shell-1</b>: 목업 두 판을 만들고 시험을 모두 통과했다.</span></div></div></div>
+      <div class="cell"><span class="cap">ⓑ 다크 · ⓐ와 같다</span><div class="stage force-dark"><div class="pill done new"><svg class="i ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg><b>완료</b><span class="count">1</span><span class="go"><b>shell-1</b>: 목업 두 판을 만들고 시험을 모두 통과했다.</span></div></div></div>
+      <div class="cell"><span class="cap">ⓒ 질문 하나와 완료 둘. 질문을 먼저 보인다</span><div class="stage force-light"><div class="pill new"><svg class="i ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><b>질문</b><span class="count">3</span><span class="qid">Q12</span><span class="go"><b>총괄</b>: 목업 v2를 승인할까요? (A: 승인 / B: 수정, 권장: A)</span></div></div></div>
+      <div class="cell"><span class="cap">ⓓ 다크 · ⓒ와 같다</span><div class="stage force-dark"><div class="pill new"><svg class="i ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><b>질문</b><span class="count">3</span><span class="qid">Q12</span><span class="go"><b>총괄</b>: 목업 v2를 승인할까요? (A: 승인 / B: 수정, 권장: A)</span></div></div></div>
+    </div>
+    <ul class="note">
+      <li>완료만 있으면 알약은 초록 테두리, 원 안 체크, 「완료」, 수 배지, <code>노드 이름: 마지막 답의 첫 줄</code>이다. 초록은 노드 상태 「완료」 점과 같은 색이다.</li>
+      <li>질문이 하나라도 있으면 알약은 지금처럼 질문을 보인다. 수 배지는 완료를 포함한 모든 수다. 완료가 질문을 가리지 않는다.</li>
+      <li>알약을 누르면 지금처럼 목록을 편다. 「바로 답하기」 꼴에서는 완료 줄에 답 칸이 없고 글만 보인다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 펼친 목록 <span class="tag">질문 줄은 지금과 같다</span></h2>
+    <div class="row2">
+      <div class="cell"><span class="cap">라이트</span><div class="stage force-light"><div class="pop">
+        <h3>질문 3</h3>
+        <div class="wnode"><button class="go"><span class="dotw"></span><b>총괄</b></button><div class="rows">
+          <div class="wrow"><div class="top"><span class="qid">Q12</span><span class="kind">질문</span><button class="dismiss" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="full">목업 v2를 승인할까요? (A: 승인 / B: 수정, 권장: A)</div><div class="opts"><span class="opt rec"><span class="k">A</span>승인<span class="r">권장</span></span><span class="opt"><span class="k">B</span>수정</span></div></div>
+        </div></div>
+        <div class="wnode new"><button class="go"><span class="dotd"></span><b>shell-1</b></button><div class="rows">
+          <div class="wrow"><div class="top"><span class="ok"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>완료</span><span class="kind"></span><button class="dismiss" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="asked">지시: 완료 알림 목업을 만들고 시험해 줘</div><div class="full">목업 두 판을 만들고 시험을 모두 통과했다.</div></div>
+        </div></div>
+        <div class="wnode new"><button class="go"><span class="dotd"></span><b>화면-점검</b></button><div class="rows">
+          <div class="wrow"><div class="top"><span class="ok"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>완료</span><span class="kind"></span><button class="dismiss" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="asked">지시: 설정 화면 버튼 겹침 고쳐</div><div class="full">설정 화면의 겹친 버튼을 고쳤다.</div></div>
+        </div></div>
+      </div></div></div>
+      <div class="cell"><span class="cap">다크</span><div class="stage force-dark"><div class="pop">
+        <h3>질문 3</h3>
+        <div class="wnode"><button class="go"><span class="dotw"></span><b>총괄</b></button><div class="rows">
+          <div class="wrow"><div class="top"><span class="qid">Q12</span><span class="kind">질문</span><button class="dismiss" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="full">목업 v2를 승인할까요? (A: 승인 / B: 수정, 권장: A)</div><div class="opts"><span class="opt rec"><span class="k">A</span>승인<span class="r">권장</span></span><span class="opt"><span class="k">B</span>수정</span></div></div>
+        </div></div>
+        <div class="wnode new"><button class="go"><span class="dotd"></span><b>shell-1</b></button><div class="rows">
+          <div class="wrow"><div class="top"><span class="ok"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>완료</span><span class="kind"></span><button class="dismiss" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="asked">지시: 완료 알림 목업을 만들고 시험해 줘</div><div class="full">목업 두 판을 만들고 시험을 모두 통과했다.</div></div>
+        </div></div>
+        <div class="wnode new"><button class="go"><span class="dotd"></span><b>화면-점검</b></button><div class="rows">
+          <div class="wrow"><div class="top"><span class="ok"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>완료</span><span class="kind"></span><button class="dismiss" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="asked">지시: 설정 화면 버튼 겹침 고쳐</div><div class="full">설정 화면의 겹친 버튼을 고쳤다.</div></div>
+        </div></div>
+      </div></div></div>
+    </div>
+    <ul class="note">
+      <li>완료 줄은 번호 칩 대신 초록 체크와 「완료」를 보인다. 그 아래에 일을 맡긴 사람의 지시(「지시: …」, 첫 줄)와 결과(에이전트 마지막 답의 첫 줄)를 보인다. 둘 다 200자까지다(2026-10-22 사람 지시 Q289 「알림에 사람의 지시도 보인다」).</li>
+      <li>줄을 누르면 질문 줄처럼 그 노드로 가서 터미널에 입력 초점을 준다. [×]는 그 알림을 지운다.</li>
+      <li>알림은 이때 사라진다: [×]를 누른다, 그 노드 터미널에 입력한다, 프로세스가 끝난다. 에이전트끼리의 메시지로 노드가 다시 일해도 남는다(사람이 보기 전에 사라지지 않게).</li>
+      <li>완료만 있는 노드의 카드는 주황 테두리와 「응답 대기」를 보이지 않는다. 사이드바 점도 지금 상태 그대로다. 질문 탭 배지와 시스템 알림(켰을 때)은 완료도 센다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인한 것 <span class="tag">v1 권장안 승인, v2에 지시 줄을 더했다</span></h2>
+    <table class="decide">
+      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
+      <tr><td>자리</td><td><b>질문과 같은 알약·목록</b>(받은편지함 하나)</td><td>질문 알약 옆에 초록 「완료 N」 알약을 따로 둔다</td></tr>
+      <tr><td>알약에 보일 것</td><td><b>질문을 먼저, 질문이 없을 때만 완료</b></td><td>오래된 차례대로(완료가 질문을 가릴 수 있다)</td></tr>
+      <tr><td>알림이 사라지는 때</td><td><b>[×], 그 터미널 입력, 프로세스 끝</b></td><td>노드가 다시 일을 시작하면(에이전트 메시지 포함) 사라진다</td></tr>
+      <tr><td>뜨는 노드</td><td><b>사람이 일을 맡긴 모든 노드</b>(자식 노드 포함)</td><td>사람이 띄운 노드(부모 없음)만</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

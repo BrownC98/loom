@@ -3,4 +3,4 @@
 /**
  * 사람이 할 일의 종류. 화면이 이름과 아이콘을 고른다.
  */
-export type WaitKind = "question" | "approval" | "trust" | "auth" | "input";
+export type WaitKind = "question" | "approval" | "trust" | "auth" | "input" | "done";

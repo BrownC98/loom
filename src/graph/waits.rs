@@ -14,7 +14,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::mailbox::{self, MessageId};
+use super::mailbox;
 use super::{Graph, NodeId, Refusal, parent_of, to_json};
 
 /// 사람이 할 일의 종류. 화면이 이름과 아이콘을 고른다.
@@ -32,6 +32,8 @@ pub enum WaitKind {
     Auth,
     /// 터미널 프로그램이 입력(비밀번호, y/n)을 기다린다.
     Input,
+    /// 사람이 맡긴 일이 끝났다(`Graph::finished`). 사람이 볼 일만 있고 답할 일은 없다.
+    Done,
 }
 
 /// 노드마다 하나인 대기를 알린 신호. 신호는 자기가 건 대기만 거둔다. `loom ask` 질문은 신호가 아니다(`questions` 표).
@@ -44,6 +46,8 @@ pub enum WaitSource {
     Codex,
     /// 터미널 화면에서 찾은 확인 창(`screen`).
     Screen,
+    /// 사람이 연 턴의 끝(`Graph::finished`).
+    Turn,
 }
 
 /// 대기 번호. 사람은 `Q12`로 읽고 쓴다. 데몬 전체에서 늘기만 하고(DB `wait_ids`) 다시 쓰지 않는다.
@@ -87,6 +91,10 @@ pub struct HumanWait {
     /// `loom ask` 질문이다. 화면에서 답할 수 있다(`Graph::answer`). 다른 대기는 그 노드 터미널에서만 답한다.
     pub answerable: bool,
     pub doc: Option<WaitDoc>,
+    /// 완료(`Done`)만: 그 일을 맡긴 사람의 지시 첫 줄. `text`는 결과(에이전트 마지막 답의 첫 줄)다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub instruction: Option<String>,
 }
 
 /// DB `nodes.wait`의 JSON.
@@ -155,6 +163,24 @@ impl Graph {
         self.publish_node(&db, id)
     }
 
+    /// 사람이 맡긴 일이 끝났다. 노드에 다른 대기도 열린 질문도 없을 때만 완료를 건다. 이번 턴에 물었으면 질문이 이미 알린다.
+    /// `instruction`은 그 턴을 연 사람의 지시, `result`는 에이전트의 마지막 답이다. 둘 다 첫 줄만 남긴다.
+    /// 근거: docs/design.md 「완료 알림」, 2026-10-22 목업 M37 v2 승인.
+    pub fn finished(&self, id: NodeId, instruction: &str, result: &str) -> rusqlite::Result<()> {
+        let db = self.lock();
+        if !stored(&db, id)?.is_some_and(|wait| wait.is_none()) || !questions(&db, id)?.is_empty() {
+            return Ok(());
+        }
+        let mut wait = new_wait(&db, WaitKind::Done, one_line(result), false, None)?;
+        wait.instruction = Some(one_line(instruction));
+        let stored = Stored {
+            wait,
+            source: WaitSource::Turn,
+        };
+        put(&db, id, Some(&stored))?;
+        self.publish_node(&db, id)
+    }
+
     /// `loom ask`: 사람이 띄운 노드(부모 없음)만 사람에게 묻는다. 다른 노드는 부모에게 묻는다.
     /// 물을 때마다 새 번호의 질문을 더한다. 앞 질문은 열린 채로 남는다. 같은 질문을 다시 물어도 새 질문이다.
     pub fn ask(
@@ -183,16 +209,11 @@ impl Graph {
         Ok(asked)
     }
 
-    /// 사람이 화면에서 `loom ask` 질문에 답했다. 답은 사람이 보낸 큐 메시지로 그 노드에 가고, 그 질문만 바로 지운다.
+    /// 사람이 화면에서 `loom ask` 질문에 답했다. 답은 사람이 보낸 큐 메시지로 그 노드에 가고, 그 질문만 바로 지운다. 답을 받은 노드를 돌려준다.
     /// 에이전트가 답인지 판단할 일이 없다. 근거: 2026-10-21 사람 지시 "질문마다 답변 입력창을 두는 방안".
     /// `images`는 답에 붙인 그림 파일이다. 메시지에 작은따옴표로 묶은 절대 경로를 한 줄로 붙인다. 에이전트는 경로로 그림을 읽는다.
     /// 그림만 보내도 답이다(2026-10-22 목업 M30 승인, 사람 지시 "답변 입력창에 이미지 입력도 가능하게 해줘").
-    pub fn answer(
-        &self,
-        wait: WaitId,
-        text: &str,
-        images: &[PathBuf],
-    ) -> Result<MessageId, Refusal> {
+    pub fn answer(&self, wait: WaitId, text: &str, images: &[PathBuf]) -> Result<NodeId, Refusal> {
         let text = text.trim();
         if text.is_empty() && images.is_empty() {
             return Err(Refusal::EmptyAnswer);
@@ -212,12 +233,12 @@ impl Graph {
             question.wait.text
         );
         let tx = db.transaction()?;
-        let id = mailbox::enqueue_human(&tx, node, &body)?;
+        mailbox::enqueue_human(&tx, node, &body)?;
         tx.execute("DELETE FROM questions WHERE id = ?1", [wait.0])?;
         tx.commit()?;
         self.publish_node(&db, node)?;
         self.mail.notify_waiters();
-        Ok(id)
+        Ok(node)
     }
 
     /// `loom answered`: 사람의 입력이 이 노드의 질문 `ids`에 답했다고 에이전트가 판단했다. 그 질문을 지우고 지운 번호를 돌려준다.
@@ -367,6 +388,7 @@ fn new_wait(
         since: unix_now(),
         answerable,
         doc,
+        instruction: None,
     })
 }
 

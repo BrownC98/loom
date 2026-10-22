@@ -49,7 +49,6 @@ impl TurnEnds {
         None
     }
 }
-}
 
 impl App {
     /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다.

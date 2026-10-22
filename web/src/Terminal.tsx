@@ -163,7 +163,8 @@ export const XtermTheme = createContext<ITheme>(TERMINAL_THEMES[DEFAULT_TERMINAL
 /** 모든 터미널의 글꼴. `App`이 설정으로 정한다. */
 export const XtermFont = createContext<XtermFontValue>(DEFAULT_TERMINAL_FONT);
 
-type TerminalProps = { src: string; focused: boolean; onFocus: () => void; onNavigate: (dir: Direction) => void; loadRenderer?: (xterm: XTerm) => void };
+/** `focusAsk`가 바뀌면 고른 터미널이 다시 입력 초점을 잡는다. 이미 고른 노드로 다시 갈 때 쓴다(질문 줄 누르기). */
+type TerminalProps = { src: string; focused: boolean; focusAsk?: number; onFocus: () => void; onNavigate: (dir: Direction) => void; loadRenderer?: (xterm: XTerm) => void };
 
 /**
  * PTY 크기를 따르는 터미널. 데몬이 알린 열·줄(`PtyNotice` `size`)로 그리고, 칸에 맞게 글자를 늘이거나 줄인다(목업 docs/mockups/terminal-size.html 안 A).
@@ -347,7 +348,7 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
   useEffect(() => {
     if (props.focused && term.current) focusSoon(term.current);
     else term.current?.blur();
-  }, [props.focused]);
+  }, [props.focused, props.focusAsk]);
 
   const onDragOver = (e: DragEvent) => {
     if (!hasFiles(e)) return;

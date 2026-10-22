@@ -329,6 +329,12 @@ export function App() {
     setChosenBox(key);
     if (key !== null) setSelected(null);
   };
+  /** 노드를 고르고 그 터미널에 입력 초점을 준다. 이미 고른 노드여도 다시 잡는다(질문 목록의 질문 줄, 2026-10-22 사람 지시 "질문영역 … 클릭하면 해당 터미널 포커싱"). */
+  const [focusAsk, setFocusAsk] = useState(0);
+  const focusNode = (id: NodeId) => {
+    selectNode(id);
+    setFocusAsk((n) => n + 1);
+  };
   const selectNode = (id: NodeId | null) => {
     setSelected(id);
     if (id !== null) setChosenBox(null);
@@ -523,7 +529,7 @@ export function App() {
           )}
           <main className="canvas" aria-label={title === null ? t('app.allGraphLabel') : t('app.graphLabel', { repo: title })}>
             {title !== null && <h1 className="canvas-title">{title}</h1>}
-            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} onSelect={selectNode} />
+            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} onSelect={selectNode} onFocus={focusNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               viewVersion={viewVersion}
@@ -536,6 +542,7 @@ export function App() {
               settings={settings}
               accounts={accounts}
               selected={selected}
+              focusAsk={focusAsk}
               onSelect={selectNode}
               chosenBox={chosenBox}
               onChooseBox={chooseBox}
@@ -563,11 +570,12 @@ export function App() {
             >
               {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} />}
               {shownTab === 'commits' && repo && repoFocused && <CommitGraph repo={repo.id} name={repo.name} />}
-              {shownTab === 'questions' && <InboxPanel waiting={waiting} onSelect={selectNode} />}
+              {shownTab === 'questions' && <InboxPanel waiting={waiting} onSelect={selectNode} onFocus={focusNode} />}
               {shownTab === 'terminal' && dockedView && (
                 <TerminalDock
                   view={dockedView}
                   agentLabel={agentLabel(agents, dockedView.agent)}
+                  focusAsk={focusAsk}
                   onNavigate={(dir) => {
                     const to = graph.current?.neighbor(dockedView.id, dir);
                     if (to != null) selectNode(to);

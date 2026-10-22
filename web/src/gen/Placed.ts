@@ -2,8 +2,4 @@
 import type { Point } from "./Point";
 import type { Spot } from "./Spot";
 
-export type Placed = { spot: Spot, at: Point, 
-/**
- * 끌지 않고 커진 상자가 이 상자를 밀기 전의 자리. 민 상자가 줄거나 사라지면 화면이 이 자리 쪽으로 되돌린다. 사람이 옮기면 없다.
- */
-home: Point | null, };
+export type Placed = { spot: Spot, at: Point, };

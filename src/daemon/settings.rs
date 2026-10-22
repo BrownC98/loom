@@ -8,11 +8,12 @@ use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, Query, State};
 use axum::response::{Html, Response};
 use axum::routing::{delete, get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::origin::ViaServe;
 use super::{App, Problem, internal, serve_pty};
 use crate::accounts::{AccountId, Site};
 use crate::node_host::{Exit, NodeHost};
@@ -433,8 +434,9 @@ async fn login_pty(
     ws: WebSocketUpgrade,
     Path(id): Path<u32>,
     State(app): State<Arc<App>>,
+    via: Option<Extension<ViaServe>>,
 ) -> Response {
-    serve_pty(ws, app, |app| &app.logins.host, |_, _| {}, LoginId(id))
+    serve_pty(ws, via, app, |app| &app.logins.host, |_, _| {}, LoginId(id))
 }
 
 #[cfg(test)]

@@ -20,7 +20,7 @@ import { SizingTerminal } from './Terminal';
 import { DisplayTab, GraphTab, OsNotifySection, TerminalTab } from './ThemeSettings';
 import type { Updates } from './Update';
 import { VERSION } from './version';
-import { RemoteFields } from './RemoteSettings';
+import { PhoneTab } from './PhoneSettings';
 import { WorkspaceFields } from './WorkspaceSettings';
 import { placeName, shortPlaceName } from './place';
 import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, placesOf, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
@@ -29,14 +29,15 @@ import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, p
  * 탭 순서이자 URL 해시 값(`#settings/display`)이다. 첫 탭이 설정을 열 때의 탭이다.
  * 탭마다 주제가 하나다(목업 docs/mockups/settings-groups.html, 2026-10-22 사람 지시 "설정은 관련있는것끼리 다시 구성을 정리해줘", 승인 "권장안대로").
  */
-export const SETTINGS_TABS = ['general', 'agents', 'accounts', 'display', 'graph', 'terminal', 'about'] as const;
+export const SETTINGS_TABS = ['general', 'phone', 'agents', 'accounts', 'display', 'graph', 'terminal', 'about'] as const;
 /**
  * 탭마다 [이 탭 초기화]가 기본값으로 되돌리는 설정 칸. 「모든 설정 초기화」는 이 칸을 모두 되돌린다(2026-10-22 사람 지시 "모든 설정 초기화도 넣고, 각 탭별 초기화를 넣어라").
  * 고른 계정(`claudeAccount`·`codexAccount`)은 넣지 않는다: 바꾸면 노드가 계정을 바꾸므로 계정 탭의 고르기(확인 창)로만 바꾼다.
  * 기본값은 Rust에만 있다. `null`을 보내면 데몬이 칸을 지우고 기본값으로 읽는다.
  */
 const TAB_SETTINGS = {
-  general: ['workspaceDir', 'wslWorkspaceDirs', 'remoteLogin', 'osNotify'],
+  general: ['workspaceDir', 'wslWorkspaceDirs', 'osNotify'],
+  phone: [],
   agents: ['bypassOff', 'alwaysOn', 'treeLimits'],
   accounts: ['autoSwitch'],
   display: ['theme', 'colors', 'language'],
@@ -78,10 +79,10 @@ export function Settings(props: {
       {tab === 'general' && (
         <>
           <WorkspaceFields settings={props.settings} onSettings={props.onSettings} />
-          <RemoteFields settings={props.settings} onSettings={props.onSettings} />
           <OsNotifySection settings={props.settings} onSettings={props.onSettings} />
         </>
       )}
+      {tab === 'phone' && <PhoneTab />}
       {tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
       {tab === 'display' && <DisplayTab settings={props.settings} onSettings={props.onSettings} />}

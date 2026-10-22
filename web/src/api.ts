@@ -12,6 +12,8 @@ import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
 import type { DistroView } from './gen/DistroView';
 import type { GraphEvent } from './gen/GraphEvent';
+import type { DeviceId } from './gen/DeviceId';
+import type { InviteView } from './gen/InviteView';
 import type { LoginId } from './gen/LoginId';
 import type { LoginState } from './gen/LoginState';
 import type { LoginTarget } from './gen/LoginTarget';
@@ -25,6 +27,7 @@ import type { OpenFile } from './gen/OpenFile';
 import type { Arranged } from './gen/Arranged';
 import type { Layout } from './gen/Layout';
 import type { Placed } from './gen/Placed';
+import type { PhoneView } from './gen/PhoneView';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
@@ -165,6 +168,13 @@ export const moveNodes = (provider: Provider, distro: string | null) => call<Mov
 export const removeAccount = (provider: Provider, distro: string | null, id: AccountId) => call<null>('DELETE', `/api/accounts/${provider}/${id}${query(at(distro))}`);
 export const startLogin = (provider: Provider, distro: string | null, target: LoginTarget) => call<LoginId>('POST', `/api/accounts/${provider}${query(at(distro))}`, target);
 export const logoutSystem = (provider: Provider, distro: string | null) => call<null>('POST', `/api/accounts/${provider}/logout${query(at(distro))}`);
+/** 설정 「휴대폰」 탭(docs/design.md 「원격」). 이 기계의 화면에서만 부른다. 폰이 부르면 403이다. */
+export const getPhone = () => call<PhoneView>('GET', '/api/phone');
+/** 데몬이 `tailscale serve --bg <포트>`를 돌린다. 사람이 단추를 누를 때만 부른다. */
+export const startServe = () => call<PhoneView>('POST', '/api/phone/serve');
+/** 새 짝짓기 코드. 앞 코드는 쓸 수 없게 된다. */
+export const createInvite = () => call<InviteView>('POST', '/api/phone/invite');
+export const removeDevice = (id: DeviceId) => call<null>('DELETE', `/api/phone/devices/${id}`);
 export const getLogin = (id: LoginId) => call<LoginState>('GET', `/api/logins/${id}`);
 export const closeLogin = (id: LoginId) => call<null>('DELETE', `/api/logins/${id}`);
 export const loginPty = (id: LoginId) => `/api/logins/${id}/pty`;

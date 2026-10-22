@@ -30,7 +30,7 @@ export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v
  * 알약은 펼치지 않아도 가장 오래된 대기 하나의 전문과 답 칸을 보인다. 목록 줄의 노드 이름과 시스템 알림을 누르면 사이드바 클릭처럼 그래프를 그 노드로 옮기고 고른다.
  * 알약 머리를 누르면 목록이 열린다. `notify`는 설정 「시스템 알림」이다.
  */
-export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; onSelect: (id: NodeId) => void }) {
+export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const show = useShowNodes();
@@ -84,7 +84,14 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
         <div className="pop inbox-pop" role="dialog" aria-label={t('inbox.title', { count: n })}>
           <h2>{t('inbox.title', { count: n })}</h2>
           {/* 노드로 가도 목록은 열린 채로 둔다. 이어서 다른 질문을 보고 답한다(2026-10-22 사람 지시 "총괄클릭해서 이동할때 팝오버 유지되도록"). */}
-          <WaitList waiting={props.waiting} onGo={go} />
+          <WaitList
+            waiting={props.waiting}
+            onGo={go}
+            onFocus={(id) => {
+              show([id]);
+              props.onFocus(id);
+            }}
+          />
         </div>
       )}
     </div>
@@ -92,7 +99,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
 }
 
 /** 오른쪽 사이드바 「질문」 탭(2026-10-21 사람 지시 "예비용으로 질문함은 … 우측 사이드 챗에 유지해줘"). 알약 목록과 같은 줄을 보인다. 대기가 없으면 한 줄만 보인다. */
-export function InboxPanel(props: { waiting: NodeView[]; onSelect: (id: NodeId) => void }) {
+export function InboxPanel(props: { waiting: NodeView[]; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const show = useShowNodes();
   if (props.waiting.length === 0) return <p className="inbox-empty">{t('inbox.empty')}</p>;
@@ -103,6 +110,10 @@ export function InboxPanel(props: { waiting: NodeView[]; onSelect: (id: NodeId) 
         show([id]);
         props.onSelect(id);
       }}
+      onFocus={(id) => {
+        show([id]);
+        props.onFocus(id);
+      }}
     />
   );
 }
@@ -111,7 +122,7 @@ export function InboxPanel(props: { waiting: NodeView[]; onSelect: (id: NodeId) 
  * 대기 목록. 알약 목록과 「질문」 탭이 함께 쓴다(목업 docs/mockups/multi-question.html M28, question-id.html M25 v3).
  * 노드로 묶는다: 노드 이름은 한 번만 보이고(누르면 `onGo`), 그 아래에 대기가 물은 차례대로 있다. 질문이 여럿이면 이름 옆에 수를 보인다.
  */
-function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void }) {
+function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   return (
     <ul className="wait-list">
@@ -129,7 +140,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void }) {
           </button>
           <ul className="wait-rows">
             {v.waits.map((w) => (
-              <WaitRow key={w.id} wait={w} onGo={() => props.onGo(v.id)} />
+              <WaitRow key={w.id} wait={w} onGo={() => props.onGo(v.id)} onFocus={() => props.onFocus(v.id)} />
             ))}
           </ul>
         </li>
@@ -138,12 +149,23 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void }) {
   );
 }
 
-/** 목록의 대기 한 줄: 번호, 종류, [×]와 본문. */
-function WaitRow(props: { wait: HumanWait; onGo: () => void }) {
+/**
+ * 목록의 대기 한 줄: 번호, 종류, [×]와 본문. 줄의 빈 곳이나 글을 누르면 그 노드로 가서 터미널에 입력 초점을 준다(2026-10-22 사람 지시 "질문 펼쳤을때 질문영역 클릭커블하게 만들고 클릭하면 해당 터미널 포커싱").
+ * 단추·입력창·링크는 제 일을 한다. 키보드로는 노드 이름 단추가 같은 곳으로 간다.
+ */
+function WaitRow(props: { wait: HumanWait; onGo: () => void; onFocus: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
   return (
-    <li className="wait-row">
+    <li
+      className="wait-row"
+      onClick={(e) => {
+        if (!(e.target instanceof Element) || e.target.closest('button, input, textarea, a, label')) return;
+        // 글을 끌어 고르는 중이면 옮기지 않는다.
+        if (window.getSelection()?.toString()) return;
+        props.onFocus();
+      }}
+    >
       <div className="top">
         <span className="qid">Q{wait.id}</span>
         <span className="kind">{t(`wait.${wait.kind}`)}</span>

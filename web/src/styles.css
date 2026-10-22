@@ -546,8 +546,9 @@ a { color: var(--accent); }
 .wait-node > .go:hover { background: var(--surface-hover); }
 .wait-list .dot { flex: none; box-shadow: none; }
 .wait-rows { list-style: none; margin: 0; padding: 0 0 0 21px; display: grid; grid-template-columns: minmax(0, 1fr); }
-.wait-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 8px 10px 0; }
+.wait-row { cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 8px 10px 0; }
 .wait-row + .wait-row { border-top: 1px dashed var(--line); }
+.wait-row:hover { background: var(--surface-hover); border-radius: 6px; }
 .wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */

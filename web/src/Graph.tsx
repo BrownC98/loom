@@ -189,7 +189,7 @@ type GroupData = {
   /** 이 묶음 안 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑥). */
   onArrange: () => void;
 };
-type CardBase = { view: NodeView; agentLabel: string; selected: boolean; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
+type CardBase = { view: NodeView; agentLabel: string; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /**
  * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 이 화면에서 카드를 펼치면 카드는 터미널을 그리지 않는다. PTY 크기는 카드가 정한다(`SizingTerminal`). 펼친 카드는 펼친 동안 PTY 크기를 자기 칸에 맞추고, 접으면 카드가 다시 정한다.
  * `sized`: 사람이 크기를 바꿨다. 그 카드만 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③).
@@ -323,7 +323,7 @@ function Card({ data }: NodeProps<CardNode>) {
         }
       >
         <div ref={termBox} className="term-hold" style={hold ?? undefined}>
-          {data.ownsPty && <SizingTerminal src={nodePty(data.view.id)} focused={data.selected} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
+          {data.ownsPty && <SizingTerminal src={nodePty(data.view.id)} focused={data.selected} focusAsk={data.focusAsk} onFocus={data.onSelect} onNavigate={data.onNavigate} />}
         </div>
       </NodeCard>
       {/* 카드 다음에 그려 카드 머리·터미널 위에 놓는다. 그래서 테두리 안쪽 3px도 잡힌다. 잇기 점(`Ports`)은 그 위다. */}
@@ -478,6 +478,8 @@ export function Graph(props: {
   onMinimapFold: (folded: boolean) => void;
   accounts: AccountView[] | null;
   selected: NodeId | null;
+  /** 늘어나면 고른 노드의 터미널이 입력 초점을 잡는다(`App`의 `focusNode`). */
+  focusAsk: number;
   onSelect: (id: NodeId | null) => void;
   /** 바탕을 누르면 고른 노드·상자와 사이드바 저장소 포커스를 지운다. */
   onClear: () => void;
@@ -857,6 +859,8 @@ export function Graph(props: {
         view,
         agentLabel: agentLabel(props.agents, view.agent),
         selected: selected === view.id,
+        // 고른 카드만 바뀐다. 다른 카드는 다시 그리지 않는다.
+        focusAsk: selected === view.id ? props.focusAsk : 0,
         port: TREE_SIDES[direction].parent,
         onSelect: () => setSelected(view.id),
         onNavigate: navigate(view.id),
@@ -1362,7 +1366,7 @@ export function Graph(props: {
               </>
             }
           >
-            <SizingTerminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
+            <SizingTerminal src={nodePty(zoomedView.id)} focused={selected === zoomedView.id} focusAsk={props.focusAsk} onFocus={() => setSelected(zoomedView.id)} onNavigate={() => {}} />
           </NodeCard>
         </div>
       )}

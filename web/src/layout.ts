@@ -21,6 +21,8 @@ export type Box = { at: Point; size: Size };
  * `members`는 이 묶음의 카드이고 형제 순서다. `empty`는 카드가 없을 때 상자 크기다.
  */
 export type NestGroup = { parent: number | null; card: NodeId | null; members: readonly NodeId[]; empty: Size };
+/** 형제 하나: 카드, 또는 묶음 번호(`groups` 안). */
+export type Kid = { card: NodeId } | { group: number };
 
 /**
  * 저장소 하나의 자동 배치(목업 docs/mockups/arrange-family.html v4, 2026-10-21 사람 승인).
@@ -37,6 +39,11 @@ export function arrangeNested(
   direction: ArrangeDirection,
   /** 묶음 상자의 안쪽 여백. `top`은 머리 줄이다(Graph.tsx `cover`와 같은 모양). */
   inset: { top: number; side: number },
+  /**
+   * 형제 순서. 작은 값이 앞이다. 같은 부모 카드의 자식 카드와 자식 묶음, 맨 위 묶음끼리 견준다. 같으면 카드, 묶음, 맨 위 묶음은 자식 묶음이 있는 묶음이 앞이다(⑫).
+   * 끌어 놓은 묶음이 카드나 나무 앞으로 가려면 이 값이 필요하다(2026-10-22 사람 "워크트리 드래그 했을때 포지션 변경이 안일어나고 자기 자리로 돌아감").
+   */
+  rank: (kid: Kid) => number,
 ): { cards: Map<NodeId, Point>; boxes: Box[] } {
   const vertical = direction === 'down' || direction === 'up';
   const reversed = direction === 'up' || direction === 'left';
@@ -49,6 +56,9 @@ export function arrangeNested(
     near: direction === 'down' ? inset.top : inset.side,
     far: direction === 'up' ? inset.top : inset.side,
   };
+  // `Infinity - Infinity`는 NaN이라 빼지 않고 견준다.
+  const ahead = (a: number, b: number) => (a === b ? 0 : a < b ? -1 : 1);
+  const byRank = (kids: Kid[]) => kids.sort((a, b) => ahead(rank(a), rank(b)));
   const groupOf = new Map(groups.flatMap((g, i) => g.members.map((id): [NodeId, number] => [id, i])));
   const kidCards = (id: NodeId) => groups[groupOf.get(id)!].members.filter((k) => parentOf(k) === id);
   const kidGroups = (id: NodeId) => groups.flatMap((g, i) => (g.card === id ? [i] : []));
@@ -114,7 +124,7 @@ export function arrangeNested(
   };
   const layCard = (id: NodeId): Shape => {
     const r = rowOf(id);
-    const kids = pack([...kidCards(id).map(layCard), ...kidGroups(id).map(layGroup)]);
+    const kids = pack(byRank([...kidCards(id).map((card): Kid => ({ card })), ...kidGroups(id).map((group): Kid => ({ group }))]).map((k) => ('card' in k ? layCard(k.card) : layGroup(k.group))));
     const own = across(size(id));
     // 부모는 다음 줄 자식 전체의 가운데에 선다.
     const x = kids ? (kids.lo.get(r + 1)!.at + kids.hi.get(r + 1)!.at) / 2 - own / 2 : 0;
@@ -142,7 +152,7 @@ export function arrangeNested(
   };
   const top = groups.flatMap((g, i) => (g.card === null ? [i] : []));
   const linked = (i: number) => groups[i].members.some((id) => kidGroups(id).length > 0);
-  top.sort((a, b) => Number(!linked(a)) - Number(!linked(b)));
+  top.sort((a, b) => ahead(rank({ group: a }), rank({ group: b })) || Number(!linked(a)) - Number(!linked(b)));
   const all = pack(top.map(layGroup));
   if (!all) return { cards: new Map(), boxes: [] };
   const min = Math.min(...[...all.boxes.values()].map((b) => b.lo));
@@ -296,11 +306,13 @@ export function swap(state: Swap, others: readonly Sibling[], dragged: Box): Swa
   const at = new Map(state.at);
   for (const s of others) {
     const o = { ...s, at: at.get(s.key) ?? s.at };
-    const before = sides.get(o.key);
-    if (!overlaps(dragged, o) || before === undefined) {
+    if (!overlaps(dragged, o)) {
       sides.set(o.key, centerSide(dragged, o));
       continue;
     }
+    // 첫 마우스 이벤트에서 이미 겹치면 끌기 전 자리(`slot`)에서 쪽을 구한다. 형제 틈(32)보다 한 번에 많이 움직이면 쪽을 얻지 못해 바꾸지 않았다(2026-10-22 e2e, 저장소 상자).
+    const before = sides.get(o.key) ?? centerSide(slot, o);
+    sides.set(o.key, before);
     if (!crossed(before, dragged, o)) continue;
     const edge = (side: number, now: number, from: number, len: number, own: number) => (side === 0 ? now : side > 0 ? from + len - own : from);
     at.set(o.key, { x: edge(before.x, o.at.x, slot.at.x, slot.size.width, o.size.width), y: edge(before.y, o.at.y, slot.at.y, slot.size.height, o.size.height) });

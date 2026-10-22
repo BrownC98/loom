@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, overlaps, push, settle, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
+import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, overlaps, push, settle, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type Kid, type NestGroup, type Size, type Swap } from './layout';
 
 const box = (x: number, y: number, width = 100, height = 50): Box => ({ at: { x, y }, size: { width, height } });
 
@@ -54,7 +54,7 @@ function family(nodes: readonly N[], groups: number, direction: ArrangeDirection
     return { parent: hit ? groupOf.get(hit.parent!)! : null, card: hit ? hit.parent : null, members: nodes.filter((x) => x.group === g).map((x) => x.id), empty: EMPTY };
   });
   const size = (id: number) => nodes.find((x) => x.id === id)!.size ?? CARD;
-  const laid = arrangeNested(input, (id) => nodes.find((x) => x.id === id)!.parent, size, direction, { top: 60, side: 20 });
+  const laid = arrangeNested(input, (id) => nodes.find((x) => x.id === id)!.parent, size, direction, { top: 60, side: 20 }, () => 0);
   const cards = new Map(nodes.map((x): [number, Box] => [x.id, { at: laid.cards.get(x.id)!, size: size(x.id) }]));
   return { cards, boxes: laid.boxes, input };
 }
@@ -327,6 +327,13 @@ describe('swap while dragging (people decision 2026-10-21: swap at the center li
     expect(steps.every((at) => at.size === 0)).toBe(true);
   });
 
+  it('a fast drag whose first event already overlaps still swaps (e2e 2026-10-22: two repo boxes 32 apart, 70px per mouse event)', () => {
+    const left = { key: 'left', ...box(0, 0, 1350, 500) };
+    const right = { key: 'right', ...box(1382, 0, 560, 500) };
+    const steps = drag(right, [left], [[1312, 0], [600, 0]]);
+    expect(steps[1].get('left')).toEqual({ x: 1942 - 1350, y: 0 });
+  });
+
   it('a big group dragged up swaps with a small card; the card takes the bottom of the group slot', () => {
     const [, at] = drag(group, [card], [[49, 424], [49, 196]]);
     // 카드 아래 변이 묶음의 끌기 전 아래 변(929)에 선다: 929 - 392 = 537. 둘이 차지하던 0..929 안에서 순서만 바뀐다. 넘지 않은 가로축은 제 자리(0)다.
@@ -423,7 +430,7 @@ describe('always arrange (mockup docs/mockups/always-arrange.html ② B): a drop
   // 총괄(1) 아래 A(2)·B(3)·C(4). 카드는 110 × 64.
   const card = { width: 110, height: 64 };
   const parentOf = (id: number) => (id === 1 ? null : 1);
-  const lay = (members: number[]) => arrangeNested([{ parent: null, card: null, members, empty: card }], parentOf, () => card, 'down', { top: 60, side: 20 }).cards;
+  const lay = (members: number[]) => arrangeNested([{ parent: null, card: null, members, empty: card }], parentOf, () => card, 'down', { top: 60, side: 20 }, () => 0).cards;
   const before = lay([1, 2, 3, 4]);
 
   it('dragging A past the center line of B swaps them, and the drop order B, A, C lands in the arranged slots', () => {
@@ -446,6 +453,34 @@ describe('always arrange (mockup docs/mockups/always-arrange.html ② B): a drop
     const kids = [2, 3, 4, 5].map((id) => after.get(id)!.x);
     expect(kids).toEqual([...kids].sort((p, q) => p - q));
     expect(after.get(1)!.x + card.width / 2).toBe((kids[0] + kids[3] + card.width) / 2);
+  });
+});
+
+describe('always arrange: the sibling order comes from `rank`, so a dropped group moves (human report 2026-10-22: a dragged worktree snapped back)', () => {
+  const card = { width: 110, height: 64 };
+  const empty = { width: 200, height: 100 };
+  // 총괄(1, 묶음 0) 아래 카드 2(묶음 0)와 워크트리 묶음 1(카드 3).
+  const parentOf = (id: number) => (id === 1 ? null : 1);
+  const nested: NestGroup[] = [
+    { parent: null, card: null, members: [1, 2], empty },
+    { parent: 0, card: 1, members: [3], empty },
+  ];
+  const lay = (groups: NestGroup[], rank: (kid: Kid) => number) => arrangeNested(groups, parentOf, () => card, 'down', { top: 60, side: 20 }, rank);
+  const same = () => 0;
+
+  it('a child group dropped before its sibling card stands before it', () => {
+    const before = lay(nested, same);
+    expect(before.boxes[1].at.x).toBeGreaterThan(before.cards.get(2)!.x);
+    const after = lay(nested, (kid) => ('group' in kid ? 0 : 1));
+    expect(after.boxes[1].at.x).toBeLessThan(after.cards.get(2)!.x);
+  });
+
+  it('a top group without a child group dropped before a tree stands before it; equal ranks keep ⑫', () => {
+    const tops: NestGroup[] = [{ parent: null, card: null, members: [], empty }, ...nested.map((g) => ({ ...g, parent: g.parent === null ? null : 1 }))];
+    const kept = lay(tops, same);
+    expect(kept.boxes[0].at.x).toBeGreaterThan(kept.boxes[1].at.x);
+    const moved = lay(tops, (kid) => ('group' in kid && kid.group === 0 ? 0 : 1));
+    expect(moved.boxes[0].at.x).toBeLessThan(moved.boxes[1].at.x);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, grew, keptHome, overlapped, overlaps, push, pushedHome, retreat, samePoint, settle, shrank, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
+import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, overlaps, push, settle, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
 
 const box = (x: number, y: number, width = 100, height = 50): Box => ({ at: { x, y }, size: { width, height } });
 
@@ -362,42 +362,33 @@ describe('freeSpot', () => {
   });
 });
 
-describe('growth without a drag (repro: new card in row 2 of main)', () => {
-  it('grew lists only boxes that were there before and got wider or taller', () => {
-    const size = (width: number, height: number) => ({ width, height });
-    const before = new Map([['main', size(1000, 400)], ['side', size(500, 400)], ['small', size(300, 300)]]);
-    const now = new Map([['main', size(1000, 840)], ['side', size(500, 400)], ['small', size(200, 400)], ['new', size(500, 400)]]);
-    expect(grew(before, now)).toEqual(['main', 'small']);
-  });
-
+describe('unpile (render-time push; the pushed spot is not saved, 2026-10-22 "state must be one")', () => {
   it('a group that grows down pushes the saved group under it the shortest way, with the gap', () => {
     // main 0..1000 × 0..400 grows to 840 high (a card in row 2). 판정근거-범위 at 480..980 × 440..840.
     // right 1000 + 32 - 480 = 552, down 840 + 32 - 440 = 432, left 1012, up 872: down.
-    const moved = push([{ key: 'g', ...box(480, 440, 500, 400) }], box(0, 0, 1000, 840), ['g'], 32);
-    expect(moved).toEqual(new Map([['g', { x: 480, y: 872 }]]));
+    const at = unpile([{ key: 'main', ...box(0, 0, 1000, 840) }, { key: 'g', ...box(480, 440, 500, 400) }], 32);
+    expect(at).toEqual(new Map([['main', { x: 0, y: 0 }], ['g', { x: 480, y: 872 }]]));
   });
 
   it('a new group whose auto spot is on a grown saved group goes to its right', () => {
     expect(freeSpot(box(480, 440, 500, 400), [box(0, 0, 1000, 840)], 32)).toEqual({ x: 1032, y: 440 });
   });
-});
 
-describe('growth while the screen was closed (repro 2026-10-22: repo loom grew over ktasearch)', () => {
-  // No earlier render, so grew sees nothing. loom 0..5028 now covers ktasearch at 4388.
-  // right 5028 + 32 - 4388 = 672, down and up 595 + 32 = 627: down (shortest, then the tie order).
-  const repos = [
-    { key: 'repo:loom', ...box(0, 0, 5028, 595) },
-    { key: 'repo:ktasearch', ...box(4388, 0, 672, 595) },
-  ];
-
-  it('overlapped names the front box of each overlap, so it stays and the box behind moves', () => {
-    expect(grew(new Map(), new Map(repos.map((r) => [r.key, r.size])))).toEqual([]);
-    expect(overlapped(repos)).toEqual(['repo:loom']);
-    expect(push(repos, repos[0], ['repo:ktasearch'], 32)).toEqual(new Map([['repo:ktasearch', { x: 4388, y: 627 }]]));
+  it('repo loom grew over ktasearch: the front box stays and the box behind moves (repro 2026-10-22)', () => {
+    // right 5028 + 32 - 4388 = 672, down and up 595 + 32 = 627: down (shortest, then the tie order).
+    const at = unpile([{ key: 'repo:loom', ...box(0, 0, 5028, 595) }, { key: 'repo:ktasearch', ...box(4388, 0, 672, 595) }], 32);
+    expect(at.get('repo:ktasearch')).toEqual({ x: 4388, y: 627 });
   });
 
-  it('boxes that only touch or are apart are not overlapped', () => {
-    expect(overlapped([{ key: 'a', ...box(0, 0) }, { key: 'b', ...box(100, 0) }, { key: 'c', ...box(300, 0) }])).toEqual([]);
+  it('boxes that only touch or are apart do not move', () => {
+    const boxes = [{ key: 'a', ...box(0, 0) }, { key: 'b', ...box(100, 0) }, { key: 'c', ...box(300, 0) }];
+    expect(unpile(boxes, 32)).toEqual(new Map(boxes.map((b) => [b.key, b.at])));
+  });
+
+  it('push → shrink → return: B is pushed while A is wide and is back on its saved spot when A shrinks, with nothing remembered', () => {
+    const b = { key: 'B', ...box(432, 0, 400, 600) };
+    expect(unpile([{ key: 'A', ...box(0, 0, 600, 600) }, b], 32).get('B')).toEqual({ x: 632, y: 0 });
+    expect(unpile([{ key: 'A', ...box(0, 0, 400, 600) }, b], 32).get('B')).toEqual({ x: 432, y: 0 });
   });
 });
 
@@ -415,64 +406,6 @@ describe('settle (an arranged repo is derived from sizes, not saved; 2026-10-22 
     const at = settle([item('main', 0, 437), item('kid', 549, 517)], placed, 32);
     expect(at.get('main')).toEqual({ x: 20, y: 549 });
     expect(at.get('kid')).toEqual({ x: 652, y: 549 });
-  });
-});
-
-describe('return after growth goes away (people decision 2026-10-21, approved recommendation)', () => {
-  // Repo boxes A | B. A is 400 wide at 0, B is at 432 (gap 32). A new worktree widens A to 600 and pushes B.
-  const a = box(0, 0, 400, 600);
-  const wideA = box(0, 0, 600, 600);
-  const b = box(432, 0, 400, 600);
-
-  it('push → shrink → return: B goes back to its pre-push spot', () => {
-    expect(shrank(new Map([['A', wideA.size], ['B', b.size], ['W', b.size]]), new Map([['A', a.size], ['B', b.size]]))).toEqual(['A', 'W']);
-    const pushed = push([{ key: 'B', ...b }], wideA, ['B'], 32).get('B')!;
-    expect(pushed).toEqual({ x: 632, y: 0 });
-    const home = pushedHome(undefined, b.at);
-    // While A is still wide, B cannot move.
-    expect(retreat([wideA], { at: pushed, size: b.size }, home, 32)).toEqual(pushed);
-    // A shrinks back: B returns all the way and forgets its home.
-    const back = retreat([a], { at: pushed, size: b.size }, home, 32);
-    expect(back).toEqual({ x: 432, y: 0 });
-    expect(samePoint(back, home)).toBe(true);
-  });
-
-  it('a second push keeps the first pre-push spot', () => {
-    const first = pushedHome(undefined, b.at);
-    expect(pushedHome({ at: { x: 632, y: 0 }, home: first }, { x: 632, y: 0 })).toEqual({ x: 432, y: 0 });
-  });
-
-  it('a hand move (or arrange) forgets the pre-push spot; an unmoved box keeps it', () => {
-    const saved = { at: { x: 632, y: 0 }, home: { x: 432, y: 0 } };
-    expect(keptHome(saved, { x: 900, y: 50 })).toBeNull();
-    expect(keptHome(saved, { x: 632.2, y: 0 })).toEqual({ x: 432, y: 0 });
-    expect(keptHome(undefined, { x: 0, y: 0 })).toBeNull();
-  });
-
-  it('partial return when blocked: B stops one gap before the blocking box', () => {
-    // A shrinks, but the human put C at 450..500 between A and B's home.
-    const c = box(450, 0, 50, 600);
-    expect(retreat([a, c], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32)).toEqual({ x: 532, y: 0 });
-  });
-
-  it('a box on another row does not block', () => {
-    const below = box(500, 700, 100, 100);
-    expect(retreat([a, below], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32)).toEqual({ x: 432, y: 0 });
-  });
-
-  it('a pusher that grew again after the push (gap now 25) still blocks: B does not pass through it', () => {
-    // Real case 2026-10-21: A widened to 1375 and pushed B to 1423, then the new box measured 7 px wider (A = 1382 wide).
-    const grown = box(16, 64, 1382, 378);
-    const pushed = { at: { x: 1423, y: 64 }, size: { width: 354, height: 175 } };
-    const to = retreat([grown], pushed, { x: 1091, y: 64 }, 32);
-    expect(to.x).toBeGreaterThanOrEqual(1423 - 0.5);
-    expect(overlaps({ at: to, size: pushed.size }, grown)).toBe(false);
-  });
-
-  it('a box nearer than the gap blocks at its current distance; moving away from it is free', () => {
-    const near = box(610, 0, 10, 10); // 12 px left of B
-    expect(retreat([near], { at: { x: 632, y: 0 }, size: b.size }, { x: 432, y: 0 }, 32).x).toBeGreaterThan(631.5);
-    expect(retreat([near], { at: { x: 632, y: 0 }, size: b.size }, { x: 832, y: 0 }, 32)).toEqual({ x: 832, y: 0 });
   });
 });
 

@@ -1,6 +1,7 @@
-// 이벤트 콘솔 칸(docs/mockups/graph-panels.html 그림 A). 노드·메시지 이벤트를 최근 것부터 보인다.
-// 줄을 누르면 그 이벤트에 관여한 노드를 그래프에서 강조한다. 강조 상태는 부르는 쪽(App)이 가진다.
+// 이벤트 콘솔 칸(docs/mockups/graph-panels.html 그림 A). 노드·메시지·받은편지함 알림 이벤트를 최근 것부터 보인다.
+// 줄을 누르면 그 이벤트에 관여한 노드를 그래프에서 강조하고 본문 전문을 편다. 강조 상태는 부르는 쪽(App)이 가진다.
 import { useEffect, useRef, useState } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getEventLog } from './api';
 import { agentLabel } from './catalog';
@@ -8,6 +9,7 @@ import type { AgentView } from './gen/AgentView';
 import type { Entry } from './gen/Entry';
 import type { EventRecord } from './gen/EventRecord';
 import type { Kind } from './gen/Kind';
+import type { WaitId } from './gen/WaitId';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { Who } from './gen/Who';
@@ -16,12 +18,25 @@ import { clockTime } from './i18n';
 import { stateLabel } from './NodeCard';
 import { refusalWithoutName } from './problem';
 
-type Category = 'node' | 'message';
+type Category = 'node' | 'message' | 'notice';
 
-const CATEGORIES: Category[] = ['node', 'message'];
+const CATEGORIES: Category[] = ['node', 'message', 'notice'];
 
 function categoryOf(entry: Entry): Category {
-  return entry.kind === 'message' || entry.kind === 'refused' ? 'message' : 'node';
+  switch (entry.kind) {
+    case 'message':
+    case 'refused':
+      return 'message';
+    case 'asked':
+    case 'reported':
+    case 'answered':
+    case 'instructed':
+    case 'unanswered':
+    case 'confirmed':
+      return 'notice';
+    default:
+      return 'node';
+  }
 }
 
 /** 이벤트에 관여한 노드. 메시지는 보낸·받은 노드, 입양은 자식·옛 부모·새 부모, 생성은 그 노드와 부모다. */
@@ -32,6 +47,12 @@ function whoOf(entry: Entry): Who[] {
     case 'state':
     case 'removed':
     case 'renamed':
+    case 'asked':
+    case 'reported':
+    case 'answered':
+    case 'instructed':
+    case 'unanswered':
+    case 'confirmed':
       return [entry.node];
     case 'adopted':
       return [entry.node, ...(entry.from ? [entry.from] : []), entry.to];
@@ -76,6 +97,22 @@ export function useEventLog(open: boolean): { records: EventRecord[] | null; onR
     setRecords((prev) => prev && [record, ...prev]);
   };
   return { records, onRecord };
+}
+
+/** 줄을 펴면 보이는 글. 메시지는 메시지 본문, 알림은 질문·결과·답 전문이다. */
+function bodyOf(record: EventRecord, t: TFunction): string | null {
+  const { entry } = record;
+  switch (entry.kind) {
+    case 'asked':
+      return entry.text;
+    case 'reported':
+      return `${entry.summary}\n${t('events.instruction', { text: entry.instruction })}`;
+    case 'answered':
+    case 'instructed':
+      return entry.text || null;
+    default:
+      return record.body;
+  }
 }
 
 function KindLabel({ how }: { how: Kind }) {
@@ -155,6 +192,33 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
           <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
         </>
       );
+    case 'asked':
+    case 'reported':
+    case 'confirmed':
+      return (
+        <>
+          <span className="kind">{t(`events.kind.${entry.kind}`)}</span>
+          {name(entry.node)}
+          <WaitNote wait={entry.wait} />
+        </>
+      );
+    case 'answered':
+    case 'instructed':
+      return (
+        <>
+          <span className="kind">{t(`events.kind.${entry.kind}`)}</span>
+          {name(entry.node)}
+          <WaitNote wait={entry.wait} extra={entry.images > 0 ? t('events.images', { n: entry.images }) : undefined} />
+        </>
+      );
+    case 'unanswered':
+      return (
+        <>
+          <span className="kind">{t('events.kind.unanswered')}</span>
+          {name(entry.node)}
+          <WaitNote wait={entry.wait} extra={t(`events.closedBy.${entry.by}`)} />
+        </>
+      );
     case 'accountSwitched':
     case 'noAccountLeft':
       // 계정 이름은 이 목록이 모른다. 상태 줄 알림이 이름으로 보인다.
@@ -168,25 +232,30 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
   }
 }
 
+/** 받은편지함 번호(`Q12`)와 덧붙일 말. 사람은 받은편지함에서 이 번호를 본다. */
+function WaitNote({ wait, extra }: { wait: WaitId; extra?: string }) {
+  return (
+    <span className="note">
+      Q{wait}
+      {extra && <> · {extra}</>}
+    </span>
+  );
+}
+
+/** 고른 줄(강조한 줄)만 본문 전문을 편다. 다시 누르면 강조와 함께 접는다(2026-10-22 사람 지시 "기존 메시지 이벤트도 클릭하면 메시지 전문이 펼쳐보이게 수정"). */
 function Row(props: { record: EventRecord; current: boolean; onClick: () => void; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }) {
-  const { record } = props;
+  const { record, current } = props;
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const multiline = record.body?.includes('\n') ?? false;
+  const body = bodyOf(record, t);
   return (
     <li>
-      <button className="ev" aria-current={props.current || undefined} onClick={props.onClick}>
+      <button className="ev" aria-current={current || undefined} aria-expanded={body === null ? undefined : current} onClick={props.onClick}>
         <time dateTime={new Date(record.at * 1000).toISOString()}>{clockTime(record.at * 1000)}</time>
         <span className="what">
           <What entry={record.entry} views={props.views} agents={props.agents} />
         </span>
-        {record.body !== null && <span className={open ? 'body open' : 'body'}>{open ? record.body : record.body.split('\n', 1)[0]}</span>}
+        {body !== null && <span className={current ? 'body open' : 'body'}>{current ? body : body.split('\n', 1)[0]}</span>}
       </button>
-      {multiline && (
-        <button className="more" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? t('events.fold') : t('events.unfold')}
-        </button>
-      )}
     </li>
   );
 }

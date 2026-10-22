@@ -4,6 +4,7 @@
 //! 지우는 길: 신호 쪽이 거두기(`set_wait(.., None)`), 에이전트의 `loom answered`(`answered`), 사람의 키 입력(`typed`, 질문은 남긴다),
 //! 받은편지함 [×](`dismiss`), 노드 재시작(`clear_wait`), 프로세스 끝(`end_process`).
 //! 사람은 화면에서 질문에 바로 답할 수도 있다(`answer`). 답은 사람이 보낸 메시지로 노드에 가고 그 질문은 그때 지운다.
+//! 질문·완료가 걸리고 닫힐 때마다 같은 트랜잭션에서 이벤트 기록에 한 줄을 남긴다(`events::Entry::Asked` 등). 신호의 대기는 남기지 않는다.
 //! 근거: docs/design.md 「사람 응답 대기」.
 
 use std::fmt;
@@ -14,6 +15,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
 use super::{Graph, NodeId, NodeState, Refusal, parent_of, state_of, to_json};
 
@@ -176,18 +178,26 @@ impl Graph {
         if question.is_empty() {
             return Err(Refusal::EmptyQuestion);
         }
-        let db = self.lock();
+        let mut db = self.lock();
         if parent_of(&db, id)?.is_some() {
             return Err(Refusal::HasParent);
         }
-        let text = question.chars().take(QUESTION_LIMIT_CHARS).collect();
+        let text: String = question.chars().take(QUESTION_LIMIT_CHARS).collect();
         let (doc, doc_path) = attached.map(|a| (a.doc, a.path)).unzip();
-        let wait = new_wait(&db, WaitKind::Question, text, true, doc)?;
+        let tx = db.transaction()?;
+        let wait = new_wait(&tx, WaitKind::Question, text.clone(), true, doc)?;
         let asked = wait.id;
-        db.execute(
+        tx.execute(
             "INSERT INTO questions (id, node, wait) VALUES (?1, ?2, ?3)",
             params![asked.0, id.0, to_json(&Asked { wait, doc_path })],
         )?;
+        let entry = Entry::Asked {
+            node: events::who(&tx, id)?,
+            wait: asked,
+            text,
+        };
+        events::write(&tx, &entry, None)?;
+        tx.commit()?;
         self.publish_node(&db, id)?;
         Ok(asked)
     }
@@ -202,6 +212,7 @@ impl Graph {
             return Err(Refusal::EmptyAnswer);
         }
         let mut db = self.lock();
+        let count = images.len() as u32;
         let images = match images {
             [] => String::new(),
             paths => {
@@ -210,13 +221,20 @@ impl Graph {
                 format!("\nImages: {}", quoted.join(" "))
             }
         };
-        let (node, body) = match open_ask(&db, wait) {
+        type Record = fn(events::Who, WaitId, String, u32) -> Entry;
+        let (node, body, record): (NodeId, String, Record) = match open_ask(&db, wait) {
             Ok((node, question)) => (
                 node,
                 format!(
                     "Answer to loom ask question {wait} ({}): {text}{images}\nThe human answered from the loom inbox. The question is closed: do not call loom answered.",
                     question.wait.text
                 ),
+                |node, wait, text, images| Entry::Answered {
+                    node,
+                    wait,
+                    text,
+                    images,
+                },
             ),
             // 완료 줄의 입력창: 같은 노드에 이어서 맡기는 일이다(2026-10-22 사람 지시 "완료알림에는 추가 지시를 받을 수 있도록 입력창도 추가해").
             Err(Refusal::NoWait(_)) => (
@@ -224,6 +242,12 @@ impl Graph {
                 format!(
                     "New instruction from the human in the loom inbox, after your done report: {text}{images}"
                 ),
+                |node, wait, text, images| Entry::Instructed {
+                    node,
+                    wait,
+                    text,
+                    images,
+                },
             ),
             Err(e) => return Err(e),
         };
@@ -234,6 +258,8 @@ impl Graph {
             "UPDATE nodes SET done = NULL WHERE done ->> 'id' = ?1",
             [wait.0],
         )?;
+        let entry = record(events::who(&tx, node)?, wait, text.to_owned(), count);
+        events::write(&tx, &entry, None)?;
         tx.commit()?;
         self.publish_node(&db, node)?;
         self.mail.notify_waiters();
@@ -243,7 +269,7 @@ impl Graph {
     /// `loom answered`: 사람의 입력이 이 노드의 질문 `ids`에 답했다고 에이전트가 판단했다. 그 질문을 지우고 지운 번호를 돌려준다.
     /// 번호가 없으면 열린 질문이 하나일 때만 그것을 지운다. 여럿이면 거절하고 열린 번호를 알린다(2026-10-22 목업 M28 승인: 모두 닫지 않는다).
     pub fn answered(&self, id: NodeId, ids: &[WaitId]) -> Result<Vec<WaitId>, Refusal> {
-        let db = self.lock();
+        let mut db = self.lock();
         let open: Vec<WaitId> = questions(&db, id)?.iter().map(|q| q.wait.id).collect();
         let closing = match ids {
             [] if open.len() > 1 => return Err(Refusal::SeveralOpen(open)),
@@ -255,9 +281,12 @@ impl Graph {
                 ids.to_vec()
             }
         };
+        let tx = db.transaction()?;
         for q in &closing {
-            db.execute("DELETE FROM questions WHERE id = ?1", [q.0])?;
+            tx.execute("DELETE FROM questions WHERE id = ?1", [q.0])?;
+            unanswered(&tx, id, *q, ClosedBy::Agent)?;
         }
+        tx.commit()?;
         if !closing.is_empty() {
             self.publish_node(&db, id)?;
         }
@@ -320,32 +349,44 @@ impl Graph {
                 |row| row.get(0),
             )
             .optional()?;
-        if let Some(node) = node {
-            mailbox::enqueue_human(
-                &tx,
-                NodeId(node),
-                &format!("{wait} was closed without an answer."),
-            )?;
-        }
+        let asked = node.is_some();
+        let node = match node.map(NodeId) {
+            Some(node) => {
+                mailbox::enqueue_human(
+                    &tx,
+                    node,
+                    &format!("{wait} was closed without an answer."),
+                )?;
+                unanswered(&tx, node, wait, ClosedBy::Human)?;
+                node
+            }
+            None => match done_node(&tx, wait) {
+                Ok(node) => {
+                    tx.execute("UPDATE nodes SET done = NULL WHERE id = ?1", [node.0])?;
+                    let entry = Entry::Confirmed {
+                        node: events::who(&tx, node)?,
+                        wait,
+                    };
+                    events::write(&tx, &entry, None)?;
+                    node
+                }
+                Err(Refusal::NoWait(_)) => tx
+                    .query_row(
+                        "UPDATE nodes SET wait = NULL WHERE wait ->> 'id' = ?1 RETURNING id",
+                        [wait.0],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                    .map(NodeId)
+                    .ok_or(Refusal::NoWait(wait))?,
+                Err(e) => return Err(e),
+            },
+        };
         tx.commit()?;
-        if node.is_some() {
+        if asked {
             self.mail.notify_waiters();
         }
-        let node = match node {
-            Some(node) => node,
-            None => db
-                .query_row(
-                    "UPDATE nodes SET
-                        wait = CASE WHEN wait ->> 'id' = ?1 THEN NULL ELSE wait END,
-                        done = CASE WHEN done ->> 'id' = ?1 THEN NULL ELSE done END
-                     WHERE wait ->> 'id' = ?1 OR done ->> 'id' = ?1 RETURNING id",
-                    [wait.0],
-                    |row| row.get(0),
-                )
-                .optional()?
-                .ok_or(Refusal::NoWait(wait))?,
-        };
-        Ok(self.publish_node(&db, NodeId(node))?)
+        Ok(self.publish_node(&db, node)?)
     }
 
     /// 받은편지함 완료 줄의 `index`번째 그림 파일. 그 완료가 지워졌으면 거절한다.
@@ -366,11 +407,13 @@ impl Graph {
 
     /// 노드 프로세스를 다시 띄웠다. 신호의 대기와 열린 질문을 모두 지운다.
     pub fn clear_wait(&self, id: NodeId) -> rusqlite::Result<()> {
-        let db = self.lock();
-        let changed = db.execute(
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let changed = tx.execute(
             "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
             [id.0],
-        )? + db.execute("DELETE FROM questions WHERE node = ?1", [id.0])?;
+        )? + drop_questions(&tx, id, ClosedBy::Restart)?;
+        tx.commit()?;
         if changed > 0 {
             self.publish_node(&db, id)?;
         }
@@ -387,8 +430,10 @@ pub(super) fn put_done(
     summary: &str,
     images: &[PathBuf],
 ) -> rusqlite::Result<()> {
-    let mut wait = new_wait(db, WaitKind::Done, summary.trim().to_owned(), true, None)?;
-    wait.instruction = Some(asked.chars().take(QUESTION_LIMIT_CHARS).collect());
+    let summary = summary.trim().to_owned();
+    let instruction: String = asked.chars().take(QUESTION_LIMIT_CHARS).collect();
+    let mut wait = new_wait(db, WaitKind::Done, summary.clone(), true, None)?;
+    wait.instruction = Some(instruction.clone());
     wait.images = images
         .iter()
         .map(|p| p.to_string_lossy().into_owned())
@@ -397,7 +442,43 @@ pub(super) fn put_done(
         "UPDATE nodes SET done = ?2 WHERE id = ?1",
         params![id.0, to_json(&wait)],
     )?;
-    Ok(())
+    let entry = Entry::Reported {
+        node: events::who(db, id)?,
+        wait: wait.id,
+        summary,
+        instruction,
+    };
+    events::write(db, &entry, None)
+}
+
+/// 노드의 열린 질문을 모두 답 없이 닫는다. 닫은 수를 돌려준다.
+pub(super) fn drop_questions(
+    db: &rusqlite::Connection,
+    id: NodeId,
+    by: ClosedBy,
+) -> rusqlite::Result<usize> {
+    let closed = db
+        .prepare("DELETE FROM questions WHERE node = ?1 RETURNING id")?
+        .query_map([id.0], |row| row.get(0).map(WaitId))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for wait in &closed {
+        unanswered(db, id, *wait, by)?;
+    }
+    Ok(closed.len())
+}
+
+fn unanswered(
+    db: &rusqlite::Connection,
+    id: NodeId,
+    wait: WaitId,
+    by: ClosedBy,
+) -> rusqlite::Result<()> {
+    let entry = Entry::Unanswered {
+        node: events::who(db, id)?,
+        wait,
+        by,
+    };
+    events::write(db, &entry, None)
 }
 
 /// 노드가 없으면 바깥 `None`, 대기가 없으면 안쪽 `None`.

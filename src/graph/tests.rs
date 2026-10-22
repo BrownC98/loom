@@ -235,6 +235,43 @@ fn signal_wait_has_one_entry_and_clears_by_source_key_and_exit() {
 /// 노드 하나가 질문 여럿을 연다(목업 M28). 새 질문은 앞 질문을 지우지 않고, 신호의 대기와 따로 산다.
 /// `loom answered`는 번호로 닫는다. 번호 없이는 열린 질문이 하나일 때만 닫는다.
 #[test]
+fn a_finished_human_turn_shows_once_and_never_hides_a_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = child(&g, lead, "w");
+    let done = |id| {
+        view(&g, id)
+            .waits
+            .into_iter()
+            .map(|w| (w.kind, w.instruction, w.text))
+            .collect::<Vec<_>>()
+    };
+
+    // 자식 노드도 사람이 맡긴 일이면 완료를 건다. 지시와 결과는 첫 줄만 남긴다.
+    g.finished(worker, "버튼 고쳐\n자세히는…", "\n고쳤다.\n시험 통과")
+        .unwrap();
+    assert_eq!(
+        done(worker),
+        [(WaitKind::Done, Some("버튼 고쳐".into()), "고쳤다.".into())]
+    );
+    // 다른 신호는 완료를 거두지 않는다. 사람의 키 입력이 지운다.
+    g.set_wait(worker, WaitSource::Hook, None).unwrap();
+    assert_eq!(done(worker).len(), 1);
+    g.typed(worker).unwrap();
+    assert_eq!(done(worker), []);
+
+    // 질문이나 다른 대기가 있으면 완료를 걸지 않는다. 그 대기가 이미 사람을 부른다.
+    g.ask(lead, "병합할까요?", None).unwrap();
+    g.finished(lead, "병합해", "물었다.").unwrap();
+    assert!(done(lead).iter().all(|w| w.0 == WaitKind::Question));
+    let trust = (WaitKind::Trust, "Trust?");
+    g.set_wait(worker, WaitSource::Screen, Some(trust)).unwrap();
+    g.finished(worker, "x", "y").unwrap();
+    assert_eq!(done(worker)[0].0, WaitKind::Trust);
+}
+
+#[test]
 fn a_node_keeps_several_questions_and_closes_them_by_id() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));

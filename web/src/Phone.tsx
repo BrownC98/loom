@@ -1,6 +1,6 @@
 // 폰 폭 화면(목업 docs/mockups/mobile.html M35, 2026-10-22 사람 승인 Q279·Q280). 배치만 맡는다.
 // 질문 목록·트리·사용량 줄은 App이 데스크톱과 같은 부품으로 만들어 넘긴다. 상태 원천은 데스크톱과 같은 데몬 이벤트다.
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, TriangleAlert } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, removeNode } from './api';
@@ -8,7 +8,7 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { QuestionIcon } from './Dock';
 import { InboxPanel } from './Inbox';
-import { stateClass, stateLabel } from './NodeCard';
+import { asking, stateClass, stateLabel } from './NodeCard';
 import { SizingTerminal } from './Terminal';
 
 /** 이 폭 아래에서 폰 배치를 쓴다(목업 ①). styles.css의 `@media`와 같은 값이다. */
@@ -126,7 +126,7 @@ export function Phone(props: {
       {props.foot}
       <nav className="phone-tabs" aria-label={t('phone.tabs')}>
         <button type="button" aria-current={inbox ? 'page' : undefined} onClick={() => props.onRoute({ screen: 'inbox' })}>
-          <QuestionIcon aria-hidden="true" />
+          <Bell aria-hidden="true" />
           {t('phone.inbox')}
           {count > 0 && <span className="count">{count}</span>}
         </button>
@@ -174,7 +174,8 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
   const [text, setText] = useState('');
   const [sheet, setSheet] = useState<'actions' | 'answer' | null>(null);
   const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
-  const first = view.waits[0];
+  const asks = asking(view);
+  const first = asks[0];
 
   const key = (data: string) => {
     send.current?.(data);
@@ -205,7 +206,7 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
           </span>
         </span>
         <span className={`state ${stateClass(view)}`} aria-live="polite" translate="no">
-          {view.waits.length > 0 ? t('wait.label') : stateLabel(view.state)}
+          {asks.length > 0 ? t('wait.label') : stateLabel(view.state)}
         </span>
         <button type="button" className="phone-icon" aria-label={t('phone.actions')} aria-haspopup="dialog" onClick={() => setSheet('actions')}>
           <EllipsisVertical aria-hidden="true" />
@@ -216,7 +217,7 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
         <div className="phone-ask">
           <QuestionIcon aria-hidden="true" />
           <b>{t('wait.question')}</b>
-          {view.waits.length > 1 && <span className="count">{view.waits.length}</span>}
+          {asks.length > 1 && <span className="count">{asks.length}</span>}
           <span className="qid">Q{first.id}</span>
           <span className="text">{first.text}</span>
           <button type="button" className="btn sm" aria-haspopup="dialog" onClick={() => setSheet('answer')}>

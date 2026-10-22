@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>휴대폰 연결 목업</title>
+<title>M41 휴대폰 연결 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -49,7 +49,12 @@ table.cmp th, table.cmp td { border-bottom: 1px solid var(--line); padding: 8px 
 table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
 .pick { font-weight: 600; color: var(--warn); }
 
-/* 설정 칸(Settings.tsx 「일반」) */
+/* 설정 칸(Settings.tsx 「휴대폰」 탭) */
+.settings { display: flex; gap: 0; width: 900px; background: var(--panel); border-radius: 12px; overflow: hidden; }
+.settings nav { width: 180px; padding: 18px 8px; display: grid; align-content: start; gap: 2px; border-right: 1px solid var(--line); }
+.settings nav span { padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--ink-2); }
+.settings nav span[aria-current] { background: var(--surface-hover); color: var(--ink); font-weight: 600; }
+.settings .pane { border-radius: 0; }
 .pane { width: 700px; padding: 18px 22px; background: var(--panel); border-radius: 12px; display: grid; gap: 18px; }
 .pane section { display: grid; gap: 8px; }
 .pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
@@ -103,15 +108,15 @@ ol.hint li { margin-left: 18px; }
 </head>
 <body>
 <main class="doc">
-  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 폰연결</b></span><span>v1 · 2026-10-22</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M41</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 폰연결</b></span><span>v2 · 2026-10-22</span></div>
   <h1>휴대폰 연결: Orca처럼 QR로 짝짓기</h1>
-  <p class="lead">사람 지시: "pc loom과 앱 연결은 orca의 방식을 참고하여 구현하라"(Q359: 폰과 PC 데몬의 연결). Orca는 PC 설정에서 QR을 만들고, 폰이 그 QR을 찍으면 기기마다 토큰을 받고, PC의 「페어링된 장치」 목록에서 끊는다. loom은 길(Tailscale Serve, HTTPS)을 그대로 두고, 「Tailscale 로그인 적기」를 이 짝짓기로 바꾼다. 점선이 바뀌는 곳이다.</p>
+  <p class="lead">사람 지시: "pc loom과 앱 연결은 orca의 방식을 참고하여 구현하라"(Q359: 폰과 PC 데몬의 연결), v2: "핸드폰 연결은 설정에 별도 탭을 만들것". Orca는 PC 설정에서 QR을 만들고, 폰이 그 QR을 찍으면 기기마다 토큰을 받고, PC의 「페어링된 장치」 목록에서 끊는다. loom은 길(Tailscale Serve, HTTPS)을 그대로 두고, 「Tailscale 로그인 적기」를 이 짝짓기로 바꾼다. 점선이 바뀌는 곳이다.</p>
 
   <div class="fig">
     <h2>① 연결 흐름 <span class="tag">길은 지금과 같다 · 신원 확인만 바뀐다</span></h2>
     <svg class="flow" viewBox="0 0 1240 230" role="img" aria-label="PC 설정에서 QR을 만들고 폰이 찍어 기기 토큰을 받는 흐름">
       <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor" style="color: var(--ink-2)"/></marker></defs>
-      <rect class="box" x="30" y="40" width="230" height="70" rx="10"/><text class="t" x="145" y="70">PC 설정 › 일반</text><text class="s" x="145" y="92">[휴대폰 연결] → QR·코드(10분, 한 번)</text>
+      <rect class="box" x="30" y="40" width="230" height="70" rx="10"/><text class="t" x="145" y="70">PC 설정 › 휴대폰</text><text class="s" x="145" y="92">[휴대폰 연결] → QR·코드(10분, 한 번)</text>
       <rect class="box" x="360" y="40" width="230" height="70" rx="10"/><text class="t" x="475" y="70">폰 카메라 · 브라우저</text><text class="s" x="475" y="92">https://pc.tailnet.ts.net/#pair=코드</text>
       <rect class="box" x="690" y="40" width="230" height="70" rx="10"/><text class="t" x="805" y="70">Tailscale Serve</text><text class="s" x="805" y="92">HTTPS 끝냄 → 127.0.0.1:7420</text>
       <rect class="box hub" x="1010" y="40" width="200" height="70" rx="10"/><text class="t" x="1110" y="70">loom 데몬</text><text class="s" x="1110" y="92">코드 확인 → 기기 토큰 쿠키</text>
@@ -128,7 +133,8 @@ ol.hint li { margin-left: 18px; }
   </div>
 
   <div class="fig">
-    <h2>② PC 설정 › 일반 「휴대폰 연결」 · 준비됨 <span class="tag">원격 접속 칸을 바꾼다</span></h2>
+    <h2>② PC 설정 › 휴대폰 탭 · 준비됨 <span class="tag">v2: 일반의 원격 접속 칸을 지우고 새 탭(일반 다음)</span></h2>
+    <div class="settings"><nav class="new"><span>일반</span><span aria-current="page">휴대폰</span><span>에이전트</span><span>에이전트 계정</span><span>화면</span><span>그래프</span><span>터미널</span><span>정보</span></nav>
     <div class="pane">
       <section class="new">
         <h4>휴대폰 연결</h4>
@@ -151,7 +157,7 @@ ol.hint li { margin-left: 18px; }
           <div class="dev-row"><span class="main"><span class="name">Android · Chrome</span><span class="meta">10-20 09:12 연결 · 2일 전 씀</span></span><button class="btn ghost sm">연결 끊기</button></div>
         </div>
       </section>
-    </div>
+    </div></div>
     <ul class="note">
       <li>[휴대폰 연결]을 누르면 QR과 8자 코드가 나온다. 코드는 10분 뒤나 한 번 쓰면 없어진다. 폰이 연결하면 상자가 닫히고 목록에 줄이 생긴다.</li>
       <li>기기 이름은 폰 브라우저 정보에서 만든다. [연결 끊기]는 그 기기 토큰을 지운다. 확인 창은 없다(다시 짝지으면 된다).</li>
@@ -160,7 +166,7 @@ ol.hint li { margin-left: 18px; }
   </div>
 
   <div class="fig">
-    <h2>③ PC 설정 · 준비 안 됨 <span class="tag">데몬이 tailscale status·serve status를 읽는다</span></h2>
+    <h2>③ PC 설정 › 휴대폰 · 준비 안 됨 <span class="tag">데몬이 tailscale status·serve status를 읽는다</span></h2>
     <div class="row">
       <div class="pane" style="width: 560px">
         <section class="new">
@@ -200,13 +206,13 @@ ol.hint li { margin-left: 18px; }
       <div class="shot">
         <span class="cap">연결되지 않은 기기(홈 화면 앱 처음, 끊긴 기기)</span>
         <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
-          <div class="card new"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 일반 › [휴대폰 연결]에 나온 코드를 적습니다.</p><div class="field">K7QP-M2XD</div><button class="btn primary pbtn">연결</button></div>
+          <div class="card new"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 휴대폰 › [휴대폰 연결]에 나온 코드를 적습니다.</p><div class="field">K7QP-M2XD</div><button class="btn primary pbtn">연결</button></div>
         </div>
       </div>
       <div class="shot">
         <span class="cap">코드가 틀리거나 끝났을 때</span>
         <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
-          <div class="card new"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 일반 › [휴대폰 연결]에 나온 코드를 적습니다.</p><div class="field empty">코드 8자</div><span class="err">코드가 맞지 않거나 시간이 지났습니다. PC에서 새 코드를 만듭니다.</span><button class="btn primary pbtn">연결</button></div>
+          <div class="card new"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 휴대폰 › [휴대폰 연결]에 나온 코드를 적습니다.</p><div class="field empty">코드 8자</div><span class="err">코드가 맞지 않거나 시간이 지났습니다. PC에서 새 코드를 만듭니다.</span><button class="btn primary pbtn">연결</button></div>
         </div>
       </div>
     </div>

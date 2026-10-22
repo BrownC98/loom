@@ -3,11 +3,14 @@
 
 mod idle;
 mod origin;
+mod phone;
 mod places;
 mod sessions;
 mod settings;
 mod switch;
 mod turn_end;
+
+use origin::ViaServe;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -24,7 +27,7 @@ use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use rust_embed::Embed;
@@ -37,6 +40,7 @@ use crate::accounts::{AccountId, Site};
 use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
+use crate::devices::Devices;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
     NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc, WaitId,
@@ -107,6 +111,10 @@ struct App {
     /// 노드의 `PATH`. 앞에 이 실행 파일의 폴더를 넣어 노드가 `loom`을 바로 부르게 한다.
     path: OsString,
     update: Arc<Updater>,
+    /// 짝지은 폰. 사람 문(`origin::human_site`)도 같은 값을 쓴다.
+    devices: Arc<Devices>,
+    /// 사람 문이 듣는 포트. Tailscale Serve가 이 포트로 넘긴다.
+    port: u16,
 }
 
 /// 화면 경로가 실패하면 보내는 몸통(JSON). 화면이 고른 언어로 쓴다.
@@ -498,6 +506,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         host: NodeHost::new(pty_dir.join("nodes")),
         graph,
         settings: Settings::new(database.clone()),
+        devices: Arc::new(Devices::new(database.clone())),
+        port: listen.port(),
         spots: Spots::new(database),
         accounts_root: db_path.with_file_name("accounts"),
         logins: settings::Logins::new(pty_dir.join("logins")),
@@ -610,9 +620,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .merge(settings::routes())
         .merge(places::routes())
         .merge(switch::routes())
+        .merge(phone::routes())
         .fallback(asset)
         .layer(axum::middleware::from_fn_with_state(
-            app.clone(),
+            app.devices.clone(),
             origin::human_site,
         ))
         .with_state(app.clone());
@@ -2156,14 +2167,19 @@ async fn agent_remove(
     Ok(Json(moved))
 }
 
-async fn pty(ws: WebSocketUpgrade, Path(id): Path<u32>, State(app): State<Arc<App>>) -> Response {
+async fn pty(
+    ws: WebSocketUpgrade,
+    Path(id): Path<u32>,
+    State(app): State<Arc<App>>,
+    via: Option<Extension<ViaServe>>,
+) -> Response {
     // 사람이 그 노드 터미널에 키를 누르면 답한 것으로 본다. `loom ask` 대기는 에이전트가 판단해 지운다. 근거: docs/design.md 「사람 응답 대기」.
     let typed = |app: &App, id| {
         if let Err(e) = app.graph.typed(id) {
             eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
         }
     };
-    serve_pty(ws, app, |app| &app.host, typed, NodeId(id))
+    serve_pty(ws, via, app, |app| &app.host, typed, NodeId(id))
 }
 
 /// PTY 웹소켓의 글 프레임. 터미널 출력은 바이너리 프레임으로 간다.
@@ -2179,8 +2195,10 @@ pub enum PtyNotice {
 
 /// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
 /// 사람이 누른 키(터미널이 스스로 보내는 응답은 빼고)가 오면 `typed`를 부른다.
+/// 폰의 연결은 PC에서 그 기기를 끊으면 닫는다(`origin::until_removed`).
 fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
     ws: WebSocketUpgrade,
+    via: Option<Extension<ViaServe>>,
     app: Arc<App>,
     host: fn(&App) -> &NodeHost<K>,
     typed: fn(&App, K),
@@ -2188,15 +2206,19 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
 ) -> Response {
     let Some(attached) = host(&app).attach(id) else {
         // PTY가 없다. 화면이 안내를 보이게 알리고, 다시 붙지 않게 연결을 열어 둔다.
-        return ws.on_upgrade(|mut socket| async move {
-            let notice =
-                serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
-            if socket.send(Message::Text(notice.into())).await.is_ok() {
-                while let Some(Ok(_)) = socket.next().await {}
-            }
+        let devices = app.devices.clone();
+        return ws.on_upgrade(move |mut socket| {
+            origin::until_removed(devices, via, async move {
+                let notice =
+                    serde_json::to_string(&PtyNotice::Gone).expect("PtyNotice는 늘 직렬화된다");
+                if socket.send(Message::Text(notice.into())).await.is_ok() {
+                    while let Some(Ok(_)) = socket.next().await {}
+                }
+            })
         });
     };
-    ws.on_upgrade(move |socket| async move {
+    let devices = app.devices.clone();
+    ws.on_upgrade(move |socket| origin::until_removed(devices, via, async move {
         let (mut to_view, mut from_view) = socket.split();
         let mut output = attached.output;
         let mut size = attached.size;
@@ -2239,7 +2261,7 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
                 },
             }
         }
-    })
+    }))
 }
 
 /// 지금 PTY 크기를 화면에 알리고 본 값으로 표시한다.
@@ -2257,8 +2279,13 @@ async fn event_log(State(app): State<Arc<App>>) -> Result<Json<Vec<EventRecord>>
     app.graph.recent_events().map(Json).map_err(internal)
 }
 
-async fn events(ws: WebSocketUpgrade, State(app): State<Arc<App>>) -> Response {
-    ws.on_upgrade(move |socket| send_events(socket, app))
+async fn events(
+    ws: WebSocketUpgrade,
+    State(app): State<Arc<App>>,
+    via: Option<Extension<ViaServe>>,
+) -> Response {
+    let devices = app.devices.clone();
+    ws.on_upgrade(move |socket| origin::until_removed(devices, via, send_events(socket, app)))
 }
 
 async fn send_events(mut socket: WebSocket, app: Arc<App>) {

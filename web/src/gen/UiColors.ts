@@ -37,4 +37,8 @@ worktree: ThemedColor,
 /**
  * 강조(`--accent`).
  */
-accent: ThemedColor, };
+accent: ThemedColor, 
+/**
+ * 알림 수 배지(`--notice`). 질문과 완료를 함께 센다(2026-10-22 사람 지시 "알림탭 배지에 쓸 공통 알림 색이 필요함").
+ */
+notice: ThemedColor, };

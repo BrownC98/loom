@@ -53,6 +53,7 @@ export const COLOR_ROWS: readonly ColorRow[] = [
   { key: 'edge', token: '--edge', tone: { light: 80, dark: 43.9 }, against: BG },
   { key: 'repo', token: '--repo-line', tone: { light: 57, dark: 58 }, against: BG },
   { key: 'worktree', token: '--group-line', tone: { light: 57, dark: 58 }, against: BG },
+  { key: 'notice', token: '--notice', tone: { light: 56, dark: 70 }, against: { token: '--notice-ink', tone: { light: 100, dark: 20.5 }, min: TEXT_CONTRAST } },
   { key: 'accent', token: '--accent', tone: { light: 20.5, dark: 92.2 }, against: { token: '--accent-ink', tone: { light: 98.5, dark: 20.5 }, min: TEXT_CONTRAST } },
 ];
 

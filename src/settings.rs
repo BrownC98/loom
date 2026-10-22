@@ -226,6 +226,8 @@ pub struct UiColors {
     pub worktree: ThemedColor,
     /// 강조(`--accent`).
     pub accent: ThemedColor,
+    /// 알림 수 배지(`--notice`). 질문과 완료를 함께 센다(2026-10-22 사람 지시 "알림탭 배지에 쓸 공통 알림 색이 필요함").
+    pub notice: ThemedColor,
 }
 
 /// 한 뜻의 테마별 색. `None`은 그 테마의 기본 색이다. 두 테마에 같은 색을 쓰면 두 칸이 같다.

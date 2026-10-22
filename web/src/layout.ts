@@ -315,6 +315,14 @@ export function grew(before: ReadonlyMap<string, Size>, now: ReadonlyMap<string,
   });
 }
 
+/**
+ * 뒤 형제와 겹친 상자의 이름(형제 순서). 그 상자가 서고 겹친 뒤 형제가 비킨다.
+ * `grew`는 앞 렌더와 견주므로 화면을 닫은 동안 커진 상자를 놓친다(2026-10-22 사람 "요소가 추가되어 자동으로 늘어날때 주변요소를 덮는 문제 있음").
+ */
+export function overlapped(siblings: readonly Sibling[]): string[] {
+  return siblings.flatMap((s, i) => (siblings.slice(i + 1).some((o) => overlaps(s, o)) ? [s.key] : []));
+}
+
 /** `before`에 있던 상자 가운데 폭이나 높이가 작아졌거나 사라진 상자의 이름. 밀린 상자가 밀기 전 자리로 돌아갈 때다. */
 export function shrank(before: ReadonlyMap<string, Size>, now: ReadonlyMap<string, Size>): string[] {
   return [...before].flatMap(([key, was]) => {

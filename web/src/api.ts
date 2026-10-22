@@ -106,6 +106,12 @@ export async function shutdown(): Promise<void> {
   if (!res.ok) throw new Error(statusText(res.status));
 }
 
+/** 데몬이 낸 파일 주소(`view_file`). 경로가 주소라 HTML의 상대 주소도 같은 폴더로 간다. */
+export function fileViewUrl(path: string, node: NodeId | null): string {
+  const parts = path.replace(/^\/+/, '').split('/').map(encodeURIComponent);
+  return `/api/files/view/${node ?? '-'}/${parts.join('/')}`;
+}
+
 export const openFile = (path: string, node: NodeId | null) => call<null>('POST', '/api/files/open', { path, node } satisfies OpenFile);
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');

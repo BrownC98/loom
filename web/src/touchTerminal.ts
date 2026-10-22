@@ -37,6 +37,10 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   if (!screen || !window.matchMedia('(pointer: coarse)').matches) return () => {};
   // 브라우저가 쓸기를 페이지 스크롤로 가져가면 touchmove를 막을 수 없다.
   el.style.touchAction = 'none';
+  // Android는 약 500ms 길게 누르면 contextmenu를 내고 자기 글자 고르기를 시작하며 touchcancel을 보낸다. 그러면 우리 고르기가 끝나 끌어도 늘지 않았다(2026-10-22 사람 "스크롤은 되는데 텍스트 선택이 안됨", 실제 앱). 기본 메뉴와 고르기를 막는다.
+  el.style.setProperty('-webkit-touch-callout', 'none');
+  el.style.userSelect = 'none';
+  const onMenu = (e: Event) => e.preventDefault();
 
   type State = { mode: 'press' | 'scroll' | 'select'; x: number; y: number; anchor: Cell; carry: number; timer: number };
   let state: State | null = null;
@@ -99,12 +103,14 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
   el.addEventListener('touchmove', onMove, { passive: false });
   el.addEventListener('touchend', onEnd, { passive: false });
   el.addEventListener('touchcancel', onEnd, { passive: false });
+  el.addEventListener('contextmenu', onMenu, { capture: true });
   return () => {
     if (state) clearTimeout(state.timer);
     el.removeEventListener('touchstart', onStart);
     el.removeEventListener('touchmove', onMove);
     el.removeEventListener('touchend', onEnd);
     el.removeEventListener('touchcancel', onEnd);
+    el.removeEventListener('contextmenu', onMenu, { capture: true });
   };
 }
 

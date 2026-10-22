@@ -791,6 +791,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .usage-btn { flex: 1; min-width: 0; overflow: hidden; gap: 6px; }
 .phone .usage-btn .acct-name, .phone .statusbar .app-version { display: none; }
 .phone .statusbar .refresh { width: 36px; }
+.phone .statusbar .refresh svg { width: 16px; height: 16px; }
 .phone .usage-pop { position: fixed; inset: auto 0 0; width: auto; max-height: 85dvh; overflow: auto; overscroll-behavior: contain; padding-bottom: calc(16px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; box-shadow: 0 0 0 100vmax var(--scrim); z-index: 30; }
 .phone .usage-pop .acct { min-height: 44px; }
 .phone .btn.danger { background: var(--surface); border-color: var(--line-strong); color: var(--err); }
@@ -835,7 +836,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-ask .qid { font: 12px var(--mono); color: var(--ink-3); }
 .phone-ask .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phone-term { min-height: 0; background: var(--term); }
-.phone-dock { display: grid; gap: 6px; padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
+.phone-dock { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
 .phone-keys { display: flex; gap: 4px; }
 .phone-keys button { flex: 1; min-width: 0; height: 40px; padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: 600 13px var(--mono); display: grid; place-items: center; cursor: pointer; }
 .phone-keys button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }

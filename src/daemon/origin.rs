@@ -17,7 +17,7 @@ use std::sync::Arc;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
 
 use super::App;
 
@@ -86,18 +86,24 @@ fn remote(headers: &HeaderMap, login: &HeaderValue, allowed_login: Option<&str>)
     }
 }
 
-/// 폰 브라우저에 보이는 거절 글. 화면을 읽기 전이라 화면 언어를 모른다. 두 언어로 쓴다.
+/// 폰 브라우저에 보이는 거절 쪽(목업 mobile.html ⑥의 카드). 앱은 싣지 않는다: 거절한 로그인에 노드 목록을 보이지 않는다.
+/// 화면을 읽기 전이라 화면 언어를 모른다. 두 언어로 쓴다.
 fn refused(login: &str) -> Response {
-    let body = format!(
-        "loom: 이 Tailscale 로그인은 허용되지 않았습니다: {login}\nPC의 loom 설정 › 원격에 이 로그인을 넣으십시오.\n\n\
-         loom: this Tailscale login is not allowed: {login}\nOn the PC, open loom Settings › Remote and enter this login.\n"
+    let login = login
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;");
+    let page = format!(
+        r#"<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>loom</title>
+<style>:root{{color-scheme:light dark}}body{{margin:0;padding:16px;font:15px/1.5 system-ui,sans-serif;background:light-dark(#f5f5f5,#1f1f1f);color:light-dark(#171717,#fafafa)}}
+section{{display:grid;gap:8px;max-width:480px;margin:0 auto 12px;padding:14px 16px;border:1px solid light-dark(#d4d4d4,#525252);border-radius:12px;background:light-dark(#fff,#262626)}}
+h1{{margin:0;font-size:16px}}p{{margin:0;color:light-dark(#525252,#c4c4c4)}}code{{font:13px ui-monospace,monospace;overflow-wrap:anywhere}}</style></head><body>
+<section><h1>이 로그인은 허용되지 않았습니다</h1><p>PC의 loom 설정 › 원격에 이 Tailscale 로그인을 넣으십시오.</p><code>{login}</code></section>
+<section lang="en"><h1>This login is not allowed</h1><p>On the PC, open loom Settings › Remote and enter this Tailscale login.</p><code>{login}</code></section>
+</body></html>"#
     );
-    (
-        StatusCode::FORBIDDEN,
-        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-        body,
-    )
-        .into_response()
+    (StatusCode::FORBIDDEN, Html(page)).into_response()
 }
 
 fn allowed(headers: &HeaderMap) -> bool {

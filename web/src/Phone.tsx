@@ -1,11 +1,12 @@
 // 폰 폭 화면(목업 docs/mockups/mobile.html M35, 2026-10-22 사람 승인 Q279·Q280). 배치만 맡는다.
 // 질문 목록·트리·사용량 줄은 App이 데스크톱과 같은 부품으로 만들어 넘긴다. 상태 원천은 데스크톱과 같은 데몬 이벤트다.
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, CircleHelp, CornerDownLeft, EllipsisVertical, Inbox as InboxIcon, ListTree, TriangleAlert } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, removeNode } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import { QuestionIcon } from './Dock';
 import { InboxPanel } from './Inbox';
 import { stateClass, stateLabel } from './NodeCard';
 import { SizingTerminal } from './Terminal';
@@ -125,7 +126,7 @@ export function Phone(props: {
       {props.foot}
       <nav className="phone-tabs" aria-label={t('phone.tabs')}>
         <button type="button" aria-current={inbox ? 'page' : undefined} onClick={() => props.onRoute({ screen: 'inbox' })}>
-          <InboxIcon aria-hidden="true" />
+          <QuestionIcon aria-hidden="true" />
           {t('phone.inbox')}
           {count > 0 && <span className="count">{count}</span>}
         </button>
@@ -213,7 +214,7 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; online: boolean
       {!props.online && <Offline />}
       {first && (
         <div className="phone-ask">
-          <CircleHelp aria-hidden="true" />
+          <QuestionIcon aria-hidden="true" />
           <b>{t('wait.question')}</b>
           {view.waits.length > 1 && <span className="count">{view.waits.length}</span>}
           <span className="qid">Q{first.id}</span>

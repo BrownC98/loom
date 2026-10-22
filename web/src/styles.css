@@ -931,10 +931,10 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .state-tag.waiting { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
 .phone .state-tag.done { color: var(--ok); }
 .phone .state-tag:is(.exited, .setupFailed) { color: var(--err); }
-.phone-sheet > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }
-.phone-sheet > .btn svg { width: 18px; height: 18px; }
+.sheet-body > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }
+.sheet-body > .btn svg { width: 18px; height: 18px; }
 /* 줄 팝오버(새 노드, 새 워크트리, 워크트리 삭제, 저장소 추가)는 판 안에 든다. 줄 옆은 화면 밖이다. */
-.phone-sheet > .pop { position: static; width: auto; max-height: none; padding: 0; box-shadow: none; }
+.sheet-body > .pop { position: static; width: auto; max-height: none; padding: 0; box-shadow: none; }
 
 /* 노드 화면(목업 ④⑤): 질문 띠, 전체 화면 터미널, 키 막대와 입력 줄. */
 .phone-ask { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 0 8px 0 14px; background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border-block: 1px solid var(--warn); color: var(--ink); font-size: 13px; }
@@ -958,9 +958,15 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-input input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; }
 .phone-input .send { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
 .phone-scrim { position: fixed; inset: 0; z-index: 30; display: grid; align-items: end; background: var(--scrim); }
-.phone-sheet { display: grid; gap: 8px; max-height: 85dvh; overflow: auto; overscroll-behavior: contain; padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: 0 -4px 16px var(--shadow); }
-.phone-sheet .grip { justify-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); }
-.phone-sheet h3 { font-size: 16px; }
+/* 몸통(.sheet-body)만 스크롤한다. 머리 줄은 늘 보인다. 몸통 안의 .wait-list는 스크롤 칸이 아니다: overscroll-behavior: contain인 칸은 넘치지 않아도 쓸기를 삼켜 판이 스크롤되지 않았다(2026-10-23 실측, Pixel 7 터치). */
+.phone-sheet { display: grid; grid-template-rows: auto minmax(0, 1fr); max-height: 85dvh; background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: 0 -4px 16px var(--shadow); }
+.sheet-head { position: relative; display: flex; align-items: center; min-height: 52px; padding: 14px 4px 0 16px; touch-action: none; }
+.sheet-head .grip { position: absolute; top: 6px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line-strong); }
+.sheet-head h3 { flex: 1; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-close { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-2); cursor: pointer; }
+.sheet-close svg { width: 20px; height: 20px; }
+.sheet-body { display: grid; align-content: start; gap: 8px; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 16px calc(16px + env(safe-area-inset-bottom)); }
+.sheet-body .wait-list { overflow: visible; }
 .phone-sheet .refusal { margin: 0; color: var(--err); font-size: 13px; }
 .phone-note { margin: 0; font-size: 12px; color: var(--err); }
 .xterm-box > .copy-picked { position: absolute; z-index: 5; transform: translateX(-50%); height: 36px; padding: 0 16px; border: 0; border-radius: 18px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px oklch(0% 0 0 / 0.4); }

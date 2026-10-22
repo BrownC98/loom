@@ -338,6 +338,7 @@ const en = {
     sendCtrlC: 'Send Ctrl-C',
     remove: 'Remove node',
     removeConfirm: 'Confirm remove',
+    closeSheet: 'Close',
     cancel: 'Cancel',
   },
   inbox: {

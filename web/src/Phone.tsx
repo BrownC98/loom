@@ -1,6 +1,6 @@
 // 폰 폭 화면(목업 docs/mockups/mobile.html M35, 2026-10-22 사람 승인 Q279·Q280). 배치만 맡는다.
 // 질문 목록·트리·사용량 줄은 App이 데스크톱과 같은 부품으로 만들어 넘긴다. 상태 원천은 데스크톱과 같은 데몬 이벤트다.
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, TriangleAlert } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, removeNode } from './api';
@@ -317,18 +317,55 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
   );
 }
 
-/** 아래에서 올라오는 판. 바탕을 누르거나 Esc로 닫는다. 폰 노드 탭의 줄 메뉴와 줄 팝오버도 쓴다. */
+/** 손가락을 이만큼(px) 끌어 내리고 떼면 판이 닫힌다. */
+const DRAG_CLOSE_PX = 80;
+
+/**
+ * 아래에서 올라오는 판. 머리 줄(손잡이·제목·[X])은 늘 보이고 몸통만 스크롤한다.
+ * 바탕을 누르거나 Esc나 [X]로 닫고, 머리 줄을 아래로 끌어도 닫힌다(2026-10-23 사람 "앱 알림 알약 리스트 스크롤 안되고 바텀 시트를 다시 닫을 ui/ux 개선하라").
+ * 폰 노드 탭의 줄 메뉴와 줄 팝오버도 쓴다.
+ */
 export function Sheet(props: { label: string; onClose: () => void; children: ReactNode }) {
+  const { t } = useTranslation();
+  const sheet = useRef<HTMLDivElement>(null);
+  const dragFrom = useRef<number | null>(null);
   useEffect(() => {
     const close = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose();
     document.addEventListener('keydown', close);
     return () => document.removeEventListener('keydown', close);
   }, [props.onClose]);
+  const drag = (e: ReactPointerEvent) => {
+    if (dragFrom.current === null || !sheet.current) return;
+    sheet.current.style.transform = `translateY(${Math.max(0, e.clientY - dragFrom.current)}px)`;
+  };
+  const drop = (e: ReactPointerEvent) => {
+    if (dragFrom.current === null || !sheet.current) return;
+    const dy = e.clientY - dragFrom.current;
+    dragFrom.current = null;
+    sheet.current.style.transform = '';
+    if (dy > DRAG_CLOSE_PX) props.onClose();
+  };
   return (
     <div className="phone-scrim" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div className="phone-sheet" role="dialog" aria-modal="true" aria-label={props.label}>
-        <span className="grip" aria-hidden="true" />
-        {props.children}
+      <div ref={sheet} className="phone-sheet" role="dialog" aria-modal="true" aria-label={props.label}>
+        <div
+          className="sheet-head"
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).closest('button')) return;
+            dragFrom.current = e.clientY;
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={drag}
+          onPointerUp={drop}
+          onPointerCancel={drop}
+        >
+          <span className="grip" aria-hidden="true" />
+          <h3>{props.label}</h3>
+          <button type="button" className="sheet-close" aria-label={t('phone.closeSheet')} onClick={props.onClose}>
+            <X aria-hidden="true" />
+          </button>
+        </div>
+        <div className="sheet-body">{props.children}</div>
       </div>
     </div>
   );
@@ -349,7 +386,6 @@ export function MenuSheet(props: { title: string; items: MenuItem[]; onClose: ()
   };
   return (
     <Sheet label={props.title} onClose={props.onClose}>
-      <h3>{props.title}</h3>
       {props.items.map((item) => (
         <button key={item.label} type="button" className={item.danger ? 'btn danger' : 'btn'} disabled={item.disabled} onClick={() => press(item)}>
           {item.icon}

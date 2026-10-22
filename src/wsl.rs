@@ -28,6 +28,12 @@ impl WslPath {
             linux.trim_end_matches('/')
         )
     }
+
+    /// 같은 위치를 Windows 셸(ShellExecute)이 여는 글자(`\\<host>\<배포판>\…`)로 쓴다.
+    /// 셸은 `unc`의 `/` 표기를 읽지 못한다(실측 2026-10-23: `SHParseDisplayName`이 `//wsl.localhost/…`에 E_INVALIDARG). 그래서 Windows 데몬에서 터미널 파일 링크가 열리지 않았다.
+    pub fn shell_path(&self, linux: &str) -> String {
+        self.unc(linux).replace('/', "\\")
+    }
 }
 
 /// `\\wsl.localhost\…`, `\\wsl$\…`, 그 `/` 표기와 `\\?\UNC\` 표기를 읽는다. 다른 경로는 없다.
@@ -503,6 +509,15 @@ mod tests {
         assert_eq!(location("C:/Users/me/loom"), None);
         assert_eq!(location(r"\\?\C:\Users\me\loom"), None);
         assert_eq!(location("/home/ktadev/src/loom"), None);
+    }
+
+    #[test]
+    fn shell_path_writes_backslashes() {
+        let repo = location(r"\\wsl.localhost\Ubuntu\home\ktadev").unwrap();
+        assert_eq!(
+            repo.shell_path("/home/ktadev/a b/협업.html"),
+            r"\\wsl.localhost\Ubuntu\home\ktadev\a b\협업.html"
+        );
     }
 
     #[test]

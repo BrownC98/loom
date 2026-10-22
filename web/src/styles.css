@@ -123,7 +123,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .side-title { padding: 2px 4px; margin: -2px -4px; border: 0; border-radius: 4px; background: none; font: inherit; color: inherit; cursor: pointer; }
 .side-title:hover { background: var(--surface-hover); color: var(--ink); }
 .side-head .spacer { flex: 1; }
-.tree { --step: 12px; list-style: none; padding: 0 8px; font-size: 13px; flex: 1; min-height: 0; overflow: auto; }
+.tree { --step: 12px; list-style: none; padding: 0 8px; font-size: 13px; flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 .tree ul { list-style: none; padding: 0; }
 .tree-row { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 8px 0 calc(4px + var(--depth, 0) * var(--step)); border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; }
 .tree-line { position: relative; }
@@ -279,7 +279,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .filters input { margin-left: auto; width: 160px; height: 26px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 9px; font-size: 12px; color: var(--ink); }
 .filters input::placeholder { color: var(--ink-3); }
 .filters input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
-.events { list-style: none; padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
+.events { list-style: none; padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .ev { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; font-size: 13px; }
 .events li { border-radius: 6px; content-visibility: auto; contain-intrinsic-size: auto 40px; }
 .events li:hover { background: var(--surface-hover); }
@@ -567,7 +567,8 @@ a { color: var(--accent); }
 .inbox-pill .chev.open { transform: rotate(180deg); }
 .inbox-pop { position: static; width: 520px; max-width: 100%; gap: 6px; padding: 10px 6px 6px; }
 .inbox-pop h2 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
-.wait-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: auto; overscroll-behavior: contain; }
+/* 스크롤바 자리를 늘 비워 둔다. 알림이 쌓여 스크롤바가 생겨도 줄 폭이 바뀌지 않는다(2026-10-22 사람 지적 "알림이 많이 쌓이면 스크롤바가 생기면서 없을때에 비해 ui가 밀리는 현상"). */
+.wait-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .inbox-pop .wait-list { max-height: 60vh; }
 .dock-panel .wait-list { flex: 1; min-height: 0; align-content: start; padding: 6px; }
 .inbox-empty { margin: 0; padding: 12px 14px; color: var(--ink-3); font-size: 13px; }

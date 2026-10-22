@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
 import { answerWait, dismissWait, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import { choices } from './choices';
+import { QuestionIcon } from './Dock';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
@@ -67,6 +68,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
         <div className="inbox-pill" data-view={props.pill}>
           {/* 머리 줄이 바뀌면(새 알약, 수, 다음 질문) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다. */}
           <div className="head" aria-live="polite">
+            <QuestionIcon className="qicon" aria-hidden="true" />
             <b>{t('inbox.button')}</b>
             <span className="count">{n}</span>
             <span className="qid">Q{firstWait.id}</span>

@@ -33,12 +33,12 @@ import type { Served } from './gen/Served';
 import type { Problem } from './gen/Problem';
 import type { Provider } from './gen/Provider';
 import type { PtyNotice } from './gen/PtyNotice';
+import type { PtyRequest } from './gen/PtyRequest';
 import type { Relaunched } from './gen/Relaunched';
 import type { RenameNode } from './gen/RenameNode';
 import type { RenameWorktree } from './gen/RenameWorktree';
 import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
-import type { Resize } from './gen/Resize';
 import type { SettingsView } from './gen/SettingsView';
 import type { UpdateView } from './gen/UpdateView';
 import type { SettingsPatch } from './settingsPatch';
@@ -225,7 +225,7 @@ export async function newBuildServed(): Promise<boolean> {
 
 export interface PtyLink {
   sendInput(data: string | Uint8Array): void;
-  sendResize(size: Resize): void;
+  sendRequest(request: PtyRequest): void;
   close(): void;
 }
 
@@ -254,7 +254,7 @@ export function attachPty(
   };
   return {
     sendInput: (data) => send(typeof data === 'string' ? encoder.encode(data) : new Uint8Array(data)),
-    sendResize: (size) => send(JSON.stringify(size)),
+    sendRequest: (request) => send(JSON.stringify(request)),
     close: () => {
       stopped = true;
       socket.close();

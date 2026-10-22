@@ -90,6 +90,25 @@ struct Pty {
     output: Mutex<Output>,
     /// 화면이 마지막으로 알린 PTY 크기(행, 열). `screen`이 출력을 이 크기의 화면에 다시 그린다.
     size: watch::Sender<PtySize>,
+    /// 폰이 잠시 빌린 크기. 크기를 바꿀 때 늘 이 잠금 안에서 바꾼다. 그래야 돌려줄 때 그 뒤에 다른 화면이 쥐었는지 바르게 안다.
+    loan: Mutex<Option<Loan>>,
+}
+
+/// 폰이 PTY 크기를 빌리기 전의 크기와 지금 빌린 연결.
+struct Loan {
+    by: Borrower,
+    before: PtySize,
+}
+
+/// 크기를 빌리는 화면 연결 하나. 연결마다 새로 만든다.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Borrower(u64);
+
+impl Borrower {
+    pub fn fresh() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        Self(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
 }
 
 /// 호스트가 보낸 출력의 사본과 화면 구독. 붙을 때 호스트가 backlog를 먼저 보내므로 다시 시작한 뒤에도 같다.
@@ -154,6 +173,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
+            loan: Mutex::default(),
         });
         self.nodes.write().unwrap().insert(id, pty.clone());
         std::thread::spawn(move || {
@@ -265,14 +285,33 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
+    /// 이 크기를 PTY 크기로 쥔다. 폰이 빌린 크기가 있으면 그 빌림은 끝난다. 돌려줄 때 이 크기를 덮지 않는다.
     pub fn resize(&self, id: K, cols: u16, rows: u16) {
         if let Some(pty) = self.pty(id) {
-            let changed = pty.size.send_if_modified(|size| {
-                let next = PtySize { cols, rows };
-                std::mem::replace(size, next) != next
-            });
-            if changed {
-                pty.send(&Frame::Resize { cols, rows });
+            let mut loan = pty.loan.lock().unwrap();
+            *loan = None;
+            pty.set_size(PtySize { cols, rows });
+        }
+    }
+
+    /// 폰이 보는 동안만 이 크기를 쓴다. `give_back`이 빌리기 전 크기로 돌린다.
+    /// 다른 폰이 이미 빌렸으면 처음 빌리기 전 크기를 그대로 두고 빌린 연결만 바꾼다.
+    pub fn borrow(&self, id: K, by: Borrower, cols: u16, rows: u16) {
+        if let Some(pty) = self.pty(id) {
+            let mut loan = pty.loan.lock().unwrap();
+            let before = loan.as_ref().map_or(*pty.size.borrow(), |l| l.before);
+            *loan = Some(Loan { by, before });
+            pty.set_size(PtySize { cols, rows });
+        }
+    }
+
+    /// `by`가 아직 빌리고 있으면 빌리기 전 크기로 돌린다. 그 뒤 다른 화면이 크기를 쥐었으면 그대로 둔다.
+    pub fn give_back(&self, id: K, by: Borrower) {
+        if let Some(pty) = self.pty(id) {
+            let mut loan = pty.loan.lock().unwrap();
+            if loan.as_ref().is_some_and(|l| l.by == by) {
+                let before = loan.take().expect("방금 보았다").before;
+                pty.set_size(before);
             }
         }
     }
@@ -384,6 +423,17 @@ fn connect(file: &std::path::Path) -> Result<(TcpStream, Option<u32>), String> {
 impl Pty {
     fn send(&self, frame: &Frame) {
         let _ = wire::write(&mut *self.host.lock().unwrap(), frame);
+    }
+
+    /// 크기가 바뀌었으면 화면과 호스트에 알린다. `loan` 잠금 안에서 부른다.
+    fn set_size(&self, next: PtySize) {
+        let changed = self
+            .size
+            .send_if_modified(|size| std::mem::replace(size, next) != next);
+        if changed {
+            let PtySize { cols, rows } = next;
+            self.send(&Frame::Resize { cols, rows });
+        }
     }
 }
 
@@ -588,6 +638,65 @@ mod tests {
             assert!(nodes.has_output(99));
             nodes.kill(1);
         }
+    }
+
+    /// 폰이 빌린 크기는 돌려주면 빌리기 전 크기로 돌아간다. 그 사이 다른 화면이 쥐면 그 화면의 크기가 남는다.
+    #[cfg(unix)]
+    #[test]
+    fn a_borrowed_size_goes_back_unless_another_screen_claimed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cmd = CommandBuilder::new("sh");
+        cmd.args(["-c", "read line"]);
+        in_process(dir.path(), 1, cmd);
+        let nodes = NodeHost::new(dir.path().to_path_buf());
+        nodes.resume(1, |_| {}, |_| {}).unwrap();
+        let size = nodes.attach(1).unwrap().size;
+        let now = || *size.borrow();
+        let pc = PtySize {
+            cols: 120,
+            rows: 40,
+        };
+        let phone = PtySize { cols: 50, rows: 30 };
+
+        nodes.resize(1, pc.cols, pc.rows);
+        let first = Borrower::fresh();
+        nodes.borrow(1, first, phone.cols, phone.rows);
+        assert_eq!(now(), phone);
+        nodes.borrow(1, first, 52, 31);
+        nodes.give_back(1, first);
+        assert_eq!(now(), pc, "phone closed: the PC size comes back");
+
+        let second = Borrower::fresh();
+        nodes.borrow(1, second, phone.cols, phone.rows);
+        nodes.resize(1, 100, 30);
+        nodes.give_back(1, second);
+        assert_eq!(
+            now(),
+            PtySize {
+                cols: 100,
+                rows: 30
+            },
+            "the PC claimed after the phone"
+        );
+
+        let (a, b) = (Borrower::fresh(), Borrower::fresh());
+        nodes.borrow(1, a, phone.cols, phone.rows);
+        nodes.borrow(1, b, 60, 20);
+        nodes.give_back(1, a);
+        assert_eq!(
+            now(),
+            PtySize { cols: 60, rows: 20 },
+            "a phone that lost the size gives nothing back"
+        );
+        nodes.give_back(1, b);
+        assert_eq!(
+            now(),
+            PtySize {
+                cols: 100,
+                rows: 30
+            }
+        );
+        nodes.kill(1);
     }
 
     #[cfg(unix)]

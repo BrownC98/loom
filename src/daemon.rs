@@ -293,8 +293,7 @@ pub struct CommitGraph {
     pub worktrees: Vec<Worktree>,
 }
 
-/// PTY 크기. 화면이 보내면 PTY 크기를 바꾸고, 데몬은 바뀐 크기를 모든 화면에 알린다(`PtyNotice::Size`).
-/// 바이너리 프레임은 키 입력과 터미널 출력이다.
+/// PTY 크기. 데몬은 바뀐 크기를 모든 화면에 알린다(`PtyNotice::Size`).
 #[derive(Clone, Copy, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Resize {
@@ -2241,6 +2240,19 @@ async fn pty(
     serve_pty(ws, via, app, |app| &app.host, typed, NodeId(id))
 }
 
+/// 화면이 PTY 웹소켓에 보내는 글 프레임. 키 입력은 바이너리 프레임으로 간다(docs/design.md 「데몬 하나」 PTY 열·줄).
+#[derive(Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum PtyRequest {
+    /// 이 크기를 쥔다. PC 화면이 보낸다.
+    Resize(Resize),
+    /// 이 연결이 보는 동안만 이 크기를 쓴다. 폰이 보낸다. 연결이 닫히거나 `GiveBack`이 오면 빌리기 전 크기로 돌린다.
+    Borrow(Resize),
+    /// 빌린 크기를 돌려준다. 폰 화면이 가려질 때 보낸다.
+    GiveBack,
+}
+
 /// PTY 웹소켓의 글 프레임. 터미널 출력은 바이너리 프레임으로 간다.
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -2277,50 +2289,88 @@ fn serve_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
         });
     };
     let devices = app.devices.clone();
-    ws.on_upgrade(move |socket| origin::until_removed(devices, via, async move {
-        let (mut to_view, mut from_view) = socket.split();
-        let mut output = attached.output;
-        let mut size = attached.size;
-        if send_size(&mut to_view, &mut size).await.is_err() {
-            return;
-        }
-        if to_view
-            .send(Message::Binary(attached.backlog))
-            .await
-            .is_err()
-        {
-            return;
-        }
-        loop {
-            tokio::select! {
-                chunk = output.recv() => match chunk {
-                    Ok(bytes) => if to_view.send(Message::Binary(bytes)).await.is_err() { return },
-                    // 밀린 화면은 끊는다. 화면이 다시 붙으면 backlog로 따라잡는다.
-                    Err(RecvError::Lagged(_) | RecvError::Closed) => return,
-                },
-                changed = size.changed() => {
-                    if changed.is_err() || send_size(&mut to_view, &mut size).await.is_err() {
-                        return;
+    let borrower = node_host::Borrower::fresh();
+    ws.on_upgrade(move |socket| {
+        origin::until_removed(devices, via, async move {
+            // 연결이 어떻게 끝나도(PC에서 기기를 끊으면 이 future가 버려진다) 빌린 크기를 돌려준다.
+            let _give_back = GiveBack {
+                app: app.clone(),
+                host,
+                id,
+                borrower,
+            };
+            relay_pty(socket, attached, &app, host, typed, id, borrower).await;
+        })
+    })
+}
+
+/// 버려질 때 `borrower`가 빌린 PTY 크기를 돌려준다.
+struct GiveBack<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static> {
+    app: Arc<App>,
+    host: fn(&App) -> &NodeHost<K>,
+    id: K,
+    borrower: node_host::Borrower,
+}
+
+impl<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static> Drop for GiveBack<K> {
+    fn drop(&mut self) {
+        (self.host)(&self.app).give_back(self.id, self.borrower);
+    }
+}
+
+/// PTY와 화면 사이에 출력·입력·크기를 나른다. 연결이 끊기면 돌아온다.
+async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'static>(
+    socket: WebSocket,
+    attached: node_host::Attached,
+    app: &App,
+    host: fn(&App) -> &NodeHost<K>,
+    typed: fn(&App, K),
+    id: K,
+    borrower: node_host::Borrower,
+) {
+    let (mut to_view, mut from_view) = socket.split();
+    let mut output = attached.output;
+    let mut size = attached.size;
+    if send_size(&mut to_view, &mut size).await.is_err() {
+        return;
+    }
+    if to_view
+        .send(Message::Binary(attached.backlog))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    loop {
+        tokio::select! {
+            chunk = output.recv() => match chunk {
+                Ok(bytes) => if to_view.send(Message::Binary(bytes)).await.is_err() { return },
+                // 밀린 화면은 끊는다. 화면이 다시 붙으면 backlog로 따라잡는다.
+                Err(RecvError::Lagged(_) | RecvError::Closed) => return,
+            },
+            changed = size.changed() => {
+                if changed.is_err() || send_size(&mut to_view, &mut size).await.is_err() {
+                    return;
+                }
+            }
+            msg = from_view.next() => match msg {
+                Some(Ok(Message::Binary(bytes))) => {
+                    host(app).write(id, &bytes);
+                    if node_host::typed(&bytes) {
+                        typed(app, id);
                     }
                 }
-                msg = from_view.next() => match msg {
-                    Some(Ok(Message::Binary(bytes))) => {
-                        host(&app).write(id, &bytes);
-                        if node_host::typed(&bytes) {
-                            typed(&app, id);
-                        }
-                    }
-                    Some(Ok(Message::Text(text))) => {
-                        if let Ok(Resize { cols, rows }) = serde_json::from_str(&text) {
-                            host(&app).resize(id, cols, rows);
-                        }
-                    }
-                    Some(Ok(_)) => {}
-                    Some(Err(_)) | None => return,
+                Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
+                    Ok(PtyRequest::Resize(Resize { cols, rows })) => host(app).resize(id, cols, rows),
+                    Ok(PtyRequest::Borrow(Resize { cols, rows })) => host(app).borrow(id, borrower, cols, rows),
+                    Ok(PtyRequest::GiveBack) => host(app).give_back(id, borrower),
+                    Err(_) => {}
                 },
-            }
+                Some(Ok(_)) => {}
+                Some(Err(_)) | None => return,
+            },
         }
-    }))
+    }
 }
 
 /// 지금 PTY 크기를 화면에 알리고 본 값으로 표시한다.

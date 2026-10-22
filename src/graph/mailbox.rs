@@ -378,7 +378,7 @@ impl Graph {
         Ok(())
     }
 
-    /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 부모가 없으면 보관하고, 받은편지함에 완료를 건다(`waits::put_done`).
+    /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 부모가 없으면 받은편지함에 완료를 건다(`waits::put_done`).
     /// 부모 없는 노드는 `asked`(그 일을 맡긴 사람의 지시)가 있어야 한다. `images`는 사람이 그 지시에 준 그림 파일이다.
     /// 돌려준 값은 프로세스가 아직 사는 자식 이름이다. 회수하지 않은 자식이 고아로 남지 않게 부르는 쪽이 알린다.
     pub fn done(
@@ -408,9 +408,12 @@ impl Graph {
                 summary: summary.to_owned(),
             },
         )?;
-        enqueue(&tx, node, parent, Kind::Queue, &format!("done: {summary}"))?;
-        if let (None, Some(asked)) = (parent, asked) {
-            waits::put_done(&tx, node, asked, summary, images)?;
+        match asked {
+            // 받은편지함이 사람에게 알린다. 다음 부모에게 줄 보관 메시지로 또 두면 「보관 1」만 남았다(2026-10-22 사람 질문 "위에 뜬 보관 1은 뭔가").
+            Some(asked) if parent.is_none() => waits::put_done(&tx, node, asked, summary, images)?,
+            _ => {
+                enqueue(&tx, node, parent, Kind::Queue, &format!("done: {summary}"))?;
+            }
         }
         let alive_children = tx
             .prepare("SELECT name FROM nodes WHERE parent = ?1 AND process_exited = 0 ORDER BY id")?

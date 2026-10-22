@@ -204,7 +204,7 @@ pub enum Refusal {
     },
     /// 조정·중단을 받지 못하는 노드다. 값은 보낸 쪽이 적은 이름이다.
     NotSteerable(String),
-    /// 세션을 이어 다시 띄우지 못하는 노드다(Claude·Codex 노드만 된다). 값은 노드 이름이다.
+    /// 세션을 이어 다시 띄우지 못하는 노드다(셸·명령). 값은 노드 이름이다.
     NoResume(String),
     /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
     NoRepo,
@@ -289,7 +289,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NoResume(name) => write!(
                 f,
-                "{name}: this node cannot continue its session in a new process (only Claude and Codex nodes can)."
+                "{name}: this node runs a shell or command, which has no agent session to continue in a new process."
             ),
             Refusal::Ambiguous { name, candidates } => write!(
                 f,

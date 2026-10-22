@@ -236,6 +236,7 @@ pub fn cursor_hook() -> Result<(), String> {
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
     let event = cursor::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
+    let transcript = input["transcript_path"].as_str().map(str::to_owned);
     if let Some(model) = event.model()
         && let Err(e) = call::<()>("model", &model, Some(timeout))
     {
@@ -247,7 +248,7 @@ pub fn cursor_hook() -> Result<(), String> {
             &TakeRequest {
                 kinds: kinds.to_vec(),
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
-                transcript: None,
+                transcript: transcript.clone(),
                 human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
             },
             Some(timeout),
@@ -271,7 +272,10 @@ pub fn cursor_hook() -> Result<(), String> {
             note: None,
         },
         Some(Take::WhenIdle) => Taken {
-            messages: wait_for_mail(&IdleRequest::default())?,
+            messages: wait_for_mail(&IdleRequest {
+                transcript,
+                rate_limited: false,
+            })?,
             note: None,
         },
         Some(Take::Now(kinds)) => take_now(kinds)?,

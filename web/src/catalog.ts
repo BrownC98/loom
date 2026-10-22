@@ -23,7 +23,7 @@ export function agentLabel(agents: AgentView[], id: AgentId | null): string {
   return agents.find((a) => a.id === id)?.label ?? id;
 }
 
-/** 다시 띄워 같은 세션을 이을 수 있는 노드의 에이전트. 계정 공급자가 있는 에이전트(Claude·Codex)만 데몬이 잇는다. 그 밖은 `noResume`으로 거절한다. */
+/** 다시 띄워 같은 세션을 이을 수 있는 노드의 에이전트. 프로필이 있는 에이전트만 데몬이 잇는다. 셸·명령은 `noResume`으로 거절한다. */
 export function canResume(agents: AgentView[], id: AgentId | null): boolean {
-  return agents.some((a) => a.id === id && a.provider !== null);
+  return agents.some((a) => a.id === id && a.profile !== null);
 }

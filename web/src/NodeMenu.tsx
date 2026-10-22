@@ -9,7 +9,7 @@ import { Menu } from './Menu';
 
 /**
  * `resumable`은 `canResume`이다. `onResetSize`는 크기를 바꾼 표준 카드만 준다. `onRefusal`은 거절 문장을 보일 곳이다.
- * 다시 띄우기는 실행 중인 Claude·Codex 노드만 보인다. 턴 중이면 「턴이 끝나면 다시 띄웁니다」로 꺼 둔다. 메뉴를 열 때 데몬에 묻는다.
+ * 다시 띄우기는 실행 중인 에이전트 노드(프로필이 있는 에이전트)만 보인다. 턴 중이면 「턴이 끝나면 다시 띄웁니다」로 꺼 둔다. 메뉴를 열 때 데몬에 묻는다.
  * 지우기는 확인 없이 바로 지운다(docs/design.md 「노드 제거와 입양」). 메뉴가 한 단계를 더한다.
  */
 export function NodeMenu(props: { view: NodeView; resumable: boolean; onResetSize?: () => void; onRemove: () => void; onRefusal: (text: string) => void }) {

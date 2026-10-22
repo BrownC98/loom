@@ -1,5 +1,6 @@
 //! 노드 다시 띄우기: 노드의 에이전트 프로세스를 끝내고 지금 설정(계정 포함)으로 다시 띄워 같은 세션을 잇는다.
 //! 턴 중이면 그 턴이 끝난 뒤 띄운다. 사람(노드 카드), 에이전트(`loom relaunch`), 계정 전환이 쓴다.
+//! 프로필이 있는 에이전트(Claude, Codex, Cursor, OpenCode 2)만 된다. 셸·명령은 이을 세션이 없고 다시 띄우면 셸 상태를 잃는다.
 //! 근거: docs/design.md 「다시 띄우기」, 「계정 전환」.
 
 use std::collections::{HashMap, HashSet};
@@ -17,9 +18,11 @@ use ts_rs::TS;
 
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
-use crate::graph::{Active, Entry, NodeId, Refusal, Who};
+use crate::graph::{Active, Delivery, Entry, Kind, NodeId, Refusal, Who};
 use crate::profile::codex::{self, Status};
-use crate::profile::{self, ModelChoice, Profile, Provider, Start};
+use crate::profile::cursor;
+use crate::profile::{self, ModelChoice, Profile, Provider, ServerLink, Start};
+use crate::settings::SettingsView;
 use crate::skills::Position;
 
 /// 옛 노드 프로세스가 끝나기를 기다리는 상한. PTY 호스트는 끝내기 요청을 받으면 바로 프로세스 나무를 끝낸다.
@@ -37,13 +40,28 @@ const CODEX_ROLLOUT_DEPTH: usize = 5;
 pub struct Relaunches {
     /// 옛 프로세스를 끝내는 중인 노드. 그 프로세스가 끝나면 `on_exit`가 신호를 보내고 노드를 `exited`로 두지 않는다.
     exiting: Mutex<HashMap<NodeId, oneshot::Sender<()>>>,
-    /// 턴이 끝나면 다시 띄울 노드.
-    later: Mutex<HashSet<NodeId>>,
+    /// 다시 띄울 노드와 그 차례. 이 동안 쉬는 대기와 서버 전달 작업은 메시지를 넘기지 않는다(`holds_mail`).
+    pending: Mutex<HashMap<NodeId, Phase>>,
     /// 한도로 턴이 멈춘 노드. 다시 띄운 뒤 `CONTINUE_PROMPT`를 받는다.
     limited: Mutex<HashSet<NodeId>>,
 }
 
+/// 다시 띄울 노드의 차례.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Phase {
+    /// 턴이 끝나기를 기다린다.
+    AtTurnEnd,
+    /// 다시 띄우는 중이다.
+    Running,
+}
+
 impl Relaunches {
+    /// 다시 띄울 노드에는 메시지를 넘기지 않는다. 턴 끝에 옛 프로세스가 받은 메시지로 새 턴을 열면 다시 띄우기가 그 턴을 끊었다
+    /// (2026-10-22 실측, Codex: 「Conversation interrupted」, 메시지는 전달됨으로 남았다). 새 프로세스가 받는다.
+    pub(super) fn holds_mail(&self, node: NodeId) -> bool {
+        self.pending.lock().unwrap().contains_key(&node)
+    }
+
     /// 노드 프로세스가 끝났다. 다시 띄우기가 끝낸 프로세스면 기다리는 쪽에 알리고 참을 돌려준다.
     pub fn exited(&self, node: NodeId) -> bool {
         match self.exiting.lock().unwrap().remove(&node) {
@@ -84,9 +102,9 @@ pub fn routes() -> Router<Arc<App>> {
     )
 }
 
-/// 그 노드가 턴 끝에 다시 뜰 차례다. 화면이 노드 메뉴를 열 때 묻는다.
+/// 그 노드가 다시 뜰 차례다(턴 끝을 기다리거나 다시 띄우는 중). 화면이 노드 메뉴를 열 때 묻는다.
 async fn relaunch_queued(State(app): State<Arc<App>>, UrlPath(id): UrlPath<u32>) -> Json<bool> {
-    Json(app.relaunches.later.lock().unwrap().contains(&NodeId(id)))
+    Json(app.relaunches.holds_mail(NodeId(id)))
 }
 
 async fn relaunch_node(
@@ -119,19 +137,36 @@ pub(super) async fn agent_relaunch(
 }
 
 impl App {
-    /// 턴 중인 노드. Claude는 턴 훅 뒤 턴 끝 훅이 오기 전이면, Codex는 스레드가 일하는 중이면 턴 중이다.
+    /// 서버 전달 작업(Codex, OpenCode 2)이 메일함에서 꺼낸다. 다시 띄울 노드에는 넘기지 않는다(`Relaunches::holds_mail`).
+    pub(super) fn take_mail(
+        &self,
+        node: NodeId,
+        kinds: &[Kind],
+        limit_bytes: usize,
+    ) -> Result<Vec<Delivery>, Refusal> {
+        if self.relaunches.holds_mail(node) {
+            return Ok(Vec::new());
+        }
+        self.graph.take(node, kinds, limit_bytes)
+    }
+
+    /// 턴 중인 노드. Claude·Cursor는 턴 훅 뒤 턴 끝 훅이 오기 전이면, Codex는 스레드가 일하는 중이면,
+    /// OpenCode 2는 세션 실행이 시작하고 끝나기 전이면 턴 중이다.
     pub(super) fn busy(&self, node: NodeId) -> bool {
-        match self.codex.lock().unwrap().get(&node) {
-            Some(server) => server
+        if let Some(server) = self.codex.lock().unwrap().get(&node) {
+            return server
                 .thread()
                 .borrow()
                 .as_ref()
-                .is_some_and(|t| t.status == Status::Busy),
-            None => self.idle.in_turn(node),
+                .is_some_and(|t| t.status == Status::Busy);
         }
+        if let Some(session) = self.opencode2.lock().unwrap().get(&node) {
+            return *session.working().borrow();
+        }
+        self.idle.in_turn(node)
     }
 
-    /// 실행 중인 노드 하나를 다시 띄운다. 세션을 잇지 못하는 에이전트(Cursor, OpenCode 2, 명령)는 거절한다.
+    /// 실행 중인 노드 하나를 다시 띄운다. 프로필이 없는 노드(셸, 명령)는 거절한다.
     async fn relaunch_by_id(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
         let node = self
             .graph
@@ -140,7 +175,7 @@ impl App {
             .into_iter()
             .find(|n| n.id == id)
             .ok_or_else(|| Refusal::Ended(format!("#{}", id.0)))?;
-        if provider_of(&node).is_none() {
+        if profile_of(&node).is_none() {
             return Err(Refusal::NoResume(node.name).into());
         }
         self.relaunch_or_queue(node).await.map_err(internal)
@@ -152,12 +187,23 @@ impl App {
         node: Active,
     ) -> Result<Relaunched, String> {
         // 두 번 누르면 둘째가 첫째의 종료 신호를 바꿔 쥐어, 첫째가 옛 프로세스가 살아 있는 채로 새 프로세스를 띄운다.
-        if self.relaunches.exiting(node.id) {
-            return Ok(Relaunched::Now);
-        }
-        if self.busy(node.id) {
-            self.relaunches.later.lock().unwrap().insert(node.id);
-            self.watch_codex_turn(node.id);
+        let phase = {
+            let mut pending = self.relaunches.pending.lock().unwrap();
+            if let Some(phase) = pending.get(&node.id) {
+                return Ok(match phase {
+                    Phase::AtTurnEnd => Relaunched::AtTurnEnd,
+                    Phase::Running => Relaunched::Now,
+                });
+            }
+            let phase = match self.busy(node.id) {
+                true => Phase::AtTurnEnd,
+                false => Phase::Running,
+            };
+            pending.insert(node.id, phase);
+            phase
+        };
+        if phase == Phase::AtTurnEnd {
+            self.watch_server_turn(node.id);
             return Ok(Relaunched::AtTurnEnd);
         }
         // 부른 쪽이 끊겨도 끝까지 한다. 옛 프로세스를 끝낸 뒤 멈추면 노드가 새 프로세스 없이 남는다.
@@ -168,10 +214,14 @@ impl App {
         Ok(Relaunched::Now)
     }
 
-    /// 턴이 끝났다(Claude 쉬는 대기가 열렸다, Codex 스레드가 쉰다). 다시 띄울 노드면 띄운다.
+    /// 턴이 끝났다(Claude·Cursor 쉬는 대기가 열렸다, Codex 스레드가 쉰다, OpenCode 2 실행이 끝났다). 다시 띄울 노드면 띄운다.
     pub(super) fn turn_ended(self: &Arc<Self>, node: NodeId) {
-        if !self.relaunches.later.lock().unwrap().remove(&node) {
-            return;
+        {
+            let mut pending = self.relaunches.pending.lock().unwrap();
+            match pending.get_mut(&node) {
+                Some(phase @ Phase::AtTurnEnd) => *phase = Phase::Running,
+                _ => return,
+            }
         }
         let app = self.clone();
         tokio::spawn(async move {
@@ -179,12 +229,18 @@ impl App {
                 nodes
                     .into_iter()
                     .find(|n| n.id == node)
-                    .filter(|n| provider_of(n).is_some())
+                    .filter(|n| profile_of(n).is_some())
             });
             let relaunched = match found {
                 Ok(Some(active)) => app.relaunch(active).await,
-                Ok(None) => return,
-                Err(e) => Err(e.to_string()),
+                Ok(None) => {
+                    app.relaunches.pending.lock().unwrap().remove(&node);
+                    return;
+                }
+                Err(e) => {
+                    app.relaunches.pending.lock().unwrap().remove(&node);
+                    Err(e.to_string())
+                }
             };
             if let Err(e) = relaunched {
                 eprintln!("loom: 노드 {}를 턴 끝에 다시 띄우지 못했다: {e}", node.0);
@@ -192,16 +248,23 @@ impl App {
         });
     }
 
-    /// Codex 노드는 훅이 없다. 스레드가 쉬면 `turn_ended`를 부른다.
-    fn watch_codex_turn(self: &Arc<Self>, node: NodeId) {
-        let Some(server) = self.codex.lock().unwrap().get(&node).cloned() else {
-            return;
-        };
+    /// Codex·OpenCode 2 노드는 턴 끝 훅이 없다. 서버가 쉰다고 알리면 `turn_ended`를 부른다.
+    fn watch_server_turn(self: &Arc<Self>, node: NodeId) {
+        let codex = self.codex.lock().unwrap().get(&node).cloned();
+        let opencode2 = self.opencode2.lock().unwrap().get(&node).cloned();
         let app = self.clone();
         tokio::spawn(async move {
-            let mut thread = server.thread();
-            let idle = thread.wait_for(|t| t.as_ref().is_none_or(|t| t.status == Status::Idle));
-            if idle.await.is_ok() {
+            let idle = match (codex, opencode2) {
+                (Some(server), _) => {
+                    let mut thread = server.thread();
+                    let idle =
+                        thread.wait_for(|t| t.as_ref().is_none_or(|t| t.status == Status::Idle));
+                    idle.await.is_ok()
+                }
+                (_, Some(session)) => session.working().wait_for(|w| !w).await.is_ok(),
+                (None, None) => return,
+            };
+            if idle {
                 app.turn_ended(node);
             }
         });
@@ -213,7 +276,9 @@ impl App {
             id: Some(node.id),
             name: node.name.clone(),
         };
+        let id = node.id;
         let result = self.restart(node).await;
+        self.relaunches.pending.lock().unwrap().remove(&id);
         let entry = Entry::Relaunched {
             node: who,
             error: result.as_ref().err().cloned(),
@@ -225,51 +290,45 @@ impl App {
     }
 
     /// 노드 프로세스를 지금 설정(계정·실행 설정)으로 다시 띄운다. 계정이 바뀌었으면 새 로그인 폴더에 세션 기록을 복사하고 이어 간다.
-    /// 남긴 세션이 없으면(이 기능 전에 뜬 노드가 아직 훅을 부르지 않았다, Codex 스레드 전) 다시 띄우지 않는다.
+    /// 남긴 세션이 없으면(이 기능 전에 뜬 노드가 아직 훅을 부르지 않았다, 첫 입력 전) 다시 띄우지 않는다.
     /// 새로 띄우면 사람이 친 대화와 첫 지시를 잃는다. 새 노드를 준비하지 못해도 옛 프로세스를 그대로 둔다.
     async fn restart(self: &Arc<Self>, node: Active) -> Result<(), String> {
-        let profile = node.agent.as_ref().and_then(profile::profile_of);
-        let (Some(agent), Some(provider)) = (node.agent.clone(), provider_of(&node)) else {
+        let (Some(agent), Some(profile)) = (node.agent.clone(), profile_of(&node)) else {
             return Err(format!(
-                "노드 {}는 계정이 있는 에이전트가 아니다",
+                "노드 {}는 프로필이 있는 에이전트가 아니다",
                 node.id.0
             ));
         };
         let settings = self.settings.get().map_err(|e| e.to_string())?;
         let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let cwd = Path::new(&place.worktree);
-        // 노드의 위치(이 PC 또는 그 WSL 배포판)에서 그 위치의 「사용 중」 계정으로 옮긴다. 세션 기록도 그 위치의 폴더에 있다.
-        let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
-        let target = settings.account(provider, site.distro()).cloned();
-        let new_root = site
-            .login_dir(provider, target.as_ref())
-            .ok_or("홈 폴더를 찾지 못했다")?;
         let resume = match profile {
-            Some(Profile::Codex) => self.copy_codex_thread(node.id, &site, &new_root).await?,
-            _ => {
-                let transcript = node.transcript.as_deref().map(|t| site.local(t));
-                let session = copy_claude_session(transcript.as_deref(), &new_root)?;
-                // 시스템 기본 폴더는 고치지 않는다(「저장」). 그때 사람이 새 확인 창에 답한다.
-                if let (Some(to), Some(from)) = (
-                    site.accounts().config_dir(provider, target.as_ref()),
-                    site.claude_files(node.account.as_ref()),
-                ) {
-                    accounts::carry_claude_consent(&from, &to, &site.cli_cwd(cwd))
-                        .map_err(|e| format!("{}: {e}", to.display()))?;
-                }
-                session
+            Profile::Claude | Profile::Codex => {
+                self.carry_session(&node, profile, &settings, cwd).await?
             }
+            Profile::Cursor => session_id(node.transcript.as_deref().map(Path::new))
+                .ok_or("이어 갈 Cursor 세션 기록이 없다")?,
+            Profile::OpenCode2 => match &node.server {
+                Some(ServerLink::OpenCode2 { session, .. }) => session.clone(),
+                _ => return Err("이어 갈 OpenCode 2 세션이 없다".into()),
+            },
         };
-        let brief = match self.relaunches.limited.lock().unwrap().contains(&node.id) {
-            true => CONTINUE_PROMPT.to_owned(),
-            false => String::new(),
+        let limited = self.relaunches.limited.lock().unwrap().contains(&node.id);
+        let brief = match (limited, profile) {
+            (true, _) => CONTINUE_PROMPT,
+            (false, Profile::Cursor) => cursor::RESUMED_PROMPT,
+            (false, _) => "",
         };
         let start = Start::Agent {
             agent: agent.clone(),
-            brief,
-            choice: ModelChoice {
-                model: node.model.model.clone(),
-                effort: node.model.effort.clone(),
+            brief: brief.to_owned(),
+            choice: match profile {
+                // OpenCode 2 TUI는 모델 인자를 받지 않는다(`LaunchError::NoModelChoice`). 모델은 세션에 남아 이어진다.
+                Profile::OpenCode2 => ModelChoice::default(),
+                Profile::Claude | Profile::Codex | Profile::Cursor => ModelChoice {
+                    model: node.model.model.clone(),
+                    effort: node.model.effort.clone(),
+                },
             },
             resume: Some(resume.clone()),
         };
@@ -282,15 +341,6 @@ impl App {
             .prepare(&start, cwd, position)
             .await
             .map_err(|e| format!("{e:?}"))?;
-        if let Some(server) = &prepared.codex {
-            let bypass = !settings.bypass_off.contains(&agent);
-            let call = |method, params| server.call(method, params);
-            if let Err(e) = codex::resume(call, &resume, bypass).await {
-                prepared.discarder()();
-                return Err(e);
-            }
-            server.follow_thread(resume).await;
-        }
         let discard = prepared.discarder();
         // 옛 프로세스가 끝난 뒤 띄운다. 옛 PTY 호스트가 끝나며 지우는 주소 파일을 새 호스트가 함께 쓴다.
         let (done, exited) = oneshot::channel();
@@ -307,12 +357,26 @@ impl App {
             discard();
             return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
         }
+        // 옛 app-server가 끝난 뒤 새 서버에서 스레드를 연다. 같은 `CODEX_HOME`이면 옛 서버가 스레드를 쥐고 있어
+        // "thread/resume: thread … already has an active writer"로 실패했다(0.159.2 실측, 계정이 같은 다시 띄우기).
+        if let Some(server) = &prepared.codex {
+            let bypass = !settings.bypass_off.contains(&agent);
+            let call = |method, params| server.call(method, params);
+            if let Err(e) = codex::resume(call, &resume, bypass).await {
+                discard();
+                let _ = self.graph.lost(node.id);
+                return Err(e);
+            }
+            server.follow_thread(resume.clone()).await;
+        }
         // 새 토큰을 먼저 남긴다. 새 프로세스가 뜨자마자 데몬을 불러도 찾는다.
         if let Err(e) = self.graph.relaunched(node.id, &prepared.launched()) {
             discard();
             let _ = self.graph.lost(node.id);
             return Err(e.to_string());
         }
+        // 새 프로세스의 전달 작업이 처음부터 메시지를 꺼내게 한다.
+        self.relaunches.pending.lock().unwrap().remove(&node.id);
         if let Err(e) = self.launch(node.id, prepared) {
             discard();
             // 옛 프로세스는 이미 끝났다. 화면이 실행 중으로 남지 않게 한다.
@@ -322,6 +386,37 @@ impl App {
         self.relaunches.limited.lock().unwrap().remove(&node.id);
         // 옛 프로세스의 창은 사라졌다. 새 프로세스가 다시 묻으면 신호가 다시 건다.
         self.graph.clear_wait(node.id).map_err(|e| e.to_string())
+    }
+
+    /// 노드의 위치(이 PC 또는 그 WSL 배포판)에서 그 위치의 「사용 중」 계정 로그인 폴더로 세션 기록을 옮기고 세션 id를 돌려준다.
+    /// 세션 기록도 그 위치의 폴더에 있다. 계정이 같으면 복사하지 않는다.
+    async fn carry_session(
+        &self,
+        node: &Active,
+        profile: Profile,
+        settings: &SettingsView,
+        cwd: &Path,
+    ) -> Result<String, String> {
+        let provider = profile.provider().ok_or("계정이 없는 프로필이다")?;
+        let site = self.site_at(cwd).await.map_err(|e| format!("{e:?}"))?;
+        let target = settings.account(provider, site.distro()).cloned();
+        let new_root = site
+            .login_dir(provider, target.as_ref())
+            .ok_or("홈 폴더를 찾지 못했다")?;
+        if profile == Profile::Codex {
+            return self.copy_codex_thread(node.id, &site, &new_root).await;
+        }
+        let transcript = node.transcript.as_deref().map(|t| site.local(t));
+        let session = copy_claude_session(transcript.as_deref(), &new_root)?;
+        // 시스템 기본 폴더는 고치지 않는다(「저장」). 그때 사람이 새 확인 창에 답한다.
+        if let (Some(to), Some(from)) = (
+            site.accounts().config_dir(provider, target.as_ref()),
+            site.claude_files(node.account.as_ref()),
+        ) {
+            accounts::carry_claude_consent(&from, &to, &site.cli_cwd(cwd))
+                .map_err(|e| format!("{}: {e}", to.display()))?;
+        }
+        Ok(session)
     }
 
     /// Codex 노드 스레드의 기록 파일을 새 `CODEX_HOME`에 복사하고 스레드 id를 돌려준다. 스레드나 기록 파일이 없으면 실패다.
@@ -347,11 +442,19 @@ impl App {
     }
 }
 
+fn profile_of(node: &Active) -> Option<Profile> {
+    node.agent.as_ref().and_then(profile::profile_of)
+}
+
 pub(super) fn provider_of(node: &Active) -> Option<Provider> {
-    node.agent
-        .as_ref()
-        .and_then(profile::profile_of)
-        .and_then(Profile::provider)
+    profile_of(node).and_then(Profile::provider)
+}
+
+/// 세션 id는 세션 기록 파일 이름이다(Claude `<세션>.jsonl`, Cursor `agent-transcripts/<세션>/<세션>.jsonl`).
+fn session_id(transcript: Option<&Path>) -> Option<String> {
+    transcript?
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
 }
 
 /// Claude 세션 기록과 그 곁 폴더(`<세션>/`, 하위 에이전트 기록)를 새 로그인 폴더에 복사하고 세션 id를 돌려준다.
@@ -360,10 +463,7 @@ fn copy_claude_session(transcript: Option<&Path>, new_root: &Path) -> Result<Str
     let file = transcript
         .filter(|f| f.is_file())
         .ok_or("이어 갈 Claude 세션 기록이 없다")?;
-    let session = file
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .ok_or("세션 기록 파일 이름이 없다")?;
+    let session = session_id(Some(file)).ok_or("세션 기록 파일 이름이 없다")?;
     copy_session(file, CLAUDE_TRANSCRIPT_DEPTH, new_root)?;
     let side = file.with_extension("");
     if side.is_dir()
@@ -434,6 +534,15 @@ mod tests {
             Some(PathBuf::from("/l/c/sessions/2026/10/21/rollout-x-t1.jsonl"))
         );
         assert_eq!(relocate(Path::new("a.jsonl"), 3, Path::new("/l")), None);
+    }
+
+    /// Cursor는 `--resume <세션>`으로 잇는다. 세션 id는 훅이 알린 기록 파일 이름이다(2026.10.19 실측 경로).
+    #[test]
+    fn session_id_is_the_transcript_file_name() {
+        let cursor =
+            Path::new("/h/.cursor/projects/tmp-w/agent-transcripts/93f2-8533/93f2-8533.jsonl");
+        assert_eq!(session_id(Some(cursor)).as_deref(), Some("93f2-8533"));
+        assert_eq!(session_id(None), None);
     }
 
     #[test]

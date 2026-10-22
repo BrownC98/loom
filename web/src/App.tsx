@@ -530,6 +530,8 @@ export function App() {
         tree={
           <>
             {findView}
+            {/* 사이드바처럼 북마크를 저장소 위에 둔다(2026-10-23 사람 "앱 노드리스트에 저장소 섹션 추가", Q453 A). */}
+            <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={openNode} open={!settings.closedPanes.bookmarks} onOpen={(open) => setPaneOpen('bookmarks', open)} />
             {treeView(openNode, 'fold')}
           </>
         }

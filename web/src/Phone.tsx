@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { nodePty, removeNode } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
+import { bookmarkToggle } from './BookmarkButton';
 import { QuestionIcon } from './Dock';
 import { InboxPanel } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
@@ -308,6 +309,18 @@ function ActionSheet(props: { view: NodeView; onCtrlC: () => void; onClose: () =
         }}
       >
         {t('phone.sendCtrlC')}
+      </button>
+      {/* 앱에서도 북마크 영역을 채운다(Q453 A). */}
+      <button
+        type="button"
+        className="btn"
+        onClick={() =>
+          bookmarkToggle(props.view)
+            .run()
+            .then(props.onClose, (err: Error) => setRefusal(err.message))
+        }
+      >
+        {bookmarkToggle(props.view).label}
       </button>
       <button type="button" className="btn danger" onClick={remove}>
         {confirm ? t('phone.removeConfirm') : t('phone.remove')}

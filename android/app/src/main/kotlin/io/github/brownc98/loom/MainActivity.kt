@@ -3,6 +3,7 @@ package io.github.brownc98.loom
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.drawable.GradientDrawable
 import android.net.http.SslCertificate
 import android.net.http.SslError
@@ -58,6 +59,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var card: ScrollView
     private lateinit var banner: LinearLayout
     private lateinit var root: LinearLayout
+    /** 앱이 그리는 색의 출처. 폰 화면이 시스템 모드와 다른 테마를 고르면 `Chrome.setScheme`이 그 모드로 바꾼다. */
+    private lateinit var palette: Context
+    /** 지금 띠를 같은 내용으로 다시 그린다. 테마가 바뀌면 부른다. 받는 중 띠는 없다. */
+    private var redraw: (() -> Unit)? = null
     /** 마지막으로 새 판을 확인한 때(`SystemClock.elapsedRealtime`). 앱을 열 때와 그 뒤 6시간마다 확인한다. */
     private var checked: Long? = null
     /** 설치 허용을 켜러 설정에 간 동안 기다리는 APK. 돌아오면 설치 화면을 연다. */
@@ -96,6 +101,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        palette = this
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -108,7 +114,7 @@ class MainActivity : ComponentActivity() {
         CookieManager.getInstance().setAcceptCookie(true)
         card = ScrollView(this).apply {
             isFillViewport = true
-            setBackgroundColor(getColor(R.color.bg))
+            setBackgroundColor(themed(R.color.bg))
         }
         banner = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -124,7 +130,7 @@ class MainActivity : ComponentActivity() {
         // 띠는 PC 화면을 아래로 민다. 위에 겹치면 PC 화면의 머리 줄을 가린다(목업 ①).
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(getColor(R.color.bg))
+            setBackgroundColor(themed(R.color.bg))
             addView(banner, MATCH_PARENT, WRAP_CONTENT)
             addView(page, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
         }
@@ -319,7 +325,7 @@ class MainActivity : ComponentActivity() {
             boxes.forEachIndexed { i, b ->
                 b.text = value.getOrNull(i)?.toString() ?: ""
                 val at = input.hasFocus() && i == minOf(value.length, CODE_LENGTH - 1)
-                b.background = box(R.color.surface, if (at) R.color.ink else R.color.line_strong, radius = 8).apply { if (at) setStroke(dp(2), getColor(R.color.ink)) }
+                b.background = box(R.color.surface, if (at) R.color.ink else R.color.line_strong, radius = 8).apply { if (at) setStroke(dp(2), themed(R.color.ink)) }
             }
         }
         // 받은 글을 듣기 전에 넣는다. 다 찬 코드로 `full`을 부르면 아직 화면이 없다.
@@ -373,8 +379,9 @@ class MainActivity : ComponentActivity() {
         val meter = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             isIndeterminate = true
-            progressTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.accent))
+            progressTintList = android.content.res.ColorStateList.valueOf(themed(R.color.accent))
         }
+        redraw = null
         val head = text(getString(R.string.update_downloading, version, 0), R.color.ink, 14f).apply { setTypeface(typeface, android.graphics.Typeface.BOLD) }
         banner.removeAllViews()
         banner.addView(LinearLayout(this).apply {
@@ -423,6 +430,7 @@ class MainActivity : ComponentActivity() {
 
     /** 띠 한 줄: 제목, 작은 글, 단추, 닫기. 닫으면 다음 확인(앱을 다시 열거나 6시간 뒤)까지 숨는다. */
     private fun showBanner(title: String, body: String, bodyColor: Int, action: Int, onClick: () -> Unit) {
+        redraw = { showBanner(title, body, bodyColor, action, onClick) }
         banner.removeAllViews()
         banner.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -498,7 +506,7 @@ class MainActivity : ComponentActivity() {
     private fun text(value: String, color: Int, size: Float) = TextView(this).apply {
         text = value
         textSize = size
-        setTextColor(getColor(color))
+        setTextColor(themed(color))
     }
 
     private fun button(label: Int, primary: Boolean, onClick: () -> Unit) = Button(this).apply {
@@ -507,16 +515,18 @@ class MainActivity : ComponentActivity() {
         textSize = 15f
         stateListAnimator = null
         minHeight = dp(44)
-        setTextColor(getColor(if (primary) R.color.accent_ink else R.color.ink))
+        setTextColor(themed(if (primary) R.color.accent_ink else R.color.ink))
         background = if (primary) box(R.color.accent, R.color.accent) else box(R.color.surface, R.color.line_strong)
         setOnClickListener { onClick() }
     }
 
     private fun box(fill: Int, line: Int, radius: Int = 10) = GradientDrawable().apply {
-        setColor(getColor(fill))
-        setStroke(dp(1), getColor(line))
+        setColor(themed(fill))
+        setStroke(dp(1), themed(line))
         cornerRadius = dp(radius).toFloat()
     }
+
+    private fun themed(id: Int) = palette.getColor(id)
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
@@ -587,11 +597,19 @@ class MainActivity : ComponentActivity() {
      * 상태 줄 글자색과 바탕을 이 값으로 정한다(2026-10-23 Q464 A).
      */
     private inner class Chrome {
+        /** 폰 화면이 고른 테마(`light`·`dark`)에 상태 줄과 앱이 그리는 띠·카드를 맞춘다(2026-10-23 Q464 A, 사람 "앱 업데이터도 테마 적용"). */
         @JavascriptInterface
         fun setScheme(scheme: String) {
             val light = scheme == "light"
             runOnUiThread {
-                root.setBackgroundColor(getColor(if (light) R.color.bg_light else R.color.bg_dark))
+                val config = Configuration(resources.configuration).apply {
+                    uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or (if (light) Configuration.UI_MODE_NIGHT_NO else Configuration.UI_MODE_NIGHT_YES)
+                }
+                palette = createConfigurationContext(config)
+                root.setBackgroundColor(themed(R.color.bg))
+                card.setBackgroundColor(themed(R.color.bg))
+                banner.background = box(R.color.surface, R.color.line_strong, radius = 0)
+                if (banner.visibility == View.VISIBLE) redraw?.invoke()
                 val flag = if (light) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     val mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS

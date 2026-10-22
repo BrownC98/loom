@@ -1,9 +1,6 @@
 <resources>
     <!-- web/src/styles.css 화이트 테마 토큰(oklch)을 sRGB로 옮겼다. -->
     <color name="bg">#F5F5F5</color>
-    <!-- 폰 화면이 시스템 모드와 다른 테마를 고를 때 `MainActivity.Chrome`이 바탕으로 쓴다. 다크 값은 values-night의 bg와 같다. -->
-    <color name="bg_light">#F5F5F5</color>
-    <color name="bg_dark">#171717</color>
     <color name="surface">#FFFFFF</color>
     <color name="line">#E5E5E5</color>
     <color name="line_strong">#D4D4D4</color>

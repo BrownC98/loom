@@ -1015,8 +1015,8 @@ fn each_point_takes_only_its_kinds_in_arrival_order_and_once() {
             .collect::<Vec<_>>(),
         [("총괄-1", Kind::Interrupt, "i1")]
     );
-    // 확인하기 전에는 읽지 않은 메시지로 센다.
-    assert_eq!(view(&g, a).unread, 4);
+    // 꺼낸 메시지는 확인 전이라도 읽은 것으로 센다(2026-10-22 사람 지시 "버튼이 사라져야 하는거 아님?").
+    assert_eq!(view(&g, a).unread, 1);
     g.ack(a, &[interrupt[0].id]).unwrap();
     // Stop: 남은 것 모두
     let rest = g.take(a, Kind::ALL, 8192).unwrap();
@@ -1026,8 +1026,7 @@ fn each_point_takes_only_its_kinds_in_arrival_order_and_once() {
     );
     let ids: Vec<MessageId> = rest.iter().map(|d| d.id).collect();
     g.ack(a, &ids).unwrap();
-    // 조정 두 개는 확인하지 않았으므로 아직 센다.
-    assert_eq!(view(&g, a).unread, 2);
+    assert_eq!(view(&g, a).unread, 0);
     assert!(g.take(a, Kind::ALL, 8192).unwrap().is_empty());
 }
 
@@ -2140,19 +2139,15 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     g.send(lead, "a", Kind::Queue, "q1").unwrap();
     g.send(lead, "a", Kind::Queue, "q2").unwrap();
     g.send(lead, "b", Kind::Queue, "다른 노드").unwrap();
-    // 꺼냈지만 받았다는 확인이 없는 메시지도 다시 넘긴다.
-    let first = g.take(a, &[Kind::Queue], 1).unwrap();
-    assert_eq!(first.len(), 1);
-    assert!(
-        g.take(a, &[Kind::Queue], usize::MAX).unwrap().len() == 1,
-        "q2 only; q1 waits for its ack"
-    );
+    // 꺼낸 메시지는 읽은 것이다. 바꾸지 않는다.
+    assert_eq!(g.take(a, &[Kind::Queue], 1).unwrap().len(), 1);
+    assert_eq!(view(&g, a).unread, 1);
 
     g.steer_queued(a).unwrap();
     let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
     assert_eq!(
         steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
-        ["q1", "q2"]
+        ["q2"]
     );
     assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
     assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);

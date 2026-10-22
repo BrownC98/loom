@@ -4,8 +4,10 @@
 mod idle;
 mod origin;
 mod places;
+mod relaunch;
 mod sessions;
 mod settings;
+pub use relaunch::Relaunched;
 mod switch;
 mod turn_end;
 
@@ -86,7 +88,9 @@ struct App {
     setups: Mutex<HashSet<NodeId>>,
     /// 쉬는 Claude 노드마다 메시지를 기다리는 비동기 훅 하나.
     idle: idle::IdleWaits,
-    /// 계정 전환으로 옮기는 중이거나 턴 끝에 옮길 노드.
+    /// 다시 띄우는 중이거나 턴 끝에 다시 띄울 노드.
+    relaunches: relaunch::Relaunches,
+    /// 자동 계정 전환 기록.
     switch: switch::Switches,
     /// 턴 끝 질문 검사(`turn_end`).
     turn_ends: turn_end::TurnEnds,
@@ -382,6 +386,12 @@ pub struct RemoveRequest {
     pub name: String,
 }
 
+/// `loom relaunch`의 요청. `name`이 없으면 부르는 노드 자신이다. 있으면 그 자식이다.
+#[derive(Serialize, Deserialize)]
+pub struct RelaunchRequest {
+    pub name: Option<String>,
+}
+
 /// `loom ask`의 요청. 질문 한 줄이다.
 #[derive(Serialize, Deserialize)]
 pub struct AskRequest {
@@ -506,6 +516,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         sessions: sessions::Sessions::default(),
         setups: Mutex::default(),
         idle: idle::IdleWaits::default(),
+        relaunches: relaunch::Relaunches::default(),
         switch: switch::Switches::default(),
         turn_ends: turn_end::TurnEnds::default(),
         plugin: {
@@ -557,7 +568,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/said", post(agent_said))
         .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
-        .route("/api/agent/rm", post(agent_remove));
+        .route("/api/agent/rm", post(agent_remove))
+        .route("/api/agent/relaunch", post(relaunch::agent_relaunch));
     let router = node_routes
         .clone()
         .route("/api/repos", get(list_repos).post(add_repo))
@@ -610,6 +622,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .merge(settings::routes())
         .merge(places::routes())
         .merge(switch::routes())
+        .merge(relaunch::routes())
         .fallback(asset)
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
@@ -1003,8 +1016,8 @@ impl App {
         let discard = discarder(codex, opencode2);
         move |exit| {
             discard();
-            // 계정 전환이 끝낸 프로세스다. 노드는 새 프로세스로 산다.
-            if app.switch.exited(id) {
+            // 다시 띄우기가 끝낸 프로세스다. 노드는 새 프로세스로 산다.
+            if app.relaunches.exited(id) {
                 return;
             }
             app.codex.lock().unwrap().remove(&id);
@@ -1913,7 +1926,7 @@ async fn agent_take(
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
     // 훅이 불렸으면 턴이 돈다. 일하는 중의 메시지는 그 훅들이 넘긴다.
-    app.idle.end(node);
+    app.idle.turn_started(node);
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let messages = app
         .graph

@@ -21,7 +21,7 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{Entry, EventRecord, SwitchCause};
+pub use events::{Entry, EventRecord, SwitchCause, Who};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{Attached, HUMAN, HumanWait, OpenQuestion, WaitDoc, WaitId, WaitKind, WaitSource};
@@ -189,7 +189,7 @@ pub enum Refusal {
     MailboxFull(String),
     /// 조정·중단의 대상이 부르는 노드의 부모나 자식이 아니다.
     NotRelated(String),
-    /// `loom rm`의 대상이 부르는 노드의 자식이 아니다.
+    /// `loom rm`·`loom relaunch`의 대상이 부르는 노드의 자식이 아니다.
     NotChild(String),
     /// `loom rm`의 대상이 가진 자식을 부르는 노드가 데려갈 수 없다. 값은 대상 이름과 데려갈 수 없는 자식과 이유다.
     ChildrenStay(String),
@@ -204,6 +204,8 @@ pub enum Refusal {
     },
     /// 조정·중단을 받지 못하는 노드다. 값은 보낸 쪽이 적은 이름이다.
     NotSteerable(String),
+    /// 세션을 이어 다시 띄우지 못하는 노드다(Claude·Codex 노드만 된다). 값은 노드 이름이다.
+    NoResume(String),
     /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
     NoRepo,
     /// `loom ask`의 질문이 비었다.
@@ -262,7 +264,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NotChild(name) => write!(
                 f,
-                "{name}: not your child. You can remove only your own children."
+                "{name}: not your child. `loom rm` and `loom relaunch` act only on your own children."
             ),
             Refusal::ChildrenStay(list) => write!(
                 f,
@@ -284,6 +286,10 @@ impl fmt::Display for Refusal {
             Refusal::NotSteerable(name) => write!(
                 f,
                 "{name}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Use `loom send`."
+            ),
+            Refusal::NoResume(name) => write!(
+                f,
+                "{name}: this node cannot continue its session in a new process (only Claude and Codex nodes can)."
             ),
             Refusal::Ambiguous { name, candidates } => write!(
                 f,

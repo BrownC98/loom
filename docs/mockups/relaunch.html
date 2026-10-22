@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M40 노드 다시 띄우기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+  /* 제품 그림에만 쓴다(web/src/styles.css). */
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+table { border-collapse: collapse; font-size: 13px; width: 100%; max-width: 1100px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-3); font-weight: 600; }
+code { font: 12px var(--mono); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+/* 제품 그림 */
+.row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+.cell { display: grid; gap: 6px; }
+.shot { display: block; border: 1px solid var(--line); border-radius: 6px; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg.i.on { fill: currentColor; }
+.ib { width: 26px; height: 26px; display: inline-grid; place-items: center; border-radius: 6px; color: var(--ink-2); }
+.ib.on { color: var(--ink); }
+.ib.hover { background: var(--surface-hover); color: var(--ink); }
+.card { width: 600px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; }
+.mark { font: 12px var(--mono); color: var(--ink-3); }
+.spacer { flex: 1; }
+.state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--run); }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.term { height: 40px; padding: 6px 10px; font: 12px/1.4 var(--mono); color: var(--ink-2); }
+.card.simple { width: 260px; padding: 8px 8px 8px 12px; background: var(--surface); }
+.summary-row { display: flex; align-items: center; gap: 8px; min-height: 24px; font-size: 13px; }
+.summary-row .name { font-weight: 600; }
+.tip { font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--ink); color: var(--bg); width: max-content; }
+
+.side { width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding-bottom: 12px; font-size: 13px; }
+.side-top { display: flex; align-items: center; gap: 8px; padding: 12px 12px 4px; }
+.find { flex: 1; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink-3); }
+.side-head { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px 16px; }
+.side-head h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; align-items: center; gap: 4px; }
+.side-head .count { font: 11px var(--mono); color: var(--ink-3); }
+.list { padding: 0 8px; }
+.tree-line { position: relative; }
+.tree-row { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 calc(4px + var(--depth, 0) * 12px); border-radius: 6px; }
+.tree-row.hover { background: var(--surface-hover); }
+.tree-row[aria-current="true"] { background: var(--accent-wash); }
+.tree-row .chev { width: 14px; height: 14px; color: var(--ink-3); }
+.tree-row .leaf { width: 14px; flex: none; }
+.tree-row .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+.tree-row .sub { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tree-row .tag { font-size: 12px; color: var(--ink-3); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--run); }
+.dot.done { background: var(--ok); }
+.row-acts { position: absolute; top: 3px; right: 4px; height: 24px; display: flex; gap: 2px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--surface-hover) 16px); }
+.act { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; color: var(--ink-2); }
+.act.on { color: var(--ink); }
+.empty { padding: 2px 16px 6px; font-size: 12px; color: var(--ink-3); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.tip.err { background: var(--err); color: #fff; }
+.refusal { font-size: 13px; color: var(--err); background: var(--surface); border: 1px solid var(--err); border-radius: 6px; padding: 6px 10px; width: max-content; max-width: 600px; }
+.ib.wait { color: var(--run); background: var(--accent-wash); }
+.sep { height: 1px; background: var(--line); margin: 6px 16px 0; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="bm" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></symbol>
+  <symbol id="max" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="min" viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></symbol>
+  <symbol id="re" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="pen" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="updown" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></symbol>
+  <symbol id="branch" viewBox="0 0 24 24"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+</svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M40</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 다시띄우기</b></span><span>v3 · 2026-10-22</span></div>
+  <h1>노드 다시 띄우기 · 카드 머리 메뉴</h1>
+  <p class="lead">사람 요청(Q357 답 A): “A 하고 에이전트도 사용할 수 있는 도구로 만들어”. v2 의견(Q360): “헤더에 버튼이 점점 많아지는것 같고 실수하기 쉬워질 것 같음 이에대한 대책 제시하라”. 대책: 머리에는 자주 쓰고 안전한 버튼만 두고, 드물거나 위험한 일은 「⋯」 메뉴 하나에 모은다. 점선이 바뀌는 곳이다. 그림 ①~③은 시험 데몬의 실제 화면에 바꿀 부분만 넣어 찍었다.</p>
+
+  <div class="fig">
+    <h2>① 머리 버튼마다 쓰임</h2>
+    <table>
+      <tr><th>버튼</th><th>언제 쓰나</th><th>실수하면</th><th>v3 자리</th></tr>
+      <tr><td>북마크</td><td>자주. 노드를 사이드바에 모은다</td><td>다시 누르면 된다</td><td><b>머리</b></td></tr>
+      <tr><td>확대 · 줄이기</td><td>자주. 머리를 두 번 눌러도 된다</td><td>다시 누르면 된다</td><td><b>머리</b></td></tr>
+      <tr><td>크기 되돌리기</td><td>드물다. 크기를 바꾼 카드에만 보인다. 「정렬」 메뉴에도 같은 일(모든 크기 되돌리기)이 있다</td><td>바꾼 크기를 잃는다</td><td>⋯ 메뉴</td></tr>
+      <tr><td>다시 띄우기(새)</td><td>드물다. loom 설정이 바뀐 뒤</td><td>쉬던 노드가 몇 초 멈춘다</td><td>⋯ 메뉴</td></tr>
+      <tr><td>노드 지우기</td><td>드물다. 일이 끝난 노드. 사이드바 줄에도 있다</td><td><b>되돌릴 수 없다.</b> 지금은 확인 없이 바로 지운다</td><td>⋯ 메뉴 맨 아래, 빨강, 구분선 뒤</td></tr>
+    </table>
+    <ul class="note"><li>쓰임 기록은 loom에 없다. 위 빈도는 기능의 뜻으로 정했다(가설).</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 머리 <span class="tag">지금 → 뒤 · 크기를 바꾼 표준 카드(버튼이 가장 많은 상태)</span></h2>
+    <div class="row">
+      <div class="cell"><span class="hint">지금: 북마크 · 크기 되돌리기 · 확대 · 휴지통</span><img class="shot" src="relaunch-v3-now.png" width="361" alt="지금 카드 머리: 북마크, 크기 되돌리기, 확대, 휴지통"></div>
+      <div class="cell"><span class="hint">뒤: 북마크 · 확대 · ⋯</span><img class="shot" src="relaunch-v3-head.png" width="361" alt="바꾼 카드 머리: 북마크, 확대, 점 세 개 메뉴"></div>
+    </div>
+    <div class="row">
+      <div class="cell"><span class="hint">심플 카드: 북마크 · ⋯</span><div class="card simple"><div class="summary-row"><span class="mark" style="color:#d97757">✳</span><span class="name">워커-1</span><span class="spacer"></span><span class="state">실행 중</span><span class="ib "><svg class="i"><use href="#bm"/></svg></span><span class="ib new"><svg class="i"><use href="#more"/></svg></span></div></div></div>
+      <div class="cell"><span class="hint">오른쪽 칸 머리: 북마크 · ⋯</span><div class="card simple" style="width:320px"><div class="summary-row"><span class="mark" style="color:#d97757">✳</span><span class="name">워커-1</span><span class="spacer"></span><span class="state">실행 중</span><span class="ib "><svg class="i"><use href="#bm"/></svg></span><span class="ib new"><svg class="i"><use href="#more"/></svg></span></div></div></div>
+      <div class="cell"><span class="hint">크게 보기: 북마크 · 줄이기 · ⋯</span><div class="card" style="width:600px"><div class="card-head"><span class="name">워커-1</span><span class="mark" style="color:#d97757">✳</span><span class="spacer"></span><span class="state">실행 중</span><span class="ib "><svg class="i"><use href="#bm"/></svg></span><span class="ib "><svg class="i"><use href="#min"/></svg></span><span class="ib new"><svg class="i"><use href="#more"/></svg></span></div></div></div>
+    </div>
+    <ul class="note">
+      <li>머리 버튼은 어느 상태에서도 셋 이하다. 앞으로 드문 일은 메뉴에 더한다. 머리 버튼은 늘리지 않는다.</li>
+      <li>버튼이 줄어 360px 카드에서도 긴 이름이 넘치지 않는다. 그래도 이름 칸이 먼저 줄어 「…」로 끝나게 한다(지금은 긴 이름이면 휴지통이 잘린다).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 열린 메뉴</h2>
+    <div class="row">
+      <div class="cell"><img class="shot" src="relaunch-v3-menu.png" width="370" alt="열린 메뉴: 다시 띄우기, 크기 되돌리기, 구분선, 빨간 노드 지우기"></div>
+    </div>
+    <ul class="note">
+      <li>「정렬」 옆 방향 메뉴와 같은 부품 · 같은 모양 · 같은 키보드 이동을 쓴다. 새 메뉴 체계를 만들지 않는다. 카드에는 지금 오른쪽 클릭 메뉴가 없다.</li>
+      <li>다시 띄우기: 실행 중인 Claude Code · Codex 노드에만 보인다. 크기 되돌리기: 크기를 바꾼 표준 카드에만 보인다. 노드 지우기: 늘 보인다.</li>
+      <li>지우기는 메뉴를 열고 한 번 더 눌러야 하므로 잘못 누르기 어렵다. 확인 창은 더하지 않는다(지금도 없다).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>④ 다시 띄우기를 누른 뒤</h2>
+    <ul class="note">
+      <li>쉬던 노드: 바로 다시 뜬다. 터미널이 새 프로세스 화면으로 바뀐다. 대화 · 받은 메시지 · 열린 질문은 그대로다.</li>
+      <li>턴 중인 노드: 그 턴이 끝나면 다시 뜬다. 메뉴 항목은 「턴이 끝나면 다시 띄웁니다」로 바뀌고 누를 수 없다. 실행 중인 도구 호출은 끊지 않는다.</li>
+      <li>실패: 그래프 아래 거절 줄(지금 쓰는 자리)에 데몬의 문장이 보인다.</li>
+    </ul>
+    <div class="row"><p class="refusal">워커-1: 이어 갈 Claude 세션 기록이 없다</p></div>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>항목</th><th>안</th></tr>
+      <tr><td>머리 버튼</td><td><b>권장: 북마크 · 확대(크게 보기는 줄이기) · ⋯ 만</b></td></tr>
+      <tr><td>⋯ 메뉴</td><td><b>권장: 다시 띄우기 · 크기 되돌리기 · (구분선) · 노드 지우기(빨강)</b></td></tr>
+      <tr><td>지우기 확인 창</td><td><b>권장: 없음</b>(메뉴가 한 단계를 더한다) · 다른 안: 한 번 묻기</td></tr>
+      <tr><td>좁은 머리</td><td><b>권장: 이름 칸이 먼저 줄어 「…」</b></td></tr>
+    </table>
+  </div>
+</main>
+<button class="theme-toggle" type="button" onclick="const h=document.documentElement;const d=h.style.colorScheme==='dark';h.style.colorScheme=d?'light':'dark';this.textContent=d?'다크로 보기':'라이트로 보기'">다크로 보기</button>
+</body>
+</html>

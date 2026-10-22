@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::daemon::{
     AckRequest, AdoptRequest, AnsweredRequest, AskRequest, Asked, DoneRequest, GuardRequest,
-    HookWaitRequest, IdleRequest, RemoveRequest, ReplyRequest, SaidRequest, SendRequest,
-    SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
+    HookWaitRequest, IdleRequest, RelaunchRequest, Relaunched, RemoveRequest, ReplyRequest,
+    SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
@@ -449,6 +449,22 @@ pub fn remove(name: String) -> Result<(), String> {
             moved.join(", ")
         );
     }
+    Ok(())
+}
+
+pub fn relaunch(name: Option<String>) -> Result<(), String> {
+    let yourself = name.is_none();
+    let when: Relaunched = call("relaunch", &RelaunchRequest { name }, None)?;
+    println!(
+        "{}",
+        match (when, yourself) {
+            (Relaunched::AtTurnEnd, true) => {
+                "You relaunch when this turn ends, and the conversation continues. End your turn now."
+            }
+            (Relaunched::AtTurnEnd, false) => "That node relaunches when its turn ends.",
+            (Relaunched::Now, _) => "Relaunched.",
+        }
+    );
     Ok(())
 }
 

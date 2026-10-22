@@ -185,6 +185,40 @@ fn caller() -> Option<WslPath> {
     std::env::current_dir().ok().and_then(|dir| of(&dir))
 }
 
+/// 옛 WSL 데몬이 띄운 노드를 끝낸다: `HOME`이 `home`인 `loom pty-host`, 노드 서버 `servers`(Codex app-server 등), 그 아래 프로세스 모두.
+/// 같은 세션을 옛 프로세스와 새 프로세스가 함께 쓰지 않게 한다(`carry`). 다른 `HOME`의 loom(시험 데몬 등)은 건드리지 않는다.
+/// 서버는 PTY 호스트 아래에 없다. 남으면 새 서버가 스레드를 열지 못했다(「thread … already has an active writer」, 실측).
+/// 서버 PID도 `HOME`을 본다. 옛 서버가 끝난 뒤 다른 프로세스가 그 번호를 받았을 수 있다.
+pub async fn end_hosts(distro: &str, home: &str, servers: &[u32]) -> Result<(), String> {
+    let script = r#"home=$1; shift; servers=" $* " roots=
+for d in /proc/[0-9]*; do
+  pid=${d#/proc/}
+  case $servers in *" $pid "*) ;; *) [ "$(tr '\0' '\n' <"$d/cmdline" 2>/dev/null | sed -n 2p)" = pty-host ] || continue ;; esac
+  tr '\0' '\n' <"$d/environ" 2>/dev/null | grep -qxF "HOME=$home" || continue
+  roots="$roots $pid"
+done
+[ -n "$roots" ] || exit 0
+all=$(ps -eo pid=,ppid= | awk -v roots="$roots" 'BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) keep[r[i]] = 1 }
+  { parent[$1] = $2 }
+  END { do { grew = 0; for (p in parent) if (!(p in keep) && (parent[p] in keep)) { keep[p] = 1; grew = 1 } } while (grew); for (p in keep) print p }')
+kill -TERM $all 2>/dev/null
+sleep 2
+kill -KILL $all 2>/dev/null
+exit 0"#;
+    let out = tokio::process::Command::new("wsl.exe")
+        .args(["-d", distro, "-e", "sh", "-c", script, "sh", home])
+        .args(servers.iter().map(u32::to_string))
+        .env("WSL_UTF8", "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+    match out.status.success() {
+        true => Ok(()),
+        false => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
+    }
+}
+
 /// 노드를 띄우기 직전에 배포판 안에서 읽은 값. `wsl.exe` 한 번으로 읽는다(약 0.2초).
 #[derive(Debug, PartialEq)]
 pub struct Inside {

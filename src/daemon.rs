@@ -1,6 +1,7 @@
 //! 조합 레이어: HTTP·WebSocket 라우트. 아래 기능 모듈을 부르고 결과를 엮기만 한다.
 //! 설정·계정·사용량 라우트는 `settings.rs`에 둔다.
 
+mod carry;
 mod idle;
 mod origin;
 mod phone;
@@ -74,6 +75,8 @@ use crate::wsl;
 struct Assets;
 
 struct App {
+    /// 데몬의 DB 연결. 옮기기(`carry`)만 직접 쓴다. 다른 모듈은 자기 복사본(`Repos`, `Graph` 등)으로 쓴다.
+    database: db::Database,
     repos: Repos,
     host: NodeHost<NodeId>,
     graph: Arc<Graph>,
@@ -518,7 +521,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         settings: Settings::new(database.clone()),
         devices: Arc::new(Devices::new(database.clone())),
         port: listen.port(),
-        spots: Spots::new(database),
+        spots: Spots::new(database.clone()),
+        database,
         accounts_root: db_path.with_file_name("accounts"),
         logins: settings::Logins::new(pty_dir.join("logins")),
         codex: Mutex::default(),
@@ -634,6 +638,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .merge(switch::routes())
         .merge(phone::routes())
         .merge(relaunch::routes())
+        .merge(carry::routes())
         .fallback(asset)
         .layer(axum::middleware::from_fn_with_state(
             app.devices.clone(),

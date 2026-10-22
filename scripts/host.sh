@@ -10,6 +10,7 @@ port=${LOOM_PORT:-7420}
 build=$HOME/.loom/host-build
 target=
 [ -n "${WSL_DISTRO_NAME:-}" ] && target=x86_64-pc-windows-gnu
+carry=
 
 # 한 번에 하나만 빌드한다. git 훅과 손으로 부른 실행이 같은 빌드 폴더를 함께 쓰면 npm 설치가 깨졌다(2026-10-21 「tsc: not found」).
 # 잠금은 fd 9가 쥔다. 데몬에는 넘기지 않는다(아래 `9>&-`). 넘기면 데몬과 PTY 호스트가 잠금을 영영 쥔다.
@@ -31,7 +32,10 @@ if [ -z "$target" ]; then
   exe=$bin
 else
   # 옛 WSL 데몬을 끝낸다. 그래야 Windows 데몬이 같은 포트를 쓴다. 껍데기(`#!`)면 이미 바꿨다.
-  if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then "$bin" stop --listen "127.0.0.1:$port"; fi
+  if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then
+    "$bin" stop --listen "127.0.0.1:$port"
+    carry=$HOME/.loom
+  fi
   # Windows 환경 변수는 cmd.exe로 읽는다. 시험은 APPDATA·LOCALAPPDATA를 WSLENV로 넘겨 임시 폴더를 쓴다.
   dir=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/loom
   exe=$dir/loom.exe
@@ -51,4 +55,15 @@ fi
 # `daemon.json` 전의 데몬도 `stop`이 이 포트로 찾는다.
 "$exe" stop --listen "127.0.0.1:$port"
 rm -f "$HOME/.loom/serve.pid"
+# 옮기기는 저장소·노드가 없는 DB에만 한다(노드·질문 번호를 그대로 둔다). 앞서 Windows 앱이 쓴 DB는 이름을 바꿔 남긴다.
+# 2026-10-22 사람 결정(총괄 확인: 그 DB는 WSL에도 있는 저장소 1개, 노드 0개).
+if [ -n "$carry" ]; then
+  data=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %APPDATA%' | tr -d '\r')")/loom
+  for f in "$data"/loom.db "$data"/loom.db-wal "$data"/loom.db-shm; do
+    if [ -e "$f" ]; then mv "$f" "$f.$(date +%s).bak"; fi
+  done
+fi
 "$exe" start --listen "127.0.0.1:$port" 9>&- && "$exe" --version
+# 옛 WSL 데몬의 노드를 Windows 데몬으로 옮겨 같은 세션으로 다시 띄운다. 옛 노드를 끝내므로 이 스크립트를 부른 노드도 여기서 끝날 수 있다.
+# 옮기기는 데몬이 끝까지 한다. 결과는 데몬 로그와 다시 뜬 노드의 첫 입력에 남는다.
+if [ -n "$carry" ]; then "$exe" carry "$carry" 9>&-; fi

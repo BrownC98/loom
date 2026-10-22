@@ -288,9 +288,88 @@ pub fn open(path: &Path) -> std::io::Result<Database> {
     }
 }
 
+/// `from`의 모든 행을 이 DB로 옮긴다. `from`은 같은 스키마 판이다(`open`으로 올린 파일). 행 번호를 그대로 둔다.
+/// 번호가 겹치지 않게 저장소나 노드가 있는 DB에는 옮기지 않는다.
+pub fn import(db: &Database, from: &Path) -> Result<(), String> {
+    let conn = db.lock();
+    let used: i64 = conn
+        .query_row(
+            "SELECT (SELECT count(*) FROM repos) + (SELECT count(*) FROM nodes)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if used > 0 {
+        return Err("this loom already has repositories or nodes".into());
+    }
+    conn.execute("ATTACH DATABASE ?1 AS old", [from.to_string_lossy()])
+        .map_err(|e| e.to_string())?;
+    let copied = copy_tables(&conn);
+    let detached = conn.execute("DETACH DATABASE old", []);
+    copied.map_err(|e| e.to_string())?;
+    detached.map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// 외래 키가 가리키는 표(저장소, 노드)를 먼저 넣는다. 노드는 부모가 먼저 오게 번호 순서다.
+fn copy_tables(conn: &Connection) -> rusqlite::Result<()> {
+    let tables: Vec<String> = conn
+        .prepare(
+            "SELECT name FROM old.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+            ORDER BY name != 'repos', name != 'nodes', name",
+        )?
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let tx = conn.unchecked_transaction()?;
+    for table in &tables {
+        tx.execute(
+            &format!("INSERT OR REPLACE INTO main.\"{table}\" SELECT * FROM old.\"{table}\" ORDER BY rowid"),
+            [],
+        )?;
+    }
+    tx.execute_batch(
+        "DELETE FROM main.sqlite_sequence;
+        INSERT INTO main.sqlite_sequence SELECT * FROM old.sqlite_sequence;",
+    )?;
+    tx.commit()
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;
+
+    #[test]
+    fn import_keeps_rows_and_numbers_and_refuses_a_used_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = super::open(&dir.path().join("old.db")).unwrap();
+        old.lock()
+            .execute_batch(
+                "INSERT INTO repos (path) VALUES ('/r');
+                INSERT INTO nodes (id, name, agent, state, repo, worktree) VALUES (7, 'a', 'null', '{}', 1, '/r');
+                INSERT INTO nodes (id, name, agent, parent, state, repo, worktree) VALUES (9, 'b', 'null', 7, '{}', 1, '/r');
+                INSERT INTO settings (id, value) VALUES (1, '{\"theme\":\"dark\"}');",
+            )
+            .unwrap();
+        drop(old);
+        let new = super::open(&dir.path().join("new.db")).unwrap();
+        super::import(&new, &dir.path().join("old.db")).unwrap();
+        let conn = new.lock();
+        let parent: u32 = conn
+            .query_row("SELECT parent FROM nodes WHERE id = 9", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(parent, 7);
+        conn.execute(
+            "INSERT INTO nodes (name, agent, state) VALUES ('c', 'null', '{}')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(conn.last_insert_rowid(), 10);
+        drop(conn);
+        let again = super::import(&new, &dir.path().join("old.db"));
+        assert_eq!(
+            again,
+            Err("this loom already has repositories or nodes".into())
+        );
+    }
 
     #[test]
     fn newer_data_is_refused_with_a_clear_message() {

@@ -13,7 +13,11 @@ raw=https://raw.githubusercontent.com/BrownC98/loom/main
 
 if [ -n "${WSL_DISTRO_NAME:-}" ]; then
   # 옛 WSL 데몬을 끝낸다. 그래야 Windows 데몬이 같은 포트를 쓴다. 껍데기(`#!`)면 이미 바꿨다.
-  if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then "$bin" stop --listen "127.0.0.1:$port"; fi
+  carry=
+  if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then
+    "$bin" stop --listen "127.0.0.1:$port"
+    carry=$HOME/.loom
+  fi
   rm -f "$HOME/.loom/serve.pid"
   # 시험용 변수는 WSLENV로 넘긴다. LOOM_DESKTOP은 Windows 경로로 바꾼다(/p).
   export WSLENV="${WSLENV:+$WSLENV:}LOOM_DOWNLOAD_URL:LOOM_DESKTOP/p"
@@ -26,6 +30,8 @@ if [ -n "${WSL_DISTRO_NAME:-}" ]; then
   chmod +x "$bin.new"
   mv "$bin.new" "$bin"
   echo "WSL의 loom 명령이 Windows loom을 부릅니다: $bin"
+  # 옛 WSL 데몬의 노드를 옮겨 같은 세션으로 다시 띄운다(docs/design.md 「데몬 하나」).
+  if [ -n "$carry" ]; then "$bin" carry "$carry"; fi
   exit 0
 fi
 

@@ -22,7 +22,7 @@ use crate::graph::{Active, Delivery, Entry, Kind, NodeId, Refusal, Who};
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
-use crate::profile::{self, ModelChoice, Profile, Provider, ServerLink, Start};
+use crate::profile::{self, AgentId, ModelChoice, Profile, Provider, ServerLink, Start};
 use crate::settings::SettingsView;
 use crate::skills::Position;
 
@@ -339,28 +339,9 @@ impl App {
             .chain(stopped)
             .collect::<Vec<_>>()
             .join("\n");
-        let start = Start::Agent {
-            agent: agent.clone(),
-            brief,
-            choice: match profile {
-                // OpenCode 2 TUI는 모델 인자를 받지 않는다(`LaunchError::NoModelChoice`). 모델은 세션에 남아 이어진다.
-                Profile::OpenCode2 => ModelChoice::default(),
-                Profile::Claude | Profile::Codex | Profile::Cursor => ModelChoice {
-                    model: node.model.model.clone(),
-                    effort: node.model.effort.clone(),
-                },
-            },
-            resume: Some(resume.clone()),
-        };
-        let position = match self.graph.relations(node.id) {
-            Ok(r) if r.parent.is_some() => Position::Child,
-            Ok(_) => Position::Root,
-            Err(e) => return Err(e.to_string()),
-        };
         let prepared = self
-            .prepare(&start, cwd, position)
-            .await
-            .map_err(|e| format!("{e:?}"))?;
+            .prepare_resumed(&node, &agent, profile, &resume, brief)
+            .await?;
         let discard = prepared.discarder();
         // 옛 프로세스가 끝난 뒤 띄운다. 옛 PTY 호스트가 끝나며 지우는 주소 파일을 새 호스트가 함께 쓴다.
         let (done, exited) = oneshot::channel();
@@ -380,35 +361,114 @@ impl App {
             discard();
             return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
         }
+        self.run_resumed(node.id, prepared, &resume, &settings, &agent)
+            .await
+    }
+
+    /// 프로세스가 없는 노드를 남긴 세션으로 다시 띄운다. 옛 WSL 데몬에서 옮겨 온 노드가 쓴다(`carry`).
+    /// 계정은 지금 설정의 것이다. 세션 기록은 그 계정 폴더로 옮긴다(Claude). Codex는 남긴 스레드를 그대로 잇는다.
+    pub(super) async fn revive(self: &Arc<Self>, node: Active, notice: &str) -> Result<(), String> {
+        let (Some(agent), Some(profile)) = (node.agent.clone(), profile_of(&node)) else {
+            return Err("프로필이 있는 에이전트가 아니다".into());
+        };
+        let settings = self.settings.get().map_err(|e| e.to_string())?;
+        let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
+        let resume = match (profile, &node.server) {
+            (Profile::Claude, _) => {
+                self.carry_session(&node, profile, &settings, Path::new(&place.worktree))
+                    .await?
+            }
+            (Profile::Cursor, _) => session_id(node.transcript.as_deref().map(Path::new))
+                .ok_or("이어 갈 Cursor 세션 기록이 없다")?,
+            (
+                Profile::Codex,
+                Some(ServerLink::Codex {
+                    thread: Some(thread),
+                    ..
+                }),
+            ) => thread.clone(),
+            (Profile::OpenCode2, Some(ServerLink::OpenCode2 { session, .. })) => session.clone(),
+            (Profile::Codex | Profile::OpenCode2, _) => {
+                return Err("이어 갈 서버 세션이 없다".into());
+            }
+        };
+        let prepared = self
+            .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
+            .await?;
+        self.run_resumed(node.id, prepared, &resume, &settings, &agent)
+            .await
+    }
+
+    async fn prepare_resumed(
+        &self,
+        node: &Active,
+        agent: &AgentId,
+        profile: Profile,
+        resume: &str,
+        brief: String,
+    ) -> Result<super::Prepared, String> {
+        let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
+        let start = Start::Agent {
+            agent: agent.clone(),
+            brief,
+            choice: match profile {
+                // OpenCode 2 TUI는 모델 인자를 받지 않는다(`LaunchError::NoModelChoice`). 모델은 세션에 남아 이어진다.
+                Profile::OpenCode2 => ModelChoice::default(),
+                Profile::Claude | Profile::Codex | Profile::Cursor => ModelChoice {
+                    model: node.model.model.clone(),
+                    effort: node.model.effort.clone(),
+                },
+            },
+            resume: Some(resume.to_owned()),
+        };
+        let position = match self.graph.relations(node.id) {
+            Ok(r) if r.parent.is_some() => Position::Child,
+            Ok(_) => Position::Root,
+            Err(e) => return Err(e.to_string()),
+        };
+        self.prepare(&start, Path::new(&place.worktree), position)
+            .await
+            .map_err(|e| format!("{e:?}"))
+    }
+
+    async fn run_resumed(
+        self: &Arc<Self>,
+        id: NodeId,
+        prepared: super::Prepared,
+        resume: &str,
+        settings: &SettingsView,
+        agent: &AgentId,
+    ) -> Result<(), String> {
+        let discard = prepared.discarder();
         // 옛 app-server가 끝난 뒤 새 서버에서 스레드를 연다. 같은 `CODEX_HOME`이면 옛 서버가 스레드를 쥐고 있어
         // "thread/resume: thread … already has an active writer"로 실패했다(0.159.2 실측, 계정이 같은 다시 띄우기).
         if let Some(server) = &prepared.codex {
-            let bypass = !settings.bypass_off.contains(&agent);
+            let bypass = !settings.bypass_off.contains(agent);
             let call = |method, params| server.call(method, params);
-            if let Err(e) = codex::resume(call, &resume, bypass).await {
+            if let Err(e) = codex::resume(call, resume, bypass).await {
                 discard();
-                let _ = self.graph.lost(node.id);
+                let _ = self.graph.lost(id);
                 return Err(e);
             }
-            server.follow_thread(resume.clone()).await;
+            server.follow_thread(resume.to_owned()).await;
         }
         // 새 토큰을 먼저 남긴다. 새 프로세스가 뜨자마자 데몬을 불러도 찾는다.
-        if let Err(e) = self.graph.relaunched(node.id, &prepared.launched()) {
+        if let Err(e) = self.graph.relaunched(id, &prepared.launched()) {
             discard();
-            let _ = self.graph.lost(node.id);
+            let _ = self.graph.lost(id);
             return Err(e.to_string());
         }
         // 새 프로세스의 전달 작업이 처음부터 메시지를 꺼내게 한다.
-        self.relaunches.pending.lock().unwrap().remove(&node.id);
-        if let Err(e) = self.launch(node.id, prepared) {
+        self.relaunches.pending.lock().unwrap().remove(&id);
+        if let Err(e) = self.launch(id, prepared) {
             discard();
             // 옛 프로세스는 이미 끝났다. 화면이 실행 중으로 남지 않게 한다.
-            let _ = self.graph.lost(node.id);
+            let _ = self.graph.lost(id);
             return Err(e);
         }
-        self.relaunches.limited.lock().unwrap().remove(&node.id);
+        self.relaunches.limited.lock().unwrap().remove(&id);
         // 옛 프로세스의 창은 사라졌다. 새 프로세스가 다시 묻으면 신호가 다시 건다.
-        self.graph.clear_wait(node.id).map_err(|e| e.to_string())
+        self.graph.clear_wait(id).map_err(|e| e.to_string())
     }
 
     /// 노드의 위치(이 PC 또는 그 WSL 배포판)에서 그 위치의 「사용 중」 계정 로그인 폴더로 세션 기록을 옮기고 세션 id를 돌려준다.
@@ -529,7 +589,7 @@ fn copy_session(file: &Path, depth: usize, new_root: &Path) -> Result<(), String
     let copied = to
         .parent()
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::copy(file, &to));
+        .and_then(|()| copy_file(file, &to));
     copied
         .map(drop)
         .map_err(|e| format!("{} → {}: {e}", file.display(), to.display()))
@@ -542,6 +602,11 @@ fn relocate(file: &Path, depth: usize, new_root: &Path) -> Option<PathBuf> {
     Some(tail.iter().fold(new_root.to_path_buf(), |p, c| p.join(c)))
 }
 
+/// 읽은 뒤 쓴다. 두 경로가 링크로 같은 파일이어도(옛 WSL 데몬의 `HOME`이 링크였다) 내용을 잃지 않는다. `fs::copy`는 대상을 먼저 비운다.
+fn copy_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::write(to, std::fs::read(from)?)
+}
+
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
@@ -550,7 +615,7 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
         if entry.file_type()?.is_dir() {
             copy_dir(&entry.path(), &target)?;
         } else {
-            std::fs::copy(entry.path(), target)?;
+            copy_file(&entry.path(), &target)?;
         }
     }
     Ok(())

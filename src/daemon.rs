@@ -1673,7 +1673,7 @@ async fn open_file(
     Json(req): Json<OpenFile>,
 ) -> Result<Json<()>, Problem> {
     let path = match app.node_wsl(req.node)? {
-        Some(wsl) if req.path.starts_with('/') => wsl.unc(&req.path),
+        Some(wsl) if req.path.starts_with('/') => wsl.shell_path(&req.path),
         _ => req.path,
     };
     open::open(std::path::Path::new(&path)).map_err(internal)?;

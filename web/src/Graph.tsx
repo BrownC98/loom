@@ -107,6 +107,16 @@ function PopAt(props: { at: XYPosition; children: ReactNode }) {
 }
 
 /** 카드 머리 아이콘 단추(목업 docs/mockups/main.html). 아이콘은 자식으로 받는다. */
+/** 줌 배율의 역수를 `--unzoom`으로 낸다. 줄여도 끄는 상자 테두리가 화면에서 같은 굵기로 보이게 한다(styles.css 끌기 강조). */
+function UnzoomVar() {
+  const store = useStoreApi();
+  const zoom = useStore((s) => s.transform[2]);
+  useLayoutEffect(() => {
+    store.getState().domNode?.style.setProperty('--unzoom', String(1 / zoom));
+  }, [store, zoom]);
+  return null;
+}
+
 /**
  * 지금 배율(2026-10-21 사람 지시 "현재 배율을 미니맵에 표시해줘"). React Flow 미니맵은 자식을 받지 않는다.
  * 그래서 같은 오른쪽 아래 패널로 미니맵 위 오른쪽 아래 모서리에 겹쳐 그린다. 숫자 밖 클릭은 미니맵이 받는다.
@@ -1220,6 +1230,7 @@ export function Graph(props: {
             onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
           />
         )}
+        <UnzoomVar />
         <ZoomLevel
           folded={minimapFolded}
           onFold={props.onMinimapFold}

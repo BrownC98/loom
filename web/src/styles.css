@@ -243,7 +243,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__node.dragging { opacity: 0.6; }
 /* 끌 수 있는 머리를 누르면 그 상자 테두리가 바로 강조된다(카메라 이동과 구분). 단추(.nodrag)를 누를 때는 끌지 않으므로 강조하지 않는다. outline이라 크기가 변하지 않는다. */
 .react-flow__node.dragging :is(.card, .group, .repo-box),
-.react-flow__node:has(:is(.card-head, .group-head, .repo-head):active) :is(.card, .group, .repo-box) { outline: 2px solid var(--accent); outline-offset: -1px; }
+.react-flow__node:has(:is(.card-head, .group-head, .repo-head):active) :is(.card, .group, .repo-box) { outline: calc(2px * var(--unzoom, 1)) solid var(--accent); outline-offset: calc(-1px * var(--unzoom, 1)); }
 .react-flow__node:has(.nodrag:active) :is(.card, .group, .repo-box) { outline: none; }
 .react-flow__node:not(.dragging) { transition: transform 0.15s; }
 .react-flow__node.carried { transition: none; }

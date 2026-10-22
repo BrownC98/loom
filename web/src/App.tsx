@@ -1,5 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
 import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
@@ -40,6 +40,7 @@ import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
 import { activeTheme, RESET_TERMINAL_THEME } from './terminalThemes';
 import { Bookmarks } from './Bookmarks';
 import { Tree } from './Tree';
+import { Phone, usePhone, usePhoneRoute } from './Phone';
 import { TitleBar } from './TitleBar';
 import { UpdateCard, useUpdates } from './Update';
 import { shortcut } from './platform';
@@ -91,6 +92,7 @@ const EMPTY_SETTINGS: SettingsView = {
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
   wslWorkspaceDirs: {},
+  remoteLogin: null,
   // 설정을 받기 전 자리값이다. 기본값의 원천은 Rust `TreeLimits::default`다.
   treeLimits: { maxDepth: 2, maxChildren: null },
   autoSwitch: false,
@@ -174,6 +176,10 @@ export function App() {
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
+  // 폰 폭 배치(목업 docs/mockups/mobile.html). 데몬 이벤트 연결이 끊기면 폰이 끊김 줄을 보인다.
+  const phone = usePhone();
+  const [phoneRoute, setPhoneRoute] = usePhoneRoute();
+  const [online, setOnline] = useState(true);
   // 사람이 [loom 끄기]로 데몬을 끈 뒤다(목업 web-stop.html ③).
   const [stopped, setStopped] = useState(false);
   const [selected, setSelected] = useState<NodeId | null>(null);
@@ -447,7 +453,7 @@ export function App() {
           log.onRecord(event.record);
           notice.onRecord(event.record);
       }
-    });
+    }, setOnline);
   }, []);
 
   if (stopped)
@@ -460,10 +466,71 @@ export function App() {
 
   // 설정을 받기 전에는 그리지 않는다. 기본 너비와 펼침으로 먼저 그리면 저장한 모양으로 튄다.
   if (!settingsLoaded) return null;
-  return (
+  // 찾기 칸과 트리는 사이드바와 폰 노드 탭이 함께 쓴다. 폰에서는 노드를 고르면 그 노드의 전체 화면 터미널로 간다.
+  const findView = (
+    <Find
+      query={find.query}
+      found={found}
+      at={foundAt}
+      repo={repo?.id ?? null}
+      onRepo={selectRepo}
+      onQuery={(query) => setFind({ query, at: 0 })}
+      onStep={(step) => setFind((prev) => (found.length > 0 ? { ...prev, at: (foundAt + step + found.length) % found.length } : prev))}
+      onClear={clearFind}
+    />
+  );
+  const treeView = (select: (id: NodeId) => void) => (
+    <Tree
+      repos={repos}
+      current={repoFocused ? (repo?.id ?? null) : null}
+      onRepo={selectRepo}
+      onClear={clearFocus}
+      onAdded={(added) => {
+        putRepo(added);
+        selectRepo(added.id);
+      }}
+      views={nodes}
+      agents={agents}
+      selected={selected}
+      onSelect={select}
+      onChooseBox={chooseBox}
+      settings={settings}
+      accounts={accounts}
+      onRepoChanged={putRepo}
+      // 그래프가 그리던 저장소면 `useSelectedRepo`가 남은 첫 저장소로 바꾼다.
+      onRepoRemoved={(id) => setRepos((prev) => prev.filter((r) => r.id !== id))}
+      find={!finding ? null : { query: find.query, found, at: foundAt, onAt: (at) => setFind((prev) => ({ ...prev, at })) }}
+    />
+  );
+  const openNode = (id: NodeId) => setPhoneRoute({ screen: 'node', id });
+  const providers = (children: ReactNode) => (
     <XtermTheme.Provider value={activeTheme(settings.terminalTheme, mode)}>
       <XtermFont.Provider value={activeFont(settings.terminalFont)}>
-      <ReactFlowProvider>
+        <ReactFlowProvider>{children}</ReactFlowProvider>
+      </XtermFont.Provider>
+    </XtermTheme.Provider>
+  );
+  if (phone)
+    return providers(
+      <Phone
+        route={phoneRoute}
+        onRoute={setPhoneRoute}
+        waiting={waiting}
+        nodes={nodes}
+        agentLabel={(v) => agentLabel(agents, v.agent)}
+        online={online}
+        inbox={<InboxPanel waiting={waiting} onSelect={openNode} onFocus={openNode} />}
+        tree={
+          <>
+            {findView}
+            {treeView(openNode)}
+          </>
+        }
+        foot={<StatusBar usage={usage} settings={settings} onChoose={chooseAccount} notice={{ record: notice.record, onClose: notice.close }} />}
+      />,
+    );
+  return providers(
+      <>
         <TitleBar />
         <div className="app" style={{ '--side-w': `${sideShown}px`, '--dock-w': `${dockOpen ? dockWidth : RAIL_WIDTH}px` } as CSSProperties}>
           {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} onDrag={side.drag} onCommit={side.commit} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />}
@@ -472,42 +539,13 @@ export function App() {
             <nav className="side" id="side" aria-label={t('app.sideLabel')}>
               {/* 사이드바 맨 위 줄: 찾기 칸과 접기 단추(목업 docs/mockups/sidebar-head.html). */}
               <div className="side-top">
-                <Find
-                  query={find.query}
-                  found={found}
-                  at={foundAt}
-                  repo={repo?.id ?? null}
-                  onRepo={selectRepo}
-                  onQuery={(query) => setFind({ query, at: 0 })}
-                  onStep={(step) => setFind((prev) => (found.length > 0 ? { ...prev, at: (foundAt + step + found.length) % found.length } : prev))}
-                  onClear={clearFind}
-                />
+                {findView}
                 <button id={SIDE_TOGGLE} className="btn ghost sm icon" aria-expanded aria-controls="side" aria-label={t('app.sideCollapse')} aria-keyshortcuts={SIDE_KEY.aria} title={`${t('app.sideCollapse')} (${SIDE_KEY.label})`} onClick={() => openSide(false)}>
                   <PanelLeftClose />
                 </button>
               </div>
               <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} open={!settings.closedPanes.bookmarks} onOpen={(open) => setPaneOpen('bookmarks', open)} />
-              <Tree
-                repos={repos}
-                current={repoFocused ? (repo?.id ?? null) : null}
-                onRepo={selectRepo}
-                onClear={clearFocus}
-                onAdded={(added) => {
-                  putRepo(added);
-                  selectRepo(added.id);
-                }}
-                views={nodes}
-                agents={agents}
-                selected={selected}
-                onSelect={selectNode}
-                onChooseBox={chooseBox}
-                settings={settings}
-                accounts={accounts}
-                onRepoChanged={putRepo}
-                // 그래프가 그리던 저장소면 `useSelectedRepo`가 남은 첫 저장소로 바꾼다.
-                onRepoRemoved={(id) => setRepos((prev) => prev.filter((r) => r.id !== id))}
-                find={!finding ? null : { query: find.query, found, at: foundAt, onAt: (at) => setFind((prev) => ({ ...prev, at })) }}
-              />
+              {treeView(selectNode)}
               <div className="side-foot">
                 <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
                   <SettingsIcon />
@@ -644,8 +682,6 @@ export function App() {
             />
           )}
         </div>
-      </ReactFlowProvider>
-      </XtermFont.Provider>
-    </XtermTheme.Provider>
+      </>,
   );
 }

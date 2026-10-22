@@ -192,7 +192,8 @@ impl Event {
             Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::WhenIdle,
             // 쉬는 중이던 노드의 다음 턴: 모두 넘긴다.
             Event::UserPromptSubmit => Take::Now(Kind::ALL),
-            Event::PostToolUse => Take::BetweenTools,
+            // 일하는 노드의 도구 호출 뒤: 큐 메시지도 넘긴다. 근거: docs/design.md 「전달 지점」.
+            Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
             Event::Notification { .. } => Take::Never,
         }
@@ -234,13 +235,8 @@ impl Event {
     }
 
     /// 훅 출력 JSON. 없으면 아무것도 출력하지 않는다.
-    pub fn reply(
-        &self,
-        taken: &[Delivery],
-        queued_from: &[String],
-        open_questions: &[OpenQuestion],
-    ) -> Option<Value> {
-        let Some(text) = super::hook_text(taken, queued_from, open_questions) else {
+    pub fn reply(&self, taken: &[Delivery], open_questions: &[OpenQuestion]) -> Option<Value> {
+        let Some(text) = super::hook_text(taken, open_questions) else {
             return match self {
                 Event::PreToolUse {
                     tool_name,
@@ -372,24 +368,6 @@ mod tests {
     }
 
     #[test]
-    fn post_tool_use_tells_of_waiting_queue_mail_without_its_body() {
-        let post = event(json!({ "hook_event_name": "PostToolUse" }));
-        let notice = "loom: 3 new queued message(s) waiting (from: 총괄, b). Run `loom wait --json` now if they may change your current task.";
-        assert_eq!(
-            post.reply(&[], &["총괄".into(), "b".into(), "총괄".into()], &[]),
-            Some(context("PostToolUse", notice.into()))
-        );
-        assert_eq!(
-            post.reply(&[delivery(Kind::Steer, "b")], &["총괄".into()], &[]),
-            Some(context(
-                "PostToolUse",
-                "loom message #1 (from: 총괄, mode: steer)\nb\n\nloom: 1 new queued message(s) waiting (from: 총괄). Run `loom wait --json` now if they may change your current task.".into()
-            ))
-        );
-        assert_eq!(post.reply(&[], &[], &[]), None);
-    }
-
-    #[test]
     fn reads_only_the_fields_loom_uses() {
         let pre = event(json!({
             "session_id": "abc", "hook_event_name": "PreToolUse", "tool_name": "Bash",
@@ -401,7 +379,7 @@ mod tests {
         assert_eq!(stop.take(), Take::WhenIdle);
         assert_eq!(
             event(json!({ "hook_event_name": "PostToolUse" })).take(),
-            Take::BetweenTools
+            Take::Now(Kind::ALL)
         );
     }
 
@@ -412,7 +390,7 @@ mod tests {
             "tool_input": { "command": "npm test && echo ok", "timeout": 1000 },
         }));
         assert_eq!(
-            pre.reply(&[], &[], &[]),
+            pre.reply(&[], &[]),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "updatedInput": { "command": "loom guard\nnpm test && echo ok", "timeout": 1000 },
@@ -426,12 +404,12 @@ mod tests {
             "hook_event_name": "PreToolUse", "tool_name": "Bash",
             "tool_input": { "command": "loom wait", "run_in_background": true },
         }));
-        assert_eq!(background.reply(&[], &[], &[]), None);
+        assert_eq!(background.reply(&[], &[]), None);
         let read = event(json!({
             "hook_event_name": "PreToolUse", "tool_name": "Read",
             "tool_input": { "file_path": "/a" },
         }));
-        assert_eq!(read.reply(&[], &[], &[]), None);
+        assert_eq!(read.reply(&[], &[]), None);
     }
 
     #[test]
@@ -441,7 +419,7 @@ mod tests {
             "tool_input": { "command": "npm test" },
         }));
         assert_eq!(
-            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], &[], &[]),
+            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], &[]),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
@@ -465,7 +443,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                event(input).reply(&[delivery(Kind::Steer, "b")], &[], &[]),
+                event(input).reply(&[delivery(Kind::Steer, "b")], &[]),
                 Some(json!({ "hookSpecificOutput": {
                     "hookEventName": name,
                     "additionalContext": "loom message #1 (from: 총괄, mode: steer)\nb",
@@ -511,7 +489,7 @@ mod tests {
     #[test]
     fn human_input_gets_the_open_question_line() {
         let prompt = event(json!({ "hook_event_name": "UserPromptSubmit" }));
-        assert_eq!(prompt.reply(&[], &[], &[]), None);
+        assert_eq!(prompt.reply(&[], &[]), None);
         let questions = [
             OpenQuestion {
                 id: WaitId(12),
@@ -522,7 +500,7 @@ mod tests {
                 text: "Delete?".into(),
             },
         ];
-        let reply = prompt.reply(&[], &[], &questions).unwrap();
+        let reply = prompt.reply(&[], &questions).unwrap();
         let text = reply["hookSpecificOutput"]["additionalContext"]
             .as_str()
             .unwrap();

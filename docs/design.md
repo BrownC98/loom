@@ -384,7 +384,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 | 방식 | 받는 노드 상태 | Claude Code | Codex | OpenCode 2 |
 |---|---|---|---|---|
 | 큐 | `loom wait` 안 | `loom wait`가 본문을 돌려준다 | 같다 | 같다 |
-| 큐 | 일하는 중 | 턴이 끝나면 Stop 비동기 훅이 꺼내 바로 다음 턴으로 깨운다. 그 전에 PostToolUse 훅이 새로 기다리는 큐 메시지를 한 줄로 알린다 | `turn/completed` 뒤에 `turn/start` | 입력함 `queue`. 지금 실행이 끝난 뒤 같은 실행에 들어간다 |
+| 큐 | 일하는 중 | 다음 PostToolUse 훅 맥락(조정과 같다). 도구를 부르지 않고 턴이 끝나면 Stop 비동기 훅이 꺼내 바로 다음 턴으로 깨운다 | `turn/completed` 뒤에 `turn/start` | 입력함 `queue`. 지금 실행이 끝난 뒤 같은 실행에 들어간다 |
 | 큐 | 쉬는 중 | Stop·SessionStart 비동기 훅(`asyncRewake`)이 기다리다 꺼내고 exit 2로 끝난다. Claude가 그 stderr로 새 턴을 시작한다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 | `turn/start`로 깨운다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 | 입력함 `queue`가 새 실행을 시작한다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 |
 | 조정 | 일하는 중 | PostToolUse 훅 맥락 | `turn/steer` | 입력함 `steer`. 다음 단계 사이(도구 호출 뒤)에 들어간다 |
 | 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 데몬이 `loom guard`로 알린 셸과 그 자손 프로세스를 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` | 세션의 셸과 그 자손을 끝내고 `POST …/interrupt` 뒤에 입력함 `steer` |
@@ -406,7 +406,8 @@ Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Curso
   - sessionStart는 꺼내지 않는다. Cursor는 그 훅이 끝나야 첫 턴을 띄운다. 그 사이의 메시지는 첫 stop 훅이 넘긴다.
   - preToolUse는 포그라운드 Shell 명령 앞에 `loom guard` 줄을 붙인다(`updated_input`). `permission`은 넣지 않는다. 넣으면 사람이 끈 모든 권한 허용을 훅이 대신 허용한다.
   - 한계: Cursor TUI는 `~/.cursor/hooks.json`이나 `<작업 폴더>/.cursor/hooks.json`에 그 이벤트 항목이 있을 때만 stop·beforeSubmitPrompt 훅을 부른다(cursor-agent 2026.10.19 번들의 `userHooks?.hooks.stop?.length||projectHooks?.hooks.stop?.length`). 플러그인 훅만으로는 부르지 않는다. 그 항목이 없는 컴퓨터에서 Cursor 노드는 쉬는 동안 메시지로 깨지 않는다. 다음 사람 입력이나 도구 호출 때 받는다. Orca는 이 두 항목을 `~/.cursor/hooks.json`에 넣는다. loom은 그 파일을 고치지 않는다(2026-10-21 총괄 결정 A안). 대신 사용법 지시가 그 항목이 없으면 기다리는 답을 `loom wait --reply-to`로 받으라고 적는다.
-- 기다리는 큐 알림(Claude PostToolUse, Cursor postToolUse): 일하는 노드의 큐 메시지는 턴이 끝나야 간다. 그래서 도구 호출 뒤 훅이 아직 꺼내지 않은 큐 메시지 가운데 지난 알림 뒤에 온 것을 한 줄로 알린다(`loom: N new queued message(s) waiting (from: …). Run `loom wait --json` now …`). 본문은 넘기지 않고 꺼내지도 않는다. 에이전트가 지금 읽을지 고른다(2026-10-21 사람 승인). 노드마다 알린 마지막 메시지 id를 데몬 기억에 둔다. 데몬이 다시 시작하면 기다리던 메시지를 한 번 더 알린다. Codex·OpenCode 2는 알리지 않는다. 전달 작업은 도구 호출 지점을 모른다. 알리려면 알림마다 입력(`turn/steer`, 입력함 `steer`)을 하나 더 보내야 한다.
+- 일하는 노드의 큐 메시지(Claude PostToolUse, Cursor postToolUse): 도구 호출 뒤 훅이 조정과 함께 꺼내 넘긴다. 턴 끝까지 기다리지 않는다. 근거: 긴 턴 동안 「안 읽음 N」이 쌓였다. 알림 한 줄만 주고 에이전트에게 읽을지 맡기던 방식(2026-10-21)을 2026-10-22 사람 지시 "가장좋은건 애초에 이런일이 안일어나게 하는거지만"으로 바꿨다. Codex·OpenCode 2는 턴 끝까지 기다린다. 전달 작업이 도구 호출 지점을 모른다.
+- 「안 읽음 N」 누르기(노드 카드): 그 노드의 꺼내지 않은 큐 메시지를 조정으로 바꾼다(`POST /api/nodes/{id}/steer-queued`). 일하는 노드는 다음 단계 사이에, 쉬는 노드는 새 턴으로 받는다(2026-10-22 사람 지시 "사용자가 해당 칩을 클릭하면 수동으로 주입되게"). 트리 줄의 수는 누르지 않는다(줄 버튼 안이다).
 - 훅 한 번에 꺼내는 본문 합은 8KB 이하다. Claude는 `additionalContext` 한 개를 10,000자에서 자른다. 남은 메시지는 다음 훅이 꺼낸다.
 - PreToolUse 훅은 중단 메시지가 없으면 포그라운드 Bash 명령 앞에 `loom guard` 줄을 붙인다(`updatedInput`). 명령을 감싸지 않는 이유: Claude는 권한 규칙을 바꾼 명령으로 판정한다. 감싸면 사용자의 Bash 허용 규칙이 맞지 않는다. 줄을 앞에 붙이면 Claude가 줄마다 판정해 규칙이 그대로 맞는다.
 - `loom guard`는 자기 PID를 보낸다. 데몬은 그 조상 가운데 부모가 노드 프로세스인 것(노드의 Bash 도구 셸)을 끝낼 셸로 고른다. 근거: Windows Git Bash는 첫 명령을 fork 흉내용 bash 아래에서 띄우고, 그 bash는 명령과 함께 끝난다. 부모 PID를 셸로 보면 이미 끝난 프로세스를 가리킨다.

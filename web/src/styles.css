@@ -375,6 +375,8 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .state.done { color: var(--ok); }
 .state.exited, .state.setupFailed { color: var(--err); }
 .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+button.unread { border: 0; font-family: inherit; cursor: pointer; }
+button.unread:hover { filter: brightness(1.1); }
 .unread svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .held { height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--ink-2); font-size: 12px; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* 기본 글꼴(Jetendard 12px)로 80×24다. 표준 TUI 크기다. 16px는 그 글꼴의 줄 높이, 끝의 16px는 .xterm-box 위아래 여백이다. */

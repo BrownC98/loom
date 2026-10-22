@@ -318,19 +318,15 @@ pub struct TakeRequest {
     /// 훅 입력의 `transcript_path`(Claude 세션 기록 파일). 계정 전환이 쓴다. 옛 `loom hook`은 보내지 않는다.
     #[serde(default)]
     pub transcript: Option<String>,
-    /// 일하는 노드의 도구 호출 사이 훅이다. 꺼내지 않은 큐 메시지를 알린다(`Taken::queued_from`).
-    #[serde(default)]
-    pub notice_queue: bool,
     /// 사람이 입력한 턴의 첫 훅이다. 열린 `loom ask` 질문을 알린다(`Taken::open_question`).
     #[serde(default)]
     pub human_input: bool,
 }
 
-/// `loom hook`의 응답. 꺼낸 메시지와, 알릴 때만 새로 기다리는 큐 메시지의 보낸 노드 이름(온 순서).
+/// `loom hook`의 응답. 꺼낸 메시지.
 #[derive(Serialize, Deserialize)]
 pub struct Taken {
     pub messages: Vec<Delivery>,
-    pub queued_from: Vec<String>,
     /// 사람 입력 훅에서만: 아직 열린 `loom ask` 질문들. 에이전트가 그 입력이 어느 질문의 답인지 판단한다.
     #[serde(default)]
     pub open_questions: Vec<OpenQuestion>,
@@ -558,6 +554,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/name", put(rename_node))
+        .route("/api/nodes/{id}/steer-queued", post(steer_queued))
         .route(
             "/api/nodes/{id}/bookmark",
             put(bookmark_node).delete(unbookmark_node),
@@ -1292,7 +1289,7 @@ impl Mailbox for NodeMailbox {
 
     fn human_input(&self) -> Option<String> {
         let questions = self.app.graph.open_questions(self.node).ok()?;
-        profile::hook_text(&[], &[], &questions)
+        profile::hook_text(&[], &questions)
     }
 }
 
@@ -1412,7 +1409,7 @@ async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread
         Ok(questions) => questions,
         Err(e) => return eprintln!("loom: 노드 {}의 열린 질문을 읽지 못했다: {e}", node.0),
     };
-    let Some(text) = profile::hook_text(&[], &[], &questions) else {
+    let Some(text) = profile::hook_text(&[], &questions) else {
         return;
     };
     let call = |method, params| server.call(method, params);
@@ -1538,6 +1535,14 @@ async fn rename_node(
     Json(req): Json<RenameNode>,
 ) -> Result<Json<()>, Problem> {
     app.graph.rename(NodeId(id), &req.name)?;
+    Ok(Json(()))
+}
+
+async fn steer_queued(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.graph.steer_queued(NodeId(id))?;
     Ok(Json(()))
 }
 
@@ -1749,18 +1754,12 @@ async fn agent_take(
         .graph
         .take(node, &req.kinds, req.limit_bytes)
         .map_err(for_agent)?;
-    let queued_from = if req.notice_queue {
-        app.graph.newly_queued(node).map_err(for_agent)?
-    } else {
-        Vec::new()
-    };
     let open_questions = match req.human_input {
         true => app.graph.open_questions(node).map_err(for_agent)?,
         false => Vec::new(),
     };
     Ok(Json(Taken {
         messages,
-        queued_from,
         open_questions,
     }))
 }

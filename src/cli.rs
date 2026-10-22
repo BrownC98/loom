@@ -200,7 +200,7 @@ pub fn hook() -> Result<(), String> {
         human_input: matches!(event, claude::Event::UserPromptSubmit),
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
-    if let Some(reply) = event.reply(&taken.messages, &taken.open_questions) {
+    if let Some(reply) = event.reply(&taken.messages, taken.note.as_deref()) {
         println!("{reply}");
     }
     // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
@@ -268,15 +268,15 @@ pub fn cursor_hook() -> Result<(), String> {
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {
             messages: Vec::new(),
-            open_questions: Vec::new(),
+            note: None,
         },
         Some(Take::WhenIdle) => Taken {
             messages: wait_for_mail(&IdleRequest::default())?,
-            open_questions: Vec::new(),
+            note: None,
         },
         Some(Take::Now(kinds)) => take_now(kinds)?,
     };
-    println!("{}", event.reply(&taken.messages, &taken.open_questions,));
+    println!("{}", event.reply(&taken.messages, taken.note.as_deref()));
     std::io::stdout().flush().map_err(|e| e.to_string())?;
     acknowledge(&taken.messages, Some(timeout));
     Ok(())

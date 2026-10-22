@@ -734,24 +734,31 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
 
 /// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
 /// 훅이 넘기는 글: 꺼낸 메시지, 사람 입력 때 열린 `loom ask` 질문들. 모두 없으면 없다.
-pub fn hook_text(taken: &[Delivery], open_questions: &[OpenQuestion]) -> Option<String> {
-    let mut parts = Vec::new();
-    if !open_questions.is_empty() {
-        let list: Vec<String> = open_questions
-            .iter()
-            .map(|OpenQuestion { id, text }| format!("{id}: {text}"))
-            .collect();
-        parts.push(format!(
-            "Open loom ask questions: {}. If this input answers some of them, call `loom answered <Q ids>` (for example `loom answered {}`) first, then act. Leave the others open.",
-            list.join(" | "),
-            open_questions[0].id
-        ));
-    }
+pub fn hook_text(taken: &[Delivery], note: Option<&str>) -> Option<String> {
+    let mut parts: Vec<String> = note.map(str::to_owned).into_iter().collect();
     if !taken.is_empty() {
         parts.push(message_text(taken));
     }
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
+
+/// 사람 입력에 붙이는 열린 질문 안내. 질문이 없으면 없다.
+pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
+    let first = open_questions.first()?;
+    let list: Vec<String> = open_questions
+        .iter()
+        .map(|OpenQuestion { id, text }| format!("{id}: {text}"))
+        .collect();
+    Some(format!(
+        "Open loom ask questions: {}. If this input answers some of them, call `loom answered <Q ids>` (for example `loom answered {}`) first, then act. Leave the others open.",
+        list.join(" | "),
+        first.id
+    ))
+}
+
+/// 부모 없는 노드의 사람 입력마다 붙이는 완료 보고 안내. 훅은 늘 지금 loom이 실행하므로 오래된 세션도 이 규칙을 받는다.
+/// 근거: 사용법은 띄울 때 한 번만 넘어가서, 규칙이 생기기 전에 뜬 루트와 잊은 루트가 완료 알림을 올리지 않았다(2026-10-22 사람 지시 "ktasearch 총괄이 완료한 작업을 알림으로 안올림, 원인 파악후 근본문제 해결해").
+pub const DONE_NOTE: &str = "When all work from this human input is finished, report it with loom done \"<what you did>\" --asked \"<this input, short>\" (add --image <path> for each image the human gave). This is the only way the human sees that you are done. Do not call it for a reply that needs no work.";
 
 pub fn message_text(taken: &[Delivery]) -> String {
     taken
@@ -814,6 +821,24 @@ pub fn assert_every_launch_asks(texts: impl Fn(Launch) -> (String, String)) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn open_questions_become_one_note_line() {
+        assert_eq!(questions_note(&[]), None);
+        let note = questions_note(&[
+            OpenQuestion {
+                id: crate::graph::WaitId(12),
+                text: "A or B?".into(),
+            },
+            OpenQuestion {
+                id: crate::graph::WaitId(13),
+                text: "Delete?".into(),
+            },
+        ])
+        .unwrap();
+        assert!(note.starts_with("Open loom ask questions: Q12: A or B? | Q13: Delete?. If this input answers some of them, call `loom answered <Q ids>` (for example `loom answered Q12`)"), "{note}");
+    }
+
     use super::*;
 
     #[test]

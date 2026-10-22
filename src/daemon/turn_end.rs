@@ -52,12 +52,14 @@ impl TurnEnds {
 impl App {
     /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다.
     pub(super) fn turn_end(&self, node: NodeId) -> Option<&'static str> {
-        self.turn_ends.ended(node, || {
+        let nudge = self.turn_ends.ended(node, || {
             self.graph.unreported_root(node).unwrap_or_else(|e| {
                 eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
                 false
             })
-        })
+        });
+        // 다시 띄울 노드다. 다시 일하게 한 턴은 다시 띄우기가 끊거나 늦춘다.
+        nudge.filter(|_| !self.relaunches.holds_mail(node))
     }
 }
 

@@ -399,7 +399,7 @@ pub enum Start {
         #[serde(default)]
         #[ts(skip)]
         choice: ModelChoice,
-        /// 이어 갈 세션(Claude 세션 id, Codex 스레드 id). 계정 전환만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
+        /// 이어 갈 세션(Claude·Cursor 세션 id, Codex 스레드 id, OpenCode 2 세션 id). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
         #[serde(skip)]
         #[ts(skip)]
         resume: Option<String>,
@@ -686,12 +686,14 @@ fn agent_command(
     Ok(cmd)
 }
 
-/// 다른 인자보다 앞에 넣는 인자: 이어 갈 세션(계정 전환)과 모든 권한 허용. Codex `resume`은 하위 명령이라 맨 앞이다.
+/// 다른 인자보다 앞에 넣는 인자: 이어 갈 세션(다시 띄우기)과 모든 권한 허용. OpenCode 2는 세션을 서버가 연다(`opencode2::Node::start`). Codex `resume`은 하위 명령이라 맨 앞이다.
 /// `codex resume --remote`는 권한 인자를 받지 않는다("Permission overrides are not supported when resuming a remote task",
 /// 0.159.2 실측). 그 권한은 데몬이 서버에서 스레드를 열 때 넘긴다(`codex::resume`).
 fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String> {
     let mut args = match (agent.profile, resume) {
-        (Some(Profile::Claude), Some(session)) => vec!["--resume".into(), session.into()],
+        (Some(Profile::Claude | Profile::Cursor), Some(session)) => {
+            vec!["--resume".into(), session.into()]
+        }
         (Some(Profile::Codex), Some(thread)) => return vec!["resume".into(), thread.into()],
         _ => Vec::new(),
     };
@@ -846,7 +848,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resume_comes_first_and_codex_resume_takes_no_permission_args() {
+    fn resume_comes_first_and_codex_resume_takes_no_permission_args_but_cursor_does() {
         let claude = find(&AgentId("claude".into())).unwrap();
         let codex = find(&AgentId("codex".into())).unwrap();
         assert_eq!(
@@ -855,6 +857,11 @@ mod tests {
         );
         assert_eq!(leading_args(claude, None, false), Vec::<String>::new());
         assert_eq!(leading_args(codex, Some("t1"), true), ["resume", "t1"]);
+        let cursor = find(&AgentId("cursor".into())).unwrap();
+        assert_eq!(
+            leading_args(cursor, Some("c1"), true),
+            ["--resume", "c1", "--force", "--trust"]
+        );
         assert_eq!(
             leading_args(codex, None, true),
             ["--dangerously-bypass-approvals-and-sandbox"]

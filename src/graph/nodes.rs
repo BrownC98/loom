@@ -42,7 +42,7 @@ pub struct Active {
     pub agent: Option<AgentId>,
     pub server: Option<ServerLink>,
     pub account: Option<AccountId>,
-    /// Claude 세션의 기록 파일. `Graph::set_transcript`가 남긴다.
+    /// Claude·Cursor 세션의 기록 파일. 파일 이름이 세션 id다. `Graph::set_transcript`가 남긴다.
     pub transcript: Option<String>,
     pub model: Model,
     /// 이 프로세스가 데몬을 부를 때 내는 토큰(`Launched::token`).

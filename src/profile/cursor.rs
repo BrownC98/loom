@@ -77,6 +77,9 @@ const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 /// 플러그인 표지가 가리키는 훅 파일. Claude는 `.cursor-plugin`과 이 파일을 읽지 않는다.
 const HOOKS_FILE: &str = "cursor-hooks.json";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
+/// 다시 띄운 세션의 첫 입력. 쉬는 Cursor에는 stop 훅만 메시지를 넘긴다. 입력 없이 이으면 그 훅이 돌지 않아
+/// 사람이 입력할 때까지 메시지가 쌓였다(2026-10-22 실측).
+pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
 /// Shell 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다(`claude::GUARD`와 같다).
 const GUARD: &str = "loom guard";
 

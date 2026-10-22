@@ -335,7 +335,7 @@ pub struct WaitRequest {
 pub struct TakeRequest {
     pub kinds: Vec<Kind>,
     pub limit_bytes: usize,
-    /// 훅 입력의 `transcript_path`(Claude 세션 기록 파일). 계정 전환이 쓴다. 옛 `loom hook`은 보내지 않는다.
+    /// 훅 입력의 `transcript_path`(Claude·Cursor 세션 기록 파일). 다시 띄우기가 쓴다. 옛 `loom hook`은 보내지 않는다.
     #[serde(default)]
     pub transcript: Option<String>,
     /// 사람이 입력한 턴의 첫 훅이다. 열린 `loom ask` 질문을 알린다(`Taken::open_question`).
@@ -356,7 +356,7 @@ pub struct Taken {
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IdleRequest {
-    /// 훅 입력의 `transcript_path`. 계정 전환이 쓴다.
+    /// 훅 입력의 `transcript_path`. 다시 띄우기가 쓴다.
     pub transcript: Option<String>,
     /// 계정 한도로 턴이 끝났다(`StopFailure`의 `rate_limit`).
     pub rate_limited: bool,
@@ -1216,12 +1216,17 @@ impl App {
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
                 let password = new_token().map_err(internal)?;
-                let node = opencode2::Node::start(cwd, inside, &env, &skills, password, launch)
-                    .await
-                    .map_err(|cause| LaunchError::Server {
-                        program: format!("{} serve", opencode2::CMD),
-                        cause,
-                    })?;
+                let resume = match start {
+                    Start::Agent { resume, .. } => resume.as_deref(),
+                    Start::Command { .. } => None,
+                };
+                let node =
+                    opencode2::Node::start(cwd, inside, &env, &skills, password, launch, resume)
+                        .await
+                        .map_err(|cause| LaunchError::Server {
+                            program: format!("{} serve", opencode2::CMD),
+                            cause,
+                        })?;
                 Some(Arc::new(node))
             }
             _ => None,
@@ -1357,8 +1362,7 @@ impl Mailbox for NodeMailbox {
 
     fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String> {
         self.app
-            .graph
-            .take(self.node, kinds, limit_bytes)
+            .take_mail(self.node, kinds, limit_bytes)
             .map_err(|e| e.to_string())
     }
 
@@ -1450,10 +1454,7 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                 continue;
             }
             let status = if started { Status::Busy } else { now.status };
-            match app
-                .graph
-                .take(node, codex::kinds(status), codex::INPUT_LIMIT_BYTES)
-            {
+            match app.take_mail(node, codex::kinds(status), codex::INPUT_LIMIT_BYTES) {
                 Ok(taken) if !taken.is_empty() => {
                     if taken.iter().any(|d| d.kind == Kind::Interrupt) {
                         server.stop_shells();
@@ -1959,6 +1960,11 @@ async fn agent_idle(
         app.rate_limited(node, profile::Provider::Claude);
     }
     app.turn_ended(node);
+    if app.relaunches.holds_mail(node) {
+        // 다시 띄우기가 이 대기를 끝낸다(`idle.end`). 메시지는 새 프로세스가 받는다.
+        end.notified().await;
+        return Ok(Json(Vec::new()));
+    }
     tokio::select! {
         taken = app.graph.next(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => Ok(Json(taken.map_err(for_agent)?)),
         () = end.notified() => Ok(Json(Vec::new())),
@@ -1998,7 +2004,7 @@ async fn agent_model(
     Ok(Json(()))
 }
 
-/// 훅 입력의 Claude 세션 기록 파일을 남긴다. 계정 전환이 그 파일을 새 계정으로 복사한다. 근거: docs/design.md 「계정 전환」.
+/// 훅 입력의 세션 기록 파일(Claude, Cursor)을 남긴다. 다시 띄우기가 그 이름으로 세션을 잇고, 계정 전환이 Claude 기록을 새 계정으로 복사한다. 근거: docs/design.md 「계정 전환」.
 fn keep_transcript(app: &App, node: NodeId, path: Option<&str>) -> Result<(), AgentError> {
     match path {
         Some(path) => app

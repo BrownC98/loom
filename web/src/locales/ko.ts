@@ -514,7 +514,7 @@ const ko: typeof en = {
       notRelated: '{{value}}: 부모나 자식 노드가 아닙니다. 조정·중단은 부모와 자식 사이에만 보낼 수 있습니다. `loom send`로 보내십시오.',
       notRelated_nameless: '부모나 자식 노드가 아닙니다. 조정·중단은 부모와 자식 사이에만 보낼 수 있습니다. `loom send`로 보내십시오.',
       notChild: '{{value}}: 자식 노드가 아닙니다. 자기 자식만 지우거나 다시 띄울 수 있습니다.',
-      noResume: '{{value}}: 새 프로세스로 대화를 이을 수 없는 노드입니다(Claude·Codex 노드만 가능).',
+      noResume: '{{value}}: 셸·명령 노드라 새 프로세스로 이을 에이전트 대화가 없습니다.',
       childrenStay: '{{value}}. 이 자식들을 데려올 수 없어 아무것도 바꾸지 않았습니다.',
       ended: '{{value}}: 이미 종료된 노드입니다.',
       ended_nameless: '이미 종료된 노드입니다.',

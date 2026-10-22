@@ -513,7 +513,7 @@ const en = {
       notRelated: '{{value}}: not my parent or child. Steer and interrupt go only between parent and child. Use `loom send`.',
       notRelated_nameless: 'Not my parent or child. Steer and interrupt go only between parent and child. Use `loom send`.',
       notChild: '{{value}}: not my child. I can remove or relaunch only my own children.',
-      noResume: '{{value}}: this node cannot continue its session in a new process (only Claude and Codex nodes can).',
+      noResume: '{{value}}: this node runs a shell or command, which has no agent session to continue in a new process.',
       childrenStay: '{{value}}. These children cannot move here, so nothing changed.',
       ended: '{{value}} has already ended.',
       ended_nameless: 'This node has already ended.',

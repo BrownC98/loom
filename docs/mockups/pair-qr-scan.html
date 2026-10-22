@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>폰 QR 찍기 목업</title>
+<title>M2 폰 QR 찍기 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -78,9 +78,9 @@ table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
 </head>
 <body>
 <main class="doc">
-  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 웹QR</b></span><span>v1 · 2026-10-22</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M2</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 웹QR</b></span><span>v2 · 2026-10-22</span></div>
   <h1>연결되지 않은 폰: 코드 칸 옆에 [QR 찍기]</h1>
-  <p class="lead">사람 지시: "앱에서 연결할때도 번호 없이 qr 로 연결되게 만들어줘", "정확히는 그런 옵션도 제공해줘"(Q386 A). 홈 화면 앱(iPhone PWA)은 <code>#pair</code> 없이 열려 지금은 코드 8자를 적는다. M41 ④의 「연결되지 않은 기기」 카드에 [QR 찍기]를 더한다. 폰 카메라로 PC의 QR을 찍으면 코드를 읽어 바로 연결한다. 코드 칸은 그대로 남는다. 점선이 바뀌는 곳이다.</p>
+  <p class="lead">사람 지시: "앱에서 연결할때도 번호 없이 qr 로 연결되게 만들어줘", "정확히는 그런 옵션도 제공해줘"(Q386 A). 홈 화면 앱(iPhone PWA)은 <code>#pair</code> 없이 열려 지금은 코드 8자를 적는다. M41 ④의 「연결되지 않은 기기」 카드에 [QR 찍기]를 더한다. 폰 카메라로 PC의 QR을 찍으면 코드를 읽어 바로 연결한다. 코드 칸은 그대로 남고, v2: "핀번호 입력시 화면에 입력된대로 - 표시가 중간에 나오도록 할 것". 점선이 바뀌는 곳이다.</p>
 
   <div class="fig">
     <h2>① 연결되지 않은 기기 <span class="tag">phone.rs unpaired · M41 ④ 둘째 카드를 바꾼다</span></h2>
@@ -94,9 +94,19 @@ table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
             <div class="field empty">코드 8자</div><button class="btn pbtn sec new">연결</button></div>
         </div>
       </div>
+      <div class="shot">
+        <span class="cap">코드를 적을 때(v2)</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>●●●</span></div>
+          <div class="card top"><span class="mark">L</span><h3>이 기기는 연결되지 않았습니다</h3><p>PC의 loom 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 찍거나 코드를 적습니다.</p>
+            <button class="btn primary pbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="9" y="9" width="6" height="6"/></svg>QR 찍기</button>
+            <div class="or">또는 코드 적기</div>
+            <div class="field new">K7QP-M2X<span style="border-left:2px solid var(--ink);height:24px;margin-left:1px"></span></div><button class="btn pbtn sec">연결</button></div>
+        </div>
+      </div>
     </div>
     <ul class="note">
       <li>[QR 찍기]를 위로 올리고 채운 단추로 둔다. 코드 칸의 [연결]은 테두리 단추로 바꾼다. 적는 것보다 찍는 것이 쉽다.</li>
+      <li>코드 칸은 PC와 같은 꼴(<code>K7QP-M2XD</code>)로 보인다. 4자를 적으면 <code>-</code>가 저절로 들어가고, 커서는 적은 글자 바로 뒤에 남는다. <code>-</code>가 있든 없든 붙여 넣기를 받고, 보낼 때는 <code>-</code>를 뺀 8자를 보낸다.</li>
       <li>카메라를 쓸 수 없는 브라우저(카메라 API 없음)면 [QR 찍기]와 「또는 코드 적기」 줄을 숨기고 지금 카드와 같게 보인다.</li>
     </ul>
   </div>
@@ -136,7 +146,7 @@ table.cmp th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
     <table class="cmp">
       <tr><th>#</th><th>정할 것</th><th>안</th></tr>
       <tr><td>1</td><td>단추 순서</td><td><span class="pick">A(권장)</span>: [QR 찍기]를 위에 채운 단추로, 코드 칸 [연결]은 테두리 단추로 / B: 코드 칸을 위에 그대로 두고 [QR 찍기]를 아래 테두리 단추로</td></tr>
-      <tr><td>2</td><td>①② 화면과 문구</td><td>그대로 / 고칠 곳</td></tr>
+      <tr><td>2</td><td>①② 화면과 문구(코드 칸의 <code>-</code> 포함)</td><td>그대로 / 고칠 곳</td></tr>
     </table>
   </div>
 </main>

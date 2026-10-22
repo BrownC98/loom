@@ -344,6 +344,7 @@ const en = {
     button: 'Questions',
     tab: 'Notifications',
     instruction: 'Asked: {{text}}',
+    published: 'Sent {{time}}',
     jumpLabel: 'Go to the question of {{name}}',
     listLabel: 'Open the question list, {{count}}',
     title: 'Notifications {{count}}',

@@ -523,7 +523,8 @@ a { color: var(--accent); }
 .inbox-pill .head { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
 .inbox-pill .head > b { white-space: nowrap; }
 /* 완료만 남은 알약: 질문 색 자리에 노드 상태 「완료」 점과 같은 초록(목업 docs/mockups/done-notice.html M37). */
-.inbox-pill[data-kind="done"] { --warn: var(--ok); }
+/* 배지 글자는 --surface다. 설정 「완료·성공」 색은 --surface와의 대비를 맞추므로 사람이 고른 색에서도 읽힌다. */
+.inbox-pill[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
 .inbox-pill .qicon { flex: none; width: 16px; height: 16px; margin-right: -2px; color: var(--warn); }
 .inbox-pill .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .inbox-pill .go b { color: var(--ink); font-size: 13px; }

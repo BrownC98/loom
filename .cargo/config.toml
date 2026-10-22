@@ -1,3 +1,7 @@
 [env]
 # API 타입은 Rust에 한 번만 선언한다. cargo test가 TS 타입을 이 폴더에 쓴다.
 TS_RS_EXPORT_DIR = { value = "web/src/gen", relative = true }
+
+# Windows 코드를 호스트에서 검사하고 실제 Windows에서 시험한다(mingw-w64, `rustup target add x86_64-pc-windows-gnu`).
+[target.x86_64-pc-windows-gnu]
+runner = "scripts/windows/run.sh"

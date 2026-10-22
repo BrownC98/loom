@@ -2429,4 +2429,11 @@ fn records_inbox_notices_and_the_human_responses() {
             },
         ]
     );
+    // 사람의 답·추가 지시·닫힘은 알림 이벤트 한 줄이다. 같은 일을 사람이 보낸 메시지 이벤트로 또 쓰지 않는다.
+    assert!(
+        !recorded(&g)
+            .iter()
+            .any(|(e, _)| matches!(e, Entry::Message { from, .. } if from.id.is_none())),
+        "no human message entry beside the notice entry"
+    );
 }

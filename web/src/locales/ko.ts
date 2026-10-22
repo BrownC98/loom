@@ -175,7 +175,7 @@ const ko: typeof en = {
     browser: '브라우저(iPhone)로 쓰기 · 선택',
     browserHint: '브라우저는 loom의 인증서를 확인하지 못합니다. iPhone·브라우저에서 쓰려면 Tailscale Serve를 켭니다. 그러면 QR이 https://…ts.net 주소도 담습니다.',
     scan: 'Android 앱의 [QR 찍기]로 찍습니다',
-    typeCode: '브라우저는 폰 카메라로 찍습니다. 홈 화면 앱에서는 [QR 찍기]로 찍거나 아래 코드를 적습니다.',
+    typeCode: '또는 앱에 아래 코드를 적습니다. 폰과 이 컴퓨터가 같은 Wi‑Fi에 있어야 합니다. 브라우저는 폰 카메라로 찍습니다.',
     left: '{{min}}분 {{sec}}초 남음 · 한 번만 씁니다',
     qrAlt: '폰 연결 QR 코드',
     devices: '연결된 기기',

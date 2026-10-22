@@ -48,6 +48,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     // 뒤로 제스처(Android 16은 onBackPressed를 부르지 않는다)와 파일 고르기 결과.
     implementation("androidx.activity:activity:1.13.0")
+    // Pake.kt가 src/pake.rs와 같은 값을 내는지 본다(src/test/resources/pake-vector.txt).
+    testImplementation("junit:junit:4.13.2")
     constraints {
         // 코드 스캐너가 옛 fragment(1.3 아래)를 끌어온다. 그 판은 파일 고르기 결과(registerForActivityResult)를 잃는다(lint InvalidFragmentVersionForActivityResult).
         implementation("androidx.fragment:fragment:1.9.0")

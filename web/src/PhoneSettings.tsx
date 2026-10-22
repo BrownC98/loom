@@ -113,14 +113,10 @@ export function PhoneTab() {
             <img className="qr" alt={t('pairing.qrAlt')} src={`data:image/svg+xml;utf8,${encodeURIComponent(invite.view.qrSvg)}`} />
             <div className="pair-text">
               <b>{t('pairing.scan')}</b>
-              {serving && (
-                <>
-                  <span className="hint">{t('pairing.typeCode')}</span>
-                  <span className="pair-code" translate="no">
-                    {invite.view.code}
-                  </span>
-                </>
-              )}
+              <span className="hint">{t('pairing.typeCode')}</span>
+              <span className="pair-code" translate="no">
+                {invite.view.code}
+              </span>
               <span className="hint">{t('pairing.left', { min: Math.floor(left / 60), sec: left % 60 })}</span>
               <span>
                 <button type="button" className="btn sm" onClick={() => setInvite(null)}>

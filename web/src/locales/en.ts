@@ -320,6 +320,7 @@ const en = {
     listLabel: 'Open the question list, {{count}}',
     title: 'Notifications {{count}}',
     dismiss: 'Dismiss',
+    confirm: 'OK',
     empty: 'No notifications',
     answerLabel: 'Answer to {{id}}',
     answerPlaceholder: 'Type an answer or paste an image, Enter to send',
@@ -428,6 +429,7 @@ const en = {
       edge: 'Edges',
       repo: 'Repository',
       worktree: 'Worktree',
+      notice: 'Notifications',
       accent: 'Accent',
     },
     use: {
@@ -438,6 +440,7 @@ const en = {
       edge: 'Lines between parent and child nodes',
       repo: 'Repository box border (all repositories)',
       worktree: 'Worktree group border',
+      notice: 'Notification count on the Notifications tab and phone tab',
       accent: 'Chosen card and tab, switches, focus ring',
     },
   },

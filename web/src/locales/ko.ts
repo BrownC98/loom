@@ -321,6 +321,7 @@ const ko: typeof en = {
     listLabel: '질문 목록 열기, {{count}}개',
     title: '알림 {{count}}',
     dismiss: '알림 지우기',
+    confirm: '확인',
     empty: '알림 없음',
     answerLabel: '{{id}} 답변',
     answerPlaceholder: '답변 입력, 그림 붙여넣기, Enter로 보내기',
@@ -429,6 +430,7 @@ const ko: typeof en = {
       edge: '관계선',
       repo: '저장소',
       worktree: '워크트리',
+      notice: '알림',
       accent: '강조',
     },
     use: {
@@ -439,6 +441,7 @@ const ko: typeof en = {
       edge: '부모와 자식 노드를 잇는 선',
       repo: '저장소 상자 테두리(모든 저장소 범위)',
       worktree: '워크트리 묶음 테두리',
+      notice: '알림 탭·폰 탭의 알림 수 배지',
       accent: '고른 카드·탭, 켠 스위치, 포커스 테두리',
     },
   },

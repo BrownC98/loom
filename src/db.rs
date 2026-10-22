@@ -186,6 +186,12 @@ const STEPS: &[M] = &[
             SELECT wait ->> 'id', id, json_remove(wait, '$.source') FROM nodes WHERE wait ->> 'source' = 'ask';
         UPDATE nodes SET wait = NULL WHERE wait ->> 'source' = 'ask';",
     ),
+    // 25: 완료 알림(graph `waits`)의 자리. serde JSON `HumanWait`이고 없으면 NULL이다. 사람이 [확인]을 누를 때만 지운다.
+    // 신호의 대기(`nodes.wait`)와 자리가 같으면 승인 창이 완료를 덮거나 완료가 다음 완료를 막는다(2026-10-22 사람 지시 "완료 알림은 사용자가 확인 버튼 클릭하면 제거되는 걸로").
+    M::up(
+        "ALTER TABLE nodes ADD COLUMN done TEXT;
+        UPDATE nodes SET done = json_remove(wait, '$.source'), wait = NULL WHERE wait ->> 'kind' = 'done';",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

@@ -78,7 +78,14 @@ impl TurnEnds {
     /// 턴이 끝났다. 할 일을 돌려준다.
     /// `unasked_root`는 노드가 사람이 띄운 노드이고 사람 응답 대기가 없는지 본다(`Graph::unasked_root`).
     /// 이번 턴에 `loom ask`로 물었으면 대기가 남아 있다. 다시 일하게 한 턴은 사람이 연 턴을 잇는다. 완료는 그 턴 끝에 건다.
-    pub fn ended(&self, node: NodeId, unasked_root: impl FnOnce() -> bool) -> Ended {
+    /// `busy`는 노드에 남은 일(일하는 자식, 꺼내지 않은 메시지)이 있는지 본다(`Graph::busy`). 남았으면 완료를 미루고 사람의 지시를 다음 턴 끝까지 들고 간다.
+    /// 근거: 2026-10-22 사람 지시 "모든 답변에 완료 띄우지 말고, 최종적으로 모든 작업이 완료되었을때만 띄워".
+    pub fn ended(
+        &self,
+        node: NodeId,
+        unasked_root: impl FnOnce() -> bool,
+        busy: impl FnOnce() -> bool,
+    ) -> Ended {
         let said = self.said.lock().unwrap().remove(&node);
         let nudged = self.nudged.lock().unwrap().remove(&node);
         if !nudged && said.as_deref().is_some_and(asks_in_text) && unasked_root() {
@@ -88,7 +95,14 @@ impl TurnEnds {
             }
             return Ended::Nudge(NUDGE);
         }
-        match self.human.lock().unwrap().remove(&node) {
+        let mut human = self.human.lock().unwrap();
+        if human.contains_key(&node) && busy() {
+            if let Some(turn) = human.get_mut(&node) {
+                turn.before_nudge = None;
+            }
+            return Ended::Quiet;
+        }
+        match human.remove(&node) {
             Some(turn) => Ended::Done {
                 instruction: turn.instruction,
                 result: match said {
@@ -104,12 +118,16 @@ impl TurnEnds {
 impl App {
     /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다. 사람이 연 턴이면 받은편지함에 완료를 건다.
     pub(super) fn turn_end(&self, node: NodeId) -> Option<&'static str> {
-        let ended = self.turn_ends.ended(node, || {
-            self.graph.unasked_root(node).unwrap_or_else(|e| {
-                eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
-                false
-            })
-        });
+        let ended = self.turn_ends.ended(
+            node,
+            || {
+                self.graph.unasked_root(node).unwrap_or_else(|e| {
+                    eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
+                    false
+                })
+            },
+            || self.graph.busy(node).unwrap_or(false),
+        );
         match ended {
             Ended::Nudge(nudge) => Some(nudge),
             Ended::Done {
@@ -176,20 +194,45 @@ mod tests {
         let turns = TurnEnds::default();
         let node = NodeId(1);
         turns.said(node, "병합할까요?".into());
-        assert_eq!(turns.ended(node, || false), Ended::Quiet, "child or asked");
+        assert_eq!(
+            turns.ended(node, || false, || false),
+            Ended::Quiet,
+            "child or asked"
+        );
         turns.said(node, "병합할까요?".into());
-        assert_eq!(turns.ended(node, || true), Ended::Nudge(NUDGE));
+        assert_eq!(turns.ended(node, || true, || false), Ended::Nudge(NUDGE));
         // 다시 일한 턴이 또 묻고 끝나도 막지 않는다.
         turns.said(node, "병합할까요?".into());
-        assert_eq!(turns.ended(node, || true), Ended::Quiet);
+        assert_eq!(turns.ended(node, || true, || false), Ended::Quiet);
         turns.said(node, "병합할까요?".into());
-        assert_eq!(turns.ended(node, || true), Ended::Nudge(NUDGE));
+        assert_eq!(turns.ended(node, || true, || false), Ended::Nudge(NUDGE));
         // 답 글이 없는 턴 끝은 막지 않는다. 그래도 한 번 막은 표시는 지운다.
-        assert_eq!(turns.ended(node, || true), Ended::Quiet);
+        assert_eq!(turns.ended(node, || true, || false), Ended::Quiet);
         turns.said(node, "끝냈다.".into());
-        assert_eq!(turns.ended(node, || true), Ended::Quiet);
+        assert_eq!(turns.ended(node, || true, || false), Ended::Quiet);
         turns.said(node, "병합할까요?".into());
-        assert_eq!(turns.ended(node, || true), Ended::Nudge(NUDGE));
+        assert_eq!(turns.ended(node, || true, || false), Ended::Nudge(NUDGE));
+    }
+
+    #[test]
+    fn done_waits_until_the_node_has_no_work_left() {
+        let turns = TurnEnds::default();
+        let node = NodeId(1);
+        turns.human(node, "기능 만들어");
+        turns.said(node, "코디를 띄웠다.".into());
+        // 자식이 일하는 동안 턴이 끝나도 완료가 아니다. 지시는 다음 턴 끝까지 간다.
+        assert_eq!(turns.ended(node, || true, || true), Ended::Quiet);
+        assert!(turns.human_turn(node));
+        // 자식 보고로 연 턴은 사람의 지시를 바꾸지 않는다. 남은 일이 없으면 그 턴 끝에 완료다.
+        turns.human(node, "loom message #9 (from: 코디, mode: queue)\ndone: 끝");
+        turns.said(node, "병합했다.".into());
+        assert_eq!(
+            turns.ended(node, || true, || false),
+            Ended::Done {
+                instruction: "기능 만들어".into(),
+                result: "병합했다.".into()
+            }
+        );
     }
 
     #[test]
@@ -199,14 +242,14 @@ mod tests {
         // 에이전트 메시지로 연 턴(Cursor followup 포함)은 완료가 아니다.
         turns.human(node, "loom message #3 (from: lead, mode: queue)\nDo it.");
         turns.said(node, "끝냈다.".into());
-        assert_eq!(turns.ended(node, || true), Ended::Quiet);
+        assert_eq!(turns.ended(node, || true, || false), Ended::Quiet);
         // 사람이 연 턴: 첫 입력이 지시다.
         turns.human(node, "버튼 고쳐");
         turns.human(node, "그리고 시험도");
         assert!(turns.human_turn(node));
         turns.said(node, "고쳤다.".into());
         assert_eq!(
-            turns.ended(node, || true),
+            turns.ended(node, || true, || false),
             Ended::Done {
                 instruction: "버튼 고쳐".into(),
                 result: "고쳤다.".into()
@@ -216,11 +259,11 @@ mod tests {
         // 글로 물어 다시 일하게 한 턴은 사람이 연 턴을 잇는다. 그 턴 끝에 완료를 건다. 「.」은 결과가 아니다.
         turns.human(node, "병합해");
         turns.said(node, "병합할까요?".into());
-        assert_eq!(turns.ended(node, || true), Ended::Nudge(NUDGE));
+        assert_eq!(turns.ended(node, || true, || false), Ended::Nudge(NUDGE));
         turns.human(node, NUDGE);
         turns.said(node, ".".into());
         assert_eq!(
-            turns.ended(node, || true),
+            turns.ended(node, || true, || false),
             Ended::Done {
                 instruction: "병합해".into(),
                 result: "병합할까요?".into()

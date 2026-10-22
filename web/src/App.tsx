@@ -105,7 +105,7 @@ const EMPTY_SETTINGS: SettingsView = {
   paneWidths: { side: null, dock: null },
   closedPanes: { side: false, dock: false, bookmarks: false },
   closedSwitchNotice: null,
-  colors: { warn: NO_COLOR, run: NO_COLOR, ok: NO_COLOR, err: NO_COLOR, edge: NO_COLOR, repo: NO_COLOR, worktree: NO_COLOR, accent: NO_COLOR },
+  colors: { warn: NO_COLOR, run: NO_COLOR, ok: NO_COLOR, err: NO_COLOR, edge: NO_COLOR, repo: NO_COLOR, worktree: NO_COLOR, accent: NO_COLOR, notice: NO_COLOR },
 };
 const SETTINGS_HASH = '#settings/';
 

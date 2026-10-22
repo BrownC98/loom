@@ -205,6 +205,16 @@ const STEPS: &[M] = &[
         ALTER TABLE spots DROP COLUMN home_x;
         ALTER TABLE spots DROP COLUMN home_y;",
     ),
+    // 28: 짝지은 폰(devices). `token_hash`는 쿠키 토큰의 SHA-256이다. 시각은 Unix 밀리초다.
+    M::up(
+        "CREATE TABLE devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL,
+            token_hash BLOB NOT NULL UNIQUE,
+            paired_at INTEGER NOT NULL,
+            last_seen INTEGER NOT NULL
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -520,9 +530,8 @@ mod tests {
     #[test]
     fn pushed_spots_go_back_to_their_home_and_the_home_columns_go() {
         let mut conn = Connection::open_in_memory().unwrap();
-        super::MIGRATIONS
-            .to_version(&mut conn, super::STEPS.len() - 1)
-            .unwrap();
+        // 26단계까지 올린다. 27단계가 밀린 자리를 되돌린다.
+        super::MIGRATIONS.to_version(&mut conn, 26).unwrap();
         conn.execute_batch(
             r#"INSERT INTO spots (spot, repo, x, y, home_x, home_y) VALUES
             ('{"kind":"repo","repo":71}', 71, 1448, 126, 768, 126),

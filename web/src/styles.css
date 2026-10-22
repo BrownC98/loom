@@ -88,6 +88,9 @@ html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); wor
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button, input, select, textarea { font: inherit; color: inherit; }
 
+/* 칸 너비 변수는 상속하지 않는다. 상속하면 끄는 동안 바꿀 때마다 `.app` 아래 모든 요소(터미널 줄·나무)의 스타일을 다시 계산했다(끌기 한 번에 style 1.8초). */
+@property --side-w { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --dock-w { syntax: '<length>'; inherits: false; initial-value: 0px; }
 .app { position: relative; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--dock-w); flex: 1; min-height: 0; }
 
 /* 앱 제목 줄(docs/mockups/titlebar.html, mac-titlebar.html). 높이·버튼 크기는 Orca와 같다(36px, 46px). 닫기 빨강은 Windows 닫기 버튼 색이다. */
@@ -245,7 +248,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__attribution a { color: inherit; }
 
 /* 오른쪽 사이드바(목업 toolbar.html E안): 위는 그래프 보기 도구, 아래는 탭 하나의 칸. 칸은 이벤트 콘솔(graph-panels.html 3번), 커밋 그래프(4번), 심플 보기의 터미널이다 */
-.dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+/* `clip`: 칸을 좁히는 동안 너비를 고정한 `.dock-panel`이 창 밖으로 넘치지 않게 자른다. */
+.dock { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: clip; background: var(--panel); border-left: 1px solid var(--line); }
 .dock-tools { display: grid; gap: 8px; padding: 8px 12px 12px; }
 .dock-tools-head { display: flex; align-items: center; justify-content: space-between; }
 .dock-tools-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
@@ -259,7 +263,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
 .tabs button:focus-visible { outline-offset: -2px; }
 .tabs svg { width: 14px; height: 14px; }
-.dock-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* 탭 내용(커밋 그래프 1,000줄 등)의 배치·그리기를 칸 안에 가둔다. 사이드바를 끌 때 이 칸을 다시 그리지 않는다(왼쪽 끌기의 긴 작업 8.6초 → 1초 이하).
+   `.side`·`.dock` 전체에는 걸지 않는다. `paint`가 칸 밖으로 나오는 `.row-pop`(position: fixed)을 자른다. */
+.dock-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; contain: layout paint; }
 .dock-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; border-bottom: 1px solid var(--line); }
 .dock-head.hint { padding: 8px 16px; }
 .dock-refusal { margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--line); color: var(--err); font-size: 13px; }

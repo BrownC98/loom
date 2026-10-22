@@ -33,7 +33,7 @@ import { CardViewSwitch } from './ThemeSettings';
 import { ArrangeButton } from './ArrangeButton';
 import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
-import { Splitter, usePaneWidth, useViewportWidth, type Pane } from './Splitter';
+import { Splitter, paneWidth, useViewportWidth, type Pane } from './Splitter';
 import type { ClosedPanes } from './gen/ClosedPanes';
 import { StatusBar, type Usage } from './StatusBar';
 import { Inbox, InboxPanel, waitCount, waitingNodes } from './Inbox';
@@ -64,11 +64,14 @@ const REPOS_REFRESH_MS = 5000;
  * 기본 너비는 목업 graph-panels.html의 값이다. 왼쪽 칸은 480이 상한이라 1440 화면에서도 그래프 칸이 160px 남는다.
  * 오른쪽 칸(터미널·이벤트·커밋)은 상한을 창 폭에 맞춘다: `dockPane`이 창 폭에서 왼쪽 칸을 뺀 만큼을 넘긴다(사람 지시 2026-10-20 「심플 모드의 사이드바 터미널 너비는 원하는 만큼」).
  */
-const SIDE_PANE: Pane = { key: 'side', initial: 260, min: 180, max: 480, grow: 1 };
+const SIDE_PANE: Pane = { key: 'side', cssVar: '--side-w', initial: 260, min: 180, max: 480, grow: 1 };
 /** 오른쪽 칸은 가장 좁은 너비로 시작한다(사람 지시 2026-10-20 「우측 사이드바 최소 너비를 디폴트로 설정」). */
 const DOCK_MIN_WIDTH = 320;
-/** `max`는 App이 창 폭으로 바꿔 넘긴다. 여기 값은 아직 창 폭을 모를 때의 자리값이다. */
-const DOCK_PANE: Pane = { key: 'dock', initial: DOCK_MIN_WIDTH, min: DOCK_MIN_WIDTH, max: 800, grow: -1 };
+/**
+ * `max`는 App이 창 폭으로 바꿔 넘긴다. 여기 값은 아직 창 폭을 모를 때의 자리값이다.
+ * 끄는 동안 탭 내용(`.dock-panel`)의 너비를 고정한다. 커밋 그래프 1,000줄을 끌기마다 다시 배치하면 프레임이 밀렸다(2026-10-22 사람 보고 "잔랙").
+ */
+const DOCK_PANE: Pane = { key: 'dock', cssVar: '--dock-w', freeze: '.dock-panel', initial: DOCK_MIN_WIDTH, min: DOCK_MIN_WIDTH, max: 800, grow: -1 };
 /** 접힌 사이드바(양쪽)의 줄 폭. 아이콘 단추(30) 하나와 여백이 들어간다(목업 docs/mockups/toolbar.html 4번). */
 const RAIL_WIDTH = 40;
 /** 왼쪽 사이드바 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있다. */
@@ -195,14 +198,12 @@ export function App() {
   const setDockOpen = (open: boolean) => setPaneOpen('dock', open);
   const graph = useRef<GraphHandle>(null);
   const saveWidth = (pane: Pane) => (width: number) => editSettings((s) => ({ ...s, paneWidths: { ...s.paneWidths, [pane.key]: width } }));
-  const side = usePaneWidth(SIDE_PANE, settings.paneWidths.side, saveWidth(SIDE_PANE));
-  const sideWidth = side.width;
+  const sideWidth = paneWidth(SIDE_PANE, settings.paneWidths.side);
   const sideShown = sideOpen ? sideWidth : RAIL_WIDTH;
   const viewport = useViewportWidth();
   // 오른쪽 칸은 창 폭에서 왼쪽 칸과 그래프 최소 폭을 뺀 만큼까지 늘어난다. 창을 넓히면 한도도 넓어진다.
   const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, viewport - sideShown - DOCK_MIN_GRAPH) };
-  const dock = usePaneWidth(dockPane, settings.paneWidths.dock, saveWidth(dockPane));
-  const dockWidth = dock.width;
+  const dockWidth = paneWidth(dockPane, settings.paneWidths.dock);
   const simpleCards = settings.cardView === 'simple';
   // 그래프가 그리는 저장소(docs/design.md 「그래프와 화면」). 저장소 하나 범위면 현재 저장소만이다.
   const shown = settings.graphScope === 'all' ? repos : repo ? [repo] : [];
@@ -533,9 +534,9 @@ export function App() {
   return providers(
       <>
         <TitleBar />
-        <div className="app" style={{ '--side-w': `${sideShown}px`, '--dock-w': `${dockOpen ? dockWidth : RAIL_WIDTH}px` } as CSSProperties}>
-          {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} onDrag={side.drag} onCommit={side.commit} label={t('app.resize', { pane: t('app.sideLabel') })} style={{ left: sideWidth }} />}
-          {dockOpen && <Splitter pane={dockPane} width={dockWidth} onDrag={dock.drag} onCommit={dock.commit} label={t('app.resize', { pane: t('dock.label') })} style={{ right: dockWidth }} />}
+        <div className="app" style={{ [SIDE_PANE.cssVar]: `${sideShown}px`, [DOCK_PANE.cssVar]: `${dockOpen ? dockWidth : RAIL_WIDTH}px` } as CSSProperties}>
+          {sideOpen && <Splitter pane={SIDE_PANE} width={sideWidth} onCommit={saveWidth(SIDE_PANE)} label={t('app.resize', { pane: t('app.sideLabel') })} />}
+          {dockOpen && <Splitter pane={dockPane} width={dockWidth} onCommit={saveWidth(dockPane)} label={t('app.resize', { pane: t('dock.label') })} />}
           {sideOpen ? (
             <nav className="side" id="side" aria-label={t('app.sideLabel')}>
               {/* 사이드바 맨 위 줄: 찾기 칸과 접기 단추(목업 docs/mockups/sidebar-head.html). */}

@@ -26,6 +26,7 @@ import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
 import { NodeCard, SimpleCard } from './NodeCard';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
+import { attachPinchZoom } from './pinchZoom';
 import { realignTerminals, SizingTerminal, XtermFont, type Direction, type Draw } from './Terminal';
 
 // 배치 값은 승인한 목업(docs/mockups/main.html)의 좌표에서 가져왔다.
@@ -788,6 +789,10 @@ export function Graph(props: {
   // 왼쪽 사이드바 너비가 바뀌어 그래프 칸의 왼쪽 변이 옮겨도 그래프는 화면의 같은 자리에 둔다. 사이드바가 그래프를 덮는 것처럼 보인다.
   // 2026-10-22 사람 지시 "좌측 사이드바 너비 조정해도 그래프 안밀리게 해, 사이드바가 그래프를 덮는 느낌으로".
   const pane = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = pane.current;
+    return el ? attachPinchZoom(el, { get: flow.getViewport, set: (v) => void flow.setViewport(v) }, { min: MIN_ZOOM, max: MAX_ZOOM }) : undefined;
+  }, [flow]);
   useEffect(() => {
     const el = pane.current;
     if (!el) return;

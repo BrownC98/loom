@@ -52,7 +52,8 @@ export function usePhoneRoute(): [PhoneRoute, (next: PhoneRoute) => void] {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
   const go = (next: PhoneRoute) => {
-    if (next.screen === 'node') history.pushState(null, '', routeHash(next));
+    // 열린 판의 기록 칸 위에 쌓지 않는다. 판이 닫혀도 칸을 지울 수 없어, 뒤로 몸짓이 한 번 헛돈다.
+    if (next.screen === 'node' && !isSheetEntry(history.state)) history.pushState(null, '', routeHash(next));
     else history.replaceState(null, '', routeHash(next));
     setRoute(next);
   };
@@ -352,6 +353,36 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
 /** 손가락을 이만큼(px) 끌어 내리고 떼면 판이 닫힌다. */
 const DRAG_CLOSE_PX = 80;
 
+/** 판이 열릴 때 쌓는 기록 칸의 표시. 값은 판이 겹친 깊이다. */
+type SheetEntry = { loomSheet: number };
+
+function isSheetEntry(state: unknown): state is SheetEntry {
+  return typeof state === 'object' && state !== null && typeof (state as SheetEntry).loomSheet === 'number';
+}
+
+/** 지금 열린 판 수. 안드로이드 뒤로 몸짓은 WebView `goBack`이라 판마다 기록 칸을 하나 쌓아 그 몸짓이 판만 닫게 한다(2026-10-23 사람 "바텀 시트 다시 닫을 수 있는 UI UX 전부 추가해"). */
+let openSheets = 0;
+
+/** 판이 떠 있는 동안 기록 칸 하나를 쌓는다. 뒤로 가면 이 판을 닫고, 다른 길로 닫히면 쌓은 칸을 걷는다. 해시는 바꾸지 않아 라우터는 모른다. */
+function useSheetHistory(onClose: () => void) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const depth = ++openSheets;
+    history.pushState({ loomSheet: depth } satisfies SheetEntry, '');
+    const onPop = () => {
+      const now = isSheetEntry(history.state) ? history.state.loomSheet : 0;
+      if (now < depth) close.current();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      openSheets--;
+      if (isSheetEntry(history.state) && history.state.loomSheet === depth) history.back();
+    };
+  }, []);
+}
+
 /**
  * 아래에서 올라오는 판. 머리 줄(손잡이·제목·[X])은 늘 보이고 몸통만 스크롤한다.
  * 바탕을 누르거나 Esc나 [X]로 닫고, 머리 줄을 아래로 끌어도 닫힌다(2026-10-23 사람 "앱 알림 알약 리스트 스크롤 안되고 바텀 시트를 다시 닫을 ui/ux 개선하라").
@@ -361,6 +392,7 @@ export function Sheet(props: { label: string; onClose: () => void; children: Rea
   const { t } = useTranslation();
   const sheet = useRef<HTMLDivElement>(null);
   const dragFrom = useRef<number | null>(null);
+  useSheetHistory(props.onClose);
   useEffect(() => {
     const close = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose();
     document.addEventListener('keydown', close);

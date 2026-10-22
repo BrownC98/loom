@@ -108,8 +108,8 @@ fn refused(login: &str) -> Response {
 <style>:root{{color-scheme:light dark}}body{{margin:0;padding:16px;font:15px/1.5 system-ui,sans-serif;background:light-dark(#f5f5f5,#1f1f1f);color:light-dark(#171717,#fafafa)}}
 section{{display:grid;gap:8px;max-width:480px;margin:0 auto 12px;padding:14px 16px;border:1px solid light-dark(#d4d4d4,#525252);border-radius:12px;background:light-dark(#fff,#262626)}}
 h1{{margin:0;font-size:16px}}p{{margin:0;color:light-dark(#525252,#c4c4c4)}}code{{font:13px ui-monospace,monospace;overflow-wrap:anywhere}}</style></head><body>
-<section><h1>이 로그인은 허용되지 않았습니다</h1><p>PC의 loom 설정 › 원격에 이 Tailscale 로그인을 넣으십시오.</p><code>{login}</code></section>
-<section lang="en"><h1>This login is not allowed</h1><p>On the PC, open loom Settings › Remote and enter this Tailscale login.</p><code>{login}</code></section>
+<section><h1>이 로그인은 허용되지 않았습니다</h1><p>PC의 loom 설정 › 일반에 이 Tailscale 로그인을 넣으십시오.</p><code>{login}</code></section>
+<section lang="en"><h1>This login is not allowed</h1><p>On the PC, open loom Settings › General and enter this Tailscale login.</p><code>{login}</code></section>
 </body></html>"#
     );
     (StatusCode::FORBIDDEN, Html(page)).into_response()

@@ -34,7 +34,7 @@ const EDGE_STYLES = ['step', 'curve'] as const satisfies readonly EdgeStyle[];
 /** 기본값(한 줄)이 앞이다. */
 const QUESTION_PILLS = ['line', 'answer'] as const satisfies readonly QuestionPill[];
 
-/** 카드 보기 고르기. 설정 「UI」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
+/** 카드 보기 고르기. 설정 「그래프」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
 export function CardViewSwitch(props: { value: CardView; onChange: (value: CardView) => void }) {
   const { t } = useTranslation();
   const name = useId();
@@ -50,9 +50,8 @@ export function CardViewSwitch(props: { value: CardView; onChange: (value: CardV
   );
 }
 
-/** 「UI」 탭(목업 settings.html 6번, language.html, card-view.html, repo-scope.html, color-settings.html): 화면 테마, 색, 카드 보기, 그래프 범위, 간선 모양, 언어. 언어 이름은 번역하지 않는다. */
-/** 시스템 알림(목업 docs/mockups/human-question.html ⑥). 켤 때만 브라우저 허용을 묻는다. 막히면 꺼진 채로 둔다. */
-function OsNotifySection({ settings, onSettings }: TabProps) {
+/** 시스템 알림(목업 docs/mockups/human-question.html ⑥). 설정 「일반」에 있다. 켤 때만 브라우저 허용을 묻는다. 막히면 꺼진 채로 둔다. */
+export function OsNotifySection({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   const [blocked, setBlocked] = useState(false);
   const toggle = async (on: boolean) => {
@@ -75,7 +74,8 @@ function OsNotifySection({ settings, onSettings }: TabProps) {
   );
 }
 
-export function UiTab({ settings, onSettings }: TabProps) {
+/** 「화면」 탭(목업 settings.html 6번, language.html, color-settings.html): 화면 테마, 색, 언어. 언어 이름은 번역하지 않는다. */
+export function DisplayTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
     <>
@@ -96,6 +96,30 @@ export function UiTab({ settings, onSettings }: TabProps) {
         <span className="hint">{t('theme.systemHint')}</span>
       </section>
       <ColorsSection colors={settings.colors} theme={settings.theme} onColors={(colors) => onSettings({ ...settings, colors })} />
+      <section>
+        <h4>
+          <label htmlFor="t-lang">{t('settings.language')}</label>
+          <FieldReset path={['language']} />
+        </h4>
+        <div className="field narrow">
+          <select id="t-lang" value={settings.language} onChange={(e) => onSettings({ ...settings, language: e.target.value as Language })}>
+            {LANGUAGES.map((l) => (
+              <option key={l} value={l} lang={l === 'system' ? undefined : l}>
+                {l === 'system' ? t('common.system') : t(`languageName.${l}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/** 「그래프」 탭(목업 card-view.html, repo-scope.html): 카드 보기, 그래프 범위, 간선 모양, 질문 알약. */
+export function GraphTab({ settings, onSettings }: TabProps) {
+  const { t } = useTranslation();
+  return (
+    <>
       <section>
         <h4>
           {t('cardView.heading')}
@@ -148,22 +172,6 @@ export function UiTab({ settings, onSettings }: TabProps) {
           ))}
         </div>
         <span className="hint">{t('questionPill.hint')}</span>
-      </section>
-      <OsNotifySection settings={settings} onSettings={onSettings} />
-      <section>
-        <h4>
-          <label htmlFor="t-lang">{t('settings.language')}</label>
-          <FieldReset path={['language']} />
-        </h4>
-        <div className="field narrow">
-          <select id="t-lang" value={settings.language} onChange={(e) => onSettings({ ...settings, language: e.target.value as Language })}>
-            {LANGUAGES.map((l) => (
-              <option key={l} value={l} lang={l === 'system' ? undefined : l}>
-                {l === 'system' ? t('common.system') : t(`languageName.${l}`)}
-              </option>
-            ))}
-          </select>
-        </div>
       </section>
     </>
   );

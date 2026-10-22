@@ -8,10 +8,10 @@ import type { SettingsView } from './gen/SettingsView';
 const ABSOLUTE = /^(\/|[A-Za-z]:[\\/]|\\\\)/;
 
 /**
- * 「워크스페이스」 탭(목업 workspace.html 4번). 위치마다 글 입력 하나다. 입력에서 나가거나 Enter를 누르면 저장한다.
+ * 설정 「일반」의 워크스페이스 폴더 칸(목업 workspace.html 4번, settings-groups.html). 위치마다 글 입력 하나다. 입력에서 나가거나 Enter를 누르면 저장한다.
  * WSL 배포판이 있으면 배포판마다 칸을 더한다(목업 wsl-place.html ⑤). WSL 저장소의 워크트리는 그 배포판 안에 있어야 한다.
  */
-export function WorkspaceTab({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
+export function WorkspaceFields({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   const [distros, setDistros] = useState<string[]>([]);
   // 배포판마다 기본 폴더(`<홈>/loom/workspaces`). 데몬이 배포판을 켜서 읽는다.
@@ -26,10 +26,9 @@ export function WorkspaceTab({ settings, onSettings }: { settings: SettingsView;
 
   return (
     <>
-      <p className="hint">{t(places ? 'workspace.descPlaces' : 'workspace.desc')}</p>
       <DirField
         id="ws-dir"
-        label={places ? t('place.pc') : t('workspace.folder')}
+        label={places ? t('workspace.folderAt', { place: t('place.pc') }) : t('workspace.folder')}
         reset={['workspaceDir']}
         saved={settings.workspaceDir ?? ''}
         note={places ? null : t('workspace.hint')}
@@ -39,10 +38,10 @@ export function WorkspaceTab({ settings, onSettings }: { settings: SettingsView;
         <DirField
           key={distro}
           id={`ws-dir-${i}`}
-          label={t('place.wslDistro', { distro })}
+          label={t('workspace.folderAt', { place: t('place.wslDistro', { distro }) })}
           reset={['wslWorkspaceDirs', distro]}
           saved={settings.wslWorkspaceDirs[distro] ?? defaults[distro] ?? ''}
-          note={i === distros.length - 1 ? t('workspace.hint') : null}
+          note={i === distros.length - 1 ? t('workspace.hintPlaces') : null}
           onSave={(dir) => onSettings({ ...settings, wslWorkspaceDirs: { ...settings.wslWorkspaceDirs, [distro]: dir } })}
         />
       ))}

@@ -559,6 +559,8 @@ export function Graph(props: {
   // 상자 id → 그 상자의 형제들. 끄는 동안과 놓을 때 쓴다. `spotOf`는 상자 id → 저장할 자리 이름이다.
   const levels = new Map<string, Level>();
   const spotOf = new Map<string, Spot>();
+  // 상자 id → 나무 부모(카드 번호, 묶음의 뿌리면 'root'). 맨 위 묶음과 저장소 상자는 없다. 상시 정렬에서 같은 값끼리만 자리를 바꾼다(`onDrag`).
+  const branchOf = new Map<string, string>();
   const share = (level: Level) => {
     for (const b of level.boxes) levels.set(b.key, level);
   };
@@ -593,12 +595,12 @@ export function Graph(props: {
     // 정렬한 모양을 지키는 저장소 안의 자리는 저장하지 않고 탭마다 자동 배치로 구한다. 저장한 자리는 형제 순서(`rank`)로만 읽는다.
     // 구한 자리를 저장하면 카드를 다르게 잰 두 탭이 번갈아 저장해 끝나지 않았다(2026-10-22 사람 데몬, 묶음 y 549·614를 초당 약 12번). 사람 지시 "state must be one".
     const placedIn = keepsArranged(repo.id) ? (key: string) => moving.get(key) : placedAt;
-    const tree = arrangeNested(nest, (id) => props.views.get(id)?.parent ?? null, size, direction, { top: CARD_TOP, side: CARD_X });
+    const tree = arrangeNested(nest, (id) => props.views.get(id)?.parent ?? null, size, direction, { top: CARD_TOP, side: CARD_X }, (kid) => rank('card' in kid ? String(kid.card) : repoGroups[kid.group].path));
     // 안쪽 묶음부터 놓는다. 묶음 상자는 카드와 자식 묶음을 모두 덮는다(네 쪽). 빈 묶음은 머리와 안내 글 크기다.
     const lay = (i: number): Laid => {
       const group = repoGroups[i];
       const members = memberOf[i];
-      const kids = nest.flatMap((n, k) => (n.parent === i ? [{ laid: lay(k), auto: tree.boxes[k].at }] : []));
+      const kids = nest.flatMap((n, k) => (n.parent === i ? [{ laid: lay(k), auto: tree.boxes[k].at, card: n.card }] : []));
       const base = tree.boxes[i].at;
       const rel = (p: XYPosition) => ({ x: p.x - base.x, y: p.y - base.y });
       const items = [
@@ -606,8 +608,14 @@ export function Graph(props: {
         ...kids.map((k) => ({ key: k.laid.group.path, size: k.laid.size, lead: k.laid.lead, auto: rel(k.auto) })),
       ];
       const local = unpiled(settle(items, placedIn, FREE_GAP), items);
-      for (const v of members) spotOf.set(String(v.id), { kind: 'node', repo: repo.id, node: v.id });
-      for (const k of kids) spotOf.set(k.laid.group.path, { kind: 'worktree', repo: repo.id, path: k.laid.group.path });
+      for (const v of members) {
+        spotOf.set(String(v.id), { kind: 'node', repo: repo.id, node: v.id });
+        branchOf.set(String(v.id), v.parent !== null && members.some((m) => m.id === v.parent) ? String(v.parent) : 'root');
+      }
+      for (const k of kids) {
+        spotOf.set(k.laid.group.path, { kind: 'worktree', repo: repo.id, path: k.laid.group.path });
+        branchOf.set(k.laid.group.path, String(k.card));
+      }
       share({ boxes: items.map((it) => ({ key: it.key, at: local.get(it.key)!, size: it.size })), lead: new Map(kids.map((k) => [k.laid.group.path, k.laid.lead])), parent: group.path });
       const box = items.length > 0 ? cover(items.map((it) => ({ at: local.get(it.key)!, size: it.size })), { top: CARD_TOP, side: CARD_X }) : { at: { x: 0, y: 0 }, size: nest[i].empty };
       const auto = new Map(items.map((it): [string, XYPosition] => [it.key, { x: it.auto.x - it.lead.x, y: it.auto.y - it.lead.y }]));
@@ -627,17 +635,21 @@ export function Graph(props: {
     const arranged = new Map([...laid.flatMap(all).flatMap((g) => [...g.auto]), ...top.map(({ laid: g, auto }): [string, XYPosition] => [g.group.path, { x: auto.x - g.lead.x, y: auto.y - g.lead.y }])]);
     return { repo, key, laid: laid.map((g) => ({ ...g, at: at.get(g.group.path)! })), lead: box.at, size: box.size, arranged };
   });
-  // 저장소 상자는 모두 뿌리라 사이드바 순서로 옆에 늘어선다. 위로·왼쪽으로는 뿌리 쪽(아래·오른쪽) 끝을 맞춘다.
+  // 저장소 상자는 모두 뿌리라 옆에 늘어선다. 순서는 묶음처럼 형제 순서(`rank`)이고, 같으면 사이드바 순서다. 위로·왼쪽으로는 뿌리 쪽(아래·오른쪽) 끝을 맞춘다.
+  // 상시 정렬이면 저장소 상자도 이 줄에 선다(2026-10-22 사람 Q420 A).
   const reversed = direction === 'up' || direction === 'left';
   const alongOf = (s: Size) => (vertical ? s.height : s.width);
   const deepest = Math.max(0, ...repos.map((r) => alongOf(r.size)));
-  const repoAuto = repos.map((r, i) => {
-    const across = repos.slice(0, i).reduce((sum, q) => sum + (vertical ? q.size.width : q.size.height) + GROUP_GAP, 0);
-    const along = reversed ? deepest - alongOf(r.size) : 0;
-    return { x: GROUP_POSITION.x + (vertical ? across : along), y: GROUP_POSITION.y + (vertical ? along : across) };
-  });
-  const repoItems = repos.map((r, i) => ({ key: r.key, size: r.size, lead: r.lead, auto: repoAuto[i] }));
-  const repoAt = unpiled(settle(repoItems, placedAt, FREE_GAP), repoItems);
+  const repoRow = byRank(repos, (r) => r.key, () => 0);
+  const repoAuto = new Map(
+    repoRow.map((r, i): [string, XYPosition] => {
+      const across = repoRow.slice(0, i).reduce((sum, q) => sum + (vertical ? q.size.width : q.size.height) + GROUP_GAP, 0);
+      const along = reversed ? deepest - alongOf(r.size) : 0;
+      return [r.key, { x: GROUP_POSITION.x + (vertical ? across : along), y: GROUP_POSITION.y + (vertical ? along : across) }];
+    }),
+  );
+  const repoItems = repos.map((r) => ({ key: r.key, size: r.size, lead: r.lead, auto: repoAuto.get(r.key)! }));
+  const repoAt = unpiled(settle(repoItems, alwaysArrange ? (key: string) => moving.get(key) : placedAt, FREE_GAP), repoItems);
   for (const r of repos) spotOf.set(r.key, { kind: 'repo', repo: r.repo.id });
   if (framed) share({ boxes: repos.map((r) => ({ key: r.key, at: repoAt.get(r.key)!, size: r.size })), lead: new Map(repos.map((r) => [r.key, r.lead])), parent: null });
   // 저장소 원점(그래프 좌표). 저장소 하나면 상자가 없고 원점은 `GROUP_POSITION`이다.
@@ -969,7 +981,8 @@ export function Graph(props: {
    */
   const onDrag = (key: string, level: Level, dragged: Box) => {
     if (swaps.current?.key !== key) swaps.current = { key, swap: { slot: level.boxes.find((b) => b.key === key)!, sides: new Map(), at: new Map() } };
-    const next = swap(swaps.current.swap, level.boxes.filter((b) => b.key !== key), dragged);
+    // 상시 정렬에서 놓기는 나무 형제의 순서만 바꾼다. 다른 상자와 바꾸어 보이면 놓을 때 돌아간다(2026-10-22 총괄 답 A, 사람 보고 "자기 자리로 돌아감").
+    const next = swap(swaps.current.swap, level.boxes.filter((b) => b.key !== key && (!alwaysArrange || branchOf.get(b.key) === branchOf.get(key))), dragged);
     swaps.current.swap = next;
     setMoving((prev) => new Map([...pinned(level, prev), [key, originOf(level, key, dragged.at)], ...[...next.at].map(([k, at]): [string, XYPosition] => [k, originOf(level, k, at)])]));
   };
@@ -1098,7 +1111,7 @@ export function Graph(props: {
     setArranging(null);
     const { scope } = arranging;
     const done = scope.kind === 'shown' ? repos : repos.filter((r) => r.repo.id === scope.id);
-    const boxes = scope.kind === 'shown' && framed ? repos.map((r, i): [string, XYPosition] => [r.key, { x: repoAuto[i].x - r.lead.x, y: repoAuto[i].y - r.lead.y }]) : [];
+    const boxes = scope.kind === 'shown' && framed ? repos.map((r): [string, XYPosition] => [r.key, { x: repoAuto.get(r.key)!.x - r.lead.x, y: repoAuto.get(r.key)!.y - r.lead.y }]) : [];
     saveArranged(
       done.map((r) => r.repo.id),
       new Map([...done.flatMap((r) => [...r.arranged]), ...boxes]),

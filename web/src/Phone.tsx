@@ -11,8 +11,8 @@ import { InboxPanel } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
 import { SizingTerminal } from './Terminal';
 
-/** 이 폭 아래에서 폰 배치를 쓴다(목업 ①). styles.css의 `@media`와 같은 값이다. */
-const PHONE_QUERY = '(max-width: 639px)';
+/** 터치 화면이고 이 폭 아래일 때 폰 배치를 쓴다(목업 ①). 마우스 PC의 좁은 창(설치한 웹 앱 창 등)은 데스크톱 배치다(2026-10-22 사람 지적 "지금 윈도우 버전 실행하니까 왜 앱 화면이 나오냐"). */
+const PHONE_QUERY = '(max-width: 639px) and (pointer: coarse)';
 
 export function usePhone(): boolean {
   const [phone, setPhone] = useState(() => matchMedia(PHONE_QUERY).matches);

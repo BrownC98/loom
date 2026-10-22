@@ -16,6 +16,7 @@ h1 { font-size: 18px; }
 .row { display: grid; grid-template-columns: repeat(2, 640px); gap: 24px; align-items: start; }
 .cell { display: grid; gap: 6px; }
 .cap { font-size: 13px; color: var(--ink-2); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 13px; cursor: pointer; }
 img { width: 640px; border: 1px solid var(--line); border-radius: 8px; }
 </style>
 </head>
@@ -28,5 +29,6 @@ img { width: 640px; border: 1px solid var(--line); border-radius: 8px; }
     <div class="cell"><img src="settings-search-after.png" alt="검색한 설정 창"><p class="cap">후: 왼쪽 「설정」 아래 검색 칸. 모든 탭에서 글이 맞는 칸만 보이고, 칸 이름 앞에 탭 이름, 맞은 글에 밑색</p></div>
   </div>
 </main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
 </body>
 </html>

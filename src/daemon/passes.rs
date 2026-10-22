@@ -15,6 +15,7 @@ use axum::{Json, Router};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
 use super::{App, OpenFile, Problem, host_path, internal, phone, serve_file};
+use crate::graph::WaitId;
 
 /// 통행증 주소의 앞. 사람 문(`origin::human_site`)이 이 GET만 쿠키 없이 받는다.
 pub const PASS_PREFIX: &str = "/api/files/pass/";
@@ -80,15 +81,29 @@ pub fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/api/files/pass", post(issue))
         .route("/api/files/pass/{token}/{*file}", get(read))
+        .route("/api/waits/{wait}/pass", post(issue_wait_doc))
 }
 
-/// 파일 하나의 통행증 주소. Serve가 켜져 있으면 tailnet 이름으로 준다. 폰 문은 스스로 서명한 인증서라 브라우저가 경고한다.
-/// 꺼져 있으면 경로만 준다. 화면이 자기 주소에 붙인다.
 async fn issue(
     State(app): State<Arc<App>>,
     Json(req): Json<OpenFile>,
 ) -> Result<Json<String>, Problem> {
     let path = PathBuf::from(host_path(&app, req.node, req.path)?);
+    pass_url(&app, &path).await
+}
+
+/// 질문 문서(`loom ask --doc`)의 통행증. 사람은 목업을 받은편지함에서 연다(2026-10-23 사람 "여전히 헤드리스 브라우저임").
+async fn issue_wait_doc(
+    State(app): State<Arc<App>>,
+    Path(wait): Path<u32>,
+) -> Result<Json<String>, Problem> {
+    let path = app.graph.wait_doc(WaitId(wait))?;
+    pass_url(&app, &path).await
+}
+
+/// 파일 하나의 통행증 주소. Serve가 켜져 있으면 tailnet 이름으로 준다. 폰 문은 스스로 서명한 인증서라 브라우저가 경고한다.
+/// 꺼져 있으면 경로만 준다. 화면이 자기 주소에 붙인다.
+async fn pass_url(app: &App, path: &FsPath) -> Result<Json<String>, Problem> {
     let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(internal(format!("파일 경로가 아니다: {}", path.display())));
     };

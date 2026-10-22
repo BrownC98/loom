@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type DOMAttributes } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
 import { isTauri } from '@tauri-apps/api/core';
-import { answerWait, dismissWait, doneImageUrl, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocUrl } from './api';
+import { answerWait, dismissWait, doneImageUrl, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocPass, waitDocUrl } from './api';
 import { choices } from './choices';
 import { dateAndTime } from './i18n';
 import { QuestionIcon } from './Dock';
@@ -17,7 +17,7 @@ import { asking } from './NodeCard';
 import { Modal } from './Modal';
 import { useOutsideClose } from './popover';
 import { linkParts, plainText } from './links';
-import { openLink } from './Terminal';
+import { openLink, openPass, phoneBrowser } from './Terminal';
 
 /** 차례: 질문(답할 일)이 완료보다 앞이다. 완료가 질문을 가리지 않는다(목업 docs/mockups/done-notice.html M37). 같은 차례면 오래된 것이 앞이다. */
 const before = (a: HumanWait, b: HumanWait) => Number(a.kind === 'done') - Number(b.kind === 'done') || a.since - b.since;
@@ -355,13 +355,16 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
             // 문서는 따로 단추가 아니라 질문 글 끝의 링크다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
             <>
               {' '}
-              {/* 앱 창은 새 탭을 열지 못해 데몬이 기본 브라우저를 연다. 브라우저와 폰은 데몬이 내는 문서를 새 탭에서 연다(목업 docs/mockups/mobile.html ②). */}
-              {isTauri() ? (
+              {/* 앱 창은 새 탭을 열지 못해 데몬이 기본 브라우저를 연다. 폰 앱은 통행증 주소를 폰 브라우저로 넘긴다. 브라우저와 폰 브라우저는 데몬이 내는 문서를 새 탭에서 연다(목업 docs/mockups/mobile.html ②). */}
+              {isTauri() || phoneBrowser() ? (
                 <button
                   type="button"
                   className="doc-link"
                   title={t('inbox.openDocLabel', { id: wait.doc.id, title: wait.doc.title })}
-                  onClick={() => openWaitDoc(wait.id).catch((err: Error) => setRefusal(err.message))}
+                  onClick={() => {
+                    const browser = phoneBrowser();
+                    (browser ? openPass(waitDocPass(wait.id), browser) : openWaitDoc(wait.id)).catch((err: Error) => setRefusal(err.message));
+                  }}
                 >
                   {wait.doc.id} {wait.doc.title}
                   <ExternalLink aria-hidden="true" />

@@ -92,16 +92,24 @@ function remoteScreen(): boolean {
   return !isTauri() && !['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
 }
 
-/** 안드로이드 앱의 WebView다. 앱만 `loomClipboard`를 붙인다(`MainActivity`). */
-const inApp = () => 'loomClipboard' in window;
+type PhoneBrowser = { open: (url: string) => void };
+/**
+ * 안드로이드 앱이 붙이는 다리(`MainActivity`의 `loomBrowser`). 통행증 주소를 폰 기본 브라우저(Chrome)로 연다. 옛 APK에는 없다.
+ * `window.open`은 쓰지 않는다. 앱 WebView 안에서 열려 줌이 되지 않았다(2026-10-23 사람 "여전히 헤드리스 브라우저임").
+ */
+export const phoneBrowser = () => (window as { loomBrowser?: PhoneBrowser }).loomBrowser;
+
+/** 쿠키가 없는 폰 브라우저가 읽도록 통행증 주소를 연다. */
+export const openPass = (pass: Promise<string>, browser: PhoneBrowser) =>
+  pass.then((url) => browser.open(new URL(url, location.href).href));
 
 export function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);
   if (url?.protocol === 'file:') {
     const path = decodeURIComponent(url.pathname);
     const hostPath = /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
-    // 앱의 WebView는 줌이 되지 않는다. 쿠키가 없는 폰 브라우저가 읽도록 통행증 주소를 연다. 앱이 그 주소를 폰 브라우저로 넘긴다.
-    if (inApp()) return void filePass(hostPath, node).then((pass) => openPage(new URL(pass, location.href).href)).catch((err: Error) => console.error(err));
+    const browser = phoneBrowser();
+    if (browser) return void openPass(filePass(hostPath, node), browser).catch((err: Error) => console.error(err));
     // 폰 브라우저는 데몬 PC가 아니다. PC에서 기본 앱을 열면 사람이 보지 못하므로 화면 안에서 연다.
     if (remoteScreen()) return openPage(fileViewUrl(path, node));
     openFile(hostPath, node).catch((err: Error) => console.error(err));

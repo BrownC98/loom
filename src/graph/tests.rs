@@ -2144,6 +2144,7 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     assert_eq!(view(&g, a).unread, 1);
 
     g.steer_queued(a).unwrap();
+    assert_eq!(view(&g, a).unread, 0);
     let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
     assert_eq!(
         steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),

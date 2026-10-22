@@ -333,8 +333,11 @@ pub struct Graph {
     titles: Mutex<HashMap<NodeId, String>>,
 }
 
+// 「안 읽음」은 사람이 눌러 앞당길 수 있는 메시지, 곧 아직 넘기지 않은 큐 메시지만 센다.
+// 조정·중단은 다음 단계에 넘어가므로 누를 일이 없다. 누른 뒤 칩이 그대로면 고장으로 보였다(2026-10-22 사람 보고 "작동을 안하는 것처럼 보임").
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
-    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL),
+    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL
+        AND m.kind = '\"queue\"'),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
     n.brief, n.bookmark, n.wait, n.done,

@@ -2043,28 +2043,25 @@ fn bookmarks_keep_their_order_and_vanish_with_the_node() {
 }
 
 #[test]
-fn a_working_node_hears_of_each_waiting_queue_message_once() {
+fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
     let b = child(&g, lead, "b");
-    assert!(g.newly_queued(a).unwrap().is_empty());
     g.send(lead, "a", Kind::Queue, "q1").unwrap();
-    g.send(lead, "a", Kind::Steer, "s1").unwrap();
-    g.send(b, "a", Kind::Queue, "q2").unwrap();
+    g.send(lead, "a", Kind::Queue, "q2").unwrap();
     g.send(lead, "b", Kind::Queue, "다른 노드").unwrap();
+    // 이미 꺼낸 메시지는 그대로 둔다.
+    let first = g.take(a, &[Kind::Queue], 1).unwrap();
+    assert_eq!(first.len(), 1);
 
-    // 큐 메시지만, 보낸 순서로 알린다. 꺼내지 않는다.
-    assert_eq!(g.newly_queued(a).unwrap(), ["총괄-1", "b"]);
-    assert!(g.newly_queued(a).unwrap().is_empty());
-    assert_eq!(view(&g, a).unread, 3);
-    // 새 메시지만 다시 알린다. 다른 노드의 기억과 섞이지 않는다.
-    g.send(lead, "a", Kind::Queue, "q3").unwrap();
-    assert_eq!(g.newly_queued(a).unwrap(), ["총괄-1"]);
-    assert_eq!(g.newly_queued(b).unwrap(), ["총괄-1"]);
-    // 이미 꺼낸 메시지는 기다리지 않는다.
-    g.send(lead, "a", Kind::Queue, "q4").unwrap();
-    g.take(a, Kind::ALL, usize::MAX).unwrap();
-    assert!(g.newly_queued(a).unwrap().is_empty());
+    g.steer_queued(a).unwrap();
+    let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
+    assert_eq!(
+        steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
+        ["q2"]
+    );
+    assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
+    assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);
 }

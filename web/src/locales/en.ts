@@ -64,6 +64,7 @@ const en = {
     label: 'Node {{name}}',
     unread: 'Unread messages: {{n}}',
     unreadShort: 'Unread {{n}}',
+    steerQueued: 'Click to deliver now',
     held: 'Held {{n}}',
     heldTitle: 'Messages to deliver when it gets a parent: {{n}}',
     terminal: 'Terminal',

@@ -99,6 +99,7 @@ const EMPTY_SETTINGS: SettingsView = {
   osNotify: false,
   alwaysOn: { oMode: true, userDoc: true, ste100: true, raptor3: true },
   arrangeDirection: 'down',
+  alwaysArrange: false,
   minimapFolded: false,
   repo: null,
   paneWidths: { side: null, dock: null },
@@ -270,6 +271,11 @@ export function App() {
   const arrange = (next: ArrangeDirection) => {
     editSettings((s) => ({ ...s, arrangeDirection: next }));
     graph.current?.arrange();
+  };
+  // 켜는 순간 지금 방향으로 한 번 정렬한다(목업 always-arrange.html 「정한 것」).
+  const alwaysArrange = (on: boolean) => {
+    editSettings((s) => ({ ...s, alwaysArrange: on }));
+    if (on) graph.current?.arrange();
   };
   const mode = useColorMode(settings.theme);
 
@@ -608,7 +614,7 @@ export function App() {
               tools={
                 <>
                   <CardViewSwitch value={settings.cardView} onChange={(cardView) => saveSettings({ ...settings, cardView })} />
-                  {repo && <ArrangeButton direction={direction} onArrange={arrange} hasSizes={() => graph.current?.hasSizes() ?? false} onResetSizes={() => graph.current?.resetSizes()} />}
+                  {repo && <ArrangeButton direction={direction} onArrange={arrange} alwaysArrange={settings.alwaysArrange} onAlwaysArrange={alwaysArrange} hasSizes={() => graph.current?.hasSizes() ?? false} onResetSizes={() => graph.current?.resetSizes()} />}
                 </>
               }
             >

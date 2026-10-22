@@ -419,6 +419,36 @@ describe('settle (an arranged repo is derived from sizes, not saved; 2026-10-22 
   });
 });
 
+describe('always arrange (mockup docs/mockups/always-arrange.html ② B): a drop changes only the sibling order', () => {
+  // 총괄(1) 아래 A(2)·B(3)·C(4). 카드는 110 × 64.
+  const card = { width: 110, height: 64 };
+  const parentOf = (id: number) => (id === 1 ? null : 1);
+  const lay = (members: number[]) => arrangeNested([{ parent: null, card: null, members, empty: card }], parentOf, () => card, 'down', { top: 60, side: 20 }).cards;
+  const before = lay([1, 2, 3, 4]);
+
+  it('dragging A past the center line of B swaps them, and the drop order B, A, C lands in the arranged slots', () => {
+    const a = { key: '2', at: before.get(2)!, size: card };
+    const b = { key: '3', at: before.get(3)!, size: card };
+    // A의 오른쪽 변이 B의 세로 중심선을 넘는다. B는 A의 빈자리로 간다.
+    const start = swap({ slot: a, sides: new Map(), at: new Map() }, [b], a);
+    const state = swap(start, [b], { at: { x: b.at.x - 40, y: b.at.y + 10 }, size: card });
+    expect(state.at.get('3')).toEqual(before.get(2));
+    // 놓은 자리(형제 순서)로만 다시 놓는다. 끄는 상자는 놓은 자리가 아니라 정렬한 칸에 선다.
+    const after = lay([1, 3, 2, 4]);
+    expect(after.get(3)).toEqual(before.get(2));
+    expect(after.get(2)).toEqual(before.get(3));
+    expect(after.get(4)).toEqual(before.get(4));
+    expect(after.get(1)).toEqual(before.get(1));
+  });
+
+  it('a new sibling joins the end of the row and the parent moves to the middle again', () => {
+    const after = lay([1, 2, 3, 4, 5]);
+    const kids = [2, 3, 4, 5].map((id) => after.get(id)!.x);
+    expect(kids).toEqual([...kids].sort((p, q) => p - q));
+    expect(after.get(1)!.x + card.width / 2).toBe((kids[0] + kids[3] + card.width) / 2);
+  });
+});
+
 describe('followCard', () => {
   it('keeps the moved card at the same screen spot', () => {
     const camera = { x: 40, y: -10, zoom: 2 };

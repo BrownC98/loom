@@ -260,7 +260,7 @@ fn signal_wait_has_one_entry_and_clears_by_source_key_and_exit() {
 /// 노드 하나가 질문 여럿을 연다(목업 M28). 새 질문은 앞 질문을 지우지 않고, 신호의 대기와 따로 산다.
 /// `loom answered`는 번호로 닫는다. 번호 없이는 열린 질문이 하나일 때만 닫는다.
 #[test]
-fn a_root_done_shows_in_the_inbox_once_and_never_hides_a_wait() {
+fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "claude");
@@ -297,7 +297,7 @@ fn a_root_done_shows_in_the_inbox_once_and_never_hides_a_wait() {
         )]
     );
     let first = view(&g, lead).waits[0].id;
-    assert_eq!(g.done_image(first, 0), Ok(shot));
+    assert_eq!(g.done_image(first, 0), Ok(shot.clone()));
     assert_eq!(g.done_image(first, 1), Err(Refusal::NoWait(first)));
     // 완료는 [확인](dismiss)만 지운다. 키 입력, 다른 신호, 다시 띄우기로는 남는다.
     g.typed(lead).unwrap();
@@ -309,24 +309,39 @@ fn a_root_done_shows_in_the_inbox_once_and_never_hides_a_wait() {
         .unwrap();
     assert_eq!(kinds(lead), [WaitKind::Approval, WaitKind::Done]);
     g.set_wait(lead, WaitSource::Hook, None).unwrap();
-    // 새 일로 다시 일하다 끝내면 확인하지 않은 완료는 다음 완료로 바뀐다.
+    // 새 일로 다시 일하다 끝내도 확인하지 않은 앞 완료는 남는다. 완료 차례대로 보인다(2026-10-22 사람 보고 "완료 알림이 확인 안눌러도 없어지는 버그가 있음").
     g.human_input(lead).unwrap();
     g.done(lead, "또 고쳤다.", Some("또 고쳐"), &[]).unwrap();
     assert_eq!(
         done(lead),
-        [(
-            WaitKind::Done,
-            Some("또 고쳐".into()),
-            "또 고쳤다.".into(),
-            vec![]
-        )]
+        [
+            (
+                WaitKind::Done,
+                Some("버튼 고쳐\n자세히는…".into()),
+                "버튼을 고쳤다.\n시험 통과".into(),
+                vec!["/tmp/loom-paste/1/image.png".to_owned()]
+            ),
+            (
+                WaitKind::Done,
+                Some("또 고쳐".into()),
+                "또 고쳤다.".into(),
+                vec![]
+            )
+        ]
     );
-    assert_eq!(g.done_image(first, 0), Err(Refusal::NoWait(first)));
-    // 완료 줄의 입력창: 이어서 맡기는 일은 사람이 보낸 메시지로 가고 완료는 사라진다.
-    let again = view(&g, lead).waits[0].id;
-    assert!(view(&g, lead).waits[0].answerable);
+    assert_eq!(g.done_image(first, 0), Ok(shot));
+    // 완료 줄의 입력창: 이어서 맡기는 일은 사람이 보낸 메시지로 가고 그 완료만 사라진다.
+    let again = view(&g, lead).waits[1].id;
+    assert!(view(&g, lead).waits[1].answerable);
     g.answer(again, "하나 더", &[]).unwrap();
-    assert_eq!(done(lead), []);
+    assert_eq!(
+        view(&g, lead)
+            .waits
+            .iter()
+            .map(|w| w.id)
+            .collect::<Vec<_>>(),
+        [first]
+    );
     let (from, _, body) = take(&g, lead).unwrap();
     assert_eq!(from, HUMAN);
     assert_eq!(
@@ -334,7 +349,19 @@ fn a_root_done_shows_in_the_inbox_once_and_never_hides_a_wait() {
         "New instruction from the human in the loom inbox, after your done report: 하나 더"
     );
     assert_eq!(g.answer(again, "또", &[]), Err(Refusal::NoWait(again)));
+    // [확인]은 그 완료만 지운다.
     g.done(lead, "또 고쳤다.", Some("하나 더"), &[]).unwrap();
+    let third = view(&g, lead).waits[1].id;
+    g.dismiss(first).unwrap();
+    assert_eq!(
+        view(&g, lead)
+            .waits
+            .iter()
+            .map(|w| w.id)
+            .collect::<Vec<_>>(),
+        [third]
+    );
+    assert_eq!(g.done_image(first, 0), Err(Refusal::NoWait(first)));
     // 질문과 완료가 섞이면 둘 다 보이고 질문이 먼저다. 질문을 [×]로 닫아도 완료는 남는다.
     g.ask(lead, "병합할까요?", None).unwrap();
     assert_eq!(kinds(lead), [WaitKind::Question, WaitKind::Done]);
@@ -2289,6 +2316,34 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     );
     assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
     assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);
+}
+
+/// 확인하지 않은 완료는 사람 입력, 신호의 대기, 다시 띄우기, 프로세스 끝, 데몬 재시작으로 지워지지 않는다.
+#[test]
+fn unconfirmed_dones_survive_input_relaunch_exit_and_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let g = open(&path);
+    let lead = root(&g, "claude");
+    let other = root(&g, "codex");
+    let ids = |g: &Graph, id| view(g, id).waits.iter().map(|w| w.id).collect::<Vec<_>>();
+    g.done(lead, "하나", Some("일 1"), &[]).unwrap();
+    g.done(other, "다른 노드", Some("일 B"), &[]).unwrap();
+    g.done(lead, "둘", Some("일 2"), &[]).unwrap();
+    let kept = ids(&g, lead);
+    assert_eq!(kept.len(), 2);
+    g.human_input(lead).unwrap();
+    g.typed(lead).unwrap();
+    g.set_wait(lead, WaitSource::Hook, Some((WaitKind::Approval, "Bash")))
+        .unwrap();
+    g.set_wait(lead, WaitSource::Hook, None).unwrap();
+    g.clear_wait(lead).unwrap();
+    g.exited(lead, 0).unwrap();
+    assert_eq!(ids(&g, lead), kept);
+    drop(g);
+    let g = open(&path);
+    assert_eq!(ids(&g, lead), kept);
+    assert_eq!(ids(&g, other).len(), 1);
 }
 
 #[test]

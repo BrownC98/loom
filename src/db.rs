@@ -215,6 +215,18 @@ const STEPS: &[M] = &[
             last_seen INTEGER NOT NULL
         );",
     ),
+    // 29: 노드마다 여러 완료 알림(graph `waits`). `wait`은 serde JSON `HumanWait`이고 `id`는 그 완료 번호다. `nodes.done` 자리 하나는 다음 `loom done`이 확인하지 않은 완료를 덮었다.
+    // 근거: 2026-10-22 사람 보고 "완료 알림이 확인 안눌러도 없어지는 버그가 있음"(Q368을 Q370이, Q372를 Q373이 덮었다).
+    M::up(
+        "CREATE TABLE dones (
+            id INTEGER PRIMARY KEY,
+            node INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            wait TEXT NOT NULL
+        );
+        CREATE INDEX dones_node ON dones(node);
+        INSERT INTO dones (id, node, wait) SELECT done ->> 'id', id, done FROM nodes WHERE done IS NOT NULL;
+        ALTER TABLE nodes DROP COLUMN done;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -389,6 +401,28 @@ mod tests {
             .collect::<rusqlite::Result<_>>()
             .unwrap();
         assert_eq!(left, [None, Some("screen".into())]);
+    }
+
+    /// 노드 자리의 완료는 완료 표로 옮긴다. 번호와 내용은 그대로다.
+    #[test]
+    fn step_29_moves_done_notices_to_dones() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 28).unwrap();
+        let done = r#"{"id":7,"kind":"done","text":"끝","since":1,"answerable":true,"doc":null,"instruction":"일해","images":[]}"#;
+        conn.execute(
+            "INSERT INTO nodes (id, name, agent, state, done) VALUES (4, 'a', 'null', '{}', ?1), (9, 'b', 'null', '{}', NULL)",
+            [done],
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let moved: Vec<(u32, u32, String)> = conn
+            .prepare("SELECT id, node, wait FROM dones")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(moved, [(7, 4, done.to_owned())]);
     }
 
     /// 앞 묶음 자리는 저장소 기준이라 지운다. 카드 자리와 정렬한 저장소는 남긴다.

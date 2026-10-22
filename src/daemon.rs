@@ -640,6 +640,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             post(save_paste).layer(DefaultBodyLimit::max(paste::LIMIT_BYTES)),
         )
         .route("/api/files/open", post(open_file))
+        .route("/api/files/view/{node}/{*path}", get(view_file))
         .route("/api/shutdown", post(shutdown))
         .route("/api/update", get(update_view))
         .route("/api/update/check", post(check_update))
@@ -1678,6 +1679,34 @@ async fn open_file(
     };
     open::open(std::path::Path::new(&path)).map_err(internal)?;
     Ok(Json(()))
+}
+
+/// 터미널·받은편지함의 파일 링크를 화면이 직접 읽는다. 폰 앱처럼 데몬 PC가 아닌 화면은 PC에서 기본 앱을 열어도 사람이 보지 못한다(2026-10-23 사람 "웹버전에서도 html을 브라우저로 볼수있게 해줘", "웹 말고 앱").
+/// 주소가 파일 경로라서 HTML의 상대 주소(옆 그림)도 같은 길로 온다. `node`는 링크를 누른 노드 번호이고, 없으면 `-`다.
+/// 이 문을 쓰는 화면은 이미 그 PC의 터미널을 쓰므로 읽을 수 있는 파일이 늘지 않는다. 남의 페이지는 `origin`이 막는다.
+async fn view_file(
+    State(app): State<Arc<App>>,
+    Path((node, path)): Path<(String, String)>,
+    request: axum::extract::Request,
+) -> Result<Response, Problem> {
+    let node = match node.as_str() {
+        "-" => None,
+        id => match id.parse() {
+            Ok(id) => Some(NodeId(id)),
+            Err(_) => return Ok(StatusCode::NOT_FOUND.into_response()),
+        },
+    };
+    // 와일드카드는 앞 `/`를 뗀다. Windows 경로(`C:/…`)는 그대로다.
+    let path = if path.as_bytes().get(1) == Some(&b':') {
+        path
+    } else {
+        format!("/{path}")
+    };
+    let path = match app.node_wsl(node)? {
+        Some(wsl) if path.starts_with('/') => wsl.shell_path(&path),
+        _ => path,
+    };
+    serve_file(std::path::Path::new(&path), request).await
 }
 
 /// 응답을 보낸 뒤 데몬이 끝나기까지의 여유. 응답 한 줄은 루프백에서 1ms 안에 간다.

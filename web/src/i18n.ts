@@ -25,7 +25,6 @@ export const INITIAL_LANGUAGE = (document.documentElement.dataset.language as La
 let relative: Intl.RelativeTimeFormat;
 let weekdayTime: Intl.DateTimeFormat;
 let clock: Intl.DateTimeFormat;
-let dateTime: Intl.DateTimeFormat;
 let units: Record<'minute' | 'hour' | 'day', Intl.NumberFormat>;
 const unit = (locale: string, unit: 'minute' | 'hour' | 'day') => new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'narrow' });
 // `init`도 이 이벤트를 낸다.
@@ -34,7 +33,6 @@ i18next.on('languageChanged', (locale) => {
   relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
   weekdayTime = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   clock = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
-  dateTime = new Intl.DateTimeFormat(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   units = { minute: unit(locale, 'minute'), hour: unit(locale, 'hour'), day: unit(locale, 'day') };
 });
 i18next.use(initReactI18next).init({
@@ -85,9 +83,11 @@ function joined(big: number, small: number, bigUnit: 'hour' | 'day', smallUnit: 
   return small === 0 ? bigText : `${bigText} ${units[smallUnit].format(small)}`;
 }
 
-/** 예: 「10. 22. 15:40」, 「10/22, 15:40」. */
+/** 예: 「2026/10/22 15:40:07」. 언어와 관계없이 이 꼴이다(2026-10-22 사람 지시 "년도/월/일 시:분:초 포맷으로 표시"). */
 export function dateAndTime(time: number): string {
-  return dateTime.format(time);
+  const d = new Date(time);
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${two(d.getMonth() + 1)}/${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
 }
 
 /** 예: 「(월) 15:40」, 「Mon 15:40」. */

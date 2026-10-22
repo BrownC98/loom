@@ -18,7 +18,7 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge } from './HopEdge';
-import { arrangeNested, edgeSides, followCard, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
+import { arrangeNested, edgeSides, followCard, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlapped, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { PlaceTag, shownPath } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
@@ -1144,15 +1144,19 @@ export function Graph(props: {
     const done = new Map<string, XYPosition>();
     const skip = new Set(kept.flatMap((r) => [r.key, ...r.arranged.keys()]));
     lastSizes.current = new Map([...now].map(([key, size]) => [key, (skip.has(key) && before.get(key)) || size]));
-    for (const key of grew(before, now)) {
-      if (skip.has(key)) continue;
+    const spreadFrom = (key: string) => {
+      if (skip.has(key)) return;
       // 앞 상자가 이미 민 상자는 민 자리에서 민다.
       const level = levels.get(key)!;
       const self = level.boxes.find((b) => b.key === key)!;
       const o = done.get(key);
       const lead = level.lead.get(key) ?? { x: 0, y: 0 };
       spread(key, level, o ? { at: { x: o.x + lead.x, y: o.y + lead.y }, size: self.size } : self, done);
-    }
+    };
+    for (const key of grew(before, now)) spreadFrom(key);
+    // 앞 렌더가 없어 `grew`가 놓친 겹침(화면을 닫은 동안 커진 상자)도 민다. 정렬한 모양을 다시 저장하는 렌더와 잰 크기가 오기 전에는 기다린다.
+    const measured = views.every((v) => flowState.get(String(v.id))?.measured?.width);
+    if (kept.length === 0 && measured) for (const level of new Set(levels.values())) for (const key of overlapped(placed(level, done))) spreadFrom(key);
     // 민 상자는 밀기 전 자리를 기억한다(DB `spots.home_x`·`home_y`). 또 밀려도 처음 자리를 지킨다.
     const homes = new Map([...done.keys()].map((k): [string, XYPosition | null] => {
       const level = levels.get(k)!;

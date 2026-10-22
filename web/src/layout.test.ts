@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, grew, keptHome, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
+import { arrangeNested, centerSide, crossed, edgeSides, followCard, freeSpot, GROUP_GAP, grew, keptHome, overlapped, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Size, type Swap } from './layout';
 
 const box = (x: number, y: number, width = 100, height = 50): Box => ({ at: { x, y }, size: { width, height } });
 
@@ -379,6 +379,25 @@ describe('growth without a drag (repro: new card in row 2 of main)', () => {
 
   it('a new group whose auto spot is on a grown saved group goes to its right', () => {
     expect(freeSpot(box(480, 440, 500, 400), [box(0, 0, 1000, 840)], 32)).toEqual({ x: 1032, y: 440 });
+  });
+});
+
+describe('growth while the screen was closed (repro 2026-10-22: repo loom grew over ktasearch)', () => {
+  // No earlier render, so grew sees nothing. loom 0..5028 now covers ktasearch at 4388.
+  // right 5028 + 32 - 4388 = 672, down and up 595 + 32 = 627: down (shortest, then the tie order).
+  const repos = [
+    { key: 'repo:loom', ...box(0, 0, 5028, 595) },
+    { key: 'repo:ktasearch', ...box(4388, 0, 672, 595) },
+  ];
+
+  it('overlapped names the front box of each overlap, so it stays and the box behind moves', () => {
+    expect(grew(new Map(), new Map(repos.map((r) => [r.key, r.size])))).toEqual([]);
+    expect(overlapped(repos)).toEqual(['repo:loom']);
+    expect(push(repos, repos[0], ['repo:ktasearch'], 32)).toEqual(new Map([['repo:ktasearch', { x: 4388, y: 627 }]]));
+  });
+
+  it('boxes that only touch or are apart are not overlapped', () => {
+    expect(overlapped([{ key: 'a', ...box(0, 0) }, { key: 'b', ...box(100, 0) }, { key: 'c', ...box(300, 0) }])).toEqual([]);
   });
 });
 

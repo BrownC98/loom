@@ -479,7 +479,7 @@ const ko: typeof en = {
     preview: '미리보기 · {{name}}',
   },
   commits: {
-    scope: '모든 브랜치 · 최근 1,000개',
+    scope: '모든 브랜치',
     reading: '불러오는 중…',
     empty: '아직 커밋이 없습니다.',
     list: '커밋 목록',

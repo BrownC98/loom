@@ -5,9 +5,8 @@ import type { PaneWidths } from './gen/PaneWidths';
  * 너비를 바꿀 수 있는 사이드바(목업 docs/mockups/sidebar-resize.html).
  * `grow`: 경계가 오른쪽으로 1px 갈 때 늘어나는 너비. 왼쪽 칸은 1, 오른쪽 칸은 -1이다.
  * `cssVar`: 칸 너비를 담는 `.app`의 CSS 변수(styles.css `@property`).
- * `freeze`: 끄는 동안 너비를 고정할 칸 내용의 CSS 선택자. 놓을 때 한 번만 다시 배치한다.
  */
-export type Pane = { key: keyof PaneWidths; cssVar: '--side-w' | '--dock-w'; freeze?: string; initial: number; min: number; max: number; grow: 1 | -1 };
+export type Pane = { key: keyof PaneWidths; cssVar: '--side-w' | '--dock-w'; initial: number; min: number; max: number; grow: 1 | -1 };
 
 /** ←·→ 한 번에 바꾸는 너비. */
 const KEY_STEP = 16;
@@ -44,8 +43,6 @@ export function Splitter(props: { pane: Pane; width: number; onCommit: (width: n
     const startX = e.clientX;
     el.setPointerCapture(e.pointerId);
     let last: number | null = null;
-    const frozen = pane.freeze ? [...el.parentElement!.querySelectorAll<HTMLElement>(pane.freeze)] : [];
-    for (const f of frozen) f.style.width = `${f.offsetWidth}px`;
     const move = (ev: globalThis.PointerEvent) => {
       last = clamp(pane, width + pane.grow * (ev.clientX - startX));
       el.parentElement!.style.setProperty(pane.cssVar, `${last}px`);
@@ -57,7 +54,6 @@ export function Splitter(props: { pane: Pane; width: number; onCommit: (width: n
       'lostpointercapture',
       () => {
         el.removeEventListener('pointermove', move);
-        for (const f of frozen) f.style.removeProperty('width');
         if (last !== null) onCommit(last);
       },
       { once: true },

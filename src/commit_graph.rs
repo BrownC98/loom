@@ -1,15 +1,14 @@
 //! 커밋 그래프 데이터: 저장소의 모든 브랜치 커밋. 읽기만 한다. 워크트리마다 체크아웃한 커밋은 `worktree`가 읽는다.
 //! 차선 배치와 그리기는 화면(`web/src/CommitGraph.tsx`)이 한다.
 
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::git;
 
-/// 그리는 커밋 수 상한. 화면은 최근 이력을 본다. 1,000줄은 화면이 가상 스크롤 없이 그린다(목업 실측 중앙값 39.8ms).
-const MAX_COMMITS: u32 = 1000;
 /// 커밋 줄의 칸 구분 문자. 커밋 제목·작성자·참조 이름에는 NUL이 들어가지 않는다.
 const SEPARATOR: char = '\0';
 /// `%D`의 태그 앞말.
@@ -37,23 +36,46 @@ pub enum GitRef {
     Tag(String),
 }
 
-/// 자식이 부모보다 먼저 온다(`--topo-order`). 화면의 차선 계산이 이 순서를 쓴다.
-pub async fn read(repo: &Path) -> Result<Vec<Commit>, String> {
+/// stash는 모든 워크트리가 함께 쓰는 임시 커밋이라 브랜치 이력이 아니다.
+const STASH_REF: &str = "refs/stash";
+
+/// 화면이 읽는 구간: 앞에서 `skip`개를 건너뛴 `limit`개. 화면이 아래로 내릴 때 다음 구간을 읽는다.
+#[derive(Deserialize, TS, Clone, Copy)]
+#[ts(export)]
+pub struct CommitRange {
+    pub skip: u32,
+    pub limit: u32,
+}
+
+/// 자식이 부모보다 먼저 온다(`--topo-order`). 화면의 차선 계산이 이 순서를 쓴다. 구간이 바뀌어도 순서는 같다.
+pub async fn read(repo: &Path, range: CommitRange) -> Result<Vec<Commit>, String> {
     let log = git::run(
         repo,
         &[
             "log",
-            // stash는 모든 워크트리가 함께 쓰는 임시 커밋이라 브랜치 이력이 아니다.
             // `--exclude`는 뒤에 오는 `--all`에만 걸린다.
-            "--exclude=refs/stash",
+            &format!("--exclude={STASH_REF}"),
             "--all",
             "--topo-order",
-            &format!("--max-count={MAX_COMMITS}"),
+            &format!("--skip={}", range.skip),
+            &format!("--max-count={}", range.limit),
             "--format=%H%x00%P%x00%s%x00%an%x00%at%x00%D",
         ],
     )
     .await?;
     Ok(log.lines().filter_map(commit).collect())
+}
+
+/// 참조(브랜치·태그)와 그 커밋의 지문. 같으면 `read`가 주는 커밋도 같다. 화면은 3초마다 이것만 읽고, 바뀔 때만 커밋을 다시 읽는다.
+/// 워크트리마다 체크아웃한 커밋(분리된 HEAD)은 워크트리 목록이 준다.
+pub async fn version(repo: &Path) -> Result<String, String> {
+    let refs = git::run(repo, &["for-each-ref", "--format=%(objectname) %(refname)"]).await?;
+    let mut hasher = DefaultHasher::new();
+    for line in refs.lines().filter(|l| !l.ends_with(STASH_REF)) {
+        line.hash(&mut hasher);
+    }
+    // 16진 글자: JS 숫자는 u64를 다 담지 못한다.
+    Ok(format!("{:016x}", hasher.finish()))
 }
 
 fn commit(line: &str) -> Option<Commit> {
@@ -88,6 +110,12 @@ fn commit(line: &str) -> Option<Commit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Windows git은 `--max-count`를 32비트 부호 있는 정수로 읽는다. `u32::MAX`는 "not an integer"로 실패한다.
+    const ALL: CommitRange = CommitRange {
+        skip: 0,
+        limit: i32::MAX as u32,
+    };
 
     fn run(dir: &Path, args: &[&str]) -> String {
         let out = std::process::Command::new("git")
@@ -154,7 +182,7 @@ mod tests {
         run(&repo, &["add", "f"]);
         run(&repo, &["stash", "-q"]);
 
-        let commits = read(&repo).await.unwrap();
+        let commits = read(&repo, ALL).await.unwrap();
         let subjects: Vec<&str> = commits.iter().map(|c| c.subject.as_str()).collect();
         // stash 커밋(WIP, index)은 없다. 자식이 부모보다 먼저 온다.
         assert_eq!(subjects.len(), 5);
@@ -164,19 +192,42 @@ mod tests {
         assert_eq!(merge.parents.len(), 2);
         assert_eq!(merge.refs, [GitRef::Branch("main".into())]);
         assert_eq!(commits[at("a")].refs, [GitRef::Tag("v1".into())]);
+
+        // 구간을 이어 붙이면 한 번에 읽은 순서와 같다.
+        let mut paged = read(&repo, CommitRange { skip: 0, limit: 2 })
+            .await
+            .unwrap();
+        paged.extend(
+            read(&repo, CommitRange { skip: 2, limit: 2 })
+                .await
+                .unwrap(),
+        );
+        paged.extend(
+            read(&repo, CommitRange { skip: 4, limit: 2 })
+                .await
+                .unwrap(),
+        );
+        assert_eq!(paged, commits);
+
+        // stash는 지문을 바꾸지 않는다. 커밋은 바꾼다.
+        let before = version(&repo).await.unwrap();
+        run(&repo, &["stash", "drop", "-q"]);
+        assert_eq!(version(&repo).await.unwrap(), before);
+        run(&repo, &["commit", "-q", "--allow-empty", "-m", "e"]);
+        assert_ne!(version(&repo).await.unwrap(), before);
     }
 
     #[tokio::test]
     async fn repository_without_commits_is_empty() {
         let dir = tempfile::tempdir().unwrap();
         run(dir.path(), &["init", "-q"]);
-        assert!(read(dir.path()).await.unwrap().is_empty());
+        assert!(read(dir.path(), ALL).await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn outside_a_repository_returns_git_error() {
         let dir = tempfile::tempdir().unwrap();
-        let Err(err) = read(dir.path()).await else {
+        let Err(err) = read(dir.path(), ALL).await else {
             panic!()
         };
         assert!(err.contains("not a git repository"), "{err}");

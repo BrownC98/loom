@@ -478,7 +478,7 @@ const en = {
     preview: 'Preview · {{name}}',
   },
   commits: {
-    scope: 'All branches · latest 1,000',
+    scope: 'All branches',
     reading: 'Loading…',
     empty: 'No commits yet.',
     list: 'Commits',

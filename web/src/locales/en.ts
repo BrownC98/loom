@@ -337,7 +337,6 @@ const en = {
     dropLimit: 'Up to {{limit}} MB per image',
     removeImage: 'Remove image',
     notImage: '{{name}}: not an image. Only images can be attached.',
-    moreText: 'Show more',
     toTerminal: 'Answer in the terminal',
   },
   wait: {

@@ -538,15 +538,8 @@ a { color: var(--accent); }
 .inbox-pill .go b { color: var(--ink); font-size: 13px; }
 .inbox-pill .go:hover, .inbox-pill .go[aria-expanded="true"] { background: var(--surface-hover); }
 .inbox-pill > .wait-body { padding: 10px 12px 12px; }
-/* 알약은 그래프를 덜 가리게 글을 4줄까지 보이고, 넘으면 [더 보기]로 편다. */
-.inbox-pill .full:not([data-more]) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
-.clamped { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; }
-.clamped .more-text { justify-self: start; padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.clamped .more-text:hover { color: var(--ink); }
-/* 완료의 지시와 결과는 3줄까지 보이고 넘으면 [더 보기]로 편다(2026-10-22 사람 지시 "사람이 어떤 지시를 내렸었는지 확인하기 어려움"). */
-.clamped.instruction .full:not([data-more]), .wait-body[data-kind="done"] .full:not([data-more]) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
-.clamped.instruction { flex: 1; }
-.clamped.instruction .full { margin: 0; color: var(--ink); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 알림 글은 접지 않고 다 보인다(2026-10-22 사람 지시 "완료 알림도 질문 알림처럼 더보기로 접지말고 항상 원문 다 보여줘"). */
+.wait-row .instruction { flex: 1; min-width: 0; margin: 0; color: var(--ink); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wait-body[data-kind="done"] .full { font-weight: 600; }
 /* 완료 줄의 입력창·보내기·끌어 놓기도 완료 색이다(2026-10-22 사람 지시 "완료 입력창이 질문색임"). */
 .wait-body[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
@@ -580,7 +573,7 @@ a { color: var(--accent); }
 .wait-row .published { flex: none; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .wait-row .done-mark { flex: none; width: 15px; height: 15px; color: var(--ok); }
 /* 지시가 여러 줄이면 체크와 [확인]은 첫 줄에 맞춘다. */
-.wait-row .top:has(> .clamped) { align-items: flex-start; }
+.wait-row .top:has(> .instruction) { align-items: flex-start; }
 .wait-row .kind.done svg { flex: none; width: 14px; height: 14px; }
 /* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */
 .wait-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }

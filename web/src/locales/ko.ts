@@ -335,7 +335,6 @@ const ko: typeof en = {
     openDocTabLabel: '{{id}} {{title}}: 새 탭에서 열기',
     attachImage: '그림 붙이기',
     toTerminal: '터미널에서 답하기',
-    moreText: '더 보기',
     dropImage: '그림을 놓아 {{id}} 답에 붙이기',
     dropLimit: '그림마다 {{limit}}MB까지',
     removeImage: '그림 빼기',

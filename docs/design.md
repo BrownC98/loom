@@ -49,7 +49,7 @@
 - 카드 터미널은 입력을 받는다. 고른 카드만 입력을 받는다. 카드 머리를 두 번 누르면 확대하고, 확대한 카드의 머리를 다시 두 번 누르면 원래 크기로 돌아간다.
 - 고른 카드가 배치 변화(노드 추가·제거, [정렬], 놓을 때 밀림, 크기 변화)로 그래프에서 옮겨 가면 시점을 같은 만큼 옮긴다. 카드는 화면의 같은 자리에 남는다. 사람이 끌거나 크기를 바꾸는 동안과 시점이 움직이는 동안은 옮기지 않는다(2026-10-21 사람 지시 "그래프에서 포커스된 터미널은 레이아웃이 변경되더라도 카메라에 대한 상대 위치를 유지하도록 구현하라").
 - 부모·자식·메시지·터미널 출력이 없는 셸은 정상 종료하면 자동 제거한다. 설정 스크립트 노드는 출력이 있어도 성공하면 자동 제거한다(사람 지시 "다 쓴 하위 에이전트, 쉘, 워크트리등은 ... 바로 회수하도록 해라"). 에이전트, 실패한 셸, 출력이나 결과가 있는 다른 노드는 보존한다.
-- 노드 상태는 `running`, `done`, `exited(<코드>)`, `setupFailed(<코드>)` 넷이다. 카드 배지와 이벤트 콘솔은 상태를 화면 언어로 보인다(「실행 중」「완료」「종료(<코드>)」「설정 실패」). 카드와 트리 줄에는 읽지 않은 메시지 수를 봉투 아이콘과 함께 보인다(카드 「안 읽음 N」, 트리 줄은 수만. 목업 `docs/mockups/unread-badge.html` C안). 부모 없는 카드와 그 트리 줄에는 보관한 메시지 수(「보관 N」)를 보인다.
+- 노드 상태는 `running`, `done`, `exited(<코드>)`, `setupFailed(<코드>)` 넷이다. 카드 배지와 이벤트 콘솔은 상태를 화면 언어로 보인다(「실행 중」「완료」「종료(<코드>)」「설정 실패」). `done` 노드가 메시지를 꺼내거나 사람 입력을 받으면 다시 `running`이다. 다시 끝내면 `loom done`을 또 부른다(2026-10-22 사람 보고 "작업중인데 완료 상태로 표시되는 문제"). 카드와 트리 줄에는 읽지 않은 메시지 수를 봉투 아이콘과 함께 보인다(카드 「안 읽음 N」, 트리 줄은 수만. 목업 `docs/mockups/unread-badge.html` C안). 부모 없는 카드와 그 트리 줄에는 보관한 메시지 수(「보관 N」)를 보인다.
 - 카드 주제(`NodeView.topic`)는 노드가 지금 하는 일 한 줄이다. 데몬은 새 LLM 호출 없이 `done` 요약, CLI 터미널 제목(OSC 0·2, Claude `✳ <주제>`, Codex `tui.terminal_title=["thread-title"]`의 스레드 제목, OpenCode 2 `OC | <제목>`, Cursor `<주제> - ⏳ Working`·`<주제> - ✅ Ready`), 첫 지시문(사람이 띄운 노드는 CLI에 넘긴 첫 지시, 자식은 부모가 준 지시) 순서로 처음 있는 것의 첫 줄을 쓴다(2026-10-20 사람 질문 "각자가 현재 무슨 일을 하고 있는지 요약해서 각 노드에 표시"). 첫 지시의 첫 줄은 `nodes.brief`에 둔다. 제목은 PTY와 함께 사라지므로 기억에만 둔다. 셸 제목은 쓰지 않는다. 모두 없으면 비운다.
 - 노드를 지우고 부모를 바꾸는 규칙은 「[노드 제거와 입양](#노드-제거와-입양)」에 있다.
 - 데몬이 다시 시작하면 `running`이던 노드의 PTY 호스트에 다시 붙는다(「에이전트 실행」). 호스트가 없는 노드만 코드 없는 `exited(?)`로 바꾼다.
@@ -131,7 +131,7 @@
   - 끄면 아래의 좁은 길을 쓴다: Claude는 loom 명령만 허용 목록에 넣고, Codex는 샌드박스에서 노드 문 주소만 연다. 켜면 이 길은 쓰이지 않지만 그대로 넘긴다.
   - Claude는 계정 폴더마다 첫 실행에 「Bypass Permissions mode」 동의 창을 띄운다. 동의는 사람의 보안 결정이라 사람이 카드 터미널에서 고른다. loom은 대신 누르지 않고 사용자 설정 파일을 고치지 않는다. 동의하면 Claude가 그 폴더의 `settings.json`에 `skipDangerousModePermissionPrompt`를 쓰고 다음부터 묻지 않는다.
 - Claude `--settings`는 권한 허용 목록에 `loom guard`와 메시지 명령(`send`, `steer`, `interrupt`, `wait`, `done`)만 넣는다. 기본 권한 모드에서 사람이 없는 노드가 승인 창에서 멈추지 않게 한다. `loom spawn`은 `-- <명령>`으로 아무 명령이나 띄울 수 있어 넣지 않는다.
-- 사람 문에는 토큰이 없다. 사람이 연 다른 웹 페이지는 두 문을 부르지 못한다. JSON 요청은 브라우저 사전 요청이 막고, 웹소켓과 DNS 재바인딩은 [src/daemon/origin.rs](../src/daemon/origin.rs)가 막는다(`Host`는 IP나 `localhost`만, `Origin`은 `http://<Host>`만).
+- 사람 문에는 토큰이 없다. 사람이 연 다른 웹 페이지는 두 문을 부르지 못한다. JSON 요청은 브라우저 사전 요청이 막고, 웹소켓과 DNS 재바인딩은 [src/daemon/origin.rs](../src/daemon/origin.rs)가 막는다(`Host`는 IP나 `localhost`만, `Origin`은 `http://<Host>`만). 폰 원격은 「원격」의 예외 하나다.
 - Codex 샌드박스(`workspace-write`)는 셸 명령의 네트워크를 막는다. 그래서 데몬은 노드 문을 하나 더 연다. 노드 문은 노드 전용 루프백 주소 `127.76.77.1:<데몬 포트>`에서 듣고 `/api/agent/*` 가운데 `spawn`을 뺀 라우트만 둔다.
   - app-server에 `-c sandbox_workspace_write.network_access=true`, `-c features.network_proxy.enabled=true`, `-c features.network_proxy.domains={"127.76.77.1"="allow"}`를 넘긴다. 셸 명령은 Codex 프록시로만 밖에 닿는다. 프록시는 노드 문 주소 말고 모든 주소를 막는다. 파일 권한은 그대로다. 인자는 [src/profile/codex.rs](../src/profile/codex.rs)의 `sandbox_args`에 있다.
   - `loom` 명령은 노드 문(`LOOM_URL`)에 Codex가 넣은 프록시 환경 변수(`ALL_PROXY`)로 닿는다. `loom spawn`만 데몬 주소(`LOOM_SPAWN_URL`)에 프록시 없이 간다. 샌드박스 안에서는 연결이 실패한다. 실패 메시지가 샌드박스 밖 실행 승인을 받으라고 적고, Codex 모델은 그 출력을 보고 승인을 요청한다. 사용법 지시(`developer_instructions`)에만 적었을 때는 요청하지 않았다.
@@ -386,7 +386,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 | 방식 | 받는 노드 상태 | Claude Code | Codex | OpenCode 2 |
 |---|---|---|---|---|
 | 큐 | `loom wait` 안 | `loom wait`가 본문을 돌려준다 | 같다 | 같다 |
-| 큐 | 일하는 중 | 턴이 끝나면 Stop 비동기 훅이 꺼내 바로 다음 턴으로 깨운다. 그 전에 PostToolUse 훅이 새로 기다리는 큐 메시지를 한 줄로 알린다 | `turn/completed` 뒤에 `turn/start` | 입력함 `queue`. 지금 실행이 끝난 뒤 같은 실행에 들어간다 |
+| 큐 | 일하는 중 | 다음 PostToolUse 훅 맥락(조정과 같다). 도구를 부르지 않고 턴이 끝나면 Stop 비동기 훅이 꺼내 바로 다음 턴으로 깨운다 | `turn/completed` 뒤에 `turn/start` | 입력함 `queue`. 지금 실행이 끝난 뒤 같은 실행에 들어간다 |
 | 큐 | 쉬는 중 | Stop·SessionStart 비동기 훅(`asyncRewake`)이 기다리다 꺼내고 exit 2로 끝난다. Claude가 그 stderr로 새 턴을 시작한다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 | `turn/start`로 깨운다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 | 입력함 `queue`가 새 실행을 시작한다. 부모는 `loom wait` 대신 턴을 끝내고 기다린다 |
 | 조정 | 일하는 중 | PostToolUse 훅 맥락 | `turn/steer` | 입력함 `steer`. 다음 단계 사이(도구 호출 뒤)에 들어간다 |
 | 중단 | 일하는 중 | 다음 PreToolUse 훅이 도구 호출을 거부하고 본문을 돌려준다. 셸 명령 실행 중이면 데몬이 `loom guard`로 알린 셸과 그 자손 프로세스를 끝내고 PostToolUseFailure 훅이 본문을 돌려준다 | `turn/interrupt` 뒤에 `turn/start` | 세션의 셸과 그 자손을 끝내고 `POST …/interrupt` 뒤에 입력함 `steer` |
@@ -408,7 +408,8 @@ Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Curso
   - sessionStart는 꺼내지 않는다. Cursor는 그 훅이 끝나야 첫 턴을 띄운다. 그 사이의 메시지는 첫 stop 훅이 넘긴다.
   - preToolUse는 포그라운드 Shell 명령 앞에 `loom guard` 줄을 붙인다(`updated_input`). `permission`은 넣지 않는다. 넣으면 사람이 끈 모든 권한 허용을 훅이 대신 허용한다.
   - 한계: Cursor TUI는 `~/.cursor/hooks.json`이나 `<작업 폴더>/.cursor/hooks.json`에 그 이벤트 항목이 있을 때만 stop·beforeSubmitPrompt 훅을 부른다(cursor-agent 2026.10.19 번들의 `userHooks?.hooks.stop?.length||projectHooks?.hooks.stop?.length`). 플러그인 훅만으로는 부르지 않는다. 그 항목이 없는 컴퓨터에서 Cursor 노드는 쉬는 동안 메시지로 깨지 않는다. 다음 사람 입력이나 도구 호출 때 받는다. Orca는 이 두 항목을 `~/.cursor/hooks.json`에 넣는다. loom은 그 파일을 고치지 않는다(2026-10-21 총괄 결정 A안). 대신 사용법 지시가 그 항목이 없으면 기다리는 답을 `loom wait --reply-to`로 받으라고 적는다.
-- 기다리는 큐 알림(Claude PostToolUse, Cursor postToolUse): 일하는 노드의 큐 메시지는 턴이 끝나야 간다. 그래서 도구 호출 뒤 훅이 아직 꺼내지 않은 큐 메시지 가운데 지난 알림 뒤에 온 것을 한 줄로 알린다(`loom: N new queued message(s) waiting (from: …). Run `loom wait --json` now …`). 본문은 넘기지 않고 꺼내지도 않는다. 에이전트가 지금 읽을지 고른다(2026-10-21 사람 승인). 노드마다 알린 마지막 메시지 id를 데몬 기억에 둔다. 데몬이 다시 시작하면 기다리던 메시지를 한 번 더 알린다. Codex·OpenCode 2는 알리지 않는다. 전달 작업은 도구 호출 지점을 모른다. 알리려면 알림마다 입력(`turn/steer`, 입력함 `steer`)을 하나 더 보내야 한다.
+- 일하는 노드의 큐 메시지(Claude PostToolUse, Cursor postToolUse): 도구 호출 뒤 훅이 조정과 함께 꺼내 넘긴다. 턴 끝까지 기다리지 않는다. 근거: 긴 턴 동안 「안 읽음 N」이 쌓였다. 알림 한 줄만 주고 에이전트에게 읽을지 맡기던 방식(2026-10-21)을 2026-10-22 사람 지시 "가장좋은건 애초에 이런일이 안일어나게 하는거지만"으로 바꿨다. Codex·OpenCode 2는 턴 끝까지 기다린다. 전달 작업이 도구 호출 지점을 모른다.
+- 「안 읽음 N」 누르기(노드 카드): 그 노드의 꺼내지 않은 큐 메시지를 조정으로 바꾼다(`POST /api/nodes/{id}/steer-queued`). 일하는 노드는 다음 단계 사이에, 쉬는 노드는 새 턴으로 받는다(2026-10-22 사람 지시 "사용자가 해당 칩을 클릭하면 수동으로 주입되게"). 트리 줄의 수는 누르지 않는다(줄 버튼 안이다).
 - 훅 한 번에 꺼내는 본문 합은 8KB 이하다. Claude는 `additionalContext` 한 개를 10,000자에서 자른다. 남은 메시지는 다음 훅이 꺼낸다.
 - PreToolUse 훅은 중단 메시지가 없으면 포그라운드 Bash 명령 앞에 `loom guard` 줄을 붙인다(`updatedInput`). 명령을 감싸지 않는 이유: Claude는 권한 규칙을 바꾼 명령으로 판정한다. 감싸면 사용자의 Bash 허용 규칙이 맞지 않는다. 줄을 앞에 붙이면 Claude가 줄마다 판정해 규칙이 그대로 맞는다.
 - `loom guard`는 자기 PID를 보낸다. 데몬은 그 조상 가운데 부모가 노드 프로세스인 것(노드의 Bash 도구 셸)을 끝낼 셸로 고른다. 근거: Windows Git Bash는 첫 명령을 fork 흉내용 bash 아래에서 띄우고, 그 bash는 명령과 함께 끝난다. 부모 PID를 셸로 보면 이미 끝난 프로세스를 가리킨다.
@@ -601,6 +602,25 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 | 설치 파일(Windows msvc 앱, macOS)은 Actions만 만든다. 호스트(WSL)는 mingw-w64로 Windows 데몬(`x86_64-pc-windows-gnu`)을 빌드·검사한다. 단위 시험은 실제 Windows에서 돈다: cargo runner(`scripts/windows/run.sh`)가 시험 파일을 Windows 임시 폴더로 복사해 interop으로 띄운다. 이 대상의 디버그 빌드는 `skills/`·`web/dist`를 파일에 싣는다(rust-embed `debug-embed`) | 전에는 `cfg(windows)` 코드를 호스트에서 컴파일하지 않아 오류가 손으로 돌린 릴리스 빌드에서만 보였다. Wine 없이 같은 PC의 Windows에서 돈다. Windows 디버그 빌드는 Linux 경로의 파일을 읽지 못한다. NSIS 묶기는 Windows 러너에서 공식 경로로 돈다 |
 | 사람의 Windows 데몬은 `scripts/windows/host.sh`가 올린다: gnu 릴리스 빌드, 앱 옆 `loom.exe`의 이름을 `.old`로 바꾸고 새 파일을 넣기, `stop` 뒤 `start --listen 127.0.0.1:7421`. 판은 `scripts/version.sh`로 찍는다 | WSL 데몬(7420)이 도는 동안 둘이 함께 돈다(통합 데몬 이전 기간). 로컬 판 `0.1.0`이면 「새 판이 이긴다」 규칙에서 설치된 앱이 데몬을 바꾼다 |
 
+## 원격
+
+폰은 컴퓨터의 작업을 통제하는 단말이다(2026-10-22 사람 결정 Q279·Q280, 설계 보고서 R13 v2, 목업 [docs/mockups/mobile.html](mockups/mobile.html) M35 v5). 1단계는 웹 앱(PWA)이다. Tauri 모바일 앱은 필요할 때만 만든다.
+
+| 결정 | 이유 |
+|---|---|
+| 폰은 Tailscale Serve로 데몬에 닿는다. Serve가 HTTPS를 끝내고 `127.0.0.1:7420`으로 넘긴다. 데몬은 루프백에서만 듣는다 | 사람 문에는 토큰이 없다. 데몬을 LAN에 열지 않고, 인증과 TLS를 tailnet에 맡긴다 |
+| Serve는 요청에 `Tailscale-User-Login`을 넣고, 밖에서 온 같은 머리글은 지운다. 이 머리글이 있으면 [src/daemon/origin.rs](../src/daemon/origin.rs) `human_site`가 원격으로 본다: 로그인이 설정 `remoteLogin`과 같고(대소문자 무시), 호스트(`X-Forwarded-Host`, 없으면 `Host`)가 `.ts.net`으로 끝나고, `Origin`이 없거나 `https://<호스트>`여야 한다. 아니면 403이다 | 같은 tailnet의 다른 사람과 다른 사이트를 막는다. 머리글이 없으면 지금 검사(`same_site`)를 그대로 쓴다 |
+| `remoteLogin`이 없거나 비면 원격은 꺼짐이다. 설정 › 원격에서 바꾼다. 거절 글은 거절한 로그인을 적는다 | 처음 설치는 원격을 열지 않는다. 사람은 폰 화면에 뜬 로그인을 그대로 옮겨 적는다 |
+| 폭 640px 미만이면 화면이 폰 배치(`web/src/Phone.tsx`)를 그린다: 아래 탭 [질문]·[노드], 노드 터미널 화면, 키 막대, 사용량 줄. 그래프는 1단계에 넣지 않는다 | 사람 결정 Q281. 폰은 질문에 답하고 노드를 다루는 데 쓴다 |
+| 폰의 질문 문서는 `GET /api/waits/{wait}/doc/`가 낸다. 문서 옆 파일은 `…/doc/<파일>`이고 폴더 밖은 404다. 앱(Tauri)은 그대로 `POST …/doc`으로 기본 브라우저를 연다 | 폰은 데몬 기계의 파일을 열지 못한다 |
+
+사람이 하는 준비(설정 › 원격에도 있다):
+
+1. 컴퓨터와 폰에 Tailscale을 설치하고 같은 계정으로 로그인한다.
+2. 컴퓨터에서 `tailscale serve --bg 7420`을 실행한다.
+3. 설정 › 원격에 그 Tailscale 로그인을 적는다.
+4. 폰 브라우저로 `https://<컴퓨터 이름>.<tailnet>.ts.net`을 열고 홈 화면에 추가한다.
+
 ## 레이어
 
 기능 역할로 나눈다. 의존은 위에서 아래로만 둔다. 기능 모듈끼리는 서로 부르지 않는다.
@@ -676,6 +696,7 @@ Windows와 macOS(Apple Silicon)에서는 앱 하나(`app/`)로 loom 창을 연�
 - macOS 노드 안의 Claude Code·Codex 로그인과 계정 전환. 러너에는 두 CLI가 없었다.
 - Codex app-server를 unix 소켓으로 쓸 때의 메시지 틀. 지금은 `ws://127.0.0.1`만 쓴다.
 - Windows 앱 업데이트 전체 길(새 판 빌드, [다시 시작하여 업데이트], 새 데몬이 다시 붙기). 새 판은 Actions로만 빌드한다. 위 실측은 부품마다 따로 했다. 다시 붙기 코드는 Linux와 같다.
+- Tailscale Serve가 실제로 보내는 `Host`·`X-Forwarded-Host`와 폰에서 홈 화면에 추가한 웹 앱. 이 기계에는 tailnet과 폰이 없다. 머리글은 만든 요청으로만 시험했다(`origin.rs` 시험, 시험 데몬에 curl).
 
 ## 후속
 

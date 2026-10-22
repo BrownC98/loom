@@ -1598,12 +1598,8 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     g.exited(worker, 0).unwrap();
     assert!(!g.relations(worker).unwrap().me.alive);
     assert!(!g.active().unwrap().iter().any(|n| n.id == worker));
-    assert_eq!(
-        view(&g, worker).state,
-        NodeState::Done {
-            summary: "finished".into()
-        }
-    );
+    // 피드백을 받아 다시 일하다 끝났다. 다시 done을 부르지 않았으므로 종료다.
+    assert_eq!(view(&g, worker).state, NodeState::Exited { code: Some(0) });
     assert!(matches!(
         g.send(lead, "worker", Kind::Queue, "more feedback"),
         Err(Refusal::Ended(_))
@@ -1746,17 +1742,13 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
         take(&g, coord),
         delivery("워커-1-화면", "done: 1-화면 커밋")
     );
-    // 완료한 워커도 반려를 받는다. 두 번째 done은 거절하므로 send로 보고한다.
+    // 완료한 워커도 반려를 받는다. 받으면 다시 일하는 중이고, 고친 뒤 done을 또 부른다.
     g.send(coord, "워커-1-화면", Kind::Queue, "Rework: 여백")
         .unwrap();
     assert_eq!(take(&g, worker), delivery("코디-1", "Rework: 여백"));
-    assert!(matches!(g.done(worker, "다시"), Err(Refusal::AlreadyDone)));
-    g.send(worker, "코디-1", Kind::Queue, "REWORK DONE: 여백")
-        .unwrap();
-    assert_eq!(
-        take(&g, coord),
-        delivery("워커-1-화면", "REWORK DONE: 여백")
-    );
+    assert_eq!(view(&g, worker).state, NodeState::Running);
+    g.done(worker, "여백 고침").unwrap();
+    assert_eq!(take(&g, coord), delivery("워커-1-화면", "done: 여백 고침"));
     g.done(coord, "1-기능 병합 준비").unwrap();
     assert_eq!(take(&g, lead), delivery("코디-1", "done: 1-기능 병합 준비"));
     let children = g.relations(lead).unwrap().children;
@@ -2043,28 +2035,39 @@ fn bookmarks_keep_their_order_and_vanish_with_the_node() {
 }
 
 #[test]
-fn a_working_node_hears_of_each_waiting_queue_message_once() {
+fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
     let b = child(&g, lead, "b");
-    assert!(g.newly_queued(a).unwrap().is_empty());
     g.send(lead, "a", Kind::Queue, "q1").unwrap();
-    g.send(lead, "a", Kind::Steer, "s1").unwrap();
-    g.send(b, "a", Kind::Queue, "q2").unwrap();
+    g.send(lead, "a", Kind::Queue, "q2").unwrap();
     g.send(lead, "b", Kind::Queue, "다른 노드").unwrap();
+    // 이미 꺼낸 메시지는 그대로 둔다.
+    let first = g.take(a, &[Kind::Queue], 1).unwrap();
+    assert_eq!(first.len(), 1);
 
-    // 큐 메시지만, 보낸 순서로 알린다. 꺼내지 않는다.
-    assert_eq!(g.newly_queued(a).unwrap(), ["총괄-1", "b"]);
-    assert!(g.newly_queued(a).unwrap().is_empty());
-    assert_eq!(view(&g, a).unread, 3);
-    // 새 메시지만 다시 알린다. 다른 노드의 기억과 섞이지 않는다.
-    g.send(lead, "a", Kind::Queue, "q3").unwrap();
-    assert_eq!(g.newly_queued(a).unwrap(), ["총괄-1"]);
-    assert_eq!(g.newly_queued(b).unwrap(), ["총괄-1"]);
-    // 이미 꺼낸 메시지는 기다리지 않는다.
-    g.send(lead, "a", Kind::Queue, "q4").unwrap();
-    g.take(a, Kind::ALL, usize::MAX).unwrap();
-    assert!(g.newly_queued(a).unwrap().is_empty());
+    g.steer_queued(a).unwrap();
+    let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
+    assert_eq!(
+        steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
+        ["q2"]
+    );
+    assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
+    assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);
+}
+
+#[test]
+fn a_done_node_runs_again_when_the_human_types() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    g.done(lead, "끝").unwrap();
+    // 꺼낼 메시지가 없으면 그대로 둔다.
+    assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());
+    assert!(matches!(view(&g, lead).state, NodeState::Done { .. }));
+    g.human_input(lead).unwrap();
+    assert_eq!(view(&g, lead).state, NodeState::Running);
+    g.done(lead, "또 끝").unwrap();
 }

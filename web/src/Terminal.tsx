@@ -164,7 +164,16 @@ export const XtermTheme = createContext<ITheme>(TERMINAL_THEMES[DEFAULT_TERMINAL
 export const XtermFont = createContext<XtermFontValue>(DEFAULT_TERMINAL_FONT);
 
 /** `focusAsk`가 바뀌면 고른 터미널이 다시 입력 초점을 잡는다. 이미 고른 노드로 다시 갈 때 쓴다(질문 줄 누르기). */
-type TerminalProps = { src: string; focused: boolean; focusAsk?: number; onFocus: () => void; onNavigate: (dir: Direction) => void; loadRenderer?: (xterm: XTerm) => void };
+/** `onSender`는 이 터미널의 PTY에 글을 보내는 함수를 받는다. 닫으면 `null`이다. 폰의 키 막대와 입력 줄이 쓴다(목업 docs/mockups/mobile.html ④). */
+type TerminalProps = {
+  src: string;
+  focused: boolean;
+  focusAsk?: number;
+  onFocus: () => void;
+  onNavigate: (dir: Direction) => void;
+  loadRenderer?: (xterm: XTerm) => void;
+  onSender?: (send: ((data: string) => void) | null) => void;
+};
 
 /**
  * PTY 크기를 따르는 터미널. 데몬이 알린 열·줄(`PtyNotice` `size`)로 그리고, 칸에 맞게 글자를 늘이거나 줄인다(목업 docs/mockups/terminal-size.html 안 A).
@@ -307,6 +316,7 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
       // xterm의 paste 처리기보다 먼저 받는다.
       el.addEventListener('paste', pasteImage, true);
       const input = xterm.onData((data) => link.sendInput(data));
+      latest.current.onSender?.((data) => link.sendInput(data));
       // 크기가 바뀐 뒤 그린 칸 크기로 배율을 다시 잰다.
       const resize = xterm.onResize(() => requestAnimationFrame(rescale));
       xterm.textarea?.addEventListener('focus', () => latest.current.onFocus());
@@ -318,6 +328,7 @@ function XtermView(props: TerminalProps & { sizing: Sizing }) {
         el.removeEventListener('paste', pasteImage, true);
         input.dispose();
         resize.dispose();
+        latest.current.onSender?.(null);
         link.close();
         xterm.dispose();
         term.current = null;

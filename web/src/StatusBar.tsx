@@ -29,7 +29,9 @@ export function StatusBar(props: {
   /** 고른 저장소의 WSL 배포판. 이 PC 저장소면 null이다. 사용량은 그 위치의 「사용 중」 계정이다(목업 wsl-place.html ⑦). */
   distro: string | null;
   onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
-  onManage: () => void; notice: { record: SwitchRecord | null; onClose: () => void } }) {
+  onManage?: () => void;
+  notice: { record: SwitchRecord | null; onClose: () => void };
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 다른 팝오버처럼 pointerdown을 먼저 받는다.
@@ -89,16 +91,21 @@ export function StatusBar(props: {
       </button>
       {props.notice.record && <SwitchNotice record={props.notice.record} accounts={usage.accounts} onClose={props.notice.onClose} />}
       <span className="app-version">v{VERSION}</span>
+      {/* 폰에서만 보이는 판 뒤 막. 막을 누르면 판만 닫고 그 아래 단추에 닿지 않는다(styles.css `.usage-scrim`). */}
+      {open && <div className="usage-scrim" aria-hidden="true" onClick={() => setOpen(false)} />}
       {open && usage.accounts && (
         <UsagePopover
           accounts={usage.accounts.filter((a) => a.distro === distro)}
           active={active}
           usage={usage}
           onChoose={(provider, id) => props.onChoose(provider, distro, id)}
-          onManage={() => {
-            setOpen(false);
-            props.onManage();
-          }}
+          onManage={
+            props.onManage &&
+            (() => {
+              setOpen(false);
+              props.onManage?.();
+            })
+          }
         />
       )}
     </footer>
@@ -129,7 +136,8 @@ function UsagePopover(props: {
   active: (provider: Provider) => AccountView | undefined;
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
-  onManage: () => void;
+  /** 없으면 [계정 관리]를 두지 않는다. 폰에는 설정 창이 없다(목업 mobile.html ⑧). */
+  onManage?: () => void;
 }) {
   const { t } = useTranslation();
   const { usage } = props;
@@ -151,9 +159,11 @@ function UsagePopover(props: {
       ))}
       <div className="usage-foot">
         {usage.fetchedAt !== null && fetchedText(usage.fetchedAt, Date.now())}
-        <button className="btn ghost sm" onClick={props.onManage}>
-          {t('statusBar.manage')}
-        </button>
+        {props.onManage && (
+          <button className="btn ghost sm" onClick={props.onManage}>
+            {t('statusBar.manage')}
+          </button>
+        )}
       </div>
     </div>
   );

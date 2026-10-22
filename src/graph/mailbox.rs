@@ -306,29 +306,33 @@ impl Graph {
             )?;
             taken.push(delivery);
         }
+        let resumed = !taken.is_empty() && resume(&tx, node)?;
         tx.commit()?;
+        if resumed {
+            self.publish_node(&db, node)?;
+        }
         Ok(taken)
     }
 
-    /// 아직 꺼내지 않은 큐 메시지 가운데 지난번 뒤에 온 것의 보낸 노드 이름. 온 순서다. 꺼내지 않는다.
-    /// 일하는 노드에 큐 메시지가 기다린다고 한 번만 알리는 데 쓴다. 근거: docs/design.md 「전달 지점」.
-    pub fn newly_queued(&self, node: NodeId) -> Result<Vec<String>, Refusal> {
-        let mut db = self.lock();
-        let after = db.store.queue_noticed.get(&node).map_or(0, |id| id.0);
-        let queued = db
-            .prepare(
-                "SELECT id, sender_name FROM messages
-                 WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?2 AND id > ?3
-                 ORDER BY id",
-            )?
-            .query_map(params![node.0, to_json(&Kind::Queue), after], |row| {
-                Ok((MessageId(row.get(0)?), row.get::<_, String>(1)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if let Some((last, _)) = queued.last() {
-            db.store.queue_noticed.insert(node, *last);
+    /// 사람이 노드에 입력했다. 끝낸 노드면 다시 일한다.
+    pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
+        let db = self.lock();
+        if resume(&db, node)? {
+            self.publish_node(&db, node)?;
         }
-        Ok(queued.into_iter().map(|(_, from)| from).collect())
+        Ok(())
+    }
+
+    /// 사람이 노드 카드의 「안 읽음」을 눌렀다. 아직 꺼내지 않은 큐 메시지를 조정으로 바꾼다.
+    /// 일하는 노드는 다음 단계 사이에, 쉬는 노드는 새 턴으로 받는다(2026-10-22 사람 지시 "칩을 클릭하면 수동으로 주입되게").
+    pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
+        self.lock().execute(
+            "UPDATE messages SET kind = ?2
+             WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?3",
+            params![node.0, to_json(&Kind::Steer), to_json(&Kind::Queue)],
+        )?;
+        self.mail.notify_waiters();
+        Ok(())
     }
 
     /// 받는 쪽이 `ids` 메시지를 받았다. 다시 꺼내지 않는다. 다른 노드의 메시지 id는 무시한다.
@@ -404,6 +408,16 @@ impl Graph {
         }
         Ok(alive_children)
     }
+}
+
+/// `done` 노드가 새 일(메시지, 사람 입력)을 받으면 `running`으로 돌린다. 다시 끝내면 `loom done`을 또 부른다.
+/// 근거: 피드백으로 다시 일하는 노드가 「완료」로 보였다(2026-10-22 사람 보고 "작업중인데 완료 상태로 표시되는 문제").
+fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
+    let done = matches!(state_of(db, node), Ok(NodeState::Done { .. }));
+    if done {
+        set_state(db, node, &NodeState::Running)?;
+    }
+    Ok(done)
 }
 
 fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {

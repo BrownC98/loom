@@ -20,12 +20,13 @@ import { SizingTerminal } from './Terminal';
 import { TerminalTab, UiTab } from './ThemeSettings';
 import type { Updates } from './Update';
 import { VERSION } from './version';
+import { RemoteTab } from './RemoteSettings';
 import { WorkspaceTab } from './WorkspaceSettings';
 import { placeName, shortPlaceName } from './place';
 import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, placesOf, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
 
 /** 탭 순서이자 URL 해시 값(`#settings/ui`)이다. */
-export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal', 'about'] as const;
+export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'remote', 'ui', 'terminal', 'about'] as const;
 /**
  * 탭마다 [이 탭 초기화]가 기본값으로 되돌리는 설정 칸. 「모든 설정 초기화」는 이 칸을 모두 되돌린다(2026-10-22 사람 지시 "모든 설정 초기화도 넣고, 각 탭별 초기화를 넣어라").
  * 고른 계정(`claudeAccount`·`codexAccount`)은 넣지 않는다: 바꾸면 노드가 계정을 바꾸므로 계정 탭의 고르기(확인 창)로만 바꾼다.
@@ -35,6 +36,7 @@ const TAB_SETTINGS = {
   agents: ['bypassOff', 'alwaysOn', 'treeLimits'],
   accounts: ['autoSwitch'],
   workspace: ['workspaceDir', 'wslWorkspaceDirs'],
+  remote: ['remoteLogin'],
   ui: ['theme', 'colors', 'cardView', 'graphScope', 'edgeStyle', 'questionPill', 'osNotify', 'language'],
   terminal: ['terminalTheme', 'terminalFont'],
   about: [],
@@ -73,6 +75,7 @@ export function Settings(props: {
       {tab === 'agents' && <AgentsTab agents={props.agents} onRescan={props.onRescan} settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'accounts' && <AccountsTab settings={props.settings} onSettings={props.onSettings} usage={props.usage} onChoose={props.onChoose} />}
       {tab === 'workspace' && <WorkspaceTab settings={props.settings} onSettings={props.onSettings} />}
+      {tab === 'remote' && <RemoteTab settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'ui' && <UiTab settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'terminal' && <TerminalTab settings={props.settings} onSettings={props.onSettings} />}
       {tab === 'about' && <AboutTab updates={props.updates} />}

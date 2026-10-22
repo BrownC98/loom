@@ -16,7 +16,7 @@ use crate::daemon::{
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
-use crate::profile::{BETWEEN_TOOLS_KINDS, Take, cursor};
+use crate::profile::{Take, cursor};
 
 /// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
@@ -170,9 +170,8 @@ pub fn hook() -> Result<(), String> {
         eprintln!("loom: could not report the human wait: {e}");
     }
     let transcript = input["transcript_path"].as_str().map(str::to_owned);
-    let (kinds, notice_queue) = match event.take() {
-        Take::Now(kinds) => (kinds, false),
-        Take::BetweenTools => (BETWEEN_TOOLS_KINDS, true),
+    let kinds = match event.take() {
+        Take::Now(kinds) => kinds,
         Take::Never => return Ok(()),
         Take::WhenIdle => {
             if let claude::Event::Stop = event
@@ -198,11 +197,10 @@ pub fn hook() -> Result<(), String> {
         kinds: kinds.to_vec(),
         limit_bytes: claude::HOOK_LIMIT_BYTES,
         transcript,
-        notice_queue,
         human_input: matches!(event, claude::Event::UserPromptSubmit),
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
-    if let Some(reply) = event.reply(&taken.messages, &taken.queued_from, &taken.open_questions) {
+    if let Some(reply) = event.reply(&taken.messages, &taken.open_questions) {
         println!("{reply}");
     }
     // 확인하지 못해도 훅 출력은 Claude에 넘긴다. 데몬이 같은 메시지를 다시 주고, 본문의 `#id`로 같은 메시지임을 안다.
@@ -243,14 +241,13 @@ pub fn cursor_hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the model: {e}");
     }
-    let take_now = |kinds: &[Kind], notice_queue| {
+    let take_now = |kinds: &[Kind]| {
         call(
             "take",
             &TakeRequest {
                 kinds: kinds.to_vec(),
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
                 transcript: None,
-                notice_queue,
                 human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
             },
             Some(timeout),
@@ -271,21 +268,15 @@ pub fn cursor_hook() -> Result<(), String> {
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {
             messages: Vec::new(),
-            queued_from: Vec::new(),
             open_questions: Vec::new(),
         },
         Some(Take::WhenIdle) => Taken {
             messages: wait_for_mail(&IdleRequest::default())?,
-            queued_from: Vec::new(),
             open_questions: Vec::new(),
         },
-        Some(Take::Now(kinds)) => take_now(kinds, false)?,
-        Some(Take::BetweenTools) => take_now(BETWEEN_TOOLS_KINDS, true)?,
+        Some(Take::Now(kinds)) => take_now(kinds)?,
     };
-    println!(
-        "{}",
-        event.reply(&taken.messages, &taken.queued_from, &taken.open_questions,)
-    );
+    println!("{}", event.reply(&taken.messages, &taken.open_questions,));
     std::io::stdout().flush().map_err(|e| e.to_string())?;
     acknowledge(&taken.messages, Some(timeout));
     Ok(())

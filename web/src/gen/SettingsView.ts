@@ -99,4 +99,9 @@ repo: RepoId | null, paneWidths: PaneWidths, closedPanes: ClosedPanes,
 /**
  * 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
  */
-closedSwitchNotice: number | null, };
+closedSwitchNotice: number | null, 
+/**
+ * Tailscale Serve로 온 폰을 받는 Tailscale 로그인(예: `me@example.com`). 없거나 비면 원격은 꺼짐이다.
+ * 근거: docs/design.md 「원격」, `src/daemon/origin.rs`.
+ */
+remoteLogin: string | null, };

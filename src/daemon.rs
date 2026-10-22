@@ -39,8 +39,8 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
-    NodeId, OpenQuestion, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc,
-    WaitId, WaitKind, WaitSource,
+    NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc, WaitId,
+    WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -343,9 +343,9 @@ pub struct TakeRequest {
 #[derive(Serialize, Deserialize)]
 pub struct Taken {
     pub messages: Vec<Delivery>,
-    /// 사람 입력 훅에서만: 아직 열린 `loom ask` 질문들. 에이전트가 그 입력이 어느 질문의 답인지 판단한다.
+    /// 사람 입력 훅에서만: 그 입력에 붙일 안내(`App::human_input`).
     #[serde(default)]
-    pub open_questions: Vec<OpenQuestion>,
+    pub note: Option<String>,
 }
 
 /// 쉬는 노드의 훅 요청(`loom hook`, `loom cursor-hook`). 옛 `loom hook`은 몸통 없이(`null`) 부른다.
@@ -1352,9 +1352,7 @@ impl Mailbox for NodeMailbox {
     }
 
     fn human_input(&self) -> Option<String> {
-        let _ = self.app.graph.human_input(self.node);
-        let questions = self.app.graph.open_questions(self.node).ok()?;
-        profile::hook_text(&[], &questions)
+        self.app.human_input(self.node).ok().flatten()
     }
 }
 
@@ -1467,21 +1465,30 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
     }
 }
 
+impl App {
+    /// 사람이 입력해 턴이 시작했다. 노드를 다시 일하는 상태로 두고, 그 입력에 붙일 안내를 돌려준다:
+    /// 열린 `loom ask` 질문과, 부모 없는 노드면 완료 보고 안내(`profile::DONE_NOTE`).
+    fn human_input(&self, node: NodeId) -> Result<Option<String>, Refusal> {
+        self.graph.human_input(node)?;
+        let questions = profile::questions_note(&self.graph.open_questions(node)?);
+        let done = self
+            .graph
+            .relations(node)?
+            .parent
+            .is_none()
+            .then(|| profile::DONE_NOTE.to_owned());
+        let parts: Vec<String> = questions.into_iter().chain(done).collect();
+        Ok((!parts.is_empty()).then(|| parts.join("\n\n")))
+    }
+}
+
 /// 사람이 TUI에 입력해 턴이 시작했다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
 /// Codex에는 입력 훅이 없어 턴 안에 넣는다(`turn/steer`).
 async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread: &str) {
-    if let Err(e) = app.graph.human_input(node) {
-        eprintln!(
-            "loom: 노드 {}를 다시 일하는 상태로 바꾸지 못했다: {e}",
-            node.0
-        );
-    }
-    let questions = match app.graph.open_questions(node) {
-        Ok(questions) => questions,
-        Err(e) => return eprintln!("loom: 노드 {}의 열린 질문을 읽지 못했다: {e}", node.0),
-    };
-    let Some(text) = profile::hook_text(&[], &questions) else {
-        return;
+    let text = match app.human_input(node) {
+        Ok(Some(text)) => text,
+        Ok(None) => return,
+        Err(e) => return eprintln!("loom: 노드 {}의 사람 입력을 처리하지 못했다: {e}", node.0),
     };
     let call = |method, params| server.call(method, params);
     if let Err(e) = codex::steer(call, thread, &text).await {
@@ -1896,17 +1903,11 @@ async fn agent_take(
         .graph
         .take(node, &req.kinds, req.limit_bytes)
         .map_err(for_agent)?;
-    let open_questions = match req.human_input {
-        true => {
-            app.graph.human_input(node).map_err(for_agent)?;
-            app.graph.open_questions(node).map_err(for_agent)?
-        }
-        false => Vec::new(),
+    let note = match req.human_input {
+        true => app.human_input(node).map_err(for_agent)?,
+        false => None,
     };
-    Ok(Json(Taken {
-        messages,
-        open_questions,
-    }))
+    Ok(Json(Taken { messages, note }))
 }
 
 /// 쉬는 Claude 노드의 비동기 훅이 부른다. 메시지가 오면 모두 꺼낸다(본문 합 상한은 훅과 같다).

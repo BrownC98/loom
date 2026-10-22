@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model, OpenQuestion, WaitKind};
+use crate::graph::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::Launch;
 
@@ -236,8 +236,8 @@ impl Event {
     }
 
     /// 훅 출력 JSON. 없으면 아무것도 출력하지 않는다.
-    pub fn reply(&self, taken: &[Delivery], open_questions: &[OpenQuestion]) -> Option<Value> {
-        let Some(text) = super::hook_text(taken, open_questions) else {
+    pub fn reply(&self, taken: &[Delivery], note: Option<&str>) -> Option<Value> {
+        let Some(text) = super::hook_text(taken, note) else {
             return match self {
                 Event::PreToolUse {
                     tool_name,
@@ -347,7 +347,6 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::WaitId;
 
     #[test]
     fn launch_text_has_the_ask_rules() {
@@ -391,7 +390,7 @@ mod tests {
             "tool_input": { "command": "npm test && echo ok", "timeout": 1000 },
         }));
         assert_eq!(
-            pre.reply(&[], &[]),
+            pre.reply(&[], None),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "updatedInput": { "command": "loom guard\nnpm test && echo ok", "timeout": 1000 },
@@ -405,12 +404,12 @@ mod tests {
             "hook_event_name": "PreToolUse", "tool_name": "Bash",
             "tool_input": { "command": "loom wait", "run_in_background": true },
         }));
-        assert_eq!(background.reply(&[], &[]), None);
+        assert_eq!(background.reply(&[], None), None);
         let read = event(json!({
             "hook_event_name": "PreToolUse", "tool_name": "Read",
             "tool_input": { "file_path": "/a" },
         }));
-        assert_eq!(read.reply(&[], &[]), None);
+        assert_eq!(read.reply(&[], None), None);
     }
 
     #[test]
@@ -420,7 +419,7 @@ mod tests {
             "tool_input": { "command": "npm test" },
         }));
         assert_eq!(
-            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], &[]),
+            pre.reply(&[delivery(Kind::Interrupt, "멈춰라")], None),
             Some(json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
@@ -444,7 +443,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                event(input).reply(&[delivery(Kind::Steer, "b")], &[]),
+                event(input).reply(&[delivery(Kind::Steer, "b")], None),
                 Some(json!({ "hookSpecificOutput": {
                     "hookEventName": name,
                     "additionalContext": "loom message #1 (from: 총괄, mode: steer)\nb",
@@ -486,26 +485,13 @@ mod tests {
     }
 
     /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
-    /// 사람 입력 턴에 열린 `loom ask` 질문이 있으면 맥락 한 줄로 알린다. 없으면 아무것도 넣지 않는다.
+    /// 사람 입력 턴의 안내(`App::human_input`)는 맥락으로 넘긴다. 없으면 아무것도 넣지 않는다.
     #[test]
-    fn human_input_gets_the_open_question_line() {
+    fn human_input_gets_the_note_as_context() {
         let prompt = event(json!({ "hook_event_name": "UserPromptSubmit" }));
-        assert_eq!(prompt.reply(&[], &[]), None);
-        let questions = [
-            OpenQuestion {
-                id: WaitId(12),
-                text: "A or B?".into(),
-            },
-            OpenQuestion {
-                id: WaitId(13),
-                text: "Delete?".into(),
-            },
-        ];
-        let reply = prompt.reply(&[], &questions).unwrap();
-        let text = reply["hookSpecificOutput"]["additionalContext"]
-            .as_str()
-            .unwrap();
-        assert!(text.starts_with("Open loom ask questions: Q12: A or B? | Q13: Delete?. If this input answers some of them, call `loom answered <Q ids>`"), "{text}");
+        assert_eq!(prompt.reply(&[], None), None);
+        let reply = prompt.reply(&[], Some("note")).unwrap();
+        assert_eq!(reply["hookSpecificOutput"]["additionalContext"], "note");
     }
 
     #[test]

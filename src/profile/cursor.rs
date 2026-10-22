@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model, OpenQuestion, WaitKind};
+use crate::graph::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Dialog, Place};
 use crate::skills::{AlwaysOn, Launch, Position};
 
@@ -219,8 +219,8 @@ impl Event {
     }
 
     /// 훅 출력 JSON. 쉬는 노드(stop)의 메시지는 새 턴 입력(`followup_message`)으로 넘긴다.
-    pub fn reply(&self, taken: &[Delivery], open_questions: &[OpenQuestion]) -> Value {
-        let Some(text) = super::hook_text(taken, open_questions) else {
+    pub fn reply(&self, taken: &[Delivery], note: Option<&str>) -> Value {
+        let Some(text) = super::hook_text(taken, note) else {
             return match self {
                 Event::SessionStart { .. } => json!({ "additional_context": usage() }),
                 Event::BeforeSubmitPrompt { .. } => json!({ "continue": true }),
@@ -394,13 +394,13 @@ mod tests {
     #[test]
     fn idle_mail_becomes_a_followup_and_interrupt_denies_the_tool() {
         let stop = event(json!({ "hook_event_name": "stop" }));
-        let reply = stop.reply(&[delivery(Kind::Queue)], &[]);
+        let reply = stop.reply(&[delivery(Kind::Queue)], None);
         assert!(reply["followup_message"].as_str().unwrap().contains("#7"));
         let pre = event(json!({
             "hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {},
         }));
         assert_eq!(
-            pre.reply(&[delivery(Kind::Interrupt)], &[])["permission"],
+            pre.reply(&[delivery(Kind::Interrupt)], None)["permission"],
             "deny"
         );
     }
@@ -412,14 +412,14 @@ mod tests {
             "tool_input": { "command": "npm test", "timeout": 30000 },
         }));
         assert_eq!(
-            pre.reply(&[], &[])["updated_input"],
+            pre.reply(&[], None)["updated_input"],
             json!({ "command": "loom guard\nnpm test", "timeout": 30000 })
         );
         let background = event(json!({
             "hook_event_name": "preToolUse", "tool_name": "Shell",
             "tool_input": { "command": "loom wait", "is_background": true },
         }));
-        assert_eq!(background.reply(&[], &[]), json!({}));
+        assert_eq!(background.reply(&[], None), json!({}));
     }
 
     /// Cursor가 버리지 않게 sessionStart 글마다 상한 아래로 둔다.
@@ -429,7 +429,7 @@ mod tests {
         let said = event(json!({ "hook_event_name": "afterAgentResponse", "text": "병합할까요?" }));
         assert!(matches!(&said, Event::AfterAgentResponse { text } if text == "병합할까요?"));
         assert_eq!(said.take(), None);
-        assert_eq!(said.reply(&[], &[]), json!({}));
+        assert_eq!(said.reply(&[], None), json!({}));
         assert!(hooks()["hooks"]["afterAgentResponse"].is_array());
     }
 

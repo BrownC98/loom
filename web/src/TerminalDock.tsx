@@ -5,7 +5,7 @@ import { BookmarkButton } from './BookmarkButton';
 import type { NodeView } from './gen/NodeView';
 import { useRename } from './NameEdit';
 import { NodeSummary } from './NodeCard';
-import { Terminal, type Direction } from './Terminal';
+import { SizingTerminal, type Direction } from './Terminal';
 
 /**
  * 오른쪽 칸 터미널은 WebGL로 그린다. 블록 글자 사이 틈이 없다(docs/design.md 「설정」). 칸은 하나라 WebGL 컨텍스트도 하나다.
@@ -33,7 +33,7 @@ export function TerminalDock(props: { view: NodeView; agentLabel: string; focusA
       </div>
       {/* 노드를 바꾸면 새 터미널을 연다. 앞 노드의 연결은 닫는다. */}
       <div className="dock-term" translate="no">
-        <Terminal key={view.id} src={nodePty(view.id)} node={view.id} focused focusAsk={props.focusAsk} onFocus={() => {}} onNavigate={props.onNavigate} loadRenderer={webglRenderer} />
+        <SizingTerminal key={view.id} src={nodePty(view.id)} node={view.id} focused focusAsk={props.focusAsk} onFocus={() => {}} onNavigate={props.onNavigate} loadRenderer={webglRenderer} />
       </div>
     </>
   );

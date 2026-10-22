@@ -273,7 +273,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .filters input::placeholder { color: var(--ink-3); }
 .filters input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
 .events { list-style: none; padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; }
-.ev { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; font-size: 13px; }
+.ev { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; font-size: 13px; }
 .events li { border-radius: 6px; content-visibility: auto; contain-intrinsic-size: auto 40px; }
 .events li:hover { background: var(--surface-hover); }
 .events li:has(> .ev[aria-current="true"]) { background: var(--accent-wash); }
@@ -287,6 +287,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ev .note.err { color: var(--err); }
 .ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev .body.open { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 알림 줄 왼쪽 막대: 질문 계열은 질문 알약의 --warn, 완료 계열은 완료 알약의 --ok(목업 docs/mockups/notice-color.html A안). 글자 색은 그대로다. 라이트의 --warn 글자는 대비가 모자란다. */
+.ev[data-family]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--warn); }
+.ev[data-family="done"]::before { background: var(--ok); }
 .commits { list-style: none; padding: 6px 0; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
 /* 줄이 1,000개까지 온다. 화면 밖 줄은 배치·그리기를 건너뛴다. 줄 높이가 22px로 고정이라 모양은 같다. 첫 그래프 표시가 약 1.2초에서 0.6초로 줄었다(2026-10-22 측정). */
 .commit { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 12px 0 6px; content-visibility: auto; contain-intrinsic-size: auto 22px; }

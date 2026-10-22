@@ -32,7 +32,7 @@ export const SETTINGS_TABS = ['agents', 'accounts', 'workspace', 'ui', 'terminal
 const TAB_SETTINGS = {
   agents: ['bypassOff', 'alwaysOn', 'treeLimits'],
   accounts: ['autoSwitch'],
-  workspace: ['workspaceDir'],
+  workspace: ['workspaceDir', 'wslWorkspaceDirs'],
   ui: ['theme', 'colors', 'cardView', 'graphScope', 'edgeStyle', 'questionPill', 'osNotify', 'language'],
   terminal: ['terminalTheme', 'terminalFont'],
   about: [],

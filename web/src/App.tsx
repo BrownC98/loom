@@ -45,6 +45,7 @@ import { UpdateCard, useUpdates } from './Update';
 import { shortcut } from './platform';
 import { activeFont, findKey, paneKey, XtermFont, XtermTheme } from './Terminal';
 import { TerminalDock } from './TerminalDock';
+import { PlaceTag } from './place';
 import { SwitchDialog } from './SwitchDialog';
 import { accountName, withAccount } from './usage';
 import { useSwitchNotice } from './useSwitchNotice';
@@ -89,6 +90,7 @@ const EMPTY_SETTINGS: SettingsView = {
   questionPill: 'line',
   language: INITIAL_LANGUAGE,
   workspaceDir: null,
+  wslWorkspaceDirs: {},
   // 설정을 받기 전 자리값이다. 기본값의 원천은 Rust `TreeLimits::default`다.
   treeLimits: { maxDepth: 2, maxChildren: null },
   autoSwitch: false,
@@ -528,7 +530,12 @@ export function App() {
             </nav>
           )}
           <main className="canvas" aria-label={title === null ? t('app.allGraphLabel') : t('app.graphLabel', { repo: title })}>
-            {title !== null && <h1 className="canvas-title">{title}</h1>}
+            {title !== null && (
+              <h1 className="canvas-title">
+                {title}
+                <PlaceTag wsl={shown[0].wsl} />
+              </h1>
+            )}
             <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} onSelect={selectNode} onFocus={focusNode} />
             {shown.length > 0 && <Graph
               repos={shown}

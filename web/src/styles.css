@@ -759,3 +759,15 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .switch-list { list-style: none; margin: 0; padding: 8px 10px; display: grid; gap: 2px; font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 6px; max-height: 200px; overflow: auto; }
 .switch-list li { display: flex; justify-content: space-between; gap: 12px; }
 .switch-list .st { color: var(--ink-3); }
+/* 실행 위치(목업 docs/mockups/wsl-place.html): WSL 저장소 꼬리표(.kept와 같은 모양)와 [저장소 추가] 위치 칩. */
+.place { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--ink-2); white-space: nowrap; line-height: 18px; }
+.canvas-title { display: flex; align-items: center; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-strong); background: none; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.chip svg { width: 14px; height: 14px; }
+.chip .mono { font-size: 12px; }
+.chip:hover { background: var(--surface-hover); }
+.chip[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+.target { display: grid; gap: 2px; }
+.btn .spin { animation: spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .btn .spin { animation: none; } }

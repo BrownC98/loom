@@ -20,6 +20,8 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('folder');
   const [path, setPath] = useState('');
+  // 「실행 위치」 글. WSL이 없으면 없다(목업 wsl-place.html ①).
+  const [place, setPlace] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -84,7 +86,7 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
             <input id="repo-name" name="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-app" disabled={busy} spellCheck={false} autoComplete="off" autoFocus />
           </div>
         )}
-        <FolderPicker id="repo-path" label={t(tab === 'folder' ? 'repo.path' : 'repo.parent')} disabled={busy} autoFocus={tab === 'folder'} onPick={setPath} />
+        <FolderPicker id="repo-path" label={t(tab === 'folder' ? 'repo.path' : 'repo.parent')} disabled={busy} autoFocus={tab === 'folder'} onPick={setPath} onPlace={setPlace} />
       </div>
       {error ? (
         <p className="error" role="alert">
@@ -92,9 +94,10 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
         </p>
       ) : (
         target && (
-          <p className="hint">
-            {t(tab === 'folder' ? 'repo.target' : 'repo.folder', { path: target })}
-          </p>
+          <div className="target">
+            <p className="hint">{t(tab === 'folder' ? 'repo.target' : 'repo.folder', { path: target })}</p>
+            {place !== null && <p className="hint">{t('place.run', { place })}</p>}
+          </div>
         )
       )}
       <div className="pop-actions">

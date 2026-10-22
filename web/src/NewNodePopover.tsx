@@ -1,3 +1,4 @@
+import { LoaderCircle } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createNode } from './api';
@@ -9,6 +10,7 @@ import type { NodeId } from './gen/NodeId';
 import type { Place } from './gen/Place';
 import type { SettingsView } from './gen/SettingsView';
 import type { Start } from './gen/Start';
+import { useStarting } from './place';
 import { accountName, activeAccount, windowsText } from './usage';
 
 /** 목록 한 줄. `agent`가 없으면 기본 셸이다. */
@@ -32,6 +34,8 @@ export function NewNodePopover(props: {
   branch: string;
   /** 새 노드가 도는 묶음. */
   place: Place;
+  /** 묶음이 WSL에 있으면 그 배포판. 띄우기가 오래 걸리면 「시작하는 중」을 보인다(목업 wsl-place.html ⑥b). */
+  distro: string | null;
   agents: AgentView[];
   recent: AgentId | null | undefined;
   settings: SettingsView;
@@ -50,6 +54,7 @@ export function NewNodePopover(props: {
   const [picked, setPicked] = useState<{ key: AgentId | null } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const starting = useStarting(busy && props.distro !== null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const needle = query.trim().toLowerCase();
@@ -161,6 +166,11 @@ export function NewNodePopover(props: {
         )}
         {agent && canBypass(agent, props.settings) && <span className="hint">{t('newNode.bypass')}</span>}
       </div>
+      {starting && (
+        <span className="hint" role="status">
+          {t('place.starting', { distro: props.distro })}
+        </span>
+      )}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -170,6 +180,12 @@ export function NewNodePopover(props: {
         <button type="button" className="btn ghost" onClick={props.onCancel}>
           {t('common.cancel')}
         </button>
+        {starting && (
+          <button type="button" className="btn primary" disabled>
+            <LoaderCircle className="spin" />
+            {t('place.startingButton')}
+          </button>
+        )}
       </div>
     </form>
   );

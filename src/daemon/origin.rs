@@ -71,19 +71,28 @@ fn remote(headers: &HeaderMap, login: &HeaderValue, allowed_login: Option<&str>)
             .get(name)
             .and_then(|v: &HeaderValue| v.to_str().ok())
     };
-    let Some(host) = text(FORWARDED_HOST).or_else(|| text(header::HOST.as_str())) else {
+    let Some(real_host) = text(header::HOST.as_str()) else {
         return Remote::OriginRefused;
     };
-    let name = host.rsplit_once(':').map_or(host, |(name, _)| name);
-    let tailnet =
-        name.len() > TAILNET_SUFFIX.len() && name.to_ascii_lowercase().ends_with(TAILNET_SUFFIX);
-    if tailnet
+    // DNS 재바인딩: 남의 페이지가 127.0.0.1로 바꾼 이름에서 같은 출처로 부르면 머리글을 마음대로 넣고 `Origin` 없이 GET할 수 있다.
+    // 그 페이지의 `Host`는 자기 이름이다. 그래서 진짜 `Host`도 DNS가 바꿀 수 없는 이름(Serve가 루프백에 보내는 IP)이나 tailnet 이름이어야 한다.
+    if !fixed_host(real_host) && !tailnet(real_host) {
+        return Remote::OriginRefused;
+    }
+    let host = text(FORWARDED_HOST).unwrap_or(real_host);
+    if tailnet(host)
         && text(header::ORIGIN.as_str()).is_none_or(|origin| origin == format!("https://{host}"))
     {
         Remote::Allowed
     } else {
         Remote::OriginRefused
     }
+}
+
+/// Tailscale이 기기에 준 HTTPS 이름(`<기기>.<tailnet>.ts.net`)이다. 포트는 떼고 본다.
+fn tailnet(host: &str) -> bool {
+    let name = host.rsplit_once(':').map_or(host, |(name, _)| name);
+    name.len() > TAILNET_SUFFIX.len() && name.to_ascii_lowercase().ends_with(TAILNET_SUFFIX)
 }
 
 /// 폰 브라우저에 보이는 거절 쪽(목업 mobile.html ⑥의 카드). 앱은 싣지 않는다: 거절한 로그인에 노드 목록을 보이지 않는다.
@@ -232,6 +241,17 @@ mod tests {
         );
         assert_eq!(
             verdict(
+                &[
+                    LOGIN,
+                    ("host", "127.0.0.1:7420"),
+                    ("x-forwarded-host", "pc.tail1234.ts.net")
+                ],
+                me
+            ),
+            "allowed"
+        );
+        assert_eq!(
+            verdict(
                 &[LOGIN, ("host", "PC.Tail1234.TS.NET")],
                 Some(" ME@example.com ")
             ),
@@ -263,6 +283,29 @@ mod tests {
         assert_eq!(verdict(&[LOGIN, ("host", "127.0.0.1:7420")], me), "origin");
         assert_eq!(verdict(&[LOGIN, ("host", "evil.example")], me), "origin");
         assert_eq!(verdict(&[LOGIN, ("host", ".ts.net")], me), "origin");
+        // DNS 재바인딩: 남의 이름에서 같은 출처로 부른 GET(Origin 없음)은 X-Forwarded-Host를 꾸며도 막는다.
+        assert_eq!(
+            verdict(
+                &[
+                    LOGIN,
+                    ("host", "evil.com"),
+                    ("x-forwarded-host", "x.ts.net")
+                ],
+                me
+            ),
+            "origin"
+        );
+        assert_eq!(
+            verdict(
+                &[
+                    LOGIN,
+                    ("host", "127.0.0.1:7420"),
+                    ("x-forwarded-host", "evil.com")
+                ],
+                me
+            ),
+            "origin"
+        );
         assert_eq!(
             verdict(
                 &[

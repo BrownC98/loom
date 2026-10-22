@@ -81,6 +81,8 @@ export function StatusBar(props: { usage: Usage; settings: SettingsView; onChoos
       </button>
       {props.notice.record && <SwitchNotice record={props.notice.record} accounts={usage.accounts} onClose={props.notice.onClose} />}
       <span className="app-version">v{VERSION}</span>
+      {/* 폰에서만 보이는 판 뒤 막. 막을 누르면 판만 닫고 그 아래 단추에 닿지 않는다(styles.css `.usage-scrim`). */}
+      {open && <div className="usage-scrim" aria-hidden="true" onClick={() => setOpen(false)} />}
       {open && usage.accounts && (
         <UsagePopover
           accounts={usage.accounts}

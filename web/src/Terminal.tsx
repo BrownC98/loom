@@ -3,6 +3,8 @@ import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { attachPty, openFile, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { NodeId } from './gen/NodeId';
+import type { PtyRequest } from './gen/PtyRequest';
+import type { Resize } from './gen/Resize';
 import type { TerminalFont } from './gen/TerminalFont';
 import i18next from './i18n';
 import { commandKey } from './platform';
@@ -164,6 +166,13 @@ export const XtermTheme = createContext<ITheme>(TERMINAL_THEMES[DEFAULT_TERMINAL
 /** 모든 터미널의 글꼴. `App`이 설정으로 정한다. */
 export const XtermFont = createContext<XtermFontValue>(DEFAULT_TERMINAL_FONT);
 
+/** 화면이 PTY 크기를 쥐는 방법(docs/design.md 「데몬 하나」 PTY 열·줄). `whenHidden`은 화면이 가려질 때 보낸다. */
+export type SizeHold = { claim: (size: Resize) => PtyRequest; whenHidden: PtyRequest | null };
+/** PC 화면: 쥔 크기는 다른 화면이 쥘 때까지 남는다. */
+export const keepSize: SizeHold = { claim: (size) => ({ resize: size }), whenHidden: null };
+/** 폰: 보는 동안만 빌린다. 가려지거나 연결이 닫히면 데몬이 빌리기 전 크기로 돌린다. */
+export const borrowSize: SizeHold = { claim: (size) => ({ borrow: size }), whenHidden: 'giveBack' };
+
 /** `focusAsk`가 바뀌면 고른 터미널이 다시 입력 초점을 잡는다. 이미 고른 노드로 다시 갈 때 쓴다(질문 줄 누르기). */
 /** `onSender`는 이 터미널의 PTY에 글을 보내는 함수를 받는다. 닫으면 `null`이다. 폰의 키 막대와 입력 줄이 쓴다(목업 docs/mockups/mobile.html ④). */
 type TerminalProps = {
@@ -178,6 +187,8 @@ type TerminalProps = {
   onPaster?: (paste: ((text: string) => void) | null) => void;
   /** 출력을 그리는 빠르기. 없으면 `live`다. */
   draw?: Draw;
+  /** 없으면 `keepSize`다. */
+  hold?: SizeHold;
 };
 
 /**
@@ -298,17 +309,20 @@ export function SizingTerminal(props: TerminalProps) {
         const proposed = fitAddon.proposeDimensions();
         return proposed && proposed.cols > 0 && proposed.rows > 0 ? { cols: proposed.cols, rows: proposed.rows } : null;
       };
+      const sendSize = (size: Resize) => link.sendRequest((latest.current.hold ?? keepSize).claim(size));
       const decide = () => {
         const size = propose();
-        if (size) link.sendResize(size);
+        if (size) sendSize(size);
       };
       // 사람이 지금 쓰는 화면이 PTY 크기를 다시 정한다(docs/design.md 「저장」 PTY 열·줄). xterm 크기는 데몬이 알린 PTY 크기다.
       const claim = () => {
         const size = propose();
-        if (size && (size.cols !== xterm.cols || size.rows !== xterm.rows)) link.sendResize(size);
+        if (size && (size.cols !== xterm.cols || size.rows !== xterm.rows)) sendSize(size);
       };
-      const claimIfShown = () => {
+      const onVisibility = () => {
+        const back = (latest.current.hold ?? keepSize).whenHidden;
         if (document.visibilityState === 'visible') claim();
+        else if (back) link.sendRequest(back);
       };
       redecide.current = () => {
         decide();
@@ -404,7 +418,7 @@ export function SizingTerminal(props: TerminalProps) {
         latest.current.onFocus();
       });
       window.addEventListener('focus', claim);
-      document.addEventListener('visibilitychange', claimIfShown);
+      document.addEventListener('visibilitychange', onVisibility);
       const observer = new ResizeObserver(() => redecide.current());
       shown.set(el, xterm);
       observer.observe(el);
@@ -414,7 +428,7 @@ export function SizingTerminal(props: TerminalProps) {
         reflush.current = () => {};
         observer.disconnect();
         window.removeEventListener('focus', claim);
-        document.removeEventListener('visibilitychange', claimIfShown);
+        document.removeEventListener('visibilitychange', onVisibility);
         shown.delete(el);
         el.removeEventListener('paste', pasteImage, true);
         input.dispose();

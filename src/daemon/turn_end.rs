@@ -12,16 +12,6 @@ use crate::graph::NodeId;
 /// 다시 일하게 할 때 에이전트에 넘기는 글. 질문이 아니면 `.` 한 글자로 끝내게 해 토큰을 아낀다(2026-10-22 사람 지시 "질문아닐때의 훅 응답은 매우 짧은 텍스트로 끝내기").
 const NUDGE: &str = "Your text ends with '?' but you did not call loom ask. A question to the human: call loom ask now, then end the turn. Not a question: reply only \".\" and end the turn.";
 
-/// `?` 없이 사람에게 묻는 말. 「원하시면 바로 넣겠습니다」가 `loom ask` 없이 지나갔다(2026-10-22 사람 지시 "이건 또 질문으로 안 올라오네").
-const OFFERS: [&str; 6] = [
-    "원하시면",
-    "괜찮으시면",
-    "말씀해 주시면",
-    "if you want",
-    "want me to",
-    "let me know if",
-];
-
 #[derive(Default)]
 pub struct TurnEnds {
     /// 노드마다 이번 턴의 마지막 답 글. 턴 끝에 꺼낸다.
@@ -75,10 +65,6 @@ fn asks_in_text(text: &str) -> bool {
             continue;
         }
         let prose: String = line.split('`').step_by(2).collect::<Vec<_>>().join(" ");
-        let lower = prose.to_lowercase();
-        if OFFERS.iter().any(|offer| lower.contains(offer)) {
-            return true;
-        }
         if prose
             .split_whitespace()
             .map(|word| word.trim_end_matches(['*', '_', ')', '"', '\'', '」', '』']))
@@ -100,8 +86,6 @@ mod tests {
         assert!(asks_in_text("병합할까요？ 아니면 기다릴까요."));
         assert!(asks_in_text("**Merge now?**"));
         assert!(asks_in_text("Shall I merge? I can wait."));
-        assert!(asks_in_text("원하시면 바로 넣겠습니다."));
-        assert!(asks_in_text("Want me to merge it."));
     }
 
     #[test]

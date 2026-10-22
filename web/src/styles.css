@@ -852,7 +852,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone > * { flex: none; min-width: 0; }
 .phone > :is(.phone-body, .phone-term) { flex: 1; min-height: 0; }
 .phone :is(button, a, input, label) { touch-action: manipulation; }
-.phone-top { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: env(safe-area-inset-top) 4px 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.phone-top { display: flex; align-items: center; gap: 8px; /* 안전 영역(상태 줄) 높이를 52px 위에 더한다. 52px 안에 넣으면 제목이 아래 줄에 붙었다(2026-10-22 사람 "헤더 하단에 노드, 알림 텍스트가 붙어 있는 문제 해결"). */ min-height: calc(52px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 4px 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .phone-top:has(> .phone-icon:first-child) { padding-left: 4px; }
 .phone-title { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
 .phone-title b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

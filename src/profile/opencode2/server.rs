@@ -334,8 +334,7 @@ mod tests {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
-                let mut buf = [0u8; 2048];
-                let _ = stream.read(&mut buf);
+                read_request(&mut stream);
                 let n = seen.fetch_add(1, Ordering::Relaxed);
                 let (status, body) = &replies[n.min(replies.len() - 1)];
                 let reply = format!(
@@ -346,6 +345,30 @@ mod tests {
             }
         });
         (url, asked)
+    }
+
+    /// 요청을 끝까지(머리와 `content-length`만큼의 본문) 읽는다. 읽지 않은 바이트를 두고 닫으면
+    /// Windows가 연결을 끊어(RST) 클라이언트가 답 대신 os error 10053을 받는다(2026-10-22 Windows 실측).
+    fn read_request(stream: &mut std::net::TcpStream) {
+        let mut got = Vec::new();
+        let mut buf = [0u8; 2048];
+        loop {
+            if let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&got[..end]).to_ascii_lowercase();
+                let body = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if got.len() >= end + 4 + body {
+                    return;
+                }
+            }
+            match stream.read(&mut buf) {
+                Ok(0) | Err(_) => return,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+            }
+        }
     }
 
     /// 듣기 시작과 첫 요청을 받는 때가 다르다. 그 창에 `/api/info`는 정보 본문과 503을 함께 준다(실측).

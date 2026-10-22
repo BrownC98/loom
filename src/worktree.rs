@@ -855,9 +855,14 @@ mod tests {
             folders("rel").err(),
             Some(RepoProblem::NotAbsolute("rel".into()))
         );
+        let nowhere = if cfg!(windows) {
+            r"C:\nowhere\at\all"
+        } else {
+            "/nowhere/at/all"
+        };
         assert_eq!(
-            folders("/nowhere/at/all").err(),
-            Some(RepoProblem::NotFound("/nowhere/at/all".into()))
+            folders(nowhere).err(),
+            Some(RepoProblem::NotFound(nowhere.into()))
         );
     }
 

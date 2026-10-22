@@ -348,10 +348,22 @@ fn detach(cmd: &mut Command) {
 }
 
 /// 부모가 끝나도 자식은 산다. 숨은 콘솔을 준다: 데몬이 띄우는 콘솔 프로그램(git, PTY 호스트)이 그 콘솔을 물려받아 새 창을 열지 않는다.
+/// 이 프로세스의 표준 입출력은 물려주지 않는다. 물려주면 부른 곳(WSL interop, PowerShell)이 그 파이프가 닫히기를 기다려
+/// `loom start`가 끝나지 않는다(2026-10-22 WSL에서 `loom.exe start` 실측). 자식의 입출력은 `spawn_detached`가 따로 준다.
 #[cfg(windows)]
 fn detach(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const STD_HANDLES: [u32; 3] = [-10i32 as u32, -11i32 as u32, -12i32 as u32];
+    const HANDLE_FLAG_INHERIT: u32 = 1;
+    unsafe extern "system" {
+        fn GetStdHandle(which: u32) -> isize;
+        fn SetHandleInformation(handle: isize, mask: u32, flags: u32) -> i32;
+    }
+    for which in STD_HANDLES {
+        // 실패하면(입출력이 없는 프로세스) 물려줄 것도 없다.
+        unsafe { SetHandleInformation(GetStdHandle(which), HANDLE_FLAG_INHERIT, 0) };
+    }
     cmd.creation_flags(CREATE_NO_WINDOW);
 }
 

@@ -21,13 +21,16 @@
 | Rust 포맷 | `cargo fmt` |
 | Rust 검사 | `memcap -m 8G cargo clippy --all-targets` |
 | Rust 테스트, TS 타입 생성 | `memcap -m 8G cargo test` |
+| Windows 검사 | `memcap -m 8G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
+| Windows 테스트(실제 Windows에서 돈다) | `memcap -m 8G cargo test --target x86_64-pc-windows-gnu`. `scripts/windows/run.sh`가 시험 파일을 Windows 임시 폴더로 복사해 interop으로 돌린다 |
 | 화면 타입·순환 검사 | `npm --prefix web run check` |
 | 화면 배치 테스트(vitest, 한 번 실행) | `npm --prefix web test` |
 | 화면 빌드 | `npm --prefix web run build` |
 | 데몬 띄우기(시험) | `memcap -m 8G cargo build` 뒤 `HOME=/tmp/<이름> target/debug/loom serve --listen 127.0.0.1:<빈 포트>`. 다른 `HOME`이라 사람의 DB(`~/.loom`)를 건드리지 않는다. `cargo run`은 쓰지 않는다(바꾼 `HOME`에서 rustup이 판을 찾지 못한다) |
 | 사람이 쓰는 loom 올리기 | 원래 체크아웃(main)에서 `bash scripts/host.sh`. `~/loom/bin/loom`을 바꾸고 데몬(포트 7420)을 다시 띄운다. 노드는 그대로 산다 |
+| 사람이 쓰는 Windows loom 올리기 | 원래 체크아웃(main)에서 `bash scripts/windows/host.sh`. 앱 옆 `%LOCALAPPDATA%\loom\loom.exe`를 바꾸고 Windows 데몬(포트 7421)을 다시 띄운다 |
 
-- Windows 빌드는 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 한다. 호스트에는 Windows 빌드 도구가 없다.
+- Windows 설치 파일(앱, msvc)은 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 만든다. 호스트는 mingw-w64로 `x86_64-pc-windows-gnu` 데몬만 빌드·검사·시험한다. 시험 데몬은 `APPDATA`·`LOCALAPPDATA`를 Windows 임시 폴더로 바꾸고(`WSLENV=APPDATA:LOCALAPPDATA`) 빈 포트에서 띄운다. 사람의 `%APPDATA%\loom`·`%LOCALAPPDATA%\loom`은 건드리지 않는다.
 
 - `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-100/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(설계 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
 

@@ -83,10 +83,10 @@ function loadFont(family: string): Promise<unknown> {
  * 입력창(예: 이름 바꾸기)에 포커스가 있으면 옮기지 않는다. 터미널 연결은 늦게 끝나므로 사람이 쓰는 글을 끊는다.
  */
 /**
- * 터미널 링크를 연다. `file://`은 데몬이 그 기계의 기본 앱으로 연다(브라우저 페이지는 열지 못한다). `http(s)`는 새 탭이다. 다른 형식은 열지 않는다.
+ * 터미널과 받은편지함 글의 링크를 연다. `file://`은 데몬이 그 기계의 기본 앱으로 연다(브라우저 페이지는 열지 못한다). `http(s)`는 새 탭이다. 다른 형식은 열지 않는다.
  * Windows 경로(`file:///C:/…`)는 앞의 `/`를 뗀다.
  */
-function openLink(uri: string, node: NodeId | null) {
+export function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);
   if (url?.protocol === 'file:') {
     const path = decodeURIComponent(url.pathname);

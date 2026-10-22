@@ -16,6 +16,8 @@ import { useShowNodes } from './Graph';
 import { asking } from './NodeCard';
 import { Modal } from './Modal';
 import { useOutsideClose } from './popover';
+import { linkParts, plainText } from './links';
+import { openLink } from './Terminal';
 
 /** 차례: 질문(답할 일)이 완료보다 앞이다. 완료가 질문을 가리지 않는다(목업 docs/mockups/done-notice.html M37). 같은 차례면 오래된 것이 앞이다. */
 const before = (a: HumanWait, b: HumanWait) => Number(a.kind === 'done') - Number(b.kind === 'done') || a.since - b.since;
@@ -83,7 +85,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
             {/* 알약 머리는 목록만 편다. 노드로 가는 길은 목록 줄의 노드 이름이다(2026-10-22 사람 질문 "알약에 터미널 바로가기가 필요한가?"). */}
             <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: n })} onClick={toList}>
               <b>{first.name}</b>
-              {line ? `: ${firstWait.text || t(`wait.${firstWait.kind}`)}` : ` · ${t(`wait.${firstWait.kind}`)}`}
+              {line ? `: ${plainText(firstWait.text) || t(`wait.${firstWait.kind}`)}` : ` · ${t(`wait.${firstWait.kind}`)}`}
               {!line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
             </button>
           </div>
@@ -331,7 +333,15 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       )}
       {(wait.text || wait.doc) && (
         <p className="full">
-          {wait.text}
+          {linkParts(wait.text).map((part, index) =>
+            'href' in part ? (
+              <button key={index} type="button" className="doc-link" title={part.href} onClick={() => openLink(part.href, props.node)}>
+                {part.label}
+              </button>
+            ) : (
+              part.text
+            ),
+          )}
           {wait.doc && (
             // 문서는 따로 단추가 아니라 질문 글 끝의 링크다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
             <>
@@ -548,7 +558,7 @@ function useOsNotify(waiting: NodeView[], enabled: boolean, onSelect: (id: NodeI
     if (fresh.length === 0) return;
     windowHidden().then((hidden) => {
       if (!hidden) return;
-      for (const { v, w } of fresh) notify(`${v.name} · ${t(`wait.${w.kind}`)}`, w.text, `loom-wait-${w.id}`, () => select.current(v.id));
+      for (const { v, w } of fresh) notify(`${v.name} · ${t(`wait.${w.kind}`)}`, plainText(w.text), `loom-wait-${w.id}`, () => select.current(v.id));
     });
   }, [waiting, enabled]);
 }

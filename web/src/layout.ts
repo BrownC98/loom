@@ -307,6 +307,27 @@ export function freeSpot(box: Box, others: readonly Box[], gap: number): Point {
   return at;
 }
 
+/**
+ * 형제 상자의 자리. `placed`가 자리를 주면 그 자리, 없으면 자동 배치 자리다. 자리가 있는 형제가 있으면 새 상자는 겹치지 않는 오른쪽으로 간다.
+ * `auto`와 돌려주는 값은 상자 왼쪽 위다. `placed`는 원점(상자 왼쪽 위 - `lead`)을 준다.
+ */
+export function settle(items: readonly { key: string; size: Size; lead: Point; auto: Point }[], placed: (key: string) => Point | undefined, gap: number): Map<string, Point> {
+  const at = new Map<string, Point>();
+  const taken: Box[] = [];
+  for (const item of items) {
+    const saved = placed(item.key);
+    if (saved) at.set(item.key, { x: saved.x + item.lead.x, y: saved.y + item.lead.y });
+  }
+  for (const [key, p] of at) taken.push({ at: p, size: items.find((i) => i.key === key)!.size });
+  for (const item of items) {
+    if (at.has(item.key)) continue;
+    const p = freeSpot({ at: item.auto, size: item.size }, taken, gap);
+    at.set(item.key, p);
+    taken.push({ at: p, size: item.size });
+  }
+  return at;
+}
+
 /** `before`에도 있던 상자 가운데 폭이나 높이가 커진 상자의 이름. 새 상자는 `freeSpot`이 자리를 잡으므로 넣지 않는다. */
 export function grew(before: ReadonlyMap<string, Size>, now: ReadonlyMap<string, Size>): string[] {
   return [...now].flatMap(([key, size]) => {
@@ -376,14 +397,6 @@ export function keptHome(saved: Kept | undefined, at: Point): Point | null {
 /** 밀기 전 자리로 돌아간 상자는 그 자리를 잊는다. */
 export function samePoint(a: Point, b: Point): boolean {
   return Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5;
-}
-
-/** `now`의 자리가 모두 `saved`에 있고 같은가. 정렬한 모양을 지키는 저장소는 다르면 `now`(새 자동 배치)를 저장한다. */
-export function sameSpots(saved: ReadonlyMap<string, Point>, now: ReadonlyMap<string, Point>): boolean {
-  return [...now].every(([key, p]) => {
-    const s = saved.get(key);
-    return s !== undefined && samePoint(s, p);
-  });
 }
 
 /** 간선이 붙는 카드의 변. */

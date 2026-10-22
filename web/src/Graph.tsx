@@ -18,7 +18,7 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge } from './HopEdge';
-import { arrangeNested, edgeSides, followCard, FREE_GAP, freeSpot, GROUP_GAP, grew, keptHome, overlapped, overlaps, push, pushedHome, retreat, sameSpots, samePoint, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
+import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, grew, keptHome, overlapped, overlaps, push, pushedHome, retreat, samePoint, settle, shrank, SIDES, stepAt, swap, TREE_SIDES, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { PlaceTag, shownPath } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
@@ -572,26 +572,6 @@ export function Graph(props: {
   const share = (level: Level) => {
     for (const b of level.boxes) levels.set(b.key, level);
   };
-  /**
-   * 형제 상자의 자리. 저장한 자리가 있으면 그 자리, 없으면 자동 배치 자리다. 저장한 형제가 있으면 새 상자는 겹치지 않는 오른쪽으로 간다.
-   * `auto`와 돌려주는 값은 상자 왼쪽 위다.
-   */
-  const settle = (items: readonly { key: string; size: Size; lead: XYPosition; auto: XYPosition }[]): Map<string, XYPosition> => {
-    const at = new Map<string, XYPosition>();
-    const taken: Box[] = [];
-    for (const item of items) {
-      const saved = placedAt(item.key);
-      if (saved) at.set(item.key, { x: saved.x + item.lead.x, y: saved.y + item.lead.y });
-    }
-    for (const [key, p] of at) taken.push({ at: p, size: items.find((i) => i.key === key)!.size });
-    for (const item of items) {
-      if (at.has(item.key)) continue;
-      const p = freeSpot({ at: item.auto, size: item.size }, taken, FREE_GAP);
-      at.set(item.key, p);
-      taken.push({ at: p, size: item.size });
-    }
-    return at;
-  };
   /** 묶음 하나의 배치. `local`은 카드와 안에 든 자식 묶음의 상자 왼쪽 위(묶음 원점 기준), `auto`는 [정렬]이 저장할 그 원점이다. 묶음 상자는 원점 기준 `lead`와 크기다. */
   type Laid = { group: Group; members: NodeView[]; local: Map<string, XYPosition>; auto: Map<string, XYPosition>; lead: XYPosition; size: Size; kids: Laid[] };
   const emptySize = (path: string): Size => {
@@ -616,6 +596,9 @@ export function Graph(props: {
   const outerNow = new Map(nests.flatMap(({ repo, repoGroups, nest }) => repoGroups.map((g, i): [string, string] => [g.path, nest[i].parent === null ? `repo:${repo.id}` : repoGroups[nest[i].parent!].path])));
   const stale = new Set([...outerNow].flatMap(([path, outer]) => (outers.current.has(path) && outers.current.get(path) !== outer ? [path] : [])));
   const repos = nests.map(({ repo, repoGroups, memberOf, nest }) => {
+    // 정렬한 모양을 지키는 저장소 안의 자리는 저장하지 않고 탭마다 자동 배치로 구한다. 저장한 자리는 형제 순서(`rank`)로만 읽는다.
+    // 구한 자리를 저장하면 카드를 다르게 잰 두 탭이 번갈아 저장해 끝나지 않았다(2026-10-22 사람 데몬, 묶음 y 549·614를 초당 약 12번). 사람 지시 "state must be one".
+    const placedIn = arrangedRepos.has(repo.id) ? (key: string) => moving.get(key) : placedAt;
     const tree = arrangeNested(nest, (id) => props.views.get(id)?.parent ?? null, size, direction, { top: CARD_TOP, side: CARD_X });
     // 안쪽 묶음부터 놓는다. 묶음 상자는 카드와 자식 묶음을 모두 덮는다(네 쪽). 빈 묶음은 머리와 안내 글 크기다.
     const lay = (i: number): Laid => {
@@ -628,7 +611,7 @@ export function Graph(props: {
         ...members.map((v) => ({ key: String(v.id), size: size(v.id), lead: { x: 0, y: 0 }, auto: rel(tree.cards.get(v.id)!) })),
         ...kids.map((k) => ({ key: k.laid.group.path, size: k.laid.size, lead: k.laid.lead, auto: rel(k.auto) })),
       ];
-      const local = settle(items);
+      const local = settle(items, placedIn, FREE_GAP);
       for (const v of members) spotOf.set(String(v.id), { kind: 'node', repo: repo.id, node: v.id });
       for (const k of kids) spotOf.set(k.laid.group.path, { kind: 'worktree', repo: repo.id, path: k.laid.group.path });
       share({ boxes: items.map((it) => ({ key: it.key, at: local.get(it.key)!, size: it.size })), lead: new Map(kids.map((k) => [k.laid.group.path, k.laid.lead])), parent: group.path });
@@ -637,7 +620,7 @@ export function Graph(props: {
       return { group, members, local, auto, lead: box.at, size: box.size, kids: kids.map((k) => k.laid) };
     };
     const top = nest.flatMap((n, i) => (n.parent === null ? [{ laid: lay(i), auto: tree.boxes[i].at }] : []));
-    const at = settle(top.map(({ laid: g, auto }) => ({ key: g.group.path, size: g.size, lead: g.lead, auto })));
+    const at = settle(top.map(({ laid: g, auto }) => ({ key: g.group.path, size: g.size, lead: g.lead, auto })), placedIn, FREE_GAP);
     for (const { laid: g } of top) spotOf.set(g.group.path, { kind: 'worktree', repo: repo.id, path: g.group.path });
     const key = `repo:${repo.id}`;
     const laid = top.map((t) => t.laid);
@@ -658,7 +641,7 @@ export function Graph(props: {
     const along = reversed ? deepest - alongOf(r.size) : 0;
     return { x: GROUP_POSITION.x + (vertical ? across : along), y: GROUP_POSITION.y + (vertical ? along : across) };
   });
-  const repoAt = settle(repos.map((r, i) => ({ key: r.key, size: r.size, lead: r.lead, auto: repoAuto[i] })));
+  const repoAt = settle(repos.map((r, i) => ({ key: r.key, size: r.size, lead: r.lead, auto: repoAuto[i] })), placedAt, FREE_GAP);
   for (const r of repos) spotOf.set(r.key, { kind: 'repo', repo: r.repo.id });
   if (framed) share({ boxes: repos.map((r) => ({ key: r.key, at: repoAt.get(r.key)!, size: r.size })), lead: new Map(repos.map((r) => [r.key, r.lead])), parent: null });
   // 저장소 원점(그래프 좌표). 저장소 하나면 상자가 없고 원점은 `GROUP_POSITION`이다.
@@ -1125,9 +1108,8 @@ export function Graph(props: {
   });
   // 끌지 않고 커진 상자(새 카드·묶음이 든 바깥 상자, 카드·터미널 크기, 정렬)는 끌어 놓을 때와 같은 규칙으로 겹친 옆 상자를 민다.
   // 끄는 동안과 테두리를 끄는 동안(`moving`)은 놓을 때 민다. 크기만 기억한다. 안쪽 상자부터 민다(`levels`는 카드, 묶음, 저장소 순서다).
-  // 정렬한 모양을 지키는 저장소(`arrangedRepos`)는 자동 배치가 저장한 자리와 다르면(새 카드·묶음, 커진 카드, 화면을 닫은 동안 생긴 상자) 밀지 않고 새 자동 배치를 저장한다.
+  // 정렬한 모양을 지키는 저장소(`arrangedRepos`) 안은 자동 배치가 놓으므로 밀지 않는다. 그 저장소 상자가 커지면 옆 저장소를 민다.
   // 2026-10-21 사람 지시 "우측 부하테스트 총괄에 자식이 생기면 자식기준으로 다른 트리가 밀려나도록", "계정 전환 노드 만들어졌을때, main이 가운데 배치가 안되는 문제".
-  // 그 저장소의 상자는 앞 크기를 기억해 두고, 새 자동 배치로 그린 다음 렌더에서 그 크기와 견주어 커진 저장소 상자가 옆 저장소를 민다.
   useEffect(() => {
     outers.current = outerNow;
     if (stale.size > 0) setSpots((prev) => new Map([...prev].filter(([key]) => !stale.has(key))));
@@ -1138,12 +1120,8 @@ export function Graph(props: {
     const before = lastSizes.current;
     lastSizes.current = now;
     if (moving.size > 0) return;
-    const saved = new Map([...spots].map(([key, p]) => [key, p.at]));
-    const kept = repos.filter((r) => arrangedRepos.has(r.repo.id) && !sameSpots(saved, r.arranged));
-    if (kept.length > 0) saveArranged(kept.map((r) => r.repo.id), new Map(kept.flatMap((r) => [...r.arranged])));
     const done = new Map<string, XYPosition>();
-    const skip = new Set(kept.flatMap((r) => [r.key, ...r.arranged.keys()]));
-    lastSizes.current = new Map([...now].map(([key, size]) => [key, (skip.has(key) && before.get(key)) || size]));
+    const skip = new Set(repos.flatMap((r) => (arrangedRepos.has(r.repo.id) ? [...r.arranged.keys()] : [])));
     const spreadFrom = (key: string) => {
       if (skip.has(key)) return;
       // 앞 상자가 이미 민 상자는 민 자리에서 민다.
@@ -1154,9 +1132,9 @@ export function Graph(props: {
       spread(key, level, o ? { at: { x: o.x + lead.x, y: o.y + lead.y }, size: self.size } : self, done);
     };
     for (const key of grew(before, now)) spreadFrom(key);
-    // 앞 렌더가 없어 `grew`가 놓친 겹침(화면을 닫은 동안 커진 상자)도 민다. 정렬한 모양을 다시 저장하는 렌더와 잰 크기가 오기 전에는 기다린다.
+    // 앞 렌더가 없어 `grew`가 놓친 겹침(화면을 닫은 동안 커진 상자)도 민다. 잰 크기가 오기 전에는 기다린다.
     const measured = views.every((v) => flowState.get(String(v.id))?.measured?.width);
-    if (kept.length === 0 && measured) for (const level of new Set(levels.values())) for (const key of overlapped(placed(level, done))) spreadFrom(key);
+    if (measured) for (const level of new Set(levels.values())) for (const key of overlapped(placed(level, done))) spreadFrom(key);
     // 민 상자는 밀기 전 자리를 기억한다(DB `spots.home_x`·`home_y`). 또 밀려도 처음 자리를 지킨다.
     const homes = new Map([...done.keys()].map((k): [string, XYPosition | null] => {
       const level = levels.get(k)!;

@@ -549,7 +549,7 @@ export function App() {
               <Bookmarks views={nodes} repos={repos} selected={selected} onSelect={selectNode} open={!settings.closedPanes.bookmarks} onOpen={(open) => setPaneOpen('bookmarks', open)} />
               {treeView(selectNode)}
               <div className="side-foot">
-                <button className="btn ghost" onClick={() => setSettingsTab('agents')}>
+                <button className="btn ghost" onClick={() => setSettingsTab(SETTINGS_TABS[0])}>
                   <SettingsIcon />
                   {t('settings.title')}
                 </button>
@@ -564,7 +564,7 @@ export function App() {
               <button className={finding ? 'btn ghost icon finding' : 'btn ghost icon'} aria-label={t('find.open')} aria-keyshortcuts={FIND_KEY.aria} title={`${t('find.open')} (${FIND_KEY.label})`} onClick={focusFind}>
                 <Search />
               </button>
-              <button className="btn ghost icon rail-end" aria-label={t('settings.title')} title={t('settings.title')} onClick={() => setSettingsTab('agents')}>
+              <button className="btn ghost icon rail-end" aria-label={t('settings.title')} title={t('settings.title')} onClick={() => setSettingsTab(SETTINGS_TABS[0])}>
                 <SettingsIcon />
               </button>
             </nav>

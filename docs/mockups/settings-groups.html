@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M38 설정 탭 다시 묶기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 설정 창 모양과 토큰은 web/src/styles.css와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+img { width: 880px; border: 1px solid var(--line); border-radius: 8px; }
+
+.map { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; }
+.mini { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; align-content: start; gap: 8px; }
+.mini h3 { font-size: 15px; }
+.mini h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 6px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; display: flex; gap: 6px; align-items: center; }
+.mini h4 small { margin-left: auto; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 4px; background: var(--line); color: var(--ink-2); }
+.moved { outline: 2px dashed var(--warn); outline-offset: 1px; }
+.gone { text-decoration: line-through; color: var(--ink-3); }
+
+.dialog { width: 880px; height: 600px; background: var(--panel); border-radius: 12px; border: 1px solid var(--line); display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
+.dialog nav { border-right: 1px solid var(--line); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; }
+.dialog nav h2 { font-size: 15px; padding: 0 8px 10px; }
+.search { height: 30px; margin-bottom: 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); font-size: 13px; padding: 4px 10px; }
+.tab { padding: 7px 10px; border-radius: 6px; color: var(--ink-2); }
+.tab[aria-current] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.pane { padding: 18px 22px; display: grid; align-content: start; gap: 18px; }
+.pane-head { display: flex; justify-content: space-between; align-items: center; }
+.pane-head h3 { font-size: 15px; }
+.pane-head span { font-size: 13px; color: var(--ink-2); }
+.pane section { display: grid; gap: 8px; padding: 4px; border-radius: 6px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.field { height: 32px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); padding: 5px 10px; font: 13px ui-monospace, monospace; color: var(--ink-3); }
+.hint { font-size: 12px; color: var(--ink-3); }
+.switch { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.switch i { width: 30px; height: 18px; border-radius: 9px; background: var(--line-strong); }
+
+table { border-collapse: collapse; font-size: 13px; justify-self: start; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); }
+.rec { font-weight: 600; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M38</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 설정정리</b></span><span>v2 · 2026-10-22 · 승인됨</span></div>
+  <h1>설정 탭 다시 묶기</h1>
+  <p class="lead">사람 지시: "설정은 관련있는것끼리 다시 구성을 정리해줘". 설정 칸은 그대로 두고 자리만 옮긴다. 점선이 옮긴 칸이다.</p>
+
+  <div class="fig">
+    <h2>① 지금</h2>
+    <img src="settings-groups-now.png" alt="지금 설정 창의 UI 탭">
+    <ul class="note">
+      <li>「UI」 탭에 모양·그래프·질문 칸 8개가 섞여 있다.</li>
+      <li>「워크스페이스」「원격」 탭은 칸이 하나뿐이다.</li>
+      <li>「계정」의 「자동 전환」은 설정 찾기에서 나오지 않는다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 바뀐 뒤: 탭 7개와 칸 순서</h2>
+    <div class="map">
+      <div class="mini"><h3>일반</h3>
+        <h4 class="moved">워크스페이스 폴더<small>워크스페이스</small></h4>
+        <h4 class="moved">원격 접속<small>원격</small></h4>
+        <h4 class="moved">시스템 알림<small>UI</small></h4>
+      </div>
+      <div class="mini"><h3>에이전트</h3>
+        <h4>설치됨 · 모든 권한 허용</h4>
+        <h4>설치 안 됨</h4>
+        <h4>내장 스킬</h4>
+        <h4>하위 노드 상한</h4>
+      </div>
+      <div class="mini"><h3 class="moved">에이전트 계정</h3>
+        <h4 class="moved">자동 전환<small>찾기 가능</small></h4>
+        <h4>Claude</h4>
+        <h4>Codex</h4>
+      </div>
+      <div class="mini"><h3>화면</h3>
+        <h4 class="moved">테마<small>UI</small></h4>
+        <h4 class="moved">색<small>UI</small></h4>
+        <h4 class="moved">언어<small>UI</small></h4>
+      </div>
+      <div class="mini"><h3>그래프</h3>
+        <h4 class="moved">카드 보기<small>UI</small></h4>
+        <h4 class="moved">그래프 범위<small>UI</small></h4>
+        <h4 class="moved">간선 모양<small>UI</small></h4>
+        <h4 class="moved">질문 알약<small>UI</small></h4>
+      </div>
+      <div class="mini"><h3>터미널</h3>
+        <h4>글꼴 크기</h4>
+        <h4>글꼴</h4>
+        <h4>다크 모드 테마</h4>
+        <h4>라이트 모드 테마</h4>
+      </div>
+      <div class="mini"><h3>정보</h3>
+        <h4>판</h4>
+      </div>
+    </div>
+    <ul class="note">
+      <li>지우는 탭: <span class="gone">워크스페이스</span>, <span class="gone">원격</span>, <span class="gone">UI</span>. 새 탭: 일반, 화면, 그래프.</li>
+      <li>칸 이름 옆 작은 글은 지금 있는 탭이다.</li>
+      <li>[이 탭 초기화]는 새 탭의 칸만 되돌린다. 설정 찾기는 모든 칸을 찾는다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 새 「일반」 탭</h2>
+    <div class="dialog">
+      <nav>
+        <h2>설정</h2>
+        <div class="search">설정 찾기</div>
+        <div class="tab" aria-current="page">일반</div>
+        <div class="tab">에이전트</div>
+        <div class="tab">에이전트 계정</div>
+        <div class="tab">화면</div>
+        <div class="tab">그래프</div>
+        <div class="tab">터미널</div>
+        <div class="tab">정보</div>
+      </nav>
+      <div class="pane">
+        <div class="pane-head"><h3>일반</h3><span>↺ 이 탭 초기화 &nbsp; ×</span></div>
+        <section class="moved">
+          <h4>워크스페이스 폴더</h4>
+          <div class="field">/home/me/loom/workspaces</div>
+          <span class="hint">새 워크트리를 &lt;이 폴더&gt;/&lt;저장소 이름&gt;/ 안에 만듭니다.</span>
+        </section>
+        <section class="moved">
+          <h4>원격 접속 · 허용할 Tailscale 로그인</h4>
+          <div class="field">me@example.com</div>
+          <span class="hint">비우면 원격을 끕니다. 준비 순서 1~4는 이 칸 아래에 그대로 둡니다.</span>
+        </section>
+        <section class="moved">
+          <h4>시스템 알림</h4>
+          <span class="switch"><i></i>loom 창이 보이지 않을 때 질문을 시스템 알림으로 알림</span>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>승인한 것</h2>
+    <table>
+      <tr><th>정할 것</th><th>결정</th></tr>
+      <tr><td>탭 묶음</td><td class="rec">② 그대로</td></tr>
+      <tr><td>설정을 열 때 첫 탭</td><td class="rec">일반</td></tr>
+      <tr><td>「시스템 알림」 자리</td><td class="rec">일반</td></tr>
+      <tr><td>「계정」 탭 이름</td><td class="rec">에이전트 계정 (사람 지시 "계정 &gt; 에이전트 계정")</td></tr>
+      <tr><td>[loom 끄기]</td><td class="rec">누르면 확인 창이 무엇이 멈추고 무엇이 사는지 알린다 (사람 지시 "loom 끄기는 해당 버튼이 실행되면 무슨일이 일어나는지 안내하는 확인 팝업 띄워")</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

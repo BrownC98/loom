@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { FieldReset } from './FieldReset';
 import type { SettingsView } from './gen/SettingsView';
 
-/** 「원격」 탭(설계 「원격」). Tailscale Serve로 온 폰을 받을 로그인 하나다. 입력에서 나가거나 Enter를 누르면 저장한다. */
-export function RemoteTab({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
+/** 설정 「일반」의 원격 칸(설계 「원격」). Tailscale Serve로 온 폰을 받을 로그인 하나다. 입력에서 나가거나 Enter를 누르면 저장한다. */
+export function RemoteFields({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   const saved = settings.remoteLogin ?? '';
   const [draft, setDraft] = useState(saved);
@@ -17,12 +17,12 @@ export function RemoteTab({ settings, onSettings }: { settings: SettingsView; on
 
   return (
     <>
-      <p className="hint">{t('remote.desc')}</p>
       <section>
         <h4>
           <label htmlFor="remote-login">{t('remote.login')}</label>
           <FieldReset path={['remoteLogin']} />
         </h4>
+        <span className="hint">{t('remote.desc')}</span>
         <div className="field">
           <input
             id="remote-login"

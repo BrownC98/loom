@@ -10,7 +10,7 @@
 //! 폰은 Tailscale Serve로 닿는다(docs/design.md 「원격」). Serve는 HTTPS를 끝내고 루프백의 데몬에 넘기며,
 //! `Tailscale-User-Login`·`X-Forwarded-*` 머리글을 붙인다. 다른 웹 페이지는 웹소켓과 교차 출처 요청에 이 머리글을 넣지 못한다.
 //! 이 머리글 하나라도 있으면 Serve로 온 요청으로 본다. 주소가 `*.ts.net`이고 `Origin`이 없거나 `https://<그 주소>`여야 하고,
-//! 짝지은 기기의 쿠키가 있어야 한다(`Devices`). 짝짓기 요청과 홈 화면 아이콘만 쿠키 없이 받는다.
+//! 짝지은 기기의 쿠키가 있어야 한다(`Devices`). 짝짓기 요청, 홈 화면 아이콘, 파일 통행증(`passes`)만 쿠키 없이 받는다.
 //!
 //! 폰 문(`lan`)으로 온 요청도 원격이다. 문이 `lan::Lan`을 넣는다. `Host`는 IP 주소이고 `Origin`은 없거나 `https://<Host>`여야 한다.
 
@@ -21,7 +21,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
-use super::{lan, phone};
+use super::{lan, passes, phone};
 use crate::devices::{DeviceId, Devices};
 
 /// Tailscale Serve가 붙이는 요청자 로그인 머리글.
@@ -72,7 +72,8 @@ pub async fn human_site(
     let path = request.uri().path();
     let device = cookie(headers, DEVICE_COOKIE).and_then(|token| devices.check(token));
     let open = (request.method() == Method::POST && path == phone::PAIR_PATH)
-        || (request.method() == Method::GET && UNPAIRED_PATHS.contains(&path));
+        || (request.method() == Method::GET
+            && (UNPAIRED_PATHS.contains(&path) || path.starts_with(passes::PASS_PREFIX)));
     if device.is_none() && !open {
         return phone::unpaired();
     }

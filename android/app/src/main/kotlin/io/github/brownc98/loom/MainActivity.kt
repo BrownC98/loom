@@ -518,9 +518,13 @@ class MainActivity : ComponentActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     private inner class Client : WebViewClient() {
-        /** 같은 PC의 페이지(질문 문서 등)는 쿠키가 있는 앱 안에서, 다른 사이트는 폰 브라우저로 연다. */
+        /**
+         * 같은 PC의 페이지(질문 문서 등)는 쿠키가 있는 앱 안에서, 다른 사이트는 폰 브라우저로 연다.
+         * 파일 통행증(`/api/files/pass/`)은 같은 PC여도 폰 브라우저로 연다. 앱 안에서는 줌이 되지 않는다.
+         */
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-            if (request.url.host == Uri.parse(origin ?: "").host) return false
+            val pass = request.url.path?.startsWith("/api/files/pass/") == true
+            if (request.url.host == Uri.parse(origin ?: "").host && !pass) return false
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
             return true
         }

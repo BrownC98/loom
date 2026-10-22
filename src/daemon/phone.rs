@@ -166,16 +166,7 @@ async fn invite(
 ) -> Result<Json<InviteView>, Refused> {
     local_only(via)?;
     let open = app.door.open().await.map_err(internal)?;
-    let serve = match Tailscale::find() {
-        Some(ts) => match ts.status(app.port).await {
-            Tailnet::Ready {
-                host,
-                serving: true,
-            } => Some(host),
-            _ => None,
-        },
-        None => None,
-    };
+    let serve = serve_host(app.port).await;
     let addresses = lan::addresses();
     if addresses.is_empty() && serve.is_none() {
         return Err(StatusCode::CONFLICT.into());
@@ -211,6 +202,17 @@ async fn firewall(
     let open = app.door.open().await.map_err(internal)?;
     lan::allow_firewall(open.port).await.map_err(internal)?;
     Ok(Json(()))
+}
+
+/// Serve가 `port`로 넘기면 이 기기의 tailnet 이름. 폰 브라우저가 경고 없이 연다.
+pub async fn serve_host(port: u16) -> Option<String> {
+    match Tailscale::find()?.status(port).await {
+        Tailnet::Ready {
+            host,
+            serving: true,
+        } => Some(host),
+        _ => None,
+    }
 }
 
 /// QR 주소: `https://<호스트>/#pair=<코드>&fp=<인증서 지문>&a=<IP:포트>,…`.

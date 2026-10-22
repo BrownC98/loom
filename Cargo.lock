@@ -1045,6 +1045,7 @@ dependencies = [
  "jiff",
  "libc",
  "num-bigint",
+ "percent-encoding",
  "portable-pty",
  "qrcode",
  "rcgen",

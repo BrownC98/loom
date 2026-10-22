@@ -122,8 +122,8 @@ svg.s { width: 16px; height: 16px; }
 
 /* 터미널 화면 */
 .phone.term-phone { grid-template-rows: 44px auto auto minmax(0, 1fr) auto; }
-/* v4: 패널 바탕, 질문 색 테두리의 사각형(모서리 --radius), 그림자. */
-.banner { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; margin: 8px 8px 0; padding: 0 4px 0 12px; background: var(--panel); border: 1px solid var(--warn); border-radius: var(--radius); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
+/* v4: 화면 너비를 채우는 띠. 패널 바탕, 위아래 질문 색 줄. */
+.banner { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 0 8px 0 14px; background: var(--panel); border-block: 1px solid var(--warn); color: var(--ink); font-size: 13px; }
 .banner b { color: var(--ink); white-space: nowrap; }
 .banner .qid { font: 12px var(--mono); color: var(--ink-3); }
 .banner .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -196,7 +196,7 @@ svg.s { width: 16px; height: 16px; }
   <div class="who"><span class="doc-id">문서 ID: <b>M35</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 멀티플랫폼</b></span><span>v4 · 2026-10-22</span></div>
   <h1>폰 화면: 질문 답하기, 노드 목록, 터미널</h1>
   <p class="lead">사람 지시: "모바일에서의 ui/ux 설계 진행", "모바일은 orca처럼 컴퓨터의 작업을 통제할 수 있는 단말기 역할을 한다". 폰은 PC 데몬의 같은 웹 화면을 폰 폭(390px)으로 보인다(보고서 R13 정할 것 ①②의 권장안). 화면은 1단계(답·트리·터미널·멈추기)를 먼저 그렸다. <span class="phase">2단계</span> 표시는 보고서 정할 것 ④·⑥에 달렸다. 점선은 아직 정하지 않은 결정에 달린 곳이다.</p>
-  <p class="lead">v4에서 바뀐 곳(사람 지시 "알약 형태가 아니라 사각형 테두리를 노란색으로 표시"): ④ 터미널의 질문 배너는 노란 테두리의 사각형이다(모서리 8px). v3에서 바뀐 곳(사람 지시 "이부분 pc 판과 동일하게 다크 테마에 노란 테두리로"): 배너 바탕이 테마의 패널 색이다. v2에서 바뀐 곳(사람 지시 "모바일 질문 ui 도 동일한 노란색 써야함, 그리고 앱에도 llm 사용량 표시 동일하기 나와야함"): 질문 보내기 단추가 질문 색(노란색)이다. 아래 탭 위에 데스크톱 상태 줄과 같은 사용량 줄이 있다. 누르면 ⑧ 사용량 판이 열린다. 질문 색과 사용량 줄은 설정 「색」에서 고른 색을 따른다. 폰 그래프는 1단계에 넣지 않는다(사람 결정 Q281).</p>
+  <p class="lead">v4에서 바뀐 곳(사람 지시 "모서리가 조금만 둥근 사각이 아니라 화면 너비를 채우는 직사각형으로"): ④ 터미널의 질문 배너는 화면 너비를 채우는 띠다. 위아래에 노란 줄이 있고 모서리가 없다. v3에서 바뀐 곳(사람 지시 "이부분 pc 판과 동일하게 다크 테마에 노란 테두리로"): 배너 바탕이 테마의 패널 색이다. v2에서 바뀐 곳(사람 지시 "모바일 질문 ui 도 동일한 노란색 써야함, 그리고 앱에도 llm 사용량 표시 동일하기 나와야함"): 질문 보내기 단추가 질문 색(노란색)이다. 아래 탭 위에 데스크톱 상태 줄과 같은 사용량 줄이 있다. 누르면 ⑧ 사용량 판이 열린다. 질문 색과 사용량 줄은 설정 「색」에서 고른 색을 따른다. 폰 그래프는 1단계에 넣지 않는다(사람 결정 Q281).</p>
 
   <div class="fig">
     <h2>① 이동 <span class="tag">아래 탭 2개 + 터미널 전체 화면</span></h2>
@@ -320,7 +320,7 @@ svg.s { width: 16px; height: 16px; }
         <li>점선: 크기는 R13 정할 것 ⑤에 달렸다. 권장(A): 폰이 연 동안 PTY를 폰 폭(약 46열)으로 바꾼다. 그림이 A다.</li>
         <li>입력 줄에 쓰고 [⏎]를 누르면 글과 Enter를 보낸다. 한글 조합이 끝난 글만 간다. 빈 줄에서 [⏎]는 Enter만 보낸다.</li>
         <li>키 막대는 누르면 바로 보낸다. [Ctrl]은 다음 한 글자에만 붙는 켜기 단추다(그림은 켠 상태). ^C는 한 번에 Ctrl-C다.</li>
-        <li><span class="v2">v4</span> 노드에 질문이 있으면 위에 질문 배너가 뜬다: 패널 바탕(다크 테마에서 어두움), 질문 색(노란색) 테두리의 사각형, 질문 번호. 질문이 2개 이상이면 「질문」 옆에 수 배지가 붙는다. [답하기]는 ② 질문 카드를 아래 판으로 연다.</li>
+        <li><span class="v2">v4</span> 노드에 질문이 있으면 위에 질문 배너가 뜬다: 패널 바탕(다크 테마에서 어두움), 화면 너비를 채우는 띠, 위아래 질문 색(노란색) 줄, 질문 번호. 질문이 2개 이상이면 「질문」 옆에 수 배지가 붙는다. [답하기]는 ② 질문 카드를 아래 판으로 연다.</li>
       </ul>
     </div>
   </div>
@@ -467,7 +467,7 @@ svg.s { width: 16px; height: 16px; }
       <tr><td>5</td><td>⑦ 새 노드의 단계(R13 ④, 점선)</td><td>A 2단계 / B 1단계</td><td class="pick">A</td></tr>
       <tr><td>6</td><td>v2: 사용량 줄(아래 탭 위)과 ⑧ 사용량 판</td><td>A 이 그림 / B 위 막대의 단추로만 열기(줄 없음)</td><td class="pick">A</td></tr>
       <tr><td>7</td><td>v2: 질문 보내기 단추를 질문 색(노란색)으로</td><td>A 노란색 / B 지금 강조색(검정)</td><td class="pick">A</td></tr>
-      <tr><td>8</td><td>v4: ④ 터미널 질문 배너를 노란 테두리 사각형으로(패널 바탕)</td><td>A 이 그림 / B 고칠 곳 알림</td><td class="pick">A</td></tr>
+      <tr><td>8</td><td>v4: ④ 터미널 질문 배너를 화면 너비의 띠로(패널 바탕, 위아래 노란 줄)</td><td>A 이 그림 / B 고칠 곳 알림</td><td class="pick">A</td></tr>
     </table>
   </div>
 </main>

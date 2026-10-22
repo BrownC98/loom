@@ -6,3 +6,6 @@
 /app/gen/
 # 빌드 때 받아 고치는 Tauri 설치 템플릿(release.yml).
 /app/windows/installer.nsi
+/android/.gradle/
+/android/build/
+/android/app/build/

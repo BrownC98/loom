@@ -39,6 +39,22 @@ function categoryOf(entry: Entry): Category {
   }
 }
 
+/** 알림 줄의 색 계열(목업 docs/mockups/notice-color.html A안). 사람의 답은 그 답이 닫은 알림의 계열을 따른다. */
+function familyOf(entry: Entry): 'question' | 'done' | undefined {
+  switch (entry.kind) {
+    case 'asked':
+    case 'answered':
+    case 'unanswered':
+      return 'question';
+    case 'reported':
+    case 'instructed':
+    case 'confirmed':
+      return 'done';
+    default:
+      return undefined;
+  }
+}
+
 /** 이벤트에 관여한 노드. 메시지는 보낸·받은 노드, 입양은 자식·옛 부모·새 부모, 생성은 그 노드와 부모다. */
 function whoOf(entry: Entry): Who[] {
   switch (entry.kind) {
@@ -249,7 +265,7 @@ function Row(props: { record: EventRecord; current: boolean; onClick: () => void
   const body = bodyOf(record, t);
   return (
     <li>
-      <button className="ev" aria-current={current || undefined} aria-expanded={body === null ? undefined : current} onClick={props.onClick}>
+      <button className="ev" data-family={familyOf(record.entry)} aria-current={current || undefined} aria-expanded={body === null ? undefined : current} onClick={props.onClick}>
         <time dateTime={new Date(record.at * 1000).toISOString()}>{clockTime(record.at * 1000)}</time>
         <span className="what">
           <What entry={record.entry} views={props.views} agents={props.agents} />

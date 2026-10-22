@@ -1146,7 +1146,8 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
         g.send(worker, "옛 총괄", Kind::Steer, "x"),
         Err(Refusal::NotRelated(_))
     ));
-    assert_eq!(view(&g, worker).held, 3);
+    // 부모 없는 완료는 받은편지함에만 간다. 보관하지 않는다.
+    assert_eq!(view(&g, worker).held, 2);
 
     g.adopt(lead, worker, TreeLimits::default()).unwrap();
 
@@ -1154,11 +1155,11 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
     assert_eq!((adopted.parent, adopted.held), (Some(lead), 0));
     assert!(matches!(
         recorded(&g).last(),
-        Some((events::Entry::Adopted { held: 3, .. }, None))
+        Some((events::Entry::Adopted { held: 2, .. }, None))
     ));
     assert_eq!(
         bodies(&g.take(lead, Kind::ALL, usize::MAX).unwrap()),
-        ["하나", "둘", "done: 요약"]
+        ["하나", "둘"]
     );
     assert_eq!(
         take(&g, worker),
@@ -1916,7 +1917,8 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     g.done(completed, "result to preserve", Some("일해"), &[])
         .unwrap();
     assert!(!g.discard_finished_shell(completed).unwrap());
-    assert_eq!(view(&g, completed).held, 1);
+    assert_eq!(view(&g, completed).held, 0);
+    assert_eq!(view(&g, completed).waits.len(), 1);
 
     let failed = g.add_root(&home(), None, "", launched).unwrap();
     g.exited(failed, 1).unwrap();

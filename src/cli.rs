@@ -424,9 +424,7 @@ pub fn done(
         },
         None,
     )?;
-    println!(
-        "Reported to your parent. If you have no parent, the report is in the human's inbox, and loom keeps it for your next parent."
-    );
+    println!("Reported to your parent, or to the human's inbox if you have no parent.");
     if !alive_children.is_empty() {
         println!(
             "Warning: these children are still running: {}. Reclaim each with `loom rm <name>` when you keep its results, or they stay in the graph.",

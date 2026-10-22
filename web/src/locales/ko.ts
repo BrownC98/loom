@@ -339,6 +339,7 @@ const ko: typeof en = {
     sendCtrlC: 'Ctrl-C 보내기',
     remove: '노드 지우기',
     removeConfirm: '지우기 확인',
+    closeSheet: '닫기',
     cancel: '취소',
   },
   inbox: {

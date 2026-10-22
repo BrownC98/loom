@@ -10,7 +10,7 @@ use super::App;
 use crate::graph::NodeId;
 
 /// 다시 일하게 할 때 에이전트에 넘기는 글. 질문이 아니면 `.` 한 글자로 끝내게 해 토큰을 아낀다(2026-10-22 사람 지시 "질문아닐때의 훅 응답은 매우 짧은 텍스트로 끝내기").
-const NUDGE: &str = "Your text ends with '?' but you did not call loom ask. A question to the human: call loom ask now, then end the turn. Not a question: reply only \".\" and end the turn.";
+const NUDGE: &str = "Your reply ends with a question, but you did not call loom ask. If it is a question to the human, call loom ask, then end your turn. If it is not a question, reply only \".\" and end your turn.";
 
 #[derive(Default)]
 pub struct TurnEnds {

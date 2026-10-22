@@ -750,7 +750,7 @@ pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
         .map(|OpenQuestion { id, text }| format!("{id}: {text}"))
         .collect();
     Some(format!(
-        "Open loom ask questions: {}. If this input answers some of them, call `loom answered <Q ids>` (for example `loom answered {}`) first, then act. Leave the others open.",
+        "Open loom ask questions: {}. If this input answers some of these questions, first call loom answered with their IDs (for example: loom answered {}). Then do the work. Do not close the other questions.",
         list.join(" | "),
         first.id
     ))
@@ -758,7 +758,7 @@ pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
 
 /// 부모 없는 노드의 사람 입력마다 붙이는 완료 보고 안내. 훅은 늘 지금 loom이 실행하므로 오래된 세션도 이 규칙을 받는다.
 /// 근거: 사용법은 띄울 때 한 번만 넘어가서, 규칙이 생기기 전에 뜬 루트와 잊은 루트가 완료 알림을 올리지 않았다(2026-10-22 사람 지시 "ktasearch 총괄이 완료한 작업을 알림으로 안올림, 원인 파악후 근본문제 해결해").
-pub const DONE_NOTE: &str = "When all work from this human input is finished, report it with loom done \"<what you did>\" --asked \"<this input, short>\" (add --image <path> for each image the human gave). This is the only way the human sees that you are done. Do not call it for a reply that needs no work.";
+pub const DONE_NOTE: &str = "When you complete the work that this input asks for, call loom done \"<what you did>\" --asked \"<this input, short>\". Add --image <path> for each image that the human gave. The human sees that you are done only through loom done. Do not call it when the input is only a question and you only answer in text.";
 
 pub fn message_text(taken: &[Delivery]) -> String {
     taken
@@ -767,7 +767,9 @@ pub fn message_text(taken: &[Delivery]) -> String {
             let how = match d.kind {
                 Kind::Queue => "queue",
                 Kind::Steer => "steer",
-                Kind::Interrupt => "interrupt. Stop current work and follow this body",
+                Kind::Interrupt => {
+                    "interrupt. Stop your current work and do what this message says"
+                }
             };
             let reply = d
                 .reply_to
@@ -836,7 +838,7 @@ mod tests {
             },
         ])
         .unwrap();
-        assert!(note.starts_with("Open loom ask questions: Q12: A or B? | Q13: Delete?. If this input answers some of them, call `loom answered <Q ids>` (for example `loom answered Q12`)"), "{note}");
+        assert!(note.starts_with("Open loom ask questions: Q12: A or B? | Q13: Delete?. If this input answers some of these questions, first call loom answered with their IDs (for example: loom answered Q12)."), "{note}");
     }
 
     use super::*;

@@ -495,7 +495,7 @@ mod tests {
         assert_eq!(sent[1].0, "turn/start");
         assert_eq!(
             sent[1].1["input"][0]["text"],
-            "loom message #1 (from: 부모, mode: interrupt. Stop current work and follow this body)\n멈춰라"
+            "loom message #1 (from: 부모, mode: interrupt. Stop your current work and do what this message says)\n멈춰라"
         );
     }
 

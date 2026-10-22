@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, ChevronDown, CircleCheck, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type DOMAttributes } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
 import { isTauri } from '@tauri-apps/api/core';
@@ -229,31 +229,11 @@ function DoneBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   );
 }
 
-/** 완료를 맡긴 사람의 지시(`loom done --asked`). 3줄까지 보이고 넘으면 [더 보기]로 편다(2026-10-22 사람 지시 "사람이 어떤 지시를 내렸었는지 확인하기 어려움"). */
+/** 완료를 맡긴 사람의 지시(`loom done --asked`)(2026-10-22 사람 지시 "사람이 어떤 지시를 내렸었는지 확인하기 어려움"). 접지 않고 다 보인다(같은 날 "완료 알림도 질문 알림처럼 더보기로 접지말고 항상 원문 다 보여줘"). */
 function Instruction(props: { wait: HumanWait }) {
   const { t } = useTranslation();
   if (!props.wait.instruction) return <span className="kind">{t('wait.done')}</span>;
-  return <Clamped className="instruction">{t('inbox.instruction', { text: props.wait.instruction })}</Clamped>;
-}
-
-/** 글 칸. CSS 줄 수 상한에 잘리면 [더 보기]가 생기고, 누르면 다 편다. */
-function Clamped(props: { className?: string; children: ReactNode }) {
-  const { t } = useTranslation();
-  const full = useRef<HTMLParagraphElement>(null);
-  const cut = useCut(full);
-  const [more, setMore] = useState(false);
-  return (
-    <div className={props.className ? `clamped ${props.className}` : 'clamped'}>
-      <p className="full" ref={full} data-more={more || undefined}>
-        {props.children}
-      </p>
-      {cut && !more && (
-        <button type="button" className="more-text" onClick={() => setMore(true)}>
-          {t('inbox.moreText')}
-        </button>
-      )}
-    </div>
-  );
+  return <p className="instruction">{t('inbox.instruction', { text: props.wait.instruction })}</p>;
 }
 
 /** 완료 알림의 그림 썸네일. 누르면 화면 위에 원래 크기로 띄운다. Esc나 바깥 누르기로 닫는다(2026-10-22 사람 지시 "썸네일 크게보기 기능 추가해줘"). */
@@ -348,7 +328,7 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
         </ul>
       )}
       {(wait.text || wait.doc) && (
-        <Clamped>
+        <p className="full">
           {wait.text}
           {wait.doc && (
             // 문서는 따로 단추가 아니라 질문 글 끝의 링크다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
@@ -373,7 +353,7 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
               )}
             </>
           )}
-        </Clamped>
+        </p>
       )}
       {wait.answerable ? (
         <>
@@ -418,21 +398,6 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       )}
     </div>
   );
-}
-
-/** 글 칸이 CSS 줄 수 상한(알약의 `-webkit-line-clamp`)에 잘렸는가. 칸 크기가 바뀔 때마다 다시 잰다. */
-function useCut(el: RefObject<HTMLElement | null>): boolean {
-  const [cut, setCut] = useState(false);
-  useLayoutEffect(() => {
-    const node = el.current;
-    if (!node) return;
-    const measure = () => setCut(node.scrollHeight > node.clientHeight + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [el]);
-  return cut;
 }
 
 const MB = 1024 * 1024;

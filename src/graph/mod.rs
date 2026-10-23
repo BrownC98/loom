@@ -17,7 +17,7 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{AgentSwitch, Entry, EventRecord, SwitchCause, TurnCheck, Via, Who};
+pub use events::{AgentSwitch, Entry, EventRecord, IdleEnd, SwitchCause, TurnCheck, Via, Who};
 pub use gate::{Ended, GateChoice, MergeTask, Round};
 pub use mailbox::{
     BATCH_SEPARATOR, Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent,
@@ -674,12 +674,13 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    pub fn record_nudge(&self, node: NodeId, check: events::TurnCheck) -> rusqlite::Result<()> {
+    pub fn record_about(
+        &self,
+        node: NodeId,
+        entry: impl FnOnce(Who) -> Entry,
+    ) -> rusqlite::Result<()> {
         let db = self.lock();
-        let entry = events::Entry::Nudged {
-            node: events::who(&db, node)?,
-            check,
-        };
+        let entry = entry(events::who(&db, node)?);
         events::write(&db, &entry, None)
     }
 

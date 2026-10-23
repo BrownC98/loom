@@ -4,6 +4,7 @@ import { Ellipsis, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { relaunchNode, relaunchQueued } from './api';
+import { relaunchableState } from './catalog';
 import type { NodeView } from './gen/NodeView';
 import { Menu } from './Menu';
 
@@ -19,7 +20,7 @@ export function NodeMenu(props: { view: NodeView; resumable: boolean; onResetSiz
   const [open, setOpen] = useState(false);
   // 열 때 데몬에 물은 값. 답이 오기 전에는 없다.
   const [queued, setQueued] = useState<boolean | null>(null);
-  const resumable = props.resumable && view.state.kind === 'running';
+  const resumable = props.resumable && relaunchableState(view);
   const toggle = () => {
     if (open) return setOpen(false);
     setQueued(null);

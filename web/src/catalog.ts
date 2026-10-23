@@ -24,6 +24,12 @@ export function agentLabel(agents: AgentView[], id: AgentId | null): string {
 }
 
 /** 다시 띄워 같은 세션을 이을 수 있는 노드의 에이전트. 프로필이 있는 에이전트만 데몬이 잇는다. 셸·명령은 `noResume`으로 거절한다. */
+/**
+ * 프로세스가 살아 있어 다시 띄울 수 있는 상태. 데몬은 프로세스가 사는 노드(`Graph::active`)면 완료한 노드도 다시 띄운다.
+ * 완료 노드에서 단추가 빠졌다(2026-10-23 사람 "ktasearch-총괄 터미널에 다시 띄우기 버튼이 안보임").
+ */
+export const relaunchableState = (view: NodeView) => view.state.kind === 'running' || view.state.kind === 'done';
+
 export function canResume(agents: AgentView[], id: AgentId | null): boolean {
   return agents.some((a) => a.id === id && a.profile !== null);
 }

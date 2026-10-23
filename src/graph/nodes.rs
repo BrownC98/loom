@@ -1,7 +1,7 @@
 //! 노드를 더하고 지우고, 이름과 부모를 바꾸고(입양), 프로세스가 끝난 노드를 고친다.
 //! 근거: docs/design.md 「노드 제거와 입양」.
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 use super::events::{self, ClosedBy, Entry};
@@ -251,31 +251,47 @@ impl Graph {
     /// 작업 완료와 무관하게 살아 있는 프로세스에 다시 붙는다.
     pub fn active(&self) -> rusqlite::Result<Vec<Active>> {
         self.lock()
-            .prepare(
-                "SELECT id, name, agent, server, account, transcript, model, effort, token
-                 FROM nodes WHERE process_exited = 0 ORDER BY id",
-            )?
-            .query_map([], |row| {
-                Ok(Active {
-                    id: NodeId(row.get(0)?),
-                    name: row.get(1)?,
-                    agent: from_json(row, 2)?,
-                    server: optional_json(row, 3)?,
-                    account: optional_json(row, 4)?,
-                    transcript: row.get(5)?,
-                    model: Model {
-                        model: row.get(6)?,
-                        effort: row.get(7)?,
-                    },
-                    token: row.get(8)?,
-                })
-            })?
+            .prepare(&format!(
+                "{LAUNCH_COLUMNS} WHERE process_exited = 0 ORDER BY id"
+            ))?
+            .query_map([], launch_row)?
             .collect()
     }
 
-    /// 계정 전환이 노드 프로세스를 새 계정으로 다시 띄웠다. 새 토큰·서버·계정을 남긴다. 노드 상태와 메일함은 그대로다.
+    /// 프로세스가 끝난 노드. 다시 띄우기가 남긴 세션으로 되살린다.
+    pub fn ended(&self, id: NodeId) -> rusqlite::Result<Option<Active>> {
+        self.lock()
+            .query_row(
+                &format!("{LAUNCH_COLUMNS} WHERE id = ?1 AND process_exited = 1"),
+                [id.0],
+                launch_row,
+            )
+            .optional()
+    }
+
+    /// 노드 프로세스를 다시 띄웠다(계정 전환, 다시 띄우기). 새 토큰·서버·계정을 남긴다. 메일함은 그대로다.
+    /// 끝난 노드를 되살렸으면 다시 산 프로세스로 적고, 끝난 상태는 `running`으로 돌린다. 완료 상태는 그대로다.
     pub fn relaunched(&self, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
-        keep(&self.lock(), id, launched)
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        keep(&tx, id, launched)?;
+        let revived = tx.execute(
+            "UPDATE nodes SET process_exited = 0 WHERE id = ?1 AND process_exited = 1",
+            [id.0],
+        )? > 0;
+        if revived
+            && matches!(
+                state_of(&tx, id)?,
+                NodeState::Exited { .. } | NodeState::SetupFailed { .. }
+            )
+        {
+            set_state(&tx, id, &NodeState::Running)?;
+        }
+        tx.commit()?;
+        if revived {
+            self.publish_node(&db, id)?;
+        }
+        Ok(())
     }
 
     /// Claude 노드 세션의 기록 파일. 훅마다 알린다. 이 기능 전에 뜬 노드도 다음 훅에서 남는다.
@@ -775,6 +791,25 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
         }
         name => Ok(name),
     }
+}
+
+const LAUNCH_COLUMNS: &str =
+    "SELECT id, name, agent, server, account, transcript, model, effort, token FROM nodes";
+
+fn launch_row(row: &Row) -> rusqlite::Result<Active> {
+    Ok(Active {
+        id: NodeId(row.get(0)?),
+        name: row.get(1)?,
+        agent: from_json(row, 2)?,
+        server: optional_json(row, 3)?,
+        account: optional_json(row, 4)?,
+        transcript: row.get(5)?,
+        model: Model {
+            model: row.get(6)?,
+            effort: row.get(7)?,
+        },
+        token: row.get(8)?,
+    })
 }
 
 fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {

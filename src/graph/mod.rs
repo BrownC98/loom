@@ -217,6 +217,8 @@ pub enum Refusal {
     NoAsked,
     /// `loom ask`를 부모가 있는 노드가 불렀다. 사람에게는 사람이 띄운 노드만 묻는다.
     HasParent,
+    /// 부모가 있는 노드가 `loom done --doc`을 불렀다. 문서 링크는 사람의 받은편지함에만 있다. 부모는 경로를 읽는다.
+    DocHasParent,
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
     NoWait(WaitId),
     /// 화면에서 보낸 답이 비었다.
@@ -312,6 +314,10 @@ impl fmt::Display for Refusal {
             Refusal::HasParent => write!(
                 f,
                 "You have a parent. Ask your parent with `loom send <parent> \"QUESTION: ...\"`. Only nodes that the human started ask the human."
+            ),
+            Refusal::DocHasParent => write!(
+                f,
+                "You have a parent, and it reads paths. Send the file with `loom done --file <path>` or put its path in the summary. Only nodes that the human started attach --doc."
             ),
             Refusal::NoWait(wait) => write!(f, "{wait}: this question is not open."),
             Refusal::EmptyAnswer => write!(f, "Write an answer."),
@@ -531,7 +537,7 @@ fn view_from_row(row: &Row, live: &HashMap<NodeId, Live>) -> rusqlite::Result<No
     let done: String = row.get(14)?;
     let asked: String = row.get(15)?;
     // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
-    let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Asked>>(&asked)
+    let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Posted>>(&asked)
         .unwrap_or_default()
         .into_iter()
         .map(|q| q.wait)

@@ -196,7 +196,7 @@ fn topic_prefers_summary_then_title_then_brief() {
     assert_eq!(view(&g, quiet).topic, None);
 
     g.set_title(worker, Some("제목".into())).unwrap();
-    g.done(worker, "  \n결과는 out.md\n자세히", None, &[])
+    g.done(worker, "  \n결과는 out.md\n자세히", None, &[], None)
         .unwrap();
     assert_eq!(view(&g, worker).topic.as_deref(), Some("결과는 out.md"));
 }
@@ -316,8 +316,11 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     let kinds = |id| done(id).into_iter().map(|w| w.0).collect::<Vec<_>>();
 
     // 사람이 띄운 노드는 사람의 지시 없이 끝내지 못한다. 거절하면 상태도 그대로다.
-    assert_eq!(g.done(lead, "끝", None, &[]), Err(Refusal::NoAsked));
-    assert_eq!(g.done(lead, "끝", Some("  "), &[]), Err(Refusal::NoAsked));
+    assert_eq!(g.done(lead, "끝", None, &[], None), Err(Refusal::NoAsked));
+    assert_eq!(
+        g.done(lead, "끝", Some("  "), &[], None),
+        Err(Refusal::NoAsked)
+    );
     assert_eq!(view(&g, lead).state, NodeState::Running);
     // 지시·결과는 전문을 남긴다. 그림은 경로를 남긴다.
     let shot = PathBuf::from("/tmp/loom-paste/1/image.png");
@@ -326,6 +329,7 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
         "버튼을 고쳤다.\n시험 통과",
         Some(" 버튼 고쳐\n자세히는… "),
         std::slice::from_ref(&shot),
+        None,
     )
     .unwrap();
     assert_eq!(
@@ -352,7 +356,8 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     g.set_wait(lead, WaitSource::Hook, None).unwrap();
     // 새 일로 다시 일하다 끝내도 확인하지 않은 앞 완료는 남는다. 완료 차례대로 보인다(2026-10-22 사람 보고 "완료 알림이 확인 안눌러도 없어지는 버그가 있음").
     g.human_input(lead).unwrap();
-    g.done(lead, "또 고쳤다.", Some("또 고쳐"), &[]).unwrap();
+    g.done(lead, "또 고쳤다.", Some("또 고쳐"), &[], None)
+        .unwrap();
     assert_eq!(
         done(lead),
         [
@@ -391,7 +396,8 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     );
     assert_eq!(g.answer(again, "또", &[]), Err(Refusal::NoWait(again)));
     // [확인]은 그 완료만 지운다.
-    g.done(lead, "또 고쳤다.", Some("하나 더"), &[]).unwrap();
+    g.done(lead, "또 고쳤다.", Some("하나 더"), &[], None)
+        .unwrap();
     let third = view(&g, lead).waits[1].id;
     g.dismiss(first).unwrap();
     assert_eq!(
@@ -411,9 +417,33 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     g.dismiss(view(&g, lead).waits[0].id).unwrap();
     assert_eq!(done(lead), []);
 
-    // 자식의 완료는 부모에게만 간다. 받은편지함에 걸지 않는다.
-    g.done(worker, "고쳤다.", Some("버튼 고쳐"), &[]).unwrap();
+    // 문서가 붙은 완료: 화면은 ID와 제목만 받고, 데몬은 [확인] 전까지 파일을 준다.
+    let doc = WaitDoc {
+        id: "R4".into(),
+        title: "감사".into(),
+    };
+    let report = PathBuf::from("/tmp/audit.md");
+    let attached = Attached {
+        doc: doc.clone(),
+        path: report.clone(),
+    };
+    g.done(lead, "감사했다.", Some("감사해"), &[], Some(attached))
+        .unwrap();
+    let with_doc = view(&g, lead).waits[0].clone();
+    assert_eq!(with_doc.doc, Some(doc.clone()));
+    assert_eq!(g.wait_doc(with_doc.id), Ok(report.clone()));
+    g.dismiss(with_doc.id).unwrap();
+    assert_eq!(g.wait_doc(with_doc.id), Err(Refusal::NoWait(with_doc.id)));
+
+    // 자식의 완료는 부모에게만 간다. 받은편지함에 걸지 않는다. 문서 링크는 받은편지함에만 있어 거절한다.
+    g.done(worker, "고쳤다.", Some("버튼 고쳐"), &[], None)
+        .unwrap();
     assert_eq!(done(worker), []);
+    let attached = Attached { doc, path: report };
+    assert_eq!(
+        g.done(worker, "고쳤다.", None, &[], Some(attached)),
+        Err(Refusal::DocHasParent)
+    );
 }
 
 #[test]
@@ -826,7 +856,7 @@ fn tree_limits_come_from_the_caller() {
     g.add_child(lead, named("b"), two, &launched(), started)
         .unwrap();
     // 끝난 자식도 센다.
-    g.done(a, "끝", None, &[]).unwrap();
+    g.done(a, "끝", None, &[], None).unwrap();
     assert!(matches!(
         g.add_child(lead, named("c"), two, &launched(), started),
         Err(Refusal::TooManyChildren(2))
@@ -905,7 +935,7 @@ fn limits_are_enforced() {
     g.send(lead, "a", Kind::Queue, &"x".repeat(4096)).unwrap();
     // done 요약 1KB
     assert!(matches!(
-        g.done(a1, &"x".repeat(1025), None, &[]),
+        g.done(a1, &"x".repeat(1025), None, &[], None),
         Err(Refusal::SummaryTooLong(1025))
     ));
     // 메일함 50: 위에서 하나를 넣었다
@@ -952,8 +982,8 @@ fn done_sends_summary_and_later_exit_keeps_done() {
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
 
-    g.done(a, "처음", None, &[]).unwrap();
-    g.done(a, "끝났다", None, &[]).unwrap();
+    g.done(a, "처음", None, &[], None).unwrap();
+    g.done(a, "끝났다", None, &[], None).unwrap();
     g.exited(a, 0).unwrap();
     assert_eq!(
         view(&g, a).state,
@@ -1032,7 +1062,7 @@ fn restart_keeps_nodes_and_messages() {
                 started,
             )
             .unwrap();
-        g.done(a, "요약", None, &[]).unwrap();
+        g.done(a, "요약", None, &[], None).unwrap();
         (lead, a)
     };
 
@@ -1243,7 +1273,7 @@ fn removing_a_finished_node_does_not_tell_the_parent_again() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
-    g.done(a, "요약", None, &[]).unwrap();
+    g.done(a, "요약", None, &[], None).unwrap();
     assert_eq!(take(&g, lead), delivery("a", "done: 요약"));
 
     g.remove(a).unwrap();
@@ -1260,7 +1290,7 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
     let worker = root(&g, "조사");
     g.send(worker, "옛 총괄", Kind::Queue, "하나").unwrap();
     g.send(worker, "옛 총괄", Kind::Queue, "둘").unwrap();
-    g.done(worker, "요약", Some("일해"), &[]).unwrap();
+    g.done(worker, "요약", Some("일해"), &[], None).unwrap();
     // 받을 노드가 정해지지 않은 조정은 보관하지 않는다.
     assert!(matches!(
         g.send(worker, "옛 총괄", Kind::Steer, "x"),
@@ -1371,7 +1401,7 @@ fn records_node_and_message_events_in_order() {
     let a = child(&g, lead, "a");
     g.send(a, "총괄-1", Kind::Queue, "질문").unwrap();
     take(&g, lead);
-    g.done(a, "끝", None, &[]).unwrap();
+    g.done(a, "끝", None, &[], None).unwrap();
     let other = root(&g, "검토");
     g.adopt(other, a, TreeLimits::default()).unwrap();
     g.remove(other).unwrap();
@@ -1580,7 +1610,7 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
         let lead = root(&g, "codex");
         let a = child(&g, lead, "a");
         g.set_server(lead, &server).unwrap();
-        g.done(a, "요약", None, &[]).unwrap();
+        g.done(a, "요약", None, &[], None).unwrap();
         (lead, a)
     };
     let g = open(&path);
@@ -1794,7 +1824,7 @@ fn completion_and_lost_notices_bypass_a_full_parent_mailbox() {
     for _ in 0..50 {
         g.send(worker, "lead-1", Kind::Queue, "status").unwrap();
     }
-    g.done(worker, "finished", None, &[]).unwrap();
+    g.done(worker, "finished", None, &[], None).unwrap();
     g.lost(lost).unwrap();
     g.lost(lost).unwrap();
     assert_eq!(
@@ -1818,7 +1848,7 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     let g = open(&path);
     let lead = root(&g, "lead");
     let worker = child(&g, lead, "worker");
-    g.done(worker, "finished", None, &[]).unwrap();
+    g.done(worker, "finished", None, &[], None).unwrap();
     g.send(lead, "worker", Kind::Queue, "feedback").unwrap();
     assert_eq!(take(&g, worker), delivery("lead-1", "feedback"));
     drop(g);
@@ -1974,7 +2004,7 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
         .unwrap();
     assert_eq!(take(&g, lead), delivery("코디-1", "STATUS: 워커 하나"));
 
-    g.done(worker, "1-화면 커밋", None, &[]).unwrap();
+    g.done(worker, "1-화면 커밋", None, &[], None).unwrap();
     assert_eq!(
         take(&g, coord),
         delivery("워커-1-화면", "done: 1-화면 커밋")
@@ -1984,9 +2014,9 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
         .unwrap();
     assert_eq!(take(&g, worker), delivery("코디-1", "Rework: 여백"));
     assert_eq!(view(&g, worker).state, NodeState::Running);
-    g.done(worker, "여백 고침", None, &[]).unwrap();
+    g.done(worker, "여백 고침", None, &[], None).unwrap();
     assert_eq!(take(&g, coord), delivery("워커-1-화면", "done: 여백 고침"));
-    g.done(coord, "1-기능 병합 준비", None, &[]).unwrap();
+    g.done(coord, "1-기능 병합 준비", None, &[], None).unwrap();
     assert_eq!(take(&g, lead), delivery("코디-1", "done: 1-기능 병합 준비"));
     let children = g.relations(lead).unwrap().children;
     assert_eq!(children.len(), 1);
@@ -2065,7 +2095,7 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     assert_eq!(take(&g, parent), delivery("worker", "review this output"));
 
     let completed = g.add_root(&home(), None, "", &launched(), started).unwrap();
-    g.done(completed, "result to preserve", Some("일해"), &[])
+    g.done(completed, "result to preserve", Some("일해"), &[], None)
         .unwrap();
     assert!(!g.discard_finished_shell(completed).unwrap());
     assert_eq!(view(&g, completed).held, 0);
@@ -2149,7 +2179,7 @@ fn a_root_that_called_done_is_reported() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "lead");
     assert_eq!(g.unreported_root(lead), Ok(true));
-    g.done(lead, "병합했다", Some("병합해"), &[]).unwrap();
+    g.done(lead, "병합했다", Some("병합해"), &[], None).unwrap();
     assert_eq!(g.unreported_root(lead), Ok(false));
 }
 
@@ -2300,7 +2330,7 @@ fn done_returns_children_whose_process_still_runs() {
     child(&g, coord, "워커");
     g.exited(ended, 0).unwrap();
 
-    assert_eq!(g.done(coord, "요약", None, &[]).unwrap(), ["워커"]);
+    assert_eq!(g.done(coord, "요약", None, &[], None).unwrap(), ["워커"]);
 }
 
 #[test]
@@ -2368,9 +2398,9 @@ fn unconfirmed_dones_survive_input_relaunch_exit_and_restart() {
     let lead = root(&g, "claude");
     let other = root(&g, "codex");
     let ids = |g: &Graph, id| view(g, id).waits.iter().map(|w| w.id).collect::<Vec<_>>();
-    g.done(lead, "하나", Some("일 1"), &[]).unwrap();
-    g.done(other, "다른 노드", Some("일 B"), &[]).unwrap();
-    g.done(lead, "둘", Some("일 2"), &[]).unwrap();
+    g.done(lead, "하나", Some("일 1"), &[], None).unwrap();
+    g.done(other, "다른 노드", Some("일 B"), &[], None).unwrap();
+    g.done(lead, "둘", Some("일 2"), &[], None).unwrap();
     let kept = ids(&g, lead);
     assert_eq!(kept.len(), 2);
     g.human_input(lead).unwrap();
@@ -2392,13 +2422,13 @@ fn a_done_node_runs_again_when_the_human_types() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
-    g.done(lead, "끝", Some("일해"), &[]).unwrap();
+    g.done(lead, "끝", Some("일해"), &[], None).unwrap();
     // 꺼낼 메시지가 없으면 그대로 둔다.
     assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());
     assert!(matches!(view(&g, lead).state, NodeState::Done { .. }));
     g.human_input(lead).unwrap();
     assert_eq!(view(&g, lead).state, NodeState::Running);
-    g.done(lead, "또 끝", Some("또 일해"), &[]).unwrap();
+    g.done(lead, "또 끝", Some("또 일해"), &[], None).unwrap();
 }
 
 /// 받은편지함 알림과 사람의 응답은 길마다 알림 이벤트 한 줄을 남긴다. 신호의 대기는 남기지 않는다.
@@ -2438,10 +2468,11 @@ fn records_inbox_notices_and_the_human_responses() {
     g.set_wait(lead, WaitSource::Hook, Some((WaitKind::Approval, "Bash")))
         .unwrap();
     g.dismiss(view(&g, lead).waits[0].id).unwrap();
-    g.done(lead, "고쳤다.", Some("고쳐"), &[]).unwrap();
+    g.done(lead, "고쳤다.", Some("고쳐"), &[], None).unwrap();
     let d1 = view(&g, lead).waits[0].id;
     g.answer(d1, "하나 더", &[]).unwrap();
-    g.done(lead, "또 고쳤다.", Some("하나 더"), &[]).unwrap();
+    g.done(lead, "또 고쳤다.", Some("하나 더"), &[], None)
+        .unwrap();
     let d2 = view(&g, lead).waits[0].id;
     g.dismiss(d2).unwrap();
     let q5 = g.ask(lead, "F?", None).unwrap();
@@ -2532,4 +2563,26 @@ fn records_inbox_notices_and_the_human_responses() {
             .any(|(e, _)| matches!(e, Entry::Message { from, .. } if from.id.is_none())),
         "no human message entry beside the notice entry"
     );
+}
+
+#[test]
+fn relaunching_an_ended_node_brings_it_back_running_and_keeps_done() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = child(&g, lead, "w");
+    assert!(g.ended(lead).unwrap().is_none());
+
+    g.exited(lead, 1).unwrap();
+    assert_eq!(g.ended(lead).unwrap().map(|n| n.id), Some(lead));
+    g.relaunched(lead, &launched()).unwrap();
+    assert_eq!(view(&g, lead).state, NodeState::Running);
+    assert!(g.ended(lead).unwrap().is_none());
+    assert!(g.active().unwrap().iter().any(|n| n.id == lead));
+
+    g.done(worker, "결과", None, &[], None).unwrap();
+    g.exited(worker, 0).unwrap();
+    g.relaunched(worker, &launched()).unwrap();
+    assert!(matches!(view(&g, worker).state, NodeState::Done { .. }));
+    assert!(g.ended(worker).unwrap().is_none());
 }

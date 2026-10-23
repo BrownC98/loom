@@ -275,6 +275,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 
 - 부르는 곳: 노드 메뉴(`POST /api/nodes/{id}/relaunch`. 메뉴를 열 때 `GET`으로 턴 끝을 기다리는지 묻고, 기다리면 「턴이 끝나면 다시 띄웁니다」로 꺼 둔다), 에이전트 `loom relaunch [<자식>]`(`/api/agent/relaunch`. 이름이 없으면 부른 노드 자신, 있으면 자기 자식만), 계정 전환.
 - 프로필이 있는 노드(Claude, Codex, Cursor, OpenCode 2)만 된다(2026-10-22 사람 지시 "다 구현해"). 셸·명령 노드는 `noResume`으로 거절한다. 이을 세션이 없고, 다시 띄우면 셸 상태를 잃는다.
+- 프로세스가 끝난 노드(`exited`·`setupFailed`, 완료 뒤 끝난 노드도)는 남긴 세션으로 되살린다. 번호·이름·부모·자식은 그대로이고, `exited`·`setupFailed`는 `running`으로, 완료는 그대로 둔다. 결과는 늘 `now`다. 첫 입력은 끝난 동안 보낸 메시지를 받지 못했다는 알림이다(`Refusal::Ended`로 거절됐다). 사람 지시(2026-10-23) "총괄 resume 시켜": 총괄이 코드 1로 끝나 자식 9개의 부모가 끝난 채 남았고, 끝난 노드를 잇는 길이 없었다. 지금은 API(`POST /api/nodes/{id}/relaunch`)와 `loom relaunch <자식>`만 부른다. 노드 메뉴는 아직 끝난 노드에 다시 띄우기를 보이지 않는다(화면 변경은 목업 승인 뒤).
 - 잇는 세션: Claude는 `--resume <세션>`, Cursor는 `--resume <세션>`(훅 입력 `transcript_path`의 파일 이름, `nodes.transcript`), Codex는 `resume <스레드>`, OpenCode 2는 새 `opencode2 serve`가 같은 세션 id를 열고 TUI가 `--session`으로 붙는다(세션은 서버가 아니라 OpenCode 저장소에 남는다). 세션이 아직 없으면(첫 입력 전) 실패로 남긴다.
 - 결과는 `now`(쉬던 노드, 새 프로세스가 떴다)나 `atTurnEnd`(턴 중, 그 턴이 끝나면 띄운다)다. 실행 중인 도구 호출을 끊지 않는다. 턴 끝 질문 검사가 다시 일하게 한 턴은 끝이 아니다.
 - 턴 중: Claude·Cursor는 턴 안의 훅(`take`) 뒤 턴 끝 훅(`idle`)이 아직 오지 않았을 때, Codex는 스레드가 일하는 중일 때, OpenCode 2는 `session.execution.started` 뒤 `succeeded`·`failed`·`interrupted`가 오기 전이다. 쉬는 대기가 없다는 것으로 턴 중이라 보지 않는다. 데몬이 다시 시작하면 옛 설정의 노드는 쉬어도 대기를 열지 않아 영원히 턴 중으로 보였다(2026-10-22 실측). 턴 끝을 기다리는 목록은 기억에만 둔다.

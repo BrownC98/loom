@@ -31,6 +31,9 @@ const EXIT_WAIT: Duration = Duration::from_secs(10);
 /// 한도로 멈췄던 노드를 새 계정으로 이어 갈 때 넣는 첫 입력.
 const CONTINUE_PROMPT: &str =
     "Your account was switched after a usage limit. Continue the task where you stopped.";
+/// 끝난 노드를 되살릴 때 넣는 첫 입력. 끝난 동안 온 메시지는 받지 못했다(`Refusal::Ended`).
+const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
+     Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
 /// 세션 기록 파일이 로그인 폴더 아래 몇 단계에 있는지. 새 폴더의 같은 상대 경로로 복사한다.
 /// Claude: `projects/<작업 폴더>/<세션>.jsonl`. Codex: `sessions/<년>/<월>/<일>/rollout-…-<스레드>.jsonl`(0.159.2 실측).
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
@@ -168,18 +171,55 @@ impl App {
     }
 
     /// 실행 중인 노드 하나를 다시 띄운다. 프로필이 없는 노드(셸, 명령)는 거절한다.
+    /// 프로세스가 끝난 노드는 남긴 세션으로 되살린다.
     async fn relaunch_by_id(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
-        let node = self
+        let found = self
             .graph
             .active()
             .map_err(internal)?
             .into_iter()
-            .find(|n| n.id == id)
-            .ok_or_else(|| Refusal::Ended(format!("#{}", id.0)))?;
+            .find(|n| n.id == id);
+        let Some(node) = found else {
+            return self.revive_ended(id).await;
+        };
         if profile_of(&node).is_none() {
             return Err(Refusal::NoResume(node.name).into());
         }
         self.relaunch_or_queue(node).await.map_err(internal)
+    }
+
+    /// 끝난 노드는 턴이 없어 바로 띄운다. 두 번 누르면 둘째는 첫째를 기다리지 않고 돌아간다.
+    async fn revive_ended(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
+        let node = self
+            .graph
+            .ended(id)
+            .map_err(internal)?
+            .ok_or_else(|| Refusal::Ended(format!("#{}", id.0)))?;
+        if profile_of(&node).is_none() {
+            return Err(Refusal::NoResume(node.name).into());
+        }
+        if self
+            .relaunches
+            .pending
+            .lock()
+            .unwrap()
+            .insert(id, Phase::Running)
+            .is_some()
+        {
+            return Ok(Relaunched::Now);
+        }
+        let who = Who {
+            id: Some(id),
+            name: node.name.clone(),
+        };
+        let app = self.clone();
+        let result = tokio::spawn(async move { app.revive(node, REVIVED_NOTICE).await })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+        self.relaunches.pending.lock().unwrap().remove(&id);
+        self.record_relaunch(who, &result);
+        result.map(|()| Relaunched::Now).map_err(internal)
     }
 
     /// 턴 중이면 턴 끝으로 미루고, 쉬면 바로 다시 띄운다.
@@ -280,14 +320,18 @@ impl App {
         let id = node.id;
         let result = self.restart(node).await;
         self.relaunches.pending.lock().unwrap().remove(&id);
+        self.record_relaunch(who, &result);
+        result
+    }
+
+    fn record_relaunch(&self, node: Who, result: &Result<(), String>) {
         let entry = Entry::Relaunched {
-            node: who,
+            node,
             error: result.as_ref().err().cloned(),
         };
         if let Err(e) = self.graph.record(&entry) {
             eprintln!("loom: 다시 띄운 결과를 남기지 못했다: {e}");
         }
-        result
     }
 
     /// 노드 프로세스를 지금 설정(계정·실행 설정)으로 다시 띄운다. 계정이 바뀌었으면 새 로그인 폴더에 세션 기록을 복사하고 이어 간다.

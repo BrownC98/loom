@@ -22,9 +22,11 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{AgentSwitch, Entry, EventRecord, SwitchCause, Via, Who};
+pub use events::{AgentSwitch, Entry, EventRecord, SwitchCause, TurnCheck, Via, Who};
 pub use gate::{Ended, GateChoice, MergeTask, Round};
-pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent};
+pub use mailbox::{
+    BATCH_SEPARATOR, Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent,
+};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
     HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId, WaitKind,
@@ -40,6 +42,8 @@ use crate::worktree::RepoId;
 const EVENT_QUEUE: usize = 256;
 /// 받는 노드마다 `queued` 메시지 상한. 근거: docs/design.md 「상한」.
 const MAILBOX_LIMIT: u32 = 50;
+/// `loom done --image`가 받는 그림 꼴. 브라우저가 `<img>`로 그린다. 받은편지함이 완료 줄의 파일을 그대로 낸다.
+pub const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 /// `loom done` 요약 상한. 근거: docs/design.md 「맥락과 크기」.
 const SUMMARY_LIMIT_BYTES: usize = 1024;
 
@@ -239,6 +243,23 @@ pub enum Refusal {
     BareLink(String),
     /// `loom ask` 질문이 선택지를 내놓는데 표준 꼴 `(A: … / B: …, 권장: A)`가 아니다. 받은편지함이 선택 단추를 만들지 못한다.
     BadChoices,
+    /// `loom spawn`의 지시문에 머리가 빠졌다. 값은 빠진 머리다.
+    MissingHeads(Vec<String>),
+    /// `--doc`의 파일이나 사람이 읽는 글 속 `file://` 링크의 파일이 `show.sh`를 지난 user-doc HTML 그대로가 아니다. 값은 그 경로나 주소다.
+    UncheckedDoc(String),
+    /// `loom done --image`의 파일이 그림 파일(`IMAGE_EXTENSIONS`)이 아니거나 없다. 값은 그 경로다.
+    NotImage(String),
+    /// `loom spawn`에 `--agent`도 `--role`도 없다.
+    NoAgentOrRole,
+    /// `loom spawn --role`의 역할이 설정에 없다. `names`는 설정의 역할 이름이다.
+    UnknownRole {
+        role: String,
+        names: Vec<String>,
+    },
+    /// `loom spawn --role`의 역할에 에이전트가 없고 `--agent`도 없다.
+    RoleHasNoAgent {
+        role: String,
+    },
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
     NoWait(WaitId),
     /// 화면에서 보낸 답이 비었다.
@@ -416,7 +437,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::BadChoices => write!(
                 f,
-                "The question offers choices, but not in the standard form, so the inbox shows no buttons. End the question with: (A: <choice> / B: <choice>, recommended: A). Write the word for recommended in the human's language. A yes/no question needs no tail."
+                "The question offers choices, but not in the standard form, so the inbox shows no buttons. End the question with: (A: <choice> / B: <choice>, recommended: A). Write the word for recommended in the human's language. A yes/no question also needs the tail: (A: yes / B: no, recommended: A)."
             ),
             Refusal::NoWait(wait) => write!(f, "{wait}: this question is not open."),
             Refusal::EmptyAnswer => write!(f, "Write an answer."),
@@ -499,6 +520,31 @@ impl fmt::Display for Refusal {
             ),
             Refusal::Git(e) => write!(f, "git failed: {e}"),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
+            Refusal::MissingHeads(missing) => write!(
+                f,
+                "The brief has no {} head. Give each head as a line that starts with the head and a colon (`Goal: …`) or as a markdown heading (`## Goal`). The heads are: {}.",
+                missing.join(", "),
+                crate::task::BRIEF_HEADS.join(", ")
+            ),
+            Refusal::UncheckedDoc(path) => write!(
+                f,
+                "{path}: --doc takes only a user-doc HTML file that passed show.sh. Write the document as HTML from the user-doc style.html, run show.sh on it, then attach it."
+            ),
+            Refusal::NotImage(path) => write!(
+                f,
+                "{path}: --image takes an image file that exists ({}).",
+                IMAGE_EXTENSIONS.join(", ")
+            ),
+            Refusal::NoAgentOrRole => f.write_str("Give --agent or --role."),
+            Refusal::UnknownRole { role, names } => write!(
+                f,
+                "The settings have no role '{role}'. The roles are: {}.",
+                names.join(", ")
+            ),
+            Refusal::RoleHasNoAgent { role } => write!(
+                f,
+                "The role '{role}' has no agent in the settings. Give --agent."
+            ),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }
     }
@@ -628,25 +674,35 @@ impl Graph {
         events::recent(&self.lock())
     }
 
-    /// 보내기를 거절한 일을 남긴다. `reason`은 보낸 쪽이 받은 거절이다.
+    /// 에이전트 동사를 거절한 일을 남긴다. `reason`은 부른 쪽이 받은 거절이다. `what`은 메시지 동사만 있다.
     pub fn record_refusal(
         &self,
         from: NodeId,
         to: &str,
         how: Kind,
-        what: MessageKind,
+        what: Option<MessageKind>,
         reason: &Refusal,
         via: Option<&Via>,
     ) -> rusqlite::Result<()> {
         let db = self.lock();
         let entry = events::Entry::Refused {
             how,
-            what: Some(what),
+            what,
             from: events::who(&db, from)?,
             to: to.to_owned(),
             reason: reason.clone(),
             via: via.cloned(),
             gate: None,
+        };
+        events::write(&db, &entry, None)
+    }
+
+    /// 턴 끝 검사가 노드를 다시 일하게 한 일을 남긴다.
+    pub fn record_nudge(&self, node: NodeId, check: events::TurnCheck) -> rusqlite::Result<()> {
+        let db = self.lock();
+        let entry = events::Entry::Nudged {
+            node: events::who(&db, node)?,
+            check,
         };
         events::write(&db, &entry, None)
     }

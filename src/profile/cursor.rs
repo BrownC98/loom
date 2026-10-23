@@ -93,6 +93,7 @@ pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last tur
 /// 일하는 동안에도 "Add a follow-up"이 보이고 그 줄 끝에 "ctrl+c to stop"이 붙는다.
 pub const WAKE: super::Wake = super::Wake {
     input: IdleInput {
+        prompt: "→ ",
         placeholders: &["→ Add a follow-up", "→ Plan, search, build anything"],
         busy: "ctrl+c to stop",
     },
@@ -162,12 +163,12 @@ pub fn skills_from(value: Option<&str>) -> AlwaysOn {
         .unwrap_or_default()
 }
 
+/// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Cursor runs that wake hook only when ~/.cursor/hooks.json has a \"stop\" entry; if it has none, wait for an expected reply with loom wait --reply-to <message-id> --timeout <seconds> before you end your turn. The loom guard line before shell commands is inserted by loom; do not remove it or add it yourself.";
+
 /// 첫 sessionStart 훅의 글: 통신 명령과 Cursor 대기 방식.
 pub fn usage() -> String {
-    format!(
-        "{}\nWhen no independent work remains, end your turn. loom wakes you with a new message when one arrives. Cursor runs that wake hook only when ~/.cursor/hooks.json has a \"stop\" entry; if it has none, wait for an expected reply with loom wait --reply-to <message-id> --timeout <seconds> before you end your turn. The loom guard line before shell commands is inserted by loom; do not remove it or add it yourself.",
-        super::COMMUNICATION_USAGE
-    )
+    format!("{}\n{WAITING}", super::COMMUNICATION_USAGE)
 }
 
 /// 둘째 sessionStart 훅의 출력: 상시 지시.

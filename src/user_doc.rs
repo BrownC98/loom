@@ -1,6 +1,7 @@
 //! `loom show`와 `--doc`(`loom ask`, `loom done`): user-doc 스킬의 문서를 점검하고 문서 ID를 붙인다. 사람의 브라우저는 열지 않는다.
 //! 사람은 질문 줄의 문서 링크로 연다(2026-10-21 사람 지시 "목업이나 보고서 승인도 질문탭에 링크로 달아두는 식으루 구현하라, 직접 브라우저에 띄우지 말고").
-//! bash가 없는 Windows 노드에서도 같은 일을 하도록 Rust에 둔다. 렌더 그림은 `show.sh`가 한다.
+//! bash가 없는 Windows 노드에서도 같은 일을 하도록 Rust에 둔다. 렌더 그림과 말풍선 점검은 `show.sh`가 한다.
+//! `--doc`은 `loom show`가 점검을 지났다고 남긴 내용 그대로인 HTML만 받는다(R14 5절, 2026-10-23 Q687 A).
 //! 근거: skills/user-doc/SKILL.md 「보이기」.
 
 use std::fs;
@@ -10,16 +11,36 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::graph::WaitDoc;
+use crate::graph::{Refusal, WaitDoc};
 use crate::link_text::DOC_LINK;
 
 /// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
 
+/// `loom show`: 점검하고 ID를 붙인다. 통과 기록은 `show.sh`가 렌더·말풍선 점검을 지난 뒤 `loom show --checked`로 남긴다.
+/// bash가 없는 Windows 노드는 `show.sh`를 돌리지 못한다. 그 노드에서만 이 점검으로 통과를 남긴다(R14 5절, 2026-10-23 Q687 A).
 pub fn show(path: &Path) -> Result<(), String> {
-    let doc = attach(path)?;
+    let store = Store::here()?;
+    let doc = stamp_in(&store, path)?;
     println!("show: 문서 ID {} ({})", doc.id, doc.title);
+    if bashless() {
+        pass_in(&store, path)?;
+        println!("show: bash 없는 Windows 노드라 이 점검으로 통과를 남긴다");
+        println!(
+            "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
+            path.display()
+        );
+    } else {
+        println!("show: --doc 통과는 show.sh가 렌더·말풍선 점검 뒤에 남긴다");
+    }
+    Ok(())
+}
+
+/// `loom show --checked`: `show.sh`의 마지막 단계. 다시 점검하고, ID를 붙인 내용 그대로면 통과로 남긴다.
+pub fn record_checked(path: &Path) -> Result<(), String> {
+    let doc = pass_in(&Store::here()?, path)?;
+    println!("show: 문서 ID {} 통과", doc.id);
     println!(
         "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
         path.display()
@@ -27,68 +48,131 @@ pub fn show(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// `--doc`이 받는 문서의 갈래. 붙이기(`attach`)와 데몬의 내기(`daemon::serve_file`)가 이 한 목록을 쓴다.
-/// 그 밖의 파일(확장자 없는 README, `.csv`, `.svg` 등)은 받지 않는다. 받으면 브라우저가 내려받거나 스크립트를 돌린다(2026-10-23 검토 BLOCK).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum DocKind {
-    /// user-doc 문서. 점검하고 ID를 붙인다.
-    Html,
-    /// 글 파일(`.md` 보고서 등). 점검하지 않고 고치지 않는다. 데몬은 `text/plain; charset=utf-8`로 낸다.
-    Text,
+/// WSL 노드의 `loom`도 Windows 실행 파일이지만 시작 폴더가 WSL 폴더다. 그 노드는 bash로 `show.sh`를 돌린다.
+/// 한계: bash 없는 Windows 노드의 통과에는 렌더·말풍선·파일 하나(`check-callouts.cjs`) 점검이 없다(2026-10-23 관문 결정).
+fn bashless() -> bool {
+    cfg!(windows)
+        && std::env::current_dir()
+            .ok()
+            .and_then(|dir| crate::wsl::of(&dir))
+            .is_none()
 }
 
+/// `--doc`이 받는 꼴. 그 밖의 파일(`.md` 보고서, 그림, `.svg`)은 받지 않는다. 사람에게 보일 글은 user-doc HTML로 쓴다.
+/// 근거: 사람에게 날 `.md`가 링크로 보였다(2026-10-23 사람 "질문에 올린 링크가 쌩 마크다운임").
 const HTML_EXTENSIONS: [&str; 2] = ["html", "htm"];
-const TEXT_EXTENSIONS: [&str; 4] = ["md", "markdown", "txt", "log"];
 
-pub fn doc_kind(path: &Path) -> Option<DocKind> {
-    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    if HTML_EXTENSIONS.contains(&ext.as_str()) {
-        Some(DocKind::Html)
-    } else if TEXT_EXTENSIONS.contains(&ext.as_str()) {
-        Some(DocKind::Text)
-    } else {
-        None
-    }
+fn html(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| HTML_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 /// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
-/// 근거: 총괄이 `.md` 감사 보고서를 붙이지 못해 경로를 글로 적었고, 사람은 열지 못했다(2026-10-23 사람 "링크로 제공이 안됨").
-pub fn attach(path: &Path) -> Result<WaitDoc, String> {
-    attach_in(&Store::here()?, path)
+fn stamp_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
+    let (path, text) = checked(path)?;
+    let id = store.doc_id(&path)?;
+    let title = bare_title(title(&text).unwrap_or_default()).to_owned();
+    fs::write(&path, stamp(&text, &id)).map_err(|e| e.to_string())?;
+    Ok(WaitDoc { id, title })
 }
 
-fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
-    let path = real_path(path)?;
-    // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
-    let refused = || {
-        format!(
-            "{}: --doc takes a user-doc HTML file (.{}) or a text file (.{}); put images inside an HTML file.",
-            path.display(),
-            HTML_EXTENSIONS.join(", ."),
-            TEXT_EXTENSIONS.join(", .")
-        )
-    };
-    let kind = doc_kind(&path).ok_or_else(refused)?;
-    let text = fs::read_to_string(&path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::InvalidData => refused(),
-        _ => format!("{}: {e}", path.display()),
-    })?;
-    if kind == DocKind::Text {
-        let id = store.doc_id(&path)?;
-        store.keep(&id, &path, &text)?;
-        let title = text_title(&text, &path);
-        return Ok(WaitDoc { id, title });
+/// ID를 붙인 뒤 렌더·말풍선 점검을 지난 내용을 `--doc` 통과로 남긴다. 점검한 내용과 남기는 내용이 같도록 ID를 다시 붙이지 않는다.
+fn pass_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
+    let (path, text) = checked(path)?;
+    let id = store.doc_id(&path)?;
+    if stamp(&text, &id) != text {
+        return Err(format!(
+            "{}: 문서 ID가 없다. show.sh로 점검한다",
+            path.display()
+        ));
     }
+    store.pass(&text)?;
+    let title = bare_title(title(&text).unwrap_or_default()).to_owned();
+    Ok(WaitDoc { id, title })
+}
+
+/// `loom show`의 글 점검을 지난 문서의 실제 경로와 글.
+fn checked(path: &Path) -> Result<(PathBuf, String), String> {
+    let path = real_path(path)?;
+    let text = read_html(&path)?;
     check(&text)?;
     if !mockup(&path) {
         check_report(&text)?;
     }
-    let id = store.doc_id(&path)?;
+    Ok((path, text))
+}
+
+/// HTML 꼴이고 UTF-8로 읽히는 파일의 글.
+fn read_html(path: &Path) -> Result<String, String> {
+    // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
+    let refused = || {
+        format!(
+            "{}: --doc takes a user-doc HTML file (.{}); put images inside an HTML file.",
+            path.display(),
+            HTML_EXTENSIONS.join(", .")
+        )
+    };
+    if !html(path) {
+        return Err(refused());
+    }
+    fs::read_to_string(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::InvalidData => refused(),
+        _ => format!("{}: {e}", path.display()),
+    })
+}
+
+/// `--doc`(`loom ask`, `loom done`)의 문서에 ID를 붙인다. `show.sh`가 점검한 뒤 바뀌지 않은 HTML만 받는다.
+pub fn attach(path: &Path) -> Result<WaitDoc, Refusal> {
+    attach_in(&Store::here().map_err(Refusal::Db)?, path)
+}
+
+fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, Refusal> {
+    let refused = || Refusal::UncheckedDoc(path.display().to_string());
+    let path = real_path(path).map_err(|_| refused())?;
+    let text = read_html(&path).map_err(|_| refused())?;
+    if !store.passed(&text) {
+        return Err(refused());
+    }
+    let id = store.doc_id(&path).map_err(Refusal::Db)?;
+    // 지난 문서를 다른 이름으로 복사하면 새 경로는 새 ID를 받지만 머리 줄은 옛 ID다. 사람이 다른 문서의 ID로 답하게 된다(2026-10-23 검토자2·codex).
+    if stamp(&text, &id) != text {
+        return Err(refused());
+    }
+    store.keep(&id, &path, &text).map_err(Refusal::Db)?;
     let title = bare_title(title(&text).unwrap_or_default()).to_owned();
-    let stamped = stamp(&text, &id);
-    fs::write(&path, &stamped).map_err(|e| e.to_string())?;
-    store.keep(&id, &path, &stamped)?;
     Ok(WaitDoc { id, title })
+}
+
+/// 사람이 읽는 글(부모 없는 노드의 질문·완료) 속 `file://` 링크 가운데 `--doc`이 받지 않을 파일을 처음 하나 돌려준다.
+/// 붙인 문서의 링크는 CLI가 이미 `DOC_LINK`로 바꿨다(`inline_link`). `folder`는 데몬이 아는 노드 폴더다. 경로는 그 노드 쪽에서 푼다.
+pub fn unchecked_link(text: &str, folder: &Path) -> Option<String> {
+    let store = Store::here().ok()?;
+    unchecked_link_in(&store, text, folder)
+}
+
+fn unchecked_link_in(store: &Store, text: &str, folder: &Path) -> Option<String> {
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let link = &rest[open..];
+        match crate::link_text::parse_link(link) {
+            Some((_, target, len)) => {
+                if target.starts_with("file://") {
+                    let checked = link_path(target)
+                        .map(|p| crate::wsl::from_node(p, folder))
+                        .and_then(|p| real_path(&p).ok())
+                        .and_then(|p| read_html(&p).ok())
+                        .is_some_and(|text| store.passed(&text));
+                    if !checked {
+                        return Some(target.to_owned());
+                    }
+                }
+                rest = &link[len..];
+            }
+            None => rest = &link[1..],
+        }
+    }
+    None
 }
 
 /// 문서 ID의 파일. 원본이 있으면 원본이다(고친 새 판이 보인다). 원본이 지워졌으면(병합 뒤 지운 워크트리의 목업) 붙일 때 남긴 사본(`keep`)이다.
@@ -143,6 +227,8 @@ pub fn docs() -> Result<Vec<DocRow>, String> {
 struct Store {
     /// `$HOME/.cache/user-doc/ids.tsv`: 경로와 ID 두 열. 줄을 더하기만 한다.
     table: PathBuf,
+    /// `$HOME/.cache/user-doc/passed.txt`: 점검을 지난 문서 내용의 해시(`skills::digest`)를 한 줄씩. 줄을 더하기만 한다.
+    passes: PathBuf,
     /// `<데이터 폴더>/docs`. 데몬 DB(`db::data_dir`) 옆이다.
     copies: PathBuf,
 }
@@ -151,10 +237,31 @@ impl Store {
     fn here() -> Result<Self, String> {
         let home = std::env::home_dir().ok_or("홈 폴더를 찾지 못했다")?;
         let data = crate::db::data_dir().map_err(|e| e.to_string())?;
+        let cache = home.join(".cache").join("user-doc");
         Ok(Store {
-            table: home.join(".cache").join("user-doc").join("ids.tsv"),
+            table: cache.join("ids.tsv"),
+            passes: cache.join("passed.txt"),
             copies: data.join("docs"),
         })
+    }
+
+    fn pass(&self, text: &str) -> Result<(), String> {
+        if let Some(dir) = self.passes.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.passes)
+            .map_err(|e| format!("{}: {e}", self.passes.display()))?;
+        // 한 줄을 쓰기 한 번에 쓴다. 동시에 남겨도 줄이 섞이지 않는다.
+        file.write_all(format!("{}\n", crate::skills::digest(&[text])).as_bytes())
+            .map_err(|e| format!("{}: {e}", self.passes.display()))
+    }
+
+    fn passed(&self, text: &str) -> bool {
+        let digest = crate::skills::digest(&[text]);
+        fs::read_to_string(&self.passes).is_ok_and(|rows| rows.lines().any(|row| row == digest))
     }
 
     fn rows(&self) -> String {
@@ -169,7 +276,7 @@ impl Store {
                     .find(|(_, row_id)| *row_id == id)
                     .map(|(path, _)| PathBuf::from(path))
             })
-            .filter(|path| doc_kind(path).is_some())
+            .filter(|path| html(path))
             .ok_or_else(|| format!("문서 {id}이(가) 없습니다."))?;
         if source.is_file() {
             let folder = mockup(&source)
@@ -195,7 +302,7 @@ impl Store {
         let mut seen = std::collections::HashSet::new();
         // 잠금 전에 겹친 ID는 첫 줄만 둔다. `doc_file`도 첫 줄을 연다.
         let mut docs: Vec<DocRow> = table_rows(&rows)
-            .filter(|(_, id)| seen.insert(*id))
+            .filter(|(path, id)| html(Path::new(path)) && seen.insert(*id))
             .map(|(path, id)| self.row(id, Path::new(path)))
             .collect();
         docs.sort_by_key(|d| std::cmp::Reverse((d.attached_at, number(&d.id))));
@@ -207,11 +314,7 @@ impl Store {
         let live = source.is_file();
         let shown = if live { Some(source) } else { copy.as_deref() };
         let text = shown.and_then(|p| fs::read_to_string(p).ok());
-        let title = match (doc_kind(source), text) {
-            (Some(DocKind::Html), Some(text)) => title(&text).map(|t| bare_title(t).to_owned()),
-            (Some(DocKind::Text), Some(text)) => Some(text_title(&text, source)),
-            _ => None,
-        };
+        let title = text.and_then(|text| title(&text).map(|t| bare_title(t).to_owned()));
         let file_name = || {
             source
                 .file_name()
@@ -255,7 +358,7 @@ impl Store {
         written.map_err(|e| format!("{}: {e}", copy.display()))
     }
 
-    /// `<데이터 폴더>/docs/<ID>/<원본 파일 이름>`. 이름이 같아 형식(`doc_kind`)도 같다.
+    /// `<데이터 폴더>/docs/<ID>/<원본 파일 이름>`. 이름이 같아 꼴(`html`)도 같다.
     fn snapshot(&self, id: &str, source: &Path) -> Option<PathBuf> {
         Some(self.copies.join(id).join(source.file_name()?))
     }
@@ -331,7 +434,9 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
         out.push_str(before);
         match crate::link_text::parse_link(link) {
             Some((label, target, len))
-                if link_path(target).is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
+                if link_path(target)
+                    .map(crate::wsl::from_caller)
+                    .is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
             {
                 out.push_str(&format!("[{label}]({DOC_LINK})"));
                 rest = &link[len..];
@@ -346,10 +451,11 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
     out
 }
 
-/// 링크 주소가 가리키는 파일 경로. `file:///C:/…`는 `C:/…`, `file://host/…`는 UNC `//host/…`다.
+/// 링크 주소가 가리키는 파일 경로. `file:///C:/…`는 `C:/…`, `file://host/…`는 UNC `//host/…`다. 조각(`#…`)과 물음(`?…`)은 파일 밖이다.
 fn link_path(target: &str) -> Option<PathBuf> {
     let path = match target.strip_prefix("file://") {
         Some(rest) => {
+            let rest = rest.split(['#', '?']).next().unwrap_or_default();
             let rest = percent_encoding::percent_decode_str(rest)
                 .decode_utf8()
                 .ok()?;
@@ -362,23 +468,7 @@ fn link_path(target: &str) -> Option<PathBuf> {
         None if target.contains("://") => return None,
         None => target.to_owned(),
     };
-    Some(crate::wsl::from_caller(PathBuf::from(path)))
-}
-
-/// 글 문서의 제목: 첫 markdown 제목 줄(`# …`), 없으면 파일 이름.
-fn text_title(text: &str, path: &Path) -> String {
-    let heading = text
-        .lines()
-        .find_map(|l| l.strip_prefix("# "))
-        .map(str::trim)
-        .filter(|t| !t.is_empty());
-    match heading {
-        Some(t) => t.to_owned(),
-        None => path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default(),
-    }
+    Some(PathBuf::from(path))
 }
 
 /// 같은 문서가 언제나 같은 표 열쇠를 갖게 링크를 푼다. Windows의 `\\?\C:\…`는 앱이 못 읽으므로 `C:\…`로 둔다.
@@ -495,7 +585,7 @@ fn stamp(html: &str, id: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const DOC: &str = r#"<html style="color-scheme: light"><head><title>문서</title></head>
@@ -514,15 +604,127 @@ mod tests {
         assert!(check(&once).is_ok());
     }
 
+    fn store(home: &Path) -> Store {
+        Store {
+            table: home.join("ids.tsv"),
+            passes: home.join("passed.txt"),
+            copies: home.join("copies"),
+        }
+    }
+
     #[test]
     fn an_image_is_refused_with_the_file_to_attach() {
         let dir = tempfile::tempdir().unwrap();
         let png = dir.path().join("mockup.png");
         fs::write(&png, [0x89, b'P', b'N', b'G', 0xff, 0xfe]).unwrap();
-        let refused = attach(&png).err().unwrap();
+        let refused = stamp_in(&store(dir.path()), &png).err().unwrap();
         assert!(
             refused.contains("put images inside an HTML file"),
             "{refused}"
+        );
+    }
+
+    /// 지난 문서를 다른 이름으로 복사한 파일은 새 ID를 받으므로 머리 줄의 옛 ID와 다르다. 다시 점검해야 붙는다.
+    #[test]
+    fn a_copy_of_a_passed_doc_does_not_attach() {
+        let home = tempfile::tempdir().unwrap();
+        let store = store(home.path());
+        let report = home.path().join("r.html");
+        fs::write(&report, DOC.replace("</body>", "<svg></svg></body>")).unwrap();
+        let shown = shown_in(&store, &report);
+        assert_eq!(attach_in(&store, &report), Ok(shown.clone()));
+        let copy = home.path().join("r-v2.html");
+        fs::copy(&report, &copy).unwrap();
+        assert_eq!(
+            attach_in(&store, &copy),
+            Err(Refusal::UncheckedDoc(copy.display().to_string()))
+        );
+        let again = shown_in(&store, &copy);
+        assert_ne!(again.id, shown.id);
+        assert_eq!(attach_in(&store, &copy), Ok(again));
+    }
+
+    /// 점검을 지난 문서의 조각 링크(`#part`)도 그 문서다.
+    #[test]
+    fn a_fragment_link_points_at_its_file() {
+        let path = Path::new("/tmp/r.html");
+        let url = file_url(path);
+        assert_eq!(link_path(&format!("{url}#part")), link_path(&url));
+        assert_eq!(link_path(&format!("{url}?a=1#b")), link_path(&url));
+        assert_eq!(
+            link_path("file:///tmp/a%23b.html"),
+            link_path("/tmp/a#b.html")
+        );
+    }
+
+    /// `show.sh`의 두 단계(`loom show`, `loom show --checked`)를 지난 문서.
+    fn shown_in(store: &Store, path: &Path) -> WaitDoc {
+        stamp_in(store, path).unwrap();
+        pass_in(store, path).unwrap()
+    }
+
+    /// 경로의 `file://` 주소. Windows 경로는 `file:///C:/…`다.
+    pub(crate) fn file_url(path: &Path) -> String {
+        let slashed = path.display().to_string().replace('\\', "/");
+        format!(
+            "file://{}{}",
+            if slashed.starts_with('/') { "" } else { "/" },
+            percent_encoding::utf8_percent_encode(&slashed, percent_encoding::NON_ALPHANUMERIC)
+                .to_string()
+                .replace("%2F", "/")
+                .replace("%3A", ":")
+        )
+    }
+
+    /// `--doc`은 `loom show`가 지난 내용 그대로인 HTML만 받는다. 글 파일, 점검하지 않은 HTML, 점검 뒤 바뀐 HTML은 거절한다.
+    #[test]
+    fn only_a_shown_and_unchanged_html_file_attaches() {
+        let home = tempfile::tempdir().unwrap();
+        let store = store(home.path());
+        let mockups = home.path().join("docs/mockups");
+        fs::create_dir_all(&mockups).unwrap();
+        let mock = mockups.join("m.html");
+        fs::write(&mock, DOC).unwrap();
+        let md = home.path().join("r.md");
+        fs::write(&md, "# 보고서\n").unwrap();
+        let unchecked = |path: &Path| Err(Refusal::UncheckedDoc(path.display().to_string()));
+        assert_eq!(attach_in(&store, &md), unchecked(&md));
+        assert_eq!(attach_in(&store, &mock), unchecked(&mock));
+        assert!(stamp_in(&store, &md).is_err());
+
+        // `loom show`만으로는 통과가 아니다. 렌더·말풍선 점검 뒤 `--checked`가 남긴다.
+        assert!(pass_in(&store, &mock).is_err());
+        let shown = stamp_in(&store, &mock).unwrap();
+        assert_eq!(attach_in(&store, &mock), unchecked(&mock));
+        assert_eq!(pass_in(&store, &mock).unwrap(), shown);
+        assert_eq!(attach_in(&store, &mock), Ok(shown.clone()));
+        let link = |path: &Path| format!("[목업]({})", file_url(path));
+        assert_eq!(
+            unchecked_link_in(&store, &link(&mock), Path::new("/")),
+            None
+        );
+        assert_eq!(
+            unchecked_link_in(
+                &store,
+                &format!("{} {}", link(&mock), link(&md)),
+                Path::new("/")
+            ),
+            Some(file_url(&md))
+        );
+        assert_eq!(
+            unchecked_link_in(&store, "[웹](https://a.b/c) (x)", Path::new("/")),
+            None
+        );
+
+        let changed = fs::read_to_string(&mock).unwrap().replace("총괄", "코디");
+        fs::write(&mock, changed).unwrap();
+        assert_eq!(attach_in(&store, &mock), unchecked(&mock));
+        assert_eq!(shown_in(&store, &mock), shown);
+        assert_eq!(attach_in(&store, &mock), Ok(shown));
+        assert!(
+            Refusal::UncheckedDoc("x".into())
+                .to_string()
+                .contains("--doc takes only a user-doc HTML file that passed show.sh.")
         );
     }
 
@@ -533,16 +735,7 @@ mod tests {
         let other = dir.path().join("b.html");
         fs::write(&doc, "").unwrap();
         fs::write(&other, "").unwrap();
-        // Windows 경로는 `file:///C:/…`다.
-        let slashed = doc.display().to_string().replace('\\', "/");
-        let url = format!(
-            "file://{}{}",
-            if slashed.starts_with('/') { "" } else { "/" },
-            percent_encoding::utf8_percent_encode(&slashed, percent_encoding::NON_ALPHANUMERIC)
-                .to_string()
-                .replace("%2F", "/")
-                .replace("%3A", ":")
-        );
+        let url = file_url(&doc);
         let other = other.display().to_string();
         let text = format!("[문헌 도구]({url}) 승인? [다른]({other}) [x] (y) [웹](https://a.b/c)");
         assert_eq!(
@@ -565,31 +758,17 @@ mod tests {
     }
 
     #[test]
-    fn a_text_doc_takes_its_first_heading_or_file_name() {
-        let md = Path::new("/r/audit.md");
-        assert_eq!(text_title("앞말\n# 알림 감사 \n본문\n", md), "알림 감사");
-        assert_eq!(text_title("본문만\n#붙은 줄", md), "audit.md");
-    }
-
-    #[test]
-    fn only_listed_extensions_are_docs() {
-        assert_eq!(doc_kind(Path::new("/r/a.HTML")), Some(DocKind::Html));
-        assert_eq!(doc_kind(Path::new("/r/a.htm")), Some(DocKind::Html));
-        assert_eq!(doc_kind(Path::new("/r/audit.MD")), Some(DocKind::Text));
-        assert_eq!(doc_kind(Path::new("/r/run.log")), Some(DocKind::Text));
-        assert_eq!(doc_kind(Path::new("/r/README")), None);
-        assert_eq!(doc_kind(Path::new("/r/rows.csv")), None);
-        assert_eq!(doc_kind(Path::new("/r/a.svg")), None);
-    }
-
-    #[test]
-    fn other_text_files_are_refused_with_the_list() {
-        let dir = tempfile::tempdir().unwrap();
-        for name in ["README", "rows.csv", "a.svg"] {
-            let file = dir.path().join(name);
-            fs::write(&file, "<svg><script>x</script></svg>").unwrap();
-            let refused = attach(&file).err().unwrap();
-            assert!(refused.contains(".md, .markdown, .txt, .log"), "{refused}");
+    fn only_html_files_are_docs() {
+        assert!(html(Path::new("/r/a.HTML")));
+        assert!(html(Path::new("/r/a.htm")));
+        for name in [
+            "/r/audit.md",
+            "/r/run.log",
+            "/r/README",
+            "/r/rows.csv",
+            "/r/a.svg",
+        ] {
+            assert!(!html(Path::new(name)), "{name}");
         }
     }
 
@@ -633,10 +812,7 @@ mod tests {
     #[test]
     fn concurrent_registration_gives_unique_ids_and_whole_rows() {
         let home = tempfile::tempdir().unwrap();
-        let store = std::sync::Arc::new(Store {
-            table: home.path().join("ids.tsv"),
-            copies: home.path().join("copies"),
-        });
+        let store = std::sync::Arc::new(store(home.path()));
         let start = std::sync::Arc::new(std::sync::Barrier::new(16));
         let threads: Vec<_> = (0..16)
             .map(|t| {
@@ -691,28 +867,31 @@ mod tests {
     #[test]
     fn docs_outlive_their_source_and_list_newest_first() {
         let home = tempfile::tempdir().unwrap();
-        let store = Store {
-            table: home.path().join("ids.tsv"),
-            copies: home.path().join("copies"),
-        };
+        let store = store(home.path());
         let repo = home.path().join("작업");
         fs::create_dir_all(repo.join("docs/mockups")).unwrap();
         let mock = repo.join("docs/mockups/m.html");
         fs::write(&mock, DOC).unwrap();
-        let report = repo.join("r.md");
-        fs::write(&report, "# 감사\n본문\n").unwrap();
-        fs::write(repo.join("old.md"), "").unwrap();
+        let report = repo.join("r.html");
+        let report_text = |title: &str| {
+            DOC.replace("문서", title)
+                .replace("</body>", "<svg></svg></body>")
+        };
+        fs::write(&report, report_text("감사")).unwrap();
+        fs::write(repo.join("old.html"), "").unwrap();
         // 이 판 전에 붙인 문서: 표에만 있고 사본이 없다.
         let old = store
-            .doc_id(&real_path(&repo.join("old.md")).unwrap())
+            .doc_id(&real_path(&repo.join("old.html")).unwrap())
             .unwrap();
-        fs::remove_file(repo.join("old.md")).unwrap();
+        fs::remove_file(repo.join("old.html")).unwrap();
+        shown_in(&store, &mock);
+        shown_in(&store, &report);
         let m = attach_in(&store, &mock).unwrap().id;
         let r = attach_in(&store, &report).unwrap().id;
         assert_eq!((old.as_str(), m.as_str(), r.as_str()), ("R1", "M1", "R2"));
 
         // 원본이 있으면 원본을 낸다(새 판이 보인다). 원본 보고서는 옆 파일을 내지 않는다. 원본 목업은 그 폴더다.
-        fs::write(&report, "# 감사 2\n").unwrap();
+        fs::write(&report, report_text("감사 2")).unwrap();
         assert_eq!(
             store.doc_file(&r),
             Ok(DocFile {
@@ -769,7 +948,7 @@ mod tests {
         let old_row = &rows[2];
         assert_eq!(
             (old_row.title.as_str(), old_row.source, old_row.snapshot),
-            ("old.md", false, false)
+            ("old.html", false, false)
         );
     }
 

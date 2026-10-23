@@ -301,12 +301,32 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         id: K,
         pick: impl FnOnce(&Keys<'_>) -> Result<Vec<u8>, E>,
     ) -> Result<(), E> {
+        self.write_paced_if(id, Duration::ZERO, |keys| {
+            pick(keys).map(|bytes| vec![bytes])
+        })
+    }
+
+    /// `write_if`와 같다. 다만 `pick`이 고른 조각 사이마다 `gap`을 쉬며 친다. 끝 조각까지 입력 잠금을 쥔다. 그래서 조각 사이에 다른 입력이 끼지 않는다.
+    /// 잠금을 쥔 채 잠든다. async 문맥에서는 `spawn_blocking` 안에서 부른다.
+    pub fn write_paced_if<E>(
+        &self,
+        id: K,
+        gap: Duration,
+        pick: impl FnOnce(&Keys<'_>) -> Result<Vec<Vec<u8>>, E>,
+    ) -> Result<(), E> {
         let pty = self.pty(id);
         let mut host = pty.as_ref().map(|pty| pty.host.lock().unwrap());
-        let bytes = pick(&Keys(pty.as_deref()))?;
+        let pieces = pick(&Keys(pty.as_deref()))?;
         if let Some(host) = host.as_mut() {
-            // 호스트가 끝났으면 실패한다. 화면에 따로 알리지 않는다. 상태 이벤트가 exited를 보인다.
-            let _ = wire::write(&mut **host, &Frame::Data(bytes));
+            for (i, bytes) in pieces.into_iter().enumerate() {
+                if i > 0 {
+                    std::thread::sleep(gap);
+                }
+                // 호스트가 끝났으면 실패한다. 화면에 따로 알리지 않는다. 상태 이벤트가 exited를 보인다.
+                if wire::write(&mut **host, &Frame::Data(bytes)).is_err() {
+                    break;
+                }
+            }
         }
         Ok(())
     }

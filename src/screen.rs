@@ -34,6 +34,8 @@ pub enum Place {
 
 /// 쉬는 TUI의 빈 입력 칸을 알아보는 글. 프로필이 갖는다(`profile::wake`).
 pub struct IdleInput {
+    /// 입력 칸 줄의 머리. 화면에서 이 머리로 시작하는 마지막 줄이 입력 칸이다. 대화 기록에도 이 머리로 시작하는 줄이 남는다.
+    pub prompt: &'static str,
     /// 빈 입력 칸의 자리 표시 글. 입력 칸 줄이 이 글로 시작한다. 사람이 쓰던 글이 있거나 확인 창이 떠 있으면 이 줄이 없다.
     pub placeholders: &'static [&'static str],
     /// 일하는 동안만 화면에 있는 글.
@@ -44,10 +46,11 @@ impl IdleInput {
     /// `screen`이 쉬는 빈 입력 칸을 보인다.
     pub fn shown(&self, screen: &str) -> bool {
         !screen.contains(self.busy)
-            && screen.lines().any(|line| {
-                let line = line.trim_start();
-                self.placeholders.iter().any(|p| line.starts_with(p))
-            })
+            && screen
+                .lines()
+                .map(str::trim_start)
+                .rfind(|line| line.starts_with(self.prompt))
+                .is_some_and(|line| self.placeholders.iter().any(|p| line.starts_with(p)))
     }
 }
 

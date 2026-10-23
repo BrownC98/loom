@@ -34,9 +34,12 @@ const RESTARTED_SESSION: &str = "clear|compact";
 /// Bash 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다.
 const GUARD: &str = "loom guard";
 
+/// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.";
+
 fn usage(launch: Launch) -> String {
     format!(
-        "{}\nWhen no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.\n\n{}",
+        "{}\n{WAITING}\n\n{}",
         super::COMMUNICATION_USAGE,
         crate::skills::always_on(launch)
     )
@@ -44,18 +47,18 @@ fn usage(launch: Launch) -> String {
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-/// 옛 동사(send·reply·steer·interrupt)는 한 판 동안 거절 글로 새 동사를 알린다. 승인 창이 뜨면 그 글을 보지 못한다.
-const ALLOWED: [&str; 20] = [
+const ALLOWED: [&str; 21] = [
     "Bash(loom guard)",
     "Bash(loom note:*)",
     "Bash(loom answer:*)",
-    "Bash(loom send:*)",
-    "Bash(loom steer:*)",
-    "Bash(loom interrupt:*)",
     "Bash(loom wait)",
     "Bash(loom wait:*)",
-    "Bash(loom reply:*)",
     "Bash(loom status)",
+    "Bash(loom status:*)",
+    "Bash(loom roles)",
+    "Bash(loom relaunch)",
+    "Bash(loom relaunch:*)",
+    "Bash(loom show:*)",
     "Bash(loom done:*)",
     "Bash(loom ask:*)",
     "Bash(loom answered)",

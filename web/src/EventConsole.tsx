@@ -1,6 +1,6 @@
 // 이벤트 콘솔 칸(docs/mockups/graph-panels.html 그림 A). 노드·메시지·받은편지함 알림 이벤트를 최근 것부터 보인다.
 // 줄을 누르면 그 이벤트에 관여한 노드를 그래프에서 강조하고 본문 전문을 편다. 강조 상태는 부르는 쪽(App)이 가진다.
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getEventLog } from './api';
@@ -8,7 +8,11 @@ import { agentLabel } from './catalog';
 import type { AgentView } from './gen/AgentView';
 import type { Entry } from './gen/Entry';
 import type { EventRecord } from './gen/EventRecord';
+import type { MessageFacts } from './gen/MessageFacts';
 import type { Kind } from './gen/Kind';
+import type { MessageKind } from './gen/MessageKind';
+import type { Step } from './gen/Step';
+import type { TextPart } from './gen/TextPart';
 import type { WaitId } from './gen/WaitId';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
@@ -41,9 +45,13 @@ function categoryOf(entry: Entry): Category {
   }
 }
 
-/** 알림 줄의 색 계열(목업 docs/mockups/notice-color.html A안). 사람의 답은 그 답이 닫은 알림의 계열을 따른다. */
-function familyOf(entry: Entry): 'question' | 'done' | undefined {
+type Family = 'question' | 'done' | 'fail';
+
+/** 알림 줄의 색 계열(목업 docs/mockups/notice-color.html A안). 사람의 답은 그 답이 닫은 알림의 계열을 따른다. 메시지는 종류를 따른다(목업 docs/mockups/typed-messages.html M17 ③). */
+function familyOf(entry: Entry): Family | undefined {
   switch (entry.kind) {
+    case 'message':
+      return entry.what && kindFamily(entry.what);
     case 'asked':
     case 'answered':
     case 'unanswered':
@@ -54,6 +62,101 @@ function familyOf(entry: Entry): 'question' | 'done' | undefined {
       return 'done';
     default:
       return undefined;
+  }
+}
+
+function kindFamily(what: MessageKind): Family | undefined {
+  switch (what.kind) {
+    case 'ask':
+    case 'answer':
+      return 'question';
+    case 'done':
+    case 'merged':
+      return 'done';
+    case 'verdict':
+      return what.judgment === 'pass' ? 'done' : 'fail';
+    case 'rework':
+    case 'failed':
+    case 'setupFailed':
+      return 'fail';
+    case 'exited':
+      return what.code !== null && what.code !== 0 ? 'fail' : undefined;
+    case 'note':
+    case 'ready':
+    case 'merging':
+    case 'removed':
+    case 'adopted':
+    case 'humanInput':
+    case 'rulesChanged':
+      return undefined;
+  }
+}
+
+/** 종류의 화면 이름. 메모의 조정·중단만 뒤에 붙인다(「메모 · 조정」). */
+function kindLabel(what: MessageKind, how: Kind, t: TFunction): string {
+  switch (what.kind) {
+    case 'note':
+      return how === 'queue' ? t('events.type.note') : `${t('events.type.note')} · ${t(`events.how.${how}`)}`;
+    case 'verdict':
+      return t(`events.type.verdict.${what.judgment}`);
+    default:
+      return t(`events.type.${what.kind}`);
+  }
+}
+
+/** 접힌 줄에 보이는 칸 요약. 본문이 아닌 칸이 뜻을 가진 종류만 있다. */
+function kindSummary(what: MessageKind, t: TFunction): string | null {
+  switch (what.kind) {
+    case 'ready':
+    case 'verdict':
+    case 'merging':
+    case 'rework':
+    case 'failed':
+      return `${what.branch} · ${what.head}`;
+    case 'merged':
+      return `${what.branch} · ${what.sha}`;
+    case 'exited':
+    case 'setupFailed':
+      return `${what.node} · ${what.code === null ? t('events.codeUnknown') : t('events.code', { code: what.code })}`;
+    case 'removed':
+      return what.node;
+    case 'adopted':
+      return `${what.node} → ${what.parent}`;
+    case 'rulesChanged':
+      return what.skills.join(', ');
+    case 'ask':
+    case 'answer':
+    case 'done':
+    case 'note':
+    case 'humanInput':
+      return null;
+  }
+}
+
+/** 편 줄에서 본문 칸의 이름. */
+function bodyName(what: MessageKind): 'ask' | 'answer' | 'done' | 'next' | 'output' | 'human' | 'text' {
+  switch (what.kind) {
+    case 'ask':
+    case 'answer':
+    case 'done':
+      return what.kind;
+    case 'ready':
+    case 'verdict':
+    case 'merging':
+    case 'merged':
+    case 'rework':
+    case 'failed':
+      return 'next';
+    case 'setupFailed':
+      return 'output';
+    case 'humanInput':
+      return 'human';
+    case 'note':
+    case 'exited':
+    case 'removed':
+    case 'adopted':
+    case 'rulesChanged':
+      return 'text';
   }
 }
 
@@ -118,19 +221,19 @@ export function useEventLog(open: boolean): { records: EventRecord[] | null; onR
   return { records, onRecord };
 }
 
-/** 줄을 펴면 보이는 글. 메시지는 메시지 본문, 알림은 질문·결과·답 전문이다. */
-function bodyOf(record: EventRecord, t: TFunction): string | null {
-  const { entry } = record;
+/** 줄을 펴면 보이는 글의 조각. 메시지는 메시지 본문, 알림은 질문·결과·답 전문이다. 없으면 null이다. */
+function bodyOf(record: EventRecord, t: TFunction): TextPart[] | null {
+  const { entry, parts } = record;
   switch (entry.kind) {
-    case 'asked':
-      return entry.text;
     case 'reported':
-      return `${entry.summary}\n${t('events.instruction', { text: entry.instruction })}`;
+      return [...parts, { part: 'text', text: `\n${t('events.instruction', { text: entry.instruction })}` }];
+    case 'asked':
     case 'answered':
     case 'instructed':
-      return entry.text || null;
+    case 'message':
+      return parts.length > 0 ? parts : null;
     default:
-      return record.body;
+      return null;
   }
 }
 
@@ -139,7 +242,7 @@ function KindLabel({ how }: { how: Kind }) {
   return <span className="kind">{t(`events.how.${how}`)}</span>;
 }
 
-function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }) {
+function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFacts | null; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }) {
   const { t } = useTranslation();
   // 지운 노드는 그래프에 없다. 흐린 이름으로 보인다.
   const name = (w: Who) => (
@@ -204,7 +307,21 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
         </>
       );
     case 'message':
-      return (
+      return entry.what && facts ? (
+        <>
+          <span className={`kind ${toneClass(entry.what)}`}>{kindLabel(entry.what, entry.how, t)}</span>
+          {/* 사람 입력은 사람이 친 노드를 보낸 쪽으로 보인다(목업 M17 ① 넷째 표시). */}
+          {facts.by_loom && entry.what.kind !== 'humanInput' ? (
+            <span className="loomw" translate="no">
+              loom
+            </span>
+          ) : (
+            name(entry.from)
+          )}
+          {entry.to && <>→{name(entry.to)}</>}
+          <span className="note">{messageNote(entry.what, facts.id, facts.by_loom, entry.step, t)}</span>
+        </>
+      ) : (
         <>
           <KindLabel how={entry.how} />
           {name(entry.from)}
@@ -265,6 +382,28 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
   }
 }
 
+const TONE: Record<Family, string> = { question: 'k-q', done: 'k-ok', fail: 'k-fail' };
+
+const toneClass = (what: MessageKind) => {
+  const family = kindFamily(what);
+  return family ? TONE[family] : '';
+};
+
+/** 줄 머리 끝의 말. 질문은 그 번호, 답은 답한 질문 번호를 앞에 둔다. loom 알림은 전달 단계 대신 칸 요약이다(목업 M17 ① 「종료」 줄). */
+function messageNote(what: MessageKind, id: number, byLoom: boolean, step: Step, t: TFunction): string {
+  const summary = kindSummary(what, t);
+  if (byLoom && summary !== null) return summary;
+  const stepText = t(`events.step.${step}`);
+  switch (what.kind) {
+    case 'ask':
+      return `#${id} · ${stepText}`;
+    case 'answer':
+      return `${t('events.answerTo', { ref: what.question.in === 'message' ? `#${what.question.id}` : `Q${what.question.id}` })} · ${stepText}`;
+    default:
+      return stepText;
+  }
+}
+
 /** 받은편지함 번호(`Q12`)와 덧붙일 말. 사람은 받은편지함에서 이 번호를 본다. */
 function WaitNote({ wait, extra }: { wait: WaitId; extra?: string }) {
   return (
@@ -282,24 +421,61 @@ function Row(props: { record: EventRecord; current: boolean; onClick: () => void
   const { t } = useTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
   const body = bodyOf(record, t);
-  // 문서가 붙은 질문·완료는 편 본문에 받은편지함과 같은 문서 링크를 둔다(목업 docs/mockups/doc-reopen.html M13 ①②). 링크는 줄 단추 밖에 둔다. 단추 안에 단추를 둘 수 없다.
+  const what = entry.kind === 'message' ? entry.what : undefined;
+  const typed = what !== undefined && record.message !== null;
+  // 편 본문은 링크를 품으므로 줄 단추 밖에 둔다. 단추 안에 단추를 둘 수 없다(목업 docs/mockups/doc-reopen.html M13 ①②).
   const doc = entry.kind === 'asked' || entry.kind === 'reported' ? entry.doc : null;
-  const docBody = current && doc !== null;
+  const node = whoOf(entry)[0]?.id ?? null;
+  const summary = what && !record.message?.by_loom ? kindSummary(what, t) : null;
+  const preview = summary ?? (body === null ? null : plainText(body).split('\n', 1)[0]);
+  const expandable = body !== null || doc !== null || typed;
   return (
     <li data-family={familyOf(entry)}>
-      <button className="ev" aria-current={current || undefined} aria-expanded={body === null ? undefined : current} onClick={props.onClick}>
+      <button className="ev" aria-current={current || undefined} aria-expanded={expandable ? current : undefined} onClick={props.onClick}>
         <time dateTime={new Date(record.at * 1000).toISOString()}>{clockTime(record.at * 1000)}</time>
         <span className="what">
-          <What entry={entry} views={props.views} agents={props.agents} />
+          <What entry={entry} facts={record.message} views={props.views} agents={props.agents} />
         </span>
-        {body !== null && !docBody && <span className={current ? 'body open' : 'body'}>{current ? body : plainText(body.split('\n', 1)[0])}</span>}
+        {!current && preview !== null && preview !== '' && <span className="body">{preview}</span>}
       </button>
-      {docBody && (entry.kind === 'asked' || entry.kind === 'reported') && (
-        <p className="body">
-          <DocText text={entry.kind === 'asked' ? entry.text : entry.summary} doc={doc} node={entry.node.id} onRefusal={setRefusal} />
-          {entry.kind === 'reported' && `\n${t('events.instruction', { text: entry.instruction })}`}
-          {refusal && <span className="note err">{`\n${refusal}`}</span>}
-        </p>
+      {current && what && record.message ? (
+        <dl className="fields">
+          {record.message.fields.map((field) => (
+            <Fragment key={field.name}>
+              <dt>{t(`events.field.${field.name}`)}</dt>
+              <dd>
+                <DocText parts={field.parts} doc={null} node={node} onRefusal={setRefusal} />
+              </dd>
+            </Fragment>
+          ))}
+          {body !== null && (
+            <>
+              <dt>{t(`events.bodyName.${bodyName(what)}`)}</dt>
+              <dd className="text">
+                <DocText parts={body} doc={null} node={node} onRefusal={setRefusal} />
+                {record.choices.length > 0 && (
+                  <span className="choices">
+                    {record.choices.map((c) => (
+                      <span key={c.key} className="choice" data-recommended={c.recommended || undefined}>
+                        <span className="key">{c.key}</span>
+                        {c.label}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </dd>
+            </>
+          )}
+          {refusal && <dd className="note err">{refusal}</dd>}
+        </dl>
+      ) : (
+        current &&
+        (body !== null || doc !== null) && (
+          <p className="body">
+            <DocText parts={body ?? []} doc={doc} node={node} onRefusal={setRefusal} />
+            {refusal && <span className="note err">{`\n${refusal}`}</span>}
+          </p>
+        )
       )}
     </li>
   );

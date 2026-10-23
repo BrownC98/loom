@@ -305,14 +305,28 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ev .note { font-size: 12px; color: var(--ink-3); }
 .ev .note.err { color: var(--err); }
 .ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ev .body.open { white-space: pre-wrap; overflow-wrap: anywhere; }
-/* 문서 링크가 있는 편 본문은 줄 단추 밖에 있다(EventConsole.tsx `Row`). 단추 안의 본문과 같은 자리에 둔다. */
-.events li:has(> .body) > .ev { padding-bottom: 2px; }
+.ev .loomw { font: 600 12px var(--mono); color: var(--ink-3); }
+/* 메시지 종류 이름은 줄 띠의 색을 따른다(목업 docs/mockups/typed-messages.html M17 ①). */
+.ev .kind.k-q { color: var(--warn); }
+.ev .kind.k-ok { color: var(--ok); }
+.ev .kind.k-fail { color: var(--err); }
+/* 편 본문은 링크를 품어 줄 단추 밖에 있다(EventConsole.tsx `Row`). 줄 글과 같은 자리에서 시작한다. */
+.events li:has(> .body, > .fields) > .ev { padding-bottom: 2px; }
+.events .fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; margin: 0; padding: 0 8px 8px 80px; font-size: 12px; }
+.events .fields dt { color: var(--ink-3); }
+.events .fields dd { margin: 0; font-family: var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.events .fields dd.text { white-space: pre-wrap; color: var(--ink-2); }
+.events .fields dd.note { grid-column: 2; }
+.events .fields .choices { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; white-space: normal; }
+.events .fields .choice { display: inline-flex; gap: 6px; padding: 1px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-family: var(--font); color: var(--ink); }
+.events .fields .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
+.events .fields .choice[data-recommended] { border-color: var(--warn); }
 .events li > .body { margin: 0; padding: 0 8px 7px 80px; font: 12px/1.5 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .events li[data-family="done"] .doc-link { color: var(--ok); }
 /* 알림 줄 왼쪽 막대: 질문 계열은 질문 알약의 --warn, 완료 계열은 완료 알약의 --ok(목업 docs/mockups/notice-color.html A안). 글자 색은 그대로다. 라이트의 --warn 글자는 대비가 모자란다. */
 .events li[data-family]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--warn); }
 .events li[data-family="done"]::before { background: var(--ok); }
+.events li[data-family="fail"]::before { background: var(--err); }
 /* [문서] 탭(DocList.tsx, 목업 docs/mockups/doc-reopen.html M13 ③). 제목 링크는 글자 색이고 밑줄만 있다. */
 .docs { list-style: none; padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .doc-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 8px; padding: 7px 8px; border-radius: 6px; font-size: 13px; }

@@ -1,11 +1,21 @@
 //! `loom ask` 질문의 선택지 꼴 검사. 받은편지함은 표준 꼴 `<질문> (A: <선택지> / B: <선택지>, 권장: A)`에서만 선택 단추를 만든다.
-//! 선택지를 다른 꼴로 쓰면 단추가 없다(2026-10-23 사람 요청). 문법은 `web/src/choices.ts`와 같고, `choices.cases.json`을 양쪽 시험이 함께 읽는다.
+//! 선택지를 다른 꼴로 쓰면 단추가 없다(2026-10-23 사람 요청). 화면은 질문을 읽지 않고 `choices`가 준 선택지로 단추를 그린다.
 
-#[derive(PartialEq, Debug)]
-struct Choice {
-    key: char,
-    label: String,
-    recommended: bool,
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+/// 질문의 선택지 하나. `key`가 답으로 가는 글이다.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Choice {
+    pub key: char,
+    pub label: String,
+    pub recommended: bool,
+}
+
+/// 표준 꼴 질문의 선택지(skills/ask-human). 꼴이 아니거나 선택지가 둘보다 적으면 빈 목록이다. 그때 사람은 입력창에만 답을 쓴다.
+pub fn choices(question: &str) -> Vec<Choice> {
+    parse(question).map(|(c, _)| c).unwrap_or_default()
 }
 
 #[derive(PartialEq)]
@@ -124,7 +134,7 @@ fn option(part: &str) -> Option<(char, String)> {
     let mut chars = part.chars();
     let key = chars.next().filter(char::is_ascii_uppercase)?;
     let label = chars.as_str().strip_prefix(':')?.trim_start();
-    // 화면 정규식 `.+`는 JS 줄 끝 글자(`\n` `\r` U+2028 U+2029)에서 끊긴다.
+    // 단추 글은 한 줄이다. 옛 화면 정규식 `.+`가 끊던 JS 줄 끝 글자(`\n` `\r` U+2028 U+2029)를 그대로 막는다.
     (!label.is_empty() && !label.contains(['\n', '\r', '\u{2028}', '\u{2029}']))
         .then(|| (key, label.trim().to_owned()))
 }
@@ -203,8 +213,7 @@ mod tests {
 
     #[test]
     fn parser_agrees_with_the_shared_cases() {
-        let cases: Vec<Case> =
-            serde_json::from_str(include_str!("../web/src/choices.cases.json")).unwrap();
+        let cases: Vec<Case> = serde_json::from_str(include_str!("choices.cases.json")).unwrap();
         for case in cases {
             let want: Vec<Choice> = case
                 .options
@@ -215,8 +224,7 @@ mod tests {
                     recommended: e.recommended,
                 })
                 .collect();
-            let got = parse(&case.question).map(|(c, _)| c).unwrap_or_default();
-            assert_eq!(got, want, "{}", case.question);
+            assert_eq!(choices(&case.question), want, "{}", case.question);
         }
     }
 

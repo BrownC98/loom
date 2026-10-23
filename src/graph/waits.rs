@@ -18,8 +18,8 @@ use ts_rs::TS;
 
 use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
-use crate::choices::offers_choices_without_tail;
-use crate::link_text::bare_link;
+use crate::choices::{Choice, choices, offers_choices_without_tail};
+use crate::link_text::{TextPart, bare_link, parts};
 use crate::profile::AgentId;
 use crate::protocol::{MessageKind, Question};
 
@@ -145,6 +145,30 @@ pub struct HumanWait {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub prompt: Option<Prompt>,
+    /// `text`의 글 조각. 화면에 보낼 때만 채운다(`for_screen`). DB에 두지 않는다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<TextPart>,
+    /// 질문(`Question`)만: 표준 꼴 선택지. `parts`와 같이 화면에 보낼 때만 채운다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<Choice>,
+}
+
+impl HumanWait {
+    /// 화면에 보내는 대기: 글을 데몬이 나눈 조각과 선택지를 채운다. 화면은 글을 읽어 링크·선택지를 찾지 않는다.
+    pub(super) fn for_screen(self) -> HumanWait {
+        HumanWait {
+            parts: parts(&self.text),
+            choices: match self.kind {
+                WaitKind::Question => choices(&self.text),
+                WaitKind::Approval
+                | WaitKind::Trust
+                | WaitKind::Auth
+                | WaitKind::Input
+                | WaitKind::Done => Vec::new(),
+            },
+            ..self
+        }
+    }
 }
 
 /// DB `nodes.wait`의 JSON.
@@ -550,6 +574,8 @@ fn new_wait(
         instruction: None,
         images: Vec::new(),
         prompt: None,
+        parts: Vec::new(),
+        choices: Vec::new(),
     })
 }
 

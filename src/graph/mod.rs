@@ -134,7 +134,7 @@ pub enum GraphEvent {
     Snapshot {
         nodes: Vec<NodeView>,
     },
-    Node(NodeView),
+    Node(Box<NodeView>),
     /// `child`와 그 부모 사이 간선으로 메시지가 `toward` 쪽으로 갔다.
     Message {
         child: NodeId,
@@ -151,7 +151,7 @@ pub enum GraphEvent {
     },
     /// 이벤트 기록에 한 줄을 더했다.
     Recorded {
-        record: EventRecord,
+        record: Box<EventRecord>,
     },
     /// 설정, 카드 자리, 카드 크기 가운데 하나가 바뀌었다. 값은 담지 않는다. 다른 화면은 세 가지를 다시 읽는다.
     ViewChanged,
@@ -552,7 +552,9 @@ impl Drop for Db<'_> {
         };
         for record in new {
             *self.published = record.id;
-            let _ = self.events.send(GraphEvent::Recorded { record });
+            let _ = self.events.send(GraphEvent::Recorded {
+                record: Box::new(record),
+            });
         }
     }
 }
@@ -650,7 +652,7 @@ impl Graph {
         })?;
         drop(prompts);
         // 보는 화면이 없으면 send가 실패한다. 화면은 붙을 때 목록 전체를 받으므로 버려도 된다.
-        let _ = self.events.send(GraphEvent::Node(view));
+        let _ = self.events.send(GraphEvent::Node(Box::new(view)));
         Ok(())
     }
 
@@ -697,6 +699,7 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
     let mut done: Vec<HumanWait> = serde_json::from_str(&done).unwrap_or_default();
     done.sort_by_key(|w| w.id.0);
     waits.extend(done);
+    let waits = waits.into_iter().map(HumanWait::for_screen).collect();
     Ok(NodeView {
         id,
         name: row.get(1)?,

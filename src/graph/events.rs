@@ -8,8 +8,10 @@ use ts_rs::TS;
 
 use super::{Kind, MessageId, NodeId, NodeState, Refusal, WaitDoc, WaitId, from_json, to_json};
 use crate::accounts::AccountId;
+use crate::choices::{Choice, choices};
+use crate::link_text::{TextPart, parts, path_link};
 use crate::profile::{AgentId, Provider};
-use crate::protocol::{Finding, GateState, GateVerb, MessageKind};
+use crate::protocol::{Field, Finding, GateState, GateVerb, MessageKind};
 
 /// 남기는 이벤트 수 상한. 노드 50개가 각각 메시지 200개를 주고받는 하루치다.
 const KEEP: u32 = 10_000;
@@ -238,11 +240,87 @@ pub struct EventRecord {
     #[ts(type = "number")]
     pub at: i64,
     pub entry: Entry,
-    /// 메시지 이벤트의 본문. 메시지 테이블에서 읽는다. 메시지를 지웠으면 없다.
+    /// 메시지 이벤트의 본문. 메시지 테이블에서 읽는다. 메시지를 지웠으면 없다. 화면은 `parts`를 그린다.
+    #[serde(skip)]
     pub body: Option<String>,
+    /// 줄을 펴면 보이는 글의 조각: 메시지 본문, 질문·완료·사람 답의 글. 없으면 빈 목록이다.
+    pub parts: Vec<TextPart>,
+    /// `ask` 메시지의 표준 꼴 선택지. 화면은 단추 모양으로 보인다(목업 M17 ③).
+    pub choices: Vec<Choice>,
+    /// 메시지 이벤트만.
+    pub message: Option<MessageFacts>,
 }
 
-const RECORD_COLUMNS: &str = "SELECT e.id, e.at, e.entry, m.body FROM events e
+/// 메시지 이벤트 줄이 보이는 사실. 종류가 없는 옛 메시지는 `by_loom`이 거짓이고 칸이 없다.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct MessageFacts {
+    /// 메시지 번호(`#2925`). `answer`의 `question` 칸이 이 번호를 가리킨다.
+    pub id: u32,
+    /// loom이 보낸 알림이다. 화면은 보낸 쪽을 「loom」으로 보인다.
+    pub by_loom: bool,
+    pub fields: Vec<FieldParts>,
+}
+
+/// 종류의 칸 하나와 그 값의 조각. 파일 칸은 링크 하나다.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct FieldParts {
+    pub name: Field,
+    pub parts: Vec<TextPart>,
+}
+
+impl EventRecord {
+    fn new(id: u32, at: i64, entry: Entry, message: Option<u32>, body: Option<String>) -> Self {
+        let text = match &entry {
+            Entry::Message { .. } => body.as_deref(),
+            Entry::Asked { text, .. }
+            | Entry::Answered { text, .. }
+            | Entry::Instructed { text, .. } => Some(text.as_str()),
+            Entry::Reported { summary, .. } => Some(summary.as_str()),
+            _ => None,
+        };
+        let question = match &entry {
+            Entry::Message {
+                what: Some(MessageKind::Ask),
+                ..
+            } => text,
+            _ => None,
+        };
+        let message = match (&entry, message) {
+            (Entry::Message { what, .. }, Some(id)) => Some(MessageFacts {
+                id,
+                by_loom: what.as_ref().is_some_and(MessageKind::by_loom),
+                // 판정은 줄 머리의 종류 이름이 보인다(「판정 · 막음」, 목업 M17 ①).
+                fields: what
+                    .iter()
+                    .flat_map(MessageKind::fields)
+                    .filter(|(name, _)| *name != Field::Judgment)
+                    .map(|(name, value)| FieldParts {
+                        name,
+                        parts: if name.is_file() {
+                            vec![path_link(&value)]
+                        } else {
+                            parts(&value)
+                        },
+                    })
+                    .collect(),
+            }),
+            _ => None,
+        };
+        EventRecord {
+            id,
+            at,
+            parts: text.map(parts).unwrap_or_default(),
+            choices: question.map(choices).unwrap_or_default(),
+            message,
+            entry,
+            body,
+        }
+    }
+}
+
+const RECORD_COLUMNS: &str = "SELECT e.id, e.at, e.entry, m.body, e.message FROM events e
     LEFT JOIN messages m ON m.id = e.message";
 
 /// `message`는 메시지 이벤트가 가리키는 메시지다. 본문을 복사하지 않는다.
@@ -303,10 +381,11 @@ pub(super) fn last_id(db: &Connection) -> rusqlite::Result<u32> {
 }
 
 fn record_from_row(row: &Row) -> rusqlite::Result<EventRecord> {
-    Ok(EventRecord {
-        id: row.get(0)?,
-        at: row.get(1)?,
-        entry: from_json(row, 2)?,
-        body: row.get(3)?,
-    })
+    Ok(EventRecord::new(
+        row.get(0)?,
+        row.get(1)?,
+        from_json(row, 2)?,
+        row.get(4)?,
+        row.get(3)?,
+    ))
 }

@@ -1,5 +1,5 @@
 // 터미널과 받은편지함의 링크를 그 화면에 맞는 길로 연다: 데몬 PC의 기본 앱, 폰 기본 브라우저, 화면 안 새 탭.
-// links.ts(글 나누기)와 따로 둔다. 이 파일은 api.ts를 불러 시험 환경(문서 없음)에서 읽히지 않는다.
+// links.ts(글 조각 도움 함수)와 따로 둔다. 이 파일은 api.ts를 불러 시험 환경(문서 없음)에서 읽히지 않는다.
 import { isTauri } from '@tauri-apps/api/core';
 import { filePass, fileViewUrl, openFile } from './api';
 import type { NodeId } from './gen/NodeId';

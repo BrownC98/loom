@@ -23,7 +23,7 @@ flock 9
 [ -e "$build/.git" ] || git clone --quiet --no-checkout . "$build"
 git -C "$build" fetch --quiet "$PWD" HEAD
 git -C "$build" checkout --detach --quiet --force FETCH_HEAD
-(cd "$build" && bash scripts/worktree/setup.sh && LOOM_VERSION=$(sh scripts/version.sh) memcap -m 8G cargo build --release ${target:+--target "$target"})
+(cd "$build" && bash scripts/worktree/setup.sh && LOOM_VERSION=$(sh scripts/version.sh) LOOM_COMMIT=$(git rev-parse --short HEAD) memcap -m 8G cargo build --release ${target:+--target "$target"})
 
 if [ -z "$target" ]; then
   # 새 파일로 바꿔 넣는다(rename). 도는 PTY 호스트는 옛 파일을 계속 쓴다.

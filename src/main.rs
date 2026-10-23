@@ -18,6 +18,7 @@ mod pake;
 mod paste;
 mod process_tree;
 mod profile;
+mod protocol;
 mod roles;
 mod screen;
 mod settings;
@@ -45,6 +46,9 @@ const VERSION: &str = match option_env!("LOOM_VERSION") {
     Some(v) => v,
     None => env!("CARGO_PKG_VERSION"),
 };
+
+/// 빌드한 커밋. `scripts/host.sh`가 넣는다. 릴리스 CI 빌드에는 없다(판의 PATCH가 커밋 수다).
+const COMMIT: Option<&str> = option_env!("LOOM_COMMIT");
 
 #[derive(Parser)]
 #[command(name = "loom", version = VERSION)]
@@ -157,6 +161,21 @@ enum Cli {
     },
     /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다. 열린 질문이 여럿이면 번호(`Q12 Q13`)를 준다
     Answered { ids: Vec<String> },
+    /// 병합 관문: 자기 브랜치를 관문에 보낸다. 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없고 대상 브랜치를 포함해야 한다.
+    /// 관문은 loom이 고른다: 부모가 코디면 코디(대상은 코디 브랜치), 아니면 같은 저장소의 CI 담당자(대상은 원래 체크아웃의 브랜치).
+    Ready { branch: String },
+    /// 병합 관문: 판정을 넣는다. 관문이나 관문이 띄운 검토자가 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
+    Verdict {
+        branch: String,
+        judgment: protocol::Judgment,
+        /// 결함 파일. block이면 꼭 준다.
+        #[arg(long)]
+        findings: Option<PathBuf>,
+    },
+    /// 병합 관문: pass 판정 뒤 관문이 부른다. audit, `scripts/gate/check.sh`, 병합(main이면 `scripts/gate/ship.sh`가 push·배포 확인까지), 결과 알림을 한 번에 한다.
+    Merge { branch: String },
+    /// 병합 관문: 관문이 브랜치를 멈추고 담당 나무의 루트에 원인을 알린다.
+    Fail { branch: String, cause: String },
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
     /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
@@ -240,6 +259,14 @@ fn main() -> ExitCode {
         ),
         Cli::Ask { question, doc } => cli::ask(question, doc.map(wsl::from_caller)),
         Cli::Answered { ids } => cli::answered(ids),
+        Cli::Ready { branch } => cli::ready(branch),
+        Cli::Verdict {
+            branch,
+            judgment,
+            findings,
+        } => cli::verdict(branch, judgment, findings.map(wsl::from_caller)),
+        Cli::Merge { branch } => cli::merge(branch),
+        Cli::Fail { branch, cause } => cli::fail(branch, cause),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),
         Cli::Relaunch { name } => cli::relaunch(name),

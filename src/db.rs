@@ -229,7 +229,31 @@ const STEPS: &[M] = &[
     ),
     // 30: 카드 주제를 지웠다(2026-10-23 사람 지시 "요약 기능 제거"). 11단계의 첫 지시 첫 줄은 주제에만 썼다.
     M::up("ALTER TABLE nodes DROP COLUMN brief;"),
-    // 31: 노드에 고른 카드 보기(graph `CardView`, serde JSON)와 마지막 턴 끝 답 글(심플 카드 상태 줄). 없으면 NULL이다(목업 docs/mockups/node-card-view.html).
+    // 31: 병합 관문(protocol, graph `gate`). `role`은 `loom spawn --role`의 역할 이름이고 옛 노드와 사람이 띄운 노드는 NULL이다.
+    // `gates`는 저장소·브랜치마다 관문 상태 한 줄이다. 노드를 지워도 남긴다: audit가 병합한 커밋(`merged`)을 읽는다.
+    // `state`는 serde JSON `GateState`, `verdict`는 serde JSON `Verdict`다. `head`는 검토할 커밋, `opened`는 이번 차례의 `loom ready` 시각,
+    // `updated`는 마지막 전이 시각(유닉스 초)이다. `merged`는 마지막 병합이고 다음 차례에도 남는다: 관문 밖 커밋 검사가 대상 git 줄에서 이 커밋들을 찾는다.
+    // `run`은 `loom merge` 실행 번호다. 병합 시작마다 1 늘고, 끝 보고가 같은 번호를 가져와야 받는다.
+    M::up(
+        "ALTER TABLE nodes ADD COLUMN role TEXT;
+        CREATE TABLE gates (
+            repo INTEGER NOT NULL,
+            branch TEXT NOT NULL,
+            owner INTEGER NOT NULL,
+            gate INTEGER NOT NULL,
+            target TEXT NOT NULL,
+            worktree TEXT NOT NULL,
+            state TEXT NOT NULL,
+            head TEXT NOT NULL,
+            merged TEXT,
+            run INTEGER NOT NULL DEFAULT 0,
+            verdict TEXT,
+            opened INTEGER NOT NULL,
+            updated INTEGER NOT NULL,
+            PRIMARY KEY (repo, branch)
+        );",
+    ),
+    // 32: 노드에 고른 카드 보기(graph `CardView`, serde JSON)와 마지막 턴 끝 답 글(심플 카드 상태 줄). 없으면 NULL이다(목업 docs/mockups/node-card-view.html).
     M::up("ALTER TABLE nodes ADD COLUMN card_view TEXT; ALTER TABLE nodes ADD COLUMN reply TEXT;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
@@ -484,6 +508,30 @@ mod tests {
             .collect::<rusqlite::Result<_>>()
             .unwrap();
         assert_eq!(left, [None, Some("screen".into())]);
+    }
+
+    /// 옛 노드는 역할이 없고(NULL), 관문 표는 비어서 생긴다. 새 줄은 저장소·브랜치마다 하나다.
+    #[test]
+    fn step_31_adds_node_roles_and_the_gate_table() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 30).unwrap();
+        conn.execute(
+            "INSERT INTO nodes (id, name, agent, state) VALUES (4, 'a', 'null', '{}')",
+            [],
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let role: Option<String> = conn
+            .query_row("SELECT role FROM nodes WHERE id = 4", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(role, None);
+        let insert = "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated)
+            VALUES (1, 'b', 4, 4, 'main', '/w', '\"ready\"', 'c', 1, 1)";
+        conn.execute(insert, []).unwrap();
+        assert!(
+            conn.execute(insert, []).is_err(),
+            "one row per repo and branch"
+        );
     }
 
     /// 노드 자리의 완료는 완료 표로 옮긴다. 번호와 내용은 그대로다.

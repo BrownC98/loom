@@ -490,7 +490,7 @@ pub fn done(
     println!("Reported to your parent, or to the human's inbox if you have no parent.");
     if !reported.alive.is_empty() {
         println!(
-            "Warning: these children are still running: {}. Reclaim each with `loom rm <name>` when you keep its results, or they stay in the graph.",
+            "Warning: these children are still running or asleep: {}. Reclaim each with `loom rm <name>` when you keep its results, or they stay in the graph.",
             reported.alive.join(", ")
         );
     }

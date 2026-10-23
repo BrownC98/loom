@@ -589,8 +589,11 @@ impl Graph {
                 enqueue(&tx, node, parent, Kind::Queue, &what, summary, stamp)?;
             }
         }
+        // 잠든 자식도 넣는다. 회수하지 않으면 그래프에 남는 것은 같다(관문 검토 노드수명 P3.4).
         let alive_children = tx
-            .prepare("SELECT name FROM nodes WHERE parent = ?1 AND process_exited = 0 ORDER BY id")?
+            .prepare(&format!(
+                "SELECT name FROM nodes WHERE parent = ?1 AND {REACHABLE} ORDER BY id"
+            ))?
             .query_map([node.0], |row| row.get(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;
         tx.commit()?;

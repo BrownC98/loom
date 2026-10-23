@@ -2143,6 +2143,12 @@ fn a_sleeping_node_keeps_its_mail_and_wakes_only_on_waking_mail() {
     assert_eq!(g.done_children().unwrap(), [worker]);
     assert!(g.slept(worker).unwrap());
     assert!(g.asleep(worker).unwrap());
+    // 회수하지 않은 잠든 자식은 부모의 `done` 경고에 남는다.
+    assert_eq!(
+        g.done(lead, &report("lead again"), Some("일해"), &[], None, None)
+            .unwrap(),
+        ["worker"]
+    );
     g.exited(worker, 0).unwrap();
     assert!(g.done_children().unwrap().is_empty());
     assert_eq!(

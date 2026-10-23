@@ -3,12 +3,14 @@ import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes } from
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
 import { isTauri } from '@tauri-apps/api/core';
-import { answerWait, dismissWait, doneImageUrl, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocPass, waitDocUrl } from './api';
+import { answerWait, chooseOption, dismissWait, doneImageUrl, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocPass, waitDocUrl } from './api';
 import { choices } from './choices';
 import { dateAndTime } from './i18n';
 import { QuestionIcon } from './Dock';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
 import type { HumanWait } from './gen/HumanWait';
+import type { Prompt } from './gen/Prompt';
+import type { PromptKey } from './gen/PromptKey';
 import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
@@ -117,7 +119,7 @@ export function PillHead(props: { node: NodeView; wait: HumanWait; count: number
       {/* 알약 머리는 목록만 편다. 노드로 가는 길은 목록 줄의 노드 이름이다(2026-10-22 사람 질문 "알약에 터미널 바로가기가 필요한가?"). */}
       <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.count })} onClick={props.onToggle}>
         <b>{props.node.name}</b>
-        {props.line ? `: ${plainText(wait.text) || t(`wait.${wait.kind}`)}` : ` · ${t(`wait.${wait.kind}`)}`}
+        {props.line ? `: ${wait.prompt?.summary ?? (plainText(wait.text) || t(`wait.${wait.kind}`))}` : ` · ${t(`wait.${wait.kind}`)}`}
         {!props.line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
       </button>
     </div>
@@ -290,11 +292,13 @@ function ConfirmButton(props: { wait: WaitId }) {
 /**
  * 대기 본문. 목록 줄과 펼치지 않은 알약이 함께 쓴다. 질문은 전문을 보인다. 글이 칸보다 길면(알약은 4줄) [더 보기]가 생긴다.
  * `loom ask` 질문은 여기서 답한다: 선택지 버튼은 바로 보내고, 입력창은 Enter로 보낸다. 입력창에 그림을 붙여넣거나 본문 위에 끌어 놓으면 답에 붙는다(목업 docs/mockups/answer-image.html M30).
- * 다른 대기(승인 창·폴더 신뢰·로그인)는 그 노드 터미널에서만 답하므로 [터미널에서 답하기]만 둔다.
+ * 승인 창을 화면에서 읽었으면(`wait.prompt`) 본문과 선택지 버튼을 보인다. 누르면 데몬이 화면을 다시 읽고 같은 창일 때만 그 키를 친다(목업 docs/mockups/approval-answer.html M11).
+ * 다른 대기(폴더 신뢰·로그인, 읽지 못한 승인 창)는 그 노드 터미널에서만 답하므로 [터미널에서 답하기]만 둔다.
  */
 function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
+  const { prompt } = wait;
   const done = wait.kind === 'done';
   const qid = done ? t('wait.done') : `Q${wait.id}`;
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -340,7 +344,16 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
           ))}
         </ul>
       )}
-      {(wait.text || wait.doc) && (
+      {prompt && (
+        <PromptBody
+          prompt={prompt}
+          onPick={(option) => {
+            setRefusal(null);
+            chooseOption(wait.id, prompt, option).catch((err: Error) => setRefusal(err.message));
+          }}
+        />
+      )}
+      {!prompt && (wait.text || wait.doc) && (
         <p className="full">
           {linkParts(wait.text).map((part, index) =>
             'href' in part ? (
@@ -463,6 +476,25 @@ function useImages(node: NodeId, onError: (message: string) => void) {
 }
 
 /** 표준 꼴 질문의 선택지 버튼. 누르면 그 글자(`A`)를 바로 답으로 보낸다. 권장안은 표시한다. */
+/** 승인 창 본문(터미널 글 그대로)과 선택지. 선택지는 한 줄에 하나, 키 칸은 터미널에서 누르는 키다. 첫 선택지는 터미널의 기본 선택이라 주황 테두리다(목업 M11). */
+function PromptBody(props: { prompt: Prompt; onPick: (option: number) => void }) {
+  return (
+    <>
+      <pre className="prompt">{props.prompt.body.join('\n')}</pre>
+      <div className="choices prompt-options">
+        {props.prompt.options.map((o, index) => (
+          <button key={index} type="button" className="choice" data-recommended={index === 0 || undefined} onClick={() => props.onPick(index)}>
+            <span className="key">{keyLabel(o.key)}</span>
+            <span className="label">{o.label}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+const keyLabel = (key: PromptKey) => (key.kind === 'char' ? key.value : key.kind === 'tab' ? 'tab' : '⇧tab');
+
 function Choices(props: { question: string; onPick: (key: string) => void }) {
   const { t } = useTranslation();
   const list = choices(props.question);

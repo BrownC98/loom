@@ -131,6 +131,7 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
 pub const PROMPT: Grammar = Grammar {
     top: Top::PanelEdge,
     options: Options::Numbered,
+    guard: Some(GUARD),
 };
 
 /// 훅이 불리지 않는 확인 창(2.1.306 화면 문구). 폴더 신뢰 창이 떠 있는 동안에는 훅이 하나도 불리지 않는다(실측).
@@ -405,7 +406,7 @@ mod tests {
 
     #[test]
     fn approval_prompt_is_read_from_the_screen() {
-        let prompt = crate::screen::prompt(&PROMPT, APPROVAL).unwrap();
+        let prompt = crate::screen::prompt(&PROMPT, APPROVAL, 120).unwrap();
         assert_eq!(
             prompt.body,
             [
@@ -438,13 +439,60 @@ mod tests {
         );
     }
 
+    /// 노드 터미널(80x24)의 같은 창(2026-10-23 시험 데몬 실측). 「Tip:」 줄과 긴 경로가 넘어가고, 명령 앞에 loom guard 줄이 붙는다.
+    const NARROW: &str = concat!(
+        "\n",
+        "\n",
+        "● Reporting completion to loom\n",
+        "  ⎿  $ loom done \"Created zz_claude_2 with touch.\" --asked \"Run touch \n",
+        "     zz_claude_2\"\n",
+        "\n",
+        "────────────────────────────────────────────────────────────────────────────────\n",
+        " Bash command\n",
+        " Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" \n",
+        " below\n",
+        " Create empty file zz_claude_2\n",
+        "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n",
+        " │ loom guard\n",
+        " │ touch zz_claude_2\n",
+        "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n",
+        " Do you want to proceed?\n",
+        " ❯ 1. Yes\n",
+        "   2. Yes, and always allow access to /tmp/claude-1000/-home-person-loom-workspa\n",
+        "      ces-loom-------/c6d2fe08-623a-4ead-9013-09821a3da981/scratchpad/trepo from\n",
+        "      this project\n",
+        "   3. Yes, and switch to auto mode · auto mode handles these prompts for you\n",
+        "   4. No\n",
+        "\n",
+        " Esc to cancel · Tab to amend\n",
+    );
+
+    #[test]
+    fn wrapped_lines_and_the_guard_line_are_joined_or_dropped() {
+        let prompt = crate::screen::prompt(&PROMPT, NARROW, 80).unwrap();
+        assert_eq!(
+            prompt.body,
+            [
+                "Bash command",
+                "Create empty file zz_claude_2",
+                "touch zz_claude_2",
+                "Do you want to proceed?"
+            ]
+        );
+        assert_eq!(prompt.summary, "touch zz_claude_2");
+        assert_eq!(
+            prompt.options[1].label,
+            "Yes, and always allow access to /tmp/claude-1000/-home-person-loom-workspaces-loom-------/c6d2fe08-623a-4ead-9013-09821a3da981/scratchpad/trepo from this project"
+        );
+    }
+
     /// 답한 뒤의 화면과 에이전트가 쓴 번호 목록은 승인 창이 아니다.
     #[test]
     fn numbered_lists_without_a_selection_are_not_prompts() {
         let answered = APPROVAL.replace(" ❯ 1. Yes", "   1. Yes");
-        assert_eq!(crate::screen::prompt(&PROMPT, &answered), None);
+        assert_eq!(crate::screen::prompt(&PROMPT, &answered, 120), None);
         let list = "──────\n❯ plan\n● Steps:\n  1. Build\n  2. Test\n";
-        assert_eq!(crate::screen::prompt(&PROMPT, list), None);
+        assert_eq!(crate::screen::prompt(&PROMPT, list, 80), None);
     }
 
     #[test]

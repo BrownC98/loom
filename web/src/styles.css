@@ -617,7 +617,7 @@ a { color: var(--accent); }
 .wait-body > .drop-cover .sub { font-size: 12px; font-weight: 400; color: var(--ink-2); }
 .wait-body .full, .wait-body .refusal { margin: 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wait-body .full { color: var(--ink); }
-.wait-body .refusal { color: var(--err); font-size: 12px; }
+.wait-body .refusal { position: static; padding: 0; background: none; color: var(--err); font-size: 12px; }
 .qid { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--ink); font: 600 11px/18px var(--mono); white-space: nowrap; }
 .inbox-pill .qid { height: 18px; }
 
@@ -630,6 +630,9 @@ a { color: var(--accent); }
 .wait-body .to-terminal { padding: 0 8px; border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
 .wait-body .to-terminal:hover { background: var(--surface-hover); color: var(--ink); }
 .wait-body .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 승인 창: 본문은 터미널 글자, 선택지는 한 줄에 하나(목업 M11). */
+.wait-body .prompt { margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 12px/1.5 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12lh; overflow-y: auto; }
+.wait-body .prompt-options { flex-direction: column; align-items: stretch; }
 .wait-body .choice, .wait-row .choice.confirm { display: inline-flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; text-align: left; line-height: 1.4; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .wait-body .choice:hover { background: var(--surface-hover); }
 .wait-row .choice.confirm { flex: none; align-items: center; }

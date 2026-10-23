@@ -81,6 +81,8 @@ fn squeeze(text: &str) -> String {
 pub struct Grammar {
     pub top: Top,
     pub options: Options,
+    /// loom이 셸 명령 앞에 붙이는 줄(`claude::GUARD`). 사람이 승인할 명령이 아니므로 본문에서 뺀다. Cursor는 그 앞에 `$`를 그린다.
+    pub guard: Option<&'static str>,
 }
 
 /// 승인 창 본문이 시작하는 곳.
@@ -104,8 +106,8 @@ const SELECTED: [char; 3] = ['❯', '›', '→'];
 /// 숫자 선택지 끝의 키 힌트 글자 수 상한(Codex `(y)`, `(esc)`).
 const HINT_LIMIT_CHARS: usize = 3;
 
-/// `screen`(`NodeHost::screen`)에 떠 있는 승인 창. 창 꼴이 아니면 없다.
-pub fn prompt(grammar: &Grammar, screen: &str) -> Option<Prompt> {
+/// 폭이 `width`칸인 `screen`(`NodeHost::screen`)에 떠 있는 승인 창. 창 꼴이 아니면 없다.
+pub fn prompt(grammar: &Grammar, screen: &str, width: usize) -> Option<Prompt> {
     let lines: Vec<&str> = screen.lines().collect();
     let top = match grammar.top {
         Top::PanelEdge => lines.iter().rposition(|l| is_panel_edge(l))? + 1,
@@ -117,7 +119,8 @@ pub fn prompt(grammar: &Grammar, screen: &str) -> Option<Prompt> {
             .position(|l| option(&grammar.options, l).is_some())?;
     let mut options: Vec<(PromptOption, bool)> = Vec::new();
     let mut indent = 0;
-    for line in &lines[first..] {
+    let mut previous = "";
+    for &line in &lines[first..] {
         if let Some((parsed, selected)) = option(&grammar.options, line) {
             if let Options::Numbered = grammar.options
                 && parsed.key != PromptKey::Char(digit(options.len() + 1)?)
@@ -129,22 +132,41 @@ pub fn prompt(grammar: &Grammar, screen: &str) -> Option<Prompt> {
         } else if !line.trim().is_empty() && line.len() - line.trim_start().len() > indent + 1 {
             // 긴 선택지가 다음 줄로 넘어갔다(Claude 2.1.309 실측: 경로가 든 「always allow」).
             let (last, _) = options.last_mut()?;
-            last.label = format!("{} {}", last.label, line.trim());
+            let joint = wrapped(previous, line, width).unwrap_or(" ");
+            last.label = format!("{}{joint}{}", last.label, line.trim());
         } else {
             break;
         }
+        previous = line;
     }
     if options.len() < 2 || options.iter().filter(|(_, s)| *s).count() != 1 {
         return None;
     }
+    // CLI가 폭에 맞춰 넘긴 줄을 앞 줄에 잇는다(80칸 화면의 Claude 「Tip:」 줄, Codex 「Reason:」 줄 실측).
+    let mut joined: Vec<String> = Vec::new();
+    let mut previous = "";
+    for &line in &lines[top..first] {
+        match (wrapped(previous, line, width), joined.last_mut()) {
+            (Some(joint), Some(last)) => *last = format!("{last}{joint}{}", line.trim()),
+            _ => joined.push(line.to_owned()),
+        }
+        previous = line;
+    }
     let mut separated = false;
     let mut body = Vec::new();
     let mut summary = None;
-    for line in lines[top..first].iter().map(|l| l.trim()) {
-        if line.is_empty() || line.starts_with("Tip:") {
+    // Claude는 여러 줄 명령을 `│ ` 칸에 그린다(2.1.309, loom guard 줄이 붙은 명령 실측).
+    for line in joined
+        .iter()
+        .map(|l| l.trim().trim_start_matches('│').trim())
+    {
+        if line.is_empty()
+            || line.starts_with("Tip:")
+            || Some(line.trim_start_matches('$').trim()) == grammar.guard
+        {
             continue;
         }
-        if line.chars().all(|c| matches!(c, '╌' | '─' | '│')) {
+        if is_rule(line) {
             separated = true;
             continue;
         }
@@ -157,7 +179,17 @@ pub fn prompt(grammar: &Grammar, screen: &str) -> Option<Prompt> {
     Some(Prompt {
         summary: summary.or_else(|| body.first().cloned())?,
         body,
-        options: options.into_iter().map(|(o, _)| o).collect(),
+        options: options
+            .into_iter()
+            .map(|(o, _)| match grammar.options {
+                // 힌트는 넘어간 줄 끝에 있을 수 있어 이은 뒤에 뺀다(Codex 0.159.2, 80칸 실측).
+                Options::Numbered => PromptOption {
+                    label: without_hint(&o.label).to_owned(),
+                    ..o
+                },
+                Options::Hinted => o,
+            })
+            .collect(),
     })
 }
 
@@ -170,16 +202,8 @@ fn option(options: &Options, line: &str) -> Option<(PromptOption, bool)> {
         Options::Numbered => {
             let (number, label) = unmarked.split_once(". ")?;
             let number: u32 = number.parse().ok()?;
-            let label = match label.trim_end().rsplit_once(" (") {
-                Some((text, hint))
-                    if hint.ends_with(')') && hint.chars().count() <= HINT_LIMIT_CHARS + 1 =>
-                {
-                    text
-                }
-                _ => label.trim_end(),
-            };
             PromptOption {
-                label: label.to_owned(),
+                label: label.trim_end().to_owned(),
                 key: PromptKey::Char(char::from_digit(number, 10)?),
             }
         }
@@ -194,6 +218,18 @@ fn option(options: &Options, line: &str) -> Option<(PromptOption, bool)> {
     Some((parsed, selected))
 }
 
+/// 숫자 선택지 끝의 짧은 키 힌트(`(y)`, `(esc)`)를 뺀 글.
+fn without_hint(label: &str) -> &str {
+    match label.rsplit_once(" (") {
+        Some((text, hint))
+            if hint.ends_with(')') && hint.chars().count() <= HINT_LIMIT_CHARS + 1 =>
+        {
+            text
+        }
+        _ => label,
+    }
+}
+
 /// Cursor 힌트 글 하나의 키. `esc`는 PTY에서 이스케이프 시퀀스의 시작과 구별되지 않으므로 함께 적힌 `n`을 쓴다.
 fn hinted_key(hint: &str) -> Option<PromptKey> {
     match hint {
@@ -205,6 +241,30 @@ fn hinted_key(hint: &str) -> Option<PromptKey> {
             (chars.next().is_none() && c.is_ascii_alphanumeric()).then_some(PromptKey::Char(c))
         }
     }
+}
+
+/// `line`이 폭 `width`인 화면에서 `previous`가 넘친 나머지면 두 줄 사이에 넣을 글. CLI는 낱말 사이에서 줄을 넘기므로 빈칸이다. 낱말 가운데서 끊었으면 빈 글이다.
+fn wrapped(previous: &str, line: &str, width: usize) -> Option<&'static str> {
+    let used = previous.chars().count();
+    let word = line.split_whitespace().next()?.chars().count();
+    let last = previous.split_whitespace().last()?.chars().count();
+    let room = width - (line.len() - line.trim_start().len()).min(width);
+    if is_rule(previous) || is_rule(line) {
+        None
+    } else if used >= width && last + word > room {
+        // 한 줄에 들어가지 않는 낱말은 가운데서 끊는다(Claude 2.1.309 경로 실측).
+        Some("")
+    } else if used + 1 + word > width {
+        // Codex는 주소를 `/` 뒤에서 끊는다(0.159.2 실측).
+        Some(if previous.ends_with('/') { "" } else { " " })
+    } else {
+        None
+    }
+}
+
+/// 칸을 나누는 줄(`╌`, `─`).
+fn is_rule(line: &str) -> bool {
+    line.trim().chars().all(|c| matches!(c, '╌' | '─' | '│'))
 }
 
 fn digit(n: usize) -> Option<char> {

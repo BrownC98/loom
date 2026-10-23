@@ -16,6 +16,7 @@ use crate::skills::{AlwaysOn, Launch, Position};
 pub const PROMPT: Grammar = Grammar {
     top: Top::PanelEdge,
     options: Options::Hinted,
+    guard: Some(GUARD),
 };
 
 /// 훅이 알리지 않는 TUI 확인 창(2026.10.19 화면 문구). 폴더 신뢰·명령 승인·로그인·질문은 실측, 나머지는 번들 글이다.
@@ -302,9 +303,40 @@ mod tests {
         )
     }
 
+    /// loom 노드의 승인 창(2026-10-23 시험 데몬 실측, 80x24). 명령 앞에 loom guard 줄이 붙는다.
+    const GUARDED: &str = concat!(
+        "  $ mkdir zz_cursor_dir 0ms\n",
+        "\n",
+        "────────────────────────────────────────────────────────────────────────────────\n",
+        " $  loom guard\n",
+        "    mkdir zz_cursor_dir in .\n",
+        "\n",
+        " Run this command?\n",
+        " Shell allowlist is empty\n",
+        "  → Run (once) (y)\n",
+        "    Add Shell(loom), Shell(mkdir) to allowlist? (tab)\n",
+        "    Run Everything (shift+tab)\n",
+        "    Skip & tell the agent what to do instead (esc or n)\n",
+    );
+
+    #[test]
+    fn the_guard_line_is_not_the_command() {
+        let prompt = crate::screen::prompt(&PROMPT, GUARDED, 80).unwrap();
+        assert_eq!(
+            prompt.body,
+            [
+                "mkdir zz_cursor_dir in .",
+                "Run this command?",
+                "Shell allowlist is empty"
+            ]
+        );
+        assert_eq!(prompt.summary, "mkdir zz_cursor_dir in .");
+        assert_eq!(prompt.options.len(), 4);
+    }
+
     #[test]
     fn approval_prompt_keys_come_from_the_hints() {
-        let prompt = crate::screen::prompt(&PROMPT, APPROVAL).unwrap();
+        let prompt = crate::screen::prompt(&PROMPT, APPROVAL, 80).unwrap();
         assert_eq!(
             prompt.body,
             [
@@ -331,7 +363,7 @@ mod tests {
                 ),
             ]
         );
-        assert_eq!(crate::screen::prompt(&PROMPT, QUESTION), None);
+        assert_eq!(crate::screen::prompt(&PROMPT, QUESTION, 80), None);
     }
 
     #[test]

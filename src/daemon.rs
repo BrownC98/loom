@@ -1148,13 +1148,13 @@ impl App {
                     }
                 }
                 changed = false;
-                let text = app.host.screen(id);
-                let found = screen::find(dialogs, &text, *started.borrow_and_update());
+                let now = app.host.screen(id);
+                let found = screen::find(dialogs, &now.text, *started.borrow_and_update());
                 let wait = found.as_ref().map(|(kind, text)| (*kind, text.as_str()));
                 if let Err(e) = app.graph.set_wait(id, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
-                let prompt = grammar.and_then(|g| screen::prompt(g, &text));
+                let prompt = grammar.and_then(|g| screen::prompt(g, &now.text, now.cols.into()));
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
                     eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
@@ -1824,7 +1824,8 @@ async fn choose_wait(
         .as_ref()
         .and_then(profile::profile_of)
         .and_then(|p| profile::prompt_grammar(Some(p)));
-    let now = grammar.and_then(|g| screen::prompt(g, &app.host.screen(node)));
+    let shown = app.host.screen(node);
+    let now = grammar.and_then(|g| screen::prompt(g, &shown.text, shown.cols.into()));
     let option = match now {
         Some(now) if now == req.prompt => now.options.get(req.option).cloned(),
         _ => None,

@@ -254,17 +254,20 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
     }
 
-    /// 지금 터미널 화면의 글. backlog를 마지막 PTY 크기의 화면에 다시 그린다. 지운 줄과 덮어쓴 글은 남지 않는다.
-    pub fn screen(&self, id: K) -> String {
+    /// 지금 터미널 화면. backlog를 마지막 PTY 크기의 화면에 다시 그린다. 지운 줄과 덮어쓴 글은 남지 않는다.
+    pub fn screen(&self, id: K) -> Screen {
         let Some(pty) = self.pty(id) else {
-            return String::new();
+            return Screen::default();
         };
         let PtySize { cols, rows } = *pty.size.borrow();
         let bytes = pty.output.lock().unwrap().backlog.to_vec();
         let size = |n: u16| NonZeroU16::new(n.max(1)).expect("1 이상이다");
         let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
         parser.process(&bytes);
-        parser.screen().contents()
+        Screen {
+            text: parser.screen().contents(),
+            cols,
+        }
     }
 
     /// backlog와 그 뒤의 출력을 빈틈없이 받는다.
@@ -533,6 +536,13 @@ fn osc(seq: &[u8]) -> Osc {
         title,
         len: 2 + end + terminator,
     }
+}
+
+/// 터미널 화면의 글과 그 폭(칸 수). CLI가 폭에 맞춰 넘긴 줄을 이으려면 폭이 필요하다(`screen::prompt`).
+#[derive(Default)]
+pub struct Screen {
+    pub text: String,
+    pub cols: u16,
 }
 
 /// 화면이 보낸 입력에 사람이 누른 키가 있다. 터미널이 스스로 보내는 응답은 키가 아니다:

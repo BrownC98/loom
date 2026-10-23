@@ -271,7 +271,7 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
             <b>{head.id === view.id ? t(`wait.${first.kind}`) : head.name}</b>
             {total > 1 && <span className="count">{total}</span>}
             <span className="qid">Q{first.id}</span>
-            <span className="text">{plainText(first.text)}</span>
+            <span className="text">{first.prompt?.summary ?? plainText(first.text)}</span>
             <button type="button" className="phone-icon" aria-expanded={askOpen} aria-label={askOpen ? t('phone.askClose') : t('phone.askOpen')} onClick={(e) => (e.stopPropagation(), setAskOpen(!askOpen))}>
               {askOpen ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
             </button>

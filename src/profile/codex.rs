@@ -30,6 +30,7 @@ use protocol::{
 pub const PROMPT: Grammar = Grammar {
     top: Top::Line("Would you like to"),
     options: Options::Numbered,
+    guard: None,
 };
 
 /// `src/profile/codex/schema/`를 만든 Codex 버전.
@@ -409,9 +410,50 @@ mod tests {
         "  Press enter to confirm or esc to cancel\n",
     );
 
+    /// 노드 터미널(80x24)의 승인 창(2026-10-23 시험 데몬 실측). 「Reason:」 줄과 주소가 든 선택지가 넘어간다.
+    const NARROW: &str = concat!(
+        "  Add --image <path> for each image that the human gave. The human sees results\n",
+        "  only through loom done. Do not call it when the input is only a question and\n",
+        "  you only answer in text.\n",
+        "\n",
+        "\n",
+        "• Running curl -sI https://example.com\n",
+        "\n",
+        "\n",
+        "  Would you like to run the following command?\n",
+        "\n",
+        "  Environment: local\n",
+        "\n",
+        "  Reason: May I run the requested curl command with network access outside the\n",
+        "  sandbox?\n",
+        "\n",
+        "  $ curl -sI https://example.com\n",
+        "\n",
+        "\n",
+        "› 1. Yes, proceed (y)\n",
+        "  2. Yes, and don't ask again for commands that start with `curl -sI https://\n",
+        "     example.com` (p)\n",
+        "  3. No, and tell Codex what to do differently (esc)\n",
+        "\n",
+        "  Press enter to confirm or esc to cancel\n",
+    );
+
+    #[test]
+    fn wrapped_reason_and_option_are_joined() {
+        let prompt = crate::screen::prompt(&PROMPT, NARROW, 80).unwrap();
+        assert_eq!(
+            prompt.body[2],
+            "Reason: May I run the requested curl command with network access outside the sandbox?"
+        );
+        assert_eq!(
+            prompt.options[1].label,
+            "Yes, and don't ask again for commands that start with `curl -sI https://example.com`"
+        );
+    }
+
     #[test]
     fn approval_prompt_is_read_from_the_screen() {
-        let prompt = crate::screen::prompt(&PROMPT, APPROVAL).unwrap();
+        let prompt = crate::screen::prompt(&PROMPT, APPROVAL, 120).unwrap();
         assert_eq!(
             prompt.body[0],
             "Would you like to run the following command?"

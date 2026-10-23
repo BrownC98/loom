@@ -117,13 +117,6 @@ pub fn answer(message: u32, body: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 옛 메시지 동사(`send`·`reply`·`steer`·`interrupt`). 한 판 동안 새 동사를 알리고 실패한다(목업 M17 결정 3 A).
-pub fn replaced(old: &str, new: &str) -> Result<(), String> {
-    Err(format!(
-        "`loom {old}` is replaced. Use `{new}`. Every message now has a kind: loom ask, loom answer, loom done, loom note, or a gate verb (see loom --help)."
-    ))
-}
-
 fn print_sent(sent: &Sent) {
     match sent.recipient {
         Some(to) => println!("loom message #{} → node #{}", sent.id.0, to.0),
@@ -468,7 +461,7 @@ pub fn done(
             let relations: Relations = call("status", &(), None)?;
             if relations.parent.is_none() {
                 return Err(format!(
-                    "You have no parent, so the human reads this report in the inbox and cannot open a path in its text. Write a summary and attach the file as a link: `loom done \"<what you did>\" --doc {} --asked \"<the human's instruction>\"`.",
+                    "You have no parent, so the human reads this report in the inbox and cannot open {} in its text. Write a summary: `loom done \"<what you did>\" --asked \"<the human's instruction>\"`. To show a document, write it as user-doc HTML, run show.sh on it, and add --doc <that file>.",
                     path.display()
                 ));
             }

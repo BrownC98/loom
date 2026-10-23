@@ -175,6 +175,7 @@ function whoOf(entry: Entry): Who[] {
     case 'instructed':
     case 'unanswered':
     case 'confirmed':
+    case 'nudged':
       return [entry.node];
     case 'adopted':
       return [entry.node, ...(entry.from ? [entry.from] : []), entry.to];
@@ -297,6 +298,14 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
           <span className="kind">{t('events.kind.relaunched')}</span>
           {name(entry.node)}
           {entry.error !== null && <span className="note err">{entry.error}</span>}
+        </>
+      );
+    case 'nudged':
+      return (
+        <>
+          <span className="kind">{t('events.kind.nudged')}</span>
+          {name(entry.node)}
+          <span className="note">{t(`events.turnCheck.${entry.check}`)}</span>
         </>
       );
     case 'renamed':

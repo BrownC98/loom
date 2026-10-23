@@ -30,8 +30,11 @@ pub use host::run;
 const BACKLOG_BYTES: usize = 256 * 1024;
 /// 화면 하나가 밀려도 버티는 출력 조각 수. 넘으면 그 화면의 연결을 끊고, 화면은 다시 붙어 backlog를 받는다.
 const VIEWER_QUEUE_CHUNKS: usize = 1024;
-/// 주소 파일의 호스트에 연결하는 상한. 루프백이라 살아 있으면 바로 붙는다.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// 주소 파일의 호스트에 연결하는 상한. 살아 있는 호스트는 바로 받는다.
+/// 근거: Windows는 닫힌 루프백 포트에 2.03~2.43초 뒤에야 연결 거부를 돌려줬다(2026-10-24 실측). 상한이 그보다 짧으면 끝난 호스트가 시간 초과로 보인다.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// 연결한 호스트가 인사하는 상한. 루프백이라 살아 있으면 바로 답한다.
+const GREET_TIMEOUT: Duration = Duration::from_secs(2);
 /// 호스트가 끝났는데 종료 코드가 오지 않았을 때 쓰는 코드. 호스트가 죽으면 PTY가 닫혀 노드도 끝난다.
 const LOST_CODE: u32 = u32::MAX;
 
@@ -49,6 +52,8 @@ pub enum Exit {
     Command(u32),
     /// 설정 스크립트가 이 코드로 끝나 명령을 띄우지 않았다.
     Setup(u32),
+    /// 호스트 연결이 종료 코드 없이 끊겼다. 프로세스가 아직 살았을 수 있다.
+    Lost,
 }
 
 impl Exit {
@@ -56,6 +61,25 @@ impl Exit {
         match self {
             Exit::Command(code) => Frame::Exit(code),
             Exit::Setup(code) => Frame::SetupFailed(code),
+            Exit::Lost => Frame::Exit(LOST_CODE),
+        }
+    }
+}
+
+/// 주소 파일의 호스트에 붙지 못한 까닭.
+#[derive(Debug, PartialEq)]
+pub enum Unattached {
+    /// 그 주소에서 듣는 프로세스가 없다(연결 거부). 호스트와 그 PTY는 끝났다.
+    Gone,
+    /// 주소를 읽지 못했거나 호스트가 인사하지 않았다. 호스트가 살아 있을 수 있다.
+    Silent(String),
+}
+
+impl Display for Unattached {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unattached::Gone => f.write_str("pty-host is gone"),
+            Unattached::Silent(cause) => f.write_str(cause),
         }
     }
 }
@@ -169,11 +193,15 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         std::fs::create_dir_all(&self.dir)
             .and_then(|()| std::fs::write(self.file(id), &address))
             .map_err(|e| e.to_string())?;
-        self.resume(id, on_exit)
+        self.resume(id, on_exit).map_err(|e| e.to_string())
     }
 
     /// 앞 데몬이 띄운 호스트에 다시 붙는다. 호스트가 backlog를 먼저 보낸다. 붙지 못하면 주소 파일을 지운다.
-    pub fn resume(&self, id: K, on_exit: impl FnOnce(Exit) + Send + 'static) -> Result<(), String> {
+    pub fn resume(
+        &self,
+        id: K,
+        on_exit: impl FnOnce(Exit) + Send + 'static,
+    ) -> Result<(), Unattached> {
         let file = self.file(id);
         let connected = connect(&file);
         let (mut reader, pid) = match connected {
@@ -183,7 +211,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 return Err(e);
             }
         };
-        let host = reader.try_clone().map_err(|e| e.to_string())?;
+        let host = reader
+            .try_clone()
+            .map_err(|e| Unattached::Silent(e.to_string()))?;
         let pty = Arc::new(Pty {
             pid: Mutex::new(pid),
             guarded: Mutex::default(),
@@ -215,7 +245,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                         sizing.host = HostSize::Reported;
                     }
                     Ok(_) => {}
-                    Err(_) => break Exit::Command(LOST_CODE),
+                    Err(_) => break Exit::Lost,
                 }
             };
             let _ = std::fs::remove_file(file);
@@ -440,19 +470,23 @@ fn start_host(cmd: &CommandBuilder, setup: Option<&CommandBuilder>) -> Result<St
 }
 
 /// 주소 파일의 호스트에 붙고 인사한다. 호스트의 PID를 돌려준다.
-fn connect(file: &std::path::Path) -> Result<(TcpStream, Option<u32>), String> {
-    let address = std::fs::read_to_string(file).map_err(|e| e.to_string())?;
+fn connect(file: &std::path::Path) -> Result<(TcpStream, Option<u32>), Unattached> {
+    let silent = |e: std::io::Error| Unattached::Silent(e.to_string());
+    let address = std::fs::read_to_string(file).map_err(silent)?;
     let address = address
         .trim()
         .parse()
-        .map_err(|e| format!("{}: {e}", file.display()))?;
+        .map_err(|e| Unattached::Silent(format!("{}: {e}", file.display())))?;
     let mut stream =
-        TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).map_err(|e| e.to_string())?;
+        TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).map_err(|e| match e.kind() {
+            std::io::ErrorKind::ConnectionRefused => Unattached::Gone,
+            _ => silent(e),
+        })?;
     stream
-        .set_read_timeout(Some(CONNECT_TIMEOUT))
-        .map_err(|e| e.to_string())?;
-    let pid = wire::greet(&mut stream).map_err(|e| e.to_string())?;
-    stream.set_read_timeout(None).map_err(|e| e.to_string())?;
+        .set_read_timeout(Some(GREET_TIMEOUT))
+        .map_err(silent)?;
+    let pid = wire::greet(&mut stream).map_err(silent)?;
+    stream.set_read_timeout(None).map_err(silent)?;
     Ok((stream, pid))
 }
 
@@ -764,6 +798,29 @@ mod tests {
         nodes.kill(1);
     }
 
+    /// 앞 데몬의 연결을 아무도 읽지 않아도(Windows에서 끝난 데몬의 소켓을 다른 프로세스가 물려받아 쥐었다) 새 데몬이 붙고 출력을 받는다.
+    #[cfg(unix)]
+    #[test]
+    fn a_new_daemon_attaches_while_the_old_connection_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cmd = CommandBuilder::new("sh");
+        cmd.args(["-c", "exec yes noise"]);
+        in_process(dir.path(), 1, cmd);
+        let address = std::fs::read_to_string(dir.path().join("1")).unwrap();
+        let mut old = TcpStream::connect(address.trim()).unwrap();
+        wire::greet(&mut old).unwrap();
+        // 소켓 버퍼가 차서 호스트의 쓰기가 막힐 시간.
+        std::thread::sleep(Duration::from_secs(3));
+
+        let second = NodeHost::new(dir.path().to_path_buf());
+        second.resume(1, |_| {}).unwrap();
+        let mut attached = second.attach(1).unwrap();
+        let chunk = attached.output.blocking_recv().unwrap();
+        assert!(String::from_utf8_lossy(&chunk).contains("noise"));
+        second.kill(1);
+        drop(old);
+    }
+
     /// 설정 스크립트가 성공하면 새 PTY에서 명령이 뜨고(출력은 한 터미널로 이어진다), 데몬은 명령의 PID를 받는다.
     /// 실패하면 명령을 띄우지 않고 `Exit::Setup`으로 끝난다. `tail`은 설정 출력의 끝을 제어 시퀀스 없이 돌려준다.
     #[cfg(unix)]
@@ -924,6 +981,52 @@ mod tests {
         let attached = nodes.attach(1).unwrap();
         assert_eq!(&attached.backlog[..], b"old host");
         host.join().unwrap();
+    }
+
+    /// 듣는 프로세스가 없는 주소만 `Gone`이다. 받기만 하고 인사하지 않는 호스트는 살아 있을 수 있어 `Silent`다.
+    #[test]
+    fn only_a_refused_connection_means_the_host_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        std::fs::write(
+            dir.path().join("1"),
+            closed.local_addr().unwrap().to_string(),
+        )
+        .unwrap();
+        drop(closed);
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        std::fs::write(
+            dir.path().join("2"),
+            silent.local_addr().unwrap().to_string(),
+        )
+        .unwrap();
+        let nodes = NodeHost::new(dir.path().to_path_buf());
+        assert_eq!(nodes.resume(1, |_| {}), Err(Unattached::Gone));
+        assert!(matches!(
+            nodes.resume(2, |_| {}),
+            Err(Unattached::Silent(_))
+        ));
+        drop(silent);
+    }
+
+    /// 호스트 연결이 종료 코드 없이 끊기면 `Exit::Lost`다. 데몬은 이때 노드 프로세스가 끝났다고 보지 않는다.
+    #[test]
+    fn a_dropped_connection_is_lost_not_an_exit() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("1"),
+            listener.local_addr().unwrap().to_string(),
+        )
+        .unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            wire::welcome(&mut stream, Some(42)).unwrap();
+        });
+        let nodes = NodeHost::new(dir.path().to_path_buf());
+        let (tx, rx) = std::sync::mpsc::channel();
+        nodes.resume(1, move |exit| tx.send(exit).unwrap()).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), Exit::Lost);
     }
 
     #[cfg(unix)]

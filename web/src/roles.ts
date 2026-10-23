@@ -5,7 +5,8 @@ import type { Role } from './gen/Role';
 /** 모델·강도를 CLI 인자로 받는 에이전트의 프로필. OpenCode 2는 프로필이 있어도 받지 않는다(목업 role-settings.html ②). */
 const MODEL_PROFILES: readonly Profile[] = ['claude', 'codex', 'cursor'];
 
-export const canChooseModel = (agent: AgentView | undefined): boolean => agent?.profile != null && MODEL_PROFILES.includes(agent.profile);
+/** 카탈로그에 없는 에이전트(목록을 받기 전, 카탈로그에서 빠진 id)는 칸을 켜 둔다. 끄면 저장할 때 모델·강도가 지워진다. */
+export const canChooseModel = (agent: AgentView | undefined): boolean => agent === undefined || (agent.profile !== null && MODEL_PROFILES.includes(agent.profile));
 
 /** 칸의 글 → 저장값. 비면 `null`(CLI 기본). */
 export const blankToNull = (text: string): string | null => (text.trim() === '' ? null : text.trim());

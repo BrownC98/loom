@@ -12,7 +12,7 @@ describe('roles', () => {
     expect(['claude', 'codex', 'cursor'].map((p) => canChooseModel(agent(p, p as AgentView['profile'])))).toEqual([true, true, true]);
     expect(canChooseModel(agent('opencode2', 'opencode2'))).toBe(false);
     expect(canChooseModel(agent('gemini', null))).toBe(false);
-    expect(canChooseModel(undefined)).toBe(false);
+    expect(canChooseModel(undefined)).toBe(true);
   });
 
   it('empty text becomes null and text is trimmed', () => {

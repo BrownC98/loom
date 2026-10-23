@@ -1,4 +1,5 @@
 mod accounts;
+mod choices;
 mod cli;
 mod codex_server;
 mod commit_graph;
@@ -10,6 +11,7 @@ mod fake_exe;
 mod git;
 mod graph;
 mod launch;
+mod link_text;
 mod node_host;
 mod open;
 mod pake;

@@ -441,6 +441,16 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
     // 사람에게는 사람이 띄운 노드만 묻는다.
     assert_eq!(g.ask(worker, "A?", None), Err(Refusal::HasParent));
     assert_eq!(g.ask(lead, "  ", None), Err(Refusal::EmptyQuestion));
+    let bare = Refusal::BareLink("https://a.io/x".into());
+    assert_eq!(g.ask(lead, "열어 https://a.io/x.", None), Err(bare.clone()));
+    assert_eq!(
+        g.ask(lead, "잰다(A, 권장) / 학습한다(B)", None),
+        Err(Refusal::BadChoices)
+    );
+    assert_eq!(
+        g.done(lead, "https://a.io/x", Some("지시"), &[], None, None),
+        Err(bare)
+    );
     // `loom ask` 질문은 줄바꿈까지 전문을 남긴다.
     let q1 = g.ask(lead, "A or B?\nmore", None).unwrap();
     let q2 = g.ask(lead, "C?", None).unwrap();
@@ -2637,6 +2647,18 @@ fn relaunching_an_ended_node_brings_it_back_running_and_keeps_done() {
     g.relaunched(worker, &launched()).unwrap();
     assert!(matches!(view(&g, worker).state, NodeState::Done { .. }));
     assert!(g.ended(worker).unwrap().is_none());
+}
+
+#[test]
+fn parent_bound_done_keeps_bare_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = child(&g, lead, "w");
+    assert!(
+        g.done(worker, "result /tmp/a/result.md", None, &[], None, None)
+            .is_ok()
+    );
 }
 
 mod gate;

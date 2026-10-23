@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { linkParts, plainText } from './links';
+import cases from './links.cases.json';
+import { DOC_LINK, linkParts, plainText } from './links';
 
 describe('linkParts', () => {
   it('splits markdown links out of the text', () => {
@@ -15,7 +16,20 @@ describe('linkParts', () => {
   it('ignores other schemes', () => {
     expect(linkParts('[x](javascript:alert(1))')).toEqual([{ text: '[x](javascript:alert(1))' }]);
   });
+  it('splits the attached doc link', () => {
+    expect(linkParts(`open [R9 tool](${DOC_LINK}), then pick`)).toEqual([
+      { text: 'open ' },
+      { label: 'R9 tool', href: DOC_LINK },
+      { text: ', then pick' },
+    ]);
+  });
   it('keeps only labels in plain text', () => {
     expect(plainText('see [b.html](file:///x/b.html).')).toBe('see b.html.');
+  });
+  it('draws exactly the links the daemon accepts (shared cases)', () => {
+    for (const { text, links } of cases.filter((c) => !c.refused)) {
+      const hrefs = linkParts(text).flatMap((part) => ('href' in part ? [part.href] : []));
+      expect(hrefs, text).toEqual(links);
+    }
   });
 });

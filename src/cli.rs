@@ -385,7 +385,7 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
     let asked: Asked = call(
         "ask",
         &AskRequest {
-            question: question.clone(),
+            question: with_doc_link(&question, doc.as_deref()),
             doc,
         },
         None,
@@ -459,7 +459,7 @@ pub fn done(
     let alive_children: Vec<String> = call(
         "done",
         &DoneRequest {
-            summary,
+            summary: with_doc_link(&summary, doc.as_deref()),
             asked,
             images,
             doc,
@@ -758,6 +758,13 @@ fn last_commit(log: &Path) -> Option<String> {
 /// 데몬이 다른 폴더에서 읽으므로 절대 경로로 보낸다. 파일이 없으면 여기서 실패한다.
 fn absolute(path: &Path) -> Result<PathBuf, String> {
     std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn with_doc_link(text: &str, doc: Option<&Path>) -> String {
+    doc.map_or_else(
+        || text.to_owned(),
+        |doc| crate::user_doc::inline_link(text, doc),
+    )
 }
 
 pub fn adopt(name: String) -> Result<(), String> {

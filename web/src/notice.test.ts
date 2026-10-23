@@ -42,10 +42,11 @@ describe('counts', () => {
 });
 
 describe('minimapClass', () => {
-  it('uses the tone of the oldest wait, else the run state', () => {
+  it('uses the tone of the oldest wait, else a color only for exited or setupFailed', () => {
     expect(minimapClass(node([wait(1, 'done', 1), wait(2, 'question', 2)]))).toBe('done');
     expect(minimapClass(node([wait(2, 'approval', 2)]))).toBe('ask');
-    expect(minimapClass(node([]))).toBe('running');
+    expect(minimapClass(node([]))).toBe('');
+    expect(minimapClass({ waits: [], state: { kind: 'exited', code: 1 } } as unknown as NodeView)).toBe('exited');
   });
 });
 

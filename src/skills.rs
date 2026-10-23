@@ -355,7 +355,8 @@ mod tests {
             assert!(!body.contains("~/.agents/"), "{name}");
             let base = Path::new(name.as_ref()).parent().unwrap();
             for target in links(&body) {
-                if target.starts_with("http") {
+                // `<파일>`은 사용법 예시의 자리표시자다(ask-human 「`--doc`」).
+                if target.starts_with("http") || target.starts_with('<') {
                     continue;
                 }
                 let file = target.split('#').next().unwrap();

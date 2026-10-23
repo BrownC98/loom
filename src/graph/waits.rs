@@ -18,6 +18,8 @@ use ts_rs::TS;
 
 use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
+use crate::choices::offers_choices_without_tail;
+use crate::link_text::bare_link;
 use crate::profile::AgentId;
 
 use super::{Graph, NodeId, NodeState, Refusal, from_json, parent_of, state_of, to_json};
@@ -233,11 +235,18 @@ impl Graph {
         if question.is_empty() {
             return Err(Refusal::EmptyQuestion);
         }
+        // 화면이 보이는 글(잘린 글)을 잠금 밖에서 검사한다.
+        let text: String = question.chars().take(QUESTION_LIMIT_CHARS).collect();
+        let malformed = bare_link(&text)
+            .map(Refusal::BareLink)
+            .or_else(|| offers_choices_without_tail(&text).then_some(Refusal::BadChoices));
         let mut db = self.lock();
         if parent_of(&db, id)?.is_some() {
             return Err(Refusal::HasParent);
         }
-        let text: String = question.chars().take(QUESTION_LIMIT_CHARS).collect();
+        if let Some(refusal) = malformed {
+            return Err(refusal);
+        }
         let (doc, doc_path) = attached.map(|a| (a.doc, a.path)).unzip();
         let tx = db.transaction()?;
         let wait = new_wait(&tx, WaitKind::Question, text.clone(), true, doc)?;

@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::graph::{Attached, WaitDoc};
+use crate::link_text::DOC_LINK;
 
 /// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
@@ -86,6 +87,53 @@ pub fn attach(path: &Path) -> Result<Attached, String> {
         doc: WaitDoc { id, title },
         path,
     })
+}
+
+/// 글 속 markdown 링크 `[이름](주소)` 가운데 주소가 `doc` 파일인 것의 주소를 `DOC_LINK`로 바꾼다.
+/// 주소는 `file://` 주소(퍼센트 인코딩 포함)나 경로이고, WSL 노드의 Linux 경로도 받는다. 파일 경로는 데몬만 알아야 하므로 글에 남기지 않는다.
+pub fn inline_link(text: &str, doc: &Path) -> String {
+    let Ok(doc) = real_path(doc) else {
+        return text.to_owned();
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let (before, link) = rest.split_at(open);
+        out.push_str(before);
+        match crate::link_text::parse_link(link) {
+            Some((label, target, len))
+                if link_path(target).is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
+            {
+                out.push_str(&format!("[{label}]({DOC_LINK})"));
+                rest = &link[len..];
+            }
+            _ => {
+                out.push('[');
+                rest = &link[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 링크 주소가 가리키는 파일 경로. `file:///C:/…`는 `C:/…`, `file://host/…`는 UNC `//host/…`다.
+fn link_path(target: &str) -> Option<PathBuf> {
+    let path = match target.strip_prefix("file://") {
+        Some(rest) => {
+            let rest = percent_encoding::percent_decode_str(rest)
+                .decode_utf8()
+                .ok()?;
+            match rest.strip_prefix('/') {
+                Some(local) if local.as_bytes().get(1) == Some(&b':') => local.to_owned(),
+                Some(_) => rest.into_owned(),
+                None => format!("//{rest}"),
+            }
+        }
+        None if target.contains("://") => return None,
+        None => target.to_owned(),
+    };
+    Some(crate::wsl::from_caller(PathBuf::from(path)))
 }
 
 /// 글 문서의 제목: 첫 markdown 제목 줄(`# …`), 없으면 파일 이름.
@@ -255,6 +303,50 @@ mod tests {
             refused.contains("put images inside an HTML file"),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn a_link_to_the_doc_becomes_the_doc_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("목업 a.html");
+        let other = dir.path().join("b.html");
+        fs::write(&doc, "").unwrap();
+        fs::write(&other, "").unwrap();
+        // Windows 경로는 `file:///C:/…`다.
+        let slashed = doc.display().to_string().replace('\\', "/");
+        let url = format!(
+            "file://{}{}",
+            if slashed.starts_with('/') { "" } else { "/" },
+            percent_encoding::utf8_percent_encode(&slashed, percent_encoding::NON_ALPHANUMERIC)
+                .to_string()
+                .replace("%2F", "/")
+                .replace("%3A", ":")
+        );
+        let other = other.display().to_string();
+        let text = format!("[문헌 도구]({url}) 승인? [다른]({other}) [x] (y) [웹](https://a.b/c)");
+        assert_eq!(
+            inline_link(&text, &doc),
+            format!("[문헌 도구]({DOC_LINK}) 승인? [다른]({other}) [x] (y) [웹](https://a.b/c)")
+        );
+        assert_eq!(inline_link("승인? (A / B)", &doc), "승인? (A / B)");
+        let path = doc.display();
+        assert_eq!(
+            inline_link(&format!("[목업](<{path}>) 승인? [x](<{path}>"), &doc),
+            format!("[목업]({DOC_LINK}) 승인? [x](<{path}>")
+        );
+        let plain = dir.path().join("plain.md");
+        fs::write(&plain, "").unwrap();
+        let plain_path = plain.display();
+        assert_eq!(
+            inline_link(&format!("[보고서](<{plain_path}>)."), &plain),
+            format!("[보고서]({DOC_LINK}).")
+        );
+    }
+
+    #[test]
+    fn the_web_knows_the_doc_link() {
+        let links = include_str!("../web/src/links.ts");
+        assert!(links.contains(&format!("DOC_LINK = '{DOC_LINK}'")));
     }
 
     #[test]

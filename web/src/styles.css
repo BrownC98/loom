@@ -235,7 +235,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .zoom-level input { width: 6ch; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); color: var(--ink); text-align: right; }
 .react-flow__minimap-node.repo { fill: none; stroke: var(--ink-3); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.worktree { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
-.react-flow__minimap-node.running { fill: var(--run); }
 .react-flow__minimap-node.ask { fill: var(--warn); }
 .react-flow__minimap-node.done { fill: var(--ok); }
 .react-flow__minimap-node.exited, .react-flow__minimap-node.setupFailed { fill: var(--err); }
@@ -401,8 +400,6 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .summary-model .model { font: 12px var(--mono); color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state { display: inline-flex; flex: none; white-space: nowrap; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.state.running { color: var(--run); }
-.state.done { color: var(--ok); }
 .state.exited, .state.setupFailed { color: var(--err); }
 .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 button.unread { border: 0; font-family: inherit; cursor: pointer; }

@@ -631,7 +631,8 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/verdict", post(gate::agent_verdict))
         .route("/api/agent/merge", post(gate::agent_merge))
         .route("/api/agent/merged", post(gate::agent_merged))
-        .route("/api/agent/fail", post(gate::agent_fail));
+        .route("/api/agent/fail", post(gate::agent_fail))
+        .route("/api/agent/task", post(agent_task));
     let router = node_routes
         .clone()
         .route("/api/repos", get(list_repos).post(add_repo))
@@ -655,7 +656,6 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         )
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
-        .route("/api/agent/task", post(agent_task))
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/name", put(rename_node))
@@ -964,33 +964,40 @@ impl App {
         Ok(self.settings.get().map_err(internal)?.tree_limits)
     }
 
-    /// 부모 없는 노드를 `place`에서 띄운다. 새 작업 폴더의 바탕 이름은 그 노드가 받을 이름이다.
+    /// 부모 없는 노드를 `place`에서 띄운다. 에이전트면 작업 폴더를 받는다. 바탕 이름은 그 노드가 받을 이름이다. 셸·명령 노드는 없다(처음 물을 때 만든다: `task_dir`).
     async fn start_root(self: &Arc<Self>, place: &Place, start: &Start) -> Result<NodeId, Problem> {
         let cwd = std::path::Path::new(&place.worktree);
-        let repo = self.repos.path(place.repo)?;
-        let name = self
-            .graph
-            .next_root_name(start.agent().as_ref())
-            .map_err(internal)?;
-        let pick = task::Pick::New(task::base(&repo, &name));
-        let prepared = self
-            .prepare(start, cwd, Position::Root, Some(&pick))
-            .await?;
+        let made = match start.agent() {
+            Some(agent) => {
+                let repo = self.repos.path(place.repo)?;
+                let name = self.graph.next_root_name(Some(&agent)).map_err(internal)?;
+                let tasks = self.tasks_for(&place.worktree).await?;
+                Some(tasks.new_dir(&task::base(&repo, &name)).map_err(internal)?)
+            }
+            None => None,
+        };
+        let dir = made.as_ref().map(|(dir, _)| dir);
+        let prepared = self.prepare(start, cwd, Position::Root, dir).await?;
         let discard = prepared.discarder();
-        let dir = prepared
-            .task
-            .as_ref()
-            .map(|d| (d.folder.clone(), d.local.clone()));
-        let folder = dir.as_ref().map(|(folder, _)| folder.as_str());
         let id = self
             .graph
-            .add_root(place, start.agent(), folder, &prepared.launched(), |id| {
-                if let Some((_, local)) = &dir {
-                    task::create(local, "").map_err(|e| format!("{}: {e}", local.display()))?;
-                }
-                self.launch(id, prepared)
-            })
+            .add_root(
+                place,
+                start.agent(),
+                dir.map(|d| d.folder.as_str()),
+                &prepared.launched(),
+                |id| {
+                    if let Some(dir) = dir {
+                        task::create(&dir.local, "")
+                            .map_err(|e| format!("{}: {e}", dir.local.display()))?;
+                    }
+                    self.launch(id, prepared)
+                },
+            )
             .inspect_err(|_| discard())?;
+        if let Some((_, fresh)) = made {
+            fresh.keep();
+        }
         Ok(id)
     }
 
@@ -1016,10 +1023,11 @@ impl App {
             None => {
                 let repo = self.repos.path(place.repo)?;
                 let name = self.graph.relations(node).map_err(internal)?.me.name;
-                let new = tasks.new_dir(&task::base(&repo, &name)).map_err(internal)?;
+                let (new, fresh) = tasks.new_dir(&task::base(&repo, &name)).map_err(internal)?;
                 let kept = self.graph.keep_task(node, &new.folder).map_err(internal)?;
-                if kept != new.folder {
-                    let _ = std::fs::remove_dir(&new.local);
+                // 다른 요청이 먼저 정했으면 이 폴더는 `fresh`가 지운다.
+                if kept == new.folder {
+                    fresh.keep();
                 }
                 tasks.dir(&kept)
             }
@@ -1067,8 +1075,6 @@ impl App {
             opencode2,
             account: _,
             inside: _,
-            task: _,
-            fresh: _,
         } = prepared;
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;
@@ -1273,13 +1279,13 @@ impl App {
     /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.
     /// OpenCode 2면 노드 서버와 세션을 먼저 띄운다.
     /// `cwd`는 노드가 도는 워크트리다. `position`은 상시 지시를 고른다(`skills::always_on`).
-    /// `task`가 있으면 그 작업 폴더를 `LOOM_TASK_DIR`로 넣는다. 새 작업이면 여기서 빈 폴더를 잡는다. 설정 스크립트 노드는 없다.
+    /// `task`가 있으면 그 작업 폴더를 `LOOM_TASK_DIR`로 넣는다. 폴더는 부른 쪽이 정하고 만든다(`task::Fresh`).
     async fn prepare(
         &self,
         start: &Start,
         cwd: &std::path::Path,
         position: Position,
-        task: Option<&task::Pick>,
+        task: Option<&task::TaskDir>,
     ) -> Result<Prepared, Problem> {
         let profile = start.profile();
         let provider = profile.and_then(Profile::provider);
@@ -1301,21 +1307,7 @@ impl App {
             None => self.pc_site(),
         };
         let account = provider.and_then(|p| settings.account(p, site.distro()));
-        let task_dir = match task {
-            Some(pick) => {
-                let tasks = match site.inside() {
-                    Some(inside) => task::Tasks::wsl(inside.home(), |p| inside.local(p)),
-                    None => task::Tasks::pc().ok_or_else(|| internal("홈 폴더를 찾지 못했다"))?,
-                };
-                Some(tasks.open(pick).map_err(internal)?)
-            }
-            None => None,
-        };
-        let fresh = match task {
-            Some(task::Pick::New(_)) => task_dir.as_ref().map(|d| d.local.clone()),
-            _ => None,
-        };
-        if let Some(dir) = &task_dir {
+        if let Some(dir) = task {
             env.push((task::ENV, dir.shown.clone().into()));
         }
         if let Some(provider) = provider {
@@ -1397,8 +1389,6 @@ impl App {
         Ok(Prepared {
             cmd,
             inside,
-            task: task_dir,
-            fresh,
             setup: None,
             token,
             account: account.cloned(),
@@ -1431,10 +1421,6 @@ struct Prepared {
     cmd: portable_pty::CommandBuilder,
     /// WSL 노드면 그 배포판에서 읽은 값. 설정 스크립트도 그 배포판에서 돈다.
     inside: Option<wsl::Inside>,
-    /// 노드의 작업 폴더. 노드 환경의 `LOOM_TASK_DIR`이 같은 폴더를 가리킨다.
-    task: Option<task::TaskDir>,
-    /// 이번 준비가 새로 잡은 작업 폴더. 노드를 띄우지 못하면 `discarder`가 지운다. 다음 같은 이름의 작업이 번호를 받지 않게 한다.
-    fresh: Option<PathBuf>,
     /// `cmd`보다 먼저(같은 터미널 화면에서) 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
     setup: Option<portable_pty::CommandBuilder>,
     /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
@@ -1471,14 +1457,7 @@ impl Prepared {
 
     /// 노드를 만들지 못했으면 미리 띄운 서버를 끝내는 함수. 노드를 띄우는 클로저가 `self`를 가져가므로 따로 만든다.
     fn discarder(&self) -> impl Fn() + use<> {
-        let servers = discarder(&self.codex, &self.opencode2);
-        let fresh = self.fresh.clone();
-        move || {
-            servers();
-            if let Some(dir) = &fresh {
-                let _ = std::fs::remove_dir_all(dir);
-            }
-        }
+        discarder(&self.codex, &self.opencode2)
     }
 }
 
@@ -2089,12 +2068,18 @@ async fn agent_spawn(
         .graph
         .place_of(parent)
         .map_err(|e| for_agent(Refusal::from(e)))?;
-    let pick = match &req.worktree {
-        Some(branch) => task::Pick::New(task::base(
-            &app.repos.path(place.repo).map_err(for_agent)?,
-            branch.trim(),
-        )),
-        None => task::Pick::Joined(app.task_dir(parent).await.map_err(for_agent)?.folder),
+    let tasks = app.tasks_for(&place.worktree).await.map_err(for_agent)?;
+    // `fresh`는 요청이 어느 길에서든 실패하면 새 작업 폴더를 지운다.
+    let (dir, fresh) = match &req.worktree {
+        Some(branch) => {
+            let base = task::base(
+                &app.repos.path(place.repo).map_err(for_agent)?,
+                branch.trim(),
+            );
+            let (dir, fresh) = tasks.new_dir(&base).map_err(|e| for_agent(internal(e)))?;
+            (dir, Some(fresh))
+        }
+        None => (app.task_dir(parent).await.map_err(for_agent)?, None),
     };
     let given = req.brief.clone();
     let (start, queued_brief) = match req.run {
@@ -2148,9 +2133,12 @@ async fn agent_spawn(
         agent: start.agent(),
         brief: &queued_brief,
         role: req.role.as_deref(),
-        task: "",
+        task: &dir.folder,
     };
-    let spawned = spawn_child(&app, parent, child, &start, cwd, &pick, &given).await;
+    let spawned = spawn_child(&app, parent, child, &start, cwd, &dir, &given).await;
+    if let (Ok(_), Some(fresh)) = (&spawned, fresh) {
+        fresh.keep();
+    }
     // 자식을 띄우지 못하면 이 요청이 만든 워크트리와 브랜치를 지운다. 거절만 남긴다.
     if let (Some((repo, made)), Err(_)) = (&worktree, &spawned)
         && let Err(e) = worktree::discard(repo, made).await
@@ -2163,18 +2151,17 @@ async fn agent_spawn(
 /// `agent_spawn`에서 워크트리를 만든 뒤의 단계: 준비하고 그래프에 자식을 더해 띄운다.
 /// 새 워크트리면 그 설정 스크립트를 자식의 PTY에서 먼저 돌린다. 근거: docs/design.md 「저장소와 워크트리」.
 /// 작업 폴더 안의 틀은 그래프가 자식을 받은 뒤, 띄우기 바로 전에 만든다. `brief`는 `loom spawn`이 받은 지시문이다(역할 머리 없음).
-/// `child.task`는 `prepare`가 정한 작업 폴더 이름으로 바꾼다.
 async fn spawn_child(
     app: &Arc<App>,
     parent: NodeId,
     child: NewChild<'_>,
     start: &Start,
     cwd: &std::path::Path,
-    pick: &task::Pick,
+    dir: &task::TaskDir,
     brief: &str,
 ) -> Result<NodeId, AgentError> {
     let mut prepared = app
-        .prepare(start, cwd, Position::Child, Some(pick))
+        .prepare(start, cwd, Position::Child, Some(dir))
         .await
         .map_err(for_agent)?;
     if child.worktree.is_some() {
@@ -2185,17 +2172,9 @@ async fn spawn_child(
         .tree_limits()
         .map_err(for_agent)
         .inspect_err(|_| discard())?;
-    let (folder, local) = match &prepared.task {
-        Some(dir) => (dir.folder.clone(), dir.local.clone()),
-        None => return Err(for_agent(internal("자식의 작업 폴더가 없다"))),
-    };
-    let child = NewChild {
-        task: &folder,
-        ..child
-    };
     app.graph
         .add_child(parent, child, limits, &prepared.launched(), |id| {
-            task::create(&local, brief).map_err(|e| format!("{}: {e}", local.display()))?;
+            task::create(&dir.local, brief).map_err(|e| format!("{}: {e}", dir.local.display()))?;
             app.launch(id, prepared)
         })
         .map_err(for_agent)
@@ -2280,21 +2259,12 @@ async fn agent_task(
     let caller = app.caller(&headers)?;
     let dir = match &req.branch {
         None => Some(app.task_dir(caller).await.map_err(for_agent)?),
-        Some(branch) => match app.graph.merge_task(caller, branch) {
-            Ok(round) => match app.graph.task_of(round.owner) {
-                Ok(Some(folder)) => {
-                    let place = app
-                        .graph
-                        .place_of(round.owner)
-                        .map_err(|e| for_agent(internal(e)))?;
-                    let tasks = app.tasks_for(&place.worktree).await.map_err(for_agent)?;
-                    Some(tasks.dir(&folder))
-                }
-                Ok(None) | Err(rusqlite::Error::QueryReturnedNoRows) => None,
-                Err(e) => return Err(for_agent(internal(e))),
-            },
-            Err(Refusal::NoRound(_)) => None,
-            Err(e) => return Err(for_agent(e)),
+        Some(branch) => match app.graph.branch_task(caller, branch).map_err(for_agent)? {
+            Some((worktree, folder)) => {
+                let tasks = app.tasks_for(&worktree).await.map_err(for_agent)?;
+                Some(tasks.dir(&folder))
+            }
+            None => None,
         },
     };
     Ok(Json(
@@ -2837,6 +2807,35 @@ async fn asset(uri: Uri) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `loom` 명령이 노드 문으로 부르는 경로는 모두 노드 문에 있다. `spawn`만 `LOOM_SPAWN_URL`의 사람 문으로 간다(2026-10-23 리뷰: `task`가 빠져 노드 문에서 404였다).
+    #[test]
+    fn every_agent_route_the_cli_calls_is_on_the_node_door() {
+        let cli = include_str!("cli.rs");
+        let daemon = include_str!("daemon.rs");
+        let door = &daemon[daemon.find("let node_routes = Router::new()").unwrap()..];
+        let door = &door[..door.find("let router = node_routes").unwrap()];
+        let mut names = std::collections::BTreeSet::new();
+        for part in cli.split("call(").skip(1) {
+            let part = part.trim_start();
+            if let Some(rest) = part.strip_prefix('"')
+                && let Some((name, _)) = rest.split_once('"')
+                && name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+            {
+                names.insert(name);
+            }
+        }
+        assert!(
+            names.contains("task") && names.contains("verdict"),
+            "{names:?}"
+        );
+        for name in names {
+            assert!(
+                door.contains(&format!("\"/api/agent/{name}\"")),
+                "the CLI calls {name}, but the node door has no /api/agent/{name}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn only_hashed_assets_are_cached() {

@@ -261,6 +261,29 @@ impl Graph {
         })
     }
 
+    /// 브랜치 담당의 작업 폴더 이름과 담당의 워크트리. 브랜치 이름이 아니라 관문 줄의 담당이 정한다:
+    /// 브랜치 이름을 바꿔도, 같은 이름을 다시 써도 그 차례의 작업이다. 관문 줄이 없거나 담당 노드가 지워졌거나 폴더가 없으면 없다.
+    pub fn branch_task(
+        &self,
+        caller: NodeId,
+        branch: &str,
+    ) -> Result<Option<(String, String)>, Refusal> {
+        let owner = match self.merge_task(caller, branch) {
+            Ok(round) => round.owner,
+            Err(Refusal::NoRound(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let found = self.task_of(owner).and_then(|task| {
+            task.map(|task| self.place_of(owner).map(|place| (place.worktree, task)))
+                .transpose()
+        });
+        match found {
+            Ok(found) => Ok(found),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// 같은 저장소에서 관문이 `target`에 병합한 커밋(브랜치마다 마지막 것). 순서는 git의 첫 부모 줄이 정한다:
     /// 초 단위 시각은 같은 초의 두 병합을 가르지 못한다(검토 Codex R4).
     pub fn gate_merges(&self, caller: NodeId, target: &str) -> rusqlite::Result<Vec<String>> {

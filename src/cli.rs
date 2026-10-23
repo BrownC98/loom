@@ -505,7 +505,7 @@ pub fn verdict(
 ) -> Result<(), String> {
     let findings = match findings {
         Some(path) => Some(absolute(&path)?),
-        None => default_findings(&branch, judgment)?,
+        None => default_findings(judgment)?,
     }
     .map(|path| crate::wsl::for_caller(&path));
     let state: GateState = call(
@@ -521,18 +521,11 @@ pub fn verdict(
     Ok(())
 }
 
-/// `--findings`가 없을 때: 브랜치 작업 폴더의 `review/<내 노드 이름>.md`. 그 파일이 없으면 pass는 결함 파일 없이 보낸다.
-fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>, String> {
+/// `--findings`가 없을 때: 부른 노드 자기 작업 폴더의 `review/<내 노드 이름>.md`. 그 파일이 없으면 pass는 결함 파일 없이 보낸다.
+/// 검토자는 담당의 작업을 물려받아 같은 폴더를 쓴다(`loom spawn`을 `--worktree` 없이 부른 경우).
+fn default_findings(judgment: Judgment) -> Result<Option<PathBuf>, String> {
     let relations: Relations = call("status", &(), None)?;
-    let Some(dir) = branch_task(branch)? else {
-        return match judgment {
-            Judgment::Pass => Ok(None),
-            Judgment::Block => Err(format!(
-                "loom has no task folder for {branch}: it has no gate round, or its owner node is gone. Give --findings <file>."
-            )),
-        };
-    };
-    let path = dir
+    let path = task_dir()?
         .join(task::REVIEW)
         .join(format!("{}.md", task::folder(&relations.me.name)));
     match (path.is_file(), judgment) {
@@ -759,19 +752,36 @@ fn merge_log(branch: &str) -> Result<PathBuf, String> {
                 .join(format!("{}-merge-{now}.log", task::folder(branch)))
         }
     };
+    create_log(&log)
+}
+
+/// 기록 파일을 새로 만든다. 실패하면 병합을 시작하지 않는다(`merge`가 데몬을 부르기 전에 부른다).
+fn create_log(log: &Path) -> Result<PathBuf, String> {
     let dir = log.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log)
-        .map_err(|e| {
-            format!(
-                "Did not start the merge: cannot write its log {}: {e}",
-                log.display()
-            )
-        })?;
-    Ok(log)
+    // 같은 초에 같은 브랜치를 두 번 병합해도 앞 기록을 덮지 않는다. 만든 파일은 이 프로세스 것이다.
+    let stem = log.with_extension("");
+    for n in 1.. {
+        let path = match n {
+            1 => log.to_path_buf(),
+            n => PathBuf::from(format!("{}-{n}.log", stem.display())),
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(format!(
+                    "Did not start the merge: cannot write its log {}: {e}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    unreachable!("1.. does not end")
 }
 
 /// 이 노드의 작업 폴더. 데몬에 묻는다: 환경의 `LOOM_TASK_DIR`이 없는 노드(작업 폴더 전에 뜬 노드)도, WSL의 `loom.exe`도 같다.
@@ -987,6 +997,22 @@ fn post_as<T: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_merge_log_never_reuses_a_file_and_a_log_that_cannot_open_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("logs").join("merge-5.log");
+        let first = create_log(&log).unwrap();
+        std::fs::write(&first, "earlier merge").unwrap();
+        let second = create_log(&log).unwrap();
+        assert_eq!(first, log);
+        assert_eq!(second, dir.path().join("logs").join("merge-5-2.log"));
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "earlier merge");
+        // 폴더 자리에 파일이 있으면 열 수 없다. `merge`는 이 오류에서 데몬을 부르지 않고 끝난다.
+        let blocked = dir.path().join("file");
+        std::fs::write(&blocked, "").unwrap();
+        assert!(create_log(&blocked.join("merge-5.log")).is_err());
+    }
 
     fn unreachable() -> CallError {
         CallError::Unreachable("down".into())

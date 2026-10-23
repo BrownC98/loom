@@ -62,14 +62,6 @@ pub fn base(repo: &Path, name: &str) -> String {
     format!("{repo}-{name}")
 }
 
-/// 노드의 작업.
-pub enum Pick {
-    /// 새 작업. 값은 바탕 이름(`base`)이다.
-    New(String),
-    /// 이미 정한 작업 폴더 이름(`nodes.task`). 부모의 작업을 물려받을 때와 다시 띄울 때다.
-    Joined(String),
-}
-
 /// 모든 작업 폴더가 든 폴더 `~/.cache/loom`. 노드가 도는 곳의 홈 아래다.
 pub struct Tasks {
     local: PathBuf,
@@ -120,7 +112,7 @@ impl Tasks {
 
     /// 새 작업 폴더를 만든다. 그 이름의 폴더가 이미 있으면(앞 작업, 다른 브랜치가 같은 이름이 됨) `-2`, `-3`…을 붙인다.
     /// `create_dir`은 하나만 성공하므로 동시에 띄운 두 자식도 다른 폴더를 받는다.
-    pub fn new_dir(&self, base: &str) -> std::io::Result<TaskDir> {
+    pub fn new_dir(&self, base: &str) -> std::io::Result<(TaskDir, Fresh)> {
         std::fs::create_dir_all(&self.local)?;
         let base = folder(base);
         for n in 1.. {
@@ -129,18 +121,33 @@ impl Tasks {
                 n => format!("{base}-{n}"),
             };
             match std::fs::create_dir(self.local.join(&name)) {
-                Ok(()) => return Ok(self.dir(&name)),
+                Ok(()) => {
+                    let dir = self.dir(&name);
+                    let fresh = Fresh(Some(dir.local.clone()));
+                    return Ok((dir, fresh));
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(e),
             }
         }
         unreachable!("1.. does not end")
     }
+}
 
-    pub fn open(&self, pick: &Pick) -> std::io::Result<TaskDir> {
-        match pick {
-            Pick::New(base) => self.new_dir(base),
-            Pick::Joined(folder) => Ok(self.dir(folder)),
+/// 이번 요청이 새로 만든 작업 폴더. 요청이 어느 길에서든 실패해 `keep`을 부르지 못하면 지운다(다음 같은 이름의 작업이 번호를 받지 않게).
+pub struct Fresh(Option<PathBuf>);
+
+impl Fresh {
+    /// 요청이 끝까지 가서 노드가 이 폴더를 쓴다.
+    pub fn keep(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for Fresh {
+    fn drop(&mut self) {
+        if let Some(dir) = self.0.take() {
+            let _ = std::fs::remove_dir_all(dir);
         }
     }
 }
@@ -226,12 +233,15 @@ mod tests {
         let tasks = Tasks::wsl(&home.path().display().to_string(), |p: &str| {
             PathBuf::from(p)
         });
-        let first = tasks.new_dir("loom-feat/x").unwrap();
+        let (first, keep_first) = tasks.new_dir("loom-feat/x").unwrap();
+        keep_first.keep();
         create(&first.local, "old brief").unwrap();
         std::fs::write(first.local.join(REVIEW).join("opus.md"), "old").unwrap();
         // 같은 브랜치를 병합 뒤 다시 쓴다. `feat-x`는 다른 브랜치지만 같은 글이 된다.
-        let again = tasks.new_dir("loom-feat/x").unwrap();
-        let other = tasks.new_dir("loom-feat-x").unwrap();
+        let (again, keep_again) = tasks.new_dir("loom-feat/x").unwrap();
+        let (other, keep_other) = tasks.new_dir("loom-feat-x").unwrap();
+        keep_again.keep();
+        keep_other.keep();
         assert_eq!(
             [&first.folder, &again.folder, &other.folder],
             ["loom-feat-x", "loom-feat-x-2", "loom-feat-x-3"]
@@ -241,8 +251,24 @@ mod tests {
             again.shown,
             format!("{}/.cache/loom/loom-feat-x-2", home.path().display())
         );
-        let joined = tasks.open(&Pick::Joined(first.folder.clone())).unwrap();
-        assert_eq!(joined.local, first.local);
+        assert_eq!(tasks.dir(&first.folder).local, first.local);
+    }
+
+    /// 요청이 실패해 `keep`을 못 부르면 새 폴더는 남지 않는다. 그래서 다음 같은 이름의 작업이 `-2`를 받지 않는다.
+    #[test]
+    fn a_dropped_fresh_folder_is_removed_and_a_kept_one_stays() {
+        let home = tempfile::tempdir().unwrap();
+        let tasks = Tasks::wsl(&home.path().display().to_string(), |p: &str| {
+            PathBuf::from(p)
+        });
+        let (lost, fresh) = tasks.new_dir("loom-a").unwrap();
+        create(&lost.local, "").unwrap();
+        drop(fresh);
+        assert!(!lost.local.exists());
+        let (again, fresh) = tasks.new_dir("loom-a").unwrap();
+        assert_eq!(again.folder, "loom-a");
+        fresh.keep();
+        assert!(again.local.exists());
     }
 
     #[test]

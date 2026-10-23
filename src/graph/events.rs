@@ -8,8 +8,10 @@ use ts_rs::TS;
 
 use super::{Kind, MessageId, NodeId, NodeState, Refusal, WaitDoc, WaitId, from_json, to_json};
 use crate::accounts::AccountId;
+use crate::choices::{Choice, choices};
+use crate::link_text::{TextPart, parts, path_link};
 use crate::profile::{AgentId, Provider};
-use crate::protocol::{Finding, GateState, GateVerb};
+use crate::protocol::{Field, Finding, GateState, GateVerb, MessageKind};
 
 /// 남기는 이벤트 수 상한. 노드 50개가 각각 메시지 200개를 주고받는 하루치다.
 const KEEP: u32 = 10_000;
@@ -71,6 +73,10 @@ pub enum Entry {
     /// `to`가 없으면 보관한 메시지다.
     Message {
         how: Kind,
+        /// 메시지 종류와 칸. 종류를 남기기 전의 옛 기록에는 없다. Entry의 serde 태그가 `kind`라 이름이 `what`이다.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        what: Option<MessageKind>,
         from: Who,
         to: Option<Who>,
         step: Step,
@@ -86,6 +92,10 @@ pub enum Entry {
     /// 보내기를 거절했다. `to`는 보낸 쪽이 적은 이름이다. 관문 호출이면 브랜치다.
     Refused {
         how: Kind,
+        /// 보내려던 종류(`note`·`answer`·`done`). 관문 호출과 옛 기록에는 없다.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        what: Option<MessageKind>,
         from: Who,
         to: String,
         reason: Refusal,
@@ -175,7 +185,7 @@ pub enum Entry {
     },
 }
 
-/// 요청이 들어온 입구. CLI는 명령 이름(`loom send`)과 판을 헤더로 보낸다. 헤더가 없는 요청(화면, 훅 밖 API)은 경로다.
+/// 요청이 들어온 입구. CLI는 명령 이름(`loom note`)과 판을 헤더로 보낸다. 헤더가 없는 요청(화면, 훅 밖 API)은 경로다.
 /// 근거: R8 v5 ⑤ 흔적 칸 「입구」·「판」. 관문 audit가 관문 동사 밖에서 온 관문 글을 이 값으로 가린다.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -244,11 +254,123 @@ pub struct EventRecord {
     #[ts(type = "number")]
     pub at: i64,
     pub entry: Entry,
-    /// 메시지 이벤트의 본문. 메시지 테이블에서 읽는다. 메시지를 지웠으면 없다.
+    /// 메시지 이벤트의 본문. 메시지 테이블에서 읽는다. 메시지를 지웠으면 없다. 화면은 `parts`를 그린다.
+    #[serde(skip)]
     pub body: Option<String>,
+    /// 줄을 펴면 보이는 글의 조각: 메시지 본문, 질문·완료·사람 답의 글. 없으면 빈 목록이다.
+    pub parts: Vec<TextPart>,
+    /// `ask` 메시지의 표준 꼴 선택지. 화면은 단추 모양으로 보인다(목업 M17 ③).
+    pub choices: Vec<Choice>,
+    /// 메시지 이벤트만.
+    pub message: Option<MessageFacts>,
 }
 
-const RECORD_COLUMNS: &str = "SELECT e.id, e.at, e.entry, m.body FROM events e
+/// 메시지 이벤트 줄이 보이는 사실. 종류가 없는 옛 메시지는 `by_loom`이 거짓이고 칸이 없다.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct MessageFacts {
+    /// 메시지 번호(`#2925`). `answer`의 `question` 칸이 이 번호를 가리킨다.
+    pub id: u32,
+    /// 화면이 보낸 쪽을 「loom」으로 보이고, 전달 단계 대신 칸 요약을 보인다(목업 M17 ③ 「보내는 쪽」).
+    pub from_loom: bool,
+    pub fields: Vec<FieldParts>,
+}
+
+/// 종류의 칸 하나와 그 값의 조각. 파일 칸은 링크 하나다.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct FieldParts {
+    pub name: Field,
+    pub parts: Vec<TextPart>,
+}
+
+impl EventRecord {
+    fn new(id: u32, at: i64, entry: Entry, message: Option<u32>, body: Option<String>) -> Self {
+        let text = match &entry {
+            Entry::Message { what, .. } => body
+                .as_deref()
+                .filter(|body| !what.as_ref().is_some_and(|w| w.repeats_file(body))),
+            Entry::Asked { text, .. }
+            | Entry::Answered { text, .. }
+            | Entry::Instructed { text, .. } => Some(text.as_str()),
+            Entry::Reported { summary, .. } => Some(summary.as_str()),
+            _ => None,
+        };
+        let question = match &entry {
+            Entry::Message {
+                what: Some(MessageKind::Ask),
+                ..
+            } => text,
+            _ => None,
+        };
+        let message = match (&entry, message) {
+            (Entry::Message { what, .. }, Some(id)) => Some(MessageFacts {
+                id,
+                from_loom: what.as_ref().is_some_and(shown_from_loom),
+                fields: screen_fields(what.as_ref()),
+            }),
+            _ => None,
+        };
+        EventRecord {
+            id,
+            at,
+            parts: text.map(parts).unwrap_or_default(),
+            choices: question.map(choices).unwrap_or_default(),
+            message,
+            entry,
+            body,
+        }
+    }
+}
+
+/// 화면의 칸 목록. 판정은 줄 머리의 종류 이름이 보이고(「판정 · 막음」), 커밋은 브랜치 줄에 붙는다(「출력표준2 · 3f2a91c」, 목업 M17 ①).
+fn screen_fields(what: Option<&MessageKind>) -> Vec<FieldParts> {
+    let mut fields: Vec<FieldParts> = Vec::new();
+    for (name, value) in what.iter().flat_map(|w| w.fields()) {
+        match (name, fields.last_mut()) {
+            (Field::Judgment, _) => {}
+            (Field::Head, Some(branch)) if branch.name == Field::Branch => {
+                branch.parts.push(TextPart::Text {
+                    text: format!(" · {value}"),
+                });
+            }
+            _ => fields.push(FieldParts {
+                name,
+                parts: if name.is_file() {
+                    vec![path_link(&value)]
+                } else {
+                    parts(&value)
+                },
+            }),
+        }
+    }
+    fields
+}
+
+/// 화면에서 보낸 쪽이 loom인 종류. 터미널의 `by_loom`과 다르다: 병합 단계 알림은 관문 노드가 불러 생기지만 loom이 알린다.
+/// 사람 입력은 사람이 친 노드를 보인다(목업 M17 ① 넷째 표시).
+fn shown_from_loom(what: &MessageKind) -> bool {
+    match what {
+        MessageKind::Merging { .. }
+        | MessageKind::Merged { .. }
+        | MessageKind::Rework { .. }
+        | MessageKind::Failed { .. }
+        | MessageKind::Exited { .. }
+        | MessageKind::SetupFailed { .. }
+        | MessageKind::Removed { .. }
+        | MessageKind::Adopted { .. }
+        | MessageKind::RulesChanged { .. } => true,
+        MessageKind::Ask
+        | MessageKind::Answer { .. }
+        | MessageKind::Done { .. }
+        | MessageKind::Note
+        | MessageKind::Ready { .. }
+        | MessageKind::Verdict { .. }
+        | MessageKind::HumanInput { .. } => false,
+    }
+}
+
+const RECORD_COLUMNS: &str = "SELECT e.id, e.at, e.entry, m.body, e.message FROM events e
     LEFT JOIN messages m ON m.id = e.message";
 
 /// `message`는 메시지 이벤트가 가리키는 메시지다. 본문을 복사하지 않는다.
@@ -309,10 +431,70 @@ pub(super) fn last_id(db: &Connection) -> rusqlite::Result<u32> {
 }
 
 fn record_from_row(row: &Row) -> rusqlite::Result<EventRecord> {
-    Ok(EventRecord {
-        id: row.get(0)?,
-        at: row.get(1)?,
-        entry: from_json(row, 2)?,
-        body: row.get(3)?,
-    })
+    Ok(EventRecord::new(
+        row.get(0)?,
+        row.get(1)?,
+        from_json(row, 2)?,
+        row.get(4)?,
+        row.get(3)?,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(what: MessageKind, body: &str) -> EventRecord {
+        let entry = Entry::Message {
+            how: Kind::Queue,
+            what: Some(what),
+            from: Who {
+                id: Some(NodeId(2)),
+                name: "gate".into(),
+            },
+            to: None,
+            step: Step::Delivered,
+            via: None,
+            gate: None,
+        };
+        EventRecord::new(1, 0, entry, Some(7), Some(body.into()))
+    }
+
+    #[test]
+    fn merge_notices_are_from_loom_and_human_input_is_from_the_node() {
+        let merged = MessageKind::Merged {
+            branch: "b".into(),
+            head: "h".into(),
+            sha: "s".into(),
+            log: None,
+        };
+        assert!(message(merged, "").message.unwrap().from_loom);
+        let typed = MessageKind::HumanInput { node: "n".into() };
+        assert!(!message(typed, "hi").message.unwrap().from_loom);
+    }
+
+    #[test]
+    fn verdict_fields_join_the_commit_to_the_branch_and_drop_the_judgment() {
+        let verdict = MessageKind::Verdict {
+            branch: "b".into(),
+            head: "3f2a91c".into(),
+            judgment: crate::protocol::Judgment::Block,
+            findings: None,
+            reviewer: Some("claude opus".into()),
+        };
+        let fields = message(verdict, "").message.unwrap().fields;
+        let names: Vec<Field> = fields.iter().map(|f| f.name).collect();
+        assert_eq!(names, [Field::Branch, Field::Reviewer]);
+        assert_eq!(fields[0].parts.len(), 2);
+    }
+
+    #[test]
+    fn a_done_with_only_a_file_shows_the_path_once() {
+        let done = |file: &str| MessageKind::Done {
+            file: Some(file.into()),
+            warning: None,
+        };
+        assert_eq!(message(done("/r.md"), "/r.md").parts, []);
+        assert_eq!(message(done("/r.md"), "summary").parts.len(), 1);
+    }
 }

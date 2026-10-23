@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M17 메시지 종류 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+  /* 제품 그림에만 쓴다(web/src/styles.css). */
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --shadow: light-dark(oklch(0% 0 0 / 0.12), oklch(0% 0 0 / 0.5));
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.flow span { padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); }
+.flow i { font-style: normal; color: var(--ink-3); }
+code { font: 12px var(--mono); }
+table.dec { border-collapse: collapse; font-size: 13px; }
+table.dec th, table.dec td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+table.dec th { color: var(--ink-3); font-weight: 600; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+/* 제품 화면(web/src/styles.css에서 옮김) */
+.screen { margin: 0; position: relative; width: 1360px; height: 1040px; display: flex; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.side { width: 190px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 12px 8px; font-size: 13px; display: grid; align-content: start; gap: 2px; }
+.side h3 { font-size: 12px; color: var(--ink-3); padding: 4px 8px; }
+.tree-row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 calc(8px + var(--d, 0) * 12px); border-radius: 6px; white-space: nowrap; }
+.tree-row[aria-current="true"] { background: var(--accent-wash); }
+.tree-row .name { font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; }
+.dot.ex { background: var(--err); }
+.graph { position: relative; flex: 1; background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 20px 20px; }
+.edge { position: absolute; border-left: 2px solid var(--line-strong); }
+.edge.h { border-left: 0; border-top: 2px solid var(--line-strong); }
+.card { position: absolute; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name, .srow .name { font-weight: 600; }
+.card-head .model { font: 12px var(--mono); color: var(--ink-3); }
+.spacer { flex: 1; }
+.state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--run); white-space: nowrap; }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state.ex { color: var(--err); }
+.ft { flex: 1; margin: 0; padding: 12px 12px; font: 11px/16px var(--mono); color: var(--ink); white-space: pre; overflow: hidden; }
+.ft .dim { color: var(--ink-3); }
+.card.simple { width: 260px; padding: 8px 10px 8px 12px; background: var(--surface); display: grid; gap: 2px; }
+.srow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.sline { font-size: 12px; color: var(--ink-2); }
+.lg { font: 12px var(--mono); color: #d97757; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.inbox-pill { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 500px; border: 1px solid var(--warn); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.inbox-pill .head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.inbox-pill .qi { color: var(--warn); width: 16px; height: 16px; }
+.inbox-pill .cnt { font-size: 11px; color: var(--ink-3); }
+.inbox-pill .qid { font: 12px var(--mono); color: var(--ink-3); }
+.inbox-pill .gname { font-size: 13px; }
+.prow { display: grid; gap: 8px; padding: 10px 12px 12px; }
+.prow .full { font-size: 13px; }
+.doc-link { color: var(--warn); text-decoration: underline; text-underline-offset: 2px; }
+.opts { display: flex; gap: 6px; }
+.opt { height: 26px; line-height: 24px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 12px; }
+.opt.rec { border-color: var(--warn); }
+.dock { width: 430px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); }
+.tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.tabs > span { padding: 6px 10px; color: var(--ink-3); border-bottom: 2px solid transparent; }
+.tabs > span.on { color: var(--ink); font-weight: 600; border-color: var(--accent); }
+.dock-head.hint { padding: 8px 16px; font-size: 12px; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.filters { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.chip { height: 26px; line-height: 24px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-strong); font-size: 12px; color: var(--ink-2); }
+.chip.on { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+.filters .search { margin-left: auto; width: 130px; height: 26px; line-height: 24px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 9px; font-size: 12px; color: var(--ink-3); background: var(--bg); }
+.events { list-style: none; padding: 64px 14px 4px; margin: 0; overflow: hidden; flex: 1; }
+.events li { position: relative; border-radius: 6px; }
+.events li.gap { margin-top: 64px; }
+.events li.open { background: var(--accent-wash); }
+.events li[data-family]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--warn); }
+.events li[data-family="done"]::before { background: var(--ok); }
+.events li[data-family="fail"]::before { background: var(--err); }
+.ev { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 2px 8px; padding: 6px 8px; font-size: 13px; }
+.ev time { font: 12px var(--mono); color: var(--ink-3); padding-top: 1px; }
+.ev .what { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.ev .kind { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.ev .k-q { color: var(--warn); }
+.ev .k-ok { color: var(--ok); }
+.ev .k-fail { color: var(--err); }
+.ev .who { font-weight: 600; }
+.ev .loomw { font: 600 12px var(--mono); color: var(--ink-3); }
+.ev .note { font-size: 12px; color: var(--ink-3); }
+.ev .note.err { color: var(--err); }
+.ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fields { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 2px 8px; margin: 0 8px 18px 60px; padding: 0; font-size: 12px; }
+.fields dt { color: var(--ink-3); }
+.dock-node { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.dock-node .model { font: 12px var(--mono); color: var(--ink-3); }
+.dterm { background: var(--term); }
+.fields dd { margin: 0; color: var(--ink); font-family: var(--mono); }
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co b { flex: none; width: 18px; height: 18px; border-radius: 50%; background: #D14343; color: #fff; font-size: 11px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow, table.dec { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font: 700 12px/22px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+</style>
+</head>
+<body data-ui=".chip, .opt, .tabs > span, .search">
+<svg width="0" height="0" style="position:absolute"><symbol id="q" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></symbol></svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M17</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 출력표준2</b></span><span>v2 · 2026-10-23 · 승인 Q646 A</span></div>
+  <h1>메시지 종류로 그리는 이벤트 콘솔과 터미널 머리 줄 (출력 표준 2단계)</h1>
+  <p class="lead">사람 지시: “에이전트가 외부로 아웃풋을 낼때(알림, 에이전트간 메시징)은 전부 표준화 되어 혼동이 없어야 한다”, “2~3 끝까지 해 목업 보여주고”. 승인된 설계 R8 v5 2단계다. 지금은 모든 메시지가 「큐·조정·중단」 줄이고, 뜻은 본문 앞 낱말(QUESTION:, done:, exited(0) 등)로만 알 수 있다. 바꾼 뒤에는 데몬이 메시지마다 종류를 붙이고, 이벤트 콘솔·받은편지함·에이전트 터미널이 그 종류로 같은 이름과 색을 보인다. 받은편지함 모양은 그대로다. 선택 단추와 링크는 화면이 글을 읽어 만들지 않고 데몬이 나눠서 준다. 빨간 상자가 바뀌는 곳이고, 점선 상자는 새로 생기는 곳이다.</p>
+
+  <div class="flow"><span>에이전트: <code>loom ask</code> · <code>answer</code> · <code>done</code> · <code>note</code> · 관문 동사</span><i>→</i><span>데몬: 종류와 칸을 검사하고 거절하거나 기록</span><i>→</i><span>loom 알림: 종료·입양·사람 입력·규칙 바뀜·병합 결과</span><i>→</i><span>화면·터미널: 종류 이름과 색으로 그림</span></div>
+
+  <div class="fig">
+    <h2>① 그래프 화면과 이벤트 콘솔 <span class="tag">오른쪽 칸 「이벤트」 탭, 판정 줄 하나를 편 모습</span></h2>
+    <div class="page screen">
+      <aside class="side">
+        <h3>loom</h3>
+        <div class="tree-row"><span class="dot"></span><span class="name">loom 총괄</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot"></span><span class="name">CI 담당자 loom</span></div>
+        <div class="tree-row" style="--d:1" aria-current="true"><span class="dot"></span><span class="name">코디 출력표준2</span></div>
+        <div class="tree-row" style="--d:2"><span class="dot"></span><span class="name">워커 데몬종류</span></div>
+        <div class="tree-row" style="--d:2"><span class="dot ex"></span><span class="name">워커 화면종류</span></div>
+      </aside>
+      <div class="graph">
+        <div class="inbox-pill"><span><span class="head"><svg class="i qi"><use href="#q"/></svg><b>질문</b><span class="cnt">1</span><span class="qid">Q640</span><span class="gname"><b>loom 총괄</b></span></span><span class="prow"><span class="full">2단계 배포 뒤 모든 에이전트 노드를 다시 띄울까요? <a class="doc-link">2단계 결과</a></span><span class="opts"><span class="opt rec">A: 예 · 권장</span><span class="opt">B: 아니오</span></span></span></span></div>
+        <div class="edge" style="left:200px; top:380px; height:30px"></div>
+        <div class="edge h" style="left:200px; top:410px; width:330px"></div>
+        <div class="edge" style="left:530px; top:410px; height:20px"></div>
+        <div class="card" style="left:24px; top:170px; width:440px; height:210px">
+          <div class="card-head"><span class="lg">✳</span><span class="name">코디 출력표준2</span><span class="model">opus · high</span><span class="spacer"></span><span class="state">실행 중</span></div>
+<pre class="ft">loom message #2931 (from: CI 담당자 loom, kind: verdict)
+verdict block · branch 출력표준2 · 3f2a91c
+findings: /home/ktadev/.cache/loom/출력표준2/review/opus.md
+reviewer: claude opus medium
+Next: fix each finding or rebut it with evidence,
+commit, then `loom ready 출력표준2`.
+
+<span class="dim">● 결함 파일을 읽습니다.</span></pre>
+        </div>
+        <div class="card simple" style="left:330px; top:430px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커 데몬종류</span><span class="spacer"></span><span class="state">실행 중</span></div>
+          <div class="sline">MessageKind를 events와 mailbox에 넣고 있습니다.</div>
+        </div>
+        <div class="card simple" style="left:24px; top:430px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커 화면종류</span><span class="spacer"></span><span class="state ex">종료</span></div>
+          <div class="sline">프로세스가 끝났습니다.</div>
+        </div>
+      </div>
+      <div class="dock">
+        <div class="tabs"><span>터미널</span><span>알림</span><span class="on">이벤트</span></div>
+        <p class="dock-head hint">최근 것이 위에 있습니다</p>
+        <div class="filters"><span class="chip on">노드</span><span class="chip on">메시지</span><span class="chip on">알림</span><span class="search">노드 이름</span></div>
+        <ol class="events">
+          <li data-family="fail" class="open"><div class="ev mk" data-n="1"><time>15:42</time><span class="what"><span class="kind k-fail">판정 · 막음</span><span class="who">CI 담당자 loom</span>→<span class="who">코디 출력표준2</span><span class="note">전달됨</span></span></div>
+            <dl class="fields mk" data-n="2"><dt>브랜치</dt><dd>출력표준2 · 3f2a91c</dd><dt>결함 파일</dt><dd><a class="doc-link">review/opus.md</a></dd><dt>검토</dt><dd>claude opus medium</dd><dt>다음</dt><dd>결함을 고치거나 증거로 반박한 뒤 <code>loom ready</code></dd></dl></li>
+          <li><div class="ev"><time>15:41</time><span class="what"><span class="kind">검토 요청</span><span class="who">코디 출력표준2</span>→<span class="who">CI 담당자 loom</span><span class="note">전달됨</span></span><span class="body">출력표준2 · 3f2a91c</span></div></li>
+          <li data-family="question"><div class="ev"><time>15:40</time><span class="what"><span class="kind k-q">답</span><span class="who">코디 출력표준2</span>→<span class="who">워커 데몬종류</span><span class="note">#2925에 · 전달됨</span></span><span class="body">A</span></div></li>
+          <li data-family="question"><div class="ev"><time>15:39</time><span class="what"><span class="kind k-q">질문</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note">#2925 · 전달됨</span></span><span class="body">Keep the old send verb for one release? (A: yes / B: no, recommended: A)</span></div></li>
+          <li class="gap"><div class="ev mk new" data-n="5"><time>15:38</time><span class="what"><span class="kind k-fail">메모</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note err">거절됨: QUESTION은 종류 낱말 · loom ask 사용</span></span></div></li>
+          <li class="gap"><div class="ev mk new" data-n="4"><time>15:37</time><span class="what"><span class="kind">사람 입력</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note">전달됨</span></span><span class="body">“send 동사는 지우지 말고 한 판 남겨”</span></div></li>
+          <li><div class="ev"><time>15:36</time><span class="what"><span class="kind">메모 · 조정</span><span class="who">코디 출력표준2</span>→<span class="who">워커 데몬종류</span><span class="note">전달됨</span></span><span class="body">Also keep the old rows readable (kind missing → note).</span></div></li>
+          <li class="gap" data-family="fail"><div class="ev mk new" data-n="3"><time>15:34</time><span class="what"><span class="kind k-fail">종료</span><span class="loomw">loom</span>→<span class="who">코디 출력표준2</span><span class="note">워커 화면종류 · 코드 1</span></span></div></li>
+          <li data-family="done"><div class="ev"><time>15:30</time><span class="what"><span class="kind k-ok">완료</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note">전달됨</span></span><span class="body">Typed kinds in events and mailbox; result.md</span></div></li>
+          <li><div class="ev"><time>15:12</time><span class="what"><span class="kind">규칙 바뀜</span><span class="loomw">loom</span>→<span class="note">살아 있는 에이전트 노드 12개</span></span><span class="body">skills/o-mode 92b753f7</span></div></li>
+          <li data-family="done"><div class="ev"><time>15:05</time><span class="what"><span class="kind k-ok">병합됨</span><span class="loomw">loom</span>→<span class="who">loom 총괄</span><span class="note">깨끗한사본제거 · 92b753f7</span></span></div></li>
+        </ol>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>1</b><span>줄 머리는 메시지 종류다. 지금의 「큐」는 메모에만 남고, 조정·중단은 「메모 · 조정」처럼 뒤에 붙는다. 왼쪽 띠 색: 질문·답 노랑, 완료·병합됨·통과 초록, 막음·실패·종료 빨강.</span></div>
+      <div><b>2</b><span>줄을 펴면 데몬이 준 칸을 그린다. 판정은 브랜치·결함 파일·검토 모델·다음 할 일이다. 본문 앞 낱말을 짐작하지 않는다. 결함 파일은 누르면 열리는 링크다.</span></div>
+      <div><b>3</b><span>loom이 보낸 알림. 보낸 쪽은 「loom」이다. 종료·설정 실패·지워짐·입양·규칙 바뀜·병합됨·실패가 이 모양이다. 에이전트는 이 종류를 보낼 수 없다.</span></div>
+      <div><b>4</b><span>사람이 자식 터미널에 쓴 글. loom이 부모에게 원문을 알린다. 에이전트가 손으로 보내던 USER DIRECTION을 대신한다.</span></div>
+      <div><b>5</b><span>종류 낱말(QUESTION, DONE 등)로 시작한 메모는 거절한다. 거절 글이 맞는 명령을 알린다.</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>② 에이전트 터미널의 메시지 머리 줄 <span class="tag">오른쪽 칸 「터미널」 탭, 코디가 판정을 받은 모습</span></h2>
+    <div class="page screen">
+      <aside class="side">
+        <h3>loom</h3>
+        <div class="tree-row"><span class="dot"></span><span class="name">loom 총괄</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot"></span><span class="name">CI 담당자 loom</span></div>
+        <div class="tree-row" style="--d:1" aria-current="true"><span class="dot"></span><span class="name">코디 출력표준2</span></div>
+        <div class="tree-row" style="--d:2"><span class="dot"></span><span class="name">워커 데몬종류</span></div>
+        <div class="tree-row" style="--d:2"><span class="dot ex"></span><span class="name">워커 화면종류</span></div>
+      </aside>
+      <div class="graph">
+        <div class="inbox-pill"><span><span class="head"><svg class="i qi"><use href="#q"/></svg><b>질문</b><span class="cnt">1</span><span class="qid">Q640</span><span class="gname"><b>loom 총괄</b></span></span><span class="prow"><span class="full">2단계 배포 뒤 모든 에이전트 노드를 다시 띄울까요? <a class="doc-link">2단계 결과</a></span><span class="opts"><span class="opt rec">A: 예 · 권장</span><span class="opt">B: 아니오</span></span></span></span></div>
+        <div class="edge" style="left:200px; top:380px; height:30px"></div>
+        <div class="edge h" style="left:200px; top:410px; width:330px"></div>
+        <div class="edge" style="left:530px; top:410px; height:20px"></div>
+        <div class="card" style="left:24px; top:170px; width:440px; height:210px">
+          <div class="card-head"><span class="lg">✳</span><span class="name">코디 출력표준2</span><span class="model">opus · high</span><span class="spacer"></span><span class="state">실행 중</span></div>
+<pre class="ft"><span>loom message #2931 (from: CI 담당자 loom, kind: verdict)</span>
+verdict block · branch 출력표준2 · 3f2a91c
+findings: /home/ktadev/.cache/loom/출력표준2/review/opus.md
+reviewer: claude opus medium
+Next: fix each finding or rebut it with evidence,
+commit, then `loom ready 출력표준2`.
+
+<span class="dim">● 결함 파일을 읽습니다.</span></pre>
+        </div>
+        <div class="card simple" style="left:330px; top:430px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커 데몬종류</span><span class="spacer"></span><span class="state">실행 중</span></div>
+          <div class="sline">MessageKind를 events와 mailbox에 넣고 있습니다.</div>
+        </div>
+        <div class="card simple" style="left:24px; top:430px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커 화면종류</span><span class="spacer"></span><span class="state ex">종료</span></div>
+          <div class="sline">프로세스가 끝났습니다.</div>
+        </div>
+      </div>
+      <div class="dock">
+        <div class="tabs"><span class="on">터미널</span><span>알림</span><span>이벤트</span></div>
+        <div class="dock-node"><b>코디 출력표준2</b> <span class="model">opus · high</span></div>
+<pre class="ft dterm"><span class="dim">● loom ready 출력표준2</span>
+  Sent ready for 출력표준2 (3f2a91c) to CI 담당자 loom.
+
+<span class="dim">● 다음 메시지를 기다립니다.</span>
+
+<span class="mk" data-n="1">loom message #2931 (from: CI 담당자 loom, kind: verdict)</span>
+verdict block · branch 출력표준2 · 3f2a91c
+findings: /home/ktadev/.cache/loom/출력표준2/review/opus.md
+reviewer: claude opus medium
+Next: fix each finding or rebut it with
+evidence, commit, then `loom ready 출력표준2`.
+
+<span class="mk new" data-n="2">loom message #2933 (from: loom, kind: human-input)</span>
+The human typed in 워커 데몬종류's terminal:
+"send 동사는 지우지 말고 한 판 남겨"
+
+<span class="mk" data-n="3">loom message #2934 (from: 워커 데몬종류, kind: note, mode: steer)</span>
+Old rows stay readable.
+
+<span class="dim">● 결함 파일을 읽습니다.</span>
+</pre>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>1</b><span>머리 줄에 종류가 있다: <code>kind: verdict</code>. 칸은 아래에 한 줄씩 있다. 본문 앞 낱말로 뜻을 짐작하지 않는다.</span></div>
+      <div><b>2</b><span>loom이 보낸 알림은 <code>from: loom</code>이다. 사람 입력은 사람 원문을 그대로 옮긴다.</span></div>
+      <div><b>3</b><span>메모의 조정·중단만 <code>mode</code>를 붙인다. 다른 종류에는 <code>mode</code>가 없다.</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>③ 종류 이름과 색 <span class="tag">이벤트 콘솔 줄 머리 · 터미널 kind</span></h2>
+    <table class="dec">
+      <tr><th>터미널 kind</th><th>화면 이름</th><th>색 띠</th><th>보내는 쪽</th><th>펴면 보이는 칸</th></tr>
+      <tr><td><code>ask</code> · <code>answer</code></td><td>질문 · 답</td><td>노랑</td><td>에이전트</td><td>질문(선택지는 단추 모양), 답한 질문 번호</td></tr>
+      <tr><td><code>done</code></td><td>완료</td><td>초록</td><td>에이전트</td><td>요약, 결과 파일 링크</td></tr>
+      <tr><td><code>note</code></td><td>메모 (· 조정 / · 중단)</td><td>없음</td><td>에이전트</td><td>본문</td></tr>
+      <tr><td><code>ready</code> · <code>verdict</code></td><td>검토 요청 · 판정 · 통과 / 막음</td><td>없음 · 초록 / 빨강</td><td>관문 동사</td><td>브랜치·커밋, 결함 파일, 검토 모델, 다음 할 일</td></tr>
+      <tr><td><code>merging</code> · <code>merged</code> · <code>rework</code> · <code>failed</code></td><td>병합 시작 · 병합됨 · 재작업 · 실패</td><td>없음 · 초록 · 빨강 · 빨강</td><td>loom</td><td>브랜치, 병합 커밋, 원인, 로그 링크</td></tr>
+      <tr><td><code>exited</code> · <code>setup-failed</code></td><td>종료 · 설정 실패</td><td>코드 0이면 없음, 아니면 빨강</td><td>loom</td><td>노드, 종료 코드, 설정 출력</td></tr>
+      <tr><td><code>removed</code> · <code>adopted</code></td><td>지워짐 · 입양</td><td>없음</td><td>loom</td><td>노드, 새 부모</td></tr>
+      <tr><td><code>human-input</code> · <code>rules-changed</code></td><td>사람 입력 · 규칙 바뀜</td><td>없음</td><td>loom</td><td>사람 원문 · 바뀐 스킬과 커밋</td></tr>
+    </table>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="dec">
+      <tr><th>번호</th><th>정할 것</th><th>안</th><th>권장</th></tr>
+      <tr><td>1</td><td>① 이벤트 콘솔, ② 터미널 머리 줄</td><td>A: 이 판대로 / B: 고칠 곳을 알림</td><td>A</td></tr>
+      <tr><td>2</td><td>③ 이름과 색</td><td>A: 표대로(색은 지금 알림의 노랑·초록에 빨강 하나를 더함) / B: 종류마다 다른 색</td><td>A. 색이 많으면 뜻을 외워야 한다</td></tr>
+      <tr><td>3</td><td>옛 <code>loom send</code></td><td>A: 한 판 동안 거절 글로 <code>loom note</code>를 알리고 다음 판에 지움 / B: 바로 지움</td><td>A. 다시 띄우기 전의 노드가 옛 명령을 쓴다</td></tr>
+      <tr><td>4</td><td>3단계 작업 폴더를 화면에 보이기</td><td>A: 화면 없음(완료·판정 칸의 파일 링크로 연다) / B: 노드 메뉴에 「작업 폴더 열기」</td><td>A. 파일은 이미 링크로 열린다</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+// Callout overlays for user-doc mockups (mockup 93 v17). Include at the end of <body>; runs on load and on resize (120 ms debounce).
+// Markup: inside each .fig, targets <el class="mk" data-n="N"> (add .new for a dashed box), frames .page/.xlwin/.shotwrap,
+// and <div class="calls"><div><b>1</b><span>text</span></div>...</div> (item N = text for data-n N).
+// Output (direct children of .fig): .ov-box[data-n] (z 60), .lead-svg > polyline[data-n] + circle (z 61), .ov-badge[data-n] (z 62), .co[data-n] (z 63).
+// .mk only marks the target; it has no outline and no ::after. fit() zooms .page/.shotwrap to min(0.8,(figW-290)/1360) and .xlwin to fit.
+// 말풍선은 화면 글자·컨트롤과 겹치지 않는 빈 자리에 두고, 상자 테두리에서 말풍선까지 지시선을 긋는다.
+// 지시선도 글자·컨트롤·다른 상자·다른 말풍선을 지나지 않는 자리 중 가장 짧은 것을 고른다. 가까운 빈 자리가 없으면 그림 오른쪽 말풍선 열에 둔다.
+// Boxes: target grown 5 px, clipped to the enclosing table cell and to the frame (inset 1). A td/th target = cell inset 1. An empty .shotwrap .mk = box exactly at the mark.
+// Bubbles never lie inside a frame; if they do not fit, the .fig bottom padding grows by 80 px steps. A .fig without .calls is only zoomed.
+(() => {
+  const GUT = 290; // 말풍선 열(px). 화면 그림은 이 열을 남기고 줄어든다.
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  // 선분과 사각형이 만나는지(Liang-Barsky).
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  // 제품마다 컨트롤 클래스가 다르다. 목업은 <body data-ui=".abtn, .seg">로 더한다. scripts/check-callouts.cjs도 같은 값을 읽는다.
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  // 말풍선은 화면 틀 밖에만 둔다. 자리가 모자라면 그림 아래 여백을 80px씩 늘려 다시 놓는다.
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; } // 그림만 있는 칸도 같은 배율로 줄인다.
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    for (let x = 80; place(fig, src) && x <= 1200; x += 80) fig.style.paddingBottom = base + x + 'px';
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = [...src.querySelectorAll(':scope > div > span')].map(s => s.innerHTML);
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    // 상자는 대상 둘레 5px. 표 칸이 대상이면 칸 안쪽 1px, 칸 안의 것이면 그 칸 안쪽 1px까지로 줄여 이웃 칸으로 넘지 않는다.
+    // 캡처 위의 빈 표시(.shotwrap .mk)는 캡처의 고른 색 띠와 틀 여백에 맞춘 자리라 그대로 쓴다. 상자는 화면 틀(.page·.xlwin·.shotwrap) 안쪽 1px도 넘지 않는다.
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    // 상자와 배지는 대상의 레이아웃을 바꾸지 않게 그림 위에 따로 그린다(맨 위 층).
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      // 배지는 상자 모서리 중 글자·컨트롤·다른 배지를 덮지 않는 곳에 둔다.
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 11], [(o.l + o.r) / 2, o.b + 11], [o.l - 11, o.t + 11], [o.r + 11, o.t + 11]].map(([x, y]) => ({ l: x - 11, t: y - 11, r: x + 11, b: y + 11 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b; // 상자를 감싼 틀(캡처 그림 등)만 덮어도 된다. 글자는 늘 피한다.
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const gutterX = Math.max(...frames.map(e => rel(e.getBoundingClientRect()).r)) + 16;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    // 한 번 놓아 보고 막힌 말풍선이 있으면 순서를 바꿔 다시 놓는다. 가장 덜 막힌 순서를 쓴다.
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts[n - 1]) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b><span>${texts[n - 1]}</span>`;
+      co.style.left = '0px'; co.style.top = '0px'; fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      // 지시선이 피할 것: 이 상자 안의 것과 이 상자를 감싼 큰 틀(캡처 그림, 엑셀 칸 전체)은 뺀다. 그 안의 글자는 따로 들어 있어 피한다.
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges, frames.map(e => rel(e.getBoundingClientRect()))); // 말풍선은 화면 틀(.page·.xlwin·.shotwrap) 밖에만 둔다.
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      // 상자 테두리에서 말풍선까지의 길: 곧은 선, 막히면 상자 위·아래로 나가 가로로 꺾는 선.
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        const yc = c.t + 12, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      let w = co.offsetWidth, h = co.offsetHeight; co.style.width = w + 'px';
+      const cands = [];
+      for (let d = 6; d <= 120; d += 6)
+        for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+          cands.push({ l: x, t: y, r: x + w, b: y + h });
+      // 가까운 자리가 막히면 그림 안의 다른 빈 자리(16px 격자)도 본다.
+      for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      const pick = list => { let bp = null, bc = null; for (const c of list) { if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      let best = pick(cands);
+      if (!best) {
+        // 말풍선 열: 이 틀 오른쪽. 선이 막히지 않는 높이 중 가장 짧은 것.
+        const gx = Math.min(rel(own.getBoundingClientRect()).r + 16, gutterX);
+        co.style.width = ''; co.style.maxWidth = Math.min(250, F.width - gx) + 'px'; w = co.offsetWidth; h = co.offsetHeight; co.style.width = w + 'px';
+        const g = []; for (let y = 40; y + h < F.height; y += 4) g.push({ l: gx, t: y, r: gx + w, b: y + h });
+        best = pick(g);
+        // 두 꼴의 선이 모두 막히면 6px 격자에서 꺾이는 수가 적은 빈 길을 찾아 말풍선 열까지 간다.
+        if (!best) {
+          const s = 6, W = Math.ceil(F.width / s), H = Math.ceil(F.height / s), bl = new Uint8Array(W * H);
+          const put = (o, v) => { for (let y = Math.max(0, Math.floor(o.t / s)); y <= Math.min(H - 1, Math.floor(o.b / s)); y++) for (let x = Math.max(0, Math.floor(o.l / s)); x <= Math.min(W - 1, Math.floor(o.r / s)); x++) bl[y * W + x] |= v; };
+          [...lineObs, ...placed].forEach(o => put(grow(o, 1), 1)); put(k, 2);
+          const D = [[1, 0], [-1, 0], [0, 1], [0, -1]], cost = new Float64Array(W * H * 4).fill(Infinity), back = new Int32Array(W * H * 4).fill(-1), q = [];
+          const push = (st, cv) => { if (cv >= cost[st]) return; cost[st] = cv; (q[cv] = q[cv] || []).push(st); };
+          for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { if (bl[y * W + x]) continue;
+            D.forEach(([dx, dy], d) => { const px = x - dx, py = y - dy; const cx0 = x * s + s / 2, cy0 = y * s + s / 2; if (px >= 0 && py >= 0 && px < W && py < H && bl[py * W + px] & 2 && (dx ? k.t <= cy0 && cy0 <= k.b : k.l <= cx0 && cx0 <= k.r)) push((y * W + x) * 4 + d, 0); }); }
+          const cg = Math.floor((gx - 1) / s), okRow = {};
+          const goal = y => okRow[y] ?? (okRow[y] = free({ l: gx, t: y * s + 3 - 12, r: gx + w, b: y * s + 3 - 12 + h }));
+          let end = -1;
+          for (let cv = 0; cv < q.length && end < 0; cv++) for (const st of q[cv] || []) {
+            if (cost[st] !== cv) continue; const cell = st >> 2, d = st & 3, x = cell % W, y = (cell - x) / W;
+            if (x === cg && goal(y)) { end = st; break; }
+            D.forEach(([dx, dy], nd) => { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H || bl[ny * W + nx]) return;
+              const ns = (ny * W + nx) * 4 + nd; if (cv + 1 + (nd !== d ? 4 : 0) < cost[ns]) { back[ns] = st; push(ns, cv + 1 + (nd !== d ? 4 : 0)); } });
+          }
+          if (end >= 0) {
+            const cells = []; for (let st = end; st >= 0; st = back[st]) cells.unshift(st);
+            const ctr = st => { const cell = st >> 2, x = cell % W; return [x * s + s / 2, (cell - x) / W * s + s / 2]; };
+            const [sx, sy] = ctr(cells[0]), d0 = cells[0] & 3;
+            const p = [d0 === 0 ? [k.r, sy] : d0 === 1 ? [k.l, sy] : d0 === 2 ? [sx, k.b] : [sx, k.t], [sx, sy]];
+            for (let z = 1; z < cells.length; z++) { if ((cells[z] & 3) !== (cells[z - 1] & 3)) p.push(ctr(cells[z - 1])); }
+            const [ex, ey] = ctr(cells[cells.length - 1]); p.push([ex, ey], [gx, ey]);
+            best = { c: { l: gx, t: ey - 12, r: gx + w, b: ey - 12 + h }, p: p.filter((v, z) => !z || v[0] !== p[z - 1][0] || v[1] !== p[z - 1][1]) };
+          }
+        }
+        // 막히지 않은 길이 없으면 가장 짧은 곧은 선을 쓴다(점검이 이 경우를 잡는다).
+        // 말풍선 열에 자리가 하나도 없으면 말풍선을 만들지 않는다. 점검이 빠진 번호로 실패시킨다.
+        if (!best && !g.length) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+        if (!best) { fails++; const c = g.find(free) || g[0]; const x1 = Math.min(Math.max(c.l, k.l), k.r), y1 = Math.min(Math.max(c.t + 12, k.t), k.b); best = { c, p: [[x1, y1], [c.l, c.t + 12]] }; }
+      }
+      const { c: bc, p: path } = best;
+      co.style.left = bc.l + 'px'; co.style.top = bc.t + 'px'; placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return fails; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    let bestO = null, bestF = Infinity;
+    for (const o of orders) { const f = attempt(o); if (f < bestF) { bestF = f; bestO = o; } if (!f) break; }
+    if (bestF) attempt(bestO);
+    return bestF;
+  };
+  // 그림이 다 읽힌 뒤에 놓고, 창 폭이 바뀌면 다시 놓는다.
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+
+</script>
+</body>
+</html>

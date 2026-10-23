@@ -6,9 +6,9 @@ import type { QuestionPill } from './gen/QuestionPill';
 import { DRAG_SLOP, PILL_MARGIN, placeFrom, placeOf, popLeft, popSpace, type Size } from './pillPlace';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import { DocText } from './DocText';
-import { choices } from './choices';
 import { dateAndTime } from './i18n';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
+import type { Choice } from './gen/Choice';
 import type { HumanWait } from './gen/HumanWait';
 import type { Prompt } from './gen/Prompt';
 import type { PromptKey } from './gen/PromptKey';
@@ -418,12 +418,12 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       )}
       {!prompt && (wait.text || wait.doc) && (
         <p className="full">
-          <DocText text={wait.text} doc={wait.doc} node={props.node} onRefusal={setRefusal} />
+          <DocText parts={wait.parts ?? []} doc={wait.doc} node={props.node} onRefusal={setRefusal} />
         </p>
       )}
       {wait.answerable ? (
         <>
-          {!done && <Choices question={wait.text} onPick={send} />}
+          {!done && <Choices list={wait.choices ?? []} onPick={send} />}
           {images.list.length > 0 && (
             <ul className="answer-images">
               {images.list.map((image) => (
@@ -524,9 +524,9 @@ function PromptBody(props: { prompt: Prompt; choosing: boolean; onPick: (option:
 const keyLabel = (key: PromptKey) => (key.kind === 'char' ? key.value : key.kind === 'tab' ? 'tab' : '⇧tab');
 
 /** 표준 꼴 질문의 선택지 버튼. 누르면 그 글자(`A`)를 바로 답으로 보낸다. 권장안은 표시한다. */
-function Choices(props: { question: string; onPick: (key: string) => void }) {
+function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void }) {
   const { t } = useTranslation();
-  const list = choices(props.question);
+  const { list } = props;
   if (list.length === 0) return null;
   return (
     <div className="choices">

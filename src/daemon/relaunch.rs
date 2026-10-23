@@ -681,7 +681,9 @@ impl App {
             Ok(_) => Position::Root,
             Err(e) => return Err(e.to_string()),
         };
-        self.prepare(start, Path::new(&place.worktree), position)
+        // 사람이 띄운 노드와 자식이 같다. 작업 폴더 전에 뜬 노드는 여기서 폴더를 받는다.
+        let task = self.task_dir(id).await.map_err(|e| format!("{e:?}"))?;
+        self.prepare(start, Path::new(&place.worktree), position, Some(&task))
             .await
             .map_err(|e| format!("{e:?}"))
     }

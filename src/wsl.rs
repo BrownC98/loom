@@ -697,6 +697,21 @@ mod tests {
     }
 
     #[test]
+    fn task_dir_of_a_wsl_node_is_the_linux_path_and_the_daemon_writes_the_unc_path() {
+        let text = "\u{1e}/usr/bin\u{1e}/home/me\u{1e}/mnt/c/loom/wsl\u{1e}";
+        let inside = read_inside(&at(), &[], text).unwrap();
+        let dir = crate::task::Tasks::wsl(inside.home(), |p| inside.local(p)).dir("loom-feat-x");
+        assert_eq!(dir.shown, "/home/me/.cache/loom/loom-feat-x");
+        // Windows 데몬만 WSL 노드를 띄운다. Linux에서는 `join`이 `/`를 넣는다.
+        if cfg!(windows) {
+            assert_eq!(
+                dir.local,
+                PathBuf::from(r"\\wsl.localhost\Ubuntu-24.04\home\me\.cache\loom\loom-feat-x")
+            );
+        }
+    }
+
+    #[test]
     fn windows_path_is_the_unc_path() {
         assert_eq!(
             windows_path("Ubuntu", "/home/me/"),

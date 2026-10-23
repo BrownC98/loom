@@ -2,7 +2,7 @@
 //! 옛 프로세스의 늦은 호출이 다시 띄운 프로세스의 세션을 시작하지 못하게 프로세스의 토큰으로 가린다.
 //! 근거: docs/design.md 「사람 응답 대기」.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use tokio::sync::watch;
@@ -48,6 +48,27 @@ impl Sessions {
     }
 }
 
+/// 노드마다 loom이 첫 입력(지시문, 다시 띄울 때의 글)을 주고 띄웠는지. 띄운 뒤 첫 사람 입력 훅은 그 입력이다:
+/// Claude는 시작 인자의 첫 입력을 바로 제출하고 `UserPromptSubmit`을 부른다. 그 턴은 부모에게 `human-input`으로 알리지 않는다.
+/// 글을 비교하지 않는다: Claude가 넘기는 글이 시작 인자와 같다는 보장이 없다.
+#[derive(Default)]
+pub struct FirstInputs(Mutex<HashSet<NodeId>>);
+
+impl FirstInputs {
+    pub fn launched(&self, node: NodeId, first_input: bool) {
+        let mut nodes = self.0.lock().unwrap();
+        match first_input {
+            true => nodes.insert(node),
+            false => nodes.remove(&node),
+        };
+    }
+
+    /// 이 입력이 loom이 준 첫 입력인가. 띄운 뒤 처음 한 번만 참이다.
+    pub fn injected(&self, node: NodeId) -> bool {
+        self.0.lock().unwrap().remove(&node)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -63,5 +84,15 @@ mod tests {
         assert!(*new.borrow() == Session::NotStarted);
         sessions.started(NodeId(1), "new");
         assert!(*new.borrow() == Session::Started);
+    }
+
+    #[test]
+    fn only_the_first_prompt_after_a_launch_with_a_brief_is_injected() {
+        let inputs = FirstInputs::default();
+        inputs.launched(NodeId(1), true);
+        inputs.launched(NodeId(2), false);
+        assert!(inputs.injected(NodeId(1)));
+        assert!(!inputs.injected(NodeId(1)), "the human typed this one");
+        assert!(!inputs.injected(NodeId(2)));
     }
 }

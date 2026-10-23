@@ -44,8 +44,11 @@ fn usage(launch: Launch) -> String {
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 18] = [
+/// 옛 동사(send·reply·steer·interrupt)는 한 판 동안 거절 글로 새 동사를 알린다. 승인 창이 뜨면 그 글을 보지 못한다.
+const ALLOWED: [&str; 20] = [
     "Bash(loom guard)",
+    "Bash(loom note:*)",
+    "Bash(loom answer:*)",
     "Bash(loom send:*)",
     "Bash(loom steer:*)",
     "Bash(loom interrupt:*)",
@@ -230,7 +233,17 @@ impl Event {
     /// 기록 파일의 `origin.kind`는 훅이 돈 뒤에 쓰인다(2.1.308 실측). 그래서 입력 글로 가린다.
     /// 전에는 이 턴들도 사람 입력으로 보아 턴 끝 검사가 거듭 깨웠다(2026-10-22 ktasearch-총괄 기록, 사람 결정 Q349 C).
     pub fn human_input(&self) -> bool {
-        matches!(self, Event::UserPromptSubmit { prompt } if !prompt.starts_with(NOTIFICATION_TAG))
+        self.prompt().is_some()
+    }
+
+    /// 사람 입력 턴의 입력 글. loom이 넣은 첫 입력(지시문)인지는 데몬이 가린다(`FirstInputs`).
+    pub fn prompt(&self) -> Option<&str> {
+        match self {
+            Event::UserPromptSubmit { prompt } if !prompt.starts_with(NOTIFICATION_TAG) => {
+                Some(prompt)
+            }
+            _ => None,
+        }
     }
 
     /// 이 훅이 알리는 사람 응답 대기. `None`이면 에이전트가 다시 일한다: 훅이 건 대기를 거둔다.
@@ -552,7 +565,7 @@ mod tests {
             from: "총괄".into(),
             kind,
             body: body.into(),
-            reply_to: None,
+            what: Some(crate::protocol::MessageKind::Note),
         }
     }
 
@@ -613,7 +626,7 @@ mod tests {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason":
-                    "loom message #1 (from: 총괄, mode: interrupt. Stop your current work and do what this message says)\n멈춰라",
+                    "loom message #1 (from: 총괄, kind: note, mode: interrupt. Stop your current work and do what this message says)\n멈춰라",
             } }))
         );
     }
@@ -635,7 +648,7 @@ mod tests {
                 event(input).reply(&[delivery(Kind::Steer, "b")], None),
                 Some(json!({ "hookSpecificOutput": {
                     "hookEventName": name,
-                    "additionalContext": "loom message #1 (from: 총괄, mode: steer)\nb",
+                    "additionalContext": "loom message #1 (from: 총괄, kind: note, mode: steer)\nb",
                 } }))
             );
         }

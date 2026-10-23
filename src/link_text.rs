@@ -1,5 +1,91 @@
 //! 에이전트가 사람에게 쓰는 글(`loom ask`, 부모 없는 노드의 `loom done`)의 링크 표준: 주소와 절대 경로는 화면이 그리는 markdown 링크 `[이름](주소)` 안에만 둔다.
-//! 근거: 2026-10-23 사람 "링크 표준이 없는 것이 뿌리 원인". 화면(`web/src/links.ts`)이 그리는 주소만 받는다. `links.cases.json`의 예를 양쪽 시험이 함께 읽는다.
+//! 근거: 2026-10-23 사람 "링크 표준이 없는 것이 뿌리 원인". 화면은 글을 나누지 않고 `parts`가 나눈 조각을 그린다. 그래서 받는 링크와 그리는 링크가 같다.
+
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use crate::task;
+
+/// 화면이 그리는 글 조각. 화면은 링크를 찾지 않는다.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "part", rename_all = "camelCase")]
+#[ts(export)]
+pub enum TextPart {
+    Text {
+        text: String,
+    },
+    /// `file://`·`http(s)://` 주소.
+    Link {
+        label: String,
+        href: String,
+    },
+    /// 이 글에 붙은 문서(`DOC_LINK`).
+    Doc {
+        label: String,
+    },
+}
+
+/// 글을 글 조각과 화면이 그리는 링크로 나눈다. 그리지 못하는 링크는 글로 남는다.
+pub fn parts(text: &str) -> Vec<TextPart> {
+    let mut parts = Vec::new();
+    let mut plain = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let (before, link) = rest.split_at(open);
+        plain.push_str(before);
+        match parse_link(link) {
+            Some((label, target, len)) if !link[..len - 1].ends_with('>') && drawn(target) => {
+                if !plain.is_empty() {
+                    parts.push(TextPart::Text {
+                        text: std::mem::take(&mut plain),
+                    });
+                }
+                let label = label.to_owned();
+                parts.push(if target == DOC_LINK {
+                    TextPart::Doc { label }
+                } else {
+                    TextPart::Link {
+                        label,
+                        href: target.to_owned(),
+                    }
+                });
+                rest = &link[len..];
+            }
+            _ => {
+                plain.push('[');
+                rest = &link[1..];
+            }
+        }
+    }
+    plain.push_str(rest);
+    if !plain.is_empty() {
+        parts.push(TextPart::Text { text: plain });
+    }
+    parts
+}
+
+/// 경로 그대로면 주소에서 뜻이 바뀌는 글자. `%`도 넣어 이미 있는 `%`를 `%25`로 바꾼다. 나머지 글자는 `drawable_form`이 바꾼다.
+const PATH_RESERVED: &AsciiSet = &CONTROLS.add(b'%').add(b'#').add(b'?');
+
+/// 경로 칸(결과 파일, 결함 파일, 로그)의 링크. 작업 폴더(`~/.cache/loom/<작업>/`) 안이면 이름은 그 안의 경로다(목업 M17 ① `review/opus.md`).
+/// 칸 값은 주소가 아니라 경로다. `#`·`?`·`%`를 인코딩하지 않으면 화면이 다른 파일을 연다(2026-10-23 검토 P2).
+pub fn path_link(path: &str) -> TextPart {
+    let slashed = path.replace('\\', "/");
+    let marker = format!("/{}/", task::ROOT.join("/"));
+    let label = slashed
+        .split_once(&marker)
+        .and_then(|(_, task)| task.split_once('/'))
+        .map_or(path, |(_, inside)| inside);
+    TextPart::Link {
+        label: label.to_owned(),
+        href: if is_url(path) {
+            drawable_form(path)
+        } else {
+            drawable_form(&utf8_percent_encode(path, PATH_RESERVED).to_string())
+        },
+    }
+}
 
 pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
     let (label, after) = link[1..].split_once("](")?;
@@ -25,12 +111,12 @@ pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
     ok.then_some((label, target, label.len() + 3 + end))
 }
 
-/// 본문 속 문서 링크의 주소 표지. 화면(`web/src/links.ts` `DOC_LINK`)이 이 자리에 붙은 문서의 링크를 그린다.
+/// 본문 속 문서 링크의 주소 표지. 화면은 이 자리(`TextPart::Doc`)에 붙은 문서의 링크를 그린다.
 /// 근거: 2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘".
 pub const DOC_LINK: &str = "loom:doc";
 
 /// 화면이 그릴 수 없는 링크 주소나 markdown 링크 밖의 맨몸 주소·경로를 처음 나온 것 하나 돌려준다. 없으면 `None`.
-/// 화면(`web/src/links.ts`)은 `file://`·`http(s)://` 주소(빈칸·`)` 없음)와 문서 링크 표지만 그린다.
+/// `parts`는 `file://`·`http(s)://` 주소(빈칸·`)` 없음)와 문서 링크 표지만 링크로 나눈다.
 pub fn bare_link(text: &str) -> Option<String> {
     let mut rest = text;
     while let Some(open) = rest.find('[') {
@@ -42,7 +128,7 @@ pub fn bare_link(text: &str) -> Option<String> {
             Some((_, target, len)) if link[..len - 1].ends_with('>') => {
                 return Some(target.to_owned());
             }
-            // 화면 정규식은 첫 `)`에서 끊으므로, 짝이 맞는 괄호가 든 주소는 그 뒤 글까지 이어 보여야 온전하다.
+            // 주소는 첫 `)`에서 끊기므로, 짝이 맞는 괄호가 든 주소는 그 뒤 글까지 이어 보여야 온전하다.
             Some((label, target, _)) if !drawn(target) => {
                 let from = label.len() + 3;
                 return Some(balanced_target(&link[from..]).to_owned());
@@ -64,10 +150,7 @@ fn drawn(target: &str) -> bool {
 
 /// 거절 글에 보일 고친 주소: 경로는 `file://` 주소로, 화면이 그리지 못하는 글자는 퍼센트 인코딩으로 바꾼다.
 pub fn drawable_form(found: &str) -> String {
-    let url = if ["file://", "http://", "https://"]
-        .iter()
-        .any(|s| found.starts_with(s))
-    {
+    let url = if is_url(found) {
         found.to_owned()
     } else {
         let path = found.replace('\\', "/");
@@ -82,6 +165,12 @@ pub fn drawable_form(found: &str) -> String {
         .replace(')', "%29")
         .replace('<', "%3C")
         .replace('>', "%3E")
+}
+
+fn is_url(text: &str) -> bool {
+    ["file://", "http://", "https://"]
+        .iter()
+        .any(|s| text.starts_with(s))
 }
 
 /// 이 앞 글자가 낱말 안이면(`and/or`, `경로/home`) 경로의 시작이 아니다.
@@ -160,25 +249,19 @@ mod tests {
     }
 
     fn link_targets(text: &str) -> Vec<String> {
-        let mut targets = Vec::new();
-        let mut rest = text;
-        while let Some(open) = rest.find('[') {
-            let link = &rest[open..];
-            rest = match parse_link(link) {
-                Some((_, target, len)) => {
-                    targets.push(target.to_owned());
-                    &link[len..]
-                }
-                None => &link[1..],
-            };
-        }
-        targets
+        parts(text)
+            .into_iter()
+            .filter_map(|part| match part {
+                TextPart::Text { .. } => None,
+                TextPart::Link { href, .. } => Some(href),
+                TextPart::Doc { .. } => Some(DOC_LINK.to_owned()),
+            })
+            .collect()
     }
 
     #[test]
-    fn rules_agree_with_the_shared_cases() {
-        let cases: Vec<Case> =
-            serde_json::from_str(include_str!("../web/src/links.cases.json")).unwrap();
+    fn accepted_text_draws_every_link() {
+        let cases: Vec<Case> = serde_json::from_str(include_str!("link_text.cases.json")).unwrap();
         for case in cases {
             assert_eq!(
                 bare_link(&case.text).is_some(),
@@ -190,6 +273,81 @@ mod tests {
                 assert_eq!(link_targets(&case.text), case.links, "{}", case.text);
             }
         }
+    }
+
+    #[test]
+    fn parts_split_out_only_drawn_links() {
+        let text = |t: &str| TextPart::Text { text: t.into() };
+        assert_eq!(
+            parts("see [b.html](file:///home/a/%ED%98%91/b.html) now"),
+            [
+                text("see "),
+                TextPart::Link {
+                    label: "b.html".into(),
+                    href: "file:///home/a/%ED%98%91/b.html".into()
+                },
+                text(" now"),
+            ]
+        );
+        assert_eq!(parts("no link [x] (y)"), [text("no link [x] (y)")]);
+        assert_eq!(
+            parts("[x](javascript:alert(1))"),
+            [text("[x](javascript:alert(1))")]
+        );
+        assert_eq!(parts("[x](<https://a.io>)"), [text("[x](<https://a.io>)")]);
+        assert_eq!(
+            parts("open [R9 tool](loom:doc), then pick"),
+            [
+                text("open "),
+                TextPart::Doc {
+                    label: "R9 tool".into()
+                },
+                text(", then pick"),
+            ]
+        );
+        assert_eq!(parts(""), []);
+    }
+
+    #[test]
+    fn path_links_name_the_place_inside_the_task_folder() {
+        assert_eq!(
+            path_link("/home/me/.cache/loom/출력표준2/review/opus.md"),
+            TextPart::Link {
+                label: "review/opus.md".into(),
+                href: "file:///home/me/.cache/loom/%EC%B6%9C%EB%A0%A5%ED%91%9C%EC%A4%802/review/opus.md".into()
+            }
+        );
+        assert_eq!(
+            path_link("C:\\Users\\me\\.cache\\loom\\t\\logs\\merge.log"),
+            TextPart::Link {
+                label: "logs/merge.log".into(),
+                href: "file:///C:/Users/me/.cache/loom/t/logs/merge.log".into()
+            }
+        );
+        for (path, href) in [
+            ("/tmp/result#1.md", "file:///tmp/result%231.md"),
+            ("/tmp/result?1.md", "file:///tmp/result%3F1.md"),
+            ("/tmp/result%20.md", "file:///tmp/result%2520.md"),
+            ("/tmp/result%.md", "file:///tmp/result%25.md"),
+            ("file:///tmp/a%231.md", "file:///tmp/a%231.md"),
+            ("C:\\work\\result#1%.md", "file:///C:/work/result%231%25.md"),
+        ] {
+            let TextPart::Link { href: got, .. } = path_link(path) else {
+                panic!("{path}");
+            };
+            assert_eq!(got, href);
+            let decoded = percent_encoding::percent_decode_str(&got).decode_utf8_lossy();
+            if !is_url(path) {
+                assert!(decoded.ends_with(&path.replace('\\', "/")), "{decoded}");
+            }
+        }
+        assert_eq!(
+            path_link("/tmp/a b.md"),
+            TextPart::Link {
+                label: "/tmp/a b.md".into(),
+                href: "file:///tmp/a%20b.md".into()
+            }
+        );
     }
 
     #[test]

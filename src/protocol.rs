@@ -1,7 +1,8 @@
-//! 병합 관문 프로토콜: 관문 동사, 브랜치마다 관문 상태와 그 전이, 보내는 쪽·받는 쪽 규칙, 관문 낱말, 에이전트 사용법 글.
-//! 관문 종류는 이 파일 한 곳에만 둔다. CLI·데몬·DB·흔적·사용법 글이 여기서 가져간다. 스킬 글은 종류를 다시 적지 않고 `loom --help`를 가리킨다.
+//! loom 프로토콜: 메시지 종류(`MessageKind`)와 그 칸, 터미널 머리 줄, 종류 낱말, 관문 동사, 브랜치마다 관문 상태와 그 전이,
+//! 보내는 쪽·받는 쪽 규칙, 에이전트 사용법 글. 종류는 이 파일 한 곳에만 둔다. CLI·데몬·DB·흔적·사용법 글이 여기서 가져간다. 스킬 글은 종류를 다시 적지 않고 `loom --help`를 가리킨다.
 //! 근거: 출력 표준 R8 v5 1단계(2026-10-23 사람 결정 Q559 A). 관문 글을 손으로 쓰자 받는 곳이 틀리고(READY가 총괄에게 감), 형식이 갈리고(CI 결과 세 가지),
 //! 흔적 없는 병합이 생겼다. 그래서 관문 일을 하는 명령이 보고도 한다.
+//! 2단계(R8 v5 ⑦ 2): 모든 에이전트 출력과 loom 알림이 종류를 가진다. 본문 앞 낱말(`done: `, `QUESTION:`)로 뜻을 짐작하지 않는다.
 
 use std::fmt;
 
@@ -56,7 +57,8 @@ pub enum GateState {
 }
 
 /// 검토 판정.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, clap::ValueEnum, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub enum Judgment {
     Pass,
@@ -225,21 +227,6 @@ pub fn receivers(call: GateCall) -> &'static [Receiver] {
     }
 }
 
-/// 관문 메시지 첫 줄. 머리 낱말은 소문자다. 손으로 쓴 관문 글(대문자 낱말)과 섞이지 않는다.
-pub fn headline(call: GateCall, branch: &str) -> String {
-    let what = match call {
-        GateCall::Ready => "ready for review",
-        GateCall::Verdict(Judgment::Pass) => "verdict pass",
-        GateCall::Verdict(Judgment::Block) => "verdict block (rework)",
-        GateCall::MergeStart => "merge started",
-        GateCall::MergeEnd(MergeEnd::Merged) => "merged",
-        GateCall::MergeEnd(MergeEnd::Rework) => "merge stopped (rework)",
-        GateCall::MergeEnd(MergeEnd::Failed) | GateCall::Fail => "failed",
-        GateCall::MergeEnd(MergeEnd::Stopped) => "merge stopped (still merging)",
-    };
-    format!("gate {branch}: {what}")
-}
-
 /// 받을 노드가 없을 때(담당을 지웠다, 관문 자신의 멈춤) 부른 노드가 받는 메시지의 끝 줄. 성공한 관문 호출은 모두 흔적을 남긴다(검토 C6).
 pub const KEPT_FOR_CALLER: &str =
     "No other node receives this. loom keeps it in your inbox as the gate record.";
@@ -292,31 +279,523 @@ pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
     }
 }
 
-/// 관문 낱말: 관문 글이 손으로 쓴 메시지 맨 앞에 오면 거절하고 맞는 동사를 알린다.
-/// 대문자만 본다. "Ready for review" 같은 보통 문장은 거절하지 않는다.
-const GATE_WORDS: [(&str, &str); 7] = [
-    ("CI RESULT", "loom verdict` or `loom fail"),
-    ("READY", "loom ready"),
-    ("MERGED", "loom merge"),
-    ("REWORK", "loom verdict"),
-    ("BLOCK", "loom verdict"),
-    ("VERDICT", "loom verdict"),
-    ("GATE", "loom --help"),
+/// 메시지 하나의 종류와 칸. 모든 에이전트 출력(`loom ask`·`answer`·`done`·`note`·관문 동사)과 loom 알림이 하나를 가진다.
+/// 본문(메시지의 `body`)은 칸이 아닌 글이다: 질문, 답, 요약, 메모, 다음 할 일 줄, 설정 출력, 사람 원문.
+/// 칸 이름은 낱말 하나로 둔다. 터미널 머리 줄 아래에 `<칸>: <값>` 한 줄씩 그대로 보인다.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum MessageKind {
+    /// 자식이 부모에게 묻는다. 부모 없는 노드의 `loom ask`는 사람 받은편지함으로 가고 메시지가 아니다.
+    Ask,
+    Answer {
+        question: Question,
+    },
+    Done {
+        /// 결과 파일(`--file`).
+        file: Option<String>,
+        /// 담당 브랜치가 병합되지 않았고 `loom ready`도 없다. 부모가 본다(요청 #3067: 워커 브랜치가 1.5시간 보이지 않게 기다렸다).
+        warning: Option<String>,
+    },
+    Note,
+    Ready {
+        branch: String,
+        head: String,
+        worktree: String,
+        target: String,
+    },
+    Verdict {
+        branch: String,
+        head: String,
+        judgment: Judgment,
+        findings: Option<String>,
+        /// 판정한 노드의 실행자와 모델(`claude opus`).
+        reviewer: Option<String>,
+    },
+    /// 병합을 시작했거나, 다시 부르면 될 일로 멈춰 `Merging`에 남았다(`cause`가 있다).
+    Merging {
+        branch: String,
+        head: String,
+        cause: Option<String>,
+        log: Option<String>,
+    },
+    Merged {
+        branch: String,
+        head: String,
+        /// 병합 커밋.
+        sha: String,
+        log: Option<String>,
+    },
+    Rework {
+        branch: String,
+        head: String,
+        cause: Option<String>,
+        log: Option<String>,
+    },
+    Failed {
+        branch: String,
+        head: String,
+        cause: Option<String>,
+        log: Option<String>,
+    },
+    /// 노드 프로세스가 끝났다. 코드를 모르면(다시 붙지 못함) 없다.
+    Exited {
+        node: String,
+        code: Option<u32>,
+    },
+    /// 설정 스크립트가 실패해 에이전트가 뜨지 않았다. 본문은 설정 출력의 끝이다.
+    SetupFailed {
+        node: String,
+        code: u32,
+    },
+    Removed {
+        node: String,
+    },
+    /// 노드의 부모가 바뀌었다. 옛 부모와 그 노드가 받는다.
+    Adopted {
+        node: String,
+        parent: String,
+    },
+    /// 사람이 노드 터미널에 친 글. 그 노드의 부모가 받는다. 본문은 사람 원문이다.
+    HumanInput {
+        node: String,
+    },
+    /// 데몬이 바뀐 내장 스킬로 시작했다. 살아 있는 모든 에이전트 노드가 받는다.
+    RulesChanged {
+        skills: Vec<String>,
+        /// 빌드한 커밋(`LOOM_COMMIT`). 릴리스 빌드에는 없다.
+        commit: Option<String>,
+    },
+}
+
+/// 종류의 칸 이름. 터미널은 `word`를, 화면은 이 값의 번역을 칸 이름으로 보인다.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Field {
+    Question,
+    File,
+    Warning,
+    Branch,
+    Head,
+    Worktree,
+    Target,
+    Judgment,
+    Findings,
+    Reviewer,
+    Sha,
+    Cause,
+    Log,
+    Node,
+    Code,
+    Parent,
+    Skills,
+    Commit,
+}
+
+impl Field {
+    /// 터미널 칸 줄의 이름(`findings: …`).
+    pub fn word(self) -> &'static str {
+        match self {
+            Field::Question => "question",
+            Field::File => "file",
+            Field::Warning => "warning",
+            Field::Branch => "branch",
+            Field::Head => "head",
+            Field::Worktree => "worktree",
+            Field::Target => "target",
+            Field::Judgment => "judgment",
+            Field::Findings => "findings",
+            Field::Reviewer => "reviewer",
+            Field::Sha => "sha",
+            Field::Cause => "cause",
+            Field::Log => "log",
+            Field::Node => "node",
+            Field::Code => "code",
+            Field::Parent => "parent",
+            Field::Skills => "skills",
+            Field::Commit => "commit",
+        }
+    }
+
+    /// 값이 파일 경로다. 화면은 누르면 열리는 링크로 그린다(목업 M17 ③ 「결과 파일 링크」·「결함 파일」·「로그 링크」).
+    pub fn is_file(self) -> bool {
+        match self {
+            Field::File | Field::Findings | Field::Log => true,
+            Field::Question
+            | Field::Warning
+            | Field::Branch
+            | Field::Head
+            | Field::Worktree
+            | Field::Target
+            | Field::Judgment
+            | Field::Reviewer
+            | Field::Sha
+            | Field::Cause
+            | Field::Node
+            | Field::Code
+            | Field::Parent
+            | Field::Skills
+            | Field::Commit => false,
+        }
+    }
+}
+
+/// `answer`가 답한 질문.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "in", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Question {
+    /// 자식의 `loom ask` 메시지 번호.
+    Message { id: u32 },
+    /// 받은편지함 질문 번호(`Q12`). 사람이 받은편지함에서 답했다.
+    Inbox { id: u32 },
+}
+
+impl fmt::Display for Question {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Question::Message { id } => write!(f, "#{id}"),
+            Question::Inbox { id } => write!(f, "Q{id}"),
+        }
+    }
+}
+
+/// loom 알림의 보낸 쪽 이름. 터미널 머리 줄의 `from:`이다.
+pub const LOOM: &str = "loom";
+
+impl MessageKind {
+    /// 터미널 머리 줄의 낱말(kebab-case). serde 이름과 같다(테스트가 막는다).
+    pub fn word(&self) -> &'static str {
+        match self {
+            MessageKind::Ask => "ask",
+            MessageKind::Answer { .. } => "answer",
+            MessageKind::Done { .. } => "done",
+            MessageKind::Note => "note",
+            MessageKind::Ready { .. } => "ready",
+            MessageKind::Verdict { .. } => "verdict",
+            MessageKind::Merging { .. } => "merging",
+            MessageKind::Merged { .. } => "merged",
+            MessageKind::Rework { .. } => "rework",
+            MessageKind::Failed { .. } => "failed",
+            MessageKind::Exited { .. } => "exited",
+            MessageKind::SetupFailed { .. } => "setup-failed",
+            MessageKind::Removed { .. } => "removed",
+            MessageKind::Adopted { .. } => "adopted",
+            MessageKind::HumanInput { .. } => "human-input",
+            MessageKind::RulesChanged { .. } => "rules-changed",
+        }
+    }
+
+    /// loom이 보낸 알림이다. 머리 줄의 보낸 쪽은 `loom`이고, 에이전트는 이 종류를 보낼 수 없다.
+    pub fn by_loom(&self) -> bool {
+        match self {
+            MessageKind::Ask
+            | MessageKind::Answer { .. }
+            | MessageKind::Done { .. }
+            | MessageKind::Note
+            | MessageKind::Ready { .. }
+            | MessageKind::Verdict { .. }
+            | MessageKind::Merging { .. }
+            | MessageKind::Merged { .. }
+            | MessageKind::Rework { .. }
+            | MessageKind::Failed { .. } => false,
+            MessageKind::Exited { .. }
+            | MessageKind::SetupFailed { .. }
+            | MessageKind::Removed { .. }
+            | MessageKind::Adopted { .. }
+            | MessageKind::HumanInput { .. }
+            | MessageKind::RulesChanged { .. } => true,
+        }
+    }
+
+    /// 파일만 준 완료(`loom done --file`)는 본문이 그 경로다. 같은 경로를 두 번 보이지 않는다.
+    pub fn repeats_file(&self, body: &str) -> bool {
+        matches!(self, MessageKind::Done { file: Some(file), .. } if file == body)
+    }
+
+    /// 머리 줄 아래 칸 줄. 없는 칸은 빼고, 칸 순서는 정의 순서다.
+    pub fn fields(&self) -> Vec<(Field, String)> {
+        let some = |name, value: &Option<String>| value.clone().map(|v| (name, v));
+        let branch = |branch: &str, head: &str| {
+            vec![
+                (Field::Branch, branch.to_owned()),
+                (Field::Head, head.to_owned()),
+            ]
+        };
+        let ended = |branch: &str, head: &str, cause: &Option<String>, log: &Option<String>| {
+            let mut fields = vec![
+                (Field::Branch, branch.to_owned()),
+                (Field::Head, head.to_owned()),
+            ];
+            fields.extend(some(Field::Cause, cause));
+            fields.extend(some(Field::Log, log));
+            fields
+        };
+        match self {
+            MessageKind::Ask | MessageKind::Note => Vec::new(),
+            MessageKind::Answer { question } => vec![(Field::Question, question.to_string())],
+            MessageKind::Done { file, warning } => some(Field::File, file)
+                .into_iter()
+                .chain(some(Field::Warning, warning))
+                .collect(),
+            MessageKind::Ready {
+                branch,
+                head,
+                worktree,
+                target,
+            } => vec![
+                (Field::Branch, branch.clone()),
+                (Field::Head, head.clone()),
+                (Field::Worktree, worktree.clone()),
+                (Field::Target, target.clone()),
+            ],
+            MessageKind::Verdict {
+                branch: b,
+                head,
+                judgment,
+                findings,
+                reviewer,
+            } => {
+                let mut fields = branch(b, head);
+                fields.push((
+                    Field::Judgment,
+                    match judgment {
+                        Judgment::Pass => "pass",
+                        Judgment::Block => "block",
+                    }
+                    .to_owned(),
+                ));
+                fields.extend(some(Field::Findings, findings));
+                fields.extend(some(Field::Reviewer, reviewer));
+                fields
+            }
+            MessageKind::Merged {
+                branch: b,
+                head,
+                sha,
+                log,
+            } => {
+                let mut fields = branch(b, head);
+                fields.push((Field::Sha, sha.clone()));
+                fields.extend(some(Field::Log, log));
+                fields
+            }
+            MessageKind::Merging {
+                branch,
+                head,
+                cause,
+                log,
+            }
+            | MessageKind::Rework {
+                branch,
+                head,
+                cause,
+                log,
+            }
+            | MessageKind::Failed {
+                branch,
+                head,
+                cause,
+                log,
+            } => ended(branch, head, cause, log),
+            MessageKind::Exited { node, code } => vec![
+                (Field::Node, node.clone()),
+                (
+                    Field::Code,
+                    code.map_or("unknown".to_owned(), |c| c.to_string()),
+                ),
+            ],
+            MessageKind::SetupFailed { node, code } => {
+                vec![(Field::Node, node.clone()), (Field::Code, code.to_string())]
+            }
+            MessageKind::Removed { node } | MessageKind::HumanInput { node } => {
+                vec![(Field::Node, node.clone())]
+            }
+            MessageKind::Adopted { node, parent } => {
+                vec![(Field::Node, node.clone()), (Field::Parent, parent.clone())]
+            }
+            MessageKind::RulesChanged { skills, commit } => {
+                let mut fields = vec![(Field::Skills, skills.join(", "))];
+                fields.extend(some(Field::Commit, commit));
+                fields
+            }
+        }
+    }
+}
+
+/// 받는 노드의 터미널에 넣는 메시지 글: 머리 줄, 칸 줄, 본문.
+/// `from`은 보낸 노드 이름이다. loom 알림이면 `loom`으로 바꾼다. `what`이 없는 옛 메시지는 메모로 보인다.
+/// `steer`·`interrupt`가 아니면 전달 방식을 적지 않는다.
+pub fn message_text(
+    id: u32,
+    from: &str,
+    what: Option<&MessageKind>,
+    mode: Option<&str>,
+    body: &str,
+) -> String {
+    let note = MessageKind::Note;
+    let what = what.unwrap_or(&note);
+    let from = if what.by_loom() { LOOM } else { from };
+    let mode = mode.map(|m| format!(", mode: {m}")).unwrap_or_default();
+    let mut lines = vec![format!(
+        "loom message #{id} (from: {from}, kind: {}{mode})",
+        what.word()
+    )];
+    let repeated = what.repeats_file(body);
+    lines.extend(
+        what.fields()
+            .into_iter()
+            .filter(|(name, _)| !(repeated && *name == Field::File))
+            .map(|(name, value)| format!("{}: {value}", name.word())),
+    );
+    if !body.is_empty() {
+        lines.push(body.to_owned());
+    }
+    lines.join("\n")
+}
+
+/// 관문 호출이 받는 노드에 보내는 종류. 칸 값은 관문 줄과 호출이 준다.
+pub struct GateFacts {
+    pub branch: String,
+    pub head: String,
+    pub worktree: String,
+    pub target: String,
+    pub findings: Option<String>,
+    pub reviewer: Option<String>,
+    pub sha: Option<String>,
+    pub cause: Option<String>,
+    pub log: Option<String>,
+}
+
+pub fn gate_kind(call: GateCall, facts: GateFacts) -> MessageKind {
+    let GateFacts {
+        branch,
+        head,
+        worktree,
+        target,
+        findings,
+        reviewer,
+        sha,
+        cause,
+        log,
+    } = facts;
+    match call {
+        GateCall::Ready => MessageKind::Ready {
+            branch,
+            head,
+            worktree,
+            target,
+        },
+        GateCall::Verdict(judgment) => MessageKind::Verdict {
+            branch,
+            head,
+            judgment,
+            findings,
+            reviewer,
+        },
+        GateCall::MergeStart | GateCall::MergeEnd(MergeEnd::Stopped) => MessageKind::Merging {
+            branch,
+            head,
+            cause,
+            log,
+        },
+        GateCall::MergeEnd(MergeEnd::Merged) => MessageKind::Merged {
+            branch,
+            head,
+            sha: sha.unwrap_or_default(),
+            log,
+        },
+        GateCall::MergeEnd(MergeEnd::Rework) => MessageKind::Rework {
+            branch,
+            head,
+            cause,
+            log,
+        },
+        GateCall::MergeEnd(MergeEnd::Failed) | GateCall::Fail => MessageKind::Failed {
+            branch,
+            head,
+            cause,
+            log,
+        },
+    }
+}
+
+/// 종류 낱말: 손으로 쓴 글(`note`·`answer`·`done`)이 이 낱말로 시작하면 거절하고 맞는 명령을 알린다(R8 v5 ⑤ 2층).
+/// 대문자만 본다. "Ready for review" 같은 보통 문장은 거절하지 않는다. 턴 끝 검사가 터미널에만 쓴 줄도 이 표로 찾는다.
+pub struct KindWord {
+    pub word: &'static str,
+    /// 대신 쓸 명령.
+    pub verb: &'static str,
+    /// 관문 스크립트가 있는 저장소에서만 거절한다. 그 밖의 저장소는 `loom verdict`·`loom merge`가 돌지 않아 옛 글을 쓴다.
+    pub gated_only: bool,
+    /// 관문 낱말. 관문 audit가 관문 동사 밖의 관문 글을 찾는다.
+    pub gate: bool,
+}
+
+const fn word(word: &'static str, verb: &'static str, gated_only: bool, gate: bool) -> KindWord {
+    KindWord {
+        word,
+        verb,
+        gated_only,
+        gate,
+    }
+}
+
+/// 긴 낱말을 먼저 둔다(`USER DIRECTION`이 `USER`보다 먼저 맞게).
+const KIND_WORDS: [KindWord; 15] = [
+    word("USER DIRECTION", NO_HUMAN_WORD, false, false),
+    word("USER DECISION", NO_HUMAN_WORD, false, false),
+    word(
+        "RULE UPDATE",
+        "nothing for built-in skills: loom sends rules-changed when they change. For other rules, use `loom note` without this word",
+        false,
+        false,
+    ),
+    word("QUESTION", "`loom ask`", false, false),
+    word("ESCALATION", "`loom ask`", false, false),
+    word("ANSWER", "`loom answer <message-id>`", false, false),
+    word(
+        "STATUS",
+        "`loom done` (it also carries interim results)",
+        false,
+        false,
+    ),
+    word("DONE", "`loom done`", false, false),
+    // `loom ready`은 관문 스크립트 없는 저장소에서도 돈다.
+    word("READY", "`loom ready`", false, true),
+    word("CI RESULT", "`loom verdict` or `loom fail`", true, true),
+    word("MERGED", "`loom merge`", true, true),
+    word("REWORK", "`loom verdict`", true, true),
+    word("BLOCK", "`loom verdict`", true, true),
+    word("VERDICT", "`loom verdict`", true, true),
+    word("GATE", "`loom --help`", true, true),
 ];
 
-/// 글 맨 앞의 관문 낱말과 그 대신 쓸 명령. `done: `(데몬이 붙인 완료 머리)는 건너뛰고 본다.
-pub fn gate_word(text: &str) -> Option<(&'static str, &'static str)> {
+const NO_HUMAN_WORD: &str =
+    "nothing: loom sends the human's terminal input to your parent (kind human-input)";
+
+/// 글 맨 앞의 종류 낱말.
+pub fn kind_word(text: &str) -> Option<&'static KindWord> {
     let text = text.trim_start();
-    let text = text.strip_prefix("done:").map_or(text, str::trim_start);
-    GATE_WORDS.into_iter().find(|(word, _)| {
-        text.strip_prefix(word)
+    KIND_WORDS.iter().find(|w| {
+        text.strip_prefix(w.word)
             .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
     })
 }
 
-/// 글의 어느 줄이든 관문 낱말로 시작하면 그 낱말. 턴 끝 검사가 터미널에만 쓴 관문 줄을 찾는다.
-pub fn gate_line(text: &str) -> Option<&'static str> {
-    text.lines().find_map(gate_word).map(|(word, _)| word)
+/// 글 맨 앞의 관문 낱말. 관문 audit가 쓴다.
+pub fn gate_word(text: &str) -> Option<&'static str> {
+    kind_word(text).filter(|w| w.gate).map(|w| w.word)
+}
+
+/// 글의 어느 줄이든 `applies`가 받는 종류 낱말로 시작하면 그 첫 낱말. 턴 끝 검사가 터미널에만 쓴 프로토콜 줄을 찾는다.
+/// 받지 않는 줄(관문 스크립트 없는 저장소의 `MERGED`)은 건너뛰고 뒤 줄을 본다.
+pub fn kind_line(
+    text: &str,
+    mut applies: impl FnMut(&KindWord) -> bool,
+) -> Option<&'static KindWord> {
+    text.lines().filter_map(kind_word).find(|w| applies(w))
 }
 
 /// 관문을 고르는 역할 이름. 설정의 기본 역할(`roles::Roles::default`)과 같다.
@@ -347,7 +826,7 @@ pub enum Finding {
         #[ts(type = "number")]
         oldest: i64,
     },
-    /// 이 차례에 담당이나 그 자손(같은 저장소)이 관문 동사 밖(`loom send` 등)으로 관문 낱말 메시지를 보냈다.
+    /// 이 차례에 담당이나 그 자손(같은 저장소)이 관문 동사 밖(`loom note` 등)으로 관문 낱말 메시지를 보냈다.
     RawGateWord {
         /// 그 메시지의 이벤트 기록 번호. 이벤트 콘솔에서 찾는다.
         event: u32,
@@ -434,11 +913,17 @@ pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
     }
 }
 
-/// 에이전트 사용법 글(`profile::COMMUNICATION_USAGE`)의 관문 줄. `concat!`에 넣으려고 매크로로 둔다.
+/// 에이전트 사용법 글(`profile::COMMUNICATION_USAGE`)의 메시지 종류 줄. `concat!`에 넣으려고 매크로로 둔다.
+/// 종류를 더하거나 바꾸면 이 글도 바꾼다(`tests::usage_names_every_agent_verb`가 막는다).
 #[macro_export]
-macro_rules! gate_usage {
+macro_rules! message_usage {
     () => {
-        "- Merge gate, only in repositories with scripts/gate/check.sh and ship.sh (there loom refuses READY, MERGED, BLOCK, REWORK, VERDICT or CI RESULT at the start of loom send/reply/done): loom ready <branch> (branch owner, all committed) sends the branch to its gate. loom verdict <branch> pass|block --findings <file> (gate or its reviewer, not the owner; block needs findings and goes to the owner as rework). loom merge <branch> (gate, after pass) audits, checks, merges, pushes and reports. loom fail <branch> <cause> (gate) stops the branch and tells the root. loom picks receivers. loom --help has details.\n"
+        "- loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, it asks your parent; the answer comes as a message (kind: answer), or wait for it: loom wait --reply-to <message-id> --timeout <seconds> --json.
+- loom answer <message-id> <body>: answer an ask that you received.
+- loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent. Call it again after more work. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready.
+- loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work (both only to your parent or children). If you receive an interrupt, stop your previous task. A body that starts with a kind word (QUESTION, ANSWER, STATUS, ESCALATION, DONE, READY, USER DIRECTION, ...) is refused; the refusal names the verb.
+- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (gate or its reviewer, not the owner; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework), loom merge <branch> (gate, after pass) audits, checks, merges, pushes and reports, loom fail <branch> <cause> (gate) tells the root. loom picks receivers. loom --help has details.
+"
     };
 }
 
@@ -549,16 +1034,153 @@ mod tests {
     }
 
     #[test]
-    fn gate_words_are_found_only_at_the_start_in_capitals() {
-        assert_eq!(gate_word("READY 출력표준 /tmp/x").unwrap().0, "READY");
-        assert_eq!(gate_word("  done: READY x").unwrap().0, "READY");
-        assert_eq!(gate_word("CI RESULT: pass").unwrap().0, "CI RESULT");
-        assert_eq!(gate_word("BLOCK: two findings").unwrap().0, "BLOCK");
-        assert_eq!(gate_word("Ready for review"), None);
-        assert_eq!(gate_word("BLOCKED on the coordinator"), None);
+    fn kind_words_are_found_only_at_the_start_in_capitals() {
+        let word = |text| kind_word(text).map(|w| w.word);
+        assert_eq!(gate_word("READY 출력표준 /tmp/x"), Some("READY"));
+        assert_eq!(gate_word("CI RESULT: pass"), Some("CI RESULT"));
+        assert_eq!(gate_word("BLOCK: two findings"), Some("BLOCK"));
         assert_eq!(gate_word("QUESTION: READY or not?"), None);
-        assert_eq!(gate_word("gate x: ready for review"), None);
-        assert_eq!(gate_line("작업 끝.\nMERGED abc123"), Some("MERGED"));
+        assert_eq!(word("QUESTION: READY or not?"), Some("QUESTION"));
+        assert_eq!(word("  USER DIRECTION: keep send"), Some("USER DIRECTION"));
+        assert_eq!(word("STATUS 50%"), Some("STATUS"));
+        assert_eq!(word("Ready for review"), None);
+        assert_eq!(word("BLOCKED on the coordinator"), None);
+        assert_eq!(word("DONEE"), None);
+        assert_eq!(word("gate x: ready for review"), None);
+        assert_eq!(
+            kind_line("작업 끝.\nMERGED abc123", |_| true).map(|w| w.word),
+            Some("MERGED")
+        );
+        assert_eq!(
+            kind_line("MERGED a\nQUESTION: x?", |w| !w.gated_only).map(|w| w.word),
+            Some("QUESTION")
+        );
+        // `loom ready`은 관문 스크립트 없는 저장소에서도 돌므로 READY는 어디서나 거절한다.
+        assert!(!kind_word("READY x").unwrap().gated_only);
+        assert!(kind_word("MERGED x").unwrap().gated_only);
+        // 대화 낱말과 거절 글은 맞는 동사를 알린다.
+        assert!(kind_word("QUESTION").unwrap().verb.contains("loom ask"));
+        assert!(kind_word("ANSWER").unwrap().verb.contains("loom answer"));
+    }
+
+    /// 머리 줄 낱말은 serde 태그의 kebab-case다. 종류를 더하면 `word`와 `by_loom`이 함께 바뀐다(빠짐없는 match).
+    #[test]
+    fn every_kind_word_matches_its_serde_tag() {
+        let kinds = [
+            MessageKind::Ask,
+            MessageKind::Answer {
+                question: Question::Message { id: 1 },
+            },
+            MessageKind::Done {
+                file: None,
+                warning: None,
+            },
+            MessageKind::Note,
+            gate_kind(GateCall::Ready, facts()),
+            gate_kind(GateCall::Verdict(Judgment::Pass), facts()),
+            gate_kind(GateCall::MergeStart, facts()),
+            gate_kind(GateCall::MergeEnd(MergeEnd::Merged), facts()),
+            gate_kind(GateCall::MergeEnd(MergeEnd::Rework), facts()),
+            gate_kind(GateCall::Fail, facts()),
+            MessageKind::Exited {
+                node: "w".into(),
+                code: None,
+            },
+            MessageKind::SetupFailed {
+                node: "w".into(),
+                code: 1,
+            },
+            MessageKind::Removed { node: "w".into() },
+            MessageKind::Adopted {
+                node: "w".into(),
+                parent: "p".into(),
+            },
+            MessageKind::HumanInput { node: "w".into() },
+            MessageKind::RulesChanged {
+                skills: vec!["o-mode".into()],
+                commit: None,
+            },
+        ];
+        for kind in &kinds {
+            let tag = serde_json::to_value(kind).unwrap()["kind"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let kebab: String = tag
+                .chars()
+                .flat_map(|c| match c.is_ascii_uppercase() {
+                    true => vec!['-', c.to_ascii_lowercase()],
+                    false => vec![c],
+                })
+                .collect();
+            assert_eq!(kind.word(), kebab);
+        }
+        let words: std::collections::HashSet<_> = kinds.iter().map(MessageKind::word).collect();
+        assert_eq!(words.len(), kinds.len(), "every kind has its own word");
+    }
+
+    fn facts() -> GateFacts {
+        GateFacts {
+            branch: "b".into(),
+            head: "abc".into(),
+            worktree: "/w".into(),
+            target: "main".into(),
+            findings: Some("/r.md".into()),
+            reviewer: Some("claude opus".into()),
+            sha: Some("def".into()),
+            cause: None,
+            log: None,
+        }
+    }
+
+    #[test]
+    fn the_terminal_head_names_the_kind_and_loom_for_notices() {
+        let verdict = gate_kind(GateCall::Verdict(Judgment::Block), facts());
+        assert_eq!(
+            message_text(12, "CI", Some(&verdict), None, "Next: fix"),
+            "loom message #12 (from: CI, kind: verdict)\nbranch: b\nhead: abc\njudgment: block\nfindings: /r.md\nreviewer: claude opus\nNext: fix"
+        );
+        let typed = MessageKind::HumanInput { node: "w".into() };
+        assert_eq!(
+            message_text(13, "w", Some(&typed), None, "keep send"),
+            "loom message #13 (from: loom, kind: human-input)\nnode: w\nkeep send"
+        );
+        assert_eq!(
+            message_text(14, "p", None, Some("steer"), "old row"),
+            "loom message #14 (from: p, kind: note, mode: steer)\nold row"
+        );
+        let exited = MessageKind::Exited {
+            node: "w".into(),
+            code: Some(0),
+        };
+        assert_eq!(
+            message_text(15, "w", Some(&exited), None, ""),
+            "loom message #15 (from: loom, kind: exited)\nnode: w\ncode: 0"
+        );
+    }
+
+    /// 사용법 글이 에이전트가 쓰는 모든 동사를 알린다. 옛 동사는 알리지 않는다.
+    #[test]
+    fn usage_names_every_agent_verb() {
+        let usage = crate::message_usage!();
+        for verb in [
+            "loom ask",
+            "loom answer",
+            "loom done",
+            "loom note",
+            "--steer",
+            "--interrupt",
+            "loom ready",
+            "loom verdict",
+            "loom merge",
+            "loom fail",
+            "loom wait --reply-to",
+        ] {
+            assert!(usage.contains(verb), "{verb}");
+        }
+        for old in ["loom send", "loom reply", "loom steer", "loom interrupt"] {
+            assert!(!crate::profile::COMMUNICATION_USAGE.contains(old), "{old}");
+        }
     }
 
     #[test]

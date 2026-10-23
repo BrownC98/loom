@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { isTauri } from '@tauri-apps/api/core';
 import { docPass, docUrl, openDoc } from './api';
 import type { NodeId } from './gen/NodeId';
+import type { TextPart } from './gen/TextPart';
 import type { WaitDoc } from './gen/WaitDoc';
-import { DOC_LINK, linkParts } from './links';
 import { openLink, openPass, phoneBrowser } from './openLink';
 
 /**
@@ -12,30 +12,37 @@ import { openLink, openPass, phoneBrowser } from './openLink';
  * 글이 문서에 링크를 걸었으면 그 자리에 둔다(2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘").
  * 없으면 글 끝에 붙인다. 따로 단추가 아니다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
  */
-export function DocText(props: { text: string; doc: WaitDoc | null; node: NodeId | null; onRefusal: (message: string) => void }) {
-  const { doc } = props;
-  const parts = linkParts(props.text);
-  const inline = parts.some((part) => 'href' in part && part.href === DOC_LINK);
+export function DocText(props: { parts: readonly TextPart[]; doc: WaitDoc | null; node: NodeId | null; onRefusal: (message: string) => void }) {
+  const { doc, parts } = props;
+  const inline = parts.some((part) => part.part === 'doc');
   return (
     <>
-      {parts.map((part, index) =>
-        !('href' in part) ? (
-          part.text
-        ) : part.href === DOC_LINK && doc ? (
-          <DocLink key={index} doc={doc} label={part.label} onRefusal={props.onRefusal} />
-        ) : (
-          <button key={index} type="button" className="doc-link" title={part.href} onClick={() => openLink(part.href, props.node)}>
-            {part.label}
-          </button>
-        ),
-      )}
+      {parts.map((part, index) => {
+        switch (part.part) {
+          case 'text':
+            return part.text;
+          case 'doc':
+            return doc ? <DocLink key={index} doc={doc} label={part.label} onRefusal={props.onRefusal} /> : part.label;
+          case 'link':
+            return <TextLink key={index} label={part.label} href={part.href} node={props.node} />;
+        }
+      })}
       {doc && !inline && (
         <>
-          {props.text && ' '}
+          {parts.length > 0 && ' '}
           <DocLink doc={doc} label={`${doc.id} ${doc.title}`} onRefusal={props.onRefusal} />
         </>
       )}
     </>
+  );
+}
+
+/** 글 속 `file://`·`http(s)://` 링크. */
+function TextLink(props: { label: string; href: string; node: NodeId | null }) {
+  return (
+    <button type="button" className="doc-link" title={props.href} onClick={() => openLink(props.href, props.node)}>
+      {props.label}
+    </button>
   );
 }
 

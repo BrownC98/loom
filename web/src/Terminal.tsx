@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { withoutColorReplies } from './colorReplies';
 import { attachPty, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { PtyRequest } from './gen/PtyRequest';
@@ -155,12 +156,6 @@ function focusSoon(xterm: XTerm) {
 }
 
 /** 지금 모드의 터미널 테마. `App`이 설정과 모드로 정한다. */
-/**
- * backlog를 그리는 동안 버리는 xterm의 답: 색 답(OSC 10·11·4)만. 색 질의는 프로그램이 짧은 시한으로 기다리므로 backlog 속 질의는 이미 끝났다.
- * 다른 답(커서 위치 `CSI 6n` 등)과 사람의 키는 보낸다. 화면이 붙기 전에 보낸 질의를 아직 기다리는 프로그램이 있다(리뷰 2026-10-23: 버리면 멈췄다).
- */
-const COLOR_REPLY = /\x1b\](?:10|11|4);[^\x07\x1b]*(?:\x07|\x1b\\)/g;
-
 export const XtermTheme = createContext<ITheme>(TERMINAL_THEMES[DEFAULT_TERMINAL_THEME.dark]);
 /** 모든 터미널의 글꼴. `App`이 설정으로 정한다. */
 export const XtermFont = createContext<XtermFontValue>(DEFAULT_TERMINAL_FONT);
@@ -329,7 +324,9 @@ export function SizingTerminal(props: TerminalProps) {
       };
       // `slow`일 때 모은 출력과 크기 알림. 온 차례대로 xterm에 넘긴다. 크기 알림이 그 뒤 출력의 모양을 정하기 때문이다.
       const held: (() => void)[] = [];
+      // 데몬이 `settled`를 알린 backlog를 그리는 중인 수.
       let replaying = 0;
+      let settled = false;
       const flush = () => {
         for (const step of held.splice(0)) step();
       };
@@ -347,18 +344,23 @@ export function SizingTerminal(props: TerminalProps) {
         onAttach: () => {
           // 다시 붙으면 backlog를 처음부터 받으므로 화면을 비운다. 모은 출력도 지난 연결의 것이다.
           held.length = 0;
+          settled = false;
           xterm.reset();
           decide();
         },
-        // 실측(2026-10-23): 카드를 열 때마다 xterm이 backlog 속 옛 색 질의에 다시 답해 셸 노드에 `^[]11;rgb:0a0a/…`가 글로 찍혔다.
         onBacklog: (bytes) =>
           feed(() => {
+            if (!settled) return xterm.write(bytes);
             replaying += 1;
             xterm.write(bytes, () => (replaying -= 1));
           }),
         onOutput: (bytes) => feed(() => xterm.write(bytes)),
         onNotice: (notice) => {
           if (notice === 'gone') feed(() => xterm.write(`${i18next.t('terminal.gone')}\r\n`));
+          else if (notice === 'settled')
+            feed(() => {
+              settled = true;
+            });
           // backlog보다 먼저 온다. 그 크기로 backlog를 그린다.
           else feed(() => xterm.resize(notice.size.cols, notice.size.rows));
         },
@@ -404,7 +406,7 @@ export function SizingTerminal(props: TerminalProps) {
       // xterm의 paste 처리기보다 먼저 받는다.
       el.addEventListener('paste', pasteImage, true);
       const input = xterm.onData((data) => {
-        const sent = replaying === 0 ? data : data.replace(COLOR_REPLY, '');
+        const sent = replaying === 0 ? data : withoutColorReplies(data);
         if (sent) link.sendInput(sent);
       });
       latest.current.onSender?.((data) => {

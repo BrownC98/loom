@@ -505,7 +505,7 @@ pub fn verdict(
 ) -> Result<(), String> {
     let findings = match findings {
         Some(path) => Some(absolute(&path)?),
-        None => default_findings(judgment)?,
+        None => default_findings(&branch, judgment)?,
     }
     .map(|path| crate::wsl::for_caller(&path));
     let state: GateState = call(
@@ -521,13 +521,15 @@ pub fn verdict(
     Ok(())
 }
 
-/// `--findings`가 없을 때: 부른 노드 자기 작업 폴더의 `review/<내 노드 이름>.md`. 그 파일이 없으면 pass는 결함 파일 없이 보낸다.
-/// 검토자는 담당의 작업을 물려받아 같은 폴더를 쓴다(`loom spawn`을 `--worktree` 없이 부른 경우).
-fn default_findings(judgment: Judgment) -> Result<Option<PathBuf>, String> {
+/// `--findings`가 없을 때: 부른 노드 자기 작업 폴더의 `review/<브랜치>-<내 노드 이름>.md`. 그 파일이 없으면 pass는 결함 파일 없이 보낸다.
+/// 검토자는 관문의 작업 폴더를 물려받는다(`--worktree` 없이 띄운다). 한 관문 아래 브랜치가 여럿이라 브랜치 이름을 붙여 서로 덮지 않게 한다.
+fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>, String> {
     let relations: Relations = call("status", &(), None)?;
-    let path = task_dir()?
-        .join(task::REVIEW)
-        .join(format!("{}.md", task::folder(&relations.me.name)));
+    let path = task_dir()?.join(task::REVIEW).join(format!(
+        "{}-{}.md",
+        task::folder(branch),
+        task::folder(&relations.me.name)
+    ));
     match (path.is_file(), judgment) {
         (true, _) => absolute(&path).map(Some),
         (false, Judgment::Pass) => Ok(None),
@@ -787,7 +789,7 @@ fn create_log(log: &Path) -> Result<PathBuf, String> {
 /// 이 노드의 작업 폴더. 데몬에 묻는다: 환경의 `LOOM_TASK_DIR`이 없는 노드(작업 폴더 전에 뜬 노드)도, WSL의 `loom.exe`도 같다.
 fn task_dir() -> Result<PathBuf, String> {
     let dir: Option<String> = call("task", &TaskRequest { branch: None }, None)?;
-    dir.map(PathBuf::from)
+    dir.map(|d| crate::wsl::from_caller(PathBuf::from(d)))
         .ok_or_else(|| "loom has no task folder for this node".to_owned())
 }
 
@@ -800,7 +802,7 @@ fn branch_task(branch: &str) -> Result<Option<PathBuf>, String> {
         },
         None,
     )?;
-    Ok(dir.map(PathBuf::from))
+    Ok(dir.map(|d| crate::wsl::from_caller(PathBuf::from(d))))
 }
 
 /// 명령의 표준 출력. 0이 아니게 끝나면 표준 오류가 오류다.

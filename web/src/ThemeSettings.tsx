@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { CardView } from './gen/CardView';
+import type { DefaultCardView } from './gen/DefaultCardView';
 import type { EdgeStyle } from './gen/EdgeStyle';
 import type { GraphScope } from './gen/GraphScope';
 import type { Language } from './gen/Language';
@@ -26,8 +26,8 @@ const THEME_CHOICES = [
 ] as const satisfies readonly { value: Theme; label: string; icon: LucideIcon }[];
 
 const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
-/** 설정과 오른쪽 사이드바가 같은 순서로 보인다(목업 card-view.html). */
-export const CARD_VIEWS = ['simple', 'standard'] as const satisfies readonly CardView[];
+/** 설정과 오른쪽 사이드바가 같은 순서로 보인다(목업 card-view.html, node-card-view.html ①). */
+const CARD_VIEWS = ['simple', 'rootTerminal', 'standard'] as const satisfies readonly DefaultCardView[];
 /** 목업 repo-scope.html 1번. 기본값(저장소 하나)이 앞이다. */
 const GRAPH_SCOPES = ['repo', 'all'] as const satisfies readonly GraphScope[];
 /** 기본값(계단)이 앞이다. */
@@ -35,8 +35,8 @@ const EDGE_STYLES = ['step', 'curve'] as const satisfies readonly EdgeStyle[];
 /** 기본값(한 줄)이 앞이다. */
 const QUESTION_PILLS = ['line', 'answer'] as const satisfies readonly QuestionPill[];
 
-/** 카드 보기 고르기. 설정 「그래프」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
-export function CardViewSwitch(props: { value: CardView; onChange: (value: CardView) => void }) {
+/** 기본 카드 보기 고르기. 설정 「그래프」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
+export function CardViewSwitch(props: { value: DefaultCardView; onChange: (value: DefaultCardView) => void }) {
   const { t } = useTranslation();
   const name = useId();
   return (

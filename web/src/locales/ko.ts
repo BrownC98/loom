@@ -80,6 +80,8 @@ const ko: typeof en = {
     menu: '노드 메뉴',
     relaunch: '다시 띄우기',
     relaunchQueued: '턴이 끝나면 다시 띄웁니다',
+    toStandard: '터미널 카드로 보기',
+    toSimple: '심플 카드로 보기',
     state: {
       running: '실행 중',
       done: '완료',
@@ -435,8 +437,9 @@ const ko: typeof en = {
   cardView: {
     heading: '카드 보기',
     simple: '심플',
+    rootTerminal: '총괄만 터미널',
     standard: '표준',
-    hint: '‘심플’이면 카드에 머리 정보만 보이고, 카드를 누르면 터미널이 오른쪽 칸에 열립니다.',
+    hint: '기본 보기입니다. ‘총괄만 터미널’이면 부모가 없는 노드만 터미널 카드입니다. 노드 하나는 카드의 ⋯ 메뉴로 바꿉니다.',
   },
   graphScope: {
     heading: '그래프 범위',

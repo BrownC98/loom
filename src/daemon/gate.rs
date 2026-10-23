@@ -28,6 +28,13 @@ pub struct BranchRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct ReadyRequest {
+    pub branch: String,
+    /// 부른 프로세스의 작업 폴더(부른 쪽이 읽는 글 그대로). 노드가 등록한 워크트리가 아닌 곳에서 일할 때 그 폴더가 담당 증거다.
+    pub cwd: String,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct Readied {
     pub gate: String,
     pub target: String,
@@ -182,18 +189,16 @@ impl App {
             .map_err(|e| Refusal::Git(e.to_string()))
     }
 
-    async fn ready(&self, node: NodeId, branch: &str, via: &Via) -> Result<Readied, Refusal> {
+    async fn ready(
+        &self,
+        node: NodeId,
+        branch: &str,
+        cwd: &str,
+        via: &Via,
+    ) -> Result<Readied, Refusal> {
         let place = self.graph.place_of(node)?;
         let repo = self.repo_of(node)?;
-        let mine = worktree::find(&repo, &place.worktree)
-            .await
-            .map_err(git_problem)?;
-        if mine.branch.as_deref() != Some(branch) {
-            return Err(Refusal::NotOwner {
-                branch: branch.to_owned(),
-                yours: mine.branch,
-            });
-        }
+        let mine = owned_worktree(&repo, &place.worktree, branch, cwd).await?;
         if !worktree::changes(&mine)
             .await
             .map_err(git_problem)?
@@ -229,7 +234,8 @@ impl App {
             });
         }
         // 관문 에이전트는 WSL에서 이 경로를 읽는다. Windows 데몬이 보는 UNC 글자 대신 배포판 안의 경로를 쓴다.
-        let worktree = crate::wsl::location(&place.worktree).map_or(place.worktree, |w| w.path);
+        let worktree =
+            crate::wsl::location(&mine.path).map_or_else(|| mine.path.clone(), |w| w.path);
         let round = Round {
             branch,
             target: &target,
@@ -461,6 +467,36 @@ async fn contains(repo: &Path, target: &str, branch: &str) -> Result<(), Refusal
     }
 }
 
+/// `branch`를 담당하는 워크트리. 노드가 등록한 워크트리가 그 브랜치면 그것이고,
+/// 아니면 부른 프로세스의 작업 폴더가 git으로 그 브랜치 워크트리일 때(원래 체크아웃의 노드가 다른 워크트리에서 고칠 때) 그 워크트리다.
+async fn owned_worktree(
+    repo: &Path,
+    registered: &str,
+    branch: &str,
+    cwd: &str,
+) -> Result<worktree::Worktree, Refusal> {
+    let mine = worktree::find(repo, registered)
+        .await
+        .map_err(git_problem)?;
+    if mine.branch.as_deref() == Some(branch) {
+        return Ok(mine);
+    }
+    // 폴더 접두사는 안쪽 워크트리·중첩 저장소를 가르지 못한다. git이 푼 최상위 폴더만 믿는다.
+    let cwd = Path::new(cwd);
+    let top = git::run(cwd, &["rev-parse", "--show-toplevel"])
+        .await
+        .map_err(Refusal::Git)?;
+    let top = git::from_git_path(cwd, top.trim());
+    worktree::worktrees(repo)
+        .await
+        .into_iter()
+        .find(|w| w.branch.as_deref() == Some(branch) && w.path == top)
+        .ok_or(Refusal::NotOwner {
+            branch: branch.to_owned(),
+            yours: mine.branch,
+        })
+}
+
 fn git_problem(e: worktree::RepoProblem) -> Refusal {
     Refusal::Git(e.to_string())
 }
@@ -468,11 +504,11 @@ fn git_problem(e: worktree::RepoProblem) -> Refusal {
 pub(super) async fn agent_ready(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(req): Json<BranchRequest>,
+    Json(req): Json<ReadyRequest>,
 ) -> Result<Json<Readied>, AgentError> {
     let node = app.caller(&headers)?;
     let via = via(&headers, "/api/agent/ready");
-    let result = app.ready(node, &req.branch, &via).await;
+    let result = app.ready(node, &req.branch, &req.cwd, &via).await;
     app.traced(node, GateVerb::Ready, &req.branch, &via, result)
 }
 
@@ -524,4 +560,83 @@ pub(super) async fn agent_fail(
     let via = via(&headers, "/api/agent/fail");
     let result = app.graph.fail(node, &req.branch, &req.cause, Some(&via));
     app.traced(node, GateVerb::Fail, &req.branch, &via, result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::test_run as run;
+
+    #[tokio::test]
+    async fn ownership_follows_the_registered_worktree_or_the_callers_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("app");
+        std::fs::create_dir(&repo).unwrap();
+        run(&repo, &["init", "-q", "-b", "main"]);
+        run(&repo, &["commit", "-q", "--allow-empty", "-m", "a"]);
+        let repo = std::path::PathBuf::from(run(&repo, &["rev-parse", "--show-toplevel"]));
+        let main = repo.display().to_string();
+        let feature = dir.path().join("feature");
+        run(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feature",
+                feature.to_str().unwrap(),
+            ],
+        );
+        let feature = std::path::PathBuf::from(run(&feature, &["rev-parse", "--show-toplevel"]));
+        let other = dir.path().join("other");
+        run(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "other",
+                other.to_str().unwrap(),
+            ],
+        );
+        let other = std::path::PathBuf::from(run(&other, &["rev-parse", "--show-toplevel"]));
+        std::fs::create_dir(feature.join("src")).unwrap();
+        let feature_dir = feature.join("src").display().to_string();
+
+        // 등록한 워크트리가 그 브랜치다.
+        let own = owned_worktree(&repo, &feature.display().to_string(), "feature", &main).await;
+        assert_eq!(own.unwrap().branch.as_deref(), Some("feature"));
+        // 원래 체크아웃의 노드가 그 브랜치 워크트리 안에서 부른다.
+        let moved = owned_worktree(&repo, &main, "feature", &feature_dir)
+            .await
+            .unwrap();
+        assert_eq!(moved.path, feature.display().to_string());
+        // 그 브랜치 워크트리 안에 다른 브랜치의 워크트리가 중첩돼도 거절한다.
+        let nested = feature.join("nested");
+        run(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "inner",
+                nested.to_str().unwrap(),
+            ],
+        );
+        let nested = nested.display().to_string();
+        let refused = owned_worktree(&repo, &main, "feature", &nested).await;
+        assert!(matches!(refused, Err(Refusal::NotOwner { .. })));
+        // 작업 폴더가 다른 브랜치의 워크트리면 거절한다.
+        let refused = owned_worktree(&repo, &main, "feature", &other.display().to_string()).await;
+        assert_eq!(
+            refused.unwrap_err(),
+            Refusal::NotOwner {
+                branch: "feature".into(),
+                yours: Some("main".into())
+            }
+        );
+    }
 }

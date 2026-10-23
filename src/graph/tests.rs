@@ -2411,6 +2411,35 @@ fn bookmarks_keep_their_order_and_vanish_with_the_node() {
 }
 
 #[test]
+fn card_view_and_last_reply_stay_on_the_node_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let g = open(&path);
+    let a = root(&g, "codex");
+    assert_eq!((view(&g, a).card_view, view(&g, a).reply), (None, None));
+    g.set_card_view(a, Some(CardView::Simple)).unwrap();
+    g.set_reply(a, "  첫 답\n").unwrap();
+    g.set_reply(a, "지금 할 일은 없습니다.").unwrap();
+    // 빈 답은 앞 답을 지우지 않는다.
+    g.set_reply(a, " \n").unwrap();
+    assert!(matches!(
+        g.set_card_view(NodeId(99), None),
+        Err(Refusal::NotFound(_))
+    ));
+    drop(g);
+    // 데몬을 다시 띄워도 남는다.
+    let g = open(&path);
+    let v = view(&g, a);
+    assert_eq!(v.card_view, Some(CardView::Simple));
+    assert_eq!(v.reply.as_deref(), Some("지금 할 일은 없습니다."));
+    g.set_card_view(a, None).unwrap();
+    g.set_reply(a, &"가".repeat(5000)).unwrap();
+    let v = view(&g, a);
+    assert_eq!(v.card_view, None);
+    assert_eq!(v.reply.map(|r| r.chars().count()), Some(5000));
+}
+
+#[test]
 fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
@@ -2424,8 +2453,11 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     assert_eq!(g.take(a, &[Kind::Queue], 1).unwrap().len(), 1);
     assert_eq!(view(&g, a).unread, 1);
 
+    let (_, mut events) = g.subscribe().unwrap();
     g.steer_queued(a).unwrap();
     assert_eq!(view(&g, a).unread, 0);
+    // 화면의 칩이 바로 사라진다. 알리지 않자 누른 칩이 「안 읽음 4」로 남아 고장으로 보였다(2026-10-23 사람 보고 "안읽음 버튼 클릭 해도 작동 안함").
+    assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.id == a && v.unread == 0));
     let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
     assert_eq!(
         steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),

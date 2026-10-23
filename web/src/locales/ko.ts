@@ -582,6 +582,7 @@ const ko: typeof en = {
       noWait: 'Q{{value}} 질문은 이미 닫혔습니다.',
       severalOpen: '열린 질문이 여럿입니다: {{value}}.',
       emptyAnswer: '답변을 적으십시오.',
+      promptChanged: '터미널의 승인 창이 바뀌었습니다. 보내지 않았습니다. 터미널에서 확인하세요.',
       launch: '노드를 시작하지 못했습니다: {{value}}',
       db: '기록을 읽거나 저장하지 못했습니다: {{value}}',
     },

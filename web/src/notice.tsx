@@ -21,7 +21,7 @@ export const ICON: Record<Tone, LucideIcon> = { ask: QuestionIcon, done: CircleC
 export const showsId = (kind: WaitKind) => kind === 'question';
 
 /** 한 줄 미리보기 글. 글이 없는 알림(승인 창 등)은 빈 글이다. */
-export const summaryOf = (wait: HumanWait) => plainText(wait.text);
+export const summaryOf = (wait: HumanWait) => wait.prompt?.summary ?? plainText(wait.text);
 
 /** 오래된 순(2026-10-23 사람 "알림은 오래된 순으로 표시해줘"). */
 export const bySince = (a: HumanWait, b: HumanWait) => a.since - b.since;

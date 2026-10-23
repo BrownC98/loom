@@ -3,6 +3,8 @@ import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { AnswerWait } from './gen/AnswerWait';
+import type { ChooseOption } from './gen/ChooseOption';
+import type { Prompt } from './gen/Prompt';
 import type { CardSize } from './gen/CardSize';
 import type { CloneRepo } from './gen/CloneRepo';
 import type { CommitGraph } from './gen/CommitGraph';
@@ -92,6 +94,9 @@ export const dismissWait = (wait: WaitId) => call<null>('DELETE', `/api/waits/${
 /** 화면에서 `loom ask` 질문에 답한다. `images`는 `savePastedFile`이 준 그림 경로다. 답은 사람이 보낸 메시지로 그 노드에 가고 질문은 사라진다. */
 export const answerWait = (wait: WaitId, text: string, images: string[]) =>
   call<null>('POST', `/api/waits/${wait}/answer`, { text, images } satisfies AnswerWait);
+/** 승인 창의 `option`번째 선택지를 고른다. 데몬은 터미널 화면이 `prompt`와 같을 때만 그 키를 친다. */
+export const chooseOption = (wait: WaitId, prompt: Prompt, option: number) =>
+  call<null>('POST', `/api/waits/${wait}/choose`, { prompt, option } satisfies ChooseOption);
 /** 질문에 붙은 문서를 데몬이 그 기계의 기본 브라우저로 연다. 데스크톱 앱에서도 앱 창이 아니라 브라우저로 연다. */
 export const openWaitDoc = (wait: WaitId) => call<null>('POST', `/api/waits/${wait}/doc`);
 /** 질문 문서의 주소. 끝의 `/` 때문에 문서 속 상대 주소(옆 그림)가 같은 폴더를 가리킨다. */

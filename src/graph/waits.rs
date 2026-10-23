@@ -3,7 +3,7 @@
 //! `loom ask` 질문은 노드마다 여러 개(`questions` 표)다. 새 질문은 앞 질문을 지우지 않는다(2026-10-22 목업 M28 승인, grill-me처럼 한 번에 여러 질문).
 //! `loom done --asked` 완료도 노드마다 여러 개(`dones` 표)다. 사람의 [확인](`dismiss`)과 이어서 맡기기(`answer`)만 지운다.
 //! 지우는 길: 신호 쪽이 거두기(`set_wait(.., None)`), 에이전트의 `loom answered`(`answered`), 사람의 키 입력(`typed`, 질문은 남긴다),
-//! 받은편지함 [×](`dismiss`), 노드 재시작(`clear_wait`), 프로세스 끝(`end_process`).
+//! 받은편지함 [×](`dismiss`), 노드 재시작(`relaunched`), 프로세스 끝(`end_process`).
 //! 사람은 화면에서 질문에 바로 답할 수도 있다(`answer`). 답은 사람이 보낸 메시지로 노드에 가고 그 질문은 그때 지운다.
 //! 질문·완료가 걸리고 닫힐 때마다 같은 트랜잭션에서 이벤트 기록에 한 줄을 남긴다(`events::Entry::Asked` 등). 신호의 대기는 남기지 않는다.
 //! 근거: docs/design.md 「사람 응답 대기」.
@@ -18,7 +18,9 @@ use ts_rs::TS;
 
 use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
-use super::{Graph, NodeId, NodeState, Refusal, parent_of, state_of, to_json};
+use crate::profile::AgentId;
+
+use super::{Graph, NodeId, NodeState, Refusal, from_json, parent_of, state_of, to_json};
 
 /// 사람이 할 일의 종류. 화면이 이름과 아이콘을 고른다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -72,6 +74,49 @@ pub struct WaitDoc {
     pub title: String,
 }
 
+/// 터미널 승인 창의 본문과 선택지(`screen::prompt`). 화면은 선택지마다 버튼을 그리고, 누르면 이 값을 그대로 돌려보낸다(`Graph::approval`).
+/// 데몬은 보내기 직전 화면을 다시 읽어 같은 값일 때만 키를 친다. 그래서 다른 창에 키가 들어가지 않는다(2026-10-23 목업 M11 승인).
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Prompt {
+    /// 창 위부터 마지막 선택지까지 화면 줄 그대로. 같은 창인지는 이 줄들이 정한다. `body`는 보기 좋게 다듬은 글이라 다른 명령이 같은 글이 될 수 있다(2026-10-23 리뷰: 명령 줄 「Tip:; touch one」).
+    pub rows: Vec<String>,
+    /// 창 본문(도구, 명령, 이유) 줄들. 명령 줄은 앞 공백까지 터미널 글 그대로다.
+    pub body: Vec<String>,
+    /// 무엇을 승인하는지 한 줄(명령). 알약 미리 보기가 쓴다.
+    pub summary: String,
+    pub options: Vec<PromptOption>,
+}
+
+/// 승인 창의 선택지 하나. `label`은 터미널 글(영어) 그대로다.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PromptOption {
+    pub label: String,
+    pub key: PromptKey,
+}
+
+/// 선택지를 고르는 키 하나. 누르면 바로 정한다(Claude 2.1.309, Codex 0.159.2 실측: 숫자 키 하나, Enter 없음).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+#[ts(export)]
+pub enum PromptKey {
+    Char(char),
+    Tab,
+    BackTab,
+}
+
+impl PromptKey {
+    /// 터미널에 쓰는 바이트.
+    pub fn bytes(self) -> Vec<u8> {
+        match self {
+            PromptKey::Char(c) => c.to_string().into_bytes(),
+            PromptKey::Tab => b"\t".to_vec(),
+            PromptKey::BackTab => b"\x1b[Z".to_vec(),
+        }
+    }
+}
+
 /// `--doc`(`loom ask`, `loom done`)이 붙인 문서와 그 파일.
 pub struct Attached {
     pub doc: WaitDoc,
@@ -99,6 +144,10 @@ pub struct HumanWait {
     /// 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
     #[serde(default)]
     pub images: Vec<String>,
+    /// 승인(`Approval`) 신호 대기만: 지금 터미널 화면에서 읽은 승인 창. 읽지 못했으면 없다. DB에 두지 않는다(`Graph::set_prompt`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<Prompt>,
 }
 
 /// DB `nodes.wait`의 JSON.
@@ -136,13 +185,18 @@ pub const HUMAN: &str = "human";
 impl Graph {
     /// 신호 하나가 노드의 대기를 바꾼다. `None`이면 그 신호가 건 대기만 지운다.
     /// 같은 종류·글이면 그대로 둔다(시작 시각을 지킨다). 바뀌었을 때만 화면에 알린다.
+    /// `token`은 신호를 낸 프로세스의 토큰이다. 다시 띄운 노드의 옛 프로세스·옛 화면·옛 서버가 늦게 낸 신호는 대기를 다시 열지 못한다(`relaunched`가 토큰을 바꾼다).
+    /// 근거: 2026-10-23 리뷰 「다시 띄운 뒤 옛 승인」: 옛 대기가 새 PTY에 키를 쳤다.
     pub fn set_wait(
         &self,
-        id: NodeId,
+        token: &str,
         source: WaitSource,
         wait: Option<(WaitKind, &str)>,
     ) -> rusqlite::Result<()> {
         let db = self.lock();
+        let Some(id) = super::nodes::caller_in(&db, token)? else {
+            return Ok(());
+        };
         let Some(now) = stored(&db, id)? else {
             return Ok(());
         };
@@ -409,19 +463,18 @@ impl Graph {
             .ok_or(Refusal::NoWait(wait))
     }
 
-    /// 노드 프로세스를 다시 띄웠다. 신호의 대기와 열린 질문을 모두 지운다.
-    pub fn clear_wait(&self, id: NodeId) -> rusqlite::Result<()> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let changed = tx.execute(
-            "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
-            [id.0],
-        )? + drop_questions(&tx, id, ClosedBy::Restart)?;
-        tx.commit()?;
-        if changed > 0 {
-            self.publish_node(&db, id)?;
-        }
-        Ok(())
+    /// 사람이 알림에서 승인 창의 선택지를 눌렀다. 그 번호가 열린 승인 신호 대기면 그 노드와 에이전트를 돌려준다. 키는 데몬이 화면을 다시 읽고 친다.
+    pub fn approval(&self, wait: WaitId) -> Result<(NodeId, Option<AgentId>), Refusal> {
+        let found: Option<(u32, Option<AgentId>)> = self
+            .lock()
+            .query_row(
+                "SELECT id, agent FROM nodes WHERE wait ->> 'id' = ?1 AND wait ->> 'kind' = 'approval'",
+                [wait.0],
+                |row| Ok((row.get(0)?, from_json(row, 1)?)),
+            )
+            .optional()?;
+        let (node, agent) = found.ok_or(Refusal::NoWait(wait))?;
+        Ok((NodeId(node), agent))
     }
 }
 
@@ -518,6 +571,7 @@ fn new_wait(
         doc,
         instruction: None,
         images: Vec::new(),
+        prompt: None,
     })
 }
 

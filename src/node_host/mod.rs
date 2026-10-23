@@ -266,17 +266,10 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
     }
 
-    /// 지금 터미널 화면의 글. backlog를 마지막 PTY 크기의 화면에 다시 그린다. 지운 줄과 덮어쓴 글은 남지 않는다.
-    pub fn screen(&self, id: K) -> String {
-        let Some(pty) = self.pty(id) else {
-            return String::new();
-        };
-        let PtySize { cols, rows } = *pty.size.borrow();
-        let bytes = pty.output.lock().unwrap().backlog.to_vec();
-        let size = |n: u16| NonZeroU16::new(n.max(1)).expect("1 이상이다");
-        let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
-        parser.process(&bytes);
-        parser.screen().contents()
+    /// 지금 터미널 화면. backlog를 마지막 PTY 크기의 화면에 다시 그린다. 지운 줄과 덮어쓴 글은 남지 않는다.
+    pub fn screen(&self, id: K) -> Screen {
+        self.pty(id)
+            .map_or_else(Screen::default, |pty| pty.screen())
     }
 
     /// backlog와 그 뒤의 출력을 빈틈없이 받는다.
@@ -290,11 +283,22 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         })
     }
 
-    pub fn write(&self, id: K, bytes: &[u8]) {
-        if let Some(pty) = self.pty(id) {
+    /// `pick`이 고른 바이트를 친다. `pick`은 이 PTY의 입력 잠금을 쥔 채 돈다. 그래서 `pick`이 화면을 읽고 고르는 사이에 다른 입력(사람의 키, 다른 선택)이 끼지 않는다.
+    /// 화면을 읽은 PTY에 친다. 그 사이 노드를 다시 띄웠으면 새 PTY에 치지 않는다. `pick`이 거절하면 아무것도 치지 않는다.
+    /// 근거: 2026-10-23 리뷰 「한 승인에 두 응답」: 화면 읽기·비교와 쓰기 사이에 잠금이 풀려 두 요청이 모두 쳤다.
+    pub fn write_if<E>(
+        &self,
+        id: K,
+        pick: impl FnOnce(&Keys<'_>) -> Result<Vec<u8>, E>,
+    ) -> Result<(), E> {
+        let pty = self.pty(id);
+        let mut host = pty.as_ref().map(|pty| pty.host.lock().unwrap());
+        let bytes = pick(&Keys(pty.as_deref()))?;
+        if let Some(host) = host.as_mut() {
             // 호스트가 끝났으면 실패한다. 화면에 따로 알리지 않는다. 상태 이벤트가 exited를 보인다.
-            pty.send(&Frame::Data(bytes.to_vec()));
+            let _ = wire::write(&mut **host, &Frame::Data(bytes));
         }
+        Ok(())
     }
 
     /// 이 크기를 PTY 크기로 쥔다. 폰이 빌린 크기가 있으면 그 빌림은 끝난다. 돌려줄 때 이 크기를 덮지 않는다.
@@ -432,7 +436,28 @@ fn connect(file: &std::path::Path) -> Result<(TcpStream, Option<u32>), String> {
     Ok((stream, pid))
 }
 
+/// `write_if`의 `pick`이 보는 PTY. PTY가 없으면 화면이 비었다.
+pub struct Keys<'a>(Option<&'a Pty>);
+
+impl Keys<'_> {
+    pub fn screen(&self) -> Screen {
+        self.0.map_or_else(Screen::default, Pty::screen)
+    }
+}
+
 impl Pty {
+    fn screen(&self) -> Screen {
+        let PtySize { cols, rows } = *self.size.borrow();
+        let bytes = self.output.lock().unwrap().backlog.to_vec();
+        let size = |n: u16| NonZeroU16::new(n.max(1)).expect("1 이상이다");
+        let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
+        parser.process(&bytes);
+        Screen {
+            text: parser.screen().contents(),
+            cols,
+        }
+    }
+
     fn send(&self, frame: &Frame) {
         let _ = wire::write(&mut *self.host.lock().unwrap(), frame);
     }
@@ -481,6 +506,13 @@ impl Backlog {
     fn to_vec(&self) -> Vec<u8> {
         self.0.iter().copied().collect()
     }
+}
+
+/// 터미널 화면의 글과 그 폭(칸 수). CLI가 폭에 맞춰 넘긴 줄을 이으려면 폭이 필요하다(`screen::prompt`).
+#[derive(Default)]
+pub struct Screen {
+    pub text: String,
+    pub cols: u16,
 }
 
 /// 화면이 보낸 입력에 사람이 누른 키가 있다. 터미널이 스스로 보내는 응답은 키가 아니다:
@@ -538,18 +570,18 @@ fn report_len(seq: &[u8]) -> Option<usize> {
     }
 }
 
+/// 호스트를 이 테스트 프로세스 안에 띄우고 주소 파일을 쓴다. `loom pty-host`와 같은 코드다.
+#[cfg(all(test, unix))]
+pub fn in_process(dir: &std::path::Path, id: impl Display, cmd: CommandBuilder) {
+    let started = host::start(cmd, None).unwrap();
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(dir.join(id.to_string()), started.address.to_string()).unwrap();
+    std::thread::spawn(move || started.wait());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 호스트를 이 테스트 프로세스 안에 띄우고 주소 파일을 쓴다. `loom pty-host`와 같은 코드다.
-    #[cfg(unix)]
-    fn in_process(dir: &std::path::Path, id: u32, cmd: CommandBuilder) {
-        let started = host::start(cmd, None).unwrap();
-        std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join(id.to_string()), started.address.to_string()).unwrap();
-        std::thread::spawn(move || started.wait());
-    }
 
     /// `text`가 나올 때까지 출력을 읽는다.
     #[cfg(unix)]
@@ -667,7 +699,9 @@ mod tests {
         assert_eq!(*second.pty(1).unwrap().pid.lock().unwrap(), first_pid);
         // backlog는 붙은 직후에 오므로 `attach`의 backlog나 그 뒤 출력 가운데 하나로 온다.
         let mut attached = second.attach(1).unwrap();
-        second.write(1, b"x\n");
+        second
+            .write_if(1, |_| Ok::<_, std::convert::Infallible>(b"x\n".to_vec()))
+            .unwrap();
         assert!(read_until(&mut attached, "got x").contains("before"));
         assert_eq!(rx.recv().unwrap(), Exit::Command(3));
         assert!(!dir.path().join("1").exists());
@@ -771,7 +805,9 @@ mod tests {
         let writer = nodes.clone();
         std::thread::spawn(move || {
             for _ in 0..FRAMES {
-                writer.write(1, &vec![b'i'; FRAME]);
+                writer
+                    .write_if(1, |_| Ok::<_, std::convert::Infallible>(vec![b'i'; FRAME]))
+                    .unwrap();
             }
             writer_tx.send(()).unwrap();
         });
@@ -821,7 +857,9 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         nodes.resume(1, move |code| tx.send(code).unwrap()).unwrap();
         assert_eq!(*nodes.pty(1).unwrap().pid.lock().unwrap(), Some(42));
-        nodes.write(1, b"x");
+        nodes
+            .write_if(1, |_| Ok::<_, std::convert::Infallible>(b"x".to_vec()))
+            .unwrap();
         assert_eq!(
             rx.recv_timeout(Duration::from_secs(5)).unwrap(),
             Exit::Command(5)

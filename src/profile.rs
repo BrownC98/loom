@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::graph::{Delivery, Kind, OpenQuestion, WaitKind};
-use crate::screen::{Dialog, Place};
+use crate::screen::{Dialog, Grammar, Place};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
@@ -336,6 +336,16 @@ pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
         Some(Profile::Cursor) => &cursor::DIALOGS,
         Some(Profile::OpenCode2) => &[],
         None => &SHELL_DIALOGS,
+    }
+}
+
+/// 노드 터미널 화면의 승인 창을 읽는 법(`screen::prompt`). 셸과 OpenCode 2(모두 허용)는 승인 창이 없다.
+pub fn prompt_grammar(profile: Option<Profile>) -> Option<&'static Grammar> {
+    match profile? {
+        Profile::Claude => Some(&claude::PROMPT),
+        Profile::Codex => Some(&codex::PROMPT),
+        Profile::Cursor => Some(&cursor::PROMPT),
+        Profile::OpenCode2 => None,
     }
 }
 

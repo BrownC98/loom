@@ -38,6 +38,15 @@ fn launched() -> Launched {
     }
 }
 
+/// 그 노드 프로세스의 지금 토큰. 신호(`set_wait`)가 낸다.
+fn token(g: &Graph, id: NodeId) -> String {
+    g.lock()
+        .query_row("SELECT token FROM nodes WHERE id = ?1", [id.0], |row| {
+            row.get(0)
+        })
+        .unwrap()
+}
+
 fn started(_: NodeId) -> Result<(), String> {
     Ok(())
 }
@@ -158,41 +167,107 @@ fn signal_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     assert_eq!(g.unreported_root(worker), Ok(false));
     // 다른 신호는 자기가 건 대기만 거둔다.
     let trust = (WaitKind::Trust, "Trust?");
-    g.set_wait(lead, WaitSource::Screen, Some(trust)).unwrap();
+    g.set_wait(&token(&g, lead), WaitSource::Screen, Some(trust))
+        .unwrap();
     assert_eq!(g.unreported_root(lead), Ok(false));
-    g.set_wait(lead, WaitSource::Hook, None).unwrap();
+    g.set_wait(&token(&g, lead), WaitSource::Hook, None)
+        .unwrap();
     assert_eq!(waits(lead), [(WaitKind::Trust, "Trust?".into())]);
     // 사람의 키 입력이 신호의 대기를 지운다.
     g.typed(lead).unwrap();
     assert_eq!(waits(lead), []);
 
     let mut events = g.subscribe().unwrap().1;
-    g.set_wait(worker, WaitSource::Codex, Some((WaitKind::Approval, "")))
-        .unwrap();
+    g.set_wait(
+        &token(&g, worker),
+        WaitSource::Codex,
+        Some((WaitKind::Approval, "")),
+    )
+    .unwrap();
     let since = view(&g, worker).waits[0].since;
     // 같은 대기는 다시 알리지 않고 시작 시각을 지킨다.
-    g.set_wait(worker, WaitSource::Codex, Some((WaitKind::Approval, "")))
-        .unwrap();
+    g.set_wait(
+        &token(&g, worker),
+        WaitSource::Codex,
+        Some((WaitKind::Approval, "")),
+    )
+    .unwrap();
     assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.waits.len() == 1));
     assert!(events.try_recv().is_err());
     assert_eq!(view(&g, worker).waits[0].since, since);
-    g.set_wait(worker, WaitSource::Codex, None).unwrap();
+    g.set_wait(&token(&g, worker), WaitSource::Codex, None)
+        .unwrap();
     assert_eq!(waits(worker), []);
 
     // 프로세스가 끝나면 지운다.
-    g.set_wait(worker, WaitSource::Screen, Some((WaitKind::Trust, "t")))
-        .unwrap();
+    g.set_wait(
+        &token(&g, worker),
+        WaitSource::Screen,
+        Some((WaitKind::Trust, "t")),
+    )
+    .unwrap();
     g.exited(worker, 0).unwrap();
     assert_eq!(waits(worker), []);
 
     // 훅 대기: 다음 훅이 거두고(`loom hook`), 사람이 받은편지함 [×]로도 지운다(`DELETE /api/waits/{wait}`).
     let permission = Some((WaitKind::Approval, "Claude needs your permission"));
-    g.set_wait(lead, WaitSource::Hook, permission).unwrap();
-    g.set_wait(lead, WaitSource::Hook, None).unwrap();
+    g.set_wait(&token(&g, lead), WaitSource::Hook, permission)
+        .unwrap();
+    g.set_wait(&token(&g, lead), WaitSource::Hook, None)
+        .unwrap();
     assert_eq!(waits(lead), []);
-    g.set_wait(lead, WaitSource::Hook, permission).unwrap();
+    g.set_wait(&token(&g, lead), WaitSource::Hook, permission)
+        .unwrap();
     g.dismiss(view(&g, lead).waits[0].id).unwrap();
     assert_eq!(waits(lead), []);
+}
+
+/// 화면의 승인 창은 승인 신호 대기에만 붙는다. 훅이 화면보다 먼저 오든 늦게 오든 붙는다(목업 M11).
+#[test]
+fn screen_prompt_joins_only_the_approval_wait_in_either_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let prompt = Prompt {
+        rows: vec!["Bash command".into()],
+        body: vec!["Bash command".into(), "git push".into()],
+        summary: "git push".into(),
+        options: vec![PromptOption {
+            label: "Yes".into(),
+            key: PromptKey::Char('1'),
+        }],
+    };
+    let shown = |g: &Graph| view(g, lead).waits.first().and_then(|w| w.prompt.clone());
+    let permission = Some((WaitKind::Approval, "Claude needs your permission"));
+
+    // 훅 먼저, 화면 뒤.
+    g.set_wait(&token(&g, lead), WaitSource::Hook, permission)
+        .unwrap();
+    assert_eq!(shown(&g), None);
+    g.set_prompt(lead, Some(prompt.clone())).unwrap();
+    assert_eq!(shown(&g), Some(prompt.clone()));
+    let wait = view(&g, lead).waits[0].id;
+    assert_eq!(g.approval(wait).unwrap().0, lead);
+    g.typed(lead).unwrap();
+    assert_eq!(g.approval(wait), Err(Refusal::NoWait(wait)));
+
+    // 화면 먼저, 훅 뒤.
+    g.set_wait(&token(&g, lead), WaitSource::Hook, permission)
+        .unwrap();
+    assert_eq!(shown(&g), Some(prompt.clone()));
+
+    // 다른 대기에는 붙지 않는다.
+    g.typed(lead).unwrap();
+    g.set_wait(
+        &token(&g, lead),
+        WaitSource::Screen,
+        Some((WaitKind::Trust, "t")),
+    )
+    .unwrap();
+    assert_eq!(shown(&g), None);
+    let trust = view(&g, lead).waits[0].id;
+    assert_eq!(g.approval(trust), Err(Refusal::NoWait(trust)));
+    g.set_prompt(lead, None).unwrap();
 }
 
 /// 노드 하나가 질문 여럿을 연다(목업 M28). 새 질문은 앞 질문을 지우지 않고, 신호의 대기와 따로 산다.
@@ -243,14 +318,15 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     assert_eq!(g.done_image(first, 1), Err(Refusal::NoWait(first)));
     // 완료는 [확인](dismiss)만 지운다. 키 입력, 다른 신호, 다시 띄우기로는 남는다.
     g.typed(lead).unwrap();
-    g.clear_wait(lead).unwrap();
+    g.relaunched(lead, &launched()).unwrap();
     assert_eq!(done(lead).len(), 1);
     // 승인 창이 와도 완료를 덮지 않는다. 함께 보이고 승인 창이 먼저다.
     let permission = (WaitKind::Approval, "Allow Bash?");
-    g.set_wait(lead, WaitSource::Hook, Some(permission))
+    g.set_wait(&token(&g, lead), WaitSource::Hook, Some(permission))
         .unwrap();
     assert_eq!(kinds(lead), [WaitKind::Approval, WaitKind::Done]);
-    g.set_wait(lead, WaitSource::Hook, None).unwrap();
+    g.set_wait(&token(&g, lead), WaitSource::Hook, None)
+        .unwrap();
     // 새 일로 다시 일하다 끝내도 확인하지 않은 앞 완료는 남는다. 완료 차례대로 보인다(2026-10-22 사람 보고 "완료 알림이 확인 안눌러도 없어지는 버그가 있음").
     g.human_input(lead).unwrap();
     g.done(lead, "또 고쳤다.", Some("또 고쳐"), &[], None)
@@ -383,8 +459,12 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
         ])
     );
     // 신호의 대기는 질문 뒤에 온다. 키 입력과 신호는 질문을 지우지 않는다.
-    g.set_wait(lead, WaitSource::Hook, Some((WaitKind::Approval, "Bash")))
-        .unwrap();
+    g.set_wait(
+        &token(&g, lead),
+        WaitSource::Hook,
+        Some((WaitKind::Approval, "Bash")),
+    )
+    .unwrap();
     let hook = view(&g, lead).waits[3].id;
     assert_eq!(ids(lead), [q1, q2, q3, hook]);
     g.typed(lead).unwrap();
@@ -414,7 +494,7 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
     );
     assert_eq!(g.dismiss(q4), Err(Refusal::NoWait(q4)));
     g.ask(lead, "G?", None).unwrap();
-    g.clear_wait(lead).unwrap();
+    g.relaunched(lead, &launched()).unwrap();
     assert_eq!(ids(lead), []);
 }
 
@@ -431,12 +511,16 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
 
     let first = g.ask(lead, "A or B?", None).unwrap();
     let screen = g
-        .set_wait(other, WaitSource::Screen, Some((WaitKind::Trust, "Trust?")))
+        .set_wait(
+            &token(&g, other),
+            WaitSource::Screen,
+            Some((WaitKind::Trust, "Trust?")),
+        )
         .map(|()| id(other).unwrap())
         .unwrap();
     assert!(screen.0 > first.0);
     assert!(!view(&g, other).waits[0].answerable);
-    g.clear_wait(lead).unwrap();
+    g.relaunched(lead, &launched()).unwrap();
     let again = g.ask(lead, "A or B?", None).unwrap();
     assert!(again.0 > screen.0);
     assert!(view(&g, lead).waits[0].answerable);
@@ -2295,10 +2379,15 @@ fn unconfirmed_dones_survive_input_relaunch_exit_and_restart() {
     assert_eq!(kept.len(), 2);
     g.human_input(lead).unwrap();
     g.typed(lead).unwrap();
-    g.set_wait(lead, WaitSource::Hook, Some((WaitKind::Approval, "Bash")))
+    g.set_wait(
+        &token(&g, lead),
+        WaitSource::Hook,
+        Some((WaitKind::Approval, "Bash")),
+    )
+    .unwrap();
+    g.set_wait(&token(&g, lead), WaitSource::Hook, None)
         .unwrap();
-    g.set_wait(lead, WaitSource::Hook, None).unwrap();
-    g.clear_wait(lead).unwrap();
+    g.relaunched(lead, &launched()).unwrap();
     g.exited(lead, 0).unwrap();
     assert_eq!(ids(&g, lead), kept);
     drop(g);
@@ -2354,9 +2443,13 @@ fn records_inbox_notices_and_the_human_responses() {
     let q3 = g.ask(lead, "D?", None).unwrap();
     g.dismiss(q3).unwrap();
     let q4 = g.ask(lead, "E?", None).unwrap();
-    g.clear_wait(lead).unwrap();
-    g.set_wait(lead, WaitSource::Hook, Some((WaitKind::Approval, "Bash")))
-        .unwrap();
+    g.relaunched(lead, &launched()).unwrap();
+    g.set_wait(
+        &token(&g, lead),
+        WaitSource::Hook,
+        Some((WaitKind::Approval, "Bash")),
+    )
+    .unwrap();
     g.dismiss(view(&g, lead).waits[0].id).unwrap();
     g.done(lead, "고쳤다.", Some("고쳐"), &[], None).unwrap();
     let d1 = view(&g, lead).waits[0].id;

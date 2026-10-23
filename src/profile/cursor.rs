@@ -9,8 +9,15 @@ use serde_json::{Value, json};
 
 use super::Take;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::{Dialog, Place};
+use crate::screen::{Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
+
+/// 승인 창(2026.10.19 시험 화면): 창 칸 테두리 아래 본문, `→ Run (once) (y)` 꼴 선택지. 괄호 안이 키다.
+pub const PROMPT: Grammar = Grammar {
+    top: Top::PanelEdge,
+    options: Options::Hinted,
+    guard: Some(GUARD),
+};
 
 /// 훅이 알리지 않는 TUI 확인 창(2026.10.19 화면 문구). 폴더 신뢰·명령 승인·로그인·질문은 실측, 나머지는 번들 글이다.
 /// "Run this command"는 샌드박스 밖 실행 창("Run this command outside the sandbox?")도 맞춘다.
@@ -268,6 +275,7 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::PromptKey;
     use crate::screen::Session;
 
     #[test]
@@ -293,6 +301,69 @@ mod tests {
         format!(
             "  $ touch y.txt 558ms\n\n  {answer}\n\n\n  → Add a follow-up\n\n\n  Claude Sonnet 5 300K High  [----------] 7%  cur @ master\n"
         )
+    }
+
+    /// loom 노드의 승인 창(2026-10-23 시험 데몬 실측, 80x24). 명령 앞에 loom guard 줄이 붙는다.
+    const GUARDED: &str = concat!(
+        "  $ mkdir zz_cursor_dir 0ms\n",
+        "\n",
+        "────────────────────────────────────────────────────────────────────────────────\n",
+        " $  loom guard\n",
+        "    mkdir zz_cursor_dir in .\n",
+        "\n",
+        " Run this command?\n",
+        " Shell allowlist is empty\n",
+        "  → Run (once) (y)\n",
+        "    Add Shell(loom), Shell(mkdir) to allowlist? (tab)\n",
+        "    Run Everything (shift+tab)\n",
+        "    Skip & tell the agent what to do instead (esc or n)\n",
+    );
+
+    #[test]
+    fn the_guard_line_is_not_the_command() {
+        let prompt = crate::screen::prompt(&PROMPT, GUARDED, 80).unwrap();
+        assert_eq!(
+            prompt.body,
+            [
+                "mkdir zz_cursor_dir in .",
+                "Run this command?",
+                "Shell allowlist is empty"
+            ]
+        );
+        assert_eq!(prompt.summary, "mkdir zz_cursor_dir in .");
+        assert_eq!(prompt.options.len(), 4);
+    }
+
+    #[test]
+    fn approval_prompt_keys_come_from_the_hints() {
+        let prompt = crate::screen::prompt(&PROMPT, APPROVAL, 80).unwrap();
+        assert_eq!(
+            prompt.body,
+            [
+                "$  mkdir zz_dir in .",
+                "Run this command?",
+                "Not in allowlist: mkdir"
+            ]
+        );
+        assert_eq!(prompt.summary, "$  mkdir zz_dir in .");
+        let options: Vec<_> = prompt
+            .options
+            .iter()
+            .map(|o| (o.label.as_str(), o.key))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                ("Run (once)", PromptKey::Char('y')),
+                ("Add Shell(mkdir) to allowlist?", PromptKey::Tab),
+                ("Run Everything", PromptKey::BackTab),
+                (
+                    "Skip & tell the agent what to do instead",
+                    PromptKey::Char('n')
+                ),
+            ]
+        );
+        assert_eq!(crate::screen::prompt(&PROMPT, QUESTION, 80), None);
     }
 
     #[test]

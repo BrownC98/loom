@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M11 승인 창 알림에서 답하기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 화면 그림의 토큰·알약·줄 모양은 web/src/styles.css와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 900px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 3px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+.shot { width: 1000px; border: 1px solid var(--line); border-radius: var(--radius); }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
+.dot.waiting { background: var(--warn); }
+.grid2 { display: grid; grid-template-columns: repeat(2, 680px); gap: 20px; align-items: start; }
+.cell { display: grid; gap: 6px; }
+.cap { font-size: 12px; color: var(--ink-3); }
+/* 그래프 칸(실제 1280 폭 창에서 그래프 칸은 약 700px). 여기서는 680px로 그린다. */
+.graph { position: relative; height: 200px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 16px 16px; padding: 14px 14px; }
+.graph.tall { height: 560px; }
+.scope { font-size: 18px; font-weight: 600; }
+.repo { margin-top: 40px; border: 1px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--panel) 70%, transparent); padding: 8px 10px 10px; width: max-content; }
+.moved { transform: translateX(40px); }
+.repo-head { font-size: 13px; color: var(--ink-3); }
+.repo-head b { color: var(--ink); }
+.cards { display: flex; gap: 12px; margin-top: 8px; }
+.card { width: 200px; height: 80px; border-radius: 10px; border: 2px solid var(--warn); background: var(--surface); padding: 6px 10px; font-size: 13px; }
+.card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card .h { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.card .h .spacer { flex: 1; }
+.card .st { font-size: 12px; font-weight: 400; color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
+.card .t { margin-top: 6px; font: 11px/1.5 var(--mono); color: var(--ink-3); }
+.pill-home { position: absolute; top: 10px; left: 14px; right: 14px; z-index: 2; display: grid; justify-items: center; gap: 6px; }
+/* 알약 바탕·테두리·그림자는 web/src/styles.css .inbox-pill과 같다 */
+.split, .chip { border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); box-shadow: 0 4px 14px var(--shadow); }
+.split { display: inline-flex; max-width: 100%; height: 32px; border-radius: 16px; }
+.split button { display: inline-flex; align-items: center; border: 0; background: none; cursor: pointer; font-size: 13px; }
+.split .jump { gap: 8px; min-width: 0; padding: 0 10px 0 10px; border-radius: 16px 0 0 16px; }
+.split .more { flex: none; width: 30px; justify-content: center; border-left: 1px solid color-mix(in oklch, var(--warn) 40%, transparent); border-radius: 0 16px 16px 0; color: var(--ink-2); }
+.split .jump:hover, .split .more:hover, .split .more[aria-expanded="true"] { background: color-mix(in oklch, var(--warn) 18%, var(--surface)); }
+.split b, .chip b { white-space: nowrap; }
+/* 질문 수 배지: 흰 글자, 바탕은 두 테마 같은 값(web/src/styles.css --warn-fill, 흰 글자 대비 5.1:1) */
+.count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: oklch(54% 0.12 87); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.pv { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.chips { display: flex; justify-content: center; gap: 6px; max-width: 100%; border-radius: 16px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; flex: 0 1 auto; min-width: 0; max-width: 170px; padding: 0 10px; border-radius: 15px; font-size: 13px; cursor: pointer; }
+.chip.more { flex: none; color: var(--ink); font-weight: 600; }
+.pill-pop { width: 380px; max-width: 100%; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); padding: 10px 0 6px; display: grid; gap: 6px; }
+.pill-pop h3 { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 0 14px; }
+.q { list-style: none; margin: 0; padding: 0 6px; display: grid; max-height: 380px; overflow: auto; }
+.q li { display: flex; align-items: flex-start; border-radius: 6px; }
+.q li:hover { background: var(--surface-hover); }
+.q .go { flex: 1; min-width: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 0 8px; align-items: baseline; padding: 5px 8px; border: 0; background: none; text-align: left; cursor: pointer; }
+.q .go .dot { align-self: center; }
+.q .who2 { color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q .who2 b { color: var(--ink); font-size: 13px; }
+.q .line { grid-column: 2; color: var(--ink-2); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q .x { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 4px 4px 0 0; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+
+.pill-pop { width: 440px; }
+.pill-home { grid-template-columns: minmax(0, 1fr); }
+.pill-home > .split { max-width: min(440px, 100%); }
+.dock .tabs span.count { height: 18px; padding: 0 5px; font-size: 11px; color: #fff; }
+/* 질문과 관련된 색은 --warn 한 톤(알약 테두리·배지·카드 대기 테두리와 같다). 채운 바탕은 배지와 같은 --warn-fill에 흰 글자. */
+.qid { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; font: 600 11px/18px var(--mono); padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); color: var(--ink); }
+.qid.copy { cursor: pointer; }
+.qid.copy:hover { background: color-mix(in oklch, var(--warn) 22%, var(--surface)); }
+.qid.copy svg { width: 12px; height: 12px; color: var(--warn); }
+.qid.done { background: oklch(54% 0.12 87); border-color: oklch(54% 0.12 87); color: #fff; }
+.qid.done svg { color: #fff; }
+li.row { list-style: none; display: grid; align-items: stretch; gap: 6px; padding: 8px 8px 10px; border-radius: 6px; }
+li.row + li.row { border-top: 1px solid var(--line); border-radius: 0; }
+.row .top { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.row .top b { color: var(--ink); font-size: 13px; }
+.row .top .sp { flex: 1; }
+.row .full { color: var(--ink); font-size: 13px; padding-left: 13px; white-space: normal; }
+.ib { flex: none; position: relative; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.ib:hover { background: var(--line); color: var(--ink); }
+.opts { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 13px; }
+.opt { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; cursor: pointer; }
+.opt:hover { background: var(--surface-hover); }
+.opt .k { font: 600 11px var(--mono); color: var(--ink-3); }
+.opt.rec { border-color: var(--warn); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+.opt .r { font-size: 11px; color: var(--warn); font-weight: 600; }
+.ans { display: flex; gap: 6px; padding-left: 13px; }
+.ans input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.ans input::placeholder { color: var(--ink-3); }
+.send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: oklch(54% 0.12 87); color: #fff; cursor: pointer; }
+.send:hover { background: oklch(48% 0.12 87); }
+.ans input:focus-visible { outline: 2px solid var(--warn); outline-offset: 0; border-color: var(--warn); }
+.toterm { margin-left: 13px; justify-self: start; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.toterm:hover { background: var(--surface-hover); color: var(--ink); }
+.dock { width: 320px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.dock .tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.dock .tabs span { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; font-size: 13px; color: var(--ink-2); }
+.dock .tabs span.on { color: var(--ink); font-weight: 600; border-bottom: 2px solid var(--accent); }
+.dock ul { margin: 0; padding: 6px; }
+.term { width: 680px; border: 1px solid var(--line-strong); padding: 12px 14px; border-radius: var(--radius); background: oklch(20.5% 0 0); color: oklch(92% 0 0); font: 12px/1.6 var(--mono); white-space: pre-wrap; }
+.term .dim { color: oklch(65% 0 0); }
+.term .new2 { outline: 2px dashed var(--warn); outline-offset: 2px; }
+.doclink { margin-left: 13px; justify-self: start; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 13px); min-width: 0; height: 28px; padding: 0 8px 0 4px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12px; text-decoration: none; }
+.doclink:hover { background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+.doclink .dt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.doclink svg { width: 12px; height: 12px; color: var(--warn); }
+.flex2 { display: flex; gap: 20px; align-items: start; }
+/* 승인 창 본문과 선택지(이 목업에서 더한 것) */
+.prompt { margin-left: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 12px/1.55 var(--mono); color: var(--ink); white-space: pre-wrap; word-break: break-all; }
+.prompt .dim { color: var(--ink-3); }
+.aopts { display: grid; gap: 4px; padding-left: 13px; }
+.aopt { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; text-align: left; cursor: pointer; }
+.aopt:hover { background: var(--surface-hover); }
+.aopt .k { flex: none; min-width: 16px; font: 600 11px var(--mono); color: var(--ink-3); }
+.aopt.first { border-color: var(--warn); background: color-mix(in oklch, var(--warn) 10%, var(--surface)); }
+.refusal { margin-left: 13px; font-size: 12px; color: var(--err); }
+.agent { font-size: 11px; color: var(--ink-3); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M11</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 승인바로처리</b></span><span>v1 · 2026-10-23 · 승인(Q507 A)</span></div>
+  <h1>승인 요청을 알림에서 바로 답하기</h1>
+  <p class="lead">사람 지시: 「승인 요청도 알림에서 바로 처리할 수 있게 못하나」 「승인해야할 내용 보여주고 버튼 옵션 선택할 수 있게」. 점선이 바뀌는 곳이다. 그림의 승인 창 글은 실제 화면에서 옮겼다(Claude Code 2.1.309, Codex 0.159.2, Cursor는 저장소 시험 화면).</p>
+
+  <div class="fig">
+    <h2>지금 <span class="tag">승인 창 줄</span></h2>
+    <div class="dock" style="width:440px"><ul><li class="row"><div class="top"><span class="dot waiting"></span><span class="qid">Q14</span><b>워커 배포</b> · 승인 요청<span class="sp"></span><button class="ib" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><div class="full">Claude needs your permission to use Bash</div><button class="toterm">터미널에서 답하기 <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></li></ul></div>
+    <ul class="note"><li>무엇을 승인하는지(명령) 보이지 않는다. 답하려면 그 노드 터미널로 가야 한다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>① 알약과 열린 목록 <span class="tag">Claude · Codex · Cursor 승인 창</span></h2>
+    <div class="graph tall" style="width:680px;height:1020px"><div class="pill-home"><div class="split" role="group" aria-label="응답 대기 3"><button class="jump"><b>승인 요청</b><span class="count">3</span><span class="qid">Q14</span><span class="pv new">워커 배포: Bash git push origin main</span></button><button class="more" aria-expanded="true"><svg class=i viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button></div><div class="pill-pop" role="dialog" aria-label="응답을 기다리는 노드 3"><h3>응답을 기다리는 노드 3</h3><ul class="q" style="max-height:none">
+      <li class="row"><div class="top"><span class="dot waiting"></span><span class="qid">Q14</span><b>워커 배포</b> · 승인 요청<span class="agent">Claude</span><span class="sp"></span><button class="ib" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+        <div class="prompt new"><span class="dim">Bash command</span>
+git push origin main
+<span class="dim">Push local main branch to origin
+Do you want to proceed?</span></div>
+        <div class="aopts new"><button class="aopt first"><span class="k">1</span>Yes</button><button class="aopt"><span class="k">2</span>Yes, and don’t ask again for: git push *</button><button class="aopt"><span class="k">3</span>Yes, and switch to auto mode · auto mode handles these prompts for you</button><button class="aopt"><span class="k">4</span>No</button></div>
+        <button class="toterm">터미널에서 답하기 <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></li>
+      <li class="row"><div class="top"><span class="dot waiting"></span><span class="qid">Q15</span><b>워커 검사</b> · 승인 요청<span class="agent">Codex</span><span class="sp"></span><button class="ib" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+        <div class="prompt new"><span class="dim">Would you like to run the following command?
+Reason: 현재 환경은 읽기 전용입니다. 파일을 만들도록 허용하시겠습니까?</span>
+$ touch zz_file</div>
+        <div class="aopts new"><button class="aopt first"><span class="k">1</span>Yes, proceed</button><button class="aopt"><span class="k">2</span>Yes, and don't ask again for commands that start with `touch zz_file`</button><button class="aopt"><span class="k">3</span>No, and tell Codex what to do differently</button></div>
+        <p class="refusal new" role="alert">터미널의 승인 창이 바뀌었습니다. 보내지 않았습니다. 터미널에서 확인하세요.</p>
+        <button class="toterm">터미널에서 답하기 <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></li>
+      <li class="row"><div class="top"><span class="dot waiting"></span><span class="qid">Q16</span><b>워커 화면</b> · 승인 요청<span class="agent">Cursor</span><span class="sp"></span><button class="ib" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+        <div class="prompt new">$ mkdir zz_dir <span class="dim">in .
+Run this command?
+Not in allowlist: mkdir</span></div>
+        <div class="aopts new"><button class="aopt first"><span class="k">y</span>Run (once)</button><button class="aopt"><span class="k">tab</span>Add Shell(mkdir) to allowlist?</button><button class="aopt"><span class="k">⇧tab</span>Run Everything</button><button class="aopt"><span class="k">n</span>Skip &amp; tell the agent what to do instead</button></div>
+        <button class="toterm">터미널에서 답하기 <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></li>
+    </ul></div></div></div>
+    <ul class="note">
+      <li>알약 한 줄에 무엇을 승인하는지 보인다(Q14: 「Bash git push origin main」).</li>
+      <li>목록 줄에 터미널 승인 창의 본문(도구, 명령, 이유)을 터미널 글자로 그대로 보인다.</li>
+      <li>승인 창의 선택지를 그 순서와 원래 글 그대로 버튼으로 보인다. 키 칸(1, y, tab)은 터미널에서 누르는 키다. 터미널의 기본 선택(첫 줄)을 주황 테두리로 보인다.</li>
+      <li>버튼을 누르면 데몬이 그 노드 터미널에 그 키를 보낸다. 승인 창이 닫히고 에이전트가 다시 일하면 줄이 사라진다.</li>
+      <li>보내기 전에 데몬이 터미널 화면을 다시 읽는다. 승인 창이 없거나 글·선택지가 바뀌었으면 보내지 않고 빨간 글로 알린다(Q15). 다른 창에 키가 들어가지 않는다.</li>
+      <li>[터미널에서 답하기]는 그대로 둔다. 명령을 고쳐 답하거나(Claude 「Tab to amend」) 글을 써서 답할 때 쓴다.</li>
+      <li>화면에서 본문·선택지를 읽지 못한 승인 대기는 지금처럼 한 줄 글과 [터미널에서 답하기]만 보인다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 오른쪽 「질문」 탭과 폰</h2>
+    <div class="dock"><div class="tabs"><span>이벤트</span><span>커밋 그래프</span><span class="on">질문 <span class="count">1</span></span></div><ul><li class="row"><div class="top"><span class="dot waiting"></span><span class="qid">Q14</span><b>워커 배포</b> · 승인 요청<span class="sp"></span><button class="ib" aria-label="알림 지우기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="prompt new"><span class="dim">Bash command</span>
+git push origin main
+<span class="dim">Push local main branch to origin
+Do you want to proceed?</span></div>
+      <div class="aopts new"><button class="aopt first"><span class="k">1</span>Yes</button><button class="aopt"><span class="k">2</span>Yes, and don’t ask again for: git push *</button><button class="aopt"><span class="k">3</span>Yes, and switch to auto mode · auto mode handles these prompts for you</button><button class="aopt"><span class="k">4</span>No</button></div>
+      <button class="toterm">터미널에서 답하기 <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></li></ul></div>
+    <ul class="note"><li>목록과 같은 줄이다. 버튼은 한 줄에 하나라 좁은 폭에서도 같다. 폰의 알림 탭과 띠 패널도 같은 줄을 쓰므로 따로 그리지 않았다.</li></ul>
+  </div>
+
+  <div class="fig">
+    <h2>에이전트별 범위</h2>
+    <table class="decide">
+      <tr><th>에이전트</th><th>본문·선택지 읽기</th><th>답하는 키</th></tr>
+      <tr><td>Claude</td><td>터미널 화면: 「Do you want to proceed?」 아래 「1. Yes」 꼴 줄(실측 2.1.309)</td><td>숫자 키 하나. 누르면 바로 정한다(실측)</td></tr>
+      <tr><td>Codex</td><td>터미널 화면: 「› 1. Yes, proceed (y)」 꼴 줄(실측 0.159.2)</td><td>숫자 키 하나. 누르면 바로 정한다(실측)</td></tr>
+      <tr><td>Cursor</td><td>터미널 화면: 「→ Run (once) (y)」 꼴 줄, 괄호 안이 키</td><td>y, Tab, Shift+Tab, n</td></tr>
+      <tr><td>OpenCode</td><td>대상 아님: loom이 모든 권한을 허용해 띄운다</td><td>—</td></tr>
+    </table>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="decide">
+      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
+      <tr><td>선택지 버튼을 누르면</td><td><b>바로 보낸다</b>(질문 선택지와 같다. 화면이 바뀌었으면 보내지 않는다)</td><td>한 번 더 눌러 확인한다</td></tr>
+      <tr><td>선택지 글</td><td><b>터미널 글 그대로</b>(영어)</td><td>한국어로 옮겨 보인다(뜻이 틀릴 수 있다)</td></tr>
+      <tr><td>대상 창</td><td><b>승인 창만</b></td><td>폴더 신뢰·로그인 창도 같은 방법으로 답한다</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

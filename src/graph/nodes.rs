@@ -5,6 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 use super::events::{self, ClosedBy, Entry};
+use super::waits::Prompt;
 use super::{
     Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
     ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of, set_state, state_of,
@@ -179,6 +180,7 @@ impl Graph {
         )?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
+        self.prompts.lock().unwrap().remove(&id);
         let _ = self.events.send(GraphEvent::Removed { id });
         Ok(())
     }
@@ -215,6 +217,7 @@ impl Graph {
 
     fn end_process(&self, id: NodeId, ended: NodeState, notice: String) -> rusqlite::Result<()> {
         let mut db = self.lock();
+        self.prompts.lock().unwrap().remove(&id);
         let Some(state) = state_of(&db, id).optional()? else {
             return Ok(());
         };
@@ -264,12 +267,18 @@ impl Graph {
             .optional()
     }
 
-    /// 노드 프로세스를 다시 띄웠다(계정 전환, 다시 띄우기). 새 토큰·서버·계정을 남긴다. 메일함은 그대로다.
+    /// 노드 프로세스를 다시 띄웠다(계정 전환, 다시 띄우기). 새 토큰·서버·계정을 남기고, 신호의 대기와 열린 질문을 모두 지운다. 메일함은 그대로다.
     /// 끝난 노드를 되살렸으면 다시 산 프로세스로 적고, 끝난 상태는 `running`으로 돌린다. 완료 상태는 그대로다.
     pub fn relaunched(&self, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         keep(&tx, id, launched)?;
+        // 옛 프로세스의 창은 사라졌다. 새 PTY에 닿기 전에 지운다. 토큰을 함께 바꾸므로 옛 프로세스의 신호는 다시 열지 못한다(`set_wait`).
+        // 근거: 2026-10-23 리뷰 「다시 띄운 뒤 옛 승인」: 새 PTY를 띄운 뒤에 지우면 그 사이 옛 승인이 새 PTY에 쳤다.
+        let cleared = tx.execute(
+            "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
+            [id.0],
+        )? + waits::drop_questions(&tx, id, ClosedBy::Restart)?;
         let revived = tx.execute(
             "UPDATE nodes SET process_exited = 0 WHERE id = ?1 AND process_exited = 1",
             [id.0],
@@ -283,7 +292,7 @@ impl Graph {
             set_state(&tx, id, &NodeState::Running)?;
         }
         tx.commit()?;
-        if revived {
+        if revived || cleared > 0 {
             self.publish_node(&db, id)?;
         }
         Ok(())
@@ -354,11 +363,7 @@ impl Graph {
 
     /// 토큰을 낸 노드. 지운 노드의 토큰은 없다.
     pub fn caller(&self, token: &str) -> rusqlite::Result<Option<NodeId>> {
-        self.lock()
-            .query_row("SELECT id FROM nodes WHERE token = ?1", [token], |row| {
-                Ok(NodeId(row.get(0)?))
-            })
-            .optional()
+        caller_in(&self.lock(), token)
     }
 
     /// 노드 서버에 다시 붙는 값을 바꾼다. 예: Codex TUI가 노드 스레드를 만들었다.
@@ -407,6 +412,23 @@ impl Graph {
             .optional()?
             .ok_or_else(|| Refusal::NotFound(format!("#{}", id.0)))?;
         if db.execute(update, [id.0])? > 0 {
+            self.publish_node(&db, id)?;
+        }
+        Ok(())
+    }
+
+    /// 노드 터미널 화면의 승인 창을 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
+    /// 노드마다 화면을 따라가는 작업 하나(`daemon::follow_screen`)만 부른다.
+    pub fn set_prompt(&self, id: NodeId, prompt: Option<Prompt>) -> rusqlite::Result<()> {
+        // 화면에 보내는 순서가 DB 변경 순서와 같도록 DB를 먼저 잠근다.
+        let db = self.lock();
+        let mut prompts = self.prompts.lock().unwrap();
+        let changed = match prompt {
+            Some(prompt) => prompts.insert(id, prompt.clone()) != Some(prompt),
+            None => prompts.remove(&id).is_some(),
+        };
+        drop(prompts);
+        if changed {
             self.publish_node(&db, id)?;
         }
         Ok(())
@@ -576,6 +598,7 @@ struct Removal {
 
 impl Removal {
     fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
+        graph.prompts.lock().unwrap().remove(&self.id);
         let _ = graph.events.send(GraphEvent::Removed { id: self.id });
         for child in self.children {
             graph.publish_node(db, child)?;
@@ -780,6 +803,13 @@ fn launch_row(row: &Row) -> rusqlite::Result<Active> {
         },
         token: row.get(8)?,
     })
+}
+
+pub(super) fn caller_in(db: &Connection, token: &str) -> rusqlite::Result<Option<NodeId>> {
+    db.query_row("SELECT id FROM nodes WHERE token = ?1", [token], |row| {
+        Ok(NodeId(row.get(0)?))
+    })
+    .optional()
 }
 
 fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {

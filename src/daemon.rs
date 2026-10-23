@@ -48,7 +48,7 @@ use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
-    NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc, WaitId,
+    NodeId, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc, WaitId,
     WaitKind, WaitSource,
 };
 use crate::launch;
@@ -448,6 +448,15 @@ pub struct AnswerWait {
     pub images: Vec<PathBuf>,
 }
 
+/// 사람이 알림에서 고른 승인 창 선택지. `prompt`는 화면이 보인 창 그대로, `option`은 그 `options`의 차례다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct ChooseOption {
+    pub prompt: Prompt,
+    #[ts(type = "number")]
+    pub option: usize,
+}
+
 /// 에이전트 답 글(Claude 기록 파일의 마지막 답, Cursor `afterAgentResponse`). 턴 끝 질문 검사가 쓴다.
 #[derive(Serialize, Deserialize)]
 pub struct SaidRequest {
@@ -642,6 +651,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         )
         .route("/api/waits/{wait}", delete(dismiss_wait))
         .route("/api/waits/{wait}/answer", post(answer_wait))
+        .route("/api/waits/{wait}/choose", post(choose_wait))
         .route("/api/waits/{wait}/doc", post(open_wait_doc))
         .route("/api/waits/{wait}/doc/", get(wait_doc))
         .route("/api/waits/{wait}/doc/{*file}", get(wait_doc_file))
@@ -1085,6 +1095,7 @@ impl App {
     /// `token`은 이 프로세스의 토큰이다. 같은 토큰의 호출만 세션을 시작한다(`Sessions::started`).
     fn follow_screen(self: &Arc<Self>, id: NodeId, profile: Option<Profile>, token: &str) {
         let dialogs = profile::dialogs(profile);
+        let grammar = profile::prompt_grammar(profile);
         let Some(attached) = self.host.attach(id) else {
             return;
         };
@@ -1092,7 +1103,7 @@ impl App {
             return;
         }
         let mut started = self.sessions.launched(id, token);
-        let app = self.clone();
+        let (app, token) = (self.clone(), token.to_owned());
         tokio::spawn(async move {
             let mut output = attached.output;
             // backlog도 화면이다. 붙은 직후 한 번 본다.
@@ -1119,11 +1130,15 @@ impl App {
                     }
                 }
                 changed = false;
-                let found =
-                    screen::find(dialogs, &app.host.screen(id), *started.borrow_and_update());
+                let now = app.host.screen(id);
+                let found = screen::find(dialogs, &now.text, *started.borrow_and_update());
                 let wait = found.as_ref().map(|(kind, text)| (*kind, text.as_str()));
-                if let Err(e) = app.graph.set_wait(id, WaitSource::Screen, wait) {
+                if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
+                }
+                let prompt = grammar.and_then(|g| screen::prompt(g, &now.text, now.cols.into()));
+                if let Err(e) = app.graph.set_prompt(id, prompt) {
+                    eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
             }
         });
@@ -1144,7 +1159,12 @@ impl App {
                     app.rate_limited(id, profile::Provider::Codex);
                 }
             });
-            tokio::spawn(follow_codex_model(self.graph.clone(), id, server.clone()));
+            tokio::spawn(follow_codex_model(
+                self.graph.clone(),
+                id,
+                token.to_owned(),
+                server.clone(),
+            ));
             // Codex는 훅이 없다. 폴더 신뢰·로그인 창이 닫혀야 스레드가 생긴다.
             let (app, mut thread, token) = (self.clone(), server.thread(), token.to_owned());
             tokio::spawn(async move {
@@ -1166,17 +1186,7 @@ impl App {
     }
 
     fn caller(&self, headers: &HeaderMap) -> Result<NodeId, AgentError> {
-        let token = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "));
-        let unauthorized = || {
-            (
-                StatusCode::UNAUTHORIZED,
-                "Run this only inside a loom node.".into(),
-            )
-        };
-        let token = token.ok_or_else(unauthorized)?;
+        let token = bearer(headers)?;
         let node = self
             .graph
             .caller(token)
@@ -1434,9 +1444,30 @@ async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receive
     }
 }
 
+/// 노드 프로세스가 데몬을 부를 때 낸 토큰.
+fn bearer(headers: &HeaderMap) -> Result<&str, AgentError> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or_else(unauthorized)
+}
+
+fn unauthorized() -> AgentError {
+    (
+        StatusCode::UNAUTHORIZED,
+        "Run this only inside a loom node.".into(),
+    )
+}
+
 /// Codex 노드 스레드가 생기거나 상태가 바뀔 때마다 사람 응답 대기를 옮기고 모델을 다시 읽어 그래프에 옮긴다. 서버가 끝나면 끝난다.
 /// 스레드가 새로 생기면 다시 붙는 값(`ServerLink`)도 그래프에 남긴다. 다시 시작한 데몬은 `thread/started`를 다시 받지 못한다.
-async fn follow_codex_model(graph: Arc<Graph>, node: NodeId, server: Arc<CodexServer>) {
+async fn follow_codex_model(
+    graph: Arc<Graph>,
+    node: NodeId,
+    token: String,
+    server: Arc<CodexServer>,
+) {
     let mut thread = server.thread();
     let mut kept = thread.borrow().as_ref().map(|t| t.id.clone());
     while thread.changed().await.is_ok() {
@@ -1447,7 +1478,7 @@ async fn follow_codex_model(graph: Arc<Graph>, node: NodeId, server: Arc<CodexSe
         else {
             continue;
         };
-        if let Err(e) = graph.set_wait(node, WaitSource::Codex, waiting.map(|kind| (kind, ""))) {
+        if let Err(e) = graph.set_wait(&token, WaitSource::Codex, waiting.map(|kind| (kind, ""))) {
             eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
         }
         if kept.as_ref() != Some(&id) {
@@ -1776,6 +1807,44 @@ async fn answer_wait(
     let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
     app.turn_ends.human(node);
     Ok(Json(()))
+}
+
+/// 사람이 알림에서 승인 창의 선택지를 눌렀다. 화면을 다시 읽어 사람이 본 창(`prompt`)과 같을 때만 그 키를 친다.
+/// 다르면(닫혔거나 다른 창이 떴다) 아무 키도 치지 않고 거절한다. 근거: 2026-10-23 목업 M11 승인(Q507 A).
+async fn choose_wait(
+    State(app): State<Arc<App>>,
+    Path(wait): Path<u32>,
+    Json(req): Json<ChooseOption>,
+) -> Result<Json<()>, Problem> {
+    choose(&app.graph, &app.host, WaitId(wait), &req)?;
+    Ok(Json(()))
+}
+
+/// 입력 잠금 안에서 화면을 다시 읽어 비교하고, 그 대기를 지우고, 키를 친다. 대기를 지운 요청 하나만 친다.
+/// 그 사이 사람이 터미널에서 답했거나, 창이 바뀌었거나, 노드를 다시 띄웠으면 치지 않고 다른 대기도 지우지 않는다.
+fn choose(
+    graph: &Graph,
+    host: &NodeHost<NodeId>,
+    wait: WaitId,
+    req: &ChooseOption,
+) -> Result<(), Refusal> {
+    let (node, agent) = graph.approval(wait)?;
+    let grammar = agent
+        .as_ref()
+        .and_then(profile::profile_of)
+        .and_then(|p| profile::prompt_grammar(Some(p)));
+    host.write_if(node, |keys| {
+        let shown = keys.screen();
+        let now = grammar.and_then(|g| screen::prompt(g, &shown.text, shown.cols.into()));
+        let option = match now {
+            Some(now) if now == req.prompt => now.options.get(req.option).cloned(),
+            _ => None,
+        };
+        let option = option.ok_or(Refusal::PromptChanged(wait))?;
+        // 그 번호의 대기만 지운다([×]와 같다). 이미 지워졌으면 다른 요청이나 터미널 키가 먼저 답했다.
+        graph.dismiss(wait)?;
+        Ok(option.key.bytes())
+    })
 }
 
 /// 사람이 질문·완료 줄의 문서 링크를 눌렀다. 데몬이 그 기계의 기본 브라우저로 연다. 화면이 브라우저든 데스크톱 앱이든 같다.
@@ -2259,10 +2328,10 @@ async fn agent_hook_wait(
     headers: HeaderMap,
     Json(req): Json<HookWaitRequest>,
 ) -> Result<Json<()>, AgentError> {
-    let node = app.caller(&headers)?;
+    app.caller(&headers)?;
     app.graph
         .set_wait(
-            node,
+            bearer(&headers)?,
             WaitSource::Hook,
             req.wait.as_ref().map(|(kind, text)| (*kind, text.as_str())),
         )
@@ -2428,10 +2497,13 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
             }
             msg = from_view.next() => match msg {
                 Some(Ok(Message::Binary(bytes))) => {
-                    host(app).write(id, &bytes);
-                    if node_host::typed(&bytes) {
-                        typed(app, id);
-                    }
+                    // 대기를 같은 입력 잠금 안에서 지운다. 그래야 알림의 선택(`choose`)이 이 키 뒤에 또 치지 않는다.
+                    let _ = host(app).write_if(id, |_| {
+                        if node_host::typed(&bytes) {
+                            typed(app, id);
+                        }
+                        Ok::<_, std::convert::Infallible>(bytes.to_vec())
+                    });
                 }
                 Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
                     Ok(PtyRequest::Resize(Resize { cols, rows })) => host(app).resize(id, cols, rows),
@@ -2536,6 +2608,149 @@ mod tests {
             "public, max-age=31536000, immutable"
         );
         assert_eq!(cache("/manifest.webmanifest".into()).await, None);
+    }
+
+    /// 알림의 선택은 입력 잠금 안에서 그 대기를 지운 요청 하나만 친다. 낡은 요청은 치지도, 새 대기를 지우지도 않는다(2026-10-23 리뷰).
+    #[cfg(unix)]
+    #[test]
+    fn a_choice_types_once_and_stale_choices_type_nothing() {
+        const SCREEN: &str = "──────\n Bash command\n╌╌╌╌\n touch one\n╌╌╌╌\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n";
+        let dir = tempfile::tempdir().unwrap();
+        let db = db::open(&dir.path().join("loom.db")).unwrap();
+        db.lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let graph = Graph::open(db).unwrap();
+        let place = Place {
+            repo: RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let launched = Launched {
+            token: "t".into(),
+            server: None,
+            account: None,
+        };
+        let node = graph
+            .add_root(
+                &place,
+                Some(AgentId("claude".into())),
+                &launched,
+                |_| Ok(()),
+            )
+            .unwrap();
+        // 키를 받으면 그대로 출력한다. 친 키는 창 아래에 찍히므로 창은 그대로다. 그래서 두 번째 요청은 화면 비교를 지난다.
+        let screen_cmd = || {
+            let mut cmd = portable_pty::CommandBuilder::new("sh");
+            cmd.args([
+                "-c",
+                &format!("stty -icanon -echo; printf '{SCREEN}'; exec cat"),
+            ]);
+            cmd
+        };
+        let hosts = dir.path().join("hosts");
+        node_host::in_process(&hosts, node, screen_cmd());
+        let host = NodeHost::new(hosts.clone());
+        let (exited, exit) = std::sync::mpsc::channel();
+        host.resume(node, move |_| exited.send(()).unwrap())
+            .unwrap();
+        let shown = loop {
+            let text = host.screen(node).text;
+            if let Some(prompt) = screen::prompt(&claude::PROMPT, &text, 80) {
+                break prompt;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let mut typed = host.attach(node).unwrap().output;
+        let open = |token: &str| {
+            graph
+                .set_wait(
+                    token,
+                    WaitSource::Hook,
+                    Some((WaitKind::Approval, "permission")),
+                )
+                .unwrap();
+            let views = graph.subscribe().unwrap().0;
+            let view = views.into_iter().find(|v| v.id == node).unwrap();
+            view.waits.iter().map(|w| w.id).collect::<Vec<_>>()
+        };
+        let pick = |wait, prompt: &Prompt| {
+            choose(
+                &graph,
+                &host,
+                wait,
+                &ChooseOption {
+                    prompt: prompt.clone(),
+                    option: 0,
+                },
+            )
+        };
+        // 마지막 표시 「Z」까지 읽어 지금까지 친 키를 돌려준다.
+        let typed_until_mark = |typed: &mut tokio::sync::broadcast::Receiver<Bytes>| {
+            host.write_if(node, |_| Ok::<_, std::convert::Infallible>(b"Z".to_vec()))
+                .unwrap();
+            let mut seen = String::new();
+            while !seen.ends_with('Z') {
+                seen.push_str(&String::from_utf8_lossy(&typed.blocking_recv().unwrap()));
+            }
+            seen
+        };
+
+        let wait = open("t")[0];
+        let barrier = std::sync::Barrier::new(2);
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let both: Vec<_> = (0..2)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        pick(wait, &shown)
+                    })
+                })
+                .collect();
+            both.into_iter().map(|t| t.join().unwrap()).collect()
+        });
+        assert!(results.contains(&Ok(())), "{results:?}");
+        assert!(results.contains(&Err(Refusal::NoWait(wait))), "{results:?}");
+
+        // 사람이 터미널에서 먼저 답했다.
+        let wait = open("t")[0];
+        graph.typed(node).unwrap();
+        assert_eq!(pick(wait, &shown), Err(Refusal::NoWait(wait)));
+
+        // 사람이 본 창과 명령 줄 하나만 다르다. 대기는 그대로 남는다.
+        let wait = open("t")[0];
+        let mut older = shown.clone();
+        older.rows[3] = " touch two".into();
+        assert_eq!(pick(wait, &older), Err(Refusal::PromptChanged(wait)));
+        assert_eq!(graph.approval(wait).unwrap().0, node);
+
+        // 지금까지 친 키는 처음 선택의 「1」 하나뿐이다.
+        assert_eq!(typed_until_mark(&mut typed), "1Z");
+
+        // 노드를 다시 띄운다(`Relaunches::relaunch`·`run_resumed`의 차례): 옛 PTY를 끝내고, 새 토큰을 남기고, 같은 창을 그리는 새 PTY를 띄운다.
+        // 띄우기의 남은 단계 전에 멈춘 채로, 옛 승인 요청과 옛 프로세스의 늦은 신호가 온다.
+        host.kill(node);
+        exit.recv().unwrap();
+        let relaunched = Launched {
+            token: "t2".into(),
+            server: None,
+            account: None,
+        };
+        graph.relaunched(node, &relaunched).unwrap();
+        node_host::in_process(&hosts, node, screen_cmd());
+        host.resume(node, |_| {}).unwrap();
+        while screen::prompt(&claude::PROMPT, &host.screen(node).text, 80).as_ref() != Some(&shown)
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut typed = host.attach(node).unwrap().output;
+        assert_eq!(pick(wait, &shown), Err(Refusal::NoWait(wait)));
+        assert_eq!(open("t"), vec![]);
+        // 새 프로세스의 대기는 옛 요청이 지우지 않는다.
+        let newer = open("t2")[0];
+        assert_eq!(pick(wait, &shown), Err(Refusal::NoWait(wait)));
+        assert_eq!(graph.approval(newer).unwrap().0, node);
+        assert_eq!(typed_until_mark(&mut typed), "Z");
+        host.kill(node);
     }
 
     /// 화면(`web/src/problem.ts`)이 읽는 모양이다. 바뀌면 화면 번역도 함께 고친다.

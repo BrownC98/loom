@@ -2414,3 +2414,25 @@ fn records_inbox_notices_and_the_human_responses() {
         "no human message entry beside the notice entry"
     );
 }
+
+#[test]
+fn relaunching_an_ended_node_brings_it_back_running_and_keeps_done() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = child(&g, lead, "w");
+    assert!(g.ended(lead).unwrap().is_none());
+
+    g.exited(lead, 1).unwrap();
+    assert_eq!(g.ended(lead).unwrap().map(|n| n.id), Some(lead));
+    g.relaunched(lead, &launched()).unwrap();
+    assert_eq!(view(&g, lead).state, NodeState::Running);
+    assert!(g.ended(lead).unwrap().is_none());
+    assert!(g.active().unwrap().iter().any(|n| n.id == lead));
+
+    g.done(worker, "결과", None, &[]).unwrap();
+    g.exited(worker, 0).unwrap();
+    g.relaunched(worker, &launched()).unwrap();
+    assert!(matches!(view(&g, worker).state, NodeState::Done { .. }));
+    assert!(g.ended(worker).unwrap().is_none());
+}

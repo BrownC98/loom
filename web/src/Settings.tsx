@@ -590,7 +590,7 @@ function ProviderAccounts(props: { provider: Provider; distro: string | null; se
           const needsLogin = a.usage.limits.kind === 'needsLogin';
           const system = a.id === null;
           const absent = notInstalled(a);
-          const meta = [system ? SYSTEM_DIR[provider] : null, a.usage.plan, usage.fetchedAt !== null && !absent ? fetchedText(usage.fetchedAt, Date.now()) : null].filter(Boolean).join(' · ');
+          const meta = [system ? SYSTEM_DIR[provider] : null, a.usage.plan, !absent ? fetchedText(a.usage.readAt, Date.now()) : null].filter(Boolean).join(' · ');
           return (
             <div className="acct-row" key={a.id ?? 'system'} aria-current={current || undefined}>
               <span className="row-main">

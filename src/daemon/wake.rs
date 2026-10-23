@@ -1,7 +1,3 @@
-//! 쉬는 대기 없이 쉬는 노드를 깨운다. 그런 노드에는 훅이 메시지를 넘기지 못한다.
-//! loom이 노드 PTY에 짧은 입력을 쳐서 새 턴을 연다. 그 턴의 첫 훅이 메시지를 넘긴다.
-//! 근거: docs/design.md 「전달 지점」.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -13,15 +9,10 @@ use crate::graph::NodeId;
 use crate::node_host::NodeHost;
 use crate::profile::{self, AgentId};
 
-/// 깨우기 전 유예. 노드가 이 시간 내내 쉬는 대기 없이 쉬며 메시지를 받지 못해야 데몬이 스스로 깨운다.
-/// 근거: 턴 끝에서 stop 훅이 대기를 열기까지(WSL interop으로 Windows `loom.exe`를 띄운다)와,
-/// 데몬이 다시 시작한 뒤 쉬는 훅이 다시 붙기까지(`cli::RECONNECT_AFTER` 2초 간격)를 덮는다. 사람이 누르면 기다리지 않는다.
 const WAKE_AFTER: Duration = Duration::from_secs(10);
-/// 글과 Enter 사이. 글과 Enter를 한 번에 쓰면 Cursor는 글만 입력 칸에 남기고 제출하지 않았다. 0.3초 띄우면 제출했다(cursor-agent 2026.10.22 실측).
 const SUBMIT_AFTER: Duration = Duration::from_millis(300);
 
 impl App {
-    /// 쉬는 대기 없이 쉬는 노드에 깨우는 입력을 친다. 다시 띄우는 중이거나 깨울 수 없는 화면이면 치지 않는다. 쳤으면 참이다.
     pub(super) async fn wake(self: &Arc<Self>, node: NodeId, agent: &AgentId) -> bool {
         if self.relaunches.holds_mail(node) {
             return false;
@@ -41,18 +32,12 @@ impl App {
     }
 }
 
-/// 깨우기가 쓰는 데몬 부품.
 struct Tools<'a> {
     host: &'a NodeHost<NodeId>,
     idle: &'a IdleWaits,
     first_inputs: &'a FirstInputs,
 }
 
-/// 쉬는 대기가 없는 노드의 화면이 쉬는 빈 입력 칸이면 깨우는 입력을 친다. 쳤으면 참이다.
-/// 턴 중인지는 화면으로 본다. 턴 표시(`IdleWaits::in_turn`)는 stop 훅이 없으면 턴이 끝나도 지워지지 않는다(2026-10-23 시험 데몬 실측: 한 번 깨운 노드가 다음 메시지를 받지 못했다).
-/// 아래를 모두 입력 잠금 안에서 본다(`NodeHost::write_paced_if`). 그 사이 사람이 친 키는 Enter 뒤에 간다. `SUBMIT_AFTER`만큼 잠든다.
-/// - 마지막으로 친 키 뒤 `KEY_QUIET`이 지난 화면이다(`Keys::quiet_screen`). 사람이 막 친 키나 앞서 친 깨우는 글이 아직 화면에 없을 수 있으면 치지 않는다. 앞선 깨우기도 친 키이므로 거듭 치지 않는다.
-/// - `waking`: 아직 깨우는 메시지가 있다. 후보를 고른 뒤 훅이 꺼냈으면 치지 않는다.
 fn wake(tools: &Tools, node: NodeId, agent: &AgentId, waking: impl FnOnce() -> bool) -> bool {
     let Some(wake) = profile::wake(profile::profile_of(agent)) else {
         return false;
@@ -75,8 +60,6 @@ fn wake(tools: &Tools, node: NodeId, agent: &AgentId, waking: impl FnOnce() -> b
         .is_ok()
 }
 
-/// 쉬는 대기 없이 `WAKE_AFTER` 넘게 쉬는 빈 입력 칸을 보이며 메시지를 받지 못한 노드를 깨운다. 데몬이 사는 동안 돈다.
-/// 일하는 동안은 세지 않는다. 턴이 끝난 뒤 stop 훅이 대기를 열 시간을 준다.
 pub(super) async fn watch(app: Arc<App>) {
     let mut stuck = Stuck::default();
     loop {
@@ -101,7 +84,6 @@ pub(super) async fn watch(app: Arc<App>) {
     }
 }
 
-/// 깨우는 프로필이고, 쉬는 대기가 없고, 지금 화면이 쉬는 빈 입력 칸이다.
 fn idle_unwaited(host: &NodeHost<NodeId>, idle: &IdleWaits, node: NodeId, agent: &AgentId) -> bool {
     profile::wake(profile::profile_of(agent)).is_some_and(|wake| {
         !idle.waiting(node)
@@ -111,12 +93,10 @@ fn idle_unwaited(host: &NodeHost<NodeId>, idle: &IdleWaits, node: NodeId, agent:
     })
 }
 
-/// 노드마다 쉬는 대기 없이 메시지를 받지 못한 채 처음 본 때.
 #[derive(Default)]
 struct Stuck(HashMap<NodeId, Instant>);
 
 impl Stuck {
-    /// 이번에 본 노드(`now`에 쉬는 대기 없이 메시지가 남은 노드) 가운데 `WAKE_AFTER` 넘게 그랬던 노드. 이번에 없는 노드는 잊는다.
     fn due(&mut self, now: Instant, seen: impl Iterator<Item = NodeId>) -> Vec<NodeId> {
         let seen: Vec<NodeId> = seen.collect();
         self.0.retain(|node, _| seen.contains(node));
@@ -144,7 +124,6 @@ mod tests {
             stuck.due(start + WAKE_AFTER, [NodeId(1), NodeId(2)].into_iter()),
             [NodeId(1)]
         );
-        // 한 번이라도 대기가 열리거나 메시지를 받으면 다시 센다.
         assert!(
             stuck
                 .due(start + WAKE_AFTER * 2, [NodeId(2)].into_iter())
@@ -157,15 +136,12 @@ mod tests {
         );
     }
 
-    /// 노드 PTY 호스트를 테스트 프로세스 안에 띄운다(`node_host::in_process`, unix만).
     #[cfg(unix)]
     mod pty {
         use super::*;
         use crate::node_host;
 
-        /// 화면을 그리고, 받은 키를 `then`(셸 명령)에 넘기는 가짜 Cursor.
         fn fake_cursor_then(dir: &std::path::Path, screen: &str, then: &str) -> NodeHost<NodeId> {
-            // `-icrnl`: 친 Enter(`\r`)를 바꾸지 않고 그대로 돌려받는다.
             let mut cmd = portable_pty::CommandBuilder::new("sh");
             cmd.args([
                 "-c",
@@ -180,12 +156,10 @@ mod tests {
             host
         }
 
-        /// 받은 키를 그대로 화면에 다시 그리는 가짜 Cursor.
         fn fake_cursor(dir: &std::path::Path, screen: &str) -> NodeHost<NodeId> {
             fake_cursor_then(dir, screen, "cat")
         }
 
-        /// 마지막 표시 「Z」까지 읽어 지금까지 친 키를 돌려준다.
         fn typed_until_mark(
             host: &NodeHost<NodeId>,
             typed: &mut tokio::sync::broadcast::Receiver<bytes::Bytes>,
@@ -220,17 +194,14 @@ mod tests {
             "  done\n\n  → Add a follow-up\n\n  Claude Sonnet 5 300K High  cur @ master\n";
         const BUSY: &str = "  → Add a follow-up      ctrl+c to stop\n\n  Claude Sonnet 5 300K High  cur @ master\n";
         const DRAFT: &str = "  → half a sentence\n\n  Claude Sonnet 5 300K High  cur @ master\n";
-        /// 대화 기록에 자리 표시 글과 같은 줄이 있어도 입력 칸(마지막 「→ 」 줄)은 사람이 쓰던 글이다.
         const DRAFT_BELOW_LOOKALIKE: &str = "  → Add a follow-up\n  done\n\n  → half a sentence\n\n  Claude Sonnet 5 300K High  cur @ master\n";
 
-        /// 쉬는 대기 없이 쉬는 Cursor 노드는 메시지를 받지 못했다. 깨우는 입력과 Enter를 한 번 친다.
         #[test]
         fn an_idle_cursor_without_a_wait_gets_the_wake_prompt_once() {
             let dir = tempfile::tempdir().unwrap();
             let host = fake_cursor(dir.path(), IDLE);
             let mut typed = host.attach(NodeId(1)).unwrap().output;
             let parts = Parts::default();
-            // 고른 뒤 훅이 메시지를 꺼냈으면 치지 않는다.
             assert!(!parts.wake(&host, "cursor", false));
             assert!(parts.wake(&host, "cursor", true));
             assert_eq!(
@@ -241,9 +212,7 @@ mod tests {
                 parts.inputs.injected(NodeId(1)),
                 "the wake prompt is not human input"
             );
-            // 방금 친 깨우는 글은 아직 그린 화면이 아니다. 다시 치지 않는다.
             assert!(!parts.wake(&host, "cursor", true));
-            // 그 턴이 끝나 다시 쉬는 빈 입력 칸이면 새 메시지에 또 깨운다. 가짜 화면은 늘 빈 입력 칸이다.
             std::thread::sleep(node_host::KEY_QUIET);
             assert!(parts.wake(&host, "cursor", true));
             assert_eq!(
@@ -252,17 +221,14 @@ mod tests {
             );
 
             let parts = Parts::default();
-            // 쉬는 대기가 있으면 그 대기가 넘긴다. 치지 않는다.
             let _ = parts.idle.open(NodeId(1));
             assert!(!parts.wake(&host, "cursor", true));
-            // 훅 프로필이 아닌 노드에는 치지 않는다.
             parts.idle.end(NodeId(1));
             assert!(!parts.wake(&host, "codex", true));
             assert_eq!(typed_until_mark(&host, &mut typed), "Z");
             host.kill(NodeId(1));
         }
 
-        /// 글과 Enter 사이에 사람이 친 키는 Enter 뒤에 간다. 깨우는 글에 섞여 제출되지 않는다.
         #[test]
         fn a_key_typed_between_the_prompt_and_enter_waits_for_the_enter() {
             let dir = tempfile::tempdir().unwrap();
@@ -285,7 +251,6 @@ mod tests {
             host.kill(NodeId(1));
         }
 
-        /// 사람이 친 키를 화면이 아직 그리지 않았으면 빈 입력 칸으로 보여도 치지 않는다. 그 사이 대화 기록 줄이 바뀌어도 그렇다.
         #[test]
         fn a_screen_soon_after_a_key_is_not_trusted() {
             let dir = tempfile::tempdir().unwrap();
@@ -318,7 +283,6 @@ mod tests {
             host.kill(NodeId(1));
         }
 
-        /// 빈 입력 칸에 친 키를 TUI가 무시해 화면이 그대로여도, `KEY_QUIET` 뒤에는 깨운다.
         #[test]
         fn a_key_that_changes_nothing_holds_the_wake_only_for_the_quiet() {
             let dir = tempfile::tempdir().unwrap();
@@ -343,7 +307,6 @@ mod tests {
             host.kill(NodeId(1));
         }
 
-        /// 터미널 응답(초점 등)은 사람이 친 키가 아니다. 입력 칸을 바꾸지 않으므로 화면을 그대로 믿는다.
         #[test]
         fn a_terminal_report_does_not_hold_the_wake() {
             let dir = tempfile::tempdir().unwrap();
@@ -361,7 +324,6 @@ mod tests {
             host.kill(NodeId(1));
         }
 
-        /// 일하는 동안은 유예를 세지 않는다. 쉬는 빈 입력 칸이 된 때부터 `WAKE_AFTER`를 다 센다.
         #[test]
         fn the_grace_starts_when_the_input_turns_idle() {
             let dir = tempfile::tempdir().unwrap();
@@ -386,7 +348,6 @@ mod tests {
             host.kill(NodeId(1));
         }
 
-        /// 일하는 화면이나 사람이 쓰던 글이 있는 입력 칸에는 치지 않는다.
         #[test]
         fn a_busy_or_drafted_input_is_not_typed_into() {
             for screen in [BUSY, DRAFT, DRAFT_BELOW_LOOKALIKE] {

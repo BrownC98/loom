@@ -1,9 +1,3 @@
-// 터미널 테마 32개와 고른 이름을 테마로 바꾸는 규칙.
-// - 「Loom Dark」「Loom Light」 출처: loom 승인 목업(docs/mockups/main.html 토큰, settings.html 1판 f26f79d의 라이트 16색).
-//   바탕은 `--term`, 커서는 `--ink`, 선택 영역은 `--accent-wash`를 바탕에 섞은 색이다. 모두 무채색이다(docs/design.md의 「디자인 언어」 줄).
-//   Loom Dark의 16색은 xterm 기본색이다. Loom Light의 회색 4개(black, white, brightBlack, brightWhite)는 무채색으로 바꿨다.
-// - 나머지 30개 출처: Orca 1.4.229 설치본 resources/app.asar 안 out/renderer/assets/client-DNGCzCE6.js의
-//   `pHe` 객체와 `SY=xY(pHe, …)` 객체. 스크립트로 꺼냈다. 이름 순서도 Orca와 같다. 손으로 고치지 않는다.
 import type { ITheme } from '@xterm/xterm';
 import type { Theme } from './gen/Theme';
 import type { TerminalTheme } from './gen/TerminalTheme';
@@ -44,21 +38,16 @@ export const TERMINAL_THEMES = {
 } as const satisfies Record<string, ITheme>;
 
 export type TerminalThemeName = keyof typeof TERMINAL_THEMES;
-/** 화면이 실제로 그리는 모드. 「시스템」은 OS 설정으로 둘 가운데 하나가 된다. */
 export type ColorMode = Exclude<Theme, 'system'>;
 
-/** 기본값은 이 한 곳에만 둔다(2026-10-19 사람 지시 「현재 테마를 기본 테마로」). */
 export const DEFAULT_TERMINAL_THEME: Record<ColorMode, TerminalThemeName> = { dark: 'Loom Dark', light: 'Loom Light' };
-/** 초기화한 값. 이름이 비면 `chosenTheme`이 기본값을 쓴다. */
 export const RESET_TERMINAL_THEME: TerminalTheme = { dark: null, light: null, matchDark: false };
 
-/** 모드마다 고른 이름. 저장한 이름이 없거나 목록에 없으면 기본값이다. */
 export function chosenTheme(saved: TerminalTheme, mode: ColorMode): TerminalThemeName {
   const name = saved[mode];
   return name !== null && Object.hasOwn(TERMINAL_THEMES, name) ? (name as TerminalThemeName) : DEFAULT_TERMINAL_THEME[mode];
 }
 
-/** 지금 모드에서 터미널이 쓰는 테마. 「라이트 모드에서도 다크 모드 테마를 쓴다」를 켜면 늘 다크 모드용이다. */
 export function activeTheme(saved: TerminalTheme, mode: ColorMode): ITheme {
   return TERMINAL_THEMES[chosenTheme(saved, saved.matchDark ? 'dark' : mode)];
 }

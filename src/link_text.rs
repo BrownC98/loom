@@ -1,6 +1,3 @@
-//! 에이전트가 사람에게 쓰는 글(`loom ask`, 부모 없는 노드의 `loom done`)의 링크 표준: 주소와 절대 경로는 화면이 그리는 markdown 링크 `[이름](주소)` 안에만 둔다.
-//! 근거: 2026-10-23 사람 "링크 표준이 없는 것이 뿌리 원인". 화면은 글을 나누지 않고 `parts`가 나눈 조각을 그린다. 그래서 받는 링크와 그리는 링크가 같다.
-
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -26,7 +23,6 @@ pub enum TextPart {
     },
 }
 
-/// 글을 글 조각과 화면이 그리는 링크로 나눈다. 그리지 못하는 링크는 글로 남는다.
 pub fn parts(text: &str) -> Vec<TextPart> {
     let mut parts = Vec::new();
     let mut plain = String::new();
@@ -65,11 +61,8 @@ pub fn parts(text: &str) -> Vec<TextPart> {
     parts
 }
 
-/// 경로 그대로면 주소에서 뜻이 바뀌는 글자. `%`도 넣어 이미 있는 `%`를 `%25`로 바꾼다. 나머지 글자는 `drawable_form`이 바꾼다.
 const PATH_RESERVED: &AsciiSet = &CONTROLS.add(b'%').add(b'#').add(b'?');
 
-/// 경로 칸(결과 파일, 결함 파일, 로그)의 링크. 작업 폴더(`~/.cache/loom/<작업>/`) 안이면 이름은 그 안의 경로다(목업 M17 ① `review/opus.md`).
-/// 칸 값은 주소가 아니라 경로다. `#`·`?`·`%`를 인코딩하지 않으면 화면이 다른 파일을 연다(2026-10-23 검토 P2).
 pub fn path_link(path: &str) -> TextPart {
     let slashed = path.replace('\\', "/");
     let marker = format!("/{}/", task::ROOT.join("/"));
@@ -89,7 +82,6 @@ pub fn path_link(path: &str) -> TextPart {
 
 pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
     let (label, after) = link[1..].split_once("](")?;
-    // CommonMark는 주소를 `<…>`로 감쌀 수 있고, 감싼 주소에는 빈칸이 들 수 있다(2026-10-23 검토 BLOCK).
     let (target, end) = match after.strip_prefix('<') {
         Some(wrapped) => {
             let (target, tail) = wrapped.split_once('>')?;
@@ -111,12 +103,8 @@ pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
     ok.then_some((label, target, label.len() + 3 + end))
 }
 
-/// 본문 속 문서 링크의 주소 표지. 화면은 이 자리(`TextPart::Doc`)에 붙은 문서의 링크를 그린다.
-/// 근거: 2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘".
 pub const DOC_LINK: &str = "loom:doc";
 
-/// 화면이 그릴 수 없는 링크 주소나 markdown 링크 밖의 맨몸 주소·경로를 처음 나온 것 하나 돌려준다. 없으면 `None`.
-/// `parts`는 `file://`·`http(s)://` 주소(빈칸·`)` 없음)와 문서 링크 표지만 링크로 나눈다.
 pub fn bare_link(text: &str) -> Option<String> {
     let mut rest = text;
     while let Some(open) = rest.find('[') {
@@ -128,7 +116,6 @@ pub fn bare_link(text: &str) -> Option<String> {
             Some((_, target, len)) if link[..len - 1].ends_with('>') => {
                 return Some(target.to_owned());
             }
-            // 주소는 첫 `)`에서 끊기므로, 짝이 맞는 괄호가 든 주소는 그 뒤 글까지 이어 보여야 온전하다.
             Some((label, target, _)) if !drawn(target) => {
                 let from = label.len() + 3;
                 return Some(balanced_target(&link[from..]).to_owned());
@@ -148,7 +135,6 @@ fn drawn(target: &str) -> bool {
                 .any(|s| target.strip_prefix(s).is_some_and(|r| !r.is_empty())))
 }
 
-/// 거절 글에 보일 고친 주소: 경로는 `file://` 주소로, 화면이 그리지 못하는 글자는 퍼센트 인코딩으로 바꾼다.
 pub fn drawable_form(found: &str) -> String {
     let url = if is_url(found) {
         found.to_owned()
@@ -173,7 +159,6 @@ fn is_url(text: &str) -> bool {
         .any(|s| text.starts_with(s))
 }
 
-/// 이 앞 글자가 낱말 안이면(`and/or`, `경로/home`) 경로의 시작이 아니다.
 fn starts_token(before: Option<char>) -> bool {
     before.is_none_or(|c| !c.is_alphanumeric() && !"/\\.-_~".contains(c))
 }
@@ -187,7 +172,6 @@ fn bare_in(segment: &str) -> Option<String> {
         let url = ["http://", "https://", "file://"]
             .iter()
             .any(|s| tail.starts_with(s));
-        // 한 단계 `/code-review`는 슬래시 명령·태그와 구별되지 않아 뺀다. 경로는 `/a/b`부터다.
         let unix = c == '/' && {
             let token = tail.split(char::is_whitespace).next().unwrap_or(tail);
             token[1..].find('/').is_some_and(|n| n > 0)
@@ -200,7 +184,6 @@ fn bare_in(segment: &str) -> Option<String> {
     })
 }
 
-/// 첫 빈칸이나 닫는 기호까지. 끝의 문장부호는 뺀다. 빈칸이 든 경로는 닫는 기호(`` ` `` `"` `'`)가 있으면 거기까지 잡는다.
 fn span(tail: &str) -> String {
     let cut = tail.find(['\n', '`', '"', '\'', '<', '>']);
     let quoted = cut.is_some_and(|p| matches!(tail.as_bytes()[p], b'`' | b'"' | b'\''));
@@ -211,7 +194,6 @@ fn span(tail: &str) -> String {
     trim_tail(found.split(char::is_whitespace).next().unwrap_or(found)).to_owned()
 }
 
-/// 글 앞에서 닫는 `)`(짝이 맞는 괄호 밖)나 빈칸 앞까지.
 fn balanced_target(text: &str) -> &str {
     let mut depth = 0usize;
     for (i, c) in text.char_indices() {

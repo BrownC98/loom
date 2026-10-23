@@ -42,7 +42,6 @@ yaml-rust2 = "0.13.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
-# 호스트(WSL)에서 만든 Windows 디버그 빌드는 Linux 경로의 `skills/`·`web/dist`를 읽지 못한다. 디버그에서도 파일을 싣는다.
 [target.'cfg(windows)'.dependencies]
 rust-embed = { version = "8.13.0", features = ["debug-embed"] }
 
@@ -50,6 +49,19 @@ rust-embed = { version = "8.13.0", features = ["debug-embed"] }
 tempfile = "3.27.0"
 tokio = { version = "1.53.3", features = ["test-util"] }
 tower = { version = "0.5.3", features = ["util"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+tree-sitter = "0.27.1"
+tree-sitter-bash = "0.25.1"
+tree-sitter-css = "0.25.0"
+tree-sitter-html = "0.23.2"
+tree-sitter-kotlin-sg = "0.4.1"
+tree-sitter-powershell = "0.26.4"
+tree-sitter-rust = "0.24.2"
+tree-sitter-toml-ng = "0.7.0"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-xml = "0.7.0"
+tree-sitter-yaml = "0.7.2"
 
 [build-dependencies]
 serde_json = "1.0.154"

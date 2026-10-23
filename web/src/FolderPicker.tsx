@@ -6,17 +6,11 @@ import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
 import { useStarting } from './place';
 
-/** `parent` 안의 `name`. 데몬의 경로 구분자(Windows면 `\`)를 따른다. */
 export function childPath(parent: string, name: string): string {
   const sep = parent.includes('\\') && !parent.includes('/') ? '\\' : '/';
   return parent.endsWith(sep) ? parent + name : parent + sep + name;
 }
 
-/**
- * 데몬이 보는 폴더를 고른다(목업 repository.html 1). 경로 칸에 적거나 목록에서 고른다. 칸을 누르면 목록이 열린다.
- * 고른 값은 목록에서 고른 폴더, 없으면 칸의 폴더다. 처음 폴더는 데몬이 정한다(`<홈>/loom`).
- * WSL 배포판이 있으면 목록 위에 위치 칩(드라이브, 배포판)을 두고 `onPlace`로 「실행 위치」 글을 알린다(목업 wsl-place.html ①). 없으면 `null`이다.
- */
 export function FolderPicker(props: { id: string; label: string; disabled: boolean; autoFocus?: boolean; onPick: (path: string) => void; onPlace: (place: string | null) => void }) {
   const { t } = useTranslation();
   const [dir, setDir] = useState('');
@@ -25,7 +19,6 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
   const [selected, setSelected] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [locations, setLocations] = useState<Locations | null>(null);
-  // 기다리는 요청이 가는 배포판. 오래 걸리면 배포판이 시작하는 중이다(목업 ⑥b).
   const [waiting, setWaiting] = useState<string | null>(null);
   const starting = useStarting(waiting !== null);
   const latest = useRef(0);
@@ -60,7 +53,6 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     onPlace(places && list ? (list.distro === null ? t('place.pc') : t('place.wslDistro', { distro: list.distro })) : null);
   }, [places, list, t]);
 
-  /** 배포판 칩: 그 홈으로 간다. 꺼진 배포판은 데몬이 켠다. */
   async function goHome(distro: string) {
     const ask = ++latest.current;
     setOpen(true);
@@ -77,10 +69,6 @@ export function FolderPicker(props: { id: string; label: string; disabled: boole
     }
   }
 
-  /**
-   * 칸을 고칠 때마다 앞 요청을 버리고 옛 목록을 지운다. 늦은 응답이 적은 글이나 고른 폴더를 덮지 않는다.
-   * `distro`는 그 폴더가 있는 배포판이다. 목록 안에서 옮기면 지금 목록의 배포판이고, 적은 글이면 모른다(`null`).
-   */
   function go(path: string, distro: string | null = null) {
     setDir(path);
     setSelected(null);

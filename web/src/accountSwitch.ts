@@ -1,4 +1,3 @@
-// 계정 전환의 순수 함수: 상태 줄 알림 문구와 확인 창 줄 문구(목업 docs/mockups/account-switch.html ①③).
 import type { TFunction } from 'i18next';
 import type { AccountId } from './gen/AccountId';
 import type { Entry } from './gen/Entry';
@@ -13,19 +12,16 @@ export function isSwitchEntry(entry: Entry): entry is SwitchEntry {
   return entry.kind === 'accountSwitched' || entry.kind === 'noAccountLeft';
 }
 
-/** 최근 것부터 놓인 기록 중 가장 새 전환 기록. */
 export function latestSwitch(log: EventRecord[]): (EventRecord & { entry: SwitchEntry }) | null {
   return (log.find((r) => isSwitchEntry(r.entry)) as (EventRecord & { entry: SwitchEntry }) | undefined) ?? null;
 }
 
-/** 한도 오류로 데몬이 스스로 바꾼 기록이다. 이때 화면이 설정과 사용량을 다시 읽는다. */
 export function isAutoSwitch(entry: Entry): boolean {
   return entry.kind === 'accountSwitched' && entry.why.kind !== 'manual';
 }
 
 export type Notice = { text: string; warn: boolean };
 
-/** 알림 한 줄. `name`은 계정 이름(null은 시스템 기본), `time`은 초기화 시각(유닉스 초)의 글자다. */
 export function noticeOf(entry: SwitchEntry, name: (provider: Provider, id: AccountId | null) => string, time: (unixSeconds: number) => string, t: Translate): Notice {
   const provider = t(`switch.provider.${entry.provider}`);
   if (entry.kind === 'noAccountLeft') {
@@ -51,7 +47,6 @@ export function noticeOf(entry: SwitchEntry, name: (provider: Provider, id: Acco
   return { text: [head, ...parts].join(' · '), warn: false };
 }
 
-/** 확인 창 줄의 상태 글: 쉬는 노드는 바로, 일하는 노드는 턴이 끝나면 바꾼다. */
 export function rowStateKey(busy: boolean) {
   return busy ? ('switch.dialog.busy' as const) : ('switch.dialog.idle' as const);
 }

@@ -9,7 +9,6 @@ import { App } from './App';
 import { showClippedText } from './clippedText';
 
 showClippedText(document);
-// 터미널 밖에 파일을 놓으면 브라우저가 그 파일로 이 화면을 바꾼다. 터미널(Terminal.tsx)만 놓기를 받는다.
 for (const type of ['dragover', 'drop'] as const)
   window.addEventListener(type, (e) => {
     e.preventDefault();

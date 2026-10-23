@@ -1,7 +1,3 @@
-//! Cursor CLI 프로필: 시작 인자, 플러그인 훅 설정, 훅 입출력 형식.
-//! 바뀌는 이유는 Cursor CLI 버전이다. 형식은 https://cursor.com/docs/agent/hooks 를 따른다.
-//! 실측: cursor-agent 2026.10.19-6bbf2c4. 근거: docs/design.md 「에이전트 실행」, 「전달 지점」.
-
 use std::path::Path;
 
 use serde::Deserialize;
@@ -12,19 +8,14 @@ use crate::graph::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Dialog, Grammar, IdleInput, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
-/// 승인 창(2026.10.19 시험 화면): 창 칸 테두리 아래 본문, `→ Run (once) (y)` 꼴 선택지. 괄호 안이 키다.
 pub const PROMPT: Grammar = Grammar {
     top: Top::PanelEdge,
     options: Options::Hinted,
     guard: Some(GUARD),
 };
 
-/// 훅이 알리지 않는 TUI 확인 창(2026.10.19 화면 문구). 폴더 신뢰·명령 승인·로그인·질문은 실측, 나머지는 번들 글이다.
-/// "Run this command"는 샌드박스 밖 실행 창("Run this command outside the sandbox?")도 맞춘다.
-/// 질문 도구(AskQuestion)는 preToolUse 훅을 부르지 않는다(실측). 그래서 질문도 화면으로 찾는다.
 pub const DIALOGS: [Dialog; 8] = [
     Dialog {
-        // 창 제목(예: "Clarifying Questions")은 모델이 정한다. 도움말 줄은 고정이다(실측).
         text: "Enter next/submit",
         kind: WaitKind::Question,
         place: Place::Panel,
@@ -66,31 +57,16 @@ pub const DIALOGS: [Dialog; 8] = [
     },
 ];
 
-/// 노드 프로세스에 넣는 시작 자리. 훅은 모든 노드가 같은 파일을 쓰므로 자리를 환경 변수로 받는다.
 pub const POSITION_ENV: &str = "LOOM_POSITION";
-/// 노드 프로세스에 넣는 스킬 스위치(`AlwaysOn` JSON). 같은 이유로 환경 변수다.
 pub const SKILLS_ENV: &str = "LOOM_SKILLS";
-/// Cursor는 훅 `additional_context` 한 개가 이 글자 수를 넘으면 버린다(실측 번들의 상한).
-/// 그래서 사용법과 상시 지시를 sessionStart 훅 둘로 나눈다. 부모 없는 노드의 상시 지시는 약 9,100자다(2026-10-21 실측).
 #[cfg(test)]
 const CONTEXT_LIMIT_CHARS: usize = 10_000;
-/// 훅 한 번에 넘기는 본문 합의 상한.
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
-/// 턴 안의 훅 상한. `loom` 명령의 데몬 응답 상한(`claude::HOOK_HTTP_TIMEOUT_SECS`)보다 길다.
 const HOOK_TIMEOUT_SECS: u64 = 10;
-/// 쉬는 노드의 stop 훅 상한. Claude 비동기 훅과 같은 근거다(JavaScript 타이머 상한 아래).
-/// stop 훅이 기다리는 동안에도 사람은 입력해 새 턴을 띄울 수 있다(실측).
 const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
-/// 플러그인 표지가 가리키는 훅 파일. Claude는 `.cursor-plugin`과 이 파일을 읽지 않는다.
 const HOOKS_FILE: &str = "cursor-hooks.json";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
-/// 다시 띄운 세션의 첫 입력. 쉬는 Cursor에는 stop 훅만 메시지를 넘긴다. 입력 없이 이으면 그 훅이 돌지 않아
-/// 사람이 입력할 때까지 메시지가 쌓였다(2026-10-22 실측).
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
-/// 쉬는 대기 없이 쉬는 노드를 깨우는 입력. 이 턴의 beforeSubmitPrompt 훅이 메시지를 넘긴다.
-/// 그 훅 항목이 `~/.cursor/hooks.json`에 없으면 Cursor는 그 훅을 부르지 않는다(「전달 지점」 한계). 그때는 글이 시킨 `loom status`의 postToolUse 훅이 넘긴다.
-/// 화면(2026.10.22 실측, 100x30): 새 세션의 빈 입력 칸은 "Plan, search, build anything", 턴 뒤에는 "Add a follow-up"이다.
-/// 일하는 동안에도 "Add a follow-up"이 보이고 그 줄 끝에 "ctrl+c to stop"이 붙는다.
 pub const WAKE: super::Wake = super::Wake {
     input: IdleInput {
         prompt: "→ ",
@@ -99,10 +75,8 @@ pub const WAKE: super::Wake = super::Wake {
     },
     prompt: "loom woke you: messages wait for you. If no loom message is in the context of this prompt, run `loom status`; the messages come with that command. Act on them, or end your turn.",
 };
-/// Shell 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다(`claude::GUARD`와 같다).
 const GUARD: &str = "loom guard";
 
-/// loom 플러그인 폴더에 Cursor 표지와 훅 파일을 쓴다. Cursor는 `.cursor-plugin`을 `.claude-plugin`보다 먼저 읽는다.
 pub fn write_plugin(dir: &Path) -> std::io::Result<()> {
     let manifest = dir.join(".cursor-plugin").join("plugin.json");
     std::fs::create_dir_all(manifest.parent().expect("파일 경로에는 부모가 있다"))?;
@@ -110,7 +84,6 @@ pub fn write_plugin(dir: &Path) -> std::io::Result<()> {
     std::fs::write(dir.join(HOOKS_FILE), hooks().to_string())
 }
 
-/// 훅 설정. 쉬는 노드를 깨우는 stop 훅은 `loop_limit`이 없어야 한다(기본값이면 몇 번 뒤 부르지 않는다).
 fn hooks() -> Value {
     let hook = json!([{ "command": "loom cursor-hook", "timeout": HOOK_TIMEOUT_SECS }]);
     json!({
@@ -130,12 +103,10 @@ fn hooks() -> Value {
     })
 }
 
-/// `cursor-agent` 시작 인자. 사용자의 `~/.cursor` 파일을 고치지 않으려고 훅과 스킬을 플러그인 폴더로만 넘긴다.
 pub fn args(plugin: &Path) -> Vec<String> {
     vec!["--plugin-dir".into(), plugin.to_string_lossy().into_owned()]
 }
 
-/// 시작 자리를 환경 변수 값으로.
 pub fn position_value(position: Position) -> &'static str {
     match position {
         Position::Root => "root",
@@ -143,7 +114,6 @@ pub fn position_value(position: Position) -> &'static str {
     }
 }
 
-/// `loom cursor-rules`가 노드 환경에서 읽는다. 값이 없으면 자식으로 본다(총괄 절차를 주지 않는다).
 pub fn position_from(value: Option<&str>) -> Position {
     match value {
         Some("root") => Position::Root,
@@ -151,33 +121,26 @@ pub fn position_from(value: Option<&str>) -> Position {
     }
 }
 
-/// 스킬 스위치를 환경 변수 값으로.
 pub fn skills_value(skills: AlwaysOn) -> String {
     serde_json::to_string(&skills).expect("스위치는 늘 직렬화된다")
 }
 
-/// 값이 없거나 읽지 못하면 모두 켜짐으로 본다. 이 변수 전에 뜬 노드가 그렇다.
 pub fn skills_from(value: Option<&str>) -> AlwaysOn {
     value
         .and_then(|v| serde_json::from_str(v).ok())
         .unwrap_or_default()
 }
 
-/// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Cursor runs that wake hook only when ~/.cursor/hooks.json has a \"stop\" entry; if it has none, wait for an expected reply with loom wait --reply-to <message-id> --timeout <seconds> before you end your turn. The loom guard line before shell commands is inserted by loom; do not remove it or add it yourself.";
 
-/// 첫 sessionStart 훅의 글: 통신 명령과 Cursor 대기 방식.
 pub fn usage() -> String {
     format!("{}\n{WAITING}", super::COMMUNICATION_USAGE)
 }
 
-/// 둘째 sessionStart 훅의 출력: 상시 지시.
 pub fn rules(launch: Launch) -> Value {
     json!({ "additional_context": crate::skills::always_on(launch) })
 }
 
-/// `--model` 시작 인자. Cursor 모델 id는 추론 강도를 이름 끝에 붙인다(`--list-models`, 예: `claude-opus-5-5-high`).
-/// 강도만 고르면 붙일 모델이 없다.
 pub fn choice_args(choice: &super::ModelChoice) -> Option<Vec<String>> {
     let model = match (&choice.model, &choice.effort) {
         (Some(model), Some(effort)) => format!("{model}-{effort}"),
@@ -187,7 +150,6 @@ pub fn choice_args(choice: &super::ModelChoice) -> Option<Vec<String>> {
     Some(vec!["--model".into(), model])
 }
 
-/// 훅 입력에서 loom이 보는 필드만 읽는다. 다른 필드는 버린다.
 #[derive(Deserialize)]
 #[serde(tag = "hook_event_name", rename_all = "camelCase")]
 pub enum Event {
@@ -206,7 +168,6 @@ pub enum Event {
     Stop {
         model: Option<String>,
     },
-    /// 모델이 답 글을 다 냈다. stop 훅보다 먼저 온다. 턴 끝 질문 검사가 쓴다(2026.10.19 번들의 입력 `text`).
     AfterAgentResponse {
         #[serde(default)]
         text: String,
@@ -214,20 +175,16 @@ pub enum Event {
 }
 
 impl Event {
-    /// 이 지점에서 꺼내는 방법. Claude와 같은 표다(`claude::Event::take`).
-    /// sessionStart는 꺼내지 않는다. Cursor는 그 훅이 끝나야 첫 턴을 띄운다. 쉬는 동안의 메시지는 첫 stop 훅이 넘긴다.
     pub fn take(&self) -> Option<Take> {
         Some(match self {
             Event::SessionStart { .. } | Event::AfterAgentResponse { .. } => return None,
             Event::Stop { .. } => Take::WhenIdle,
             Event::BeforeSubmitPrompt { .. } => Take::Now(Kind::ALL),
-            // 일하는 노드의 도구 호출 뒤: 큐 메시지도 넘긴다. 근거: docs/design.md 「전달 지점」.
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
         })
     }
 
-    /// 훅 입력이 알리는 모델 id(강도 포함). 도구 훅의 `model`은 강도를 뺀 이름이라 쓰지 않는다(실측).
     pub fn model(&self) -> Option<Model> {
         match self {
             Event::SessionStart { model }
@@ -240,7 +197,6 @@ impl Event {
         }
     }
 
-    /// 훅 출력 JSON. 쉬는 노드(stop)의 메시지는 새 턴 입력(`followup_message`)으로 넘긴다.
     pub fn reply(&self, taken: &[Delivery], note: Option<&str>) -> Value {
         let Some(text) = super::hook_text(taken, note) else {
             return match self {
@@ -250,7 +206,6 @@ impl Event {
                     tool_name,
                     tool_input,
                 } => match guarded(tool_name, tool_input) {
-                    // `permission`을 넣지 않는다. 넣으면 사람이 끈 모든 권한 허용을 훅이 대신 허용한다.
                     Some(input) => json!({ "updated_input": input }),
                     None => json!({}),
                 },
@@ -273,7 +228,6 @@ impl Event {
     }
 }
 
-/// 포그라운드 Shell 명령 앞에 `loom guard` 줄을 붙인다. 중단이 오면 데몬이 그 셸을 끝낸다.
 fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     if tool_name != "Shell" || input["is_background"] == true {
         return None;
@@ -292,7 +246,6 @@ mod tests {
 
     #[test]
     fn the_trust_box_is_a_trust_wait() {
-        // cursor-agent 2026.10.19가 신뢰하지 않은 폴더에서 그린 화면(실측). sessionStart 훅은 신뢰한 뒤에 불린다(실측).
         let screen = "│  Do you trust the contents of this directory?  │\n│  ▶ [a] Trust this workspace  │\n│    [q] Quit  │";
         assert_eq!(
             crate::screen::find(&DIALOGS, screen, Session::NotStarted).map(|(kind, _)| kind),
@@ -304,18 +257,14 @@ mod tests {
         );
     }
 
-    /// cursor-agent 2026.10.19가 100×30 터미널에 그린 질문 창(실측, 가로를 줄였다).
     const QUESTION: &str = "  Use your ask-question tool to ask me one multiple-choice question: red or blue.\n\n  I'll ask that now.\n\n ┌──────────────────┐\n │ Clarifying Questions │\n │ Question 1 of 1 │\n │ 1. Red or blue? │\n │   › [ ] Red │\n │     [ ] Blue │\n │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip │\n └──────────────────┘\n";
-    /// 같은 버전의 명령 승인 창(실측). 창 위에 가로줄이 있다.
     const APPROVAL: &str = "  I'll create the directory and stop there.\n\n  $ mkdir zz_dir Waiting for approval...\n\n──────────────────────\n $  mkdir zz_dir in .\n\n Run this command?\n Not in allowlist: mkdir\n  → Run (once) (y)\n    Add Shell(mkdir) to allowlist? (tab)\n    Run Everything (shift+tab)\n    Skip & tell the agent what to do instead (esc or n)\n\n\n";
-    /// 같은 버전이 쉴 때의 화면 아래(실측). 답의 마지막 줄 아래에 입력 칸과 상태 줄만 있다.
     fn idle_after(answer: &str) -> String {
         format!(
             "  $ touch y.txt 558ms\n\n  {answer}\n\n\n  → Add a follow-up\n\n\n  Claude Sonnet 5 300K High  [----------] 7%  cur @ master\n"
         )
     }
 
-    /// loom 노드의 승인 창(2026-10-23 시험 데몬 실측, 80x24). 명령 앞에 loom guard 줄이 붙는다.
     const GUARDED: &str = concat!(
         "  $ mkdir zz_cursor_dir 0ms\n",
         "\n",
@@ -390,7 +339,6 @@ mod tests {
         );
     }
 
-    /// 에이전트가 창 글을 출력해도 창이 아니다(2026-10-21 Claude 노드의 거짓 대기와 같은 경우).
     #[test]
     fn dialog_text_in_agent_output_is_not_a_box() {
         for text in [
@@ -413,13 +361,9 @@ mod tests {
         }
     }
 
-    /// 에이전트가 가로줄과 표를 출력한 뒤 창 글을 쓴 화면(2026.10.19 실측, 2026-10-21 다시 찍음, 가로를 줄였다).
-    /// 대화 기록은 2칸 들여 그린다. 창 테두리는 왼쪽 끝에 그린다(위 `QUESTION`, `APPROVAL`).
     const PRINTED: &str = "  Reply with exactly this text.\n\n\n  ┌───┬───┐\n  │ A │ B │\n  ├───┼───┤\n  │ 1 │ 2 │\n  └───┴───┘\n\n  ─────\n  Run this command?\n  Enter next/submit\n  done\n\n\n\n\n  → Add a follow-up\n\n\n  Auto Balance Balance  [----------] 5%  cur @ master\n";
-    /// 같은 버전이 에이전트가 그린 표 아래에 띄운 질문 창(2026-10-21 실측, 가로를 줄였다).
     const QUESTION_BELOW_TABLE: &str = "  ┌───┬───┐\n  │ A │ B │\n  ├───┼───┤\n  │ 1 │ 2 │\n  └───┴───┘\n\n ┌──────────────────┐\n │ Clarifying Questions │\n │ Question 1 of 1 │\n │ 1. Red or blue? │\n │   › [ ] red │\n │     [ ] blue │\n │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip │\n └──────────────────┘\n";
 
-    /// 에이전트가 출력한 가로줄·상자 안이나 아래의 창 글은 창이 아니다. 창 테두리만 왼쪽 끝에 있다.
     #[test]
     fn dialog_text_below_a_printed_rule_or_box_is_not_a_box() {
         let in_box = idle_after(
@@ -453,7 +397,6 @@ mod tests {
         }
     }
 
-    /// 실측 입력(2026.10.19-6bbf2c4)에서 쓰는 필드만 읽는다.
     #[test]
     fn reads_measured_inputs() {
         let pre = event(json!({
@@ -508,8 +451,6 @@ mod tests {
         assert_eq!(background.reply(&[], None), json!({}));
     }
 
-    /// Cursor가 버리지 않게 sessionStart 글마다 상한 아래로 둔다.
-    /// 답 글 훅은 메시지를 꺼내지 않고 답 글만 넘긴다(`cli::cursor_hook`). 출력은 빈 JSON이다.
     #[test]
     fn after_agent_response_carries_the_reply_text() {
         let said = event(json!({ "hook_event_name": "afterAgentResponse", "text": "병합할까요?" }));
@@ -546,7 +487,6 @@ mod tests {
         }
     }
 
-    /// 이 변수 전에 뜬 노드(값 없음)는 모든 스킬을 받는다. 데몬이 쓴 값은 그대로 읽는다.
     #[test]
     fn skills_env_round_trips_and_defaults_to_all_on() {
         assert_eq!(skills_from(None), AlwaysOn::default());

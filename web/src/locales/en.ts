@@ -1,4 +1,3 @@
-// 영어 문구. 키 구조의 원천이다. ko.ts는 이 타입을 받으므로 키가 다르면 `tsc`가 실패한다.
 const en = {
   languageName: { en: 'English', ko: '한국어' },
   common: {
@@ -220,7 +219,6 @@ const en = {
     installedAt: '{{place}} {{n}}',
     rescan: 'Rescan',
     noneInstalled: 'No installed agent found. Install one from the list below, then click “Rescan”.',
-    // 키는 `Profile` 값이다. 데몬은 Codex·OpenCode 2에만 경고를 보낸다.
     versionWarning: {
       claude: 'claude {{installed}} · pinned {{pinned}}',
       codex: 'codex {{installed}} · pinned {{pinned}} · approval needed for every loom command',

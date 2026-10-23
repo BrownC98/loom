@@ -1,7 +1,3 @@
-//! 메일함: 노드 사이 메시지. 큐 메시지는 어느 노드에나 가고, 조정·중단은 부모와 자식 사이에만 간다. 전달 방식(`Kind`)마다 꺼내는 지점이 다르다.
-//! 부모 없는 노드가 부모에게 보내는 메시지는 보관했다가 새 부모에게 전한다.
-//! 근거: docs/design.md 「전달 지점」.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::pin::pin;
@@ -39,34 +35,24 @@ impl Kind {
     pub const ALL: &[Kind] = &[Kind::Queue, Kind::Steer, Kind::Interrupt];
 }
 
-/// 꺼낸 메시지를 받는 쪽이 확인하지 않으면 이 시간 뒤에 다시 준다.
-/// 근거: 꺼내고 확인하기까지 가장 오래 걸리는 쪽은 Claude 훅이다. Claude는 훅을 10초(`timeout`)에 끝낸다. 그 3배를 둔다.
-/// 다음 호출 때 바로 다시 주지 않는 이유: Claude 노드는 `loom wait`와 훅들이 같은 메일함을 함께 꺼낸다.
-/// 바로 다시 주면 한쪽이 확인하기 전에 다른 쪽이 같은 메시지를 또 받는다.
 pub const REDELIVER_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct MessageId(pub u32);
 
-/// 받는 노드에 넘기는 메시지 하나. 같은 메시지가 두 번 오면 `id`가 같다.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Delivery {
     pub id: MessageId,
     pub from: String,
-    /// 전달 방식(큐·조정·중단). JSON 이름은 옛 판처럼 `kind`다: 배포 중에도 살아 있는 옛 `loom hook`·`loom wait`가 이 이름을 꼭 읽는다.
-    /// `mode`로 바꾸자 옛 훅이 `missing field kind`로 끝나 `rules-changed`를 넘기지 못했다(관문 검토 P1, 2026-10-23 실측). `what.kind`와 이름이 겹치는 것(검토 P3-4)보다 이것이 무겁다.
     pub kind: Kind,
     pub body: String,
-    /// 메시지 종류와 칸. 답이 가리키는 질문(`Answer.question`)은 여기에만 있다. `messages.reply_to` 열은 `loom wait --reply-to`의 색인이고 같은 트랜잭션에서 쓴다. 종류를 남기기 전의 옛 메시지에는 없다.
     #[serde(default)]
     pub what: Option<MessageKind>,
 }
 
-/// 한 번에 넘기는 메시지 사이의 글.
 pub const BATCH_SEPARATOR: &str = "\n\n";
 
 impl Delivery {
-    /// 받는 에이전트가 읽는 글: 머리 줄(`loom message #…`), 칸 줄, 본문.
     pub fn text(&self) -> String {
         let mode = match self.kind {
             Kind::Queue => None,
@@ -78,13 +64,11 @@ impl Delivery {
         crate::protocol::message_text(self.id.0, &self.from, self.what.as_ref(), mode, &self.body)
     }
 
-    /// 쉬는 노드를 깨우는 메시지. 조정·중단은 지금 넣으라는 뜻이라 늘 깨운다(사람의 「안 읽음」 누르기도 조정이다). 종류가 없는 옛 메시지도 깨운다.
     fn wakes(&self) -> bool {
         self.kind != Kind::Queue || self.what.as_ref().is_none_or(MessageKind::wakes)
     }
 }
 
-/// 보낸 메시지 번호와 받는 노드. 부모가 없어 보관하면 `recipient`가 없다.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Sent {
     pub id: MessageId,
@@ -99,7 +83,6 @@ struct Outgoing<'a> {
     via: Option<&'a Via>,
 }
 
-/// 메시지 이벤트에 붙이는 흔적: 들어온 입구와, 관문 동사가 보냈으면 관문 흔적.
 #[derive(Default)]
 pub(super) struct Stamp {
     pub via: Option<Via>,
@@ -107,12 +90,10 @@ pub(super) struct Stamp {
 }
 
 impl Graph {
-    /// 조정·중단을 받을 부모·자식을 이름이나 `#노드번호`로 찾는다. 여러 노드가 맞으면 거절한다.
     pub fn related(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
         related(&self.lock(), from, to)
     }
 
-    /// `loom note`. 조정은 부모·자식에게만 간다.
     pub fn note(
         &self,
         from: NodeId,
@@ -135,7 +116,6 @@ impl Graph {
         )
     }
 
-    /// `loom note --interrupt`. Claude 셸은 검증과 큐 쓰기가 끝난 뒤, 메시지를 꺼낼 수 있기 전에 끝낸다.
     pub fn interrupt(
         &self,
         from: NodeId,
@@ -158,7 +138,6 @@ impl Graph {
         )
     }
 
-    /// 부모가 있는 노드의 `loom ask`: 부모에게 묻는다. 선택지 꼴은 사람에게 묻는 질문과 같은 규칙이다(`choices`).
     pub fn ask_parent(
         &self,
         from: NodeId,
@@ -186,7 +165,6 @@ impl Graph {
         )
     }
 
-    /// `loom answer`: 내가 받은 `loom ask`에 답한다. 묻지 않은 메시지에는 거절한다.
     pub fn answer_ask(
         &self,
         from: NodeId,
@@ -245,7 +223,6 @@ impl Graph {
         };
         let to_id = match found {
             Ok(to_id) => Some(to_id),
-            // 지운 부모의 이름과 `parent`는 그래프에 없다. 부모 없는 노드가 그 이름으로 보내면 보관한다.
             Err(Refusal::NotFound(_))
                 if kind == Kind::Queue
                     && reply_to.is_none()
@@ -271,7 +248,6 @@ impl Graph {
         };
         let id = enqueue(&tx, from, to_id, kind, &what, body, stamp)?;
         if let Some(request) = reply_to {
-            // 답변을 쓰는 동안 원래 메시지의 보낸 노드와 받은 노드가 바뀌지 않았는지 본다.
             let valid: bool = tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM messages WHERE id = ?1 AND recipient = ?2 AND sender = ?3)",
                 params![request.0, from.0, to_id.map(|id| id.0)], |row| row.get(0),
@@ -298,7 +274,6 @@ impl Graph {
         })
     }
 
-    /// 커밋한 뒤 부른다: 받는 노드와 메시지가 간 간선을 화면에 알리고 기다리는 `wait`를 깨운다.
     pub(super) fn publish_sent(
         &self,
         db: &Connection,
@@ -316,7 +291,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 답변 대기는 훅이 이미 받은 답도 찾는다. 다른 소비자 때문에 답을 놓치지 않는다.
     pub async fn wait(
         &self,
         node: NodeId,
@@ -353,7 +327,6 @@ impl Graph {
         }
     }
 
-    /// 메시지가 올 때까지 기다렸다가 `take`처럼 꺼낸다. 버려도 꺼낸 메시지를 잃지 않는다. 꺼내기와 돌려주기 사이에 기다림이 없다.
     pub async fn next(
         &self,
         node: NodeId,
@@ -371,7 +344,6 @@ impl Graph {
         }
     }
 
-    /// 쉬는 노드의 `next`. 깨우는 메시지(`MessageKind::wakes`)가 올 때까지 기다리고, 그때 기다리던 알림도 함께 꺼낸다.
     pub async fn next_waking(
         &self,
         node: NodeId,
@@ -389,9 +361,6 @@ impl Graph {
         }
     }
 
-    /// `kinds` 가운데 하나인 메시지를 온 순서로 꺼내 전달 중으로 표시한다.
-    /// 전달 중인 메시지는 `REDELIVER_AFTER`가 지나야 다시 꺼낸다. 받은 쪽이 `ack`로 확인하면 다시 꺼내지 않는다.
-    /// 첫 메시지는 늘 꺼낸다. 그 뒤 메시지는 넘기는 글(`Delivery::text`과 사이 빈 줄) 합이 `limit_bytes` 이하일 때만 꺼낸다.
     pub fn take(
         &self,
         node: NodeId,
@@ -401,7 +370,6 @@ impl Graph {
         self.take_if(node, kinds, limit_bytes, |_| true)
     }
 
-    /// 쉬는 노드의 `take`. 꺼낼 메시지가 알림뿐이면 아무것도 꺼내지 않는다(`Delivery::wakes`).
     pub fn take_waking(
         &self,
         node: NodeId,
@@ -413,7 +381,6 @@ impl Graph {
         })
     }
 
-    /// `wanted`가 꺼낼 수 있는 메시지 목록을 보고 꺼낼지 정한다.
     fn take_if(
         &self,
         node: NodeId,
@@ -443,7 +410,6 @@ impl Graph {
         let mut taken = Vec::new();
         let mut total = 0;
         for delivery in queued {
-            // 본문만 세면 본문 없는 알림 수십 개의 머리 줄이 뒤의 결과를 Claude 훅 맥락 상한(10,000자) 밖으로 밀었다(2026-10-23 검토자2·codex).
             total += delivery.text().len() + BATCH_SEPARATOR.len();
             if !taken.is_empty() && total > limit_bytes {
                 break;
@@ -462,8 +428,6 @@ impl Graph {
         Ok(taken)
     }
 
-    /// 사람이 노드에 입력했다. 끝낸 노드면 다시 일한다. 기다리던 알림은 조정으로 바꿔 사람이 연 턴에 함께 넘긴다.
-    /// 근거: Codex·OpenCode 2는 입력 훅이 없어, 쉬는 노드에 쌓인 알림이 다음 깨우는 메시지까지 남았다(2026-10-23 검토 추적-codex).
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -479,20 +443,16 @@ impl Graph {
         Ok(())
     }
 
-    /// 사람이 노드 카드의 「안 읽음」을 눌렀다. 아직 꺼내지 않은 큐 메시지를 조정으로 바꾼다(2026-10-22 사람 지시 "칩을 클릭하면 수동으로 주입되게").
-    /// 턴 중에 조정을 따로 꺼내는 전달 작업(Codex, OpenCode 2)은 턴 끝을 기다리지 않고 넘긴다. 훅 프로필은 큐와 조정을 같은 지점에서 꺼내므로 바뀌는 것이 없다.
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
         steer_where(&self.lock(), node, |_| true)?;
         self.mail.notify_waiters();
         Ok(())
     }
 
-    /// 프로세스가 사는 에이전트 노드 가운데 아직 꺼내지 않은 메시지에 깨우는 메시지가 있는 노드. 알림만 남은 노드는 깨우지 않는다(`Delivery::wakes`).
     pub fn waking_agents(&self) -> Result<Vec<(NodeId, AgentId)>, Refusal> {
         self.waking(None)
     }
 
-    /// `waking_agents`에 이 노드가 있으면 그 에이전트.
     pub fn waking_agent(&self, node: NodeId) -> Result<Option<AgentId>, Refusal> {
         Ok(self.waking(Some(node))?.pop().map(|(_, agent)| agent))
     }
@@ -524,7 +484,6 @@ impl Graph {
         Ok(waking)
     }
 
-    /// 받는 쪽이 `ids` 메시지를 받았다. 다시 꺼내지 않는다. 다른 노드의 메시지 id는 무시한다.
     pub fn ack(&self, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
         let mut db = self.lock();
         let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
@@ -566,10 +525,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 이미 `done`이어도 새 요약으로 다시 보낸다.
-    /// 근거: 다시 깨기 전에 부른 둘째 `loom done`을 거절하자 결과가 부모에게 가지 않았다(2026-10-22 기록에서 거절 23번). 부모가 없으면 받은편지함에 완료를 건다(`waits::put_done`).
-    /// 부모 없는 노드는 `asked`(그 일을 맡긴 사람의 지시)가 있어야 한다. `images`는 사람이 그 지시에 준 그림 파일이다. `doc`(`--doc`)은 완료 줄의 문서 링크다.
-    /// 돌려준 값은 프로세스가 아직 사는 자식 이름이다. 회수하지 않은 자식이 고아로 남지 않게 부르는 쪽이 알린다.
     pub fn done(
         &self,
         node: NodeId,
@@ -607,7 +562,6 @@ impl Graph {
             },
         )?;
         match asked {
-            // 받은편지함이 사람에게 알린다. 다음 부모에게 줄 보관 메시지로 또 두면 「보관 1」만 남았다(2026-10-22 사람 질문 "위에 뜬 보관 1은 뭔가").
             Some(asked) if parent.is_none() => {
                 waits::put_done(&tx, node, asked, summary, images, doc)?
             }
@@ -638,9 +592,6 @@ impl Graph {
 }
 
 impl Graph {
-    /// 사람이 부모 있는 노드의 터미널에 글을 쳤다. 그 부모에게 원문을 `human-input`으로 알린다. 부모가 없으면 아무것도 하지 않는다.
-    /// 근거: R8 v5 ③(에이전트가 손으로 보내던 USER DIRECTION·USER DECISION을 대신한다). 글은 자르지 않는다: 끝의 제약 한 줄이 사라지면 부모가 불완전한 지시로 조율한다(검토 출력표준2-종류 P2).
-    /// 프로세스가 끝난 부모의 받은편지함에는 넣지 않는다(`post`와 같다).
     pub fn human_typed(&self, node: NodeId, text: &str) -> Result<(), Refusal> {
         let mut db = self.lock();
         let Some(parent) = parent_of(&db, node)? else {
@@ -670,9 +621,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 데몬이 시작할 때 부른다. 내장 스킬(`digests`: 스킬 이름 → 내용 해시)이 지난 기록과 다르면 기록을 바꾸고
-    /// 살아 있는 모든 에이전트 노드에 `rules-changed`를 한 번 보낸다. 기록이 없는 스킬도 바뀐 것이다. 돌려준 값은 바뀐 스킬이다.
-    /// 근거: R8 v5 ③(총괄이 손으로 보내던 RULE UPDATE를 대신한다). 노드의 시작 지시는 띄울 때의 글이라 다시 띄워야 새 규칙을 읽는다.
     pub fn rules_changed(
         &self,
         digests: &BTreeMap<String, String>,
@@ -721,7 +669,6 @@ impl Graph {
     }
 }
 
-/// 노드의 프로세스가 끝났는가. 끝난 노드의 받은편지함에는 넣지 않는다.
 fn exited(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     db.query_row(
         "SELECT process_exited FROM nodes WHERE id = ?1",
@@ -730,18 +677,14 @@ fn exited(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     )
 }
 
-/// `rules-changed`의 본문. 다시 띄워도 대화는 이어진다(`loom relaunch`).
 const RULES_CHANGED_NEXT: &str = "Next: call `loom relaunch` at the end of this turn. Your start text still has the old rules; the relaunch loads the new ones, and the conversation continues.";
 
-/// `loom done` 보고. `warning`은 데몬이 git으로 본 담당 브랜치 경고다(`MessageKind::Done`).
 pub struct Report<'a> {
     pub summary: &'a str,
     pub file: Option<&'a str>,
     pub warning: Option<String>,
 }
 
-/// `done` 노드가 새 일(메시지, 사람 입력)을 받으면 `running`으로 돌린다. 다시 끝내면 `loom done`을 또 부른다.
-/// 근거: 피드백으로 다시 일하는 노드가 「완료」로 보였다(2026-10-22 사람 보고 "작업중인데 완료 상태로 표시되는 문제").
 fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     let done = matches!(state_of(db, node), Ok(NodeState::Done { .. }));
     if done {
@@ -750,7 +693,6 @@ fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     Ok(done)
 }
 
-/// 아직 꺼내지 않은 큐 메시지 가운데 `wanted`인 것을 조정으로 바꾼다. 바꾼 수를 돌려준다.
 fn steer_where(
     db: &Connection,
     node: NodeId,
@@ -774,9 +716,6 @@ fn steer_where(
     Ok(steered)
 }
 
-/// 상한에 세는 메시지 수. 쉬는 노드에 쌓인 알림은 세지 않는다. 알림 수에는 상한이 없다(자식 수 상한 `max_children`도 기본은 없다).
-/// 알림은 다음 메시지와 함께 가고, 한 번에 넘기는 글은 `take`가 넘기는 글 크기로 묶는다. 남은 알림과 결과는 다음 번에 간다.
-/// 근거: 알림 50개가 쌓이자 자식의 결과(`loom done`)가 `MailboxFull`로 거절됐다(2026-10-23 검토 추적-codex).
 fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
     let queued = db
         .prepare(
@@ -795,7 +734,6 @@ fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
-/// 부모 없는 노드가 보관한 메시지도 상한을 둔다. 새 부모가 한꺼번에 받으므로 같은 상한을 쓴다.
 fn check_held_room(db: &Connection, from: NodeId) -> Result<(), Refusal> {
     let held: u32 = db.query_row(
         "SELECT count(*) FROM messages WHERE recipient IS NULL AND sender = ?1",
@@ -808,7 +746,6 @@ fn check_held_room(db: &Connection, from: NodeId) -> Result<(), Refusal> {
     Ok(())
 }
 
-/// 상한을 보지 않고 넣는다. 상한은 부르는 쪽이 `check_room`으로 본다. `to`가 없으면 `from`이 보관한다.
 pub(super) fn enqueue(
     db: &Connection,
     from: NodeId,
@@ -843,8 +780,6 @@ pub(super) fn enqueue(
     Ok(id)
 }
 
-/// 사람이 받은편지함에서 보낸 큐 메시지(답, 추가 지시, 답 없이 닫힘). 보낸 노드가 없으므로 `sender`는 비우고 이름은 `HUMAN`이다.
-/// 메시지 이벤트는 쓰지 않는다. 부르는 쪽이 같은 일을 알림 이벤트(답·추가 지시·답 없이 닫힘)로 한 줄 쓴다. 두 줄로 쓰면 이벤트 목록에 같은 답이 메시지로 한 번 더 보였다(2026-10-22 사람 지시 "가운데도 알림 이벤트로 나와야 하는거 아님?").
 pub(super) fn enqueue_human(
     db: &Connection,
     to: NodeId,
@@ -860,8 +795,6 @@ pub(super) fn enqueue_human(
     Ok(MessageId(db.last_insert_rowid() as u32))
 }
 
-/// 보낸 노드가 없는 loom 알림(`rules-changed`). 받은편지함 상한을 넘어도 넣는다: 놓치면 그 노드가 새 규칙을 영영 못 받는다(기록이 이미 바뀌었다).
-/// 다른 생애 알림(완료·종료)과 같다.
 pub(super) fn enqueue_loom(
     db: &Connection,
     to: NodeId,
@@ -899,12 +832,8 @@ fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
     })
 }
 
-/// 부모를 가리키는 받는 쪽 이름.
 pub const PARENT: &str = "parent";
 
-/// 이름 대신 쓰는 노드 번호. `#12`·`12`는 번호, `parent`는 부르는 노드의 부모다. 부모가 없으면 없는 번호(0)다.
-/// 근거: 에이전트가 `#96` 대신 `96`(14번), 부모 이름 대신 `parent`·`#parent`(5번)로 보내 거절됐다(2026-10-20~22 이벤트 기록).
-/// 숫자만인 이름과 `parent`는 노드 이름으로 받지 않는다(`nodes::checked_name`).
 fn node_id(db: &Connection, from: NodeId, to: &str) -> Result<Option<u32>, Refusal> {
     if to == PARENT {
         return Ok(Some(parent_of(db, from)?.map_or(0, |p| p.0)));
@@ -912,8 +841,6 @@ fn node_id(db: &Connection, from: NodeId, to: &str) -> Result<Option<u32>, Refus
     Ok(to.strip_prefix('#').unwrap_or(to).parse::<u32>().ok())
 }
 
-/// 큐 메시지를 받을 노드. 번호(`node_id`)는 그 노드다. 이름은 부모·자식을 먼저 보고, 없으면 그래프 전체에서 프로세스가 사는 노드를 본다.
-/// 근거: docs/design.md 「메시징 › 원칙」.
 fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
     if let Some(id) = node_id(db, from, to)? {
         let exists: bool = db.query_row(
@@ -950,7 +877,6 @@ fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
     }
 }
 
-/// 부모·자식 가운데 이름이나 `#노드번호`가 맞는 노드. 여러 노드가 맞으면 거절한다.
 pub(super) fn related(
     db: &Connection,
     from: NodeId,

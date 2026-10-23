@@ -1,7 +1,3 @@
-//! 사용량 캐시: 공급자 API를 읽는 곳은 여기 하나다. 화면 수와 새로 고침 수에 상관없이
-//! 같은 계정을 `MIN_AGE`보다 자주 읽지 않는다. 바뀌는 이유는 공급자의 호출 한도다.
-//! 근거: docs/design.md 「계정과 사용량」·「실측 근거」.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10,9 +6,6 @@ use crate::accounts::{AccountId, Site};
 use crate::profile::Provider;
 use crate::usage::{Limits, Usage, UsageProblem};
 
-/// 같은 계정을 다시 읽기 전에 기다리는 최소 시간. 2026-10-23 실측에서 `api/oauth/usage`는
-/// 토큰 하나에 2초 안의 6번째 호출부터 429(`retry-after: 300`)를 줬다. 1분이면 분당 1번이라
-/// 한도와 멀고, 사람이 새로 고침을 눌러도 1분 전 값은 본다. Orca·Claude Code가 같은 토큰으로 쓰는 몫도 남는다.
 const MIN_AGE: Duration = Duration::from_secs(60);
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -21,7 +14,6 @@ enum Source {
     Cursor,
 }
 
-/// 읽는 곳: 위치(이 PC 또는 WSL 배포판), 출처, 계정(시스템 기본은 없음).
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Key {
     distro: Option<String>,
@@ -49,19 +41,13 @@ impl Key {
 
 #[derive(Default)]
 struct Slot {
-    /// 이 값들을 읽을 때의 로그인 파일 지문. 로그인·로그아웃·토큰 갱신은 이 값을 바꾼다.
-    /// 한도는 토큰마다 걸리므로 토큰이 바뀌면 앞 값과 기다림이 모두 틀린다.
     fingerprint: Option<u64>,
-    /// 마지막으로 읽은 사용 가능한 값과 읽은 때.
     good: Option<(Usage, Instant)>,
-    /// 일시 실패(네트워크, 5xx, 시간 초과)를 받은 때. `min_age` 동안 다시 부르지 않는다.
     failed: Option<(Usage, Instant)>,
-    /// 429를 받은 뒤 다시 읽을 수 있는 때와 그 유닉스 초.
     blocked: Option<(Instant, i64)>,
 }
 
 impl Slot {
-    /// 앞 값이 있으면 그 값(읽은 때 그대로), 없으면 `failure`.
     fn good_or(&self, failure: Usage) -> Usage {
         match &self.good {
             Some((usage, _)) => usage.clone(),
@@ -70,7 +56,6 @@ impl Slot {
     }
 }
 
-/// 다시 불러도 나아질 수 있는 실패. 로그아웃·미설치·만료는 사람이 고친 뒤 바로 다시 읽어야 하므로 아니다.
 fn transient(problem: &UsageProblem) -> bool {
     matches!(
         problem,
@@ -83,7 +68,6 @@ fn transient(problem: &UsageProblem) -> bool {
 
 pub struct UsageCache {
     min_age: Duration,
-    /// 키마다 비동기 잠금 하나. 잠금을 잡은 채 읽으므로 같은 키의 동시 요청은 한 번만 읽는다.
     slots: Mutex<HashMap<Key, Arc<tokio::sync::Mutex<Slot>>>>,
 }
 
@@ -101,8 +85,6 @@ impl UsageCache {
         }
     }
 
-    /// 계정 `key`의 사용량. `fingerprint`는 그 계정 로그인 파일 내용의 지문이다(`usage::credentials_fingerprint`).
-    /// `probe`는 캐시가 새 값이 필요할 때만 막는 스레드에서 돈다.
     pub async fn get(
         &self,
         key: Key,
@@ -153,7 +135,6 @@ impl UsageCache {
                 slot.failed = Some((usage.clone(), Instant::now()));
                 slot.good_or(usage)
             }
-            // 로그아웃·만료·미설치는 앞 값이 이 로그인의 것이 아니다. 지워서 다음 429에 보이지 않게 한다.
             _ => {
                 slot.good = None;
                 usage
@@ -207,7 +188,6 @@ mod tests {
         }
     }
 
-    /// 화면 20개가 동시에 부르고 다시 새로 고쳐도 공급자는 한 번만 불린다.
     #[tokio::test]
     async fn many_callers_make_one_probe_per_min_age() {
         let cache = UsageCache::default();
@@ -246,7 +226,6 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
-    /// 429 뒤에는 `retry-after`가 끝날 때까지 부르지 않고, 앞 값을 읽은 때와 함께 준다.
     #[tokio::test]
     async fn rate_limit_keeps_last_good_and_stops_calls() {
         let cache = UsageCache::new(Duration::ZERO);
@@ -266,7 +245,6 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
-    /// 앞 값이 없으면 한도 문제(`RateLimited`)를 준다. 막힌 동안은 다시 부르지 않는다.
     #[tokio::test]
     async fn rate_limit_without_good_value_is_typed() {
         let cache = UsageCache::new(Duration::ZERO);
@@ -289,7 +267,6 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
-    /// `retry-after`가 끝나면 다음 요청이 다시 읽는다.
     #[tokio::test]
     async fn reads_again_after_retry_time() {
         let cache = UsageCache::new(Duration::ZERO);
@@ -299,7 +276,6 @@ mod tests {
         assert_eq!(used(&shown), Some(50));
     }
 
-    /// 로그아웃(미로그인)한 계정의 앞 값은 뒤의 429에 다시 나오지 않는다.
     #[tokio::test]
     async fn logged_out_drops_last_good() {
         let cache = UsageCache::new(Duration::ZERO);
@@ -311,7 +287,6 @@ mod tests {
         assert_eq!(used(&shown), None);
     }
 
-    /// 로그인 파일 내용이 바뀌면(다른 계정 로그인, 로그아웃, 토큰 갱신) 앞 값과 기다림을 버린다.
     #[tokio::test]
     async fn changed_credentials_drop_last_good_and_backoff() {
         let cache = UsageCache::new(Duration::ZERO);
@@ -323,7 +298,6 @@ mod tests {
         assert_eq!(used(&shown), Some(7));
     }
 
-    /// 일시 실패도 `min_age` 동안 다시 부르지 않는다. 동시 요청 20개가 호출 한 번이다.
     #[tokio::test]
     async fn transient_failure_is_not_retried_within_min_age() {
         let cache = UsageCache::default();
@@ -339,7 +313,6 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
-    /// 일시 실패가 와도 앞 값과 읽은 때를 보인다.
     #[tokio::test]
     async fn transient_failure_keeps_last_good() {
         let cache = UsageCache::new(Duration::ZERO);

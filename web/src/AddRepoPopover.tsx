@@ -9,24 +9,20 @@ const TABS = ['folder', 'clone', 'create'] as const;
 type Tab = (typeof TABS)[number];
 const SUBMIT = { folder: 'repo.add', clone: 'repo.clone', create: 'repo.create' } as const;
 
-/** git이 `git clone <url>`에서 고르는 폴더 이름. 데몬의 `worktree::repo_name`과 같은 규칙이다. */
 function repoName(url: string): string {
   const leaf = url.trim().replace(/\/+$/, '').split(/[/:]/).pop() ?? '';
   return leaf.replace(/\.git$/, '');
 }
 
-/** 저장소 추가(목업 repository.html). 기존 폴더, URL 복제, 새 프로젝트. 같은 저장소를 다시 더하면 그 저장소를 돌려받는다. */
 export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('folder');
   const [path, setPath] = useState('');
-  // 「실행 위치」 글. WSL이 없으면 없다(목업 wsl-place.html ①).
   const [place, setPlace] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  // 데몬의 복제·만들기는 멈추지 못한다. 진행 중에는 창을 닫지 않아 결과를 보인다.
   const close = () => {
     if (!busy) props.onClose();
   };

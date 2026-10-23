@@ -1,10 +1,3 @@
-//! Codex app-server: Codex 노드마다 하나를 띄우고 WebSocket JSON-RPC로 잇는다.
-//! 노드의 TUI는 `codex --remote <주소>`로 같은 서버에 붙는다. 이 연결은 스레드를 구독하지 않는다.
-//! 구독하면 승인 요청도 이 연결로 온다. 구독 없이도 `thread/started`·`thread/status/changed`는 온다.
-//! 서버는 노드처럼 데몬이 다시 시작해도 산다. 새 데몬은 DB에 남긴 주소로 다시 붙는다(`reconnect`).
-//! 바뀌는 이유는 app-server 전송 방식과 프로세스 모양이다. 요청 내용은 `profile::codex`가 정한다.
-//! 근거: docs/design.md 「에이전트 실행」, 「실측 근거」.
-
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
@@ -29,15 +22,12 @@ use crate::profile::codex::protocol::{
 };
 use crate::wsl::Inside;
 
-/// 서버가 뜨고 요청 하나에 답하는 상한. 첫 실행은 로그인 확인과 플러그인 읽기로 몇 초 걸린다.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// 노드의 대화 스레드. TUI가 만든다. 서버가 따로 만드는 제목용 임시 스레드는 거른다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Thread {
     pub id: String,
     pub status: Status,
-    /// 승인·답을 기다리는 스레드(`ThreadActiveFlag`). 근거: docs/design.md 「사람 응답 대기」.
     pub waiting: Option<WaitKind>,
 }
 
@@ -65,25 +55,18 @@ impl Thread {
 
 type Pending = Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>;
 
-/// app-server 하나와 데몬의 연결. 서버 프로세스는 데몬과 따로 산다. 데몬이 다시 시작하면 `reconnect`로 다시 붙는다.
 pub struct CodexServer {
     url: String,
-    /// 셸을 찾고 서버를 끝내는 뿌리. `codex`는 실행 파일을 띄우는 node 스크립트라 셸은 손자 아래에 뜬다.
     pid: Option<u32>,
     to_server: mpsc::UnboundedSender<Message>,
     pending: Arc<Pending>,
     next_id: AtomicU64,
     thread: watch::Receiver<Option<Thread>>,
-    /// `reconnect`가 읽은 스레드 상태를 넣는 길.
     thread_tx: Weak<watch::Sender<Option<Thread>>>,
-    /// 계정 한도로 턴이 끝날 때마다 하나씩 는다(`error` 알림의 `usageLimitExceeded`). 계정 전환이 본다.
     limited: watch::Receiver<u64>,
 }
 
 impl CodexServer {
-    /// `node_env`는 노드 프로세스와 같은 환경이다. loom 계정이면 그 로그인 폴더(`CODEX_HOME`)도 든다. 없으면 시스템 기본(`~/.codex`)이다. 셸 명령은 이 서버 아래에서 돌므로 `loom`이 그 값을 읽는다.
-    /// `config`는 서버에 넘길 `-c` 인자다. `cwd`는 노드가 도는 워크트리다. 스레드는 서버의 작업 폴더에서 돈다.
-    /// `inside`가 있으면 서버를 그 WSL 배포판의 노드 폴더에서 띄운다.
     pub async fn start(
         cwd: &Path,
         inside: Option<&Inside>,
@@ -93,8 +76,6 @@ impl CodexServer {
         let port = process_tree::free_port()?;
         let url = format!("ws://127.0.0.1:{port}");
         let mut args = config.to_vec();
-        // Codex 셸은 로그인 셸 스냅샷의 `PATH`를 다시 적용해 노드 `PATH`의 `loom` 폴더를 지운다(실측).
-        // 셸 환경 설정으로 노드 `PATH`를 다시 넣는다. JSON 문자열은 TOML 문자열로도 읽힌다.
         let path = match inside {
             Some(inside) => Some(inside.node_path()),
             None => node_env
@@ -118,7 +99,6 @@ impl CodexServer {
                 cmd
             }
         };
-        // 노드가 데몬보다 오래 살므로 서버도 따로 산다. 출력은 읽지 않는다. 데몬이 끝나면 읽을 쪽이 없다.
         process_tree::detach(&mut cmd);
         let mut child = Command::from(cmd)
             .stdin(Stdio::null())
@@ -133,7 +113,6 @@ impl CodexServer {
         )
         .await
         .unwrap_or_else(|_| Err("did not listen".into()));
-        // 이 데몬이 띄운 서버는 끝날 때 이 데몬이 거둔다.
         tokio::spawn(async move { child.wait().await });
         let server = match listening {
             Ok(()) => Self::connect(url, pid).await,
@@ -147,8 +126,6 @@ impl CodexServer {
         })
     }
 
-    /// 앞 데몬이 띄운 서버에 다시 붙는다. `thread`가 있으면 그 상태를 읽어 둔다.
-    /// 상태를 읽지 못하면 쉬는 중으로 둔다. 다음 `thread/status/changed`가 고친다.
     pub async fn reconnect(
         url: String,
         pid: Option<u32>,
@@ -161,8 +138,6 @@ impl CodexServer {
         Ok(server)
     }
 
-    /// 이 서버가 만들지 않은 스레드(다시 붙기, 계정 전환으로 이어 간 스레드)를 노드 스레드로 둔다. 상태를 읽어 둔다.
-    /// 상태를 읽지 못하면 쉬는 중으로 둔다. 다음 `thread/status/changed`가 고친다.
     pub async fn follow_thread(&self, id: String) {
         let status = self
             .read(&id)
@@ -175,12 +150,10 @@ impl CodexServer {
         }
     }
 
-    /// 스레드 기록 파일(rollout)의 경로. 계정 전환이 새 `CODEX_HOME`으로 복사한다.
     pub async fn rollout(&self, thread: &str) -> Result<Option<String>, String> {
         Ok(self.read(thread).await?.thread.path)
     }
 
-    /// 계정 한도로 끝난 턴의 수. 값이 바뀌면 한도에 닿았다.
     pub fn limited(&self) -> watch::Receiver<u64> {
         self.limited.clone()
     }
@@ -195,7 +168,6 @@ impl CodexServer {
         serde_json::from_value(read).map_err(|e| format!("thread/read: {e}"))
     }
 
-    /// 다시 붙는 데 쓰는 값. DB에 남긴다.
     pub fn link(&self) -> ServerLink {
         ServerLink::Codex {
             url: self.url.clone(),
@@ -204,7 +176,6 @@ impl CodexServer {
         }
     }
 
-    /// 연결하고 `initialize`를 보낸다.
     async fn connect(url: String, pid: Option<u32>) -> Result<Self, String> {
         let connected = tokio::time::timeout(
             REPLY_TIMEOUT,
@@ -224,7 +195,6 @@ impl CodexServer {
         });
         let pending = Arc::new(Pending::default());
         let (thread_tx, thread) = watch::channel(None);
-        // 받는 작업이 유일한 강한 참조다. 연결이 끊겨 작업이 끝나면 송신자가 사라져 구독자도 끝난다.
         let thread_tx = Arc::new(thread_tx);
         let weak_tx = Arc::downgrade(&thread_tx);
         let (limited_tx, limited) = watch::channel(0);
@@ -240,7 +210,6 @@ impl CodexServer {
                     receive(value, &replies, &thread_tx);
                 }
             }
-            // 연결이 끊겼다. 기다리는 요청을 모두 실패로 끝낸다.
             for (_, reply) in replies.lock().unwrap().drain() {
                 let _ = reply.send(Err("app-server connection closed".into()));
             }
@@ -262,17 +231,14 @@ impl CodexServer {
         Ok(server)
     }
 
-    /// TUI가 `--remote`로 붙는 주소.
     pub fn url(&self) -> &str {
         &self.url
     }
 
-    /// 노드 스레드와 그 상태. 서버가 끝나면 `changed()`가 실패한다.
     pub fn thread(&self) -> watch::Receiver<Option<Thread>> {
         self.thread.clone()
     }
 
-    /// JSON-RPC 요청 하나를 보내고 `result`를 돌려준다. `error` 응답은 그 메시지를 돌려준다.
     pub async fn call(&self, method: &'static str, params: Value) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
@@ -302,16 +268,12 @@ impl CodexServer {
         ));
     }
 
-    /// 돌고 있는 셸 명령과 그 자손을 끝내고 끝낸 프로세스 수를 돌려준다.
-    /// `turn/interrupt`는 턴만 멈추고 셸은 끝까지 돈다. 셸은 서버 아래의 세션 리더다.
-    /// MCP 서버와 `codex-code-mode-host`는 서버의 세션 안에 있어 끝내지 않는다.
     pub fn stop_shells(&self) -> usize {
         let Some(root) = self.pid else { return 0 };
         let snapshot = Snapshot::now();
         snapshot.kill_trees(snapshot.session_leaders_under(root))
     }
 
-    /// 서버와 그 아래 프로세스를 모두 끝낸다.
     pub fn stop(&self) {
         if let Some(root) = self.pid {
             Snapshot::now().kill_trees([root]);
@@ -319,7 +281,6 @@ impl CodexServer {
     }
 }
 
-/// 서버가 보낸 메시지 하나. 응답은 기다리는 요청에 넘기고, 스레드 알림은 상태로 바꾼다. 나머지는 버린다.
 fn receive(msg: Value, pending: &Pending, thread: &watch::Sender<Option<Thread>>) {
     if msg.get("method").is_none() {
         let Some(id) = msg["id"].as_u64() else { return };
@@ -359,8 +320,6 @@ fn receive(msg: Value, pending: &Pending, thread: &watch::Sender<Option<Thread>>
     }
 }
 
-/// 계정 한도로 턴이 끝났다는 `error` 알림(`codexErrorInfo: "usageLimitExceeded"`, 0.159.2 스키마 `ErrorNotification`).
-/// 다시 시도하는 오류(`willRetry`)는 턴을 끝내지 않는다.
 fn is_usage_limit(msg: &Value) -> bool {
     msg["method"] == "error"
         && msg["params"]["willRetry"] != true
@@ -371,7 +330,6 @@ fn is_usage_limit(msg: &Value) -> bool {
 mod tests {
     use super::*;
 
-    /// 0.159.2 스키마 `ThreadStatusChangedNotification` 모양의 알림.
     fn changed(status: Value) -> Thread {
         let note: ThreadStatusChangedNotification =
             serde_json::from_value(json!({ "threadId": "t", "status": status })).unwrap();

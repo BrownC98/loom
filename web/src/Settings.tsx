@@ -26,16 +26,7 @@ import { WorkspaceFields } from './WorkspaceSettings';
 import { placeName, shortPlaceName } from './place';
 import { accountName, activeAccount, fetchedText, limitsProblem, notInstalled, placesOf, PROVIDER_LABEL, PROVIDERS, SYSTEM_DIR, WindowLines } from './usage';
 
-/**
- * 탭 순서이자 URL 해시 값(`#settings/display`)이다. 첫 탭이 설정을 열 때의 탭이다.
- * 탭마다 주제가 하나다(목업 docs/mockups/settings-groups.html, 2026-10-22 사람 지시 "설정은 관련있는것끼리 다시 구성을 정리해줘", 승인 "권장안대로").
- */
 export const SETTINGS_TABS = ['general', 'phone', 'agents', 'accounts', 'display', 'graph', 'terminal', 'about'] as const;
-/**
- * 탭마다 [이 탭 초기화]가 기본값으로 되돌리는 설정 칸. 「모든 설정 초기화」는 이 칸을 모두 되돌린다(2026-10-22 사람 지시 "모든 설정 초기화도 넣고, 각 탭별 초기화를 넣어라").
- * 고른 계정(`claudeAccount`·`codexAccount`)은 넣지 않는다: 바꾸면 노드가 계정을 바꾸므로 계정 탭의 고르기(확인 창)로만 바꾼다.
- * 기본값은 Rust에만 있다. `null`을 보내면 데몬이 칸을 지우고 기본값으로 읽는다.
- */
 const TAB_SETTINGS = {
   general: ['workspaceDir', 'wslWorkspaceDirs', 'osNotify'],
   phone: [],
@@ -49,10 +40,8 @@ const TAB_SETTINGS = {
 const ALL_SETTINGS = Object.values(TAB_SETTINGS).flat();
 const nulls = (keys: readonly (keyof SettingsView)[]): SettingsPatch => Object.fromEntries(keys.map((key) => [key, null]));
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
-/** 로그인 창이 로그인이 끝났는지 묻는 간격. */
 const LOGIN_POLL_MS = 1000;
 
-/** 설정 창(목업 3·4·6번). 열린 탭은 URL 해시(`#settings/agents`)가 갖는다. */
 export function Settings(props: {
   tab: SettingsTab;
   onTab: (tab: SettingsTab) => void;
@@ -61,14 +50,11 @@ export function Settings(props: {
   onRescan: () => void;
   settings: SettingsView;
   onSettings: (next: SettingsView) => void;
-  /** 데몬의 기본 설정. 칸마다 [기본값] 단추를 보일지 정한다. */
   defaults: SettingsView | null;
-  /** 이 칸들을 데몬 기본값으로 되돌린다(`null` 칸). */
   onReset: (patch: SettingsPatch) => void;
   usage: Usage;
   onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
   updates: Updates;
-  /** 데몬만 끈다(목업 web-stop.html ①). 앱을 닫아도 데몬은 살므로 웹 버전과 앱 모두 이 단추로 끈다. */
   onStop: () => void;
 }) {
   const { t } = useTranslation();
@@ -98,7 +84,6 @@ export function Settings(props: {
     <Modal className="dialog" label={t('settings.title')} onClose={props.onClose}>
       <nav aria-label={t('settings.tabsLabel')}>
         <h2>{t('settings.title')}</h2>
-        {/* 모든 탭에서 글이 맞는 칸만 보인다(목업 docs/mockups/settings-search.html M34, 2026-10-22 사람 승인 Q269 A). */}
         <label className="settings-search">
           <Search aria-hidden="true" />
           <input
@@ -108,7 +93,6 @@ export function Settings(props: {
             aria-label={t('settings.search')}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              // 검색 중 Esc는 창을 닫지 않고 검색만 지운다.
               if (e.key === 'Escape' && query !== '') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -139,7 +123,6 @@ export function Settings(props: {
           <RotateCcw />
           {t('settings.resetAll')}
         </button>
-        {/* 끄기 전에 무엇이 멈추고 무엇이 사는지 알린다(2026-10-22 사람 지시 "loom 끄기는 해당 버튼이 실행되면 무슨일이 일어나는지 안내하는 확인 팝업 띄워"). */}
         <button type="button" className="btn ghost stop" onClick={() => confirm(t('settings.confirmStop')) && props.onStop()}>
           <Power />
           {t('settings.stop')}
@@ -161,7 +144,6 @@ export function Settings(props: {
         </div>
         {searching
           ? SETTINGS_TABS.map((tab) => (
-              // 칸 이름 앞의 탭 이름은 CSS가 이 변수로 그린다(`.search-tab section > h4::before`).
               <div key={tab} className="search-tab" style={{ '--tab-name': JSON.stringify(t(`settings.tab.${tab}`)) } as CSSProperties}>
                 {body(tab)}
               </div>
@@ -174,14 +156,8 @@ export function Settings(props: {
   );
 }
 
-/** 맞은 글에 칠하는 이름. 글을 바꾸지 않고 칠한다(CSS Custom Highlight API). 근거: styles.css `::highlight(settings-search)`. */
 const SEARCH_HIGHLIGHT = 'settings-search';
 
-/**
- * 검색 중이면 `pane` 안의 칸(`section`)마다 글에 `query`가 있는지 보고, 없는 칸을 숨기고 맞은 글을 칠한다. 대소문자는 가리지 않는다.
- * 칸 글은 화면이 그린 글 그대로라 언어를 바꿔도 맞는다. 맞은 칸 수를 돌려준다(검색이 아니면 null).
- * 칸이 늦게 그려져도(계정 사용량) 다시 거른다.
- */
 function useSearch(pane: RefObject<HTMLDivElement | null>, query: string): number | null {
   const [found, setFound] = useState<number | null>(null);
   useLayoutEffect(() => {
@@ -225,11 +201,9 @@ function useSearch(pane: RefObject<HTMLDivElement | null>, query: string): numbe
   return found;
 }
 
-/** 판과 업데이트(docs/mockups/web-update.html ④). [업데이트]는 알림 카드와 같은 일을 하고, 진행은 그 카드가 보인다. */
 function AboutTab({ updates }: { updates: Updates }) {
   const { t } = useTranslation();
   const [checking, setChecking] = useState(false);
-  // 이 탭에서 확인한 결과. 확인하기 전에는 아무것도 보이지 않는다.
   const [result, setResult] = useState<{ kind: 'latest' } | { kind: 'new' } | { kind: 'error'; message: string } | null>(null);
   const runCheck = () => {
     setChecking(true);
@@ -279,7 +253,6 @@ function AboutTab({ updates }: { updates: Updates }) {
 function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   const { agents, settings } = props;
-  // 모든 에이전트가 같은 위치를 같은 순서로 갖는다. 위치가 하나면 지금 화면과 같다(목업 wsl-place.html ④).
   const places = agents[0]?.places.map((p) => p.distro) ?? [null];
   const multi = places.length > 1;
   const installed = agents.filter((a) => a.places.some((p) => p.path !== null));
@@ -372,10 +345,8 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
   );
 }
 
-/** 「내장 스킬」 줄 순서(목업 skill-options.html ①). */
 const SKILLS = ['oMode', 'userDoc', 'ste100', 'raptor3'] as const satisfies readonly (keyof AlwaysOn)[];
 
-/** 「내장 스킬」 구역(목업 skill-options.html ①). 끈 스킬은 새로 띄우는 노드에 주지 않는다. */
 function SkillsSection({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   return (
@@ -408,23 +379,18 @@ function SkillsSection({ settings, onSettings }: { settings: SettingsView; onSet
   );
 }
 
-/** 숫자 칸이 받는 범위(목업 settings.html 9번). */
 const DEPTH_RANGE = { min: 0, max: 9 };
 const CHILDREN_RANGE = { min: 1, max: 99 };
 
-/** 범위 안의 정수면 그 값, 아니면 null. */
 function inRange(text: string, range: { min: number; max: number }): number | null {
   const n = Number(text);
   return Number.isInteger(n) && n >= range.min && n <= range.max && text.trim() !== '' ? n : null;
 }
 
-/** 「하위 노드 상한」 구역(목업 settings.html 9번). 범위 안의 값으로 바꾸면 바로 저장한다.
- *  칸은 처음 값만 받는다. 저장할 때마다 다시 그리면 입력 중 커서를 잃는다. */
 function TreeLimitsSection({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   const limits = settings.treeLimits;
   const setDepth = (text: string) => {
-    // 비우면 상한이 없다(2026-10-20 사람 지시 "에이전트 중첩깊이 공란이면 상한 없음으로 처리"). 자식 수 칸과 같다.
     const maxDepth = text.trim() === '' ? null : inRange(text, DEPTH_RANGE);
     if (maxDepth !== null || text.trim() === '') onSettings({ ...settings, treeLimits: { ...limits, maxDepth } });
   };
@@ -501,7 +467,6 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
     },
     choose: props.onChoose,
   };
-  // 위치가 하나면 위치 머리 줄을 그리지 않는다. 지금 화면과 같다(목업 wsl-place.html ③).
   const places = usage.accounts ? placesOf(usage.accounts) : [];
   const providers = (distro: string | null) =>
     PROVIDERS.map((provider) => <ProviderAccounts key={provider} provider={provider} distro={distro} settings={settings} usage={usage} actions={actions} />);
@@ -513,7 +478,6 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
           {error}
         </p>
       )}
-      {/* 칸(`section`)이라 설정 찾기가 찾는다(`useSearch`). */}
       <section className="auto-switch">
         <h4>
           {t('accounts.autoSwitchHeading')}
@@ -529,7 +493,6 @@ function AccountsTab(props: { settings: SettingsView; onSettings: (next: Setting
       {places.length === 1 && providers(places[0])}
       {places.length > 1 &&
         places.map((distro) => (
-          // 설정 찾기는 안쪽 공급자 칸마다 거르고, 맞는 칸이 없는 위치는 머리 줄까지 숨긴다(`useSearch`).
           <section key={distro ?? ''} className="place-group">
             <div className="place-head" translate="no">
               {distro === null ? <Monitor aria-hidden="true" /> : <SquareTerminal aria-hidden="true" />}
@@ -559,7 +522,6 @@ type AccountActions = {
   choose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
 };
 
-/** 한 위치, 한 공급자의 계정 줄. */
 function ProviderAccounts(props: { provider: Provider; distro: string | null; settings: SettingsView; usage: Usage; actions: AccountActions }) {
   const { t } = useTranslation();
   const { provider, distro, usage, actions } = props;
@@ -567,7 +529,6 @@ function ProviderAccounts(props: { provider: Provider; distro: string | null; se
   const all = usage.accounts!;
   const accounts = all.filter((a) => a.provider === provider && a.distro === distro);
   const active = activeAccount(all, props.settings, provider, distro);
-  // CLI가 없으면 모든 줄이 같은 문제다. 시스템 기본 줄로 본다.
   const missing = accounts.some((a) => a.id === null && notInstalled(a));
   return (
     <section aria-busy={usage.loading}>
@@ -639,7 +600,6 @@ function ProviderAccounts(props: { provider: Provider; distro: string | null; se
   );
 }
 
-/** CLI 로그인을 띄운 터미널. 로그인이 끝나면 닫힌다. 취소하면 데몬이 새로 만든 폴더를 지운다. */
 function LoginDialog(props: { login: OpenLogin; onDone: () => void }) {
   const { t } = useTranslation();
   const { login } = props;

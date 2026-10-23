@@ -7,17 +7,14 @@ import type { Role } from './gen/Role';
 import type { SettingsView } from './gen/SettingsView';
 import { blankToNull, canChooseModel, cursorEffortWithoutModel, nameTaken, rolesChanged, runnerText } from './roles';
 
-/** 편집 중인 줄: 역할 목록의 자리, 더하기면 `'new'`. */
 type Editing = number | 'new' | null;
 
 const EMPTY: Role = { name: '', duty: '', agent: null, model: null, effort: null };
 
-/** 「o-mode 역할」 구역(목업 role-settings.html ①②). 저장은 목록을 통째로 바꾼다. */
 export function RoleSettings({ agents, settings, onSettings }: { agents: AgentView[]; settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState<Editing>(null);
   const roles = settings.roles;
-  // 편집은 목록의 자리를 가리킨다. 초기화·다른 화면의 변경으로 내용이 바뀌면 그 자리는 다른 역할이다. 내용이 같은 새 배열은 닫지 않는다.
   const seen = useRef(roles);
   useEffect(() => {
     if (!rolesChanged(seen.current, roles)) return;
@@ -84,7 +81,6 @@ export function RoleSettings({ agents, settings, onSettings }: { agents: AgentVi
 
 function RoleForm(props: { initial: Role; adding: boolean; others: Role[]; agents: AgentView[]; onCancel: () => void; onSave: (role: Role) => void }) {
   const { t } = useTranslation();
-  // 모델·강도는 칸의 글로 둔다. 빈 글은 저장할 때 `null`(CLI 기본)이 된다.
   const [draft, setDraft] = useState({ ...props.initial, model: props.initial.model ?? '', effort: props.initial.effort ?? '' });
   const { model, effort } = draft;
   const picks = canChooseModel(props.agents.find((a) => a.id === draft.agent));

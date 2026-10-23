@@ -4,17 +4,11 @@ import { getDistro, getLocations } from './api';
 import { FieldReset } from './FieldReset';
 import type { SettingsView } from './gen/SettingsView';
 
-/** 절대 경로: `/…`, `C:\…`, `\\서버\…`. 데몬도 같은 규칙으로 거절한다. */
 const ABSOLUTE = /^(\/|[A-Za-z]:[\\/]|\\\\)/;
 
-/**
- * 설정 「일반」의 워크스페이스 폴더 칸(목업 workspace.html 4번, settings-groups.html). 위치마다 글 입력 하나다. 입력에서 나가거나 Enter를 누르면 저장한다.
- * WSL 배포판이 있으면 배포판마다 칸을 더한다(목업 wsl-place.html ⑤). WSL 저장소의 워크트리는 그 배포판 안에 있어야 한다.
- */
 export function WorkspaceFields({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();
   const [distros, setDistros] = useState<string[]>([]);
-  // 배포판마다 기본 폴더(`<홈>/loom/workspaces`). 데몬이 배포판을 켜서 읽는다.
   const [defaults, setDefaults] = useState<Record<string, string>>({});
   useEffect(() => {
     getLocations().then(({ distros }) => {
@@ -49,7 +43,6 @@ export function WorkspaceFields({ settings, onSettings }: { settings: SettingsVi
   );
 }
 
-/** 폴더 칸 하나. `note`는 칸 아래의 안내다(목업은 마지막 칸 아래 한 번). 틀린 값은 안내 자리에 보인다. */
 function DirField(props: { id: string; label: string; reset: Parameters<typeof FieldReset>[0]['path']; saved: string; note: string | null; onSave: (dir: string) => void }) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(props.saved);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { attachPinchZoom, type View } from './pinchZoom';
+import { attachPinchZoom, clampToBox, type View } from './pinchZoom';
 
 const FIT: View = { x: 0, y: 0, zoom: 1 };
 const LIMITS = { min: 1, max: 6 };
@@ -15,12 +15,13 @@ export function PinchImage(props: { src: string; alt: string; onTap: () => void 
   const root = useRef<HTMLDivElement>(null);
   const view = useRef<View>(FIT);
   const [shown, setShown] = useState<View>(FIT);
-  const drag = useRef<{ x: number; y: number; from: View; moved: boolean } | null>(null);
+  const drag = useRef<{ x: number; y: number; from: View } | null>(null);
   const moved = useRef(false);
 
   const set = (v: View) => {
-    view.current = v;
-    setShown(v);
+    const fitted = clampToBox(v, root.current!.getBoundingClientRect());
+    view.current = fitted;
+    setShown(fitted);
   };
 
   useEffect(
@@ -36,7 +37,7 @@ export function PinchImage(props: { src: string; alt: string; onTap: () => void 
       onTouchStart={(e) => {
         moved.current = false;
         const t = e.touches[0];
-        drag.current = e.touches.length === 1 ? { x: t.clientX, y: t.clientY, from: view.current, moved: false } : null;
+        drag.current = e.touches.length === 1 ? { x: t.clientX, y: t.clientY, from: view.current } : null;
       }}
       onTouchMove={(e) => {
         const t = e.touches[0];

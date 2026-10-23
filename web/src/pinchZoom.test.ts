@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pinchView } from "./pinchZoom";
+import { clampToBox, pinchView } from "./pinchZoom";
 
 const limits = { min: 0.1, max: 3.5 };
 
@@ -45,5 +45,19 @@ describe("pinchView", () => {
         limits,
       ).zoom,
     ).toBe(0.1);
+  });
+});
+
+describe("clampToBox", () => {
+  const box = { width: 100, height: 50 };
+  it("forces the fit position at 1x", () => {
+    expect(clampToBox({ x: -40, y: -100, zoom: 1 }, box)).toEqual({ x: 0, y: 0, zoom: 1 });
+  });
+  it("keeps a zoomed image covering the box", () => {
+    expect(clampToBox({ x: 1320, y: -300, zoom: 2 }, box)).toEqual({ x: 0, y: -50, zoom: 2 });
+    expect(clampToBox({ x: -500, y: 10, zoom: 2 }, box)).toEqual({ x: -100, y: 0, zoom: 2 });
+  });
+  it("leaves an inside position alone", () => {
+    expect(clampToBox({ x: -30, y: -20, zoom: 2 }, box)).toEqual({ x: -30, y: -20, zoom: 2 });
   });
 });

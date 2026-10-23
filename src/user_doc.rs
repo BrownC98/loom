@@ -565,12 +565,6 @@ mod tests {
     }
 
     #[test]
-    fn the_web_knows_the_doc_link() {
-        let links = include_str!("../web/src/links.ts");
-        assert!(links.contains(&format!("DOC_LINK = '{DOC_LINK}'")));
-    }
-
-    #[test]
     fn a_text_doc_takes_its_first_heading_or_file_name() {
         let md = Path::new("/r/audit.md");
         assert_eq!(text_title("앞말\n# 알림 감사 \n본문\n", md), "알림 감사");

@@ -1615,6 +1615,7 @@ fn records_refusals_and_failed_launches() {
         lead,
         "없음",
         Kind::Steer,
+        MessageKind::Note,
         &Refusal::NotFound("없음".into()),
         None,
     )
@@ -1640,6 +1641,7 @@ fn records_refusals_and_failed_launches() {
             },
             events::Entry::Refused {
                 how: Kind::Steer,
+                what: Some(MessageKind::Note),
                 from: who(lead, "총괄-1"),
                 to: "없음".into(),
                 reason: Refusal::NotFound("없음".into()),

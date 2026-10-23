@@ -55,7 +55,7 @@ describe('noticeOf', () => {
 });
 
 describe('records', () => {
-  const rec = (id: number, entry: EventRecord['entry']): EventRecord => ({ id, at: 0, entry, body: null });
+  const rec = (id: number, entry: EventRecord['entry']): EventRecord => ({ id, at: 0, entry, parts: [], choices: [], message: null });
   it('latestSwitch picks the first switch record of a newest-first log', () => {
     const log = [rec(5, { kind: 'removed', node: { id: 1, name: 'a' } }), rec(4, switched({})), rec(3, switched({ to: '9' }))];
     expect(latestSwitch(log)?.id).toBe(4);

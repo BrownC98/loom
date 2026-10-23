@@ -52,7 +52,8 @@ describe('minimapClass', () => {
 
 describe('summaryOf', () => {
   it('drops link targets and is empty for a wait without text', () => {
-    expect(summaryOf(wait(1, 'done', 1, 'see [plan](https://x.test/p)'))).toBe('see plan');
+    const parts = [{ part: 'text', text: 'see ' }, { part: 'link', label: 'plan', href: 'https://x.test/p' }] as const;
+    expect(summaryOf({ ...wait(1, 'done', 1, 'see [plan](https://x.test/p)'), parts: [...parts] })).toBe('see plan');
     expect(summaryOf(wait(2, 'approval', 1))).toBe('');
   });
 });

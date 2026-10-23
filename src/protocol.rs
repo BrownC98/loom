@@ -368,6 +368,79 @@ pub enum MessageKind {
     },
 }
 
+/// 종류의 칸 이름. 터미널은 `word`를, 화면은 이 값의 번역을 칸 이름으로 보인다.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Field {
+    Question,
+    File,
+    Warning,
+    Branch,
+    Head,
+    Worktree,
+    Target,
+    Judgment,
+    Findings,
+    Reviewer,
+    Sha,
+    Cause,
+    Log,
+    Node,
+    Code,
+    Parent,
+    Skills,
+    Commit,
+}
+
+impl Field {
+    /// 터미널 칸 줄의 이름(`findings: …`).
+    pub fn word(self) -> &'static str {
+        match self {
+            Field::Question => "question",
+            Field::File => "file",
+            Field::Warning => "warning",
+            Field::Branch => "branch",
+            Field::Head => "head",
+            Field::Worktree => "worktree",
+            Field::Target => "target",
+            Field::Judgment => "judgment",
+            Field::Findings => "findings",
+            Field::Reviewer => "reviewer",
+            Field::Sha => "sha",
+            Field::Cause => "cause",
+            Field::Log => "log",
+            Field::Node => "node",
+            Field::Code => "code",
+            Field::Parent => "parent",
+            Field::Skills => "skills",
+            Field::Commit => "commit",
+        }
+    }
+
+    /// 값이 파일 경로다. 화면은 누르면 열리는 링크로 그린다(목업 M17 ③ 「결과 파일 링크」·「결함 파일」·「로그 링크」).
+    pub fn is_file(self) -> bool {
+        match self {
+            Field::File | Field::Findings | Field::Log => true,
+            Field::Question
+            | Field::Warning
+            | Field::Branch
+            | Field::Head
+            | Field::Worktree
+            | Field::Target
+            | Field::Judgment
+            | Field::Reviewer
+            | Field::Sha
+            | Field::Cause
+            | Field::Node
+            | Field::Code
+            | Field::Parent
+            | Field::Skills
+            | Field::Commit => false,
+        }
+    }
+}
+
 /// `answer`가 답한 질문.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "in", rename_all = "camelCase")]
@@ -436,24 +509,35 @@ impl MessageKind {
         }
     }
 
+    /// 파일만 준 완료(`loom done --file`)는 본문이 그 경로다. 같은 경로를 두 번 보이지 않는다.
+    pub fn repeats_file(&self, body: &str) -> bool {
+        matches!(self, MessageKind::Done { file: Some(file), .. } if file == body)
+    }
+
     /// 머리 줄 아래 칸 줄. 없는 칸은 빼고, 칸 순서는 정의 순서다.
-    pub fn fields(&self) -> Vec<(&'static str, String)> {
+    pub fn fields(&self) -> Vec<(Field, String)> {
         let some = |name, value: &Option<String>| value.clone().map(|v| (name, v));
         let branch = |branch: &str, head: &str| {
-            vec![("branch", branch.to_owned()), ("head", head.to_owned())]
+            vec![
+                (Field::Branch, branch.to_owned()),
+                (Field::Head, head.to_owned()),
+            ]
         };
         let ended = |branch: &str, head: &str, cause: &Option<String>, log: &Option<String>| {
-            let mut fields = vec![("branch", branch.to_owned()), ("head", head.to_owned())];
-            fields.extend(some("cause", cause));
-            fields.extend(some("log", log));
+            let mut fields = vec![
+                (Field::Branch, branch.to_owned()),
+                (Field::Head, head.to_owned()),
+            ];
+            fields.extend(some(Field::Cause, cause));
+            fields.extend(some(Field::Log, log));
             fields
         };
         match self {
             MessageKind::Ask | MessageKind::Note => Vec::new(),
-            MessageKind::Answer { question } => vec![("question", question.to_string())],
-            MessageKind::Done { file, warning } => some("file", file)
+            MessageKind::Answer { question } => vec![(Field::Question, question.to_string())],
+            MessageKind::Done { file, warning } => some(Field::File, file)
                 .into_iter()
-                .chain(some("warning", warning))
+                .chain(some(Field::Warning, warning))
                 .collect(),
             MessageKind::Ready {
                 branch,
@@ -461,10 +545,10 @@ impl MessageKind {
                 worktree,
                 target,
             } => vec![
-                ("branch", branch.clone()),
-                ("head", head.clone()),
-                ("worktree", worktree.clone()),
-                ("target", target.clone()),
+                (Field::Branch, branch.clone()),
+                (Field::Head, head.clone()),
+                (Field::Worktree, worktree.clone()),
+                (Field::Target, target.clone()),
             ],
             MessageKind::Verdict {
                 branch: b,
@@ -475,15 +559,15 @@ impl MessageKind {
             } => {
                 let mut fields = branch(b, head);
                 fields.push((
-                    "judgment",
+                    Field::Judgment,
                     match judgment {
                         Judgment::Pass => "pass",
                         Judgment::Block => "block",
                     }
                     .to_owned(),
                 ));
-                fields.extend(some("findings", findings));
-                fields.extend(some("reviewer", reviewer));
+                fields.extend(some(Field::Findings, findings));
+                fields.extend(some(Field::Reviewer, reviewer));
                 fields
             }
             MessageKind::Merged {
@@ -493,8 +577,8 @@ impl MessageKind {
                 log,
             } => {
                 let mut fields = branch(b, head);
-                fields.push(("sha", sha.clone()));
-                fields.extend(some("log", log));
+                fields.push((Field::Sha, sha.clone()));
+                fields.extend(some(Field::Log, log));
                 fields
             }
             MessageKind::Merging {
@@ -516,21 +600,24 @@ impl MessageKind {
                 log,
             } => ended(branch, head, cause, log),
             MessageKind::Exited { node, code } => vec![
-                ("node", node.clone()),
-                ("code", code.map_or("unknown".to_owned(), |c| c.to_string())),
+                (Field::Node, node.clone()),
+                (
+                    Field::Code,
+                    code.map_or("unknown".to_owned(), |c| c.to_string()),
+                ),
             ],
             MessageKind::SetupFailed { node, code } => {
-                vec![("node", node.clone()), ("code", code.to_string())]
+                vec![(Field::Node, node.clone()), (Field::Code, code.to_string())]
             }
             MessageKind::Removed { node } | MessageKind::HumanInput { node } => {
-                vec![("node", node.clone())]
+                vec![(Field::Node, node.clone())]
             }
             MessageKind::Adopted { node, parent } => {
-                vec![("node", node.clone()), ("parent", parent.clone())]
+                vec![(Field::Node, node.clone()), (Field::Parent, parent.clone())]
             }
             MessageKind::RulesChanged { skills, commit } => {
-                let mut fields = vec![("skills", skills.join(", "))];
-                fields.extend(some("commit", commit));
+                let mut fields = vec![(Field::Skills, skills.join(", "))];
+                fields.extend(some(Field::Commit, commit));
                 fields
             }
         }
@@ -555,12 +642,12 @@ pub fn message_text(
         "loom message #{id} (from: {from}, kind: {}{mode})",
         what.word()
     )];
-    // 요약 없이 파일만 준 완료는 본문이 파일 경로다. 같은 경로를 두 번 보이지 않는다.
+    let repeated = what.repeats_file(body);
     lines.extend(
         what.fields()
             .into_iter()
-            .filter(|(name, value)| !(*name == "file" && *value == body))
-            .map(|(name, value)| format!("{name}: {value}")),
+            .filter(|(name, _)| !(repeated && *name == Field::File))
+            .map(|(name, value)| format!("{}: {value}", name.word())),
     );
     if !body.is_empty() {
         lines.push(body.to_owned());

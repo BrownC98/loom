@@ -62,6 +62,9 @@ pub fn base(repo: &Path, name: &str) -> String {
     format!("{repo}-{name}")
 }
 
+/// 모든 작업 폴더가 든 폴더의 홈 아래 경로(`~/.cache/loom`).
+pub const ROOT: [&str; 2] = [".cache", "loom"];
+
 /// 모든 작업 폴더가 든 폴더 `~/.cache/loom`. 노드가 도는 곳의 홈 아래다.
 pub struct Tasks {
     local: PathBuf,
@@ -83,7 +86,9 @@ pub struct TaskDir {
 impl Tasks {
     /// 이 PC(Linux·macOS·Windows 노드).
     pub fn pc() -> Option<Self> {
-        let local = std::env::home_dir()?.join(".cache").join("loom");
+        let local = ROOT
+            .iter()
+            .fold(std::env::home_dir()?, |path, part| path.join(part));
         Some(Self {
             shown: local.display().to_string(),
             local,
@@ -93,7 +98,7 @@ impl Tasks {
 
     /// WSL 노드. `home`은 배포판 안의 홈, `local`은 배포판 안의 경로를 데몬이 쓰는 UNC 경로로 바꾼다.
     pub fn wsl(home: &str, local: impl FnOnce(&str) -> PathBuf) -> Self {
-        let shown = format!("{}/.cache/loom", home.trim_end_matches('/'));
+        let shown = format!("{}/{}", home.trim_end_matches('/'), ROOT.join("/"));
         Self {
             local: local(&shown),
             shown,

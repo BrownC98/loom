@@ -397,8 +397,6 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .summary-row .name { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .summary-row .spacer { flex: 1; }
 .summary-row .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
-/* 지금 하는 일은 두 줄까지다. 비어도 자리를 지켜 카드 높이가 같다. */
-.summary .topic { margin: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .summary-model { min-width: 0; display: flex; }
 .summary-model .model { font: 12px var(--mono); color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state { display: inline-flex; flex: none; white-space: nowrap; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
@@ -434,6 +432,9 @@ button.unread:hover { filter: brightness(1.1); }
 .xterm-box > div > .xterm { display: inline-block; transform-origin: 0 0; }
 /* xterm.css가 스크롤 칸을 검게 칠한다. 칸 가장자리가 소수 픽셀에 걸리면 라이트 테마에서 회색 세로줄로 보였다. 바탕은 .xterm-box가 테마 색으로 칠한다. */
 .xterm-box .xterm .xterm-viewport { background-color: transparent; }
+/* 칸이 소수 픽셀 배율(그래프 확대·축소)에 놓이면 줄 사이 경계가 한 픽셀 아래 줄 가장자리에 걸려, 배경색 블록(OpenCode)에 어두운 가로줄이 보였다(2026-10-23 사람 "오픈 코드 출력이상"). 배경 칸을 1px 아래로 늘려 덮는다. 줄 칸의 inline overflow:hidden이 늘린 부분을 자르므로 푼다. */
+.xterm-box .xterm-rows > div { overflow: visible !important; }
+.xterm-box .xterm-rows span[class*="xterm-bg-"], .xterm-box .xterm-rows span[style*="background-color"] { box-sizing: content-box; padding-bottom: 1px; }
 .card-foot { font-size: 12px; color: var(--ink-3); padding: 5px 10px; border-top: 1px solid var(--line); }
 .card[data-selected] .card-foot { color: var(--accent); }
 

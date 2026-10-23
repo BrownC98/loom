@@ -13,7 +13,6 @@ const view = (id: number, name: string, parent: number | null, worktree: string,
   model: null,
   effort: null,
   place: { repo, worktree },
-  topic: null,
   bookmark: null,
   waits: [],
 });

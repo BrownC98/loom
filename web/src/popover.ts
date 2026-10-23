@@ -33,23 +33,27 @@ export function useEscapeClose<T extends HTMLElement>(onClose: () => void) {
   return box;
 }
 
-/** 돌려준 ref를 단 요소 밖을 누르면 `onClose`를 부른다. */
-export function useOutsideClose<T extends HTMLElement>(onClose: () => void) {
-  const box = useRef<T>(null);
-  useOutsideEntry(box, onClose, undefined);
-  return box;
-}
-
 /**
  * 팝오버와 메뉴의 닫기: 밖 누르기와 Esc. 돌려준 ref를 팝오버 상자에 단다.
  * `anchor`(연 버튼)가 있으면 그 버튼을 누르는 것은 밖이 아니다(버튼이 스스로 여닫는다). Esc로 닫으면 포커스가 그 버튼으로 돌아간다.
  */
 export function useDismiss<T extends HTMLElement>(onClose: () => void, options: { anchor?: RefObject<HTMLElement | null> } = {}) {
   const box = useRef<T>(null);
-  useOutsideEntry(box, onClose, options.anchor);
+  const close = useRef(onClose);
+  close.current = onClose;
+  const { anchor } = options;
+  // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 pointerdown을 캡처 단계에서 받는다.
+  useEffect(() => {
+    const outside = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (!box.current?.contains(target) && !anchor?.current?.contains(target)) close.current();
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
+  }, []);
   useEscapeEntry(box, () => {
     onClose();
-    options.anchor?.current?.focus();
+    anchor?.current?.focus();
   });
   return box;
 }
@@ -61,19 +65,5 @@ function useEscapeEntry(box: RefObject<HTMLElement | null>, onClose: () => void)
     const entry: Open = { box, close };
     opened.push(entry);
     return () => void opened.splice(opened.indexOf(entry), 1);
-  }, []);
-}
-
-function useOutsideEntry(box: RefObject<HTMLElement | null>, onClose: () => void, anchor: RefObject<HTMLElement | null> | undefined) {
-  const close = useRef(onClose);
-  close.current = onClose;
-  // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 pointerdown을 캡처 단계에서 받는다.
-  useEffect(() => {
-    const outside = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (!box.current?.contains(target) && !anchor?.current?.contains(target)) close.current();
-    };
-    document.addEventListener('pointerdown', outside, true);
-    return () => document.removeEventListener('pointerdown', outside, true);
   }, []);
 }

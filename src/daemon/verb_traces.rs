@@ -523,6 +523,29 @@ fn a_nudged_turn_end_leaves_an_event() {
     assert_eq!(t.since(mark), []);
 }
 
+/// 닫은 질문 창 뒤에 같은 턴에서 `loom ask`로 물었으면 다시 묻게 하지 않는다. 다른 동사는 다시 묻게 한다(2026-10-24 검토 F3).
+#[tokio::test]
+async fn a_loom_ask_after_a_skipped_question_box_is_not_asked_again() {
+    let t = fixture();
+    t.app.turn_ends.question_closed(t.lead);
+    let ask = AskRequest {
+        question: "배포할까요? (A: 예 / B: 아니오, 권장: A)".into(),
+        doc: None,
+    };
+    let Json(_) = agent_ask(t.state(), headers(LEAD, "ask"), Json(ask))
+        .await
+        .unwrap();
+    assert_eq!(t.app.turn_end(t.lead), None);
+
+    t.app.turn_ends.question_closed(t.lead);
+    t.app.turn_ends.called(t.lead);
+    let mark = t.mark();
+    assert!(t.app.turn_end(t.lead).is_some());
+    t.wrote("turn end", mark, |e| {
+        matches!(e, Entry::Nudged { node, check: TurnCheck::QuestionBox } if node.id == Some(t.lead))
+    });
+}
+
 /// 옛 메시지 동사는 지웠다(R14 D2 A).
 #[test]
 fn old_message_verbs_are_gone() {

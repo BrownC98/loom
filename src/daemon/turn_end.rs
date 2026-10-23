@@ -59,6 +59,12 @@ impl TurnEnds {
         self.question_closed.lock().unwrap().insert(node);
     }
 
+    /// 닫은 질문 창을 다시 묻게 할 까닭이 없어졌다: 노드가 `loom ask`로 물었거나, 새 프로세스가 떴다.
+    /// 새 프로세스(다시 띄우기, 에이전트 바꾸기)의 턴은 옛 프로세스의 창을 모른다.
+    pub fn clear_question(&self, node: NodeId) {
+        self.question_closed.lock().unwrap().remove(&node);
+    }
+
     /// 턴이 끝났다. 이번 턴의 답 글과, 다시 일하게 할 글이 있으면 그 글을 돌려준다.
     /// `gated_repo`는 노드의 저장소가 관문 계약을 가졌는지 본다. 없는 저장소는 판정·병합 낱말(`KindWord::gated_only`)을 그대로 쓴다.
     /// `unreported_root`는 노드가 사람이 띄운 노드이고, 사람 응답 대기가 없고, `loom done`을 부르지 않았는지 본다(`Graph::unreported_root`).
@@ -252,6 +258,16 @@ mod tests {
         assert_eq!(end.nudge, Some(TurnCheck::QuestionBox));
         assert_eq!(end.reply.as_deref(), Some("The question was skipped."));
         assert!(nudge_text(TurnCheck::QuestionBox).contains("loom ask"));
+        assert_eq!(turns.ended(node, || true, || false).nudge, None);
+    }
+
+    /// 새 프로세스(`App::launch`: 다시 띄우기, 에이전트 바꾸기)와 `loom ask`는 옛 창의 표시를 지운다(2026-10-24 검토 F2·F3).
+    #[test]
+    fn a_cleared_question_box_is_not_asked_again() {
+        let turns = TurnEnds::default();
+        let node = NodeId(1);
+        turns.question_closed(node);
+        turns.clear_question(node);
         assert_eq!(turns.ended(node, || true, || false).nudge, None);
     }
 }

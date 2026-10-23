@@ -1165,6 +1165,7 @@ impl App {
             inside: _,
         } = prepared;
         self.first_inputs.launched(id, first_input);
+        self.turn_ends.clear_question(id);
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;
         self.follow_screen(id, profile, &token);
@@ -1277,6 +1278,7 @@ impl App {
             let mut output = attached.output;
             // backlog도 화면이다. 붙은 직후 한 번 본다.
             let mut changed = true;
+            let mut skipped = false;
             loop {
                 if !changed {
                     tokio::select! {
@@ -1305,27 +1307,16 @@ impl App {
                 if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
-                if let (Some(key), Some((WaitKind::Question, _))) = (skip, &found) {
-                    app.skip_question(id, dialogs, key);
+                if let Some(key) = skip {
+                    let question = matches!(found, Some((WaitKind::Question, _)));
+                    skipped = one_skip_per_box(skipped, question, || {
+                        skip_question(&app.host, &app.turn_ends, id, dialogs, key)
+                    });
                 }
                 let prompt = grammar.and_then(|g| screen::prompt(g, &now.text, now.cols.into()));
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
                     eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
-            }
-        });
-    }
-
-    /// 화면에 아직 질문 창이 있으면 `key`로 닫는다. 읽기와 치기는 한 입력 잠금 안이다. 사람이 터미널에서 먼저 답했으면 치지 않는다.
-    fn skip_question(&self, id: NodeId, dialogs: &[screen::Dialog], key: &'static [u8]) {
-        let _ = self.host.write_if(id, |keys| {
-            let shown = keys.screen();
-            match screen::find(dialogs, &shown.text, screen::Session::Started) {
-                Some((WaitKind::Question, _)) => {
-                    self.turn_ends.question_closed(id);
-                    Ok(key.to_vec())
-                }
-                _ => Err(()),
             }
         });
     }
@@ -2056,6 +2047,51 @@ fn choose(
         graph.dismiss(wait)?;
         Ok(option.key.bytes())
     })
+}
+
+/// 한 질문 창에 `skip`을 한 번만 부른다. 창이 없는 화면을 본 뒤의 창이 다음 창이다.
+/// 닫은 창을 다시 그린 늦은 출력이 와도 Esc를 또 치지 않는다. 창이 닫힌 뒤의 Esc는 Cursor의 일하는 턴을 끊는다(2026.10.22 번들).
+/// 돌려주는 값: 이 창을 끝냈는지(`skip`의 값). 창이 없으면 거짓이다.
+fn one_skip_per_box(skipped: bool, question: bool, skip: impl FnOnce() -> bool) -> bool {
+    match (question, skipped) {
+        (false, _) => false,
+        (true, true) => true,
+        (true, false) => skip(),
+    }
+}
+
+/// 화면의 질문 창을 `key`로 닫는다. 이 창을 끝냈으면(닫았거나 창이 없으면) 참, 화면이 늦어 다음 화면에서 다시 볼 것이면 거짓이다.
+/// 읽기·확인·치기는 한 입력 잠금 안이다. 마지막 키 뒤에 출력이 없으면 치지 않는다: 그 키(사람의 Enter)가 창을 닫았을 수 있다.
+/// 출력이 멎은 것으로는 모른다(2026-10-24 검토 F1). 사람이 키를 친 뒤에도 창이 있으면 닫는다. 사람은 `loom ask`로만 답한다.
+fn skip_question(
+    host: &NodeHost<NodeId>,
+    turn_ends: &turn_end::TurnEnds,
+    id: NodeId,
+    dialogs: &[screen::Dialog],
+    key: &'static [u8],
+) -> bool {
+    /// 치지 않은 까닭.
+    enum Held {
+        /// 화면이 마지막 키보다 늦다. 다음 화면에서 다시 본다.
+        Late,
+        /// 지금 화면에 창이 없다.
+        NoBox,
+    }
+    let written = host.write_if(id, |keys| {
+        if !keys.caught_up() {
+            return Err(Held::Late);
+        }
+        let shown = keys.screen();
+        if !matches!(
+            screen::find(dialogs, &shown.text, screen::Session::Started),
+            Some((WaitKind::Question, _))
+        ) {
+            return Err(Held::NoBox);
+        }
+        turn_ends.question_closed(id);
+        Ok(key.to_vec())
+    });
+    !matches!(written, Err(Held::Late))
 }
 
 /// [문서] 탭: 문서 ID가 붙은 모든 문서(목업 docs/mockups/doc-reopen.html M13 ③).
@@ -2798,6 +2834,86 @@ mod tests {
         assert_eq!(pick(wait, &shown), Err(Refusal::NoWait(wait)));
         assert_eq!(graph.approval(newer).unwrap().0, node);
         assert_eq!(typed_until_mark(&mut typed), "Z");
+        host.kill(node);
+    }
+
+    /// 한 창에 Esc는 한 번이다. 닫은 창을 다시 그린 늦은 출력은 다시 닫지 않는다. 창이 없는 화면 뒤의 창은 새 창이다.
+    #[test]
+    fn one_box_is_skipped_once() {
+        let calls = std::cell::Cell::new(0);
+        let skip = |result: bool| {
+            calls.set(calls.get() + 1);
+            result
+        };
+        let mut skipped = one_skip_per_box(false, true, || skip(true));
+        skipped = one_skip_per_box(skipped, true, || skip(true));
+        assert_eq!((skipped, calls.get()), (true, 1), "a late redraw");
+        skipped = one_skip_per_box(skipped, false, || skip(true));
+        skipped = one_skip_per_box(skipped, true, || skip(false));
+        assert_eq!(
+            (skipped, calls.get()),
+            (false, 2),
+            "a new box; the screen was late"
+        );
+        skipped = one_skip_per_box(skipped, true, || skip(true));
+        assert_eq!((skipped, calls.get()), (true, 3), "the next screen");
+    }
+
+    /// Cursor 질문 창을 닫는 Esc는 화면이 마지막 키보다 늦으면 치지 않는다(2026-10-24 검토 F1).
+    /// 가짜 노드는 창을 그리고, 친 줄을 파일에 적은 뒤에만 `.`을 찍는다. 그래서 줄을 끝내지 않는 키(Esc, `x`)에는 답 화면이 없다.
+    #[cfg(unix)]
+    #[test]
+    fn a_question_box_is_skipped_only_on_a_screen_newer_than_the_last_key() {
+        const SCREEN: &str = " ┌──────────┐\n │ Question 1 of 1 │\n │ › [ ] Red │\n │ Enter next/submit · Esc to skip │\n └──────────┘\n";
+        let dialogs = &profile::cursor::DIALOGS;
+        let dir = tempfile::tempdir().unwrap();
+        let node = NodeId(1);
+        let lines = dir.path().join("typed");
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args([
+            "-c",
+            &format!(
+                "stty -echo; printf '{SCREEN}'; while IFS= read -r l; do printf '%s\\n' \"$l\" >> '{}'; printf .; done",
+                lines.display()
+            ),
+        ]);
+        let hosts = dir.path().join("hosts");
+        node_host::in_process(&hosts, node, cmd);
+        let host = NodeHost::new(hosts);
+        host.resume(node, |_| {}).unwrap();
+        let wait_for = |dots: usize| loop {
+            let text = host.screen(node).text;
+            let shown = matches!(
+                screen::find(dialogs, &text, screen::Session::Started),
+                Some((WaitKind::Question, _))
+            );
+            if shown && text.matches('.').count() >= dots {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        wait_for(0);
+        let turns = turn_end::TurnEnds::default();
+        let skip = || skip_question(&host, &turns, node, dialogs, profile::cursor::SKIP_QUESTION);
+        let human = |keys: &'static [u8]| {
+            host.write_if(node, |_| Ok::<_, std::convert::Infallible>(keys.to_vec()))
+                .unwrap()
+        };
+
+        assert!(skip(), "a current screen");
+        assert!(!skip(), "the screen is older than the Esc");
+        human(b"\r");
+        wait_for(1);
+        assert!(skip(), "the box answered the Enter and is still there");
+        human(b"x");
+        assert!(!skip(), "the screen is older than the human key");
+        human(b"\r");
+        wait_for(2);
+        assert_eq!(
+            std::fs::read_to_string(&lines).unwrap(),
+            "\x1b\n\x1bx\n",
+            "an Esc only on a screen newer than every key"
+        );
         host.kill(node);
     }
 

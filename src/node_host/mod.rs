@@ -141,6 +141,8 @@ struct Output {
     tx: broadcast::Sender<Bytes>,
     /// 마지막 출력을 받은 때. 다시 시작한 데몬은 호스트의 backlog를 받은 때다.
     last_push: Instant,
+    /// 마지막 출력 뒤에 키(`typed`)를 쳤다. 그 키에 답한 화면이 아직 오지 않았을 수 있다.
+    keys_unseen: bool,
 }
 
 /// 최근 출력 `BACKLOG_BYTES`. 호스트와 데몬이 같은 규칙으로 쌓는다.
@@ -192,6 +194,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 backlog: Backlog::default(),
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
                 last_push: Instant::now(),
+                keys_unseen: false,
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
             sizing: Mutex::default(),
@@ -304,6 +307,12 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         let pty = self.pty(id);
         let mut host = pty.as_ref().map(|pty| pty.host.lock().unwrap());
         let bytes = pick(&Keys(pty.as_deref()))?;
+        // 쓰기 전에 표시한다. 쓴 뒤에 표시하면 그 사이에 온 답 화면이 표시를 지우지 못한다.
+        if let Some(pty) = &pty
+            && typed(&bytes)
+        {
+            pty.output.lock().unwrap().keys_unseen = true;
+        }
         if let Some(host) = host.as_mut() {
             // 호스트가 끝났으면 실패한다. 화면에 따로 알리지 않는다. 상태 이벤트가 exited를 보인다.
             let _ = wire::write(&mut **host, &Frame::Data(bytes));
@@ -453,6 +462,12 @@ impl Keys<'_> {
     pub fn screen(&self) -> Screen {
         self.0.map_or_else(Screen::default, Pty::screen)
     }
+
+    /// 마지막으로 친 키 뒤에 출력이 왔다. 아니면 `screen`은 그 키 전의 화면일 수 있다(출력이 멎은 것만으로는 모른다).
+    pub fn caught_up(&self) -> bool {
+        self.0
+            .is_some_and(|pty| !pty.output.lock().unwrap().keys_unseen)
+    }
 }
 
 impl Pty {
@@ -505,6 +520,7 @@ impl Output {
     fn push(&mut self, chunk: &[u8]) {
         self.backlog.push(chunk);
         self.last_push = Instant::now();
+        self.keys_unseen = false;
         // 보는 화면이 없으면 send가 실패한다. backlog에 남았으므로 버려도 된다.
         let _ = self.tx.send(Bytes::copy_from_slice(chunk));
     }
@@ -936,6 +952,7 @@ mod tests {
             backlog: Backlog::default(),
             tx: broadcast::channel(1).0,
             last_push: Instant::now(),
+            keys_unseen: false,
         };
         output.push(b"\x1b]11;?\x1b\\");
         let pushed = output.last_push;

@@ -108,8 +108,6 @@ struct App {
     sessions: sessions::Sessions,
     /// 첫 입력을 주고 띄운 노드. 그 입력 턴은 사람 입력이 아니다(`human-input`).
     first_inputs: sessions::FirstInputs,
-    /// 최근에 깨운 노드. 같은 노드를 거듭 깨우지 않는다.
-    woken: wake::Woken,
     /// 끝나지 않은 설정 스크립트 노드. 성공하면 출력이 있어도 지운다. 근거: docs/design.md 「저장소와 워크트리」.
     setups: Mutex<HashSet<NodeId>>,
     /// 쉬는 Claude 노드마다 메시지를 기다리는 비동기 훅 하나.
@@ -1012,7 +1010,6 @@ impl App {
             opencode2: Mutex::default(),
             sessions: sessions::Sessions::default(),
             first_inputs: sessions::FirstInputs::default(),
-            woken: wake::Woken::default(),
             setups: Mutex::default(),
             idle: idle::IdleWaits::default(),
             relaunches: relaunch::Relaunches::default(),

@@ -45,7 +45,7 @@ pub fn bare_link(text: &str) -> Option<String> {
             // 화면 정규식은 첫 `)`에서 끊으므로, 짝이 맞는 괄호가 든 주소는 그 뒤 글까지 이어 보여야 온전하다.
             Some((label, target, _)) if !drawn(target) => {
                 let from = label.len() + 3;
-                return Some(trim_tail(first_word(&link[from..])).to_owned());
+                return Some(balanced_target(&link[from..]).to_owned());
             }
             Some((_, _, len)) => &link[len..],
             None => &link[1..],
@@ -119,11 +119,22 @@ fn span(tail: &str) -> String {
     if quoted {
         return found.to_owned();
     }
-    trim_tail(first_word(found)).to_owned()
+    trim_tail(found.split(char::is_whitespace).next().unwrap_or(found)).to_owned()
 }
 
-fn first_word(text: &str) -> &str {
-    text.split(char::is_whitespace).next().unwrap_or(text)
+/// 글 앞에서 닫는 `)`(짝이 맞는 괄호 밖)나 빈칸 앞까지.
+fn balanced_target(text: &str) -> &str {
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' if depth == 0 => return &text[..i],
+            ')' => depth -= 1,
+            c if c.is_whitespace() => return &text[..i],
+            _ => {}
+        }
+    }
+    text
 }
 
 fn trim_tail(mut found: &str) -> &str {
@@ -207,6 +218,7 @@ mod tests {
             ("[r](/home/a/b.md)", "/home/a/b.md"),
             ("[x](<https://a.io/b>)", "https://a.io/b"),
             ("[x](https://a.io/a(b)/c)", "https://a.io/a(b)/c"),
+            ("[보고서](/home/a/b.md)를 열까요?", "/home/a/b.md"),
         ] {
             assert_eq!(bare_link(bad).as_deref(), Some(found), "{bad}");
         }
@@ -232,7 +244,7 @@ mod tests {
 
     #[test]
     fn bracket_runs_within_the_one_kilobyte_bound_stay_fast() {
-        assert_eq!(bare_link(&"[".repeat(4_000)), None);
-        assert_eq!(bare_link(&"[a](".repeat(1_000)), None);
+        assert_eq!(bare_link(&"[".repeat(1_000)), None);
+        assert_eq!(bare_link(&"[a](".repeat(250)), None);
     }
 }

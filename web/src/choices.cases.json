@@ -117,5 +117,13 @@
   {
     "question": "Pick? (A: x\ny / B: z)",
     "options": []
+  },
+  {
+    "question": "Which? (A: now\rcontinue / B: later, Recommended: A)",
+    "options": []
+  },
+  {
+    "question": "Which? (A: now continue / B: later)",
+    "options": []
   }
 ]

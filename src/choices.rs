@@ -46,8 +46,7 @@ pub fn offers_choices_without_tail(question: &str) -> bool {
     match parse(question) {
         Some((_, tail)) => tail == Tail::Mixed,
         None => {
-            !question.trim().is_empty()
-                && (label_letters(question) >= 2 || recommendation_near_letter(question))
+            !question.trim().is_empty() && (label_letters(question) >= 2 || tail_shape(question))
         }
     }
 }
@@ -56,27 +55,50 @@ fn mentions_recommendation(text: &str) -> bool {
     text.contains("권장") || text.to_lowercase().contains("recommend")
 }
 
-/// 「권장」 낱말 가까이(앞뒤 8글자)에 선택지 글자가 서 있으면 참이다: `(A, 권장)`, `권장 A`. 「권장 설정」 같은 보통 글은 거짓이다.
-fn recommendation_near_letter(text: &str) -> bool {
-    let original: Vec<char> = text.chars().collect();
-    let word_at = |i: usize, word: &str| {
-        let len = word.chars().count();
-        original.len() >= i + len
-            && original[i..i + len]
-                .iter()
-                .zip(word.chars())
-                .all(|(a, b)| a.to_ascii_lowercase() == b)
+/// 표준 꼴에 가까운 끝 조각이 있으면 참이다: `권장: A`(낱말 뒤 `:`와 선택지 글자), `(A, 권장)`(`(`에 붙은 글자 뒤 쉼표와 낱말).
+/// 낱말만 있는 보통 글(`I recommend merging now.`)은 거짓이다.
+fn tail_shape(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let key_at = |j: usize| {
+        chars.get(j).is_some_and(char::is_ascii_uppercase)
+            && chars.get(j + 1).is_none_or(|n| !n.is_alphanumeric())
     };
-    (0..original.len())
-        .filter(|&i| word_at(i, "권장") || word_at(i, "recommend"))
-        .any(|i| {
-            let (from, to) = (i.saturating_sub(8), (i + 8).min(original.len()));
-            (from..to).any(|j| {
-                original[j].is_ascii_uppercase()
-                    && (j == 0 || !original[j - 1].is_alphanumeric())
-                    && original.get(j + 1).is_none_or(|n| !n.is_alphanumeric())
-            })
+    let skip = |mut j: usize, pred: fn(&char) -> bool| {
+        while chars.get(j).is_some_and(pred) {
+            j += 1;
+        }
+        j
+    };
+    let word_len = |i: usize| {
+        ["권장", "recommend"].iter().find_map(|word| {
+            let len = word.chars().count();
+            let hit = chars.len() >= i + len
+                && chars[i..i + len]
+                    .iter()
+                    .zip(word.chars())
+                    .all(|(a, b)| a.to_ascii_lowercase() == b);
+            hit.then_some(len)
         })
+    };
+    (0..chars.len()).any(|i| {
+        let Some(len) = word_len(i) else {
+            return false;
+        };
+        let after = skip(skip(i + len, |c| c.is_alphabetic()), |c| *c == ' ');
+        let colon_key = chars.get(after) == Some(&':') && key_at(skip(after + 1, |c| *c == ' '));
+        let before = {
+            let mut j = i;
+            while j > 0 && chars[j - 1] == ' ' {
+                j -= 1;
+            }
+            j
+        };
+        let paren_key = before >= 3
+            && chars[before - 1] == ','
+            && chars[before - 2].is_ascii_uppercase()
+            && chars[before - 3] == '(';
+        colon_key || paren_key
+    })
 }
 
 /// 낱말 밖에 선 대문자 한 글자 `A:`의 서로 다른 글자 수. `C:\`는 경로라 뺀다.
@@ -102,8 +124,9 @@ fn option(part: &str) -> Option<(char, String)> {
     let mut chars = part.chars();
     let key = chars.next().filter(char::is_ascii_uppercase)?;
     let label = chars.as_str().strip_prefix(':')?.trim_start();
-    // 화면 정규식 `.+`는 줄바꿈에서 끊긴다.
-    (!label.is_empty() && !label.contains('\n')).then(|| (key, label.trim().to_owned()))
+    // 화면 정규식 `.+`는 JS 줄 끝 글자(`\n` `\r` U+2028 U+2029)에서 끊긴다.
+    (!label.is_empty() && !label.contains(['\n', '\r', '\u{2028}', '\u{2029}']))
+        .then(|| (key, label.trim().to_owned()))
 }
 
 /// `<낱말>: A` 꼴인 끝 조각의 `A`. 「권장」 낱말은 사람의 언어라 무엇이든 받는다.
@@ -209,6 +232,9 @@ mod tests {
             "Apply the recommended settings?",
             "[권장안 보고서](loom:doc)를 승인할까요?",
             "A, B, C 노드를 지울까요?",
+            "May I recommend a retry?",
+            "I recommend merging now. OK?",
+            "I recommend the default. Proceed?",
             "C:\\temp 폴더를 지워도 될까요?",
         ] {
             assert!(!offers_choices_without_tail(ok), "{ok}");

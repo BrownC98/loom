@@ -1200,6 +1200,32 @@ fn an_unacknowledged_message_comes_back_in_order_even_after_a_restart() {
     assert_eq!(view(&g, a).unread, 0);
 }
 
+/// 알림(종료·제거·입양)만으로는 쉬는 노드를 깨우지 않는다. 깨우는 메시지가 오면 함께 간다(2026-10-23 Q687 A).
+#[test]
+fn notices_alone_do_not_wake_but_ride_with_a_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    let b = child(&g, lead, "b");
+    let c = child(&g, lead, "c");
+    g.exited(b, 0).unwrap();
+    assert!(
+        g.take_waking(lead, Kind::ALL, usize::MAX)
+            .unwrap()
+            .is_empty()
+    );
+
+    g.note(a, PARENT, Kind::Queue, "결과", None).unwrap();
+    let woke = g.take_waking(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(woke.len(), 2);
+    assert_eq!(woke[1].body, "결과");
+
+    // 일하는 노드의 훅·`loom wait`는 알림도 꺼낸다.
+    g.exited(c, 0).unwrap();
+    assert_eq!(g.take(lead, Kind::ALL, usize::MAX).unwrap().len(), 1);
+}
+
 #[test]
 fn each_point_takes_only_its_kinds_in_arrival_order_and_once() {
     let dir = tempfile::tempdir().unwrap();
@@ -1615,7 +1641,7 @@ fn records_refusals_and_failed_launches() {
         lead,
         "없음",
         Kind::Steer,
-        MessageKind::Note,
+        Some(MessageKind::Note),
         &Refusal::NotFound("없음".into()),
         None,
     )

@@ -11,6 +11,7 @@ import type { Provider } from "./Provider";
 import type { Refusal } from "./Refusal";
 import type { Step } from "./Step";
 import type { SwitchCause } from "./SwitchCause";
+import type { TurnCheck } from "./TurnCheck";
 import type { Via } from "./Via";
 import type { WaitDoc } from "./WaitDoc";
 import type { WaitId } from "./WaitId";
@@ -34,7 +35,7 @@ via?: Via,
  */
 gate?: GateTrace, } | { "kind": "refused", how: Kind, 
 /**
- * 보내려던 종류(`note`·`answer`·`done`). 관문 호출과 옛 기록에는 없다.
+ * 보내려던 종류(`note`·`answer`·`done`·`ask`). 메시지가 아닌 동사(`spawn`·`rm` 등), 관문 호출과 옛 기록에는 없다.
  */
 what?: MessageKind, from: Who, to: string, reason: Refusal, via?: Via, gate?: GateTrace, } | { "kind": "accountSwitched", provider: Provider, 
 /**
@@ -56,4 +57,4 @@ doc: WaitDoc | null, } | { "kind": "reported", node: Who, wait: WaitId, summary:
 /**
  * 붙은 문서(`--doc`). `Asked`와 같다.
  */
-doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, };
+doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, } | { "kind": "nudged", node: Who, check: TurnCheck, };

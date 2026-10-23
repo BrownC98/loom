@@ -22,7 +22,7 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{AgentSwitch, Entry, EventRecord, SwitchCause, Via, Who};
+pub use events::{AgentSwitch, Entry, EventRecord, SwitchCause, TurnCheck, Via, Who};
 pub use gate::{Ended, GateChoice, MergeTask, Round};
 pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
@@ -239,6 +239,12 @@ pub enum Refusal {
     BareLink(String),
     /// `loom ask` 질문이 선택지를 내놓는데 표준 꼴 `(A: … / B: …, 권장: A)`가 아니다. 받은편지함이 선택 단추를 만들지 못한다.
     BadChoices,
+    /// `loom spawn`의 지시문에 머리가 빠졌다. 값은 빠진 머리다.
+    MissingHeads(Vec<String>),
+    /// `--doc`의 파일이나 사람이 읽는 글 속 `file://` 링크의 파일이 `show.sh`를 지난 user-doc HTML 그대로가 아니다. 값은 그 경로나 주소다.
+    UncheckedDoc(String),
+    /// `loom done --image`의 파일이 그림 파일이 아니거나 없다. 값은 거절 글이다.
+    NotImage(String),
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
     NoWait(WaitId),
     /// 화면에서 보낸 답이 비었다.
@@ -499,6 +505,17 @@ impl fmt::Display for Refusal {
             ),
             Refusal::Git(e) => write!(f, "git failed: {e}"),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
+            Refusal::MissingHeads(missing) => write!(
+                f,
+                "The brief has no {} head. Give each head as a line that starts with the head and a colon (`Goal: …`) or as a markdown heading (`## Goal`). The heads are: {}.",
+                missing.join(", "),
+                crate::task::BRIEF_HEADS.join(", ")
+            ),
+            Refusal::UncheckedDoc(path) => write!(
+                f,
+                "{path}: --doc takes only a user-doc HTML file that passed show.sh. Write the document as HTML from the user-doc style.html, run show.sh on it, then attach it."
+            ),
+            Refusal::NotImage(text) => f.write_str(text),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }
     }
@@ -630,25 +647,35 @@ impl Graph {
         events::recent(&self.lock())
     }
 
-    /// 보내기를 거절한 일을 남긴다. `reason`은 보낸 쪽이 받은 거절이다.
+    /// 에이전트 동사를 거절한 일을 남긴다. `reason`은 부른 쪽이 받은 거절이다. `what`은 메시지 동사만 있다.
     pub fn record_refusal(
         &self,
         from: NodeId,
         to: &str,
         how: Kind,
-        what: MessageKind,
+        what: Option<MessageKind>,
         reason: &Refusal,
         via: Option<&Via>,
     ) -> rusqlite::Result<()> {
         let db = self.lock();
         let entry = events::Entry::Refused {
             how,
-            what: Some(what),
+            what,
             from: events::who(&db, from)?,
             to: to.to_owned(),
             reason: reason.clone(),
             via: via.cloned(),
             gate: None,
+        };
+        events::write(&db, &entry, None)
+    }
+
+    /// 턴 끝 검사가 노드를 다시 일하게 한 일을 남긴다.
+    pub fn record_nudge(&self, node: NodeId, check: events::TurnCheck) -> rusqlite::Result<()> {
+        let db = self.lock();
+        let entry = events::Entry::Nudged {
+            node: events::who(&db, node)?,
+            check,
         };
         events::write(&db, &entry, None)
     }

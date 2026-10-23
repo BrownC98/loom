@@ -8,6 +8,7 @@ import type { Provider } from "./Provider";
 import type { Refusal } from "./Refusal";
 import type { Step } from "./Step";
 import type { SwitchCause } from "./SwitchCause";
+import type { WaitDoc } from "./WaitDoc";
 import type { WaitId } from "./WaitId";
 import type { Who } from "./Who";
 
@@ -23,4 +24,12 @@ distro: string | null, from: AccountId | null, to: AccountId | null, why: Switch
 /**
  * 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
  */
-distro: string | null, resets_at: number | null, } | { "kind": "asked", node: Who, wait: WaitId, text: string, } | { "kind": "reported", node: Who, wait: WaitId, summary: string, instruction: string, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, };
+distro: string | null, resets_at: number | null, } | { "kind": "asked", node: Who, wait: WaitId, text: string, 
+/**
+ * 붙은 문서(`--doc`). 질문이 닫힌 뒤에도 이벤트 콘솔에서 다시 연다(목업 docs/mockups/doc-reopen.html M13 ①). 옛 기록에는 없다.
+ */
+doc: WaitDoc | null, } | { "kind": "reported", node: Who, wait: WaitId, summary: string, instruction: string, 
+/**
+ * 붙은 문서(`--doc`). `Asked`와 같다.
+ */
+doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, };

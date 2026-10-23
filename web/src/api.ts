@@ -2,6 +2,7 @@
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
+import type { DocRow } from './gen/DocRow';
 import type { AnswerWait } from './gen/AnswerWait';
 import type { ChooseOption } from './gen/ChooseOption';
 import type { Prompt } from './gen/Prompt';
@@ -97,10 +98,12 @@ export const answerWait = (wait: WaitId, text: string, images: string[]) =>
 /** 승인 창의 `option`번째 선택지를 고른다. 데몬은 터미널 화면이 `prompt`와 같을 때만 그 키를 친다. */
 export const chooseOption = (wait: WaitId, prompt: Prompt, option: number) =>
   call<null>('POST', `/api/waits/${wait}/choose`, { prompt, option } satisfies ChooseOption);
-/** 질문에 붙은 문서를 데몬이 그 기계의 기본 브라우저로 연다. 데스크톱 앱에서도 앱 창이 아니라 브라우저로 연다. */
-export const openWaitDoc = (wait: WaitId) => call<null>('POST', `/api/waits/${wait}/doc`);
-/** 질문 문서의 주소. 끝의 `/` 때문에 문서 속 상대 주소(옆 그림)가 같은 폴더를 가리킨다. */
-export const waitDocUrl = (wait: WaitId) => `/api/waits/${wait}/doc/`;
+/** 문서 ID의 문서를 데몬이 그 기계의 기본 브라우저로 연다. 데스크톱 앱에서도 앱 창이 아니라 브라우저로 연다. */
+/** [문서] 탭의 목록: 문서 ID가 붙은 모든 문서, 최근에 붙인 것 위. */
+export const listDocs = () => call<DocRow[]>('GET', '/api/docs');
+export const openDoc = (id: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}`);
+/** 문서 ID의 주소. 대기가 닫혀도 열린다. 끝의 `/` 때문에 문서 속 상대 주소(옆 그림)가 같은 폴더를 가리킨다. */
+export const docUrl = (id: string) => `/api/docs/${encodeURIComponent(id)}/`;
 /** 완료 줄의 `index`번째 그림(`loom done --image`). 확인하지 않은 완료의 그림만 나온다. */
 export const doneImageUrl = (wait: WaitId, index: number) => `/api/waits/${wait}/images/${index}`;
 export const renameNode = (id: NodeId, name: string) => call<null>('PUT', `/api/nodes/${id}/name`, { name } satisfies RenameNode);
@@ -119,7 +122,7 @@ export function fileViewUrl(path: string, node: NodeId | null): string {
 
 /** 폰 브라우저가 쿠키 없이 그 파일의 폴더를 잠시 읽는 주소(`passes`). 경로만 오면 이 화면의 주소에 붙는다. */
 export const filePass = (path: string, node: NodeId | null) => call<string>('POST', '/api/files/pass', { path, node } satisfies OpenFile);
-export const waitDocPass = (wait: WaitId) => call<string>('POST', `/api/waits/${wait}/pass`);
+export const docPass = (id: string) => call<string>('POST', `/api/docs/${encodeURIComponent(id)}/pass`);
 export const openFile = (path: string, node: NodeId | null) => call<null>('POST', '/api/files/open', { path, node } satisfies OpenFile);
 /** 부를 때마다 데몬이 PATH를 다시 훑는다. */
 export const getAgents = () => call<AgentView[]>('GET', '/api/agents');

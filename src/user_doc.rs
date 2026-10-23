@@ -7,6 +7,9 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+use ts_rs::TS;
+
 use crate::graph::{Attached, WaitDoc};
 
 /// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
@@ -50,6 +53,10 @@ pub fn doc_kind(path: &Path) -> Option<DocKind> {
 /// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
 /// 근거: 총괄이 `.md` 감사 보고서를 붙이지 못해 경로를 글로 적었고, 사람은 열지 못했다(2026-10-23 사람 "링크로 제공이 안됨").
 pub fn attach(path: &Path) -> Result<Attached, String> {
+    attach_in(&Store::here()?, path)
+}
+
+fn attach_in(store: &Store, path: &Path) -> Result<Attached, String> {
     let path = real_path(path)?;
     // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
     let refused = || {
@@ -66,12 +73,11 @@ pub fn attach(path: &Path) -> Result<Attached, String> {
         _ => format!("{}: {e}", path.display()),
     })?;
     if kind == DocKind::Text {
+        let id = store.doc_id(&path)?;
+        store.keep(&id, &path, &text)?;
         let title = text_title(&text, &path);
         return Ok(Attached {
-            doc: WaitDoc {
-                id: doc_id(&path)?,
-                title,
-            },
+            doc: WaitDoc { id, title },
             path,
         });
     }
@@ -79,13 +85,203 @@ pub fn attach(path: &Path) -> Result<Attached, String> {
     if !mockup(&path) {
         check_report(&text)?;
     }
-    let id = doc_id(&path)?;
+    let id = store.doc_id(&path)?;
     let title = bare_title(title(&text).unwrap_or_default()).to_owned();
-    fs::write(&path, stamp(&text, &id)).map_err(|e| e.to_string())?;
+    let stamped = stamp(&text, &id);
+    fs::write(&path, &stamped).map_err(|e| e.to_string())?;
+    store.keep(&id, &path, &stamped)?;
     Ok(Attached {
         doc: WaitDoc { id, title },
         path,
     })
+}
+
+/// 문서 ID의 파일. 원본이 있으면 원본이다(고친 새 판이 보인다). 원본이 지워졌으면(병합 뒤 지운 워크트리의 목업) 붙일 때 남긴 사본(`keep`)이다.
+/// 대기가 닫힌 뒤에도 연다. 근거: 2026-10-23 사람 "왜 내가 목업을 못보나", "클로드 아티팩트처럼 상시 볼 수 있게 하면 안됨/".
+/// 돌려준 파일과 같은 폴더의 파일이 문서 속 상대 주소(옆 그림)다. 사본 폴더에는 그 문서 하나만 있다.
+pub fn doc_file(id: &str) -> Result<PathBuf, String> {
+    Store::here()?.doc_file(id)
+}
+
+/// [문서] 탭의 한 줄(목업 docs/mockups/doc-reopen.html M13 ③). 사람은 닫힌 질문의 문서도 이 목록에서 다시 연다.
+#[derive(Serialize, TS, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DocRow {
+    pub id: String,
+    pub title: String,
+    pub kind: DocGroup,
+    /// 목업은 `docs/mockups`를 가진 폴더(워크트리·저장소) 이름, 보고서는 그 파일의 폴더 이름.
+    pub folder: String,
+    /// 마지막으로 붙인 때(사본의 수정 시각, 유닉스 초). 이 판 전에 붙인 문서는 사본이 없어 없다.
+    #[ts(type = "number | null")]
+    pub attached_at: Option<i64>,
+    /// 원본 파일이 있다.
+    pub source: bool,
+    /// 붙일 때 남긴 사본이 있다.
+    pub snapshot: bool,
+}
+
+#[derive(Serialize, TS, PartialEq, Eq, Clone, Copy, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum DocGroup {
+    Mockup,
+    Report,
+}
+
+/// 문서 ID 표의 모든 문서. 최근에 붙인 문서가 위다. 붙인 때를 모르는 문서는 그 뒤에 ID 번호가 큰 것부터 둔다.
+pub fn docs() -> Vec<DocRow> {
+    Store::here().map(|store| store.docs()).unwrap_or_default()
+}
+
+/// 문서 ID 표와 사본 폴더의 자리. 시험은 임시 폴더를 쓴다.
+struct Store {
+    /// `$HOME/.cache/user-doc/ids.tsv`: 경로와 ID 두 열. 줄을 더하기만 한다.
+    table: PathBuf,
+    /// `<데이터 폴더>/docs`. 데몬 DB(`db::data_dir`) 옆이다.
+    copies: PathBuf,
+}
+
+impl Store {
+    fn here() -> Result<Self, String> {
+        let home = std::env::home_dir().ok_or("홈 폴더를 찾지 못했다")?;
+        let data = crate::db::data_dir().map_err(|e| e.to_string())?;
+        Ok(Store {
+            table: home.join(".cache").join("user-doc").join("ids.tsv"),
+            copies: data.join("docs"),
+        })
+    }
+
+    fn rows(&self) -> String {
+        fs::read_to_string(&self.table).unwrap_or_default()
+    }
+
+    fn doc_file(&self, id: &str) -> Result<PathBuf, String> {
+        let source = known_id(id)
+            .then(|| self.rows())
+            .and_then(|rows| {
+                rows.lines()
+                    .filter_map(|row| row.split_once('\t'))
+                    .find(|(_, row_id)| *row_id == id)
+                    .map(|(path, _)| PathBuf::from(path))
+            })
+            .filter(|path| doc_kind(path).is_some())
+            .ok_or_else(|| format!("문서 {id}이(가) 없습니다."))?;
+        if source.is_file() {
+            return Ok(source);
+        }
+        self.snapshot(id, &source)
+            .filter(|copy| copy.is_file())
+            .ok_or_else(|| format!("문서 파일이 없습니다. {id}의 원본은 지워졌고, 이 판 전에 붙인 문서라 저장한 판도 없습니다."))
+    }
+
+    fn docs(&self) -> Vec<DocRow> {
+        let mut docs: Vec<DocRow> = self
+            .rows()
+            .lines()
+            .filter_map(|row| row.split_once('\t'))
+            .filter(|(_, id)| known_id(id))
+            .map(|(path, id)| self.row(id, Path::new(path)))
+            .collect();
+        docs.sort_by_key(|d| std::cmp::Reverse((d.attached_at, number(&d.id))));
+        docs
+    }
+
+    fn row(&self, id: &str, source: &Path) -> DocRow {
+        let copy = self.snapshot(id, source).filter(|c| c.is_file());
+        let live = source.is_file();
+        let shown = if live { Some(source) } else { copy.as_deref() };
+        let text = shown.and_then(|p| fs::read_to_string(p).ok());
+        let title = match (doc_kind(source), text) {
+            (Some(DocKind::Html), Some(text)) => title(&text).map(|t| bare_title(t).to_owned()),
+            (Some(DocKind::Text), Some(text)) => Some(text_title(&text, source)),
+            _ => None,
+        };
+        let file_name = || {
+            source
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        let attached_at = copy
+            .as_deref()
+            .and_then(|c| fs::metadata(c).ok()?.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+        DocRow {
+            id: id.to_owned(),
+            title: title.filter(|t| !t.is_empty()).unwrap_or_else(file_name),
+            kind: if id.starts_with('M') {
+                DocGroup::Mockup
+            } else {
+                DocGroup::Report
+            },
+            folder: folder(source),
+            attached_at,
+            source: live,
+            snapshot: copy.is_some(),
+        }
+    }
+
+    /// 원본이 지워져도 `doc_file`이 내도록 붙인 판을 사본으로 남긴다. 붙일 때마다 덮어쓴다.
+    fn keep(&self, id: &str, source: &Path, text: &str) -> Result<(), String> {
+        let copy = self
+            .snapshot(id, source)
+            .ok_or_else(|| format!("{}: 파일 이름이 없다", source.display()))?;
+        if let Some(dir) = copy.parent() {
+            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        fs::write(&copy, text).map_err(|e| format!("{}: {e}", copy.display()))
+    }
+
+    /// `<데이터 폴더>/docs/<ID>/<원본 파일 이름>`. 이름이 같아 형식(`doc_kind`)도 같다.
+    fn snapshot(&self, id: &str, source: &Path) -> Option<PathBuf> {
+        Some(self.copies.join(id).join(source.file_name()?))
+    }
+
+    /// 사람이 어느 문서에 답하는지 짧게 말하게 한다. 같은 경로는 판이 바뀌어도 같은 ID다.
+    /// 목업(`docs/mockups/` 아래)은 M, 보고서는 R에 번호를 붙인다. 표는 경로와 ID 두 열이다.
+    fn doc_id(&self, doc: &Path) -> Result<String, String> {
+        let table = &self.table;
+        if let Some(dir) = table.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        let rows = self.rows();
+        let key = doc.to_string_lossy();
+        let (id, new) = lookup(&rows, &key, mockup(doc));
+        if new {
+            let mut file = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(table)
+                .map_err(|e| format!("{}: {e}", table.display()))?;
+            writeln!(file, "{key}\t{id}").map_err(|e| e.to_string())?;
+        }
+        Ok(id)
+    }
+}
+
+/// 목업은 `docs/mockups` 위 폴더, 보고서는 바로 위 폴더의 이름.
+fn folder(source: &Path) -> String {
+    let dir = source
+        .ancestors()
+        .find(|dir| dir.ends_with("docs/mockups"))
+        .and_then(|mockups| mockups.parent()?.parent())
+        .or_else(|| source.parent());
+    dir.and_then(Path::file_name)
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// `M3`, `R12`의 꼴.
+fn known_id(id: &str) -> bool {
+    id.strip_prefix(['M', 'R'])
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+fn number(id: &str) -> u32 {
+    id[1..].parse().unwrap_or(0)
 }
 
 /// 본문 속 문서 링크의 주소 표지. 화면(`web/src/links.ts` `DOC_LINK`)이 이 자리에 붙은 문서의 링크를 그린다.
@@ -242,26 +438,6 @@ fn bare_title(title: &str) -> &str {
         }
     }
     bare
-}
-
-/// 사람이 어느 문서에 답하는지 짧게 말하게 한다. 같은 경로는 판이 바뀌어도 같은 ID다.
-/// 목업(`docs/mockups/` 아래)은 M, 보고서는 R에 번호를 붙인다. 표는 경로와 ID 두 열이다.
-fn doc_id(doc: &Path) -> Result<String, String> {
-    let home = std::env::home_dir().ok_or("홈 폴더를 찾지 못했다")?;
-    let table = home.join(".cache").join("user-doc").join("ids.tsv");
-    fs::create_dir_all(table.parent().unwrap_or(&home)).map_err(|e| e.to_string())?;
-    let rows = fs::read_to_string(&table).unwrap_or_default();
-    let key = doc.to_string_lossy();
-    let (id, new) = lookup(&rows, &key, mockup(doc));
-    if new {
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&table)
-            .map_err(|e| format!("{}: {e}", table.display()))?;
-        writeln!(file, "{key}\t{id}").map_err(|e| e.to_string())?;
-    }
-    Ok(id)
 }
 
 fn mockup(doc: &Path) -> bool {
@@ -433,6 +609,100 @@ mod tests {
         assert_eq!(lookup(rows, "/b/y.html", true), ("R1".into(), false));
         assert_eq!(lookup(rows, "/d/n.html", true), ("M3".into(), true));
         assert_eq!(lookup(rows, "/d/n.html", false), ("R2".into(), true));
+    }
+
+    #[test]
+    fn a_doc_row_names_its_folder() {
+        assert_eq!(folder(Path::new("/w/폰연결/docs/mockups/m.html")), "폰연결");
+        assert_eq!(
+            folder(Path::new("/w/폰연결/docs/mockups/old/m.html")),
+            "폰연결"
+        );
+        assert_eq!(
+            folder(Path::new("/h/.cache/loom-briefs/r.md")),
+            "loom-briefs"
+        );
+    }
+
+    #[test]
+    fn doc_ids_have_one_letter_and_a_number() {
+        for id in ["M1", "R42"] {
+            assert!(known_id(id), "{id}");
+        }
+        for id in ["", "M", "X1", "M1a", "../R1", "R-1"] {
+            assert!(!known_id(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn docs_outlive_their_source_and_list_newest_first() {
+        let home = tempfile::tempdir().unwrap();
+        let store = Store {
+            table: home.path().join("ids.tsv"),
+            copies: home.path().join("copies"),
+        };
+        let repo = home.path().join("작업");
+        fs::create_dir_all(repo.join("docs/mockups")).unwrap();
+        let mock = repo.join("docs/mockups/m.html");
+        fs::write(&mock, DOC).unwrap();
+        let report = repo.join("r.md");
+        fs::write(&report, "# 감사\n본문\n").unwrap();
+        fs::write(repo.join("old.md"), "").unwrap();
+        // 이 판 전에 붙인 문서: 표에만 있고 사본이 없다.
+        let old = store
+            .doc_id(&real_path(&repo.join("old.md")).unwrap())
+            .unwrap();
+        fs::remove_file(repo.join("old.md")).unwrap();
+        let m = attach_in(&store, &mock).unwrap().doc.id;
+        let r = attach_in(&store, &report).unwrap().doc.id;
+        assert_eq!((old.as_str(), m.as_str(), r.as_str()), ("R1", "M1", "R2"));
+
+        // 원본이 있으면 원본을 낸다(새 판이 보인다).
+        fs::write(&report, "# 감사 2\n").unwrap();
+        assert_eq!(store.doc_file(&r), Ok(real_path(&report).unwrap()));
+        // 원본이 지워지면 붙인 판의 사본을 낸다. 사본 폴더에는 그 문서 하나만 있다.
+        fs::remove_file(&mock).unwrap();
+        let copy = store.doc_file(&m).unwrap();
+        assert!(
+            copy.starts_with(home.path().join("copies").join("M1")),
+            "{}",
+            copy.display()
+        );
+        assert!(
+            fs::read_to_string(&copy)
+                .unwrap()
+                .contains("<title>M1 문서</title>")
+        );
+        assert!(
+            store
+                .doc_file(&old)
+                .unwrap_err()
+                .contains("문서 파일이 없습니다")
+        );
+        assert!(store.doc_file("R99").is_err());
+        assert!(store.doc_file("../R2").is_err());
+
+        let rows = store.docs();
+        let ids: Vec<&str> = rows.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids[2], "R1", "사본이 없으면 뒤로 간다: {ids:?}");
+        let mock_row = rows.iter().find(|d| d.id == m).unwrap();
+        assert_eq!(
+            (
+                mock_row.title.as_str(),
+                mock_row.kind,
+                mock_row.folder.as_str()
+            ),
+            ("문서", DocGroup::Mockup, "작업")
+        );
+        assert!(!mock_row.source && mock_row.snapshot && mock_row.attached_at.is_some());
+        let report_row = rows.iter().find(|d| d.id == r).unwrap();
+        assert_eq!(report_row.title, "감사 2");
+        assert!(report_row.source && report_row.snapshot);
+        let old_row = &rows[2];
+        assert_eq!(
+            (old_row.title.as_str(), old_row.source, old_row.snapshot),
+            ("old.md", false, false)
+        );
     }
 
     #[test]

@@ -934,7 +934,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 /* 상태 칩은 폰과 데스크톱 줄에 같이 있다(2026-10-23 사람 "앱 노드리스트에 완료나 질문 상태가 칩으로 뜨는 거 PC 판에도 적용시켜줘"). 데스크톱의 줄 단추는 마우스를 올릴 때 칩 위에 뜬다. */
 .state-tag { flex: none; margin-left: auto; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
 .state-tag.waiting { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
-.state-tag.done { color: var(--ok); }
+.state-tag.notice { background: var(--ok); border-color: var(--ok); color: var(--surface); }
 .state-tag:is(.exited, .setupFailed) { color: var(--err); }
 .sheet-body > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }
 .sheet-body > .btn svg { width: 18px; height: 18px; }

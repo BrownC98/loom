@@ -22,7 +22,7 @@ import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { shownPath, ShortPlaceTag } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
-import { stateClass, stateLabel, Unread } from './NodeCard';
+import { asking, stateClass, stateLabel, Unread } from './NodeCard';
 import { MenuSheet, Sheet, useLongPress, usePhone } from './Phone';
 import { useOutsideClose } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
@@ -94,11 +94,18 @@ function RowPop(props: { top: number; left: number; onClose: () => void; childre
   );
 }
 
-/** 노드 줄의 상태 칩(목업 R3 ②). 사람이 볼 상태(질문, 완료, 종료, 설정 실패)만 붙이고 실행 중은 점만 둔다. 폰과 데스크톱 사이드바가 같이 쓴다. */
+/**
+ * 노드 줄의 상태 칩(목업 R3 ②). 폰과 데스크톱 사이드바가 같이 쓴다.
+ * 질문·완료 칩은 노드의 알림을 보인다. 프로세스의 완료 상태가 아니다(2026-10-23 사람 지시 "완료 칩은 알림 상태를 표시하라는게 의도였음 (완료 알림 발송하면 알림 칩이 뜨고 , 질문 올리면 질문 칩이 뜨도록)").
+ * 알림이 없으면 종료·설정 실패만 칩을 붙인다.
+ */
 function StateTag({ view }: { view: NodeView }) {
-  const kind = stateClass(view);
-  if (kind === 'running') return null;
-  return <span className={`state-tag ${kind}`}>{kind === 'waiting' ? i18next.t('tree.asking', { n: view.waits.length }) : stateLabel(view.state)}</span>;
+  const questions = asking(view).length;
+  if (questions > 0) return <span className="state-tag waiting">{i18next.t('tree.asking', { n: questions })}</span>;
+  const notices = view.waits.length;
+  if (notices > 0) return <span className="state-tag notice">{i18next.t('tree.done', { n: notices })}</span>;
+  if (view.state.kind !== 'exited' && view.state.kind !== 'setupFailed') return null;
+  return <span className={`state-tag ${view.state.kind}`}>{stateLabel(view.state)}</span>;
 }
 
 /** `parent`가 없으면 묶음의 뿌리: 부모가 없거나 부모가 다른 묶음에 있는 노드다. */

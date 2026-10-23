@@ -276,7 +276,10 @@ impl App {
                 Plan::Resume => app.revive(node, REVIVED_NOTICE).await,
                 Plan::Switch(to) => {
                     let prepared = app.prepare_other(&node, &to).await?;
-                    app.stop_old_claude(&node).await;
+                    if let Err(e) = app.stop_old_claude(&node).await {
+                        prepared.discarder()();
+                        return Err(e);
+                    }
                     app.run_other(node.id, prepared, &to).await
                 }
             }
@@ -483,7 +486,8 @@ impl App {
             .await?;
         self.end_old(&node, prepared.discarder()).await?;
         if profile == Profile::Claude {
-            self.stop_claude_background(&node, &resume).await;
+            // 실패는 새 `--resume`이 거절해 드러난다.
+            let _ = self.stop_claude_background(&node, &resume).await;
         }
         self.run_resumed(node.id, prepared, &resume, &settings, &agent)
             .await
@@ -492,18 +496,24 @@ impl App {
     /// 노드를 다른 에이전트의 새 세션으로 띄운다. 새 노드를 준비하지 못하면 옛 프로세스를 그대로 둔다.
     async fn switch_agent(self: &Arc<Self>, node: Active, to: &NewAgent) -> Result<(), String> {
         let prepared = self.prepare_other(&node, to).await?;
+        // 옛 프로세스를 끝내기 전에 멈춘다. 멈추지 못하면 옛 프로세스가 노드에 그대로 남는다.
+        if let Err(e) = self.stop_old_claude(&node).await {
+            prepared.discarder()();
+            return Err(e);
+        }
         self.end_old(&node, prepared.discarder()).await?;
-        self.stop_old_claude(&node).await;
         self.run_other(node.id, prepared, to).await
     }
 
     /// 다른 에이전트로 바꾸는 노드가 Claude였으면 옛 세션의 백그라운드 작업을 끝낸다. 프로세스가 끝난 노드도 같다.
     /// 그 세션은 노드 프로세스 나무 밖에 살아, 남으면 노드 밖에서 같은 워크트리를 계속 고친다.
-    async fn stop_old_claude(&self, node: &Active) {
-        if profile_of(node) == Some(Profile::Claude)
-            && let Some(session) = session_id(node.transcript.as_deref().map(Path::new))
-        {
-            self.stop_claude_background(node, &session).await;
+    /// 같은 세션 이어 띄우기는 남은 세션을 새 `--resume`이 거절해 드러나지만, 새 세션은 알아채지 못해 실패를 돌려준다.
+    async fn stop_old_claude(&self, node: &Active) -> Result<(), String> {
+        match session_id(node.transcript.as_deref().map(Path::new)) {
+            Some(session) if profile_of(node) == Some(Profile::Claude) => {
+                self.stop_claude_background(node, &session).await
+            }
+            _ => Ok(()),
         }
     }
 
@@ -621,7 +631,8 @@ impl App {
             .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
             .await?;
         if profile == Profile::Claude {
-            self.stop_claude_background(&node, &resume).await;
+            // 실패는 새 `--resume`이 거절해 드러난다.
+            let _ = self.stop_claude_background(&node, &resume).await;
         }
         self.run_resumed(node.id, prepared, &resume, &settings, &agent)
             .await
@@ -738,27 +749,30 @@ impl App {
     /// 그 세션은 노드 프로세스 나무 밖에 있어 PTY 호스트를 끝내도 산다. 살아 있으면 새 CLI의 `--resume`이
     /// "That session is running in the background"로 거절하고 코드 1로 끝났다(2026-10-23 실측, 2.1.308).
     /// `claude agents --json`에서 전체 세션 id가 같은 백그라운드 작업을 찾을 때만 끝낸다. 못 찾으면 아무것도 끝내지 않는다.
-    /// 세션은 노드를 띄운 계정에 있다.
-    async fn stop_claude_background(&self, node: &Active, session: &str) {
+    /// 세션은 노드를 띄운 계정에 있다. 찾은 작업을 끝내지 못했을 때만 실패다.
+    async fn stop_claude_background(&self, node: &Active, session: &str) -> Result<(), String> {
         let Ok(place) = self.graph.place_of(node.id) else {
-            return;
+            return Ok(());
         };
         let Ok(site) = self.site_at(Path::new(&place.worktree)).await else {
-            return;
+            return Ok(());
         };
         let account = node.account.as_ref();
         let Ok(list) = site.command(Provider::Claude, &["agents", "--json"], account) else {
-            return;
+            return Ok(());
         };
         let Some(out) = run_claude(list).await else {
-            return;
+            return Ok(());
         };
         let Some(job) = background_job(&out, session) else {
-            return;
+            return Ok(());
         };
-        if let Ok(stop) = site.command(Provider::Claude, &["stop", &job], account) {
-            run_claude(stop).await;
-        }
+        let stop = site
+            .command(Provider::Claude, &["stop", &job], account)
+            .map_err(|e| e.to_string())?;
+        run_claude(stop).await.map(drop).ok_or_else(|| {
+            format!("`claude stop {job}`이 옛 세션의 백그라운드 작업을 끝내지 못했다")
+        })
     }
 
     /// 옛 프로세스가 띄운 셸: 노드 프로세스와 그 서버(Codex app-server, OpenCode 2 serve) 아래의 세션 리더.

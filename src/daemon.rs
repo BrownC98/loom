@@ -2137,6 +2137,10 @@ async fn agent_idle(
     let end = app.idle.open(node);
     if !app.graph.relations(node).map_err(for_agent)?.me.alive {
         app.idle.end(node);
+        eprintln!(
+            "loom: 노드 {}의 쉬는 대기를 거절했다: 프로세스가 끝났다",
+            node.0
+        );
         return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
     }
     if req.rate_limited {
@@ -2149,7 +2153,15 @@ async fn agent_idle(
         return Ok(Json(Vec::new()));
     }
     tokio::select! {
-        taken = app.graph.next(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => Ok(Json(taken.map_err(for_agent)?)),
+        taken = app.graph.next(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
+            Ok(taken) => Ok(Json(taken)),
+            // 훅은 이 오류로 끝나고 다시 기다리지 않는다. 훅의 stderr는 Claude가 버리므로 여기 남긴다.
+            // 근거: 쉬는 노드가 대기 없이 20분 동안 큐 메시지 4개를 받지 못했다. 원인을 찾지 못했다(2026-10-23 사람 보고 "안읽음 버튼 클릭 해도 작동 안함").
+            Err(e) => {
+                eprintln!("loom: 노드 {}의 쉬는 대기가 끝났다: {e}", node.0);
+                Err(for_agent(e))
+            }
+        },
         () = end.notified() => Ok(Json(Vec::new())),
     }
 }

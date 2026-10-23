@@ -329,11 +329,15 @@ impl Graph {
     /// 사람이 노드 카드의 「안 읽음」을 눌렀다. 아직 꺼내지 않은 큐 메시지를 조정으로 바꾼다.
     /// 일하는 노드는 다음 단계 사이에, 쉬는 노드는 새 턴으로 받는다(2026-10-22 사람 지시 "칩을 클릭하면 수동으로 주입되게").
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
-        self.lock().execute(
+        let db = self.lock();
+        let changed = db.execute(
             "UPDATE messages SET kind = ?2
              WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?3",
             params![node.0, to_json(&Kind::Steer), to_json(&Kind::Queue)],
         )?;
+        if changed > 0 {
+            self.publish_node(&db, node)?;
+        }
         self.mail.notify_waiters();
         Ok(())
     }

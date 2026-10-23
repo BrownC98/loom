@@ -29,6 +29,20 @@ impl IdleWaits {
         end
     }
 
+    /// 끝난 대기를 다시 연다. 그 사이 새 대기가 열렸거나 턴이 시작했으면 열지 않는다.
+    pub fn reopen(&self, node: NodeId) -> Option<Arc<Notify>> {
+        if self.in_turn(node) {
+            return None;
+        }
+        let mut ends = self.ends.lock().unwrap();
+        if ends.contains_key(&node) {
+            return None;
+        }
+        let end = Arc::new(Notify::new());
+        ends.insert(node, end.clone());
+        Some(end)
+    }
+
     /// 노드가 턴 중이다. 다시 띄우기가 이 턴의 끝을 기다린다.
     pub fn in_turn(&self, node: NodeId) -> bool {
         self.turns.lock().unwrap().contains(&node)
@@ -65,6 +79,17 @@ mod tests {
         waits.turn_started(NodeId(1));
         waits.end(NodeId(1));
         assert!(!waits.in_turn(NodeId(1)));
+    }
+
+    #[test]
+    fn an_ended_wait_reopens_only_when_no_newer_wait_or_turn_came() {
+        let waits = IdleWaits::default();
+        let _ = waits.open(NodeId(1));
+        waits.end(NodeId(1));
+        assert!(waits.reopen(NodeId(1)).is_some());
+        assert!(waits.reopen(NodeId(1)).is_none());
+        waits.turn_started(NodeId(1));
+        assert!(waits.reopen(NodeId(1)).is_none());
     }
 
     #[tokio::test]

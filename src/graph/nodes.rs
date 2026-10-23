@@ -53,6 +53,8 @@ pub struct Active {
     pub model: Model,
     /// 이 프로세스가 데몬을 부를 때 내는 토큰(`Launched::token`).
     pub token: String,
+    /// `loom spawn --role`의 역할. 다른 에이전트로 바꿔 띄울 때 그 역할의 모델·강도를 고른다.
+    pub role: Option<String>,
 }
 
 impl Graph {
@@ -330,6 +332,35 @@ impl Graph {
     /// 노드 프로세스를 다시 띄웠다(계정 전환, 다시 띄우기). 새 토큰·서버·계정을 남기고, 신호의 대기와 열린 질문을 모두 지운다. 메일함은 그대로다.
     /// 끝난 노드를 되살렸으면 다시 산 프로세스로 적고, 끝난 상태는 `running`으로 돌린다. 완료 상태는 그대로다.
     pub fn relaunched(&self, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
+        self.restarted(id, launched, |tx| {
+            waits::drop_questions(tx, id, ClosedBy::Restart)
+        })
+    }
+
+    /// 노드를 다른 에이전트의 새 세션으로 다시 띄웠다(`loom relaunch --agent`). `relaunched`와 같되 에이전트·모델·강도를 바꾸고
+    /// 옛 세션 기록을 지운다. 그 기록으로 새 에이전트의 세션을 이으면 안 된다. 열린 질문은 남긴다. 답은 메시지로 새 에이전트가 받는다.
+    pub fn switched(
+        &self,
+        id: NodeId,
+        launched: &Launched,
+        agent: &AgentId,
+        model: &Model,
+    ) -> rusqlite::Result<()> {
+        self.restarted(id, launched, |tx| {
+            tx.execute(
+                "UPDATE nodes SET agent = ?2, model = ?3, effort = ?4, transcript = NULL WHERE id = ?1",
+                params![id.0, to_json(&Some(agent)), model.model, model.effort],
+            )
+        })
+    }
+
+    /// `changed`는 같은 트랜잭션에서 더 바꾸고 바꾼 줄 수를 돌려준다. 바꾼 것이 있으면 화면에 알린다.
+    fn restarted(
+        &self,
+        id: NodeId,
+        launched: &Launched,
+        changed: impl FnOnce(&Connection) -> rusqlite::Result<usize>,
+    ) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
         keep(&tx, id, launched)?;
@@ -338,7 +369,7 @@ impl Graph {
         let cleared = tx.execute(
             "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
             [id.0],
-        )? + waits::drop_questions(&tx, id, ClosedBy::Restart)?;
+        )? + changed(&tx)?;
         let revived = tx.execute(
             "UPDATE nodes SET process_exited = 0 WHERE id = ?1 AND process_exited = 1",
             [id.0],
@@ -912,7 +943,7 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
 }
 
 const LAUNCH_COLUMNS: &str =
-    "SELECT id, name, agent, server, account, transcript, model, effort, token FROM nodes";
+    "SELECT id, name, agent, server, account, transcript, model, effort, token, role FROM nodes";
 
 fn launch_row(row: &Row) -> rusqlite::Result<Active> {
     Ok(Active {
@@ -927,6 +958,7 @@ fn launch_row(row: &Row) -> rusqlite::Result<Active> {
             effort: row.get(7)?,
         },
         token: row.get(8)?,
+        role: row.get(9)?,
     })
 }
 

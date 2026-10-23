@@ -14,7 +14,7 @@ use crate::daemon::gate::{
 };
 use crate::daemon::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DoneRequest,
-    GuardRequest, HookWaitRequest, IdleRequest, NoteRequest, RelaunchRequest, Relaunched,
+    GuardRequest, HookWaitRequest, IdleRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched,
     RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, TaskRequest,
     WaitRequest,
 };
@@ -904,17 +904,29 @@ pub fn remove(name: String) -> Result<(), String> {
     Ok(())
 }
 
-pub fn relaunch(name: Option<String>) -> Result<(), String> {
+pub fn relaunch(
+    name: Option<String>,
+    agent: Option<String>,
+    choice: ModelChoice,
+) -> Result<(), String> {
     let yourself = name.is_none();
-    let when: Relaunched = call("relaunch", &RelaunchRequest { name }, None)?;
+    let to = agent.map(|agent| NewAgent {
+        agent: AgentId(agent),
+        choice,
+    });
+    let switch = to.is_some();
+    let when: Relaunched = call("relaunch", &RelaunchRequest { name, to }, None)?;
     println!(
         "{}",
-        match (when, yourself) {
-            (Relaunched::AtTurnEnd, true) => {
+        match (when, yourself, switch) {
+            (Relaunched::AtTurnEnd, true, false) => {
                 "You relaunch when this turn ends, and the conversation continues. End your turn now."
             }
-            (Relaunched::AtTurnEnd, false) => "That node relaunches when its turn ends.",
-            (Relaunched::Now, _) => "Relaunched.",
+            (Relaunched::AtTurnEnd, true, true) => {
+                "The new agent takes over this node when this turn ends. End your turn now."
+            }
+            (Relaunched::AtTurnEnd, false, _) => "That node relaunches when its turn ends.",
+            (Relaunched::Now, _, _) => "Relaunched.",
         }
     );
     Ok(())

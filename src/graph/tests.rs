@@ -2844,6 +2844,84 @@ fn parent_bound_done_keeps_bare_paths() {
     );
 }
 
+/// 2026-10-23: Claude 한도로 총괄이 코디를 지우고 Cursor 루트를 새로 만들었다. 새 노드에 역할이 없어 관문이 코디를 보지 못했다.
+/// 다른 에이전트로 바꿔 띄워도 번호·역할·부모·자식·메일함·열린 질문이 남고, 에이전트·모델·토큰만 바뀐다.
+#[test]
+fn switching_the_agent_keeps_the_node_and_changes_only_its_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "cursor");
+    let coordinator = g
+        .add_child(
+            lead,
+            NewChild {
+                agent: Some(AgentId("claude".into())),
+                role: Some(crate::protocol::COORDINATOR_ROLE),
+                ..named("코디")
+            },
+            TreeLimits::default(),
+            &launched(),
+            started,
+        )
+        .unwrap();
+    let worker = child(&g, coordinator, "워커");
+    g.set_transcript(coordinator, "/h/.claude/projects/-w/s1.jsonl")
+        .unwrap();
+    g.note(lead, "코디", Kind::Queue, "계속해", None).unwrap();
+    let old_token = token(&g, coordinator);
+
+    let cursor = AgentId("cursor".into());
+    let model = Model {
+        model: Some("gpt-5".into()),
+        effort: None,
+    };
+    g.switched(coordinator, &launched(), &cursor, &model)
+        .unwrap();
+
+    let node = g
+        .active()
+        .unwrap()
+        .into_iter()
+        .find(|n| n.id == coordinator)
+        .unwrap();
+    assert_eq!(node.name, "코디");
+    assert_eq!(node.agent, Some(cursor));
+    assert_eq!(node.model, model);
+    assert_eq!(
+        node.role.as_deref(),
+        Some(crate::protocol::COORDINATOR_ROLE)
+    );
+    assert_eq!(node.transcript, None);
+    assert_ne!(node.token, old_token);
+    let relations = g.relations(coordinator).unwrap();
+    assert_eq!(relations.parent.map(|p| p.id), Some(lead));
+    assert_eq!(
+        relations.children.iter().map(|c| c.id).collect::<Vec<_>>(),
+        [worker]
+    );
+    assert_eq!(
+        g.gate_for(worker).unwrap(),
+        GateChoice::Coordinator {
+            gate: coordinator,
+            worktree: "/repo".into()
+        }
+    );
+    assert_eq!(take(&g, coordinator), delivery("cursor-1", "계속해"));
+
+    // 같은 세션 잇기는 열린 질문을 닫고, 에이전트 바꾸기는 남긴다. 답은 메시지로 새 에이전트가 받는다.
+    g.ask(lead, "A?", None).unwrap();
+    g.switched(
+        lead,
+        &launched(),
+        &AgentId("codex".into()),
+        &Model::default(),
+    )
+    .unwrap();
+    assert_eq!(g.open_questions(lead).unwrap().len(), 1);
+    g.relaunched(lead, &launched()).unwrap();
+    assert_eq!(g.open_questions(lead).unwrap().len(), 0);
+}
+
 mod gate;
 
 /// loom 알림은 종류를 가진다. 본문 앞 낱말(`exited(0)`, `removed`, `adopted: X`)은 없다. 터미널에는 `from: loom`으로 보인다.

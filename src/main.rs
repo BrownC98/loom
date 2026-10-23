@@ -202,8 +202,20 @@ enum Cli {
     /// 자기 자식 노드(이름이나 `#번호`)를 지우고 프로세스를 끝낸다. 그 자식의 자식은 이 노드가 데려간다.
     Rm { name: String },
     /// 에이전트 프로세스를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 그 턴이 끝난 뒤 띄운다.
-    /// 이름이 없으면 이 노드 자신이고, 있으면 자기 자식이다. 받은 메시지와 열린 질문은 남는다.
-    Relaunch { name: Option<String> },
+    /// 이름이 없으면 이 노드 자신이고, 있으면 자기 자식이다. 받은 메시지는 남고 열린 질문은 답 없이 닫힌다.
+    /// `--agent`를 주면 그 에이전트의 새 세션이 노드를 이어받는다. 번호·이름·역할·부모·자식·메일함·열린 질문은 남는다.
+    Relaunch {
+        name: Option<String>,
+        /// 바꿀 카탈로그 에이전트 id(예: `cursor`). 새 세션은 옛 세션 기록 경로를 첫 입력으로 받는다.
+        #[arg(long)]
+        agent: Option<String>,
+        /// 새 에이전트의 모델. 없으면 노드 역할의 에이전트가 같을 때 역할의 모델, 아니면 CLI 설정의 모델이다.
+        #[arg(long, requires = "agent")]
+        model: Option<String>,
+        /// 새 에이전트의 추론 강도. 없으면 `--model`과 같은 규칙이다.
+        #[arg(long, requires = "agent")]
+        effort: Option<String>,
+    },
     /// user-doc 문서(HTML)를 점검하고 문서 ID를 붙인다. 브라우저는 열지 않는다. 사람에게는 `loom ask --doc`으로 보인다.
     Show { file: PathBuf },
     /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
@@ -306,7 +318,12 @@ fn main() -> ExitCode {
         Cli::Fail { branch, cause } => cli::fail(branch, cause),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),
-        Cli::Relaunch { name } => cli::relaunch(name),
+        Cli::Relaunch {
+            name,
+            agent,
+            model,
+            effort,
+        } => cli::relaunch(name, agent, ModelChoice { model, effort }),
         Cli::Show { file } => user_doc::show(&wsl::from_caller(file)),
         Cli::PtyHost => node_host::run(),
     };

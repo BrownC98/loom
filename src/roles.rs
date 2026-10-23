@@ -60,11 +60,7 @@ impl Default for Roles {
             effort: run.map(|(_, _, effort)| effort.into()),
         };
         Self(vec![
-            role(
-                "총괄",
-                "범위, 배정, 사용자 승인, 최종 검수, main 병합과 회수",
-                None,
-            ),
+            role("총괄", "범위, 배정, 사용자 승인, 노드 회수", None),
             role(
                 "코디",
                 "작업 하나의 조사, 설계, 목업, 워커 명세와 결과 검수",
@@ -87,7 +83,7 @@ impl Default for Roles {
             ),
             role(
                 "CI 담당자",
-                "병합 관문(워커 브랜치 검토자·반려), 검사, 배포·릴리스 확인. 제품 코드는 고치지 않는다",
+                "병합 관문(워커 브랜치 검토자·반려), 검사, main 병합·push, 배포·릴리스 확인. 제품 코드는 고치지 않는다",
                 Some(("claude", "claude-sonnet-5-5", "medium")),
             ),
         ])

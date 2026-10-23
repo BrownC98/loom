@@ -182,6 +182,12 @@ async function pasteDropped(xterm: XTerm, data: DataTransfer, node: NodeId | nul
   if (paths.length) xterm.paste(`${paths.join(' ')} `);
 }
 
+/** 고른 글을 클립보드에 넣고 선택을 지운다. 명령 키+C와 터치 선택의 [복사] 버튼이 쓴다. */
+function copySelection(xterm: XTerm) {
+  void navigator.clipboard.writeText(xterm.getSelection()).catch((err: Error) => console.error(err));
+  xterm.clearSelection();
+}
+
 function focusSoon(xterm: XTerm) {
   requestAnimationFrame(() => {
     if (!(document.activeElement instanceof HTMLInputElement)) xterm.focus();
@@ -404,10 +410,7 @@ export function SizingTerminal(props: TerminalProps) {
         if (paneKey(e) || findKey(e)) return false;
         // 선택이 없으면 명령 키+C는 터미널 앱에 간다(macOS는 Ctrl+C가 늘 `^C`다). 복사한 뒤 선택을 지워 다음 Ctrl+C가 `^C`가 되게 한다.
         if (plainCommand(e, 'KeyC') && xterm.hasSelection()) {
-          if (e.type === 'keydown') {
-            void navigator.clipboard.writeText(xterm.getSelection());
-            xterm.clearSelection();
-          }
+          if (e.type === 'keydown') copySelection(xterm);
           return false;
         }
         // 기본 동작을 막지 않으므로 브라우저가 paste 이벤트를 내고 xterm이 그 글을 보낸다.
@@ -521,10 +524,7 @@ export function SizingTerminal(props: TerminalProps) {
   };
 
   const copyPicked = () => {
-    const xterm = term.current;
-    if (!xterm) return;
-    void navigator.clipboard.writeText(xterm.getSelection()).catch((err: Error) => console.error(err));
-    xterm.clearSelection();
+    if (term.current) copySelection(term.current);
   };
 
   // 바깥 칸이 여백과 바탕을 갖는다. FitAddon은 안쪽 칸의 크기로 열 수를 재고, 배율도 안쪽 칸에 맞춘다.

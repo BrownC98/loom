@@ -241,9 +241,8 @@ impl Site {
                 inside.server(&argv, &env)
             }
             None => {
-                let mut argv = process_tree::argv(Path::new(&program)).into_iter();
-                let mut cmd = std::process::Command::new(argv.next().expect("argv는 비지 않는다"));
-                cmd.args(argv).args(args);
+                let mut cmd = process_tree::command_at(Path::new(&program));
+                cmd.args(args);
                 cmd.envs(env.iter().map(|(k, v)| (k, v)));
                 cmd
             }

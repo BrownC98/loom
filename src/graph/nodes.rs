@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use super::events::{self, ClosedBy, Entry};
 use super::waits::Prompt;
 use super::{
-    CardView, Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward,
-    TreeLimits, ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of,
+    CardView, Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, REACHABLE, Refusal,
+    Toward, TreeLimits, ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of,
     set_state, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
-use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
+use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink, StartDigests};
 use crate::protocol::MessageKind;
 
 pub struct NewChild<'a> {
@@ -27,6 +27,7 @@ pub struct Launched {
     pub token: String,
     pub server: Option<ServerLink>,
     pub account: Option<AccountId>,
+    pub rules: Option<StartDigests>,
 }
 
 pub struct Active {
@@ -39,6 +40,7 @@ pub struct Active {
     pub model: Model,
     pub token: String,
     pub role: Option<String>,
+    pub rules: Option<StartDigests>,
 }
 
 impl Graph {
@@ -284,6 +286,77 @@ impl Graph {
             .collect()
     }
 
+    pub fn done_children(&self) -> rusqlite::Result<Vec<NodeId>> {
+        self.lock()
+            .prepare(
+                "SELECT id FROM nodes WHERE process_exited = 0 AND parent IS NOT NULL
+                 AND wait IS NULL AND state ->> 'kind' = 'done' ORDER BY id",
+            )?
+            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
+            .collect()
+    }
+
+    pub fn slept(&self, id: NodeId) -> rusqlite::Result<bool> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let changed = tx.execute(
+            "UPDATE nodes SET process_exited = 1, asleep = 1, wait = NULL
+             WHERE id = ?1 AND process_exited = 0 AND state ->> 'kind' = 'done'",
+            [id.0],
+        )?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        waits::drop_questions(&tx, id, ClosedBy::Exit)?;
+        tx.commit()?;
+        self.prompts.lock().unwrap().remove(&id);
+        self.publish_node(&db, id)?;
+        Ok(true)
+    }
+
+    pub fn asleep(&self, id: NodeId) -> rusqlite::Result<bool> {
+        asleep(&self.lock(), id)
+    }
+
+    pub fn reachable(&self, id: NodeId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            &format!("SELECT {REACHABLE} FROM nodes WHERE id = ?1"),
+            [id.0],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn sleep_lost(&self, id: NodeId) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let ended_done = tx
+            .query_row(
+                "SELECT state ->> 'kind' = 'done' AND process_exited = 1 FROM nodes WHERE id = ?1",
+                [id.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(false);
+        if !ended_done {
+            return Ok(());
+        }
+        let parent = parent_of(&tx, id)?;
+        let what = MessageKind::Exited {
+            node: name_of(&tx, id)?,
+            code: None,
+        };
+        tx.execute("UPDATE nodes SET asleep = 0 WHERE id = ?1", [id.0])?;
+        set_state(&tx, id, &NodeState::Exited { code: None })?;
+        mailbox::enqueue(&tx, id, parent, Kind::Queue, &what, "", Default::default())?;
+        tx.commit()?;
+        self.publish_node(&db, id)?;
+        if let Some(parent) = parent {
+            self.publish_node(&db, parent)?;
+            self.publish_message(id, Toward::Parent);
+        }
+        Ok(())
+    }
+
     pub fn ended(&self, id: NodeId) -> rusqlite::Result<Option<Active>> {
         self.lock()
             .query_row(
@@ -329,7 +402,7 @@ impl Graph {
             [id.0],
         )? + changed(&tx)?;
         let revived = tx.execute(
-            "UPDATE nodes SET process_exited = 0 WHERE id = ?1 AND process_exited = 1",
+            "UPDATE nodes SET process_exited = 0, asleep = 0 WHERE id = ?1 AND process_exited = 1",
             [id.0],
         )? > 0;
         if revived
@@ -827,6 +900,16 @@ fn adopt_in(
     }))
 }
 
+fn asleep(db: &Connection, id: NodeId) -> rusqlite::Result<bool> {
+    db.query_row(
+        "SELECT asleep = 1 FROM nodes WHERE id = ?1",
+        [id.0],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|asleep| asleep.unwrap_or(false))
+}
+
 fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
     let mut number = 1;
     loop {
@@ -866,8 +949,7 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
     }
 }
 
-const LAUNCH_COLUMNS: &str =
-    "SELECT id, name, agent, server, account, transcript, model, effort, token, role FROM nodes";
+const LAUNCH_COLUMNS: &str = "SELECT id, name, agent, server, account, transcript, model, effort, token, role, rules FROM nodes";
 
 fn launch_row(row: &Row) -> rusqlite::Result<Active> {
     Ok(Active {
@@ -883,6 +965,7 @@ fn launch_row(row: &Row) -> rusqlite::Result<Active> {
         },
         token: row.get(8)?,
         role: row.get(9)?,
+        rules: optional_json(row, 10)?,
     })
 }
 
@@ -895,12 +978,13 @@ pub(super) fn caller_in(db: &Connection, token: &str) -> rusqlite::Result<Option
 
 fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
     db.execute(
-        "UPDATE nodes SET token = ?2, server = ?3, account = ?4 WHERE id = ?1",
+        "UPDATE nodes SET token = ?2, server = ?3, account = ?4, rules = ?5 WHERE id = ?1",
         params![
             id.0,
             launched.token,
             launched.server.as_ref().map(to_json),
-            launched.account.as_ref().map(to_json)
+            launched.account.as_ref().map(to_json),
+            launched.rules.as_ref().map(to_json)
         ],
     )?;
     Ok(())

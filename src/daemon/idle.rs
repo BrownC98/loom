@@ -34,6 +34,10 @@ impl IdleWaits {
         Some(end)
     }
 
+    pub fn waiting(&self, node: NodeId) -> bool {
+        self.ends.lock().unwrap().contains_key(&node)
+    }
+
     pub fn in_turn(&self, node: NodeId) -> bool {
         self.turns.lock().unwrap().contains(&node)
     }
@@ -61,8 +65,10 @@ mod tests {
         assert!(!waits.in_turn(NodeId(1)));
         waits.turn_started(NodeId(1));
         assert!(waits.in_turn(NodeId(1)));
+        assert!(!waits.waiting(NodeId(1)));
         let _ = waits.open(NodeId(1));
         assert!(!waits.in_turn(NodeId(1)));
+        assert!(waits.waiting(NodeId(1)));
         waits.turn_started(NodeId(1));
         waits.end(NodeId(1));
         assert!(!waits.in_turn(NodeId(1)));

@@ -332,7 +332,8 @@ pub enum MessageKind {
     HumanInput {
         node: String,
     },
-    /// 데몬이 바뀐 내장 스킬로 시작했다. 살아 있는 모든 에이전트 노드가 받는다.
+    /// 옛 데몬이 바뀐 내장 스킬로 시작할 때 보낸 알림. 지금 데몬은 보내지 않고 시작 글이 바뀐 노드를 턴 끝에 다시 띄운다.
+    /// 옛 메시지와 이벤트 기록을 읽으려고 남긴다.
     RulesChanged {
         skills: Vec<String>,
         /// 빌드한 커밋(`LOOM_COMMIT`). 릴리스 빌드에는 없다.
@@ -724,7 +725,7 @@ const KIND_WORDS: [KindWord; 15] = [
     word("USER DECISION", NO_HUMAN_WORD, false, false),
     word(
         "RULE UPDATE",
-        "nothing for built-in skills: loom sends rules-changed when they change. For other rules, use `loom note` without this word",
+        "nothing for built-in skills: loom relaunches each node whose start text changed. For other rules, use `loom note` without this word",
         false,
         false,
     ),

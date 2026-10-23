@@ -9,6 +9,7 @@ mod places;
 mod relaunch;
 mod sessions;
 mod settings;
+mod sleep;
 pub use relaunch::{NewAgent, Relaunched};
 mod switch;
 mod turn_end;
@@ -101,6 +102,7 @@ struct App {
     setups: Mutex<HashSet<NodeId>>,
     idle: idle::IdleWaits,
     relaunches: relaunch::Relaunches,
+    sleeps: sleep::Sleeps,
     switch: switch::Switches,
     usage: usage_cache::UsageCache,
     turn_ends: turn_end::TurnEnds,
@@ -469,14 +471,6 @@ pub struct Reported {
     pub warning: Option<String>,
 }
 
-fn rule_digests() -> std::collections::BTreeMap<String, String> {
-    let mut digests = skills::digests();
-    digests.insert(USAGE_RULES.to_owned(), profile::usage_digest());
-    digests
-}
-
-const USAGE_RULES: &str = "usage";
-
 const SCREEN_QUIET: Duration = Duration::from_millis(500);
 
 const NODE_IP: Ipv4Addr = Ipv4Addr::new(127, 76, 77, 1);
@@ -522,13 +516,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             .map_err(std::io::Error::other)?;
     }
     app.resume().await.map_err(std::io::Error::other)?;
-    match app.graph.rules_changed(&rule_digests(), crate::COMMIT) {
-        Ok(changed) if !changed.is_empty() => {
-            eprintln!("loom: 내장 스킬이 바뀌었다: {}", changed.join(", "))
-        }
-        Ok(_) => {}
-        Err(e) => eprintln!("loom: 내장 스킬 변경을 알리지 못했다: {e}"),
+    if let Err(e) = app.relaunch_stale() {
+        eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
     }
+    app.watch_sleep();
     let node_routes = Router::new()
         .route("/api/agent/note", post(agent_note))
         .route("/api/agent/wait", post(agent_wait))
@@ -917,6 +908,7 @@ impl App {
             setups: Mutex::default(),
             idle: idle::IdleWaits::default(),
             relaunches: relaunch::Relaunches::default(),
+            sleeps: sleep::Sleeps::default(),
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
             turn_ends: turn_end::TurnEnds::default(),
@@ -1060,6 +1052,7 @@ impl App {
             first_input,
             account: _,
             inside,
+            rules: _,
         } = prepared;
         self.first_inputs.launched(id, first_input);
         let distro = inside.map(|inside| inside.distro);
@@ -1163,11 +1156,17 @@ impl App {
                 app.host.kill(id);
                 return;
             }
+            let slept = matches!(exit, Exit::Command(_))
+                && app.sleeps.stopping(id)
+                && app.graph.slept(id).unwrap_or(false);
             let _ = match exit {
+                _ if slept => Ok(()),
                 Exit::Command(code) => app.graph.exited(id, code),
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
                 Exit::Lost => app.graph.lost(id),
             };
+            app.sleeps.exited(id);
+            app.graph.wake_mail();
             app.idle.end(id);
         }
     }
@@ -1380,6 +1379,7 @@ impl App {
             setup: None,
             token,
             account: account.cloned(),
+            rules: profile.map(|p| profile::start_digests(p, launch)),
             profile,
             codex,
             opencode2,
@@ -1412,6 +1412,7 @@ struct Prepared {
     setup: Option<portable_pty::CommandBuilder>,
     token: String,
     account: Option<AccountId>,
+    rules: Option<profile::StartDigests>,
     profile: Option<Profile>,
     codex: Option<Arc<CodexServer>>,
     opencode2: Option<Arc<opencode2::Node>>,
@@ -1428,6 +1429,7 @@ impl Prepared {
                 _ => None,
             },
             account: self.account.clone(),
+            rules: self.rules.clone(),
         }
     }
 
@@ -2083,7 +2085,7 @@ async fn agent_idle(
         }
     }
     tokio::select! {
-        taken = app.graph.next_waking(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
+        taken = app.next_mail(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
             Ok(taken) => Ok(Json(taken)),
             Err(e) => {
                 eprintln!("loom: 노드 {}의 쉬는 대기가 끝났다: {e}", node.0);
@@ -2201,8 +2203,44 @@ async fn pty(
         if let Err(e) = app.graph.typed(id) {
             eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
         }
+        app.sleeps.knocked(id);
     };
-    serve_pty(ws, via, app, |app| &app.host, typed, NodeId(id))
+    let id = NodeId(id);
+    if app.host.attach(id).is_none() && app.graph.reachable(id).unwrap_or(false) {
+        return coming_pty(ws, via, app, id);
+    }
+    serve_pty(ws, via, app, |app| &app.host, typed, id)
+}
+
+const COMING_PTY_CHECK: Duration = Duration::from_secs(1);
+
+fn coming_pty(
+    ws: WebSocketUpgrade,
+    via: Option<Extension<ViaRemote>>,
+    app: Arc<App>,
+    id: NodeId,
+) -> Response {
+    let devices = app.devices.clone();
+    ws.on_upgrade(move |mut socket| {
+        origin::until_removed(devices, via, async move {
+            let mut check = tokio::time::interval(COMING_PTY_CHECK);
+            loop {
+                tokio::select! {
+                    frame = socket.next() => match frame {
+                        Some(Ok(Message::Binary(_))) => app.sleeps.knocked(id),
+                        Some(Ok(_)) => {}
+                        Some(Err(_)) | None => return,
+                    },
+                    _ = check.tick() => {
+                        if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
+                            let _ = socket.send(Message::Close(None)).await;
+                            return;
+                        }
+                    }
+                }
+            }
+        })
+    })
 }
 
 /// 화면이 PTY 웹소켓에 보내는 글 프레임. 키 입력은 바이너리 프레임으로 간다(docs/design.md 「데몬 하나」 PTY 열·줄).
@@ -2412,12 +2450,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rule_digests_hold_the_usage_beside_the_skills() {
-        assert!(!skills::digests().contains_key(USAGE_RULES));
-        assert_eq!(rule_digests()[USAGE_RULES], profile::usage_digest());
-    }
-
-    #[test]
     fn every_agent_route_the_cli_calls_is_on_the_node_door() {
         let cli = include_str!("cli.rs");
         let daemon = include_str!("daemon.rs");
@@ -2480,6 +2512,7 @@ mod tests {
             token: "t".into(),
             server: None,
             account: None,
+            rules: None,
         };
         let node = graph
             .add_root(
@@ -2579,6 +2612,7 @@ mod tests {
             token: "t2".into(),
             server: None,
             account: None,
+            rules: None,
         };
         graph.relaunched(node, &relaunched).unwrap();
         node_host::in_process(&hosts, node, screen_cmd());

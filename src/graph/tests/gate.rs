@@ -106,7 +106,11 @@ fn spawn_role_is_stored_and_picks_the_gate() {
     );
     g.exited(second, 0).unwrap();
     assert_eq!(g.gate_for(t.worker).unwrap(), GateChoice::Ci { gate: t.ci });
-    g.exited(t.ci, 0).unwrap();
+    g.done(t.ci, &report("idle"), None, &[], None, None)
+        .unwrap();
+    g.slept(t.ci).unwrap();
+    assert_eq!(g.gate_for(t.worker).unwrap(), GateChoice::Ci { gate: t.ci });
+    g.sleep_lost(t.ci).unwrap();
     assert_eq!(g.gate_for(t.worker), Err(Refusal::NoGate));
 }
 

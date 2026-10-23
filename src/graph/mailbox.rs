@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::pin::pin;
 use std::time::Duration;
@@ -10,13 +9,13 @@ use ts_rs::TS;
 use super::events::{self, Entry, GateTrace, Step, Via};
 use super::waits;
 use super::{
-    Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward,
-    ambiguous, from_json, optional_json, parent_of, set_state, state_of, to_json,
+    Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, REACHABLE, Refusal, SUMMARY_LIMIT_BYTES,
+    Toward, ambiguous, from_json, optional_json, parent_of, set_state, state_of, to_json,
 };
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::{LOOM, MessageKind, Question};
+use crate::protocol::{MessageKind, Question};
 
 /// 메시지 전달 방식. 메모(`loom note`)만 조정·중단으로 보낸다. 근거: docs/design.md 「명령」.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -234,7 +233,7 @@ impl Graph {
             Err(e) => return Err(e),
         };
         if let Some(to_id) = to_id {
-            if exited(&db, to_id)? {
+            if unreachable(&db, to_id)? {
                 return Err(Refusal::Ended(to.to_owned()));
             }
             check_room(&db, to_id, to)?;
@@ -344,23 +343,6 @@ impl Graph {
         }
     }
 
-    pub async fn next_waking(
-        &self,
-        node: NodeId,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        loop {
-            let mut notified = pin!(self.mail_changed());
-            notified.as_mut().enable();
-            let taken = self.take_waking(node, kinds, limit_bytes)?;
-            if !taken.is_empty() {
-                return Ok(taken);
-            }
-            let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
-        }
-    }
-
     pub fn take(
         &self,
         node: NodeId,
@@ -426,6 +408,24 @@ impl Graph {
             self.publish_node(&db, node)?;
         }
         Ok(taken)
+    }
+
+    pub fn sleepers_with_mail(&self) -> rusqlite::Result<Vec<NodeId>> {
+        let db = self.lock();
+        let sleepers = db
+            .prepare(
+                "SELECT DISTINCT n.id FROM nodes n JOIN messages m ON m.recipient = n.id
+                 WHERE n.asleep = 1 AND m.delivered = 0 ORDER BY n.id",
+            )?
+            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut waking = Vec::new();
+        for node in sleepers {
+            if queued(&db, node)? > 0 {
+                waking.push(node);
+            }
+        }
+        Ok(waking)
     }
 
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
@@ -546,7 +546,9 @@ impl Graph {
             }
         }
         let alive_children = tx
-            .prepare("SELECT name FROM nodes WHERE parent = ?1 AND process_exited = 0 ORDER BY id")?
+            .prepare(&format!(
+                "SELECT name FROM nodes WHERE parent = ?1 AND {REACHABLE} ORDER BY id"
+            ))?
             .query_map([node.0], |row| row.get(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;
         tx.commit()?;
@@ -568,7 +570,7 @@ impl Graph {
         if text.trim().is_empty() {
             return Ok(());
         }
-        if exited(&db, parent)? {
+        if unreachable(&db, parent)? {
             return Ok(());
         }
         let tx = db.transaction()?;
@@ -588,64 +590,15 @@ impl Graph {
         self.publish_sent(&db, node, parent)?;
         Ok(())
     }
-
-    pub fn rules_changed(
-        &self,
-        digests: &BTreeMap<String, String>,
-        commit: Option<&str>,
-    ) -> rusqlite::Result<Vec<String>> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let recorded: BTreeMap<String, String> = tx
-            .prepare("SELECT skill, digest FROM skill_digests")?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?;
-        let changed: Vec<String> = digests
-            .iter()
-            .filter(|(skill, digest)| recorded.get(*skill) != Some(*digest))
-            .map(|(skill, _)| skill.clone())
-            .collect();
-        if changed.is_empty() {
-            return Ok(changed);
-        }
-        tx.execute("DELETE FROM skill_digests", [])?;
-        for (skill, digest) in digests {
-            tx.execute(
-                "INSERT INTO skill_digests (skill, digest) VALUES (?1, ?2)",
-                params![skill, digest],
-            )?;
-        }
-        let nodes = tx
-            .prepare(
-                "SELECT id FROM nodes WHERE agent != 'null' AND process_exited = 0 ORDER BY id",
-            )?
-            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let what = MessageKind::RulesChanged {
-            skills: changed.clone(),
-            commit: commit.map(str::to_owned),
-        };
-        for &node in &nodes {
-            enqueue_loom(&tx, node, &what, RULES_CHANGED_NEXT)?;
-        }
-        tx.commit()?;
-        for node in nodes {
-            self.publish_node(&db, node)?;
-        }
-        self.mail.notify_waiters();
-        Ok(changed)
-    }
 }
 
-fn exited(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
+fn unreachable(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     db.query_row(
-        "SELECT process_exited FROM nodes WHERE id = ?1",
+        &format!("SELECT NOT {REACHABLE} FROM nodes WHERE id = ?1"),
         [node.0],
         |row| row.get(0),
     )
 }
-
-const RULES_CHANGED_NEXT: &str = "Next: call `loom relaunch` at the end of this turn. Your start text still has the old rules; the relaunch loads the new ones, and the conversation continues.";
 
 pub struct Report<'a> {
     pub summary: &'a str,
@@ -763,33 +716,6 @@ pub(super) fn enqueue_human(
     Ok(MessageId(db.last_insert_rowid() as u32))
 }
 
-pub(super) fn enqueue_loom(
-    db: &Connection,
-    to: NodeId,
-    what: &MessageKind,
-    body: &str,
-) -> rusqlite::Result<MessageId> {
-    db.execute(
-        "INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
-        params![to.0, LOOM, to_json(&Kind::Queue), body, to_json(what)],
-    )?;
-    let id = MessageId(db.last_insert_rowid() as u32);
-    let entry = Entry::Message {
-        how: Kind::Queue,
-        what: Some(what.clone()),
-        from: events::Who {
-            id: None,
-            name: LOOM.to_owned(),
-        },
-        to: Some(events::who(db, to)?),
-        step: Step::Sent,
-        via: None,
-        gate: None,
-    };
-    events::write(db, &entry, Some(id))?;
-    Ok(id)
-}
-
 fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
     Ok(Delivery {
         id: MessageId(row.get(0)?),
@@ -827,14 +753,16 @@ fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
         found => return found.map(|(id, _)| id),
     }
     let named = db
-        .prepare("SELECT id, process_exited FROM nodes WHERE name = ?1 AND id != ?2 ORDER BY id")?
+        .prepare(&format!(
+            "SELECT id, {REACHABLE} FROM nodes WHERE name = ?1 AND id != ?2 ORDER BY id"
+        ))?
         .query_map(params![to, from.0], |row| {
             Ok((NodeId(row.get(0)?), row.get::<_, bool>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let live: Vec<NodeId> = named
         .iter()
-        .filter(|(_, exited)| !exited)
+        .filter(|(_, reachable)| *reachable)
         .map(|(id, _)| *id)
         .collect();
     match live[..] {

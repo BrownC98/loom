@@ -49,8 +49,8 @@ use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
     CardView, Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model,
-    NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
-    Via, WaitDoc, WaitId, WaitKind, WaitSource,
+    NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Report, Sent,
+    TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -95,6 +95,8 @@ struct App {
     opencode2: Mutex<HashMap<NodeId, Arc<opencode2::Node>>>,
     /// 노드마다 런타임의 세션 단계. 프로세스를 띄울 때마다 `follow_screen`이 새로 연다.
     sessions: sessions::Sessions,
+    /// 첫 입력을 주고 띄운 노드. 그 입력 턴은 사람 입력이 아니다(`human-input`).
+    first_inputs: sessions::FirstInputs,
     /// 끝나지 않은 설정 스크립트 노드. 성공하면 출력이 있어도 지운다. 근거: docs/design.md 「저장소와 워크트리」.
     setups: Mutex<HashSet<NodeId>>,
     /// 쉬는 Claude 노드마다 메시지를 기다리는 비동기 훅 하나.
@@ -332,16 +334,17 @@ pub enum SpawnRun {
     Command(String),
 }
 
-/// `loom send`·`steer`·`interrupt`의 요청.
+/// `loom note`의 요청. `mode`는 큐·조정(`--steer`)·중단(`--interrupt`)이다.
 #[derive(Serialize, Deserialize)]
-pub struct SendRequest {
+pub struct NoteRequest {
     pub to: String,
-    pub kind: Kind,
+    pub mode: Kind,
     pub body: String,
 }
 
+/// `loom answer`의 요청. `message`는 받은 `loom ask` 메시지 번호다.
 #[derive(Serialize, Deserialize)]
-pub struct ReplyRequest {
+pub struct AnswerRequest {
     pub message: MessageId,
     pub body: String,
 }
@@ -364,6 +367,9 @@ pub struct TakeRequest {
     /// 사람이 입력한 턴의 첫 훅이다. 열린 `loom ask` 질문을 알린다(`Taken::open_question`).
     #[serde(default)]
     pub human_input: bool,
+    /// 사람 입력 턴의 입력 글. 훅이 읽을 수 있을 때만 있다(Claude `UserPromptSubmit`). 부모에게 `human-input`으로 간다.
+    #[serde(default)]
+    pub prompt: Option<String>,
 }
 
 /// `loom hook`의 응답. 꺼낸 메시지.
@@ -424,7 +430,15 @@ pub struct AskRequest {
     pub doc: Option<PathBuf>,
 }
 
-/// `loom ask`의 답: 질문 번호, 붙은 문서, 이 질문을 더한 뒤 열린 질문 번호들.
+/// `loom ask`의 답. 부모 없는 노드는 사람 받은편지함, 부모 있는 노드는 부모에게 간 메시지다.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AskResult {
+    Inbox(Asked),
+    Parent(Sent),
+}
+
+/// 받은편지함 질문: 질문 번호, 붙은 문서, 이 질문을 더한 뒤 열린 질문 번호들.
 #[derive(Serialize, Deserialize)]
 pub struct Asked {
     pub id: WaitId,
@@ -474,6 +488,9 @@ pub struct HookWaitRequest {
 #[derive(Serialize, Deserialize)]
 pub struct DoneRequest {
     pub summary: String,
+    /// `--file`: 결과 파일 경로. 부모에게 `done`의 칸으로 간다.
+    #[serde(default)]
+    pub file: Option<String>,
     /// `--asked`: 그 일을 맡긴 사람의 지시. 부모 없는 노드는 꼭 준다(받은편지함 완료 줄).
     #[serde(default)]
     pub asked: Option<String>,
@@ -483,6 +500,13 @@ pub struct DoneRequest {
     /// `--doc`: 완료 줄에 붙일 문서의 절대 경로. `loom ask --doc`과 같다.
     #[serde(default)]
     pub doc: Option<PathBuf>,
+}
+
+/// `loom done`의 응답. `alive`는 프로세스가 아직 사는 자식 이름, `warning`은 부모에게도 간 담당 브랜치 경고다.
+#[derive(Serialize, Deserialize)]
+pub struct Reported {
+    pub alive: Vec<String>,
+    pub warning: Option<String>,
 }
 
 /// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
@@ -562,6 +586,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         codex: Mutex::default(),
         opencode2: Mutex::default(),
         sessions: sessions::Sessions::default(),
+        first_inputs: sessions::FirstInputs::default(),
         setups: Mutex::default(),
         idle: idle::IdleWaits::default(),
         relaunches: relaunch::Relaunches::default(),
@@ -597,11 +622,19 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         update: update.clone(),
     });
     app.resume().await.map_err(std::io::Error::other)?;
+    // 다시 붙은 노드가 바뀐 규칙을 알게 한다. 알리지 못해도 데몬은 뜬다.
+    match app.graph.rules_changed(&skills::digests(), crate::COMMIT) {
+        Ok(changed) if !changed.is_empty() => {
+            eprintln!("loom: 내장 스킬이 바뀌었다: {}", changed.join(", "))
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("loom: 내장 스킬 변경을 알리지 못했다: {e}"),
+    }
     // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
     let node_routes = Router::new()
-        .route("/api/agent/send", post(agent_send))
+        .route("/api/agent/note", post(agent_note))
         .route("/api/agent/wait", post(agent_wait))
-        .route("/api/agent/reply", post(agent_reply))
+        .route("/api/agent/answer", post(agent_answer))
         .route("/api/agent/status", post(agent_status))
         .route("/api/agent/nodes", post(agent_nodes))
         .route("/api/agent/take", post(agent_take))
@@ -1005,9 +1038,11 @@ impl App {
             profile,
             codex,
             opencode2,
+            first_input,
             account: _,
             inside: _,
         } = prepared;
+        self.first_inputs.launched(id, first_input);
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;
         self.follow_screen(id, profile, &token);
@@ -1322,6 +1357,10 @@ impl App {
             profile,
             codex,
             opencode2,
+            first_input: match start {
+                Start::Agent { brief, .. } => !brief.trim().is_empty(),
+                Start::Command { .. } => false,
+            },
         })
     }
 
@@ -1358,6 +1397,8 @@ struct Prepared {
     profile: Option<Profile>,
     codex: Option<Arc<CodexServer>>,
     opencode2: Option<Arc<opencode2::Node>>,
+    /// 첫 입력(지시문, 다시 띄울 때의 글)을 시작 인자로 넘긴다.
+    first_input: bool,
 }
 
 impl Prepared {
@@ -1441,7 +1482,7 @@ impl Mailbox for NodeMailbox {
     }
 
     fn human_input(&self) -> Option<String> {
-        self.app.human_input(self.node).ok().flatten()
+        self.app.human_input(self.node, None).ok().flatten()
     }
 }
 
@@ -1575,9 +1616,15 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
 impl App {
     /// 사람이 입력해 턴이 시작했다. 노드를 다시 일하는 상태로 두고, 그 입력에 붙일 안내를 돌려준다:
     /// 열린 `loom ask` 질문과, 부모 없는 노드면 완료 보고 안내(`profile::DONE_NOTE`).
-    fn human_input(&self, node: NodeId) -> Result<Option<String>, Refusal> {
+    /// `prompt`는 입력 글이다(아는 훅만). loom이 넣은 첫 입력(지시문, 다시 띄울 때의 글)이 아니면 부모에게 `human-input`으로 알린다.
+    fn human_input(&self, node: NodeId, prompt: Option<&str>) -> Result<Option<String>, Refusal> {
         self.graph.human_input(node)?;
         self.turn_ends.human(node);
+        if let Some(text) = prompt
+            && !self.first_inputs.injected(node)
+        {
+            self.graph.human_typed(node, text)?;
+        }
         let questions = profile::questions_note(&self.graph.open_questions(node)?);
         let done = self
             .graph
@@ -1593,7 +1640,7 @@ impl App {
 /// 사람이 TUI에 입력해 턴이 시작했다. 열린 `loom ask` 질문이 있으면 그 턴에 한 줄을 더한다.
 /// Codex에는 입력 훅이 없어 턴 안에 넣는다(`turn/steer`).
 async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread: &str) {
-    let text = match app.human_input(node) {
+    let text = match app.human_input(node, None) {
         Ok(Some(text)) => text,
         Ok(None) => return,
         Err(e) => return eprintln!("loom: 노드 {}의 사람 입력을 처리하지 못했다: {e}", node.0),
@@ -2075,18 +2122,18 @@ async fn spawn_child(
         .inspect_err(|_| discard())
 }
 
-async fn agent_send(
+async fn agent_note(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(req): Json<SendRequest>,
+    Json(req): Json<NoteRequest>,
 ) -> Result<Json<Sent>, AgentError> {
     let from = app.caller(&headers)?;
-    let via = gate::via(&headers, "/api/agent/send");
-    let sent = send(&app, from, &req, &via);
-    recorded(&app, from, &req.to, req.kind, &via, sent)
+    let via = gate::via(&headers, "/api/agent/note");
+    let sent = note(&app, from, &req, &via);
+    recorded(&app, from, &req.to, req.mode, &via, sent)
 }
 
-/// 거절은 보낸 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
+/// 보낸 노드는 이번 턴에 loom 동사를 불렀다(턴 끝 검사). 거절은 보낸 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
 fn recorded<T>(
     app: &App,
     from: NodeId,
@@ -2095,6 +2142,9 @@ fn recorded<T>(
     via: &Via,
     result: Result<T, Refusal>,
 ) -> Result<Json<T>, AgentError> {
+    if result.is_ok() {
+        app.turn_ends.called(from);
+    }
     if let Err(reason) = &result
         && !matches!(reason, Refusal::Db(_))
     {
@@ -2105,16 +2155,16 @@ fn recorded<T>(
     result.map(Json).map_err(for_agent)
 }
 
-fn send(app: &App, from: NodeId, req: &SendRequest, via: &Via) -> Result<Sent, Refusal> {
-    app.gate_word(from, &req.body)?;
-    if req.kind != Kind::Queue {
+fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, Refusal> {
+    app.kind_word(from, &req.body)?;
+    if req.mode != Kind::Queue {
         let (to, agent) = app.graph.related(from, &req.to)?;
         let target = format!("#{}", to.0);
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
         // 셸 앞에 `loom guard`를 붙이는 프로필만 그 셸을 끝낸다.
-        if req.kind == Kind::Interrupt && matches!(profile, Profile::Claude | Profile::Cursor) {
+        if req.mode == Kind::Interrupt && matches!(profile, Profile::Claude | Profile::Cursor) {
             return app
                 .graph
                 .interrupt(from, &target, &req.body, Some(via), |to| {
@@ -2123,22 +2173,23 @@ fn send(app: &App, from: NodeId, req: &SendRequest, via: &Via) -> Result<Sent, R
         }
         return app
             .graph
-            .send(from, &target, req.kind, &req.body, Some(via));
+            .note(from, &target, req.mode, &req.body, Some(via));
     }
     app.graph
-        .send(from, &req.to, req.kind, &req.body, Some(via))
+        .note(from, &req.to, req.mode, &req.body, Some(via))
 }
 
-async fn agent_reply(
+async fn agent_answer(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(req): Json<ReplyRequest>,
+    Json(req): Json<AnswerRequest>,
 ) -> Result<Json<Sent>, AgentError> {
     let from = app.caller(&headers)?;
-    let via = gate::via(&headers, "/api/agent/reply");
-    let sent = app
-        .gate_word(from, &req.body)
-        .and_then(|()| app.graph.reply(from, req.message, &req.body, Some(&via)));
+    let via = gate::via(&headers, "/api/agent/answer");
+    let sent = app.kind_word(from, &req.body).and_then(|()| {
+        app.graph
+            .answer_ask(from, req.message, &req.body, Some(&via))
+    });
     let to = format!("message #{}", req.message.0);
     recorded(&app, from, &to, Kind::Queue, &via, sent)
 }
@@ -2182,7 +2233,9 @@ async fn agent_take(
         .take(node, &req.kinds, req.limit_bytes)
         .map_err(for_agent)?;
     let note = match req.human_input {
-        true => app.human_input(node).map_err(for_agent)?,
+        true => app
+            .human_input(node, req.prompt.as_deref())
+            .map_err(for_agent)?,
         false => None,
     };
     Ok(Json(Taken { messages, note }))
@@ -2300,23 +2353,34 @@ async fn agent_done(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<DoneRequest>,
-) -> Result<Json<Vec<String>>, AgentError> {
+) -> Result<Json<Reported>, AgentError> {
     let node = app.caller(&headers)?;
     for image in &req.images {
         done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
     let doc = attach(req.doc.as_deref())?;
     let via = gate::via(&headers, "/api/agent/done");
-    let done = app.gate_word(node, &req.summary).and_then(|()| {
+    // 경고를 보지 못해도 보고는 보낸다. 완료는 중간 결과도 나른다.
+    let warning = app.unreadied(node).await.unwrap_or_else(|e| {
+        eprintln!("loom: 노드 {}의 담당 브랜치를 보지 못했다: {e}", node.0);
+        None
+    });
+    let report = Report {
+        summary: &req.summary,
+        file: req.file.as_deref(),
+        warning: warning.clone(),
+    };
+    let done = app.kind_word(node, &req.summary).and_then(|()| {
         app.graph.done(
             node,
-            &req.summary,
+            &report,
             req.asked.as_deref(),
             &req.images,
             doc,
             Some(&via),
         )
     });
+    let done = done.map(|alive| Reported { alive, warning });
     recorded(&app, node, PARENT, Kind::Queue, &via, done)
 }
 
@@ -2349,24 +2413,45 @@ fn attach(doc: Option<&std::path::Path>) -> Result<Option<WaitDoc>, AgentError> 
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
 
-/// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드는 부모에게 묻는다.
+/// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드의 질문은 부모에게 `ask` 메시지로 간다.
 async fn agent_ask(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<AskRequest>,
-) -> Result<Json<Asked>, AgentError> {
+) -> Result<Json<AskResult>, AgentError> {
     let node = app.caller(&headers)?;
+    let via = gate::via(&headers, "/api/agent/ask");
+    let has_parent = app
+        .graph
+        .relations(node)
+        .map_err(for_agent)?
+        .parent
+        .is_some();
+    if has_parent {
+        let sent = match req.doc {
+            Some(_) => Err(Refusal::DocHasParent),
+            None => app.graph.ask_parent(node, &req.question, Some(&via)),
+        };
+        return recorded(
+            &app,
+            node,
+            PARENT,
+            Kind::Queue,
+            &via,
+            sent.map(AskResult::Parent),
+        );
+    }
     let doc = attach(req.doc.as_deref())?;
     let id = app
         .graph
         .ask(node, &req.question, doc.clone())
         .map_err(for_agent)?;
     let open = app.graph.open_questions(node).map_err(for_agent)?;
-    Ok(Json(Asked {
+    Ok(Json(AskResult::Inbox(Asked {
         id,
         doc,
         open: open.into_iter().map(|q| q.id).collect(),
-    }))
+    })))
 }
 
 /// `loom answered`: 사람의 입력이 `loom ask` 질문의 답이라고 에이전트가 판단했다. 그 질문만 지우고 지운 번호를 돌려준다. 다른 대기는 남는다.

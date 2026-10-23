@@ -2,6 +2,7 @@
 //! 부모 없는 노드가 부모에게 보내는 메시지는 보관했다가 새 부모에게 전한다.
 //! 근거: docs/design.md 「전달 지점」.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::pin::pin;
 use std::time::Duration;
@@ -14,21 +15,23 @@ use super::events::{self, Entry, GateTrace, Step, Via};
 use super::waits;
 use super::{
     Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward,
-    ambiguous, from_json, parent_of, set_state, state_of, to_json,
+    ambiguous, from_json, optional_json, parent_of, set_state, state_of, to_json,
 };
+use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
+use crate::protocol::{LOOM, MessageKind, Question};
 
-/// 메시지 전달 방식. 근거: docs/design.md 「명령」.
+/// 메시지 전달 방식. 메모(`loom note`)만 조정·중단으로 보낸다. 근거: docs/design.md 「명령」.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum Kind {
-    /// `loom send`: 받는 노드의 턴을 끊지 않는다.
+    /// 받는 노드의 턴을 끊지 않는다.
     Queue,
-    /// `loom steer`: 턴을 멈추지 않고 다음 도구 호출 사이에 넣는다.
+    /// `loom note --steer`: 턴을 멈추지 않고 다음 도구 호출 사이에 넣는다.
     Steer,
-    /// `loom interrupt`: 지금 동작을 멈추고 바로 따르게 한다.
+    /// `loom note --interrupt`: 지금 동작을 멈추고 바로 따르게 한다.
     Interrupt,
 }
 
@@ -54,6 +57,9 @@ pub struct Delivery {
     pub body: String,
     #[serde(default)]
     pub reply_to: Option<MessageId>,
+    /// 메시지 종류와 칸. 종류를 남기기 전의 옛 메시지에는 없다.
+    #[serde(default)]
+    pub what: Option<MessageKind>,
 }
 
 /// 보낸 메시지 번호와 받는 노드. 부모가 없어 보관하면 `recipient`가 없다.
@@ -65,6 +71,7 @@ pub struct Sent {
 
 struct Outgoing<'a> {
     kind: Kind,
+    what: MessageKind,
     body: &'a str,
     reply_to: Option<MessageId>,
     via: Option<&'a Via>,
@@ -83,7 +90,8 @@ impl Graph {
         related(&self.lock(), from, to)
     }
 
-    pub fn send(
+    /// `loom note`. 조정은 부모·자식에게만 간다.
+    pub fn note(
         &self,
         from: NodeId,
         to: &str,
@@ -96,6 +104,7 @@ impl Graph {
             to,
             Outgoing {
                 kind,
+                what: MessageKind::Note,
                 body,
                 reply_to: None,
                 via,
@@ -104,7 +113,7 @@ impl Graph {
         )
     }
 
-    /// Claude 셸은 검증과 큐 쓰기가 끝난 뒤, 메시지를 꺼낼 수 있기 전에 끝낸다.
+    /// `loom note --interrupt`. Claude 셸은 검증과 큐 쓰기가 끝난 뒤, 메시지를 꺼낼 수 있기 전에 끝낸다.
     pub fn interrupt(
         &self,
         from: NodeId,
@@ -118,6 +127,7 @@ impl Graph {
             to,
             Outgoing {
                 kind: Kind::Interrupt,
+                what: MessageKind::Note,
                 body,
                 reply_to: None,
                 via,
@@ -126,29 +136,61 @@ impl Graph {
         )
     }
 
-    /// 내가 받은 메시지의 보낸 노드에게 답한다.
-    pub fn reply(
+    /// 부모가 있는 노드의 `loom ask`: 부모에게 묻는다. 선택지 꼴은 사람에게 묻는 질문과 같은 규칙이다(`choices`).
+    pub fn ask_parent(
+        &self,
+        from: NodeId,
+        question: &str,
+        via: Option<&Via>,
+    ) -> Result<Sent, Refusal> {
+        let question = question.trim();
+        if question.is_empty() {
+            return Err(Refusal::EmptyQuestion);
+        }
+        if offers_choices_without_tail(question) {
+            return Err(Refusal::BadChoices);
+        }
+        self.post(
+            from,
+            PARENT,
+            Outgoing {
+                kind: Kind::Queue,
+                what: MessageKind::Ask,
+                body: question,
+                reply_to: None,
+                via,
+            },
+            |_| {},
+        )
+    }
+
+    /// `loom answer`: 내가 받은 `loom ask`에 답한다. 묻지 않은 메시지에는 거절한다.
+    pub fn answer_ask(
         &self,
         from: NodeId,
         request: MessageId,
         body: &str,
         via: Option<&Via>,
     ) -> Result<Sent, Refusal> {
-        let sender: Option<u32> = self
+        let sender: Option<Option<u32>> = self
             .lock()
             .query_row(
-                "SELECT sender FROM messages WHERE id = ?1 AND recipient = ?2",
+                "SELECT sender FROM messages WHERE id = ?1 AND recipient = ?2 AND what ->> 'kind' = 'ask'",
                 params![request.0, from.0],
                 |row| row.get(0),
             )
-            .optional()?
-            .flatten();
-        let sender = sender.ok_or_else(|| Refusal::NotFound(format!("메시지 #{}", request.0)))?;
+            .optional()?;
+        let Some(Some(sender)) = sender else {
+            return Err(Refusal::NotAsk(request.0));
+        };
         self.post(
             from,
             &format!("#{sender}"),
             Outgoing {
                 kind: Kind::Queue,
+                what: MessageKind::Answer {
+                    question: Question::Message { id: request.0 },
+                },
                 body,
                 reply_to: Some(request),
                 via,
@@ -166,6 +208,7 @@ impl Graph {
     ) -> Result<Sent, Refusal> {
         let Outgoing {
             kind,
+            what,
             body,
             reply_to,
             via,
@@ -209,7 +252,7 @@ impl Graph {
             via: via.cloned(),
             gate: None,
         };
-        let id = enqueue(&tx, from, to_id, kind, body, stamp)?;
+        let id = enqueue(&tx, from, to_id, kind, &what, body, stamp)?;
         if let Some(request) = reply_to {
             // 답변을 쓰는 동안 원래 메시지의 보낸 노드와 받은 노드가 바뀌지 않았는지 본다.
             let valid: bool = tx.query_row(
@@ -280,7 +323,7 @@ impl Graph {
             let delivery = self
                 .lock()
                 .query_row(
-                    "SELECT id, sender_name, kind, body, reply_to FROM messages
+                    "SELECT id, sender_name, kind, body, reply_to, what FROM messages
                      WHERE recipient = ?1 AND reply_to = ?2 ORDER BY id LIMIT 1",
                     params![node.0, request.0],
                     read_delivery,
@@ -326,7 +369,7 @@ impl Graph {
             .expect("문자열 목록은 늘 직렬화된다");
         let queued = tx
             .prepare(
-                "SELECT id, sender_name, kind, body, reply_to FROM messages
+                "SELECT id, sender_name, kind, body, reply_to, what FROM messages
                  WHERE recipient = ?1 AND delivered = 0
                  AND (sent_at IS NULL OR sent_at <= unixepoch() - ?3)
                  AND kind IN (SELECT value FROM json_each(?2)) ORDER BY id",
@@ -392,7 +435,7 @@ impl Graph {
             .prepare(
                 "UPDATE messages SET delivered = 1
                  WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))
-                 RETURNING id, kind, sender, sender_name",
+                 RETURNING id, kind, sender, sender_name, what",
             )?
             .query_map(params![node.0, ids], |row| {
                 Ok((
@@ -400,23 +443,22 @@ impl Graph {
                     from_json::<Kind>(row, 1)?,
                     row.get::<_, Option<u32>>(2)?.map(NodeId),
                     row.get::<_, String>(3)?,
+                    optional_json::<MessageKind>(row, 4)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let to = events::who(&tx, node)?;
-        for (id, how, sender, name) in &acked {
+        for (id, how, sender, name, what) in acked.iter().cloned() {
             let entry = Entry::Message {
-                how: *how,
-                from: events::Who {
-                    id: *sender,
-                    name: name.clone(),
-                },
+                how,
+                what,
+                from: events::Who { id: sender, name },
                 to: Some(to.clone()),
                 step: Step::Delivered,
                 via: None,
                 gate: None,
             };
-            events::write(&tx, &entry, Some(*id))?;
+            events::write(&tx, &entry, Some(id))?;
         }
         tx.commit()?;
         if !acked.is_empty() {
@@ -432,12 +474,13 @@ impl Graph {
     pub fn done(
         &self,
         node: NodeId,
-        summary: &str,
+        report: &Report,
         asked: Option<&str>,
         images: &[PathBuf],
         doc: Option<waits::WaitDoc>,
         via: Option<&Via>,
     ) -> Result<Vec<String>, Refusal> {
+        let summary = report.summary;
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
         }
@@ -474,8 +517,11 @@ impl Graph {
                     via: via.cloned(),
                     gate: None,
                 };
-                let body = format!("done: {summary}");
-                enqueue(&tx, node, parent, Kind::Queue, &body, stamp)?;
+                let what = MessageKind::Done {
+                    file: report.file.map(str::to_owned),
+                    warning: report.warning.clone(),
+                };
+                enqueue(&tx, node, parent, Kind::Queue, &what, summary, stamp)?;
             }
         }
         let alive_children = tx
@@ -492,6 +538,101 @@ impl Graph {
     }
 }
 
+impl Graph {
+    /// 사람이 부모 있는 노드의 터미널에 글을 쳤다. 그 부모에게 원문을 `human-input`으로 알린다. 부모가 없으면 아무것도 하지 않는다.
+    /// 근거: R8 v5 ③(에이전트가 손으로 보내던 USER DIRECTION·USER DECISION을 대신한다). 글은 지시문 상한까지 앞쪽을 남긴다.
+    pub fn human_typed(&self, node: NodeId, text: &str) -> Result<(), Refusal> {
+        let text = text.trim();
+        let mut db = self.lock();
+        let Some(parent) = parent_of(&db, node)? else {
+            return Ok(());
+        };
+        if text.is_empty() {
+            return Ok(());
+        }
+        let mut end = text.len().min(BRIEF_LIMIT_BYTES);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let tx = db.transaction()?;
+        let what = MessageKind::HumanInput {
+            node: super::name_of(&tx, node)?,
+        };
+        enqueue(
+            &tx,
+            node,
+            Some(parent),
+            Kind::Queue,
+            &what,
+            &text[..end],
+            Stamp::default(),
+        )?;
+        tx.commit()?;
+        self.publish_sent(&db, node, parent)?;
+        Ok(())
+    }
+
+    /// 데몬이 시작할 때 부른다. 내장 스킬(`digests`: 스킬 이름 → 내용 해시)이 지난 기록과 다르면 기록을 바꾸고
+    /// 살아 있는 모든 에이전트 노드에 `rules-changed`를 한 번 보낸다. 기록이 없는 스킬도 바뀐 것이다. 돌려준 값은 바뀐 스킬이다.
+    /// 근거: R8 v5 ③(총괄이 손으로 보내던 RULE UPDATE를 대신한다). 노드의 시작 지시는 띄울 때의 글이라 다시 띄워야 새 규칙을 읽는다.
+    pub fn rules_changed(
+        &self,
+        digests: &BTreeMap<String, String>,
+        commit: Option<&str>,
+    ) -> rusqlite::Result<Vec<String>> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let recorded: BTreeMap<String, String> = tx
+            .prepare("SELECT skill, digest FROM skill_digests")?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let changed: Vec<String> = digests
+            .iter()
+            .filter(|(skill, digest)| recorded.get(*skill) != Some(*digest))
+            .map(|(skill, _)| skill.clone())
+            .collect();
+        if changed.is_empty() {
+            return Ok(changed);
+        }
+        tx.execute("DELETE FROM skill_digests", [])?;
+        for (skill, digest) in digests {
+            tx.execute(
+                "INSERT INTO skill_digests (skill, digest) VALUES (?1, ?2)",
+                params![skill, digest],
+            )?;
+        }
+        let nodes = tx
+            .prepare(
+                "SELECT id FROM nodes WHERE agent != 'null' AND process_exited = 0 ORDER BY id",
+            )?
+            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let what = MessageKind::RulesChanged {
+            skills: changed.clone(),
+            commit: commit.map(str::to_owned),
+        };
+        for &node in &nodes {
+            enqueue_loom(&tx, node, &what, RULES_CHANGED_NEXT)?;
+        }
+        tx.commit()?;
+        for node in nodes {
+            self.publish_node(&db, node)?;
+        }
+        self.mail.notify_waiters();
+        Ok(changed)
+    }
+}
+
+/// `rules-changed`의 본문. 다시 띄워도 대화는 이어진다(`loom relaunch`).
+const RULES_CHANGED_NEXT: &str = "Next: call `loom relaunch` at the end of this turn. Your start text still has the old rules; the relaunch loads the new ones, and the conversation continues.";
+
+/// `loom done` 보고. `warning`은 데몬이 git으로 본 담당 브랜치 경고다(`MessageKind::Done`).
+pub struct Report<'a> {
+    pub summary: &'a str,
+    pub file: Option<&'a str>,
+    pub warning: Option<String>,
+}
+
 /// `done` 노드가 새 일(메시지, 사람 입력)을 받으면 `running`으로 돌린다. 다시 끝내면 `loom done`을 또 부른다.
 /// 근거: 피드백으로 다시 일하는 노드가 「완료」로 보였다(2026-10-22 사람 보고 "작업중인데 완료 상태로 표시되는 문제").
 fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
@@ -502,13 +643,16 @@ fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     Ok(done)
 }
 
-fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {
-    let queued: u32 = db.query_row(
+fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
+    db.query_row(
         "SELECT count(*) FROM messages WHERE recipient = ?1 AND delivered = 0",
         [to.0],
         |row| row.get(0),
-    )?;
-    if queued >= MAILBOX_LIMIT {
+    )
+}
+
+fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {
+    if queued(db, to)? >= MAILBOX_LIMIT {
         return Err(Refusal::MailboxFull(name.to_owned()));
     }
     Ok(())
@@ -533,17 +677,25 @@ pub(super) fn enqueue(
     from: NodeId,
     to: Option<NodeId>,
     kind: Kind,
+    what: &MessageKind,
     body: &str,
     stamp: Stamp,
 ) -> rusqlite::Result<MessageId> {
     db.execute(
-        "INSERT INTO messages (recipient, sender, sender_name, kind, body)
-         VALUES (?1, ?2, (SELECT name FROM nodes WHERE id = ?2), ?3, ?4)",
-        params![to.map(|to| to.0), from.0, to_json(&kind), body],
+        "INSERT INTO messages (recipient, sender, sender_name, kind, body, what)
+         VALUES (?1, ?2, (SELECT name FROM nodes WHERE id = ?2), ?3, ?4, ?5)",
+        params![
+            to.map(|to| to.0),
+            from.0,
+            to_json(&kind),
+            body,
+            to_json(what)
+        ],
     )?;
     let id = MessageId(db.last_insert_rowid() as u32);
     let entry = Entry::Message {
         how: kind,
+        what: Some(what.clone()),
         from: events::who(db, from)?,
         to: to.map(|to| events::who(db, to)).transpose()?,
         step: if to.is_some() { Step::Sent } else { Step::Held },
@@ -556,14 +708,50 @@ pub(super) fn enqueue(
 
 /// 사람이 받은편지함에서 보낸 큐 메시지(답, 추가 지시, 답 없이 닫힘). 보낸 노드가 없으므로 `sender`는 비우고 이름은 `HUMAN`이다.
 /// 메시지 이벤트는 쓰지 않는다. 부르는 쪽이 같은 일을 알림 이벤트(답·추가 지시·답 없이 닫힘)로 한 줄 쓴다. 두 줄로 쓰면 이벤트 목록에 같은 답이 메시지로 한 번 더 보였다(2026-10-22 사람 지시 "가운데도 알림 이벤트로 나와야 하는거 아님?").
-pub(super) fn enqueue_human(db: &Connection, to: NodeId, body: &str) -> Result<MessageId, Refusal> {
+pub(super) fn enqueue_human(
+    db: &Connection,
+    to: NodeId,
+    what: &MessageKind,
+    body: &str,
+) -> Result<MessageId, Refusal> {
     let name = super::name_of(db, to)?;
     check_room(db, to, &name)?;
     db.execute(
-        "INSERT INTO messages (recipient, sender, sender_name, kind, body) VALUES (?1, NULL, ?2, ?3, ?4)",
-        params![to.0, HUMAN, to_json(&Kind::Queue), body],
+        "INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
+        params![to.0, HUMAN, to_json(&Kind::Queue), body, to_json(what)],
     )?;
     Ok(MessageId(db.last_insert_rowid() as u32))
+}
+
+/// 보낸 노드가 없는 loom 알림(`rules-changed`). 상한을 넘으면 넣지 않는다: 알림 하나 때문에 할 일 메시지가 막히지 않게 한다.
+pub(super) fn enqueue_loom(
+    db: &Connection,
+    to: NodeId,
+    what: &MessageKind,
+    body: &str,
+) -> rusqlite::Result<Option<MessageId>> {
+    if queued(db, to)? >= MAILBOX_LIMIT {
+        return Ok(None);
+    }
+    db.execute(
+        "INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
+        params![to.0, LOOM, to_json(&Kind::Queue), body, to_json(what)],
+    )?;
+    let id = MessageId(db.last_insert_rowid() as u32);
+    let entry = Entry::Message {
+        how: Kind::Queue,
+        what: Some(what.clone()),
+        from: events::Who {
+            id: None,
+            name: LOOM.to_owned(),
+        },
+        to: Some(events::who(db, to)?),
+        step: Step::Sent,
+        via: None,
+        gate: None,
+    };
+    events::write(db, &entry, Some(id))?;
+    Ok(Some(id))
 }
 
 fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
@@ -573,6 +761,7 @@ fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
         kind: from_json(row, 2)?,
         body: row.get(3)?,
         reply_to: row.get::<_, Option<u32>>(4)?.map(MessageId),
+        what: optional_json(row, 5)?,
     })
 }
 

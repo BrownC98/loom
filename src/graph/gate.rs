@@ -10,8 +10,8 @@ use super::events::{self, Entry, GateTrace, Via, Who};
 use super::mailbox::{self, Stamp};
 use super::{Graph, Kind, NodeId, Refusal, from_json, name_of, parent_of, place_of, to_json};
 use crate::protocol::{
-    self, CI_ROLE, COORDINATOR_ROLE, Finding, GateCall, GateState, GateVerb, Judgment, MergeEnd,
-    Receiver, Sender,
+    self, CI_ROLE, COORDINATOR_ROLE, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment,
+    MergeEnd, MessageKind, Receiver, Sender,
 };
 
 /// `loom ready`이 데몬에서 읽은 브랜치 사실.
@@ -55,7 +55,10 @@ pub struct Ended<'a> {
     pub end: MergeEnd,
     /// 병합 커밋. 병합했을 때만 있다.
     pub merged: Option<&'a str>,
-    /// 받는 노드에 덧붙일 줄(원인, 배포 결과, 로그 경로).
+    pub cause: Option<String>,
+    /// `loom merge` 로그 파일.
+    pub log: Option<String>,
+    /// 받는 노드에 덧붙일 본문 줄(배포 결과, 되찾은 병합).
     pub lines: Vec<String>,
     pub findings: Vec<Finding>,
 }
@@ -81,8 +84,14 @@ struct Row {
     merged: Option<String>,
 }
 
-/// 관문 호출 하나가 받는 노드에 덧붙이는 줄과 줄에 쓸 값.
+/// 관문 호출 하나가 받는 노드에 보내는 칸(`protocol::GateFacts`의 호출 쪽 값)과 본문 줄, 흔적에 쓸 audit 결과.
+/// 브랜치·커밋·워크트리·대상·검토 모델은 관문 줄과 부른 노드에서 `apply`가 채운다.
+#[derive(Default)]
 struct Detail {
+    findings_file: Option<String>,
+    sha: Option<String>,
+    cause: Option<String>,
+    log: Option<String>,
     lines: Vec<String>,
     findings: Vec<Finding>,
 }
@@ -91,9 +100,7 @@ impl Graph {
     /// 담당 `owner`의 관문. 부모가 코디면 코디, 아니면 같은 저장소에서 프로세스가 사는 CI 담당자 하나다.
     pub fn gate_for(&self, owner: NodeId) -> Result<GateChoice, Refusal> {
         let db = self.lock();
-        if let Some(parent) = parent_of(&db, owner)?
-            && role_of(&db, parent)?.as_deref() == Some(COORDINATOR_ROLE)
-        {
+        if let Some(parent) = coordinator_parent(&db, owner)? {
             return Ok(GateChoice::Coordinator {
                 gate: parent,
                 worktree: place_of(&db, parent)?.worktree,
@@ -128,15 +135,7 @@ impl Graph {
         gate: NodeId,
         via: Option<&Via>,
     ) -> Result<String, Refusal> {
-        let detail = Detail {
-            lines: vec![
-                format!("owner: {} (#{owner})", name_of(&self.lock(), owner)?),
-                format!("worktree: {}", round.worktree),
-                format!("head: {}", round.head),
-                format!("target: {}", round.target),
-            ],
-            findings: Vec::new(),
-        };
+        let detail = Detail::default();
         let row = self.apply(owner, round.branch, GateCall::Ready, detail, via, |tx, row| {
             let repo = place_of(tx, owner)?.repo;
             tx.execute(
@@ -160,6 +159,60 @@ impl Graph {
         Ok(name_of(&self.lock(), row.gate)?)
     }
 
+    /// 관문 스크립트가 없는 저장소의 `loom ready`: 관문 상태 없이 관문에 `ready`만 보낸다. 관문은 손으로 병합하고 `loom done`으로 알린다.
+    /// 근거: 요청 #3067(ktasearch: 워커 브랜치가 아무도 모르게 1.5시간 기다렸다).
+    pub fn announce_ready(
+        &self,
+        owner: NodeId,
+        round: &Round,
+        gate: NodeId,
+        via: Option<&Via>,
+    ) -> Result<String, Refusal> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let what = MessageKind::Ready {
+            branch: round.branch.to_owned(),
+            head: round.head.to_owned(),
+            worktree: round.worktree.to_owned(),
+            target: round.target.to_owned(),
+        };
+        let stamp = Stamp {
+            via: via.cloned(),
+            gate: Some(trace(
+                &tx,
+                owner,
+                GateVerb::Ready,
+                round.branch,
+                None,
+                None,
+                Vec::new(),
+            )?),
+        };
+        let body = format!(
+            "Next: review the branch, merge it into {} by hand, then report with `loom done`. This repository has no gate scripts, so loom verdict and loom merge do not work here.",
+            round.target
+        );
+        mailbox::enqueue(&tx, owner, Some(gate), Kind::Queue, &what, &body, stamp)?;
+        tx.commit()?;
+        self.publish_sent(&db, owner, gate)?;
+        Ok(name_of(&db, gate)?)
+    }
+
+    /// 부모가 코디인가. 코디 밑 워커의 브랜치는 코디가 받는다.
+    pub fn under_coordinator(&self, node: NodeId) -> rusqlite::Result<bool> {
+        Ok(coordinator_parent(&self.lock(), node)?.is_some())
+    }
+
+    /// `owner`가 이 브랜치의 이 커밋으로 `ready`를 보냈는가(관문 상태가 있든 없든). `loom done`의 담당 브랜치 경고가 본다.
+    pub fn ready_sent(&self, owner: NodeId, branch: &str, head: &str) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE sender = ?1 AND what ->> 'kind' = 'ready'
+             AND what ->> 'branch' = ?2 AND what ->> 'head' = ?3)",
+            params![owner.0, branch, head],
+            |row| row.get(0),
+        )
+    }
+
     /// `loom verdict`: 관문이나 그 검토자가 판정한다. block은 결함 파일이 있어야 한다.
     pub fn verdict(
         &self,
@@ -173,11 +226,8 @@ impl Graph {
             return Err(Refusal::NoFindings);
         }
         let detail = Detail {
-            lines: findings
-                .map(|f| format!("findings: {f}"))
-                .into_iter()
-                .collect(),
-            findings: Vec::new(),
+            findings_file: findings.map(str::to_owned),
+            ..Detail::default()
         };
         let row = self.apply(
             caller,
@@ -212,10 +262,7 @@ impl Graph {
         branch: &str,
         via: Option<&Via>,
     ) -> Result<MergeTask, Refusal> {
-        let detail = Detail {
-            lines: Vec::new(),
-            findings: Vec::new(),
-        };
+        let detail = Detail::default();
         let mut from = GateState::Working;
         let row = self.apply(
             caller,
@@ -292,7 +339,7 @@ impl Graph {
             };
             let in_tree = from.id.is_some_and(|id| tree.contains(&id));
             if let (true, Some(body)) = (in_tree, &record.body)
-                && let Some((word, _)) = protocol::gate_word(body)
+                && let Some(word) = protocol::gate_word(body)
             {
                 findings.push(Finding::RawGateWord {
                     event: record.id,
@@ -316,14 +363,20 @@ impl Graph {
         let Ended {
             end,
             merged,
+            cause,
+            log,
             mut lines,
             findings,
         } = ended;
         lines.extend(findings.iter().map(|f| format!("audit: {f}")));
-        if let Some(sha) = merged {
-            lines.insert(0, format!("merged commit: {sha}"));
-        }
-        let detail = Detail { lines, findings };
+        let detail = Detail {
+            sha: merged.map(str::to_owned),
+            cause,
+            log,
+            lines,
+            findings,
+            ..Detail::default()
+        };
         let row = self.apply(
             caller,
             branch,
@@ -352,8 +405,8 @@ impl Graph {
         via: Option<&Via>,
     ) -> Result<GateState, Refusal> {
         let detail = Detail {
-            lines: vec![format!("cause: {cause}")],
-            findings: Vec::new(),
+            cause: Some(cause.to_owned()),
+            ..Detail::default()
         };
         let row = self.apply(caller, branch, GateCall::Fail, detail, via, |tx, row| {
             Ok(update(tx, caller, branch, row.state, None, None)?)
@@ -445,6 +498,23 @@ impl Graph {
             Some(to),
             detail.findings,
         )?;
+        let what = protocol::gate_kind(
+            call,
+            GateFacts {
+                branch: branch.to_owned(),
+                head: row.head.clone(),
+                worktree: row.worktree.clone(),
+                target: row.target.clone(),
+                findings: detail.findings_file,
+                reviewer: trace.agent.as_ref().map(|agent| match &trace.model {
+                    Some(model) => format!("{} {model}", agent.0),
+                    None => agent.0.clone(),
+                }),
+                sha: detail.sha,
+                cause: detail.cause,
+                log: detail.log,
+            },
+        );
         let mut sent = Vec::new();
         for receiver in protocol::receivers(call) {
             let to_node = match receiver {
@@ -457,8 +527,7 @@ impl Graph {
             if to_node == caller || sent.contains(&to_node) || !exists(&tx, to_node)? {
                 continue;
             }
-            let mut body = vec![protocol::headline(call, branch)];
-            body.extend(detail.lines.iter().cloned());
+            let mut body = detail.lines.clone();
             body.push(protocol::next_step(call, *receiver, branch));
             let stamp = Stamp {
                 via: via.cloned(),
@@ -469,24 +538,25 @@ impl Graph {
                 caller,
                 Some(to_node),
                 Kind::Queue,
+                &what,
                 &body.join("\n"),
                 stamp,
             )?;
             sent.push(to_node);
         }
         if sent.is_empty() {
-            let mut body = vec![protocol::headline(call, branch)];
-            body.extend(detail.lines.iter().cloned());
+            let mut body = detail.lines;
             body.push(protocol::KEPT_FOR_CALLER.to_owned());
             let stamp = Stamp {
                 via: via.cloned(),
-                gate: Some(trace.clone()),
+                gate: Some(trace),
             };
             mailbox::enqueue(
                 &tx,
                 caller,
                 Some(caller),
                 Kind::Queue,
+                &what,
                 &body.join("\n"),
                 stamp,
             )?;
@@ -498,6 +568,14 @@ impl Graph {
         }
         Ok(row)
     }
+}
+
+/// 부모가 코디면 그 부모. 코디 밑 워커의 관문은 코디다.
+fn coordinator_parent(db: &Connection, node: NodeId) -> rusqlite::Result<Option<NodeId>> {
+    Ok(match parent_of(db, node)? {
+        Some(parent) if role_of(db, parent)?.as_deref() == Some(COORDINATOR_ROLE) => Some(parent),
+        _ => None,
+    })
 }
 
 fn role_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<String>> {

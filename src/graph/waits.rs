@@ -21,6 +21,7 @@ use super::mailbox;
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::profile::AgentId;
+use crate::protocol::{MessageKind, Question};
 
 use super::{Graph, NodeId, NodeState, Refusal, from_json, parent_of, state_of, to_json};
 
@@ -208,7 +209,7 @@ impl Graph {
         self.publish_node(&db, id)
     }
 
-    /// `loom ask`: 사람이 띄운 노드(부모 없음)만 사람에게 묻는다. 다른 노드는 부모에게 묻는다.
+    /// 부모 없는 노드의 `loom ask`: 사람에게 묻는다. 부모가 있는 노드는 부모에게 묻는다(`ask_parent`). 데몬이 고른다.
     /// 물을 때마다 새 번호의 질문을 더한다. 앞 질문은 열린 채로 남는다. 같은 질문을 다시 물어도 새 질문이다.
     pub fn ask(&self, id: NodeId, question: &str, doc: Option<WaitDoc>) -> Result<WaitId, Refusal> {
         let question = question.trim();
@@ -221,9 +222,6 @@ impl Graph {
             .map(Refusal::BareLink)
             .or_else(|| offers_choices_without_tail(&text).then_some(Refusal::BadChoices));
         let mut db = self.lock();
-        if parent_of(&db, id)?.is_some() {
-            return Err(Refusal::HasParent);
-        }
         if let Some(refusal) = malformed {
             return Err(refusal);
         }
@@ -266,9 +264,14 @@ impl Graph {
             }
         };
         type Record = fn(events::Who, WaitId, String, u32) -> Entry;
-        let (node, body, record): (NodeId, String, Record) = match open_ask(&db, wait) {
+        let (node, what, body, record): (NodeId, MessageKind, String, Record) = match open_ask(
+            &db, wait,
+        ) {
             Ok((node, question)) => (
                 node,
+                MessageKind::Answer {
+                    question: Question::Inbox { id: wait.0 },
+                },
                 format!(
                     "Answer to loom ask question {wait} ({}): {text}{images}\nThe human answered from the loom inbox. The question is closed: do not call loom answered.",
                     question.text
@@ -283,6 +286,7 @@ impl Graph {
             // 완료 줄의 입력창: 같은 노드에 이어서 맡기는 일이다(2026-10-22 사람 지시 "완료알림에는 추가 지시를 받을 수 있도록 입력창도 추가해").
             Err(Refusal::NoWait(_)) => (
                 done_node(&db, wait)?,
+                MessageKind::Note,
                 format!(
                     "New instruction from the human in the loom inbox, after your done report: {text}{images}"
                 ),
@@ -296,7 +300,7 @@ impl Graph {
             Err(e) => return Err(e),
         };
         let tx = db.transaction()?;
-        mailbox::enqueue_human(&tx, node, &body)?;
+        mailbox::enqueue_human(&tx, node, &what, &body)?;
         tx.execute("DELETE FROM questions WHERE id = ?1", [wait.0])?;
         tx.execute("DELETE FROM dones WHERE id = ?1", [wait.0])?;
         let entry = record(events::who(&tx, node)?, wait, text.to_owned(), count);
@@ -388,6 +392,7 @@ impl Graph {
                 mailbox::enqueue_human(
                     &tx,
                     node,
+                    &MessageKind::Note,
                     &format!("{wait} was closed without an answer."),
                 )?;
                 unanswered(&tx, node, wait, ClosedBy::Human)?;

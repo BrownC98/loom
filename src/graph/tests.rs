@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::db;
 use crate::profile::ServerLink;
+use crate::protocol::{MessageKind, Question};
 use crate::worktree::RepoId;
 
 /// `home()`의 저장소 줄이 있는 그래프. 노드는 목록에 있는 저장소에만 든다.
@@ -84,6 +86,15 @@ fn take(g: &Graph, node: NodeId) -> Option<(String, Kind, String)> {
     let d = g.take(node, Kind::ALL, 0).unwrap().pop()?;
     g.ack(node, &[d.id]).unwrap();
     Some((d.from, d.kind, d.body))
+}
+
+/// 요약만 있는 `loom done` 보고.
+fn report(summary: &str) -> Report<'_> {
+    Report {
+        summary,
+        file: None,
+        warning: None,
+    }
 }
 
 fn delivery(from: &str, body: &str) -> Option<(String, Kind, String)> {
@@ -290,11 +301,11 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
 
     // 사람이 띄운 노드는 사람의 지시 없이 끝내지 못한다. 거절하면 상태도 그대로다.
     assert_eq!(
-        g.done(lead, "끝", None, &[], None, None),
+        g.done(lead, &report("끝"), None, &[], None, None),
         Err(Refusal::NoAsked)
     );
     assert_eq!(
-        g.done(lead, "끝", Some("  "), &[], None, None),
+        g.done(lead, &report("끝"), Some("  "), &[], None, None),
         Err(Refusal::NoAsked)
     );
     assert_eq!(view(&g, lead).state, NodeState::Running);
@@ -302,7 +313,7 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     let shot = PathBuf::from("/tmp/loom-paste/1/image.png");
     g.done(
         lead,
-        "버튼을 고쳤다.\n시험 통과",
+        &report("버튼을 고쳤다.\n시험 통과"),
         Some(" 버튼 고쳐\n자세히는… "),
         std::slice::from_ref(&shot),
         None,
@@ -334,8 +345,15 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
         .unwrap();
     // 새 일로 다시 일하다 끝내도 확인하지 않은 앞 완료는 남는다. 완료 차례대로 보인다(2026-10-22 사람 보고 "완료 알림이 확인 안눌러도 없어지는 버그가 있음").
     g.human_input(lead).unwrap();
-    g.done(lead, "또 고쳤다.", Some("또 고쳐"), &[], None, None)
-        .unwrap();
+    g.done(
+        lead,
+        &report("또 고쳤다."),
+        Some("또 고쳐"),
+        &[],
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(
         done(lead),
         [
@@ -374,8 +392,15 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     );
     assert_eq!(g.answer(again, "또", &[]), Err(Refusal::NoWait(again)));
     // [확인]은 그 완료만 지운다.
-    g.done(lead, "또 고쳤다.", Some("하나 더"), &[], None, None)
-        .unwrap();
+    g.done(
+        lead,
+        &report("또 고쳤다."),
+        Some("하나 더"),
+        &[],
+        None,
+        None,
+    )
+    .unwrap();
     let third = view(&g, lead).waits[1].id;
     g.dismiss(first).unwrap();
     assert_eq!(
@@ -402,7 +427,7 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     };
     g.done(
         lead,
-        "감사했다.",
+        &report("감사했다."),
         Some("감사해"),
         &[],
         Some(doc.clone()),
@@ -414,11 +439,25 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     g.dismiss(with_doc.id).unwrap();
 
     // 자식의 완료는 부모에게만 간다. 받은편지함에 걸지 않는다. 문서 링크는 받은편지함에만 있어 거절한다.
-    g.done(worker, "고쳤다.", Some("버튼 고쳐"), &[], None, None)
-        .unwrap();
+    g.done(
+        worker,
+        &report("고쳤다."),
+        Some("버튼 고쳐"),
+        &[],
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(done(worker), []);
     assert_eq!(
-        g.done(worker, "고쳤다.", None, &[], Some(doc.clone()), None),
+        g.done(
+            worker,
+            &report("고쳤다."),
+            None,
+            &[],
+            Some(doc.clone()),
+            None
+        ),
         Err(Refusal::DocHasParent)
     );
 }
@@ -437,8 +476,18 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
             .collect::<Vec<_>>()
     };
 
-    // 사람에게는 사람이 띄운 노드만 묻는다.
-    assert_eq!(g.ask(worker, "A?", None), Err(Refusal::HasParent));
+    // 부모 있는 노드의 질문은 부모에게 간다(데몬이 고른다). 선택지 꼴은 같은 규칙이다.
+    assert_eq!(
+        g.ask_parent(worker, "잰다(A, 권장) / 학습한다(B)", None)
+            .err(),
+        Some(Refusal::BadChoices)
+    );
+    let asked = g.ask_parent(worker, "A?", None).unwrap();
+    let got = g.take(lead, Kind::ALL, 0).unwrap().pop().unwrap();
+    assert_eq!(
+        (got.id, got.what, got.body.as_str()),
+        (asked.id, Some(MessageKind::Ask), "A?")
+    );
     assert_eq!(g.ask(lead, "  ", None), Err(Refusal::EmptyQuestion));
     let bare = Refusal::BareLink("https://a.io/x".into());
     assert_eq!(g.ask(lead, "열어 https://a.io/x.", None), Err(bare.clone()));
@@ -447,7 +496,14 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
         Err(Refusal::BadChoices)
     );
     assert_eq!(
-        g.done(lead, "https://a.io/x", Some("지시"), &[], None, None),
+        g.done(
+            lead,
+            &report("https://a.io/x"),
+            Some("지시"),
+            &[],
+            None,
+            None
+        ),
         Err(bare)
     );
     // `loom ask` 질문은 줄바꿈까지 전문을 남긴다.
@@ -608,12 +664,12 @@ fn parent_and_child_exchange_messages() {
         .unwrap();
 
     assert_eq!(take(&g, worker), delivery("총괄-1", "node_host를 고쳐라"));
-    g.send(worker, "총괄-1", Kind::Queue, "질문 하나", None)
+    g.note(worker, "총괄-1", Kind::Queue, "질문 하나", None)
         .unwrap();
     assert_eq!(view(&g, lead).unread, 1);
     assert_eq!(take(&g, lead), delivery("구현", "질문 하나"));
     assert_eq!(view(&g, lead).unread, 0);
-    g.send(lead, "구현", Kind::Queue, "답", None).unwrap();
+    g.note(lead, "구현", Kind::Queue, "답", None).unwrap();
     assert_eq!(take(&g, worker), delivery("총괄-1", "답"));
     assert_eq!(take(&g, worker), None);
 }
@@ -628,27 +684,27 @@ fn messages_go_to_any_node_but_steer_only_between_parent_and_child() {
     let a1 = child(&g, a, "a1");
 
     assert_eq!(
-        g.send(a, "b", Kind::Queue, "x", None).unwrap().recipient,
+        g.note(a, "b", Kind::Queue, "x", None).unwrap().recipient,
         Some(b)
     );
     assert_eq!(take(&g, b), delivery("a", "x"));
-    g.send(lead, "a1", Kind::Queue, "y", None).unwrap();
+    g.note(lead, "a1", Kind::Queue, "y", None).unwrap();
     assert_eq!(take(&g, a1), delivery("총괄-1", "y"));
-    g.send(a1, "총괄-1", Kind::Queue, "z", None).unwrap();
+    g.note(a1, "총괄-1", Kind::Queue, "z", None).unwrap();
     assert_eq!(take(&g, lead), delivery("a1", "z"));
 
     for kind in [Kind::Steer, Kind::Interrupt] {
-        assert!(matches!(g.send(a, "b", kind, "x", None), Err(Refusal::NotRelated(n)) if n == "b"));
+        assert!(matches!(g.note(a, "b", kind, "x", None), Err(Refusal::NotRelated(n)) if n == "b"));
         assert!(matches!(
-            g.send(lead, &format!("#{}", a1.0), kind, "x", None),
+            g.note(lead, &format!("#{}", a1.0), kind, "x", None),
             Err(Refusal::NotRelated(_))
         ));
         // 자식도 부모를 조정·중단한다.
-        assert_eq!(g.send(a1, "a", kind, "x", None).unwrap().recipient, Some(a));
+        assert_eq!(g.note(a1, "a", kind, "x", None).unwrap().recipient, Some(a));
     }
-    g.send(lead, "a", Kind::Steer, "x", None).unwrap();
+    g.note(lead, "a", Kind::Steer, "x", None).unwrap();
     assert!(matches!(
-        g.send(a, "a", Kind::Queue, "x", None),
+        g.note(a, "a", Kind::Queue, "x", None),
         Err(Refusal::NotFound(_))
     ));
 }
@@ -670,29 +726,26 @@ fn two_repos(g: &Graph) -> (NodeId, NodeId) {
 }
 
 #[tokio::test]
-async fn roots_in_different_repos_send_and_reply() {
+async fn roots_in_different_repos_send_notes() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let (left, right) = two_repos(&g);
 
-    let question = g
-        .send(left, "codex-1", Kind::Queue, "QUESTION", None)
-        .unwrap();
-    assert_eq!(question.recipient, Some(right));
+    let note = g.note(left, "codex-1", Kind::Queue, "hello", None).unwrap();
+    assert_eq!(note.recipient, Some(right));
     let got = g.take(right, Kind::ALL, 0).unwrap().pop().unwrap();
     assert_eq!(
-        (got.from.as_str(), got.body.as_str()),
-        ("claude-1", "QUESTION")
+        (got.from.as_str(), got.body.as_str(), got.what),
+        ("claude-1", "hello", Some(MessageKind::Note))
     );
     g.ack(right, &[got.id]).unwrap();
-    g.reply(right, question.id, "ANSWER", None).unwrap();
-    let answer = g.wait(left, Some(question.id)).await.unwrap();
+    // 묻지 않은 메시지에는 답하지 않는다.
     assert_eq!(
-        (answer.body.as_str(), answer.reply_to),
-        ("ANSWER", Some(question.id))
+        g.answer_ask(right, note.id, "answer", None).err(),
+        Some(Refusal::NotAsk(note.id.0))
     );
     // 번호로도 보낸다.
-    g.send(right, &format!("#{}", left.0), Kind::Queue, "by id", None)
+    g.note(right, &format!("#{}", left.0), Kind::Queue, "by id", None)
         .unwrap();
 }
 
@@ -713,8 +766,8 @@ fn messages_between_unrelated_nodes_pulse_as_hops() {
             .collect::<Vec<_>>()
     };
 
-    g.send(left, "워커", Kind::Queue, "x", None).unwrap();
-    g.send(w, "codex-1", Kind::Queue, "y", None).unwrap();
+    g.note(left, "워커", Kind::Queue, "x", None).unwrap();
+    g.note(w, "codex-1", Kind::Queue, "y", None).unwrap();
     assert_eq!(
         pulses(&mut events),
         [format!("hop {left}->{w}"), format!("{w} Parent")]
@@ -726,12 +779,13 @@ fn messages_between_unrelated_nodes_are_recorded() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let (left, right) = two_repos(&g);
-    g.send(left, "codex-1", Kind::Queue, "hi", None).unwrap();
+    g.note(left, "codex-1", Kind::Queue, "hi", None).unwrap();
     take(&g, right);
 
     let message = |step| {
         (
             Entry::Message {
+                what: Some(MessageKind::Note),
                 how: Kind::Queue,
                 from: who(left, "claude-1"),
                 to: Some(who(right, "codex-1")),
@@ -761,7 +815,7 @@ fn a_name_shared_by_live_nodes_is_refused_with_candidates() {
     let w1 = child(&g, left, "워커");
     let w2 = child(&g, right, "워커");
 
-    let refused = g.send(sender, "워커", Kind::Queue, "x", None).unwrap_err();
+    let refused = g.note(sender, "워커", Kind::Queue, "x", None).unwrap_err();
     assert_eq!(
         refused,
         Refusal::Ambiguous {
@@ -772,14 +826,14 @@ fn a_name_shared_by_live_nodes_is_refused_with_candidates() {
     // 프로세스가 끝난 노드는 후보가 아니다. 모두 끝났으면 끝났다고 알린다.
     g.exited(w2, 0).unwrap();
     assert_eq!(
-        g.send(sender, "워커", Kind::Queue, "x", None)
+        g.note(sender, "워커", Kind::Queue, "x", None)
             .unwrap()
             .recipient,
         Some(w1)
     );
     g.exited(w1, 0).unwrap();
     assert!(matches!(
-        g.send(sender, "워커", Kind::Queue, "x", None),
+        g.note(sender, "워커", Kind::Queue, "x", None),
         Err(Refusal::Ended(_))
     ));
 }
@@ -852,7 +906,7 @@ fn tree_limits_come_from_the_caller() {
     g.add_child(lead, named("b"), two, &launched(), started)
         .unwrap();
     // 끝난 자식도 센다.
-    g.done(a, "끝", None, &[], None, None).unwrap();
+    g.done(a, &report("끝"), None, &[], None, None).unwrap();
     assert!(matches!(
         g.add_child(lead, named("c"), two, &launched(), started),
         Err(Refusal::TooManyChildren(2))
@@ -925,25 +979,25 @@ fn limits_are_enforced() {
         Err(Refusal::BriefTooLong(4097))
     ));
     assert!(matches!(
-        g.send(lead, "a", Kind::Queue, &brief, None),
+        g.note(lead, "a", Kind::Queue, &brief, None),
         Err(Refusal::BriefTooLong(4097))
     ));
-    g.send(lead, "a", Kind::Queue, &"x".repeat(4096), None)
+    g.note(lead, "a", Kind::Queue, &"x".repeat(4096), None)
         .unwrap();
     // done 요약 1KB
     assert!(matches!(
-        g.done(a1, &"x".repeat(1025), None, &[], None, None),
+        g.done(a1, &report(&"x".repeat(1025)), None, &[], None, None),
         Err(Refusal::SummaryTooLong(1025))
     ));
     // 메일함 50: 위에서 하나를 넣었다
     for _ in 1..50 {
-        g.send(lead, "a", Kind::Queue, "x", None).unwrap();
+        g.note(lead, "a", Kind::Queue, "x", None).unwrap();
     }
     assert!(
-        matches!(g.send(lead, "a", Kind::Queue, "x", None), Err(Refusal::MailboxFull(n)) if n == "a")
+        matches!(g.note(lead, "a", Kind::Queue, "x", None), Err(Refusal::MailboxFull(n)) if n == "a")
     );
     take(&g, a);
-    g.send(lead, "a", Kind::Queue, "x", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "x", None).unwrap();
 }
 
 #[test]
@@ -979,8 +1033,8 @@ fn done_sends_summary_and_later_exit_keeps_done() {
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
 
-    g.done(a, "처음", None, &[], None, None).unwrap();
-    g.done(a, "끝났다", None, &[], None, None).unwrap();
+    g.done(a, &report("처음"), None, &[], None, None).unwrap();
+    g.done(a, &report("끝났다"), None, &[], None, None).unwrap();
     g.exited(a, 0).unwrap();
     assert_eq!(
         view(&g, a).state,
@@ -988,8 +1042,8 @@ fn done_sends_summary_and_later_exit_keeps_done() {
             summary: "끝났다".into()
         }
     );
-    assert_eq!(take(&g, lead), delivery("a", "done: 처음"));
-    assert_eq!(take(&g, lead), delivery("a", "done: 끝났다"));
+    assert_eq!(take(&g, lead), delivery("a", "처음"));
+    assert_eq!(take(&g, lead), delivery("a", "끝났다"));
     assert_eq!(take(&g, lead), None);
 }
 
@@ -1001,14 +1055,14 @@ fn exit_without_done_tells_parent_even_when_mailbox_is_full() {
     let a = child(&g, lead, "a");
     let b = child(&g, lead, "b");
     for _ in 0..50 {
-        g.send(b, "총괄-1", Kind::Queue, "x", None).unwrap();
+        g.note(b, "총괄-1", Kind::Queue, "x", None).unwrap();
     }
 
     g.exited(a, 3).unwrap();
     assert_eq!(view(&g, a).state, NodeState::Exited { code: Some(3) });
     assert_eq!(view(&g, lead).unread, 51);
     assert!(matches!(
-        g.send(lead, "a", Kind::Queue, "x", None),
+        g.note(lead, "a", Kind::Queue, "x", None),
         Err(Refusal::Ended(_))
     ));
 }
@@ -1025,10 +1079,7 @@ fn setup_failure_tells_parent_why() {
     assert_eq!(view(&g, a).state, NodeState::SetupFailed { code: 2 });
     assert_eq!(
         take(&g, lead),
-        delivery(
-            "a",
-            "setup failed (exit 2):\nnpm ci\nerror TS2322: 틀린 타입"
-        )
+        delivery("a", "npm ci\nerror TS2322: 틀린 타입")
     );
 
     let b = child(&g, lead, "b");
@@ -1036,7 +1087,7 @@ fn setup_failure_tells_parent_why() {
     g.setup_failed(b, 1, &long).unwrap();
     let (_, _, body) = take(&g, lead).unwrap();
     assert!(body.len() <= BRIEF_LIMIT_BYTES, "{}", body.len());
-    assert!(body.starts_with("setup failed (exit 1):\n가"), "{body}");
+    assert!(body.starts_with("가"), "{body}");
     assert!(body.ends_with("\n마지막 오류"), "{body}");
 }
 
@@ -1059,7 +1110,7 @@ fn restart_keeps_nodes_and_messages() {
                 started,
             )
             .unwrap();
-        g.done(a, "요약", None, &[], None, None).unwrap();
+        g.done(a, &report("요약"), None, &[], None, None).unwrap();
         (lead, a)
     };
 
@@ -1075,7 +1126,7 @@ fn restart_keeps_nodes_and_messages() {
         }
     );
     assert_eq!(take(&g, a), delivery("총괄-1", "지시"));
-    assert_eq!(take(&g, lead), delivery("a", "done: 요약"));
+    assert_eq!(take(&g, lead), delivery("a", "요약"));
     // 다시 연 뒤 만든 노드의 id는 앞 노드와 겹치지 않는다.
     assert_eq!(root(&g, "새 노드"), NodeId(3));
 }
@@ -1093,7 +1144,7 @@ async fn wait_returns_when_a_message_arrives() {
     });
     tokio::task::yield_now().await;
     assert!(!waiting.is_finished());
-    g.send(a, "총괄-1", Kind::Queue, "결과", None).unwrap();
+    g.note(a, "총괄-1", Kind::Queue, "결과", None).unwrap();
     let got = waiting.await.unwrap();
     assert_eq!((got.from.as_str(), got.body.as_str()), ("a", "결과"));
 }
@@ -1105,8 +1156,8 @@ fn an_unacknowledged_message_comes_back_in_order_even_after_a_restart() {
     let g = open(&path);
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
-    g.send(lead, "a", Kind::Queue, "1", None).unwrap();
-    g.send(lead, "a", Kind::Queue, "2", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "1", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "2", None).unwrap();
 
     let first = g.take(a, Kind::ALL, usize::MAX).unwrap();
     assert_eq!(bodies(first.iter()), ["1", "2"]);
@@ -1142,10 +1193,10 @@ fn each_point_takes_only_its_kinds_in_arrival_order_and_once() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
-    g.send(lead, "a", Kind::Queue, "q1", None).unwrap();
-    g.send(lead, "a", Kind::Steer, "s1", None).unwrap();
-    g.send(lead, "a", Kind::Interrupt, "i1", None).unwrap();
-    g.send(lead, "a", Kind::Steer, "s2", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "q1", None).unwrap();
+    g.note(lead, "a", Kind::Steer, "s1", None).unwrap();
+    g.note(lead, "a", Kind::Interrupt, "i1", None).unwrap();
+    g.note(lead, "a", Kind::Steer, "s2", None).unwrap();
 
     // PostToolUse: 조정만
     assert_eq!(
@@ -1184,7 +1235,7 @@ fn take_stops_at_the_byte_limit_but_always_takes_the_first() {
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
     for body in ["x".repeat(4096), "y".repeat(4096), "z".repeat(10)] {
-        g.send(lead, "a", Kind::Queue, &body, None).unwrap();
+        g.note(lead, "a", Kind::Queue, &body, None).unwrap();
     }
 
     assert_eq!(g.take(a, Kind::ALL, 4096).unwrap().len(), 1);
@@ -1196,8 +1247,8 @@ fn take_stops_at_the_byte_limit_but_always_takes_the_first() {
         bodies(&g.take(a, Kind::ALL, 4096).unwrap()),
         ["z".repeat(10)]
     );
-    g.send(lead, "a", Kind::Queue, "1", None).unwrap();
-    g.send(lead, "a", Kind::Queue, "2", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "1", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "2", None).unwrap();
     assert_eq!(bodies(&g.take(a, Kind::ALL, 1).unwrap()), ["1"]);
 }
 
@@ -1237,9 +1288,9 @@ fn removing_a_parent_keeps_its_children_and_they_hold_unsent_messages() {
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
     let b = child(&g, a, "b");
-    g.send(lead, "a", Kind::Queue, "a가 받을 지시", None)
+    g.note(lead, "a", Kind::Queue, "a가 받을 지시", None)
         .unwrap();
-    g.send(b, "a", Kind::Queue, "질문", None).unwrap();
+    g.note(b, "a", Kind::Queue, "질문", None).unwrap();
     let mut events = g.subscribe().unwrap().1;
 
     g.remove(a).unwrap();
@@ -1253,7 +1304,7 @@ fn removing_a_parent_keeps_its_children_and_they_hold_unsent_messages() {
     assert_eq!((orphan.parent, orphan.state), (None, NodeState::Running));
     assert_eq!(held(&g, b), 1);
     // 실행 중이던 a를 기다리는 부모가 removed를 받는다. a가 받은 지시는 a와 함께 지운다.
-    assert_eq!(take(&g, lead), delivery("a", "removed"));
+    assert_eq!(take(&g, lead), delivery("a", ""));
     let left: u32 = g
         .lock()
         .query_row("SELECT count(*) FROM messages", [], |row| row.get(0))
@@ -1269,8 +1320,8 @@ fn removing_a_finished_node_does_not_tell_the_parent_again() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
-    g.done(a, "요약", None, &[], None, None).unwrap();
-    assert_eq!(take(&g, lead), delivery("a", "done: 요약"));
+    g.done(a, &report("요약"), None, &[], None, None).unwrap();
+    assert_eq!(take(&g, lead), delivery("a", "요약"));
 
     g.remove(a).unwrap();
     assert_eq!(take(&g, lead), None);
@@ -1284,14 +1335,14 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let worker = root(&g, "조사");
-    g.send(worker, "옛 총괄", Kind::Queue, "하나", None)
+    g.note(worker, "옛 총괄", Kind::Queue, "하나", None)
         .unwrap();
-    g.send(worker, "옛 총괄", Kind::Queue, "둘", None).unwrap();
-    g.done(worker, "요약", Some("일해"), &[], None, None)
+    g.note(worker, "옛 총괄", Kind::Queue, "둘", None).unwrap();
+    g.done(worker, &report("요약"), Some("일해"), &[], None, None)
         .unwrap();
     // 받을 노드가 정해지지 않은 조정은 보관하지 않는다.
     assert!(matches!(
-        g.send(worker, "옛 총괄", Kind::Steer, "x", None),
+        g.note(worker, "옛 총괄", Kind::Steer, "x", None),
         Err(Refusal::NotRelated(_))
     ));
     // 부모 없는 완료는 받은편지함에만 간다. 보관하지 않는다.
@@ -1314,11 +1365,11 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
         take(&g, worker),
         delivery(
             "총괄-1",
-            "parent: 총괄-1 (#1). Use loom status to inspect current relationships."
+            "Your new parent is #1. Use loom status to inspect current relationships."
         )
     );
     // 새 부모와는 보관 없이 바로 주고받는다.
-    g.send(lead, "조사-1", Kind::Queue, "다음", None).unwrap();
+    g.note(lead, "조사-1", Kind::Queue, "다음", None).unwrap();
     assert_eq!(take(&g, worker), delivery("총괄-1", "다음"));
 }
 
@@ -1333,7 +1384,7 @@ fn adopting_a_running_node_tells_its_old_parent() {
     g.adopt(other, a, TreeLimits::default()).unwrap();
 
     assert_eq!(view(&g, a).parent, Some(other));
-    assert_eq!(take(&g, lead), delivery("a", "adopted: 검토-1"));
+    assert_eq!(take(&g, lead), delivery("a", ""));
     // 이미 그 부모면 아무것도 하지 않는다.
     g.adopt(other, a, TreeLimits::default()).unwrap();
     assert_eq!(take(&g, other), None);
@@ -1398,13 +1449,13 @@ fn records_node_and_message_events_in_order() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
-    g.send(a, "총괄-1", Kind::Queue, "질문", None).unwrap();
+    g.note(a, "총괄-1", Kind::Queue, "질문", None).unwrap();
     take(&g, lead);
-    g.done(a, "끝", None, &[], None, None).unwrap();
+    g.done(a, &report("끝"), None, &[], None, None).unwrap();
     let other = root(&g, "검토");
     g.adopt(other, a, TreeLimits::default()).unwrap();
     g.remove(other).unwrap();
-    g.send(a, "검토-1", Kind::Queue, "보관할 말", None).unwrap();
+    g.note(a, "검토-1", Kind::Queue, "보관할 말", None).unwrap();
 
     assert_eq!(
         recorded(&g),
@@ -1427,6 +1478,7 @@ fn records_node_and_message_events_in_order() {
             ),
             (
                 Entry::Message {
+                    what: Some(MessageKind::Note),
                     how: Kind::Queue,
                     from: who(a, "a"),
                     to: Some(who(lead, "총괄-1")),
@@ -1438,6 +1490,7 @@ fn records_node_and_message_events_in_order() {
             ),
             (
                 Entry::Message {
+                    what: Some(MessageKind::Note),
                     how: Kind::Queue,
                     from: who(a, "a"),
                     to: Some(who(lead, "총괄-1")),
@@ -1459,6 +1512,10 @@ fn records_node_and_message_events_in_order() {
             ),
             (
                 Entry::Message {
+                    what: Some(MessageKind::Done {
+                        file: None,
+                        warning: None
+                    }),
                     how: Kind::Queue,
                     from: who(a, "a"),
                     to: Some(who(lead, "총괄-1")),
@@ -1466,7 +1523,7 @@ fn records_node_and_message_events_in_order() {
                     via: None,
                     gate: None,
                 },
-                Some("done: 끝".into())
+                Some("끝".into())
             ),
             (
                 Entry::Created {
@@ -1478,6 +1535,10 @@ fn records_node_and_message_events_in_order() {
             ),
             (
                 Entry::Message {
+                    what: Some(MessageKind::Adopted {
+                        node: "a".into(),
+                        parent: "검토-1".into()
+                    }),
                     how: Kind::Queue,
                     from: who(other, "검토-1"),
                     to: Some(who(a, "a")),
@@ -1486,7 +1547,8 @@ fn records_node_and_message_events_in_order() {
                     gate: None,
                 },
                 Some(
-                    "parent: 검토-1 (#3). Use loom status to inspect current relationships.".into()
+                    "Your new parent is #3. Use loom status to inspect current relationships."
+                        .into()
                 ),
             ),
             (
@@ -1507,6 +1569,7 @@ fn records_node_and_message_events_in_order() {
             ),
             (
                 Entry::Message {
+                    what: Some(MessageKind::Note),
                     how: Kind::Queue,
                     from: who(a, "a"),
                     to: None,
@@ -1577,7 +1640,7 @@ fn screen_receives_each_record_once_in_order() {
     let lead = root(&g, "총괄");
     let (_, mut rx) = g.subscribe().unwrap();
     child(&g, lead, "a");
-    g.send(lead, "a", Kind::Queue, "일", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "일", None).unwrap();
 
     let mut ids = Vec::new();
     while let Ok(event) = rx.try_recv() {
@@ -1627,7 +1690,7 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
         let lead = root(&g, "codex");
         let a = child(&g, lead, "a");
         g.set_server(lead, &server).unwrap();
-        g.done(a, "요약", None, &[], None, None).unwrap();
+        g.done(a, &report("요약"), None, &[], None, None).unwrap();
         (lead, a)
     };
     let g = open(&path);
@@ -1642,10 +1705,7 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
     assert_eq!(g.caller("없는 토큰").unwrap(), None);
     g.lost(lead).unwrap();
     let records = recorded(&g);
-    assert_eq!(
-        records.last().unwrap().1.as_deref(),
-        Some("exited(unknown)")
-    );
+    assert_eq!(records.last().unwrap().1.as_deref(), Some(""));
     assert_eq!(
         records[records.len() - 2].0,
         events::Entry::State {
@@ -1763,11 +1823,11 @@ fn recipient_names_cannot_collide_across_three_generations() {
         .execute("UPDATE nodes SET name = 'lead-1' WHERE id = ?1", [leaf.0])
         .unwrap();
     assert!(matches!(
-        g.send(middle, "lead-1", Kind::Queue, "message", None),
+        g.note(middle, "lead-1", Kind::Queue, "message", None),
         Err(Refusal::Ambiguous { .. })
     ));
     let sent = g
-        .send(
+        .note(
             middle,
             &format!("#{}", leaf.0),
             Kind::Queue,
@@ -1815,7 +1875,7 @@ fn rejected_interrupts_do_not_stop_the_recipient() {
         Err(Refusal::BriefTooLong(_))
     ));
     for _ in 0..50 {
-        g.send(lead, "worker", Kind::Queue, "status", None).unwrap();
+        g.note(lead, "worker", Kind::Queue, "status", None).unwrap();
     }
     assert!(matches!(
         g.interrupt(lead, "worker", "cancel", None, |_| stopped
@@ -1847,10 +1907,11 @@ fn completion_and_lost_notices_bypass_a_full_parent_mailbox() {
     let worker = child(&g, lead, "worker");
     let lost = child(&g, lead, "lost");
     for _ in 0..50 {
-        g.send(worker, "lead-1", Kind::Queue, "status", None)
+        g.note(worker, "lead-1", Kind::Queue, "status", None)
             .unwrap();
     }
-    g.done(worker, "finished", None, &[], None, None).unwrap();
+    g.done(worker, &report("finished"), None, &[], None, None)
+        .unwrap();
     g.lost(lost).unwrap();
     g.lost(lost).unwrap();
     assert_eq!(
@@ -1861,10 +1922,7 @@ fn completion_and_lost_notices_bypass_a_full_parent_mailbox() {
     );
     let messages = g.take(lead, Kind::ALL, usize::MAX).unwrap();
     assert_eq!(messages.len(), 52);
-    assert_eq!(
-        bodies(messages.iter().skip(50)),
-        ["done: finished", "exited(unknown)"]
-    );
+    assert_eq!(bodies(messages.iter().skip(50)), ["finished", ""]);
 }
 
 #[test]
@@ -1874,8 +1932,9 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     let g = open(&path);
     let lead = root(&g, "lead");
     let worker = child(&g, lead, "worker");
-    g.done(worker, "finished", None, &[], None, None).unwrap();
-    g.send(lead, "worker", Kind::Queue, "feedback", None)
+    g.done(worker, &report("finished"), None, &[], None, None)
+        .unwrap();
+    g.note(lead, "worker", Kind::Queue, "feedback", None)
         .unwrap();
     assert_eq!(take(&g, worker), delivery("lead-1", "feedback"));
     drop(g);
@@ -1888,7 +1947,7 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     // 피드백을 받아 다시 일하다 끝났다. 다시 done을 부르지 않았으므로 종료다.
     assert_eq!(view(&g, worker).state, NodeState::Exited { code: Some(0) });
     assert!(matches!(
-        g.send(lead, "worker", Kind::Queue, "more feedback", None),
+        g.note(lead, "worker", Kind::Queue, "more feedback", None),
         Err(Refusal::Ended(_))
     ));
 }
@@ -1900,33 +1959,36 @@ async fn replies_match_the_request_even_after_another_consumer_acknowledged_them
     let g = open(&path);
     let lead = root(&g, "lead");
     let worker = child(&g, lead, "worker");
-    let first = g
-        .send(lead, "worker", Kind::Queue, "first question", None)
+    let first = g.ask_parent(worker, "first question", None).unwrap();
+    let second = g.ask_parent(worker, "second question", None).unwrap();
+    assert_eq!(
+        g.answer_ask(worker, first.id, "forged", None).err(),
+        Some(Refusal::NotAsk(first.id.0))
+    );
+    g.answer_ask(lead, second.id, "second answer", None)
         .unwrap();
-    let second = g
-        .send(lead, "worker", Kind::Queue, "second question", None)
-        .unwrap();
-    assert!(matches!(
-        g.reply(lead, first.id, "forged", None),
-        Err(Refusal::NotFound(_))
-    ));
-    g.reply(worker, second.id, "second answer", None).unwrap();
-    g.reply(worker, first.id, "first answer", None).unwrap();
+    g.answer_ask(lead, first.id, "first answer", None).unwrap();
     // Stop 훅이 먼저 받아도 기다리는 질문의 답을 찾는다.
-    let deliveries = g.take(lead, Kind::ALL, usize::MAX).unwrap();
-    g.ack(lead, &deliveries.iter().map(|d| d.id).collect::<Vec<_>>())
+    let deliveries = g.take(worker, Kind::ALL, usize::MAX).unwrap();
+    g.ack(worker, &deliveries.iter().map(|d| d.id).collect::<Vec<_>>())
         .unwrap();
     drop(g);
     let g = open(&path);
-    let answer = g.wait(lead, Some(first.id)).await.unwrap();
+    let answer = g.wait(worker, Some(first.id)).await.unwrap();
     assert_eq!(answer.body, "first answer");
     assert_eq!(answer.reply_to, Some(first.id));
     assert_eq!(
-        g.wait(lead, Some(second.id)).await.unwrap().body,
+        answer.what,
+        Some(MessageKind::Answer {
+            question: Question::Message { id: first.id.0 }
+        })
+    );
+    assert_eq!(
+        g.wait(worker, Some(second.id)).await.unwrap().body,
         "second answer"
     );
     assert!(matches!(
-        g.wait(worker, Some(first.id)).await,
+        g.wait(lead, Some(first.id)).await,
         Err(Refusal::NotFound(_))
     ));
 }
@@ -1937,23 +1999,21 @@ async fn waiting_for_a_reply_keeps_unrelated_mail_and_can_be_cancelled() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "lead");
     let worker = child(&g, lead, "worker");
-    let question = g
-        .send(lead, "worker", Kind::Queue, "question", None)
-        .unwrap();
-    g.send(worker, "lead-1", Kind::Queue, "unrelated", None)
+    let question = g.ask_parent(worker, "question", None).unwrap();
+    g.note(lead, "worker", Kind::Queue, "unrelated", None)
         .unwrap();
     assert!(
         tokio::time::timeout(
             std::time::Duration::from_millis(5),
-            g.wait(lead, Some(question.id))
+            g.wait(worker, Some(question.id))
         )
         .await
         .is_err()
     );
-    assert_eq!(take(&g, lead), delivery("worker", "unrelated"));
-    g.reply(worker, question.id, "answer", None).unwrap();
+    assert_eq!(take(&g, worker), delivery("lead-1", "unrelated"));
+    g.answer_ask(lead, question.id, "answer", None).unwrap();
     assert_eq!(
-        g.wait(lead, Some(question.id)).await.unwrap().body,
+        g.wait(worker, Some(question.id)).await.unwrap().body,
         "answer"
     );
 }
@@ -2014,43 +2074,39 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
         Err(Refusal::TooDeep)
     ));
     // 총괄도 손자에게 바로 보낸다.
-    g.send(lead, "워커-1-화면", Kind::Queue, "x", None).unwrap();
+    g.note(lead, "워커-1-화면", Kind::Queue, "x", None).unwrap();
     assert_eq!(
         take(&g, worker).map(|(_, _, body)| body).as_deref(),
         Some("x")
     );
 
-    let question = g
-        .send(worker, "코디-1", Kind::Queue, "QUESTION: 색은?", None)
-        .unwrap();
-    assert_eq!(take(&g, coord), delivery("워커-1-화면", "QUESTION: 색은?"));
-    g.reply(coord, question.id, "ANSWER: 파랑", None).unwrap();
+    let question = g.ask_parent(worker, "색은?", None).unwrap();
+    assert_eq!(take(&g, coord), delivery("워커-1-화면", "색은?"));
+    g.answer_ask(coord, question.id, "파랑", None).unwrap();
     let answer = g.wait(worker, Some(question.id)).await.unwrap();
     assert_eq!(
         (answer.from.as_str(), answer.body.as_str()),
-        ("코디-1", "ANSWER: 파랑")
+        ("코디-1", "파랑")
     );
     g.ack(worker, &[answer.id]).unwrap();
-    g.send(coord, "claude-1", Kind::Queue, "STATUS: 워커 하나", None)
+    g.note(coord, "claude-1", Kind::Queue, "STATUS: 워커 하나", None)
         .unwrap();
     assert_eq!(take(&g, lead), delivery("코디-1", "STATUS: 워커 하나"));
 
-    g.done(worker, "1-화면 커밋", None, &[], None, None)
+    g.done(worker, &report("1-화면 커밋"), None, &[], None, None)
         .unwrap();
-    assert_eq!(
-        take(&g, coord),
-        delivery("워커-1-화면", "done: 1-화면 커밋")
-    );
+    assert_eq!(take(&g, coord), delivery("워커-1-화면", "1-화면 커밋"));
     // 완료한 워커도 반려를 받는다. 받으면 다시 일하는 중이고, 고친 뒤 done을 또 부른다.
-    g.send(coord, "워커-1-화면", Kind::Queue, "Rework: 여백", None)
+    g.note(coord, "워커-1-화면", Kind::Queue, "Rework: 여백", None)
         .unwrap();
     assert_eq!(take(&g, worker), delivery("코디-1", "Rework: 여백"));
     assert_eq!(view(&g, worker).state, NodeState::Running);
-    g.done(worker, "여백 고침", None, &[], None, None).unwrap();
-    assert_eq!(take(&g, coord), delivery("워커-1-화면", "done: 여백 고침"));
-    g.done(coord, "1-기능 병합 준비", None, &[], None, None)
+    g.done(worker, &report("여백 고침"), None, &[], None, None)
         .unwrap();
-    assert_eq!(take(&g, lead), delivery("코디-1", "done: 1-기능 병합 준비"));
+    assert_eq!(take(&g, coord), delivery("워커-1-화면", "여백 고침"));
+    g.done(coord, &report("1-기능 병합 준비"), None, &[], None, None)
+        .unwrap();
+    assert_eq!(take(&g, lead), delivery("코디-1", "1-기능 병합 준비"));
     let children = g.relations(lead).unwrap().children;
     assert_eq!(children.len(), 1);
     assert!(children[0].alive);
@@ -2094,7 +2150,7 @@ fn current_parent_is_available_to_the_child_after_adoption() {
         take(&g, worker),
         delivery(
             "new-1",
-            "parent: new-1 (#3). Use loom status to inspect current relationships."
+            "Your new parent is #3. Use loom status to inspect current relationships."
         )
     );
 }
@@ -2116,7 +2172,7 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let parent = g.add_root(&home(), None, &launched(), started).unwrap();
     let worker = child(&g, parent, "worker");
     assert!(!g.discard_finished_shell(parent).unwrap());
-    g.send(
+    g.note(
         worker,
         &view(&g, parent).name,
         Kind::Queue,
@@ -2131,7 +2187,7 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let completed = g.add_root(&home(), None, &launched(), started).unwrap();
     g.done(
         completed,
-        "result to preserve",
+        &report("result to preserve"),
         Some("일해"),
         &[],
         None,
@@ -2205,7 +2261,7 @@ fn rename_records_the_old_name_and_tells_parent_and_children() {
         None
     )));
     // 새 이름으로 주고받는다.
-    g.send(a, "코디", Kind::Queue, "hi", None).unwrap();
+    g.note(a, "코디", Kind::Queue, "hi", None).unwrap();
     assert_eq!(take(&g, middle), delivery("a", "hi"));
     // 같은 이름이면 아무것도 바꾸지 않는다.
     let before = recorded(&g).len();
@@ -2220,7 +2276,7 @@ fn a_root_that_called_done_is_reported() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "lead");
     assert_eq!(g.unreported_root(lead), Ok(true));
-    g.done(lead, "병합했다", Some("병합해"), &[], None, None)
+    g.done(lead, &report("병합했다"), Some("병합해"), &[], None, None)
         .unwrap();
     assert_eq!(g.unreported_root(lead), Ok(false));
 }
@@ -2252,29 +2308,29 @@ fn parent_and_bare_ids_address_nodes() {
     let lead = root(&g, "lead");
     let a = child(&g, lead, "a");
 
-    g.send(a, "parent", Kind::Queue, "up", None).unwrap();
+    g.note(a, "parent", Kind::Queue, "up", None).unwrap();
     assert_eq!(take(&g, lead), delivery("a", "up"));
-    g.send(a, "parent", Kind::Steer, "steer up", None).unwrap();
+    g.note(a, "parent", Kind::Steer, "steer up", None).unwrap();
     assert_eq!(
         take(&g, lead),
         Some(("a".into(), Kind::Steer, "steer up".into()))
     );
-    g.send(lead, &a.0.to_string(), Kind::Queue, "down", None)
+    g.note(lead, &a.0.to_string(), Kind::Queue, "down", None)
         .unwrap();
     assert_eq!(take(&g, a), delivery("lead-1", "down"));
     assert!(matches!(
-        g.send(lead, "parent", Kind::Steer, "x", None),
+        g.note(lead, "parent", Kind::Steer, "x", None),
         Err(Refusal::NotRelated(_))
     ));
     // 부모 없는 노드가 `parent`로 보낸 큐 메시지는 다음 부모를 기다린다.
     assert_eq!(
-        g.send(lead, "parent", Kind::Queue, "kept", None)
+        g.note(lead, "parent", Kind::Queue, "kept", None)
             .unwrap()
             .recipient,
         None
     );
     assert!(matches!(
-        g.send(lead, "999", Kind::Queue, "x", None),
+        g.note(lead, "999", Kind::Queue, "x", None),
         Err(Refusal::NotFound(_))
     ));
 }
@@ -2320,7 +2376,7 @@ fn remove_child_moves_grandchildren_to_the_caller() {
     let lead = root(&g, "총괄");
     let coord = child(&g, lead, "코디");
     let worker = child(&g, coord, "워커");
-    g.send(worker, "코디", Kind::Queue, "결과", None).unwrap();
+    g.note(worker, "코디", Kind::Queue, "결과", None).unwrap();
 
     let (removed, moved) = g
         .remove_child(lead, &format!("#{}", coord.0), TreeLimits::default())
@@ -2332,11 +2388,11 @@ fn remove_child_moves_grandchildren_to_the_caller() {
     assert_eq!(view(&g, worker).parent, Some(lead));
     // 지운 노드에게 가던 메시지는 새 부모가 보낸 순서대로 받는다.
     assert_eq!(take(&g, lead), delivery("워커", "결과"));
-    assert_eq!(take(&g, lead), delivery("코디", "removed"));
+    assert_eq!(take(&g, lead), delivery("코디", ""));
     assert_eq!(
         take(&g, worker).map(|(_, _, body)| body),
         Some(format!(
-            "parent: 총괄-1 (#{}). Use loom status to inspect current relationships.",
+            "Your new parent is #{}. Use loom status to inspect current relationships.",
             lead.0
         ))
     );
@@ -2374,7 +2430,8 @@ fn done_returns_children_whose_process_still_runs() {
     g.exited(ended, 0).unwrap();
 
     assert_eq!(
-        g.done(coord, "요약", None, &[], None, None).unwrap(),
+        g.done(coord, &report("요약"), None, &[], None, None)
+            .unwrap(),
         ["워커"]
     );
 }
@@ -2446,9 +2503,9 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     let lead = root(&g, "총괄");
     let a = child(&g, lead, "a");
     let b = child(&g, lead, "b");
-    g.send(lead, "a", Kind::Queue, "q1", None).unwrap();
-    g.send(lead, "a", Kind::Queue, "q2", None).unwrap();
-    g.send(lead, "b", Kind::Queue, "다른 노드", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "q1", None).unwrap();
+    g.note(lead, "a", Kind::Queue, "q2", None).unwrap();
+    g.note(lead, "b", Kind::Queue, "다른 노드", None).unwrap();
     // 꺼낸 메시지는 읽은 것이다. 바꾸지 않는다.
     assert_eq!(g.take(a, &[Kind::Queue], 1).unwrap().len(), 1);
     assert_eq!(view(&g, a).unread, 1);
@@ -2476,10 +2533,12 @@ fn unconfirmed_dones_survive_input_relaunch_exit_and_restart() {
     let lead = root(&g, "claude");
     let other = root(&g, "codex");
     let ids = |g: &Graph, id| view(g, id).waits.iter().map(|w| w.id).collect::<Vec<_>>();
-    g.done(lead, "하나", Some("일 1"), &[], None, None).unwrap();
-    g.done(other, "다른 노드", Some("일 B"), &[], None, None)
+    g.done(lead, &report("하나"), Some("일 1"), &[], None, None)
         .unwrap();
-    g.done(lead, "둘", Some("일 2"), &[], None, None).unwrap();
+    g.done(other, &report("다른 노드"), Some("일 B"), &[], None, None)
+        .unwrap();
+    g.done(lead, &report("둘"), Some("일 2"), &[], None, None)
+        .unwrap();
     let kept = ids(&g, lead);
     assert_eq!(kept.len(), 2);
     g.human_input(lead).unwrap();
@@ -2506,13 +2565,14 @@ fn a_done_node_runs_again_when_the_human_types() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
-    g.done(lead, "끝", Some("일해"), &[], None, None).unwrap();
+    g.done(lead, &report("끝"), Some("일해"), &[], None, None)
+        .unwrap();
     // 꺼낼 메시지가 없으면 그대로 둔다.
     assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());
     assert!(matches!(view(&g, lead).state, NodeState::Done { .. }));
     g.human_input(lead).unwrap();
     assert_eq!(view(&g, lead).state, NodeState::Running);
-    g.done(lead, "또 끝", Some("또 일해"), &[], None, None)
+    g.done(lead, &report("또 끝"), Some("또 일해"), &[], None, None)
         .unwrap();
 }
 
@@ -2557,12 +2617,19 @@ fn records_inbox_notices_and_the_human_responses() {
     )
     .unwrap();
     g.dismiss(view(&g, lead).waits[0].id).unwrap();
-    g.done(lead, "고쳤다.", Some("고쳐"), &[], None, None)
+    g.done(lead, &report("고쳤다."), Some("고쳐"), &[], None, None)
         .unwrap();
     let d1 = view(&g, lead).waits[0].id;
     g.answer(d1, "하나 더", &[]).unwrap();
-    g.done(lead, "또 고쳤다.", Some("하나 더"), &[], None, None)
-        .unwrap();
+    g.done(
+        lead,
+        &report("또 고쳤다."),
+        Some("하나 더"),
+        &[],
+        None,
+        None,
+    )
+    .unwrap();
     let d2 = view(&g, lead).waits[0].id;
     g.dismiss(d2).unwrap();
     let doc = WaitDoc {
@@ -2681,7 +2748,8 @@ fn relaunching_an_ended_node_brings_it_back_running_and_keeps_done() {
     assert!(g.ended(lead).unwrap().is_none());
     assert!(g.active().unwrap().iter().any(|n| n.id == lead));
 
-    g.done(worker, "결과", None, &[], None, None).unwrap();
+    g.done(worker, &report("결과"), None, &[], None, None)
+        .unwrap();
     g.exited(worker, 0).unwrap();
     g.relaunched(worker, &launched()).unwrap();
     assert!(matches!(view(&g, worker).state, NodeState::Done { .. }));
@@ -2695,9 +2763,121 @@ fn parent_bound_done_keeps_bare_paths() {
     let lead = root(&g, "claude");
     let worker = child(&g, lead, "w");
     assert!(
-        g.done(worker, "result /tmp/a/result.md", None, &[], None, None)
-            .is_ok()
+        g.done(
+            worker,
+            &report("result /tmp/a/result.md"),
+            None,
+            &[],
+            None,
+            None
+        )
+        .is_ok()
     );
 }
 
 mod gate;
+
+/// loom 알림은 종류를 가진다. 본문 앞 낱말(`exited(0)`, `removed`, `adopted: X`)은 없다. 터미널에는 `from: loom`으로 보인다.
+#[test]
+fn loom_notices_carry_their_kind() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let kinds = |node| {
+        let taken = g.take(node, Kind::ALL, usize::MAX).unwrap();
+        g.ack(node, &taken.iter().map(|d| d.id).collect::<Vec<_>>())
+            .unwrap();
+        taken
+            .iter()
+            .map(|d| crate::profile::message_text(std::slice::from_ref(d)))
+            .map(|text| text[text.find("(from").unwrap()..].to_owned())
+            .collect::<Vec<_>>()
+    };
+    let a = child(&g, lead, "a");
+    g.exited(a, 3).unwrap();
+    let b = child(&g, lead, "b");
+    g.setup_failed(b, 2, "npm ci").unwrap();
+    let c = child(&g, lead, "c");
+    g.remove(c).unwrap();
+    let d = child(&g, lead, "d");
+    let other = root(&g, "검토");
+    g.adopt(other, d, TreeLimits::default()).unwrap();
+    assert_eq!(
+        kinds(lead),
+        [
+            "(from: loom, kind: exited)\nnode: a\ncode: 3",
+            "(from: loom, kind: setup-failed)\nnode: b\ncode: 2\nnpm ci",
+            "(from: loom, kind: removed)\nnode: c",
+            "(from: loom, kind: adopted)\nnode: d\nparent: 검토-1",
+        ]
+    );
+    assert_eq!(
+        kinds(d),
+        [format!(
+            "(from: loom, kind: adopted)\nnode: d\nparent: 검토-1\nYour new parent is #{}. Use loom status to inspect current relationships.",
+            other.0
+        )]
+    );
+}
+
+/// 사람이 자식 터미널에 친 글은 그 부모에게 원문으로 간다. 부모 없는 노드는 보내지 않는다.
+#[test]
+fn human_input_goes_to_the_parent_verbatim() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let w = child(&g, lead, "w");
+    g.human_typed(w, "send 동사는 지우지 말고 한 판 남겨\n")
+        .unwrap();
+    g.human_typed(lead, "총괄에게 친 글").unwrap();
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(
+        crate::profile::message_text(&got),
+        format!(
+            "loom message #{} (from: loom, kind: human-input)\nnode: w\nsend 동사는 지우지 말고 한 판 남겨",
+            got[0].id.0
+        )
+    );
+}
+
+/// 내장 스킬이 지난 기록과 다르면 살아 있는 에이전트 노드마다 `rules-changed`를 한 번 보낸다. 셸과 끝난 노드는 받지 않는다.
+#[test]
+fn changed_skills_are_announced_once_to_live_agent_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let shell = child(&g, lead, "shell");
+    let ended = root(&g, "끝남");
+    g.exited(ended, 0).unwrap();
+    let digests = |o: &str| {
+        BTreeMap::from([
+            ("o-mode".to_owned(), o.to_owned()),
+            ("ste-100".to_owned(), "s1".to_owned()),
+        ])
+    };
+    // 기록이 없으면 모두 바뀐 것이다.
+    assert_eq!(
+        g.rules_changed(&digests("o1"), Some("abc1234")).unwrap(),
+        ["o-mode", "ste-100"]
+    );
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(got.len(), 1);
+    assert_eq!(
+        got[0].what,
+        Some(MessageKind::RulesChanged {
+            skills: vec!["o-mode".into(), "ste-100".into()],
+            commit: Some("abc1234".into())
+        })
+    );
+    assert!(crate::profile::message_text(&got).starts_with(&format!(
+        "loom message #{} (from: loom, kind: rules-changed)\nskills: o-mode, ste-100\ncommit: abc1234\nNext: call `loom relaunch`",
+        got[0].id.0
+    )));
+    assert!(g.take(shell, Kind::ALL, usize::MAX).unwrap().is_empty());
+    assert!(g.take(ended, Kind::ALL, usize::MAX).unwrap().is_empty());
+    // 같은 판으로 다시 시작하면 보내지 않는다. 한 스킬만 바뀌면 그 스킬만 알린다.
+    g.ack(lead, &[got[0].id]).unwrap();
+    assert!(g.rules_changed(&digests("o1"), None).unwrap().is_empty());
+    assert_eq!(g.rules_changed(&digests("o2"), None).unwrap(), ["o-mode"]);
+}

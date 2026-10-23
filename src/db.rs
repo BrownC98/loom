@@ -255,6 +255,15 @@ const STEPS: &[M] = &[
     ),
     // 32: 노드에 고른 카드 보기(graph `CardView`, serde JSON)와 마지막 턴 끝 답 글(심플 카드 상태 줄). 없으면 NULL이다(목업 docs/mockups/node-card-view.html).
     M::up("ALTER TABLE nodes ADD COLUMN card_view TEXT; ALTER TABLE nodes ADD COLUMN reply TEXT;"),
+    // 33: 메시지 종류(protocol `MessageKind`, serde JSON). 옛 메시지는 NULL이다. `kind` 열은 전달 방식(큐·조정·중단)이다.
+    // `skill_digests`는 데몬이 마지막으로 실은 내장 스킬의 내용 해시다. 바뀌면 데몬이 `rules-changed`를 한 번 보낸다.
+    M::up(
+        "ALTER TABLE messages ADD COLUMN what TEXT;
+        CREATE TABLE skill_digests (
+            skill TEXT PRIMARY KEY,
+            digest TEXT NOT NULL
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -532,6 +541,27 @@ mod tests {
             conn.execute(insert, []).is_err(),
             "one row per repo and branch"
         );
+    }
+
+    /// 옛 메시지는 종류가 없다(NULL, 화면과 터미널은 메모로 읽는다). 스킬 해시 표는 비어서 생긴다.
+    #[test]
+    fn step_33_adds_message_kinds_and_skill_digests() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 32).unwrap();
+        conn.execute(
+            r#"INSERT INTO messages (recipient, sender, sender_name, kind, body) VALUES (NULL, NULL, 'a', '"queue"', 'done: 끝')"#,
+            [],
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let what: Option<String> = conn
+            .query_row("SELECT what FROM messages", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(what, None);
+        let digests: u32 = conn
+            .query_row("SELECT count(*) FROM skill_digests", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(digests, 0);
     }
 
     /// 노드 자리의 완료는 완료 표로 옮긴다. 번호와 내용은 그대로다.

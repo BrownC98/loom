@@ -13,9 +13,9 @@ use crate::daemon::gate::{
     ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest,
 };
 use crate::daemon::{
-    AckRequest, AdoptRequest, AnsweredRequest, AskRequest, Asked, DoneRequest, GuardRequest,
-    HookWaitRequest, IdleRequest, RelaunchRequest, Relaunched, RemoveRequest, ReplyRequest,
-    SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
+    AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DoneRequest,
+    GuardRequest, HookWaitRequest, IdleRequest, NoteRequest, RelaunchRequest, Relaunched,
+    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
@@ -96,16 +96,16 @@ pub fn roles() -> Result<(), String> {
     Ok(())
 }
 
-pub fn send(to: String, kind: Kind, body: String) -> Result<(), String> {
-    let sent: Sent = call("send", &SendRequest { to, kind, body }, None)?;
+pub fn note(to: String, mode: Kind, body: String) -> Result<(), String> {
+    let sent: Sent = call("note", &NoteRequest { to, mode, body }, None)?;
     print_sent(&sent);
     Ok(())
 }
 
-pub fn reply(message: u32, body: String) -> Result<(), String> {
+pub fn answer(message: u32, body: String) -> Result<(), String> {
     let sent: Sent = call(
-        "reply",
-        &ReplyRequest {
+        "answer",
+        &AnswerRequest {
             message: MessageId(message),
             body,
         },
@@ -113,6 +113,13 @@ pub fn reply(message: u32, body: String) -> Result<(), String> {
     )?;
     print_sent(&sent);
     Ok(())
+}
+
+/// 옛 메시지 동사(`send`·`reply`·`steer`·`interrupt`). 한 판 동안 새 동사를 알리고 실패한다(목업 M17 결정 3 A).
+pub fn replaced(old: &str, new: &str) -> Result<(), String> {
+    Err(format!(
+        "`loom {old}` is replaced. Use `{new}`. Every message now has a kind: loom ask, loom answer, loom done, loom note, or a gate verb (see loom --help)."
+    ))
 }
 
 fn print_sent(sent: &Sent) {
@@ -226,6 +233,7 @@ pub fn hook() -> Result<(), String> {
         limit_bytes: claude::HOOK_LIMIT_BYTES,
         transcript,
         human_input: event.human_input(),
+        prompt: event.prompt().map(str::to_owned),
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken.messages, taken.note.as_deref()) {
@@ -278,6 +286,8 @@ pub fn cursor_hook() -> Result<(), String> {
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
                 transcript: transcript.clone(),
                 human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
+                // Cursor는 loom이 넣은 다음 턴 글(`followup_message`)도 이 훅으로 넘긴다. 사람 글과 가르지 못해 `human-input`을 보내지 않는다.
+                prompt: None,
             },
             Some(timeout),
         )
@@ -382,14 +392,24 @@ pub fn guard() -> Result<(), String> {
 /// `doc`(`--doc`)은 문서 하나를 질문에 붙인다. 사람은 질문 줄의 링크로 연다.
 pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
     let doc = doc.as_deref().map(absolute).transpose()?;
-    let asked: Asked = call(
+    let asked = match call(
         "ask",
         &AskRequest {
             question: with_doc_link(&question, doc.as_deref()),
             doc,
         },
         None,
-    )?;
+    )? {
+        AskResult::Inbox(asked) => asked,
+        AskResult::Parent(sent) => {
+            print_sent(&sent);
+            println!(
+                "Asked your parent. The answer comes as a message (kind: answer), or wait for it: `loom wait --reply-to {} --timeout <seconds> --json`.",
+                sent.id.0
+            );
+            return Ok(());
+        }
+    };
     let with = asked
         .doc
         .map(|doc| format!(" with {} ({})", doc.id, doc.title))
@@ -436,7 +456,7 @@ pub fn done(
     images: Vec<PathBuf>,
     doc: Option<PathBuf>,
 ) -> Result<(), String> {
-    let summary = match file {
+    let file = match file {
         Some(path) => {
             let path = absolute(&path)?;
             // 사람은 완료 줄의 글 속 경로를 열지 못한다(2026-10-23 사람 "링크로 제공이 안됨"). 경로를 링크로 바꾸지 않고 거절한다: 사람이 읽을 요약이 없기 때문이다.
@@ -447,19 +467,22 @@ pub fn done(
                     path.display()
                 ));
             }
-            crate::wsl::for_caller(&path)
+            Some(crate::wsl::for_caller(&path))
         }
-        None => summary.unwrap_or_default(),
+        None => None,
     };
+    // 요약 없이 파일만 주면 노드 카드에 경로가 보인다.
+    let summary = summary.or_else(|| file.clone()).unwrap_or_default();
     let images = images
         .iter()
         .map(|path| absolute(path))
         .collect::<Result<Vec<_>, _>>()?;
     let doc = doc.as_deref().map(absolute).transpose()?;
-    let alive_children: Vec<String> = call(
+    let reported: Reported = call(
         "done",
         &DoneRequest {
             summary: with_doc_link(&summary, doc.as_deref()),
+            file,
             asked,
             images,
             doc,
@@ -467,10 +490,15 @@ pub fn done(
         None,
     )?;
     println!("Reported to your parent, or to the human's inbox if you have no parent.");
-    if !alive_children.is_empty() {
+    if !reported.alive.is_empty() {
         println!(
             "Warning: these children are still running: {}. Reclaim each with `loom rm <name>` when you keep its results, or they stay in the graph.",
-            alive_children.join(", ")
+            reported.alive.join(", ")
+        );
+    }
+    if let Some(warning) = reported.warning {
+        println!(
+            "Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."
         );
     }
     Ok(())

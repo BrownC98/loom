@@ -4,6 +4,7 @@ import type { AgentId } from "./AgentId";
 import type { ClosedBy } from "./ClosedBy";
 import type { GateTrace } from "./GateTrace";
 import type { Kind } from "./Kind";
+import type { MessageKind } from "./MessageKind";
 import type { NodeState } from "./NodeState";
 import type { Provider } from "./Provider";
 import type { Refusal } from "./Refusal";
@@ -18,7 +19,11 @@ export type Entry = { "kind": "created", node: Who, parent: Who | null, agent: A
 /**
  * 부모가 없던 동안 보관해 새 부모에게 옮긴 메시지 수. 이 수를 남기기 전 기록은 0이다.
  */
-held: number, } | { "kind": "removed", node: Who, } | { "kind": "renamed", node: Who, from: string, } | { "kind": "message", how: Kind, from: Who, to: Who | null, step: Step, 
+held: number, } | { "kind": "removed", node: Who, } | { "kind": "renamed", node: Who, from: string, } | { "kind": "message", how: Kind, 
+/**
+ * 메시지 종류와 칸. 종류를 남기기 전의 옛 기록에는 없다. Entry의 serde 태그가 `kind`라 이름이 `what`이다.
+ */
+what?: MessageKind, from: Who, to: Who | null, step: Step, 
 /**
  * 보낸 입구. 받음 확인과 데몬이 만든 메시지, 옛 기록에는 없다.
  */

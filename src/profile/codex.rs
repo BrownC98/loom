@@ -488,6 +488,7 @@ mod tests {
             kind,
             body: body.into(),
             reply_to: None,
+            what: Some(crate::protocol::MessageKind::Note),
         }
     }
 
@@ -552,7 +553,7 @@ mod tests {
         assert_eq!(
             sent[0].1,
             json!({ "threadId": "th", "input": [{ "type": "text", "text":
-                "loom message #1 (from: 부모, mode: queue)\na\n\nloom message #1 (from: 부모, mode: steer)\nb" }] })
+                "loom message #1 (from: 부모, kind: note)\na\n\nloom message #1 (from: 부모, kind: note, mode: steer)\nb" }] })
         );
     }
 
@@ -600,7 +601,7 @@ mod tests {
         assert_eq!(sent[1].0, "turn/start");
         assert_eq!(
             sent[1].1["input"][0]["text"],
-            "loom message #1 (from: 부모, mode: interrupt. Stop your current work and do what this message says)\n멈춰라"
+            "loom message #1 (from: 부모, kind: note, mode: interrupt. Stop your current work and do what this message says)\n멈춰라"
         );
     }
 

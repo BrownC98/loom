@@ -9,7 +9,7 @@ use ts_rs::TS;
 use super::{Kind, MessageId, NodeId, NodeState, Refusal, WaitDoc, WaitId, from_json, to_json};
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, Provider};
-use crate::protocol::{Finding, GateState, GateVerb};
+use crate::protocol::{Finding, GateState, GateVerb, MessageKind};
 
 /// 남기는 이벤트 수 상한. 노드 50개가 각각 메시지 200개를 주고받는 하루치다.
 const KEEP: u32 = 10_000;
@@ -71,6 +71,10 @@ pub enum Entry {
     /// `to`가 없으면 보관한 메시지다.
     Message {
         how: Kind,
+        /// 메시지 종류와 칸. 종류를 남기기 전의 옛 기록에는 없다. Entry의 serde 태그가 `kind`라 이름이 `what`이다.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        what: Option<MessageKind>,
         from: Who,
         to: Option<Who>,
         step: Step,
@@ -172,7 +176,7 @@ pub enum Entry {
     },
 }
 
-/// 요청이 들어온 입구. CLI는 명령 이름(`loom send`)과 판을 헤더로 보낸다. 헤더가 없는 요청(화면, 훅 밖 API)은 경로다.
+/// 요청이 들어온 입구. CLI는 명령 이름(`loom note`)과 판을 헤더로 보낸다. 헤더가 없는 요청(화면, 훅 밖 API)은 경로다.
 /// 근거: R8 v5 ⑤ 흔적 칸 「입구」·「판」. 관문 audit가 관문 동사 밖에서 온 관문 글을 이 값으로 가린다.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]

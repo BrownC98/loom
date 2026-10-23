@@ -63,7 +63,7 @@ export type XtermFontValue = { family: string; size: number };
  * 기본 글꼴 Jetendard(번들, styles.css)는 한글이 꼭 두 칸이라 글자 사이에 틈이 없다. 기본 글꼴로 카드가 80열이다(`.card`의 폭).
  * 근거: docs/design.md 「설정」.
  */
-export const DEFAULT_TERMINAL_FONT: XtermFontValue = { family: '"Jetendard", monospace', size: 12 };
+export const DEFAULT_TERMINAL_FONT: XtermFontValue = { family: '"Jetendard", "Loom Symbols", monospace', size: 12 };
 /** Orca의 글꼴 크기 칸과 같은 범위다. */
 export const FONT_SIZE_RANGE = { min: 10, max: 24 } as const;
 

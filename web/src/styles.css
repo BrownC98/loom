@@ -1,6 +1,8 @@
 /* 터미널 기본 글꼴(Terminal.tsx). kuskhan/jetendard v0.1.0 웹 글꼴(OFL 1.1, fonts/jetendard/LICENSE). JetBrains Mono에 Pretendard 한글을 두 칸으로 넣었다. */
 @font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Jetendard'; src: url('./fonts/jetendard/Jetendard-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+/* Jetendard에 없는 기호(Claude Code 상태 줄의 ⏵⏵ ⏺ ✻ ✔ 등). 없으면 Android가 그림 문자 글꼴로 그려 깨져 보였다(2026-10-23 사람 "앱에서는 ⏵⏵ 표시각 깨져보임"). Noto Sans Symbols 2(OFL 1.1, fonts/symbols/LICENSE)에서 Jetendard에 없는 U+2000–2BFF 글자만 뽑았다. */
+@font-face { font-family: 'Loom Symbols'; src: url('./fonts/symbols/NotoSansSymbols2-subset.woff2') format('woff2'); font-display: swap; }
 /* 화면의 고정폭 글꼴(--mono)은 같은 파일의 한글 밖 글자만 쓴다. 두 칸 한글은 글자 사이가 0.27em 떠서 문장(「폴더 … 를 삭제합니다.」)이 띄엄띄엄 보인다. 한글은 --font로 간다. */
 @font-face { font-family: 'Jetendard Latin'; src: url('./fonts/jetendard/Jetendard-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; unicode-range: U+0000-10FF, U+2000-2BFF; }
 @font-face { font-family: 'Jetendard Latin'; src: url('./fonts/jetendard/Jetendard-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; unicode-range: U+0000-10FF, U+2000-2BFF; }

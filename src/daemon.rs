@@ -1210,12 +1210,21 @@ impl App {
                 .ok()
                 .flatten()
                 .map(|at| at.distro);
-            let on_exit = self.on_exit(node.id, distro, &node.token, &codex, &opencode2);
+            let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
             if self.host.resume(node.id, on_exit).is_err() {
                 if let Some(server) = &node.server {
                     stop_server(server);
                 }
                 self.graph.lost(node.id)?;
+                // 그래프가 노드를 exited로 적었다. 그 토큰의 프로세스는 이제 노드가 아니다.
+                if let Some(distro) = distro {
+                    end_leftovers(
+                        &tokio::runtime::Handle::current(),
+                        node.id,
+                        distro,
+                        node.token,
+                    );
+                }
                 continue;
             }
             self.follow_screen(node.id, profile, &node.token);
@@ -1229,6 +1238,7 @@ impl App {
     /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다. 설정 스크립트가 실패했으면 그 출력의 끝을 함께 넘긴다.
     /// 서버는 맵이 아니라 이 클로저가 쥔다. 다시 붙은 호스트는 붙자마자 종료 코드를 보낼 수 있다.
     /// WSL 노드(`distro`)면 그 프로세스의 `token`을 가진 남은 프로세스도 끝낸다(`wsl::end_token`). 다시 띄운 프로세스는 새 토큰을 받는다.
+    /// 호스트 연결만 끊겼으면(`Exit::Lost`) 끝내지 않는다. 노드 프로세스가 아직 살았을 수 있다.
     fn on_exit(
         self: &Arc<Self>,
         id: NodeId,
@@ -1243,12 +1253,10 @@ impl App {
         let token = token.to_owned();
         move |exit| {
             discard();
-            if let Some(distro) = distro {
-                runtime.spawn(async move {
-                    if let Err(e) = wsl::end_token(&distro, &token).await {
-                        eprintln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
-                    }
-                });
+            if exit != Exit::Lost
+                && let Some(distro) = distro
+            {
+                end_leftovers(&runtime, id, distro, token);
             }
             // 다시 띄우기가 끝낸 프로세스다. 노드는 새 프로세스로 산다.
             if app.relaunches.exited(id) {
@@ -1269,6 +1277,7 @@ impl App {
             let _ = match exit {
                 Exit::Command(code) => app.graph.exited(id, code),
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
+                Exit::Lost => app.graph.lost(id),
             };
             // 종료를 적은 뒤 끝낸다. 남은 훅 프로세스가 다시 열면 `agent_idle`이 거절한다.
             app.idle.end(id);
@@ -1572,6 +1581,15 @@ impl Prepared {
     fn discarder(&self) -> impl Fn() + use<> {
         discarder(&self.codex, &self.opencode2)
     }
+}
+
+/// 끝난 WSL 노드 프로세스가 남긴 배포판 안의 프로세스를 뒤에서 끝낸다(`wsl::end_token`).
+fn end_leftovers(runtime: &tokio::runtime::Handle, id: NodeId, distro: String, token: String) {
+    runtime.spawn(async move {
+        if let Err(e) = wsl::end_token(&distro, &token).await {
+            eprintln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
+        }
+    });
 }
 
 fn discarder(

@@ -49,6 +49,8 @@ pub enum Exit {
     Command(u32),
     /// 설정 스크립트가 이 코드로 끝나 명령을 띄우지 않았다.
     Setup(u32),
+    /// 호스트 연결이 종료 코드 없이 끊겼다. 프로세스가 아직 살았을 수 있다.
+    Lost,
 }
 
 impl Exit {
@@ -56,6 +58,7 @@ impl Exit {
         match self {
             Exit::Command(code) => Frame::Exit(code),
             Exit::Setup(code) => Frame::SetupFailed(code),
+            Exit::Lost => Frame::Exit(LOST_CODE),
         }
     }
 }
@@ -215,7 +218,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                         sizing.host = HostSize::Reported;
                     }
                     Ok(_) => {}
-                    Err(_) => break Exit::Command(LOST_CODE),
+                    Err(_) => break Exit::Lost,
                 }
             };
             let _ = std::fs::remove_file(file);
@@ -905,6 +908,26 @@ mod tests {
         let attached = nodes.attach(1).unwrap();
         assert_eq!(&attached.backlog[..], b"old host");
         host.join().unwrap();
+    }
+
+    /// 호스트 연결이 종료 코드 없이 끊기면 `Exit::Lost`다. 데몬은 이때 노드 프로세스가 끝났다고 보지 않는다.
+    #[test]
+    fn a_dropped_connection_is_lost_not_an_exit() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("1"),
+            listener.local_addr().unwrap().to_string(),
+        )
+        .unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            wire::welcome(&mut stream, Some(42)).unwrap();
+        });
+        let nodes = NodeHost::new(dir.path().to_path_buf());
+        let (tx, rx) = std::sync::mpsc::channel();
+        nodes.resume(1, move |exit| tx.send(exit).unwrap()).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), Exit::Lost);
     }
 
     #[cfg(unix)]

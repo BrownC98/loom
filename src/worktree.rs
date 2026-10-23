@@ -481,14 +481,18 @@ pub async fn create(
     git::run(from, &["worktree", "add", "-b", branch, &target, base])
         .await
         .map_err(RepoProblem::Git)?;
-    // git이 적는 경로와 같은 글자로 돌려준다. 노드는 이 글자로 묶음을 가리킨다.
-    let listed = worktrees(repo).await;
-    let made = Path::new(&path);
-    Ok(listed
+    Ok(listed_path(repo, &path, &target, worktrees(repo).await))
+}
+
+/// `create`가 만든 `path`(git 인자는 `target`)를 git이 목록에 적는 글자로 돌려준다. 노드는 이 글자로 묶음을 가리키고, `find`는 글자로 비교한다.
+/// 목록에 없으면 `target`을 `worktrees`와 같은 규칙으로 바꾼다. 실측 2026-10-23: WSL interop이 시간 초과하면 목록이 원래 체크아웃 하나다.
+fn listed_path(repo: &Path, path: &str, target: &str, listed: Vec<Worktree>) -> String {
+    let made = Path::new(path).canonicalize().ok();
+    listed
         .into_iter()
         .map(|w| w.path)
-        .find(|p| Path::new(p).canonicalize().ok() == made.canonicalize().ok())
-        .unwrap_or(path))
+        .find(|p| made.is_some() && Path::new(p).canonicalize().ok() == made)
+        .unwrap_or_else(|| git::from_git_path(repo, target))
 }
 
 /// 지우면 잃는 변경: 커밋하지 않은 파일과 추적하지 않는 파일. 줄마다 `git status --porcelain` 한 줄이다.
@@ -743,6 +747,30 @@ mod tests {
         assert_eq!(run(&repo, &["branch", "--list", "me/feat-1"]), "me/feat-1");
         delete_branch(&repo, "me/feat-1").await.unwrap();
         assert_eq!(run(&repo, &["branch", "--list", "me/feat-1"]), "");
+    }
+
+    /// 목록을 읽지 못하거나 폴더를 열지 못해도(실측 2026-10-23: WSL interop 시간 초과) git이 적는 글자를 돌려준다.
+    /// 다른 글자로 등록한 노드는 `loom ready`에서 "not a worktree of this repository"로 거절됐다.
+    #[test]
+    fn a_made_worktree_gets_the_listed_text_when_the_list_does_not_show_it() {
+        let repo = r"\\wsl.localhost\NoSuchDistro\home\me\src\loom";
+        let path = r"\\wsl.localhost\NoSuchDistro\home\me\loom\workspaces\loom\한글경로";
+        let listed = if cfg!(windows) {
+            "//wsl.localhost/NoSuchDistro/home/me/loom/workspaces/loom/한글경로"
+        } else {
+            path
+        };
+        let original = Worktree {
+            path: repo.into(),
+            head: String::new(),
+            branch: None,
+            original: true,
+        };
+        let target = git::to_git_path(Path::new(repo), path);
+        assert_eq!(
+            listed_path(Path::new(repo), path, &target, vec![original]),
+            listed
+        );
     }
 
     /// 띄우지 못한 `loom spawn --worktree`의 되돌리기: 만든 폴더와 브랜치만 지운다.

@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,8 @@ const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_USER_AGENT: &str = "claude-code/2.1.0";
 const CURSOR_ORIGIN: &str = "https://cursor.com";
 const CURSOR_USAGE_URL: &str = "https://cursor.com/api/usage-summary";
+/// 홈 아래 Cursor CLI 토큰 파일(cursor-agent 2026.10.22 Linux 실측).
+const CURSOR_AUTH_FILE: &str = ".config/cursor/auth.json";
 const CURSOR_COMMAND: &str = "cursor-agent";
 /// 쿠키의 사용자 이름에서 그대로 두는 글자. 브라우저 `encodeURIComponent`처럼 `|`를 `%7C`로 쓴다(Orca와 같다).
 const COOKIE_KEEPS: &AsciiSet = &NON_ALPHANUMERIC
@@ -155,6 +157,29 @@ pub fn probe(provider: Provider, site: &Site, id: Option<&AccountId>) -> Usage {
         Provider::Claude => claude(cmd, site, id),
         Provider::Codex => codex(cmd),
     }
+}
+
+/// 그 계정 로그인 파일의 수정 시각. 로그인·로그아웃·토큰 갱신이 이 값을 바꾼다. 파일이 없으면 `None`이다.
+/// 값만 읽는다. 토큰은 읽지 않는다. 캐시가 이 값으로 앞 값을 버릴지 정한다(`daemon/usage_cache.rs`).
+pub fn credentials_stamp(
+    provider: Provider,
+    site: &Site,
+    id: Option<&AccountId>,
+) -> Option<SystemTime> {
+    let file = match provider {
+        Provider::Claude => ".credentials.json",
+        Provider::Codex => "auth.json",
+    };
+    modified(&site.login_dir(provider, id)?.join(file))
+}
+
+/// Cursor CLI 로그인 파일의 수정 시각(`credentials_stamp`와 같다).
+pub fn cursor_credentials_stamp(site: &Site) -> Option<SystemTime> {
+    modified(&site.home_file(CURSOR_AUTH_FILE)?)
+}
+
+fn modified(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
 }
 
 #[derive(Deserialize)]
@@ -407,8 +432,8 @@ pub fn probe_cursor(site: &Site) -> Usage {
     };
     let email = read(".cursor/cli-config.json")
         .and_then(|v| v["authInfo"]["email"].as_str().map(str::to_owned));
-    let token = read(".config/cursor/auth.json")
-        .and_then(|v| v["accessToken"].as_str().and_then(CursorToken::parse));
+    let token =
+        read(CURSOR_AUTH_FILE).and_then(|v| v["accessToken"].as_str().and_then(CursorToken::parse));
     let limits = match token {
         Some(token) => cursor_limits(&token),
         // macOS CLI는 토큰을 키체인에 둔다. loom은 키체인을 읽지 않는다(docs/design.md 「계정과 사용량」).

@@ -248,8 +248,10 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
     let probes = rows.iter().map(|(site, provider, id)| {
         let (site, provider, id) = (site.clone(), *provider, id.clone());
         let key = Key::provider(&site, provider, id.as_ref());
-        app.usage
-            .get(key, move || usage::probe(provider, &site, id.as_ref()))
+        let stamp = usage::credentials_stamp(provider, &site, id.as_ref());
+        app.usage.get(key, stamp, move || {
+            usage::probe(provider, &site, id.as_ref())
+        })
     });
     let usages = join_all(probes).await;
     let views = rows
@@ -273,7 +275,11 @@ async fn cursor_usage(State(app): State<Arc<App>>) -> Json<Vec<CursorView>> {
         async move {
             let distro = site.distro().map(str::to_owned);
             let key = Key::cursor(&site);
-            let usage = app.usage.get(key, move || usage::probe_cursor(&site)).await;
+            let stamp = usage::cursor_credentials_stamp(&site);
+            let usage = app
+                .usage
+                .get(key, stamp, move || usage::probe_cursor(&site))
+                .await;
             CursorView { distro, usage }
         }
     });
@@ -293,7 +299,6 @@ async fn remove_account(
 ) -> Result<Json<()>, Problem> {
     let site = app.site_of(at.distro.as_deref()).await?;
     site.accounts().remove(provider, &id).map_err(internal)?;
-    app.usage.forget(&Key::provider(&site, provider, Some(&id)));
     Ok(Json(()))
 }
 
@@ -370,8 +375,7 @@ async fn logout(
     Path(provider): Path<Provider>,
     Query(at): Query<At>,
 ) -> Result<Json<()>, Problem> {
-    let site = app.site_of(at.distro.as_deref()).await?;
-    let mut cmd = site.logout(provider)?;
+    let mut cmd = app.site_of(at.distro.as_deref()).await?.logout(provider)?;
     let out = tokio::task::spawn_blocking(move || cmd.stdin(std::process::Stdio::null()).output())
         .await
         .map_err(internal)?
@@ -381,7 +385,6 @@ async fn logout(
             String::from_utf8_lossy(&out.stderr).trim().to_owned(),
         ));
     }
-    app.usage.forget(&Key::provider(&site, provider, None));
     Ok(Json(()))
 }
 

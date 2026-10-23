@@ -261,7 +261,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dock-tools-head { display: flex; align-items: center; justify-content: space-between; }
 .dock-tools-head h2 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .dock-tools .choice { display: flex; justify-self: stretch; }
-.dock-tools .choice label { flex: 1; justify-content: center; }
+.dock-tools .choice label { flex: 1 1 auto; justify-content: center; white-space: nowrap; }
 .dock-tools .split { display: flex; }
 .dock-tools .split > .btn:first-child { flex: 1; }
 .tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }

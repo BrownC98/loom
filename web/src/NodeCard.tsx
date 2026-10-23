@@ -141,6 +141,11 @@ type ShellProps = {
   onNavigate: (dir: Direction) => void;
 };
 
+/** 카드 안 버튼과 메뉴 항목. 이것을 누르면 카드를 고르지 않는다. */
+export function isControl(target: EventTarget): boolean {
+  return target instanceof Element && target.closest('button, [role="menu"]') !== null;
+}
+
 /** 카드 틀: 고르기, 키보드 이동, F2 이름 바꾸기. 이름 편집 상태를 `children`에 넘긴다. */
 function CardShell(props: ShellProps & { className: string; children: (rename: Rename) => ReactNode }) {
   const { t } = useTranslation();
@@ -154,7 +159,10 @@ function CardShell(props: ShellProps & { className: string; children: (rename: R
       aria-label={t('node.label', { name: props.view.name })}
       data-selected={props.selected || undefined}
       data-waiting={asking(props.view).length > 0 || undefined}
-      onMouseDown={props.onSelect}
+      onMouseDown={(e) => {
+        // 2026-10-23 사람 "심플모드에서 옵션 메뉴 선택시 바로 사이드 터미널 열리는 문제": 카드 안 버튼·메뉴(포털도 React 전파로 온다)는 카드를 고르지 않는다.
+        if (!isControl(e.target)) props.onSelect();
+      }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         const dir = navDirection(e);

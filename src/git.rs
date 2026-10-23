@@ -91,6 +91,24 @@ fn clone_command(url: &str, target: &Path) -> Command {
     cmd
 }
 
+/// 시험의 git: 커밋할 이름을 넣고 기다려 돌린다. 실패하면 git의 오류 글로 시험을 멈춘다. 다듬은 표준 출력을 돌려준다.
+#[cfg(test)]
+pub fn test_run(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap().trim().to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

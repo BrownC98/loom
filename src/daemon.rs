@@ -15,6 +15,7 @@ mod settings;
 pub use relaunch::{NewAgent, Relaunched};
 mod switch;
 mod turn_end;
+mod usage_cache;
 #[cfg(test)]
 mod verb_traces;
 mod verbs;
@@ -117,6 +118,8 @@ struct App {
     relaunches: relaunch::Relaunches,
     /// 자동 계정 전환 기록.
     switch: switch::Switches,
+    /// 공급자 사용량 API를 부르는 길은 이 캐시 하나다.
+    usage: usage_cache::UsageCache,
     /// 턴 끝 질문 검사(`turn_end`).
     turn_ends: turn_end::TurnEnds,
     /// 노드 에이전트가 쓰는 내장 스킬. 데몬이 시작할 때 데이터 폴더에 푼다.
@@ -1014,6 +1017,7 @@ impl App {
             idle: idle::IdleWaits::default(),
             relaunches: relaunch::Relaunches::default(),
             switch: switch::Switches::default(),
+            usage: usage_cache::UsageCache::default(),
             turn_ends: turn_end::TurnEnds::default(),
             plugin: {
                 let plugin =

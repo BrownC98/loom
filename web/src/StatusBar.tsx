@@ -10,7 +10,7 @@ import type { SettingsView } from './gen/SettingsView';
 import { noticeOf } from './accountSwitch';
 import { weekdayAndTime } from './i18n';
 import type { SwitchRecord } from './useSwitchNotice';
-import { accountName, activeAccount, cliMissing, fetchedText, InlineWindows, limitsProblem, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
+import { accountName, activeAccount, cliMissing, fetchedText, InlineWindows, limitsProblem, oldestRead, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
 import { Sheet, usePhone } from './Phone';
 import { useDismiss } from './popover';
@@ -21,8 +21,6 @@ export type Usage = {
   accounts: AccountView[] | null;
   /** 위치마다 Cursor CLI 로그인. 처음 읽기 전에는 null이다. */
   cursor: CursorView[] | null;
-  /** 마지막으로 읽은 시각(ms). */
-  fetchedAt: number | null;
   loading: boolean;
   refresh: () => void;
 };
@@ -175,6 +173,7 @@ function UsageBody(props: {
 }) {
   const { t } = useTranslation();
   const { usage } = props;
+  const read = oldestRead(usage.accounts, usage.cursor);
   /** 계정 목록을 펼친 공급자. Orca는 공급자 줄을 누르면 계정 바꾸기를 연다. */
   const [expanded, setExpanded] = useState<Provider | null>(null);
   return (
@@ -192,7 +191,7 @@ function UsageBody(props: {
       ))}
       {props.cursor && <CursorSection usage={props.cursor.usage} />}
       <div className="usage-foot">
-        {usage.fetchedAt !== null && fetchedText(usage.fetchedAt, Date.now())}
+        {read !== null && fetchedText(read, Date.now())}
         {props.onManage && (
           <button className="btn ghost sm" onClick={props.onManage}>
             {t('statusBar.manage')}

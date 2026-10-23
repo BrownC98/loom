@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { choices } from './choices';
+import cases from './choices.cases.json';
 
 describe('choices', () => {
   it('reads the standard form and marks the recommended option', () => {
@@ -35,5 +36,11 @@ describe('choices', () => {
     expect(choices('Delete? (note: no undo)')).toEqual([]);
     expect(choices('(A: only one)')).toEqual([]);
     expect(choices('(A: x / B: y) and more text')).toEqual([]);
+  });
+
+  it('agrees with the Rust parser on the shared cases', () => {
+    for (const { question, options } of cases) {
+      expect(choices(question), question).toEqual(options);
+    }
   });
 });

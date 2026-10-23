@@ -2,6 +2,7 @@
 //! 설정·계정·사용량 라우트는 `settings.rs`에 둔다.
 
 mod carry;
+pub mod gate;
 mod idle;
 mod lan;
 mod origin;
@@ -48,8 +49,8 @@ use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
-    NodeId, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc, WaitId,
-    WaitKind, WaitSource,
+    NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, Via,
+    WaitDoc, WaitId, WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -617,7 +618,12 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/rm", post(agent_remove))
-        .route("/api/agent/relaunch", post(relaunch::agent_relaunch));
+        .route("/api/agent/relaunch", post(relaunch::agent_relaunch))
+        .route("/api/agent/ready", post(gate::agent_ready))
+        .route("/api/agent/verdict", post(gate::agent_verdict))
+        .route("/api/agent/merge", post(gate::agent_merge))
+        .route("/api/agent/merged", post(gate::agent_merged))
+        .route("/api/agent/fail", post(gate::agent_fail));
     let router = node_routes
         .clone()
         .route("/api/repos", get(list_repos).post(add_repo))
@@ -2002,7 +2008,14 @@ async fn agent_spawn(
     };
     let made = worktree.as_ref().map(|(_, made)| made.as_str());
     let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
-    let spawned = spawn_child(&app, parent, &req.name, &start, &queued_brief, made, cwd).await;
+    let child = NewChild {
+        name: &req.name,
+        worktree: made,
+        agent: start.agent(),
+        brief: &queued_brief,
+        role: req.role.as_deref(),
+    };
+    let spawned = spawn_child(&app, parent, child, &start, cwd).await;
     // 자식을 띄우지 못하면 이 요청이 만든 워크트리와 브랜치를 지운다. 거절만 남긴다.
     if let (Some((repo, made)), Err(_)) = (&worktree, &spawned)
         && let Err(e) = worktree::discard(repo, made).await
@@ -2017,17 +2030,15 @@ async fn agent_spawn(
 async fn spawn_child(
     app: &Arc<App>,
     parent: NodeId,
-    name: &str,
+    child: NewChild<'_>,
     start: &Start,
-    queued_brief: &str,
-    worktree: Option<&str>,
     cwd: &std::path::Path,
 ) -> Result<NodeId, AgentError> {
     let mut prepared = app
         .prepare(start, cwd, Position::Child)
         .await
         .map_err(for_agent)?;
-    if worktree.is_some() {
+    if child.worktree.is_some() {
         prepared.setup = worktree::setup_script(cwd).map(|line| prepared.shell(&line));
     }
     let discard = prepared.discarder();
@@ -2036,18 +2047,9 @@ async fn spawn_child(
         .map_err(for_agent)
         .inspect_err(|_| discard())?;
     app.graph
-        .add_child(
-            parent,
-            NewChild {
-                name,
-                worktree,
-                agent: start.agent(),
-                brief: queued_brief,
-            },
-            limits,
-            &prepared.launched(),
-            |id| app.launch(id, prepared),
-        )
+        .add_child(parent, child, limits, &prepared.launched(), |id| {
+            app.launch(id, prepared)
+        })
         .map_err(for_agent)
         .inspect_err(|_| discard())
 }
@@ -2058,19 +2060,32 @@ async fn agent_send(
     Json(req): Json<SendRequest>,
 ) -> Result<Json<Sent>, AgentError> {
     let from = app.caller(&headers)?;
-    let sent = send(&app, from, &req);
-    // 거절은 보낸 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
-    if let Err(reason) = &sent
+    let via = gate::via(&headers, "/api/agent/send");
+    let sent = send(&app, from, &req, &via);
+    recorded(&app, from, &req.to, req.kind, &via, sent)
+}
+
+/// 거절은 보낸 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
+fn recorded<T>(
+    app: &App,
+    from: NodeId,
+    to: &str,
+    how: Kind,
+    via: &Via,
+    result: Result<T, Refusal>,
+) -> Result<Json<T>, AgentError> {
+    if let Err(reason) = &result
         && !matches!(reason, Refusal::Db(_))
     {
         app.graph
-            .record_refusal(from, &req.to, req.kind, reason)
+            .record_refusal(from, to, how, reason, Some(via))
             .map_err(|e| for_agent(Refusal::from(e)))?;
     }
-    sent.map(Json).map_err(for_agent)
+    result.map(Json).map_err(for_agent)
 }
 
-fn send(app: &App, from: NodeId, req: &SendRequest) -> Result<Sent, Refusal> {
+fn send(app: &App, from: NodeId, req: &SendRequest, via: &Via) -> Result<Sent, Refusal> {
+    app.gate_word(from, &req.body)?;
     if req.kind != Kind::Queue {
         let (to, agent) = app.graph.related(from, &req.to)?;
         let target = format!("#{}", to.0);
@@ -2079,13 +2094,18 @@ fn send(app: &App, from: NodeId, req: &SendRequest) -> Result<Sent, Refusal> {
         };
         // 셸 앞에 `loom guard`를 붙이는 프로필만 그 셸을 끝낸다.
         if req.kind == Kind::Interrupt && matches!(profile, Profile::Claude | Profile::Cursor) {
-            return app.graph.interrupt(from, &target, &req.body, |to| {
-                app.host.stop_guarded(to);
-            });
+            return app
+                .graph
+                .interrupt(from, &target, &req.body, Some(via), |to| {
+                    app.host.stop_guarded(to);
+                });
         }
-        return app.graph.send(from, &target, req.kind, &req.body);
+        return app
+            .graph
+            .send(from, &target, req.kind, &req.body, Some(via));
     }
-    app.graph.send(from, &req.to, req.kind, &req.body)
+    app.graph
+        .send(from, &req.to, req.kind, &req.body, Some(via))
 }
 
 async fn agent_reply(
@@ -2094,10 +2114,12 @@ async fn agent_reply(
     Json(req): Json<ReplyRequest>,
 ) -> Result<Json<Sent>, AgentError> {
     let from = app.caller(&headers)?;
-    app.graph
-        .reply(from, req.message, &req.body)
-        .map(Json)
-        .map_err(for_agent)
+    let via = gate::via(&headers, "/api/agent/reply");
+    let sent = app
+        .gate_word(from, &req.body)
+        .and_then(|()| app.graph.reply(from, req.message, &req.body, Some(&via)));
+    let to = format!("message #{}", req.message.0);
+    recorded(&app, from, &to, Kind::Queue, &via, sent)
 }
 
 async fn agent_status(
@@ -2251,11 +2273,18 @@ async fn agent_done(
         done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
     let doc = attach(req.doc.as_deref())?;
-    let alive_children = app
-        .graph
-        .done(node, &req.summary, req.asked.as_deref(), &req.images, doc)
-        .map_err(for_agent)?;
-    Ok(Json(alive_children))
+    let via = gate::via(&headers, "/api/agent/done");
+    let done = app.gate_word(node, &req.summary).and_then(|()| {
+        app.graph.done(
+            node,
+            &req.summary,
+            req.asked.as_deref(),
+            &req.images,
+            doc,
+            Some(&via),
+        )
+    });
+    recorded(&app, node, PARENT, Kind::Queue, &via, done)
 }
 
 /// 브라우저가 `<img>`로 그리는 그림 꼴. 받은편지함이 완료 줄의 파일을 그대로 낸다.

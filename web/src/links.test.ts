@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import cases from './links.cases.json';
 import { DOC_LINK, linkParts, plainText } from './links';
 
 describe('linkParts', () => {
@@ -24,5 +25,11 @@ describe('linkParts', () => {
   });
   it('keeps only labels in plain text', () => {
     expect(plainText('see [b.html](file:///x/b.html).')).toBe('see b.html.');
+  });
+  it('draws exactly the links the daemon accepts (shared cases)', () => {
+    for (const { text, links } of cases.filter((c) => !c.refused)) {
+      const hrefs = linkParts(text).flatMap((part) => ('href' in part ? [part.href] : []));
+      expect(hrefs, text).toEqual(links);
+    }
   });
 });

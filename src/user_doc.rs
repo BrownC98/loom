@@ -11,6 +11,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::graph::WaitDoc;
+use crate::link_text::DOC_LINK;
 
 /// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
@@ -317,10 +318,6 @@ fn number(id: &str) -> u32 {
     id[1..].parse().unwrap_or(0)
 }
 
-/// 본문 속 문서 링크의 주소 표지. 화면(`web/src/links.ts` `DOC_LINK`)이 이 자리에 붙은 문서의 링크를 그린다.
-/// 근거: 2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘".
-pub const DOC_LINK: &str = "loom:doc";
-
 /// 글 속 markdown 링크 `[이름](주소)` 가운데 주소가 `doc` 파일인 것의 주소를 `DOC_LINK`로 바꾼다.
 /// 주소는 `file://` 주소(퍼센트 인코딩 포함)나 경로이고, WSL 노드의 Linux 경로도 받는다. 파일 경로는 데몬만 알아야 하므로 글에 남기지 않는다.
 pub fn inline_link(text: &str, doc: &Path) -> String {
@@ -332,29 +329,7 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
     while let Some(open) = rest.find('[') {
         let (before, link) = rest.split_at(open);
         out.push_str(before);
-        let parsed = link[1..].split_once("](").and_then(|(label, after)| {
-            // CommonMark는 주소를 `<…>`로 감쌀 수 있고, 감싼 주소에는 빈칸이 들 수 있다(2026-10-23 검토 BLOCK).
-            let (target, end) = match after.strip_prefix('<') {
-                Some(wrapped) => {
-                    let (target, tail) = wrapped.split_once('>')?;
-                    tail.starts_with(')')
-                        .then_some((target, target.len() + 3))?
-                }
-                None => {
-                    let target = after.split_once(')')?.0;
-                    if target.contains(char::is_whitespace) {
-                        return None;
-                    }
-                    (target, target.len() + 1)
-                }
-            };
-            let ok = !label.is_empty()
-                && !label.contains(['[', ']', '\n'])
-                && !target.is_empty()
-                && !target.contains('\n');
-            ok.then_some((label, target, label.len() + 3 + end))
-        });
-        match parsed {
+        match crate::link_text::parse_link(link) {
             Some((label, target, len))
                 if link_path(target).is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
             {

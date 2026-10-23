@@ -1,0 +1,69 @@
+[
+  {
+    "text": "[시트](https://docs.google.com/a/b) 열기.",
+    "refused": false,
+    "links": [
+      "https://docs.google.com/a/b"
+    ]
+  },
+  {
+    "text": "[보고서](file:///home/a/b.md)와 [x](https://a.io)",
+    "refused": false,
+    "links": [
+      "file:///home/a/b.md",
+      "https://a.io"
+    ]
+  },
+  {
+    "text": "[R9](loom:doc) 승인?",
+    "refused": false,
+    "links": [
+      "loom:doc"
+    ]
+  },
+  {
+    "text": "and/or 선택, 승인 / 거절, 경로/home, `/code-review` 돌릴까요? </div> 50%/day (/)",
+    "refused": false,
+    "links": []
+  },
+  {
+    "text": "[깨진 링크 https",
+    "refused": false,
+    "links": []
+  },
+  {
+    "text": "작성: https://a.io/x.",
+    "refused": true,
+    "links": []
+  },
+  {
+    "text": "[x](<https://a.io/b>)",
+    "refused": true,
+    "links": []
+  },
+  {
+    "text": "[x](https://a.io/a(b)/c)",
+    "refused": true,
+    "links": []
+  },
+  {
+    "text": "[r](/home/a/b.md)",
+    "refused": true,
+    "links": []
+  },
+  {
+    "text": "[r](C:\\a\\b.md)",
+    "refused": true,
+    "links": []
+  },
+  {
+    "text": "`/tmp/a` 와 path=/tmp/b",
+    "refused": true,
+    "links": []
+  },
+  {
+    "text": "_https://a.io_",
+    "refused": true,
+    "links": []
+  }
+]

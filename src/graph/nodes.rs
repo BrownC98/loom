@@ -21,6 +21,8 @@ pub struct NewChild<'a> {
     pub worktree: Option<&'a str>,
     pub agent: Option<AgentId>,
     pub brief: &'a str,
+    /// `loom spawn --role`의 역할 이름. 관문을 고를 때 쓴다(`protocol::COORDINATOR_ROLE`, `CI_ROLE`).
+    pub role: Option<&'a str>,
 }
 
 /// 에이전트 없이 띄운 노드(셸) 이름의 앞부분.
@@ -87,6 +89,7 @@ impl Graph {
             worktree,
             agent,
             brief,
+            role,
         } = child;
         let name = checked_name(name)?;
         if brief.len() > BRIEF_LIMIT_BYTES {
@@ -115,9 +118,20 @@ impl Graph {
             ..place
         };
         let id = insert(&tx, name, &agent, Some(parent), &place)?;
+        tx.execute(
+            "UPDATE nodes SET role = ?2 WHERE id = ?1",
+            params![id.0, role],
+        )?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
-            mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
+            mailbox::enqueue(
+                &tx,
+                parent,
+                Some(id),
+                Kind::Queue,
+                brief,
+                Default::default(),
+            )?;
         }
         keep(&tx, id, launched)?;
         tx.commit()?;
@@ -233,7 +247,7 @@ impl Graph {
         let parent = parent_of(&tx, id)?;
         if state == NodeState::Running {
             set_state(&tx, id, &ended)?;
-            mailbox::enqueue(&tx, id, parent, Kind::Queue, &notice)?;
+            mailbox::enqueue(&tx, id, parent, Kind::Queue, &notice, Default::default())?;
         }
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -560,7 +574,7 @@ impl Graph {
             id.0
         );
         for &to in &relatives {
-            mailbox::enqueue(&tx, id, Some(to), Kind::Queue, &notice)?;
+            mailbox::enqueue(&tx, id, Some(to), Kind::Queue, &notice, Default::default())?;
         }
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -623,7 +637,14 @@ fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
     let waiting_parent = parent_of(tx, id)?.filter(|_| state == NodeState::Running);
     // 보낸 노드 이름을 읽으므로 지우기 전에 넣는다.
     if let Some(parent) = waiting_parent {
-        mailbox::enqueue(tx, id, Some(parent), Kind::Queue, "removed")?;
+        mailbox::enqueue(
+            tx,
+            id,
+            Some(parent),
+            Kind::Queue,
+            "removed",
+            Default::default(),
+        )?;
     }
     tx.execute(
         "UPDATE messages SET recipient = NULL
@@ -708,7 +729,14 @@ fn adopt_in(
     let told_old = old.filter(|_| state_of(tx, child).ok() == Some(NodeState::Running));
     if let Some(old) = told_old {
         let notice = format!("adopted: {}", name_of(tx, parent)?);
-        mailbox::enqueue(tx, child, Some(old), Kind::Queue, &notice)?;
+        mailbox::enqueue(
+            tx,
+            child,
+            Some(old),
+            Kind::Queue,
+            &notice,
+            Default::default(),
+        )?;
     }
     tx.execute(
         "UPDATE nodes SET parent = ?2 WHERE id = ?1",
@@ -724,6 +752,7 @@ fn adopt_in(
             name_of(tx, parent)?,
             parent.0
         ),
+        Default::default(),
     )?;
     let moved = tx.execute(
         "UPDATE messages SET recipient = ?2 WHERE recipient IS NULL AND sender = ?1",

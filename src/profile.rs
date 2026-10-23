@@ -663,7 +663,7 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
 /// 모든 프로필이 받는 통신 명령. 프로필별 대기 방식은 각 실행 지시가 정한다.
 /// 백그라운드 규칙: 앞에서 도는 긴 명령 동안 조정이 넘어가지 않아 「안 읽음」을 눌러도 고장처럼 보였다(2026-10-22 사람 결정 Q322 B).
 /// 기준은 시간이 아니라 다음 단계에 결과가 바로 필요한가다(2026-10-22 사람 지시 "백그라운드로 넣을 수 있으면 넣는걸로 하라 시간 단위가 아니라", Q339 A). 짧은 조회까지 보내면 끝 알림마다 턴이 늘었다.
-pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
+pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
 - loom spawn <name> (--agent <agent-id> | --role <role>) [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>. loom roles lists the roles.
 - loom status: your ID, parent and children, and whether their processes are alive. loom status --all lists every node.
 - loom send <target> <body>: queue a message. A name finds your parent or child first, then a live node with that name.
@@ -675,10 +675,10 @@ pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use these
 - loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
 - loom adopt <name>: become that node's parent. loom rm <target>: remove your child and end its process; its children become yours.
 - loom relaunch [<child>]: restart your own (or your child's) agent process with the current loom settings; the conversation continues after the turn ends.
-Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
+", crate::gate_usage!(), "Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
 With a parent, write no progress in the terminal. Results go in loom done or loom send. End each turn with at most one short line.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with \"loom message #<id>\". The same ID can come again; do not repeat completed actions for that ID.";
+Messages begin with \"loom message #<id>\". The same ID can come again; do not repeat completed actions for that ID.");
 
 /// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {

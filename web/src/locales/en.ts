@@ -594,6 +594,7 @@ const en = {
       gateWord: 'Do not write gate word {{word}} in a message. Use `{{verb}}`.',
       ownVerdict: '{{value}}: you cannot judge your own branch.',
       staleRun: 'This report is not from the current merge run.',
+      nothingToMerge: '{{branch}} has no commit that {{target}} does not have.',
       notMerged: 'The reported merge commit is not in the target branch.',
       noGateScripts: 'This repository has no gate scripts (scripts/gate).',
       git: 'git failed: {{value}}',

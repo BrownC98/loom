@@ -46,6 +46,8 @@ pub struct MergeTask {
     pub run: i64,
     /// 이 실행을 시작하기 전 상태. `Merging`이면 앞 실행의 끝 보고가 오지 않았다.
     pub from: GateState,
+    /// 이 브랜치를 마지막으로 병합한 커밋.
+    pub merged: Option<String>,
 }
 
 /// `loom merge`가 끝난 꼴과 알릴 값.
@@ -76,6 +78,7 @@ struct Row {
     head: String,
     since: i64,
     run: i64,
+    merged: Option<String>,
 }
 
 /// 관문 호출 하나가 받는 노드에 덧붙이는 줄과 줄에 쓸 값.
@@ -238,6 +241,7 @@ impl Graph {
             since: row.since,
             run: row.run,
             from,
+            merged: row.merged,
         })
     }
 
@@ -253,20 +257,20 @@ impl Graph {
             head: row.head,
             since: row.since,
             run: row.run,
+            merged: row.merged,
         })
     }
 
-    /// 같은 저장소에서 `target`에 관문이 마지막으로 병합한 커밋. 그 뒤 대상 커밋은 관문 밖이다.
-    pub fn last_merged(&self, caller: NodeId, target: &str) -> rusqlite::Result<Option<String>> {
+    /// 같은 저장소에서 관문이 `target`에 병합한 커밋(브랜치마다 마지막 것). 순서는 git의 첫 부모 줄이 정한다:
+    /// 초 단위 시각은 같은 초의 두 병합을 가르지 못한다(검토 Codex R4).
+    pub fn gate_merges(&self, caller: NodeId, target: &str) -> rusqlite::Result<Vec<String>> {
         let db = self.lock();
         let repo = place_of(&db, caller)?.repo;
-        db.query_row(
-            "SELECT merged FROM gates WHERE repo = ?1 AND target = ?2 AND merged IS NOT NULL
-             ORDER BY merged_at DESC LIMIT 1",
-            params![repo.0, target],
-            |r| r.get(0),
-        )
-        .optional()
+        db.prepare(
+            "SELECT merged FROM gates WHERE repo = ?1 AND target = ?2 AND merged IS NOT NULL",
+        )?
+        .query_map(params![repo.0, target], |r| r.get(0))?
+        .collect()
     }
 
     /// audit 가운데 DB로 아는 것: 이번 차례의 흔적 구간이 빈틈없는지, 담당과 그 자손(같은 저장소)이 관문 동사 밖으로 관문 낱말을 보냈는지.
@@ -427,6 +431,7 @@ impl Graph {
                 head: String::new(),
                 since: 0,
                 run: 0,
+                merged: None,
             },
         };
         write(&tx, &row)?;
@@ -519,7 +524,7 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
 fn load(db: &Connection, caller: NodeId, branch: &str) -> rusqlite::Result<Option<Row>> {
     let repo = place_of(db, caller)?.repo;
     db.query_row(
-        "SELECT owner, gate, target, worktree, state, head, opened, run FROM gates WHERE repo = ?1 AND branch = ?2",
+        "SELECT owner, gate, target, worktree, state, head, opened, run, merged FROM gates WHERE repo = ?1 AND branch = ?2",
         params![repo.0, branch],
         |row| {
             Ok(Row {
@@ -531,6 +536,7 @@ fn load(db: &Connection, caller: NodeId, branch: &str) -> rusqlite::Result<Optio
                 head: row.get(5)?,
                 since: row.get(6)?,
                 run: row.get(7)?,
+                merged: row.get(8)?,
             })
         },
     )
@@ -547,8 +553,7 @@ fn update(
 ) -> rusqlite::Result<()> {
     let repo = place_of(db, caller)?.repo;
     db.execute(
-        "UPDATE gates SET state = ?3, verdict = coalesce(?4, verdict), merged = coalesce(?5, merged),
-            merged_at = CASE WHEN ?5 IS NULL THEN merged_at ELSE unixepoch() END, updated = unixepoch()
+        "UPDATE gates SET state = ?3, verdict = coalesce(?4, verdict), merged = coalesce(?5, merged), updated = unixepoch()
          WHERE repo = ?1 AND branch = ?2",
         params![repo.0, branch, to_json(&state), verdict, merged],
     )?;

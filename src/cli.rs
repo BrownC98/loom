@@ -527,11 +527,9 @@ pub fn fail(branch: String, cause: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 관문이 부른다. 저장소의 병합 잠금을 잡고, 데몬이 audit를 하고 할 일을 주면, 이 프로세스가 워크트리 옆에서 검사·병합한다.
+/// 관문이 부른다. 데몬이 audit를 하고 할 일을 주면, 이 프로세스가 대상 체크아웃에서 병합 일 하나(`MERGE_RUN`)를 띄운다.
 /// 결과는 데몬에 알린다. 담당이 고칠 일이나 실패로 끝나면 0이 아닌 코드로 끝난다.
 pub fn merge(branch: String) -> Result<(), String> {
-    let here = std::env::current_dir().map_err(|e| e.to_string())?;
-    let _lock = MergeLock::take(&here.to_string_lossy())?;
     let plan: MergePlan = call(
         "merge",
         &BranchRequest {
@@ -559,8 +557,35 @@ pub fn merge(branch: String) -> Result<(), String> {
             into,
         } => (worktree, head, run, into),
     };
-    let log = merge_log(&worktree, &branch)?;
-    let result = run_merge(&branch, &worktree, &head, into, &log);
+    let (dir, ship) = match &into {
+        MergeInto::Main { checkout } => (checkout.as_str(), protocol::SHIP_SCRIPT),
+        MergeInto::Branch { worktree } => (worktree.as_str(), ""),
+    };
+    let log = merge_log(dir, &branch)?;
+    if lock_busy(dir) {
+        println!(
+            "Waiting for another loom merge in this repository (up to {} minutes).",
+            MERGE_LOCK_WAIT_SECS / 60
+        );
+    }
+    let mut work = crate::wsl::command(dir, "bash");
+    work.args([
+        "-c",
+        MERGE_RUN,
+        "loom-merge",
+        &inside(&worktree),
+        &head,
+        &branch,
+        ship,
+        &MERGE_LOCK_WAIT_SECS.to_string(),
+    ]);
+    let code = logged(&mut work, &log);
+    if code == Ok(RUN_ALREADY_MERGED) {
+        // 코디 브랜치에 앞 실행이 이미 병합했다. 데몬이 git에서 그 병합을 찾아 남긴다.
+        println!("{branch} is already in its target branch. Asking loom to record that merge.");
+        return merge(branch);
+    }
+    let result = merge_result(code, &into, &log);
     let request = MergedRequest {
         branch: branch.clone(),
         run,
@@ -582,57 +607,93 @@ pub fn merge(branch: String) -> Result<(), String> {
     }
 }
 
-/// 저장소 하나의 `loom merge`는 한 번에 하나만 돈다. 잠금은 공유 git 폴더의 `loom-merge.lock`에 `flock`으로 잡는다.
-/// 잡은 `flock`은 이 프로세스의 표준 입력이 닫힐 때까지 산다. 이 프로세스가 끝나거나 죽으면 풀린다(검토 P2-4).
-/// WSL 저장소에서는 배포판 안의 `flock`이다. Windows `loom.exe` 여럿과 Linux `loom`이 같은 잠금을 본다.
-struct MergeLock(std::process::Child);
+/// 병합 일 하나: 저장소의 병합 잠금을 기다려 잡고, 담당 워크트리가 검토한 커밋에 깨끗이 있는지 보고, check.sh, 다시 보기,
+/// 그 뒤 원래 체크아웃이면 ship.sh, 코디 워크트리면 `git merge --no-ff`를 한다. 시작 폴더는 대상 체크아웃이다.
+/// 잠금은 이 셸의 fd 9가 쥔다. 자식(ship.sh)도 물려받으므로 `loom merge`가 죽어도 일이 끝날 때까지 풀리지 않는다(코디 결정 2).
+/// 대상에 검토한 커밋이 이미 있으면: ship.sh는 앞 실행을 이어 push·배포 확인만 하고(결정 7), 코디 브랜치면 `RUN_ALREADY_MERGED`로 끝난다.
+/// 인자: 담당 워크트리, 검토한 커밋, 브랜치, ship.sh 경로(코디 브랜치면 빈 글), 잠금 대기 초.
+const MERGE_RUN: &str = r#"set -u
+wt=$1 head=$2 branch=$3 ship=$4 wait=$5
+exec 9>>"$(git rev-parse --path-format=absolute --git-common-dir)/loom-merge.lock"
+flock -E 75 -w "$wait" 9 || { echo "another loom merge held the lock for $wait seconds"; exit 75; }
+if git merge-base --is-ancestor "$head" HEAD; then
+  [ -n "$ship" ] && exec bash "$ship" "$branch" "$head"
+  exit 12
+fi
+at() { [ "$(git -C "$wt" rev-parse HEAD)" = "$head" ] && [ -z "$(git -C "$wt" status --porcelain)" ]; }
+at || { echo "the worktree of $branch is not clean at the reviewed commit $head"; exit 13; }
+(cd "$wt" && bash scripts/gate/check.sh) || { echo "scripts/gate/check.sh exited $?"; exit 14; }
+at || { echo "the worktree of $branch moved during the checks"; exit 13; }
+[ -n "$ship" ] && exec bash "$ship" "$branch" "$head"
+git merge --no-ff -m "Merge branch '$branch'" "$head" || { git merge --abort; exit 10; }
+git rev-parse HEAD
+"#;
+const RUN_ALREADY_MERGED: i32 = 12;
+const RUN_MOVED: i32 = 13;
+const RUN_CHECK_FAILED: i32 = 14;
+const RUN_LOCK_TIMEOUT: i32 = 75;
+/// 다른 병합을 기다리는 상한. check.sh는 메모리 여유를 40분까지 기다린 뒤 빌드·시험한다(scripts/gate/check.sh).
+const MERGE_LOCK_WAIT_SECS: u32 = 3600;
 
-impl MergeLock {
-    const SCRIPT: &str = r#"exec flock -n "$(git rev-parse --path-format=absolute --git-common-dir)/loom-merge.lock" sh -c 'echo locked; exec cat >/dev/null'"#;
-    /// `flock -n`이 잠금을 못 잡으면 1로 끝난다.
-    const BUSY: i32 = 1;
-
-    fn take(dir: &str) -> Result<Self, String> {
-        let mut cmd = crate::wsl::command(dir, "sh");
-        cmd.args(["-c", Self::SCRIPT])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("could not take the merge lock: {e}"))?;
-        let mut line = String::new();
-        if let Some(out) = child.stdout.take() {
-            let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(out), &mut line);
-        }
-        if line.trim() == "locked" {
-            return Ok(MergeLock(child));
-        }
-        drop(child.stdin.take());
-        let out = child.wait_with_output().map_err(|e| e.to_string())?;
-        match out.status.code() {
-            Some(Self::BUSY) => Err(
-                "Another `loom merge` runs in this repository now. Call it again after that run ends.".into(),
-            ),
-            _ => Err(format!(
-                "could not take the merge lock: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            )),
-        }
+/// 병합 일의 끝 코드를 데몬에 알릴 결과로.
+fn merge_result(code: Result<i32, String>, into: &MergeInto, log: &Path) -> MergeResult {
+    let log_text = crate::wsl::for_caller(log);
+    let failed = |cause: String| MergeResult::Failed {
+        cause,
+        log: log_text.clone(),
+    };
+    let rework = |cause: String| MergeResult::Rework {
+        cause,
+        log: log_text.clone(),
+    };
+    let merged = |deploy| match last_commit(log) {
+        Some(sha) => MergeResult::Merged {
+            sha,
+            deploy,
+            log: log_text.clone(),
+        },
+        None => failed("the merge did not print the merged commit on its last line".into()),
+    };
+    let main = matches!(into, MergeInto::Main { .. });
+    match code {
+        Err(e) => failed(e),
+        Ok(0) if main => merged(Deploy::Confirmed),
+        Ok(0) => merged(Deploy::NotApplicable),
+        Ok(protocol::SHIP_DEPLOY_FAILED) if main => merged(Deploy::Failed),
+        Ok(protocol::SHIP_REWORK) => rework(
+            "the merge found an owner-fixable problem (conflict, or the target moved)".into(),
+        ),
+        Ok(RUN_MOVED) => rework(
+            "the worktree was not clean at the reviewed commit. Commit nothing during the gate; call `loom ready` again".into(),
+        ),
+        Ok(RUN_CHECK_FAILED) => rework(format!("{} failed", protocol::CHECK_SCRIPT)),
+        Ok(RUN_LOCK_TIMEOUT) => failed(format!(
+            "another loom merge held the repository lock for {} minutes",
+            MERGE_LOCK_WAIT_SECS / 60
+        )),
+        Ok(code) => failed(format!("the merge exited {code}")),
     }
 }
 
-impl Drop for MergeLock {
-    fn drop(&mut self) {
-        drop(self.0.stdin.take());
-        let _ = self.0.wait();
-    }
+/// 다른 `loom merge`가 이 저장소의 잠금을 쥐었는가. 기다린다고 알리는 데만 쓴다.
+fn lock_busy(dir: &str) -> bool {
+    let mut probe = crate::wsl::command(dir, "sh");
+    probe.args([
+        "-c",
+        r#"exec flock -n "$(git rev-parse --path-format=absolute --git-common-dir)/loom-merge.lock" true"#,
+    ]);
+    output(&mut probe).is_err()
+}
+
+/// 병합 일의 셸이 읽는 경로: 데몬이 준 WSL UNC 경로는 배포판 안의 경로로 바꾼다.
+fn inside(path: &str) -> String {
+    crate::wsl::location(path).map_or_else(|| path.to_owned(), |w| w.path)
 }
 
 /// `<공유 git 폴더>/loom-gate/<브랜치>-merge-<유닉스 초>.log`. 워크트리 안에 두면 미커밋 변경이 된다.
 /// git 폴더는 WSL 에이전트와 Windows `loom.exe`가 모두 읽고 쓴다(홈 폴더는 둘이 다르다).
-fn merge_log(worktree: &str, branch: &str) -> Result<PathBuf, String> {
-    let mut common = crate::wsl::command(worktree, "git");
+fn merge_log(dir: &str, branch: &str) -> Result<PathBuf, String> {
+    let mut common = crate::wsl::command(dir, "git");
     common.args(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
     let common = output(&mut common)?;
     let dir = crate::wsl::from_caller(PathBuf::from(common.trim())).join("loom-gate");
@@ -641,107 +702,6 @@ fn merge_log(worktree: &str, branch: &str) -> Result<PathBuf, String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     Ok(dir.join(format!("{}-merge-{now}.log", branch.replace('/', "-"))))
-}
-
-fn run_merge(branch: &str, worktree: &str, head: &str, into: MergeInto, log: &Path) -> MergeResult {
-    let shown = crate::wsl::for_caller(log);
-    let failed = |cause: String| MergeResult::Failed {
-        cause,
-        log: shown.clone(),
-    };
-    let rework = |cause: String| MergeResult::Rework {
-        cause,
-        log: shown.clone(),
-    };
-    // 검사한 글이 병합할 커밋이어야 한다. 검사 앞뒤로 워크트리가 그 커밋에 깨끗이 있는지 본다(검토 P2-2).
-    let at_head = |when: &str| -> Result<(), MergeResult> {
-        match worktree_at(worktree) {
-            Ok((now, clean)) if now == head && clean => Ok(()),
-            Ok((now, _)) => Err(rework(format!(
-                "{when} the checks, the worktree of {branch} was not clean at the reviewed commit {head} (HEAD {now}). Commit nothing during the gate; call `loom ready` again"
-            ))),
-            Err(e) => Err(failed(e)),
-        }
-    };
-    if let Err(result) = at_head("before") {
-        return result;
-    }
-    let mut check = crate::wsl::command(worktree, "bash");
-    check.arg(protocol::CHECK_SCRIPT);
-    match logged(&mut check, log) {
-        Ok(0) => {}
-        Ok(code) => return rework(format!("{} exited {code}", protocol::CHECK_SCRIPT)),
-        Err(e) => return failed(e),
-    }
-    if let Err(result) = at_head("after") {
-        return result;
-    }
-    match into {
-        MergeInto::Main { checkout } => {
-            let mut ship = crate::wsl::command(&checkout, "bash");
-            ship.args([protocol::SHIP_SCRIPT, branch, head]);
-            let deploy = match logged(&mut ship, log) {
-                Ok(0) => Deploy::Confirmed,
-                Ok(protocol::SHIP_DEPLOY_FAILED) => Deploy::Failed,
-                Ok(protocol::SHIP_REWORK) => {
-                    return rework(format!(
-                        "{} found an owner-fixable problem (conflict, or the target moved)",
-                        protocol::SHIP_SCRIPT
-                    ));
-                }
-                Ok(code) => return failed(format!("{} exited {code}", protocol::SHIP_SCRIPT)),
-                Err(e) => return failed(e),
-            };
-            match last_commit(log) {
-                Some(sha) => MergeResult::Merged {
-                    sha,
-                    deploy,
-                    log: shown.clone(),
-                },
-                None => failed(format!(
-                    "{} did not print the merged commit on its last line",
-                    protocol::SHIP_SCRIPT
-                )),
-            }
-        }
-        MergeInto::Branch { worktree: target } => {
-            let message = format!("Merge branch '{branch}'");
-            let mut merge = crate::wsl::command(&target, "git");
-            merge.args(["merge", "--no-ff", "-m", &message, head]);
-            match logged(&mut merge, log) {
-                Ok(0) => {}
-                Ok(_) => {
-                    let mut abort = crate::wsl::command(&target, "git");
-                    abort.args(["merge", "--abort"]);
-                    let _ = logged(&mut abort, log);
-                    return rework(format!("git merge into {target} failed"));
-                }
-                Err(e) => return failed(e),
-            }
-            let mut sha = crate::wsl::command(&target, "git");
-            sha.args(["rev-parse", "HEAD"]);
-            match output(&mut sha) {
-                Ok(sha) => MergeResult::Merged {
-                    sha: sha.trim().to_owned(),
-                    deploy: Deploy::NotApplicable,
-                    log: shown.clone(),
-                },
-                Err(e) => failed(e),
-            }
-        }
-    }
-}
-
-/// 워크트리의 HEAD 커밋과 미커밋 변경이 없는지.
-fn worktree_at(worktree: &str) -> Result<(String, bool), String> {
-    let mut head = crate::wsl::command(worktree, "git");
-    head.args(["rev-parse", "HEAD"]);
-    let mut status = crate::wsl::command(worktree, "git");
-    status.args(["status", "--porcelain"]);
-    Ok((
-        output(&mut head)?.trim().to_owned(),
-        output(&mut status)?.trim().is_empty(),
-    ))
 }
 
 /// 명령의 표준 출력. 0이 아니게 끝나면 표준 오류가 오류다.
@@ -1004,5 +964,173 @@ mod tests {
         assert_eq!(got, Ok(vec![7]));
         let gone = "HTTP/1.1 410 Gone\r\ncontent-length: 4\r\n\r\ngone";
         assert!(matches!(ask(&answering(gone)), Err(CallError::Refused(e)) if e == "gone"));
+    }
+
+    /// 병합 일(`MERGE_RUN`)을 실제 bash·git·flock으로 돌린다. Windows 대상 시험은 WSL 경로를 `wsl::tests`가 본다.
+    #[cfg(unix)]
+    mod merge_run {
+        use super::*;
+        use std::process::Command;
+
+        struct Repo {
+            _dir: tempfile::TempDir,
+            main: PathBuf,
+            wt: PathBuf,
+            head: String,
+        }
+
+        fn git(dir: &Path, args: &[&str]) -> String {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        }
+
+        /// main 체크아웃과 브랜치 `기능`의 워크트리. check.sh는 `check-fails` 파일이 있으면 실패한다.
+        fn repo() -> Repo {
+            let dir = tempfile::tempdir().unwrap();
+            let main = dir.path().join("main");
+            std::fs::create_dir_all(main.join("scripts/gate")).unwrap();
+            git(&main, &["init", "-q", "-b", "main"]);
+            git(&main, &["config", "user.email", "t@t"]);
+            git(&main, &["config", "user.name", "t"]);
+            std::fs::write(
+                main.join("scripts/gate/check.sh"),
+                "[ ! -e check-fails ] && echo checked\n",
+            )
+            .unwrap();
+            std::fs::write(
+                main.join("scripts/gate/ship.sh"),
+                "echo \"ship $1 $2\"; sleep \"${SHIP_SLEEP:-0}\"; git rev-parse HEAD\n",
+            )
+            .unwrap();
+            git(&main, &["add", "-A"]);
+            git(&main, &["commit", "-qm", "init"]);
+            let wt = dir.path().join("wt");
+            git(
+                &main,
+                &["worktree", "add", "-q", "-b", "기능", wt.to_str().unwrap()],
+            );
+            std::fs::write(wt.join("f.txt"), "f").unwrap();
+            git(&wt, &["add", "-A"]);
+            git(&wt, &["commit", "-qm", "f"]);
+            let head = git(&wt, &["rev-parse", "HEAD"]);
+            Repo {
+                _dir: dir,
+                main,
+                wt,
+                head,
+            }
+        }
+
+        fn run(r: &Repo, ship: &str, wait: &str) -> (i32, String) {
+            let out = Command::new("bash")
+                .args(["-c", MERGE_RUN, "loom-merge"])
+                .args([r.wt.to_str().unwrap(), &r.head, "기능", ship, wait])
+                .current_dir(&r.main)
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned()
+                + &String::from_utf8_lossy(&out.stderr);
+            (out.status.code().unwrap_or(-1), text)
+        }
+
+        fn lock(r: &Repo) -> PathBuf {
+            r.main.join(".git/loom-merge.lock")
+        }
+
+        #[test]
+        fn a_clean_reviewed_commit_is_checked_and_merged_once() {
+            let r = repo();
+            let (code, text) = run(&r, "", "5");
+            assert_eq!(code, 0, "{text}");
+            assert!(text.contains("checked"), "{text}");
+            let merged = git(&r.main, &["rev-parse", "HEAD"]);
+            assert!(text.trim_end().ends_with(&merged), "{text}");
+            assert_eq!(git(&r.main, &["rev-parse", "HEAD^2"]), r.head);
+            // 다음 실행은 이미 병합된 것을 보고 아무것도 바꾸지 않는다(코디 브랜치).
+            assert_eq!(run(&r, "", "5").0, RUN_ALREADY_MERGED);
+            assert_eq!(git(&r.main, &["rev-parse", "HEAD"]), merged);
+            // 원래 체크아웃이면 ship.sh가 앞 실행을 잇는다(코디 결정 7).
+            let (code, text) = run(&r, "scripts/gate/ship.sh", "5");
+            assert_eq!(code, 0, "{text}");
+            assert!(text.contains(&format!("ship 기능 {}", r.head)), "{text}");
+            assert!(!text.contains("checked"), "no second check: {text}");
+        }
+
+        #[test]
+        fn a_moved_or_dirty_worktree_and_a_failed_check_are_rework() {
+            let r = repo();
+            std::fs::write(r.wt.join("dirty.txt"), "x").unwrap();
+            assert_eq!(run(&r, "", "5").0, RUN_MOVED);
+            std::fs::remove_file(r.wt.join("dirty.txt")).unwrap();
+            std::fs::write(r.wt.join("check-fails"), "").unwrap();
+            git(&r.wt, &["add", "-A"]);
+            git(&r.wt, &["commit", "-qm", "late"]);
+            assert_eq!(
+                run(&r, "", "5").0,
+                RUN_MOVED,
+                "HEAD is not the reviewed commit"
+            );
+            let r = Repo {
+                head: git(&r.wt, &["rev-parse", "HEAD"]),
+                ..r
+            };
+            assert_eq!(run(&r, "", "5").0, RUN_CHECK_FAILED);
+            assert_eq!(git(&r.main, &["log", "--oneline"]).lines().count(), 1);
+        }
+
+        /// 잠금은 병합 일이 쥔다. 대상 체크아웃의 git 폴더에서 잡으므로 다른 폴더에서 부른 `loom merge`도 같은 잠금을 본다(검토 Codex R2).
+        #[test]
+        fn the_lock_waits_then_times_out_and_outlives_a_killed_caller() {
+            let r = repo();
+            std::fs::File::create(lock(&r)).unwrap();
+            let mut holder = Command::new("flock")
+                .args([lock(&r).to_str().unwrap(), "sleep", "3"])
+                .spawn()
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(
+                lock_busy(r.wt.to_str().unwrap()),
+                "the worktree shares the lock"
+            );
+            let (code, text) = run(&r, "", "1");
+            assert_eq!(code, RUN_LOCK_TIMEOUT, "{text}");
+            holder.wait().unwrap();
+            assert!(!lock_busy(r.main.to_str().unwrap()));
+            // ship.sh가 도는 동안 그 프로세스가 죽어도 그 자식이 fd를 물려받아 잠금을 쥔다. 부른 `loom merge`를 죽이는 경우는 e2e가 본다.
+            let mut work = Command::new("bash")
+                .args(["-c", MERGE_RUN, "loom-merge"])
+                .args([
+                    r.wt.to_str().unwrap(),
+                    &r.head,
+                    "기능",
+                    "scripts/gate/ship.sh",
+                    "5",
+                ])
+                .env("SHIP_SLEEP", "3")
+                .current_dir(&r.main)
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+            assert!(
+                lock_busy(r.main.to_str().unwrap()),
+                "ship.sh holds the lock"
+            );
+            work.kill().unwrap();
+            work.wait().unwrap();
+            assert!(
+                lock_busy(r.main.to_str().unwrap()),
+                "the child of ship.sh keeps the lock"
+            );
+        }
     }
 }

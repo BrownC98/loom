@@ -269,6 +269,11 @@ pub enum Refusal {
         #[ts(type = "number")]
         run: i64,
     },
+    /// 담당 브랜치의 커밋이 모두 이미 대상 브랜치에 있다. 병합할 것이 없다.
+    NothingToMerge {
+        branch: String,
+        target: String,
+    },
     /// 보고한 병합 커밋이 대상 브랜치에 없거나 검토한 커밋을 담지 않는다.
     NotMerged {
         sha: String,
@@ -438,6 +443,10 @@ impl fmt::Display for Refusal {
             Refusal::StaleRun { branch, run } => write!(
                 f,
                 "{branch}: merge run {run} is not the current run. A later `loom merge` replaced it, so loom ignores this report."
+            ),
+            Refusal::NothingToMerge { branch, target } => write!(
+                f,
+                "{branch} has no commit that {target} does not have, so there is nothing to merge. Commit the work first."
             ),
             Refusal::NotMerged { sha, target, head } => write!(
                 f,

@@ -217,6 +217,12 @@ impl App {
             return Err(Refusal::SameAsTarget(branch.to_owned()));
         }
         contains(&repo, &target, branch).await?;
+        if contains(&repo, branch, &target).await.is_ok() {
+            return Err(Refusal::NothingToMerge {
+                branch: branch.to_owned(),
+                target,
+            });
+        }
         // 관문 에이전트는 WSL에서 이 경로를 읽는다. Windows 데몬이 보는 UNC 글자 대신 배포판 안의 경로를 쓴다.
         let worktree = crate::wsl::location(&place.worktree).map_or(place.worktree, |w| w.path);
         let round = Round {
@@ -230,30 +236,34 @@ impl App {
     }
 
     /// `loom merge` 앞 단계: 상태를 `Merging`으로 바꾸고 audit를 돌린다. 찾은 일이 있으면 병합하지 않고 끝낸다.
-    /// 부른 CLI는 이 앞에서 저장소의 병합 잠금을 잡았다. 그래서 `Merging`에서 다시 부르면 앞 실행은 이미 끝났다.
+    /// `Merging`에서 다시 불렀고 검토한 커밋이 이미 대상에 있으면 앞 실행이 병합한 뒤 보고 전에 끝났다(검토 P1-2):
+    /// 원래 체크아웃이면 같은 일을 다시 준다. ship.sh가 그 병합을 이어 push·배포 확인을 하고 보고한다(코디 결정 7).
+    /// 코디 브랜치는 push가 없으므로 git에서 그 병합 커밋을 찾아 바로 남긴다.
     async fn merge(&self, node: NodeId, branch: &str, via: &Via) -> Result<MergePlan, Refusal> {
         let repo = self.repo_of(node)?;
         if !self.gated_repo(node)? {
             return Err(Refusal::NoGateScripts);
         }
         let task = self.graph.merge_start(node, branch, Some(via))?;
+        let into = self.merge_into(&repo, &task.target).await?;
+        let go = |task: MergeTask, into| MergePlan::Go {
+            worktree: task.worktree,
+            head: task.head,
+            run: task.run,
+            into,
+        };
         if task.from == GateState::Merging
             && let Ok(()) = contains(&repo, &task.head, &task.target).await
         {
-            let range = format!("{}..{}", task.head, task.target);
-            let first = git::run(
-                &repo,
-                &[
-                    "rev-list",
-                    "--first-parent",
-                    "--ancestry-path",
-                    "--reverse",
-                    &range,
-                ],
-            )
-            .await
-            .map_err(Refusal::Git)?;
-            let sha = first.lines().next().unwrap_or_default().trim().to_owned();
+            if let MergeInto::Main { .. } = into {
+                return Ok(go(task, into));
+            }
+            let Some(sha) = merge_commit(&repo, &task.head, &task.target).await? else {
+                return self.stop(node, branch, &task, Vec::new(), vec![format!(
+                    "the reviewed commit {} is in {}, but no merge commit on {} has it as a parent",
+                    task.head, task.target, task.target
+                )], via);
+            };
             let lines = vec![
                 "recovered: an earlier run merged this commit, and its report did not arrive"
                     .to_owned(),
@@ -279,45 +289,62 @@ impl App {
             }
             Err(e) => return Err(e),
         }
-        if let Some(end) = protocol::audit_end(&findings) {
-            let shown = findings.iter().map(Finding::to_string).collect();
-            let ended = Ended {
-                end,
-                merged: None,
-                lines: Vec::new(),
-                findings,
-            };
-            self.graph
-                .merge_end(node, branch, task.run, ended, Some(via))?;
-            return Ok(MergePlan::Stopped {
-                end,
-                findings: shown,
+        if protocol::audit_end(&findings).is_some() {
+            return self.stop(node, branch, &task, findings, Vec::new(), via);
+        }
+        Ok(go(task, into))
+    }
+
+    /// 병합하지 않고 끝낸다. audit 결과가 끝을 정하고, 결과 없이 `lines`만 있으면 담당이 고칠 일이다.
+    fn stop(
+        &self,
+        node: NodeId,
+        branch: &str,
+        task: &MergeTask,
+        findings: Vec<Finding>,
+        lines: Vec<String>,
+        via: &Via,
+    ) -> Result<MergePlan, Refusal> {
+        let end = protocol::audit_end(&findings).unwrap_or(MergeEnd::Rework);
+        let shown = findings
+            .iter()
+            .map(Finding::to_string)
+            .chain(lines.iter().cloned())
+            .collect();
+        let ended = Ended {
+            end,
+            merged: None,
+            lines,
+            findings,
+        };
+        self.graph
+            .merge_end(node, branch, task.run, ended, Some(via))?;
+        Ok(MergePlan::Stopped {
+            end,
+            findings: shown,
+        })
+    }
+
+    /// 대상이 원래 체크아웃의 브랜치면 그 체크아웃, 아니면 대상 브랜치의 워크트리(코디).
+    async fn merge_into(&self, repo: &Path, target: &str) -> Result<MergeInto, Refusal> {
+        if target == base_branch(repo).await? {
+            return Ok(MergeInto::Main {
+                checkout: repo.to_string_lossy().into_owned(),
             });
         }
-        let into = if task.target == base_branch(&repo).await? {
-            MergeInto::Main {
-                checkout: repo.to_string_lossy().into_owned(),
-            }
-        } else {
-            let found = worktree::worktrees(&repo)
-                .await
-                .into_iter()
-                .find(|w| w.branch.as_deref() == Some(&task.target))
-                .ok_or_else(|| Refusal::Git(format!("no worktree has {}", task.target)))?;
-            MergeInto::Branch {
-                worktree: found.path,
-            }
-        };
-        Ok(MergePlan::Go {
-            worktree: task.worktree,
-            head: task.head,
-            run: task.run,
-            into,
+        let found = worktree::worktrees(repo)
+            .await
+            .into_iter()
+            .find(|w| w.branch.as_deref() == Some(target))
+            .ok_or_else(|| Refusal::Git(format!("no worktree has {target}")))?;
+        Ok(MergeInto::Branch {
+            worktree: found.path,
         })
     }
 
     /// 병합 커밋 `sha`를 git에서 확인하고 `Merged`로 남긴다. 대상 브랜치가 원래 체크아웃의 브랜치면
     /// 앞선 관문 병합과 이 병합 사이의 대상 커밋을 관문 밖 커밋으로 붙인다(막지 않는다).
+    /// 확인만 한다: 관문이 손으로 병합하고 그 커밋을 보고해도 받는다(남은 위험, docs/design.md 「병합 관문」).
     async fn record_merged(
         &self,
         node: NodeId,
@@ -333,7 +360,7 @@ impl App {
             target: task.target.clone(),
             head: task.head.clone(),
         };
-        if sha.is_empty() {
+        if sha.is_empty() || sha == task.head {
             return Err(not_merged());
         }
         for (older, newer) in [(task.head.as_str(), sha), (sha, task.target.as_str())] {
@@ -344,14 +371,12 @@ impl App {
             }
         }
         let mut findings = Vec::new();
-        if task.target == base_branch(&repo).await?
-            && let Some(last) = self.graph.last_merged(node, &task.target)?
-        {
-            let range = format!("{last}..{sha}^1");
-            let listed = git::run(&repo, &["rev-list", "--first-parent", &range])
+        if task.target == base_branch(&repo).await? {
+            let known = self.graph.gate_merges(node, &task.target)?;
+            let listed = git::run(&repo, &["rev-list", "--first-parent", &format!("{sha}^1")])
                 .await
                 .map_err(Refusal::Git)?;
-            findings = protocol::out_of_gate(&listed);
+            findings = protocol::out_of_gate(&listed, &known);
         }
         let ended = Ended {
             end: MergeEnd::Merged,
@@ -363,7 +388,8 @@ impl App {
             .merge_end(node, branch, task.run, ended, Some(via))
     }
 
-    /// `loom merge`를 부른 CLI의 끝 보고. 병합이면 git에서 확인한다.
+    /// `loom merge`를 부른 CLI의 끝 보고. 병합은 어느 실행의 보고든 git에서 확인되면 받는다(코디 결정 3).
+    /// 이미 남긴 같은 병합을 다시 보고하면(다시 붙은 보고) 그대로 받는다. 병합 아닌 끝은 지금 실행의 것만 받는다.
     async fn merged(
         &self,
         node: NodeId,
@@ -373,11 +399,8 @@ impl App {
         let (end, cause, log) = match &req.result {
             MergeResult::Merged { sha, deploy, log } => {
                 let task = self.graph.merge_task(node, &req.branch)?;
-                if task.run != req.run {
-                    return Err(Refusal::StaleRun {
-                        branch: req.branch.clone(),
-                        run: req.run,
-                    });
+                if task.from == GateState::Merged && task.merged.as_deref() == Some(sha.as_str()) {
+                    return Ok(GateState::Merged);
                 }
                 let lines = vec![format!("deploy: {deploy:?}"), format!("log: {log}")];
                 return self
@@ -396,6 +419,18 @@ impl App {
         self.graph
             .merge_end(node, &req.branch, req.run, ended, Some(via))
     }
+}
+
+/// 대상 첫 부모 줄에서 `head`를 둘째 이후 부모로 가진 병합 커밋. ship.sh·코디 병합은 늘 `--no-ff`다.
+async fn merge_commit(repo: &Path, head: &str, target: &str) -> Result<Option<String>, Refusal> {
+    let listed = git::run(repo, &["log", "--first-parent", "--format=%H %P", target])
+        .await
+        .map_err(Refusal::Git)?;
+    Ok(listed.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let sha = parts.next()?;
+        parts.skip(1).any(|p| p == head).then(|| sha.to_owned())
+    }))
 }
 
 /// 원래 체크아웃이 가리키는 브랜치. CI 관문의 대상이다(보통 main).

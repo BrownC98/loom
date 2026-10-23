@@ -3,6 +3,7 @@
 # 검토한 커밋 `sha`를 병합한다. 브랜치 이름은 병합 메시지에만 쓴다: 그 사이 브랜치가 움직여도 검토하지 않은 커밋이 들어가지 않는다.
 # 끝 코드는 src/protocol.rs가 정한다: 0 병합·push·배포 확인, 10 담당이 고칠 일, 11 병합·push 뒤 배포 확인 실패, 그 밖은 실패.
 # 10이면 병합 커밋을 남기지 않는다. 체크아웃이 origin을 빨리 감기로 따라갔을 수는 있다. 0과 11이면 마지막 줄이 병합 커밋이다.
+# 다시 불러도 된다: 앞 실행이 병합한 뒤 push·배포 확인 전에 끝났으면 그 병합 커밋을 push하고 배포를 확인한다(2026-10-23 코디 결정 7).
 set -uo pipefail
 branch=$1
 sha=$2
@@ -15,15 +16,22 @@ before=$(git rev-parse HEAD)
 git fetch --quiet origin "$base" || { echo "git fetch failed"; exit 1; }
 # 원격이 앞서면 따라간다. 갈라졌으면 사람이 정한다.
 git merge --ff-only --quiet "origin/$base" || { echo "$base and origin/$base diverged"; exit 1; }
-if ! git merge-base --is-ancestor HEAD "$sha"; then
-  echo "$base moved: merge $base into $branch again"
-  exit 10
+if git merge-base --is-ancestor "$sha" HEAD; then
+  # 첫 부모 줄에서 `sha`를 둘째 이후 부모로 가진 병합 커밋이 앞 실행의 병합이다.
+  merged=$(git log --first-parent --format='%H %P' HEAD | awk -v h="$sha" '{ for (i = 3; i <= NF; i++) if ($i == h) { print $1; exit } }')
+  if [ -z "$merged" ]; then echo "$sha is already in $base without a merge commit"; exit 10; fi
+  echo "resume: $merged already merges $sha"
+else
+  if ! git merge-base --is-ancestor HEAD "$sha"; then
+    echo "$base moved: merge $base into $branch again"
+    exit 10
+  fi
+  if ! git merge --no-ff -m "Merge branch '$branch'" "$sha"; then
+    git merge --abort
+    exit 10
+  fi
+  merged=$(git rev-parse HEAD)
 fi
-if ! git merge --no-ff -m "Merge branch '$branch'" "$sha"; then
-  git merge --abort
-  exit 10
-fi
-merged=$(git rev-parse HEAD)
 if ! git push --quiet origin "$base"; then
   # 원격이 그 사이에 움직였다. 이 병합을 되돌린다(위에서 미커밋 변경이 없음을 봤다).
   git reset --hard --quiet "$before"

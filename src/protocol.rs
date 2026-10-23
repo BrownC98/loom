@@ -391,14 +391,21 @@ impl fmt::Display for Finding {
     }
 }
 
-/// 앞선 관문 병합과 이번 병합 사이의 대상 first-parent 커밋(`git rev-list` 출력, 한 줄에 하나). 병합은 하나씩 돌므로 모두 관문 밖이다.
-pub fn out_of_gate(listed: &str) -> Vec<Finding> {
-    listed
+/// 이번 병합의 첫 부모부터 거슬러 간 대상 first-parent 커밋(`git rev-list` 출력, 새것부터 한 줄에 하나) 가운데
+/// 관문 병합(`known`)을 처음 만나기 전의 것. 관문 병합을 만나지 못하면(첫 관문 병합) 없다.
+pub fn out_of_gate(listed: &str, known: &[String]) -> Vec<Finding> {
+    let listed: Vec<&str> = listed
         .lines()
         .map(str::trim)
         .filter(|sha| !sha.is_empty())
+        .collect();
+    let Some(last) = listed.iter().position(|sha| known.iter().any(|k| k == sha)) else {
+        return Vec::new();
+    };
+    listed[..last]
+        .iter()
         .map(|sha| Finding::OutOfGate {
-            commit: sha.to_owned(),
+            commit: (*sha).to_owned(),
         })
         .collect()
 }
@@ -566,12 +573,15 @@ mod tests {
 
     #[test]
     fn target_commits_between_gate_merges_are_out_of_gate() {
+        let known = ["aaa".to_owned(), "zzz".to_owned()];
         assert_eq!(
-            out_of_gate("bbb\n\n"),
+            out_of_gate("bbb\naaa\nccc\nzzz\n", &known),
             vec![Finding::OutOfGate {
                 commit: "bbb".into()
             }]
         );
-        assert!(out_of_gate("").is_empty());
+        assert!(out_of_gate("aaa\nbbb\n", &known).is_empty());
+        // 앞선 관문 병합이 없으면 기준이 없다.
+        assert!(out_of_gate("bbb\nccc\n", &known).is_empty());
     }
 }

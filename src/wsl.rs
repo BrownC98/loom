@@ -190,6 +190,7 @@ pub fn for_caller(path: &Path) -> String {
 /// 이 프로세스가 `dir`(데몬이 준 경로 글)에서 `program`을 띄우는 명령. 인자는 부른 쪽이 더한다.
 /// WSL의 `loom`은 Windows `loom.exe` 껍데기다. 그래서 WSL 폴더의 명령(관문 스크립트, git, flock)은 그 배포판 안에서 띄운다.
 /// Windows가 Linux 경로를 직접 다루면 `PathBuf::join`이 `\`를 넣고 bash가 그 글자를 지운다(검토 C1, 끝 코드 127).
+/// 배포판 안에서는 로그인 셸(`bash -l`)이 띄운다. `wsl.exe -e`의 기본 PATH에는 `~/.cargo/bin`, `~/.local/bin`(cargo, memcap)이 없다(검토 N1, 끝 코드 127).
 pub fn command(dir: &str, program: &str) -> std::process::Command {
     let at = location(dir).filter(|_| cfg!(windows)).or_else(|| {
         let at = caller().filter(|_| dir.starts_with('/') && !dir.starts_with("//"))?;
@@ -205,8 +206,18 @@ fn launch(at: Option<&WslPath>, dir: &str, program: &str) -> std::process::Comma
     match at {
         Some(at) => {
             let mut cmd = std::process::Command::new("wsl.exe");
-            // `-e`는 셸 없이 띄운다. 인자(브랜치 이름, 커밋)를 셸이 다시 읽지 않는다.
-            cmd.args(["-d", &at.distro, "--cd", &at.path, "-e", program]);
+            // 로그인 셸은 PATH만 읽고 `exec`로 넘긴다. 인자(브랜치 이름, 커밋)는 `"$@"`로 가서 셸이 다시 읽지 않는다.
+            cmd.args([
+                "-d",
+                &at.distro,
+                "--cd",
+                &at.path,
+                "-e",
+                "bash",
+                "-lc",
+                r#"exec "$0" "$@""#,
+                program,
+            ]);
             cmd
         }
         None => {
@@ -509,6 +520,9 @@ mod tests {
                 "--cd",
                 "/home/a/repo",
                 "-e",
+                "bash",
+                "-lc",
+                r#"exec "$0" "$@""#,
                 "bash",
                 "scripts/gate/ship.sh",
                 "b",

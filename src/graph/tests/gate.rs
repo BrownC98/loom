@@ -259,21 +259,15 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
         1,
         "the owner hears the merge too"
     );
-    assert_eq!(
-        g.last_merged(t.ci, "main").unwrap().as_deref(),
-        Some("abc1234")
-    );
-    // 병합한 브랜치 이름을 다시 쓰면 새 차례다. 앞 병합 커밋은 관문 밖 커밋 검사의 시작점으로 남는다(검토 P1-3).
+    assert_eq!(g.gate_merges(t.ci, "main").unwrap(), ["abc1234"]);
+    // 병합한 브랜치 이름을 다시 쓰면 새 차례다. 앞 병합 커밋은 관문 밖 커밋 검사의 기준으로 남는다(검토 P1-3).
     assert_eq!(
         g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
         Ok("ci".into())
     );
     assert_eq!(state(&g, branch), GateState::Ready);
-    assert_eq!(
-        g.last_merged(t.ci, "main").unwrap().as_deref(),
-        Some("abc1234")
-    );
-    assert_eq!(g.last_merged(t.ci, "코디 브랜치").unwrap(), None);
+    assert_eq!(g.gate_merges(t.ci, "main").unwrap(), ["abc1234"]);
+    assert!(g.gate_merges(t.ci, "코디 브랜치").unwrap().is_empty());
 }
 
 /// 담당을 지워 받을 노드가 없어도 성공한 관문 호출은 흔적을 남긴다: 부른 노드가 받는다(검토 C6).

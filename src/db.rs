@@ -232,7 +232,7 @@ const STEPS: &[M] = &[
     // 31: 병합 관문(protocol, graph `gate`). `role`은 `loom spawn --role`의 역할 이름이고 옛 노드와 사람이 띄운 노드는 NULL이다.
     // `gates`는 저장소·브랜치마다 관문 상태 한 줄이다. 노드를 지워도 남긴다: audit가 병합한 커밋(`merged`)을 읽는다.
     // `state`는 serde JSON `GateState`, `verdict`는 serde JSON `Verdict`다. `head`는 검토할 커밋, `opened`는 이번 차례의 `loom ready` 시각,
-    // `updated`는 마지막 전이 시각(유닉스 초)이다. `merged`·`merged_at`은 마지막 병합이고 다음 차례에도 남는다: 같은 대상의 가장 늦은 병합이 관문 밖 커밋 검사의 시작점이다.
+    // `updated`는 마지막 전이 시각(유닉스 초)이다. `merged`는 마지막 병합이고 다음 차례에도 남는다: 관문 밖 커밋 검사가 대상 git 줄에서 이 커밋들을 찾는다.
     // `run`은 `loom merge` 실행 번호다. 병합 시작마다 1 늘고, 끝 보고가 같은 번호를 가져와야 받는다.
     M::up(
         "ALTER TABLE nodes ADD COLUMN role TEXT;
@@ -246,7 +246,6 @@ const STEPS: &[M] = &[
             state TEXT NOT NULL,
             head TEXT NOT NULL,
             merged TEXT,
-            merged_at INTEGER,
             run INTEGER NOT NULL DEFAULT 0,
             verdict TEXT,
             opened INTEGER NOT NULL,

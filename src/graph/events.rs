@@ -6,7 +6,7 @@ use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{Kind, MessageId, NodeId, NodeState, Refusal, WaitId, from_json, to_json};
+use super::{Kind, MessageId, NodeId, NodeState, Refusal, WaitDoc, WaitId, from_json, to_json};
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, Provider};
 use crate::protocol::{Finding, GateState, GateVerb};
@@ -131,6 +131,9 @@ pub enum Entry {
         node: Who,
         wait: WaitId,
         text: String,
+        /// 붙은 문서(`--doc`). 질문이 닫힌 뒤에도 이벤트 콘솔에서 다시 연다(목업 docs/mockups/doc-reopen.html M13 ①). 옛 기록에는 없다.
+        #[serde(default)]
+        doc: Option<WaitDoc>,
     },
     /// 사람이 띄운 노드가 `loom done`으로 받은편지함에 완료를 걸었다. `instruction`은 `--asked`로 받은 사람의 지시다.
     Reported {
@@ -138,6 +141,9 @@ pub enum Entry {
         wait: WaitId,
         summary: String,
         instruction: String,
+        /// 붙은 문서(`--doc`). `Asked`와 같다.
+        #[serde(default)]
+        doc: Option<WaitDoc>,
     },
     /// 사람이 받은편지함에서 질문에 답했다. `images`는 답에 붙인 그림 수다.
     Answered {

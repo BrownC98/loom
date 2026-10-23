@@ -395,31 +395,30 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     g.dismiss(view(&g, lead).waits[0].id).unwrap();
     assert_eq!(done(lead), []);
 
-    // 문서가 붙은 완료: 화면은 ID와 제목만 받고, 데몬은 [확인] 전까지 파일을 준다.
+    // 문서가 붙은 완료: 화면은 ID와 제목만 받는다. 파일은 문서 ID로 낸다(`user_doc::doc_file`).
     let doc = WaitDoc {
         id: "R4".into(),
         title: "감사".into(),
     };
-    let report = PathBuf::from("/tmp/audit.md");
-    let attached = Attached {
-        doc: doc.clone(),
-        path: report.clone(),
-    };
-    g.done(lead, "감사했다.", Some("감사해"), &[], Some(attached), None)
-        .unwrap();
+    g.done(
+        lead,
+        "감사했다.",
+        Some("감사해"),
+        &[],
+        Some(doc.clone()),
+        None,
+    )
+    .unwrap();
     let with_doc = view(&g, lead).waits[0].clone();
     assert_eq!(with_doc.doc, Some(doc.clone()));
-    assert_eq!(g.wait_doc(with_doc.id), Ok(report.clone()));
     g.dismiss(with_doc.id).unwrap();
-    assert_eq!(g.wait_doc(with_doc.id), Err(Refusal::NoWait(with_doc.id)));
 
     // 자식의 완료는 부모에게만 간다. 받은편지함에 걸지 않는다. 문서 링크는 받은편지함에만 있어 거절한다.
     g.done(worker, "고쳤다.", Some("버튼 고쳐"), &[], None, None)
         .unwrap();
     assert_eq!(done(worker), []);
-    let attached = Attached { doc, path: report };
     assert_eq!(
-        g.done(worker, "고쳤다.", None, &[], Some(attached), None),
+        g.done(worker, "고쳤다.", None, &[], Some(doc.clone()), None),
         Err(Refusal::DocHasParent)
     );
 }
@@ -499,7 +498,11 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
 
     // [×]는 그 질문 하나만, 재시작은 모두 지운다.
     let q4 = g.ask(lead, "E?", None).unwrap();
-    let q5 = g.ask(lead, "F?", None).unwrap();
+    let doc = WaitDoc {
+        id: "M2".into(),
+        title: "목업".into(),
+    };
+    let q5 = g.ask(lead, "F?", Some(doc.clone())).unwrap();
     g.dismiss(q4).unwrap();
     assert_eq!(ids(lead), [q5]);
     // 닫은 질문은 사람이 보낸 짧은 큐 메시지로 그 노드에 알린다.
@@ -544,7 +547,6 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
     assert_eq!(g.answer(screen, "y", &[]), Err(Refusal::NoWait(screen)));
     assert_eq!(g.answer(first, "A", &[]), Err(Refusal::NoWait(first)));
     assert_eq!(g.answer(again, "  ", &[]), Err(Refusal::EmptyAnswer));
-    assert_eq!(g.wait_doc(again), Err(Refusal::NoWait(again)));
 
     g.answer(again, "A", &[]).unwrap();
     assert_eq!(id(lead), None);
@@ -573,20 +575,14 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
         "{body}"
     );
 
-    // 문서가 붙은 질문: 화면은 ID와 제목만 받고, 데몬은 열린 동안만 파일을 준다.
+    // 문서가 붙은 질문: 화면은 ID와 제목만 받는다.
     let doc = WaitDoc {
         id: "M3".into(),
         title: "목업".into(),
     };
-    let attached = Attached {
-        doc: doc.clone(),
-        path: dir.path().join("m.html"),
-    };
-    let with_doc = g.ask(lead, "승인할까요?", Some(attached)).unwrap();
+    let with_doc = g.ask(lead, "승인할까요?", Some(doc.clone())).unwrap();
     assert_eq!(view(&g, lead).waits[0].doc, Some(doc));
-    assert_eq!(g.wait_doc(with_doc), Ok(dir.path().join("m.html")));
     g.answered(lead, &[]).unwrap();
-    assert_eq!(g.wait_doc(with_doc), Err(Refusal::NoWait(with_doc)));
 
     drop(g);
     let g = open(&path);
@@ -2566,7 +2562,11 @@ fn records_inbox_notices_and_the_human_responses() {
         .unwrap();
     let d2 = view(&g, lead).waits[0].id;
     g.dismiss(d2).unwrap();
-    let q5 = g.ask(lead, "F?", None).unwrap();
+    let doc = WaitDoc {
+        id: "M2".into(),
+        title: "목업".into(),
+    };
+    let q5 = g.ask(lead, "F?", Some(doc.clone())).unwrap();
     g.exited(lead, 0).unwrap();
 
     assert_eq!(
@@ -2575,7 +2575,8 @@ fn records_inbox_notices_and_the_human_responses() {
             Entry::Asked {
                 node: me(),
                 wait: q1,
-                text: "A or B?\nmore".into()
+                text: "A or B?\nmore".into(),
+                doc: None
             },
             Entry::Answered {
                 node: me(),
@@ -2586,7 +2587,8 @@ fn records_inbox_notices_and_the_human_responses() {
             Entry::Asked {
                 node: me(),
                 wait: q2,
-                text: "C?".into()
+                text: "C?".into(),
+                doc: None
             },
             Entry::Unanswered {
                 node: me(),
@@ -2596,7 +2598,8 @@ fn records_inbox_notices_and_the_human_responses() {
             Entry::Asked {
                 node: me(),
                 wait: q3,
-                text: "D?".into()
+                text: "D?".into(),
+                doc: None
             },
             Entry::Unanswered {
                 node: me(),
@@ -2606,7 +2609,8 @@ fn records_inbox_notices_and_the_human_responses() {
             Entry::Asked {
                 node: me(),
                 wait: q4,
-                text: "E?".into()
+                text: "E?".into(),
+                doc: None
             },
             Entry::Unanswered {
                 node: me(),
@@ -2617,7 +2621,8 @@ fn records_inbox_notices_and_the_human_responses() {
                 node: me(),
                 wait: d1,
                 summary: "고쳤다.".into(),
-                instruction: "고쳐".into()
+                instruction: "고쳐".into(),
+                doc: None
             },
             Entry::Instructed {
                 node: me(),
@@ -2629,7 +2634,8 @@ fn records_inbox_notices_and_the_human_responses() {
                 node: me(),
                 wait: d2,
                 summary: "또 고쳤다.".into(),
-                instruction: "하나 더".into()
+                instruction: "하나 더".into(),
+                doc: None
             },
             Entry::Confirmed {
                 node: me(),
@@ -2638,7 +2644,8 @@ fn records_inbox_notices_and_the_human_responses() {
             Entry::Asked {
                 node: me(),
                 wait: q5,
-                text: "F?".into()
+                text: "F?".into(),
+                doc: Some(doc.clone())
             },
             Entry::Unanswered {
                 node: me(),

@@ -662,9 +662,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/waits/{wait}", delete(dismiss_wait))
         .route("/api/waits/{wait}/answer", post(answer_wait))
         .route("/api/waits/{wait}/choose", post(choose_wait))
-        .route("/api/waits/{wait}/doc", post(open_wait_doc))
-        .route("/api/waits/{wait}/doc/", get(wait_doc))
-        .route("/api/waits/{wait}/doc/{*file}", get(wait_doc_file))
+        .route("/api/docs", get(list_docs))
+        .route("/api/docs/{id}", post(open_doc))
+        .route("/api/docs/{id}/", get(doc))
+        .route("/api/docs/{id}/{*file}", get(doc_sibling))
         .route("/api/waits/{wait}/images/{index}", get(done_image_file))
         .route("/api/nodes/{id}/pty", get(pty))
         .route(
@@ -1874,51 +1875,72 @@ fn choose(
     })
 }
 
+/// [문서] 탭: 문서 ID가 붙은 모든 문서(목업 docs/mockups/doc-reopen.html M13 ③).
+async fn list_docs() -> Result<Json<Vec<user_doc::DocRow>>, Problem> {
+    Ok(Json(user_doc::docs().map_err(internal)?))
+}
+
 /// 사람이 질문·완료 줄의 문서 링크를 눌렀다. 데몬이 그 기계의 기본 브라우저로 연다. 화면이 브라우저든 데스크톱 앱이든 같다.
-/// 열린 대기에 붙은 문서만 연다. 파일을 매번 새로 열므로 새 판이 보인다.
-/// 글 문서(`.md`)는 파일이 아니라 이 데몬이 내는 주소(`wait_doc`)를 연다. 파일의 기본 앱은 편집기이거나 없다.
-async fn open_wait_doc(
+/// 파일(`file://`)이 아니라 이 데몬이 내는 주소(`doc`)를 연다. 파일 탭은 워크트리를 지우면 죽고, 글 파일의 기본 앱은 편집기이거나 없다(2026-10-23 검토).
+async fn open_doc(
     State(app): State<Arc<App>>,
-    Path(wait): Path<u32>,
-) -> Result<Json<()>, Problem> {
-    let path = app.graph.wait_doc(WaitId(wait))?;
-    if user_doc::doc_kind(&path) == Some(user_doc::DocKind::Html) {
-        open::open(&path).map_err(internal)?;
-    } else {
-        open::open_url(&format!(
-            "http://127.0.0.1:{}/api/waits/{wait}/doc/",
-            app.port
-        ))
-        .map_err(internal)?;
-    }
+    Path(id): Path<String>,
+) -> Result<Json<()>, DocProblem> {
+    doc_file(&id)?;
+    open::open_url(&format!("http://127.0.0.1:{}/api/docs/{id}/", app.port)).map_err(internal)?;
     Ok(Json(()))
 }
 
-/// 질문에 붙은 문서를 낸다. 폰과 브라우저 화면은 이 주소를 새 탭에서 연다. 앱은 `open_wait_doc`으로 기본 브라우저를 연다.
-/// 주소가 `/`로 끝나서 문서 속 상대 주소(옆 그림)는 `wait_doc_file`로 온다.
-async fn wait_doc(
-    State(app): State<Arc<App>>,
-    Path(wait): Path<u32>,
+/// 문서 ID(`M3`, `R9`)의 문서를 낸다. 대기가 닫혀도, 원본이 지워져도(사본) 같은 주소다(`user_doc::doc_file`).
+/// 주소가 `/`로 끝나서 문서 속 상대 주소(옆 그림)는 `doc_sibling`으로 온다.
+async fn doc(
+    Path(id): Path<String>,
     request: axum::extract::Request,
-) -> Result<Response, Problem> {
-    let path = app.graph.wait_doc(WaitId(wait))?;
-    serve_file(&path, request).await
+) -> Result<Response, DocProblem> {
+    let doc = doc_file(&id)?;
+    Ok(serve_file(&doc.path, request).await?)
 }
 
-/// 문서와 같은 폴더의 파일(목업의 그림). 폴더 밖(`..`, 절대 경로)은 내지 않는다.
-async fn wait_doc_file(
-    State(app): State<Arc<App>>,
-    Path((wait, file)): Path<(u32, String)>,
+/// 문서와 같은 폴더의 파일(목업의 그림). 목업과 사본만 있다(`user_doc::DocFile::folder`). 폴더 밖(`..`, 절대 경로, 밖을 가리키는 링크)은 내지 않는다.
+async fn doc_sibling(
+    Path((id, file)): Path<(String, String)>,
     request: axum::extract::Request,
-) -> Result<Response, Problem> {
-    let doc = app.graph.wait_doc(WaitId(wait))?;
-    let inside = std::path::Path::new(&file)
-        .components()
-        .all(|c| matches!(c, std::path::Component::Normal(_)));
-    match doc.parent() {
-        Some(dir) if inside => serve_file(&dir.join(&file), request).await,
-        _ => Ok(StatusCode::NOT_FOUND.into_response()),
+) -> Result<Response, DocProblem> {
+    let doc = doc_file(&id)?;
+    match doc.folder.and_then(|dir| passes::inside(&dir, &file)) {
+        Some(path) => Ok(serve_file(&path, request).await?),
+        None => Ok(StatusCode::NOT_FOUND.into_response()),
     }
+}
+
+/// 문서 경로의 실패. 없는 문서는 브라우저 탭이 그대로 보이는 404 글이다. JSON 코드(`noWait`)만 보이면 사람이 까닭을 모른다(2026-10-23 사람 "왜 내가 목업을 못보나").
+pub enum DocProblem {
+    Missing(String),
+    Other(Problem),
+}
+
+impl From<Problem> for DocProblem {
+    fn from(e: Problem) -> Self {
+        DocProblem::Other(e)
+    }
+}
+
+impl IntoResponse for DocProblem {
+    fn into_response(self) -> Response {
+        match self {
+            DocProblem::Missing(reason) => (
+                StatusCode::NOT_FOUND,
+                [(axum::http::header::CONTENT_TYPE, TEXT_TYPE)],
+                reason,
+            )
+                .into_response(),
+            DocProblem::Other(problem) => problem.into_response(),
+        }
+    }
+}
+
+fn doc_file(id: &str) -> Result<user_doc::DocFile, DocProblem> {
+    user_doc::doc_file(id).map_err(DocProblem::Missing)
 }
 
 /// 완료 줄의 그림(`loom done --image`). 확인하지 않은 완료의 그림만 낸다.
@@ -2271,7 +2293,7 @@ async fn agent_done(
     for image in &req.images {
         done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
-    let attached = attach(req.doc.as_deref())?;
+    let doc = attach(req.doc.as_deref())?;
     let via = gate::via(&headers, "/api/agent/done");
     let done = app.gate_word(node, &req.summary).and_then(|()| {
         app.graph.done(
@@ -2279,7 +2301,7 @@ async fn agent_done(
             &req.summary,
             req.asked.as_deref(),
             &req.images,
-            attached,
+            doc,
             Some(&via),
         )
     });
@@ -2309,7 +2331,7 @@ fn done_image(path: &std::path::Path) -> Result<(), String> {
 }
 
 /// `--doc`(`loom ask`, `loom done`)의 문서를 점검하고 ID를 붙인다.
-fn attach(doc: Option<&std::path::Path>) -> Result<Option<crate::graph::Attached>, AgentError> {
+fn attach(doc: Option<&std::path::Path>) -> Result<Option<WaitDoc>, AgentError> {
     doc.map(user_doc::attach)
         .transpose()
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
@@ -2322,11 +2344,10 @@ async fn agent_ask(
     Json(req): Json<AskRequest>,
 ) -> Result<Json<Asked>, AgentError> {
     let node = app.caller(&headers)?;
-    let attached = attach(req.doc.as_deref())?;
-    let doc = attached.as_ref().map(|a| a.doc.clone());
+    let doc = attach(req.doc.as_deref())?;
     let id = app
         .graph
-        .ask(node, &req.question, attached)
+        .ask(node, &req.question, doc.clone())
         .map_err(for_agent)?;
     let open = app.graph.open_questions(node).map_err(for_agent)?;
     Ok(Json(Asked {

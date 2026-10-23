@@ -14,6 +14,8 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import type { Who } from './gen/Who';
 import { useShowNodes } from './Graph';
+import { DocText } from './DocText';
+import { plainText } from './links';
 import { clockTime } from './i18n';
 import { stateLabel } from './NodeCard';
 import { refusalWithoutName } from './problem';
@@ -271,17 +273,29 @@ function WaitNote({ wait, extra }: { wait: WaitId; extra?: string }) {
 /** 고른 줄(강조한 줄)만 본문 전문을 편다. 다시 누르면 강조와 함께 접는다(2026-10-22 사람 지시 "기존 메시지 이벤트도 클릭하면 메시지 전문이 펼쳐보이게 수정"). */
 function Row(props: { record: EventRecord; current: boolean; onClick: () => void; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }) {
   const { record, current } = props;
+  const { entry } = record;
   const { t } = useTranslation();
+  const [refusal, setRefusal] = useState<string | null>(null);
   const body = bodyOf(record, t);
+  // 문서가 붙은 질문·완료는 편 본문에 받은편지함과 같은 문서 링크를 둔다(목업 docs/mockups/doc-reopen.html M13 ①②). 링크는 줄 단추 밖에 둔다. 단추 안에 단추를 둘 수 없다.
+  const doc = entry.kind === 'asked' || entry.kind === 'reported' ? entry.doc : null;
+  const docBody = current && doc !== null;
   return (
-    <li>
-      <button className="ev" data-family={familyOf(record.entry)} aria-current={current || undefined} aria-expanded={body === null ? undefined : current} onClick={props.onClick}>
+    <li data-family={familyOf(entry)}>
+      <button className="ev" aria-current={current || undefined} aria-expanded={body === null ? undefined : current} onClick={props.onClick}>
         <time dateTime={new Date(record.at * 1000).toISOString()}>{clockTime(record.at * 1000)}</time>
         <span className="what">
-          <What entry={record.entry} views={props.views} agents={props.agents} />
+          <What entry={entry} views={props.views} agents={props.agents} />
         </span>
-        {body !== null && <span className={current ? 'body open' : 'body'}>{current ? body : body.split('\n', 1)[0]}</span>}
+        {body !== null && !docBody && <span className={current ? 'body open' : 'body'}>{current ? body : plainText(body.split('\n', 1)[0])}</span>}
       </button>
+      {docBody && (entry.kind === 'asked' || entry.kind === 'reported') && (
+        <p className="body">
+          <DocText text={entry.kind === 'asked' ? entry.text : entry.summary} doc={doc} node={entry.node.id} onRefusal={setRefusal} />
+          {entry.kind === 'reported' && `\n${t('events.instruction', { text: entry.instruction })}`}
+          {refusal && <span className="note err">{`\n${refusal}`}</span>}
+        </p>
+      )}
     </li>
   );
 }

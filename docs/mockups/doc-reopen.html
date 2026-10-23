@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M13 지난 문서 다시 열기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+.side { width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; }
+.events { list-style: none; padding: 0; }
+.ev { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; padding: 7px 8px; border-radius: 6px; font-size: 13px; }
+.ev[aria-current] { background: var(--accent-wash); }
+.ev time { font: 12px var(--mono); color: var(--ink-3); padding-top: 1px; }
+.ev .what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.ev .kind { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.ev .whon { font-weight: 600; }
+.ev .n { font-size: 12px; color: var(--ink-3); }
+.ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ev .body.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--warn); }
+.ev.done::before { background: var(--ok); }
+.ev.plain::before { display: none; }
+.doc-link { color: var(--warn); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.ev.done .doc-link { color: var(--ok); }
+.doc-link svg { width: 12px; height: 12px; margin-left: 3px; vertical-align: -1px; stroke: currentColor; fill: none; stroke-width: 2; }
+.dock { width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.tabs span { display: inline-flex; align-items: center; height: 36px; padding: 0 8px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--ink-2); font-size: 13px; }
+.tabs span[aria-selected] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.filters { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.chip { height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-strong); font-size: 12px; color: var(--ink-2); display: inline-flex; align-items: center; }
+.chip[aria-pressed] { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+.filters .find { margin-left: auto; width: 150px; height: 26px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 9px; font-size: 12px; color: var(--ink-3); background: var(--bg); display: flex; align-items: center; }
+.docs { list-style: none; padding: 4px 8px; }
+.dr { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 8px; padding: 7px 8px; border-radius: 6px; font-size: 13px; }
+.dr:hover { background: var(--surface-hover); }
+.dr .id { font: 600 12px var(--mono); color: var(--ink-2); padding-top: 1px; }
+.dr .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-underline-offset: 2px; }
+.dr .t svg { width: 12px; height: 12px; margin-left: 3px; vertical-align: -1px; stroke: currentColor; fill: none; stroke-width: 2; }
+.dr .m { grid-column: 2; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr.gone .id, .dr.gone .t { color: var(--ink-3); text-decoration: none; }
+table { border-collapse: collapse; font-size: 13px; max-width: 900px; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel); font-weight: 600; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M13</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 문서상시보기</b></span><span>v2 · 2026-10-23</span></div>
+  <h1>지난 문서 다시 열기: 이벤트 콘솔 링크와 [문서] 탭</h1>
+  <p class="lead">사람 지시(2026-10-23): "왜 내가 목업을 못보나", "클로드 아티팩트처럼 상시 볼 수 있게 하면 안됨/". 문서 주소는 질문 번호 대신 문서 ID(<code>/api/docs/M41/</code>)로 바꾼다. 질문에 답하거나 워크트리를 지워도 그 주소는 열린다. 이 목업은 닫힌 알림의 문서를 다시 여는 자리만 그린다. 바뀌는 곳은 점선이다.</p>
+
+  <div class="fig">
+    <h2>① 닫힌 질문 줄을 편 모습 <span class="tag">오른쪽 사이드바 › 이벤트</span></h2>
+    <div class="side"><ul class="events">
+      <li class="ev"><time>14:32</time><span class="what"><span class="kind">답함</span><span class="whon">loom 총괄</span><span class="n">Q578</span></span><span class="body one">A</span></li>
+      <li class="ev" aria-current="true"><time>14:20</time><span class="what"><span class="kind">질문</span><span class="whon">loom 총괄</span><span class="n">Q578</span></span><span class="body"><span class="doc-link new">M41 휴대폰 연결 목업<svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span>을 승인할까요? (A: 승인 / B: 고침, 권장: A)</span></li>
+      <li class="ev plain"><time>14:18</time><span class="what"><span class="kind">상태</span><span class="whon">코디 폰연결</span><span class="n">실행 중 → 완료</span></span></li>
+    </ul></div>
+    <ul class="note">
+      <li>질문 글 속 문서 링크가 받은편지함과 같은 모양(밑줄, ↗)으로 보인다. 링크가 글에 없던 질문은 글 끝에 「M41 제목 ↗」를 붙인다(받은편지함과 같다).</li>
+      <li>누르면 받은편지함 링크와 같은 길로 연다: 앱은 기본 브라우저, 브라우저는 새 탭, 폰은 폰 브라우저.</li>
+      <li>접은 줄(첫 줄만)에는 링크를 그리지 않는다. 줄을 누르면 편다(지금 동작).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 확인한 완료 줄을 편 모습</h2>
+    <div class="side"><ul class="events">
+      <li class="ev done" aria-current="true"><time>13:05</time><span class="what"><span class="kind">완료</span><span class="whon">loom 총괄</span><span class="n">Q560</span></span><span class="body">설정 탭을 묶었습니다. <span class="doc-link new">R16 통합 데몬 전환 브리핑<svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span>
+지시: 설정 정리해</span></li>
+    </ul></div>
+    <ul class="note">
+      <li>완료 알림의 문서도 같다. 색은 완료 계열(초록)이다.</li>
+      <li>파일이 지워졌으면 데몬이 마지막으로 붙인 판을 낸다. 그 판도 없으면(이 변경 전에 붙인 문서) 「문서 파일이 없습니다」 쪽을 연다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 오른쪽 사이드바 [문서] 탭 <span class="tag">v2 추가 · [이벤트] [커밋 그래프] 다음</span></h2>
+    <div class="dock">
+      <div class="tabs"><span>이벤트</span><span>커밋 그래프</span><span aria-selected="true" class="new">문서</span></div>
+      <div class="filters new"><span class="chip" aria-pressed="true">목업</span><span class="chip" aria-pressed="true">보고서</span><span class="find">ID·제목 찾기</span></div>
+      <ul class="docs new"><li class="dr "><span class="id">M42</span><span class="t">지난 문서 다시 열기<svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span><span class="m">목업 · 문서상시보기 · 오늘 14:51</span></li><li class="dr "><span class="id">R17</span><span class="t">통합 데몬 전환 결과<svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span><span class="m">보고서 · loom-briefs · 오늘 13:05</span></li><li class="dr "><span class="id">M41</span><span class="t">휴대폰 연결<svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span><span class="m">목업 · 폰연결 · 원본 없음, 마지막 판 · 10-22 18:10</span></li><li class="dr "><span class="id">M40</span><span class="t">다시 띄우기<svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span><span class="m">목업 · 다시띄우기 · 원본 없음, 마지막 판 · 10-22 11:02</span></li><li class="dr gone"><span class="id">M12</span><span class="t">저장소 끌어 놓기</span><span class="m">목업 · 열 수 없음(원본과 저장한 판이 없음)</span></li></ul>
+    </div>
+    <ul class="note">
+      <li>목록은 문서 ID가 붙은 모든 문서(M 목업, R 보고서)다. 최근에 질문·완료에 붙인 문서가 위에 온다.</li>
+      <li>줄: ID, 제목(누르면 받은편지함 링크와 같은 길로 연다), 아래 줄에 종류 · 폴더 이름 · 마지막으로 붙인 때.</li>
+      <li>원본 파일이 없으면(워크트리를 지움) 「원본 없음, 마지막 판」을 적고 마지막으로 붙인 판을 연다. 둘 다 없으면 흐리게 두고 링크가 없다.</li>
+      <li>칩(목업·보고서)과 찾기 칸은 이벤트 탭의 필터와 같은 모양이다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>항목</th><th>내용</th></tr>
+      <tr><td>①②</td><td>v1에서 승인함(Q584 B). 그대로 만든다.</td></tr>
+      <tr><td><b>③ (승인 요청)</b></td><td>[문서] 탭의 자리, 줄 모양, 순서(최근에 붙인 것 위), 원본 없는 문서의 표시.</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

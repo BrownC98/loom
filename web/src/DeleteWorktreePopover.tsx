@@ -4,13 +4,13 @@ import { deleteWorktree, getWorktreeChanges } from './api';
 import type { NodeView } from './gen/NodeView';
 import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
-import { useOutsideClose } from './popover';
+import { useDismiss } from './popover';
 import type { Group } from './repos';
 
 /** 워크트리 삭제 경고(목업 workspace.html 3번, Orca 「Delete Workspace」). 잃는 것을 모두 보인다. 첫 포커스는 [취소]다. */
 export function DeleteWorktreePopover(props: { repo: RepoId; group: Group; views: NodeView[]; onDeleted: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
-  const box = useOutsideClose<HTMLDivElement>(props.onClose);
+  const box = useDismiss<HTMLDivElement>(props.onClose);
   const { group } = props;
   const [changes, setChanges] = useState<string[] | null>(null);
   const [deleteBranch, setDeleteBranch] = useState(false);
@@ -33,7 +33,7 @@ export function DeleteWorktreePopover(props: { repo: RepoId; group: Group; views
   }
 
   return (
-    <div ref={box} className="pop confirm wide nodrag nowheel" role="alertdialog" aria-labelledby="wt-del-title" onKeyDown={(e) => e.key === 'Escape' && props.onClose()}>
+    <div ref={box} className="pop confirm wide nodrag nowheel" role="alertdialog" aria-labelledby="wt-del-title">
       <h2 id="wt-del-title">
         {t('deleteWorktree.action')}
         <span translate="no">{group.label}</span>

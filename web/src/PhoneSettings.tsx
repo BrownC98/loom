@@ -3,10 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { allowFirewall, createInvite, getPhone, removeDevice, startServe } from './api';
 import type { InviteView } from './gen/InviteView';
 import type { PhoneView } from './gen/PhoneView';
-import { ago } from './i18n';
+import { ago, dayAndTime } from './i18n';
 
-/** 기기 줄의 연결 시각: 「10. 22. 오후 5:39」. */
-const SHORT_TIME: Intl.DateTimeFormatOptions = { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' };
 /** 코드 상자가 열린 동안 폰이 짝지었는지 묻는 간격. */
 const INVITE_POLL_MS = 2000;
 
@@ -147,7 +145,7 @@ export function PhoneTab() {
                 <span className="row-main">
                   <span className="name">{d.label}</span>
                   <span className="meta">
-                    {t('pairing.deviceMeta', { paired: new Date(d.pairedAt).toLocaleString(undefined, SHORT_TIME), seen: ago(d.lastSeen, now) })}
+                    {t('pairing.deviceMeta', { paired: dayAndTime(d.pairedAt), seen: ago(d.lastSeen, now) })}
                   </span>
                 </span>
                 <span />

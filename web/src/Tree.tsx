@@ -25,7 +25,7 @@ import { NewWorktreePopover } from './NewWorktreePopover';
 import { stateClass, stateLabel, stateText, Unread } from './NodeCard';
 import { NoticeChips } from './notice';
 import { MenuSheet, Sheet, useLongPress, usePhone } from './Phone';
-import { useOutsideClose } from './popover';
+import { useDismiss } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
 
 /** 줄 끝 단추 하나(docs/mockups/sidebar-crud.html 2번). `run`은 누른 줄의 단추를 받는다. 팝오버를 그 줄 옆에 띄운다. `pressed`가 있으면 켜고 끄는 단추다(북마크). */
@@ -76,9 +76,9 @@ function FromIcon({ title }: { title: string }) {
 type ParentNote = (v: NodeView) => string | null;
 type NodeActions = (view: NodeView) => Pick<Item, 'actions' | 'rename' | 'remove'>;
 
-/** 줄 옆 팝오버 자리. 창 아래로 넘치면 위로 올린다. 내용이 늦게 와 커져도(새 노드의 프로필 목록) 다시 맞춘다. 밖을 누르면 닫는다(새 노드 팝오버는 스스로 닫지 않는다). */
+/** 줄 옆 팝오버 자리. 창 아래로 넘치면 위로 올린다. 내용이 늦게 와 커져도(새 노드의 프로필 목록) 다시 맞춘다. 밖을 누르거나 Esc로 닫는다(새 노드 팝오버는 밖 누르기로 스스로 닫지 않는다). */
 function RowPop(props: { top: number; left: number; onClose: () => void; children: ReactNode }) {
-  const box = useOutsideClose<HTMLDivElement>(props.onClose);
+  const box = useDismiss<HTMLDivElement>(props.onClose);
   const [top, setTop] = useState(props.top);
   useLayoutEffect(() => {
     const el = box.current!;

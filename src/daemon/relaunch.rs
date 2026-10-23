@@ -744,12 +744,10 @@ mod tests {
             {"pid":2,"kind":"interactive","sessionId":"aaaaaaaa-0000-4000-8000-000000000001"}
         ]"#;
         let mine = "aaaaaaaa-0000-4000-8000-000000000001";
-        // 짧은 id가 같아도 전체 id가 다른 작업(사람의 세션)은 끝내지 않는다.
         assert_eq!(
             background_job(json, "925fee83-ffff-4000-8000-00000000000f"),
             None
         );
-        // 같은 세션이라도 백그라운드가 아니면(노드 자신의 CLI) 끝내지 않는다.
         assert_eq!(background_job(json, mine), None);
         assert_eq!(
             background_job(json, "925fee83-0000-4000-8000-000000000002").as_deref(),

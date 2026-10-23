@@ -98,10 +98,10 @@ enum Cli {
         /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
         #[arg(long)]
         file: Option<PathBuf>,
-        /// 모델. 없으면 CLI 설정의 모델로 뜬다. Claude·Codex만 받는다.
+        /// 모델. 없으면 CLI 설정의 모델로 뜬다. 받지 않는 에이전트면 거절 글이 받는 값을 알린다.
         #[arg(long, conflicts_with = "command")]
         model: Option<String>,
-        /// 추론 강도(예: `medium`). 없으면 CLI 설정의 강도로 뜬다. Claude·Codex만 받는다.
+        /// 추론 강도(예: `medium`). 없으면 CLI 설정의 강도로 뜬다. 받지 않는 에이전트면 거절 글이 받는 값을 알린다.
         #[arg(long, conflicts_with = "command")]
         effort: Option<String>,
         /// 자식이 실행할 명령. ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다.
@@ -114,24 +114,15 @@ enum Cli {
     Note {
         name: String,
         body: String,
-        /// 일하는 Claude·Codex·OpenCode 2 노드의 지금 턴에 넣는다. 턴을 멈추지 않는다. 부모나 자식에게만 간다.
+        /// 일하는 노드의 지금 턴에 넣는다. 턴을 멈추지 않는다. 부모나 자식에게만 간다.
         #[arg(long, conflicts_with = "interrupt")]
         steer: bool,
-        /// Claude·Codex·OpenCode 2 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다. 부모나 자식에게만 간다.
+        /// 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다. 부모나 자식에게만 간다.
         #[arg(long)]
         interrupt: bool,
     },
     /// 받은 `loom ask` 메시지에 답한다(종류 answer). 묻는 노드가 `loom wait --reply-to`로 기다릴 수 있다.
     Answer { message: u32, body: String },
-    /// 바뀐 동사. `loom note <target> <body>`를 쓴다.
-    #[command(hide = true)]
-    Send { name: String, body: String },
-    /// 바뀐 동사. `loom note --steer`를 쓴다.
-    #[command(hide = true)]
-    Steer { name: String, body: String },
-    /// 바뀐 동사. `loom note --interrupt`를 쓴다.
-    #[command(hide = true)]
-    Interrupt { name: String, body: String },
     /// 메시지가 올 때까지 기다렸다가 본문을 출력한다.
     Wait {
         /// 이 `loom ask` 메시지에 대한 답(종류 answer)만 찾는다. 이미 훅이 받은 답도 찾는다.
@@ -144,9 +135,6 @@ enum Cli {
         #[arg(long)]
         json: bool,
     },
-    /// 바뀐 동사. `loom answer <message-id> <body>`를 쓴다.
-    #[command(hide = true)]
-    Reply { message: u32, body: String },
     /// 내 번호, 현재 부모와 자식, 프로세스 생존 여부를 출력한다.
     Status {
         /// 그래프의 모든 노드를 번호, 이름, 부모, 자리, 상태, 생존 여부로 출력한다.
@@ -167,7 +155,7 @@ enum Cli {
         /// 사람이 그 지시에 준 그림 파일. 여러 번 준다. 받은편지함 완료 줄에 작은 그림으로 보인다.
         #[arg(long = "image")]
         images: Vec<PathBuf>,
-        /// 사람이 열 문서(user-doc HTML, `.md` 같은 글 파일). 받은편지함 완료 줄에 링크로 보인다. 부모 없는 노드만 쓴다.
+        /// 사람이 열 문서(`show.sh`를 지난 user-doc HTML). 받은편지함 완료 줄에 링크로 보인다. 부모 없는 노드만 쓴다.
         #[arg(long)]
         doc: Option<PathBuf>,
     },
@@ -175,7 +163,7 @@ enum Cli {
     /// 부모 있는 노드는 부모에게 묻는다. 답은 종류 answer 메시지로 온다.
     Ask {
         question: String,
-        /// 질문에 붙일 문서(user-doc 목업·보고서 HTML, `.md` 같은 글 파일). 사람은 질문 줄의 링크로 연다.
+        /// 질문에 붙일 문서(`show.sh`를 지난 user-doc 목업·보고서 HTML). 사람은 질문 줄의 링크로 연다.
         #[arg(long)]
         doc: Option<PathBuf>,
     },
@@ -217,7 +205,12 @@ enum Cli {
         effort: Option<String>,
     },
     /// user-doc 문서(HTML)를 점검하고 문서 ID를 붙인다. 브라우저는 열지 않는다. 사람에게는 `loom ask --doc`으로 보인다.
-    Show { file: PathBuf },
+    Show {
+        file: PathBuf,
+        /// `show.sh`가 렌더·말풍선 점검 뒤에 부른다. 지금 내용을 `--doc` 통과로 남긴다.
+        #[arg(long, hide = true)]
+        checked: bool,
+    },
     /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
     Hook,
     /// Cursor 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
@@ -276,12 +269,6 @@ fn main() -> ExitCode {
             cli::note(name, mode, body)
         }
         Cli::Answer { message, body } => cli::answer(message, body),
-        Cli::Send { .. } => cli::replaced("send", "loom note <target> <body>"),
-        Cli::Steer { .. } => cli::replaced("steer", "loom note <target> <body> --steer"),
-        Cli::Interrupt { .. } => {
-            cli::replaced("interrupt", "loom note <target> <body> --interrupt")
-        }
-        Cli::Reply { .. } => cli::replaced("reply", "loom answer <message-id> <body>"),
         Cli::Hook => cli::hook(),
         Cli::CursorHook => cli::cursor_hook(),
         Cli::CursorRules => cli::cursor_rules(),
@@ -324,7 +311,14 @@ fn main() -> ExitCode {
             model,
             effort,
         } => cli::relaunch(name, agent, ModelChoice { model, effort }),
-        Cli::Show { file } => user_doc::show(&wsl::from_caller(file)),
+        Cli::Show {
+            file,
+            checked: false,
+        } => user_doc::show(&wsl::from_caller(file)),
+        Cli::Show {
+            file,
+            checked: true,
+        } => user_doc::record_checked(&wsl::from_caller(file)),
         Cli::PtyHost => node_host::run(),
     };
     match result {

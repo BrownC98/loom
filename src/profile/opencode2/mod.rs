@@ -35,10 +35,13 @@ const PROMPT_RETRY_DELAY: Duration = Duration::from_secs(1);
 /// 서버가 사람의 설정 위에 합치는 설정 글(JSON). 근거: opencode 2.0.32 `OPENCODE_CONFIG_CONTENT`.
 const CONFIG_ENV: &str = "OPENCODE_CONFIG_CONTENT";
 
+/// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
+pub(super) const WAITING: &str = "When waiting for children and no independent work remains, end your turn. Their messages arrive as new input automatically. Do not run an unbounded loom wait.";
+
 /// 세션 지시 항목(`instructions/entries/loom`). 모델이 모든 턴에 본다(실측).
 fn usage(launch: Launch) -> String {
     format!(
-        "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages arrive as new input automatically. Do not run an unbounded loom wait.\n\n{}",
+        "{}\n{WAITING}\n\n{}",
         super::COMMUNICATION_USAGE,
         crate::skills::always_on(launch)
     )

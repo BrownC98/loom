@@ -436,7 +436,7 @@ button.unread:hover { filter: brightness(1.1); }
 .xterm-box .xterm .xterm-viewport { background-color: transparent; }
 /* 칸이 소수 픽셀 배율(그래프 확대·축소)에 놓이면 줄 사이 경계가 한 픽셀 아래 줄 가장자리에 걸려, 배경색 블록(OpenCode)에 어두운 가로줄이 보였다(2026-10-23 사람 "오픈 코드 출력이상"). 배경 칸을 1px 아래로 늘려 덮는다. 줄 칸의 inline overflow:hidden이 늘린 부분을 자르므로 푼다. */
 .xterm-box .xterm-rows > div { overflow: visible !important; }
-.xterm-box .xterm-rows span[class*="xterm-bg-"], .xterm-box .xterm-rows span[style*="background-color"] { padding-bottom: 1px; }
+.xterm-box .xterm-rows span[class*="xterm-bg-"], .xterm-box .xterm-rows span[style*="background-color"] { box-sizing: content-box; padding-bottom: 1px; }
 .card-foot { font-size: 12px; color: var(--ink-3); padding: 5px 10px; border-top: 1px solid var(--line); }
 .card[data-selected] .card-foot { color: var(--accent); }
 

@@ -9,6 +9,7 @@ use ts_rs::TS;
 use super::{Kind, MessageId, NodeId, NodeState, Refusal, WaitId, from_json, to_json};
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, Provider};
+use crate::protocol::{Finding, GateState, GateVerb};
 
 /// 남기는 이벤트 수 상한. 노드 50개가 각각 메시지 200개를 주고받는 하루치다.
 const KEEP: u32 = 10_000;
@@ -73,13 +74,27 @@ pub enum Entry {
         from: Who,
         to: Option<Who>,
         step: Step,
+        /// 보낸 입구. 받음 확인과 데몬이 만든 메시지, 옛 기록에는 없다.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        via: Option<Via>,
+        /// 관문 동사가 보낸 메시지의 관문 흔적. 다른 메시지에는 없다.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        gate: Option<GateTrace>,
     },
-    /// 보내기를 거절했다. `to`는 보낸 쪽이 적은 이름이다.
+    /// 보내기를 거절했다. `to`는 보낸 쪽이 적은 이름이다. 관문 호출이면 브랜치다.
     Refused {
         how: Kind,
         from: Who,
         to: String,
         reason: Refusal,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        via: Option<Via>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        gate: Option<GateTrace>,
     },
     /// 공급자의 쓰는 계정을 바꾸고 실행 중인 노드를 옮겼다. 계정이 없으면 시스템 기본이다.
     /// `moved`는 바로 옮긴 노드, `later`는 턴이 끝나면 옮길 노드, `failed`는 옛 계정으로 계속 도는 노드 수다.
@@ -151,6 +166,33 @@ pub enum Entry {
     },
 }
 
+/// 요청이 들어온 입구. CLI는 명령 이름(`loom send`)과 판을 헤더로 보낸다. 헤더가 없는 요청(화면, 훅 밖 API)은 경로다.
+/// 근거: R8 v5 ⑤ 흔적 칸 「입구」·「판」. 관문 audit가 관문 동사 밖에서 온 관문 글을 이 값으로 가린다.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Via {
+    pub tool: String,
+    /// loom 판과 (있으면) 커밋. 헤더가 없으면 없다.
+    pub version: Option<String>,
+}
+
+/// 관문 호출 하나의 흔적. 누가(역할·실행자·모델) 어느 브랜치에 무엇을 했고 상태가 어떻게 바뀌었는지.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct GateTrace {
+    pub verb: GateVerb,
+    pub branch: String,
+    /// 부르기 전 상태. 브랜치를 찾기 전에 거절했으면 없다.
+    pub from: Option<GateState>,
+    /// 거절이면 없다.
+    pub to: Option<GateState>,
+    pub role: Option<String>,
+    pub agent: Option<AgentId>,
+    pub model: Option<String>,
+    /// `loom merge` 안 audit가 찾은 일. 다른 호출은 빈 목록이다.
+    pub findings: Vec<Finding>,
+}
+
 /// 질문이 답 없이 닫힌 까닭.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -208,6 +250,20 @@ pub(super) fn write(
         [db.last_insert_rowid() - KEEP as i64],
     )?;
     Ok(())
+}
+
+/// 가장 오래 남은 이벤트의 시각. 관문 audit가 흔적 구간이 빈틈없는지 본다.
+pub(super) fn oldest_at(db: &Connection) -> rusqlite::Result<Option<i64>> {
+    db.query_row("SELECT min(at) FROM events", [], |row| row.get(0))
+}
+
+/// `since`(유닉스 초) 뒤에 보낸 메시지 이벤트와 그 본문, 오래된 것부터. 관문 audit가 읽는다.
+pub(super) fn sent_since(db: &Connection, since: i64) -> rusqlite::Result<Vec<EventRecord>> {
+    db.prepare(&format!(
+        "{RECORD_COLUMNS} WHERE e.at >= ?1 AND e.entry ->> 'kind' = 'message' AND e.entry ->> 'step' = 'sent' ORDER BY e.id"
+    ))?
+    .query_map([since], record_from_row)?
+    .collect()
 }
 
 pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {

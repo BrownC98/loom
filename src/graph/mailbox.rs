@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::events::{self, Entry, Step};
+use super::events::{self, Entry, GateTrace, Step, Via};
 use super::waits;
 use super::{
     Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward,
@@ -67,6 +67,14 @@ struct Outgoing<'a> {
     kind: Kind,
     body: &'a str,
     reply_to: Option<MessageId>,
+    via: Option<&'a Via>,
+}
+
+/// 메시지 이벤트에 붙이는 흔적: 들어온 입구와, 관문 동사가 보냈으면 관문 흔적.
+#[derive(Default)]
+pub(super) struct Stamp {
+    pub via: Option<Via>,
+    pub gate: Option<GateTrace>,
 }
 
 impl Graph {
@@ -75,7 +83,14 @@ impl Graph {
         related(&self.lock(), from, to)
     }
 
-    pub fn send(&self, from: NodeId, to: &str, kind: Kind, body: &str) -> Result<Sent, Refusal> {
+    pub fn send(
+        &self,
+        from: NodeId,
+        to: &str,
+        kind: Kind,
+        body: &str,
+        via: Option<&Via>,
+    ) -> Result<Sent, Refusal> {
         self.post(
             from,
             to,
@@ -83,6 +98,7 @@ impl Graph {
                 kind,
                 body,
                 reply_to: None,
+                via,
             },
             |_| {},
         )
@@ -94,6 +110,7 @@ impl Graph {
         from: NodeId,
         to: &str,
         body: &str,
+        via: Option<&Via>,
         stop: impl FnOnce(NodeId),
     ) -> Result<Sent, Refusal> {
         self.post(
@@ -103,13 +120,20 @@ impl Graph {
                 kind: Kind::Interrupt,
                 body,
                 reply_to: None,
+                via,
             },
             stop,
         )
     }
 
     /// 내가 받은 메시지의 보낸 노드에게 답한다.
-    pub fn reply(&self, from: NodeId, request: MessageId, body: &str) -> Result<Sent, Refusal> {
+    pub fn reply(
+        &self,
+        from: NodeId,
+        request: MessageId,
+        body: &str,
+        via: Option<&Via>,
+    ) -> Result<Sent, Refusal> {
         let sender: Option<u32> = self
             .lock()
             .query_row(
@@ -127,6 +151,7 @@ impl Graph {
                 kind: Kind::Queue,
                 body,
                 reply_to: Some(request),
+                via,
             },
             |_| {},
         )
@@ -143,6 +168,7 @@ impl Graph {
             kind,
             body,
             reply_to,
+            via,
         } = message;
         if body.len() > BRIEF_LIMIT_BYTES {
             return Err(Refusal::BriefTooLong(body.len()));
@@ -179,7 +205,11 @@ impl Graph {
             check_held_room(&db, from)?;
         }
         let tx = db.transaction()?;
-        let id = enqueue(&tx, from, to_id, kind, body)?;
+        let stamp = Stamp {
+            via: via.cloned(),
+            gate: None,
+        };
+        let id = enqueue(&tx, from, to_id, kind, body, stamp)?;
         if let Some(request) = reply_to {
             // 답변을 쓰는 동안 원래 메시지의 보낸 노드와 받은 노드가 바뀌지 않았는지 본다.
             let valid: bool = tx.query_row(
@@ -198,22 +228,32 @@ impl Graph {
             before_delivery(to_id);
         }
         tx.commit()?;
-        if let Some(to_id) = to_id {
-            self.publish_node(&db, to_id)?;
-            if parent_of(&db, from)? == Some(to_id) {
-                self.publish_message(from, Toward::Parent);
-            } else if parent_of(&db, to_id)? == Some(from) {
-                self.publish_message(to_id, Toward::Child);
-            } else {
-                self.publish_hop(from, to_id);
-            }
-        } else {
-            self.publish_node(&db, from)?;
+        match to_id {
+            Some(to_id) => self.publish_sent(&db, from, to_id)?,
+            None => self.publish_node(&db, from)?,
         }
         Ok(Sent {
             id,
             recipient: to_id,
         })
+    }
+
+    /// 커밋한 뒤 부른다: 받는 노드와 메시지가 간 간선을 화면에 알리고 기다리는 `wait`를 깨운다.
+    pub(super) fn publish_sent(
+        &self,
+        db: &Connection,
+        from: NodeId,
+        to: NodeId,
+    ) -> rusqlite::Result<()> {
+        self.publish_node(db, to)?;
+        if parent_of(db, from)? == Some(to) {
+            self.publish_message(from, Toward::Parent);
+        } else if parent_of(db, to)? == Some(from) {
+            self.publish_message(to, Toward::Child);
+        } else {
+            self.publish_hop(from, to);
+        }
+        Ok(())
     }
 
     /// 답변 대기는 훅이 이미 받은 답도 찾는다. 다른 소비자 때문에 답을 놓치지 않는다.
@@ -369,6 +409,8 @@ impl Graph {
                 },
                 to: Some(to.clone()),
                 step: Step::Delivered,
+                via: None,
+                gate: None,
             };
             events::write(&tx, &entry, Some(*id))?;
         }
@@ -390,6 +432,7 @@ impl Graph {
         asked: Option<&str>,
         images: &[PathBuf],
         doc: Option<waits::Attached>,
+        via: Option<&Via>,
     ) -> Result<Vec<String>, Refusal> {
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
@@ -423,7 +466,12 @@ impl Graph {
                 waits::put_done(&tx, node, asked, summary, images, doc)?
             }
             _ => {
-                enqueue(&tx, node, parent, Kind::Queue, &format!("done: {summary}"))?;
+                let stamp = Stamp {
+                    via: via.cloned(),
+                    gate: None,
+                };
+                let body = format!("done: {summary}");
+                enqueue(&tx, node, parent, Kind::Queue, &body, stamp)?;
             }
         }
         let alive_children = tx
@@ -482,6 +530,7 @@ pub(super) fn enqueue(
     to: Option<NodeId>,
     kind: Kind,
     body: &str,
+    stamp: Stamp,
 ) -> rusqlite::Result<MessageId> {
     db.execute(
         "INSERT INTO messages (recipient, sender, sender_name, kind, body)
@@ -494,6 +543,8 @@ pub(super) fn enqueue(
         from: events::who(db, from)?,
         to: to.map(|to| events::who(db, to)).transpose()?,
         step: if to.is_some() { Step::Sent } else { Step::Held },
+        via: stamp.via,
+        gate: stamp.gate,
     };
     events::write(db, &entry, Some(id))?;
     Ok(id)

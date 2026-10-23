@@ -31,6 +31,7 @@ import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
 import { applyColors, NO_COLOR, useColorMode } from './uiColors';
 import { Settings, SETTINGS_TABS, type SettingsTab } from './Settings';
 import { CardViewSwitch } from './ThemeSettings';
+import { cardViewOf } from './cardView';
 import { ArrangeButton } from './ArrangeButton';
 import { Dock, DOCK_TOGGLE, DockRail, type DockTab } from './Dock';
 import type { ArrangeDirection } from './layout';
@@ -205,12 +206,16 @@ export function App() {
   // 오른쪽 칸은 창 폭에서 왼쪽 칸과 그래프 최소 폭을 뺀 만큼까지 늘어난다. 창을 넓히면 한도도 넓어진다.
   const dockPane: Pane = { ...DOCK_PANE, max: Math.max(DOCK_PANE.min, viewport - sideShown - DOCK_MIN_GRAPH) };
   const dockWidth = paneWidth(dockPane, settings.paneWidths.dock);
-  const simpleCards = settings.cardView === 'simple';
   // 그래프가 그리는 저장소(docs/design.md 「그래프와 화면」). 저장소 하나 범위면 현재 저장소만이다.
   const shown = settings.graphScope === 'all' ? repos : repo ? [repo] : [];
   // 저장소가 하나면 그래프 위에 그 이름을 보인다. 둘 이상이면 저장소 상자 머리가 이름을 보인다.
   const title = shown.length === 1 ? shown[0].name : null;
-  const dockedView = simpleCards && selected !== null ? nodes.get(selected) : undefined;
+  // 심플 카드인 노드를 고르면 그 터미널은 오른쪽 칸에만 열린다.
+  const simpleNode = (id: NodeId | null) => {
+    const view = id === null ? undefined : nodes.get(id);
+    return view && cardViewOf(view, settings.cardView) === 'simple' ? view : undefined;
+  };
+  const dockedView = simpleNode(selected);
   const tabs: readonly DockTab[] = dockedView ? ['events', 'commits', 'docs', 'questions', 'terminal'] : ['events', 'commits', 'docs', 'questions'];
   const waiting = waitingNodes(nodes);
   // 터미널 탭을 보다가 노드 고르기를 풀면 커밋 그래프로 돌아간다.
@@ -361,7 +366,7 @@ export function App() {
     // 다른 저장소의 노드(트리, 이벤트 기록, 모든 저장소 그래프)를 고르면 현재 저장소를 그 저장소로 바꾼다.
     const place = id === null ? undefined : nodes.get(id)?.place;
     if (place) selectRepo(place.repo);
-    if (simpleCards && id !== null) {
+    if (simpleNode(id)) {
       setTab('terminal');
       setDockOpen(true);
     }
@@ -612,7 +617,6 @@ export function App() {
               onClear={clearFocus}
               highlight={lit}
               onClearHighlight={() => setHighlight(null)}
-              cardView={settings.cardView}
               direction={direction}
               ref={graph}
             />}
@@ -638,6 +642,7 @@ export function App() {
               {shownTab === 'terminal' && dockedView && (
                 <TerminalDock
                   view={dockedView}
+                  defaultView={settings.cardView}
                   agentLabel={agentLabel(agents, dockedView.agent)}
                   resumable={canResume(agents, dockedView.agent)}
                   focusAsk={focusAsk}

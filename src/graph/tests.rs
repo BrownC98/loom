@@ -2411,6 +2411,35 @@ fn bookmarks_keep_their_order_and_vanish_with_the_node() {
 }
 
 #[test]
+fn card_view_and_last_reply_stay_on_the_node_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loom.db");
+    let g = open(&path);
+    let a = root(&g, "codex");
+    assert_eq!((view(&g, a).card_view, view(&g, a).reply), (None, None));
+    g.set_card_view(a, Some(CardView::Simple)).unwrap();
+    g.set_reply(a, "  첫 답\n").unwrap();
+    g.set_reply(a, "지금 할 일은 없습니다.").unwrap();
+    // 빈 답은 앞 답을 지우지 않는다.
+    g.set_reply(a, " \n").unwrap();
+    assert!(matches!(
+        g.set_card_view(NodeId(99), None),
+        Err(Refusal::NotFound(_))
+    ));
+    drop(g);
+    // 데몬을 다시 띄워도 남는다.
+    let g = open(&path);
+    let v = view(&g, a);
+    assert_eq!(v.card_view, Some(CardView::Simple));
+    assert_eq!(v.reply.as_deref(), Some("지금 할 일은 없습니다."));
+    g.set_card_view(a, None).unwrap();
+    g.set_reply(a, &"가".repeat(5000)).unwrap();
+    let v = view(&g, a);
+    assert_eq!(v.card_view, None);
+    assert_eq!(v.reply.map(|r| r.chars().count()), Some(5000));
+}
+
+#[test]
 fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));

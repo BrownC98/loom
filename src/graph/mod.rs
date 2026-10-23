@@ -73,6 +73,15 @@ pub enum NodeState {
     },
 }
 
+/// 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum CardView {
+    Standard,
+    Simple,
+}
+
 /// 노드가 도는 자리: 저장소와 그 워크트리(묶음). `worktree`는 `git worktree list`가 적는 절대 경로다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -82,6 +91,7 @@ pub struct Place {
 }
 
 #[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct NodeView {
     pub id: NodeId,
@@ -99,6 +109,10 @@ pub struct NodeView {
     pub place: Place,
     /// 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
     pub bookmark: Option<u32>,
+    /// 사람이 「⋯」 메뉴로 이 노드에 고른 카드 보기. 없으면 설정의 기본 보기를 따른다.
+    pub card_view: Option<CardView>,
+    /// 마지막 턴을 끝낸 답 글. 심플 카드의 상태 줄이다(목업 docs/mockups/node-card-view.html ⑧). 답 글을 받은 적이 없으면 없다.
+    pub reply: Option<String>,
     /// 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
     /// 근거: docs/design.md 「사람 응답 대기」.
     pub waits: Vec<HumanWait>,
@@ -505,7 +519,8 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     n.model, n.effort, n.repo, n.worktree,
     n.bookmark, n.wait,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),
-    (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id)
+    (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id),
+    n.card_view, n.reply
     FROM nodes n";
 
 /// 잠근 DB. 놓을 때 아직 보내지 않은 이벤트 기록을 보낸다.
@@ -666,6 +681,7 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
     let wait: Option<String> = row.get(11)?;
     let done: String = row.get(12)?;
     let asked: String = row.get(13)?;
+    let card_view: Option<String> = row.get(14)?;
     // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
     let mut waits: Vec<HumanWait> = serde_json::from_str(&asked).unwrap_or_default();
     waits.sort_by_key(|w| w.id.0);
@@ -695,6 +711,9 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
             worktree: row.get(9)?,
         },
         bookmark: row.get(10)?,
+        // 읽지 못하는 값은 고르지 않은 것으로 본다.
+        card_view: card_view.and_then(|v| serde_json::from_str(&v).ok()),
+        reply: row.get(15)?,
         waits,
     })
 }

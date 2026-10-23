@@ -47,7 +47,7 @@ impl TurnEnds {
         self.gated.lock().unwrap().insert(node);
     }
 
-    /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다.
+    /// 턴이 끝났다. 이번 턴의 답 글과, 다시 일하게 할 글이 있으면 그 글을 돌려준다.
     /// `gated_repo`는 노드의 저장소가 관문 계약을 가졌는지 본다. 없는 저장소는 옛 관문 글을 그대로 쓴다.
     /// `unreported_root`는 노드가 사람이 띄운 노드이고, 사람 응답 대기가 없고, `loom done`을 부르지 않았는지 본다(`Graph::unreported_root`).
     pub fn ended(
@@ -55,21 +55,31 @@ impl TurnEnds {
         node: NodeId,
         gated_repo: impl FnOnce() -> bool,
         unreported_root: impl FnOnce() -> bool,
-    ) -> Option<&'static str> {
-        let said = self.said.lock().unwrap().remove(&node);
+    ) -> TurnEnd {
+        let reply = self.said.lock().unwrap().remove(&node);
         let human = self.human.lock().unwrap().remove(&node);
         let called = self.gated.lock().unwrap().remove(&node);
         let nudged = self.gate_nudged.lock().unwrap().remove(&node);
-        let gate_line = said
+        let gate_line = reply
             .as_deref()
             .is_some_and(|text| crate::protocol::gate_line(text).is_some());
-        if gate_line && !called && !nudged && gated_repo() {
+        let nudge = if gate_line && !called && !nudged && gated_repo() {
             self.gate_nudged.lock().unwrap().insert(node);
-            return Some(GATE_NUDGE);
-        }
-        (human && said.is_some_and(|text| !text.trim().is_empty()) && unreported_root())
+            Some(GATE_NUDGE)
+        } else {
+            (human
+                && reply.as_ref().is_some_and(|text| !text.trim().is_empty())
+                && unreported_root())
             .then_some(NUDGE)
+        };
+        TurnEnd { reply, nudge }
     }
+}
+
+/// 끝난 턴. `reply`는 심플 카드의 상태 줄로 남긴다.
+pub struct TurnEnd {
+    reply: Option<String>,
+    nudge: Option<&'static str>,
 }
 
 impl App {
@@ -81,12 +91,17 @@ impl App {
                 false
             })
         };
-        let nudge = self.turn_ends.ended(node, gated_repo, || {
+        let TurnEnd { reply, nudge } = self.turn_ends.ended(node, gated_repo, || {
             self.graph.unreported_root(node).unwrap_or_else(|e| {
                 eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
                 false
             })
         });
+        if let Some(text) = reply
+            && let Err(e) = self.graph.set_reply(node, &text)
+        {
+            eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
+        }
         // 다시 띄울 노드다. 다시 일하게 한 턴은 다시 띄우기가 끊거나 늦춘다.
         nudge.filter(|_| !self.relaunches.holds_mail(node))
     }
@@ -103,27 +118,31 @@ mod tests {
         // 알림·자식 메시지가 시작한 턴은 보지 않는다.
         turns.said(node, "병합했습니다".into());
         assert_eq!(
-            turns.ended(node, || true, || true),
+            turns.ended(node, || true, || true).nudge,
             None,
             "not a human turn"
         );
         turns.human(node);
         turns.said(node, "병합할까요?".into());
         assert_eq!(
-            turns.ended(node, || true, || false),
+            turns.ended(node, || true, || false).nudge,
             None,
             "child, asked or done"
         );
         turns.human(node);
         turns.said(node, "A안과 B안 가운데 고르시면 진행합니다.".into());
-        assert_eq!(turns.ended(node, || true, || true), Some(NUDGE));
-        // 다시 일한 턴은 사람 입력이 없다.
-        turns.said(node, "진행 상황".into());
-        assert_eq!(turns.ended(node, || true, || true), None);
+        assert_eq!(turns.ended(node, || true, || true).nudge, Some(NUDGE));
+        // 다시 일한 턴은 사람 입력이 없다. 답 글은 상태 줄로 돌려준다.
+        turns.said(node, "코디 결과 대기".into());
+        let end = turns.ended(node, || true, || true);
+        assert_eq!(
+            (end.reply.as_deref(), end.nudge),
+            (Some("코디 결과 대기"), None)
+        );
         // 답 글이 없는 사람 턴은 막지 않는다.
         turns.human(node);
         turns.said(node, " \n".into());
-        assert_eq!(turns.ended(node, || true, || true), None);
+        assert_eq!(turns.ended(node, || true, || true).nudge, None);
     }
 
     #[test]
@@ -131,20 +150,24 @@ mod tests {
         let turns = TurnEnds::default();
         let node = NodeId(1);
         turns.said(node, "검사 끝.\nREADY 출력표준".into());
-        assert_eq!(turns.ended(node, || false, || false), None, "old repo");
+        assert_eq!(
+            turns.ended(node, || false, || false).nudge,
+            None,
+            "old repo"
+        );
         turns.said(node, "READY 출력표준".into());
-        assert_eq!(turns.ended(node, || true, || false), Some(GATE_NUDGE));
+        assert_eq!(turns.ended(node, || true, || false).nudge, Some(GATE_NUDGE));
         // 다시 일한 턴이 같은 글을 써도 다시 깨우지 않는다.
         turns.said(node, "READY 출력표준".into());
-        assert_eq!(turns.ended(node, || true, || false), None);
+        assert_eq!(turns.ended(node, || true, || false).nudge, None);
         turns.gated(node);
         turns.said(node, "READY 출력표준".into());
         assert_eq!(
-            turns.ended(node, || true, || false),
+            turns.ended(node, || true, || false).nudge,
             None,
             "called loom ready"
         );
         turns.said(node, "Ready for review".into());
-        assert_eq!(turns.ended(node, || true, || false), None);
+        assert_eq!(turns.ended(node, || true, || false).nudge, None);
     }
 }

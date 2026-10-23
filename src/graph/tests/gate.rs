@@ -1,0 +1,415 @@
+//! 병합 관문 상태(`gate.rs`): 관문 고르기, 전이와 받는 노드, 흔적, audit. 전이 표 자체는 `protocol` 시험이 본다.
+
+use super::*;
+use crate::protocol::{
+    CI_ROLE, COORDINATOR_ROLE, Finding, GateState, GateVerb, Judgment, MergeEnd,
+};
+
+fn with_role(g: &Graph, parent: NodeId, name: &str, role: &str) -> NodeId {
+    g.add_child(
+        parent,
+        NewChild {
+            role: Some(role),
+            ..named(name)
+        },
+        TreeLimits {
+            max_depth: None,
+            max_children: None,
+        },
+        &launched(),
+        started,
+    )
+    .unwrap()
+}
+
+fn via() -> Via {
+    Via {
+        tool: "loom ready".into(),
+        version: Some("0.1.2 (abc)".into()),
+    }
+}
+
+fn round<'a>(branch: &'a str, target: &'a str) -> Round<'a> {
+    Round {
+        branch,
+        target,
+        worktree: "/repo/wt",
+        head: "c0ffee1",
+    }
+}
+
+/// 총괄 아래 CI 담당자와 코디, 코디 아래 워커.
+struct Team {
+    lead: NodeId,
+    ci: NodeId,
+    coordinator: NodeId,
+    worker: NodeId,
+}
+
+fn team(g: &Graph) -> Team {
+    let lead = root(g, "claude");
+    Team {
+        lead,
+        ci: with_role(g, lead, "ci", CI_ROLE),
+        coordinator: with_role(g, lead, "코디-1", COORDINATOR_ROLE),
+        worker: with_role(g, lead, "worker-x", "워커"),
+    }
+}
+
+fn state(g: &Graph, branch: &str) -> GateState {
+    g.lock()
+        .query_row(
+            "SELECT state FROM gates WHERE branch = ?1",
+            [branch],
+            |row| from_json(row, 0),
+        )
+        .unwrap()
+}
+
+fn mail(g: &Graph, node: NodeId) -> Vec<String> {
+    let taken = g.take(node, Kind::ALL, usize::MAX).unwrap();
+    let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
+    g.ack(node, &ids).unwrap();
+    taken.into_iter().map(|d| d.body).collect()
+}
+
+#[test]
+fn spawn_role_is_stored_and_picks_the_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let worker = with_role(&g, t.coordinator, "w", "워커");
+    let role: Option<String> = g
+        .lock()
+        .query_row("SELECT role FROM nodes WHERE id = ?1", [worker.0], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(role.as_deref(), Some("워커"));
+    // 코디 밑 워커의 관문은 코디, 코디의 관문은 CI 담당자다.
+    assert_eq!(
+        g.gate_for(worker).unwrap(),
+        GateChoice::Coordinator {
+            gate: t.coordinator,
+            worktree: "/repo".into()
+        }
+    );
+    assert_eq!(
+        g.gate_for(t.coordinator).unwrap(),
+        GateChoice::Ci { gate: t.ci }
+    );
+    // 끝난 CI 담당자는 고르지 않는다. 산 것이 둘이면 거절한다.
+    let second = with_role(&g, t.lead, "ci2", CI_ROLE);
+    assert!(
+        matches!(g.gate_for(t.worker), Err(Refusal::ManyGates(ids)) if ids.contains(&format!("#{second}")))
+    );
+    g.exited(second, 0).unwrap();
+    assert_eq!(g.gate_for(t.worker).unwrap(), GateChoice::Ci { gate: t.ci });
+    g.exited(t.ci, 0).unwrap();
+    assert_eq!(g.gate_for(t.worker), Err(Refusal::NoGate));
+}
+
+#[test]
+fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let reviewer = with_role(&g, t.ci, "reviewer", "검토자");
+    let v = via();
+    let branch = "기능";
+
+    assert_eq!(
+        g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
+        Ok("ci".into())
+    );
+    assert_eq!(state(&g, branch), GateState::Ready);
+    let to_ci = mail(&g, t.ci);
+    assert_eq!(to_ci.len(), 1);
+    assert!(
+        to_ci[0].starts_with("gate 기능: ready for review\nowner: 코디-1"),
+        "{}",
+        to_ci[0]
+    );
+    assert!(to_ci[0].contains("head: c0ffee1") && to_ci[0].contains("target: main"));
+    // 같은 차례에 두 번 ready하지 않는다.
+    assert!(matches!(
+        g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
+        Err(Refusal::Gate(e)) if e.state == GateState::Ready && e.allowed == [GateVerb::Verdict, GateVerb::Fail]
+    ));
+
+    // 관문도 검토자도 아닌 노드는 판정하지 못한다. block은 결함 파일이 있어야 한다.
+    assert!(matches!(
+        g.verdict(t.worker, branch, Judgment::Pass, None, Some(&v)),
+        Err(Refusal::NotGate { gate, .. }) if gate == "ci"
+    ));
+    assert_eq!(
+        g.verdict(reviewer, branch, Judgment::Block, None, Some(&v)),
+        Err(Refusal::NoFindings)
+    );
+    assert_eq!(
+        g.verdict(
+            reviewer,
+            branch,
+            Judgment::Block,
+            Some("/r/findings.md"),
+            Some(&v)
+        ),
+        Ok(GateState::Working)
+    );
+    let rework = mail(&g, t.coordinator);
+    assert_eq!(rework.len(), 1);
+    assert!(
+        rework[0].starts_with(
+            "gate 기능: verdict block (rework)\nfindings: /r/findings.md\nNext: fix each finding"
+        ),
+        "{}",
+        rework[0]
+    );
+    assert_eq!(
+        mail(&g, t.ci).len(),
+        1,
+        "the gate hears its reviewer's block"
+    );
+    let reviewer_model: Option<String> = g
+        .lock()
+        .query_row("SELECT verdict ->> '$.reviewer.name' FROM gates", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(reviewer_model.as_deref(), Some("reviewer"));
+
+    g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v))
+        .unwrap();
+    mail(&g, t.ci);
+    // 판정 없이 병합하지 않는다.
+    assert_eq!(
+        g.verdict(t.ci, branch, Judgment::Pass, None, Some(&v)),
+        Ok(GateState::Passed)
+    );
+    assert!(mail(&g, t.coordinator)[0].starts_with("gate 기능: verdict pass"));
+    assert!(matches!(
+        g.merge_start(t.coordinator, branch, Some(&v)),
+        Err(Refusal::NotGate { .. })
+    ));
+    let task = g.merge_start(t.ci, branch, Some(&v)).unwrap();
+    assert_eq!(
+        (task.owner, task.target.as_str(), task.last_merged),
+        (t.coordinator, "main", None)
+    );
+    assert!(mail(&g, t.coordinator)[0].starts_with("gate 기능: merge started"));
+    // 앞 실행이 보고 없이 끝났으면 같은 관문이 다시 시작한다.
+    g.merge_start(t.ci, branch, Some(&v)).unwrap();
+    mail(&g, t.coordinator);
+    let ended = Ended {
+        end: MergeEnd::Merged,
+        merged: Some("abc1234"),
+        lines: vec!["deploy: Confirmed".into()],
+        findings: Vec::new(),
+    };
+    assert_eq!(
+        g.merge_end(t.ci, branch, ended, Some(&v)),
+        Ok(GateState::Merged)
+    );
+    let merged = mail(&g, t.lead);
+    assert_eq!(merged.len(), 1);
+    assert!(
+        merged[0].starts_with(
+            "gate 기능: merged\nmerged commit: abc1234\ndeploy: Confirmed\nNext: accept"
+        ),
+        "{}",
+        merged[0]
+    );
+    assert_eq!(
+        mail(&g, t.coordinator).len(),
+        1,
+        "the owner hears the merge too"
+    );
+    assert_eq!(g.merged_commits(t.ci).unwrap(), ["abc1234"]);
+    assert!(matches!(
+        g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
+        Err(Refusal::Gate(e)) if e.state == GateState::Merged && e.allowed.is_empty()
+    ));
+    // 다음 브랜치의 audit는 앞 병합부터 본다.
+    g.ready(t.worker, &round("다음", "main"), t.ci, Some(&v))
+        .unwrap();
+    g.verdict(t.ci, "다음", Judgment::Pass, None, Some(&v))
+        .unwrap();
+    let next = g.merge_start(t.ci, "다음", Some(&v)).unwrap();
+    assert_eq!(next.last_merged.as_deref(), Some("abc1234"));
+}
+
+#[test]
+fn fail_and_no_round_and_unknown_callers_are_refused_or_routed_to_the_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let v = via();
+    assert_eq!(
+        g.verdict(t.ci, "없음", Judgment::Pass, None, Some(&v)),
+        Err(Refusal::NoRound("없음".into()))
+    );
+    assert_eq!(
+        g.fail(t.ci, "없음", "x", Some(&v)),
+        Err(Refusal::NoRound("없음".into()))
+    );
+    g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
+        .unwrap();
+    mail(&g, t.ci);
+    assert!(matches!(
+        g.fail(t.worker, "b", "x", Some(&v)),
+        Err(Refusal::NotGate { .. })
+    ));
+    assert_eq!(
+        g.fail(t.ci, "b", "deploy is down", Some(&v)),
+        Ok(GateState::Failed)
+    );
+    let to_root = mail(&g, t.lead);
+    assert!(
+        to_root[0].starts_with("gate b: failed\ncause: deploy is down\nNext: decide"),
+        "{}",
+        to_root[0]
+    );
+    assert_eq!(
+        mail(&g, t.worker).len(),
+        1,
+        "the owner hears the failure too"
+    );
+    // 원인을 고친 뒤 담당이 새 차례를 연다.
+    assert_eq!(
+        g.ready(t.worker, &round("b", "main"), t.ci, Some(&v)),
+        Ok("ci".into())
+    );
+}
+
+#[test]
+fn every_gate_call_and_refusal_leaves_a_trace() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    g.set_model(
+        t.coordinator,
+        &Model {
+            model: Some("claude-opus-5-5".into()),
+            effort: None,
+        },
+    )
+    .unwrap();
+    let v = via();
+    g.ready(t.coordinator, &round("b", "main"), t.ci, Some(&v))
+        .unwrap();
+    let refusal = Refusal::Uncommitted("b".into());
+    g.record_gate_refusal(t.coordinator, GateVerb::Ready, "b", &refusal, Some(&v))
+        .unwrap();
+    let recent = g.recent_events().unwrap();
+    let Entry::Refused {
+        reason,
+        via,
+        gate: Some(trace),
+        ..
+    } = &recent[0].entry
+    else {
+        panic!("{:?}", recent[0].entry);
+    };
+    assert_eq!((reason, via.as_ref()), (&refusal, Some(&v)));
+    assert_eq!((trace.from, trace.to), (Some(GateState::Ready), None));
+    let Entry::Message {
+        via,
+        gate: Some(trace),
+        ..
+    } = &recent[1].entry
+    else {
+        panic!("{:?}", recent[1].entry);
+    };
+    assert_eq!(via.as_ref(), Some(&v));
+    assert_eq!(trace.verb, GateVerb::Ready);
+    assert_eq!(trace.branch, "b");
+    assert_eq!(
+        (trace.from, trace.to),
+        (Some(GateState::Working), Some(GateState::Ready))
+    );
+    assert_eq!(trace.role.as_deref(), Some(COORDINATOR_ROLE));
+    assert_eq!(trace.agent, None, "a shell node");
+    assert_eq!(trace.model.as_deref(), Some("claude-opus-5-5"));
+    // 손으로 보낸 메시지도 입구를 남긴다.
+    let send_via = Via {
+        tool: "loom send".into(),
+        version: None,
+    };
+    g.send(t.worker, "ci", Kind::Queue, "hi", Some(&send_via))
+        .unwrap();
+    let recent = g.recent_events().unwrap();
+    assert!(
+        matches!(&recent[0].entry, Entry::Message { via: Some(got), gate: None, .. } if *got == send_via)
+    );
+}
+
+#[test]
+fn old_event_rows_without_via_or_gate_still_read() {
+    let old = r#"{"kind":"message","how":"queue","from":{"id":1,"name":"a"},"to":{"id":2,"name":"b"},"step":"sent"}"#;
+    let entry: Entry = serde_json::from_str(old).unwrap();
+    assert!(matches!(
+        entry,
+        Entry::Message {
+            via: None,
+            gate: None,
+            ..
+        }
+    ));
+    let old = r#"{"kind":"refused","how":"queue","from":{"id":1,"name":"a"},"to":"b","reason":{"code":"emptyName"}}"#;
+    let entry: Entry = serde_json::from_str(old).unwrap();
+    assert!(matches!(
+        entry,
+        Entry::Refused {
+            via: None,
+            gate: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn audit_finds_raw_gate_words_in_the_tree_and_a_pruned_range() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let stranger = root(&g, "codex");
+    let v = via();
+    g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
+        .unwrap();
+    let raw = g
+        .send(t.worker, "ci", Kind::Queue, "READY b /x", None)
+        .unwrap();
+    g.send(stranger, "ci", Kind::Queue, "READY other", None)
+        .unwrap();
+    g.send(t.worker, "ci", Kind::Queue, "Ready for review", None)
+        .unwrap();
+    let oldest: i64 = g
+        .lock()
+        .query_row("SELECT min(at) FROM events", [], |r| r.get(0))
+        .unwrap();
+    // 관문 동사가 보낸 메시지(`gate ...`)와 나무 밖 노드의 글은 찾지 않는다.
+    assert_eq!(
+        g.audit(t.worker, oldest).unwrap(),
+        vec![Finding::RawGateWord {
+            event: g
+                .lock()
+                .query_row(
+                    "SELECT id FROM events WHERE message = ?1",
+                    [raw.id.0],
+                    |r| r.get(0)
+                )
+                .unwrap(),
+            from: "worker-x".into(),
+            word: "READY".into(),
+        }]
+    );
+    // 시작점이 남은 가장 오래된 이벤트보다 앞이면 구간이 비었다.
+    let findings = g.audit(t.worker, oldest - 1).unwrap();
+    assert_eq!(
+        findings[0],
+        Finding::RangeIncomplete {
+            since: oldest - 1,
+            oldest
+        }
+    );
+}

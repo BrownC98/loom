@@ -4,6 +4,7 @@
 //! 근거: docs/design.md 「메시징」.
 
 mod events;
+mod gate;
 mod mailbox;
 mod nodes;
 mod waits;
@@ -21,8 +22,9 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{Entry, EventRecord, SwitchCause, Who};
-pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
+pub use events::{Entry, EventRecord, SwitchCause, Via, Who};
+pub use gate::{Ended, GateChoice, Round};
+pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
     Attached, HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId,
@@ -31,6 +33,7 @@ pub use waits::{
 
 use crate::db::Database;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
+use crate::protocol::IllegalStep;
 use crate::worktree::RepoId;
 
 /// 화면 하나가 밀려도 버티는 이벤트 수.
@@ -222,8 +225,51 @@ pub enum Refusal {
     SeveralOpen(Vec<WaitId>),
     /// 알림에서 고른 승인 창이 지금 터미널 화면과 다르다(닫혔거나 글·선택지가 바뀌었다). 키를 치지 않았다.
     PromptChanged(WaitId),
+    /// 관문 상태에서 할 수 없는 관문 호출.
+    Gate(IllegalStep),
+    /// 관문 호출을 관문(또는 그 검토자)이 아닌 노드가 불렀다.
+    NotGate {
+        branch: String,
+        gate: String,
+    },
+    /// 이 브랜치에는 관문 차례가 없다. 담당이 먼저 `loom ready`를 부른다.
+    NoRound(String),
+    /// `loom ready`을 부른 노드의 워크트리가 그 브랜치에 없다. `yours`는 그 워크트리의 브랜치다(분리된 HEAD면 없다).
+    NotOwner {
+        branch: String,
+        yours: Option<String>,
+    },
+    /// 담당 워크트리에 커밋하지 않은 변경이 있다. 값은 브랜치다.
+    Uncommitted(String),
+    /// 대상 브랜치가 담당 브랜치에 포함되지 않았다.
+    NotAncestor {
+        target: String,
+        branch: String,
+    },
+    /// 담당 브랜치가 대상 브랜치와 같다. 값은 브랜치다.
+    SameAsTarget(String),
+    /// 같은 저장소에 프로세스가 사는 CI 담당자 노드가 없다.
+    NoGate,
+    /// CI 담당자 노드가 여럿이다. 값은 `#번호`를 쉼표로 이은 글이다.
+    ManyGates(String),
+    /// block 판정에 결함 파일이 없다.
+    NoFindings,
+    /// 손으로 쓴 메시지가 관문 낱말로 시작한다. `verb`는 대신 쓸 명령이다.
+    GateWord {
+        word: String,
+        verb: String,
+    },
+    /// 원래 체크아웃에 관문 스크립트(`scripts/gate/check.sh`, `ship.sh`)가 없다.
+    NoGateScripts,
+    Git(String),
     Launch(String),
     Db(String),
+}
+
+impl From<IllegalStep> for Refusal {
+    fn from(e: IllegalStep) -> Self {
+        Refusal::Gate(e)
+    }
 }
 
 impl fmt::Display for Refusal {
@@ -329,6 +375,55 @@ impl fmt::Display for Refusal {
                 f,
                 "{wait}: the approval prompt in the terminal changed. Nothing was sent."
             ),
+            Refusal::Gate(e) => e.fmt(f),
+            Refusal::NotGate { branch, gate } => write!(
+                f,
+                "{branch}: only its gate {gate} (or a reviewer that {gate} started) can call this."
+            ),
+            Refusal::NoRound(branch) => write!(
+                f,
+                "{branch}: this branch has no gate round. Its owner calls `loom ready {branch}` first."
+            ),
+            Refusal::NotOwner { branch, yours } => write!(
+                f,
+                "{branch}: your worktree is on {}, so you do not own this branch. Only the node whose worktree is on the branch calls `loom ready`.",
+                yours.as_deref().unwrap_or("a detached HEAD")
+            ),
+            Refusal::Uncommitted(branch) => write!(
+                f,
+                "{branch}: commit or remove the uncommitted changes in your worktree first (git status --short)."
+            ),
+            Refusal::NotAncestor { target, branch } => write!(
+                f,
+                "{target} is not in {branch}. Merge {target} into {branch}, run the checks, commit, then call `loom ready {branch}` again."
+            ),
+            Refusal::SameAsTarget(branch) => write!(
+                f,
+                "{branch} is the target branch itself. If you work in your coordinator's branch, report with `loom done`."
+            ),
+            Refusal::NoGate => write!(
+                f,
+                "No live node with role CI 담당자 is in this repository. Ask the root to spawn one with `loom spawn <name> --role \"CI 담당자\"`."
+            ),
+            Refusal::ManyGates(ids) => write!(
+                f,
+                "More than one live CI 담당자 node is in this repository ({ids}). Ask the root to remove the extra ones."
+            ),
+            Refusal::NoFindings => write!(
+                f,
+                "A block verdict needs the findings file: `loom verdict <branch> block --findings <file>`."
+            ),
+            Refusal::GateWord { word, verb } => write!(
+                f,
+                "Do not write gate word {word} in a message. Use `{verb}`: loom does the gate work, picks the receiver and keeps the trace."
+            ),
+            Refusal::NoGateScripts => write!(
+                f,
+                "This repository has no {} and {} in its main checkout, so `loom merge` cannot run here.",
+                crate::protocol::CHECK_SCRIPT,
+                crate::protocol::SHIP_SCRIPT
+            ),
+            Refusal::Git(e) => write!(f, "git failed: {e}"),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }
@@ -465,6 +560,7 @@ impl Graph {
         to: &str,
         how: Kind,
         reason: &Refusal,
+        via: Option<&Via>,
     ) -> rusqlite::Result<()> {
         let db = self.lock();
         let entry = events::Entry::Refused {
@@ -472,6 +568,8 @@ impl Graph {
             from: events::who(&db, from)?,
             to: to.to_owned(),
             reason: reason.clone(),
+            via: via.cloned(),
+            gate: None,
         };
         events::write(&db, &entry, None)
     }

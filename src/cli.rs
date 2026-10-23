@@ -8,6 +8,10 @@ use std::time::{Duration, Instant};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::daemon::gate::{
+    BranchRequest, Deploy, FailRequest, MergeInto, MergePlan, MergeResult, MergedRequest, Readied,
+    TOOL_HEADER, VERSION_HEADER, VerdictRequest,
+};
 use crate::daemon::{
     AckRequest, AdoptRequest, AnsweredRequest, AskRequest, Asked, DoneRequest, GuardRequest,
     HookWaitRequest, IdleRequest, RelaunchRequest, Relaunched, RemoveRequest, ReplyRequest,
@@ -17,6 +21,7 @@ use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, W
 use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor};
+use crate::protocol::{self, GateState, Judgment};
 use crate::roles::Roles;
 
 /// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
@@ -471,6 +476,222 @@ pub fn done(
     Ok(())
 }
 
+pub fn ready(branch: String) -> Result<(), String> {
+    let readied: Readied = call(
+        "ready",
+        &BranchRequest {
+            branch: branch.clone(),
+        },
+        None,
+    )?;
+    println!(
+        "Sent {branch} to its gate {} (target {}). Do not commit to {branch} until the verdict comes.",
+        readied.gate, readied.target
+    );
+    Ok(())
+}
+
+pub fn verdict(
+    branch: String,
+    judgment: Judgment,
+    findings: Option<PathBuf>,
+) -> Result<(), String> {
+    let findings = findings
+        .as_deref()
+        .map(absolute)
+        .transpose()?
+        .map(|path| crate::wsl::for_caller(&path));
+    let state: GateState = call(
+        "verdict",
+        &VerdictRequest {
+            branch: branch.clone(),
+            judgment,
+            findings,
+        },
+        None,
+    )?;
+    println!("Recorded the verdict. {branch} is now {state:?}. loom told the receivers.");
+    Ok(())
+}
+
+pub fn fail(branch: String, cause: String) -> Result<(), String> {
+    let state: GateState = call(
+        "fail",
+        &FailRequest {
+            branch: branch.clone(),
+            cause,
+        },
+        None,
+    )?;
+    println!("{branch} is now {state:?}. loom told the root and the owner.");
+    Ok(())
+}
+
+/// 관문이 부른다. 데몬이 audit를 하고 할 일을 주면, 이 프로세스가 워크트리 옆에서 검사·병합한다. 결과는 데몬에 알린다.
+/// 담당이 고칠 일이나 실패로 끝나면 0이 아닌 코드로 끝난다.
+pub fn merge(branch: String) -> Result<(), String> {
+    let plan: MergePlan = call(
+        "merge",
+        &BranchRequest {
+            branch: branch.clone(),
+        },
+        None,
+    )?;
+    let (worktree, into) = match plan {
+        MergePlan::Stopped { end, findings } => {
+            return Err(format!(
+                "Did not merge {branch}. The audit ended it as {end:?} and loom told the receivers:\n- {}",
+                findings.join("\n- ")
+            ));
+        }
+        MergePlan::Go { worktree, into } => (local(&worktree), into),
+    };
+    let log = merge_log(&branch)?;
+    let result = run_merge(&branch, &worktree, into, &log);
+    let state: GateState = call(
+        "merged",
+        &MergedRequest {
+            branch: branch.clone(),
+            result: result.clone(),
+        },
+        None,
+    )?;
+    match result {
+        MergeResult::Merged { sha, deploy, .. } => {
+            println!(
+                "Merged {branch} as {sha} (deploy: {deploy:?}). {branch} is now {state:?}. Log: {}",
+                log.display()
+            );
+            Ok(())
+        }
+        MergeResult::Rework { cause, .. } | MergeResult::Failed { cause, .. } => Err(format!(
+            "Did not merge {branch}: {cause}. {branch} is now {state:?}, and loom told the receivers. Log: {}",
+            log.display()
+        )),
+    }
+}
+
+/// 데몬이 준 경로를 이 프로세스가 여는 경로로.
+fn local(path: &str) -> PathBuf {
+    PathBuf::from(crate::wsl::for_caller(Path::new(path)))
+}
+
+/// `~/.cache/loom-results/<branch>/logs/merge-<유닉스 초>.log`. 담당 워크트리 안에 두면 미커밋 변경이 되어 다음 `loom ready`를 막는다.
+fn merge_log(branch: &str) -> Result<PathBuf, String> {
+    let home = std::env::home_dir().ok_or("no home folder")?;
+    let dir = home.join(".cache/loom-results").join(branch).join("logs");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    Ok(dir.join(format!("merge-{now}.log")))
+}
+
+fn run_merge(branch: &str, worktree: &Path, into: MergeInto, log: &Path) -> MergeResult {
+    let shown = log.display().to_string();
+    let failed = |cause: String| MergeResult::Failed {
+        cause,
+        log: shown.clone(),
+    };
+    let rework = |cause: String| MergeResult::Rework {
+        cause,
+        log: shown.clone(),
+    };
+    let mut check = std::process::Command::new("bash");
+    check.arg(protocol::CHECK_SCRIPT).current_dir(worktree);
+    match logged(&mut check, log) {
+        Ok(0) => {}
+        Ok(code) => return rework(format!("{} exited {code}", protocol::CHECK_SCRIPT)),
+        Err(e) => return failed(e),
+    }
+    match into {
+        MergeInto::Main { checkout } => {
+            let checkout = local(&checkout);
+            let mut ship = std::process::Command::new("bash");
+            ship.arg(checkout.join(protocol::SHIP_SCRIPT))
+                .arg(branch)
+                .arg(worktree)
+                .current_dir(&checkout);
+            let deploy = match logged(&mut ship, log) {
+                Ok(0) => Deploy::Confirmed,
+                Ok(protocol::SHIP_DEPLOY_FAILED) => Deploy::Failed,
+                Ok(protocol::SHIP_REWORK) => {
+                    return rework(format!(
+                        "{} found an owner-fixable problem (conflict, or the target moved)",
+                        protocol::SHIP_SCRIPT
+                    ));
+                }
+                Ok(code) => return failed(format!("{} exited {code}", protocol::SHIP_SCRIPT)),
+                Err(e) => return failed(e),
+            };
+            match last_commit(log) {
+                Some(sha) => MergeResult::Merged {
+                    sha,
+                    deploy,
+                    log: shown.clone(),
+                },
+                None => failed(format!(
+                    "{} did not print the merged commit on its last line",
+                    protocol::SHIP_SCRIPT
+                )),
+            }
+        }
+        MergeInto::Branch { worktree: target } => {
+            let target = local(&target);
+            let mut merge = std::process::Command::new("git");
+            merge
+                .args(["merge", "--no-ff", "--no-edit", branch])
+                .current_dir(&target);
+            match logged(&mut merge, log) {
+                Ok(0) => {}
+                Ok(_) => {
+                    let mut abort = std::process::Command::new("git");
+                    abort.args(["merge", "--abort"]).current_dir(&target);
+                    let _ = logged(&mut abort, log);
+                    return rework(format!("git merge into {} failed", target.display()));
+                }
+                Err(e) => return failed(e),
+            }
+            let head = std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(&target)
+                .output();
+            match head {
+                Ok(out) if out.status.success() => MergeResult::Merged {
+                    sha: String::from_utf8_lossy(&out.stdout).trim().to_owned(),
+                    deploy: Deploy::NotApplicable,
+                    log: shown.clone(),
+                },
+                _ => failed("git rev-parse HEAD failed after the merge".into()),
+            }
+        }
+    }
+}
+
+/// 명령의 표준 출력과 오류를 `log` 끝에 붙이고 끝 코드를 돌려준다. 신호로 끝나면 -1이다.
+fn logged(cmd: &mut std::process::Command, log: &Path) -> Result<i32, String> {
+    let open = || {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log)
+            .map_err(|e| format!("{}: {e}", log.display()))
+    };
+    let status = cmd
+        .stdout(open()?)
+        .stderr(open()?)
+        .status()
+        .map_err(|e| format!("could not run {cmd:?}: {e}"))?;
+    Ok(status.code().unwrap_or(-1))
+}
+
+/// 로그 마지막 줄이 커밋(16진 7자 이상)이면 그것.
+fn last_commit(log: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(log).ok()?;
+    let last = text.lines().rev().find(|l| !l.trim().is_empty())?.trim();
+    (last.len() >= 7 && last.chars().all(|c| c.is_ascii_hexdigit())).then(|| last.to_owned())
+}
+
 /// 데몬이 다른 폴더에서 읽으므로 절대 경로로 보낸다. 파일이 없으면 여기서 실패한다.
 fn absolute(path: &Path) -> Result<PathBuf, String> {
     std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))
@@ -543,6 +764,19 @@ impl From<CallError> for String {
     }
 }
 
+/// 흔적의 입구: 이 프로세스를 띄운 `loom` 하위 명령.
+fn tool() -> String {
+    let verb = std::env::args().nth(1).unwrap_or_default();
+    format!("loom {verb}")
+}
+
+fn version() -> String {
+    match crate::COMMIT {
+        Some(commit) => format!("{} ({commit})", crate::VERSION),
+        None => crate::VERSION.to_owned(),
+    }
+}
+
 fn env_var(name: &str) -> Result<String, String> {
     std::env::var(name).map_err(|_| format!("{name} is not set. Run this only inside a loom node."))
 }
@@ -576,6 +810,8 @@ fn post_as<T: DeserializeOwned>(
     let mut res = agent
         .post(format!("{url}/api/agent/{action}"))
         .header("authorization", format!("Bearer {token}"))
+        .header(TOOL_HEADER, tool())
+        .header(VERSION_HEADER, version())
         .send_json(body)
         // Codex 모델은 사용법 지시보다 이 출력을 보고 승인을 요청한다(실측).
         .map_err(|e| {

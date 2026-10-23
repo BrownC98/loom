@@ -78,6 +78,8 @@ const en = {
     menu: 'More actions',
     relaunch: 'Relaunch',
     relaunchQueued: 'Relaunches when this turn ends',
+    toStandard: 'Show as terminal card',
+    toSimple: 'Show as simple card',
     state: {
       running: 'running',
       done: 'done',
@@ -434,8 +436,9 @@ const en = {
   cardView: {
     heading: 'Cards',
     simple: 'Simple',
+    rootTerminal: 'Root terminals',
     standard: 'Standard',
-    hint: 'With “Simple”, cards show only node details, and clicking a card opens its terminal in the right panel.',
+    hint: 'The default view. With “Root terminals”, only nodes without a parent show a terminal card. Use a card’s ⋯ menu to change one node.',
   },
   graphScope: {
     heading: 'Graph scope',

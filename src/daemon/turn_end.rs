@@ -30,6 +30,11 @@ impl TurnEnds {
         self.said.lock().unwrap().insert(node, text);
     }
 
+    /// 이번 턴의 마지막 답 글. 턴 끝에 심플 카드의 상태 줄로 남긴다.
+    pub fn reply(&self, node: NodeId) -> Option<String> {
+        self.said.lock().unwrap().get(&node).cloned()
+    }
+
     /// 사람이 노드에 입력했다. 그 입력을 받은 턴의 끝을 검사한다.
     pub fn human(&self, node: NodeId) {
         self.human.lock().unwrap().insert(node);
@@ -52,6 +57,11 @@ impl TurnEnds {
 impl App {
     /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다.
     pub(super) fn turn_end(&self, node: NodeId) -> Option<&'static str> {
+        if let Some(text) = self.turn_ends.reply(node)
+            && let Err(e) = self.graph.set_reply(node, &text)
+        {
+            eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
+        }
         let nudge = self.turn_ends.ended(node, || {
             self.graph.unreported_root(node).unwrap_or_else(|e| {
                 eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
@@ -80,6 +90,9 @@ mod tests {
         turns.human(node);
         turns.said(node, "A안과 B안 가운데 고르시면 진행합니다.".into());
         assert_eq!(turns.ended(node, || true), Some(NUDGE));
+        assert_eq!(turns.reply(node), None, "the turn end took the reply");
+        turns.said(node, "코디 결과 대기".into());
+        assert_eq!(turns.reply(node).as_deref(), Some("코디 결과 대기"));
         // 다시 일한 턴은 사람 입력이 없다.
         turns.said(node, "진행 상황".into());
         assert_eq!(turns.ended(node, || true), None);

@@ -7,6 +7,8 @@ import { agentLabel, canResume, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import type { CardView } from './gen/CardView';
+import type { DefaultCardView } from './gen/DefaultCardView';
+import { cardViewOf } from './cardView';
 import type { Toward } from './gen/Toward';
 import type { NodeId } from './gen/NodeId';
 import type { RepoId } from './gen/RepoId';
@@ -204,7 +206,8 @@ type GroupData = {
   /** 이 묶음 안 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑥). */
   onArrange: () => void;
 };
-type CardBase = { view: NodeView; agentLabel: string; resumable: boolean; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
+/** `defaultView`: 설정의 기본 카드 보기. 「⋯」 메뉴가 이 노드만 바꿀 때 쓴다. */
+type CardBase = { view: NodeView; defaultView: DefaultCardView; agentLabel: string; resumable: boolean; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /**
  * 표준 카드. `ownsPty`: 이 카드가 터미널을 연다. 이 화면에서 카드를 펼치면 카드는 터미널을 그리지 않는다. PTY 크기는 카드가 정한다(`SizingTerminal`). 펼친 카드는 펼친 동안 PTY 크기를 자기 칸에 맞추고, 접으면 카드가 다시 정한다.
  * `sized`: 사람이 크기를 바꿨다. 그 카드만 노드 메뉴에 [기본 크기로 되돌리기]가 보인다(목업 docs/mockups/card-resize.html ③, relaunch.html v3).
@@ -369,7 +372,7 @@ function Card({ id, data }: NodeProps<CardNode>) {
             <IconButton label={t('node.expand')} title={t('node.expandTitle')} onClick={data.onExpand}>
               <Maximize2 />
             </IconButton>
-            <NodeMenu view={data.view} resumable={data.resumable} onResetSize={data.sized ? data.onResetSize : undefined} onRemove={data.onRemove} onRefusal={data.onRefusal} />
+            <NodeMenu view={data.view} defaultView={data.defaultView} resumable={data.resumable} onResetSize={data.sized ? data.onResetSize : undefined} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
         }
       >
@@ -409,7 +412,7 @@ function Simple({ data }: NodeProps<SimpleNode>) {
       <SimpleCard view={data.view} agentLabel={data.agentLabel} selected={data.selected} onSelect={data.onSelect} onNavigate={data.onNavigate} actions={
           <>
             <BookmarkButton view={data.view} />
-            <NodeMenu view={data.view} resumable={data.resumable} onRemove={data.onRemove} onRefusal={data.onRefusal} />
+            <NodeMenu view={data.view} defaultView={data.defaultView} resumable={data.resumable} onRemove={data.onRemove} onRefusal={data.onRefusal} />
           </>
         }
       />
@@ -500,7 +503,6 @@ export type Hop = Readonly<{ source: NodeId; target: NodeId; counts: Readonly<Re
 export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void; hasSizes: () => boolean; resetSizes: () => void };
 
 /**
- * `cardView`: 그래프 전체의 카드 보기. 심플이면 카드에 터미널이 없고, 터미널은 부르는 쪽(오른쪽 칸)이 연다.
  * `pulses`: 자식 id → 강조하는 동안 그 간선으로 오간 메시지 수(가는 쪽마다). `hops`: 간선 없는 두 노드 사이 메시지. 두 카드의 위 변을 잇는 곡선으로 잠깐 그린다. `agents`·`settings`·`accounts`는 카드 이름과 새 노드 창에 쓴다.
  * `selected`: 입력을 받는 카드. 트리도 고르므로 부르는 쪽이 가진다.
  * `highlight`: 이벤트 콘솔에서 고른 이벤트에 관여한 노드, 또는 찾기의 일치(노드와 묶음). 그 상자와 그 사이 간선을 강조하고 나머지는 흐리게 한다.
@@ -530,7 +532,6 @@ export function Graph(props: {
   onChooseBox: (key: string | null) => void;
   highlight: Lit | null;
   onClearHighlight: () => void;
-  cardView: CardView;
   /** 나무가 뻗는 쪽. 오른쪽 사이드바의 [정렬] 메뉴가 고른다. */
   direction: ArrangeDirection;
   ref?: Ref<GraphHandle>;
@@ -599,14 +600,18 @@ export function Graph(props: {
   };
   const byRank = <T,>(items: readonly T[], key: (item: T) => string, tie: (a: T, b: T) => number) => [...items].sort((a, b) => rank(key(a)) - rank(key(b)) || tie(a, b));
   const views = byRank([...props.views.values()], (v) => String(v.id), (a, b) => a.id - b.id);
-  const estimate = CARD_SIZE[props.cardView];
-  const standard = props.cardView === 'standard';
+  /** 노드마다 카드 보기(cardView.ts). 심플이면 카드에 터미널이 없고, 터미널은 부르는 쪽(오른쪽 칸)이 연다. */
+  const viewOf = (id: NodeId): CardView => {
+    const view = props.views.get(id);
+    return view ? cardViewOf(view, props.settings.cardView) : 'standard';
+  };
+  const standard = (id: NodeId) => viewOf(id) === 'standard';
   /** 사람이 정한 표준 카드 크기. 없으면 CSS가 정한 기본 크기다. */
-  const chosenSize = (id: NodeId): Size | undefined => (!standard ? undefined : resizing?.id === id ? resizing.size : sizes.get(id));
+  const chosenSize = (id: NodeId): Size | undefined => (!standard(id) ? undefined : resizing?.id === id ? resizing.size : sizes.get(id));
   /** 잰 카드 크기. 재기 전에는 사람이 정한 크기, 그것도 없으면 보기마다 정한 크기다. */
   const size = (id: NodeId): Size => {
     const measured = flowState.get(String(id))?.measured;
-    return measured?.width && measured.height ? { width: measured.width, height: measured.height } : (chosenSize(id) ?? estimate);
+    return measured?.width && measured.height ? { width: measured.width, height: measured.height } : (chosenSize(id) ?? CARD_SIZE[viewOf(id)]);
   };
   // 상자 id → 그 상자의 형제들. 끄는 동안과 놓을 때 쓴다. `spotOf`는 상자 id → 저장할 자리 이름이다.
   const levels = new Map<string, Level>();
@@ -908,6 +913,7 @@ export function Graph(props: {
       };
       const data: CardBase = {
         view,
+        defaultView: props.settings.cardView,
         agentLabel: agentLabel(props.agents, view.agent),
         resumable: canResume(props.agents, view.agent),
         onRefusal: setRefusal,
@@ -921,7 +927,7 @@ export function Graph(props: {
         onRemove: () => removeNode(view.id).catch((err: Error) => setRefusal(err.message)),
       };
       // 심플 카드는 카드 전체가 끌기 손잡이다. 표준 카드는 터미널을 고를 수 있게 머리만 손잡이다.
-      if (!standard) return keep<SimpleNode>({ ...base, type: 'simple', data });
+      if (!standard(view.id)) return keep<SimpleNode>({ ...base, type: 'simple', data });
       const chosen = chosenSize(view.id);
       return keep<CardNode>({
         ...base,
@@ -1223,7 +1229,7 @@ export function Graph(props: {
     adoptNode(Number(target), Number(connection.fromNode.id)).catch((err: Error) => setRefusal(err.message));
   };
 
-  const zoomedView = zoomed === null || !standard ? undefined : props.views.get(zoomed);
+  const zoomedView = zoomed === null || !standard(zoomed) ? undefined : props.views.get(zoomed);
 
   return (
     <>
@@ -1363,6 +1369,7 @@ export function Graph(props: {
                 </IconButton>
                 <NodeMenu
                   view={zoomedView}
+                  defaultView={props.settings.cardView}
                   resumable={canResume(props.agents, zoomedView.agent)}
                   onRemove={() => {
                     setExpanded(null);

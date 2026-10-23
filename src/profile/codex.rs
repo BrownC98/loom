@@ -194,7 +194,7 @@ pub fn kinds(status: Status) -> &'static [Kind] {
     }
 }
 
-/// 마지막 턴의 마지막 답 글. 턴 끝 질문 검사가 쓴다. 이 연결은 구독하지 않아 답 알림(`item/completed`)을 받지 못한다.
+/// 마지막 턴의 마지막 답 글. 턴 끝 질문 검사와 심플 카드 상태 줄이 쓴다. 이 연결은 구독하지 않아 답 알림(`item/completed`)을 받지 못한다.
 pub async fn last_reply<F, Fut>(call: F, thread: &str) -> Result<Option<String>, String>
 where
     F: Fn(&'static str, Value) -> Fut,

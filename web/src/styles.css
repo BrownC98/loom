@@ -398,6 +398,7 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .summary-row .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
 .summary-model { min-width: 0; display: flex; }
 .summary-model .model { font: 12px var(--mono); color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-reply { margin: 0; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .state { display: inline-flex; flex: none; white-space: nowrap; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.exited, .state.setupFailed { color: var(--err); }

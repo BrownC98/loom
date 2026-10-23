@@ -6,6 +6,7 @@ import type { AnswerWait } from './gen/AnswerWait';
 import type { ChooseOption } from './gen/ChooseOption';
 import type { Prompt } from './gen/Prompt';
 import type { CardSize } from './gen/CardSize';
+import type { CardView } from './gen/CardView';
 import type { CloneRepo } from './gen/CloneRepo';
 import type { CommitGraph } from './gen/CommitGraph';
 import type { CommitRange } from './gen/CommitRange';
@@ -89,6 +90,10 @@ export const bookmarkNode = (id: NodeId) => call<null>('PUT', `/api/nodes/${id}/
 /** 노드 카드 「안 읽음」: 기다리는 큐 메시지를 지금 넘긴다(조정으로 바꾼다). */
 export const steerQueued = (id: NodeId) => call<null>('POST', `/api/nodes/${id}/steer-queued`);
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
+/** 이 노드만 `view` 카드로 본다. */
+export const setCardView = (id: NodeId, view: CardView) => call<null>('PUT', `/api/nodes/${id}/card-view`, view);
+/** 이 노드가 설정의 기본 보기를 따른다. */
+export const clearCardView = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/card-view`);
 /** 사람 응답 대기를 지운다. 터미널에 키를 누른 것과 같다(docs/design.md 「사람 응답 대기」). */
 export const dismissWait = (wait: WaitId) => call<null>('DELETE', `/api/waits/${wait}`);
 /** 화면에서 `loom ask` 질문에 답한다. `images`는 `savePastedFile`이 준 그림 경로다. 답은 사람이 보낸 메시지로 그 노드에 가고 질문은 사라진다. */

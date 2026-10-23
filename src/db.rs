@@ -229,6 +229,8 @@ const STEPS: &[M] = &[
     ),
     // 30: 카드 주제를 지웠다(2026-10-23 사람 지시 "요약 기능 제거"). 11단계의 첫 지시 첫 줄은 주제에만 썼다.
     M::up("ALTER TABLE nodes DROP COLUMN brief;"),
+    // 31: 노드에 고른 카드 보기(graph `CardView`, serde JSON)와 마지막 턴 끝 답 글(심플 카드 상태 줄). 없으면 NULL이다(목업 docs/mockups/node-card-view.html).
+    M::up("ALTER TABLE nodes ADD COLUMN card_view TEXT; ALTER TABLE nodes ADD COLUMN reply TEXT;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

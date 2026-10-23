@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { nodePty, removeNode } from './api';
 import { BookmarkButton } from './BookmarkButton';
+import type { DefaultCardView } from './gen/DefaultCardView';
 import type { NodeView } from './gen/NodeView';
 import { useRename } from './NameEdit';
 import { NodeSummary } from './NodeCard';
@@ -8,7 +9,7 @@ import { NodeMenu } from './NodeMenu';
 import { SizingTerminal, type Direction } from './Terminal';
 
 /** 심플 보기에서 고른 노드의 터미널을 여는 오른쪽 칸. 머리는 심플 카드와 같은 노드 정보다. 이벤트·커밋 그래프와 같은 자리다. */
-export function TerminalDock(props: { view: NodeView; agentLabel: string; resumable: boolean; focusAsk: number; onNavigate: (dir: Direction) => void }) {
+export function TerminalDock(props: { view: NodeView; defaultView: DefaultCardView; agentLabel: string; resumable: boolean; focusAsk: number; onNavigate: (dir: Direction) => void }) {
   const { view } = props;
   // 오른쪽 칸 머리는 두 번 누르기로만 연다. 칸에 F2를 받는 포커스 자리가 없다.
   const rename = useRename();
@@ -23,6 +24,7 @@ export function TerminalDock(props: { view: NodeView; agentLabel: string; resuma
               <BookmarkButton view={view} />
               <NodeMenu
                 view={view}
+                defaultView={props.defaultView}
                 resumable={props.resumable}
                 onRemove={() => {
                   setRefusal(null);

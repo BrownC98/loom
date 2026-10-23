@@ -3,8 +3,8 @@ import type { AccountId } from "./AccountId";
 import type { AgentId } from "./AgentId";
 import type { AlwaysOn } from "./AlwaysOn";
 import type { ArrangeDirection } from "./ArrangeDirection";
-import type { CardView } from "./CardView";
 import type { ClosedPanes } from "./ClosedPanes";
+import type { DefaultCardView } from "./DefaultCardView";
 import type { EdgeStyle } from "./EdgeStyle";
 import type { GraphScope } from "./GraphScope";
 import type { InUse } from "./InUse";
@@ -36,7 +36,7 @@ wslAccounts: { [key in string]: InUse },
 /**
  * 옛 설정에는 없다. 없으면 `System`으로 읽고 다른 값은 그대로 둔다.
  */
-theme: Theme, terminalTheme: TerminalTheme, terminalFont: TerminalFont, cardView: CardView, 
+theme: Theme, terminalTheme: TerminalTheme, terminalFont: TerminalFont, cardView: DefaultCardView, 
 /**
  * 옛 설정에는 없다. 없으면 `Repo`(저장소 하나)로 읽는다.
  */

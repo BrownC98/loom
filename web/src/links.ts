@@ -27,3 +27,12 @@ export function plainText(text: string): string {
     .map((part) => ('href' in part ? part.label : part.text))
     .join('');
 }
+
+/**
+ * `file://` 주소가 가리키는 경로. 호스트가 있으면 UNC 경로(`//wsl.localhost/…`)다. 버리면 다른 경로가 된다.
+ * 앞의 겹친 `/`는 하나로 줄인다(`file:////C:/…`도 전처럼 `/C:/…`).
+ */
+export function filePath(url: URL): string {
+  const path = decodeURIComponent(url.pathname).replace(/^\/+/, '/');
+  return url.hostname ? `//${url.hostname}${path}` : path;
+}

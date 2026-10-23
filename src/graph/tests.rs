@@ -2539,7 +2539,7 @@ fn relaunching_an_ended_node_brings_it_back_running_and_keeps_done() {
     assert!(g.ended(lead).unwrap().is_none());
     assert!(g.active().unwrap().iter().any(|n| n.id == lead));
 
-    g.done(worker, "결과", None, &[]).unwrap();
+    g.done(worker, "결과", None, &[], None).unwrap();
     g.exited(worker, 0).unwrap();
     g.relaunched(worker, &launched()).unwrap();
     assert!(matches!(view(&g, worker).state, NodeState::Done { .. }));

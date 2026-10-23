@@ -362,16 +362,23 @@ fn answered_by_human(id: u32) -> Result<bool, String> {
     Ok(state["answered"] == true)
 }
 
-#[test]
-fn repo_has_no_refused_comments() {
-    let mut problems = Vec::new();
+struct Scan {
+    problems: Vec<String>,
+    asked: Vec<(String, u32)>,
+}
+
+fn scan() -> Scan {
+    let mut scan = Scan {
+        problems: Vec::new(),
+        asked: Vec::new(),
+    };
     for path in files() {
         let lang = match kind_of(&path) {
             Some(Kind::Code(lang)) => lang,
             Some(Kind::Unchecked) => continue,
             None => {
-                problems.push(format!(
-                    "{path}: unknown file kind; add it to `kind_of` in tests/comments/main.rs"
+                scan.problems.push(format!(
+                    "{path}: unknown file kind (tracked or untracked, not ignored); add it to `kind_of` in tests/comments/main.rs"
                 ));
                 continue;
             }
@@ -380,32 +387,47 @@ fn repo_has_no_refused_comments() {
         let found = match comments(lang, &text) {
             Ok(found) => found,
             Err(e) => {
-                problems.push(format!("{path}: {e}"));
+                scan.problems.push(format!("{path}: {e}"));
                 continue;
             }
         };
         for c in found {
-            let line = line_of(&text, c.start);
+            let at = format!("{path}:{}", line_of(&text, c.start));
             match c.verdict {
                 Verdict::Allowed(_) => {}
-                Verdict::HumanAsked(id) => match answered_by_human(id) {
-                    Ok(true) => {}
-                    Ok(false) => problems.push(format!(
-                        "{path}:{line}: Q{id} is not a question that the human answered"
-                    )),
-                    Err(e) => problems.push(format!(
-                        "{path}:{line}: cannot ask the loom daemon about Q{id}: {e}"
-                    )),
-                },
-                Verdict::Refused => problems.push(format!("{path}:{line}: comment")),
+                Verdict::HumanAsked(id) => scan.asked.push((at, id)),
+                Verdict::Refused => scan.problems.push(format!("{at}: comment")),
             }
         }
     }
+    scan
+}
+
+#[test]
+fn repo_has_no_refused_comments() {
+    let problems = scan().problems;
     assert!(
         problems.is_empty(),
-        "Comments are not allowed unless the human asked for them (AGENTS.md). Remove them with `memcap -m 8G cargo test --test comments -- --ignored strip`:\n{}",
+        "Comments are not allowed unless the human asked for them (AGENTS.md). Remove them with `memcap -m 5G cargo test --test comments -- --ignored strip`:\n{}",
         problems.join("\n")
     );
+}
+
+#[test]
+#[ignore = "asks the loom daemon; scripts/gate/check.sh runs it"]
+fn asked_questions_were_answered() {
+    let problems: Vec<String> = scan()
+        .asked
+        .into_iter()
+        .filter_map(|(at, id)| match answered_by_human(id) {
+            Ok(true) => None,
+            Ok(false) => Some(format!(
+                "{at}: Q{id} is not a question that the human answered"
+            )),
+            Err(e) => Some(format!("{at}: cannot ask the loom daemon about Q{id}: {e}")),
+        })
+        .collect();
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
 #[test]

@@ -91,7 +91,7 @@
 - 주석을 쓰지 않는다(2026-10-23 사람 지시 "loom에서는 사용자가 명시하지 않은 한 주석 작성 금지"). 정한 이유와 실측 값은 커밋 본문에 쓴다.
  - 사람이 명시해 요청한 주석만 쓴다. 그 질문 번호로 시작한다(`// Q712: …`). 검사가 데몬에 사람이 받은편지함에서 답한 질문인지 묻는다.
  - 도구가 읽는 주석만 예외다: 셔뱅, tsc 지시(`@ts-expect-error` 등, `/// <reference`), `eslint-disable`, `# shellcheck`, clap·ts-rs가 읽는 Rust `///`(그 derive가 있는 타입과 그 필드·변형).
- - `memcap -m 8G cargo test`(`tests/comments`)가 막는다. 지우기: `memcap -m 8G cargo test --test comments -- --ignored strip && cargo fmt`.
+ - `memcap -m 5G cargo test`(`tests/comments`)가 막는다. 질문 번호는 관문(`scripts/gate/check.sh`)만 데몬에 묻는다. 지우기: `memcap -m 5G cargo test --test comments -- --ignored strip && cargo fmt`.
 - 지시도 같다. 에이전트에게 맥락을 암묵으로 넘기지 않는다. 필요한 사실을 글로 적어 넘긴다.
 
 ## 5. 추상화 일관성

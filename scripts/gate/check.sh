@@ -19,6 +19,7 @@ step() { echo "== $*"; "$@"; }
 step cargo fmt --check
 room; step memcap -m "${CARGO_STEP_MIB}M" cargo clippy --all-targets
 room; step memcap -m "${CARGO_STEP_MIB}M" cargo test
+step memcap -m "${CARGO_STEP_MIB}M" cargo test --test comments -- --ignored --exact asked_questions_were_answered
 room; step memcap -m "${CARGO_STEP_MIB}M" cargo clippy --all-targets --target x86_64-pc-windows-gnu
 room; step memcap -m "${CARGO_STEP_MIB}M" cargo test --target x86_64-pc-windows-gnu
 step npm --prefix web run check

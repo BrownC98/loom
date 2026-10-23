@@ -412,12 +412,12 @@ pub struct AnsweredRequest {
     pub ids: Vec<WaitId>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct QuestionRequest {
     id: WaitId,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct QuestionState {
     answered: bool,
 }

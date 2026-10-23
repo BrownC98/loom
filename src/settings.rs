@@ -12,6 +12,7 @@ use crate::accounts::AccountId;
 use crate::db::Database;
 use crate::graph::TreeLimits;
 use crate::profile::{AgentId, Provider};
+use crate::roles::Roles;
 use crate::skills::AlwaysOn;
 use crate::worktree::RepoId;
 
@@ -70,6 +71,8 @@ pub struct SettingsView {
     /// 사람이 고른 화면 색. 옛 설정에는 없다. 없으면 모든 색이 기본값이다. 근거: 목업 docs/mockups/color-settings.html v3.
     #[serde(default)]
     pub colors: UiColors,
+    /// o-mode 역할. 옛 설정에는 없다. 없거나 `null`이면 기본 표다. 근거: 목업 docs/mockups/role-settings.html M12.
+    pub roles: Roles,
     /// 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 일곱 칸은 옛 설정에 없다.
     /// [정렬]과 나무 간선이 향하는 방향. 없으면 `Down`이다.
     pub arrange_direction: ArrangeDirection,
@@ -340,7 +343,12 @@ impl Settings {
     pub fn patch(&self, patch: &serde_json::Value) -> Result<SettingsView, PatchProblem> {
         self.write(|_, value| {
             merge(value, patch);
-            serde_json::from_value(value.clone()).map_err(|e| PatchProblem::Shape(e.to_string()))
+            let view: SettingsView = serde_json::from_value(value.clone())
+                .map_err(|e| PatchProblem::Shape(e.to_string()))?;
+            match view.roles.launch_problem() {
+                Some(problem) => Err(PatchProblem::Shape(problem)),
+                None => Ok(view),
+            }
         })
     }
 
@@ -554,6 +562,35 @@ mod tests {
             .patch(&serde_json::json!({"paneWidths": {"side": null}}))
             .unwrap();
         assert_eq!(settings.get().unwrap().pane_widths.side, None);
+    }
+
+    /// 옛 설정은 기본 역할 표로 읽는다. 목록은 통째로 바뀌고, 틀린 목록은 쓰지 않고, `null`은 기본 표로 돌린다.
+    #[test]
+    fn roles_default_replace_refuse_and_reset() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        assert_eq!(settings.get().unwrap().roles, Roles::default());
+        let one = serde_json::json!([{"name": "조사", "duty": "읽기만", "agent": "codex", "model": null, "effort": "high"}]);
+        let got = settings.patch(&serde_json::json!({"roles": one})).unwrap();
+        assert_eq!(got.roles.0.len(), 1);
+        assert_eq!(got.roles.0[0].name, "조사");
+        let twins = serde_json::json!([
+            {"name": "a", "duty": "", "agent": null, "model": null, "effort": null},
+            {"name": "a", "duty": "", "agent": null, "model": null, "effort": null}
+        ]);
+        assert!(matches!(
+            settings.patch(&serde_json::json!({"roles": twins})),
+            Err(PatchProblem::Shape(_))
+        ));
+        assert_eq!(settings.get().unwrap().roles.0[0].name, "조사");
+        let effort_only = serde_json::json!([{"name": "c", "duty": "", "agent": "cursor", "model": null, "effort": "high"}]);
+        assert!(matches!(
+            settings.patch(&serde_json::json!({"roles": effort_only})),
+            Err(PatchProblem::Shape(_))
+        ));
+        assert_eq!(settings.get().unwrap().roles.0[0].name, "조사");
+        let got = settings.patch(&serde_json::json!({"roles": null})).unwrap();
+        assert_eq!(got.roles, Roles::default());
     }
 
     /// 모양이 틀린 칸은 쓰지 않는다.

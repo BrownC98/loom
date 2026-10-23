@@ -99,6 +99,7 @@ const EMPTY_SETTINGS: SettingsView = {
   autoSwitch: false,
   osNotify: false,
   alwaysOn: { oMode: true, userDoc: true, ste100: true, raptor3: true },
+  roles: [],
   arrangeDirection: 'down',
   alwaysArrange: false,
   minimapFolded: false,

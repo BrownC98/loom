@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M12 loom o-mode 역할 설정 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.pane { width: 700px; padding: 18px 22px; background: var(--panel); border-radius: 12px; display: grid; gap: 18px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.pane code { font-family: var(--mono); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.rows { border: 1px solid var(--line); border-radius: var(--radius); }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.acct-row:last-child { border-bottom: 0; }
+.acct-row[aria-current="true"] { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+.row-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.row-main .name { font-weight: 600; }
+.row-main .meta { flex-basis: 100%; font: 12px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-actions { display: flex; gap: 4px; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
+.badge.warn { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }
+.win { display: grid; grid-template-columns: 64px minmax(0, 1fr) 44px auto; gap: 6px 8px; }
+.win > :not(.win-line) { grid-column: 1 / -1; }
+.win-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; font-size: 12px; color: var(--ink-2); }
+.meter { display: block; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.pct { font-family: var(--mono); text-align: right; }
+.left { white-space: nowrap; font-family: var(--mono); color: var(--ink-3); }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+
+.confirm { width: 420px; padding: 16px; background: var(--surface); border-radius: 10px; border: 1px solid var(--line); display: grid; gap: 12px; font-size: 13px; }
+.confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.login { width: 700px; padding: 14px; background: var(--surface); border-radius: 10px; display: grid; gap: 10px; }
+.login h3 { display: flex; align-items: center; font-size: 14px; }
+.login h3 .spacer { flex: 1; }
+.term { background: oklch(16% 0 0); color: oklch(90% 0 0); font: 12px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; white-space: pre; height: 150px; }
+.term .dim { color: oklch(65% 0 0); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row-main .meta.desc { font-family: var(--font); white-space: normal; }
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; min-width: 64px; }
+.switch input { appearance: none; width: 30px; height: 18px; border-radius: 9px; background: var(--line-strong); position: relative; cursor: pointer; margin: 0; }
+.switch input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform 0.15s; }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { transform: translateX(12px); background: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0)); }
+.dlg { width: 880px; display: grid; grid-template-columns: 180px 1fr; background: var(--panel); border-radius: 12px; border: 1px solid var(--line); overflow: hidden; }
+.dlg nav { border-right: 1px solid var(--line); padding: 16px 8px; display: grid; align-content: start; gap: 2px; }
+.dlg nav h2 { font-size: 15px; padding: 0 8px 10px; }
+.tab { text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 10px; color: var(--ink-2); }
+.tab[aria-current="page"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.dlg .pane { width: auto; border-radius: 0; }
+.dlg .pane h3 { font-size: 15px; }
+.faded { opacity: 0.45; }
+.field { display: grid; gap: 5px; }
+.field label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.field input { width: 120px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
+.limit-fields { display: flex; gap: 16px; }
+table { border-collapse: collapse; font-size: 13px; max-width: 900px; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--surface-hover); }
+
+.role { display: grid; grid-template-columns: 96px minmax(0, 1fr) 250px auto; align-items: start; gap: 14px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.role:last-child { border-bottom: 0; }
+.role .rname { font-weight: 600; padding-top: 2px; }
+.role .duty { color: var(--ink-2); font-size: 13px; }
+.role .runner { font: 12px var(--mono); color: var(--ink-2); padding-top: 3px; }
+.role .runner .none { font-family: var(--font); color: var(--ink-3); }
+.edit { display: grid; gap: 10px; padding: 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.edit .line { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.edit .field input, .edit .field select, .edit .field textarea { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; font: inherit; color: var(--ink); }
+.edit .field textarea { width: 100%; height: 54px; resize: vertical; }
+.edit .field.grow { flex: 1; }
+.edit .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.btn.primary { background: var(--accent); color: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0)); border-color: var(--accent); }
+.err-text { font-size: 12px; color: var(--err); }
+.section-head { display: flex; align-items: center; gap: 8px; }
+.section-head .spacer { flex: 1; }
+.term.short { height: auto; }
+</style>
+</head><body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M12</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 역할설정</b></span><span>v1 · 2026-10-23</span></div>
+  <h1>설정: o-mode 역할을 더하고 고치고 지우기</h1>
+  <p class="lead">사람 지시: "설정에서 o-mode 역할 crud (역할에 대한 책임 설정도 가능하게), 각 역할에 모델, 에이전트 환경, 추론강도 설정할 수 있게 해줘". 지금 역할 표는 o-mode 스킬 글에 고정되어 있습니다. 이 표를 설정으로 옮기고, 스킬 글에서는 표를 지웁니다. 점선이 바뀌는 곳입니다. 흐린 구역은 지금 그대로입니다.</p>
+
+  <div class="fig">
+    <h2>① 「에이전트」 탭에 「o-mode 역할」 구역 <span class="tag">내장 스킬 아래, 하위 노드 상한 위</span></h2>
+    <div class="dlg"><nav><h2>설정</h2><button class="tab">일반</button><button class="tab">휴대폰</button><button class="tab" aria-current="page">에이전트</button><button class="tab">에이전트 계정</button><button class="tab">화면</button><button class="tab">그래프</button><button class="tab">터미널</button><button class="tab">정보</button></nav><div class="pane">
+      <h3>에이전트</h3>
+      <section class="faded"><h4>설치됨 9개</h4><div class="rows"><div class="row"><span class="row-main"><span class="name">Claude · Codex · Cursor · … 9개</span></span><span></span></div></div></section>
+      <section class="faded"><h4>내장 스킬</h4><div class="rows"><div class="row"><span class="row-main"><span class="name">loom 절차(o-mode) · 사용자 문서 · STE-100 · 랩터-3</span></span><label class="switch"><input type="checkbox" checked>켜짐</label></div></div></section>
+      <section class="new">
+        <h4 class="section-head">o-mode 역할 <span class="spacer"></span><button class="btn ghost sm"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>기본값</button></h4>
+        <div class="rows">
+          <div class="role"><span class="rname">총괄</span><span class="duty">범위, 배정, 사용자 승인, 최종 검수, main 병합과 회수</span><span class="runner"><span class="none">띄우지 않음 · 사람이 띄운 노드</span></span><span class="row-actions"><button class="btn ghost sm">편집</button><button class="btn ghost sm">삭제</button></span></div>
+          <div class="role"><span class="rname">코디</span><span class="duty">작업 하나의 조사, 설계, 목업, 워커 명세와 결과 검수</span><span class="runner">Claude · claude-opus-5-5 · medium</span><span class="row-actions"><button class="btn ghost sm">편집</button><button class="btn ghost sm">삭제</button></span></div>
+          <div class="role"><span class="rname">워커</span><span class="duty">정해진 편집 범위의 구현과 검증. 다시 위임하지 않는다</span><span class="runner">Claude · claude-sonnet-5-5 · medium</span><span class="row-actions"><button class="btn ghost sm">편집</button><button class="btn ghost sm">삭제</button></span></div>
+          <div class="role"><span class="rname">평가자</span><span class="duty">구현과 별개로 결과·원문·관찰 증거를 평가한다</span><span class="runner">Codex · gpt-6.1-sol · high</span><span class="row-actions"><button class="btn ghost sm">편집</button><button class="btn ghost sm">삭제</button></span></div>
+          <div class="role"><span class="rname">검토자</span><span class="duty">병합 전 브랜치 diff 리뷰. 읽기 전용, 보고만 한다</span><span class="runner">Codex · gpt-6.1-sol · high</span><span class="row-actions"><button class="btn ghost sm">편집</button><button class="btn ghost sm">삭제</button></span></div>
+          <div class="role"><span class="rname">CI 담당자</span><span class="duty">병합 전 전체 검사, 병합 뒤 배포·릴리스 확인, 실패 보고. 제품 코드는 고치지 않는다</span><span class="runner">Claude · claude-sonnet-5-5 · medium</span><span class="row-actions"><button class="btn ghost sm">편집</button><button class="btn ghost sm">삭제</button></span></div>
+        </div>
+        <div><button class="btn sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>역할 더하기</button></div>
+        <span class="hint">에이전트가 <code>loom spawn --role &lt;역할&gt;</code>로 자식을 띄우면 이 실행자·모델·강도로 뜹니다. 새로 띄우는 노드부터 적용합니다. 이미 뜬 노드는 그대로입니다.</span>
+      </section>
+      <section class="faded"><h4>하위 노드 상한</h4><div class="limit-fields"><div class="field"><label>중첩 깊이</label><input value="2"></div><div class="field"><label>부모 하나의 자식 수</label><input placeholder="상한 없음"></div></div></section>
+    </div></div>
+    <ul class="note">
+      <li>처음 값은 지금 o-mode 스킬의 표와 같습니다. [기본값]은 이 표로 되돌립니다.</li>
+      <li>줄마다 이름, 책임, 실행자·모델·강도를 보입니다. 모델·강도가 비면 「CLI 기본」을 보입니다.</li>
+      <li>「내장 스킬」에서 o-mode를 끄면 이 구역은 흐리게 보입니다. 값은 남습니다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 편집과 더하기 <span class="tag">[편집]을 누르면 그 줄이 폼으로 바뀝니다</span></h2>
+    <div class="pane"><section class="new">
+      <h4>o-mode 역할</h4>
+      <div class="rows">
+        <div class="role faded"><span class="rname">코디</span><span class="duty">작업 하나의 조사, 설계, 목업, 워커 명세와 결과 검수</span><span class="runner">Claude · claude-opus-5-5 · medium</span><span></span></div>
+        <div class="edit">
+          <div class="line">
+            <div class="field"><label>이름</label><input value="워커" style="width:140px"></div>
+            <div class="field"><label>실행자</label><select><option>Claude</option><option>Codex</option><option>Cursor</option><option>OpenCode 2</option><option>띄우지 않음</option></select></div>
+            <div class="field"><label>모델</label><input value="claude-sonnet-5-5" style="width:170px"></div>
+            <div class="field"><label>추론 강도</label><input value="medium" style="width:90px"></div>
+          </div>
+          <div class="field grow"><label>책임</label><textarea>정해진 편집 범위의 구현과 검증. 다시 위임하지 않는다</textarea></div>
+          <span class="hint">모델·강도를 비우면 그 CLI 설정의 값으로 뜹니다. 모델·강도는 Claude·Codex·Cursor만 받습니다. 다른 실행자를 고르면 두 칸이 꺼집니다.</span>
+          <div class="acts"><button class="btn ghost sm">취소</button><button class="btn primary sm">저장</button></div>
+        </div>
+        <div class="role faded"><span class="rname">평가자</span><span class="duty">구현과 별개로 결과·원문·관찰 증거를 평가한다</span><span class="runner">Codex · gpt-6.1-sol · high</span><span></span></div>
+        <div class="edit">
+          <div class="line">
+            <div class="field"><label>이름</label><input value="코디" style="width:140px"></div>
+            <div class="field"><label>실행자</label><select><option>Cursor</option></select></div>
+            <div class="field"><label>모델</label><input placeholder="CLI 기본" style="width:170px"></div>
+            <div class="field"><label>추론 강도</label><input placeholder="CLI 기본" style="width:90px"></div>
+          </div>
+          <span class="err-text">같은 이름의 역할이 있습니다.</span>
+          <div class="field grow"><label>책임</label><textarea placeholder="이 역할이 맡는 일"></textarea></div>
+          <div class="acts"><button class="btn ghost sm">취소</button><button class="btn primary sm" disabled>더하기</button></div>
+        </div>
+      </div>
+    </section></div>
+    <div class="confirm"><span>「평가자」 역할을 삭제합니다. 이미 뜬 노드는 그대로입니다.</span><div class="acts"><button class="btn ghost sm">취소</button><button class="btn sm">삭제</button></div></div>
+    <ul class="note">
+      <li>[역할 더하기]는 목록 끝에 빈 폼을 엽니다. 이름이 비거나 겹치면 [더하기]가 꺼집니다.</li>
+      <li>실행자 목록은 「설치됨」 목록과 같습니다. 「띄우지 않음」은 총괄처럼 사람이 띄우는 역할입니다.</li>
+      <li>[삭제]는 브라우저 확인 창을 띄웁니다. 다른 설정의 삭제와 같습니다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ 에이전트에게 닿는 길 <span class="tag">화면 밖, 노드 터미널</span></h2>
+    <div class="term short">$ loom roles
+<span class="dim">역할       실행자·모델·강도                   책임</span>
+총괄       띄우지 않음                        범위, 배정, 사용자 승인, 최종 검수, main 병합과 회수
+코디       claude · claude-opus-5-5 · medium  작업 하나의 조사, 설계, 목업, 워커 명세와 결과 검수
+워커       claude · claude-sonnet-5-5 · medium 정해진 편집 범위의 구현과 검증. 다시 위임하지 않는다
+…
+$ loom spawn "워커 저장" --role 워커 &lt; brief.md
+Created node: 워커 저장
+<span class="dim"># 자식은 Claude, claude-sonnet-5-5, medium으로 뜨고, 첫 지시 맨 앞에 「역할: 워커 — 정해진 편집 범위의 …」 줄을 받습니다.</span>
+$ loom spawn "워커 저장" --role 워커 --model claude-opus-5-5 &lt; brief.md
+<span class="dim"># 준 옵션이 역할 값보다 앞섭니다.</span></div>
+    <ul class="note">
+      <li>o-mode 스킬 글에서 역할 표를 지우고 「<code>loom roles</code>로 본다, <code>--role</code>로 띄운다」 두 줄로 바꿉니다. 표는 설정 한 곳에만 있습니다.</li>
+      <li>설정을 바꾸면 다음 <code>loom spawn --role</code>부터 바로 새 값을 씁니다. 총괄을 다시 띄우지 않아도 됩니다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <ul class="note"><li>2026-10-23 사람 승인(Q510 A): 네 권장안 모두. 기본 역할은 지금 o-mode 표와 같다(검토자 Codex gpt-6.1-sol high, CI 담당자는 총괄 직속 하나만 상주).</li></ul>
+    <table>
+      <tr><th>#</th><th>정할 것</th><th>선택지</th><th>권장</th></tr>
+      <tr><td>1</td><td>자리</td><td>A: 「에이전트」 탭의 구역(①) / B: 새 탭 「역할」</td><td>A. o-mode 스위치 옆이라 함께 찾습니다. 탭 수가 그대로입니다</td></tr>
+      <tr><td>2</td><td>에이전트에게 닿는 길</td><td>A: <code>loom roles</code> + <code>loom spawn --role</code>, 스킬 글의 표를 지움(③) / B: 총괄의 시작 지시에 표를 그려 넣음</td><td>A. 코디도 워커를 띄울 때 표가 필요합니다. 시작 지시는 띄울 때 고정되어 설정을 바꿔도 반영되지 않습니다</td></tr>
+      <tr><td>3</td><td>모델·강도 입력</td><td>A: 글 칸(빈칸 = CLI 기본) / B: 고르기 목록</td><td>A. loom에는 모델 목록이 없습니다. 목록을 만들면 새 모델마다 loom을 고쳐야 합니다</td></tr>
+      <tr><td>4</td><td>책임 글</td><td>A: 자식 첫 지시 맨 앞에 「역할: 이름 — 책임」 한 줄을 넣음 / B: <code>loom roles</code>에만 보임</td><td>A. 책임 설정이 자식의 일에 바로 닿습니다</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

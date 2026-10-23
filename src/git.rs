@@ -171,13 +171,10 @@ mod tests {
     async fn clone_fails_instead_of_waiting_for_an_ssh_prompt() {
         let dir = tempfile::tempdir().unwrap();
         let ssh = dir.path().join("fake-ssh");
-        std::fs::write(
+        crate::fake_exe::write_executable(
             &ssh,
             "#!/bin/sh\nif : </dev/tty 2>/dev/null; then echo asked >&2; sleep 30; fi\nexit 255\n",
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let mut cmd = clone_command("ssh://git@example.invalid/app.git", &dir.path().join("app"));
         cmd.env("GIT_SSH_COMMAND", &ssh);
         let out = tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output())

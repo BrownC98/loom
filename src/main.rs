@@ -5,6 +5,8 @@ mod commit_graph;
 mod daemon;
 mod db;
 mod devices;
+#[cfg(all(test, unix))]
+mod fake_exe;
 mod git;
 mod graph;
 mod launch;
@@ -14,6 +16,7 @@ mod pake;
 mod paste;
 mod process_tree;
 mod profile;
+mod roles;
 mod screen;
 mod settings;
 mod skills;
@@ -79,22 +82,27 @@ enum Cli {
         /// 새 워크트리의 브랜치. 주면 내 워크트리의 HEAD에서 이 브랜치로 워크트리를 만들고 자식을 그 안에 띄운다.
         #[arg(long)]
         worktree: Option<String>,
-        /// 카탈로그 에이전트 id(예: `claude`). 그 프로필과 계정으로 띄운다.
-        #[arg(long, conflicts_with = "command", required_unless_present = "command")]
+        /// 카탈로그 에이전트 id(예: `claude`). 그 프로필과 계정으로 띄운다. `--role`을 주면 없어도 된다.
+        #[arg(long, conflicts_with = "command", required_unless_present_any = ["command", "role"])]
         agent: Option<String>,
+        /// 설정의 o-mode 역할(`loom roles`). 그 역할의 에이전트·모델·강도로 띄우고 지시문 앞에 책임을 붙인다. 따로 준 `--agent`·`--model`·`--effort`가 이긴다.
+        #[arg(long, conflicts_with = "command")]
+        role: Option<String>,
         /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
         #[arg(long)]
         file: Option<PathBuf>,
         /// 모델. 없으면 CLI 설정의 모델로 뜬다. Claude·Codex만 받는다.
-        #[arg(long, requires = "agent")]
+        #[arg(long, conflicts_with = "command")]
         model: Option<String>,
         /// 추론 강도(예: `medium`). 없으면 CLI 설정의 강도로 뜬다. Claude·Codex만 받는다.
-        #[arg(long, requires = "agent")]
+        #[arg(long, conflicts_with = "command")]
         effort: Option<String>,
         /// 자식이 실행할 명령. ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다.
         #[arg(last = true)]
         command: Vec<String>,
     },
+    /// 설정의 o-mode 역할을 한 줄씩 출력한다: 이름, 에이전트·모델·강도, 책임.
+    Roles,
     /// 부모나 자식에게 메시지를 보낸다. 받는 노드의 턴을 끊지 않는다.
     Send { name: String, body: String },
     /// 일하는 Claude·Codex·OpenCode 2 노드의 지금 턴에 메시지를 넣는다. 턴을 멈추지 않는다.
@@ -185,6 +193,7 @@ fn main() -> ExitCode {
             name,
             worktree,
             agent,
+            role,
             file,
             model,
             effort,
@@ -193,10 +202,12 @@ fn main() -> ExitCode {
             name,
             worktree,
             agent,
+            role,
             file.map(wsl::from_caller),
             ModelChoice { model, effort },
             command,
         ),
+        Cli::Roles => cli::roles(),
         Cli::Send { name, body } => cli::send(name, Kind::Queue, body),
         Cli::Steer { name, body } => cli::send(name, Kind::Steer, body),
         Cli::Interrupt { name, body } => cli::send(name, Kind::Interrupt, body),

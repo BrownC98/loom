@@ -175,21 +175,19 @@ fn proxies_to(serve: &serde_json::Value, port: u16) -> bool {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use crate::fake_exe::write_executable;
     use std::path::Path;
 
     /// 사람의 Tailscale을 부르지 않게 가짜 CLI를 쓴다. 인자를 `calls`에 적고 인자마다 정한 JSON을 낸다.
     fn fake(dir: &Path, status: &str, serve: &str) -> Tailscale {
         let program = dir.join("tailscale");
-        std::fs::write(
+        write_executable(
             &program,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$@\" >> '{calls}'\ncase \"$1 $2\" in\n  'status --json') cat <<'EOF'\n{status}\nEOF\n;;\n  'serve status') cat <<'EOF'\n{serve}\nEOF\n;;\n  'serve --bg') ;;\n  *) exit 1;;\nesac\n",
                 calls = dir.join("calls").display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         Tailscale::at(&program)
     }
 
@@ -247,8 +245,7 @@ mod tests {
     /// `serve --bg` 자리에 `body`를 도는 가짜 CLI.
     fn fake_serve(dir: &Path, body: &str) -> Tailscale {
         let program = dir.join("tailscale");
-        std::fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_executable(&program, &format!("#!/bin/sh\n{body}\n"));
         Tailscale::at(&program)
     }
 

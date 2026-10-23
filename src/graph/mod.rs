@@ -89,8 +89,6 @@ pub struct NodeView {
     pub state: NodeState,
     /// 아직 전하지 않은(`queued`) 메시지 수.
     pub unread: u32,
-    /// 부모가 없어 보관한 메시지 수. 새 부모가 생기면 그 부모가 받는다.
-    pub held: u32,
     /// CLI가 알린 모델 id 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
     pub model: Option<String>,
     /// CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
@@ -361,7 +359,6 @@ pub struct Graph {
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL
         AND m.kind = '\"queue\"'),
-    (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
     n.bookmark, n.wait,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),
@@ -520,9 +517,9 @@ impl Graph {
 fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Result<NodeView> {
     let id = NodeId(row.get(0)?);
     let state = from_json(row, 4)?;
-    let wait: Option<String> = row.get(12)?;
-    let done: String = row.get(13)?;
-    let asked: String = row.get(14)?;
+    let wait: Option<String> = row.get(11)?;
+    let done: String = row.get(12)?;
+    let asked: String = row.get(13)?;
     // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
     let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Posted>>(&asked)
         .unwrap_or_default()
@@ -549,14 +546,13 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
         parent: row.get::<_, Option<u32>>(3)?.map(NodeId),
         state,
         unread: row.get(5)?,
-        held: row.get(6)?,
-        model: row.get(7)?,
-        effort: row.get(8)?,
+        model: row.get(6)?,
+        effort: row.get(7)?,
         place: Place {
-            repo: RepoId(row.get(9)?),
-            worktree: row.get(10)?,
+            repo: RepoId(row.get(8)?),
+            worktree: row.get(9)?,
         },
-        bookmark: row.get(11)?,
+        bookmark: row.get(10)?,
         waits,
     })
 }

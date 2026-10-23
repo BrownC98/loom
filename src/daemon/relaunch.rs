@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,6 +29,8 @@ use crate::skills::Position;
 
 /// 옛 노드 프로세스가 끝나기를 기다리는 상한. PTY 호스트는 끝내기 요청을 받으면 바로 프로세스 나무를 끝낸다.
 const EXIT_WAIT: Duration = Duration::from_secs(10);
+/// `claude agents`·`claude stop`을 기다리는 상한. 넘으면 그대로 띄운다. 세션이 남았으면 새 CLI가 거절하고 그 실패가 기록에 남는다.
+const CLAUDE_CLI_WAIT: Duration = Duration::from_secs(20);
 /// 한도로 멈췄던 노드를 새 계정으로 이어 갈 때 넣는 첫 입력.
 const CONTINUE_PROMPT: &str =
     "Your account was switched after a usage limit. Continue the task where you stopped.";
@@ -405,6 +408,9 @@ impl App {
             discard();
             return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
         }
+        if profile == Profile::Claude {
+            self.stop_claude_background(&node, &resume).await;
+        }
         self.run_resumed(node.id, prepared, &resume, &settings, &agent)
             .await
     }
@@ -439,6 +445,9 @@ impl App {
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
             .await?;
+        if profile == Profile::Claude {
+            self.stop_claude_background(&node, &resume).await;
+        }
         self.run_resumed(node.id, prepared, &resume, &settings, &agent)
             .await
     }
@@ -543,6 +552,33 @@ impl App {
                 .map_err(|e| format!("{}: {e}", to.display()))?;
         }
         Ok(session)
+    }
+
+    /// Claude Code가 세션을 자기 백그라운드 데몬으로 옮겼으면 그 세션을 끝낸다. 대화는 남는다.
+    /// 그 세션은 노드 프로세스 나무 밖에 있어 PTY 호스트를 끝내도 산다. 살아 있으면 새 CLI의 `--resume`이
+    /// "That session is running in the background"로 거절하고 코드 1로 끝났다(2026-10-23 실측, 2.1.308).
+    /// `claude agents --json`에서 전체 세션 id가 같은 백그라운드 작업을 찾을 때만 끝낸다. 못 찾으면 아무것도 끝내지 않는다.
+    /// 세션은 노드를 띄운 계정에 있다.
+    async fn stop_claude_background(&self, node: &Active, session: &str) {
+        let Ok(place) = self.graph.place_of(node.id) else {
+            return;
+        };
+        let Ok(site) = self.site_at(Path::new(&place.worktree)).await else {
+            return;
+        };
+        let account = node.account.as_ref();
+        let Ok(list) = site.command(Provider::Claude, &["agents", "--json"], account) else {
+            return;
+        };
+        let Some(out) = run_claude(list).await else {
+            return;
+        };
+        let Some(job) = background_job(&out, session) else {
+            return;
+        };
+        if let Ok(stop) = site.command(Provider::Claude, &["stop", &job], account) {
+            run_claude(stop).await;
+        }
     }
 
     /// 옛 프로세스가 띄운 셸: 노드 프로세스와 그 서버(Codex app-server, OpenCode 2 serve) 아래의 세션 리더.
@@ -664,9 +700,61 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Claude CLI를 돌려 성공하면 표준 출력을 준다. `CLAUDE_CLI_WAIT`을 넘기면 끝내고 없다고 본다.
+async fn run_claude(cmd: std::process::Command) -> Option<Vec<u8>> {
+    let mut cmd = tokio::process::Command::from(cmd);
+    cmd.stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(CLAUDE_CLI_WAIT, cmd.output())
+        .await
+        .ok()?
+        .ok()?;
+    out.status.success().then_some(out.stdout)
+}
+
+/// `claude agents --json` 한 줄(2.1.309 실측 필드).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeJob {
+    id: Option<String>,
+    kind: String,
+    session_id: String,
+}
+
+/// `claude agents --json` 출력에서 전체 세션 id가 `session`인 백그라운드 작업의 id(`claude stop`이 받는 짧은 id)를 찾는다.
+/// `claude stop`은 전체 UUID를 받지 않고("No job matching"), 짧은 id는 앞 8글자라 다른 세션과 겹칠 수 있다.
+/// 그래서 전체 id로 주인을 확인한다. 읽지 못하거나 맞는 작업이 없으면 없다.
+fn background_job(json: &[u8], session: &str) -> Option<String> {
+    let jobs: Vec<ClaudeJob> = serde_json::from_slice(json).ok()?;
+    jobs.into_iter()
+        .find(|j| j.kind == "background" && j.session_id == session)?
+        .id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_background_job_of_the_same_full_session_is_stopped() {
+        let json = br#"[
+            {"pid":1,"id":"925fee83","kind":"background","sessionId":"925fee83-0000-4000-8000-000000000002","status":"idle"},
+            {"pid":2,"kind":"interactive","sessionId":"aaaaaaaa-0000-4000-8000-000000000001"}
+        ]"#;
+        let mine = "aaaaaaaa-0000-4000-8000-000000000001";
+        assert_eq!(
+            background_job(json, "925fee83-ffff-4000-8000-00000000000f"),
+            None
+        );
+        assert_eq!(background_job(json, mine), None);
+        assert_eq!(
+            background_job(json, "925fee83-0000-4000-8000-000000000002").as_deref(),
+            Some("925fee83")
+        );
+        assert_eq!(background_job(b"not json", mine), None);
+        assert_eq!(background_job(b"[]", mine), None);
+    }
 
     #[test]
     fn session_files_keep_their_path_under_the_new_login_folder() {

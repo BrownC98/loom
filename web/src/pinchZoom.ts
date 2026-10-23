@@ -1,10 +1,6 @@
 export type View = { x: number; y: number; zoom: number };
 export type Point = { x: number; y: number };
 
-/**
- * 두 손가락 몸짓의 뷰포트. 시작 때 두 손가락 가운데 아래에 있던 그래프 점이 지금 가운데 아래에 오고, 배율은 손가락 사이 거리 비율을 따른다.
- * 그래서 확대·축소와 두 손가락 끌기가 한 식이다. 좌표는 그래프 칸 왼쪽 위 모서리 기준이다.
- */
 export function pinchView(
   start: View,
   startMid: Point,
@@ -22,7 +18,6 @@ export function pinchView(
   return { x: mid.x - anchorX * zoom, y: mid.y - anchorY * zoom, zoom };
 }
 
-/** 그림을 칸 안에 가둔다: 확대한 그림의 가장자리가 칸 가장자리 안으로 들어오지 못한다. 1배는 늘 맞춤 자리다. */
 export function clampToBox(v: View, box: { width: number; height: number }): View {
   return {
     zoom: v.zoom,
@@ -34,12 +29,6 @@ export function clampToBox(v: View, box: { width: number; height: number }): Vie
 const gapOf = (t: TouchList) =>
   Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
-/**
- * 그래프 안 어디서든(바탕과 카드 위) 두 손가락 핀치로 그래프를 확대·축소한다.
- * React Flow의 핀치는 두 번째 손가락이 카드에 닿으면 받지 못한다: 카드의 끌기 처리기(d3-drag)가 닿기를 가로채 확대 처리기(d3-zoom)에 전하지 않는다
- * (2026-10-23 사람 "지금 화면을 가로 모드로 하면은 그래프가 보이는데 ... 손가락 핀치를 통해서 그래프 줌인 줌 아웃이 가능하도록 해줘").
- * 그래서 두 손가락 움직임은 root에서 먼저 받아 직접 뷰포트를 정하고, 아래(카드 끌기·터미널·React Flow)로 내려보내지 않는다. 닿기는 내려보낸다: 터미널의 길게 누르기 시간을 두 번째 손가락이 끝낸다.
- */
 export function attachPinchZoom(
   root: HTMLElement,
   view: { get: () => View; set: (v: View) => void },

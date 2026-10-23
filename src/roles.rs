@@ -1,6 +1,3 @@
-//! o-mode 역할: 이름, 책임, 띄울 에이전트·모델·추론 강도. 설정(`SettingsView.roles`)에 두고 `loom spawn --role`이 읽는다.
-//! 근거: docs/design.md 「설정」, 목업 docs/mockups/role-settings.html M12(Q510 A).
-
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -49,7 +46,6 @@ impl<'de> Deserialize<'de> for Roles {
     }
 }
 
-/// 옛 설정에는 없다. 없거나 초기화하면 skills/o-mode에 있던 표다.
 impl Default for Roles {
     fn default() -> Self {
         let role = |name: &str, duty: &str, run: Option<(&str, &str, &str)>| Role {
@@ -81,17 +77,10 @@ impl Default for Roles {
                 "위험이 큰 브랜치를 검토자와 따로 검토한다. 병합 전 브랜치 diff에서 결함을 찾고 결과·원문·관찰 증거를 브리프의 완료 조건과 대조한다. 읽기 전용, 보고만 한다",
                 Some(("claude", "claude-opus-5-5", "medium")),
             ),
-            role(
-                "CI 담당자",
-                "병합 관문(워커 브랜치 검토자·반려), 검사, main 병합·push, 배포·릴리스 확인. 제품 코드는 고치지 않는다",
-                // 2026-10-23 사람 Q597 A: 관문 판단(검토 논쟁 판정)이 있어 Opus.
-                Some(("claude", "claude-opus-5-5", "medium")),
-            ),
         ])
     }
 }
 
-/// `loom spawn`이 띄울 에이전트와 지시문. 띄울 때 한 번 정한다. 뒤에 설정이 바뀌어도 뜬 노드는 그대로다.
 #[derive(Debug, PartialEq)]
 pub struct Assignment {
     pub agent: AgentId,
@@ -122,8 +111,6 @@ impl std::fmt::Display for RoleProblem {
 }
 
 impl Roles {
-    /// 띄울 때 `choice_args`가 거절할 역할의 문장. 사람이 저장할 때(`Settings::patch`)만 본다.
-    /// 읽을 때 보지 않는 이유: 카탈로그가 바뀐 판에서 이미 저장한 설정 전체를 읽지 못하게 된다. 그때는 띄울 때 거절한다.
     pub fn launch_problem(&self) -> Option<String> {
         self.0.iter().find_map(|role| {
             let agent = role.agent.as_ref()?;
@@ -140,8 +127,6 @@ impl Roles {
         })
     }
 
-    /// 역할의 에이전트·모델·강도를 채운다. 명령에 준 값이 이긴다.
-    /// 역할의 모델·강도는 역할의 에이전트로 띄울 때만 쓴다. 다른 에이전트는 그 모델을 받지 못한다.
     pub fn assign(
         &self,
         name: &str,
@@ -169,7 +154,6 @@ impl Roles {
         })
     }
 
-    /// `agent`로 다시 띄우는 그 역할 노드의 모델·강도(`loom relaunch --agent`). 설정에서 역할이 사라졌으면 준 값 그대로다.
     pub fn choice_for(&self, name: &str, agent: &AgentId, choice: ModelChoice) -> ModelChoice {
         match self.0.iter().find(|r| r.name == name.trim()) {
             Some(role) => role.fill(agent, choice),
@@ -179,7 +163,6 @@ impl Roles {
 }
 
 impl Role {
-    /// 준 값이 이긴다. 역할의 모델·강도는 역할의 에이전트로 띄울 때만 쓴다. 다른 에이전트는 그 모델을 받지 못한다.
     fn fill(&self, agent: &AgentId, choice: ModelChoice) -> ModelChoice {
         let own = self.agent.as_ref() == Some(agent);
         let from_role = |value: &Option<String>| value.clone().filter(|_| own);
@@ -245,7 +228,6 @@ mod tests {
         assert_eq!(got.choice, ModelChoice::default());
     }
 
-    /// `loom relaunch --agent`도 `loom spawn --role`과 같은 규칙으로 고른다. 설정에서 지운 역할은 준 값 그대로다.
     #[test]
     fn relaunch_choice_follows_the_spawn_rule() {
         let roles = Roles::default();

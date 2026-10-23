@@ -5,4 +5,8 @@ export type Usage = { email: string | null,
 /**
  * 요금제 이름. CLI가 준 글자 그대로다(예: `max`, `plus`).
  */
-plan: string | null, limits: Limits, };
+plan: string | null, limits: Limits, 
+/**
+ * 이 값을 읽은 시각. 유닉스 초. 캐시가 앞 값을 다시 주면 그 값을 읽은 때다.
+ */
+readAt: number, };

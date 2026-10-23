@@ -1,7 +1,3 @@
-//! Claude Code 프로필: 시작 인자(사용법 지시, 훅 설정)와 훅 입출력 형식.
-//! 바뀌는 이유는 Claude Code 버전이다. 형식은 https://code.claude.com/docs/en/hooks 를 따른다.
-//! 근거: docs/design.md 「에이전트 실행」, 「전달 지점」.
-
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
@@ -13,28 +9,17 @@ use crate::graph::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
-/// 훅 한 번에 넘기는 본문 합의 상한.
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
-/// `loom hook`이 데몬 응답을 기다리는 상한. 훅 `timeout`(`HOOK_TIMEOUT_SECS`)보다 짧아야 한다.
-/// 그래야 Claude가 훅을 먼저 끝내 꺼낸 본문을 버리는 일이 드물다. 버려도 받음 확인 전이므로 데몬이 다시 준다.
 pub const HOOK_HTTP_TIMEOUT_SECS: u64 = 5;
 const HOOK_TIMEOUT_SECS: u64 = 10;
-/// 쉬는 노드의 비동기 훅 상한. 이 시간보다 오래 쉬면 다음 사람 입력까지 깨우지 못한다.
-/// Claude는 상한을 밀리초 타이머로 잰다. JavaScript 타이머는 2^31-1 밀리초(약 24.8일)를 넘기면 바로 끝난다.
 const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
-/// 비동기 훅이 깨울 때 모델이 읽는 머리말과 터미널 한 줄 요약(Claude 기본값은 "Stop hook feedback").
 const REWAKE_MESSAGE: &str = "Messages from loom:";
 const REWAKE_SUMMARY: &str = "loom message";
-/// 기록 파일(transcript)에서 마지막 응답을 찾는 끝부분의 크기. 응답 한 줄은 보통 수 KB다.
 const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
-/// Claude가 API 응답 없이 쓴 응답(오류·중단)의 모델 값. 실제 모델이 아니다.
 const SYNTHETIC_MODEL: &str = "<synthetic>";
-/// 시작 인자의 첫 입력 없이 다시 시작한 세션(`SessionStart`의 `source`, 2.1.304 훅 문서).
 const RESTARTED_SESSION: &str = "clear|compact";
-/// Bash 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다.
 const GUARD: &str = "loom guard";
 
-/// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.";
 
 fn usage(launch: Launch) -> String {
@@ -45,9 +30,7 @@ fn usage(launch: Launch) -> String {
     )
 }
 
-/// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
-/// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 21] = [
+const ALLOWED: [&str; 20] = [
     "Bash(loom guard)",
     "Bash(loom note:*)",
     "Bash(loom answer:*)",
@@ -67,11 +50,9 @@ const ALLOWED: [&str; 21] = [
     "Bash(loom rm:*)",
     "Bash(loom ready:*)",
     "Bash(loom verdict:*)",
-    "Bash(loom merge:*)",
     "Bash(loom fail:*)",
 ];
 
-/// `--model`·`--effort` 시작 인자(Claude Code 2.1.304 도움말).
 pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
     let mut args = Vec::new();
     if let Some(model) = &choice.model {
@@ -83,16 +64,12 @@ pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
     args
 }
 
-/// `claude` 시작 인자. 사용자의 `~/.claude` 파일을 고치지 않으려고 훅을 `--settings`로만 넘긴다.
-/// `plugin`은 loom이 싣는 스킬 플러그인 폴더다(`skills::Plugin`). 스킬은 `loom:<이름>`으로 뜬다.
-/// `launch`는 상시 지시를 고른다(`skills::always_on`). `brief`는 시작 인자로 넘기는 첫 입력이다.
 pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     let hook = json!([{ "hooks": [{
         "type": "command",
         "command": "loom hook",
         "timeout": HOOK_TIMEOUT_SECS,
     }] }]);
-    // 턴이 없는 동안 메시지를 기다리고, 오면 exit 2로 모델을 깨운다. 사용자가 입력하던 글은 그대로 남는다.
     let idle = json!([{ "hooks": [{
         "type": "command",
         "command": "loom hook",
@@ -101,8 +78,6 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
         "rewakeMessage": REWAKE_MESSAGE,
         "rewakeSummary": REWAKE_SUMMARY,
     }] }]);
-    // 첫 입력이 있으면 그 턴의 `UserPromptSubmit`이 메시지를 넘긴다. 시작 훅이 먼저 깨우면 Claude가 그 메시지 턴을 첫 입력보다 먼저 돌았다
-    // (2026-10-22 실측: 워크트리 설정 동안 쌓인 조정을 받은 자식이 지시문 없이 시작한 줄 알고 부모에게 지시를 다시 물었다).
     let session_start = if brief.is_empty() {
         idle.clone()
     } else {
@@ -117,9 +92,7 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
             "PostToolUse": hook,
             "PostToolUseFailure": hook,
             "Stop": idle,
-            // API 오류(한도 포함)로 끝난 턴은 `Stop` 대신 이 훅을 부른다. 없으면 그 노드가 다시 깨지 않는다.
             "StopFailure": idle,
-            // 사람의 승인·답을 기다리는 창. 다른 알림(`idle_prompt` 등)은 훅을 부르지 않는다.
             "Notification": [{ "matcher": HUMAN_NOTIFICATIONS, "hooks": [{
                 "type": "command",
                 "command": "loom hook",
@@ -137,16 +110,13 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     ]
 }
 
-/// 승인 창(2.1.309 실측): 창 칸 테두리 아래 본문, `❯ 1. Yes` 꼴 선택지.
 pub const PROMPT: Grammar = Grammar {
     top: Top::PanelEdge,
     options: Options::Numbered,
     guard: Some(GUARD),
 };
 
-/// 훅이 불리지 않는 확인 창(2.1.306 화면 문구). 폴더 신뢰 창이 떠 있는 동안에는 훅이 하나도 불리지 않는다(실측).
 pub const DIALOGS: [Dialog; 4] = [
-    // 새 계정 폴더의 첫 실행: 테마 고르기 뒤 로그인이 이어진다.
     Dialog {
         text: "Choose the text style that looks best with your terminal",
         kind: WaitKind::Auth,
@@ -157,7 +127,6 @@ pub const DIALOGS: [Dialog; 4] = [
         kind: WaitKind::Trust,
         place: Place::BeforeSession,
     },
-    // 모든 권한 허용 모드의 첫 경고.
     Dialog {
         text: "Yes, I accept",
         kind: WaitKind::Approval,
@@ -170,21 +139,16 @@ pub const DIALOGS: [Dialog; 4] = [
     },
 ];
 
-/// 사람의 답을 기다리는 `Notification` 종류(`notification_type`). 훅 설정의 matcher다.
 const HUMAN_NOTIFICATIONS: &str = "permission_prompt|elicitation_dialog";
-/// 사람에게 묻는 도구. 도구를 부르기 전에(`PreToolUse`) 창이 뜬다.
 const ASK_TOOL: &str = "AskUserQuestion";
 const PLAN_TOOL: &str = "ExitPlanMode";
 
-/// 훅 입력에서 loom이 보는 필드만 읽는다. 다른 필드는 버린다.
 #[derive(Deserialize)]
 #[serde(tag = "hook_event_name")]
 pub enum Event {
-    /// 세션 시작. 모델만 알린다(실측: 2.1.304 입력의 `model`).
     SessionStart {
         model: Option<String>,
     },
-    /// 새 턴의 입력. 사람 입력이 아닐 수도 있다(`human_input`).
     UserPromptSubmit {
         #[serde(default)]
         prompt: String,
@@ -196,12 +160,10 @@ pub enum Event {
     PostToolUse,
     PostToolUseFailure,
     Stop,
-    /// API 오류로 턴이 끝났다. `error`는 `rate_limit`, `overloaded`, `authentication_failed` 같은 값이다.
     StopFailure {
         #[serde(default)]
         error: String,
     },
-    /// Claude가 사람에게 알린다. `HUMAN_NOTIFICATIONS`만 이 훅을 부른다.
     Notification {
         #[serde(default)]
         notification_type: String,
@@ -210,36 +172,25 @@ pub enum Event {
     },
 }
 
-/// Claude가 사람 입력이 아닌 턴 입력 앞에 붙이는 태그(2.1.308 실측).
 const NOTIFICATION_TAG: &str = "<task-notification>";
-/// Claude가 한도 때문에 턴을 끝냈다는 `StopFailure` 값.
 const RATE_LIMIT_ERROR: &str = "rate_limit";
-/// 한도 대기의 한 줄 글. 한도 창의 첫 선택지다(2.1.306 화면 문구).
 const RATE_LIMIT_TEXT: &str = "Stop and wait for limit to reset";
 
 impl Event {
-    /// 이 지점에서 꺼내는 방법. 데몬은 노드가 일하는지 쉬는지 추적하지 않는다. 어느 훅이 불렸는지가 그 상태다.
     pub fn take(&self) -> Take {
         match self {
             Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::WhenIdle,
-            // 쉬는 중이던 노드의 다음 턴: 모두 넘긴다.
             Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
-            // 일하는 노드의 도구 호출 뒤: 큐 메시지도 넘긴다. 근거: docs/design.md 「전달 지점」.
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
             Event::Notification { .. } => Take::Never,
         }
     }
 
-    /// 사람이 친 입력이 연 턴인가. 백그라운드 작업 알림과 비동기 훅의 다시 깨우기(`asyncRewake`, loom 메시지 전달)도
-    /// `UserPromptSubmit`을 부르고, 그 입력은 `<task-notification>`으로 시작한다. 훅 입력에는 출처 필드가 없고,
-    /// 기록 파일의 `origin.kind`는 훅이 돈 뒤에 쓰인다(2.1.308 실측). 그래서 입력 글로 가린다.
-    /// 전에는 이 턴들도 사람 입력으로 보아 턴 끝 검사가 거듭 깨웠다(2026-10-22 ktasearch-총괄 기록, 사람 결정 Q349 C).
     pub fn human_input(&self) -> bool {
         self.prompt().is_some()
     }
 
-    /// 사람 입력 턴의 입력 글. loom이 넣은 첫 입력(지시문)인지는 데몬이 가린다(`FirstInputs`).
     pub fn prompt(&self) -> Option<&str> {
         match self {
             Event::UserPromptSubmit { prompt } if !prompt.starts_with(NOTIFICATION_TAG) => {
@@ -249,8 +200,6 @@ impl Event {
         }
     }
 
-    /// 이 훅이 알리는 사람 응답 대기. `None`이면 에이전트가 다시 일한다: 훅이 건 대기를 거둔다.
-    /// 권한 창이 시간 초과로 닫히면 Claude는 `PostToolUse`를 부르지 않는다. 다음 훅이 거둔다(2.1.306 실측). 근거: docs/design.md 「사람 응답 대기」.
     pub fn human_wait(&self) -> Option<(WaitKind, String)> {
         match self {
             Event::PreToolUse {
@@ -273,18 +222,15 @@ impl Event {
                 };
                 Some((kind, message.clone()))
             }
-            // 한도 창(「Stop and wait for limit to reset」)이 뜬다. 사람이 고르거나 계정을 바꿀 때까지 기다린다.
             event if event.rate_limited() => Some((WaitKind::Auth, RATE_LIMIT_TEXT.to_owned())),
             _ => None,
         }
     }
 
-    /// 계정 한도로 턴이 끝났다. 계정 전환이 쓴다.
     pub fn rate_limited(&self) -> bool {
         matches!(self, Event::StopFailure { error } if error == RATE_LIMIT_ERROR)
     }
 
-    /// 훅 출력 JSON. 없으면 아무것도 출력하지 않는다.
     pub fn reply(&self, taken: &[Delivery], note: Option<&str>) -> Option<Value> {
         let Some(text) = super::hook_text(taken, note) else {
             return match self {
@@ -301,7 +247,6 @@ impl Event {
             };
         };
         match self {
-            // 비동기 훅은 JSON을 읽지 않는다. 본문은 stderr로 넘긴다(`cli::hook`).
             Event::SessionStart { .. }
             | Event::Stop
             | Event::StopFailure { .. }
@@ -318,8 +263,6 @@ impl Event {
     }
 }
 
-/// 훅 입력이 알리는 모델과 추론 강도. 알리지 않는 훅이면 없다.
-/// 세션 시작은 입력의 `model`을, 그 뒤 훅은 기록 파일의 마지막 응답을 쓴다. 훅 입력에는 `/model`로 바꾼 모델이 없다(실측).
 pub fn reported_model(event: &Event, input: &Value) -> Option<Model> {
     if let Event::SessionStart { model, .. } = event {
         return Some(Model {
@@ -331,8 +274,6 @@ pub fn reported_model(event: &Event, input: &Value) -> Option<Model> {
     last_model(&transcript_tail(&path)?)
 }
 
-/// 턴을 끝낸 답 글. 턴 끝 질문 검사가 쓴다. `Stop` 입력의 `last_assistant_message`(2.1.306 스키마)다.
-/// 기록 파일은 읽지 않는다. 훅이 돌 때 마지막 답 줄이 아직 기록 파일에 없었다(2.1.306 실측).
 pub fn last_reply(input: &Value) -> Option<String> {
     input["last_assistant_message"].as_str().map(str::to_owned)
 }
@@ -347,8 +288,6 @@ fn transcript_tail(path: &Path) -> Option<String> {
     Some(String::from_utf8_lossy(&tail).into_owned())
 }
 
-/// 기록 파일 끝부분에서 본 대화의 마지막 응답이 쓴 모델과 추론 강도. 첫 줄은 잘렸을 수 있어 읽지 못하면 건너뛴다.
-/// 하위 에이전트 응답(`isSidechain`)과 API 없이 쓴 응답은 건너뛴다.
 fn last_model(tail: &str) -> Option<Model> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -380,9 +319,6 @@ fn context(event: &str, text: String) -> Value {
     json!({ "hookSpecificOutput": { "hookEventName": event, "additionalContext": text } })
 }
 
-/// 포그라운드 Bash 명령 앞에 `loom guard` 줄을 붙인다. 중단이 오면 데몬이 그 셸을 끝낸다.
-/// 백그라운드 명령은 붙이지 않는다. 결과를 기다리는 백그라운드 `loom wait`를 중단이 끝내면 안 된다.
-/// 권한 규칙은 바꾼 명령으로 판정된다. 줄을 이어 붙이면 Claude가 줄마다 판정하므로 사용자의 규칙이 그대로 맞는다.
 fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
     if tool_name != "Bash" || input["run_in_background"] == true {
         return None;
@@ -398,7 +334,6 @@ mod tests {
     use super::*;
     use crate::graph::PromptKey;
 
-    /// 2.1.309 승인 창(2026-10-23 tmux 120x40 실측). 긴 선택지가 다음 줄로 넘어간다.
     const APPROVAL: &str = concat!(
         "\n",
         "❯ Run exactly this shell command with the Bash tool: touch zz_file\n",
@@ -459,7 +394,6 @@ mod tests {
         );
     }
 
-    /// 노드 터미널(80x24)의 같은 창(2026-10-23 시험 데몬 실측). 「Tip:」 줄과 긴 경로가 넘어가고, 명령 앞에 loom guard 줄이 붙는다.
     const NARROW: &str = concat!(
         "\n",
         "\n",
@@ -506,8 +440,6 @@ mod tests {
         );
     }
 
-    /// 명령 칸의 줄은 「Tip:」으로 시작해도, 따옴표 안 여러 줄이어도, 앞 공백이 뜻을 가져도 그대로 보인다(2026-10-23 리뷰).
-    /// 그 줄만 바뀌어도 다른 창이다.
     #[test]
     fn command_rows_stay_whole_and_decide_the_identity() {
         let screen = |tail: &str| {
@@ -544,7 +476,6 @@ mod tests {
         assert_ne!(one, crate::screen::prompt(&PROMPT, &spaced, 120).unwrap());
     }
 
-    /// 답한 뒤의 화면과 에이전트가 쓴 번호 목록은 승인 창이 아니다.
     #[test]
     fn numbered_lists_without_a_selection_are_not_prompts() {
         let answered = APPROVAL.replace(" ❯ 1. Yes", "   1. Yes");
@@ -674,7 +605,6 @@ mod tests {
         );
     }
 
-    /// 입력 모양은 2.1.306 실측이다. 한도 멈춤은 한도 창의 대기다. 한도가 아닌 API 오류는 한도 멈춤이 아니다.
     #[test]
     fn stop_failure_waits_for_mail_and_raises_a_rate_limit_wait() {
         let limited = event(json!({ "hook_event_name": "StopFailure", "error": "rate_limit" }));
@@ -689,7 +619,6 @@ mod tests {
         assert!(!event(json!({ "hook_event_name": "Stop" })).rate_limited());
     }
 
-    /// 2.1.308 실측 입력(본문은 줄였다): 백그라운드 작업 알림과 비동기 훅의 다시 깨우기는 사람 입력이 아니다.
     #[test]
     fn task_notifications_are_not_human_input() {
         let prompt =
@@ -703,8 +632,6 @@ mod tests {
         assert!(!event(json!({ "hook_event_name": "Stop" })).human_input());
     }
 
-    /// 2.1.304 기록 파일에서 옮긴 줄이다(본문은 줄였다). `/model sonnet`, `/effort high` 뒤 응답이 마지막 본 대화 응답이다.
-    /// 사람 입력 턴의 안내(`App::human_input`)는 맥락으로 넘긴다. 없으면 아무것도 넣지 않는다.
     #[test]
     fn human_input_gets_the_note_as_context() {
         let prompt = event(json!({ "hook_event_name": "UserPromptSubmit" }));
@@ -736,7 +663,6 @@ mod tests {
                 effort: Some("high".into())
             })
         );
-        // 잘린 첫 줄과 응답 없는 기록은 모델이 없다.
         assert_eq!(last_model("ssistant\"}}\n{\"type\":\"user\"}\n"), None);
     }
 
@@ -795,7 +721,6 @@ mod tests {
         assert_eq!(elicitation.human_wait().unwrap().0, WaitKind::Question);
     }
 
-    /// 권한 창이 시간 초과로 닫히면 `PostToolUse`가 없다. 다음 훅이 대기를 거둔다(2.1.306 기록: 위험한 `rm` 확인 창).
     #[test]
     fn hooks_after_the_dialog_clear_the_wait() {
         for input in [
@@ -831,7 +756,6 @@ mod tests {
                 "UserPromptSubmit"
             ]
         );
-        // 턴이 없는 지점만 비동기로 기다린다. 턴 안의 훅이 비동기면 거부·맥락을 넘기지 못한다.
         for (name, idle) in [
             ("SessionStart", true),
             ("Stop", true),
@@ -861,7 +785,6 @@ mod tests {
         }
     }
 
-    /// 첫 입력이 있으면 시작 훅이 기다리지 않는다. 쌓인 메시지는 첫 입력 턴의 훅이 넘긴다.
     #[test]
     fn a_session_with_a_brief_does_not_wait_at_startup() {
         let args = args(Path::new("/p"), root_launch(), "지시");

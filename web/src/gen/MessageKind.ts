@@ -19,11 +19,11 @@ warning: string | null, } | { "kind": "note" } | { "kind": "ready", branch: stri
 /**
  * 판정한 노드의 실행자와 모델(`claude opus`).
  */
-reviewer: string | null, } | { "kind": "merging", branch: string, head: string, cause: string | null, log: string | null, } | { "kind": "merged", branch: string, head: string, 
+reviewer: string | null, } | { "kind": "merged", branch: string, head: string, 
 /**
  * 병합 커밋.
  */
-sha: string, log: string | null, } | { "kind": "rework", branch: string, head: string, cause: string | null, log: string | null, } | { "kind": "failed", branch: string, head: string, cause: string | null, log: string | null, } | { "kind": "exited", node: string, code: number | null, } | { "kind": "setupFailed", node: string, code: number, } | { "kind": "removed", node: string, } | { "kind": "adopted", node: string, parent: string, } | { "kind": "humanInput", node: string, } | { "kind": "rulesChanged", skills: Array<string>, 
+sha: string, log: string | null, } | { "kind": "rework", branch: string, head: string, cause: string | null, log: string | null, } | { "kind": "failed", branch: string, head: string, cause: string | null, log: string | null, } | { "kind": "withdrawn", branch: string, head: string, } | { "kind": "exited", node: string, code: number | null, } | { "kind": "setupFailed", node: string, code: number, } | { "kind": "removed", node: string, } | { "kind": "adopted", node: string, parent: string, } | { "kind": "humanInput", node: string, } | { "kind": "rulesChanged", skills: Array<string>, 
 /**
  * 빌드한 커밋(`LOOM_COMMIT`). 릴리스 빌드에는 없다.
  */

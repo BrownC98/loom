@@ -41,14 +41,11 @@ use clap::Parser;
 use crate::graph::Kind;
 use crate::profile::ModelChoice;
 
-/// 제품 판. `scripts/host.sh`가 `scripts/version.sh` 값을 `LOOM_VERSION`으로 넣는다.
-/// 릴리스 CI는 Cargo.toml 판을 바꿔 빌드한다. 근거: docs/design.md 「배포」.
 const VERSION: &str = match option_env!("LOOM_VERSION") {
     Some(v) => v,
     None => env!("CARGO_PKG_VERSION"),
 };
 
-/// 빌드한 커밋. `scripts/host.sh`가 넣는다. 릴리스 CI 빌드에는 없다(판의 PATCH가 커밋 수다).
 const COMMIT: Option<&str> = option_env!("LOOM_COMMIT");
 
 #[derive(Parser)]
@@ -169,11 +166,12 @@ enum Cli {
     },
     /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다. 열린 질문이 여럿이면 번호(`Q12 Q13`)를 준다
     Answered { ids: Vec<String> },
-    /// 병합 관문: 자기 브랜치를 관문에 보낸다(종류 ready). 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없고 대상 브랜치를 포함해야 한다.
-    /// 관문은 loom이 고른다: 부모가 코디면 코디(대상은 코디 브랜치), 아니면 같은 저장소의 CI 담당자(대상은 원래 체크아웃의 브랜치).
+    /// 병합 관문: 자기 브랜치를 관문에 보낸다(종류 ready). 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없어야 한다.
+    /// 관문은 loom이 고른다: 부모가 코디면 코디(대상은 코디 브랜치), 아니면 담당 자신(대상은 원래 체크아웃의 브랜치).
     /// 관문 스크립트가 없는 저장소에서도 관문에 알린다. 그때는 관문 상태가 없고, 관문이 손으로 병합해 `loom done`으로 알린다.
     Ready { branch: String },
-    /// 병합 관문: 판정을 넣는다. 관문이나 관문이 띄운 검토자가 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
+    /// 병합 관문: 판정을 넣는다. 관문이 띄운 검토자만 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
+    /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push와 `scripts/gate/ship.sh` 배포 확인)하고, merged·rework·failed로 알린다.
     Verdict {
         branch: String,
         judgment: protocol::Judgment,
@@ -181,9 +179,7 @@ enum Cli {
         #[arg(long)]
         findings: Option<PathBuf>,
     },
-    /// 병합 관문: pass 판정 뒤 관문이 부른다. audit, `scripts/gate/check.sh`, 병합(main이면 `scripts/gate/ship.sh`가 push·배포 확인까지), 결과 알림을 한 번에 한다.
-    Merge { branch: String },
-    /// 병합 관문: 관문이 브랜치를 멈추고 담당 나무의 루트에 원인을 알린다.
+    /// 병합 관문: 관문이 병합 큐에 들기 전의 브랜치를 멈추고 원인을 알린다(main 대상이면 루트도 받는다).
     Fail { branch: String, cause: String },
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
@@ -301,7 +297,6 @@ fn main() -> ExitCode {
             judgment,
             findings,
         } => cli::verdict(branch, judgment, findings.map(wsl::from_caller)),
-        Cli::Merge { branch } => cli::merge(branch),
         Cli::Fail { branch, cause } => cli::fail(branch, cause),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),
@@ -330,14 +325,12 @@ fn main() -> ExitCode {
     }
 }
 
-/// 데몬을 띄운 터미널의 변수를 지운다(`profile::is_launcher_env`). 노드, Codex app-server, 사용량 조회가 모두 이 환경을 물려받는다.
 fn forget_launcher_env() {
     let keys: Vec<_> = std::env::vars_os()
         .filter_map(|(key, _)| key.into_string().ok())
         .filter(|key| profile::is_launcher_env(key))
         .collect();
     for key in keys {
-        // SAFETY: 런타임을 만들기 전이라 다른 스레드가 없다.
         unsafe { std::env::remove_var(key) };
     }
 }

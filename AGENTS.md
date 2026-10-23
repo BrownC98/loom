@@ -13,16 +13,16 @@
 
 ## 개발 환경
 
-호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드는 `memcap -m 8G` 아래에서 돌린다.
+호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드는 `memcap -m 8G` 아래에서 돌린다. 단 검사·테스트 네 명령은 `memcap -m 5G`다. 실측(2026-10-23, cgroup `memory.peak`, 처음부터 빌드, 단계마다 2회): clippy 2.2GiB, test 2.7GiB, Windows clippy 2.5GiB, Windows test 3.0GiB(최대 3076MiB). 이미 빌드한 `target/`은 130MiB 이하다. 5G는 최대값에 약 65%를 더한 값이다. 병합 관문(`scripts/gate/check.sh`)은 여유가 이 5G를 넘을 때만 단계를 띄운다.
 
 | 할 일 | 명령 |
 |---|---|
 | 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부른다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
 | Rust 포맷 | `cargo fmt` |
-| Rust 검사 | `memcap -m 8G cargo clippy --all-targets` |
-| Rust 테스트, TS 타입 생성 | `memcap -m 8G cargo test` |
-| Windows 검사 | `memcap -m 8G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
-| Windows 테스트(실제 Windows에서 돈다) | `memcap -m 8G cargo test --target x86_64-pc-windows-gnu`. `scripts/windows/run.sh`가 시험 파일을 Windows 임시 폴더로 복사해 interop으로 돌린다 |
+| Rust 검사 | `memcap -m 5G cargo clippy --all-targets` |
+| Rust 테스트, TS 타입 생성 | `memcap -m 5G cargo test` |
+| Windows 검사 | `memcap -m 5G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
+| Windows 테스트(실제 Windows에서 돈다) | `memcap -m 5G cargo test --target x86_64-pc-windows-gnu`. `scripts/windows/run.sh`가 시험 파일을 Windows 임시 폴더로 복사해 interop으로 돌린다 |
 | 화면 타입·순환 검사 | `npm --prefix web run check` |
 | 화면 배치 테스트(vitest, 한 번 실행) | `npm --prefix web test` |
 | 화면 빌드 | `npm --prefix web run build` |
@@ -83,12 +83,15 @@
 | 형식(이 문자열은 JSON이다) | 전용 타입(branded type, newtype) |
 | 위치(인자 순서, 배열 인덱스) | 이름 있는 인자, 필드 이름 |
 | 호출 순서(A 다음에 B) | 앞 단계 결과 타입을 받아야 다음 단계를 부를 수 있게 한다 |
-| 타이밍(타임아웃, 대기 시간) | 이름 있는 설정 한 곳에 두고 근거를 주석으로 적는다 |
+| 타이밍(타임아웃, 대기 시간) | 이름 있는 설정 한 곳에 둔다 |
 | 값끼리 맞아야 함(함께 갱신) | 한 함수·한 트랜잭션 안에서 함께 바꾼다 |
 | 같은 인스턴스 공유(싱글톤) | 공유 객체는 불변으로 둔다. 가변 상태를 넣지 않는다 |
 
 - 문서에만 있는 규칙은 타입·테스트·린트로 옮긴다. 옮긴 뒤 문서의 규칙은 지운다.
-- 주석에는 코드로 알 수 없는 「왜」만 쓴다: 정한 이유, 사람 지시 원문, 실측 값, 고르지 않은 안. 코드가 하는 일을 다시 말하는 주석은 쓰지 않고, 고치는 곳에서 보이면 지운다. 매 세션 토큰을 쓰고, 코드가 바뀌면 틀린 말로 남는다(2026-10-22 사람 결정 "권장안대로").
+- 주석을 쓰지 않는다(2026-10-23 사람 지시 "loom에서는 사용자가 명시하지 않은 한 주석 작성 금지"). 정한 이유와 실측 값은 커밋 본문에 쓴다.
+ - 사람이 명시해 요청한 주석만 쓴다. 그 질문 번호로 시작한다(`// Q712: …`). 검사가 데몬에 사람이 받은편지함에서 답한 질문인지 묻는다.
+ - 도구가 읽는 주석만 예외다: 셔뱅, tsc 지시(`@ts-expect-error` 등, `/// <reference`), `eslint-disable`, `# shellcheck`, clap·ts-rs가 읽는 Rust `///`(그 derive가 있는 타입과 그 필드·변형).
+ - `memcap -m 5G cargo test`(`tests/comments`)가 막는다. 질문 번호는 관문(`scripts/gate/check.sh`)만 데몬에 묻는다. 지우기: `memcap -m 5G cargo test --test comments -- --ignored strip && cargo fmt`.
 - 지시도 같다. 에이전트에게 맥락을 암묵으로 넘기지 않는다. 필요한 사실을 글로 적어 넘긴다.
 
 ## 5. 추상화 일관성

@@ -1,6 +1,3 @@
-//! 계정 전환: 실행 중인 노드를 새 계정으로 다시 띄워 같은 세션을 잇고, 켜져 있으면 한도에 닿은 계정을 자동으로 바꾼다.
-//! 근거: docs/design.md 「계정 전환」, 목업 docs/mockups/account-switch.html.
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -14,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::relaunch::{Relaunched, provider_of};
+use super::usage_cache::{Key, UsageCache};
 use super::{App, Problem, internal};
 use crate::accounts::{AccountId, Site};
 use crate::graph::{Active, Entry, NodeId, SwitchCause};
@@ -21,10 +19,7 @@ use crate::profile::Provider;
 use crate::usage::{self, Limits, Window};
 use crate::wsl;
 
-/// 이 비율(%)을 쓴 창이 있는 계정은 다 썼다. 그 계정으로는 바꾸지 않는다.
 const EXHAUSTED_AT: u8 = 100;
-/// 같은 공급자를 다시 자동 전환하지 않는 시간. 같은 계정의 노드 여럿이 한꺼번에 한도로 멈추면
-/// 멈춤마다 다시 바꾸어 계정을 오가는 일을 막는다. 「남은 계정 없음」 기록도 이 간격에 한 번만 남긴다.
 const COOLDOWN: Duration = Duration::from_secs(10 * 60);
 
 /// 계정을 바꿀 때 옮길 수 있는 실행 중인 노드(`GET /api/accounts/{provider}/nodes`). 확인 창 목록이다(목업 ①).
@@ -49,10 +44,8 @@ pub struct MoveResult {
     pub failed: u32,
 }
 
-/// 자동 전환 기록. 기억에만 둔다.
 #[derive(Default)]
 pub struct Switches {
-    /// 위치(배포판, 없으면 이 PC)와 공급자마다 마지막 자동 전환이나 「남은 계정 없음」 기록 시각.
     last_auto: Mutex<HashMap<(Provider, Option<String>), Instant>>,
 }
 
@@ -62,16 +55,12 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/accounts/{provider}/move", post(move_all))
 }
 
-/// `GET /api/accounts/{provider}/nodes`의 질의. `to`는 옮겨 갈 계정이다. 없으면 시스템 기본이다.
-/// `distro`는 계정의 위치다. 없으면 이 PC다. 그 위치 저장소의 노드만 옮긴다.
-/// 화면은 설정을 저장하기 전에 확인 창 목록을 읽는다.
 #[derive(Deserialize)]
 struct MovableQuery {
     to: Option<AccountId>,
     distro: Option<String>,
 }
 
-/// `POST /api/accounts/{provider}/move`의 질의. 그 위치의 노드를 그 위치의 「사용 중」 계정으로 옮긴다.
 #[derive(Deserialize)]
 struct MoveQuery {
     distro: Option<String>,
@@ -97,7 +86,6 @@ async fn movable(
     ))
 }
 
-/// 화면이 설정을 먼저 저장한 뒤 부른다.
 async fn move_all(
     State(app): State<Arc<App>>,
     UrlPath(provider): UrlPath<Provider>,
@@ -111,7 +99,6 @@ async fn move_all(
 }
 
 impl App {
-    /// 위치 `distro`(없으면 이 PC)에서 실행 중인 그 공급자 노드 가운데 `target` 계정과 다른 계정으로 띄운 노드. `None`은 시스템 기본이다.
     fn movable(
         &self,
         provider: Provider,
@@ -128,14 +115,11 @@ impl App {
             .collect())
     }
 
-    /// 노드가 도는 WSL 배포판. 이 PC 노드거나 자리를 읽지 못하면 없다.
     fn distro_of(&self, node: NodeId) -> Option<String> {
         let place = self.graph.place_of(node).ok()?;
         wsl::of(Path::new(&place.worktree)).map(|at| at.distro)
     }
 
-    /// 옮길 노드를 모두 설정의 계정으로 옮기고 이벤트 기록에 한 줄을 남긴다.
-    /// `from`은 옮길 노드가 가장 많이 쓰던 계정이다. 같은 수면 번호가 작은 노드의 계정이다.
     async fn switch_nodes(
         self: &Arc<Self>,
         provider: Provider,
@@ -179,8 +163,6 @@ impl App {
         Ok(result)
     }
 
-    /// 노드가 한도로 턴을 멈췄다. 옮길 때 이어 가라는 입력을 넣는다. 자동 전환이 켜져 있으면 바로 바꾼다.
-    /// 자동 전환은 이 이벤트로만 시작한다. 사용량을 미리 읽어 바꾸지 않는다.
     pub(super) fn rate_limited(self: &Arc<Self>, node: NodeId, provider: Provider) {
         self.relaunches.stopped_at_limit(node);
         let app = self.clone();
@@ -188,7 +170,6 @@ impl App {
         tokio::spawn(async move { app.auto_switch(provider, distro).await });
     }
 
-    /// 자동 전환이 켜져 있으면 같은 위치(`distro`, 없으면 이 PC), 같은 공급자의 다른 계정 사용량을 그 자리에서 읽고, 남은 계정으로 바꾼다.
     async fn auto_switch(self: &Arc<Self>, provider: Provider, distro: Option<String>) {
         let Ok(settings) = self.settings.get() else {
             return;
@@ -214,7 +195,11 @@ impl App {
                 .map(Some),
         );
         ids.retain(|id| *id != current);
-        let probes = join_all(ids.iter().map(|id| probe(&site, provider, id.clone()))).await;
+        let probes = join_all(
+            ids.iter()
+                .map(|id| probe(&self.usage, &site, provider, id.clone())),
+        )
+        .await;
         let candidates: Vec<_> = ids.into_iter().zip(probes).collect();
         self.switch
             .last_auto
@@ -232,7 +217,6 @@ impl App {
             }
             return;
         };
-        // 사용량을 읽는 동안 화면이 다른 설정을 바꿨을 수 있다. 계정 칸만 바꾼다.
         if let Err(e) = self
             .settings
             .update(|view| view.set_account(provider, distro.as_deref(), to))
@@ -258,14 +242,23 @@ impl App {
     }
 }
 
-async fn probe(site: &Arc<Site>, provider: Provider, id: Option<AccountId>) -> Limits {
+async fn probe(
+    cache: &UsageCache,
+    site: &Arc<Site>,
+    provider: Provider,
+    id: Option<AccountId>,
+) -> Limits {
+    let key = Key::provider(site, provider, id.as_ref());
     let site = site.clone();
-    tokio::task::spawn_blocking(move || usage::probe(provider, &site, id.as_ref()).limits)
+    let fingerprint = usage::credentials_fingerprint(provider, &site, id.as_ref());
+    cache
+        .get(key, fingerprint, move || {
+            usage::probe(provider, &site, id.as_ref())
+        })
         .await
-        .unwrap_or(Limits::NeedsLogin)
+        .limits
 }
 
-/// 가장 많이 나온 계정. 같은 수면 먼저 나온 계정이다. 비었거나 시스템 기본이 가장 많으면 없다.
 fn most_used(accounts: impl Iterator<Item = Option<AccountId>>) -> Option<AccountId> {
     let accounts: Vec<_> = accounts.collect();
     let count = |a: &Option<AccountId>| accounts.iter().filter(|b| *b == a).count();
@@ -278,8 +271,6 @@ fn most_used(accounts: impl Iterator<Item = Option<AccountId>>) -> Option<Accoun
     best.cloned().flatten()
 }
 
-/// 사용량을 읽은 계정 가운데 가장 많이 쓴 창이 가장 적은 계정. 그 값이 `EXHAUSTED_AT` 미만이어야 한다.
-/// 읽지 못한 계정은 건너뛴다. 같은 값이면 앞 계정(시스템 기본, 만든 순서)이다.
 fn pick_target(candidates: &[(Option<AccountId>, Limits)]) -> Option<Option<AccountId>> {
     candidates
         .iter()
@@ -301,7 +292,6 @@ fn pick_target(candidates: &[(Option<AccountId>, Limits)]) -> Option<Option<Acco
         .map(|(id, _)| id.clone())
 }
 
-/// 계정들의 창 가운데 가장 빠른 초기화 시각.
 fn earliest_reset<'a>(limits: impl Iterator<Item = &'a Limits>) -> Option<i64> {
     limits
         .filter_map(|l| match l {

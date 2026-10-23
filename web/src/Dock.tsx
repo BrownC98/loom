@@ -3,7 +3,6 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { shortcut } from './platform';
 
-/** 오른쪽 사이드바 아래 칸. 한 번에 하나만 보인다. 터미널은 심플 보기에서 노드를 골랐을 때만 있다. 「문서」(`docs`)는 문서 ID가 붙은 모든 문서다. 「알림」(`questions`)은 알약 목록(질문과 완료)의 예비 자리다. */
 export type DockTab = 'events' | 'commits' | 'docs' | 'questions' | 'terminal';
 
 const ICON: Record<DockTab, LucideIcon> = { events: AlignLeft, commits: GitCommitVertical, docs: FileText, questions: Bell, terminal: SquareTerminal };
@@ -15,23 +14,16 @@ const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'docs.title' |
   terminal: 'dock.terminal',
 };
 
-/** 「질문」 탭의 대기 수 배지. 펼친 탭과 접힌 줄이 함께 쓴다. */
 function Count(props: { tab: DockTab; waiting: number }) {
   return props.tab === 'questions' && props.waiting > 0 ? <span className="count">{props.waiting}</span> : null;
 }
 
-/** 접기·펴기 단추의 id. 펼친 사이드바와 접힌 줄에 하나씩만 있어, 누른 뒤 같은 id로 포커스를 옮긴다. */
 export const DOCK_TOGGLE = 'dock-toggle';
-/** 접기·펴기 키(Terminal.tsx `paneKey`). 툴팁과 `aria-keyshortcuts`에 보인다. */
 const KEY = shortcut(']');
 
-/**
- * 오른쪽 사이드바(목업 docs/mockups/toolbar.html E안). 위 「보기」에 그래프 보기 도구(`tools`)를 두고, 아래 탭이 칸(`children`)을 고른다. `waiting`은 「질문」 탭 배지의 수다.
- */
 export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; waiting: number; onTab: (tab: DockTab) => void; onCollapse: () => void; tools: ReactNode; children: ReactNode }) {
   const { t } = useTranslation();
   const { tabs } = props;
-  // 탭 목록은 ←·→로 옆 탭을 고른다(WAI-ARIA 탭 패턴).
   const onKey = (e: KeyboardEvent) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
     if (!step) return;
@@ -71,7 +63,6 @@ export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; waiting: n
   );
 }
 
-/** 접힌 오른쪽 사이드바: 펴기, 지금 방향으로 정렬, 칸 아이콘. 칸 아이콘은 그 탭으로 편다. 「질문」 아이콘에도 대기 수 배지를 단다(2026-10-21 사람 "여기에도 개수 배지 표시해줘"). */
 export function DockRail(props: { tabs: readonly DockTab[]; waiting: number; onExpand: (tab: DockTab | null) => void; onArrange: () => void }) {
   const { t } = useTranslation();
   return (
@@ -86,7 +77,6 @@ export function DockRail(props: { tabs: readonly DockTab[]; waiting: number; onE
       <hr />
       {props.tabs.map((tab) => {
         const Icon = ICON[tab];
-        // 접근 이름은 펼친 탭의 글자(「질문 2」)와 같게 수를 붙인다.
         const label = tab === 'questions' && props.waiting > 0 ? `${t(LABEL[tab])} ${props.waiting}` : t(LABEL[tab]);
         return (
           <button key={tab} className="btn ghost icon" aria-label={label} title={label} onClick={() => props.onExpand(tab)}>

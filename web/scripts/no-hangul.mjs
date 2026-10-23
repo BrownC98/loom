@@ -1,5 +1,3 @@
-// 화면 문구 누락 검사: src의 문자열·JSX 글자에 한글이 있으면 실패한다. 문구는 src/locales/에만 둔다.
-// 주석은 보지 않는다. gen/은 Rust가 쓴 타입이라 문자열이 없다.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';

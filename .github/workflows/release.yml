@@ -1,5 +1,3 @@
-# 사람이 판 태그(`v<판>`)를 push하거나 손으로 돌릴 때 Windows·macOS(Apple Silicon) 앱, Android 앱(APK)과 웹 버전 실행 파일(Linux·Windows·macOS)을 만들어 Release `v<판>`으로 올린다.
-# 앱은 가장 새 Release의 `latest.json`으로 새 판을 찾는다. 근거: docs/design.md 「데스크톱 앱」 「배포」.
 name: release
 
 on:
@@ -10,23 +8,18 @@ on:
 permissions:
   contents: write
 
-# 도는 실행을 취소하지 않는다. 취소하면 먼저 끝난 Windows 파일만 올라간 반쪽 Release가 남는다(v0.1.679~0.1.690에 macOS·Linux 파일이 없었다).
-# 기다리는 실행은 GitHub가 가장 새 것 하나만 남긴다.
 concurrency:
   group: release
   cancel-in-progress: false
 
 env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
-  # 설치 파일을 만드는 Tauri CLI 판. 설치 템플릿도 같은 판에서 받는다.
   TAURI_CLI: 2.12.3
-  # 데몬이 새 판을 찾는 Release 주소. 이 값이 있는 빌드만 업데이트를 확인한다(`src/update.rs`). `host.sh`·개발 빌드에는 없다.
   LOOM_RELEASES: https://github.com/${{ github.repository }}/releases
 
 jobs:
   installer:
     strategy:
-      # 하나씩 돈다. 둘이 함께 `latest.json`을 고치면 한쪽 플랫폼이 빠질 수 있다. tauri-action이 앞 판의 `latest.json`에 플랫폼을 더한다.
       max-parallel: 1
       matrix:
         os: [windows-latest, macos-14]
@@ -39,7 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # PATCH는 커밋 수다. 전체 기록이 있어야 센다.
           fetch-depth: 0
       - uses: actions/setup-node@v7.1.0
         with:
@@ -47,8 +39,6 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - uses: Swatinem/rust-cache@v2.9.2
-      # 판 = 루트 Cargo.toml의 MAJOR.MINOR + 그 줄을 마지막으로 바꾼 커밋 뒤의 커밋 수.
-      # loom.exe, 앱, 설치 파일, 화면이 같은 판을 쓴다.
       - name: 판 정하기
         id: version
         run: |
@@ -66,9 +56,7 @@ jobs:
         run: npm ci && npm run build
         working-directory: web
         env:
-          # build 스크립트가 sh 문법으로 판을 넣는다. Windows 기본 셸(cmd)로는 돌지 않는다.
           NPM_CONFIG_SCRIPT_SHELL: bash
-      # Tauri sidecar 이름은 `loom-<러너의 대상 triple>`이다(Windows는 `.exe`가 붙는다).
       - name: loom 빌드
         run: |
           cargo build --release
@@ -76,8 +64,6 @@ jobs:
           triple=$(rustc -vV | sed -n 's/^host: //p')
           exe=$([ "$RUNNER_OS" = Windows ] && echo .exe || true)
           cp "target/release/loom$exe" "app/binaries/loom-$triple$exe"
-      # 이전 판이 깔려 있으면 Tauri 템플릿은 「먼저 지우기/지우지 않기」 화면과 옛 판 제거 마법사를 띄운다.
-      # 그 화면을 건너뛰고 같은 폴더에 덮어 설치한다(앱 업데이트의 /UPDATE와 같은 길). 근거: docs/design.md 「데스크톱 앱」.
       - name: 설치 템플릿 받기
         if: runner.os == 'Windows'
         shell: bash
@@ -98,14 +84,12 @@ jobs:
           tauriScript: npx --yes @tauri-apps/cli@${{ env.TAURI_CLI }}
           tagName: v${{ steps.version.outputs.version }}
           releaseName: loom ${{ steps.version.outputs.version }}
-          # 본문은 먼저 끝난 플랫폼이 Release를 만들 때 한 번 쓴다. 그래서 두 플랫폼의 안내를 함께 둔다.
           releaseBody: |
             ${{ github.ref_name }} ${{ github.sha }} 빌드.
             - Windows 앱: `loom_<판>_x64-setup.exe`를 받아 실행하면 loom 창이 열린다.
             - macOS 앱(Apple Silicon): `loom_<판>_aarch64.dmg`를 열어 loom을 응용 프로그램 폴더로 끈다. 서명하지 않은 앱이라 처음 한 번 터미널에서 `xattr -cr /Applications/loom.app`를 실행한 뒤 연다.
             - Android 앱: 폰에서 `loom_<판>.apk`를 받아 설치한다. 폰과 PC에 Tailscale이 있어야 한다. PC loom의 설정 › 휴대폰 › [휴대폰 연결]에 나온 QR을 앱에서 찍는다.
             - 웹 버전(앱 없이 브라우저로, `loom-web-*` 파일): 아래 명령이 받는다. Linux·WSL·macOS `curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh`, Windows PowerShell `irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex`.
-      # 웹 버전 실행 파일. 앱 안의 loom과 같은 빌드다. `install.ps1`·`install.sh`(macOS)가 받고, 웹 버전 데몬이 업데이트로 받는다(`src/update.rs`의 `asset_name`).
       - name: 웹 버전 실행 파일 올리기
         run: |
           case "$RUNNER_OS" in
@@ -116,14 +100,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # Release는 위 단계가 만든다. 정적 실행 파일(musl)이라 glibc 판과 관계없이 x86-64 Linux에서 돈다.
   linux:
     needs: installer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # 화면 빌드가 scripts/version.sh로 판을 센다.
           fetch-depth: 0
       - uses: actions/setup-node@v7.1.0
         with:
@@ -146,20 +128,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # 폰 앱(APK). PC loom의 폰 화면을 여는 WebView 껍데기다(android/). 근거: docs/design.md 「Android 앱」.
   android:
     needs: installer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          # versionCode가 전체 커밋 수다.
           fetch-depth: 0
       - uses: actions/setup-java@v6.0.1
         with:
           distribution: temurin
           java-version: 17
-      # Gradle wrapper(jar)를 저장소에 두지 않고 판을 여기서 정한다. Android SDK는 러너에 있다.
       - uses: gradle/actions/setup-gradle@v6.3.0
         with:
           gradle-version: 9.7.1
@@ -174,7 +153,6 @@ jobs:
           gh release upload "v$version" "loom_$version.apk" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
-          # 키 저장소의 사본은 사람 PC의 ~/.config/loom-android/에 있다. 잃으면 설치한 앱을 업데이트하지 못한다(지우고 다시 설치).
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           LOOM_KEYSTORE: ${{ runner.temp }}/release.jks
           LOOM_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

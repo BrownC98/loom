@@ -1,5 +1,3 @@
-//! 설정 「휴대폰」 탭과 폰의 짝짓기 라우트. 근거: docs/design.md 「원격」, 목업 docs/mockups/phone-pairing.html·phone-direct.html.
-
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -16,13 +14,9 @@ use super::{App, Problem, internal};
 use crate::devices::{DeviceId, DeviceView, INVITE_TTL, PairRefused};
 use crate::tailscale::{Served, Tailnet, Tailscale};
 
-/// 폰이 코드를 보내는 곳. 문(`origin::human_site`)이 쿠키 없이 받는 단 하나의 API다.
 pub const PAIR_PATH: &str = "/api/pair";
-/// 짝짓기 쪽이 BarcodeDetector가 없을 때(iPhone Safari) 싣는 QR 판독기. 그 쪽은 앱 번들을 싣지 않는다.
 pub const JSQR_PATH: &str = "/jsQR.js";
-/// jsQR의 UMD 파일. 판은 web/package.json이 고정하고, Rust 빌드 전에 화면 빌드가 `npm ci`로 깐다.
 const JSQR: &str = include_str!("../../web/node_modules/jsqr/dist/jsQR.js");
-/// 쿠키 수명. 브라우저가 받는 최대(400일)다. 끊기는 PC의 [연결 끊기]로 한다.
 const COOKIE_MAX_AGE_SECS: u64 = 400 * 24 * 60 * 60;
 
 pub fn routes() -> Router<Arc<App>> {
@@ -87,7 +81,6 @@ struct PairRequest {
     code: String,
 }
 
-/// PC 화면만 하는 일. Serve로 온 폰(짝지은 기기도)은 403이다.
 fn local_only(via: Option<Extension<ViaRemote>>) -> Result<(), StatusCode> {
     match via {
         Some(_) => Err(StatusCode::FORBIDDEN),
@@ -116,7 +109,6 @@ async fn phone_view(app: &App) -> Result<PhoneView, Problem> {
     })
 }
 
-/// 이 탭 라우트의 실패. 상태 코드만 보내거나(PC 화면 아님, Tailscale 없음, 없는 기기) 원인 글을 보낸다.
 enum Refused {
     Status(StatusCode),
     Problem(Problem),
@@ -193,7 +185,6 @@ async fn remove(
     }
 }
 
-/// Windows 방화벽에 폰 문 포트를 연다. 관리자 확인 창이 뜬다.
 async fn firewall(
     State(app): State<Arc<App>>,
     via: Option<Extension<ViaRemote>>,
@@ -204,7 +195,6 @@ async fn firewall(
     Ok(Json(()))
 }
 
-/// Serve가 `port`로 넘기면 이 기기의 tailnet 이름. 폰 브라우저가 경고 없이 연다.
 pub async fn serve_host(port: u16) -> Option<String> {
     match Tailscale::find()?.status(port).await {
         Tailnet::Ready {
@@ -215,9 +205,6 @@ pub async fn serve_host(port: u16) -> Option<String> {
     }
 }
 
-/// QR 주소: `https://<호스트>/#pair=<코드>&fp=<인증서 지문>&a=<IP:포트>,…`.
-/// 호스트는 Serve가 켜져 있으면 tailnet 이름(브라우저가 연다), 아니면 첫 주소다. 앱은 `fp`·`a`로 폰 문에 붙는다.
-/// `#` 뒤는 브라우저가 서버에 보내지 않는다.
 fn invite_url(
     serve: Option<&str>,
     addresses: &[std::net::Ipv4Addr],
@@ -233,7 +220,6 @@ fn invite_url(
     url
 }
 
-/// 원격(Serve, 폰 문)으로 온 요청만 받는다. 이 기계의 화면은 짝짓지 않는다(쿠키가 `localhost`에 남을 뿐이다).
 async fn pair(
     State(app): State<Arc<App>>,
     via: Option<Extension<ViaRemote>>,
@@ -257,7 +243,6 @@ async fn pair(
     }
 }
 
-/// `Secure`: Serve와 폰 문이 HTTPS다. `HttpOnly`: 화면 스크립트가 읽지 못한다. `SameSite=Strict`: 다른 사이트의 요청에 붙지 않는다.
 fn device_cookie(token: &str) -> String {
     format!(
         "{DEVICE_COOKIE}={token}; Path=/; Max-Age={COOKIE_MAX_AGE_SECS}; Secure; HttpOnly; SameSite=Strict"
@@ -271,7 +256,6 @@ fn qr_svg(url: &str) -> Result<String, qrcode::types::QrError> {
         .build())
 }
 
-/// 기기 목록에 보이는 이름: 「iPhone · Safari」. 브라우저 글(User-Agent)에서 만든다.
 fn label(ua: &str) -> String {
     let device = [
         ("iPhone", "iPhone"),
@@ -284,7 +268,6 @@ fn label(ua: &str) -> String {
     .into_iter()
     .find(|(key, _)| ua.contains(key))
     .map_or("Device", |(_, name)| name);
-    // 순서가 뜻이다: Edge·Samsung·Chrome iOS(CriOS)의 글에도 「Safari」·「Chrome」이 들어 있다.
     let browser = [
         ("EdgA", "Edge"),
         ("EdgiOS", "Edge"),
@@ -305,16 +288,10 @@ fn label(ua: &str) -> String {
     }
 }
 
-/// 짝짓지 않은 폰이 받는 쪽(목업 phone-pairing.html ④, pair-qr-scan.html). 앱은 싣지 않는다: 노드와 질문을 보이지 않는다.
-/// 주소의 `#pair=<코드>`(QR)를 읽어 바로 보낸다. 없으면 [QR 찍기](카메라)와 코드 칸을 보인다. 글은 폰 언어(한국어가 아니면 영어)로 고른다.
 pub fn unpaired() -> Response {
     (StatusCode::UNAUTHORIZED, Html(UNPAIRED_PAGE)).into_response()
 }
 
-// 코드 칸: 네모 8칸 뒤에 보이지 않는 입력 칸 하나를 둔다(사람 결정 Q388 "ㅁㅁㅁㅁ-ㅁㅁㅁㅁ 꼴").
-// 칸마다 입력을 두면 붙여 넣기·지우기·one-time-code 자동 채우기를 손으로 다시 만들어야 한다.
-// maxlength를 두지 않는다: `ABCD-EFGH`(9자)를 붙여 넣으면 잘리기 전에 `-`를 빼야 한다.
-// QR은 이 쪽과 같은 호스트의 `#pair=` 주소만 받는다. 다른 PC나 다른 사이트의 QR로 짝짓지 않는다.
 const UNPAIRED_PAGE: &str = r#"<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>loom</title>
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon.png">
 <style>:root{color-scheme:light dark}body{margin:0;padding:64px 20px 20px;font:15px/1.5 system-ui,sans-serif;background:light-dark(#f5f5f5,#1f1f1f);color:light-dark(#171717,#fafafa)}

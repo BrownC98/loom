@@ -1,9 +1,3 @@
-//! 사용량: 계정마다 5시간·주간 창의 사용한 비율을 CLI와 같은 출처에서 읽는다. Orca와 같은 출처다.
-//! Claude는 로그인 폴더의 OAuth 토큰으로 `api/oauth/usage`를, Codex는 `codex app-server`를,
-//! Cursor는 CLI 로그인 토큰으로 대시보드의 `api/usage-summary`를 부른다.
-//! 바뀌는 이유는 세 CLI와 그 API다. 막는 호출이므로 데몬은 `spawn_blocking`에서 부른다.
-//! 근거: docs/design.md 「계정과 사용량」.
-
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -18,23 +12,20 @@ use ts_rs::TS;
 use crate::accounts::{AccountId, Site};
 use crate::profile::{LaunchError, Provider};
 
-/// CLI나 API 하나를 기다리는 상한. 넘으면 그 계정만 「지금 볼 수 없다」가 된다.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
-/// Codex 창 길이가 이 값 이하면 5시간 창이다. Codex는 5시간 창(300분)과 주간 창(10080분)을 primary·secondary 순서 없이 준다.
 const SESSION_WINDOW_MAX_MINS: u64 = 300;
+const DEFAULT_RETRY_AFTER_SECS: i64 = 300;
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
-/// Orca가 보내는 값과 같다. 기본 User-Agent(`ureq/…`)는 429를 받았다(2026-10-20, docs/design.md 「실측 근거」).
 const CLAUDE_USER_AGENT: &str = "claude-code/2.1.0";
 const CURSOR_ORIGIN: &str = "https://cursor.com";
 const CURSOR_USAGE_URL: &str = "https://cursor.com/api/usage-summary";
+const CURSOR_AUTH_FILE: &str = ".config/cursor/auth.json";
 const CURSOR_COMMAND: &str = "cursor-agent";
-/// 쿠키의 사용자 이름에서 그대로 두는 글자. 브라우저 `encodeURIComponent`처럼 `|`를 `%7C`로 쓴다(Orca와 같다).
 const COOKIE_KEEPS: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
     .remove(b'.')
     .remove(b'~');
-/// Cursor 묶음 이름. Orca(`shared/cursor-usage-buckets.ts`)와 같은 글자이고 번역하지 않는다(M18 v2, Q666 A).
 const CURSOR_MODELS: &str = "Cursor Models";
 const CURSOR_OTHER_MODELS: &str = "Other Models";
 const CURSOR_ON_DEMAND: &str = "On-demand";
@@ -95,6 +86,12 @@ pub enum UsageProblem {
     LoginNotSupported,
     /// 사용량 API가 알 수 없는 형식을 냈다.
     ResponseFormat,
+    /// 사용량 API가 요청 한도를 넘었다고 답했다. `retry_at`(유닉스 초)까지 다시 부르지 않는다.
+    #[serde(rename_all = "camelCase")]
+    RateLimited {
+        #[ts(type = "number")]
+        retry_at: i64,
+    },
     /// 로그인 토큰이 만료됐다. 그 계정으로 CLI를 한 번 실행하면 갱신된다. 값은 에이전트 이름이다.
     TokenExpired(String),
     /// 네트워크 오류 같은 그 밖의 실패. 값은 원인 글이다.
@@ -109,19 +106,26 @@ pub struct Usage {
     /// 요금제 이름. CLI가 준 글자 그대로다(예: `max`, `plus`).
     pub plan: Option<String>,
     pub limits: Limits,
+    /// 이 값을 읽은 시각. 유닉스 초. 캐시가 앞 값을 다시 주면 그 값을 읽은 때다.
+    #[ts(type = "number")]
+    pub read_at: i64,
 }
 
 impl Usage {
-    pub fn failed(problem: UsageProblem) -> Self {
+    pub fn new(email: Option<String>, plan: Option<String>, limits: Limits) -> Self {
         Usage {
-            email: None,
-            plan: None,
-            limits: Limits::Failed { problem },
+            email,
+            plan,
+            limits,
+            read_at: jiff::Timestamp::now().as_second(),
         }
+    }
+
+    pub fn failed(problem: UsageProblem) -> Self {
+        Self::new(None, None, Limits::Failed { problem })
     }
 }
 
-/// `site`(이 PC 또는 WSL 배포판)의 계정 `id`를 읽는다. `None`이면 그 위치의 시스템 기본 로그인이다.
 pub fn probe(provider: Provider, site: &Site, id: Option<&AccountId>) -> Usage {
     let cmd = match provider {
         Provider::Claude => site.command(provider, &["auth", "status", "--json"], id),
@@ -140,19 +144,40 @@ pub fn probe(provider: Provider, site: &Site, id: Option<&AccountId>) -> Usage {
     }
 }
 
+pub fn credentials_fingerprint(
+    provider: Provider,
+    site: &Site,
+    id: Option<&AccountId>,
+) -> Option<u64> {
+    let file = match provider {
+        Provider::Claude => ".credentials.json",
+        Provider::Codex => "auth.json",
+    };
+    fingerprint(&site.login_dir(provider, id)?.join(file))
+}
+
+pub fn cursor_credentials_fingerprint(site: &Site) -> Option<u64> {
+    fingerprint(&site.home_file(CURSOR_AUTH_FILE)?)
+}
+
+fn fingerprint(path: &Path) -> Option<u64> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let bytes = std::fs::read(path).ok()?;
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    Some(hasher.finish())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ClaudeStatus {
     logged_in: bool,
     email: Option<String>,
     subscription_type: Option<String>,
-    /// 2.1.228 같은 옛 판은 이 값을 내지 않는다. 그때는 CLI가 쓰는 폴더를 loom이 고른다.
     config_directory: Option<String>,
 }
 
-/// `cmd`는 `claude auth status --json`이다.
 fn claude(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
-    // 로그인하지 않았으면 0이 아닌 코드로 끝나도 JSON은 낸다. 코드는 보지 않는다.
     let status: ClaudeStatus = match cmd.stdin(Stdio::null()).stderr(Stdio::null()).output() {
         Ok(out) => match serde_json::from_slice(&out.stdout) {
             Ok(status) => status,
@@ -162,7 +187,6 @@ fn claude(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
         },
         Err(e) => return Usage::failed(run_failed("claude", &e)),
     };
-    // CLI가 준 폴더는 CLI가 본 경로다. WSL이면 데몬이 읽는 UNC 경로로 바꾼다.
     let dir = status
         .config_directory
         .map(|dir| site.local(&dir))
@@ -174,11 +198,7 @@ fn claude(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
     } else {
         failed(UsageProblem::CliFormat("claude auth status".into()))
     };
-    Usage {
-        email: status.email,
-        plan: status.subscription_type,
-        limits,
-    }
+    Usage::new(status.email, status.subscription_type, limits)
 }
 
 fn claude_limits(config_dir: &Path) -> Limits {
@@ -195,6 +215,7 @@ fn claude_limits(config_dir: &Path) -> Limits {
     };
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(PROBE_TIMEOUT))
+        .http_status_as_error(false)
         .build()
         .into();
     let response = agent
@@ -203,8 +224,12 @@ fn claude_limits(config_dir: &Path) -> Limits {
         .header("anthropic-beta", "oauth-2025-04-20")
         .header("User-Agent", CLAUDE_USER_AGENT)
         .call();
-    match response {
-        Ok(mut res) => match res.body_mut().read_json::<Value>() {
+    let mut res = match response {
+        Ok(res) => res,
+        Err(e) => return failed(UsageProblem::Unavailable(e.to_string())),
+    };
+    match res.status().as_u16() {
+        200..=299 => match res.body_mut().read_json::<Value>() {
             Ok(body) => Limits::Ready {
                 session: claude_window(
                     &body["five_hour"]["utilization"],
@@ -219,12 +244,27 @@ fn claude_limits(config_dir: &Path) -> Limits {
             },
             Err(_) => failed(UsageProblem::ResponseFormat),
         },
-        Err(ureq::Error::StatusCode(401)) => failed(UsageProblem::TokenExpired("Claude".into())),
-        Err(e) => failed(UsageProblem::Unavailable(e.to_string())),
+        401 => failed(UsageProblem::TokenExpired("Claude".into())),
+        429 => {
+            let header = res
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok());
+            failed(UsageProblem::RateLimited {
+                retry_at: jiff::Timestamp::now().as_second() + retry_after_secs(header),
+            })
+        }
+        status => failed(UsageProblem::Unavailable(format!("http status: {status}"))),
     }
 }
 
-/// `used`는 사용한 %, `resets_at`은 ISO 8601 시각이다.
+fn retry_after_secs(header: Option<&str>) -> i64 {
+    header
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|secs| *secs >= 0)
+        .unwrap_or(DEFAULT_RETRY_AFTER_SECS)
+}
+
 fn claude_window(used: &Value, resets_at: &Value) -> Option<Window> {
     Some(Window {
         used: percent(used.as_f64()?),
@@ -235,7 +275,6 @@ fn claude_window(used: &Value, resets_at: &Value) -> Option<Window> {
     })
 }
 
-/// `limits` 가운데 모델 하나에 걸린 주간 창: `{"kind": "weekly_scoped", "percent": 사용한 %, "resets_at", "scope": {"model": {"display_name"}}}`.
 fn claude_models(limits: &Value) -> Vec<ModelWindow> {
     let Some(items) = limits.as_array() else {
         return Vec::new();
@@ -252,7 +291,6 @@ fn claude_models(limits: &Value) -> Vec<ModelWindow> {
         .collect()
 }
 
-/// `cmd`는 `codex app-server`다.
 fn codex(cmd: Command) -> Usage {
     let replies = match app_server(cmd) {
         Ok(replies) => replies,
@@ -261,21 +299,16 @@ fn codex(cmd: Command) -> Usage {
     let [account, limits] = replies;
     let account = &account["account"];
     if account.is_null() {
-        return Usage {
-            email: None,
-            plan: None,
-            limits: Limits::NeedsLogin,
-        };
+        return Usage::new(None, None, Limits::NeedsLogin);
     }
     let text = |v: &Value| v.as_str().map(str::to_owned);
-    Usage {
-        email: text(&account["email"]),
-        plan: text(&account["planType"]),
-        limits: codex_limits(&limits["rateLimits"]),
-    }
+    Usage::new(
+        text(&account["email"]),
+        text(&account["planType"]),
+        codex_limits(&limits["rateLimits"]),
+    )
 }
 
-/// `primary`·`secondary` 가운데 창 길이로 5시간 창과 주간 창을 고른다.
 fn codex_limits(rate_limits: &Value) -> Limits {
     if rate_limits.is_null() {
         return failed(UsageProblem::LoginNotSupported);
@@ -305,7 +338,6 @@ fn codex_limits(rate_limits: &Value) -> Limits {
     }
 }
 
-/// `account/read`와 `account/rateLimits/read`의 결과를 순서대로 돌려준다.
 fn app_server(mut cmd: Command) -> Result<[Value; 2], UsageProblem> {
     let mut child = cmd
         .stdin(Stdio::piped())
@@ -314,7 +346,6 @@ fn app_server(mut cmd: Command) -> Result<[Value; 2], UsageProblem> {
         .spawn()
         .map_err(|e| app_server_failed(&e))?;
     let result = exchange(&mut child);
-    // 서버는 stdin이 열려 있는 동안 돈다. 답을 받았으면 끝낸다.
     let _ = child.kill();
     let _ = child.wait();
     result
@@ -355,15 +386,12 @@ fn exchange(child: &mut std::process::Child) -> Result<[Value; 2], UsageProblem>
             Some(2) => 1,
             _ => continue,
         };
-        // 오류 응답이면 빈 결과로 둔다. 한도를 읽지 못해도 계정은 보인다.
         replies[slot] = msg.get("result").cloned().unwrap_or(Value::Null);
         pending -= 1;
     }
     Ok(replies)
 }
 
-/// `site`의 Cursor CLI 로그인을 읽는다. loom은 Cursor 계정을 따로 두지 않는다. 토큰은 읽기만 하고 갱신하지 않는다.
-/// 이메일은 `~/.cursor/cli-config.json`의 `authInfo`, 토큰은 `~/.config/cursor/auth.json`이다(cursor-agent 2026.10.22 Linux 실측).
 pub fn probe_cursor(site: &Site) -> Usage {
     if !site.installed(CURSOR_COMMAND) {
         return Usage::failed(UsageProblem::NotInstalled(CURSOR_COMMAND.into()));
@@ -375,30 +403,23 @@ pub fn probe_cursor(site: &Site) -> Usage {
     };
     let email = read(".cursor/cli-config.json")
         .and_then(|v| v["authInfo"]["email"].as_str().map(str::to_owned));
-    let token = read(".config/cursor/auth.json")
-        .and_then(|v| v["accessToken"].as_str().and_then(CursorToken::parse));
+    let token =
+        read(CURSOR_AUTH_FILE).and_then(|v| v["accessToken"].as_str().and_then(CursorToken::parse));
     let limits = match token {
         Some(token) => cursor_limits(&token),
-        // macOS CLI는 토큰을 키체인에 둔다. loom은 키체인을 읽지 않는다(docs/design.md 「계정과 사용량」).
         None if email.is_some() => failed(UsageProblem::LoginNotSupported),
         None => Limits::NeedsLogin,
     };
-    Usage {
-        email,
-        plan: None,
-        limits,
-    }
+    Usage::new(email, None, limits)
 }
 
 struct CursorToken {
     raw: String,
-    /// WorkOS 사용자(`auth0|user_…`). 대시보드 세션 쿠키의 앞 절반이다.
     subject: String,
     expires_at: Option<i64>,
 }
 
 impl CursorToken {
-    /// JWT 본문의 `sub`·`exp`만 읽는다. 서명은 Cursor 서버가 본다.
     fn parse(raw: &str) -> Option<Self> {
         use base64::Engine;
         let body = raw.split('.').nth(1)?;
@@ -413,7 +434,6 @@ impl CursorToken {
         })
     }
 
-    /// 대시보드가 보내는 쿠키: `<subject>::<jwt>`, URL 이스케이프. Orca `cursor-session-token.ts`와 같다.
     fn cookie(&self) -> String {
         let subject = utf8_percent_encode(&self.subject, COOKIE_KEEPS);
         format!("WorkosCursorSessionToken={subject}%3A%3A{}", self.raw)
@@ -432,7 +452,6 @@ fn cursor_limits(token: &CursorToken) -> Limits {
         .timeout_global(Some(PROBE_TIMEOUT))
         .build()
         .into();
-    // 대시보드 라우트는 Origin·Referer가 없으면 유효한 쿠키에도 403을 준다(Orca `cursor-fetcher.ts`).
     let response = agent
         .get(CURSOR_USAGE_URL)
         .header("Cookie", token.cookie())
@@ -450,7 +469,6 @@ fn cursor_limits(token: &CursorToken) -> Limits {
     }
 }
 
-/// `api/usage-summary` 본문을 창으로 바꾼다. 고르는 규칙은 Orca `cursor-usage-mapping.ts`와 같다(M18 v2, Q666 A).
 fn cursor_summary(body: &Value) -> Limits {
     let resets_at = body["billingCycleEnd"]
         .as_str()
@@ -462,7 +480,6 @@ fn cursor_summary(body: &Value) -> Limits {
     };
     let usage = &body["individualUsage"];
     let plan = &usage["plan"];
-    // 팀이 결제하는 계정도 쓰지 않는 0% 묶음을 준다. 꺼진 묶음은 보이지 않는다.
     let plan_on = plan["enabled"] != false;
     let mut models = Vec::new();
     let mut bucket = |name: &str, used: Option<f64>| {
@@ -481,7 +498,6 @@ fn cursor_summary(body: &Value) -> Limits {
     if on_demand["enabled"] == true {
         bucket(CURSOR_ON_DEMAND, pool_percent(on_demand));
     }
-    // 기본 포함량(`used/limit`)은 보너스가 남아도 100%를 보인다. 그래서 `totalPercentUsed`가 먼저다.
     let plan_window = plan_on
         .then(|| {
             plan["totalPercentUsed"]
@@ -498,7 +514,6 @@ fn cursor_summary(body: &Value) -> Limits {
     }
 }
 
-/// 상한이 있으면 `used/limit`, 없으면 서버가 준 비율이다. 둘 다 없으면(상한 없는 추가 사용량) 비율이 없다.
 fn pool_percent(pool: &Value) -> Option<f64> {
     match (pool["used"].as_f64(), pool["limit"].as_f64()) {
         (Some(used), Some(limit)) if limit > 0.0 => Some(used / limit * 100.0),
@@ -520,7 +535,6 @@ fn app_server_failed(e: &std::io::Error) -> UsageProblem {
     run_failed(APP_SERVER, e)
 }
 
-/// 실행 파일이 없으면(`NotFound`) 설치하지 않은 것이다. OS 글("program not found")보다 할 일을 말한다.
 fn run_failed(command: &str, e: &std::io::Error) -> UsageProblem {
     if e.kind() == std::io::ErrorKind::NotFound {
         let program = command.split(' ').next().unwrap_or(command);
@@ -537,7 +551,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Windows에 깔린 2.1.228의 실제 출력(로그인 안 함)이다. `configDirectory`가 없다.
     #[test]
     fn old_claude_status_parses() {
         let status: ClaudeStatus = serde_json::from_str(
@@ -546,6 +559,33 @@ mod tests {
         .unwrap();
         assert!(!status.logged_in);
         assert_eq!(status.config_directory, None);
+    }
+
+    #[test]
+    fn fingerprint_follows_content_not_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("auth.json");
+        assert_eq!(fingerprint(&file), None);
+        std::fs::write(&file, "a").unwrap();
+        let time = std::fs::metadata(&file).unwrap().modified().unwrap();
+        let a = fingerprint(&file);
+        std::fs::write(&file, "b").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+        assert!(a.is_some() && fingerprint(&file) != a);
+    }
+
+    #[test]
+    fn retry_after_reads_seconds_or_falls_back() {
+        assert_eq!(retry_after_secs(Some("300")), 300);
+        assert_eq!(retry_after_secs(Some(" 12 ")), 12);
+        assert_eq!(retry_after_secs(Some("Wed, 21 Oct 2026 07:28:00 GMT")), 300);
+        assert_eq!(retry_after_secs(Some("-5")), 300);
+        assert_eq!(retry_after_secs(None), 300);
     }
 
     #[test]
@@ -594,7 +634,6 @@ mod tests {
         assert!(claude_models(&Value::Null).is_empty());
     }
 
-    /// 2026-10-23 사람 계정(enterprise, 팀 결제)의 실제 응답이다.
     #[test]
     fn cursor_summary_reads_buckets_then_plan() {
         let limits = cursor_summary(&json!({

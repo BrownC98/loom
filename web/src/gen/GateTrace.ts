@@ -17,6 +17,6 @@ from: GateState | null,
  */
 to: GateState | null, role: string | null, agent: AgentId | null, model: string | null, 
 /**
- * `loom merge` 안 audit가 찾은 일. 다른 호출은 빈 목록이다.
+ * 병합 큐의 audit가 찾은 일. 다른 호출은 빈 목록이다.
  */
 findings: Array<Finding>, };

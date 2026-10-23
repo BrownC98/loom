@@ -45,6 +45,7 @@ const en = {
     resetSizes: 'Reset all card sizes',
     directions: { down: 'Down', right: 'Right', up: 'Up', left: 'Left' },
     empty: 'Click “New node” to start the first agent.',
+    chips: 'Worktrees without nodes',
     zoomEdit: 'Zoom (%) — double-click to type',
     minimap: 'Minimap',
     minimapFold: 'Fold minimap',

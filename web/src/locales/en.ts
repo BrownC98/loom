@@ -32,6 +32,7 @@ const en = {
     parent: 'Parent: {{node}} · {{group}}',
     rowMenu: '{{name}} menu',
     asking: 'Asking {{n}}',
+    done: 'Done {{n}}',
   },
   graph: {
     group: 'Group {{branch}}',

@@ -450,6 +450,10 @@ fn strip() {
     }
 }
 
+const SPACE: [char; 2] = [' ', '\t'];
+
+const LINE_ENDS: [char; 4] = ['\n', '\r', '\u{2028}', '\u{2029}'];
+
 fn without(text: &str, found: &[Comment]) -> String {
     let mut out = text.to_owned();
     for c in found.iter().rev().filter(|c| c.verdict == Verdict::Refused) {
@@ -459,9 +463,11 @@ fn without(text: &str, found: &[Comment]) -> String {
         }
         let line_start = out[..c.start].rfind('\n').map_or(0, |i| i + 1);
         let line_end = out[c.end..].find('\n').map_or(out.len(), |i| c.end + i);
+        let line_end = line_end - usize::from(out[..line_end].ends_with('\r') && line_end > c.end);
         let before = &out[line_start..c.start];
         let after = &out[c.end..line_end];
-        match (before.trim().is_empty(), after.trim().is_empty()) {
+        let blank = |s: &str| s.trim_matches(SPACE).is_empty();
+        match (blank(before), blank(after)) {
             (true, true) if line_start > 0 && out[..line_start - 1].ends_with('\\') => {
                 out.replace_range(line_start..line_end, "");
             }
@@ -477,22 +483,25 @@ fn without(text: &str, found: &[Comment]) -> String {
                 out.replace_range(line_start..next, "");
             }
             (false, true) => {
-                let start = line_start + before.trim_end().len();
+                let start = line_start + before.trim_end_matches(SPACE).len();
                 out.replace_range(start..line_end, "");
             }
             (true, false) => {
-                let end = line_end - after.trim_start().len();
+                let end = line_end - after.trim_start_matches(SPACE).len();
                 out.replace_range(c.start..end, "");
             }
             (false, false) => {
-                let end = line_end - after.trim_start().len();
+                let end = line_end - after.trim_start_matches(SPACE).len();
                 let joins = |a: char, b: char| {
                     let word = |c: char| c.is_alphanumeric() || c == '_';
                     let operator = |c: char| "+-*/%<>=&|!^:.?".contains(c);
                     (word(a) && word(b)) || (operator(a) && operator(b))
                 };
-                let gap = match (before.chars().last(), after.trim_start().chars().next()) {
-                    _ if out[c.start..c.end].contains(['\n', '\r', '\u{2028}', '\u{2029}']) => "\n",
+                let gap = match (
+                    before.chars().last(),
+                    after.trim_start_matches(SPACE).chars().next(),
+                ) {
+                    _ if out[c.start..c.end].contains(LINE_ENDS) => "\n",
                     (Some(a), Some(b)) if !a.is_whitespace() && joins(a, b) => " ",
                     _ => "",
                 };
@@ -618,6 +627,27 @@ mod cases {
             verdicts(Lang::Rust, "// see Q712\n// Q712a\n"),
             [Verdict::Refused; 2]
         );
+    }
+
+    #[test]
+    fn strip_keeps_every_line_end_that_asi_reads() {
+        for end in LINE_ENDS {
+            for source in [
+                format!("function f(){{return /* a{end}*/ {{x:1}}}}\n"),
+                format!("function f(){{return /* a */{end}{{x:1}}}}\n"),
+                format!("function f(){{return // a{end}{{x:1}}}}\n"),
+            ] {
+                let found = comments(Lang::Tsx, &source).unwrap();
+                assert_eq!(found.len(), 1, "{source:?}");
+                let stripped = without(&source, &found);
+                let tail = stripped
+                    .split_once("return")
+                    .unwrap()
+                    .1
+                    .trim_start_matches(SPACE);
+                assert!(tail.starts_with(LINE_ENDS), "{source:?} -> {stripped:?}");
+            }
+        }
     }
 
     #[test]

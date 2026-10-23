@@ -238,6 +238,9 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 - Cursor는 사용량만 보인다(목업 [cursor-usage.html](mockups/cursor-usage.html) M18 v2, 2026-10-23 사람 지시 "커서 계정도 사용량 표시에 보여줘", "orca를 참고하라", 승인 Q666 A). 계정은 그 위치의 Cursor CLI(`cursor-agent`) 로그인 하나다. loom은 Cursor 계정을 더하거나 바꾸지 않고 설정 › 계정에도 두지 않는다. 노드도 그 로그인으로 뜬다. 데몬 라우트는 `GET /api/usage/cursor`(위치마다 `CursorView`)이고 화면은 `/api/accounts`와 같은 때 읽는다. Cursor는 계정 기능의 `Provider`가 아니다.
   - 창은 Orca와 같다: 묶음 「Cursor Models」(Auto 등 Cursor 모델), 「Other Models」(이름을 고른 모델), 상한 있는 추가 사용량 「On-demand」, 그 뒤에 「플랜」(포함 사용량 전체). 묶음 이름은 Orca처럼 번역하지 않는다. 상태 줄은 묶음만 보이고 플랜은 팝오버에만 있다. 모든 창이 결제 주기 끝에 다시 차서 팝오버 아래 줄은 「11월 20일에 초기화」다. Cursor 줄에는 계정 목록 꺾쇠가 없다.
   - Orca와 다른 것: 머리 줄에 요금제 이름(「Enterprise」) 대신 이메일을 보인다. 공급자 순서는 고정이다. 둘 다 아래 「넣지 않은 Orca 기능」과 같은 결정이다.
+- 사용량 읽기는 데몬의 캐시 하나를 지난다(`src/daemon/usage_cache.rs`). 화면 수와 새로 고침 수에 상관없이 키(위치, 출처, 계정)마다 공급자를 `MIN_AGE`(1분)보다 자주 부르지 않는다. 같은 키의 동시 요청은 한 번만 읽는다. 앞의 값은 읽은 시각(`Usage.readAt`)과 함께 보낸다. 상태 줄·팝오버·설정의 「N분 전 갱신」은 그 시각을 쓴다.
+  - Claude가 429를 주면 `retry-after`(없으면 300초)가 끝날 때까지 그 키를 부르지 않고 마지막으로 읽은 값을 그대로 준다. 앞 값이 없으면 `UsageProblem::RateLimited { retryAt }`를 주고 화면은 「N분 뒤에 다시 읽습니다」를 보인다. 끝난 뒤 첫 요청이 다시 읽는다. 네트워크 오류·5xx·시간 초과도 `MIN_AGE` 동안 다시 부르지 않고 앞 값을 그대로 준다. 401·미로그인·미설치는 캐시하지 않고 앞 값도 버린다. 캐시는 그 계정 로그인 파일(`.credentials.json`, `auth.json`) 내용의 지문(해시, 데몬 밖으로 내지 않는다)을 함께 들고, 지문이 바뀌면(다른 계정 로그인, 로그아웃, 토큰 갱신) 앞 값과 기다림을 모두 버린다. 한도가 토큰마다 걸리기 때문이다. 자동 전환(`auto_switch`)도 같은 캐시를 쓴다. 전환 쿨다운(10분)은 그대로다.
+  - 이유: 한도는 토큰마다 걸리고 화면마다 데몬을 부르면 호출이 화면 수만큼 곱해진다. Orca·Claude Code도 같은 토큰으로 부른다. 429를 받은 뒤 다시 부르면 막힘만 늘고, 화면이 값을 버리면 정상 값마저 사라진다(2026-10-23 사람 지시 "원인 규명해서 올바르게 해결해").
 - OpenCode 2에는 계정과 사용량이 없다. 공급자가 여럿이고(OpenCode 설정의 `provider`), 공급자마다 나뉜 로그인 폴더가 없고, 남은 한도를 주는 출처가 없다. Orca도 OpenCode는 로컬 `opencode.db`에서 읽은 토큰·비용 통계 창만 보이고 계정을 바꾸지 않는다.
 - 사용량 출처는 Orca와 같다.
 
@@ -806,6 +809,7 @@ Android 앱은 Tailscale 없이 데몬의 폰 문에 직접 닿는다(2026-10-22
 - 사용량 출처(「계정과 사용량」): Claude `api/oauth/usage`가 `five_hour`·`seven_day`를 돌려줬다. Codex `account/rateLimits/read`는 `primary`에 주간 창(10080분)을 주고 `secondary`는 `null`이었다. 그래서 창은 위치가 아니라 길이로 가른다.
 - 2026-10-23 Cursor(`cursor-agent` 2026.10.22, enterprise 팀 계정): `cursor-agent status`가 「Logged in as …」와 팀을 보였다. 토큰은 `~/.config/cursor/auth.json`, 이메일은 `~/.cursor/cli-config.json`에 있었다. `api/usage-summary`가 200으로 `plan.used`=`limit`=2000(남은 0)인데 `totalPercentUsed` 3.49, `autoPercentUsed` 0.10, `apiPercentUsed` 21.31을 줬다(보너스 2368). 그래서 플랜 창은 `used/limit`이 아니라 `totalPercentUsed`다. `onDemand`는 `limit`이 `null`이었다. Windows에는 `cursor-agent`가 없었다.
 - 2026-10-20 Claude `api/oauth/usage`의 `limits`에 `weekly_scoped`(모델 「Fable」) 창이 있었다. `seven_day_opus`·`seven_day_sonnet`은 `null`이었다. 기본 User-Agent(`ureq/…`)로 부르면 429, `claude-code/2.1.0`이면 200이었다.
+- 2026-10-23 Claude `api/oauth/usage` 호출 한도: 같은 토큰으로 2초 안에 1~5번째 호출은 200, 6번째부터 429였다. 429는 `retry-after: 300`과 본문 `{"error":{"type":"rate_limit_error"}}`를 줬다. 한도는 토큰마다 걸렸다. WSL 토큰이 429일 때 같은 계정의 Windows 토큰(다른 자격 파일)은 200이었다. 데몬은 캐시가 없어 `GET /api/accounts`마다, 화면마다(열 때, 5분마다, 새로 고침, 전환 알림) 계정마다 불렀다. 화면은 429를 「http status: 429」로 보이고 앞 값을 버렸다.
 - stdio로 띄운 Codex `app-server`는 stdin이 닫히면 답하기 전에 끝난다. 데몬은 답을 받을 때까지 stdin을 열어 두고, 받은 뒤 프로세스를 끝낸다.
 - Claude 권한(기본 권한 모드, `claude -p`): PreToolUse `updatedInput`만 넣고 `permissionDecision`을 비우면, 허용 규칙을 바꾼 명령으로 판정했다. `Bash(touch /tmp/original-file)`이 있어도 바꾼 `touch /tmp/rewritten-file`은 승인을 요구했다. 앞에 줄을 붙인 `id -u && touch /tmp/original-file`은 사용자 규칙대로 허용됐다.
 - Claude Bash 도구 셸은 자기 세션의 리더다. 셸 안 명령은 다른 프로세스 그룹으로 떴다. 그래서 그룹 하나가 아니라 셸의 프로세스 나무를 끝낸다.

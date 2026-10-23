@@ -181,7 +181,6 @@ export function App() {
   const repo = chosenRepo(repos, settings.repo);
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
   const [cursor, setCursor] = useState<CursorView[] | null>(null);
-  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
   // 폰 폭 배치(목업 docs/mockups/mobile.html). 데몬 이벤트 연결이 끊기면 폰이 끊김 줄을 보인다.
@@ -309,7 +308,6 @@ export function App() {
       const [read, cursorRead] = await Promise.all([getAccounts(), getCursorUsage().catch(() => [])]);
       setAccounts(read);
       setCursor(cursorRead);
-      setFetchedAt(Date.now());
     } finally {
       setLoading(false);
     }
@@ -355,7 +353,7 @@ export function App() {
     const a = own.find((x) => x.id === s.to);
     return a ? accountName(a) : t('usage.systemDefault');
   };
-  const usage: Usage = { accounts, cursor, fetchedAt, loading, refresh: refreshUsage };
+  const usage: Usage = { accounts, cursor, loading, refresh: refreshUsage };
   /** 심플 보기에서는 노드를 고를 때 오른쪽 사이드바를 펴고 그 터미널 탭을 연다. 카드에는 터미널이 없다. */
   const chooseBox = (key: string | null) => {
     setChosenBox(key);

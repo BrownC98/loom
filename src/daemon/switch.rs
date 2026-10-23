@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::relaunch::{Relaunched, provider_of};
+use super::usage_cache::{Key, UsageCache};
 use super::{App, Problem, internal};
 use crate::accounts::{AccountId, Site};
 use crate::graph::{Active, Entry, NodeId, SwitchCause};
@@ -214,7 +215,11 @@ impl App {
                 .map(Some),
         );
         ids.retain(|id| *id != current);
-        let probes = join_all(ids.iter().map(|id| probe(&site, provider, id.clone()))).await;
+        let probes = join_all(
+            ids.iter()
+                .map(|id| probe(&self.usage, &site, provider, id.clone())),
+        )
+        .await;
         let candidates: Vec<_> = ids.into_iter().zip(probes).collect();
         self.switch
             .last_auto
@@ -258,11 +263,21 @@ impl App {
     }
 }
 
-async fn probe(site: &Arc<Site>, provider: Provider, id: Option<AccountId>) -> Limits {
+async fn probe(
+    cache: &UsageCache,
+    site: &Arc<Site>,
+    provider: Provider,
+    id: Option<AccountId>,
+) -> Limits {
+    let key = Key::provider(site, provider, id.as_ref());
     let site = site.clone();
-    tokio::task::spawn_blocking(move || usage::probe(provider, &site, id.as_ref()).limits)
+    let fingerprint = usage::credentials_fingerprint(provider, &site, id.as_ref());
+    cache
+        .get(key, fingerprint, move || {
+            usage::probe(provider, &site, id.as_ref())
+        })
         .await
-        .unwrap_or(Limits::NeedsLogin)
+        .limits
 }
 
 /// 가장 많이 나온 계정. 같은 수면 먼저 나온 계정이다. 비었거나 시스템 기본이 가장 많으면 없다.

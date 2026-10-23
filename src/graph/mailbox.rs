@@ -380,7 +380,7 @@ impl Graph {
 
     /// 노드를 `done`으로 바꾸고 요약을 부모에게 보낸다. 이미 `done`이어도 새 요약으로 다시 보낸다.
     /// 근거: 다시 깨기 전에 부른 둘째 `loom done`을 거절하자 결과가 부모에게 가지 않았다(2026-10-22 기록에서 거절 23번). 부모가 없으면 받은편지함에 완료를 건다(`waits::put_done`).
-    /// 부모 없는 노드는 `asked`(그 일을 맡긴 사람의 지시)가 있어야 한다. `images`는 사람이 그 지시에 준 그림 파일이다.
+    /// 부모 없는 노드는 `asked`(그 일을 맡긴 사람의 지시)가 있어야 한다. `images`는 사람이 그 지시에 준 그림 파일이다. `doc`(`--doc`)은 완료 줄의 문서 링크다.
     /// 돌려준 값은 프로세스가 아직 사는 자식 이름이다. 회수하지 않은 자식이 고아로 남지 않게 부르는 쪽이 알린다.
     pub fn done(
         &self,
@@ -388,6 +388,7 @@ impl Graph {
         summary: &str,
         asked: Option<&str>,
         images: &[PathBuf],
+        doc: Option<waits::Attached>,
     ) -> Result<Vec<String>, Refusal> {
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
@@ -397,6 +398,9 @@ impl Graph {
         let asked = asked.map(str::trim).filter(|a| !a.is_empty());
         if parent.is_none() && asked.is_none() {
             return Err(Refusal::NoAsked);
+        }
+        if parent.is_some() && doc.is_some() {
+            return Err(Refusal::DocHasParent);
         }
         let tx = db.transaction()?;
         set_state(
@@ -408,7 +412,9 @@ impl Graph {
         )?;
         match asked {
             // 받은편지함이 사람에게 알린다. 다음 부모에게 줄 보관 메시지로 또 두면 「보관 1」만 남았다(2026-10-22 사람 질문 "위에 뜬 보관 1은 뭔가").
-            Some(asked) if parent.is_none() => waits::put_done(&tx, node, asked, summary, images)?,
+            Some(asked) if parent.is_none() => {
+                waits::put_done(&tx, node, asked, summary, images, doc)?
+            }
             _ => {
                 enqueue(&tx, node, parent, Kind::Queue, &format!("done: {summary}"))?;
             }

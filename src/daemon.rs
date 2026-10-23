@@ -418,7 +418,7 @@ pub struct RelaunchRequest {
 #[derive(Serialize, Deserialize)]
 pub struct AskRequest {
     pub question: String,
-    /// `--doc`: 질문에 붙일 user-doc 문서의 절대 경로.
+    /// `--doc`: 질문에 붙일 문서(user-doc HTML, `.md` 같은 글 파일)의 절대 경로.
     #[serde(default)]
     pub doc: Option<PathBuf>,
 }
@@ -470,6 +470,9 @@ pub struct DoneRequest {
     /// `--image`: 사람이 그 지시에 준 그림 파일의 절대 경로.
     #[serde(default)]
     pub images: Vec<PathBuf>,
+    /// `--doc`: 완료 줄에 붙일 문서의 절대 경로. `loom ask --doc`과 같다.
+    #[serde(default)]
+    pub doc: Option<PathBuf>,
 }
 
 /// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
@@ -938,13 +941,9 @@ impl App {
         let discard = prepared.discarder();
         let id = self
             .graph
-            .add_root(
-                place,
-                start.agent(),
-                start.brief(),
-                &prepared.launched(),
-                |id| self.launch(id, prepared),
-            )
+            .add_root(place, start.agent(), &prepared.launched(), |id| {
+                self.launch(id, prepared)
+            })
             .inspect_err(|_| discard())?;
         Ok(id)
     }
@@ -960,17 +959,11 @@ impl App {
         let prepared = self.prepare(&start, cwd, Position::Root).await?;
         let discard = prepared.discarder();
         self.graph
-            .add_root(
-                place,
-                start.agent(),
-                start.brief(),
-                &prepared.launched(),
-                |id| {
-                    // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
-                    self.setups.lock().unwrap().insert(id);
-                    self.launch(id, prepared)
-                },
-            )
+            .add_root(place, start.agent(), &prepared.launched(), |id| {
+                // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
+                self.setups.lock().unwrap().insert(id);
+                self.launch(id, prepared)
+            })
             .inspect_err(|_| discard())?;
         Ok(())
     }
@@ -995,8 +988,7 @@ impl App {
             inside: _,
         } = prepared;
         let on_exit = self.on_exit(id, &codex, &opencode2);
-        self.host
-            .spawn(id, cmd, setup, self.on_title(id, profile), on_exit)?;
+        self.host.spawn(id, cmd, setup, on_exit)?;
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
         Ok(())
@@ -1035,11 +1027,7 @@ impl App {
             };
             let profile = node.agent.as_ref().and_then(profile::profile_of);
             let on_exit = self.on_exit(node.id, &codex, &opencode2);
-            if self
-                .host
-                .resume(node.id, self.on_title(node.id, profile), on_exit)
-                .is_err()
-            {
+            if self.host.resume(node.id, on_exit).is_err() {
                 if let Some(server) = &node.server {
                     stop_server(server);
                 }
@@ -1052,17 +1040,6 @@ impl App {
         self.host.end_others();
         self.logins.end_others();
         Ok(())
-    }
-
-    /// 셸·명령 노드의 제목(`user@host: dir`)은 주제가 아니다. 프로필이 제목 형식을 아는 노드만 쓴다.
-    fn on_title(&self, id: NodeId, profile: Option<Profile>) -> impl FnMut(String) + use<> {
-        let graph = self.graph.clone();
-        move |title: String| {
-            if let Some(profile) = profile {
-                // DB가 실패하면 알릴 곳이 없다. 화면은 앞 주제로 남는다.
-                let _ = graph.set_title(id, profile.topic(&title));
-            }
-        }
     }
 
     /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다. 설정 스크립트가 실패했으면 그 출력의 끝을 함께 넘긴다.
@@ -1801,14 +1778,23 @@ async fn answer_wait(
     Ok(Json(()))
 }
 
-/// 사람이 질문 줄의 문서 링크를 눌렀다. 데몬이 그 기계의 기본 앱(브라우저)으로 연다. 화면이 브라우저든 데스크톱 앱이든 같다.
-/// 열린 질문에 붙은 문서만 연다. 파일을 매번 새로 열므로 새 판이 보인다.
+/// 사람이 질문·완료 줄의 문서 링크를 눌렀다. 데몬이 그 기계의 기본 브라우저로 연다. 화면이 브라우저든 데스크톱 앱이든 같다.
+/// 열린 대기에 붙은 문서만 연다. 파일을 매번 새로 열므로 새 판이 보인다.
+/// 글 문서(`.md`)는 파일이 아니라 이 데몬이 내는 주소(`wait_doc`)를 연다. 파일의 기본 앱은 편집기이거나 없다.
 async fn open_wait_doc(
     State(app): State<Arc<App>>,
     Path(wait): Path<u32>,
 ) -> Result<Json<()>, Problem> {
     let path = app.graph.wait_doc(WaitId(wait))?;
-    open::open(&path).map_err(internal)?;
+    if user_doc::doc_kind(&path) == Some(user_doc::DocKind::Html) {
+        open::open(&path).map_err(internal)?;
+    } else {
+        open::open_url(&format!(
+            "http://127.0.0.1:{}/api/waits/{wait}/doc/",
+            app.port
+        ))
+        .map_err(internal)?;
+    }
     Ok(Json(()))
 }
 
@@ -1849,15 +1835,25 @@ async fn done_image_file(
     serve_file(&path, request).await
 }
 
+/// 글 문서(`user_doc::DocKind::Text`)의 형식. `.md`의 `text/markdown`은 폰 Chrome이 내려받고, 문자 집합 없는 `text/plain`은 한글이 깨진다.
+const TEXT_TYPE: &str = "text/plain; charset=utf-8";
+
 async fn serve_file(
     path: &std::path::Path,
     request: axum::extract::Request,
 ) -> Result<Response, Problem> {
-    let response = tower_http::services::ServeFile::new(path)
+    let mut response = tower_http::services::ServeFile::new(path)
         .try_call(request)
         .await
-        .map_err(internal)?;
-    Ok(response.into_response())
+        .map_err(internal)?
+        .into_response();
+    if response.status().is_success() && user_doc::doc_kind(path) == Some(user_doc::DocKind::Text) {
+        response.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static(TEXT_TYPE),
+        );
+    }
+    Ok(response)
 }
 
 async fn agent_spawn(
@@ -2163,9 +2159,16 @@ async fn agent_done(
     for image in &req.images {
         done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
+    let attached = attach(req.doc.as_deref())?;
     let alive_children = app
         .graph
-        .done(node, &req.summary, req.asked.as_deref(), &req.images)
+        .done(
+            node,
+            &req.summary,
+            req.asked.as_deref(),
+            &req.images,
+            attached,
+        )
         .map_err(for_agent)?;
     Ok(Json(alive_children))
 }
@@ -2192,6 +2195,13 @@ fn done_image(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// `--doc`(`loom ask`, `loom done`)의 문서를 점검하고 ID를 붙인다.
+fn attach(doc: Option<&std::path::Path>) -> Result<Option<crate::graph::Attached>, AgentError> {
+    doc.map(user_doc::attach)
+        .transpose()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
 /// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드는 부모에게 묻는다.
 async fn agent_ask(
     State(app): State<Arc<App>>,
@@ -2199,12 +2209,7 @@ async fn agent_ask(
     Json(req): Json<AskRequest>,
 ) -> Result<Json<Asked>, AgentError> {
     let node = app.caller(&headers)?;
-    let attached = req
-        .doc
-        .as_deref()
-        .map(user_doc::attach)
-        .transpose()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let attached = attach(req.doc.as_deref())?;
     let doc = attached.as_ref().map(|a| a.doc.clone());
     let id = app
         .graph

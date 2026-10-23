@@ -174,7 +174,7 @@ const STEPS: &[M] = &[
             WHERE wait IS NOT NULL;
         INSERT INTO sqlite_sequence (name, seq) VALUES ('wait_ids', (SELECT ifnull(max(id), 0) FROM nodes));",
     ),
-    // 24: 노드마다 여러 `loom ask` 질문(graph `waits`, 목업 M28). `wait`은 serde JSON `Asked`이고 `id`는 그 질문 번호다(`wait_ids`에서 받는다).
+    // 24: 노드마다 여러 `loom ask` 질문(graph `waits`, 목업 M28). `wait`은 serde JSON `Posted`이고 `id`는 그 질문 번호다(`wait_ids`에서 받는다).
     // 열린 `loom ask` 대기는 `nodes.wait`에서 이 표로 옮긴다. `nodes.wait`에는 훅·Codex·화면 신호의 대기만 남는다.
     M::up(
         "CREATE TABLE questions (
@@ -227,6 +227,8 @@ const STEPS: &[M] = &[
         INSERT INTO dones (id, node, wait) SELECT done ->> 'id', id, done FROM nodes WHERE done IS NOT NULL;
         ALTER TABLE nodes DROP COLUMN done;",
     ),
+    // 30: 카드 주제를 지웠다(2026-10-23 사람 지시 "요약 기능 제거"). 11단계의 첫 지시 첫 줄은 주제에만 썼다.
+    M::up("ALTER TABLE nodes DROP COLUMN brief;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

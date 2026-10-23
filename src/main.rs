@@ -140,11 +140,14 @@ enum Cli {
         /// 사람이 그 지시에 준 그림 파일. 여러 번 준다. 받은편지함 완료 줄에 작은 그림으로 보인다.
         #[arg(long = "image")]
         images: Vec<PathBuf>,
+        /// 사람이 열 문서(user-doc HTML, `.md` 같은 글 파일). 받은편지함 완료 줄에 링크로 보인다. 부모 없는 노드만 쓴다.
+        #[arg(long)]
+        doc: Option<PathBuf>,
     },
     /// 사람에게 질문 한 줄을 묻는다. 받은편지함에 번호(`Q12`)와 함께 뜨고, 사람은 이 노드 터미널이나 받은편지함에서 답한다. 사람이 띄운 노드만 쓴다.
     Ask {
         question: String,
-        /// 질문에 붙일 user-doc 문서(목업·보고서 HTML). 사람은 질문 줄의 링크로 연다.
+        /// 질문에 붙일 문서(user-doc 목업·보고서 HTML, `.md` 같은 글 파일). 사람은 질문 줄의 링크로 연다.
         #[arg(long)]
         doc: Option<PathBuf>,
     },
@@ -223,11 +226,13 @@ fn main() -> ExitCode {
             file,
             asked,
             images,
+            doc,
         } => cli::done(
             summary,
             file.map(wsl::from_caller),
             asked,
             images.into_iter().map(wsl::from_caller).collect(),
+            doc.map(wsl::from_caller),
         ),
         Cli::Ask { question, doc } => cli::ask(question, doc.map(wsl::from_caller)),
         Cli::Answered { ids } => cli::answered(ids),

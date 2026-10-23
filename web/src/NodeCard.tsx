@@ -7,15 +7,16 @@ import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
 import i18next from './i18n';
 import { NameEdit, useRename, type Rename } from './NameEdit';
+import { asking, NoticeChips } from './notice';
 import { navDirection, type Direction } from './Terminal';
-
-/** 사람의 답을 기다리는 대기. 완료 알림(`done`)은 답할 일이 없어 「응답 대기」가 아니다(목업 docs/mockups/done-notice.html M37). */
-export const asking = (view: NodeView) => view.waits.filter((w) => w.kind !== 'done');
 
 /** 점·상태 칸의 클래스. 사람 응답 대기는 실행 상태보다 앞선다(목업 docs/mockups/human-question.html ④). */
 export function stateClass(view: NodeView): string {
   return asking(view).length > 0 ? 'waiting' : view.state.kind;
 }
+
+/** 점의 글: 사람 응답 대기는 실행 상태보다 앞선다. 점의 클래스(`stateClass`)와 짝이다. */
+export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : stateLabel(view.state));
 
 export function stateLabel(state: NodeState): string {
   const t = i18next.t;
@@ -96,17 +97,16 @@ function Badges(props: { view: NodeView }) {
           {t('node.held', { n: view.held })}
         </span>
       )}
-      <span className={`state ${stateClass(view)}`} aria-live="polite" translate="no">
-        {asking(view).length > 0 ? t('wait.label') : stateLabel(view.state)}
-        {/* 질문이 2개 이상일 때만 수를 붙인다(목업 M28). */}
-        {asking(view).length > 1 && <span className="count">{asking(view).length}</span>}
+      <NoticeChips view={view} />
+      <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
+        {stateLabel(view.state)}
       </span>
     </>
   );
 }
 
 /**
- * 노드 정보 전체: 로고·이름·상태와 수·버튼(`actions`), 지금 하는 일, 모델 · 추론 강도. 상태는 이름 줄 오른쪽이다(2026-10-21 사람 지시). 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
+ * 노드 정보 전체: 로고·이름·상태와 수·버튼(`actions`), 모델 · 추론 강도. 상태는 이름 줄 오른쪽이다(2026-10-21 사람 지시). 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
  * 목업 docs/mockups/card-view.html 1번.
  */
 export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode; rename: Rename }) {
@@ -120,11 +120,6 @@ export function NodeSummary(props: { view: NodeView; agentLabel: string; actions
         <Badges view={view} />
         {props.actions}
       </div>
-      {view.topic && (
-        <p className="topic" title={view.topic}>
-          {view.topic}
-        </p>
-      )}
       {(view.model || view.effort) && (
         <div className="summary-model">
           <ModelText view={view} />

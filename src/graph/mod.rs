@@ -8,7 +8,6 @@ mod mailbox;
 mod nodes;
 mod waits;
 
-use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
@@ -93,9 +92,6 @@ pub struct NodeView {
     /// CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
     pub effort: Option<String>,
     pub place: Place,
-    /// 노드가 지금 하는 일 한 줄. 근거: docs/design.md 「그래프와 화면」.
-    /// `done` 요약, CLI 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄이다. 모두 없으면 없다.
-    pub topic: Option<String>,
     /// 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
     pub bookmark: Option<u32>,
     /// 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
@@ -214,6 +210,8 @@ pub enum Refusal {
     NoAsked,
     /// `loom ask`를 부모가 있는 노드가 불렀다. 사람에게는 사람이 띄운 노드만 묻는다.
     HasParent,
+    /// 부모가 있는 노드가 `loom done --doc`을 불렀다. 문서 링크는 사람의 받은편지함에만 있다. 부모는 경로를 읽는다.
+    DocHasParent,
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
     NoWait(WaitId),
     /// 화면에서 보낸 답이 비었다.
@@ -308,6 +306,10 @@ impl fmt::Display for Refusal {
                 f,
                 "You have a parent. Ask your parent with `loom send <parent> \"QUESTION: ...\"`. Only nodes that the human started ask the human."
             ),
+            Refusal::DocHasParent => write!(
+                f,
+                "You have a parent, and it reads paths. Send the file with `loom done --file <path>` or put its path in the summary. Only nodes that the human started attach --doc."
+            ),
             Refusal::NoWait(wait) => write!(f, "{wait}: this question is not open."),
             Refusal::EmptyAnswer => write!(f, "Write an answer."),
             Refusal::SeveralOpen(open) => {
@@ -338,9 +340,6 @@ pub struct Graph {
     events: broadcast::Sender<GraphEvent>,
     /// 메시지를 넣을 때마다 `wait` 모두를 깨운다. 깬 쪽이 자기 메시지인지 DB에서 본다.
     mail: Notify,
-    /// 실행 중인 노드 CLI의 터미널 제목에서 꺼낸 주제. PTY와 함께 사라지므로 DB에 두지 않는다.
-    /// `db`를 잠근 채 잠근다. 반대 순서로 잠그지 않는다.
-    titles: Mutex<HashMap<NodeId, String>>,
 }
 
 // 「안 읽음」은 사람이 눌러 앞당길 수 있는 메시지, 곧 아직 넘기지 않은 큐 메시지만 센다.
@@ -350,7 +349,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
         AND m.kind = '\"queue\"'),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    n.brief, n.bookmark, n.wait,
+    n.bookmark, n.wait,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id)
     FROM nodes n";
@@ -398,7 +397,6 @@ impl Graph {
             published: Mutex::new(published),
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
-            titles: Mutex::default(),
         })
     }
 
@@ -426,12 +424,10 @@ impl Graph {
     /// 지금 목록과 그 뒤의 이벤트를 빈틈없이 받는다.
     pub fn subscribe(&self) -> rusqlite::Result<(Vec<NodeView>, broadcast::Receiver<GraphEvent>)> {
         let db = self.lock();
-        let titles = self.titles.lock().unwrap();
         let views = db
             .prepare(&format!("{VIEW_COLUMNS} ORDER BY n.id"))?
-            .query_map([], |row| view_from_row(row, &titles))?
+            .query_map([], view_from_row)?
             .collect::<rusqlite::Result<_>>()?;
-        drop(titles);
         Ok((views, self.events.subscribe()))
     }
 
@@ -473,11 +469,11 @@ impl Graph {
 
     /// 잠금을 쥔 채 부른다. 그래야 이벤트 순서가 DB 변경 순서와 같다.
     fn publish_node(&self, db: &Connection, id: NodeId) -> rusqlite::Result<()> {
-        let titles = self.titles.lock().unwrap();
-        let view = db.query_row(&format!("{VIEW_COLUMNS} WHERE n.id = ?1"), [id.0], |row| {
-            view_from_row(row, &titles)
-        })?;
-        drop(titles);
+        let view = db.query_row(
+            &format!("{VIEW_COLUMNS} WHERE n.id = ?1"),
+            [id.0],
+            view_from_row,
+        )?;
         // 보는 화면이 없으면 send가 실패한다. 화면은 붙을 때 목록 전체를 받으므로 버려도 된다.
         let _ = self.events.send(GraphEvent::Node(view));
         Ok(())
@@ -504,15 +500,14 @@ impl Graph {
     }
 }
 
-fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Result<NodeView> {
+fn view_from_row(row: &Row) -> rusqlite::Result<NodeView> {
     let id = NodeId(row.get(0)?);
     let state = from_json(row, 4)?;
-    let brief: Option<String> = row.get(11)?;
-    let wait: Option<String> = row.get(13)?;
-    let done: String = row.get(14)?;
-    let asked: String = row.get(15)?;
+    let wait: Option<String> = row.get(12)?;
+    let done: String = row.get(13)?;
+    let asked: String = row.get(14)?;
     // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
-    let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Asked>>(&asked)
+    let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Posted>>(&asked)
         .unwrap_or_default()
         .into_iter()
         .map(|q| q.wait)
@@ -526,7 +521,6 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
     done.sort_by_key(|w| w.id.0);
     waits.extend(done);
     Ok(NodeView {
-        topic: topic(&state, titles.get(&id), brief.as_deref()),
         id,
         name: row.get(1)?,
         agent: from_json(row, 2)?,
@@ -540,27 +534,9 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
             repo: RepoId(row.get(9)?),
             worktree: row.get(10)?,
         },
-        bookmark: row.get(12)?,
+        bookmark: row.get(11)?,
         waits,
     })
-}
-
-/// 카드 주제: `done` 요약, 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄.
-fn topic(state: &NodeState, title: Option<&String>, brief: Option<&str>) -> Option<String> {
-    let summary = match state {
-        NodeState::Done { summary } => Some(summary.as_str()),
-        _ => None,
-    };
-    [summary, title.map(String::as_str), brief]
-        .into_iter()
-        .flatten()
-        .find_map(first_line)
-        .map(str::to_owned)
-}
-
-/// 비지 않은 첫 줄(앞뒤 공백을 뺀다).
-fn first_line(text: &str) -> Option<&str> {
-    text.lines().map(str::trim).find(|line| !line.is_empty())
 }
 
 fn to_json(value: &impl Serialize) -> String {

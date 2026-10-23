@@ -2,7 +2,7 @@
 //! 데몬 주소와 자기 토큰은 데몬이 노드를 띄울 때 넣은 `LOOM_URL`(`spawn`은 `LOOM_SPAWN_URL`), `LOOM_TOKEN`에서 읽는다.
 
 use std::io::{IsTerminal, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
@@ -374,11 +374,9 @@ pub fn guard() -> Result<(), String> {
 }
 
 /// 사람에게 묻는다: 받은편지함에 질문 한 줄을 띄우고 바로 끝난다. 답은 사람이 노드 터미널에 쓴다.
-/// `doc`(`--doc`)은 user-doc 문서 하나를 질문에 붙인다. 사람은 질문 줄의 링크로 연다. 데몬이 다른 폴더에서 읽으므로 절대 경로로 보낸다.
+/// `doc`(`--doc`)은 문서 하나를 질문에 붙인다. 사람은 질문 줄의 링크로 연다.
 pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
-    let doc = doc
-        .map(|path| std::fs::canonicalize(&path).map_err(|e| format!("{}: {e}", path.display())))
-        .transpose()?;
+    let doc = doc.as_deref().map(absolute).transpose()?;
     let asked: Asked = call(
         "ask",
         &AskRequest {
@@ -425,29 +423,41 @@ pub fn answered(ids: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
+/// `doc`(`--doc`)은 사람의 받은편지함 완료 줄에 문서 링크를 붙인다. 사람이 띄운 노드만 쓴다.
 pub fn done(
     summary: Option<String>,
     file: Option<PathBuf>,
     asked: Option<String>,
     images: Vec<PathBuf>,
+    doc: Option<PathBuf>,
 ) -> Result<(), String> {
     let summary = match file {
-        // 부모가 다른 폴더에서 읽어도 찾도록 절대 경로로 보낸다. 파일이 없으면 여기서 실패한다.
-        Some(path) => crate::wsl::for_caller(
-            &std::fs::canonicalize(&path).map_err(|e| format!("{}: {e}", path.display()))?,
-        ),
+        Some(path) => {
+            let path = absolute(&path)?;
+            // 사람은 완료 줄의 글 속 경로를 열지 못한다(2026-10-23 사람 "링크로 제공이 안됨"). 경로를 링크로 바꾸지 않고 거절한다: 사람이 읽을 요약이 없기 때문이다.
+            let relations: Relations = call("status", &(), None)?;
+            if relations.parent.is_none() {
+                return Err(format!(
+                    "You have no parent, so the human reads this report in the inbox and cannot open a path in its text. Write a summary and attach the file as a link: `loom done \"<what you did>\" --doc {} --asked \"<the human's instruction>\"`.",
+                    path.display()
+                ));
+            }
+            crate::wsl::for_caller(&path)
+        }
         None => summary.unwrap_or_default(),
     };
     let images = images
         .iter()
-        .map(|path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display())))
+        .map(|path| absolute(path))
         .collect::<Result<Vec<_>, _>>()?;
+    let doc = doc.as_deref().map(absolute).transpose()?;
     let alive_children: Vec<String> = call(
         "done",
         &DoneRequest {
             summary,
             asked,
             images,
+            doc,
         },
         None,
     )?;
@@ -459,6 +469,11 @@ pub fn done(
         );
     }
     Ok(())
+}
+
+/// 데몬이 다른 폴더에서 읽으므로 절대 경로로 보낸다. 파일이 없으면 여기서 실패한다.
+fn absolute(path: &Path) -> Result<PathBuf, String> {
+    std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 pub fn adopt(name: String) -> Result<(), String> {

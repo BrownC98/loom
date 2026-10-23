@@ -1,11 +1,11 @@
 import { Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FieldReset } from './FieldReset';
 import type { AgentView } from './gen/AgentView';
 import type { Role } from './gen/Role';
 import type { SettingsView } from './gen/SettingsView';
-import { blankToNull, canChooseModel, cursorEffortWithoutModel, nameTaken, runnerText } from './roles';
+import { blankToNull, canChooseModel, cursorEffortWithoutModel, nameTaken, rolesChanged, runnerText } from './roles';
 
 /** 편집 중인 줄: 역할 목록의 자리, 더하기면 `'new'`. */
 type Editing = number | 'new' | null;
@@ -17,9 +17,13 @@ export function RoleSettings({ agents, settings, onSettings }: { agents: AgentVi
   const { t } = useTranslation();
   const [editing, setEditing] = useState<Editing>(null);
   const roles = settings.roles;
-  const rolesKey = JSON.stringify(roles);
   // 편집은 목록의 자리를 가리킨다. 초기화·다른 화면의 변경으로 내용이 바뀌면 그 자리는 다른 역할이다. 내용이 같은 새 배열은 닫지 않는다.
-  useEffect(() => setEditing(null), [rolesKey]);
+  const seen = useRef(roles);
+  useEffect(() => {
+    if (!rolesChanged(seen.current, roles)) return;
+    seen.current = roles;
+    setEditing(null);
+  }, [roles]);
   const save = (next: Role[]) => {
     onSettings({ ...settings, roles: next });
     setEditing(null);

@@ -1,14 +1,14 @@
 //! 노드를 더하고 지우고, 이름과 부모를 바꾸고(입양), 프로세스가 끝난 노드를 고친다.
 //! 근거: docs/design.md 「노드 제거와 입양」.
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 use super::events::{self, ClosedBy, Entry};
 use super::{
     Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
-    ambiguous, first_line, from_json, mailbox, name_of, parent_of, place_label, place_of,
-    set_state, state_of, to_json, waits,
+    ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of, set_state, state_of,
+    to_json, waits,
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
@@ -51,13 +51,11 @@ pub struct Active {
 
 impl Graph {
     /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
-    /// `brief`는 사람이 쓴 첫 지시다. CLI에 인자로 넘기므로 메일함에는 넣지 않고 카드 주제에만 쓴다.
     /// `start`는 노드 프로세스를 띄운다. 실패하면 노드를 남기지 않는다(`started`).
     pub fn add_root(
         &self,
         place: &Place,
         agent: Option<AgentId>,
-        brief: &str,
         launched: &Launched,
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
@@ -65,7 +63,7 @@ impl Graph {
             let mut db = self.lock();
             let tx = db.transaction()?;
             let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
-            let id = insert(&tx, &name, &agent, None, place, brief)?;
+            let id = insert(&tx, &name, &agent, None, place)?;
             keep(&tx, id, launched)?;
             tx.commit()?;
             id
@@ -115,7 +113,7 @@ impl Graph {
             worktree: worktree.map_or(place.worktree, str::to_owned),
             ..place
         };
-        let id = insert(&tx, name, &agent, Some(parent), &place, brief)?;
+        let id = insert(&tx, name, &agent, Some(parent), &place)?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
             mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
@@ -181,7 +179,6 @@ impl Graph {
         )?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
-        self.titles.lock().unwrap().remove(&id);
         let _ = self.events.send(GraphEvent::Removed { id });
         Ok(())
     }
@@ -218,7 +215,6 @@ impl Graph {
 
     fn end_process(&self, id: NodeId, ended: NodeState, notice: String) -> rusqlite::Result<()> {
         let mut db = self.lock();
-        self.titles.lock().unwrap().remove(&id);
         let Some(state) = state_of(&db, id).optional()? else {
             return Ok(());
         };
@@ -250,31 +246,47 @@ impl Graph {
     /// 작업 완료와 무관하게 살아 있는 프로세스에 다시 붙는다.
     pub fn active(&self) -> rusqlite::Result<Vec<Active>> {
         self.lock()
-            .prepare(
-                "SELECT id, name, agent, server, account, transcript, model, effort, token
-                 FROM nodes WHERE process_exited = 0 ORDER BY id",
-            )?
-            .query_map([], |row| {
-                Ok(Active {
-                    id: NodeId(row.get(0)?),
-                    name: row.get(1)?,
-                    agent: from_json(row, 2)?,
-                    server: optional_json(row, 3)?,
-                    account: optional_json(row, 4)?,
-                    transcript: row.get(5)?,
-                    model: Model {
-                        model: row.get(6)?,
-                        effort: row.get(7)?,
-                    },
-                    token: row.get(8)?,
-                })
-            })?
+            .prepare(&format!(
+                "{LAUNCH_COLUMNS} WHERE process_exited = 0 ORDER BY id"
+            ))?
+            .query_map([], launch_row)?
             .collect()
     }
 
-    /// 계정 전환이 노드 프로세스를 새 계정으로 다시 띄웠다. 새 토큰·서버·계정을 남긴다. 노드 상태와 메일함은 그대로다.
+    /// 프로세스가 끝난 노드. 다시 띄우기가 남긴 세션으로 되살린다.
+    pub fn ended(&self, id: NodeId) -> rusqlite::Result<Option<Active>> {
+        self.lock()
+            .query_row(
+                &format!("{LAUNCH_COLUMNS} WHERE id = ?1 AND process_exited = 1"),
+                [id.0],
+                launch_row,
+            )
+            .optional()
+    }
+
+    /// 노드 프로세스를 다시 띄웠다(계정 전환, 다시 띄우기). 새 토큰·서버·계정을 남긴다. 메일함은 그대로다.
+    /// 끝난 노드를 되살렸으면 다시 산 프로세스로 적고, 끝난 상태는 `running`으로 돌린다. 완료 상태는 그대로다.
     pub fn relaunched(&self, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
-        keep(&self.lock(), id, launched)
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        keep(&tx, id, launched)?;
+        let revived = tx.execute(
+            "UPDATE nodes SET process_exited = 0 WHERE id = ?1 AND process_exited = 1",
+            [id.0],
+        )? > 0;
+        if revived
+            && matches!(
+                state_of(&tx, id)?,
+                NodeState::Exited { .. } | NodeState::SetupFailed { .. }
+            )
+        {
+            set_state(&tx, id, &NodeState::Running)?;
+        }
+        tx.commit()?;
+        if revived {
+            self.publish_node(&db, id)?;
+        }
+        Ok(())
     }
 
     /// Claude 노드 세션의 기록 파일. 훅마다 알린다. 이 기능 전에 뜬 노드도 다음 훅에서 남는다.
@@ -398,23 +410,6 @@ impl Graph {
             self.publish_node(&db, id)?;
         }
         Ok(())
-    }
-
-    /// 노드 CLI의 터미널 제목에서 꺼낸 주제를 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
-    /// 노드마다 PTY 출력을 읽는 스레드 하나만 부른다. 그래서 비교와 바꾸기 사이에 다른 값이 끼지 않는다.
-    pub fn set_title(&self, id: NodeId, title: Option<String>) -> rusqlite::Result<()> {
-        if self.titles.lock().unwrap().get(&id) == title.as_ref() {
-            return Ok(());
-        }
-        // 화면에 보내는 순서가 DB 변경 순서와 같도록 DB를 먼저 잠근다.
-        let db = self.lock();
-        let mut titles = self.titles.lock().unwrap();
-        match title {
-            Some(title) => titles.insert(id, title),
-            None => titles.remove(&id),
-        };
-        drop(titles);
-        self.publish_node(&db, id)
     }
 }
 
@@ -581,7 +576,6 @@ struct Removal {
 
 impl Removal {
     fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
-        graph.titles.lock().unwrap().remove(&self.id);
         let _ = graph.events.send(GraphEvent::Removed { id: self.id });
         for child in self.children {
             graph.publish_node(db, child)?;
@@ -769,6 +763,25 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
     }
 }
 
+const LAUNCH_COLUMNS: &str =
+    "SELECT id, name, agent, server, account, transcript, model, effort, token FROM nodes";
+
+fn launch_row(row: &Row) -> rusqlite::Result<Active> {
+    Ok(Active {
+        id: NodeId(row.get(0)?),
+        name: row.get(1)?,
+        agent: from_json(row, 2)?,
+        server: optional_json(row, 3)?,
+        account: optional_json(row, 4)?,
+        transcript: row.get(5)?,
+        model: Model {
+            model: row.get(6)?,
+            effort: row.get(7)?,
+        },
+        token: row.get(8)?,
+    })
+}
+
 fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
     db.execute(
         "UPDATE nodes SET token = ?2, server = ?3, account = ?4 WHERE id = ?1",
@@ -788,12 +801,11 @@ fn insert(
     agent: &Option<AgentId>,
     parent: Option<NodeId>,
     place: &Place,
-    brief: &str,
 ) -> Result<NodeId, Refusal> {
     // 저장소 줄이 있을 때만 넣는다. 저장소 빼기(`Repos::remove`)도 검사와 삭제가 한 문장이라 둘 사이에 노드가 남지 않는다.
     let inserted = db.execute(
-        "INSERT INTO nodes (name, agent, parent, state, repo, worktree, brief)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM repos WHERE id = ?5)",
+        "INSERT INTO nodes (name, agent, parent, state, repo, worktree)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM repos WHERE id = ?5)",
         params![
             name,
             to_json(agent),
@@ -801,7 +813,6 @@ fn insert(
             to_json(&NodeState::Running),
             place.repo.0,
             place.worktree,
-            first_line(brief),
         ],
     )?;
     if inserted == 0 {

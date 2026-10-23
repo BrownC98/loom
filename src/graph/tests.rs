@@ -2132,6 +2132,15 @@ fn a_waking_node_stays_reachable_until_its_launch_fails() {
     assert!(g.reachable(worker).unwrap());
     g.lost(worker).unwrap();
     assert!(!g.reachable(worker).unwrap());
+    // 표시를 지운 뒤 실패한 깨우기도 부모에게 알린다.
+    g.sleep_lost(worker).unwrap();
+    assert_eq!(view(&g, worker).state, NodeState::Exited { code: None });
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(bodies(got.iter()), ["finished", ""]);
+    assert!(matches!(
+        got[1].what,
+        Some(MessageKind::Exited { code: None, .. })
+    ));
 }
 
 /// 데몬이 재운 노드는 `done`으로 남고 메시지를 받는다. 깨우는 메시지만 깨운다. 깨우지 못하면 `exited`가 되어 받지 않는다.

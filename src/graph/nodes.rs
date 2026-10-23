@@ -370,10 +370,20 @@ impl Graph {
     }
 
     /// 잠든 노드를 깨우지 못했다. `exited`로 바꾸고 부모에게 알린다. 그 뒤로는 메시지를 받지 않아(`REACHABLE`) 깨우기를 되풀이하지 않는다.
+    /// 잠든 표시가 아니라 「완료이고 프로세스가 없다」를 본다. 새 토큰을 남긴 뒤(`relaunched`가 표시를 지운다) 띄우기가 실패하면(`lost`)
+    /// 표시 없이 그 상태로 남아, 표시를 보면 부모가 알림을 받지 못했다(관문 검토 노드수명 3차 P2).
     pub fn sleep_lost(&self, id: NodeId) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        if !asleep(&tx, id)? {
+        let ended_done = tx
+            .query_row(
+                "SELECT state ->> 'kind' = 'done' AND process_exited = 1 FROM nodes WHERE id = ?1",
+                [id.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(false);
+        if !ended_done {
             return Ok(());
         }
         let parent = parent_of(&tx, id)?;

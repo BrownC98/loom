@@ -291,7 +291,8 @@ impl App {
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
-        let notice = match self.graph.asleep(id).map_err(internal)? {
+        let asleep = self.graph.asleep(id).map_err(internal)?;
+        let notice = match asleep {
             true => WOKEN_NOTICE,
             false => REVIVED_NOTICE,
         };
@@ -328,6 +329,12 @@ impl App {
         .map_err(|e| e.to_string())
         .and_then(|r| r);
         self.relaunches.pending.lock().unwrap().remove(&id);
+        if asleep
+            && result.is_err()
+            && let Err(e) = self.graph.sleep_lost(id)
+        {
+            eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", id.0);
+        }
         self.record_relaunch(who, switched, &result);
         result.map(|()| Relaunched::Now).map_err(internal)
     }

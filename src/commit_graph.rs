@@ -117,21 +117,7 @@ mod tests {
         limit: i32::MAX as u32,
     };
 
-    fn run(dir: &Path, args: &[&str]) -> String {
-        let out = std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8(out.stdout).unwrap().trim().to_owned()
-    }
+    use crate::git::test_run as run;
 
     #[test]
     fn commit_line_splits_parents_and_refs() {

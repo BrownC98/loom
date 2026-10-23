@@ -203,22 +203,46 @@ function socketUrl(path: string): string {
  * `onLink`는 연결이 열리고 끊길 때 부른다. 폰 화면이 끊김 줄을 보인다(목업 docs/mockups/mobile.html ⑥).
  */
 export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: boolean) => void = () => {}): () => void {
-  let socket: WebSocket;
+  const link = reconnecting('/api/events', {
+    onOpen: () => onLink(true),
+    onMessage: (e) => onEvent(JSON.parse(e.data) as GraphEvent),
+    onDrop: () => onLink(false),
+  });
+  return link.close;
+}
+
+/**
+ * 끊기면 `RECONNECT_MS` 뒤 다시 여는 WebSocket. `close` 뒤에는 다시 열지 않는다.
+ * 다시 열기를 기다리는 동안 `close`해도 새 소켓이 열리지 않게 `open`이 `stopped`를 본다.
+ */
+function reconnecting(
+  path: string,
+  handlers: { onOpen: () => void; onMessage: (e: MessageEvent) => void; onDrop?: () => void },
+): { send: (data: string | Uint8Array<ArrayBuffer>) => void; close: () => void } {
+  let socket: WebSocket | undefined;
   let stopped = false;
   const open = () => {
-    socket = new WebSocket(socketUrl('/api/events'));
-    socket.onopen = () => onLink(true);
-    socket.onmessage = (e) => onEvent(JSON.parse(e.data) as GraphEvent);
+    if (stopped) return;
+    socket = new WebSocket(socketUrl(path));
+    // 글 프레임은 이 값과 관계없이 문자열이다. 바이너리 프레임(PTY 출력)만 바뀐다.
+    socket.binaryType = 'arraybuffer';
+    socket.onopen = handlers.onOpen;
+    socket.onmessage = handlers.onMessage;
     socket.onclose = () => {
       if (stopped) return;
-      onLink(false);
+      handlers.onDrop?.();
       setTimeout(open, RECONNECT_MS);
     };
   };
   open();
-  return () => {
-    stopped = true;
-    socket.close();
+  return {
+    send: (data) => {
+      if (socket?.readyState === WebSocket.OPEN) socket.send(data);
+    },
+    close: () => {
+      stopped = true;
+      socket?.close();
+    },
   };
 }
 
@@ -244,30 +268,16 @@ export function attachPty(
   handlers: { onAttach: () => void; onOutput: (bytes: Uint8Array) => void; onNotice: (notice: PtyNotice) => void },
 ): PtyLink {
   const encoder = new TextEncoder();
-  let socket: WebSocket;
-  let stopped = false;
-  const open = () => {
-    socket = new WebSocket(socketUrl(path));
-    socket.binaryType = 'arraybuffer';
-    socket.onopen = handlers.onAttach;
+  const link = reconnecting(path, {
+    onOpen: handlers.onAttach,
     // 출력은 바이너리 프레임, 데몬의 알림(`PtyNotice`)은 글 프레임이다.
-    socket.onmessage = (e) =>
-      typeof e.data === 'string' ? handlers.onNotice(JSON.parse(e.data) as PtyNotice) : handlers.onOutput(new Uint8Array(e.data as ArrayBuffer));
-    socket.onclose = () => {
-      if (!stopped) setTimeout(open, RECONNECT_MS);
-    };
-  };
-  open();
-  const send = (data: string | Uint8Array<ArrayBuffer>) => {
-    if (socket.readyState === WebSocket.OPEN) socket.send(data);
-  };
+    onMessage: (e) =>
+      typeof e.data === 'string' ? handlers.onNotice(JSON.parse(e.data) as PtyNotice) : handlers.onOutput(new Uint8Array(e.data as ArrayBuffer)),
+  });
   return {
-    sendInput: (data) => send(typeof data === 'string' ? encoder.encode(data) : new Uint8Array(data)),
-    sendRequest: (request) => send(JSON.stringify(request)),
-    close: () => {
-      stopped = true;
-      socket.close();
-    },
+    sendInput: (data) => link.send(typeof data === 'string' ? encoder.encode(data) : new Uint8Array(data)),
+    sendRequest: (request) => link.send(JSON.stringify(request)),
+    close: link.close,
   };
 }
 /** 노드를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 턴이 끝난 뒤 띄운다(docs/design.md 「다시 띄우기」). */

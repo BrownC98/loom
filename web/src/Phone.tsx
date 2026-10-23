@@ -1,6 +1,6 @@
 // 폰 폭 화면(목업 docs/mockups/mobile.html M35, 2026-10-22 사람 승인 Q279·Q280). 배치만 맡는다.
 // 질문 목록·트리·사용량 줄은 App이 데스크톱과 같은 부품으로 만들어 넘긴다. 상태 원천은 데스크톱과 같은 데몬 이벤트다.
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CircleCheck, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, relaunchNode, relaunchQueued, removeNode } from './api';
@@ -265,9 +265,9 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
       {!props.online && <Offline />}
       {first && (
         // 띠 아래 판은 터미널 위에 덮여 내려온다(터미널 칸 크기는 그대로). 2026-10-23 사람 결정 Q475 B 「B로 하고 거기에 펴기/닫기 옵션선택, 텍스트 입력 까지 구현, 펼치기는 바텀시트가 아니라 위에서부터 펼쳐 내려오는 형식으로, 알림이 여래개일때 스크롤 가능하게」
-        <div className="phone-ask-wrap">
+        <div className="phone-ask-wrap" data-kind={first.kind}>
           <div className="phone-ask" onClick={() => setAskOpen((open) => !open)}>
-            <QuestionIcon aria-hidden="true" />
+            {first.kind === 'done' ? <CircleCheck aria-hidden="true" /> : <QuestionIcon aria-hidden="true" />}
             <b>{head.id === view.id ? t(`wait.${first.kind}`) : head.name}</b>
             {total > 1 && <span className="count">{total}</span>}
             <span className="qid">Q{first.id}</span>

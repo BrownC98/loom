@@ -349,6 +349,24 @@ impl Graph {
         }
     }
 
+    /// 쉬는 노드의 `next`. 깨우는 메시지(`MessageKind::wakes`)가 올 때까지 기다리고, 그때 기다리던 알림도 함께 꺼낸다.
+    pub async fn next_waking(
+        &self,
+        node: NodeId,
+        kinds: &[Kind],
+        limit_bytes: usize,
+    ) -> Result<Vec<Delivery>, Refusal> {
+        loop {
+            let mut notified = pin!(self.mail_changed());
+            notified.as_mut().enable();
+            let taken = self.take_waking(node, kinds, limit_bytes)?;
+            if !taken.is_empty() {
+                return Ok(taken);
+            }
+            let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
+        }
+    }
+
     /// `kinds` 가운데 하나인 메시지를 온 순서로 꺼내 전달 중으로 표시한다.
     /// 전달 중인 메시지는 `REDELIVER_AFTER`가 지나야 다시 꺼낸다. 받은 쪽이 `ack`로 확인하면 다시 꺼내지 않는다.
     /// 첫 메시지는 늘 꺼낸다. 그 뒤 메시지는 본문 합이 `limit_bytes` 이하일 때만 꺼낸다.
@@ -357,6 +375,32 @@ impl Graph {
         node: NodeId,
         kinds: &[Kind],
         limit_bytes: usize,
+    ) -> Result<Vec<Delivery>, Refusal> {
+        self.take_if(node, kinds, limit_bytes, |_| true)
+    }
+
+    /// 쉬는 노드의 `take`. 꺼낼 메시지가 알림뿐이면 아무것도 꺼내지 않는다(`MessageKind::wakes`).
+    /// 종류가 없는 옛 메시지는 깨운다.
+    pub fn take_waking(
+        &self,
+        node: NodeId,
+        kinds: &[Kind],
+        limit_bytes: usize,
+    ) -> Result<Vec<Delivery>, Refusal> {
+        self.take_if(node, kinds, limit_bytes, |queued| {
+            queued
+                .iter()
+                .any(|d| d.what.as_ref().is_none_or(MessageKind::wakes))
+        })
+    }
+
+    /// `wanted`가 꺼낼 수 있는 메시지 목록을 보고 꺼낼지 정한다.
+    fn take_if(
+        &self,
+        node: NodeId,
+        kinds: &[Kind],
+        limit_bytes: usize,
+        wanted: impl FnOnce(&[Delivery]) -> bool,
     ) -> Result<Vec<Delivery>, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -374,6 +418,9 @@ impl Graph {
                 read_delivery,
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        if !wanted(&queued) {
+            return Ok(Vec::new());
+        }
         let mut taken = Vec::new();
         let mut total = 0;
         for delivery in queued {

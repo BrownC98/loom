@@ -79,14 +79,25 @@ pub fn digests() -> BTreeMap<String, String> {
     }
     hashers
         .into_iter()
-        .map(|(skill, hasher)| {
-            let hex: String = hasher
-                .finalize()
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
-            (skill, hex)
-        })
+        .map(|(skill, hasher)| (skill, hex(hasher)))
+        .collect()
+}
+
+/// 글 조각들의 내용 해시(SHA-256 hex). `digests`와 같은 꼴이라 같은 기록에 넣는다.
+pub fn digest(parts: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update(part.as_bytes());
+        hasher.update([0]);
+    }
+    hex(hasher)
+}
+
+fn hex(hasher: Sha256) -> String {
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
         .collect()
 }
 

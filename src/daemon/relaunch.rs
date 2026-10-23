@@ -151,26 +151,35 @@ pub(super) async fn agent_relaunch(
     Json(req): Json<RelaunchRequest>,
 ) -> Result<Json<Relaunched>, AgentError> {
     let caller = app.caller(&headers)?;
+    let via = super::gate::via(&headers, "/api/agent/relaunch");
+    let to = req.name.clone().unwrap_or_else(|| format!("#{}", caller.0));
+    let relaunched = relaunch(&app, caller, req).await;
+    super::traced(&app, caller, super::Attempt::verb(&to), &via, relaunched)
+}
+
+async fn relaunch(
+    app: &Arc<App>,
+    caller: NodeId,
+    req: RelaunchRequest,
+) -> Result<Relaunched, Problem> {
     let node = match &req.name {
         None => caller,
         Some(name) => {
-            let (id, _) = app.graph.related(caller, name).map_err(for_agent)?;
-            let parent = app.graph.relations(id).map_err(for_agent)?.parent;
+            let (id, _) = app.graph.related(caller, name)?;
+            let parent = app.graph.relations(id)?.parent;
             if parent.map(|p| p.id) != Some(caller) {
-                return Err(for_agent(Refusal::NotChild(name.clone())));
+                return Err(Refusal::NotChild(name.clone()).into());
             }
             id
         }
     };
     let plan = req.to.map_or(Plan::Resume, Plan::Switch);
-    app.relaunch_by_id(node, plan)
-        .await
-        .map(Json)
-        .map_err(for_agent)
+    app.relaunch_by_id(node, plan).await
 }
 
 impl App {
     /// 서버 전달 작업(Codex, OpenCode 2)이 메일함에서 꺼낸다. 다시 띄울 노드에는 넘기지 않는다(`Relaunches::holds_mail`).
+    /// 쉬는 노드는 꺼내면 새 턴을 받으므로 알림만으로는 꺼내지 않는다(`Graph::take_waking`). 일하는 노드의 `kinds`(조정·중단)에는 알림이 없다.
     pub(super) fn take_mail(
         &self,
         node: NodeId,
@@ -180,7 +189,7 @@ impl App {
         if self.relaunches.holds_mail(node) {
             return Ok(Vec::new());
         }
-        self.graph.take(node, kinds, limit_bytes)
+        self.graph.take_waking(node, kinds, limit_bytes)
     }
 
     /// 턴 중인 노드. Claude·Cursor는 턴 훅 뒤 턴 끝 훅이 오기 전이면, Codex는 스레드가 일하는 중이면,

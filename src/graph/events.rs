@@ -89,10 +89,10 @@ pub enum Entry {
         #[ts(optional)]
         gate: Option<GateTrace>,
     },
-    /// 보내기를 거절했다. `to`는 보낸 쪽이 적은 이름이다. 관문 호출이면 브랜치다.
+    /// 에이전트 동사를 거절했다. 동사는 `via`의 명령 이름이다. `to`는 부른 쪽이 적은 대상(노드 이름, 메시지 번호)이다. 관문 호출이면 브랜치다.
     Refused {
         how: Kind,
-        /// 보내려던 종류(`note`·`answer`·`done`). 관문 호출과 옛 기록에는 없다.
+        /// 보내려던 종류(`note`·`answer`·`done`·`ask`). 메시지가 아닌 동사(`spawn`·`rm` 등), 관문 호출과 옛 기록에는 없다.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         what: Option<MessageKind>,
@@ -183,6 +183,22 @@ pub enum Entry {
         node: Who,
         wait: WaitId,
     },
+    /// 턴 끝 검사가 노드를 한 번 다시 일하게 했다. 발동 수를 재려고 남긴다(R14 5절, 2026-10-23 Q687 A).
+    Nudged {
+        node: Who,
+        check: TurnCheck,
+    },
+}
+
+/// 다시 일하게 한 턴 끝 검사(`daemon::turn_end`).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum TurnCheck {
+    /// 사람이 띄운 노드가 사람 턴에 글을 쓰고 `loom ask`도 `loom done`도 없이 끝냈다.
+    Unreported,
+    /// 종류 낱말로 시작하는 줄을 쓰고 loom 동사를 부르지 않았다.
+    KindLine,
 }
 
 /// 요청이 들어온 입구. CLI는 명령 이름(`loom note`)과 판을 헤더로 보낸다. 헤더가 없는 요청(화면, 훅 밖 API)은 경로다.

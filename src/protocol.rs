@@ -509,6 +509,29 @@ impl MessageKind {
         }
     }
 
+    /// 쉬는 노드를 깨우는 종류. 알림(끝남·지움·데려감)은 메일함에서 기다렸다가 다음 메시지나 다음 사람 턴과 함께 간다.
+    /// 근거: 맥락이 큰 오래 사는 노드를 깨우는 횟수가 가장 큰 비용이다(R14 R2, 2026-10-23 Q687 A).
+    pub fn wakes(&self) -> bool {
+        match self {
+            MessageKind::Exited { .. }
+            | MessageKind::Removed { .. }
+            | MessageKind::Adopted { .. } => false,
+            MessageKind::Ask
+            | MessageKind::Answer { .. }
+            | MessageKind::Done { .. }
+            | MessageKind::Note
+            | MessageKind::Ready { .. }
+            | MessageKind::Verdict { .. }
+            | MessageKind::Merging { .. }
+            | MessageKind::Merged { .. }
+            | MessageKind::Rework { .. }
+            | MessageKind::Failed { .. }
+            | MessageKind::SetupFailed { .. }
+            | MessageKind::HumanInput { .. }
+            | MessageKind::RulesChanged { .. } => true,
+        }
+    }
+
     /// 파일만 준 완료(`loom done --file`)는 본문이 그 경로다. 같은 경로를 두 번 보이지 않는다.
     pub fn repeats_file(&self, body: &str) -> bool {
         matches!(self, MessageKind::Done { file: Some(file), .. } if file == body)

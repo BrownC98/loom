@@ -676,6 +676,18 @@ With a parent, write no progress in the terminal. Results go in loom done or loo
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
 Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input, rules-changed) are notices. The same ID can come again; do not repeat completed actions for that ID.");
 
+/// 띄울 때 넘기는 사용법(공통 명령과 프로필마다의 대기 방식)의 해시. 데몬이 내장 스킬 해시와 함께 비교해 `rules-changed`를 보낸다.
+/// 근거: 사용법은 띄울 때 한 번만 넘어가서, 사용법이 바뀌어도 뜬 노드는 옛 글을 쥔다(R14 5절, 2026-10-23 Q687 A).
+pub fn usage_digest() -> String {
+    crate::skills::digest(&[
+        COMMUNICATION_USAGE,
+        claude::WAITING,
+        codex::WAITING,
+        cursor::WAITING,
+        opencode2::WAITING,
+    ])
+}
+
 /// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
     match agent.profile {
@@ -711,11 +723,6 @@ pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
         first.id
     ))
 }
-
-/// 부모 없는 노드의 사람 입력마다 붙이는 완료 보고 안내. 훅은 늘 지금 loom이 실행하므로 오래된 세션도 이 규칙을 받는다.
-/// 근거: 사용법은 띄울 때 한 번만 넘어가서, 규칙이 생기기 전에 뜬 루트와 잊은 루트가 완료 알림을 올리지 않았다(2026-10-22 사람 지시 "ktasearch 총괄이 완료한 작업을 알림으로 안올림, 원인 파악후 근본문제 해결해").
-/// 쓸 수 있는 결과마다 부르게 한다. 지시 전체가 끝날 때만 부르던 루트가 자식 메시지 턴에 병합하고도 알리지 않았다(2026-10-22 ktasearch-총괄 결함 보고 #1308).
-pub const DONE_NOTE: &str = "Each time you finish a result of the work that this input asks for and the human can use it (for example, a merge or a deploy), call loom done \"<what you did>\" --asked \"<this input, short>\". Do this also when other parts of the work continue, and also in a turn that a child message or a notice started. Add --image <path> for each image that the human gave. The human sees results only through loom done. Do not call it when the input is only a question and you only answer in text.";
 
 pub fn message_text(taken: &[Delivery]) -> String {
     taken

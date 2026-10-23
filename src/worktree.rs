@@ -605,21 +605,7 @@ pub fn loom_home() -> std::io::Result<PathBuf> {
 mod tests {
     use super::*;
 
-    fn run(dir: &Path, args: &[&str]) -> String {
-        let out = std::process::Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8(out.stdout).unwrap().trim().to_owned()
-    }
+    use crate::git::test_run as run;
 
     /// 커밋 하나가 있는 `main` 저장소. 경로는 git이 적는 글자(심볼릭 링크를 푼 경로)다.
     fn repo(dir: &Path) -> PathBuf {

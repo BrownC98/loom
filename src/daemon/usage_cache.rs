@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use crate::accounts::{AccountId, Site};
 use crate::profile::Provider;
@@ -49,9 +49,9 @@ impl Key {
 
 #[derive(Default)]
 struct Slot {
-    /// 이 값들을 읽을 때의 로그인 파일 수정 시각. 로그인·로그아웃·토큰 갱신은 이 값을 바꾼다.
+    /// 이 값들을 읽을 때의 로그인 파일 지문. 로그인·로그아웃·토큰 갱신은 이 값을 바꾼다.
     /// 한도는 토큰마다 걸리므로 토큰이 바뀌면 앞 값과 기다림이 모두 틀린다.
-    stamp: Option<SystemTime>,
+    fingerprint: Option<u64>,
     /// 마지막으로 읽은 사용 가능한 값과 읽은 때.
     good: Option<(Usage, Instant)>,
     /// 일시 실패(네트워크, 5xx, 시간 초과)를 받은 때. `min_age` 동안 다시 부르지 않는다.
@@ -101,19 +101,19 @@ impl UsageCache {
         }
     }
 
-    /// 계정 `key`의 사용량. `stamp`는 그 계정 로그인 파일의 수정 시각이다(`usage::credentials_stamp`).
+    /// 계정 `key`의 사용량. `fingerprint`는 그 계정 로그인 파일 내용의 지문이다(`usage::credentials_fingerprint`).
     /// `probe`는 캐시가 새 값이 필요할 때만 막는 스레드에서 돈다.
     pub async fn get(
         &self,
         key: Key,
-        stamp: Option<SystemTime>,
+        fingerprint: Option<u64>,
         probe: impl FnOnce() -> Usage + Send + 'static,
     ) -> Usage {
         let slot = self.slots.lock().unwrap().entry(key).or_default().clone();
         let mut slot = slot.lock().await;
-        if slot.stamp != stamp {
+        if slot.fingerprint != fingerprint {
             *slot = Slot {
-                stamp,
+                fingerprint,
                 ..Slot::default()
             };
         }
@@ -311,11 +311,11 @@ mod tests {
         assert_eq!(used(&shown), None);
     }
 
-    /// 로그인 파일이 바뀌면(다른 계정 로그인, 로그아웃, 토큰 갱신) 앞 값과 기다림을 버린다.
+    /// 로그인 파일 내용이 바뀌면(다른 계정 로그인, 로그아웃, 토큰 갱신) 앞 값과 기다림을 버린다.
     #[tokio::test]
     async fn changed_credentials_drop_last_good_and_backoff() {
         let cache = UsageCache::new(Duration::ZERO);
-        let (a, b) = (Some(SystemTime::UNIX_EPOCH), Some(SystemTime::now()));
+        let (a, b) = (Some(1), Some(2));
         cache.get(key(), a, || ready(42)).await;
         let shown = cache.get(key(), b, || limited(300)).await;
         assert_eq!(used(&shown), None);

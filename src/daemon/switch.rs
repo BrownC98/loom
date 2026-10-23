@@ -271,9 +271,9 @@ async fn probe(
 ) -> Limits {
     let key = Key::provider(site, provider, id.as_ref());
     let site = site.clone();
-    let stamp = usage::credentials_stamp(provider, &site, id.as_ref());
+    let fingerprint = usage::credentials_fingerprint(provider, &site, id.as_ref());
     cache
-        .get(key, stamp, move || {
+        .get(key, fingerprint, move || {
             usage::probe(provider, &site, id.as_ref())
         })
         .await

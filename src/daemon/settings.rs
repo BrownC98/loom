@@ -248,8 +248,8 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
     let probes = rows.iter().map(|(site, provider, id)| {
         let (site, provider, id) = (site.clone(), *provider, id.clone());
         let key = Key::provider(&site, provider, id.as_ref());
-        let stamp = usage::credentials_stamp(provider, &site, id.as_ref());
-        app.usage.get(key, stamp, move || {
+        let fingerprint = usage::credentials_fingerprint(provider, &site, id.as_ref());
+        app.usage.get(key, fingerprint, move || {
             usage::probe(provider, &site, id.as_ref())
         })
     });
@@ -275,10 +275,10 @@ async fn cursor_usage(State(app): State<Arc<App>>) -> Json<Vec<CursorView>> {
         async move {
             let distro = site.distro().map(str::to_owned);
             let key = Key::cursor(&site);
-            let stamp = usage::cursor_credentials_stamp(&site);
+            let fingerprint = usage::cursor_credentials_fingerprint(&site);
             let usage = app
                 .usage
-                .get(key, stamp, move || usage::probe_cursor(&site))
+                .get(key, fingerprint, move || usage::probe_cursor(&site))
                 .await;
             CursorView { distro, usage }
         }

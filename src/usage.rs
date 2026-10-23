@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
@@ -159,27 +159,33 @@ pub fn probe(provider: Provider, site: &Site, id: Option<&AccountId>) -> Usage {
     }
 }
 
-/// 그 계정 로그인 파일의 수정 시각. 로그인·로그아웃·토큰 갱신이 이 값을 바꾼다. 파일이 없으면 `None`이다.
-/// 값만 읽는다. 토큰은 읽지 않는다. 캐시가 이 값으로 앞 값을 버릴지 정한다(`daemon/usage_cache.rs`).
-pub fn credentials_stamp(
+/// 그 계정 로그인 파일 내용의 지문. 로그인·로그아웃·토큰 갱신이 이 값을 바꾼다. 파일이 없으면 `None`이다.
+/// 지문은 데몬 안에서 캐시가 앞 값을 버릴지 정할 때만 쓴다. 응답·로그·화면에 내지 않는다.
+/// 수정 시각은 쓰지 않는다. 복원이나 거친 시각 해상도에서 다른 로그인이 같은 값을 가질 수 있다.
+/// 폴더는 `claude`가 쓰는 폴더와 같다: 데몬이 시작할 때 `CLAUDE_CONFIG_DIR` 등을 지우므로(`forget_launcher_env`) 시스템 기본은 `login_dir`뿐이다.
+pub fn credentials_fingerprint(
     provider: Provider,
     site: &Site,
     id: Option<&AccountId>,
-) -> Option<SystemTime> {
+) -> Option<u64> {
     let file = match provider {
         Provider::Claude => ".credentials.json",
         Provider::Codex => "auth.json",
     };
-    modified(&site.login_dir(provider, id)?.join(file))
+    fingerprint(&site.login_dir(provider, id)?.join(file))
 }
 
-/// Cursor CLI 로그인 파일의 수정 시각(`credentials_stamp`와 같다).
-pub fn cursor_credentials_stamp(site: &Site) -> Option<SystemTime> {
-    modified(&site.home_file(CURSOR_AUTH_FILE)?)
+/// Cursor CLI 로그인 파일의 지문(`credentials_fingerprint`와 같다).
+pub fn cursor_credentials_fingerprint(site: &Site) -> Option<u64> {
+    fingerprint(&site.home_file(CURSOR_AUTH_FILE)?)
 }
 
-fn modified(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path).ok()?.modified().ok()
+fn fingerprint(path: &Path) -> Option<u64> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let bytes = std::fs::read(path).ok()?;
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    Some(hasher.finish())
 }
 
 #[derive(Deserialize)]
@@ -599,6 +605,25 @@ mod tests {
         .unwrap();
         assert!(!status.logged_in);
         assert_eq!(status.config_directory, None);
+    }
+
+    /// 다른 로그인은 수정 시각이 같아도 다른 지문이다.
+    #[test]
+    fn fingerprint_follows_content_not_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("auth.json");
+        assert_eq!(fingerprint(&file), None);
+        std::fs::write(&file, "a").unwrap();
+        let time = std::fs::metadata(&file).unwrap().modified().unwrap();
+        let a = fingerprint(&file);
+        std::fs::write(&file, "b").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+        assert!(a.is_some() && fingerprint(&file) != a);
     }
 
     #[test]

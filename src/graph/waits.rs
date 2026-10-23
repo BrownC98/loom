@@ -324,6 +324,9 @@ impl Graph {
             Err(e) => return Err(e),
         };
         let tx = db.transaction()?;
+        if matches!(what, MessageKind::Answer { .. }) {
+            tx.execute("INSERT OR IGNORE INTO answers (id) VALUES (?1)", [wait.0])?;
+        }
         mailbox::enqueue_human(&tx, node, &what, &body)?;
         tx.execute("DELETE FROM questions WHERE id = ?1", [wait.0])?;
         tx.execute("DELETE FROM dones WHERE id = ?1", [wait.0])?;
@@ -374,6 +377,14 @@ impl Graph {
 
     /// 열린 `loom ask` 질문들, 물은 차례대로. 사람 입력 훅이 에이전트에 알리고, `loom ask`가 번호를 찍는다.
     /// 근거: 2026-10-21 사람 지시 "질문이 걸려있는 상태에서는 답변이 왔는지 확인하는 훅을 거는게 어때".
+    pub fn answered_in_inbox(&self, wait: WaitId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS (SELECT 1 FROM answers WHERE id = ?1)",
+            [wait.0],
+            |row| row.get(0),
+        )
+    }
+
     pub fn open_questions(&self, id: NodeId) -> Result<Vec<OpenQuestion>, Refusal> {
         Ok(questions(&self.lock(), id)?
             .into_iter()

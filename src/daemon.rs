@@ -473,6 +473,16 @@ pub struct AnsweredRequest {
     pub ids: Vec<WaitId>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct QuestionRequest {
+    id: WaitId,
+}
+
+#[derive(Serialize, Deserialize)]
+struct QuestionState {
+    answered: bool,
+}
+
 /// 사람이 화면에서 `loom ask` 질문에 쓴 답. `images`는 답에 붙인 그림의 데몬 기계 경로다(`POST /api/pastes`가 준 값, 목업 M30).
 #[derive(Deserialize, TS)]
 #[ts(export)]
@@ -616,6 +626,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/model", post(agent_model))
         .route("/api/agent/roles", post(agent_roles))
+        .route("/api/agent/question", post(agent_question))
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/ask", post(agent_ask))
         .route("/api/agent/hook-wait", post(agent_hook_wait))
@@ -2174,6 +2185,19 @@ async fn agent_roles(
     app.caller(&headers)?;
     let settings = app.settings.get().map_err(|e| for_agent(internal(e)))?;
     Ok(Json(settings.roles))
+}
+
+async fn agent_question(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<QuestionRequest>,
+) -> Result<Json<QuestionState>, AgentError> {
+    app.caller(&headers)?;
+    let answered = app
+        .graph
+        .answered_in_inbox(req.id)
+        .map_err(|e| for_agent(internal(e)))?;
+    Ok(Json(QuestionState { answered }))
 }
 
 async fn agent_take(

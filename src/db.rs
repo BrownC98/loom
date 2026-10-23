@@ -273,6 +273,14 @@ const STEPS: &[M] = &[
         "UPDATE events SET entry = json_set(entry, '$.reason.code', 'kindWord') WHERE entry ->> '$.reason.code' = 'gateWord';
         UPDATE events SET entry = json_set(entry, '$.reason.code', 'git', '$.reason.value', 'Old rule: a node with a parent cannot loom ask the human.') WHERE entry ->> '$.reason.code' = 'hasParent';",
     ),
+    M::up(
+        "CREATE TABLE answers (id INTEGER PRIMARY KEY);
+        INSERT OR IGNORE INTO answers (id)
+            SELECT entry ->> 'wait' FROM events WHERE entry ->> 'kind' = 'answered';
+        INSERT OR IGNORE INTO answers (id)
+            SELECT what ->> '$.question.id' FROM messages
+            WHERE what ->> 'kind' = 'answer' AND what ->> '$.question.in' = 'inbox';",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -571,6 +579,35 @@ mod tests {
             .query_row("SELECT count(*) FROM skill_digests", [], |row| row.get(0))
             .unwrap();
         assert_eq!(digests, 0);
+    }
+
+    #[test]
+    fn step_36_keeps_the_questions_that_the_human_answered() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 35).unwrap();
+        for entry in [
+            r#"{"kind":"answered","node":{"id":1,"name":"a"},"wait":7,"text":"A","images":0}"#,
+            r#"{"kind":"unanswered","node":{"id":1,"name":"a"},"wait":8,"by":"agent"}"#,
+        ] {
+            conn.execute("INSERT INTO events (at, entry) VALUES (1, ?1)", [entry])
+                .unwrap();
+        }
+        conn.execute(
+            r#"INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES
+                (NULL, NULL, 'human', '"queue"', 'a', '{"kind":"answer","question":{"in":"inbox","id":9}}'),
+                (NULL, NULL, 'b', '"queue"', 'b', '{"kind":"answer","question":{"in":"message","id":10}}')"#,
+            [],
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let ids: Vec<u32> = conn
+            .prepare("SELECT id FROM answers ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(ids, [7, 9]);
     }
 
     /// 이벤트 기록 안의 옛 거절 코드가 새 `Refusal`로 읽힌다.

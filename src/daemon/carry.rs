@@ -1,6 +1,3 @@
-//! 옮기기: 옛 WSL 데몬(`~/.loom`)의 저장소·노드·설정·질문·폰을 이 Windows 데몬으로 옮기고, 에이전트 노드를 같은 세션으로 다시 띄운다.
-//! 2026-10-22 사람 결정(Q375 A): 바꾸는 동안 살아 있는 노드의 일을 잃지 않는다. 근거: docs/design.md 「데몬 하나」.
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -16,16 +13,13 @@ use crate::profile::ServerLink;
 use crate::settings::Settings;
 use crate::wsl::{self, WslPath};
 
-/// 다시 띄운 노드의 첫 입력. 턴 중에 옮겨진 노드는 이 입력으로 일을 잇는다.
 const NOTICE: &str = "loom moved this node from the WSL daemon to the Windows daemon and started your process again with the same conversation. Background commands that you started stopped. If a task was in progress, continue it.";
 
-/// `loom carry <옛 데이터 폴더>`. `from`은 옛 데몬의 데이터 폴더(`~/.loom`)의 UNC 경로다.
 #[derive(Deserialize)]
 pub struct CarryRequest {
     pub from: String,
 }
 
-/// 옮긴 결과. `ended`는 다시 띄우지 못한 노드와 그 까닭이다.
 #[derive(Serialize)]
 pub struct Carried {
     pub relaunched: Vec<String>,
@@ -36,7 +30,6 @@ pub fn routes() -> Router<Arc<App>> {
     Router::new().route("/api/carry", post(carry))
 }
 
-/// 부른 쪽(`host.sh`를 돈 노드)은 옛 노드를 끝낼 때 함께 끝난다. 끊겨도 끝까지 한다.
 async fn carry(
     State(app): State<Arc<App>>,
     Json(req): Json<CarryRequest>,
@@ -58,7 +51,6 @@ impl App {
             .rsplit_once('/')
             .map(|(home, _)| home.to_owned())
             .ok_or_else(|| format!("{from} has no parent folder"))?;
-        // 옛 파일은 읽기만 한다. 복사본에서 스키마를 올리고 경로를 바꾼다.
         let copy = std::env::temp_dir().join(format!("loom-carry-{}", std::process::id()));
         std::fs::create_dir_all(&copy).map_err(|e| e.to_string())?;
         let copied = self.carry_from_copy(Path::new(from), &copy, &at);
@@ -118,8 +110,6 @@ impl App {
     }
 }
 
-/// 옛 데몬이 적은 Linux 경로를 이 데몬이 그 배포판 폴더를 읽는 UNC 경로로 바꾼다.
-/// 옛 데몬에서 「이 PC」였던 설정(워크스페이스 폴더, 사용 중 계정)은 그 배포판 칸으로 옮긴다.
 fn to_windows(old: &db::Database, at: &WslPath) -> rusqlite::Result<()> {
     {
         let conn = old.lock();

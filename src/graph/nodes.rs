@@ -1,6 +1,3 @@
-//! 노드를 더하고 지우고, 이름과 부모를 바꾸고(입양), 프로세스가 끝난 노드를 고친다.
-//! 근거: docs/design.md 「노드 제거와 입양」.
-
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
@@ -15,55 +12,38 @@ use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink, StartDigests};
 use crate::protocol::MessageKind;
 
-/// `Graph::add_child`가 더할 자식.
 pub struct NewChild<'a> {
     pub name: &'a str,
-    /// 없으면 부모와 같은 워크트리에 든다. 저장소는 늘 부모와 같다.
     pub worktree: Option<&'a str>,
     pub agent: Option<AgentId>,
     pub brief: &'a str,
-    /// `loom spawn --role`의 역할 이름. 관문을 고를 때 쓴다(`protocol::COORDINATOR_ROLE`, `CI_ROLE`).
     pub role: Option<&'a str>,
-    /// 작업 폴더 이름(`task::TaskDir::folder`).
     pub task: &'a str,
 }
 
-/// 에이전트 없이 띄운 노드(셸) 이름의 앞부분.
 const SHELL_NAME: &str = "shell";
 
-/// 띄운 노드와 함께 남기는 값. 데몬이 다시 시작해도 노드에 다시 붙게 한다.
 pub struct Launched {
-    /// 노드가 데몬을 부를 때 내는 토큰(`LOOM_TOKEN`).
     pub token: String,
-    /// Codex·OpenCode 2 노드의 서버.
     pub server: Option<ServerLink>,
-    /// 노드를 띄운 Claude·Codex 계정. 시스템 기본과 다른 프로필은 없다. 계정 전환이 옮길 노드를 고를 때 쓴다.
     pub account: Option<AccountId>,
-    /// 노드가 받은 시작 글 조각의 해시. 데몬이 시작할 때 이 판과 견준다(`profile::changed_parts`).
     pub rules: Option<StartDigests>,
 }
 
-/// 살아 있는 노드 프로세스. 완료한 노드도 포함한다. 데몬이 시작할 때 다시 붙고, 계정 전환이 다시 띄운다.
 pub struct Active {
     pub id: NodeId,
     pub name: String,
     pub agent: Option<AgentId>,
     pub server: Option<ServerLink>,
     pub account: Option<AccountId>,
-    /// Claude·Cursor 세션의 기록 파일. 파일 이름이 세션 id다. `Graph::set_transcript`가 남긴다.
     pub transcript: Option<String>,
     pub model: Model,
-    /// 이 프로세스가 데몬을 부를 때 내는 토큰(`Launched::token`).
     pub token: String,
-    /// `loom spawn --role`의 역할. 다른 에이전트로 바꿔 띄울 때 그 역할의 모델·강도를 고른다.
     pub role: Option<String>,
-    /// 이 프로세스가 받은 시작 글 조각의 해시(`Launched::rules`).
     pub rules: Option<StartDigests>,
 }
 
 impl Graph {
-    /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
-    /// `task`는 작업 폴더 이름이다(설정 스크립트 노드는 없다). `start`는 노드 프로세스를 띄운다. 실패하면 노드를 남기지 않는다(`started`).
     pub fn add_root(
         &self,
         place: &Place,
@@ -89,7 +69,6 @@ impl Graph {
         Ok(id)
     }
 
-    /// `parent`의 자식을 더하고 `brief`를 자식 메일함의 첫 메시지로 넣는다. `start`가 실패하면 노드를 남기지 않는다(`started`).
     pub fn add_child(
         &self,
         parent: NodeId,
@@ -159,7 +138,6 @@ impl Graph {
         Ok(id)
     }
 
-    /// 노드의 작업 폴더 이름. 작업 폴더 전에 뜬 노드와 설정 스크립트 노드는 없다.
     pub fn task_of(&self, id: NodeId) -> rusqlite::Result<Option<String>> {
         self.lock()
             .query_row("SELECT task FROM nodes WHERE id = ?1", [id.0], |row| {
@@ -167,7 +145,6 @@ impl Graph {
             })
     }
 
-    /// 작업 폴더 전에 뜬 노드에 처음 정한 작업 폴더를 남긴다. 이미 있으면 그대로 두고 그 값을 돌려준다.
     pub fn keep_task(&self, id: NodeId, task: &str) -> rusqlite::Result<String> {
         let db = self.lock();
         db.execute(
@@ -179,14 +156,10 @@ impl Graph {
         })
     }
 
-    /// 다음에 사람이 띄울 노드의 이름(`add_root`가 짓는 이름). 새 작업 폴더의 바탕 이름에 쓴다.
     pub fn next_root_name(&self, agent: Option<&AgentId>) -> rusqlite::Result<String> {
         root_name(&self.lock(), agent.map_or(SHELL_NAME, |a| &a.0))
     }
 
-    /// 노드 줄을 커밋한 뒤 잠금 밖에서 프로세스를 띄운다. 토큰은 이미 남겼으므로 노드가 뜨자마자 데몬을 불러도 찾는다.
-    /// 띄우기(pty-host 시작)는 바쁜 PC에서 1초를 넘었다. 그동안 잠금을 쥐면 [확인] 같은 모든 요청이 기다렸고, 다른 연결의 쓰기는 5초 뒤 `database is locked`로 실패했다(2026-10-22 ktasearch-총괄).
-    /// 화면에는 띄운 뒤에 보인다. 먼저 보이면 터미널이 PTY 없음(`Gone`)을 받고 다시 붙지 않는다.
     fn started(
         &self,
         id: NodeId,
@@ -194,7 +167,6 @@ impl Graph {
     ) -> Result<(), Refusal> {
         match start(id) {
             Ok(()) => match self.publish_node(&self.lock(), id) {
-                // 바로 끝난 설정 스크립트는 이미 지워졌다(`discard_finished_shell`).
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(()),
                 published => Ok(published?),
             },
@@ -205,7 +177,6 @@ impl Graph {
         }
     }
 
-    /// 정상 종료해 지워도 되는 셸만 부른다(출력이 없거나 성공한 설정 스크립트). 관계나 메시지가 있으면 보존한다.
     pub fn discard_finished_shell(&self, id: NodeId) -> rusqlite::Result<bool> {
         let db = self.lock();
         let eligible: bool = db.query_row(
@@ -223,7 +194,6 @@ impl Graph {
         Ok(true)
     }
 
-    /// 관계와 메시지를 살피지 않고 노드 줄을 지운다. 받은 메시지는 DB가 함께 지운다.
     fn discard(&self, mut db: Db<'_>, id: NodeId) -> rusqlite::Result<()> {
         let tx = db.transaction()?;
         events::write(
@@ -240,21 +210,17 @@ impl Graph {
         Ok(())
     }
 
-    /// 완료한 노드의 요약은 남기고 프로세스 종료만 따로 적는다.
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
         let code = Some(code);
         let what = |node| MessageKind::Exited { node, code };
         self.end_process(id, NodeState::Exited { code }, what, String::new())
     }
 
-    /// 데몬이 다시 붙지 못한 프로세스도 부모에게 알린다.
     pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
         let what = |node| MessageKind::Exited { node, code: None };
         self.end_process(id, NodeState::Exited { code: None }, what, String::new())
     }
 
-    /// 설정 스크립트가 실패해 에이전트가 뜨지 않았다. 부모는 까닭(`output`, 설정 출력의 끝)을 함께 받는다.
-    /// 노드를 지우면 터미널 출력도 사라지므로 메시지가 그 증거를 남긴다. 본문은 지시문 상한 안에서 끝 쪽을 남긴다.
     pub fn setup_failed(&self, id: NodeId, code: u32, output: &str) -> rusqlite::Result<()> {
         let mut start = output.len().saturating_sub(BRIEF_LIMIT_BYTES);
         while !output.is_char_boundary(start) {
@@ -265,7 +231,6 @@ impl Graph {
         self.end_process(id, NodeState::SetupFailed { code }, what, output)
     }
 
-    /// 실행 중이던 노드면 `ended`로 바꾸고 부모에게 알린다. `what`은 노드 이름으로 알림 종류를 만든다.
     fn end_process(
         &self,
         id: NodeId,
@@ -312,7 +277,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 작업 완료와 무관하게 살아 있는 프로세스에 다시 붙는다.
     pub fn active(&self) -> rusqlite::Result<Vec<Active>> {
         self.lock()
             .prepare(&format!(
@@ -322,8 +286,6 @@ impl Graph {
             .collect()
     }
 
-    /// 완료한 뒤 프로세스가 사는 자식 노드 가운데 사람 응답 대기가 없는 노드. 데몬이 쉬는 노드를 재운다.
-    /// 부모 없는 노드는 사람이 터미널에 직접 친다. 끝난 프로세스에 친 키는 사라지므로 재우지 않는다.
     pub fn done_children(&self) -> rusqlite::Result<Vec<NodeId>> {
         self.lock()
             .prepare(
@@ -334,9 +296,6 @@ impl Graph {
             .collect()
     }
 
-    /// 데몬이 재운 완료 노드의 프로세스가 끝났다. 노드는 `done`으로 남고 메시지를 받는다(`REACHABLE`). 부모에게 알리지 않는다.
-    /// 그 사이 다시 일했으면(`done`이 아니다) 바꾸지 않고 거짓을 돌려준다. 그러면 부른 쪽이 보통 종료로 적는다.
-    /// 근거: 끝난 까닭을 모르는 완료 노드(호스트를 잃었다, 사람이 끝냈다)는 프로세스가 남았을 수 있고 재운 노드가 아니다(관문 검토 노드수명 P2).
     pub fn slept(&self, id: NodeId) -> rusqlite::Result<bool> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -355,12 +314,10 @@ impl Graph {
         Ok(true)
     }
 
-    /// 데몬이 재운 노드(`slept`). 메시지나 사람 입력에 깨운다.
     pub fn asleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         asleep(&self.lock(), id)
     }
 
-    /// 프로세스가 살았거나 잠든 노드(`REACHABLE`). 깨우는 동안에도 참이다. 띄우기에 실패하면(`lost`) 거짓이 된다.
     pub fn reachable(&self, id: NodeId) -> rusqlite::Result<bool> {
         self.lock().query_row(
             &format!("SELECT {REACHABLE} FROM nodes WHERE id = ?1"),
@@ -369,9 +326,6 @@ impl Graph {
         )
     }
 
-    /// 잠든 노드를 깨우지 못했다. `exited`로 바꾸고 부모에게 알린다. 그 뒤로는 메시지를 받지 않아(`REACHABLE`) 깨우기를 되풀이하지 않는다.
-    /// 잠든 표시가 아니라 「완료이고 프로세스가 없다」를 본다. 새 토큰을 남긴 뒤(`relaunched`가 표시를 지운다) 띄우기가 실패하면(`lost`)
-    /// 표시 없이 그 상태로 남아, 표시를 보면 부모가 알림을 받지 못했다(관문 검토 노드수명 3차 P2).
     pub fn sleep_lost(&self, id: NodeId) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -403,7 +357,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 프로세스가 끝난 노드. 다시 띄우기가 남긴 세션으로 되살린다.
     pub fn ended(&self, id: NodeId) -> rusqlite::Result<Option<Active>> {
         self.lock()
             .query_row(
@@ -414,16 +367,12 @@ impl Graph {
             .optional()
     }
 
-    /// 노드 프로세스를 다시 띄웠다(계정 전환, 다시 띄우기). 새 토큰·서버·계정을 남기고, 신호의 대기와 열린 질문을 모두 지운다. 메일함은 그대로다.
-    /// 끝난 노드를 되살렸으면 다시 산 프로세스로 적고, 끝난 상태는 `running`으로 돌린다. 완료 상태는 그대로다.
     pub fn relaunched(&self, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
         self.restarted(id, launched, |tx| {
             waits::drop_questions(tx, id, ClosedBy::Restart)
         })
     }
 
-    /// 노드를 다른 에이전트의 새 세션으로 다시 띄웠다(`loom relaunch --agent`). `relaunched`와 같되 에이전트·모델·강도를 바꾸고
-    /// 옛 세션 기록을 지운다. 그 기록으로 새 에이전트의 세션을 이으면 안 된다. 열린 질문은 남긴다. 답은 메시지로 새 에이전트가 받는다.
     pub fn switched(
         &self,
         id: NodeId,
@@ -439,7 +388,6 @@ impl Graph {
         })
     }
 
-    /// `changed`는 같은 트랜잭션에서 더 바꾸고 바꾼 줄 수를 돌려준다. 바꾼 것이 있으면 화면에 알린다.
     fn restarted(
         &self,
         id: NodeId,
@@ -449,8 +397,6 @@ impl Graph {
         let mut db = self.lock();
         let tx = db.transaction()?;
         keep(&tx, id, launched)?;
-        // 옛 프로세스의 창은 사라졌다. 새 PTY에 닿기 전에 지운다. 토큰을 함께 바꾸므로 옛 프로세스의 신호는 다시 열지 못한다(`set_wait`).
-        // 근거: 2026-10-23 리뷰 「다시 띄운 뒤 옛 승인」: 새 PTY를 띄운 뒤에 지우면 그 사이 옛 승인이 새 PTY에 쳤다.
         let cleared = tx.execute(
             "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
             [id.0],
@@ -474,7 +420,6 @@ impl Graph {
         Ok(())
     }
 
-    /// Claude 노드 세션의 기록 파일. 훅마다 알린다. 이 기능 전에 뜬 노드도 다음 훅에서 남는다.
     pub fn set_transcript(&self, id: NodeId, path: &str) -> rusqlite::Result<()> {
         self.lock().execute(
             "UPDATE nodes SET transcript = ?2 WHERE id = ?1 AND transcript IS NOT ?2",
@@ -483,7 +428,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 이름을 추측하지 않고 현재 부모와 자식의 번호를 찾는다.
     pub fn relations(&self, node: NodeId) -> Result<Relations, Refusal> {
         let db = self.lock();
         let read = |id: NodeId| -> rusqlite::Result<Peer> {
@@ -514,7 +458,6 @@ impl Graph {
         })
     }
 
-    /// `loom status --all`: 그래프의 모든 노드. 부모·자식이 아닌 노드에 보낼 번호를 찾는다.
     pub fn directory(&self) -> Result<Vec<Listed>, Refusal> {
         let db = self.lock();
         let listed = db
@@ -537,12 +480,10 @@ impl Graph {
         Ok(listed)
     }
 
-    /// 토큰을 낸 노드. 지운 노드의 토큰은 없다.
     pub fn caller(&self, token: &str) -> rusqlite::Result<Option<NodeId>> {
         caller_in(&self.lock(), token)
     }
 
-    /// 노드 서버에 다시 붙는 값을 바꾼다. 예: Codex TUI가 노드 스레드를 만들었다.
     pub fn set_server(&self, id: NodeId, server: &ServerLink) -> rusqlite::Result<()> {
         self.lock().execute(
             "UPDATE nodes SET server = ?2 WHERE id = ?1",
@@ -551,7 +492,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 노드의 모델과 추론 강도를 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 없는 노드면 아무것도 하지 않는다.
     pub fn set_model(&self, id: NodeId, model: &Model) -> rusqlite::Result<()> {
         let db = self.lock();
         let changed = db.execute(
@@ -565,7 +505,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 사람이 「⋯」 메뉴로 노드의 카드 보기를 고른다. `None`이면 설정의 기본 보기를 따른다.
     pub fn set_card_view(&self, id: NodeId, view: Option<CardView>) -> Result<(), Refusal> {
         let db = self.lock();
         name_of(&db, id)
@@ -582,7 +521,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 노드가 턴을 끝낸 답 글을 남긴다. 앞 답은 버린다. 빈 글은 남기지 않는다. 자르지 않는다: 마우스를 올리면 전문이 보인다(목업 M14 v2 ⑧).
     pub fn set_reply(&self, id: NodeId, text: &str) -> rusqlite::Result<()> {
         let text = text.trim();
         if text.is_empty() {
@@ -599,7 +537,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 사람이 노드를 북마크한다. 이미 북마크했으면 차례를 그대로 둔다.
     pub fn bookmark(&self, id: NodeId) -> Result<(), Refusal> {
         self.set_bookmark(
             id,
@@ -608,7 +545,6 @@ impl Graph {
         )
     }
 
-    /// 사람이 노드를 북마크에서 뺀다.
     pub fn unbookmark(&self, id: NodeId) -> Result<(), Refusal> {
         self.set_bookmark(
             id,
@@ -627,10 +563,7 @@ impl Graph {
         Ok(())
     }
 
-    /// 노드 터미널 화면의 승인 창을 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
-    /// 노드마다 화면을 따라가는 작업 하나(`daemon::follow_screen`)만 부른다.
     pub fn set_prompt(&self, id: NodeId, prompt: Option<Prompt>) -> rusqlite::Result<()> {
-        // 화면에 보내는 순서가 DB 변경 순서와 같도록 DB를 먼저 잠근다.
         let db = self.lock();
         let mut prompts = self.prompts.lock().unwrap();
         let changed = match prompt {
@@ -646,11 +579,6 @@ impl Graph {
 }
 
 impl Graph {
-    /// `id` 노드 하나를 지운다. 받은 메시지와 보관한 메시지도 지운다. 없는 노드면 아무것도 하지 않는다.
-    /// 노드 프로세스는 끝내지 않는다. 부르는 쪽이 끝낸다.
-    /// 자식은 부모 없이 남는다. 자식이 `id`에게 보냈지만 아직 전하지 않은 큐 메시지는 자식이 다시 보관한다.
-    /// 실행 중이던 노드를 지우고 부모가 남으면 부모 메일함에 `removed` 한 줄을 넣는다.
-    /// 이 줄은 메일함 상한을 넘어도 넣는다. 버리면 부모가 끝없이 기다린다.
     pub fn remove(&self, id: NodeId) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -661,8 +589,6 @@ impl Graph {
         removal.publish(self, &db)
     }
 
-    /// `loom rm`: `caller`가 자기 자식 `name`(이름이나 `#번호`)을 지운다. 그 자식의 자식은 같은 트랜잭션에서 `caller`가 데려간다.
-    /// 하나라도 데려갈 수 없으면 아무것도 바꾸지 않고 거절한다. 돌려준 값은 지운 노드와 데려간 노드 이름이다.
     pub fn remove_child(
         &self,
         caller: NodeId,
@@ -706,7 +632,6 @@ impl Graph {
         Ok((id, moved))
     }
 
-    /// 그래프 전체에서 이름이 `name`인 노드 하나를 찾는다.
     pub fn find(&self, name: &str) -> Result<NodeId, Refusal> {
         let db = self.lock();
         let ids = db
@@ -720,9 +645,6 @@ impl Graph {
         }
     }
 
-    /// 사람이 노드 이름을 바꾼다. 이름이 그대로면 아무것도 하지 않는다.
-    /// 메시지를 이름으로 먼저 찾는 범위(부모·자식, `mailbox::related`)에서 겹치지 않게 한다: 부모, 조부모, 형제(부모가 없으면 다른 뿌리), 자식, 손자.
-    /// 부모와 자식이 옛 이름으로 보내면 받는 노드를 찾지 못하므로 그들 메일함에 바뀐 이름을 한 줄 넣는다.
     pub fn rename(&self, id: NodeId, name: &str) -> Result<(), Refusal> {
         let name = checked_name(name)?;
         let mut db = self.lock();
@@ -785,7 +707,6 @@ impl Graph {
         let parent = parent_of(&db, id)?;
         for &to in &relatives {
             self.publish_node(&db, to)?;
-            // 간선은 자식 id로 가리킨다.
             if Some(to) == parent {
                 self.publish_message(id, Toward::Parent);
             } else {
@@ -795,7 +716,6 @@ impl Graph {
         Ok(())
     }
 
-    /// `parent`를 `child`의 새 부모로 정한다. 이미 그 부모면 아무것도 하지 않는다. 규칙은 `adopt_in`에 있다.
     pub fn adopt(&self, parent: NodeId, child: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
@@ -807,7 +727,6 @@ impl Graph {
     }
 }
 
-/// 커밋 뒤 알릴 노드 제거.
 struct Removal {
     id: NodeId,
     children: Vec<NodeId>,
@@ -829,7 +748,6 @@ impl Removal {
     }
 }
 
-/// 노드 하나를 지운다. 자식은 뿌리가 된다. 노드가 없으면 `None`이다.
 fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
     let Some(state) = state_of(tx, id).optional()? else {
         return Ok(None);
@@ -839,7 +757,6 @@ fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
         .query_map([id.0], |row| Ok(NodeId(row.get(0)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let waiting_parent = parent_of(tx, id)?.filter(|_| state == NodeState::Running);
-    // 보낸 노드 이름을 읽으므로 지우기 전에 넣는다.
     if let Some(parent) = waiting_parent {
         let what = MessageKind::Removed {
             node: name_of(tx, id)?,
@@ -880,7 +797,6 @@ fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
     }))
 }
 
-/// 커밋 뒤 알릴 입양.
 struct Adoption {
     parent: NodeId,
     child: NodeId,
@@ -900,9 +816,6 @@ impl Adoption {
     }
 }
 
-/// `parent`를 `child`의 새 부모로 정한다. 이미 그 부모면 `None`이다. 거절하면 아무것도 쓰지 않는다.
-/// `child`가 보관한 메시지는 보낸 순서대로 새 부모 메일함에 넣는다. 보관할 때 상한을 봤으므로 메일함 상한은 보지 않는다.
-/// 실행 중인 노드를 데려가면 옛 부모 메일함에 `adopted`를 넣는다. 옛 부모가 끝없이 기다리지 않게 한다. 데려간 노드도 `adopted`로 새 부모를 안다.
 fn adopt_in(
     tx: &Connection,
     parent: NodeId,
@@ -987,7 +900,6 @@ fn adopt_in(
     }))
 }
 
-/// `<prefix>-<번호>`. 번호는 사람이 띄운 노드 사이에서 겹치지 않는 가장 작은 수다.
 fn asleep(db: &Connection, id: NodeId) -> rusqlite::Result<bool> {
     db.query_row(
         "SELECT asleep = 1 FROM nodes WHERE id = ?1",
@@ -1085,7 +997,6 @@ fn insert(
     parent: Option<NodeId>,
     place: &Place,
 ) -> Result<NodeId, Refusal> {
-    // 저장소 줄이 있을 때만 넣는다. 저장소 빼기(`Repos::remove`)도 검사와 삭제가 한 문장이라 둘 사이에 노드가 남지 않는다.
     let inserted = db.execute(
         "INSERT INTO nodes (name, agent, parent, state, repo, worktree)
          SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM repos WHERE id = ?5)",
@@ -1114,7 +1025,6 @@ fn insert(
     Ok(id)
 }
 
-/// `parent`가 자식을 하나 더 받을 수 있는지 본다. 끝난 자식도 센다. 사람이 지워야 자리가 난다.
 fn check_children(db: &Connection, parent: NodeId, limits: TreeLimits) -> Result<(), Refusal> {
     let Some(max) = limits.max_children else {
         return Ok(());
@@ -1130,7 +1040,6 @@ fn check_children(db: &Connection, parent: NodeId, limits: TreeLimits) -> Result
     Ok(())
 }
 
-/// 부모부터 뿌리까지. 개수가 깊이다.
 fn ancestors(db: &Connection, mut id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
     let mut found = Vec::new();
     while let Some(parent) = parent_of(db, id)? {
@@ -1140,7 +1049,6 @@ fn ancestors(db: &Connection, mut id: NodeId) -> rusqlite::Result<Vec<NodeId>> {
     Ok(found)
 }
 
-/// `id` 아래로 가장 깊은 자손까지의 단계 수. 자식이 없으면 0이다.
 fn height(db: &Connection, id: NodeId) -> rusqlite::Result<u32> {
     db.query_row(
         "WITH RECURSIVE below(id, level) AS (
@@ -1152,7 +1060,6 @@ fn height(db: &Connection, id: NodeId) -> rusqlite::Result<u32> {
     )
 }
 
-/// 에이전트가 조회하는 관계 정보. 프로세스 생존은 작업 완료와 별개다.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Peer {
     pub id: NodeId,
@@ -1161,7 +1068,6 @@ pub struct Peer {
     pub alive: bool,
 }
 
-/// `loom status --all`의 한 줄. `place`는 `<저장소 폴더>/<워크트리 폴더>`다.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Listed {
     pub id: NodeId,

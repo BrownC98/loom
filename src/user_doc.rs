@@ -1,9 +1,3 @@
-//! `loom show`와 `--doc`(`loom ask`, `loom done`): user-doc 스킬의 문서를 점검하고 문서 ID를 붙인다. 사람의 브라우저는 열지 않는다.
-//! 사람은 질문 줄의 문서 링크로 연다(2026-10-21 사람 지시 "목업이나 보고서 승인도 질문탭에 링크로 달아두는 식으루 구현하라, 직접 브라우저에 띄우지 말고").
-//! bash가 없는 Windows 노드에서도 같은 일을 하도록 Rust에 둔다. 렌더 그림과 말풍선 점검은 `show.sh`가 한다.
-//! `--doc`은 `loom show`가 점검을 지났다고 남긴 내용 그대로인 HTML만 받는다(R14 5절, 2026-10-23 Q687 A).
-//! 근거: skills/user-doc/SKILL.md 「보이기」.
-
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -14,12 +8,9 @@ use ts_rs::TS;
 use crate::graph::{Refusal, WaitDoc};
 use crate::link_text::DOC_LINK;
 
-/// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
 
-/// `loom show`: 점검하고 ID를 붙인다. 통과 기록은 `show.sh`가 렌더·말풍선 점검을 지난 뒤 `loom show --checked`로 남긴다.
-/// bash가 없는 Windows 노드는 `show.sh`를 돌리지 못한다. 그 노드에서만 이 점검으로 통과를 남긴다(R14 5절, 2026-10-23 Q687 A).
 pub fn show(path: &Path) -> Result<(), String> {
     let store = Store::here()?;
     let doc = stamp_in(&store, path)?;
@@ -37,7 +28,6 @@ pub fn show(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// `loom show --checked`: `show.sh`의 마지막 단계. 다시 점검하고, ID를 붙인 내용 그대로면 통과로 남긴다.
 pub fn record_checked(path: &Path) -> Result<(), String> {
     let doc = pass_in(&Store::here()?, path)?;
     println!("show: 문서 ID {} 통과", doc.id);
@@ -48,8 +38,6 @@ pub fn record_checked(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// WSL 노드의 `loom`도 Windows 실행 파일이지만 시작 폴더가 WSL 폴더다. 그 노드는 bash로 `show.sh`를 돌린다.
-/// 한계: bash 없는 Windows 노드의 통과에는 렌더·말풍선·파일 하나(`check-callouts.cjs`) 점검이 없다(2026-10-23 관문 결정).
 fn bashless() -> bool {
     cfg!(windows)
         && std::env::current_dir()
@@ -58,8 +46,6 @@ fn bashless() -> bool {
             .is_none()
 }
 
-/// `--doc`이 받는 꼴. 그 밖의 파일(`.md` 보고서, 그림, `.svg`)은 받지 않는다. 사람에게 보일 글은 user-doc HTML로 쓴다.
-/// 근거: 사람에게 날 `.md`가 링크로 보였다(2026-10-23 사람 "질문에 올린 링크가 쌩 마크다운임").
 const HTML_EXTENSIONS: [&str; 2] = ["html", "htm"];
 
 fn html(path: &Path) -> bool {
@@ -68,7 +54,6 @@ fn html(path: &Path) -> bool {
         .is_some_and(|e| HTML_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
-/// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
 fn stamp_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
     let (path, text) = checked(path)?;
     let id = store.doc_id(&path)?;
@@ -77,7 +62,6 @@ fn stamp_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
     Ok(WaitDoc { id, title })
 }
 
-/// ID를 붙인 뒤 렌더·말풍선 점검을 지난 내용을 `--doc` 통과로 남긴다. 점검한 내용과 남기는 내용이 같도록 ID를 다시 붙이지 않는다.
 fn pass_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
     let (path, text) = checked(path)?;
     let id = store.doc_id(&path)?;
@@ -92,7 +76,6 @@ fn pass_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
     Ok(WaitDoc { id, title })
 }
 
-/// `loom show`의 글 점검을 지난 문서의 실제 경로와 글.
 fn checked(path: &Path) -> Result<(PathBuf, String), String> {
     let path = real_path(path)?;
     let text = read_html(&path)?;
@@ -103,9 +86,7 @@ fn checked(path: &Path) -> Result<(PathBuf, String), String> {
     Ok((path, text))
 }
 
-/// HTML 꼴이고 UTF-8로 읽히는 파일의 글.
 fn read_html(path: &Path) -> Result<String, String> {
-    // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
     let refused = || {
         format!(
             "{}: --doc takes a user-doc HTML file (.{}); put images inside an HTML file.",
@@ -122,7 +103,6 @@ fn read_html(path: &Path) -> Result<String, String> {
     })
 }
 
-/// `--doc`(`loom ask`, `loom done`)의 문서에 ID를 붙인다. `show.sh`가 점검한 뒤 바뀌지 않은 HTML만 받는다.
 pub fn attach(path: &Path) -> Result<WaitDoc, Refusal> {
     attach_in(&Store::here().map_err(Refusal::Db)?, path)
 }
@@ -135,7 +115,6 @@ fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, Refusal> {
         return Err(refused());
     }
     let id = store.doc_id(&path).map_err(Refusal::Db)?;
-    // 지난 문서를 다른 이름으로 복사하면 새 경로는 새 ID를 받지만 머리 줄은 옛 ID다. 사람이 다른 문서의 ID로 답하게 된다(2026-10-23 검토자2·codex).
     if stamp(&text, &id) != text {
         return Err(refused());
     }
@@ -144,8 +123,6 @@ fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, Refusal> {
     Ok(WaitDoc { id, title })
 }
 
-/// 사람이 읽는 글(부모 없는 노드의 질문·완료) 속 `file://` 링크 가운데 `--doc`이 받지 않을 파일을 처음 하나 돌려준다.
-/// 붙인 문서의 링크는 CLI가 이미 `DOC_LINK`로 바꿨다(`inline_link`). `folder`는 데몬이 아는 노드 폴더다. 경로는 그 노드 쪽에서 푼다.
 pub fn unchecked_link(text: &str, folder: &Path) -> Option<String> {
     let store = Store::here().ok()?;
     unchecked_link_in(&store, text, folder)
@@ -175,19 +152,13 @@ fn unchecked_link_in(store: &Store, text: &str, folder: &Path) -> Option<String>
     None
 }
 
-/// 문서 ID의 파일. 원본이 있으면 원본이다(고친 새 판이 보인다). 원본이 지워졌으면(병합 뒤 지운 워크트리의 목업) 붙일 때 남긴 사본(`keep`)이다.
-/// 대기가 닫힌 뒤에도 연다. 근거: 2026-10-23 사람 "왜 내가 목업을 못보나", "클로드 아티팩트처럼 상시 볼 수 있게 하면 안됨/".
-/// 돌려준 파일과 같은 폴더의 파일이 문서 속 상대 주소(옆 그림)다. 사본 폴더에는 그 문서 하나만 있다.
 pub fn doc_file(id: &str) -> Result<DocFile, String> {
     Store::here()?.doc_file(id)
 }
 
-/// `doc_file`이 찾은 문서.
 #[derive(PartialEq, Debug)]
 pub struct DocFile {
     pub path: PathBuf,
-    /// 문서 속 상대 주소(옆 그림)로 읽어도 되는 폴더. 목업(`docs/mockups` 아래)과 사본은 그 파일의 폴더다.
-    /// 원본 보고서는 없다. 보고서의 폴더(`~/.cache/loom-briefs` 등)에는 다른 지시와 비밀 파일이 있다(2026-10-23 검토 MAJOR).
     pub folder: Option<PathBuf>,
 }
 
@@ -218,18 +189,13 @@ pub enum DocGroup {
     Report,
 }
 
-/// 문서 ID 표의 모든 문서. 최근에 붙인 문서가 위다. 붙인 때를 모르는 문서는 그 뒤에 ID 번호가 큰 것부터 둔다.
 pub fn docs() -> Result<Vec<DocRow>, String> {
     Ok(Store::here()?.docs())
 }
 
-/// 문서 ID 표와 사본 폴더의 자리. 시험은 임시 폴더를 쓴다.
 struct Store {
-    /// `$HOME/.cache/user-doc/ids.tsv`: 경로와 ID 두 열. 줄을 더하기만 한다.
     table: PathBuf,
-    /// `$HOME/.cache/user-doc/passed.txt`: 점검을 지난 문서 내용의 해시(`skills::digest`)를 한 줄씩. 줄을 더하기만 한다.
     passes: PathBuf,
-    /// `<데이터 폴더>/docs`. 데몬 DB(`db::data_dir`) 옆이다.
     copies: PathBuf,
 }
 
@@ -254,7 +220,6 @@ impl Store {
             .append(true)
             .open(&self.passes)
             .map_err(|e| format!("{}: {e}", self.passes.display()))?;
-        // 한 줄을 쓰기 한 번에 쓴다. 동시에 남겨도 줄이 섞이지 않는다.
         file.write_all(format!("{}\n", crate::skills::digest(&[text])).as_bytes())
             .map_err(|e| format!("{}: {e}", self.passes.display()))
     }
@@ -300,7 +265,6 @@ impl Store {
     fn docs(&self) -> Vec<DocRow> {
         let rows = self.rows();
         let mut seen = std::collections::HashSet::new();
-        // 잠금 전에 겹친 ID는 첫 줄만 둔다. `doc_file`도 첫 줄을 연다.
         let mut docs: Vec<DocRow> = table_rows(&rows)
             .filter(|(path, id)| html(Path::new(path)) && seen.insert(*id))
             .map(|(path, id)| self.row(id, Path::new(path)))
@@ -341,15 +305,12 @@ impl Store {
         }
     }
 
-    /// 원본이 지워져도 `doc_file`이 내도록 붙인 판을 사본으로 남긴다. 붙일 때마다 덮어쓴다.
     fn keep(&self, id: &str, source: &Path, text: &str) -> Result<(), String> {
         let copy = self
             .snapshot(id, source)
             .ok_or_else(|| format!("{}: 파일 이름이 없다", source.display()))?;
         let dir = copy.parent().unwrap_or(&self.copies);
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        // 새 판을 옆 임시 파일에 다 쓴 뒤 바꿔 끼운다. 쓰다 실패하면 옛 사본이 그대로 남는다(2026-10-23 검토).
-        // 이름은 붙일 때마다 다르다. 같은 문서를 동시에 붙여도 서로의 임시 파일을 덮지 않는다.
         let next = dir.join(format!(".{}.tmp", crate::devices::random_token()));
         let written = fs::write(&next, text).and_then(|()| fs::rename(&next, &copy));
         if written.is_err() {
@@ -358,20 +319,15 @@ impl Store {
         written.map_err(|e| format!("{}: {e}", copy.display()))
     }
 
-    /// `<데이터 폴더>/docs/<ID>/<원본 파일 이름>`. 이름이 같아 꼴(`html`)도 같다.
     fn snapshot(&self, id: &str, source: &Path) -> Option<PathBuf> {
         Some(self.copies.join(id).join(source.file_name()?))
     }
 
-    /// 사람이 어느 문서에 답하는지 짧게 말하게 한다. 같은 경로는 판이 바뀌어도 같은 ID다.
-    /// 목업(`docs/mockups/` 아래)은 M, 보고서는 R에 번호를 붙인다. 표는 경로와 ID 두 열이다.
     fn doc_id(&self, doc: &Path) -> Result<String, String> {
         let table = &self.table;
         if let Some(dir) = table.parent() {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        // 읽기·찾기·더하기를 한 잠금 안에서 한다. 잠그지 않으면 동시에 붙인 문서가 같은 ID를 받고 줄이 섞였다(2026-10-23 검토: `loom show` 48개 동시 실행에 ID 38개, 깨진 줄 8개).
-        // 잠금은 옆 파일에 건다. Windows 잠금은 강제라서 표 자체를 잠그면 그동안 `doc_file`이 표를 읽지 못한다.
         let lock = table.with_extension("tsv.lock");
         let guard = fs::OpenOptions::new()
             .create(true)
@@ -391,7 +347,6 @@ impl Store {
                 .append(true)
                 .open(table)
                 .map_err(|e| format!("{}: {e}", table.display()))?;
-            // 한 줄을 쓰기 한 번에 쓴다.
             file.write_all(format!("{key}\t{id}\n").as_bytes())
                 .map_err(|e| e.to_string())?;
         }
@@ -399,7 +354,6 @@ impl Store {
     }
 }
 
-/// 목업은 `docs/mockups` 위 폴더, 보고서는 바로 위 폴더의 이름.
 fn folder(source: &Path) -> String {
     let dir = source
         .ancestors()
@@ -411,7 +365,6 @@ fn folder(source: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// `M3`, `R12`의 꼴.
 fn known_id(id: &str) -> bool {
     id.strip_prefix(['M', 'R'])
         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
@@ -421,8 +374,6 @@ fn number(id: &str) -> u32 {
     id[1..].parse().unwrap_or(0)
 }
 
-/// 글 속 markdown 링크 `[이름](주소)` 가운데 주소가 `doc` 파일인 것의 주소를 `DOC_LINK`로 바꾼다.
-/// 주소는 `file://` 주소(퍼센트 인코딩 포함)나 경로이고, WSL 노드의 Linux 경로도 받는다. 파일 경로는 데몬만 알아야 하므로 글에 남기지 않는다.
 pub fn inline_link(text: &str, doc: &Path) -> String {
     let Ok(doc) = real_path(doc) else {
         return text.to_owned();
@@ -451,7 +402,6 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
     out
 }
 
-/// 링크 주소가 가리키는 파일 경로. `file:///C:/…`는 `C:/…`, `file://host/…`는 UNC `//host/…`다. 조각(`#…`)과 물음(`?…`)은 파일 밖이다.
 fn link_path(target: &str) -> Option<PathBuf> {
     let path = match target.strip_prefix("file://") {
         Some(rest) => {
@@ -471,7 +421,6 @@ fn link_path(target: &str) -> Option<PathBuf> {
     Some(PathBuf::from(path))
 }
 
-/// 같은 문서가 언제나 같은 표 열쇠를 갖게 링크를 푼다. Windows의 `\\?\C:\…`는 앱이 못 읽으므로 `C:\…`로 둔다.
 fn real_path(path: &Path) -> Result<PathBuf, String> {
     let real = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(without_verbatim(real))
@@ -486,7 +435,6 @@ fn without_verbatim(real: PathBuf) -> PathBuf {
     drive.unwrap_or(real)
 }
 
-/// style.html에서 시작한 문서인지 본다.
 fn check(html: &str) -> Result<(), String> {
     if title(html).is_none_or(str::is_empty) {
         return Err("<title>이 없다".into());
@@ -509,8 +457,6 @@ fn check(html: &str) -> Result<(), String> {
     }
 }
 
-/// 보고서는 그림으로 보인다(2026-10-22 사람 지시 "다이어그램 등으로 시각화 해서 이해하기 쉽게 작성해, 앞으로 모든 보고서에 적용되는 규칙으로 설정").
-/// 목업은 화면 그림이 본문이라 보지 않는다.
 fn check_report(html: &str) -> Result<(), String> {
     if html.contains("<svg") || html.contains("<img") {
         Ok(())
@@ -525,7 +471,6 @@ fn title(html: &str) -> Option<&str> {
     Some(&html[start..start + len])
 }
 
-/// 앞에 붙은 문서 ID(`M3 `, `R12 `)를 모두 뗀 제목. 다른 HOME의 ID 표에서 붙은 ID도 뗀다. 화면은 ID를 따로 보인다.
 fn bare_title(title: &str) -> &str {
     let mut bare = title;
     while let Some(rest) = bare.strip_prefix(['M', 'R']) {
@@ -542,8 +487,6 @@ fn mockup(doc: &Path) -> bool {
     doc.ancestors().any(|dir| dir.ends_with("docs/mockups"))
 }
 
-/// 표에 있는 ID를 돌려준다. 없으면 같은 종류의 다음 번호를 만들고 `true`를 같이 준다.
-/// 새 번호는 그 종류의 가장 큰 번호 다음이다. 잠금 전에 깨진 표(섞인 줄, 겹친 ID)에서도 겹치지 않는다.
 fn lookup(rows: &str, key: &str, mockup: bool) -> (String, bool) {
     let rows = table_rows(rows);
     if let Some((_, id)) = rows.clone().find(|(path, _)| *path == key) {
@@ -558,14 +501,12 @@ fn lookup(rows: &str, key: &str, mockup: bool) -> (String, bool) {
     (format!("{kind}{}", last + 1), true)
 }
 
-/// 표의 (경로, ID) 줄. ID 꼴이 아닌 줄(잠금 전에 섞인 줄)은 건너뛴다.
 fn table_rows(rows: &str) -> impl Iterator<Item = (&str, &str)> + Clone {
     rows.lines()
         .filter_map(|row| row.split_once('\t'))
         .filter(|(path, id)| !path.is_empty() && known_id(id))
 }
 
-/// 머리 줄 맨 앞과 `<title>` 앞에 ID를 붙인다. 이미 붙어 있으면 바꾸고, 제목에는 한 번만 붙인다.
 fn stamp(html: &str, id: &str) -> String {
     let tag = format!("{ID_OPEN}문서 ID: <b>{id}</b></span>");
     let mut out = match html.find(ID_OPEN) {
@@ -599,7 +540,6 @@ pub(crate) mod tests {
             r#"<div class="who"><span class="doc-id">문서 ID: <b>M3</b></span>응답할 곳"#
         ));
         assert_eq!(stamp(&once, "M3"), once);
-        // 다른 ID 표에서 붙은 ID는 바꾼다.
         assert!(stamp(&once, "M7").contains("<title>M7 문서</title>"));
         assert!(check(&once).is_ok());
     }
@@ -624,7 +564,6 @@ pub(crate) mod tests {
         );
     }
 
-    /// 지난 문서를 다른 이름으로 복사한 파일은 새 ID를 받으므로 머리 줄의 옛 ID와 다르다. 다시 점검해야 붙는다.
     #[test]
     fn a_copy_of_a_passed_doc_does_not_attach() {
         let home = tempfile::tempdir().unwrap();
@@ -644,7 +583,6 @@ pub(crate) mod tests {
         assert_eq!(attach_in(&store, &copy), Ok(again));
     }
 
-    /// 점검을 지난 문서의 조각 링크(`#part`)도 그 문서다.
     #[test]
     fn a_fragment_link_points_at_its_file() {
         let path = Path::new("/tmp/r.html");
@@ -657,13 +595,11 @@ pub(crate) mod tests {
         );
     }
 
-    /// `show.sh`의 두 단계(`loom show`, `loom show --checked`)를 지난 문서.
     fn shown_in(store: &Store, path: &Path) -> WaitDoc {
         stamp_in(store, path).unwrap();
         pass_in(store, path).unwrap()
     }
 
-    /// 경로의 `file://` 주소. Windows 경로는 `file:///C:/…`다.
     pub(crate) fn file_url(path: &Path) -> String {
         let slashed = path.display().to_string().replace('\\', "/");
         format!(
@@ -676,7 +612,6 @@ pub(crate) mod tests {
         )
     }
 
-    /// `--doc`은 `loom show`가 지난 내용 그대로인 HTML만 받는다. 글 파일, 점검하지 않은 HTML, 점검 뒤 바뀐 HTML은 거절한다.
     #[test]
     fn only_a_shown_and_unchanged_html_file_attaches() {
         let home = tempfile::tempdir().unwrap();
@@ -692,7 +627,6 @@ pub(crate) mod tests {
         assert_eq!(attach_in(&store, &mock), unchecked(&mock));
         assert!(stamp_in(&store, &md).is_err());
 
-        // `loom show`만으로는 통과가 아니다. 렌더·말풍선 점검 뒤 `--checked`가 남긴다.
         assert!(pass_in(&store, &mock).is_err());
         let shown = stamp_in(&store, &mock).unwrap();
         assert_eq!(attach_in(&store, &mock), unchecked(&mock));
@@ -802,13 +736,11 @@ pub(crate) mod tests {
         assert_eq!(lookup(rows, "/b/y.html", true), ("R1".into(), false));
         assert_eq!(lookup(rows, "/d/n.html", true), ("M3".into(), true));
         assert_eq!(lookup(rows, "/d/n.html", false), ("R2".into(), true));
-        // 잠금 전에 깨진 표: 섞인 줄은 건너뛰고, 새 번호는 가장 큰 번호 다음이다.
         let broken = "/a\tR1\n/b\tR3/c\tR2\n/d\tR3\n/e\tR3\n\tR9\n";
         assert_eq!(lookup(broken, "/x", false), ("R4".into(), true));
         assert_eq!(lookup(broken, "/d", false), ("R3".into(), false));
     }
 
-    /// 여러 스레드가 동시에 붙여도 ID가 겹치지 않고 줄이 깨지지 않는다.
     #[test]
     fn concurrent_registration_gives_unique_ids_and_whole_rows() {
         let home = tempfile::tempdir().unwrap();
@@ -879,7 +811,6 @@ pub(crate) mod tests {
         };
         fs::write(&report, report_text("감사")).unwrap();
         fs::write(repo.join("old.html"), "").unwrap();
-        // 이 판 전에 붙인 문서: 표에만 있고 사본이 없다.
         let old = store
             .doc_id(&real_path(&repo.join("old.html")).unwrap())
             .unwrap();
@@ -890,7 +821,6 @@ pub(crate) mod tests {
         let r = attach_in(&store, &report).unwrap().id;
         assert_eq!((old.as_str(), m.as_str(), r.as_str()), ("R1", "M1", "R2"));
 
-        // 원본이 있으면 원본을 낸다(새 판이 보인다). 원본 보고서는 옆 파일을 내지 않는다. 원본 목업은 그 폴더다.
         fs::write(&report, report_text("감사 2")).unwrap();
         assert_eq!(
             store.doc_file(&r),
@@ -904,11 +834,9 @@ pub(crate) mod tests {
             store.doc_file(&m).unwrap().folder.as_deref(),
             real_mock.parent()
         );
-        // 원본이 지워지면 붙인 판의 사본을 낸다. 사본 폴더에는 그 문서 하나만 있다.
         fs::remove_file(&mock).unwrap();
         let DocFile { path: copy, folder } = store.doc_file(&m).unwrap();
         assert_eq!(folder.as_deref(), copy.parent());
-        // 사본은 임시 파일에 쓴 뒤 바꿔 끼운다. 폴더에는 그 문서 하나만 남는다.
         assert_eq!(fs::read_dir(copy.parent().unwrap()).unwrap().count(), 1);
         assert!(
             copy.starts_with(home.path().join("copies").join("M1")),

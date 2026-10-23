@@ -14,17 +14,12 @@ import type { Start } from './gen/Start';
 import { shortPlaceName, useStarting } from './place';
 import { accountName, activeAccount, windowsText } from './usage';
 
-/** 목록 한 줄. `agent`가 없으면 기본 셸이다. */
 type Choice = { agent: AgentView | null; installed: boolean };
 
-/** 고를 수 있는 항목의 키. 기본 셸은 `null`이다. */
 const keyOf = (c: Choice): AgentId | null => c.agent?.id ?? null;
 
-/** 그 위치(배포판, null은 이 PC)에서 찾은 경로. 없으면 그 위치에 설치하지 않은 것이다. */
 const pathAt = (agent: AgentView, distro: string | null) => agent.places.find((p) => p.distro === distro)?.path ?? null;
 
-/** 설치됨(카탈로그 순서) → 기본 셸 → 설치하지 않음. 카탈로그가 유일한 원천이다(목업 settings.html 5번).
- *  설치는 저장소 위치에서 본다(목업 wsl-place.html ⑥a). */
 function choices(agents: AgentView[], distro: string | null): Choice[] {
   return [
     ...agents.filter((a) => pathAt(a, distro) !== null).map((agent) => ({ agent, installed: true })),
@@ -34,12 +29,9 @@ function choices(agents: AgentView[], distro: string | null): Choice[] {
 }
 
 
-/** 프로필만 고른다. 목록 줄을 누르거나 Enter를 누르면 바로 띄운다(사람 지시 2026-10-20 「새노드는 리스트 아이템을 클릭하면 바로 해당 노드가 생성되는걸로 변경」). 이름은 데몬이 짓고, 첫 지시문은 띄운 뒤 카드 터미널에 입력한다. `recent`는 사람이 마지막으로 띄운 노드의 에이전트다. */
 export function NewNodePopover(props: {
   branch: string;
-  /** 새 노드가 도는 묶음. */
   place: Place;
-  /** 묶음이 WSL에 있으면 그 배포판. 띄우기가 오래 걸리면 「시작하는 중」을 보인다(목업 wsl-place.html ⑥b). */
   distro: string | null;
   agents: AgentView[];
   recent: AgentId | null | undefined;
@@ -51,16 +43,13 @@ export function NewNodePopover(props: {
   const { t } = useTranslation();
   const box = useEscapeClose<HTMLFormElement>(props.onCancel);
   const labelOf = (c: Choice) => c.agent?.label ?? t('newNode.shell');
-  // 카탈로그는 늘 비어 있지 않다. 비었으면 데몬이 아직 PATH를 찾는 중이다(약 2초).
   const loading = props.agents.length === 0;
-  // 저장소 위치를 아직 찾지 못했으면(배포판이 꺼져 있음) 이 PC 목록으로 고른다. 띄우기는 데몬이 그 위치에서 다시 찾는다.
   const places = props.agents[0]?.places.map((p) => p.distro) ?? [null];
   const distro = places.includes(props.distro) ? props.distro : null;
   const multi = places.length > 1;
   const all = loading ? [] : choices(props.agents, distro);
   const installed = all.filter((c) => c.installed);
   const [query, setQuery] = useState('');
-  // 처음 값: 최근 프로필이 설치돼 있으면 그것, 아니면 설치한 첫째. 목록이 늦게 와도 맞게 정해지도록 렌더마다 계산한다.
   const [picked, setPicked] = useState<{ key: AgentId | null } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);

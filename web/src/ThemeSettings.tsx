@@ -26,16 +26,11 @@ const THEME_CHOICES = [
 ] as const satisfies readonly { value: Theme; label: string; icon: LucideIcon }[];
 
 const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
-/** 설정과 오른쪽 사이드바가 같은 순서로 보인다(목업 card-view.html, node-card-view.html ①). */
 const CARD_VIEWS = ['simple', 'rootTerminal', 'standard'] as const satisfies readonly DefaultCardView[];
-/** 목업 repo-scope.html 1번. 기본값(저장소 하나)이 앞이다. */
 const GRAPH_SCOPES = ['repo', 'all'] as const satisfies readonly GraphScope[];
-/** 기본값(계단)이 앞이다. */
 const EDGE_STYLES = ['step', 'curve'] as const satisfies readonly EdgeStyle[];
-/** 기본값(한 줄)이 앞이다. */
 const QUESTION_PILLS = ['line', 'answer'] as const satisfies readonly QuestionPill[];
 
-/** 기본 카드 보기 고르기. 설정 「그래프」와 오른쪽 사이드바 「보기」가 함께 쓴다. */
 export function CardViewSwitch(props: { value: DefaultCardView; onChange: (value: DefaultCardView) => void }) {
   const { t } = useTranslation();
   const name = useId();
@@ -51,10 +46,6 @@ export function CardViewSwitch(props: { value: DefaultCardView; onChange: (value
   );
 }
 
-/**
- * 시스템 알림(목업 docs/mockups/human-question.html ⑥). 설정 「일반」에 있다. 켤 때만 브라우저 허용을 묻는다. 막히면 꺼진 채로 둔다.
- * 앱은 허용을 묻지 않으므로 「브라우저」 문구를 보이지 않는다(사람 2026-10-22 "네이티브 버전임에도 브라우저 관련 언급이 되어 있는게 이상함").
- */
 export function OsNotifySection({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   const [blocked, setBlocked] = useState(false);
@@ -82,7 +73,6 @@ export function OsNotifySection({ settings, onSettings }: TabProps) {
   );
 }
 
-/** 「화면」 탭(목업 settings.html 6번, language.html, color-settings.html): 화면 테마, 색, 언어. 언어 이름은 번역하지 않는다. */
 export function DisplayTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
@@ -123,7 +113,6 @@ export function DisplayTab({ settings, onSettings }: TabProps) {
   );
 }
 
-/** 「그래프」 탭(목업 card-view.html, repo-scope.html): 카드 보기, 그래프 범위, 간선 모양, 질문 알약. */
 export function GraphTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   return (
@@ -192,7 +181,6 @@ export function GraphTab({ settings, onSettings }: TabProps) {
   );
 }
 
-/** 「터미널」 탭(목업 6번, card-terminal.html): 글꼴과 모드마다 터미널 테마. */
 export function TerminalTab({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   const saved = settings.terminalTheme;
@@ -224,7 +212,6 @@ export function TerminalTab({ settings, onSettings }: TabProps) {
   );
 }
 
-/** Orca의 「Font Size」·「Font Family」와 같은 두 칸. 칸을 떠나거나 Enter를 누르면 저장한다. 범위 밖 크기는 버린다. 글꼴 칸을 비우면 기본값이다. */
 function FontFields({ settings, onSettings }: TabProps) {
   const { t } = useTranslation();
   const saved = settings.terminalFont;
@@ -295,13 +282,11 @@ function FontFields({ settings, onSettings }: TabProps) {
 
 const THEME_NAMES = Object.keys(TERMINAL_THEMES) as TerminalThemeName[];
 
-/** 테마 목록과 미리보기. 마우스를 올린 테마를 미리 보이고, 고르면(클릭·방향키) 바로 저장한다. */
 function ThemePicker(props: { label: string; value: TerminalThemeName; onChoose: (name: TerminalThemeName) => void; disabled?: boolean }) {
   const group = useId();
   const list = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState<TerminalThemeName | null>(null);
   useEffect(() => {
-    // 고른 테마가 목록 아래쪽에 있어도 창을 열면 보이게 한다. scrollIntoView는 설정 창까지 밀어 올리므로 목록만 굴린다.
     const box = list.current;
     const row = box?.querySelector(':checked')?.closest('label');
     if (!box || !row) return;
@@ -338,7 +323,6 @@ function ThemePicker(props: { label: string; value: TerminalThemeName; onChoose:
 const NORMAL = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'] as const;
 const BRIGHT = ['brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'] as const;
 
-/** 짧은 셸 출력으로 바탕·글자·16색·커서·선택 영역을 모두 보인다. 정적 HTML이라 터미널을 띄우지 않는다. */
 function Preview({ name }: { name: TerminalThemeName }) {
   const { t: tr } = useTranslation();
   const t = TERMINAL_THEMES[name];

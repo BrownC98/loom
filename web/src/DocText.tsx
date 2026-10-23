@@ -7,11 +7,6 @@ import type { TextPart } from './gen/TextPart';
 import type { WaitDoc } from './gen/WaitDoc';
 import { openLink, openPass, phoneBrowser } from './openLink';
 
-/**
- * 질문·완료 글과 붙은 문서 링크. 받은편지함과 이벤트 콘솔이 같은 모양으로 그린다(목업 docs/mockups/doc-reopen.html M13 ①②).
- * 글이 문서에 링크를 걸었으면 그 자리에 둔다(2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘").
- * 없으면 글 끝에 붙인다. 따로 단추가 아니다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
- */
 export function DocText(props: { parts: readonly TextPart[]; doc: WaitDoc | null; node: NodeId | null; onRefusal: (message: string) => void }) {
   const { doc, parts } = props;
   const inline = parts.some((part) => part.part === 'doc');
@@ -37,7 +32,6 @@ export function DocText(props: { parts: readonly TextPart[]; doc: WaitDoc | null
   );
 }
 
-/** 글 속 `file://`·`http(s)://` 링크. */
 function TextLink(props: { label: string; href: string; node: NodeId | null }) {
   return (
     <button type="button" className="doc-link" title={props.href} onClick={() => openLink(props.href, props.node)}>
@@ -46,11 +40,9 @@ function TextLink(props: { label: string; href: string; node: NodeId | null }) {
   );
 }
 
-/** 문서 ID의 링크. 대기가 닫혀도 열린다(2026-10-23 사람 "클로드 아티팩트처럼 상시 볼 수 있게 하면 안됨/"). */
 export function DocLink(props: { doc: WaitDoc; label: string; onRefusal: (message: string) => void }) {
   const { t } = useTranslation();
   const { doc } = props;
-  // 앱 창은 새 탭을 열지 못해 데몬이 기본 브라우저를 연다. 폰 앱은 통행증 주소를 폰 브라우저로 넘긴다. 브라우저와 폰 브라우저는 데몬이 내는 문서를 새 탭에서 연다(목업 docs/mockups/mobile.html ②).
   return isTauri() || phoneBrowser() ? (
     <button
       type="button"

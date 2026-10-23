@@ -5,14 +5,8 @@ import type { InviteView } from './gen/InviteView';
 import type { PhoneView } from './gen/PhoneView';
 import { ago, dayAndTime } from './i18n';
 
-/** 코드 상자가 열린 동안 폰이 짝지었는지 묻는 간격. */
 const INVITE_POLL_MS = 2000;
 
-/**
- * 설정 「휴대폰」 탭(목업 docs/mockups/phone-pairing.html ②③, phone-direct.html ②③, 사람 결정 Q364 A·Q414·Q418 C,
- * 사람 지시 "핸드폰 연결은 설정에 별도 탭을 만들것", "앱 연동은 orca처럼 tailscail 독립적으로 구현하라").
- * 폰 문 주소와 QR로 Android 앱을 짝짓고, 짝지은 기기를 끊는다. 브라우저(iPhone)는 선택인 Tailscale Serve 길을 쓴다.
- */
 export function PhoneTab() {
   const { t } = useTranslation();
   const [view, setView] = useState<PhoneView | null>(null);
@@ -20,13 +14,11 @@ export function PhoneTab() {
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  /** tailnet이 Serve를 허용하지 않아 CLI가 찍은 허용 페이지. */
   const [consent, setConsent] = useState('');
 
   const refresh = useCallback(() => getPhone().then(setView, (e: Error) => setError(e.message)), []);
   useEffect(() => void refresh(), [refresh]);
 
-  // 코드 상자가 열린 동안: 남은 시간을 1초마다 다시 그리고, 폰이 썼거나 시간이 지나면 상자를 닫는다.
   useEffect(() => {
     if (!invite) return;
     const tick = setInterval(() => setNow(Date.now()), 1000);

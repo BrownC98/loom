@@ -1,7 +1,3 @@
-//! 에이전트 카탈로그와 새 노드의 시작 명령.
-//! 카탈로그는 Orca 표를 옮긴 데이터(`agents.json`)다. 바뀌는 이유는 CLI 버전과 Orca 표다.
-//! 근거: docs/design.md 「에이전트」.
-
 pub mod claude;
 pub mod codex;
 pub mod cursor;
@@ -22,7 +18,6 @@ use crate::screen::{Dialog, Grammar, Place};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
-/// 첫 지시문 상한. 근거: docs/design.md 「맥락과 크기」.
 pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
 
 /// 카탈로그의 `id`. 예: `claude`, `gemini`.
@@ -30,8 +25,6 @@ pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
 #[ts(export)]
 pub struct AgentId(pub String);
 
-/// 한 번에 넘기는 메시지 글(`Delivery::text`) 합의 상한. 첫 메시지는 늘 넘긴다. 남은 메시지는 다음에 넘긴다.
-/// Claude는 훅 `additionalContext` 한 개를 10,000자에서 자르고 파일로 돌린다. 모든 프로필이 이 크기로 묶는다.
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 
 /// 메시지 연동(훅·app-server·서버 API)이 있는 에이전트. 근거: docs/design.md 「에이전트 실행」.
@@ -46,20 +39,14 @@ pub enum Profile {
     Cursor,
 }
 
-/// 훅이 메시지를 꺼내는 때. 훅으로 전달하는 프로필(Claude, Cursor)이 쓴다.
 #[derive(Debug, PartialEq)]
 pub enum Take {
-    /// 턴 안의 지점. 이 방식의 메시지만 바로 꺼낸다.
     Now(&'static [Kind]),
-    /// 턴이 없다(세션 시작, 턴 끝). 훅이 메시지가 올 때까지 기다린다.
     WhenIdle,
-    /// 메시지를 꺼내지 않는다(알림).
     Never,
 }
 
 impl Profile {
-    /// 계정을 고르는 프로필이면 그 공급자다. OpenCode 2는 공급자가 여럿이라 loom 계정이 없다.
-    /// Cursor는 계정 전환을 아직 두지 않는다. 노드는 Cursor CLI의 로그인을 쓴다.
     pub fn provider(self) -> Option<Provider> {
         match self {
             Profile::Claude => Some(Provider::Claude),
@@ -78,7 +65,6 @@ pub enum Provider {
     Codex,
 }
 
-/// 노드 TUI가 붙을 서버. 데몬이 노드를 띄우기 전에 그 프로필의 서버를 띄운다.
 pub enum Remote<'a> {
     Codex {
         url: &'a str,
@@ -90,12 +76,9 @@ pub enum Remote<'a> {
     },
 }
 
-/// 데몬이 다시 시작한 뒤 노드 서버에 다시 붙는 값. 노드와 함께 DB에 남는다(graph).
-/// `pid`는 서버 프로세스다. 셸을 찾고 서버를 끝낼 때 쓴다.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ServerLink {
-    /// `thread`는 TUI가 만든 노드 스레드다. 만들기 전에는 없다.
     Codex {
         url: String,
         pid: Option<u32>,
@@ -109,33 +92,20 @@ pub enum ServerLink {
     },
 }
 
-/// 노드 하나의 메일함. 데몬이 그래프로 만들어 프로필의 전달 작업에 넘긴다. 프로필은 그래프를 모른다.
 pub trait Mailbox: Send + Sync + 'static {
-    /// 다음 메일 변화나, 확인하지 않은 메시지를 다시 꺼낼 수 있게 될 때 끝나는 future.
-    /// 메일함을 보기 전에 만든다. 그래야 그 사이에 온 메시지를 놓치지 않는다.
     fn changed(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
-    /// `kinds` 가운데 하나인 메시지를 온 순서로 꺼낸다. 확인(`ack`)하기 전까지는 `delivered`가 아니다.
-    /// 첫 메시지는 늘 꺼낸다. 그 뒤 메시지는 본문 합이 `limit_bytes` 이하일 때만 꺼낸다.
     fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String>;
-    /// 꺼낸 메시지를 받는 쪽에 넘겼다고 확인한다. 확인하지 않은 메시지는 나중에 다시 꺼낸다.
     fn ack(&self, taken: &[Delivery]) -> Result<(), String>;
-    /// 턴이 끝났다. `reply`는 그 턴의 마지막 답 글이다. 다시 일하게 할 글이 있으면 돌려준다(턴 끝 질문 검사).
     fn turn_ended(&self, reply: Option<String>) -> Option<String>;
-    /// 사람이 입력해 턴이 시작했다. 그 턴에 더할 글(열린 `loom ask` 질문)이 있으면 돌려준다.
     fn human_input(&self) -> Option<String>;
 }
 
-/// 첫 지시문을 넘기는 방법. Orca의 `promptInjectionMode`를 옮겼다.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum Prompt {
-    /// 마지막 인자로 넘긴다.
     Argv,
-    /// 구분자 뒤 인자로 넘긴다. 예: `-- <지시문>`.
     ArgvAfter(String),
-    /// 플래그 값으로 넘긴다. 예: `--prompt <지시문>`.
     Flag(String),
-    /// 넘길 방법이 없다. Orca는 시작 뒤 입력창에 써 넣는다. loom은 PTY에 글자를 쓰지 않는다.
     None,
 }
 
@@ -150,7 +120,6 @@ struct Agent {
     args: Vec<String>,
     prompt: Prompt,
     profile: Option<Profile>,
-    /// 승인 창 없이 모든 권한을 허용하는 인자. 비어 있으면 그런 인자를 확인하지 않은 것이다.
     #[serde(default)]
     bypass: Vec<String>,
     homepage: String,
@@ -190,7 +159,6 @@ pub struct AgentAt {
     pub version_warning: Option<VersionMismatch>,
 }
 
-/// 카탈로그 전체를 데몬 PATH와 `wsl`의 배포판마다 찾는다. 부를 때마다 다시 찾는다. 버전 경고는 호출자가 넣는다.
 pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
     CATALOG
         .iter()
@@ -219,7 +187,6 @@ pub fn agents(wsl: &[&Inside]) -> Vec<AgentView> {
         .collect()
 }
 
-/// 카탈로그의 모든 명령과 별칭. WSL 배포판에서 한 번에 찾는다(`wsl::inside`).
 pub fn catalog_commands() -> Vec<&'static str> {
     CATALOG
         .iter()
@@ -234,7 +201,6 @@ fn installed(agent: &Agent) -> Option<PathBuf> {
         .find_map(|cmd| which::which(cmd).ok())
 }
 
-/// `start`가 띄울 프로그램의 이름들(카탈로그 명령과 별칭). 명령 노드면 없다.
 pub fn commands(start: &Start) -> Vec<&'static str> {
     match start {
         Start::Agent { agent, .. } => find(agent)
@@ -253,18 +219,15 @@ fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
 
-/// 띄울 때 `choice_args`가 거절할 조합이면 그 거절이다. 카탈로그에 없는 에이전트는 판단하지 않는다.
 pub(crate) fn check_choice(id: &AgentId, choice: &ModelChoice) -> Result<(), LaunchError> {
     find(id).map_or(Ok(()), |agent| choice_args(agent, choice).map(drop))
 }
 
-/// 고정 버전이 있는 프로필과 그 CLI 명령. 메시지 연동이 다른 버전과 맞지 않을 수 있다.
 pub const PINNED: [(Profile, &str); 2] = [
     (Profile::Codex, "codex"),
     (Profile::OpenCode2, opencode2::CMD),
 ];
 
-/// `<명령> --version` 출력이 그 프로필의 고정 버전과 다르면 화면 경고다.
 pub fn version_warning(profile: Profile, version_output: &str) -> Option<VersionMismatch> {
     match profile {
         Profile::Codex => codex::version_warning(version_output),
@@ -273,8 +236,6 @@ pub fn version_warning(profile: Profile, version_output: &str) -> Option<Version
     }
 }
 
-/// 이 PC의 프로필마다 화면 경고. 데몬이 시작할 때 한 번 부른다.
-/// `codex_version`은 데몬이 샌드박스 인자에도 쓰는 `codex --version` 출력이다.
 pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, VersionMismatch> {
     PINNED
         .into_iter()
@@ -288,7 +249,6 @@ pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, Version
         .collect()
 }
 
-/// 데몬 PATH의 `<cmd> --version` 출력. 설치하지 않았으면 없다.
 fn installed_version(cmd: &str) -> Option<String> {
     let out = crate::process_tree::command(cmd)
         .arg("--version")
@@ -298,8 +258,6 @@ fn installed_version(cmd: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// 메시지 연동이 있는 에이전트면 그 프로필이다.
-/// 셸·명령 노드와 프로필 없는 에이전트의 확인 창: 마지막 줄의 입력 요청(sudo, ssh, git, y/n).
 const SHELL_DIALOGS: [Dialog; 5] = [
     Dialog {
         text: "password",
@@ -328,7 +286,6 @@ const SHELL_DIALOGS: [Dialog; 5] = [
     },
 ];
 
-/// 노드 터미널 화면에서 찾을 확인 창(`screen::find`). OpenCode 2 세션은 모두 허용으로 띄워 창이 없다.
 pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
     match profile {
         Some(Profile::Claude) => &claude::DIALOGS,
@@ -339,7 +296,6 @@ pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
     }
 }
 
-/// 노드 터미널 화면의 승인 창을 읽는 법(`screen::prompt`). 셸과 OpenCode 2(모두 허용)는 승인 창이 없다.
 pub fn prompt_grammar(profile: Option<Profile>) -> Option<&'static Grammar> {
     match profile? {
         Profile::Claude => Some(&claude::PROMPT),
@@ -373,7 +329,6 @@ pub enum Start {
     Command { line: String },
 }
 
-/// `loom spawn --model`·`--effort`. 빈 칸은 CLI 설정의 값으로 뜬다.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub struct ModelChoice {
     pub model: Option<String>,
@@ -387,7 +342,6 @@ impl ModelChoice {
 }
 
 impl Start {
-    /// 노드 목록에 남기는 에이전트. 명령(기본 셸 포함)이면 없다.
     pub fn agent(&self) -> Option<AgentId> {
         match self {
             Start::Agent { agent, .. } => Some(agent.clone()),
@@ -395,7 +349,6 @@ impl Start {
         }
     }
 
-    /// 메시지 연동이 있는 에이전트면 그 프로필이다.
     pub fn profile(&self) -> Option<Profile> {
         match self {
             Start::Agent { agent, .. } => profile_of(agent),
@@ -490,11 +443,6 @@ pub struct VersionMismatch {
     pub pinned: String,
 }
 
-/// `remote`는 노드 TUI가 붙을 서버다. 서버를 쓰는 프로필(Codex, OpenCode 2)에만 쓴다.
-/// `bypass_off`에 없는 에이전트는 모든 권한 허용 인자(`bypass`)로 띄운다.
-/// `plugin`은 loom이 싣는 스킬 플러그인 폴더다. Claude·Cursor만 시작 인자로 받는다. 다른 프로필은 서버가 받는다.
-/// `launch`는 상시 지시를 고른다(`skills::always_on`). Claude는 시작 인자로, Cursor는 훅이 읽는 환경 변수로 받는다.
-/// `inside`가 있으면 WSL 노드다: 프로그램은 그 배포판에서 찾은 것이고, 셸은 배포판의 셸이다. 호출자가 `Inside::wrap`으로 감싼다.
 pub fn command(
     start: &Start,
     cwd: &Path,
@@ -532,8 +480,6 @@ pub fn command(
     Ok(cmd)
 }
 
-/// 노드·로그인 터미널(xterm.js)은 트루컬러를 그린다. 데몬을 띄운 곳(예: Claude Code의 Bash 도구)이 색을 끈 값은
-/// 노드에 맞지 않는다. 남기면 Claude Code 마스코트 같은 색 출력이 흰색으로 나온다.
 pub fn color_terminal(cmd: &mut CommandBuilder) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -541,16 +487,6 @@ pub fn color_terminal(cmd: &mut CommandBuilder) {
     cmd.env_remove("FORCE_COLOR");
 }
 
-/// 데몬을 띄운 터미널(Claude Code, Codex, OpenCode, Orca, 다른 loom 노드)이 넣은 변수다. 데몬은 시작할 때 지운다.
-/// 남기면 노드와 사용량 조회가 데몬을 띄운 곳에 따라 다르게 돈다.
-/// - 세션 표지: Claude Code가 자기를 그 세션의 자식으로 보고 대화 기록을 저장하지 않는다
-///   ("inherited CLAUDE_CODE_CHILD_SESSION marker", 2.1.304 실측). Orca 훅 변수는 노드의 훅 보고를 Orca로 보낸다.
-/// - 로그인 폴더(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG_DIR`): 기본 계정이 데몬을 띄운 곳의 계정이 된다.
-///   다른 `HOME`으로 띄운 시험 데몬도 사람의 `~/.codex`를 썼다. 다른 계정은 loom 계정 설정으로 고른다.
-/// - `ANTHROPIC_BASE_URL`: Claude Code는 `settings.json`의 `env`를 자기 셸 명령에 넣는다. 그 세션에서 띄운 데몬이 받으면
-///   loom 계정 노드도 시스템 기본 계정의 중계 서버로 요청하고, 그 서버가 다른 토큰을 거절했다(2026-10-21 「401 인증 실패」).
-///   시스템 기본 노드는 Claude가 `~/.claude/settings.json`에서 다시 읽으므로 그대로다.
-/// - 시험의 기록기(`open::OPENER_ENV`)는 남긴다. 지우면 시험 데몬이 사람의 기본 앱을 연다(2026-10-23 검토자가 사람의 브라우저에 시험 파일을 띄웠다).
 pub fn is_launcher_env(key: &str) -> bool {
     (["CLAUDE_CODE_", "CODEX_", "OPENCODE", "ORCA_", "LOOM_"]
         .iter()
@@ -602,8 +538,6 @@ fn agent_command(
     }
     let mut cmd = CommandBuilder::from_argv(argv);
     cmd.args(leading_args(agent, resume, !bypass_off.contains(id)));
-    // 프로필이 있으면 프로필이 시작 인자를 정한다. 카탈로그 `args`는 Orca가 연동 없이 띄울 때의 인자다.
-    // 예: OpenCode 2의 `--standalone`은 비공개 서버를 띄워 `--server`와 함께 쓸 수 없다.
     match (agent.profile, remote) {
         (Some(Profile::Claude), _) => cmd.args(claude::args(plugin, launch, brief)),
         (Some(Profile::Cursor), _) => {
@@ -630,7 +564,6 @@ fn agent_command(
         (None, _) => cmd.args(&agent.args),
     }
     cmd.args(choice_args);
-    // 파일 끝 줄바꿈을 지운다. OpenCode 2 TUI는 `--prompt` 값이 줄바꿈으로 끝나면 제출하지 않는다(Windows 실측).
     let brief = brief.trim_end();
     if brief.is_empty() {
         return Ok(cmd);
@@ -645,9 +578,6 @@ fn agent_command(
     Ok(cmd)
 }
 
-/// 다른 인자보다 앞에 넣는 인자: 이어 갈 세션(다시 띄우기)과 모든 권한 허용. OpenCode 2는 세션을 서버가 연다(`opencode2::Node::start`). Codex `resume`은 하위 명령이라 맨 앞이다.
-/// `codex resume --remote`는 권한 인자를 받지 않는다("Permission overrides are not supported when resuming a remote task",
-/// 0.159.2 실측). 그 권한은 데몬이 서버에서 스레드를 열 때 넘긴다(`codex::resume`).
 fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String> {
     let mut args = match (agent.profile, resume) {
         (Some(Profile::Claude | Profile::Cursor), Some(session)) => {
@@ -662,9 +592,6 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
     args
 }
 
-/// 모든 프로필이 받는 통신 명령. 프로필별 대기 방식은 각 실행 지시가 정한다.
-/// 백그라운드 규칙: 앞에서 도는 긴 명령 동안 조정이 넘어가지 않아 「안 읽음」을 눌러도 고장처럼 보였다(2026-10-22 사람 결정 Q322 B).
-/// 기준은 시간이 아니라 다음 단계에 결과가 바로 필요한가다(2026-10-22 사람 지시 "백그라운드로 넣을 수 있으면 넣는걸로 하라 시간 단위가 아니라", Q339 A). 짧은 조회까지 보내면 끝 알림마다 턴이 늘었다.
 pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
 - loom spawn <name> (--agent <agent-id> | --role <role>) [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>, with the heads Goal, Facts, Scope, Done when, Checks, Time. The child gets its task folder in $LOOM_TASK_DIR (brief.md, result.md, review/, logs/): --worktree makes a new task, else the child shares yours. loom roles lists the roles.
 - loom status: your ID, parent and children, and whether their processes are alive. loom status --all lists every node.
@@ -676,19 +603,14 @@ With a parent, write no progress in the terminal. Results go in loom done or loo
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
 Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input) are notices. The same ID can come again; do not repeat completed actions for that ID.");
 
-/// 노드가 띄울 때 받은 시작 글 조각(사용법, 상시 지시)마다의 해시. 조각 이름 → 해시.
 pub type StartDigests = BTreeMap<String, String>;
 
-/// 데몬이 시작할 때 이 판의 해시와 견줘(`changed_parts`), 바뀐 조각을 받은 노드만 턴 끝에 다시 띄운다.
-/// 근거: 시작 글은 띄울 때 한 번만 넘어가서, 바뀌어도 뜬 노드는 옛 글을 쥔다(R14 5절, 2026-10-23 Q687 A).
-/// 배포마다 모든 노드에 알리자 기록 3,000건 안에서 27번 다시 떴다(2026-10-24 총괄 실측).
 pub fn start_digests(profile: Profile, launch: Launch) -> StartDigests {
     let mut digests = crate::skills::part_digests(launch);
     digests.insert(usage_part(profile).to_owned(), usage_digest(profile));
     digests
 }
 
-/// 노드가 받은 조각 가운데 이 판에서 글이 바뀌었거나 없어진 조각.
 pub fn changed_parts(got: &StartDigests) -> Vec<&str> {
     got.iter()
         .filter(|(part, digest)| current_digest(part).as_ref() != Some(*digest))
@@ -718,7 +640,6 @@ fn usage_part(profile: Profile) -> &'static str {
     }
 }
 
-/// 띄울 때 넘기는 사용법: 공통 명령과 그 프로필의 대기 방식.
 fn usage_digest(profile: Profile) -> String {
     let waiting = match profile {
         Profile::Claude => claude::WAITING,
@@ -729,7 +650,6 @@ fn usage_digest(profile: Profile) -> String {
     crate::skills::digest(&[COMMUNICATION_USAGE, waiting])
 }
 
-/// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
     match agent.profile {
         _ if choice.is_empty() => Ok(Vec::new()),
@@ -741,8 +661,6 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
     }
 }
 
-/// 받는 노드에 넘기는 메시지 본문. 프로필마다 이 글을 맥락이나 새 턴 입력으로 넣는다.
-/// 훅이 넘기는 글: 꺼낸 메시지, 사람 입력 때 열린 `loom ask` 질문들. 모두 없으면 없다.
 pub fn hook_text(taken: &[Delivery], note: Option<&str>) -> Option<String> {
     let mut parts: Vec<String> = note.map(str::to_owned).into_iter().collect();
     if !taken.is_empty() {
@@ -751,7 +669,6 @@ pub fn hook_text(taken: &[Delivery], note: Option<&str>) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
-/// 사람 입력에 붙이는 열린 질문 안내. 질문이 없으면 없다.
 pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
     let first = open_questions.first()?;
     let list: Vec<String> = open_questions
@@ -773,7 +690,6 @@ pub fn message_text(taken: &[Delivery]) -> String {
         .join(crate::graph::BATCH_SEPARATOR)
 }
 
-/// 명령 한 줄을 도는 셸. 명령 노드와 설정 스크립트가 쓴다.
 #[cfg(unix)]
 pub fn shell(line: &str) -> CommandBuilder {
     let mut cmd = CommandBuilder::new("sh");
@@ -788,9 +704,6 @@ pub fn shell(line: &str) -> CommandBuilder {
     cmd
 }
 
-/// 런타임마다 시작 지시에 질문 규칙이 둘 다 든다: 사용법의 필수 한 줄과 `ask-human` 본문 한 번.
-/// 자리와 스위치가 무엇이든 든다. `texts`는 한 시작의 (사용법 글, 상시 지시 글)이다.
-/// 근거: 2026-10-21 사람 지시 "loom 기능과 직결되므로 스킬이 되었든 다른 방식이 되었든 각 에이전트에 강하게 명시되어야 함".
 #[cfg(test)]
 pub fn assert_every_launch_asks(texts: impl Fn(Launch) -> (String, String)) {
     use crate::skills::{AlwaysOn, Position};
@@ -939,7 +852,6 @@ mod tests {
         );
     }
 
-    /// 모든 권한 허용 인자는 CLI 도움말로 확인한 셋에만 둔다(docs/design.md 「실측 근거」).
     #[test]
     fn only_checked_agents_can_bypass() {
         let ids: Vec<_> = agents(&[])
@@ -950,7 +862,6 @@ mod tests {
         assert_eq!(ids, ["claude", "codex", "opencode2", "cursor"]);
     }
 
-    /// 노드가 받은 조각의 해시가 이 판과 같으면 다시 띄우지 않는다. 바뀌었거나 이 판에 없는 조각만 고른다.
     #[test]
     fn only_parts_whose_text_changed_are_stale() {
         let launch = crate::skills::Launch {

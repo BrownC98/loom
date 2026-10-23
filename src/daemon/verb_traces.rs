@@ -1,9 +1,3 @@
-//! 에이전트 동사마다 성공과 거절이 이벤트를 남기는지 본다. `loom audit` 명령 대신 이 시험이 추적을 강제한다(R14 D3 A, 2026-10-23 Q687 A).
-//! CLI 명령 목록(`crate::Cli`)을 돌므로, 새 명령은 `scene`에 성공·거절 장면을 더하거나 `UNTRACED`에 까닭을 적어야 이 시험이 지난다.
-//! 거절 장면은 모두 처리기를 지난다. 성공 장면 가운데 다섯은 처리기가 아니라 그 끝의 그래프 호출만 본다:
-//! `spawn`(`add_child`, 띄우기에 PTY 호스트가 있어야 한다), `ready`·`verdict`·`merge`·`fail`(git 저장소와 관문 스크립트가 있어야 한다).
-//! 그래서 이 다섯의 처리기가 성공 길에서 그래프를 부르지 않게 바뀌어도 이 시험은 잡지 못한다. `relaunch`의 성공 장면은 세션이 없어 실패한 다시 띄우기다.
-
 use clap::{CommandFactory, Parser};
 use tempfile::TempDir;
 
@@ -11,7 +5,6 @@ use super::*;
 use crate::graph::{Entry, Round, TurnCheck};
 use crate::protocol::{CI_ROLE, Judgment};
 
-/// 이벤트를 남기지 않는 명령과 그 까닭.
 const UNTRACED: [(&str, &str); 15] = [
     ("serve", "runs the daemon"),
     ("start", "starts or joins the daemon"),
@@ -153,7 +146,6 @@ impl Fixture {
         entries
     }
 
-    /// 그 동사가 부른 쪽에게 거절을 돌려주었고, 같은 거절을 `Refused`로 남겼다.
     fn refused<T>(&self, verb: &str, mark: u32, result: Result<Json<T>, AgentError>) -> Refusal {
         assert!(result.is_err(), "{verb}: the refusal scene was not refused");
         let tool = format!("loom {verb}");
@@ -220,7 +212,6 @@ async fn every_agent_verb_leaves_an_event_on_success_and_on_refusal() {
     }
 }
 
-/// 동사 하나의 거절 장면과 성공 장면.
 async fn scene(t: &Fixture, verb: &str) {
     let mark = t.mark();
     match verb {
@@ -238,7 +229,6 @@ async fn scene(t: &Fixture, verb: &str) {
                 t.refused(verb, mark, refused),
                 Refusal::MissingHeads(_)
             ));
-            // 띄우기는 PTY 호스트 프로세스가 있어야 해서 시험에서 돌지 않는다. 성공의 흔적(`Created`)은 그 앞 단계 `add_child`가 쓴다.
             let mark = t.mark();
             t.child("made", None, "made-token");
             t.wrote(
@@ -299,7 +289,6 @@ async fn scene(t: &Fixture, verb: &str) {
             };
             let refused = agent_ask(t.state(), headers(LEAD, verb), Json(ask(" "))).await;
             assert_eq!(t.refused(verb, mark, refused), Refusal::EmptyQuestion);
-            // 사람이 읽는 글 속 `file://` 링크는 `show.sh`를 지난 HTML만 받는다.
             let md = t.dir.path().join("r.md");
             std::fs::write(&md, "# r\n").unwrap();
             let link = format!("[r]({})", crate::user_doc::tests::file_url(&md));
@@ -434,7 +423,6 @@ async fn scene(t: &Fixture, verb: &str) {
                 t.refused(verb, mark, refused),
                 Refusal::NotChild(_)
             ));
-            // 남긴 세션이 없는 Claude 노드라 다시 띄우지 못한다. 그 결과도 `Relaunched`로 남는다.
             let mark = t.mark();
             let _ =
                 relaunch::agent_relaunch(t.state(), headers(LEAD, verb), Json(relaunch("worker")))
@@ -445,7 +433,6 @@ async fn scene(t: &Fixture, verb: &str) {
                 |e| matches!(e, Entry::Relaunched { node, .. } if node.id == Some(t.worker)),
             );
         }
-        // 관문 동사의 성공은 git 저장소와 관문 스크립트가 있어야 데몬 길로 돈다. 성공의 흔적은 그 끝 단계인 그래프 호출이 쓴다.
         "ready" => {
             let req = gate::ReadyRequest {
                 branch: "b".into(),
@@ -505,7 +492,6 @@ async fn scene(t: &Fixture, verb: &str) {
     }
 }
 
-/// 턴 끝 검사가 다시 일하게 하면 그 검사를 이벤트로 남긴다.
 #[test]
 fn a_nudged_turn_end_leaves_an_event() {
     let t = fixture();
@@ -518,13 +504,11 @@ fn a_nudged_turn_end_leaves_an_event() {
     t.wrote("turn end", mark, |e| {
         matches!(e, Entry::Nudged { node, check: TurnCheck::Unreported } if node.id == Some(t.lead))
     });
-    // 다시 일하게 하지 않은 턴 끝은 남기지 않는다.
     let mark = t.mark();
     assert!(t.app.turn_end(t.lead).is_none());
     assert_eq!(t.since(mark), []);
 }
 
-/// 옛 메시지 동사는 지웠다(R14 D2 A).
 #[test]
 fn old_message_verbs_are_gone() {
     for old in ["send", "steer", "interrupt", "reply"] {

@@ -1,5 +1,3 @@
-//! 병합 관문 상태(`gate.rs`): 관문 고르기, 전이와 받는 노드, 흔적, audit. 전이 표 자체는 `protocol` 시험이 본다.
-
 use super::*;
 use crate::protocol::{
     CI_ROLE, COORDINATOR_ROLE, Finding, GateState, GateVerb, Judgment, MergeEnd,
@@ -38,7 +36,6 @@ fn round<'a>(branch: &'a str, target: &'a str) -> Round<'a> {
     }
 }
 
-/// 총괄 아래 CI 담당자와 코디, 코디 아래 워커.
 struct Team {
     lead: NodeId,
     ci: NodeId,
@@ -70,7 +67,6 @@ fn mail(g: &Graph, node: NodeId) -> Vec<String> {
     let taken = g.take(node, Kind::ALL, usize::MAX).unwrap();
     let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
     g.ack(node, &ids).unwrap();
-    // 터미널 글에서 메시지 번호만 뺀다: `(from: …, kind: …)`, 칸 줄, 본문.
     taken
         .iter()
         .map(|d| {
@@ -93,7 +89,6 @@ fn spawn_role_is_stored_and_picks_the_gate() {
         })
         .unwrap();
     assert_eq!(role.as_deref(), Some("워커"));
-    // 코디 밑 워커의 관문은 코디, 코디의 관문은 CI 담당자다.
     assert_eq!(
         g.gate_for(worker).unwrap(),
         GateChoice::Coordinator {
@@ -105,14 +100,12 @@ fn spawn_role_is_stored_and_picks_the_gate() {
         g.gate_for(t.coordinator).unwrap(),
         GateChoice::Ci { gate: t.ci }
     );
-    // 끝난 CI 담당자는 고르지 않는다. 산 것이 둘이면 거절한다.
     let second = with_role(&g, t.lead, "ci2", CI_ROLE);
     assert!(
         matches!(g.gate_for(t.worker), Err(Refusal::ManyGates(ids)) if ids.contains(&format!("#{second}")))
     );
     g.exited(second, 0).unwrap();
     assert_eq!(g.gate_for(t.worker).unwrap(), GateChoice::Ci { gate: t.ci });
-    // 데몬이 재운 CI 담당자는 고른다. 메시지가 깨운다.
     g.done(t.ci, &report("idle"), None, &[], None, None)
         .unwrap();
     g.slept(t.ci).unwrap();
@@ -144,13 +137,11 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
         "{}",
         to_ci[0]
     );
-    // 같은 차례에 두 번 ready하지 않는다.
     assert!(matches!(
         g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
         Err(Refusal::Gate(e)) if e.state == GateState::Ready && e.allowed == [GateVerb::Verdict, GateVerb::Fail]
     ));
 
-    // 관문도 검토자도 아닌 노드는 판정하지 못한다. block은 결함 파일이 있어야 한다.
     assert!(matches!(
         g.verdict(t.worker, branch, Judgment::Pass, None, Some(&v)),
         Err(Refusal::NotGate { gate, .. }) if gate == "ci"
@@ -194,7 +185,6 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
     g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v))
         .unwrap();
     mail(&g, t.ci);
-    // 담당은 자기 브랜치를 판정하지 못한다(검토 P2-1).
     assert_eq!(
         g.verdict(t.coordinator, branch, Judgment::Pass, None, Some(&v)),
         Err(Refusal::OwnVerdict(branch.into()))
@@ -207,7 +197,6 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
         mail(&g, t.coordinator)[0]
             .contains("kind: verdict)\nbranch: 기능\nhead: c0ffee1\njudgment: pass")
     );
-    // 병합 시작 전에는 둘째 검토자가 pass를 block으로 바꾼다(검토 P2-7).
     assert_eq!(
         g.verdict(reviewer, branch, Judgment::Block, Some("/r/2.md"), Some(&v)),
         Ok(GateState::Working)
@@ -240,7 +229,6 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
         (t.coordinator, "main", "c0ffee1", 1, GateState::Passed)
     );
     assert!(mail(&g, t.coordinator)[0].starts_with("(from: ci, kind: merging)\nbranch: 기능"));
-    // 앞 실행이 보고 없이 끝났으면 같은 관문이 새 번호로 다시 시작한다. 앞 번호의 보고는 받지 않는다(검토 P2-4).
     let again = g.merge_start(t.ci, branch, Some(&v)).unwrap();
     assert_eq!((again.run, again.from), (2, GateState::Merging));
     mail(&g, t.coordinator);
@@ -278,7 +266,6 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
         "the owner hears the merge too"
     );
     assert_eq!(g.gate_merges(t.ci, "main").unwrap(), ["abc1234"]);
-    // 병합한 브랜치 이름을 다시 쓰면 새 차례다. 앞 병합 커밋은 관문 밖 커밋 검사의 기준으로 남는다(검토 P1-3).
     assert_eq!(
         g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
         Ok("ci".into())
@@ -288,7 +275,6 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
     assert!(g.gate_merges(t.ci, "코디 브랜치").unwrap().is_empty());
 }
 
-/// 담당을 지워 받을 노드가 없어도 성공한 관문 호출은 흔적을 남긴다: 부른 노드가 받는다(검토 C6).
 #[test]
 fn a_gate_call_without_receivers_goes_to_the_caller() {
     let dir = tempfile::tempdir().unwrap();
@@ -368,7 +354,6 @@ fn fail_and_no_round_and_unknown_callers_are_refused_or_routed_to_the_root() {
         1,
         "the owner hears the failure too"
     );
-    // 원인을 고친 뒤 담당이 새 차례를 연다.
     assert_eq!(
         g.ready(t.worker, &round("b", "main"), t.ci, Some(&v)),
         Ok("ci".into())
@@ -424,7 +409,6 @@ fn every_gate_call_and_refusal_leaves_a_trace() {
     assert_eq!(trace.role.as_deref(), Some(COORDINATOR_ROLE));
     assert_eq!(trace.agent, None, "a shell node");
     assert_eq!(trace.model.as_deref(), Some("claude-opus-5-5"));
-    // 손으로 보낸 메시지도 입구를 남긴다.
     let send_via = Via {
         tool: "loom send".into(),
         version: None,
@@ -468,7 +452,6 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
     let t = team(&g);
     let stranger = root(&g, "codex");
     let v = via();
-    // 앞 차례의 글은 이번 차례의 audit에 들지 않는다(검토 P1-1).
     let before = g
         .note(t.worker, "ci", Kind::Queue, "READY old", None)
         .unwrap();
@@ -486,7 +469,6 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
     let raw = g
         .note(t.worker, "ci", Kind::Queue, "READY b /x", None)
         .unwrap();
-    // 담당의 자손이 아닌 노드(다른 뿌리, 담당의 형제·부모)는 이 브랜치와 관계없다(검토 P2-5).
     g.note(stranger, "ci", Kind::Queue, "READY other", None)
         .unwrap();
     g.note(t.lead, "ci", Kind::Queue, "MERGED other", None)
@@ -495,7 +477,6 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
         .unwrap();
     g.human_typed(t.worker, "READY now").unwrap();
     let since = g.merge_task(t.worker, "b").unwrap().since;
-    // 관문 동사가 보낸 메시지(`gate ...`)와 나무 밖 노드의 글은 찾지 않는다.
     assert_eq!(
         g.audit(t.worker, since).unwrap(),
         vec![Finding::RawGateWord {
@@ -511,7 +492,6 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
             word: "READY".into(),
         }]
     );
-    // 시작점이 남은 가장 오래된 이벤트보다 앞이면 구간이 비었다.
     let oldest: i64 = g
         .lock()
         .query_row("SELECT min(at) FROM events", [], |r| r.get(0))
@@ -526,7 +506,6 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
     );
 }
 
-/// 다시 부르면 될 일로 멈춘 병합은 `Merging`에 남고, 관문 자신이 기록을 받는다. 담당은 반려를 받지 않는다(재작업 3 결정 3).
 #[test]
 fn a_stopped_merge_stays_merging_and_only_the_gate_hears_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -563,20 +542,17 @@ fn a_stopped_merge_stays_merging_and_only_the_gate_hears_it() {
     );
     assert!(mail(&g, t.worker).is_empty());
     assert!(mail(&g, t.lead).is_empty());
-    // 관문은 다시 병합한다.
     assert_eq!(
         g.merge_start(t.ci, "b", Some(&v)).unwrap().run,
         task.run + 1
     );
 }
 
-/// 병합 기록의 기본 자리는 관문 줄 담당의 작업 폴더다(데몬 `agent_task`). 브랜치 이름을 바꾸고 `loom ready`해도 처음 작업이다.
 #[test]
 fn a_branch_task_comes_from_the_owner_of_its_gate_round() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    // 담당의 작업 폴더는 띄울 때 정했다(`named`가 노드 이름으로 둔다).
     assert_eq!(g.branch_task(t.ci, "new-name").unwrap(), None);
     g.ready(t.worker, &round("new-name", "main"), t.ci, Some(&via()))
         .unwrap();
@@ -585,12 +561,10 @@ fn a_branch_task_comes_from_the_owner_of_its_gate_round() {
         Some(("/repo".to_owned(), "worker-x".to_owned()))
     );
     assert_eq!(g.branch_task(t.ci, "old-name").unwrap(), None);
-    // 담당 노드를 지우면 관문 줄이 남아도 작업 폴더를 알 수 없다.
     g.remove(t.worker).unwrap();
     assert_eq!(g.branch_task(t.ci, "new-name").unwrap(), None);
 }
 
-/// 관문 스크립트가 없는 저장소의 `loom ready`(요청 #3067): 관문 상태 없이 관문에 `ready`만 간다. 그 뒤 `loom done` 경고가 없다(`ready_sent`).
 #[test]
 fn an_ungated_ready_reaches_the_gate_without_a_gate_row() {
     let dir = tempfile::tempdir().unwrap();

@@ -1,21 +1,13 @@
-//! 기능: 작업 폴더 `~/.cache/loom/<작업>/`. `loom spawn`과 사람이 띄운 노드가 만들고 노드에게 `LOOM_TASK_DIR`로 알린다.
-//! 폴더 이름은 데몬이 처음 한 번 정해 노드 줄(`nodes.task`)에 둔다. 근거: docs/design.md 「작업 폴더」.
-
 use std::path::{Path, PathBuf};
 
-/// 노드 환경에서 작업 폴더를 가리키는 변수. 값은 노드가 보는 경로다(WSL 노드는 Linux 경로).
 pub const ENV: &str = "LOOM_TASK_DIR";
 pub const BRIEF: &str = "brief.md";
 pub const RESULT: &str = "result.md";
-/// 검토자가 쓰는 결함 파일 `review/<검토자 노드 이름>.md`의 폴더.
 pub const REVIEW: &str = "review";
-/// `loom merge`의 기록.
 pub const LOGS: &str = "logs";
 
-/// 브리프에 있어야 하는 머리. o-mode 브리프 틀과 같다.
 pub const BRIEF_HEADS: [&str; 6] = ["Goal", "Facts", "Scope", "Done when", "Checks", "Time"];
 
-/// `brief`에 없는 머리. 머리는 `<머리>:`로 시작하는 줄이거나 그 낱말의 ATX 제목(`## Goal`, `## Goal ##`)이다. 대소문자는 가리지 않는다.
 pub fn missing_heads(brief: &str) -> Vec<&'static str> {
     let heads: Vec<String> = brief.lines().filter_map(head).collect();
     BRIEF_HEADS
@@ -24,12 +16,10 @@ pub fn missing_heads(brief: &str) -> Vec<&'static str> {
         .collect()
 }
 
-/// 줄이 머리면 그 낱말.
 fn head(line: &str) -> Option<String> {
     let line = line.trim();
     if let Some(title) = line.strip_prefix('#') {
         let title = title.trim_start_matches('#');
-        // ATX: 여는 `#` 뒤에 빈칸이나 탭, 끝의 닫는 `#`는 제목 글이 아니다.
         return title.starts_with([' ', '\t']).then(|| {
             title
                 .trim()
@@ -43,17 +33,14 @@ fn head(line: &str) -> Option<String> {
     line.split_once(':').map(|(word, _)| word.trim().to_owned())
 }
 
-/// 폴더 이름으로 쓸 글. 한 단계 폴더다: `/`가 든 브랜치(`feat/x`)는 `-`로 잇는다. 같은 이름의 다른 작업은 `Tasks::new_dir`가 번호로 가른다.
 pub fn folder(base: &str) -> String {
     let name = base.trim().replace(['/', '\\', ':'], "-");
-    // `.`, `..`는 위 폴더를 가리킨다.
     match name.trim_matches('.') {
         "" => name.replace('.', "-"),
         _ => name,
     }
 }
 
-/// 새 작업의 바탕 이름: `<저장소 폴더 이름>-<브랜치 또는 노드 이름>`.
 pub fn base(repo: &Path, name: &str) -> String {
     let repo = repo
         .file_name()
@@ -62,29 +49,21 @@ pub fn base(repo: &Path, name: &str) -> String {
     format!("{repo}-{name}")
 }
 
-/// 모든 작업 폴더가 든 폴더의 홈 아래 경로(`~/.cache/loom`).
 pub const ROOT: [&str; 2] = [".cache", "loom"];
 
-/// 모든 작업 폴더가 든 폴더 `~/.cache/loom`. 노드가 도는 곳의 홈 아래다.
 pub struct Tasks {
     local: PathBuf,
     shown: String,
-    /// 노드가 보는 경로의 구분 글자. WSL 노드는 `/`다.
     sep: char,
 }
 
-/// 한 작업의 폴더.
 pub struct TaskDir {
-    /// `nodes.task`에 두는 이름.
     pub folder: String,
-    /// 데몬과 CLI가 쓰는 경로(WSL 폴더면 UNC 경로).
     pub local: PathBuf,
-    /// 노드가 보는 경로(`LOOM_TASK_DIR`).
     pub shown: String,
 }
 
 impl Tasks {
-    /// 이 PC(Linux·macOS·Windows 노드).
     pub fn pc() -> Option<Self> {
         let local = ROOT
             .iter()
@@ -96,7 +75,6 @@ impl Tasks {
         })
     }
 
-    /// WSL 노드. `home`은 배포판 안의 홈, `local`은 배포판 안의 경로를 데몬이 쓰는 UNC 경로로 바꾼다.
     pub fn wsl(home: &str, local: impl FnOnce(&str) -> PathBuf) -> Self {
         let shown = format!("{}/{}", home.trim_end_matches('/'), ROOT.join("/"));
         Self {
@@ -106,7 +84,6 @@ impl Tasks {
         }
     }
 
-    /// 이미 정한 작업 폴더. 폴더는 `create`가 만든다.
     pub fn dir(&self, folder: &str) -> TaskDir {
         TaskDir {
             folder: folder.to_owned(),
@@ -115,8 +92,6 @@ impl Tasks {
         }
     }
 
-    /// 새 작업 폴더를 만든다. 그 이름의 폴더가 이미 있으면(앞 작업, 다른 브랜치가 같은 이름이 됨) `-2`, `-3`…을 붙인다.
-    /// `create_dir`은 하나만 성공하므로 동시에 띄운 두 자식도 다른 폴더를 받는다.
     pub fn new_dir(&self, base: &str) -> std::io::Result<(TaskDir, Fresh)> {
         std::fs::create_dir_all(&self.local)?;
         let base = folder(base);
@@ -139,11 +114,9 @@ impl Tasks {
     }
 }
 
-/// 이번 요청이 새로 만든 작업 폴더. 요청이 어느 길에서든 실패해 `keep`을 부르지 못하면 지운다(다음 같은 이름의 작업이 번호를 받지 않게).
 pub struct Fresh(Option<PathBuf>);
 
 impl Fresh {
-    /// 요청이 끝까지 가서 노드가 이 폴더를 쓴다.
     pub fn keep(mut self) {
         self.0 = None;
     }
@@ -157,8 +130,6 @@ impl Drop for Fresh {
     }
 }
 
-/// `review/`, `logs/`, 빈 `result.md`를 만들고 `brief`가 있으면 `brief.md`에 쓴다. 이미 있는 파일은 둔다.
-/// 같은 작업을 물려받은 자식(검토자 등)이 앞 브리프와 결과를 덮지 않게 한다. 새 작업은 늘 빈 새 폴더다(`Tasks::new_dir`).
 pub fn create(dir: &Path, brief: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(dir.join(REVIEW))?;
     std::fs::create_dir_all(dir.join(LOGS))?;
@@ -242,7 +213,6 @@ mod tests {
         keep_first.keep();
         create(&first.local, "old brief").unwrap();
         std::fs::write(first.local.join(REVIEW).join("opus.md"), "old").unwrap();
-        // 같은 브랜치를 병합 뒤 다시 쓴다. `feat-x`는 다른 브랜치지만 같은 글이 된다.
         let (again, keep_again) = tasks.new_dir("loom-feat/x").unwrap();
         let (other, keep_other) = tasks.new_dir("loom-feat-x").unwrap();
         keep_again.keep();
@@ -259,7 +229,6 @@ mod tests {
         assert_eq!(tasks.dir(&first.folder).local, first.local);
     }
 
-    /// 요청이 실패해 `keep`을 못 부르면 새 폴더는 남지 않는다. 그래서 다음 같은 이름의 작업이 `-2`를 받지 않는다.
     #[test]
     fn a_dropped_fresh_folder_is_removed_and_a_kept_one_stays() {
         let home = tempfile::tempdir().unwrap();

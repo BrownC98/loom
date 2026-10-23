@@ -1,8 +1,3 @@
-//! Codex 프로필: 시작 인자(사용법 지시, app-server 주소)와 메일함 메시지를 `turn/*` 요청으로 바꾸는 규칙.
-//! 바뀌는 이유는 Codex 버전이다. 요청·알림 타입은 `build.rs`가 고정한 스키마(`codex/schema/`)에서 만든다.
-//! 스키마를 바꾸려면 `codex app-server generate-json-schema --out <폴더>`의 `v2/`에서 같은 이름의 파일을 옮기고
-//! `PINNED_VERSION`을 고친다. 근거: docs/design.md 「에이전트 실행」, 「전달 지점」.
-
 use std::future::Future;
 use std::net::IpAddr;
 
@@ -26,16 +21,13 @@ use protocol::{
     TurnInterruptParams, TurnItemsView, TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
 };
 
-/// 승인 창(0.159.2 실측): 테두리가 없고 「Would you like to …」 줄부터 본문이다. 선택지는 `› 1. Yes, proceed (y)` 꼴이다.
 pub const PROMPT: Grammar = Grammar {
     top: Top::Line("Would you like to"),
     options: Options::Numbered,
     guard: None,
 };
 
-/// `src/profile/codex/schema/`를 만든 Codex 버전.
 pub const PINNED_VERSION: &str = "0.159.2";
-/// app-server가 알리지 않는 TUI 확인 창(0.159.2 화면 문구). 승인·답 대기는 스레드 상태가 알린다(`codex_server::Thread`).
 pub const DIALOGS: [Dialog; 2] = [
     Dialog {
         text: "Trust this folder?",
@@ -48,10 +40,8 @@ pub const DIALOGS: [Dialog; 2] = [
         place: Place::BeforeSession,
     },
 ];
-/// 새 턴 입력 하나에 넣는 본문 합의 상한. 첫 메시지는 늘 넣는다. 남은 메시지는 다음 턴에 들어간다.
 pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 
-/// 사용법 끝에 붙는 대기 방식. 바꾸면 이 프로필의 뜬 노드가 턴 끝에 다시 뜬다(`profile::start_digests`).
 pub(super) const WAITING: &str = "When waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.";
 
 fn usage(launch: Launch) -> String {
@@ -62,7 +52,6 @@ fn usage(launch: Launch) -> String {
     )
 }
 
-/// `-m`과 `model_reasoning_effort` 시작 인자. `-c` 값은 TOML이라 문자열을 따옴표로 감싼다.
 pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
     let mut args = Vec::new();
     if let Some(model) = &choice.model {
@@ -79,17 +68,11 @@ pub fn args(app_server: &str) -> Vec<String> {
     vec!["--remote".into(), app_server.into()]
 }
 
-/// `codex app-server` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
-/// TUI(`--remote`)에 넘긴 `developer_instructions`는 서버가 만든 스레드에 들어가지 않는다(0.159.2 실측).
-/// `-c` 값은 TOML로 읽힌다. JSON 문자열은 TOML 기본 문자열과 같은 이스케이프를 쓴다.
 pub fn server_args(launch: Launch) -> Vec<String> {
     let usage = serde_json::to_string(&usage(launch)).expect("문자열은 늘 직렬화된다");
     vec!["-c".into(), format!("developer_instructions={usage}")]
 }
 
-/// 계정 전환으로 새 서버에서 이어 갈 스레드를 TUI보다 먼저 연다(`thread/resume`). 권한은 처음 띄울 때 TUI가 쓴 값과 같게 둔다.
-/// `codex resume --remote`는 권한 인자를 받지 않고, 신뢰하지 않은 폴더에서는 `read-only`로 이었다(0.159.2 실측).
-/// `bypass`는 모든 권한 허용 인자로 띄운 노드다. 아니면 Codex TUI 기본(`workspace-write`, `on-request`)이다.
 pub async fn resume<F, Fut>(call: F, thread: &str, bypass: bool) -> Result<(), String>
 where
     F: Fn(&'static str, Value) -> Fut,
@@ -108,13 +91,6 @@ where
     call("thread/resume", params).await.map(drop)
 }
 
-/// `codex app-server`의 `workspace-write` 샌드박스에 `daemon` 주소로 가는 길 하나만 연다.
-/// 네트워크를 켜면 셸 명령은 Codex 프록시로만 밖에 닿고, 프록시는 `daemon` 말고 모든 주소를 막는다.
-/// 권한 프로필(`default_permissions`)은 쓰지 않는다. TUI가 `thread/start`에 `sandbox`를 넣어 덮는다.
-/// `version_output`이 고정 버전이 아니면 아무것도 넘기지 않는다. 프록시가 뜨지 않는 버전에서
-/// `network_access`만 켜지면 모든 주소가 열린다. 근거: docs/design.md 「에이전트 실행」, 「실측 근거」.
-/// Windows도 아무것도 넘기지 않는다. 프록시는 관리자 권한 샌드박스(elevated)에서만 뜨고, 기본 Windows Codex는
-/// `workspace-write`를 `read-only`로 낮춘다(실측). 그때 Codex 노드는 loom 명령마다 승인을 묻는다.
 pub fn sandbox_args(version_output: &str, daemon: IpAddr) -> Vec<String> {
     if cfg!(windows) || version_output.split_whitespace().last() != Some(PINNED_VERSION) {
         return Vec::new();
@@ -129,13 +105,10 @@ pub fn sandbox_args(version_output: &str, daemon: IpAddr) -> Vec<String> {
     .collect()
 }
 
-/// 데몬 PATH의 `codex --version` 출력. 설치하지 않았으면 없다.
 pub fn installed_version() -> Option<String> {
     super::installed_version("codex")
 }
 
-/// `codex --version` 출력(예: `codex-cli 0.159.2`)이 고정 버전과 다르면 화면에 보일 경고다.
-/// 다르면 메시지 연동이 맞지 않을 수 있고 loom 명령마다 승인을 묻는다.
 pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
     let installed = version_output.split_whitespace().last()?;
     (installed != PINNED_VERSION).then(|| VersionMismatch {
@@ -144,16 +117,12 @@ pub fn version_warning(version_output: &str) -> Option<VersionMismatch> {
     })
 }
 
-/// 노드 스레드의 상태. `thread/status/changed` 알림이 정한다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Status {
     Idle,
     Busy,
 }
 
-/// 노드 스레드의 지금 모델과 추론 강도. `call`은 JSON-RPC 요청 하나를 보내고 결과를 돌려준다.
-/// TUI가 `/model`로 바꾼 값은 다음 턴에 스레드 설정이 된다. 이 연결은 구독하지 않아 설정 알림
-/// (`thread/settings/updated`)을 받지 못한다(실측). 그래서 스레드 상태가 바뀔 때마다 데몬이 부른다.
 pub async fn model<F, Fut>(call: F, thread: &str) -> Result<Model, String>
 where
     F: Fn(&'static str, Value) -> Fut,
@@ -168,8 +137,6 @@ where
     Ok(thread_model(&read.thread))
 }
 
-/// loom이 싣는 스킬 폴더(`skills::Plugin::skills`)를 서버의 스킬 폴더에 더한다. Codex에는 시작 인자로 스킬 폴더를
-/// 더하는 방법이 없다. 서버가 가진 값이라 TUI가 만드는 노드 스레드도 이 스킬을 본다(0.159.2 실측).
 pub async fn add_skills<F, Fut>(call: F, skills: &std::path::Path) -> Result<(), String>
 where
     F: Fn(&'static str, Value) -> Fut,
@@ -189,7 +156,6 @@ fn thread_model(thread: &Thread) -> Model {
     }
 }
 
-/// 이 상태에서 메일함에서 꺼내는 전달 방식. 일하는 중에는 큐를 남긴다. 턴이 끝나면 `turn/start`로 넘긴다.
 pub fn kinds(status: Status) -> &'static [Kind] {
     match status {
         Status::Idle => Kind::ALL,
@@ -197,7 +163,6 @@ pub fn kinds(status: Status) -> &'static [Kind] {
     }
 }
 
-/// 마지막 턴의 마지막 답 글. 턴 끝 질문 검사와 심플 카드 상태 줄이 쓴다. 이 연결은 구독하지 않아 답 알림(`item/completed`)을 받지 못한다.
 pub async fn last_reply<F, Fut>(call: F, thread: &str) -> Result<Option<String>, String>
 where
     F: Fn(&'static str, Value) -> Fut,
@@ -215,7 +180,6 @@ where
     }))
 }
 
-/// 쉬는 스레드에 새 턴을 연다. 턴 끝 질문 검사가 다시 일하게 할 때 쓴다.
 pub async fn start_turn<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
 where
     F: Fn(&'static str, Value) -> Fut,
@@ -224,7 +188,6 @@ where
     Rpc { call, thread }.start(input(text.to_owned())).await
 }
 
-/// 진행 중인 턴에 글 하나를 더한다. 사람 입력 턴에 열린 질문을 알릴 때 쓴다.
 pub async fn steer<F, Fut>(call: F, thread: &str, text: &str) -> Result<(), String>
 where
     F: Fn(&'static str, Value) -> Fut,
@@ -241,11 +204,6 @@ fn input(text: String) -> Vec<UserInput> {
     }]
 }
 
-/// 꺼낸 메시지를 `turn/*` 요청으로 넘긴다. `call`은 JSON-RPC 요청 하나를 보내고 결과를 돌려준다.
-/// 첫 요청이 실패하면 다른 요청으로 한 번 더 넘긴다. 그래도 실패하면 받음을 확인하지 않고, 데몬이 `REDELIVER_AFTER` 뒤에 다시 꺼낸다.
-/// - 쉬는 중: `turn/start`. 그 사이 턴이 시작돼 실패하면 그 턴에 `turn/steer`.
-/// - 일하는 중, 조정: `turn/steer`. 그 사이 턴이 끝나 실패하면 `turn/start`.
-/// - 일하는 중, 중단: `turn/interrupt` 뒤 `turn/start`.
 pub async fn deliver<F, Fut>(
     call: F,
     thread: &str,
@@ -266,7 +224,6 @@ where
                     thread_id: thread.to_owned(),
                     turn_id: turn,
                 };
-                // 그 사이 턴이 끝났으면 실패한다. 새 턴은 그래도 시작한다.
                 let _ = rpc.send::<Value>("turn/interrupt", &params).await;
             }
             rpc.start_or_steer(input).await
@@ -345,7 +302,6 @@ where
         self.send::<Value>("turn/steer", &params).await.map(drop)
     }
 
-    /// 마지막 턴 하나를 읽는 요청. 서버는 새 턴부터 준다.
     fn last_turn(&self, items: TurnItemsView) -> ThreadTurnsListParams {
         ThreadTurnsListParams {
             thread_id: self.thread.to_owned(),
@@ -356,7 +312,6 @@ where
         }
     }
 
-    /// 진행 중인 턴의 id. 턴은 TUI도 시작하므로 그때마다 서버에서 읽는다.
     async fn current_turn(&self) -> Result<Option<String>, String> {
         let params = self.last_turn(TurnItemsView::NotLoaded);
         let list: ThreadTurnsListResponse = self.send("thread/turns/list", &params).await?;
@@ -374,7 +329,6 @@ mod tests {
     use super::*;
     use crate::graph::PromptKey;
 
-    /// 0.159.2 승인 창(2026-10-23 tmux 120x40 실측, `-a on-request -s read-only`).
     const APPROVAL: &str = concat!(
         "\n",
         "  >_ OpenAI Codex (v0.159.2)\n",
@@ -407,7 +361,6 @@ mod tests {
         "  Press enter to confirm or esc to cancel\n",
     );
 
-    /// 노드 터미널(80x24)의 승인 창(2026-10-23 시험 데몬 실측). 「Reason:」 줄과 주소가 든 선택지가 넘어간다.
     const NARROW: &str = concat!(
         "  Add --image <path> for each image that the human gave. The human sees results\n",
         "  only through loom done. Do not call it when the input is only a question and\n",
@@ -494,7 +447,6 @@ mod tests {
         }
     }
 
-    /// 보낸 요청을 적는 가짜 서버. `in_progress`가 있으면 그 턴이 진행 중이다. `fail`에 있는 메서드는 실패한다.
     struct Fake {
         in_progress: Option<&'static str>,
         fail: &'static [&'static str],
@@ -573,13 +525,11 @@ mod tests {
 
     #[tokio::test]
     async fn steer_that_misses_the_turn_starts_a_new_one() {
-        // 꺼낸 뒤 턴이 끝났다: 진행 중인 턴이 없다.
         let fake = Fake::new(None, &[]);
         run(&fake, Status::Busy, &[delivery(Kind::Steer, "b")])
             .await
             .unwrap();
         assert_eq!(fake.methods(), ["turn/start"]);
-        // 턴 id는 읽었지만 그 사이 끝나 서버가 거부했다.
         let fake = Fake::new(Some("t1"), &["turn/steer"]);
         run(&fake, Status::Busy, &[delivery(Kind::Steer, "b")])
             .await
@@ -621,7 +571,6 @@ mod tests {
         assert!(err.starts_with("turn/start 실패"), "{err}");
     }
 
-    /// 마지막 턴의 마지막 `agentMessage`가 답 글이다. 요청은 마지막 턴 하나를 항목과 함께 읽는다.
     #[tokio::test]
     async fn last_reply_is_the_last_agent_message_of_the_last_turn() {
         let sent = Mutex::new(Vec::new());
@@ -647,7 +596,6 @@ mod tests {
         assert_eq!(sent[0].1["itemsView"], "full");
     }
 
-    /// 0.159.2 `thread/read` 응답의 모양이다(필수 필드만 남겼다). TUI `/model` 뒤 다음 턴에 이 값이 바뀐다(실측).
     #[tokio::test]
     async fn model_comes_from_thread_read() {
         let thread = json!({ "thread": {

@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, ChevronDown, CircleCheck, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
-import { useEffect, useRef, useState, type DOMAttributes } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
 import { isTauri } from '@tauri-apps/api/core';
@@ -153,7 +153,7 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
   return (
     <ul className="wait-list">
       {props.waiting.map((v) => (
-        <li key={v.id} className="wait-node">
+        <li key={v.id} className="wait-node" data-kind={asking(v).length > 0 ? 'waiting' : 'done'}>
           <button type="button" className="go" aria-label={t('inbox.jumpLabel', { name: v.name })} onClick={() => props.onGo(v.id)}>
             <span className={`dot ${asking(v).length > 0 ? 'waiting' : 'done'}`} aria-hidden="true" />
             <b>{v.name}</b>
@@ -483,12 +483,22 @@ function Choices(props: { question: string; onPick: (key: string) => void }) {
   );
 }
 
-/** 답 입력창. Enter나 [↑]로 보낸다. 보내면 질문이 사라지므로 비우지 않는다. 거절되면 글이 남아 다시 보낼 수 있다. */
+/**
+ * 답 입력창. Enter나 [↑]로 보내고 Shift+Enter는 줄을 바꾼다. 창 높이는 줄 수를 따라 늘어난다(2026-10-23 사람 "알림 텍스트 입력에서 쉬프트 엔터로 개행 가능하겍 해줘, 입력창 높이도 행 개수에 맞춰 늘어나게하고").
+ * 보내면 질문이 사라지므로 비우지 않는다. 거절되면 글이 남아 다시 보낼 수 있다.
+ */
 function AnswerForm(props: { qid: string; placeholder: string; hasImages: boolean; onSend: (text: string) => void; onPasteImages: (files: File[]) => void }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
+  const box = useRef<HTMLTextAreaElement>(null);
   // 그림만 붙여도 보낼 수 있다(목업 M30).
   const ready = text.trim() !== '' || props.hasImages;
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [text]);
   return (
     <form
       className="answer"
@@ -497,9 +507,17 @@ function AnswerForm(props: { qid: string; placeholder: string; hasImages: boolea
         if (ready) props.onSend(text);
       }}
     >
-      <input
+      <textarea
+        ref={box}
+        rows={1}
         value={text}
         onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          // 한글 조합 중의 Enter는 글자를 끝내는 키다. 보내지 않는다.
+          if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+          e.preventDefault();
+          if (ready) props.onSend(text);
+        }}
         onPaste={(e) => {
           const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
           if (files.length === 0) return;

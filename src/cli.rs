@@ -376,6 +376,7 @@ pub fn guard() -> Result<(), String> {
 /// 사람에게 묻는다: 받은편지함에 질문 한 줄을 띄우고 바로 끝난다. 답은 사람이 노드 터미널에 쓴다.
 /// `doc`(`--doc`)은 문서 하나를 질문에 붙인다. 사람은 질문 줄의 링크로 연다.
 pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
+    crate::user_doc::check_links(&question)?;
     let doc = doc.as_deref().map(absolute).transpose()?;
     let asked: Asked = call(
         "ask",
@@ -444,7 +445,15 @@ pub fn done(
             }
             crate::wsl::for_caller(&path)
         }
-        None => summary.unwrap_or_default(),
+        None => {
+            let summary = summary.unwrap_or_default();
+            // 부모에게 가는 글은 에이전트끼리 읽으므로 경로를 그대로 쓴다. 사람이 읽는 글만 링크 표준을 지킨다.
+            let relations: Relations = call("status", &(), None)?;
+            if relations.parent.is_none() {
+                crate::user_doc::check_links(&summary)?;
+            }
+            summary
+        }
     };
     let images = images
         .iter()

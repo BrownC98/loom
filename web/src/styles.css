@@ -54,6 +54,9 @@
   --warn: light-dark(var(--warn-light), var(--warn-dark));
   /* --warn 바탕에 얹는 글자(질문 수 배지). 다크의 --warn은 밝아 흰 글자 대비가 모자라서 어두운 글자를 쓴다. --err-ink와 같다. */
   --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  /* 질문 색의 원래 값. 완료 톤 칸 안에서도 질문 배지·칩이 이 값으로 돌아간다(아래 `[data-tone]`). */
+  --ask: var(--warn);
+  --ask-ink: var(--warn-ink);
   --err-light: oklch(55% 0.22 28);
   --err-dark: oklch(70.4% 0.188 22);
   --err: light-dark(var(--err-light), var(--err-dark));
@@ -149,7 +152,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .kept { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-strong); color: var(--ink-2); white-space: nowrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
 /* 사람 응답 대기(목업 docs/mockups/human-question.html). 실행 상태보다 앞선다. */
-.dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
+.dot.waiting { background: var(--ask); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ask) 25%, transparent); }
 .dot.running { background: var(--run); }
 .dot.done { background: var(--ok); }
 .dot.exited, .dot.setupFailed { background: var(--err); }
@@ -234,6 +237,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .react-flow__minimap-node.repo { fill: none; stroke: var(--ink-3); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.worktree { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .react-flow__minimap-node.running { fill: var(--run); }
+.react-flow__minimap-node.ask { fill: var(--warn); }
 .react-flow__minimap-node.done { fill: var(--ok); }
 .react-flow__minimap-node.exited, .react-flow__minimap-node.setupFailed { fill: var(--err); }
 /* 이벤트 강조(graph-panels.html 3번): 관여한 노드와 그 사이 간선을 강조하고 나머지는 흐리게 한다 */
@@ -394,15 +398,11 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .summary-row .name { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .summary-row .spacer { flex: 1; }
 .summary-row .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
-/* 지금 하는 일은 두 줄까지다. 비어도 자리를 지켜 카드 높이가 같다. */
-.summary .topic { margin: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .summary-model { min-width: 0; display: flex; }
 .summary-model .model { font: 12px var(--mono); color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state { display: inline-flex; flex: none; white-space: nowrap; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.running { color: var(--run); }
-.state.waiting { color: var(--warn); font-family: var(--font); font-weight: 600; }
-.state .count { display: inline-block; margin-left: 4px; }
 .state.done { color: var(--ok); }
 .state.exited, .state.setupFailed { color: var(--err); }
 .unread { flex: none; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -557,24 +557,25 @@ a { color: var(--accent); }
 .inbox-pill[data-view="line"] .head { border-bottom: 0; }
 .inbox-pill .head { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
 .inbox-pill .head > b { white-space: nowrap; }
-/* 완료만 남은 알약: 질문 색 자리에 노드 상태 「완료」 점과 같은 초록(목업 docs/mockups/done-notice.html M37). */
-/* 배지 글자는 --surface다. 설정 「완료·성공」 색은 --surface와의 대비를 맞추므로 사람이 고른 색에서도 읽힌다. */
-/* 폰 질문 띠도 PC 알약과 같은 색을 쓴다(목업 docs/mockups/band-color.html M8, 2026-10-23 사람 승인 Q484 "색을 pc 버전 알림 색과 동일하게"). */
-.inbox-pill[data-kind="done"], .phone-ask-wrap[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
+/* 알림 색 하나: `data-tone`이 붙은 칸은 그 톤의 색을 --warn으로 쓴다. 알약 테두리·폰 띠·입력창·배지·칩이 모두 이 규칙을 따른다(목업 docs/mockups/notice-look.html M9 v2, band-color.html M8). */
+/* 완료 배지 글자는 --surface다. 설정 「완료·성공」 색은 --surface와의 대비를 맞추므로 사람이 고른 색에서도 읽힌다. */
+[data-tone="ask"] { --warn: var(--ask); --warn-ink: var(--ask-ink); }
+[data-tone="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
 .inbox-pill .qicon { flex: none; width: 16px; height: 16px; margin-right: -2px; color: var(--warn); }
 .inbox-pill .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .inbox-pill .go b { color: var(--ink); font-size: 13px; }
 .inbox-pill .go:hover, .inbox-pill .go[aria-expanded="true"] { background: var(--surface-hover); }
-.inbox-pill > .wait-body { padding: 10px 12px 12px; }
+.inbox-pill > .pill-row { padding: 10px 12px 12px; }
 /* 알림 글은 접지 않고 다 보인다(2026-10-22 사람 지시 "완료 알림도 질문 알림처럼 더보기로 접지말고 항상 원문 다 보여줘"). */
-.wait-row .instruction { flex: 1; min-width: 0; margin: 0; color: var(--ink); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.wait-body[data-kind="done"] .full { font-weight: 600; }
-/* 완료 줄의 입력창·보내기·끌어 놓기도 완료 색이다(2026-10-22 사람 지시 "완료 입력창이 질문색임"). */
-.wait-body[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
-.inbox-pill .count, .tabs .count, .rail .count, .wait-node .count, .state .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.entry .instruction { flex: 1; min-width: 0; margin: 0; color: var(--ink); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wait-body[data-tone="done"] .full { font-weight: 600; }
+.tabs .count, .rail .count, .notice-count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 /* 접힌 줄의 아이콘 단추는 글자 자리가 없다. 배지를 단추 안 오른쪽 위에 겹친다. 줄은 창 끝에 붙어 있어서 단추 밖으로 나가면 잘린다. */
 .rail .btn:has(.count) { position: relative; }
-.tabs .count, .rail .count, .wait-node .count { background: var(--notice); color: var(--notice-ink); }
+.tabs .count, .rail .count { background: var(--notice); color: var(--notice-ink); }
+/* 종류마다 수 배지(목업 notice-look.html ③): 아이콘과 수. 색은 그 톤이다. 「알림」 탭·접힌 줄·폰 탭만 모든 알림을 합쳐 --notice다. */
+.notice-count { display: inline-flex; align-items: center; justify-content: center; gap: 2px; padding: 0 6px 0 4px; }
+.notice-count svg { width: 12px; height: 12px; }
 .rail .count { position: absolute; top: -3px; right: -2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; font-size: 10px; line-height: 15px; pointer-events: none; }
 .inbox-pill .chev { width: 14px; height: 14px; margin-left: 4px; vertical-align: -2px; }
 .inbox-pill .chev.open { transform: rotate(180deg); }
@@ -597,13 +598,11 @@ a { color: var(--accent); }
 .wait-row { cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-left: -8px; padding: 6px 8px 10px; }
 .wait-row + .wait-row { border-top: 1px dashed var(--line); }
 .wait-row:hover { background: var(--surface-hover); border-radius: 6px; }
-.wait-row .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.wait-row .kind { flex: 1; min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wait-row .published { flex: none; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
-.wait-row .done-mark { flex: none; width: 15px; height: 15px; color: var(--ok); }
-/* 지시가 여러 줄이면 체크와 [확인]은 첫 줄에 맞춘다. */
-.wait-row .top:has(> .instruction) { align-items: flex-start; }
-.wait-row .kind.done svg { flex: none; width: 14px; height: 14px; }
+.entry { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.entry .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.entry .kind { min-width: 0; color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry .published { flex: none; margin-left: auto; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.entry .kind-mark { flex: none; width: 15px; height: 15px; color: var(--warn); }
 /* 답에 붙인 그림과 끌어 놓기 덮개(목업 docs/mockups/answer-image.html M30). 덮개는 그 질문 줄만 덮는다. */
 .wait-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .answer-images { list-style: none; margin: 0; padding: 4px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
@@ -633,10 +632,10 @@ a { color: var(--accent); }
 .wait-body .to-terminal { padding: 0 8px; border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
 .wait-body .to-terminal:hover { background: var(--surface-hover); color: var(--ink); }
 .wait-body .choices { display: flex; flex-wrap: wrap; gap: 6px; }
-.wait-body .choice, .wait-row .choice.confirm { display: inline-flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; text-align: left; line-height: 1.4; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.wait-body .choice, .entry .choice.confirm { display: inline-flex; align-items: baseline; gap: 6px; min-height: 26px; padding: 3px 10px; text-align: left; line-height: 1.4; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .wait-body .choice:hover { background: var(--surface-hover); }
-.wait-row .choice.confirm { flex: none; align-items: center; }
-.wait-row .choice.confirm:hover { background: var(--surface-hover); }
+.entry .choice.confirm { flex: none; align-items: center; }
+.entry .choice.confirm:hover { background: var(--surface-hover); }
 .wait-body .choice .key { font: 600 11px var(--mono); color: var(--ink-3); }
 .wait-body .choice[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
 .wait-body .choice .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
@@ -648,10 +647,10 @@ a { color: var(--accent); }
 .wait-body .send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: var(--warn); color: var(--warn-ink); cursor: pointer; }
 .wait-body .send:disabled { opacity: 0.45; cursor: default; }
 .wait-body .send svg { width: 14px; height: 14px; }
-.wait-list .dismiss { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
-.wait-list .dismiss:is(:hover, :focus-visible) { background: var(--line); color: var(--ink); }
-.wait-list .dismiss[data-refused] { color: var(--err); }
-.wait-list .dismiss svg { width: 14px; height: 14px; }
+.entry .dismiss { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.entry .dismiss:is(:hover, :focus-visible) { background: var(--line); color: var(--ink); }
+.entry .dismiss[data-refused] { color: var(--err); }
+.entry .dismiss svg { width: 14px; height: 14px; }
 .usage-pop { left: 4px; bottom: calc(100% + 6px); width: 360px; z-index: 20; }
 .prov-sec { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .prov { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 13px; color: inherit; }
@@ -894,13 +893,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-body > .wait-list { gap: 10px; overflow: visible; }
 .phone .wait-node { padding: 8px 12px 12px; background: var(--surface); border: 1px solid var(--warn); border-radius: 12px; }
 .phone .wait-node + .wait-node { border-top: 1px solid var(--warn); }
-/* 완료만 남은 노드 칸은 완료 색 테두리다(2026-10-23 사람 "앱 알림탭의 테두리도 알림 성격에 따라 올바른 테두리 색을 설정해"). */
-.phone .wait-node[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
-/* 폰 폭에서 완료 줄 머리는 지시가 한 줄을 다 쓰고 시각·[확인]이 그 아래에 온다. 한 줄에 두면 지시가 좁은 칸에서 여러 줄로 꺾였다(2026-10-23 사람 지시 "고쳐", 화면 캡처). 노드 배지도 카드 색(--warn)을 따른다. */
-.phone .wait-row .top:has(> .instruction) { flex-wrap: wrap; align-items: center; }
-.phone .wait-row .top > .instruction { flex-basis: calc(100% - 21px); }
-.phone .wait-row .top:has(> .instruction) > .published { flex: 1; margin-left: 21px; }
-.phone .wait-node .count { background: var(--warn); color: var(--warn-ink); }
+/* 노드 칸 테두리는 그 노드의 가장 오래된 알림의 톤이다(2026-10-23 사람 "앱 알림탭의 테두리도 알림 성격에 따라 올바른 테두리 색을 설정해"). */
 .phone .wait-node > .go { min-height: 36px; padding: 0; }
 .phone .wait-rows { padding-left: 0; }
 .phone .wait-row:hover { background: none; }
@@ -936,8 +929,10 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .tree-row .dot { width: 10px; height: 10px; }
 /* 상태 칩은 폰과 데스크톱 줄에 같이 있다(2026-10-23 사람 "앱 노드리스트에 완료나 질문 상태가 칩으로 뜨는 거 PC 판에도 적용시켜줘"). 데스크톱의 줄 단추는 마우스를 올릴 때 칩 위에 뜬다. */
 .state-tag { flex: none; margin-left: auto; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
-.state-tag.waiting { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
-.state-tag.notice { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.state-tag[data-tone] { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
+/* 종류마다 이름 칩 묶음: 노드 줄·카드 머리·폰 노드 머리가 같다(목업 notice-look.html ③⑧). 묶음이 오른쪽 끝에 붙는다. */
+.chips { display: inline-flex; flex: none; gap: 4px; margin-left: auto; }
+.chips .state-tag { margin-left: 0; }
 .state-tag:is(.exited, .setupFailed) { color: var(--err); }
 .sheet-body > .btn:not(.ghost) { justify-content: flex-start; gap: 10px; }
 .sheet-body > .btn svg { width: 18px; height: 18px; }
@@ -949,7 +944,6 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-ask { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; padding: 0 8px 0 14px; background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border-block: 1px solid var(--warn); color: var(--ink); font-size: 13px; }
 .phone-ask > svg { flex: none; width: 16px; height: 16px; color: var(--warn); }
 .phone-ask b { white-space: nowrap; }
-.phone-ask .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
 .phone-ask .qid { font: 12px var(--mono); color: var(--ink-3); }
 .phone-ask .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phone-ask .phone-icon { flex: none; }

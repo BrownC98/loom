@@ -1,39 +1,33 @@
-import { ArrowRight, ArrowUp, ChevronDown, CircleCheck, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes } from 'react';
+import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
 import { isTauri } from '@tauri-apps/api/core';
 import { answerWait, dismissWait, doneImageUrl, openWaitDoc, PASTE_LIMIT_BYTES, savePastedFile, waitDocPass, waitDocUrl } from './api';
 import { choices } from './choices';
 import { dateAndTime } from './i18n';
-import { QuestionIcon } from './Dock';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
-import { asking } from './NodeCard';
+import { stateClass } from './NodeCard';
+import { bySince, ICON, NodeText, NoticeBadges, NoticeLead, oldestWait, showsId, summaryOf, toneOf } from './notice';
 import { Modal } from './Modal';
-import { useOutsideClose } from './popover';
-import { linkParts, plainText } from './links';
-import { openLink, openPass, phoneBrowser } from './Terminal';
-
-/** 차례: 질문(답할 일)이 완료보다 앞이다. 완료가 질문을 가리지 않는다(목업 docs/mockups/done-notice.html M37). 같은 차례면 오래된 것이 앞이다. */
-const before = (a: HumanWait, b: HumanWait) => Number(a.kind === 'done') - Number(b.kind === 'done') || a.since - b.since;
-
-/** 노드에서 가장 앞 차례의 대기. 대기가 없는 노드는 받지 않는다(`waitingNodes`가 거른다). */
-export const oldestWait = (v: NodeView): HumanWait => v.waits.reduce((a, b) => (before(b, a) < 0 ? b : a));
+import { useDismiss } from './popover';
+import { linkParts } from './links';
+import { openLink, openPass, phoneBrowser } from './openLink';
 
 /**
- * 사람 응답을 기다리는 노드, 가장 오래 기다린 대기의 차례로. 알약은 첫 노드의 가장 오래된 대기를 보인다. 새 질문이 와도 알약이 가리키는 대기가 바뀌지 않는다.
+ * 사람 응답을 기다리는 노드, 가장 오래된 대기 순으로. 알약은 첫 노드의 가장 오래된 대기를 보인다. 새 질문이 와도 알약이 가리키는 대기가 바뀌지 않는다.
  * 받은편지함·시스템 알림은 `NodeView.waits`만 읽는다(docs/design.md 「사람 응답 대기」).
  */
 export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
-  return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => before(oldestWait(a), oldestWait(b)));
+  return [...nodes.values()].filter((v) => v.waits.length > 0).sort((a, b) => bySince(oldestWait(a), oldestWait(b)));
 }
 
-/** 알약과 「질문」 탭 배지의 수: 모든 노드의 대기 수(목업 M28: 노드 수가 아니라 질문 수). */
+/** 「알림」 탭 배지의 수: 모든 노드의 대기 수(목업 M28: 노드 수가 아니라 알림 수). */
 export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v.waits.length, 0);
 
 /**
@@ -50,8 +44,9 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
     props.onSelect(id);
   };
   useOsNotify(props.waiting, props.notify, go);
-  const home = useOutsideClose<HTMLDivElement>(() => setOpen(false));
-  const n = waitCount(props.waiting);
+  const pill = useRef<HTMLDivElement>(null);
+  const waits = props.waiting.flatMap((v) => v.waits);
+  const n = waits.length;
   const first = props.waiting[0];
   const firstWait = first && oldestWait(first);
   const line = props.pill === 'line';
@@ -62,32 +57,21 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
     if (n === 0) setOpen(false);
   }, [n]);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [open]);
-
   return (
-    <div className="inbox" ref={home}>
+    <div className="inbox">
       {/* 알약 꼴은 설정 「질문 알약」이다. `line`: 한 줄. `answer`: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
       {first && (
-        <div className="inbox-pill" data-view={props.pill} data-kind={firstWait.kind}>
-          <PillHead node={first} wait={firstWait} count={n} line={line} open={open} onToggle={toList} />
-          {!line &&
-            (firstWait.kind === 'done' ? (
-              <DoneBody key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
-            ) : (
-              <WaitBody key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
-            ))}
+        <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={toneOf(firstWait.kind)}>
+          <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} />
+          {!line && (
+            <div className="pill-row">
+              <WaitEntry key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
+            </div>
+          )}
         </div>
       )}
       {open && n > 0 && (
-        <div className="pop inbox-pop" role="dialog" aria-label={t('inbox.title', { count: n })}>
-          <h2>{t('inbox.title', { count: n })}</h2>
+        <InboxPop label={t('inbox.title', { count: n })} pill={pill} onClose={() => setOpen(false)}>
           {/* 노드로 가도 목록은 열린 채로 둔다. 이어서 다른 질문을 보고 답한다(2026-10-22 사람 지시 "총괄클릭해서 이동할때 팝오버 유지되도록"). */}
           <WaitList
             waiting={props.waiting}
@@ -97,27 +81,34 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
               props.onFocus(id);
             }}
           />
-        </div>
+        </InboxPop>
       )}
     </div>
   );
 }
 
-/** 알약 머리 줄. 데스크톱 알약과 폰 노드 화면 알약(목업 R4 ②)이 함께 쓴다. `node`·`wait`는 가장 앞 차례의 대기(`waitingNodes`의 첫 노드와 `oldestWait`), `count`는 모든 대기 수다. */
-export function PillHead(props: { node: NodeView; wait: HumanWait; count: number; line: boolean; open: boolean; onToggle: () => void }) {
+/** 알약이 연 목록. 열린 동안만 밖 누르기와 Esc가 닫는다. 알약(답 칸 포함)을 누르는 것은 밖이 아니다. */
+function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; onClose: () => void; children: ReactNode }) {
+  const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.pill });
+  return (
+    <div ref={box} className="pop inbox-pop" role="dialog" aria-label={props.label}>
+      <h2>{props.label}</h2>
+      {props.children}
+    </div>
+  );
+}
+
+/** 알약 머리 줄. `node`·`wait`는 가장 오래된 대기(`waitingNodes`의 첫 노드와 `oldestWait`), `waits`는 모든 대기다. */
+function PillHead(props: { node: NodeView; wait: HumanWait; waits: readonly HumanWait[]; line: boolean; open: boolean; onToggle: () => void }) {
   const { t } = useTranslation();
   const { wait, open } = props;
   return (
-    // 머리 줄이 바뀌면(새 알약, 수, 다음 질문) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다. 완료만 남으면 완료를 보인다(목업 M37).
+    // 머리 줄이 바뀌면(새 알약, 수, 다음 알림) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다.
     <div className="head" aria-live="polite">
-      {wait.kind === 'done' ? <CircleCheck className="qicon" aria-hidden="true" /> : <QuestionIcon className="qicon" aria-hidden="true" />}
-      <b>{wait.kind === 'done' ? t('wait.done') : t('inbox.button')}</b>
-      <span className="count">{props.count}</span>
-      {wait.kind !== 'done' && <span className="qid">Q{wait.id}</span>}
+      <NoticeLead wait={wait} waits={props.waits} />
       {/* 알약 머리는 목록만 편다. 노드로 가는 길은 목록 줄의 노드 이름이다(2026-10-22 사람 질문 "알약에 터미널 바로가기가 필요한가?"). */}
-      <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.count })} onClick={props.onToggle}>
-        <b>{props.node.name}</b>
-        {props.line ? `: ${plainText(wait.text) || t(`wait.${wait.kind}`)}` : ` · ${t(`wait.${wait.kind}`)}`}
+      <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.waits.length })} onClick={props.onToggle}>
+        {props.line ? <NodeText name={props.node.name} wait={wait} /> : <b>{props.node.name}</b>}
         {!props.line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
       </button>
     </div>
@@ -153,20 +144,14 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
   return (
     <ul className="wait-list">
       {props.waiting.map((v) => (
-        <li key={v.id} className="wait-node" data-kind={asking(v).length > 0 ? 'waiting' : 'done'}>
+        <li key={v.id} className="wait-node" data-tone={toneOf(oldestWait(v).kind)}>
           <button type="button" className="go" aria-label={t('inbox.jumpLabel', { name: v.name })} onClick={() => props.onGo(v.id)}>
-            <span className={`dot ${asking(v).length > 0 ? 'waiting' : 'done'}`} aria-hidden="true" />
+            <span className={`dot ${stateClass(v)}`} aria-hidden="true" />
             <b>{v.name}</b>
-            {v.waits.length > 1 && (
-              <>
-                {' '}
-                {/* 질문과 완료를 함께 센 수다. 「질문」 글자를 붙이지 않는다. */}
-                {v.waits.length > 1 && <span className="count">{v.waits.length}</span>}
-              </>
-            )}
+            <NoticeBadges waits={v.waits} />
           </button>
           <ul className="wait-rows">
-            {v.waits.map((w) => (
+            {[...v.waits].sort(bySince).map((w) => (
               <WaitRow key={w.id} node={v.id} wait={w} onGo={() => props.onGo(v.id)} onFocus={() => props.onFocus(v.id)} />
             ))}
           </ul>
@@ -177,12 +162,10 @@ function WaitList(props: { waiting: NodeView[]; onGo: (id: NodeId) => void; onFo
 }
 
 /**
- * 목록의 대기 한 줄: 번호, 종류, [×]와 본문. 줄의 빈 곳이나 글을 누르면 그 노드로 가서 터미널에 입력 초점을 준다(2026-10-22 사람 지시 "질문 펼쳤을때 질문영역 클릭커블하게 만들고 클릭하면 해당 터미널 포커싱").
+ * 목록의 대기 한 줄(`WaitEntry`). 줄의 빈 곳이나 글을 누르면 그 노드로 가서 터미널에 입력 초점을 준다(2026-10-22 사람 지시 "질문 펼쳤을때 질문영역 클릭커블하게 만들고 클릭하면 해당 터미널 포커싱").
  * 단추·입력창·링크는 제 일을 한다. 키보드로는 노드 이름 단추가 같은 곳으로 간다.
  */
 function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFocus: () => void }) {
-  const { t } = useTranslation();
-  const { wait } = props;
   return (
     <li
       className="wait-row"
@@ -193,29 +176,32 @@ function WaitRow(props: { node: NodeId; wait: HumanWait; onGo: () => void; onFoc
         props.onFocus();
       }}
     >
-      {wait.kind === 'done' ? (
-        <>
-          {/* 완료 줄은 머리에 체크·지시·[확인]을 둔다. 「완료」 글자 줄을 따로 두지 않는다(2026-10-22 사람 지시 "아이콘+완료 표시가 공간 낭비"). */}
-          <div className="top">
-            <CircleCheck className="done-mark" aria-label={t('wait.done')} />
-            <Instruction wait={wait} />
-            <Published wait={wait} />
-            <ConfirmButton wait={wait.id} />
-          </div>
-          <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
-        </>
-      ) : (
-        <>
-          <div className="top">
-            <span className="qid">Q{wait.id}</span>
-            <span className="kind">{t(`wait.${wait.kind}`)}</span>
-            <Published wait={wait} />
-            <DismissButton wait={wait.id} />
-          </div>
-          <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
-        </>
-      )}
+      <WaitEntry node={props.node} wait={props.wait} onGo={props.onGo} />
     </li>
+  );
+}
+
+/**
+ * 대기 한 건: 머리 줄(아이콘, 종류, 번호, 시각, 오른쪽 위 [×]·[확인])과 본문. 목록 줄과 펼친 알약이 함께 쓴다.
+ * 완료는 [확인]만 지운다. 입력·다음 턴·프로세스 끝으로는 지우지 않는다(2026-10-22 사람 지시 "완료 알림은 사용자가 확인 버튼 클릭하면 제거되는 걸로").
+ */
+function WaitEntry(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
+  const { t } = useTranslation();
+  const { wait } = props;
+  const tone = toneOf(wait.kind);
+  const Icon = ICON[tone];
+  return (
+    <div className="entry" data-tone={tone}>
+      <div className="top">
+        <Icon className="kind-mark" aria-hidden="true" />
+        <span className="kind">{t(`wait.${wait.kind}`)}</span>
+        {showsId(wait.kind) && <span className="qid">Q{wait.id}</span>}
+        <Published wait={wait} />
+        {tone === 'done' ? <ConfirmButton wait={wait.id} /> : <DismissButton wait={wait.id} />}
+      </div>
+      {wait.instruction && <Instruction text={wait.instruction} />}
+      <WaitBody node={props.node} wait={wait} onGo={props.onGo} />
+    </div>
   );
 }
 
@@ -226,27 +212,10 @@ function Published(props: { wait: HumanWait }) {
   return <time className="published" dateTime={new Date(at).toISOString()}>{t('inbox.published', { time: dateAndTime(at) })}</time>;
 }
 
-/**
- * 알약의 완료 알림 본문: 일을 맡긴 사람의 지시, 결과와 이어서 맡길 입력창(`WaitBody`), [확인]. 둘 다 `loom done`이 건 글이다(docs/design.md 「완료 알림」).
- * [확인]만 지운다. 입력·다음 턴·프로세스 끝으로는 지우지 않는다(2026-10-22 사람 지시 "완료 알림은 사용자가 확인 버튼 클릭하면 제거되는 걸로").
- */
-function DoneBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
-  return (
-    <div className="wait-body">
-      <Instruction wait={props.wait} />
-      <WaitBody node={props.node} wait={props.wait} onGo={props.onGo} />
-      <div className="choices">
-        <ConfirmButton wait={props.wait.id} />
-      </div>
-    </div>
-  );
-}
-
 /** 완료를 맡긴 사람의 지시(`loom done --asked`)(2026-10-22 사람 지시 "사람이 어떤 지시를 내렸었는지 확인하기 어려움"). 접지 않고 다 보인다(같은 날 "완료 알림도 질문 알림처럼 더보기로 접지말고 항상 원문 다 보여줘"). */
-function Instruction(props: { wait: HumanWait }) {
+function Instruction(props: { text: string }) {
   const { t } = useTranslation();
-  if (!props.wait.instruction) return <span className="kind">{t('wait.done')}</span>;
-  return <p className="instruction">{t('inbox.instruction', { text: props.wait.instruction })}</p>;
+  return <p className="instruction">{t('inbox.instruction', { text: props.text })}</p>;
 }
 
 /** 그림 썸네일(완료 알림의 그림, 사람이 붙인 그림). 누르면 화면 위에 원래 크기로 띄운다. Esc나 바깥 누르기로 닫는다(2026-10-22 사람 지시 "썸네일 크게보기 기능 추가해줘", "사용자가 입력한 이미지 썸네일도 클릭하면 크게 볼 수 있게 해줘"). */
@@ -295,8 +264,8 @@ function ConfirmButton(props: { wait: WaitId }) {
 function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
-  const done = wait.kind === 'done';
-  const qid = done ? t('wait.done') : `Q${wait.id}`;
+  const done = toneOf(wait.kind) === 'done';
+  const qid = showsId(wait.kind) ? `Q${wait.id}` : t(`wait.${wait.kind}`);
   const [refusal, setRefusal] = useState<string | null>(null);
   const images = useImages(props.node, setRefusal);
   const [dragging, setDragging] = useState(false);
@@ -329,7 +298,7 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       }
     : {};
   return (
-    <div className="wait-body" data-kind={wait.kind} data-dragging={dragging || undefined} {...drop}>
+    <div className="wait-body" data-tone={toneOf(wait.kind)} data-dragging={dragging || undefined} {...drop}>
       {/* 완료: 사람이 그 지시에 준 그림. 답에 붙인 그림과 같은 꼴이다(목업 docs/mockups/answer-image.html M30). */}
       {wait.images.length > 0 && (
         <ul className="answer-images">
@@ -596,7 +565,7 @@ function useOsNotify(waiting: NodeView[], enabled: boolean, onSelect: (id: NodeI
     if (fresh.length === 0) return;
     windowHidden().then((hidden) => {
       if (!hidden) return;
-      for (const { v, w } of fresh) notify(`${v.name} · ${t(`wait.${w.kind}`)}`, plainText(w.text), `loom-wait-${w.id}`, () => select.current(v.id));
+      for (const { v, w } of fresh) notify(`${v.name} · ${t(`wait.${w.kind}`)}`, summaryOf(w), `loom-wait-${w.id}`, () => select.current(v.id));
     });
   }, [waiting, enabled]);
 }

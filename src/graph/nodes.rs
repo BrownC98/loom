@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use super::events::{self, ClosedBy, Entry};
 use super::{
     Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
-    ambiguous, first_line, from_json, mailbox, name_of, parent_of, place_label, place_of,
-    set_state, state_of, to_json, waits,
+    ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of, set_state, state_of,
+    to_json, waits,
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
@@ -51,13 +51,11 @@ pub struct Active {
 
 impl Graph {
     /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
-    /// `brief`는 사람이 쓴 첫 지시다. CLI에 인자로 넘기므로 메일함에는 넣지 않고 카드 주제에만 쓴다.
     /// `start`는 노드 프로세스를 띄운다. 실패하면 노드를 남기지 않는다(`started`).
     pub fn add_root(
         &self,
         place: &Place,
         agent: Option<AgentId>,
-        brief: &str,
         launched: &Launched,
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
@@ -65,7 +63,7 @@ impl Graph {
             let mut db = self.lock();
             let tx = db.transaction()?;
             let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
-            let id = insert(&tx, &name, &agent, None, place, brief)?;
+            let id = insert(&tx, &name, &agent, None, place)?;
             keep(&tx, id, launched)?;
             tx.commit()?;
             id
@@ -115,7 +113,7 @@ impl Graph {
             worktree: worktree.map_or(place.worktree, str::to_owned),
             ..place
         };
-        let id = insert(&tx, name, &agent, Some(parent), &place, brief)?;
+        let id = insert(&tx, name, &agent, Some(parent), &place)?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
             mailbox::enqueue(&tx, parent, Some(id), Kind::Queue, brief)?;
@@ -181,7 +179,6 @@ impl Graph {
         )?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
-        self.titles.lock().unwrap().remove(&id);
         let _ = self.events.send(GraphEvent::Removed { id });
         Ok(())
     }
@@ -218,7 +215,6 @@ impl Graph {
 
     fn end_process(&self, id: NodeId, ended: NodeState, notice: String) -> rusqlite::Result<()> {
         let mut db = self.lock();
-        self.titles.lock().unwrap().remove(&id);
         let Some(state) = state_of(&db, id).optional()? else {
             return Ok(());
         };
@@ -415,23 +411,6 @@ impl Graph {
         }
         Ok(())
     }
-
-    /// 노드 CLI의 터미널 제목에서 꺼낸 주제를 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
-    /// 노드마다 PTY 출력을 읽는 스레드 하나만 부른다. 그래서 비교와 바꾸기 사이에 다른 값이 끼지 않는다.
-    pub fn set_title(&self, id: NodeId, title: Option<String>) -> rusqlite::Result<()> {
-        if self.titles.lock().unwrap().get(&id) == title.as_ref() {
-            return Ok(());
-        }
-        // 화면에 보내는 순서가 DB 변경 순서와 같도록 DB를 먼저 잠근다.
-        let db = self.lock();
-        let mut titles = self.titles.lock().unwrap();
-        match title {
-            Some(title) => titles.insert(id, title),
-            None => titles.remove(&id),
-        };
-        drop(titles);
-        self.publish_node(&db, id)
-    }
 }
 
 impl Graph {
@@ -597,7 +576,6 @@ struct Removal {
 
 impl Removal {
     fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
-        graph.titles.lock().unwrap().remove(&self.id);
         let _ = graph.events.send(GraphEvent::Removed { id: self.id });
         for child in self.children {
             graph.publish_node(db, child)?;
@@ -823,12 +801,11 @@ fn insert(
     agent: &Option<AgentId>,
     parent: Option<NodeId>,
     place: &Place,
-    brief: &str,
 ) -> Result<NodeId, Refusal> {
     // 저장소 줄이 있을 때만 넣는다. 저장소 빼기(`Repos::remove`)도 검사와 삭제가 한 문장이라 둘 사이에 노드가 남지 않는다.
     let inserted = db.execute(
-        "INSERT INTO nodes (name, agent, parent, state, repo, worktree, brief)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM repos WHERE id = ?5)",
+        "INSERT INTO nodes (name, agent, parent, state, repo, worktree)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM repos WHERE id = ?5)",
         params![
             name,
             to_json(agent),
@@ -836,7 +813,6 @@ fn insert(
             to_json(&NodeState::Running),
             place.repo.0,
             place.worktree,
-            first_line(brief),
         ],
     )?;
     if inserted == 0 {

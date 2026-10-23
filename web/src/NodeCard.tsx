@@ -69,7 +69,7 @@ export function Unread(props: { n: number; children: ReactNode }) {
   );
 }
 
-/** 읽지 않은 수, 보관 수, 상태. */
+/** 읽지 않은 수와 상태. */
 function Badges(props: { view: NodeView }) {
   const { t } = useTranslation();
   const { view } = props;

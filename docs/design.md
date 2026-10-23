@@ -15,7 +15,7 @@
 
 ## 그래프와 화면
 
-화면의 모양과 토큰은 승인한 목업 [docs/mockups/main.html](mockups/main.html)이 명세다. 설정 창, 새 노드 창은 [docs/mockups/settings.html](mockups/settings.html)이, 하단 상태 줄과 사용량 팝오버는 [docs/mockups/usage.html](mockups/usage.html)이 명세다. 사이드바, 미니맵, 커밋 그래프 칸, 이벤트 콘솔은 [docs/mockups/graph-panels.html](mockups/graph-panels.html)이, 그래프 범위와 저장소 상자는 [docs/mockups/repo-scope.html](mockups/repo-scope.html)이 명세다. 이 절은 동작만 적는다.
+화면의 모양과 토큰은 승인한 목업 [docs/mockups/main.html](mockups/main.html)이 명세다. 설정 창, 새 노드 창은 [docs/mockups/settings.html](mockups/settings.html)이, 하단 상태 줄과 사용량 팝오버는 [docs/mockups/usage.html](mockups/usage.html)이, 그 안의 Cursor 줄은 [docs/mockups/cursor-usage.html](mockups/cursor-usage.html)이 명세다. 사이드바, 미니맵, 커밋 그래프 칸, 이벤트 콘솔은 [docs/mockups/graph-panels.html](mockups/graph-panels.html)이, 그래프 범위와 저장소 상자는 [docs/mockups/repo-scope.html](mockups/repo-scope.html)이 명세다. 이 절은 동작만 적는다.
 
 - 그래프 범위는 설정 「그래프」 탭에서 고른다: 「저장소 하나」(기본값)와 「모든 저장소」(2026-10-20 사람 지시 "여러개의 저장소 그래프를 하나의 그래프 화면에 전부 표시하는건 어떻게 생각해", "현방식과 새 방식을 설정에서 스위칭 할 수 있게 옵션으로 제공"). 값은 카드 보기처럼 `settings` 테이블에 둔다. 그래프 전체의 보기 값이고 설정 창에서 고르기 때문이다. 오른쪽 사이드바 「보기」에는 두지 않는다(목업 결정, 2026-10-20 사람 승인). Orca에는 저장소 그래프가 없어 참고할 화면이 없다. 저장소는 기존 폴더, URL 복제, 새 프로젝트로 더한다. 규칙은 「[저장소와 워크트리](#저장소와-워크트리)」에 있다.
   - 「현재 저장소」는 하나다. 사이드바에서 저장소·워크트리·노드 줄을 누르거나 그래프에서 카드를 고르면 그 저장소가 현재 저장소가 된다. 데몬에 남아 모든 뷰어가 같다(「데몬 하나」). 커밋 그래프 칸은 범위와 관계없이 현재 저장소를 보이고, 칸 머리 앞에 저장소 이름을 붙인다.
@@ -230,6 +230,9 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 - [계정 추가]: 데몬이 폴더를 만들고, 그 폴더로 `claude auth login`·`codex login`을 PTY에서 띄운다. 화면은 이 PTY를 노드 카드와 같은 터미널로 보인다. 그래프에는 나타나지 않는다.
   - 로그인 프로세스가 코드 0으로 끝나면 창이 닫힌다. 0이 아니면 실패를 보인다.
   - 새 계정은 로그인이 실패하거나 사용자가 창을 닫으면 폴더를 지운다. [다시 로그인]은 폴더를 지우지 않는다.
+- Cursor는 사용량만 보인다(목업 [cursor-usage.html](mockups/cursor-usage.html) M18 v2, 2026-10-23 사람 지시 "커서 계정도 사용량 표시에 보여줘", "orca를 참고하라", 승인 Q666 A). 계정은 그 위치의 Cursor CLI(`cursor-agent`) 로그인 하나다. loom은 Cursor 계정을 더하거나 바꾸지 않고 설정 › 계정에도 두지 않는다. 노드도 그 로그인으로 뜬다. 데몬 라우트는 `GET /api/usage/cursor`(위치마다 `CursorView`)이고 화면은 `/api/accounts`와 같은 때 읽는다. Cursor는 계정 기능의 `Provider`가 아니다.
+  - 창은 Orca와 같다: 묶음 「Cursor Models」(Auto 등 Cursor 모델), 「Other Models」(이름을 고른 모델), 상한 있는 추가 사용량 「On-demand」, 그 뒤에 「플랜」(포함 사용량 전체). 묶음 이름은 Orca처럼 번역하지 않는다. 상태 줄은 묶음만 보이고 플랜은 팝오버에만 있다. 모든 창이 결제 주기 끝에 다시 차서 팝오버 아래 줄은 「11월 20일에 초기화」다. Cursor 줄에는 계정 목록 꺾쇠가 없다.
+  - Orca와 다른 것: 머리 줄에 요금제 이름(「Enterprise」) 대신 이메일을 보인다. 공급자 순서는 고정이다. 둘 다 아래 「넣지 않은 Orca 기능」과 같은 결정이다.
 - OpenCode 2에는 계정과 사용량이 없다. 공급자가 여럿이고(OpenCode 설정의 `provider`), 공급자마다 나뉜 로그인 폴더가 없고, 남은 한도를 주는 출처가 없다. Orca도 OpenCode는 로컬 `opencode.db`에서 읽은 토큰·비용 통계 창만 보이고 계정을 바꾸지 않는다.
 - 사용량 출처는 Orca와 같다.
 
@@ -237,6 +240,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 |---|---|---|
 | Claude | `claude auth status --json`(`loggedIn`, `email`, `subscriptionType`, `configDirectory`) | `<configDirectory>/.credentials.json`의 OAuth 토큰으로 `GET https://api.anthropic.com/api/oauth/usage`(`anthropic-beta: oauth-2025-04-20`, Orca와 같은 `User-Agent: claude-code/2.1.0`). `five_hour`·`seven_day`의 `utilization`(사용한 %)과 `resets_at`. 모델별 주간 창은 `limits` 가운데 `kind`가 `weekly_scoped`인 항목의 `scope.model.display_name`, `percent`, `resets_at` |
 | Codex | `codex app-server`의 `account/read`(`email`, `planType`) | 같은 서버의 `account/rateLimits/read`. `primary`·`secondary`의 `usedPercent`, `windowDurationMins`, `resetsAt`. 창 길이 300분 이하가 5시간 창이다 |
+| Cursor | `~/.cursor/cli-config.json`의 `authInfo.email`. `cursor-agent`가 `PATH`에 없으면 「설치 안 됨」 | `~/.config/cursor/auth.json`의 `accessToken`(JWT)으로 `GET https://cursor.com/api/usage-summary`. 쿠키 `WorkosCursorSessionToken=<sub>::<jwt>`(URL 이스케이프)와 `Origin`·`Referer: https://cursor.com`을 보낸다. `individualUsage.plan`의 `autoPercentUsed`·`apiPercentUsed`·`totalPercentUsed`(`enabled`가 거짓이면 모두 뺀다), `onDemand`(`enabled`이고 `used/limit`이 있을 때), `billingCycleEnd` |
 
 - 상태 줄의 사용량은 Orca처럼 버튼 하나다. 누르면 팝오버 하나에 모든 공급자의 5시간·주간·모델별 창을 보인다. 공급자 줄을 누르면 그 공급자의 계정 목록이 펼쳐지고, 계정을 눌러 쓰는 계정을 바꾼다.
 - 화면은 사용한 비율만 보인다. Orca 기본 표시와 같다. 막대도 사용한 양만큼 차고, 75% 이상이면 노란색이다.
@@ -244,8 +248,8 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 - 새로 고침은 팝오버 머리의 아이콘 하나다. 모든 공급자를 한 번에 다시 읽는다(Orca 상태 줄의 ↻와 같다).
 - 사용량은 화면이 읽을 때마다 데몬이 그 자리에서 읽는다(`GET /api/accounts`). 화면은 5분마다, 사용량 팝오버를 열 때, [새로 고침]을 누를 때 읽는다. 데몬은 저장하지 않는다.
 - 읽는 상한은 계정마다 15초다. 넘거나 실패하면 그 계정만 오류 한 줄을 보인다.
-- 한계: Claude 토큰을 macOS 키체인에 둔 로그인과 API 키 로그인은 사용량을 볼 수 없다. 토큰이 만료돼 401이면 「이 계정으로 Claude를 한 번 실행하면 갱신됩니다」를 보인다. loom은 토큰을 갱신하지 않는다. 갱신은 로그인 폴더를 고치는 일이다.
-- 넣지 않은 Orca 기능: Codex 한도 초기화 크레딧, 추가 사용량, 상태 줄 표시 방식(간단·자세히, 사용·남음) 바꾸기 스위치, 상태 줄 항목 고르기, 사용량 기록 화면, 요금제 이름, 많이 쓴 공급자부터 줄 세우기.
+- 한계: Claude 토큰을 macOS 키체인에 둔 로그인과 API 키 로그인은 사용량을 볼 수 없다. macOS Cursor CLI도 토큰을 키체인에 두어 같다. Cursor 토큰이 만료되면(`exp`가 지났거나 401) 「이 계정으로 Cursor를 한 번 실행하면 갱신됩니다」다. Claude 토큰이 만료돼 401이면 「이 계정으로 Claude를 한 번 실행하면 갱신됩니다」를 보인다. loom은 토큰을 갱신하지 않는다. 갱신은 로그인 폴더를 고치는 일이다.
+- 넣지 않은 Orca 기능: Codex 한도 초기화 크레딧, 추가 사용량, 상태 줄 표시 방식(간단·자세히, 사용·남음) 바꾸기 스위치, 상태 줄 항목 고르기, 사용량 기록 화면, 요금제 이름, 많이 쓴 공급자부터 줄 세우기, Cursor 옛 요청 수 요금제(`/api/usage`)의 창, Cursor IDE 로그인 읽기.
 
 ### 계정 전환
 
@@ -300,7 +304,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 - o-mode 역할(목업 [role-settings.html](mockups/role-settings.html) M12, 2026-10-23 사람 승인 Q510 A, 지시 "설정에서 o-mode 역할 crud (역할에 대한 책임 설정도 가능하게), 각 역할에 모델, 에이전트 환경, 추론강도 설정할 수 있게 해줘"): 「에이전트」 탭에서 역할을 더하고 고치고 지운다. 한 역할은 이름, 책임, 에이전트, 모델, 추론 강도다(설정 `roles`, 코드 [src/roles.rs](../src/roles.rs)). 역할 표의 원천은 이 설정 하나다. `skills/o-mode`에는 표가 없다.
   - 기본값은 옛 o-mode 표(총괄, 코디, 워커, 검토자, CI 담당자)다. 총괄은 에이전트가 없다(사람이 띄운다). 모델·강도가 비면 CLI 설정의 값이다. 목록은 패치에서 통째로 바뀐다. 이름이 비었거나 겹치면 데몬이 패치를 거절한다.
   - 에이전트는 `loom roles`로 보고 `loom spawn <이름> --role <역할>`로 띄운다. 데몬이 띄울 때 한 번 정한다: 에이전트는 `--agent` 또는 역할의 값, 모델·강도는 따로 준 값 또는 역할의 값이다. 역할의 모델·강도는 역할의 에이전트로 띄울 때만 쓴다. 다른 에이전트는 그 모델 이름을 받지 못한다. 지시문 앞에 `Role: <이름> - <책임>`을 붙인다. 뜬 노드는 뒤에 설정이 바뀌어도 그대로다.
-- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex다. 오른쪽 끝에 제품 버전(`v<scripts/version.sh 값>`)을 보인다(2026-10-20 사람 지시 "버전 번호는 우하단에 보여주면 될듯, 사용량 보여주는 섹션에"). 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
+- 화면 하단 상태 줄은 늘 보인다. 공급자 순서는 Claude, Codex, Cursor다. 오른쪽 끝에 제품 버전(`v<scripts/version.sh 값>`)을 보인다(2026-10-20 사람 지시 "버전 번호는 우하단에 보여주면 될듯, 사용량 보여주는 섹션에"). 열린 탭은 URL 해시(`#settings/agents`, `#settings/accounts`, `#settings/ui`, `#settings/terminal`)가 갖는다.
 - 화면 테마는 「시스템」「라이트」「다크」 가운데 하나다. 처음 값은 「시스템」이고, OS 설정(`prefers-color-scheme`)을 따른다.
   - 데몬이 첫 페이지(`/`)의 `<html>`에 `data-theme`을 넣어 보낸다. 화면 스크립트가 돌기 전에 테마가 정해져 다른 테마가 잠깐 보이지 않는다. 브라우저 저장소에 사본을 두지 않는다.
   - 색 토큰은 `light-dark(라이트, 다크)` 한 벌이다. 설정 「색」이 바꾸는 토큰은 `light-dark(var(--x-light), var(--x-dark))`다. 테마는 `color-scheme` 하나만 바꾼다.
@@ -753,6 +757,7 @@ Android 앱은 Tailscale 없이 데몬의 폰 문에 직접 닿는다(2026-10-22
 - Codex `turn/interrupt`는 턴만 멈춘다. 실행 중이던 셸 명령은 끝까지 돌았다.
 - tmux로 글자와 Enter를 한 번에 보내면 Codex는 Enter를 줄바꿈으로 받았다. PTY에 글자를 쓰지 않는 원칙의 근거다.
 - 사용량 출처(「계정과 사용량」): Claude `api/oauth/usage`가 `five_hour`·`seven_day`를 돌려줬다. Codex `account/rateLimits/read`는 `primary`에 주간 창(10080분)을 주고 `secondary`는 `null`이었다. 그래서 창은 위치가 아니라 길이로 가른다.
+- 2026-10-23 Cursor(`cursor-agent` 2026.10.22, enterprise 팀 계정): `cursor-agent status`가 「Logged in as …」와 팀을 보였다. 토큰은 `~/.config/cursor/auth.json`, 이메일은 `~/.cursor/cli-config.json`에 있었다. `api/usage-summary`가 200으로 `plan.used`=`limit`=2000(남은 0)인데 `totalPercentUsed` 3.49, `autoPercentUsed` 0.10, `apiPercentUsed` 21.31을 줬다(보너스 2368). 그래서 플랜 창은 `used/limit`이 아니라 `totalPercentUsed`다. `onDemand`는 `limit`이 `null`이었다. Windows에는 `cursor-agent`가 없었다.
 - 2026-10-20 Claude `api/oauth/usage`의 `limits`에 `weekly_scoped`(모델 「Fable」) 창이 있었다. `seven_day_opus`·`seven_day_sonnet`은 `null`이었다. 기본 User-Agent(`ureq/…`)로 부르면 429, `claude-code/2.1.0`이면 200이었다.
 - stdio로 띄운 Codex `app-server`는 stdin이 닫히면 답하기 전에 끝난다. 데몬은 답을 받을 때까지 stdin을 열어 두고, 받은 뒤 프로세스를 끝낸다.
 - Claude 권한(기본 권한 모드, `claude -p`): PreToolUse `updatedInput`만 넣고 `permissionDecision`을 비우면, 허용 규칙을 바꾼 명령으로 판정했다. `Bash(touch /tmp/original-file)`이 있어도 바꾼 `touch /tmp/rewritten-file`은 승인을 요구했다. 앞에 줄을 붙인 `id -u && touch /tmp/original-file`은 사용자 규칙대로 허용됐다.

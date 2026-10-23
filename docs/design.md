@@ -120,6 +120,8 @@
   - 호스트는 루프백 TCP의 OS가 고른 포트에서 듣고, 데몬은 그 주소를 `<데이터 폴더>/pty/nodes/<노드 id>`(로그인 창은 `pty/logins/`)에 둔다. 루프백 신뢰는 데몬 HTTP와 같다. Windows에도 같은 코드가 돈다.
   - 데몬과 호스트 사이 프레임은 판 번호를 첫 프레임에 넣는다([src/node_host/wire.rs](../src/node_host/wire.rs)). 낸 판의 프레임은 바꾸지 않는다. 새 데몬이 옛 실행 파일이 띄운 호스트와 말해야 하기 때문이다.
   - 호스트는 프로세스가 끝나면 종료 코드를 데몬에 넘기고 끝난다. 붙은 데몬이 없으면 10분 기다린다. 그 사이 다시 시작한 데몬은 코드를 받는다.
+  - 호스트가 데몬에 쓰는 한 프레임이 10초를 넘기면 호스트는 그 연결을 닫는다. 새 데몬과의 인사는 그 쓰기를 기다리지 않는다. Windows에서 끝난 데몬의 연결이 열린 채 남아, 다시 뜬 데몬이 도는 노드를 `exited(?)`로 두었기 때문이다(「실측 근거」 2026-10-23 PTY 호스트).
+  - WSL 노드의 프로세스가 끝나면 데몬이 그 배포판 안에서 환경의 `LOOM_TOKEN`이 그 프로세스의 토큰인 프로세스와 그 아래 프로세스를 끝낸다(`wsl::end_token`, TERM 뒤 2초에 KILL). 다시 띄운 프로세스는 새 토큰을 받으므로 남는다. Cursor 훅의 `/init` 중계가 남았기 때문이다(「실측 근거」 2026-10-23 WSL Cursor 훅).
   - 데몬이 시작할 때 다시 붙지 않은 호스트는 끝낸다: 데몬이 꺼진 동안 지운 노드, 앞 데몬의 로그인 창(창 번호는 데몬마다 0부터 센다).
   - 호스트에서는 `scripts/host.sh`가 데몬만 다시 띄운다(「[배포](#배포)」). PTY 호스트는 데몬과 다른 프로세스 그룹이라 데몬 터미널의 Ctrl+C를 받지 않고, 데몬이 끝나면 init이 부모가 된다. 실행 파일은 새 파일로 바꿔 넣는다(rename). 도는 호스트는 옛 파일을 계속 쓴다.
   - Windows도 같다. 앱 업데이트, 앱 창 닫기, 앱 강제 종료 뒤에도 노드가 살고, 다음에 연 앱의 데몬이 다시 붙는다(2026-10-21 사람 지시 "exe 업데이트할때 노드 작업 없어지지 않고 작업이 계속 진행되도록 해줘 orca처럼"). 방법은 「[데스크톱 앱](#데스크톱-앱)」에 있다.
@@ -833,8 +835,19 @@ Android 앱은 Tailscale 없이 데몬의 폰 문에 직접 닿는다(2026-10-22
 
 - macOS(2026-10-21, GitHub Actions `macos-14` arm64, 버리는 검사 워크플로): `cargo test`가 모두 통과했다. `127.76.77.1`은 듣지 못했다(노드 문 없음). `loom serve --until-stdin-closes`는 stdin이 닫히자 끝났고, 그 전에 띄운 명령 노드(`sleep 600`)는 살았다. `tauri build`가 ad-hoc 서명 `loom.app`, `.dmg`, `.app.tar.gz`와 `.sig`를 만들었다. 받은 파일 표시가 없는 `loom.app`이 떴다. 제목 줄은 신호등이 줄 안에 있었다. 데몬은 로그인 셸의 `PATH`(`~/.local/bin`, `/opt/homebrew/bin` 포함)를 받았다. 앱을 `kill -9`로 끝내자 데몬도 끝났다. 같은 PTY에서 둘째 프로세스를 띄우면 제어 터미널을 잡을 때 「No such file or directory」로 실패했다(첫 프로세스의 제어 터미널 여부와 관계없다). 제어 터미널 없이 띄우면 됐다.
 - Cursor(2026-10-21, cursor-agent 2026.10.19-6bbf2c4, 임시 폴더의 tmux와 시험 데몬): 플러그인 폴더의 훅이 돌았다. sessionStart 맥락 둘이 모두 모델에 닿았다. postToolUse 맥락이 턴 안에 들어갔다. stop 훅의 `followup_message`가 쉬는 세션에 새 턴을 띄웠다. stop 훅이 기다리는 동안 사람 입력이 바로 새 턴을 띄웠다. 플러그인 `rules/*.mdc`는 읽히지 않았다. `--trust`는 「Workspace Trust Required」 창을, `--force`는 명령 승인을 건너뛴다. 로그인하지 않은 `HOME`에서는 「Press any key to log in...」이 떴다. 시험 데몬에서 셸 부모가 띄운 Cursor 자식이 규칙을 받아 `loom send`·`loom reply`·`loom done`을 썼고, 쉬는 중 큐로 깨어 답했고, 조정이 15초 셸 뒤에 닿았고, 중단이 120초 셸을 4초에 끊었다.
+- 2026-10-23 WSL Cursor 훅(WSL 2.7.11, Ubuntu-24.04, cursor-agent 2026.10.22, Windows 시험 데몬):
+  - 쉬는 stop 훅은 `wsl.exe`를 붙잡지 않았다. 에이전트를 SIGKILL로 끝내자 5초 안에 노드가 `exited(9)`가 되고 Windows 훅도 끝났다.
+  - Windows 훅이 에이전트가 없어진 것을 알 신호는 없었다. 읽는 쪽이 끝난 뒤에도 stdout 쓰기가 40초 동안 성공했다. Cursor는 훅의 stdin을 바로 닫는다. Windows 훅의 부모는 노드의 `wsl.exe`다.
+  - Cursor는 훅을 제 세션(setsid)에서 띄운다. 그 WSL 세션이 Windows 훅보다 먼저 끝나면 `/init` 중계와 Cursor의 bash 감싸개가 끝나지 않는다. 가짜 에이전트로 넷(소켓·파이프 × setsid 있음·없음)을 견주었다. setsid일 때만 남았다. 실제 Cursor에서도 남았지만 늘 남지는 않았다. 사람 호스트에는 19:03부터 남은 감싸개·중계 쌍이 수십 개 있었다. 중계에 TERM을 보내면 Windows 프로세스도 끝났다.
+  - 고친 뒤: 명령 노드 `sh -c 'setsid sleep 100001 & sleep 2; exit 3'`가 끝나자 남은 `sleep`이 끝났다. 다른 노드의 `sleep`은 남았다.
+- 2026-10-23 PTY 호스트와 데몬 다시 시작(Windows 시험 데몬):
+  - 데몬이 띄운 PTY 호스트는 그때 열린 데몬 쪽 PTY 호스트 연결의 소켓을 물려받았다. 끝난 데몬의 연결이 `Established`로 남았고, 그 뒤에 뜬 PTY 호스트를 끝내자 사라졌다. 제3자 Winsock 제공자는 없었다(`mswsock.dll`, `nlasvc.dll`뿐).
+  - 출력이 많은 노드(`while :; do seq 1 20000; done`)의 호스트는 아무도 읽지 않는 그 연결에 쓰다 멎었다. 그 쓰기가 `state` 잠금을 쥐었고, 새 연결의 인사가 같은 잠금을 기다렸다. 새 데몬은 2초 뒤 붙기를 그만두고 노드를 `exited(?)`로 두었다. 노드의 `seq`는 터미널 쓰기에서 멎었고, PTY 호스트는 남았다.
+  - 고친 뒤 같은 순서에서 노드는 `running`으로 남고 출력이 흘렀다. 옛 연결은 `FinWait1`로 닫혔다. 노드를 지우자 그 프로세스와 PTY 호스트가 끝났다. 다시 시작한 뒤 쉬는 Cursor 노드의 에이전트를 SIGKILL로 끝내자 노드가 `exited(9)`가 되었다.
 
 ## 아직 확인하지 않은 것
+
+- WSL Cursor 노드가 에이전트 없이 `running`으로 남은 원인(2026-10-23 사람 노드 #538). 그 노드의 진짜 `wsl.exe`(System32 `wsl.exe` 아래), `wslhost.exe`, PTY 호스트, 고아 훅 감싸개와 중계가 남았다. PTY 호스트는 출력을 읽고 있었다(다른 노드와 같은 스레드 모양). 노드를 지운 뒤에도 PTY 호스트와 `wsl.exe`가 남았다. 23:53에 그 `wsl.exe` 아래에서 새 `loom.exe cursor-hook`이 떠 데몬에 붙었다. 그 훅에 맞는 Linux 중계는 없었다. 커널 로그에는 「UtilAcceptVsock: Waiting for abnormally long accept」를 되풀이하는 중계가 86개 있었다. 데몬 다시 시작은 그 노드의 마지막 턴 4분 뒤였다. 가설: WSL 쪽이 멈췄다. 에이전트가 살았는지 주기로 보는 검사는 원인을 찾을 때까지 넣지 않는다(2026-10-23 총괄 결정 A).
 
 - Windows Claude 노드의 훅과 `loom guard` 중단. 측정한 Windows PC의 Claude 로그인이 만료되어 Claude 노드를 돌리지 못했다. `loom guard`의 셸 고르기 규칙은 Git Bash 나무로만 확인했다.
 - macOS 앱 업데이트 전체 길(새 판 받기, 앱 묶음 바꾸기, 다시 띄우기, 새 데몬이 다시 붙기). Mac이 있는 사람이 두 판으로 확인한다. 근거는 「데스크톱 앱」 업데이트 줄의 소스 읽기와 아래 macOS 실측이다.

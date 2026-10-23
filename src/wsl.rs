@@ -237,24 +237,46 @@ fn caller() -> Option<WslPath> {
 /// 서버는 PTY 호스트 아래에 없다. 남으면 새 서버가 스레드를 열지 못했다(「thread … already has an active writer」, 실측).
 /// 서버 PID도 `HOME`을 본다. 옛 서버가 끝난 뒤 다른 프로세스가 그 번호를 받았을 수 있다.
 pub async fn end_hosts(distro: &str, home: &str, servers: &[u32]) -> Result<(), String> {
-    let script = r#"home=$1; shift; servers=" $* " roots=
+    let pick = r#"home=$1; shift; servers=" $* " roots=
 for d in /proc/[0-9]*; do
   pid=${d#/proc/}
   case $servers in *" $pid "*) ;; *) [ "$(tr '\0' '\n' <"$d/cmdline" 2>/dev/null | sed -n 2p)" = pty-host ] || continue ;; esac
   tr '\0' '\n' <"$d/environ" 2>/dev/null | grep -qxF "HOME=$home" || continue
   roots="$roots $pid"
-done
+done"#;
+    let mut args = vec![home.to_owned()];
+    args.extend(servers.iter().map(u32::to_string));
+    end_trees(distro, pick, &args).await
+}
+
+/// 끝난 노드 프로세스가 남긴 배포판 안의 프로세스를 끝낸다: 환경의 `LOOM_TOKEN`이 `token`인 프로세스와 그 아래 프로세스 모두.
+/// Cursor는 훅을 제 세션(setsid)에서 띄운다. 그 WSL 세션이 Windows 훅보다 먼저 끝나면 훅의 `/init` 중계와 Cursor의 bash 감싸개가 끝나지 않고 남았다.
+/// 중계를 끝내면 Windows 훅도 끝난다(2026-10-23 실측, WSL 2.7.11).
+pub async fn end_token(distro: &str, token: &str) -> Result<(), String> {
+    let pick = r#"token=$1 roots=
+for d in /proc/[0-9]*; do
+  tr '\0' '\n' <"$d/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token" || continue
+  roots="$roots ${d#/proc/}"
+done"#;
+    end_trees(distro, pick, &[token.to_owned()]).await
+}
+
+/// 배포판 안에서 `pick`이 `roots`에 고른 프로세스와 그 아래 프로세스를 모두 끝낸다. `args`는 `pick`의 `$1`부터다.
+async fn end_trees(distro: &str, pick: &str, args: &[String]) -> Result<(), String> {
+    let script = format!(
+        r#"{pick}
 [ -n "$roots" ] || exit 0
-all=$(ps -eo pid=,ppid= | awk -v roots="$roots" 'BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) keep[r[i]] = 1 }
-  { parent[$1] = $2 }
-  END { do { grew = 0; for (p in parent) if (!(p in keep) && (parent[p] in keep)) { keep[p] = 1; grew = 1 } } while (grew); for (p in keep) print p }')
+all=$(ps -eo pid=,ppid= | awk -v roots="$roots" 'BEGIN {{ n = split(roots, r, " "); for (i = 1; i <= n; i++) keep[r[i]] = 1 }}
+  {{ parent[$1] = $2 }}
+  END {{ do {{ grew = 0; for (p in parent) if (!(p in keep) && (parent[p] in keep)) {{ keep[p] = 1; grew = 1 }} }} while (grew); for (p in keep) print p }}')
 kill -TERM $all 2>/dev/null
 sleep 2
 kill -KILL $all 2>/dev/null
-exit 0"#;
+exit 0"#
+    );
     let out = tokio::process::Command::new("wsl.exe")
-        .args(["-d", distro, "-e", "sh", "-c", script, "sh", home])
-        .args(servers.iter().map(u32::to_string))
+        .args(["-d", distro, "-e", "sh", "-c", &script, "sh"])
+        .args(args)
         .env("WSL_UTF8", "1")
         .stdin(std::process::Stdio::null())
         .output()

@@ -42,11 +42,18 @@ const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(1);
 const EXIT_KEEP: Duration = Duration::from_secs(600);
 /// 연결한 쪽이 첫 프레임을 보내는 상한. 다른 프로그램이 연결해 아무것도 보내지 않아도 스레드가 남지 않는다.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+/// 데몬에 한 프레임을 쓰는 상한. 넘으면 그 연결을 놓는다. 쓰기는 `state` 잠금 안에서 돈다.
+/// 근거: Windows에서 데몬이 끝난 뒤에도 그 연결은 열린 채 남았다. 나중에 뜬 PTY 호스트가 그 소켓 핸들을 물려받아 쥐었다.
+/// 아무도 읽지 않아 출력이 많은 노드의 쓰기가 끝나지 않았다. 다시 뜬 데몬은 인사를 받지 못해 도는 노드를 exited로 두었다(2026-10-23 실측).
+/// 살아 있는 데몬은 호스트마다 따로 스레드에서 읽으므로 이만큼 멎지 않는다.
+const CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Host {
     process: Mutex<Process>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     input: Mutex<Box<dyn Write + Send>>,
+    /// 지금 PTY에서 도는 프로세스의 PID. `state` 밖에 둔다. 앞 연결에 쓰는 동안에도 새 데몬에 인사한다.
+    pid: Mutex<Option<u32>>,
     state: Mutex<State>,
     /// 종료 코드를 데몬에 넘기면 한 번 보낸다.
     delivered: mpsc::Sender<()>,
@@ -61,8 +68,6 @@ struct Process {
 
 #[derive(Default)]
 struct State {
-    /// 지금 PTY에서 도는 프로세스의 PID.
-    pid: Option<u32>,
     backlog: Backlog,
     /// 지금 붙은 데몬. 번호는 끊긴 연결이 새 연결을 지우지 않게 가린다.
     client: Option<(u64, TcpStream)>,
@@ -159,10 +164,8 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
         }),
         master: Mutex::new(pair.master),
         input: Mutex::new(input),
-        state: Mutex::new(State {
-            pid: child.process_id(),
-            ..State::default()
-        }),
+        pid: Mutex::new(child.process_id()),
+        state: Mutex::default(),
         delivered: delivered_tx,
     });
     let output_done = host.read_in_background(reader);
@@ -291,10 +294,9 @@ impl Host {
         *master = pair.master;
         drop(master);
         process.killer = child.clone_killer();
-        let mut state = self.state.lock().unwrap();
-        state.pid = child.process_id();
-        if let Some(pid) = state.pid {
-            state.send(&Frame::Pid(pid));
+        *self.pid.lock().unwrap() = child.process_id();
+        if let Some(pid) = child.process_id() {
+            self.state.lock().unwrap().send(&Frame::Pid(pid));
         }
         let output_done = self.read_in_background(reader);
         Ok(Some(Running { child, output_done }))
@@ -318,9 +320,10 @@ impl Host {
 
     /// 데몬 연결 하나. 인사 뒤 backlog(와 끝났으면 종료 코드)를 보내고 그 연결을 지금 연결로 둔다.
     fn serve(&self, mut stream: TcpStream) {
-        let greeted_pid = self.state.lock().unwrap().pid;
+        let greeted_pid = *self.pid.lock().unwrap();
         let greeted = stream
             .set_read_timeout(Some(HELLO_TIMEOUT))
+            .and_then(|()| stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT)))
             .and_then(|()| wire::welcome(&mut stream, greeted_pid))
             .and_then(|()| stream.set_read_timeout(None));
         let Ok(mut reader) = greeted.and_then(|()| stream.try_clone()) else {
@@ -348,7 +351,11 @@ impl Host {
             let mut state = self.state.lock().unwrap();
             let backlog = state.backlog.to_vec();
             // 인사한 뒤 설정 스크립트가 끝나 명령이 떴으면 새 PID를 먼저 알린다.
-            let pid = state.pid.filter(|&pid| Some(pid) != greeted_pid);
+            let pid = self
+                .pid
+                .lock()
+                .unwrap()
+                .filter(|&pid| Some(pid) != greeted_pid);
             let sent = pid.is_none_or(|pid| wire::write(&mut stream, &Frame::Pid(pid)).is_ok())
                 && (backlog.is_empty() || wire::write(&mut stream, &Frame::Data(backlog)).is_ok())
                 && state
@@ -399,14 +406,14 @@ impl Host {
 }
 
 impl State {
-    /// 붙은 데몬에 보낸다. 보내지 못하면 그 연결을 놓는다. 보냈으면 참이다.
+    /// 붙은 데몬에 보낸다. 보내지 못하면 그 연결을 닫는다. 그 연결을 읽는 `serve`도 끝난다. 보냈으면 참이다.
     fn send(&mut self, frame: &Frame) -> bool {
         let Some((_, stream)) = &mut self.client else {
             return false;
         };
         let sent = wire::write(stream, frame).is_ok();
-        if !sent {
-            self.client = None;
+        if !sent && let Some((_, stream)) = self.client.take() {
+            let _ = stream.shutdown(Shutdown::Both);
         }
         sent
     }

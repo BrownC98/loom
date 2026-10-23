@@ -722,6 +722,29 @@ mod tests {
         assert!(!dir.path().join("1").exists());
     }
 
+    /// 앞 데몬의 연결을 아무도 읽지 않아도(Windows에서 끝난 데몬의 소켓을 다른 프로세스가 물려받아 쥐었다) 새 데몬이 붙고 출력을 받는다.
+    #[cfg(unix)]
+    #[test]
+    fn a_new_daemon_attaches_while_the_old_connection_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cmd = CommandBuilder::new("sh");
+        cmd.args(["-c", "exec yes noise"]);
+        in_process(dir.path(), 1, cmd);
+        let address = std::fs::read_to_string(dir.path().join("1")).unwrap();
+        let mut old = TcpStream::connect(address.trim()).unwrap();
+        wire::greet(&mut old).unwrap();
+        // 소켓 버퍼가 차서 호스트의 쓰기가 막힐 시간.
+        std::thread::sleep(Duration::from_secs(3));
+
+        let second = NodeHost::new(dir.path().to_path_buf());
+        second.resume(1, |_| {}).unwrap();
+        let mut attached = second.attach(1).unwrap();
+        let chunk = attached.output.blocking_recv().unwrap();
+        assert!(String::from_utf8_lossy(&chunk).contains("noise"));
+        second.kill(1);
+        drop(old);
+    }
+
     /// 설정 스크립트가 성공하면 새 PTY에서 명령이 뜨고(출력은 한 터미널로 이어진다), 데몬은 명령의 PID를 받는다.
     /// 실패하면 명령을 띄우지 않고 `Exit::Setup`으로 끝난다. `tail`은 설정 출력의 끝을 제어 시퀀스 없이 돌려준다.
     #[cfg(unix)]

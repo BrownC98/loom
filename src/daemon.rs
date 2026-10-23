@@ -1118,10 +1118,11 @@ impl App {
             opencode2,
             first_input,
             account: _,
-            inside: _,
+            inside,
         } = prepared;
         self.first_inputs.launched(id, first_input);
-        let on_exit = self.on_exit(id, &codex, &opencode2);
+        let distro = inside.map(|inside| inside.distro);
+        let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
@@ -1160,7 +1161,12 @@ impl App {
                 None => (None, None),
             };
             let profile = node.agent.as_ref().and_then(profile::profile_of);
-            let on_exit = self.on_exit(node.id, &codex, &opencode2);
+            let distro = self
+                .node_wsl(Some(node.id))
+                .ok()
+                .flatten()
+                .map(|at| at.distro);
+            let on_exit = self.on_exit(node.id, distro, &node.token, &codex, &opencode2);
             if self.host.resume(node.id, on_exit).is_err() {
                 if let Some(server) = &node.server {
                     stop_server(server);
@@ -1178,16 +1184,28 @@ impl App {
 
     /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다. 설정 스크립트가 실패했으면 그 출력의 끝을 함께 넘긴다.
     /// 서버는 맵이 아니라 이 클로저가 쥔다. 다시 붙은 호스트는 붙자마자 종료 코드를 보낼 수 있다.
+    /// WSL 노드(`distro`)면 그 프로세스의 `token`을 가진 남은 프로세스도 끝낸다(`wsl::end_token`). 다시 띄운 프로세스는 새 토큰을 받는다.
     fn on_exit(
         self: &Arc<Self>,
         id: NodeId,
+        distro: Option<String>,
+        token: &str,
         codex: &Option<Arc<CodexServer>>,
         opencode2: &Option<Arc<opencode2::Node>>,
     ) -> impl FnOnce(Exit) + use<> {
         let app = self.clone();
         let discard = discarder(codex, opencode2);
+        let runtime = tokio::runtime::Handle::current();
+        let token = token.to_owned();
         move |exit| {
             discard();
+            if let Some(distro) = distro {
+                runtime.spawn(async move {
+                    if let Err(e) = wsl::end_token(&distro, &token).await {
+                        eprintln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
+                    }
+                });
+            }
             // 다시 띄우기가 끝낸 프로세스다. 노드는 새 프로세스로 산다.
             if app.relaunches.exited(id) {
                 return;

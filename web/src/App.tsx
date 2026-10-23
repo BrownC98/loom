@@ -192,7 +192,8 @@ export function App() {
   const [chosenBox, setChosenBox] = useState<string | null>(null);
   const direction = settings.arrangeDirection;
   // 오른쪽 사이드바 아래 칸 하나를 이벤트 콘솔, 커밋 그래프, 고른 노드의 터미널(심플 보기)이 탭으로 번갈아 쓴다.
-  const [tab, setTab] = useState<DockTab>('commits');
+  // 2026-10-23 사람 "우측 사이드바 탭 순서를 알림, 문서, 이벤트, 커밋그래프 순으로", "디폴트로 알림탭이 보이도록".
+  const [tab, setTab] = useState<DockTab>('questions');
   const sideOpen = !settings.closedPanes.side;
   const dockOpen = !settings.closedPanes.dock;
   const setPaneOpen = (pane: keyof ClosedPanes, open: boolean) => editSettings((s) => ({ ...s, closedPanes: { ...s.closedPanes, [pane]: !open } }));
@@ -216,10 +217,10 @@ export function App() {
     return view && cardViewOf(view, settings.cardView) === 'simple' ? view : undefined;
   };
   const dockedView = simpleNode(selected);
-  const tabs: readonly DockTab[] = dockedView ? ['events', 'commits', 'docs', 'questions', 'terminal'] : ['events', 'commits', 'docs', 'questions'];
+  const tabs: readonly DockTab[] = dockedView ? ['questions', 'docs', 'events', 'commits', 'terminal'] : ['questions', 'docs', 'events', 'commits'];
   const waiting = waitingNodes(nodes);
   // 터미널 탭을 보다가 노드 고르기를 풀면 커밋 그래프로 돌아간다.
-  const shownTab = tabs.includes(tab) ? tab : 'commits';
+  const shownTab = tabs.includes(tab) ? tab : 'questions';
   const log = useEventLog(dockOpen && shownTab === 'events');
   // 이벤트 콘솔에서 고른 이벤트. 칸을 접거나 다른 탭으로 가면 끈다.
   const [highlight, setHighlight] = useState<EventRecord | null>(null);

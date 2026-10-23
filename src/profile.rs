@@ -69,56 +69,6 @@ impl Profile {
     }
 }
 
-impl Profile {
-    /// CLI가 쓴 터미널 제목에서 지금 하는 일(카드 주제)을 꺼낸다. 아직 주제가 없으면 없다.
-    /// 제목 형식은 CLI마다 다르다. 근거: docs/design.md 「그래프와 화면」.
-    pub fn topic(self, title: &str) -> Option<String> {
-        let title = title.trim();
-        let topic = match self {
-            // `✳ <주제>`. 주제가 생기기 전에는 `✳ Claude Code`다.
-            Profile::Claude => Some(match title.split_once(' ') {
-                Some((spinner, rest)) if is_spinner(spinner) => rest,
-                _ => title,
-            })
-            .filter(|t| *t != "Claude Code"),
-            // `tui.terminal_title=["thread-title"]`로 띄우면 `<스레드 제목>`, 일하는 동안 `<스레드 제목> ⠋`이다.
-            // 제목이 생기기 전에는 스레드 id(UUID)다.
-            Profile::Codex => Some(match title.rsplit_once(' ') {
-                Some((rest, spinner)) if is_spinner(spinner) => rest,
-                _ => title,
-            })
-            .filter(|t| !is_uuid(t)),
-            // `OC | <세션 제목>`. 제목이 생기기 전에는 `OpenCode`다.
-            Profile::OpenCode2 => title.strip_prefix("OC | "),
-            // `<주제> - ⏳ Working ...`, 쉬면 `<주제> - ✅ Ready`다. 주제가 생기기 전에는 `Cursor Agent`다(가설).
-            Profile::Cursor => Some(match title.rsplit_once(" - ") {
-                Some((rest, state)) if state.split(' ').next().is_some_and(is_spinner) => rest,
-                _ => title,
-            })
-            .filter(|t| *t != "Cursor Agent"),
-        };
-        topic
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .map(str::to_owned)
-    }
-}
-
-/// CLI가 일하는 동안 제목에 붙이는 글자 하나(✳ ◐ ◑ ⠋ 등). 글자·숫자가 아닌 ASCII 밖 기호다.
-fn is_spinner(part: &str) -> bool {
-    let mut chars = part.chars();
-    matches!((chars.next(), chars.next()), (Some(c), None) if !c.is_ascii() && !c.is_alphanumeric())
-}
-
-/// `01a1573a-9c7e-7b33-a79c-5c196d8346e9` 꼴.
-fn is_uuid(text: &str) -> bool {
-    text.len() == 36
-        && text.bytes().enumerate().all(|(i, b)| match i {
-            8 | 13 | 18 | 23 => b == b'-',
-            _ => b.is_ascii_hexdigit(),
-        })
-}
-
 /// 계정과 사용량이 있는 공급자. 근거: docs/design.md 「계정과 사용량」.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -303,6 +253,11 @@ fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
 
+/// 띄울 때 `choice_args`가 거절할 조합이면 `false`. 카탈로그에 없는 에이전트는 판단하지 않는다(`true`).
+pub(crate) fn accepts_choice(id: &AgentId, choice: &ModelChoice) -> bool {
+    find(id).is_none_or(|agent| choice_args(agent, choice).is_ok())
+}
+
 /// 고정 버전이 있는 프로필과 그 CLI 명령. 메시지 연동이 다른 버전과 맞지 않을 수 있다.
 pub const PINNED: [(Profile, &str); 2] = [
     (Profile::Codex, "codex"),
@@ -427,14 +382,6 @@ impl Start {
         match self {
             Start::Agent { agent, .. } => Some(agent.clone()),
             Start::Command { .. } => None,
-        }
-    }
-
-    /// 에이전트에게 준 첫 지시. 명령이면 없다(빈 글).
-    pub fn brief(&self) -> &str {
-        match self {
-            Start::Agent { brief, .. } => brief,
-            Start::Command { .. } => "",
         }
     }
 
@@ -707,7 +654,7 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
 /// 백그라운드 규칙: 앞에서 도는 긴 명령 동안 조정이 넘어가지 않아 「안 읽음」을 눌러도 고장처럼 보였다(2026-10-22 사람 결정 Q322 B).
 /// 기준은 시간이 아니라 다음 단계에 결과가 바로 필요한가다(2026-10-22 사람 지시 "백그라운드로 넣을 수 있으면 넣는걸로 하라 시간 단위가 아니라", Q339 A). 짧은 조회까지 보내면 끝 알림마다 턴이 늘었다.
 pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
-- loom spawn <name> --agent <agent-id> [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>.
+- loom spawn <name> (--agent <agent-id> | --role <role>) [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>. loom roles lists the roles.
 - loom status: your ID, parent and children, and whether their processes are alive. loom status --all lists every node.
 - loom send <target> <body>: queue a message. A name finds your parent or child first, then a live node with that name.
 - loom reply <message-id> <body>: answer a message that you received.
@@ -962,68 +909,5 @@ mod tests {
             .map(|a| a.id.0)
             .collect();
         assert_eq!(ids, ["claude", "codex", "opencode2", "cursor"]);
-    }
-
-    /// 실측한 제목(2026-10-20, Claude Code 2.1.304, Codex 0.159.2, OpenCode 2; 2026-10-21, Cursor 2026.10.19).
-    #[test]
-    fn topic_comes_from_each_cli_title() {
-        let cases = [
-            (
-                Profile::Claude,
-                "✳ A.txt 파일 내용",
-                Some("A.txt 파일 내용"),
-            ),
-            (
-                Profile::Claude,
-                "◐ a.txt 한 줄 요약",
-                Some("a.txt 한 줄 요약"),
-            ),
-            (
-                Profile::Claude,
-                "◑ a.txt 한 줄 요약",
-                Some("a.txt 한 줄 요약"),
-            ),
-            (Profile::Claude, "✳ Claude Code", None),
-            (Profile::Claude, "Claude Code", None),
-            (
-                Profile::OpenCode2,
-                "OC | a.txt 파일 내용 한 줄 요약",
-                Some("a.txt 파일 내용 한 줄 요약"),
-            ),
-            (Profile::OpenCode2, "OpenCode", None),
-            (
-                Profile::Cursor,
-                "Sleep Then Done - ⏳ Working ..·",
-                Some("Sleep Then Done"),
-            ),
-            (
-                Profile::Cursor,
-                "Secret Word Node - ✅ Ready",
-                Some("Secret Word Node"),
-            ),
-            (
-                Profile::Codex,
-                "읽고 b.rs에 주석 추가해",
-                Some("읽고 b.rs에 주석 추가해"),
-            ),
-            (
-                Profile::Codex,
-                "요약해 a.txt 내용 ⠋",
-                Some("요약해 a.txt 내용"),
-            ),
-            (Profile::Codex, "01a1573a-9c7e-7b33-a79c-5c196d8346e9", None),
-            (
-                Profile::Codex,
-                "01a1573b-5b38-7911-bc29-11ece871434d ⠋",
-                None,
-            ),
-        ];
-        for (profile, title, topic) in cases {
-            assert_eq!(
-                profile.topic(title).as_deref(),
-                topic,
-                "{profile:?} {title:?}"
-            );
-        }
     }
 }

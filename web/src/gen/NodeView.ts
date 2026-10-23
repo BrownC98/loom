@@ -15,10 +15,6 @@ agent: AgentId | null, parent: NodeId | null, state: NodeState,
  */
 unread: number, 
 /**
- * 부모가 없어 보관한 메시지 수. 새 부모가 생기면 그 부모가 받는다.
- */
-held: number, 
-/**
  * CLI가 알린 모델 id 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
  */
 model: string | null, 
@@ -26,11 +22,6 @@ model: string | null,
  * CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
  */
 effort: string | null, place: Place, 
-/**
- * 노드가 지금 하는 일 한 줄. 근거: docs/design.md 「그래프와 화면」.
- * `done` 요약, CLI 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄이다. 모두 없으면 없다.
- */
-topic: string | null, 
 /**
  * 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
  */

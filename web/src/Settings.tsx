@@ -20,6 +20,7 @@ import { SizingTerminal } from './Terminal';
 import { DisplayTab, GraphTab, OsNotifySection, TerminalTab } from './ThemeSettings';
 import type { Updates } from './Update';
 import { VERSION } from './version';
+import { RoleSettings } from './RoleSettings';
 import { PhoneTab } from './PhoneSettings';
 import { WorkspaceFields } from './WorkspaceSettings';
 import { placeName, shortPlaceName } from './place';
@@ -38,7 +39,7 @@ export const SETTINGS_TABS = ['general', 'phone', 'agents', 'accounts', 'display
 const TAB_SETTINGS = {
   general: ['workspaceDir', 'wslWorkspaceDirs', 'osNotify'],
   phone: [],
-  agents: ['bypassOff', 'alwaysOn', 'treeLimits'],
+  agents: ['bypassOff', 'alwaysOn', 'roles', 'treeLimits'],
   accounts: ['autoSwitch'],
   display: ['theme', 'colors', 'language'],
   graph: ['cardView', 'graphScope', 'edgeStyle', 'questionPill'],
@@ -365,6 +366,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
         </details>
       </section>
       <SkillsSection settings={settings} onSettings={props.onSettings} />
+      <RoleSettings agents={agents} settings={settings} onSettings={props.onSettings} />
       <TreeLimitsSection settings={settings} onSettings={props.onSettings} />
     </>
   );

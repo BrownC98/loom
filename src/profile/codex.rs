@@ -65,14 +65,8 @@ pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
     args
 }
 
-/// `codex` 시작 인자. 터미널 제목은 스레드 제목만 쓴다. 기본 제목(`<스피너> | <폴더>`)에는 카드 주제가 없다(`Profile::topic`).
 pub fn args(app_server: &str) -> Vec<String> {
-    vec![
-        "--remote".into(),
-        app_server.into(),
-        "-c".into(),
-        r#"tui.terminal_title=["thread-title"]"#.into(),
-    ]
+    vec!["--remote".into(), app_server.into()]
 }
 
 /// `codex app-server` 시작 인자. 사용자의 `~/.codex` 파일을 고치지 않으려고 사용법은 `-c`로만 넘긴다.
@@ -588,12 +582,7 @@ mod tests {
         );
         assert_eq!(
             super::args("ws://127.0.0.1:1"),
-            [
-                "--remote",
-                "ws://127.0.0.1:1",
-                "-c",
-                r#"tui.terminal_title=["thread-title"]"#
-            ]
+            ["--remote", "ws://127.0.0.1:1"]
         );
         assert_eq!(version_warning("codex-cli 0.159.2"), None);
         assert_eq!(

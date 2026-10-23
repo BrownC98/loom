@@ -12,6 +12,7 @@ import type { Language } from "./Language";
 import type { PaneWidths } from "./PaneWidths";
 import type { QuestionPill } from "./QuestionPill";
 import type { RepoId } from "./RepoId";
+import type { Roles } from "./Roles";
 import type { TerminalFont } from "./TerminalFont";
 import type { TerminalTheme } from "./TerminalTheme";
 import type { Theme } from "./Theme";
@@ -83,6 +84,10 @@ alwaysOn: AlwaysOn,
  * 사람이 고른 화면 색. 옛 설정에는 없다. 없으면 모든 색이 기본값이다. 근거: 목업 docs/mockups/color-settings.html v3.
  */
 colors: UiColors, 
+/**
+ * o-mode 역할. 옛 설정에는 없다. 없거나 `null`이면 기본 표다. 근거: 목업 docs/mockups/role-settings.html M12.
+ */
+roles: Roles, 
 /**
  * 화면 상태(2026-10-21 사람 결정 「프론트는 뷰어」): 같은 데몬을 보는 모든 화면이 같은 값을 보인다. 아래 일곱 칸은 옛 설정에 없다.
  * [정렬]과 나무 간선이 향하는 방향. 없으면 `Down`이다.

@@ -27,7 +27,8 @@ export const openPass = (pass: Promise<string>, browser: PhoneBrowser) =>
 export function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);
   if (url?.protocol === 'file:') {
-    const path = decodeURIComponent(url.pathname);
+    // `file://wsl.localhost/…`의 호스트는 UNC 경로(`//호스트/…`)의 앞이다. 버리면 다른 경로가 된다.
+    const path = (url.hostname ? `//${url.hostname}` : '') + decodeURIComponent(url.pathname);
     const hostPath = /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
     const browser = phoneBrowser();
     if (browser) return void openPass(filePass(hostPath, node), browser).catch((err: Error) => console.error(err));

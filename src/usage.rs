@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -27,6 +28,12 @@ const CLAUDE_USER_AGENT: &str = "claude-code/2.1.0";
 const CURSOR_ORIGIN: &str = "https://cursor.com";
 const CURSOR_USAGE_URL: &str = "https://cursor.com/api/usage-summary";
 const CURSOR_COMMAND: &str = "cursor-agent";
+/// 쿠키의 사용자 이름에서 그대로 두는 글자. 브라우저 `encodeURIComponent`처럼 `|`를 `%7C`로 쓴다(Orca와 같다).
+const COOKIE_KEEPS: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');
 /// Cursor 묶음 이름. Orca(`shared/cursor-usage-buckets.ts`)와 같은 글자이고 번역하지 않는다(M18 v2, Q666 A).
 const CURSOR_MODELS: &str = "Cursor Models";
 const CURSOR_OTHER_MODELS: &str = "Other Models";
@@ -408,16 +415,7 @@ impl CursorToken {
 
     /// 대시보드가 보내는 쿠키: `<subject>::<jwt>`, URL 이스케이프. Orca `cursor-session-token.ts`와 같다.
     fn cookie(&self) -> String {
-        let subject: String = self
-            .subject
-            .bytes()
-            .map(|b| match b {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    char::from(b).to_string()
-                }
-                _ => format!("%{b:02X}"),
-            })
-            .collect();
+        let subject = utf8_percent_encode(&self.subject, COOKIE_KEEPS);
         format!("WorkosCursorSessionToken={subject}%3A%3A{}", self.raw)
     }
 }

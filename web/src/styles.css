@@ -540,7 +540,9 @@ a { color: var(--accent); }
 /* 상태 줄 단추는 줄 높이(`--status-h`)를 따른다. `.btn.sm`의 26px가 줄을 넘으면 창에 세로 스크롤바가 생긴다. */
 .statusbar .btn { height: auto; }
 .usage-btn .sep { width: 1px; align-self: stretch; background: var(--line); margin: 4px 2px; }
-.usage-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; font-size: 12px; }
+/* 창이 좁으면 버튼이 줄고 내용은 가로로 민다. 새로 고침과 판 번호가 창 밖으로 밀리지 않는다. 모든 창은 팝오버에도 있다. */
+.usage-btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px; background: none; border: 0; cursor: pointer; color: inherit; font-size: 12px; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.usage-btn > *, .statusbar > .refresh, .statusbar > .app-version { flex: none; }
 .usage-btn:hover { background: var(--surface-hover); color: var(--ink); }
 .usage-btn[aria-expanded="true"] { background: var(--accent-wash); color: var(--ink); }
 .usage-btn[data-loading] { animation: loading 1.2s ease-in-out infinite alternate; }
@@ -914,8 +916,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .btn.sm { min-height: 36px; font-size: 13px; }
 /* 사용량 줄: 데스크톱 상태 줄(StatusBar)을 아래 탭 위에 둔다. 폭이 좁아 계정 이름과 판 번호는 뺀다. 판은 아래에서 올라온다(목업 ⑧). */
 .phone .statusbar { height: 36px; padding: 0 4px 0 2px; overflow: hidden; }
-.phone .usage-btn { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; touch-action: pan-x; scrollbar-width: none; justify-content: flex-start; gap: 6px; }
-.phone .usage-btn > * { flex: none; }
+.phone .usage-btn { flex: 1; touch-action: pan-x; justify-content: flex-start; gap: 6px; }
 .phone .usage-btn .acct-name, .phone .statusbar .app-version { display: none; }
 .phone .statusbar .refresh { width: 36px; }
 .phone .statusbar .refresh svg { width: 16px; height: 16px; }

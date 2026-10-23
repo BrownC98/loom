@@ -8,8 +8,9 @@ import type { Theme } from './gen/Theme';
 import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
+import { relaunchableState } from './catalog';
 import { QuestionIcon } from './Dock';
-import { InboxPanel, waitCount } from './Inbox';
+import { InboxPanel, oldestWait, waitCount } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
 import { plainText } from './links';
 import { borrowSize, SizingTerminal } from './Terminal';
@@ -87,7 +88,7 @@ export function Phone(props: {
     return (
       <div className="phone">
         {view ? (
-          <NodeScreen key={view.id} view={view} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => history.back()} />
+          <NodeScreen key={view.id} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
         ) : (
           <>
             <header className="phone-top">
@@ -189,7 +190,7 @@ function controlOf(char: string): string {
 }
 
 /** 노드 하나의 전체 화면 터미널(목업 ④⑤). */
-function NodeScreen(props: { view: NodeView; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void }) {
+function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitingNodes`). */ waiting: NodeView[]; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const { view } = props;
   const send = useRef<((data: string) => void) | null>(null);
@@ -201,13 +202,21 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; resumable: bool
   const [askOpen, setAskOpen] = useState(false);
   const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
   const asks = asking(view);
-  const first = asks[0];
-  // 질문에 답하거나 지우면(수가 준다) 판을 닫는다.
-  const askCount = useRef(asks.length);
+  // 띠는 모든 노드 화면에 있고 펼친 판은 모든 노드의 대기를 보인다. 이 노드의 대기가 맨 위다(2026-10-23 사람 "당사자 터미널이 아니라도 저 표시가 나타나는가?", Q481 B).
+  const waiting = [...props.waiting.filter((v) => v.id === view.id), ...props.waiting.filter((v) => v.id !== view.id)];
+  const head = waiting[0];
+  const first = head && (head.id === view.id && asks.length > 0 ? asks[0] : oldestWait(head));
+  const total = waitCount(props.waiting);
+  // 답하거나 지우면(수가 준다) 판을 닫는다.
+  const askCount = useRef(total);
   useEffect(() => {
-    if (asks.length < askCount.current) setAskOpen(false);
-    askCount.current = asks.length;
-  }, [asks.length]);
+    if (total < askCount.current) setAskOpen(false);
+    askCount.current = total;
+  }, [total]);
+  const openOther = (id: NodeId) => {
+    setAskOpen(false);
+    if (id !== view.id) props.onOpen(id);
+  };
 
   const key = (data: string) => {
     send.current?.(data);
@@ -259,8 +268,8 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; resumable: bool
         <div className="phone-ask-wrap">
           <div className="phone-ask" onClick={() => setAskOpen((open) => !open)}>
             <QuestionIcon aria-hidden="true" />
-            <b>{t('wait.question')}</b>
-            {asks.length > 1 && <span className="count">{asks.length}</span>}
+            <b>{head.id === view.id ? t(`wait.${first.kind}`) : head.name}</b>
+            {total > 1 && <span className="count">{total}</span>}
             <span className="qid">Q{first.id}</span>
             <span className="text">{plainText(first.text)}</span>
             <button type="button" className="phone-icon" aria-expanded={askOpen} aria-label={askOpen ? t('phone.askClose') : t('phone.askOpen')} onClick={(e) => (e.stopPropagation(), setAskOpen((open) => !open))}>
@@ -269,7 +278,7 @@ function NodeScreen(props: { view: NodeView; agentLabel: string; resumable: bool
           </div>
           {askOpen && (
             <div className="phone-ask-panel">
-              <InboxPanel waiting={[view]} onSelect={() => setAskOpen(false)} onFocus={() => setAskOpen(false)} />
+              <InboxPanel waiting={waiting} onSelect={openOther} onFocus={openOther} />
             </div>
           )}
         </div>
@@ -482,7 +491,7 @@ function swallowNextClick() {
 function ActionSheet(props: { view: NodeView; resumable: boolean; onCtrlC: () => void; onClose: () => void; onRemoved: () => void }) {
   const { t } = useTranslation();
   const bookmark = bookmarkToggle(props.view);
-  const resumable = props.resumable && props.view.state.kind === 'running';
+  const resumable = props.resumable && relaunchableState(props.view);
   // 열 때 데몬에 물은 값. 답이 오기 전에는 누를 수 없다(데스크톱 `NodeMenu`와 같다).
   const [queued, setQueued] = useState<boolean | null>(null);
   useEffect(() => {

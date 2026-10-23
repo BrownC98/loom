@@ -1,15 +1,16 @@
-import { AlignLeft, Bell, GitCommitVertical, PanelRightClose, PanelRightOpen, SquareTerminal, Workflow, type LucideIcon } from 'lucide-react';
+import { AlignLeft, Bell, FileText, GitCommitVertical, PanelRightClose, PanelRightOpen, SquareTerminal, Workflow, type LucideIcon } from 'lucide-react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { shortcut } from './platform';
 
-/** 오른쪽 사이드바 아래 칸. 한 번에 하나만 보인다. 터미널은 심플 보기에서 노드를 골랐을 때만 있다. 「알림」(`questions`)은 알약 목록(질문과 완료)의 예비 자리다. */
-export type DockTab = 'events' | 'commits' | 'questions' | 'terminal';
+/** 오른쪽 사이드바 아래 칸. 한 번에 하나만 보인다. 터미널은 심플 보기에서 노드를 골랐을 때만 있다. 「문서」(`docs`)는 문서 ID가 붙은 모든 문서다. 「알림」(`questions`)은 알약 목록(질문과 완료)의 예비 자리다. */
+export type DockTab = 'events' | 'commits' | 'docs' | 'questions' | 'terminal';
 
-const ICON: Record<DockTab, LucideIcon> = { events: AlignLeft, commits: GitCommitVertical, questions: Bell, terminal: SquareTerminal };
-const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'inbox.tab' | 'dock.terminal'> = {
+const ICON: Record<DockTab, LucideIcon> = { events: AlignLeft, commits: GitCommitVertical, docs: FileText, questions: Bell, terminal: SquareTerminal };
+const LABEL: Record<DockTab, 'events.title' | 'app.commitGraph' | 'docs.title' | 'inbox.tab' | 'dock.terminal'> = {
   events: 'events.title',
   commits: 'app.commitGraph',
+  docs: 'docs.title',
   questions: 'inbox.tab',
   terminal: 'dock.terminal',
 };
@@ -55,9 +56,9 @@ export function Dock(props: { tabs: readonly DockTab[]; tab: DockTab; waiting: n
           const Icon = ICON[tab];
           const on = tab === props.tab;
           return (
-            <button key={tab} id={`dock-tab-${tab}`} role="tab" aria-selected={on} aria-controls="dock-panel" tabIndex={on ? 0 : -1} onClick={() => props.onTab(tab)}>
+            <button key={tab} id={`dock-tab-${tab}`} role="tab" aria-selected={on} aria-controls="dock-panel" tabIndex={on ? 0 : -1} title={t(LABEL[tab])} onClick={() => props.onTab(tab)}>
               <Icon />
-              {t(LABEL[tab])}
+              <span className="tab-label">{t(LABEL[tab])}</span>
               <Count tab={tab} waiting={props.waiting} />
             </button>
           );

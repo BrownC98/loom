@@ -67,7 +67,7 @@ impl fmt::Display for WaitId {
     }
 }
 
-/// 질문·완료에 붙은 문서(user-doc 목업·보고서, `.md` 같은 글 파일). 화면은 ID와 제목만 받는다. 파일 경로는 데몬만 안다(`Posted::doc_path`).
+/// 질문·완료에 붙은 문서(user-doc 목업·보고서, `.md` 같은 글 파일). 화면은 ID와 제목만 받고 `/api/docs/{id}/`로 연다. 파일 경로는 데몬의 문서 ID 표(`user_doc::doc_file`)만 안다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct WaitDoc {
@@ -119,12 +119,6 @@ impl PromptKey {
     }
 }
 
-/// `--doc`(`loom ask`, `loom done`)이 붙인 문서와 그 파일.
-pub struct Attached {
-    pub doc: WaitDoc,
-    pub path: PathBuf,
-}
-
 /// 화면에 보내는 대기 한 건.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -158,15 +152,6 @@ pub(super) struct Stored {
     #[serde(flatten)]
     pub wait: HumanWait,
     pub source: WaitSource,
-}
-
-/// DB `questions.wait`·`dones.wait`의 JSON: 열린 `loom ask` 질문이나 확인하지 않은 완료 하나와 붙은 문서 파일.
-#[derive(Serialize, Deserialize)]
-pub(super) struct Posted {
-    #[serde(flatten)]
-    pub wait: HumanWait,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub doc_path: Option<PathBuf>,
 }
 
 /// 열린 `loom ask` 질문. 사람 입력 훅이 에이전트에 알린다.
@@ -225,12 +210,7 @@ impl Graph {
 
     /// `loom ask`: 사람이 띄운 노드(부모 없음)만 사람에게 묻는다. 다른 노드는 부모에게 묻는다.
     /// 물을 때마다 새 번호의 질문을 더한다. 앞 질문은 열린 채로 남는다. 같은 질문을 다시 물어도 새 질문이다.
-    pub fn ask(
-        &self,
-        id: NodeId,
-        question: &str,
-        attached: Option<Attached>,
-    ) -> Result<WaitId, Refusal> {
+    pub fn ask(&self, id: NodeId, question: &str, doc: Option<WaitDoc>) -> Result<WaitId, Refusal> {
         let question = question.trim();
         if question.is_empty() {
             return Err(Refusal::EmptyQuestion);
@@ -247,18 +227,18 @@ impl Graph {
         if let Some(refusal) = malformed {
             return Err(refusal);
         }
-        let (doc, doc_path) = attached.map(|a| (a.doc, a.path)).unzip();
         let tx = db.transaction()?;
-        let wait = new_wait(&tx, WaitKind::Question, text.clone(), true, doc)?;
+        let wait = new_wait(&tx, WaitKind::Question, text.clone(), true, doc.clone())?;
         let asked = wait.id;
         tx.execute(
             "INSERT INTO questions (id, node, wait) VALUES (?1, ?2, ?3)",
-            params![asked.0, id.0, to_json(&Posted { wait, doc_path })],
+            params![asked.0, id.0, to_json(&wait)],
         )?;
         let entry = Entry::Asked {
             node: events::who(&tx, id)?,
             wait: asked,
             text,
+            doc,
         };
         events::write(&tx, &entry, None)?;
         tx.commit()?;
@@ -291,7 +271,7 @@ impl Graph {
                 node,
                 format!(
                     "Answer to loom ask question {wait} ({}): {text}{images}\nThe human answered from the loom inbox. The question is closed: do not call loom answered.",
-                    question.wait.text
+                    question.text
                 ),
                 |node, wait, text, images| Entry::Answered {
                     node,
@@ -331,7 +311,7 @@ impl Graph {
     /// 번호가 없으면 열린 질문이 하나일 때만 그것을 지운다. 여럿이면 거절하고 열린 번호를 알린다(2026-10-22 목업 M28 승인: 모두 닫지 않는다).
     pub fn answered(&self, id: NodeId, ids: &[WaitId]) -> Result<Vec<WaitId>, Refusal> {
         let mut db = self.lock();
-        let open: Vec<WaitId> = questions(&db, id)?.iter().map(|q| q.wait.id).collect();
+        let open: Vec<WaitId> = questions(&db, id)?.iter().map(|q| q.id).collect();
         let closing = match ids {
             [] if open.len() > 1 => return Err(Refusal::SeveralOpen(open)),
             [] => open,
@@ -354,22 +334,6 @@ impl Graph {
         Ok(closing)
     }
 
-    /// 열린 질문이나 확인하지 않은 완료에 붙은 문서 파일. 사람이 화면의 문서 링크를 눌렀다. 닫힌 대기의 문서는 열지 않는다.
-    pub fn wait_doc(&self, wait: WaitId) -> Result<PathBuf, Refusal> {
-        let posted: Option<String> = self
-            .lock()
-            .query_row(
-                "SELECT wait FROM questions WHERE id = ?1 UNION ALL SELECT wait FROM dones WHERE id = ?1",
-                [wait.0],
-                |row| row.get(0),
-            )
-            .optional()?;
-        posted
-            .and_then(|p| serde_json::from_str::<Posted>(&p).ok())
-            .and_then(|p| p.doc_path)
-            .ok_or(Refusal::NoWait(wait))
-    }
-
     /// 사람이 띄운 노드(부모 없음)이고, 지금 사람 응답 대기가 하나도 없고, 마지막 입력 뒤 `loom done`을 부르지 않았다.
     /// 턴 끝 검사(`daemon::turn_end`)가 쓴다. 이번 턴에 `loom ask`나 Claude 질문 도구로 물었으면 대기가 남아 있다.
     pub fn unreported_root(&self, id: NodeId) -> Result<bool, Refusal> {
@@ -386,8 +350,8 @@ impl Graph {
         Ok(questions(&self.lock(), id)?
             .into_iter()
             .map(|q| OpenQuestion {
-                id: q.wait.id,
-                text: q.wait.text,
+                id: q.id,
+                text: q.text,
             })
             .collect())
     }
@@ -495,12 +459,11 @@ pub(super) fn put_done(
     asked: &str,
     summary: &str,
     images: &[PathBuf],
-    attached: Option<Attached>,
+    doc: Option<WaitDoc>,
 ) -> rusqlite::Result<()> {
     let summary = summary.trim().to_owned();
     let instruction: String = asked.chars().take(QUESTION_LIMIT_CHARS).collect();
-    let (doc, doc_path) = attached.map(|a| (a.doc, a.path)).unzip();
-    let mut wait = new_wait(db, WaitKind::Done, summary.clone(), true, doc)?;
+    let mut wait = new_wait(db, WaitKind::Done, summary.clone(), true, doc.clone())?;
     wait.instruction = Some(instruction.clone());
     wait.images = images
         .iter()
@@ -509,13 +472,14 @@ pub(super) fn put_done(
     let done = wait.id;
     db.execute(
         "INSERT INTO dones (id, node, wait) VALUES (?1, ?2, ?3)",
-        params![done.0, id.0, to_json(&Posted { wait, doc_path })],
+        params![done.0, id.0, to_json(&wait)],
     )?;
     let entry = Entry::Reported {
         node: events::who(db, id)?,
         wait: done,
         summary,
         instruction,
+        doc,
     };
     events::write(db, &entry, None)
 }
@@ -593,7 +557,7 @@ fn put(db: &rusqlite::Connection, id: NodeId, wait: Option<&Stored>) -> rusqlite
 }
 
 /// 번호가 `wait`인 열린 `loom ask` 질문과 그 노드. 지웠거나 신호의 대기면 거절한다.
-fn open_ask(db: &rusqlite::Connection, wait: WaitId) -> Result<(NodeId, Posted), Refusal> {
+fn open_ask(db: &rusqlite::Connection, wait: WaitId) -> Result<(NodeId, HumanWait), Refusal> {
     let found: Option<(u32, String)> = db
         .query_row(
             "SELECT node, wait FROM questions WHERE id = ?1",
@@ -607,7 +571,7 @@ fn open_ask(db: &rusqlite::Connection, wait: WaitId) -> Result<(NodeId, Posted),
 }
 
 /// 노드의 열린 질문, 물은 차례(번호 차례)대로. 읽지 못하는 줄(앞으로 바뀐 형식)은 건너뛴다.
-fn questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Vec<Posted>> {
+fn questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Vec<HumanWait>> {
     let mut stmt = db.prepare_cached("SELECT wait FROM questions WHERE node = ?1 ORDER BY id")?;
     let rows = stmt
         .query_map([id.0], |row| row.get::<_, String>(0))?

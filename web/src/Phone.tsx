@@ -10,6 +10,7 @@ import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
 import { relaunchableState } from './catalog';
 import { QuestionIcon } from './Dock';
+import { useEscapeClose } from './popover';
 import { InboxPanel, oldestWait, waitCount } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
 import { plainText } from './links';
@@ -83,12 +84,17 @@ export function Phone(props: {
   const { t } = useTranslation();
   const { route } = props;
   const count = waitCount(props.waiting);
+  // 펼친 판은 노드 화면을 옮겨도 열린 채 둔다(NodeScreen은 노드마다 새로 그린다). 대기가 모두 사라지면 닫는다.
+  const [askOpen, setAskOpen] = useState(false);
+  useEffect(() => {
+    if (count === 0) setAskOpen(false);
+  }, [count]);
   const view = route.screen === 'node' ? props.nodes.get(route.id) : undefined;
   if (route.screen === 'node')
     return (
       <div className="phone">
         {view ? (
-          <NodeScreen key={view.id} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
+          <NodeScreen key={view.id} askOpen={askOpen} setAskOpen={setAskOpen} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
         ) : (
           <>
             <header className="phone-top">
@@ -190,7 +196,7 @@ function controlOf(char: string): string {
 }
 
 /** 노드 하나의 전체 화면 터미널(목업 ④⑤). */
-function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitingNodes`). */ waiting: NodeView[]; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
+function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => void; view: NodeView; /** 모든 노드의 대기(`waitingNodes`). */ waiting: NodeView[]; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const { view } = props;
   const send = useRef<((data: string) => void) | null>(null);
@@ -199,7 +205,7 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
   const [ctrl, setCtrl] = useState(false);
   const [text, setText] = useState('');
   const [sheet, setSheet] = useState<'actions' | null>(null);
-  const [askOpen, setAskOpen] = useState(false);
+  const { askOpen, setAskOpen } = props;
   const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
   const asks = asking(view);
   // 띠는 모든 노드 화면에 있고 펼친 판은 모든 노드의 대기를 보인다. 이 노드의 대기가 맨 위다(2026-10-23 사람 "당사자 터미널이 아니라도 저 표시가 나타나는가?", Q481 B).
@@ -207,14 +213,8 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
   const head = waiting[0];
   const first = head && (head.id === view.id && asks.length > 0 ? asks[0] : oldestWait(head));
   const total = waitCount(props.waiting);
-  // 답하거나 지우면(수가 준다) 판을 닫는다.
-  const askCount = useRef(total);
-  useEffect(() => {
-    if (total < askCount.current) setAskOpen(false);
-    askCount.current = total;
-  }, [total]);
+  // 답해서 수가 줄어도, 다른 노드로 가도 판은 열린 채 남은 알림을 보인다(2026-10-23 사람 지시 "앱 알림에서 입력하면 남은 알림 리스트가 닫히는 문제").
   const openOther = (id: NodeId) => {
-    setAskOpen(false);
     if (id !== view.id) props.onOpen(id);
   };
 
@@ -266,13 +266,13 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
       {first && (
         // 띠 아래 판은 터미널 위에 덮여 내려온다(터미널 칸 크기는 그대로). 2026-10-23 사람 결정 Q475 B 「B로 하고 거기에 펴기/닫기 옵션선택, 텍스트 입력 까지 구현, 펼치기는 바텀시트가 아니라 위에서부터 펼쳐 내려오는 형식으로, 알림이 여래개일때 스크롤 가능하게」
         <div className="phone-ask-wrap" data-kind={first.kind}>
-          <div className="phone-ask" onClick={() => setAskOpen((open) => !open)}>
+          <div className="phone-ask" onClick={() => setAskOpen(!askOpen)}>
             {first.kind === 'done' ? <CircleCheck aria-hidden="true" /> : <QuestionIcon aria-hidden="true" />}
             <b>{head.id === view.id ? t(`wait.${first.kind}`) : head.name}</b>
             {total > 1 && <span className="count">{total}</span>}
             <span className="qid">Q{first.id}</span>
             <span className="text">{plainText(first.text)}</span>
-            <button type="button" className="phone-icon" aria-expanded={askOpen} aria-label={askOpen ? t('phone.askClose') : t('phone.askOpen')} onClick={(e) => (e.stopPropagation(), setAskOpen((open) => !open))}>
+            <button type="button" className="phone-icon" aria-expanded={askOpen} aria-label={askOpen ? t('phone.askClose') : t('phone.askOpen')} onClick={(e) => (e.stopPropagation(), setAskOpen(!askOpen))}>
               {askOpen ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
             </button>
           </div>
@@ -365,14 +365,10 @@ function useSheetHistory(onClose: () => void) {
  */
 export function Sheet(props: { label: string; onClose: () => void; children: ReactNode }) {
   const { t } = useTranslation();
-  const sheet = useRef<HTMLDivElement>(null);
+  // 바탕 누르기는 바탕이 맡는다. 밖 누르기(`useDismiss`)를 쓰면 위에 겹친 판의 바탕을 누를 때 아래 판도 닫힌다.
+  const sheet = useEscapeClose<HTMLDivElement>(props.onClose);
   const dragFrom = useRef<number | null>(null);
   useSheetHistory(props.onClose);
-  useEffect(() => {
-    const close = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose();
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [props.onClose]);
   const drag = (e: ReactPointerEvent) => {
     if (dragFrom.current === null || !sheet.current) return;
     sheet.current.style.transform = `translateY(${Math.max(0, e.clientY - dragFrom.current)}px)`;

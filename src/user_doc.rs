@@ -1,4 +1,4 @@
-//! `loom show`와 `loom ask --doc`: user-doc 스킬의 문서를 점검하고 문서 ID를 붙인다. 사람의 브라우저는 열지 않는다.
+//! `loom show`와 `--doc`(`loom ask`, `loom done`): user-doc 스킬의 문서를 점검하고 문서 ID를 붙인다. 사람의 브라우저는 열지 않는다.
 //! 사람은 질문 줄의 문서 링크로 연다(2026-10-21 사람 지시 "목업이나 보고서 승인도 질문탭에 링크로 달아두는 식으루 구현하라, 직접 브라우저에 띄우지 말고").
 //! bash가 없는 Windows 노드에서도 같은 일을 하도록 Rust에 둔다. 렌더 그림은 `show.sh`가 한다.
 //! 근거: skills/user-doc/SKILL.md 「보이기」.
@@ -23,28 +23,85 @@ pub fn show(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// `--doc`이 받는 문서의 갈래. 붙이기(`attach`)와 데몬의 내기(`daemon::serve_file`)가 이 한 목록을 쓴다.
+/// 그 밖의 파일(확장자 없는 README, `.csv`, `.svg` 등)은 받지 않는다. 받으면 브라우저가 내려받거나 스크립트를 돌린다(2026-10-23 검토 BLOCK).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DocKind {
+    /// user-doc 문서. 점검하고 ID를 붙인다.
+    Html,
+    /// 글 파일(`.md` 보고서 등). 점검하지 않고 고치지 않는다. 데몬은 `text/plain; charset=utf-8`로 낸다.
+    Text,
+}
+
+const HTML_EXTENSIONS: [&str; 2] = ["html", "htm"];
+const TEXT_EXTENSIONS: [&str; 4] = ["md", "markdown", "txt", "log"];
+
+pub fn doc_kind(path: &Path) -> Option<DocKind> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    if HTML_EXTENSIONS.contains(&ext.as_str()) {
+        Some(DocKind::Html)
+    } else if TEXT_EXTENSIONS.contains(&ext.as_str()) {
+        Some(DocKind::Text)
+    } else {
+        None
+    }
+}
+
 /// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
+/// 근거: 총괄이 `.md` 감사 보고서를 붙이지 못해 경로를 글로 적었고, 사람은 열지 못했다(2026-10-23 사람 "링크로 제공이 안됨").
 pub fn attach(path: &Path) -> Result<Attached, String> {
     let path = real_path(path)?;
-    let html = fs::read_to_string(&path).map_err(|e| match e.kind() {
-        // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
-        std::io::ErrorKind::InvalidData => format!(
-            "{}: not a text file. Attach a user-doc HTML file; put images inside it.",
-            path.display()
-        ),
+    // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
+    let refused = || {
+        format!(
+            "{}: --doc takes a user-doc HTML file (.{}) or a text file (.{}); put images inside an HTML file.",
+            path.display(),
+            HTML_EXTENSIONS.join(", ."),
+            TEXT_EXTENSIONS.join(", .")
+        )
+    };
+    let kind = doc_kind(&path).ok_or_else(refused)?;
+    let text = fs::read_to_string(&path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::InvalidData => refused(),
         _ => format!("{}: {e}", path.display()),
     })?;
-    check(&html)?;
+    if kind == DocKind::Text {
+        let title = text_title(&text, &path);
+        return Ok(Attached {
+            doc: WaitDoc {
+                id: doc_id(&path)?,
+                title,
+            },
+            path,
+        });
+    }
+    check(&text)?;
     if !mockup(&path) {
-        check_report(&html)?;
+        check_report(&text)?;
     }
     let id = doc_id(&path)?;
-    let title = bare_title(title(&html).unwrap_or_default()).to_owned();
-    fs::write(&path, stamp(&html, &id)).map_err(|e| e.to_string())?;
+    let title = bare_title(title(&text).unwrap_or_default()).to_owned();
+    fs::write(&path, stamp(&text, &id)).map_err(|e| e.to_string())?;
     Ok(Attached {
         doc: WaitDoc { id, title },
         path,
     })
+}
+
+/// 글 문서의 제목: 첫 markdown 제목 줄(`# …`), 없으면 파일 이름.
+fn text_title(text: &str, path: &Path) -> String {
+    let heading = text
+        .lines()
+        .find_map(|l| l.strip_prefix("# "))
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    match heading {
+        Some(t) => t.to_owned(),
+        None => path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    }
 }
 
 /// 같은 문서가 언제나 같은 표 열쇠를 갖게 링크를 푼다. Windows의 `\\?\C:\…`는 앱이 못 읽으므로 `C:\…`로 둔다.
@@ -194,7 +251,39 @@ mod tests {
         let png = dir.path().join("mockup.png");
         fs::write(&png, [0x89, b'P', b'N', b'G', 0xff, 0xfe]).unwrap();
         let refused = attach(&png).err().unwrap();
-        assert!(refused.contains("Attach a user-doc HTML file"), "{refused}");
+        assert!(
+            refused.contains("put images inside an HTML file"),
+            "{refused}"
+        );
+    }
+
+    #[test]
+    fn a_text_doc_takes_its_first_heading_or_file_name() {
+        let md = Path::new("/r/audit.md");
+        assert_eq!(text_title("앞말\n# 알림 감사 \n본문\n", md), "알림 감사");
+        assert_eq!(text_title("본문만\n#붙은 줄", md), "audit.md");
+    }
+
+    #[test]
+    fn only_listed_extensions_are_docs() {
+        assert_eq!(doc_kind(Path::new("/r/a.HTML")), Some(DocKind::Html));
+        assert_eq!(doc_kind(Path::new("/r/a.htm")), Some(DocKind::Html));
+        assert_eq!(doc_kind(Path::new("/r/audit.MD")), Some(DocKind::Text));
+        assert_eq!(doc_kind(Path::new("/r/run.log")), Some(DocKind::Text));
+        assert_eq!(doc_kind(Path::new("/r/README")), None);
+        assert_eq!(doc_kind(Path::new("/r/rows.csv")), None);
+        assert_eq!(doc_kind(Path::new("/r/a.svg")), None);
+    }
+
+    #[test]
+    fn other_text_files_are_refused_with_the_list() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["README", "rows.csv", "a.svg"] {
+            let file = dir.path().join(name);
+            fs::write(&file, "<svg><script>x</script></svg>").unwrap();
+            let refused = attach(&file).err().unwrap();
+            assert!(refused.contains(".md, .markdown, .txt, .log"), "{refused}");
+        }
     }
 
     #[test]

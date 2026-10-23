@@ -2,13 +2,13 @@ import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createWorktree } from './api';
 import type { RepoView } from './gen/RepoView';
-import { useOutsideClose } from './popover';
+import { useDismiss } from './popover';
 import { folderName } from './repos';
 
 /** 새 워크트리(목업 workspace.html 2번). 폴더는 `<워크스페이스 폴더>/<저장소 이름>/<브랜치 마지막 마디>`이고, 데몬이 같은 규칙으로 만든다. */
 export function NewWorktreePopover(props: { repo: RepoView; workspaceDir: string; onCreated: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
-  const box = useOutsideClose<HTMLFormElement>(props.onClose);
+  const box = useDismiss<HTMLFormElement>(props.onClose);
   const { repo } = props;
   const [branch, setBranch] = useState('');
   const [base, setBase] = useState(repo.worktrees.find((w) => w.original)?.branch ?? repo.branches[0] ?? 'HEAD');
@@ -30,7 +30,7 @@ export function NewWorktreePopover(props: { repo: RepoView; workspaceDir: string
   }
 
   return (
-    <form ref={box} className="pop worktree-pop nodrag nowheel" aria-label={t('repo.newWorktree')} onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && props.onClose()}>
+    <form ref={box} className="pop worktree-pop nodrag nowheel" aria-label={t('repo.newWorktree')} onSubmit={submit}>
       <h2>{t('repo.newWorktree')}</h2>
       <div className="field">
         <label htmlFor="wt-branch">{t('repo.branch')}</label>

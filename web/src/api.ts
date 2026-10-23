@@ -267,17 +267,33 @@ export interface PtyLink {
   close(): void;
 }
 
-/** PTY에 붙는다(`nodePty`·`loginPty`). 연결할 때마다 `onAttach`를 부른 뒤 backlog부터 출력을 넘긴다. */
+/** PTY에 붙는다(`nodePty`·`loginPty`). 연결할 때마다 `onAttach`를 부른 뒤 backlog(`onBacklog`), 그 뒤의 출력(`onOutput`)을 넘긴다. */
 export function attachPty(
   path: string,
-  handlers: { onAttach: () => void; onOutput: (bytes: Uint8Array) => void; onNotice: (notice: PtyNotice) => void },
+  handlers: {
+    onAttach: () => void;
+    onBacklog: (bytes: Uint8Array) => void;
+    onOutput: (bytes: Uint8Array) => void;
+    onNotice: (notice: PtyNotice) => void;
+  },
 ): PtyLink {
   const encoder = new TextEncoder();
+  // 비어도 보낸다(`relay_pty`).
+  let backlogNext = false;
   const link = reconnecting(path, {
-    onOpen: handlers.onAttach,
+    onOpen: () => {
+      backlogNext = true;
+      handlers.onAttach();
+    },
     // 출력은 바이너리 프레임, 데몬의 알림(`PtyNotice`)은 글 프레임이다.
-    onMessage: (e) =>
-      typeof e.data === 'string' ? handlers.onNotice(JSON.parse(e.data) as PtyNotice) : handlers.onOutput(new Uint8Array(e.data as ArrayBuffer)),
+    onMessage: (e) => {
+      if (typeof e.data === 'string') return handlers.onNotice(JSON.parse(e.data) as PtyNotice);
+      const bytes = new Uint8Array(e.data as ArrayBuffer);
+      if (backlogNext) {
+        backlogNext = false;
+        handlers.onBacklog(bytes);
+      } else handlers.onOutput(bytes);
+    },
   });
   return {
     sendInput: (data) => link.send(typeof data === 'string' ? encoder.encode(data) : new Uint8Array(data)),

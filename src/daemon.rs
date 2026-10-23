@@ -2404,6 +2404,9 @@ pub enum PtyNotice {
     Gone,
     /// PTY의 열·줄. 붙을 때 backlog보다 먼저, 그 뒤 바뀔 때마다 보낸다. 화면은 이 크기로 그리고 칸에 맞게 늘이거나 줄인다.
     Size(Resize),
+    /// 붙을 때 PTY가 한동안 조용했다(`node_host::Attached::settled`). backlog보다 먼저 보낸다. 화면은 그 backlog 속 색 질의(OSC 10·11·4)에 답하지 않는다.
+    /// 근거: 카드를 열 때마다 xterm이 옛 질의에 다시 답해 프로그램에 늦은 입력이 갔다(실측 2026-10-23). 갓 보낸 질의는 프로그램이 아직 기다릴 수 있어 답한다.
+    Settled,
 }
 
 /// PTY 하나를 화면에 잇는다. 노드 터미널과 로그인 창이 함께 쓴다.
@@ -2475,6 +2478,12 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
     let mut size = attached.size;
     if send_size(&mut to_view, &mut size).await.is_err() {
         return;
+    }
+    if attached.settled {
+        let notice = serde_json::to_string(&PtyNotice::Settled).expect("PtyNotice는 늘 직렬화된다");
+        if to_view.send(Message::Text(notice.into())).await.is_err() {
+            return;
+        }
     }
     if to_view
         .send(Message::Binary(attached.backlog))

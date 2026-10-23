@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { withoutColorReplies } from './colorReplies';
 import { attachPty, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { PtyRequest } from './gen/PtyRequest';
@@ -323,6 +324,9 @@ export function SizingTerminal(props: TerminalProps) {
       };
       // `slow`일 때 모은 출력과 크기 알림. 온 차례대로 xterm에 넘긴다. 크기 알림이 그 뒤 출력의 모양을 정하기 때문이다.
       const held: (() => void)[] = [];
+      // 데몬이 `settled`를 알린 backlog를 그리는 중인 수.
+      let replaying = 0;
+      let settled = false;
       const flush = () => {
         for (const step of held.splice(0)) step();
       };
@@ -340,12 +344,23 @@ export function SizingTerminal(props: TerminalProps) {
         onAttach: () => {
           // 다시 붙으면 backlog를 처음부터 받으므로 화면을 비운다. 모은 출력도 지난 연결의 것이다.
           held.length = 0;
+          settled = false;
           xterm.reset();
           decide();
         },
+        onBacklog: (bytes) =>
+          feed(() => {
+            if (!settled) return xterm.write(bytes);
+            replaying += 1;
+            xterm.write(bytes, () => (replaying -= 1));
+          }),
         onOutput: (bytes) => feed(() => xterm.write(bytes)),
         onNotice: (notice) => {
           if (notice === 'gone') feed(() => xterm.write(`${i18next.t('terminal.gone')}\r\n`));
+          else if (notice === 'settled')
+            feed(() => {
+              settled = true;
+            });
           // backlog보다 먼저 온다. 그 크기로 backlog를 그린다.
           else feed(() => xterm.resize(notice.size.cols, notice.size.rows));
         },
@@ -390,7 +405,10 @@ export function SizingTerminal(props: TerminalProps) {
       };
       // xterm의 paste 처리기보다 먼저 받는다.
       el.addEventListener('paste', pasteImage, true);
-      const input = xterm.onData((data) => link.sendInput(data));
+      const input = xterm.onData((data) => {
+        const sent = replaying === 0 ? data : withoutColorReplies(data);
+        if (sent) link.sendInput(sent);
+      });
       latest.current.onSender?.((data) => {
         claim();
         link.sendInput(data);

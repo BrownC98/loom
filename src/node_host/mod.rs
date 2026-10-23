@@ -15,7 +15,7 @@ use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use portable_pty::CommandBuilder;
@@ -34,6 +34,10 @@ const VIEWER_QUEUE_CHUNKS: usize = 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// 호스트가 끝났는데 종료 코드가 오지 않았을 때 쓰는 코드. 호스트가 죽으면 PTY가 닫혀 노드도 끝난다.
 const LOST_CODE: u32 = u32::MAX;
+
+/// 이만큼 출력이 없었으면 backlog 속 색 질의(OSC 10·11·4)는 모두 시한이 지났다. 질의를 기다리는 프로그램은 그 질의가 마지막 출력이다.
+/// 근거: OpenCode 2.0.32는 250 ms·1000 ms까지 기다린다(설치본 번들 `QUERY_TIMEOUT_MS`, `waitForThemeMode(1000)`). 그 두 배다.
+const SETTLED_AFTER: Duration = Duration::from_secs(2);
 
 /// 설정 스크립트가 실패했을 때 부모에게 보이는 출력 끝 줄 수. 근거: 오류는 보통 마지막 몇 줄에 있다(npm·tsc·cargo).
 const TAIL_LINES: usize = 20;
@@ -61,6 +65,8 @@ pub struct Attached {
     pub output: broadcast::Receiver<Bytes>,
     /// PTY의 열·줄. 붙을 때의 값을 먼저 보고, 바뀌면 다시 깬다. 모든 화면이 이 크기로 그린다(docs/design.md 「데몬 하나」).
     pub size: watch::Receiver<PtySize>,
+    /// 붙을 때 `SETTLED_AFTER` 넘게 출력이 없었다. 화면은 backlog 속 색 질의에 답하지 않는다.
+    pub settled: bool,
 }
 
 /// PTY 하나의 크기. 화면에 가는 값이다.
@@ -133,6 +139,8 @@ impl Borrower {
 struct Output {
     backlog: Backlog,
     tx: broadcast::Sender<Bytes>,
+    /// 마지막 출력을 받은 때. 다시 시작한 데몬은 호스트의 backlog를 받은 때다.
+    last_push: Instant,
 }
 
 /// 최근 출력 `BACKLOG_BYTES`. 호스트와 데몬이 같은 규칙으로 쌓는다.
@@ -183,6 +191,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             output: Mutex::new(Output {
                 backlog: Backlog::default(),
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
+                last_push: Instant::now(),
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
             sizing: Mutex::default(),
@@ -280,6 +289,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             backlog: Bytes::from(output.backlog.to_vec()),
             output: output.tx.subscribe(),
             size: pty.size.subscribe(),
+            settled: output.settled(Instant::now()),
         })
     }
 
@@ -488,8 +498,13 @@ impl Pty {
 }
 
 impl Output {
+    fn settled(&self, now: Instant) -> bool {
+        now.duration_since(self.last_push) >= SETTLED_AFTER
+    }
+
     fn push(&mut self, chunk: &[u8]) {
         self.backlog.push(chunk);
+        self.last_push = Instant::now();
         // 보는 화면이 없으면 send가 실패한다. backlog에 남았으므로 버려도 된다.
         let _ = self.tx.send(Bytes::copy_from_slice(chunk));
     }
@@ -912,6 +927,26 @@ mod tests {
         assert_eq!(
             back.iter_full_env_as_str().count(),
             cmd.iter_full_env_as_str().count()
+        );
+    }
+
+    #[test]
+    fn output_settles_after_quiet_time() {
+        let mut output = Output {
+            backlog: Backlog::default(),
+            tx: broadcast::channel(1).0,
+            last_push: Instant::now(),
+        };
+        output.push(b"\x1b]11;?\x1b\\");
+        let pushed = output.last_push;
+        assert!(
+            !output.settled(pushed),
+            "방금 보낸 질의는 아직 기다릴 수 있다"
+        );
+        assert!(!output.settled(pushed + SETTLED_AFTER - Duration::from_millis(1)));
+        assert!(
+            output.settled(pushed + SETTLED_AFTER),
+            "조용해진 뒤의 질의는 시한이 지났다"
         );
     }
 

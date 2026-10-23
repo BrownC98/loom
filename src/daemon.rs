@@ -48,9 +48,9 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
-    NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, Via,
-    WaitDoc, WaitId, WaitKind, WaitSource,
+    CardView, Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model,
+    NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits,
+    Via, WaitDoc, WaitId, WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -654,6 +654,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route(
             "/api/nodes/{id}/bookmark",
             put(bookmark_node).delete(unbookmark_node),
+        )
+        .route(
+            "/api/nodes/{id}/card-view",
+            put(set_card_view).delete(clear_card_view),
         )
         .route("/api/waits/{wait}", delete(dismiss_wait))
         .route("/api/waits/{wait}/answer", post(answer_wait))
@@ -1600,15 +1604,13 @@ async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread
     }
 }
 
-/// Codex 턴 끝 질문 검사. 다시 일하게 했으면 참이다. 대기 없는 루트만 답 글을 읽는다.
+/// Codex 턴 끝 질문 검사. 다시 일하게 했으면 참이다. 답 글은 모든 노드에서 읽는다. 심플 카드의 상태 줄이다.
 async fn codex_turn_end(app: &App, node: NodeId, server: &CodexServer, thread: &str) -> bool {
     let call = |method, params| server.call(method, params);
-    if app.graph.unreported_root(node).unwrap_or(false) {
-        match codex::last_reply(call, thread).await {
-            Ok(Some(text)) => app.turn_ends.said(node, text),
-            Ok(None) => {}
-            Err(e) => eprintln!("loom: 노드 {}의 답 글을 읽지 못했다: {e}", node.0),
-        }
+    match codex::last_reply(call, thread).await {
+        Ok(Some(text)) => app.turn_ends.said(node, text),
+        Ok(None) => {}
+        Err(e) => eprintln!("loom: 노드 {}의 답 글을 읽지 못했다: {e}", node.0),
     }
     let Some(nudge) = app.turn_end(node) else {
         return false;
@@ -1793,6 +1795,25 @@ async fn unbookmark_node(
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
     app.graph.unbookmark(NodeId(id))?;
+    Ok(Json(()))
+}
+
+/// 「⋯」 메뉴: 이 노드만 이 카드 보기로 본다.
+async fn set_card_view(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+    Json(view): Json<CardView>,
+) -> Result<Json<()>, Problem> {
+    app.graph.set_card_view(NodeId(id), Some(view))?;
+    Ok(Json(()))
+}
+
+/// 「⋯」 메뉴: 이 노드가 설정의 기본 보기를 따른다.
+async fn clear_card_view(
+    State(app): State<Arc<App>>,
+    Path(id): Path<u32>,
+) -> Result<Json<()>, Problem> {
+    app.graph.set_card_view(NodeId(id), None)?;
     Ok(Json(()))
 }
 

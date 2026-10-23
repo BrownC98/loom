@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use super::events::{self, ClosedBy, Entry};
 use super::waits::Prompt;
 use super::{
-    Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
-    ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of, set_state, state_of,
-    to_json, waits,
+    CardView, Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward,
+    TreeLimits, ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of,
+    set_state, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
@@ -398,6 +398,40 @@ impl Graph {
             params![id.0, model.model, model.effort],
         )?;
         if changed > 0 {
+            self.publish_node(&db, id)?;
+        }
+        Ok(())
+    }
+
+    /// 사람이 「⋯」 메뉴로 노드의 카드 보기를 고른다. `None`이면 설정의 기본 보기를 따른다.
+    pub fn set_card_view(&self, id: NodeId, view: Option<CardView>) -> Result<(), Refusal> {
+        let db = self.lock();
+        name_of(&db, id)
+            .optional()?
+            .ok_or_else(|| Refusal::NotFound(format!("#{}", id.0)))?;
+        let value = view.map(|v| to_json(&v));
+        if db.execute(
+            "UPDATE nodes SET card_view = ?2 WHERE id = ?1 AND card_view IS NOT ?2",
+            params![id.0, value],
+        )? > 0
+        {
+            self.publish_node(&db, id)?;
+        }
+        Ok(())
+    }
+
+    /// 노드가 턴을 끝낸 답 글을 남긴다. 앞 답은 버린다. 빈 글은 남기지 않는다. 자르지 않는다: 마우스를 올리면 전문이 보인다(목업 M14 v2 ⑧).
+    pub fn set_reply(&self, id: NodeId, text: &str) -> rusqlite::Result<()> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(());
+        }
+        let db = self.lock();
+        if db.execute(
+            "UPDATE nodes SET reply = ?2 WHERE id = ?1 AND reply IS NOT ?2",
+            params![id.0, text],
+        )? > 0
+        {
             self.publish_node(&db, id)?;
         }
         Ok(())

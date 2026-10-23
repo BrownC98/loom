@@ -253,6 +253,8 @@ const STEPS: &[M] = &[
             PRIMARY KEY (repo, branch)
         );",
     ),
+    // 32: 노드에 고른 카드 보기(graph `CardView`, serde JSON)와 마지막 턴 끝 답 글(심플 카드 상태 줄). 없으면 NULL이다(목업 docs/mockups/node-card-view.html).
+    M::up("ALTER TABLE nodes ADD COLUMN card_view TEXT; ALTER TABLE nodes ADD COLUMN reply TEXT;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

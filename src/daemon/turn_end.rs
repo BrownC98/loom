@@ -16,12 +16,19 @@ use crate::graph::NodeId;
 /// 검사 이름은 붙이지 않고 지금 하는 일이나 상황을 짧게 적는다(같은 날 "턴 끝 명시하지 말고, 그냥 현재 너의 작업 또는 상황을 브리핑하는 짧은 단어로 명해").
 const NUDGE: &str = "You ended the turn with text but without loom ask or loom done. If the text asks the human anything (a question, a choice, an approval), call loom ask \"<one line>\", then end your turn. If you finished a result the human can use, call loom done \"<what you did>\" --asked \"<the human's instruction>\". Otherwise reply with only a few words in the language the human uses with you that brief your current work or state. Do not name this check. Example in Korean: \"코디 결과 대기\". Then end your turn.";
 
+/// 관문 낱말 줄을 터미널에만 쓰고 관문 동사를 부르지 않은 턴 끝. 근거: 출력 표준 R8 v5 ⑤ 4층(관문 줄은 loom이 받는 곳을 고르는 명령으로만 낸다).
+const GATE_NUDGE: &str = "Your last reply has a line that starts with a gate word (READY, MERGED, BLOCK, REWORK, VERDICT, CI RESULT, GATE), but you called no gate verb in this turn. Text in the terminal reaches nobody. If you meant a gate step, call it now: loom ready, loom verdict, loom merge or loom fail (see loom --help). Otherwise reply with a few words without that line. Then end your turn.";
+
 #[derive(Default)]
 pub struct TurnEnds {
     /// 노드마다 이번 턴의 마지막 답 글. 턴 끝에 꺼낸다. 빈 글은 글이 없는 것으로 본다.
     said: Mutex<HashMap<NodeId, String>>,
     /// 사람 입력(TUI 입력, 받은편지함 답)을 받고 아직 턴 끝을 검사하지 않은 노드. 턴 끝에 지운다. 다시 일한 턴은 사람 입력이 없으므로 검사하지 않는다.
     human: Mutex<HashSet<NodeId>>,
+    /// 이번 턴에 관문 동사를 부른 노드. 턴 끝에 지운다.
+    gated: Mutex<HashSet<NodeId>>,
+    /// 관문 줄 때문에 다시 일하게 한 노드. 다음 턴 끝에는 그 검사를 하지 않는다. 같은 글을 고집하면 끝없이 깨우지 않는다.
+    gate_nudged: Mutex<HashSet<NodeId>>,
 }
 
 impl TurnEnds {
@@ -35,15 +42,31 @@ impl TurnEnds {
         self.human.lock().unwrap().insert(node);
     }
 
+    /// 노드가 이번 턴에 관문 동사를 불렀다.
+    pub fn gated(&self, node: NodeId) {
+        self.gated.lock().unwrap().insert(node);
+    }
+
     /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다.
+    /// `gated_repo`는 노드의 저장소가 관문 계약을 가졌는지 본다. 없는 저장소는 옛 관문 글을 그대로 쓴다.
     /// `unreported_root`는 노드가 사람이 띄운 노드이고, 사람 응답 대기가 없고, `loom done`을 부르지 않았는지 본다(`Graph::unreported_root`).
     pub fn ended(
         &self,
         node: NodeId,
+        gated_repo: impl FnOnce() -> bool,
         unreported_root: impl FnOnce() -> bool,
     ) -> Option<&'static str> {
         let said = self.said.lock().unwrap().remove(&node);
         let human = self.human.lock().unwrap().remove(&node);
+        let called = self.gated.lock().unwrap().remove(&node);
+        let nudged = self.gate_nudged.lock().unwrap().remove(&node);
+        let gate_line = said
+            .as_deref()
+            .is_some_and(|text| crate::protocol::gate_line(text).is_some());
+        if gate_line && !called && !nudged && gated_repo() {
+            self.gate_nudged.lock().unwrap().insert(node);
+            return Some(GATE_NUDGE);
+        }
         (human && said.is_some_and(|text| !text.trim().is_empty()) && unreported_root())
             .then_some(NUDGE)
     }
@@ -52,7 +75,13 @@ impl TurnEnds {
 impl App {
     /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다.
     pub(super) fn turn_end(&self, node: NodeId) -> Option<&'static str> {
-        let nudge = self.turn_ends.ended(node, || {
+        let gated_repo = || {
+            self.gated_repo(node).unwrap_or_else(|e| {
+                eprintln!("loom: 노드 {}의 저장소를 보지 못했다: {e}", node.0);
+                false
+            })
+        };
+        let nudge = self.turn_ends.ended(node, gated_repo, || {
             self.graph.unreported_root(node).unwrap_or_else(|e| {
                 eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
                 false
@@ -73,19 +102,49 @@ mod tests {
         let node = NodeId(1);
         // 알림·자식 메시지가 시작한 턴은 보지 않는다.
         turns.said(node, "병합했습니다".into());
-        assert_eq!(turns.ended(node, || true), None, "not a human turn");
+        assert_eq!(
+            turns.ended(node, || true, || true),
+            None,
+            "not a human turn"
+        );
         turns.human(node);
         turns.said(node, "병합할까요?".into());
-        assert_eq!(turns.ended(node, || false), None, "child, asked or done");
+        assert_eq!(
+            turns.ended(node, || true, || false),
+            None,
+            "child, asked or done"
+        );
         turns.human(node);
         turns.said(node, "A안과 B안 가운데 고르시면 진행합니다.".into());
-        assert_eq!(turns.ended(node, || true), Some(NUDGE));
+        assert_eq!(turns.ended(node, || true, || true), Some(NUDGE));
         // 다시 일한 턴은 사람 입력이 없다.
         turns.said(node, "진행 상황".into());
-        assert_eq!(turns.ended(node, || true), None);
+        assert_eq!(turns.ended(node, || true, || true), None);
         // 답 글이 없는 사람 턴은 막지 않는다.
         turns.human(node);
         turns.said(node, " \n".into());
-        assert_eq!(turns.ended(node, || true), None);
+        assert_eq!(turns.ended(node, || true, || true), None);
+    }
+
+    #[test]
+    fn a_gate_line_without_a_gate_call_is_nudged_once_in_gated_repos() {
+        let turns = TurnEnds::default();
+        let node = NodeId(1);
+        turns.said(node, "검사 끝.\nREADY 출력표준".into());
+        assert_eq!(turns.ended(node, || false, || false), None, "old repo");
+        turns.said(node, "READY 출력표준".into());
+        assert_eq!(turns.ended(node, || true, || false), Some(GATE_NUDGE));
+        // 다시 일한 턴이 같은 글을 써도 다시 깨우지 않는다.
+        turns.said(node, "READY 출력표준".into());
+        assert_eq!(turns.ended(node, || true, || false), None);
+        turns.gated(node);
+        turns.said(node, "READY 출력표준".into());
+        assert_eq!(
+            turns.ended(node, || true, || false),
+            None,
+            "called loom ready"
+        );
+        turns.said(node, "Ready for review".into());
+        assert_eq!(turns.ended(node, || true, || false), None);
     }
 }

@@ -67,7 +67,6 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 .meter i { display: block; height: 100%; background: var(--accent); }
 .pct { font-family: var(--mono); text-align: right; }
 .left { white-space: nowrap; font-family: var(--mono); color: var(--ink-3); }
-.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
 
 .confirm { width: 420px; padding: 16px; background: var(--surface); border-radius: 10px; border: 1px solid var(--line); display: grid; gap: 12px; font-size: 13px; }
 .confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
@@ -83,7 +82,7 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
 <main class="doc">
   <div class="who"><span>응답할 곳: <b>총괄 · claude-1</b></span><span>연 담당: <b>총괄 · claude-1</b></span><span>v1 · 2026-10-21</span></div>
   <h1>설정 › 계정: 시스템 기본 계정 표시와 로그인·로그아웃</h1>
-  <p class="lead">Windows 사용자 보고: 기본 계정이 어떤 계정인지 보이지 않고, 잘못 연결된 기본 계정을 끊을 수 없고, Codex 계정 추가가 오류로 끝났다. 바뀌는 구역은 계정 탭의 줄뿐이다. 점선이 바뀌는 곳이다.</p>
+  <p class="lead">Windows 사용자 보고: 기본 계정이 어떤 계정인지 보이지 않고, 잘못 연결된 기본 계정을 끊을 수 없고, Codex 계정 추가가 오류로 끝났다.</p>
 
   <div class="fig">
     <h2>① 시스템 기본이 로그인함 <span class="tag">claude auth status → loggedIn: true</span></h2>
@@ -92,9 +91,9 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
         <h4>Claude <button class="btn ghost sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>계정 추가</button></h4>
         <div class="rows">
           <div class="acct-row" aria-current="true">
-            <span class="row-main"><span class="name new">me@ktaip.com</span><span class="badge new">시스템 기본</span><span class="badge">사용 중</span><span class="meta">~/.claude · max · 1분 전 갱신</span></span>
+            <span class="row-main"><span class="name">me@ktaip.com</span><span class="badge">시스템 기본</span><span class="badge">사용 중</span><span class="meta">~/.claude · max · 1분 전 갱신</span></span>
             <span class="win"><span class="win-line"><span>5시간</span><span class="meter"><i style="width:34%"></i></span><span class="pct">34%</span><span class="left">2시간 10분 남음</span></span><span class="win-line"><span>주간</span><span class="meter"><i style="width:61%"></i></span><span class="pct">61%</span><span class="left">3일 4시간 남음</span></span></span>
-            <span class="row-actions"><button class="btn ghost sm new">로그아웃</button></span>
+            <span class="row-actions"><button class="btn ghost sm">로그아웃</button></span>
           </div>
           <div class="acct-row">
             <span class="row-main"><span class="name">work@example.com</span><span class="meta">max · 1분 전 갱신</span></span>
@@ -120,7 +119,7 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
           <div class="acct-row" aria-current="true">
             <span class="row-main"><span class="name">시스템 기본</span><span class="badge">사용 중</span><span class="badge warn">로그인 필요</span><span class="meta">~/.claude</span></span>
             <span class="win"><span class="hint">로그인하면 사용량을 볼 수 있습니다</span></span>
-            <span class="row-actions"><button class="btn sm new">로그인</button></span>
+            <span class="row-actions"><button class="btn sm">로그인</button></span>
           </div>
         </div>
         <span class="hint" style="text-decoration: line-through">시스템 기본 계정은 셸에서 <code>claude auth login</code>로 로그인하거나 ‘계정 추가’를 클릭하십시오.</span>
@@ -136,10 +135,10 @@ h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
     <h2>③ CLI를 설치하지 않음 <span class="tag">Windows: codex가 PATH에 없음</span></h2>
     <div class="pane">
       <section>
-        <h4>Codex <button class="btn ghost sm new" disabled title="codex를 설치하면 계정을 추가할 수 있습니다"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>계정 추가</button></h4>
+        <h4>Codex <button class="btn ghost sm" disabled title="codex를 설치하면 계정을 추가할 수 있습니다"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>계정 추가</button></h4>
         <div class="rows">
           <div class="acct-row" aria-current="true">
-            <span class="row-main"><span class="name">시스템 기본</span><span class="badge">사용 중</span><span class="badge warn new">설치 안 됨</span><span class="meta">~/.codex</span></span>
+            <span class="row-main"><span class="name">시스템 기본</span><span class="badge">사용 중</span><span class="badge warn">설치 안 됨</span><span class="meta">~/.codex</span></span>
             <span class="win"><span class="hint">`codex`이(가) 이 컴퓨터에 없습니다. 설치하고 PATH에 넣습니다.</span></span>
             <span class="row-actions"></span>
           </div>

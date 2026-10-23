@@ -16,6 +16,7 @@ use super::{
     Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward,
     ambiguous, from_json, parent_of, set_state, state_of, to_json,
 };
+use crate::link_text::bare_link;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 
 /// 메시지 전달 방식. 근거: docs/design.md 「명령」.
@@ -393,11 +394,17 @@ impl Graph {
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
         }
+        let bare = bare_link(summary);
         let mut db = self.lock();
         let parent = parent_of(&db, node)?;
         let asked = asked.map(str::trim).filter(|a| !a.is_empty());
         if parent.is_none() && asked.is_none() {
             return Err(Refusal::NoAsked);
+        }
+        if parent.is_none()
+            && let Some(found) = bare
+        {
+            return Err(Refusal::BareLink(found));
         }
         if parent.is_some() && doc.is_some() {
             return Err(Refusal::DocHasParent);

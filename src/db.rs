@@ -227,6 +227,8 @@ const STEPS: &[M] = &[
         INSERT INTO dones (id, node, wait) SELECT done ->> 'id', id, done FROM nodes WHERE done IS NOT NULL;
         ALTER TABLE nodes DROP COLUMN done;",
     ),
+    // 30: 카드 주제를 지웠다(2026-10-23 사람 지시 "요약 기능 제거"). 11단계의 첫 지시 첫 줄은 주제에만 썼다.
+    M::up("ALTER TABLE nodes DROP COLUMN brief;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

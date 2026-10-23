@@ -44,14 +44,8 @@ fn started(_: NodeId) -> Result<(), String> {
 
 /// 에이전트 id가 `agent`인 루트. 이름은 `<agent>-1`이다.
 fn root(g: &Graph, agent: &str) -> NodeId {
-    g.add_root(
-        &home(),
-        Some(AgentId(agent.into())),
-        "",
-        &launched(),
-        started,
-    )
-    .unwrap()
+    g.add_root(&home(), Some(AgentId(agent.into())), &launched(), started)
+        .unwrap()
 }
 
 /// 지시문 없이 부모 워크트리에 드는 셸 자식.
@@ -133,72 +127,6 @@ fn model_change_reaches_the_view_once() {
     assert!(events.try_recv().is_err());
     g.set_model(node, &Model::default()).unwrap();
     assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.effort.is_none()));
-}
-
-#[test]
-fn topic_prefers_summary_then_title_then_brief() {
-    let dir = tempfile::tempdir().unwrap();
-    let g = open(&dir.path().join("loom.db"));
-    let lead = root(&g, "claude");
-    let worker = g
-        .add_child(
-            lead,
-            NewChild {
-                brief: "\n  node_host를 고쳐라 \n둘째 줄",
-                ..named("구현")
-            },
-            TreeLimits::default(),
-            &launched(),
-            started,
-        )
-        .unwrap();
-    let quiet = child(&g, lead, "조용");
-    let (_, mut events) = g.subscribe().unwrap();
-    // 첫 지시문이 없는 노드는 받은 메시지로 짐작하지 않는다.
-    g.send(worker, "claude-1", Kind::Queue, "질문").unwrap();
-    assert_eq!(view(&g, lead).topic, None);
-    assert_eq!(view(&g, quiet).topic, None);
-    assert_eq!(
-        view(&g, worker).topic.as_deref(),
-        Some("node_host를 고쳐라")
-    );
-    while events.try_recv().is_ok() {}
-
-    g.set_title(worker, Some("a.txt 한 줄 요약".into()))
-        .unwrap();
-    g.set_title(worker, Some("a.txt 한 줄 요약".into()))
-        .unwrap();
-    let Ok(GraphEvent::Node(changed)) = events.try_recv() else {
-        panic!("Node 이벤트가 와야 한다")
-    };
-    assert_eq!(changed.topic.as_deref(), Some("a.txt 한 줄 요약"));
-    // 같은 값은 다시 알리지 않는다.
-    assert!(events.try_recv().is_err());
-    g.set_title(worker, None).unwrap();
-    // 사람이 띄운 노드는 CLI에 넘긴 첫 지시를 쓴다.
-    let led = g
-        .add_root(
-            &home(),
-            Some(AgentId("claude".into())),
-            "로그인 화면을 고쳐라\n자세히",
-            &launched(),
-            started,
-        )
-        .unwrap();
-    assert_eq!(view(&g, led).topic.as_deref(), Some("로그인 화면을 고쳐라"));
-    assert!(
-        matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.topic.as_deref() == Some("node_host를 고쳐라"))
-    );
-
-    // 프로세스가 끝나면 제목도 사라진다.
-    g.set_title(quiet, Some("제목".into())).unwrap();
-    g.exited(quiet, 0).unwrap();
-    assert_eq!(view(&g, quiet).topic, None);
-
-    g.set_title(worker, Some("제목".into())).unwrap();
-    g.done(worker, "  \n결과는 out.md\n자세히", None, &[], None)
-        .unwrap();
-    assert_eq!(view(&g, worker).topic.as_deref(), Some("결과는 out.md"));
 }
 
 #[test]
@@ -627,13 +555,7 @@ fn two_repos(g: &Graph) -> (NodeId, NodeId) {
         worktree: "/ws/other/화면".into(),
     };
     let right = g
-        .add_root(
-            &other,
-            Some(AgentId("codex".into())),
-            "",
-            &launched(),
-            started,
-        )
+        .add_root(&other, Some(AgentId("codex".into())), &launched(), started)
         .unwrap();
     (left, right)
 }
@@ -1476,7 +1398,7 @@ fn records_refusals_and_failed_launches() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     assert!(
-        g.add_root(&home(), None, "", &launched(), |_| Err("없는 명령".into()))
+        g.add_root(&home(), None, &launched(), |_| Err("없는 명령".into()))
             .is_err()
     );
     g.record_refusal(lead, "없음", Kind::Steer, &Refusal::NotFound("없음".into()))
@@ -1606,7 +1528,7 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
 fn roots_take_the_smallest_free_number() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    g.add_root(&home(), None, "", &launched(), started).unwrap();
+    g.add_root(&home(), None, &launched(), started).unwrap();
     let first = root(&g, "claude");
     root(&g, "claude");
     // 자식 이름은 사람이 띄운 노드의 번호를 막지 않는다.
@@ -2029,7 +1951,7 @@ fn current_parent_is_available_to_the_child_after_adoption() {
 fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    let shell = g.add_root(&home(), None, "", &launched(), started).unwrap();
+    let shell = g.add_root(&home(), None, &launched(), started).unwrap();
     assert!(g.discard_finished_shell(shell).unwrap());
     assert!(g.subscribe().unwrap().0.is_empty());
     assert!(!g.discard_finished_shell(shell).unwrap());
@@ -2039,7 +1961,7 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let nested = child(&g, agent, "nested");
     assert!(!g.discard_finished_shell(nested).unwrap());
 
-    let parent = g.add_root(&home(), None, "", &launched(), started).unwrap();
+    let parent = g.add_root(&home(), None, &launched(), started).unwrap();
     let worker = child(&g, parent, "worker");
     assert!(!g.discard_finished_shell(parent).unwrap());
     g.send(
@@ -2053,14 +1975,14 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     assert!(!g.discard_finished_shell(parent).unwrap());
     assert_eq!(take(&g, parent), delivery("worker", "review this output"));
 
-    let completed = g.add_root(&home(), None, "", &launched(), started).unwrap();
+    let completed = g.add_root(&home(), None, &launched(), started).unwrap();
     g.done(completed, "result to preserve", Some("일해"), &[], None)
         .unwrap();
     assert!(!g.discard_finished_shell(completed).unwrap());
     assert_eq!(view(&g, completed).held, 0);
     assert_eq!(view(&g, completed).waits.len(), 1);
 
-    let failed = g.add_root(&home(), None, "", &launched(), started).unwrap();
+    let failed = g.add_root(&home(), None, &launched(), started).unwrap();
     g.exited(failed, 1).unwrap();
     assert!(!g.discard_finished_shell(failed).unwrap());
     assert_eq!(view(&g, failed).state, NodeState::Exited { code: Some(1) });
@@ -2204,7 +2126,7 @@ fn a_node_does_not_enter_a_repo_outside_the_list() {
         worktree: "/gone".into(),
     };
     assert_eq!(
-        g.add_root(&gone, None, "", &launched(), |_| panic!("launched")),
+        g.add_root(&gone, None, &launched(), |_| panic!("launched")),
         Err(Refusal::NoRepo)
     );
     assert!(g.subscribe().unwrap().0.is_empty());

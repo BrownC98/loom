@@ -574,6 +574,10 @@ impl Graph {
                 log: detail.log,
             },
         ) {
+            let held = match call {
+                GateCall::Verdict(Judgment::Pass) => pending(&tx, caller, &row, branch)?,
+                _ => Vec::new(),
+            };
             for receiver in protocol::receivers(call, row.target_kind(&tx)?) {
                 let to_node = match receiver {
                     Receiver::Gate => row.gate,
@@ -588,7 +592,10 @@ impl Graph {
                     continue;
                 }
                 let mut body = detail.lines.clone();
-                body.push(protocol::next_step(call, *receiver, branch));
+                body.push(match held.is_empty() {
+                    true => protocol::next_step(call, *receiver, branch),
+                    false => protocol::held_step(*receiver, &held),
+                });
                 post(
                     &tx,
                     caller,
@@ -716,6 +723,30 @@ fn reviewer(gate: &str, owner: &str) -> String {
     format!(
         "n.parent = {gate} AND n.id != {owner} AND {REACHABLE} AND n.task IS (SELECT task FROM nodes WHERE id = {gate})"
     )
+}
+
+fn pending(
+    tx: &Transaction,
+    caller: Caller,
+    row: &Row,
+    branch: &str,
+) -> rusqlite::Result<Vec<String>> {
+    tx.prepare(&format!(
+        "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?5 ORDER BY n.id",
+        in_round("?1", "?2", "?3", "?4"),
+        done("?2", "?3", "?4")
+    ))?
+    .query_map(
+        params![
+            row.gate.0,
+            row.owner.0,
+            row.mark,
+            branch,
+            caller.node().map_or(0, |n| n.0)
+        ],
+        |r| r.get(0),
+    )?
+    .collect()
 }
 
 fn in_round(gate: &str, owner: &str, mark: &str, branch: &str) -> String {

@@ -431,6 +431,42 @@ fn a_pass_waits_for_every_live_reviewer_of_the_round() {
 }
 
 #[test]
+fn a_held_pass_names_the_reviewers_that_hold_the_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "solo", "first");
+    let second = reviewer(&g, t.solo, "solo", "second");
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    g.verdict(second, "b", Judgment::Block, Some("/r/f.md"), Some(&via()))
+        .unwrap();
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    mail(&g, t.solo);
+    g.verdict(second, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    let held = mail(&g, t.solo);
+    assert_eq!(held.len(), 1);
+    assert!(
+        held[0].contains("loom holds the branch until first judge it")
+            && !held[0].contains("loom queued"),
+        "{}",
+        held[0]
+    );
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    let queued = mail(&g, t.solo);
+    assert!(
+        queued[0].contains("Next: nothing. loom queued the branch"),
+        "{}",
+        queued[0]
+    );
+}
+
+#[test]
 fn a_reused_reviewer_that_exits_stops_holding_the_branch() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));

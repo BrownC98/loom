@@ -22,9 +22,15 @@ pub fn open(path: &Path) -> io::Result<()> {
     let host = Host::current();
     let target = match host {
         Host::Wsl => windows_path(path)?,
+        Host::Windows => backslashes(path),
         _ => path.as_os_str().to_owned(),
     };
     launch(host, target)
+}
+
+/// explorer는 `/` 경로(`G:/내 드라이브/a.html`, `//wsl.localhost/…`)를 열지 않거나 폴더 창만 띄운다. 화면이 `/` 경로를 보내므로 `\`로 바꾼다.
+fn backslashes(path: &Path) -> OsString {
+    path.to_string_lossy().replace('/', "\\").into()
 }
 
 /// 주소(`http://…`)를 기본 브라우저로 연다. WSL은 Windows 기본 브라우저다.
@@ -105,6 +111,50 @@ fn windows_path(path: &Path) -> io::Result<OsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_target_uses_backslashes() {
+        assert_eq!(
+            backslashes(Path::new("G:/a b/한글.html")),
+            OsString::from(r"G:\a b\한글.html")
+        );
+        assert_eq!(
+            backslashes(Path::new("//wsl.localhost/Ubuntu/home/a b.html")),
+            OsString::from(r"\\wsl.localhost\Ubuntu\home\a b.html")
+        );
+    }
+
+    /// 기록기를 LOOM_BROWSER로 넣어 여는 프로그램이 받은 인자를 본다. 사람의 앱은 열지 않는다.
+    #[cfg(windows)]
+    #[test]
+    fn opener_receives_backslash_path() {
+        let dir = std::env::temp_dir().join(format!("loom-open-{}", std::process::id()));
+        let sub = dir.join("a b");
+        std::fs::create_dir_all(&sub).unwrap();
+        let file = sub.join("한글.html");
+        std::fs::write(&file, "x").unwrap();
+        let log = dir.join("arg.txt");
+        let rec = dir.join("rec.cmd");
+        std::fs::write(
+            &rec,
+            format!("@chcp 65001 >nul\r\n@echo %~1> \"{}\"\r\n", log.display()),
+        )
+        .unwrap();
+        // SAFETY: 이 시험만 LOOM_BROWSER를 바꾼다.
+        unsafe { std::env::set_var(OPENER_ENV, &rec) };
+        open(Path::new(&file.to_string_lossy().replace('\\', "/"))).unwrap();
+        let want = file.to_string_lossy().into_owned();
+        let got = (0..50)
+            .find_map(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                std::fs::read_to_string(&log)
+                    .ok()
+                    .filter(|s| s.trim_end().ends_with("html"))
+            })
+            .unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(got.trim_end(), want);
+    }
 
     #[test]
     fn each_host_has_its_own_opener() {

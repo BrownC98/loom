@@ -1,6 +1,6 @@
 // 폰 폭 화면(목업 docs/mockups/mobile.html M35, 2026-10-22 사람 승인 Q279·Q280). 배치만 맡는다.
 // 질문 목록·트리·사용량 줄은 App이 데스크톱과 같은 부품으로 만들어 넘긴다. 상태 원천은 데스크톱과 같은 데몬 이벤트다.
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronLeft, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, relaunchNode, relaunchQueued, removeNode } from './api';
@@ -9,10 +9,10 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
 import { QuestionIcon } from './Dock';
-import { InboxPanel, oldestWait, PillHead, waitCount } from './Inbox';
+import { InboxPanel, waitCount } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
-import { linkParts, plainText } from './links';
-import { borrowSize, openLink, SizingTerminal } from './Terminal';
+import { plainText } from './links';
+import { borrowSize, SizingTerminal } from './Terminal';
 import { LONG_PRESS_MS, readClipboard, SLOP_PX } from './touchTerminal';
 
 /** 터치 화면이고 이 폭 아래일 때 폰 배치를 쓴다(목업 ①). 마우스 PC의 좁은 창(설치한 웹 앱 창 등)은 데스크톱 배치다(2026-10-22 사람 지적 "지금 윈도우 버전 실행하니까 왜 앱 화면이 나오냐"). */
@@ -87,7 +87,7 @@ export function Phone(props: {
     return (
       <div className="phone">
         {view ? (
-          <NodeScreen key={view.id} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
+          <NodeScreen key={view.id} view={view} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => history.back()} />
         ) : (
           <>
             <header className="phone-top">
@@ -189,7 +189,7 @@ function controlOf(char: string): string {
 }
 
 /** 노드 하나의 전체 화면 터미널(목업 ④⑤). */
-function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitingNodes`). 알약이 보인다. */ waiting: NodeView[]; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
+function NodeScreen(props: { view: NodeView; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void }) {
   const { t } = useTranslation();
   const { view } = props;
   const send = useRef<((data: string) => void) | null>(null);
@@ -197,14 +197,17 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
   const [pasteFailed, setPasteFailed] = useState(false);
   const [ctrl, setCtrl] = useState(false);
   const [text, setText] = useState('');
-  const [sheet, setSheet] = useState<'actions' | 'answer' | 'inbox' | null>(null);
+  const [sheet, setSheet] = useState<'actions' | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
   const asks = asking(view);
   const first = asks[0];
-  // 이 노드의 질문은 아래 사각형 띠가 보인다. 알약은 다른 노드의 대기만 센다(2026-10-23 사람 "질문이 들어오면 바로 밑이랑 알약이랑 두 개가 중복해서 ... 중복을 좀 제거해 줘").
-  const others = props.waiting.filter((v) => v.id !== view.id);
-  const pillNode = others[0];
+  // 질문에 답하거나 지우면(수가 준다) 판을 닫는다.
+  const askCount = useRef(asks.length);
+  useEffect(() => {
+    if (asks.length < askCount.current) setAskOpen(false);
+    askCount.current = asks.length;
+  }, [asks.length]);
 
   const key = (data: string) => {
     send.current?.(data);
@@ -252,45 +255,26 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
       </header>
       {!props.online && <Offline />}
       {first && (
-        // 띠를 누르면 글 전체를 펼친다. 접힌 띠는 한 줄로 자른다(2026-10-23 사람 "앱 화면 터미널에 알림떳을때 터치하면 펼쳐지도록 해줘").
-        <div className={askOpen ? 'phone-ask open' : 'phone-ask'} onClick={() => setAskOpen((open) => !open)}>
-          <QuestionIcon aria-hidden="true" />
-          <b>{t('wait.question')}</b>
-          {asks.length > 1 && <span className="count">{asks.length}</span>}
-          <span className="qid">Q{first.id}</span>
-          <span className="text" role="button" tabIndex={0} aria-expanded={askOpen}>
-            {askOpen
-              ? linkParts(first.text).map((part, index) =>
-                  'href' in part ? (
-                    <button key={index} type="button" className="doc-link" onClick={(e) => (e.stopPropagation(), openLink(part.href, view.id))}>
-                      {part.label}
-                    </button>
-                  ) : (
-                    part.text
-                  ),
-                )
-              : plainText(first.text)}
-          </span>
-          <button
-            type="button"
-            className="btn sm"
-            aria-haspopup="dialog"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSheet('answer');
-            }}
-          >
-            {t('phone.answer')}
-          </button>
+        // 띠 아래 판은 터미널 위에 덮여 내려온다(터미널 칸 크기는 그대로). 2026-10-23 사람 결정 Q475 B 「B로 하고 거기에 펴기/닫기 옵션선택, 텍스트 입력 까지 구현, 펼치기는 바텀시트가 아니라 위에서부터 펼쳐 내려오는 형식으로, 알림이 여래개일때 스크롤 가능하게」
+        <div className="phone-ask-wrap">
+          <div className="phone-ask" onClick={() => setAskOpen((open) => !open)}>
+            <QuestionIcon aria-hidden="true" />
+            <b>{t('wait.question')}</b>
+            {asks.length > 1 && <span className="count">{asks.length}</span>}
+            <span className="qid">Q{first.id}</span>
+            <span className="text">{plainText(first.text)}</span>
+            <button type="button" className="phone-icon" aria-expanded={askOpen} aria-label={askOpen ? t('phone.askClose') : t('phone.askOpen')} onClick={(e) => (e.stopPropagation(), setAskOpen((open) => !open))}>
+              {askOpen ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+            </button>
+          </div>
+          {askOpen && (
+            <div className="phone-ask-panel">
+              <InboxPanel waiting={[view]} onSelect={() => setAskOpen(false)} onFocus={() => setAskOpen(false)} />
+            </div>
+          )}
         </div>
       )}
       <div className="phone-term" translate="no">
-        {/* 모든 노드의 질문 알약(목업 R4, Q459 A). 데스크톱 「한 줄」 알약처럼 터미널 위 가운데에 뜬다. 숫자는 이 노드의 질문도 센다(알림 탭 배지와 같다). 위 사각형 띠는 이 노드의 질문만 보인다. */}
-        {pillNode && (
-          <div className="inbox-pill phone-pill" data-view="line" data-kind={oldestWait(pillNode).kind}>
-            <PillHead node={pillNode} wait={oldestWait(pillNode)} count={waitCount(others)} line open={sheet === 'inbox'} onToggle={() => setSheet('inbox')} />
-          </div>
-        )}
         <SizingTerminal src={nodePty(view.id)} node={view.id} hold={borrowSize} focused={false} onFocus={() => {}} onNavigate={() => {}} onSender={(s) => (send.current = s)} onPaster={(p) => (paster.current = p)} />
       </div>
       <div className="phone-dock">
@@ -329,27 +313,6 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
         </form>
       </div>
       {sheet === 'actions' && <ActionSheet view={view} resumable={props.resumable} onCtrlC={() => key(CTRL_C)} onClose={() => setSheet(null)} onRemoved={props.onBack} />}
-      {sheet === 'inbox' && (
-        <Sheet label={t('phone.inbox')} onClose={() => setSheet(null)}>
-          {/* 알림 탭과 같은 목록이다. 그 자리에서 답하고, 노드 이름을 누르면 그 노드 화면을 쌓아 연다(뒤로 몸짓은 이 화면으로 온다). */}
-          <InboxPanel
-            waiting={props.waiting}
-            onSelect={(id) => {
-              setSheet(null);
-              if (id !== view.id) props.onOpen(id);
-            }}
-            onFocus={(id) => {
-              setSheet(null);
-              if (id !== view.id) props.onOpen(id);
-            }}
-          />
-        </Sheet>
-      )}
-      {sheet === 'answer' && (
-        <Sheet label={t('phone.answer')} onClose={() => setSheet(null)}>
-          <InboxPanel waiting={[view]} onSelect={() => setSheet(null)} onFocus={() => setSheet(null)} />
-        </Sheet>
-      )}
     </>
   );
 }

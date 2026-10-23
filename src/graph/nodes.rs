@@ -23,13 +23,6 @@ pub struct NewChild<'a> {
     pub brief: &'a str,
 }
 
-/// 남기는 답 글의 길이(글자). 카드는 두 줄만 보이고 마우스를 올리면 전문을 보인다. 긴 마지막 보고 전체를 노드 이벤트마다 보내지 않는다.
-const REPLY_LIMIT_CHARS: usize = 1000;
-
-fn clip_reply(text: &str) -> String {
-    text.trim().chars().take(REPLY_LIMIT_CHARS).collect()
-}
-
 /// 에이전트 없이 띄운 노드(셸) 이름의 앞부분.
 const SHELL_NAME: &str = "shell";
 
@@ -413,9 +406,9 @@ impl Graph {
         Ok(())
     }
 
-    /// 노드가 턴을 끝낸 답 글을 남긴다. 앞 답은 버린다. 빈 글은 남기지 않는다.
+    /// 노드가 턴을 끝낸 답 글을 남긴다. 앞 답은 버린다. 빈 글은 남기지 않는다. 자르지 않는다: 마우스를 올리면 전문이 보인다(목업 M14 v2 ⑧).
     pub fn set_reply(&self, id: NodeId, text: &str) -> rusqlite::Result<()> {
-        let text = clip_reply(text);
+        let text = text.trim();
         if text.is_empty() {
             return Ok(());
         }

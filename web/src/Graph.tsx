@@ -606,6 +606,10 @@ export function Graph(props: {
     return view ? cardViewOf(view, props.settings.cardView) : 'standard';
   };
   const standard = (id: NodeId) => viewOf(id) === 'standard';
+  // 크게 보던 노드가 심플이 되면(메뉴, 심플 노드 고르기) 크게 보기를 끝낸다. 남겨 두면 다음에 표준 카드를 고를 때 저절로 크게 보였다(검토 지적).
+  useEffect(() => {
+    if (zoomed !== null && !standard(zoomed)) setExpanded(null);
+  });
   /** 사람이 정한 표준 카드 크기. 없으면 CSS가 정한 기본 크기다. */
   const chosenSize = (id: NodeId): Size | undefined => (!standard(id) ? undefined : resizing?.id === id ? resizing.size : sizes.get(id));
   /** 잰 카드 크기. 재기 전에는 사람이 정한 크기, 그것도 없으면 보기마다 정한 크기다. */
@@ -748,8 +752,8 @@ export function Graph(props: {
       clearRepos(shown);
       setArranging({ scope: { kind: 'shown' }, after: Promise.all(shown.map(clearSpots)) });
     },
-    hasSizes: () => views.some((v) => sizes.has(v.id)),
-    resetSizes: () => resetSizes(views.filter((v) => sizes.has(v.id)).map((v) => v.id)),
+    hasSizes: () => views.some((v) => standard(v.id) && sizes.has(v.id)),
+    resetSizes: () => resetSizes(views.filter((v) => standard(v.id) && sizes.has(v.id)).map((v) => v.id)),
   }));
   // 크기만 되돌린다. 카드 자리와 밀린 이웃은 그대로다.
   const resetSizes = (ids: NodeId[]) => {

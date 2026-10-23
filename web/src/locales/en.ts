@@ -436,9 +436,9 @@ const en = {
   cardView: {
     heading: 'Cards',
     simple: 'Simple',
-    rootTerminal: 'Root terminals',
+    rootTerminal: 'Roots only',
     standard: 'Standard',
-    hint: 'The default view. With “Root terminals”, only nodes without a parent show a terminal card. Use a card’s ⋯ menu to change one node.',
+    hint: 'The default view. With “Roots only”, only nodes without a parent show a terminal card. Use a card’s ⋯ menu to change one node.',
   },
   graphScope: {
     heading: 'Graph scope',

@@ -4,7 +4,7 @@ import { Ellipsis, PanelTop, RefreshCw, RotateCcw, SquareTerminal, Trash2 } from
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { clearCardView, relaunchNode, relaunchQueued, setCardView } from './api';
-import { baseCardView, cardViewOf } from './cardView';
+import { menuSwitch } from './cardView';
 import { relaunchableState } from './catalog';
 import type { DefaultCardView } from './gen/DefaultCardView';
 import type { NodeView } from './gen/NodeView';
@@ -24,8 +24,8 @@ export function NodeMenu(props: { view: NodeView; defaultView: DefaultCardView; 
   // 열 때 데몬에 물은 값. 답이 오기 전에는 없다.
   const [queued, setQueued] = useState<boolean | null>(null);
   const resumable = props.resumable && relaunchableState(view);
-  const next = cardViewOf(view, props.defaultView) === 'simple' ? 'standard' : 'simple';
-  const switchView = () => (next === baseCardView(view, props.defaultView) ? clearCardView(view.id) : setCardView(view.id, next)).catch((err: Error) => props.onRefusal(err.message));
+  const { next, clear } = menuSwitch(view, props.defaultView);
+  const switchView = () => (clear ? clearCardView(view.id) : setCardView(view.id, next)).catch((err: Error) => props.onRefusal(err.message));
   const toggle = () => {
     if (open) return setOpen(false);
     setQueued(null);

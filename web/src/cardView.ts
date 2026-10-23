@@ -12,3 +12,9 @@ export function baseCardView(view: NodeView, setting: DefaultCardView): CardView
 export function cardViewOf(view: NodeView, setting: DefaultCardView): CardView {
   return view.cardView ?? baseCardView(view, setting);
 }
+
+/** 「⋯」 메뉴 첫 줄이 고르는 보기. `next`가 기본 보기와 같으면 노드의 값을 지워(`clear`) 다시 기본을 따르게 한다. */
+export function menuSwitch(view: NodeView, setting: DefaultCardView): { next: CardView; clear: boolean } {
+  const next = cardViewOf(view, setting) === 'simple' ? 'standard' : 'simple';
+  return { next, clear: next === baseCardView(view, setting) };
+}

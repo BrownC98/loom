@@ -2374,7 +2374,7 @@ fn card_view_and_last_reply_stay_on_the_node_row() {
     g.set_reply(a, &"가".repeat(5000)).unwrap();
     let v = view(&g, a);
     assert_eq!(v.card_view, None);
-    assert_eq!(v.reply.map(|r| r.chars().count()), Some(1000));
+    assert_eq!(v.reply.map(|r| r.chars().count()), Some(5000));
 }
 
 #[test]

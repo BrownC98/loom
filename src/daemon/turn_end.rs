@@ -30,44 +30,44 @@ impl TurnEnds {
         self.said.lock().unwrap().insert(node, text);
     }
 
-    /// 이번 턴의 마지막 답 글. 턴 끝에 심플 카드의 상태 줄로 남긴다.
-    pub fn reply(&self, node: NodeId) -> Option<String> {
-        self.said.lock().unwrap().get(&node).cloned()
-    }
-
     /// 사람이 노드에 입력했다. 그 입력을 받은 턴의 끝을 검사한다.
     pub fn human(&self, node: NodeId) {
         self.human.lock().unwrap().insert(node);
     }
 
-    /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다.
+    /// 턴이 끝났다. 이번 턴의 답 글과, 다시 일하게 할 글이 있으면 그 글을 돌려준다.
     /// `unreported_root`는 노드가 사람이 띄운 노드이고, 사람 응답 대기가 없고, `loom done`을 부르지 않았는지 본다(`Graph::unreported_root`).
-    pub fn ended(
-        &self,
-        node: NodeId,
-        unreported_root: impl FnOnce() -> bool,
-    ) -> Option<&'static str> {
-        let said = self.said.lock().unwrap().remove(&node);
+    pub fn ended(&self, node: NodeId, unreported_root: impl FnOnce() -> bool) -> TurnEnd {
+        let reply = self.said.lock().unwrap().remove(&node);
         let human = self.human.lock().unwrap().remove(&node);
-        (human && said.is_some_and(|text| !text.trim().is_empty()) && unreported_root())
-            .then_some(NUDGE)
+        let nudge = (human
+            && reply.as_ref().is_some_and(|text| !text.trim().is_empty())
+            && unreported_root())
+        .then_some(NUDGE);
+        TurnEnd { reply, nudge }
     }
+}
+
+/// 끝난 턴. `reply`는 심플 카드의 상태 줄로 남긴다.
+pub struct TurnEnd {
+    reply: Option<String>,
+    nudge: Option<&'static str>,
 }
 
 impl App {
     /// 턴이 끝났다. 다시 일하게 할 글이 있으면 돌려준다.
     pub(super) fn turn_end(&self, node: NodeId) -> Option<&'static str> {
-        if let Some(text) = self.turn_ends.reply(node)
-            && let Err(e) = self.graph.set_reply(node, &text)
-        {
-            eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
-        }
-        let nudge = self.turn_ends.ended(node, || {
+        let TurnEnd { reply, nudge } = self.turn_ends.ended(node, || {
             self.graph.unreported_root(node).unwrap_or_else(|e| {
                 eprintln!("loom: 노드 {}의 턴 끝을 검사하지 못했다: {e}", node.0);
                 false
             })
         });
+        if let Some(text) = reply
+            && let Err(e) = self.graph.set_reply(node, &text)
+        {
+            eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
+        }
         // 다시 띄울 노드다. 다시 일하게 한 턴은 다시 띄우기가 끊거나 늦춘다.
         nudge.filter(|_| !self.relaunches.holds_mail(node))
     }
@@ -83,22 +83,27 @@ mod tests {
         let node = NodeId(1);
         // 알림·자식 메시지가 시작한 턴은 보지 않는다.
         turns.said(node, "병합했습니다".into());
-        assert_eq!(turns.ended(node, || true), None, "not a human turn");
+        assert_eq!(turns.ended(node, || true).nudge, None, "not a human turn");
         turns.human(node);
         turns.said(node, "병합할까요?".into());
-        assert_eq!(turns.ended(node, || false), None, "child, asked or done");
+        assert_eq!(
+            turns.ended(node, || false).nudge,
+            None,
+            "child, asked or done"
+        );
         turns.human(node);
         turns.said(node, "A안과 B안 가운데 고르시면 진행합니다.".into());
-        assert_eq!(turns.ended(node, || true), Some(NUDGE));
-        assert_eq!(turns.reply(node), None, "the turn end took the reply");
+        assert_eq!(turns.ended(node, || true).nudge, Some(NUDGE));
+        // 다시 일한 턴은 사람 입력이 없다. 답 글은 상태 줄로 돌려준다.
         turns.said(node, "코디 결과 대기".into());
-        assert_eq!(turns.reply(node).as_deref(), Some("코디 결과 대기"));
-        // 다시 일한 턴은 사람 입력이 없다.
-        turns.said(node, "진행 상황".into());
-        assert_eq!(turns.ended(node, || true), None);
+        let end = turns.ended(node, || true);
+        assert_eq!(
+            (end.reply.as_deref(), end.nudge),
+            (Some("코디 결과 대기"), None)
+        );
         // 답 글이 없는 사람 턴은 막지 않는다.
         turns.human(node);
         turns.said(node, " \n".into());
-        assert_eq!(turns.ended(node, || true), None);
+        assert_eq!(turns.ended(node, || true).nudge, None);
     }
 }

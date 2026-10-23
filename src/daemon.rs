@@ -336,11 +336,6 @@ pub struct SpawnRequest {
     pub role: Option<String>,
 }
 
-/// `loom done --file`·`verdict`가 묻는 부른 노드의 작업 폴더. 옛 CLI가 보내는 `branch` 칸은 읽지 않는다.
-/// 응답은 데몬이 쓰는 꼴의 경로다. CLI는 데몬과 같은 실행 파일(WSL에서는 `loom.exe`)이라 그 경로를 그대로 연다.
-#[derive(Serialize, Deserialize)]
-pub struct TaskRequest {}
-
 /// 자식이 실행할 것.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2129,12 +2124,11 @@ async fn serve_file(
         .into_response())
 }
 
-/// 브랜치의 작업 폴더는 관문 줄의 담당이 정한다: 브랜치 이름을 바꿔도, 같은 이름을 다시 써도 그 차례의 작업이다.
-/// 관문 줄이 없거나 담당 노드가 지워졌으면 없다.
+/// `loom done --file`·`verdict`가 묻는 부른 노드의 작업 폴더. 옛 CLI가 보내는 본문은 읽지 않는다.
+/// 응답은 데몬이 쓰는 꼴의 경로다. CLI는 데몬과 같은 실행 파일(WSL에서는 `loom.exe`)이라 그 경로를 그대로 연다.
 async fn agent_task(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(TaskRequest {}): Json<TaskRequest>,
 ) -> Result<Json<Option<String>>, AgentError> {
     let caller = app.caller(&headers)?;
     let dir = app.task_dir(caller).await.map_err(for_agent)?;

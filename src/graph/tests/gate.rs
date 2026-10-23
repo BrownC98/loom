@@ -375,6 +375,96 @@ fn a_withdrawn_round_tells_exactly_its_reviewers_to_stop() {
     }
 }
 
+/// pass는 이번 차례의 산 검토자가 모두 판정해야 묶음에 든다. 그래서 둘째 검토자의 block이 병합을 막는다(검토 B1, 관문 #4041 (a)).
+/// 판정 없이 끝난 검토자와 다른 브랜치를 판정한 검토자는 세지 않는다. 다른 저장소의 같은 이름 브랜치 ready는 차례를 가르지 않는다(검토 N1·R7).
+#[test]
+fn a_pass_waits_for_every_live_reviewer_of_the_round() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    let first = reviewer(&g, t.solo, "solo", "first");
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let second = reviewer(&g, t.solo, "solo", "second");
+    let quiet = reviewer(&g, t.solo, "solo", "quiet");
+    assert_eq!(
+        g.verdict(first, "b", Judgment::Pass, None, Some(&via())),
+        Ok(GateState::Passed)
+    );
+    assert!(
+        g.queued_targets().unwrap().is_empty(),
+        "second and quiet have not judged"
+    );
+    assert!(g.queue(repo, "main").unwrap().is_empty());
+    g.exited(quiet, 0).unwrap();
+    assert!(
+        g.queue(repo, "main").unwrap().is_empty(),
+        "second has not judged"
+    );
+    // 겹친 다른 차례의 검토자는 판정한 뒤 이 브랜치를 막지 않는다.
+    g.ready(t.solo, &round("x", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let other = reviewer(&g, t.solo, "solo", "other");
+    g.verdict(other, "x", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    let names = |q: Vec<Queued>| q.into_iter().map(|q| q.branch).collect::<Vec<_>>();
+    assert_eq!(names(g.queue(repo, "main").unwrap()), ["x"]);
+    // 다른 저장소 담당의 같은 이름 브랜치 ready가 뒤에 왔다.
+    g.lock()
+        .execute(
+            r#"INSERT INTO events (at, entry) VALUES (unixepoch(), '{"kind":"message","how":"queue","from":{"id":999,"name":"far"},"to":{"id":998,"name":"g"},"step":"sent","gate":{"verb":"ready","branch":"b","from":"working","to":"ready","role":null,"agent":null,"model":null,"findings":[]}}')"#,
+            [],
+        )
+        .unwrap();
+    for node in [t.solo, first, other] {
+        mail(&g, node);
+    }
+    assert_eq!(
+        g.verdict(second, "b", Judgment::Block, Some("/r/f.md"), Some(&via())),
+        Ok(GateState::Working)
+    );
+    assert_eq!(
+        mail(&g, first).len(),
+        1,
+        "first judged this round and hears withdrawn"
+    );
+
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    assert_eq!(
+        g.verdict(second, "b", Judgment::Pass, None, Some(&via())),
+        Ok(GateState::Passed)
+    );
+    assert_eq!(g.queued_targets().unwrap(), [(repo, "main".to_owned())]);
+    assert_eq!(names(g.queue(repo, "main").unwrap()), ["x", "b"]);
+}
+
+/// 큐 순서는 pass 순서다. 같은 초의 pass도, 먼저 만든 관문 줄도 순서를 바꾸지 않는다(검토 R6).
+#[test]
+fn passes_in_one_second_keep_the_pass_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let r = reviewer(&g, t.solo, "solo", "r");
+    for branch in ["a", "b"] {
+        g.ready(t.solo, &round(branch, "main"), t.solo, Some(&via()))
+            .unwrap();
+    }
+    for branch in ["b", "a"] {
+        g.verdict(r, branch, Judgment::Pass, None, Some(&via()))
+            .unwrap();
+    }
+    g.lock().execute("UPDATE gates SET queued = 1", []).unwrap();
+    let names: Vec<String> = g
+        .queue(RepoId(1), "main")
+        .unwrap()
+        .into_iter()
+        .map(|q| q.branch)
+        .collect();
+    assert_eq!(names, ["b", "a"]);
+}
+
 /// 데몬이 묶음 중에 끝나면 `batches` 줄과 `Merging` 브랜치가 남는다. 다시 띄운 데몬이 그 값으로 게시를 잇거나 큐에 다시 세운다.
 #[test]
 fn a_stale_batch_keeps_its_members_and_requeue_keeps_the_queue_order() {
@@ -405,6 +495,12 @@ fn a_stale_batch_keeps_its_members_and_requeue_keeps_the_queue_order() {
     assert_eq!(g.requeue(repo, "a"), Ok(GateState::Passed));
     assert_eq!(names(&g.queue(repo, "main").unwrap()), ["a", "b"]);
     assert!(g.stale_batches().unwrap()[0].members.is_empty());
+    // 끝 상태를 쓰지 못한 브랜치가 있으면 묶음 줄이 남는다(검토 R3).
+    let id2 = g.batch_open(repo, "main", &["a"]).unwrap();
+    g.batch_close(id2).unwrap();
+    assert_eq!(g.stale_batches().unwrap().len(), 2);
+    g.requeue(repo, "a").unwrap();
+    g.batch_close(id2).unwrap();
     g.batch_close(id).unwrap();
     assert!(g.stale_batches().unwrap().is_empty());
     // 다시 세우기는 묶음 안의 브랜치만 받는다.

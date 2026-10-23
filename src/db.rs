@@ -274,18 +274,22 @@ const STEPS: &[M] = &[
         UPDATE events SET entry = json_set(entry, '$.reason.code', 'git', '$.reason.value', 'Old rule: a node with a parent cannot loom ask the human.') WHERE entry ->> '$.reason.code' = 'hasParent';",
     ),
     // 36: 데몬의 병합 큐(daemon `queue`, 2026-10-23 사람 결정 Q697 A). `loom merge` 실행 번호(`run`)는 없앴다.
-    // `queued`는 pass 판정 시각(큐 순서와 기다린 시간), `batch`는 그 브랜치가 든 묶음(`batches.id`), `mark`는 `loom ready` 때 가장 큰 노드 번호다:
+    // `queued`는 pass 판정 시각(기다린 시간), `seq`는 큐 순서(첫 pass마다 1 는다), `batch`는 그 브랜치가 든 묶음(`batches.id`), `mark`는 `loom ready` 때 가장 큰 노드 번호다:
     // 그 뒤에 뜬 관문의 자식이 이 차례의 검토자다(거둔 차례 알림). `batches`는 도는 묶음 한 줄이고 끝나면 지운다. 남은 줄은 데몬이 끝난 묶음이다.
     // `base`는 쌓은 대상 커밋, `tip`은 검사를 지난 묶음 끝 커밋이다(없으면 아직 검사 전이다).
-    // 옛 pass·병합 중 줄은 실패로 둔다. 큐에 세우면 오래 버린 차례의 검토한 커밋을 알림 없이 병합할 수 있다. 담당이 다시 `loom ready`한다.
+    // 옛 pass·병합 중 줄과, 관문이 새 규칙의 관문(`gate_for`: 부모가 코디면 부모, 아니면 담당)이 아닌 ready 줄(옛 CI 담당자)은 묶음 없는 `merging`으로 둔다.
+    // 데몬이 시작할 때 이 줄을 실패로 끝내고 담당·관문에 알린다(`queue::recover`, 검토 S4). 큐에 세우면 오래 버린 차례의 검토한 커밋을 병합할 수 있다.
     // 이벤트·메시지 기록은 `Entry`·`MessageKind`로 읽으므로 없앤 값을 새 꼴로 옮긴다(35와 같이 기록을 지우지 않는다):
     // 동사 `merge`는 병합 큐(`queue`), 종류 `merging`은 메모, audit `targetMoved`는 지운다(묶음이 대상 위에 쌓는다), 없앤 거절 코드는 옛 규칙 글의 `git` 거절이다.
     M::up(
         r#"ALTER TABLE gates DROP COLUMN run;
         ALTER TABLE gates ADD COLUMN queued INTEGER;
+        ALTER TABLE gates ADD COLUMN seq INTEGER;
         ALTER TABLE gates ADD COLUMN batch INTEGER;
         ALTER TABLE gates ADD COLUMN mark INTEGER NOT NULL DEFAULT 0;
-        UPDATE gates SET state = '"failed"' WHERE state IN ('"passed"', '"merging"');
+        UPDATE gates SET state = '"merging"' WHERE state IN ('"passed"', '"merging"')
+            OR (state = '"ready"' AND gate IS NOT coalesce((SELECT p.id FROM nodes o JOIN nodes p ON p.id = o.parent
+                WHERE o.id = gates.owner AND p.role = '코디'), owner));
         CREATE TABLE batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             repo INTEGER NOT NULL,
@@ -642,7 +646,7 @@ mod tests {
         assert!(matches!(reasons[1], crate::graph::Refusal::Git(_)));
     }
 
-    /// `loom merge`를 없앤 뒤에도 옛 기록이 `Entry`로 읽히고, 옛 pass·병합 중 줄은 큐에 서지 않는다.
+    /// `loom merge`를 없앤 뒤에도 옛 기록이 `Entry`로 읽히고, 옛 차례는 큐에 서지 않는다.
     #[test]
     fn step_36_keeps_old_merge_records_readable_and_queues_nothing() {
         let mut conn = Connection::open_in_memory().unwrap();
@@ -677,10 +681,15 @@ mod tests {
                 .unwrap();
         }
         conn.execute_batch(
-            r#"INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated) VALUES
+            r#"INSERT INTO nodes (id, name, agent, state, role) VALUES (1, 'w', 'null', '{}', NULL), (2, 'ci', 'null', '{}', 'CI 담당자'),
+                (5, '코디-1', 'null', '{}', '코디');
+            INSERT INTO nodes (id, name, agent, state, parent) VALUES (6, 'cw', 'null', '{}', 5);
+            INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated) VALUES
             (1, 'p', 1, 2, 'main', '/w', '"passed"', 'c1', 1, 1),
             (1, 'm', 1, 2, 'main', '/w', '"merging"', 'c2', 1, 1),
-            (1, 'r', 1, 2, 'main', '/w', '"ready"', 'c3', 1, 1);"#,
+            (1, 'r', 1, 2, 'main', '/w', '"ready"', 'c3', 1, 1),
+            (1, 's', 1, 1, 'main', '/w', '"ready"', 'c4', 1, 1),
+            (1, 't', 6, 5, 'c', '/c', '"ready"', 'c5', 1, 1);"#,
         )
         .unwrap();
         super::MIGRATIONS.to_latest(&mut conn).unwrap();
@@ -733,7 +742,17 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap();
-        assert_eq!(states, [r#""failed""#, r#""failed""#, r#""ready""#]);
+        // 옛 pass·병합 중과 옛 CI 관문의 ready는 묶음 없는 merging이다: 데몬이 시작할 때 실패로 끝내고 알린다. 새 규칙의 관문인 ready는 그대로다.
+        assert_eq!(
+            states,
+            [
+                r#""merging""#,
+                r#""merging""#,
+                r#""merging""#,
+                r#""ready""#,
+                r#""ready""#
+            ]
+        );
     }
 
     /// 노드 자리의 완료는 완료 표로 옮긴다. 번호와 내용은 그대로다.

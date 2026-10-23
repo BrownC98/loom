@@ -169,7 +169,7 @@ impl Graph {
                     "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated, mark)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch(), (SELECT max(id) FROM nodes))
                      ON CONFLICT (repo, branch) DO UPDATE SET owner = ?3, gate = ?4, target = ?5, worktree = ?6,
-                        state = ?7, head = ?8, verdict = NULL, queued = NULL, batch = NULL, opened = unixepoch(),
+                        state = ?7, head = ?8, verdict = NULL, queued = NULL, seq = NULL, batch = NULL, opened = unixepoch(),
                         updated = unixepoch(), mark = (SELECT max(id) FROM nodes)",
                     params![
                         repo.0,
@@ -274,9 +274,10 @@ impl Graph {
                     model: model_of(tx, caller)?,
                 };
                 update(tx, repo, branch, row.state, Some(&to_json(&verdict)), None)?;
-                // 둘째 pass는 큐 자리를 바꾸지 않는다.
+                // 둘째 pass는 큐 자리를 바꾸지 않는다. 큐 순서는 `seq`다: 초 단위 `queued`는 같은 초의 두 pass를 가르지 못한다(검토 R6).
                 tx.execute(
-                    "UPDATE gates SET queued = CASE WHEN ?3 = '\"passed\"' THEN coalesce(queued, unixepoch()) END
+                    "UPDATE gates SET queued = CASE WHEN ?3 = '\"passed\"' THEN coalesce(queued, unixepoch()) END,
+                        seq = CASE WHEN ?3 = '\"passed\"' THEN coalesce(seq, (SELECT coalesce(max(seq), 0) + 1 FROM gates)) END
                      WHERE repo = ?1 AND branch = ?2",
                     params![repo.0, branch, to_json(&row.state)],
                 )?;
@@ -392,21 +393,23 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    /// 큐에 선 브랜치가 있는 (저장소, 대상). 가장 오래 기다린 대상부터다.
+    /// 묶음에 들 브랜치가 있는 (저장소, 대상). 가장 오래 기다린 대상부터다.
     pub fn queued_targets(&self) -> rusqlite::Result<Vec<(RepoId, String)>> {
         self.lock()
-            .prepare(
-                "SELECT repo, target FROM gates WHERE state = '\"passed\"' GROUP BY repo, target ORDER BY min(queued)",
-            )?
+            .prepare(&format!(
+                "SELECT repo, target FROM gates WHERE {} GROUP BY repo, target ORDER BY min(seq)",
+                settled()
+            ))?
             .query_map([], |r| Ok((RepoId(r.get(0)?), r.get(1)?)))?
             .collect()
     }
 
-    /// 한 대상의 큐. pass 판정 순서다.
+    /// 한 대상에서 묶음에 들 브랜치. pass 판정 순서다.
     pub fn queue(&self, repo: RepoId, target: &str) -> rusqlite::Result<Vec<Queued>> {
         self.lock()
             .prepare(&format!(
-                "{QUEUED} WHERE repo = ?1 AND target = ?2 AND state = '\"passed\"' ORDER BY queued, rowid"
+                "{QUEUED} WHERE repo = ?1 AND target = ?2 AND {} ORDER BY seq",
+                settled()
             ))?
             .query_map(params![repo.0, target], read_queued)?
             .collect()
@@ -447,10 +450,13 @@ impl Graph {
         Ok(())
     }
 
-    /// 묶음을 닫는다. 남은 `Merging` 브랜치는 없어야 한다(부른 쪽이 먼저 끝내거나 다시 세운다).
+    /// 묶음을 닫는다. 아직 `Merging`인 브랜치가 있으면 줄을 남긴다: 끝 상태를 쓰지 못한 브랜치를 큐가 다시 거둔다(검토 R3).
     pub fn batch_close(&self, id: BatchId) -> rusqlite::Result<()> {
-        self.lock()
-            .execute("DELETE FROM batches WHERE id = ?1", [id.0])?;
+        self.lock().execute(
+            "DELETE FROM batches WHERE id = ?1
+             AND NOT EXISTS (SELECT 1 FROM gates WHERE batch = ?1 AND state = '\"merging\"')",
+            [id.0],
+        )?;
         Ok(())
     }
 
@@ -473,7 +479,7 @@ impl Graph {
         for batch in &mut stale {
             batch.members = db
                 .prepare(&format!(
-                    "{QUEUED} WHERE batch = ?1 AND state = '\"merging\"' ORDER BY queued, rowid"
+                    "{QUEUED} WHERE batch = ?1 AND state = '\"merging\"' ORDER BY seq"
                 ))?
                 .query_map([batch.id.0], read_queued)?
                 .collect::<rusqlite::Result<_>>()?;
@@ -481,7 +487,15 @@ impl Graph {
         Ok(stale)
     }
 
-    /// 묶음의 브랜치를 큐에 다시 세운다. 큐 자리(`queued`)는 그대로다: 앞에 섰던 브랜치가 다음 묶음에서도 앞이다.
+    /// 묶음 없이 `Merging`인 브랜치. 데몬은 이 꼴을 만들지 않는다(`batch_open`이 함께 쓴다): 마이그레이션 36이 옛 규칙의 차례를 이렇게 둔다.
+    pub fn orphans(&self) -> rusqlite::Result<Vec<(RepoId, String)>> {
+        self.lock()
+            .prepare("SELECT repo, branch FROM gates WHERE state = '\"merging\"' AND batch IS NULL ORDER BY rowid")?
+            .query_map([], |r| Ok((RepoId(r.get(0)?), r.get(1)?)))?
+            .collect()
+    }
+
+    /// 묶음의 브랜치를 큐에 다시 세운다. 큐 자리(`seq`)는 그대로다: 앞에 섰던 브랜치가 다음 묶음에서도 앞이다.
     pub fn requeue(&self, repo: RepoId, branch: &str) -> Result<GateState, Refusal> {
         let row = self.apply(
             Caller::Loom,
@@ -536,7 +550,7 @@ impl Graph {
             |tx, row| {
                 update(tx, repo, branch, row.state, None, merged)?;
                 tx.execute(
-                    "UPDATE gates SET batch = NULL, queued = NULL WHERE repo = ?1 AND branch = ?2",
+                    "UPDATE gates SET batch = NULL, queued = NULL, seq = NULL WHERE repo = ?1 AND branch = ?2",
                     params![repo.0, branch],
                 )?;
                 Ok(())
@@ -723,16 +737,11 @@ fn withdraw(
     trace: &GateTrace,
 ) -> rusqlite::Result<Vec<NodeId>> {
     let reviewers: Vec<(NodeId, Option<AgentId>)> = tx
-        .prepare(
-            "SELECT n.id, n.agent FROM nodes n JOIN nodes g ON g.id = n.parent
-             WHERE n.parent = ?1 AND n.id != ?2 AND n.id != ?3 AND n.process_exited = 0 AND n.task IS g.task
-               AND (n.id > ?4 OR EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
-                   AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' = ?5
-                   AND e.entry ->> '$.from.id' = n.id
-                   AND e.id > (SELECT max(r.id) FROM events r WHERE r.entry ->> '$.kind' = 'message'
-                       AND r.entry ->> '$.gate.verb' = 'ready' AND r.entry ->> '$.gate.branch' = ?5)))
-             ORDER BY n.id",
-        )?
+        .prepare(&format!(
+            "SELECT n.id, n.agent FROM nodes n WHERE {} AND n.id != ?3 AND (n.id > ?4 OR {}) ORDER BY n.id",
+            reviewer("?1", "?2"),
+            voted("?5", "?2")
+        ))?
         .query_map(
             params![
                 row.gate.0,
@@ -757,6 +766,26 @@ fn withdraw(
         mailbox::enqueue_from_loom(tx, *node, kind, &what, &body, Some(trace.clone()))?;
     }
     Ok(reviewers.into_iter().map(|(node, _)| node).collect())
+}
+
+/// `n`이 관문 `gate`의 산 검토자다: 담당이 아니고, 관문의 작업 폴더를 함께 쓴다(`--worktree` 없이 띄웠다). 인자는 SQL 식이다.
+fn reviewer(gate: &str, owner: &str) -> String {
+    format!(
+        "n.parent = {gate} AND n.id != {owner} AND n.process_exited = 0 AND n.task IS (SELECT task FROM nodes WHERE id = {gate})"
+    )
+}
+
+/// `n`이 이 브랜치의 이번 차례에 판정했다: 담당의 마지막 ready 흔적 뒤에 판정 흔적이 있다.
+/// ready는 담당의 것만 본다: 다른 저장소의 같은 이름 브랜치가 차례를 가르지 않게 한다(검토 N1). 판정은 관문의 자식인 `n`의 것이라 같은 저장소다.
+fn voted(branch: &str, owner: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
+            AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' = {branch}
+            AND e.entry ->> '$.from.id' = n.id
+            AND e.id > (SELECT max(r.id) FROM events r WHERE r.entry ->> '$.kind' = 'message'
+                AND r.entry ->> '$.gate.verb' = 'ready' AND r.entry ->> '$.gate.branch' = {branch}
+                AND r.entry ->> '$.from.id' = {owner}))"
+    )
 }
 
 /// 관문 메시지 하나를 넣는다. 에이전트 호출이면 그 노드가, 병합 큐면 loom이 보낸다.
@@ -811,6 +840,20 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
         "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1)",
         [node.0],
         |row| row.get(0),
+    )
+}
+
+/// 묶음에 들 수 있는 관문 줄: pass를 받았고, 이번 `loom ready` 뒤에 뜬 산 검토자가 모두 판정했다.
+/// 첫 pass에 바로 묶으면 둘째 검토자의 block이 `Merging`에서 거절되고 브랜치가 병합된다(검토 B1, 관문 결정 #4041 (a)).
+/// 어느 브랜치든 판정했으면 끝난 것으로 센다: 겹친 다른 차례의 검토자는 이 브랜치를 판정하지 않으므로 끝날 때까지 이 브랜치를 막는다.
+/// 그 노드는 ready 뒤에 떴으므로 그 판정은 모두 이번 차례 뒤다.
+/// 판정 없이 끝난 검토자는 세지 않는다. 그때는 깨우기가 없어 큐의 한 번씩 보기(`TICK`)가 줍는다.
+fn settled() -> String {
+    format!(
+        "state = '\"passed\"' AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND n.id > gates.mark
+            AND NOT EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
+                AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.from.id' = n.id))",
+        reviewer("gates.gate", "gates.owner")
     )
 }
 

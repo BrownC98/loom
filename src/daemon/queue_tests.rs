@@ -217,6 +217,57 @@ mod git_runs {
             serde_json::from_str(&state).unwrap()
         }
 
+        fn batch_dirs(&self) -> usize {
+            std::fs::read_dir(self.main.join(".git/loom-batches")).map_or(0, |d| d.count())
+        }
+
+        /// 데몬과 다른 연결로 DB를 고친다(시험 준비).
+        fn sql(&self, sql: &str) {
+            rusqlite::Connection::open(self.dir.path().join("loom.db"))
+                .unwrap()
+                .execute_batch(sql)
+                .unwrap();
+        }
+
+        fn merged_sha(&self, branch: &str) -> Option<String> {
+            rusqlite::Connection::open(self.dir.path().join("loom.db"))
+                .unwrap()
+                .query_row(
+                    "SELECT merged FROM gates WHERE branch = ?1",
+                    [branch],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        }
+
+        /// 원래 체크아웃의 파일을 바꿔 원격에 올린다. 그 뒤 만든 브랜치가 그 파일을 쓴다.
+        fn commit_main(&self, file: &str, text: &str) {
+            std::fs::write(self.main.join(file), text).unwrap();
+            git(&self.main, &["add", "-A"]);
+            git(&self.main, &["commit", "-qm", file]);
+            git(&self.main, &["push", "-q", "origin", "main"]);
+        }
+
+        fn hook(&self, name: &str, text: &str) {
+            use std::os::unix::fs::PermissionsExt;
+            let path = self.main.join(".git/hooks").join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, text).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        fn publish_logs(&self) -> String {
+            std::fs::read_dir(self.main.join(".git/loom-logs"))
+                .unwrap()
+                .filter_map(|e| {
+                    let path = e.unwrap().path();
+                    path.to_string_lossy()
+                        .ends_with("-publish.log")
+                        .then(|| std::fs::read_to_string(path).unwrap())
+                })
+                .collect()
+        }
+
         fn checks(&self) -> usize {
             std::fs::read_to_string(self.main.join(".git/check-runs"))
                 .map_or(0, |t| t.lines().count())
@@ -287,10 +338,7 @@ mod git_runs {
             r.batches(),
             [(0, vec!["a".to_owned(), "b".to_owned()], BatchResult::Passed)]
         );
-        assert!(
-            !r.main.join(".git/loom-batch").exists(),
-            "the temp worktree is gone"
-        );
+        assert_eq!(r.batch_dirs(), 0, "the temp worktree is gone");
     }
 
     #[tokio::test]
@@ -389,14 +437,14 @@ mod git_runs {
                 "add",
                 "-q",
                 "--detach",
-                ".git/loom-batch",
+                ".git/loom-batches/batch-1-0",
                 "main",
             ],
         );
         recover(&r.app, &r.lock).await;
         assert_eq!(r.state("a"), GateState::Passed);
         assert!(r.app.graph.stale_batches().unwrap().is_empty());
-        assert!(!r.main.join(".git/loom-batch").exists());
+        assert_eq!(r.batch_dirs(), 0);
         assert_eq!(r.checks(), 0);
 
         // 검사를 지난 묶음 끝을 남기고 끝났다.
@@ -509,5 +557,195 @@ mod git_runs {
                 .iter()
                 .any(|m| m.contains("uncommitted changes"))
         );
+    }
+
+    /// 묶음 스크립트의 끝 덫은 자기 워크트리만 지운다: 끝난 데몬의 스크립트가 새 묶음의 워크트리를 지우지 않는다(검토 S1·R2).
+    #[tokio::test]
+    async fn a_batch_script_removes_only_its_own_worktree() {
+        let r = repo();
+        let other = r.main.join(".git/loom-batches/batch-99-0");
+        std::fs::create_dir_all(&other).unwrap();
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Merged);
+        assert!(other.exists(), "another batch's worktree stays");
+    }
+
+    /// push가 원격이 움직이지 않았는데 실패하면 실패로 끝낸다. 큐에 다시 서서 검사를 되풀이하지 않는다(검토 S2).
+    #[tokio::test]
+    async fn a_failed_push_ends_the_batch_as_failed_without_a_loop() {
+        let r = repo();
+        let base = git(&r.main, &["rev-parse", "main"]);
+        r.hook("pre-push", "#!/bin/sh\nexit 1\n");
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert_eq!(r.checks(), 1);
+        assert!(r.app.graph.queued_targets().unwrap().is_empty());
+        assert_eq!(git(&r.main, &["rev-parse", "main"]), base);
+        assert_eq!(git(&r.main, &["rev-parse", "origin/main"]), base);
+        assert!(
+            r.mail(r.lead)
+                .iter()
+                .any(|m| m.contains("kind: failed)\nbranch: a\n")),
+            "the root hears it"
+        );
+        assert!(r.publish_logs().contains("git push origin main failed"));
+    }
+
+    /// push는 검사한 커밋을 보낸다. 빨리 감기 뒤 훅이 커밋을 더하면 게시하지 않는다(검토 R1).
+    #[tokio::test]
+    async fn only_the_checked_commit_is_pushed() {
+        let r = repo();
+        let base = git(&r.main, &["rev-parse", "main"]);
+        r.hook(
+            "post-merge",
+            // 훅은 모든 워크트리가 함께 쓴다. 원래 체크아웃(`.git`이 폴더)에서만 커밋한다.
+            "#!/bin/sh\n[ -d .git ] || exit 0\necho x >unchecked && git add unchecked && git commit -qm unchecked\n",
+        );
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert_eq!(git(&r.main, &["rev-parse", "origin/main"]), base);
+        assert!(r.publish_logs().contains("moved after the fast-forward"));
+    }
+
+    /// 저장소를 찾지 못하면 브랜치를 실패로 끝낸다. `Merging`에 남지 않는다(검토 S3).
+    #[tokio::test]
+    async fn a_missing_repository_ends_the_members_as_failed() {
+        let r = repo();
+        for name in ["a", "b"] {
+            let head = r.branch(name, "main", &format!("{name}.txt"), name);
+            r.queue_main(name, &head);
+        }
+        r.sql("UPDATE gates SET repo = 7");
+        r.app.graph.batch_open(RepoId(7), "main", &["b"]).unwrap();
+        recover(&r.app, &r.lock).await;
+        assert_eq!(r.state("b"), GateState::Failed);
+        batch(&r.app, RepoId(7), "main", &r.lock).await.unwrap();
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert!(r.app.graph.stale_batches().unwrap().is_empty());
+        assert!(r.app.graph.queued_targets().unwrap().is_empty());
+    }
+
+    /// 마이그레이션 36이 남긴 묶음 없는 `Merging`은 데몬이 시작할 때 실패로 끝내고 알린다(검토 S4·R4·R5).
+    #[tokio::test]
+    async fn an_old_round_left_by_the_migration_fails_with_a_notice() {
+        let r = repo();
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        r.sql(r#"UPDATE gates SET state = '"merging"', batch = NULL"#);
+        recover(&r.app, &r.lock).await;
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert!(
+            r.mail(r.lead)
+                .iter()
+                .any(|m| m.contains("kind: failed)\nbranch: a\n") && m.contains(UPGRADE_CAUSE))
+        );
+        assert_eq!(r.checks(), 0);
+    }
+
+    /// 앞 브랜치가 품은 브랜치는 그 병합으로 끝난다. ship.sh는 자기 병합이 있는 마지막 브랜치를 받는다(검토 S5).
+    #[tokio::test]
+    async fn a_branch_inside_an_earlier_branch_ends_merged_by_that_merge() {
+        let r = repo();
+        let b1 = r.branch("b1", "main", "b1.txt", "1");
+        let b2 = r.branch("b2", "b1", "b2.txt", "2");
+        r.queue_main("b2", &b2);
+        r.queue_main("b1", &b1);
+        r.batch("main").await;
+        assert_eq!(
+            (r.state("b2"), r.state("b1")),
+            (GateState::Merged, GateState::Merged)
+        );
+        let tip = git(&r.main, &["rev-parse", "main"]);
+        assert_eq!(git(&r.main, &["rev-parse", "origin/main"]), tip);
+        assert_eq!(r.merged_sha("b1").as_deref(), Some(tip.as_str()));
+        assert_eq!(r.merged_sha("b2").as_deref(), Some(tip.as_str()));
+        assert!(r.publish_logs().contains(&format!("ship b2 {b2}")));
+    }
+
+    /// 묶음 끝이 원격에 오른 뒤 ship.sh가 실패해도 병합은 끝났다. 배포만 모른다(검토 S6).
+    #[tokio::test]
+    async fn a_ship_error_after_the_push_still_ends_merged() {
+        let r = repo();
+        r.commit_main("scripts/gate/ship.sh", "echo \"ship $1 $2\"; exit 12\n");
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Merged);
+        let merged = r.mail(r.lead);
+        assert!(
+            merged
+                .iter()
+                .any(|m| m.contains("deploy: unknown (scripts/gate/ship.sh exited 12")),
+            "{merged:?}"
+        );
+    }
+
+    /// 이분 탐색의 모든 시도는 같은 대상 커밋 위에 쌓는다. 검사 중에 대상이 움직여도 같다(검토 S6).
+    #[tokio::test]
+    async fn every_trial_of_a_batch_stacks_on_the_same_base() {
+        let r = repo();
+        r.commit_main(
+            "scripts/gate/check.sh",
+            "common=$(git rev-parse --path-format=absolute --git-common-dir)\necho \"$(git rev-parse HEAD)\" >>\"$common/check-runs\"\nif [ ! -e \"$common/moved\" ]; then touch \"$common/moved\"; git update-ref refs/heads/코디 HEAD; fi\n[ ! -e bad ] && echo checked\n",
+        );
+        let coordinator = child(
+            &r.app,
+            r.lead,
+            "코디",
+            Some(crate::protocol::COORDINATOR_ROLE),
+        );
+        let worker = child(&r.app, coordinator, "worker", None);
+        let reviewer = child(&r.app, coordinator, "coord-reviewer", None);
+        let wt = r.dir.path().join("coord");
+        git(
+            &r.main,
+            &["worktree", "add", "-q", "-b", "코디", wt.to_str().unwrap()],
+        );
+        let base = git(&wt, &["rev-parse", "HEAD"]);
+        let a = r.branch("a", "코디", "a.txt", "a");
+        let b = r.branch("b", "코디", "bad", "b");
+        r.queue(worker, coordinator, reviewer, "a", &a, "코디");
+        r.queue(worker, coordinator, reviewer, "b", &b, "코디");
+        r.batch("코디").await;
+        assert_eq!(
+            (r.state("a"), r.state("b")),
+            (GateState::Passed, GateState::Working)
+        );
+        let runs = std::fs::read_to_string(r.main.join(".git/check-runs")).unwrap();
+        let runs: Vec<&str> = runs.lines().collect();
+        // 첫 시도는 a·b 두 병합, 둘째 시도는 a 한 병합을 쌓았다.
+        assert_eq!(runs.len(), 2, "{runs:?}");
+        for (run, merges) in runs.iter().zip([2, 1]) {
+            assert_eq!(
+                git(&r.main, &["rev-parse", &format!("{run}~{merges}")]),
+                base
+            );
+        }
+    }
+
+    /// 끝 상태를 쓰지 못한 브랜치가 있으면 묶음 줄이 남고, 큐가 다음에 깰 때 게시를 이어 끝낸다(검토 R3).
+    #[tokio::test]
+    async fn a_failed_final_write_keeps_the_batch_for_recovery() {
+        let r = repo();
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        r.sql(
+            r#"CREATE TRIGGER no_merge BEFORE UPDATE OF state ON gates WHEN NEW.state = '"merged"'
+               BEGIN SELECT RAISE(ABORT, 'injected'); END;"#,
+        );
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Merging);
+        assert_eq!(r.app.graph.stale_batches().unwrap().len(), 1);
+        r.sql("DROP TRIGGER no_merge");
+        recover(&r.app, &r.lock).await;
+        assert_eq!(r.state("a"), GateState::Merged);
+        assert!(r.app.graph.stale_batches().unwrap().is_empty());
+        assert_eq!(r.checks(), 1, "no second check");
     }
 }

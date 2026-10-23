@@ -68,7 +68,7 @@ description: o-mode(orchestration mode)의 Loom 판. Loom 노드에서 저장소
 - 브랜치 담당(코디, 또는 코디 없는 워커)은 커밋하고 검사를 마친 뒤 `loom ready <브랜치>`를 부른다. 대상 브랜치(main, 코디 밑 워커는 코디 브랜치)를 먼저 병합하지 않아도 된다. 병합 큐가 지금 대상 위에 쌓고, 충돌하면 rework로 알린다. 그때 대상을 병합해 고친다.
 - 관문은 코디 밑 워커의 브랜치면 코디, 그 밖은 담당 자신이다(Q692 A). 관문은 검토자를 띄우고, 판정은 그 검토자만 한다. 검토자는 diff와 브리프의 완료 조건을 확인하고 결함 파일을 자기 작업 폴더의 `review/<브랜치>-<자기 노드 이름>.md`에 쓴 뒤 `loom verdict`를 부른다(검토자는 `--worktree` 없이 띄워 관문의 폴더를 물려받는다. 브랜치 이름의 `/`는 `-`다). `--findings`가 없으면 loom이 그 파일을 쓴다. 코디는 자기 브랜치를 `loom ready` 하기 전에 워커 결과를 검수해 합친다.
 - 차례가 판정·병합 전에 담당에게 돌아가면 그 차례의 검토자는 `kind: withdrawn`을 받는다. 받은 검토자는 그 브랜치 검토를 멈춘다.
-- pass 판정은 브랜치를 데몬의 병합 큐에 세운다. 큐가 대상마다 브랜치를 묶어 쌓고, `scripts/gate/check.sh`를 한 번 돌리고, 병합한다. main이면 push하고 `scripts/gate/ship.sh`로 배포를 확인한다. 결과는 `merged`·`rework`·`failed`로 온다. 기다리지 않고 다른 일을 한다(Q697 A).
+- pass 판정은 브랜치를 데몬의 병합 큐에 세운다. 큐는 그 차례의 산 검토자가 모두 판정한 뒤에 묶는다. 그래서 관문은 보조 검토자를 첫 판정 전에 띄운다. 큐가 대상마다 브랜치를 묶어 쌓고, `scripts/gate/check.sh`를 한 번 돌리고, 병합한다. main이면 push하고 `scripts/gate/ship.sh`로 배포를 확인한다. 결과는 `merged`·`rework`·`failed`로 온다. 기다리지 않고 다른 일을 한다(Q697 A).
 - 손으로 main에 병합·push하지 않는다. 병합 큐가 관문 밖 커밋을 찾아 알린다.
 - 릴리스·APK 실행(`.github/workflows/release.yml`)은 시작한 노드가 끝까지 지켜본다.
 - 저장소에 `scripts/gate/check.sh`가 없어도 `loom ready <브랜치>`를 부른다. 관문은 `kind: ready` 메시지를 받고, 손으로 병합한 뒤 `loom done`으로 알린다.

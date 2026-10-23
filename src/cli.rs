@@ -14,8 +14,7 @@ use crate::daemon::gate::{
 use crate::daemon::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DoneRequest,
     GuardRequest, HookWaitRequest, IdleRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched,
-    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, TaskRequest,
-    WaitRequest,
+    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
@@ -576,7 +575,7 @@ pub fn fail(branch: String, cause: String) -> Result<(), String> {
 
 /// 이 노드의 작업 폴더. 데몬에 묻는다: 환경의 `LOOM_TASK_DIR`이 없는 노드(작업 폴더 전에 뜬 노드)도, WSL의 `loom.exe`도 같다.
 fn task_dir() -> Result<PathBuf, String> {
-    let dir: Option<String> = call("task", &TaskRequest {}, None)?;
+    let dir: Option<String> = call("task", &(), None)?;
     dir.map(|d| crate::wsl::from_caller(PathBuf::from(d)))
         .ok_or_else(|| "loom has no task folder for this node".to_owned())
 }

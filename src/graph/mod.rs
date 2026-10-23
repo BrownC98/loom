@@ -96,9 +96,6 @@ pub struct NodeView {
     /// CLI가 알린 추론 강도 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
     pub effort: Option<String>,
     pub place: Place,
-    /// 노드가 지금 하는 일 한 줄. 근거: docs/design.md 「그래프와 화면」.
-    /// `done` 요약, CLI 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄이다. 모두 없으면 없다.
-    pub topic: Option<String>,
     /// 사이드바 북마크 영역의 차례. 작을수록 먼저 북마크했다. 북마크하지 않았으면 없다.
     pub bookmark: Option<u32>,
     /// 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
@@ -353,18 +350,10 @@ pub struct Graph {
     events: broadcast::Sender<GraphEvent>,
     /// 메시지를 넣을 때마다 `wait` 모두를 깨운다. 깬 쪽이 자기 메시지인지 DB에서 본다.
     mail: Notify,
-    /// 실행 중인 노드의 터미널에서 읽은 값. PTY와 함께 사라지므로 DB에 두지 않는다.
+    /// 실행 중인 노드 화면의 승인 창. PTY와 함께 사라지므로 DB에 두지 않는다. 다시 시작한 데몬은 화면을 다시 읽어 채운다.
+    /// 승인 신호 대기에 붙여 보낸다. 훅이 화면보다 먼저 오든 늦게 오든 보기를 만들 때 붙으므로 순서를 맞출 일이 없다.
     /// `db`를 잠근 채 잠근다. 반대 순서로 잠그지 않는다.
-    live: Mutex<HashMap<NodeId, Live>>,
-}
-
-/// 노드 터미널에서 읽은 값 하나씩. 다시 시작한 데몬은 화면을 다시 읽어 채운다.
-#[derive(Default)]
-struct Live {
-    /// CLI 터미널 제목에서 꺼낸 주제.
-    title: Option<String>,
-    /// 화면의 승인 창. 승인 신호 대기에 붙여 보낸다. 훅이 화면보다 먼저 오든 늦게 오든 보기를 만들 때 붙으므로 순서를 맞출 일이 없다.
-    prompt: Option<Prompt>,
+    prompts: Mutex<HashMap<NodeId, Prompt>>,
 }
 
 // 「안 읽음」은 사람이 눌러 앞당길 수 있는 메시지, 곧 아직 넘기지 않은 큐 메시지만 센다.
@@ -374,7 +363,7 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
         AND m.kind = '\"queue\"'),
     (SELECT count(*) FROM messages m WHERE m.recipient IS NULL AND m.sender = n.id),
     n.model, n.effort, n.repo, n.worktree,
-    n.brief, n.bookmark, n.wait,
+    n.bookmark, n.wait,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),
     (SELECT json_group_array(json(q.wait)) FROM questions q WHERE q.node = n.id)
     FROM nodes n";
@@ -422,7 +411,7 @@ impl Graph {
             published: Mutex::new(published),
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
-            live: Mutex::default(),
+            prompts: Mutex::default(),
         })
     }
 
@@ -450,12 +439,12 @@ impl Graph {
     /// 지금 목록과 그 뒤의 이벤트를 빈틈없이 받는다.
     pub fn subscribe(&self) -> rusqlite::Result<(Vec<NodeView>, broadcast::Receiver<GraphEvent>)> {
         let db = self.lock();
-        let live = self.live.lock().unwrap();
+        let prompts = self.prompts.lock().unwrap();
         let views = db
             .prepare(&format!("{VIEW_COLUMNS} ORDER BY n.id"))?
-            .query_map([], |row| view_from_row(row, &live))?
+            .query_map([], |row| view_from_row(row, &prompts))?
             .collect::<rusqlite::Result<_>>()?;
-        drop(live);
+        drop(prompts);
         Ok((views, self.events.subscribe()))
     }
 
@@ -497,11 +486,11 @@ impl Graph {
 
     /// 잠금을 쥔 채 부른다. 그래야 이벤트 순서가 DB 변경 순서와 같다.
     fn publish_node(&self, db: &Connection, id: NodeId) -> rusqlite::Result<()> {
-        let live = self.live.lock().unwrap();
+        let prompts = self.prompts.lock().unwrap();
         let view = db.query_row(&format!("{VIEW_COLUMNS} WHERE n.id = ?1"), [id.0], |row| {
-            view_from_row(row, &live)
+            view_from_row(row, &prompts)
         })?;
-        drop(live);
+        drop(prompts);
         // 보는 화면이 없으면 send가 실패한다. 화면은 붙을 때 목록 전체를 받으므로 버려도 된다.
         let _ = self.events.send(GraphEvent::Node(view));
         Ok(())
@@ -528,14 +517,12 @@ impl Graph {
     }
 }
 
-fn view_from_row(row: &Row, live: &HashMap<NodeId, Live>) -> rusqlite::Result<NodeView> {
+fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Result<NodeView> {
     let id = NodeId(row.get(0)?);
-    let live = live.get(&id);
     let state = from_json(row, 4)?;
-    let brief: Option<String> = row.get(11)?;
-    let wait: Option<String> = row.get(13)?;
-    let done: String = row.get(14)?;
-    let asked: String = row.get(15)?;
+    let wait: Option<String> = row.get(12)?;
+    let done: String = row.get(13)?;
+    let asked: String = row.get(14)?;
     // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
     let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Posted>>(&asked)
         .unwrap_or_default()
@@ -547,7 +534,7 @@ fn view_from_row(row: &Row, live: &HashMap<NodeId, Live>) -> rusqlite::Result<No
         wait.and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
             .map(|s| HumanWait {
                 prompt: (s.wait.kind == WaitKind::Approval)
-                    .then(|| live.and_then(|l| l.prompt.clone()))
+                    .then(|| prompts.get(&id).cloned())
                     .flatten(),
                 ..s.wait
             }),
@@ -556,11 +543,6 @@ fn view_from_row(row: &Row, live: &HashMap<NodeId, Live>) -> rusqlite::Result<No
     done.sort_by_key(|w| w.id.0);
     waits.extend(done);
     Ok(NodeView {
-        topic: topic(
-            &state,
-            live.and_then(|l| l.title.as_ref()),
-            brief.as_deref(),
-        ),
         id,
         name: row.get(1)?,
         agent: from_json(row, 2)?,
@@ -574,27 +556,9 @@ fn view_from_row(row: &Row, live: &HashMap<NodeId, Live>) -> rusqlite::Result<No
             repo: RepoId(row.get(9)?),
             worktree: row.get(10)?,
         },
-        bookmark: row.get(12)?,
+        bookmark: row.get(11)?,
         waits,
     })
-}
-
-/// 카드 주제: `done` 요약, 터미널 제목의 주제, 첫 지시문 순서로 처음 있는 것의 첫 줄.
-fn topic(state: &NodeState, title: Option<&String>, brief: Option<&str>) -> Option<String> {
-    let summary = match state {
-        NodeState::Done { summary } => Some(summary.as_str()),
-        _ => None,
-    };
-    [summary, title.map(String::as_str), brief]
-        .into_iter()
-        .flatten()
-        .find_map(first_line)
-        .map(str::to_owned)
-}
-
-/// 비지 않은 첫 줄(앞뒤 공백을 뺀다).
-fn first_line(text: &str) -> Option<&str> {
-    text.lines().map(str::trim).find(|line| !line.is_empty())
 }
 
 fn to_json(value: &impl Serialize) -> String {

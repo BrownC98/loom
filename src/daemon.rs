@@ -946,13 +946,9 @@ impl App {
         let discard = prepared.discarder();
         let id = self
             .graph
-            .add_root(
-                place,
-                start.agent(),
-                start.brief(),
-                &prepared.launched(),
-                |id| self.launch(id, prepared),
-            )
+            .add_root(place, start.agent(), &prepared.launched(), |id| {
+                self.launch(id, prepared)
+            })
             .inspect_err(|_| discard())?;
         Ok(id)
     }
@@ -968,17 +964,11 @@ impl App {
         let prepared = self.prepare(&start, cwd, Position::Root).await?;
         let discard = prepared.discarder();
         self.graph
-            .add_root(
-                place,
-                start.agent(),
-                start.brief(),
-                &prepared.launched(),
-                |id| {
-                    // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
-                    self.setups.lock().unwrap().insert(id);
-                    self.launch(id, prepared)
-                },
-            )
+            .add_root(place, start.agent(), &prepared.launched(), |id| {
+                // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
+                self.setups.lock().unwrap().insert(id);
+                self.launch(id, prepared)
+            })
             .inspect_err(|_| discard())?;
         Ok(())
     }
@@ -1003,8 +993,7 @@ impl App {
             inside: _,
         } = prepared;
         let on_exit = self.on_exit(id, &codex, &opencode2);
-        self.host
-            .spawn(id, cmd, setup, self.on_title(id, profile), on_exit)?;
+        self.host.spawn(id, cmd, setup, on_exit)?;
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
         Ok(())
@@ -1043,11 +1032,7 @@ impl App {
             };
             let profile = node.agent.as_ref().and_then(profile::profile_of);
             let on_exit = self.on_exit(node.id, &codex, &opencode2);
-            if self
-                .host
-                .resume(node.id, self.on_title(node.id, profile), on_exit)
-                .is_err()
-            {
+            if self.host.resume(node.id, on_exit).is_err() {
                 if let Some(server) = &node.server {
                     stop_server(server);
                 }
@@ -1060,17 +1045,6 @@ impl App {
         self.host.end_others();
         self.logins.end_others();
         Ok(())
-    }
-
-    /// 셸·명령 노드의 제목(`user@host: dir`)은 주제가 아니다. 프로필이 제목 형식을 아는 노드만 쓴다.
-    fn on_title(&self, id: NodeId, profile: Option<Profile>) -> impl FnMut(String) + use<> {
-        let graph = self.graph.clone();
-        move |title: String| {
-            if let Some(profile) = profile {
-                // DB가 실패하면 알릴 곳이 없다. 화면은 앞 주제로 남는다.
-                let _ = graph.set_title(id, profile.topic(&title));
-            }
-        }
     }
 
     /// 노드 프로세스가 끝나면 그 서버를 끝내고 그래프에 알린다. 설정 스크립트가 실패했으면 그 출력의 끝을 함께 넘긴다.
@@ -2611,7 +2585,6 @@ mod tests {
             .add_root(
                 &place,
                 Some(AgentId("claude".into())),
-                "",
                 &launched,
                 |_| Ok(()),
             )
@@ -2625,7 +2598,7 @@ mod tests {
         let hosts = dir.path().join("hosts");
         node_host::in_process(&hosts, node, cmd);
         let host = NodeHost::new(hosts);
-        host.resume(node, |_| {}, |_| {}).unwrap();
+        host.resume(node, |_| {}).unwrap();
         let shown = loop {
             let text = host.screen(node).text;
             if let Some(prompt) = screen::prompt(&claude::PROMPT, &text, 80) {

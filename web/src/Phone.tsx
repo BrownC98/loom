@@ -1,6 +1,6 @@
 // 폰 폭 화면(목업 docs/mockups/mobile.html M35, 2026-10-22 사람 승인 Q279·Q280). 배치만 맡는다.
 // 질문 목록·트리·사용량 줄은 App이 데스크톱과 같은 부품으로 만들어 넘긴다. 상태 원천은 데스크톱과 같은 데몬 이벤트다.
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CircleCheck, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, relaunchNode, relaunchQueued, removeNode } from './api';
@@ -9,11 +9,10 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
 import { relaunchableState } from './catalog';
-import { QuestionIcon } from './Dock';
+import { InboxPanel, waitCount } from './Inbox';
+import { stateLabel } from './NodeCard';
+import { NodeText, NoticeChips, NoticeLead, oldestWait, toneOf } from './notice';
 import { useEscapeClose } from './popover';
-import { InboxPanel, oldestWait, waitCount } from './Inbox';
-import { asking, stateClass, stateLabel } from './NodeCard';
-import { plainText } from './links';
 import { borrowSize, SizingTerminal } from './Terminal';
 import { LONG_PRESS_MS, readClipboard, SLOP_PX } from './touchTerminal';
 
@@ -119,7 +118,7 @@ export function Phone(props: {
       {!props.online && <Offline />}
       <main className="phone-body" aria-label={inbox ? t('phone.inbox') : t('phone.nodes')}>
         {inbox && count === 0 ? (
-          <p className="phone-empty center">{t('phone.noQuestions')}</p>
+          <p className="phone-empty center">{t('phone.noNotices')}</p>
         ) : inbox ? (
           props.inbox
         ) : (
@@ -207,12 +206,11 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
   const [sheet, setSheet] = useState<'actions' | null>(null);
   const { askOpen, setAskOpen } = props;
   const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
-  const asks = asking(view);
-  // 띠는 모든 노드 화면에 있고 펼친 판은 모든 노드의 대기를 보인다. 이 노드의 대기가 맨 위다(2026-10-23 사람 "당사자 터미널이 아니라도 저 표시가 나타나는가?", Q481 B).
-  const waiting = [...props.waiting.filter((v) => v.id === view.id), ...props.waiting.filter((v) => v.id !== view.id)];
+  // 띠는 모든 노드 화면에 있고 펼친 판은 모든 노드의 대기를 보인다(2026-10-23 사람 "당사자 터미널이 아니라도 저 표시가 나타나는가?", Q481 B). 순서는 알약과 같이 오래된 순이다(목업 notice-look.html M9 v2).
+  const { waiting } = props;
   const head = waiting[0];
-  const first = head && (head.id === view.id && asks.length > 0 ? asks[0] : oldestWait(head));
-  const total = waitCount(props.waiting);
+  const first = head && oldestWait(head);
+  const waits = waiting.flatMap((v) => v.waits);
   // 답해서 수가 줄어도, 다른 노드로 가도 판은 열린 채 남은 알림을 보인다(2026-10-23 사람 지시 "앱 알림에서 입력하면 남은 알림 리스트가 닫히는 문제").
   const openOther = (id: NodeId) => {
     if (id !== view.id) props.onOpen(id);
@@ -255,8 +253,9 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
             {props.agentLabel} · {worktree}
           </span>
         </span>
-        <span className={`state ${stateClass(view)}`} aria-live="polite" translate="no">
-          {asks.length > 0 ? t('wait.label') : stateLabel(view.state)}
+        <NoticeChips view={view} />
+        <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
+          {stateLabel(view.state)}
         </span>
         <button type="button" className="phone-icon" aria-label={t('phone.actions')} aria-haspopup="dialog" onClick={() => setSheet('actions')}>
           <EllipsisVertical aria-hidden="true" />
@@ -265,13 +264,12 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
       {!props.online && <Offline />}
       {first && (
         // 띠 아래 판은 터미널 위에 덮여 내려온다(터미널 칸 크기는 그대로). 2026-10-23 사람 결정 Q475 B 「B로 하고 거기에 펴기/닫기 옵션선택, 텍스트 입력 까지 구현, 펼치기는 바텀시트가 아니라 위에서부터 펼쳐 내려오는 형식으로, 알림이 여래개일때 스크롤 가능하게」
-        <div className="phone-ask-wrap" data-kind={first.kind}>
+        <div className="phone-ask-wrap" data-tone={toneOf(first.kind)}>
           <div className="phone-ask" onClick={() => setAskOpen(!askOpen)}>
-            {first.kind === 'done' ? <CircleCheck aria-hidden="true" /> : <QuestionIcon aria-hidden="true" />}
-            <b>{head.id === view.id ? t(`wait.${first.kind}`) : head.name}</b>
-            {total > 1 && <span className="count">{total}</span>}
-            <span className="qid">Q{first.id}</span>
-            <span className="text">{first.prompt?.summary ?? plainText(first.text)}</span>
+            <NoticeLead wait={first} waits={waits} />
+            <span className="text">
+              <NodeText name={head.name} wait={first} />
+            </span>
             <button type="button" className="phone-icon" aria-expanded={askOpen} aria-label={askOpen ? t('phone.askClose') : t('phone.askOpen')} onClick={(e) => (e.stopPropagation(), setAskOpen(!askOpen))}>
               {askOpen ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
             </button>

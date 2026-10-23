@@ -414,7 +414,7 @@ pub struct RelaunchRequest {
 #[derive(Serialize, Deserialize)]
 pub struct AskRequest {
     pub question: String,
-    /// `--doc`: 질문에 붙일 user-doc 문서의 절대 경로.
+    /// `--doc`: 질문에 붙일 문서(user-doc HTML, `.md` 같은 글 파일)의 절대 경로.
     #[serde(default)]
     pub doc: Option<PathBuf>,
 }
@@ -466,6 +466,9 @@ pub struct DoneRequest {
     /// `--image`: 사람이 그 지시에 준 그림 파일의 절대 경로.
     #[serde(default)]
     pub images: Vec<PathBuf>,
+    /// `--doc`: 완료 줄에 붙일 문서의 절대 경로. `loom ask --doc`과 같다.
+    #[serde(default)]
+    pub doc: Option<PathBuf>,
 }
 
 /// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
@@ -1796,14 +1799,23 @@ async fn answer_wait(
     Ok(Json(()))
 }
 
-/// 사람이 질문 줄의 문서 링크를 눌렀다. 데몬이 그 기계의 기본 앱(브라우저)으로 연다. 화면이 브라우저든 데스크톱 앱이든 같다.
-/// 열린 질문에 붙은 문서만 연다. 파일을 매번 새로 열므로 새 판이 보인다.
+/// 사람이 질문·완료 줄의 문서 링크를 눌렀다. 데몬이 그 기계의 기본 브라우저로 연다. 화면이 브라우저든 데스크톱 앱이든 같다.
+/// 열린 대기에 붙은 문서만 연다. 파일을 매번 새로 열므로 새 판이 보인다.
+/// 글 문서(`.md`)는 파일이 아니라 이 데몬이 내는 주소(`wait_doc`)를 연다. 파일의 기본 앱은 편집기이거나 없다.
 async fn open_wait_doc(
     State(app): State<Arc<App>>,
     Path(wait): Path<u32>,
 ) -> Result<Json<()>, Problem> {
     let path = app.graph.wait_doc(WaitId(wait))?;
-    open::open(&path).map_err(internal)?;
+    if user_doc::doc_kind(&path) == Some(user_doc::DocKind::Html) {
+        open::open(&path).map_err(internal)?;
+    } else {
+        open::open_url(&format!(
+            "http://127.0.0.1:{}/api/waits/{wait}/doc/",
+            app.port
+        ))
+        .map_err(internal)?;
+    }
     Ok(Json(()))
 }
 
@@ -1844,15 +1856,25 @@ async fn done_image_file(
     serve_file(&path, request).await
 }
 
+/// 글 문서(`user_doc::DocKind::Text`)의 형식. `.md`의 `text/markdown`은 폰 Chrome이 내려받고, 문자 집합 없는 `text/plain`은 한글이 깨진다.
+const TEXT_TYPE: &str = "text/plain; charset=utf-8";
+
 async fn serve_file(
     path: &std::path::Path,
     request: axum::extract::Request,
 ) -> Result<Response, Problem> {
-    let response = tower_http::services::ServeFile::new(path)
+    let mut response = tower_http::services::ServeFile::new(path)
         .try_call(request)
         .await
-        .map_err(internal)?;
-    Ok(response.into_response())
+        .map_err(internal)?
+        .into_response();
+    if response.status().is_success() && user_doc::doc_kind(path) == Some(user_doc::DocKind::Text) {
+        response.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static(TEXT_TYPE),
+        );
+    }
+    Ok(response)
 }
 
 async fn agent_spawn(
@@ -2130,9 +2152,16 @@ async fn agent_done(
     for image in &req.images {
         done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
+    let attached = attach(req.doc.as_deref())?;
     let alive_children = app
         .graph
-        .done(node, &req.summary, req.asked.as_deref(), &req.images)
+        .done(
+            node,
+            &req.summary,
+            req.asked.as_deref(),
+            &req.images,
+            attached,
+        )
         .map_err(for_agent)?;
     Ok(Json(alive_children))
 }
@@ -2159,6 +2188,13 @@ fn done_image(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// `--doc`(`loom ask`, `loom done`)의 문서를 점검하고 ID를 붙인다.
+fn attach(doc: Option<&std::path::Path>) -> Result<Option<crate::graph::Attached>, AgentError> {
+    doc.map(user_doc::attach)
+        .transpose()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
 /// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드는 부모에게 묻는다.
 async fn agent_ask(
     State(app): State<Arc<App>>,
@@ -2166,12 +2202,7 @@ async fn agent_ask(
     Json(req): Json<AskRequest>,
 ) -> Result<Json<Asked>, AgentError> {
     let node = app.caller(&headers)?;
-    let attached = req
-        .doc
-        .as_deref()
-        .map(user_doc::attach)
-        .transpose()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let attached = attach(req.doc.as_deref())?;
     let doc = attached.as_ref().map(|a| a.doc.clone());
     let id = app
         .graph

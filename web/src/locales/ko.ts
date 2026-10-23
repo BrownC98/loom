@@ -560,6 +560,7 @@ const ko: typeof en = {
       emptyQuestion: '질문을 한 줄로 적으십시오.',
       noAsked: '부모가 없는 노드는 사람의 지시를 --asked로 함께 적어 완료를 알립니다.',
       hasParent: '부모가 있는 노드입니다. 부모에게 물으십시오. 사람에게는 사람이 띄운 노드만 묻습니다.',
+      docHasParent: '부모가 있는 노드입니다. 부모는 경로를 읽습니다. 파일 경로를 부모에게 보내십시오. 문서는 사람이 띄운 노드만 붙입니다.',
       noWait: 'Q{{value}} 질문은 이미 닫혔습니다.',
       severalOpen: '열린 질문이 여럿입니다: {{value}}.',
       emptyAnswer: '답변을 적으십시오.',

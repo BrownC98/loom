@@ -559,6 +559,7 @@ const en = {
       emptyQuestion: 'Write the question as one line.',
       noAsked: 'A node with no parent reports done with the human\'s instruction in --asked.',
       hasParent: 'This node has a parent. Ask the parent. Only nodes that the human started ask the human.',
+      docHasParent: 'This node has a parent, and the parent reads paths. Send the file path to the parent. Only nodes that the human started attach a document.',
       noWait: 'Question Q{{value}} is already closed.',
       severalOpen: 'Several questions are open: {{value}}.',
       emptyAnswer: 'Write an answer.',

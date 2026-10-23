@@ -27,18 +27,7 @@ let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homed
       return out;
     };
     const bad = []; let n = 0, badges = 0;
-    // 배지가 실제로 칠해졌는지 본다. pointer-events:none인 덮개도 맞히게 모두 켠다(지시선 svg는 뺀다).
-    // 맞힌 요소 가운데 무언가를 칠하는 것만 덮개로 센다. 투명한 빈 상자는 덮지 않는다.
-    const clear = c => c === 'transparent' || /rgba\(.*,\s*0\)$/.test(c);
-    const paints = e => {
-      const cs = getComputedStyle(e);
-      if (cs.visibility !== 'visible' || +cs.opacity === 0) return false;
-      if (/^(IMG|svg|CANVAS|VIDEO|IFRAME|INPUT|BUTTON|SELECT|TEXTAREA)$/.test(e.tagName)) return true;
-      if (!clear(cs.backgroundColor) || cs.backgroundImage !== 'none' || cs.boxShadow !== 'none') return true;
-      if (['Top', 'Right', 'Bottom', 'Left'].some(s => parseFloat(cs['border' + s + 'Width']) > 0 && !clear(cs['border' + s + 'Color']))) return true;
-      return [...e.childNodes].some(t => t.nodeType === 3 && t.textContent.trim());
-    };
-    const probe = document.createElement('style'); probe.textContent = '*:not(.lead-svg):not(.lead-svg *) { pointer-events: auto !important; }'; document.head.appendChild(probe);
+    const marks = [];
     for (const fig of document.querySelectorAll('.fig')) {
       const title = fig.querySelector('h2')?.textContent.slice(0, 12) ?? '';
       const calls = fig.querySelector(':scope > .calls');
@@ -66,20 +55,41 @@ let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homed
         for (const a of clips(m)) { const c = clipBox(a); if (g.l < c.l || g.t < c.t || g.r > c.r || g.b > c.b) bad.push(id + ' clipped by ' + (a.className || a.tagName)); }
         const sx = g.l + scrollX, sy = g.t + scrollY, D = document.documentElement;
         if (sx < 0 || sy < 0 || g.r + scrollX > D.scrollWidth || g.b + scrollY > D.scrollHeight) bad.push(id + ' outside the page');
-        scrollBy((g.l + g.r) / 2 - innerWidth / 2, (g.t + g.b) / 2 - innerHeight / 2);
-        let z; ({ g, z } = box());
-        const cx = (g.l + g.r) / 2, cy = (g.t + g.b) / 2, d = 7 * z;
-        for (const [x, y] of [[cx, cy], [cx - d, cy], [cx + d, cy], [cx, cy - d], [cx, cy + d]]) {
-          const at = document.elementsFromPoint(x, y), i = at.indexOf(m);
-          if (i < 0) bad.push(id + ' covered by ' + (at[0] ? at[0].className || at[0].tagName : 'nothing (off screen)'));
-          for (const e of at.slice(0, i)) if (!m.contains(e) && paints(e)) bad.push(id + ' covered by ' + ((e.className.baseVal ?? e.className) || e.tagName));
-        }
+        m.dataset.chk = marks.length; marks.push(id);
         for (const t of textRuns(fig)) if (!m.contains(t.e) && hit(g, t.r)) bad.push(id + ' over text "' + t.what + '"');
       }
     }
-    probe.remove();
-    return { bubbles: n, badges, overlaps: [...new Set(bad)] };
+    return { bubbles: n, badges, overlaps: bad, marks };
   });
+  // 덮개 점검은 그린 픽셀로 한다. 배지 색만 바꿔 두 번 찍고, 표본 점이 바뀌지 않으면 무언가가 배지를 덮었다.
+  // 요소 단위 판정(hit test, 배경·테두리 규칙)은 ::before 덮개와 투명 테두리 상자를 잘못 판정했다(검토 BLOCK).
+  await p.addStyleTag({ content: '.mk[data-recolor]::after { background: #00FF00 !important; color: #0000FF !important; }' });
+  const vp = p.viewportSize();
+  for (const [k, id] of res.marks.entries()) {
+    const { g, z } = await p.evaluate(k => {
+      const m = document.querySelector(`[data-chk="${k}"]`);
+      const box = () => { const r = m.getBoundingClientRect(), z = m.offsetWidth ? r.width / m.offsetWidth : 1; return { g: { l: r.left - 14 * z, t: r.top - 14 * z, r: r.left + 8 * z, b: r.top + 8 * z }, z }; };
+      const { g } = box(); scrollBy((g.l + g.r) / 2 - innerWidth / 2, (g.t + g.b) / 2 - innerHeight / 2);
+      return box();
+    }, k);
+    const cx = (g.l + g.r) / 2, cy = (g.t + g.b) / 2, d = 7 * z;
+    const pts = [[cx, cy], [cx - d, cy], [cx + d, cy], [cx, cy - d], [cx, cy + d]].map(([x, y]) => [Math.round(x), Math.round(y)]);
+    if (pts.some(([x, y]) => x < 0 || y < 0 || x >= vp.width || y >= vp.height)) { res.overlaps.push(id + ' off screen'); continue; }
+    const clip = { x: Math.max(0, Math.floor(g.l) - 2), y: Math.max(0, Math.floor(g.t) - 2) };
+    clip.width = Math.min(vp.width, Math.ceil(g.r) + 2) - clip.x; clip.height = Math.min(vp.height, Math.ceil(g.b) + 2) - clip.y;
+    const shot = async () => (await p.screenshot({ clip })).toString('base64');
+    const before = await shot();
+    await p.evaluate(k => { document.querySelector(`[data-chk="${k}"]`).dataset.recolor = ''; }, k);
+    const after = await shot();
+    await p.evaluate(k => { delete document.querySelector(`[data-chk="${k}"]`).dataset.recolor; }, k);
+    const same = await p.evaluate(async ({ before, after, pts }) => {
+      const px = async b64 => { const i = new Image(); i.src = 'data:image/png;base64,' + b64; await i.decode(); const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const x = c.getContext('2d'); x.drawImage(i, 0, 0); return x.getImageData(0, 0, i.width, i.height); };
+      const [a, b] = [await px(before), await px(after)];
+      return pts.filter(([x, y]) => { const o = (y * a.width + x) * 4; return Math.abs(a.data[o] - b.data[o]) + Math.abs(a.data[o + 1] - b.data[o + 1]) + Math.abs(a.data[o + 2] - b.data[o + 2]) < 60; }).length;
+    }, { before, after, pts: pts.map(([x, y]) => [x - clip.x, y - clip.y]) });
+    if (same) res.overlaps.push(id + ' covered at ' + same + ' of 5 points');
+  }
+  res.overlaps = [...new Set(res.overlaps)]; delete res.marks;
   console.log(JSON.stringify(res));
   await b.close();
   process.exitCode = res.overlaps.length ? 1 : 0;

@@ -11,6 +11,7 @@ import type { HumanWait } from './gen/HumanWait';
 import type { Prompt } from './gen/Prompt';
 import type { PromptKey } from './gen/PromptKey';
 import type { NodeId } from './gen/NodeId';
+import type { WaitDoc } from './gen/WaitDoc';
 import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
@@ -18,7 +19,7 @@ import { stateClass } from './NodeCard';
 import { bySince, ICON, NodeText, NoticeBadges, NoticeLead, oldestWait, showsId, summaryOf, toneOf } from './notice';
 import { Modal } from './Modal';
 import { useDismiss } from './popover';
-import { linkParts } from './links';
+import { DOC_LINK, linkParts } from './links';
 import { openLink, openPass, phoneBrowser } from './openLink';
 
 /**
@@ -268,6 +269,8 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   const { t } = useTranslation();
   const { wait } = props;
   const { prompt } = wait;
+  const parts = linkParts(wait.text);
+  const inlineDoc = parts.some((part) => 'href' in part && part.href === DOC_LINK);
   const done = toneOf(wait.kind) === 'done';
   const qid = showsId(wait.kind) ? `Q${wait.id}` : t(`wait.${wait.kind}`);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -330,39 +333,23 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       )}
       {!prompt && (wait.text || wait.doc) && (
         <p className="full">
-          {linkParts(wait.text).map((part, index) =>
-            'href' in part ? (
+          {parts.map((part, index) =>
+            !('href' in part) ? (
+              part.text
+            ) : part.href === DOC_LINK && wait.doc ? (
+              <DocLink key={index} wait={wait.id} doc={wait.doc} label={part.label} onRefusal={setRefusal} />
+            ) : (
               <button key={index} type="button" className="doc-link" title={part.href} onClick={() => openLink(part.href, props.node)}>
                 {part.label}
               </button>
-            ) : (
-              part.text
             ),
           )}
-          {wait.doc && (
+          {wait.doc && !inlineDoc && (
             // 문서는 따로 단추가 아니라 질문 글 끝의 링크다(2026-10-21 사람 지시 "문서 링크는 별도 버튼이 아니라 질문텍스트의 하이퍼링크표시+아이콘 으로 표시한다").
+            // 글이 문서에 링크를 걸었으면 그 자리에 둔다(2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘").
             <>
               {' '}
-              {/* 앱 창은 새 탭을 열지 못해 데몬이 기본 브라우저를 연다. 폰 앱은 통행증 주소를 폰 브라우저로 넘긴다. 브라우저와 폰 브라우저는 데몬이 내는 문서를 새 탭에서 연다(목업 docs/mockups/mobile.html ②). */}
-              {isTauri() || phoneBrowser() ? (
-                <button
-                  type="button"
-                  className="doc-link"
-                  title={t('inbox.openDocLabel', { id: wait.doc.id, title: wait.doc.title })}
-                  onClick={() => {
-                    const browser = phoneBrowser();
-                    (browser ? openPass(waitDocPass(wait.id), browser) : openWaitDoc(wait.id)).catch((err: Error) => setRefusal(err.message));
-                  }}
-                >
-                  {wait.doc.id} {wait.doc.title}
-                  <ExternalLink aria-hidden="true" />
-                </button>
-              ) : (
-                <a className="doc-link" href={waitDocUrl(wait.id)} target="_blank" rel="noopener" title={t('inbox.openDocTabLabel', { id: wait.doc.id, title: wait.doc.title })}>
-                  {wait.doc.id} {wait.doc.title}
-                  <ExternalLink aria-hidden="true" />
-                </a>
-              )}
+              <DocLink wait={wait.id} doc={wait.doc} label={`${wait.doc.id} ${wait.doc.title}`} onRefusal={setRefusal} />
             </>
           )}
         </p>
@@ -409,6 +396,31 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+function DocLink(props: { wait: WaitId; doc: WaitDoc; label: string; onRefusal: (message: string) => void }) {
+  const { t } = useTranslation();
+  const { wait, doc } = props;
+  // 앱 창은 새 탭을 열지 못해 데몬이 기본 브라우저를 연다. 폰 앱은 통행증 주소를 폰 브라우저로 넘긴다. 브라우저와 폰 브라우저는 데몬이 내는 문서를 새 탭에서 연다(목업 docs/mockups/mobile.html ②).
+  return isTauri() || phoneBrowser() ? (
+    <button
+      type="button"
+      className="doc-link"
+      title={t('inbox.openDocLabel', { id: doc.id, title: doc.title })}
+      onClick={() => {
+        const browser = phoneBrowser();
+        (browser ? openPass(waitDocPass(wait), browser) : openWaitDoc(wait)).catch((err: Error) => props.onRefusal(err.message));
+      }}
+    >
+      {props.label}
+      <ExternalLink aria-hidden="true" />
+    </button>
+  ) : (
+    <a className="doc-link" href={waitDocUrl(wait)} target="_blank" rel="noopener" title={t('inbox.openDocTabLabel', { id: doc.id, title: doc.title })}>
+      {props.label}
+      <ExternalLink aria-hidden="true" />
+    </a>
   );
 }
 

@@ -1,3 +1,8 @@
+/** 붙은 문서를 가리키는 링크 주소. CLI가 `--doc` 파일에 건 링크를 이 주소로 바꾼다(`src/user_doc.rs` `DOC_LINK`). */
+export const DOC_LINK = 'loom:doc';
+
+const LINK = new RegExp(String.raw`\[([^\]\n]+)\]\(((?:file|https?):\/\/[^\s)]+|${DOC_LINK})\)`, 'g');
+
 export type TextPart = { text: string } | { label: string; href: string };
 
 /**
@@ -7,7 +12,7 @@ export type TextPart = { text: string } | { label: string; href: string };
 export function linkParts(text: string): TextPart[] {
   const parts: TextPart[] = [];
   let at = 0;
-  for (const m of text.matchAll(/\[([^\]\n]+)\]\(((?:file|https?):\/\/[^\s)]+)\)/g)) {
+  for (const m of text.matchAll(LINK)) {
     if (m.index > at) parts.push({ text: text.slice(at, m.index) });
     parts.push({ label: m[1], href: m[2] });
     at = m.index + m[0].length;

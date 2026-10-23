@@ -1,7 +1,7 @@
 // user-doc 문서 점검(SKILL.md 「형식」·「목업 말풍선」). 배치 스크립트(callouts.js)와 따로 센다.
 // - 파일 하나: src·href·CSS url()은 data:, https:, #만 쓴다.
 // - 창 폭 여러 개, 늦게 읽히는 그림, 창 폭 바꾸기마다: 설명마다 말풍선이 있는지, 말풍선이 글자·컨트롤·상자·배지·다른 말풍선과 겹치는지,
-//   지시선이 다른 상자·말풍선을 지나거나 LEADER_MAX보다 긴지, 배지가 잘리거나 덮이거나 글자를 덮는지, 상자가 대상·표 칸·틀에 맞는지, 테두리 선이 하나인지,
+//   지시선이 다른 상자·말풍선·지시선을 지나거나 LEADER_MAX보다 긴지, 배지가 잘리거나 덮이거나 글자를 덮는지, 상자가 대상·표 칸·틀에 맞는지, 테두리 선이 하나인지,
 //   덧그림이 대상의 레이아웃을 바꾸는지, 그림 틀과 덧그림이 절 안에 있는지.
 // 사용: node check-callouts.cjs <문서.html>   출력 JSON {"bubbles":N,"badges":N,"overlaps":[...]}, 끝 코드 0 = 통과, 1 = 문제 있음, 2 = 돌리지 못함
 const path = require('path'), fs = require('fs'), os = require('os'), { pathToFileURL } = require('url');
@@ -143,6 +143,12 @@ const DOM_PASS = LEADER_MAX => {
       const others = [...flat(boxes).filter(([j, e]) => !holds(e)), ...cl].filter(([j]) => j !== k);
       for (let i = 1; i < pts.length; i++) for (const [j, e] of others) if (cross(...pts[i - 1], ...pts[i], rect(e))) bad.push(title + ' leader ' + k + ' crosses ' + (e.classList.contains('co') ? 'bubble ' : 'box ') + j);
     }
+    // 지시선끼리 만나지 않는다(2026-10-23 ktasearch SDI 목업 93 v21 총괄 검토: "leader lines cross each other"). 끝점만 닿는 것은 뺀다.
+    const ori = (a, b, c) => Math.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
+    const segs = flat(lines).map(([k, l]) => { const p = ends(l); return [k, p.slice(1).map((q, i) => [p[i], q])]; });
+    segs.forEach(([k, a], i) => segs.slice(i + 1).forEach(([j, b]) => {
+      if (a.some(([p, q]) => b.some(([r, s]) => ori(p, q, r) * ori(p, q, s) < 0 && ori(r, s, p) * ori(r, s, q) < 0))) bad.push(title + ' leader ' + k + ' crosses leader ' + j);
+    }));
     const seen = new Map();
     for (const m of marks) {
       const k = m.dataset.n, id = title + ' #' + k, z = seen.get(k) || 0; seen.set(k, z + 1);

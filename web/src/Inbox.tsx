@@ -18,6 +18,7 @@ import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, NodeText, NoticeBadges, NoticeLead, oldestWait, showsId, summaryOf, toneOf } from './notice';
+import { PinchImage } from './PinchImage';
 import { Modal } from './Modal';
 import { useDismiss } from './popover';
 
@@ -318,7 +319,7 @@ function ZoomImage(props: { src: string; name: string; title: string }) {
       </button>
       {open && (
         <Modal className="image-view" label={props.name} onClose={() => setOpen(false)} outsideClose>
-          <img src={props.src} alt={props.name} onClick={() => setOpen(false)} />
+          <PinchImage src={props.src} alt={props.name} onTap={() => setOpen(false)} />
         </Modal>
       )}
     </>

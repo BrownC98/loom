@@ -7,8 +7,6 @@
 // 지시선도 글자·컨트롤·다른 상자·다른 말풍선을 지나지 않는 자리 중 가장 짧은 것을 고른다. 가까운 빈 자리가 없으면 그림 오른쪽 말풍선 열에 둔다.
 // Boxes: target grown 5 px, clipped to the enclosing table cell and to the frame (inset 1). A td/th target = cell inset 1. An empty .shotwrap .mk = box exactly at the mark.
 // Bubbles never lie inside a frame; if they do not fit, the .fig bottom padding grows by 80 px steps. A .fig without .calls (the clean copy) is only zoomed.
-// 말풍선은 화면 글자·컨트롤과 겹치지 않는 빈 자리에 두고, 상자 테두리에서 말풍선까지 지시선을 긋는다.
-// 지시선도 글자·컨트롤·다른 상자·다른 말풍선을 지나지 않는 자리 중 가장 짧은 것을 고른다. 가까운 빈 자리가 없으면 그림 오른쪽 말풍선 열에 둔다.
 (() => {
   const GUT = 290; // 말풍선 열(px). 화면 그림은 이 열을 남기고 줄어든다.
   const fit = fig => {

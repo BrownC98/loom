@@ -131,6 +131,14 @@ pub struct PillPlace {
     pub y: f32,
 }
 
+impl PillPlace {
+    /// 0~1 안의 유한한 수가 아니면 이유를 돌려준다. 1e100은 `f32`에서 무한대가 되어 JSON에 `null`로 쓰이고, 다음 읽기가 설정 전체를 기본값으로 바꾼다.
+    fn problem(self) -> Option<String> {
+        let ok = |v: f32| (0.0..=1.0).contains(&v);
+        (!(ok(self.x) && ok(self.y))).then(|| "pillPlace must be numbers from 0 to 1".to_string())
+    }
+}
+
 /// 접은 칸(사이드바, 오른쪽 칸)과 절(북마크). 처음에는 모두 펼침이다.
 #[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
@@ -359,7 +367,11 @@ impl Settings {
             merge(value, patch);
             let view: SettingsView = serde_json::from_value(value.clone())
                 .map_err(|e| PatchProblem::Shape(e.to_string()))?;
-            match view.roles.launch_problem() {
+            let problem = view
+                .roles
+                .launch_problem()
+                .or_else(|| view.pill_place.and_then(|p| p.problem()));
+            match problem {
                 Some(problem) => Err(PatchProblem::Shape(problem)),
                 None => Ok(view),
             }
@@ -578,6 +590,24 @@ mod tests {
             .patch(&serde_json::json!({"paneWidths": {"side": null}}))
             .unwrap();
         assert_eq!(settings.get().unwrap().pane_widths.side, None);
+    }
+
+    /// 알약 자리가 0~1 밖이거나 `f32`로 넘치는 수면 쓰지 않는다. 다른 설정은 그대로 남는다.
+    #[test]
+    fn pill_place_out_of_range_is_refused_and_row_stays() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        settings
+            .patch(&serde_json::json!({"osNotify": true, "pillPlace": {"x": 0.5, "y": 0.5}}))
+            .unwrap();
+        for bad in ["1e100", "-0.1", "1.5"] {
+            let patch: serde_json::Value =
+                serde_json::from_str(&format!(r#"{{"pillPlace":{{"x":{bad},"y":0.5}}}}"#)).unwrap();
+            assert!(settings.patch(&patch).is_err(), "{bad}");
+        }
+        let got = settings.get().unwrap();
+        assert!(got.os_notify);
+        assert_eq!(got.pill_place, Some(PillPlace { x: 0.5, y: 0.5 }));
     }
 
     /// 옛 설정은 기본 역할 표로 읽는다. 목록은 통째로 바뀌고, 틀린 목록은 쓰지 않고, `null`은 기본 표로 돌린다.

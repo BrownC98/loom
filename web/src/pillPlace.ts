@@ -32,5 +32,16 @@ export function popLeft(pillLeft: number, pillWidth: number, popWidth: number, p
   return clamped - pillLeft;
 }
 
-/** 알약이 칸 아래 절반에 있으면 목록을 알약 위로 연다. 아래로 열면 칸 밖으로 잘린다. */
-export const popAbove = (top: number, box: Size, pane: Size): boolean => top + box.h / 2 > pane.h / 2;
+/** 알약과 목록 사이 간격(px). */
+export const POP_GAP = 6;
+
+/**
+ * 목록을 열 쪽과 그쪽에 남은 높이(px). 알약 위아래 중 넓은 쪽이다. 목록과 스크롤 영역은 이 높이를 넘지 않는다.
+ * 칸 높이의 반이 아니라 실제 남은 자리로 정한다. 반으로 정하면 목록이 칸 밖으로 잘려 닿지 못한다.
+ */
+export function popSpace(top: number, box: Size, pane: Size): { above: boolean; room: number } {
+  const above = top - PILL_MARGIN;
+  const below = pane.h - (top + box.h) - PILL_MARGIN;
+  const useAbove = above > below;
+  return { above: useAbove, room: Math.max(0, (useAbove ? above : below) - POP_GAP) };
+}

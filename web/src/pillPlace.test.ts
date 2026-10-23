@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PILL_MARGIN, placeFrom, placeOf, popAbove, popLeft } from './pillPlace';
+import { PILL_MARGIN, placeFrom, placeOf, popSpace, popLeft } from './pillPlace';
 
 const pane = { w: 1000, h: 600 };
 const box = { w: 200, h: 40 };
@@ -47,9 +47,12 @@ describe('popLeft', () => {
   });
 });
 
-describe('popAbove', () => {
-  it('opens upward from the lower half', () => {
-    expect(popAbove(PILL_MARGIN, box, pane)).toBe(false);
-    expect(popAbove(500, box, pane)).toBe(true);
+describe('popSpace', () => {
+  it('opens on the side with more room and limits the height to it', () => {
+    expect(popSpace(PILL_MARGIN, box, pane)).toEqual({ above: false, room: 600 - (PILL_MARGIN + 40) - PILL_MARGIN - 6 });
+    expect(popSpace(500, box, pane)).toEqual({ above: true, room: 500 - PILL_MARGIN - 6 });
+  });
+  it('never gives a negative room in a short pane', () => {
+    expect(popSpace(PILL_MARGIN, box, { w: 500, h: 50 }).room).toBe(0);
   });
 });

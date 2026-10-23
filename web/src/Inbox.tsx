@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type 
 import { useTranslation } from 'react-i18next';
 import type { PillPlace } from './gen/PillPlace';
 import type { QuestionPill } from './gen/QuestionPill';
-import { DRAG_SLOP, PILL_MARGIN, placeFrom, placeOf, popAbove, popLeft, type Size } from './pillPlace';
+import { DRAG_SLOP, PILL_MARGIN, placeFrom, placeOf, popLeft, popSpace, type Size } from './pillPlace';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import { DocText } from './DocText';
 import { choices } from './choices';
@@ -79,7 +79,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
             )}
           </div>
           {open && n > 0 && at && pane && box && (
-            <InboxPop label={t('inbox.title', { count: n })} pill={pill} left={popLeft(at.left, box.w, popWidth(pane), pane.w)} width={popWidth(pane)} above={popAbove(at.top, box, pane)} onClose={() => setOpen(false)}>
+            <InboxPop label={t('inbox.title', { count: n })} pill={pill} left={popLeft(at.left, box.w, popWidth(pane), pane.w)} width={popWidth(pane)} {...popSpace(at.top, box, pane)} onClose={() => setOpen(false)}>
               {/* 노드로 가도 목록은 열린 채로 둔다. 이어서 다른 질문을 보고 답한다(2026-10-22 사람 지시 "총괄클릭해서 이동할때 팝오버 유지되도록"). */}
               <WaitList
                 waiting={props.waiting}
@@ -103,19 +103,24 @@ const popWidth = (pane: Size) => Math.min(POP_WIDTH, Math.max(0, pane.w - 2 * PI
 /** 요소의 지금 크기. 크기가 바뀌면(창, 칸, 알약 글) 다시 잰다. 처음 그리기 전에 한 번 잰다. */
 function useSize(ref: RefObject<HTMLElement | null>): Size | null {
   const [size, setSize] = useState<Size | null>(null);
-  const el = ref.current;
+  const watched = useRef<{ el: HTMLElement; watch: ResizeObserver } | null>(null);
+  // 알약은 대기가 없으면 사라졌다가 다시 붙는다. 그래서 렌더마다 지금 붙은 요소를 보고, 다르면 새 요소를 잰다.
   useLayoutEffect(() => {
-    const target = ref.current;
-    if (!target) {
+    const el = ref.current;
+    if (watched.current?.el === el) return;
+    watched.current?.watch.disconnect();
+    watched.current = null;
+    if (!el) {
       setSize(null);
       return;
     }
-    const read = () => setSize((was) => (was && was.w === target.offsetWidth && was.h === target.offsetHeight ? was : { w: target.offsetWidth, h: target.offsetHeight }));
+    const read = () => setSize((was) => (was && was.w === el.offsetWidth && was.h === el.offsetHeight ? was : { w: el.offsetWidth, h: el.offsetHeight }));
     read();
     const watch = new ResizeObserver(read);
-    watch.observe(target);
-    return () => watch.disconnect();
-  }, [el]);
+    watch.observe(el);
+    watched.current = { el, watch };
+  });
+  useEffect(() => () => watched.current?.watch.disconnect(), []);
   return size;
 }
 
@@ -167,10 +172,10 @@ function usePillDrag(pill: RefObject<HTMLElement | null>, pane: Size | null, box
 }
 
 /** 알약이 연 목록. 열린 동안만 밖 누르기와 Esc가 닫는다. 알약(답 칸 포함)을 누르는 것은 밖이 아니다. */
-function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; left: number; width: number; above: boolean; onClose: () => void; children: ReactNode }) {
+function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; left: number; width: number; above: boolean; room: number; onClose: () => void; children: ReactNode }) {
   const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.pill });
   return (
-    <div ref={box} className="pop inbox-pop" data-above={props.above || undefined} style={{ left: props.left, width: props.width }} role="dialog" aria-label={props.label}>
+    <div ref={box} className="pop inbox-pop" data-above={props.above || undefined} style={{ left: props.left, width: props.width, maxHeight: props.room }} role="dialog" aria-label={props.label}>
       <h2>{props.label}</h2>
       {props.children}
     </div>

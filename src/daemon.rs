@@ -12,6 +12,7 @@ mod settings;
 pub use relaunch::{NewAgent, Relaunched};
 mod switch;
 mod turn_end;
+mod usage_cache;
 #[cfg(test)]
 mod verb_traces;
 mod verbs;
@@ -101,6 +102,7 @@ struct App {
     idle: idle::IdleWaits,
     relaunches: relaunch::Relaunches,
     switch: switch::Switches,
+    usage: usage_cache::UsageCache,
     turn_ends: turn_end::TurnEnds,
     plugin: skills::Plugin,
     shim: PathBuf,
@@ -916,6 +918,7 @@ impl App {
             idle: idle::IdleWaits::default(),
             relaunches: relaunch::Relaunches::default(),
             switch: switch::Switches::default(),
+            usage: usage_cache::UsageCache::default(),
             turn_ends: turn_end::TurnEnds::default(),
             plugin: {
                 let plugin =
@@ -1056,10 +1059,11 @@ impl App {
             opencode2,
             first_input,
             account: _,
-            inside: _,
+            inside,
         } = prepared;
         self.first_inputs.launched(id, first_input);
-        let on_exit = self.on_exit(id, &codex, &opencode2);
+        let distro = inside.map(|inside| inside.distro);
+        let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
@@ -1095,12 +1099,27 @@ impl App {
                 None => (None, None),
             };
             let profile = node.agent.as_ref().and_then(profile::profile_of);
-            let on_exit = self.on_exit(node.id, &codex, &opencode2);
-            if self.host.resume(node.id, on_exit).is_err() {
+            let distro = self
+                .node_wsl(Some(node.id))
+                .ok()
+                .flatten()
+                .map(|at| at.distro);
+            let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
+            if let Err(unattached) = self.host.resume(node.id, on_exit) {
                 if let Some(server) = &node.server {
                     stop_server(server);
                 }
                 self.graph.lost(node.id)?;
+                if unattached == node_host::Unattached::Gone
+                    && let Some(distro) = distro
+                {
+                    end_leftovers(
+                        &tokio::runtime::Handle::current(),
+                        node.id,
+                        distro,
+                        node.token,
+                    );
+                }
                 continue;
             }
             self.follow_screen(node.id, profile, &node.token);
@@ -1114,13 +1133,22 @@ impl App {
     fn on_exit(
         self: &Arc<Self>,
         id: NodeId,
+        distro: Option<String>,
+        token: &str,
         codex: &Option<Arc<CodexServer>>,
         opencode2: &Option<Arc<opencode2::Node>>,
     ) -> impl FnOnce(Exit) + use<> {
         let app = self.clone();
         let discard = discarder(codex, opencode2);
+        let runtime = tokio::runtime::Handle::current();
+        let token = token.to_owned();
         move |exit| {
             discard();
+            if exit != Exit::Lost
+                && let Some(distro) = distro
+            {
+                end_leftovers(&runtime, id, distro, token);
+            }
             if app.relaunches.exited(id) {
                 return;
             }
@@ -1138,6 +1166,7 @@ impl App {
             let _ = match exit {
                 Exit::Command(code) => app.graph.exited(id, code),
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
+                Exit::Lost => app.graph.lost(id),
             };
             app.idle.end(id);
         }
@@ -1412,6 +1441,14 @@ impl Prepared {
     fn discarder(&self) -> impl Fn() + use<> {
         discarder(&self.codex, &self.opencode2)
     }
+}
+
+fn end_leftovers(runtime: &tokio::runtime::Handle, id: NodeId, distro: String, token: String) {
+    runtime.spawn(async move {
+        if let Err(e) = wsl::end_token(&distro, &token).await {
+            eprintln!("loom: 노드 {}가 남긴 프로세스를 끝내지 못했다: {e}", id.0);
+        }
+    });
 }
 
 fn discarder(

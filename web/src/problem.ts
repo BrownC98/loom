@@ -1,5 +1,5 @@
 import type { TOptions } from 'i18next';
-import i18next from './i18n';
+import i18next, { duration } from './i18n';
 import type { Problem } from './gen/Problem';
 import type { Refusal } from './gen/Refusal';
 import type { UsageProblem } from './gen/UsageProblem';
@@ -38,5 +38,8 @@ export function refusalWithoutName(r: Refusal): string {
 }
 
 export function usageProblemText(p: UsageProblem): string {
+  if (p.code === 'rateLimited') {
+    return i18next.t('usageProblem.rateLimited', { value: duration(Math.max(60 * 1000, p.value.retryAt * 1000 - Date.now())) });
+  }
   return i18next.t(`usageProblem.${p.code}`, vars(p));
 }

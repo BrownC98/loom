@@ -152,7 +152,6 @@ export function App() {
   const repo = chosenRepo(repos, settings.repo);
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
   const [cursor, setCursor] = useState<CursorView[] | null>(null);
-  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
   const phone = usePhone();
@@ -257,7 +256,6 @@ export function App() {
       const [read, cursorRead] = await Promise.all([getAccounts(), getCursorUsage().catch(() => [])]);
       setAccounts(read);
       setCursor(cursorRead);
-      setFetchedAt(Date.now());
     } finally {
       setLoading(false);
     }
@@ -295,7 +293,7 @@ export function App() {
     const a = own.find((x) => x.id === s.to);
     return a ? accountName(a) : t('usage.systemDefault');
   };
-  const usage: Usage = { accounts, cursor, fetchedAt, loading, refresh: refreshUsage };
+  const usage: Usage = { accounts, cursor, loading, refresh: refreshUsage };
   const chooseBox = (key: string | null) => {
     setChosenBox(key);
     if (key !== null) setSelected(null);

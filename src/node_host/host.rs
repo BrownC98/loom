@@ -26,11 +26,13 @@ const CURSOR_AT_ORIGIN: &[u8] = b"\x1b[1;1R";
 const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(1);
 const EXIT_KEEP: Duration = Duration::from_secs(600);
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+const CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Host {
     process: Mutex<Process>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     input: Mutex<Box<dyn Write + Send>>,
+    pid: Mutex<Option<u32>>,
     state: Mutex<State>,
     delivered: mpsc::Sender<()>,
 }
@@ -42,7 +44,6 @@ struct Process {
 
 #[derive(Default)]
 struct State {
-    pid: Option<u32>,
     backlog: Backlog,
     client: Option<(u64, TcpStream)>,
     next_client: u64,
@@ -130,10 +131,8 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
         }),
         master: Mutex::new(pair.master),
         input: Mutex::new(input),
-        state: Mutex::new(State {
-            pid: child.process_id(),
-            ..State::default()
-        }),
+        pid: Mutex::new(child.process_id()),
+        state: Mutex::default(),
         delivered: delivered_tx,
     });
     let output_done = host.read_in_background(reader);
@@ -251,10 +250,9 @@ impl Host {
         *master = pair.master;
         drop(master);
         process.killer = child.clone_killer();
-        let mut state = self.state.lock().unwrap();
-        state.pid = child.process_id();
-        if let Some(pid) = state.pid {
-            state.send(&Frame::Pid(pid));
+        *self.pid.lock().unwrap() = child.process_id();
+        if let Some(pid) = child.process_id() {
+            self.state.lock().unwrap().send(&Frame::Pid(pid));
         }
         let output_done = self.read_in_background(reader);
         Ok(Some(Running { child, output_done }))
@@ -276,9 +274,10 @@ impl Host {
     }
 
     fn serve(&self, mut stream: TcpStream) {
-        let greeted_pid = self.state.lock().unwrap().pid;
+        let greeted_pid = *self.pid.lock().unwrap();
         let greeted = stream
             .set_read_timeout(Some(HELLO_TIMEOUT))
+            .and_then(|()| stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT)))
             .and_then(|()| wire::welcome(&mut stream, greeted_pid))
             .and_then(|()| stream.set_read_timeout(None));
         let Ok(mut reader) = greeted.and_then(|()| stream.try_clone()) else {
@@ -304,7 +303,11 @@ impl Host {
         let me = {
             let mut state = self.state.lock().unwrap();
             let backlog = state.backlog.to_vec();
-            let pid = state.pid.filter(|&pid| Some(pid) != greeted_pid);
+            let pid = self
+                .pid
+                .lock()
+                .unwrap()
+                .filter(|&pid| Some(pid) != greeted_pid);
             let sent = pid.is_none_or(|pid| wire::write(&mut stream, &Frame::Pid(pid)).is_ok())
                 && (backlog.is_empty() || wire::write(&mut stream, &Frame::Data(backlog)).is_ok())
                 && state
@@ -358,8 +361,8 @@ impl State {
             return false;
         };
         let sent = wire::write(stream, frame).is_ok();
-        if !sent {
-            self.client = None;
+        if !sent && let Some((_, stream)) = self.client.take() {
+            let _ = stream.shutdown(Shutdown::Both);
         }
         sent
     }

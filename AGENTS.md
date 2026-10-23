@@ -13,16 +13,16 @@
 
 ## 개발 환경
 
-호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드는 `memcap -m 8G` 아래에서 돌린다.
+호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드는 `memcap -m 8G` 아래에서 돌린다. 단 검사·테스트 네 명령은 `memcap -m 5G`다. 실측(2026-10-23, cgroup `memory.peak`, 처음부터 빌드, 단계마다 2회): clippy 2.2GiB, test 2.7GiB, Windows clippy 2.5GiB, Windows test 3.0GiB(최대 3076MiB). 이미 빌드한 `target/`은 130MiB 이하다. 5G는 최대값에 약 65%를 더한 값이다. 병합 관문(`scripts/gate/check.sh`)은 여유가 이 5G를 넘을 때만 단계를 띄운다.
 
 | 할 일 | 명령 |
 |---|---|
 | 화면 패키지 설치, 화면 빌드 | `bash scripts/worktree/setup.sh`. 새 워크트리에서 loom·Orca가 부른다. Rust 빌드 전에 화면 빌드(`web/dist`)가 있어야 한다 |
 | Rust 포맷 | `cargo fmt` |
-| Rust 검사 | `memcap -m 8G cargo clippy --all-targets` |
-| Rust 테스트, TS 타입 생성 | `memcap -m 8G cargo test` |
-| Windows 검사 | `memcap -m 8G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
-| Windows 테스트(실제 Windows에서 돈다) | `memcap -m 8G cargo test --target x86_64-pc-windows-gnu`. `scripts/windows/run.sh`가 시험 파일을 Windows 임시 폴더로 복사해 interop으로 돌린다 |
+| Rust 검사 | `memcap -m 5G cargo clippy --all-targets` |
+| Rust 테스트, TS 타입 생성 | `memcap -m 5G cargo test` |
+| Windows 검사 | `memcap -m 5G cargo clippy --all-targets --target x86_64-pc-windows-gnu` |
+| Windows 테스트(실제 Windows에서 돈다) | `memcap -m 5G cargo test --target x86_64-pc-windows-gnu`. `scripts/windows/run.sh`가 시험 파일을 Windows 임시 폴더로 복사해 interop으로 돌린다 |
 | 화면 타입·순환 검사 | `npm --prefix web run check` |
 | 화면 배치 테스트(vitest, 한 번 실행) | `npm --prefix web test` |
 | 화면 빌드 | `npm --prefix web run build` |

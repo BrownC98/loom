@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
+import type { CursorView } from './gen/CursorView';
 import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
@@ -141,6 +142,11 @@ export function resetText(limits: Limits): string {
   return [...windows, ...plan].join(' · ');
 }
 
-export function fetchedText(at: number, now: number): string {
-  return i18next.t('usage.fetched', { ago: ago(at, now) });
+export function fetchedText(readAt: number, now: number): string {
+  return i18next.t('usage.fetched', { ago: ago(readAt * 1000, now) });
+}
+
+export function oldestRead(accounts: AccountView[] | null, cursor: CursorView[] | null): number | null {
+  const times = [...(accounts ?? []).map((a) => a.usage.readAt), ...(cursor ?? []).map((c) => c.usage.readAt)];
+  return times.length === 0 ? null : Math.min(...times);
 }

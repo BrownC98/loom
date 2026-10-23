@@ -242,6 +242,46 @@ exit 0"#;
     }
 }
 
+pub async fn end_token(distro: &str, token: &str) -> Result<(), String> {
+    let mut cmd = tokio::process::Command::new("wsl.exe");
+    cmd.args(["-d", distro, "-e", "sh", "-c", END_TOKEN, "sh", token])
+        .env("WSL_UTF8", "1");
+    bounded(cmd, END_TOKEN_WAIT).await
+}
+
+const END_TOKEN: &str = r#"token=$1 nl='
+'
+signal() {
+  sent=1
+  for f in $(grep -laF "LOOM_TOKEN=$token" /proc/[0-9]*/environ 2>/dev/null); do
+    env=$nl$(tr '\0' '\n' <"$f" 2>/dev/null)$nl
+    case $env in *"${nl}LOOM_TOKEN=$token$nl"*) ;; *) continue ;; esac
+    case $env in *"${nl}HOME=$HOME$nl"*) ;; *) continue ;; esac
+    pid=${f#/proc/}
+    kill -"$1" "${pid%/environ}" 2>/dev/null && sent=0
+  done
+  return $sent
+}
+signal TERM || exit 0
+sleep 2
+signal KILL
+exit 0"#;
+
+const END_TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+async fn bounded(
+    mut cmd: tokio::process::Command,
+    limit: std::time::Duration,
+) -> Result<(), String> {
+    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
+    match tokio::time::timeout(limit, cmd.output()).await {
+        Err(_) => Err(format!("{}초 안에 끝나지 않았다", limit.as_secs())),
+        Ok(Err(e)) => Err(e.to_string()),
+        Ok(Ok(out)) if out.status.success() => Ok(()),
+        Ok(Ok(out)) => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Inside {
     host: String,
@@ -453,6 +493,92 @@ pub fn shell(line: &str) -> Vec<OsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn end_token_ends_only_processes_with_the_token_and_home() {
+        let token = format!("test{}", std::process::id());
+        let home = std::env::var("HOME").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let child_pid = dir.path().join("child");
+        let spawn = |script: String, token: &str, home: &str| {
+            std::process::Command::new("sh")
+                .args(["-c", &script])
+                .env("LOOM_TOKEN", token)
+                .env("HOME", home)
+                .spawn()
+                .unwrap()
+        };
+        let mut stubborn = spawn(
+            "trap '' TERM; while :; do sleep 0.1; done".into(),
+            &token,
+            &home,
+        );
+        let mut parent = spawn(
+            format!(
+                "LOOM_TOKEN=other sleep 30 & echo $! > {}; wait",
+                child_pid.display()
+            ),
+            &token,
+            &home,
+        );
+        let mut test_daemon = spawn("exec sleep 30".into(), &token, "/tmp/other-home");
+        let mut other_node = spawn("exec sleep 30".into(), "other", &home);
+        while !child_pid.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let child: u32 = std::fs::read_to_string(&child_pid)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args(["-c", END_TOKEN, "sh", &token]);
+        bounded(cmd, END_TOKEN_WAIT).await.unwrap();
+
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(stubborn.wait().unwrap().signal(), Some(9));
+        assert_eq!(parent.wait().unwrap().signal(), Some(15));
+        assert!(test_daemon.try_wait().unwrap().is_none());
+        assert!(other_node.try_wait().unwrap().is_none());
+        assert!(std::path::Path::new(&format!("/proc/{child}")).exists());
+        for mut left in [test_daemon, other_node] {
+            left.kill().unwrap();
+            left.wait().unwrap();
+        }
+        std::process::Command::new("kill")
+            .arg(child.to_string())
+            .status()
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bounded_ends_a_stalled_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("pid");
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args([
+            "-c",
+            &format!("echo $$ > {}; exec sleep 30", pid_file.display()),
+        ]);
+        let started = std::time::Instant::now();
+        let ended = bounded(cmd, std::time::Duration::from_millis(500)).await;
+        assert!(ended.is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let pid = std::fs::read_to_string(&pid_file).unwrap();
+        let stat = std::path::PathBuf::from(format!("/proc/{}/stat", pid.trim()));
+        for _ in 0..50 {
+            match std::fs::read_to_string(&stat) {
+                Err(_) => return,
+                Ok(line) if line.rsplit(") ").next().is_some_and(|s| s.starts_with('Z')) => return,
+                Ok(_) => {}
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("the stalled command still runs");
+    }
 
     #[test]
     fn a_node_path_is_read_in_the_node_folder() {

@@ -10,7 +10,7 @@ import type { SettingsView } from './gen/SettingsView';
 import { noticeOf } from './accountSwitch';
 import { weekdayAndTime } from './i18n';
 import type { SwitchRecord } from './useSwitchNotice';
-import { accountName, activeAccount, cliMissing, fetchedText, InlineWindows, limitsProblem, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
+import { accountName, activeAccount, cliMissing, fetchedText, InlineWindows, limitsProblem, oldestRead, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
 import { Sheet, usePhone } from './Phone';
 import { useDismiss } from './popover';
@@ -19,7 +19,6 @@ import { VERSION } from './version';
 export type Usage = {
   accounts: AccountView[] | null;
   cursor: CursorView[] | null;
-  fetchedAt: number | null;
   loading: boolean;
   refresh: () => void;
 };
@@ -163,6 +162,7 @@ function UsageBody(props: {
 }) {
   const { t } = useTranslation();
   const { usage } = props;
+  const read = oldestRead(usage.accounts, usage.cursor);
   const [expanded, setExpanded] = useState<Provider | null>(null);
   return (
     <>
@@ -179,7 +179,7 @@ function UsageBody(props: {
       ))}
       {props.cursor && <CursorSection usage={props.cursor.usage} />}
       <div className="usage-foot">
-        {usage.fetchedAt !== null && fetchedText(usage.fetchedAt, Date.now())}
+        {read !== null && fetchedText(read, Date.now())}
         {props.onManage && (
           <button className="btn ghost sm" onClick={props.onManage}>
             {t('statusBar.manage')}

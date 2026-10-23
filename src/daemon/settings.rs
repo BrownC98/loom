@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::origin::ViaRemote;
+use super::usage_cache::Key;
 use super::{App, Problem, internal, serve_pty};
 use crate::accounts::{AccountId, Site};
 use crate::node_host::{Exit, NodeHost};
@@ -19,7 +20,7 @@ use crate::profile::{self, AgentView, LaunchError, Profile, Provider, VersionMis
 #[cfg(test)]
 use crate::settings::{Language, Theme};
 use crate::settings::{PatchProblem, SettingsView};
-use crate::usage::{self, Usage, UsageProblem};
+use crate::usage::{self, Usage};
 use crate::worktree::{self, RepoProblem};
 use crate::wsl::{self, Inside};
 
@@ -227,7 +228,11 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
     }
     let probes = rows.iter().map(|(site, provider, id)| {
         let (site, provider, id) = (site.clone(), *provider, id.clone());
-        tokio::task::spawn_blocking(move || usage::probe(provider, &site, id.as_ref()))
+        let key = Key::provider(&site, provider, id.as_ref());
+        let fingerprint = usage::credentials_fingerprint(provider, &site, id.as_ref());
+        app.usage.get(key, fingerprint, move || {
+            usage::probe(provider, &site, id.as_ref())
+        })
     });
     let usages = join_all(probes).await;
     let views = rows
@@ -237,8 +242,7 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
             provider,
             distro: site.distro().map(str::to_owned),
             id,
-            usage: usage
-                .unwrap_or_else(|e| Usage::failed(UsageProblem::Unavailable(e.to_string()))),
+            usage,
         })
         .collect();
     Ok(Json(views))
@@ -246,12 +250,18 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
 
 async fn cursor_usage(State(app): State<Arc<App>>) -> Json<Vec<CursorView>> {
     let sites = app.sites().await;
-    let probes = sites.into_iter().map(|site| async move {
-        let distro = site.distro().map(str::to_owned);
-        let usage = tokio::task::spawn_blocking(move || usage::probe_cursor(&site))
-            .await
-            .unwrap_or_else(|e| Usage::failed(UsageProblem::Unavailable(e.to_string())));
-        CursorView { distro, usage }
+    let probes = sites.into_iter().map(|site| {
+        let app = app.clone();
+        async move {
+            let distro = site.distro().map(str::to_owned);
+            let key = Key::cursor(&site);
+            let fingerprint = usage::cursor_credentials_fingerprint(&site);
+            let usage = app
+                .usage
+                .get(key, fingerprint, move || usage::probe_cursor(&site))
+                .await;
+            CursorView { distro, usage }
+        }
     });
     Json(join_all(probes).await)
 }

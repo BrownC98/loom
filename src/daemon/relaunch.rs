@@ -496,7 +496,7 @@ impl App {
             }
             server.follow_thread(resume.to_owned()).await;
         }
-        // 새 토큰을 먼저 남긴다. 새 프로세스가 뜨자마자 데몬을 불러도 찾는다.
+        // 새 토큰을 먼저 남기고 옛 대기를 지운다. 새 프로세스가 뜨자마자 데몬을 불러도 찾고, 옛 승인은 새 PTY에 치지 못한다.
         if let Err(e) = self.graph.relaunched(id, &prepared.launched()) {
             discard();
             let _ = self.graph.lost(id);
@@ -511,8 +511,7 @@ impl App {
             return Err(e);
         }
         self.relaunches.limited.lock().unwrap().remove(&id);
-        // 옛 프로세스의 창은 사라졌다. 새 프로세스가 다시 묻으면 신호가 다시 건다.
-        self.graph.clear_wait(id).map_err(|e| e.to_string())
+        Ok(())
     }
 
     /// 노드의 위치(이 PC 또는 그 WSL 배포판)에서 그 위치의 「사용 중」 계정 로그인 폴더로 세션 기록을 옮기고 세션 id를 돌려준다.

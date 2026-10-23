@@ -3,7 +3,7 @@
 //! `loom ask` 질문은 노드마다 여러 개(`questions` 표)다. 새 질문은 앞 질문을 지우지 않는다(2026-10-22 목업 M28 승인, grill-me처럼 한 번에 여러 질문).
 //! `loom done --asked` 완료도 노드마다 여러 개(`dones` 표)다. 사람의 [확인](`dismiss`)과 이어서 맡기기(`answer`)만 지운다.
 //! 지우는 길: 신호 쪽이 거두기(`set_wait(.., None)`), 에이전트의 `loom answered`(`answered`), 사람의 키 입력(`typed`, 질문은 남긴다),
-//! 받은편지함 [×](`dismiss`), 노드 재시작(`clear_wait`), 프로세스 끝(`end_process`).
+//! 받은편지함 [×](`dismiss`), 노드 재시작(`relaunched`), 프로세스 끝(`end_process`).
 //! 사람은 화면에서 질문에 바로 답할 수도 있다(`answer`). 답은 사람이 보낸 메시지로 노드에 가고 그 질문은 그때 지운다.
 //! 질문·완료가 걸리고 닫힐 때마다 같은 트랜잭션에서 이벤트 기록에 한 줄을 남긴다(`events::Entry::Asked` 등). 신호의 대기는 남기지 않는다.
 //! 근거: docs/design.md 「사람 응답 대기」.
@@ -185,13 +185,18 @@ pub const HUMAN: &str = "human";
 impl Graph {
     /// 신호 하나가 노드의 대기를 바꾼다. `None`이면 그 신호가 건 대기만 지운다.
     /// 같은 종류·글이면 그대로 둔다(시작 시각을 지킨다). 바뀌었을 때만 화면에 알린다.
+    /// `token`은 신호를 낸 프로세스의 토큰이다. 다시 띄운 노드의 옛 프로세스·옛 화면·옛 서버가 늦게 낸 신호는 대기를 다시 열지 못한다(`relaunched`가 토큰을 바꾼다).
+    /// 근거: 2026-10-23 리뷰 「다시 띄운 뒤 옛 승인」: 옛 대기가 새 PTY에 키를 쳤다.
     pub fn set_wait(
         &self,
-        id: NodeId,
+        token: &str,
         source: WaitSource,
         wait: Option<(WaitKind, &str)>,
     ) -> rusqlite::Result<()> {
         let db = self.lock();
+        let Some(id) = super::nodes::caller_in(&db, token)? else {
+            return Ok(());
+        };
         let Some(now) = stored(&db, id)? else {
             return Ok(());
         };
@@ -470,21 +475,6 @@ impl Graph {
             .optional()?;
         let (node, agent) = found.ok_or(Refusal::NoWait(wait))?;
         Ok((NodeId(node), agent))
-    }
-
-    /// 노드 프로세스를 다시 띄웠다. 신호의 대기와 열린 질문을 모두 지운다.
-    pub fn clear_wait(&self, id: NodeId) -> rusqlite::Result<()> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let changed = tx.execute(
-            "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
-            [id.0],
-        )? + drop_questions(&tx, id, ClosedBy::Restart)?;
-        tx.commit()?;
-        if changed > 0 {
-            self.publish_node(&db, id)?;
-        }
-        Ok(())
     }
 }
 

@@ -165,7 +165,7 @@ pub fn prompt(grammar: &Grammar, screen: &str, width: usize) -> Option<Prompt> {
 
 /// 창 본문 줄과 명령 한 줄. 줄은 자리로 나눈다: 명령 앞 머리(CLI 안내), 명령 칸, 명령 뒤.
 /// 명령 칸은 Claude의 두 점선 사이이거나(2.1.309), `$ `로 시작해 빈 줄까지다(Codex 0.159.2, Cursor 2026.10.22).
-/// 명령 줄은 창 여백, Claude의 `│ ` 칸, `$ ` 뒤 맞춤 들여쓰기만 빼고 그대로 둔다. 「Tip:」 안내는 머리에서만 뺀다.
+/// 명령 줄은 창 여백, Claude의 `│ ` 칸, 칸을 연 `$ ` 줄의 맞춤 들여쓰기만 빼고 그대로 둔다. 「Tip:」 안내는 머리에서만 뺀다.
 /// 머리와 뒤의 줄은 다듬고, CLI가 폭에 맞춰 넘긴 줄을 앞 줄에 잇는다(80칸 화면의 Claude 「Tip:」 줄, Codex 「Reason:」 줄 실측).
 fn body(grammar: &Grammar, lines: &[&str], width: usize) -> (Vec<String>, Option<String>) {
     // 점선은 창 왼쪽 끝부터 그린다(Claude 2.1.309).
@@ -187,14 +187,17 @@ fn body(grammar: &Grammar, lines: &[&str], width: usize) -> (Vec<String>, Option
                 ruled: true,
                 hang: 0,
             }),
+            // Cursor는 이어지는 명령 줄을 `$` 뒤 글에 맞춰 들여 쓴다(2026.10.22 실측). 맞춤은 명령 칸을 연 `$` 줄에서만 잰다.
+            // 명령 안의 `$` 줄(Claude 칸 안의 `$HOME` 등)은 맞춤이 아니다(2026-10-23 리뷰 「heredoc 들여쓰기가 줄었다」).
             Area::Head if text.starts_with('$') => Some(Area::Command {
                 ruled: false,
-                hang: 0,
+                hang: text.len() - text[1..].trim_start().len(),
             }),
             Area::Command { ruled: true, .. } if rule => Some(Area::Tail),
             Area::Command { ruled: false, .. } if text.is_empty() => Some(Area::Tail),
             _ => None,
         };
+        let opened = next.is_some();
         if let Some(next) = next {
             area = next;
             previous = "";
@@ -202,17 +205,15 @@ fn body(grammar: &Grammar, lines: &[&str], width: usize) -> (Vec<String>, Option
                 continue;
             }
         }
-        if let Area::Command { hang, .. } = &mut area {
+        if let Area::Command { hang, .. } = area {
             // Claude는 여러 줄 명령을 `│ ` 칸에 그린다(2.1.309, loom guard 줄이 붙은 명령 실측).
             let code = text
                 .strip_prefix('│')
                 .map_or(text, |rest| rest.strip_prefix(' ').unwrap_or(rest));
-            let code = if let Some(command) = code.strip_prefix('$') {
-                // Cursor는 이어지는 명령 줄을 `$` 뒤 글에 맞춰 들여 쓴다(2026.10.22 실측).
-                *hang = code.len() - command.trim_start().len();
+            let code = if opened {
                 code
             } else {
-                code.strip_prefix(&*" ".repeat(*hang)).unwrap_or(code)
+                code.strip_prefix(&*" ".repeat(hang)).unwrap_or(code)
             };
             if Some(code.trim_start_matches('$').trim()) != grammar.guard {
                 rows.push((area, code.to_owned()));

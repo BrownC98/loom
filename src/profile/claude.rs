@@ -494,7 +494,7 @@ mod tests {
             APPROVAL.replace(
                 " touch zz_file\n╌",
                 &format!(
-                    " │ echo ready\n │ Tip:; touch {tail}\n │ printf 'a\n │   b'\n │ cat <<EOF\n │ \tkeep\n │   indented\n │ EOF\n╌"
+                    " │ echo ready\n │ Tip:; touch {tail}\n │ printf 'a\n │   b'\n │ cat <<EOF\n │ \tkeep\n │   indented\n │ $HOME\n │   keep\n │ EOF\n╌"
                 ),
             )
         };
@@ -511,6 +511,8 @@ mod tests {
                 "cat <<EOF",
                 "\tkeep",
                 "  indented",
+                "$HOME",
+                "  keep",
                 "EOF",
                 "Do you want to proceed?"
             ]

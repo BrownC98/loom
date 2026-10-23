@@ -450,7 +450,6 @@ function useImages(node: NodeId, onError: (message: string) => void) {
   return { list, attach, remove };
 }
 
-/** 표준 꼴 질문의 선택지 버튼. 누르면 그 글자(`A`)를 바로 답으로 보낸다. 권장안은 표시한다. */
 /** 승인 창 본문(터미널 글 그대로)과 선택지. 선택지는 한 줄에 하나, 키 칸은 터미널에서 누르는 키다. 첫 선택지는 터미널의 기본 선택이라 주황 테두리다(목업 M11). */
 function PromptBody(props: { prompt: Prompt; choosing: boolean; onPick: (option: number) => void }) {
   return (
@@ -470,6 +469,7 @@ function PromptBody(props: { prompt: Prompt; choosing: boolean; onPick: (option:
 
 const keyLabel = (key: PromptKey) => (key.kind === 'char' ? key.value : key.kind === 'tab' ? 'tab' : '⇧tab');
 
+/** 표준 꼴 질문의 선택지 버튼. 누르면 그 글자(`A`)를 바로 답으로 보낸다. 권장안은 표시한다. */
 function Choices(props: { question: string; onPick: (key: string) => void }) {
   const { t } = useTranslation();
   const list = choices(props.question);

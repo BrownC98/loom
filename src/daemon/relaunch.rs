@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,6 +29,10 @@ use crate::skills::Position;
 
 /// 옛 노드 프로세스가 끝나기를 기다리는 상한. PTY 호스트는 끝내기 요청을 받으면 바로 프로세스 나무를 끝낸다.
 const EXIT_WAIT: Duration = Duration::from_secs(10);
+/// `claude stop`을 기다리는 상한. 넘으면 그대로 띄운다. 세션이 남았으면 새 CLI가 거절하고 그 실패가 기록에 남는다.
+const CLAUDE_STOP_WAIT: Duration = Duration::from_secs(20);
+/// Claude 백그라운드 세션의 짧은 id 길이. 세션 UUID의 앞 8글자다(`claude agents --json`의 `id`, 2.1.309 실측).
+const CLAUDE_SHORT_ID: usize = 8;
 /// 한도로 멈췄던 노드를 새 계정으로 이어 갈 때 넣는 첫 입력.
 const CONTINUE_PROMPT: &str =
     "Your account was switched after a usage limit. Continue the task where you stopped.";
@@ -405,6 +410,9 @@ impl App {
             discard();
             return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
         }
+        if profile == Profile::Claude {
+            self.stop_claude_background(&node, &resume).await;
+        }
         self.run_resumed(node.id, prepared, &resume, &settings, &agent)
             .await
     }
@@ -439,6 +447,9 @@ impl App {
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, notice.to_owned())
             .await?;
+        if profile == Profile::Claude {
+            self.stop_claude_background(&node, &resume).await;
+        }
         self.run_resumed(node.id, prepared, &resume, &settings, &agent)
             .await
     }
@@ -544,6 +555,31 @@ impl App {
                 .map_err(|e| format!("{}: {e}", to.display()))?;
         }
         Ok(session)
+    }
+
+    /// Claude Code가 세션을 자기 백그라운드 데몬으로 옮겼으면 그 세션을 끝낸다. 대화는 남는다.
+    /// 그 세션은 노드 프로세스 나무 밖에 있어 PTY 호스트를 끝내도 산다. 살아 있으면 새 CLI의 `--resume`이
+    /// "That session is running in the background"로 거절하고 코드 1로 끝났다(2026-10-23 실측, 2.1.308).
+    /// 세션이 백그라운드에 없으면 `claude stop`이 실패한다. 그 실패는 버린다. 세션은 노드를 띄운 계정에 있다.
+    async fn stop_claude_background(&self, node: &Active, session: &str) {
+        let Ok(place) = self.graph.place_of(node.id) else {
+            return;
+        };
+        let Ok(site) = self.site_at(Path::new(&place.worktree)).await else {
+            return;
+        };
+        // `claude stop`은 세션 UUID를 받지 않고 짧은 id(UUID의 앞 8글자)만 받는다(2.1.309 실측: "No job matching").
+        let short = session.get(..CLAUDE_SHORT_ID).unwrap_or(session);
+        let Ok(cmd) = site.command(Provider::Claude, &["stop", short], node.account.as_ref())
+        else {
+            return;
+        };
+        let mut cmd = tokio::process::Command::from(cmd);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let _ = tokio::time::timeout(CLAUDE_STOP_WAIT, cmd.status()).await;
     }
 
     /// 옛 프로세스가 띄운 셸: 노드 프로세스와 그 서버(Codex app-server, OpenCode 2 serve) 아래의 세션 리더.

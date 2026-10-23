@@ -623,7 +623,7 @@ const ko: typeof en = {
       manyGates: '이 저장소에 CI 담당자 노드가 여럿입니다({{value}}).',
       noFindings: 'block 판정에는 결함 파일이 필요합니다.',
       kindWord: '메시지를 종류 낱말 {{word}}(으)로 시작하지 않습니다. 대신: {{verb}}.',
-      kindWord_nameless: '종류 낱말 {{word}} · {{verb}} 사용',
+      kindWord_nameless: '{{word}}은(는) 종류 낱말 · {{verb}} 사용',
       ownVerdict: '{{value}}: 자기 브랜치는 판정하지 못합니다.',
       staleRun: '지금 병합 실행이 아닌 보고입니다.',
       nothingToMerge: '{{branch}}에는 {{target}}에 없는 커밋이 없습니다.',

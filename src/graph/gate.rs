@@ -355,11 +355,18 @@ impl Graph {
         let tree = tree_of(&db, owner)?;
         for record in events::sent_since(&db, since)? {
             let Entry::Message {
-                from, gate: None, ..
+                from,
+                gate: None,
+                what,
+                ..
             } = &record.entry
             else {
                 continue;
             };
+            // `human-input`·`setup-failed` 본문은 사람과 설정 스크립트의 글이다. 에이전트에게 반려를 돌리지 않는다(관문 검토 P2-1).
+            if what.as_ref().is_some_and(protocol::MessageKind::by_loom) {
+                continue;
+            }
             let in_tree = from.id.is_some_and(|id| tree.contains(&id));
             if let (true, Some(body)) = (in_tree, &record.body)
                 && let Some(word) = protocol::gate_word(body)

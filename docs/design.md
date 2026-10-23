@@ -405,7 +405,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 
 - 프로필이 없는 노드에 `steer`나 `interrupt`를 보내면 오류를 내고 보내지 않는다. 큐로 바꿔 보내지 않는다.
 - 답변은 내가 받은 `ask`의 보낸 노드에게 간다. 다른 노드가 받은 질문에 답하거나 남이 보낸 질문을 기다릴 수 없다.
-- 옛 동사 `send`·`reply`·`steer`·`interrupt`는 한 판 동안 남아 거절하고 새 동사를 알린다. 이 거절은 다음 판에서 지운다. 지울 때 `main.rs`의 숨긴 동사와 `daemon/gate.rs`·`graph`의 허용 목록도 함께 지운다.
+- 옛 동사 `send`·`reply`·`steer`·`interrupt`는 한 판 동안 남아 거절하고 새 동사를 알린다. 올리기 전에 보낸 질문은 종류가 없어 `loom answer`로 답할 수 없다. 부모는 `loom note`로 답한다(한 번만 생기는 일이고, `rules-changed`가 노드를 다시 띄우게 한다). 이 거절은 다음 판에서 지운다. 지울 때 `main.rs`의 숨긴 동사와 `profile/claude.rs`의 허용 목록(`ALLOWED`)도 함께 지운다.
 - 요청별 대기는 다른 메시지를 꺼내지 않는다. 훅이 먼저 받은 답도 찾아 돌려준다. 같은 요청을 다시 기다리면 같은 첫 답을 돌려준다.
 - `--timeout`이 지나면 HTTP 408로 실패한다. CLI는 서버의 오류 응답을 기다릴 여유 시간 5초를 더 둔다.
 
@@ -417,7 +417,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 - 터미널 머리: `loom message #<번호> (from: <이름 또는 loom>, kind: <낱말>[, mode: steer|interrupt])`, 칸마다 한 줄, 그 뒤 본문. loom이 보낸 알림은 `from: loom`이다.
 - 조정·중단은 `note`만 된다.
 - 저장: `messages.what`에 종류 JSON을 둔다. 이벤트 `Entry::Message`도 같은 값을 가진다. 옛 줄은 값이 없고 `note`로 그린다.
-- `note`·`done` 본문을 종류 낱말(QUESTION, READY 등)로 시작하면 거절하고 맞는 동사를 알린다(`KindWord`). 관문 낱말 가운데 READY만 모든 저장소에서, 나머지는 관문 스크립트가 있는 저장소에서만 막는다.
+- `note`·`answer`·`done` 본문을 종류 낱말(QUESTION, READY 등)로 시작하면 거절하고 맞는 동사를 알린다(`KindWord`). 관문 낱말 가운데 READY만 모든 저장소에서, 나머지는 관문 스크립트가 있는 저장소에서만 막는다.
 - 턴 끝 검사: loom 명령을 부르지 않은 턴의 마지막 답이 종류 낱말로 시작하는 줄을 가지면 한 번 다시 일하게 한다. 모든 노드가 대상이다.
 - `human-input`: Claude 노드의 UserPromptSubmit 훅이 사람이 터미널에 친 글을 부모에게 원문 그대로 보낸다(자르거나 다듬지 않는다). Claude 부모는 긴 글을 훅 상한(`BATCH_LIMIT_BYTES`) 때문에 파일 미리보기로 받는다. 띄울 때 loom이 넣은 첫 지시문은 보내지 않는다. loom은 Codex·Cursor·OpenCode 2의 `human-input` 글을 넘기지 않는다. 이 노드의 사람 지시는 에이전트가 `loom note parent`로 알린다(agent-rules).
 - `rules-changed`: 데몬은 시작할 때 실은 스킬마다 SHA-256을 `skill_digests`와 견준다. 달라진 스킬이 있으면 살아 있는 에이전트 노드마다 바뀐 스킬 이름과 판 커밋을 보내고 `loom relaunch`를 권한다. 기록이 없으면 모든 스킬이 바뀐 것으로 본다.
@@ -592,7 +592,7 @@ Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Curso
 ## 저장
 
 - SQLite 파일 하나: `<데이터 폴더>/loom.db`, WAL 모드. 데이터 폴더는 `~/.loom`이고, Windows는 앱 설정 관례대로 `%APPDATA%\loom`이다. 라이브러리는 `rusqlite`다.
-- 메시지의 `reply_to`(`loom wait --reply-to`가 찾는 색인)와 노드의 `process_exited`도 같은 DB에 둔다. 답이 가리키는 질문은 터미널 머리의 `question:` 칸(`MessageKind::Answer`)이 하나뿐인 출처다. `Delivery`에는 `reply_to`를 싣지 않는다(두 출처가 어긋나지 않게). 옛 거절 코드(`gateWord`, `hasParent`)는 이벤트 기록에서 마이그레이션 34가 새 꼴로 옮긴다. 프로세스 종료와 메시지 알림은 같은 트랜잭션에서 적는다.
+- 메시지의 `reply_to`(`loom wait --reply-to`가 찾는 색인)와 노드의 `process_exited`도 같은 DB에 둔다. 답이 가리키는 질문은 터미널 머리의 `question:` 칸(`MessageKind::Answer`)이 하나뿐인 출처다. `Delivery`에는 `reply_to`를 싣지 않는다(두 출처가 어긋나지 않게). 옛 거절 코드(`gateWord`, `hasParent`)는 이벤트 기록에서 마이그레이션 35가 새 꼴로 옮긴다. 프로세스 종료와 메시지 알림은 같은 트랜잭션에서 적는다.
 - 메일함, 노드 목록, 저장소 목록, 카드 위치, 설정, 이벤트 기록을 모두 여기에 둔다. 워크트리 묶음은 git이 갖는다(「저장소와 워크트리」). 데몬이 다시 시작해도 메시지는 남는다.
 - 데몬은 DB 연결 하나를 연다. 그래프, 저장소, 설정, 카드 자리가 그 연결과 잠금 하나를 나눠 쓴다. 그래서 데몬 안에서는 SQLite 잠금을 다투지 않고 `database is locked`가 나지 않는다. 연결이 넷일 때는 바쁜 WSL에서 커밋이 20~120 ms 걸렸다. 그동안 쓰기를 기다리는 연결은 잠깐 자고 다시 보기를 되풀이하다 계속 놓쳤고, 5초 뒤 실패했다(2026-10-22 사람 데몬의 `loom send`·응답 대기 지우기. 0.1.844 시험 데몬에서 30초에 15번, 연결 하나로 0번).
 - 잠금을 쥔 채 다른 모듈의 DB 함수를 부르지 않는다. 같은 잠금을 다시 잡아 멈춘다.

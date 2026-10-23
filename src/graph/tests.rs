@@ -3015,3 +3015,27 @@ fn rules_changed_exceeds_a_full_inbox() {
     );
     assert!(g.rules_changed(&digests, None).unwrap().is_empty());
 }
+
+/// 배포 중에 살아 있는 옛 `loom hook`·`loom wait`(main의 `Delivery` 꼴)가 새 메시지를 읽는다(관문 검토 P1).
+#[test]
+fn an_old_cli_reads_a_new_delivery() {
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct OldDelivery {
+        id: MessageId,
+        from: String,
+        kind: Kind,
+        body: String,
+        #[serde(default)]
+        reply_to: Option<MessageId>,
+    }
+    let new = Delivery {
+        id: MessageId(7),
+        from: "loom".into(),
+        kind: Kind::Queue,
+        body: "Next: call `loom relaunch`".into(),
+        what: Some(MessageKind::Note),
+    };
+    let old: OldDelivery = serde_json::from_str(&serde_json::to_string(&new).unwrap()).unwrap();
+    assert_eq!(old.kind, Kind::Queue);
+}

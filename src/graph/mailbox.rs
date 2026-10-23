@@ -53,8 +53,8 @@ pub struct MessageId(pub u32);
 pub struct Delivery {
     pub id: MessageId,
     pub from: String,
-    /// 전달 방식(큐·조정·중단). JSON 이름은 `mode`다: `what.kind`(메시지 종류)와 이름이 겹치면 `.kind`를 읽는 에이전트가 방식을 받는다(검토 P3-4).
-    #[serde(rename = "mode")]
+    /// 전달 방식(큐·조정·중단). JSON 이름은 옛 판처럼 `kind`다: 배포 중에도 살아 있는 옛 `loom hook`·`loom wait`가 이 이름을 꼭 읽는다.
+    /// `mode`로 바꾸자 옛 훅이 `missing field kind`로 끝나 `rules-changed`를 넘기지 못했다(관문 검토 P1, 2026-10-23 실측). `what.kind`와 이름이 겹치는 것(검토 P3-4)보다 이것이 무겁다.
     pub kind: Kind,
     pub body: String,
     /// 메시지 종류와 칸. 답이 가리키는 질문(`Answer.question`)은 여기에만 있다. `messages.reply_to` 열은 `loom wait --reply-to`의 색인이고 같은 트랜잭션에서 쓴다. 종류를 남기기 전의 옛 메시지에는 없다.

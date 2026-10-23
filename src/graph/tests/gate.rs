@@ -488,6 +488,7 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
         .unwrap();
     g.note(t.worker, "ci", Kind::Queue, "Ready for review", None)
         .unwrap();
+    g.human_typed(t.worker, "READY now").unwrap();
     let since = g.merge_task(t.worker, "b").unwrap().since;
     // 관문 동사가 보낸 메시지(`gate ...`)와 나무 밖 노드의 글은 찾지 않는다.
     assert_eq!(

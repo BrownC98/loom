@@ -94,6 +94,16 @@ fn bodies<'a>(taken: impl IntoIterator<Item = &'a Delivery>) -> Vec<&'a str> {
     taken.into_iter().map(|d| d.body.as_str()).collect()
 }
 
+fn held(g: &Graph, id: NodeId) -> u32 {
+    g.lock()
+        .query_row(
+            "SELECT count(*) FROM messages WHERE recipient IS NULL AND sender = ?1",
+            [id.0],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
 fn view(g: &Graph, id: NodeId) -> NodeView {
     g.subscribe()
         .unwrap()
@@ -1133,10 +1143,8 @@ fn removing_a_parent_keeps_its_children_and_they_hold_unsent_messages() {
     assert_eq!(ids, [lead, b]);
     // 자식은 계속 돈다. 부모가 비고, 전하지 못한 질문을 보관한다.
     let orphan = view(&g, b);
-    assert_eq!(
-        (orphan.parent, orphan.state, orphan.held),
-        (None, NodeState::Running, 1)
-    );
+    assert_eq!((orphan.parent, orphan.state), (None, NodeState::Running));
+    assert_eq!(held(&g, b), 1);
     // 실행 중이던 a를 기다리는 부모가 removed를 받는다. a가 받은 지시는 a와 함께 지운다.
     assert_eq!(take(&g, lead), delivery("a", "removed"));
     let left: u32 = g
@@ -1178,12 +1186,13 @@ fn a_new_parent_gets_held_messages_in_the_order_they_were_sent() {
         Err(Refusal::NotRelated(_))
     ));
     // 부모 없는 완료는 받은편지함에만 간다. 보관하지 않는다.
-    assert_eq!(view(&g, worker).held, 2);
+    assert_eq!(held(&g, worker), 2);
 
     g.adopt(lead, worker, TreeLimits::default()).unwrap();
 
     let adopted = view(&g, worker);
-    assert_eq!((adopted.parent, adopted.held), (Some(lead), 0));
+    assert_eq!(adopted.parent, Some(lead));
+    assert_eq!(held(&g, worker), 0);
     assert!(matches!(
         recorded(&g).last(),
         Some((events::Entry::Adopted { held: 2, .. }, None))
@@ -1979,7 +1988,7 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     g.done(completed, "result to preserve", Some("일해"), &[], None)
         .unwrap();
     assert!(!g.discard_finished_shell(completed).unwrap());
-    assert_eq!(view(&g, completed).held, 0);
+    assert_eq!(held(&g, completed), 0);
     assert_eq!(view(&g, completed).waits.len(), 1);
 
     let failed = g.add_root(&home(), None, &launched(), started).unwrap();

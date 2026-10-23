@@ -10,7 +10,6 @@ const view = (id: number, parent: number | null, worktree: string, repo = 1): No
   parent,
   state: { kind: 'running' },
   unread: 0,
-  held: 0,
   model: null,
   effort: null,
   place: { repo, worktree },

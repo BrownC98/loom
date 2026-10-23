@@ -26,7 +26,7 @@ import { PlaceTag, shownPath } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
-import { NodeCard, SimpleCard } from './NodeCard';
+import { isControl, NodeCard, SimpleCard } from './NodeCard';
 import { minimapClass } from './notice';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
 import { attachPinchZoom } from './pinchZoom';
@@ -1252,8 +1252,8 @@ export function Graph(props: {
           setRefusal('');
         }}
         // 카드 머리는 끌기 손잡이라 React Flow가 mousedown 전파를 막는다. 머리 클릭은 여기서 고른다.
-        onNodeClick={(_, node) => {
-          if (node.type === 'card' || node.type === 'simple') return setSelected(Number(node.id));
+        onNodeClick={(event, node) => {
+          if (node.type === 'card' || node.type === 'simple') return isControl(event.target) ? undefined : setSelected(Number(node.id));
           setChosenBox(node.id);
         }}
         // 화면을 끄는 동안(바탕·묶음 빈 곳·가운데 버튼) 커서가 어디에 있든 잡은 손이다(2026-10-21 사람 "휠클릭으로 그게 되긴하는데, 커서 변화가 없음"). 휠 확대는 뺀다.

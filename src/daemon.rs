@@ -50,9 +50,9 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    CardView, Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model,
-    NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Report, Sent,
-    TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
+    CardView, Delivery, EventRecord, Graph, GraphEvent, IMAGE_EXTENSIONS, Kind, Launched, Listed,
+    MessageId, Model, NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations,
+    Report, Sent, TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -67,7 +67,7 @@ use crate::profile::{
     VersionMismatch,
 };
 use crate::protocol::{MessageKind, Question};
-use crate::roles::{Assignment, Roles};
+use crate::roles::{Assignment, RoleProblem, Roles};
 use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
@@ -2163,10 +2163,14 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
                     .map_err(internal)?
                     .roles
                     .assign(role, agent, req.choice, &req.brief)
-                    .map_err(|e| Refusal::Launch(e.to_string()))?,
+                    .map_err(|e| match e {
+                        RoleProblem::Unknown { role, names } => {
+                            Refusal::UnknownRole { role, names }
+                        }
+                        RoleProblem::NoAgent { role } => Refusal::RoleHasNoAgent { role },
+                    })?,
                 None => Assignment {
-                    agent: agent
-                        .ok_or_else(|| Refusal::Launch("Give --agent or --role.".into()))?,
+                    agent: agent.ok_or(Refusal::NoAgentOrRole)?,
                     choice: req.choice,
                     brief: req.brief,
                 },
@@ -2570,13 +2574,15 @@ async fn agent_done(
     let checked = req
         .images
         .iter()
-        .try_for_each(|image| done_image(image).map_err(Refusal::NotImage))
+        .try_for_each(|image| done_image(image))
         .and_then(|()| {
             let parentless = app.graph.relations(node)?.parent.is_none();
-            match parentless
-                .then(|| user_doc::unchecked_link(&req.summary))
-                .flatten()
-            {
+            let unchecked = if parentless {
+                unchecked_link(&app, node, &req.summary)?
+            } else {
+                None
+            };
+            match unchecked {
                 Some(link) => Err(Refusal::UncheckedDoc(link)),
                 None => attach(req.doc.as_deref()),
             }
@@ -2623,24 +2629,14 @@ async fn agent_done(
     recorded(&app, node, PARENT, Kind::Queue, what, &via, done)
 }
 
-/// 브라우저가 `<img>`로 그리는 그림 꼴. 받은편지함이 완료 줄의 파일을 그대로 낸다.
-const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
-
 /// 완료 줄의 그림은 받은편지함이 그대로 낸다. 있는 그림 파일만 받는다.
-fn done_image(path: &std::path::Path) -> Result<(), String> {
+fn done_image(path: &std::path::Path) -> Result<(), Refusal> {
     let image = path
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| IMAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
-    if !image {
-        return Err(format!(
-            "{}: --image takes an image file ({}).",
-            path.display(),
-            IMAGE_EXTENSIONS.join(", ")
-        ));
-    }
-    if !path.is_file() {
-        return Err(format!("{}: no such file.", path.display()));
+    if !image || !path.is_file() {
+        return Err(Refusal::NotImage(path.display().to_string()));
     }
     Ok(())
 }
@@ -2652,6 +2648,15 @@ fn attach(doc: Option<&std::path::Path>) -> Result<Option<WaitDoc>, Refusal> {
 
 /// 부모 없는 노드의 `loom ask`가 사람에게 가는 받는 쪽 이름. 이벤트 줄에만 보인다.
 const INBOX: &str = "inbox";
+
+/// 사람이 읽을 글 속 `file://` 링크 가운데 `--doc`이 받지 않을 것. 경로는 그 노드의 폴더 쪽에서 푼다(WSL 노드의 Linux 경로).
+fn unchecked_link(app: &App, node: NodeId, text: &str) -> Result<Option<String>, Refusal> {
+    let folder = app.graph.place_of(node)?.worktree;
+    Ok(user_doc::unchecked_link(
+        text,
+        std::path::Path::new(&folder),
+    ))
+}
 
 /// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드의 질문은 부모에게 `ask` 메시지로 간다.
 async fn agent_ask(
@@ -2682,9 +2687,10 @@ async fn agent_ask(
             sent.map(AskResult::Parent),
         );
     }
-    let asked = match user_doc::unchecked_link(&req.question) {
-        Some(link) => Err(Refusal::UncheckedDoc(link)),
-        None => attach(req.doc.as_deref()),
+    let asked = match unchecked_link(&app, node, &req.question) {
+        Ok(Some(link)) => Err(Refusal::UncheckedDoc(link)),
+        Ok(None) => attach(req.doc.as_deref()),
+        Err(e) => Err(e),
     }
     .and_then(|doc| {
         let id = app.graph.ask(node, &req.question, doc.clone())?;

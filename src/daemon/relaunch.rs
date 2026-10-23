@@ -179,7 +179,7 @@ async fn relaunch(
 
 impl App {
     /// 서버 전달 작업(Codex, OpenCode 2)이 메일함에서 꺼낸다. 다시 띄울 노드에는 넘기지 않는다(`Relaunches::holds_mail`).
-    /// 쉬는 노드는 꺼내면 새 턴을 받으므로 알림만으로는 꺼내지 않는다(`Graph::take_waking`). 일하는 노드의 `kinds`(조정·중단)에는 알림이 없다.
+    /// 쉬는 노드는 꺼내면 새 턴을 받으므로 알림만으로는 꺼내지 않는다(`Graph::take_waking`). 조정으로 바꾼 알림(사람 턴, 「안 읽음」 누르기)은 꺼낸다.
     pub(super) fn take_mail(
         &self,
         node: NodeId,

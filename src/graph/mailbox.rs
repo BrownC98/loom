@@ -62,6 +62,13 @@ pub struct Delivery {
     pub what: Option<MessageKind>,
 }
 
+impl Delivery {
+    /// 쉬는 노드를 깨우는 메시지. 조정·중단은 지금 넣으라는 뜻이라 늘 깨운다(사람의 「안 읽음」 누르기도 조정이다). 종류가 없는 옛 메시지도 깨운다.
+    fn wakes(&self) -> bool {
+        self.kind != Kind::Queue || self.what.as_ref().is_none_or(MessageKind::wakes)
+    }
+}
+
 /// 보낸 메시지 번호와 받는 노드. 부모가 없어 보관하면 `recipient`가 없다.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Sent {
@@ -379,8 +386,7 @@ impl Graph {
         self.take_if(node, kinds, limit_bytes, |_| true)
     }
 
-    /// 쉬는 노드의 `take`. 꺼낼 메시지가 알림뿐이면 아무것도 꺼내지 않는다(`MessageKind::wakes`).
-    /// 종류가 없는 옛 메시지는 깨운다.
+    /// 쉬는 노드의 `take`. 꺼낼 메시지가 알림뿐이면 아무것도 꺼내지 않는다(`Delivery::wakes`).
     pub fn take_waking(
         &self,
         node: NodeId,
@@ -388,9 +394,7 @@ impl Graph {
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
         self.take_if(node, kinds, limit_bytes, |queued| {
-            queued
-                .iter()
-                .any(|d| d.what.as_ref().is_none_or(MessageKind::wakes))
+            queued.iter().any(Delivery::wakes)
         })
     }
 
@@ -442,11 +446,19 @@ impl Graph {
         Ok(taken)
     }
 
-    /// 사람이 노드에 입력했다. 끝낸 노드면 다시 일한다.
+    /// 사람이 노드에 입력했다. 끝낸 노드면 다시 일한다. 기다리던 알림은 조정으로 바꿔 사람이 연 턴에 함께 넘긴다.
+    /// 근거: Codex·OpenCode 2는 입력 훅이 없어, 쉬는 노드에 쌓인 알림이 다음 깨우는 메시지까지 남았다(2026-10-23 검토 추적-codex).
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
-        let db = self.lock();
-        if resume(&db, node)? {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let steered = steer_where(&tx, node, |d| !d.wakes())?;
+        let resumed = resume(&tx, node)?;
+        tx.commit()?;
+        if resumed || steered > 0 {
             self.publish_node(&db, node)?;
+        }
+        if steered > 0 {
+            self.mail.notify_waiters();
         }
         Ok(())
     }
@@ -455,12 +467,7 @@ impl Graph {
     /// 일하는 노드는 다음 단계 사이에, 쉬는 노드는 새 턴으로 받는다(2026-10-22 사람 지시 "칩을 클릭하면 수동으로 주입되게").
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
         let db = self.lock();
-        let changed = db.execute(
-            "UPDATE messages SET kind = ?2
-             WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?3",
-            params![node.0, to_json(&Kind::Steer), to_json(&Kind::Queue)],
-        )?;
-        if changed > 0 {
+        if steer_where(&db, node, |_| true)? > 0 {
             self.publish_node(&db, node)?;
         }
         self.mail.notify_waiters();
@@ -693,12 +700,41 @@ fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     Ok(done)
 }
 
+/// 아직 꺼내지 않은 큐 메시지 가운데 `wanted`인 것을 조정으로 바꾼다. 바꾼 수를 돌려준다.
+fn steer_where(
+    db: &Connection,
+    node: NodeId,
+    wanted: impl Fn(&Delivery) -> bool,
+) -> rusqlite::Result<usize> {
+    let queued = db
+        .prepare(
+            "SELECT id, sender_name, kind, body, what FROM messages
+             WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?2",
+        )?
+        .query_map(params![node.0, to_json(&Kind::Queue)], read_delivery)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut steered = 0;
+    for delivery in queued.iter().filter(|d| wanted(d)) {
+        db.execute(
+            "UPDATE messages SET kind = ?2 WHERE id = ?1",
+            params![delivery.id.0, to_json(&Kind::Steer)],
+        )?;
+        steered += 1;
+    }
+    Ok(steered)
+}
+
+/// 상한에 세는 메시지 수. 쉬는 노드에 쌓인 알림은 세지 않는다. 그 수는 자식 수가 막고, 다음 메시지와 함께 간다.
+/// 근거: 알림 50개가 쌓이자 자식의 결과(`loom done`)가 `MailboxFull`로 거절됐다(2026-10-23 검토 추적-codex).
 fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
-    db.query_row(
-        "SELECT count(*) FROM messages WHERE recipient = ?1 AND delivered = 0",
-        [to.0],
-        |row| row.get(0),
-    )
+    let queued = db
+        .prepare(
+            "SELECT id, sender_name, kind, body, what FROM messages
+             WHERE recipient = ?1 AND delivered = 0",
+        )?
+        .query_map([to.0], read_delivery)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(queued.iter().filter(|d| d.wakes()).count() as u32)
 }
 
 fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {

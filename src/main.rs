@@ -205,7 +205,12 @@ enum Cli {
         effort: Option<String>,
     },
     /// user-doc 문서(HTML)를 점검하고 문서 ID를 붙인다. 브라우저는 열지 않는다. 사람에게는 `loom ask --doc`으로 보인다.
-    Show { file: PathBuf },
+    Show {
+        file: PathBuf,
+        /// `show.sh`가 렌더·말풍선 점검 뒤에 부른다. 지금 내용을 `--doc` 통과로 남긴다.
+        #[arg(long, hide = true)]
+        checked: bool,
+    },
     /// Claude 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
     Hook,
     /// Cursor 훅이 부른다. stdin의 훅 입력을 받아 넘길 메시지를 출력한다.
@@ -306,7 +311,14 @@ fn main() -> ExitCode {
             model,
             effort,
         } => cli::relaunch(name, agent, ModelChoice { model, effort }),
-        Cli::Show { file } => user_doc::show(&wsl::from_caller(file)),
+        Cli::Show {
+            file,
+            checked: false,
+        } => user_doc::show(&wsl::from_caller(file)),
+        Cli::Show {
+            file,
+            checked: true,
+        } => user_doc::record_checked(&wsl::from_caller(file)),
         Cli::PtyHost => node_host::run(),
     };
     match result {

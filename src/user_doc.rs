@@ -18,14 +18,43 @@ use crate::link_text::DOC_LINK;
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
 
+/// `loom show`: 점검하고 ID를 붙인다. 통과 기록은 `show.sh`가 렌더·말풍선 점검을 지난 뒤 `loom show --checked`로 남긴다.
+/// bash가 없는 Windows 노드는 `show.sh`를 돌리지 못한다. 그 노드에서만 이 점검으로 통과를 남긴다(R14 5절, 2026-10-23 Q687 A).
 pub fn show(path: &Path) -> Result<(), String> {
-    let doc = show_in(&Store::here()?, path)?;
+    let store = Store::here()?;
+    let doc = stamp_in(&store, path)?;
     println!("show: 문서 ID {} ({})", doc.id, doc.title);
+    if bashless() {
+        pass_in(&store, path)?;
+        println!("show: bash 없는 Windows 노드라 이 점검으로 통과를 남긴다");
+        println!(
+            "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
+            path.display()
+        );
+    } else {
+        println!("show: --doc 통과는 show.sh가 렌더·말풍선 점검 뒤에 남긴다");
+    }
+    Ok(())
+}
+
+/// `loom show --checked`: `show.sh`의 마지막 단계. 다시 점검하고, ID를 붙인 내용 그대로면 통과로 남긴다.
+pub fn record_checked(path: &Path) -> Result<(), String> {
+    let doc = pass_in(&Store::here()?, path)?;
+    println!("show: 문서 ID {} 통과", doc.id);
     println!(
         "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
         path.display()
     );
     Ok(())
+}
+
+/// WSL 노드의 `loom`도 Windows 실행 파일이지만 시작 폴더가 WSL 폴더다. 그 노드는 bash로 `show.sh`를 돌린다.
+fn bashless() -> bool {
+    cfg!(windows)
+        && std::env::current_dir()
+            .ok()
+            .and_then(|dir| crate::wsl::of(&dir))
+            .is_none()
 }
 
 /// `--doc`이 받는 꼴. 그 밖의 파일(`.md` 보고서, 그림, `.svg`)은 받지 않는다. 사람에게 보일 글은 user-doc HTML로 쓴다.
@@ -38,23 +67,39 @@ fn html(path: &Path) -> bool {
         .is_some_and(|e| HTML_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
-/// 문서를 점검하고 ID를 붙이고, 점검을 지난 내용을 남긴다. 같은 문서는 판이 바뀌어도 같은 ID다.
-/// `show.sh`는 렌더와 말풍선 점검을 지난 뒤에 이것을 부른다. 이 실행 파일은 누가 불렀는지 모른다:
-/// bash가 없는 Windows 노드는 `loom show`만 부르고, WSL 노드의 `loom`은 껍데기를 지나 같은 Windows 실행 파일이다.
-/// 그래서 `loom show`가 자기 점검 뒤에 늘 남긴다. Windows 노드에서는 이것이 점검 전부다.
-fn show_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
+/// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
+fn stamp_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
+    let (path, text) = checked(path)?;
+    let id = store.doc_id(&path)?;
+    let title = bare_title(title(&text).unwrap_or_default()).to_owned();
+    fs::write(&path, stamp(&text, &id)).map_err(|e| e.to_string())?;
+    Ok(WaitDoc { id, title })
+}
+
+/// ID를 붙인 뒤 렌더·말풍선 점검을 지난 내용을 `--doc` 통과로 남긴다. 점검한 내용과 남기는 내용이 같도록 ID를 다시 붙이지 않는다.
+fn pass_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
+    let (path, text) = checked(path)?;
+    let id = store.doc_id(&path)?;
+    if stamp(&text, &id) != text {
+        return Err(format!(
+            "{}: 문서 ID가 없다. show.sh로 점검한다",
+            path.display()
+        ));
+    }
+    store.pass(&text)?;
+    let title = bare_title(title(&text).unwrap_or_default()).to_owned();
+    Ok(WaitDoc { id, title })
+}
+
+/// `loom show`의 글 점검을 지난 문서의 실제 경로와 글.
+fn checked(path: &Path) -> Result<(PathBuf, String), String> {
     let path = real_path(path)?;
     let text = read_html(&path)?;
     check(&text)?;
     if !mockup(&path) {
         check_report(&text)?;
     }
-    let id = store.doc_id(&path)?;
-    let title = bare_title(title(&text).unwrap_or_default()).to_owned();
-    let stamped = stamp(&text, &id);
-    fs::write(&path, &stamped).map_err(|e| e.to_string())?;
-    store.pass(&stamped)?;
-    Ok(WaitDoc { id, title })
+    Ok((path, text))
 }
 
 /// HTML 꼴이고 UTF-8로 읽히는 파일의 글.
@@ -95,13 +140,13 @@ fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, Refusal> {
 }
 
 /// 사람이 읽는 글(부모 없는 노드의 질문·완료) 속 `file://` 링크 가운데 `--doc`이 받지 않을 파일을 처음 하나 돌려준다.
-/// 붙인 문서의 링크는 CLI가 이미 `DOC_LINK`로 바꿨다(`inline_link`).
-pub fn unchecked_link(text: &str) -> Option<String> {
+/// 붙인 문서의 링크는 CLI가 이미 `DOC_LINK`로 바꿨다(`inline_link`). `folder`는 데몬이 아는 노드 폴더다. 경로는 그 노드 쪽에서 푼다.
+pub fn unchecked_link(text: &str, folder: &Path) -> Option<String> {
     let store = Store::here().ok()?;
-    unchecked_link_in(&store, text)
+    unchecked_link_in(&store, text, folder)
 }
 
-fn unchecked_link_in(store: &Store, text: &str) -> Option<String> {
+fn unchecked_link_in(store: &Store, text: &str, folder: &Path) -> Option<String> {
     let mut rest = text;
     while let Some(open) = rest.find('[') {
         let link = &rest[open..];
@@ -109,6 +154,7 @@ fn unchecked_link_in(store: &Store, text: &str) -> Option<String> {
             Some((_, target, len)) => {
                 if target.starts_with("file://") {
                     let checked = link_path(target)
+                        .map(|p| crate::wsl::from_node(p, folder))
                         .and_then(|p| real_path(&p).ok())
                         .and_then(|p| read_html(&p).ok())
                         .is_some_and(|text| store.passed(&text));
@@ -383,7 +429,9 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
         out.push_str(before);
         match crate::link_text::parse_link(link) {
             Some((label, target, len))
-                if link_path(target).is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
+                if link_path(target)
+                    .map(crate::wsl::from_caller)
+                    .is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
             {
                 out.push_str(&format!("[{label}]({DOC_LINK})"));
                 rest = &link[len..];
@@ -398,10 +446,11 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
     out
 }
 
-/// 링크 주소가 가리키는 파일 경로. `file:///C:/…`는 `C:/…`, `file://host/…`는 UNC `//host/…`다.
+/// 링크 주소가 가리키는 파일 경로. `file:///C:/…`는 `C:/…`, `file://host/…`는 UNC `//host/…`다. 조각(`#…`)과 물음(`?…`)은 파일 밖이다.
 fn link_path(target: &str) -> Option<PathBuf> {
     let path = match target.strip_prefix("file://") {
         Some(rest) => {
+            let rest = rest.split(['#', '?']).next().unwrap_or_default();
             let rest = percent_encoding::percent_decode_str(rest)
                 .decode_utf8()
                 .ok()?;
@@ -414,7 +463,7 @@ fn link_path(target: &str) -> Option<PathBuf> {
         None if target.contains("://") => return None,
         None => target.to_owned(),
     };
-    Some(crate::wsl::from_caller(PathBuf::from(path)))
+    Some(PathBuf::from(path))
 }
 
 /// 같은 문서가 언제나 같은 표 열쇠를 갖게 링크를 푼다. Windows의 `\\?\C:\…`는 앱이 못 읽으므로 `C:\…`로 둔다.
@@ -449,10 +498,147 @@ fn check(html: &str) -> Result<(), String> {
         ("응답할 곳", "머리 줄 「응답할 곳」이 없다"),
         (WHO, r#"머리 줄(<div class="who">)이 없다"#),
     ];
-    match marks.iter().find(|(mark, _)| !html.contains(mark)) {
-        Some((_, missing)) => Err((*missing).into()),
+    if let Some((_, missing)) = marks.iter().find(|(mark, _)| !html.contains(mark)) {
+        return Err((*missing).into());
+    }
+    match local_refs(html).first() {
+        Some(r) => Err(format!(
+            "한 파일이 아니다: {r}. 그림은 data: 주소나 <svg>로 문서 안에 넣는다"
+        )),
         None => Ok(()),
     }
+}
+
+/// 문서 밖 파일을 가리키는 주소. `check-callouts.cjs`의 `LOCAL_REFS`와 같은 규칙을 글로 본다(`<script>` 밖의 속성, `<style>`과 `style` 속성의 `url()`·`@import`).
+/// 근거: `--doc` 통과 기록은 `loom show`가 남기므로, `show.sh` 없이 부른 `loom show`도 옆 그림이 빠진 문서를 거절해야 한다(2026-10-23 검토 추적-codex).
+fn local_refs(html: &str) -> Vec<String> {
+    let one_file = |v: &str| {
+        let v = v.trim().to_ascii_lowercase();
+        v.is_empty() || ["data:", "https:", "#"].iter().any(|p| v.starts_with(p))
+    };
+    let mut bad = Vec::new();
+    let markup = without_blocks(html, "script");
+    for attr in ["src", "href", "srcset", "poster"] {
+        for value in attr_values(&markup, attr) {
+            let refs = if attr == "srcset" {
+                srcset_urls(&value)
+            } else {
+                vec![value.clone()]
+            };
+            bad.extend(
+                refs.into_iter()
+                    .filter(|r| !one_file(r))
+                    .map(|r| format!("{attr}=\"{r}\"")),
+            );
+        }
+    }
+    let mut css = blocks(html, "style");
+    css.extend(attr_values(&markup, "style"));
+    for text in css {
+        for (open, end) in [
+            ("url(", &[')', '\'', '"'][..]),
+            ("@import", &[';', ' ', '\'', '"', ')'][..]),
+        ] {
+            let lower = text.to_ascii_lowercase();
+            for (at, _) in lower.match_indices(open) {
+                let rest = text[at + open.len()..]
+                    .trim_start()
+                    .trim_start_matches("url(")
+                    .trim_start_matches(['\'', '"']);
+                let url = rest.split(end).next().unwrap_or_default();
+                if !one_file(url) {
+                    bad.push(format!("{open}{url}"));
+                }
+            }
+        }
+    }
+    bad
+}
+
+/// `<tag …>…</tag>` 안의 글.
+fn blocks(html: &str, tag: &str) -> Vec<String> {
+    let lower = html.to_ascii_lowercase();
+    let (open, close) = (format!("<{tag}"), format!("</{tag}"));
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(start) = lower[from..].find(&open).map(|i| from + i) {
+        let Some(body) = lower[start..].find('>').map(|i| start + i + 1) else {
+            break;
+        };
+        let end = lower[body..].find(&close).map_or(html.len(), |i| body + i);
+        out.push(html[body..end].to_owned());
+        from = end;
+    }
+    out
+}
+
+/// `<tag …>…</tag>`를 뺀 글.
+fn without_blocks(html: &str, tag: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let (open, close) = (format!("<{tag}"), format!("</{tag}>"));
+    let mut out = String::new();
+    let mut from = 0;
+    while let Some(start) = lower[from..].find(&open).map(|i| from + i) {
+        out.push_str(&html[from..start]);
+        from = lower[start..]
+            .find(&close)
+            .map_or(html.len(), |i| start + i + close.len());
+    }
+    out.push_str(&html[from..]);
+    out
+}
+
+/// 빈칸 뒤의 `attr=` 속성 값. 따옴표가 없으면 빈칸이나 `>`까지다.
+fn attr_values(markup: &str, attr: &str) -> Vec<String> {
+    let lower = markup.to_ascii_lowercase();
+    let key = format!("{attr}=");
+    lower
+        .match_indices(&key)
+        .filter(|(at, _)| markup[..*at].ends_with(|c: char| c.is_ascii_whitespace()))
+        .map(|(at, _)| {
+            let rest = &markup[at + key.len()..];
+            match rest.chars().next() {
+                Some(q @ ('"' | '\'')) => rest[1..].split(q).next().unwrap_or_default(),
+                _ => rest
+                    .split(|c: char| c.is_ascii_whitespace() || c == '>')
+                    .next()
+                    .unwrap_or_default(),
+            }
+            .to_owned()
+        })
+        .collect()
+}
+
+/// `srcset`의 후보 주소. 후보는 「설명자(`2x`, `640w`) 뒤 쉼표」나 「쉼표+빈칸」으로 나뉜다. `data:` 주소 안 쉼표 뒤에는 빈칸이 없다.
+fn srcset_urls(srcset: &str) -> Vec<String> {
+    let descriptor = |piece: &str| {
+        piece
+            .trim_end()
+            .rsplit_once(char::is_whitespace)
+            .is_some_and(|(_, d)| {
+                d.len() > 1 && d.ends_with(['w', 'x']) && d[..d.len() - 1].parse::<f64>().is_ok()
+            })
+    };
+    let mut candidates = vec![String::new()];
+    let mut pieces = srcset.split(',').peekable();
+    while let Some(piece) = pieces.next() {
+        let current = candidates.last_mut().expect("목록은 비지 않는다");
+        current.push_str(piece);
+        let next_starts = pieces
+            .peek()
+            .is_some_and(|n| n.starts_with(char::is_whitespace));
+        if pieces.peek().is_some() {
+            if descriptor(current) || next_starts {
+                candidates.push(String::new());
+            } else {
+                current.push(',');
+            }
+        }
+    }
+    candidates
+        .iter()
+        .filter_map(|c| c.split_whitespace().next().map(str::to_owned))
+        .collect()
 }
 
 /// 보고서는 그림으로 보인다(2026-10-22 사람 지시 "다이어그램 등으로 시각화 해서 이해하기 쉽게 작성해, 앞으로 모든 보고서에 적용되는 규칙으로 설정").
@@ -563,11 +749,63 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let png = dir.path().join("mockup.png");
         fs::write(&png, [0x89, b'P', b'N', b'G', 0xff, 0xfe]).unwrap();
-        let refused = show_in(&store(dir.path()), &png).err().unwrap();
+        let refused = stamp_in(&store(dir.path()), &png).err().unwrap();
         assert!(
             refused.contains("put images inside an HTML file"),
             "{refused}"
         );
+    }
+
+    /// `loom show`도 `check-callouts.cjs`처럼 문서 밖 파일을 가리키는 주소를 거절한다.
+    #[test]
+    fn a_doc_must_be_one_file() {
+        let doc = |extra: &str| DOC.replace("</body>", &format!("{extra}</body>"));
+        for one in [
+            r##"<a href="#part">x</a>"##,
+            r#"<img src="data:image/png;base64,AAA,BBB">"#,
+            r#"<img srcset="data:image/png;base64,A,B 1x, https://a.b/c.png 2x">"#,
+            r#"<a href="https://a.b/c">x</a><div data-src="local.png"></div>"#,
+            r#"<style>.a{background:url("data:image/svg+xml,%3Csvg%3E")}</style>"#,
+            r#"<script>el.src = "local.png"; x = ' src="a.png"';</script>"#,
+        ] {
+            assert_eq!(local_refs(&doc(one)), Vec::<String>::new(), "{one}");
+        }
+        for local in [
+            r#"<img src="missing.png">"#,
+            r#"<img src=missing.png>"#,
+            r#"<img srcset="data:image/png;base64,A 1x, local@2x.png 2x">"#,
+            r#"<a href="other.html">x</a>"#,
+            r#"<a href="http://a.b/c">x</a>"#,
+            r#"<video poster="p.jpg"></video>"#,
+            r#"<div style="background: url(bg.png)"></div>"#,
+            r#"<style>@import "local.css";</style>"#,
+        ] {
+            assert_eq!(local_refs(&doc(local)).len(), 1, "{local}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("r.html");
+        fs::write(&path, doc(r#"<img src="missing.png">"#)).unwrap();
+        let shown = stamp_in(&store(dir.path()), &path);
+        assert!(shown.is_err_and(|e| e.contains("missing.png")));
+    }
+
+    /// 점검을 지난 문서의 조각 링크(`#part`)도 그 문서다.
+    #[test]
+    fn a_fragment_link_points_at_its_file() {
+        let path = Path::new("/tmp/r.html");
+        let url = file_url(path);
+        assert_eq!(link_path(&format!("{url}#part")), link_path(&url));
+        assert_eq!(link_path(&format!("{url}?a=1#b")), link_path(&url));
+        assert_eq!(
+            link_path("file:///tmp/a%23b.html"),
+            link_path("/tmp/a#b.html")
+        );
+    }
+
+    /// `show.sh`의 두 단계(`loom show`, `loom show --checked`)를 지난 문서.
+    fn shown_in(store: &Store, path: &Path) -> WaitDoc {
+        stamp_in(store, path).unwrap();
+        pass_in(store, path).unwrap()
     }
 
     /// 경로의 `file://` 주소. Windows 경로는 `file:///C:/…`다.
@@ -597,22 +835,36 @@ pub(crate) mod tests {
         let unchecked = |path: &Path| Err(Refusal::UncheckedDoc(path.display().to_string()));
         assert_eq!(attach_in(&store, &md), unchecked(&md));
         assert_eq!(attach_in(&store, &mock), unchecked(&mock));
-        assert!(show_in(&store, &md).is_err());
+        assert!(stamp_in(&store, &md).is_err());
 
-        let shown = show_in(&store, &mock).unwrap();
+        // `loom show`만으로는 통과가 아니다. 렌더·말풍선 점검 뒤 `--checked`가 남긴다.
+        assert!(pass_in(&store, &mock).is_err());
+        let shown = stamp_in(&store, &mock).unwrap();
+        assert_eq!(attach_in(&store, &mock), unchecked(&mock));
+        assert_eq!(pass_in(&store, &mock).unwrap(), shown);
         assert_eq!(attach_in(&store, &mock), Ok(shown.clone()));
         let link = |path: &Path| format!("[목업]({})", file_url(path));
-        assert_eq!(unchecked_link_in(&store, &link(&mock)), None);
         assert_eq!(
-            unchecked_link_in(&store, &format!("{} {}", link(&mock), link(&md))),
+            unchecked_link_in(&store, &link(&mock), Path::new("/")),
+            None
+        );
+        assert_eq!(
+            unchecked_link_in(
+                &store,
+                &format!("{} {}", link(&mock), link(&md)),
+                Path::new("/")
+            ),
             Some(file_url(&md))
         );
-        assert_eq!(unchecked_link_in(&store, "[웹](https://a.b/c) (x)"), None);
+        assert_eq!(
+            unchecked_link_in(&store, "[웹](https://a.b/c) (x)", Path::new("/")),
+            None
+        );
 
         let changed = fs::read_to_string(&mock).unwrap().replace("총괄", "코디");
         fs::write(&mock, changed).unwrap();
         assert_eq!(attach_in(&store, &mock), unchecked(&mock));
-        assert_eq!(show_in(&store, &mock).unwrap(), shown);
+        assert_eq!(shown_in(&store, &mock), shown);
         assert_eq!(attach_in(&store, &mock), Ok(shown));
         assert!(
             Refusal::UncheckedDoc("x".into())
@@ -777,8 +1029,8 @@ pub(crate) mod tests {
             .doc_id(&real_path(&repo.join("old.html")).unwrap())
             .unwrap();
         fs::remove_file(repo.join("old.html")).unwrap();
-        show_in(&store, &mock).unwrap();
-        show_in(&store, &report).unwrap();
+        shown_in(&store, &mock);
+        shown_in(&store, &report);
         let m = attach_in(&store, &mock).unwrap().id;
         let r = attach_in(&store, &report).unwrap().id;
         assert_eq!((old.as_str(), m.as_str(), r.as_str()), ("R1", "M1", "R2"));

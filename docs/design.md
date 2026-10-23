@@ -151,7 +151,7 @@
 - Codex app-server는 `[experimental]`이다. 빌드 때 `codex app-server generate-json-schema`로 받은 스키마를 저장소에 고정하고 Rust 타입을 그 스키마에서 만든다. 데몬은 시작할 때 Codex 버전을 확인한다. 고정한 버전과 다르면 화면에 경고를 띄우고 Codex 노드는 그대로 띄운다.
 - 고정한 스키마는 쓰는 요청·알림의 파일만 둔다([src/profile/codex/schema/](../src/profile/codex/schema/)). `build.rs`가 `typify`로 Rust 타입을 만든다.
 - 데몬 연결은 스레드를 구독하지 않는다(`thread/resume`을 부르지 않는다). 구독하면 승인 요청도 데몬 연결로 와서 사람이 TUI에서 승인하지 못한다. 구독하지 않아도 `thread/started`·`thread/status/changed`는 온다. 서버가 따로 만드는 제목용 임시 스레드(`ephemeral`)는 거른다.
-- Codex 셸 명령은 TUI가 아니라 app-server 아래에서 돈다. 그래서 app-server도 노드 환경(`LOOM_URL`, `LOOM_SPAWN_URL`, `LOOM_TOKEN`, `PATH`)을 받는다. Codex 셸 스냅샷은 로그인 셸의 `PATH`를 다시 적용한다. 그래서 `-c shell_environment_policy.set.PATH=<노드 PATH>`로 노드 `PATH`를 다시 넣는다.
+- Codex 셸 명령은 TUI가 아니라 app-server 아래에서 돈다. 그래서 app-server도 노드 환경(`LOOM_URL`, `LOOM_SPAWN_URL`, `LOOM_TOKEN`, `LOOM_TASK_DIR`, `PATH`)을 받는다. Codex 셸 스냅샷은 로그인 셸의 `PATH`를 다시 적용한다. 그래서 `-c shell_environment_policy.set.PATH=<노드 PATH>`로 노드 `PATH`를 다시 넣는다.
 - 노드 문의 포트는 데몬 포트와 같다. 노드 환경의 `LOOM_URL`은 노드가 끝날 때까지 바뀌지 않으므로, 다시 시작한 데몬도 같은 주소에서 들어야 한다. 그 포트를 쓸 수 없으면(예: `--listen 0.0.0.0:<포트>`) OS가 고른다. 그때 앞 데몬의 노드는 다시 시작한 뒤 loom 명령이 닿지 않는다.
 - 노드 서버(Codex app-server, OpenCode 2 서버)도 노드처럼 데몬과 따로 산다(Unix: 새 프로세스 그룹). Codex TUI는 app-server에 붙어 있어 서버가 끝나면 노드도 쓸 수 없다. 포트는 loom이 골라 넘기고 서버 출력은 읽지 않는다. 출력 파이프는 데몬과 함께 닫혀 서버가 쓰기에 실패하기 때문이다.
   - 다시 붙는 값(주소, 서버 PID, Codex 노드 스레드, OpenCode 2 세션과 비밀번호)은 노드와 함께 DB에 남긴다. 새 데몬은 그 값으로 다시 연결하고 전달 작업을 다시 시작한다. Codex는 `thread/started`가 다시 오지 않으므로 남긴 스레드 id로 `thread/read`해 상태를 읽는다.
@@ -373,7 +373,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 
 | 명령 | 누가 부르나 | 뜻 |
 |---|---|---|
-| `loom spawn <이름> [--worktree <브랜치>] (--agent <id> \| --role <역할> \| -- <명령>)` | 에이전트 | 자식 노드를 만든다. `--worktree`는 내 워크트리의 HEAD에서 새 워크트리를 만들고 그 안에 띄운다. 지시문은 stdin이나 `--file`로 받는다. `--agent`는 카탈로그 에이전트를 그 프로필·계정으로 띄운다. `--role`은 설정의 o-mode 역할로 띄운다(「설정」). `<명령>`은 ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다 |
+| `loom spawn <이름> [--worktree <브랜치>] (--agent <id> \| --role <역할> \| -- <명령>)` | 에이전트 | 자식 노드를 만든다. `--worktree`는 내 워크트리의 HEAD에서 새 워크트리를 만들고 그 안에 띄운다. 지시문은 stdin이나 `--file`로 받는다(머리 검사와 작업 폴더는 「작업 폴더」). `--agent`는 카탈로그 에이전트를 그 프로필·계정으로 띄운다. `--role`은 설정의 o-mode 역할로 띄운다(「설정」). `<명령>`은 ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다 |
 | `loom roles` | 에이전트 | 설정의 o-mode 역할을 한 줄씩 출력한다: 이름, 에이전트·모델·강도, 책임 |
 | `loom send <이름, 번호 또는 parent> <본문>` | 에이전트 | 턴을 끊지 않고 어느 노드에나 보낸다. 보낸 메시지 번호를 출력한다 |
 | `loom reply <메시지 번호> <본문>` | 에이전트 | 내가 받은 메시지의 보낸 노드에게 답한다. 원래 메시지 번호를 함께 저장한다 |
@@ -388,7 +388,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 | `loom relaunch [<자식>]` | 에이전트 | 자기(이름이 없을 때)나 자기 자식의 에이전트 프로세스를 지금 설정으로 다시 띄우고 같은 대화를 잇는다. 턴 중이면 그 턴이 끝난 뒤 띄운다(「다시 띄우기」) |
 | `loom adopt <이름>` | 에이전트 | 부르는 노드가 그 노드의 새 부모가 된다. 이름은 그래프 전체에서 찾는다. 같은 이름이 둘 이상이면 거절한다 |
 | `loom ready <브랜치>` | 브랜치 담당 | 병합 관문: 브랜치를 관문에 보낸다(아래 「병합 관문」) |
-| `loom verdict <브랜치> pass\|block [--findings <파일>]` | 관문, 그 검토자 | 병합 관문: 판정을 넣는다. block은 결함 파일이 있어야 하고 담당에게 반려로 간다 |
+| `loom verdict <브랜치> pass\|block [--findings <파일>]` | 관문, 그 검토자 | 병합 관문: 판정을 넣는다. block은 결함 파일이 있어야 하고 담당에게 반려로 간다. 기본 결함 파일은 「작업 폴더」에 있다 |
 | `loom merge <브랜치>` | 관문 | 병합 관문: audit, 검사, 병합, push, 배포 확인, 결과 알림을 한 번에 한다 |
 | `loom fail <브랜치> <원인>` | 관문 | 병합 관문: 브랜치를 멈추고 루트와 담당에게 원인을 알린다 |
 | `loom hook` | Claude 훅 | stdin의 훅 이벤트를 받아 전달할 메시지를 돌려준다 |
@@ -536,6 +536,23 @@ Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Curso
 - `done` 없이 PTY가 끝나면 부모 메일함에 `exited(<코드>)` 한 줄만 넣는다. 설정 스크립트가 실패했으면 `setup failed (exit <코드>):`와 출력 끝을 넣는다(「저장소와 워크트리」). 부모가 없으면 보관한다. 이 줄은 메일함 상한을 넘어도 넣는다.
 - 재시작 뒤 복구하지 못한 미완료 노드는 같은 경로로 `exited(unknown)`을 알린다. 반복 검사로 중복 통지를 만들지 않는다.
 
+### 작업 폴더
+
+출력 표준 R8 v5 3단계(2026-10-23 사람 승인)다. 브리프·결과·결함 파일·병합 기록이 `~/.cache/loom-briefs`, `~/.cache/loom-results`, `<공유 git 폴더>/loom-gate/`에 흩어져 있었고, 위치는 스킬 글에만 있었다. 그래서 loom이 작업마다 폴더 하나를 만들고 그 경로를 노드 환경에 넣는다. 코드는 [src/task.rs](../src/task.rs)다.
+
+| 정한 것 | 근거 |
+|---|---|
+| `loom spawn`이 `~/.cache/loom/<작업>/`에 `brief.md`(받은 지시문), 빈 `result.md`, `review/`, `logs/`를 만들고 자식 환경에 `LOOM_TASK_DIR`로 넣는다. 그래프가 자식을 받은 뒤, 띄우기 바로 전에 만든다. 이미 있는 파일은 덮지 않는다 | 같은 작업의 둘째 자식(검토자)이 첫 브리프와 결과를 지우지 않게 한다 |
+| 작업은 `--worktree` 브랜치다. 없으면 부모의 작업을 물려받는다. 사람이 띄운 노드의 작업은 그 노드 이름이다. 작업 이름은 노드 줄(`nodes.task`)에 남는다 | 이름을 바꾸거나 입양해도, 다시 띄워도 폴더가 그대로다 |
+| 폴더 이름은 한 단계다. 브랜치의 `/`(와 `\`, `:`)는 `-`다 | 모든 작업 폴더가 한 폴더 안에 나란히 있다. 그래서 CLI가 `LOOM_TASK_DIR/..`에서 다른 브랜치의 폴더를 찾는다 |
+| WSL 노드는 그 배포판 홈의 Linux 경로, Windows 노드는 Windows 경로(`%USERPROFILE%\.cache\loom\…`)를 받는다. Windows 데몬은 WSL 폴더를 UNC 경로로 만든다 | 노드 안의 에이전트가 그 경로를 그대로 연다. WSL의 `loom.exe`는 같은 배포판의 UNC 경로로 바꿔 읽는다(`wsl::from_caller`) |
+| 사람이 띄운 노드는 `LOOM_TASK_DIR`이 없다 | 노드 이름은 그래프가 넣을 때 정하고, 환경은 그 전에 정한다. 총괄은 스킬대로 `~/.cache/loom/<노드 이름>/`을 쓴다 |
+| `loom relaunch`·계정 전환으로 다시 띄운 자식도 같은 `LOOM_TASK_DIR`을 받는다. 폴더가 없으면(작업 폴더 전의 노드) 만든다. 그 노드의 작업은 노드 이름이다 | 옛 노드도 다시 띄우면 기본 경로를 쓴다 |
+| `loom spawn`은 지시문이 있으면 머리 `Goal`, `Facts`, `Scope`, `Done when`, `Checks`, `Time`을 본다. 머리는 `<머리>:`로 시작하는 줄이나 그 낱말의 markdown 제목이다. 빠지면 빠진 머리를 적어 거절한다. 지시문 없는 `loom spawn`은 받는다 | o-mode 브리프 틀을 글이 아니라 검사로 지킨다 |
+| `loom done --file`의 상대 경로는 작업 폴더 기준이다. `loom verdict`에 `--findings`가 없으면 브랜치 작업 폴더의 `review/<검토자 노드 이름>.md`를 쓴다. 그 파일이 없으면 pass는 결함 파일 없이 가고 block은 그 경로를 적어 거절한다. `loom merge` 기록은 브랜치 작업 폴더의 `logs/merge-<유닉스 초>.log`다 | 1단계는 병합 기록을 `<공유 git 폴더>/loom-gate/`에 두었다. WSL 에이전트와 Windows `loom.exe`의 홈이 달랐기 때문이다. `LOOM_TASK_DIR`은 둘 다 닿으므로 옮겼다 |
+| `LOOM_TASK_DIR`이 없는 노드(사람이 띄운 노드, 작업 폴더 전에 뜬 노드)에서 위 기본 경로가 필요하면 CLI가 거절하고 절대 경로나 `loom relaunch`를 알린다 | 홈을 짐작하지 않는다. WSL의 `loom.exe`에는 배포판의 `HOME`이 없다 |
+| 보존 기한은 따로 없다. 옛 `~/.cache/loom-briefs`, `~/.cache/loom-results`는 읽기만 한다 | 흔적 보존은 이벤트 상한이 정한다 |
+
 ### 상한
 
 | 값 | 기본값 | 근거 |
@@ -580,7 +597,7 @@ Cursor는 Claude와 같은 표를 훅 이름만 바꿔 따른다(아래 「Curso
 - API 타입은 Rust에서 한 번만 선언한다. TypeScript 타입은 `ts-rs`로 만든다.
 - 워크트리와 커밋 그래프는 `git` CLI를 부른다.
 - 개발 환경은 배포 환경과 같은 호스트다(「[배포](#배포)」). 실행 명령은 [AGENTS.md 「개발 환경」](../AGENTS.md#개발-환경)에 있다.
-- 노드를 띄울 때 `LOOM_URL`(노드 문 주소), `LOOM_SPAWN_URL`(데몬 주소), `LOOM_TOKEN`(노드마다 무작위 값) 환경 변수를 넣는다. 에이전트용 명령은 이 값으로 데몬의 `/api/agent/*`에 HTTP로 요청한다. 데몬은 토큰으로 보낸 노드를 찾는다. 토큰은 노드와 함께 DB에 둔다. 노드 프로세스는 데몬이 다시 시작해도 살아 옛 토큰을 계속 낸다.
+- 노드를 띄울 때 `LOOM_URL`(노드 문 주소), `LOOM_SPAWN_URL`(데몬 주소), `LOOM_TOKEN`(노드마다 무작위 값) 환경 변수를 넣는다. `loom spawn` 자식은 `LOOM_TASK_DIR`(「작업 폴더」)도 받는다. 에이전트용 명령은 이 값으로 데몬의 `/api/agent/*`에 HTTP로 요청한다. 데몬은 토큰으로 보낸 노드를 찾는다. 토큰은 노드와 함께 DB에 둔다. 노드 프로세스는 데몬이 다시 시작해도 살아 옛 토큰을 계속 낸다.
 - 노드의 `PATH` 앞에 `loom` 실행 파일의 폴더를 넣는다. 노드는 설치 없이 `loom`을 부른다.
 
 ## 데몬 하나

@@ -23,6 +23,7 @@ use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor};
 use crate::protocol::{self, GateState, Judgment};
 use crate::roles::Roles;
+use crate::task;
 
 /// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
@@ -438,7 +439,10 @@ pub fn done(
 ) -> Result<(), String> {
     let summary = match file {
         Some(path) => {
-            let path = absolute(&path)?;
+            let path = match path.is_relative() {
+                true => absolute(&task_dir()?.join(path))?,
+                false => absolute(&path)?,
+            };
             // 사람은 완료 줄의 글 속 경로를 열지 못한다(2026-10-23 사람 "링크로 제공이 안됨"). 경로를 링크로 바꾸지 않고 거절한다: 사람이 읽을 요약이 없기 때문이다.
             let relations: Relations = call("status", &(), None)?;
             if relations.parent.is_none() {
@@ -499,11 +503,11 @@ pub fn verdict(
     judgment: Judgment,
     findings: Option<PathBuf>,
 ) -> Result<(), String> {
-    let findings = findings
-        .as_deref()
-        .map(absolute)
-        .transpose()?
-        .map(|path| crate::wsl::for_caller(&path));
+    let findings = match findings {
+        Some(path) => Some(absolute(&path)?),
+        None => default_findings(&branch, judgment)?,
+    }
+    .map(|path| crate::wsl::for_caller(&path));
     let state: GateState = call(
         "verdict",
         &VerdictRequest {
@@ -515,6 +519,22 @@ pub fn verdict(
     )?;
     println!("Recorded the verdict. {branch} is now {state:?}. loom told the receivers.");
     Ok(())
+}
+
+/// `--findings`가 없을 때: 브랜치 작업 폴더의 `review/<내 노드 이름>.md`. 그 파일이 없으면 pass는 결함 파일 없이 보낸다.
+fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>, String> {
+    let relations: Relations = call("status", &(), None)?;
+    let path = branch_task(branch)?
+        .join(task::REVIEW)
+        .join(format!("{}.md", task::folder(&relations.me.name)));
+    match (path.is_file(), judgment) {
+        (true, _) => absolute(&path).map(Some),
+        (false, Judgment::Pass) => Ok(None),
+        (false, Judgment::Block) => Err(format!(
+            "A block needs a findings file. Write it at {}, or give --findings <file>.",
+            crate::wsl::for_caller(&path)
+        )),
+    }
 }
 
 pub fn fail(branch: String, cause: String) -> Result<(), String> {
@@ -564,7 +584,7 @@ pub fn merge(branch: String) -> Result<(), String> {
         MergeInto::Main { checkout } => (checkout.as_str(), protocol::SHIP_SCRIPT),
         MergeInto::Branch { worktree } => (worktree.as_str(), ""),
     };
-    let log = merge_log(dir, &branch)?;
+    let log = merge_log(&branch)?;
     if lock_busy(dir) {
         println!(
             "Waiting for another loom merge in this repository (up to {} minutes).",
@@ -704,18 +724,35 @@ fn inside(path: &str) -> String {
     crate::wsl::location(path).map_or_else(|| path.to_owned(), |w| w.path)
 }
 
-/// `<공유 git 폴더>/loom-gate/<브랜치>-merge-<유닉스 초>.log`. 워크트리 안에 두면 미커밋 변경이 된다.
-/// git 폴더는 WSL 에이전트와 Windows `loom.exe`가 모두 읽고 쓴다(홈 폴더는 둘이 다르다).
-fn merge_log(dir: &str, branch: &str) -> Result<PathBuf, String> {
-    let mut common = crate::wsl::command(dir, "git");
-    common.args(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    let common = output(&mut common)?;
-    let dir = crate::wsl::from_caller(PathBuf::from(common.trim())).join("loom-gate");
+/// 브랜치 작업 폴더의 `logs/merge-<유닉스 초>.log`. 워크트리 안에 두면 미커밋 변경이 된다.
+/// WSL 노드의 `LOOM_TASK_DIR`은 Linux 경로이고, Windows `loom.exe`는 그 배포판의 UNC 경로로 쓴다(`task_dir`). 그래서 1단계의 `<공유 git 폴더>/loom-gate/`에서 옮겼다.
+fn merge_log(branch: &str) -> Result<PathBuf, String> {
+    let dir = branch_task(branch)?.join(task::LOGS);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    Ok(dir.join(format!("{}-merge-{now}.log", branch.replace('/', "-"))))
+    Ok(dir.join(format!("merge-{now}.log")))
+}
+
+/// 이 노드의 작업 폴더(`LOOM_TASK_DIR`). WSL 노드의 `loom.exe`는 같은 배포판의 UNC 경로로 읽는다.
+fn task_dir() -> Result<PathBuf, String> {
+    let dir = std::env::var(task::ENV).map_err(|_| {
+        format!(
+            "{} is not set: loom spawn gives it to child nodes, and this node started without it. Give an absolute path, or run `loom relaunch` and try again.",
+            task::ENV
+        )
+    })?;
+    Ok(crate::wsl::from_caller(PathBuf::from(dir)))
+}
+
+/// 브랜치의 작업 폴더. 작업 폴더는 모두 한 폴더 안에 나란히 있다(`task::folder`).
+fn branch_task(branch: &str) -> Result<PathBuf, String> {
+    let mine = task_dir()?;
+    let all = mine
+        .parent()
+        .ok_or_else(|| format!("{} has no parent folder", mine.display()))?;
+    Ok(all.join(task::folder(branch)))
 }
 
 /// 명령의 표준 출력. 0이 아니게 끝나면 표준 오류가 오류다.

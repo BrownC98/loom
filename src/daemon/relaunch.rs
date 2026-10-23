@@ -474,14 +474,31 @@ impl App {
             },
             resume: Some(resume.to_owned()),
         };
-        let position = match self.graph.relations(node.id) {
-            Ok(r) if r.parent.is_some() => Position::Child,
-            Ok(_) => Position::Root,
+        let (position, task) = match self.graph.relations(node.id) {
+            Ok(r) if r.parent.is_some() => (
+                Position::Child,
+                Some(self.graph.task_of(node.id).map_err(|e| e.to_string())?),
+            ),
+            Ok(_) => (Position::Root, None),
             Err(e) => return Err(e.to_string()),
         };
-        self.prepare(&start, Path::new(&place.worktree), position)
+        let prepared = self
+            .prepare(
+                &start,
+                Path::new(&place.worktree),
+                position,
+                task.as_deref(),
+            )
             .await
-            .map_err(|e| format!("{e:?}"))
+            .map_err(|e| format!("{e:?}"))?;
+        // 작업 폴더 전에 뜬 노드는 폴더가 없다.
+        if let Some(dir) = &prepared.task_dir
+            && let Err(e) = crate::task::create(dir, "")
+        {
+            prepared.discarder()();
+            return Err(format!("{}: {e}", dir.display()));
+        }
+        Ok(prepared)
     }
 
     async fn run_resumed(

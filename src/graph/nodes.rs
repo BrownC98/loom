@@ -23,6 +23,8 @@ pub struct NewChild<'a> {
     pub brief: &'a str,
     /// `loom spawn --role`의 역할 이름. 관문을 고를 때 쓴다(`protocol::COORDINATOR_ROLE`, `CI_ROLE`).
     pub role: Option<&'a str>,
+    /// 작업 이름(`task`). 작업 폴더를 고른다.
+    pub task: &'a str,
 }
 
 /// 에이전트 없이 띄운 노드(셸) 이름의 앞부분.
@@ -90,6 +92,7 @@ impl Graph {
             agent,
             brief,
             role,
+            task,
         } = child;
         let name = checked_name(name)?;
         if brief.len() > BRIEF_LIMIT_BYTES {
@@ -119,8 +122,8 @@ impl Graph {
         };
         let id = insert(&tx, name, &agent, Some(parent), &place)?;
         tx.execute(
-            "UPDATE nodes SET role = ?2 WHERE id = ?1",
-            params![id.0, role],
+            "UPDATE nodes SET role = ?2, task = ?3 WHERE id = ?1",
+            params![id.0, role, task],
         )?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
@@ -141,6 +144,15 @@ impl Graph {
             self.publish_message(id, Toward::Child);
         }
         Ok(id)
+    }
+
+    /// 노드의 작업 이름. 사람이 띄운 노드와 작업 폴더 전의 노드는 노드 이름이다.
+    pub fn task_of(&self, id: NodeId) -> rusqlite::Result<String> {
+        self.lock().query_row(
+            "SELECT COALESCE(task, name) FROM nodes WHERE id = ?1",
+            [id.0],
+            |row| row.get(0),
+        )
     }
 
     /// 노드 줄을 커밋한 뒤 잠금 밖에서 프로세스를 띄운다. 토큰은 이미 남겼으므로 노드가 뜨자마자 데몬을 불러도 찾는다.

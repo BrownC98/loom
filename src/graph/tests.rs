@@ -65,6 +65,7 @@ fn named(name: &str) -> NewChild<'_> {
         agent: None,
         brief: "",
         role: None,
+        task: name,
     }
 }
 
@@ -1725,6 +1726,28 @@ fn children_stay_in_the_parent_place_unless_given_a_worktree() {
 }
 
 #[test]
+fn task_is_kept_on_rename_and_a_root_task_is_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("t.db"));
+    let lead = root(&g, "claude");
+    let a = g
+        .add_child(
+            lead,
+            NewChild {
+                task: "feat/x",
+                ..named("a")
+            },
+            TreeLimits::default(),
+            &launched(),
+            started,
+        )
+        .unwrap();
+    g.rename(a, "b").unwrap();
+    assert_eq!(g.task_of(a).unwrap(), "feat/x");
+    assert_eq!(g.task_of(lead).unwrap(), "claude-1");
+}
+
+#[test]
 fn settle_moves_nodes_without_a_place_to_the_start_repo() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("t.db");
@@ -1974,6 +1997,7 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
                 agent: Some(AgentId("claude".into())),
                 brief,
                 role: None,
+                task: name,
             },
             TreeLimits::default(),
             &launched(),

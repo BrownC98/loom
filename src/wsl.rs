@@ -697,6 +697,18 @@ mod tests {
     }
 
     #[test]
+    fn task_dir_of_a_wsl_node_is_the_linux_path_and_the_daemon_writes_the_unc_path() {
+        let text = "\u{1e}/usr/bin\u{1e}/home/me\u{1e}/mnt/c/loom/wsl\u{1e}";
+        let inside = read_inside(&at(), &[], text).unwrap();
+        let dir = crate::task::TaskDir::of(Some(&inside), "feat/x").unwrap();
+        assert_eq!(dir.shown, "/home/me/.cache/loom/feat-x");
+        assert_eq!(
+            dir.local,
+            PathBuf::from(r"\\wsl.localhost\Ubuntu-24.04\home\me\.cache\loom\feat-x")
+        );
+    }
+
+    #[test]
     fn windows_path_is_the_unc_path() {
         assert_eq!(
             windows_path("Ubuntu", "/home/me/"),

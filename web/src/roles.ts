@@ -1,0 +1,21 @@
+import type { AgentView } from './gen/AgentView';
+import type { Profile } from './gen/Profile';
+import type { Role } from './gen/Role';
+
+/** 모델·강도를 CLI 인자로 받는 에이전트의 프로필. OpenCode 2는 프로필이 있어도 받지 않는다(목업 role-settings.html ②). */
+const MODEL_PROFILES: readonly Profile[] = ['claude', 'codex', 'cursor'];
+
+export const canChooseModel = (agent: AgentView | undefined): boolean => agent?.profile != null && MODEL_PROFILES.includes(agent.profile);
+
+/** 칸의 글 → 저장값. 비면 `null`(CLI 기본). */
+export const blankToNull = (text: string): string | null => (text.trim() === '' ? null : text.trim());
+
+/** 이름이 비었거나 `others`(편집 중인 역할을 뺀 목록)와 겹치면 `true`. */
+export const nameTaken = (name: string, others: readonly Role[]): boolean => name.trim() === '' || others.some((r) => r.name === name.trim());
+
+/** 줄의 「실행자 · 모델 · 강도」. `agent`가 `null`이면 `none`이다. */
+export function runnerText(role: Role, agents: readonly AgentView[], text: { none: string; cliDefault: string }): string {
+  if (role.agent === null) return text.none;
+  const label = agents.find((a) => a.id === role.agent)?.label ?? role.agent;
+  return [label, role.model ?? text.cliDefault, role.effort ?? text.cliDefault].join(' · ');
+}

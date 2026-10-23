@@ -455,6 +455,9 @@ fn without(text: &str, found: &[Comment]) -> String {
         let before = &out[line_start..c.start];
         let after = &out[c.end..line_end];
         match (before.trim().is_empty(), after.trim().is_empty()) {
+            (true, true) if line_start > 0 && out[..line_start - 1].ends_with('\\') => {
+                out.replace_range(line_start..line_end, "");
+            }
             (true, true) => {
                 let next = (line_end + 1).min(out.len());
                 let blank_above = line_start == 0 || out[..line_start - 1].ends_with('\n');
@@ -482,6 +485,7 @@ fn without(text: &str, found: &[Comment]) -> String {
                     (word(a) && word(b)) || (operator(a) && operator(b))
                 };
                 let gap = match (before.chars().last(), after.trim_start().chars().next()) {
+                    _ if out[c.start..c.end].contains('\n') => "\n",
                     (Some(a), Some(b)) if !a.is_whitespace() && joins(a, b) => " ",
                     _ => "",
                 };
@@ -629,6 +633,14 @@ mod cases {
         assert_eq!(
             strip(Lang::Bash, "#!/bin/sh\n# a\necho b # c\n"),
             "#!/bin/sh\necho b\n"
+        );
+        assert_eq!(
+            strip(Lang::Tsx, "function f(){return /* a\n*/ {x:1}}\n"),
+            "function f(){return \n{x:1}}\n"
+        );
+        assert_eq!(
+            strip(Lang::Bash, "printf a \\\n# b\nprintf c\n"),
+            "printf a \\\n\nprintf c\n"
         );
     }
 

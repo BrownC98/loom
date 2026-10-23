@@ -6,10 +6,12 @@ import type { Problem } from './gen/Problem';
 import type { Refusal } from './gen/Refusal';
 import type { UsageProblem } from './gen/UsageProblem';
 
-/** 값이 객체면 그 필드를, 아니면 `{{value}}` 하나를 보간 값으로 쓴다. */
+/** 값이 목록이면 쉼표로 이은 `{{value}}`, 객체면 그 필드(목록 필드도 쉼표로 잇는다), 아니면 `{{value}}` 하나를 보간 값으로 쓴다. */
 function vars(coded: { code: string }): Record<string, unknown> {
   const value: unknown = 'value' in coded ? coded.value : undefined;
-  return typeof value === 'object' && value !== null ? { ...value } : { value };
+  const joined = (v: unknown) => (Array.isArray(v) ? v.join(', ') : v);
+  if (Array.isArray(value) || typeof value !== 'object' || value === null) return { value: joined(value) };
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, joined(v)]));
 }
 
 /** 본문이 Problem이 아닌 실패 응답의 문장. */

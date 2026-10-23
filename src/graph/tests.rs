@@ -1226,6 +1226,53 @@ fn notices_alone_do_not_wake_but_ride_with_a_message() {
     assert_eq!(g.take(lead, Kind::ALL, usize::MAX).unwrap().len(), 1);
 }
 
+/// 쌓인 알림은 메일함 상한에 세지 않는다. 알림이 많아도 자식의 결과가 간다.
+#[test]
+fn deferred_notices_do_not_fill_the_mailbox() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let sender = child(&g, lead, "sender");
+    for i in 0..MAILBOX_LIMIT {
+        let c = child(&g, lead, &format!("c{i}"));
+        g.exited(c, 0).unwrap();
+    }
+    g.note(sender, PARENT, Kind::Queue, "결과", None).unwrap();
+    let woke = g.take_waking(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(woke.len(), MAILBOX_LIMIT as usize + 1);
+}
+
+/// 사람이 연 턴(입력 훅이 없는 Codex·OpenCode 2도)은 기다리던 알림을 조정으로 받는다. 다른 큐 메시지는 그대로 큐다.
+#[test]
+fn a_human_turn_takes_the_waiting_notices() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let c = child(&g, lead, "c");
+    g.exited(c, 0).unwrap();
+    g.human_input(lead).unwrap();
+    let steered = g.take(lead, &[Kind::Steer], usize::MAX).unwrap();
+    assert!(matches!(
+        steered.as_slice(),
+        [Delivery {
+            what: Some(MessageKind::Exited { .. }),
+            ..
+        }]
+    ));
+}
+
+/// 사람의 「안 읽음」 누르기는 알림만 남은 메일함도 넘긴다.
+#[test]
+fn a_manual_unread_click_wakes_for_notices() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let c = child(&g, lead, "c");
+    g.exited(c, 0).unwrap();
+    g.steer_queued(lead).unwrap();
+    assert_eq!(g.take_waking(lead, Kind::ALL, usize::MAX).unwrap().len(), 1);
+}
+
 #[test]
 fn each_point_takes_only_its_kinds_in_arrival_order_and_once() {
     let dir = tempfile::tempdir().unwrap();

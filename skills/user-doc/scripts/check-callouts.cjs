@@ -6,6 +6,8 @@ let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homed
 (async () => {
   const b = await pw.chromium.launch(); const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
   await p.goto(pathToFileURL(path.resolve(process.argv[2])).href, { waitUntil: 'networkidle' });
+  // 움직임을 멈춘다. 전환·애니메이션 중에는 위치와 색이 측정마다 달라진다(검토 BLOCK).
+  await p.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
   const res = await p.evaluate(() => {
     const R = r => ({ l: r.left, t: r.top, r: r.right, b: r.bottom });
     const hit = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
@@ -77,7 +79,7 @@ let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homed
     if (pts.some(([x, y]) => x < 0 || y < 0 || x >= vp.width || y >= vp.height)) { res.overlaps.push(id + ' off screen'); continue; }
     const clip = { x: Math.max(0, Math.floor(g.l) - 2), y: Math.max(0, Math.floor(g.t) - 2) };
     clip.width = Math.min(vp.width, Math.ceil(g.r) + 2) - clip.x; clip.height = Math.min(vp.height, Math.ceil(g.b) + 2) - clip.y;
-    const shot = async () => (await p.screenshot({ clip })).toString('base64');
+    const shot = async () => (await p.screenshot({ clip, animations: 'disabled' })).toString('base64');
     const before = await shot();
     await p.evaluate(k => { document.querySelector(`[data-chk="${k}"]`).dataset.recolor = ''; }, k);
     const after = await shot();

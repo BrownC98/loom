@@ -65,7 +65,6 @@ pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
     args
 }
 
-/// `codex` 시작 인자.
 pub fn args(app_server: &str) -> Vec<String> {
     vec!["--remote".into(), app_server.into()]
 }

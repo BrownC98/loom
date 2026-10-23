@@ -707,7 +707,7 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
 /// 백그라운드 규칙: 앞에서 도는 긴 명령 동안 조정이 넘어가지 않아 「안 읽음」을 눌러도 고장처럼 보였다(2026-10-22 사람 결정 Q322 B).
 /// 기준은 시간이 아니라 다음 단계에 결과가 바로 필요한가다(2026-10-22 사람 지시 "백그라운드로 넣을 수 있으면 넣는걸로 하라 시간 단위가 아니라", Q339 A). 짧은 조회까지 보내면 끝 알림마다 턴이 늘었다.
 pub const COMMUNICATION_USAGE: &str = "You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
-- loom spawn <name> --agent <agent-id> [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>.
+- loom spawn <name> (--agent <agent-id> | --role <role>) [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>. loom roles lists the roles.
 - loom status: your ID, parent and children, and whether their processes are alive. loom status --all lists every node.
 - loom send <target> <body>: queue a message. A name finds your parent or child first, then a live node with that name.
 - loom reply <message-id> <body>: answer a message that you received.

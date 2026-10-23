@@ -17,6 +17,7 @@ use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, W
 use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor};
+use crate::roles::Roles;
 
 /// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
@@ -29,11 +30,12 @@ const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
 /// Claude `asyncRewake` 훅이 이 코드로 끝나면 stderr를 모델에 넘기고 깨운다.
 const REWAKE_EXIT: i32 = 2;
 
-/// `agent`가 없으면 `command`를 셸 명령 한 줄로 띄운다.
+/// `agent`와 `role`이 모두 없으면 `command`를 셸 명령 한 줄로 띄운다.
 pub fn spawn(
     name: String,
     worktree: Option<String>,
     agent: Option<String>,
+    role: Option<String>,
     file: Option<PathBuf>,
     choice: ModelChoice,
     command: Vec<String>,
@@ -51,9 +53,9 @@ pub fn spawn(
             brief
         }
     };
-    let run = match agent {
-        Some(id) => SpawnRun::Agent(AgentId(id)),
-        None => SpawnRun::Command(command.join(" ")),
+    let run = match (agent, &role) {
+        (None, None) => SpawnRun::Command(command.join(" ")),
+        (agent, _) => SpawnRun::Agent(agent.map(AgentId)),
     };
     let request = SpawnRequest {
         name,
@@ -61,10 +63,31 @@ pub fn spawn(
         brief,
         worktree,
         choice,
+        role,
     };
     // 프록시를 거치지 않는다. Codex 샌드박스 안에서는 실패하고, 사람이 승인하면 샌드박스 밖에서 닿는다.
     let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;
     println!("Created node: {}", request.name);
+    Ok(())
+}
+
+pub fn roles() -> Result<(), String> {
+    let roles: Roles = call("roles", &(), None)?;
+    for role in roles.0 {
+        let run = match role.agent {
+            None => "띄우지 않음".to_owned(),
+            Some(agent) => {
+                let or_default = |v: Option<String>| v.unwrap_or_else(|| "CLI 기본".into());
+                format!(
+                    "{}·{}·{}",
+                    agent.0,
+                    or_default(role.model),
+                    or_default(role.effort)
+                )
+            }
+        };
+        println!("{} | {run} | {}", role.name, role.duty);
+    }
     Ok(())
 }
 

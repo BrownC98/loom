@@ -565,7 +565,6 @@ mod tests {
             from: "총괄".into(),
             kind,
             body: body.into(),
-            reply_to: None,
             what: Some(crate::protocol::MessageKind::Note),
         }
     }

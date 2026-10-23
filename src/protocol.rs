@@ -700,9 +700,13 @@ pub fn gate_word(text: &str) -> Option<&'static str> {
     kind_word(text).filter(|w| w.gate).map(|w| w.word)
 }
 
-/// 글의 어느 줄이든 종류 낱말로 시작하면 그 낱말. 턴 끝 검사가 터미널에만 쓴 프로토콜 줄을 찾는다.
-pub fn kind_line(text: &str) -> Option<&'static KindWord> {
-    text.lines().find_map(kind_word)
+/// 글의 어느 줄이든 `applies`가 받는 종류 낱말로 시작하면 그 첫 낱말. 턴 끝 검사가 터미널에만 쓴 프로토콜 줄을 찾는다.
+/// 받지 않는 줄(관문 스크립트 없는 저장소의 `MERGED`)은 건너뛰고 뒤 줄을 본다.
+pub fn kind_line(
+    text: &str,
+    mut applies: impl FnMut(&KindWord) -> bool,
+) -> Option<&'static KindWord> {
+    text.lines().filter_map(kind_word).find(|w| applies(w))
 }
 
 /// 관문을 고르는 역할 이름. 설정의 기본 역할(`roles::Roles::default`)과 같다.
@@ -955,8 +959,12 @@ mod tests {
         assert_eq!(word("DONEE"), None);
         assert_eq!(word("gate x: ready for review"), None);
         assert_eq!(
-            kind_line("작업 끝.\nMERGED abc123").map(|w| w.word),
+            kind_line("작업 끝.\nMERGED abc123", |_| true).map(|w| w.word),
             Some("MERGED")
+        );
+        assert_eq!(
+            kind_line("MERGED a\nQUESTION: x?", |w| !w.gated_only).map(|w| w.word),
+            Some("QUESTION")
         );
         // `loom ready`은 관문 스크립트 없는 저장소에서도 돌므로 READY는 어디서나 거절한다.
         assert!(!kind_word("READY x").unwrap().gated_only);

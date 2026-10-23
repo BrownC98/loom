@@ -62,11 +62,17 @@ impl TurnEnds {
         let human = self.human.lock().unwrap().remove(&node);
         let called = self.called.lock().unwrap().remove(&node);
         let nudged = self.kind_nudged.lock().unwrap().remove(&node);
-        let kind_line = reply
-            .as_deref()
-            .and_then(crate::protocol::kind_line)
-            .filter(|_| !called && !nudged)
-            .is_some_and(|found| !found.gated_only || gated_repo());
+        let mut gated = None;
+        let mut gated_repo = Some(gated_repo);
+        let kind_line = !called
+            && !nudged
+            && reply.as_deref().is_some_and(|text| {
+                crate::protocol::kind_line(text, |found| {
+                    !found.gated_only
+                        || *gated.get_or_insert_with(|| gated_repo.take().is_some_and(|f| f()))
+                })
+                .is_some()
+            });
         let nudge = if kind_line {
             self.kind_nudged.lock().unwrap().insert(node);
             Some(KIND_NUDGE)
@@ -160,6 +166,15 @@ mod tests {
             None,
             "old repo"
         );
+        // 허용된 옛 줄이 뒤의 새 낱말 줄을 가리지 않는다.
+        turns.said(node, "MERGED 출력표준 abc\nQUESTION: 지울까?".into());
+        assert_eq!(
+            turns.ended(node, || false, || false).nudge,
+            Some(KIND_NUDGE),
+            "old repo, later question"
+        );
+        turns.said(node, "ok".into());
+        turns.ended(node, || false, || false);
         turns.said(node, "MERGED 출력표준".into());
         assert_eq!(turns.ended(node, || true, || false).nudge, Some(KIND_NUDGE));
         // 다시 일한 턴이 같은 글을 써도 다시 깨우지 않는다.

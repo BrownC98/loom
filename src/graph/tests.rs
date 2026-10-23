@@ -1976,7 +1976,6 @@ async fn replies_match_the_request_even_after_another_consumer_acknowledged_them
     let g = open(&path);
     let answer = g.wait(worker, Some(first.id)).await.unwrap();
     assert_eq!(answer.body, "first answer");
-    assert_eq!(answer.reply_to, Some(first.id));
     assert_eq!(
         answer.what,
         Some(MessageKind::Answer {
@@ -2841,6 +2840,42 @@ fn human_input_goes_to_the_parent_verbatim() {
     );
 }
 
+/// 요약 없이 파일만 준 완료는 경로를 `file:` 칸에만 둔다.
+#[test]
+fn done_with_only_a_file_shows_the_path_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let w = child(&g, lead, "w");
+    let report = Report {
+        summary: "/tmp/r.md",
+        file: Some("/tmp/r.md"),
+        warning: None,
+    };
+    g.done(w, &report, None, &[], None, None).unwrap();
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert!(got[0].body.is_empty());
+    assert!(crate::profile::message_text(&got).ends_with("file: /tmp/r.md"));
+}
+
+/// 지시문 상한(4,096바이트)보다 긴 사람 글도 끝까지 간다. 프로세스가 끝난 부모에게는 가지 않는다.
+#[test]
+fn long_human_input_is_not_cut_and_skips_an_ended_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let w = child(&g, lead, "w");
+    let text = format!("{}\nDo not delete this branch.", "가".repeat(2000));
+    g.human_typed(w, &text).unwrap();
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(got.len(), 1);
+    assert!(got[0].body.len() > 4096);
+    assert!(got[0].body.ends_with("Do not delete this branch."));
+    g.exited(lead, 0).unwrap();
+    g.human_typed(w, "more").unwrap();
+    assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());
+}
+
 /// 내장 스킬이 지난 기록과 다르면 살아 있는 에이전트 노드마다 `rules-changed`를 한 번 보낸다. 셸과 끝난 노드는 받지 않는다.
 #[test]
 fn changed_skills_are_announced_once_to_live_agent_nodes() {
@@ -2880,4 +2915,28 @@ fn changed_skills_are_announced_once_to_live_agent_nodes() {
     g.ack(lead, &[got[0].id]).unwrap();
     assert!(g.rules_changed(&digests("o1"), None).unwrap().is_empty());
     assert_eq!(g.rules_changed(&digests("o2"), None).unwrap(), ["o-mode"]);
+}
+
+/// 받은편지함이 가득 차도 `rules-changed`는 간다. 기록은 그때만 앞선다.
+#[test]
+fn rules_changed_exceeds_a_full_inbox() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let w = child(&g, lead, "w");
+    for _ in 0..MAILBOX_LIMIT {
+        g.note(w, "parent", Kind::Queue, "x", None).unwrap();
+    }
+    assert!(matches!(
+        g.note(w, "parent", Kind::Queue, "x", None),
+        Err(Refusal::MailboxFull(_))
+    ));
+    let digests = BTreeMap::from([("o-mode".to_owned(), "o1".to_owned())]);
+    assert_eq!(g.rules_changed(&digests, None).unwrap(), ["o-mode"]);
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert!(
+        got.iter()
+            .any(|m| matches!(m.what, Some(MessageKind::RulesChanged { .. })))
+    );
+    assert!(g.rules_changed(&digests, None).unwrap().is_empty());
 }

@@ -53,11 +53,11 @@ pub struct MessageId(pub u32);
 pub struct Delivery {
     pub id: MessageId,
     pub from: String,
+    /// 전달 방식(큐·조정·중단). JSON 이름은 `mode`다: `what.kind`(메시지 종류)와 이름이 겹치면 `.kind`를 읽는 에이전트가 방식을 받는다(검토 P3-4).
+    #[serde(rename = "mode")]
     pub kind: Kind,
     pub body: String,
-    #[serde(default)]
-    pub reply_to: Option<MessageId>,
-    /// 메시지 종류와 칸. 종류를 남기기 전의 옛 메시지에는 없다.
+    /// 메시지 종류와 칸. 답이 가리키는 질문(`Answer.question`)은 여기에만 있다. `messages.reply_to` 열은 `loom wait --reply-to`의 색인이고 같은 트랜잭션에서 쓴다. 종류를 남기기 전의 옛 메시지에는 없다.
     #[serde(default)]
     pub what: Option<MessageKind>,
 }
@@ -323,7 +323,7 @@ impl Graph {
             let delivery = self
                 .lock()
                 .query_row(
-                    "SELECT id, sender_name, kind, body, reply_to, what FROM messages
+                    "SELECT id, sender_name, kind, body, what FROM messages
                      WHERE recipient = ?1 AND reply_to = ?2 ORDER BY id LIMIT 1",
                     params![node.0, request.0],
                     read_delivery,
@@ -369,7 +369,7 @@ impl Graph {
             .expect("문자열 목록은 늘 직렬화된다");
         let queued = tx
             .prepare(
-                "SELECT id, sender_name, kind, body, reply_to, what FROM messages
+                "SELECT id, sender_name, kind, body, what FROM messages
                  WHERE recipient = ?1 AND delivered = 0
                  AND (sent_at IS NULL OR sent_at <= unixepoch() - ?3)
                  AND kind IN (SELECT value FROM json_each(?2)) ORDER BY id",
@@ -521,7 +521,13 @@ impl Graph {
                     file: report.file.map(str::to_owned),
                     warning: report.warning.clone(),
                 };
-                enqueue(&tx, node, parent, Kind::Queue, &what, summary, stamp)?;
+                // 요약 없이 파일만 준 완료는 요약이 파일 경로다(노드 카드용). 부모는 `file:` 칸으로 이미 본다.
+                let body = if report.file == Some(summary) {
+                    ""
+                } else {
+                    summary
+                };
+                enqueue(&tx, node, parent, Kind::Queue, &what, body, stamp)?;
             }
         }
         let alive_children = tx
@@ -540,7 +546,8 @@ impl Graph {
 
 impl Graph {
     /// 사람이 부모 있는 노드의 터미널에 글을 쳤다. 그 부모에게 원문을 `human-input`으로 알린다. 부모가 없으면 아무것도 하지 않는다.
-    /// 근거: R8 v5 ③(에이전트가 손으로 보내던 USER DIRECTION·USER DECISION을 대신한다). 글은 지시문 상한까지 앞쪽을 남긴다.
+    /// 근거: R8 v5 ③(에이전트가 손으로 보내던 USER DIRECTION·USER DECISION을 대신한다). 글은 자르지 않는다: 끝의 제약 한 줄이 사라지면 부모가 불완전한 지시로 조율한다(검토 출력표준2-종류 P2).
+    /// 프로세스가 끝난 부모의 받은편지함에는 넣지 않는다(`post`와 같다).
     pub fn human_typed(&self, node: NodeId, text: &str) -> Result<(), Refusal> {
         let text = text.trim();
         let mut db = self.lock();
@@ -550,9 +557,13 @@ impl Graph {
         if text.is_empty() {
             return Ok(());
         }
-        let mut end = text.len().min(BRIEF_LIMIT_BYTES);
-        while !text.is_char_boundary(end) {
-            end -= 1;
+        let parent_ended: bool = db.query_row(
+            "SELECT process_exited FROM nodes WHERE id = ?1",
+            [parent.0],
+            |row| row.get(0),
+        )?;
+        if parent_ended {
+            return Ok(());
         }
         let tx = db.transaction()?;
         let what = MessageKind::HumanInput {
@@ -564,7 +575,7 @@ impl Graph {
             Some(parent),
             Kind::Queue,
             &what,
-            &text[..end],
+            text,
             Stamp::default(),
         )?;
         tx.commit()?;
@@ -723,16 +734,14 @@ pub(super) fn enqueue_human(
     Ok(MessageId(db.last_insert_rowid() as u32))
 }
 
-/// 보낸 노드가 없는 loom 알림(`rules-changed`). 상한을 넘으면 넣지 않는다: 알림 하나 때문에 할 일 메시지가 막히지 않게 한다.
+/// 보낸 노드가 없는 loom 알림(`rules-changed`). 받은편지함 상한을 넘어도 넣는다: 놓치면 그 노드가 새 규칙을 영영 못 받는다(기록이 이미 바뀌었다).
+/// 다른 생애 알림(완료·종료)과 같다.
 pub(super) fn enqueue_loom(
     db: &Connection,
     to: NodeId,
     what: &MessageKind,
     body: &str,
-) -> rusqlite::Result<Option<MessageId>> {
-    if queued(db, to)? >= MAILBOX_LIMIT {
-        return Ok(None);
-    }
+) -> rusqlite::Result<MessageId> {
     db.execute(
         "INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
         params![to.0, LOOM, to_json(&Kind::Queue), body, to_json(what)],
@@ -751,7 +760,7 @@ pub(super) fn enqueue_loom(
         gate: None,
     };
     events::write(db, &entry, Some(id))?;
-    Ok(Some(id))
+    Ok(id)
 }
 
 fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
@@ -760,8 +769,7 @@ fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
         from: row.get(1)?,
         kind: from_json(row, 2)?,
         body: row.get(3)?,
-        reply_to: row.get::<_, Option<u32>>(4)?.map(MessageId),
-        what: optional_json(row, 5)?,
+        what: optional_json(row, 4)?,
     })
 }
 

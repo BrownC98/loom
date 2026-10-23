@@ -160,6 +160,10 @@ impl App {
         }
         let place = self.graph.place_of(node)?;
         let repo = self.repo_of(node)?;
+        // 원래 체크아웃에서 도는 노드는 담당 브랜치가 없다. git을 부르지 않는다.
+        if Path::new(&place.worktree) == repo {
+            return Ok(None);
+        }
         branch_warning(&repo, &place.worktree, |branch, head| {
             self.graph.ready_sent(node, branch, head)
         })

@@ -487,7 +487,6 @@ mod tests {
             from: "부모".into(),
             kind,
             body: body.into(),
-            reply_to: None,
             what: Some(crate::protocol::MessageKind::Note),
         }
     }

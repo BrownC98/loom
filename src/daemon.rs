@@ -2360,17 +2360,22 @@ async fn agent_done(
     }
     let doc = attach(req.doc.as_deref())?;
     let via = gate::via(&headers, "/api/agent/done");
-    // 경고를 보지 못해도 보고는 보낸다. 완료는 중간 결과도 나른다.
-    let warning = app.unreadied(node).await.unwrap_or_else(|e| {
-        eprintln!("loom: 노드 {}의 담당 브랜치를 보지 못했다: {e}", node.0);
+    // 종류 낱말로 거절할 글에는 git을 부르지 않는다. 경고를 보지 못해도 보고는 보낸다. 완료는 중간 결과도 나른다.
+    let word = app.kind_word(node, &req.summary);
+    let warning = if word.is_ok() {
+        app.unreadied(node).await.unwrap_or_else(|e| {
+            eprintln!("loom: 노드 {}의 담당 브랜치를 보지 못했다: {e}", node.0);
+            None
+        })
+    } else {
         None
-    });
+    };
     let report = Report {
         summary: &req.summary,
         file: req.file.as_deref(),
         warning: warning.clone(),
     };
-    let done = app.kind_word(node, &req.summary).and_then(|()| {
+    let done = word.and_then(|()| {
         app.graph.done(
             node,
             &report,
@@ -2447,6 +2452,7 @@ async fn agent_ask(
         .ask(node, &req.question, doc.clone())
         .map_err(for_agent)?;
     let open = app.graph.open_questions(node).map_err(for_agent)?;
+    app.turn_ends.called(node);
     Ok(Json(AskResult::Inbox(Asked {
         id,
         doc,
@@ -2463,7 +2469,9 @@ async fn agent_answered(
 ) -> Result<Json<Vec<WaitId>>, AgentError> {
     let node = app.caller(&headers)?;
     let ids = req.unwrap_or_default().ids;
-    Ok(Json(app.graph.answered(node, &ids).map_err(for_agent)?))
+    let answered = app.graph.answered(node, &ids).map_err(for_agent)?;
+    app.turn_ends.called(node);
+    Ok(Json(answered))
 }
 
 async fn agent_said(

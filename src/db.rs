@@ -264,6 +264,12 @@ const STEPS: &[M] = &[
             digest TEXT NOT NULL
         );",
     ),
+    // 34: 이름을 바꾼 거절 코드의 옛 기록을 새 꼴로 옮긴다(이벤트 기록은 `Refusal`로 읽는다). `gateWord`는 `kindWord`다. `hasParent`는 없앤 규칙이라
+    // 옛 문장을 `git` 거절의 글로 남긴다(기록을 지우지 않는다).
+    M::up(
+        "UPDATE events SET entry = json_set(entry, '$.reason.code', 'kindWord') WHERE entry ->> '$.reason.code' = 'gateWord';
+        UPDATE events SET entry = json_set(entry, '$.reason.code', 'git', '$.reason.value', 'Old rule: a node with a parent cannot loom ask the human.') WHERE entry ->> '$.reason.code' = 'hasParent';",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -562,6 +568,35 @@ mod tests {
             .query_row("SELECT count(*) FROM skill_digests", [], |row| row.get(0))
             .unwrap();
         assert_eq!(digests, 0);
+    }
+
+    /// 이벤트 기록 안의 옛 거절 코드가 새 `Refusal`로 읽힌다.
+    #[test]
+    fn step_34_renames_old_refusal_codes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 33).unwrap();
+        let old = r#"{"kind":"refused","how":"queue","from":{"id":2,"name":"child"},"to":"root","reason":{"code":"gateWord","value":{"word":"READY","verb":"loom ready"}}}"#;
+        let has_parent = r#"{"kind":"refused","how":"queue","from":{"id":2,"name":"child"},"to":"root","reason":{"code":"hasParent"}}"#;
+        for entry in [old, has_parent] {
+            conn.execute("INSERT INTO events (at, entry) VALUES (1, ?1)", [entry])
+                .unwrap();
+        }
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let reasons: Vec<crate::graph::Refusal> = conn
+            .prepare("SELECT entry ->> '$.reason' FROM events ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|json| serde_json::from_str(&json.unwrap()).unwrap())
+            .collect();
+        assert_eq!(
+            reasons[0],
+            crate::graph::Refusal::KindWord {
+                word: "READY".into(),
+                verb: "loom ready".into()
+            }
+        );
+        assert!(matches!(reasons[1], crate::graph::Refusal::Git(_)));
     }
 
     /// 노드 자리의 완료는 완료 표로 옮긴다. 번호와 내용은 그대로다.

@@ -365,6 +365,7 @@ const ko: typeof en = {
     cancel: '취소',
   },
   inbox: {
+    resetPlace: '알약을 제자리(위 가운데)로',
     tab: '알림',
     instruction: '지시: {{text}}',
     published: '알림 {{time}}',
@@ -452,6 +453,8 @@ const ko: typeof en = {
     line: '한 줄',
     answer: '바로 답하기',
     hint: '「바로 답하기」는 가장 오래된 질문 하나와 답 칸을 알약에 펼쳐 보입니다. 「한 줄」은 목록을 펼쳐 답합니다.',
+    place: '알약 자리',
+    placeHint: '알약 머리를 끌면 그래프 칸 안 어디로든 옮깁니다. 기본 자리는 위 가운데입니다. 옮기면 알약 머리에도 제자리 단추가 뜹니다.',
   },
   edgeStyle: {
     heading: '간선 모양',

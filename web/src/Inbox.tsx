@@ -1,5 +1,5 @@
 import { ArrowRight, ArrowUp, ChevronDown, ExternalLink, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuestionPill } from './gen/QuestionPill';
 import { isTauri } from '@tauri-apps/api/core';
@@ -15,9 +15,9 @@ import { useShowNodes } from './Graph';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, NodeText, NoticeBadges, NoticeLead, oldestWait, showsId, summaryOf, toneOf } from './notice';
 import { Modal } from './Modal';
-import { useOutsideClose } from './popover';
+import { useDismiss } from './popover';
 import { linkParts } from './links';
-import { openLink, openPass, phoneBrowser } from './Terminal';
+import { openLink, openPass, phoneBrowser } from './openLink';
 
 /**
  * 사람 응답을 기다리는 노드, 가장 오래된 대기 순으로. 알약은 첫 노드의 가장 오래된 대기를 보인다. 새 질문이 와도 알약이 가리키는 대기가 바뀌지 않는다.
@@ -44,7 +44,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
     props.onSelect(id);
   };
   useOsNotify(props.waiting, props.notify, go);
-  const home = useOutsideClose<HTMLDivElement>(() => setOpen(false));
+  const pill = useRef<HTMLDivElement>(null);
   const waits = props.waiting.flatMap((v) => v.waits);
   const n = waits.length;
   const first = props.waiting[0];
@@ -57,20 +57,11 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
     if (n === 0) setOpen(false);
   }, [n]);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [open]);
-
   return (
-    <div className="inbox" ref={home}>
+    <div className="inbox">
       {/* 알약 꼴은 설정 「질문 알약」이다. `line`: 한 줄. `answer`: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
       {first && (
-        <div className="inbox-pill" data-view={props.pill} data-tone={toneOf(firstWait.kind)}>
+        <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={toneOf(firstWait.kind)}>
           <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} />
           {!line && (
             <div className="pill-row">
@@ -80,8 +71,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
         </div>
       )}
       {open && n > 0 && (
-        <div className="pop inbox-pop" role="dialog" aria-label={t('inbox.title', { count: n })}>
-          <h2>{t('inbox.title', { count: n })}</h2>
+        <InboxPop label={t('inbox.title', { count: n })} pill={pill} onClose={() => setOpen(false)}>
           {/* 노드로 가도 목록은 열린 채로 둔다. 이어서 다른 질문을 보고 답한다(2026-10-22 사람 지시 "총괄클릭해서 이동할때 팝오버 유지되도록"). */}
           <WaitList
             waiting={props.waiting}
@@ -91,8 +81,19 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
               props.onFocus(id);
             }}
           />
-        </div>
+        </InboxPop>
       )}
+    </div>
+  );
+}
+
+/** 알약이 연 목록. 열린 동안만 밖 누르기와 Esc가 닫는다. 알약(답 칸 포함)을 누르는 것은 밖이 아니다. */
+function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; onClose: () => void; children: ReactNode }) {
+  const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.pill });
+  return (
+    <div ref={box} className="pop inbox-pop" role="dialog" aria-label={props.label}>
+      <h2>{props.label}</h2>
+      {props.children}
     </div>
   );
 }

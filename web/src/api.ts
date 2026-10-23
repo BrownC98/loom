@@ -98,9 +98,9 @@ export const answerWait = (wait: WaitId, text: string, images: string[]) =>
 /** 승인 창의 `option`번째 선택지를 고른다. 데몬은 터미널 화면이 `prompt`와 같을 때만 그 키를 친다. */
 export const chooseOption = (wait: WaitId, prompt: Prompt, option: number) =>
   call<null>('POST', `/api/waits/${wait}/choose`, { prompt, option } satisfies ChooseOption);
-/** 문서 ID의 문서를 데몬이 그 기계의 기본 브라우저로 연다. 데스크톱 앱에서도 앱 창이 아니라 브라우저로 연다. */
 /** [문서] 탭의 목록: 문서 ID가 붙은 모든 문서, 최근에 붙인 것 위. */
 export const listDocs = () => call<DocRow[]>('GET', '/api/docs');
+/** 문서 ID의 문서를 데몬이 그 기계의 기본 브라우저로 연다. 데스크톱 앱에서도 앱 창이 아니라 브라우저로 연다. */
 export const openDoc = (id: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}`);
 /** 문서 ID의 주소. 대기가 닫혀도 열린다. 끝의 `/` 때문에 문서 속 상대 주소(옆 그림)가 같은 폴더를 가리킨다. */
 export const docUrl = (id: string) => `/api/docs/${encodeURIComponent(id)}/`;

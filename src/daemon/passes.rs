@@ -40,12 +40,23 @@ pub struct Passes(Mutex<HashMap<String, Pass>>);
 
 struct Pass {
     folder: PathBuf,
+    /// 있으면 폴더의 이 파일 하나만 읽는다(`Reach::File`).
+    only: Option<String>,
     until: Instant,
+}
+
+/// 통행증이 읽는 범위.
+#[derive(Clone, Copy)]
+enum Reach {
+    /// 파일의 폴더 전체. HTML의 상대 주소(옆 그림)도 읽는다.
+    Folder,
+    /// 그 파일 하나. 보고서 폴더의 다른 파일을 내지 않는다(2026-10-23 검토 MAJOR).
+    File,
 }
 
 impl Passes {
     /// `folder` 아래를 읽는 새 토큰.
-    fn issue(&self, folder: PathBuf) -> String {
+    fn issue(&self, folder: PathBuf, only: Option<String>) -> String {
         let token = crate::devices::random_token();
         let now = Instant::now();
         let mut passes = self.0.lock().expect("passes lock");
@@ -54,6 +65,7 @@ impl Passes {
             token.clone(),
             Pass {
                 folder,
+                only,
                 until: now + PASS_TTL,
             },
         );
@@ -65,6 +77,9 @@ impl Passes {
         let folder = {
             let passes = self.0.lock().expect("passes lock");
             let pass = passes.get(token).filter(|p| p.until > Instant::now())?;
+            if pass.only.as_deref().is_some_and(|only| only != file) {
+                return None;
+            }
             pass.folder.clone()
         };
         inside(&folder, file)
@@ -99,7 +114,7 @@ async fn issue(
     Json(req): Json<OpenFile>,
 ) -> Result<Json<String>, Problem> {
     let path = PathBuf::from(host_path(&app, req.node, req.path)?);
-    pass_url(&app, &path).await
+    pass_url(&app, &path, Reach::Folder).await
 }
 
 /// 질문·완료 문서(`--doc`)의 통행증. 사람은 목업을 받은편지함에서 연다(2026-10-23 사람 "여전히 헤드리스 브라우저임").
@@ -107,18 +122,27 @@ async fn issue_doc(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
 ) -> Result<Json<String>, DocProblem> {
-    let path = doc_file(&id)?;
-    Ok(pass_url(&app, &path).await?)
+    let doc = doc_file(&id)?;
+    let reach = match doc.folder {
+        Some(_) => Reach::Folder,
+        None => Reach::File,
+    };
+    Ok(pass_url(&app, &doc.path, reach).await?)
 }
 
 /// 파일 하나의 통행증 주소. Serve가 켜져 있으면 tailnet 이름으로 준다. 폰 문은 스스로 서명한 인증서라 브라우저가 경고한다.
 /// 꺼져 있으면 경로만 준다. 화면이 자기 주소에 붙인다.
-async fn pass_url(app: &App, path: &FsPath) -> Result<Json<String>, Problem> {
+async fn pass_url(app: &App, path: &FsPath, reach: Reach) -> Result<Json<String>, Problem> {
     let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(internal(format!("파일 경로가 아니다: {}", path.display())));
     };
-    let token = app.passes.issue(folder.to_path_buf());
-    let name = utf8_percent_encode(&name.to_string_lossy(), NAME_KEEPS).to_string();
+    let name = name.to_string_lossy();
+    let only = match reach {
+        Reach::Folder => None,
+        Reach::File => Some(name.clone().into_owned()),
+    };
+    let token = app.passes.issue(folder.to_path_buf(), only);
+    let name = utf8_percent_encode(&name, NAME_KEEPS).to_string();
     let path = format!("{PASS_PREFIX}{token}/{name}");
     Ok(Json(match phone::serve_host(app.port).await {
         Some(host) => format!("https://{host}{path}"),
@@ -151,7 +175,7 @@ mod tests {
         std::fs::write(dir.path().join("secret"), "").unwrap();
         let real = std::fs::canonicalize(&folder).unwrap();
         let passes = Passes::default();
-        let token = passes.issue(folder.clone());
+        let token = passes.issue(folder.clone(), None);
         assert_eq!(
             passes.resolve(&token, "index.html"),
             Some(real.join("index.html"))
@@ -171,6 +195,14 @@ mod tests {
             assert_eq!(passes.resolve(&token, file), None, "{file}");
         }
         assert_eq!(passes.resolve("other", "index.html"), None);
+
+        // 파일 하나의 통행증은 같은 폴더의 다른 파일을 내지 않는다(보고서 폴더의 다른 지시·비밀 파일).
+        let one = passes.issue(folder.clone(), Some("index.html".into()));
+        assert_eq!(
+            passes.resolve(&one, "index.html"),
+            Some(real.join("index.html"))
+        );
+        assert_eq!(passes.resolve(&one, "img/a.png"), None);
     }
 
     /// 폴더 안의 링크가 폴더 밖을 가리키면 내지 않는다.
@@ -194,7 +226,7 @@ mod tests {
     #[test]
     fn pass_ends_after_ttl() {
         let passes = Passes::default();
-        let token = passes.issue(PathBuf::from("/docs"));
+        let token = passes.issue(PathBuf::from("/docs"), None);
         passes.0.lock().unwrap().get_mut(&token).unwrap().until = Instant::now();
         assert_eq!(passes.resolve(&token, "a.html"), None);
     }

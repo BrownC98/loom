@@ -1849,23 +1849,18 @@ fn choose(
 }
 
 /// [문서] 탭: 문서 ID가 붙은 모든 문서(목업 docs/mockups/doc-reopen.html M13 ③).
-async fn list_docs() -> Json<Vec<user_doc::DocRow>> {
-    Json(user_doc::docs())
+async fn list_docs() -> Result<Json<Vec<user_doc::DocRow>>, Problem> {
+    Ok(Json(user_doc::docs().map_err(internal)?))
 }
 
 /// 사람이 질문·완료 줄의 문서 링크를 눌렀다. 데몬이 그 기계의 기본 브라우저로 연다. 화면이 브라우저든 데스크톱 앱이든 같다.
-/// 글 문서(`.md`)는 파일이 아니라 이 데몬이 내는 주소(`doc`)를 연다. 파일의 기본 앱은 편집기이거나 없다.
+/// 파일(`file://`)이 아니라 이 데몬이 내는 주소(`doc`)를 연다. 파일 탭은 워크트리를 지우면 죽고, 글 파일의 기본 앱은 편집기이거나 없다(2026-10-23 검토).
 async fn open_doc(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
 ) -> Result<Json<()>, DocProblem> {
-    let path = doc_file(&id)?;
-    let opened = if user_doc::doc_kind(&path) == Some(user_doc::DocKind::Html) {
-        open::open(&path)
-    } else {
-        open::open_url(&format!("http://127.0.0.1:{}/api/docs/{id}/", app.port))
-    };
-    opened.map_err(internal)?;
+    doc_file(&id)?;
+    open::open_url(&format!("http://127.0.0.1:{}/api/docs/{id}/", app.port)).map_err(internal)?;
     Ok(Json(()))
 }
 
@@ -1875,17 +1870,17 @@ async fn doc(
     Path(id): Path<String>,
     request: axum::extract::Request,
 ) -> Result<Response, DocProblem> {
-    let path = doc_file(&id)?;
-    Ok(serve_file(&path, request).await?)
+    let doc = doc_file(&id)?;
+    Ok(serve_file(&doc.path, request).await?)
 }
 
-/// 문서와 같은 폴더의 파일(목업의 그림). 폴더 밖(`..`, 절대 경로, 밖을 가리키는 링크)은 내지 않는다.
+/// 문서와 같은 폴더의 파일(목업의 그림). 목업과 사본만 있다(`user_doc::DocFile::folder`). 폴더 밖(`..`, 절대 경로, 밖을 가리키는 링크)은 내지 않는다.
 async fn doc_sibling(
     Path((id, file)): Path<(String, String)>,
     request: axum::extract::Request,
 ) -> Result<Response, DocProblem> {
     let doc = doc_file(&id)?;
-    match doc.parent().and_then(|dir| passes::inside(dir, &file)) {
+    match doc.folder.and_then(|dir| passes::inside(&dir, &file)) {
         Some(path) => Ok(serve_file(&path, request).await?),
         None => Ok(StatusCode::NOT_FOUND.into_response()),
     }
@@ -1917,7 +1912,7 @@ impl IntoResponse for DocProblem {
     }
 }
 
-fn doc_file(id: &str) -> Result<std::path::PathBuf, DocProblem> {
+fn doc_file(id: &str) -> Result<user_doc::DocFile, DocProblem> {
     user_doc::doc_file(id).map_err(DocProblem::Missing)
 }
 

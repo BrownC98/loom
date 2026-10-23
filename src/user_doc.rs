@@ -93,8 +93,17 @@ fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
 /// 문서 ID의 파일. 원본이 있으면 원본이다(고친 새 판이 보인다). 원본이 지워졌으면(병합 뒤 지운 워크트리의 목업) 붙일 때 남긴 사본(`keep`)이다.
 /// 대기가 닫힌 뒤에도 연다. 근거: 2026-10-23 사람 "왜 내가 목업을 못보나", "클로드 아티팩트처럼 상시 볼 수 있게 하면 안됨/".
 /// 돌려준 파일과 같은 폴더의 파일이 문서 속 상대 주소(옆 그림)다. 사본 폴더에는 그 문서 하나만 있다.
-pub fn doc_file(id: &str) -> Result<PathBuf, String> {
+pub fn doc_file(id: &str) -> Result<DocFile, String> {
     Store::here()?.doc_file(id)
+}
+
+/// `doc_file`이 찾은 문서.
+#[derive(PartialEq, Debug)]
+pub struct DocFile {
+    pub path: PathBuf,
+    /// 문서 속 상대 주소(옆 그림)로 읽어도 되는 폴더. 목업(`docs/mockups` 아래)과 사본은 그 파일의 폴더다.
+    /// 원본 보고서는 없다. 보고서의 폴더(`~/.cache/loom-briefs` 등)에는 다른 지시와 비밀 파일이 있다(2026-10-23 검토 MAJOR).
+    pub folder: Option<PathBuf>,
 }
 
 /// [문서] 탭의 한 줄(목업 docs/mockups/doc-reopen.html M13 ③). 사람은 닫힌 질문의 문서도 이 목록에서 다시 연다.
@@ -125,8 +134,8 @@ pub enum DocGroup {
 }
 
 /// 문서 ID 표의 모든 문서. 최근에 붙인 문서가 위다. 붙인 때를 모르는 문서는 그 뒤에 ID 번호가 큰 것부터 둔다.
-pub fn docs() -> Vec<DocRow> {
-    Store::here().map(|store| store.docs()).unwrap_or_default()
+pub fn docs() -> Result<Vec<DocRow>, String> {
+    Ok(Store::here()?.docs())
 }
 
 /// 문서 ID 표와 사본 폴더의 자리. 시험은 임시 폴더를 쓴다.
@@ -151,31 +160,41 @@ impl Store {
         fs::read_to_string(&self.table).unwrap_or_default()
     }
 
-    fn doc_file(&self, id: &str) -> Result<PathBuf, String> {
+    fn doc_file(&self, id: &str) -> Result<DocFile, String> {
         let source = known_id(id)
             .then(|| self.rows())
             .and_then(|rows| {
-                rows.lines()
-                    .filter_map(|row| row.split_once('\t'))
+                table_rows(&rows)
                     .find(|(_, row_id)| *row_id == id)
                     .map(|(path, _)| PathBuf::from(path))
             })
             .filter(|path| doc_kind(path).is_some())
             .ok_or_else(|| format!("문서 {id}이(가) 없습니다."))?;
         if source.is_file() {
-            return Ok(source);
+            let folder = mockup(&source)
+                .then(|| source.parent().map(Path::to_path_buf))
+                .flatten();
+            return Ok(DocFile {
+                path: source,
+                folder,
+            });
         }
-        self.snapshot(id, &source)
+        let copy = self
+            .snapshot(id, &source)
             .filter(|copy| copy.is_file())
-            .ok_or_else(|| format!("문서 파일이 없습니다. {id}의 원본은 지워졌고, 이 판 전에 붙인 문서라 저장한 판도 없습니다."))
+            .ok_or_else(|| format!("문서 파일이 없습니다. {id}의 원본은 지워졌고, 이 판 전에 붙인 문서라 저장한 판도 없습니다."))?;
+        Ok(DocFile {
+            folder: copy.parent().map(Path::to_path_buf),
+            path: copy,
+        })
     }
 
     fn docs(&self) -> Vec<DocRow> {
-        let mut docs: Vec<DocRow> = self
-            .rows()
-            .lines()
-            .filter_map(|row| row.split_once('\t'))
-            .filter(|(_, id)| known_id(id))
+        let rows = self.rows();
+        let mut seen = std::collections::HashSet::new();
+        // 잠금 전에 겹친 ID는 첫 줄만 둔다. `doc_file`도 첫 줄을 연다.
+        let mut docs: Vec<DocRow> = table_rows(&rows)
+            .filter(|(_, id)| seen.insert(*id))
             .map(|(path, id)| self.row(id, Path::new(path)))
             .collect();
         docs.sort_by_key(|d| std::cmp::Reverse((d.attached_at, number(&d.id))));
@@ -223,10 +242,16 @@ impl Store {
         let copy = self
             .snapshot(id, source)
             .ok_or_else(|| format!("{}: 파일 이름이 없다", source.display()))?;
-        if let Some(dir) = copy.parent() {
-            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let dir = copy.parent().unwrap_or(&self.copies);
+        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        // 새 판을 옆 임시 파일에 다 쓴 뒤 바꿔 끼운다. 쓰다 실패하면 옛 사본이 그대로 남는다(2026-10-23 검토).
+        // 이름은 붙일 때마다 다르다. 같은 문서를 동시에 붙여도 서로의 임시 파일을 덮지 않는다.
+        let next = dir.join(format!(".{}.tmp", crate::devices::random_token()));
+        let written = fs::write(&next, text).and_then(|()| fs::rename(&next, &copy));
+        if written.is_err() {
+            let _ = fs::remove_file(&next);
         }
-        fs::write(&copy, text).map_err(|e| format!("{}: {e}", copy.display()))
+        written.map_err(|e| format!("{}: {e}", copy.display()))
     }
 
     /// `<데이터 폴더>/docs/<ID>/<원본 파일 이름>`. 이름이 같아 형식(`doc_kind`)도 같다.
@@ -241,6 +266,18 @@ impl Store {
         if let Some(dir) = table.parent() {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
+        // 읽기·찾기·더하기를 한 잠금 안에서 한다. 잠그지 않으면 동시에 붙인 문서가 같은 ID를 받고 줄이 섞였다(2026-10-23 검토: `loom show` 48개 동시 실행에 ID 38개, 깨진 줄 8개).
+        // 잠금은 옆 파일에 건다. Windows 잠금은 강제라서 표 자체를 잠그면 그동안 `doc_file`이 표를 읽지 못한다.
+        let lock = table.with_extension("tsv.lock");
+        let guard = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock)
+            .map_err(|e| format!("{}: {e}", lock.display()))?;
+        guard
+            .lock()
+            .map_err(|e| format!("{}: {e}", lock.display()))?;
         let rows = self.rows();
         let key = doc.to_string_lossy();
         let (id, new) = lookup(&rows, &key, mockup(doc));
@@ -250,7 +287,9 @@ impl Store {
                 .append(true)
                 .open(table)
                 .map_err(|e| format!("{}: {e}", table.display()))?;
-            writeln!(file, "{key}\t{id}").map_err(|e| e.to_string())?;
+            // 한 줄을 쓰기 한 번에 쓴다.
+            file.write_all(format!("{key}\t{id}\n").as_bytes())
+                .map_err(|e| e.to_string())?;
         }
         Ok(id)
     }
@@ -439,14 +478,26 @@ fn mockup(doc: &Path) -> bool {
 }
 
 /// 표에 있는 ID를 돌려준다. 없으면 같은 종류의 다음 번호를 만들고 `true`를 같이 준다.
+/// 새 번호는 그 종류의 가장 큰 번호 다음이다. 잠금 전에 깨진 표(섞인 줄, 겹친 ID)에서도 겹치지 않는다.
 fn lookup(rows: &str, key: &str, mockup: bool) -> (String, bool) {
-    let rows = rows.lines().filter_map(|row| row.split_once('\t'));
+    let rows = table_rows(rows);
     if let Some((_, id)) = rows.clone().find(|(path, _)| *path == key) {
         return (id.to_string(), false);
     }
     let kind = if mockup { 'M' } else { 'R' };
-    let used = rows.filter(|(_, id)| id.starts_with(kind)).count();
-    (format!("{kind}{}", used + 1), true)
+    let last = rows
+        .filter(|(_, id)| id.starts_with(kind))
+        .map(|(_, id)| number(id))
+        .max()
+        .unwrap_or(0);
+    (format!("{kind}{}", last + 1), true)
+}
+
+/// 표의 (경로, ID) 줄. ID 꼴이 아닌 줄(잠금 전에 섞인 줄)은 건너뛴다.
+fn table_rows(rows: &str) -> impl Iterator<Item = (&str, &str)> + Clone {
+    rows.lines()
+        .filter_map(|row| row.split_once('\t'))
+        .filter(|(path, id)| !path.is_empty() && known_id(id))
 }
 
 /// 머리 줄 맨 앞과 `<title>` 앞에 ID를 붙인다. 이미 붙어 있으면 바꾸고, 제목에는 한 번만 붙인다.
@@ -603,6 +654,46 @@ mod tests {
         assert_eq!(lookup(rows, "/b/y.html", true), ("R1".into(), false));
         assert_eq!(lookup(rows, "/d/n.html", true), ("M3".into(), true));
         assert_eq!(lookup(rows, "/d/n.html", false), ("R2".into(), true));
+        // 잠금 전에 깨진 표: 섞인 줄은 건너뛰고, 새 번호는 가장 큰 번호 다음이다.
+        let broken = "/a\tR1\n/b\tR3/c\tR2\n/d\tR3\n/e\tR3\n\tR9\n";
+        assert_eq!(lookup(broken, "/x", false), ("R4".into(), true));
+        assert_eq!(lookup(broken, "/d", false), ("R3".into(), false));
+    }
+
+    /// 여러 스레드가 동시에 붙여도 ID가 겹치지 않고 줄이 깨지지 않는다.
+    #[test]
+    fn concurrent_registration_gives_unique_ids_and_whole_rows() {
+        let home = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Store {
+            table: home.path().join("ids.tsv"),
+            copies: home.path().join("copies"),
+        });
+        let start = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let threads: Vec<_> = (0..16)
+            .map(|t| {
+                let (store, start) = (store.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    (0..30)
+                        .map(|i| {
+                            store
+                                .doc_id(Path::new(&format!("/r/report-{t}-{i}.md")))
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut ids: Vec<String> = threads
+            .into_iter()
+            .flat_map(|t| t.join().unwrap())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 480);
+        let rows = fs::read_to_string(&store.table).unwrap();
+        assert_eq!(rows.lines().count(), 480);
+        assert_eq!(table_rows(&rows).count(), 480);
     }
 
     #[test]
@@ -651,12 +742,26 @@ mod tests {
         let r = attach_in(&store, &report).unwrap().id;
         assert_eq!((old.as_str(), m.as_str(), r.as_str()), ("R1", "M1", "R2"));
 
-        // 원본이 있으면 원본을 낸다(새 판이 보인다).
+        // 원본이 있으면 원본을 낸다(새 판이 보인다). 원본 보고서는 옆 파일을 내지 않는다. 원본 목업은 그 폴더다.
         fs::write(&report, "# 감사 2\n").unwrap();
-        assert_eq!(store.doc_file(&r), Ok(real_path(&report).unwrap()));
+        assert_eq!(
+            store.doc_file(&r),
+            Ok(DocFile {
+                path: real_path(&report).unwrap(),
+                folder: None
+            })
+        );
+        let real_mock = real_path(&mock).unwrap();
+        assert_eq!(
+            store.doc_file(&m).unwrap().folder.as_deref(),
+            real_mock.parent()
+        );
         // 원본이 지워지면 붙인 판의 사본을 낸다. 사본 폴더에는 그 문서 하나만 있다.
         fs::remove_file(&mock).unwrap();
-        let copy = store.doc_file(&m).unwrap();
+        let DocFile { path: copy, folder } = store.doc_file(&m).unwrap();
+        assert_eq!(folder.as_deref(), copy.parent());
+        // 사본은 임시 파일에 쓴 뒤 바꿔 끼운다. 폴더에는 그 문서 하나만 남는다.
+        assert_eq!(fs::read_dir(copy.parent().unwrap()).unwrap().count(), 1);
         assert!(
             copy.starts_with(home.path().join("copies").join("M1")),
             "{}",

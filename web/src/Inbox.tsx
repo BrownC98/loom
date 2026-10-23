@@ -302,6 +302,8 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   const done = wait.kind === 'done';
   const qid = done ? t('wait.done') : `Q${wait.id}`;
   const [refusal, setRefusal] = useState<string | null>(null);
+  // 보낸 선택의 답이 오기 전에는 다른 선택지를 막는다. 두 번 치지 않는 것은 데몬이 지킨다(`choose`). 이것은 두 번 누르기만 막는다.
+  const [choosing, setChoosing] = useState(false);
   const images = useImages(props.node, setRefusal);
   const [dragging, setDragging] = useState(false);
   const send = (text: string) => {
@@ -347,9 +349,13 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       {prompt && (
         <PromptBody
           prompt={prompt}
+          choosing={choosing}
           onPick={(option) => {
             setRefusal(null);
-            chooseOption(wait.id, prompt, option).catch((err: Error) => setRefusal(err.message));
+            setChoosing(true);
+            chooseOption(wait.id, prompt, option)
+              .catch((err: Error) => setRefusal(err.message))
+              .finally(() => setChoosing(false));
           }}
         />
       )}
@@ -477,13 +483,13 @@ function useImages(node: NodeId, onError: (message: string) => void) {
 
 /** 표준 꼴 질문의 선택지 버튼. 누르면 그 글자(`A`)를 바로 답으로 보낸다. 권장안은 표시한다. */
 /** 승인 창 본문(터미널 글 그대로)과 선택지. 선택지는 한 줄에 하나, 키 칸은 터미널에서 누르는 키다. 첫 선택지는 터미널의 기본 선택이라 주황 테두리다(목업 M11). */
-function PromptBody(props: { prompt: Prompt; onPick: (option: number) => void }) {
+function PromptBody(props: { prompt: Prompt; choosing: boolean; onPick: (option: number) => void }) {
   return (
     <>
       <pre className="prompt">{props.prompt.body.join('\n')}</pre>
       <div className="choices prompt-options">
         {props.prompt.options.map((o, index) => (
-          <button key={index} type="button" className="choice" data-recommended={index === 0 || undefined} onClick={() => props.onPick(index)}>
+          <button key={index} type="button" className="choice" data-recommended={index === 0 || undefined} disabled={props.choosing} onClick={() => props.onPick(index)}>
             <span className="key">{keyLabel(o.key)}</span>
             <span className="label">{o.label}</span>
           </button>

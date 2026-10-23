@@ -120,6 +120,7 @@ pub fn prompt(grammar: &Grammar, screen: &str, width: usize) -> Option<Prompt> {
     let mut options: Vec<(PromptOption, bool)> = Vec::new();
     let mut indent = 0;
     let mut previous = "";
+    let mut end = first;
     for &line in &lines[first..] {
         if let Some((parsed, selected)) = option(&grammar.options, line) {
             if let Options::Numbered = grammar.options
@@ -138,45 +139,14 @@ pub fn prompt(grammar: &Grammar, screen: &str, width: usize) -> Option<Prompt> {
             break;
         }
         previous = line;
+        end += 1;
     }
     if options.len() < 2 || options.iter().filter(|(_, s)| *s).count() != 1 {
         return None;
     }
-    // CLI가 폭에 맞춰 넘긴 줄을 앞 줄에 잇는다(80칸 화면의 Claude 「Tip:」 줄, Codex 「Reason:」 줄 실측).
-    let mut joined: Vec<String> = Vec::new();
-    let mut previous = "";
-    for &line in &lines[top..first] {
-        match (wrapped(previous, line, width), joined.last_mut()) {
-            (Some(joint), Some(last)) => *last = format!("{last}{joint}{}", line.trim()),
-            _ => joined.push(line.to_owned()),
-        }
-        previous = line;
-    }
-    let mut separated = false;
-    let mut body = Vec::new();
-    let mut summary = None;
-    // Claude는 여러 줄 명령을 `│ ` 칸에 그린다(2.1.309, loom guard 줄이 붙은 명령 실측).
-    for line in joined
-        .iter()
-        .map(|l| l.trim().trim_start_matches('│').trim())
-    {
-        if line.is_empty()
-            || line.starts_with("Tip:")
-            || Some(line.trim_start_matches('$').trim()) == grammar.guard
-        {
-            continue;
-        }
-        if is_rule(line) {
-            separated = true;
-            continue;
-        }
-        // 명령 줄: `$ `로 시작하거나(Codex, Cursor) 점선 사이에 있다(Claude).
-        if summary.is_none() && (separated || line.starts_with('$')) {
-            summary = Some(line.to_owned());
-        }
-        body.push(line.to_owned());
-    }
+    let (body, summary) = body(grammar, &lines[top..first], width);
     Some(Prompt {
+        rows: lines[top..end].iter().map(|&l| l.to_owned()).collect(),
         summary: summary.or_else(|| body.first().cloned())?,
         body,
         options: options
@@ -191,6 +161,93 @@ pub fn prompt(grammar: &Grammar, screen: &str, width: usize) -> Option<Prompt> {
             })
             .collect(),
     })
+}
+
+/// 창 본문 줄과 명령 한 줄. 줄은 자리로 나눈다: 명령 앞 머리(CLI 안내), 명령 칸, 명령 뒤.
+/// 명령 칸은 Claude의 두 점선 사이이거나(2.1.309), `$ `로 시작해 빈 줄까지다(Codex 0.159.2, Cursor 2026.10.22).
+/// 명령 줄은 창 여백, Claude의 `│ ` 칸, `$ ` 뒤 맞춤 들여쓰기만 빼고 그대로 둔다. 「Tip:」 안내는 머리에서만 뺀다.
+/// 머리와 뒤의 줄은 다듬고, CLI가 폭에 맞춰 넘긴 줄을 앞 줄에 잇는다(80칸 화면의 Claude 「Tip:」 줄, Codex 「Reason:」 줄 실측).
+fn body(grammar: &Grammar, lines: &[&str], width: usize) -> (Vec<String>, Option<String>) {
+    // 점선은 창 왼쪽 끝부터 그린다(Claude 2.1.309).
+    let margin = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty() && !is_rule(l))
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    let mut area = Area::Head;
+    let mut rows: Vec<(Area, String)> = Vec::new();
+    let mut previous = "";
+    for &line in lines {
+        let spaces = line.len() - line.trim_start_matches(' ').len();
+        let text = line[spaces.min(margin)..].trim_end();
+        let rule = is_rule(text);
+        let next = match area {
+            Area::Head if rule => Some(Area::Command {
+                ruled: true,
+                hang: 0,
+            }),
+            Area::Head if text.starts_with('$') => Some(Area::Command {
+                ruled: false,
+                hang: 0,
+            }),
+            Area::Command { ruled: true, .. } if rule => Some(Area::Tail),
+            Area::Command { ruled: false, .. } if text.is_empty() => Some(Area::Tail),
+            _ => None,
+        };
+        if let Some(next) = next {
+            area = next;
+            previous = "";
+            if rule {
+                continue;
+            }
+        }
+        if let Area::Command { hang, .. } = &mut area {
+            // Claude는 여러 줄 명령을 `│ ` 칸에 그린다(2.1.309, loom guard 줄이 붙은 명령 실측).
+            let code = text
+                .strip_prefix('│')
+                .map_or(text, |rest| rest.strip_prefix(' ').unwrap_or(rest));
+            let code = if let Some(command) = code.strip_prefix('$') {
+                // Cursor는 이어지는 명령 줄을 `$` 뒤 글에 맞춰 들여 쓴다(2026.10.22 실측).
+                *hang = code.len() - command.trim_start().len();
+                code
+            } else {
+                code.strip_prefix(&*" ".repeat(*hang)).unwrap_or(code)
+            };
+            if Some(code.trim_start_matches('$').trim()) != grammar.guard {
+                rows.push((area, code.to_owned()));
+            }
+        } else if text.is_empty() || rule {
+            previous = "";
+        } else {
+            match (wrapped(previous, line, width), rows.last_mut()) {
+                (Some(joint), Some((_, last))) => *last = format!("{last}{joint}{}", text.trim()),
+                _ => rows.push((area, text.trim().to_owned())),
+            }
+            previous = line;
+        }
+    }
+    let summary = rows
+        .iter()
+        .find(|(area, row)| matches!(area, Area::Command { .. }) && !row.trim().is_empty())
+        .map(|(_, row)| row.clone());
+    let body = rows
+        .into_iter()
+        .filter(|(area, row)| !(*area == Area::Head && row.starts_with("Tip:")))
+        .map(|(_, row)| row)
+        .collect();
+    (body, summary)
+}
+
+/// 승인 창 본문 줄의 자리.
+#[derive(Clone, Copy, PartialEq)]
+enum Area {
+    /// 명령 앞의 CLI 안내(도구 이름, 「Tip:」, 이유).
+    Head,
+    /// 명령 칸. `ruled`면 점선이 닫는다(Claude). 아니면 빈 줄이 닫는다. `hang`은 `$` 줄에 이어지는 줄의 맞춤 들여쓰기다.
+    Command { ruled: bool, hang: usize },
+    /// 명령 뒤(「Do you want to proceed?」).
+    Tail,
 }
 
 /// 선택지 줄 하나와 그 줄이 고른 줄인지.
@@ -262,9 +319,10 @@ fn wrapped(previous: &str, line: &str, width: usize) -> Option<&'static str> {
     }
 }
 
-/// 칸을 나누는 줄(`╌`, `─`).
+/// 칸을 나누는 줄(`╌`, `─`). Claude 명령 칸의 빈 줄(`│`)은 아니다.
 fn is_rule(line: &str) -> bool {
-    line.trim().chars().all(|c| matches!(c, '╌' | '─' | '│'))
+    let line = line.trim();
+    !line.is_empty() && line.chars().all(|c| matches!(c, '╌' | '─'))
 }
 
 fn digit(n: usize) -> Option<char> {

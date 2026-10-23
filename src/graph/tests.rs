@@ -264,6 +264,7 @@ fn screen_prompt_joins_only_the_approval_wait_in_either_order() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "claude");
     let prompt = Prompt {
+        rows: vec!["Bash command".into()],
         body: vec!["Bash command".into(), "git push".into()],
         summary: "git push".into(),
         options: vec![PromptOption {

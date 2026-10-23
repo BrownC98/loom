@@ -7,7 +7,11 @@ import type { PromptOption } from "./PromptOption";
  */
 export type Prompt = { 
 /**
- * 창 본문(도구, 명령, 이유) 줄들. 터미널 글 그대로다.
+ * 창 위부터 마지막 선택지까지 화면 줄 그대로. 같은 창인지는 이 줄들이 정한다. `body`는 보기 좋게 다듬은 글이라 다른 명령이 같은 글이 될 수 있다(2026-10-23 리뷰: 명령 줄 「Tip:; touch one」).
+ */
+rows: Array<string>, 
+/**
+ * 창 본문(도구, 명령, 이유) 줄들. 명령 줄은 앞 공백까지 터미널 글 그대로다.
  */
 body: Array<string>, 
 /**

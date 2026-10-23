@@ -486,6 +486,42 @@ mod tests {
         );
     }
 
+    /// 명령 칸의 줄은 「Tip:」으로 시작해도, 따옴표 안 여러 줄이어도, 앞 공백이 뜻을 가져도 그대로 보인다(2026-10-23 리뷰).
+    /// 그 줄만 바뀌어도 다른 창이다.
+    #[test]
+    fn command_rows_stay_whole_and_decide_the_identity() {
+        let screen = |tail: &str| {
+            APPROVAL.replace(
+                " touch zz_file\n╌",
+                &format!(
+                    " │ echo ready\n │ Tip:; touch {tail}\n │ printf 'a\n │   b'\n │ cat <<EOF\n │ \tkeep\n │   indented\n │ EOF\n╌"
+                ),
+            )
+        };
+        let one = crate::screen::prompt(&PROMPT, &screen("one"), 120).unwrap();
+        assert_eq!(
+            one.body,
+            [
+                "Bash command",
+                "Create empty file zz_file",
+                "echo ready",
+                "Tip:; touch one",
+                "printf 'a",
+                "  b'",
+                "cat <<EOF",
+                "\tkeep",
+                "  indented",
+                "EOF",
+                "Do you want to proceed?"
+            ]
+        );
+        assert_eq!(one.summary, "echo ready");
+        let two = crate::screen::prompt(&PROMPT, &screen("two"), 120).unwrap();
+        assert_ne!(one, two);
+        let spaced = screen("one").replace(" │   indented", " │    indented");
+        assert_ne!(one, crate::screen::prompt(&PROMPT, &spaced, 120).unwrap());
+    }
+
     /// 답한 뒤의 화면과 에이전트가 쓴 번호 목록은 승인 창이 아니다.
     #[test]
     fn numbered_lists_without_a_selection_are_not_prompts() {

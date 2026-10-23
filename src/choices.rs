@@ -34,7 +34,7 @@ pub fn offers_choices_without_tail(question: &str) -> bool {
         Some((_, tail)) => tail == Tail::Mixed,
         None => {
             !question.trim().is_empty()
-                && (mentions_recommendation(question) || label_letters(question) >= 2)
+                && (label_letters(question) >= 2 || recommendation_near_letter(question))
         }
     }
 }
@@ -43,7 +43,31 @@ fn mentions_recommendation(text: &str) -> bool {
     text.contains("권장") || text.to_lowercase().contains("recommend")
 }
 
-/// 낱말 밖에 선 대문자 한 글자 `A:` `A,` `A)`의 서로 다른 글자 수. `C:\`는 경로라 뺀다.
+/// 「권장」 낱말 가까이(앞뒤 8글자)에 선택지 글자가 서 있으면 참이다: `(A, 권장)`, `권장 A`. 「권장 설정」 같은 보통 글은 거짓이다.
+fn recommendation_near_letter(text: &str) -> bool {
+    let chars: Vec<char> = text.to_lowercase().chars().collect();
+    let original: Vec<char> = text.chars().collect();
+    let word_at = |i: usize, word: &str| {
+        chars[i..]
+            .iter()
+            .zip(word.chars())
+            .filter(|(a, b)| *a == b)
+            .count()
+            == word.chars().count()
+    };
+    (0..chars.len())
+        .filter(|&i| word_at(i, "권장") || word_at(i, "recommend"))
+        .any(|i| {
+            let (from, to) = (i.saturating_sub(8), (i + 8).min(original.len()));
+            (from..to).any(|j| {
+                original[j].is_ascii_uppercase()
+                    && (j == 0 || !original[j - 1].is_alphanumeric())
+                    && original.get(j + 1).is_none_or(|n| !n.is_alphanumeric())
+            })
+        })
+}
+
+/// 낱말 밖에 선 대문자 한 글자 `A:`의 서로 다른 글자 수. `C:\`는 경로라 뺀다.
 fn label_letters(text: &str) -> usize {
     let chars: Vec<char> = text.chars().collect();
     let mut seen = Vec::new();
@@ -51,7 +75,7 @@ fn label_letters(text: &str) -> usize {
         let alone = c.is_ascii_uppercase() && (i == 0 || !chars[i - 1].is_alphanumeric());
         let marked = match (chars.get(i + 1), chars.get(i + 2)) {
             (Some(':'), Some('\\' | '/')) => false,
-            (Some(':' | ',' | ')'), _) => true,
+            (Some(':'), _) => true,
             _ => false,
         };
         if alone && marked && !seen.contains(&c) {
@@ -67,7 +91,7 @@ fn option_key(part: &str) -> Option<char> {
     let mut chars = part.chars();
     let key = chars.next().filter(char::is_ascii_uppercase)?;
     let label = chars.as_str().strip_prefix(':')?;
-    (!label.trim().is_empty()).then_some(key)
+    (!label.trim().is_empty() && !label.contains('\n')).then_some(key)
 }
 
 /// `<낱말>: A` 꼴인 끝 조각. 「권장」 낱말은 사람의 언어라 무엇이든 받는다.
@@ -154,6 +178,11 @@ mod tests {
             "지울까요? (A: 지금 / B: 나중)",
             "배포할까요?",
             "이 방식으로 계속할까요? 아니면 멈출까요",
+            "권장 설정으로 설치할까요?",
+            "권장안대로 진행할까요?",
+            "Apply the recommended settings?",
+            "[권장안 보고서](loom:doc)를 승인할까요?",
+            "A, B, C 노드를 지울까요?",
             "C:\\temp 폴더를 지워도 될까요?",
         ] {
             assert!(!offers_choices_without_tail(ok), "{ok}");
@@ -166,7 +195,8 @@ mod tests {
             "정확도를 잰다(A, 권장) / 다시 학습한다(B)",
             "어느 쪽으로 할까요? A: 지금 B: 나중",
             "어느 쪽으로 할까요? (A: 지금 / B: 나중, 권장 A)",
-            "이쪽이 권장입니다. 계속할까요?",
+            "잰다(A, 권장) / 다시 학습한다(B)",
+            "Pick? (A: x\ny / B: z)",
             "Pick one (A: now / B: later) please",
             "Which? (A: now / B: later, Recommended is A)",
         ] {

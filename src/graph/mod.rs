@@ -27,8 +27,8 @@ pub use gate::{Ended, GateChoice, MergeTask, Round};
 pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
-    Attached, HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId,
-    WaitKind, WaitSource,
+    HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId, WaitKind,
+    WaitSource,
 };
 
 use crate::db::Database;
@@ -667,11 +667,7 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
     let done: String = row.get(12)?;
     let asked: String = row.get(13)?;
     // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
-    let mut waits: Vec<HumanWait> = serde_json::from_str::<Vec<waits::Posted>>(&asked)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|q| q.wait)
-        .collect();
+    let mut waits: Vec<HumanWait> = serde_json::from_str(&asked).unwrap_or_default();
     waits.sort_by_key(|w| w.id.0);
     waits.extend(
         wait.and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())

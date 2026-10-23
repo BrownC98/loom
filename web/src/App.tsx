@@ -2,9 +2,10 @@ import { PanelLeftClose, PanelLeftOpen, Search, Settings as SettingsIcon } from 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useTranslation } from 'react-i18next';
-import { getAccounts, getAgents, getMovableNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
+import { getAccounts, getAgents, getCursorUsage, getMovableNodes, getRepos, moveNodes, getDefaultSettings, getSettings, putSettings, newBuildServed, shutdown, watchGraph } from './api';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
+import type { CursorView } from './gen/CursorView';
 import type { AgentView } from './gen/AgentView';
 import { CommitGraph } from './CommitGraph';
 import { DocList } from './DocList';
@@ -179,6 +180,7 @@ export function App() {
   const updates = useUpdates(viewVersion);
   const repo = chosenRepo(repos, settings.repo);
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
+  const [cursor, setCursor] = useState<CursorView[] | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [settingsTab, setSettingsTab] = useSettingsTab();
@@ -303,7 +305,10 @@ export function App() {
   const refreshUsage = useCallback(async () => {
     setLoading(true);
     try {
-      setAccounts(await getAccounts());
+      // Cursor를 읽지 못해도 Claude·Codex는 보인다.
+      const [read, cursorRead] = await Promise.all([getAccounts(), getCursorUsage().catch(() => [])]);
+      setAccounts(read);
+      setCursor(cursorRead);
       setFetchedAt(Date.now());
     } finally {
       setLoading(false);
@@ -350,7 +355,7 @@ export function App() {
     const a = own.find((x) => x.id === s.to);
     return a ? accountName(a) : t('usage.systemDefault');
   };
-  const usage: Usage = { accounts, fetchedAt, loading, refresh: refreshUsage };
+  const usage: Usage = { accounts, cursor, fetchedAt, loading, refresh: refreshUsage };
   /** 심플 보기에서는 노드를 고를 때 오른쪽 사이드바를 펴고 그 터미널 탭을 연다. 카드에는 터미널이 없다. */
   const chooseBox = (key: string | null) => {
     setChosenBox(key);

@@ -331,6 +331,7 @@ mod tests {
                 resets_at: Some(1000),
             }),
             models: Vec::new(),
+            plan: None,
         }
     }
 

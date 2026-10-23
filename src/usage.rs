@@ -1,6 +1,7 @@
 //! 사용량: 계정마다 5시간·주간 창의 사용한 비율을 CLI와 같은 출처에서 읽는다. Orca와 같은 출처다.
-//! Claude는 로그인 폴더의 OAuth 토큰으로 `api/oauth/usage`를, Codex는 `codex app-server`를 부른다.
-//! 바뀌는 이유는 두 CLI와 그 API다. 막는 호출이므로 데몬은 `spawn_blocking`에서 부른다.
+//! Claude는 로그인 폴더의 OAuth 토큰으로 `api/oauth/usage`를, Codex는 `codex app-server`를,
+//! Cursor는 CLI 로그인 토큰으로 대시보드의 `api/usage-summary`를 부른다.
+//! 바뀌는 이유는 세 CLI와 그 API다. 막는 호출이므로 데몬은 `spawn_blocking`에서 부른다.
 //! 근거: docs/design.md 「계정과 사용량」.
 
 use std::io::{BufRead, BufReader, Write};
@@ -9,6 +10,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -23,6 +25,19 @@ const SESSION_WINDOW_MAX_MINS: u64 = 300;
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 /// Orca가 보내는 값과 같다. 기본 User-Agent(`ureq/…`)는 429를 받았다(2026-10-20, docs/design.md 「실측 근거」).
 const CLAUDE_USER_AGENT: &str = "claude-code/2.1.0";
+const CURSOR_ORIGIN: &str = "https://cursor.com";
+const CURSOR_USAGE_URL: &str = "https://cursor.com/api/usage-summary";
+const CURSOR_COMMAND: &str = "cursor-agent";
+/// 쿠키의 사용자 이름에서 그대로 두는 글자. 브라우저 `encodeURIComponent`처럼 `|`를 `%7C`로 쓴다(Orca와 같다).
+const COOKIE_KEEPS: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');
+/// Cursor 묶음 이름. Orca(`shared/cursor-usage-buckets.ts`)와 같은 글자이고 번역하지 않는다(M18 v2, Q666 A).
+const CURSOR_MODELS: &str = "Cursor Models";
+const CURSOR_OTHER_MODELS: &str = "Other Models";
+const CURSOR_ON_DEMAND: &str = "On-demand";
 
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -35,7 +50,7 @@ pub struct Window {
     pub resets_at: Option<i64>,
 }
 
-/// 모델 하나에만 걸린 주간 창. 예: Claude 「Fable」.
+/// 모델 하나나 모델 묶음에만 걸린 창. 예: Claude 「Fable」(주간), Cursor 「Cursor Models」(결제 주기).
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -53,6 +68,8 @@ pub enum Limits {
         session: Option<Window>,
         weekly: Option<Window>,
         models: Vec<ModelWindow>,
+        /// 결제 주기 동안 포함 사용량 전체. Cursor만 준다.
+        plan: Option<Window>,
     },
     /// 로그인하지 않았거나 로그인이 끝났다.
     NeedsLogin,
@@ -78,8 +95,8 @@ pub enum UsageProblem {
     LoginNotSupported,
     /// 사용량 API가 알 수 없는 형식을 냈다.
     ResponseFormat,
-    /// OAuth 토큰이 만료됐다. 그 계정으로 CLI를 한 번 실행하면 갱신된다.
-    TokenExpired,
+    /// 로그인 토큰이 만료됐다. 그 계정으로 CLI를 한 번 실행하면 갱신된다. 값은 에이전트 이름이다.
+    TokenExpired(String),
     /// 네트워크 오류 같은 그 밖의 실패. 값은 원인 글이다.
     Unavailable(String),
 }
@@ -198,10 +215,11 @@ fn claude_limits(config_dir: &Path) -> Limits {
                     &body["seven_day"]["resets_at"],
                 ),
                 models: claude_models(&body["limits"]),
+                plan: None,
             },
             Err(_) => failed(UsageProblem::ResponseFormat),
         },
-        Err(ureq::Error::StatusCode(401)) => failed(UsageProblem::TokenExpired),
+        Err(ureq::Error::StatusCode(401)) => failed(UsageProblem::TokenExpired("Claude".into())),
         Err(e) => failed(UsageProblem::Unavailable(e.to_string())),
     }
 }
@@ -283,6 +301,7 @@ fn codex_limits(rate_limits: &Value) -> Limits {
         session,
         weekly,
         models: Vec::new(),
+        plan: None,
     }
 }
 
@@ -341,6 +360,150 @@ fn exchange(child: &mut std::process::Child) -> Result<[Value; 2], UsageProblem>
         pending -= 1;
     }
     Ok(replies)
+}
+
+/// `site`의 Cursor CLI 로그인을 읽는다. loom은 Cursor 계정을 따로 두지 않는다. 토큰은 읽기만 하고 갱신하지 않는다.
+/// 이메일은 `~/.cursor/cli-config.json`의 `authInfo`, 토큰은 `~/.config/cursor/auth.json`이다(cursor-agent 2026.10.22 Linux 실측).
+pub fn probe_cursor(site: &Site) -> Usage {
+    if !site.installed(CURSOR_COMMAND) {
+        return Usage::failed(UsageProblem::NotInstalled(CURSOR_COMMAND.into()));
+    }
+    let read = |rel: &str| {
+        site.home_file(rel)
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+    };
+    let email = read(".cursor/cli-config.json")
+        .and_then(|v| v["authInfo"]["email"].as_str().map(str::to_owned));
+    let token = read(".config/cursor/auth.json")
+        .and_then(|v| v["accessToken"].as_str().and_then(CursorToken::parse));
+    let limits = match token {
+        Some(token) => cursor_limits(&token),
+        // macOS CLI는 토큰을 키체인에 둔다. loom은 키체인을 읽지 않는다(docs/design.md 「계정과 사용량」).
+        None if email.is_some() => failed(UsageProblem::LoginNotSupported),
+        None => Limits::NeedsLogin,
+    };
+    Usage {
+        email,
+        plan: None,
+        limits,
+    }
+}
+
+struct CursorToken {
+    raw: String,
+    /// WorkOS 사용자(`auth0|user_…`). 대시보드 세션 쿠키의 앞 절반이다.
+    subject: String,
+    expires_at: Option<i64>,
+}
+
+impl CursorToken {
+    /// JWT 본문의 `sub`·`exp`만 읽는다. 서명은 Cursor 서버가 본다.
+    fn parse(raw: &str) -> Option<Self> {
+        use base64::Engine;
+        let body = raw.split('.').nth(1)?;
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(body.trim_end_matches('='))
+            .ok()?;
+        let claims: Value = serde_json::from_slice(&bytes).ok()?;
+        Some(Self {
+            raw: raw.to_owned(),
+            subject: claims["sub"].as_str().filter(|s| !s.is_empty())?.to_owned(),
+            expires_at: claims["exp"].as_i64(),
+        })
+    }
+
+    /// 대시보드가 보내는 쿠키: `<subject>::<jwt>`, URL 이스케이프. Orca `cursor-session-token.ts`와 같다.
+    fn cookie(&self) -> String {
+        let subject = utf8_percent_encode(&self.subject, COOKIE_KEEPS);
+        format!("WorkosCursorSessionToken={subject}%3A%3A{}", self.raw)
+    }
+}
+
+fn cursor_limits(token: &CursorToken) -> Limits {
+    let expired = || failed(UsageProblem::TokenExpired("Cursor".into()));
+    if token
+        .expires_at
+        .is_some_and(|exp| exp <= jiff::Timestamp::now().as_second())
+    {
+        return expired();
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(PROBE_TIMEOUT))
+        .build()
+        .into();
+    // 대시보드 라우트는 Origin·Referer가 없으면 유효한 쿠키에도 403을 준다(Orca `cursor-fetcher.ts`).
+    let response = agent
+        .get(CURSOR_USAGE_URL)
+        .header("Cookie", token.cookie())
+        .header("Accept", "application/json")
+        .header("Origin", CURSOR_ORIGIN)
+        .header("Referer", format!("{CURSOR_ORIGIN}/dashboard"))
+        .call();
+    match response {
+        Ok(mut res) => match res.body_mut().read_json::<Value>() {
+            Ok(body) => cursor_summary(&body),
+            Err(_) => failed(UsageProblem::ResponseFormat),
+        },
+        Err(ureq::Error::StatusCode(401)) => expired(),
+        Err(e) => failed(UsageProblem::Unavailable(e.to_string())),
+    }
+}
+
+/// `api/usage-summary` 본문을 창으로 바꾼다. 고르는 규칙은 Orca `cursor-usage-mapping.ts`와 같다(M18 v2, Q666 A).
+fn cursor_summary(body: &Value) -> Limits {
+    let resets_at = body["billingCycleEnd"]
+        .as_str()
+        .and_then(|s| s.parse::<jiff::Timestamp>().ok())
+        .map(|t| t.as_second());
+    let window = |used: f64| Window {
+        used: percent(used),
+        resets_at,
+    };
+    let usage = &body["individualUsage"];
+    let plan = &usage["plan"];
+    // 팀이 결제하는 계정도 쓰지 않는 0% 묶음을 준다. 꺼진 묶음은 보이지 않는다.
+    let plan_on = plan["enabled"] != false;
+    let mut models = Vec::new();
+    let mut bucket = |name: &str, used: Option<f64>| {
+        if let Some(used) = used {
+            models.push(ModelWindow {
+                model: name.into(),
+                window: window(used),
+            });
+        }
+    };
+    if plan_on {
+        bucket(CURSOR_MODELS, plan["autoPercentUsed"].as_f64());
+        bucket(CURSOR_OTHER_MODELS, plan["apiPercentUsed"].as_f64());
+    }
+    let on_demand = &usage["onDemand"];
+    if on_demand["enabled"] == true {
+        bucket(CURSOR_ON_DEMAND, pool_percent(on_demand));
+    }
+    // 기본 포함량(`used/limit`)은 보너스가 남아도 100%를 보인다. 그래서 `totalPercentUsed`가 먼저다.
+    let plan_window = plan_on
+        .then(|| {
+            plan["totalPercentUsed"]
+                .as_f64()
+                .or_else(|| pool_percent(plan))
+        })
+        .flatten()
+        .map(window);
+    Limits::Ready {
+        session: None,
+        weekly: None,
+        models,
+        plan: plan_window,
+    }
+}
+
+/// 상한이 있으면 `used/limit`, 없으면 서버가 준 비율이다. 둘 다 없으면(상한 없는 추가 사용량) 비율이 없다.
+fn pool_percent(pool: &Value) -> Option<f64> {
+    match (pool["used"].as_f64(), pool["limit"].as_f64()) {
+        (Some(used), Some(limit)) if limit > 0.0 => Some(used / limit * 100.0),
+        _ => pool["totalPercentUsed"].as_f64(),
+    }
 }
 
 fn percent(used_percent: f64) -> u8 {
@@ -429,6 +592,74 @@ mod tests {
         assert_eq!(models[0].window.used, 12);
         assert_eq!(models[0].window.resets_at, Some(1792843200));
         assert!(claude_models(&Value::Null).is_empty());
+    }
+
+    /// 2026-10-23 사람 계정(enterprise, 팀 결제)의 실제 응답이다.
+    #[test]
+    fn cursor_summary_reads_buckets_then_plan() {
+        let limits = cursor_summary(&json!({
+            "billingCycleStart": "2026-10-20T00:25:01.000Z",
+            "billingCycleEnd": "2026-11-20T00:25:01.000Z",
+            "membershipType": "enterprise", "limitType": "team", "isUnlimited": false,
+            "individualUsage": {
+                "plan": {"enabled": true, "used": 2000, "limit": 2000, "remaining": 0,
+                         "autoPercentUsed": 0.10095238095238096, "apiPercentUsed": 21.310000000000002,
+                         "totalPercentUsed": 3.4944},
+                "onDemand": {"enabled": true, "used": 0, "limit": null, "remaining": null}
+            },
+            "teamUsage": {"onDemand": {"enabled": true, "used": 106523, "limit": null}}
+        }));
+        let Limits::Ready {
+            session,
+            weekly,
+            models,
+            plan,
+        } = limits
+        else {
+            panic!("Ready가 아니다");
+        };
+        assert!(session.is_none() && weekly.is_none());
+        let names: Vec<_> = models
+            .iter()
+            .map(|m| (m.model.as_str(), m.window.used))
+            .collect();
+        assert_eq!(names, [("Cursor Models", 0), ("Other Models", 21)]);
+        let plan = plan.unwrap();
+        assert_eq!(plan.used, 3);
+        assert_eq!(plan.resets_at, Some(1795134301));
+    }
+
+    #[test]
+    fn cursor_summary_hides_disabled_plan_and_shows_capped_on_demand() {
+        let Limits::Ready { models, plan, .. } = cursor_summary(&json!({
+            "individualUsage": {
+                "plan": {"enabled": false, "autoPercentUsed": 0, "apiPercentUsed": 0, "totalPercentUsed": 0},
+                "onDemand": {"enabled": true, "used": 500, "limit": 2000}
+            }
+        })) else {
+            panic!("Ready가 아니다");
+        };
+        assert!(plan.is_none());
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model, "On-demand");
+        assert_eq!(models[0].window.used, 25);
+        assert_eq!(models[0].window.resets_at, None);
+    }
+
+    #[test]
+    fn cursor_token_reads_subject_and_makes_dashboard_cookie() {
+        use base64::Engine;
+        let body = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(r#"{"sub":"auth0|user_01ABC","exp":1800000000}"#);
+        let raw = format!("h.{body}.s");
+        let token = CursorToken::parse(&raw).unwrap();
+        assert_eq!(token.subject, "auth0|user_01ABC");
+        assert_eq!(token.expires_at, Some(1800000000));
+        assert_eq!(
+            token.cookie(),
+            format!("WorkosCursorSessionToken=auth0%7Cuser_01ABC%3A%3A{raw}")
+        );
+        assert!(CursorToken::parse("not-a-jwt").is_none());
     }
 
     #[test]

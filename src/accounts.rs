@@ -168,6 +168,14 @@ impl Site {
         }
     }
 
+    /// 홈 아래 파일(데몬이 읽는 경로). `rel`은 `/`로 나눈 상대 경로다.
+    pub fn home_file(&self, rel: &str) -> Option<PathBuf> {
+        Some(
+            rel.split('/')
+                .fold(self.home()?, |path, part| path.join(part)),
+        )
+    }
+
     /// 이 위치의 홈. 시스템 기본 로그인 폴더가 그 아래에 있다.
     fn home(&self) -> Option<PathBuf> {
         match &self.wsl {
@@ -288,15 +296,23 @@ impl Site {
             Provider::Claude => ("Claude", "claude"),
             Provider::Codex => ("Codex", "codex"),
         };
-        let found = match &self.wsl {
-            Some(inside) => inside.find(&[command.to_owned()]).map(OsString::from),
-            None => which::which(command).ok().map(PathBuf::into_os_string),
-        };
-        found.ok_or_else(|| LaunchError::NotInstalled {
+        self.find(command).ok_or_else(|| LaunchError::NotInstalled {
             agent: label.into(),
             command: command.into(),
             distro: self.distro().map(str::to_owned),
         })
+    }
+
+    /// 카탈로그 명령 `command`가 이 위치의 `PATH`에 있다. WSL은 카탈로그 명령만 찾는다(`profile::catalog_commands`).
+    pub fn installed(&self, command: &str) -> bool {
+        self.find(command).is_some()
+    }
+
+    fn find(&self, command: &str) -> Option<OsString> {
+        match &self.wsl {
+            Some(inside) => inside.find(&[command.to_owned()]).map(OsString::from),
+            None => which::which(command).ok().map(PathBuf::into_os_string),
+        }
     }
 }
 

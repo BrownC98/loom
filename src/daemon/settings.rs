@@ -83,6 +83,16 @@ pub struct AccountView {
     pub usage: Usage,
 }
 
+/// 한 위치의 Cursor CLI 로그인과 사용량. loom은 Cursor 계정을 여럿 두지 않고 바꾸지 않는다(M18 v2, Q666 A).
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CursorView {
+    /// WSL 배포판. 이 PC면 없다.
+    pub distro: Option<String>,
+    pub usage: Usage,
+}
+
 /// 로그인 창이 로그인할 곳.
 #[derive(Deserialize, TS)]
 #[serde(tag = "kind", content = "id", rename_all = "camelCase")]
@@ -103,6 +113,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/api/settings", get(get_settings).put(put_settings))
         .route("/api/settings/default", get(default_settings))
         .route("/api/accounts", get(accounts))
+        .route("/api/usage/cursor", get(cursor_usage))
         .route("/api/accounts/{provider}", post(login))
         .route("/api/accounts/{provider}/logout", post(logout))
         .route("/api/accounts/{provider}/{id}", delete(remove_account))
@@ -250,6 +261,19 @@ async fn accounts(State(app): State<Arc<App>>) -> Result<Json<Vec<AccountView>>,
         })
         .collect();
     Ok(Json(views))
+}
+
+/// 위치마다 Cursor 사용량을 그 자리에서 읽는다. `accounts`와 같은 때 화면이 부른다.
+async fn cursor_usage(State(app): State<Arc<App>>) -> Json<Vec<CursorView>> {
+    let sites = app.sites().await;
+    let probes = sites.into_iter().map(|site| async move {
+        let distro = site.distro().map(str::to_owned);
+        let usage = tokio::task::spawn_blocking(move || usage::probe_cursor(&site))
+            .await
+            .unwrap_or_else(|e| Usage::failed(UsageProblem::Unavailable(e.to_string())));
+        CursorView { distro, usage }
+    });
+    Json(join_all(probes).await)
 }
 
 /// 계정 라우트의 위치. `distro`가 없으면 이 PC다.

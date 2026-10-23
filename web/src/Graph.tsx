@@ -1,4 +1,4 @@
-import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, Workflow } from 'lucide-react';
+import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, Trash2, Workflow } from 'lucide-react';
 import { Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
@@ -28,7 +28,7 @@ import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
 import { isControl, NodeCard, SimpleCard } from './NodeCard';
 import { minimapClass } from './notice';
-import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
+import { attachCards, groupParents, groupsOf, inGroup, splitChips, type Group, type GroupKind } from './repos';
 import { attachPinchZoom } from './pinchZoom';
 import { realignTerminals, SizingTerminal, XtermFont, type Direction, type Draw } from './Terminal';
 
@@ -67,8 +67,8 @@ const POSITION: Record<Side, Position> = { top: Position.Top, right: Position.Ri
 const POPOVER_GAP = 6;
 /** 팝오버와 그래프 칸 왼쪽 끝 사이에 남기는 틈(화면 px). */
 const POPOVER_EDGE = 8;
-/** 묶음 오른쪽 위에서 잰 삭제 경고 위치. 경고는 [워크트리 삭제] 아래에 오른쪽을 맞춰 연다. */
-const DELETE_OFFSET: XYPosition = { x: -8, y: 40 };
+/** 칩 줄을 재기 전에 쓰는 높이: 칩 28, 위아래 틈 7, 아래 줄 1(styles.css `.chips`, 목업 docs/mockups/empty-worktree-chip.html v2). 재면 잰 높이다. */
+const CHIP_ROW = 43;
 /** 저장소 상자 머리 높이(테두리 줄 포함). styles.css `.repo-head` 높이와 같다. */
 const REPO_HEAD = 46;
 /** 저장소 상자 테두리와 묶음 사이 틈. `top`은 머리를 포함한다. 머리 아래 틈은 옆 틈과 같다(2026-10-21 사람 지시 "상단 간격 좀 띄워, 좌우 패딩값과 일치하게"). */
@@ -184,7 +184,32 @@ export function useShowNodes(): (ids: NodeId[]) => void {
 /** 그래프 화면을 `paths` 워크트리 묶음이 모두 보이게 옮긴다. 묶음 노드의 id는 워크트리 경로다. 아직 그리지 않은 묶음이면(저장소를 막 바꿈) React Flow가 노드를 잰 뒤 옮긴다. */
 export function useShowGroups(): (paths: string[]) => void {
   const flow = useReactFlow();
-  return (paths) => flow.fitView({ nodes: paths.map((id) => ({ id })), duration: MOVE_MS, maxZoom: 1 });
+  const store = useStoreApi();
+  const waiting = useRef<(() => void) | null>(null);
+  // 칩으로 그린 워크트리는 노드가 아니다. 그 칩을 담은 묶음으로 옮긴다.
+  const boxOf = (path: string) => (flow.getNode(path) ? path : flow.getNodes().find((n) => n.type === 'worktree' && (n.data as GroupData).chips.some((c) => c.path === path))?.id);
+  return (paths) => {
+    waiting.current?.();
+    waiting.current = null;
+    const targets = () => {
+      const ids = paths.map(boxOf);
+      return ids.every((id) => id !== undefined) ? (ids as string[]) : null;
+    };
+    const fit = (ids: string[]) => void flow.fitView({ nodes: ids.map((id) => ({ id })), duration: MOVE_MS, maxZoom: 1 });
+    // 다른 저장소로 바꾼 직후에는 그 묶음·칩이 아직 없다. 칩을 담은 묶음을 그때는 모르므로 노드가 들어올 때까지 기다린다.
+    // 끝내 오지 않는 경로(지운 워크트리)는 다음 부름이 기다림을 끝낸다.
+    // `fitView`가 저장소를 바꿔 이 구독을 다시 부르므로 구독을 먼저 끊는다. 거꾸로 하면 호출 스택이 넘쳤다.
+    const now = targets();
+    if (now) return fit(now);
+    const stop = store.subscribe(() => {
+      const ids = targets();
+      if (!ids) return;
+      stop();
+      waiting.current = null;
+      fit(ids);
+    });
+    waiting.current = stop;
+  };
 }
 
 /** 그래프 화면을 그린 노드가 모두 보이게 줄인다. 사이드바의 [저장소] 제목을 누를 때 쓴다. */
@@ -200,12 +225,20 @@ type GroupData = {
   empty: boolean;
   creating: boolean;
   deleting: boolean;
-  /** 누른 [새 노드] 버튼. 창을 그 버튼 옆에 띄우려고 자리를 잰다. */
+  /** 누른 [새 노드]·[워크트리 삭제] 버튼. 창을 그 버튼 아래에 띄우려고 자리를 잰다. */
   onOpen: (button: HTMLElement) => void;
-  onDelete?: () => void;
+  onDelete?: (button: HTMLElement) => void;
   /** 이 묶음 안 카드만 자동 배치로 놓는다(목업 docs/mockups/repo-drag.html v5 ⑥). */
   onArrange: () => void;
+  /** 머리 아래 줄의 노드 없는 워크트리(`splitChips`). 원래 체크아웃 묶음만 가진다. */
+  chips: readonly Chip[];
+  onOpenChip: (path: string, button: HTMLElement) => void;
+  onDeleteChip: (path: string, button: HTMLElement) => void;
+  /** 잰 칩 줄 높이. 카드를 그만큼 아래에 둔다. */
+  onChipRow: (height: number) => void;
 };
+/** `className`: 고르기·강조(묶음 노드와 같은 이름). */
+type Chip = { path: string; label: string; className: string | undefined; creating: boolean; deleting: boolean };
 /** `defaultView`: 설정의 기본 카드 보기. 「⋯」 메뉴가 이 노드만 바꿀 때 쓴다. */
 type CardBase = { view: NodeView; defaultView: DefaultCardView; agentLabel: string; resumable: boolean; onRefusal: (text: string) => void; selected: boolean; focusAsk: number; port: Side; onSelect: () => void; onNavigate: (dir: Direction) => void; onRemove: () => void };
 /**
@@ -232,6 +265,15 @@ type Fn = (...args: never[]) => unknown;
 
 function Group({ data }: NodeProps<GroupNode>) {
   const { t } = useTranslation();
+  const chipRow = useRef<HTMLDivElement>(null);
+  const hasChips = data.chips.length > 0;
+  useLayoutEffect(() => {
+    const el = chipRow.current;
+    if (!el) return;
+    const sizeObserver = new ResizeObserver(() => data.onChipRow(el.offsetHeight));
+    sizeObserver.observe(el);
+    return () => sizeObserver.disconnect();
+  }, [hasChips, data.onChipRow]);
   return (
     // 빈 곳을 끌면 바탕을 끌 때처럼 화면이 움직인다(2026-10-21 사람 지시 "묶음의 헤더가 아닌 빈공간도 잡아서 카메라 이동할 수 있게 해줘").
     // React Flow는 끌 수 있는 노드 안의 mousedown으로 화면을 옮기지 않는다. 그래서 같은 mousedown을 바탕에 다시 보낸다. 움직였으면 React Flow가 클릭을 막는다.
@@ -239,7 +281,7 @@ function Group({ data }: NodeProps<GroupNode>) {
       className="group"
       aria-label={t('graph.group', { branch: data.branch })}
       onMouseDown={(e) => {
-        if (e.button !== 0 || (e.target as Element).closest('.group-head')) return;
+        if (e.button !== 0 || (e.target as Element).closest('.group-head, .nodrag')) return;
         e.currentTarget.closest('.react-flow')?.querySelector('.react-flow__pane')?.dispatchEvent(new MouseEvent('mousedown', e.nativeEvent));
       }}
     >
@@ -257,11 +299,29 @@ function Group({ data }: NodeProps<GroupNode>) {
           {t('graph.newNode')}
         </button>
         {data.onDelete && (
-          <button className="btn ghost sm nodrag" aria-expanded={data.deleting} onClick={data.onDelete}>
+          <button className="btn ghost sm nodrag" aria-expanded={data.deleting} onClick={(e) => data.onDelete?.(e.currentTarget)}>
             {t('deleteWorktree.action')}
           </button>
         )}
       </div>
+      {hasChips && (
+        <div ref={chipRow} className="wt-chips">
+          <span className="label">{t('graph.chips')}</span>
+          {data.chips.map((chip) => (
+            <span key={chip.path} className={['wt-chip', chip.className].filter(Boolean).join(' ')} aria-label={t('graph.group', { branch: chip.label })}>
+              <span className="branch" translate="no" title={chip.path}>
+                {chip.label}
+              </span>
+              <button type="button" className="btn ghost sm icon nodrag" aria-label={t('graph.newNode')} title={t('graph.newNode')} aria-expanded={chip.creating} onClick={(e) => data.onOpenChip(chip.path, e.currentTarget)}>
+                <Plus />
+              </button>
+              <button type="button" className="btn ghost sm icon nodrag" aria-label={t('deleteWorktree.action')} title={t('deleteWorktree.action')} aria-expanded={chip.deleting} onClick={(e) => data.onDeleteChip(chip.path, e.currentTarget)}>
+                <Trash2 />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       {data.empty && <p className="group-empty">{t('graph.empty')}</p>}
     </section>
   );
@@ -540,8 +600,8 @@ export function Graph(props: {
   const { highlight } = props;
   /** 강조 중이면 `keys`가 모두 강조한 상자인 쪽은 `hl`, 아니면 `dim`. */
   const lit = (...keys: string[]) => (highlight === null ? undefined : keys.every((key) => highlight.keys.has(key)) ? 'hl' : 'dim');
-  /** 묶음은 강조한 카드를 담으면 흐리게 하지 않는다. */
-  const litGroup = (path: string, members: NodeView[]) => (highlight !== null && !highlight.keys.has(path) && members.some((v) => highlight.keys.has(String(v.id))) ? undefined : lit(path));
+  /** 묶음은 강조한 카드·칩(`inside`의 키)을 담으면 흐리게 하지 않는다. */
+  const litGroup = (path: string, inside: string[]) => (highlight !== null && !highlight.keys.has(path) && inside.some((key) => highlight.keys.has(key)) ? undefined : lit(path));
   const classes = (key: string, base: string | undefined) => [base, highlight?.current === key ? 'cur' : undefined].filter(Boolean).join(' ') || undefined;
   const { selected, onSelect: setSelected, chosenBox, onChooseBox: setChosenBox } = props;
   const flow = useReactFlow();
@@ -553,6 +613,8 @@ export function Graph(props: {
   // [새 노드] 버튼의 오른쪽 아래 모서리(묶음 왼쪽 위에서 잰 자리). 창을 그 자리에 오른쪽을 맞춰 띄운다. 묶음을 끌면 함께 움직인다.
   const [anchor, setAnchor] = useState<XYPosition | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  // 묶음 경로 → 잰 칩 줄 높이.
+  const [chipRows, setChipRows] = useState<ReadonlyMap<string, number>>(new Map());
   // 새 워크트리 창을 연 저장소 상자와 [새 워크트리] 버튼의 오른쪽 아래 모서리(상자 왼쪽 위에서 잰 자리). 상자를 끌면 창도 함께 움직인다.
   const [branching, setBranching] = useState<{ key: string; anchor: XYPosition } | null>(null);
   // 입양을 데몬이 거절한 문장. 다음 끌기나 바탕 클릭까지 보인다.
@@ -634,9 +696,16 @@ export function Graph(props: {
   // 저장소가 둘 이상이면(모든 저장소 범위) 저장소마다 상자를 두르고 그 안에 묶음을 놓는다(목업 docs/mockups/repo-scope.html).
   const framed = props.repos.length > 1;
   const vertical = direction === 'down' || direction === 'up';
+  // 묶음 경로 → 그 묶음 머리 아래 칩. 칩 줄이 있으면 카드는 그 줄 아래에서 시작한다(`insetOf`).
+  const chipsIn = new Map<string, Group[]>();
+  const chipsOf = (path: string) => chipsIn.get(path) ?? [];
+  const insetOf = (path: string) => ({ top: CARD_TOP + (chipsIn.has(path) ? (chipRows.get(path) ?? CHIP_ROW) : 0), side: CARD_X });
   const nests = props.repos.map((repo) => {
     const repoViews = views.filter((v) => v.place.repo === repo.id);
-    const repoGroups = byRank(groupsOf(repo, repoViews), (g) => g.path, () => 0);
+    const { boxes, chips } = splitChips(groupsOf(repo, repoViews), repoViews);
+    const repoGroups = byRank(boxes, (g) => g.path, () => 0);
+    const host = repoGroups.find((g) => g.kind !== 'linked');
+    if (host && chips.length > 0) chipsIn.set(host.path, chips);
     // 자동 배치는 가계도다. 자식 워크트리 묶음은 부모 카드의 묶음 안, 부모 카드 아래 줄에 선다(목업 docs/mockups/arrange-family.html v4).
     const parents = groupParents(repoGroups, repoViews);
     const cards = attachCards(repoGroups, repoViews, parents);
@@ -678,7 +747,7 @@ export function Graph(props: {
         branchOf.set(k.laid.group.path, String(k.card));
       }
       share({ boxes: items.map((it) => ({ key: it.key, at: local.get(it.key)!, size: it.size })), lead: new Map(kids.map((k) => [k.laid.group.path, k.laid.lead])), parent: group.path });
-      const box = items.length > 0 ? cover(items.map((it) => ({ at: local.get(it.key)!, size: it.size })), { top: CARD_TOP, side: CARD_X }) : { at: { x: 0, y: 0 }, size: nest[i].empty };
+      const box = items.length > 0 ? cover(items.map((it) => ({ at: local.get(it.key)!, size: it.size })), insetOf(group.path)) : { at: { x: 0, y: 0 }, size: nest[i].empty };
       const auto = new Map(items.map((it): [string, XYPosition] => [it.key, { x: it.auto.x - it.lead.x, y: it.auto.y - it.lead.y }]));
       return { group, members, local, auto, lead: box.at, size: box.size, kids: kids.map((k) => k.laid) };
     };
@@ -718,7 +787,7 @@ export function Graph(props: {
   // 묶음 상자 왼쪽 위(그래프 좌표, `origin`). 카드와 자식 묶음의 React Flow 자리는 묶음 상자 기준이다(`outer`). 부모 묶음이 자식 묶음보다 앞에 온다(React Flow 규칙).
   // `positions`는 키보드 이동과 간선에 쓰는 카드의 그래프 좌표다.
   const positions = new Map<NodeId, XYPosition>();
-  const flatten = (g: Laid, origin: XYPosition, repo: RepoId, outer: { path: string; at: XYPosition } | null): (Laid & { repo: RepoId; origin: XYPosition; outer: { path: string; at: XYPosition } | null; right: number })[] => {
+  const flatten = (g: Laid, origin: XYPosition, repo: RepoId, outer: { path: string; at: XYPosition } | null): (Laid & { repo: RepoId; origin: XYPosition; outer: { path: string; at: XYPosition } | null })[] => {
     for (const v of g.members) {
       const p = g.local.get(String(v.id))!;
       positions.set(v.id, { x: origin.x + p.x - g.lead.x, y: origin.y + p.y - g.lead.y });
@@ -728,7 +797,7 @@ export function Graph(props: {
       const at = { x: p.x - g.lead.x, y: p.y - g.lead.y };
       return flatten(k, { x: origin.x + at.x, y: origin.y + at.y }, repo, { path: g.group.path, at });
     });
-    return [{ ...g, repo, origin, outer, right: g.size.width }, ...kids];
+    return [{ ...g, repo, origin, outer }, ...kids];
   };
   const groups = repos.flatMap((r) => {
     const o = repoOrigin(r);
@@ -876,11 +945,27 @@ export function Graph(props: {
         }),
       )
     : [];
+  /** 새 노드 창과 삭제 경고는 누른 버튼의 오른쪽 아래 모서리에 오른쪽을 맞춘다. 자리는 묶음 왼쪽 위(`origin`)에서 잰다. */
+  const anchorAt = (origin: XYPosition, button: HTMLElement) => {
+    const rect = button.getBoundingClientRect();
+    const at = flow.screenToFlowPosition({ x: rect.right, y: rect.bottom + POPOVER_GAP });
+    setAnchor({ x: at.x - origin.x, y: at.y - origin.y });
+  };
+  const openNew = (path: string, origin: XYPosition, button: HTMLElement) => {
+    setDeleting(null);
+    setCreating(path);
+    anchorAt(origin, button);
+  };
+  const openDelete = (path: string, origin: XYPosition, button: HTMLElement) => {
+    setCreating(null);
+    setDeleting(path);
+    anchorAt(origin, button);
+  };
   const nodes: FlowNode[] = [...repoNodes, ...groups.flatMap(({ group, members, local, lead, origin, outer, size: box }) => [
     keep<GroupNode>({
       id: group.path,
       type: 'worktree',
-      className: classes(group.path, litGroup(group.path, members)),
+      className: classes(group.path, litGroup(group.path, [...members.map((v) => String(v.id)), ...chipsOf(group.path).map((c) => c.path)])),
       ...(outer ? { parentId: outer.path, position: outer.at } : { position: origin }),
       style: members.length > 0 ? { width: box.width, height: box.height } : undefined,
       // 묶음 머리를 끌어 묶음을 옮긴다. 카드는 묶음 기준 위치라 함께 옮겨진다.
@@ -892,20 +977,18 @@ export function Graph(props: {
         creating: creating === group.path,
         deleting: deleting === group.path,
         onArrange: () => arrangeGroup(group.path),
-        onOpen: (button) => {
-          setDeleting(null);
-          setCreating(group.path);
-          const rect = button.getBoundingClientRect();
-          const at = flow.screenToFlowPosition({ x: rect.right, y: rect.bottom + POPOVER_GAP });
-          setAnchor({ x: at.x - origin.x, y: at.y - origin.y });
-        },
-        onDelete:
-          group.kind === 'linked'
-            ? () => {
-                setCreating(null);
-                setDeleting(group.path);
-              }
-            : undefined,
+        onOpen: (button) => openNew(group.path, origin, button),
+        onDelete: group.kind === 'linked' ? (button) => openDelete(group.path, origin, button) : undefined,
+        chips: chipsOf(group.path).map((c) => ({
+          path: c.path,
+          label: c.label,
+          className: [classes(c.path, lit(c.path)), chosenBox === c.path && 'chosen'].filter(Boolean).join(' ') || undefined,
+          creating: creating === c.path,
+          deleting: deleting === c.path,
+        })),
+        onOpenChip: (path, button) => openNew(path, origin, button),
+        onDeleteChip: (path, button) => openDelete(path, origin, button),
+        onChipRow: (height) => setChipRows((prev) => (prev.get(group.path) === height ? prev : new Map([...prev, [group.path, height]]))),
       },
     }),
     ...members.map((view): FlowNode => {
@@ -1095,7 +1178,7 @@ export function Graph(props: {
     const outer = levels.get(level.parent);
     if (!outer) return null;
     const contents = placed(level, done).map((b) => (b.key === key ? { ...b, ...mover } : b));
-    const shell = cover(contents, spotOf.get(level.parent)?.kind === 'worktree' ? { top: CARD_TOP, side: CARD_X } : REPO_INSET);
+    const shell = cover(contents, spotOf.get(level.parent)?.kind === 'worktree' ? insetOf(level.parent) : REPO_INSET);
     const self = outer.boxes.find((b) => b.key === level.parent)!;
     const origin = done.get(self.key) ?? originOf(outer, self.key, self.at);
     return { key: self.key, level: outer, mover: { at: { x: origin.x + shell.at.x, y: origin.y + shell.at.y }, size: shell.size } };
@@ -1290,14 +1373,13 @@ export function Graph(props: {
           folded={minimapFolded}
           onFold={props.onMinimapFold}
         />
-        {groups.map(({ group, repo, members, origin, right }) => {
-          const at = creating === group.path && anchor ? { x: origin.x + anchor.x, y: origin.y + anchor.y } : null;
+        {groups.flatMap(({ group, repo, members, origin }) => [{ group, repo, members, origin }, ...chipsOf(group.path).map((chip) => ({ group: chip, repo, members: [], origin }))]).map(({ group, repo, members, origin }) => {
           return (
             // 묶음 노드 안에 두면 자식 카드가 팝오버를 덮는다. 뷰포트 층에 그려 카드 위에 둔다.
-            (creating === group.path || deleting === group.path) && (
+            (creating === group.path || deleting === group.path) &&
+            anchor && (
               <ViewportPortal key={group.path}>
-                {/* 새 노드 창은 누른 [새 노드] 버튼의 오른쪽 아래 모서리에 오른쪽을 맞춰 붙인다. */}
-                <PopAt at={at ?? { x: origin.x + right + DELETE_OFFSET.x, y: origin.y + DELETE_OFFSET.y }}>
+                <PopAt at={{ x: origin.x + anchor.x, y: origin.y + anchor.y }}>
                   {creating === group.path ? (
                     <NewNodePopover
                       branch={group.label}

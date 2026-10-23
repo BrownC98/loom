@@ -270,6 +270,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
 .tabs button:focus-visible { outline-offset: -2px; }
 .tabs svg { width: 14px; height: 14px; }
+/* 칸이 좁으면 탭 글자를 줄인다. 아이콘은 남아 탭이 가려지지 않는다([문서] 탭을 더해 다섯 탭이 기본 폭을 넘었다). */
+.dock .tabs button { flex: 0 1 auto; min-width: 0; }
+.dock .tabs svg, .dock .tabs button[aria-selected="true"] { flex: none; }
+.dock .tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* 탭 내용(커밋 그래프 등)의 배치·그리기를 칸 안에 가둔다. 사이드바를 끌 때 이 칸을 다시 그리지 않는다(왼쪽 끌기의 긴 작업 8.6초 → 1초 이하).
    `.side`·`.dock` 전체에는 걸지 않는다. `paint`가 칸 밖으로 나오는 `.row-pop`(position: fixed)을 자른다. */
 .dock-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; contain: layout paint; }
@@ -289,7 +293,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .filters input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-wash); }
 .events { list-style: none; padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .ev { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 2px 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; text-align: left; cursor: pointer; font-size: 13px; }
-.events li { border-radius: 6px; content-visibility: auto; contain-intrinsic-size: auto 40px; }
+.events li { position: relative; border-radius: 6px; content-visibility: auto; contain-intrinsic-size: auto 40px; }
 .events li:hover { background: var(--surface-hover); }
 .events li:has(> .ev[aria-current="true"]) { background: var(--accent-wash); }
 .events button:focus-visible { outline-offset: -2px; }
@@ -302,9 +306,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ev .note.err { color: var(--err); }
 .ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev .body.open { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 문서 링크가 있는 편 본문은 줄 단추 밖에 있다(EventConsole.tsx `Row`). 단추 안의 본문과 같은 자리에 둔다. */
+.events li:has(> .body) > .ev { padding-bottom: 2px; }
+.events li > .body { margin: 0; padding: 0 8px 7px 80px; font: 12px/1.5 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.events li[data-family="done"] .doc-link { color: var(--ok); }
 /* 알림 줄 왼쪽 막대: 질문 계열은 질문 알약의 --warn, 완료 계열은 완료 알약의 --ok(목업 docs/mockups/notice-color.html A안). 글자 색은 그대로다. 라이트의 --warn 글자는 대비가 모자란다. */
-.ev[data-family]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--warn); }
-.ev[data-family="done"]::before { background: var(--ok); }
+.events li[data-family]::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--warn); }
+.events li[data-family="done"]::before { background: var(--ok); }
+/* [문서] 탭(DocList.tsx, 목업 docs/mockups/doc-reopen.html M13 ③). 제목 링크는 글자 색이고 밑줄만 있다. */
+.docs { list-style: none; padding: 4px 8px; overflow: auto; flex: 1; min-height: 0; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.doc-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 8px; padding: 7px 8px; border-radius: 6px; font-size: 13px; }
+.doc-row:hover { background: var(--surface-hover); }
+.doc-row .id { font: 600 12px var(--mono); color: var(--ink-2); padding-top: 1px; }
+.doc-row .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-row .doc-link { padding: 0; border: 0; background: none; color: var(--ink); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.doc-row .doc-link:hover { text-decoration-thickness: 2px; }
+.doc-row .doc-link svg { display: inline; width: 12px; height: 12px; margin-left: 3px; vertical-align: -1px; }
+.doc-row .meta { grid-column: 2; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-row.gone .id, .doc-row.gone .title { color: var(--ink-3); }
 .commits { list-style: none; padding: 6px 0; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
 /* 그리지 않은 줄의 자리(CommitGraph.tsx). 목록의 padding은 칸 높이를 넘겨 늘어나서 쓰지 않는다. */
 .commits::before { content: ""; display: block; height: var(--rows-before, 0px); }
@@ -619,11 +638,11 @@ a { color: var(--accent); }
 .inbox-pill .qid { height: 18px; }
 
 .wait-body .to-terminal { justify-self: start; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; height: 28px; margin-left: -8px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; }
-.wait-body .doc-link { display: inline; padding: 0; border: 0; background: none; color: var(--warn); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.wait-body .doc-link:hover { text-decoration-thickness: 2px; }
+:is(.wait-body, .events) .doc-link { display: inline; padding: 0; border: 0; background: none; color: var(--warn); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+:is(.wait-body, .events) .doc-link:hover { text-decoration-thickness: 2px; }
 .wait-body .doc-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .wait-body .to-terminal svg { flex: none; width: 12px; height: 12px; }
-.wait-body .doc-link svg { display: inline; width: 12px; height: 12px; margin-left: 3px; vertical-align: -1px; }
+:is(.wait-body, .events) .doc-link svg { display: inline; width: 12px; height: 12px; margin-left: 3px; vertical-align: -1px; }
 .wait-body .to-terminal { padding: 0 8px; border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
 .wait-body .to-terminal:hover { background: var(--surface-hover); color: var(--ink); }
 .wait-body .choices { display: flex; flex-wrap: wrap; gap: 6px; }

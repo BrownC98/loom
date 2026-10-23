@@ -431,7 +431,7 @@ impl Graph {
         summary: &str,
         asked: Option<&str>,
         images: &[PathBuf],
-        doc: Option<waits::Attached>,
+        doc: Option<waits::WaitDoc>,
         via: Option<&Via>,
     ) -> Result<Vec<String>, Refusal> {
         if summary.len() > SUMMARY_LIMIT_BYTES {

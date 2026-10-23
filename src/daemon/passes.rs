@@ -14,8 +14,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
-use super::{App, OpenFile, Problem, host_path, internal, phone, serve_file};
-use crate::graph::WaitId;
+use super::{App, DocProblem, OpenFile, Problem, doc_file, host_path, internal, phone, serve_file};
 
 /// 통행증 주소의 앞. 사람 문(`origin::human_site`)이 이 GET만 쿠키 없이 받는다.
 pub const PASS_PREFIX: &str = "/api/files/pass/";
@@ -41,12 +40,23 @@ pub struct Passes(Mutex<HashMap<String, Pass>>);
 
 struct Pass {
     folder: PathBuf,
+    /// 있으면 폴더의 이 파일 하나만 읽는다(`Reach::File`).
+    only: Option<String>,
     until: Instant,
+}
+
+/// 통행증이 읽는 범위.
+#[derive(Clone, Copy)]
+enum Reach {
+    /// 파일의 폴더 전체. HTML의 상대 주소(옆 그림)도 읽는다.
+    Folder,
+    /// 그 파일 하나. 보고서 폴더의 다른 파일을 내지 않는다(2026-10-23 검토 MAJOR).
+    File,
 }
 
 impl Passes {
     /// `folder` 아래를 읽는 새 토큰.
-    fn issue(&self, folder: PathBuf) -> String {
+    fn issue(&self, folder: PathBuf, only: Option<String>) -> String {
         let token = crate::devices::random_token();
         let now = Instant::now();
         let mut passes = self.0.lock().expect("passes lock");
@@ -55,33 +65,48 @@ impl Passes {
             token.clone(),
             Pass {
                 folder,
+                only,
                 until: now + PASS_TTL,
             },
         );
         token
     }
 
-    /// 살아 있는 토큰이고 `file`이 그 폴더 안의 상대 경로면 실제 경로.
+    /// 살아 있는 토큰이고 `file`이 그 폴더 안의 파일이면 실제 경로.
     fn resolve(&self, token: &str, file: &str) -> Option<PathBuf> {
-        let inside = FsPath::new(file);
-        if file.is_empty()
-            || !inside
-                .components()
-                .all(|c| matches!(c, Component::Normal(_)))
-        {
-            return None;
-        }
-        let passes = self.0.lock().expect("passes lock");
-        let pass = passes.get(token).filter(|p| p.until > Instant::now())?;
-        Some(pass.folder.join(inside))
+        let folder = {
+            let passes = self.0.lock().expect("passes lock");
+            let pass = passes.get(token).filter(|p| p.until > Instant::now())?;
+            if pass.only.as_deref().is_some_and(|only| only != file) {
+                return None;
+            }
+            pass.folder.clone()
+        };
+        inside(&folder, file)
     }
+}
+
+/// `folder` 안의 상대 경로 `file`의 실제 경로. 폴더 안의 심볼릭 링크가 폴더 밖을 가리키면 내지 않는다(2026-10-23 검토).
+/// 통행증과 문서 옆 파일(`daemon::doc_sibling`)이 쓴다.
+pub(super) fn inside(folder: &FsPath, file: &str) -> Option<PathBuf> {
+    let relative = FsPath::new(file);
+    if file.is_empty()
+        || !relative
+            .components()
+            .all(|c| matches!(c, Component::Normal(_)))
+    {
+        return None;
+    }
+    let folder = std::fs::canonicalize(folder).ok()?;
+    let real = std::fs::canonicalize(folder.join(relative)).ok()?;
+    real.starts_with(&folder).then_some(real)
 }
 
 pub fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/api/files/pass", post(issue))
         .route("/api/files/pass/{token}/{*file}", get(read))
-        .route("/api/waits/{wait}/pass", post(issue_wait_doc))
+        .route("/api/docs/{id}/pass", post(issue_doc))
 }
 
 async fn issue(
@@ -89,26 +114,35 @@ async fn issue(
     Json(req): Json<OpenFile>,
 ) -> Result<Json<String>, Problem> {
     let path = PathBuf::from(host_path(&app, req.node, req.path)?);
-    pass_url(&app, &path).await
+    pass_url(&app, &path, Reach::Folder).await
 }
 
-/// 질문 문서(`loom ask --doc`)의 통행증. 사람은 목업을 받은편지함에서 연다(2026-10-23 사람 "여전히 헤드리스 브라우저임").
-async fn issue_wait_doc(
+/// 질문·완료 문서(`--doc`)의 통행증. 사람은 목업을 받은편지함에서 연다(2026-10-23 사람 "여전히 헤드리스 브라우저임").
+async fn issue_doc(
     State(app): State<Arc<App>>,
-    Path(wait): Path<u32>,
-) -> Result<Json<String>, Problem> {
-    let path = app.graph.wait_doc(WaitId(wait))?;
-    pass_url(&app, &path).await
+    Path(id): Path<String>,
+) -> Result<Json<String>, DocProblem> {
+    let doc = doc_file(&id)?;
+    let reach = match doc.folder {
+        Some(_) => Reach::Folder,
+        None => Reach::File,
+    };
+    Ok(pass_url(&app, &doc.path, reach).await?)
 }
 
 /// 파일 하나의 통행증 주소. Serve가 켜져 있으면 tailnet 이름으로 준다. 폰 문은 스스로 서명한 인증서라 브라우저가 경고한다.
 /// 꺼져 있으면 경로만 준다. 화면이 자기 주소에 붙인다.
-async fn pass_url(app: &App, path: &FsPath) -> Result<Json<String>, Problem> {
+async fn pass_url(app: &App, path: &FsPath, reach: Reach) -> Result<Json<String>, Problem> {
     let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(internal(format!("파일 경로가 아니다: {}", path.display())));
     };
-    let token = app.passes.issue(folder.to_path_buf());
-    let name = utf8_percent_encode(&name.to_string_lossy(), NAME_KEEPS).to_string();
+    let name = name.to_string_lossy();
+    let only = match reach {
+        Reach::Folder => None,
+        Reach::File => Some(name.clone().into_owned()),
+    };
+    let token = app.passes.issue(folder.to_path_buf(), only);
+    let name = utf8_percent_encode(&name, NAME_KEEPS).to_string();
     let path = format!("{PASS_PREFIX}{token}/{name}");
     Ok(Json(match phone::serve_host(app.port).await {
         Some(host) => format!("https://{host}{path}"),
@@ -133,27 +167,66 @@ mod tests {
 
     #[test]
     fn pass_reads_only_inside_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("report");
+        std::fs::create_dir_all(folder.join("img")).unwrap();
+        std::fs::write(folder.join("index.html"), "").unwrap();
+        std::fs::write(folder.join("img/a.png"), "").unwrap();
+        std::fs::write(dir.path().join("secret"), "").unwrap();
+        let real = std::fs::canonicalize(&folder).unwrap();
         let passes = Passes::default();
-        let folder = PathBuf::from("/docs/report");
-        let token = passes.issue(folder.clone());
+        let token = passes.issue(folder.clone(), None);
         assert_eq!(
             passes.resolve(&token, "index.html"),
-            Some(folder.join("index.html"))
+            Some(real.join("index.html"))
         );
         assert_eq!(
             passes.resolve(&token, "img/a.png"),
-            Some(folder.join("img/a.png"))
+            Some(real.join("img").join("a.png"))
         );
-        for file in ["", "../secret", "img/../../secret", "/etc/passwd", "./a"] {
+        for file in [
+            "",
+            "../secret",
+            "img/../../secret",
+            "/etc/passwd",
+            "./a",
+            "none.html",
+        ] {
             assert_eq!(passes.resolve(&token, file), None, "{file}");
         }
         assert_eq!(passes.resolve("other", "index.html"), None);
+
+        // 파일 하나의 통행증은 같은 폴더의 다른 파일을 내지 않는다(보고서 폴더의 다른 지시·비밀 파일).
+        let one = passes.issue(folder.clone(), Some("index.html".into()));
+        assert_eq!(
+            passes.resolve(&one, "index.html"),
+            Some(real.join("index.html"))
+        );
+        assert_eq!(passes.resolve(&one, "img/a.png"), None);
+    }
+
+    /// 폴더 안의 링크가 폴더 밖을 가리키면 내지 않는다.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_out_of_the_folder_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("doc");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "x").unwrap();
+        std::fs::write(folder.join("a.html"), "").unwrap();
+        std::os::unix::fs::symlink(&outside, folder.join("out")).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.txt"), folder.join("s.txt")).unwrap();
+        assert_eq!(inside(&folder, "out/secret.txt"), None);
+        assert_eq!(inside(&folder, "s.txt"), None);
+        assert!(inside(&folder, "a.html").is_some());
     }
 
     #[test]
     fn pass_ends_after_ttl() {
         let passes = Passes::default();
-        let token = passes.issue(PathBuf::from("/docs"));
+        let token = passes.issue(PathBuf::from("/docs"), None);
         passes.0.lock().unwrap().get_mut(&token).unwrap().until = Instant::now();
         assert_eq!(passes.resolve(&token, "a.html"), None);
     }

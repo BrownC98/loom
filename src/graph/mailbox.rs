@@ -370,24 +370,6 @@ impl Graph {
         }
     }
 
-    /// 쉬는 노드의 `next`. 깨우는 메시지(`MessageKind::wakes`)가 올 때까지 기다리고, 그때 기다리던 알림도 함께 꺼낸다.
-    pub async fn next_waking(
-        &self,
-        node: NodeId,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        loop {
-            let mut notified = pin!(self.mail_changed());
-            notified.as_mut().enable();
-            let taken = self.take_waking(node, kinds, limit_bytes)?;
-            if !taken.is_empty() {
-                return Ok(taken);
-            }
-            let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
-        }
-    }
-
     /// `kinds` 가운데 하나인 메시지를 온 순서로 꺼내 전달 중으로 표시한다.
     /// 전달 중인 메시지는 `REDELIVER_AFTER`가 지나야 다시 꺼낸다. 받은 쪽이 `ack`로 확인하면 다시 꺼내지 않는다.
     /// 첫 메시지는 늘 꺼낸다. 그 뒤 메시지는 넘기는 글(`Delivery::text`과 사이 빈 줄) 합이 `limit_bytes` 이하일 때만 꺼낸다.
@@ -461,13 +443,13 @@ impl Graph {
         Ok(taken)
     }
 
-    /// 깨우는 메시지(`Delivery::wakes`)가 기다리는 잠든 노드: 완료한 뒤 프로세스가 끝났다. 데몬이 같은 세션으로 깨운다.
+    /// 깨우는 메시지(`Delivery::wakes`)가 기다리는 잠든 노드(`Graph::slept`). 데몬이 같은 세션으로 깨운다.
     pub fn sleepers_with_mail(&self) -> rusqlite::Result<Vec<NodeId>> {
         let db = self.lock();
         let sleepers = db
             .prepare(
                 "SELECT DISTINCT n.id FROM nodes n JOIN messages m ON m.recipient = n.id
-                 WHERE n.process_exited = 1 AND n.state ->> 'kind' = 'done' AND m.delivered = 0 ORDER BY n.id",
+                 WHERE n.asleep = 1 AND m.delivered = 0 ORDER BY n.id",
             )?
             .query_map([], |row| Ok(NodeId(row.get(0)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;

@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::pin::pin;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,7 +22,7 @@ use ts_rs::TS;
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
 use crate::graph::{
-    Active, AgentSwitch, Delivery, Entry, Kind, Model, NodeId, NodeState, Refusal, Who,
+    Active, AgentSwitch, Delivery, Entry, Kind, Model, NodeId, REDELIVER_AFTER, Refusal, Who,
 };
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
@@ -31,7 +32,7 @@ use crate::settings::SettingsView;
 use crate::skills::Position;
 
 /// 옛 노드 프로세스가 끝나기를 기다리는 상한. PTY 호스트는 끝내기 요청을 받으면 바로 프로세스 나무를 끝낸다.
-const EXIT_WAIT: Duration = Duration::from_secs(10);
+pub(super) const EXIT_WAIT: Duration = Duration::from_secs(10);
 /// `claude agents`·`claude stop`을 기다리는 상한. 넘으면 그대로 띄운다. 세션이 남았으면 새 CLI가 거절하고 그 실패가 기록에 남는다.
 const CLAUDE_CLI_WAIT: Duration = Duration::from_secs(20);
 /// 한도로 멈췄던 노드를 새 계정으로 이어 갈 때 넣는 첫 입력.
@@ -191,10 +192,31 @@ impl App {
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
-        if self.relaunches.holds_mail(node) || self.sleeps.stopping(node) {
+        if self.relaunches.holds_mail(node) {
             return Ok(Vec::new());
         }
-        self.graph.take_waking(node, kinds, limit_bytes)
+        self.sleeps
+            .unless_stopping(node, || self.graph.take_waking(node, kinds, limit_bytes))
+            .unwrap_or(Ok(Vec::new()))
+    }
+
+    /// 깨우는 메시지가 올 때까지 기다려 꺼낸다(`take_mail`). Claude·Cursor의 쉬는 대기가 쓴다.
+    /// 근거: 그래프에서 바로 꺼내면 재우는 중인 노드도 메시지를 받아 턴을 열고, 그 턴 중에 프로세스가 끝났다(관문 검토 노드수명 P1).
+    pub(super) async fn next_mail(
+        &self,
+        node: NodeId,
+        kinds: &[Kind],
+        limit_bytes: usize,
+    ) -> Result<Vec<Delivery>, Refusal> {
+        loop {
+            let mut changed = pin!(self.graph.mail_changed());
+            changed.as_mut().enable();
+            let taken = self.take_mail(node, kinds, limit_bytes)?;
+            if !taken.is_empty() {
+                return Ok(taken);
+            }
+            let _ = tokio::time::timeout(REDELIVER_AFTER, changed).await;
+        }
     }
 
     /// 턴 중인 노드. Claude·Cursor는 턴 훅 뒤 턴 끝 훅이 오기 전이면, Codex는 스레드가 일하는 중이면,
@@ -269,9 +291,9 @@ impl App {
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
-        let notice = match self.graph.relations(id)?.me.state {
-            NodeState::Done { .. } => WOKEN_NOTICE,
-            _ => REVIVED_NOTICE,
+        let notice = match self.graph.asleep(id).map_err(internal)? {
+            true => WOKEN_NOTICE,
+            false => REVIVED_NOTICE,
         };
         {
             let mut pending = self.relaunches.pending.lock().unwrap();
@@ -359,21 +381,17 @@ impl App {
     }
 
     /// 시작 글 조각이 이 판에서 바뀐 노드를 턴 끝에 한 번 다시 띄운다. 데몬이 시작할 때 부른다. 다시 띄우면 새 해시가 남는다(`Graph::relaunched`).
-    /// 쉬는 완료 자식은 다시 띄우지 않고 재운다(`sleep`). 깨울 때 새 시작 글을 받는다.
+    /// 완료 자식도 다시 띄운다. 재우기로 대신하면 재우기 전에 일을 받은 노드가 옛 글로 일했다(관문 검토 노드수명 P2).
     /// 다시 시작한 데몬은 누가 턴 중인지 모른다(`IdleWaits`). 그래서 쉬는 노드도 턴 끝 신호를 기다린다: Claude·Cursor는 다시 붙는 쉬는 대기, Codex·OpenCode 2는 서버의 쉼.
     /// 근거: 메시지(`rules-changed`)로 알리면 노드가 그 턴과 다시 뜬 턴, 두 턴을 썼다(2026-10-24 총괄 결정 A).
     pub(super) fn relaunch_stale(self: &Arc<Self>) -> rusqlite::Result<()> {
-        let sleeping = self.graph.done_children()?;
         for node in self.graph.active()? {
             let changed = node
                 .rules
                 .as_ref()
                 .map(profile::changed_parts)
                 .unwrap_or_default();
-            if changed.is_empty()
-                || profile_of(&node).is_none()
-                || (sleeping.contains(&node.id) && super::sleep::sleeps(&node))
-            {
+            if changed.is_empty() || profile_of(&node).is_none() {
                 continue;
             }
             eprintln!(

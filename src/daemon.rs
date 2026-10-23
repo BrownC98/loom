@@ -1267,14 +1267,19 @@ impl App {
                 app.host.kill(id);
                 return;
             }
+            let slept = matches!(exit, Exit::Command(_))
+                && app.sleeps.stopping(id)
+                && app.graph.slept(id).unwrap_or(false);
             // DB가 실패하면 알릴 곳이 없다. 화면은 running으로 남는다.
             let _ = match exit {
+                _ if slept => Ok(()),
                 Exit::Command(code) => app.graph.exited(id, code),
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
                 Exit::Lost => app.graph.lost(id),
             };
-            // 잠든 노드로 적은 뒤 메시지를 놓는다. 그 전에 놓으면 끝나는 프로세스가 메시지를 꺼낸다.
+            // 잠든 노드로 적은 뒤 메시지를 놓고, 재우는 동안 온 메시지가 바로 깨우게 한다.
             app.sleeps.exited(id);
+            app.graph.wake_mail();
             // 종료를 적은 뒤 끝낸다. 남은 훅 프로세스가 다시 열면 `agent_idle`이 거절한다.
             app.idle.end(id);
         }
@@ -2275,7 +2280,7 @@ async fn agent_idle(
         }
     }
     tokio::select! {
-        taken = app.graph.next_waking(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
+        taken = app.next_mail(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
             Ok(taken) => Ok(Json(taken)),
             // 훅은 이 오류로 끝나고 다시 기다리지 않는다. 훅의 stderr는 Claude가 버리므로 여기 남긴다.
             // 근거: 쉬는 노드가 대기 없이 20분 동안 큐 메시지 4개를 받지 못했다. 원인을 찾지 못했다(2026-10-23 사람 보고 "안읽음 버튼 클릭 해도 작동 안함").
@@ -2401,7 +2406,46 @@ async fn pty(
         }
         app.sleeps.knocked(id);
     };
-    serve_pty(ws, via, app, |app| &app.host, typed, NodeId(id))
+    let id = NodeId(id);
+    if app.host.attach(id).is_none() && app.graph.asleep(id).unwrap_or(false) {
+        return asleep_pty(ws, via, app, id);
+    }
+    serve_pty(ws, via, app, |app| &app.host, typed, id)
+}
+
+/// 잠든 노드에 PTY가 없을 때 화면 연결이 PTY를 다시 보는 간격. 화면이 끊긴 연결을 다시 여는 간격(`web/src/api.ts` `RECONNECT_MS`)과 같다.
+const ASLEEP_PTY_CHECK: Duration = Duration::from_secs(1);
+
+/// 데몬이 다시 시작하면 잠든 노드의 PTY는 없다. 화면 연결을 열어 두고 키가 오면 깨운다. 새 PTY가 생기거나 노드가 잠들지 않게 되면
+/// 연결을 닫는다. 화면은 다시 열어 새 PTY에 붙는다. 근거: 「터미널이 닫혔다」(`PtyNotice::Gone`)를 받은 연결은 다시 열지 않아,
+/// 키로 깨울 수 없고 깨운 노드도 따라가지 못했다(관문 검토 노드수명 P2).
+fn asleep_pty(
+    ws: WebSocketUpgrade,
+    via: Option<Extension<ViaRemote>>,
+    app: Arc<App>,
+    id: NodeId,
+) -> Response {
+    let devices = app.devices.clone();
+    ws.on_upgrade(move |mut socket| {
+        origin::until_removed(devices, via, async move {
+            let mut check = tokio::time::interval(ASLEEP_PTY_CHECK);
+            loop {
+                tokio::select! {
+                    frame = socket.next() => match frame {
+                        Some(Ok(Message::Binary(_))) => app.sleeps.knocked(id),
+                        Some(Ok(_)) => {}
+                        Some(Err(_)) | None => return,
+                    },
+                    _ = check.tick() => {
+                        if app.host.attach(id).is_some() || !app.graph.asleep(id).unwrap_or(false) {
+                            let _ = socket.send(Message::Close(None)).await;
+                            return;
+                        }
+                    }
+                }
+            }
+        })
+    })
 }
 
 /// 화면이 PTY 웹소켓에 보내는 글 프레임. 키 입력은 바이너리 프레임으로 간다(docs/design.md 「데몬 하나」 PTY 열·줄).

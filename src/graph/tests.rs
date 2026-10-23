@@ -2115,7 +2115,8 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     ));
 }
 
-/// 완료한 뒤 끝난 노드는 잠든다: `done`으로 남고 메시지를 받는다. 깨우는 메시지만 깨운다. 깨우지 못하면 `exited`가 되어 받지 않는다.
+/// 데몬이 재운 노드는 `done`으로 남고 메시지를 받는다. 깨우는 메시지만 깨운다. 깨우지 못하면 `exited`가 되어 받지 않는다.
+/// 다른 까닭으로 끝난 완료 노드(호스트를 잃었다)는 잠든 노드가 아니다. 프로세스가 남았을 수 있어 깨우지 않는다.
 #[test]
 fn a_sleeping_node_keeps_its_mail_and_wakes_only_on_waking_mail() {
     let dir = tempfile::tempdir().unwrap();
@@ -2123,14 +2124,26 @@ fn a_sleeping_node_keeps_its_mail_and_wakes_only_on_waking_mail() {
     let lead = root(&g, "lead");
     let worker = child(&g, lead, "worker");
     let grand = child(&g, worker, "grand");
+    let lost = child(&g, lead, "lost");
+    g.done(lost, &report("lost done"), None, &[], None, None)
+        .unwrap();
+    g.lost(lost).unwrap();
+    assert!(!g.asleep(lost).unwrap());
+    assert!(matches!(
+        g.note(lead, "lost", Kind::Queue, "x", None),
+        Err(Refusal::Ended(_))
+    ));
+    // 그 사이 다시 일한 노드는 재우지 않는다. 부른 쪽이 보통 종료로 적는다.
+    assert!(!g.slept(grand).unwrap());
     g.done(lead, &report("lead done"), Some("일해"), &[], None, None)
         .unwrap();
     g.done(worker, &report("finished"), None, &[], None, None)
         .unwrap();
     // 부모 없는 노드는 사람이 터미널에 친다. 재우지 않는다.
     assert_eq!(g.done_children().unwrap(), [worker]);
-    g.exited(worker, 0).unwrap();
+    assert!(g.slept(worker).unwrap());
     assert!(g.asleep(worker).unwrap());
+    g.exited(worker, 0).unwrap();
     assert!(g.done_children().unwrap().is_empty());
     assert_eq!(
         view(&g, worker).state,
@@ -2149,10 +2162,10 @@ fn a_sleeping_node_keeps_its_mail_and_wakes_only_on_waking_mail() {
     assert!(!g.asleep(worker).unwrap());
     assert!(g.sleepers_with_mail().unwrap().is_empty());
     assert_eq!(view(&g, worker).state, NodeState::Exited { code: None });
-    assert_eq!(take(&g, lead), delivery("worker", "finished"));
-    let lost = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(bodies(got.iter()), ["lost done", "finished", ""]);
     assert!(matches!(
-        lost[0].what,
+        got[2].what,
         Some(MessageKind::Exited { code: None, .. })
     ));
     assert!(matches!(

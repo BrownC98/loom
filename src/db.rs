@@ -275,8 +275,10 @@ const STEPS: &[M] = &[
     ),
     // 36: 노드가 띄울 때 받은 시작 글 조각의 해시(profile `StartDigests`, serde JSON). 셸과 옛 노드는 NULL이고 다시 띄울 때 정해진다.
     // 노드마다 견주므로 34의 `skill_digests`(데몬 하나의 기록)는 지운다.
+    // `asleep`은 데몬이 재워 프로세스를 끝낸 완료 노드다(`Graph::slept`). 다른 까닭으로 끝난 노드와 가른다.
     M::up(
         "ALTER TABLE nodes ADD COLUMN rules TEXT;
+        ALTER TABLE nodes ADD COLUMN asleep INTEGER NOT NULL DEFAULT 0;
         DROP TABLE skill_digests;",
     ),
 ];

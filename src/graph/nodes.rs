@@ -334,7 +334,28 @@ impl Graph {
             .collect()
     }
 
-    /// 완료한 뒤 프로세스가 끝난 노드. 데몬이 메시지나 사람 입력에 깨운다.
+    /// 데몬이 재운 완료 노드의 프로세스가 끝났다. 노드는 `done`으로 남고 메시지를 받는다(`REACHABLE`). 부모에게 알리지 않는다.
+    /// 그 사이 다시 일했으면(`done`이 아니다) 바꾸지 않고 거짓을 돌려준다. 그러면 부른 쪽이 보통 종료로 적는다.
+    /// 근거: 끝난 까닭을 모르는 완료 노드(호스트를 잃었다, 사람이 끝냈다)는 프로세스가 남았을 수 있고 재운 노드가 아니다(관문 검토 노드수명 P2).
+    pub fn slept(&self, id: NodeId) -> rusqlite::Result<bool> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let changed = tx.execute(
+            "UPDATE nodes SET process_exited = 1, asleep = 1, wait = NULL
+             WHERE id = ?1 AND process_exited = 0 AND state ->> 'kind' = 'done'",
+            [id.0],
+        )?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        waits::drop_questions(&tx, id, ClosedBy::Exit)?;
+        tx.commit()?;
+        self.prompts.lock().unwrap().remove(&id);
+        self.publish_node(&db, id)?;
+        Ok(true)
+    }
+
+    /// 데몬이 재운 노드(`slept`). 메시지나 사람 입력에 깨운다.
     pub fn asleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         asleep(&self.lock(), id)
     }
@@ -351,6 +372,7 @@ impl Graph {
             node: name_of(&tx, id)?,
             code: None,
         };
+        tx.execute("UPDATE nodes SET asleep = 0 WHERE id = ?1", [id.0])?;
         set_state(&tx, id, &NodeState::Exited { code: None })?;
         mailbox::enqueue(&tx, id, parent, Kind::Queue, &what, "", Default::default())?;
         tx.commit()?;
@@ -415,7 +437,7 @@ impl Graph {
             [id.0],
         )? + changed(&tx)?;
         let revived = tx.execute(
-            "UPDATE nodes SET process_exited = 0 WHERE id = ?1 AND process_exited = 1",
+            "UPDATE nodes SET process_exited = 0, asleep = 0 WHERE id = ?1 AND process_exited = 1",
             [id.0],
         )? > 0;
         if revived
@@ -949,7 +971,7 @@ fn adopt_in(
 /// `<prefix>-<번호>`. 번호는 사람이 띄운 노드 사이에서 겹치지 않는 가장 작은 수다.
 fn asleep(db: &Connection, id: NodeId) -> rusqlite::Result<bool> {
     db.query_row(
-        "SELECT process_exited = 1 AND state ->> 'kind' = 'done' FROM nodes WHERE id = ?1",
+        "SELECT asleep = 1 FROM nodes WHERE id = ?1",
         [id.0],
         |row| row.get(0),
     )

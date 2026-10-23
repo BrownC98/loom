@@ -290,6 +290,9 @@ impl Graph {
             Err(e) => return Err(e),
         };
         let tx = db.transaction()?;
+        if matches!(what, MessageKind::Answer { .. }) {
+            tx.execute("INSERT OR IGNORE INTO answers (id) VALUES (?1)", [wait.0])?;
+        }
         mailbox::enqueue_human(&tx, node, &what, &body)?;
         tx.execute("DELETE FROM questions WHERE id = ?1", [wait.0])?;
         tx.execute("DELETE FROM dones WHERE id = ?1", [wait.0])?;
@@ -332,6 +335,14 @@ impl Graph {
             return Ok(false);
         }
         Ok(stored(&db, id)?.is_some_and(|wait| wait.is_none()) && questions(&db, id)?.is_empty())
+    }
+
+    pub fn answered_in_inbox(&self, wait: WaitId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS (SELECT 1 FROM answers WHERE id = ?1)",
+            [wait.0],
+            |row| row.get(0),
+        )
     }
 
     pub fn open_questions(&self, id: NodeId) -> Result<Vec<OpenQuestion>, Refusal> {

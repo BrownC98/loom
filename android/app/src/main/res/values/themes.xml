@@ -1,5 +1,4 @@
 <resources>
-    
     <style name="Loom" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowLightStatusBar">true</item>
     </style>

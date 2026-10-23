@@ -606,6 +606,9 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
     drop(g);
     let g = open(&path);
     assert!(g.ask(lead, "다시?", None).unwrap().0 > with_doc.0);
+    let answered = |q| g.answered_in_inbox(q).unwrap();
+    assert!(answered(again) && answered(shot));
+    assert!(!answered(first) && !answered(screen) && !answered(with_doc));
 }
 
 #[test]

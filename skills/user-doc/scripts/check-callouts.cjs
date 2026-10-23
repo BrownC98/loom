@@ -10,9 +10,12 @@ let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homed
     const R = r => ({ l: r.left, t: r.top, r: r.right, b: r.bottom });
     const hit = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
     // 요소 자신의 overflow도 자기 글자와 ::after 배지를 자른다.
-    const clips = e => { const out = []; for (let a = e; a; a = a.parentElement) { const cs = getComputedStyle(a); if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') out.push(a); } return out; };
+    // 화면 끝(html)은 문서 끝 비교가 맡는다.
+    const clips = e => { const out = []; for (let a = e; a && a !== document.documentElement; a = a.parentElement) { const cs = getComputedStyle(a); if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') out.push(a); } return out; };
+    // overflow는 테두리 안쪽(padding box)에서 자른다. zoom을 곱해 화면 크기로 바꾼다.
+    const clipBox = a => { const k = a.getBoundingClientRect(), s = a.offsetWidth ? k.width / a.offsetWidth : 1, l = k.left + a.clientLeft * s, t = k.top + a.clientTop * s; return { l, t, r: l + a.clientWidth * s, b: t + a.clientHeight * s }; };
     // 넘침을 자르는 조상 밖의 글자는 보이지 않는다. 보이는 부분만 남긴다.
-    const visible = (e, r) => { for (const a of clips(e)) { const c = R(a.getBoundingClientRect()); r = { l: Math.max(r.l, c.l), t: Math.max(r.t, c.t), r: Math.min(r.r, c.r), b: Math.min(r.b, c.b) }; } return r.l < r.r && r.t < r.b ? r : null; };
+    const visible = (e, r) => { for (const a of clips(e)) { const c = clipBox(a); r = { l: Math.max(r.l, c.l), t: Math.max(r.t, c.t), r: Math.min(r.r, c.r), b: Math.min(r.b, c.b) }; } return r.l < r.r && r.t < r.b ? r : null; };
     const UI = ['img, svg:not(.lead-svg), button, input, select, textarea, .mk', document.body.dataset.ui].filter(Boolean).join(', ');
     const textRuns = root => {
       const out = []; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -25,6 +28,16 @@ let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homed
     };
     const bad = []; let n = 0, badges = 0;
     // 배지가 실제로 칠해졌는지 본다. pointer-events:none인 덮개도 맞히게 모두 켠다(지시선 svg는 뺀다).
+    // 맞힌 요소 가운데 무언가를 칠하는 것만 덮개로 센다. 투명한 빈 상자는 덮지 않는다.
+    const clear = c => c === 'transparent' || /rgba\(.*,\s*0\)$/.test(c);
+    const paints = e => {
+      const cs = getComputedStyle(e);
+      if (cs.visibility !== 'visible' || +cs.opacity === 0) return false;
+      if (/^(IMG|svg|CANVAS|VIDEO|IFRAME|INPUT|BUTTON|SELECT|TEXTAREA)$/.test(e.tagName)) return true;
+      if (!clear(cs.backgroundColor) || cs.backgroundImage !== 'none' || cs.boxShadow !== 'none') return true;
+      if (['Top', 'Right', 'Bottom', 'Left'].some(s => parseFloat(cs['border' + s + 'Width']) > 0 && !clear(cs['border' + s + 'Color']))) return true;
+      return [...e.childNodes].some(t => t.nodeType === 3 && t.textContent.trim());
+    };
     const probe = document.createElement('style'); probe.textContent = '*:not(.lead-svg):not(.lead-svg *) { pointer-events: auto !important; }'; document.head.appendChild(probe);
     for (const fig of document.querySelectorAll('.fig')) {
       const title = fig.querySelector('h2')?.textContent.slice(0, 12) ?? '';
@@ -50,14 +63,16 @@ let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homed
         const box = () => { const k = m.getBoundingClientRect(), z = m.offsetWidth ? k.width / m.offsetWidth : 1; return { g: { l: k.left - 14 * z, t: k.top - 14 * z, r: k.left + 8 * z, b: k.top + 8 * z }, z }; };
         // 스크롤하기 전에 자르는 조상(body·html 포함)과 문서 끝을 네 변 모두 비교한다.
         let { g } = box();
-        for (const a of clips(m)) { const c = R(a.getBoundingClientRect()); if (g.l < c.l || g.t < c.t || g.r > c.r || g.b > c.b) bad.push(id + ' clipped by ' + (a.className || a.tagName)); }
+        for (const a of clips(m)) { const c = clipBox(a); if (g.l < c.l || g.t < c.t || g.r > c.r || g.b > c.b) bad.push(id + ' clipped by ' + (a.className || a.tagName)); }
         const sx = g.l + scrollX, sy = g.t + scrollY, D = document.documentElement;
         if (sx < 0 || sy < 0 || g.r + scrollX > D.scrollWidth || g.b + scrollY > D.scrollHeight) bad.push(id + ' outside the page');
         scrollBy((g.l + g.r) / 2 - innerWidth / 2, (g.t + g.b) / 2 - innerHeight / 2);
         let z; ({ g, z } = box());
         const cx = (g.l + g.r) / 2, cy = (g.t + g.b) / 2, d = 7 * z;
         for (const [x, y] of [[cx, cy], [cx - d, cy], [cx + d, cy], [cx, cy - d], [cx, cy + d]]) {
-          const top = document.elementFromPoint(x, y); if (top !== m) bad.push(id + ' covered by ' + (top ? top.className || top.tagName : 'nothing (off screen)'));
+          const at = document.elementsFromPoint(x, y), i = at.indexOf(m);
+          if (i < 0) bad.push(id + ' covered by ' + (at[0] ? at[0].className || at[0].tagName : 'nothing (off screen)'));
+          for (const e of at.slice(0, i)) if (!m.contains(e) && paints(e)) bad.push(id + ' covered by ' + ((e.className.baseVal ?? e.className) || e.tagName));
         }
         for (const t of textRuns(fig)) if (!m.contains(t.e) && hit(g, t.r)) bad.push(id + ' over text "' + t.what + '"');
       }

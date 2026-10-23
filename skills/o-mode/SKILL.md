@@ -29,7 +29,7 @@ description: o-mode(orchestration mode)의 Loom 판. Loom 노드에서 저장소
 | 코디 | 작업 하나의 조사, 설계, 목업, 워커 명세와 결과 검수 | Claude, `claude-opus-5-5`, medium |
 | 워커 | 정해진 편집 범위의 구현과 검증. 다시 위임하지 않는다 | Claude, `claude-sonnet-5-5`, medium |
 | 평가자 | 구현과 별개로 결과·원문·관찰 증거를 평가한다 | Codex, `gpt-6.1-sol`, high |
-| 검토자 | 병합 전 브랜치 diff 리뷰. 읽기 전용, 보고만 한다 | Codex, `gpt-6.1-sol`, high |
+| 검토자 | 병합 전 브랜치 diff에서 결함을 찾고 랩터-3이 잘 적용되었는지 점검한다. 읽기 전용, 보고만 한다 | Codex, `gpt-6.1-sol`, high |
 | CI 담당자 | 병합 전 전체 검사, 병합 뒤 배포·릴리스 확인, 실패 보고. 제품 코드는 고치지 않는다 | Claude, `claude-sonnet-5-5`, medium |
 
 - 사용자가 지정한 실행자·모델이 표보다 우선한다. 저장 형식, 인증, 동시성, 데이터 손실 경로와 여러 모듈의 계약 변경은 Opus 워커가 맡는다.

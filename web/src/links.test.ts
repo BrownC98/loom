@@ -38,6 +38,7 @@ describe('filePath', () => {
   const path = (uri: string) => filePath(new URL(uri));
   it('keeps the UNC host', () => {
     expect(path('file://wsl.localhost/Ubuntu-24.04/tmp/a%20b.html')).toBe('//wsl.localhost/Ubuntu-24.04/tmp/a b.html');
+    expect(path('file:////wsl.localhost/Ubuntu-24.04/tmp/a%20b.html')).toBe('//wsl.localhost/Ubuntu-24.04/tmp/a b.html');
   });
   it('keeps POSIX and drive paths and folds extra slashes', () => {
     expect(path('file:///home/a%20b.html')).toBe('/home/a b.html');

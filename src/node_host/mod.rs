@@ -39,9 +39,9 @@ const LOST_CODE: u32 = u32::MAX;
 /// 근거: OpenCode 2.0.32는 250 ms·1000 ms까지 기다린다(설치본 번들 `QUERY_TIMEOUT_MS`, `waitForThemeMode(1000)`). 그 두 배다.
 const SETTLED_AFTER: Duration = Duration::from_secs(2);
 
-/// 친 키 뒤 이만큼 지나야 화면이 그 키를 그렸다고 본다(`Keys::settled_screen`). 출력이 왔다는 것만으로는 모른다: 창 제목만 바꾼 출력도 온다(2026-10-24 검토 codex F2).
-/// 근거: 재지 않았다. TUI가 키를 그리는 데는 한 화면 갱신이면 된다. 1초 넘게 친 글이 보이지 않으면 사람도 멈춘 것으로 본다.
-pub(crate) const INPUT_SETTLE: Duration = Duration::from_secs(1);
+/// 친 키 뒤 이만큼 지나야 화면이 그 키를 그렸다고 본다(`Keys::quiet_screen`). PTY에는 입력을 받았다는 응답이 없다. 출력으로는 키를 그렸는지 알 수 없다(창 제목·대화 기록만 바꾼 출력도 온다, 2026-10-24 검토 codex F2).
+/// 근거: cursor-agent 2026.10.22가 빈 입력 칸에 친 글자 50개를 모두 19 ms 안에 그렸다(중앙값 2.9 ms, 2026-10-24 실측). 3초는 그 150배가 넘는다. 이보다 오래 키를 그리지 않는 TUI는 사람에게도 멈춘 것이다.
+pub(crate) const KEY_QUIET: Duration = Duration::from_secs(3);
 
 /// 설정 스크립트가 실패했을 때 부모에게 보이는 출력 끝 줄 수. 근거: 오류는 보통 마지막 몇 줄에 있다(npm·tsc·cargo).
 const TAIL_LINES: usize = 20;
@@ -145,8 +145,8 @@ struct Output {
     tx: broadcast::Sender<Bytes>,
     /// 마지막 출력을 받은 때. 다시 시작한 데몬은 호스트의 backlog를 받은 때다.
     last_push: Instant,
-    /// 마지막으로 키(`typed`)를 친 때와 치기 직전 화면 글. 터미널 응답은 키가 아니다. 입력 칸을 바꾸지 않는다.
-    typed: Option<(Instant, String)>,
+    /// 마지막으로 키(`typed`)를 친 때. 터미널 응답은 키가 아니다. 입력 칸을 바꾸지 않는다.
+    typed_at: Option<Instant>,
 }
 
 /// 최근 출력 `BACKLOG_BYTES`. 호스트와 데몬이 같은 규칙으로 쌓는다.
@@ -198,7 +198,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 backlog: Backlog::default(),
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
                 last_push: Instant::now(),
-                typed: None,
+                typed_at: None,
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
             sizing: Mutex::default(),
@@ -288,9 +288,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             .map_or_else(Screen::default, |pty| pty.screen())
     }
 
-    /// `Keys::settled_screen`과 같다. 입력 잠금을 쥐지 않는다.
-    pub fn settled_screen(&self, id: K) -> Option<Screen> {
-        self.pty(id)?.settled_screen()
+    /// `Keys::quiet_screen`과 같다. 입력 잠금을 쥐지 않는다.
+    pub fn quiet_screen(&self, id: K) -> Option<Screen> {
+        self.pty(id)?.quiet_screen()
     }
 
     /// backlog와 그 뒤의 출력을 빈틈없이 받는다.
@@ -332,10 +332,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         let (Some(pty), Some(host)) = (pty.as_ref(), host.as_mut()) else {
             return Ok(());
         };
-        let before = pieces
-            .iter()
-            .any(|bytes| typed(bytes))
-            .then(|| pty.screen().text);
+        let keys = pieces.iter().any(|bytes| typed(bytes));
         for (i, bytes) in pieces.into_iter().enumerate() {
             if i > 0 {
                 std::thread::sleep(gap);
@@ -345,8 +342,8 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 break;
             }
         }
-        if let Some(before) = before {
-            pty.output.lock().unwrap().typed = Some((Instant::now(), before));
+        if keys {
+            pty.output.lock().unwrap().typed_at = Some(Instant::now());
         }
         Ok(())
     }
@@ -494,20 +491,18 @@ impl Keys<'_> {
         self.0.map_or_else(Screen::default, Pty::screen)
     }
 
-    /// 마지막으로 친 키를 그린 지금 화면. 키 뒤 `INPUT_SETTLE`이 지났고 화면 글이 키를 치기 전과 다르다. 아니면 화면이 아직 그 키를 보이지 않을 수 있다.
-    /// 그 키를 TUI가 무시해 화면이 그대로면, 다른 출력이 화면을 바꿀 때까지 없다.
-    pub fn settled_screen(&self) -> Option<Screen> {
-        self.0.and_then(Pty::settled_screen)
+    /// 마지막으로 친 키 뒤 `KEY_QUIET`이 지난 지금 화면. 그 전에는 화면이 아직 그 키를 보이지 않을 수 있다.
+    pub fn quiet_screen(&self) -> Option<Screen> {
+        self.0.and_then(Pty::quiet_screen)
     }
 }
 
 impl Pty {
-    fn settled_screen(&self) -> Option<Screen> {
-        let typed = self.output.lock().unwrap().typed.clone();
-        let screen = self.screen();
-        typed
-            .is_none_or(|(at, before)| at.elapsed() >= INPUT_SETTLE && screen.text != before)
-            .then_some(screen)
+    fn quiet_screen(&self) -> Option<Screen> {
+        let typed_at = self.output.lock().unwrap().typed_at;
+        typed_at
+            .is_none_or(|at| at.elapsed() >= KEY_QUIET)
+            .then(|| self.screen())
     }
 
     fn screen(&self) -> Screen {
@@ -990,7 +985,7 @@ mod tests {
             backlog: Backlog::default(),
             tx: broadcast::channel(1).0,
             last_push: Instant::now(),
-            typed: None,
+            typed_at: None,
         };
         output.push(b"\x1b]11;?\x1b\\");
         let pushed = output.last_push;

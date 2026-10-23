@@ -22,8 +22,10 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{AgentSwitch, Entry, EventRecord, SwitchCause, TurnCheck, Via, Who};
-pub use gate::{Ended, GateChoice, MergeTask, Round};
+pub use events::{
+    AgentSwitch, BatchMember, BatchResult, Entry, EventRecord, SwitchCause, TurnCheck, Via, Who,
+};
+pub use gate::{BatchId, Ended, GateChoice, Queued, Round};
 pub use mailbox::{
     BATCH_SEPARATOR, Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent,
 };
@@ -270,7 +272,7 @@ pub enum Refusal {
     PromptChanged(WaitId),
     /// 관문 상태에서 할 수 없는 관문 호출.
     Gate(IllegalStep),
-    /// 관문 호출을 관문(또는 그 검토자)이 아닌 노드가 불렀다.
+    /// 관문 호출을 부를 수 없는 노드가 불렀다: 판정은 관문이 띄운 검토자만, `loom fail`은 관문만 부른다.
     NotGate {
         branch: String,
         gate: String,
@@ -284,17 +286,8 @@ pub enum Refusal {
     },
     /// 담당 워크트리에 커밋하지 않은 변경이 있다. 값은 브랜치다.
     Uncommitted(String),
-    /// 대상 브랜치가 담당 브랜치에 포함되지 않았다.
-    NotAncestor {
-        target: String,
-        branch: String,
-    },
     /// 담당 브랜치가 대상 브랜치와 같다. 값은 브랜치다.
     SameAsTarget(String),
-    /// 같은 저장소에 프로세스가 사는 CI 담당자 노드가 없다.
-    NoGate,
-    /// CI 담당자 노드가 여럿이다. 값은 `#번호`를 쉼표로 이은 글이다.
-    ManyGates(String),
     /// block 판정에 결함 파일이 없다.
     NoFindings,
     /// 손으로 쓴 글(`note`·`answer`·`done`)이 종류 낱말로 시작한다(`protocol::kind_word`). `verb`는 대신 쓸 명령이다.
@@ -302,26 +295,12 @@ pub enum Refusal {
         word: String,
         verb: String,
     },
-    /// 원래 체크아웃에 관문 스크립트(`scripts/gate/check.sh`, `ship.sh`)가 없다.
-    NoGateScripts,
     /// 브랜치 담당이 자기 브랜치를 판정했다. 값은 브랜치다.
     OwnVerdict(String),
-    /// 병합 끝 보고의 실행 번호가 지금 실행이 아니다(그 뒤 `loom merge`를 다시 불렀다).
-    StaleRun {
-        branch: String,
-        #[ts(type = "number")]
-        run: i64,
-    },
     /// 담당 브랜치의 커밋이 모두 이미 대상 브랜치에 있다. 병합할 것이 없다.
     NothingToMerge {
         branch: String,
         target: String,
-    },
-    /// 보고한 병합 커밋이 대상 브랜치에 없거나 검토한 커밋을 담지 않는다.
-    NotMerged {
-        sha: String,
-        target: String,
-        head: String,
     },
     Git(String),
     Launch(String),
@@ -457,7 +436,7 @@ impl fmt::Display for Refusal {
             Refusal::Gate(e) => e.fmt(f),
             Refusal::NotGate { branch, gate } => write!(
                 f,
-                "{branch}: only its gate {gate} (or a reviewer that {gate} started) can call this."
+                "{branch}: its gate is {gate}. Only a reviewer that {gate} spawned gives the verdict, and only {gate} calls `loom fail`."
             ),
             Refusal::NoRound(branch) => write!(
                 f,
@@ -472,21 +451,9 @@ impl fmt::Display for Refusal {
                 f,
                 "{branch}: commit or remove the uncommitted changes in your worktree first (git status --short)."
             ),
-            Refusal::NotAncestor { target, branch } => write!(
-                f,
-                "{target} is not in {branch}. Merge {target} into {branch}, run the checks, commit, then call `loom ready {branch}` again."
-            ),
             Refusal::SameAsTarget(branch) => write!(
                 f,
                 "{branch} is the target branch itself. If you work in your coordinator's branch, report with `loom done`."
-            ),
-            Refusal::NoGate => write!(
-                f,
-                "No live node with role CI 담당자 is in this repository. Ask the root to spawn one with `loom spawn <name> --role \"CI 담당자\"`."
-            ),
-            Refusal::ManyGates(ids) => write!(
-                f,
-                "More than one live CI 담당자 node is in this repository ({ids}). Ask the root to remove the extra ones."
             ),
             Refusal::NoFindings => write!(
                 f,
@@ -498,25 +465,11 @@ impl fmt::Display for Refusal {
             ),
             Refusal::OwnVerdict(branch) => write!(
                 f,
-                "{branch}: you own this branch, so you cannot judge it. Its gate or a reviewer gives the verdict."
-            ),
-            Refusal::StaleRun { branch, run } => write!(
-                f,
-                "{branch}: merge run {run} is not the current run. A later `loom merge` replaced it, so loom ignores this report."
+                "{branch}: you own this branch, so you cannot judge it. A reviewer that its gate spawned gives the verdict."
             ),
             Refusal::NothingToMerge { branch, target } => write!(
                 f,
                 "{branch} has no commit that {target} does not have, so there is nothing to merge. Commit the work first."
-            ),
-            Refusal::NotMerged { sha, target, head } => write!(
-                f,
-                "{sha} is not a commit of {target} that contains the reviewed commit {head}. loom records only a merge it can see in git."
-            ),
-            Refusal::NoGateScripts => write!(
-                f,
-                "This repository has no {} and {} in its main checkout, so loom verdict, loom merge and loom fail do not work here. `loom ready` still sends the branch to its gate; the gate merges by hand and reports with `loom done`.",
-                crate::protocol::CHECK_SCRIPT,
-                crate::protocol::SHIP_SCRIPT
             ),
             Refusal::Git(e) => write!(f, "git failed: {e}"),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),

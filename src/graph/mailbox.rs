@@ -834,13 +834,25 @@ pub(super) fn enqueue_loom(
     what: &MessageKind,
     body: &str,
 ) -> rusqlite::Result<MessageId> {
+    enqueue_from_loom(db, to, Kind::Queue, what, body, None)
+}
+
+/// 병합 큐가 보내는 관문 메시지와 거둔 차례 알림. 관문 흔적을 함께 남긴다. 상한은 `enqueue_loom`과 같은 까닭으로 보지 않는다.
+pub(super) fn enqueue_from_loom(
+    db: &Connection,
+    to: NodeId,
+    kind: Kind,
+    what: &MessageKind,
+    body: &str,
+    gate: Option<GateTrace>,
+) -> rusqlite::Result<MessageId> {
     db.execute(
         "INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
-        params![to.0, LOOM, to_json(&Kind::Queue), body, to_json(what)],
+        params![to.0, LOOM, to_json(&kind), body, to_json(what)],
     )?;
     let id = MessageId(db.last_insert_rowid() as u32);
     let entry = Entry::Message {
-        how: Kind::Queue,
+        how: kind,
         what: Some(what.clone()),
         from: events::Who {
             id: None,
@@ -849,7 +861,7 @@ pub(super) fn enqueue_loom(
         to: Some(events::who(db, to)?),
         step: Step::Sent,
         via: None,
-        gate: None,
+        gate,
     };
     events::write(db, &entry, Some(id))?;
     Ok(id)

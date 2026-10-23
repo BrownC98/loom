@@ -47,7 +47,7 @@ fn usage(launch: Launch) -> String {
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 21] = [
+const ALLOWED: [&str; 20] = [
     "Bash(loom guard)",
     "Bash(loom note:*)",
     "Bash(loom answer:*)",
@@ -67,7 +67,6 @@ const ALLOWED: [&str; 21] = [
     "Bash(loom rm:*)",
     "Bash(loom ready:*)",
     "Bash(loom verdict:*)",
-    "Bash(loom merge:*)",
     "Bash(loom fail:*)",
 ];
 

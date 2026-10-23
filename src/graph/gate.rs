@@ -1,7 +1,7 @@
-//! 병합 관문 상태: 저장소·브랜치마다 한 줄(`gates`). 전이는 `protocol::step`만 정한다. 이 모듈은 줄을 읽고 쓰고,
-//! 부를 수 있는 노드를 보고, 받는 노드에 고정 꼴 메시지를 넣고, 같은 트랜잭션에서 흔적을 남긴다.
+//! 병합 관문 상태: 저장소·브랜치마다 한 줄(`gates`)과 도는 병합 묶음(`batches`). 전이는 `protocol::step`만 정한다.
+//! 이 모듈은 줄을 읽고 쓰고, 부를 수 있는 노드를 보고, 받는 노드에 고정 꼴 메시지를 넣고, 같은 트랜잭션에서 흔적을 남긴다.
 //! git으로 아는 사실(담당 워크트리의 브랜치, 미커밋 변경, 포함 관계, 커밋)은 데몬이 읽어 넘긴다.
-//! 근거: 출력 표준 R8 v5 ④·⑤(2026-10-23 사람 결정 Q559 A).
+//! 근거: 출력 표준 R8 v5 ④·⑤(2026-10-23 사람 결정 Q559 A). 관문 고르기는 Q692 A, 병합 큐는 Q697 A다.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
@@ -9,10 +9,12 @@ use serde::{Deserialize, Serialize};
 use super::events::{self, Entry, GateTrace, Via, Who};
 use super::mailbox::{self, Stamp};
 use super::{Graph, Kind, NodeId, Refusal, from_json, name_of, parent_of, place_of, to_json};
+use crate::profile::AgentId;
 use crate::protocol::{
-    self, CI_ROLE, COORDINATOR_ROLE, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment,
-    MergeEnd, MessageKind, Receiver, Sender,
+    self, COORDINATOR_ROLE, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, MergeEnd,
+    MessageKind, Receiver, Sender, Target,
 };
+use crate::worktree::RepoId;
 
 /// `loom ready`이 데몬에서 읽은 브랜치 사실.
 pub struct Round<'a> {
@@ -23,42 +25,54 @@ pub struct Round<'a> {
     pub head: &'a str,
 }
 
-/// 브랜치 담당의 관문.
+/// 브랜치 담당의 관문(2026-10-23 사람 결정 Q692 A).
 #[derive(Debug, PartialEq)]
 pub enum GateChoice {
     /// 부모가 코디다. 대상은 코디 워크트리의 브랜치다.
     Coordinator { gate: NodeId, worktree: String },
-    /// 같은 저장소의 살아 있는 CI 담당자. 대상은 원래 체크아웃의 브랜치다.
-    Ci { gate: NodeId },
+    /// 그 밖(코디, 총괄이 띄운 워커): 담당 자신이 관문이다. 대상은 원래 체크아웃의 브랜치다.
+    Owner,
 }
 
-/// `loom merge`가 할 일. 관문 줄의 이번 차례.
-#[derive(Debug, PartialEq)]
-pub struct MergeTask {
+/// 병합 큐에 선 브랜치 하나. 큐 순서(pass 판정 순)로 읽는다.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Queued {
+    pub branch: String,
     pub owner: NodeId,
-    pub worktree: String,
-    pub target: String,
-    /// 검토한 커밋. 검사와 병합은 이 커밋만 쓴다.
+    /// 검토한 커밋. 묶음은 이 커밋만 쌓는다.
     pub head: String,
     /// audit 시작 시각: 이번 차례의 `loom ready`.
     pub since: i64,
-    /// 이번 `loom merge` 실행 번호. 끝 보고가 같은 번호를 가져온다.
-    pub run: i64,
-    /// 이 실행을 시작하기 전 상태. `Merging`이면 앞 실행의 끝 보고가 오지 않았다.
-    pub from: GateState,
-    /// 이 브랜치를 마지막으로 병합한 커밋.
-    pub merged: Option<String>,
+    /// pass 판정부터 지금까지 기다린 초.
+    pub waited: u64,
 }
 
-/// `loom merge`가 끝난 꼴과 알릴 값.
+/// 묶음 번호(`batches.id`). 끝난 묶음의 번호는 다시 쓰지 않는다.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BatchId(pub i64);
+
+/// 데몬이 끝내지 못한 묶음. 다시 띄운 데몬이 거둔다.
+#[derive(Debug, PartialEq)]
+pub struct Stale {
+    pub id: BatchId,
+    pub repo: RepoId,
+    pub target: String,
+    pub base: Option<String>,
+    /// 검사를 지난 묶음 끝. 없으면 검사 전에 끝났다.
+    pub tip: Option<String>,
+    /// 아직 `Merging`인 브랜치(쌓은 순서).
+    pub members: Vec<Queued>,
+}
+
+/// 병합 큐가 브랜치 하나를 끝낸 꼴과 알릴 값.
 pub struct Ended<'a> {
     pub end: MergeEnd,
     /// 병합 커밋. 병합했을 때만 있다.
     pub merged: Option<&'a str>,
     pub cause: Option<String>,
-    /// `loom merge` 로그 파일.
+    /// 묶음 검사 기록 파일(배포판 안의 경로).
     pub log: Option<String>,
-    /// 받는 노드에 덧붙일 본문 줄(배포 결과, 되찾은 병합).
+    /// 받는 노드에 덧붙일 본문 줄(묶음 번호, 배포 결과).
     pub lines: Vec<String>,
     pub findings: Vec<Finding>,
 }
@@ -79,13 +93,21 @@ struct Row {
     worktree: String,
     state: GateState,
     head: String,
-    since: i64,
-    run: i64,
-    merged: Option<String>,
+    mark: u32,
+}
+
+impl Row {
+    /// 스스로 관문인 담당의 대상은 원래 체크아웃의 브랜치, 코디가 관문이면 코디 브랜치다(`GateChoice`).
+    fn target_kind(&self) -> Target {
+        match self.gate == self.owner {
+            true => Target::Base,
+            false => Target::Coordinator,
+        }
+    }
 }
 
 /// 관문 호출 하나가 받는 노드에 보내는 칸(`protocol::GateFacts`의 호출 쪽 값)과 본문 줄, 흔적에 쓸 audit 결과.
-/// 브랜치·커밋·워크트리·대상·검토 모델은 관문 줄과 부른 노드에서 `apply`가 채운다.
+/// 브랜치·커밋·워크트리·대상·검토 모델은 관문 줄과 부른 노드에서 채운다.
 #[derive(Default)]
 struct Detail {
     findings_file: Option<String>,
@@ -96,38 +118,36 @@ struct Detail {
     findings: Vec<Finding>,
 }
 
+/// 관문 호출을 부른 쪽. 병합 큐(데몬)는 노드가 아니다.
+#[derive(Clone, Copy)]
+enum Caller {
+    Node(NodeId),
+    Loom,
+}
+
+impl Caller {
+    fn node(self) -> Option<NodeId> {
+        match self {
+            Caller::Node(id) => Some(id),
+            Caller::Loom => None,
+        }
+    }
+}
+
 impl Graph {
-    /// 담당 `owner`의 관문. 부모가 코디면 코디, 아니면 같은 저장소에서 프로세스가 사는 CI 담당자 하나다.
+    /// 담당 `owner`의 관문. 부모가 코디면 코디, 아니면 담당 자신이다.
     pub fn gate_for(&self, owner: NodeId) -> Result<GateChoice, Refusal> {
         let db = self.lock();
-        if let Some(parent) = coordinator_parent(&db, owner)? {
-            return Ok(GateChoice::Coordinator {
+        match coordinator_parent(&db, owner)? {
+            Some(parent) => Ok(GateChoice::Coordinator {
                 gate: parent,
                 worktree: place_of(&db, parent)?.worktree,
-            });
-        }
-        let repo = place_of(&db, owner)?.repo;
-        let found = db
-            .prepare(
-                "SELECT id FROM nodes WHERE role = ?1 AND repo = ?2 AND process_exited = 0 AND id != ?3 ORDER BY id",
-            )?
-            .query_map(params![CI_ROLE, repo.0, owner.0], |row| {
-                Ok(NodeId(row.get(0)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        match found.as_slice() {
-            [gate] => Ok(GateChoice::Ci { gate: *gate }),
-            [] => Err(Refusal::NoGate),
-            many => Err(Refusal::ManyGates(
-                many.iter()
-                    .map(|id| format!("#{id}"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            )),
+            }),
+            None => Ok(GateChoice::Owner),
         }
     }
 
-    /// `loom ready`: 담당이 브랜치를 관문에 보낸다. 데몬이 담당·미커밋·포함 관계를 이미 봤다. 돌려준 값은 관문 이름이다.
+    /// `loom ready`: 담당이 브랜치를 관문에 보낸다. 데몬이 담당·미커밋을 이미 봤다. 돌려준 값은 관문 이름이다.
     pub fn ready(
         &self,
         owner: NodeId,
@@ -136,26 +156,35 @@ impl Graph {
         via: Option<&Via>,
     ) -> Result<String, Refusal> {
         let detail = Detail::default();
-        let row = self.apply(owner, round.branch, GateCall::Ready, detail, via, |tx, row| {
-            let repo = place_of(tx, owner)?.repo;
-            tx.execute(
-                "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch())
-                 ON CONFLICT (repo, branch) DO UPDATE SET owner = ?3, gate = ?4, target = ?5, worktree = ?6,
-                    state = ?7, head = ?8, verdict = NULL, opened = unixepoch(), updated = unixepoch()",
-                params![
-                    repo.0,
-                    round.branch,
-                    owner.0,
-                    gate.0,
-                    round.target,
-                    round.worktree,
-                    to_json(&row.state),
-                    round.head
-                ],
-            )?;
-            Ok(())
-        })?;
+        let repo = place_of(&self.lock(), owner)?.repo;
+        let row = self.apply(
+            Caller::Node(owner),
+            repo,
+            round.branch,
+            GateCall::Ready,
+            detail,
+            via,
+            |tx, row| {
+                tx.execute(
+                    "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated, mark)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch(), (SELECT max(id) FROM nodes))
+                     ON CONFLICT (repo, branch) DO UPDATE SET owner = ?3, gate = ?4, target = ?5, worktree = ?6,
+                        state = ?7, head = ?8, verdict = NULL, queued = NULL, batch = NULL, opened = unixepoch(),
+                        updated = unixepoch(), mark = (SELECT max(id) FROM nodes)",
+                    params![
+                        repo.0,
+                        round.branch,
+                        owner.0,
+                        gate.0,
+                        round.target,
+                        round.worktree,
+                        to_json(&row.state),
+                        round.head
+                    ],
+                )?;
+                Ok(())
+            },
+        )?;
         Ok(name_of(&self.lock(), row.gate)?)
     }
 
@@ -180,7 +209,7 @@ impl Graph {
             via: via.cloned(),
             gate: Some(trace(
                 &tx,
-                owner,
+                Caller::Node(owner),
                 GateVerb::Ready,
                 round.branch,
                 None,
@@ -189,7 +218,7 @@ impl Graph {
             )?),
         };
         let body = format!(
-            "Next: review the branch, merge it into {} by hand, then report with `loom done`. This repository has no gate scripts, so loom verdict and loom merge do not work here.",
+            "Next: review the branch, merge it into {} by hand, then report with `loom done`. This repository has no gate scripts, so loom verdict and the merge queue do not work here.",
             round.target
         );
         mailbox::enqueue(&tx, owner, Some(gate), Kind::Queue, &what, &body, stamp)?;
@@ -213,7 +242,7 @@ impl Graph {
         )
     }
 
-    /// `loom verdict`: 관문이나 그 검토자가 판정한다. block은 결함 파일이 있어야 한다.
+    /// `loom verdict`: 관문이 띄운 검토자가 판정한다. block은 결함 파일이 있어야 한다. pass는 브랜치를 병합 큐에 세운다.
     pub fn verdict(
         &self,
         caller: NodeId,
@@ -229,8 +258,10 @@ impl Graph {
             findings_file: findings.map(str::to_owned),
             ..Detail::default()
         };
+        let repo = place_of(&self.lock(), caller)?.repo;
         let row = self.apply(
-            caller,
+            Caller::Node(caller),
+            repo,
             branch,
             GateCall::Verdict(judgment),
             detail,
@@ -242,105 +273,28 @@ impl Graph {
                     reviewer: events::who(tx, caller)?,
                     model: model_of(tx, caller)?,
                 };
-                Ok(update(
-                    tx,
-                    caller,
-                    branch,
-                    row.state,
-                    Some(&to_json(&verdict)),
-                    None,
-                )?)
+                update(tx, repo, branch, row.state, Some(&to_json(&verdict)), None)?;
+                // 둘째 pass는 큐 자리를 바꾸지 않는다.
+                tx.execute(
+                    "UPDATE gates SET queued = CASE WHEN ?3 = '\"passed\"' THEN coalesce(queued, unixepoch()) END
+                     WHERE repo = ?1 AND branch = ?2",
+                    params![repo.0, branch, to_json(&row.state)],
+                )?;
+                Ok(())
             },
         )?;
         Ok(row.state)
     }
 
-    /// `loom merge` 시작: 관문만, 판정 pass 뒤에만 부른다. 새 실행 번호를 받는다. 앞 실행의 끝 보고는 그 뒤 받지 않는다.
-    pub fn merge_start(
-        &self,
-        caller: NodeId,
-        branch: &str,
-        via: Option<&Via>,
-    ) -> Result<MergeTask, Refusal> {
-        let detail = Detail::default();
-        let mut from = GateState::Working;
-        let row = self.apply(
-            caller,
-            branch,
-            GateCall::MergeStart,
-            detail,
-            via,
-            |tx, row| {
-                from = load(tx, caller, branch)?.map_or(from, |old| old.state);
-                update(tx, caller, branch, row.state, None, None)?;
-                tx.execute(
-                    "UPDATE gates SET run = run + 1 WHERE repo = ?1 AND branch = ?2",
-                    params![place_of(tx, caller)?.repo.0, branch],
-                )?;
-                Ok(())
-            },
-        )?;
-        Ok(MergeTask {
-            owner: row.owner,
-            worktree: row.worktree,
-            target: row.target,
-            head: row.head,
-            since: row.since,
-            run: row.run,
-            from,
-            merged: row.merged,
-        })
-    }
-
-    /// 이 브랜치의 지금 차례. 병합 끝 보고를 git에서 확인할 때 쓴다.
-    pub fn merge_task(&self, caller: NodeId, branch: &str) -> Result<MergeTask, Refusal> {
-        let row = load(&self.lock(), caller, branch)?
-            .ok_or_else(|| Refusal::NoRound(branch.to_owned()))?;
-        Ok(MergeTask {
-            owner: row.owner,
-            from: row.state,
-            worktree: row.worktree,
-            target: row.target,
-            head: row.head,
-            since: row.since,
-            run: row.run,
-            merged: row.merged,
-        })
-    }
-
-    /// 브랜치 담당의 작업 폴더 이름과 담당의 워크트리. 브랜치 이름이 아니라 관문 줄의 담당이 정한다:
-    /// 브랜치 이름을 바꿔도, 같은 이름을 다시 써도 그 차례의 작업이다. 관문 줄이 없거나 담당 노드가 지워졌거나 폴더가 없으면 없다.
-    pub fn branch_task(
-        &self,
-        caller: NodeId,
-        branch: &str,
-    ) -> Result<Option<(String, String)>, Refusal> {
-        let owner = match self.merge_task(caller, branch) {
-            Ok(round) => round.owner,
-            Err(Refusal::NoRound(_)) => return Ok(None),
-            Err(e) => return Err(e),
-        };
-        let found = self.task_of(owner).and_then(|task| {
-            task.map(|task| self.place_of(owner).map(|place| (place.worktree, task)))
-                .transpose()
-        });
-        match found {
-            Ok(found) => Ok(found),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-
     /// 같은 저장소에서 관문이 `target`에 병합한 커밋(브랜치마다 마지막 것). 순서는 git의 첫 부모 줄이 정한다:
     /// 초 단위 시각은 같은 초의 두 병합을 가르지 못한다(검토 Codex R4).
-    pub fn gate_merges(&self, caller: NodeId, target: &str) -> rusqlite::Result<Vec<String>> {
-        let db = self.lock();
-        let repo = place_of(&db, caller)?.repo;
-        db.prepare(
-            "SELECT merged FROM gates WHERE repo = ?1 AND target = ?2 AND merged IS NOT NULL",
-        )?
-        .query_map(params![repo.0, target], |r| r.get(0))?
-        .collect()
+    pub fn gate_merges(&self, repo: RepoId, target: &str) -> rusqlite::Result<Vec<String>> {
+        self.lock()
+            .prepare(
+                "SELECT merged FROM gates WHERE repo = ?1 AND target = ?2 AND merged IS NOT NULL",
+            )?
+            .query_map(params![repo.0, target], |r| r.get(0))?
+            .collect()
     }
 
     /// audit 가운데 DB로 아는 것: 이번 차례의 흔적 구간이 빈틈없는지, 담당과 그 자손(같은 저장소)이 관문 동사 밖으로 관문 낱말을 보냈는지.
@@ -381,14 +335,179 @@ impl Graph {
         Ok(findings)
     }
 
-    /// `loom merge` 끝. `run`이 지금 실행 번호가 아니면 받지 않는다.
-    pub fn merge_end(
+    /// `loom fail`: 관문이 큐에 들기 전의 브랜치를 멈추고 알린다.
+    pub fn fail(
         &self,
         caller: NodeId,
         branch: &str,
-        run: i64,
-        ended: Ended,
+        cause: &str,
         via: Option<&Via>,
+    ) -> Result<GateState, Refusal> {
+        let detail = Detail {
+            cause: Some(cause.to_owned()),
+            ..Detail::default()
+        };
+        let repo = place_of(&self.lock(), caller)?.repo;
+        let row = self.apply(
+            Caller::Node(caller),
+            repo,
+            branch,
+            GateCall::Fail,
+            detail,
+            via,
+            |tx, row| Ok(update(tx, repo, branch, row.state, None, None)?),
+        )?;
+        Ok(row.state)
+    }
+
+    /// 거절한 관문 호출을 남긴다. 사람과 audit가 이벤트 기록에서 본다.
+    pub fn record_gate_refusal(
+        &self,
+        caller: NodeId,
+        verb: GateVerb,
+        branch: &str,
+        reason: &Refusal,
+        via: Option<&Via>,
+    ) -> rusqlite::Result<()> {
+        let db = self.lock();
+        let repo = place_of(&db, caller)?.repo;
+        let from = load(&db, repo, branch)?.map(|row| row.state);
+        let entry = Entry::Refused {
+            what: None,
+            how: Kind::Queue,
+            from: events::who(&db, caller)?,
+            to: branch.to_owned(),
+            reason: reason.clone(),
+            via: via.cloned(),
+            gate: Some(trace(
+                &db,
+                Caller::Node(caller),
+                verb,
+                branch,
+                from,
+                None,
+                Vec::new(),
+            )?),
+        };
+        events::write(&db, &entry, None)
+    }
+
+    /// 큐에 선 브랜치가 있는 (저장소, 대상). 가장 오래 기다린 대상부터다.
+    pub fn queued_targets(&self) -> rusqlite::Result<Vec<(RepoId, String)>> {
+        self.lock()
+            .prepare(
+                "SELECT repo, target FROM gates WHERE state = '\"passed\"' GROUP BY repo, target ORDER BY min(queued)",
+            )?
+            .query_map([], |r| Ok((RepoId(r.get(0)?), r.get(1)?)))?
+            .collect()
+    }
+
+    /// 한 대상의 큐. pass 판정 순서다.
+    pub fn queue(&self, repo: RepoId, target: &str) -> rusqlite::Result<Vec<Queued>> {
+        self.lock()
+            .prepare(&format!(
+                "{QUEUED} WHERE repo = ?1 AND target = ?2 AND state = '\"passed\"' ORDER BY queued, rowid"
+            ))?
+            .query_map(params![repo.0, target], read_queued)?
+            .collect()
+    }
+
+    /// 묶음을 연다: `batches` 줄을 만들고 그 브랜치들을 `Merging`으로 바꾼다. 한 트랜잭션이다.
+    pub fn batch_open(
+        &self,
+        repo: RepoId,
+        target: &str,
+        branches: &[&str],
+    ) -> Result<BatchId, Refusal> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        tx.execute(
+            "INSERT INTO batches (repo, target, started) VALUES (?1, ?2, unixepoch())",
+            params![repo.0, target],
+        )?;
+        let id = BatchId(tx.last_insert_rowid());
+        for branch in branches {
+            let row = load(&tx, repo, branch)?.ok_or_else(|| Refusal::NoRound((*branch).into()))?;
+            let to = protocol::step(row.state, GateCall::Start)?;
+            tx.execute(
+                "UPDATE gates SET state = ?3, batch = ?4, updated = unixepoch() WHERE repo = ?1 AND branch = ?2",
+                params![repo.0, branch, to_json(&to), id.0],
+            )?;
+        }
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// 검사를 지난 묶음 끝과 쌓은 대상 커밋. 데몬이 게시 중에 끝나면 다시 띄운 데몬이 이 값으로 게시를 잇는다.
+    pub fn batch_checked(&self, id: BatchId, base: &str, tip: &str) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "UPDATE batches SET base = ?2, tip = ?3 WHERE id = ?1",
+            params![id.0, base, tip],
+        )?;
+        Ok(())
+    }
+
+    /// 묶음을 닫는다. 남은 `Merging` 브랜치는 없어야 한다(부른 쪽이 먼저 끝내거나 다시 세운다).
+    pub fn batch_close(&self, id: BatchId) -> rusqlite::Result<()> {
+        self.lock()
+            .execute("DELETE FROM batches WHERE id = ?1", [id.0])?;
+        Ok(())
+    }
+
+    /// 데몬이 끝내지 못한 묶음. 데몬이 시작할 때 거둔다.
+    pub fn stale_batches(&self) -> rusqlite::Result<Vec<Stale>> {
+        let db = self.lock();
+        let mut stale: Vec<Stale> = db
+            .prepare("SELECT id, repo, target, base, tip FROM batches ORDER BY id")?
+            .query_map([], |r| {
+                Ok(Stale {
+                    id: BatchId(r.get(0)?),
+                    repo: RepoId(r.get(1)?),
+                    target: r.get(2)?,
+                    base: r.get(3)?,
+                    tip: r.get(4)?,
+                    members: Vec::new(),
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        for batch in &mut stale {
+            batch.members = db
+                .prepare(&format!(
+                    "{QUEUED} WHERE batch = ?1 AND state = '\"merging\"' ORDER BY queued, rowid"
+                ))?
+                .query_map([batch.id.0], read_queued)?
+                .collect::<rusqlite::Result<_>>()?;
+        }
+        Ok(stale)
+    }
+
+    /// 묶음의 브랜치를 큐에 다시 세운다. 큐 자리(`queued`)는 그대로다: 앞에 섰던 브랜치가 다음 묶음에서도 앞이다.
+    pub fn requeue(&self, repo: RepoId, branch: &str) -> Result<GateState, Refusal> {
+        let row = self.apply(
+            Caller::Loom,
+            repo,
+            branch,
+            GateCall::Requeue,
+            Detail::default(),
+            None,
+            |tx, row| {
+                update(tx, repo, branch, row.state, None, None)?;
+                tx.execute(
+                    "UPDATE gates SET batch = NULL WHERE repo = ?1 AND branch = ?2",
+                    params![repo.0, branch],
+                )?;
+                Ok(())
+            },
+        )?;
+        Ok(row.state)
+    }
+
+    /// 병합 큐가 브랜치 하나를 끝낸다: 병합, 반려, 실패. 받는 노드에 loom이 알린다.
+    pub fn merge_end(
+        &self,
+        repo: RepoId,
+        branch: &str,
+        ended: Ended,
     ) -> Result<GateState, Refusal> {
         let Ended {
             end,
@@ -408,70 +527,32 @@ impl Graph {
             ..Detail::default()
         };
         let row = self.apply(
-            caller,
+            Caller::Loom,
+            repo,
             branch,
-            GateCall::MergeEnd(end),
+            GateCall::End(end),
             detail,
-            via,
+            None,
             |tx, row| {
-                if row.run != run {
-                    return Err(Refusal::StaleRun {
-                        branch: branch.to_owned(),
-                        run,
-                    });
-                }
-                Ok(update(tx, caller, branch, row.state, None, merged)?)
+                update(tx, repo, branch, row.state, None, merged)?;
+                tx.execute(
+                    "UPDATE gates SET batch = NULL, queued = NULL WHERE repo = ?1 AND branch = ?2",
+                    params![repo.0, branch],
+                )?;
+                Ok(())
             },
         )?;
         Ok(row.state)
     }
 
-    /// `loom fail`: 관문이 브랜치를 멈추고 루트에 알린다.
-    pub fn fail(
-        &self,
-        caller: NodeId,
-        branch: &str,
-        cause: &str,
-        via: Option<&Via>,
-    ) -> Result<GateState, Refusal> {
-        let detail = Detail {
-            cause: Some(cause.to_owned()),
-            ..Detail::default()
-        };
-        let row = self.apply(caller, branch, GateCall::Fail, detail, via, |tx, row| {
-            Ok(update(tx, caller, branch, row.state, None, None)?)
-        })?;
-        Ok(row.state)
-    }
-
-    /// 거절한 관문 호출을 남긴다. 사람과 audit가 이벤트 기록에서 본다.
-    pub fn record_gate_refusal(
-        &self,
-        caller: NodeId,
-        verb: GateVerb,
-        branch: &str,
-        reason: &Refusal,
-        via: Option<&Via>,
-    ) -> rusqlite::Result<()> {
-        let db = self.lock();
-        let from = load(&db, caller, branch)?.map(|row| row.state);
-        let entry = Entry::Refused {
-            what: None,
-            how: Kind::Queue,
-            from: events::who(&db, caller)?,
-            to: branch.to_owned(),
-            reason: reason.clone(),
-            via: via.cloned(),
-            gate: Some(trace(&db, caller, verb, branch, from, None, Vec::new())?),
-        };
-        events::write(&db, &entry, None)
-    }
-
     /// 관문 호출 하나: 부를 수 있는 노드인지 보고, 전이하고, `write`로 줄을 쓰고, 받는 노드에 메시지를 넣는다. 모두 한 트랜잭션이다.
     /// `write`는 새 상태를 담은 줄을 받는다. 줄이 없던 브랜치는 `Working`에서 시작한다(`loom ready`만 줄을 만든다).
+    /// 차례가 판정·병합 전에 `Working`·`Failed`로 돌아가면 그 차례의 검토자에게 `withdrawn`을 보낸다(`withdraw`).
+    #[allow(clippy::too_many_arguments)]
     fn apply(
         &self,
-        caller: NodeId,
+        caller: Caller,
+        repo: RepoId,
         branch: &str,
         call: GateCall,
         detail: Detail,
@@ -480,46 +561,25 @@ impl Graph {
     ) -> Result<Row, Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let old = load(&tx, caller, branch)?;
+        let old = load(&tx, repo, branch)?;
         let from = old.as_ref().map_or(GateState::Working, |row| row.state);
-        let gate = match (&old, protocol::sender(call.verb())) {
-            (_, Sender::Owner) => None,
-            (None, Sender::GateOrReviewer | Sender::Gate) => {
-                return Err(Refusal::NoRound(branch.to_owned()));
-            }
-            (Some(row), Sender::Gate) => Some((row.gate, row.gate == caller)),
-            (Some(row), Sender::GateOrReviewer) if row.owner == caller => {
-                return Err(Refusal::OwnVerdict(branch.to_owned()));
-            }
-            (Some(row), Sender::GateOrReviewer) => Some((
-                row.gate,
-                row.gate == caller || parent_of(&tx, caller)? == Some(row.gate),
-            )),
-        };
-        if let Some((gate, false)) = gate {
-            return Err(Refusal::NotGate {
-                branch: branch.to_owned(),
-                gate: name_of(&tx, gate)?,
-            });
-        }
+        allowed_caller(&tx, caller, old.as_ref(), call.verb(), branch)?;
         let to = protocol::step(from, call)?;
         let row = match old {
             Some(row) => Row { state: to, ..row },
             // `loom ready`의 `write`가 줄 전체를 쓴다. 이 값은 받는 노드를 고를 때만 쓴다.
             None => Row {
-                owner: caller,
-                gate: caller,
+                owner: caller.node().expect("only loom ready opens a row"),
+                gate: caller.node().expect("only loom ready opens a row"),
                 target: String::new(),
                 worktree: String::new(),
                 state: to,
                 head: String::new(),
-                since: 0,
-                run: 0,
-                merged: None,
+                mark: 0,
             },
         };
         write(&tx, &row)?;
-        let row = load(&tx, caller, branch)?.expect("방금 쓴 관문 줄");
+        let row = load(&tx, repo, branch)?.expect("방금 쓴 관문 줄");
         let trace = trace(
             &tx,
             caller,
@@ -529,7 +589,8 @@ impl Graph {
             Some(to),
             detail.findings,
         )?;
-        let what = protocol::gate_kind(
+        let mut sent = Vec::new();
+        if let Some(what) = protocol::gate_kind(
             call,
             GateFacts {
                 branch: branch.to_owned(),
@@ -545,60 +606,184 @@ impl Graph {
                 cause: detail.cause,
                 log: detail.log,
             },
-        );
-        let mut sent = Vec::new();
-        for receiver in protocol::receivers(call) {
-            let to_node = match receiver {
-                Receiver::Gate => row.gate,
-                Receiver::Owner => row.owner,
-                Receiver::Root if exists(&tx, row.owner)? => root_of(&tx, row.owner)?,
-                // 담당을 지웠으면 루트를 모른다. 관문 줄과 흔적은 남는다.
-                Receiver::Root => continue,
-            };
-            if to_node == caller || sent.contains(&to_node) || !exists(&tx, to_node)? {
-                continue;
+        ) {
+            for receiver in protocol::receivers(call, row.target_kind()) {
+                let to_node = match receiver {
+                    Receiver::Gate => row.gate,
+                    Receiver::Owner => row.owner,
+                    Receiver::Root if exists(&tx, row.owner)? => root_of(&tx, row.owner)?,
+                    // 담당을 지웠으면 루트를 모른다. 관문 줄과 흔적은 남는다.
+                    Receiver::Root => continue,
+                };
+                if Some(to_node) == caller.node()
+                    || sent.contains(&to_node)
+                    || !exists(&tx, to_node)?
+                {
+                    continue;
+                }
+                let mut body = detail.lines.clone();
+                body.push(protocol::next_step(call, *receiver, branch));
+                post(
+                    &tx,
+                    caller,
+                    to_node,
+                    Kind::Queue,
+                    &what,
+                    &body.join("\n"),
+                    via,
+                    &trace,
+                )?;
+                sent.push(to_node);
             }
-            let mut body = detail.lines.clone();
-            body.push(protocol::next_step(call, *receiver, branch));
+            if let (true, Caller::Node(me)) = (sent.is_empty(), caller) {
+                let mut body = detail.lines;
+                body.push(protocol::KEPT_FOR_CALLER.to_owned());
+                post(
+                    &tx,
+                    caller,
+                    me,
+                    Kind::Queue,
+                    &what,
+                    &body.join("\n"),
+                    via,
+                    &trace,
+                )?;
+                sent.push(me);
+            }
+        }
+        if withdrawn(from, to) {
+            sent.extend(withdraw(&tx, caller, &row, branch, &trace)?);
+        }
+        tx.commit()?;
+        for to_node in sent {
+            match caller {
+                Caller::Node(me) => self.publish_sent(&db, me, to_node)?,
+                Caller::Loom => self.publish_node(&db, to_node)?,
+            }
+        }
+        if let Caller::Loom = caller {
+            self.mail.notify_waiters();
+        }
+        Ok(row)
+    }
+}
+
+/// 부른 쪽이 이 동사를 부를 수 있는가(`protocol::sender`).
+fn allowed_caller(
+    db: &Connection,
+    caller: Caller,
+    row: Option<&Row>,
+    verb: GateVerb,
+    branch: &str,
+) -> Result<(), Refusal> {
+    let not_gate = |row: &Row| -> Result<(), Refusal> {
+        Err(Refusal::NotGate {
+            branch: branch.to_owned(),
+            gate: name_of(db, row.gate)?,
+        })
+    };
+    match (caller, row, protocol::sender(verb)) {
+        (Caller::Loom, _, Sender::Loom) | (Caller::Node(_), _, Sender::Owner) => Ok(()),
+        (_, None, _) => Err(Refusal::NoRound(branch.to_owned())),
+        (Caller::Loom, Some(row), _) => not_gate(row),
+        (Caller::Node(_), Some(row), Sender::Loom) => not_gate(row),
+        (Caller::Node(me), Some(row), Sender::Reviewer) if row.owner == me => {
+            Err(Refusal::OwnVerdict(branch.to_owned()))
+        }
+        (Caller::Node(me), Some(row), Sender::Reviewer) => match parent_of(db, me)? {
+            Some(parent) if parent == row.gate => Ok(()),
+            _ => not_gate(row),
+        },
+        (Caller::Node(me), Some(row), Sender::Gate) if row.gate == me => Ok(()),
+        (Caller::Node(_), Some(row), Sender::Gate) => not_gate(row),
+    }
+}
+
+/// 차례를 거두는 전이: 검토나 병합을 기다리던 차례가 담당에게 돌아가거나 멈췄다.
+fn withdrawn(from: GateState, to: GateState) -> bool {
+    matches!(
+        (from, to),
+        (
+            GateState::Ready | GateState::Passed | GateState::Merging,
+            GateState::Working | GateState::Failed
+        )
+    )
+}
+
+/// 거둔 차례의 검토자에게 `withdrawn`을 보낸다. 검토자는 관문의 산 자식 가운데 담당과 부른 노드가 아니고,
+/// 관문의 작업 폴더를 함께 쓰고(`--worktree` 없이 띄웠다), 이번 `loom ready` 뒤에 떴거나(`mark`보다 큰 번호) 이 브랜치의 마지막 ready 흔적 뒤에 판정한 노드다.
+/// 차례는 흔적 번호로 가른다: 초 단위 시각은 같은 초의 앞 차례 판정을 가르지 못한다(시험 실측).
+/// 한 관문 아래 두 차례가 겹치면 다른 브랜치의 검토자도 받는다. 본문이 그때는 무시하라고 알린다.
+/// 메시지 연동이 있는 에이전트는 조정으로 받아 지금 턴에 멈춘다.
+fn withdraw(
+    tx: &Transaction,
+    caller: Caller,
+    row: &Row,
+    branch: &str,
+    trace: &GateTrace,
+) -> rusqlite::Result<Vec<NodeId>> {
+    let reviewers: Vec<(NodeId, Option<AgentId>)> = tx
+        .prepare(
+            "SELECT n.id, n.agent FROM nodes n JOIN nodes g ON g.id = n.parent
+             WHERE n.parent = ?1 AND n.id != ?2 AND n.id != ?3 AND n.process_exited = 0 AND n.task IS g.task
+               AND (n.id > ?4 OR EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
+                   AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' = ?5
+                   AND e.entry ->> '$.from.id' = n.id
+                   AND e.id > (SELECT max(r.id) FROM events r WHERE r.entry ->> '$.kind' = 'message'
+                       AND r.entry ->> '$.gate.verb' = 'ready' AND r.entry ->> '$.gate.branch' = ?5)))
+             ORDER BY n.id",
+        )?
+        .query_map(
+            params![
+                row.gate.0,
+                row.owner.0,
+                caller.node().map_or(0, |n| n.0),
+                row.mark,
+                branch
+            ],
+            |r| Ok((NodeId(r.get(0)?), from_json(r, 1)?)),
+        )?
+        .collect::<rusqlite::Result<_>>()?;
+    let what = MessageKind::Withdrawn {
+        branch: branch.to_owned(),
+        head: row.head.clone(),
+    };
+    let body = protocol::withdrawn_step(branch, row.state);
+    for (node, agent) in &reviewers {
+        let kind = match agent.as_ref().and_then(crate::profile::profile_of) {
+            Some(_) => Kind::Steer,
+            None => Kind::Queue,
+        };
+        mailbox::enqueue_from_loom(tx, *node, kind, &what, &body, Some(trace.clone()))?;
+    }
+    Ok(reviewers.into_iter().map(|(node, _)| node).collect())
+}
+
+/// 관문 메시지 하나를 넣는다. 에이전트 호출이면 그 노드가, 병합 큐면 loom이 보낸다.
+#[allow(clippy::too_many_arguments)]
+fn post(
+    tx: &Transaction,
+    caller: Caller,
+    to: NodeId,
+    kind: Kind,
+    what: &MessageKind,
+    body: &str,
+    via: Option<&Via>,
+    trace: &GateTrace,
+) -> rusqlite::Result<()> {
+    match caller {
+        Caller::Node(me) => {
             let stamp = Stamp {
                 via: via.cloned(),
                 gate: Some(trace.clone()),
             };
-            mailbox::enqueue(
-                &tx,
-                caller,
-                Some(to_node),
-                Kind::Queue,
-                &what,
-                &body.join("\n"),
-                stamp,
-            )?;
-            sent.push(to_node);
+            mailbox::enqueue(tx, me, Some(to), kind, what, body, stamp)?;
         }
-        if sent.is_empty() {
-            let mut body = detail.lines;
-            body.push(protocol::KEPT_FOR_CALLER.to_owned());
-            let stamp = Stamp {
-                via: via.cloned(),
-                gate: Some(trace),
-            };
-            mailbox::enqueue(
-                &tx,
-                caller,
-                Some(caller),
-                Kind::Queue,
-                &what,
-                &body.join("\n"),
-                stamp,
-            )?;
-            sent.push(caller);
+        Caller::Loom => {
+            mailbox::enqueue_from_loom(tx, to, kind, what, body, Some(trace.clone()))?;
         }
-        tx.commit()?;
-        for to_node in sent {
-            self.publish_sent(&db, caller, to_node)?;
-        }
-        Ok(row)
     }
+    Ok(())
 }
 
 /// 부모가 코디면 그 부모. 코디 밑 워커의 관문은 코디다.
@@ -629,11 +814,22 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     )
 }
 
-/// 부르는 노드의 저장소에서 그 브랜치의 관문 줄.
-fn load(db: &Connection, caller: NodeId, branch: &str) -> rusqlite::Result<Option<Row>> {
-    let repo = place_of(db, caller)?.repo;
+const QUEUED: &str = "SELECT branch, owner, head, opened, max(unixepoch() - coalesce(queued, unixepoch()), 0) FROM gates";
+
+fn read_queued(r: &rusqlite::Row) -> rusqlite::Result<Queued> {
+    Ok(Queued {
+        branch: r.get(0)?,
+        owner: NodeId(r.get(1)?),
+        head: r.get(2)?,
+        since: r.get(3)?,
+        waited: r.get::<_, i64>(4)?.unsigned_abs(),
+    })
+}
+
+/// 저장소의 그 브랜치 관문 줄.
+fn load(db: &Connection, repo: RepoId, branch: &str) -> rusqlite::Result<Option<Row>> {
     db.query_row(
-        "SELECT owner, gate, target, worktree, state, head, opened, run, merged FROM gates WHERE repo = ?1 AND branch = ?2",
+        "SELECT owner, gate, target, worktree, state, head, mark FROM gates WHERE repo = ?1 AND branch = ?2",
         params![repo.0, branch],
         |row| {
             Ok(Row {
@@ -643,9 +839,7 @@ fn load(db: &Connection, caller: NodeId, branch: &str) -> rusqlite::Result<Optio
                 worktree: row.get(3)?,
                 state: from_json(row, 4)?,
                 head: row.get(5)?,
-                since: row.get(6)?,
-                run: row.get(7)?,
-                merged: row.get(8)?,
+                mark: row.get(6)?,
             })
         },
     )
@@ -654,13 +848,12 @@ fn load(db: &Connection, caller: NodeId, branch: &str) -> rusqlite::Result<Optio
 
 fn update(
     db: &Connection,
-    caller: NodeId,
+    repo: RepoId,
     branch: &str,
     state: GateState,
     verdict: Option<&str>,
     merged: Option<&str>,
 ) -> rusqlite::Result<()> {
-    let repo = place_of(db, caller)?.repo;
     db.execute(
         "UPDATE gates SET state = ?3, verdict = coalesce(?4, verdict), merged = coalesce(?5, merged), updated = unixepoch()
          WHERE repo = ?1 AND branch = ?2",
@@ -671,18 +864,21 @@ fn update(
 
 fn trace(
     db: &Connection,
-    caller: NodeId,
+    caller: Caller,
     verb: GateVerb,
     branch: &str,
     from: Option<GateState>,
     to: Option<GateState>,
     findings: Vec<Finding>,
 ) -> rusqlite::Result<GateTrace> {
-    let (role, agent, model) = db.query_row(
-        "SELECT role, agent, model FROM nodes WHERE id = ?1",
-        [caller.0],
-        |row| Ok((row.get(0)?, from_json(row, 1)?, row.get(2)?)),
-    )?;
+    let (role, agent, model) = match caller {
+        Caller::Node(node) => db.query_row(
+            "SELECT role, agent, model FROM nodes WHERE id = ?1",
+            [node.0],
+            |row| Ok((row.get(0)?, from_json(row, 1)?, row.get(2)?)),
+        )?,
+        Caller::Loom => (None, None, None),
+    };
     Ok(GateTrace {
         verb,
         branch: branch.to_owned(),

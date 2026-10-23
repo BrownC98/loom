@@ -1,15 +1,15 @@
 //! 에이전트 동사마다 성공과 거절이 이벤트를 남기는지 본다. `loom audit` 명령 대신 이 시험이 추적을 강제한다(R14 D3 A, 2026-10-23 Q687 A).
 //! CLI 명령 목록(`crate::Cli`)을 돌므로, 새 명령은 `scene`에 성공·거절 장면을 더하거나 `UNTRACED`에 까닭을 적어야 이 시험이 지난다.
-//! 거절 장면은 모두 처리기를 지난다. 성공 장면 가운데 다섯은 처리기가 아니라 그 끝의 그래프 호출만 본다:
-//! `spawn`(`add_child`, 띄우기에 PTY 호스트가 있어야 한다), `ready`·`verdict`·`merge`·`fail`(git 저장소와 관문 스크립트가 있어야 한다).
-//! 그래서 이 다섯의 처리기가 성공 길에서 그래프를 부르지 않게 바뀌어도 이 시험은 잡지 못한다. `relaunch`의 성공 장면은 세션이 없어 실패한 다시 띄우기다.
+//! 거절 장면은 모두 처리기를 지난다. 성공 장면 가운데 넷은 처리기가 아니라 그 끝의 그래프 호출만 본다:
+//! `spawn`(`add_child`, 띄우기에 PTY 호스트가 있어야 한다), `ready`·`verdict`·`fail`(git 저장소와 관문 스크립트가 있어야 한다).
+//! 그래서 이 넷의 처리기가 성공 길에서 그래프를 부르지 않게 바뀌어도 이 시험은 잡지 못한다. `relaunch`의 성공 장면은 세션이 없어 실패한 다시 띄우기다.
 
 use clap::{CommandFactory, Parser};
 use tempfile::TempDir;
 
 use super::*;
 use crate::graph::{Entry, Round, TurnCheck};
-use crate::protocol::{CI_ROLE, Judgment};
+use crate::protocol::Judgment;
 
 /// 이벤트를 남기지 않는 명령과 그 까닭.
 const UNTRACED: [(&str, &str); 15] = [
@@ -42,12 +42,13 @@ struct Fixture {
     place: Place,
     lead: NodeId,
     worker: NodeId,
-    ci: NodeId,
+    /// 워커가 띄운 검토자. 코디 밑이 아닌 워커는 스스로 관문이다.
+    reviewer: NodeId,
 }
 
 const LEAD: &str = "lead-token";
 const WORKER: &str = "worker-token";
-const CI: &str = "ci-token";
+const REVIEWER: &str = "reviewer-token";
 
 fn launched(token: &str) -> Launched {
     Launched {
@@ -98,21 +99,25 @@ fn fixture() -> Fixture {
         place,
         lead,
         worker: lead,
-        ci: lead,
+        reviewer: lead,
     };
-    fixture.worker = fixture.child("worker", None, WORKER);
-    fixture.ci = fixture.child("ci", Some(CI_ROLE), CI);
+    fixture.worker = fixture.child("worker", WORKER);
+    fixture.reviewer = fixture.child_of(fixture.worker, "reviewer", REVIEWER);
     fixture
 }
 
 impl Fixture {
-    fn child(&self, name: &str, role: Option<&str>, token: &str) -> NodeId {
+    fn child(&self, name: &str, token: &str) -> NodeId {
+        self.child_of(self.lead, name, token)
+    }
+
+    fn child_of(&self, parent: NodeId, name: &str, token: &str) -> NodeId {
         let child = NewChild {
             name,
             worktree: None,
             agent: claude(),
             brief: "",
-            role,
+            role: None,
             task: "t",
         };
         let limits = TreeLimits {
@@ -121,7 +126,7 @@ impl Fixture {
         };
         self.app
             .graph
-            .add_child(self.lead, child, limits, &launched(token), |_| Ok(()))
+            .add_child(parent, child, limits, &launched(token), |_| Ok(()))
             .unwrap()
     }
 
@@ -239,7 +244,7 @@ async fn scene(t: &Fixture, verb: &str) {
             ));
             // 띄우기는 PTY 호스트 프로세스가 있어야 해서 시험에서 돌지 않는다. 성공의 흔적(`Created`)은 그 앞 단계 `add_child`가 쓴다.
             let mark = t.mark();
-            t.child("made", None, "made-token");
+            t.child("made", "made-token");
             t.wrote(
                 verb,
                 mark,
@@ -409,7 +414,7 @@ async fn scene(t: &Fixture, verb: &str) {
             let rm = |name: &str| Json(RemoveRequest { name: name.into() });
             let refused = agent_remove(t.state(), headers(LEAD, verb), rm("nobody")).await;
             t.refused(verb, mark, refused);
-            t.child("spare", None, "spare-token");
+            t.child("spare", "spare-token");
             let mark = t.mark();
             ok(
                 verb,
@@ -459,7 +464,7 @@ async fn scene(t: &Fixture, verb: &str) {
                 head: "c0ffee1",
             };
             let mark = t.mark();
-            t.app.graph.ready(t.worker, &round, t.ci, None).unwrap();
+            t.app.graph.ready(t.worker, &round, t.worker, None).unwrap();
             t.wrote(verb, mark, message_from(t.worker));
         }
         "verdict" => {
@@ -468,35 +473,26 @@ async fn scene(t: &Fixture, verb: &str) {
                 judgment: Judgment::Pass,
                 findings: None,
             };
-            let refused = gate::agent_verdict(t.state(), headers(CI, verb), Json(req)).await;
+            let refused = gate::agent_verdict(t.state(), headers(REVIEWER, verb), Json(req)).await;
             t.refused(verb, mark, refused);
             let mark = t.mark();
             t.app
                 .graph
-                .verdict(t.ci, "b", Judgment::Pass, None, None)
+                .verdict(t.reviewer, "b", Judgment::Pass, None, None)
                 .unwrap();
-            t.wrote(verb, mark, message_from(t.ci));
-        }
-        "merge" => {
-            let req = gate::BranchRequest {
-                branch: "nope".into(),
-            };
-            let refused = gate::agent_merge(t.state(), headers(CI, verb), Json(req)).await;
-            t.refused(verb, mark, refused);
-            let mark = t.mark();
-            t.app.graph.merge_start(t.ci, "b", None).unwrap();
-            t.wrote(verb, mark, message_from(t.ci));
+            t.wrote(verb, mark, message_from(t.reviewer));
         }
         "fail" => {
             let fail = |branch: &str| gate::FailRequest {
                 branch: branch.into(),
                 cause: "broken".into(),
             };
-            let refused = gate::agent_fail(t.state(), headers(CI, verb), Json(fail("nope"))).await;
+            let refused =
+                gate::agent_fail(t.state(), headers(WORKER, verb), Json(fail("nope"))).await;
             t.refused(verb, mark, refused);
             let mark = t.mark();
-            t.app.graph.fail(t.ci, "b", "broken", None).unwrap();
-            t.wrote(verb, mark, message_from(t.ci));
+            t.app.graph.fail(t.worker, "b", "broken", None).unwrap();
+            t.wrote(verb, mark, message_from(t.worker));
         }
         _ => panic!(
             "{verb}: no trace scene. Add a success and a refusal scene here, or add {verb} to UNTRACED with the reason"
@@ -523,10 +519,10 @@ fn a_nudged_turn_end_leaves_an_event() {
     assert_eq!(t.since(mark), []);
 }
 
-/// 옛 메시지 동사는 지웠다(R14 D2 A).
+/// 옛 메시지 동사는 지웠다(R14 D2 A). `merge`는 병합 큐가 맡는다(Q697 A).
 #[test]
 fn old_message_verbs_are_gone() {
-    for old in ["send", "steer", "interrupt", "reply"] {
+    for old in ["send", "steer", "interrupt", "reply", "merge"] {
         assert!(
             crate::Cli::try_parse_from(["loom", old, "a", "b"]).is_err(),
             "{old}"

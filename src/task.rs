@@ -9,7 +9,7 @@ pub const BRIEF: &str = "brief.md";
 pub const RESULT: &str = "result.md";
 /// 검토자가 쓰는 결함 파일 `review/<검토자 노드 이름>.md`의 폴더.
 pub const REVIEW: &str = "review";
-/// `loom merge`의 기록.
+/// 노드가 쓰는 기록(시험·검사 출력).
 pub const LOGS: &str = "logs";
 
 /// 브리프에 있어야 하는 머리. o-mode 브리프 틀과 같다.

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { getEventLog } from './api';
 import { agentLabel } from './catalog';
 import type { AgentView } from './gen/AgentView';
+import type { BatchResult } from './gen/BatchResult';
 import type { Entry } from './gen/Entry';
 import type { EventRecord } from './gen/EventRecord';
 import type { MessageFacts } from './gen/MessageFacts';
@@ -32,6 +33,7 @@ function categoryOf(entry: Entry): Category {
   switch (entry.kind) {
     case 'message':
     case 'refused':
+    case 'batch':
       return 'message';
     case 'asked':
     case 'reported':
@@ -47,11 +49,23 @@ function categoryOf(entry: Entry): Category {
 
 type Family = 'question' | 'done' | 'fail';
 
+const BATCH_FAMILY: Record<BatchResult['kind'], Family | undefined> = {
+  passed: 'done',
+  checkFailed: 'fail',
+  conflict: 'fail',
+  targetMoved: undefined,
+  targetDirty: 'fail',
+  interrupted: undefined,
+  error: 'fail',
+};
+
 /** 알림 줄의 색 계열(목업 docs/mockups/notice-color.html A안). 사람의 답은 그 답이 닫은 알림의 계열을 따른다. 메시지는 종류를 따른다(목업 docs/mockups/typed-messages.html M17 ③). */
 function familyOf(entry: Entry): Family | undefined {
   switch (entry.kind) {
     case 'message':
       return entry.what && kindFamily(entry.what);
+    case 'batch':
+      return BATCH_FAMILY[entry.result.kind];
     case 'asked':
     case 'answered':
     case 'unanswered':
@@ -83,7 +97,7 @@ function kindFamily(what: MessageKind): Family | undefined {
       return what.code !== null && what.code !== 0 ? 'fail' : undefined;
     case 'note':
     case 'ready':
-    case 'merging':
+    case 'withdrawn':
     case 'removed':
     case 'adopted':
     case 'humanInput':
@@ -109,7 +123,7 @@ function kindSummary(what: MessageKind, t: TFunction): string | null {
   switch (what.kind) {
     case 'ready':
     case 'verdict':
-    case 'merging':
+    case 'withdrawn':
     case 'rework':
     case 'failed':
       return `${what.branch} · ${what.head}`;
@@ -142,7 +156,7 @@ function bodyName(what: MessageKind): 'ask' | 'answer' | 'done' | 'next' | 'outp
       return what.kind;
     case 'ready':
     case 'verdict':
-    case 'merging':
+    case 'withdrawn':
     case 'merged':
     case 'rework':
     case 'failed':
@@ -185,6 +199,7 @@ function whoOf(entry: Entry): Who[] {
       return [entry.from];
     case 'accountSwitched':
     case 'noAccountLeft':
+    case 'batch':
       return [];
   }
 }
@@ -233,6 +248,12 @@ function bodyOf(record: EventRecord, t: TFunction): TextPart[] | null {
     case 'instructed':
     case 'message':
       return parts.length > 0 ? parts : null;
+    case 'batch': {
+      const members = entry.members.map((m) => `${m.branch} ${m.head} · ${t('events.waited', { secs: m.waited_secs })}`);
+      const cause = entry.result.kind === 'conflict' ? [t('events.conflictWith', { branch: entry.result.branch })] : entry.result.kind === 'error' ? [entry.result.cause] : [];
+      const log = entry.log === null ? [] : [`log: ${entry.log}`];
+      return [{ part: 'text', text: [...members, ...cause, ...log].join('\n') }];
+    }
     default:
       return null;
   }
@@ -342,12 +363,7 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
         <>
           {entry.what ? <span className="kind k-fail">{kindLabel(entry.what, entry.how, t)}</span> : <KindLabel how={entry.how} />}
           {name(entry.from)}→{name({ id: [...views.values()].find((v) => v.name === entry.to)?.id ?? null, name: entry.to })}
-          {entry.reason.code === 'notAncestor' ? (
-            // 사람 Q603 A: main이 앞선 것은 흔한 정상 흐름이라 오류 색으로 보이지 않는다.
-            <span className="note">{refusalWithoutName(entry.reason)}</span>
-          ) : (
-            <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
-          )}
+          <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
         </>
       );
     case 'asked':
@@ -375,6 +391,19 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
           <span className="kind">{t('events.kind.unanswered')}</span>
           {name(entry.node)}
           <WaitNote wait={entry.wait} extra={t(`events.closedBy.${entry.by}`)} />
+        </>
+      );
+    case 'batch':
+      return (
+        <>
+          <span className="kind">{t('events.kind.batch')}</span>
+          <span className="loomw" translate="no">
+            loom
+          </span>
+          <span className="note">
+            {t('events.batch', { batch: entry.batch, target: entry.target, n: entry.members.length, step: entry.step })} · {t(`events.batchResult.${entry.result.kind}`)}
+            {entry.check_secs !== null && <> · {t('events.checkSecs', { secs: entry.check_secs })}</>}
+          </span>
         </>
       );
     case 'accountSwitched':

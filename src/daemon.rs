@@ -9,6 +9,7 @@ mod origin;
 mod passes;
 mod phone;
 mod places;
+mod queue;
 mod relaunch;
 mod sessions;
 mod settings;
@@ -116,6 +117,8 @@ struct App {
     switch: switch::Switches,
     /// 턴 끝 질문 검사(`turn_end`).
     turn_ends: turn_end::TurnEnds,
+    /// 병합 큐를 깨운다(`queue::run`). pass 판정이 부른다.
+    merge_queue: tokio::sync::Notify,
     /// 노드 에이전트가 쓰는 내장 스킬. 데몬이 시작할 때 데이터 폴더에 푼다.
     plugin: skills::Plugin,
     /// WSL 노드의 `loom` 껍데기 폴더(`<데이터 폴더>/wsl`). Windows 데몬만 쓴다.
@@ -333,12 +336,10 @@ pub struct SpawnRequest {
     pub role: Option<String>,
 }
 
-/// `loom done --file`·`verdict`·`merge`가 묻는 작업 폴더. `branch`가 없으면 부른 노드의 폴더, 있으면 그 브랜치 담당의 폴더다.
+/// `loom done --file`·`verdict`가 묻는 부른 노드의 작업 폴더. 옛 CLI가 보내는 `branch` 칸은 읽지 않는다.
 /// 응답은 데몬이 쓰는 꼴의 경로다. CLI는 데몬과 같은 실행 파일(WSL에서는 `loom.exe`)이라 그 경로를 그대로 연다.
 #[derive(Serialize, Deserialize)]
-pub struct TaskRequest {
-    pub branch: Option<String>,
-}
+pub struct TaskRequest {}
 
 /// 자식이 실행할 것.
 #[derive(Serialize, Deserialize)]
@@ -627,8 +628,6 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/relaunch", post(relaunch::agent_relaunch))
         .route("/api/agent/ready", post(gate::agent_ready))
         .route("/api/agent/verdict", post(gate::agent_verdict))
-        .route("/api/agent/merge", post(gate::agent_merge))
-        .route("/api/agent/merged", post(gate::agent_merged))
         .route("/api/agent/fail", post(gate::agent_fail))
         .route("/api/agent/task", post(agent_task));
     let router = node_routes
@@ -723,6 +722,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     }
     claim.announce(&node_url(listen))?;
     tokio::spawn(app.update.clone().run());
+    tokio::spawn(queue::run(app.clone()));
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     match node_door {
@@ -1010,6 +1010,7 @@ impl App {
             relaunches: relaunch::Relaunches::default(),
             switch: switch::Switches::default(),
             turn_ends: turn_end::TurnEnds::default(),
+            merge_queue: tokio::sync::Notify::new(),
             plugin: {
                 let plugin =
                     skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
@@ -2133,22 +2134,11 @@ async fn serve_file(
 async fn agent_task(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(req): Json<TaskRequest>,
+    Json(TaskRequest {}): Json<TaskRequest>,
 ) -> Result<Json<Option<String>>, AgentError> {
     let caller = app.caller(&headers)?;
-    let dir = match &req.branch {
-        None => Some(app.task_dir(caller).await.map_err(for_agent)?),
-        Some(branch) => match app.graph.branch_task(caller, branch).map_err(for_agent)? {
-            Some((worktree, folder)) => {
-                let tasks = app.tasks_for(&worktree).await.map_err(for_agent)?;
-                Some(tasks.dir(&folder))
-            }
-            None => None,
-        },
-    };
-    Ok(Json(
-        dir.map(|dir| dir.local.to_string_lossy().into_owned()),
-    ))
+    let dir = app.task_dir(caller).await.map_err(for_agent)?;
+    Ok(Json(Some(dir.local.to_string_lossy().into_owned())))
 }
 
 async fn agent_status(

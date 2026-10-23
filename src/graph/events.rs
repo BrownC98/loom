@@ -188,6 +188,57 @@ pub enum Entry {
         node: Who,
         check: TurnCheck,
     },
+    /// 병합 큐의 쌓기·검사 한 번(2026-10-23 사람 결정 Q697 A). 브랜치마다 끝은 관문 메시지(`gate` 흔적)로 따로 남는다.
+    Batch {
+        #[ts(type = "number")]
+        batch: i64,
+        /// 원래 체크아웃의 저장소 폴더.
+        repo: String,
+        target: String,
+        /// 0이면 묶음 전체, 1부터 이분 탐색 단계다.
+        step: u32,
+        /// 쌓은 순서(큐 순서). 크기는 이 목록의 길이다.
+        members: Vec<BatchMember>,
+        /// check.sh가 걸린 초. 검사 전에 끝났으면 없다.
+        #[ts(type = "number | null")]
+        check_secs: Option<u64>,
+        result: BatchResult,
+        log: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BatchMember {
+    pub branch: String,
+    pub head: String,
+    /// pass 판정부터 이 검사 시작까지 기다린 초.
+    #[ts(type = "number")]
+    pub waited_secs: u64,
+}
+
+/// 묶음 검사 한 번의 결과.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum BatchResult {
+    /// check.sh가 지났다. 다음 일은 게시다.
+    Passed,
+    CheckFailed,
+    /// 이 브랜치를 쌓다 충돌했다. 그 브랜치는 반려되고 나머지로 다시 쌓는다.
+    Conflict {
+        branch: String,
+    },
+    /// 게시 전에 대상이 움직였다. 모두 큐에 다시 선다.
+    TargetMoved,
+    /// 대상 코디 워크트리에 미커밋 변경이 있다. 모두 반려된다.
+    TargetDirty,
+    /// 데몬이 묶음 중에 끝났다. 다시 띄운 데몬이 거뒀다.
+    Interrupted,
+    /// 스크립트를 띄우지 못했거나 예상 밖 끝 코드다.
+    Error {
+        cause: String,
+    },
 }
 
 /// 다시 일하게 한 턴 끝 검사(`daemon::turn_end`).
@@ -224,7 +275,7 @@ pub struct GateTrace {
     pub role: Option<String>,
     pub agent: Option<AgentId>,
     pub model: Option<String>,
-    /// `loom merge` 안 audit가 찾은 일. 다른 호출은 빈 목록이다.
+    /// 병합 큐의 audit가 찾은 일. 다른 호출은 빈 목록이다.
     pub findings: Vec<Finding>,
 }
 
@@ -363,12 +414,12 @@ fn screen_fields(what: Option<&MessageKind>) -> Vec<FieldParts> {
     fields
 }
 
-/// 화면에서 보낸 쪽이 loom인 종류. 터미널의 `by_loom`과 다르다: 병합 단계 알림은 관문 노드가 불러 생기지만 loom이 알린다.
+/// 화면에서 보낸 쪽이 loom인 종류. 터미널의 `by_loom`과 다르다: 병합 결과와 검토 중단은 관문 동사가 불러 생기지만 loom이 알린다.
 /// 사람 입력은 사람이 친 노드를 보인다(목업 M17 ① 넷째 표시).
 fn shown_from_loom(what: &MessageKind) -> bool {
     match what {
-        MessageKind::Merging { .. }
-        | MessageKind::Merged { .. }
+        MessageKind::Merged { .. }
+        | MessageKind::Withdrawn { .. }
         | MessageKind::Rework { .. }
         | MessageKind::Failed { .. }
         | MessageKind::Exited { .. }

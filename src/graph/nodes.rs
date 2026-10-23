@@ -22,7 +22,7 @@ pub struct NewChild<'a> {
     pub worktree: Option<&'a str>,
     pub agent: Option<AgentId>,
     pub brief: &'a str,
-    /// `loom spawn --role`의 역할 이름. 관문을 고를 때 쓴다(`protocol::COORDINATOR_ROLE`, `CI_ROLE`).
+    /// `loom spawn --role`의 역할 이름. 관문을 고를 때 쓴다(`protocol::COORDINATOR_ROLE`).
     pub role: Option<&'a str>,
     /// 작업 폴더 이름(`task::TaskDir::folder`).
     pub task: &'a str,

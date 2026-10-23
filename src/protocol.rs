@@ -9,31 +9,32 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// 관문 동사. 각각 `loom <동사>` 명령 하나다.
+/// 관문 동사. `Queue`만 빼고 각각 `loom <동사>` 명령 하나다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum GateVerb {
     Ready,
     Verdict,
-    Merge,
     Fail,
+    /// 데몬의 병합 큐가 한 일(묶음 시작, 다시 줄 세우기, 병합 끝). 에이전트 명령이 아니다(2026-10-23 사람 결정 Q697 A).
+    Queue,
 }
 
 impl GateVerb {
     pub const ALL: [GateVerb; 4] = [
         GateVerb::Ready,
         GateVerb::Verdict,
-        GateVerb::Merge,
         GateVerb::Fail,
+        GateVerb::Queue,
     ];
 
     pub fn command(self) -> &'static str {
         match self {
             GateVerb::Ready => "loom ready",
             GateVerb::Verdict => "loom verdict",
-            GateVerb::Merge => "loom merge",
             GateVerb::Fail => "loom fail",
+            GateVerb::Queue => "the merge queue",
         }
     }
 }
@@ -45,14 +46,14 @@ impl GateVerb {
 pub enum GateState {
     /// 담당이 고치는 중이다(처음, 또는 반려 뒤).
     Working,
-    /// 담당이 `loom ready`를 불렀다. 관문이 검토한다.
+    /// 담당이 `loom ready`를 불렀다. 관문의 검토자가 검토한다.
     Ready,
-    /// 판정 pass. 관문이 `loom merge`를 부를 수 있다.
+    /// 판정 pass. 데몬의 병합 큐에 서 있다.
     Passed,
-    /// `loom merge`가 검사·병합 중이다. 같은 관문이 다시 부를 수 있다(앞 실행이 보고 없이 끝났을 때).
+    /// 데몬이 이 브랜치를 묶음에 넣어 검사·병합한다.
     Merging,
     Merged,
-    /// 담당이 고칠 수 없는 실패. 루트가 정한다. 담당이 고친 뒤 `loom ready`로 새 차례를 연다.
+    /// 담당이 고칠 수 없는 실패. 루트(코디 브랜치면 코디)가 정한다. 담당이 고친 뒤 `loom ready`로 새 차례를 연다.
     Failed,
 }
 
@@ -65,18 +66,15 @@ pub enum Judgment {
     Block,
 }
 
-/// `loom merge`가 끝난 꼴.
+/// 병합 큐가 브랜치 하나를 끝낸 꼴.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MergeEnd {
     Merged,
-    /// 담당이 고칠 일: 충돌, 검사 실패, 대상 브랜치가 움직임, 관문 밖 관문 낱말.
+    /// 담당이 고칠 일: 쌓기 충돌, 검사 실패, 판정 뒤 브랜치가 움직임, 관문 밖 관문 낱말, 코디 워크트리의 미커밋 변경.
     Rework,
     /// 담당이 고칠 수 없는 일: 배포·환경, 흔적 구간 빔.
     Failed,
-    /// 다시 부르면 될 일(push 거절, fetch 실패, 잠금 대기 초과)이나 루트가 볼 일(관문 밖에서 이미 병합됨)로 멈췄다.
-    /// `Merging`에 남아 관문이 `loom merge`를 다시 부르거나 `loom fail`한다. 게시하지 않은 병합은 남기지 않는다(재작업 3 결정 3).
-    Stopped,
 }
 
 /// 관문 호출 하나. 동사와 그 결과를 함께 담아 틀린 짝(예: ready에 판정)을 만들 수 없게 한다.
@@ -84,10 +82,12 @@ pub enum MergeEnd {
 pub enum GateCall {
     Ready,
     Verdict(Judgment),
-    /// `loom merge`가 시작했다.
-    MergeStart,
-    MergeEnd(MergeEnd),
     Fail,
+    /// 데몬이 이 브랜치를 묶음에 넣었다.
+    Start,
+    /// 데몬이 묶음에서 빼 큐에 다시 세웠다(다른 브랜치의 실패, 대상이 움직임, 데몬 재시작).
+    Requeue,
+    End(MergeEnd),
 }
 
 impl GateCall {
@@ -95,8 +95,8 @@ impl GateCall {
         match self {
             GateCall::Ready => GateVerb::Ready,
             GateCall::Verdict(_) => GateVerb::Verdict,
-            GateCall::MergeStart | GateCall::MergeEnd(_) => GateVerb::Merge,
             GateCall::Fail => GateVerb::Fail,
+            GateCall::Start | GateCall::Requeue | GateCall::End(_) => GateVerb::Queue,
         }
     }
 
@@ -105,12 +105,12 @@ impl GateCall {
         GateCall::Ready,
         GateCall::Verdict(Judgment::Pass),
         GateCall::Verdict(Judgment::Block),
-        GateCall::MergeStart,
-        GateCall::MergeEnd(MergeEnd::Merged),
-        GateCall::MergeEnd(MergeEnd::Rework),
-        GateCall::MergeEnd(MergeEnd::Failed),
-        GateCall::MergeEnd(MergeEnd::Stopped),
         GateCall::Fail,
+        GateCall::Start,
+        GateCall::Requeue,
+        GateCall::End(MergeEnd::Merged),
+        GateCall::End(MergeEnd::Rework),
+        GateCall::End(MergeEnd::Failed),
     ];
 }
 
@@ -120,7 +120,7 @@ impl GateCall {
 pub struct IllegalStep {
     pub state: GateState,
     pub verb: GateVerb,
-    /// 지금 상태에서 부를 수 있는 동사.
+    /// 지금 상태에서 에이전트가 부를 수 있는 동사.
     pub allowed: Vec<GateVerb>,
 }
 
@@ -133,7 +133,7 @@ impl fmt::Display for IllegalStep {
             self.state,
             self.verb.command(),
             if allowed.is_empty() {
-                "nothing".to_owned()
+                "nothing; the merge queue sends the result".to_owned()
             } else {
                 allowed.join(", ")
             }
@@ -156,26 +156,29 @@ fn next(state: GateState, call: GateCall) -> Option<GateState> {
         // 병합한 브랜치 이름을 다음 작업이 다시 쓴다(AGENTS.md: 병합 뒤 브랜치를 지운다). 새 차례다.
         (S::Working | S::Failed | S::Merged, GateCall::Ready) => Some(S::Ready),
         (S::Ready | S::Passed | S::Merging, GateCall::Ready) => None,
-        // 검토자가 둘이면 둘째 판정이 pass 뒤에 온다. 병합을 시작하기 전까지 받는다.
+        // 검토자가 둘이면 둘째 판정이 pass 뒤에 온다. 묶음에 들기 전까지 받는다.
         (S::Ready | S::Passed, GateCall::Verdict(Judgment::Pass)) => Some(S::Passed),
         (S::Ready | S::Passed, GateCall::Verdict(Judgment::Block)) => Some(S::Working),
         (S::Working | S::Merging | S::Merged | S::Failed, GateCall::Verdict(_)) => None,
-        (S::Passed | S::Merging, GateCall::MergeStart) => Some(S::Merging),
-        (S::Working | S::Ready | S::Merged | S::Failed, GateCall::MergeStart) => None,
-        (S::Merging, GateCall::MergeEnd(MergeEnd::Merged)) => Some(S::Merged),
-        (S::Merging, GateCall::MergeEnd(MergeEnd::Rework)) => Some(S::Working),
-        (S::Merging, GateCall::MergeEnd(MergeEnd::Failed)) => Some(S::Failed),
-        (S::Merging, GateCall::MergeEnd(MergeEnd::Stopped)) => Some(S::Merging),
-        (S::Working | S::Ready | S::Passed | S::Merged | S::Failed, GateCall::MergeEnd(_)) => None,
-        (S::Working | S::Ready | S::Passed | S::Merging, GateCall::Fail) => Some(S::Failed),
-        (S::Merged | S::Failed, GateCall::Fail) => None,
+        // 묶음 안의 브랜치는 묶음이 끝낸다. 멈추면 검사가 지난 묶음이 그 브랜치를 그대로 병합한다.
+        (S::Working | S::Ready | S::Passed, GateCall::Fail) => Some(S::Failed),
+        (S::Merging | S::Merged | S::Failed, GateCall::Fail) => None,
+        (S::Passed, GateCall::Start) => Some(S::Merging),
+        (S::Working | S::Ready | S::Merging | S::Merged | S::Failed, GateCall::Start) => None,
+        (S::Merging, GateCall::Requeue) => Some(S::Passed),
+        (S::Working | S::Ready | S::Passed | S::Merged | S::Failed, GateCall::Requeue) => None,
+        (S::Merging, GateCall::End(MergeEnd::Merged)) => Some(S::Merged),
+        (S::Merging, GateCall::End(MergeEnd::Rework)) => Some(S::Working),
+        (S::Merging, GateCall::End(MergeEnd::Failed)) => Some(S::Failed),
+        (S::Working | S::Ready | S::Passed | S::Merged | S::Failed, GateCall::End(_)) => None,
     }
 }
 
-/// 지금 상태에서 부를 수 있는 동사. 전이 함수에서 센다. 규칙을 두 곳에 두지 않는다.
+/// 지금 상태에서 에이전트가 부를 수 있는 동사. 전이 함수에서 센다. 규칙을 두 곳에 두지 않는다.
 fn allowed(state: GateState) -> Vec<GateVerb> {
     GateVerb::ALL
         .into_iter()
+        .filter(|verb| sender(*verb) != Sender::Loom)
         .filter(|verb| {
             GateCall::ALL
                 .iter()
@@ -189,45 +192,61 @@ fn allowed(state: GateState) -> Vec<GateVerb> {
 pub enum Sender {
     /// 브랜치 담당: 자기 워크트리가 그 브랜치에 있다.
     Owner,
-    /// 관문 노드나 그 자식(관문이 띄운 검토자). 담당 자신은 빼다: 코디 밑 워커는 관문(코디)의 자식이다.
-    GateOrReviewer,
+    /// 관문의 자식(관문이 띄운 검토자). 관문 자신과 담당은 빼다(2026-10-23 사람 결정 Q692 A).
+    Reviewer,
     Gate,
+    /// 데몬의 병합 큐. 에이전트는 부르지 못한다.
+    Loom,
 }
 
 pub fn sender(verb: GateVerb) -> Sender {
     match verb {
         GateVerb::Ready => Sender::Owner,
-        GateVerb::Verdict => Sender::GateOrReviewer,
-        GateVerb::Merge | GateVerb::Fail => Sender::Gate,
+        GateVerb::Verdict => Sender::Reviewer,
+        GateVerb::Fail => Sender::Gate,
+        GateVerb::Queue => Sender::Loom,
     }
 }
 
-/// 관문 호출이 알리는 노드. loom이 고른다. 보내는 노드 자신은 빼고 보낸다.
+/// 관문 호출이 알리는 노드. loom이 고른다. 보내는 노드 자신은 빼고, 같은 노드에는 한 번만 보낸다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Receiver {
     Gate,
     Owner,
-    /// 담당 나무의 루트(총괄).
+    /// 담당 나무의 루트(총괄). 대상이 원래 체크아웃의 브랜치일 때만 받는다.
     Root,
 }
 
+/// 대상 브랜치의 자리. 루트는 원래 체크아웃(main)의 병합·실패만 듣는다: 코디 브랜치의 흐름은 코디가 맡는다(2026-10-24 코디 결정).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Target {
+    /// 원래 체크아웃의 브랜치.
+    Base,
+    /// 코디 워크트리의 브랜치.
+    Coordinator,
+}
+
 /// 담당도 pass·병합·실패를 듣는다: 그동안 브랜치를 바꾸지 않고, 실패면 고친 뒤 다시 `loom ready`한다.
-/// 관문이 스스로 판정해도(받는 쪽이 자기뿐이어도) 담당에게 가므로 흔적이 남는다.
-pub fn receivers(call: GateCall) -> &'static [Receiver] {
-    match call {
-        GateCall::Ready => &[Receiver::Gate],
-        GateCall::Verdict(Judgment::Pass) => &[Receiver::Gate, Receiver::Owner],
-        GateCall::Verdict(Judgment::Block) => &[Receiver::Owner, Receiver::Gate],
-        GateCall::MergeStart | GateCall::MergeEnd(MergeEnd::Rework) => &[Receiver::Owner],
-        // 관문 자신의 일이다. 부른 관문이 기록으로 받는다(`KEPT_FOR_CALLER`).
-        GateCall::MergeEnd(MergeEnd::Stopped) => &[],
-        GateCall::MergeEnd(MergeEnd::Merged | MergeEnd::Failed) | GateCall::Fail => {
-            &[Receiver::Root, Receiver::Owner]
+/// 묶음 시작과 다시 줄 세우기는 아무에게도 보내지 않는다. 묶음 흔적(`Entry::Batch`)이 남는다.
+pub fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
+    match (call, target) {
+        (GateCall::Ready, _) => &[Receiver::Gate],
+        (GateCall::Verdict(Judgment::Pass), _) => &[Receiver::Gate, Receiver::Owner],
+        (GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework), _) => {
+            &[Receiver::Owner, Receiver::Gate]
         }
+        (GateCall::Start | GateCall::Requeue, _) => &[],
+        (GateCall::End(MergeEnd::Merged | MergeEnd::Failed) | GateCall::Fail, Target::Base) => {
+            &[Receiver::Owner, Receiver::Gate, Receiver::Root]
+        }
+        (
+            GateCall::End(MergeEnd::Merged | MergeEnd::Failed) | GateCall::Fail,
+            Target::Coordinator,
+        ) => &[Receiver::Owner, Receiver::Gate],
     }
 }
 
-/// 받을 노드가 없을 때(담당을 지웠다, 관문 자신의 멈춤) 부른 노드가 받는 메시지의 끝 줄. 성공한 관문 호출은 모두 흔적을 남긴다(검토 C6).
+/// 받을 노드가 없을 때(담당을 지웠다, 스스로 관문인 담당의 ready) 부른 노드가 받는 메시지의 끝 줄. 성공한 관문 호출은 모두 흔적을 남긴다(검토 C6).
 pub const KEPT_FOR_CALLER: &str =
     "No other node receives this. loom keeps it in your inbox as the gate record.";
 
@@ -235,48 +254,47 @@ pub const KEPT_FOR_CALLER: &str =
 pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
     match (call, to) {
         (GateCall::Ready, _) => format!(
-            "Next: review the branch (or spawn a reviewer), then `loom verdict {branch} pass|block --findings <file>`."
+            "Next: spawn a reviewer as your child (without --worktree). It reviews the branch and calls `loom verdict {branch} pass|block --findings <file>`."
         ),
         (GateCall::Verdict(Judgment::Pass), Receiver::Gate | Receiver::Root) => {
-            format!("Next: `loom merge {branch}`.")
+            "Next: nothing. loom queued the branch and sends the merge result (merged, rework or failed).".to_owned()
         }
-        (GateCall::Verdict(Judgment::Pass) | GateCall::MergeStart, Receiver::Owner) => {
-            "Next: do not commit to this branch until the merge ends.".to_owned()
+        (GateCall::Verdict(Judgment::Pass), Receiver::Owner) => {
+            "Next: do not commit to this branch. loom queued it and sends the merge result (merged, rework or failed).".to_owned()
         }
         (
-            GateCall::Verdict(Judgment::Block) | GateCall::MergeEnd(MergeEnd::Rework),
+            GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
             Receiver::Owner,
         ) => format!(
             "Next: fix each finding or rebut it with evidence, commit, then `loom ready {branch}`."
         ),
         (
-            GateCall::Verdict(Judgment::Block) | GateCall::MergeEnd(MergeEnd::Rework),
+            GateCall::Verdict(Judgment::Block) | GateCall::End(MergeEnd::Rework),
             Receiver::Gate | Receiver::Root,
         ) => "Next: wait for the owner's next `loom ready`.".to_owned(),
-        (GateCall::MergeStart, Receiver::Gate | Receiver::Root) => {
-            "Next: wait for the merge result.".to_owned()
-        }
-        (GateCall::MergeEnd(MergeEnd::Merged), Receiver::Root) => {
+        (GateCall::Start | GateCall::Requeue, _) => "Next: wait for the merge result.".to_owned(),
+        (GateCall::End(MergeEnd::Merged), Receiver::Root) => {
             "Next: accept the result and reclaim the branch nodes and worktree.".to_owned()
         }
-        (GateCall::MergeEnd(MergeEnd::Merged), Receiver::Owner | Receiver::Gate) => {
+        (GateCall::End(MergeEnd::Merged), Receiver::Owner | Receiver::Gate) => {
             "Next: report with `loom done`. Do not commit to this branch again.".to_owned()
         }
-        (GateCall::MergeEnd(MergeEnd::Failed) | GateCall::Fail, Receiver::Root) => format!(
-            "Next: decide. After the cause is fixed, the owner calls `loom ready {branch}` again."
-        ),
-        (GateCall::MergeEnd(MergeEnd::Stopped), _) => format!(
-            "Next: fix the cause above, then `loom merge {branch}` again, or `loom fail {branch} <cause>`."
-        ),
-        (
-            GateCall::MergeEnd(MergeEnd::Failed) | GateCall::Fail,
-            Receiver::Owner | Receiver::Gate,
-        ) => {
+        (GateCall::End(MergeEnd::Failed) | GateCall::Fail, Receiver::Root | Receiver::Gate) => {
             format!(
-                "Next: wait for the root's decision, then fix and call `loom ready {branch}` again."
+                "Next: decide. After the cause is fixed, the owner calls `loom ready {branch}` again."
             )
         }
+        (GateCall::End(MergeEnd::Failed) | GateCall::Fail, Receiver::Owner) => format!(
+            "Next: wait for the decision of your gate or root, then fix and call `loom ready {branch}` again."
+        ),
     }
+}
+
+/// 거둔 차례의 검토자가 받는 `withdrawn` 메시지 끝 줄.
+pub fn withdrawn_step(branch: &str, state: GateState) -> String {
+    format!(
+        "Next: stop reviewing {branch}. Its round went back to {state:?}, so loom refuses a verdict for it. If you review another branch, ignore this message."
+    )
 }
 
 /// 메시지 하나의 종류와 칸. 모든 에이전트 출력(`loom ask`·`answer`·`done`·`note`·관문 동사)과 loom 알림이 하나를 가진다.
@@ -312,13 +330,6 @@ pub enum MessageKind {
         /// 판정한 노드의 실행자와 모델(`claude opus`).
         reviewer: Option<String>,
     },
-    /// 병합을 시작했거나, 다시 부르면 될 일로 멈춰 `Merging`에 남았다(`cause`가 있다).
-    Merging {
-        branch: String,
-        head: String,
-        cause: Option<String>,
-        log: Option<String>,
-    },
     Merged {
         branch: String,
         head: String,
@@ -337,6 +348,12 @@ pub enum MessageKind {
         head: String,
         cause: Option<String>,
         log: Option<String>,
+    },
+    /// 차례가 판정 전·병합 전에 `Working`이나 `Failed`로 돌아갔다. 그 차례의 검토자가 검토를 멈춘다.
+    /// 근거: 거둔 차례를 검토자가 계속 검토해 `loom verdict` 거절 9건이 났다(2026-10-24 측정, 코디 #3889).
+    Withdrawn {
+        branch: String,
+        head: String,
     },
     /// 노드 프로세스가 끝났다. 코드를 모르면(다시 붙지 못함) 없다.
     Exited {
@@ -474,10 +491,10 @@ impl MessageKind {
             MessageKind::Note => "note",
             MessageKind::Ready { .. } => "ready",
             MessageKind::Verdict { .. } => "verdict",
-            MessageKind::Merging { .. } => "merging",
             MessageKind::Merged { .. } => "merged",
             MessageKind::Rework { .. } => "rework",
             MessageKind::Failed { .. } => "failed",
+            MessageKind::Withdrawn { .. } => "withdrawn",
             MessageKind::Exited { .. } => "exited",
             MessageKind::SetupFailed { .. } => "setup-failed",
             MessageKind::Removed { .. } => "removed",
@@ -496,11 +513,11 @@ impl MessageKind {
             | MessageKind::Note
             | MessageKind::Ready { .. }
             | MessageKind::Verdict { .. }
-            | MessageKind::Merging { .. }
             | MessageKind::Merged { .. }
             | MessageKind::Rework { .. }
             | MessageKind::Failed { .. } => false,
-            MessageKind::Exited { .. }
+            MessageKind::Withdrawn { .. }
+            | MessageKind::Exited { .. }
             | MessageKind::SetupFailed { .. }
             | MessageKind::Removed { .. }
             | MessageKind::Adopted { .. }
@@ -522,10 +539,10 @@ impl MessageKind {
             | MessageKind::Note
             | MessageKind::Ready { .. }
             | MessageKind::Verdict { .. }
-            | MessageKind::Merging { .. }
             | MessageKind::Merged { .. }
             | MessageKind::Rework { .. }
             | MessageKind::Failed { .. }
+            | MessageKind::Withdrawn { .. }
             | MessageKind::SetupFailed { .. }
             | MessageKind::HumanInput { .. }
             | MessageKind::RulesChanged { .. } => true,
@@ -604,13 +621,8 @@ impl MessageKind {
                 fields.extend(some(Field::Log, log));
                 fields
             }
-            MessageKind::Merging {
-                branch,
-                head,
-                cause,
-                log,
-            }
-            | MessageKind::Rework {
+            MessageKind::Withdrawn { branch: b, head } => branch(b, head),
+            MessageKind::Rework {
                 branch,
                 head,
                 cause,
@@ -691,7 +703,8 @@ pub struct GateFacts {
     pub log: Option<String>,
 }
 
-pub fn gate_kind(call: GateCall, facts: GateFacts) -> MessageKind {
+/// 묶음 시작과 다시 줄 세우기는 메시지가 없다(`receivers`가 비었다).
+pub fn gate_kind(call: GateCall, facts: GateFacts) -> Option<MessageKind> {
     let GateFacts {
         branch,
         head,
@@ -703,7 +716,7 @@ pub fn gate_kind(call: GateCall, facts: GateFacts) -> MessageKind {
         cause,
         log,
     } = facts;
-    match call {
+    Some(match call {
         GateCall::Ready => MessageKind::Ready {
             branch,
             head,
@@ -717,31 +730,26 @@ pub fn gate_kind(call: GateCall, facts: GateFacts) -> MessageKind {
             findings,
             reviewer,
         },
-        GateCall::MergeStart | GateCall::MergeEnd(MergeEnd::Stopped) => MessageKind::Merging {
-            branch,
-            head,
-            cause,
-            log,
-        },
-        GateCall::MergeEnd(MergeEnd::Merged) => MessageKind::Merged {
+        GateCall::Start | GateCall::Requeue => return None,
+        GateCall::End(MergeEnd::Merged) => MessageKind::Merged {
             branch,
             head,
             sha: sha.unwrap_or_default(),
             log,
         },
-        GateCall::MergeEnd(MergeEnd::Rework) => MessageKind::Rework {
+        GateCall::End(MergeEnd::Rework) => MessageKind::Rework {
             branch,
             head,
             cause,
             log,
         },
-        GateCall::MergeEnd(MergeEnd::Failed) | GateCall::Fail => MessageKind::Failed {
+        GateCall::End(MergeEnd::Failed) | GateCall::Fail => MessageKind::Failed {
             branch,
             head,
             cause,
             log,
         },
-    }
+    })
 }
 
 /// 종류 낱말: 손으로 쓴 글(`note`·`answer`·`done`)이 이 낱말로 시작하면 거절하고 맞는 명령을 알린다(R8 v5 ⑤ 2층).
@@ -750,7 +758,7 @@ pub struct KindWord {
     pub word: &'static str,
     /// 대신 쓸 명령.
     pub verb: &'static str,
-    /// 관문 스크립트가 있는 저장소에서만 거절한다. 그 밖의 저장소는 `loom verdict`·`loom merge`가 돌지 않아 옛 글을 쓴다.
+    /// 관문 스크립트가 있는 저장소에서만 거절한다. 그 밖의 저장소는 `loom verdict`와 병합 큐가 돌지 않아 옛 글을 쓴다.
     pub gated_only: bool,
     /// 관문 낱말. 관문 audit가 관문 동사 밖의 관문 글을 찾는다.
     pub gate: bool,
@@ -788,7 +796,12 @@ const KIND_WORDS: [KindWord; 15] = [
     // `loom ready`은 관문 스크립트 없는 저장소에서도 돈다.
     word("READY", "`loom ready`", false, true),
     word("CI RESULT", "`loom verdict` or `loom fail`", true, true),
-    word("MERGED", "`loom merge`", true, true),
+    word(
+        "MERGED",
+        "nothing: the merge queue sends kind merged",
+        true,
+        true,
+    ),
     word("REWORK", "`loom verdict`", true, true),
     word("BLOCK", "`loom verdict`", true, true),
     word("VERDICT", "`loom verdict`", true, true),
@@ -823,21 +836,16 @@ pub fn kind_line(
 
 /// 관문을 고르는 역할 이름. 설정의 기본 역할(`roles::Roles::default`)과 같다.
 pub const COORDINATOR_ROLE: &str = "코디";
-pub const CI_ROLE: &str = "CI 담당자";
 
-/// 저장소 관문 계약: 이 두 스크립트가 원래 체크아웃에 있어야 `loom ready`·`loom merge`가 돈다. 있는 저장소에서만 관문 낱말을 거절한다.
+/// 저장소 관문 계약: 이 두 스크립트가 원래 체크아웃에 있어야 관문 상태와 병합 큐가 돈다. 있는 저장소에서만 관문 낱말을 거절한다.
 /// 두 스크립트는 `bash <상대 경로>`로 부른다. Windows `loom.exe`가 섞인 경로(`C:..\scripts/...`)를 만들면 bash가 찾지 못했다(2026-10-23 Codex 실측).
 pub const CHECK_SCRIPT: &str = "scripts/gate/check.sh";
 pub const SHIP_SCRIPT: &str = "scripts/gate/ship.sh";
-/// `ship.sh <branch> <sha>`의 끝 코드. 0이면 `sha`를 병합·push·배포 확인을 마쳤고 마지막 줄이 병합 커밋이다.
-/// 담당이 고칠 일(충돌, 대상이 움직여 push 거절)이면 병합을 하지 않거나 되돌리고 이 코드로 끝낸다.
-pub const SHIP_REWORK: i32 = 10;
-/// 병합·push는 했고 배포 확인만 실패했다. 마지막 줄이 병합 커밋이다.
+/// `ship.sh <branch> <sha>`의 끝 코드: 병합·push는 했고 배포 확인만 실패했다. 0이면 배포까지 확인했다.
+/// 병합 큐는 묶음 끝을 먼저 push하고 부르므로 ship.sh는 배포 확인만 한다(이어 하기 길). 그 밖의 코드(10, 12)는 예상 밖이라 실패로 간다.
 pub const SHIP_DEPLOY_FAILED: i32 = 11;
-/// ship.sh 끝 코드: 다시 부르면 될 일이나 루트가 볼 일로 멈췄다(push 거절, fetch 실패, 관문 밖 병합). 게시하지 않은 병합은 남기지 않았다.
-pub const SHIP_STOPPED: i32 = 12;
 
-/// `loom merge` 안 audit가 찾은 일. 멈출 일(`end`)이 하나라도 있으면 병합하지 않는다.
+/// 병합 큐가 묶음에 넣기 전 audit가 찾은 일. 멈출 일(`end`)이 하나라도 있으면 그 브랜치를 묶음에 넣지 않는다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -858,8 +866,6 @@ pub enum Finding {
     },
     /// 대상 브랜치에 앞 관문 병합과 이번 병합 사이에 커밋이 있다(관문 밖 병합). 병합 보고에 붙여 알리기만 한다.
     OutOfGate { commit: String },
-    /// 대상 브랜치가 담당 브랜치에 포함되지 않았다. 담당이 대상을 병합해 온다.
-    TargetMoved { target: String },
     /// 판정한 커밋 뒤에 브랜치가 움직였다. 검토하지 않은 커밋은 병합하지 않는다.
     HeadMoved { reviewed: String, now: String },
 }
@@ -869,9 +875,7 @@ impl Finding {
     /// 관문 밖 커밋은 되돌릴 수 없다. 막으면 뒤의 모든 병합이 막힌다(2026-10-23 검토 P1-2, 코디 결정).
     pub fn end(&self) -> Option<MergeEnd> {
         match self {
-            Finding::RawGateWord { .. }
-            | Finding::TargetMoved { .. }
-            | Finding::HeadMoved { .. } => Some(MergeEnd::Rework),
+            Finding::RawGateWord { .. } | Finding::HeadMoved { .. } => Some(MergeEnd::Rework),
             Finding::RangeIncomplete { .. } => Some(MergeEnd::Failed),
             Finding::OutOfGate { .. } => None,
         }
@@ -895,10 +899,6 @@ impl fmt::Display for Finding {
                     "commit {commit} is on the target with no gate merge trace"
                 )
             }
-            Finding::TargetMoved { target } => write!(
-                f,
-                "{target} is not in the branch; merge {target} into the branch first"
-            ),
             Finding::HeadMoved { reviewed, now } => write!(
                 f,
                 "the branch moved from the reviewed commit {reviewed} to {now}; call loom ready again for a new review"
@@ -945,7 +945,7 @@ macro_rules! message_usage {
 - loom answer <message-id> <body>: answer an ask that you received.
 - loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent, also when other parts of the work continue and in a turn that a message or a notice started. Call it again after more work. Do not call it when you only answer a question in text. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction, short> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready. Send no progress reports.
 - loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work (both only to your parent or children). If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
-- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (gate or its reviewer, not the owner; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework), loom merge <branch> (gate, after pass) audits, checks, merges, pushes and reports, loom fail <branch> <cause> (gate) tells the root. loom picks receivers. loom --help has details.
+- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (only a reviewer that the gate spawned, never the owner; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed), loom fail <branch> <cause> (gate, before the queue takes the branch). The gate is your coordinator parent, else you. All return at once. loom picks receivers. loom --help has details.
 "
     };
 }
@@ -963,13 +963,13 @@ mod tests {
         GateState::Failed,
     ];
 
-    /// 사람이 정한 전이 표(R8 v5 ④, 워커 브리프 1번). 이 표 밖의 짝은 모두 거절이다.
-    const LEGAL: [(GateState, GateCall, GateState); 17] = [
+    /// 사람이 정한 전이 표(R8 v5 ④, 워커 브리프 1번; 병합 큐는 Q697 A). 이 표 밖의 짝은 모두 거절이다.
+    const LEGAL: [(GateState, GateCall, GateState); 15] = [
         (GateState::Working, GateCall::Ready, GateState::Ready),
         (GateState::Failed, GateCall::Ready, GateState::Ready),
         // 병합한 브랜치 이름을 다시 쓴다(검토 P1-3).
         (GateState::Merged, GateCall::Ready, GateState::Ready),
-        // 둘째 검토자의 판정은 병합 시작 전까지 받는다(검토 P2-7).
+        // 둘째 검토자의 판정은 묶음에 들기 전까지 받는다(검토 P2-7).
         (
             GateState::Passed,
             GateCall::Verdict(Judgment::Pass),
@@ -989,34 +989,27 @@ mod tests {
             GateState::Ready,
             GateCall::Verdict(Judgment::Block),
             GateState::Working,
-        ),
-        (GateState::Passed, GateCall::MergeStart, GateState::Merging),
-        (GateState::Merging, GateCall::MergeStart, GateState::Merging),
-        (
-            GateState::Merging,
-            GateCall::MergeEnd(MergeEnd::Merged),
-            GateState::Merged,
-        ),
-        (
-            GateState::Merging,
-            GateCall::MergeEnd(MergeEnd::Rework),
-            GateState::Working,
-        ),
-        (
-            GateState::Merging,
-            GateCall::MergeEnd(MergeEnd::Failed),
-            GateState::Failed,
-        ),
-        // 다시 부르면 될 일로 멈춘 병합은 `Merging`에 남는다(재작업 3 결정 3).
-        (
-            GateState::Merging,
-            GateCall::MergeEnd(MergeEnd::Stopped),
-            GateState::Merging,
         ),
         (GateState::Working, GateCall::Fail, GateState::Failed),
         (GateState::Ready, GateCall::Fail, GateState::Failed),
         (GateState::Passed, GateCall::Fail, GateState::Failed),
-        (GateState::Merging, GateCall::Fail, GateState::Failed),
+        (GateState::Passed, GateCall::Start, GateState::Merging),
+        (GateState::Merging, GateCall::Requeue, GateState::Passed),
+        (
+            GateState::Merging,
+            GateCall::End(MergeEnd::Merged),
+            GateState::Merged,
+        ),
+        (
+            GateState::Merging,
+            GateCall::End(MergeEnd::Rework),
+            GateState::Working,
+        ),
+        (
+            GateState::Merging,
+            GateCall::End(MergeEnd::Failed),
+            GateState::Failed,
+        ),
     ];
 
     #[test]
@@ -1033,7 +1026,7 @@ mod tests {
                         assert_eq!((e.state, e.verb), (state, call.verb()));
                         let mut want: Vec<GateVerb> = LEGAL
                             .iter()
-                            .filter(|(s, _, _)| *s == state)
+                            .filter(|(s, c, _)| *s == state && sender(c.verb()) != Sender::Loom)
                             .map(|(_, c, _)| c.verb())
                             .collect();
                         want.dedup();
@@ -1047,13 +1040,19 @@ mod tests {
 
     #[test]
     fn a_refusal_names_the_state_and_the_allowed_verbs() {
-        let e = step(GateState::Ready, GateCall::MergeStart).unwrap_err();
+        let e = step(GateState::Ready, GateCall::Start).unwrap_err();
         assert_eq!(e.allowed, vec![GateVerb::Verdict, GateVerb::Fail]);
         let text = e.to_string();
         assert!(text.contains("Ready"), "{text}");
         assert!(text.contains("loom verdict, loom fail"), "{text}");
         let merging = step(GateState::Merging, GateCall::Ready).unwrap_err();
-        assert!(merging.to_string().contains("Merging"), "{merging}");
+        assert!(merging.allowed.is_empty());
+        assert!(
+            merging
+                .to_string()
+                .contains("Merging, so `loom ready` is not allowed now. Allowed next: nothing; the merge queue sends the result."),
+            "{merging}"
+        );
     }
 
     #[test]
@@ -1099,12 +1098,15 @@ mod tests {
                 warning: None,
             },
             MessageKind::Note,
-            gate_kind(GateCall::Ready, facts()),
-            gate_kind(GateCall::Verdict(Judgment::Pass), facts()),
-            gate_kind(GateCall::MergeStart, facts()),
-            gate_kind(GateCall::MergeEnd(MergeEnd::Merged), facts()),
-            gate_kind(GateCall::MergeEnd(MergeEnd::Rework), facts()),
-            gate_kind(GateCall::Fail, facts()),
+            gate_kind(GateCall::Ready, facts()).unwrap(),
+            gate_kind(GateCall::Verdict(Judgment::Pass), facts()).unwrap(),
+            gate_kind(GateCall::End(MergeEnd::Merged), facts()).unwrap(),
+            gate_kind(GateCall::End(MergeEnd::Rework), facts()).unwrap(),
+            gate_kind(GateCall::Fail, facts()).unwrap(),
+            MessageKind::Withdrawn {
+                branch: "b".into(),
+                head: "abc".into(),
+            },
             MessageKind::Exited {
                 node: "w".into(),
                 code: None,
@@ -1158,7 +1160,7 @@ mod tests {
 
     #[test]
     fn the_terminal_head_names_the_kind_and_loom_for_notices() {
-        let verdict = gate_kind(GateCall::Verdict(Judgment::Block), facts());
+        let verdict = gate_kind(GateCall::Verdict(Judgment::Block), facts()).unwrap();
         assert_eq!(
             message_text(12, "CI", Some(&verdict), None, "Next: fix"),
             "loom message #12 (from: CI, kind: verdict)\nbranch: b\nhead: abc\njudgment: block\nfindings: /r.md\nreviewer: claude opus\nNext: fix"
@@ -1195,13 +1197,18 @@ mod tests {
             "--interrupt",
             "loom ready",
             "loom verdict",
-            "loom merge",
             "loom fail",
             "loom wait --reply-to",
         ] {
             assert!(usage.contains(verb), "{verb}");
         }
-        for old in ["loom send", "loom reply", "loom steer", "loom interrupt"] {
+        for old in [
+            "loom send",
+            "loom reply",
+            "loom steer",
+            "loom interrupt",
+            "loom merge",
+        ] {
             assert!(!crate::profile::COMMUNICATION_USAGE.contains(old), "{old}");
         }
     }

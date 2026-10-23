@@ -310,8 +310,7 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
       return entry.what && facts ? (
         <>
           <span className={`kind ${toneClass(entry.what)}`}>{kindLabel(entry.what, entry.how, t)}</span>
-          {/* 사람 입력은 사람이 친 노드를 보낸 쪽으로 보인다(목업 M17 ① 넷째 표시). */}
-          {facts.by_loom && entry.what.kind !== 'humanInput' ? (
+          {facts.from_loom ? (
             <span className="loomw" translate="no">
               loom
             </span>
@@ -319,7 +318,7 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
             name(entry.from)
           )}
           {entry.to && <>→{name(entry.to)}</>}
-          <span className="note">{messageNote(entry.what, facts.id, facts.by_loom, entry.step, t)}</span>
+          <span className="note">{(facts.from_loom && kindSummary(entry.what, t)) || stepNote(entry.what, facts.id, entry.step, t)}</span>
         </>
       ) : (
         <>
@@ -332,7 +331,7 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
     case 'refused':
       return (
         <>
-          <KindLabel how={entry.how} />
+          {entry.what ? <span className="kind k-fail">{kindLabel(entry.what, entry.how, t)}</span> : <KindLabel how={entry.how} />}
           {name(entry.from)}→{name({ id: [...views.values()].find((v) => v.name === entry.to)?.id ?? null, name: entry.to })}
           {entry.reason.code === 'notAncestor' ? (
             // 사람 Q603 A: main이 앞선 것은 흔한 정상 흐름이라 오류 색으로 보이지 않는다.
@@ -389,10 +388,8 @@ const toneClass = (what: MessageKind) => {
   return family ? TONE[family] : '';
 };
 
-/** 줄 머리 끝의 말. 질문은 그 번호, 답은 답한 질문 번호를 앞에 둔다. loom 알림은 전달 단계 대신 칸 요약이다(목업 M17 ① 「종료」 줄). */
-function messageNote(what: MessageKind, id: number, byLoom: boolean, step: Step, t: TFunction): string {
-  const summary = kindSummary(what, t);
-  if (byLoom && summary !== null) return summary;
+/** 줄 머리 끝의 전달 단계. 질문은 그 번호, 답은 답한 질문 번호를 앞에 둔다. loom 알림은 이 말 대신 칸 요약이다(목업 M17 ① 「종료」 줄). */
+function stepNote(what: MessageKind, id: number, step: Step, t: TFunction): string {
   const stepText = t(`events.step.${step}`);
   switch (what.kind) {
     case 'ask':
@@ -426,8 +423,9 @@ function Row(props: { record: EventRecord; current: boolean; onClick: () => void
   // 편 본문은 링크를 품으므로 줄 단추 밖에 둔다. 단추 안에 단추를 둘 수 없다(목업 docs/mockups/doc-reopen.html M13 ①②).
   const doc = entry.kind === 'asked' || entry.kind === 'reported' ? entry.doc : null;
   const node = whoOf(entry)[0]?.id ?? null;
-  const summary = what && !record.message?.by_loom ? kindSummary(what, t) : null;
-  const preview = summary ?? (body === null ? null : plainText(body).split('\n', 1)[0]);
+  const summary = what ? kindSummary(what, t) : null;
+  // loom 알림의 칸 요약은 줄 머리에 있다.
+  const preview = summary !== null ? (record.message?.from_loom ? null : summary) : body === null ? null : plainText(body).split('\n', 1)[0];
   const expandable = body !== null || doc !== null || typed;
   return (
     <li data-family={familyOf(entry)}>

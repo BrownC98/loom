@@ -92,6 +92,10 @@ pub enum Entry {
     /// 보내기를 거절했다. `to`는 보낸 쪽이 적은 이름이다. 관문 호출이면 브랜치다.
     Refused {
         how: Kind,
+        /// 보내려던 종류(`note`·`answer`·`done`). 관문 호출과 옛 기록에는 없다.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        what: Option<MessageKind>,
         from: Who,
         to: String,
         reason: Refusal,
@@ -257,8 +261,8 @@ pub struct EventRecord {
 pub struct MessageFacts {
     /// 메시지 번호(`#2925`). `answer`의 `question` 칸이 이 번호를 가리킨다.
     pub id: u32,
-    /// loom이 보낸 알림이다. 화면은 보낸 쪽을 「loom」으로 보인다.
-    pub by_loom: bool,
+    /// 화면이 보낸 쪽을 「loom」으로 보이고, 전달 단계 대신 칸 요약을 보인다(목업 M17 ③ 「보내는 쪽」).
+    pub from_loom: bool,
     pub fields: Vec<FieldParts>,
 }
 
@@ -273,7 +277,9 @@ pub struct FieldParts {
 impl EventRecord {
     fn new(id: u32, at: i64, entry: Entry, message: Option<u32>, body: Option<String>) -> Self {
         let text = match &entry {
-            Entry::Message { .. } => body.as_deref(),
+            Entry::Message { what, .. } => body
+                .as_deref()
+                .filter(|body| !what.as_ref().is_some_and(|w| w.repeats_file(body))),
             Entry::Asked { text, .. }
             | Entry::Answered { text, .. }
             | Entry::Instructed { text, .. } => Some(text.as_str()),
@@ -290,21 +296,8 @@ impl EventRecord {
         let message = match (&entry, message) {
             (Entry::Message { what, .. }, Some(id)) => Some(MessageFacts {
                 id,
-                by_loom: what.as_ref().is_some_and(MessageKind::by_loom),
-                // 판정은 줄 머리의 종류 이름이 보인다(「판정 · 막음」, 목업 M17 ①).
-                fields: what
-                    .iter()
-                    .flat_map(MessageKind::fields)
-                    .filter(|(name, _)| *name != Field::Judgment)
-                    .map(|(name, value)| FieldParts {
-                        name,
-                        parts: if name.is_file() {
-                            vec![path_link(&value)]
-                        } else {
-                            parts(&value)
-                        },
-                    })
-                    .collect(),
+                from_loom: what.as_ref().is_some_and(shown_from_loom),
+                fields: screen_fields(what.as_ref()),
             }),
             _ => None,
         };
@@ -317,6 +310,53 @@ impl EventRecord {
             entry,
             body,
         }
+    }
+}
+
+/// 화면의 칸 목록. 판정은 줄 머리의 종류 이름이 보이고(「판정 · 막음」), 커밋은 브랜치 줄에 붙는다(「출력표준2 · 3f2a91c」, 목업 M17 ①).
+fn screen_fields(what: Option<&MessageKind>) -> Vec<FieldParts> {
+    let mut fields: Vec<FieldParts> = Vec::new();
+    for (name, value) in what.iter().flat_map(|w| w.fields()) {
+        match (name, fields.last_mut()) {
+            (Field::Judgment, _) => {}
+            (Field::Head, Some(branch)) if branch.name == Field::Branch => {
+                branch.parts.push(TextPart::Text {
+                    text: format!(" · {value}"),
+                });
+            }
+            _ => fields.push(FieldParts {
+                name,
+                parts: if name.is_file() {
+                    vec![path_link(&value)]
+                } else {
+                    parts(&value)
+                },
+            }),
+        }
+    }
+    fields
+}
+
+/// 화면에서 보낸 쪽이 loom인 종류. 터미널의 `by_loom`과 다르다: 병합 단계 알림은 관문 노드가 불러 생기지만 loom이 알린다.
+/// 사람 입력은 사람이 친 노드를 보인다(목업 M17 ① 넷째 표시).
+fn shown_from_loom(what: &MessageKind) -> bool {
+    match what {
+        MessageKind::Merging { .. }
+        | MessageKind::Merged { .. }
+        | MessageKind::Rework { .. }
+        | MessageKind::Failed { .. }
+        | MessageKind::Exited { .. }
+        | MessageKind::SetupFailed { .. }
+        | MessageKind::Removed { .. }
+        | MessageKind::Adopted { .. }
+        | MessageKind::RulesChanged { .. } => true,
+        MessageKind::Ask
+        | MessageKind::Answer { .. }
+        | MessageKind::Done { .. }
+        | MessageKind::Note
+        | MessageKind::Ready { .. }
+        | MessageKind::Verdict { .. }
+        | MessageKind::HumanInput { .. } => false,
     }
 }
 
@@ -388,4 +428,63 @@ fn record_from_row(row: &Row) -> rusqlite::Result<EventRecord> {
         row.get(4)?,
         row.get(3)?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(what: MessageKind, body: &str) -> EventRecord {
+        let entry = Entry::Message {
+            how: Kind::Queue,
+            what: Some(what),
+            from: Who {
+                id: Some(NodeId(2)),
+                name: "gate".into(),
+            },
+            to: None,
+            step: Step::Delivered,
+            via: None,
+            gate: None,
+        };
+        EventRecord::new(1, 0, entry, Some(7), Some(body.into()))
+    }
+
+    #[test]
+    fn merge_notices_are_from_loom_and_human_input_is_from_the_node() {
+        let merged = MessageKind::Merged {
+            branch: "b".into(),
+            head: "h".into(),
+            sha: "s".into(),
+            log: None,
+        };
+        assert!(message(merged, "").message.unwrap().from_loom);
+        let typed = MessageKind::HumanInput { node: "n".into() };
+        assert!(!message(typed, "hi").message.unwrap().from_loom);
+    }
+
+    #[test]
+    fn verdict_fields_join_the_commit_to_the_branch_and_drop_the_judgment() {
+        let verdict = MessageKind::Verdict {
+            branch: "b".into(),
+            head: "3f2a91c".into(),
+            judgment: crate::protocol::Judgment::Block,
+            findings: None,
+            reviewer: Some("claude opus".into()),
+        };
+        let fields = message(verdict, "").message.unwrap().fields;
+        let names: Vec<Field> = fields.iter().map(|f| f.name).collect();
+        assert_eq!(names, [Field::Branch, Field::Reviewer]);
+        assert_eq!(fields[0].parts.len(), 2);
+    }
+
+    #[test]
+    fn a_done_with_only_a_file_shows_the_path_once() {
+        let done = |file: &str| MessageKind::Done {
+            file: Some(file.into()),
+            warning: None,
+        };
+        assert_eq!(message(done("/r.md"), "/r.md").parts, []);
+        assert_eq!(message(done("/r.md"), "summary").parts.len(), 1);
+    }
 }

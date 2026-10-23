@@ -509,6 +509,11 @@ impl MessageKind {
         }
     }
 
+    /// 파일만 준 완료(`loom done --file`)는 본문이 그 경로다. 같은 경로를 두 번 보이지 않는다.
+    pub fn repeats_file(&self, body: &str) -> bool {
+        matches!(self, MessageKind::Done { file: Some(file), .. } if file == body)
+    }
+
     /// 머리 줄 아래 칸 줄. 없는 칸은 빼고, 칸 순서는 정의 순서다.
     pub fn fields(&self) -> Vec<(Field, String)> {
         let some = |name, value: &Option<String>| value.clone().map(|v| (name, v));
@@ -637,11 +642,11 @@ pub fn message_text(
         "loom message #{id} (from: {from}, kind: {}{mode})",
         what.word()
     )];
-    // 요약 없이 파일만 준 완료는 본문이 파일 경로다. 같은 경로를 두 번 보이지 않는다.
+    let repeated = what.repeats_file(body);
     lines.extend(
         what.fields()
             .into_iter()
-            .filter(|(name, value)| !(*name == Field::File && *value == body))
+            .filter(|(name, _)| !(repeated && *name == Field::File))
             .map(|(name, value)| format!("{}: {value}", name.word())),
     );
     if !body.is_empty() {

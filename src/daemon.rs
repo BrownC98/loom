@@ -64,6 +64,7 @@ use crate::profile::{
     self, AgentId, LaunchError, Mailbox, ModelChoice, Profile, Remote, ServerLink, Start,
     VersionMismatch,
 };
+use crate::protocol::{MessageKind, Question};
 use crate::roles::{Assignment, Roles};
 use crate::screen;
 use crate::settings::Settings;
@@ -2242,7 +2243,7 @@ async fn agent_note(
     let from = app.caller(&headers)?;
     let via = gate::via(&headers, "/api/agent/note");
     let sent = note(&app, from, &req, &via);
-    recorded(&app, from, &req.to, req.mode, &via, sent)
+    recorded(&app, from, &req.to, req.mode, MessageKind::Note, &via, sent)
 }
 
 /// 보낸 노드는 이번 턴에 loom 동사를 불렀다(턴 끝 검사). 거절은 보낸 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
@@ -2251,6 +2252,7 @@ fn recorded<T>(
     from: NodeId,
     to: &str,
     how: Kind,
+    what: MessageKind,
     via: &Via,
     result: Result<T, Refusal>,
 ) -> Result<Json<T>, AgentError> {
@@ -2261,7 +2263,7 @@ fn recorded<T>(
         && !matches!(reason, Refusal::Db(_))
     {
         app.graph
-            .record_refusal(from, to, how, reason, Some(via))
+            .record_refusal(from, to, how, what, reason, Some(via))
             .map_err(|e| for_agent(Refusal::from(e)))?;
     }
     result.map(Json).map_err(for_agent)
@@ -2303,7 +2305,10 @@ async fn agent_answer(
             .answer_ask(from, req.message, &req.body, Some(&via))
     });
     let to = format!("message #{}", req.message.0);
-    recorded(&app, from, &to, Kind::Queue, &via, sent)
+    let what = MessageKind::Answer {
+        question: Question::Message { id: req.message.0 },
+    };
+    recorded(&app, from, &to, Kind::Queue, what, &via, sent)
 }
 
 /// 브랜치의 작업 폴더는 관문 줄의 담당이 정한다: 브랜치 이름을 바꿔도, 같은 이름을 다시 써도 그 차례의 작업이다.
@@ -2520,8 +2525,15 @@ async fn agent_done(
             Some(&via),
         )
     });
-    let done = done.map(|alive| Reported { alive, warning });
-    recorded(&app, node, PARENT, Kind::Queue, &via, done)
+    let done = done.map(|alive| Reported {
+        alive,
+        warning: warning.clone(),
+    });
+    let what = MessageKind::Done {
+        file: req.file.clone(),
+        warning,
+    };
+    recorded(&app, node, PARENT, Kind::Queue, what, &via, done)
 }
 
 /// 브라우저가 `<img>`로 그리는 그림 꼴. 받은편지함이 완료 줄의 파일을 그대로 낸다.
@@ -2577,6 +2589,7 @@ async fn agent_ask(
             node,
             PARENT,
             Kind::Queue,
+            MessageKind::Ask,
             &via,
             sent.map(AskResult::Parent),
         );

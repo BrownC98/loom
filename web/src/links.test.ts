@@ -13,6 +13,10 @@ describe('filePath', () => {
     expect(path('file://wsl.localhost/Ubuntu-24.04/tmp/a%20b.html')).toBe('//wsl.localhost/Ubuntu-24.04/tmp/a b.html');
     expect(path('file:////wsl.localhost/Ubuntu-24.04/tmp/a%20b.html')).toBe('//wsl.localhost/Ubuntu-24.04/tmp/a b.html');
   });
+  it('decodes the characters that path links encode', () => {
+    expect(path('file:///tmp/result%231%3F%25.md')).toBe('/tmp/result#1?%.md');
+    expect(path('file:///C:/work/result%231%25.md')).toBe('/C:/work/result#1%.md');
+  });
   it('keeps POSIX and drive paths and folds extra slashes', () => {
     expect(path('file:///home/a%20b.html')).toBe('/home/a b.html');
     expect(path('file:///C:/Users/a.html')).toBe('/C:/Users/a.html');

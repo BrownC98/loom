@@ -449,6 +449,7 @@ impl Graph {
         let db = self.lock();
         let from = load(&db, caller, branch)?.map(|row| row.state);
         let entry = Entry::Refused {
+            what: None,
             how: Kind::Queue,
             from: events::who(&db, caller)?,
             to: branch.to_owned(),

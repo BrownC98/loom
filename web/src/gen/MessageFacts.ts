@@ -10,6 +10,6 @@ export type MessageFacts = {
  */
 id: number, 
 /**
- * loom이 보낸 알림이다. 화면은 보낸 쪽을 「loom」으로 보인다.
+ * 화면이 보낸 쪽을 「loom」으로 보이고, 전달 단계 대신 칸 요약을 보인다(목업 M17 ③ 「보내는 쪽」).
  */
-by_loom: boolean, fields: Array<FieldParts>, };
+from_loom: boolean, fields: Array<FieldParts>, };

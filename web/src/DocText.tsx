@@ -38,7 +38,7 @@ export function DocText(props: { parts: readonly TextPart[]; doc: WaitDoc | null
 }
 
 /** 글 속 `file://`·`http(s)://` 링크. */
-export function TextLink(props: { label: string; href: string; node: NodeId | null }) {
+function TextLink(props: { label: string; href: string; node: NodeId | null }) {
   return (
     <button type="button" className="doc-link" title={props.href} onClick={() => openLink(props.href, props.node)}>
       {props.label}

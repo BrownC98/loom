@@ -1,8 +1,11 @@
 //! 에이전트가 사람에게 쓰는 글(`loom ask`, 부모 없는 노드의 `loom done`)의 링크 표준: 주소와 절대 경로는 화면이 그리는 markdown 링크 `[이름](주소)` 안에만 둔다.
 //! 근거: 2026-10-23 사람 "링크 표준이 없는 것이 뿌리 원인". 화면은 글을 나누지 않고 `parts`가 나눈 조각을 그린다. 그래서 받는 링크와 그리는 링크가 같다.
 
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::task;
 
 /// 화면이 그리는 글 조각. 화면은 링크를 찾지 않는다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
@@ -62,16 +65,25 @@ pub fn parts(text: &str) -> Vec<TextPart> {
     parts
 }
 
+/// 경로 그대로면 주소에서 뜻이 바뀌는 글자. `%`도 넣어 이미 있는 `%`를 `%25`로 바꾼다. 나머지 글자는 `drawable_form`이 바꾼다.
+const PATH_RESERVED: &AsciiSet = &CONTROLS.add(b'%').add(b'#').add(b'?');
+
 /// 경로 칸(결과 파일, 결함 파일, 로그)의 링크. 작업 폴더(`~/.cache/loom/<작업>/`) 안이면 이름은 그 안의 경로다(목업 M17 ① `review/opus.md`).
+/// 칸 값은 주소가 아니라 경로다. `#`·`?`·`%`를 인코딩하지 않으면 화면이 다른 파일을 연다(2026-10-23 검토 P2).
 pub fn path_link(path: &str) -> TextPart {
     let slashed = path.replace('\\', "/");
+    let marker = format!("/{}/", task::ROOT.join("/"));
     let label = slashed
-        .split_once("/.cache/loom/")
+        .split_once(&marker)
         .and_then(|(_, task)| task.split_once('/'))
         .map_or(path, |(_, inside)| inside);
     TextPart::Link {
         label: label.to_owned(),
-        href: drawable_form(path),
+        href: if is_url(path) {
+            drawable_form(path)
+        } else {
+            drawable_form(&utf8_percent_encode(path, PATH_RESERVED).to_string())
+        },
     }
 }
 
@@ -138,10 +150,7 @@ fn drawn(target: &str) -> bool {
 
 /// 거절 글에 보일 고친 주소: 경로는 `file://` 주소로, 화면이 그리지 못하는 글자는 퍼센트 인코딩으로 바꾼다.
 pub fn drawable_form(found: &str) -> String {
-    let url = if ["file://", "http://", "https://"]
-        .iter()
-        .any(|s| found.starts_with(s))
-    {
+    let url = if is_url(found) {
         found.to_owned()
     } else {
         let path = found.replace('\\', "/");
@@ -156,6 +165,12 @@ pub fn drawable_form(found: &str) -> String {
         .replace(')', "%29")
         .replace('<', "%3C")
         .replace('>', "%3E")
+}
+
+fn is_url(text: &str) -> bool {
+    ["file://", "http://", "https://"]
+        .iter()
+        .any(|s| text.starts_with(s))
 }
 
 /// 이 앞 글자가 낱말 안이면(`and/or`, `경로/home`) 경로의 시작이 아니다.
@@ -299,7 +314,7 @@ mod tests {
             path_link("/home/me/.cache/loom/출력표준2/review/opus.md"),
             TextPart::Link {
                 label: "review/opus.md".into(),
-                href: "file:///home/me/.cache/loom/출력표준2/review/opus.md".into()
+                href: "file:///home/me/.cache/loom/%EC%B6%9C%EB%A0%A5%ED%91%9C%EC%A4%802/review/opus.md".into()
             }
         );
         assert_eq!(
@@ -309,6 +324,23 @@ mod tests {
                 href: "file:///C:/Users/me/.cache/loom/t/logs/merge.log".into()
             }
         );
+        for (path, href) in [
+            ("/tmp/result#1.md", "file:///tmp/result%231.md"),
+            ("/tmp/result?1.md", "file:///tmp/result%3F1.md"),
+            ("/tmp/result%20.md", "file:///tmp/result%2520.md"),
+            ("/tmp/result%.md", "file:///tmp/result%25.md"),
+            ("file:///tmp/a%231.md", "file:///tmp/a%231.md"),
+            ("C:\\work\\result#1%.md", "file:///C:/work/result%231%25.md"),
+        ] {
+            let TextPart::Link { href: got, .. } = path_link(path) else {
+                panic!("{path}");
+            };
+            assert_eq!(got, href);
+            let decoded = percent_encoding::percent_decode_str(&got).decode_utf8_lossy();
+            if !is_url(path) {
+                assert!(decoded.ends_with(&path.replace('\\', "/")), "{decoded}");
+            }
+        }
         assert_eq!(
             path_link("/tmp/a b.md"),
             TextPart::Link {

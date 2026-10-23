@@ -31,7 +31,11 @@ via?: Via,
 /**
  * 관문 동사가 보낸 메시지의 관문 흔적. 다른 메시지에는 없다.
  */
-gate?: GateTrace, } | { "kind": "refused", how: Kind, from: Who, to: string, reason: Refusal, via?: Via, gate?: GateTrace, } | { "kind": "accountSwitched", provider: Provider, 
+gate?: GateTrace, } | { "kind": "refused", how: Kind, 
+/**
+ * 보내려던 종류(`note`·`answer`·`done`). 관문 호출과 옛 기록에는 없다.
+ */
+what?: MessageKind, from: Who, to: string, reason: Refusal, via?: Via, gate?: GateTrace, } | { "kind": "accountSwitched", provider: Provider, 
 /**
  * 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
  */

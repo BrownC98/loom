@@ -33,7 +33,7 @@ pub use waits::{
 
 use crate::db::Database;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::IllegalStep;
+use crate::protocol::{IllegalStep, MessageKind};
 use crate::worktree::RepoId;
 
 /// 화면 하나가 밀려도 버티는 이벤트 수.
@@ -624,12 +624,14 @@ impl Graph {
         from: NodeId,
         to: &str,
         how: Kind,
+        what: MessageKind,
         reason: &Refusal,
         via: Option<&Via>,
     ) -> rusqlite::Result<()> {
         let db = self.lock();
         let entry = events::Entry::Refused {
             how,
+            what: Some(what),
             from: events::who(&db, from)?,
             to: to.to_owned(),
             reason: reason.clone(),

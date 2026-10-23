@@ -12,7 +12,7 @@ mod places;
 mod relaunch;
 mod sessions;
 mod settings;
-pub use relaunch::Relaunched;
+pub use relaunch::{NewAgent, Relaunched};
 mod switch;
 mod turn_end;
 
@@ -413,6 +413,9 @@ pub struct RemoveRequest {
 #[derive(Serialize, Deserialize)]
 pub struct RelaunchRequest {
     pub name: Option<String>,
+    /// `--agent`: 이 에이전트의 새 세션으로 바꿔 띄운다. 없으면 같은 세션을 잇는다. 옛 CLI는 보내지 않는다.
+    #[serde(default)]
+    pub to: Option<NewAgent>,
 }
 
 /// `loom ask`의 요청. 질문 한 줄이다.

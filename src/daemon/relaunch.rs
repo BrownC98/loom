@@ -1,4 +1,5 @@
 //! 노드 다시 띄우기: 노드의 에이전트 프로세스를 끝내고 지금 설정(계정 포함)으로 다시 띄워 같은 세션을 잇는다.
+//! `loom relaunch --agent`는 같은 노드를 다른 에이전트의 새 세션으로 띄운다. 세션은 에이전트 사이를 옮기지 못한다.
 //! 턴 중이면 그 턴이 끝난 뒤 띄운다. 사람(노드 카드), 에이전트(`loom relaunch`), 계정 전환이 쓴다.
 //! 프로필이 있는 에이전트(Claude, Codex, Cursor, OpenCode 2)만 된다. 셸·명령은 이을 세션이 없고 다시 띄우면 셸 상태를 잃는다.
 //! 근거: docs/design.md 「다시 띄우기」, 「계정 전환」.
@@ -19,7 +20,7 @@ use ts_rs::TS;
 
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
-use crate::graph::{Active, Delivery, Entry, Kind, NodeId, Refusal, Who};
+use crate::graph::{Active, AgentSwitch, Delivery, Entry, Kind, Model, NodeId, Refusal, Who};
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
@@ -47,8 +48,8 @@ const CODEX_ROLLOUT_DEPTH: usize = 5;
 pub struct Relaunches {
     /// 옛 프로세스를 끝내는 중인 노드. 그 프로세스가 끝나면 `on_exit`가 신호를 보내고 노드를 `exited`로 두지 않는다.
     exiting: Mutex<HashMap<NodeId, oneshot::Sender<()>>>,
-    /// 다시 띄울 노드와 그 차례. 이 동안 쉬는 대기와 서버 전달 작업은 메시지를 넘기지 않는다(`holds_mail`).
-    pending: Mutex<HashMap<NodeId, Phase>>,
+    /// 다시 띄울 노드와 그 차례·할 일. 이 동안 쉬는 대기와 서버 전달 작업은 메시지를 넘기지 않는다(`holds_mail`).
+    pending: Mutex<HashMap<NodeId, (Phase, Plan)>>,
     /// 한도로 턴이 멈춘 노드. 다시 띄운 뒤 `CONTINUE_PROMPT`를 받는다.
     limited: Mutex<HashSet<NodeId>>,
 }
@@ -60,6 +61,24 @@ enum Phase {
     AtTurnEnd,
     /// 다시 띄우는 중이다.
     Running,
+}
+
+/// 다시 띄울 노드에 할 일. 요청(`RelaunchRequest::to`, 노드 메뉴의 몸통)이 고른다.
+#[derive(Clone)]
+pub(super) enum Plan {
+    /// 같은 에이전트의 같은 세션을 잇는다.
+    Resume,
+    /// 다른 에이전트의 새 세션으로 바꾼다.
+    Switch(NewAgent),
+}
+
+/// `loom relaunch --agent`의 새 에이전트와 모델·강도.
+/// 빈 칸은 노드 역할의 에이전트가 이 에이전트일 때 그 역할의 값, 아니면 CLI 설정의 값이다(`loom spawn --role`과 같다).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct NewAgent {
+    pub agent: AgentId,
+    #[serde(flatten)]
+    pub choice: ModelChoice,
 }
 
 impl Relaunches {
@@ -114,11 +133,14 @@ async fn relaunch_queued(State(app): State<Arc<App>>, UrlPath(id): UrlPath<u32>)
     Json(app.relaunches.holds_mail(NodeId(id)))
 }
 
+/// 몸통(`NewAgent`)이 있으면 그 에이전트로 바꿔 띄운다. 노드 메뉴는 몸통 없이 부른다.
 async fn relaunch_node(
     State(app): State<Arc<App>>,
     UrlPath(id): UrlPath<u32>,
+    to: Option<Json<NewAgent>>,
 ) -> Result<Json<Relaunched>, Problem> {
-    app.relaunch_by_id(NodeId(id)).await.map(Json)
+    let plan = to.map_or(Plan::Resume, |Json(to)| Plan::Switch(to));
+    app.relaunch_by_id(NodeId(id), plan).await.map(Json)
 }
 
 /// `loom relaunch [<name>]`. 이름이 없으면 부른 노드 자신이다. 다른 노드는 부른 노드의 자식만 된다.
@@ -140,7 +162,11 @@ pub(super) async fn agent_relaunch(
             id
         }
     };
-    app.relaunch_by_id(node).await.map(Json).map_err(for_agent)
+    let plan = req.to.map_or(Plan::Resume, Plan::Switch);
+    app.relaunch_by_id(node, plan)
+        .await
+        .map(Json)
+        .map_err(for_agent)
 }
 
 impl App {
@@ -173,9 +199,13 @@ impl App {
         self.idle.in_turn(node)
     }
 
-    /// 실행 중인 노드 하나를 다시 띄운다. 프로필이 없는 노드(셸, 명령)는 거절한다.
-    /// 프로세스가 끝난 노드는 남긴 세션으로 되살린다.
-    async fn relaunch_by_id(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
+    /// 노드 하나를 다시 띄운다. 프로필이 없는 노드(셸, 명령)는 거절한다.
+    /// 프로세스가 끝난 노드는 남긴 세션으로 되살리거나 새 에이전트로 띄운다.
+    async fn relaunch_by_id(
+        self: &Arc<Self>,
+        id: NodeId,
+        plan: Plan,
+    ) -> Result<Relaunched, Problem> {
         let found = self
             .graph
             .active()
@@ -183,16 +213,39 @@ impl App {
             .into_iter()
             .find(|n| n.id == id);
         let Some(node) = found else {
-            return self.revive_ended(id).await;
+            return self.revive_ended(id, plan).await;
         };
         if profile_of(&node).is_none() {
             return Err(Refusal::NoResume(node.name).into());
         }
-        self.relaunch_or_queue(node).await.map_err(internal)
+        let plan = self.chosen(&node, plan)?;
+        self.queue(node, plan).await.map_err(internal)
+    }
+
+    /// 새 에이전트의 빈 모델·강도를 노드 역할로 채우고, 띄우기 전에 거절할 값을 거절한다.
+    /// 턴 끝에 띄우는 노드도 부른 쪽이 바로 거절을 받는다.
+    fn chosen(&self, node: &Active, plan: Plan) -> Result<Plan, Problem> {
+        let Plan::Switch(NewAgent { agent, choice }) = plan else {
+            return Ok(plan);
+        };
+        if profile::profile_of(&agent).is_none() {
+            return Err(Refusal::NoLink(agent.0).into());
+        }
+        let choice = match &node.role {
+            Some(role) => self
+                .settings
+                .get()
+                .map_err(internal)?
+                .roles
+                .choice_for(role, &agent, choice),
+            None => choice,
+        };
+        profile::check_choice(&agent, &choice)?;
+        Ok(Plan::Switch(NewAgent { agent, choice }))
     }
 
     /// 끝난 노드는 턴이 없어 바로 띄운다. 두 번 누르면 둘째는 첫째를 기다리지 않고 돌아간다.
-    async fn revive_ended(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
+    async fn revive_ended(self: &Arc<Self>, id: NodeId, plan: Plan) -> Result<Relaunched, Problem> {
         let node = self
             .graph
             .ended(id)
@@ -201,12 +254,13 @@ impl App {
         if profile_of(&node).is_none() {
             return Err(Refusal::NoResume(node.name).into());
         }
+        let plan = self.chosen(&node, plan)?;
         if self
             .relaunches
             .pending
             .lock()
             .unwrap()
-            .insert(id, Phase::Running)
+            .insert(id, (Phase::Running, plan.clone()))
             .is_some()
         {
             return Ok(Relaunched::Now);
@@ -215,25 +269,49 @@ impl App {
             id: Some(id),
             name: node.name.clone(),
         };
+        let switched = switch_of(&node, &plan);
         let app = self.clone();
-        let result = tokio::spawn(async move { app.revive(node, REVIVED_NOTICE).await })
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(|r| r);
+        let result = tokio::spawn(async move {
+            match plan {
+                Plan::Resume => app.revive(node, REVIVED_NOTICE).await,
+                Plan::Switch(to) => {
+                    let prepared = app.prepare_other(&node, &to).await?;
+                    app.run_other(node.id, prepared, &to).await
+                }
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
         self.relaunches.pending.lock().unwrap().remove(&id);
-        self.record_relaunch(who, &result);
+        self.record_relaunch(who, switched, &result);
         result.map(|()| Relaunched::Now).map_err(internal)
     }
 
-    /// 턴 중이면 턴 끝으로 미루고, 쉬면 바로 다시 띄운다.
+    /// 같은 세션으로 다시 띄운다(계정 전환). 턴 중이면 턴 끝으로 미룬다.
     pub(super) async fn relaunch_or_queue(
         self: &Arc<Self>,
         node: Active,
     ) -> Result<Relaunched, String> {
+        self.queue(node, Plan::Resume).await
+    }
+
+    /// 턴 중이면 턴 끝으로 미루고, 쉬면 바로 다시 띄운다.
+    async fn queue(self: &Arc<Self>, node: Active, plan: Plan) -> Result<Relaunched, String> {
         // 두 번 누르면 둘째가 첫째의 종료 신호를 바꿔 쥐어, 첫째가 옛 프로세스가 살아 있는 채로 새 프로세스를 띄운다.
         let phase = {
             let mut pending = self.relaunches.pending.lock().unwrap();
-            if let Some(phase) = pending.get(&node.id) {
+            if let Some((phase, queued)) = pending.get_mut(&node.id) {
+                // 에이전트 바꾸기는 기다리던 다시 띄우기를 바꾼다. 같은 세션 잇기(계정 전환)는 기다리던 바꾸기를 지우지 않는다.
+                if let Plan::Switch(_) = plan {
+                    if *phase == Phase::Running {
+                        return Err(format!(
+                            "노드 {}는 지금 다시 뜨는 중이다. 뜬 뒤 다시 부른다",
+                            node.id.0
+                        ));
+                    }
+                    *queued = plan;
+                }
                 return Ok(match phase {
                     Phase::AtTurnEnd => Relaunched::AtTurnEnd,
                     Phase::Running => Relaunched::Now,
@@ -243,7 +321,7 @@ impl App {
                 true => Phase::AtTurnEnd,
                 false => Phase::Running,
             };
-            pending.insert(node.id, phase);
+            pending.insert(node.id, (phase, plan.clone()));
             phase
         };
         if phase == Phase::AtTurnEnd {
@@ -252,7 +330,7 @@ impl App {
         }
         // 부른 쪽이 끊겨도 끝까지 한다. 옛 프로세스를 끝낸 뒤 멈추면 노드가 새 프로세스 없이 남는다.
         let app = self.clone();
-        tokio::spawn(async move { app.relaunch(node).await })
+        tokio::spawn(async move { app.relaunch(node, plan).await })
             .await
             .map_err(|e| e.to_string())??;
         Ok(Relaunched::Now)
@@ -260,13 +338,16 @@ impl App {
 
     /// 턴이 끝났다(Claude·Cursor 쉬는 대기가 열렸다, Codex 스레드가 쉰다, OpenCode 2 실행이 끝났다). 다시 띄울 노드면 띄운다.
     pub(super) fn turn_ended(self: &Arc<Self>, node: NodeId) {
-        {
+        let plan = {
             let mut pending = self.relaunches.pending.lock().unwrap();
             match pending.get_mut(&node) {
-                Some(phase @ Phase::AtTurnEnd) => *phase = Phase::Running,
+                Some((phase @ Phase::AtTurnEnd, plan)) => {
+                    *phase = Phase::Running;
+                    plan.clone()
+                }
                 _ => return,
             }
-        }
+        };
         let app = self.clone();
         tokio::spawn(async move {
             let found = app.graph.active().map(|nodes| {
@@ -276,7 +357,7 @@ impl App {
                     .filter(|n| profile_of(n).is_some())
             });
             let relaunched = match found {
-                Ok(Some(active)) => app.relaunch(active).await,
+                Ok(Some(active)) => app.relaunch(active, plan).await,
                 Ok(None) => {
                     app.relaunches.pending.lock().unwrap().remove(&node);
                     return;
@@ -315,21 +396,31 @@ impl App {
     }
 
     /// 다시 띄우고 그 결과를 이벤트 기록에 남긴다.
-    async fn relaunch(self: &Arc<Self>, node: Active) -> Result<(), String> {
+    async fn relaunch(self: &Arc<Self>, node: Active, plan: Plan) -> Result<(), String> {
         let who = Who {
             id: Some(node.id),
             name: node.name.clone(),
         };
         let id = node.id;
-        let result = self.restart(node).await;
+        let switched = switch_of(&node, &plan);
+        let result = match plan {
+            Plan::Resume => self.restart(node).await,
+            Plan::Switch(to) => self.switch_agent(node, &to).await,
+        };
         self.relaunches.pending.lock().unwrap().remove(&id);
-        self.record_relaunch(who, &result);
+        self.record_relaunch(who, switched, &result);
         result
     }
 
-    fn record_relaunch(&self, node: Who, result: &Result<(), String>) {
+    fn record_relaunch(
+        &self,
+        node: Who,
+        switched: Option<AgentSwitch>,
+        result: &Result<(), String>,
+    ) {
         let entry = Entry::Relaunched {
             node,
+            switched,
             error: result.as_ref().err().cloned(),
         };
         if let Err(e) = self.graph.record(&entry) {
@@ -389,7 +480,29 @@ impl App {
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, brief)
             .await?;
-        let discard = prepared.discarder();
+        self.end_old(&node, prepared.discarder()).await?;
+        if profile == Profile::Claude {
+            self.stop_claude_background(&node, &resume).await;
+        }
+        self.run_resumed(node.id, prepared, &resume, &settings, &agent)
+            .await
+    }
+
+    /// 노드를 다른 에이전트의 새 세션으로 띄운다. 새 노드를 준비하지 못하면 옛 프로세스를 그대로 둔다.
+    async fn switch_agent(self: &Arc<Self>, node: Active, to: &NewAgent) -> Result<(), String> {
+        let prepared = self.prepare_other(&node, to).await?;
+        self.end_old(&node, prepared.discarder()).await?;
+        // 옛 Claude 세션이 Claude 자기 데몬에 남으면 노드 밖에서 같은 워크트리를 계속 고친다.
+        if profile_of(&node) == Some(Profile::Claude)
+            && let Some(session) = session_id(node.transcript.as_deref().map(Path::new))
+        {
+            self.stop_claude_background(&node, &session).await;
+        }
+        self.run_other(node.id, prepared, to).await
+    }
+
+    /// 옛 프로세스와 그 백그라운드 명령을 끝내고 끝나기를 기다린다. 끝나지 않으면 `discard`로 준비한 새 노드를 버린다.
+    async fn end_old(&self, node: &Active, discard: impl Fn()) -> Result<(), String> {
         // 옛 프로세스가 끝난 뒤 띄운다. 옛 PTY 호스트가 끝나며 지우는 주소 파일을 새 호스트가 함께 쓴다.
         let (done, exited) = oneshot::channel();
         self.relaunches
@@ -399,7 +512,7 @@ impl App {
             .insert(node.id, done);
         // 옛 프로세스가 띄운 백그라운드 명령도 끝낸다. Cursor는 노드 프로세스가 끝나도 그 명령이 고아로 남았다(실측).
         let snapshot = Snapshot::now();
-        snapshot.kill_trees(self.background_shells(&snapshot, &node));
+        snapshot.kill_trees(self.background_shells(&snapshot, node));
         // 옛 CLI의 쉬는 대기를 끝낸다. 새 CLI가 세션을 시작하면 다시 연다.
         self.idle.end(node.id);
         self.host.kill(node.id);
@@ -408,11 +521,67 @@ impl App {
             discard();
             return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
         }
-        if profile == Profile::Claude {
-            self.stop_claude_background(&node, &resume).await;
+        Ok(())
+    }
+
+    /// 새 에이전트의 시작 명령과 서버를 준비한다. 첫 입력은 옛 세션 기록을 가리키는 인계 글이다(`handoff`).
+    async fn prepare_other(&self, node: &Active, to: &NewAgent) -> Result<super::Prepared, String> {
+        let from = node.agent.as_ref().ok_or("에이전트 노드가 아니다")?;
+        let record = self.old_record(node).await;
+        let start = Start::Agent {
+            agent: to.agent.clone(),
+            brief: handoff(from, node.role.as_deref(), record.as_deref()),
+            choice: to.choice.clone(),
+            resume: None,
+        };
+        self.prepare_start(node.id, &start).await
+    }
+
+    /// 옛 세션 기록 파일. 그 첫 사용자 메시지가 노드의 첫 지시다. Claude·Cursor는 훅이 알린 경로, Codex는 살아 있는 app-server가 아는 경로다.
+    /// OpenCode 2는 기록을 파일로 두지 않는다.
+    async fn old_record(&self, node: &Active) -> Option<String> {
+        match profile_of(node)? {
+            Profile::Claude | Profile::Cursor => node.transcript.clone(),
+            Profile::Codex => {
+                let server = self.codex.lock().unwrap().get(&node.id).cloned()?;
+                let thread = server.thread().borrow().as_ref().map(|t| t.id.clone())?;
+                server.rollout(&thread).await.ok().flatten()
+            }
+            Profile::OpenCode2 => None,
         }
-        self.run_resumed(node.id, prepared, &resume, &settings, &agent)
-            .await
+    }
+
+    /// 새 에이전트를 띄운다. 그래프에 새 에이전트·모델·토큰을 먼저 남긴다(`run_resumed`와 같은 차례).
+    async fn run_other(
+        self: &Arc<Self>,
+        id: NodeId,
+        prepared: super::Prepared,
+        to: &NewAgent,
+    ) -> Result<(), String> {
+        let discard = prepared.discarder();
+        let model = Model {
+            model: to.choice.model.clone(),
+            effort: to.choice.effort.clone(),
+        };
+        if let Err(e) = self
+            .graph
+            .switched(id, &prepared.launched(), &to.agent, &model)
+        {
+            discard();
+            let _ = self.graph.lost(id);
+            return Err(e.to_string());
+        }
+        // 옛 프로세스가 끝날 때 `on_exit`는 다시 띄우기라 서버 표를 비우지 않았다. 새 서버가 없으면 옛 서버가 남아 턴 판단(`busy`)을 흐린다.
+        self.codex.lock().unwrap().remove(&id);
+        self.opencode2.lock().unwrap().remove(&id);
+        self.relaunches.pending.lock().unwrap().remove(&id);
+        if let Err(e) = self.launch(id, prepared) {
+            discard();
+            let _ = self.graph.lost(id);
+            return Err(e);
+        }
+        self.relaunches.limited.lock().unwrap().remove(&id);
+        Ok(())
     }
 
     /// 프로세스가 없는 노드를 남긴 세션으로 다시 띄운다. 옛 WSL 데몬에서 옮겨 온 노드가 쓴다(`carry`).
@@ -460,7 +629,6 @@ impl App {
         resume: &str,
         brief: String,
     ) -> Result<super::Prepared, String> {
-        let place = self.graph.place_of(node.id).map_err(|e| e.to_string())?;
         let start = Start::Agent {
             agent: agent.clone(),
             brief,
@@ -474,12 +642,18 @@ impl App {
             },
             resume: Some(resume.to_owned()),
         };
-        let position = match self.graph.relations(node.id) {
+        self.prepare_start(node.id, &start).await
+    }
+
+    /// 노드의 자리(워크트리)와 위치(부모가 있는 자식인가)로 시작 명령을 준비한다.
+    async fn prepare_start(&self, id: NodeId, start: &Start) -> Result<super::Prepared, String> {
+        let place = self.graph.place_of(id).map_err(|e| e.to_string())?;
+        let position = match self.graph.relations(id) {
             Ok(r) if r.parent.is_some() => Position::Child,
             Ok(_) => Position::Root,
             Err(e) => return Err(e.to_string()),
         };
-        self.prepare(&start, Path::new(&place.worktree), position)
+        self.prepare(start, Path::new(&place.worktree), position)
             .await
             .map_err(|e| format!("{e:?}"))
     }
@@ -627,6 +801,34 @@ pub(super) fn provider_of(node: &Active) -> Option<Provider> {
     profile_of(node).and_then(Profile::provider)
 }
 
+/// 이벤트 기록에 남길 에이전트 바꾸기.
+fn switch_of(node: &Active, plan: &Plan) -> Option<AgentSwitch> {
+    match plan {
+        Plan::Resume => None,
+        Plan::Switch(to) => Some(AgentSwitch {
+            from: node.agent.clone()?,
+            to: to.agent.clone(),
+        }),
+    }
+}
+
+/// 다른 에이전트로 바꿔 띄운 노드의 첫 입력. 세션은 에이전트 사이를 옮기지 못해 새 세션이 일을 이어받는다.
+/// 첫 지시는 따로 남기지 않는다. 옛 세션 기록의 첫 사용자 메시지다(2026-10-23 총괄 결정: 열을 더하지 않는다).
+fn handoff(from: &AgentId, role: Option<&str>, record: Option<&str>) -> String {
+    let role = role.map_or(String::new(), |r| format!(" Your role is {r}."));
+    let record = match record {
+        Some(path) => format!(
+            "The old session record is {path}. Its first user message is your brief. Read the record to learn the task and where agent {} stopped.",
+            from.0
+        ),
+        None => "loom does not know the old session record. Ask your parent (or the human, if you have no parent) for your brief.".to_owned(),
+    };
+    format!(
+        "loom replaced agent {} in this node with you. A session cannot move between agents, so you start a new session. The node keeps its ID, name, parent, children, mailbox, and worktree.{role}\n{record}\nThen run `git status`, look at the worktree, and continue the task.",
+        from.0
+    )
+}
+
 /// 다시 띄운 세션의 첫 입력에 넣는 줄. 에이전트는 끝난 명령의 결과를 기다리지 않고 필요하면 다시 띄운다.
 fn stopped_notice(count: usize) -> String {
     format!(
@@ -754,6 +956,26 @@ mod tests {
         );
         assert_eq!(background_job(b"not json", mine), None);
         assert_eq!(background_job(b"[]", mine), None);
+    }
+
+    #[test]
+    fn handoff_names_the_old_agent_role_and_record() {
+        let claude = AgentId("claude".into());
+        let text = handoff(
+            &claude,
+            Some("코디"),
+            Some("/h/.claude/projects/-w/s1.jsonl"),
+        );
+        assert!(text.contains("replaced agent claude"), "{text}");
+        assert!(text.contains("Your role is 코디."), "{text}");
+        assert!(
+            text.contains("/h/.claude/projects/-w/s1.jsonl. Its first user message is your brief"),
+            "{text}"
+        );
+        assert!(text.contains("`git status`"), "{text}");
+        let unknown = handoff(&claude, None, None);
+        assert!(!unknown.contains("role"), "{unknown}");
+        assert!(unknown.contains("Ask your parent"), "{unknown}");
     }
 
     #[test]

@@ -253,9 +253,9 @@ fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
 
-/// 띄울 때 `choice_args`가 거절할 조합이면 `false`. 카탈로그에 없는 에이전트는 판단하지 않는다(`true`).
-pub(crate) fn accepts_choice(id: &AgentId, choice: &ModelChoice) -> bool {
-    find(id).is_none_or(|agent| choice_args(agent, choice).is_ok())
+/// 띄울 때 `choice_args`가 거절할 조합이면 그 거절이다. 카탈로그에 없는 에이전트는 판단하지 않는다.
+pub(crate) fn check_choice(id: &AgentId, choice: &ModelChoice) -> Result<(), LaunchError> {
+    find(id).map_or(Ok(()), |agent| choice_args(agent, choice).map(drop))
 }
 
 /// 고정 버전이 있는 프로필과 그 CLI 명령. 메시지 연동이 다른 버전과 맞지 않을 수 있다.
@@ -676,7 +676,7 @@ pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. U
 - loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, ask your parent with loom send.
 - loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
 - loom adopt <name>: become that node's parent. loom rm <target>: remove your child and end its process; its children become yours.
-- loom relaunch [<child>]: restart your own (or your child's) agent process with the current loom settings; the conversation continues after the turn ends.
+- loom relaunch [<child>]: restart your own (or your child's) agent process with the current loom settings; the conversation continues after the turn ends. Add --agent <agent-id> to give the node to a new session of that agent; the node keeps its role, mailbox, and children.
 ", crate::gate_usage!(), "Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
 With a parent, write no progress in the terminal. Results go in loom done or loom send. End each turn with at most one short line.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.

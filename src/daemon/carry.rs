@@ -86,6 +86,7 @@ impl App {
             let revived = self.revive(node, NOTICE).await;
             let _ = self.graph.record(&Entry::Relaunched {
                 node: who.clone(),
+                switched: None,
                 error: revived.as_ref().err().cloned(),
             });
             match revived {

@@ -481,7 +481,9 @@ pub fn ready(branch: String) -> Result<(), String> {
         "ready",
         &ReadyRequest {
             branch: branch.clone(),
-            cwd: crate::wsl::for_caller(&absolute(Path::new("."))?),
+            cwd: crate::wsl::from_caller(std::env::current_dir().map_err(|e| e.to_string())?)
+                .display()
+                .to_string(),
         },
         None,
     )?;

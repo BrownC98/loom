@@ -468,7 +468,7 @@ async fn contains(repo: &Path, target: &str, branch: &str) -> Result<(), Refusal
 }
 
 /// `branch`를 담당하는 워크트리. 노드가 등록한 워크트리가 그 브랜치면 그것이고,
-/// 아니면 부른 프로세스의 작업 폴더가 그 브랜치 워크트리 안일 때(원래 체크아웃의 노드가 다른 워크트리에서 고칠 때) 그 워크트리다.
+/// 아니면 부른 프로세스의 작업 폴더가 git으로 그 브랜치 워크트리일 때(원래 체크아웃의 노드가 다른 워크트리에서 고칠 때) 그 워크트리다.
 async fn owned_worktree(
     repo: &Path,
     registered: &str,
@@ -481,15 +481,16 @@ async fn owned_worktree(
     if mine.branch.as_deref() == Some(branch) {
         return Ok(mine);
     }
+    // 폴더 접두사는 안쪽 워크트리·중첩 저장소를 가르지 못한다. git이 푼 최상위 폴더만 믿는다.
     let cwd = Path::new(cwd);
-    let inside = |w: &worktree::Worktree| {
-        cwd.starts_with(&w.path)
-            || crate::wsl::location(&w.path).is_some_and(|at| cwd.starts_with(at.path))
-    };
+    let top = git::run(cwd, &["rev-parse", "--show-toplevel"])
+        .await
+        .map_err(Refusal::Git)?;
+    let top = git::from_git_path(cwd, top.trim());
     worktree::worktrees(repo)
         .await
         .into_iter()
-        .find(|w| w.branch.as_deref() == Some(branch) && inside(w))
+        .find(|w| w.branch.as_deref() == Some(branch) && w.path == top)
         .ok_or(Refusal::NotOwner {
             branch: branch.to_owned(),
             yours: mine.branch,
@@ -587,7 +588,7 @@ mod tests {
                 feature.to_str().unwrap(),
             ],
         );
-        let feature = std::fs::canonicalize(feature).unwrap();
+        let feature = std::path::PathBuf::from(run(&feature, &["rev-parse", "--show-toplevel"]));
         let other = dir.path().join("other");
         run(
             &repo,
@@ -600,7 +601,8 @@ mod tests {
                 other.to_str().unwrap(),
             ],
         );
-        let other = std::fs::canonicalize(other).unwrap();
+        let other = std::path::PathBuf::from(run(&other, &["rev-parse", "--show-toplevel"]));
+        std::fs::create_dir(feature.join("src")).unwrap();
         let feature_dir = feature.join("src").display().to_string();
 
         // 등록한 워크트리가 그 브랜치다.
@@ -611,6 +613,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(moved.path, feature.display().to_string());
+        // 그 브랜치 워크트리 안에 다른 브랜치의 워크트리가 중첩돼도 거절한다.
+        let nested = feature.join("nested");
+        run(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "inner",
+                nested.to_str().unwrap(),
+            ],
+        );
+        let nested = nested.display().to_string();
+        let refused = owned_worktree(&repo, &main, "feature", &nested).await;
+        assert!(matches!(refused, Err(Refusal::NotOwner { .. })));
         // 작업 폴더가 다른 브랜치의 워크트리면 거절한다.
         let refused = owned_worktree(&repo, &main, "feature", &other.display().to_string()).await;
         assert_eq!(

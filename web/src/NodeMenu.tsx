@@ -38,16 +38,16 @@ export function NodeMenu(props: { view: NodeView; resumable: boolean; onResetSiz
       </button>
       {open && (
         <Menu anchor={button} label={t('node.menu')} onClose={() => setOpen(false)}>
-          {resumable && (
-            <button role="menuitem" disabled={queued !== false} onClick={() => run(() => relaunchNode(view.id).catch((err: Error) => props.onRefusal(err.message)))}>
-              <RefreshCw />
-              {queued ? t('node.relaunchQueued') : t('node.relaunch')}
-            </button>
-          )}
           {props.onResetSize && (
             <button role="menuitem" onClick={() => run(props.onResetSize!)}>
               <RotateCcw />
               {t('node.resetSize')}
+            </button>
+          )}
+          {resumable && (
+            <button role="menuitem" disabled={queued !== false} onClick={() => run(() => relaunchNode(view.id).catch((err: Error) => props.onRefusal(err.message)))}>
+              <RefreshCw />
+              {queued ? t('node.relaunchQueued') : t('node.relaunch')}
             </button>
           )}
           {(resumable || props.onResetSize) && <hr />}

@@ -276,11 +276,10 @@ function NodeScreen(props: { view: NodeView; /** 모든 노드의 대기(`waitin
               {askOpen ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
             </button>
           </div>
-          {askOpen && (
-            <div className="phone-ask-panel">
-              <InboxPanel waiting={waiting} onSelect={openOther} onFocus={openOther} />
-            </div>
-          )}
+          {/* 접어도 지우지 않고 숨긴다. 쓰던 답이 남는다(2026-10-23 사람 지시 "알림을 접어도 입력창에 입력했던 내용 유지되도록 할 것"). */}
+          <div className="phone-ask-panel" hidden={!askOpen}>
+            <InboxPanel waiting={waiting} onSelect={openOther} onFocus={openOther} />
+          </div>
         </div>
       )}
       <div className="phone-term" translate="no">

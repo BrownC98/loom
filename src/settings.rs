@@ -84,6 +84,8 @@ pub struct SettingsView {
     /// 사이드바에서 고른 저장소. 없거나 목록에 없으면 화면이 첫 저장소를 쓴다.
     pub repo: Option<RepoId>,
     pub pane_widths: PaneWidths,
+    /// 사람이 끌어 옮긴 질문 알약의 자리. 없으면 그래프 칸 위 가운데다.
+    pub pill_place: Option<PillPlace>,
     pub closed_panes: ClosedPanes,
     /// 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
     pub closed_switch_notice: Option<u32>,
@@ -117,6 +119,16 @@ pub enum ArrangeDirection {
 pub struct PaneWidths {
     pub side: Option<u16>,
     pub dock: Option<u16>,
+}
+
+/// 질문 알약의 자리. 알약이 그래프 칸 안에서 움직일 수 있는 폭·높이 중 얼마만큼 왔는지(0~1)다.
+/// 창이나 칸 크기가 바뀌어도 알약은 칸 안에 남는다.
+#[derive(Clone, Copy, Default, PartialEq, Debug, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(export)]
+pub struct PillPlace {
+    pub x: f32,
+    pub y: f32,
 }
 
 /// 접은 칸(사이드바, 오른쪽 칸)과 절(북마크). 처음에는 모두 펼침이다.
@@ -524,6 +536,7 @@ mod tests {
                 bookmarks: true,
                 ..Default::default()
             },
+            pill_place: Some(PillPlace { x: 0.25, y: 0.5 }),
             closed_switch_notice: Some(9),
             ..Default::default()
         };
@@ -534,6 +547,7 @@ mod tests {
         assert!(got.minimap_folded);
         assert_eq!(got.repo, Some(RepoId(3)));
         assert_eq!(got.pane_widths, view.pane_widths);
+        assert_eq!(got.pill_place, view.pill_place);
         assert_eq!(got.closed_panes, view.closed_panes);
         assert_eq!(got.closed_switch_notice, Some(9));
     }

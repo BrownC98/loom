@@ -181,6 +181,13 @@ export function GraphTab({ settings, onSettings }: TabProps) {
         </div>
         <span className="hint">{t('questionPill.hint')}</span>
       </section>
+      <section>
+        <h4>
+          {t('questionPill.place')}
+          <FieldReset path={['pillPlace']} />
+        </h4>
+        <span className="hint">{t('questionPill.placeHint')}</span>
+      </section>
     </>
   );
 }

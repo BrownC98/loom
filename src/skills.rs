@@ -176,7 +176,7 @@ pub fn ask_rules() -> String {
 }
 
 /// 시작 지시에 넣은 o-mode 글의 상대 링크는 시작 지시 안에서 열리지 않는다.
-const MODE_NOTE: &str = "아래 o-mode 글은 늘 적용한다. 상대 링크는 내장 스킬 `o-mode` 폴더 기준이다. 링크한 절이 필요하면 그 스킬을 불러 읽는다.";
+const MODE_NOTE: &str = "아래 o-mode 글은 늘 적용한다. 상대 링크는 내장 스킬 `o-mode` 폴더 기준이다. 링크한 절이나 파일이 필요하면 그 스킬 폴더에서 읽는다.";
 
 /// 머리말(`---` 사이)을 뺀 본문.
 fn body(skill: &str) -> &str {

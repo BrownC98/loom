@@ -315,6 +315,12 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
+    pub fn stop(&self, id: K) {
+        if let Some(pty) = self.pty(id) {
+            pty.send(&Frame::Kill);
+        }
+    }
+
     pub fn guard(&self, id: K, caller: u32) {
         let Some(pty) = self.pty(id) else { return };
         let root = *pty.pid.lock().unwrap();
@@ -662,6 +668,37 @@ mod tests {
         assert!(read_until(&mut attached, "got x").contains("before"));
         assert_eq!(rx.recv().unwrap(), Exit::Command(3));
         assert!(!dir.path().join("1").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stopped_pty_stays_until_the_new_process_replaces_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut old = CommandBuilder::new("sh");
+        old.args(["-c", "echo old; read line"]);
+        in_process(dir.path(), 1, old);
+        let nodes = NodeHost::new(dir.path().to_path_buf());
+        let (tx, rx) = std::sync::mpsc::channel();
+        nodes.resume(1, move |code| tx.send(code).unwrap()).unwrap();
+        let mut viewer = nodes.attach(1).unwrap();
+        read_until(&mut viewer, "old");
+
+        nodes.stop(1);
+        rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let between = nodes
+            .attach(1)
+            .expect("the screen still attaches between the two processes");
+        assert!(String::from_utf8_lossy(&between.backlog).contains("old"));
+
+        let mut new = CommandBuilder::new("sh");
+        new.args(["-c", "echo new; read line"]);
+        in_process(dir.path(), 1, new);
+        nodes.resume(1, |_| {}).unwrap();
+        while let Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) =
+            viewer.output.blocking_recv()
+        {}
+        read_until(&mut nodes.attach(1).unwrap(), "new");
+        nodes.kill(1);
     }
 
     #[cfg(unix)]

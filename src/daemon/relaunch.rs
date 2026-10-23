@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::pin::pin;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -14,7 +15,9 @@ use ts_rs::TS;
 
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
-use crate::graph::{Active, AgentSwitch, Delivery, Entry, Kind, Model, NodeId, Refusal, Who};
+use crate::graph::{
+    Active, AgentSwitch, Delivery, Entry, Kind, Model, NodeId, REDELIVER_AFTER, Refusal, Who,
+};
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
@@ -22,10 +25,12 @@ use crate::profile::{self, AgentId, ModelChoice, Profile, Provider, ServerLink, 
 use crate::settings::SettingsView;
 use crate::skills::Position;
 
-const EXIT_WAIT: Duration = Duration::from_secs(10);
+pub(super) const EXIT_WAIT: Duration = Duration::from_secs(10);
 const CLAUDE_CLI_WAIT: Duration = Duration::from_secs(20);
 const CONTINUE_PROMPT: &str =
     "Your account was switched after a usage limit. Continue the task where you stopped.";
+const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle, to free memory. It started your process again in the same session. \
+     Messages that came for you arrive next.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
@@ -154,7 +159,26 @@ impl App {
         if self.relaunches.holds_mail(node) {
             return Ok(Vec::new());
         }
-        self.graph.take_waking(node, kinds, limit_bytes)
+        self.sleeps
+            .unless_stopping(node, || self.graph.take_waking(node, kinds, limit_bytes))
+            .unwrap_or(Ok(Vec::new()))
+    }
+
+    pub(super) async fn next_mail(
+        &self,
+        node: NodeId,
+        kinds: &[Kind],
+        limit_bytes: usize,
+    ) -> Result<Vec<Delivery>, Refusal> {
+        loop {
+            let mut changed = pin!(self.graph.mail_changed());
+            changed.as_mut().enable();
+            let taken = self.take_mail(node, kinds, limit_bytes)?;
+            if !taken.is_empty() {
+                return Ok(taken);
+            }
+            let _ = tokio::time::timeout(REDELIVER_AFTER, changed).await;
+        }
     }
 
     pub(super) fn busy(&self, node: NodeId) -> bool {
@@ -171,7 +195,7 @@ impl App {
         self.idle.in_turn(node)
     }
 
-    async fn relaunch_by_id(
+    pub(super) async fn relaunch_by_id(
         self: &Arc<Self>,
         id: NodeId,
         plan: Plan,
@@ -222,6 +246,11 @@ impl App {
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
+        let asleep = self.graph.asleep(id).map_err(internal)?;
+        let notice = match asleep {
+            true => WOKEN_NOTICE,
+            false => REVIVED_NOTICE,
+        };
         {
             let mut pending = self.relaunches.pending.lock().unwrap();
             if pending.contains_key(&id) {
@@ -240,7 +269,7 @@ impl App {
         let app = self.clone();
         let result = tokio::spawn(async move {
             match plan {
-                Plan::Resume => app.revive(node, REVIVED_NOTICE).await,
+                Plan::Resume => app.revive(node, notice).await,
                 Plan::Switch(to) => {
                     let prepared = app.prepare_other(&node, &to).await?;
                     if let Err(e) = app.stop_old_claude(&node).await {
@@ -255,6 +284,12 @@ impl App {
         .map_err(|e| e.to_string())
         .and_then(|r| r);
         self.relaunches.pending.lock().unwrap().remove(&id);
+        if asleep
+            && result.is_err()
+            && let Err(e) = self.graph.sleep_lost(id)
+        {
+            eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", id.0);
+        }
         self.record_relaunch(who, switched, &result);
         result.map(|()| Relaunched::Now).map_err(internal)
     }
@@ -300,6 +335,32 @@ impl App {
             .map_err(internal)?
             .map_err(internal)?;
         Ok(Relaunched::Now)
+    }
+
+    pub(super) fn relaunch_stale(self: &Arc<Self>) -> rusqlite::Result<()> {
+        for node in self.graph.active()? {
+            let changed = node
+                .rules
+                .as_ref()
+                .map(profile::changed_parts)
+                .unwrap_or_default();
+            if changed.is_empty() || profile_of(&node).is_none() {
+                continue;
+            }
+            eprintln!(
+                "loom: 노드 {}의 시작 글이 바뀌었다({}). 턴 끝에 다시 띄운다",
+                node.id.0,
+                changed.join(", ")
+            );
+            self.relaunches
+                .pending
+                .lock()
+                .unwrap()
+                .entry(node.id)
+                .or_insert((Phase::AtTurnEnd, Plan::Resume));
+            self.watch_server_turn(node.id);
+        }
+        Ok(())
     }
 
     pub(super) fn turn_ended(self: &Arc<Self>, node: NodeId) {
@@ -466,7 +527,7 @@ impl App {
         self.run_other(node.id, prepared, to).await
     }
 
-    async fn stop_old_claude(&self, node: &Active) -> Result<(), String> {
+    pub(super) async fn stop_old_claude(&self, node: &Active) -> Result<(), String> {
         match session_id(node.transcript.as_deref().map(Path::new)) {
             Some(session) if profile_of(node) == Some(Profile::Claude) => {
                 self.stop_claude_background(node, &session).await
@@ -485,7 +546,7 @@ impl App {
         let snapshot = Snapshot::now();
         snapshot.kill_trees(self.background_shells(&snapshot, node));
         self.idle.end(node.id);
-        self.host.kill(node.id);
+        self.host.stop(node.id);
         if tokio::time::timeout(EXIT_WAIT, exited).await.is_err() {
             self.relaunches.exiting.lock().unwrap().remove(&node.id);
             discard();
@@ -707,7 +768,7 @@ impl App {
         })
     }
 
-    fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
+    pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
         let server = match &node.server {
             Some(ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) => *pid,
             None => None,
@@ -741,7 +802,7 @@ impl App {
     }
 }
 
-fn profile_of(node: &Active) -> Option<Profile> {
+pub(super) fn profile_of(node: &Active) -> Option<Profile> {
     node.agent.as_ref().and_then(profile::profile_of)
 }
 

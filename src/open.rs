@@ -41,7 +41,8 @@ pub fn open_url(url: &str) -> io::Result<()> {
 fn launch(host: Host, target: OsString) -> io::Result<()> {
     let mut cmd = match std::env::var_os(OPENER_ENV) {
         Some(program) => Command::new(program),
-        None => Command::new(host.opener()),
+        None if crate::db::is_account_data_dir() => Command::new(host.opener()),
+        None => return Err(not_the_humans()),
     };
     let mut child = cmd
         .arg(target)
@@ -53,6 +54,17 @@ fn launch(host: Host, target: OsString) -> io::Result<()> {
     // 짧게 사는 `loom open`은 거두기 전에 끝날 수 있다. 그래도 앱은 따로 산다.
     std::thread::spawn(move || child.wait());
     Ok(())
+}
+
+/// 계정 폴더가 아닌 데이터 폴더(시험 `HOME`·`APPDATA`)의 loom은 사람의 기본 앱을 열지 않는다. 기록기(`LOOM_BROWSER`)만 쓴다.
+/// 근거: 2026-10-23 검토자의 시험 데몬이 사람의 앱에 시험 파일을 띄웠다. 사람 지시 "브리프 말고 기계적으로 차단해".
+fn not_the_humans() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!(
+            "this loom does not use the account's own data folder (a test HOME or APPDATA), so it does not open the system app. Set {OPENER_ENV} to a recorder."
+        ),
+    )
 }
 
 /// 기본 앱을 여는 방법이 다른 실행 환경.

@@ -219,7 +219,7 @@ impl App {
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
-        self.queue(node, plan).await.map_err(internal)
+        self.queue(node, plan).await
     }
 
     /// 새 에이전트의 빈 모델·강도를 노드 역할로 채우고, 띄우기 전에 거절할 값을 거절한다.
@@ -255,15 +255,15 @@ impl App {
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
-        if self
-            .relaunches
-            .pending
-            .lock()
-            .unwrap()
-            .insert(id, (Phase::Running, plan.clone()))
-            .is_some()
         {
-            return Ok(Relaunched::Now);
+            let mut pending = self.relaunches.pending.lock().unwrap();
+            if pending.contains_key(&id) {
+                return match plan {
+                    Plan::Resume => Ok(Relaunched::Now),
+                    Plan::Switch(_) => Err(Refusal::Relaunching(node.name).into()),
+                };
+            }
+            pending.insert(id, (Phase::Running, plan.clone()));
         }
         let who = Who {
             id: Some(id),
@@ -276,6 +276,7 @@ impl App {
                 Plan::Resume => app.revive(node, REVIVED_NOTICE).await,
                 Plan::Switch(to) => {
                     let prepared = app.prepare_other(&node, &to).await?;
+                    app.stop_old_claude(&node).await;
                     app.run_other(node.id, prepared, &to).await
                 }
             }
@@ -293,11 +294,13 @@ impl App {
         self: &Arc<Self>,
         node: Active,
     ) -> Result<Relaunched, String> {
-        self.queue(node, Plan::Resume).await
+        self.queue(node, Plan::Resume)
+            .await
+            .map_err(|e| for_agent(e).1)
     }
 
     /// 턴 중이면 턴 끝으로 미루고, 쉬면 바로 다시 띄운다.
-    async fn queue(self: &Arc<Self>, node: Active, plan: Plan) -> Result<Relaunched, String> {
+    async fn queue(self: &Arc<Self>, node: Active, plan: Plan) -> Result<Relaunched, Problem> {
         // 두 번 누르면 둘째가 첫째의 종료 신호를 바꿔 쥐어, 첫째가 옛 프로세스가 살아 있는 채로 새 프로세스를 띄운다.
         let phase = {
             let mut pending = self.relaunches.pending.lock().unwrap();
@@ -305,10 +308,7 @@ impl App {
                 // 에이전트 바꾸기는 기다리던 다시 띄우기를 바꾼다. 같은 세션 잇기(계정 전환)는 기다리던 바꾸기를 지우지 않는다.
                 if let Plan::Switch(_) = plan {
                     if *phase == Phase::Running {
-                        return Err(format!(
-                            "노드 {}는 지금 다시 뜨는 중이다. 뜬 뒤 다시 부른다",
-                            node.id.0
-                        ));
+                        return Err(Refusal::Relaunching(node.name).into());
                     }
                     *queued = plan;
                 }
@@ -332,7 +332,8 @@ impl App {
         let app = self.clone();
         tokio::spawn(async move { app.relaunch(node, plan).await })
             .await
-            .map_err(|e| e.to_string())??;
+            .map_err(internal)?
+            .map_err(internal)?;
         Ok(Relaunched::Now)
     }
 
@@ -492,13 +493,18 @@ impl App {
     async fn switch_agent(self: &Arc<Self>, node: Active, to: &NewAgent) -> Result<(), String> {
         let prepared = self.prepare_other(&node, to).await?;
         self.end_old(&node, prepared.discarder()).await?;
-        // 옛 Claude 세션이 Claude 자기 데몬에 남으면 노드 밖에서 같은 워크트리를 계속 고친다.
-        if profile_of(&node) == Some(Profile::Claude)
+        self.stop_old_claude(&node).await;
+        self.run_other(node.id, prepared, to).await
+    }
+
+    /// 다른 에이전트로 바꾸는 노드가 Claude였으면 옛 세션의 백그라운드 작업을 끝낸다. 프로세스가 끝난 노드도 같다.
+    /// 그 세션은 노드 프로세스 나무 밖에 살아, 남으면 노드 밖에서 같은 워크트리를 계속 고친다.
+    async fn stop_old_claude(&self, node: &Active) {
+        if profile_of(node) == Some(Profile::Claude)
             && let Some(session) = session_id(node.transcript.as_deref().map(Path::new))
         {
-            self.stop_claude_background(&node, &session).await;
+            self.stop_claude_background(node, &session).await;
         }
-        self.run_other(node.id, prepared, to).await
     }
 
     /// 옛 프로세스와 그 백그라운드 명령을 끝내고 끝나기를 기다린다. 끝나지 않으면 `discard`로 준비한 새 노드를 버린다.

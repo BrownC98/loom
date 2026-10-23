@@ -223,6 +223,8 @@ pub enum Refusal {
     NoResume(String),
     /// `loom relaunch --agent`의 에이전트에 메시지 연동(프로필)이 없다. 값은 에이전트 id다.
     NoLink(String),
+    /// 노드가 지금 다시 뜨는 중이라 에이전트 바꾸기를 받지 못한다. 값은 노드 이름이다.
+    Relaunching(String),
     /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
     NoRepo,
     /// `loom ask`의 질문이 비었다.
@@ -381,6 +383,10 @@ impl fmt::Display for Refusal {
             Refusal::NoLink(agent) => write!(
                 f,
                 "{agent}: loom has no message link for this agent. Give claude, codex, cursor, or opencode2 with --agent."
+            ),
+            Refusal::Relaunching(name) => write!(
+                f,
+                "{name}: this node is starting again now. Run `loom relaunch --agent` again after it starts."
             ),
             Refusal::Ambiguous { name, candidates } => write!(
                 f,

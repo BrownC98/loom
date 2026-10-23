@@ -8,6 +8,8 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+mod account;
+
 /// 이 변수가 있으면 기본 앱 대신 이 프로그램에 대상을 넘긴다. 시험이 사람의 브라우저를 열지 않게 기록기를 넣는다.
 pub const OPENER_ENV: &str = "LOOM_BROWSER";
 
@@ -39,11 +41,12 @@ pub fn open_url(url: &str) -> io::Result<()> {
 }
 
 fn launch(host: Host, target: OsString) -> io::Result<()> {
-    let mut cmd = match std::env::var_os(OPENER_ENV) {
-        Some(program) => Command::new(program),
-        None => Command::new(host.opener()),
-    };
-    let mut child = cmd
+    let program = opener(
+        host,
+        |key| std::env::var_os(key),
+        account::is_account_folder,
+    )?;
+    let mut child = Command::new(program)
         .arg(target)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -53,6 +56,38 @@ fn launch(host: Host, target: OsString) -> io::Result<()> {
     // 짧게 사는 `loom open`은 거두기 전에 끝날 수 있다. 그래도 앱은 따로 산다.
     std::thread::spawn(move || child.wait());
     Ok(())
+}
+
+/// 데몬이 노드에 넣는 토큰 변수(`daemon.rs` `node_env`). 데몬은 시작할 때 자기 환경에서 이 변수를 지운다(`profile::is_launcher_env`).
+/// 그래서 이 변수가 있으면 노드 안에서 돈 `loom` 명령이다.
+const NODE_TOKEN_ENV: &str = "LOOM_TOKEN";
+
+/// 여는 프로그램을 고른다. 기록기(`LOOM_BROWSER`)가 있으면 늘 기록기다.
+/// 없으면 사람의 loom만 기본 앱을 연다: 노드 안의 명령(`loom open`)과 계정 폴더가 아닌 데이터 폴더(시험 `HOME`·`APPDATA`)의 loom은 실패한다.
+/// 근거: 2026-10-23 검토자의 시험 데몬이 사람의 앱에 시험 파일을 띄웠다. 사람 지시 "브리프 말고 기계적으로 차단해".
+fn opener(
+    host: Host,
+    var: impl Fn(&str) -> Option<OsString>,
+    account_folder: impl FnOnce() -> bool,
+) -> io::Result<OsString> {
+    if let Some(recorder) = var(OPENER_ENV) {
+        return Ok(recorder);
+    }
+    let refuse = |why: &str| {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{why}, so it does not open the system app. Set {OPENER_ENV} to a recorder."),
+        ))
+    };
+    if var(NODE_TOKEN_ENV).is_some() {
+        return refuse("this loom runs in a node (LOOM_TOKEN is set)");
+    }
+    if !account_folder() {
+        return refuse(
+            "this loom does not use the account's own data folder (a test HOME or APPDATA)",
+        );
+    }
+    Ok(host.opener().into())
 }
 
 /// 기본 앱을 여는 방법이 다른 실행 환경.
@@ -154,6 +189,101 @@ mod tests {
             .unwrap_or_default();
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(got.trim_end(), want);
+    }
+
+    fn vars(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<OsString> {
+        |key| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| OsString::from(v))
+        }
+    }
+
+    #[test]
+    fn only_the_humans_loom_gets_the_system_opener() {
+        let host = Host::Linux;
+        let denied =
+            |r: io::Result<OsString>| r.unwrap_err().kind() == io::ErrorKind::PermissionDenied;
+        assert_eq!(opener(host, vars(&[]), || true).unwrap(), "xdg-open");
+        assert!(denied(opener(host, vars(&[]), || false)));
+        assert!(denied(opener(host, vars(&[(NODE_TOKEN_ENV, "t")]), || {
+            true
+        })));
+        assert_eq!(
+            opener(
+                host,
+                vars(&[(OPENER_ENV, "rec"), (NODE_TOKEN_ENV, "t")]),
+                || false
+            )
+            .unwrap(),
+            "rec"
+        );
+    }
+
+    /// 시험 `HOME`의 loom과 노드 안의 loom은 여는 프로그램을 띄우지 않는다. 가짜 `xdg-open`·`explorer.exe`·`open`을 PATH 앞에 두고 본다.
+    /// 이 시험 실행 파일을 다시 띄워 바꾼 환경에서 `open_url`을 부른다. Windows는 `explorer`를 PATH보다 먼저 시스템 폴더에서 찾으므로 돌리지 않는다.
+    #[cfg(unix)]
+    #[test]
+    fn test_and_node_looms_run_no_system_opener() {
+        const CHILD: &str = "LOOM_OPEN_TEST_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let err = open_url("http://127.0.0.1:1/").unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{err}");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let log = dir.path().join("system.log");
+        for name in ["xdg-open", "explorer.exe", "open"] {
+            let fake = bin.join(name);
+            std::fs::write(
+                &fake,
+                format!("#!/bin/sh\necho {name} >> '{}'\n", log.display()),
+            )
+            .unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = std::env::join_paths(std::iter::once(bin.clone()).chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )))
+        .unwrap();
+        let test_home = dir.path().join("home");
+        std::fs::create_dir(&test_home).unwrap();
+        let real_home = std::env::var_os("HOME").unwrap_or_default();
+        let cases: [(&std::ffi::OsStr, Option<&str>); 2] = [
+            (test_home.as_os_str(), None),
+            (real_home.as_os_str(), Some("t1")),
+        ];
+        for (home, token) in cases {
+            let mut cmd = Command::new(std::env::current_exe().unwrap());
+            cmd.args([
+                "--exact",
+                "open::tests::test_and_node_looms_run_no_system_opener",
+            ])
+            .env(CHILD, "1")
+            .env("HOME", home)
+            .env("PATH", &path)
+            .env_remove(OPENER_ENV)
+            .env_remove(NODE_TOKEN_ENV);
+            if let Some(t) = token {
+                cmd.env(NODE_TOKEN_ENV, t);
+            }
+            let out = cmd.output().unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(
+            !log.exists(),
+            "{}",
+            std::fs::read_to_string(&log).unwrap_or_default()
+        );
     }
 
     #[test]

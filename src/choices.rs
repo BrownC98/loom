@@ -1,6 +1,3 @@
-//! `loom ask` 질문의 선택지 꼴 검사. 받은편지함은 표준 꼴 `<질문> (A: <선택지> / B: <선택지>, 권장: A)`에서만 선택 단추를 만든다.
-//! 선택지를 다른 꼴로 쓰면 단추가 없다(2026-10-23 사람 요청). 화면은 질문을 읽지 않고 `choices`가 준 선택지로 단추를 그린다.
-
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -13,7 +10,6 @@ pub struct Choice {
     pub recommended: bool,
 }
 
-/// 표준 꼴 질문의 선택지(skills/ask-human). 꼴이 아니거나 선택지가 둘보다 적으면 빈 목록이다. 그때 사람은 입력창에만 답을 쓴다.
 pub fn choices(question: &str) -> Vec<Choice> {
     parse(question).map(|(c, _)| c).unwrap_or_default()
 }
@@ -25,7 +21,6 @@ enum Tail {
     Mixed,
 }
 
-/// 끝 조각 `권장: A`를 읽었으면 `Tail::Recommended`, 마지막 쉼표 뒤가 「권장」을 말하는데 그 꼴이 아니면 `Tail::Mixed`다(선택지 글에 섞여 든다).
 fn parse(question: &str) -> Option<(Vec<Choice>, Tail)> {
     let inside = last_group(question.trim())?;
     let commas = top_level(inside, ",");
@@ -51,7 +46,6 @@ fn parse(question: &str) -> Option<(Vec<Choice>, Tail)> {
     Some((choices, tail))
 }
 
-/// 질문이 선택지를 내놓는 듯한데(`A`·`B` 글자나 「권장」 낱말) 단추가 뜨는 표준 꼴이 아니면 참이다. 예·아니오 질문은 거짓이다.
 pub fn offers_choices_without_tail(question: &str) -> bool {
     match parse(question) {
         Some((_, tail)) => tail == Tail::Mixed,
@@ -65,8 +59,6 @@ fn mentions_recommendation(text: &str) -> bool {
     text.contains("권장") || text.to_lowercase().contains("recommend")
 }
 
-/// 표준 꼴에 가까운 끝 조각이 있으면 참이다: `권장: A`(낱말 뒤 `:`와 선택지 글자), `(A, 권장)`(`(`에 붙은 글자 뒤 쉼표와 낱말).
-/// 낱말만 있는 보통 글(`I recommend merging now.`)은 거짓이다.
 fn tail_shape(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
     let key_at = |j: usize| {
@@ -111,7 +103,6 @@ fn tail_shape(text: &str) -> bool {
     })
 }
 
-/// 낱말 밖에 선 대문자 한 글자 `A:`의 서로 다른 글자 수. `C:\`는 경로라 뺀다.
 fn label_letters(text: &str) -> usize {
     let chars: Vec<char> = text.chars().collect();
     let mut seen = Vec::new();
@@ -134,12 +125,10 @@ fn option(part: &str) -> Option<(char, String)> {
     let mut chars = part.chars();
     let key = chars.next().filter(char::is_ascii_uppercase)?;
     let label = chars.as_str().strip_prefix(':')?.trim_start();
-    // 단추 글은 한 줄이다. 옛 화면 정규식 `.+`가 끊던 JS 줄 끝 글자(`\n` `\r` U+2028 U+2029)를 그대로 막는다.
     (!label.is_empty() && !label.contains(['\n', '\r', '\u{2028}', '\u{2029}']))
         .then(|| (key, label.trim().to_owned()))
 }
 
-/// `<낱말>: A` 꼴인 끝 조각의 `A`. 「권장」 낱말은 사람의 언어라 무엇이든 받는다.
 fn recommended_key(part: &str) -> Option<char> {
     let (word, key) = part.trim().split_once(':')?;
     let mut key = key.trim().chars();
@@ -147,7 +136,6 @@ fn recommended_key(part: &str) -> Option<char> {
     (!word.is_empty() && key.next().is_none()).then_some(first)
 }
 
-/// 글 끝의 맨 바깥 `(...)` 안쪽.
 fn last_group(text: &str) -> Option<&str> {
     if !text.ends_with(')') {
         return None;
@@ -168,7 +156,6 @@ fn last_group(text: &str) -> Option<&str> {
     None
 }
 
-/// 괄호 밖에 있는 `sep`의 시작 위치들.
 fn top_level(text: &str, sep: &str) -> Vec<usize> {
     let mut at = Vec::new();
     let mut depth = 0i32;

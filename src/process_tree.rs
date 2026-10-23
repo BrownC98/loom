@@ -1,19 +1,13 @@
-//! 기반: OS 프로세스. 실행 파일을 찾고, 중단할 셸과 그 자손을 찾아 끝내고, 데몬과 따로 살게 한다.
-//! 노드 호스트(Claude 셸), Codex app-server(Codex 셸), OpenCode 2 서버(OpenCode 셸)가 함께 쓴다. OS마다 갈리는 프로세스 처리는 이 파일에만 둔다.
-
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
-/// `PATH`에서 찾은 CLI를 띄우는 명령. 못 찾으면 이름 그대로 띄운다(실행할 때 실패한다).
-/// Windows의 `std::process::Command`는 `.exe`만 붙여 찾는다. npm은 CLI를 `.cmd`로 설치한다(예: `codex.cmd`).
 pub fn command(name: &str) -> std::process::Command {
     command_at(&which::which(name).unwrap_or_else(|_| name.into()))
 }
 
-/// 실행 파일 `path`를 띄우는 명령. npm 배치 파일이면 그것이 부르는 프로그램을 띄운다(`argv`).
 pub fn command_at(path: &Path) -> std::process::Command {
     let mut argv = argv(path).into_iter();
     let mut cmd = std::process::Command::new(argv.next().expect("argv는 비지 않는다"));
@@ -21,17 +15,10 @@ pub fn command_at(path: &Path) -> std::process::Command {
     cmd
 }
 
-/// 실행 파일 `path`를 띄우는 argv 앞부분. 보통은 `[path]`다.
-/// npm이 Windows에 설치한 CLI는 배치 파일이다. 배치 파일을 띄우면 `cmd.exe`가 인자의 `<`, `>`, `&`, 줄바꿈을 해석해
-/// 사용법 지시와 첫 지시문이 깨진다(실측). 그래서 배치 파일이 부르는 프로그램을 바로 띄운다.
 pub fn argv(path: &Path) -> Vec<OsString> {
     npm_shim(path).unwrap_or_else(|| vec![path.into()])
 }
 
-/// npm cmd-shim의 끝 줄은 둘 가운데 하나다.
-/// - 스크립트: `… "%_prog%"  "%dp0%\..\@openai\codex\bin\codex.js" %*`. `%_prog%`는 배치 파일 옆의
-///   `node.exe`가 있으면 그것, 없으면 `PATH`의 `node`다.
-/// - 실행 파일: `"%dp0%\..\@opencode\cli\bin\opencode.exe"   %*`. 그 실행 파일을 띄운다.
 fn npm_shim(path: &Path) -> Option<Vec<OsString>> {
     if !path.extension()?.eq_ignore_ascii_case("cmd") {
         return None;
@@ -49,7 +36,6 @@ fn npm_shim(path: &Path) -> Option<Vec<OsString>> {
     Some(vec![node.into(), dir.join(script).into()])
 }
 
-/// 지금 도는 프로세스 전체의 부모 관계. 한 번 읽은 뒤의 판단과 끝내기는 이 사진을 쓴다.
 pub struct Snapshot {
     system: System,
     parents: HashMap<u32, u32>,
@@ -71,17 +57,14 @@ impl Snapshot {
         Self { system, parents }
     }
 
-    /// `pid`가 `root`의 자손이면 참이다.
     pub fn descends(&self, pid: u32, root: u32) -> bool {
         child_on_path(&self.parents, root, pid).is_some()
     }
 
-    /// `pid`의 조상(`pid` 자신 포함) 가운데 부모가 `root`인 프로세스. `pid`가 `root`의 자손이 아니면 없다.
     pub fn child_on_path(&self, root: u32, pid: u32) -> Option<u32> {
         child_on_path(&self.parents, root, pid)
     }
 
-    /// `root`의 자손 가운데 세션 리더(세션 id가 자기 PID)인 프로세스.
     pub fn session_leaders_under(&self, root: u32) -> Vec<u32> {
         self.parents
             .keys()
@@ -97,7 +80,6 @@ impl Snapshot {
             .collect()
     }
 
-    /// `root`와 그 자손 가운데 이름이 `name`인 프로세스가 있으면 참이다.
     pub fn runs(&self, root: u32, name: &str) -> bool {
         subtree(&self.parents, root).into_iter().any(|pid| {
             self.system
@@ -106,7 +88,6 @@ impl Snapshot {
         })
     }
 
-    /// `roots`와 그 자손을 모두 끝내고 끝낸 프로세스 수를 돌려준다.
     pub fn kill_trees(&self, roots: impl IntoIterator<Item = u32>) -> usize {
         roots
             .into_iter()
@@ -120,9 +101,6 @@ impl Snapshot {
     }
 }
 
-/// `cmd`로 띄운 프로세스가 데몬이 끝나도 살게 한다. 노드의 PTY 호스트와 서버(Codex app-server, OpenCode 2)가 쓴다.
-/// Unix: 새 프로세스 그룹에 넣는다. 데몬 터미널의 Ctrl+C·HUP는 데몬의 그룹에만 간다.
-/// Windows: 할 일이 없다. 부모가 끝나도 자식은 끝나지 않는다.
 #[cfg(unix)]
 pub fn detach(cmd: &mut std::process::Command) {
     std::os::unix::process::CommandExt::process_group(cmd, 0);
@@ -131,12 +109,9 @@ pub fn detach(cmd: &mut std::process::Command) {
 #[cfg(not(unix))]
 pub fn detach(_: &mut std::process::Command) {}
 
-/// `cmd`로 띄운 프로세스를 제어 터미널·콘솔이 없는 새 세션에 넣는다. 부른 터미널이 닫혀도 산다.
-/// git 복제(질문을 읽을 터미널을 없앤다)와 `loom open`이 띄우는 데몬이 쓴다.
 #[cfg(unix)]
 pub fn new_session(cmd: &mut std::process::Command) {
     use std::os::unix::process::CommandExt;
-    // SAFETY: `setsid`는 fork 뒤 exec 전에 불러도 되는 함수(async-signal-safe)다.
     unsafe {
         cmd.pre_exec(|| {
             if libc::setsid() == -1 {
@@ -154,8 +129,6 @@ pub fn new_session(cmd: &mut std::process::Command) {
     cmd.creation_flags(DETACHED_PROCESS);
 }
 
-/// 서버 프로세스에 넘길 루프백 포트. OS가 고른 빈 포트를 놓고 그 번호를 돌려준다.
-/// 서버가 고르게(`--port 0`) 하면 주소를 서버 출력에서 읽어야 한다. 그 파이프는 데몬과 함께 닫혀 서버가 쓰기에 실패한다.
 pub fn free_port() -> Result<u16, String> {
     std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .and_then(|l| l.local_addr())
@@ -163,9 +136,7 @@ pub fn free_port() -> Result<u16, String> {
         .map_err(|e| e.to_string())
 }
 
-/// `child`가 루프백 `port`에서 들을 때까지 기다린다. 먼저 끝나면 실패한다. 상한은 호출자가 둔다.
 pub async fn until_listening(child: &mut tokio::process::Child, port: u16) -> Result<(), String> {
-    /// 다시 연결해 보는 간격.
     const POLL: std::time::Duration = std::time::Duration::from_millis(100);
     loop {
         if tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
@@ -181,7 +152,6 @@ pub async fn until_listening(child: &mut tokio::process::Child, port: u16) -> Re
     }
 }
 
-/// 이 가운데 아직 도는 PID만 남긴다.
 pub fn alive(pids: &mut Vec<u32>) {
     let list: Vec<Pid> = pids.iter().map(|&p| Pid::from_u32(p)).collect();
     let mut system = System::new();
@@ -193,10 +163,8 @@ pub fn alive(pids: &mut Vec<u32>) {
     pids.retain(|&p| system.process(Pid::from_u32(p)).is_some());
 }
 
-/// `parents`는 프로세스마다 부모다.
 fn child_on_path(parents: &HashMap<u32, u32>, root: u32, pid: u32) -> Option<u32> {
     let mut at = pid;
-    // 부모 관계에 고리가 있어도 끝나도록 프로세스 수만큼만 올라간다.
     for _ in 0..parents.len() {
         match parents.get(&at) {
             Some(&parent) if parent == root => return Some(at),
@@ -207,7 +175,6 @@ fn child_on_path(parents: &HashMap<u32, u32>, root: u32, pid: u32) -> Option<u32
     None
 }
 
-/// `root`와 그 자손. `root`가 먼저 온다.
 fn subtree(parents: &HashMap<u32, u32>, root: u32) -> Vec<u32> {
     let mut found = vec![root];
     let mut next = 0;
@@ -230,7 +197,6 @@ mod tests {
 
     #[test]
     fn subtree_and_child_on_path_follow_parent_links() {
-        // 1 ← 10(노드) ← 20(셸) ← 30 ← 40, 10 ← 21(다른 셸), 1 ← 50(남의 프로세스)
         let parents = HashMap::from([(10, 1), (20, 10), (30, 20), (40, 30), (21, 10), (50, 1)]);
         let mut tree = subtree(&parents, 20);
         tree.sort();
@@ -240,7 +206,6 @@ mod tests {
         assert_eq!(child_on_path(&parents, 10, 50), None);
     }
 
-    /// 다시 띄우기는 `loom`을 도는 셸(쉬는 대기 훅)을 백그라운드 명령으로 세지 않는다. 이름은 사진만으로 읽는다.
     #[cfg(unix)]
     #[test]
     fn runs_finds_a_process_name_in_the_tree() {
@@ -294,8 +259,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn session_leaders_under_skip_children_in_the_parent_session() {
-        // `setsid`로 띄운 자식만 세션 리더다. Codex 셸과 MCP 서버를 이렇게 가른다.
-        // macOS에는 `setsid` 명령이 없어 perl의 POSIX `setsid`를 쓴다.
         let mut parent = std::process::Command::new("sh")
             .args([
                 "-c",
@@ -309,7 +272,6 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_millis(20));
                 Snapshot::now()
             })
-            // 두 자식이 모두 `sleep`이 된 뒤에 본다. 그 전에는 perl이 아직 `setsid`를 부르지 않았을 수 있다.
             .find(|s| {
                 s.parents
                     .iter()

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// i18n.ts가 첫 언어를 문서에서 읽는다. 시험은 DOM 없이 돈다.
 vi.stubGlobal('document', { documentElement: { dataset: { language: 'en' } } });
 vi.stubGlobal('navigator', { language: 'en' });
 const { problemText } = await import('./problem');

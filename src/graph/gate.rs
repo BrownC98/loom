@@ -1,14 +1,11 @@
-//! 병합 관문 상태: 저장소·브랜치마다 한 줄(`gates`)과 도는 병합 묶음(`batches`). 전이는 `protocol::step`만 정한다.
-//! 이 모듈은 줄을 읽고 쓰고, 부를 수 있는 노드를 보고, 받는 노드에 고정 꼴 메시지를 넣고, 같은 트랜잭션에서 흔적을 남긴다.
-//! git으로 아는 사실(담당 워크트리의 브랜치, 미커밋 변경, 포함 관계, 커밋)은 데몬이 읽어 넘긴다.
-//! 근거: 출력 표준 R8 v5 ④·⑤(2026-10-23 사람 결정 Q559 A). 관문 고르기는 Q692 A, 병합 큐는 Q697 A다.
-
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry, GateTrace, Via, Who};
 use super::mailbox::{self, Stamp};
-use super::{Graph, Kind, NodeId, Refusal, from_json, name_of, parent_of, place_of, to_json};
+use super::{
+    Graph, Kind, NodeId, REACHABLE, Refusal, from_json, name_of, parent_of, place_of, to_json,
+};
 use crate::profile::AgentId;
 use crate::protocol::{
     self, COORDINATOR_ROLE, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, MergeEnd,
@@ -16,68 +13,50 @@ use crate::protocol::{
 };
 use crate::worktree::RepoId;
 
-/// `loom ready`이 데몬에서 읽은 브랜치 사실.
 pub struct Round<'a> {
     pub branch: &'a str,
     pub target: &'a str,
-    /// 담당 워크트리(데몬이 보는 경로).
     pub worktree: &'a str,
     pub head: &'a str,
 }
 
-/// 브랜치 담당의 관문(2026-10-23 사람 결정 Q692 A).
 #[derive(Debug, PartialEq)]
 pub enum GateChoice {
-    /// 부모가 코디다. 대상은 코디 워크트리의 브랜치다.
     Coordinator { gate: NodeId, worktree: String },
-    /// 그 밖(코디, 총괄이 띄운 워커): 담당 자신이 관문이다. 대상은 원래 체크아웃의 브랜치다.
     Owner,
 }
 
-/// 병합 큐에 선 브랜치 하나. 큐 순서(pass 판정 순)로 읽는다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Queued {
     pub branch: String,
     pub owner: NodeId,
-    /// 검토한 커밋. 묶음은 이 커밋만 쌓는다.
     pub head: String,
-    /// audit 시작 시각: 이번 차례의 `loom ready`.
     pub since: i64,
-    /// pass 판정부터 지금까지 기다린 초.
     pub waited: u64,
 }
 
-/// 묶음 번호(`batches.id`). 끝난 묶음의 번호는 다시 쓰지 않는다.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BatchId(pub i64);
 
-/// 데몬이 끝내지 못한 묶음. 다시 띄운 데몬이 거둔다.
 #[derive(Debug, PartialEq)]
 pub struct Stale {
     pub id: BatchId,
     pub repo: RepoId,
     pub target: String,
     pub base: Option<String>,
-    /// 검사를 지난 묶음 끝. 없으면 검사 전에 끝났다.
     pub tip: Option<String>,
-    /// 아직 `Merging`인 브랜치(쌓은 순서).
     pub members: Vec<Queued>,
 }
 
-/// 병합 큐가 브랜치 하나를 끝낸 꼴과 알릴 값.
 pub struct Ended<'a> {
     pub end: MergeEnd,
-    /// 병합 커밋. 병합했을 때만 있다.
     pub merged: Option<&'a str>,
     pub cause: Option<String>,
-    /// 묶음 검사 기록 파일(배포판 안의 경로).
     pub log: Option<String>,
-    /// 받는 노드에 덧붙일 본문 줄(묶음 번호, 배포 결과).
     pub lines: Vec<String>,
     pub findings: Vec<Finding>,
 }
 
-/// 마지막 판정. 관문 줄에 serde JSON으로 둔다.
 #[derive(Serialize, Deserialize)]
 struct Verdict {
     judgment: Judgment,
@@ -97,7 +76,6 @@ struct Row {
 }
 
 impl Row {
-    /// 스스로 관문인 담당의 대상은 원래 체크아웃의 브랜치, 코디가 관문이면 코디 브랜치다(`GateChoice`).
     fn target_kind(&self) -> Target {
         match self.gate == self.owner {
             true => Target::Base,
@@ -106,8 +84,6 @@ impl Row {
     }
 }
 
-/// 관문 호출 하나가 받는 노드에 보내는 칸(`protocol::GateFacts`의 호출 쪽 값)과 본문 줄, 흔적에 쓸 audit 결과.
-/// 브랜치·커밋·워크트리·대상·검토 모델은 관문 줄과 부른 노드에서 채운다.
 #[derive(Default)]
 struct Detail {
     findings_file: Option<String>,
@@ -118,7 +94,6 @@ struct Detail {
     findings: Vec<Finding>,
 }
 
-/// 관문 호출을 부른 쪽. 병합 큐(데몬)는 노드가 아니다.
 #[derive(Clone, Copy)]
 enum Caller {
     Node(NodeId),
@@ -135,7 +110,6 @@ impl Caller {
 }
 
 impl Graph {
-    /// 담당 `owner`의 관문. 부모가 코디면 코디, 아니면 담당 자신이다.
     pub fn gate_for(&self, owner: NodeId) -> Result<GateChoice, Refusal> {
         let db = self.lock();
         match coordinator_parent(&db, owner)? {
@@ -147,7 +121,6 @@ impl Graph {
         }
     }
 
-    /// `loom ready`: 담당이 브랜치를 관문에 보낸다. 데몬이 담당·미커밋을 이미 봤다. 돌려준 값은 관문 이름이다.
     pub fn ready(
         &self,
         owner: NodeId,
@@ -188,8 +161,6 @@ impl Graph {
         Ok(name_of(&self.lock(), row.gate)?)
     }
 
-    /// 관문 스크립트가 없는 저장소의 `loom ready`: 관문 상태 없이 관문에 `ready`만 보낸다. 관문은 손으로 병합하고 `loom done`으로 알린다.
-    /// 근거: 요청 #3067(ktasearch: 워커 브랜치가 아무도 모르게 1.5시간 기다렸다).
     pub fn announce_ready(
         &self,
         owner: NodeId,
@@ -227,12 +198,10 @@ impl Graph {
         Ok(name_of(&db, gate)?)
     }
 
-    /// 부모가 코디인가. 코디 밑 워커의 브랜치는 코디가 받는다.
     pub fn under_coordinator(&self, node: NodeId) -> rusqlite::Result<bool> {
         Ok(coordinator_parent(&self.lock(), node)?.is_some())
     }
 
-    /// `owner`가 이 브랜치의 이 커밋으로 `ready`를 보냈는가(관문 상태가 있든 없든). `loom done`의 담당 브랜치 경고가 본다.
     pub fn ready_sent(&self, owner: NodeId, branch: &str, head: &str) -> rusqlite::Result<bool> {
         self.lock().query_row(
             "SELECT EXISTS(SELECT 1 FROM messages WHERE sender = ?1 AND what ->> 'kind' = 'ready'
@@ -242,7 +211,6 @@ impl Graph {
         )
     }
 
-    /// `loom verdict`: 관문이 띄운 검토자가 판정한다. block은 결함 파일이 있어야 한다. pass는 브랜치를 병합 큐에 세운다.
     pub fn verdict(
         &self,
         caller: NodeId,
@@ -274,7 +242,6 @@ impl Graph {
                     model: model_of(tx, caller)?,
                 };
                 update(tx, repo, branch, row.state, Some(&to_json(&verdict)), None)?;
-                // 둘째 pass는 큐 자리를 바꾸지 않는다. 큐 순서는 `seq`다: 초 단위 `queued`는 같은 초의 두 pass를 가르지 못한다(검토 R6).
                 tx.execute(
                     "UPDATE gates SET queued = CASE WHEN ?3 = '\"passed\"' THEN coalesce(queued, unixepoch()) END,
                         seq = CASE WHEN ?3 = '\"passed\"' THEN coalesce(seq, (SELECT coalesce(max(seq), 0) + 1 FROM gates)) END
@@ -287,8 +254,6 @@ impl Graph {
         Ok(row.state)
     }
 
-    /// 같은 저장소에서 관문이 `target`에 병합한 커밋(브랜치마다 마지막 것). 순서는 git의 첫 부모 줄이 정한다:
-    /// 초 단위 시각은 같은 초의 두 병합을 가르지 못한다(검토 Codex R4).
     pub fn gate_merges(&self, repo: RepoId, target: &str) -> rusqlite::Result<Vec<String>> {
         self.lock()
             .prepare(
@@ -298,7 +263,6 @@ impl Graph {
             .collect()
     }
 
-    /// audit 가운데 DB로 아는 것: 이번 차례의 흔적 구간이 빈틈없는지, 담당과 그 자손(같은 저장소)이 관문 동사 밖으로 관문 낱말을 보냈는지.
     pub fn audit(&self, owner: NodeId, since: i64) -> Result<Vec<Finding>, Refusal> {
         let db = self.lock();
         let mut findings = Vec::new();
@@ -318,7 +282,6 @@ impl Graph {
             else {
                 continue;
             };
-            // `human-input`·`setup-failed` 본문은 사람과 설정 스크립트의 글이다. 에이전트에게 반려를 돌리지 않는다(관문 검토 P2-1).
             if what.as_ref().is_some_and(protocol::MessageKind::by_loom) {
                 continue;
             }
@@ -336,7 +299,6 @@ impl Graph {
         Ok(findings)
     }
 
-    /// `loom fail`: 관문이 큐에 들기 전의 브랜치를 멈추고 알린다.
     pub fn fail(
         &self,
         caller: NodeId,
@@ -361,7 +323,6 @@ impl Graph {
         Ok(row.state)
     }
 
-    /// 거절한 관문 호출을 남긴다. 사람과 audit가 이벤트 기록에서 본다.
     pub fn record_gate_refusal(
         &self,
         caller: NodeId,
@@ -393,7 +354,6 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    /// 묶음에 들 브랜치가 있는 (저장소, 대상). 가장 오래 기다린 대상부터다.
     pub fn queued_targets(&self) -> rusqlite::Result<Vec<(RepoId, String)>> {
         self.lock()
             .prepare(&format!(
@@ -404,7 +364,6 @@ impl Graph {
             .collect()
     }
 
-    /// 한 대상에서 묶음에 들 브랜치. pass 판정 순서다.
     pub fn queue(&self, repo: RepoId, target: &str) -> rusqlite::Result<Vec<Queued>> {
         self.lock()
             .prepare(&format!(
@@ -415,7 +374,6 @@ impl Graph {
             .collect()
     }
 
-    /// 묶음을 연다: `batches` 줄을 만들고 그 브랜치들을 `Merging`으로 바꾼다. 한 트랜잭션이다.
     pub fn batch_open(
         &self,
         repo: RepoId,
@@ -441,7 +399,6 @@ impl Graph {
         Ok(id)
     }
 
-    /// 검사를 지난 묶음 끝과 쌓은 대상 커밋. 데몬이 게시 중에 끝나면 다시 띄운 데몬이 이 값으로 게시를 잇는다.
     pub fn batch_checked(&self, id: BatchId, base: &str, tip: &str) -> rusqlite::Result<()> {
         self.lock().execute(
             "UPDATE batches SET base = ?2, tip = ?3 WHERE id = ?1",
@@ -450,7 +407,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 묶음을 닫는다. 아직 `Merging`인 브랜치가 있으면 줄을 남긴다: 끝 상태를 쓰지 못한 브랜치를 큐가 다시 거둔다(검토 R3).
     pub fn batch_close(&self, id: BatchId) -> rusqlite::Result<()> {
         self.lock().execute(
             "DELETE FROM batches WHERE id = ?1
@@ -460,7 +416,6 @@ impl Graph {
         Ok(())
     }
 
-    /// 데몬이 끝내지 못한 묶음. 데몬이 시작할 때 거둔다.
     pub fn stale_batches(&self) -> rusqlite::Result<Vec<Stale>> {
         let db = self.lock();
         let mut stale: Vec<Stale> = db
@@ -487,7 +442,6 @@ impl Graph {
         Ok(stale)
     }
 
-    /// 묶음 없이 `Merging`인 브랜치. 데몬은 이 꼴을 만들지 않는다(`batch_open`이 함께 쓴다): 마이그레이션 36이 옛 규칙의 차례를 이렇게 둔다.
     pub fn orphans(&self) -> rusqlite::Result<Vec<(RepoId, String)>> {
         self.lock()
             .prepare("SELECT repo, branch FROM gates WHERE state = '\"merging\"' AND batch IS NULL ORDER BY rowid")?
@@ -495,7 +449,6 @@ impl Graph {
             .collect()
     }
 
-    /// 묶음의 브랜치를 큐에 다시 세운다. 큐 자리(`seq`)는 그대로다: 앞에 섰던 브랜치가 다음 묶음에서도 앞이다.
     pub fn requeue(&self, repo: RepoId, branch: &str) -> Result<GateState, Refusal> {
         let row = self.apply(
             Caller::Loom,
@@ -516,7 +469,6 @@ impl Graph {
         Ok(row.state)
     }
 
-    /// 병합 큐가 브랜치 하나를 끝낸다: 병합, 반려, 실패. 받는 노드에 loom이 알린다.
     pub fn merge_end(
         &self,
         repo: RepoId,
@@ -559,9 +511,6 @@ impl Graph {
         Ok(row.state)
     }
 
-    /// 관문 호출 하나: 부를 수 있는 노드인지 보고, 전이하고, `write`로 줄을 쓰고, 받는 노드에 메시지를 넣는다. 모두 한 트랜잭션이다.
-    /// `write`는 새 상태를 담은 줄을 받는다. 줄이 없던 브랜치는 `Working`에서 시작한다(`loom ready`만 줄을 만든다).
-    /// 차례가 판정·병합 전에 `Working`·`Failed`로 돌아가면 그 차례의 검토자에게 `withdrawn`을 보낸다(`withdraw`).
     #[allow(clippy::too_many_arguments)]
     fn apply(
         &self,
@@ -581,7 +530,6 @@ impl Graph {
         let to = protocol::step(from, call)?;
         let row = match old {
             Some(row) => Row { state: to, ..row },
-            // `loom ready`의 `write`가 줄 전체를 쓴다. 이 값은 받는 노드를 고를 때만 쓴다.
             None => Row {
                 owner: caller.node().expect("only loom ready opens a row"),
                 gate: caller.node().expect("only loom ready opens a row"),
@@ -626,7 +574,6 @@ impl Graph {
                     Receiver::Gate => row.gate,
                     Receiver::Owner => row.owner,
                     Receiver::Root if exists(&tx, row.owner)? => root_of(&tx, row.owner)?,
-                    // 담당을 지웠으면 루트를 모른다. 관문 줄과 흔적은 남는다.
                     Receiver::Root => continue,
                 };
                 if Some(to_node) == caller.node()
@@ -682,7 +629,6 @@ impl Graph {
     }
 }
 
-/// 부른 쪽이 이 동사를 부를 수 있는가(`protocol::sender`).
 fn allowed_caller(
     db: &Connection,
     caller: Caller,
@@ -713,7 +659,6 @@ fn allowed_caller(
     }
 }
 
-/// 차례를 거두는 전이: 검토나 병합을 기다리던 차례가 담당에게 돌아가거나 멈췄다.
 fn withdrawn(from: GateState, to: GateState) -> bool {
     matches!(
         (from, to),
@@ -724,11 +669,6 @@ fn withdrawn(from: GateState, to: GateState) -> bool {
     )
 }
 
-/// 거둔 차례의 검토자에게 `withdrawn`을 보낸다. 검토자는 관문의 산 자식 가운데 담당과 부른 노드가 아니고,
-/// 관문의 작업 폴더를 함께 쓰고(`--worktree` 없이 띄웠다), 이번 `loom ready` 뒤에 떴거나(`mark`보다 큰 번호) 이 브랜치의 마지막 ready 흔적 뒤에 판정한 노드다.
-/// 차례는 흔적 번호로 가른다: 초 단위 시각은 같은 초의 앞 차례 판정을 가르지 못한다(시험 실측).
-/// 한 관문 아래 두 차례가 겹치면 다른 브랜치의 검토자도 받는다. 본문이 그때는 무시하라고 알린다.
-/// 메시지 연동이 있는 에이전트는 조정으로 받아 지금 턴에 멈춘다.
 fn withdraw(
     tx: &Transaction,
     caller: Caller,
@@ -768,15 +708,12 @@ fn withdraw(
     Ok(reviewers.into_iter().map(|(node, _)| node).collect())
 }
 
-/// `n`이 관문 `gate`의 산 검토자다: 담당이 아니고, 관문의 작업 폴더를 함께 쓴다(`--worktree` 없이 띄웠다). 인자는 SQL 식이다.
 fn reviewer(gate: &str, owner: &str) -> String {
     format!(
-        "n.parent = {gate} AND n.id != {owner} AND n.process_exited = 0 AND n.task IS (SELECT task FROM nodes WHERE id = {gate})"
+        "n.parent = {gate} AND n.id != {owner} AND {REACHABLE} AND n.task IS (SELECT task FROM nodes WHERE id = {gate})"
     )
 }
 
-/// `n`이 이 브랜치의 이번 차례에 판정했다: 담당의 마지막 ready 흔적 뒤에 판정 흔적이 있다.
-/// ready는 담당의 것만 본다: 다른 저장소의 같은 이름 브랜치가 차례를 가르지 않게 한다(검토 N1). 판정은 관문의 자식인 `n`의 것이라 같은 저장소다.
 fn voted(branch: &str, owner: &str) -> String {
     format!(
         "EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
@@ -788,7 +725,6 @@ fn voted(branch: &str, owner: &str) -> String {
     )
 }
 
-/// 관문 메시지 하나를 넣는다. 에이전트 호출이면 그 노드가, 병합 큐면 loom이 보낸다.
 #[allow(clippy::too_many_arguments)]
 fn post(
     tx: &Transaction,
@@ -815,7 +751,6 @@ fn post(
     Ok(())
 }
 
-/// 부모가 코디면 그 부모. 코디 밑 워커의 관문은 코디다.
 fn coordinator_parent(db: &Connection, node: NodeId) -> rusqlite::Result<Option<NodeId>> {
     Ok(match parent_of(db, node)? {
         Some(parent) if role_of(db, parent)?.as_deref() == Some(COORDINATOR_ROLE) => Some(parent),
@@ -843,11 +778,6 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     )
 }
 
-/// 묶음에 들 수 있는 관문 줄: pass를 받았고, 이번 `loom ready` 뒤에 뜬 산 검토자가 모두 판정했다.
-/// 첫 pass에 바로 묶으면 둘째 검토자의 block이 `Merging`에서 거절되고 브랜치가 병합된다(검토 B1, 관문 결정 #4041 (a)).
-/// 어느 브랜치든 판정했으면 끝난 것으로 센다: 겹친 다른 차례의 검토자는 이 브랜치를 판정하지 않으므로 끝날 때까지 이 브랜치를 막는다.
-/// 그 노드는 ready 뒤에 떴으므로 그 판정은 모두 이번 차례 뒤다.
-/// 판정 없이 끝난 검토자는 세지 않는다. 그때는 깨우기가 없어 큐의 한 번씩 보기(`TICK`)가 줍는다.
 fn settled() -> String {
     format!(
         "state = '\"passed\"' AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND n.id > gates.mark
@@ -869,7 +799,6 @@ fn read_queued(r: &rusqlite::Row) -> rusqlite::Result<Queued> {
     })
 }
 
-/// 저장소의 그 브랜치 관문 줄.
 fn load(db: &Connection, repo: RepoId, branch: &str) -> rusqlite::Result<Option<Row>> {
     db.query_row(
         "SELECT owner, gate, target, worktree, state, head, mark FROM gates WHERE repo = ?1 AND branch = ?2",
@@ -934,7 +863,6 @@ fn trace(
     })
 }
 
-/// 부모를 따라 올라간 맨 위 노드.
 fn root_of(db: &Connection, node: NodeId) -> rusqlite::Result<NodeId> {
     let mut at = node;
     while let Some(parent) = parent_of(db, at)? {
@@ -943,7 +871,6 @@ fn root_of(db: &Connection, node: NodeId) -> rusqlite::Result<NodeId> {
     Ok(at)
 }
 
-/// `top`과 그 아래에서 `top`과 같은 저장소의 노드. 다른 저장소의 자손은 이 브랜치와 관계없다(검토 P2-5).
 fn tree_of(db: &Connection, top: NodeId) -> rusqlite::Result<Vec<NodeId>> {
     db.prepare(
         "WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT n.id FROM nodes n JOIN tree t ON n.parent = t.id)

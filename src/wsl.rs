@@ -1,6 +1,3 @@
-//! 기반: Windows가 WSL 배포판 파일을 보이는 UNC 경로(`\\wsl.localhost\<배포판>\…`)와 배포판 안의 Linux 경로를 서로 바꾼다.
-//! Windows 데몬이 WSL 폴더의 노드를 그 배포판 안에서 띄우는 명령(`wsl.exe`)도 만든다. 근거: docs/design.md 「데몬 하나」.
-
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -8,18 +5,14 @@ use std::sync::Mutex;
 
 use portable_pty::CommandBuilder;
 
-/// UNC 경로가 가리키는 배포판 안의 위치.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WslPath {
-    /// `wsl.localhost` 또는 `wsl$`. 사람이 적은 글자 그대로다.
     host: String,
     pub distro: String,
-    /// 배포판 안의 Linux 절대 경로.
     pub path: String,
 }
 
 impl WslPath {
-    /// 같은 배포판의 Linux 절대 경로 `linux`를 Windows git이 적는 UNC 글자(`//<host>/<배포판>/…`)로 바꾼다.
     pub fn unc(&self, linux: &str) -> String {
         format!(
             "//{}/{}{}",
@@ -29,14 +22,11 @@ impl WslPath {
         )
     }
 
-    /// 같은 위치를 Windows 셸(ShellExecute)이 여는 글자(`\\<host>\<배포판>\…`)로 쓴다.
-    /// 셸은 `unc`의 `/` 표기를 읽지 못한다(실측 2026-10-23: `SHParseDisplayName`이 `//wsl.localhost/…`에 E_INVALIDARG). 그래서 Windows 데몬에서 터미널 파일 링크가 열리지 않았다.
     pub fn shell_path(&self, linux: &str) -> String {
         self.unc(linux).replace('/', "\\")
     }
 }
 
-/// `\\wsl.localhost\…`, `\\wsl$\…`, 그 `/` 표기와 `\\?\UNC\` 표기를 읽는다. 다른 경로는 없다.
 pub fn location(path: &str) -> Option<WslPath> {
     let path = path.replace('/', "\\");
     let rest = path
@@ -57,7 +47,6 @@ pub fn location(path: &str) -> Option<WslPath> {
     })
 }
 
-/// Windows 데몬에서 `dir`이 WSL 폴더면 그 배포판 안의 위치다. 다른 OS의 데몬에는 WSL 폴더가 없다.
 pub fn of(dir: &Path) -> Option<WslPath> {
     if !cfg!(windows) {
         return None;
@@ -65,7 +54,6 @@ pub fn of(dir: &Path) -> Option<WslPath> {
     dir.to_str().and_then(location)
 }
 
-/// 배포판 안의 Linux 절대 경로 `linux`를 화면과 Windows 파일 API가 쓰는 UNC 경로(`\\wsl.localhost\<배포판>\…`)로 바꾼다.
 pub fn windows_path(distro: &str, linux: &str) -> String {
     format!(
         r"\\wsl.localhost\{distro}{}",
@@ -73,7 +61,6 @@ pub fn windows_path(distro: &str, linux: &str) -> String {
     )
 }
 
-/// 홈 아래의 Linux 경로는 `~/…`로 줄인다. 근거: 목업 docs/mockups/wsl-place.html ②′.
 pub fn tilde(path: &str, home: &str) -> String {
     let home = home.trim_end_matches('/');
     match path.strip_prefix(home) {
@@ -83,13 +70,10 @@ pub fn tilde(path: &str, home: &str) -> String {
     }
 }
 
-/// 설치된 배포판 이름(`wsl.exe -l -q`). 배포판을 켜지 않는다. Windows 데몬이 아니거나 WSL이 없으면 비었다.
 pub async fn distros() -> Vec<String> {
     list(&["-l", "-q"]).await
 }
 
-/// 지금 도는 배포판. 멈춘 배포판은 켜지 않는다. Windows 데몬이 아니거나 WSL이 없으면 비었다.
-/// 근거: 목록을 보려고 배포판을 켜면, 5분마다 읽는 사용량이 배포판을 끄지 못하게 한다.
 pub async fn running() -> Vec<String> {
     list(&["-l", "--running", "-q"]).await
 }
@@ -110,9 +94,8 @@ async fn list(args: &[&str]) -> Vec<String> {
     }
 }
 
-/// `wsl.exe -l -q` 출력. 옛 `wsl.exe`는 `WSL_UTF8`을 몰라 UTF-16LE로 쓴다.
-fn read_list(bytes: &[u8]) -> Vec<String> {
-    let text = if bytes.contains(&0) {
+fn decode(bytes: &[u8]) -> String {
+    if bytes.contains(&0) {
         let units: Vec<u16> = bytes
             .as_chunks::<2>()
             .0
@@ -122,42 +105,38 @@ fn read_list(bytes: &[u8]) -> Vec<String> {
         String::from_utf16_lossy(&units)
     } else {
         String::from_utf8_lossy(bytes).into_owned()
-    };
-    text.lines()
+    }
+}
+
+fn read_list(bytes: &[u8]) -> Vec<String> {
+    decode(bytes)
+        .lines()
         .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}'))
         .filter(|l| !l.is_empty())
         .map(str::to_owned)
         .collect()
 }
 
-/// 배포판마다 기본 사용자의 홈(Linux 경로). 처음 쓸 때 한 번 읽고 데몬이 끝날 때까지 둔다.
-/// 저장소 목록이 WSL 저장소마다 `wsl.exe`를 다시 부르지 않게 한다. 홈은 배포판이 도는 동안 바뀌지 않는다.
 #[derive(Default)]
 pub struct Homes(Mutex<HashMap<String, String>>);
 
 impl Homes {
-    /// 꺼진 배포판은 `wsl.exe`가 켠다(처음은 몇 초).
     pub async fn get(&self, distro: &str) -> Result<String, InsideError> {
         if let Some(home) = self.0.lock().unwrap().get(distro) {
             return Ok(home.clone());
         }
-        let out = tokio::process::Command::new("wsl.exe")
-            .args(["-d", distro, "-e", "sh", "-c", r#"printf '\036%s' "$HOME""#])
-            .env("WSL_UTF8", "1")
-            .stdin(std::process::Stdio::null())
-            .output()
-            .await
-            .map_err(|e| InsideError::Start {
-                distro: distro.into(),
-                cause: e.to_string(),
-            })?;
-        let text = String::from_utf8_lossy(&out.stdout);
+        let text = values(distro, || {
+            let mut cmd = tokio::process::Command::new("wsl.exe");
+            cmd.args(["-d", distro, "-e", "sh", "-c", r#"printf '\036%s' "$HOME""#]);
+            cmd
+        })
+        .await?;
         let home = match text.split_once(SEP) {
             Some((_, home)) if home.starts_with('/') => home.to_owned(),
             _ => {
                 return Err(InsideError::Start {
                     distro: distro.into(),
-                    cause: String::from_utf8_lossy(&out.stderr).trim().into(),
+                    cause: "$HOME is not an absolute path".into(),
                 });
             }
         };
@@ -166,14 +145,10 @@ impl Homes {
     }
 }
 
-/// WSL 노드가 interop으로 부른 `loom.exe`는 Linux 절대 경로(`/home/…`)를 받는다. Windows는 그 글을 현재 드라이브의 경로로 읽는다.
-/// 시작 폴더가 WSL 폴더면(interop이 그 폴더의 UNC로 띄운다) 같은 배포판의 UNC 경로로 바꾼다.
 pub fn from_caller(path: std::path::PathBuf) -> std::path::PathBuf {
     linux_at(path, caller())
 }
 
-/// 데몬이 아는 노드 폴더 `folder`에서 그 노드가 준 경로. WSL 노드의 Linux 절대 경로는 그 배포판의 UNC 경로다.
-/// 근거: 데몬의 시작 폴더는 노드 폴더가 아니어서 `from_caller`가 WSL 노드의 `/home/…` 링크를 풀지 못했다(2026-10-23 검토 추적-opus S1).
 pub fn from_node(path: PathBuf, folder: &Path) -> PathBuf {
     linux_at(path, of(folder))
 }
@@ -188,7 +163,6 @@ fn linux_at(path: PathBuf, at: Option<WslPath>) -> PathBuf {
     }
 }
 
-/// 부른 노드가 읽는 경로 글. WSL 노드면 같은 배포판의 Linux 경로다. `loom done --file`의 경로를 부모(보통 같은 배포판)가 읽는다.
 pub fn for_caller(path: &Path) -> String {
     let text = path.display().to_string();
     match (caller(), location(&text)) {
@@ -197,10 +171,6 @@ pub fn for_caller(path: &Path) -> String {
     }
 }
 
-/// 이 프로세스가 `dir`(데몬이 준 경로 글)에서 `program`을 띄우는 명령. 인자는 부른 쪽이 더한다.
-/// WSL의 `loom`은 Windows `loom.exe` 껍데기다. 그래서 WSL 폴더의 명령(관문 스크립트, git, flock)은 그 배포판 안에서 띄운다.
-/// Windows가 Linux 경로를 직접 다루면 `PathBuf::join`이 `\`를 넣고 bash가 그 글자를 지운다(검토 C1, 끝 코드 127).
-/// 배포판 안에서는 로그인 셸(`bash -l`)이 띄운다. `wsl.exe -e`의 기본 PATH에는 `~/.cargo/bin`, `~/.local/bin`(cargo, memcap)이 없다(검토 N1, 끝 코드 127).
 pub fn command(dir: &str, program: &str) -> std::process::Command {
     let at = location(dir).filter(|_| cfg!(windows)).or_else(|| {
         let at = caller().filter(|_| dir.starts_with('/') && !dir.starts_with("//"))?;
@@ -216,7 +186,6 @@ fn launch(at: Option<&WslPath>, dir: &str, program: &str) -> std::process::Comma
     match at {
         Some(at) => {
             let mut cmd = std::process::Command::new("wsl.exe");
-            // 로그인 셸은 PATH만 읽고 `exec`로 넘긴다. 인자(브랜치 이름, 커밋)는 `"$@"`로 가서 셸이 다시 읽지 않는다.
             cmd.args([
                 "-d",
                 &at.distro,
@@ -242,10 +211,6 @@ fn caller() -> Option<WslPath> {
     std::env::current_dir().ok().and_then(|dir| of(&dir))
 }
 
-/// 옛 WSL 데몬이 띄운 노드를 끝낸다: `HOME`이 `home`인 `loom pty-host`, 노드 서버 `servers`(Codex app-server 등), 그 아래 프로세스 모두.
-/// 같은 세션을 옛 프로세스와 새 프로세스가 함께 쓰지 않게 한다(`carry`). 다른 `HOME`의 loom(시험 데몬 등)은 건드리지 않는다.
-/// 서버는 PTY 호스트 아래에 없다. 남으면 새 서버가 스레드를 열지 못했다(「thread … already has an active writer」, 실측).
-/// 서버 PID도 `HOME`을 본다. 옛 서버가 끝난 뒤 다른 프로세스가 그 번호를 받았을 수 있다.
 pub async fn end_hosts(distro: &str, home: &str, servers: &[u32]) -> Result<(), String> {
     let script = r#"home=$1; shift; servers=" $* " roots=
 for d in /proc/[0-9]*; do
@@ -272,27 +237,59 @@ exit 0"#;
         .map_err(|e| e.to_string())?;
     match out.status.success() {
         true => Ok(()),
-        false => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
+        false => Err(failure(&out)),
     }
 }
 
-/// 노드를 띄우기 직전에 배포판 안에서 읽은 값. `wsl.exe` 한 번으로 읽는다(약 0.2초).
+pub async fn end_token(distro: &str, token: &str) -> Result<(), String> {
+    let mut cmd = tokio::process::Command::new("wsl.exe");
+    cmd.args(["-d", distro, "-e", "sh", "-c", END_TOKEN, "sh", token])
+        .env("WSL_UTF8", "1");
+    bounded(cmd, END_TOKEN_WAIT).await
+}
+
+const END_TOKEN: &str = r#"token=$1 nl='
+'
+signal() {
+  sent=1
+  for f in $(grep -laF "LOOM_TOKEN=$token" /proc/[0-9]*/environ 2>/dev/null); do
+    env=$nl$(tr '\0' '\n' <"$f" 2>/dev/null)$nl
+    case $env in *"${nl}LOOM_TOKEN=$token$nl"*) ;; *) continue ;; esac
+    case $env in *"${nl}HOME=$HOME$nl"*) ;; *) continue ;; esac
+    pid=${f#/proc/}
+    kill -"$1" "${pid%/environ}" 2>/dev/null && sent=0
+  done
+  return $sent
+}
+signal TERM || exit 0
+sleep 2
+signal KILL
+exit 0"#;
+
+const END_TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+async fn bounded(
+    mut cmd: tokio::process::Command,
+    limit: std::time::Duration,
+) -> Result<(), String> {
+    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
+    match tokio::time::timeout(limit, cmd.output()).await {
+        Err(_) => Err(format!("{}초 안에 끝나지 않았다", limit.as_secs())),
+        Ok(Err(e)) => Err(e.to_string()),
+        Ok(Ok(out)) if out.status.success() => Ok(()),
+        Ok(Ok(out)) => Err(failure(&out)),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Inside {
-    /// `wsl.localhost` 또는 `wsl$`. 배포판 안의 경로를 UNC로 바꿀 때 쓴다.
     host: String,
     pub distro: String,
-    /// 노드가 도는 배포판 안의 폴더.
     cwd: String,
-    /// 배포판 안에서 본 loom 껍데기 폴더(`write_shim`). `PATH` 맨 앞에 넣는다.
     bin: String,
-    /// 로그인·대화형 셸(`bash -lic`)의 `PATH`. `~/.local/bin`, nvm처럼 `.profile`·`.bashrc`가 더한 곳이 든다.
     path: String,
-    /// 배포판 안의 `HOME`. 그 위치의 로그인 폴더(`~/.claude`, `~/.loom/accounts`)가 여기 있다.
     home: String,
-    /// `find`에 준 명령마다 `command -v` 결과. 없으면 빈 글이다.
     found: Vec<(String, String)>,
-    /// `paths`에 준 Windows 경로마다 배포판 안의 경로(`wslpath -u`).
     paths: Vec<String>,
 }
 
@@ -322,12 +319,11 @@ impl std::fmt::Display for InsideError {
     }
 }
 
-/// 값 사이의 구분 글자(RS). `.bashrc`가 쓰는 다른 출력과 섞이지 않는다.
 const SEP: char = '\u{1e}';
-/// interop이 꺼졌을 때 첫 값.
+const START_TRIES: u32 = 3;
+const START_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 const INTEROP_OFF: &str = "interop-off";
 
-/// `at`의 배포판에서 `PATH`, `find`의 명령 위치, 껍데기 폴더 `bin`과 `paths`의 배포판 안 경로를 한 번에 읽는다.
 pub async fn inside(
     at: &WslPath,
     find: &[&str],
@@ -340,27 +336,58 @@ printf '\036%s' "$PATH" "$HOME"
 while [ "$1" != -- ]; do printf '\036%s' "$(command -v "$1")"; shift; done; shift
 for p; do printf '\036%s' "$(wslpath -u "$p")"; done
 printf '\036'"#;
-    let mut cmd = tokio::process::Command::new("wsl.exe");
-    cmd.args(["-d", distro, "-e", "bash", "-lic", script, "bash"])
-        .args(find)
-        .arg("--")
-        .arg(bin)
-        .args(paths)
-        // `wsl.exe`의 오류 글은 이 값이 없으면 UTF-16이다.
-        .env("WSL_UTF8", "1")
-        .stdin(std::process::Stdio::null());
-    let start = |cause: String| InsideError::Start {
-        distro: distro.into(),
-        cause,
-    };
-    let out = cmd.output().await.map_err(|e| start(e.to_string()))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    if !text.contains(SEP) {
-        return Err(start(String::from_utf8_lossy(&out.stderr).trim().into()));
-    }
+    let text = values(distro, || {
+        let mut cmd = tokio::process::Command::new("wsl.exe");
+        cmd.args(["-d", distro, "-e", "bash", "-lic", script, "bash"])
+            .args(find)
+            .arg("--")
+            .arg(bin)
+            .args(paths);
+        cmd
+    })
+    .await?;
     read_inside(at, find, &text).ok_or_else(|| InsideError::Interop {
         distro: distro.into(),
     })
+}
+
+async fn values(
+    distro: &str,
+    wsl: impl Fn() -> tokio::process::Command,
+) -> Result<String, InsideError> {
+    let mut cause = String::new();
+    for attempt in 0..START_TRIES {
+        if attempt > 0 {
+            tokio::time::sleep(START_RETRY_AFTER).await;
+        }
+        let mut cmd = wsl();
+        cmd.env("WSL_UTF8", "1").stdin(std::process::Stdio::null());
+        match cmd.output().await {
+            Ok(out) => {
+                let text = String::from_utf8_lossy(&out.stdout);
+                if text.contains(SEP) {
+                    return Ok(text.into_owned());
+                }
+                cause = failure(&out);
+            }
+            Err(e) => cause = e.to_string(),
+        }
+    }
+    Err(InsideError::Start {
+        distro: distro.into(),
+        cause,
+    })
+}
+
+fn failure(out: &std::process::Output) -> String {
+    let text: Vec<String> = [&out.stdout, &out.stderr]
+        .map(|bytes| decode(bytes).trim().to_owned())
+        .into_iter()
+        .filter(|t| !t.is_empty())
+        .collect();
+    format!("{} ({})", text.join(" "), out.status)
+        .trim_start()
+        .to_owned()
 }
 
 fn read_inside(at: &WslPath, find: &[&str], text: &str) -> Option<Inside> {
@@ -391,7 +418,6 @@ fn read_inside(at: &WslPath, find: &[&str], text: &str) -> Option<Inside> {
 }
 
 impl Inside {
-    /// `names` 가운데 처음 찾은 명령의 배포판 안 경로.
     pub fn find<'a>(&self, names: impl IntoIterator<Item = &'a String>) -> Option<&str> {
         names.into_iter().find_map(|n| {
             self.found
@@ -401,14 +427,10 @@ impl Inside {
         })
     }
 
-    /// `inside`에 준 `paths`의 `i`번째를 배포판 안 경로로.
     pub fn path(&self, i: usize) -> Option<&str> {
         self.paths.get(i).map(String::as_str)
     }
 
-    /// `cmd`(배포판 안의 프로그램과 인자)를 그 배포판의 노드 폴더에서 띄우는 `wsl.exe` 명령으로 바꾼다.
-    /// `PATH`는 loom 껍데기 폴더를 앞에 넣은 배포판의 `PATH`다. Windows `PATH`는 넘기지 않는다.
-    /// `cmd`에 넣은 다른 환경 변수는 `WSLENV`로 넘긴다. 배포판 안의 `loom` 껍데기가 부르는 `loom.exe`도 그 값을 다시 받는다.
     pub fn wrap(&self, cmd: &CommandBuilder) -> CommandBuilder {
         let mut wsl = CommandBuilder::new("wsl.exe");
         wsl.args(self.prefix());
@@ -424,8 +446,6 @@ impl Inside {
         wsl
     }
 
-    /// 노드 서버(Codex app-server, OpenCode 2 서버)를 노드 폴더에서 띄우는 `wsl.exe` 명령. `wrap`과 같은 규칙이다.
-    /// 서버는 배포판의 루프백에서 듣는다. 데몬은 Windows 루프백의 같은 포트로 닿는다(WSL localhost 전달).
     pub fn server<K: AsRef<str>, V: AsRef<std::ffi::OsStr>>(
         &self,
         argv: &[impl AsRef<std::ffi::OsStr>],
@@ -438,12 +458,10 @@ impl Inside {
         wsl
     }
 
-    /// 배포판 안의 노드 `PATH`: loom 껍데기 폴더를 앞에 넣은 배포판의 `PATH`.
     pub fn node_path(&self) -> String {
         format!("{}:{}", self.bin, self.path)
     }
 
-    /// 노드가 도는 배포판 안의 폴더.
     pub fn cwd(&self) -> &str {
         &self.cwd
     }
@@ -452,7 +470,6 @@ impl Inside {
         &self.home
     }
 
-    /// 배포판 안의 Linux 절대 경로를 데몬이 읽고 쓰는 UNC 경로로 바꾼다.
     pub fn local(&self, linux: &str) -> PathBuf {
         PathBuf::from(format!(
             r"\\{}\{}{}",
@@ -475,7 +492,6 @@ impl Inside {
     }
 }
 
-/// `WSLENV`로 넘길 변수. Windows `PATH`와 `WSLENV` 자신은 넘기지 않는다.
 fn passed<K: AsRef<str>, V>(env: &[(K, V)]) -> impl Iterator<Item = &(K, V)> {
     env.iter().filter(|(k, _)| {
         let k = k.as_ref();
@@ -490,18 +506,17 @@ fn names<K: AsRef<str>, V>(env: &[(K, V)]) -> String {
         .join(":")
 }
 
-/// 배포판 안의 `loom` 명령: 이 데몬의 `loom.exe`를 interop으로 부른다. Linux loom을 따로 깔거나 판을 맞추지 않는다.
-/// 데몬이 시작할 때 `<데이터 폴더>/wsl/loom`에 쓴다. 경로는 배포판마다 다를 수 있어 부를 때 `wslpath`가 바꾼다.
 pub fn write_shim(dir: &Path, exe: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let exe = exe.to_string_lossy().replace('\'', r"'\''");
-    std::fs::write(
-        dir.join("loom"),
-        format!("#!/bin/sh\nexec \"$(wslpath -u '{exe}')\" \"$@\"\n"),
-    )
+    let shim = dir.join("loom");
+    let text = format!("#!/bin/sh\nexec \"$(wslpath -u '{exe}')\" \"$@\"\n");
+    if std::fs::read_to_string(&shim).is_ok_and(|old| old == text) {
+        return Ok(());
+    }
+    std::fs::write(shim, text)
 }
 
-/// 배포판 안에서 띄울 셸 명령. `line`이 비면 사용자의 로그인 셸이다.
 pub fn shell(line: &str) -> Vec<OsString> {
     let line = match line.trim() {
         "" => r#"exec "${SHELL:-/bin/sh}" -l"#,
@@ -514,7 +529,158 @@ pub fn shell(line: &str) -> Vec<OsString> {
 mod tests {
     use super::*;
 
-    /// 데몬은 WSL 노드가 준 Linux 경로를 그 노드 폴더의 배포판에서 읽는다. 다른 OS의 데몬에는 WSL 폴더가 없다.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn end_token_ends_only_processes_with_the_token_and_home() {
+        let token = format!("test{}", std::process::id());
+        let home = std::env::var("HOME").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let child_pid = dir.path().join("child");
+        let spawn = |script: String, token: &str, home: &str| {
+            std::process::Command::new("sh")
+                .args(["-c", &script])
+                .env("LOOM_TOKEN", token)
+                .env("HOME", home)
+                .spawn()
+                .unwrap()
+        };
+        let mut stubborn = spawn(
+            "trap '' TERM; while :; do sleep 0.1; done".into(),
+            &token,
+            &home,
+        );
+        let mut parent = spawn(
+            format!(
+                "LOOM_TOKEN=other sleep 30 & echo $! > {}; wait",
+                child_pid.display()
+            ),
+            &token,
+            &home,
+        );
+        let mut test_daemon = spawn("exec sleep 30".into(), &token, "/tmp/other-home");
+        let mut other_node = spawn("exec sleep 30".into(), "other", &home);
+        while !child_pid.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let child: u32 = std::fs::read_to_string(&child_pid)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args(["-c", END_TOKEN, "sh", &token]);
+        bounded(cmd, END_TOKEN_WAIT).await.unwrap();
+
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(stubborn.wait().unwrap().signal(), Some(9));
+        assert_eq!(parent.wait().unwrap().signal(), Some(15));
+        assert!(test_daemon.try_wait().unwrap().is_none());
+        assert!(other_node.try_wait().unwrap().is_none());
+        assert!(std::path::Path::new(&format!("/proc/{child}")).exists());
+        for mut left in [test_daemon, other_node] {
+            left.kill().unwrap();
+            left.wait().unwrap();
+        }
+        std::process::Command::new("kill")
+            .arg(child.to_string())
+            .status()
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bounded_ends_a_stalled_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("pid");
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args([
+            "-c",
+            &format!("echo $$ > {}; exec sleep 30", pid_file.display()),
+        ]);
+        let started = std::time::Instant::now();
+        let ended = bounded(cmd, std::time::Duration::from_millis(500)).await;
+        assert!(ended.is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let pid = std::fs::read_to_string(&pid_file).unwrap();
+        let stat = std::path::PathBuf::from(format!("/proc/{}/stat", pid.trim()));
+        for _ in 0..50 {
+            match std::fs::read_to_string(&stat) {
+                Err(_) => return,
+                Ok(line) if line.rsplit(") ").next().is_some_and(|s| s.starts_with('Z')) => return,
+                Ok(_) => {}
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("the stalled command still runs");
+    }
+
+    #[cfg(unix)]
+    fn failing_wsl(dir: &Path, fails: u32) -> impl Fn() -> tokio::process::Command {
+        let tries = dir.join("tries");
+        move || {
+            let mut cmd = tokio::process::Command::new("sh");
+            cmd.args([
+                "-c",
+                r#"echo x >> "$0"; [ "$(wc -l < "$0")" -gt "$1" ] && { printf '\036/home/me'; exit 0; }
+printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
+            ])
+            .arg(&tries)
+            .arg(fails.to_string());
+            cmd
+        }
+    }
+
+    #[cfg(unix)]
+    fn tries(dir: &Path) -> usize {
+        std::fs::read_to_string(dir.join("tries"))
+            .unwrap()
+            .lines()
+            .count()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_start_that_fails_once_is_tried_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = values("Ubuntu", failing_wsl(dir.path(), 1)).await.unwrap();
+        assert_eq!(text, "\u{1e}/home/me");
+        assert_eq!(tries(dir.path()), 2);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_start_that_keeps_failing_shows_the_wsl_error_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let failed = values("Ubuntu", failing_wsl(dir.path(), u32::MAX)).await;
+        let Err(InsideError::Start { distro, cause }) = failed else {
+            panic!("{failed:?}");
+        };
+        assert_eq!(distro, "Ubuntu");
+        assert!(cause.contains("Wsl/Service/0x8007274c"), "{cause}");
+        assert!(cause.ends_with("(exit status: 1)"), "{cause}");
+        assert_eq!(tries(dir.path()), START_TRIES as usize);
+    }
+
+    #[test]
+    fn an_unchanged_shim_is_not_written_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = Path::new(r"C:\loom\loom.exe");
+        write_shim(dir.path(), exe).unwrap();
+        let shim = dir.path().join("loom");
+        let set_read_only = |on| {
+            let mut permissions = std::fs::metadata(&shim).unwrap().permissions();
+            permissions.set_readonly(on);
+            std::fs::set_permissions(&shim, permissions).unwrap();
+        };
+        set_read_only(true);
+        let same = write_shim(dir.path(), exe);
+        let other = write_shim(dir.path(), Path::new(r"C:\other\loom.exe"));
+        set_read_only(false);
+        same.unwrap();
+        assert!(other.is_err());
+    }
+
     #[test]
     fn a_node_path_is_read_in_the_node_folder() {
         let read = from_node(
@@ -533,7 +699,6 @@ mod tests {
         );
     }
 
-    /// WSL 폴더의 관문 명령은 그 배포판 안에서 그 Linux 폴더로 띄운다. 스크립트 경로는 상대 경로로 남는다.
     #[test]
     fn a_wsl_folder_command_runs_inside_the_distro() {
         let at = location(r"\\wsl.localhost\Ubuntu\home\a\repo");
@@ -563,7 +728,6 @@ mod tests {
         assert_eq!(plain.get_current_dir(), Some(Path::new("/home/a/repo")));
     }
 
-    /// 데몬이 준 WSL 폴더(UNC)에서 Windows `loom.exe`는 배포판 안에서, 다른 OS의 loom은 그 폴더에서 바로 띄운다.
     #[test]
     fn a_gate_command_from_a_unc_folder_follows_the_os() {
         let cmd = command(r"\\wsl.localhost\Ubuntu\home\a\repo", "bash");
@@ -731,7 +895,6 @@ mod tests {
         let inside = read_inside(&at(), &[], text).unwrap();
         let dir = crate::task::Tasks::wsl(inside.home(), |p| inside.local(p)).dir("loom-feat-x");
         assert_eq!(dir.shown, "/home/me/.cache/loom/loom-feat-x");
-        // Windows 데몬만 WSL 노드를 띄운다. Linux에서는 `join`이 `/`를 넣는다.
         if cfg!(windows) {
             assert_eq!(
                 dir.local,

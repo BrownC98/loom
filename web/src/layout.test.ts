@@ -22,18 +22,13 @@ describe('edgeSides', () => {
   });
 
   it('child not ahead: the axis with the larger empty gap wins', () => {
-    // direction down, but the child sits far to the right with a small vertical gap.
     expect(edgeSides(parent, box(400, 20), 'down')).toEqual(TREE_SIDES.right);
-    // far to the left.
     expect(edgeSides(parent, box(-400, 20), 'down')).toEqual(TREE_SIDES.left);
-    // direction right, but the child sits far above.
     expect(edgeSides(parent, box(20, -400), 'right')).toEqual(TREE_SIDES.up);
-    // far below.
     expect(edgeSides(parent, box(20, 400), 'right')).toEqual(TREE_SIDES.down);
   });
 
   it('horizontally overlapping cards use the vertical axis, not the center distance', () => {
-    // centers are 300 apart horizontally and 70 vertically, but the cards overlap in x: the only empty gap is vertical.
     expect(edgeSides(box(0, 0, 400, 50), box(300, 70, 400, 50), 'right')).toEqual(TREE_SIDES.down);
   });
 });
@@ -43,10 +38,6 @@ const n = (id: number, parent: number | null, group: number, size?: Size): N => 
 const CARD: Size = { width: 600, height: 466 };
 const EMPTY: Size = { width: 320, height: 100 };
 
-/**
- * 그래프 자동 배치(Graph.tsx)와 같은 입력으로 `arrangeNested`를 돌린다. 카드 600×466, 묶음 머리 60, 옆 20.
- * 묶음의 부모는 그 묶음 노드 가운데 부모가 다른 묶음에 있는 첫 노드의 부모 카드다(repos.ts `groupParents`·`attachCards`). `groups`는 묶음 수다.
- */
 function family(nodes: readonly N[], groups: number, direction: ArrangeDirection = 'down') {
   const groupOf = new Map(nodes.map((x) => [x.id, x.group]));
   const input = Array.from({ length: groups }, (_, g): NestGroup => {
@@ -62,11 +53,9 @@ function family(nodes: readonly N[], groups: number, direction: ArrangeDirection
 const contains = (outer: Box, inner: Box) =>
   inner.at.x >= outer.at.x && inner.at.y >= outer.at.y && inner.at.x + inner.size.width <= outer.at.x + outer.size.width && inner.at.y + inner.size.height <= outer.at.y + outer.size.height;
 const center = (b: Box) => b.at.x + b.size.width / 2;
-/** 목업 docs/mockups/arrange-family.html v4 ①에 자식 없는 뿌리 규칙(docs/mockups/arrange-root.html v2 ④)을 더한 값. 카드 1은 첫 줄에서 카드 2 왼쪽에 선다. */
 const PERSON_CARDS = [{ x: 92, y: 60 }, { x: 712, y: 60 }, { x: 376, y: 638 }, { x: 1028, y: 638 }, { x: 40, y: 1216 }, { x: 712, y: 1216 }];
 const PERSON_BOXES = [[0, 0, 1668, 1722], [1008, 578, 640, 546], [20, 1156, 640, 546], [692, 1156, 640, 546]];
 
-/** 나무 간선(계단)의 꼭짓점. 부모 변 가운데 → 꺾는 자리 → 자식 변 가운데. */
 function stepPath(parent: Box, child: Box, direction: ArrangeDirection, bend: number) {
   const step = stepAt(parent, child, direction, bend);
   if (step === null) return null;
@@ -90,7 +79,6 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
   const base = [n(1, null, 0), n(2, null, 0), n(3, null, 0), n(4, 2, 0), n(5, 2, 1)];
   const person = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 2, 1), n(5, 3, 2), n(6, 3, 3)];
   const tree = [n(1, null, 1), n(2, 1, 2), n(3, 1, 3), n(4, 1, 4)];
-  /** 사람 화면 캡처(docs/mockups/arrange-root.html v2): 자식 없는 뿌리 1, 자식 묶음 넷을 둔 나무 2. */
   const screen = [n(1, null, 0), n(2, null, 0), n(3, 2, 0), n(4, 3, 1), n(5, 3, 2), n(6, 2, 3), n(7, 6, 3), n(8, 2, 4)];
   const cases: [string, N[], number, ArrangeDirection][] = [
     ['① person picture', person, 4, 'down'],
@@ -121,7 +109,6 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
   it.each(cases)('%s: no overlap, boxes nest, edges cross no card, parents centred', (_, nodes, groups, direction) => {
     const { cards, boxes, input } = family(nodes, groups, direction);
     for (const [a, x] of cards) for (const [b, y] of cards) if (a !== b) expect(overlaps(x, y), `cards ${a} and ${b}`).toBe(false);
-    // 상자끼리는 떨어져 있거나 하나가 다른 하나를 담는다. 자식 묶음은 부모 카드의 묶음 안이다.
     for (const [i, x] of boxes.entries()) for (const [k, y] of boxes.entries()) if (i !== k && overlaps(x, y)) expect(contains(x, y) || contains(y, x), `boxes ${i} and ${k}`).toBe(true);
     for (const [i, g] of input.entries()) {
       if (g.parent !== null) expect(contains(boxes[g.parent], boxes[i]), `group ${i} in ${g.parent}`).toBe(true);
@@ -139,7 +126,6 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
         }
       }
     }
-    // 부모 카드는 다음 줄 자식(같은 묶음 카드와 자식 묶음 상자) 전체의 가운데다.
     if (direction !== 'down') return;
     for (const parent of nodes) {
       const kids = [
@@ -193,7 +179,6 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
 
   it('⑫: a top group with no child group (an empty one too) stands after the trees', () => {
     const { boxes } = family(tree, 6);
-    // 0(계정전환-화면)과 5(빈-작업)는 빈 묶음이다. 나무(1) 뒤에 선다.
     expect(boxes[1].at.x).toBe(0);
     expect(boxes[0].at.x).toBe(boxes[1].at.x + boxes[1].size.width + GROUP_GAP);
     expect(boxes[5].at.x).toBe(boxes[0].at.x + EMPTY.width + GROUP_GAP);
@@ -202,14 +187,12 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
   });
 
   it('removing the parent worktree: the child group moves up to a top group on the first row', () => {
-    // 부모 묶음 1의 노드 2를 지우면 3은 뿌리가 된다(노드 제거와 입양: 부모가 없으면 뿌리).
     const before = family([n(1, null, 0), n(2, 1, 1), n(3, 2, 2)], 3);
     expect(contains(before.boxes[1], before.boxes[2])).toBe(true);
     const after = family([n(1, null, 0), n(3, null, 2)], 3);
     expect(after.input[2].parent).toBeNull();
     expect(after.cards.get(3)!.at.y).toBe(after.cards.get(1)!.at.y);
     expect(overlaps(after.boxes[0], after.boxes[2])).toBe(false);
-    // 손자 묶음이 조부모 카드에 입양되면 조부모 묶음 안으로 올라온다.
     const adopted = family([n(1, null, 0), n(3, 1, 2)], 3);
     expect(adopted.input[2]).toMatchObject({ parent: 0, card: 1 });
     expect(contains(adopted.boxes[0], adopted.boxes[2])).toBe(true);
@@ -217,12 +200,9 @@ describe('arrangeNested catalogue (docs/mockups/arrange-family.html v4)', () => 
 
   it('gaps: card to card 20, any pair with a box 32; the row gap holds the closing feet', () => {
     const { cards, boxes } = family([n(1, null, 0), n(2, 1, 0), n(3, 1, 1)], 2);
-    // 2(카드)와 3의 묶음(상자) 사이는 32다.
     expect(boxes[1].at.x - (cards.get(2)!.at.x + CARD.width)).toBe(GROUP_GAP);
-    // 1 아래 줄: 카드 아래 20(먼 쪽) 없이, 틈 32와 자식 묶음 머리 60. 머리 줄은 자식 묶음 상자 위다.
     expect(boxes[1].at.y - (cards.get(1)!.at.y + CARD.height)).toBe(20 + GROUP_GAP);
     expect(cards.get(3)!.at.y - boxes[1].at.y).toBe(60);
-    // 바깥 상자 아래는 안쪽 상자 아래 + 20이다.
     expect(boxes[0].at.y + boxes[0].size.height).toBe(boxes[1].at.y + boxes[1].size.height + 20);
   });
 });
@@ -242,20 +222,16 @@ describe('push (people decision 2026-10-21, mockup v4 ②)', () => {
   const sib = (key: string, x: number, y: number, width = 100, height = 50) => ({ key, ...box(x, y, width, height) });
 
   it('the overlapped sibling moves the shortest way out, with the gap', () => {
-    // mover 0..100 × 0..50. a는 80..180 × 0..50: 오른쪽으로 20 + 32, 왼쪽 180 - (-32) = 212.
     expect(push([sib('a', 80, 0)], box(0, 0), ['a'], 32)).toEqual(new Map([['a', { x: 132, y: 0 }]]));
-    // a가 아래로 조금만 겹치면 아래로 비킨다: 50 + 32 - 40 = 42.
     expect(push([sib('a', 0, 40, 400)], box(0, 0), ['a'], 32)).toEqual(new Map([['a', { x: 0, y: 82 }]]));
   });
 
   it('ties pick right, down, left, up in that order', () => {
-    // 같은 자리, 같은 크기: 네 쪽 모두 132. 오른쪽이다.
     expect(push([sib('a', 0, 0, 100, 100)], box(0, 0, 100, 100), ['a'], 32)).toEqual(new Map([['a', { x: 132, y: 0 }]]));
   });
 
   it('a pushed sibling pushes the next one the same way (cascade)', () => {
     const got = push([sib('a', 80, 0), sib('b', 200, 0, 100, 300)], box(0, 0), ['a'], 32);
-    // a → 132..232. b(200..)와 겹친다 → 같은 쪽(오른쪽)으로 232 + 32 = 264.
     expect(got).toEqual(new Map([['a', { x: 132, y: 0 }], ['b', { x: 264, y: 0 }]]));
   });
 
@@ -280,7 +256,6 @@ describe('crossed', () => {
   });
 
   it('a big group swaps when it covers half of a small sibling, not only when its center passes (repro: a 640 wide group over a 279 wide one)', () => {
-    // 사람 "묶음을 드래그할때는 터미널처럼 서로 포지션이 바뀌는 동작이 안일어남". 중심으로 세면 x 520까지 끌어야 했다.
     const other = box(700, 0, 279, 238);
     const before = centerSide(box(0, 0, 640, 517), other);
     expect(crossed(before, box(199, 0, 640, 517), other)).toBe(false);
@@ -295,7 +270,6 @@ describe('crossed', () => {
   });
 
   it('a 1px jitter across the other center line does not count (repro: two same-height groups in one row)', () => {
-    // 같은 줄, 같은 높이: 세로 중심이 같다. 옆에서 다가와 3 겹친 채 1 아래로 흔들려도 비키지 않는다.
     const other = box(688, 64, 640, 517);
     const before = centerSide(box(16, 64, 640, 517), other);
     expect(crossed(before, box(51, 65, 640, 517), other)).toBe(false);
@@ -312,17 +286,14 @@ describe('crossed', () => {
 });
 
 describe('swap while dragging (people decision 2026-10-21: swap at the center line, push only on drop)', () => {
-  // 사람 화면(ktasearch main 묶음): 카드 「피드백 반영」 위, 자식 묶음 「매뉴얼그림」 아래.
   const card = { key: 'card', ...box(0, 0, 505, 392) };
   const group = { key: 'group', ...box(49, 424, 539, 505) };
-  /** `key` 상자를 `path` 자리로 차례로 끈다. 지나간 단계마다 바꾼 형제 자리를 돌려준다. */
   const drag = (moving: typeof card, others: (typeof card)[], path: [number, number][]) => {
     let state: Swap = { slot: moving, sides: new Map(), at: new Map() };
     return path.map(([x, y]) => (state = swap(state, others, box(x, y, moving.size.width, moving.size.height))).at);
   };
 
   it('nothing moves before the leading edge reaches the center line, even while overlapping (no push during drag)', () => {
-    // 묶음 위 변이 카드 중심선(196)에 닿기 전: 카드와 300 넘게 겹쳐도 움직이지 않는다.
     const steps = drag(group, [card], [[49, 424], [49, 300], [49, 197]]);
     expect(steps.every((at) => at.size === 0)).toBe(true);
   });
@@ -336,19 +307,16 @@ describe('swap while dragging (people decision 2026-10-21: swap at the center li
 
   it('a big group dragged up swaps with a small card; the card takes the bottom of the group slot', () => {
     const [, at] = drag(group, [card], [[49, 424], [49, 196]]);
-    // 카드 아래 변이 묶음의 끌기 전 아래 변(929)에 선다: 929 - 392 = 537. 둘이 차지하던 0..929 안에서 순서만 바뀐다. 넘지 않은 가로축은 제 자리(0)다.
     expect(at).toEqual(new Map([['card', { x: 0, y: 537 }]]));
   });
 
   it('dragging back past the moved card swaps again and the card returns home', () => {
-    // 카드 중심은 537 + 196 = 733. 묶음 아래 변(y + 505)이 그 선에 닿으면(y 228) 돌아간다.
     const steps = drag(group, [card], [[49, 424], [49, 196], [49, 227], [49, 228]]);
     expect(steps[2]).toEqual(new Map([['card', { x: 0, y: 537 }]]));
     expect(steps[3]).toEqual(new Map([['card', { x: 0, y: 0 }]]));
   });
 
   it('a small card dragged down swaps with a big group; the group takes the top of the card slot', () => {
-    // 묶음 중심 676.5. 카드 아래 변(y + 392)이 닿으면(y 284.5) 바꾼다.
     const steps = drag(card, [group], [[0, 0], [0, 284], [0, 285]]);
     expect(steps[1].size).toBe(0);
     expect(steps[2]).toEqual(new Map([['group', { x: 49, y: 0 }]]));
@@ -356,7 +324,6 @@ describe('swap while dragging (people decision 2026-10-21: swap at the center li
 
   it('only crossed siblings move; others stay even when the dragged box overlaps them', () => {
     const side = { key: 'side', ...box(600, -150, 505, 392) };
-    // 묶음(100..639 × 196..701)이 오른쪽 위 카드와 39 × 46 겹친다. 앞 변은 그 카드의 중심선(852, 46)에 닿지 않는다.
     const [, at] = drag(group, [card, side], [[49, 424], [100, 196]]);
     expect([...at.keys()]).toEqual(['card']);
   });
@@ -371,8 +338,6 @@ describe('freeSpot', () => {
 
 describe('unpile (render-time push; the pushed spot is not saved, 2026-10-22 "state must be one")', () => {
   it('a group that grows down pushes the saved group under it the shortest way, with the gap', () => {
-    // main 0..1000 × 0..400 grows to 840 high (a card in row 2). 판정근거-범위 at 480..980 × 440..840.
-    // right 1000 + 32 - 480 = 552, down 840 + 32 - 440 = 432, left 1012, up 872: down.
     const at = unpile([{ key: 'main', ...box(0, 0, 1000, 840) }, { key: 'g', ...box(480, 440, 500, 400) }], 32);
     expect(at).toEqual(new Map([['main', { x: 0, y: 0 }], ['g', { x: 480, y: 872 }]]));
   });
@@ -386,10 +351,7 @@ describe('unpile (render-time push; the pushed spot is not saved, 2026-10-22 "st
     expect(at.get('repo:ktasearch')).toEqual({ x: 5060, y: 0 });
   });
 
-  // 2026-10-22 사람 지적(사람 DB): "왜 수평으로 안가고 위로 밀려나는가?"
   it('a wide grown repo box pushes the repo beside it right, not up (human DB 2026-10-22)', () => {
-    // Saved spots loom (32, 126) and ktasearch (1448, 126); measured boxes loom 2728 × 1164, ktasearch 1384 × 1164 (or shorter).
-    // The shortest way out was down (1196) or up (shorter ktasearch), 1344 to the right.
     const loom = { key: 'repo:9', ...box(332, 64, 2728, 1164) };
     for (const height of [1164, 600]) {
       const at = unpile([loom, { key: 'repo:71', ...box(1748, 64, 1384, height) }], 32);
@@ -427,7 +389,6 @@ describe('settle (an arranged repo is derived from sizes, not saved; 2026-10-22 
 });
 
 describe('always arrange (mockup docs/mockups/always-arrange.html ② B): a drop changes only the sibling order', () => {
-  // 총괄(1) 아래 A(2)·B(3)·C(4). 카드는 110 × 64.
   const card = { width: 110, height: 64 };
   const parentOf = (id: number) => (id === 1 ? null : 1);
   const lay = (members: number[]) => arrangeNested([{ parent: null, card: null, members, empty: card }], parentOf, () => card, 'down', { top: 60, side: 20 }, () => 0).cards;
@@ -436,11 +397,9 @@ describe('always arrange (mockup docs/mockups/always-arrange.html ② B): a drop
   it('dragging A past the center line of B swaps them, and the drop order B, A, C lands in the arranged slots', () => {
     const a = { key: '2', at: before.get(2)!, size: card };
     const b = { key: '3', at: before.get(3)!, size: card };
-    // A의 오른쪽 변이 B의 세로 중심선을 넘는다. B는 A의 빈자리로 간다.
     const start = swap({ slot: a, sides: new Map(), at: new Map() }, [b], a);
     const state = swap(start, [b], { at: { x: b.at.x - 40, y: b.at.y + 10 }, size: card });
     expect(state.at.get('3')).toEqual(before.get(2));
-    // 놓은 자리(형제 순서)로만 다시 놓는다. 끄는 상자는 놓은 자리가 아니라 정렬한 칸에 선다.
     const after = lay([1, 3, 2, 4]);
     expect(after.get(3)).toEqual(before.get(2));
     expect(after.get(2)).toEqual(before.get(3));
@@ -459,7 +418,6 @@ describe('always arrange (mockup docs/mockups/always-arrange.html ② B): a drop
 describe('always arrange: the sibling order comes from `rank`, so a dropped group moves (human report 2026-10-22: a dragged worktree snapped back)', () => {
   const card = { width: 110, height: 64 };
   const empty = { width: 200, height: 100 };
-  // 총괄(1, 묶음 0) 아래 카드 2(묶음 0)와 워크트리 묶음 1(카드 3).
   const parentOf = (id: number) => (id === 1 ? null : 1);
   const nested: NestGroup[] = [
     { parent: null, card: null, members: [1, 2], empty },

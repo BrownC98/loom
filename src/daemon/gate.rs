@@ -1,7 +1,3 @@
-//! 관문 경로(`/api/agent/{ready,verdict,fail}`): git으로 브랜치 사실을 읽어 그래프의 관문 상태에 넘긴다. 모두 바로 돌아온다.
-//! 무거운 일(쌓기, 검사 스크립트, 병합, push, 배포 확인)은 데몬의 병합 큐(`queue`)가 한다(2026-10-23 사람 결정 Q697 A, 총괄 #3761).
-//! 모든 호출과 거절은 흔적을 남긴다. 근거: 출력 표준 R8 v5 ③·④·⑤(2026-10-23 사람 결정 Q559 A).
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -16,14 +12,12 @@ use crate::graph::{GateChoice, NodeId, Refusal, Round, Via};
 use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, SHIP_SCRIPT};
 use crate::worktree;
 
-/// CLI가 요청마다 보내는 입구 헤더: 부른 `loom` 명령 이름과 판.
 pub const TOOL_HEADER: &str = "loom-tool";
 pub const VERSION_HEADER: &str = "loom-version";
 
 #[derive(Serialize, Deserialize)]
 pub struct ReadyRequest {
     pub branch: String,
-    /// 부른 프로세스의 작업 폴더(부른 쪽이 읽는 글 그대로). 노드가 등록한 워크트리가 아닌 곳에서 일할 때 그 폴더가 담당 증거다.
     pub cwd: String,
 }
 
@@ -37,7 +31,6 @@ pub struct Readied {
 pub struct VerdictRequest {
     pub branch: String,
     pub judgment: Judgment,
-    /// 결함 파일 경로(부른 쪽이 읽는 글 그대로). block이면 꼭 있다.
     pub findings: Option<String>,
 }
 
@@ -47,7 +40,6 @@ pub struct FailRequest {
     pub cause: String,
 }
 
-/// 요청이 들어온 입구. 헤더가 없으면(화면, 옛 CLI, 손으로 부른 API) 경로다.
 pub fn via(headers: &HeaderMap, route: &str) -> Via {
     let header = |name| {
         headers
@@ -62,8 +54,6 @@ pub fn via(headers: &HeaderMap, route: &str) -> Via {
 }
 
 impl App {
-    /// 손으로 쓴 글(`note`·`answer`·`done`)이 종류 낱말로 시작하면 거절한다. 판정·병합 낱말은 관문 스크립트가 있는 저장소에서만 본다:
-    /// 없는 저장소(ktasearch)는 `loom verdict`와 병합 큐가 돌지 않아 옛 글을 쓴다(이전 기간).
     pub(super) fn kind_word(&self, node: NodeId, body: &str) -> Result<(), Refusal> {
         let Some(found) = protocol::kind_word(body) else {
             return Ok(());
@@ -77,16 +67,12 @@ impl App {
         })
     }
 
-    /// `loom done`의 담당 브랜치 경고. 코디 밑이 아닌 노드의 워크트리 브랜치가 대상(원래 체크아웃의 브랜치)에 병합되지 않았고
-    /// 그 커밋으로 `loom ready`도 보내지 않았으면 경고 글이다. 거절하지 않는다: 완료는 중간 결과도 나른다.
-    /// 근거: 요청 #3067(ktasearch: 워커가 브랜치를 알리지 않고 끝내 1.5시간 아무도 보지 않았다).
     pub(super) async fn unreadied(&self, node: NodeId) -> Result<Option<String>, Refusal> {
         if self.graph.under_coordinator(node)? {
             return Ok(None);
         }
         let place = self.graph.place_of(node)?;
         let repo = self.repo_of(node)?;
-        // 원래 체크아웃에서 도는 노드는 담당 브랜치가 없다. git을 부르지 않는다.
         if Path::new(&place.worktree) == repo {
             return Ok(None);
         }
@@ -96,13 +82,11 @@ impl App {
         .await
     }
 
-    /// 노드의 저장소가 관문 계약(원래 체크아웃의 `scripts/gate/check.sh`, `ship.sh`)을 가졌는가.
     pub(super) fn gated_repo(&self, node: NodeId) -> Result<bool, Refusal> {
         let repo = self.repo_of(node)?;
         Ok(repo.join(CHECK_SCRIPT).is_file() && repo.join(SHIP_SCRIPT).is_file())
     }
 
-    /// 관문 호출의 결과를 돌려준다. 거절은 흔적으로 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
     fn traced<T>(
         &self,
         node: NodeId,
@@ -134,7 +118,6 @@ impl App {
             .map_err(|e| Refusal::Git(e.to_string()))
     }
 
-    /// 대상 브랜치를 담지 않아도 받는다. 병합 큐가 지금 대상 위에 쌓고, 충돌하면 반려한다(2026-10-24 코디 #3889: notAncestor 거절 8건, 워커가 main을 손으로 병합했다).
     async fn ready(
         &self,
         node: NodeId,
@@ -160,7 +143,6 @@ impl App {
                     .map_err(git_problem)?;
                 match theirs.branch {
                     Some(target) if target != base => (gate, target),
-                    // 코디가 원래 체크아웃(main)에서 일한다: 워커 브랜치는 코디가 받는다. 워커는 `loom done`으로 알린다.
                     _ => return Err(Refusal::SameAsTarget(base)),
                 }
             }
@@ -175,7 +157,6 @@ impl App {
                 target,
             });
         }
-        // 관문 에이전트는 WSL에서 이 경로를 읽는다. Windows 데몬이 보는 UNC 글자 대신 배포판 안의 경로를 쓴다.
         let worktree =
             crate::wsl::location(&mine.path).map_or_else(|| mine.path.clone(), |w| w.path);
         let round = Round {
@@ -192,7 +173,6 @@ impl App {
     }
 }
 
-/// `tip`의 첫 부모 줄에서 `head`를 둘째 이후 부모로 가진 병합 커밋. 병합 큐는 늘 `--no-ff`로 쌓는다.
 pub(super) async fn merge_commit(
     repo: &Path,
     head: &str,
@@ -208,7 +188,6 @@ pub(super) async fn merge_commit(
     }))
 }
 
-/// 원래 체크아웃이 가리키는 브랜치. 스스로 관문인 담당의 대상이다(보통 main).
 pub(super) async fn base_branch(repo: &Path) -> Result<String, Refusal> {
     worktree::worktrees(repo)
         .await
@@ -218,7 +197,6 @@ pub(super) async fn base_branch(repo: &Path) -> Result<String, Refusal> {
         .ok_or_else(|| Refusal::Git("the main checkout is not on a branch".into()))
 }
 
-/// `older`가 `newer`에 포함되는가. git은 포함되지 않으면 글 없이 1로 끝난다.
 pub(super) async fn contains(repo: &Path, older: &str, newer: &str) -> Result<bool, Refusal> {
     match git::run(repo, &["merge-base", "--is-ancestor", older, newer]).await {
         Ok(_) => Ok(true),
@@ -227,8 +205,6 @@ pub(super) async fn contains(repo: &Path, older: &str, newer: &str) -> Result<bo
     }
 }
 
-/// `branch`를 담당하는 워크트리. 노드가 등록한 워크트리가 그 브랜치면 그것이고,
-/// 아니면 부른 프로세스의 작업 폴더가 git으로 그 브랜치 워크트리일 때(원래 체크아웃의 노드가 다른 워크트리에서 고칠 때) 그 워크트리다.
 async fn owned_worktree(
     repo: &Path,
     registered: &str,
@@ -241,7 +217,6 @@ async fn owned_worktree(
     if mine.branch.as_deref() == Some(branch) {
         return Ok(mine);
     }
-    // 폴더 접두사는 안쪽 워크트리·중첩 저장소를 가르지 못한다. git이 푼 최상위 폴더만 믿는다.
     let cwd = Path::new(cwd);
     let top = git::run(cwd, &["rev-parse", "--show-toplevel"])
         .await
@@ -257,7 +232,6 @@ async fn owned_worktree(
         })
 }
 
-/// `worktree`의 브랜치가 원래 체크아웃의 브랜치가 아니고, 거기에 병합되지 않았고, 그 커밋으로 `ready`를 보내지 않았으면(`ready_sent`) 경고 글.
 async fn branch_warning(
     repo: &Path,
     worktree: &str,
@@ -277,7 +251,6 @@ async fn branch_warning(
     )))
 }
 
-/// 경고 글의 짧은 커밋.
 fn short(sha: &str) -> &str {
     &sha[..sha.len().min(8)]
 }
@@ -333,7 +306,6 @@ mod tests {
     use super::*;
     use crate::git::test_run as run;
 
-    /// 요청 #3067: 담당 브랜치가 병합되지 않았고 그 커밋으로 `loom ready`도 없으면 `loom done`에 경고가 붙는다(거절하지 않는다).
     #[tokio::test]
     async fn done_warns_for_an_unmerged_branch_without_ready() {
         let dir = tempfile::tempdir().unwrap();
@@ -357,7 +329,6 @@ mod tests {
         );
         let feature = run(&feature, &["rev-parse", "--show-toplevel"]);
         let never = |_: &str, _: &str| Ok(false);
-        // 원래 체크아웃의 브랜치는 보지 않는다. 대상과 같은 커밋(병합할 것이 없음)도 보지 않는다.
         assert_eq!(branch_warning(&repo, &main, never).await, Ok(None));
         assert_eq!(branch_warning(&repo, &feature, never).await, Ok(None));
         run(
@@ -376,10 +347,8 @@ mod tests {
             )),
             "{warning}"
         );
-        // 이 커밋으로 ready를 보냈으면 경고하지 않는다.
         let sent = |branch: &str, at: &str| Ok(branch == "feature" && at == head);
         assert_eq!(branch_warning(&repo, &feature, sent).await, Ok(None));
-        // 병합한 뒤에는 경고하지 않는다.
         run(&repo, &["merge", "-q", "--no-ff", "-m", "m", "feature"]);
         assert_eq!(branch_warning(&repo, &feature, never).await, Ok(None));
     }
@@ -422,15 +391,12 @@ mod tests {
         std::fs::create_dir(feature.join("src")).unwrap();
         let feature_dir = feature.join("src").display().to_string();
 
-        // 등록한 워크트리가 그 브랜치다.
         let own = owned_worktree(&repo, &feature.display().to_string(), "feature", &main).await;
         assert_eq!(own.unwrap().branch.as_deref(), Some("feature"));
-        // 원래 체크아웃의 노드가 그 브랜치 워크트리 안에서 부른다.
         let moved = owned_worktree(&repo, &main, "feature", &feature_dir)
             .await
             .unwrap();
         assert_eq!(moved.path, feature.display().to_string());
-        // 그 브랜치 워크트리 안에 다른 브랜치의 워크트리가 중첩돼도 거절한다.
         let nested = feature.join("nested");
         run(
             &repo,
@@ -446,7 +412,6 @@ mod tests {
         let nested = nested.display().to_string();
         let refused = owned_worktree(&repo, &main, "feature", &nested).await;
         assert!(matches!(refused, Err(Refusal::NotOwner { .. })));
-        // 작업 폴더가 다른 브랜치의 워크트리면 거절한다.
         let refused = owned_worktree(&repo, &main, "feature", &other.display().to_string()).await;
         assert_eq!(
             refused.unwrap_err(),

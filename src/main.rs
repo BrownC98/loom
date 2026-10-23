@@ -41,14 +41,11 @@ use clap::Parser;
 use crate::graph::Kind;
 use crate::profile::ModelChoice;
 
-/// 제품 판. `scripts/host.sh`가 `scripts/version.sh` 값을 `LOOM_VERSION`으로 넣는다.
-/// 릴리스 CI는 Cargo.toml 판을 바꿔 빌드한다. 근거: docs/design.md 「배포」.
 const VERSION: &str = match option_env!("LOOM_VERSION") {
     Some(v) => v,
     None => env!("CARGO_PKG_VERSION"),
 };
 
-/// 빌드한 커밋. `scripts/host.sh`가 넣는다. 릴리스 CI 빌드에는 없다(판의 PATCH가 커밋 수다).
 const COMMIT: Option<&str> = option_env!("LOOM_COMMIT");
 
 #[derive(Parser)]
@@ -328,14 +325,12 @@ fn main() -> ExitCode {
     }
 }
 
-/// 데몬을 띄운 터미널의 변수를 지운다(`profile::is_launcher_env`). 노드, Codex app-server, 사용량 조회가 모두 이 환경을 물려받는다.
 fn forget_launcher_env() {
     let keys: Vec<_> = std::env::vars_os()
         .filter_map(|(key, _)| key.into_string().ok())
         .filter(|key| profile::is_launcher_env(key))
         .collect();
     for key in keys {
-        // SAFETY: 런타임을 만들기 전이라 다른 스레드가 없다.
         unsafe { std::env::remove_var(key) };
     }
 }

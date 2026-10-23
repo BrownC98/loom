@@ -1,9 +1,3 @@
-//! 병합 큐: 데몬의 작업 하나가 pass 판정을 받은 브랜치를 대상마다 묶어 쌓고, check.sh를 한 번 돌리고, 병합·push·배포 확인을 한다.
-//! 에이전트는 기다리지 않는다. 결과는 merged·rework·failed 메시지로 간다(2026-10-23 사람 결정 Q697 A, 총괄 #3761:
-//! 전경 `loom merge`가 12분 넘게 셸을 막아 그동안 메일이 쌓였다).
-//! 작업이 하나라 이 데몬의 check.sh는 한 번에 하나다. 다른 데몬(시험 데몬)과는 스크립트의 `flock`이 가른다.
-//! Windows 데몬은 스크립트를 저장소의 WSL 배포판 안에서 띄운다(`wsl::command`). 스크립트는 배포판 안의 경로만 쓰고, 데몬은 표준 출력의 결과 줄과 끝 코드만 읽는다.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,23 +9,15 @@ use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Queued, Refu
 use crate::protocol::{self, Finding, MergeEnd, SHIP_DEPLOY_FAILED};
 use crate::worktree::{self, RepoId};
 
-/// pass 판정이 큐를 깨운다. 그래도 한 번씩 본다: 묶음이 DB 오류로 멈춘 뒤에도 큐가 멈추지 않는다.
 const TICK: Duration = Duration::from_secs(60);
 
-/// 스크립트 끝 코드. 스크립트 글의 `exit` 숫자와 같아야 한다(`tests::scripts_use_the_exit_codes`).
 const CONFLICT: i32 = 10;
 const CHECK_FAILED: i32 = 14;
-/// 쌓은 뒤 대상이 움직였다(원격·코디 브랜치에 새 커밋, push 거절). 묶음은 큐에 다시 선다.
 const MOVED: i32 = 20;
-/// 대상 코디 워크트리에 미커밋 변경이 있다.
 const DIRTY: i32 = 21;
 
-/// check.sh는 VM 메모리 8GiB를 쓸 수 있다. 호스트에서 한 번에 하나만 돌게 이 파일을 `flock`으로 쥔다. 배포판 안의 경로다.
 const CHECK_LOCK: &str = "/tmp/loom-gate-check.lock";
 
-/// 묶음 임시 워크트리는 `<git 공유 폴더>/loom-batches/<이름>`이다. 이름은 묶음·단계마다 다르다:
-/// 데몬이 검사 중에 끝나도 옛 스크립트는 검사가 끝날 때까지 살고, 끝 덫(`trap`)이 같은 경로면 새 묶음의 워크트리를 지운다(검토 S1).
-/// 다시 띄운 데몬은 모두 지운다(`CLEAN`). 옛 스크립트의 덫은 자기 경로만 지운다.
 const CLEAN: &str = r#"common=$(git rev-parse --path-format=absolute --git-common-dir)
 for wt in "$common"/loom-batches/*; do
   [ -e "$wt" ] || continue
@@ -41,7 +27,6 @@ done
 git worktree prune
 "#;
 
-/// 원래 체크아웃의 대상(main)을 원격에 맞춘다. 묶음은 게시된 대상 위에 쌓는다. 인자: 대상.
 const SYNC: &str = r#"set -u
 target=$1
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$target" ] || { echo "the main checkout is not on $target"; exit 1; }
@@ -50,13 +35,6 @@ git fetch --quiet origin "$target" || { echo "git fetch origin $target failed"; 
 git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$target diverged"; exit 1; }
 "#;
 
-/// 묶음 하나를 쌓고 검사한다. 시작 폴더는 원래 체크아웃이다. 인자: 이름(워크트리·기록 파일), 검사 잠금(`CHECK_LOCK`), 쌓을 대상 커밋, 그 뒤 (브랜치, 검토한 커밋) 쌍을 큐 순서로.
-/// 임시 워크트리에서 대상 커밋 위에 `--no-ff`로 차례로 병합하고 check.sh를 한 번 돌린다. cargo 빌드는 공유 폴더(`loom-batch-target`)에 두어 다음 묶음이 다시 쓴다.
-/// 대상 커밋은 묶음의 모든 시도가 같다: 이분 탐색 중에 대상이 움직여도 시도끼리 비교할 수 있다(검토 S6).
-/// 앞 브랜치가 이미 품은 커밋은 병합하지 않는다(git이 커밋을 만들지 않는다). 그 브랜치는 품은 병합으로 끝난다(`merged`).
-/// 잠금은 check.sh의 자식에게 넘기지 않는다:
-/// 남은 자식이 잠금을 쥐면 다음 검사가 끝없이 기다린다(옛 `loom merge` 검토 P3-e).
-/// 결과 줄(표준 출력): `log <경로>`, 충돌이면 `conflict <순번>`, 검사했으면 `check <초>`, 지나면 `tip <끝>`.
 const STACK: &str = r#"set -u
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$2 base=$3
@@ -90,12 +68,6 @@ echo "check $(($(date +%s) - start))" >&3
 echo "tip $tip" >&3
 "#;
 
-/// 원래 체크아웃에 묶음을 게시한다. 다시 불러도 된다(데몬이 게시 중에 끝났을 때). 인자: 기록 파일 이름, 대상, 쌓은 대상 커밋, 묶음 끝, 자기 병합 커밋이 있는 마지막 브랜치와 그 커밋.
-/// 묶음 끝이 이미 원격에 있으면 push를 건너뛴다. 아니면 대상을 묶음 끝으로 옮기고 push한다. 그 뒤 ship.sh가 이어 하기 길로 배포만 확인한다:
-/// 그 브랜치의 커밋이 이미 게시됐고, 묶음의 첫 부모 줄에 그 커밋을 둘째 부모로 가진 병합이 있다. 그래서 ship.sh는 바꾸지 않았다.
-/// push가 거절되면 다시 fetch해서 가른다: 원격이 움직였으면 큐에 다시 서고(20), 아니면 push 실패다(1, 검토 S2: 늘 실패하는 push가 검사를 끝없이 되풀이했다).
-/// 묶음 끝이 원격에 있으면 `published`를 알린다: 그 뒤의 실패는 병합을 되돌리지 않는다(검토 S6).
-/// push는 브랜치 이름이 아니라 검사한 커밋을 보낸다: 빨리 감기와 push 사이에 훅이 커밋을 더해도 검사하지 않은 커밋이 나가지 않는다(검토 R1).
 const PUBLISH: &str = r#"set -u
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 log=$common/loom-logs/$1 target=$2 base=$3 tip=$4
@@ -123,15 +95,12 @@ echo published >&3
 exec bash scripts/gate/ship.sh "$5" "$6"
 "#;
 
-/// 코디 브랜치를 묶음 끝으로 빨리 감는다. 시작 폴더는 코디 워크트리다. 인자: 대상, 묶음 끝.
 const ADVANCE: &str = r#"set -u
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$1" ] || { echo "the coordinator worktree is not on $1"; exit 1; }
 [ -z "$(git status --porcelain)" ] || exit 21
 git merge --ff-only --quiet "$2" || exit 20
 "#;
 
-/// 데몬 작업 하나. 깰 때마다 끝나지 않은 묶음을 거두고, 그 뒤 큐가 빌 때까지 묶음을 돌린다.
-/// 묶음은 하나씩 돈다. 그래서 깰 때 남은 `batches` 줄은 데몬이 끝났거나 끝 상태를 쓰지 못한 묶음이다(검토 R3).
 pub(super) async fn run(app: Arc<App>) {
     loop {
         recover(&app, CHECK_LOCK).await;
@@ -156,11 +125,9 @@ pub(super) async fn run(app: Arc<App>) {
     }
 }
 
-/// 한 대상의 큐 전체를 한 묶음으로 끝낸다. 끝나면 묶음의 모든 브랜치가 병합·반려·실패했거나 큐에 다시 섰다.
 async fn batch(app: &App, repo: RepoId, target: &str, lock: &str) -> Result<(), Refusal> {
     let queue = app.graph.queue(repo, target)?;
     let branches: Vec<&str> = queue.iter().map(|q| q.branch.as_str()).collect();
-    // 경로를 묶음 전에 푼다. 저장소가 없으면 큐가 같은 대상을 끝없이 다시 고른다: 묶음을 열고 모두 실패로 끝낸다(검토 S3).
     let dir = repo_path(app, repo);
     let id = app.graph.batch_open(repo, target, &branches)?;
     match dir {
@@ -182,8 +149,6 @@ async fn batch(app: &App, repo: RepoId, target: &str, lock: &str) -> Result<(), 
     Ok(app.graph.batch_close(id)?)
 }
 
-/// 데몬이 묶음 중에 끝났다: 검사 전이면 모두 큐에 다시 세운다. 검사를 지났으면 게시를 잇는다(배포가 사람의 데몬을 다시 띄우면 이 길이다).
-/// 마이그레이션이 남긴 옛 차례(`orphans`)는 실패로 끝내고 알린다.
 async fn recover(app: &App, lock: &str) {
     match app.graph.orphans() {
         Ok(orphans) => {
@@ -241,10 +206,8 @@ async fn recover(app: &App, lock: &str) {
     }
 }
 
-/// 마이그레이션 36이 끝낸 옛 규칙의 차례에 보내는 까닭.
 const UPGRADE_CAUSE: &str = "loom upgrade: send loom ready again";
 
-/// 아직 `Merging`인 브랜치를 실패로 끝낸다. 묶음이 멈추지 않게 한다(스크립트를 띄우지 못함, git 오류, 저장소 없음).
 fn fail_all(app: &App, repo: RepoId, id: BatchId, members: &[Queued], cause: &str) {
     for m in members {
         let ended = failed(
@@ -252,7 +215,6 @@ fn fail_all(app: &App, repo: RepoId, id: BatchId, members: &[Queued], cause: &st
             None,
             batch_lines(id),
         );
-        // 이미 끝낸 브랜치는 전이가 거절된다. 그대로 둔다.
         let _ = app.graph.merge_end(repo, &m.branch, ended);
     }
 }
@@ -282,21 +244,16 @@ struct Batch<'a> {
     app: &'a App,
     id: BatchId,
     repo: RepoId,
-    /// 원래 체크아웃(데몬이 보는 경로).
     dir: PathBuf,
     target: String,
     lock: &'a str,
 }
 
-/// 대상 브랜치의 자리.
 enum Dest {
-    /// 원래 체크아웃의 브랜치: 원격에 맞추고, 게시하고, 배포를 확인한다.
     Base,
-    /// 코디 워크트리의 브랜치: 빨리 감기만 한다.
     Coordinator { worktree: String },
 }
 
-/// 쌓기·검사 한 번의 결과.
 enum Trial {
     Conflict { index: usize, log: Option<String> },
     Failed { log: Option<String> },
@@ -362,14 +319,10 @@ impl Batch<'_> {
         self.bisect(members, base.trim(), &into).await
     }
 
-    /// 묶음 안 이분 탐색. `prefix`는 대상 위에서 검사를 지난 앞쪽, `suspects`는 그 뒤에 쌓으면 실패를 담은 쪽이다(`known_bad`일 때).
-    /// 실패를 더하는 첫 브랜치 하나를 찾아 반려하고 나머지는 큐에 다시 세운다. 검사 수는 처음 하나와 많아야 ceil(log2 n)이다.
-    /// 여러 브랜치가 함께 있어야 깨지면 그 가운데 뒤에 쌓인 브랜치가 반려된다. 흔들리는 검사 실패도 한 브랜치를 반려한다: 담당이 다시 `loom ready`한다.
     async fn bisect(&self, members: Vec<Queued>, base: &str, into: &Dest) -> Result<(), Refusal> {
         let mut prefix: Vec<Queued> = Vec::new();
         let mut suspects = members;
         let mut known_bad = false;
-        // 범인에게 보낼 기록: 그 브랜치가 든 마지막 실패 검사.
         let mut failed_log = None;
         let mut step = 0;
         loop {
@@ -400,7 +353,6 @@ impl Batch<'_> {
                     continue;
                 }
                 Trial::Passed { tip } if half == suspects.len() => {
-                    // 거두기가 게시를 잇는 값이다. 묶음 전체가 지난 검사만 남긴다.
                     self.app.graph.batch_checked(self.id, base, &tip)?;
                     return self.publish_into(&trial, base, &tip, step, into).await;
                 }
@@ -420,7 +372,6 @@ impl Batch<'_> {
         }
     }
 
-    /// 쌓고 검사한다. 흔적 한 줄을 남긴다.
     async fn trial(&self, trial: &[Queued], base: &str, step: u32) -> Result<Trial, Refusal> {
         let mut args = vec![
             format!("batch-{}-{step}", self.id.0),
@@ -505,7 +456,6 @@ impl Batch<'_> {
         }
     }
 
-    /// 대상의 자리를 git에서 다시 읽고 게시한다. 거두기(`recover`)가 쓴다.
     async fn publish(
         &self,
         members: &[Queued],
@@ -517,7 +467,6 @@ impl Batch<'_> {
         self.publish_into(members, base, tip, step, &into).await
     }
 
-    /// 원래 체크아웃에 게시하고 배포를 확인한다.
     async fn publish_base(
         &self,
         members: &[Queued],
@@ -525,7 +474,6 @@ impl Batch<'_> {
         tip: &str,
         step: u32,
     ) -> Result<(), Refusal> {
-        // ship.sh는 브랜치 커밋을 둘째 부모로 가진 병합을 찾는다. 앞 브랜치가 품은 브랜치는 그런 병합이 없다(검토 S5).
         let mut last = None;
         for m in members.iter().rev() {
             if merge_commit(&self.dir, &m.head, tip).await?.is_some() {
@@ -533,7 +481,6 @@ impl Batch<'_> {
                 break;
             }
         }
-        // 모두 대상에 이미 있었다: 묶음 끝이 대상 커밋이라 게시할 것이 없다.
         let Some(last) = last else {
             return self.merged(members, base, tip, None).await;
         };
@@ -562,7 +509,6 @@ impl Batch<'_> {
                 )
                 .await
             }
-            // 묶음 끝이 원격에 있으면 병합은 끝났다. 배포 확인만 모른다.
             (_, true) => {
                 let deploy = format!(
                     "deploy: unknown ({} exited {code}; see {})",
@@ -643,7 +589,6 @@ impl Batch<'_> {
 
     async fn audit(&self, member: &Queued) -> Result<Vec<Finding>, Refusal> {
         let mut findings = self.app.graph.audit(member.owner, member.since)?;
-        // 지운 브랜치는 검토한 커밋으로 병합한다. 움직인 브랜치만 막는다.
         if let Ok(now) = git::run(
             &self.dir,
             &[
@@ -774,7 +719,6 @@ impl Batch<'_> {
     }
 }
 
-/// 묶음의 첫 부모 줄(`base..tip`)에서 `head`를 처음 품은 커밋: 앞 브랜치가 품어 자기 병합이 없는 브랜치를 병합한 커밋이다.
 async fn bringing_merge(
     dir: &Path,
     head: &str,
@@ -800,15 +744,12 @@ async fn bringing_merge(
     Ok(None)
 }
 
-/// 스크립트 표준 출력의 결과 줄.
 #[derive(Default, Debug, PartialEq)]
 struct Lines {
     log: Option<String>,
     conflict: Option<usize>,
     check: Option<u64>,
-    /// 검사를 지난 묶음 끝.
     tip: Option<String>,
-    /// 묶음 끝이 원격에 있다(`PUBLISH`가 ship.sh 전에 알린다).
     published: bool,
 }
 
@@ -830,7 +771,6 @@ impl Lines {
     }
 }
 
-/// `dir`에서 bash 스크립트 글 하나를 띄우고 끝 코드와 표준 출력을 돌려준다. 신호로 끝나면 -1이다.
 async fn script(dir: &Path, text: &str, args: &[String]) -> Result<(i32, String), Refusal> {
     let mut cmd = crate::wsl::command(&dir.to_string_lossy(), "bash");
     cmd.arg("-c").arg(text).arg("loom-queue").args(args);

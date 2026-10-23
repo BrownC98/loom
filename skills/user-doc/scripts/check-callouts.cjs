@@ -1,48 +1,33 @@
-// user-doc 문서 점검(SKILL.md 「형식」·「목업 말풍선」). 배치 스크립트(callouts.js)와 따로 센다.
-// - 파일 하나: src·href·CSS url()은 data:, https:, #만 쓴다.
-// - 창 폭 여러 개, 늦게 읽히는 그림, 창 폭 바꾸기마다: 설명마다 말풍선이 있는지, 말풍선이 글자·컨트롤·상자·배지·다른 말풍선과 겹치는지,
-//   지시선이 다른 상자·말풍선·지시선을 지나거나 LEADER_MAX보다 긴지, 배지가 잘리거나 덮이거나 글자를 덮는지, 상자가 대상·표 칸·틀에 맞는지, 테두리 선이 하나인지,
-//   덧그림이 대상의 레이아웃을 바꾸는지, 그림 틀과 덧그림이 절 안에 있는지.
-// 사용: node check-callouts.cjs <문서.html>   출력 JSON {"bubbles":N,"badges":N,"overlaps":[...]}, 끝 코드 0 = 통과, 1 = 문제 있음, 2 = 돌리지 못함
 const path = require('path'), fs = require('fs'), os = require('os'), { pathToFileURL } = require('url');
 let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homedir(), '.npm/_npx'); for (const n of fs.readdirSync(c)) { const m = path.join(c, n, 'node_modules/playwright'); if (fs.existsSync(m)) { pw = require(m); break; } } }
 
-// 2026-10-23 사람 요청(Q596): 사람의 브라우저 폭과 그림이 늦게 읽히는 경우에도 말풍선이 바르게 놓여야 한다.
 const RUNS = [{ w: 1920 }, { w: 1440 }, { w: 1280 }, { w: 1100 }, { w: 960 }, { w: 1440, slow: 1500 }, { w: 1440, resizeTo: 1000 }];
-// callouts.js는 load 뒤와, 창 폭이 바뀌면 120ms 뒤에 놓는다. 코디 SDI업무 실측: load만 기다리면 드물게 지시선이 0개였다.
 const HEIGHT = 900, SETTLE_MS = 600;
-// 지시선 길이 상한(화면 px). 2026-10-23 사람(Q643) "선이 너무 길어서 시선이 움직이는 길이가 길어져 피로함".
-// 120px은 말풍선 폭(최대 250px)의 절반쯤이라 상자와 말풍선이 한눈에 들어온다. 그림 오른쪽 열(약 290px)까지 가는 선은 막힌다.
-// DOM_PASS는 브라우저 안에서 돌아 이 값을 인자로 받는다.
 const LEADER_MAX = 120;
 
 const doc = path.resolve(process.argv[2]);
 const html = fs.readFileSync(doc, 'utf8');
 
-// 늦게 읽히는 그림: data: 그림을 가짜 https 주소로 바꾸고 그 응답을 늦춘다. file:// 주소는 가로챌 수 없다.
 async function openSlow(page, delay) {
   const imgs = [];
-  // 따옴표 꼴(", ', 없음)과 관계없이 모든 <img src="data:…">를 바꾼다.
   const body = html.replace(/(<img\b[^>]*?\bsrc\s*=\s*)(?:"(data:[^"]*)"|'(data:[^']*)'|(data:[^\s>]*))/gi, (_, a, d1, d2, d3) => `${a}"https://mockup.invalid/img/${imgs.push(d1 ?? d2 ?? d3) - 1}"`);
   await page.route('https://mockup.invalid/**', async r => {
     const u = r.request().url();
     if (u.endsWith('/doc.html')) return r.fulfill({ contentType: 'text/html; charset=utf-8', body });
     const m = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(imgs[+u.split('/').pop()] ?? '');
-    if (!m) return r.abort(); // 파일 하나가 아닌 주소다. 첫 실행이 따로 알린다.
+    if (!m) return r.abort();
     await new Promise(z => setTimeout(z, delay));
     r.fulfill({ contentType: m[1], body: m[2] ? Buffer.from(m[3], 'base64') : decodeURIComponent(m[3]) });
   });
   await page.goto('https://mockup.invalid/doc.html', { waitUntil: 'load' });
 }
 
-// 파일 하나 점검: 문서 밖 파일을 가리키는 주소를 찾는다.
 const LOCAL_REFS = () => {
   const ok = v => /^(data:|https:|#|$)/i.test(v.trim());
   const bad = [];
   for (const e of document.querySelectorAll('[src], [href], [srcset], [poster]'))
     for (const a of ['src', 'href', 'srcset', 'poster']) {
       const v = e.getAttribute(a); if (v === null) continue;
-      // srcset은 후보마다 본다("주소 1x, 주소 2x"). 후보는 「설명자 뒤 쉼표」나 「쉼표+빈칸」으로 나뉜다. data: 주소 안의 쉼표 뒤에는 빈칸이 없다.
       const refs = a === 'srcset' ? v.split(/(?<=\s\d+(?:\.\d+)?[wx])\s*,|,\s+/).map(c => c.trim().split(/\s+/)[0]) : [v];
       for (const r of refs) if (!ok(r)) bad.push(`not one file: <${e.tagName.toLowerCase()} ${a}="${r.slice(0, 60)}">`);
     }
@@ -54,14 +39,11 @@ const LOCAL_REFS = () => {
   return bad;
 };
 
-// 화면 점검(한 창 폭에서). 픽셀 점검에 쓸 배지와 덧그린 상자 목록도 돌려준다.
 const DOM_PASS = LEADER_MAX => {
   const R = r => ({ l: r.left, t: r.top, r: r.right, b: r.bottom });
   const hit = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
   const inside = (a, c) => a.l >= c.l - 0.5 && a.t >= c.t - 0.5 && a.r <= c.r + 0.5 && a.b <= c.b + 0.5;
-  // 화면 끝(html)은 문서 끝 비교가 맡는다. 요소 자신의 overflow도 자기 내용을 자른다.
   const clips = e => { const out = []; for (let a = e; a && a !== document.documentElement; a = a.parentElement) { const cs = getComputedStyle(a); if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') out.push(a); } return out; };
-  // overflow는 테두리 안쪽(padding box)에서 자른다. zoom을 곱해 화면 크기로 바꾼다.
   const clipBox = a => { const k = a.getBoundingClientRect(), s = a.offsetWidth ? k.width / a.offsetWidth : 1, l = k.left + a.clientLeft * s, t = k.top + a.clientTop * s; return { l, t, r: l + a.clientWidth * s, b: t + a.clientHeight * s }; };
   const visible = (e, r) => { for (const a of clips(e)) { const c = clipBox(a); r = { l: Math.max(r.l, c.l), t: Math.max(r.t, c.t), r: Math.min(r.r, c.r), b: Math.min(r.b, c.b) }; } return r.l < r.r && r.t < r.b ? r : null; };
   const OVER = '.co, .calls, .lead-svg, .ov-box, .ov-badge, script, style';
@@ -75,7 +57,6 @@ const DOM_PASS = LEADER_MAX => {
     }
     return out;
   };
-  // 선분과 사각형이 만나는지(Liang-Barsky). 끝점 2px은 빼서 닿기만 한 것은 세지 않는다.
   const cross = (x1, y1, x2, y2, r) => {
     const d = Math.hypot(x2 - x1, y2 - y1); if (d < 5) return false;
     const ux = (x2 - x1) / d * 2, uy = (y2 - y1) / d * 2; x1 += ux; y1 += uy; x2 -= ux; y2 -= uy;
@@ -86,7 +67,6 @@ const DOM_PASS = LEADER_MAX => {
     }
     return true;
   };
-  // 픽셀 점검은 배치 스크립트가 다시 그려도 같은 차례로 요소를 찾는다.
   const allPins = [...document.querySelectorAll('.fig > .ov-badge')], allBoxes = [...document.querySelectorAll('.fig > .ov-box')];
   const bad = [], badges = [], bands = []; let n = 0;
   for (const fig of document.querySelectorAll('.fig')) {
@@ -94,7 +74,6 @@ const DOM_PASS = LEADER_MAX => {
     const calls = fig.querySelector(':scope > .calls');
     const marks = [...fig.querySelectorAll('.mk[data-n]')];
     if (!calls && !marks.length) continue;
-    // 한 번호를 .mk 여럿이 쓸 수 있다. 상자와 배지는 .mk마다 .mk 순서로 하나씩, 말풍선과 지시선은 번호마다 하나다.
     const by = sel => { const g = new Map(); for (const e of fig.querySelectorAll(sel)) g.set(e.dataset.n, [...(g.get(e.dataset.n) || []), e]); return g; };
     const flat = g => [...g].flatMap(([k, l]) => l.map(e => [k, e]));
     const cos = by(':scope > .co'), boxes = by(':scope > .ov-box'), pins = by(':scope > .ov-badge'), lines = by(':scope > .lead-svg polyline');
@@ -109,11 +88,9 @@ const DOM_PASS = LEADER_MAX => {
     const texts = textRuns(fig);
     const ui = texts.concat([...fig.querySelectorAll(UI)].filter(e => !e.closest(OVER)).map(e => ({ r: R(e.getBoundingClientRect()), what: e.tagName.toLowerCase() + (e.className.baseVal ?? e.className ? '.' + (e.className.baseVal ?? e.className) : '') })));
     const rect = e => R(e.getBoundingClientRect());
-    // 덧그림과 화면 그림 틀은 그 절(.fig) 안에 있다. 넘치면 다른 절이나 창 밖에 그려진다.
     const fr = rect(fig);
     for (const f of fig.querySelectorAll('.page, .xlwin, .shotwrap')) if (rect(f).r > fr.r + 0.5) bad.push(title + ' screen frame is wider than its section');
     for (const [k, e] of [...flat(cos), ...flat(boxes), ...flat(pins)]) if (!inside(rect(e), fr)) bad.push(title + ' #' + k + ' ' + e.className.split(' ')[0] + ' outside its section');
-    // 말풍선: 글자·컨트롤·상자·배지·다른 말풍선과 겹치지 않는다.
     const cl = flat(cos);
     cl.forEach(([k, c], i) => {
       const cr = rect(c);
@@ -121,7 +98,6 @@ const DOM_PASS = LEADER_MAX => {
       for (const [j, e] of [...flat(boxes), ...flat(pins)]) if (hit(cr, rect(e))) bad.push(title + ' bubble ' + k + ' x box/badge ' + j);
       cl.forEach(([j, d], z) => { if (z > i && hit(cr, rect(d))) bad.push(title + ' bubble ' + k + ' x bubble ' + j); });
     });
-    // 지시선: 말풍선마다 하나이고, 자기 상자 테두리에서 시작해 자기 말풍선 테두리에서 끝난다.
     const edge = ([x, y], r) => { const dx = Math.max(r.l - x, 0, x - r.r), dy = Math.max(r.t - y, 0, y - r.b); return dx || dy ? Math.hypot(dx, dy) : Math.min(x - r.l, r.r - x, y - r.t, r.b - y); };
     const ends = l => { const s = l.getScreenCTM(); return [...l.points].map(p => { const q = p.matrixTransform(s); return [q.x, q.y]; }); };
     for (const [k, c] of cl) {
@@ -134,16 +110,13 @@ const DOM_PASS = LEADER_MAX => {
       const len = pts.reduce((s, q, i) => (i ? s + Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) : 0), 0);
       if (len > LEADER_MAX) bad.push(title + ' leader ' + k + ' is ' + Math.round(len) + ' px long (max ' + LEADER_MAX + ')');
     }
-    // 지시선: 다른 상자·말풍선을 지나지 않는다.
     for (const [k, l] of flat(lines)) {
       const s = l.getScreenCTM(), pts = [...l.points].map(p => { const q = p.matrixTransform(s); return [q.x, q.y]; });
-      // 이 상자를 품은 큰 상자(가운데 점이 그 안)는 선이 지나도 된다.
       const own = boxes.get(k)?.[0], c = own && rect(own), mid = c && [(c.l + c.r) / 2, (c.t + c.b) / 2];
       const holds = e => { const r = rect(e); return mid && r.l <= mid[0] && mid[0] <= r.r && r.t <= mid[1] && mid[1] <= r.b; };
       const others = [...flat(boxes).filter(([j, e]) => !holds(e)), ...cl].filter(([j]) => j !== k);
       for (let i = 1; i < pts.length; i++) for (const [j, e] of others) if (cross(...pts[i - 1], ...pts[i], rect(e))) bad.push(title + ' leader ' + k + ' crosses ' + (e.classList.contains('co') ? 'bubble ' : 'box ') + j);
     }
-    // 지시선끼리 만나지 않는다(2026-10-23 ktasearch SDI 목업 93 v21 총괄 검토: "leader lines cross each other"). 끝점만 닿는 것은 뺀다.
     const ori = (a, b, c) => Math.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
     const segs = flat(lines).map(([k, l]) => { const p = ends(l); return [k, p.slice(1).map((q, i) => [p[i], q])]; });
     segs.forEach(([k, a], i) => segs.slice(i + 1).forEach(([j, b]) => {
@@ -153,32 +126,24 @@ const DOM_PASS = LEADER_MAX => {
     for (const m of marks) {
       const k = m.dataset.n, id = title + ' #' + k, z = seen.get(k) || 0; seen.set(k, z + 1);
       const box = boxes.get(k)?.[z], pin = pins.get(k)?.[z];
-      // 상자: 대상을 자르는 조상과 그림 틀 안에 있다. 감싼 상자는 자식들을 고르게 둘러싼다.
       if (box) {
         const o = rect(box);
         for (const a of clips(m)) if (!inside(o, clipBox(a))) bad.push(id + ' box clipped by ' + (a.className || a.tagName));
         const fr = m.closest('.page, .xlwin, .shotwrap'); if (fr && !inside(o, rect(fr))) bad.push(id + ' box outside its frame');
-        // 상자는 대상을 품은 표 칸 밖으로 나가지 않는다(사람 요청 Q616).
         const cell = m.parentElement?.closest('td, th'); if (cell && fig.contains(cell) && !inside(o, rect(cell))) bad.push(id + ' box crosses its table cell');
-        // 자식 요소를 감싼 대상만 내용(글자와 자식 요소의 합집합)에 맞춘다. 글자만 든 대상(패널 등)은 대상 자체를 가리킨다.
-        // 내용이 없는 대상은 그림 위에 놓은 상자다.
         const rg = document.createRange(); rg.selectNodeContents(m); const u = R(rg.getBoundingClientRect());
         if (m.children.length) {
           const g = [u.l - o.l, o.r - u.r, u.t - o.t, o.b - u.b].map(Math.round);
           if (!inside(u, o) || Math.abs(g[0] - g[1]) > 4 || Math.abs(g[2] - g[3]) > 4) bad.push(id + ' box misfit (gaps l/r/t/b ' + g.join('/') + ')');
         } else if (!m.textContent.trim() && getComputedStyle(m).position === 'absolute') bands.push({ id, i: allBoxes.indexOf(box) });
       }
-      // 테두리 선은 상자 하나뿐이다. 대상과 그 안·바로 바깥 요소의 outline(예: 바뀐 곳 점선)은 두 번째 선이다(2026-10-23 사람 요청 #2781).
       if (box) {
         const t = rect(m), o = rect(box), at = (r, c, d) => Math.max(Math.abs(r.l - c.l), Math.abs(r.t - c.t), Math.abs(r.r - c.r), Math.abs(r.b - c.b)) <= d;
-        // 상자 자리(callouts.js 규칙): 대상 둘레 5px을 대상을 품은 표 칸과 그림 틀의 안쪽 1px로 자른다. 표 칸이 대상이면 칸 안쪽 1px, 캡처 위 빈 대상은 그 자리다.
         const frm = m.closest('.page, .xlwin, .shotwrap'), cut = (g, e) => { if (!e || !fig.contains(e)) return g; const z = rect(e); return { l: Math.max(g.l, z.l + 1), t: Math.max(g.t, z.t + 1), r: Math.min(g.r, z.r - 1), b: Math.min(g.b, z.b - 1) }; };
         const grow = d => ({ l: t.l - d, t: t.t - d, r: t.r + d, b: t.b + d });
         const want = m.matches('td, th') ? cut(grow(-1), frm) : m.matches('.shotwrap .mk') ? t : cut(cut(grow(5), m.parentElement.closest('td, th')), frm);
         if (!at(o, want, 1.5)) bad.push(id + ' box is not at its target (expected ' + [want.l - t.l, want.t - t.t, t.r - want.r, t.b - want.b].map(v => Math.round(-v)).join('/') + ' px around it)');
         const ups = []; for (let a = m.parentElement; a && a !== fig; a = a.parentElement) ups.push(a);
-        // ::before·::after로 대상을 두른 사각형도 두 번째 선이다: 네 변이 다 보이고(또는 outline) 크기가 그 요소의 절반 넘게 크다.
-        // 제품 컨트롤 자신의 테두리와 작은 글리프(펼침 삼각형 등)는 세지 않는다(검토 BLOCK).
         const line = cs => ['Top', 'Right', 'Bottom', 'Left'].every(z => cs['border' + z + 'Style'] !== 'none' && parseFloat(cs['border' + z + 'Width']) > 0 && !/rgba\(.*,\s*0\)$|transparent/.test(cs['border' + z + 'Color']));
         const outl = cs => cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0;
         for (const e of [m, ...m.querySelectorAll('*'), ...ups].filter(e => at(rect(e), t, 9))) {
@@ -187,13 +152,11 @@ const DOM_PASS = LEADER_MAX => {
           if (ps.some(cs => (line(cs) || outl(cs)) && big(cs))) { bad.push(id + ' box has a second border line (::before/::after on <' + e.tagName.toLowerCase() + '>)'); break; }
           const cs = getComputedStyle(e); if (outl(cs)) { bad.push(id + ' box has a second border line (outline on <' + e.tagName.toLowerCase() + (e.className.baseVal ?? e.className ? '.' + (e.className.baseVal ?? e.className).trim().replace(/\s+/g, '.') : '') + '>)'); break; } }
       }
-      // 배지: 잘리지 않고, 문서 안에 있고, 글자를 덮지 않는다(대상 안의 글자는 뺀다).
       if (pin) {
         const g = rect(pin);
         for (const a of clips(pin)) if (!inside(g, clipBox(a))) bad.push(id + ' badge clipped by ' + (a.className || a.tagName));
         const D = document.documentElement;
         if (g.l + scrollX < 0 || g.t + scrollY < 0 || g.r + scrollX > D.scrollWidth || g.b + scrollY > D.scrollHeight) bad.push(id + ' badge outside the page');
-        // 배지는 상자 안의 글자도 덮지 않는다. 상자 가운데를 품은 컨트롤(큰 틀)만 덮어도 된다.
         for (const t of texts) if (hit(g, t.r)) bad.push(id + ' badge over text "' + t.what + '"');
         const bc = box && rect(box), mid = bc && [(bc.l + bc.r) / 2, (bc.t + bc.b) / 2];
         for (const u of ui.slice(texts.length)) if (hit(g, u.r) && !(mid && u.r.l <= mid[0] && mid[0] <= u.r.r && u.r.t <= mid[1] && mid[1] <= u.r.b)) bad.push(id + ' badge over control ' + u.what);
@@ -204,13 +167,10 @@ const DOM_PASS = LEADER_MAX => {
   return { bad, badges, bands, bubbles: n };
 };
 
-// 레이아웃 불변: 말풍선·상자·배지를 모두 걷어 내도 그림 속 요소의 자리가 같아야 한다(2026-10-23 사람 요청 #2618).
 const LAYOUT_PASS = () => {
   const els = [...document.querySelectorAll('.fig .page *, .fig .xlwin *, .fig .shotwrap *')].filter(e => !e.closest('.co, .lead-svg, .ov-box, .ov-badge'));
   const before = els.map(e => e.getBoundingClientRect());
   document.querySelectorAll('.co, .lead-svg, .ov-box, .ov-badge').forEach(e => e.remove());
-  // 표준 CSS의 .shotwrap .mk { position: absolute }는 캡처 위 대상의 자리다. 클래스를 걷어 내도 그 자리는 둔다.
-  // 그 자리를 두는 것은 캡처 위 빈 대상뿐이다. 다른 대상에 준 .mk 모양은 걷어 낸다(검토 BLOCK).
   for (const m of document.querySelectorAll('.mk')) { if (m.matches('.shotwrap .mk') && !m.children.length && !m.textContent.trim()) m.style.position = 'absolute'; m.classList.remove('mk', 'new'); }
   const bad = [];
   els.forEach((e, i) => {
@@ -223,16 +183,12 @@ const LAYOUT_PASS = () => {
   return [...new Set(bad)].slice(0, 20);
 };
 
-// 화면 높이마다 찍은 PNG를 그림 안에서 풀어 픽셀을 비교한다.
-// shots[0] 그대로, shots[1] 배지 색만 바꿈, shots[2] 덧그림을 숨김.
 const PIXELS = async ({ shots, pins, bands }) => {
   const px = async b64 => { if (!b64) return null; const i = new Image(); i.src = 'data:image/png;base64,' + b64; await i.decode(); const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const x = c.getContext('2d'); x.drawImage(i, 0, 0); return x.getImageData(0, 0, i.width, i.height); };
   const [a, b, h] = [await px(shots[0]), await px(shots[1]), await px(shots[2])];
   const at = (im, x, y) => { const o = (y * im.width + x) * 4; return [im.data[o], im.data[o + 1], im.data[o + 2]]; };
   const diff = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]);
-  // 배지: 표본 점이 바뀌지 않으면 덮였다.
   const covered = pins.map(({ pts }) => pts.filter(([x, y]) => diff(at(a, x, y), at(b, x, y)) < 60).length);
-  // 상자: 테두리 자리 4px 띠마다 이 화면에 든 부분의 색 수를 센다. 화면들의 수를 합쳐 가장 많은 색과 견준다.
   const cuts = bands.map(({ strips }) => strips.map(st => { const h2 = {}; for (const [x, y] of st) { const k = at(h, x, y).join(); h2[k] = (h2[k] || 0) + 1; } return h2; }));
   return { covered, cuts };
 };
@@ -244,7 +200,6 @@ async function checkRun(page) {
   const shot = async () => (await page.screenshot({ animations: 'disabled' })).toString('base64');
   const todo = { pins: [...res.badges], bands: res.bands.map(b => ({ ...b })) }, all = [];
   const docH = await page.evaluate(() => document.documentElement.scrollHeight);
-  // 화면 높이씩 내려가며 그 화면 안에 다 들어온 배지와 상자를 한 번에 찍는다. 화면 사이를 40px 겹쳐 22px 배지가 늘 한 화면에 든다.
   for (let y0 = 0; todo.pins.length + todo.bands.length && y0 < docH; y0 += vp.height - OVERLAP) {
     const geo = await page.evaluate(({ y0, pins, bands }) => {
       scrollTo(0, y0);
@@ -261,7 +216,6 @@ async function checkRun(page) {
       if (pts.some(([x]) => x < 0 || x >= vp.width)) res.bad.push(p.id + ' badge off screen'); else pins.push({ id: p.id, pts });
       return false;
     });
-    // 화면보다 높은 상자도 화면마다 아직 보지 않은 줄만 본다. 줄은 문서 좌표(done)로 한 번씩만 센다.
     todo.bands = todo.bands.filter((p, k) => {
       const g = geo.bands[k], sy = geo.sy, L = Math.round(g.l), T = Math.round(g.t), Rr = Math.round(g.r) - 1, Bt = Math.round(g.b) - 1;
       const y0 = Math.max(T, (p.done ?? -1e9) - sy, 0), y1 = Math.min(Bt, vp.height - 1);
@@ -303,7 +257,6 @@ async function checkRun(page) {
     if (run.slow) await openSlow(page, run.slow);
     else await page.goto(pathToFileURL(doc).href, { waitUntil: 'load' });
     if (run === RUNS[0]) out.overlaps.push(...(await page.evaluate(LOCAL_REFS)));
-    // 웹 글꼴이 load 뒤에 들어오면 callouts.js가 다시 놓는다. 다 들어온 뒤 그 배치를 센다(93 목업 실측: load 1초 뒤).
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     if (run.resizeTo) { await page.setViewportSize({ width: run.resizeTo, height: HEIGHT }); await page.waitForTimeout(SETTLE_MS); }

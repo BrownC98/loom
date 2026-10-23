@@ -1,15 +1,7 @@
-//! 데몬과 PTY 호스트 사이의 프레임. 새 데몬은 옛 실행 파일이 띄운 호스트와도 말해야 한다(업그레이드).
-//! 그래서 낸 판의 프레임은 바꾸지 않는다. 새 프레임이 필요하면 `VERSION`을 올리고, 옛 판 호스트에는 옛 프레임만 보낸다.
-//! 프레임: 종류 1바이트, 본문 길이(u32 LE), 본문.
-
 use std::io::{self, Read, Write};
 
-/// 첫 프레임의 표지. 주소 파일의 포트를 다른 프로그램이 받았으면 여기서 가린다.
 const MAGIC: &[u8; 8] = b"loom-pty";
-/// 이 실행 파일이 말하는 판. 판 2는 `Pid`를 더했다(설정 스크립트 뒤에 에이전트를 띄운 호스트가 보낸다).
-/// 판 3은 `SetupFailed`를 더했다. 옛 판 데몬은 새 판 호스트를 인사에서 거절하므로, 호스트는 붙은 데몬에 자기 판의 프레임을 보내도 된다.
 pub const VERSION: u32 = 3;
-/// 본문 하나의 상한. 출력 조각(8KB)과 backlog(256KB)보다 크다. 넘으면 깨진 연결로 본다.
 const MAX_BODY: usize = 1 << 20;
 
 const HELLO: u8 = 0;
@@ -22,24 +14,12 @@ const SETUP_FAILED: u8 = 6;
 
 #[derive(Debug, PartialEq)]
 pub enum Frame {
-    /// 연결의 첫 프레임. 데몬은 `pid` 없이, 호스트는 PTY에서 띄운 프로세스의 PID를 넣어 보낸다.
-    Hello {
-        version: u32,
-        pid: Option<u32>,
-    },
-    /// 데몬→호스트: 키 입력. 호스트→데몬: 터미널 출력. 붙은 직후의 첫 출력은 backlog다.
+    Hello { version: u32, pid: Option<u32> },
     Data(Vec<u8>),
-    Resize {
-        cols: u16,
-        rows: u16,
-    },
-    /// 프로세스를 끝낸다. 호스트는 그 뒤 `Exit`를 보낸다.
+    Resize { cols: u16, rows: u16 },
     Kill,
-    /// 프로세스가 끝났다. 값은 종료 코드다.
     Exit(u32),
-    /// 호스트→데몬: PTY의 프로세스가 바뀌었다(설정 스크립트가 끝나고 에이전트가 떴다). 값은 새 PID다.
     Pid(u32),
-    /// 호스트→데몬: 설정 스크립트가 끝났고 명령은 띄우지 않았다. 값은 설정의 종료 코드다. `Exit` 자리에 보낸다.
     SetupFailed(u32),
 }
 
@@ -97,7 +77,6 @@ pub fn read(from: &mut impl Read) -> io::Result<Frame> {
     }
 }
 
-/// 데몬 쪽 인사. 호스트의 PID를 돌려준다. 이 실행 파일이 모르는 판의 호스트면 실패한다.
 pub fn greet(stream: &mut (impl Read + Write)) -> io::Result<Option<u32>> {
     write(
         stream,
@@ -113,7 +92,6 @@ pub fn greet(stream: &mut (impl Read + Write)) -> io::Result<Option<u32>> {
     }
 }
 
-/// 호스트 쪽 인사. 데몬의 판과 관계없이 이 호스트의 판으로 답한다. 판을 맞추는 일은 데몬이 한다.
 pub fn welcome(stream: &mut (impl Read + Write), pid: Option<u32>) -> io::Result<()> {
     match read(stream)? {
         Frame::Hello { .. } => write(
@@ -135,7 +113,6 @@ fn invalid(why: &str) -> io::Error {
 mod tests {
     use super::*;
 
-    /// 판 1의 바이트 모양. 바뀌면 옛 호스트와 말하지 못한다.
     #[test]
     fn version_1_bytes_are_frozen() {
         let mut out = Vec::new();
@@ -175,7 +152,6 @@ mod tests {
         assert_eq!(read(&mut input).unwrap(), Frame::Exit(3));
     }
 
-    /// 판 2가 더한 프레임의 바이트 모양.
     #[test]
     fn version_2_pid_bytes_are_frozen() {
         let mut out = Vec::new();
@@ -184,7 +160,6 @@ mod tests {
         assert_eq!(read(&mut out.as_slice()).unwrap(), Frame::Pid(9));
     }
 
-    /// 판 3이 더한 프레임의 바이트 모양.
     #[test]
     fn version_3_setup_failed_bytes_are_frozen() {
         let mut out = Vec::new();
@@ -193,7 +168,6 @@ mod tests {
         assert_eq!(read(&mut out.as_slice()).unwrap(), Frame::SetupFailed(2));
     }
 
-    /// 데몬은 자기 판 이하의 호스트와 말하고, 더 새 판과 다른 프로그램은 거절한다.
     #[test]
     fn greet_accepts_known_versions_only() {
         let reply = |frame: Frame| {

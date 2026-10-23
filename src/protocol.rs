@@ -1,9 +1,3 @@
-//! loom 프로토콜: 메시지 종류(`MessageKind`)와 그 칸, 터미널 머리 줄, 종류 낱말, 관문 동사, 브랜치마다 관문 상태와 그 전이,
-//! 보내는 쪽·받는 쪽 규칙, 에이전트 사용법 글. 종류는 이 파일 한 곳에만 둔다. CLI·데몬·DB·흔적·사용법 글이 여기서 가져간다. 스킬 글은 종류를 다시 적지 않고 `loom --help`를 가리킨다.
-//! 근거: 출력 표준 R8 v5 1단계(2026-10-23 사람 결정 Q559 A). 관문 글을 손으로 쓰자 받는 곳이 틀리고(READY가 총괄에게 감), 형식이 갈리고(CI 결과 세 가지),
-//! 흔적 없는 병합이 생겼다. 그래서 관문 일을 하는 명령이 보고도 한다.
-//! 2단계(R8 v5 ⑦ 2): 모든 에이전트 출력과 loom 알림이 종류를 가진다. 본문 앞 낱말(`done: `, `QUESTION:`)로 뜻을 짐작하지 않는다.
-
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -66,26 +60,20 @@ pub enum Judgment {
     Block,
 }
 
-/// 병합 큐가 브랜치 하나를 끝낸 꼴.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MergeEnd {
     Merged,
-    /// 담당이 고칠 일: 쌓기 충돌, 검사 실패, 판정 뒤 브랜치가 움직임, 관문 밖 관문 낱말, 코디 워크트리의 미커밋 변경.
     Rework,
-    /// 담당이 고칠 수 없는 일: 배포·환경, 흔적 구간 빔.
     Failed,
 }
 
-/// 관문 호출 하나. 동사와 그 결과를 함께 담아 틀린 짝(예: ready에 판정)을 만들 수 없게 한다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GateCall {
     Ready,
     Verdict(Judgment),
     Fail,
-    /// 데몬이 이 브랜치를 묶음에 넣었다.
     Start,
-    /// 데몬이 묶음에서 빼 큐에 다시 세웠다(다른 브랜치의 실패, 대상이 움직임, 데몬 재시작).
     Requeue,
     End(MergeEnd),
 }
@@ -100,7 +88,6 @@ impl GateCall {
         }
     }
 
-    /// 상태마다 허용 동사를 셀 때 쓰는 호출 모두.
     const ALL: [GateCall; 9] = [
         GateCall::Ready,
         GateCall::Verdict(Judgment::Pass),
@@ -141,7 +128,6 @@ impl fmt::Display for IllegalStep {
     }
 }
 
-/// 관문 상태 전이 하나. 와일드카드 갈래가 없다: 상태나 호출을 더하면 이 함수가 컴파일되지 않는다.
 pub fn step(state: GateState, call: GateCall) -> Result<GateState, IllegalStep> {
     next(state, call).ok_or_else(|| IllegalStep {
         state,
@@ -153,14 +139,11 @@ pub fn step(state: GateState, call: GateCall) -> Result<GateState, IllegalStep> 
 fn next(state: GateState, call: GateCall) -> Option<GateState> {
     use GateState as S;
     match (state, call) {
-        // 병합한 브랜치 이름을 다음 작업이 다시 쓴다(AGENTS.md: 병합 뒤 브랜치를 지운다). 새 차례다.
         (S::Working | S::Failed | S::Merged, GateCall::Ready) => Some(S::Ready),
         (S::Ready | S::Passed | S::Merging, GateCall::Ready) => None,
-        // 검토자가 둘이면 둘째 판정이 pass 뒤에 온다. 묶음에 들기 전까지 받는다.
         (S::Ready | S::Passed, GateCall::Verdict(Judgment::Pass)) => Some(S::Passed),
         (S::Ready | S::Passed, GateCall::Verdict(Judgment::Block)) => Some(S::Working),
         (S::Working | S::Merging | S::Merged | S::Failed, GateCall::Verdict(_)) => None,
-        // 묶음 안의 브랜치는 묶음이 끝낸다. 멈추면 검사가 지난 묶음이 그 브랜치를 그대로 병합한다.
         (S::Working | S::Ready | S::Passed, GateCall::Fail) => Some(S::Failed),
         (S::Merging | S::Merged | S::Failed, GateCall::Fail) => None,
         (S::Passed, GateCall::Start) => Some(S::Merging),
@@ -174,7 +157,6 @@ fn next(state: GateState, call: GateCall) -> Option<GateState> {
     }
 }
 
-/// 지금 상태에서 에이전트가 부를 수 있는 동사. 전이 함수에서 센다. 규칙을 두 곳에 두지 않는다.
 fn allowed(state: GateState) -> Vec<GateVerb> {
     GateVerb::ALL
         .into_iter()
@@ -187,15 +169,11 @@ fn allowed(state: GateState) -> Vec<GateVerb> {
         .collect()
 }
 
-/// 동사를 부를 수 있는 노드.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sender {
-    /// 브랜치 담당: 자기 워크트리가 그 브랜치에 있다.
     Owner,
-    /// 관문의 자식(관문이 띄운 검토자). 관문 자신과 담당은 빼다(2026-10-23 사람 결정 Q692 A).
     Reviewer,
     Gate,
-    /// 데몬의 병합 큐. 에이전트는 부르지 못한다.
     Loom,
 }
 
@@ -208,26 +186,19 @@ pub fn sender(verb: GateVerb) -> Sender {
     }
 }
 
-/// 관문 호출이 알리는 노드. loom이 고른다. 보내는 노드 자신은 빼고, 같은 노드에는 한 번만 보낸다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Receiver {
     Gate,
     Owner,
-    /// 담당 나무의 루트(총괄). 대상이 원래 체크아웃의 브랜치일 때만 받는다.
     Root,
 }
 
-/// 대상 브랜치의 자리. 루트는 원래 체크아웃(main)의 병합·실패만 듣는다: 코디 브랜치의 흐름은 코디가 맡는다(2026-10-24 코디 결정).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Target {
-    /// 원래 체크아웃의 브랜치.
     Base,
-    /// 코디 워크트리의 브랜치.
     Coordinator,
 }
 
-/// 담당도 pass·병합·실패를 듣는다: 그동안 브랜치를 바꾸지 않고, 실패면 고친 뒤 다시 `loom ready`한다.
-/// 묶음 시작과 다시 줄 세우기는 아무에게도 보내지 않는다. 묶음 흔적(`Entry::Batch`)이 남는다.
 pub fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
     match (call, target) {
         (GateCall::Ready, _) => &[Receiver::Gate],
@@ -246,11 +217,9 @@ pub fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
     }
 }
 
-/// 받을 노드가 없을 때(담당을 지웠다, 스스로 관문인 담당의 ready) 부른 노드가 받는 메시지의 끝 줄. 성공한 관문 호출은 모두 흔적을 남긴다(검토 C6).
 pub const KEPT_FOR_CALLER: &str =
     "No other node receives this. loom keeps it in your inbox as the gate record.";
 
-/// 받는 쪽이 다음에 할 일. 메시지 끝 줄이다.
 pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
     match (call, to) {
         (GateCall::Ready, _) => format!(
@@ -290,7 +259,6 @@ pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
     }
 }
 
-/// 거둔 차례의 검토자가 받는 `withdrawn` 메시지 끝 줄.
 pub fn withdrawn_step(branch: &str, state: GateState) -> String {
     format!(
         "Next: stop reviewing {branch}. Its round went back to {state:?}, so loom refuses a verdict for it. If you review another branch, ignore this message."
@@ -377,7 +345,8 @@ pub enum MessageKind {
     HumanInput {
         node: String,
     },
-    /// 데몬이 바뀐 내장 스킬로 시작했다. 살아 있는 모든 에이전트 노드가 받는다.
+    /// 옛 데몬이 바뀐 내장 스킬로 시작할 때 보낸 알림. 지금 데몬은 보내지 않고 시작 글이 바뀐 노드를 턴 끝에 다시 띄운다.
+    /// 옛 메시지와 이벤트 기록을 읽으려고 남긴다.
     RulesChanged {
         skills: Vec<String>,
         /// 빌드한 커밋(`LOOM_COMMIT`). 릴리스 빌드에는 없다.
@@ -411,7 +380,6 @@ pub enum Field {
 }
 
 impl Field {
-    /// 터미널 칸 줄의 이름(`findings: …`).
     pub fn word(self) -> &'static str {
         match self {
             Field::Question => "question",
@@ -435,7 +403,6 @@ impl Field {
         }
     }
 
-    /// 값이 파일 경로다. 화면은 누르면 열리는 링크로 그린다(목업 M17 ③ 「결과 파일 링크」·「결함 파일」·「로그 링크」).
     pub fn is_file(self) -> bool {
         match self {
             Field::File | Field::Findings | Field::Log => true,
@@ -478,11 +445,9 @@ impl fmt::Display for Question {
     }
 }
 
-/// loom 알림의 보낸 쪽 이름. 터미널 머리 줄의 `from:`이다.
 pub const LOOM: &str = "loom";
 
 impl MessageKind {
-    /// 터미널 머리 줄의 낱말(kebab-case). serde 이름과 같다(테스트가 막는다).
     pub fn word(&self) -> &'static str {
         match self {
             MessageKind::Ask => "ask",
@@ -504,7 +469,6 @@ impl MessageKind {
         }
     }
 
-    /// loom이 보낸 알림이다. 머리 줄의 보낸 쪽은 `loom`이고, 에이전트는 이 종류를 보낼 수 없다.
     pub fn by_loom(&self) -> bool {
         match self {
             MessageKind::Ask
@@ -526,8 +490,6 @@ impl MessageKind {
         }
     }
 
-    /// 쉬는 노드를 깨우는 종류. 알림(끝남·지움·데려감)은 메일함에서 기다렸다가 다음 메시지나 다음 사람 턴과 함께 간다.
-    /// 근거: 맥락이 큰 오래 사는 노드를 깨우는 횟수가 가장 큰 비용이다(R14 R2, 2026-10-23 Q687 A).
     pub fn wakes(&self) -> bool {
         match self {
             MessageKind::Exited { .. }
@@ -549,12 +511,10 @@ impl MessageKind {
         }
     }
 
-    /// 파일만 준 완료(`loom done --file`)는 본문이 그 경로다. 같은 경로를 두 번 보이지 않는다.
     pub fn repeats_file(&self, body: &str) -> bool {
         matches!(self, MessageKind::Done { file: Some(file), .. } if file == body)
     }
 
-    /// 머리 줄 아래 칸 줄. 없는 칸은 빼고, 칸 순서는 정의 순서다.
     pub fn fields(&self) -> Vec<(Field, String)> {
         let some = |name, value: &Option<String>| value.clone().map(|v| (name, v));
         let branch = |branch: &str, head: &str| {
@@ -659,9 +619,6 @@ impl MessageKind {
     }
 }
 
-/// 받는 노드의 터미널에 넣는 메시지 글: 머리 줄, 칸 줄, 본문.
-/// `from`은 보낸 노드 이름이다. loom 알림이면 `loom`으로 바꾼다. `what`이 없는 옛 메시지는 메모로 보인다.
-/// `steer`·`interrupt`가 아니면 전달 방식을 적지 않는다.
 pub fn message_text(
     id: u32,
     from: &str,
@@ -690,7 +647,6 @@ pub fn message_text(
     lines.join("\n")
 }
 
-/// 관문 호출이 받는 노드에 보내는 종류. 칸 값은 관문 줄과 호출이 준다.
 pub struct GateFacts {
     pub branch: String,
     pub head: String,
@@ -703,7 +659,6 @@ pub struct GateFacts {
     pub log: Option<String>,
 }
 
-/// 묶음 시작과 다시 줄 세우기는 메시지가 없다(`receivers`가 비었다).
 pub fn gate_kind(call: GateCall, facts: GateFacts) -> Option<MessageKind> {
     let GateFacts {
         branch,
@@ -752,15 +707,10 @@ pub fn gate_kind(call: GateCall, facts: GateFacts) -> Option<MessageKind> {
     })
 }
 
-/// 종류 낱말: 손으로 쓴 글(`note`·`answer`·`done`)이 이 낱말로 시작하면 거절하고 맞는 명령을 알린다(R8 v5 ⑤ 2층).
-/// 대문자만 본다. "Ready for review" 같은 보통 문장은 거절하지 않는다. 턴 끝 검사가 터미널에만 쓴 줄도 이 표로 찾는다.
 pub struct KindWord {
     pub word: &'static str,
-    /// 대신 쓸 명령.
     pub verb: &'static str,
-    /// 관문 스크립트가 있는 저장소에서만 거절한다. 그 밖의 저장소는 `loom verdict`와 병합 큐가 돌지 않아 옛 글을 쓴다.
     pub gated_only: bool,
-    /// 관문 낱말. 관문 audit가 관문 동사 밖의 관문 글을 찾는다.
     pub gate: bool,
 }
 
@@ -773,13 +723,12 @@ const fn word(word: &'static str, verb: &'static str, gated_only: bool, gate: bo
     }
 }
 
-/// 긴 낱말을 먼저 둔다(`USER DIRECTION`이 `USER`보다 먼저 맞게).
 const KIND_WORDS: [KindWord; 15] = [
     word("USER DIRECTION", NO_HUMAN_WORD, false, false),
     word("USER DECISION", NO_HUMAN_WORD, false, false),
     word(
         "RULE UPDATE",
-        "nothing for built-in skills: loom sends rules-changed when they change. For other rules, use `loom note` without this word",
+        "nothing for built-in skills: loom relaunches each node whose start text changed. For other rules, use `loom note` without this word",
         false,
         false,
     ),
@@ -793,7 +742,6 @@ const KIND_WORDS: [KindWord; 15] = [
         false,
     ),
     word("DONE", "`loom done`", false, false),
-    // `loom ready`은 관문 스크립트 없는 저장소에서도 돈다.
     word("READY", "`loom ready`", false, true),
     word("CI RESULT", "`loom verdict` or `loom fail`", true, true),
     word(
@@ -811,7 +759,6 @@ const KIND_WORDS: [KindWord; 15] = [
 const NO_HUMAN_WORD: &str =
     "nothing: loom sends the human's terminal input to your parent (kind human-input)";
 
-/// 글 맨 앞의 종류 낱말.
 pub fn kind_word(text: &str) -> Option<&'static KindWord> {
     let text = text.trim_start();
     KIND_WORDS.iter().find(|w| {
@@ -820,13 +767,10 @@ pub fn kind_word(text: &str) -> Option<&'static KindWord> {
     })
 }
 
-/// 글 맨 앞의 관문 낱말. 관문 audit가 쓴다.
 pub fn gate_word(text: &str) -> Option<&'static str> {
     kind_word(text).filter(|w| w.gate).map(|w| w.word)
 }
 
-/// 글의 어느 줄이든 `applies`가 받는 종류 낱말로 시작하면 그 첫 낱말. 턴 끝 검사가 터미널에만 쓴 프로토콜 줄을 찾는다.
-/// 받지 않는 줄(관문 스크립트 없는 저장소의 `MERGED`)은 건너뛰고 뒤 줄을 본다.
 pub fn kind_line(
     text: &str,
     mut applies: impl FnMut(&KindWord) -> bool,
@@ -834,15 +778,10 @@ pub fn kind_line(
     text.lines().filter_map(kind_word).find(|w| applies(w))
 }
 
-/// 관문을 고르는 역할 이름. 설정의 기본 역할(`roles::Roles::default`)과 같다.
 pub const COORDINATOR_ROLE: &str = "코디";
 
-/// 저장소 관문 계약: 이 두 스크립트가 원래 체크아웃에 있어야 관문 상태와 병합 큐가 돈다. 있는 저장소에서만 관문 낱말을 거절한다.
-/// 두 스크립트는 `bash <상대 경로>`로 부른다. Windows `loom.exe`가 섞인 경로(`C:..\scripts/...`)를 만들면 bash가 찾지 못했다(2026-10-23 Codex 실측).
 pub const CHECK_SCRIPT: &str = "scripts/gate/check.sh";
 pub const SHIP_SCRIPT: &str = "scripts/gate/ship.sh";
-/// `ship.sh <branch> <sha>`의 끝 코드: 병합·push는 했고 배포 확인만 실패했다. 0이면 배포까지 확인했다.
-/// 병합 큐는 묶음 끝을 먼저 push하고 부르므로 ship.sh는 배포 확인만 한다(이어 하기 길). 그 밖의 코드(10, 12)는 예상 밖이라 실패로 간다.
 pub const SHIP_DEPLOY_FAILED: i32 = 11;
 
 /// 병합 큐가 묶음에 넣기 전 audit가 찾은 일. 멈출 일(`end`)이 하나라도 있으면 그 브랜치를 묶음에 넣지 않는다.
@@ -871,8 +810,6 @@ pub enum Finding {
 }
 
 impl Finding {
-    /// 이 일 때문에 병합을 멈추면 그 끝. 없으면 알리기만 한다.
-    /// 관문 밖 커밋은 되돌릴 수 없다. 막으면 뒤의 모든 병합이 막힌다(2026-10-23 검토 P1-2, 코디 결정).
     pub fn end(&self) -> Option<MergeEnd> {
         match self {
             Finding::RawGateWord { .. } | Finding::HeadMoved { .. } => Some(MergeEnd::Rework),
@@ -907,8 +844,6 @@ impl fmt::Display for Finding {
     }
 }
 
-/// 이번 병합의 첫 부모부터 거슬러 간 대상 first-parent 커밋(`git rev-list` 출력, 새것부터 한 줄에 하나) 가운데
-/// 관문 병합(`known`)을 처음 만나기 전의 것. 관문 병합을 만나지 못하면(첫 관문 병합) 없다.
 pub fn out_of_gate(listed: &str, known: &[String]) -> Vec<Finding> {
     let listed: Vec<&str> = listed
         .lines()
@@ -926,7 +861,6 @@ pub fn out_of_gate(listed: &str, known: &[String]) -> Vec<Finding> {
         .collect()
 }
 
-/// 여러 audit 결과를 하나의 끝으로: 담당이 고칠 수 없는 일이 하나라도 있으면 실패, 멈출 일이 없으면 없다.
 pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
     let ends: Vec<MergeEnd> = findings.iter().filter_map(Finding::end).collect();
     match ends.as_slice() {
@@ -936,8 +870,6 @@ pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
     }
 }
 
-/// 에이전트 사용법 글(`profile::COMMUNICATION_USAGE`)의 메시지 종류 줄. `concat!`에 넣으려고 매크로로 둔다.
-/// 종류를 더하거나 바꾸면 이 글도 바꾼다(`tests::usage_names_every_agent_verb`가 막는다).
 #[macro_export]
 macro_rules! message_usage {
     () => {
@@ -963,13 +895,10 @@ mod tests {
         GateState::Failed,
     ];
 
-    /// 사람이 정한 전이 표(R8 v5 ④, 워커 브리프 1번; 병합 큐는 Q697 A). 이 표 밖의 짝은 모두 거절이다.
     const LEGAL: [(GateState, GateCall, GateState); 15] = [
         (GateState::Working, GateCall::Ready, GateState::Ready),
         (GateState::Failed, GateCall::Ready, GateState::Ready),
-        // 병합한 브랜치 이름을 다시 쓴다(검토 P1-3).
         (GateState::Merged, GateCall::Ready, GateState::Ready),
-        // 둘째 검토자의 판정은 묶음에 들기 전까지 받는다(검토 P2-7).
         (
             GateState::Passed,
             GateCall::Verdict(Judgment::Pass),
@@ -1077,15 +1006,12 @@ mod tests {
             kind_line("MERGED a\nQUESTION: x?", |w| !w.gated_only).map(|w| w.word),
             Some("QUESTION")
         );
-        // `loom ready`은 관문 스크립트 없는 저장소에서도 돌므로 READY는 어디서나 거절한다.
         assert!(!kind_word("READY x").unwrap().gated_only);
         assert!(kind_word("MERGED x").unwrap().gated_only);
-        // 대화 낱말과 거절 글은 맞는 동사를 알린다.
         assert!(kind_word("QUESTION").unwrap().verb.contains("loom ask"));
         assert!(kind_word("ANSWER").unwrap().verb.contains("loom answer"));
     }
 
-    /// 머리 줄 낱말은 serde 태그의 kebab-case다. 종류를 더하면 `word`와 `by_loom`이 함께 바뀐다(빠짐없는 match).
     #[test]
     fn every_kind_word_matches_its_serde_tag() {
         let kinds = [
@@ -1184,7 +1110,6 @@ mod tests {
         );
     }
 
-    /// 사용법 글이 에이전트가 쓰는 모든 동사를 알린다. 옛 동사는 알리지 않는다.
     #[test]
     fn usage_names_every_agent_verb() {
         let usage = crate::message_usage!();
@@ -1228,7 +1153,6 @@ mod tests {
             audit_end(std::slice::from_ref(&raw)),
             Some(MergeEnd::Rework)
         );
-        // 관문 밖 커밋은 알리기만 한다. 흔적 구간이 빈 것만 실패다.
         assert_eq!(audit_end(std::slice::from_ref(&out)), None);
         assert_eq!(audit_end(&[raw.clone(), out]), Some(MergeEnd::Rework));
         let gap = Finding::RangeIncomplete {
@@ -1253,7 +1177,6 @@ mod tests {
             }]
         );
         assert!(out_of_gate("aaa\nbbb\n", &known).is_empty());
-        // 앞선 관문 병합이 없으면 기준이 없다.
         assert!(out_of_gate("bbb\nccc\n", &known).is_empty());
     }
 }

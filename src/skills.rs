@@ -1,7 +1,3 @@
-//! loom이 싣는 스킬(`skills/`)과 모든 노드가 늘 보는 지시(사람에게 묻기, STE-100, 랩터-3 「작업 중」, o-mode).
-//! 노드 에이전트는 사람이 스킬을 설치하지 않아도 이 스킬을 쓴다. 바뀌는 이유는 스킬 글과 그 배포 방식이다.
-//! 근거: docs/design.md 「내장 스킬」.
-
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -15,18 +11,11 @@ use ts_rs::TS;
 #[folder = "skills"]
 struct Files;
 
-/// Claude 플러그인 표지. 플러그인 스킬은 `loom:<스킬 이름>`으로 뜬다.
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬"}"#;
 
-/// 데몬이 데이터 폴더에 푼 스킬 폴더들. 설정의 스킬 조합(`AlwaysOn`)마다 폴더가 하나다.
-/// Claude·Cursor는 폴더를 플러그인으로(`--plugin-dir`), Codex·OpenCode 2는 그 안의 `skills/`를 스킬 폴더로 읽는다.
 pub struct Plugin(PathBuf);
 
 impl Plugin {
-    /// 조합마다 폴더를 지우고 이 판의 스킬로 다시 쓴다. 데몬이 시작할 때 한 번 부른다. `data`는 데이터 폴더다.
-    /// 모든 조합을 먼저 쓰는 이유: 노드를 띄울 때 쓰면 동시에 뜨는 노드끼리 같은 폴더를 쓴다. 조합은 16개, 폴더 하나는 약 80KB다.
-    /// 지우는 이유: 새 판에서 없앤 파일이 남으면 노드가 옛 글을 읽는다.
-    /// 지우지 못하면(Windows에서 노드가 연 파일) 덮어 쓴다. 그때는 없앤 파일만 남는다.
     pub fn install(data: &Path) -> io::Result<Self> {
         let plugin = Self(data.to_owned());
         for on in AlwaysOn::all() {
@@ -44,12 +33,10 @@ impl Plugin {
         Ok(plugin)
     }
 
-    /// 모든 조합의 폴더. 데몬이 Cursor 표지를 조합마다 더 쓴다.
     pub fn dirs(&self) -> impl Iterator<Item = PathBuf> + '_ {
         AlwaysOn::all().map(|on| self.dir(on))
     }
 
-    /// 켠 스킬만 든 폴더. 끈 스킬이 있으면 `plugin-off/<끈 스킬>`이다. 모두 켠 조합은 옛 판과 같은 `plugin`이다. 판을 올려도 이미 뜬 노드가 그 폴더를 계속 읽는다.
     pub fn dir(&self, on: AlwaysOn) -> PathBuf {
         let off: Vec<&str> = SKILLS.into_iter().filter(|s| !on.has(s)).collect();
         match off.is_empty() {
@@ -58,32 +45,11 @@ impl Plugin {
         }
     }
 
-    /// 스킬마다 `<이름>/SKILL.md`가 있는 폴더.
     pub fn skills(&self, on: AlwaysOn) -> PathBuf {
         self.dir(on).join("skills")
     }
 }
 
-/// 이 판에 실은 스킬마다 내용 해시(SHA-256 hex): 파일 이름과 내용을 이름 순서로. 데몬이 지난 기록과 비교해 `rules-changed`를 보낸다.
-pub fn digests() -> BTreeMap<String, String> {
-    let mut names: Vec<_> = Files::iter().collect();
-    names.sort();
-    let mut hashers: BTreeMap<String, Sha256> = BTreeMap::new();
-    for name in names {
-        let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
-        let hasher = hashers.entry(skill_of(&name).to_owned()).or_default();
-        hasher.update(name.as_bytes());
-        hasher.update([0]);
-        hasher.update(&file.data);
-        hasher.update([0]);
-    }
-    hashers
-        .into_iter()
-        .map(|(skill, hasher)| (skill, hex(hasher)))
-        .collect()
-}
-
-/// 글 조각들의 내용 해시(SHA-256 hex). `digests`와 같은 꼴이라 같은 기록에 넣는다.
 pub fn digest(parts: &[&str]) -> String {
     let mut hasher = Sha256::new();
     for part in parts {
@@ -101,14 +67,10 @@ fn hex(hasher: Sha256) -> String {
         .collect()
 }
 
-/// 설정이 하나씩 켜고 끄는 스킬 폴더 이름. 새 스킬을 더하면 `AlwaysOn`에도 더한다(테스트가 막는다).
 const SKILLS: [&str; 4] = ["o-mode", "user-doc", "ste-100", "raptor-3"];
 
-/// 끌 수 없는 스킬: 사람에게 묻는 표준. 모든 조합의 폴더와 모든 시작 지시에 든다.
-/// 근거: 2026-10-21 사람 지시 "질문 방식을 가르치는 스킬은 별도로 분리해서 loom에서 상시 포함되는 스킬로 만들어라".
 const ASK: &str = "ask-human";
 
-/// 실은 파일 경로(`o-mode/SKILL.md`)의 스킬 이름.
 fn skill_of(name: &str) -> &str {
     name.split('/').next().unwrap_or(name)
 }
@@ -118,13 +80,9 @@ fn write(path: &Path, data: &[u8]) -> io::Result<()> {
     std::fs::write(path, data)
 }
 
-/// 노드가 시작할 때 그래프에서 선 자리. 시작 지시(`always_on`)를 고른다.
-/// 뒤에 부모가 바뀌어도(`loom adopt`, `loom rm`의 손자 옮기기) 이미 뜬 노드의 시작 지시는 그대로다.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Position {
-    /// 부모가 없다. 사람이 띄운 노드이고 o-mode 총괄이다.
     Root,
-    /// 부모가 `loom spawn`으로 띄웠다. 역할은 브리프가 정한다.
     Child,
 }
 
@@ -140,7 +98,6 @@ pub struct AlwaysOn {
     pub raptor3: bool,
 }
 
-/// 옛 설정에는 없다. 없으면 모두 켜짐이다.
 impl Default for AlwaysOn {
     fn default() -> Self {
         Self {
@@ -164,7 +121,6 @@ impl AlwaysOn {
         }
     }
 
-    /// 켜고 끈 모든 조합.
     fn all() -> impl Iterator<Item = Self> {
         (0..16u8).map(|bits| Self {
             o_mode: bits & 1 != 0,
@@ -175,49 +131,76 @@ impl AlwaysOn {
     }
 }
 
-/// 노드를 띄울 때 시작 지시를 고르는 값. 띄울 때 한 번 정하고, 뒤에 설정이나 부모가 바뀌어도 뜬 노드는 그대로다.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Launch {
     pub position: Position,
     pub skills: AlwaysOn,
 }
 
-/// 모든 노드의 시작 지시에 붙이는 글: 사람에게 묻기 본문, STE-100 본문, 랩터-3 「작업 중」 절, o-mode 글. 설정이 끈 스킬의 글은 뺀다.
-/// 부모 없는 노드는 o-mode 절차 전체, 자식은 브리프 공통 규칙을 받는다. 자식에게 총괄 절차를 주지 않는다.
-/// 링크만 주면 모델이 읽지 않고 지나친다. 그래서 본문을 그대로 넣는다.
 pub fn always_on(launch: Launch) -> String {
-    // 질문 규칙을 맨 앞에 둔다. loom 기능과 직결된다(`ASK`).
-    let mut parts = vec![ask_rules()];
-    if launch.skills.ste100 {
-        parts.push(body(&text("ste-100/SKILL.md")).to_owned());
-    }
-    if launch.skills.raptor3 {
-        let raptor = text("raptor-3/SKILL.md");
-        let (_, rest) = raptor
-            .split_once("\n## 작업 중\n")
-            .expect("랩터-3에 「작업 중」 절이 있다");
-        let section = rest.split("\n## ").next().unwrap_or(rest);
-        parts.push(format!("# 랩터-3 작업 중\n\n{}", section.trim()));
-    }
-    if launch.skills.o_mode {
-        let mode = match launch.position {
-            Position::Root => text("o-mode/SKILL.md"),
-            Position::Child => text("o-mode/agent-rules.md"),
-        };
-        parts.push(format!("{MODE_NOTE}\n\n{}", body(&mode)));
-    }
-    parts.join("\n\n")
+    parts(launch)
+        .into_iter()
+        .map(|source| part(source).expect("`parts`가 고른 원본은 늘 있다"))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
-/// 끌 수 없는 질문 규칙(`ASK`)의 본문.
+pub fn part_digests(launch: Launch) -> BTreeMap<String, String> {
+    parts(launch)
+        .into_iter()
+        .filter_map(|source| Some((source.to_owned(), part_digest(source)?)))
+        .collect()
+}
+
+pub fn part_digest(source: &str) -> Option<String> {
+    part(source).map(|text| digest(&[&text]))
+}
+
+fn parts(launch: Launch) -> Vec<&'static str> {
+    let mode = match launch.position {
+        Position::Root => MODE_ROOT,
+        Position::Child => MODE_CHILD,
+    };
+    [
+        (true, ASK_SOURCE),
+        (launch.skills.ste100, STE_SOURCE),
+        (launch.skills.raptor3, RAPTOR_SOURCE),
+        (launch.skills.o_mode, mode),
+    ]
+    .into_iter()
+    .filter_map(|(on, source)| on.then_some(source))
+    .collect()
+}
+
+const ASK_SOURCE: &str = "ask-human/SKILL.md";
+const STE_SOURCE: &str = "ste-100/SKILL.md";
+const RAPTOR_SOURCE: &str = "raptor-3/SKILL.md";
+const MODE_ROOT: &str = "o-mode/SKILL.md";
+const MODE_CHILD: &str = "o-mode/agent-rules.md";
+
+fn part(source: &str) -> Option<String> {
+    match source {
+        ASK_SOURCE => Some(ask_rules()),
+        STE_SOURCE => Some(body(&text(source)).to_owned()),
+        RAPTOR_SOURCE => {
+            let raptor = text(source);
+            let (_, rest) = raptor
+                .split_once("\n## 작업 중\n")
+                .expect("랩터-3에 「작업 중」 절이 있다");
+            let section = rest.split("\n## ").next().unwrap_or(rest);
+            Some(format!("# 랩터-3 작업 중\n\n{}", section.trim()))
+        }
+        MODE_ROOT | MODE_CHILD => Some(format!("{MODE_NOTE}\n\n{}", body(&text(source)))),
+        _ => None,
+    }
+}
+
 pub fn ask_rules() -> String {
-    body(&text(&format!("{ASK}/SKILL.md"))).to_owned()
+    body(&text(ASK_SOURCE)).to_owned()
 }
 
-/// 시작 지시에 넣은 o-mode 글의 상대 링크는 시작 지시 안에서 열리지 않는다.
 const MODE_NOTE: &str = "아래 o-mode 글은 늘 적용한다. 상대 링크는 내장 스킬 `o-mode` 폴더 기준이다. 링크한 절이나 파일이 필요하면 그 스킬 폴더에서 읽는다.";
 
-/// 머리말(`---` 사이)을 뺀 본문.
 fn body(skill: &str) -> &str {
     skill
         .strip_prefix("---\n")
@@ -259,7 +242,6 @@ mod tests {
         }
     }
 
-    /// 부모 없는 노드는 총괄 절차, 자식은 브리프 공통 규칙만 받는다.
     #[test]
     fn root_gets_the_o_mode_procedure_and_child_gets_the_brief_rules() {
         let root = always_on(launch(Position::Root));
@@ -272,7 +254,6 @@ mod tests {
         assert!(!child.contains("## 병합과 회수"));
     }
 
-    /// 끈 스킬의 글만 빠진다.
     #[test]
     fn switched_off_skills_leave_the_launch_text() {
         let off = |skills| {
@@ -313,12 +294,30 @@ mod tests {
                 body(&text("o-mode/SKILL.md"))
             )
         );
-        // 끌 수 없는 스킬의 글만 남는다.
         let none = off(AlwaysOn::all().next().unwrap());
         assert_eq!(none, ask_rules());
     }
 
-    /// 옛 설정 줄에는 이 값이 없다. 없으면 켜짐이다.
+    #[test]
+    fn part_digests_name_each_received_part_by_its_source() {
+        let child = part_digests(Launch {
+            position: Position::Child,
+            skills: AlwaysOn {
+                ste100: false,
+                ..AlwaysOn::default()
+            },
+        });
+        assert_eq!(
+            child.keys().map(String::as_str).collect::<Vec<_>>(),
+            [ASK_SOURCE, MODE_CHILD, RAPTOR_SOURCE]
+        );
+        for (source, digest) in &child {
+            assert_eq!(part_digest(source).as_ref(), Some(digest));
+        }
+        assert_ne!(part_digest(MODE_ROOT), part_digest(MODE_CHILD));
+        assert_eq!(part_digest("o-mode/gone.md"), None);
+    }
+
     #[test]
     fn missing_switches_read_as_on() {
         let on: AlwaysOn = serde_json::from_str("{}").unwrap();
@@ -353,13 +352,11 @@ mod tests {
             );
         }
         assert!(plugin.skills(on).join("o-mode/agent-rules.md").is_file());
-        // 사람은 Orca와 loom 모두 `o-mode`로 부른다. loom 노드에서는 이 스킬이 그 이름을 받는다.
         let loom_mode = std::fs::read_to_string(plugin.skills(on).join("o-mode/SKILL.md")).unwrap();
         assert!(loom_mode.contains("\nname: o-mode\n"));
         assert!(plugin.skills(on).join("user-doc/scripts/show.sh").is_file());
     }
 
-    /// 조합마다 폴더가 다르고, 그 폴더에는 켠 스킬만 있다.
     #[test]
     fn each_combination_has_only_its_skills() {
         let tmp = tempfile::tempdir().unwrap();
@@ -376,7 +373,6 @@ mod tests {
         }
     }
 
-    /// 실은 스킬 폴더마다 설정 스위치가 있다. 끌 수 없는 스킬만 예외다.
     #[test]
     fn every_shipped_skill_has_a_switch() {
         let shipped: std::collections::BTreeSet<_> =
@@ -386,7 +382,6 @@ mod tests {
         assert_eq!(shipped, switched);
     }
 
-    /// 실은 스킬은 같이 실은 파일만 가리킨다. 사람의 `~/.agents/skills`나 싣지 않은 스킬로 가는 링크가 없다.
     #[test]
     fn skills_link_only_to_shipped_files() {
         for name in Files::iter().filter(|n| n.ends_with(".md")) {
@@ -394,7 +389,6 @@ mod tests {
             assert!(!body.contains("~/.agents/"), "{name}");
             let base = Path::new(name.as_ref()).parent().unwrap();
             for target in links(&body) {
-                // `<파일>`은 사용법 예시의 자리표시자다(ask-human 「`--doc`」).
                 if target.starts_with("http") || target.starts_with('<') {
                     continue;
                 }
@@ -408,7 +402,6 @@ mod tests {
         }
     }
 
-    /// markdown 링크 `](대상)`의 대상들.
     fn links(body: &str) -> Vec<&str> {
         body.split("](")
             .skip(1)

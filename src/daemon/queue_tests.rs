@@ -1,6 +1,3 @@
-//! 병합 큐를 실제 bash·git·flock으로 돌린다: 원격(bare), 원래 체크아웃, 가짜 check.sh·ship.sh.
-//! Windows 대상 시험은 스크립트를 WSL로 띄우는 길(`wsl::command`)을 `wsl::tests`가 본다.
-
 use super::*;
 
 #[test]
@@ -44,10 +41,10 @@ mod git_runs {
             token: token.into(),
             server: None,
             account: None,
+            rules: None,
         }
     }
 
-    /// 원격과 원래 체크아웃(main), 데몬 하나. check.sh는 `bad` 파일이 있으면 실패하고 도는 차례를 `check-runs`에 적는다.
     struct Repo {
         dir: tempfile::TempDir,
         main: PathBuf,
@@ -157,7 +154,6 @@ mod git_runs {
     }
 
     impl Repo {
-        /// `from`에서 브랜치를 만들어 파일 하나를 쓴 커밋.
         fn branch(&self, name: &str, from: &str, file: &str, text: &str) -> String {
             git(&self.main, &["checkout", "-q", "-b", name, from]);
             std::fs::write(self.main.join(file), text).unwrap();
@@ -168,7 +164,6 @@ mod git_runs {
             head
         }
 
-        /// 브랜치를 큐에 세운다. 담당은 총괄(스스로 관문), 판정은 총괄이 띄운 검토자다.
         fn queue(
             &self,
             owner: NodeId,
@@ -221,7 +216,6 @@ mod git_runs {
             std::fs::read_dir(self.main.join(".git/loom-batches")).map_or(0, |d| d.count())
         }
 
-        /// 데몬과 다른 연결로 DB를 고친다(시험 준비).
         fn sql(&self, sql: &str) {
             rusqlite::Connection::open(self.dir.path().join("loom.db"))
                 .unwrap()
@@ -240,7 +234,6 @@ mod git_runs {
                 .unwrap()
         }
 
-        /// 원래 체크아웃의 파일을 바꿔 원격에 올린다. 그 뒤 만든 브랜치가 그 파일을 쓴다.
         fn commit_main(&self, file: &str, text: &str) {
             std::fs::write(self.main.join(file), text).unwrap();
             git(&self.main, &["add", "-A"]);
@@ -369,7 +362,6 @@ mod git_runs {
         ));
     }
 
-    /// 넷 가운데 하나가 검사를 깬다: 그 브랜치만 반려되고 나머지는 다음 묶음에서 병합된다. 검사는 1 + log2(4) = 3번이다.
     #[tokio::test]
     async fn bisect_finds_the_one_bad_branch_and_requeues_the_rest() {
         let r = repo();
@@ -413,7 +405,6 @@ mod git_runs {
                 (2, "a".to_owned(), BatchResult::Passed),
             ]
         );
-        // 다음 묶음은 처음 큐 순서로 나머지를 병합한다.
         r.batch("main").await;
         assert_eq!(r.checks(), 4);
         for name in ["a", "c", "d"] {
@@ -422,14 +413,12 @@ mod git_runs {
         assert_eq!(git(&r.main, &["rev-parse", "main^2"]), heads[3].1);
     }
 
-    /// 데몬이 묶음 중에 끝났다. 검사 전이면 큐에 다시 서고, 검사를 지났으면 다시 띄운 데몬이 게시를 잇는다.
     #[tokio::test]
     async fn a_restarted_daemon_requeues_or_publishes_a_stale_batch() {
         let r = repo();
         let a = r.branch("a", "main", "a.txt", "a");
         r.queue_main("a", &a);
         r.app.graph.batch_open(RepoId(1), "main", &["a"]).unwrap();
-        // 끝난 데몬이 남긴 임시 워크트리.
         git(
             &r.main,
             &[
@@ -447,7 +436,6 @@ mod git_runs {
         assert_eq!(r.batch_dirs(), 0);
         assert_eq!(r.checks(), 0);
 
-        // 검사를 지난 묶음 끝을 남기고 끝났다.
         let base = git(&r.main, &["rev-parse", "main"]);
         let spare = r.dir.path().join("spare");
         git(
@@ -483,7 +471,6 @@ mod git_runs {
         );
     }
 
-    /// 한 호스트에서 check.sh는 한 번에 하나다. check.sh가 남긴 자식은 잠금을 쥐지 않는다(옛 `loom merge` 검토 P3-e).
     #[tokio::test]
     async fn one_check_runs_at_a_time_and_a_leftover_child_keeps_no_lock() {
         let r = repo();
@@ -517,7 +504,6 @@ mod git_runs {
         assert!(free.success(), "the leftover sleep keeps no lock");
     }
 
-    /// 코디 브랜치가 대상이면 코디 워크트리를 빨리 감는다. 미커밋 변경이 있으면 반려다. 원격과 루트는 건드리지 않는다.
     #[tokio::test]
     async fn a_coordinator_target_fast_forwards_only_a_clean_worktree() {
         let r = repo();
@@ -559,7 +545,6 @@ mod git_runs {
         );
     }
 
-    /// 묶음 스크립트의 끝 덫은 자기 워크트리만 지운다: 끝난 데몬의 스크립트가 새 묶음의 워크트리를 지우지 않는다(검토 S1·R2).
     #[tokio::test]
     async fn a_batch_script_removes_only_its_own_worktree() {
         let r = repo();
@@ -572,7 +557,6 @@ mod git_runs {
         assert!(other.exists(), "another batch's worktree stays");
     }
 
-    /// push가 원격이 움직이지 않았는데 실패하면 실패로 끝낸다. 큐에 다시 서서 검사를 되풀이하지 않는다(검토 S2).
     #[tokio::test]
     async fn a_failed_push_ends_the_batch_as_failed_without_a_loop() {
         let r = repo();
@@ -595,14 +579,12 @@ mod git_runs {
         assert!(r.publish_logs().contains("git push origin main failed"));
     }
 
-    /// push는 검사한 커밋을 보낸다. 빨리 감기 뒤 훅이 커밋을 더하면 게시하지 않는다(검토 R1).
     #[tokio::test]
     async fn only_the_checked_commit_is_pushed() {
         let r = repo();
         let base = git(&r.main, &["rev-parse", "main"]);
         r.hook(
             "post-merge",
-            // 훅은 모든 워크트리가 함께 쓴다. 원래 체크아웃(`.git`이 폴더)에서만 커밋한다.
             "#!/bin/sh\n[ -d .git ] || exit 0\necho x >unchecked && git add unchecked && git commit -qm unchecked\n",
         );
         let a = r.branch("a", "main", "a.txt", "a");
@@ -613,7 +595,6 @@ mod git_runs {
         assert!(r.publish_logs().contains("moved after the fast-forward"));
     }
 
-    /// 저장소를 찾지 못하면 브랜치를 실패로 끝낸다. `Merging`에 남지 않는다(검토 S3).
     #[tokio::test]
     async fn a_missing_repository_ends_the_members_as_failed() {
         let r = repo();
@@ -631,7 +612,6 @@ mod git_runs {
         assert!(r.app.graph.queued_targets().unwrap().is_empty());
     }
 
-    /// 마이그레이션 36이 남긴 묶음 없는 `Merging`은 데몬이 시작할 때 실패로 끝내고 알린다(검토 S4·R4·R5).
     #[tokio::test]
     async fn an_old_round_left_by_the_migration_fails_with_a_notice() {
         let r = repo();
@@ -648,7 +628,6 @@ mod git_runs {
         assert_eq!(r.checks(), 0);
     }
 
-    /// 앞 브랜치가 품은 브랜치는 그 병합으로 끝난다. ship.sh는 자기 병합이 있는 마지막 브랜치를 받는다(검토 S5).
     #[tokio::test]
     async fn a_branch_inside_an_earlier_branch_ends_merged_by_that_merge() {
         let r = repo();
@@ -668,7 +647,6 @@ mod git_runs {
         assert!(r.publish_logs().contains(&format!("ship b2 {b2}")));
     }
 
-    /// 묶음 끝이 원격에 오른 뒤 ship.sh가 실패해도 병합은 끝났다. 배포만 모른다(검토 S6).
     #[tokio::test]
     async fn a_ship_error_after_the_push_still_ends_merged() {
         let r = repo();
@@ -686,7 +664,6 @@ mod git_runs {
         );
     }
 
-    /// 이분 탐색의 모든 시도는 같은 대상 커밋 위에 쌓는다. 검사 중에 대상이 움직여도 같다(검토 S6).
     #[tokio::test]
     async fn every_trial_of_a_batch_stacks_on_the_same_base() {
         let r = repo();
@@ -719,7 +696,6 @@ mod git_runs {
         );
         let runs = std::fs::read_to_string(r.main.join(".git/check-runs")).unwrap();
         let runs: Vec<&str> = runs.lines().collect();
-        // 첫 시도는 a·b 두 병합, 둘째 시도는 a 한 병합을 쌓았다.
         assert_eq!(runs.len(), 2, "{runs:?}");
         for (run, merges) in runs.iter().zip([2, 1]) {
             assert_eq!(
@@ -729,7 +705,6 @@ mod git_runs {
         }
     }
 
-    /// 끝 상태를 쓰지 못한 브랜치가 있으면 묶음 줄이 남고, 큐가 다음에 깰 때 게시를 이어 끝낸다(검토 R3).
     #[tokio::test]
     async fn a_failed_final_write_keeps_the_batch_for_recovery() {
         let r = repo();

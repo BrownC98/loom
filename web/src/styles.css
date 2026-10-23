@@ -556,7 +556,8 @@ a { color: var(--accent); }
 .inbox-pill .head > b { white-space: nowrap; }
 /* 완료만 남은 알약: 질문 색 자리에 노드 상태 「완료」 점과 같은 초록(목업 docs/mockups/done-notice.html M37). */
 /* 배지 글자는 --surface다. 설정 「완료·성공」 색은 --surface와의 대비를 맞추므로 사람이 고른 색에서도 읽힌다. */
-.inbox-pill[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
+/* 폰 질문 띠도 PC 알약과 같은 색을 쓴다(목업 docs/mockups/band-color.html M8, 2026-10-23 사람 승인 Q484 "색을 pc 버전 알림 색과 동일하게"). */
+.inbox-pill[data-kind="done"], .phone-ask-wrap[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
 .inbox-pill .qicon { flex: none; width: 16px; height: 16px; margin-right: -2px; color: var(--warn); }
 .inbox-pill .go { flex: 1; min-width: 0; padding: 2px 4px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .inbox-pill .go b { color: var(--ink); font-size: 13px; }

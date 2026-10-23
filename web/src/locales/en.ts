@@ -564,6 +564,7 @@ const en = {
       noWait: 'Question Q{{value}} is already closed.',
       severalOpen: 'Several questions are open: {{value}}.',
       emptyAnswer: 'Write an answer.',
+      promptChanged: 'The approval prompt in the terminal changed. Nothing was sent. Check the terminal.',
       launch: 'Could not start the node: {{value}}',
       db: 'Could not read or save records: {{value}}',
     },

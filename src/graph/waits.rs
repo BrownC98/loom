@@ -18,7 +18,9 @@ use ts_rs::TS;
 
 use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
-use super::{Graph, NodeId, NodeState, Refusal, parent_of, state_of, to_json};
+use crate::profile::AgentId;
+
+use super::{Graph, NodeId, NodeState, Refusal, from_json, parent_of, state_of, to_json};
 
 /// 사람이 할 일의 종류. 화면이 이름과 아이콘을 고른다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -72,6 +74,47 @@ pub struct WaitDoc {
     pub title: String,
 }
 
+/// 터미널 승인 창의 본문과 선택지(`screen::prompt`). 화면은 선택지마다 버튼을 그리고, 누르면 이 값을 그대로 돌려보낸다(`Graph::approval`).
+/// 데몬은 보내기 직전 화면을 다시 읽어 같은 값일 때만 키를 친다. 그래서 다른 창에 키가 들어가지 않는다(2026-10-23 목업 M11 승인).
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct Prompt {
+    /// 창 본문(도구, 명령, 이유) 줄들. 터미널 글 그대로다.
+    pub body: Vec<String>,
+    /// 무엇을 승인하는지 한 줄(명령). 알약 미리 보기가 쓴다.
+    pub summary: String,
+    pub options: Vec<PromptOption>,
+}
+
+/// 승인 창의 선택지 하나. `label`은 터미널 글(영어) 그대로다.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PromptOption {
+    pub label: String,
+    pub key: PromptKey,
+}
+
+/// 선택지를 고르는 키 하나. 누르면 바로 정한다(Claude 2.1.309, Codex 0.159.2 실측: 숫자 키 하나, Enter 없음).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+#[ts(export)]
+pub enum PromptKey {
+    Char(char),
+    Tab,
+    BackTab,
+}
+
+impl PromptKey {
+    /// 터미널에 쓰는 바이트.
+    pub fn bytes(self) -> Vec<u8> {
+        match self {
+            PromptKey::Char(c) => c.to_string().into_bytes(),
+            PromptKey::Tab => b"\t".to_vec(),
+            PromptKey::BackTab => b"\x1b[Z".to_vec(),
+        }
+    }
+}
+
 /// `loom ask --doc`이 붙인 문서와 그 파일.
 pub struct Attached {
     pub doc: WaitDoc,
@@ -99,6 +142,10 @@ pub struct HumanWait {
     /// 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
     #[serde(default)]
     pub images: Vec<String>,
+    /// 승인(`Approval`) 신호 대기만: 지금 터미널 화면에서 읽은 승인 창. 읽지 못했으면 없다. DB에 두지 않는다(`Graph::set_prompt`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<Prompt>,
 }
 
 /// DB `nodes.wait`의 JSON.
@@ -401,6 +448,20 @@ impl Graph {
             .ok_or(Refusal::NoWait(wait))
     }
 
+    /// 사람이 알림에서 승인 창의 선택지를 눌렀다. 그 번호가 열린 승인 신호 대기면 그 노드와 에이전트를 돌려준다. 키는 데몬이 화면을 다시 읽고 친다.
+    pub fn approval(&self, wait: WaitId) -> Result<(NodeId, Option<AgentId>), Refusal> {
+        let found: Option<(u32, Option<AgentId>)> = self
+            .lock()
+            .query_row(
+                "SELECT id, agent FROM nodes WHERE wait ->> 'id' = ?1 AND wait ->> 'kind' = 'approval'",
+                [wait.0],
+                |row| Ok((row.get(0)?, from_json(row, 1)?)),
+            )
+            .optional()?;
+        let (node, agent) = found.ok_or(Refusal::NoWait(wait))?;
+        Ok((NodeId(node), agent))
+    }
+
     /// 노드 프로세스를 다시 띄웠다. 신호의 대기와 열린 질문을 모두 지운다.
     pub fn clear_wait(&self, id: NodeId) -> rusqlite::Result<()> {
         let mut db = self.lock();
@@ -507,6 +568,7 @@ fn new_wait(
         doc,
         instruction: None,
         images: Vec::new(),
+        prompt: None,
     })
 }
 

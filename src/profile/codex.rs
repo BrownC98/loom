@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::VersionMismatch;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::{Dialog, Place};
+use crate::screen::{Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
 #[allow(clippy::all, dead_code)]
@@ -24,6 +24,12 @@ use protocol::{
     AbsolutePathBuf, SkillsExtraRootsSetParams, TextUserInputType, Thread, ThreadItem,
     ThreadReadParams, ThreadReadResponse, ThreadTurnsListParams, ThreadTurnsListResponse,
     TurnInterruptParams, TurnItemsView, TurnStartParams, TurnStatus, TurnSteerParams, UserInput,
+};
+
+/// 승인 창(0.159.2 실측): 테두리가 없고 「Would you like to …」 줄부터 본문이다. 선택지는 `› 1. Yes, proceed (y)` 꼴이다.
+pub const PROMPT: Grammar = Grammar {
+    top: Top::Line("Would you like to"),
+    options: Options::Numbered,
 };
 
 /// `src/profile/codex/schema/`를 만든 Codex 버전.
@@ -368,6 +374,69 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::PromptKey;
+
+    /// 0.159.2 승인 창(2026-10-23 tmux 120x40 실측, `-a on-request -s read-only`).
+    const APPROVAL: &str = concat!(
+        "\n",
+        "  >_ OpenAI Codex (v0.159.2)\n",
+        "     /tmp/zz/repo\n",
+        "\n",
+        "  What’s the first thing on our napkin sketch?\n",
+        "\n",
+        "\n",
+        "› Run exactly this shell command: touch zz_file\n",
+        "\n",
+        "\n",
+        "• 요청한 명령을 실행하겠습니다.\n",
+        "\n",
+        "• Running touch zz_file\n",
+        "\n",
+        "\n",
+        "  Would you like to run the following command?\n",
+        "\n",
+        "  Environment: local\n",
+        "\n",
+        "  Reason: 읽기 전용 제한으로 명령이 실패했습니다. 제한 밖에서 같은 명령을 실행하도록 허용하시겠습니까?\n",
+        "\n",
+        "  $ touch zz_file\n",
+        "\n",
+        "\n",
+        "› 1. Yes, proceed (y)\n",
+        "  2. Yes, and don't ask again for commands that start with `touch zz_file` (p)\n",
+        "  3. No, and tell Codex what to do differently (esc)\n",
+        "\n",
+        "  Press enter to confirm or esc to cancel\n",
+    );
+
+    #[test]
+    fn approval_prompt_is_read_from_the_screen() {
+        let prompt = crate::screen::prompt(&PROMPT, APPROVAL).unwrap();
+        assert_eq!(
+            prompt.body[0],
+            "Would you like to run the following command?"
+        );
+        assert_eq!(prompt.summary, "$ touch zz_file");
+        let options: Vec<_> = prompt
+            .options
+            .iter()
+            .map(|o| (o.label.as_str(), o.key))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                ("Yes, proceed", PromptKey::Char('1')),
+                (
+                    "Yes, and don't ask again for commands that start with `touch zz_file`",
+                    PromptKey::Char('2')
+                ),
+                (
+                    "No, and tell Codex what to do differently",
+                    PromptKey::Char('3')
+                ),
+            ]
+        );
+    }
 
     #[test]
     fn launch_text_has_the_ask_rules() {

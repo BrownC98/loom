@@ -24,7 +24,10 @@ use ts_rs::TS;
 pub use events::{Entry, EventRecord, SwitchCause, Who};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
-pub use waits::{Attached, HUMAN, HumanWait, OpenQuestion, WaitDoc, WaitId, WaitKind, WaitSource};
+pub use waits::{
+    Attached, HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId,
+    WaitKind, WaitSource,
+};
 
 use crate::db::Database;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
@@ -220,6 +223,8 @@ pub enum Refusal {
     EmptyAnswer,
     /// 번호 없는 `loom answered`인데 열린 질문이 여럿이다. 값은 열린 번호다.
     SeveralOpen(Vec<WaitId>),
+    /// 알림에서 고른 승인 창이 지금 터미널 화면과 다르다(닫혔거나 글·선택지가 바뀌었다). 키를 치지 않았다.
+    PromptChanged(WaitId),
     Launch(String),
     Db(String),
 }
@@ -319,6 +324,10 @@ impl fmt::Display for Refusal {
                     open.join(" ")
                 )
             }
+            Refusal::PromptChanged(wait) => write!(
+                f,
+                "{wait}: the approval prompt in the terminal changed. Nothing was sent."
+            ),
             Refusal::Launch(e) => write!(f, "Could not start the node: {e}"),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }
@@ -338,9 +347,18 @@ pub struct Graph {
     events: broadcast::Sender<GraphEvent>,
     /// 메시지를 넣을 때마다 `wait` 모두를 깨운다. 깬 쪽이 자기 메시지인지 DB에서 본다.
     mail: Notify,
-    /// 실행 중인 노드 CLI의 터미널 제목에서 꺼낸 주제. PTY와 함께 사라지므로 DB에 두지 않는다.
+    /// 실행 중인 노드의 터미널에서 읽은 값. PTY와 함께 사라지므로 DB에 두지 않는다.
     /// `db`를 잠근 채 잠근다. 반대 순서로 잠그지 않는다.
-    titles: Mutex<HashMap<NodeId, String>>,
+    live: Mutex<HashMap<NodeId, Live>>,
+}
+
+/// 노드 터미널에서 읽은 값 하나씩. 다시 시작한 데몬은 화면을 다시 읽어 채운다.
+#[derive(Default)]
+struct Live {
+    /// CLI 터미널 제목에서 꺼낸 주제.
+    title: Option<String>,
+    /// 화면의 승인 창. 승인 신호 대기에 붙여 보낸다. 훅이 화면보다 먼저 오든 늦게 오든 보기를 만들 때 붙으므로 순서를 맞출 일이 없다.
+    prompt: Option<Prompt>,
 }
 
 // 「안 읽음」은 사람이 눌러 앞당길 수 있는 메시지, 곧 아직 넘기지 않은 큐 메시지만 센다.
@@ -398,7 +416,7 @@ impl Graph {
             published: Mutex::new(published),
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
-            titles: Mutex::default(),
+            live: Mutex::default(),
         })
     }
 
@@ -426,12 +444,12 @@ impl Graph {
     /// 지금 목록과 그 뒤의 이벤트를 빈틈없이 받는다.
     pub fn subscribe(&self) -> rusqlite::Result<(Vec<NodeView>, broadcast::Receiver<GraphEvent>)> {
         let db = self.lock();
-        let titles = self.titles.lock().unwrap();
+        let live = self.live.lock().unwrap();
         let views = db
             .prepare(&format!("{VIEW_COLUMNS} ORDER BY n.id"))?
-            .query_map([], |row| view_from_row(row, &titles))?
+            .query_map([], |row| view_from_row(row, &live))?
             .collect::<rusqlite::Result<_>>()?;
-        drop(titles);
+        drop(live);
         Ok((views, self.events.subscribe()))
     }
 
@@ -473,11 +491,11 @@ impl Graph {
 
     /// 잠금을 쥔 채 부른다. 그래야 이벤트 순서가 DB 변경 순서와 같다.
     fn publish_node(&self, db: &Connection, id: NodeId) -> rusqlite::Result<()> {
-        let titles = self.titles.lock().unwrap();
+        let live = self.live.lock().unwrap();
         let view = db.query_row(&format!("{VIEW_COLUMNS} WHERE n.id = ?1"), [id.0], |row| {
-            view_from_row(row, &titles)
+            view_from_row(row, &live)
         })?;
-        drop(titles);
+        drop(live);
         // 보는 화면이 없으면 send가 실패한다. 화면은 붙을 때 목록 전체를 받으므로 버려도 된다.
         let _ = self.events.send(GraphEvent::Node(view));
         Ok(())
@@ -504,8 +522,9 @@ impl Graph {
     }
 }
 
-fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Result<NodeView> {
+fn view_from_row(row: &Row, live: &HashMap<NodeId, Live>) -> rusqlite::Result<NodeView> {
     let id = NodeId(row.get(0)?);
+    let live = live.get(&id);
     let state = from_json(row, 4)?;
     let brief: Option<String> = row.get(11)?;
     let wait: Option<String> = row.get(13)?;
@@ -520,13 +539,22 @@ fn view_from_row(row: &Row, titles: &HashMap<NodeId, String>) -> rusqlite::Resul
     waits.sort_by_key(|w| w.id.0);
     waits.extend(
         wait.and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
-            .map(|s| s.wait),
+            .map(|s| HumanWait {
+                prompt: (s.wait.kind == WaitKind::Approval)
+                    .then(|| live.and_then(|l| l.prompt.clone()))
+                    .flatten(),
+                ..s.wait
+            }),
     );
     let mut done: Vec<HumanWait> = serde_json::from_str(&done).unwrap_or_default();
     done.sort_by_key(|w| w.id.0);
     waits.extend(done);
     Ok(NodeView {
-        topic: topic(&state, titles.get(&id), brief.as_deref()),
+        topic: topic(
+            &state,
+            live.and_then(|l| l.title.as_ref()),
+            brief.as_deref(),
+        ),
         id,
         name: row.get(1)?,
         agent: from_json(row, 2)?,

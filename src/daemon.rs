@@ -48,7 +48,7 @@ use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
     Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model, NewChild,
-    NodeId, Place, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc, WaitId,
+    NodeId, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Sent, TreeLimits, WaitDoc, WaitId,
     WaitKind, WaitSource,
 };
 use crate::launch;
@@ -444,6 +444,15 @@ pub struct AnswerWait {
     pub images: Vec<PathBuf>,
 }
 
+/// 사람이 알림에서 고른 승인 창 선택지. `prompt`는 화면이 보인 창 그대로, `option`은 그 `options`의 차례다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct ChooseOption {
+    pub prompt: Prompt,
+    #[ts(type = "number")]
+    pub option: usize,
+}
+
 /// 에이전트 답 글(Claude 기록 파일의 마지막 답, Cursor `afterAgentResponse`). 턴 끝 질문 검사가 쓴다.
 #[derive(Serialize, Deserialize)]
 pub struct SaidRequest {
@@ -634,6 +643,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         )
         .route("/api/waits/{wait}", delete(dismiss_wait))
         .route("/api/waits/{wait}/answer", post(answer_wait))
+        .route("/api/waits/{wait}/choose", post(choose_wait))
         .route("/api/waits/{wait}/doc", post(open_wait_doc))
         .route("/api/waits/{wait}/doc/", get(wait_doc))
         .route("/api/waits/{wait}/doc/{*file}", get(wait_doc_file))
@@ -1103,6 +1113,7 @@ impl App {
     /// `token`은 이 프로세스의 토큰이다. 같은 토큰의 호출만 세션을 시작한다(`Sessions::started`).
     fn follow_screen(self: &Arc<Self>, id: NodeId, profile: Option<Profile>, token: &str) {
         let dialogs = profile::dialogs(profile);
+        let grammar = profile::prompt_grammar(profile);
         let Some(attached) = self.host.attach(id) else {
             return;
         };
@@ -1137,11 +1148,15 @@ impl App {
                     }
                 }
                 changed = false;
-                let found =
-                    screen::find(dialogs, &app.host.screen(id), *started.borrow_and_update());
+                let text = app.host.screen(id);
+                let found = screen::find(dialogs, &text, *started.borrow_and_update());
                 let wait = found.as_ref().map(|(kind, text)| (*kind, text.as_str()));
                 if let Err(e) = app.graph.set_wait(id, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
+                }
+                let prompt = grammar.and_then(|g| screen::prompt(g, &text));
+                if let Err(e) = app.graph.set_prompt(id, prompt) {
+                    eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
             }
         });
@@ -1793,6 +1808,31 @@ async fn answer_wait(
 ) -> Result<Json<()>, Problem> {
     let node = app.graph.answer(WaitId(wait), &req.text, &req.images)?;
     app.turn_ends.human(node);
+    Ok(Json(()))
+}
+
+/// 사람이 알림에서 승인 창의 선택지를 눌렀다. 화면을 다시 읽어 사람이 본 창(`prompt`)과 같을 때만 그 키를 친다.
+/// 다르면(닫혔거나 다른 창이 떴다) 아무 키도 치지 않고 거절한다. 근거: 2026-10-23 목업 M11 승인(Q507 A).
+async fn choose_wait(
+    State(app): State<Arc<App>>,
+    Path(wait): Path<u32>,
+    Json(req): Json<ChooseOption>,
+) -> Result<Json<()>, Problem> {
+    let wait = WaitId(wait);
+    let (node, agent) = app.graph.approval(wait)?;
+    let grammar = agent
+        .as_ref()
+        .and_then(profile::profile_of)
+        .and_then(|p| profile::prompt_grammar(Some(p)));
+    let now = grammar.and_then(|g| screen::prompt(g, &app.host.screen(node)));
+    let option = match now {
+        Some(now) if now == req.prompt => now.options.get(req.option).cloned(),
+        _ => None,
+    };
+    let option = option.ok_or(Refusal::PromptChanged(wait))?;
+    app.host.write(node, &option.key.bytes());
+    // 터미널에서 키를 친 것과 같다(`pty`의 `typed`).
+    app.graph.typed(node).map_err(Refusal::from)?;
     Ok(Json(()))
 }
 

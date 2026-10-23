@@ -257,6 +257,47 @@ fn signal_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     assert_eq!(waits(lead), []);
 }
 
+/// 화면의 승인 창은 승인 신호 대기에만 붙는다. 훅이 화면보다 먼저 오든 늦게 오든 붙는다(목업 M11).
+#[test]
+fn screen_prompt_joins_only_the_approval_wait_in_either_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let prompt = Prompt {
+        body: vec!["Bash command".into(), "git push".into()],
+        summary: "git push".into(),
+        options: vec![PromptOption {
+            label: "Yes".into(),
+            key: PromptKey::Char('1'),
+        }],
+    };
+    let shown = |g: &Graph| view(g, lead).waits.first().and_then(|w| w.prompt.clone());
+    let permission = Some((WaitKind::Approval, "Claude needs your permission"));
+
+    // 훅 먼저, 화면 뒤.
+    g.set_wait(lead, WaitSource::Hook, permission).unwrap();
+    assert_eq!(shown(&g), None);
+    g.set_prompt(lead, Some(prompt.clone())).unwrap();
+    assert_eq!(shown(&g), Some(prompt.clone()));
+    let wait = view(&g, lead).waits[0].id;
+    assert_eq!(g.approval(wait).unwrap().0, lead);
+    g.typed(lead).unwrap();
+    assert_eq!(g.approval(wait), Err(Refusal::NoWait(wait)));
+
+    // 화면 먼저, 훅 뒤.
+    g.set_wait(lead, WaitSource::Hook, permission).unwrap();
+    assert_eq!(shown(&g), Some(prompt.clone()));
+
+    // 다른 대기에는 붙지 않는다.
+    g.typed(lead).unwrap();
+    g.set_wait(lead, WaitSource::Screen, Some((WaitKind::Trust, "t")))
+        .unwrap();
+    assert_eq!(shown(&g), None);
+    let trust = view(&g, lead).waits[0].id;
+    assert_eq!(g.approval(trust), Err(Refusal::NoWait(trust)));
+    g.set_prompt(lead, None).unwrap();
+}
+
 /// 노드 하나가 질문 여럿을 연다(목업 M28). 새 질문은 앞 질문을 지우지 않고, 신호의 대기와 따로 산다.
 /// `loom answered`는 번호로 닫는다. 번호 없이는 열린 질문이 하나일 때만 닫는다.
 #[test]

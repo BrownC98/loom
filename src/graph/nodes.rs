@@ -5,10 +5,11 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::events::{self, ClosedBy, Entry};
+use super::waits::Prompt;
 use super::{
-    Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward, TreeLimits,
-    ambiguous, first_line, from_json, mailbox, name_of, parent_of, place_label, place_of,
-    set_state, state_of, to_json, waits,
+    Db, Graph, GraphEvent, Kind, Live, Model, NodeId, NodeState, Place, Refusal, Toward,
+    TreeLimits, ambiguous, first_line, from_json, mailbox, name_of, parent_of, place_label,
+    place_of, set_state, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
@@ -181,7 +182,7 @@ impl Graph {
         )?;
         tx.execute("DELETE FROM nodes WHERE id = ?1", [id.0])?;
         tx.commit()?;
-        self.titles.lock().unwrap().remove(&id);
+        self.live.lock().unwrap().remove(&id);
         let _ = self.events.send(GraphEvent::Removed { id });
         Ok(())
     }
@@ -218,7 +219,7 @@ impl Graph {
 
     fn end_process(&self, id: NodeId, ended: NodeState, notice: String) -> rusqlite::Result<()> {
         let mut db = self.lock();
-        self.titles.lock().unwrap().remove(&id);
+        self.live.lock().unwrap().remove(&id);
         let Some(state) = state_of(&db, id).optional()? else {
             return Ok(());
         };
@@ -403,17 +404,24 @@ impl Graph {
     /// 노드 CLI의 터미널 제목에서 꺼낸 주제를 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
     /// 노드마다 PTY 출력을 읽는 스레드 하나만 부른다. 그래서 비교와 바꾸기 사이에 다른 값이 끼지 않는다.
     pub fn set_title(&self, id: NodeId, title: Option<String>) -> rusqlite::Result<()> {
-        if self.titles.lock().unwrap().get(&id) == title.as_ref() {
-            return Ok(());
-        }
+        self.set_live(id, |live| set_if_changed(&mut live.title, title))
+    }
+
+    /// 노드 터미널 화면의 승인 창을 바꾼다. 값이 바뀌었을 때만 화면에 알린다. 기억에만 둔다.
+    /// 노드마다 화면을 따라가는 작업 하나(`daemon::follow_screen`)만 부른다.
+    pub fn set_prompt(&self, id: NodeId, prompt: Option<Prompt>) -> rusqlite::Result<()> {
+        self.set_live(id, |live| set_if_changed(&mut live.prompt, prompt))
+    }
+
+    /// `change`가 값을 바꿨으면 화면에 알린다.
+    fn set_live(&self, id: NodeId, change: impl FnOnce(&mut Live) -> bool) -> rusqlite::Result<()> {
         // 화면에 보내는 순서가 DB 변경 순서와 같도록 DB를 먼저 잠근다.
         let db = self.lock();
-        let mut titles = self.titles.lock().unwrap();
-        match title {
-            Some(title) => titles.insert(id, title),
-            None => titles.remove(&id),
-        };
-        drop(titles);
+        let mut live = self.live.lock().unwrap();
+        if !change(live.entry(id).or_default()) {
+            return Ok(());
+        }
+        drop(live);
         self.publish_node(&db, id)
     }
 }
@@ -581,7 +589,7 @@ struct Removal {
 
 impl Removal {
     fn publish(self, graph: &Graph, db: &Connection) -> rusqlite::Result<()> {
-        graph.titles.lock().unwrap().remove(&self.id);
+        graph.live.lock().unwrap().remove(&self.id);
         let _ = graph.events.send(GraphEvent::Removed { id: self.id });
         for child in self.children {
             graph.publish_node(db, child)?;
@@ -883,4 +891,13 @@ pub struct Relations {
     pub me: Peer,
     pub parent: Option<Peer>,
     pub children: Vec<Peer>,
+}
+
+/// `slot`을 `value`로 바꾸고 바뀌었는지 돌려준다.
+fn set_if_changed<T: PartialEq>(slot: &mut Option<T>, value: Option<T>) -> bool {
+    if *slot == value {
+        return false;
+    }
+    *slot = value;
+    true
 }

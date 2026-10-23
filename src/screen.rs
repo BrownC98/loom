@@ -2,7 +2,7 @@
 //! 찾을 글은 프로필이 갖는다(`profile::dialogs`). 바뀌는 이유는 CLI 화면 문구다.
 //! 근거: docs/design.md 「사람 응답 대기」.
 
-use crate::graph::WaitKind;
+use crate::graph::{Prompt, PromptKey, PromptOption, WaitKind};
 
 /// 화면에서 찾을 확인 창 하나.
 pub struct Dialog {
@@ -75,6 +75,140 @@ fn squeeze(text: &str) -> String {
         .filter(|c| !c.is_whitespace())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+/// 승인 창을 읽는 법. 프로필이 갖는다(`profile::prompt_grammar`).
+pub struct Grammar {
+    pub top: Top,
+    pub options: Options,
+}
+
+/// 승인 창 본문이 시작하는 곳.
+pub enum Top {
+    /// 마지막 창 칸 테두리(`Place::Panel`과 같은 줄) 아래.
+    PanelEdge,
+    /// 이 글로 시작하는 마지막 줄부터(Codex: 테두리가 없다).
+    Line(&'static str),
+}
+
+/// 선택지 줄의 꼴.
+pub enum Options {
+    /// `❯ 1. Yes`: 숫자 키 하나가 고르고 정한다. 끝의 `(y)` 같은 짧은 힌트는 글에서 뺀다(Codex).
+    Numbered,
+    /// `→ Run (once) (y)`: 끝 괄호가 키다(Cursor).
+    Hinted,
+}
+
+/// 지금 고른 선택지 앞 표시. 승인 창이면 선택지 하나에 꼭 있다. 에이전트가 출력한 번호 목록은 이 표시가 없다.
+const SELECTED: [char; 3] = ['❯', '›', '→'];
+/// 숫자 선택지 끝의 키 힌트 글자 수 상한(Codex `(y)`, `(esc)`).
+const HINT_LIMIT_CHARS: usize = 3;
+
+/// `screen`(`NodeHost::screen`)에 떠 있는 승인 창. 창 꼴이 아니면 없다.
+pub fn prompt(grammar: &Grammar, screen: &str) -> Option<Prompt> {
+    let lines: Vec<&str> = screen.lines().collect();
+    let top = match grammar.top {
+        Top::PanelEdge => lines.iter().rposition(|l| is_panel_edge(l))? + 1,
+        Top::Line(text) => lines.iter().rposition(|l| l.trim().starts_with(text))?,
+    };
+    let first = top
+        + lines[top..]
+            .iter()
+            .position(|l| option(&grammar.options, l).is_some())?;
+    let mut options: Vec<(PromptOption, bool)> = Vec::new();
+    let mut indent = 0;
+    for line in &lines[first..] {
+        if let Some((parsed, selected)) = option(&grammar.options, line) {
+            if let Options::Numbered = grammar.options
+                && parsed.key != PromptKey::Char(digit(options.len() + 1)?)
+            {
+                return None;
+            }
+            indent = line.len() - line.trim_start().len();
+            options.push((parsed, selected));
+        } else if !line.trim().is_empty() && line.len() - line.trim_start().len() > indent + 1 {
+            // 긴 선택지가 다음 줄로 넘어갔다(Claude 2.1.309 실측: 경로가 든 「always allow」).
+            let (last, _) = options.last_mut()?;
+            last.label = format!("{} {}", last.label, line.trim());
+        } else {
+            break;
+        }
+    }
+    if options.len() < 2 || options.iter().filter(|(_, s)| *s).count() != 1 {
+        return None;
+    }
+    let mut separated = false;
+    let mut body = Vec::new();
+    let mut summary = None;
+    for line in lines[top..first].iter().map(|l| l.trim()) {
+        if line.is_empty() || line.starts_with("Tip:") {
+            continue;
+        }
+        if line.chars().all(|c| matches!(c, '╌' | '─' | '│')) {
+            separated = true;
+            continue;
+        }
+        // 명령 줄: `$ `로 시작하거나(Codex, Cursor) 점선 사이에 있다(Claude).
+        if summary.is_none() && (separated || line.starts_with('$')) {
+            summary = Some(line.to_owned());
+        }
+        body.push(line.to_owned());
+    }
+    Some(Prompt {
+        summary: summary.or_else(|| body.first().cloned())?,
+        body,
+        options: options.into_iter().map(|(o, _)| o).collect(),
+    })
+}
+
+/// 선택지 줄 하나와 그 줄이 고른 줄인지.
+fn option(options: &Options, line: &str) -> Option<(PromptOption, bool)> {
+    let rest = line.trim_start();
+    let unmarked = rest.trim_start_matches(SELECTED).trim_start();
+    let selected = unmarked.len() != rest.len();
+    let parsed = match options {
+        Options::Numbered => {
+            let (number, label) = unmarked.split_once(". ")?;
+            let number: u32 = number.parse().ok()?;
+            let label = match label.trim_end().rsplit_once(" (") {
+                Some((text, hint))
+                    if hint.ends_with(')') && hint.chars().count() <= HINT_LIMIT_CHARS + 1 =>
+                {
+                    text
+                }
+                _ => label.trim_end(),
+            };
+            PromptOption {
+                label: label.to_owned(),
+                key: PromptKey::Char(char::from_digit(number, 10)?),
+            }
+        }
+        Options::Hinted => {
+            let (label, hint) = unmarked.trim_end().strip_suffix(')')?.rsplit_once(" (")?;
+            PromptOption {
+                label: label.to_owned(),
+                key: hint.split(" or ").find_map(hinted_key)?,
+            }
+        }
+    };
+    Some((parsed, selected))
+}
+
+/// Cursor 힌트 글 하나의 키. `esc`는 PTY에서 이스케이프 시퀀스의 시작과 구별되지 않으므로 함께 적힌 `n`을 쓴다.
+fn hinted_key(hint: &str) -> Option<PromptKey> {
+    match hint {
+        "tab" => Some(PromptKey::Tab),
+        "shift+tab" => Some(PromptKey::BackTab),
+        _ => {
+            let mut chars = hint.chars();
+            let c = chars.next()?;
+            (chars.next().is_none() && c.is_ascii_alphanumeric()).then_some(PromptKey::Char(c))
+        }
+    }
+}
+
+fn digit(n: usize) -> Option<char> {
+    char::from_digit(u32::try_from(n).ok()?, 10)
 }
 
 #[cfg(test)]

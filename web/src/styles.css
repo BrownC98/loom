@@ -940,12 +940,14 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-ask .count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
 .phone-ask .qid { font: 12px var(--mono); color: var(--ink-3); }
 .phone-ask .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.phone-ask.open { align-items: flex-start; padding-block: 12px; max-height: 50dvh; overflow-y: auto; }
-.phone-ask.open .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.phone-ask .phone-icon { flex: none; }
+/* 판은 터미널 위에 덮인다(터미널 칸이 줄면 PTY 크기가 바뀐다). 스크롤 칸은 판 하나다: 안의 .wait-list는 스크롤 칸이 아니다(overscroll-behavior: contain인 칸이 쓸기를 삼켰다, 2026-10-23 실측). */
+.phone-ask-wrap { position: relative; z-index: 6; }
+.phone-ask-panel { position: absolute; top: 100%; left: 0; right: 0; max-height: 60dvh; overflow-y: auto; padding: 8px 12px 12px; background: var(--surface); border-bottom: 1px solid var(--warn); box-shadow: 0 8px 16px var(--shadow); animation: ask-drop 0.18s ease-out; }
+.phone-ask-panel .wait-list { overflow: visible; }
+@keyframes ask-drop { from { transform: translateY(-12px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .phone-ask-panel { animation: none; } }
 .phone-term { position: relative; min-height: 0; background: var(--term); }
-/* 모든 노드의 질문 알약(목업 R4 ②A). 터미널 칸 크기를 바꾸지 않게 위에 뜬다. 키 막대와 입력 줄은 터미널 칸 밖이라 가리지 않는다. */
-.inbox-pill.phone-pill { position: absolute; top: 8px; left: 50%; z-index: 4; transform: translateX(-50%); max-width: calc(100% - 24px); }
-.phone-pill .head { height: 40px; }
 .phone-dock { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
 .phone-keys { display: flex; gap: 4px; }
 .phone-keys button { flex: 1; min-width: 0; height: 40px; padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: 600 13px var(--mono); display: grid; place-items: center; cursor: pointer; }

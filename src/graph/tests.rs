@@ -436,9 +436,12 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
     // 사람에게는 사람이 띄운 노드만 묻는다.
     assert_eq!(g.ask(worker, "A?", None), Err(Refusal::HasParent));
     assert_eq!(g.ask(lead, "  ", None), Err(Refusal::EmptyQuestion));
-    // 사람이 읽는 글에는 맨몸 주소를 두지 않는다.
     let bare = Refusal::BareLink("https://a.io/x".into());
     assert_eq!(g.ask(lead, "열어 https://a.io/x.", None), Err(bare.clone()));
+    assert_eq!(
+        g.ask(lead, "잰다(A, 권장) / 학습한다(B)", None),
+        Err(Refusal::BadChoices)
+    );
     assert_eq!(
         g.done(lead, "https://a.io/x", Some("지시"), &[], None),
         Err(bare)
@@ -2577,7 +2580,6 @@ fn relaunching_an_ended_node_brings_it_back_running_and_keeps_done() {
     assert!(g.ended(worker).unwrap().is_none());
 }
 
-/// 부모가 읽는 완료 글은 에이전트끼리 읽으므로 경로를 그대로 쓴다.
 #[test]
 fn parent_bound_done_keeps_bare_paths() {
     let dir = tempfile::tempdir().unwrap();

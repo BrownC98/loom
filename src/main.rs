@@ -1,4 +1,5 @@
 mod accounts;
+mod choices;
 mod cli;
 mod codex_server;
 mod commit_graph;

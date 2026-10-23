@@ -1,7 +1,7 @@
-//! 에이전트가 사람에게 쓰는 글(`loom ask`, 부모 없는 노드의 `loom done`)의 링크 표준: 주소와 절대 경로는 markdown 링크 `[이름](주소)` 안에만 둔다.
-//! 근거: 2026-10-23 사람 "링크 표준이 없는 것이 뿌리 원인". 화면(`web/src/links.ts`)은 markdown 링크만 그린다.
+//! 에이전트가 사람에게 쓰는 글(`loom ask`, 부모 없는 노드의 `loom done`)의 링크 표준: 주소와 절대 경로는 화면이 그리는 markdown 링크 `[이름](주소)` 안에만 둔다.
+//! 근거: 2026-10-23 사람 "링크 표준이 없는 것이 뿌리 원인". 화면(`web/src/links.ts`)이 그리는 주소만 받는다. `links.cases.json`의 예를 양쪽 시험이 함께 읽는다.
 
-/// `[이름](주소)`로 시작하는 글에서 (이름, 주소, 전체 길이)를 읽는다. 링크가 아니면 `None`.
+/// (이름, 주소, 전체 길이).
 pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
     let (label, after) = link[1..].split_once("](")?;
     // CommonMark는 주소를 `<…>`로 감쌀 수 있고, 감싼 주소에는 빈칸이 들 수 있다(2026-10-23 검토 BLOCK).
@@ -12,21 +12,7 @@ pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
                 .then_some((target, target.len() + 3))?
         }
         None => {
-            // 짝이 맞는 괄호는 주소에 든다: `https://a.io/x_(y)`.
-            let mut depth = 0usize;
-            let close = after.char_indices().find(|&(_, c)| match c {
-                '(' => {
-                    depth += 1;
-                    false
-                }
-                ')' if depth == 0 => true,
-                ')' => {
-                    depth -= 1;
-                    false
-                }
-                _ => false,
-            })?;
-            let target = &after[..close.0];
+            let target = after.split_once(')')?.0;
             if target.contains(char::is_whitespace) {
                 return None;
             }
@@ -40,7 +26,8 @@ pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
     ok.then_some((label, target, label.len() + 3 + end))
 }
 
-/// markdown 링크 밖에서 처음 나온 맨몸 주소·경로를 링크 주소로 쓸 만큼 돌려준다. 없으면 `None`.
+/// 화면이 그릴 수 없는 링크 주소나 markdown 링크 밖의 맨몸 주소·경로를 처음 나온 것 하나 돌려준다. 없으면 `None`.
+/// 화면(`web/src/links.ts`)은 `file://`·`http(s)://` 주소(빈칸·`)` 없음)와 문서 링크 표지만 그린다.
 pub fn bare_link(text: &str) -> Option<String> {
     let mut rest = text;
     while let Some(open) = rest.find('[') {
@@ -49,11 +36,44 @@ pub fn bare_link(text: &str) -> Option<String> {
             return Some(found);
         }
         rest = match parse_link(link) {
+            Some((_, target, len)) if !drawn(target) || link[..len - 1].ends_with('>') => {
+                return Some(target.to_owned());
+            }
             Some((_, _, len)) => &link[len..],
             None => &link[1..],
         };
     }
     bare_in(rest)
+}
+
+fn drawn(target: &str) -> bool {
+    target == crate::user_doc::DOC_LINK
+        || (!target.contains(['(', '<', '>'])
+            && ["file://", "http://", "https://"]
+                .iter()
+                .any(|s| target.strip_prefix(s).is_some_and(|r| !r.is_empty())))
+}
+
+/// 거절 글에 보일 고친 주소: 경로는 `file://` 주소로, 화면이 그리지 못하는 글자는 퍼센트 인코딩으로 바꾼다.
+pub fn drawable_form(found: &str) -> String {
+    let url = if ["file://", "http://", "https://"]
+        .iter()
+        .any(|s| found.starts_with(s))
+    {
+        found.to_owned()
+    } else {
+        let path = found.replace('\\', "/");
+        match path.as_bytes() {
+            [b'/', b'/', ..] => format!("file:{path}"),
+            [_, b':', ..] => format!("file:///{path}"),
+            _ => format!("file://{path}"),
+        }
+    };
+    url.replace(' ', "%20")
+        .replace('(', "%28")
+        .replace(')', "%29")
+        .replace('<', "%3C")
+        .replace('>', "%3E")
 }
 
 /// 이 앞 글자가 낱말 안이면(`and/or`, `경로/home`) 경로의 시작이 아니다.
@@ -66,17 +86,20 @@ fn bare_in(segment: &str) -> Option<String> {
     (0..chars.len()).find_map(|i| {
         let (at, c) = chars[i];
         let tail = &segment[at..];
-        let next = chars.get(i + 1).map(|&(_, n)| n);
         let before = i.checked_sub(1).map(|j| chars[j].1);
         let url = ["http://", "https://", "file://"]
             .iter()
             .any(|s| tail.starts_with(s));
-        let unix = c == '/' && next.is_some_and(|n| n != '/' && !n.is_whitespace());
+        // 한 단계 `/code-review`는 슬래시 명령·태그와 구별되지 않아 뺀다. 경로는 `/a/b`부터다.
+        let unix = c == '/' && {
+            let token = tail.split(char::is_whitespace).next().unwrap_or(tail);
+            token[1..].find('/').is_some_and(|n| n > 0)
+        };
         let drive = c.is_ascii_alphabetic()
             && tail[1..].starts_with(':')
             && (tail[2..].starts_with('\\') || tail[2..].starts_with('/'));
-        let unc = tail.starts_with("\\\\") && next == Some('\\') && chars.get(i + 2).is_some();
-        (starts_token(before) && (url || unix || drive || unc)).then(|| span(tail))
+        let unc = tail.starts_with("\\\\") && chars.get(i + 2).is_some();
+        (url || (starts_token(before) && (unix || drive || unc))).then(|| span(tail))
     })
 }
 
@@ -85,38 +108,67 @@ fn span(tail: &str) -> String {
     let cut = tail.find(['\n', '`', '"', '\'', '<', '>']);
     let quoted = cut.is_some_and(|p| matches!(tail.as_bytes()[p], b'`' | b'"' | b'\''));
     let found = &tail[..cut.unwrap_or(tail.len())];
-    let found = if quoted {
-        found
-    } else {
-        found.split(char::is_whitespace).next().unwrap_or(found)
-    };
-    found
-        .trim_end_matches([
-            '.', ',', ';', ':', '!', '?', ')', ']', '}', '」', '』', '。', '，',
-        ])
-        .to_owned()
+    if quoted {
+        return found.to_owned();
+    }
+    let mut found = found.split(char::is_whitespace).next().unwrap_or(found);
+    while let Some(last) = found.chars().next_back() {
+        let open = found.matches('(').count();
+        let unmatched = last == ')' && found.matches(')').count() > open;
+        if !(unmatched || ".,;:!?]}」』。，".contains(last)) {
+            break;
+        }
+        found = &found[..found.len() - last.len_utf8()];
+    }
+    found.to_owned()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[derive(serde::Deserialize)]
+    struct Case {
+        text: String,
+        refused: bool,
+        links: Vec<String>,
+    }
+
+    fn link_targets(text: &str) -> Vec<String> {
+        let mut targets = Vec::new();
+        let mut rest = text;
+        while let Some(open) = rest.find('[') {
+            let link = &rest[open..];
+            rest = match parse_link(link) {
+                Some((_, target, len)) => {
+                    targets.push(target.to_owned());
+                    &link[len..]
+                }
+                None => &link[1..],
+            };
+        }
+        targets
+    }
+
     #[test]
-    fn markdown_links_and_plain_text_pass() {
-        for ok in [
-            "[시트](https://docs.google.com/a/b) 열기.",
-            "[보고서](/home/a/b.md)와 [x](file:///home/a/b.md)",
-            "[a](<C:\\my dir\\b.md>) 승인? (A / B)",
-            "[x](https://example.com/a(b)/c/d) 끝",
-            "and/or 선택, src/cli.rs 고침, 승인 / 거절, 경로/home",
-            "[깨진 링크 https",
-        ] {
-            assert_eq!(bare_link(ok), None, "{ok}");
+    fn rules_agree_with_the_shared_cases() {
+        let cases: Vec<Case> =
+            serde_json::from_str(include_str!("../web/src/links.cases.json")).unwrap();
+        for case in cases {
+            assert_eq!(
+                bare_link(&case.text).is_some(),
+                case.refused,
+                "{}",
+                case.text
+            );
+            if !case.refused {
+                assert_eq!(link_targets(&case.text), case.links, "{}", case.text);
+            }
         }
     }
 
     #[test]
-    fn bare_urls_and_paths_are_found_whole() {
+    fn refused_targets_are_found_whole() {
         for (bad, found) in [
             (
                 "작성: https://docs.google.com/a/b.",
@@ -125,17 +177,47 @@ mod tests {
             ("[x](https://a.io) 그리고 http://b.io/c,", "http://b.io/c"),
             ("파일은 /home/a/b.md 에 있다", "/home/a/b.md"),
             ("(/home/a/b.md)", "/home/a/b.md"),
-            ("한 단계 /tmp 도", "/tmp"),
             ("`/tmp/a`", "/tmp/a"),
             ("path=/tmp/a", "/tmp/a"),
             ("`/tmp/my dir/a`", "/tmp/my dir/a"),
+            ("POST /api/nodes", "/api/nodes"),
             ("C:\\Users\\a\\b.md", "C:\\Users\\a\\b.md"),
             ("\"C:\\Program Files\\a.txt\"", "C:\\Program Files\\a.txt"),
             ("\\\\host\\share\\a.txt", "\\\\host\\share\\a.txt"),
             ("file:///home/a/b.md", "file:///home/a/b.md"),
-            ("`https://a.io/x`", "https://a.io/x"),
+            ("_https://a.io_", "https://a.io_"),
+            ("-https://a.io", "https://a.io"),
+            ("`https://example.com/a(b)`", "https://example.com/a(b)"),
+            ("\"/tmp/a(b)\"", "/tmp/a(b)"),
+            ("https://example.com/a(b).", "https://example.com/a(b)"),
+            ("[r](/home/a/b.md)", "/home/a/b.md"),
+            ("[x](<https://a.io/b>)", "https://a.io/b"),
+            ("[x](https://a.io/a(b)/c)", "https://a.io/a(b"),
         ] {
             assert_eq!(bare_link(bad).as_deref(), Some(found), "{bad}");
         }
+    }
+
+    #[test]
+    fn repair_form_is_a_drawn_target() {
+        for (found, form) in [
+            ("/tmp/my dir/a(1).md", "file:///tmp/my%20dir/a%281%29.md"),
+            (
+                "C:\\Program Files\\a.txt",
+                "file:///C:/Program%20Files/a.txt",
+            ),
+            ("\\\\host\\share\\a.txt", "file://host/share/a.txt"),
+            ("https://a.io/a(b)", "https://a.io/a%28b%29"),
+        ] {
+            let form_out = drawable_form(found);
+            assert_eq!(form_out, form);
+            assert_eq!(bare_link(&format!("[x]({form_out})")), None);
+        }
+    }
+
+    #[test]
+    fn long_bracket_runs_stay_fast() {
+        assert_eq!(bare_link(&"[".repeat(100_000)), None);
+        assert_eq!(bare_link(&"[a](".repeat(25_000)), None);
     }
 }

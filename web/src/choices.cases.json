@@ -1,0 +1,42 @@
+[
+  {
+    "question": "Approve the mockup? (A: approve / B: change, Recommended: A)",
+    "keys": "AB"
+  },
+  {
+    "question": "Merge? (A: now / B: later / C: never, Empfohlen: C)",
+    "keys": "ABC"
+  },
+  {
+    "question": "Which? (A: red, blue / B: green)",
+    "keys": "AB"
+  },
+  {
+    "question": "Ship (v2)? (A: now (fast) / B: later (after review), Recommended: A)",
+    "keys": "AB"
+  },
+  {
+    "question": "Which? (A: red (x, y) / B: green)",
+    "keys": "AB"
+  },
+  {
+    "question": "Which? (A: x / B: y))",
+    "keys": ""
+  },
+  {
+    "question": "Delete 3 worktrees?",
+    "keys": ""
+  },
+  {
+    "question": "Delete? (note: no undo)",
+    "keys": ""
+  },
+  {
+    "question": "(A: only one)",
+    "keys": ""
+  },
+  {
+    "question": "(A: x / B: y) and more text",
+    "keys": ""
+  }
+]

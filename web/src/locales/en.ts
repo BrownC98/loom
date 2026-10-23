@@ -578,6 +578,7 @@ const en = {
       hasParent: 'This node has a parent. Ask the parent. Only nodes that the human started ask the human.',
       docHasParent: 'This node has a parent, and the parent reads paths. Send the file path to the parent. Only nodes that the human started attach a document.',
       bareLink: 'Write each web address and file path as a Markdown link with a label: [label](<address>).',
+      badChoices: 'The question offers choices without the standard tail, so no buttons show. Ask again with (A: ... / B: ..., recommended: A).',
       noWait: 'Question Q{{value}} is already closed.',
       severalOpen: 'Several questions are open: {{value}}.',
       emptyAnswer: 'Write an answer.',

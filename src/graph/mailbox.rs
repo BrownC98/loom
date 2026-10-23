@@ -394,6 +394,7 @@ impl Graph {
         if summary.len() > SUMMARY_LIMIT_BYTES {
             return Err(Refusal::SummaryTooLong(summary.len()));
         }
+        let bare = bare_link(summary);
         let mut db = self.lock();
         let parent = parent_of(&db, node)?;
         let asked = asked.map(str::trim).filter(|a| !a.is_empty());
@@ -401,7 +402,7 @@ impl Graph {
             return Err(Refusal::NoAsked);
         }
         if parent.is_none()
-            && let Some(found) = bare_link(summary)
+            && let Some(found) = bare
         {
             return Err(Refusal::BareLink(found));
         }

@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M14 노드별 카드 보기 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-ink: light-dark(oklch(98.5% 0 0), oklch(20.5% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+  /* 제품 그림에만 쓴다(web/src/styles.css). */
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --shadow: light-dark(oklch(0% 0 0 / 0.12), oklch(0% 0 0 / 0.5));
+  --mark: oklch(60% 0.22 27);
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+.hint { font-size: 12px; color: var(--ink-3); }
+table { border-collapse: collapse; font-size: 13px; width: 100%; max-width: 1100px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-3); font-weight: 600; }
+code { font: 12px var(--mono); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+/* 번호 상자와 설명 */
+.mk { position: relative; outline: 2px solid var(--mark); outline-offset: 3px; border-radius: 6px; }
+.mk > .no { position: absolute; top: -14px; left: -14px; width: 22px; height: 22px; border-radius: 50%; background: var(--mark); color: #fff; font: 600 12px/22px var(--font); text-align: center; z-index: 9; }
+.cn { display: inline-block; width: 16px; height: 16px; border-radius: 50%; background: var(--mark); color: #fff; font: 600 11px/16px var(--font); text-align: center; font-style: normal; vertical-align: 1px; }
+
+/* 화면 전체 */
+.screen { position: relative; width: 1360px; height: 760px; display: flex; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); }
+.side { width: 200px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 12px 8px; font-size: 13px; display: grid; align-content: start; gap: 2px; }
+.side h3 { font-size: 12px; color: var(--ink-3); padding: 4px 8px; }
+.tree-row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 calc(8px + var(--d, 0) * 12px); border-radius: 6px; }
+.tree-row[aria-current="true"] { background: var(--accent-wash); }
+.tree-row .name { font-weight: 600; }
+.tree-row .sub { font-size: 12px; color: var(--ink-3); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; }
+.dot.done { background: var(--ok); }
+.graph { position: relative; flex: 1; background-image: radial-gradient(var(--line-strong) 1px, transparent 1px); background-size: 20px 20px; }
+.gtitle { position: absolute; top: 10px; left: 14px; font-weight: 600; font-size: 13px; }
+.group { position: absolute; border: 1px dashed var(--line-strong); border-radius: 10px; background: color-mix(in oklch, var(--panel) 70%, transparent); }
+.group > .gh { position: absolute; top: 4px; left: 10px; font-size: 12px; color: var(--ink-2); }
+.edge { position: absolute; border-left: 2px solid var(--line-strong); }
+.edge.h { border-left: 0; border-top: 2px solid var(--line-strong); }
+.card { position: absolute; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+.card.mk { overflow: visible; }
+.card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .name { font-weight: 600; }
+.card-head .model { font: 12px var(--mono); color: var(--ink-3); }
+.spacer { flex: 1; }
+.state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--run); white-space: nowrap; }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state.done { color: var(--ok); }
+.ft { flex: 1; margin: 0; padding: 6px 10px; font: 11px/15px var(--mono); color: var(--ink-2); white-space: pre; overflow: hidden; }
+.card.simple { width: 260px; padding: 8px 8px 8px 12px; background: var(--surface); display: grid; gap: 2px; }
+.srow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.srow .name { font-weight: 600; }
+.sline { font-size: 12px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.smeta { font: 11px var(--mono); color: var(--ink-3); }
+.lg { font: 12px var(--mono); color: #d97757; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.ib { width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 5px; color: var(--ink-2); }
+.ib.open { background: var(--surface-hover); color: var(--ink); }
+.menu { position: absolute; z-index: 7; width: 200px; display: grid; padding: 6px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); border: 1px solid var(--line); }
+.menu .mi { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
+.menu .mi.hover { background: var(--surface-hover); }
+.menu .mi.danger { color: var(--err); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.dock { width: 340px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); }
+.dock-tools { display: flex; align-items: center; gap: 8px; padding: 18px 12px 10px 18px; border-bottom: 1px solid var(--line); }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.seg span { height: 28px; line-height: 28px; padding: 0 10px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.seg span + span { border-left: 1px solid var(--line-strong); }
+.seg span.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; white-space: nowrap; }
+.tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.tabs > span { padding: 6px 10px; color: var(--ink-3); border-bottom: 2px solid transparent; }
+.tabs > span.on { color: var(--ink); font-weight: 600; border-color: var(--accent); }
+.dock-node { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.dock .ft { background: var(--term); color: var(--ink); }
+
+/* 설정 창 */
+.settings { position: relative; width: 860px; display: flex; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); }
+.settings nav { width: 170px; padding: 12px 8px; border-right: 1px solid var(--line); display: grid; align-content: start; gap: 2px; font-size: 13px; }
+.settings nav span { padding: 6px 10px; border-radius: 6px; color: var(--ink-2); }
+.settings nav span.on { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.settings .body { flex: 1; padding: 18px 22px; display: grid; gap: 18px; align-content: start; }
+.settings section { display: grid; gap: 8px; }
+.settings h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.settings .seg { justify-self: start; }
+/* 공용 말풍선(~/.cache/loom-briefs/callouts/callouts.css) */
+.fig { position: relative; }
+.co { position: absolute; z-index: 5; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co b { flex: none; width: 18px; height: 18px; border-radius: 50%; background: #D14343; color: #fff; font-size: 11px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; }
+.page, .shotwrap { zoom: .8; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 4; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="bm" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></symbol>
+  <symbol id="max" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="re" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="termi" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+  <symbol id="card" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h10M7 14h6"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M14</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 노드별심플</b></span><span>v2 · 2026-10-23</span></div>
+  <h1>노드마다 심플·표준 카드 고르기, 심플 카드 상태 줄</h1>
+  <p class="lead">사람 지시: “터미널 노드를 개별적으로 심플모드 on/off 하는 기능추가”, “설정 옵션에 총괄만 터미널 옵션 제시”, 그리고 심플 카드에 노드의 지금 상태를 턴 끝 짧은 답으로 보이기(예: “지금 할 일은 없습니다. 3차 재작업이 끝나면 코디가 4차 검토를 요청합니다. 그때까지 기다립니다.”). 지금은 카드 보기가 그래프 전체에 하나다. 바꾼 뒤: 설정 값이 기본 보기이고, 노드 하나는 「⋯」 메뉴로 기본과 다르게 볼 수 있다. 빨간 번호 상자가 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>1. 그래프 화면 <span class="tag">기본 보기 「총괄만 터미널」, 워커-2만 메뉴로 터미널 카드로 바꿈</span></h2>
+    <div class="screen page">
+      <aside class="side">
+        <h3>loom</h3>
+        <div class="tree-row"><span class="dot"></span><span class="name">loom 총괄</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot"></span><span class="name">워커-1</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot"></span><span class="name">워커-2</span></div>
+        <div class="tree-row" style="--d:1" aria-current="true"><span class="dot done"></span><span class="name">워커-3</span></div>
+      </aside>
+
+      <div class="graph">
+        <span class="gtitle">loom</span>
+        <!-- 간선 -->
+        <div class="edge" style="left:230px; top:262px; height:38px"></div>
+        <div class="edge h" style="left:141px; top:300px; width:562px"></div>
+        <div class="edge" style="left:141px; top:300px; height:60px"></div>
+        <div class="edge" style="left:432px; top:300px; height:60px"></div>
+        <div class="edge" style="left:703px; top:300px; height:60px"></div>
+
+        <!-- 총괄: 표준 카드 -->
+        <div class="card mk" data-n="2" style="left:20px; top:50px; width:420px; height:212px">
+          <span class="no">2</span>
+          <div class="card-head"><span class="lg">✳</span><span class="name">loom 총괄</span><span class="model">opus · high</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#max"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+<pre class="ft">● 코디 노드별심플에게 목업을 받았다.
+● loom ask "노드별 카드 보기 목업을 승인할까요?"
+  ⎿ Q512를 받은편지함에 올렸다.
+
+&gt; </pre>
+        </div>
+
+        <!-- 워커-1: 심플 카드 (기본) -->
+        <div class="card simple mk" data-n="3" style="left:16px; top:360px; width:250px">
+          <span class="no">3</span>
+          <div class="srow"><span class="lg">✳</span><span class="name">워커-1</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib open"><svg class="i"><use href="#more"/></svg></span></div>
+          <span class="smeta">sonnet · medium</span>
+          <div class="mk" data-n="8" style="margin-top:10px"><span class="no">8</span><span class="sline">지금 할 일은 없습니다. 3차 재작업이 끝나면 코디가 4차 검토를 요청합니다. 그때까지 기다립니다.</span></div>
+        </div>
+        <!-- 메뉴 -->
+        <div class="menu" style="left:96px; top:466px">
+          <div class="mi hover mk" data-n="5"><span class="no">5</span><svg class="i"><use href="#termi"/></svg>터미널 카드로 보기</div>
+          <div class="mi"><svg class="i"><use href="#re"/></svg>다시 띄우기</div>
+          <hr>
+          <div class="mi danger"><svg class="i"><use href="#trash"/></svg>노드 지우기</div>
+        </div>
+
+        <!-- 워커-2: 메뉴로 바꾼 표준 카드 -->
+        <div class="card mk" data-n="4" style="left:282px; top:360px; width:300px; height:180px">
+          <span class="no">4</span>
+          <div class="card-head"><span class="lg" style="color:var(--ink-2)">◎</span><span class="name">워커-2</span><span class="model">codex · high</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#max"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+<pre class="ft">• Ran memcap -m 8G cargo test
+  └ test result: ok. 412 passed; 0 failed
+
+› </pre>
+        </div>
+
+        <!-- 워커-3: 심플, 고름 -->
+        <div class="card simple" data-selected style="left:598px; top:360px; width:210px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커-3</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div>
+          <span class="smeta">sonnet · medium</span>
+          <span class="sline">시험 데몬을 끄고 결과를 코디에게 보냈습니다.</span>
+        </div>
+      </div>
+
+      <aside class="dock">
+        <div class="dock-tools">
+          <span class="mk" data-n="1" style="display:inline-flex"><span class="no">1</span><span class="seg"><span>심플</span><span class="on">총괄만 터미널</span><span>표준</span></span></span>
+          <span class="spacer"></span>
+          <span class="btn">정렬<svg class="i"><use href="#down"/></svg></span>
+        </div>
+        <div class="tabs"><span>이벤트</span><span>커밋 그래프</span><span>질문</span><span class="on mk" data-n="6" style="margin-left:16px"><span class="no">6</span>터미널</span></div>
+        <div class="dock-node"><div class="srow"><span class="lg">✳</span><span class="name">워커-3</span><span class="spacer"></span><span class="ib"><svg class="i"><use href="#bm"/></svg></span><span class="ib"><svg class="i"><use href="#more"/></svg></span></div><span class="smeta">sonnet · medium</span><br><span class="sline">시험 데몬을 끄고 결과를 코디에게 보냈습니다.</span></div>
+<pre class="ft">● 시험 데몬을 끄고 임시 폴더를 지웠다.
+● loom done "시험 데몬 확인을 끝냈다"
+
+&gt; </pre>
+      </aside>
+    </div>
+    <div class="calls"><div><b>1</b><span>기본 보기에 「총괄만 터미널」을 더한다. 순서: 심플 · 총괄만 터미널 · 표준. 설정 「그래프」(<i class="cn">7</i>)와 같은 값이다.</span></div><div><b>2</b><span>부모가 없는 노드(총괄)는 「총괄만 터미널」에서 터미널 카드다. 저장소 하나에 총괄이 여럿이면 모두 터미널 카드다.</span></div><div><b>3</b><span>다른 노드는 심플 카드다(기본 보기).</span></div><div><b>4</b><span>메뉴로 바꾼 노드는 기본 보기와 다르게 남는다. 카드 크기는 지금처럼 노드마다 남는다. 다시 메뉴를 누르면 기본 보기로 돌아간다.</span></div><div><b>5</b><span>「⋯」 메뉴 첫 줄이 이 노드만 바꾼다. 심플 카드에서는 「터미널 카드로 보기」, 터미널 카드에서는 「심플 카드로 보기」다.</span></div><div><b>6</b><span>심플 카드를 고르면 지금처럼 오른쪽 [터미널] 탭에 그 노드의 터미널이 열린다. 터미널 카드를 고르면 이 탭은 없다.</span></div><div><b>7</b><span></span></div><div><b>8</b><span>상태 줄: 노드의 마지막 턴 끝 답 글이다. 턴이 끝날 때마다 바뀐다. 두 줄을 넘으면 「…」로 끝나고, 마우스를 올리면 전문이 보인다. 모델 줄 아래, 카드 맨 아래다.</span></div></div>
+  </div>
+
+  <div class="fig">
+    <h2>2. 설정 › 그래프 <span class="tag">카드 보기 절</span></h2>
+    <div class="settings page">
+      <nav><span>일반</span><span>휴대폰</span><span>에이전트</span><span>에이전트 계정</span><span>화면</span><span class="on">그래프</span><span>터미널</span><span>정보</span></nav>
+      <div class="body">
+        <section class="mk" data-n="7" style="padding:6px">
+          <span class="no">7</span>
+          <h4>카드 보기</h4>
+          <div class="seg"><span>심플</span><span class="on">총괄만 터미널</span><span>표준</span></div>
+          <span class="hint">기본 보기입니다. ‘총괄만 터미널’이면 부모가 없는 노드만 터미널 카드입니다. 노드 하나는 카드의 ⋯ 메뉴로 바꿉니다.</span>
+        </section>
+        <section><h4>그래프 범위</h4><div class="seg"><span class="on">저장소 하나</span><span>모든 저장소</span></div></section>
+      </div>
+    </div>
+    <div class="calls"><div><b>1</b><span></span></div><div><b>2</b><span></span></div><div><b>3</b><span></span></div><div><b>4</b><span></span></div><div><b>5</b><span></span></div><div><b>6</b><span></span></div><div><b>7</b><span>같은 값이다. 기본값은 지금처럼 「표준」이다. 안내 글을 위처럼 바꾼다.</span></div></div>
+  </div>
+
+  <div class="fig">
+    <h2>3. 규칙</h2>
+    <table>
+      <tr><th>항목</th><th>규칙</th></tr>
+      <tr><td>보이는 카드</td><td>노드에 고른 값이 있으면 그 값, 없으면 기본 보기(심플 · 총괄만 터미널 · 표준)를 따른다.</td></tr>
+      <tr><td>메뉴로 바꾸기</td><td>바꾼 값이 기본 보기와 같으면 노드의 값을 지운다. 그래서 다시 누르면 기본을 따른다.</td></tr>
+      <tr><td>저장</td><td>데몬 DB의 노드 줄(북마크와 같은 자리)에 남는다. 브라우저 · Windows 앱 · 다른 창이 같다. 노드를 지우면 함께 지운다.</td></tr>
+      <tr><td>기본 보기를 바꾸면</td><td>노드에 고른 값은 그대로 남는다.</td></tr>
+      <tr><td>상태 줄(<i class="cn">8</i>) 원천</td><td>데몬이 턴 끝 검사에서 이미 받는 답 글을 쓴다. Claude Code: Stop 훅 <code>last_assistant_message</code>. Cursor: <code>afterAgentResponse</code> 훅. opencode: 턴 끝 사건의 답 글. Codex: 지금은 총괄 노드에서만 읽는다. 모든 노드에서 읽게 바꾼다. 터미널 노드(에이전트 없음)는 답 글이 없어 줄이 없다.</td></tr>
+      <tr><td>상태 줄 저장</td><td>노드마다 마지막 답 하나만 데몬 DB 노드 줄에 남긴다. 다음 턴 끝에 바꾼다. 데몬을 다시 띄워도 남는다.</td></tr>
+      <tr><td>상태 줄이 보이는 곳</td><td>심플 카드와 오른쪽 칸 머리(같은 부품). 터미널 카드에는 없다. 터미널에 같은 글이 있다.</td></tr>
+      <tr><td>지운 줄과의 관계</td><td>오늘 지운 카드 주제 줄과 완료 「요약:」 발 줄은 되살리지 않는다. 상태 줄이 그 둘을 대신하는 한 줄이다.</td></tr>
+      <tr><td>크게 보기 · 크기</td><td>지금처럼 터미널 카드에만 있다. 바꾼 크기는 노드마다 남는다.</td></tr>
+    </table>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>항목</th><th>안</th></tr>
+      <tr><td>노드 하나 바꾸는 곳</td><td><b>권장: 「⋯」 메뉴 첫 줄</b>(머리 버튼은 늘리지 않는다, M40 결정) · 다른 안: 카드 머리 버튼</td></tr>
+      <tr><td>기본 보기 선택지</td><td><b>권장: 심플 · 총괄만 터미널 · 표준</b>, 설정과 오른쪽 「보기」에 함께</td></tr>
+      <tr><td>기본 보기를 바꿀 때 노드 값</td><td><b>권장: 남긴다</b> · 다른 안: 모두 지운다</td></tr>
+      <tr><td>상태 줄 길이</td><td><b>권장: 두 줄까지, 넘으면 「…」와 마우스 전문</b> · 다른 안: 첫 문장만</td></tr>
+      <tr><td>상태 줄 저장</td><td><b>권장: 데몬 DB</b>(다시 띄워도 남는다) · 다른 안: 데몬 메모리만</td></tr>
+      <tr><td>다른 노드와 다름 표시</td><td><b>권장: 없음</b>(카드 모양이 이미 다르다)</td></tr>
+    </table>
+  </div>
+</main>
+<button class="theme-toggle" type="button" onclick="const h=document.documentElement;const d=h.style.colorScheme==='dark';h.style.colorScheme=d?'light':'dark';this.textContent=d?'다크로 보기':'라이트로 보기'">다크로 보기</button>
+<script>
+// Callout bubbles for user-doc mockups. Markup: inside each .fig, numbered boxes <el class="mk" data-n="1">, frames .page/.xlwin/.shotwrap,
+// and a <div class="calls"><div><b>1</b><span>text</span></div>...</div> list (item n = text for data-n n). Include at the end of <body>.
+// 말풍선은 화면 글자·컨트롤과 겹치지 않는 빈 자리에만 둔다. 상자 가까이에 빈 자리가 없으면 그림 오른쪽 여백에 두고 지시선을 긋는다.
+(() => {
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const UI = '.xl2, img, svg, .abtn, .input, .seg, .tag, .thumb, .chemimg, .pdfpage, .cimg, .tic, .xlbar, .xltabs';
+  window.uiRects = (fig, rel) => {
+    const out = [];
+    const root = [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'));
+    for (const r of root) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim() || n.parentElement.closest('.co, .calls, .lead-svg')) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(rel(q));
+      }
+      for (const e of r.querySelectorAll(UI)) if (!e.closest('.co, .lead-svg, .calls')) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) continue;
+    const texts = [...src.querySelectorAll(':scope > div > span')].map(s => s.innerHTML);
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const boxes = marks.map(m => { const r = rel(m.getBoundingClientRect()); return { l: r.l - 16, t: r.t - 16, r: r.r + 5, b: r.b + 5 }; });
+    const ui = uiRects(fig, rel).concat(boxes);
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')].map(e => rel(e.getBoundingClientRect()));
+    const gutterX = Math.max(...frames.map(f => f.r)) + 16;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const placed = []; const seen = new Set(); const pad = 4;
+    marks.forEach((m, i) => {
+      const n = +m.dataset.n; if (seen.has(n) || !texts[n - 1]) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.innerHTML = `<b>${n}</b><span>${texts[n - 1]}</span>`;
+      co.style.left = '0px'; co.style.top = '0px'; fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap'), other = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')].filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = boxes[i], free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && ![...ui, ...placed, ...other].some(o => hit({ l: c.l - pad, t: c.t - pad, r: c.r + pad, b: c.b + pad }, o));
+      let w = co.offsetWidth, h = co.offsetHeight, best = null;
+      // 상자에서 가까운 자리부터 찾는다(오른쪽, 아래, 왼쪽, 위, 120px 안).
+      outer: for (let d = 6; d <= 120; d += 6) {
+        for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]]) {
+          const c = { l: x, t: y, r: x + w, b: y + h };
+          if (free(c)) { best = c; break outer; }
+        }
+      }
+      let lead = false;
+      if (!best) {
+        const gx = Math.min(rel(own.getBoundingClientRect()).r + 16, gutterX);
+        co.style.maxWidth = Math.min(250, F.width - gx) + 'px'; w = co.offsetWidth; h = co.offsetHeight;
+        let y = Math.max(40, (k.t + k.b) / 2 - h / 2);
+        for (let c; ; y += 4) { c = { l: gx, t: y, r: gx + w, b: y + h }; if (free(c)) { best = c; break; } }
+        lead = true;
+      }
+      co.style.left = best.l + 'px'; co.style.top = best.t + 'px'; placed.push(best);
+      if (lead) {
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        // 지시선은 그림 틀 오른쪽 끝에서 시작해 여백 안에서만 긋는다. 화면 글자를 지나지 않는다.
+        const fr = rel(m.closest('.page, .xlwin, .shotwrap').getBoundingClientRect());
+        const y1 = Math.min(Math.max((k.t + 16 + k.b - 5) / 2, fr.t + 6), fr.b - 6), y2 = best.t + 12;
+        p.setAttribute('points', `${fr.r - 6},${y1} ${fr.r + 4},${y1} ${best.l - 4},${y2} ${best.l},${y2}`);
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', fr.r - 6); dot.setAttribute('cy', y1); dot.setAttribute('r', 3); svg.appendChild(dot);
+        svg.appendChild(p);
+      }
+    });
+  }
+})();
+</script>
+</body>
+</html>

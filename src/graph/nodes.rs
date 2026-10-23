@@ -12,7 +12,7 @@ use super::{
     set_state, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
-use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
+use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink, StartDigests};
 use crate::protocol::MessageKind;
 
 /// `Graph::add_child`가 더할 자식.
@@ -39,6 +39,8 @@ pub struct Launched {
     pub server: Option<ServerLink>,
     /// 노드를 띄운 Claude·Codex 계정. 시스템 기본과 다른 프로필은 없다. 계정 전환이 옮길 노드를 고를 때 쓴다.
     pub account: Option<AccountId>,
+    /// 노드가 받은 시작 글 조각의 해시. 데몬이 시작할 때 이 판과 견준다(`profile::changed_parts`).
+    pub rules: Option<StartDigests>,
 }
 
 /// 살아 있는 노드 프로세스. 완료한 노드도 포함한다. 데몬이 시작할 때 다시 붙고, 계정 전환이 다시 띄운다.
@@ -55,6 +57,8 @@ pub struct Active {
     pub token: String,
     /// `loom spawn --role`의 역할. 다른 에이전트로 바꿔 띄울 때 그 역할의 모델·강도를 고른다.
     pub role: Option<String>,
+    /// 이 프로세스가 받은 시작 글 조각의 해시(`Launched::rules`).
+    pub rules: Option<StartDigests>,
 }
 
 impl Graph {
@@ -316,6 +320,46 @@ impl Graph {
             ))?
             .query_map([], launch_row)?
             .collect()
+    }
+
+    /// 완료한 뒤 프로세스가 사는 자식 노드 가운데 사람 응답 대기가 없는 노드. 데몬이 쉬는 노드를 재운다.
+    /// 부모 없는 노드는 사람이 터미널에 직접 친다. 끝난 프로세스에 친 키는 사라지므로 재우지 않는다.
+    pub fn done_children(&self) -> rusqlite::Result<Vec<NodeId>> {
+        self.lock()
+            .prepare(
+                "SELECT id FROM nodes WHERE process_exited = 0 AND parent IS NOT NULL
+                 AND wait IS NULL AND state ->> 'kind' = 'done' ORDER BY id",
+            )?
+            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
+            .collect()
+    }
+
+    /// 완료한 뒤 프로세스가 끝난 노드. 데몬이 메시지나 사람 입력에 깨운다.
+    pub fn asleep(&self, id: NodeId) -> rusqlite::Result<bool> {
+        asleep(&self.lock(), id)
+    }
+
+    /// 잠든 노드를 깨우지 못했다. `exited`로 바꾸고 부모에게 알린다. 그 뒤로는 메시지를 받지 않아(`REACHABLE`) 깨우기를 되풀이하지 않는다.
+    pub fn sleep_lost(&self, id: NodeId) -> rusqlite::Result<()> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        if !asleep(&tx, id)? {
+            return Ok(());
+        }
+        let parent = parent_of(&tx, id)?;
+        let what = MessageKind::Exited {
+            node: name_of(&tx, id)?,
+            code: None,
+        };
+        set_state(&tx, id, &NodeState::Exited { code: None })?;
+        mailbox::enqueue(&tx, id, parent, Kind::Queue, &what, "", Default::default())?;
+        tx.commit()?;
+        self.publish_node(&db, id)?;
+        if let Some(parent) = parent {
+            self.publish_node(&db, parent)?;
+            self.publish_message(id, Toward::Parent);
+        }
+        Ok(())
     }
 
     /// 프로세스가 끝난 노드. 다시 띄우기가 남긴 세션으로 되살린다.
@@ -903,6 +947,16 @@ fn adopt_in(
 }
 
 /// `<prefix>-<번호>`. 번호는 사람이 띄운 노드 사이에서 겹치지 않는 가장 작은 수다.
+fn asleep(db: &Connection, id: NodeId) -> rusqlite::Result<bool> {
+    db.query_row(
+        "SELECT process_exited = 1 AND state ->> 'kind' = 'done' FROM nodes WHERE id = ?1",
+        [id.0],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|asleep| asleep.unwrap_or(false))
+}
+
 fn root_name(db: &Connection, prefix: &str) -> rusqlite::Result<String> {
     let mut number = 1;
     loop {
@@ -942,8 +996,7 @@ fn checked_name(name: &str) -> Result<&str, Refusal> {
     }
 }
 
-const LAUNCH_COLUMNS: &str =
-    "SELECT id, name, agent, server, account, transcript, model, effort, token, role FROM nodes";
+const LAUNCH_COLUMNS: &str = "SELECT id, name, agent, server, account, transcript, model, effort, token, role, rules FROM nodes";
 
 fn launch_row(row: &Row) -> rusqlite::Result<Active> {
     Ok(Active {
@@ -959,6 +1012,7 @@ fn launch_row(row: &Row) -> rusqlite::Result<Active> {
         },
         token: row.get(8)?,
         role: row.get(9)?,
+        rules: optional_json(row, 10)?,
     })
 }
 
@@ -971,12 +1025,13 @@ pub(super) fn caller_in(db: &Connection, token: &str) -> rusqlite::Result<Option
 
 fn keep(db: &Connection, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
     db.execute(
-        "UPDATE nodes SET token = ?2, server = ?3, account = ?4 WHERE id = ?1",
+        "UPDATE nodes SET token = ?2, server = ?3, account = ?4, rules = ?5 WHERE id = ?1",
         params![
             id.0,
             launched.token,
             launched.server.as_ref().map(to_json),
-            launched.account.as_ref().map(to_json)
+            launched.account.as_ref().map(to_json),
+            launched.rules.as_ref().map(to_json)
         ],
     )?;
     Ok(())

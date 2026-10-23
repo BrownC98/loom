@@ -34,7 +34,7 @@ const RESTARTED_SESSION: &str = "clear|compact";
 /// Bash 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다.
 const GUARD: &str = "loom guard";
 
-/// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
+/// 사용법 끝에 붙는 대기 방식. 바꾸면 이 프로필의 뜬 노드가 턴 끝에 다시 뜬다(`profile::start_digests`).
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.";
 
 fn usage(launch: Launch) -> String {

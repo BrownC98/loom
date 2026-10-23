@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry, GateTrace, Via, Who};
 use super::mailbox::{self, Stamp};
-use super::{Graph, Kind, NodeId, Refusal, from_json, name_of, parent_of, place_of, to_json};
+use super::{
+    Graph, Kind, NodeId, REACHABLE, Refusal, from_json, name_of, parent_of, place_of, to_json,
+};
 use crate::protocol::{
     self, CI_ROLE, COORDINATOR_ROLE, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment,
     MergeEnd, MessageKind, Receiver, Sender,
@@ -109,7 +111,7 @@ impl Graph {
         let repo = place_of(&db, owner)?.repo;
         let found = db
             .prepare(
-                "SELECT id FROM nodes WHERE role = ?1 AND repo = ?2 AND process_exited = 0 AND id != ?3 ORDER BY id",
+                &format!("SELECT id FROM nodes WHERE role = ?1 AND repo = ?2 AND {REACHABLE} AND id != ?3 ORDER BY id"),
             )?
             .query_map(params![CI_ROLE, repo.0, owner.0], |row| {
                 Ok(NodeId(row.get(0)?))

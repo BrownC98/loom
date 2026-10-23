@@ -151,7 +151,7 @@ pub fn skills_from(value: Option<&str>) -> AlwaysOn {
         .unwrap_or_default()
 }
 
-/// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
+/// 사용법 끝에 붙는 대기 방식. 바꾸면 이 프로필의 뜬 노드가 턴 끝에 다시 뜬다(`profile::start_digests`).
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Cursor runs that wake hook only when ~/.cursor/hooks.json has a \"stop\" entry; if it has none, wait for an expected reply with loom wait --reply-to <message-id> --timeout <seconds> before you end your turn. The loom guard line before shell commands is inserted by loom; do not remove it or add it yourself.";
 
 /// 첫 sessionStart 훅의 글: 통신 명령과 Cursor 대기 방식.

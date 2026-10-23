@@ -43,6 +43,11 @@ impl IdleWaits {
         Some(end)
     }
 
+    /// 노드의 쉬는 대기가 열려 있다. 턴이 끝나고 다음 메시지를 기다린다.
+    pub fn waiting(&self, node: NodeId) -> bool {
+        self.ends.lock().unwrap().contains_key(&node)
+    }
+
     /// 노드가 턴 중이다. 다시 띄우기가 이 턴의 끝을 기다린다.
     pub fn in_turn(&self, node: NodeId) -> bool {
         self.turns.lock().unwrap().contains(&node)
@@ -74,8 +79,10 @@ mod tests {
         assert!(!waits.in_turn(NodeId(1)));
         waits.turn_started(NodeId(1));
         assert!(waits.in_turn(NodeId(1)));
+        assert!(!waits.waiting(NodeId(1)));
         let _ = waits.open(NodeId(1));
         assert!(!waits.in_turn(NodeId(1)));
+        assert!(waits.waiting(NodeId(1)));
         waits.turn_started(NodeId(1));
         waits.end(NodeId(1));
         assert!(!waits.in_turn(NodeId(1)));

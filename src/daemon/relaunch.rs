@@ -20,7 +20,9 @@ use ts_rs::TS;
 
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
-use crate::graph::{Active, AgentSwitch, Delivery, Entry, Kind, Model, NodeId, Refusal, Who};
+use crate::graph::{
+    Active, AgentSwitch, Delivery, Entry, Kind, Model, NodeId, NodeState, Refusal, Who,
+};
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
@@ -35,6 +37,9 @@ const CLAUDE_CLI_WAIT: Duration = Duration::from_secs(20);
 /// 한도로 멈췄던 노드를 새 계정으로 이어 갈 때 넣는 첫 입력.
 const CONTINUE_PROMPT: &str =
     "Your account was switched after a usage limit. Continue the task where you stopped.";
+/// 잠든 노드(완료한 뒤 loom이 프로세스를 끝낸 노드)를 깨울 때 넣는 첫 입력. 잠든 동안 온 메시지는 남아 있다(`REACHABLE`).
+const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle, to free memory. It started your process again in the same session. \
+     Messages that came for you arrive next.";
 /// 끝난 노드를 되살릴 때 넣는 첫 입력. 끝난 동안 온 메시지는 받지 못했다(`Refusal::Ended`).
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
@@ -186,7 +191,7 @@ impl App {
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
-        if self.relaunches.holds_mail(node) {
+        if self.relaunches.holds_mail(node) || self.sleeps.stopping(node) {
             return Ok(Vec::new());
         }
         self.graph.take_waking(node, kinds, limit_bytes)
@@ -210,7 +215,7 @@ impl App {
 
     /// 노드 하나를 다시 띄운다. 프로필이 없는 노드(셸, 명령)는 거절한다.
     /// 프로세스가 끝난 노드는 남긴 세션으로 되살리거나 새 에이전트로 띄운다.
-    async fn relaunch_by_id(
+    pub(super) async fn relaunch_by_id(
         self: &Arc<Self>,
         id: NodeId,
         plan: Plan,
@@ -264,6 +269,10 @@ impl App {
             return Err(Refusal::NoResume(node.name).into());
         }
         let plan = self.chosen(&node, plan)?;
+        let notice = match self.graph.relations(id)?.me.state {
+            NodeState::Done { .. } => WOKEN_NOTICE,
+            _ => REVIVED_NOTICE,
+        };
         {
             let mut pending = self.relaunches.pending.lock().unwrap();
             if pending.contains_key(&id) {
@@ -282,7 +291,7 @@ impl App {
         let app = self.clone();
         let result = tokio::spawn(async move {
             match plan {
-                Plan::Resume => app.revive(node, REVIVED_NOTICE).await,
+                Plan::Resume => app.revive(node, notice).await,
                 Plan::Switch(to) => {
                     let prepared = app.prepare_other(&node, &to).await?;
                     if let Err(e) = app.stop_old_claude(&node).await {
@@ -347,6 +356,40 @@ impl App {
             .map_err(internal)?
             .map_err(internal)?;
         Ok(Relaunched::Now)
+    }
+
+    /// 시작 글 조각이 이 판에서 바뀐 노드를 턴 끝에 한 번 다시 띄운다. 데몬이 시작할 때 부른다. 다시 띄우면 새 해시가 남는다(`Graph::relaunched`).
+    /// 쉬는 완료 자식은 다시 띄우지 않고 재운다(`sleep`). 깨울 때 새 시작 글을 받는다.
+    /// 다시 시작한 데몬은 누가 턴 중인지 모른다(`IdleWaits`). 그래서 쉬는 노드도 턴 끝 신호를 기다린다: Claude·Cursor는 다시 붙는 쉬는 대기, Codex·OpenCode 2는 서버의 쉼.
+    /// 근거: 메시지(`rules-changed`)로 알리면 노드가 그 턴과 다시 뜬 턴, 두 턴을 썼다(2026-10-24 총괄 결정 A).
+    pub(super) fn relaunch_stale(self: &Arc<Self>) -> rusqlite::Result<()> {
+        let sleeping = self.graph.done_children()?;
+        for node in self.graph.active()? {
+            let changed = node
+                .rules
+                .as_ref()
+                .map(profile::changed_parts)
+                .unwrap_or_default();
+            if changed.is_empty()
+                || profile_of(&node).is_none()
+                || (sleeping.contains(&node.id) && super::sleep::sleeps(&node))
+            {
+                continue;
+            }
+            eprintln!(
+                "loom: 노드 {}의 시작 글이 바뀌었다({}). 턴 끝에 다시 띄운다",
+                node.id.0,
+                changed.join(", ")
+            );
+            self.relaunches
+                .pending
+                .lock()
+                .unwrap()
+                .entry(node.id)
+                .or_insert((Phase::AtTurnEnd, Plan::Resume));
+            self.watch_server_turn(node.id);
+        }
+        Ok(())
     }
 
     /// 턴이 끝났다(Claude·Cursor 쉬는 대기가 열렸다, Codex 스레드가 쉰다, OpenCode 2 실행이 끝났다). 다시 띄울 노드면 띄운다.
@@ -528,7 +571,7 @@ impl App {
     /// 다른 에이전트로 바꾸는 노드가 Claude였으면 옛 세션의 백그라운드 작업을 끝낸다. 프로세스가 끝난 노드도 같다.
     /// 그 세션은 노드 프로세스 나무 밖에 살아, 남으면 노드 밖에서 같은 워크트리를 계속 고친다.
     /// 같은 세션 이어 띄우기는 남은 세션을 새 `--resume`이 거절해 드러나지만, 새 세션은 알아채지 못해 실패를 돌려준다.
-    async fn stop_old_claude(&self, node: &Active) -> Result<(), String> {
+    pub(super) async fn stop_old_claude(&self, node: &Active) -> Result<(), String> {
         match session_id(node.transcript.as_deref().map(Path::new)) {
             Some(session) if profile_of(node) == Some(Profile::Claude) => {
                 self.stop_claude_background(node, &session).await
@@ -551,7 +594,7 @@ impl App {
         snapshot.kill_trees(self.background_shells(&snapshot, node));
         // 옛 CLI의 쉬는 대기를 끝낸다. 새 CLI가 세션을 시작하면 다시 연다.
         self.idle.end(node.id);
-        self.host.kill(node.id);
+        self.host.stop(node.id);
         if tokio::time::timeout(EXIT_WAIT, exited).await.is_err() {
             self.relaunches.exiting.lock().unwrap().remove(&node.id);
             discard();
@@ -800,7 +843,7 @@ impl App {
     /// 옛 프로세스가 띄운 셸: 노드 프로세스와 그 서버(Codex app-server, OpenCode 2 serve) 아래의 세션 리더.
     /// CLI는 셸을 새 세션으로 띄운다(`CodexServer::stop_shells`와 같은 판단). 쉬는 노드라 앞에서 도는 명령은 없다.
     /// `loom`을 도는 셸은 쉬는 대기 훅(Claude `loom hook`, Cursor `loom cursor-hook`)이다(실측). 끝내되 명령으로 세지 않는다.
-    fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
+    pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
         let server = match &node.server {
             Some(ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) => *pid,
             None => None,
@@ -835,7 +878,7 @@ impl App {
     }
 }
 
-fn profile_of(node: &Active) -> Option<Profile> {
+pub(super) fn profile_of(node: &Active) -> Option<Profile> {
     node.agent.as_ref().and_then(profile::profile_of)
 }
 

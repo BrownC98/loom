@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::*;
@@ -37,6 +36,7 @@ fn launched() -> Launched {
         ),
         server: None,
         account: None,
+        rules: None,
     }
 }
 
@@ -2115,6 +2115,52 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     ));
 }
 
+/// 완료한 뒤 끝난 노드는 잠든다: `done`으로 남고 메시지를 받는다. 깨우는 메시지만 깨운다. 깨우지 못하면 `exited`가 되어 받지 않는다.
+#[test]
+fn a_sleeping_node_keeps_its_mail_and_wakes_only_on_waking_mail() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    let grand = child(&g, worker, "grand");
+    g.done(lead, &report("lead done"), Some("일해"), &[], None, None)
+        .unwrap();
+    g.done(worker, &report("finished"), None, &[], None, None)
+        .unwrap();
+    // 부모 없는 노드는 사람이 터미널에 친다. 재우지 않는다.
+    assert_eq!(g.done_children().unwrap(), [worker]);
+    g.exited(worker, 0).unwrap();
+    assert!(g.asleep(worker).unwrap());
+    assert!(g.done_children().unwrap().is_empty());
+    assert_eq!(
+        view(&g, worker).state,
+        NodeState::Done {
+            summary: "finished".into()
+        }
+    );
+
+    g.exited(grand, 1).unwrap();
+    assert!(g.sleepers_with_mail().unwrap().is_empty());
+    g.note(lead, "worker", Kind::Queue, "feedback", None)
+        .unwrap();
+    assert_eq!(g.sleepers_with_mail().unwrap(), [worker]);
+
+    g.sleep_lost(worker).unwrap();
+    assert!(!g.asleep(worker).unwrap());
+    assert!(g.sleepers_with_mail().unwrap().is_empty());
+    assert_eq!(view(&g, worker).state, NodeState::Exited { code: None });
+    assert_eq!(take(&g, lead), delivery("worker", "finished"));
+    let lost = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert!(matches!(
+        lost[0].what,
+        Some(MessageKind::Exited { code: None, .. })
+    ));
+    assert!(matches!(
+        g.note(lead, "worker", Kind::Queue, "more", None),
+        Err(Refusal::Ended(_))
+    ));
+}
+
 #[tokio::test]
 async fn replies_match_the_request_even_after_another_consumer_acknowledged_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -3129,71 +3175,6 @@ fn long_human_input_is_not_cut_and_skips_an_ended_parent() {
     g.exited(lead, 0).unwrap();
     g.human_typed(w, "more").unwrap();
     assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());
-}
-
-/// 내장 스킬이 지난 기록과 다르면 살아 있는 에이전트 노드마다 `rules-changed`를 한 번 보낸다. 셸과 끝난 노드는 받지 않는다.
-#[test]
-fn changed_skills_are_announced_once_to_live_agent_nodes() {
-    let dir = tempfile::tempdir().unwrap();
-    let g = open(&dir.path().join("loom.db"));
-    let lead = root(&g, "총괄");
-    let shell = child(&g, lead, "shell");
-    let ended = root(&g, "끝남");
-    g.exited(ended, 0).unwrap();
-    let digests = |o: &str| {
-        BTreeMap::from([
-            ("o-mode".to_owned(), o.to_owned()),
-            ("ste-100".to_owned(), "s1".to_owned()),
-        ])
-    };
-    // 기록이 없으면 모두 바뀐 것이다.
-    assert_eq!(
-        g.rules_changed(&digests("o1"), Some("abc1234")).unwrap(),
-        ["o-mode", "ste-100"]
-    );
-    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
-    assert_eq!(got.len(), 1);
-    assert_eq!(
-        got[0].what,
-        Some(MessageKind::RulesChanged {
-            skills: vec!["o-mode".into(), "ste-100".into()],
-            commit: Some("abc1234".into())
-        })
-    );
-    assert!(crate::profile::message_text(&got).starts_with(&format!(
-        "loom message #{} (from: loom, kind: rules-changed)\nskills: o-mode, ste-100\ncommit: abc1234\nNext: call `loom relaunch`",
-        got[0].id.0
-    )));
-    assert!(g.take(shell, Kind::ALL, usize::MAX).unwrap().is_empty());
-    assert!(g.take(ended, Kind::ALL, usize::MAX).unwrap().is_empty());
-    // 같은 판으로 다시 시작하면 보내지 않는다. 한 스킬만 바뀌면 그 스킬만 알린다.
-    g.ack(lead, &[got[0].id]).unwrap();
-    assert!(g.rules_changed(&digests("o1"), None).unwrap().is_empty());
-    assert_eq!(g.rules_changed(&digests("o2"), None).unwrap(), ["o-mode"]);
-}
-
-/// 받은편지함이 가득 차도 `rules-changed`는 간다. 기록은 그때만 앞선다.
-#[test]
-fn rules_changed_exceeds_a_full_inbox() {
-    let dir = tempfile::tempdir().unwrap();
-    let g = open(&dir.path().join("loom.db"));
-    let lead = root(&g, "총괄");
-    let w = child(&g, lead, "w");
-    for _ in 0..MAILBOX_LIMIT {
-        g.note(w, "parent", Kind::Queue, "x", None).unwrap();
-    }
-    assert!(matches!(
-        g.note(w, "parent", Kind::Queue, "x", None),
-        Err(Refusal::MailboxFull(_))
-    ));
-    let digests = BTreeMap::from([("o-mode".to_owned(), "o1".to_owned())]);
-    assert_eq!(g.rules_changed(&digests, None).unwrap(), ["o-mode"]);
-    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
-    assert!(
-        got.iter()
-            .any(|m| matches!(m.what, Some(MessageKind::RulesChanged { .. })))
-    );
-    assert!(g.rules_changed(&digests, None).unwrap().is_empty());
 }
 
 /// 배포 중에 살아 있는 옛 `loom hook`·`loom wait`(main의 `Delivery` 꼴)가 새 메시지를 읽는다(관문 검토 P1).

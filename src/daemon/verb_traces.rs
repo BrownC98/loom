@@ -54,6 +54,7 @@ fn launched(token: &str) -> Launched {
         token: token.into(),
         server: None,
         account: None,
+        rules: None,
     }
 }
 

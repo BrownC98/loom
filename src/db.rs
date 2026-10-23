@@ -259,7 +259,7 @@ const STEPS: &[M] = &[
     // 사람이 띄운 셸·명령 노드와 옛 노드는 NULL이고, 데몬이 처음 물을 때 정해 넣는다. 이름을 바꾸거나 입양해도 작업 폴더는 그대로다.
     M::up("ALTER TABLE nodes ADD COLUMN task TEXT;"),
     // 34: 메시지 종류(protocol `MessageKind`, serde JSON). 옛 메시지는 NULL이다. `kind` 열은 전달 방식(큐·조정·중단)이다.
-    // `skill_digests`는 데몬이 마지막으로 실은 내장 스킬의 내용 해시다. 바뀌면 데몬이 `rules-changed`를 한 번 보낸다.
+    // `skill_digests`는 데몬이 마지막으로 실은 내장 스킬의 내용 해시였다(36이 지운다).
     M::up(
         "ALTER TABLE messages ADD COLUMN what TEXT;
         CREATE TABLE skill_digests (
@@ -272,6 +272,12 @@ const STEPS: &[M] = &[
     M::up(
         "UPDATE events SET entry = json_set(entry, '$.reason.code', 'kindWord') WHERE entry ->> '$.reason.code' = 'gateWord';
         UPDATE events SET entry = json_set(entry, '$.reason.code', 'git', '$.reason.value', 'Old rule: a node with a parent cannot loom ask the human.') WHERE entry ->> '$.reason.code' = 'hasParent';",
+    ),
+    // 36: 노드가 띄울 때 받은 시작 글 조각의 해시(profile `StartDigests`, serde JSON). 셸과 옛 노드는 NULL이고 다시 띄울 때 정해진다.
+    // 노드마다 견주므로 34의 `skill_digests`(데몬 하나의 기록)는 지운다.
+    M::up(
+        "ALTER TABLE nodes ADD COLUMN rules TEXT;
+        DROP TABLE skill_digests;",
     ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
@@ -552,9 +558,9 @@ mod tests {
         );
     }
 
-    /// 옛 메시지는 종류가 없다(NULL, 화면과 터미널은 메모로 읽는다). 스킬 해시 표는 비어서 생긴다.
+    /// 옛 메시지는 종류가 없다(NULL, 화면과 터미널은 메모로 읽는다). 34가 만든 스킬 해시 표는 36이 지운다.
     #[test]
-    fn step_34_adds_message_kinds_and_skill_digests() {
+    fn step_34_adds_message_kinds() {
         let mut conn = Connection::open_in_memory().unwrap();
         super::MIGRATIONS.to_version(&mut conn, 33).unwrap();
         conn.execute(
@@ -568,7 +574,11 @@ mod tests {
             .unwrap();
         assert_eq!(what, None);
         let digests: u32 = conn
-            .query_row("SELECT count(*) FROM skill_digests", [], |row| row.get(0))
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'skill_digests'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(digests, 0);
     }

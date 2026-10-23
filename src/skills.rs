@@ -64,26 +64,7 @@ impl Plugin {
     }
 }
 
-/// 이 판에 실은 스킬마다 내용 해시(SHA-256 hex): 파일 이름과 내용을 이름 순서로. 데몬이 지난 기록과 비교해 `rules-changed`를 보낸다.
-pub fn digests() -> BTreeMap<String, String> {
-    let mut names: Vec<_> = Files::iter().collect();
-    names.sort();
-    let mut hashers: BTreeMap<String, Sha256> = BTreeMap::new();
-    for name in names {
-        let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
-        let hasher = hashers.entry(skill_of(&name).to_owned()).or_default();
-        hasher.update(name.as_bytes());
-        hasher.update([0]);
-        hasher.update(&file.data);
-        hasher.update([0]);
-    }
-    hashers
-        .into_iter()
-        .map(|(skill, hasher)| (skill, hex(hasher)))
-        .collect()
-}
-
-/// 글 조각들의 내용 해시(SHA-256 hex). `digests`와 같은 꼴이라 같은 기록에 넣는다.
+/// 글 조각들의 내용 해시(SHA-256 hex).
 pub fn digest(parts: &[&str]) -> String {
     let mut hasher = Sha256::new();
     for part in parts {
@@ -186,32 +167,70 @@ pub struct Launch {
 /// 부모 없는 노드는 o-mode 절차 전체, 자식은 브리프 공통 규칙을 받는다. 자식에게 총괄 절차를 주지 않는다.
 /// 링크만 주면 모델이 읽지 않고 지나친다. 그래서 본문을 그대로 넣는다.
 pub fn always_on(launch: Launch) -> String {
-    // 질문 규칙을 맨 앞에 둔다. loom 기능과 직결된다(`ASK`).
-    let mut parts = vec![ask_rules()];
-    if launch.skills.ste100 {
-        parts.push(body(&text("ste-100/SKILL.md")).to_owned());
+    parts(launch)
+        .into_iter()
+        .map(|source| part(source).expect("`parts`가 고른 원본은 늘 있다"))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// 시작 지시 조각의 원본 파일과 그 조각 글의 해시. 노드를 띄울 때 남긴다(`profile::start_digests`).
+pub fn part_digests(launch: Launch) -> BTreeMap<String, String> {
+    parts(launch)
+        .into_iter()
+        .filter_map(|source| Some((source.to_owned(), part_digest(source)?)))
+        .collect()
+}
+
+/// 이 판에서 원본 `source`로 만든 조각 글의 해시. 이 판에 없는 원본은 없다.
+pub fn part_digest(source: &str) -> Option<String> {
+    part(source).map(|text| digest(&[&text]))
+}
+
+/// `launch`가 받는 조각의 원본 파일. 질문 규칙을 맨 앞에 둔다. loom 기능과 직결된다(`ASK`).
+fn parts(launch: Launch) -> Vec<&'static str> {
+    let mode = match launch.position {
+        Position::Root => MODE_ROOT,
+        Position::Child => MODE_CHILD,
+    };
+    [
+        (true, ASK_SOURCE),
+        (launch.skills.ste100, STE_SOURCE),
+        (launch.skills.raptor3, RAPTOR_SOURCE),
+        (launch.skills.o_mode, mode),
+    ]
+    .into_iter()
+    .filter_map(|(on, source)| on.then_some(source))
+    .collect()
+}
+
+const ASK_SOURCE: &str = "ask-human/SKILL.md";
+const STE_SOURCE: &str = "ste-100/SKILL.md";
+const RAPTOR_SOURCE: &str = "raptor-3/SKILL.md";
+const MODE_ROOT: &str = "o-mode/SKILL.md";
+const MODE_CHILD: &str = "o-mode/agent-rules.md";
+
+/// 원본 파일 하나로 만든 시작 지시 조각.
+fn part(source: &str) -> Option<String> {
+    match source {
+        ASK_SOURCE => Some(ask_rules()),
+        STE_SOURCE => Some(body(&text(source)).to_owned()),
+        RAPTOR_SOURCE => {
+            let raptor = text(source);
+            let (_, rest) = raptor
+                .split_once("\n## 작업 중\n")
+                .expect("랩터-3에 「작업 중」 절이 있다");
+            let section = rest.split("\n## ").next().unwrap_or(rest);
+            Some(format!("# 랩터-3 작업 중\n\n{}", section.trim()))
+        }
+        MODE_ROOT | MODE_CHILD => Some(format!("{MODE_NOTE}\n\n{}", body(&text(source)))),
+        _ => None,
     }
-    if launch.skills.raptor3 {
-        let raptor = text("raptor-3/SKILL.md");
-        let (_, rest) = raptor
-            .split_once("\n## 작업 중\n")
-            .expect("랩터-3에 「작업 중」 절이 있다");
-        let section = rest.split("\n## ").next().unwrap_or(rest);
-        parts.push(format!("# 랩터-3 작업 중\n\n{}", section.trim()));
-    }
-    if launch.skills.o_mode {
-        let mode = match launch.position {
-            Position::Root => text("o-mode/SKILL.md"),
-            Position::Child => text("o-mode/agent-rules.md"),
-        };
-        parts.push(format!("{MODE_NOTE}\n\n{}", body(&mode)));
-    }
-    parts.join("\n\n")
 }
 
 /// 끌 수 없는 질문 규칙(`ASK`)의 본문.
 pub fn ask_rules() -> String {
-    body(&text(&format!("{ASK}/SKILL.md"))).to_owned()
+    body(&text(ASK_SOURCE)).to_owned()
 }
 
 /// 시작 지시에 넣은 o-mode 글의 상대 링크는 시작 지시 안에서 열리지 않는다.
@@ -316,6 +335,27 @@ mod tests {
         // 끌 수 없는 스킬의 글만 남는다.
         let none = off(AlwaysOn::all().next().unwrap());
         assert_eq!(none, ask_rules());
+    }
+
+    /// 노드가 받은 조각만 해시를 남긴다. 조각 이름은 원본 파일이라 위치가 달라도 이 판의 해시와 견줄 수 있다.
+    #[test]
+    fn part_digests_name_each_received_part_by_its_source() {
+        let child = part_digests(Launch {
+            position: Position::Child,
+            skills: AlwaysOn {
+                ste100: false,
+                ..AlwaysOn::default()
+            },
+        });
+        assert_eq!(
+            child.keys().map(String::as_str).collect::<Vec<_>>(),
+            [ASK_SOURCE, MODE_CHILD, RAPTOR_SOURCE]
+        );
+        for (source, digest) in &child {
+            assert_eq!(part_digest(source).as_ref(), Some(digest));
+        }
+        assert_ne!(part_digest(MODE_ROOT), part_digest(MODE_CHILD));
+        assert_eq!(part_digest("o-mode/gone.md"), None);
     }
 
     /// 옛 설정 줄에는 이 값이 없다. 없으면 켜짐이다.

@@ -349,6 +349,16 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
+    /// 프로세스를 끝내되 PTY는 같은 id의 새 프로세스(`spawn`)가 받을 때까지 둔다. 화면은 마지막 출력을 계속 보고,
+    /// 새 PTY가 오면 옛 출력이 닫혀 다시 붙는다. `on_exit`는 그대로 불린다.
+    /// 근거: 다시 띄우기가 PTY를 먼저 놓자, 그 틈에 다시 붙은 화면이 「터미널이 닫혔다」(`PtyNotice::Gone`)를 받고 다시 붙지 않았다.
+    /// 사람은 그 노드를 「죽음」으로 보고 한 번 더 다시 띄웠다(2026-10-24 워커 사용량429, 이벤트 10918·10938).
+    pub fn stop(&self, id: K) {
+        if let Some(pty) = self.pty(id) {
+            pty.send(&Frame::Kill);
+        }
+    }
+
     /// `caller`를 띄운 셸을 중단 대상으로 둔다. 셸은 `caller`의 조상 가운데 노드 프로세스의 직속 자식이다.
     /// 부모 PID를 쓰지 않는 이유: Windows Git Bash는 명령마다 fork 대리 프로세스를 띄우고, 그 프로세스는 명령과 함께 끝난다.
     /// 노드 프로세스의 자손이 아니면 두지 않는다. 이미 끝난 셸은 이때 목록에서 지운다.
@@ -720,6 +730,38 @@ mod tests {
         assert!(read_until(&mut attached, "got x").contains("before"));
         assert_eq!(rx.recv().unwrap(), Exit::Command(3));
         assert!(!dir.path().join("1").exists());
+    }
+
+    /// 끝낸 프로세스의 PTY도 붙을 수 있다. 같은 id로 새 프로세스가 뜨면 옛 연결의 출력이 닫히고, 다시 붙으면 새 PTY를 받는다.
+    #[cfg(unix)]
+    #[test]
+    fn a_stopped_pty_stays_until_the_new_process_replaces_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut old = CommandBuilder::new("sh");
+        old.args(["-c", "echo old; read line"]);
+        in_process(dir.path(), 1, old);
+        let nodes = NodeHost::new(dir.path().to_path_buf());
+        let (tx, rx) = std::sync::mpsc::channel();
+        nodes.resume(1, move |code| tx.send(code).unwrap()).unwrap();
+        let mut viewer = nodes.attach(1).unwrap();
+        read_until(&mut viewer, "old");
+
+        nodes.stop(1);
+        rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let between = nodes
+            .attach(1)
+            .expect("the screen still attaches between the two processes");
+        assert!(String::from_utf8_lossy(&between.backlog).contains("old"));
+
+        let mut new = CommandBuilder::new("sh");
+        new.args(["-c", "echo new; read line"]);
+        in_process(dir.path(), 1, new);
+        nodes.resume(1, |_| {}).unwrap();
+        while let Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) =
+            viewer.output.blocking_recv()
+        {}
+        read_until(&mut nodes.attach(1).unwrap(), "new");
+        nodes.kill(1);
     }
 
     /// 설정 스크립트가 성공하면 새 PTY에서 명령이 뜨고(출력은 한 터미널로 이어진다), 데몬은 명령의 PID를 받는다.

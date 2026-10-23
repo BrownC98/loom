@@ -12,6 +12,7 @@ mod places;
 mod relaunch;
 mod sessions;
 mod settings;
+mod sleep;
 pub use relaunch::{NewAgent, Relaunched};
 mod switch;
 mod turn_end;
@@ -112,6 +113,8 @@ struct App {
     idle: idle::IdleWaits,
     /// 다시 띄우는 중이거나 턴 끝에 다시 띄울 노드.
     relaunches: relaunch::Relaunches,
+    /// 완료한 뒤 쉬는 노드와 재우는 중인 노드.
+    sleeps: sleep::Sleeps,
     /// 자동 계정 전환 기록.
     switch: switch::Switches,
     /// 턴 끝 질문 검사(`turn_end`).
@@ -528,16 +531,6 @@ pub struct Reported {
     pub warning: Option<String>,
 }
 
-/// 뜬 노드가 띄울 때 받은 규칙 글의 해시: 내장 스킬마다, 그리고 사용법(`USAGE_RULES`).
-fn rule_digests() -> std::collections::BTreeMap<String, String> {
-    let mut digests = skills::digests();
-    digests.insert(USAGE_RULES.to_owned(), profile::usage_digest());
-    digests
-}
-
-/// `rules-changed`의 `skills` 칸에 보이는 사용법의 이름. 내장 스킬 폴더 이름과 겹치지 않는다(시험이 본다).
-const USAGE_RULES: &str = "usage";
-
 /// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
 /// 다른 서비스가 쓰지 않는 주소를 골라, `127.0.0.1`의 다른 포트는 샌드박스 안에서 계속 막힌다.
 /// 화면에서 확인 창을 찾기 전에 출력이 멎어 있어야 하는 시간. TUI는 창 하나를 수십 ms 안에 다 그린다.
@@ -595,14 +588,11 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             .map_err(std::io::Error::other)?;
     }
     app.resume().await.map_err(std::io::Error::other)?;
-    // 다시 붙은 노드가 바뀐 규칙을 알게 한다. 알리지 못해도 데몬은 뜬다.
-    match app.graph.rules_changed(&rule_digests(), crate::COMMIT) {
-        Ok(changed) if !changed.is_empty() => {
-            eprintln!("loom: 내장 스킬이 바뀌었다: {}", changed.join(", "))
-        }
-        Ok(_) => {}
-        Err(e) => eprintln!("loom: 내장 스킬 변경을 알리지 못했다: {e}"),
+    // 실패해도 데몬은 뜬다. 그 노드는 옛 시작 글로 남는다.
+    if let Err(e) = app.relaunch_stale() {
+        eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
     }
+    app.watch_sleep();
     // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
     let node_routes = Router::new()
         .route("/api/agent/note", post(agent_note))
@@ -1008,6 +998,7 @@ impl App {
             setups: Mutex::default(),
             idle: idle::IdleWaits::default(),
             relaunches: relaunch::Relaunches::default(),
+            sleeps: sleep::Sleeps::default(),
             switch: switch::Switches::default(),
             turn_ends: turn_end::TurnEnds::default(),
             plugin: {
@@ -1159,6 +1150,7 @@ impl App {
             first_input,
             account: _,
             inside: _,
+            rules: _,
         } = prepared;
         self.first_inputs.launched(id, first_input);
         let on_exit = self.on_exit(id, &codex, &opencode2);
@@ -1248,6 +1240,8 @@ impl App {
                 Exit::Command(code) => app.graph.exited(id, code),
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
             };
+            // 잠든 노드로 적은 뒤 메시지를 놓는다. 그 전에 놓으면 끝나는 프로세스가 메시지를 꺼낸다.
+            app.sleeps.exited(id);
             // 종료를 적은 뒤 끝낸다. 남은 훅 프로세스가 다시 열면 `agent_idle`이 거절한다.
             app.idle.end(id);
         }
@@ -1477,6 +1471,7 @@ impl App {
             setup: None,
             token,
             account: account.cloned(),
+            rules: profile.map(|p| profile::start_digests(p, launch)),
             profile,
             codex,
             opencode2,
@@ -1516,6 +1511,8 @@ struct Prepared {
     token: String,
     /// 노드가 쓰는 Claude·Codex 계정. 그래프가 노드와 함께 남긴다.
     account: Option<AccountId>,
+    /// 노드가 받는 시작 글 조각의 해시. 그래프가 노드와 함께 남긴다. 프로필이 없는 노드는 없다.
+    rules: Option<profile::StartDigests>,
     /// 터미널 제목에서 카드 주제를 꺼내는 프로필. 없으면 제목을 쓰지 않는다.
     profile: Option<Profile>,
     codex: Option<Arc<CodexServer>>,
@@ -1535,6 +1532,7 @@ impl Prepared {
                 _ => None,
             },
             account: self.account.clone(),
+            rules: self.rules.clone(),
         }
     }
 
@@ -2359,6 +2357,7 @@ async fn pty(
         if let Err(e) = app.graph.typed(id) {
             eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
         }
+        app.sleeps.knocked(id);
     };
     serve_pty(ws, via, app, |app| &app.host, typed, NodeId(id))
 }
@@ -2583,12 +2582,6 @@ async fn asset(uri: Uri) -> Response {
 mod tests {
     use super::*;
 
-    #[test]
-    fn rule_digests_hold_the_usage_beside_the_skills() {
-        assert!(!skills::digests().contains_key(USAGE_RULES));
-        assert_eq!(rule_digests()[USAGE_RULES], profile::usage_digest());
-    }
-
     /// `loom` 명령이 노드 문으로 부르는 경로는 모두 노드 문에 있다. `spawn`만 `LOOM_SPAWN_URL`의 사람 문으로 간다(2026-10-23 리뷰: `task`가 빠져 노드 문에서 404였다).
     #[test]
     fn every_agent_route_the_cli_calls_is_on_the_node_door() {
@@ -2654,6 +2647,7 @@ mod tests {
             token: "t".into(),
             server: None,
             account: None,
+            rules: None,
         };
         let node = graph
             .add_root(
@@ -2760,6 +2754,7 @@ mod tests {
             token: "t2".into(),
             server: None,
             account: None,
+            rules: None,
         };
         graph.relaunched(node, &relaunched).unwrap();
         node_host::in_process(&hosts, node, screen_cmd());

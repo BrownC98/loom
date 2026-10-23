@@ -569,6 +569,10 @@ pub struct Graph {
     prompts: Mutex<HashMap<NodeId, Prompt>>,
 }
 
+/// 메시지를 받는 노드: 프로세스가 살았거나, 완료한 뒤 잠들었다(SQL 조건, `nodes` 열).
+/// 잠든 노드는 메시지가 오면 데몬이 같은 세션으로 깨운다(docs/design.md 「잠든 노드」).
+pub(super) const REACHABLE: &str = "(process_exited = 0 OR state ->> 'kind' = 'done')";
+
 // 「안 읽음」은 사람이 눌러 앞당길 수 있는 메시지, 곧 아직 넘기지 않은 큐 메시지만 센다.
 // 조정·중단은 다음 단계에 넘어가므로 누를 일이 없다. 누른 뒤 칩이 그대로면 고장으로 보였다(2026-10-22 사람 보고 "작동을 안하는 것처럼 보임").
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,

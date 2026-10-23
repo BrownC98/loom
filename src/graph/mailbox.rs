@@ -2,7 +2,6 @@
 //! 부모 없는 노드가 부모에게 보내는 메시지는 보관했다가 새 부모에게 전한다.
 //! 근거: docs/design.md 「전달 지점」.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::pin::pin;
 use std::time::Duration;
@@ -14,13 +13,13 @@ use ts_rs::TS;
 use super::events::{self, Entry, GateTrace, Step, Via};
 use super::waits;
 use super::{
-    Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, Refusal, SUMMARY_LIMIT_BYTES, Toward,
-    ambiguous, from_json, optional_json, parent_of, set_state, state_of, to_json,
+    Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, REACHABLE, Refusal, SUMMARY_LIMIT_BYTES,
+    Toward, ambiguous, from_json, optional_json, parent_of, set_state, state_of, to_json,
 };
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::{LOOM, MessageKind, Question};
+use crate::protocol::{MessageKind, Question};
 
 /// 메시지 전달 방식. 메모(`loom note`)만 조정·중단으로 보낸다. 근거: docs/design.md 「명령」.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -257,7 +256,7 @@ impl Graph {
             Err(e) => return Err(e),
         };
         if let Some(to_id) = to_id {
-            if exited(&db, to_id)? {
+            if unreachable(&db, to_id)? {
                 return Err(Refusal::Ended(to.to_owned()));
             }
             check_room(&db, to_id, to)?;
@@ -462,6 +461,25 @@ impl Graph {
         Ok(taken)
     }
 
+    /// 깨우는 메시지(`Delivery::wakes`)가 기다리는 잠든 노드: 완료한 뒤 프로세스가 끝났다. 데몬이 같은 세션으로 깨운다.
+    pub fn sleepers_with_mail(&self) -> rusqlite::Result<Vec<NodeId>> {
+        let db = self.lock();
+        let sleepers = db
+            .prepare(
+                "SELECT DISTINCT n.id FROM nodes n JOIN messages m ON m.recipient = n.id
+                 WHERE n.process_exited = 1 AND n.state ->> 'kind' = 'done' AND m.delivered = 0 ORDER BY n.id",
+            )?
+            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut waking = Vec::new();
+        for node in sleepers {
+            if queued(&db, node)? > 0 {
+                waking.push(node);
+            }
+        }
+        Ok(waking)
+    }
+
     /// 사람이 노드에 입력했다. 끝낸 노드면 다시 일한다. 기다리던 알림은 조정으로 바꿔 사람이 연 턴에 함께 넘긴다.
     /// 근거: Codex·OpenCode 2는 입력 훅이 없어, 쉬는 노드에 쌓인 알림이 다음 깨우는 메시지까지 남았다(2026-10-23 검토 추적-codex).
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
@@ -615,7 +633,7 @@ impl Graph {
         if text.trim().is_empty() {
             return Ok(());
         }
-        if exited(&db, parent)? {
+        if unreachable(&db, parent)? {
             return Ok(());
         }
         let tx = db.transaction()?;
@@ -635,69 +653,16 @@ impl Graph {
         self.publish_sent(&db, node, parent)?;
         Ok(())
     }
-
-    /// 데몬이 시작할 때 부른다. 내장 스킬(`digests`: 스킬 이름 → 내용 해시)이 지난 기록과 다르면 기록을 바꾸고
-    /// 살아 있는 모든 에이전트 노드에 `rules-changed`를 한 번 보낸다. 기록이 없는 스킬도 바뀐 것이다. 돌려준 값은 바뀐 스킬이다.
-    /// 근거: R8 v5 ③(총괄이 손으로 보내던 RULE UPDATE를 대신한다). 노드의 시작 지시는 띄울 때의 글이라 다시 띄워야 새 규칙을 읽는다.
-    pub fn rules_changed(
-        &self,
-        digests: &BTreeMap<String, String>,
-        commit: Option<&str>,
-    ) -> rusqlite::Result<Vec<String>> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        let recorded: BTreeMap<String, String> = tx
-            .prepare("SELECT skill, digest FROM skill_digests")?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?;
-        let changed: Vec<String> = digests
-            .iter()
-            .filter(|(skill, digest)| recorded.get(*skill) != Some(*digest))
-            .map(|(skill, _)| skill.clone())
-            .collect();
-        if changed.is_empty() {
-            return Ok(changed);
-        }
-        tx.execute("DELETE FROM skill_digests", [])?;
-        for (skill, digest) in digests {
-            tx.execute(
-                "INSERT INTO skill_digests (skill, digest) VALUES (?1, ?2)",
-                params![skill, digest],
-            )?;
-        }
-        let nodes = tx
-            .prepare(
-                "SELECT id FROM nodes WHERE agent != 'null' AND process_exited = 0 ORDER BY id",
-            )?
-            .query_map([], |row| Ok(NodeId(row.get(0)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let what = MessageKind::RulesChanged {
-            skills: changed.clone(),
-            commit: commit.map(str::to_owned),
-        };
-        for &node in &nodes {
-            enqueue_loom(&tx, node, &what, RULES_CHANGED_NEXT)?;
-        }
-        tx.commit()?;
-        for node in nodes {
-            self.publish_node(&db, node)?;
-        }
-        self.mail.notify_waiters();
-        Ok(changed)
-    }
 }
 
-/// 노드의 프로세스가 끝났는가. 끝난 노드의 받은편지함에는 넣지 않는다.
-fn exited(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
+/// 메시지를 받지 못하는 노드(`REACHABLE`이 아니다). 그 받은편지함에는 넣지 않는다.
+fn unreachable(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     db.query_row(
-        "SELECT process_exited FROM nodes WHERE id = ?1",
+        &format!("SELECT NOT {REACHABLE} FROM nodes WHERE id = ?1"),
         [node.0],
         |row| row.get(0),
     )
 }
-
-/// `rules-changed`의 본문. 다시 띄워도 대화는 이어진다(`loom relaunch`).
-const RULES_CHANGED_NEXT: &str = "Next: call `loom relaunch` at the end of this turn. Your start text still has the old rules; the relaunch loads the new ones, and the conversation continues.";
 
 /// `loom done` 보고. `warning`은 데몬이 git으로 본 담당 브랜치 경고다(`MessageKind::Done`).
 pub struct Report<'a> {
@@ -826,35 +791,6 @@ pub(super) fn enqueue_human(
     Ok(MessageId(db.last_insert_rowid() as u32))
 }
 
-/// 보낸 노드가 없는 loom 알림(`rules-changed`). 받은편지함 상한을 넘어도 넣는다: 놓치면 그 노드가 새 규칙을 영영 못 받는다(기록이 이미 바뀌었다).
-/// 다른 생애 알림(완료·종료)과 같다.
-pub(super) fn enqueue_loom(
-    db: &Connection,
-    to: NodeId,
-    what: &MessageKind,
-    body: &str,
-) -> rusqlite::Result<MessageId> {
-    db.execute(
-        "INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
-        params![to.0, LOOM, to_json(&Kind::Queue), body, to_json(what)],
-    )?;
-    let id = MessageId(db.last_insert_rowid() as u32);
-    let entry = Entry::Message {
-        how: Kind::Queue,
-        what: Some(what.clone()),
-        from: events::Who {
-            id: None,
-            name: LOOM.to_owned(),
-        },
-        to: Some(events::who(db, to)?),
-        step: Step::Sent,
-        via: None,
-        gate: None,
-    };
-    events::write(db, &entry, Some(id))?;
-    Ok(id)
-}
-
 fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {
     Ok(Delivery {
         id: MessageId(row.get(0)?),
@@ -898,14 +834,16 @@ fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
         found => return found.map(|(id, _)| id),
     }
     let named = db
-        .prepare("SELECT id, process_exited FROM nodes WHERE name = ?1 AND id != ?2 ORDER BY id")?
+        .prepare(&format!(
+            "SELECT id, {REACHABLE} FROM nodes WHERE name = ?1 AND id != ?2 ORDER BY id"
+        ))?
         .query_map(params![to, from.0], |row| {
             Ok((NodeId(row.get(0)?), row.get::<_, bool>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let live: Vec<NodeId> = named
         .iter()
-        .filter(|(_, exited)| !exited)
+        .filter(|(_, reachable)| *reachable)
         .map(|(id, _)| *id)
         .collect();
     match live[..] {

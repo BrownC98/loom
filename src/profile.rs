@@ -7,7 +7,7 @@ pub mod codex;
 pub mod cursor;
 pub mod opencode2;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -674,18 +674,59 @@ pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. U
 Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
 With a parent, write no progress in the terminal. Results go in loom done or loom note. End each turn with at most one short line.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input, rules-changed) are notices. The same ID can come again; do not repeat completed actions for that ID.");
+Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input) are notices. The same ID can come again; do not repeat completed actions for that ID.");
 
-/// 띄울 때 넘기는 사용법(공통 명령과 프로필마다의 대기 방식)의 해시. 데몬이 내장 스킬 해시와 함께 비교해 `rules-changed`를 보낸다.
-/// 근거: 사용법은 띄울 때 한 번만 넘어가서, 사용법이 바뀌어도 뜬 노드는 옛 글을 쥔다(R14 5절, 2026-10-23 Q687 A).
-pub fn usage_digest() -> String {
-    crate::skills::digest(&[
-        COMMUNICATION_USAGE,
-        claude::WAITING,
-        codex::WAITING,
-        cursor::WAITING,
-        opencode2::WAITING,
-    ])
+/// 노드가 띄울 때 받은 시작 글 조각(사용법, 상시 지시)마다의 해시. 조각 이름 → 해시.
+pub type StartDigests = BTreeMap<String, String>;
+
+/// 데몬이 시작할 때 이 판의 해시와 견줘(`changed_parts`), 바뀐 조각을 받은 노드만 턴 끝에 다시 띄운다.
+/// 근거: 시작 글은 띄울 때 한 번만 넘어가서, 바뀌어도 뜬 노드는 옛 글을 쥔다(R14 5절, 2026-10-23 Q687 A).
+/// 배포마다 모든 노드에 알리자 기록 3,000건 안에서 27번 다시 떴다(2026-10-24 총괄 실측).
+pub fn start_digests(profile: Profile, launch: Launch) -> StartDigests {
+    let mut digests = crate::skills::part_digests(launch);
+    digests.insert(usage_part(profile).to_owned(), usage_digest(profile));
+    digests
+}
+
+/// 노드가 받은 조각 가운데 이 판에서 글이 바뀌었거나 없어진 조각.
+pub fn changed_parts(got: &StartDigests) -> Vec<&str> {
+    got.iter()
+        .filter(|(part, digest)| current_digest(part).as_ref() != Some(*digest))
+        .map(|(part, _)| part.as_str())
+        .collect()
+}
+
+fn current_digest(part: &str) -> Option<String> {
+    let profiles = [
+        Profile::Claude,
+        Profile::Codex,
+        Profile::OpenCode2,
+        Profile::Cursor,
+    ];
+    match profiles.into_iter().find(|p| usage_part(*p) == part) {
+        Some(profile) => Some(usage_digest(profile)),
+        None => crate::skills::part_digest(part),
+    }
+}
+
+fn usage_part(profile: Profile) -> &'static str {
+    match profile {
+        Profile::Claude => "usage/claude",
+        Profile::Codex => "usage/codex",
+        Profile::OpenCode2 => "usage/opencode2",
+        Profile::Cursor => "usage/cursor",
+    }
+}
+
+/// 띄울 때 넘기는 사용법: 공통 명령과 그 프로필의 대기 방식.
+fn usage_digest(profile: Profile) -> String {
+    let waiting = match profile {
+        Profile::Claude => claude::WAITING,
+        Profile::Codex => codex::WAITING,
+        Profile::OpenCode2 => opencode2::WAITING,
+        Profile::Cursor => cursor::WAITING,
+    };
+    crate::skills::digest(&[COMMUNICATION_USAGE, waiting])
 }
 
 /// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
@@ -907,5 +948,20 @@ mod tests {
             .map(|a| a.id.0)
             .collect();
         assert_eq!(ids, ["claude", "codex", "opencode2", "cursor"]);
+    }
+
+    /// 노드가 받은 조각의 해시가 이 판과 같으면 다시 띄우지 않는다. 바뀌었거나 이 판에 없는 조각만 고른다.
+    #[test]
+    fn only_parts_whose_text_changed_are_stale() {
+        let launch = crate::skills::Launch {
+            position: crate::skills::Position::Child,
+            skills: crate::skills::AlwaysOn::default(),
+        };
+        let mut got = start_digests(Profile::Cursor, launch);
+        assert!(got.contains_key("usage/cursor"));
+        assert!(changed_parts(&got).is_empty());
+        got.insert("usage/cursor".into(), "old".into());
+        got.insert("gone/SKILL.md".into(), "old".into());
+        assert_eq!(changed_parts(&got), ["gone/SKILL.md", "usage/cursor"]);
     }
 }

@@ -112,7 +112,12 @@ fn spawn_role_is_stored_and_picks_the_gate() {
     );
     g.exited(second, 0).unwrap();
     assert_eq!(g.gate_for(t.worker).unwrap(), GateChoice::Ci { gate: t.ci });
+    // 완료한 뒤 잠든 CI 담당자는 고른다. 메시지가 깨운다.
+    g.done(t.ci, &report("idle"), None, &[], None, None)
+        .unwrap();
     g.exited(t.ci, 0).unwrap();
+    assert_eq!(g.gate_for(t.worker).unwrap(), GateChoice::Ci { gate: t.ci });
+    g.sleep_lost(t.ci).unwrap();
     assert_eq!(g.gate_for(t.worker), Err(Refusal::NoGate));
 }
 

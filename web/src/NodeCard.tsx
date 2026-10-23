@@ -10,9 +10,13 @@ import { NameEdit, useRename, type Rename } from './NameEdit';
 import { asking, NoticeChips } from './notice';
 import { navDirection, type Direction } from './Terminal';
 
-/** 점·상태 칸의 클래스. 사람 응답 대기는 실행 상태보다 앞선다(목업 docs/mockups/human-question.html ④). */
+/**
+ * 노드 점의 클래스. 사람 응답 대기는 실행 상태보다 앞선다(목업 docs/mockups/human-question.html ④).
+ * 실행 중·완료는 색이 없다. 쉬는 노드도 「실행 중」으로 보여 헷갈렸다(2026-10-23 사람 지시 "사이드바 표시에도 적용").
+ */
 export function stateClass(view: NodeView): string {
-  return asking(view).length > 0 ? 'waiting' : view.state.kind;
+  if (asking(view).length > 0) return 'waiting';
+  return view.state.kind === 'exited' || view.state.kind === 'setupFailed' ? view.state.kind : '';
 }
 
 /** 점의 글: 사람 응답 대기는 실행 상태보다 앞선다. 점의 클래스(`stateClass`)와 짝이다. */

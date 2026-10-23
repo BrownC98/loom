@@ -2,12 +2,14 @@
 import type { AccountId } from "./AccountId";
 import type { AgentId } from "./AgentId";
 import type { ClosedBy } from "./ClosedBy";
+import type { GateTrace } from "./GateTrace";
 import type { Kind } from "./Kind";
 import type { NodeState } from "./NodeState";
 import type { Provider } from "./Provider";
 import type { Refusal } from "./Refusal";
 import type { Step } from "./Step";
 import type { SwitchCause } from "./SwitchCause";
+import type { Via } from "./Via";
 import type { WaitId } from "./WaitId";
 import type { Who } from "./Who";
 
@@ -15,7 +17,15 @@ export type Entry = { "kind": "created", node: Who, parent: Who | null, agent: A
 /**
  * 부모가 없던 동안 보관해 새 부모에게 옮긴 메시지 수. 이 수를 남기기 전 기록은 0이다.
  */
-held: number, } | { "kind": "removed", node: Who, } | { "kind": "renamed", node: Who, from: string, } | { "kind": "message", how: Kind, from: Who, to: Who | null, step: Step, } | { "kind": "refused", how: Kind, from: Who, to: string, reason: Refusal, } | { "kind": "accountSwitched", provider: Provider, 
+held: number, } | { "kind": "removed", node: Who, } | { "kind": "renamed", node: Who, from: string, } | { "kind": "message", how: Kind, from: Who, to: Who | null, step: Step, 
+/**
+ * 보낸 입구. 받음 확인과 데몬이 만든 메시지, 옛 기록에는 없다.
+ */
+via?: Via, 
+/**
+ * 관문 동사가 보낸 메시지의 관문 흔적. 다른 메시지에는 없다.
+ */
+gate?: GateTrace, } | { "kind": "refused", how: Kind, from: Who, to: string, reason: Refusal, via?: Via, gate?: GateTrace, } | { "kind": "accountSwitched", provider: Provider, 
 /**
  * 계정의 위치(WSL 배포판). 이 PC면 없다. 옛 기록에도 없다.
  */

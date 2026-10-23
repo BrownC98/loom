@@ -44,7 +44,7 @@ fn usage(launch: Launch) -> String {
 
 /// 승인 없이 부르는 명령. 기본 권한 모드에서 메시지마다 승인 창이 뜨면 사람이 없는 노드가 멈춘다.
 /// `loom spawn`은 넣지 않는다. `-- <명령>`으로 아무 명령이나 띄울 수 있다.
-const ALLOWED: [&str; 14] = [
+const ALLOWED: [&str; 18] = [
     "Bash(loom guard)",
     "Bash(loom send:*)",
     "Bash(loom steer:*)",
@@ -59,6 +59,10 @@ const ALLOWED: [&str; 14] = [
     "Bash(loom answered:*)",
     "Bash(loom adopt:*)",
     "Bash(loom rm:*)",
+    "Bash(loom ready:*)",
+    "Bash(loom verdict:*)",
+    "Bash(loom merge:*)",
+    "Bash(loom fail:*)",
 ];
 
 /// `--model`·`--effort` 시작 인자(Claude Code 2.1.304 도움말).

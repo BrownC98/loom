@@ -10,14 +10,14 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::graph::{Attached, WaitDoc};
+use crate::graph::WaitDoc;
 
 /// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;
 
 pub fn show(path: &Path) -> Result<(), String> {
-    let Attached { doc, path } = attach(path)?;
+    let doc = attach(path)?;
     println!("show: 문서 ID {} ({})", doc.id, doc.title);
     println!(
         "show: 사람에게 보이려면 질문에 붙인다: loom ask \"<질문>\" --doc {}",
@@ -52,11 +52,11 @@ pub fn doc_kind(path: &Path) -> Option<DocKind> {
 
 /// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
 /// 근거: 총괄이 `.md` 감사 보고서를 붙이지 못해 경로를 글로 적었고, 사람은 열지 못했다(2026-10-23 사람 "링크로 제공이 안됨").
-pub fn attach(path: &Path) -> Result<Attached, String> {
+pub fn attach(path: &Path) -> Result<WaitDoc, String> {
     attach_in(&Store::here()?, path)
 }
 
-fn attach_in(store: &Store, path: &Path) -> Result<Attached, String> {
+fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, String> {
     let path = real_path(path)?;
     // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
     let refused = || {
@@ -76,10 +76,7 @@ fn attach_in(store: &Store, path: &Path) -> Result<Attached, String> {
         let id = store.doc_id(&path)?;
         store.keep(&id, &path, &text)?;
         let title = text_title(&text, &path);
-        return Ok(Attached {
-            doc: WaitDoc { id, title },
-            path,
-        });
+        return Ok(WaitDoc { id, title });
     }
     check(&text)?;
     if !mockup(&path) {
@@ -90,10 +87,7 @@ fn attach_in(store: &Store, path: &Path) -> Result<Attached, String> {
     let stamped = stamp(&text, &id);
     fs::write(&path, &stamped).map_err(|e| e.to_string())?;
     store.keep(&id, &path, &stamped)?;
-    Ok(Attached {
-        doc: WaitDoc { id, title },
-        path,
-    })
+    Ok(WaitDoc { id, title })
 }
 
 /// 문서 ID의 파일. 원본이 있으면 원본이다(고친 새 판이 보인다). 원본이 지워졌으면(병합 뒤 지운 워크트리의 목업) 붙일 때 남긴 사본(`keep`)이다.
@@ -653,8 +647,8 @@ mod tests {
             .doc_id(&real_path(&repo.join("old.md")).unwrap())
             .unwrap();
         fs::remove_file(repo.join("old.md")).unwrap();
-        let m = attach_in(&store, &mock).unwrap().doc.id;
-        let r = attach_in(&store, &report).unwrap().doc.id;
+        let m = attach_in(&store, &mock).unwrap().id;
+        let r = attach_in(&store, &report).unwrap().id;
         assert_eq!((old.as_str(), m.as_str(), r.as_str()), ("R1", "M1", "R2"));
 
         // 원본이 있으면 원본을 낸다(새 판이 보인다).

@@ -25,8 +25,8 @@ pub use events::{Entry, EventRecord, SwitchCause, Who};
 pub use mailbox::{Delivery, Kind, MessageId, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
-    Attached, HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId,
-    WaitKind, WaitSource,
+    HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId, WaitKind,
+    WaitSource,
 };
 
 use crate::db::Database;

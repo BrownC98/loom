@@ -395,12 +395,7 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
         id: "R4".into(),
         title: "감사".into(),
     };
-    let report = PathBuf::from("/tmp/audit.md");
-    let attached = Attached {
-        doc: doc.clone(),
-        path: report.clone(),
-    };
-    g.done(lead, "감사했다.", Some("감사해"), &[], Some(attached))
+    g.done(lead, "감사했다.", Some("감사해"), &[], Some(doc.clone()))
         .unwrap();
     let with_doc = view(&g, lead).waits[0].clone();
     assert_eq!(with_doc.doc, Some(doc.clone()));
@@ -410,9 +405,8 @@ fn root_dones_stay_in_the_inbox_until_the_human_confirms_and_never_hide_a_wait()
     g.done(worker, "고쳤다.", Some("버튼 고쳐"), &[], None)
         .unwrap();
     assert_eq!(done(worker), []);
-    let attached = Attached { doc, path: report };
     assert_eq!(
-        g.done(worker, "고쳤다.", None, &[], Some(attached)),
+        g.done(worker, "고쳤다.", None, &[], Some(doc.clone())),
         Err(Refusal::DocHasParent)
     );
 }
@@ -486,11 +480,7 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
         id: "M2".into(),
         title: "목업".into(),
     };
-    let attached = Attached {
-        doc: doc.clone(),
-        path: PathBuf::from("/r/docs/mockups/m.html"),
-    };
-    let q5 = g.ask(lead, "F?", Some(attached)).unwrap();
+    let q5 = g.ask(lead, "F?", Some(doc.clone())).unwrap();
     g.dismiss(q4).unwrap();
     assert_eq!(ids(lead), [q5]);
     // 닫은 질문은 사람이 보낸 짧은 큐 메시지로 그 노드에 알린다.
@@ -568,11 +558,7 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
         id: "M3".into(),
         title: "목업".into(),
     };
-    let attached = Attached {
-        doc: doc.clone(),
-        path: dir.path().join("m.html"),
-    };
-    let with_doc = g.ask(lead, "승인할까요?", Some(attached)).unwrap();
+    let with_doc = g.ask(lead, "승인할까요?", Some(doc.clone())).unwrap();
     assert_eq!(view(&g, lead).waits[0].doc, Some(doc));
     g.answered(lead, &[]).unwrap();
 
@@ -2465,11 +2451,7 @@ fn records_inbox_notices_and_the_human_responses() {
         id: "M2".into(),
         title: "목업".into(),
     };
-    let attached = Attached {
-        doc: doc.clone(),
-        path: PathBuf::from("/r/docs/mockups/m.html"),
-    };
-    let q5 = g.ask(lead, "F?", Some(attached)).unwrap();
+    let q5 = g.ask(lead, "F?", Some(doc.clone())).unwrap();
     g.exited(lead, 0).unwrap();
 
     assert_eq!(

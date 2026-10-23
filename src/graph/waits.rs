@@ -117,12 +117,6 @@ impl PromptKey {
     }
 }
 
-/// `--doc`(`loom ask`, `loom done`)이 붙인 문서와 그 파일.
-pub struct Attached {
-    pub doc: WaitDoc,
-    pub path: PathBuf,
-}
-
 /// 화면에 보내는 대기 한 건.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -214,12 +208,7 @@ impl Graph {
 
     /// `loom ask`: 사람이 띄운 노드(부모 없음)만 사람에게 묻는다. 다른 노드는 부모에게 묻는다.
     /// 물을 때마다 새 번호의 질문을 더한다. 앞 질문은 열린 채로 남는다. 같은 질문을 다시 물어도 새 질문이다.
-    pub fn ask(
-        &self,
-        id: NodeId,
-        question: &str,
-        attached: Option<Attached>,
-    ) -> Result<WaitId, Refusal> {
+    pub fn ask(&self, id: NodeId, question: &str, doc: Option<WaitDoc>) -> Result<WaitId, Refusal> {
         let question = question.trim();
         if question.is_empty() {
             return Err(Refusal::EmptyQuestion);
@@ -229,7 +218,6 @@ impl Graph {
             return Err(Refusal::HasParent);
         }
         let text: String = question.chars().take(QUESTION_LIMIT_CHARS).collect();
-        let doc = attached.map(|a| a.doc);
         let tx = db.transaction()?;
         let wait = new_wait(&tx, WaitKind::Question, text.clone(), true, doc.clone())?;
         let asked = wait.id;
@@ -462,11 +450,10 @@ pub(super) fn put_done(
     asked: &str,
     summary: &str,
     images: &[PathBuf],
-    attached: Option<Attached>,
+    doc: Option<WaitDoc>,
 ) -> rusqlite::Result<()> {
     let summary = summary.trim().to_owned();
     let instruction: String = asked.chars().take(QUESTION_LIMIT_CHARS).collect();
-    let doc = attached.map(|a| a.doc);
     let mut wait = new_wait(db, WaitKind::Done, summary.clone(), true, doc.clone())?;
     wait.instruction = Some(instruction.clone());
     wait.images = images

@@ -2255,16 +2255,10 @@ async fn agent_done(
     for image in &req.images {
         done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
-    let attached = attach(req.doc.as_deref())?;
+    let doc = attach(req.doc.as_deref())?;
     let alive_children = app
         .graph
-        .done(
-            node,
-            &req.summary,
-            req.asked.as_deref(),
-            &req.images,
-            attached,
-        )
+        .done(node, &req.summary, req.asked.as_deref(), &req.images, doc)
         .map_err(for_agent)?;
     Ok(Json(alive_children))
 }
@@ -2292,7 +2286,7 @@ fn done_image(path: &std::path::Path) -> Result<(), String> {
 }
 
 /// `--doc`(`loom ask`, `loom done`)의 문서를 점검하고 ID를 붙인다.
-fn attach(doc: Option<&std::path::Path>) -> Result<Option<crate::graph::Attached>, AgentError> {
+fn attach(doc: Option<&std::path::Path>) -> Result<Option<WaitDoc>, AgentError> {
     doc.map(user_doc::attach)
         .transpose()
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
@@ -2305,11 +2299,10 @@ async fn agent_ask(
     Json(req): Json<AskRequest>,
 ) -> Result<Json<Asked>, AgentError> {
     let node = app.caller(&headers)?;
-    let attached = attach(req.doc.as_deref())?;
-    let doc = attached.as_ref().map(|a| a.doc.clone());
+    let doc = attach(req.doc.as_deref())?;
     let id = app
         .graph
-        .ask(node, &req.question, attached)
+        .ask(node, &req.question, doc.clone())
         .map_err(for_agent)?;
     let open = app.graph.open_questions(node).map_err(for_agent)?;
     Ok(Json(Asked {

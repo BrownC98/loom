@@ -169,10 +169,20 @@ impl Homes {
 /// WSL 노드가 interop으로 부른 `loom.exe`는 Linux 절대 경로(`/home/…`)를 받는다. Windows는 그 글을 현재 드라이브의 경로로 읽는다.
 /// 시작 폴더가 WSL 폴더면(interop이 그 폴더의 UNC로 띄운다) 같은 배포판의 UNC 경로로 바꾼다.
 pub fn from_caller(path: std::path::PathBuf) -> std::path::PathBuf {
+    linux_at(path, caller())
+}
+
+/// 데몬이 아는 노드 폴더 `folder`에서 그 노드가 준 경로. WSL 노드의 Linux 절대 경로는 그 배포판의 UNC 경로다.
+/// 근거: 데몬의 시작 폴더는 노드 폴더가 아니어서 `from_caller`가 WSL 노드의 `/home/…` 링크를 풀지 못했다(2026-10-23 검토 추적-opus S1).
+pub fn from_node(path: PathBuf, folder: &Path) -> PathBuf {
+    linux_at(path, of(folder))
+}
+
+fn linux_at(path: PathBuf, at: Option<WslPath>) -> PathBuf {
     let linux = path
         .to_str()
         .filter(|p| p.starts_with('/') && !p.starts_with("//"));
-    match (linux, caller()) {
+    match (linux, at) {
         (Some(p), Some(at)) => at.unc(p).into(),
         _ => path,
     }
@@ -503,6 +513,25 @@ pub fn shell(line: &str) -> Vec<OsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 데몬은 WSL 노드가 준 Linux 경로를 그 노드 폴더의 배포판에서 읽는다. 다른 OS의 데몬에는 WSL 폴더가 없다.
+    #[test]
+    fn a_node_path_is_read_in_the_node_folder() {
+        let read = from_node(
+            PathBuf::from("/home/k/a.html"),
+            Path::new(r"\\wsl.localhost\Ubuntu\home\k"),
+        );
+        let expected = if cfg!(windows) {
+            "//wsl.localhost/Ubuntu/home/k/a.html"
+        } else {
+            "/home/k/a.html"
+        };
+        assert_eq!(read, PathBuf::from(expected));
+        assert_eq!(
+            from_node(PathBuf::from("/home/k/a.html"), Path::new(r"C:\work")),
+            PathBuf::from("/home/k/a.html")
+        );
+    }
 
     /// WSL 폴더의 관문 명령은 그 배포판 안에서 그 Linux 폴더로 띄운다. 스크립트 경로는 상대 경로로 남는다.
     #[test]

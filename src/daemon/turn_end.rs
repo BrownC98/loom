@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use super::App;
-use crate::graph::NodeId;
+use crate::graph::{NodeId, TurnCheck};
 
 /// 다시 일하게 할 때 에이전트에 넘기는 글. 할 일이 없으면 왜 없는지 사람의 말로 한두 낱말만 답하게 해 토큰을 아낀다
 /// (2026-10-22 사람 지시 "질문아닐때의 훅 응답은 매우 짧은 텍스트로 끝내기", "훅 짧은 응답에 대해 . 대신 이 응답을 왜 하는지 짧은 한두단어로 표기하라 (사용자 언어)").
@@ -75,12 +75,12 @@ impl TurnEnds {
             });
         let nudge = if kind_line {
             self.kind_nudged.lock().unwrap().insert(node);
-            Some(KIND_NUDGE)
+            Some(TurnCheck::KindLine)
         } else {
             (human
                 && reply.as_ref().is_some_and(|text| !text.trim().is_empty())
                 && unreported_root())
-            .then_some(NUDGE)
+            .then_some(TurnCheck::Unreported)
         };
         TurnEnd { reply, nudge }
     }
@@ -89,7 +89,14 @@ impl TurnEnds {
 /// 끝난 턴. `reply`는 심플 카드의 상태 줄로 남긴다.
 pub struct TurnEnd {
     reply: Option<String>,
-    nudge: Option<&'static str>,
+    nudge: Option<TurnCheck>,
+}
+
+fn nudge_text(check: TurnCheck) -> &'static str {
+    match check {
+        TurnCheck::Unreported => NUDGE,
+        TurnCheck::KindLine => KIND_NUDGE,
+    }
 }
 
 impl App {
@@ -113,7 +120,11 @@ impl App {
             eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
         }
         // 다시 띄울 노드다. 다시 일하게 한 턴은 다시 띄우기가 끊거나 늦춘다.
-        nudge.filter(|_| !self.relaunches.holds_mail(node))
+        let check = nudge.filter(|_| !self.relaunches.holds_mail(node))?;
+        if let Err(e) = self.graph.record_nudge(node, check) {
+            eprintln!("loom: 노드 {}의 턴 끝 검사를 남기지 못했다: {e}", node.0);
+        }
+        Some(nudge_text(check))
     }
 }
 
@@ -141,7 +152,10 @@ mod tests {
         );
         turns.human(node);
         turns.said(node, "A안과 B안 가운데 고르시면 진행합니다.".into());
-        assert_eq!(turns.ended(node, || true, || true).nudge, Some(NUDGE));
+        assert_eq!(
+            turns.ended(node, || true, || true).nudge,
+            Some(TurnCheck::Unreported)
+        );
         // 다시 일한 턴은 사람 입력이 없다. 답 글은 상태 줄로 돌려준다.
         turns.said(node, "코디 결과 대기".into());
         let end = turns.ended(node, || true, || true);
@@ -170,13 +184,16 @@ mod tests {
         turns.said(node, "MERGED 출력표준 abc\nQUESTION: 지울까?".into());
         assert_eq!(
             turns.ended(node, || false, || false).nudge,
-            Some(KIND_NUDGE),
+            Some(TurnCheck::KindLine),
             "old repo, later question"
         );
         turns.said(node, "ok".into());
         turns.ended(node, || false, || false);
         turns.said(node, "MERGED 출력표준".into());
-        assert_eq!(turns.ended(node, || true, || false).nudge, Some(KIND_NUDGE));
+        assert_eq!(
+            turns.ended(node, || true, || false).nudge,
+            Some(TurnCheck::KindLine)
+        );
         // 다시 일한 턴이 같은 글을 써도 다시 깨우지 않는다.
         turns.said(node, "MERGED 출력표준".into());
         assert_eq!(turns.ended(node, || true, || false).nudge, None);
@@ -189,7 +206,7 @@ mod tests {
             turns.said(node, format!("끝.\n{line}"));
             assert_eq!(
                 turns.ended(node, || false, || false).nudge,
-                Some(KIND_NUDGE),
+                Some(TurnCheck::KindLine),
                 "{line}"
             );
             turns.said(node, "ok".into());

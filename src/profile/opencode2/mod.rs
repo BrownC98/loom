@@ -481,7 +481,7 @@ mod tests {
             from: "부모".into(),
             kind,
             body: body.into(),
-            reply_to: None,
+            what: Some(crate::protocol::MessageKind::Note),
         }
     }
 
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(calls[0], "interrupt");
         assert!(calls[1].starts_with("steer msg_"), "{}", calls[1]);
         assert!(calls[1].ends_with(
-            "loom message #1 (from: 부모, mode: interrupt. Stop your current work and do what this message says)\n멈춰라"
+            "loom message #1 (from: 부모, kind: note, mode: interrupt. Stop your current work and do what this message says)\n멈춰라"
         ));
         assert_eq!(calls.len(), 2);
     }

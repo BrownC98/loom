@@ -256,8 +256,23 @@ const STEPS: &[M] = &[
     // 32: 노드에 고른 카드 보기(graph `CardView`, serde JSON)와 마지막 턴 끝 답 글(심플 카드 상태 줄). 없으면 NULL이다(목업 docs/mockups/node-card-view.html).
     M::up("ALTER TABLE nodes ADD COLUMN card_view TEXT; ALTER TABLE nodes ADD COLUMN reply TEXT;"),
     // 33: 노드의 작업 이름(`task::folder`의 원래 글). `loom spawn`이 넣는다: `--worktree` 브랜치, 없으면 부모의 작업이다.
-    // 사람이 띄운 노드와 옛 노드는 NULL이고 노드 이름이 작업이다(`Graph::task_of`). 이름을 바꾸거나 입양해도 작업 폴더는 그대로다.
+    // 사람이 띄운 셸·명령 노드와 옛 노드는 NULL이고, 데몬이 처음 물을 때 정해 넣는다. 이름을 바꾸거나 입양해도 작업 폴더는 그대로다.
     M::up("ALTER TABLE nodes ADD COLUMN task TEXT;"),
+    // 34: 메시지 종류(protocol `MessageKind`, serde JSON). 옛 메시지는 NULL이다. `kind` 열은 전달 방식(큐·조정·중단)이다.
+    // `skill_digests`는 데몬이 마지막으로 실은 내장 스킬의 내용 해시다. 바뀌면 데몬이 `rules-changed`를 한 번 보낸다.
+    M::up(
+        "ALTER TABLE messages ADD COLUMN what TEXT;
+        CREATE TABLE skill_digests (
+            skill TEXT PRIMARY KEY,
+            digest TEXT NOT NULL
+        );",
+    ),
+    // 35: 이름을 바꾼 거절 코드의 옛 기록을 새 꼴로 옮긴다(이벤트 기록은 `Refusal`로 읽는다). `gateWord`는 `kindWord`다. `hasParent`는 없앤 규칙이라
+    // 옛 문장을 `git` 거절의 글로 남긴다(기록을 지우지 않는다).
+    M::up(
+        "UPDATE events SET entry = json_set(entry, '$.reason.code', 'kindWord') WHERE entry ->> '$.reason.code' = 'gateWord';
+        UPDATE events SET entry = json_set(entry, '$.reason.code', 'git', '$.reason.value', 'Old rule: a node with a parent cannot loom ask the human.') WHERE entry ->> '$.reason.code' = 'hasParent';",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -535,6 +550,56 @@ mod tests {
             conn.execute(insert, []).is_err(),
             "one row per repo and branch"
         );
+    }
+
+    /// 옛 메시지는 종류가 없다(NULL, 화면과 터미널은 메모로 읽는다). 스킬 해시 표는 비어서 생긴다.
+    #[test]
+    fn step_34_adds_message_kinds_and_skill_digests() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 33).unwrap();
+        conn.execute(
+            r#"INSERT INTO messages (recipient, sender, sender_name, kind, body) VALUES (NULL, NULL, 'a', '"queue"', 'done: 끝')"#,
+            [],
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let what: Option<String> = conn
+            .query_row("SELECT what FROM messages", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(what, None);
+        let digests: u32 = conn
+            .query_row("SELECT count(*) FROM skill_digests", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(digests, 0);
+    }
+
+    /// 이벤트 기록 안의 옛 거절 코드가 새 `Refusal`로 읽힌다.
+    #[test]
+    fn step_35_renames_old_refusal_codes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 34).unwrap();
+        let old = r#"{"kind":"refused","how":"queue","from":{"id":2,"name":"child"},"to":"root","reason":{"code":"gateWord","value":{"word":"READY","verb":"loom ready"}}}"#;
+        let has_parent = r#"{"kind":"refused","how":"queue","from":{"id":2,"name":"child"},"to":"root","reason":{"code":"hasParent"}}"#;
+        for entry in [old, has_parent] {
+            conn.execute("INSERT INTO events (at, entry) VALUES (1, ?1)", [entry])
+                .unwrap();
+        }
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let reasons: Vec<crate::graph::Refusal> = conn
+            .prepare("SELECT entry ->> '$.reason' FROM events ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|json| serde_json::from_str(&json.unwrap()).unwrap())
+            .collect();
+        assert_eq!(
+            reasons[0],
+            crate::graph::Refusal::KindWord {
+                word: "READY".into(),
+                verb: "loom ready".into()
+            }
+        );
+        assert!(matches!(reasons[1], crate::graph::Refusal::Git(_)));
     }
 
     /// 노드 자리의 완료는 완료 표로 옮긴다. 번호와 내용은 그대로다.

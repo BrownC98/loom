@@ -437,7 +437,7 @@ mod tests {
             from: "총괄".into(),
             kind,
             body: "go".into(),
-            reply_to: None,
+            what: Some(crate::protocol::MessageKind::Note),
         }
     }
 

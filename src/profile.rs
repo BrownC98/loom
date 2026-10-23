@@ -668,19 +668,13 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
 pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. Use these shell commands. A target is a node name, a node ID (12), or parent.
 - loom spawn <name> (--agent <agent-id> | --role <role>) [--worktree <branch>]: create a child. Give its brief on stdin or with --file <path>, with the heads Goal, Facts, Scope, Done when, Checks, Time. The child gets its task folder in $LOOM_TASK_DIR (brief.md, result.md, review/, logs/): --worktree makes a new task, else the child shares yours. loom roles lists the roles.
 - loom status: your ID, parent and children, and whether their processes are alive. loom status --all lists every node.
-- loom send <target> <body>: queue a message. A name finds your parent or child first, then a live node with that name.
-- loom reply <message-id> <body>: answer a message that you received.
-- loom wait --reply-to <message-id> --timeout <seconds> --json: wait for that reply. A timeout exits with an error.
-- loom steer <target> <body>: put guidance between tool calls. loom interrupt <target> <body>: stop current work and follow this message. Both go only to your parent or children. If you receive an interrupt, stop your previous task.
-- loom done <summary> or loom done --file <path> (a relative path is in $LOOM_TASK_DIR): report each finished result to your parent. Call it again after more work. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready.
-- loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, ask your parent with loom send.
-- loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
+", crate::message_usage!(), "- loom answered [Q12 ...]: when the human's input answers your open questions, call this first, then act on the answer.
 - loom adopt <name>: become that node's parent. loom rm <target>: remove your child and end its process; its children become yours.
 - loom relaunch [<child>]: restart your own (or your child's) agent process with the current loom settings; the conversation continues after the turn ends.
-", crate::gate_usage!(), "Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
-With a parent, write no progress in the terminal. Results go in loom done or loom send. End each turn with at most one short line.
+Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
+With a parent, write no progress in the terminal. Results go in loom done or loom note. End each turn with at most one short line.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with \"loom message #<id>\". The same ID can come again; do not repeat completed actions for that ID.");
+Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input, rules-changed) are notices. The same ID can come again; do not repeat completed actions for that ID.");
 
 /// 설치를 보기 전에 거절한다. 받지 않는 인자를 버리고 띄우면 자식이 다른 모델로 돈다.
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
@@ -727,21 +721,14 @@ pub fn message_text(taken: &[Delivery]) -> String {
     taken
         .iter()
         .map(|d| {
-            let how = match d.kind {
-                Kind::Queue => "queue",
-                Kind::Steer => "steer",
+            let mode = match d.kind {
+                Kind::Queue => None,
+                Kind::Steer => Some("steer"),
                 Kind::Interrupt => {
-                    "interrupt. Stop your current work and do what this message says"
+                    Some("interrupt. Stop your current work and do what this message says")
                 }
             };
-            let reply = d
-                .reply_to
-                .map(|id| format!(", reply to: #{}", id.0))
-                .unwrap_or_default();
-            format!(
-                "loom message #{} (from: {}, mode: {how}{reply})\n{}",
-                d.id.0, d.from, d.body
-            )
+            crate::protocol::message_text(d.id.0, &d.from, d.what.as_ref(), mode, &d.body)
         })
         .collect::<Vec<_>>()
         .join("\n\n")

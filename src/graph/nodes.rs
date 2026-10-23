@@ -13,6 +13,7 @@ use super::{
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink};
+use crate::protocol::MessageKind;
 
 /// `Graph::add_child`가 더할 자식.
 pub struct NewChild<'a> {
@@ -137,6 +138,7 @@ impl Graph {
                 parent,
                 Some(id),
                 Kind::Queue,
+                &MessageKind::Note,
                 brief,
                 Default::default(),
             )?;
@@ -234,35 +236,37 @@ impl Graph {
 
     /// 완료한 노드의 요약은 남기고 프로세스 종료만 따로 적는다.
     pub fn exited(&self, id: NodeId, code: u32) -> rusqlite::Result<()> {
-        self.end_process(
-            id,
-            NodeState::Exited { code: Some(code) },
-            format!("exited({code})"),
-        )
+        let code = Some(code);
+        let what = |node| MessageKind::Exited { node, code };
+        self.end_process(id, NodeState::Exited { code }, what, String::new())
     }
 
     /// 데몬이 다시 붙지 못한 프로세스도 부모에게 알린다.
     pub fn lost(&self, id: NodeId) -> rusqlite::Result<()> {
-        self.end_process(
-            id,
-            NodeState::Exited { code: None },
-            "exited(unknown)".to_owned(),
-        )
+        let what = |node| MessageKind::Exited { node, code: None };
+        self.end_process(id, NodeState::Exited { code: None }, what, String::new())
     }
 
     /// 설정 스크립트가 실패해 에이전트가 뜨지 않았다. 부모는 까닭(`output`, 설정 출력의 끝)을 함께 받는다.
     /// 노드를 지우면 터미널 출력도 사라지므로 메시지가 그 증거를 남긴다. 본문은 지시문 상한 안에서 끝 쪽을 남긴다.
     pub fn setup_failed(&self, id: NodeId, code: u32, output: &str) -> rusqlite::Result<()> {
-        let head = format!("setup failed (exit {code}):\n");
-        let room = BRIEF_LIMIT_BYTES.saturating_sub(head.len());
-        let mut start = output.len().saturating_sub(room);
+        let mut start = output.len().saturating_sub(BRIEF_LIMIT_BYTES);
         while !output.is_char_boundary(start) {
             start += 1;
         }
-        self.end_process(id, NodeState::SetupFailed { code }, head + &output[start..])
+        let what = |node| MessageKind::SetupFailed { node, code };
+        let output = output[start..].to_owned();
+        self.end_process(id, NodeState::SetupFailed { code }, what, output)
     }
 
-    fn end_process(&self, id: NodeId, ended: NodeState, notice: String) -> rusqlite::Result<()> {
+    /// 실행 중이던 노드면 `ended`로 바꾸고 부모에게 알린다. `what`은 노드 이름으로 알림 종류를 만든다.
+    fn end_process(
+        &self,
+        id: NodeId,
+        ended: NodeState,
+        what: impl FnOnce(String) -> MessageKind,
+        notice: String,
+    ) -> rusqlite::Result<()> {
         let mut db = self.lock();
         self.prompts.lock().unwrap().remove(&id);
         let Some(state) = state_of(&db, id).optional()? else {
@@ -279,8 +283,17 @@ impl Graph {
         waits::drop_questions(&tx, id, ClosedBy::Exit)?;
         let parent = parent_of(&tx, id)?;
         if state == NodeState::Running {
+            let what = what(name_of(&tx, id)?);
             set_state(&tx, id, &ended)?;
-            mailbox::enqueue(&tx, id, parent, Kind::Queue, &notice, Default::default())?;
+            mailbox::enqueue(
+                &tx,
+                id,
+                parent,
+                Kind::Queue,
+                &what,
+                &notice,
+                Default::default(),
+            )?;
         }
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -641,7 +654,15 @@ impl Graph {
             id.0
         );
         for &to in &relatives {
-            mailbox::enqueue(&tx, id, Some(to), Kind::Queue, &notice, Default::default())?;
+            mailbox::enqueue(
+                &tx,
+                id,
+                Some(to),
+                Kind::Queue,
+                &MessageKind::Note,
+                &notice,
+                Default::default(),
+            )?;
         }
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -704,12 +725,16 @@ fn remove_in(tx: &Connection, id: NodeId) -> rusqlite::Result<Option<Removal>> {
     let waiting_parent = parent_of(tx, id)?.filter(|_| state == NodeState::Running);
     // 보낸 노드 이름을 읽으므로 지우기 전에 넣는다.
     if let Some(parent) = waiting_parent {
+        let what = MessageKind::Removed {
+            node: name_of(tx, id)?,
+        };
         mailbox::enqueue(
             tx,
             id,
             Some(parent),
             Kind::Queue,
-            "removed",
+            &what,
+            "",
             Default::default(),
         )?;
     }
@@ -761,7 +786,7 @@ impl Adoption {
 
 /// `parent`를 `child`의 새 부모로 정한다. 이미 그 부모면 `None`이다. 거절하면 아무것도 쓰지 않는다.
 /// `child`가 보관한 메시지는 보낸 순서대로 새 부모 메일함에 넣는다. 보관할 때 상한을 봤으므로 메일함 상한은 보지 않는다.
-/// 실행 중인 노드를 데려가면 옛 부모 메일함에 `adopted: <새 부모>` 한 줄을 넣는다. 옛 부모가 끝없이 기다리지 않게 한다.
+/// 실행 중인 노드를 데려가면 옛 부모 메일함에 `adopted`를 넣는다. 옛 부모가 끝없이 기다리지 않게 한다. 데려간 노드도 `adopted`로 새 부모를 안다.
 fn adopt_in(
     tx: &Connection,
     parent: NodeId,
@@ -794,14 +819,18 @@ fn adopt_in(
         return Err(Refusal::NameTaken(name));
     }
     let told_old = old.filter(|_| state_of(tx, child).ok() == Some(NodeState::Running));
+    let adopted = MessageKind::Adopted {
+        node: name.clone(),
+        parent: name_of(tx, parent)?,
+    };
     if let Some(old) = told_old {
-        let notice = format!("adopted: {}", name_of(tx, parent)?);
         mailbox::enqueue(
             tx,
             child,
             Some(old),
             Kind::Queue,
-            &notice,
+            &adopted,
+            "",
             Default::default(),
         )?;
     }
@@ -814,9 +843,9 @@ fn adopt_in(
         parent,
         Some(child),
         Kind::Queue,
+        &adopted,
         &format!(
-            "parent: {} (#{}). Use loom status to inspect current relationships.",
-            name_of(tx, parent)?,
+            "Your new parent is #{}. Use loom status to inspect current relationships.",
             parent.0
         ),
         Default::default(),

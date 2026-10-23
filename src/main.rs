@@ -110,15 +110,31 @@ enum Cli {
     },
     /// 설정의 o-mode 역할을 한 줄씩 출력한다: 이름, 에이전트·모델·강도, 책임.
     Roles,
-    /// 부모나 자식에게 메시지를 보낸다. 받는 노드의 턴을 끊지 않는다.
+    /// 메모(종류 note)를 보낸다. 다른 종류(질문, 답, 완료, 관문)에 맞지 않는 메시지다. 종류 낱말(QUESTION, DONE, READY 등)로 시작하면 거절한다.
+    Note {
+        name: String,
+        body: String,
+        /// 일하는 Claude·Codex·OpenCode 2 노드의 지금 턴에 넣는다. 턴을 멈추지 않는다. 부모나 자식에게만 간다.
+        #[arg(long, conflicts_with = "interrupt")]
+        steer: bool,
+        /// Claude·Codex·OpenCode 2 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다. 부모나 자식에게만 간다.
+        #[arg(long)]
+        interrupt: bool,
+    },
+    /// 받은 `loom ask` 메시지에 답한다(종류 answer). 묻는 노드가 `loom wait --reply-to`로 기다릴 수 있다.
+    Answer { message: u32, body: String },
+    /// 바뀐 동사. `loom note <target> <body>`를 쓴다.
+    #[command(hide = true)]
     Send { name: String, body: String },
-    /// 일하는 Claude·Codex·OpenCode 2 노드의 지금 턴에 메시지를 넣는다. 턴을 멈추지 않는다.
+    /// 바뀐 동사. `loom note --steer`를 쓴다.
+    #[command(hide = true)]
     Steer { name: String, body: String },
-    /// Claude·Codex·OpenCode 2 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다.
+    /// 바뀐 동사. `loom note --interrupt`를 쓴다.
+    #[command(hide = true)]
     Interrupt { name: String, body: String },
     /// 메시지가 올 때까지 기다렸다가 본문을 출력한다.
     Wait {
-        /// 이 메시지에 대한 답변만 찾는다. 이미 훅이 받은 답도 찾는다.
+        /// 이 `loom ask` 메시지에 대한 답(종류 answer)만 찾는다. 이미 훅이 받은 답도 찾는다.
         #[arg(long)]
         reply_to: Option<u32>,
         /// 이 초 안에 답이 없으면 실패한다.
@@ -128,7 +144,8 @@ enum Cli {
         #[arg(long)]
         json: bool,
     },
-    /// 받은 메시지 번호를 지정해 보낸 노드에게 답한다.
+    /// 바뀐 동사. `loom answer <message-id> <body>`를 쓴다.
+    #[command(hide = true)]
     Reply { message: u32, body: String },
     /// 내 번호, 현재 부모와 자식, 프로세스 생존 여부를 출력한다.
     Status {
@@ -136,12 +153,13 @@ enum Cli {
         #[arg(long)]
         all: bool,
     },
-    /// 결과를 부모에게 보내고 이 노드를 done으로 바꾼다. 부모가 없으면 사람의 받은편지함에 완료를 건다.
+    /// 결과(끝난 것이나 중간 것)를 부모에게 보내고(종류 done) 이 노드를 done으로 바꾼다. 부모가 없으면 사람의 받은편지함에 완료를 건다.
+    /// 코디 밑이 아닌 노드의 브랜치가 병합되지 않았고 `loom ready`도 없으면 경고를 붙인다(거절하지 않는다).
     Done {
         #[arg(required_unless_present = "file")]
         summary: Option<String>,
-        /// 결과 파일. 부모에게는 경로만 간다.
-        #[arg(long, conflicts_with = "summary")]
+        /// 결과 파일. 부모에게는 경로가 `file` 칸으로 간다.
+        #[arg(long)]
         file: Option<PathBuf>,
         /// 그 일을 맡긴 사람의 지시(짧게). 부모 없는 노드는 꼭 준다. 받은편지함 완료 줄에 보인다.
         #[arg(long)]
@@ -153,7 +171,8 @@ enum Cli {
         #[arg(long)]
         doc: Option<PathBuf>,
     },
-    /// 사람에게 질문 한 줄을 묻는다. 받은편지함에 번호(`Q12`)와 함께 뜨고, 사람은 이 노드 터미널이나 받은편지함에서 답한다. 사람이 띄운 노드만 쓴다.
+    /// 질문 한 줄을 묻는다(종류 ask). 부모 없는 노드는 사람에게 묻는다: 받은편지함에 번호(`Q12`)와 함께 뜨고, 사람은 이 노드 터미널이나 받은편지함에서 답한다.
+    /// 부모 있는 노드는 부모에게 묻는다. 답은 종류 answer 메시지로 온다.
     Ask {
         question: String,
         /// 질문에 붙일 문서(user-doc 목업·보고서 HTML, `.md` 같은 글 파일). 사람은 질문 줄의 링크로 연다.
@@ -162,8 +181,9 @@ enum Cli {
     },
     /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다. 열린 질문이 여럿이면 번호(`Q12 Q13`)를 준다
     Answered { ids: Vec<String> },
-    /// 병합 관문: 자기 브랜치를 관문에 보낸다. 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없고 대상 브랜치를 포함해야 한다.
+    /// 병합 관문: 자기 브랜치를 관문에 보낸다(종류 ready). 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없고 대상 브랜치를 포함해야 한다.
     /// 관문은 loom이 고른다: 부모가 코디면 코디(대상은 코디 브랜치), 아니면 같은 저장소의 CI 담당자(대상은 원래 체크아웃의 브랜치).
+    /// 관문 스크립트가 없는 저장소에서도 관문에 알린다. 그때는 관문 상태가 없고, 관문이 손으로 병합해 `loom done`으로 알린다.
     Ready { branch: String },
     /// 병합 관문: 판정을 넣는다. 관문이나 관문이 띄운 검토자가 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
     Verdict {
@@ -230,9 +250,26 @@ fn main() -> ExitCode {
             command,
         ),
         Cli::Roles => cli::roles(),
-        Cli::Send { name, body } => cli::send(name, Kind::Queue, body),
-        Cli::Steer { name, body } => cli::send(name, Kind::Steer, body),
-        Cli::Interrupt { name, body } => cli::send(name, Kind::Interrupt, body),
+        Cli::Note {
+            name,
+            body,
+            steer,
+            interrupt,
+        } => {
+            let mode = match (steer, interrupt) {
+                (true, _) => Kind::Steer,
+                (_, true) => Kind::Interrupt,
+                _ => Kind::Queue,
+            };
+            cli::note(name, mode, body)
+        }
+        Cli::Answer { message, body } => cli::answer(message, body),
+        Cli::Send { .. } => cli::replaced("send", "loom note <target> <body>"),
+        Cli::Steer { .. } => cli::replaced("steer", "loom note <target> <body> --steer"),
+        Cli::Interrupt { .. } => {
+            cli::replaced("interrupt", "loom note <target> <body> --interrupt")
+        }
+        Cli::Reply { .. } => cli::replaced("reply", "loom answer <message-id> <body>"),
         Cli::Hook => cli::hook(),
         Cli::CursorHook => cli::cursor_hook(),
         Cli::CursorRules => cli::cursor_rules(),
@@ -242,7 +279,6 @@ fn main() -> ExitCode {
             timeout_secs,
             json,
         } => cli::wait(reply_to, timeout_secs, json),
-        Cli::Reply { message, body } => cli::reply(message, body),
         Cli::Status { all: false } => cli::status(),
         Cli::Status { all: true } => cli::directory(),
         Cli::Done {

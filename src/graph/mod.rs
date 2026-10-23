@@ -24,7 +24,7 @@ use ts_rs::TS;
 
 pub use events::{Entry, EventRecord, SwitchCause, Via, Who};
 pub use gate::{Ended, GateChoice, MergeTask, Round};
-pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Sent};
+pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
     HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId, WaitKind,
@@ -227,8 +227,8 @@ pub enum Refusal {
     EmptyQuestion,
     /// 사람이 띄운 노드가 `--asked`(사람의 지시) 없이 `loom done`을 불렀다. 받은편지함 완료 줄에 지시가 보여야 한다.
     NoAsked,
-    /// `loom ask`를 부모가 있는 노드가 불렀다. 사람에게는 사람이 띄운 노드만 묻는다.
-    HasParent,
+    /// `loom answer`의 메시지가 나에게 온 `loom ask`가 아니다. 값은 메시지 번호다.
+    NotAsk(u32),
     /// 부모가 있는 노드가 `loom done --doc`을 불렀다. 문서 링크는 사람의 받은편지함에만 있다. 부모는 경로를 읽는다.
     DocHasParent,
     /// 사람이 읽는 글(`loom ask`, 부모 없는 노드의 `loom done`)에 markdown 링크 밖의 주소·경로가 있다. 값은 그 주소·경로다.
@@ -272,8 +272,8 @@ pub enum Refusal {
     ManyGates(String),
     /// block 판정에 결함 파일이 없다.
     NoFindings,
-    /// 손으로 쓴 메시지가 관문 낱말로 시작한다. `verb`는 대신 쓸 명령이다.
-    GateWord {
+    /// 손으로 쓴 글(`note`·`answer`·`done`)이 종류 낱말로 시작한다(`protocol::kind_word`). `verb`는 대신 쓸 명령이다.
+    KindWord {
         word: String,
         verb: String,
     },
@@ -345,7 +345,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NotRelated(name) => write!(
                 f,
-                "{name}: not your parent or child. Steer and interrupt go only between a parent and its children. Use `loom send`."
+                "{name}: not your parent or child. Steer and interrupt go only between a parent and its children. Use `loom note` without --steer or --interrupt."
             ),
             Refusal::NotChild(name) => write!(
                 f,
@@ -370,7 +370,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NotSteerable(name) => write!(
                 f,
-                "{name}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Use `loom send`."
+                "{name}: this node cannot take steer or interrupt (only Claude, Codex and OpenCode 2 nodes can). Use `loom note` without --steer or --interrupt."
             ),
             Refusal::NoResume(name) => write!(
                 f,
@@ -389,9 +389,9 @@ impl fmt::Display for Refusal {
                 f,
                 "You have no parent, so the human reads this report in the inbox. Tell what the human asked: `loom done \"<what you did>\" --asked \"<the human's instruction>\" [--image <path>]...`."
             ),
-            Refusal::HasParent => write!(
+            Refusal::NotAsk(id) => write!(
                 f,
-                "You have a parent. Ask your parent with `loom send <parent> \"QUESTION: ...\"`. Only nodes that the human started ask the human."
+                "Message #{id} is not a loom ask that you received. `loom answer` answers only those. Use `loom note <target> <body>` for other messages."
             ),
             Refusal::DocHasParent => write!(
                 f,
@@ -459,9 +459,9 @@ impl fmt::Display for Refusal {
                 f,
                 "A block verdict needs the findings file: `loom verdict <branch> block --findings <file>`."
             ),
-            Refusal::GateWord { word, verb } => write!(
+            Refusal::KindWord { word, verb } => write!(
                 f,
-                "Do not write gate word {word} in a message. Use `{verb}`: loom does the gate work, picks the receiver and keeps the trace."
+                "Do not start a message with the kind word {word}. Instead: {verb}. loom gives each message its kind and picks the receiver."
             ),
             Refusal::OwnVerdict(branch) => write!(
                 f,
@@ -481,7 +481,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NoGateScripts => write!(
                 f,
-                "This repository has no {} and {} in its main checkout, so the merge gate is not used here. Report with `loom done` and the forms your rules give.",
+                "This repository has no {} and {} in its main checkout, so loom verdict, loom merge and loom fail do not work here. `loom ready` still sends the branch to its gate; the gate merges by hand and reports with `loom done`.",
                 crate::protocol::CHECK_SCRIPT,
                 crate::protocol::SHIP_SCRIPT
             ),
@@ -726,6 +726,16 @@ fn from_json<T: DeserializeOwned>(row: &Row, idx: usize) -> rusqlite::Result<T> 
     let text: String = row.get(idx)?;
     serde_json::from_str(&text)
         .map_err(|e| rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, Box::new(e)))
+}
+
+/// NULL이면 없다(그 열을 더하기 전의 옛 줄).
+fn optional_json<T: DeserializeOwned>(row: &Row, idx: usize) -> rusqlite::Result<Option<T>> {
+    let text: Option<String> = row.get(idx)?;
+    text.map(|text| {
+        serde_json::from_str(&text)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, Box::new(e)))
+    })
+    .transpose()
 }
 
 fn state_of(db: &Connection, id: NodeId) -> rusqlite::Result<NodeState> {

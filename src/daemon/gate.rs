@@ -136,19 +136,38 @@ pub fn via(headers: &HeaderMap, route: &str) -> Via {
 }
 
 impl App {
-    /// 손으로 쓴 메시지(`send`·`reply`·`done`)가 관문 낱말로 시작하면 거절한다. 관문 스크립트가 있는 저장소에서만 본다.
-    /// 그런 저장소가 없는 동안(ktasearch) 옛 꼴을 그대로 쓴다(이전 기간).
-    pub(super) fn gate_word(&self, node: NodeId, body: &str) -> Result<(), Refusal> {
-        let Some((word, verb)) = protocol::gate_word(body) else {
+    /// 손으로 쓴 글(`note`·`answer`·`done`)이 종류 낱말로 시작하면 거절한다. 판정·병합 낱말은 관문 스크립트가 있는 저장소에서만 본다:
+    /// 없는 저장소(ktasearch)는 `loom verdict`·`loom merge`가 돌지 않아 옛 글을 쓴다(이전 기간).
+    pub(super) fn kind_word(&self, node: NodeId, body: &str) -> Result<(), Refusal> {
+        let Some(found) = protocol::kind_word(body) else {
             return Ok(());
         };
-        if !self.gated_repo(node)? {
+        if found.gated_only && !self.gated_repo(node)? {
             return Ok(());
         }
-        Err(Refusal::GateWord {
-            word: word.to_owned(),
-            verb: verb.to_owned(),
+        Err(Refusal::KindWord {
+            word: found.word.to_owned(),
+            verb: found.verb.to_owned(),
         })
+    }
+
+    /// `loom done`의 담당 브랜치 경고. 코디 밑이 아닌 노드의 워크트리 브랜치가 대상(원래 체크아웃의 브랜치)에 병합되지 않았고
+    /// 그 커밋으로 `loom ready`도 보내지 않았으면 경고 글이다. 거절하지 않는다: 완료는 중간 결과도 나른다.
+    /// 근거: 요청 #3067(ktasearch: 워커가 브랜치를 알리지 않고 끝내 1.5시간 아무도 보지 않았다).
+    pub(super) async fn unreadied(&self, node: NodeId) -> Result<Option<String>, Refusal> {
+        if self.graph.under_coordinator(node)? {
+            return Ok(None);
+        }
+        let place = self.graph.place_of(node)?;
+        let repo = self.repo_of(node)?;
+        // 원래 체크아웃에서 도는 노드는 담당 브랜치가 없다. git을 부르지 않는다.
+        if Path::new(&place.worktree) == repo {
+            return Ok(None);
+        }
+        branch_warning(&repo, &place.worktree, |branch, head| {
+            self.graph.ready_sent(node, branch, head)
+        })
+        .await
     }
 
     /// 노드의 저장소가 관문 계약(원래 체크아웃의 `scripts/gate/check.sh`, `ship.sh`)을 가졌는가.
@@ -168,7 +187,7 @@ impl App {
     ) -> Result<Json<T>, AgentError> {
         match result {
             Ok(value) => {
-                self.turn_ends.gated(node);
+                self.turn_ends.called(node);
                 Ok(Json(value))
             }
             Err(reason) => {
@@ -206,9 +225,6 @@ impl App {
         {
             return Err(Refusal::Uncommitted(branch.to_owned()));
         }
-        if !self.gated_repo(node)? {
-            return Err(Refusal::NoGateScripts);
-        }
         let base = base_branch(&repo).await?;
         let (gate, target) = match self.graph.gate_for(node)? {
             GateChoice::Coordinator { gate, worktree } => {
@@ -242,7 +258,10 @@ impl App {
             worktree: &worktree,
             head: &mine.head,
         };
-        let gate = self.graph.ready(node, &round, gate, Some(via))?;
+        let gate = match self.gated_repo(node)? {
+            true => self.graph.ready(node, &round, gate, Some(via))?,
+            false => self.graph.announce_ready(node, &round, gate, Some(via))?,
+        };
         Ok(Readied { gate, target })
     }
 
@@ -270,17 +289,25 @@ impl App {
                 return Ok(go(task, into));
             }
             let Some(sha) = merge_commit(&repo, &task.head, &task.target).await? else {
-                return self.stop(node, branch, &task, Vec::new(), vec![format!(
+                let cause = format!(
                     "the reviewed commit {} is in {}, but no merge commit on {} has it as a parent",
                     task.head, task.target, task.target
-                )], via);
+                );
+                return self.stop(node, branch, &task, Vec::new(), Some(cause), via);
             };
             let lines = vec![
                 "recovered: an earlier run merged this commit, and its report did not arrive"
                     .to_owned(),
             ];
-            self.record_merged(node, branch, &task, &sha, lines, via)
-                .await?;
+            self.record_merged(
+                node,
+                branch,
+                &task,
+                &sha,
+                MergedNotes { lines, log: None },
+                via,
+            )
+            .await?;
             return Ok(MergePlan::Recorded { sha });
         }
         let mut findings = self.graph.audit(task.owner, task.since)?;
@@ -301,31 +328,33 @@ impl App {
             Err(e) => return Err(e),
         }
         if protocol::audit_end(&findings).is_some() {
-            return self.stop(node, branch, &task, findings, Vec::new(), via);
+            return self.stop(node, branch, &task, findings, None, via);
         }
         Ok(go(task, into))
     }
 
-    /// 병합하지 않고 끝낸다. audit 결과가 끝을 정하고, 결과 없이 `lines`만 있으면 담당이 고칠 일이다.
+    /// 병합하지 않고 끝낸다. audit 결과가 끝을 정하고, 결과 없이 `cause`만 있으면 담당이 고칠 일이다.
     fn stop(
         &self,
         node: NodeId,
         branch: &str,
         task: &MergeTask,
         findings: Vec<Finding>,
-        lines: Vec<String>,
+        cause: Option<String>,
         via: &Via,
     ) -> Result<MergePlan, Refusal> {
         let end = protocol::audit_end(&findings).unwrap_or(MergeEnd::Rework);
         let shown = findings
             .iter()
             .map(Finding::to_string)
-            .chain(lines.iter().cloned())
+            .chain(cause.iter().cloned())
             .collect();
         let ended = Ended {
             end,
             merged: None,
-            lines,
+            cause,
+            log: None,
+            lines: Vec::new(),
             findings,
         };
         self.graph
@@ -362,7 +391,7 @@ impl App {
         branch: &str,
         task: &MergeTask,
         sha: &str,
-        lines: Vec<String>,
+        notes: MergedNotes,
         via: &Via,
     ) -> Result<GateState, Refusal> {
         let repo = self.repo_of(node)?;
@@ -392,7 +421,9 @@ impl App {
         let ended = Ended {
             end: MergeEnd::Merged,
             merged: Some(sha),
-            lines,
+            cause: None,
+            log: notes.log,
+            lines: notes.lines,
             findings,
         };
         self.graph
@@ -413,9 +444,12 @@ impl App {
                 if task.from == GateState::Merged && task.merged.as_deref() == Some(sha.as_str()) {
                     return Ok(GateState::Merged);
                 }
-                let lines = vec![format!("deploy: {deploy:?}"), format!("log: {log}")];
+                let notes = MergedNotes {
+                    lines: vec![format!("deploy: {deploy:?}")],
+                    log: Some(log.clone()),
+                };
                 return self
-                    .record_merged(node, &req.branch, &task, sha, lines, via)
+                    .record_merged(node, &req.branch, &task, sha, notes, via)
                     .await;
             }
             MergeResult::Rework { cause, log } => (MergeEnd::Rework, cause, log),
@@ -425,7 +459,9 @@ impl App {
         let ended = Ended {
             end,
             merged: None,
-            lines: vec![format!("cause: {cause}"), format!("log: {log}")],
+            cause: Some(cause.clone()),
+            log: Some(log.clone()),
+            lines: Vec::new(),
             findings: Vec::new(),
         };
         self.graph
@@ -497,6 +533,37 @@ async fn owned_worktree(
         })
 }
 
+/// 병합 보고에 덧붙일 본문 줄(배포 결과, 되찾은 병합)과 `loom merge` 로그.
+struct MergedNotes {
+    lines: Vec<String>,
+    log: Option<String>,
+}
+
+/// `worktree`의 브랜치가 원래 체크아웃의 브랜치가 아니고, 거기에 병합되지 않았고, 그 커밋으로 `ready`를 보내지 않았으면(`ready_sent`) 경고 글.
+async fn branch_warning(
+    repo: &Path,
+    worktree: &str,
+    ready_sent: impl FnOnce(&str, &str) -> rusqlite::Result<bool>,
+) -> Result<Option<String>, Refusal> {
+    let mine = worktree::find(repo, worktree).await.map_err(git_problem)?;
+    let base = base_branch(repo).await?;
+    let Some(branch) = mine.branch.filter(|b| *b != base) else {
+        return Ok(None);
+    };
+    if contains(repo, &mine.head, &base).await.is_ok() || ready_sent(&branch, &mine.head)? {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "branch {branch} ({}) is not merged into {base}, and no `loom ready {branch}` was sent for this commit",
+        short(&mine.head)
+    )))
+}
+
+/// 경고 글의 짧은 커밋.
+fn short(sha: &str) -> &str {
+    &sha[..sha.len().min(8)]
+}
+
 fn git_problem(e: worktree::RepoProblem) -> Refusal {
     Refusal::Git(e.to_string())
 }
@@ -566,6 +633,57 @@ pub(super) async fn agent_fail(
 mod tests {
     use super::*;
     use crate::git::test_run as run;
+
+    /// 요청 #3067: 담당 브랜치가 병합되지 않았고 그 커밋으로 `loom ready`도 없으면 `loom done`에 경고가 붙는다(거절하지 않는다).
+    #[tokio::test]
+    async fn done_warns_for_an_unmerged_branch_without_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("app");
+        std::fs::create_dir(&repo).unwrap();
+        run(&repo, &["init", "-q", "-b", "main"]);
+        run(&repo, &["commit", "-q", "--allow-empty", "-m", "a"]);
+        let repo = std::path::PathBuf::from(run(&repo, &["rev-parse", "--show-toplevel"]));
+        let main = repo.display().to_string();
+        let feature = dir.path().join("feature");
+        run(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feature",
+                feature.to_str().unwrap(),
+            ],
+        );
+        let feature = run(&feature, &["rev-parse", "--show-toplevel"]);
+        let never = |_: &str, _: &str| Ok(false);
+        // 원래 체크아웃의 브랜치는 보지 않는다. 대상과 같은 커밋(병합할 것이 없음)도 보지 않는다.
+        assert_eq!(branch_warning(&repo, &main, never).await, Ok(None));
+        assert_eq!(branch_warning(&repo, &feature, never).await, Ok(None));
+        run(
+            Path::new(&feature),
+            &["commit", "-q", "--allow-empty", "-m", "b"],
+        );
+        let head = run(Path::new(&feature), &["rev-parse", "HEAD"]);
+        let warning = branch_warning(&repo, &feature, never)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            warning.starts_with(&format!(
+                "branch feature ({}) is not merged into main",
+                &head[..8]
+            )),
+            "{warning}"
+        );
+        // 이 커밋으로 ready를 보냈으면 경고하지 않는다.
+        let sent = |branch: &str, at: &str| Ok(branch == "feature" && at == head);
+        assert_eq!(branch_warning(&repo, &feature, sent).await, Ok(None));
+        // 병합한 뒤에는 경고하지 않는다.
+        run(&repo, &["merge", "-q", "--no-ff", "-m", "m", "feature"]);
+        assert_eq!(branch_warning(&repo, &feature, never).await, Ok(None));
+    }
 
     #[tokio::test]
     async fn ownership_follows_the_registered_worktree_or_the_callers_cwd() {

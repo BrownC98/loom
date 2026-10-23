@@ -2,11 +2,13 @@
 //! 노드 에이전트는 사람이 스킬을 설치하지 않아도 이 스킬을 쓴다. 바뀌는 이유는 스킬 글과 그 배포 방식이다.
 //! 근거: docs/design.md 「내장 스킬」.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use rust_embed::Embed;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
 #[derive(Embed)]
@@ -60,6 +62,32 @@ impl Plugin {
     pub fn skills(&self, on: AlwaysOn) -> PathBuf {
         self.dir(on).join("skills")
     }
+}
+
+/// 이 판에 실은 스킬마다 내용 해시(SHA-256 hex): 파일 이름과 내용을 이름 순서로. 데몬이 지난 기록과 비교해 `rules-changed`를 보낸다.
+pub fn digests() -> BTreeMap<String, String> {
+    let mut names: Vec<_> = Files::iter().collect();
+    names.sort();
+    let mut hashers: BTreeMap<String, Sha256> = BTreeMap::new();
+    for name in names {
+        let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
+        let hasher = hashers.entry(skill_of(&name).to_owned()).or_default();
+        hasher.update(name.as_bytes());
+        hasher.update([0]);
+        hasher.update(&file.data);
+        hasher.update([0]);
+    }
+    hashers
+        .into_iter()
+        .map(|(skill, hasher)| {
+            let hex: String = hasher
+                .finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            (skill, hex)
+        })
+        .collect()
 }
 
 /// 설정이 하나씩 켜고 끄는 스킬 폴더 이름. 새 스킬을 더하면 `AlwaysOn`에도 더한다(테스트가 막는다).

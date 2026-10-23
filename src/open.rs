@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// 이 변수가 있으면 기본 앱 대신 이 프로그램에 대상을 넘긴다. 시험이 사람의 브라우저를 열지 않게 기록기를 넣는다.
-const OPENER_ENV: &str = "LOOM_BROWSER";
+pub const OPENER_ENV: &str = "LOOM_BROWSER";
 
 /// 있는 파일이나 폴더만 연다. 앱이 뜨기를 기다리지 않는다.
 pub fn open(path: &Path) -> io::Result<()> {

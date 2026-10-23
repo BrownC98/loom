@@ -103,8 +103,7 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
     while let Some(open) = rest.find('[') {
         let (before, link) = rest.split_at(open);
         out.push_str(before);
-        let parsed = parse_link(link);
-        match parsed {
+        match crate::link_text::parse_link(link) {
             Some((label, target, len))
                 if link_path(target).is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
             {
@@ -119,78 +118,6 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
     }
     out.push_str(rest);
     out
-}
-
-/// `[이름](주소)`로 시작하는 글에서 (이름, 주소, 전체 길이)를 읽는다. 링크가 아니면 `None`.
-fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
-    link[1..].split_once("](").and_then(|(label, after)| {
-        // CommonMark는 주소를 `<…>`로 감쌀 수 있고, 감싼 주소에는 빈칸이 들 수 있다(2026-10-23 검토 BLOCK).
-        let (target, end) = match after.strip_prefix('<') {
-            Some(wrapped) => {
-                let (target, tail) = wrapped.split_once('>')?;
-                tail.starts_with(')')
-                    .then_some((target, target.len() + 3))?
-            }
-            None => {
-                let target = after.split_once(')')?.0;
-                if target.contains(char::is_whitespace) {
-                    return None;
-                }
-                (target, target.len() + 1)
-            }
-        };
-        let ok = !label.is_empty()
-            && !label.contains(['[', ']', '\n'])
-            && !target.is_empty()
-            && !target.contains('\n');
-        ok.then_some((label, target, label.len() + 3 + end))
-    })
-}
-
-/// 글 속 http(s) 주소와 절대 파일 경로는 markdown 링크 `[이름](주소)` 안에만 둔다. 맨몸으로 쓰면 사람의 받은편지함에서 링크가 되지 않는다.
-/// 근거: 2026-10-23 사람 "링크 표준이 없는 것이 뿌리 원인". 화면은 markdown 링크만 그린다.
-pub fn check_links(text: &str) -> Result<(), String> {
-    let mut rest = text;
-    while let Some(open) = rest.find('[') {
-        let (before, link) = rest.split_at(open);
-        check_bare(before)?;
-        rest = match parse_link(link) {
-            Some((_, _, len)) => &link[len..],
-            None => &link[1..],
-        };
-    }
-    check_bare(rest)
-}
-
-fn check_bare(segment: &str) -> Result<(), String> {
-    let url = ["http://", "https://"].iter().find_map(|s| segment.find(s));
-    let bare = url.map(|at| &segment[at..]).or_else(|| {
-        segment
-            .split(|c: char| c.is_whitespace() || "([{\"'<".contains(c))
-            .find(|t| is_absolute_path(t))
-    });
-    match bare {
-        Some(found) => {
-            let found = found.split_whitespace().next().unwrap_or(found);
-            Err(format!(
-                "bare link in text: {found}. Write every URL and file path as a Markdown link, e.g. [label]({found})."
-            ))
-        }
-        None => Ok(()),
-    }
-}
-
-/// `/a/b`, `C:\a`, `C:/a`, `file://…`. 한 단계짜리 `/x`는 선택지 표기(`and/or`)와 구별되지 않아 뺀다.
-fn is_absolute_path(token: &str) -> bool {
-    let bytes = token.as_bytes();
-    token.starts_with("file://")
-        || (bytes.len() > 3
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && (bytes[2] == b'\\' || bytes[2] == b'/'))
-        || token
-            .strip_prefix('/')
-            .is_some_and(|r| !r.starts_with('/') && r.contains('/'))
 }
 
 /// 링크 주소가 가리키는 파일 경로. `file:///C:/…`는 `C:/…`, `file://host/…`는 UNC `//host/…`다.
@@ -351,34 +278,6 @@ fn stamp(html: &str, id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn check_links_accepts_markdown_links_and_plain_text() {
-        for ok in [
-            "[시트](https://docs.google.com/a/b) 열기.",
-            "[보고서](/home/a/b.md)와 [x](file:///home/a/b.md)",
-            "[a](<C:\\my dir\\b.md>) 승인? (A / B)",
-            "and/or 선택, src/cli.rs 고침, /x 한 단계",
-            "[깨진 링크 https",
-        ] {
-            assert_eq!(check_links(ok), Ok(()), "{ok}");
-        }
-    }
-
-    #[test]
-    fn check_links_refuses_bare_urls_and_paths() {
-        for bad in [
-            "작성: https://docs.google.com/a/b",
-            "[x](https://a.io) 그리고 http://b.io/c.",
-            "파일은 /home/a/b.md 에 있다",
-            "(/home/a/b.md)",
-            "C:\\Users\\a\\b.md",
-            "file:///home/a/b.md",
-        ] {
-            let err = check_links(bad).expect_err(bad);
-            assert!(err.contains("[label]("), "{err}");
-        }
-    }
-
     use super::*;
 
     const DOC: &str = r#"<html style="color-scheme: light"><head><title>문서</title></head>

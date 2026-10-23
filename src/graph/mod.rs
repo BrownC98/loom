@@ -214,6 +214,8 @@ pub enum Refusal {
     HasParent,
     /// 부모가 있는 노드가 `loom done --doc`을 불렀다. 문서 링크는 사람의 받은편지함에만 있다. 부모는 경로를 읽는다.
     DocHasParent,
+    /// 사람이 읽는 글(`loom ask`, 부모 없는 노드의 `loom done`)에 markdown 링크 밖의 주소·경로가 있다. 값은 그 주소·경로다.
+    BareLink(String),
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
     NoWait(WaitId),
     /// 화면에서 보낸 답이 비었다.
@@ -313,6 +315,10 @@ impl fmt::Display for Refusal {
             Refusal::DocHasParent => write!(
                 f,
                 "You have a parent, and it reads paths. Send the file with `loom done --file <path>` or put its path in the summary. Only nodes that the human started attach --doc."
+            ),
+            Refusal::BareLink(found) => write!(
+                f,
+                "The human cannot open a bare URL or path. Write it as a Markdown link with a label: [label](<{found}>). Wrap the whole target in <...> when it has spaces."
             ),
             Refusal::NoWait(wait) => write!(f, "{wait}: this question is not open."),
             Refusal::EmptyAnswer => write!(f, "Write an answer."),

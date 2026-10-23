@@ -18,6 +18,7 @@ use ts_rs::TS;
 
 use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
+use crate::link_text::bare_link;
 use crate::profile::AgentId;
 
 use super::{Graph, NodeId, NodeState, Refusal, from_json, parent_of, state_of, to_json};
@@ -236,6 +237,9 @@ impl Graph {
         let mut db = self.lock();
         if parent_of(&db, id)?.is_some() {
             return Err(Refusal::HasParent);
+        }
+        if let Some(found) = bare_link(question) {
+            return Err(Refusal::BareLink(found));
         }
         let text: String = question.chars().take(QUESTION_LIMIT_CHARS).collect();
         let (doc, doc_path) = attached.map(|a| (a.doc, a.path)).unzip();

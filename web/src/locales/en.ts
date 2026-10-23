@@ -577,6 +577,7 @@ const en = {
       noAsked: 'A node with no parent reports done with the human\'s instruction in --asked.',
       hasParent: 'This node has a parent. Ask the parent. Only nodes that the human started ask the human.',
       docHasParent: 'This node has a parent, and the parent reads paths. Send the file path to the parent. Only nodes that the human started attach a document.',
+      bareLink: 'Write each web address and file path as a Markdown link with a label: [label](<address>).',
       noWait: 'Question Q{{value}} is already closed.',
       severalOpen: 'Several questions are open: {{value}}.',
       emptyAnswer: 'Write an answer.',

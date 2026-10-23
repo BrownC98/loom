@@ -10,6 +10,7 @@ mod fake_exe;
 mod git;
 mod graph;
 mod launch;
+mod link_text;
 mod node_host;
 mod open;
 mod pake;

@@ -685,6 +685,7 @@ a { color: var(--accent); }
 .prov-sec { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 .prov { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 13px; color: inherit; }
 .prov:hover, .prov[aria-expanded="true"] { background: var(--surface-hover); }
+.prov.plain { cursor: default; background: none; }
 .prov .acct-name { color: var(--ink-2); }
 .prov svg { margin-left: auto; flex: none; width: 14px; height: 14px; stroke: var(--ink-3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .usage-foot { display: flex; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }
@@ -695,6 +696,8 @@ a { color: var(--accent); }
 .pop h3 .collapse:hover { background: var(--surface-hover); }
 .pop h3 .collapse svg { width: 18px; height: 18px; }
 .win { display: grid; grid-template-columns: 64px minmax(0, 1fr) 44px auto; gap: 6px 8px; }
+/* 사용량 팝오버·판의 이름 칸은 「Cursor Models」가 들어갈 폭이다(목업 cursor-usage.html). */
+.prov-sec .win { grid-template-columns: 92px minmax(0, 1fr) 44px auto; }
 /* 창 줄은 같은 칸을 나눠 쓴다. 그래야 줄마다 막대 끝과 남은 시간이 나란하다. */
 .win > :not(.win-line) { grid-column: 1 / -1; }
 .win-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; font-size: 12px; color: var(--ink-2); }

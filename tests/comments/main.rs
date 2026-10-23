@@ -74,6 +74,7 @@ enum Verdict {
 
 #[derive(Debug)]
 struct Comment {
+    lang: Lang,
     start: usize,
     end: usize,
     verdict: Verdict,
@@ -110,6 +111,7 @@ fn comments(lang: Lang, text: &str) -> Result<Vec<Comment>, String> {
     Ok(spans
         .into_iter()
         .map(|(start, end)| Comment {
+            lang,
             start,
             end,
             verdict: judge(lang, &text[start..end], start == 0, None),
@@ -148,6 +150,7 @@ fn tree_comments(
                 _ => start..end,
             };
             found.push(Comment {
+                lang,
                 start: offset + cut.start,
                 end: offset + cut.end,
                 verdict: judge(
@@ -450,6 +453,10 @@ fn strip() {
 fn without(text: &str, found: &[Comment]) -> String {
     let mut out = text.to_owned();
     for c in found.iter().rev().filter(|c| c.verdict == Verdict::Refused) {
+        if matches!(c.lang, Lang::Html | Lang::Xml) {
+            out.replace_range(c.start..c.end, "");
+            continue;
+        }
         let line_start = out[..c.start].rfind('\n').map_or(0, |i| i + 1);
         let line_end = out[c.end..].find('\n').map_or(out.len(), |i| c.end + i);
         let before = &out[line_start..c.start];
@@ -485,7 +492,7 @@ fn without(text: &str, found: &[Comment]) -> String {
                     (word(a) && word(b)) || (operator(a) && operator(b))
                 };
                 let gap = match (before.chars().last(), after.trim_start().chars().next()) {
-                    _ if out[c.start..c.end].contains('\n') => "\n",
+                    _ if out[c.start..c.end].contains(['\n', '\r', '\u{2028}', '\u{2029}']) => "\n",
                     (Some(a), Some(b)) if !a.is_whitespace() && joins(a, b) => " ",
                     _ => "",
                 };
@@ -642,6 +649,21 @@ mod cases {
             strip(Lang::Bash, "printf a \\\n# b\nprintf c\n"),
             "printf a \\\n\nprintf c\n"
         );
+        assert_eq!(
+            strip(
+                Lang::Tsx,
+                "function f(){return /* a\r*/ {x:1}}\nfunction g(){return /* b\u{2028}*/ {y:1}}\n"
+            ),
+            "function f(){return \n{x:1}}\nfunction g(){return \n{y:1}}\n"
+        );
+        assert_eq!(
+            strip(
+                Lang::Html,
+                "<p>a<!-- b\n-->c</p>\n<script>let d = 1 /* e */ + 2;</script>\n"
+            ),
+            "<p>ac</p>\n<script>let d = 1 + 2;</script>\n"
+        );
+        assert_eq!(strip(Lang::Xml, "<a>b<!-- c -->d</a>\n"), "<a>bd</a>\n");
     }
 
     #[test]

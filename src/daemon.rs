@@ -2208,7 +2208,7 @@ async fn agent_idle(
     let req = req.unwrap_or_default();
     keep_transcript(&app, node, req.transcript.as_deref())?;
     // 프로세스 종료를 보기 전에 연다. 그 사이에 끝나면 `on_exit`가 이 대기를 끝낸다.
-    let end = app.idle.open(node);
+    let mut end = app.idle.open(node);
     if !app.graph.relations(node).map_err(for_agent)?.me.alive {
         app.idle.end(node);
         eprintln!(
@@ -2221,10 +2221,17 @@ async fn agent_idle(
         app.rate_limited(node, profile::Provider::Claude);
     }
     app.turn_ended(node);
-    if app.relaunches.holds_mail(node) {
-        // 다시 띄우기가 이 대기를 끝낸다(`idle.end`). 메시지는 새 프로세스가 받는다.
+    // 다시 띄우기가 이 대기를 끝낸다(`idle.end`). 메시지는 새 프로세스가 받는다.
+    // 다시 띄우기가 실패하면 옛 프로세스가 토큰을 쥔 채 남는다. 그 프로세스에는 이 훅만 메시지를 넘기므로 다시 기다린다.
+    while app.relaunches.holds_mail(node) {
         end.notified().await;
-        return Ok(Json(Vec::new()));
+        if app.caller(&headers).is_err() {
+            return Ok(Json(Vec::new()));
+        }
+        match app.idle.reopen(node) {
+            Some(again) => end = again,
+            None => return Ok(Json(Vec::new())),
+        }
     }
     tokio::select! {
         taken = app.graph.next(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {

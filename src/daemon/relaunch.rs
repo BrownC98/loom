@@ -368,6 +368,7 @@ impl App {
                 }
                 Err(e) => {
                     app.relaunches.pending.lock().unwrap().remove(&node);
+                    app.release_mail(node);
                     Err(e.to_string())
                 }
             };
@@ -412,8 +413,18 @@ impl App {
             Plan::Switch(to) => self.switch_agent(node, &to).await,
         };
         self.relaunches.pending.lock().unwrap().remove(&id);
+        if result.is_err() {
+            self.release_mail(id);
+        }
         self.record_relaunch(who, switched, &result);
         result
+    }
+
+    /// 다시 띄우지 못했다. 옛 프로세스가 남았으면 그 프로세스가 다시 메시지를 받는다.
+    /// 쉬는 대기(`agent_idle`)는 끝나면 다시 기다리고, 서버 전달 작업은 메일함을 다시 본다. 둘 다 아니면 다음 메시지가 올 때까지 받지 못했다.
+    fn release_mail(&self, id: NodeId) {
+        self.idle.end(id);
+        self.graph.wake_mail();
     }
 
     fn record_relaunch(

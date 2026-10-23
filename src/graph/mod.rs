@@ -671,6 +671,11 @@ impl Graph {
         self.mail.notified()
     }
 
+    /// 메일함은 그대로지만 꺼내도 되는 노드가 바뀌었다(다시 띄우기 실패). 기다리는 전달 작업이 메일함을 다시 본다.
+    pub fn wake_mail(&self) {
+        self.mail.notify_waiters();
+    }
+
     /// 화면 상태(설정·자리·크기)를 쓴 뒤 부른다. 보는 화면이 없으면 버린다.
     pub fn publish_view_changed(&self) {
         let _ = self.events.send(GraphEvent::ViewChanged);

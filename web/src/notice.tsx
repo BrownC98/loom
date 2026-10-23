@@ -35,8 +35,11 @@ export const oldestWait = (v: NodeView): HumanWait => oldest(v.waits);
 /** 사람의 답을 기다리는 대기. 완료 알림은 답할 일이 없어 뺀다. */
 export const asking = (view: NodeView) => view.waits.filter((w) => toneOf(w.kind) === 'ask');
 
-/** 미니맵 칸의 클래스: 가장 오래된 알림의 색, 알림이 없으면 실행 상태. */
-export const minimapClass = (v: NodeView): string => (v.waits.length > 0 ? toneOf(oldestWait(v).kind) : v.state.kind);
+/** 미니맵 칸의 클래스: 가장 오래된 알림의 색. 알림이 없으면 종료·설정 실패만 색을 가진다(사이드바 점과 같은 규칙). */
+export const minimapClass = (v: NodeView): string => {
+  if (v.waits.length > 0) return toneOf(oldestWait(v).kind);
+  return v.state.kind === 'exited' || v.state.kind === 'setupFailed' ? v.state.kind : '';
+};
 
 const TONES: readonly Tone[] = ['ask', 'done'];
 

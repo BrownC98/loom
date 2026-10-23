@@ -87,7 +87,6 @@ const ko: typeof en = {
       setupFailed: '설정 실패',
     },
     foot: {
-      done: '요약: {{summary}}',
       daemonRestarted: 'loom을 다시 시작해서 종료되었습니다',
       exitedSent: '부모({{parent}})에게 exited({{code}})를 보냈습니다',
       exited: '종료 코드 {{code}}로 끝났습니다',

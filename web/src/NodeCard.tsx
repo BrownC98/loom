@@ -32,12 +32,10 @@ export function stateLabel(state: NodeState): string {
   }
 }
 
-/** 도는 노드는 발 줄이 없다. 터미널이 상태를 보인다. */
+/** 도는 노드와 끝난 노드는 발 줄이 없다. 완료 글은 받은편지함과 부모가 받는다(2026-10-23 사람 지시 "요약 기능 제거"). */
 function footText(state: NodeState, parentName: string | null): string | null {
   const t = i18next.t;
   switch (state.kind) {
-    case 'done':
-      return t('node.foot.done', { summary: state.summary });
     case 'exited':
       if (state.code === null) return t('node.foot.daemonRestarted');
       if (parentName !== null) return t('node.foot.exitedSent', { code: state.code, parent: parentName });
@@ -45,6 +43,7 @@ function footText(state: NodeState, parentName: string | null): string | null {
     case 'setupFailed':
       return t('node.foot.setupFailed', { code: state.code });
     case 'running':
+    case 'done':
       return null;
   }
 }

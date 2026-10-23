@@ -1807,7 +1807,7 @@ async fn open_wait_doc(
     Path(wait): Path<u32>,
 ) -> Result<Json<()>, Problem> {
     let path = app.graph.wait_doc(WaitId(wait))?;
-    if user_doc::is_html(&path) {
+    if user_doc::doc_kind(&path) == Some(user_doc::DocKind::Html) {
         open::open(&path).map_err(internal)?;
     } else {
         open::open_url(&format!(
@@ -1856,15 +1856,8 @@ async fn done_image_file(
     serve_file(&path, request).await
 }
 
-/// 브라우저가 글로 보일 파일. `.md`의 `text/markdown`은 폰 Chrome이 내려받고, 문자 집합 없는 `text/plain`은 한글이 깨진다.
-const TEXT_EXTENSIONS: [&str; 4] = ["md", "markdown", "txt", "log"];
+/// 글 문서(`user_doc::DocKind::Text`)의 형식. `.md`의 `text/markdown`은 폰 Chrome이 내려받고, 문자 집합 없는 `text/plain`은 한글이 깨진다.
 const TEXT_TYPE: &str = "text/plain; charset=utf-8";
-
-fn text_file(path: &std::path::Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| TEXT_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
-}
 
 async fn serve_file(
     path: &std::path::Path,
@@ -1875,7 +1868,7 @@ async fn serve_file(
         .await
         .map_err(internal)?
         .into_response();
-    if response.status().is_success() && text_file(path) {
+    if response.status().is_success() && user_doc::doc_kind(path) == Some(user_doc::DocKind::Text) {
         response.headers_mut().insert(
             axum::http::header::CONTENT_TYPE,
             axum::http::HeaderValue::from_static(TEXT_TYPE),

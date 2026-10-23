@@ -16,6 +16,9 @@ pub use relaunch::{NewAgent, Relaunched};
 mod switch;
 mod turn_end;
 mod usage_cache;
+#[cfg(test)]
+mod verb_traces;
+mod verbs;
 
 use origin::ViaRemote;
 
@@ -49,9 +52,9 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    CardView, Delivery, EventRecord, Graph, GraphEvent, Kind, Launched, Listed, MessageId, Model,
-    NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Report, Sent,
-    TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
+    CardView, Delivery, EventRecord, Graph, GraphEvent, IMAGE_EXTENSIONS, Kind, Launched, Listed,
+    MessageId, Model, NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations,
+    Report, Sent, TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -66,7 +69,7 @@ use crate::profile::{
     VersionMismatch,
 };
 use crate::protocol::{MessageKind, Question};
-use crate::roles::{Assignment, Roles};
+use crate::roles::{Assignment, RoleProblem, Roles};
 use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
@@ -76,6 +79,10 @@ use crate::update::{UpdateView, Updater};
 use crate::user_doc;
 use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Worktree};
 use crate::wsl;
+use verbs::{
+    Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_done, agent_note,
+    agent_remove, agent_spawn, traced,
+};
 
 #[derive(Embed)]
 #[folder = "web/dist"]
@@ -440,7 +447,7 @@ pub struct RelaunchRequest {
 #[derive(Serialize, Deserialize)]
 pub struct AskRequest {
     pub question: String,
-    /// `--doc`: 질문에 붙일 문서(user-doc HTML, `.md` 같은 글 파일)의 절대 경로.
+    /// `--doc`: 질문에 붙일 문서(`show.sh`를 지난 user-doc HTML)의 절대 경로.
     #[serde(default)]
     pub doc: Option<PathBuf>,
 }
@@ -524,6 +531,16 @@ pub struct Reported {
     pub warning: Option<String>,
 }
 
+/// 뜬 노드가 띄울 때 받은 규칙 글의 해시: 내장 스킬마다, 그리고 사용법(`USAGE_RULES`).
+fn rule_digests() -> std::collections::BTreeMap<String, String> {
+    let mut digests = skills::digests();
+    digests.insert(USAGE_RULES.to_owned(), profile::usage_digest());
+    digests
+}
+
+/// `rules-changed`의 `skills` 칸에 보이는 사용법의 이름. 내장 스킬 폴더 이름과 겹치지 않는다(시험이 본다).
+const USAGE_RULES: &str = "usage";
+
 /// 노드 문이 듣는 루프백 주소. Codex 샌드박스는 이 주소 하나만 연다(`codex::sandbox_args`).
 /// 다른 서비스가 쓰지 않는 주소를 골라, `127.0.0.1`의 다른 포트는 샌드박스 안에서 계속 막힌다.
 /// 화면에서 확인 창을 찾기 전에 출력이 멎어 있어야 하는 시간. TUI는 창 하나를 수십 ms 안에 다 그린다.
@@ -548,98 +565,41 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     };
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
-    let database = db::open(&db_path)?;
-    let repos = Repos::new(database.clone());
+    let node_door_addr = node_door.as_ref().map(|d| d.local_addr()).transpose()?;
+    let app = Arc::new(App::new(
+        db::open(&db_path)?,
+        &db_path,
+        listen,
+        node_door_addr,
+        codex_version.as_deref(),
+    )?);
     // 시작 폴더가 git 저장소면 더한다. 아니면 더하지 않는다: `loom start`는 루트(`/`)에서 띄우고, 사람은 화면에서 저장소를 더한다.
-    match repos.add(&std::env::current_dir()?.to_string_lossy()).await {
+    match app
+        .repos
+        .add(&std::env::current_dir()?.to_string_lossy())
+        .await
+    {
         Ok(_) | Err(RepoProblem::NotGit(_) | RepoProblem::NotFound(_)) => {}
         Err(problem) => return Err(std::io::Error::other(problem.to_string())),
     }
-    let graph = Graph::open(database.clone()).map_err(std::io::Error::other)?;
     // 옛 노드(DB 9단계 전)는 저장소 목록 첫째로 옮긴다. 저장소가 없으면 그대로 둔다.
-    if let Some((repo, path)) = repos
+    if let Some((repo, path)) = app
+        .repos
         .list()
         .map_err(std::io::Error::other)?
         .into_iter()
         .next()
     {
-        graph
+        app.graph
             .settle(&Place {
                 repo,
                 worktree: path.to_string_lossy().into_owned(),
             })
             .map_err(std::io::Error::other)?;
     }
-    // 근거: docs/design.md 「저장」.
-    let pty_dir = db_path.with_file_name("pty");
-    let graph = Arc::new(graph);
-    let update = Arc::new(Updater::new(listen, {
-        let graph = graph.clone();
-        move || graph.publish_view_changed()
-    }));
-    let devices = Arc::new(Devices::new(database.clone()));
-    let app = Arc::new(App {
-        repos,
-        host: NodeHost::new(pty_dir.join("nodes")),
-        graph,
-        settings: Settings::new(database.clone()),
-        devices: devices.clone(),
-        port: listen.port(),
-        door: lan::Door::new(
-            db_path
-                .parent()
-                .expect("DB 파일에는 폴더가 있다")
-                .to_path_buf(),
-            listen.port(),
-            devices,
-        ),
-        passes: passes::Passes::default(),
-        spots: Spots::new(database.clone()),
-        database,
-        accounts_root: db_path.with_file_name("accounts"),
-        logins: settings::Logins::new(pty_dir.join("logins")),
-        codex: Mutex::default(),
-        opencode2: Mutex::default(),
-        sessions: sessions::Sessions::default(),
-        first_inputs: sessions::FirstInputs::default(),
-        setups: Mutex::default(),
-        idle: idle::IdleWaits::default(),
-        relaunches: relaunch::Relaunches::default(),
-        switch: switch::Switches::default(),
-        usage: usage_cache::UsageCache::default(),
-        turn_ends: turn_end::TurnEnds::default(),
-        plugin: {
-            let plugin =
-                skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
-            for dir in plugin.dirs() {
-                profile::cursor::write_plugin(&dir)?;
-            }
-            plugin
-        },
-        shim: {
-            let shim = db_path.with_file_name("wsl");
-            if cfg!(windows) {
-                wsl::write_shim(&shim, &std::env::current_exe()?)?;
-            }
-            shim
-        },
-        homes: wsl::Homes::default(),
-        version_warnings: profile::version_warnings(codex_version.as_deref()),
-        codex_config: match (&codex_version, &node_door) {
-            (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
-            _ => Vec::new(),
-        },
-        url: match &node_door {
-            Some(door) => format!("http://{}", door.local_addr()?),
-            None => node_url(listen),
-        },
-        spawn_url: node_url(listen),
-        path: node_path()?,
-        update: update.clone(),
-    });
     app.resume().await.map_err(std::io::Error::other)?;
     // 다시 붙은 노드가 바뀐 규칙을 알게 한다. 알리지 못해도 데몬은 뜬다.
-    match app.graph.rules_changed(&skills::digests(), crate::COMMIT) {
+    match app.graph.rules_changed(&rule_digests(), crate::COMMIT) {
         Ok(changed) if !changed.is_empty() => {
             eprintln!("loom: 내장 스킬이 바뀌었다: {}", changed.join(", "))
         }
@@ -765,7 +725,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         });
     }
     claim.announce(&node_url(listen))?;
-    tokio::spawn(update.run());
+    tokio::spawn(app.update.clone().run());
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     match node_door {
@@ -1004,6 +964,86 @@ async fn commits(
         version,
         worktrees: worktree::worktrees(&repo).await,
     }))
+}
+
+impl App {
+    /// 데몬의 상태. `serve`와 시험이 만든다. `node_door`는 노드 문이 듣는 주소다. 없으면 노드는 데몬 주소를 쓴다.
+    fn new(
+        database: db::Database,
+        db_path: &std::path::Path,
+        listen: SocketAddr,
+        node_door: Option<SocketAddr>,
+        codex_version: Option<&str>,
+    ) -> std::io::Result<App> {
+        let repos = Repos::new(database.clone());
+        let graph = Arc::new(Graph::open(database.clone()).map_err(std::io::Error::other)?);
+        // 근거: docs/design.md 「저장」.
+        let pty_dir = db_path.with_file_name("pty");
+        let update = Arc::new(Updater::new(listen, {
+            let graph = graph.clone();
+            move || graph.publish_view_changed()
+        }));
+        let devices = Arc::new(Devices::new(database.clone()));
+        Ok(App {
+            repos,
+            host: NodeHost::new(pty_dir.join("nodes")),
+            graph,
+            settings: Settings::new(database.clone()),
+            devices: devices.clone(),
+            port: listen.port(),
+            door: lan::Door::new(
+                db_path
+                    .parent()
+                    .expect("DB 파일에는 폴더가 있다")
+                    .to_path_buf(),
+                listen.port(),
+                devices,
+            ),
+            passes: passes::Passes::default(),
+            spots: Spots::new(database.clone()),
+            database,
+            accounts_root: db_path.with_file_name("accounts"),
+            logins: settings::Logins::new(pty_dir.join("logins")),
+            codex: Mutex::default(),
+            opencode2: Mutex::default(),
+            sessions: sessions::Sessions::default(),
+            first_inputs: sessions::FirstInputs::default(),
+            setups: Mutex::default(),
+            idle: idle::IdleWaits::default(),
+            relaunches: relaunch::Relaunches::default(),
+            switch: switch::Switches::default(),
+            usage: usage_cache::UsageCache::default(),
+            turn_ends: turn_end::TurnEnds::default(),
+            plugin: {
+                let plugin =
+                    skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
+                for dir in plugin.dirs() {
+                    profile::cursor::write_plugin(&dir)?;
+                }
+                plugin
+            },
+            shim: {
+                let shim = db_path.with_file_name("wsl");
+                if cfg!(windows) {
+                    wsl::write_shim(&shim, &std::env::current_exe()?)?;
+                }
+                shim
+            },
+            homes: wsl::Homes::default(),
+            version_warnings: profile::version_warnings(codex_version),
+            codex_config: match (codex_version, node_door) {
+                (Some(version), Some(_)) => codex::sandbox_args(version, NODE_IP.into()),
+                _ => Vec::new(),
+            },
+            url: match node_door {
+                Some(door) => format!("http://{door}"),
+                None => node_url(listen),
+            },
+            spawn_url: node_url(listen),
+            path: node_path()?,
+            update,
+        })
+    }
 }
 
 impl App {
@@ -1701,8 +1741,7 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
 }
 
 impl App {
-    /// 사람이 입력해 턴이 시작했다. 노드를 다시 일하는 상태로 두고, 그 입력에 붙일 안내를 돌려준다:
-    /// 열린 `loom ask` 질문과, 부모 없는 노드면 완료 보고 안내(`profile::DONE_NOTE`).
+    /// 사람이 입력해 턴이 시작했다. 노드를 다시 일하는 상태로 두고, 그 입력에 붙일 열린 `loom ask` 질문 안내를 돌려준다.
     /// `prompt`는 입력 글이다(아는 훅만). loom이 넣은 첫 입력(지시문, 다시 띄울 때의 글)이 아니면 부모에게 `human-input`으로 알린다.
     fn human_input(&self, node: NodeId, prompt: Option<&str>) -> Result<Option<String>, Refusal> {
         self.graph.human_input(node)?;
@@ -1712,15 +1751,7 @@ impl App {
         {
             self.graph.human_typed(node, text)?;
         }
-        let questions = profile::questions_note(&self.graph.open_questions(node)?);
-        let done = self
-            .graph
-            .relations(node)?
-            .parent
-            .is_none()
-            .then(|| profile::DONE_NOTE.to_owned());
-        let parts: Vec<String> = questions.into_iter().chain(done).collect();
-        Ok((!parts.is_empty()).then(|| parts.join("\n\n")))
+        Ok(profile::questions_note(&self.graph.open_questions(node)?))
     }
 }
 
@@ -2087,235 +2118,18 @@ async fn done_image_file(
     serve_file(&path, request).await
 }
 
-/// 글 문서(`user_doc::DocKind::Text`)의 형식. `.md`의 `text/markdown`은 폰 Chrome이 내려받고, 문자 집합 없는 `text/plain`은 한글이 깨진다.
+/// 없는 문서의 글. 문자 집합 없는 `text/plain`은 한글이 깨진다.
 const TEXT_TYPE: &str = "text/plain; charset=utf-8";
 
 async fn serve_file(
     path: &std::path::Path,
     request: axum::extract::Request,
 ) -> Result<Response, Problem> {
-    let mut response = tower_http::services::ServeFile::new(path)
+    Ok(tower_http::services::ServeFile::new(path)
         .try_call(request)
         .await
         .map_err(internal)?
-        .into_response();
-    if response.status().is_success() && user_doc::doc_kind(path) == Some(user_doc::DocKind::Text) {
-        response.headers_mut().insert(
-            axum::http::header::CONTENT_TYPE,
-            axum::http::HeaderValue::from_static(TEXT_TYPE),
-        );
-    }
-    Ok(response)
-}
-
-async fn agent_spawn(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<SpawnRequest>,
-) -> Result<Json<NodeId>, AgentError> {
-    let parent = app.caller(&headers)?;
-    let missing = task::missing_heads(&req.brief);
-    if !req.brief.trim().is_empty() && !missing.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!(
-                "The brief has no {} head. Give each head as a line that starts with the head and a colon (`Goal: …`) or as a markdown heading (`## Goal`). The heads are: {}.",
-                missing.join(", "),
-                task::BRIEF_HEADS.join(", ")
-            ),
-        ));
-    }
-    let place = app
-        .graph
-        .place_of(parent)
-        .map_err(|e| for_agent(Refusal::from(e)))?;
-    let tasks = app.tasks_for(&place.worktree).await.map_err(for_agent)?;
-    // `fresh`는 요청이 어느 길에서든 실패하면 새 작업 폴더를 지운다.
-    let (dir, fresh) = match &req.worktree {
-        Some(branch) => {
-            let base = task::base(
-                &app.repos.path(place.repo).map_err(for_agent)?,
-                branch.trim(),
-            );
-            let (dir, fresh) = tasks.new_dir(&base).map_err(|e| for_agent(internal(e)))?;
-            (dir, Some(fresh))
-        }
-        None => (app.task_dir(parent).await.map_err(for_agent)?, None),
-    };
-    let given = req.brief.clone();
-    let (start, queued_brief) = match req.run {
-        SpawnRun::Agent(agent) => {
-            let assigned = match &req.role {
-                Some(role) => app
-                    .settings
-                    .get()
-                    .map_err(|e| for_agent(internal(e)))?
-                    .roles
-                    .assign(role, agent, req.choice, &req.brief)
-                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?,
-                None => Assignment {
-                    agent: agent.ok_or((
-                        StatusCode::BAD_REQUEST,
-                        "--agent나 --role을 준다.".to_owned(),
-                    ))?,
-                    choice: req.choice,
-                    brief: req.brief,
-                },
-            };
-            (
-                Start::Agent {
-                    agent: assigned.agent,
-                    brief: assigned.brief,
-                    choice: assigned.choice,
-                    resume: None,
-                },
-                String::new(),
-            )
-        }
-        SpawnRun::Command(line) => (Start::Command { line }, req.brief),
-    };
-    let worktree = match &req.worktree {
-        Some(branch) => {
-            let repo = app.repos.path(place.repo).map_err(for_agent)?;
-            let workspace = app.workspace(&repo).await.map_err(for_agent)?;
-            let from = std::path::Path::new(&place.worktree);
-            let made = worktree::create(&repo, from, &workspace, branch, "HEAD")
-                .await
-                .map_err(for_agent)?;
-            Some((repo, made))
-        }
-        None => None,
-    };
-    let made = worktree.as_ref().map(|(_, made)| made.as_str());
-    let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
-    let child = NewChild {
-        name: &req.name,
-        worktree: made,
-        agent: start.agent(),
-        brief: &queued_brief,
-        role: req.role.as_deref(),
-        task: &dir.folder,
-    };
-    let spawned = spawn_child(&app, parent, child, &start, cwd, &dir, &given).await;
-    if let (Ok(_), Some(fresh)) = (&spawned, fresh) {
-        fresh.keep();
-    }
-    // 자식을 띄우지 못하면 이 요청이 만든 워크트리와 브랜치를 지운다. 거절만 남긴다.
-    if let (Some((repo, made)), Err(_)) = (&worktree, &spawned)
-        && let Err(e) = worktree::discard(repo, made).await
-    {
-        eprintln!("loom: 띄우지 못한 자식의 워크트리 {made}를 지우지 못했다: {e}");
-    }
-    spawned.map(Json)
-}
-
-/// `agent_spawn`에서 워크트리를 만든 뒤의 단계: 준비하고 그래프에 자식을 더해 띄운다.
-/// 새 워크트리면 그 설정 스크립트를 자식의 PTY에서 먼저 돌린다. 근거: docs/design.md 「저장소와 워크트리」.
-/// 작업 폴더 안의 틀은 그래프가 자식을 받은 뒤, 띄우기 바로 전에 만든다. `brief`는 `loom spawn`이 받은 지시문이다(역할 머리 없음).
-async fn spawn_child(
-    app: &Arc<App>,
-    parent: NodeId,
-    child: NewChild<'_>,
-    start: &Start,
-    cwd: &std::path::Path,
-    dir: &task::TaskDir,
-    brief: &str,
-) -> Result<NodeId, AgentError> {
-    let mut prepared = app
-        .prepare(start, cwd, Position::Child, Some(dir))
-        .await
-        .map_err(for_agent)?;
-    if child.worktree.is_some() {
-        prepared.setup = worktree::setup_script(cwd).map(|line| prepared.shell(&line));
-    }
-    let discard = prepared.discarder();
-    let limits = app
-        .tree_limits()
-        .map_err(for_agent)
-        .inspect_err(|_| discard())?;
-    app.graph
-        .add_child(parent, child, limits, &prepared.launched(), |id| {
-            task::create(&dir.local, brief).map_err(|e| format!("{}: {e}", dir.local.display()))?;
-            app.launch(id, prepared)
-        })
-        .map_err(for_agent)
-        .inspect_err(|_| discard())
-}
-
-async fn agent_note(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<NoteRequest>,
-) -> Result<Json<Sent>, AgentError> {
-    let from = app.caller(&headers)?;
-    let via = gate::via(&headers, "/api/agent/note");
-    let sent = note(&app, from, &req, &via);
-    recorded(&app, from, &req.to, req.mode, MessageKind::Note, &via, sent)
-}
-
-/// 보낸 노드는 이번 턴에 loom 동사를 불렀다(턴 끝 검사). 거절은 보낸 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
-fn recorded<T>(
-    app: &App,
-    from: NodeId,
-    to: &str,
-    how: Kind,
-    what: MessageKind,
-    via: &Via,
-    result: Result<T, Refusal>,
-) -> Result<Json<T>, AgentError> {
-    if result.is_ok() {
-        app.turn_ends.called(from);
-    }
-    if let Err(reason) = &result
-        && !matches!(reason, Refusal::Db(_))
-    {
-        app.graph
-            .record_refusal(from, to, how, what, reason, Some(via))
-            .map_err(|e| for_agent(Refusal::from(e)))?;
-    }
-    result.map(Json).map_err(for_agent)
-}
-
-fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, Refusal> {
-    app.kind_word(from, &req.body)?;
-    if req.mode != Kind::Queue {
-        let (to, agent) = app.graph.related(from, &req.to)?;
-        let target = format!("#{}", to.0);
-        let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
-            return Err(Refusal::NotSteerable(req.to.clone()));
-        };
-        // 셸 앞에 `loom guard`를 붙이는 프로필만 그 셸을 끝낸다.
-        if req.mode == Kind::Interrupt && matches!(profile, Profile::Claude | Profile::Cursor) {
-            return app
-                .graph
-                .interrupt(from, &target, &req.body, Some(via), |to| {
-                    app.host.stop_guarded(to);
-                });
-        }
-        return app
-            .graph
-            .note(from, &target, req.mode, &req.body, Some(via));
-    }
-    app.graph
-        .note(from, &req.to, req.mode, &req.body, Some(via))
-}
-
-async fn agent_answer(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<AnswerRequest>,
-) -> Result<Json<Sent>, AgentError> {
-    let from = app.caller(&headers)?;
-    let via = gate::via(&headers, "/api/agent/answer");
-    let sent = app.kind_word(from, &req.body).and_then(|()| {
-        app.graph
-            .answer_ask(from, req.message, &req.body, Some(&via))
-    });
-    let to = format!("message #{}", req.message.0);
-    let what = MessageKind::Answer {
-        question: Question::Message { id: req.message.0 },
-    };
-    recorded(&app, from, &to, Kind::Queue, what, &via, sent)
+        .into_response())
 }
 
 /// 브랜치의 작업 폴더는 관문 줄의 담당이 정한다: 브랜치 이름을 바꿔도, 같은 이름을 다시 써도 그 차례의 작업이다.
@@ -2425,7 +2239,7 @@ async fn agent_idle(
         }
     }
     tokio::select! {
-        taken = app.graph.next(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
+        taken = app.graph.next_waking(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
             Ok(taken) => Ok(Json(taken)),
             // 훅은 이 오류로 끝나고 다시 기다리지 않는다. 훅의 stderr는 Claude가 버리므로 여기 남긴다.
             // 근거: 쉬는 노드가 대기 없이 20분 동안 큐 메시지 4개를 받지 못했다. 원인을 찾지 못했다(2026-10-23 사람 보고 "안읽음 버튼 클릭 해도 작동 안함").
@@ -2503,139 +2317,6 @@ async fn agent_wait(
     Ok(Json(result.map_err(for_agent)?))
 }
 
-async fn agent_done(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<DoneRequest>,
-) -> Result<Json<Reported>, AgentError> {
-    let node = app.caller(&headers)?;
-    for image in &req.images {
-        done_image(image).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    }
-    let doc = attach(req.doc.as_deref())?;
-    let via = gate::via(&headers, "/api/agent/done");
-    // 종류 낱말로 거절할 글에는 git을 부르지 않는다. 경고를 보지 못해도 보고는 보낸다. 완료는 중간 결과도 나른다.
-    let word = app.kind_word(node, &req.summary);
-    let warning = if word.is_ok() {
-        app.unreadied(node).await.unwrap_or_else(|e| {
-            eprintln!("loom: 노드 {}의 담당 브랜치를 보지 못했다: {e}", node.0);
-            None
-        })
-    } else {
-        None
-    };
-    let report = Report {
-        summary: &req.summary,
-        file: req.file.as_deref(),
-        warning: warning.clone(),
-    };
-    let done = word.and_then(|()| {
-        app.graph.done(
-            node,
-            &report,
-            req.asked.as_deref(),
-            &req.images,
-            doc,
-            Some(&via),
-        )
-    });
-    let done = done.map(|alive| Reported {
-        alive,
-        warning: warning.clone(),
-    });
-    let what = MessageKind::Done {
-        file: req.file.clone(),
-        warning,
-    };
-    recorded(&app, node, PARENT, Kind::Queue, what, &via, done)
-}
-
-/// 브라우저가 `<img>`로 그리는 그림 꼴. 받은편지함이 완료 줄의 파일을 그대로 낸다.
-const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
-
-/// 완료 줄의 그림은 받은편지함이 그대로 낸다. 있는 그림 파일만 받는다.
-fn done_image(path: &std::path::Path) -> Result<(), String> {
-    let image = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| IMAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
-    if !image {
-        return Err(format!(
-            "{}: --image takes an image file ({}).",
-            path.display(),
-            IMAGE_EXTENSIONS.join(", ")
-        ));
-    }
-    if !path.is_file() {
-        return Err(format!("{}: no such file.", path.display()));
-    }
-    Ok(())
-}
-
-/// `--doc`(`loom ask`, `loom done`)의 문서를 점검하고 ID를 붙인다.
-fn attach(doc: Option<&std::path::Path>) -> Result<Option<WaitDoc>, AgentError> {
-    doc.map(user_doc::attach)
-        .transpose()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))
-}
-
-/// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드의 질문은 부모에게 `ask` 메시지로 간다.
-async fn agent_ask(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<AskRequest>,
-) -> Result<Json<AskResult>, AgentError> {
-    let node = app.caller(&headers)?;
-    let via = gate::via(&headers, "/api/agent/ask");
-    let has_parent = app
-        .graph
-        .relations(node)
-        .map_err(for_agent)?
-        .parent
-        .is_some();
-    if has_parent {
-        let sent = match req.doc {
-            Some(_) => Err(Refusal::DocHasParent),
-            None => app.graph.ask_parent(node, &req.question, Some(&via)),
-        };
-        return recorded(
-            &app,
-            node,
-            PARENT,
-            Kind::Queue,
-            MessageKind::Ask,
-            &via,
-            sent.map(AskResult::Parent),
-        );
-    }
-    let doc = attach(req.doc.as_deref())?;
-    let id = app
-        .graph
-        .ask(node, &req.question, doc.clone())
-        .map_err(for_agent)?;
-    let open = app.graph.open_questions(node).map_err(for_agent)?;
-    app.turn_ends.called(node);
-    Ok(Json(AskResult::Inbox(Asked {
-        id,
-        doc,
-        open: open.into_iter().map(|q| q.id).collect(),
-    })))
-}
-
-/// `loom answered`: 사람의 입력이 `loom ask` 질문의 답이라고 에이전트가 판단했다. 그 질문만 지우고 지운 번호를 돌려준다. 다른 대기는 남는다.
-/// 옛 CLI는 몸통 없이(`null`) 부른다. 번호 없는 호출과 같다.
-async fn agent_answered(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<Option<AnsweredRequest>>,
-) -> Result<Json<Vec<WaitId>>, AgentError> {
-    let node = app.caller(&headers)?;
-    let ids = req.unwrap_or_default().ids;
-    let answered = app.graph.answered(node, &ids).map_err(for_agent)?;
-    app.turn_ends.called(node);
-    Ok(Json(answered))
-}
-
 async fn agent_said(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -2669,34 +2350,6 @@ async fn agent_hook_wait(
         )
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))
-}
-
-async fn agent_adopt(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<AdoptRequest>,
-) -> Result<Json<()>, AgentError> {
-    let parent = app.caller(&headers)?;
-    let child = app.graph.find(&req.name).map_err(for_agent)?;
-    let limits = app.tree_limits().map_err(for_agent)?;
-    app.graph.adopt(parent, child, limits).map_err(for_agent)?;
-    Ok(Json(()))
-}
-
-/// 사람의 [노드 제거]와 같이 프로세스를 끝낸다. 지운 노드의 자식은 부르는 노드가 데려간다. 돌려준 값은 데려간 노드 이름이다.
-async fn agent_remove(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<RemoveRequest>,
-) -> Result<Json<Vec<String>>, AgentError> {
-    let caller = app.caller(&headers)?;
-    let limits = app.tree_limits().map_err(for_agent)?;
-    let (removed, moved) = app
-        .graph
-        .remove_child(caller, &req.name, limits)
-        .map_err(for_agent)?;
-    app.host.kill(removed);
-    Ok(Json(moved))
 }
 
 async fn pty(
@@ -2933,6 +2586,12 @@ async fn asset(uri: Uri) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rule_digests_hold_the_usage_beside_the_skills() {
+        assert!(!skills::digests().contains_key(USAGE_RULES));
+        assert_eq!(rule_digests()[USAGE_RULES], profile::usage_digest());
+    }
 
     /// `loom` 명령이 노드 문으로 부르는 경로는 모두 노드 문에 있다. `spawn`만 `LOOM_SPAWN_URL`의 사람 문으로 간다(2026-10-23 리뷰: `task`가 빠져 노드 문에서 404였다).
     #[test]

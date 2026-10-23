@@ -509,6 +509,29 @@ impl MessageKind {
         }
     }
 
+    /// 쉬는 노드를 깨우는 종류. 알림(끝남·지움·데려감)은 메일함에서 기다렸다가 다음 메시지나 다음 사람 턴과 함께 간다.
+    /// 근거: 맥락이 큰 오래 사는 노드를 깨우는 횟수가 가장 큰 비용이다(R14 R2, 2026-10-23 Q687 A).
+    pub fn wakes(&self) -> bool {
+        match self {
+            MessageKind::Exited { .. }
+            | MessageKind::Removed { .. }
+            | MessageKind::Adopted { .. } => false,
+            MessageKind::Ask
+            | MessageKind::Answer { .. }
+            | MessageKind::Done { .. }
+            | MessageKind::Note
+            | MessageKind::Ready { .. }
+            | MessageKind::Verdict { .. }
+            | MessageKind::Merging { .. }
+            | MessageKind::Merged { .. }
+            | MessageKind::Rework { .. }
+            | MessageKind::Failed { .. }
+            | MessageKind::SetupFailed { .. }
+            | MessageKind::HumanInput { .. }
+            | MessageKind::RulesChanged { .. } => true,
+        }
+    }
+
     /// 파일만 준 완료(`loom done --file`)는 본문이 그 경로다. 같은 경로를 두 번 보이지 않는다.
     pub fn repeats_file(&self, body: &str) -> bool {
         matches!(self, MessageKind::Done { file: Some(file), .. } if file == body)
@@ -920,8 +943,8 @@ macro_rules! message_usage {
     () => {
         "- loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, it asks your parent; the answer comes as a message (kind: answer), or wait for it: loom wait --reply-to <message-id> --timeout <seconds> --json.
 - loom answer <message-id> <body>: answer an ask that you received.
-- loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent. Call it again after more work. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready.
-- loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work (both only to your parent or children). If you receive an interrupt, stop your previous task. A body that starts with a kind word (QUESTION, ANSWER, STATUS, ESCALATION, DONE, READY, USER DIRECTION, ...) is refused; the refusal names the verb.
+- loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent, also when other parts of the work continue and in a turn that a message or a notice started. Call it again after more work. Do not call it when you only answer a question in text. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction, short> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready. Send no progress reports.
+- loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work (both only to your parent or children). If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
 - loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (gate or its reviewer, not the owner; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework), loom merge <branch> (gate, after pass) audits, checks, merges, pushes and reports, loom fail <branch> <cause> (gate) tells the root. loom picks receivers. loom --help has details.
 "
     };

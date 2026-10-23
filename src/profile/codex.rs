@@ -51,9 +51,12 @@ pub const DIALOGS: [Dialog; 2] = [
 /// 새 턴 입력 하나에 넣는 본문 합의 상한. 첫 메시지는 늘 넣는다. 남은 메시지는 다음 턴에 들어간다.
 pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 
+/// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
+pub(super) const WAITING: &str = "When waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.";
+
 fn usage(launch: Launch) -> String {
     format!(
-        "{}\nWhen waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.\n\n{}",
+        "{}\n{WAITING}\n\n{}",
         super::COMMUNICATION_USAGE,
         crate::skills::always_on(launch)
     )

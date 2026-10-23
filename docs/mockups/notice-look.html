@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M9 알림 표시 통일 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 문서 틀: skills/user-doc/style.html. 알약·목록·띠·칩·카드 모양과 토큰은 web/src/styles.css와 같다. */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --term: light-dark(oklch(99.4% 0 0), oklch(14.5% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(80% 0 0), oklch(43.9% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --warn-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --err: light-dark(oklch(55% 0.22 28), oklch(70.4% 0.188 22));
+  --notice: light-dark(oklch(56% 0.2 15), oklch(70% 0.17 15));
+  --notice-ink: light-dark(oklch(100% 0 0), oklch(20.5% 0 0));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --shadow: light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); word-break: keep-all; }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font-size: 12px; font-weight: 400; color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 900px; }
+.note li { margin-left: 18px; }
+.new { outline: 2px dashed oklch(60% 0.15 250); outline-offset: 3px; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1200px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: middle; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.cols { display: grid; gap: 16px 20px; align-items: start; }
+.cols.c2 { grid-template-columns: repeat(2, 660px); }
+.cols.c3 { grid-template-columns: repeat(3, 440px); }
+.cell { display: grid; gap: 6px; align-content: start; }
+.cap { font-size: 12px; color: var(--ink-3); }
+.cap b { color: var(--ink); }
+.cap .rec { color: var(--ok); font-weight: 600; }
+.stage { display: grid; gap: 12px; justify-items: start; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 16px 16px; }
+.done { --warn: var(--ok); }
+
+/* 한 줄 알약(.inbox-pill[data-view="line"]) */
+.pill { display: flex; align-items: center; gap: 8px; height: 34px; max-width: 420px; padding: 0 12px; border: 1px solid var(--warn); border-radius: 17px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.pill > b { white-space: nowrap; }
+.pill .ic { width: 16px; height: 16px; margin-right: -2px; color: var(--warn); }
+.pill .go { min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill .go b { font-size: 13px; }
+.count { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.count.notice { background: var(--notice); color: var(--notice-ink); }
+.qid { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid color-mix(in oklch, var(--warn) 55%, transparent); border-radius: 4px; background: color-mix(in oklch, var(--warn) 10%, var(--surface)); font: 600 11px/16px var(--mono); }
+.old { text-decoration: line-through; opacity: 0.55; }
+
+/* 펼친 목록(.wait-list) */
+.pop { width: 440px; display: grid; gap: 4px; padding: 8px 6px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.wnode > .go { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; color: var(--ink-3); font-size: 12px; }
+.wnode > .go b { color: var(--ink); font-size: 13px; }
+.wnode > .go .sp { flex: 1; }
+.dotw { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.wrow { display: grid; gap: 6px; padding: 4px 8px 8px 29px; }
+.wrow .top { display: flex; align-items: center; gap: 6px; }
+.wrow .kind { display: inline-flex; align-items: center; gap: 4px; color: var(--warn); font-size: 12px; font-weight: 600; }
+.wrow .sp { flex: 1; }
+.wrow .at { color: var(--ink-3); font-size: 12px; }
+.wrow .asked { font-size: 12px; color: var(--ink-3); }
+.btn { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 500; }
+.reply { height: 30px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink-3); font-size: 12px; padding: 0 8px; display: flex; align-items: center; }
+
+/* 폰 띠(.phone-ask) */
+.phone { width: 390px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--term); }
+.phone-head { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 14px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 600; }
+.band { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px 0 14px; background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border-block: 1px solid var(--warn); font-size: 13px; }
+.band > svg.ic { width: 16px; height: 16px; color: var(--warn); }
+.band b { white-space: nowrap; }
+.band .qtext { font: 12px var(--mono); color: var(--ink-3); }
+.band .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.band .chev { width: 18px; height: 18px; color: var(--ink-2); margin-left: 8px; }
+.term-l { height: 40px; padding: 8px 14px; font: 12px var(--mono); color: var(--ink-3); }
+
+/* 노드 줄(.tree-row)과 칩(.state-tag) */
+.tree { width: 300px; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); font-size: 13px; }
+.trow { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; }
+.trow .nm { font-weight: 600; }
+.sdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.sdot.running { background: var(--run); }
+.sdot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
+.chip { flex: none; margin-left: auto; padding: 0 7px; border: 1px solid var(--warn); border-radius: 9px; background: var(--warn); color: var(--warn-ink); font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.chip.done { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.chip.inline { margin-left: 0; }
+
+/* 그래프 카드 머리(.card-head) */
+.card { width: 420px; background: var(--term); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.card.wait { border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in oklch, var(--warn) 35%, transparent); }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.card-head .nm { font-weight: 600; }
+.card-head .ag { font-size: 12px; color: var(--ink-3); }
+.card-head .sp { flex: 1; }
+.state { display: inline-flex; white-space: nowrap; align-items: center; gap: 5px; font-size: 12px; font-family: var(--mono); color: var(--ink-2); }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state.running { color: var(--run); }
+.state.waiting { color: var(--warn); font-family: var(--font); font-weight: 600; }
+.card-body { height: 34px; padding: 8px 10px; font: 12px var(--mono); color: var(--ink-3); }
+
+/* 미니맵 */
+.mini { width: 200px; height: 120px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+
+/* 시스템 알림 */
+.os { width: 360px; display: grid; gap: 2px; padding: 12px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; }
+.os .app { font-size: 11px; color: var(--ink-3); }
+.os .body { color: var(--ink-2); }
+.set { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.tog { width: 30px; height: 18px; border-radius: 9px; background: var(--ink); position: relative; }
+.tog::after { content: ''; position: absolute; right: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="q" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+  <symbol id="ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M9</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 알림표시코디</b></span><span>v1 · 2026-10-23</span></div>
+  <h1>알림 표시 통일: 종류마다 이름·색·아이콘·번호·[확인] 자리를 한 표로</h1>
+  <p class="lead">사람 지시: 「알림 ui가 파편화 되어있는지 랩터3 로 검토해」, 「완료 칩은 알림 상태를 표시하라는게 의도였음 (완료 알림 발송하면 알림 칩이 뜨고, 질문 올리면 질문 칩이 뜨도록)」. 점검 결과, 같은 알림이 화면마다 다른 이름·번호·단추 자리로 보인다. 아래 표 하나를 모든 화면(PC 알약, 목록 줄, 폰 띠, 노드 칩, 그래프 카드, 미니맵, 시스템 알림)에 똑같이 쓴다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 알림 표 <span class="tag">모든 화면이 이 표만 읽는다</span></h2>
+    <table class="decide">
+      <tr><th>알림 종류</th><th>이름</th><th>색 · 아이콘</th><th>번호(Q)</th><th>지우기</th><th>보기</th></tr>
+      <tr><td><code>loom ask</code></td><td>질문</td><td>노랑 · 물음표</td><td>보임</td><td>[×]</td><td><span class="chip inline">질문 1</span></td></tr>
+      <tr><td>권한 승인 창</td><td>승인 요청</td><td>노랑 · 물음표</td><td>숨김</td><td>저절로(에이전트가 넘어가면)</td><td><span class="chip inline">승인 요청 1</span></td></tr>
+      <tr><td>폴더 신뢰 창</td><td>폴더 신뢰 확인</td><td>노랑 · 물음표</td><td>숨김</td><td>저절로</td><td><span class="chip inline">폴더 신뢰 확인 1</span></td></tr>
+      <tr><td>로그인 창</td><td>로그인·계정 설정</td><td>노랑 · 물음표</td><td>숨김</td><td>저절로</td><td><span class="chip inline">로그인·계정 설정 1</span></td></tr>
+      <tr><td>입력 대기</td><td>입력 요청</td><td>노랑 · 물음표</td><td>숨김</td><td>저절로</td><td><span class="chip inline">입력 요청 1</span></td></tr>
+      <tr><td><code>loom done</code></td><td>완료</td><td>초록 · 체크</td><td>숨김</td><td>[확인], 줄 맨 위 오른쪽</td><td><span class="chip inline done">완료 1</span></td></tr>
+    </table>
+    <ul class="note">
+      <li>노랑 알림이 초록 알림보다 먼저다. 한 자리에 하나만 보이면 맨 앞 알림을 보인다.</li>
+      <li>노드 하나를 세는 수(알약, 칩, 카드, 목록 노드 머리)는 맨 앞 알림과 같은 색 알림만 센다. 여러 노드를 합친 수(사이드바·폰의 [알림] 탭)만 모든 알림을 세고 분홍이다.</li>
+      <li>번호는 사람이 터미널에 「Q12: A」로 답할 수 있는 질문에만 붙인다.</li>
+      <li>알림 줄은 어디서나 「아이콘 이름 수 번호 노드: 글」이다. 글이 없는 알림(승인 창 등)은 「노드」만 보인다. 지금 PC 알약은 이름을 한 번 더 쓴다(「배포: 승인 요청」).</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 노랑 알림의 이름 <span class="tag">정할 것 1 · 노드 「배포」가 권한 승인 창에서 멈춤</span></h2>
+    <div class="cols c3">
+      <div class="cell"><span class="cap"><b>A. 종류 이름</b> · <span class="rec">권장</span> · 질문이면 「질문」, 승인 창이면 「승인 요청」</span><div class="stage">
+        <div class="pill new"><svg class="i ic"><use href="#q"/></svg><b>승인 요청</b><span class="count">1</span><span class="go"><b>배포</b></span></div>
+        <div class="tree"><div class="trow"><span class="sdot waiting"></span><span class="nm">배포</span><span class="chip new">승인 요청 1</span></div></div>
+      </div></div>
+      <div class="cell"><span class="cap"><b>B. 한 이름</b> · 노랑 알림은 모두 「응답 대기」</span><div class="stage">
+        <div class="pill new"><svg class="i ic"><use href="#q"/></svg><b>응답 대기</b><span class="count">1</span><span class="go"><b>배포</b></span></div>
+        <div class="tree"><div class="trow"><span class="sdot waiting"></span><span class="nm">배포</span><span class="chip new">응답 대기 1</span></div></div>
+      </div></div>
+      <div class="cell"><span class="cap"><b>C. 지금</b> · 노랑 알림은 모두 「질문」</span><div class="stage">
+        <div class="pill"><svg class="i ic"><use href="#q"/></svg><b>질문</b><span class="count">1</span><span class="qid">Q41</span><span class="go"><b>배포</b>: 승인 요청</span></div>
+        <div class="tree"><div class="trow"><span class="sdot waiting"></span><span class="nm">배포</span><span class="chip">질문 1</span></div></div>
+      </div></div>
+    </div>
+    <ul class="note">
+      <li>A는 사람 지시 「질문 올리면 질문 칩」을 그대로 지키고, 질문이 아닌 창을 「질문」이라 부르지 않는다.</li>
+      <li>B는 늘 맞는 이름이지만 질문 칩이 「응답 대기」로 바뀐다. C는 승인 창도 「질문」이라 부르고 답할 수 없는 번호(Q41)를 보인다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>③ PC 알약 <span class="tag">노드 「총괄」 질문 1, 다른 노드 완료 2</span></h2>
+    <div class="cols c2">
+      <div class="cell"><span class="cap">지금 · 수 3이 「질문 3」으로 읽힌다</span><div class="stage">
+        <div class="pill"><svg class="i ic"><use href="#q"/></svg><b>질문</b><span class="count">3</span><span class="qid">Q12</span><span class="go"><b>총괄</b>: 목업 v2를 승인할까요?</span></div>
+      </div></div>
+      <div class="cell"><span class="cap">바꾼 뒤 · 같은 색 알림만 센다. 완료 2는 [알림] 탭 수에 남는다</span><div class="stage">
+        <div class="pill"><svg class="i ic"><use href="#q"/></svg><b>질문</b><span class="count new">1</span><span class="qid">Q12</span><span class="go"><b>총괄</b>: 목업 v2를 승인할까요?</span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>④ 완료 알림의 [확인] 자리와 노드 머리 수 <span class="tag">PC 알약을 펼침 · 목록 줄 · 폰 판이 같은 줄을 쓴다</span></h2>
+    <div class="cols c2">
+      <div class="cell"><span class="cap">지금 · 알약은 [확인]이 아래, 목록은 위. PC 노드 머리 수는 분홍</span><div class="stage">
+        <div class="pop">
+          <div class="wnode"><div class="go"><span class="dotw done"></span><b>화면-점검</b><span class="sp"></span><span class="count notice">1</span></div>
+            <div class="wrow done"><span class="asked">지시: 설정 화면 버튼 겹침 고쳐</span><span>설정 화면의 겹친 버튼을 고쳤다.</span><span class="reply">이어서 맡길 일…</span><span><span class="btn">확인</span></span></div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cell"><span class="cap">바꾼 뒤 · [확인]은 어디서나 줄 맨 위 오른쪽. 노드 머리 수는 알림 색(폰과 같다)</span><div class="stage">
+        <div class="pop">
+          <div class="wnode"><div class="go"><span class="dotw done"></span><b>화면-점검</b><span class="sp"></span><span class="count done new">1</span></div>
+            <div class="wrow done"><div class="top"><span class="kind"><svg class="i"><use href="#ok"/></svg>완료</span><span class="at">14:02</span><span class="sp"></span><span class="btn new">확인</span></div><span class="asked">지시: 설정 화면 버튼 겹침 고쳐</span><span>설정 화면의 겹친 버튼을 고쳤다.</span><span class="reply">이어서 맡길 일…</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>⑤ 폰 띠 <span class="tag">노드 화면 위 · 이 노드가 완료를 보냄 / 다른 노드가 승인 창에서 멈춤</span></h2>
+    <div class="cols c2">
+      <div class="cell"><span class="cap">지금 · 완료에 번호가 붙고, 다른 노드면 종류 대신 노드 이름, 승인 창은 글이 비었다</span><div class="stage">
+        <div class="phone"><div class="phone-head">화면-점검</div>
+          <div class="band done"><svg class="i ic"><use href="#ok"/></svg><b>완료</b><span class="qtext">Q57</span><span class="text">설정 화면의 겹친 버튼을 고쳤다.</span><svg class="i chev"><use href="#down"/></svg></div>
+          <div class="term-l">$</div></div>
+        <div class="phone"><div class="phone-head">화면-점검</div>
+          <div class="band"><svg class="i ic"><use href="#q"/></svg><b>배포</b><span class="qtext">Q41</span><span class="text"></span><svg class="i chev"><use href="#down"/></svg></div>
+          <div class="term-l">$</div></div>
+      </div></div>
+      <div class="cell"><span class="cap">바꾼 뒤 · PC 알약과 같은 줄: 종류 이름, 번호 규칙, 「노드: 글」. 글이 없으면 노드 이름만</span><div class="stage">
+        <div class="phone"><div class="phone-head">화면-점검</div>
+          <div class="band done"><svg class="i ic"><use href="#ok"/></svg><b>완료</b><span class="text new"><b>화면-점검</b>: 설정 화면의 겹친 버튼을 고쳤다.</span><svg class="i chev"><use href="#down"/></svg></div>
+          <div class="term-l">$</div></div>
+        <div class="phone"><div class="phone-head">화면-점검</div>
+          <div class="band"><svg class="i ic"><use href="#q"/></svg><b class="new">승인 요청</b><span class="text new"><b>배포</b></span><svg class="i chev"><use href="#down"/></svg></div>
+          <div class="term-l">$</div></div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>⑥ 노드 칩 · 그래프 카드 · 미니맵 <span class="tag">노드 「구현」이 실행 중이고 완료 알림 2</span></h2>
+    <div class="cols c2">
+      <div class="cell"><span class="cap">지금 · 사이드바는 「완료 2」, 카드와 미니맵은 알림을 보이지 않는다</span><div class="stage">
+        <div class="tree"><div class="trow"><span class="sdot running"></span><span class="nm">구현</span><span class="chip done">완료 2</span></div></div>
+        <div class="card"><div class="card-head"><span class="nm">구현</span><span class="ag">claude</span><span class="sp"></span><span class="state running">실행 중</span></div><div class="card-body">✻ Running tests…</div></div>
+        <svg class="mini" viewBox="0 0 200 120"><rect x="20" y="20" width="60" height="30" rx="3" fill="var(--run)"/><rect x="110" y="60" width="60" height="30" rx="3" fill="var(--run)"/></svg>
+      </div></div>
+      <div class="cell"><span class="cap">바꾼 뒤 · 카드 머리에 같은 칩. 미니맵은 칩 색(칩이 없으면 실행 상태 색)</span><div class="stage">
+        <div class="tree"><div class="trow"><span class="sdot running"></span><span class="nm">구현</span><span class="chip done">완료 2</span></div></div>
+        <div class="card"><div class="card-head"><span class="nm">구현</span><span class="ag">claude</span><span class="sp"></span><span class="chip done inline new">완료 2</span><span class="state running">실행 중</span></div><div class="card-body">✻ Running tests…</div></div>
+        <div class="card wait"><div class="card-head"><span class="nm">배포</span><span class="ag">claude</span><span class="sp"></span><span class="chip inline new">승인 요청 1</span><span class="state running new">실행 중</span></div><div class="card-body">Allow Bash(git push origin main)?</div></div>
+        <svg class="mini new" viewBox="0 0 200 120"><rect x="20" y="20" width="60" height="30" rx="3" fill="var(--ok)"/><rect x="110" y="60" width="60" height="30" rx="3" fill="var(--warn)"/></svg>
+      </div></div>
+    </div>
+    <ul class="note">
+      <li>카드의 상태 글은 프로세스 상태만 보인다. 지금 쓰는 「응답 대기」는 칩이 맡는다. 노랑 테두리는 그대로다(답할 일이 있을 때만).</li>
+      <li>폰 노드 화면 머리 줄도 같은 칩을 쓴다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>⑦ 시스템 알림과 설정 글 <span class="tag">글만 바뀐다</span></h2>
+    <div class="cols c2">
+      <div class="cell"><span class="cap">지금</span><div class="stage">
+        <div class="os"><span class="app">loom</span><b>배포 · 승인 요청</b><span class="body"></span></div>
+        <div class="set"><span class="tog"></span>loom 창이 보이지 않을 때 질문을 시스템 알림으로 알림</div>
+      </div></div>
+      <div class="cell"><span class="cap">바꾼 뒤 · 시스템 알림은 그대로(제목이 「노드 · 종류 이름」). 설정 글만 「알림」(완료도 시스템 알림으로 간다)</span><div class="stage">
+        <div class="os"><span class="app">loom</span><b>배포 · 승인 요청</b><span class="body"></span></div>
+        <div class="set"><span class="tog"></span>loom 창이 보이지 않을 때 <span class="new">알림을</span> 시스템 알림으로 알림</div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="decide">
+      <tr><th>정할 것</th><th>권장</th><th>다른 안</th></tr>
+      <tr><td>1. 노랑 알림의 이름(②)</td><td><b>A. 종류 이름</b>(질문, 승인 요청, …)</td><td>B. 모두 「응답 대기」 / C. 지금처럼 모두 「질문」</td></tr>
+      <tr><td>2. 번호(Q)를 붙일 알림</td><td><b><code>loom ask</code> 질문만</b></td><td>완료만 빼고 노랑 알림 모두(지금 PC)</td></tr>
+      <tr><td>3. 노드 하나의 수(③④)</td><td><b>맨 앞 알림과 같은 색 알림만, 그 색으로</b></td><td>모든 알림을 세고 분홍(지금 PC 목록)</td></tr>
+      <tr><td>4. 완료 [확인] 자리(④)</td><td><b>줄 맨 위 오른쪽, 모든 화면</b></td><td>본문 아래(지금 PC 알약)</td></tr>
+      <tr><td>5. 카드·미니맵(⑥)</td><td><b>카드 머리에 노드 칩, 미니맵은 칩 색</b></td><td>지금처럼 카드는 「응답 대기」만, 미니맵은 실행 상태만</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

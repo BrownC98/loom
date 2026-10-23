@@ -48,10 +48,11 @@
       }
       let lead = false;
       if (!best) {
-        const gx = Math.min(rel(own.getBoundingClientRect()).r + 16, gutterX);
+        const gx = own ? Math.min(rel(own.getBoundingClientRect()).r + 16, gutterX) : gutterX;
         co.style.maxWidth = Math.min(250, F.width - gx) + 'px'; w = co.offsetWidth; h = co.offsetHeight;
-        let y = Math.max(40, (k.t + k.b) / 2 - h / 2);
-        for (let c; ; y += 4) { c = { l: gx, t: y, r: gx + w, b: y + h }; if (free(c)) { best = c; break; } }
+        for (let y = Math.max(40, (k.t + k.b) / 2 - h / 2); y + h <= F.height; y += 4) { const c = { l: gx, t: y, r: gx + w, b: y + h }; if (free(c)) { best = c; break; } }
+        // 자리가 없으면 말풍선을 만들지 않는다. check-callouts.cjs가 빠진 번호로 실패시킨다.
+        if (!best) { co.remove(); console.error(`callouts: no free place for bubble ${n}`); return; }
         lead = true;
       }
       co.style.left = best.l + 'px'; co.style.top = best.t + 'px'; placed.push(best);

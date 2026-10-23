@@ -18,7 +18,5 @@ fi
 
 # 3. 목업 말풍선 점검: 말풍선이 있는 목업이면 겹침과 잘리거나 가려진 번호 배지를 센다(SKILL.md 「목업 말풍선」).
 if grep -q 'class="calls"' "$doc"; then
-  out=$(timeout 120 node "$(dirname "$0")/check-callouts.cjs" "$doc") || { echo "show: 말풍선 점검을 돌리지 못했다: $out" >&2; exit 1; }
-  echo "show: 말풍선 점검 $out"
-  case $out in *'"overlaps":[]'*) ;; *) exit 1 ;; esac
+  timeout 120 node "$(dirname "$0")/check-callouts.cjs" "$doc" || { echo "show: 말풍선 점검 실패(위 overlaps)" >&2; exit 1; }
 fi

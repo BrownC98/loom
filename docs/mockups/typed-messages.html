@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>메시지 종류 목업</title>
+<title>M17 메시지 종류 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -55,7 +55,7 @@ table.dec th, table.dec td { text-align: left; vertical-align: top; padding: 6px
 table.dec th { color: var(--ink-3); font-weight: 600; }
 .theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
 /* 제품 화면(web/src/styles.css에서 옮김) */
-.screen { position: relative; width: 1360px; height: 1040px; display: flex; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.screen { margin: 0; position: relative; width: 1360px; height: 1040px; display: flex; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .side { width: 190px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 12px 8px; font-size: 13px; display: grid; align-content: start; gap: 2px; }
 .side h3 { font-size: 12px; color: var(--ink-3); padding: 4px 8px; }
 .tree-row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 calc(8px + var(--d, 0) * 12px); border-radius: 6px; white-space: nowrap; }
@@ -102,7 +102,7 @@ svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-widt
 .chip { height: 26px; line-height: 24px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-strong); font-size: 12px; color: var(--ink-2); }
 .chip.on { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
 .filters .search { margin-left: auto; width: 130px; height: 26px; line-height: 24px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 9px; font-size: 12px; color: var(--ink-3); background: var(--bg); }
-.events { list-style: none; padding: 64px 8px 4px; margin: 0; overflow: hidden; flex: 1; }
+.events { list-style: none; padding: 64px 14px 4px; margin: 0; overflow: hidden; flex: 1; }
 .events li { position: relative; border-radius: 6px; }
 .events li.gap { margin-top: 64px; }
 .events li.open { background: var(--accent-wash); }
@@ -121,8 +121,11 @@ svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-widt
 .ev .note { font-size: 12px; color: var(--ink-3); }
 .ev .note.err { color: var(--err); }
 .ev .body { grid-column: 2; font: 12px/1.5 var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fields { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 2px 8px; margin: 0 8px 8px 60px; padding: 0; font-size: 12px; }
+.fields { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 2px 8px; margin: 0 8px 18px 60px; padding: 0; font-size: 12px; }
 .fields dt { color: var(--ink-3); }
+.dock-node { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.dock-node .model { font: 12px var(--mono); color: var(--ink-3); }
+.dterm { background: var(--term); }
 .fields dd { margin: 0; color: var(--ink); font-family: var(--mono); }
 .fig { position: relative; }
 .co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
@@ -144,9 +147,9 @@ svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-widt
 <body data-ui=".chip, .opt, .tabs > span, .search">
 <svg width="0" height="0" style="position:absolute"><symbol id="q" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></symbol></svg>
 <main class="doc">
-  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 출력표준2</b></span><span>v1 · 2026-10-23</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M17</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 출력표준2</b></span><span>v2 · 2026-10-23</span></div>
   <h1>메시지 종류로 그리는 이벤트 콘솔과 터미널 머리 줄 (출력 표준 2단계)</h1>
-  <p class="lead">사람 지시: “에이전트가 외부로 아웃풋을 낼때(알림, 에이전트간 메시징)은 전부 표준화 되어 혼동이 없어야 한다”, “2~3 끝까지 해 목업 보여주고”. 승인된 설계 R8 v5 2단계다. 지금은 모든 메시지가 「큐·조정·중단」 줄이고, 뜻은 본문 앞 낱말(QUESTION:, done:, exited(0) 등)로만 알 수 있다. 바꾼 뒤에는 데몬이 메시지마다 종류를 붙이고, 이벤트 콘솔·받은편지함·에이전트 터미널이 그 종류로 같은 이름과 색을 보인다. 빨간 상자가 바뀌는 곳이고, 점선 상자는 새로 생기는 곳이다.</p>
+  <p class="lead">사람 지시: “에이전트가 외부로 아웃풋을 낼때(알림, 에이전트간 메시징)은 전부 표준화 되어 혼동이 없어야 한다”, “2~3 끝까지 해 목업 보여주고”. 승인된 설계 R8 v5 2단계다. 지금은 모든 메시지가 「큐·조정·중단」 줄이고, 뜻은 본문 앞 낱말(QUESTION:, done:, exited(0) 등)로만 알 수 있다. 바꾼 뒤에는 데몬이 메시지마다 종류를 붙이고, 이벤트 콘솔·받은편지함·에이전트 터미널이 그 종류로 같은 이름과 색을 보인다. 받은편지함 모양은 그대로다. 선택 단추와 링크는 화면이 글을 읽어 만들지 않고 데몬이 나눠서 준다. 빨간 상자가 바뀌는 곳이고, 점선 상자는 새로 생기는 곳이다.</p>
 
   <div class="flow"><span>에이전트: <code>loom ask</code> · <code>answer</code> · <code>done</code> · <code>note</code> · 관문 동사</span><i>→</i><span>데몬: 종류와 칸을 검사하고 거절하거나 기록</span><i>→</i><span>loom 알림: 종료·입양·사람 입력·규칙 바뀜·병합 결과</span><i>→</i><span>화면·터미널: 종류 이름과 색으로 그림</span></div>
 
@@ -162,13 +165,13 @@ svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-widt
         <div class="tree-row" style="--d:2"><span class="dot ex"></span><span class="name">워커 화면종류</span></div>
       </aside>
       <div class="graph">
-        <div class="inbox-pill"><span class="mk" data-n="7"><span class="head"><svg class="i qi"><use href="#q"/></svg><b>질문</b><span class="cnt">1</span><span class="qid">Q640</span><span class="gname"><b>loom 총괄</b></span></span><span class="prow"><span class="full">2단계 배포 뒤 모든 에이전트 노드를 다시 띄울까요? <a class="doc-link">2단계 결과</a></span><span class="opts"><span class="opt rec">A: 예 · 권장</span><span class="opt">B: 아니오</span></span></span></span></div>
+        <div class="inbox-pill"><span><span class="head"><svg class="i qi"><use href="#q"/></svg><b>질문</b><span class="cnt">1</span><span class="qid">Q640</span><span class="gname"><b>loom 총괄</b></span></span><span class="prow"><span class="full">2단계 배포 뒤 모든 에이전트 노드를 다시 띄울까요? <a class="doc-link">2단계 결과</a></span><span class="opts"><span class="opt rec">A: 예 · 권장</span><span class="opt">B: 아니오</span></span></span></span></div>
         <div class="edge" style="left:200px; top:380px; height:30px"></div>
         <div class="edge h" style="left:200px; top:410px; width:330px"></div>
         <div class="edge" style="left:530px; top:410px; height:20px"></div>
         <div class="card" style="left:24px; top:170px; width:440px; height:210px">
           <div class="card-head"><span class="lg">✳</span><span class="name">코디 출력표준2</span><span class="model">opus · high</span><span class="spacer"></span><span class="state">실행 중</span></div>
-<pre class="ft"><span class="mk" data-n="6">loom message #2931 (from: CI 담당자 loom, kind: verdict)</span>
+<pre class="ft">loom message #2931 (from: CI 담당자 loom, kind: verdict)
 verdict block · branch 출력표준2 · 3f2a91c
 findings: /home/ktadev/.cache/loom/출력표준2/review/opus.md
 reviewer: claude opus medium
@@ -191,15 +194,15 @@ commit, then `loom ready 출력표준2`.
         <p class="dock-head hint">최근 것이 위에 있습니다</p>
         <div class="filters"><span class="chip on">노드</span><span class="chip on">메시지</span><span class="chip on">알림</span><span class="search">노드 이름</span></div>
         <ol class="events">
-          <li data-family="fail" class="open"><div class="ev"><time>15:42</time><span class="what"><span class="kind k-fail mk" data-n="1">판정 · 막음</span><span class="who">CI 담당자 loom</span>→<span class="who">코디 출력표준2</span><span class="note">전달됨</span></span></div>
+          <li data-family="fail" class="open"><div class="ev mk" data-n="1"><time>15:42</time><span class="what"><span class="kind k-fail">판정 · 막음</span><span class="who">CI 담당자 loom</span>→<span class="who">코디 출력표준2</span><span class="note">전달됨</span></span></div>
             <dl class="fields mk" data-n="2"><dt>브랜치</dt><dd>출력표준2 · 3f2a91c</dd><dt>결함 파일</dt><dd><a class="doc-link">review/opus.md</a></dd><dt>검토</dt><dd>claude opus medium</dd><dt>다음</dt><dd>결함을 고치거나 증거로 반박한 뒤 <code>loom ready</code></dd></dl></li>
           <li><div class="ev"><time>15:41</time><span class="what"><span class="kind">검토 요청</span><span class="who">코디 출력표준2</span>→<span class="who">CI 담당자 loom</span><span class="note">전달됨</span></span><span class="body">출력표준2 · 3f2a91c</span></div></li>
           <li data-family="question"><div class="ev"><time>15:40</time><span class="what"><span class="kind k-q">답</span><span class="who">코디 출력표준2</span>→<span class="who">워커 데몬종류</span><span class="note">#2925에 · 전달됨</span></span><span class="body">A</span></div></li>
           <li data-family="question"><div class="ev"><time>15:39</time><span class="what"><span class="kind k-q">질문</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note">#2925 · 전달됨</span></span><span class="body">Keep the old send verb for one release? (A: yes / B: no, recommended: A)</span></div></li>
-          <li class="gap"><div class="ev"><time>15:38</time><span class="what"><span class="kind k-fail mk new" data-n="5">메모</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note err">거절됨: QUESTION은 종류 낱말 · loom ask 사용</span></span></div></li>
-          <li class="gap"><div class="ev"><time>15:37</time><span class="what"><span class="kind mk new" data-n="4">사람 입력</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note">전달됨</span></span><span class="body">“send 동사는 지우지 말고 한 판 남겨”</span></div></li>
+          <li class="gap"><div class="ev mk new" data-n="5"><time>15:38</time><span class="what"><span class="kind k-fail">메모</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note err">거절됨: QUESTION은 종류 낱말 · loom ask 사용</span></span></div></li>
+          <li class="gap"><div class="ev mk new" data-n="4"><time>15:37</time><span class="what"><span class="kind">사람 입력</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note">전달됨</span></span><span class="body">“send 동사는 지우지 말고 한 판 남겨”</span></div></li>
           <li><div class="ev"><time>15:36</time><span class="what"><span class="kind">메모 · 조정</span><span class="who">코디 출력표준2</span>→<span class="who">워커 데몬종류</span><span class="note">전달됨</span></span><span class="body">Also keep the old rows readable (kind missing → note).</span></div></li>
-          <li class="gap" data-family="fail"><div class="ev"><time>15:34</time><span class="what"><span class="kind k-fail mk new" data-n="3">종료</span><span class="loomw">loom</span>→<span class="who">코디 출력표준2</span><span class="note">워커 화면종류 · 코드 1</span></span></div></li>
+          <li class="gap" data-family="fail"><div class="ev mk new" data-n="3"><time>15:34</time><span class="what"><span class="kind k-fail">종료</span><span class="loomw">loom</span>→<span class="who">코디 출력표준2</span><span class="note">워커 화면종류 · 코드 1</span></span></div></li>
           <li data-family="done"><div class="ev"><time>15:30</time><span class="what"><span class="kind k-ok">완료</span><span class="who">워커 데몬종류</span>→<span class="who">코디 출력표준2</span><span class="note">전달됨</span></span><span class="body">Typed kinds in events and mailbox; result.md</span></div></li>
           <li><div class="ev"><time>15:12</time><span class="what"><span class="kind">규칙 바뀜</span><span class="loomw">loom</span>→<span class="note">살아 있는 에이전트 노드 12개</span></span><span class="body">skills/o-mode 92b753f7</span></div></li>
           <li data-family="done"><div class="ev"><time>15:05</time><span class="what"><span class="kind k-ok">병합됨</span><span class="loomw">loom</span>→<span class="who">loom 총괄</span><span class="note">깨끗한사본제거 · 92b753f7</span></span></div></li>
@@ -212,13 +215,80 @@ commit, then `loom ready 출력표준2`.
       <div><b>3</b><span>loom이 보낸 알림. 보낸 쪽은 「loom」이다. 종료·설정 실패·지워짐·입양·규칙 바뀜·병합됨·실패가 이 모양이다. 에이전트는 이 종류를 보낼 수 없다.</span></div>
       <div><b>4</b><span>사람이 자식 터미널에 쓴 글. loom이 부모에게 원문을 알린다. 에이전트가 손으로 보내던 USER DIRECTION을 대신한다.</span></div>
       <div><b>5</b><span>종류 낱말(QUESTION, DONE 등)로 시작한 메모는 거절한다. 거절 글이 맞는 명령을 알린다.</span></div>
-      <div><b>6</b><span>에이전트 터미널의 머리 줄에 종류가 있다: <code>kind: verdict</code>. 칸은 본문에 한 줄씩 적힌다. 메모의 조정·중단만 <code>mode</code>를 붙인다.</span></div>
-      <div><b>7</b><span>받은편지함 모양은 그대로다. 선택 단추와 링크는 화면이 글을 읽어 만들지 않고, 데몬이 나눠서 준다. 화면과 데몬이 다르게 읽는 일이 없다.</span></div>
     </div>
   </div>
 
   <div class="fig">
-    <h2>② 종류 이름과 색 <span class="tag">이벤트 콘솔 줄 머리 · 터미널 kind</span></h2>
+    <h2>② 에이전트 터미널의 메시지 머리 줄 <span class="tag">오른쪽 칸 「터미널」 탭, 코디가 판정을 받은 모습</span></h2>
+    <div class="page screen">
+      <aside class="side">
+        <h3>loom</h3>
+        <div class="tree-row"><span class="dot"></span><span class="name">loom 총괄</span></div>
+        <div class="tree-row" style="--d:1"><span class="dot"></span><span class="name">CI 담당자 loom</span></div>
+        <div class="tree-row" style="--d:1" aria-current="true"><span class="dot"></span><span class="name">코디 출력표준2</span></div>
+        <div class="tree-row" style="--d:2"><span class="dot"></span><span class="name">워커 데몬종류</span></div>
+        <div class="tree-row" style="--d:2"><span class="dot ex"></span><span class="name">워커 화면종류</span></div>
+      </aside>
+      <div class="graph">
+        <div class="inbox-pill"><span><span class="head"><svg class="i qi"><use href="#q"/></svg><b>질문</b><span class="cnt">1</span><span class="qid">Q640</span><span class="gname"><b>loom 총괄</b></span></span><span class="prow"><span class="full">2단계 배포 뒤 모든 에이전트 노드를 다시 띄울까요? <a class="doc-link">2단계 결과</a></span><span class="opts"><span class="opt rec">A: 예 · 권장</span><span class="opt">B: 아니오</span></span></span></span></div>
+        <div class="edge" style="left:200px; top:380px; height:30px"></div>
+        <div class="edge h" style="left:200px; top:410px; width:330px"></div>
+        <div class="edge" style="left:530px; top:410px; height:20px"></div>
+        <div class="card" style="left:24px; top:170px; width:440px; height:210px">
+          <div class="card-head"><span class="lg">✳</span><span class="name">코디 출력표준2</span><span class="model">opus · high</span><span class="spacer"></span><span class="state">실행 중</span></div>
+<pre class="ft"><span>loom message #2931 (from: CI 담당자 loom, kind: verdict)</span>
+verdict block · branch 출력표준2 · 3f2a91c
+findings: /home/ktadev/.cache/loom/출력표준2/review/opus.md
+reviewer: claude opus medium
+Next: fix each finding or rebut it with evidence,
+commit, then `loom ready 출력표준2`.
+
+<span class="dim">● 결함 파일을 읽습니다.</span></pre>
+        </div>
+        <div class="card simple" style="left:330px; top:430px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커 데몬종류</span><span class="spacer"></span><span class="state">실행 중</span></div>
+          <div class="sline">MessageKind를 events와 mailbox에 넣고 있습니다.</div>
+        </div>
+        <div class="card simple" style="left:24px; top:430px">
+          <div class="srow"><span class="lg">✳</span><span class="name">워커 화면종류</span><span class="spacer"></span><span class="state ex">종료</span></div>
+          <div class="sline">프로세스가 끝났습니다.</div>
+        </div>
+      </div>
+      <div class="dock">
+        <div class="tabs"><span class="on">터미널</span><span>알림</span><span>이벤트</span></div>
+        <div class="dock-node"><b>코디 출력표준2</b> <span class="model">opus · high</span></div>
+<pre class="ft dterm"><span class="dim">● loom ready 출력표준2</span>
+  Sent ready for 출력표준2 (3f2a91c) to CI 담당자 loom.
+
+<span class="dim">● 다음 메시지를 기다립니다.</span>
+
+<span class="mk" data-n="1">loom message #2931 (from: CI 담당자 loom, kind: verdict)</span>
+verdict block · branch 출력표준2 · 3f2a91c
+findings: /home/ktadev/.cache/loom/출력표준2/review/opus.md
+reviewer: claude opus medium
+Next: fix each finding or rebut it with
+evidence, commit, then `loom ready 출력표준2`.
+
+<span class="mk new" data-n="2">loom message #2933 (from: loom, kind: human-input)</span>
+The human typed in 워커 데몬종류's terminal:
+"send 동사는 지우지 말고 한 판 남겨"
+
+<span class="mk" data-n="3">loom message #2934 (from: 워커 데몬종류, kind: note, mode: steer)</span>
+Old rows stay readable.
+
+<span class="dim">● 결함 파일을 읽습니다.</span>
+</pre>
+      </div>
+    </div>
+    <div class="calls">
+      <div><b>1</b><span>머리 줄에 종류가 있다: <code>kind: verdict</code>. 칸은 아래에 한 줄씩 있다. 본문 앞 낱말로 뜻을 짐작하지 않는다.</span></div>
+      <div><b>2</b><span>loom이 보낸 알림은 <code>from: loom</code>이다. 사람 입력은 사람 원문을 그대로 옮긴다.</span></div>
+      <div><b>3</b><span>메모의 조정·중단만 <code>mode</code>를 붙인다. 다른 종류에는 <code>mode</code>가 없다.</span></div>
+    </div>
+  </div>
+
+  <div class="fig">
+    <h2>③ 종류 이름과 색 <span class="tag">이벤트 콘솔 줄 머리 · 터미널 kind</span></h2>
     <table class="dec">
       <tr><th>터미널 kind</th><th>화면 이름</th><th>색 띠</th><th>보내는 쪽</th><th>펴면 보이는 칸</th></tr>
       <tr><td><code>ask</code> · <code>answer</code></td><td>질문 · 답</td><td>노랑</td><td>에이전트</td><td>질문(선택지는 단추 모양), 답한 질문 번호</td></tr>
@@ -236,8 +306,8 @@ commit, then `loom ready 출력표준2`.
     <h2>승인할 것</h2>
     <table class="dec">
       <tr><th>번호</th><th>정할 것</th><th>안</th><th>권장</th></tr>
-      <tr><td>1</td><td>① 이벤트 콘솔과 터미널 머리 줄</td><td>A: 이 판대로 / B: 고칠 곳을 알림</td><td>A</td></tr>
-      <tr><td>2</td><td>② 이름과 색</td><td>A: 표대로(색은 지금 알림의 노랑·초록에 빨강 하나를 더함) / B: 종류마다 다른 색</td><td>A. 색이 많으면 뜻을 외워야 한다</td></tr>
+      <tr><td>1</td><td>① 이벤트 콘솔, ② 터미널 머리 줄</td><td>A: 이 판대로 / B: 고칠 곳을 알림</td><td>A</td></tr>
+      <tr><td>2</td><td>③ 이름과 색</td><td>A: 표대로(색은 지금 알림의 노랑·초록에 빨강 하나를 더함) / B: 종류마다 다른 색</td><td>A. 색이 많으면 뜻을 외워야 한다</td></tr>
       <tr><td>3</td><td>옛 <code>loom send</code></td><td>A: 한 판 동안 거절 글로 <code>loom note</code>를 알리고 다음 판에 지움 / B: 바로 지움</td><td>A. 다시 띄우기 전의 노드가 옛 명령을 쓴다</td></tr>
       <tr><td>4</td><td>3단계 작업 폴더를 화면에 보이기</td><td>A: 화면 없음(완료·판정 칸의 파일 링크로 연다) / B: 노드 메뉴에 「작업 폴더 열기」</td><td>A. 파일은 이미 링크로 열린다</td></tr>
     </table>

@@ -564,7 +564,7 @@ const en = {
     instruction: 'Instruction: {{text}}',
     images: '{{n}} images',
     closedBy: { human: 'closed by the human', agent: 'closed by the agent', restart: 'restarted', exit: 'exited' },
-    turnCheck: { unreported: 'ended without ask or done', kindLine: 'wrote a kind-word line only' },
+    turnCheck: { unreported: 'ended without ask or done', kindLine: 'wrote a kind-word line only', questionBox: 'asked in its own question box' },
   },
   terminal: {
     copy: 'Copy',

@@ -339,6 +339,14 @@ pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
     }
 }
 
+/// 화면의 질문 창(`WaitKind::Question`)을 닫는 키. 데몬이 닫고 턴 끝 검사가 `loom ask`로 다시 묻게 한다. 근거: `cursor::SKIP_QUESTION`.
+pub fn question_skip(profile: Option<Profile>) -> Option<&'static [u8]> {
+    match profile? {
+        Profile::Cursor => Some(cursor::SKIP_QUESTION),
+        Profile::Claude | Profile::Codex | Profile::OpenCode2 => None,
+    }
+}
+
 /// 노드 터미널 화면의 승인 창을 읽는 법(`screen::prompt`). 셸과 OpenCode 2(모두 허용)는 승인 창이 없다.
 pub fn prompt_grammar(profile: Option<Profile>) -> Option<&'static Grammar> {
     match profile? {

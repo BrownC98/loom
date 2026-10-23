@@ -1260,6 +1260,7 @@ impl App {
     fn follow_screen(self: &Arc<Self>, id: NodeId, profile: Option<Profile>, token: &str) {
         let dialogs = profile::dialogs(profile);
         let grammar = profile::prompt_grammar(profile);
+        let skip = profile::question_skip(profile);
         let Some(attached) = self.host.attach(id) else {
             return;
         };
@@ -1300,10 +1301,27 @@ impl App {
                 if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
+                if let (Some(key), Some((WaitKind::Question, _))) = (skip, &found) {
+                    app.skip_question(id, dialogs, key);
+                }
                 let prompt = grammar.and_then(|g| screen::prompt(g, &now.text, now.cols.into()));
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
                     eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
+            }
+        });
+    }
+
+    /// 화면에 아직 질문 창이 있으면 `key`로 닫는다. 읽기와 치기는 한 입력 잠금 안이다. 사람이 터미널에서 먼저 답했으면 치지 않는다.
+    fn skip_question(&self, id: NodeId, dialogs: &[screen::Dialog], key: &'static [u8]) {
+        let _ = self.host.write_if(id, |keys| {
+            let shown = keys.screen();
+            match screen::find(dialogs, &shown.text, screen::Session::Started) {
+                Some((WaitKind::Question, _)) => {
+                    self.turn_ends.question_closed(id);
+                    Ok(key.to_vec())
+                }
+                _ => Err(()),
             }
         });
     }

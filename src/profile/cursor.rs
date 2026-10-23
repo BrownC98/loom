@@ -66,6 +66,13 @@ pub const DIALOGS: [Dialog; 8] = [
     },
 ];
 
+/// 질문 창을 닫는 키(창 도움말 줄 "Esc to skip"). 사람은 loom 받은편지함에서만 답하므로 데몬이 창을 닫는다
+/// (2026-10-24 사람 지시 "커서의 질문도 지금 같은 자체 질문 방식이 아닌 loom의 방식을 따르도록 강제하라").
+/// 2026.10.22 실측: 창 전에 막는 길이 없다. `--exclude-tools ask_question_tool_call`은 창을 막지 못했다.
+/// `--allowed-tools`는 막지만 모르는 이름이면 시작하지 못한다. 2026.10.22는 2026.10.19의 이름 7개(`pi_*`)를 지웠다.
+/// Esc 뒤 에이전트는 "skipped" 결과를 받고 턴을 끝낸다.
+pub const SKIP_QUESTION: &[u8] = b"\x1b";
+
 /// 노드 프로세스에 넣는 시작 자리. 훅은 모든 노드가 같은 파일을 쓰므로 자리를 환경 변수로 받는다.
 pub const POSITION_ENV: &str = "LOOM_POSITION";
 /// 노드 프로세스에 넣는 스킬 스위치(`AlwaysOn` JSON). 같은 이유로 환경 변수다.
@@ -152,7 +159,7 @@ pub fn skills_from(value: Option<&str>) -> AlwaysOn {
 }
 
 /// 사용법 끝에 붙는 대기 방식. 바꾸면 뜬 노드가 `rules-changed`를 받는다(`profile::usage_digest`).
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Cursor runs that wake hook only when ~/.cursor/hooks.json has a \"stop\" entry; if it has none, wait for an expected reply with loom wait --reply-to <message-id> --timeout <seconds> before you end your turn. The loom guard line before shell commands is inserted by loom; do not remove it or add it yourself.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Cursor runs that wake hook only when ~/.cursor/hooks.json has a \"stop\" entry; if it has none, wait for an expected reply with loom wait --reply-to <message-id> --timeout <seconds> before you end your turn. The loom guard line before shell commands is inserted by loom; do not remove it or add it yourself. Do not use your AskQuestion tool: loom closes its box, because the human answers only loom ask.";
 
 /// 첫 sessionStart 훅의 글: 통신 명령과 Cursor 대기 방식.
 pub fn usage() -> String {

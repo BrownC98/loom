@@ -184,9 +184,32 @@ export function useShowNodes(): (ids: NodeId[]) => void {
 /** 그래프 화면을 `paths` 워크트리 묶음이 모두 보이게 옮긴다. 묶음 노드의 id는 워크트리 경로다. 아직 그리지 않은 묶음이면(저장소를 막 바꿈) React Flow가 노드를 잰 뒤 옮긴다. */
 export function useShowGroups(): (paths: string[]) => void {
   const flow = useReactFlow();
+  const store = useStoreApi();
+  const waiting = useRef<(() => void) | null>(null);
   // 칩으로 그린 워크트리는 노드가 아니다. 그 칩을 담은 묶음으로 옮긴다.
-  const boxOf = (path: string) => (flow.getNode(path) ? path : (flow.getNodes().find((n) => n.type === 'worktree' && (n.data as GroupData).chips.some((c) => c.path === path))?.id ?? path));
-  return (paths) => flow.fitView({ nodes: paths.map((id) => ({ id: boxOf(id) })), duration: MOVE_MS, maxZoom: 1 });
+  const boxOf = (path: string) => (flow.getNode(path) ? path : flow.getNodes().find((n) => n.type === 'worktree' && (n.data as GroupData).chips.some((c) => c.path === path))?.id);
+  return (paths) => {
+    waiting.current?.();
+    waiting.current = null;
+    const targets = () => {
+      const ids = paths.map(boxOf);
+      return ids.every((id) => id !== undefined) ? (ids as string[]) : null;
+    };
+    const fit = (ids: string[]) => void flow.fitView({ nodes: ids.map((id) => ({ id })), duration: MOVE_MS, maxZoom: 1 });
+    // 다른 저장소로 바꾼 직후에는 그 묶음·칩이 아직 없다. 칩을 담은 묶음을 그때는 모르므로 노드가 들어올 때까지 기다린다.
+    // 끝내 오지 않는 경로(지운 워크트리)는 다음 부름이 기다림을 끝낸다.
+    // `fitView`가 저장소를 바꿔 이 구독을 다시 부르므로 구독을 먼저 끊는다. 거꾸로 하면 호출 스택이 넘쳤다.
+    const now = targets();
+    if (now) return fit(now);
+    const stop = store.subscribe(() => {
+      const ids = targets();
+      if (!ids) return;
+      stop();
+      waiting.current = null;
+      fit(ids);
+    });
+    waiting.current = stop;
+  };
 }
 
 /** 그래프 화면을 그린 노드가 모두 보이게 줄인다. 사이드바의 [저장소] 제목을 누를 때 쓴다. */
@@ -282,10 +305,10 @@ function Group({ data }: NodeProps<GroupNode>) {
         )}
       </div>
       {hasChips && (
-        <div ref={chipRow} className="chips">
+        <div ref={chipRow} className="wt-chips">
           <span className="label">{t('graph.chips')}</span>
           {data.chips.map((chip) => (
-            <span key={chip.path} className={['chip', chip.className].filter(Boolean).join(' ')} aria-label={t('graph.group', { branch: chip.label })}>
+            <span key={chip.path} className={['wt-chip', chip.className].filter(Boolean).join(' ')} aria-label={t('graph.group', { branch: chip.label })}>
               <span className="branch" translate="no" title={chip.path}>
                 {chip.label}
               </span>

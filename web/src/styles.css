@@ -364,15 +364,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .group-head > :not(.branch) { flex: none; white-space: nowrap; }
 .group-head .spacer, .repo-head .spacer { flex: 1; }
 .group-empty { padding: 16px 14px; color: var(--ink-3); font-size: 13px; }
-/* 노드 없는 워크트리 칩 줄(목업 empty-worktree-chip.html v2). 높이는 Graph.tsx `CHIP_ROW`의 기본값이다. */
-.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 7px 14px; border-bottom: 1px solid var(--line); pointer-events: all; }
-.chips .label { font-size: 12px; color: var(--ink-3); margin-right: 2px; }
-.chip { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 3px 0 8px; border: 1px solid var(--group-line); border-radius: 8px; background: var(--surface); }
-.chip .branch { font-size: 12px; font-weight: 600; margin-right: 4px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip .btn.icon { width: 24px; height: 24px; }
-.chip.chosen, .chip.hl { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.chip.dim { opacity: 0.4; }
-.chip.cur { outline: 3px solid var(--warn); outline-offset: 2px; }
+/* 노드 없는 워크트리 칩 줄(목업 empty-worktree-chip.html v2). 높이는 Graph.tsx `CHIP_ROW`의 기본값이다.
+   칩은 줄 폭을 넘지 않는다. 좁은 묶음(심플 카드 하나)에서는 브랜치 이름이 줄고 두 단추는 남는다. 넘으면 칩이 묶음 상자 밖으로 나갔다(검토 지적). */
+.wt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 7px 14px; border-bottom: 1px solid var(--line); pointer-events: all; }
+.wt-chips .label { font-size: 12px; color: var(--ink-3); margin-right: 2px; }
+.wt-chip { display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; height: 28px; padding: 0 3px 0 8px; border: 1px solid var(--group-line); border-radius: 8px; background: var(--surface); }
+.wt-chip .branch { min-width: 0; font-size: 12px; font-weight: 600; margin-right: 4px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-chip .btn.icon { flex: none; width: 24px; height: 24px; }
+.wt-chip.chosen, .wt-chip.hl { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.wt-chip.dim { opacity: 0.4; }
+.wt-chip.cur { outline: 3px solid var(--warn); outline-offset: 2px; }
 /* 오른쪽 사이드바의 정렬 나눈 버튼과 방향 메뉴(ArrangeButton.tsx). */
 .split { position: relative; display: inline-flex; }
 .split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }

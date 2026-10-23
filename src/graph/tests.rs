@@ -2453,8 +2453,11 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     assert_eq!(g.take(a, &[Kind::Queue], 1).unwrap().len(), 1);
     assert_eq!(view(&g, a).unread, 1);
 
+    let (_, mut events) = g.subscribe().unwrap();
     g.steer_queued(a).unwrap();
     assert_eq!(view(&g, a).unread, 0);
+    // 화면의 칩이 바로 사라진다. 알리지 않자 누른 칩이 「안 읽음 4」로 남아 고장으로 보였다(2026-10-23 사람 보고 "안읽음 버튼 클릭 해도 작동 안함").
+    assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.id == a && v.unread == 0));
     let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
     assert_eq!(
         steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),

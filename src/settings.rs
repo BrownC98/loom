@@ -343,7 +343,12 @@ impl Settings {
     pub fn patch(&self, patch: &serde_json::Value) -> Result<SettingsView, PatchProblem> {
         self.write(|_, value| {
             merge(value, patch);
-            serde_json::from_value(value.clone()).map_err(|e| PatchProblem::Shape(e.to_string()))
+            let view: SettingsView = serde_json::from_value(value.clone())
+                .map_err(|e| PatchProblem::Shape(e.to_string()))?;
+            match view.roles.launch_problem() {
+                Some(problem) => Err(PatchProblem::Shape(problem)),
+                None => Ok(view),
+            }
         })
     }
 
@@ -575,6 +580,12 @@ mod tests {
         ]);
         assert!(matches!(
             settings.patch(&serde_json::json!({"roles": twins})),
+            Err(PatchProblem::Shape(_))
+        ));
+        assert_eq!(settings.get().unwrap().roles.0[0].name, "조사");
+        let effort_only = serde_json::json!([{"name": "c", "duty": "", "agent": "cursor", "model": null, "effort": "high"}]);
+        assert!(matches!(
+            settings.patch(&serde_json::json!({"roles": effort_only})),
             Err(PatchProblem::Shape(_))
         ));
         assert_eq!(settings.get().unwrap().roles.0[0].name, "조사");

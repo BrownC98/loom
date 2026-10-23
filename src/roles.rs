@@ -38,18 +38,6 @@ impl<'de> Deserialize<'de> for Roles {
             if role.name.is_empty() {
                 return Err(serde::de::Error::custom("역할 이름이 비었다"));
             }
-            if let Some(agent) = &role.agent {
-                let choice = ModelChoice {
-                    model: role.model.clone(),
-                    effort: role.effort.clone(),
-                };
-                if !accepts_choice(agent, &choice) {
-                    return Err(serde::de::Error::custom(format!(
-                        "역할 '{}': 이 에이전트는 이 모델·추론 강도를 받지 않는다. Cursor는 추론 강도만 줄 수 없다. 모델을 준다.",
-                        role.name
-                    )));
-                }
-            }
             if !seen.insert(role.name.clone()) {
                 return Err(serde::de::Error::custom(format!(
                     "역할 이름이 겹친다: {}",
@@ -137,6 +125,24 @@ impl std::fmt::Display for RoleProblem {
 }
 
 impl Roles {
+    /// 띄울 때 `choice_args`가 거절할 역할의 문장. 사람이 저장할 때(`Settings::patch`)만 본다.
+    /// 읽을 때 보지 않는 이유: 카탈로그가 바뀐 판에서 이미 저장한 설정 전체를 읽지 못하게 된다. 그때는 띄울 때 거절한다.
+    pub fn launch_problem(&self) -> Option<String> {
+        self.0.iter().find_map(|role| {
+            let agent = role.agent.as_ref()?;
+            let choice = ModelChoice {
+                model: role.model.clone(),
+                effort: role.effort.clone(),
+            };
+            (!accepts_choice(agent, &choice)).then(|| {
+                format!(
+                    "역할 '{}': 이 에이전트는 이 모델·추론 강도를 받지 않는다. Cursor는 추론 강도만 줄 수 없다. 모델을 준다.",
+                    role.name
+                )
+            })
+        })
+    }
+
     /// 역할의 에이전트·모델·강도를 채운다. 명령에 준 값이 이긴다.
     /// 역할의 모델·강도는 역할의 에이전트로 띄울 때만 쓴다. 다른 에이전트는 그 모델을 받지 못한다.
     pub fn assign(
@@ -278,12 +284,15 @@ mod tests {
             serde_json::from_value::<Roles>(serde_json::json!([
                 {"name": "a", "duty": "", "agent": "cursor", "model": model, "effort": effort}
             ]))
+            .unwrap()
+            .launch_problem()
         };
-        assert!(parse(None, None).is_ok());
-        assert!(parse(Some("m"), None).is_ok());
-        assert!(parse(Some("m"), Some("high")).is_ok());
-        let err = parse(None, Some("high")).unwrap_err().to_string();
+        assert_eq!(parse(None, None), None);
+        assert_eq!(parse(Some("m"), None), None);
+        assert_eq!(parse(Some("m"), Some("high")), None);
+        let err = parse(None, Some("high")).unwrap();
         assert!(err.contains("Cursor"), "{err}");
+        assert_eq!(Roles::default().launch_problem(), None);
         let defaults = serde_json::to_value(Roles::default()).unwrap();
         assert_eq!(
             serde_json::from_value::<Roles>(defaults).unwrap(),

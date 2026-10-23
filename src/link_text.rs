@@ -1,7 +1,6 @@
 //! 에이전트가 사람에게 쓰는 글(`loom ask`, 부모 없는 노드의 `loom done`)의 링크 표준: 주소와 절대 경로는 화면이 그리는 markdown 링크 `[이름](주소)` 안에만 둔다.
 //! 근거: 2026-10-23 사람 "링크 표준이 없는 것이 뿌리 원인". 화면(`web/src/links.ts`)이 그리는 주소만 받는다. `links.cases.json`의 예를 양쪽 시험이 함께 읽는다.
 
-/// (이름, 주소, 전체 길이).
 pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
     let (label, after) = link[1..].split_once("](")?;
     // CommonMark는 주소를 `<…>`로 감쌀 수 있고, 감싼 주소에는 빈칸이 들 수 있다(2026-10-23 검토 BLOCK).
@@ -26,6 +25,10 @@ pub fn parse_link(link: &str) -> Option<(&str, &str, usize)> {
     ok.then_some((label, target, label.len() + 3 + end))
 }
 
+/// 본문 속 문서 링크의 주소 표지. 화면(`web/src/links.ts` `DOC_LINK`)이 이 자리에 붙은 문서의 링크를 그린다.
+/// 근거: 2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘".
+pub const DOC_LINK: &str = "loom:doc";
+
 /// 화면이 그릴 수 없는 링크 주소나 markdown 링크 밖의 맨몸 주소·경로를 처음 나온 것 하나 돌려준다. 없으면 `None`.
 /// 화면(`web/src/links.ts`)은 `file://`·`http(s)://` 주소(빈칸·`)` 없음)와 문서 링크 표지만 그린다.
 pub fn bare_link(text: &str) -> Option<String> {
@@ -36,8 +39,13 @@ pub fn bare_link(text: &str) -> Option<String> {
             return Some(found);
         }
         rest = match parse_link(link) {
-            Some((_, target, len)) if !drawn(target) || link[..len - 1].ends_with('>') => {
+            Some((_, target, len)) if link[..len - 1].ends_with('>') => {
                 return Some(target.to_owned());
+            }
+            // 화면 정규식은 첫 `)`에서 끊으므로, 짝이 맞는 괄호가 든 주소는 그 뒤 글까지 이어 보여야 온전하다.
+            Some((label, target, _)) if !drawn(target) => {
+                let from = label.len() + 3;
+                return Some(trim_tail(first_word(&link[from..])).to_owned());
             }
             Some((_, _, len)) => &link[len..],
             None => &link[1..],
@@ -47,7 +55,7 @@ pub fn bare_link(text: &str) -> Option<String> {
 }
 
 fn drawn(target: &str) -> bool {
-    target == crate::user_doc::DOC_LINK
+    target == DOC_LINK
         || (!target.contains(['(', '<', '>'])
             && ["file://", "http://", "https://"]
                 .iter()
@@ -111,16 +119,22 @@ fn span(tail: &str) -> String {
     if quoted {
         return found.to_owned();
     }
-    let mut found = found.split(char::is_whitespace).next().unwrap_or(found);
+    trim_tail(first_word(found)).to_owned()
+}
+
+fn first_word(text: &str) -> &str {
+    text.split(char::is_whitespace).next().unwrap_or(text)
+}
+
+fn trim_tail(mut found: &str) -> &str {
     while let Some(last) = found.chars().next_back() {
-        let open = found.matches('(').count();
-        let unmatched = last == ')' && found.matches(')').count() > open;
+        let unmatched = last == ')' && found.matches(')').count() > found.matches('(').count();
         if !(unmatched || ".,;:!?]}」』。，".contains(last)) {
             break;
         }
         found = &found[..found.len() - last.len_utf8()];
     }
-    found.to_owned()
+    found
 }
 
 #[cfg(test)]
@@ -192,7 +206,7 @@ mod tests {
             ("https://example.com/a(b).", "https://example.com/a(b)"),
             ("[r](/home/a/b.md)", "/home/a/b.md"),
             ("[x](<https://a.io/b>)", "https://a.io/b"),
-            ("[x](https://a.io/a(b)/c)", "https://a.io/a(b"),
+            ("[x](https://a.io/a(b)/c)", "https://a.io/a(b)/c"),
         ] {
             assert_eq!(bare_link(bad).as_deref(), Some(found), "{bad}");
         }
@@ -201,6 +215,7 @@ mod tests {
     #[test]
     fn repair_form_is_a_drawn_target() {
         for (found, form) in [
+            ("https://a.io/a(b)/c", "https://a.io/a%28b%29/c"),
             ("/tmp/my dir/a(1).md", "file:///tmp/my%20dir/a%281%29.md"),
             (
                 "C:\\Program Files\\a.txt",

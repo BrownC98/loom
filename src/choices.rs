@@ -1,24 +1,11 @@
 //! `loom ask` 질문의 선택지 꼴 검사. 받은편지함은 표준 꼴 `<질문> (A: <선택지> / B: <선택지>, 권장: A)`에서만 선택 단추를 만든다.
-//! 선택지를 다른 꼴로 쓰면 단추가 없다(2026-10-23 사람 요청). 문법은 `web/src/choices.ts`와 같다. `choices.cases.json`의 예를 양쪽 시험이 함께 읽는다.
+//! 선택지를 다른 꼴로 쓰면 단추가 없다(2026-10-23 사람 요청). 문법은 `web/src/choices.ts`와 같고, `choices.cases.json`을 양쪽 시험이 함께 읽는다.
 
-/// 표준 꼴의 선택지 글자(`A`, `B`…). 꼴이 아니거나 선택지가 둘보다 적으면 빈 목록이다.
-#[cfg(test)]
-fn option_keys(question: &str) -> Vec<char> {
-    parse(question).map(|(keys, _)| keys).unwrap_or_default()
-}
-
-/// (선택지 글자, 끝 조각의 모양). 끝 조각 `권장: A`를 읽었으면 `Tail::Recommended`, 마지막 쉼표 뒤가 선택지에 섞여 들었으면 `Tail::Mixed`다.
-fn parse(question: &str) -> Option<(Vec<char>, Tail)> {
-    let inside = last_group(question.trim())?;
-    let commas = top_level(inside, ",");
-    let last = commas.last().map(|&cut| (cut, &inside[cut + 1..]));
-    let (list, tail) = match last {
-        Some((cut, part)) if recommended_tail(part) => (&inside[..cut], Tail::Recommended),
-        Some((_, part)) if mentions_recommendation(part) => (inside, Tail::Mixed),
-        _ => (inside, Tail::None),
-    };
-    let keys: Option<Vec<char>> = split(list, " / ").iter().map(|p| option_key(p)).collect();
-    keys.filter(|k| k.len() >= 2).map(|k| (k, tail))
+#[derive(PartialEq, Debug)]
+struct Choice {
+    key: char,
+    label: String,
+    recommended: bool,
 }
 
 #[derive(PartialEq)]
@@ -26,6 +13,32 @@ enum Tail {
     None,
     Recommended,
     Mixed,
+}
+
+/// 끝 조각 `권장: A`를 읽었으면 `Tail::Recommended`, 마지막 쉼표 뒤가 「권장」을 말하는데 그 꼴이 아니면 `Tail::Mixed`다(선택지 글에 섞여 든다).
+fn parse(question: &str) -> Option<(Vec<Choice>, Tail)> {
+    let inside = last_group(question.trim())?;
+    let commas = top_level(inside, ",");
+    let last = commas.last().map(|&cut| (cut, &inside[cut + 1..]));
+    let (list, tail, star) = match last {
+        Some((cut, part)) if recommended_key(part).is_some() => {
+            (&inside[..cut], Tail::Recommended, recommended_key(part))
+        }
+        Some((_, part)) if mentions_recommendation(part) => (inside, Tail::Mixed, None),
+        _ => (inside, Tail::None, None),
+    };
+    let options: Option<Vec<(char, String)>> =
+        split(list, " / ").iter().map(|p| option(p)).collect();
+    let options = options.filter(|o| o.len() >= 2)?;
+    let choices = options
+        .into_iter()
+        .map(|(key, label)| Choice {
+            recommended: Some(key) == star,
+            key,
+            label,
+        })
+        .collect();
+    Some((choices, tail))
 }
 
 /// 질문이 선택지를 내놓는 듯한데(`A`·`B` 글자나 「권장」 낱말) 단추가 뜨는 표준 꼴이 아니면 참이다. 예·아니오 질문은 거짓이다.
@@ -45,17 +58,16 @@ fn mentions_recommendation(text: &str) -> bool {
 
 /// 「권장」 낱말 가까이(앞뒤 8글자)에 선택지 글자가 서 있으면 참이다: `(A, 권장)`, `권장 A`. 「권장 설정」 같은 보통 글은 거짓이다.
 fn recommendation_near_letter(text: &str) -> bool {
-    let chars: Vec<char> = text.to_lowercase().chars().collect();
     let original: Vec<char> = text.chars().collect();
     let word_at = |i: usize, word: &str| {
-        chars[i..]
-            .iter()
-            .zip(word.chars())
-            .filter(|(a, b)| *a == b)
-            .count()
-            == word.chars().count()
+        let len = word.chars().count();
+        original.len() >= i + len
+            && original[i..i + len]
+                .iter()
+                .zip(word.chars())
+                .all(|(a, b)| a.to_ascii_lowercase() == b)
     };
-    (0..chars.len())
+    (0..original.len())
         .filter(|&i| word_at(i, "권장") || word_at(i, "recommend"))
         .any(|i| {
             let (from, to) = (i.saturating_sub(8), (i + 8).min(original.len()));
@@ -85,23 +97,21 @@ fn label_letters(text: &str) -> usize {
     seen.len()
 }
 
-/// `A: 글`이면 `A`.
-fn option_key(part: &str) -> Option<char> {
+fn option(part: &str) -> Option<(char, String)> {
     let part = part.trim();
     let mut chars = part.chars();
     let key = chars.next().filter(char::is_ascii_uppercase)?;
-    let label = chars.as_str().strip_prefix(':')?;
-    (!label.trim().is_empty() && !label.contains('\n')).then_some(key)
+    let label = chars.as_str().strip_prefix(':')?.trim_start();
+    // 화면 정규식 `.+`는 줄바꿈에서 끊긴다.
+    (!label.is_empty() && !label.contains('\n')).then(|| (key, label.trim().to_owned()))
 }
 
-/// `<낱말>: A` 꼴인 끝 조각. 「권장」 낱말은 사람의 언어라 무엇이든 받는다.
-fn recommended_tail(part: &str) -> bool {
-    part.trim().split_once(':').is_some_and(|(word, key)| {
-        let mut key = key.trim().chars();
-        !word.is_empty()
-            && key.next().is_some_and(|c| c.is_ascii_uppercase())
-            && key.next().is_none()
-    })
+/// `<낱말>: A` 꼴인 끝 조각의 `A`. 「권장」 낱말은 사람의 언어라 무엇이든 받는다.
+fn recommended_key(part: &str) -> Option<char> {
+    let (word, key) = part.trim().split_once(':')?;
+    let mut key = key.trim().chars();
+    let first = key.next().filter(char::is_ascii_uppercase)?;
+    (!word.is_empty() && key.next().is_none()).then_some(first)
 }
 
 /// 글 끝의 맨 바깥 `(...)` 안쪽.
@@ -158,7 +168,14 @@ mod tests {
     #[derive(serde::Deserialize)]
     struct Case {
         question: String,
-        keys: String,
+        options: Vec<Expected>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Expected {
+        key: char,
+        label: String,
+        recommended: bool,
     }
 
     #[test]
@@ -166,8 +183,17 @@ mod tests {
         let cases: Vec<Case> =
             serde_json::from_str(include_str!("../web/src/choices.cases.json")).unwrap();
         for case in cases {
-            let keys: String = option_keys(&case.question).into_iter().collect();
-            assert_eq!(keys, case.keys, "{}", case.question);
+            let want: Vec<Choice> = case
+                .options
+                .into_iter()
+                .map(|e| Choice {
+                    key: e.key,
+                    label: e.label,
+                    recommended: e.recommended,
+                })
+                .collect();
+            let got = parse(&case.question).map(|(c, _)| c).unwrap_or_default();
+            assert_eq!(got, want, "{}", case.question);
         }
     }
 

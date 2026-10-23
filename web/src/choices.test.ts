@@ -39,8 +39,8 @@ describe('choices', () => {
   });
 
   it('agrees with the Rust parser on the shared cases', () => {
-    for (const { question, keys } of cases) {
-      expect(choices(question).map((c) => c.key).join('')).toBe(keys);
+    for (const { question, options } of cases) {
+      expect(choices(question), question).toEqual(options);
     }
   });
 });

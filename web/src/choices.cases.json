@@ -1,50 +1,121 @@
 [
   {
     "question": "Approve the mockup? (A: approve / B: change, Recommended: A)",
-    "keys": "AB"
+    "options": [
+      {
+        "key": "A",
+        "label": "approve",
+        "recommended": true
+      },
+      {
+        "key": "B",
+        "label": "change",
+        "recommended": false
+      }
+    ]
   },
   {
     "question": "Merge? (A: now / B: later / C: never, Empfohlen: C)",
-    "keys": "ABC"
+    "options": [
+      {
+        "key": "A",
+        "label": "now",
+        "recommended": false
+      },
+      {
+        "key": "B",
+        "label": "later",
+        "recommended": false
+      },
+      {
+        "key": "C",
+        "label": "never",
+        "recommended": true
+      }
+    ]
   },
   {
     "question": "Which? (A: red, blue / B: green)",
-    "keys": "AB"
+    "options": [
+      {
+        "key": "A",
+        "label": "red, blue",
+        "recommended": false
+      },
+      {
+        "key": "B",
+        "label": "green",
+        "recommended": false
+      }
+    ]
   },
   {
     "question": "Ship (v2)? (A: now (fast) / B: later (after review), Recommended: A)",
-    "keys": "AB"
+    "options": [
+      {
+        "key": "A",
+        "label": "now (fast)",
+        "recommended": true
+      },
+      {
+        "key": "B",
+        "label": "later (after review)",
+        "recommended": false
+      }
+    ]
   },
   {
     "question": "Which? (A: red (x, y) / B: green)",
-    "keys": "AB"
+    "options": [
+      {
+        "key": "A",
+        "label": "red (x, y)",
+        "recommended": false
+      },
+      {
+        "key": "B",
+        "label": "green",
+        "recommended": false
+      }
+    ]
   },
   {
     "question": "Which? (A: x / B: y))",
-    "keys": ""
+    "options": []
   },
   {
     "question": "Delete 3 worktrees?",
-    "keys": ""
+    "options": []
   },
   {
     "question": "Delete? (note: no undo)",
-    "keys": ""
+    "options": []
   },
   {
     "question": "(A: only one)",
-    "keys": ""
+    "options": []
   },
   {
     "question": "(A: x / B: y) and more text",
-    "keys": ""
+    "options": []
   },
   {
     "question": "승인할까요? (A: 승인 / B: 수정, 권장: A)",
-    "keys": "AB"
+    "options": [
+      {
+        "key": "A",
+        "label": "승인",
+        "recommended": true
+      },
+      {
+        "key": "B",
+        "label": "수정",
+        "recommended": false
+      }
+    ]
   },
   {
     "question": "Pick? (A: x\ny / B: z)",
-    "keys": ""
+    "options": []
   }
 ]

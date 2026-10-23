@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::graph::{Attached, WaitDoc};
+use crate::link_text::DOC_LINK;
 
 /// 문서 머리 줄과 창 제목에 붙는 ID의 틀. 다시 열면 이 틀을 찾아 바꾼다.
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
@@ -87,10 +88,6 @@ pub fn attach(path: &Path) -> Result<Attached, String> {
         path,
     })
 }
-
-/// 본문 속 문서 링크의 주소 표지. 화면(`web/src/links.ts` `DOC_LINK`)이 이 자리에 붙은 문서의 링크를 그린다.
-/// 근거: 2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘".
-pub const DOC_LINK: &str = "loom:doc";
 
 /// 글 속 markdown 링크 `[이름](주소)` 가운데 주소가 `doc` 파일인 것의 주소를 `DOC_LINK`로 바꾼다.
 /// 주소는 `file://` 주소(퍼센트 인코딩 포함)나 경로이고, WSL 노드의 Linux 경로도 받는다. 파일 경로는 데몬만 알아야 하므로 글에 남기지 않는다.

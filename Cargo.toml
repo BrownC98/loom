@@ -42,7 +42,6 @@ yaml-rust2 = "0.13.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
-# 호스트(WSL)에서 만든 Windows 디버그 빌드는 Linux 경로의 `skills/`·`web/dist`를 읽지 못한다. 디버그에서도 파일을 싣는다.
 [target.'cfg(windows)'.dependencies]
 rust-embed = { version = "8.13.0", features = ["debug-embed"] }
 

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { isAutoSwitch, latestSwitch, noticeOf, rowStateKey, type SwitchEntry } from './accountSwitch';
 import type { EventRecord } from './gen/EventRecord';
 
-// 키와 값을 그대로 이어 붙이는 가짜 번역 함수. 문구 선택만 본다.
 const t = ((key: string, o?: Record<string, unknown>) => (o ? `${key}${Object.values(o).map((v) => `|${v}`).join('')}` : key)) as unknown as TFunction;
 const name = (_p: string, id: string | null) => (id === null ? 'SYS' : `acct${id}`);
 const time = (s: number) => `T${s}`;

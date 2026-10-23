@@ -1,10 +1,3 @@
-//! PTY 호스트(`loom pty-host`): PTY 하나와 그 프로세스, 최근 출력을 쥐고 데몬보다 오래 산다.
-//! 데몬이 다시 시작하거나 새 실행 파일로 바뀌어도 노드 프로세스는 끝나지 않는다. 근거: docs/design.md 「에이전트 실행」.
-//! 띄울 명령은 stdin의 JSON(`CommandBuilder`)으로 받고, 듣는 주소를 stdout 한 줄로 알린다. 그 뒤로 stdout은 쓰지 않는다.
-//! 설정 스크립트가 있으면 먼저 돌리고, 성공하면 새 PTY에서 명령을 띄운다. 화면에는 한 터미널로 이어 보인다.
-//! 같은 PTY에서 다시 띄우면 macOS는 새 프로세스가 제어 터미널을 잡지 못한다(실측). 근거: docs/design.md 「저장소와 워크트리」.
-//! 데몬 연결은 한 번에 하나다. 새 연결이 오면 앞 연결을 닫는다(다시 시작한 데몬이 앞 데몬의 자리를 받는다).
-
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -18,29 +11,20 @@ use serde::{Deserialize, Serialize};
 use super::wire::{self, Frame};
 use super::{Backlog, Exit};
 
-/// 화면이 크기를 보내기 전에 쓰는 PTY 크기.
 const INITIAL_SIZE: PtySize = PtySize {
     rows: 24,
     cols: 80,
     pixel_width: 0,
     pixel_height: 0,
 };
-/// 데몬이 호스트에게 지금 크기를 듣기 전에 쓰는 크기. 크기를 알리지 않는 옛 호스트도 이 값이다.
 pub(super) const INITIAL_SIZE_VIEW: super::PtySize = super::PtySize {
     cols: INITIAL_SIZE.cols,
     rows: INITIAL_SIZE.rows,
 };
-/// Windows ConPTY는 첫 출력으로 커서 위치를 묻고, 답이 올 때까지 프로그램을 멈춘다.
-/// portable-pty가 `PSEUDOCONSOLE_INHERIT_CURSOR`를 늘 켜고 연다. 화면이 붙지 않은 노드(`loom spawn` 자식)도 뜨도록
-/// 호스트가 왼쪽 위로 답하고 이 질의를 출력에서 지운다. 그래서 나중에 붙은 xterm이 한 번 더 답하지 않는다.
 const CURSOR_QUERY: &[u8] = b"\x1b[6n";
 const CURSOR_AT_ORIGIN: &[u8] = b"\x1b[1;1R";
-/// 프로세스가 끝난 뒤 남은 출력을 읽는 상한. 자손이 PTY를 쥐고 있으면 읽기가 끝나지 않는다.
 const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(1);
-/// 프로세스가 끝났을 때 붙은 데몬이 없으면 종료 코드를 들고 기다리는 시간.
-/// 근거: 데몬을 다시 빌드하고 다시 띄우는 동안 끝난 노드도 코드를 남긴다. 넘으면 데몬은 코드 없는 exited로 본다.
 const EXIT_KEEP: Duration = Duration::from_secs(600);
-/// 연결한 쪽이 첫 프레임을 보내는 상한. 다른 프로그램이 연결해 아무것도 보내지 않아도 스레드가 남지 않는다.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct Host {
@@ -48,31 +32,23 @@ struct Host {
     master: Mutex<Box<dyn MasterPty + Send>>,
     input: Mutex<Box<dyn Write + Send>>,
     state: Mutex<State>,
-    /// 종료 코드를 데몬에 넘기면 한 번 보낸다.
     delivered: mpsc::Sender<()>,
 }
 
-/// 도는 프로세스(설정 스크립트나 명령)를 끝내는 손잡이.
 struct Process {
     killer: Box<dyn ChildKiller + Send + Sync>,
-    /// 데몬이 끝내기를 보냈다. 설정 스크립트 뒤의 명령을 띄우지 않는다.
     killed: bool,
 }
 
 #[derive(Default)]
 struct State {
-    /// 지금 PTY에서 도는 프로세스의 PID.
     pid: Option<u32>,
     backlog: Backlog,
-    /// 지금 붙은 데몬. 번호는 끊긴 연결이 새 연결을 지우지 않게 가린다.
     client: Option<(u64, TcpStream)>,
     next_client: u64,
     exit: Option<Exit>,
 }
 
-/// 데몬이 stdin으로 넘기는 명령. `CommandBuilder`는 env 맵의 키가 `OsString`이라 JSON으로 바꿀 수 없어 값만 옮긴다.
-/// 환경은 데몬이 본 전체 환경이다. 호스트의 환경은 쓰지 않는다.
-/// `setup`은 명령 앞에 같은 폴더·환경으로 돌릴 설정 스크립트의 `argv`다. 없는 필드는 옛 데몬과 같은 뜻(없음)이다.
 #[derive(Serialize, Deserialize)]
 pub struct Spec {
     argv: Vec<OsString>,
@@ -95,7 +71,6 @@ impl Spec {
         }
     }
 
-    /// 명령과 설정 스크립트. 빈 `argv`는 기본 셸이다(`CommandBuilder::new_default_prog`와 같다).
     pub(super) fn commands(self) -> (CommandBuilder, Option<CommandBuilder>) {
         let build = |argv| {
             let mut cmd = CommandBuilder::from_argv(argv);
@@ -125,17 +100,14 @@ pub fn run() -> Result<(), String> {
     Ok(())
 }
 
-/// 프로세스를 띄우고 데몬 연결을 받기 시작한 호스트.
 pub struct Started {
     pub address: SocketAddr,
     host: Arc<Host>,
     running: Running,
-    /// 설정 스크립트가 도는 동안: 그 뒤에 띄울 명령.
     next: Option<CommandBuilder>,
     delivered: mpsc::Receiver<()>,
 }
 
-/// `setup`이 있으면 그것을 먼저 띄우고, `cmd`는 `Started::wait`가 설정이 성공한 뒤 띄운다.
 pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Started, String> {
     let pair = native_pty_system()
         .openpty(INITIAL_SIZE)
@@ -145,7 +117,6 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
         None => (cmd, None),
     };
     let child = pair.slave.spawn_command(first).map_err(|e| e.to_string())?;
-    // PTY를 놓는다. 그래야 프로세스가 끝날 때 출력 읽기가 끝난다.
     drop(pair.slave);
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let input = pair.master.take_writer().map_err(|e| e.to_string())?;
@@ -183,15 +154,12 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
 }
 
 impl Started {
-    /// 프로세스가 끝날 때까지 기다리고, 끝을 데몬에 넘긴 뒤(또는 `EXIT_KEEP` 뒤) 돌아온다.
-    /// 설정 스크립트가 성공하면 명령을 띄우고 그 명령을 기다린다. 실패하면 명령을 띄우지 않고 `Exit::Setup`으로 끝난다.
     pub fn wait(mut self) {
         let code = self.running.exit_code();
         let mut note = None;
         let exit = match self.next.take() {
             None => Exit::Command(code),
             Some(_) if code != 0 => Exit::Setup(code),
-            // 설정 출력을 다 읽은 뒤 명령의 PTY로 바꾼다. 그래야 출력 순서가 지켜진다.
             Some(cmd) => {
                 self.running.drain();
                 match self.host.replace(cmd) {
@@ -216,10 +184,8 @@ impl Started {
     }
 }
 
-/// PTY에서 도는 프로세스와 그 PTY의 출력 읽기.
 struct Running {
     child: Box<dyn Child + Send + Sync>,
-    /// 출력 읽기가 끝나면 닫힌다.
     output_done: mpsc::Receiver<()>,
 }
 
@@ -228,14 +194,12 @@ impl Running {
         self.child.wait().map(|s| s.exit_code()).unwrap_or(u32::MAX)
     }
 
-    /// 남은 출력을 읽을 때까지(상한 `DRAIN_AFTER_EXIT`) 기다린다.
     fn drain(&self) {
         let _ = self.output_done.recv_timeout(DRAIN_AFTER_EXIT);
     }
 }
 
 impl Host {
-    /// `reader`를 다른 스레드에서 끝까지 읽는다. 돌려준 채널은 읽기가 끝나면 닫힌다.
     fn read_in_background(self: &Arc<Self>, reader: Box<dyn Read + Send>) -> mpsc::Receiver<()> {
         let (drained, output_done) = mpsc::channel::<()>();
         let pty = self.clone();
@@ -260,7 +224,6 @@ impl Host {
         }
     }
 
-    /// `chunk`가 ConPTY의 커서 위치 질의로 시작하면 답하고 질의 뒤의 출력을 돌려준다.
     fn answer_cursor_query<'a>(&self, chunk: &'a [u8]) -> &'a [u8] {
         match chunk.strip_prefix(CURSOR_QUERY) {
             Some(rest) => {
@@ -271,14 +234,11 @@ impl Host {
         }
     }
 
-    /// 설정 스크립트 뒤에 새 PTY(지금 크기)에서 명령을 띄우고 붙은 데몬에 새 PID를 알린다.
-    /// 데몬이 끝내기를 보냈으면 띄우지 않는다. 돌려준 채널은 새 PTY의 출력 읽기가 끝나면 닫힌다.
     fn replace(self: &Arc<Self>, cmd: CommandBuilder) -> Result<Option<Running>, String> {
         let mut process = self.process.lock().unwrap();
         if process.killed {
             return Ok(None);
         }
-        // 바꾸는 동안 크기 바꾸기를 막는다. 그래야 새 PTY가 마지막 크기를 받는다.
         let mut master = self.master.lock().unwrap();
         let size = master.get_size().unwrap_or(INITIAL_SIZE);
         let pair = native_pty_system()
@@ -300,7 +260,6 @@ impl Host {
         Ok(Some(Running { child, output_done }))
     }
 
-    /// 프로세스가 아니라 호스트가 쓰는 한 줄. 화면이 터미널 출력으로 본다.
     fn note(&self, text: &str) {
         let line = format!("\r\n{text}\r\n").into_bytes();
         let mut state = self.state.lock().unwrap();
@@ -316,7 +275,6 @@ impl Host {
         }
     }
 
-    /// 데몬 연결 하나. 인사 뒤 backlog(와 끝났으면 종료 코드)를 보내고 그 연결을 지금 연결로 둔다.
     fn serve(&self, mut stream: TcpStream) {
         let greeted_pid = self.state.lock().unwrap().pid;
         let greeted = stream
@@ -326,7 +284,6 @@ impl Host {
         let Ok(mut reader) = greeted.and_then(|()| stream.try_clone()) else {
             return;
         };
-        // 지금 PTY 크기를 먼저 알린다. 다시 시작한 데몬이 화면에 같은 크기를 준다.
         let size = self
             .master
             .lock()
@@ -347,7 +304,6 @@ impl Host {
         let me = {
             let mut state = self.state.lock().unwrap();
             let backlog = state.backlog.to_vec();
-            // 인사한 뒤 설정 스크립트가 끝나 명령이 떴으면 새 PID를 먼저 알린다.
             let pid = state.pid.filter(|&pid| Some(pid) != greeted_pid);
             let sent = pid.is_none_or(|pid| wire::write(&mut stream, &Frame::Pid(pid)).is_ok())
                 && (backlog.is_empty() || wire::write(&mut stream, &Frame::Data(backlog)).is_ok())
@@ -369,7 +325,6 @@ impl Host {
         };
         while let Ok(frame) = wire::read(&mut reader) {
             match frame {
-                // 끝난 프로세스에 쓰면 실패한다. 데몬에 따로 알리지 않는다. `Exit`가 간다.
                 Frame::Data(bytes) => {
                     let _ = self.input.lock().unwrap().write_all(&bytes);
                 }
@@ -382,7 +337,6 @@ impl Host {
                     };
                     let _ = self.master.lock().unwrap().resize(size);
                 }
-                // 이미 끝난 프로세스면 실패한다. 할 일이 없다.
                 Frame::Kill => {
                     let mut process = self.process.lock().unwrap();
                     process.killed = true;
@@ -399,7 +353,6 @@ impl Host {
 }
 
 impl State {
-    /// 붙은 데몬에 보낸다. 보내지 못하면 그 연결을 놓는다. 보냈으면 참이다.
     fn send(&mut self, frame: &Frame) -> bool {
         let Some((_, stream)) = &mut self.client else {
             return false;

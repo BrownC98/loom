@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import css from './styles.css?raw';
 import { COLOR_ROWS, contrast, PRESETS, tonedColor } from './uiColors';
 
-/** styles.css :root에서 `token`의 두 밝기. 고르는 토큰은 `token-light`·`token-dark` 두 줄, 나머지는 `light-dark(oklch(L% …), oklch(L% …))` 한 줄이다. */
 function tone(token: string) {
   const light = css.match(new RegExp(`\\n\\s*${token}-light: oklch\\(([\\d.]+)% `));
   const dark = css.match(new RegExp(`\\n\\s*${token}-dark: oklch\\(([\\d.]+)% `));
@@ -29,7 +28,6 @@ describe('COLOR_ROWS', () => {
   it('keeps the default lightness when contrast is enough, moves only lightness when not', () => {
     const warn = COLOR_ROWS.find((r) => r.key === 'warn')!;
     expect(tonedColor('#8b5cf6', warn)).toBe('light-dark(oklch(from #8b5cf6 54% c h), oklch(from #8b5cf6 80% c h))');
-    // 초록은 54%에서 흰 글자 대비가 4.48:1이라 조금 어둡게 쓴다.
     expect(tonedColor('#22c55e', warn)).toMatch(/^light-dark\(oklch\(from #22c55e 5[0-3](\.5)?% c h\), oklch\(from #22c55e 80% c h\)\)$/);
   });
 

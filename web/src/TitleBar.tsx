@@ -5,21 +5,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Copy, Minus, Square, X } from 'lucide-react';
 import { MAC } from './platform';
 
-/** 앱 아이콘(`app/icons/icon.ico`)의 짜임 무늬. 칸마다 가로·세로 막대가 번갈아 놓인다. */
 const WEAVE = [0, 1, 2].flatMap((row) => [0, 1, 2].map((col) => ({ x: 0.5 + col * 5, y: 0.5 + row * 5, across: (row + col) % 2 === 0 })));
 
-/**
- * 앱 창의 맨 위 줄(docs/mockups/titlebar.html, macOS는 mac-titlebar.html 안 B). 앱은 OS 제목 줄을 끄고(`app/src/main.rs`) 이 줄을 그린다.
- * 빈 곳을 끌면 창이 옮겨지고, 두 번 누르면 최대화가 바뀐다(Tauri `data-tauri-drag-region`). 브라우저에서 열면 그리지 않는다.
- * macOS는 OS가 왼쪽에 창 버튼(신호등)을 그린다. 이 줄은 그 자리를 비우고 오른쪽 버튼을 그리지 않는다.
- */
 export function TitleBar() {
   const { t } = useTranslation();
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
     if (!isTauri()) return;
-    // 최대화·이전 크기로 바뀌면 창 크기도 바뀐다. 그때 상태를 다시 읽는다.
     const read = () => getCurrentWindow().isMaximized().then(setMaximized);
     read();
     addEventListener('resize', read);

@@ -29,7 +29,6 @@ const repo = (id: number, worktrees: [string, string | null][]): RepoView => ({
   wsl: null,
 });
 
-// 목업 search.html ②의 모양: main에 총괄과 같은 워크트리 자식, 코디마다 자기 워크트리, 빈 워크트리 하나.
 const loom = repo(1, [
   ['/loom', 'main'],
   ['/w/find', 'find'],

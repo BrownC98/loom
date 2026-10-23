@@ -1,19 +1,3 @@
-//! 사람이 연 다른 웹 페이지가 데몬을 부르지 못하게 한다.
-//!
-//! 사람 문에는 토큰이 없다. 브라우저는 JSON 요청을 사전 요청으로 막지만, 두 길은 막지 않는다.
-//! - 웹소켓: 출처와 관계없이 연결한다. 다른 페이지가 터미널 웹소켓에 글을 넣을 수 있다.
-//! - DNS 재바인딩: 공격자 도메인이 127.0.0.1을 가리키게 바꾸면 같은 출처가 되어 모든 API를 부른다.
-//!
-//! 그래서 `Host`는 IP 주소나 `localhost`만 받고, `Origin`이 있으면 `http://<Host>`와 같아야 한다.
-//! 노드의 `loom` 명령과 데스크톱 앱(데몬 주소를 그대로 연다)은 이 조건을 늘 지킨다.
-//!
-//! 폰은 Tailscale Serve로 닿는다(docs/design.md 「원격」). Serve는 HTTPS를 끝내고 루프백의 데몬에 넘기며,
-//! `Tailscale-User-Login`·`X-Forwarded-*` 머리글을 붙인다. 다른 웹 페이지는 웹소켓과 교차 출처 요청에 이 머리글을 넣지 못한다.
-//! 이 머리글 하나라도 있으면 Serve로 온 요청으로 본다. 주소가 `*.ts.net`이고 `Origin`이 없거나 `https://<그 주소>`여야 하고,
-//! 짝지은 기기의 쿠키가 있어야 한다(`Devices`). 짝짓기 요청, 홈 화면 아이콘, 파일 통행증(`passes`)만 쿠키 없이 받는다.
-//!
-//! 폰 문(`lan`)으로 온 요청도 원격이다. 문이 `lan::Lan`을 넣는다. `Host`는 IP 주소이고 `Origin`은 없거나 `https://<Host>`여야 한다.
-
 use std::sync::Arc;
 
 use axum::extract::{Request, State};
@@ -24,26 +8,18 @@ use axum::response::{IntoResponse, Response};
 use super::{lan, passes, phone};
 use crate::devices::{DeviceId, Devices};
 
-/// Tailscale Serve가 붙이는 요청자 로그인 머리글.
 const TAILSCALE_LOGIN: &str = "tailscale-user-login";
-/// Serve가 원래 주소를 적는 머리글. 없으면 `Host`를 본다.
 const FORWARDED_HOST: &str = "x-forwarded-host";
 const FORWARDED_FOR: &str = "x-forwarded-for";
-/// Tailscale이 기기마다 주는 HTTPS 이름(MagicDNS)의 끝.
 const TAILNET_SUFFIX: &str = ".ts.net";
-/// 기기 토큰 쿠키.
 pub const DEVICE_COOKIE: &str = "loom_device";
-/// 짝짓기 전 폰이 받는 것: 짝짓기 요청, 「홈 화면에 추가」가 쿠키 없이 읽는 매니페스트와 아이콘(web/public), 짝짓기 쪽의 QR 판독기.
 const UNPAIRED_PATHS: &[&str] = &["/manifest.webmanifest", "/icon.png", phone::JSQR_PATH];
 
-/// 원격(Serve, 폰 문)으로 온 요청에 미들웨어가 넣는다. `device`는 짝지은 기기다(짝짓기 요청만 `None`).
-/// 이 표시가 있는 요청은 PC 화면만 하는 일(짝짓기 코드, 기기 목록, Serve 켜기)을 하지 못한다.
 #[derive(Clone, Copy)]
 pub struct ViaRemote {
     pub device: Option<DeviceId>,
 }
 
-/// 노드 문. 노드는 늘 루프백으로 부른다.
 pub async fn same_site(request: Request, next: Next) -> Response {
     if allowed(request.headers()) {
         next.run(request).await
@@ -52,10 +28,6 @@ pub async fn same_site(request: Request, next: Next) -> Response {
     }
 }
 
-/// 사람의 기본 앱을 여는 라우트(파일 링크, 문서 링크)에 씌운다. 화면 페이지가 보낸 요청만 받는다.
-/// 브라우저(데스크톱 앱의 WebView2·WKWebView, 폰 앱의 WebView 포함)는 POST에 `Origin`을 늘 붙이고, `human_site`가 그 값이 이 데몬의 출처인지 이미 봤다.
-/// 노드 터미널의 curl·PowerShell은 `Origin`을 붙이지 않는다. 그래서 에이전트의 맨 HTTP 요청은 사람의 앱을 열지 못한다.
-/// 근거: 2026-10-23 사람 지시 "브리프 말고 기계적으로 차단해". 일부러 머리글을 넣는 요청은 막지 못한다.
 pub async fn from_page(request: Request, next: Next) -> Response {
     if request.headers().contains_key(header::ORIGIN) {
         next.run(request).await
@@ -64,7 +36,6 @@ pub async fn from_page(request: Request, next: Next) -> Response {
     }
 }
 
-/// 사람 문. 이 기계의 화면과 Tailscale Serve·폰 문으로 온 짝지은 폰을 받는다. 라우터 전체(HTTP, 웹소켓, 문서, 파일)에 한 겹으로 씌운다.
 pub async fn human_site(
     State(devices): State<Arc<Devices>>,
     mut request: Request,
@@ -93,8 +64,6 @@ pub async fn human_site(
     next.run(request).await
 }
 
-/// 폰의 웹소켓(터미널, 로그인 창, 이벤트)을 PC에서 그 기기를 끊을 때 닫는다. 이 기계의 화면이면 `work`를 그대로 돌린다.
-/// 문은 요청마다 기기를 보지만, 열린 웹소켓은 요청이 다시 오지 않는다.
 pub async fn until_removed(
     devices: Arc<Devices>,
     via: Option<axum::Extension<ViaRemote>>,
@@ -121,7 +90,6 @@ fn via_serve(headers: &HeaderMap) -> bool {
             .is_some_and(tailnet)
 }
 
-/// Serve로 온 요청의 주소와 출처.
 fn serve_site(headers: &HeaderMap) -> bool {
     let text = |name| {
         headers
@@ -131,8 +99,6 @@ fn serve_site(headers: &HeaderMap) -> bool {
     let Some(real_host) = text(header::HOST.as_str()) else {
         return false;
     };
-    // DNS 재바인딩: 남의 페이지가 127.0.0.1로 바꾼 이름에서 같은 출처로 부르면 머리글을 마음대로 넣고 `Origin` 없이 GET할 수 있다.
-    // 그 페이지의 `Host`는 자기 이름이다. 그래서 진짜 `Host`도 DNS가 바꿀 수 없는 이름(Serve가 루프백에 보내는 IP)이나 tailnet 이름이어야 한다.
     if !fixed_host(real_host) && !tailnet(real_host) {
         return false;
     }
@@ -141,7 +107,6 @@ fn serve_site(headers: &HeaderMap) -> bool {
         && text(header::ORIGIN.as_str()).is_none_or(|origin| origin == format!("https://{host}"))
 }
 
-/// 폰 문으로 온 요청의 주소와 출처. 앱은 QR의 IP 주소로 연다. 이름이면 DNS 재바인딩일 수 있다.
 fn lan_site(headers: &HeaderMap) -> bool {
     let text = |name| {
         headers
@@ -155,7 +120,6 @@ fn lan_site(headers: &HeaderMap) -> bool {
         && text(header::ORIGIN.as_str()).is_none_or(|origin| origin == format!("https://{host}"))
 }
 
-/// `Cookie` 머리글에서 `name`의 값.
 fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers
         .get_all(header::COOKIE)
@@ -167,7 +131,6 @@ fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
         .map(|(_, value)| value)
 }
 
-/// Tailscale이 기기에 준 HTTPS 이름(`<기기>.<tailnet>.ts.net`)이다. 포트는 떼고 본다.
 fn tailnet(host: &str) -> bool {
     let name = host.rsplit_once(':').map_or(host, |(name, _)| name);
     name.len() > TAILNET_SUFFIX.len() && name.to_ascii_lowercase().ends_with(TAILNET_SUFFIX)
@@ -184,7 +147,6 @@ fn allowed(headers: &HeaderMap) -> bool {
     text(header::ORIGIN).is_none_or(|origin| origin == format!("http://{host}"))
 }
 
-/// DNS가 바꿀 수 없는 이름이다. 포트는 떼고 본다.
 fn fixed_host(host: &str) -> bool {
     host_name(host).eq_ignore_ascii_case("localhost") || host_ip(host)
 }
@@ -193,7 +155,6 @@ fn host_ip(host: &str) -> bool {
     host_name(host).parse::<std::net::IpAddr>().is_ok()
 }
 
-/// `Host`에서 포트와 IPv6 괄호를 뗀 이름.
 fn host_name(host: &str) -> &str {
     let name = match host.rsplit_once(':') {
         Some((name, port)) if !name.ends_with(':') && port.bytes().all(|b| b.is_ascii_digit()) => {
@@ -310,7 +271,6 @@ mod tests {
             &[LOGIN, ("host", "127.0.0.1:7420")][..],
             &[LOGIN, ("host", "evil.example")],
             &[LOGIN, ("host", ".ts.net")],
-            // DNS 재바인딩: 남의 이름에서 같은 출처로 부른 GET(Origin 없음)은 X-Forwarded-Host를 꾸며도 막는다.
             &[
                 LOGIN,
                 ("host", "evil.com"),
@@ -353,7 +313,6 @@ mod tests {
         use axum::routing::{get, post};
         use tower::ServiceExt;
 
-        /// 실제 라우터처럼 한 겹을 라우터 전체에 씌운다: 보통 API, 웹소켓, 질문 문서, 정적 파일(fallback), 짝짓기.
         fn router(devices: Arc<Devices>) -> Router {
             Router::new()
                 .route("/api/repos", get(|| async { "repos" }))
@@ -367,7 +326,6 @@ mod tests {
                 .layer(axum::middleware::from_fn_with_state(devices, human_site))
         }
 
-        /// 기본 앱을 여는 라우트는 화면 페이지의 요청(`Origin` 있음)만 받는다. curl처럼 `Origin`이 없으면 403이다.
         #[tokio::test]
         async fn opener_routes_need_the_page_origin() {
             let (_dir, devices) = devices();
@@ -433,7 +391,6 @@ mod tests {
             router(devices.clone()).oneshot(r).await.unwrap().status()
         }
 
-        /// 폰 문으로 온 요청: 문이 `lan::Lan`을 넣는다. 머리글은 앱의 WebView가 보내는 그대로다.
         fn lan(method: Method, path: &str, host: &str, origin: Option<&str>) -> Request {
             let mut b = Request::builder()
                 .method(method)
@@ -451,7 +408,6 @@ mod tests {
         async fn lan_door_is_remote() {
             let (_dir, d) = devices();
             let host = "192.168.0.12:7430";
-            // 쿠키 없는 폰 문 요청은 PC 화면과 달리 짝짓기 쪽을 받는다.
             assert_eq!(
                 status(&d, lan(Method::GET, "/api/repos", host, None)).await,
                 StatusCode::UNAUTHORIZED
@@ -473,7 +429,6 @@ mod tests {
                 .await,
                 StatusCode::OK
             );
-            // 이름 주소(DNS 재바인딩), 다른 출처, http 출처는 막는다.
             for (h, o) in [
                 ("evil.example:7430", None),
                 (host, Some("https://evil.example")),
@@ -506,7 +461,6 @@ mod tests {
                 status(&d, upgrade(remote(Method::GET, "/api/events", None))).await,
                 StatusCode::UNAUTHORIZED
             );
-            // 짝짓기 요청, 홈 화면 아이콘, QR 판독기만 쿠키 없이 닿는다.
             assert_eq!(
                 status(&d, remote(Method::POST, phone::PAIR_PATH, None)).await,
                 StatusCode::OK
@@ -535,7 +489,6 @@ mod tests {
                     "{path}"
                 );
             }
-            // oneshot에는 진짜 연결이 없어 업그레이드 단계에서 멈춘다. 문이 막지 않았다는 것(401이 아님)만 본다.
             assert_ne!(
                 status(
                     &d,
@@ -567,7 +520,6 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-            // 이 기계의 화면은 끊지 않는다.
             let local = tokio::spawn(until_removed(d.clone(), None, async {}));
             local.await.unwrap();
         }

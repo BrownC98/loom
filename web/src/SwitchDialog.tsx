@@ -6,8 +6,6 @@ import type { Provider } from './gen/Provider';
 import { Modal } from './Modal';
 import { PROVIDER_LABEL } from './usage';
 
-/** 계정을 바꿀 때 뜨는 확인 창(목업 account-switch.html ①). 계정은 아직 저장하지 않았다.
- *  [새 노드만]은 `onKeep`, [모두 바꾸기]는 `onMoveAll`(저장하고 옮긴다)이다. Esc와 바깥 누르기는 `onCancel`이다. */
 export function SwitchDialog(props: { provider: Provider; to: string; nodes: MovableNode[]; onKeep: () => void; onMoveAll: () => Promise<unknown>; onCancel: () => void }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);

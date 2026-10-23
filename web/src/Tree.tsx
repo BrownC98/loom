@@ -1,5 +1,3 @@
-// 사이드바 트리(docs/mockups/graph-panels.html 1번): 저장소 > 워크트리 묶음 > 노드 > 자식 노드.
-// 그래프와 같은 노드 목록을 그린다. 트리만의 상태는 접힌 줄, 이름 편집, 줄 단추로 연 팝오버와 그 거절 글이다.
 import { Bookmark, ChevronDown, ChevronsUpDown, CornerLeftUp, EllipsisVertical, GitBranch, GitBranchPlus, ListX, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -27,23 +25,16 @@ import { MenuSheet, Sheet, useLongPress, usePhone } from './Phone';
 import { useDismiss } from './popover';
 import { groupParents, groupsOf, inGroup, type Group } from './repos';
 
-/** 줄 끝 단추 하나(docs/mockups/sidebar-crud.html 2번). `run`은 누른 줄의 단추를 받는다. 팝오버를 그 줄 옆에 띄운다. `pressed`가 있으면 켜고 끄는 단추다(북마크). */
 type Action = { label: string; icon: ReactNode; run: (row: HTMLElement) => void; disabled?: boolean; pressed?: boolean };
-/** `rename`은 줄의 이름 바꾸기 동작이다. F2 키도 부른다. `remove`는 줄의 지우기 동작이다. 단추 끝에 오고 Delete 키도 부른다. `show`는 줄을 누르면 그래프를 옮긴다(저장소 줄, 워크트리 줄). */
-type Item = { key: string; /** 폰 줄 메뉴의 제목. */ title: string; row: ReactNode; node: NodeId | null; /** 이 줄이 그래프에서 가리키는 상자(`flowId`). */ box?: string; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
+type Item = { key: string; title: string; row: ReactNode; node: NodeId | null; box?: string; children: Item[]; actions: Action[]; rename?: Action; remove?: Action; show?: () => void };
 
-/** 줄 단추로 연 팝오버. 그릴 때 저장소와 묶음을 다시 찾는다. 그 사이에 사라졌으면 그리지 않는다. */
 type Target = { repo: RepoId } & ({ kind: 'newWorktree' } | { kind: 'newNode'; path: string } | { kind: 'deleteWorktree'; path: string });
-/** `key`는 누른 줄이다. 닫으면 포커스가 그 줄로 돌아간다. */
 type Opened = { target: Target; key: string; top: number; left: number };
 
-/** 팝오버와 사이드바 오른쪽 경계 사이 틈, 창 아래 끝과 남기는 틈. */
 const POP_GAP = 8;
 
-/** 찾기 일치의 줄 키(`Item.key`). */
 const foundKey = (f: Found) => (f.kind === 'node' ? `node:${f.node}` : `group:${f.path}`);
 
-/** 찾는 동안 남기는 줄: 일치 줄과 그 위 줄(목업 sidebar-find.html ③). */
 function keepFound(items: Item[], hits: ReadonlySet<string>): Item[] {
   return items.flatMap((item) => {
     const children = keepFound(item.children, hits);
@@ -51,10 +42,8 @@ function keepFound(items: Item[], hits: ReadonlySet<string>): Item[] {
   });
 }
 
-/** 줄 끝 단추와 폰 줄 메뉴의 차례: 줄 동작, 이름 바꾸기, 지우기. */
 const rowActions = (item: Item): Action[] => [...item.actions, ...(item.rename ? [item.rename] : []), ...(item.remove ? [item.remove] : [])];
 
-/** 들여쓰기 깊이의 화면 상한. 더 깊은 줄은 같은 자리에 두어 이름이 보일 폭을 지킨다(styles.css `--step` 12px × 8 = 96px). */
 const MAX_VISUAL_DEPTH = 8;
 
 
@@ -62,7 +51,6 @@ function Chevron({ open }: { open: boolean }) {
   return <ChevronDown className={open ? 'chev' : 'chev closed'} />;
 }
 
-/** 부모가 나무의 부모 묶음 밖에 있는 노드의 표시(corner-left-up). `title`이 부모 노드와 묶음을 말한다. */
 function FromIcon({ title }: { title: string }) {
   return (
     <CornerLeftUp className="from" role="img" aria-label={title}>
@@ -71,11 +59,9 @@ function FromIcon({ title }: { title: string }) {
   );
 }
 
-/** 노드 줄의 `부모: … · …` 문구를 돌려준다. 문구가 없으면 표시도 없다. */
 type ParentNote = (v: NodeView) => string | null;
 type NodeActions = (view: NodeView) => Pick<Item, 'actions' | 'rename' | 'remove'>;
 
-/** 줄 옆 팝오버 자리. 창 아래로 넘치면 위로 올린다. 내용이 늦게 와 커져도(새 노드의 프로필 목록) 다시 맞춘다. 밖을 누르거나 Esc로 닫는다(새 노드 팝오버는 밖 누르기로 스스로 닫지 않는다). */
 function RowPop(props: { top: number; left: number; onClose: () => void; children: ReactNode }) {
   const box = useDismiss<HTMLDivElement>(props.onClose);
   const [top, setTop] = useState(props.top);
@@ -94,18 +80,12 @@ function RowPop(props: { top: number; left: number; onClose: () => void; childre
   );
 }
 
-/**
- * 노드 줄의 상태 칩(목업 R3 ②). 폰과 데스크톱 사이드바가 같이 쓴다.
- * 알림이 있으면 종류마다 이름 칩(`NoticeChips`)을 보인다. 프로세스의 완료 상태가 아니다(2026-10-23 사람 지시 "완료 칩은 알림 상태를 표시하라는게 의도였음 (완료 알림 발송하면 알림 칩이 뜨고 , 질문 올리면 질문 칩이 뜨도록)").
- * 알림이 없으면 종료·설정 실패만 칩을 붙인다.
- */
 function StateTag({ view }: { view: NodeView }) {
   if (view.waits.length > 0) return <NoticeChips view={view} />;
   if (view.state.kind !== 'exited' && view.state.kind !== 'setupFailed') return null;
   return <span className={`state-tag ${view.state.kind}`}>{stateLabel(view.state)}</span>;
 }
 
-/** `parent`가 없으면 묶음의 뿌리: 부모가 없거나 부모가 다른 묶음에 있는 노드다. */
 function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[], rename: (key: string) => Rename, note: ParentNote, acts: NodeActions): Item[] {
   return views
     .filter((v) => (parent === null ? !views.some((p) => p.id === v.parent) : v.parent === parent))
@@ -135,33 +115,26 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
 
 export function Tree(props: {
   repos: RepoView[];
-  /** 현재 저장소. 저장소 하나 범위면 그래프가 그리는 저장소이고, 커밋 그래프 칸이 보이는 저장소다. */
   current: RepoId | null;
   onRepo: (id: RepoId) => void;
-  /** 「저장소」 제목을 누르면 모든 저장소를 한 화면에 담고 고른 노드·상자·저장소 포커스를 지운다. */
   onClear: () => void;
   onAdded: (repo: RepoView) => void;
   views: ReadonlyMap<NodeId, NodeView>;
   agents: AgentView[];
   selected: NodeId | null;
   onSelect: (id: NodeId) => void;
-  /** 묶음·저장소 줄을 누르면 그래프의 그 상자를 고른다(`flowId`). */
   chosenBox: string | null;
   onChooseBox: (key: string) => void;
   settings: SettingsView;
   accounts: AccountView[] | null;
-  /** 워크트리를 만들거나 지운 뒤 저장소의 새 모양. */
   onRepoChanged: (repo: RepoView) => void;
-  /** 저장소를 목록에서 뺐다. 그래프가 그 저장소를 그리면 App이 다른 저장소로 바꾼다. */
   onRepoRemoved: (id: RepoId) => void;
-  /** 찾는 중이면 일치 목록(App의 `findSpots`), 현재 일치 번호, 줄을 눌러 현재 일치를 바꾸는 동작. 그동안 트리는 일치 줄과 그 위 줄만 보이고 모두 편다. */
   find: { query: string; found: readonly Found[]; at: number; onAt: (at: number) => void } | null;
 }) {
   const { t } = useTranslation();
   const show = useShowNodes();
   const showGroups = useShowGroups();
   const showAll = useShowAll();
-  // 폰은 그래프가 없어 묶음·저장소 줄을 누르면 접고 편다. 줄 동작은 마우스를 올려 보이는 단추 대신 줄 끝 [⋮]·길게 누르기의 판이다(목업 R3, Q457 A).
   const phone = usePhone();
   const [menu, setMenu] = useState<string | null>(null);
   const longPress = useLongPress((row) => setMenu(row.dataset.key ?? null));
@@ -171,12 +144,9 @@ export function Tree(props: {
   const hits = props.find?.found.map(foundKey) ?? [];
   const isOpen = (key: string) => props.find !== null || !closed.has(key);
   const repoKey = (id: RepoId) => `repo:${id}`;
-  // Tab으로 들어올 때 포커스를 받는 줄(roving tabindex).
   const [active, setActive] = useState('');
-  // 이름을 고치는 줄(노드, 워크트리). 그 줄은 단추 대신 div다. 단추 안에는 입력창을 두지 못한다.
   const [renaming, setRenaming] = useState<string | null>(null);
   const [opened, setOpened] = useState<Opened | null>(null);
-  // 줄 동작의 거절(저장소에 노드가 남음 등). 그 줄 아래에 보인다.
   const [refusal, setRefusal] = useState<{ key: string; text: string } | null>(null);
   const rowOf = (key: string) => document.querySelector<HTMLElement>(`button.tree-row[data-key="${CSS.escape(key)}"]`);
   const openPop = (row: HTMLElement, target: Target) => {
@@ -196,7 +166,6 @@ export function Tree(props: {
     return {
       actions: [{ label: bookmark.label, icon: <Bookmark />, pressed: bookmark.pressed, run: () => bookmark.run().catch(refuse(`node:${id}`)) }],
     rename: { label: t('rename.action'), icon: <Pencil />, run: () => setRenaming(`node:${id}`) },
-    // 카드와 같이 확인 없이 바로 지운다(docs/design.md 「노드 제거와 입양」).
     remove: { label: t('node.remove'), icon: <Trash2 />, run: () => removeNode(id).catch(refuse(`node:${id}`)) },
     };
   };
@@ -217,7 +186,6 @@ export function Tree(props: {
     });
 
   const views = [...props.views.values()];
-  /** 저장소의 묶음 줄: 뿌리 묶음만 돌려주고, 자식 묶음은 `groupItem`이 부모 묶음 아래에 단다. */
   const rootGroups = (repo: RepoView): Item[] => {
     const groups = groupsOf(repo, views);
     const parents = groupParents(groups, views);
@@ -228,7 +196,6 @@ export function Tree(props: {
     };
     const groupItem = (group: Group, at: number): Item => {
       const groupKey = `group:${group.path}`;
-      // 원래 체크아웃과 분리된 HEAD는 이름을 바꾸지 않는다. 데몬도 거절한다.
       const branch = group.kind === 'linked' ? group.branch : null;
       return {
         key: groupKey,
@@ -237,9 +204,7 @@ export function Tree(props: {
         box: group.path,
         actions: [{ label: t('graph.newNode'), icon: <Plus />, run: (row) => openPop(row, { kind: 'newNode', repo: repo.id, path: group.path }) }],
         rename: branch === null ? undefined : { label: t('rename.action'), icon: <Pencil />, run: () => setRenaming(groupKey) },
-        // 원래 체크아웃은 지우지 않는다.
         remove: group.kind === 'linked' ? { label: t('deleteWorktree.action'), icon: <Trash2 />, run: (row) => openPop(row, { kind: 'deleteWorktree', repo: repo.id, path: group.path }) } : undefined,
-        // 다른 저장소의 묶음이면 그래프를 그 저장소로 바꾼다. 그 묶음을 아직 그리지 않았어도 `showGroup`이 잰 뒤 옮긴다.
         show: () => {
           if (repo.id !== props.current) props.onRepo(repo.id);
           props.onChooseBox(group.path);
@@ -248,7 +213,6 @@ export function Tree(props: {
         row: (
           <>
             <GitBranch className="icon" />
-            {/* 긴 브랜치는 한 줄에서 줄임표로 자른다. 툴팁이 전체 이름과 경로를 보인다. 들여쓰기가 워크트리 층을 보이므로 원래 체크아웃에만 꼬리표를 단다(Orca 사이드바). */}
             {branch === null ? (
               <span className="branch" translate="no" title={`${group.label}\n${group.path}`}>
                 {group.label}
@@ -259,7 +223,6 @@ export function Tree(props: {
             {group.kind !== 'linked' && <span className="tag">{t(`worktree.${group.kind}`)}</span>}
           </>
         ),
-        // 노드 나무 뒤에 자식 묶음이 온다(그래프의 묶음 나무와 같다).
         children: [...nodeItems(inGroup(views, group), null, props.agents, rename, note(at), nodeActions), ...childGroups(at)],
       };
     };
@@ -279,9 +242,7 @@ export function Tree(props: {
         run: (row) => openPop(row, { kind: 'newWorktree', repo: repo.id }),
       },
     ],
-    // 폴더는 그대로 둔다. 노드가 남았으면 데몬이 거절한다.
     remove: { label: t('tree.removeRepo'), icon: <ListX />, run: () => removeRepo(repo.id).then(() => props.onRepoRemoved(repo.id), refuse(repoKey(repo.id))) },
-    // 그 저장소를 현재 저장소로 두고 그 묶음이 모두 보이게 옮긴다(목업 repo-scope.html 1번). 저장소 하나 범위면 그래프가 그 저장소로 바뀐다.
     show: () => {
       props.onRepo(repo.id);
       props.onChooseBox(`repo:${repo.id}`);
@@ -299,7 +260,6 @@ export function Tree(props: {
     children: rootGroups(repo),
   }));
   const roots = props.find === null ? all : keepFound(all, new Set(hits));
-  // 보이는 줄. Delete 키가 줄의 지우기 동작을 찾는다.
   const visible = new Map<string, Item>();
   const walk = (item: Item) => {
     visible.set(item.key, item);
@@ -323,7 +283,6 @@ export function Tree(props: {
     const actions = rowActions(item);
     return (
       <li key={item.key} role="treeitem" aria-expanded={branch ? open : undefined} aria-selected={item.node !== null ? item.node === props.selected : undefined}>
-        {/* 줄 단추와 동작 단추는 형제다. 단추 안에는 단추를 두지 못한다. */}
         <div className="tree-line">
           {editing ? (
             <div className="tree-row" style={{ '--depth': shown } as CSSProperties} aria-current={item.node === props.selected ? 'true' : undefined}>
@@ -344,7 +303,6 @@ export function Tree(props: {
               aria-current={(item.node !== null && item.node === props.selected) || (item.box !== undefined && item.box === props.chosenBox) ? 'true' : undefined}
               onClick={(e) => {
                 if (hit >= 0) props.find?.onAt(hit);
-                // 저장소 줄과 워크트리 줄은 그래프를 그 자리로 옮긴다. 화살표를 누르면 접고 편다.
                 if (item.show && !phone && !(e.target as Element).closest('.chev')) return item.show();
                 if (item.node === null) return toggle(item.key, !open);
                 show([item.node]);
@@ -391,10 +349,7 @@ export function Tree(props: {
     );
   };
 
-  // 트리 키보드: ↑↓ 줄 옮기기, → 펴기, ← 접기 또는 부모 줄로, F2 이름 바꾸기(노드, 워크트리), Delete 줄 지우기, Enter·Space는 단추 기본 동작(고르기).
-  // 줄의 동작 단추에 포커스가 있어도 그 줄의 키로 본다. 이름 입력창(줄이 단추가 아님)에서는 아무것도 하지 않는다.
   const onKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
-    // 보이는 줄 단추, 위에서부터.
     const rows = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('button.tree-row')];
     const current = (e.target as HTMLElement).closest('.tree-line')?.querySelector<HTMLButtonElement>('button.tree-row');
     if (!current) return;
@@ -413,7 +368,6 @@ export function Tree(props: {
     e.preventDefault();
   };
 
-  // 일치 줄의 맞는 글자를 칠한다. DOM을 바꾸지 않는 CSS Custom Highlight API다(styles.css `::highlight(find)`).
   useEffect(() => {
     const needle = props.find?.query.trim().toLocaleLowerCase();
     if (!needle || !list.current || !('highlights' in CSS)) return;
@@ -429,13 +383,11 @@ export function Tree(props: {
     CSS.highlights.set('find', new Highlight(...ranges));
     return () => void CSS.highlights.delete('find');
   });
-  // 현재 일치 줄이 트리 칸 밖이면 보이게 굴린다.
   const currentHit = props.find && hits[props.find.at];
   useEffect(() => {
     list.current?.querySelector('[data-found="current"]')?.scrollIntoView({ block: 'nearest' });
   }, [currentHit]);
 
-  /** 열린 줄 팝오버. 내용은 그래프의 팝오버 그대로다. */
   const popContent = ({ target }: Opened): ReactNode => {
     const repo = props.repos.find((r) => r.id === target.repo);
     if (!repo) return null;
@@ -549,7 +501,6 @@ export function Tree(props: {
             icon: action.icon,
             disabled: action.disabled,
             danger: action === menuItem.remove,
-            // 데스크톱은 노드를 바로 지운다. 폰은 노드 화면 [⋮] 판처럼 판 안에서 한 번 더 누른다.
             confirm: action === menuItem.remove && menuItem.node !== null,
             run: () => {
               setRefusal(null);

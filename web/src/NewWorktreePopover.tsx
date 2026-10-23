@@ -5,7 +5,6 @@ import type { RepoView } from './gen/RepoView';
 import { useDismiss } from './popover';
 import { folderName } from './repos';
 
-/** 새 워크트리(목업 workspace.html 2번). 폴더는 `<워크스페이스 폴더>/<저장소 이름>/<브랜치 마지막 마디>`이고, 데몬이 같은 규칙으로 만든다. */
 export function NewWorktreePopover(props: { repo: RepoView; workspaceDir: string; onCreated: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
   const box = useDismiss<HTMLFormElement>(props.onClose);

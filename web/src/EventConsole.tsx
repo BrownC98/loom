@@ -1,5 +1,3 @@
-// 이벤트 콘솔 칸(docs/mockups/graph-panels.html 그림 A). 노드·메시지·받은편지함 알림 이벤트를 최근 것부터 보인다.
-// 줄을 누르면 그 이벤트에 관여한 노드를 그래프에서 강조하고 본문 전문을 편다. 강조 상태는 부르는 쪽(App)이 가진다.
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -47,7 +45,6 @@ function categoryOf(entry: Entry): Category {
 
 type Family = 'question' | 'done' | 'fail';
 
-/** 알림 줄의 색 계열(목업 docs/mockups/notice-color.html A안). 사람의 답은 그 답이 닫은 알림의 계열을 따른다. 메시지는 종류를 따른다(목업 docs/mockups/typed-messages.html M17 ③). */
 function familyOf(entry: Entry): Family | undefined {
   switch (entry.kind) {
     case 'message':
@@ -92,7 +89,6 @@ function kindFamily(what: MessageKind): Family | undefined {
   }
 }
 
-/** 종류의 화면 이름. 메모의 조정·중단만 뒤에 붙인다(「메모 · 조정」). */
 function kindLabel(what: MessageKind, how: Kind, t: TFunction): string {
   switch (what.kind) {
     case 'note':
@@ -104,7 +100,6 @@ function kindLabel(what: MessageKind, how: Kind, t: TFunction): string {
   }
 }
 
-/** 접힌 줄에 보이는 칸 요약. 본문이 아닌 칸이 뜻을 가진 종류만 있다. */
 function kindSummary(what: MessageKind, t: TFunction): string | null {
   switch (what.kind) {
     case 'ready':
@@ -133,7 +128,6 @@ function kindSummary(what: MessageKind, t: TFunction): string | null {
   }
 }
 
-/** 편 줄에서 본문 칸의 이름. */
 function bodyName(what: MessageKind): 'ask' | 'answer' | 'done' | 'next' | 'output' | 'human' | 'text' {
   switch (what.kind) {
     case 'ask':
@@ -160,7 +154,6 @@ function bodyName(what: MessageKind): 'ask' | 'answer' | 'done' | 'next' | 'outp
   }
 }
 
-/** 이벤트에 관여한 노드. 메시지는 보낸·받은 노드, 입양은 자식·옛 부모·새 부모, 생성은 그 노드와 부모다. */
 function whoOf(entry: Entry): Who[] {
   switch (entry.kind) {
     case 'created':
@@ -193,10 +186,8 @@ export function involved(entry: Entry): NodeId[] {
   return whoOf(entry).flatMap((w) => (w.id === null ? [] : [w.id]));
 }
 
-/** 칸이 열린 동안의 이벤트, 최근 것부터. 열 때 최근 기록을 읽고, 그 뒤는 `onRecord`로 받은 새 기록을 위에 붙인다. */
 export function useEventLog(open: boolean): { records: EventRecord[] | null; onRecord: (record: EventRecord) => void } {
   const [records, setRecords] = useState<EventRecord[] | null>(null);
-  // 받은 마지막 기록 id. 읽는 동안은 null이다. 그 사이에 온 기록은 읽은 결과에 들어 있다.
   const newest = useRef<number | null>(null);
   const load = () => {
     newest.current = null;
@@ -214,7 +205,6 @@ export function useEventLog(open: boolean): { records: EventRecord[] | null; onR
   }, [open]);
   const onRecord = (record: EventRecord) => {
     if (newest.current === null || record.id <= newest.current) return;
-    // 번호가 건너뛰었으면 웹소켓이 끊긴 사이에 놓친 기록이 있다.
     if (record.id !== newest.current + 1) return load();
     newest.current = record.id;
     setRecords((prev) => prev && [record, ...prev]);
@@ -222,7 +212,6 @@ export function useEventLog(open: boolean): { records: EventRecord[] | null; onR
   return { records, onRecord };
 }
 
-/** 줄을 펴면 보이는 글의 조각. 메시지는 메시지 본문, 알림은 질문·결과·답 전문이다. 없으면 null이다. */
 function bodyOf(record: EventRecord, t: TFunction): TextPart[] | null {
   const { entry, parts } = record;
   switch (entry.kind) {
@@ -245,7 +234,6 @@ function KindLabel({ how }: { how: Kind }) {
 
 function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFacts | null; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }) {
   const { t } = useTranslation();
-  // 지운 노드는 그래프에 없다. 흐린 이름으로 보인다.
   const name = (w: Who) => (
     <span className={w.id !== null && views.has(w.id) ? 'who' : 'gone'} translate="no">
       {w.name}
@@ -292,7 +280,6 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
         </>
       );
     case 'relaunched':
-      // 실패한 줄은 데몬의 문장을 붙인다. 턴 끝에 다시 띄우다 실패하면 사람은 여기서만 본다.
       return (
         <>
           <span className="kind">{t('events.kind.relaunched')}</span>
@@ -343,7 +330,6 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
           {entry.what ? <span className="kind k-fail">{kindLabel(entry.what, entry.how, t)}</span> : <KindLabel how={entry.how} />}
           {name(entry.from)}→{name({ id: [...views.values()].find((v) => v.name === entry.to)?.id ?? null, name: entry.to })}
           {entry.reason.code === 'notAncestor' ? (
-            // 사람 Q603 A: main이 앞선 것은 흔한 정상 흐름이라 오류 색으로 보이지 않는다.
             <span className="note">{refusalWithoutName(entry.reason)}</span>
           ) : (
             <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
@@ -379,7 +365,6 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
       );
     case 'accountSwitched':
     case 'noAccountLeft':
-      // 계정 이름은 이 목록이 모른다. 상태 줄 알림이 이름으로 보인다.
       return (
         <>
           <span className="kind">{t(`events.kind.${entry.kind}`)}</span>
@@ -397,7 +382,6 @@ const toneClass = (what: MessageKind) => {
   return family ? TONE[family] : '';
 };
 
-/** 줄 머리 끝의 전달 단계. 질문은 그 번호, 답은 답한 질문 번호를 앞에 둔다. loom 알림은 이 말 대신 칸 요약이다(목업 M17 ① 「종료」 줄). */
 function stepNote(what: MessageKind, id: number, step: Step, t: TFunction): string {
   const stepText = t(`events.step.${step}`);
   switch (what.kind) {
@@ -410,7 +394,6 @@ function stepNote(what: MessageKind, id: number, step: Step, t: TFunction): stri
   }
 }
 
-/** 받은편지함 번호(`Q12`)와 덧붙일 말. 사람은 받은편지함에서 이 번호를 본다. */
 function WaitNote({ wait, extra }: { wait: WaitId; extra?: string }) {
   return (
     <span className="note">
@@ -420,7 +403,6 @@ function WaitNote({ wait, extra }: { wait: WaitId; extra?: string }) {
   );
 }
 
-/** 고른 줄(강조한 줄)만 본문 전문을 편다. 다시 누르면 강조와 함께 접는다(2026-10-22 사람 지시 "기존 메시지 이벤트도 클릭하면 메시지 전문이 펼쳐보이게 수정"). */
 function Row(props: { record: EventRecord; current: boolean; onClick: () => void; views: ReadonlyMap<NodeId, NodeView>; agents: AgentView[] }) {
   const { record, current } = props;
   const { entry } = record;
@@ -429,11 +411,9 @@ function Row(props: { record: EventRecord; current: boolean; onClick: () => void
   const body = bodyOf(record, t);
   const what = entry.kind === 'message' ? entry.what : undefined;
   const typed = what !== undefined && record.message !== null;
-  // 편 본문은 링크를 품으므로 줄 단추 밖에 둔다. 단추 안에 단추를 둘 수 없다(목업 docs/mockups/doc-reopen.html M13 ①②).
   const doc = entry.kind === 'asked' || entry.kind === 'reported' ? entry.doc : null;
   const node = whoOf(entry)[0]?.id ?? null;
   const summary = what ? kindSummary(what, t) : null;
-  // loom 알림의 칸 요약은 줄 머리에 있다.
   const preview = summary !== null ? (record.message?.from_loom ? null : summary) : body === null ? null : plainText(body).split('\n', 1)[0];
   const expandable = body !== null || doc !== null || typed;
   return (
@@ -503,7 +483,6 @@ export function EventConsole(props: {
 
   useEffect(() => {
     if (highlight === null) return;
-    // 터미널 안의 Esc는 터미널 앱이 쓴다.
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !(document.activeElement as HTMLElement | null)?.closest('.xterm')) onHighlight(null);
     };

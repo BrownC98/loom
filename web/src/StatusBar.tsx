@@ -17,21 +17,16 @@ import { useDismiss } from './popover';
 import { VERSION } from './version';
 
 export type Usage = {
-  /** 처음 읽기 전에는 null이다. */
   accounts: AccountView[] | null;
-  /** 위치마다 Cursor CLI 로그인. 처음 읽기 전에는 null이다. */
   cursor: CursorView[] | null;
-  /** 마지막으로 읽은 시각(ms). */
   fetchedAt: number | null;
   loading: boolean;
   refresh: () => void;
 };
 
-/** 화면 맨 아래에 늘 보이는 줄. Orca처럼 모든 공급자의 사용량이 버튼 하나다(목업 usage.html). [설정]은 사이드바에 있다(graph-panels.html 1번). */
 export function StatusBar(props: {
   usage: Usage;
   settings: SettingsView;
-  /** 고른 저장소의 WSL 배포판. 이 PC 저장소면 null이다. 사용량은 그 위치의 「사용 중」 계정이다(목업 wsl-place.html ⑦). */
   distro: string | null;
   onChoose: (provider: Provider, distro: string | null, id: AccountId | null) => void;
   onManage?: () => void;
@@ -47,10 +42,8 @@ export function StatusBar(props: {
     if (!open) usage.refresh();
     setOpen(!open);
   };
-  // 고른 저장소의 위치가 아직 목록에 없으면(배포판이 꺼져 있음) 이 PC를 보인다.
   const distro = usage.accounts?.some((a) => a.distro === props.distro) ? props.distro : null;
   const active = (provider: Provider) => (usage.accounts ? activeAccount(usage.accounts, props.settings, provider, distro) : undefined);
-  // Cursor는 Codex 뒤다. loom은 Cursor 계정을 바꾸지 않고 그 위치의 CLI 로그인만 보인다(목업 cursor-usage.html, Q666 A).
   const cursor = usage.cursor?.find((c) => c.distro === distro);
   const cursorName = cursor && (cursor.usage.email ?? t('usage.systemDefault'));
   const summary = [
@@ -99,7 +92,6 @@ export function StatusBar(props: {
           </>
         )}
       </button>
-      {/* 팝오버를 열지 않고 사용량을 다시 읽는다(2026-10-20 사람 지시 "하단 사용량 표시 섹션에 사용량 조회 새로고침 버튼 만들어"). */}
       <button className="btn ghost sm icon refresh" data-loading={usage.loading || undefined} disabled={usage.loading} aria-label={t('statusBar.refresh')} title={t('statusBar.refresh')} onClick={usage.refresh}>
         <RotateCw />
       </button>
@@ -112,7 +104,6 @@ export function StatusBar(props: {
 
 const CURSOR_LABEL = 'Cursor';
 
-/** 상태 줄의 공급자 하나: 이름과 창, 또는 볼 수 없는 이유. */
 function Segment(props: { name: string; limits: Limits }) {
   const { t } = useTranslation();
   const { limits } = props;
@@ -127,7 +118,6 @@ function Segment(props: { name: string; limits: Limits }) {
   );
 }
 
-/** 가장 새 전환 기록 한 줄. 닫거나 다음 기록이 덮기 전에는 남는다(목업 account-switch.html ③). */
 function SwitchNotice(props: { record: SwitchRecord; accounts: AccountView[] | null; onClose: () => void }) {
   const { t } = useTranslation();
   const name = (provider: Provider, id: AccountId | null) => {
@@ -146,7 +136,6 @@ function SwitchNotice(props: { record: SwitchRecord; accounts: AccountView[] | n
   );
 }
 
-/** 데스크톱 팝오버. 폰은 같은 몸통을 공용 `Sheet`에 넣는다. */
 function UsagePopover(props: { anchor: RefObject<HTMLButtonElement | null>; onClose: () => void; children: ReactNode }) {
   const { t } = useTranslation();
   const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.anchor });
@@ -170,12 +159,10 @@ function UsageBody(props: {
   cursor: CursorView | undefined;
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
-  /** 없으면 [계정 관리]를 두지 않는다. 폰에는 설정 창이 없다(목업 mobile.html ⑧). */
   onManage?: () => void;
 }) {
   const { t } = useTranslation();
   const { usage } = props;
-  /** 계정 목록을 펼친 공급자. Orca는 공급자 줄을 누르면 계정 바꾸기를 연다. */
   const [expanded, setExpanded] = useState<Provider | null>(null);
   return (
     <>
@@ -248,7 +235,6 @@ function ProviderSection(props: {
   );
 }
 
-/** Cursor 절. 계정 목록이 없어 펼치지 않는다. 창은 Orca 순서다: 묶음 뒤에 플랜(M18 v2, Q666 A). */
 function CursorSection(props: { usage: CursorView['usage'] }) {
   const { t } = useTranslation();
   const { limits } = props.usage;

@@ -1,2 +1,1 @@
-# 내장 스킬은 LF로 싣는다. Windows 체크아웃(autocrlf)이 CRLF로 바꾸면 show.sh가 bash에서 돌지 않고 머리말 분리가 틀린다.
 skills/** text eol=lf

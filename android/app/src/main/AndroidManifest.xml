@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 받은 새 APK를 Android 설치 화면으로 연다(Release.kt). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- allowBackup: 기기 토큰 쿠키(loom_device)가 백업으로 다른 기기에 가지 않게 한다. -->
     <application
         android:label="loom"
         android:icon="@mipmap/ic_launcher"
@@ -18,7 +16,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- 설치 화면이 앱 캐시의 새 APK를 읽게 한다. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.update"

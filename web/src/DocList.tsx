@@ -1,4 +1,3 @@
-// 오른쪽 사이드바 [문서] 탭(목업 docs/mockups/doc-reopen.html M13 ③). 닫힌 질문·완료의 문서도 여기서 다시 연다(2026-10-23 사람 "클로드 아티팩트처럼 상시 볼 수 있게 하면 안됨/").
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { listDocs } from './api';
@@ -10,7 +9,6 @@ import { shownDocs } from './shownDocs';
 
 const GROUPS: DocGroup[] = ['mockup', 'report'];
 
-/** 탭을 열 때마다 목록을 새로 읽는다. */
 export function DocList() {
   const { t } = useTranslation();
   const [docs, setDocs] = useState<DocRow[] | null>(null);

@@ -48,7 +48,6 @@ describe('menuSwitch', () => {
   });
 
   it('keeps a choice made under an older default and stores the switch back', () => {
-    // Chosen 'simple' under 'standard', then the default became 'simple': switching stores 'standard'.
     expect(menuSwitch(view(1, 'simple'), 'simple')).toEqual({ next: 'standard', clear: false });
   });
 });

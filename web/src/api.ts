@@ -278,7 +278,7 @@ export function attachPty(
   },
 ): PtyLink {
   const encoder = new TextEncoder();
-  // 데몬은 연결마다 첫 바이너리 프레임으로 backlog를 보낸다. 비어도 보낸다(`relay_pty`).
+  // 비어도 보낸다(`relay_pty`).
   let backlogNext = false;
   const link = reconnecting(path, {
     onOpen: () => {

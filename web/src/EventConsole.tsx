@@ -217,7 +217,12 @@ function What({ entry, views, agents }: { entry: Entry; views: ReadonlyMap<NodeI
         <>
           <KindLabel how={entry.how} />
           {name(entry.from)}→{name({ id: [...views.values()].find((v) => v.name === entry.to)?.id ?? null, name: entry.to })}
-          <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
+          {entry.reason.code === 'notAncestor' ? (
+            // 사람 Q603 A: main이 앞선 것은 흔한 정상 흐름이라 오류 색으로 보이지 않는다.
+            <span className="note">{refusalWithoutName(entry.reason)}</span>
+          ) : (
+            <span className="note err">{t('events.refused', { reason: refusalWithoutName(entry.reason) })}</span>
+          )}
         </>
       );
     case 'asked':

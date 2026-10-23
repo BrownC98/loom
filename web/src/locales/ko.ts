@@ -603,7 +603,7 @@ const ko: typeof en = {
       noRound: '{{value}}: 관문 차례가 없는 브랜치입니다. 담당이 먼저 `loom ready`를 부릅니다.',
       notOwner: '{{branch}}: 워크트리가 이 브랜치에 있는 담당만 `loom ready`를 부릅니다.',
       uncommitted: '{{value}}: 커밋하지 않은 변경이 있습니다.',
-      notAncestor: '{{target}}이(가) {{branch}}에 포함되지 않았습니다. 먼저 병합하십시오.',
+      notAncestor: '{{target}}이(가) 앞서 있어 {{branch}}에 다시 합쳐야 함',
       sameAsTarget: '{{value}}: 대상 브랜치와 같은 브랜치입니다.',
       noGate: '이 저장소에 살아 있는 CI 담당자 노드가 없습니다.',
       manyGates: '이 저장소에 CI 담당자 노드가 여럿입니다({{value}}).',

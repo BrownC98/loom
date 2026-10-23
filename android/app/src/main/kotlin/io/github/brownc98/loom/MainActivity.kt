@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -597,6 +598,12 @@ class MainActivity : ComponentActivity() {
      * 상태 줄 글자색과 바탕을 이 값으로 정한다(2026-10-23 Q464 A).
      */
     private inner class Chrome {
+        /** 터미널에서 길게 눌러 낱말이 골라질 때의 진동(2026-10-23 사람 "롱클릭시 단어 선택되면 햅틱피드백 줄것"). `performHapticFeedback`은 VIBRATE 권한이 필요 없다. */
+        @JavascriptInterface
+        fun haptic() {
+            runOnUiThread { web.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+        }
+
         /** 폰 화면이 고른 테마(`light`·`dark`)에 상태 줄과 앱이 그리는 띠·카드를 맞춘다(2026-10-23 Q464 A, 사람 "앱 업데이터도 테마 적용"). */
         @JavascriptInterface
         fun setScheme(scheme: String) {

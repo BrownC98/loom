@@ -91,9 +91,12 @@ function Badges(props: { view: NodeView }) {
         </button>
       )}
       <NoticeChips view={view} />
-      <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
-        {stateLabel(view.state)}
-      </span>
+      {/* 실행 중·완료는 칩이 없다. 사람이 할 일이 있는 종료·설정 실패만 보인다(노드 줄 StateTag와 같은 규칙, 2026-10-23 사람 지시: 쉬는 노드도 「실행 중」으로 보여 헷갈렸다). */}
+      {(view.state.kind === 'exited' || view.state.kind === 'setupFailed') && (
+        <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
+          {stateLabel(view.state)}
+        </span>
+      )}
     </>
   );
 }

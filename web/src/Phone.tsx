@@ -254,9 +254,11 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
           </span>
         </span>
         <NoticeChips view={view} />
-        <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
-          {stateLabel(view.state)}
-        </span>
+        {(view.state.kind === 'exited' || view.state.kind === 'setupFailed') && (
+          <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
+            {stateLabel(view.state)}
+          </span>
+        )}
         <button type="button" className="phone-icon" aria-label={t('phone.actions')} aria-haspopup="dialog" onClick={() => setSheet('actions')}>
           <EllipsisVertical aria-hidden="true" />
         </button>

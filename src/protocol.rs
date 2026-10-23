@@ -220,6 +220,18 @@ pub fn receivers(call: GateCall, target: Target) -> &'static [Receiver] {
 pub const KEPT_FOR_CALLER: &str =
     "No other node receives this. loom keeps it in your inbox as the gate record.";
 
+pub fn held_step(to: Receiver, reviewers: &[String]) -> String {
+    let names = reviewers.join(", ");
+    match to {
+        Receiver::Owner => format!(
+            "Next: do not commit to this branch. loom holds it until {names} judge it, or the gate removes them with `loom rm`."
+        ),
+        Receiver::Gate | Receiver::Root => format!(
+            "Next: loom holds the branch until {names} judge it, or you remove them with `loom rm <name>`."
+        ),
+    }
+}
+
 pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
     match (call, to) {
         (GateCall::Ready, _) => format!(

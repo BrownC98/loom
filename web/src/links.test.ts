@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { linkParts, plainText } from './links';
+import { DOC_LINK, linkParts, plainText } from './links';
 
 describe('linkParts', () => {
   it('splits markdown links out of the text', () => {
@@ -14,6 +14,13 @@ describe('linkParts', () => {
   });
   it('ignores other schemes', () => {
     expect(linkParts('[x](javascript:alert(1))')).toEqual([{ text: '[x](javascript:alert(1))' }]);
+  });
+  it('splits the attached doc link', () => {
+    expect(linkParts(`open [R9 tool](${DOC_LINK}), then pick`)).toEqual([
+      { text: 'open ' },
+      { label: 'R9 tool', href: DOC_LINK },
+      { text: ', then pick' },
+    ]);
   });
   it('keeps only labels in plain text', () => {
     expect(plainText('see [b.html](file:///x/b.html).')).toBe('see b.html.');

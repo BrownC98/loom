@@ -88,6 +88,65 @@ pub fn attach(path: &Path) -> Result<Attached, String> {
     })
 }
 
+/// 본문 속 문서 링크의 주소 표지. 화면(`web/src/links.ts` `DOC_LINK`)이 이 자리에 붙은 문서의 링크를 그린다.
+/// 근거: 2026-10-23 사람 지시 "질문 목업 링크도 아래 완료의 링크처럼 본문에 하이퍼 링크 달리는 방식으로 만들어줘".
+pub const DOC_LINK: &str = "loom:doc";
+
+/// 글 속 markdown 링크 `[이름](주소)` 가운데 주소가 `doc` 파일인 것의 주소를 `DOC_LINK`로 바꾼다.
+/// 주소는 `file://` 주소(퍼센트 인코딩 포함)나 경로이고, WSL 노드의 Linux 경로도 받는다. 파일 경로는 데몬만 알아야 하므로 글에 남기지 않는다.
+pub fn inline_link(text: &str, doc: &Path) -> String {
+    let Ok(doc) = real_path(doc) else {
+        return text.to_owned();
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let (before, link) = rest.split_at(open);
+        out.push_str(before);
+        let parsed = link[1..].split_once("](").and_then(|(label, after)| {
+            let target = after.split_once(')')?.0;
+            let ok = !label.is_empty()
+                && !label.contains(['[', ']', '\n'])
+                && !target.is_empty()
+                && !target.contains(char::is_whitespace);
+            ok.then_some((label, target))
+        });
+        match parsed {
+            Some((label, target))
+                if link_path(target).is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
+            {
+                out.push_str(&format!("[{label}]({DOC_LINK})"));
+                rest = &link[label.len() + target.len() + 4..];
+            }
+            _ => {
+                out.push('[');
+                rest = &link[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 링크 주소가 가리키는 파일 경로. `file:///C:/…`는 `C:/…`, `file://host/…`는 UNC `//host/…`다.
+fn link_path(target: &str) -> Option<PathBuf> {
+    let path = match target.strip_prefix("file://") {
+        Some(rest) => {
+            let rest = percent_encoding::percent_decode_str(rest)
+                .decode_utf8()
+                .ok()?;
+            match rest.strip_prefix('/') {
+                Some(local) if local.as_bytes().get(1) == Some(&b':') => local.to_owned(),
+                Some(_) => rest.into_owned(),
+                None => format!("//{rest}"),
+            }
+        }
+        None if target.contains("://") => return None,
+        None => target.to_owned(),
+    };
+    Some(crate::wsl::from_caller(PathBuf::from(path)))
+}
+
 /// 글 문서의 제목: 첫 markdown 제목 줄(`# …`), 없으면 파일 이름.
 fn text_title(text: &str, path: &Path) -> String {
     let heading = text
@@ -255,6 +314,38 @@ mod tests {
             refused.contains("put images inside an HTML file"),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn a_link_to_the_doc_becomes_the_doc_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("목업 a.html");
+        let other = dir.path().join("b.html");
+        fs::write(&doc, "").unwrap();
+        fs::write(&other, "").unwrap();
+        // Windows 경로는 `file:///C:/…`다.
+        let slashed = doc.display().to_string().replace('\\', "/");
+        let url = format!(
+            "file://{}{}",
+            if slashed.starts_with('/') { "" } else { "/" },
+            percent_encoding::utf8_percent_encode(&slashed, percent_encoding::NON_ALPHANUMERIC)
+                .to_string()
+                .replace("%2F", "/")
+                .replace("%3A", ":")
+        );
+        let other = other.display().to_string();
+        let text = format!("[문헌 도구]({url}) 승인? [다른]({other}) [x] (y) [웹](https://a.b/c)");
+        assert_eq!(
+            inline_link(&text, &doc),
+            format!("[문헌 도구]({DOC_LINK}) 승인? [다른]({other}) [x] (y) [웹](https://a.b/c)")
+        );
+        assert_eq!(inline_link("승인? (A / B)", &doc), "승인? (A / B)");
+    }
+
+    #[test]
+    fn the_web_knows_the_doc_link() {
+        let links = include_str!("../web/src/links.ts");
+        assert!(links.contains(&format!("DOC_LINK = '{DOC_LINK}'")));
     }
 
     #[test]

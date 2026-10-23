@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { wordBounds } from './touchTerminal';
+import { describe, expect, it, vi } from 'vitest';
+import { hapticTick, wordBounds } from './touchTerminal';
 
 const SEP = " ()[]{}',\"`";
 const cells = (text: string) => Array.from(text);
@@ -16,5 +16,18 @@ describe('wordBounds', () => {
   });
   it('keeps the second half of a wide char in the word', () => {
     expect(wordBounds(['中', '', '文', '', ' ', 'x'], 1, SEP)).toEqual({ start: 0, end: 3 });
+  });
+});
+
+describe('hapticTick', () => {
+  it('uses the app bridge when it exists, else the browser vibration', () => {
+    const calls: string[] = [];
+    vi.stubGlobal('window', { loomChrome: { haptic: () => calls.push('app') } });
+    vi.stubGlobal('navigator', { vibrate: () => calls.push('web') });
+    hapticTick();
+    vi.stubGlobal('window', {});
+    hapticTick();
+    vi.unstubAllGlobals();
+    expect(calls).toEqual(['app', 'web']);
   });
 });

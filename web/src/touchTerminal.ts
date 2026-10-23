@@ -8,6 +8,13 @@ export const SLOP_PX = 10;
 /** 휠 눈금 하나의 `wheelDeltaY`. */
 const WHEEL_NOTCH = 120;
 
+/** 길게 눌러 낱말이 골라진 순간의 진동. 안드로이드 앱의 `loomChrome.haptic`(옛 APK에는 없다), 없으면 브라우저 진동. */
+export function hapticTick() {
+  const chrome = (window as unknown as { loomChrome?: { haptic?: () => void } }).loomChrome;
+  if (chrome?.haptic) chrome.haptic();
+  else navigator.vibrate?.(15);
+}
+
 export type TouchSelection = { x: number; y: number };
 
 type Cell = { col: number; row: number };
@@ -141,8 +148,9 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
     });
   });
 
-  const wheel = (lines: number) => {
-    const event = new WheelEvent('wheel', { deltaY: lines, deltaMode: WheelEvent.DOM_DELTA_LINE, bubbles: true, cancelable: true });
+  // 위치를 주지 않으면 휠 보고가 화면 왼쪽 위 칸(1;1)으로 간다. 마우스 추적 TUI(Codex)는 손가락 자리의 칸으로 받는다.
+  const wheel = (lines: number, clientX: number, clientY: number) => {
+    const event = new WheelEvent('wheel', { clientX, clientY, deltaY: lines, deltaMode: WheelEvent.DOM_DELTA_LINE, bubbles: true, cancelable: true });
     // 스크롤백 처리기(VS Code 스크롤 칸)는 `deltaY`가 아니라 옛 필드 `wheelDeltaY`를 읽는다(눈금 하나가 -120). 만든 이벤트는 그 값이 0이라 스크롤하지 않는다.
     Object.defineProperty(event, 'wheelDeltaY', { value: -lines * WHEEL_NOTCH });
     // 진짜 휠처럼 화면(`.xterm-screen`)에서 시작해 위로 올린다. 스크롤백 처리기는 위 `.xterm-scrollable-element`에, 마우스 모드 처리기는 `xterm.element`에 붙어 있다.
@@ -177,6 +185,7 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
       // 열린 키보드를 닫는다. 고른 글을 가린다.
       xterm.blur();
       pick(next.word.from, next.word.to);
+      hapticTick();
     }, LONG_PRESS_MS);
     // 새로 누르면 앞 고르기는 끝낸다.
     xterm.clearSelection();
@@ -214,7 +223,7 @@ export function attachTouchGestures(xterm: XTerm, el: HTMLElement, onSelect: (at
     const lines = Math.trunc(state.carry);
     if (lines === 0) return;
     state.carry -= lines;
-    wheel(lines);
+    wheel(lines, x, y);
   };
 
   const onEnd = (e: TouchEvent) => {

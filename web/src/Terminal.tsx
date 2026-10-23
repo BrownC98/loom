@@ -323,6 +323,8 @@ export function SizingTerminal(props: TerminalProps) {
       };
       // `slow`일 때 모은 출력과 크기 알림. 온 차례대로 xterm에 넘긴다. 크기 알림이 그 뒤 출력의 모양을 정하기 때문이다.
       const held: (() => void)[] = [];
+      // 그리는 중인 backlog 수. 0보다 크면 xterm이 낸 입력을 PTY에 보내지 않는다. 그 사이(수 ms) 사람이 친 키도 버린다. xterm은 답과 키를 같은 `onData`로 낸다.
+      let replaying = 0;
       const flush = () => {
         for (const step of held.splice(0)) step();
       };
@@ -343,6 +345,13 @@ export function SizingTerminal(props: TerminalProps) {
           xterm.reset();
           decide();
         },
+        // backlog 속 질의(OSC 10·11·4, 커서 위치 등)는 프로그램이 오래전에 보냈다. xterm이 지금 답하면 그 답이 늦은 키 입력으로 간다.
+        // 실측(2026-10-23): 카드를 열 때마다 셸 노드에 `^[]11;rgb:0a0a/…`가 글로 찍혔다. 그래서 backlog를 그리는 동안 xterm의 답을 버린다.
+        onBacklog: (bytes) =>
+          feed(() => {
+            replaying += 1;
+            xterm.write(bytes, () => (replaying -= 1));
+          }),
         onOutput: (bytes) => feed(() => xterm.write(bytes)),
         onNotice: (notice) => {
           if (notice === 'gone') feed(() => xterm.write(`${i18next.t('terminal.gone')}\r\n`));
@@ -390,7 +399,9 @@ export function SizingTerminal(props: TerminalProps) {
       };
       // xterm의 paste 처리기보다 먼저 받는다.
       el.addEventListener('paste', pasteImage, true);
-      const input = xterm.onData((data) => link.sendInput(data));
+      const input = xterm.onData((data) => {
+        if (replaying === 0) link.sendInput(data);
+      });
       latest.current.onSender?.((data) => {
         claim();
         link.sendInput(data);

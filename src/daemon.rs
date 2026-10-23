@@ -2407,19 +2407,20 @@ async fn pty(
         app.sleeps.knocked(id);
     };
     let id = NodeId(id);
-    if app.host.attach(id).is_none() && app.graph.asleep(id).unwrap_or(false) {
-        return asleep_pty(ws, via, app, id);
+    if app.host.attach(id).is_none() && app.graph.reachable(id).unwrap_or(false) {
+        return coming_pty(ws, via, app, id);
     }
     serve_pty(ws, via, app, |app| &app.host, typed, id)
 }
 
-/// 잠든 노드에 PTY가 없을 때 화면 연결이 PTY를 다시 보는 간격. 화면이 끊긴 연결을 다시 여는 간격(`web/src/api.ts` `RECONNECT_MS`)과 같다.
-const ASLEEP_PTY_CHECK: Duration = Duration::from_secs(1);
+/// PTY를 기다리는 화면 연결이 PTY를 다시 보는 간격. 화면이 끊긴 연결을 다시 여는 간격(`web/src/api.ts` `RECONNECT_MS`)과 같다.
+const COMING_PTY_CHECK: Duration = Duration::from_secs(1);
 
-/// 데몬이 다시 시작하면 잠든 노드의 PTY는 없다. 화면 연결을 열어 두고 키가 오면 깨운다. 새 PTY가 생기거나 노드가 잠들지 않게 되면
-/// 연결을 닫는다. 화면은 다시 열어 새 PTY에 붙는다. 근거: 「터미널이 닫혔다」(`PtyNotice::Gone`)를 받은 연결은 다시 열지 않아,
-/// 키로 깨울 수 없고 깨운 노드도 따라가지 못했다(관문 검토 노드수명 P2).
-fn asleep_pty(
+/// 메시지를 받는 노드(`Graph::reachable`)에 PTY가 아직 없다. 데몬이 다시 시작해 잠든 노드의 PTY가 없거나, 새 프로세스가 아직 뜨는 중이다.
+/// 화면 연결을 열어 두고 키가 오면 깨운다(잠든 노드만 깬다). PTY가 생기거나 노드가 메시지를 받지 않게 되면(띄우기 실패, 끝남) 연결을 닫는다.
+/// 화면은 다시 열어 새 PTY에 붙거나 「터미널이 닫혔다」를 받는다. 근거: 그 안내를 받은 연결은 다시 열지 않아, 키로 깨울 수 없고 깨운 노드도
+/// 따라가지 못했다. 잠든 표시만 보면 표시를 지운 뒤 PTY가 생기기 전(호스트가 늦게 뜰 때)에 닫아 같은 길에 빠졌다(관문 검토 노드수명 P2, 2차).
+fn coming_pty(
     ws: WebSocketUpgrade,
     via: Option<Extension<ViaRemote>>,
     app: Arc<App>,
@@ -2428,7 +2429,7 @@ fn asleep_pty(
     let devices = app.devices.clone();
     ws.on_upgrade(move |mut socket| {
         origin::until_removed(devices, via, async move {
-            let mut check = tokio::time::interval(ASLEEP_PTY_CHECK);
+            let mut check = tokio::time::interval(COMING_PTY_CHECK);
             loop {
                 tokio::select! {
                     frame = socket.next() => match frame {
@@ -2437,7 +2438,7 @@ fn asleep_pty(
                         Some(Err(_)) | None => return,
                     },
                     _ = check.tick() => {
-                        if app.host.attach(id).is_some() || !app.graph.asleep(id).unwrap_or(false) {
+                        if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
                             let _ = socket.send(Message::Close(None)).await;
                             return;
                         }

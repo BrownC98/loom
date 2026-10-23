@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use super::events::{self, ClosedBy, Entry};
 use super::waits::Prompt;
 use super::{
-    CardView, Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, Refusal, Toward,
-    TreeLimits, ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of,
+    CardView, Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, REACHABLE, Refusal,
+    Toward, TreeLimits, ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of,
     set_state, state_of, to_json, waits,
 };
 use crate::accounts::AccountId;
@@ -358,6 +358,15 @@ impl Graph {
     /// 데몬이 재운 노드(`slept`). 메시지나 사람 입력에 깨운다.
     pub fn asleep(&self, id: NodeId) -> rusqlite::Result<bool> {
         asleep(&self.lock(), id)
+    }
+
+    /// 프로세스가 살았거나 잠든 노드(`REACHABLE`). 깨우는 동안에도 참이다. 띄우기에 실패하면(`lost`) 거짓이 된다.
+    pub fn reachable(&self, id: NodeId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            &format!("SELECT {REACHABLE} FROM nodes WHERE id = ?1"),
+            [id.0],
+            |row| row.get(0),
+        )
     }
 
     /// 잠든 노드를 깨우지 못했다. `exited`로 바꾸고 부모에게 알린다. 그 뒤로는 메시지를 받지 않아(`REACHABLE`) 깨우기를 되풀이하지 않는다.

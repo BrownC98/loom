@@ -2115,6 +2115,25 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     ));
 }
 
+/// 깨우는 동안(잠든 표시를 지운 뒤 새 PTY가 생기기 전) 노드는 메시지를 받는 노드로 남는다. 터미널 연결은 이것을 보고 PTY를 기다린다.
+/// 띄우기에 실패하면(`lost`) 받지 않는 노드가 되어 연결이 닫힌다.
+#[test]
+fn a_waking_node_stays_reachable_until_its_launch_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    g.done(worker, &report("finished"), None, &[], None, None)
+        .unwrap();
+    assert!(g.slept(worker).unwrap());
+    assert!(g.reachable(worker).unwrap());
+    g.relaunched(worker, &launched()).unwrap();
+    assert!(!g.asleep(worker).unwrap());
+    assert!(g.reachable(worker).unwrap());
+    g.lost(worker).unwrap();
+    assert!(!g.reachable(worker).unwrap());
+}
+
 /// 데몬이 재운 노드는 `done`으로 남고 메시지를 받는다. 깨우는 메시지만 깨운다. 깨우지 못하면 `exited`가 되어 받지 않는다.
 /// 다른 까닭으로 끝난 완료 노드(호스트를 잃었다)는 잠든 노드가 아니다. 프로세스가 남았을 수 있어 깨우지 않는다.
 #[test]

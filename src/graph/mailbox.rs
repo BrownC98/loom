@@ -489,15 +489,25 @@ impl Graph {
 
     /// 프로세스가 사는 에이전트 노드 가운데 아직 꺼내지 않은 메시지에 깨우는 메시지가 있는 노드. 알림만 남은 노드는 깨우지 않는다(`Delivery::wakes`).
     pub fn waking_agents(&self) -> Result<Vec<(NodeId, AgentId)>, Refusal> {
+        self.waking(None)
+    }
+
+    /// `waking_agents`에 이 노드가 있으면 그 에이전트.
+    pub fn waking_agent(&self, node: NodeId) -> Result<Option<AgentId>, Refusal> {
+        Ok(self.waking(Some(node))?.pop().map(|(_, agent)| agent))
+    }
+
+    fn waking(&self, only: Option<NodeId>) -> Result<Vec<(NodeId, AgentId)>, Refusal> {
         let db = self.lock();
         let mut found = db.prepare(
             "SELECT m.id, m.sender_name, m.kind, m.body, m.what, n.id, n.agent
              FROM messages m JOIN nodes n ON n.id = m.recipient
              WHERE n.agent != 'null' AND n.process_exited = 0 AND m.delivered = 0 AND m.sent_at IS NULL
+             AND (?1 IS NULL OR n.id = ?1)
              ORDER BY n.id, m.id",
         )?;
         let rows = found
-            .query_map([], |row| {
+            .query_map([only.map(|n| n.0)], |row| {
                 Ok((
                     read_delivery(row)?,
                     NodeId(row.get(5)?),

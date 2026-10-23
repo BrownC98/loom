@@ -3,7 +3,7 @@
 //! 근거: docs/design.md 「전달 지점」.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::App;
@@ -28,40 +28,58 @@ impl App {
         }
         let (app, agent) = (self.clone(), agent.clone());
         tokio::task::spawn_blocking(move || {
-            wake(&app.host, &app.idle, &app.first_inputs, node, &agent)
+            let waking = || app.graph.waking_agent(node).is_ok_and(|a| a.is_some());
+            let tools = Tools {
+                host: &app.host,
+                idle: &app.idle,
+                first_inputs: &app.first_inputs,
+                woken: &app.woken,
+            };
+            wake(&tools, node, &agent, waking)
         })
         .await
         .unwrap_or(false)
     }
 }
 
+/// 깨우기가 쓰는 데몬 부품.
+struct Tools<'a> {
+    host: &'a NodeHost<NodeId>,
+    idle: &'a IdleWaits,
+    first_inputs: &'a FirstInputs,
+    woken: &'a Woken,
+}
+
 /// 쉬는 대기가 없는 노드의 화면이 쉬는 빈 입력 칸이면 깨우는 입력을 친다. 쳤으면 참이다.
 /// 턴 중인지는 화면으로 본다. 턴 표시(`IdleWaits::in_turn`)는 stop 훅이 없으면 턴이 끝나도 지워지지 않는다(2026-10-23 시험 데몬 실측: 한 번 깨운 노드가 다음 메시지를 받지 못했다).
-/// 화면을 읽고 글·Enter를 치는 동안 입력 잠금을 쥔다. 그 사이 사람이 친 키가 끼지 않는다(`NodeHost::write_paced_if`). `SUBMIT_AFTER`만큼 잠든다.
-fn wake(
-    host: &NodeHost<NodeId>,
-    idle: &IdleWaits,
-    first_inputs: &FirstInputs,
-    node: NodeId,
-    agent: &AgentId,
-) -> bool {
+/// 아래를 모두 입력 잠금 안에서 본다(`NodeHost::write_paced_if`). 그 사이 사람이 친 키는 Enter 뒤에 간다. `SUBMIT_AFTER`만큼 잠든다.
+/// - 화면이 마지막으로 친 키 뒤의 화면이다(`Keys::fresh_screen`). 사람이 막 친 키나 앞서 깨운 글이 아직 화면에 없으면 치지 않는다.
+/// - `waking`: 아직 깨우는 메시지가 있다. 후보를 고른 뒤 훅이 꺼냈으면 치지 않는다.
+/// - `WAKE_AFTER` 안에 이 노드를 깨운 적이 없다(`Woken`). 친 글이 화면에 보이기 전 다시 치지 않는다.
+fn wake(tools: &Tools, node: NodeId, agent: &AgentId, waking: impl FnOnce() -> bool) -> bool {
     let Some(wake) = profile::wake(profile::profile_of(agent)) else {
         return false;
     };
-    if idle.waiting(node) {
+    if tools.idle.waiting(node) {
         return false;
     }
-    host.write_paced_if(node, SUBMIT_AFTER, |keys| {
-        if !wake.input.shown(&keys.screen().text) {
-            return Err(());
-        }
-        first_inputs.typing(node);
-        Ok(vec![wake.prompt.as_bytes().to_vec(), b"\r".to_vec()])
-    })
-    .is_ok()
+    tools
+        .host
+        .write_paced_if(node, SUBMIT_AFTER, |keys| {
+            let idle_input = keys
+                .fresh_screen()
+                .is_some_and(|screen| wake.input.shown(&screen.text));
+            if !idle_input || !waking() || !tools.woken.claim(node, Instant::now()) {
+                return Err(());
+            }
+            tools.first_inputs.typing(node);
+            Ok(vec![wake.prompt.as_bytes().to_vec(), b"\r".to_vec()])
+        })
+        .is_ok()
 }
 
-/// 쉬는 대기 없이 `WAKE_AFTER` 넘게 쉬며 메시지를 받지 못한 노드를 깨운다. 데몬이 사는 동안 돈다.
+/// 쉬는 대기 없이 `WAKE_AFTER` 넘게 쉬는 빈 입력 칸을 보이며 메시지를 받지 못한 노드를 깨운다. 데몬이 사는 동안 돈다.
+/// 일하는 동안은 세지 않는다. 턴이 끝난 뒤 stop 훅이 대기를 열 시간을 준다.
 pub(super) async fn watch(app: Arc<App>) {
     let mut stuck = Stuck::default();
     loop {
@@ -75,9 +93,7 @@ pub(super) async fn watch(app: Arc<App>) {
         };
         let unwaited: Vec<(NodeId, AgentId)> = waking
             .into_iter()
-            .filter(|(node, agent)| {
-                profile::wake(profile::profile_of(agent)).is_some() && !app.idle.waiting(*node)
-            })
+            .filter(|(node, agent)| idle_unwaited(&app.host, &app.idle, *node, agent))
             .collect();
         let due = stuck.due(Instant::now(), unwaited.iter().map(|(node, _)| *node));
         for (node, agent) in unwaited.iter().filter(|(node, _)| due.contains(node)) {
@@ -85,6 +101,32 @@ pub(super) async fn watch(app: Arc<App>) {
                 stuck.0.remove(node);
             }
         }
+    }
+}
+
+/// 깨우는 프로필이고, 쉬는 대기가 없고, 지금 화면이 쉬는 빈 입력 칸이다.
+fn idle_unwaited(host: &NodeHost<NodeId>, idle: &IdleWaits, node: NodeId, agent: &AgentId) -> bool {
+    profile::wake(profile::profile_of(agent)).is_some_and(|wake| {
+        !idle.waiting(node)
+            && host
+                .fresh_screen(node)
+                .is_some_and(|screen| wake.input.shown(&screen.text))
+    })
+}
+
+/// 노드마다 마지막으로 깨운 때.
+#[derive(Default)]
+pub(super) struct Woken(Mutex<HashMap<NodeId, Instant>>);
+
+impl Woken {
+    /// `WAKE_AFTER` 안에 깨운 적이 없으면 `now`에 깨운 것으로 적고 참이다.
+    fn claim(&self, node: NodeId, now: Instant) -> bool {
+        let mut woken = self.0.lock().unwrap();
+        if woken.get(&node).is_some_and(|at| now - *at < WAKE_AFTER) {
+            return false;
+        }
+        woken.insert(node, now);
+        true
     }
 }
 
@@ -140,13 +182,13 @@ mod tests {
         use super::*;
         use crate::node_host;
 
-        /// 화면을 그리고, 받은 키를 그대로 출력하는 가짜 Cursor.
-        fn fake_cursor(dir: &std::path::Path, screen: &str) -> NodeHost<NodeId> {
+        /// 화면을 그리고, 받은 키를 `then`(셸 명령)에 넘기는 가짜 Cursor.
+        fn fake_cursor_then(dir: &std::path::Path, screen: &str, then: &str) -> NodeHost<NodeId> {
             // `-icrnl`: 친 Enter(`\r`)를 바꾸지 않고 그대로 돌려받는다.
             let mut cmd = portable_pty::CommandBuilder::new("sh");
             cmd.args([
                 "-c",
-                &format!("stty -icanon -echo -icrnl; printf '%s' '{screen}'; exec cat"),
+                &format!("stty -icanon -echo -icrnl; printf '%s' '{screen}'; exec {then}"),
             ]);
             node_host::in_process(dir, NodeId(1), cmd);
             let host = NodeHost::new(dir.to_path_buf());
@@ -155,6 +197,11 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(10));
             }
             host
+        }
+
+        /// 받은 키를 그대로 화면에 다시 그리는 가짜 Cursor.
+        fn fake_cursor(dir: &std::path::Path, screen: &str) -> NodeHost<NodeId> {
+            fake_cursor_then(dir, screen, "cat")
         }
 
         /// 마지막 표시 「Z」까지 읽어 지금까지 친 키를 돌려준다.
@@ -171,6 +218,25 @@ mod tests {
             seen
         }
 
+        #[derive(Default)]
+        struct Parts {
+            idle: IdleWaits,
+            inputs: FirstInputs,
+            woken: Woken,
+        }
+
+        impl Parts {
+            fn wake(&self, host: &NodeHost<NodeId>, agent: &str, waking: bool) -> bool {
+                let tools = Tools {
+                    host,
+                    idle: &self.idle,
+                    first_inputs: &self.inputs,
+                    woken: &self.woken,
+                };
+                wake(&tools, NodeId(1), &AgentId(agent.into()), || waking)
+            }
+        }
+
         const IDLE: &str =
             "  done\n\n  → Add a follow-up\n\n  Claude Sonnet 5 300K High  cur @ master\n";
         const BUSY: &str = "  → Add a follow-up      ctrl+c to stop\n\n  Claude Sonnet 5 300K High  cur @ master\n";
@@ -178,32 +244,34 @@ mod tests {
         /// 대화 기록에 자리 표시 글과 같은 줄이 있어도 입력 칸(마지막 「→ 」 줄)은 사람이 쓰던 글이다.
         const DRAFT_BELOW_LOOKALIKE: &str = "  → Add a follow-up\n  done\n\n  → half a sentence\n\n  Claude Sonnet 5 300K High  cur @ master\n";
 
-        /// 쉬는 대기 없이 쉬는 Cursor 노드는 메시지를 받지 못했다. 깨우는 입력과 Enter를 친다.
+        /// 쉬는 대기 없이 쉬는 Cursor 노드는 메시지를 받지 못했다. 깨우는 입력과 Enter를 한 번 친다.
         #[test]
-        fn an_idle_cursor_without_a_wait_gets_the_wake_prompt() {
+        fn an_idle_cursor_without_a_wait_gets_the_wake_prompt_once() {
             let dir = tempfile::tempdir().unwrap();
             let host = fake_cursor(dir.path(), IDLE);
             let mut typed = host.attach(NodeId(1)).unwrap().output;
-            let idle = IdleWaits::default();
-            let inputs = FirstInputs::default();
-            let cursor = AgentId("cursor".into());
-            assert!(wake(&host, &idle, &inputs, NodeId(1), &cursor));
+            let parts = Parts::default();
+            // 고른 뒤 훅이 메시지를 꺼냈으면 치지 않는다.
+            assert!(!parts.wake(&host, "cursor", false));
+            assert!(parts.wake(&host, "cursor", true));
             assert_eq!(
                 typed_until_mark(&host, &mut typed),
                 format!("{}\rZ", profile::cursor::WAKE.prompt)
             );
             assert!(
-                inputs.injected(NodeId(1)),
+                parts.inputs.injected(NodeId(1)),
                 "the wake prompt is not human input"
             );
+            // 가짜 화면은 여전히 빈 입력 칸이다. 그래도 방금 깨운 노드에 다시 치지 않는다.
+            assert!(!parts.wake(&host, "cursor", true));
 
+            let parts = Parts::default();
             // 쉬는 대기가 있으면 그 대기가 넘긴다. 치지 않는다.
-            let _ = idle.open(NodeId(1));
-            assert!(!wake(&host, &idle, &inputs, NodeId(1), &cursor));
+            let _ = parts.idle.open(NodeId(1));
+            assert!(!parts.wake(&host, "cursor", true));
             // 훅 프로필이 아닌 노드에는 치지 않는다.
-            idle.end(NodeId(1));
-            let codex = AgentId("codex".into());
-            assert!(!wake(&host, &idle, &inputs, NodeId(1), &codex));
+            parts.idle.end(NodeId(1));
+            assert!(!parts.wake(&host, "codex", true));
             assert_eq!(typed_until_mark(&host, &mut typed), "Z");
             host.kill(NodeId(1));
         }
@@ -216,15 +284,7 @@ mod tests {
             let mut typed = host.attach(NodeId(1)).unwrap().output;
             let waker = {
                 let host = host.clone();
-                std::thread::spawn(move || {
-                    wake(
-                        &host,
-                        &IdleWaits::default(),
-                        &FirstInputs::default(),
-                        NodeId(1),
-                        &AgentId("cursor".into()),
-                    )
-                })
+                std::thread::spawn(move || Parts::default().wake(&host, "cursor", true))
             };
             let prompt = profile::cursor::WAKE.prompt;
             let mut seen = String::new();
@@ -239,6 +299,58 @@ mod tests {
             host.kill(NodeId(1));
         }
 
+        /// 사람이 친 키가 아직 화면에 오지 않았으면 빈 입력 칸으로 보여도 치지 않는다.
+        #[test]
+        fn a_screen_older_than_the_last_key_is_not_trusted() {
+            let dir = tempfile::tempdir().unwrap();
+            let keys = dir.path().join("keys");
+            let host = fake_cursor_then(dir.path(), IDLE, &format!("cat > '{}'", keys.display()));
+            host.write_if(NodeId(1), |_| Ok::<_, ()>(b"h".to_vec()))
+                .unwrap();
+            while std::fs::read(&keys).unwrap_or_default().is_empty() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(
+                profile::cursor::WAKE
+                    .input
+                    .shown(&host.screen(NodeId(1)).text)
+            );
+            assert!(!Parts::default().wake(&host, "cursor", true));
+            assert!(!idle_unwaited(
+                &host,
+                &IdleWaits::default(),
+                NodeId(1),
+                &AgentId("cursor".into())
+            ));
+            assert_eq!(std::fs::read(&keys).unwrap(), b"h");
+            host.kill(NodeId(1));
+        }
+
+        /// 일하는 동안은 유예를 세지 않는다. 쉬는 빈 입력 칸이 된 때부터 `WAKE_AFTER`를 다 센다.
+        #[test]
+        fn the_grace_starts_when_the_input_turns_idle() {
+            let dir = tempfile::tempdir().unwrap();
+            let host = fake_cursor(dir.path(), BUSY);
+            let idle = IdleWaits::default();
+            let cursor = AgentId("cursor".into());
+            let mut stuck = Stuck::default();
+            let mut ready = |at| {
+                let seen = idle_unwaited(&host, &idle, NodeId(1), &cursor).then_some(NodeId(1));
+                stuck.due(at, seen.into_iter())
+            };
+            let start = Instant::now();
+            assert!(ready(start).is_empty());
+            let redraw = format!("\x1b[2J\x1b[H{IDLE}");
+            host.write_if(NodeId(1), |_| Ok::<_, ()>(redraw.into_bytes()))
+                .unwrap();
+            while !idle_unwaited(&host, &idle, NodeId(1), &cursor) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(ready(start + WAKE_AFTER).is_empty());
+            assert!(ready(start + WAKE_AFTER * 2).contains(&NodeId(1)));
+            host.kill(NodeId(1));
+        }
+
         /// 일하는 화면이나 사람이 쓰던 글이 있는 입력 칸에는 치지 않는다.
         #[test]
         fn a_busy_or_drafted_input_is_not_typed_into() {
@@ -246,16 +358,9 @@ mod tests {
                 let dir = tempfile::tempdir().unwrap();
                 let host = fake_cursor(dir.path(), screen);
                 let mut typed = host.attach(NodeId(1)).unwrap().output;
-                let inputs = FirstInputs::default();
-                let woke = wake(
-                    &host,
-                    &IdleWaits::default(),
-                    &inputs,
-                    NodeId(1),
-                    &AgentId("cursor".into()),
-                );
-                assert!(!woke, "{screen}");
-                assert!(!inputs.injected(NodeId(1)));
+                let parts = Parts::default();
+                assert!(!parts.wake(&host, "cursor", true), "{screen}");
+                assert!(!parts.inputs.injected(NodeId(1)));
                 assert_eq!(typed_until_mark(&host, &mut typed), "Z");
                 host.kill(NodeId(1));
             }

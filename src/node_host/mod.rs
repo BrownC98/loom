@@ -141,6 +141,10 @@ struct Output {
     tx: broadcast::Sender<Bytes>,
     /// 마지막 출력을 받은 때. 다시 시작한 데몬은 호스트의 backlog를 받은 때다.
     last_push: Instant,
+    /// 받은 출력 조각 수.
+    pushes: u64,
+    /// 마지막으로 키를 친 때의 `pushes`. 친 키는 다음 출력에야 화면에 보인다.
+    pushes_at_input: Option<u64>,
 }
 
 /// 최근 출력 `BACKLOG_BYTES`. 호스트와 데몬이 같은 규칙으로 쌓는다.
@@ -192,6 +196,8 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 backlog: Backlog::default(),
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
                 last_push: Instant::now(),
+                pushes: 0,
+                pushes_at_input: None,
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
             sizing: Mutex::default(),
@@ -281,6 +287,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             .map_or_else(Screen::default, |pty| pty.screen())
     }
 
+    /// `Keys::fresh_screen`과 같다. 입력 잠금을 쥐지 않는다.
+    pub fn fresh_screen(&self, id: K) -> Option<Screen> {
+        self.pty(id)?.fresh_screen()
+    }
+
     /// backlog와 그 뒤의 출력을 빈틈없이 받는다.
     pub fn attach(&self, id: K) -> Option<Attached> {
         let pty = self.pty(id)?;
@@ -317,16 +328,19 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         let pty = self.pty(id);
         let mut host = pty.as_ref().map(|pty| pty.host.lock().unwrap());
         let pieces = pick(&Keys(pty.as_deref()))?;
-        if let Some(host) = host.as_mut() {
-            for (i, bytes) in pieces.into_iter().enumerate() {
-                if i > 0 {
-                    std::thread::sleep(gap);
-                }
-                // 호스트가 끝났으면 실패한다. 화면에 따로 알리지 않는다. 상태 이벤트가 exited를 보인다.
-                if wire::write(&mut **host, &Frame::Data(bytes)).is_err() {
-                    break;
-                }
+        let (Some(pty), Some(host)) = (pty.as_ref(), host.as_mut()) else {
+            return Ok(());
+        };
+        for (i, bytes) in pieces.into_iter().enumerate() {
+            if i > 0 {
+                std::thread::sleep(gap);
             }
+            // 호스트가 끝났으면 실패한다. 화면에 따로 알리지 않는다. 상태 이벤트가 exited를 보인다.
+            if wire::write(&mut **host, &Frame::Data(bytes)).is_err() {
+                break;
+            }
+            let mut output = pty.output.lock().unwrap();
+            output.pushes_at_input = Some(output.pushes);
         }
         Ok(())
     }
@@ -473,9 +487,21 @@ impl Keys<'_> {
     pub fn screen(&self) -> Screen {
         self.0.map_or_else(Screen::default, Pty::screen)
     }
+
+    /// 마지막으로 친 키 뒤에 출력이 왔으면 지금 화면이다. 아직 오지 않았으면 화면은 친 키를 보이지 않는다.
+    pub fn fresh_screen(&self) -> Option<Screen> {
+        self.0.and_then(Pty::fresh_screen)
+    }
 }
 
 impl Pty {
+    fn fresh_screen(&self) -> Option<Screen> {
+        let output = self.output.lock().unwrap();
+        let fresh = output.pushes_at_input.is_none_or(|at| output.pushes > at);
+        drop(output);
+        fresh.then(|| self.screen())
+    }
+
     fn screen(&self) -> Screen {
         let PtySize { cols, rows } = *self.size.borrow();
         let bytes = self.output.lock().unwrap().backlog.to_vec();
@@ -525,6 +551,7 @@ impl Output {
     fn push(&mut self, chunk: &[u8]) {
         self.backlog.push(chunk);
         self.last_push = Instant::now();
+        self.pushes += 1;
         // 보는 화면이 없으면 send가 실패한다. backlog에 남았으므로 버려도 된다.
         let _ = self.tx.send(Bytes::copy_from_slice(chunk));
     }
@@ -956,6 +983,8 @@ mod tests {
             backlog: Backlog::default(),
             tx: broadcast::channel(1).0,
             last_push: Instant::now(),
+            pushes: 0,
+            pushes_at_input: None,
         };
         output.push(b"\x1b]11;?\x1b\\");
         let pushed = output.last_push;

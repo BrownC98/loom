@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { addRepo, cloneRepo, createRepo } from './api';
 import { childPath, FolderPicker } from './FolderPicker';
 import type { RepoView } from './gen/RepoView';
-import { useOutsideClose } from './popover';
+import { useDismiss } from './popover';
 
 const TABS = ['folder', 'clone', 'create'] as const;
 type Tab = (typeof TABS)[number];
@@ -30,7 +30,7 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
   const close = () => {
     if (!busy) props.onClose();
   };
-  const box = useOutsideClose<HTMLFormElement>(close);
+  const box = useDismiss<HTMLFormElement>(close);
 
   function choose(next: Tab) {
     setTab(next);
@@ -64,7 +64,7 @@ export function AddRepoPopover(props: { onAdded: (repo: RepoView) => void; onClo
   const ready = path.trim() !== '' && (tab === 'folder' || (tab === 'clone' ? url.trim() !== '' : name.trim() !== ''));
 
   return (
-    <form ref={box} className="pop side-pop add-repo" aria-label={t('tree.addRepo')} aria-busy={busy} onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && close()}>
+    <form ref={box} className="pop side-pop add-repo" aria-label={t('tree.addRepo')} aria-busy={busy} onSubmit={submit}>
       <h2>{t('tree.addRepo')}</h2>
       <div className="tabs" role="tablist" aria-label={t('tree.addRepo')} onKeyDown={onTabKey}>
         {TABS.map((each) => (

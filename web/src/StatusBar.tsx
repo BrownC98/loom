@@ -1,5 +1,5 @@
 import { ArrowLeftRight, ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
@@ -11,7 +11,7 @@ import type { SwitchRecord } from './useSwitchNotice';
 import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
 import { Sheet, usePhone } from './Phone';
-import { useOutsideClose } from './popover';
+import { useDismiss } from './popover';
 import { VERSION } from './version';
 
 export type Usage = {
@@ -36,18 +36,8 @@ export function StatusBar(props: {
   const { t } = useTranslation();
   const phone = usePhone();
   const [open, setOpen] = useState(false);
-  // 그래프(React Flow)와 터미널은 mousedown 전파를 막는다. 그래서 다른 팝오버처럼 pointerdown을 먼저 받는다.
-  const bar = useOutsideClose<HTMLElement>(() => setOpen(false));
+  const button = useRef<HTMLButtonElement>(null);
   const { usage } = props;
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [open]);
 
   const toggle = () => {
     if (!open) usage.refresh();
@@ -78,8 +68,8 @@ export function StatusBar(props: {
   );
 
   return (
-    <footer className="statusbar" aria-label={t('statusBar.label')} ref={bar}>
-      <button className="usage-btn" data-loading={usage.loading || undefined} aria-expanded={open} aria-label={t('statusBar.buttonLabel', { summary })} onClick={toggle}>
+    <footer className="statusbar" aria-label={t('statusBar.label')}>
+      <button ref={button} className="usage-btn" data-loading={usage.loading || undefined} aria-expanded={open} aria-label={t('statusBar.buttonLabel', { summary })} onClick={toggle}>
         {PROVIDERS.map((provider, i) => {
           const a = active(provider);
           return (
@@ -109,7 +99,7 @@ export function StatusBar(props: {
       </button>
       {props.notice.record && <SwitchNotice record={props.notice.record} accounts={usage.accounts} onClose={props.notice.onClose} />}
       <span className="app-version">v{VERSION}</span>
-      {open && usage.accounts && (phone ? <Sheet label={t('statusBar.usage')} onClose={() => setOpen(false)}>{body}</Sheet> : <UsagePopover onClose={() => setOpen(false)}>{body}</UsagePopover>)}
+      {open && usage.accounts && (phone ? <Sheet label={t('statusBar.usage')} onClose={() => setOpen(false)}>{body}</Sheet> : <UsagePopover anchor={button} onClose={() => setOpen(false)}>{body}</UsagePopover>)}
     </footer>
   );
 }
@@ -134,10 +124,11 @@ function SwitchNotice(props: { record: SwitchRecord; accounts: AccountView[] | n
 }
 
 /** 데스크톱 팝오버. 폰은 같은 몸통을 공용 `Sheet`에 넣는다. */
-function UsagePopover(props: { onClose: () => void; children: ReactNode }) {
+function UsagePopover(props: { anchor: RefObject<HTMLButtonElement | null>; onClose: () => void; children: ReactNode }) {
   const { t } = useTranslation();
+  const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.anchor });
   return (
-    <div className="pop usage-pop" role="dialog" aria-label={t('statusBar.usage')}>
+    <div ref={box} className="pop usage-pop" role="dialog" aria-label={t('statusBar.usage')}>
       <h3>
         {t('statusBar.usage')}
         <span className="spacer" />

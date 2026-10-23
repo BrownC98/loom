@@ -5,7 +5,7 @@ import { FieldReset } from './FieldReset';
 import type { Theme } from './gen/Theme';
 import type { ThemedColor } from './gen/ThemedColor';
 import type { UiColors } from './gen/UiColors';
-import { useOutsideClose } from './popover';
+import { useDismiss } from './popover';
 import { COLOR_ROWS, contrast, isHex, NO_COLOR, PRESETS, SCHEMES, toned, tonedColor, useColorMode, type ColorRow, type ColorScheme } from './uiColors';
 
 type Props = { colors: UiColors; theme: Theme; onColors: (next: UiColors) => void };
@@ -107,7 +107,7 @@ export function ColorsSection({ colors, theme, onColors }: Props) {
 function ColorPopover(props: { row: ColorRow; name: string; color: ThemedColor; mode: ColorScheme; onColor: (next: ThemedColor) => void; onClose: () => void }) {
   const { t } = useTranslation();
   const { row, color, onColor } = props;
-  const box = useOutsideClose<HTMLDivElement>(props.onClose);
+  const box = useDismiss<HTMLDivElement>(props.onClose);
   const native = useRef<HTMLInputElement>(null);
   const [target, setTarget] = useState<Target>(color.light === color.dark ? 'both' : props.mode);
   // 두 테마 색이 다를 때 「두 테마」에는 보일 한 값이 없다.
@@ -130,13 +130,6 @@ function ColorPopover(props: { row: ColorRow; name: string; color: ThemedColor; 
       className="pop color-pop"
       role="dialog"
       aria-label={props.name}
-      onKeyDown={(e) => {
-        // 설정 창(<dialog>)까지 닫히지 않게 Esc를 여기서 끝낸다.
-        if (e.key !== 'Escape') return;
-        e.preventDefault();
-        e.stopPropagation();
-        props.onClose();
-      }}
     >
       <h2>
         {props.name}

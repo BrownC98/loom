@@ -23,7 +23,7 @@ use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
 pub use events::{Entry, EventRecord, SwitchCause, Via, Who};
-pub use gate::{Ended, GateChoice, Round};
+pub use gate::{Ended, GateChoice, MergeTask, Round};
 pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
@@ -261,6 +261,20 @@ pub enum Refusal {
     },
     /// 원래 체크아웃에 관문 스크립트(`scripts/gate/check.sh`, `ship.sh`)가 없다.
     NoGateScripts,
+    /// 브랜치 담당이 자기 브랜치를 판정했다. 값은 브랜치다.
+    OwnVerdict(String),
+    /// 병합 끝 보고의 실행 번호가 지금 실행이 아니다(그 뒤 `loom merge`를 다시 불렀다).
+    StaleRun {
+        branch: String,
+        #[ts(type = "number")]
+        run: i64,
+    },
+    /// 보고한 병합 커밋이 대상 브랜치에 없거나 검토한 커밋을 담지 않는다.
+    NotMerged {
+        sha: String,
+        target: String,
+        head: String,
+    },
     Git(String),
     Launch(String),
     Db(String),
@@ -417,9 +431,21 @@ impl fmt::Display for Refusal {
                 f,
                 "Do not write gate word {word} in a message. Use `{verb}`: loom does the gate work, picks the receiver and keeps the trace."
             ),
+            Refusal::OwnVerdict(branch) => write!(
+                f,
+                "{branch}: you own this branch, so you cannot judge it. Its gate or a reviewer gives the verdict."
+            ),
+            Refusal::StaleRun { branch, run } => write!(
+                f,
+                "{branch}: merge run {run} is not the current run. A later `loom merge` replaced it, so loom ignores this report."
+            ),
+            Refusal::NotMerged { sha, target, head } => write!(
+                f,
+                "{sha} is not a commit of {target} that contains the reviewed commit {head}. loom records only a merge it can see in git."
+            ),
             Refusal::NoGateScripts => write!(
                 f,
-                "This repository has no {} and {} in its main checkout, so `loom merge` cannot run here.",
+                "This repository has no {} and {} in its main checkout, so the merge gate is not used here. Report with `loom done` and the forms your rules give.",
                 crate::protocol::CHECK_SCRIPT,
                 crate::protocol::SHIP_SCRIPT
             ),

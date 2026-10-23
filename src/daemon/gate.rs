@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{AgentError, App, for_agent};
 use crate::git;
-use crate::graph::{Ended, GateChoice, NodeId, Refusal, Round, Via};
+use crate::graph::{Ended, GateChoice, MergeTask, NodeId, Refusal, Round, Via};
 use crate::protocol::{
     self, CHECK_SCRIPT, Finding, GateState, GateVerb, Judgment, MergeEnd, SHIP_SCRIPT,
 };
@@ -47,7 +47,7 @@ pub struct FailRequest {
     pub cause: String,
 }
 
-/// `loom merge`가 데몬에서 받는 할 일. 경로는 데몬이 보는 글이다. CLI가 자기 경로로 바꾼다(`wsl::for_caller`).
+/// `loom merge`가 데몬에서 받는 할 일. 경로는 데몬이 보는 글이다. CLI가 자기 쪽에서 띄운다(`wsl::command`).
 #[derive(Serialize, Deserialize)]
 pub enum MergePlan {
     /// audit가 찾은 일이 있어 병합하지 않았다. 관문 상태는 이미 바뀌었다.
@@ -55,9 +55,15 @@ pub enum MergePlan {
         end: MergeEnd,
         findings: Vec<String>,
     },
+    /// 앞 실행이 이미 병합했고 그 끝 보고만 잃었다. 데몬이 git에서 병합 커밋을 찾아 `Merged`로 남겼다.
+    Recorded { sha: String },
     Go {
         /// 담당 브랜치의 워크트리. 검사 스크립트를 여기서 돌린다.
         worktree: String,
+        /// 검토한 커밋. 워크트리가 이 커밋에 있어야 검사하고, 이 커밋을 병합한다.
+        head: String,
+        /// 실행 번호. 끝 보고(`MergedRequest`)에 그대로 넣는다.
+        run: i64,
         into: MergeInto,
     },
 }
@@ -66,13 +72,14 @@ pub enum MergePlan {
 pub enum MergeInto {
     /// 원래 체크아웃의 브랜치(main): 그 체크아웃에서 `ship.sh`가 병합·push·배포 확인을 한다.
     Main { checkout: String },
-    /// 코디 브랜치: 그 워크트리에서 `git merge --no-ff`.
+    /// 코디 브랜치: 그 워크트리에서 검토한 커밋을 `git merge --no-ff`.
     Branch { worktree: String },
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct MergedRequest {
     pub branch: String,
+    pub run: i64,
     pub result: MergeResult,
 }
 
@@ -132,9 +139,10 @@ impl App {
         })
     }
 
-    /// 노드의 저장소가 관문 계약(원래 체크아웃의 `scripts/gate/check.sh`)을 가졌는가.
+    /// 노드의 저장소가 관문 계약(원래 체크아웃의 `scripts/gate/check.sh`, `ship.sh`)을 가졌는가.
     pub(super) fn gated_repo(&self, node: NodeId) -> Result<bool, Refusal> {
-        Ok(self.repo_of(node)?.join(CHECK_SCRIPT).is_file())
+        let repo = self.repo_of(node)?;
+        Ok(repo.join(CHECK_SCRIPT).is_file() && repo.join(SHIP_SCRIPT).is_file())
     }
 
     /// 관문 호출의 결과를 돌려준다. 거절은 흔적으로 남긴다. DB 오류는 요청의 잘못이 아니므로 남기지 않는다.
@@ -188,6 +196,9 @@ impl App {
         {
             return Err(Refusal::Uncommitted(branch.to_owned()));
         }
+        if !self.gated_repo(node)? {
+            return Err(Refusal::NoGateScripts);
+        }
         let base = base_branch(&repo).await?;
         let (gate, target) = match self.graph.gate_for(node)? {
             GateChoice::Coordinator { gate, worktree } => {
@@ -219,30 +230,54 @@ impl App {
     }
 
     /// `loom merge` 앞 단계: 상태를 `Merging`으로 바꾸고 audit를 돌린다. 찾은 일이 있으면 병합하지 않고 끝낸다.
+    /// 부른 CLI는 이 앞에서 저장소의 병합 잠금을 잡았다. 그래서 `Merging`에서 다시 부르면 앞 실행은 이미 끝났다.
     async fn merge(&self, node: NodeId, branch: &str, via: &Via) -> Result<MergePlan, Refusal> {
         let repo = self.repo_of(node)?;
-        if !repo.join(CHECK_SCRIPT).is_file() || !repo.join(SHIP_SCRIPT).is_file() {
+        if !self.gated_repo(node)? {
             return Err(Refusal::NoGateScripts);
         }
         let task = self.graph.merge_start(node, branch, Some(via))?;
+        if task.from == GateState::Merging
+            && let Ok(()) = contains(&repo, &task.head, &task.target).await
+        {
+            let range = format!("{}..{}", task.head, task.target);
+            let first = git::run(
+                &repo,
+                &[
+                    "rev-list",
+                    "--first-parent",
+                    "--ancestry-path",
+                    "--reverse",
+                    &range,
+                ],
+            )
+            .await
+            .map_err(Refusal::Git)?;
+            let sha = first.lines().next().unwrap_or_default().trim().to_owned();
+            let lines = vec![
+                "recovered: an earlier run merged this commit, and its report did not arrive"
+                    .to_owned(),
+            ];
+            self.record_merged(node, branch, &task, &sha, lines, via)
+                .await?;
+            return Ok(MergePlan::Recorded { sha });
+        }
         let mut findings = self.graph.audit(task.owner, task.since)?;
-        match contains(&repo, &task.target, branch).await {
+        let now = git::run(&repo, &["rev-parse", &format!("refs/heads/{branch}")])
+            .await
+            .map_err(Refusal::Git)?;
+        if now.trim() != task.head {
+            findings.push(Finding::HeadMoved {
+                reviewed: task.head.clone(),
+                now: now.trim().to_owned(),
+            });
+        }
+        match contains(&repo, &task.target, &task.head).await {
             Ok(()) => {}
             Err(Refusal::NotAncestor { target, .. }) => {
                 findings.push(Finding::TargetMoved { target })
             }
             Err(e) => return Err(e),
-        }
-        let base = base_branch(&repo).await?;
-        if task.target == base
-            && let Some(last) = &task.last_merged
-        {
-            let known = self.graph.merged_commits(node)?;
-            let range = format!("{last}..{}", task.target);
-            let listed = git::run(&repo, &["rev-list", "--first-parent", &range])
-                .await
-                .map_err(Refusal::Git)?;
-            findings.extend(protocol::out_of_gate(&listed, &known));
         }
         if let Some(end) = protocol::audit_end(&findings) {
             let shown = findings.iter().map(Finding::to_string).collect();
@@ -252,13 +287,14 @@ impl App {
                 lines: Vec::new(),
                 findings,
             };
-            self.graph.merge_end(node, branch, ended, Some(via))?;
+            self.graph
+                .merge_end(node, branch, task.run, ended, Some(via))?;
             return Ok(MergePlan::Stopped {
                 end,
                 findings: shown,
             });
         }
-        let into = if task.target == base {
+        let into = if task.target == base_branch(&repo).await? {
             MergeInto::Main {
                 checkout: repo.to_string_lossy().into_owned(),
             }
@@ -274,8 +310,91 @@ impl App {
         };
         Ok(MergePlan::Go {
             worktree: task.worktree,
+            head: task.head,
+            run: task.run,
             into,
         })
+    }
+
+    /// 병합 커밋 `sha`를 git에서 확인하고 `Merged`로 남긴다. 대상 브랜치가 원래 체크아웃의 브랜치면
+    /// 앞선 관문 병합과 이 병합 사이의 대상 커밋을 관문 밖 커밋으로 붙인다(막지 않는다).
+    async fn record_merged(
+        &self,
+        node: NodeId,
+        branch: &str,
+        task: &MergeTask,
+        sha: &str,
+        lines: Vec<String>,
+        via: &Via,
+    ) -> Result<GateState, Refusal> {
+        let repo = self.repo_of(node)?;
+        let not_merged = || Refusal::NotMerged {
+            sha: sha.to_owned(),
+            target: task.target.clone(),
+            head: task.head.clone(),
+        };
+        if sha.is_empty() {
+            return Err(not_merged());
+        }
+        for (older, newer) in [(task.head.as_str(), sha), (sha, task.target.as_str())] {
+            match contains(&repo, older, newer).await {
+                Ok(()) => {}
+                Err(Refusal::NotAncestor { .. } | Refusal::Git(_)) => return Err(not_merged()),
+                Err(e) => return Err(e),
+            }
+        }
+        let mut findings = Vec::new();
+        if task.target == base_branch(&repo).await?
+            && let Some(last) = self.graph.last_merged(node, &task.target)?
+        {
+            let range = format!("{last}..{sha}^1");
+            let listed = git::run(&repo, &["rev-list", "--first-parent", &range])
+                .await
+                .map_err(Refusal::Git)?;
+            findings = protocol::out_of_gate(&listed);
+        }
+        let ended = Ended {
+            end: MergeEnd::Merged,
+            merged: Some(sha),
+            lines,
+            findings,
+        };
+        self.graph
+            .merge_end(node, branch, task.run, ended, Some(via))
+    }
+
+    /// `loom merge`를 부른 CLI의 끝 보고. 병합이면 git에서 확인한다.
+    async fn merged(
+        &self,
+        node: NodeId,
+        req: &MergedRequest,
+        via: &Via,
+    ) -> Result<GateState, Refusal> {
+        let (end, cause, log) = match &req.result {
+            MergeResult::Merged { sha, deploy, log } => {
+                let task = self.graph.merge_task(node, &req.branch)?;
+                if task.run != req.run {
+                    return Err(Refusal::StaleRun {
+                        branch: req.branch.clone(),
+                        run: req.run,
+                    });
+                }
+                let lines = vec![format!("deploy: {deploy:?}"), format!("log: {log}")];
+                return self
+                    .record_merged(node, &req.branch, &task, sha, lines, via)
+                    .await;
+            }
+            MergeResult::Rework { cause, log } => (MergeEnd::Rework, cause, log),
+            MergeResult::Failed { cause, log } => (MergeEnd::Failed, cause, log),
+        };
+        let ended = Ended {
+            end,
+            merged: None,
+            lines: vec![format!("cause: {cause}"), format!("log: {log}")],
+            findings: Vec::new(),
+        };
+        self.graph
+            .merge_end(node, &req.branch, req.run, ended, Some(via))
     }
 }
 
@@ -351,27 +470,7 @@ pub(super) async fn agent_merged(
 ) -> Result<Json<GateState>, AgentError> {
     let node = app.caller(&headers)?;
     let via = via(&headers, "/api/agent/merged");
-    let ended = match &req.result {
-        MergeResult::Merged { sha, deploy, log } => Ended {
-            end: MergeEnd::Merged,
-            merged: Some(sha),
-            lines: vec![format!("deploy: {deploy:?}"), format!("log: {log}")],
-            findings: Vec::new(),
-        },
-        MergeResult::Rework { cause, log } => Ended {
-            end: MergeEnd::Rework,
-            merged: None,
-            lines: vec![format!("cause: {cause}"), format!("log: {log}")],
-            findings: Vec::new(),
-        },
-        MergeResult::Failed { cause, log } => Ended {
-            end: MergeEnd::Failed,
-            merged: None,
-            lines: vec![format!("cause: {cause}"), format!("log: {log}")],
-            findings: Vec::new(),
-        },
-    };
-    let result = app.graph.merge_end(node, &req.branch, ended, Some(&via));
+    let result = app.merged(node, &req, &via).await;
     app.traced(node, GateVerb::Merge, &req.branch, &via, result)
 }
 

@@ -181,33 +181,68 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
     g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v))
         .unwrap();
     mail(&g, t.ci);
-    // 판정 없이 병합하지 않는다.
+    // 담당은 자기 브랜치를 판정하지 못한다(검토 P2-1).
+    assert_eq!(
+        g.verdict(t.coordinator, branch, Judgment::Pass, None, Some(&v)),
+        Err(Refusal::OwnVerdict(branch.into()))
+    );
     assert_eq!(
         g.verdict(t.ci, branch, Judgment::Pass, None, Some(&v)),
         Ok(GateState::Passed)
     );
     assert!(mail(&g, t.coordinator)[0].starts_with("gate 기능: verdict pass"));
+    // 병합 시작 전에는 둘째 검토자가 pass를 block으로 바꾼다(검토 P2-7).
+    assert_eq!(
+        g.verdict(reviewer, branch, Judgment::Block, Some("/r/2.md"), Some(&v)),
+        Ok(GateState::Working)
+    );
+    mail(&g, t.coordinator);
+    mail(&g, t.ci);
+    g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v))
+        .unwrap();
+    g.verdict(t.ci, branch, Judgment::Pass, None, Some(&v))
+        .unwrap();
+    assert_eq!(
+        g.verdict(reviewer, branch, Judgment::Pass, None, Some(&v)),
+        Ok(GateState::Passed)
+    );
+    mail(&g, t.coordinator);
+    mail(&g, t.ci);
     assert!(matches!(
         g.merge_start(t.coordinator, branch, Some(&v)),
         Err(Refusal::NotGate { .. })
     ));
     let task = g.merge_start(t.ci, branch, Some(&v)).unwrap();
     assert_eq!(
-        (task.owner, task.target.as_str(), task.last_merged),
-        (t.coordinator, "main", None)
+        (
+            task.owner,
+            task.target.as_str(),
+            task.head.as_str(),
+            task.run,
+            task.from
+        ),
+        (t.coordinator, "main", "c0ffee1", 1, GateState::Passed)
     );
     assert!(mail(&g, t.coordinator)[0].starts_with("gate 기능: merge started"));
-    // 앞 실행이 보고 없이 끝났으면 같은 관문이 다시 시작한다.
-    g.merge_start(t.ci, branch, Some(&v)).unwrap();
+    // 앞 실행이 보고 없이 끝났으면 같은 관문이 새 번호로 다시 시작한다. 앞 번호의 보고는 받지 않는다(검토 P2-4).
+    let again = g.merge_start(t.ci, branch, Some(&v)).unwrap();
+    assert_eq!((again.run, again.from), (2, GateState::Merging));
     mail(&g, t.coordinator);
-    let ended = Ended {
+    let ended = |sha| Ended {
         end: MergeEnd::Merged,
-        merged: Some("abc1234"),
+        merged: Some(sha),
         lines: vec!["deploy: Confirmed".into()],
         findings: Vec::new(),
     };
     assert_eq!(
-        g.merge_end(t.ci, branch, ended, Some(&v)),
+        g.merge_end(t.ci, branch, 1, ended("old0000"), Some(&v)),
+        Err(Refusal::StaleRun {
+            branch: branch.into(),
+            run: 1
+        })
+    );
+    assert_eq!(
+        g.merge_end(t.ci, branch, 2, ended("abc1234"), Some(&v)),
         Ok(GateState::Merged)
     );
     let merged = mail(&g, t.lead);
@@ -224,18 +259,59 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
         1,
         "the owner hears the merge too"
     );
-    assert_eq!(g.merged_commits(t.ci).unwrap(), ["abc1234"]);
-    assert!(matches!(
+    assert_eq!(
+        g.last_merged(t.ci, "main").unwrap().as_deref(),
+        Some("abc1234")
+    );
+    // 병합한 브랜치 이름을 다시 쓰면 새 차례다. 앞 병합 커밋은 관문 밖 커밋 검사의 시작점으로 남는다(검토 P1-3).
+    assert_eq!(
         g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
-        Err(Refusal::Gate(e)) if e.state == GateState::Merged && e.allowed.is_empty()
-    ));
-    // 다음 브랜치의 audit는 앞 병합부터 본다.
-    g.ready(t.worker, &round("다음", "main"), t.ci, Some(&v))
+        Ok("ci".into())
+    );
+    assert_eq!(state(&g, branch), GateState::Ready);
+    assert_eq!(
+        g.last_merged(t.ci, "main").unwrap().as_deref(),
+        Some("abc1234")
+    );
+    assert_eq!(g.last_merged(t.ci, "코디 브랜치").unwrap(), None);
+}
+
+/// 담당을 지워 받을 노드가 없어도 성공한 관문 호출은 흔적을 남긴다: 부른 노드가 받는다(검토 C6).
+#[test]
+fn a_gate_call_without_receivers_goes_to_the_caller() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let v = via();
+    g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
         .unwrap();
-    g.verdict(t.ci, "다음", Judgment::Pass, None, Some(&v))
+    g.verdict(t.ci, "b", Judgment::Pass, None, Some(&v))
         .unwrap();
-    let next = g.merge_start(t.ci, "다음", Some(&v)).unwrap();
-    assert_eq!(next.last_merged.as_deref(), Some("abc1234"));
+    let task = g.merge_start(t.ci, "b", Some(&v)).unwrap();
+    mail(&g, t.ci);
+    g.remove(t.worker).unwrap();
+    let ended = Ended {
+        end: MergeEnd::Merged,
+        merged: Some("abc1234"),
+        lines: Vec::new(),
+        findings: Vec::new(),
+    };
+    assert_eq!(
+        g.merge_end(t.ci, "b", task.run, ended, Some(&v)),
+        Ok(GateState::Merged)
+    );
+    let kept = mail(&g, t.ci);
+    assert_eq!(kept.len(), 1);
+    assert!(
+        kept[0].starts_with("gate b: merged\nmerged commit: abc1234\nNo other node"),
+        "{}",
+        kept[0]
+    );
+    let recent = g.recent_events().unwrap();
+    assert!(recent.iter().any(|r| matches!(
+        &r.entry,
+        Entry::Message { gate: Some(trace), .. } if trace.to == Some(GateState::Merged)
+    )));
 }
 
 #[test]
@@ -368,28 +444,41 @@ fn old_event_rows_without_via_or_gate_still_read() {
 }
 
 #[test]
-fn audit_finds_raw_gate_words_in_the_tree_and_a_pruned_range() {
+fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_range() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
     let stranger = root(&g, "codex");
     let v = via();
+    // 앞 차례의 글은 이번 차례의 audit에 들지 않는다(검토 P1-1).
+    let before = g
+        .send(t.worker, "ci", Kind::Queue, "READY old", None)
+        .unwrap();
+    g.lock()
+        .execute(
+            "UPDATE events SET at = at - 10 WHERE message = ?1",
+            [before.id.0],
+        )
+        .unwrap();
     g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
+        .unwrap();
+    g.lock()
+        .execute("UPDATE gates SET opened = opened - 5", [])
         .unwrap();
     let raw = g
         .send(t.worker, "ci", Kind::Queue, "READY b /x", None)
         .unwrap();
+    // 담당의 자손이 아닌 노드(다른 뿌리, 담당의 형제·부모)는 이 브랜치와 관계없다(검토 P2-5).
     g.send(stranger, "ci", Kind::Queue, "READY other", None)
+        .unwrap();
+    g.send(t.lead, "ci", Kind::Queue, "MERGED other", None)
         .unwrap();
     g.send(t.worker, "ci", Kind::Queue, "Ready for review", None)
         .unwrap();
-    let oldest: i64 = g
-        .lock()
-        .query_row("SELECT min(at) FROM events", [], |r| r.get(0))
-        .unwrap();
+    let since = g.merge_task(t.worker, "b").unwrap().since;
     // 관문 동사가 보낸 메시지(`gate ...`)와 나무 밖 노드의 글은 찾지 않는다.
     assert_eq!(
-        g.audit(t.worker, oldest).unwrap(),
+        g.audit(t.worker, since).unwrap(),
         vec![Finding::RawGateWord {
             event: g
                 .lock()
@@ -404,6 +493,10 @@ fn audit_finds_raw_gate_words_in_the_tree_and_a_pruned_range() {
         }]
     );
     // 시작점이 남은 가장 오래된 이벤트보다 앞이면 구간이 비었다.
+    let oldest: i64 = g
+        .lock()
+        .query_row("SELECT min(at) FROM events", [], |r| r.get(0))
+        .unwrap();
     let findings = g.audit(t.worker, oldest - 1).unwrap();
     assert_eq!(
         findings[0],

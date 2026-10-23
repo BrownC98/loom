@@ -187,6 +187,36 @@ pub fn for_caller(path: &Path) -> String {
     }
 }
 
+/// 이 프로세스가 `dir`(데몬이 준 경로 글)에서 `program`을 띄우는 명령. 인자는 부른 쪽이 더한다.
+/// WSL의 `loom`은 Windows `loom.exe` 껍데기다. 그래서 WSL 폴더의 명령(관문 스크립트, git, flock)은 그 배포판 안에서 띄운다.
+/// Windows가 Linux 경로를 직접 다루면 `PathBuf::join`이 `\`를 넣고 bash가 그 글자를 지운다(검토 C1, 끝 코드 127).
+pub fn command(dir: &str, program: &str) -> std::process::Command {
+    let at = location(dir).filter(|_| cfg!(windows)).or_else(|| {
+        let at = caller().filter(|_| dir.starts_with('/') && !dir.starts_with("//"))?;
+        Some(WslPath {
+            path: dir.to_owned(),
+            ..at
+        })
+    });
+    launch(at.as_ref(), dir, program)
+}
+
+fn launch(at: Option<&WslPath>, dir: &str, program: &str) -> std::process::Command {
+    match at {
+        Some(at) => {
+            let mut cmd = std::process::Command::new("wsl.exe");
+            // `-e`는 셸 없이 띄운다. 인자(브랜치 이름, 커밋)를 셸이 다시 읽지 않는다.
+            cmd.args(["-d", &at.distro, "--cd", &at.path, "-e", program]);
+            cmd
+        }
+        None => {
+            let mut cmd = std::process::Command::new(program);
+            cmd.current_dir(dir);
+            cmd
+        }
+    }
+}
+
 fn caller() -> Option<WslPath> {
     std::env::current_dir().ok().and_then(|dir| of(&dir))
 }
@@ -462,6 +492,45 @@ pub fn shell(line: &str) -> Vec<OsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WSL 폴더의 관문 명령은 그 배포판 안에서 그 Linux 폴더로 띄운다. 스크립트 경로는 상대 경로로 남는다.
+    #[test]
+    fn a_wsl_folder_command_runs_inside_the_distro() {
+        let at = location(r"\\wsl.localhost\Ubuntu\home\a\repo");
+        let mut cmd = launch(at.as_ref(), r"\\wsl.localhost\Ubuntu\home\a\repo", "bash");
+        cmd.args(["scripts/gate/ship.sh", "b", "c0ffee"]);
+        assert_eq!(cmd.get_program(), "wsl.exe");
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(
+            args,
+            [
+                "-d",
+                "Ubuntu",
+                "--cd",
+                "/home/a/repo",
+                "-e",
+                "bash",
+                "scripts/gate/ship.sh",
+                "b",
+                "c0ffee"
+            ]
+        );
+        let plain = launch(None, "/home/a/repo", "git");
+        assert_eq!(plain.get_program(), "git");
+        assert_eq!(plain.get_current_dir(), Some(Path::new("/home/a/repo")));
+    }
+
+    /// 데몬이 준 WSL 폴더(UNC)에서 Windows `loom.exe`는 배포판 안에서, 다른 OS의 loom은 그 폴더에서 바로 띄운다.
+    #[test]
+    fn a_gate_command_from_a_unc_folder_follows_the_os() {
+        let cmd = command(r"\\wsl.localhost\Ubuntu\home\a\repo", "bash");
+        if cfg!(windows) {
+            assert_eq!(cmd.get_program(), "wsl.exe");
+            assert!(cmd.get_args().any(|a| a == "/home/a/repo"));
+        } else {
+            assert_eq!(cmd.get_program(), "bash");
+        }
+    }
 
     fn wsl(host: &str, distro: &str, path: &str) -> Option<WslPath> {
         Some(WslPath {

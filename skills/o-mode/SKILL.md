@@ -82,7 +82,7 @@ description: o-mode(orchestration mode)의 Loom 판. Loom 노드에서 저장소
 - 병합은 관문 동사로만 한다: `loom ready`, `loom verdict`, `loom merge`, `loom fail`. 받는 곳·순서·필요한 값은 `loom --help`와 거절 글이 알린다. 관문 낱말(READY, MERGED, BLOCK 등)을 `loom send`·`loom done`에 쓰지 않는다.
 - 브랜치 담당(코디, 또는 코디 없는 워커)은 커밋한 뒤 대상 브랜치(main, 코디 밑 워커는 코디 브랜치)를 자기 브랜치에 병합하고 검사를 다시 돌린다. 충돌은 여기서 고친다. 그 뒤 `loom ready <브랜치>`를 부른다.
 - 관문(CI 담당자, 코디 밑 워커는 코디)은 검토자를 띄운다. 검토자는 diff와 브리프의 완료 조건을 확인하고 결함 파일을 쓴 뒤 `loom verdict`를 부른다. 코디는 자기 브랜치를 `loom ready` 하기 전에 워커 결과를 검수해 합친다.
-- main 반영은 CI 담당자가 `loom merge`로만 한다. 손으로 main에 병합·push하지 않는다. 다음 `loom merge`의 audit가 관문 밖 커밋을 찾아 실패시킨다.
+- main 반영은 CI 담당자가 `loom merge`로만 한다. 손으로 main에 병합·push하지 않는다. 다음 `loom merge`가 관문 밖 커밋을 찾아 루트에 알린다.
 - 저장소에 `scripts/gate/check.sh`가 없으면(이전 기간) 옛 꼴을 쓴다: 담당이 `READY <브랜치> <워크트리>`를 CI 담당자에게, CI 담당자가 병합·배포 확인 뒤 `MERGED <브랜치> <sha>`를 총괄에게 `loom send`로 보낸다.
 - 회수는 그 노드의 현재 부모가 한다. 총괄은 코디와 자기가 띄운 워커를, 코디는 워커를, CI 담당자는 띄운 검토자·워커를 회수한다. 대상은 자식 노드, 띄운 셸 노드, 워크트리와 브랜치, 시험 데몬 같은 백그라운드 프로세스, 임시 폴더다.
 - 자식의 결과를 받거나 병합한 직후마다 회수 대상을 확인한다. 결과를 보존했고 더 쓸 계획이 없으면 바로 회수한다. 사용자 확인이나 작업 전체의 끝을 기다리지 않는다. 절차는 [참고 「회수」](reference.md#회수)를 따른다.

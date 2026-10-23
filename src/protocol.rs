@@ -127,7 +127,7 @@ impl fmt::Display for IllegalStep {
             self.state,
             self.verb.command(),
             if allowed.is_empty() {
-                "nothing (start a new branch)".to_owned()
+                "nothing".to_owned()
             } else {
                 allowed.join(", ")
             }
@@ -147,11 +147,13 @@ pub fn step(state: GateState, call: GateCall) -> Result<GateState, IllegalStep> 
 fn next(state: GateState, call: GateCall) -> Option<GateState> {
     use GateState as S;
     match (state, call) {
-        (S::Working | S::Failed, GateCall::Ready) => Some(S::Ready),
-        (S::Ready | S::Passed | S::Merging | S::Merged, GateCall::Ready) => None,
-        (S::Ready, GateCall::Verdict(Judgment::Pass)) => Some(S::Passed),
-        (S::Ready, GateCall::Verdict(Judgment::Block)) => Some(S::Working),
-        (S::Working | S::Passed | S::Merging | S::Merged | S::Failed, GateCall::Verdict(_)) => None,
+        // 병합한 브랜치 이름을 다음 작업이 다시 쓴다(AGENTS.md: 병합 뒤 브랜치를 지운다). 새 차례다.
+        (S::Working | S::Failed | S::Merged, GateCall::Ready) => Some(S::Ready),
+        (S::Ready | S::Passed | S::Merging, GateCall::Ready) => None,
+        // 검토자가 둘이면 둘째 판정이 pass 뒤에 온다. 병합을 시작하기 전까지 받는다.
+        (S::Ready | S::Passed, GateCall::Verdict(Judgment::Pass)) => Some(S::Passed),
+        (S::Ready | S::Passed, GateCall::Verdict(Judgment::Block)) => Some(S::Working),
+        (S::Working | S::Merging | S::Merged | S::Failed, GateCall::Verdict(_)) => None,
         (S::Passed | S::Merging, GateCall::MergeStart) => Some(S::Merging),
         (S::Working | S::Ready | S::Merged | S::Failed, GateCall::MergeStart) => None,
         (S::Merging, GateCall::MergeEnd(MergeEnd::Merged)) => Some(S::Merged),
@@ -180,7 +182,7 @@ fn allowed(state: GateState) -> Vec<GateVerb> {
 pub enum Sender {
     /// 브랜치 담당: 자기 워크트리가 그 브랜치에 있다.
     Owner,
-    /// 관문 노드나 그 자식(관문이 띄운 검토자).
+    /// 관문 노드나 그 자식(관문이 띄운 검토자). 담당 자신은 빼다: 코디 밑 워커는 관문(코디)의 자식이다.
     GateOrReviewer,
     Gate,
 }
@@ -229,6 +231,9 @@ pub fn headline(call: GateCall, branch: &str) -> String {
     };
     format!("gate {branch}: {what}")
 }
+
+/// 받을 노드가 다 없을 때(담당을 지웠다) 부른 노드가 받는 메시지의 끝 줄. 성공한 관문 호출은 모두 흔적을 남긴다(검토 C6).
+pub const KEPT_FOR_CALLER: &str = "No other node can receive this (the owner is gone). loom keeps it in your inbox as the gate record.";
 
 /// 받는 쪽이 다음에 할 일. 메시지 끝 줄이다.
 pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
@@ -306,45 +311,53 @@ pub fn gate_line(text: &str) -> Option<&'static str> {
 pub const COORDINATOR_ROLE: &str = "코디";
 pub const CI_ROLE: &str = "CI 담당자";
 
-/// 저장소 관문 계약: 이 두 스크립트가 원래 체크아웃에 있어야 `loom merge`가 돈다. 있는 저장소에서만 관문 낱말을 거절한다.
+/// 저장소 관문 계약: 이 두 스크립트가 원래 체크아웃에 있어야 `loom ready`·`loom merge`가 돈다. 있는 저장소에서만 관문 낱말을 거절한다.
+/// 두 스크립트는 `bash <상대 경로>`로 부른다. Windows `loom.exe`가 섞인 경로(`C:..\scripts/...`)를 만들면 bash가 찾지 못했다(2026-10-23 Codex 실측).
 pub const CHECK_SCRIPT: &str = "scripts/gate/check.sh";
 pub const SHIP_SCRIPT: &str = "scripts/gate/ship.sh";
-/// `ship.sh <branch> <worktree>`의 끝 코드. 0이면 병합·push·배포 확인을 마쳤고 마지막 줄이 병합 커밋이다.
-/// 담당이 고칠 일(충돌, main이 움직여 push 거절)이면 아무것도 바꾸지 않고 이 코드로 끝낸다.
+/// `ship.sh <branch> <sha>`의 끝 코드. 0이면 `sha`를 병합·push·배포 확인을 마쳤고 마지막 줄이 병합 커밋이다.
+/// 담당이 고칠 일(충돌, 대상이 움직여 push 거절)이면 병합을 하지 않거나 되돌리고 이 코드로 끝낸다.
 pub const SHIP_REWORK: i32 = 10;
 /// 병합·push는 했고 배포 확인만 실패했다. 마지막 줄이 병합 커밋이다.
 pub const SHIP_DEPLOY_FAILED: i32 = 11;
 
-/// `loom merge` 안 audit가 찾은 일. 하나라도 있으면 병합하지 않는다.
+/// `loom merge` 안 audit가 찾은 일. 멈출 일(`end`)이 하나라도 있으면 병합하지 않는다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum Finding {
-    /// 앞 관문 뒤의 흔적이 지워졌다(이벤트 상한). 위반을 다 볼 수 없다.
+    /// 이 차례(마지막 `loom ready`) 뒤의 흔적이 지워졌다(이벤트 상한). 위반을 다 볼 수 없다. 담당의 다음 ready가 새 차례를 연다.
     RangeIncomplete {
         #[ts(type = "number")]
         since: i64,
         #[ts(type = "number")]
         oldest: i64,
     },
-    /// 담당 나무의 노드가 관문 동사 밖(`loom send` 등)으로 관문 낱말 메시지를 보냈다.
+    /// 이 차례에 담당이나 그 자손(같은 저장소)이 관문 동사 밖(`loom send` 등)으로 관문 낱말 메시지를 보냈다.
     RawGateWord {
         /// 그 메시지의 이벤트 기록 번호. 이벤트 콘솔에서 찾는다.
         event: u32,
         from: String,
         word: String,
     },
-    /// 대상 브랜치에 관문 흔적 없는 커밋이 있다(관문 밖 병합).
+    /// 대상 브랜치에 앞 관문 병합과 이번 병합 사이에 커밋이 있다(관문 밖 병합). 병합 보고에 붙여 알리기만 한다.
     OutOfGate { commit: String },
     /// 대상 브랜치가 담당 브랜치에 포함되지 않았다. 담당이 대상을 병합해 온다.
     TargetMoved { target: String },
+    /// 판정한 커밋 뒤에 브랜치가 움직였다. 검토하지 않은 커밋은 병합하지 않는다.
+    HeadMoved { reviewed: String, now: String },
 }
 
 impl Finding {
-    pub fn end(&self) -> MergeEnd {
+    /// 이 일 때문에 병합을 멈추면 그 끝. 없으면 알리기만 한다.
+    /// 관문 밖 커밋은 되돌릴 수 없다. 막으면 뒤의 모든 병합이 막힌다(2026-10-23 검토 P1-2, 코디 결정).
+    pub fn end(&self) -> Option<MergeEnd> {
         match self {
-            Finding::RawGateWord { .. } | Finding::TargetMoved { .. } => MergeEnd::Rework,
-            Finding::RangeIncomplete { .. } | Finding::OutOfGate { .. } => MergeEnd::Failed,
+            Finding::RawGateWord { .. }
+            | Finding::TargetMoved { .. }
+            | Finding::HeadMoved { .. } => Some(MergeEnd::Rework),
+            Finding::RangeIncomplete { .. } => Some(MergeEnd::Failed),
+            Finding::OutOfGate { .. } => None,
         }
     }
 }
@@ -370,25 +383,29 @@ impl fmt::Display for Finding {
                 f,
                 "{target} is not in the branch; merge {target} into the branch first"
             ),
+            Finding::HeadMoved { reviewed, now } => write!(
+                f,
+                "the branch moved from the reviewed commit {reviewed} to {now}; call loom ready again for a new review"
+            ),
         }
     }
 }
 
-/// 대상 브랜치의 first-parent 커밋(`git rev-list` 출력, 한 줄에 하나) 가운데 관문이 병합하지 않은 것.
-pub fn out_of_gate(listed: &str, merged: &[String]) -> Vec<Finding> {
+/// 앞선 관문 병합과 이번 병합 사이의 대상 first-parent 커밋(`git rev-list` 출력, 한 줄에 하나). 병합은 하나씩 돌므로 모두 관문 밖이다.
+pub fn out_of_gate(listed: &str) -> Vec<Finding> {
     listed
         .lines()
         .map(str::trim)
-        .filter(|sha| !sha.is_empty() && !merged.iter().any(|m| m == sha))
+        .filter(|sha| !sha.is_empty())
         .map(|sha| Finding::OutOfGate {
             commit: sha.to_owned(),
         })
         .collect()
 }
 
-/// 여러 audit 결과를 하나의 끝으로: 담당이 고칠 수 없는 일이 하나라도 있으면 실패다.
+/// 여러 audit 결과를 하나의 끝으로: 담당이 고칠 수 없는 일이 하나라도 있으면 실패, 멈출 일이 없으면 없다.
 pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
-    let ends: Vec<MergeEnd> = findings.iter().map(Finding::end).collect();
+    let ends: Vec<MergeEnd> = findings.iter().filter_map(Finding::end).collect();
     match ends.as_slice() {
         [] => None,
         _ if ends.contains(&MergeEnd::Failed) => Some(MergeEnd::Failed),
@@ -400,7 +417,7 @@ pub fn audit_end(findings: &[Finding]) -> Option<MergeEnd> {
 #[macro_export]
 macro_rules! gate_usage {
     () => {
-        "- Merge gate (only these verbs; never write READY, MERGED, BLOCK, REWORK, VERDICT or CI RESULT in loom send/reply/done): loom ready <branch> (branch owner, all committed) sends the branch to its gate. loom verdict <branch> pass|block --findings <file> (gate or its reviewer; block needs findings and goes to the owner as rework). loom merge <branch> (gate, after pass) audits, checks, merges, pushes and reports. loom fail <branch> <cause> (gate) stops the branch and tells the root. loom picks receivers. loom --help has details.\n"
+        "- Merge gate, only in repositories with scripts/gate/check.sh and ship.sh (there loom refuses READY, MERGED, BLOCK, REWORK, VERDICT or CI RESULT at the start of loom send/reply/done): loom ready <branch> (branch owner, all committed) sends the branch to its gate. loom verdict <branch> pass|block --findings <file> (gate or its reviewer, not the owner; block needs findings and goes to the owner as rework). loom merge <branch> (gate, after pass) audits, checks, merges, pushes and reports. loom fail <branch> <cause> (gate) stops the branch and tells the root. loom picks receivers. loom --help has details.\n"
     };
 }
 
@@ -418,9 +435,22 @@ mod tests {
     ];
 
     /// 사람이 정한 전이 표(R8 v5 ④, 워커 브리프 1번). 이 표 밖의 짝은 모두 거절이다.
-    const LEGAL: [(GateState, GateCall, GateState); 13] = [
+    const LEGAL: [(GateState, GateCall, GateState); 16] = [
         (GateState::Working, GateCall::Ready, GateState::Ready),
         (GateState::Failed, GateCall::Ready, GateState::Ready),
+        // 병합한 브랜치 이름을 다시 쓴다(검토 P1-3).
+        (GateState::Merged, GateCall::Ready, GateState::Ready),
+        // 둘째 검토자의 판정은 병합 시작 전까지 받는다(검토 P2-7).
+        (
+            GateState::Passed,
+            GateCall::Verdict(Judgment::Pass),
+            GateState::Passed,
+        ),
+        (
+            GateState::Passed,
+            GateCall::Verdict(Judgment::Block),
+            GateState::Working,
+        ),
         (
             GateState::Ready,
             GateCall::Verdict(Judgment::Pass),
@@ -487,9 +517,8 @@ mod tests {
         let text = e.to_string();
         assert!(text.contains("Ready"), "{text}");
         assert!(text.contains("loom verdict, loom fail"), "{text}");
-        let merged = step(GateState::Merged, GateCall::Ready).unwrap_err();
-        assert!(merged.allowed.is_empty());
-        assert!(merged.to_string().contains("start a new branch"));
+        let merging = step(GateState::Merging, GateCall::Ready).unwrap_err();
+        assert!(merging.to_string().contains("Merging"), "{merging}");
     }
 
     #[test]
@@ -520,19 +549,29 @@ mod tests {
             audit_end(std::slice::from_ref(&raw)),
             Some(MergeEnd::Rework)
         );
-        assert_eq!(audit_end(&[raw, out]), Some(MergeEnd::Failed));
+        // 관문 밖 커밋은 알리기만 한다. 흔적 구간이 빈 것만 실패다.
+        assert_eq!(audit_end(std::slice::from_ref(&out)), None);
+        assert_eq!(audit_end(&[raw.clone(), out]), Some(MergeEnd::Rework));
+        let gap = Finding::RangeIncomplete {
+            since: 1,
+            oldest: 2,
+        };
+        assert_eq!(audit_end(&[raw, gap]), Some(MergeEnd::Failed));
+        let moved = Finding::HeadMoved {
+            reviewed: "a".into(),
+            now: "b".into(),
+        };
+        assert_eq!(audit_end(&[moved]), Some(MergeEnd::Rework));
     }
 
     #[test]
-    fn target_commits_without_a_gate_merge_are_out_of_gate() {
-        let merged = vec!["aaa".to_owned()];
+    fn target_commits_between_gate_merges_are_out_of_gate() {
         assert_eq!(
-            out_of_gate("bbb\naaa\n", &merged),
+            out_of_gate("bbb\n\n"),
             vec![Finding::OutOfGate {
                 commit: "bbb".into()
             }]
         );
-        assert!(out_of_gate("aaa\n", &merged).is_empty());
-        assert!(out_of_gate("", &merged).is_empty());
+        assert!(out_of_gate("").is_empty());
     }
 }

@@ -76,11 +76,16 @@ struct Row {
 }
 
 impl Row {
-    fn target_kind(&self) -> Target {
-        match self.gate == self.owner {
-            true => Target::Base,
-            false => Target::Coordinator,
-        }
+    fn target_kind(&self, db: &Connection) -> rusqlite::Result<Target> {
+        let coordinator: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND id != ?2 AND role = ?3)",
+            params![self.gate.0, self.owner.0, COORDINATOR_ROLE],
+            |row| row.get(0),
+        )?;
+        Ok(match coordinator {
+            true => Target::Coordinator,
+            false => Target::Base,
+        })
     }
 }
 
@@ -569,7 +574,7 @@ impl Graph {
                 log: detail.log,
             },
         ) {
-            for receiver in protocol::receivers(call, row.target_kind()) {
+            for receiver in protocol::receivers(call, row.target_kind(&tx)?) {
                 let to_node = match receiver {
                     Receiver::Gate => row.gate,
                     Receiver::Owner => row.owner,
@@ -678,9 +683,8 @@ fn withdraw(
 ) -> rusqlite::Result<Vec<NodeId>> {
     let reviewers: Vec<(NodeId, Option<AgentId>)> = tx
         .prepare(&format!(
-            "SELECT n.id, n.agent FROM nodes n WHERE {} AND n.id != ?3 AND (n.id > ?4 OR {}) ORDER BY n.id",
-            reviewer("?1", "?2"),
-            voted("?5", "?2")
+            "SELECT n.id, n.agent FROM nodes n WHERE {} AND n.id != ?3 ORDER BY n.id",
+            in_round("?1", "?2", "?4", "?5")
         ))?
         .query_map(
             params![
@@ -712,6 +716,36 @@ fn reviewer(gate: &str, owner: &str) -> String {
     format!(
         "n.parent = {gate} AND n.id != {owner} AND {REACHABLE} AND n.task IS (SELECT task FROM nodes WHERE id = {gate})"
     )
+}
+
+fn in_round(gate: &str, owner: &str, mark: &str, branch: &str) -> String {
+    format!(
+        "({} AND (n.id > {mark} OR {}))",
+        reviewer(gate, owner),
+        judged(branch)
+    )
+}
+
+fn done(owner: &str, mark: &str, branch: &str) -> String {
+    format!(
+        "({} OR (n.id > {mark} AND {}))",
+        voted(branch, owner),
+        judged_any()
+    )
+}
+
+fn judged(branch: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
+            AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' = {branch}
+            AND e.entry ->> '$.from.id' = n.id)"
+    )
+}
+
+fn judged_any() -> String {
+    "EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
+        AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.from.id' = n.id)"
+        .to_owned()
 }
 
 fn voted(branch: &str, owner: &str) -> String {
@@ -780,10 +814,9 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
 
 fn settled() -> String {
     format!(
-        "state = '\"passed\"' AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND n.id > gates.mark
-            AND NOT EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
-                AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.from.id' = n.id))",
-        reviewer("gates.gate", "gates.owner")
+        "state = '\"passed\"' AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND NOT {})",
+        in_round("gates.gate", "gates.owner", "gates.mark", "gates.branch"),
+        done("gates.owner", "gates.mark", "gates.branch")
     )
 }
 

@@ -349,10 +349,10 @@ fn a_withdrawn_round_tells_exactly_its_reviewers_to_stop() {
         g.fail(t.solo, "b", "not needed", Some(&via())),
         Ok(GateState::Failed)
     );
-    assert_eq!(mail(&g, third).len(), 1);
-    for node in [earlier, first, second] {
-        assert!(mail(&g, node).is_empty(), "{node}");
+    for node in [third, earlier, first] {
+        assert_eq!(mail(&g, node).len(), 1, "{node}");
     }
+    assert!(mail(&g, second).is_empty());
 }
 
 #[test]
@@ -412,8 +412,73 @@ fn a_pass_waits_for_every_live_reviewer_of_the_round() {
         g.verdict(second, "b", Judgment::Pass, None, Some(&via())),
         Ok(GateState::Passed)
     );
+    assert_eq!(
+        names(g.queue(repo, "main").unwrap()),
+        ["x"],
+        "first judged b in round 1 and has not judged round 2"
+    );
+    g.verdict(first, "x", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert_eq!(
+        names(g.queue(repo, "main").unwrap()),
+        ["x"],
+        "a verdict on another branch does not end a reused reviewer's round"
+    );
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
     assert_eq!(g.queued_targets().unwrap(), [(repo, "main".to_owned())]);
     assert_eq!(names(g.queue(repo, "main").unwrap()), ["x", "b"]);
+}
+
+#[test]
+fn a_reused_reviewer_that_exits_stops_holding_the_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    let first = reviewer(&g, t.solo, "solo", "first");
+    let second = reviewer(&g, t.solo, "solo", "second");
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    g.verdict(second, "b", Judgment::Block, Some("/r/f.md"), Some(&via()))
+        .unwrap();
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.verdict(second, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert!(g.queue(repo, "main").unwrap().is_empty());
+    g.exited(first, 0).unwrap();
+    assert_eq!(g.queue(repo, "main").unwrap().len(), 1);
+}
+
+#[test]
+fn an_old_ci_round_tells_the_root_because_its_target_is_the_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let ci = with_role(&g, t.lead, "ci", "CI 담당자");
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.lock()
+        .execute(
+            r#"UPDATE gates SET gate = ?1, state = '"merging"', batch = NULL"#,
+            [ci.0],
+        )
+        .unwrap();
+    for node in [t.lead, t.solo, ci] {
+        mail(&g, node);
+    }
+    assert_eq!(g.orphans().unwrap(), [(RepoId(1), "b".to_owned())]);
+    let failed = Ended {
+        cause: Some("loom upgrade: send loom ready again".into()),
+        ..ended(MergeEnd::Failed, None)
+    };
+    assert_eq!(g.merge_end(RepoId(1), "b", failed), Ok(GateState::Failed));
+    for node in [t.lead, t.solo, ci] {
+        assert_eq!(mail(&g, node).len(), 1, "{node}");
+    }
 }
 
 #[test]

@@ -1,7 +1,7 @@
 // 데몬이 보낸 코드(gen/Problem·UsageProblem)를 현재 언어 문장으로 바꾼다.
 // 키는 코드 이름이라 Rust에 변형을 더하고 번역을 빠뜨리면 `tsc`가 실패한다.
 import type { TOptions } from 'i18next';
-import i18next from './i18n';
+import i18next, { duration } from './i18n';
 import type { Problem } from './gen/Problem';
 import type { Refusal } from './gen/Refusal';
 import type { UsageProblem } from './gen/UsageProblem';
@@ -42,5 +42,9 @@ export function refusalWithoutName(r: Refusal): string {
 }
 
 export function usageProblemText(p: UsageProblem): string {
+  // 한도 문장은 다시 읽는 때까지 남은 시간을 보인다. 1분 밑은 1분으로 올린다.
+  if (p.code === 'rateLimited') {
+    return i18next.t('usageProblem.rateLimited', { value: duration(Math.max(60 * 1000, p.value.retryAt * 1000 - Date.now())) });
+  }
   return i18next.t(`usageProblem.${p.code}`, vars(p));
 }

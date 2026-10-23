@@ -677,6 +677,7 @@ const en = {
     loginNotSupported: 'This login method (such as an API key) cannot show usage.',
     responseFormat: 'The usage response has an unknown format.',
     tokenExpired: 'The token expired. Run {{value}} once with this account to refresh it.',
+    rateLimited: 'Usage read limit reached. loom reads again after {{value}}.',
     unavailable: 'Usage unavailable: {{value}}',
   },
   titlebar: {

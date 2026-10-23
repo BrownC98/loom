@@ -22,6 +22,8 @@ use crate::profile::{LaunchError, Provider};
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 /// Codex 창 길이가 이 값 이하면 5시간 창이다. Codex는 5시간 창(300분)과 주간 창(10080분)을 primary·secondary 순서 없이 준다.
 const SESSION_WINDOW_MAX_MINS: u64 = 300;
+/// 429에 `retry-after`가 없을 때 쓰는 초. 2026-10-23 실측 값이다(docs/design.md 「실측 근거」).
+const DEFAULT_RETRY_AFTER_SECS: i64 = 300;
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 /// Orca가 보내는 값과 같다. 기본 User-Agent(`ureq/…`)는 429를 받았다(2026-10-20, docs/design.md 「실측 근거」).
 const CLAUDE_USER_AGENT: &str = "claude-code/2.1.0";
@@ -95,6 +97,12 @@ pub enum UsageProblem {
     LoginNotSupported,
     /// 사용량 API가 알 수 없는 형식을 냈다.
     ResponseFormat,
+    /// 사용량 API가 요청 한도를 넘었다고 답했다. `retry_at`(유닉스 초)까지 다시 부르지 않는다.
+    #[serde(rename_all = "camelCase")]
+    RateLimited {
+        #[ts(type = "number")]
+        retry_at: i64,
+    },
     /// 로그인 토큰이 만료됐다. 그 계정으로 CLI를 한 번 실행하면 갱신된다. 값은 에이전트 이름이다.
     TokenExpired(String),
     /// 네트워크 오류 같은 그 밖의 실패. 값은 원인 글이다.
@@ -109,15 +117,24 @@ pub struct Usage {
     /// 요금제 이름. CLI가 준 글자 그대로다(예: `max`, `plus`).
     pub plan: Option<String>,
     pub limits: Limits,
+    /// 이 값을 읽은 시각. 유닉스 초. 캐시가 앞 값을 다시 주면 그 값을 읽은 때다.
+    #[ts(type = "number")]
+    pub read_at: i64,
 }
 
 impl Usage {
-    pub fn failed(problem: UsageProblem) -> Self {
+    /// 지금 읽은 값이다.
+    pub fn new(email: Option<String>, plan: Option<String>, limits: Limits) -> Self {
         Usage {
-            email: None,
-            plan: None,
-            limits: Limits::Failed { problem },
+            email,
+            plan,
+            limits,
+            read_at: jiff::Timestamp::now().as_second(),
         }
+    }
+
+    pub fn failed(problem: UsageProblem) -> Self {
+        Self::new(None, None, Limits::Failed { problem })
     }
 }
 
@@ -174,11 +191,7 @@ fn claude(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
     } else {
         failed(UsageProblem::CliFormat("claude auth status".into()))
     };
-    Usage {
-        email: status.email,
-        plan: status.subscription_type,
-        limits,
-    }
+    Usage::new(status.email, status.subscription_type, limits)
 }
 
 fn claude_limits(config_dir: &Path) -> Limits {
@@ -193,8 +206,10 @@ fn claude_limits(config_dir: &Path) -> Limits {
     let Some(token) = token else {
         return failed(UsageProblem::LoginNotSupported);
     };
+    // 429의 `retry-after` 헤더를 읽으려고 상태 코드를 오류로 바꾸지 않는다.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(PROBE_TIMEOUT))
+        .http_status_as_error(false)
         .build()
         .into();
     let response = agent
@@ -203,8 +218,12 @@ fn claude_limits(config_dir: &Path) -> Limits {
         .header("anthropic-beta", "oauth-2025-04-20")
         .header("User-Agent", CLAUDE_USER_AGENT)
         .call();
-    match response {
-        Ok(mut res) => match res.body_mut().read_json::<Value>() {
+    let mut res = match response {
+        Ok(res) => res,
+        Err(e) => return failed(UsageProblem::Unavailable(e.to_string())),
+    };
+    match res.status().as_u16() {
+        200..=299 => match res.body_mut().read_json::<Value>() {
             Ok(body) => Limits::Ready {
                 session: claude_window(
                     &body["five_hour"]["utilization"],
@@ -219,9 +238,26 @@ fn claude_limits(config_dir: &Path) -> Limits {
             },
             Err(_) => failed(UsageProblem::ResponseFormat),
         },
-        Err(ureq::Error::StatusCode(401)) => failed(UsageProblem::TokenExpired("Claude".into())),
-        Err(e) => failed(UsageProblem::Unavailable(e.to_string())),
+        401 => failed(UsageProblem::TokenExpired("Claude".into())),
+        429 => {
+            let header = res
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok());
+            failed(UsageProblem::RateLimited {
+                retry_at: jiff::Timestamp::now().as_second() + retry_after_secs(header),
+            })
+        }
+        status => failed(UsageProblem::Unavailable(format!("http status: {status}"))),
     }
+}
+
+/// `retry-after` 헤더의 초. 없거나 날짜 꼴이면 `DEFAULT_RETRY_AFTER_SECS`다.
+fn retry_after_secs(header: Option<&str>) -> i64 {
+    header
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|secs| *secs >= 0)
+        .unwrap_or(DEFAULT_RETRY_AFTER_SECS)
 }
 
 /// `used`는 사용한 %, `resets_at`은 ISO 8601 시각이다.
@@ -261,18 +297,14 @@ fn codex(cmd: Command) -> Usage {
     let [account, limits] = replies;
     let account = &account["account"];
     if account.is_null() {
-        return Usage {
-            email: None,
-            plan: None,
-            limits: Limits::NeedsLogin,
-        };
+        return Usage::new(None, None, Limits::NeedsLogin);
     }
     let text = |v: &Value| v.as_str().map(str::to_owned);
-    Usage {
-        email: text(&account["email"]),
-        plan: text(&account["planType"]),
-        limits: codex_limits(&limits["rateLimits"]),
-    }
+    Usage::new(
+        text(&account["email"]),
+        text(&account["planType"]),
+        codex_limits(&limits["rateLimits"]),
+    )
 }
 
 /// `primary`·`secondary` 가운데 창 길이로 5시간 창과 주간 창을 고른다.
@@ -383,11 +415,7 @@ pub fn probe_cursor(site: &Site) -> Usage {
         None if email.is_some() => failed(UsageProblem::LoginNotSupported),
         None => Limits::NeedsLogin,
     };
-    Usage {
-        email,
-        plan: None,
-        limits,
-    }
+    Usage::new(email, None, limits)
 }
 
 struct CursorToken {
@@ -546,6 +574,15 @@ mod tests {
         .unwrap();
         assert!(!status.logged_in);
         assert_eq!(status.config_directory, None);
+    }
+
+    #[test]
+    fn retry_after_reads_seconds_or_falls_back() {
+        assert_eq!(retry_after_secs(Some("300")), 300);
+        assert_eq!(retry_after_secs(Some(" 12 ")), 12);
+        assert_eq!(retry_after_secs(Some("Wed, 21 Oct 2026 07:28:00 GMT")), 300);
+        assert_eq!(retry_after_secs(Some("-5")), 300);
+        assert_eq!(retry_after_secs(None), 300);
     }
 
     #[test]

@@ -678,6 +678,7 @@ const ko: typeof en = {
     loginNotSupported: '이 로그인 방식(API 키 등)은 사용량을 볼 수 없습니다.',
     responseFormat: '사용량 응답 형식을 알 수 없습니다.',
     tokenExpired: '토큰이 만료되었습니다. 이 계정으로 {{value}}를 한 번 실행하면 갱신됩니다.',
+    rateLimited: '사용량 조회 한도를 넘었습니다. {{value}} 뒤에 다시 읽습니다.',
     unavailable: '지금은 사용량을 볼 수 없습니다: {{value}}',
   },
   titlebar: {

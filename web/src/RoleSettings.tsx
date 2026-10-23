@@ -84,9 +84,9 @@ export function RoleSettings({ agents, settings, onSettings }: { agents: AgentVi
 
 function RoleForm(props: { initial: Role; adding: boolean; others: Role[]; agents: AgentView[]; onCancel: () => void; onSave: (role: Role) => void }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(props.initial);
-  const [model, setModel] = useState(props.initial.model ?? '');
-  const [effort, setEffort] = useState(props.initial.effort ?? '');
+  // 모델·강도는 칸의 글로 둔다. 빈 글은 저장할 때 `null`(CLI 기본)이 된다.
+  const [draft, setDraft] = useState({ ...props.initial, model: props.initial.model ?? '', effort: props.initial.effort ?? '' });
+  const { model, effort } = draft;
   const picks = canChooseModel(props.agents.find((a) => a.id === draft.agent));
   const taken = nameTaken(draft.name, props.others);
   const duplicate = draft.name.trim() !== '' && taken;
@@ -112,11 +112,11 @@ function RoleForm(props: { initial: Role; adding: boolean; others: Role[]; agent
         </div>
         <div className="field">
           <label htmlFor="role-model">{t('settings.roles.model')}</label>
-          <input id="role-model" className="mono" value={model} disabled={!picks} placeholder={t('settings.roles.cliDefault')} style={{ width: 170 }} onChange={(e) => setModel(e.target.value)} />
+          <input id="role-model" className="mono" value={model} disabled={!picks} placeholder={t('settings.roles.cliDefault')} style={{ width: 170 }} onChange={(e) => setDraft({ ...draft, model: e.target.value })} />
         </div>
         <div className="field">
           <label htmlFor="role-effort">{t('settings.roles.effort')}</label>
-          <input id="role-effort" className="mono" value={effort} disabled={!picks} placeholder={t('settings.roles.cliDefault')} style={{ width: 90 }} onChange={(e) => setEffort(e.target.value)} />
+          <input id="role-effort" className="mono" value={effort} disabled={!picks} placeholder={t('settings.roles.cliDefault')} style={{ width: 90 }} onChange={(e) => setDraft({ ...draft, effort: e.target.value })} />
         </div>
       </div>
       {duplicate && <span className="err-text">{t('settings.roles.duplicate')}</span>}

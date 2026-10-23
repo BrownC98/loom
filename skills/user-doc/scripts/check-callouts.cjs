@@ -180,12 +180,14 @@ const DOM_PASS = () => {
         const want = m.matches('td, th') ? cut(grow(-1), frm) : m.matches('.shotwrap .mk') ? t : cut(cut(grow(5), m.parentElement.closest('td, th')), frm);
         if (!at(o, want, 1.5)) bad.push(id + ' box is not at its target (expected ' + [want.l - t.l, want.t - t.t, t.r - want.r, t.b - want.b].map(v => Math.round(-v)).join('/') + ' px around it)');
         const ups = []; for (let a = m.parentElement; a && a !== fig; a = a.parentElement) ups.push(a);
-        // ::before·::after로 그린 선도 두 번째 선이다. 제품 컨트롤 자신의 테두리는 세지 않는다.
-        const line = cs => ['Top', 'Right', 'Bottom', 'Left'].some(z => cs['border' + z + 'Style'] !== 'none' && parseFloat(cs['border' + z + 'Width']) > 0 && !/rgba\(.*,\s*0\)$|transparent/.test(cs['border' + z + 'Color']));
+        // ::before·::after로 대상을 두른 사각형도 두 번째 선이다: 네 변이 다 보이고(또는 outline) 크기가 그 요소의 절반 넘게 크다.
+        // 제품 컨트롤 자신의 테두리와 작은 글리프(펼침 삼각형 등)는 세지 않는다(검토 BLOCK).
+        const line = cs => ['Top', 'Right', 'Bottom', 'Left'].every(z => cs['border' + z + 'Style'] !== 'none' && parseFloat(cs['border' + z + 'Width']) > 0 && !/rgba\(.*,\s*0\)$|transparent/.test(cs['border' + z + 'Color']));
         const outl = cs => cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0;
         for (const e of [m, ...m.querySelectorAll('*'), ...ups].filter(e => at(rect(e), t, 9))) {
           const ps = ['::before', '::after'].map(z => getComputedStyle(e, z)).filter(cs => cs.content !== 'none' && cs.content !== 'normal');
-          if (ps.some(cs => line(cs) || outl(cs))) { bad.push(id + ' box has a second border line (::before/::after on <' + e.tagName.toLowerCase() + '>)'); break; }
+          const big = cs => { const sz = k => parseFloat(cs[k]) + parseFloat(cs['border' + (k === 'width' ? 'Left' : 'Top') + 'Width']) + parseFloat(cs['border' + (k === 'width' ? 'Right' : 'Bottom') + 'Width']); return sz('width') >= e.offsetWidth / 2 && sz('height') >= e.offsetHeight / 2; };
+          if (ps.some(cs => (line(cs) || outl(cs)) && big(cs))) { bad.push(id + ' box has a second border line (::before/::after on <' + e.tagName.toLowerCase() + '>)'); break; }
           const cs = getComputedStyle(e); if (outl(cs)) { bad.push(id + ' box has a second border line (outline on <' + e.tagName.toLowerCase() + (e.className.baseVal ?? e.className ? '.' + (e.className.baseVal ?? e.className).trim().replace(/\s+/g, '.') : '') + '>)'); break; } }
       }
       // 배지: 잘리지 않고, 문서 안에 있고, 글자를 덮지 않는다(대상 안의 글자는 뺀다).

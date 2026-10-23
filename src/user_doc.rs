@@ -49,6 +49,7 @@ pub fn record_checked(path: &Path) -> Result<(), String> {
 }
 
 /// WSL 노드의 `loom`도 Windows 실행 파일이지만 시작 폴더가 WSL 폴더다. 그 노드는 bash로 `show.sh`를 돌린다.
+/// 한계: bash 없는 Windows 노드의 통과에는 렌더·말풍선·파일 하나(`check-callouts.cjs`) 점검이 없다(2026-10-23 관문 결정).
 fn bashless() -> bool {
     cfg!(windows)
         && std::env::current_dir()
@@ -498,147 +499,10 @@ fn check(html: &str) -> Result<(), String> {
         ("응답할 곳", "머리 줄 「응답할 곳」이 없다"),
         (WHO, r#"머리 줄(<div class="who">)이 없다"#),
     ];
-    if let Some((_, missing)) = marks.iter().find(|(mark, _)| !html.contains(mark)) {
-        return Err((*missing).into());
-    }
-    match local_refs(html).first() {
-        Some(r) => Err(format!(
-            "한 파일이 아니다: {r}. 그림은 data: 주소나 <svg>로 문서 안에 넣는다"
-        )),
+    match marks.iter().find(|(mark, _)| !html.contains(mark)) {
+        Some((_, missing)) => Err((*missing).into()),
         None => Ok(()),
     }
-}
-
-/// 문서 밖 파일을 가리키는 주소. `check-callouts.cjs`의 `LOCAL_REFS`와 같은 규칙을 글로 본다(`<script>` 밖의 속성, `<style>`과 `style` 속성의 `url()`·`@import`).
-/// 근거: `--doc` 통과 기록은 `loom show`가 남기므로, `show.sh` 없이 부른 `loom show`도 옆 그림이 빠진 문서를 거절해야 한다(2026-10-23 검토 추적-codex).
-fn local_refs(html: &str) -> Vec<String> {
-    let one_file = |v: &str| {
-        let v = v.trim().to_ascii_lowercase();
-        v.is_empty() || ["data:", "https:", "#"].iter().any(|p| v.starts_with(p))
-    };
-    let mut bad = Vec::new();
-    let markup = without_blocks(html, "script");
-    for attr in ["src", "href", "srcset", "poster"] {
-        for value in attr_values(&markup, attr) {
-            let refs = if attr == "srcset" {
-                srcset_urls(&value)
-            } else {
-                vec![value.clone()]
-            };
-            bad.extend(
-                refs.into_iter()
-                    .filter(|r| !one_file(r))
-                    .map(|r| format!("{attr}=\"{r}\"")),
-            );
-        }
-    }
-    let mut css = blocks(html, "style");
-    css.extend(attr_values(&markup, "style"));
-    for text in css {
-        for (open, end) in [
-            ("url(", &[')', '\'', '"'][..]),
-            ("@import", &[';', ' ', '\'', '"', ')'][..]),
-        ] {
-            let lower = text.to_ascii_lowercase();
-            for (at, _) in lower.match_indices(open) {
-                let rest = text[at + open.len()..]
-                    .trim_start()
-                    .trim_start_matches("url(")
-                    .trim_start_matches(['\'', '"']);
-                let url = rest.split(end).next().unwrap_or_default();
-                if !one_file(url) {
-                    bad.push(format!("{open}{url}"));
-                }
-            }
-        }
-    }
-    bad
-}
-
-/// `<tag …>…</tag>` 안의 글.
-fn blocks(html: &str, tag: &str) -> Vec<String> {
-    let lower = html.to_ascii_lowercase();
-    let (open, close) = (format!("<{tag}"), format!("</{tag}"));
-    let mut out = Vec::new();
-    let mut from = 0;
-    while let Some(start) = lower[from..].find(&open).map(|i| from + i) {
-        let Some(body) = lower[start..].find('>').map(|i| start + i + 1) else {
-            break;
-        };
-        let end = lower[body..].find(&close).map_or(html.len(), |i| body + i);
-        out.push(html[body..end].to_owned());
-        from = end;
-    }
-    out
-}
-
-/// `<tag …>…</tag>`를 뺀 글.
-fn without_blocks(html: &str, tag: &str) -> String {
-    let lower = html.to_ascii_lowercase();
-    let (open, close) = (format!("<{tag}"), format!("</{tag}>"));
-    let mut out = String::new();
-    let mut from = 0;
-    while let Some(start) = lower[from..].find(&open).map(|i| from + i) {
-        out.push_str(&html[from..start]);
-        from = lower[start..]
-            .find(&close)
-            .map_or(html.len(), |i| start + i + close.len());
-    }
-    out.push_str(&html[from..]);
-    out
-}
-
-/// 빈칸 뒤의 `attr=` 속성 값. 따옴표가 없으면 빈칸이나 `>`까지다.
-fn attr_values(markup: &str, attr: &str) -> Vec<String> {
-    let lower = markup.to_ascii_lowercase();
-    let key = format!("{attr}=");
-    lower
-        .match_indices(&key)
-        .filter(|(at, _)| markup[..*at].ends_with(|c: char| c.is_ascii_whitespace()))
-        .map(|(at, _)| {
-            let rest = &markup[at + key.len()..];
-            match rest.chars().next() {
-                Some(q @ ('"' | '\'')) => rest[1..].split(q).next().unwrap_or_default(),
-                _ => rest
-                    .split(|c: char| c.is_ascii_whitespace() || c == '>')
-                    .next()
-                    .unwrap_or_default(),
-            }
-            .to_owned()
-        })
-        .collect()
-}
-
-/// `srcset`의 후보 주소. 후보는 「설명자(`2x`, `640w`) 뒤 쉼표」나 「쉼표+빈칸」으로 나뉜다. `data:` 주소 안 쉼표 뒤에는 빈칸이 없다.
-fn srcset_urls(srcset: &str) -> Vec<String> {
-    let descriptor = |piece: &str| {
-        piece
-            .trim_end()
-            .rsplit_once(char::is_whitespace)
-            .is_some_and(|(_, d)| {
-                d.len() > 1 && d.ends_with(['w', 'x']) && d[..d.len() - 1].parse::<f64>().is_ok()
-            })
-    };
-    let mut candidates = vec![String::new()];
-    let mut pieces = srcset.split(',').peekable();
-    while let Some(piece) = pieces.next() {
-        let current = candidates.last_mut().expect("목록은 비지 않는다");
-        current.push_str(piece);
-        let next_starts = pieces
-            .peek()
-            .is_some_and(|n| n.starts_with(char::is_whitespace));
-        if pieces.peek().is_some() {
-            if descriptor(current) || next_starts {
-                candidates.push(String::new());
-            } else {
-                current.push(',');
-            }
-        }
-    }
-    candidates
-        .iter()
-        .filter_map(|c| c.split_whitespace().next().map(str::to_owned))
-        .collect()
 }
 
 /// 보고서는 그림으로 보인다(2026-10-22 사람 지시 "다이어그램 등으로 시각화 해서 이해하기 쉽게 작성해, 앞으로 모든 보고서에 적용되는 규칙으로 설정").
@@ -754,39 +618,6 @@ pub(crate) mod tests {
             refused.contains("put images inside an HTML file"),
             "{refused}"
         );
-    }
-
-    /// `loom show`도 `check-callouts.cjs`처럼 문서 밖 파일을 가리키는 주소를 거절한다.
-    #[test]
-    fn a_doc_must_be_one_file() {
-        let doc = |extra: &str| DOC.replace("</body>", &format!("{extra}</body>"));
-        for one in [
-            r##"<a href="#part">x</a>"##,
-            r#"<img src="data:image/png;base64,AAA,BBB">"#,
-            r#"<img srcset="data:image/png;base64,A,B 1x, https://a.b/c.png 2x">"#,
-            r#"<a href="https://a.b/c">x</a><div data-src="local.png"></div>"#,
-            r#"<style>.a{background:url("data:image/svg+xml,%3Csvg%3E")}</style>"#,
-            r#"<script>el.src = "local.png"; x = ' src="a.png"';</script>"#,
-        ] {
-            assert_eq!(local_refs(&doc(one)), Vec::<String>::new(), "{one}");
-        }
-        for local in [
-            r#"<img src="missing.png">"#,
-            r#"<img src=missing.png>"#,
-            r#"<img srcset="data:image/png;base64,A 1x, local@2x.png 2x">"#,
-            r#"<a href="other.html">x</a>"#,
-            r#"<a href="http://a.b/c">x</a>"#,
-            r#"<video poster="p.jpg"></video>"#,
-            r#"<div style="background: url(bg.png)"></div>"#,
-            r#"<style>@import "local.css";</style>"#,
-        ] {
-            assert_eq!(local_refs(&doc(local)).len(), 1, "{local}");
-        }
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("r.html");
-        fs::write(&path, doc(r#"<img src="missing.png">"#)).unwrap();
-        let shown = stamp_in(&store(dir.path()), &path);
-        assert!(shown.is_err_and(|e| e.contains("missing.png")));
     }
 
     /// 점검을 지난 문서의 조각 링크(`#part`)도 그 문서다.

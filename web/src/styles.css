@@ -893,6 +893,11 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .wait-node + .wait-node { border-top: 1px solid var(--warn); }
 /* 완료만 남은 노드 칸은 완료 색 테두리다(2026-10-23 사람 "앱 알림탭의 테두리도 알림 성격에 따라 올바른 테두리 색을 설정해"). */
 .phone .wait-node[data-kind="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
+/* 폰 폭에서 완료 줄 머리는 지시가 한 줄을 다 쓰고 시각·[확인]이 그 아래에 온다. 한 줄에 두면 지시가 좁은 칸에서 여러 줄로 꺾였다(2026-10-23 사람 지시 "고쳐", 화면 캡처). 노드 배지도 카드 색(--warn)을 따른다. */
+.phone .wait-row .top:has(> .instruction) { flex-wrap: wrap; align-items: center; }
+.phone .wait-row .top > .instruction { flex-basis: calc(100% - 21px); }
+.phone .wait-row .top:has(> .instruction) > .published { flex: 1; margin-left: 21px; }
+.phone .wait-node .count { background: var(--warn); color: var(--warn-ink); }
 .phone .wait-node > .go { min-height: 36px; padding: 0; }
 .phone .wait-rows { padding-left: 0; }
 .phone .wait-row:hover { background: none; }

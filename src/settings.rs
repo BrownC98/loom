@@ -36,7 +36,7 @@ pub struct SettingsView {
     #[serde(default)]
     pub terminal_font: TerminalFont,
     #[serde(default)]
-    pub card_view: CardView,
+    pub card_view: DefaultCardView,
     /// 옛 설정에는 없다. 없으면 `Repo`(저장소 하나)로 읽는다.
     #[serde(default)]
     pub graph_scope: GraphScope,
@@ -164,15 +164,17 @@ pub struct TerminalFont {
     pub size: Option<u8>,
 }
 
-/// 그래프 전체의 카드 보기. `Standard`는 카드에 터미널이 있다. `Simple`은 카드에 머리 정보만 있고, 고른 노드의 터미널은 오른쪽 칸에만 열린다.
+/// 노드에 따로 고른 카드 보기(`NodeView::card_view`)가 없을 때의 보기. `RootTerminal`은 부모 없는 노드만 표준 카드다
+/// (목업 docs/mockups/node-card-view.html, 2026-10-23 사람 지시 "설정 옵션에 총괄만 터미널 옵션 제시").
 /// 옛 이름(`terminal`, `header`)은 DB 12단계가 바꾼다.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
-pub enum CardView {
+pub enum DefaultCardView {
     #[default]
     Standard,
     Simple,
+    RootTerminal,
 }
 
 /// 그래프 하나가 보이는 저장소. `Repo`는 사이드바에서 고른 저장소 하나, `All`은 더한 저장소 모두다.
@@ -464,7 +466,7 @@ mod tests {
         assert_eq!(got.theme, Theme::System);
         assert_eq!(got.terminal_theme, TerminalTheme::default());
         assert_eq!(got.terminal_font, TerminalFont::default());
-        assert_eq!(got.card_view, CardView::Standard);
+        assert_eq!(got.card_view, DefaultCardView::Standard);
         assert_eq!(got.graph_scope, GraphScope::Repo);
         assert_eq!(got.language, Language::System);
         assert_eq!(got.always_on, AlwaysOn::default());

@@ -14,6 +14,8 @@ const view = (id: number, name: string, parent: number | null, worktree: string,
   effort: null,
   place: { repo, worktree },
   bookmark: null,
+  cardView: null,
+  reply: null,
   waits: [],
 });
 

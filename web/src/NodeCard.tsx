@@ -106,8 +106,8 @@ function Badges(props: { view: NodeView }) {
 }
 
 /**
- * 노드 정보 전체: 로고·이름·상태와 수·버튼(`actions`), 모델 · 추론 강도. 상태는 이름 줄 오른쪽이다(2026-10-21 사람 지시). 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
- * 목업 docs/mockups/card-view.html 1번.
+ * 노드 정보 전체: 로고·이름·상태와 수·버튼(`actions`), 모델 · 추론 강도, 상태 줄(마지막 턴 끝 답 글). 상태는 이름 줄 오른쪽이다(2026-10-21 사람 지시). 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
+ * 목업 docs/mockups/card-view.html 1번, node-card-view.html ⑧. 상태 줄은 두 줄까지 보이고, 마우스를 올리면 전문이 보인다.
  */
 export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode; rename: Rename }) {
   const { view } = props;
@@ -124,6 +124,11 @@ export function NodeSummary(props: { view: NodeView; agentLabel: string; actions
         <div className="summary-model">
           <ModelText view={view} />
         </div>
+      )}
+      {view.reply && (
+        <p className="summary-reply" title={view.reply}>
+          {view.reply}
+        </p>
       )}
     </div>
   );

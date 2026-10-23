@@ -15,3 +15,8 @@ if [ -n "$chrome" ]; then
   timeout 60 "$chrome" --headless --no-sandbox --disable-gpu --window-size=1440,2400 --screenshot="$shot" "file://$doc" >/dev/null 2>&1 \
     && echo "show: 렌더 그림 $shot" || echo "show: 렌더 실패(계속한다)" >&2
 fi
+
+# 3. 목업 말풍선 점검: 말풍선이 있는 목업이면 겹침과 잘리거나 가려진 번호 배지를 센다(SKILL.md 「목업 말풍선」).
+if grep -q 'class="calls"' "$doc"; then
+  timeout 120 node "$(dirname "$0")/check-callouts.cjs" "$doc" || { echo "show: 말풍선 점검 실패(위 overlaps)" >&2; exit 1; }
+fi

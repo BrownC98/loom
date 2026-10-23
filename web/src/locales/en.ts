@@ -85,7 +85,6 @@ const en = {
       setupFailed: 'setup failed',
     },
     foot: {
-      done: 'Summary: {{summary}}',
       daemonRestarted: 'Ended when loom restarted',
       exitedSent: 'Sent exited({{code}}) to the parent ({{parent}})',
       exited: 'Ended with exit code {{code}}',

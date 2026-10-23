@@ -7,6 +7,7 @@ import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
 import { CommitGraph } from './CommitGraph';
+import { DocList } from './DocList';
 import { EventConsole, involved, useEventLog } from './EventConsole';
 import type { EventRecord } from './gen/EventRecord';
 import type { MovableNode } from './gen/MovableNode';
@@ -210,7 +211,7 @@ export function App() {
   // 저장소가 하나면 그래프 위에 그 이름을 보인다. 둘 이상이면 저장소 상자 머리가 이름을 보인다.
   const title = shown.length === 1 ? shown[0].name : null;
   const dockedView = simpleCards && selected !== null ? nodes.get(selected) : undefined;
-  const tabs: readonly DockTab[] = dockedView ? ['events', 'commits', 'questions', 'terminal'] : ['events', 'commits', 'questions'];
+  const tabs: readonly DockTab[] = dockedView ? ['events', 'commits', 'docs', 'questions', 'terminal'] : ['events', 'commits', 'docs', 'questions'];
   const waiting = waitingNodes(nodes);
   // 터미널 탭을 보다가 노드 고르기를 풀면 커밋 그래프로 돌아간다.
   const shownTab = tabs.includes(tab) ? tab : 'commits';
@@ -632,6 +633,7 @@ export function App() {
             >
               {shownTab === 'events' && <EventConsole records={log.records} views={nodes} agents={agents} highlight={highlight} onHighlight={setHighlight} />}
               {shownTab === 'commits' && repo && repoFocused && <CommitGraph repo={repo.id} name={repo.name} />}
+              {shownTab === 'docs' && <DocList />}
               {shownTab === 'questions' && <InboxPanel waiting={waiting} onSelect={selectNode} onFocus={focusNode} />}
               {shownTab === 'terminal' && dockedView && (
                 <TerminalDock

@@ -349,7 +349,7 @@ mod tests {
                     "/api/events",
                     get(|ws: WebSocketUpgrade| async move { ws.on_upgrade(|_| async {}) }),
                 )
-                .route("/api/waits/{wait}/doc/", get(|| async { "doc" }))
+                .route("/api/docs/{id}/", get(|| async { "doc" }))
                 .route(phone::PAIR_PATH, post(|| async { "pair" }))
                 .fallback(|| async { "asset" })
                 .layer(axum::middleware::from_fn_with_state(devices, human_site))
@@ -447,7 +447,7 @@ mod tests {
         #[tokio::test]
         async fn every_remote_route_needs_a_paired_device() {
             let (_dir, d) = devices();
-            for path in ["/api/repos", "/api/waits/3/doc/", "/", "/assets/index.js"] {
+            for path in ["/api/repos", "/api/docs/R3/", "/", "/assets/index.js"] {
                 assert_eq!(
                     status(&d, remote(Method::GET, path, None)).await,
                     StatusCode::UNAUTHORIZED,
@@ -485,7 +485,7 @@ mod tests {
             let (_dir, d) = devices();
             let code = d.invite();
             let token = d.pair(&code, "a").unwrap().0;
-            for path in ["/api/repos", "/api/waits/3/doc/", "/"] {
+            for path in ["/api/repos", "/api/docs/R3/", "/"] {
                 assert_eq!(
                     status(&d, remote(Method::GET, path, Some(&token))).await,
                     StatusCode::OK,

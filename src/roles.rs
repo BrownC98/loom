@@ -79,7 +79,8 @@ impl Default for Roles {
             role(
                 "CI 담당자",
                 "병합 관문(워커 브랜치 검토자·반려), 검사, main 병합·push, 배포·릴리스 확인. 제품 코드는 고치지 않는다",
-                Some(("claude", "claude-sonnet-5-5", "medium")),
+                // 2026-10-23 사람 Q597 A: 관문 판단(검토 논쟁 판정)이 있어 Opus.
+                Some(("claude", "claude-opus-5-5", "medium")),
             ),
         ])
     }

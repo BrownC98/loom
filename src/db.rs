@@ -265,14 +265,14 @@ pub fn default_path() -> std::io::Result<PathBuf> {
 
 /// Windows는 앱 설정 관례(`%APPDATA%\loom`), 다른 OS는 `~/.loom`이다.
 #[cfg(windows)]
-fn data_dir() -> std::io::Result<PathBuf> {
+pub fn data_dir() -> std::io::Result<PathBuf> {
     let appdata =
         std::env::var_os("APPDATA").ok_or_else(|| std::io::Error::other("APPDATA가 없다"))?;
     Ok(PathBuf::from(appdata).join("loom"))
 }
 
 #[cfg(not(windows))]
-fn data_dir() -> std::io::Result<PathBuf> {
+pub fn data_dir() -> std::io::Result<PathBuf> {
     let home =
         std::env::home_dir().ok_or_else(|| std::io::Error::other("홈 폴더를 찾지 못했다"))?;
     Ok(home.join(".loom"))

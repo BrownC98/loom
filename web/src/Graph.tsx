@@ -25,6 +25,7 @@ import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
 import { NodeMenu } from './NodeMenu';
 import { NodeCard, SimpleCard } from './NodeCard';
+import { minimapClass } from './notice';
 import { attachCards, groupParents, groupsOf, inGroup, type Group, type GroupKind } from './repos';
 import { attachPinchZoom } from './pinchZoom';
 import { realignTerminals, SizingTerminal, XtermFont, type Direction, type Draw } from './Terminal';
@@ -1270,7 +1271,7 @@ export function Graph(props: {
           <MiniMap
             pannable
             ariaLabel={t('graph.minimap')}
-            nodeClassName={(node) => (node.type === 'repo' || node.type === 'worktree' ? node.type : (node as CardNode | SimpleNode).data.view.state.kind)}
+            nodeClassName={(node) => (node.type === 'repo' || node.type === 'worktree' ? node.type : minimapClass((node as CardNode | SimpleNode).data.view))}
             onClick={(_, position) => flow.setCenter(position.x, position.y, { zoom: flow.getZoom(), duration: MOVE_MS })}
           />
         )}

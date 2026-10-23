@@ -276,6 +276,55 @@ exit 0"#;
     }
 }
 
+/// 끝난 노드 프로세스가 남긴 배포판 안의 프로세스를 끝낸다: 환경에 `LOOM_TOKEN=<token>`과 이 배포판 기본 계정의 `HOME`이 함께 있는 프로세스.
+/// Cursor는 훅을 제 세션(setsid)에서 띄운다. 그 WSL 세션이 Windows 훅보다 먼저 끝나면 훅의 `/init` 중계와 Cursor의 bash 감싸개가 끝나지 않고 남았다.
+/// 중계를 끝내면 Windows 훅도 끝난다(2026-10-23 실측, WSL 2.7.11).
+/// 프로세스 나무는 따라가지 않는다. 자손은 토큰을 물려받고, 다른 노드와 다른 `HOME`의 데몬(시험 데몬)은 제 토큰이나 제 `HOME`을 가진다.
+pub async fn end_token(distro: &str, token: &str) -> Result<(), String> {
+    let mut cmd = tokio::process::Command::new("wsl.exe");
+    cmd.args(["-d", distro, "-e", "sh", "-c", END_TOKEN, "sh", token])
+        .env("WSL_UTF8", "1");
+    bounded(cmd, END_TOKEN_WAIT).await
+}
+
+/// `end_token`의 스크립트. 신호마다 환경을 다시 읽고 바로 보낸다. 앞에서 고른 PID 목록을 TERM 뒤 KILL까지 쥐지 않는다.
+/// 그 사이 프로세스가 끝나 다른 프로세스가 그 번호를 받아도 그 프로세스에는 토큰이 없다.
+const END_TOKEN: &str = r#"token=$1 nl='
+'
+signal() {
+  sent=1
+  for f in $(grep -laF "LOOM_TOKEN=$token" /proc/[0-9]*/environ 2>/dev/null); do
+    env=$nl$(tr '\0' '\n' <"$f" 2>/dev/null)$nl
+    case $env in *"${nl}LOOM_TOKEN=$token$nl"*) ;; *) continue ;; esac
+    case $env in *"${nl}HOME=$HOME$nl"*) ;; *) continue ;; esac
+    pid=${f#/proc/}
+    kill -"$1" "${pid%/environ}" 2>/dev/null && sent=0
+  done
+  return $sent
+}
+signal TERM || exit 0
+sleep 2
+signal KILL
+exit 0"#;
+
+/// `end_token`이 `wsl.exe`를 기다리는 상한. 넘으면 `wsl.exe`를 끝낸다. WSL이 멈추면 끝나지 않을 수 있다.
+/// 근거: 프로세스 500개에서 스크립트가 고른 것이 없으면 0.01초, 있으면 2.03초(TERM 뒤 2초 쉼 포함)였다(2026-10-24 실측). `wsl.exe` 시작은 약 0.2초다.
+const END_TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `cmd`를 `limit` 안에서 돌린다. 넘거나 이 future를 버리면 프로세스를 끝낸다.
+async fn bounded(
+    mut cmd: tokio::process::Command,
+    limit: std::time::Duration,
+) -> Result<(), String> {
+    cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
+    match tokio::time::timeout(limit, cmd.output()).await {
+        Err(_) => Err(format!("{}초 안에 끝나지 않았다", limit.as_secs())),
+        Ok(Err(e)) => Err(e.to_string()),
+        Ok(Ok(out)) if out.status.success() => Ok(()),
+        Ok(Ok(out)) => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
+    }
+}
+
 /// 노드를 띄우기 직전에 배포판 안에서 읽은 값. `wsl.exe` 한 번으로 읽는다(약 0.2초).
 #[derive(Debug, PartialEq)]
 pub struct Inside {
@@ -513,6 +562,96 @@ pub fn shell(line: &str) -> Vec<OsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `end_token`은 토큰과 `HOME`이 모두 맞는 프로세스만 끝낸다. TERM을 무시한 프로세스는 다시 읽은 KILL이 끝낸다.
+    /// 토큰이 맞아도 다른 `HOME`(시험 데몬)과, 맞는 프로세스의 자식이라도 다른 토큰(다른 노드)은 남는다.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn end_token_ends_only_processes_with_the_token_and_home() {
+        let token = format!("test{}", std::process::id());
+        let home = std::env::var("HOME").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let child_pid = dir.path().join("child");
+        let spawn = |script: String, token: &str, home: &str| {
+            std::process::Command::new("sh")
+                .args(["-c", &script])
+                .env("LOOM_TOKEN", token)
+                .env("HOME", home)
+                .spawn()
+                .unwrap()
+        };
+        let mut stubborn = spawn(
+            "trap '' TERM; while :; do sleep 0.1; done".into(),
+            &token,
+            &home,
+        );
+        let mut parent = spawn(
+            format!(
+                "LOOM_TOKEN=other sleep 30 & echo $! > {}; wait",
+                child_pid.display()
+            ),
+            &token,
+            &home,
+        );
+        let mut test_daemon = spawn("exec sleep 30".into(), &token, "/tmp/other-home");
+        let mut other_node = spawn("exec sleep 30".into(), "other", &home);
+        while !child_pid.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let child: u32 = std::fs::read_to_string(&child_pid)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args(["-c", END_TOKEN, "sh", &token]);
+        bounded(cmd, END_TOKEN_WAIT).await.unwrap();
+
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(stubborn.wait().unwrap().signal(), Some(9));
+        assert_eq!(parent.wait().unwrap().signal(), Some(15));
+        assert!(test_daemon.try_wait().unwrap().is_none());
+        assert!(other_node.try_wait().unwrap().is_none());
+        assert!(std::path::Path::new(&format!("/proc/{child}")).exists());
+        for mut left in [test_daemon, other_node] {
+            left.kill().unwrap();
+            left.wait().unwrap();
+        }
+        std::process::Command::new("kill")
+            .arg(child.to_string())
+            .status()
+            .unwrap();
+    }
+
+    /// 끝나지 않는 명령은 상한에서 오류로 돌아오고 그 프로세스는 끝난다.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bounded_ends_a_stalled_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("pid");
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args([
+            "-c",
+            &format!("echo $$ > {}; exec sleep 30", pid_file.display()),
+        ]);
+        let started = std::time::Instant::now();
+        let ended = bounded(cmd, std::time::Duration::from_millis(500)).await;
+        assert!(ended.is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let pid = std::fs::read_to_string(&pid_file).unwrap();
+        let stat = std::path::PathBuf::from(format!("/proc/{}/stat", pid.trim()));
+        for _ in 0..50 {
+            // tokio가 아직 거두지 않았으면 좀비(`Z`)로 남는다. 그것도 끝난 것이다.
+            match std::fs::read_to_string(&stat) {
+                Err(_) => return,
+                Ok(line) if line.rsplit(") ").next().is_some_and(|s| s.starts_with('Z')) => return,
+                Ok(_) => {}
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("the stalled command still runs");
+    }
 
     /// 데몬은 WSL 노드가 준 Linux 경로를 그 노드 폴더의 배포판에서 읽는다. 다른 OS의 데몬에는 WSL 폴더가 없다.
     #[test]

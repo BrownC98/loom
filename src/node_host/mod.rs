@@ -90,8 +90,16 @@ struct Pty {
     output: Mutex<Output>,
     /// 화면이 마지막으로 알린 PTY 크기(행, 열). `screen`이 출력을 이 크기의 화면에 다시 그린다.
     size: watch::Sender<PtySize>,
-    /// 폰이 잠시 빌린 크기. 크기를 바꿀 때 늘 이 잠금 안에서 바꾼다. 그래야 돌려줄 때 그 뒤에 다른 화면이 쥐었는지 바르게 안다.
-    loan: Mutex<Option<Loan>>,
+    /// 크기를 바꿀 때 늘 이 잠금 안에서 바꾼다. 그래야 돌려줄 때 그 뒤에 다른 화면이 쥐었는지 바르게 안다.
+    sizing: Mutex<Sizing>,
+}
+
+#[derive(Default)]
+struct Sizing {
+    /// 폰이 잠시 빌린 크기.
+    loan: Option<Loan>,
+    /// 붙은 뒤 화면이 크기를 정했다. 호스트가 인사 뒤 알리는 옛 크기는 그 뒤에 올 수 있으므로 이 크기를 덮지 않는다.
+    claimed: bool,
 }
 
 /// 폰이 PTY 크기를 빌리기 전의 크기와 지금 빌린 연결.
@@ -173,7 +181,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
-            loan: Mutex::default(),
+            sizing: Mutex::default(),
         });
         self.nodes.write().unwrap().insert(id, pty.clone());
         std::thread::spawn(move || {
@@ -190,8 +198,15 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     Ok(Frame::SetupFailed(code)) => break Exit::Setup(code),
                     Ok(Frame::Pid(pid)) => *pty.pid.lock().unwrap() = Some(pid),
                     // 호스트가 인사 뒤에 알리는 지금 크기. 데몬이 다시 시작해도 크기가 이어진다. 옛 호스트는 알리지 않아 처음 크기다.
+                    // `resume`은 이 프레임을 기다리지 않고 돌아간다. 그 사이 화면이 크기를 정했으면 그 크기를 호스트에 다시 보낸다.
                     Ok(Frame::Resize { cols, rows }) => {
-                        pty.size.send_replace(PtySize { cols, rows });
+                        let sizing = pty.sizing.lock().unwrap();
+                        if sizing.claimed {
+                            let PtySize { cols, rows } = *pty.size.borrow();
+                            pty.send(&Frame::Resize { cols, rows });
+                        } else {
+                            pty.size.send_replace(PtySize { cols, rows });
+                        }
                     }
                     Ok(_) => {}
                     Err(_) => break Exit::Command(LOST_CODE),
@@ -288,9 +303,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     /// 이 크기를 PTY 크기로 쥔다. 폰이 빌린 크기가 있으면 그 빌림은 끝난다. 돌려줄 때 이 크기를 덮지 않는다.
     pub fn resize(&self, id: K, cols: u16, rows: u16) {
         if let Some(pty) = self.pty(id) {
-            let mut loan = pty.loan.lock().unwrap();
-            *loan = None;
-            pty.set_size(PtySize { cols, rows });
+            let mut sizing = pty.sizing.lock().unwrap();
+            sizing.loan = None;
+            pty.set_size(&mut sizing, PtySize { cols, rows });
         }
     }
 
@@ -298,20 +313,23 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     /// 다른 폰이 이미 빌렸으면 처음 빌리기 전 크기를 그대로 두고 빌린 연결만 바꾼다.
     pub fn borrow(&self, id: K, by: Borrower, cols: u16, rows: u16) {
         if let Some(pty) = self.pty(id) {
-            let mut loan = pty.loan.lock().unwrap();
-            let before = loan.as_ref().map_or(*pty.size.borrow(), |l| l.before);
-            *loan = Some(Loan { by, before });
-            pty.set_size(PtySize { cols, rows });
+            let mut sizing = pty.sizing.lock().unwrap();
+            let before = sizing
+                .loan
+                .as_ref()
+                .map_or(*pty.size.borrow(), |l| l.before);
+            sizing.loan = Some(Loan { by, before });
+            pty.set_size(&mut sizing, PtySize { cols, rows });
         }
     }
 
     /// `by`가 아직 빌리고 있으면 빌리기 전 크기로 돌린다. 그 뒤 다른 화면이 크기를 쥐었으면 그대로 둔다.
     pub fn give_back(&self, id: K, by: Borrower) {
         if let Some(pty) = self.pty(id) {
-            let mut loan = pty.loan.lock().unwrap();
-            if loan.as_ref().is_some_and(|l| l.by == by) {
-                let before = loan.take().expect("방금 보았다").before;
-                pty.set_size(before);
+            let mut sizing = pty.sizing.lock().unwrap();
+            if sizing.loan.as_ref().is_some_and(|l| l.by == by) {
+                let before = sizing.loan.take().expect("방금 보았다").before;
+                pty.set_size(&mut sizing, before);
             }
         }
     }
@@ -425,8 +443,9 @@ impl Pty {
         let _ = wire::write(&mut *self.host.lock().unwrap(), frame);
     }
 
-    /// 크기가 바뀌었으면 화면과 호스트에 알린다. `loan` 잠금 안에서 부른다.
-    fn set_size(&self, next: PtySize) {
+    /// 크기가 바뀌었으면 화면과 호스트에 알린다.
+    fn set_size(&self, sizing: &mut Sizing, next: PtySize) {
+        sizing.claimed = true;
         let changed = self
             .size
             .send_if_modified(|size| std::mem::replace(size, next) != next);

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
+import type { CursorView } from './gen/CursorView';
 import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
@@ -160,7 +161,13 @@ export function resetText(limits: Limits): string {
   return [...windows, ...plan].join(' · ');
 }
 
-/** 예: 「2분 전 갱신」. */
-export function fetchedText(at: number, now: number): string {
-  return i18next.t('usage.fetched', { ago: ago(at, now) });
+/** 예: 「2분 전 갱신」. `readAt`은 데몬이 값을 읽은 때(유닉스 초)다. 캐시가 준 옛 값이면 그 값을 읽은 때다. */
+export function fetchedText(readAt: number, now: number): string {
+  return i18next.t('usage.fetched', { ago: ago(readAt * 1000, now) });
+}
+
+/** 보이는 값 가운데 가장 오래된 읽은 때(유닉스 초). 값이 없으면 null이다. */
+export function oldestRead(accounts: AccountView[] | null, cursor: CursorView[] | null): number | null {
+  const times = [...(accounts ?? []).map((a) => a.usage.readAt), ...(cursor ?? []).map((c) => c.usage.readAt)];
+  return times.length === 0 ? null : Math.min(...times);
 }

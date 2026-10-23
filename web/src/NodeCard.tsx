@@ -120,11 +120,6 @@ export function NodeSummary(props: { view: NodeView; agentLabel: string; actions
         <Badges view={view} />
         {props.actions}
       </div>
-      {view.topic && (
-        <p className="topic" title={view.topic}>
-          {view.topic}
-        </p>
-      )}
       {(view.model || view.effort) && (
         <div className="summary-model">
           <ModelText view={view} />

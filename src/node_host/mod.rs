@@ -30,9 +30,6 @@ pub use host::run;
 const BACKLOG_BYTES: usize = 256 * 1024;
 /// 화면 하나가 밀려도 버티는 출력 조각 수. 넘으면 그 화면의 연결을 끊고, 화면은 다시 붙어 backlog를 받는다.
 const VIEWER_QUEUE_CHUNKS: usize = 1024;
-/// 두 출력 조각에 걸친 터미널 제목 시퀀스를 모아 두는 상한. 넘는 시퀀스는 버린다.
-/// 근거: 카드 주제는 한 줄이다. 실측한 제목(Claude·Codex·OpenCode 2)은 100바이트 안팎이다.
-const TITLE_CARRY_BYTES: usize = 1024;
 /// 주소 파일의 호스트에 연결하는 상한. 루프백이라 살아 있으면 바로 붙는다.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// 호스트가 끝났는데 종료 코드가 오지 않았을 때 쓰는 코드. 호스트가 죽으면 PTY가 닫혀 노드도 끝난다.
@@ -129,7 +126,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         }
     }
 
-    /// 명령을 새 PTY 호스트에서 띄우고 붙는다. 프로그램이 터미널 제목(OSC 0·2)을 바꾸면 `on_title`에 그 글을 넘긴다.
+    /// 명령을 새 PTY 호스트에서 띄우고 붙는다.
     /// `setup`이 있으면 호스트가 그것을 먼저 돌리고, 성공할 때만 명령을 띄운다.
     /// 프로세스가 끝나면 `on_exit`에 그 끝을 넘긴다.
     pub fn spawn(
@@ -137,23 +134,17 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         id: K,
         cmd: CommandBuilder,
         setup: Option<CommandBuilder>,
-        on_title: impl FnMut(String) + Send + 'static,
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> Result<(), String> {
         let address = start_host(&cmd, setup.as_ref())?;
         std::fs::create_dir_all(&self.dir)
             .and_then(|()| std::fs::write(self.file(id), &address))
             .map_err(|e| e.to_string())?;
-        self.resume(id, on_title, on_exit)
+        self.resume(id, on_exit)
     }
 
     /// 앞 데몬이 띄운 호스트에 다시 붙는다. 호스트가 backlog를 먼저 보낸다. 붙지 못하면 주소 파일을 지운다.
-    pub fn resume(
-        &self,
-        id: K,
-        mut on_title: impl FnMut(String) + Send + 'static,
-        on_exit: impl FnOnce(Exit) + Send + 'static,
-    ) -> Result<(), String> {
+    pub fn resume(&self, id: K, on_exit: impl FnOnce(Exit) + Send + 'static) -> Result<(), String> {
         let file = self.file(id);
         let connected = connect(&file);
         let (mut reader, pid) = match connected {
@@ -177,14 +168,10 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         });
         self.nodes.write().unwrap().insert(id, pty.clone());
         std::thread::spawn(move || {
-            let mut titles = TitleScanner::default();
             let exit = loop {
                 match wire::read(&mut reader) {
                     Ok(Frame::Data(chunk)) => {
                         pty.output.lock().unwrap().push(&chunk);
-                        if let Some(title) = titles.scan(&chunk) {
-                            on_title(title);
-                        }
                     }
                     Ok(Frame::Exit(code)) => break Exit::Command(code),
                     Ok(Frame::SetupFailed(code)) => break Exit::Setup(code),
@@ -458,83 +445,6 @@ impl Backlog {
     }
 }
 
-/// 출력에서 터미널 제목(`ESC ] 0;<글> BEL`, `ESC ] 2;<글> ESC \`)을 찾는다.
-/// 조각 끝에서 끊긴 시퀀스는 다음 조각과 이어 읽는다.
-#[derive(Default)]
-struct TitleScanner {
-    carry: Vec<u8>,
-}
-
-impl TitleScanner {
-    /// `chunk`에서 끝난 제목 가운데 마지막 것을 돌려준다.
-    fn scan(&mut self, chunk: &[u8]) -> Option<String> {
-        let joined;
-        let data = if self.carry.is_empty() {
-            chunk
-        } else {
-            joined = [std::mem::take(&mut self.carry).as_slice(), chunk].concat();
-            &joined
-        };
-        let mut last = None;
-        let mut rest = data;
-        while let Some(start) = rest.iter().position(|&b| b == ESC) {
-            rest = &rest[start..];
-            match osc(rest) {
-                Osc::Ended { title, len } => {
-                    last = title.or(last);
-                    rest = &rest[len..];
-                }
-                Osc::Other => rest = &rest[1..],
-                Osc::Open => {
-                    if rest.len() <= TITLE_CARRY_BYTES {
-                        self.carry = rest.to_vec();
-                    }
-                    break;
-                }
-            }
-        }
-        last
-    }
-}
-
-const ESC: u8 = 0x1b;
-const BEL: u8 = 0x07;
-
-enum Osc {
-    /// 끝난 OSC 시퀀스. 제목(0·2번)이 아니면 `title`이 없다.
-    Ended { title: Option<String>, len: usize },
-    /// 끝나지 않은 OSC 시퀀스나, 다음 바이트가 아직 오지 않은 ESC.
-    Open,
-    /// OSC가 아닌 ESC 시퀀스.
-    Other,
-}
-
-/// `seq`는 ESC로 시작한다.
-fn osc(seq: &[u8]) -> Osc {
-    match seq.get(1) {
-        None => return Osc::Open,
-        Some(b']') => {}
-        Some(_) => return Osc::Other,
-    }
-    let body = &seq[2..];
-    let end = body.iter().enumerate().find_map(|(i, &b)| match b {
-        BEL => Some((i, 1)),
-        ESC if body.get(i + 1) == Some(&b'\\') => Some((i, 2)),
-        _ => None,
-    });
-    let Some((end, terminator)) = end else {
-        return Osc::Open;
-    };
-    let title = [&b"0;"[..], b"2;"]
-        .iter()
-        .find_map(|code| body[..end].strip_prefix(*code))
-        .map(|text| String::from_utf8_lossy(text).into_owned());
-    Osc::Ended {
-        title,
-        len: 2 + end + terminator,
-    }
-}
-
 /// 화면이 보낸 입력에 사람이 누른 키가 있다. 터미널이 스스로 보내는 응답은 키가 아니다:
 /// 초점(`CSI I`·`CSI O`), 커서 위치(`CSI … R`), 장치 속성(`CSI ? … c`, `CSI > … c`), 상태(`CSI … n`), 모드(`CSI … $ y`),
 /// 키보드 플래그(`CSI ? … u`), 창 크기(`CSI … t`), 마우스(`CSI < … M/m`, `CSI M xyz`), 문자열 응답(OSC·DCS·APC).
@@ -548,6 +458,9 @@ pub fn typed(input: &[u8]) -> bool {
     }
     false
 }
+
+const ESC: u8 = 0x1b;
+const BEL: u8 = 0x07;
 
 /// `seq`가 터미널 응답으로 시작하면 그 길이.
 fn report_len(seq: &[u8]) -> Option<usize> {
@@ -623,13 +536,9 @@ mod tests {
             let observed = nodes.clone();
             let (tx, rx) = std::sync::mpsc::channel();
             nodes
-                .resume(
-                    1,
-                    |_| {},
-                    move |code| {
-                        tx.send((code, observed.has_output(1))).unwrap();
-                    },
-                )
+                .resume(1, move |code| {
+                    tx.send((code, observed.has_output(1))).unwrap();
+                })
                 .unwrap();
             assert_eq!(
                 rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
@@ -649,7 +558,7 @@ mod tests {
         cmd.args(["-c", "read line"]);
         in_process(dir.path(), 1, cmd);
         let nodes = NodeHost::new(dir.path().to_path_buf());
-        nodes.resume(1, |_| {}, |_| {}).unwrap();
+        nodes.resume(1, |_| {}).unwrap();
         let size = nodes.attach(1).unwrap().size;
         let now = || *size.borrow();
         let pc = PtySize {
@@ -707,7 +616,7 @@ mod tests {
         cmd.args(["-c", "echo before; read line; echo got $line; exit 3"]);
         in_process(dir.path(), 1, cmd);
         let first = NodeHost::new(dir.path().to_path_buf());
-        first.resume(1, |_| {}, |_| {}).unwrap();
+        first.resume(1, |_| {}).unwrap();
         read_until(&mut first.attach(1).unwrap(), "before");
         let first_pid = *first.pty(1).unwrap().pid.lock().unwrap();
 
@@ -715,7 +624,7 @@ mod tests {
         let second = NodeHost::new(dir.path().to_path_buf());
         let (tx, rx) = std::sync::mpsc::channel();
         second
-            .resume(1, |_| {}, move |code| tx.send(code).unwrap())
+            .resume(1, move |code| tx.send(code).unwrap())
             .unwrap();
         assert_eq!(*second.pty(1).unwrap().pid.lock().unwrap(), first_pid);
         // backlog는 붙은 직후에 오므로 `attach`의 backlog나 그 뒤 출력 가운데 하나로 온다.
@@ -750,9 +659,7 @@ mod tests {
             std::thread::spawn(move || started.wait());
             let nodes = NodeHost::new(dir.path().to_path_buf());
             let (tx, rx) = std::sync::mpsc::channel();
-            nodes
-                .resume(1, |_| {}, move |code| tx.send(code).unwrap())
-                .unwrap();
+            nodes.resume(1, move |code| tx.send(code).unwrap()).unwrap();
             let mut attached = nodes.attach(1).unwrap();
             let code = rx.recv_timeout(Duration::from_secs(5)).unwrap();
             let mut seen = String::from_utf8_lossy(&attached.backlog).into_owned();
@@ -807,9 +714,7 @@ mod tests {
         });
         let nodes = NodeHost::new(dir.path().to_path_buf());
         let (tx, rx) = std::sync::mpsc::channel();
-        nodes
-            .resume(1, |_| {}, move |code| tx.send(code).unwrap())
-            .unwrap();
+        nodes.resume(1, move |code| tx.send(code).unwrap()).unwrap();
         assert_eq!(*nodes.pty(1).unwrap().pid.lock().unwrap(), Some(42));
         nodes.write(1, b"x");
         assert_eq!(
@@ -831,8 +736,7 @@ mod tests {
         in_process(dir.path(), 1, cmd);
         let host = NodeHost::new(dir.path().to_path_buf());
         let (tx, rx) = std::sync::mpsc::channel();
-        host.resume(1, |_| {}, move |code| tx.send(code).unwrap())
-            .unwrap();
+        host.resume(1, move |code| tx.send(code).unwrap()).unwrap();
         let text = read_until(&mut host.attach(1).unwrap(), "\n");
         let shell: u32 = text.trim().parse().unwrap();
         // 다른 노드의 셸로 알리면 끝내지 않는다.
@@ -876,47 +780,6 @@ mod tests {
         let bytes = backlog.to_vec();
         assert_eq!(bytes.len(), BACKLOG_BYTES);
         assert_eq!(&bytes[BACKLOG_BYTES - 4..], b"axyz");
-    }
-
-    #[test]
-    fn title_ends_with_bel_or_esc_backslash() {
-        let mut titles = TitleScanner::default();
-        assert_eq!(
-            titles.scan("a\x1b]0;✳ A.txt 파일 내용\x07b".as_bytes()),
-            Some("✳ A.txt 파일 내용".into())
-        );
-        assert_eq!(titles.scan(b"\x1b]2;OC | x\x1b\\"), Some("OC | x".into()));
-    }
-
-    #[test]
-    fn title_split_across_chunks_is_joined() {
-        let mut titles = TitleScanner::default();
-        let whole = "\x1b]0;◐ a.txt 한 줄 요약\x07".as_bytes();
-        // ESC 하나, OSC 머리, 글 가운데(UTF-8 글자 가운데 포함)에서 자른다.
-        for cut in [1, 3, 9] {
-            assert_eq!(titles.scan(&whole[..cut]), None);
-            assert_eq!(
-                titles.scan(&whole[cut..]),
-                Some("◐ a.txt 한 줄 요약".into())
-            );
-        }
-    }
-
-    #[test]
-    fn last_title_wins_and_other_sequences_are_skipped() {
-        let mut titles = TitleScanner::default();
-        let chunk = b"\x1b[2J\x1b]8;;http://x\x07link\x1b]0;one\x07\x1b]0;two\x07";
-        assert_eq!(titles.scan(chunk), Some("two".into()));
-        assert_eq!(titles.scan(b"\x1b]8;;\x07plain"), None);
-    }
-
-    #[test]
-    fn open_title_over_the_cap_is_dropped() {
-        let mut titles = TitleScanner::default();
-        let mut long = b"\x1b]0;".to_vec();
-        long.extend(vec![b'x'; TITLE_CARRY_BYTES]);
-        assert_eq!(titles.scan(&long), None);
-        assert_eq!(titles.scan(b"\x07\x1b]0;ok\x07"), Some("ok".into()));
     }
 
     #[test]

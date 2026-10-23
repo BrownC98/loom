@@ -48,7 +48,7 @@ impl Sessions {
     }
 }
 
-/// 노드마다 loom이 첫 입력(지시문, 다시 띄울 때의 글)을 주고 띄웠는지. 띄운 뒤 첫 사람 입력 훅은 그 입력이다:
+/// 노드마다 loom이 첫 입력(지시문, 다시 띄울 때의 글)을 주고 띄웠는지, 깨우는 입력을 쳤는지. 그 뒤 첫 사람 입력 훅은 그 입력이다:
 /// Claude는 시작 인자의 첫 입력을 바로 제출하고 `UserPromptSubmit`을 부른다. 그 턴은 부모에게 `human-input`으로 알리지 않는다.
 /// 글을 비교하지 않는다: Claude가 넘기는 글이 시작 인자와 같다는 보장이 없다.
 #[derive(Default)]
@@ -61,6 +61,11 @@ impl FirstInputs {
             true => nodes.insert(node),
             false => nodes.remove(&node),
         };
+    }
+
+    /// loom이 쉬는 노드에 입력을 친다(`wake`). 다음 사람 입력 훅은 그 입력이다.
+    pub fn typing(&self, node: NodeId) {
+        self.0.lock().unwrap().insert(node);
     }
 
     /// 이 입력이 loom이 준 첫 입력인가. 띄운 뒤 처음 한 번만 참이다.

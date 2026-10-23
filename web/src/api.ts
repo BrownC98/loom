@@ -90,7 +90,7 @@ export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/
 /** 노드를 사이드바 북마크 영역에 더하거나 뺀다(docs/mockups/bookmarks.html). */
 export const bookmarkNode = (id: NodeId) => call<null>('PUT', `/api/nodes/${id}/bookmark`);
 /** 노드 카드 「안 읽음」: 기다리는 큐 메시지를 지금 넘긴다(조정으로 바꾼다). */
-export const steerQueued = (id: NodeId) => call<null>('POST', `/api/nodes/${id}/steer-queued`);
+export const deliverNow = (id: NodeId) => call<null>('POST', `/api/nodes/${id}/deliver`);
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
 /** 이 노드만 `view` 카드로 본다. */
 export const setCardView = (id: NodeId, view: CardView) => call<null>('PUT', `/api/nodes/${id}/card-view`, view);

@@ -2,7 +2,7 @@ import { Mail } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AgentMark } from './AgentMark';
-import { steerQueued } from './api';
+import { deliverNow } from './api';
 import type { NodeState } from './gen/NodeState';
 import type { NodeView } from './gen/NodeView';
 import i18next from './i18n';
@@ -83,11 +83,11 @@ function Badges(props: { view: NodeView }) {
         <button
           type="button"
           className="unread nodrag"
-          title={t('node.steerQueued')}
-          aria-label={`${t('node.unread', { n: view.unread })}. ${t('node.steerQueued')}`}
+          title={t('node.deliverNow')}
+          aria-label={`${t('node.unread', { n: view.unread })}. ${t('node.deliverNow')}`}
           onClick={(e) => {
             e.stopPropagation();
-            void steerQueued(view.id);
+            void deliverNow(view.id);
           }}
         >
           <Mail />

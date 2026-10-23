@@ -2579,18 +2579,32 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     assert_eq!(g.take(a, &[Kind::Queue], 1).unwrap().len(), 1);
     assert_eq!(view(&g, a).unread, 1);
 
-    let (_, mut events) = g.subscribe().unwrap();
     g.steer_queued(a).unwrap();
-    assert_eq!(view(&g, a).unread, 0);
-    // 화면의 칩이 바로 사라진다. 알리지 않자 누른 칩이 「안 읽음 4」로 남아 고장으로 보였다(2026-10-23 사람 보고 "안읽음 버튼 클릭 해도 작동 안함").
-    assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.id == a && v.unread == 0));
+    // 칩은 메시지가 노드에 갈 때까지 남는다. 바꾸기만 하고 칩을 지우자 쉬는 노드에 메시지가 가지 않은 채 칩만 사라졌다(2026-10-23 사람 보고 "둘 다 근본원인 파악해서 문제 해결하라").
+    assert_eq!(view(&g, a).unread, 1);
     let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
     assert_eq!(
         steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
         ["q2"]
     );
+    assert_eq!(view(&g, a).unread, 0);
     assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
     assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);
+}
+
+/// 「안 읽음」은 방식(큐·조정·중단)과 관계없이 아직 꺼내지 않은 메시지를 모두 센다.
+#[test]
+fn unread_counts_every_untaken_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    g.note(lead, "a", Kind::Queue, "q", None).unwrap();
+    g.note(lead, "a", Kind::Steer, "s", None).unwrap();
+    g.note(lead, "a", Kind::Interrupt, "i", None).unwrap();
+    assert_eq!(view(&g, a).unread, 3);
+    assert_eq!(g.take(a, &[Kind::Interrupt], usize::MAX).unwrap().len(), 1);
+    assert_eq!(view(&g, a).unread, 2);
 }
 
 /// 확인하지 않은 완료는 사람 입력, 신호의 대기, 다시 띄우기, 프로세스 끝, 데몬 재시작으로 지워지지 않는다.

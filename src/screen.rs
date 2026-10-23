@@ -1,4 +1,4 @@
-//! 터미널 화면에서 사람을 기다리는 확인 창을 찾는다. 런타임이 신호를 주지 않는 경우(폴더 신뢰, 로그인, 셸 프롬프트)의 감지기 하나다.
+//! 터미널 화면에서 사람을 기다리는 확인 창과 쉬는 빈 입력 칸을 찾는다. 확인 창은 런타임이 신호를 주지 않는 경우(폴더 신뢰, 로그인, 셸 프롬프트)의 감지기 하나다.
 //! 찾을 글은 프로필이 갖는다(`profile::dialogs`). 바뀌는 이유는 CLI 화면 문구다.
 //! 근거: docs/design.md 「사람 응답 대기」.
 
@@ -30,6 +30,25 @@ pub enum Place {
     /// Cursor는 대화 기록을 `TRANSCRIPT_INDENT`칸 들여 그리고 창 테두리는 왼쪽 끝에 그린다(2026.10.19 실측).
     /// 그래서 에이전트가 출력한 가로줄·표 아래의 같은 글은 창으로 보지 않는다.
     Panel,
+}
+
+/// 쉬는 TUI의 빈 입력 칸을 알아보는 글. 프로필이 갖는다(`profile::wake`).
+pub struct IdleInput {
+    /// 빈 입력 칸의 자리 표시 글. 입력 칸 줄이 이 글로 시작한다. 사람이 쓰던 글이 있거나 확인 창이 떠 있으면 이 줄이 없다.
+    pub placeholders: &'static [&'static str],
+    /// 일하는 동안만 화면에 있는 글.
+    pub busy: &'static str,
+}
+
+impl IdleInput {
+    /// `screen`이 쉬는 빈 입력 칸을 보인다.
+    pub fn shown(&self, screen: &str) -> bool {
+        !screen.contains(self.busy)
+            && screen.lines().any(|line| {
+                let line = line.trim_start();
+                self.placeholders.iter().any(|p| line.starts_with(p))
+            })
+    }
 }
 
 /// Cursor가 대화 기록(에이전트 답, 도구 출력, 표)을 들여 그리는 칸 수(2026.10.19 실측). `Place::Panel`의 창 테두리는 이보다 왼쪽이다.

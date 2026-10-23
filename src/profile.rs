@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::graph::{Delivery, Kind, OpenQuestion, WaitKind};
-use crate::screen::{Dialog, Grammar, Place};
+use crate::screen::{Dialog, Grammar, IdleInput, Place};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
@@ -346,6 +346,21 @@ pub fn prompt_grammar(profile: Option<Profile>) -> Option<&'static Grammar> {
         Profile::Codex => Some(&codex::PROMPT),
         Profile::Cursor => Some(&cursor::PROMPT),
         Profile::OpenCode2 => None,
+    }
+}
+
+/// 훅이 메시지를 넘기지 못하는 쉬는 노드에 loom이 치는 입력과, 칠 수 있는 화면.
+pub struct Wake {
+    pub input: IdleInput,
+    pub prompt: &'static str,
+}
+
+/// 쉬는 대기 없이 쉬는 노드를 깨우는 법(`daemon::wake`). Codex·OpenCode 2는 전달 작업이 서버로 턴을 연다. 셸은 메시지를 받지 않는다.
+/// Claude는 아직 없다. 쉬는 빈 입력 칸의 화면을 재지 못했다(2026-10-23 계정이 주간 한도에 걸렸다). Claude는 쉬는 동안 비동기 훅이 다시 붙는다.
+pub fn wake(profile: Option<Profile>) -> Option<&'static Wake> {
+    match profile? {
+        Profile::Cursor => Some(&cursor::WAKE),
+        Profile::Claude | Profile::Codex | Profile::OpenCode2 => None,
     }
 }
 

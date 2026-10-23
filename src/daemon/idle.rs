@@ -48,6 +48,11 @@ impl IdleWaits {
         self.turns.lock().unwrap().contains(&node)
     }
 
+    /// 쉬는 대기가 열려 있다. 메시지가 오면 그 대기가 넘긴다.
+    pub fn waiting(&self, node: NodeId) -> bool {
+        self.ends.lock().unwrap().contains_key(&node)
+    }
+
     /// 턴 안의 훅이 불렸다. 그 노드의 대기를 끝낸다.
     pub fn turn_started(&self, node: NodeId) {
         self.end(node);
@@ -79,6 +84,16 @@ mod tests {
         waits.turn_started(NodeId(1));
         waits.end(NodeId(1));
         assert!(!waits.in_turn(NodeId(1)));
+    }
+
+    #[test]
+    fn only_an_open_wait_is_waiting() {
+        let waits = IdleWaits::default();
+        assert!(!waits.waiting(NodeId(1)));
+        let _ = waits.open(NodeId(1));
+        assert!(waits.waiting(NodeId(1)));
+        waits.turn_started(NodeId(1));
+        assert!(!waits.waiting(NodeId(1)));
     }
 
     #[test]

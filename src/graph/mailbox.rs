@@ -404,20 +404,31 @@ impl Graph {
         Ok(())
     }
 
-    /// 사람이 노드 카드의 「안 읽음」을 눌렀다. 아직 꺼내지 않은 큐 메시지를 조정으로 바꾼다.
-    /// 일하는 노드는 다음 단계 사이에, 쉬는 노드는 새 턴으로 받는다(2026-10-22 사람 지시 "칩을 클릭하면 수동으로 주입되게").
+    /// 사람이 노드 카드의 「안 읽음」을 눌렀다. 아직 꺼내지 않은 큐 메시지를 조정으로 바꾼다(2026-10-22 사람 지시 "칩을 클릭하면 수동으로 주입되게").
+    /// 턴 중에 조정을 따로 꺼내는 전달 작업(Codex, OpenCode 2)은 턴 끝을 기다리지 않고 넘긴다. 훅 프로필은 큐와 조정을 같은 지점에서 꺼내므로 바뀌는 것이 없다.
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
-        let db = self.lock();
-        let changed = db.execute(
+        self.lock().execute(
             "UPDATE messages SET kind = ?2
              WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL AND kind = ?3",
             params![node.0, to_json(&Kind::Steer), to_json(&Kind::Queue)],
         )?;
-        if changed > 0 {
-            self.publish_node(&db, node)?;
-        }
         self.mail.notify_waiters();
         Ok(())
+    }
+
+    /// 프로세스가 사는 에이전트 노드 가운데 아직 꺼내지 않은 메시지가 있는 노드.
+    pub fn unread_agents(&self) -> Result<Vec<(NodeId, AgentId)>, Refusal> {
+        let db = self.lock();
+        let mut found = db.prepare(
+            "SELECT n.id, n.agent FROM nodes n
+             WHERE n.agent != 'null' AND n.process_exited = 0
+             AND EXISTS(SELECT 1 FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL)
+             ORDER BY n.id",
+        )?;
+        let rows = found
+            .query_map([], |row| Ok((NodeId(row.get(0)?), from_json(row, 1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 
     /// 받는 쪽이 `ids` 메시지를 받았다. 다시 꺼내지 않는다. 다른 노드의 메시지 id는 무시한다.

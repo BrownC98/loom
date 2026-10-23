@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::Take;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::{Dialog, Grammar, Options, Place, Top};
+use crate::screen::{Dialog, Grammar, IdleInput, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
 /// 승인 창(2026.10.19 시험 화면): 창 칸 테두리 아래 본문, `→ Run (once) (y)` 꼴 선택지. 괄호 안이 키다.
@@ -87,6 +87,17 @@ const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과
 /// 다시 띄운 세션의 첫 입력. 쉬는 Cursor에는 stop 훅만 메시지를 넘긴다. 입력 없이 이으면 그 훅이 돌지 않아
 /// 사람이 입력할 때까지 메시지가 쌓였다(2026-10-22 실측).
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
+/// 쉬는 대기 없이 쉬는 노드를 깨우는 입력. 이 턴의 beforeSubmitPrompt 훅이 메시지를 넘긴다.
+/// 그 훅 항목이 `~/.cursor/hooks.json`에 없으면 Cursor는 그 훅을 부르지 않는다(「전달 지점」 한계). 그때는 글이 시킨 `loom status`의 postToolUse 훅이 넘긴다.
+/// 화면(2026.10.22 실측, 100x30): 새 세션의 빈 입력 칸은 "Plan, search, build anything", 턴 뒤에는 "Add a follow-up"이다.
+/// 일하는 동안에도 "Add a follow-up"이 보이고 그 줄 끝에 "ctrl+c to stop"이 붙는다.
+pub const WAKE: super::Wake = super::Wake {
+    input: IdleInput {
+        placeholders: &["→ Add a follow-up", "→ Plan, search, build anything"],
+        busy: "ctrl+c to stop",
+    },
+    prompt: "loom woke you: messages wait for you. If no loom message is in the context of this prompt, run `loom status`; the messages come with that command. Act on them, or end your turn.",
+};
 /// Shell 명령 앞에 붙이는 줄. 셸을 중단 대상으로 데몬에 알린다(`claude::GUARD`와 같다).
 const GUARD: &str = "loom guard";
 

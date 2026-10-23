@@ -15,6 +15,7 @@ mod settings;
 pub use relaunch::{NewAgent, Relaunched};
 mod switch;
 mod turn_end;
+mod wake;
 
 use origin::ViaRemote;
 
@@ -642,6 +643,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         Ok(_) => {}
         Err(e) => eprintln!("loom: 내장 스킬 변경을 알리지 못했다: {e}"),
     }
+    tokio::spawn(wake::watch(app.clone()));
     // 노드 문에는 `spawn`이 없다. `spawn`은 아무 명령이나 띄우므로 Codex에서 사람 승인을 받게 한다.
     let node_routes = Router::new()
         .route("/api/agent/note", post(agent_note))
@@ -696,7 +698,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/name", put(rename_node))
-        .route("/api/nodes/{id}/steer-queued", post(steer_queued))
+        .route("/api/nodes/{id}/deliver", post(deliver_now))
         .route(
             "/api/nodes/{id}/bookmark",
             put(bookmark_node).delete(unbookmark_node),
@@ -1904,11 +1906,22 @@ async fn rename_node(
     Ok(Json(()))
 }
 
-async fn steer_queued(
+/// 사람이 노드 카드의 「안 읽음」을 눌렀다. 턴 중에 조정을 꺼내는 노드는 다음 단계에, 쉬는 대기 없이 쉬는 노드는 깨워서 받는다.
+/// 훅 노드가 턴 중이면 다음 훅 전에는 넘길 수 없다. 칩은 받을 때까지 남는다.
+async fn deliver_now(
     State(app): State<Arc<App>>,
     Path(id): Path<u32>,
 ) -> Result<Json<()>, Problem> {
-    app.graph.steer_queued(NodeId(id))?;
+    let node = NodeId(id);
+    app.graph.steer_queued(node)?;
+    if let Some((_, agent)) = app
+        .graph
+        .unread_agents()?
+        .into_iter()
+        .find(|(n, _)| *n == node)
+    {
+        app.wake(node, &agent).await;
+    }
     Ok(Json(()))
 }
 

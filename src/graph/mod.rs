@@ -100,7 +100,7 @@ pub struct NodeView {
     pub agent: Option<AgentId>,
     pub parent: Option<NodeId>,
     pub state: NodeState,
-    /// 아직 전하지 않은(`queued`) 메시지 수.
+    /// 아직 꺼내지 않은 메시지 수(모든 방식).
     pub unread: u32,
     /// CLI가 알린 모델 id 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
     pub model: Option<String>,
@@ -523,11 +523,9 @@ pub struct Graph {
     prompts: Mutex<HashMap<NodeId, Prompt>>,
 }
 
-// 「안 읽음」은 사람이 눌러 앞당길 수 있는 메시지, 곧 아직 넘기지 않은 큐 메시지만 센다.
-// 조정·중단은 다음 단계에 넘어가므로 누를 일이 없다. 누른 뒤 칩이 그대로면 고장으로 보였다(2026-10-22 사람 보고 "작동을 안하는 것처럼 보임").
+// 「안 읽음」은 방식과 관계없이 아직 넘기지 않은 메시지를 모두 센다. 조정으로 바꾼 메시지를 빼자 메시지가 가지 않은 채 칩만 사라졌다(2026-10-23 사람 보고).
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
-    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL
-        AND m.kind = '\"queue\"'),
+    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL),
     n.model, n.effort, n.repo, n.worktree,
     n.bookmark, n.wait,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),

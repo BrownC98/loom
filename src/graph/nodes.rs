@@ -23,6 +23,8 @@ pub struct NewChild<'a> {
     pub brief: &'a str,
     /// `loom spawn --role`의 역할 이름. 관문을 고를 때 쓴다(`protocol::COORDINATOR_ROLE`, `CI_ROLE`).
     pub role: Option<&'a str>,
+    /// 작업 폴더 이름(`task::TaskDir::folder`).
+    pub task: &'a str,
 }
 
 /// 에이전트 없이 띄운 노드(셸) 이름의 앞부분.
@@ -54,11 +56,12 @@ pub struct Active {
 
 impl Graph {
     /// 사람이 띄운 노드(깊이 0)를 더한다. 이름은 `<에이전트 id>-<번호>`로 짓는다(`root_name`).
-    /// `start`는 노드 프로세스를 띄운다. 실패하면 노드를 남기지 않는다(`started`).
+    /// `task`는 작업 폴더 이름이다(설정 스크립트 노드는 없다). `start`는 노드 프로세스를 띄운다. 실패하면 노드를 남기지 않는다(`started`).
     pub fn add_root(
         &self,
         place: &Place,
         agent: Option<AgentId>,
+        task: Option<&str>,
         launched: &Launched,
         start: impl FnOnce(NodeId) -> Result<(), String>,
     ) -> Result<NodeId, Refusal> {
@@ -67,6 +70,10 @@ impl Graph {
             let tx = db.transaction()?;
             let name = root_name(&tx, agent.as_ref().map_or(SHELL_NAME, |a| &a.0))?;
             let id = insert(&tx, &name, &agent, None, place)?;
+            tx.execute(
+                "UPDATE nodes SET task = ?2 WHERE id = ?1",
+                params![id.0, task],
+            )?;
             keep(&tx, id, launched)?;
             tx.commit()?;
             id
@@ -90,6 +97,7 @@ impl Graph {
             agent,
             brief,
             role,
+            task,
         } = child;
         let name = checked_name(name)?;
         if brief.len() > BRIEF_LIMIT_BYTES {
@@ -119,8 +127,8 @@ impl Graph {
         };
         let id = insert(&tx, name, &agent, Some(parent), &place)?;
         tx.execute(
-            "UPDATE nodes SET role = ?2 WHERE id = ?1",
-            params![id.0, role],
+            "UPDATE nodes SET role = ?2, task = ?3 WHERE id = ?1",
+            params![id.0, role, task],
         )?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {
@@ -141,6 +149,31 @@ impl Graph {
             self.publish_message(id, Toward::Child);
         }
         Ok(id)
+    }
+
+    /// 노드의 작업 폴더 이름. 작업 폴더 전에 뜬 노드와 설정 스크립트 노드는 없다.
+    pub fn task_of(&self, id: NodeId) -> rusqlite::Result<Option<String>> {
+        self.lock()
+            .query_row("SELECT task FROM nodes WHERE id = ?1", [id.0], |row| {
+                row.get(0)
+            })
+    }
+
+    /// 작업 폴더 전에 뜬 노드에 처음 정한 작업 폴더를 남긴다. 이미 있으면 그대로 두고 그 값을 돌려준다.
+    pub fn keep_task(&self, id: NodeId, task: &str) -> rusqlite::Result<String> {
+        let db = self.lock();
+        db.execute(
+            "UPDATE nodes SET task = ?2 WHERE id = ?1 AND task IS NULL",
+            params![id.0, task],
+        )?;
+        db.query_row("SELECT task FROM nodes WHERE id = ?1", [id.0], |row| {
+            row.get(0)
+        })
+    }
+
+    /// 다음에 사람이 띄울 노드의 이름(`add_root`가 짓는 이름). 새 작업 폴더의 바탕 이름에 쓴다.
+    pub fn next_root_name(&self, agent: Option<&AgentId>) -> rusqlite::Result<String> {
+        root_name(&self.lock(), agent.map_or(SHELL_NAME, |a| &a.0))
     }
 
     /// 노드 줄을 커밋한 뒤 잠금 밖에서 프로세스를 띄운다. 토큰은 이미 남겼으므로 노드가 뜨자마자 데몬을 불러도 찾는다.

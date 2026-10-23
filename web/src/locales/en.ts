@@ -364,6 +364,7 @@ const en = {
     cancel: 'Cancel',
   },
   inbox: {
+    resetPlace: 'Put the pill back (top centre)',
     tab: 'Notifications',
     instruction: 'Asked: {{text}}',
     published: 'Sent {{time}}',
@@ -451,6 +452,8 @@ const en = {
     line: 'One line',
     answer: 'Answer here',
     hint: '“Answer here” shows the oldest question and its answer box in the pill. With “One line”, open the list to answer.',
+    place: 'Pill place',
+    placeHint: 'Drag the pill head to put it anywhere in the graph pane. The default place is top centre. After a move, the pill head shows a put-back button.',
   },
   edgeStyle: {
     heading: 'Edge style',

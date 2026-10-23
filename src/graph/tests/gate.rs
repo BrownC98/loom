@@ -542,3 +542,23 @@ fn a_stopped_merge_stays_merging_and_only_the_gate_hears_it() {
         task.run + 1
     );
 }
+
+/// 병합 기록의 기본 자리는 관문 줄 담당의 작업 폴더다(데몬 `agent_task`). 브랜치 이름을 바꾸고 `loom ready`해도 처음 작업이다.
+#[test]
+fn a_branch_task_comes_from_the_owner_of_its_gate_round() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    // 담당의 작업 폴더는 띄울 때 정했다(`named`가 노드 이름으로 둔다).
+    assert_eq!(g.branch_task(t.ci, "new-name").unwrap(), None);
+    g.ready(t.worker, &round("new-name", "main"), t.ci, Some(&via()))
+        .unwrap();
+    assert_eq!(
+        g.branch_task(t.ci, "new-name").unwrap(),
+        Some(("/repo".to_owned(), "worker-x".to_owned()))
+    );
+    assert_eq!(g.branch_task(t.ci, "old-name").unwrap(), None);
+    // 담당 노드를 지우면 관문 줄이 남아도 작업 폴더를 알 수 없다.
+    g.remove(t.worker).unwrap();
+    assert_eq!(g.branch_task(t.ci, "new-name").unwrap(), None);
+}

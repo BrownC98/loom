@@ -15,7 +15,7 @@ use crate::daemon::gate::{
 use crate::daemon::{
     AckRequest, AdoptRequest, AnsweredRequest, AskRequest, Asked, DoneRequest, GuardRequest,
     HookWaitRequest, IdleRequest, RelaunchRequest, Relaunched, RemoveRequest, ReplyRequest,
-    SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
+    SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, TaskRequest, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
@@ -23,6 +23,7 @@ use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor};
 use crate::protocol::{self, GateState, Judgment};
 use crate::roles::Roles;
+use crate::task;
 
 /// 서버가 대기를 끝낸 뒤 오류 응답을 보낼 여유 시간이다.
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
@@ -438,7 +439,10 @@ pub fn done(
 ) -> Result<(), String> {
     let summary = match file {
         Some(path) => {
-            let path = absolute(&path)?;
+            let path = match path.is_relative() {
+                true => absolute(&task_dir()?.join(path))?,
+                false => absolute(&path)?,
+            };
             // 사람은 완료 줄의 글 속 경로를 열지 못한다(2026-10-23 사람 "링크로 제공이 안됨"). 경로를 링크로 바꾸지 않고 거절한다: 사람이 읽을 요약이 없기 때문이다.
             let relations: Relations = call("status", &(), None)?;
             if relations.parent.is_none() {
@@ -499,11 +503,11 @@ pub fn verdict(
     judgment: Judgment,
     findings: Option<PathBuf>,
 ) -> Result<(), String> {
-    let findings = findings
-        .as_deref()
-        .map(absolute)
-        .transpose()?
-        .map(|path| crate::wsl::for_caller(&path));
+    let findings = match findings {
+        Some(path) => Some(absolute(&path)?),
+        None => default_findings(&branch, judgment)?,
+    }
+    .map(|path| crate::wsl::for_caller(&path));
     let state: GateState = call(
         "verdict",
         &VerdictRequest {
@@ -515,6 +519,25 @@ pub fn verdict(
     )?;
     println!("Recorded the verdict. {branch} is now {state:?}. loom told the receivers.");
     Ok(())
+}
+
+/// `--findings`가 없을 때: 부른 노드 자기 작업 폴더의 `review/<브랜치>-<내 노드 이름>.md`. 그 파일이 없으면 pass는 결함 파일 없이 보낸다.
+/// 검토자는 관문의 작업 폴더를 물려받는다(`--worktree` 없이 띄운다). 한 관문 아래 브랜치가 여럿이라 브랜치 이름을 붙여 서로 덮지 않게 한다.
+fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>, String> {
+    let relations: Relations = call("status", &(), None)?;
+    let path = task_dir()?.join(task::REVIEW).join(format!(
+        "{}-{}.md",
+        task::folder(branch),
+        task::folder(&relations.me.name)
+    ));
+    match (path.is_file(), judgment) {
+        (true, _) => absolute(&path).map(Some),
+        (false, Judgment::Pass) => Ok(None),
+        (false, Judgment::Block) => Err(format!(
+            "A block needs a findings file. Write it at {}, or give --findings <file>.",
+            crate::wsl::for_caller(&path)
+        )),
+    }
 }
 
 pub fn fail(branch: String, cause: String) -> Result<(), String> {
@@ -533,21 +556,30 @@ pub fn fail(branch: String, cause: String) -> Result<(), String> {
 /// 관문이 부른다. 데몬이 audit를 하고 할 일을 주면, 이 프로세스가 대상 체크아웃에서 병합 일 하나(`MERGE_RUN`)를 띄운다.
 /// 결과는 데몬에 알린다. 담당이 고칠 일이나 실패로 끝나면 0이 아닌 코드로 끝난다.
 pub fn merge(branch: String) -> Result<(), String> {
+    // 데몬이 관문을 Merging으로 바꾸기 전에 기록 자리를 정하고 열어 본다. 열지 못하면 상태를 바꾸지 않고 끝낸다.
+    let log = merge_log(&branch)?;
+    // 병합을 돌리지 않고 끝나면 빈 기록을 남기지 않는다.
+    let unused = || {
+        let _ = std::fs::remove_file(&log);
+    };
     let plan: MergePlan = call(
         "merge",
         &BranchRequest {
             branch: branch.clone(),
         },
         None,
-    )?;
+    )
+    .inspect_err(|_| unused())?;
     let (worktree, head, run, into) = match plan {
         MergePlan::Stopped { end, findings } => {
+            unused();
             return Err(format!(
                 "Did not merge {branch}. The audit ended it as {end:?} and loom told the receivers:\n- {}",
                 findings.join("\n- ")
             ));
         }
         MergePlan::Recorded { sha } => {
+            unused();
             println!(
                 "An earlier run already merged {branch} as {sha}, and its report did not arrive. loom recorded it as merged and told the receivers."
             );
@@ -564,7 +596,6 @@ pub fn merge(branch: String) -> Result<(), String> {
         MergeInto::Main { checkout } => (checkout.as_str(), protocol::SHIP_SCRIPT),
         MergeInto::Branch { worktree } => (worktree.as_str(), ""),
     };
-    let log = merge_log(dir, &branch)?;
     if lock_busy(dir) {
         println!(
             "Waiting for another loom merge in this repository (up to {} minutes).",
@@ -704,18 +735,74 @@ fn inside(path: &str) -> String {
     crate::wsl::location(path).map_or_else(|| path.to_owned(), |w| w.path)
 }
 
-/// `<공유 git 폴더>/loom-gate/<브랜치>-merge-<유닉스 초>.log`. 워크트리 안에 두면 미커밋 변경이 된다.
-/// git 폴더는 WSL 에이전트와 Windows `loom.exe`가 모두 읽고 쓴다(홈 폴더는 둘이 다르다).
-fn merge_log(dir: &str, branch: &str) -> Result<PathBuf, String> {
-    let mut common = crate::wsl::command(dir, "git");
-    common.args(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-    let common = output(&mut common)?;
-    let dir = crate::wsl::from_caller(PathBuf::from(common.trim())).join("loom-gate");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+/// 브랜치 작업 폴더의 `logs/merge-<유닉스 초>.log`. 워크트리 안에 두면 미커밋 변경이 된다.
+/// 데몬이 그 브랜치의 작업 폴더를 모르면(관문 줄이 없거나 담당 노드를 지웠다) 1단계 자리 `<공유 git 폴더>/loom-gate/<브랜치>-merge-<유닉스 초>.log`다.
+/// 1단계 자리는 이 명령을 부른 폴더의 저장소다. WSL 폴더면 그 배포판의 git이 읽는다(`wsl::command`).
+fn merge_log(branch: &str) -> Result<PathBuf, String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    Ok(dir.join(format!("{}-merge-{now}.log", branch.replace('/', "-"))))
+    let log = match branch_task(branch)? {
+        Some(dir) => dir.join(task::LOGS).join(format!("merge-{now}.log")),
+        None => {
+            let here = crate::wsl::from_caller(std::env::current_dir().map_err(|e| e.to_string())?);
+            let mut common = crate::wsl::command(&here.display().to_string(), "git");
+            common.args(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+            let common = output(&mut common)?;
+            crate::wsl::from_caller(PathBuf::from(common.trim()))
+                .join("loom-gate")
+                .join(format!("{}-merge-{now}.log", task::folder(branch)))
+        }
+    };
+    create_log(&log)
+}
+
+/// 기록 파일을 새로 만든다. 실패하면 병합을 시작하지 않는다(`merge`가 데몬을 부르기 전에 부른다).
+fn create_log(log: &Path) -> Result<PathBuf, String> {
+    let dir = log.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // 같은 초에 같은 브랜치를 두 번 병합해도 앞 기록을 덮지 않는다. 만든 파일은 이 프로세스 것이다.
+    let stem = log.with_extension("");
+    for n in 1.. {
+        let path = match n {
+            1 => log.to_path_buf(),
+            n => PathBuf::from(format!("{}-{n}.log", stem.display())),
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(format!(
+                    "Did not start the merge: cannot write its log {}: {e}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    unreachable!("1.. does not end")
+}
+
+/// 이 노드의 작업 폴더. 데몬에 묻는다: 환경의 `LOOM_TASK_DIR`이 없는 노드(작업 폴더 전에 뜬 노드)도, WSL의 `loom.exe`도 같다.
+fn task_dir() -> Result<PathBuf, String> {
+    let dir: Option<String> = call("task", &TaskRequest { branch: None }, None)?;
+    dir.map(|d| crate::wsl::from_caller(PathBuf::from(d)))
+        .ok_or_else(|| "loom has no task folder for this node".to_owned())
+}
+
+/// 브랜치 담당의 작업 폴더. 관문 줄이 없거나 담당 노드가 지워졌으면 없다.
+fn branch_task(branch: &str) -> Result<Option<PathBuf>, String> {
+    let dir: Option<String> = call(
+        "task",
+        &TaskRequest {
+            branch: Some(branch.to_owned()),
+        },
+        None,
+    )?;
+    Ok(dir.map(|d| crate::wsl::from_caller(PathBuf::from(d))))
 }
 
 /// 명령의 표준 출력. 0이 아니게 끝나면 표준 오류가 오류다.
@@ -912,6 +999,22 @@ fn post_as<T: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_merge_log_never_reuses_a_file_and_a_log_that_cannot_open_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("logs").join("merge-5.log");
+        let first = create_log(&log).unwrap();
+        std::fs::write(&first, "earlier merge").unwrap();
+        let second = create_log(&log).unwrap();
+        assert_eq!(first, log);
+        assert_eq!(second, dir.path().join("logs").join("merge-5-2.log"));
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "earlier merge");
+        // 폴더 자리에 파일이 있으면 열 수 없다. `merge`는 이 오류에서 데몬을 부르지 않고 끝난다.
+        let blocked = dir.path().join("file");
+        std::fs::write(&blocked, "").unwrap();
+        assert!(create_log(&blocked.join("merge-5.log")).is_err());
+    }
 
     fn unreachable() -> CallError {
         CallError::Unreachable("down".into())

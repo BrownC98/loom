@@ -255,6 +255,9 @@ const STEPS: &[M] = &[
     ),
     // 32: 노드에 고른 카드 보기(graph `CardView`, serde JSON)와 마지막 턴 끝 답 글(심플 카드 상태 줄). 없으면 NULL이다(목업 docs/mockups/node-card-view.html).
     M::up("ALTER TABLE nodes ADD COLUMN card_view TEXT; ALTER TABLE nodes ADD COLUMN reply TEXT;"),
+    // 33: 노드의 작업 이름(`task::folder`의 원래 글). `loom spawn`이 넣는다: `--worktree` 브랜치, 없으면 부모의 작업이다.
+    // 사람이 띄운 노드와 옛 노드는 NULL이고 노드 이름이 작업이다(`Graph::task_of`). 이름을 바꾸거나 입양해도 작업 폴더는 그대로다.
+    M::up("ALTER TABLE nodes ADD COLUMN task TEXT;"),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

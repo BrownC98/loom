@@ -22,6 +22,15 @@ export function pinchView(
   return { x: mid.x - anchorX * zoom, y: mid.y - anchorY * zoom, zoom };
 }
 
+/** 그림을 칸 안에 가둔다: 확대한 그림의 가장자리가 칸 가장자리 안으로 들어오지 못한다. 1배는 늘 맞춤 자리다. */
+export function clampToBox(v: View, box: { width: number; height: number }): View {
+  return {
+    zoom: v.zoom,
+    x: Math.min(0, Math.max(box.width * (1 - v.zoom), v.x)),
+    y: Math.min(0, Math.max(box.height * (1 - v.zoom), v.y)),
+  };
+}
+
 const gapOf = (t: TouchList) =>
   Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 

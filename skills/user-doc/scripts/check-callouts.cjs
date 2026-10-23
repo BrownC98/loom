@@ -1,8 +1,8 @@
 // user-doc 문서 점검(SKILL.md 「형식」·「목업 말풍선」). 배치 스크립트(callouts.js)와 따로 센다.
 // - 파일 하나: src·href·CSS url()은 data:, https:, #만 쓴다.
 // - 화면 절마다 표시 없는 그림(.fig.clean)이 먼저, 같은 크기로 있는지.
-// - 창 폭 여러 개, 늦게 읽히는 그림, 창 폭 바꾸기마다: 설명마다 말풍선이 있는지, 말풍선이 그림 틀 안에 있거나 글자·컨트롤·상자·배지·다른 말풍선과 겹치는지,
-//   지시선이 다른 상자·말풍선을 지나는지, 배지가 잘리거나 덮이거나 글자를 덮는지, 상자가 대상·표 칸·틀에 맞는지, 테두리 선이 하나인지,
+// - 창 폭 여러 개, 늦게 읽히는 그림, 창 폭 바꾸기마다: 설명마다 말풍선이 있는지, 말풍선이 글자·컨트롤·상자·배지·다른 말풍선과 겹치는지,
+//   지시선이 다른 상자·말풍선을 지나거나 LEADER_MAX보다 긴지, 배지가 잘리거나 덮이거나 글자를 덮는지, 상자가 대상·표 칸·틀에 맞는지, 테두리 선이 하나인지,
 //   덧그림이 대상의 레이아웃을 바꾸는지, 그림 틀과 덧그림이 절 안에 있는지.
 // 사용: node check-callouts.cjs <문서.html>   출력 JSON {"bubbles":N,"badges":N,"overlaps":[...]}, 끝 코드 0 = 통과, 1 = 문제 있음, 2 = 돌리지 못함
 const path = require('path'), fs = require('fs'), os = require('os'), { pathToFileURL } = require('url');
@@ -12,6 +12,10 @@ let pw; try { pw = require('playwright'); } catch { const c = path.join(os.homed
 const RUNS = [{ w: 1920 }, { w: 1440 }, { w: 1280 }, { w: 1100 }, { w: 960 }, { w: 1440, slow: 1500 }, { w: 1440, resizeTo: 1000 }];
 // callouts.js는 load 뒤와, 창 폭이 바뀌면 120ms 뒤에 놓는다. 코디 SDI업무 실측: load만 기다리면 드물게 지시선이 0개였다.
 const HEIGHT = 900, SETTLE_MS = 600;
+// 지시선 길이 상한(화면 px). 2026-10-23 사람(Q643) "선이 너무 길어서 시선이 움직이는 길이가 길어져 피로함".
+// 120px은 말풍선 폭(최대 250px)의 절반쯤이라 상자와 말풍선이 한눈에 들어온다. 그림 오른쪽 열(약 290px)까지 가는 선은 막힌다.
+// DOM_PASS는 브라우저 안에서 돌아 이 값을 인자로 받는다.
+const LEADER_MAX = 120;
 
 const doc = path.resolve(process.argv[2]);
 const html = fs.readFileSync(doc, 'utf8');
@@ -52,7 +56,7 @@ const LOCAL_REFS = () => {
 };
 
 // 화면 점검(한 창 폭에서). 픽셀 점검에 쓸 배지와 덧그린 상자 목록도 돌려준다.
-const DOM_PASS = () => {
+const DOM_PASS = LEADER_MAX => {
   const R = r => ({ l: r.left, t: r.top, r: r.right, b: r.bottom });
   const hit = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
   const inside = (a, c) => a.l >= c.l - 0.5 && a.t >= c.t - 0.5 && a.r <= c.r + 0.5 && a.b <= c.b + 0.5;
@@ -129,8 +133,6 @@ const DOM_PASS = () => {
       for (const u of ui) if (hit(cr, u.r)) bad.push(title + ' bubble ' + k + ' x ' + u.what);
       for (const [j, e] of [...flat(boxes), ...flat(pins)]) if (hit(cr, rect(e))) bad.push(title + ' bubble ' + k + ' x box/badge ' + j);
       cl.forEach(([j, d], z) => { if (z > i && hit(cr, rect(d))) bad.push(title + ' bubble ' + k + ' x bubble ' + j); });
-      // 말풍선은 화면 그림 틀 안에 두지 않는다(사람 요청 Q616).
-      for (const f of fig.querySelectorAll('.page, .xlwin, .shotwrap')) if (hit(cr, rect(f))) bad.push(title + ' bubble ' + k + ' inside a screen frame');
     });
     // 지시선: 말풍선마다 하나이고, 자기 상자 테두리에서 시작해 자기 말풍선 테두리에서 끝난다.
     const edge = ([x, y], r) => { const dx = Math.max(r.l - x, 0, x - r.r), dy = Math.max(r.t - y, 0, y - r.b); return dx || dy ? Math.hypot(dx, dy) : Math.min(x - r.l, r.r - x, y - r.t, r.b - y); };
@@ -142,6 +144,8 @@ const DOM_PASS = () => {
       if (pts.length < 2) { bad.push(title + ' leader ' + k + ' has fewer than 2 points'); continue; }
       if (!(boxes.get(k) || []).some(b => edge(pts[0], rect(b)) <= 3)) bad.push(title + ' leader ' + k + ' does not start on its box');
       if (edge(pts[pts.length - 1], rect(c)) > 3) bad.push(title + ' leader ' + k + ' does not end on its bubble');
+      const len = pts.reduce((s, q, i) => (i ? s + Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) : 0), 0);
+      if (len > LEADER_MAX) bad.push(title + ' leader ' + k + ' is ' + Math.round(len) + ' px long (max ' + LEADER_MAX + ')');
     }
     // 지시선: 다른 상자·말풍선을 지나지 않는다.
     for (const [k, l] of flat(lines)) {
@@ -242,7 +246,7 @@ const PIXELS = async ({ shots, pins, bands }) => {
 
 async function checkRun(page) {
   await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; } .chk-recolor .fig > .ov-badge { background: #00FF00 !important; color: #0000FF !important; } .chk-hide .ov-box, .chk-hide .ov-badge, .chk-hide .co, .chk-hide .lead-svg { visibility: hidden !important; }' });
-  const res = await page.evaluate(DOM_PASS);
+  const res = await page.evaluate(DOM_PASS, LEADER_MAX);
   const vp = page.viewportSize(), OVERLAP = 40;
   const shot = async () => (await page.screenshot({ animations: 'disabled' })).toString('base64');
   const todo = { pins: [...res.badges], bands: res.bands.map(b => ({ ...b })) }, all = [];
@@ -306,6 +310,8 @@ async function checkRun(page) {
     if (run.slow) await openSlow(page, run.slow);
     else await page.goto(pathToFileURL(doc).href, { waitUntil: 'load' });
     if (run === RUNS[0]) out.overlaps.push(...(await page.evaluate(LOCAL_REFS)));
+    // 웹 글꼴이 load 뒤에 들어오면 callouts.js가 다시 놓는다. 다 들어온 뒤 그 배치를 센다(93 목업 실측: load 1초 뒤).
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(SETTLE_MS);
     if (run.resizeTo) { await page.setViewportSize({ width: run.resizeTo, height: HEIGHT }); await page.waitForTimeout(SETTLE_MS); }
     const res = await checkRun(page);

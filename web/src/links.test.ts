@@ -22,6 +22,21 @@ describe('linkParts', () => {
       { text: ', then pick' },
     ]);
   });
+  it('links bare urls without trailing punctuation', () => {
+    const url = 'https://docs.google.com/spreadsheets/d/17N/edit';
+    expect(linkParts(`done: ${url}.`)).toEqual([{ text: 'done: ' }, { label: url, href: url }, { text: '.' }]);
+    expect(linkParts(`(${url})\u300d`)).toEqual([{ text: '(' }, { label: url, href: url }, { text: ')\u300d' }]);
+  });
+  it('does not link a url twice inside a markdown link', () => {
+    expect(linkParts('[sheet](https://a.io/x) https://b.io/y')).toEqual([
+      { label: 'sheet', href: 'https://a.io/x' },
+      { text: ' ' },
+      { label: 'https://b.io/y', href: 'https://b.io/y' },
+    ]);
+  });
+  it('leaves non-http bare urls as text', () => {
+    expect(linkParts('ftp://a.io file:///x')).toEqual([{ text: 'ftp://a.io file:///x' }]);
+  });
   it('keeps only labels in plain text', () => {
     expect(plainText('see [b.html](file:///x/b.html).')).toBe('see b.html.');
   });

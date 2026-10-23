@@ -416,7 +416,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::BadChoices => write!(
                 f,
-                "The question offers choices, but not in the standard form, so the inbox shows no buttons. End the question with: (A: <choice> / B: <choice>, recommended: A). Write the word for recommended in the human's language. A yes/no question needs no tail."
+                "The question offers choices, but not in the standard form, so the inbox shows no buttons. End the question with: (A: <choice> / B: <choice>, recommended: A). Write the word for recommended in the human's language. A yes/no question also needs the tail: (A: yes / B: no, recommended: A)."
             ),
             Refusal::NoWait(wait) => write!(f, "{wait}: this question is not open."),
             Refusal::EmptyAnswer => write!(f, "Write an answer."),

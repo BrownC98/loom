@@ -98,10 +98,10 @@ enum Cli {
         /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
         #[arg(long)]
         file: Option<PathBuf>,
-        /// 모델. 없으면 CLI 설정의 모델로 뜬다. Claude·Codex만 받는다.
+        /// 모델. 없으면 CLI 설정의 모델로 뜬다. 받지 않는 에이전트면 거절 글이 받는 값을 알린다.
         #[arg(long, conflicts_with = "command")]
         model: Option<String>,
-        /// 추론 강도(예: `medium`). 없으면 CLI 설정의 강도로 뜬다. Claude·Codex만 받는다.
+        /// 추론 강도(예: `medium`). 없으면 CLI 설정의 강도로 뜬다. 받지 않는 에이전트면 거절 글이 받는 값을 알린다.
         #[arg(long, conflicts_with = "command")]
         effort: Option<String>,
         /// 자식이 실행할 명령. ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다.
@@ -114,10 +114,10 @@ enum Cli {
     Note {
         name: String,
         body: String,
-        /// 일하는 Claude·Codex·OpenCode 2 노드의 지금 턴에 넣는다. 턴을 멈추지 않는다. 부모나 자식에게만 간다.
+        /// 일하는 노드의 지금 턴에 넣는다. 턴을 멈추지 않는다. 부모나 자식에게만 간다.
         #[arg(long, conflicts_with = "interrupt")]
         steer: bool,
-        /// Claude·Codex·OpenCode 2 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다. 부모나 자식에게만 간다.
+        /// 노드가 하던 일을 멈추게 하고 메시지를 따르게 한다. 돌던 셸 명령은 끝낸다. 부모나 자식에게만 간다.
         #[arg(long)]
         interrupt: bool,
     },

@@ -25,6 +25,7 @@ export const INITIAL_LANGUAGE = (document.documentElement.dataset.language as La
 let relative: Intl.RelativeTimeFormat;
 let weekdayTime: Intl.DateTimeFormat;
 let clock: Intl.DateTimeFormat;
+let dayTime: Intl.DateTimeFormat;
 let units: Record<'minute' | 'hour' | 'day', Intl.NumberFormat>;
 const unit = (locale: string, unit: 'minute' | 'hour' | 'day') => new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'narrow' });
 // `init`도 이 이벤트를 낸다.
@@ -33,6 +34,7 @@ i18next.on('languageChanged', (locale) => {
   relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
   weekdayTime = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   clock = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+  dayTime = new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   units = { minute: unit(locale, 'minute'), hour: unit(locale, 'hour'), day: unit(locale, 'day') };
 });
 i18next.use(initReactI18next).init({
@@ -93,6 +95,11 @@ export function dateAndTime(time: number): string {
 /** 예: 「(월) 15:40」, 「Mon 15:40」. */
 export function weekdayAndTime(time: number): string {
   return weekdayTime.format(time);
+}
+
+/** 예: 「10. 23. 오후 3:40」, 「10/23, 3:40 PM」. 해는 적지 않는다. */
+export function dayAndTime(time: number): string {
+  return dayTime.format(time);
 }
 
 /** 예: 「15:40:07」. */

@@ -10,6 +10,7 @@ import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
 import { relaunchableState } from './catalog';
 import { QuestionIcon } from './Dock';
+import { useEscapeClose } from './popover';
 import { InboxPanel, oldestWait, waitCount } from './Inbox';
 import { asking, stateClass, stateLabel } from './NodeCard';
 import { plainText } from './links';
@@ -365,14 +366,10 @@ function useSheetHistory(onClose: () => void) {
  */
 export function Sheet(props: { label: string; onClose: () => void; children: ReactNode }) {
   const { t } = useTranslation();
-  const sheet = useRef<HTMLDivElement>(null);
+  // 바탕 누르기는 바탕이 맡는다. 밖 누르기(`useDismiss`)를 쓰면 위에 겹친 판의 바탕을 누를 때 아래 판도 닫힌다.
+  const sheet = useEscapeClose<HTMLDivElement>(props.onClose);
   const dragFrom = useRef<number | null>(null);
   useSheetHistory(props.onClose);
-  useEffect(() => {
-    const close = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose();
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [props.onClose]);
   const drag = (e: ReactPointerEvent) => {
     if (dragFrom.current === null || !sheet.current) return;
     sheet.current.style.transform = `translateY(${Math.max(0, e.clientY - dragFrom.current)}px)`;

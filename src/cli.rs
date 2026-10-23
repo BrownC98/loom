@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::daemon::gate::{
     BranchRequest, Deploy, FailRequest, MergeInto, MergePlan, MergeResult, MergedRequest, Readied,
-    TOOL_HEADER, VERSION_HEADER, VerdictRequest,
+    ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest,
 };
 use crate::daemon::{
     AckRequest, AdoptRequest, AnsweredRequest, AskRequest, Asked, DoneRequest, GuardRequest,
@@ -479,8 +479,9 @@ pub fn done(
 pub fn ready(branch: String) -> Result<(), String> {
     let readied: Readied = call(
         "ready",
-        &BranchRequest {
+        &ReadyRequest {
             branch: branch.clone(),
+            cwd: crate::wsl::for_caller(&absolute(Path::new("."))?),
         },
         None,
     )?;

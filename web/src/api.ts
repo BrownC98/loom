@@ -121,7 +121,7 @@ export async function shutdown(): Promise<void> {
 
 /** 데몬이 낸 파일 주소(`view_file`). 경로가 주소라 HTML의 상대 주소도 같은 폴더로 간다. */
 export function fileViewUrl(path: string, node: NodeId | null): string {
-  const parts = path.replace(/^\/+/, '').split('/').map(encodeURIComponent);
+  const parts = path.replace(/^\//, '').split('/').map(encodeURIComponent);
   return `/api/files/view/${node ?? '-'}/${parts.join('/')}`;
 }
 

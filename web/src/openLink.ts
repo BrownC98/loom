@@ -3,6 +3,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { filePass, fileViewUrl, openFile } from './api';
 import type { NodeId } from './gen/NodeId';
+import { filePath } from './links';
 
 /** 이 화면이 데몬 PC 밖(폰 문, Tailscale)에서 열렸다. 데스크톱 앱과 PC 브라우저는 루프백으로 연다. */
 function remoteScreen(): boolean {
@@ -27,7 +28,7 @@ export const openPass = (pass: Promise<string>, browser: PhoneBrowser) =>
 export function openLink(uri: string, node: NodeId | null) {
   const url = URL.parse(uri);
   if (url?.protocol === 'file:') {
-    const path = decodeURIComponent(url.pathname);
+    const path = filePath(url);
     const hostPath = /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
     const browser = phoneBrowser();
     if (browser) return void openPass(filePass(hostPath, node), browser).catch((err: Error) => console.error(err));

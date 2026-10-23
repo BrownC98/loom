@@ -1707,7 +1707,7 @@ async fn open_file(
 /// 화면이 보낸 파일 경로를 데몬이 여는 경로로 바꾼다. WSL 노드의 링크는 배포판 안의 경로(`/home/…`)라 그 배포판의 UNC 경로로 바꾼다.
 fn host_path(app: &App, node: Option<NodeId>, path: String) -> Result<String, Problem> {
     Ok(match app.node_wsl(node)? {
-        Some(wsl) if path.starts_with('/') => wsl.shell_path(&path),
+        Some(wsl) if path.starts_with('/') && !path.starts_with("//") => wsl.shell_path(&path),
         _ => path,
     })
 }

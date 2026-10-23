@@ -53,8 +53,14 @@ fn started(_: NodeId) -> Result<(), String> {
 
 /// 에이전트 id가 `agent`인 루트. 이름은 `<agent>-1`이다.
 fn root(g: &Graph, agent: &str) -> NodeId {
-    g.add_root(&home(), Some(AgentId(agent.into())), &launched(), started)
-        .unwrap()
+    g.add_root(
+        &home(),
+        Some(AgentId(agent.into())),
+        None,
+        &launched(),
+        started,
+    )
+    .unwrap()
 }
 
 /// 지시문 없이 부모 워크트리에 드는 셸 자식.
@@ -665,7 +671,13 @@ fn two_repos(g: &Graph) -> (NodeId, NodeId) {
         worktree: "/ws/other/화면".into(),
     };
     let right = g
-        .add_root(&other, Some(AgentId("codex".into())), &launched(), started)
+        .add_root(
+            &other,
+            Some(AgentId("codex".into())),
+            None,
+            &launched(),
+            started,
+        )
         .unwrap();
     (left, right)
 }
@@ -1527,8 +1539,14 @@ fn records_refusals_and_failed_launches() {
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
     assert!(
-        g.add_root(&home(), None, &launched(), |_| Err("없는 명령".into()))
-            .is_err()
+        g.add_root(
+            &home(),
+            None,
+            None,
+            &launched(),
+            |_| Err("없는 명령".into())
+        )
+        .is_err()
     );
     g.record_refusal(
         lead,
@@ -1665,7 +1683,8 @@ fn reopening_keeps_running_nodes_until_the_daemon_finds_them_lost() {
 fn roots_take_the_smallest_free_number() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    g.add_root(&home(), None, &launched(), started).unwrap();
+    g.add_root(&home(), None, None, &launched(), started)
+        .unwrap();
     let first = root(&g, "claude");
     root(&g, "claude");
     // 자식 이름은 사람이 띄운 노드의 번호를 막지 않는다.
@@ -1726,15 +1745,27 @@ fn children_stay_in_the_parent_place_unless_given_a_worktree() {
 }
 
 #[test]
-fn task_is_kept_on_rename_and_a_root_task_is_its_name() {
+fn task_is_kept_on_rename_and_old_nodes_keep_their_first_task() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("t.db"));
-    let lead = root(&g, "claude");
+    assert_eq!(
+        g.next_root_name(Some(&AgentId("claude".into()))).unwrap(),
+        "claude-1"
+    );
+    let lead = g
+        .add_root(
+            &home(),
+            Some(AgentId("claude".into())),
+            Some("repo-claude-1"),
+            &launched(),
+            started,
+        )
+        .unwrap();
     let a = g
         .add_child(
             lead,
             NewChild {
-                task: "feat/x",
+                task: "repo-feat-x",
                 ..named("a")
             },
             TreeLimits::default(),
@@ -1743,8 +1774,13 @@ fn task_is_kept_on_rename_and_a_root_task_is_its_name() {
         )
         .unwrap();
     g.rename(a, "b").unwrap();
-    assert_eq!(g.task_of(a).unwrap(), "feat/x");
-    assert_eq!(g.task_of(lead).unwrap(), "claude-1");
+    g.rename(lead, "총괄").unwrap();
+    assert_eq!(g.task_of(a).unwrap().as_deref(), Some("repo-feat-x"));
+    assert_eq!(g.task_of(lead).unwrap().as_deref(), Some("repo-claude-1"));
+    let old = root(&g, "codex");
+    assert_eq!(g.task_of(old).unwrap(), None);
+    assert_eq!(g.keep_task(old, "repo-codex-1").unwrap(), "repo-codex-1");
+    assert_eq!(g.keep_task(old, "repo-other").unwrap(), "repo-codex-1");
 }
 
 #[test]
@@ -2127,7 +2163,9 @@ fn current_parent_is_available_to_the_child_after_adoption() {
 fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    let shell = g.add_root(&home(), None, &launched(), started).unwrap();
+    let shell = g
+        .add_root(&home(), None, None, &launched(), started)
+        .unwrap();
     assert!(g.discard_finished_shell(shell).unwrap());
     assert!(g.subscribe().unwrap().0.is_empty());
     assert!(!g.discard_finished_shell(shell).unwrap());
@@ -2137,7 +2175,9 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     let nested = child(&g, agent, "nested");
     assert!(!g.discard_finished_shell(nested).unwrap());
 
-    let parent = g.add_root(&home(), None, &launched(), started).unwrap();
+    let parent = g
+        .add_root(&home(), None, None, &launched(), started)
+        .unwrap();
     let worker = child(&g, parent, "worker");
     assert!(!g.discard_finished_shell(parent).unwrap());
     g.send(
@@ -2152,7 +2192,9 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     assert!(!g.discard_finished_shell(parent).unwrap());
     assert_eq!(take(&g, parent), delivery("worker", "review this output"));
 
-    let completed = g.add_root(&home(), None, &launched(), started).unwrap();
+    let completed = g
+        .add_root(&home(), None, None, &launched(), started)
+        .unwrap();
     g.done(
         completed,
         "result to preserve",
@@ -2166,7 +2208,9 @@ fn empty_shell_cleanup_preserves_relationships_messages_and_results() {
     assert_eq!(held(&g, completed), 0);
     assert_eq!(view(&g, completed).waits.len(), 1);
 
-    let failed = g.add_root(&home(), None, &launched(), started).unwrap();
+    let failed = g
+        .add_root(&home(), None, None, &launched(), started)
+        .unwrap();
     g.exited(failed, 1).unwrap();
     assert!(!g.discard_finished_shell(failed).unwrap());
     assert_eq!(view(&g, failed).state, NodeState::Exited { code: Some(1) });
@@ -2312,7 +2356,7 @@ fn a_node_does_not_enter_a_repo_outside_the_list() {
         worktree: "/gone".into(),
     };
     assert_eq!(
-        g.add_root(&gone, None, &launched(), |_| panic!("launched")),
+        g.add_root(&gone, None, None, &launched(), |_| panic!("launched")),
         Err(Refusal::NoRepo)
     );
     assert!(g.subscribe().unwrap().0.is_empty());

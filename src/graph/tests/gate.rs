@@ -542,3 +542,21 @@ fn a_stopped_merge_stays_merging_and_only_the_gate_hears_it() {
         task.run + 1
     );
 }
+
+/// `loom verdict`·`merge`의 기본 경로는 관문 줄 담당의 작업 폴더다(데몬 `agent_task`). 브랜치 이름을 바꾸고 `loom ready`해도 처음 작업이다.
+#[test]
+fn a_renamed_branch_round_finds_the_owner_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    // 담당의 작업 폴더는 띄울 때 정했다(`named`가 노드 이름으로 둔다). 브랜치를 `new-name`으로 바꾼 뒤 그 이름으로 보낸다.
+    g.ready(t.worker, &round("new-name", "main"), t.ci, Some(&via()))
+        .unwrap();
+    let owner = g.merge_task(t.ci, "new-name").unwrap().owner;
+    assert_eq!(owner, t.worker);
+    assert_eq!(g.task_of(owner).unwrap().as_deref(), Some("worker-x"));
+    assert!(matches!(
+        g.merge_task(t.ci, "old-name"),
+        Err(Refusal::NoRound(_))
+    ));
+}

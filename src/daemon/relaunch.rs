@@ -474,31 +474,17 @@ impl App {
             },
             resume: Some(resume.to_owned()),
         };
-        let (position, task) = match self.graph.relations(node.id) {
-            Ok(r) if r.parent.is_some() => (
-                Position::Child,
-                Some(self.graph.task_of(node.id).map_err(|e| e.to_string())?),
-            ),
-            Ok(_) => (Position::Root, None),
+        let position = match self.graph.relations(node.id) {
+            Ok(r) if r.parent.is_some() => Position::Child,
+            Ok(_) => Position::Root,
             Err(e) => return Err(e.to_string()),
         };
-        let prepared = self
-            .prepare(
-                &start,
-                Path::new(&place.worktree),
-                position,
-                task.as_deref(),
-            )
+        // 사람이 띄운 노드와 자식이 같다. 작업 폴더 전에 뜬 노드는 여기서 폴더를 받는다.
+        let task = self.task_dir(node.id).await.map_err(|e| format!("{e:?}"))?;
+        let pick = crate::task::Pick::Joined(task.folder);
+        self.prepare(&start, Path::new(&place.worktree), position, Some(&pick))
             .await
-            .map_err(|e| format!("{e:?}"))?;
-        // 작업 폴더 전에 뜬 노드는 폴더가 없다.
-        if let Some(dir) = &prepared.task_dir
-            && let Err(e) = crate::task::create(dir, "")
-        {
-            prepared.discarder()();
-            return Err(format!("{}: {e}", dir.display()));
-        }
-        Ok(prepared)
+            .map_err(|e| format!("{e:?}"))
     }
 
     async fn run_resumed(

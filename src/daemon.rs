@@ -323,6 +323,13 @@ pub struct SpawnRequest {
     pub role: Option<String>,
 }
 
+/// `loom done --file`·`verdict`·`merge`가 묻는 작업 폴더. `branch`가 없으면 부른 노드의 폴더, 있으면 그 브랜치 담당의 폴더다.
+/// 응답은 데몬이 쓰는 꼴의 경로다. CLI는 데몬과 같은 실행 파일(WSL에서는 `loom.exe`)이라 그 경로를 그대로 연다.
+#[derive(Serialize, Deserialize)]
+pub struct TaskRequest {
+    pub branch: Option<String>,
+}
+
 /// 자식이 실행할 것.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -648,6 +655,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         )
         .route("/api/nodes", post(create_node))
         .route("/api/agent/spawn", post(agent_spawn))
+        .route("/api/agent/task", post(agent_task))
         .route("/api/nodes/{id}", delete(remove_node))
         .route("/api/nodes/{id}/parent/{parent}", put(adopt_node))
         .route("/api/nodes/{id}/name", put(rename_node))
@@ -956,18 +964,69 @@ impl App {
         Ok(self.settings.get().map_err(internal)?.tree_limits)
     }
 
-    /// 부모 없는 노드를 `place`에서 띄운다.
+    /// 부모 없는 노드를 `place`에서 띄운다. 새 작업 폴더의 바탕 이름은 그 노드가 받을 이름이다.
     async fn start_root(self: &Arc<Self>, place: &Place, start: &Start) -> Result<NodeId, Problem> {
         let cwd = std::path::Path::new(&place.worktree);
-        let prepared = self.prepare(start, cwd, Position::Root, None).await?;
+        let repo = self.repos.path(place.repo)?;
+        let name = self
+            .graph
+            .next_root_name(start.agent().as_ref())
+            .map_err(internal)?;
+        let pick = task::Pick::New(task::base(&repo, &name));
+        let prepared = self
+            .prepare(start, cwd, Position::Root, Some(&pick))
+            .await?;
         let discard = prepared.discarder();
+        let dir = prepared
+            .task
+            .as_ref()
+            .map(|d| (d.folder.clone(), d.local.clone()));
+        let folder = dir.as_ref().map(|(folder, _)| folder.as_str());
         let id = self
             .graph
-            .add_root(place, start.agent(), &prepared.launched(), |id| {
+            .add_root(place, start.agent(), folder, &prepared.launched(), |id| {
+                if let Some((_, local)) = &dir {
+                    task::create(local, "").map_err(|e| format!("{}: {e}", local.display()))?;
+                }
                 self.launch(id, prepared)
             })
             .inspect_err(|_| discard())?;
         Ok(id)
+    }
+
+    /// 노드가 도는 곳(이 PC 또는 그 WSL 배포판)의 작업 폴더들. 경로는 데몬이 쓰는 꼴이다.
+    async fn tasks_for(&self, worktree: &str) -> Result<task::Tasks, Problem> {
+        match wsl::of(std::path::Path::new(worktree)) {
+            Some(at) => {
+                let home = self.homes.get(&at.distro).await.map_err(LaunchError::Wsl)?;
+                Ok(task::Tasks::wsl(&home, |linux| {
+                    PathBuf::from(wsl::windows_path(&at.distro, linux))
+                }))
+            }
+            None => task::Tasks::pc().ok_or_else(|| internal("홈 폴더를 찾지 못했다")),
+        }
+    }
+
+    /// 노드의 작업 폴더. 작업 폴더 전에 뜬 노드는 처음 부를 때 새 폴더를 정해 남긴다. 폴더 안의 틀(`task::create`)도 만든다.
+    async fn task_dir(&self, node: NodeId) -> Result<task::TaskDir, Problem> {
+        let place = self.graph.place_of(node).map_err(internal)?;
+        let tasks = self.tasks_for(&place.worktree).await?;
+        let dir = match self.graph.task_of(node).map_err(internal)? {
+            Some(folder) => tasks.dir(&folder),
+            None => {
+                let repo = self.repos.path(place.repo)?;
+                let name = self.graph.relations(node).map_err(internal)?.me.name;
+                let new = tasks.new_dir(&task::base(&repo, &name)).map_err(internal)?;
+                let kept = self.graph.keep_task(node, &new.folder).map_err(internal)?;
+                if kept != new.folder {
+                    let _ = std::fs::remove_dir(&new.local);
+                }
+                tasks.dir(&kept)
+            }
+        };
+        task::create(&dir.local, "")
+            .map_err(|e| internal(format!("{}: {e}", dir.local.display())))?;
+        Ok(dir)
     }
 
     /// [새 워크트리]가 만든 워크트리에서 저장소 설정 스크립트를 명령 노드로 띄운다. 카드가 출력과 종료 코드를 보인다.
@@ -981,7 +1040,7 @@ impl App {
         let prepared = self.prepare(&start, cwd, Position::Root, None).await?;
         let discard = prepared.discarder();
         self.graph
-            .add_root(place, start.agent(), &prepared.launched(), |id| {
+            .add_root(place, start.agent(), None, &prepared.launched(), |id| {
                 // 스크립트가 바로 끝나도 종료 처리가 이 표시를 보도록 띄우기 전에 넣는다.
                 self.setups.lock().unwrap().insert(id);
                 self.launch(id, prepared)
@@ -1008,7 +1067,8 @@ impl App {
             opencode2,
             account: _,
             inside: _,
-            task_dir: _,
+            task: _,
+            fresh: _,
         } = prepared;
         let on_exit = self.on_exit(id, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;
@@ -1213,13 +1273,13 @@ impl App {
     /// Claude·Codex면 설정에서 고른 계정의 로그인 폴더를 넣는다. Codex면 그 계정으로 app-server를 먼저 띄운다.
     /// OpenCode 2면 노드 서버와 세션을 먼저 띄운다.
     /// `cwd`는 노드가 도는 워크트리다. `position`은 상시 지시를 고른다(`skills::always_on`).
-    /// `task`가 있으면 그 작업 폴더를 `LOOM_TASK_DIR`로 넣는다. 사람이 띄운 노드는 없다: 이름은 그래프가 넣을 때 정한다.
+    /// `task`가 있으면 그 작업 폴더를 `LOOM_TASK_DIR`로 넣는다. 새 작업이면 여기서 빈 폴더를 잡는다. 설정 스크립트 노드는 없다.
     async fn prepare(
         &self,
         start: &Start,
         cwd: &std::path::Path,
         position: Position,
-        task: Option<&str>,
+        task: Option<&task::Pick>,
     ) -> Result<Prepared, Problem> {
         let profile = start.profile();
         let provider = profile.and_then(Profile::provider);
@@ -1242,11 +1302,18 @@ impl App {
         };
         let account = provider.and_then(|p| settings.account(p, site.distro()));
         let task_dir = match task {
-            Some(task) => Some(
-                task::TaskDir::of(site.inside(), task)
-                    .ok_or_else(|| internal("홈 폴더를 찾지 못했다"))?,
-            ),
+            Some(pick) => {
+                let tasks = match site.inside() {
+                    Some(inside) => task::Tasks::wsl(inside.home(), |p| inside.local(p)),
+                    None => task::Tasks::pc().ok_or_else(|| internal("홈 폴더를 찾지 못했다"))?,
+                };
+                Some(tasks.open(pick).map_err(internal)?)
+            }
             None => None,
+        };
+        let fresh = match task {
+            Some(task::Pick::New(_)) => task_dir.as_ref().map(|d| d.local.clone()),
+            _ => None,
         };
         if let Some(dir) = &task_dir {
             env.push((task::ENV, dir.shown.clone().into()));
@@ -1330,7 +1397,8 @@ impl App {
         Ok(Prepared {
             cmd,
             inside,
-            task_dir: task_dir.map(|dir| dir.local),
+            task: task_dir,
+            fresh,
             setup: None,
             token,
             account: account.cloned(),
@@ -1363,8 +1431,10 @@ struct Prepared {
     cmd: portable_pty::CommandBuilder,
     /// WSL 노드면 그 배포판에서 읽은 값. 설정 스크립트도 그 배포판에서 돈다.
     inside: Option<wsl::Inside>,
-    /// 노드의 작업 폴더(데몬이 쓰는 경로). 노드 환경의 `LOOM_TASK_DIR`이 같은 폴더를 가리킨다.
-    task_dir: Option<PathBuf>,
+    /// 노드의 작업 폴더. 노드 환경의 `LOOM_TASK_DIR`이 같은 폴더를 가리킨다.
+    task: Option<task::TaskDir>,
+    /// 이번 준비가 새로 잡은 작업 폴더. 노드를 띄우지 못하면 `discarder`가 지운다. 다음 같은 이름의 작업이 번호를 받지 않게 한다.
+    fresh: Option<PathBuf>,
     /// `cmd`보다 먼저(같은 터미널 화면에서) 돌릴 저장소 설정 스크립트. 실패하면 `cmd`를 띄우지 않는다.
     setup: Option<portable_pty::CommandBuilder>,
     /// 노드가 데몬을 부를 때 내는 토큰. 그래프가 노드와 함께 남긴다.
@@ -1401,7 +1471,14 @@ impl Prepared {
 
     /// 노드를 만들지 못했으면 미리 띄운 서버를 끝내는 함수. 노드를 띄우는 클로저가 `self`를 가져가므로 따로 만든다.
     fn discarder(&self) -> impl Fn() + use<> {
-        discarder(&self.codex, &self.opencode2)
+        let servers = discarder(&self.codex, &self.opencode2);
+        let fresh = self.fresh.clone();
+        move || {
+            servers();
+            if let Some(dir) = &fresh {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
     }
 }
 
@@ -2008,12 +2085,16 @@ async fn agent_spawn(
             ),
         ));
     }
-    let task = match &req.worktree {
-        Some(branch) => branch.trim().to_owned(),
-        None => app
-            .graph
-            .task_of(parent)
-            .map_err(|e| for_agent(Refusal::from(e)))?,
+    let place = app
+        .graph
+        .place_of(parent)
+        .map_err(|e| for_agent(Refusal::from(e)))?;
+    let pick = match &req.worktree {
+        Some(branch) => task::Pick::New(task::base(
+            &app.repos.path(place.repo).map_err(for_agent)?,
+            branch.trim(),
+        )),
+        None => task::Pick::Joined(app.task_dir(parent).await.map_err(for_agent)?.folder),
     };
     let given = req.brief.clone();
     let (start, queued_brief) = match req.run {
@@ -2047,10 +2128,6 @@ async fn agent_spawn(
         }
         SpawnRun::Command(line) => (Start::Command { line }, req.brief),
     };
-    let place = app
-        .graph
-        .place_of(parent)
-        .map_err(|e| for_agent(Refusal::from(e)))?;
     let worktree = match &req.worktree {
         Some(branch) => {
             let repo = app.repos.path(place.repo).map_err(for_agent)?;
@@ -2071,9 +2148,9 @@ async fn agent_spawn(
         agent: start.agent(),
         brief: &queued_brief,
         role: req.role.as_deref(),
-        task: &task,
+        task: "",
     };
-    let spawned = spawn_child(&app, parent, child, &start, cwd, &given).await;
+    let spawned = spawn_child(&app, parent, child, &start, cwd, &pick, &given).await;
     // 자식을 띄우지 못하면 이 요청이 만든 워크트리와 브랜치를 지운다. 거절만 남긴다.
     if let (Some((repo, made)), Err(_)) = (&worktree, &spawned)
         && let Err(e) = worktree::discard(repo, made).await
@@ -2085,17 +2162,19 @@ async fn agent_spawn(
 
 /// `agent_spawn`에서 워크트리를 만든 뒤의 단계: 준비하고 그래프에 자식을 더해 띄운다.
 /// 새 워크트리면 그 설정 스크립트를 자식의 PTY에서 먼저 돌린다. 근거: docs/design.md 「저장소와 워크트리」.
-/// 작업 폴더는 그래프가 자식을 받은 뒤, 띄우기 바로 전에 만든다. `brief`는 `loom spawn`이 받은 지시문이다(역할 머리 없음).
+/// 작업 폴더 안의 틀은 그래프가 자식을 받은 뒤, 띄우기 바로 전에 만든다. `brief`는 `loom spawn`이 받은 지시문이다(역할 머리 없음).
+/// `child.task`는 `prepare`가 정한 작업 폴더 이름으로 바꾼다.
 async fn spawn_child(
     app: &Arc<App>,
     parent: NodeId,
     child: NewChild<'_>,
     start: &Start,
     cwd: &std::path::Path,
+    pick: &task::Pick,
     brief: &str,
 ) -> Result<NodeId, AgentError> {
     let mut prepared = app
-        .prepare(start, cwd, Position::Child, Some(child.task))
+        .prepare(start, cwd, Position::Child, Some(pick))
         .await
         .map_err(for_agent)?;
     if child.worktree.is_some() {
@@ -2106,12 +2185,17 @@ async fn spawn_child(
         .tree_limits()
         .map_err(for_agent)
         .inspect_err(|_| discard())?;
-    let task_dir = prepared.task_dir.clone();
+    let (folder, local) = match &prepared.task {
+        Some(dir) => (dir.folder.clone(), dir.local.clone()),
+        None => return Err(for_agent(internal("자식의 작업 폴더가 없다"))),
+    };
+    let child = NewChild {
+        task: &folder,
+        ..child
+    };
     app.graph
         .add_child(parent, child, limits, &prepared.launched(), |id| {
-            if let Some(dir) = &task_dir {
-                task::create(dir, brief).map_err(|e| format!("{}: {e}", dir.display()))?;
-            }
+            task::create(&local, brief).map_err(|e| format!("{}: {e}", local.display()))?;
             app.launch(id, prepared)
         })
         .map_err(for_agent)
@@ -2184,6 +2268,38 @@ async fn agent_reply(
         .and_then(|()| app.graph.reply(from, req.message, &req.body, Some(&via)));
     let to = format!("message #{}", req.message.0);
     recorded(&app, from, &to, Kind::Queue, &via, sent)
+}
+
+/// 브랜치의 작업 폴더는 관문 줄의 담당이 정한다: 브랜치 이름을 바꿔도, 같은 이름을 다시 써도 그 차례의 작업이다.
+/// 관문 줄이 없거나 담당 노드가 지워졌으면 없다.
+async fn agent_task(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<TaskRequest>,
+) -> Result<Json<Option<String>>, AgentError> {
+    let caller = app.caller(&headers)?;
+    let dir = match &req.branch {
+        None => Some(app.task_dir(caller).await.map_err(for_agent)?),
+        Some(branch) => match app.graph.merge_task(caller, branch) {
+            Ok(round) => match app.graph.task_of(round.owner) {
+                Ok(Some(folder)) => {
+                    let place = app
+                        .graph
+                        .place_of(round.owner)
+                        .map_err(|e| for_agent(internal(e)))?;
+                    let tasks = app.tasks_for(&place.worktree).await.map_err(for_agent)?;
+                    Some(tasks.dir(&folder))
+                }
+                Ok(None) | Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(for_agent(internal(e))),
+            },
+            Err(Refusal::NoRound(_)) => None,
+            Err(e) => return Err(for_agent(e)),
+        },
+    };
+    Ok(Json(
+        dir.map(|dir| dir.local.to_string_lossy().into_owned()),
+    ))
 }
 
 async fn agent_status(
@@ -2763,6 +2879,7 @@ mod tests {
             .add_root(
                 &place,
                 Some(AgentId("claude".into())),
+                None,
                 &launched,
                 |_| Ok(()),
             )

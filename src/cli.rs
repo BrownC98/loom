@@ -15,7 +15,7 @@ use crate::daemon::gate::{
 use crate::daemon::{
     AckRequest, AdoptRequest, AnsweredRequest, AskRequest, Asked, DoneRequest, GuardRequest,
     HookWaitRequest, IdleRequest, RelaunchRequest, Relaunched, RemoveRequest, ReplyRequest,
-    SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
+    SaidRequest, SendRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, TaskRequest, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
@@ -524,7 +524,15 @@ pub fn verdict(
 /// `--findings`가 없을 때: 브랜치 작업 폴더의 `review/<내 노드 이름>.md`. 그 파일이 없으면 pass는 결함 파일 없이 보낸다.
 fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>, String> {
     let relations: Relations = call("status", &(), None)?;
-    let path = branch_task(branch)?
+    let Some(dir) = branch_task(branch)? else {
+        return match judgment {
+            Judgment::Pass => Ok(None),
+            Judgment::Block => Err(format!(
+                "loom has no task folder for {branch}: it has no gate round, or its owner node is gone. Give --findings <file>."
+            )),
+        };
+    };
+    let path = dir
         .join(task::REVIEW)
         .join(format!("{}.md", task::folder(&relations.me.name)));
     match (path.is_file(), judgment) {
@@ -553,21 +561,30 @@ pub fn fail(branch: String, cause: String) -> Result<(), String> {
 /// 관문이 부른다. 데몬이 audit를 하고 할 일을 주면, 이 프로세스가 대상 체크아웃에서 병합 일 하나(`MERGE_RUN`)를 띄운다.
 /// 결과는 데몬에 알린다. 담당이 고칠 일이나 실패로 끝나면 0이 아닌 코드로 끝난다.
 pub fn merge(branch: String) -> Result<(), String> {
+    // 데몬이 관문을 Merging으로 바꾸기 전에 기록 자리를 정하고 열어 본다. 열지 못하면 상태를 바꾸지 않고 끝낸다.
+    let log = merge_log(&branch)?;
+    // 병합을 돌리지 않고 끝나면 빈 기록을 남기지 않는다.
+    let unused = || {
+        let _ = std::fs::remove_file(&log);
+    };
     let plan: MergePlan = call(
         "merge",
         &BranchRequest {
             branch: branch.clone(),
         },
         None,
-    )?;
+    )
+    .inspect_err(|_| unused())?;
     let (worktree, head, run, into) = match plan {
         MergePlan::Stopped { end, findings } => {
+            unused();
             return Err(format!(
                 "Did not merge {branch}. The audit ended it as {end:?} and loom told the receivers:\n- {}",
                 findings.join("\n- ")
             ));
         }
         MergePlan::Recorded { sha } => {
+            unused();
             println!(
                 "An earlier run already merged {branch} as {sha}, and its report did not arrive. loom recorded it as merged and told the receivers."
             );
@@ -584,7 +601,6 @@ pub fn merge(branch: String) -> Result<(), String> {
         MergeInto::Main { checkout } => (checkout.as_str(), protocol::SHIP_SCRIPT),
         MergeInto::Branch { worktree } => (worktree.as_str(), ""),
     };
-    let log = merge_log(&branch)?;
     if lock_busy(dir) {
         println!(
             "Waiting for another loom merge in this repository (up to {} minutes).",
@@ -725,34 +741,56 @@ fn inside(path: &str) -> String {
 }
 
 /// 브랜치 작업 폴더의 `logs/merge-<유닉스 초>.log`. 워크트리 안에 두면 미커밋 변경이 된다.
-/// WSL 노드의 `LOOM_TASK_DIR`은 Linux 경로이고, Windows `loom.exe`는 그 배포판의 UNC 경로로 쓴다(`task_dir`). 그래서 1단계의 `<공유 git 폴더>/loom-gate/`에서 옮겼다.
+/// 데몬이 그 브랜치의 작업 폴더를 모르면(관문 줄이 없거나 담당 노드를 지웠다) 1단계 자리 `<공유 git 폴더>/loom-gate/<브랜치>-merge-<유닉스 초>.log`다.
+/// 1단계 자리는 이 명령을 부른 폴더의 저장소다. WSL 폴더면 그 배포판의 git이 읽는다(`wsl::command`).
 fn merge_log(branch: &str) -> Result<PathBuf, String> {
-    let dir = branch_task(branch)?.join(task::LOGS);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    Ok(dir.join(format!("merge-{now}.log")))
+    let log = match branch_task(branch)? {
+        Some(dir) => dir.join(task::LOGS).join(format!("merge-{now}.log")),
+        None => {
+            let here = crate::wsl::from_caller(std::env::current_dir().map_err(|e| e.to_string())?);
+            let mut common = crate::wsl::command(&here.display().to_string(), "git");
+            common.args(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+            let common = output(&mut common)?;
+            crate::wsl::from_caller(PathBuf::from(common.trim()))
+                .join("loom-gate")
+                .join(format!("{}-merge-{now}.log", task::folder(branch)))
+        }
+    };
+    let dir = log.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log)
+        .map_err(|e| {
+            format!(
+                "Did not start the merge: cannot write its log {}: {e}",
+                log.display()
+            )
+        })?;
+    Ok(log)
 }
 
-/// 이 노드의 작업 폴더(`LOOM_TASK_DIR`). WSL 노드의 `loom.exe`는 같은 배포판의 UNC 경로로 읽는다.
+/// 이 노드의 작업 폴더. 데몬에 묻는다: 환경의 `LOOM_TASK_DIR`이 없는 노드(작업 폴더 전에 뜬 노드)도, WSL의 `loom.exe`도 같다.
 fn task_dir() -> Result<PathBuf, String> {
-    let dir = std::env::var(task::ENV).map_err(|_| {
-        format!(
-            "{} is not set: loom spawn gives it to child nodes, and this node started without it. Give an absolute path, or run `loom relaunch` and try again.",
-            task::ENV
-        )
-    })?;
-    Ok(crate::wsl::from_caller(PathBuf::from(dir)))
+    let dir: Option<String> = call("task", &TaskRequest { branch: None }, None)?;
+    dir.map(PathBuf::from)
+        .ok_or_else(|| "loom has no task folder for this node".to_owned())
 }
 
-/// 브랜치의 작업 폴더. 작업 폴더는 모두 한 폴더 안에 나란히 있다(`task::folder`).
-fn branch_task(branch: &str) -> Result<PathBuf, String> {
-    let mine = task_dir()?;
-    let all = mine
-        .parent()
-        .ok_or_else(|| format!("{} has no parent folder", mine.display()))?;
-    Ok(all.join(task::folder(branch)))
+/// 브랜치 담당의 작업 폴더. 관문 줄이 없거나 담당 노드가 지워졌으면 없다.
+fn branch_task(branch: &str) -> Result<Option<PathBuf>, String> {
+    let dir: Option<String> = call(
+        "task",
+        &TaskRequest {
+            branch: Some(branch.to_owned()),
+        },
+        None,
+    )?;
+    Ok(dir.map(PathBuf::from))
 }
 
 /// 명령의 표준 출력. 0이 아니게 끝나면 표준 오류가 오류다.

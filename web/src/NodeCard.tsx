@@ -33,14 +33,13 @@ export function stateLabel(state: NodeState): string {
 }
 
 /** 도는 노드는 발 줄이 없다. 터미널이 상태를 보인다. */
-function footText(state: NodeState, parentName: string | null, held: boolean): string | null {
+function footText(state: NodeState, parentName: string | null): string | null {
   const t = i18next.t;
   switch (state.kind) {
     case 'done':
-      return held ? t('node.foot.doneHeld') : t('node.foot.done', { summary: state.summary });
+      return t('node.foot.done', { summary: state.summary });
     case 'exited':
       if (state.code === null) return t('node.foot.daemonRestarted');
-      if (held) return t('node.foot.exitedHeld', { code: state.code });
       if (parentName !== null) return t('node.foot.exitedSent', { code: state.code, parent: parentName });
       return t('node.foot.exited', { code: state.code });
     case 'setupFailed':
@@ -70,7 +69,7 @@ export function Unread(props: { n: number; children: ReactNode }) {
   );
 }
 
-/** 읽지 않은 수, 보관 수, 상태. */
+/** 읽지 않은 수와 상태. */
 function Badges(props: { view: NodeView }) {
   const { t } = useTranslation();
   const { view } = props;
@@ -91,11 +90,6 @@ function Badges(props: { view: NodeView }) {
           <Mail />
           {t('node.unreadShort', { n: view.unread })}
         </button>
-      )}
-      {view.held > 0 && (
-        <span className="held" title={t('node.heldTitle', { n: view.held })}>
-          {t('node.held', { n: view.held })}
-        </span>
       )}
       <NoticeChips view={view} />
       <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
@@ -183,7 +177,7 @@ export function NodeCard(
   props: ShellProps & {
     /** 에이전트 이름(카탈로그 label)이나 「터미널」. */
     agentLabel: string;
-    /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. 부모가 없는 동안 보낸 메시지는 데몬이 보관한다(`view.held`). */
+    /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. */
     parentName: string | null;
     onDoubleClickHead?: () => void;
     headAction: ReactNode;
@@ -191,7 +185,7 @@ export function NodeCard(
   },
 ) {
   const { view } = props;
-  const foot = footText(view.state, props.parentName, view.held > 0);
+  const foot = footText(view.state, props.parentName);
   return (
     <CardShell className="card" {...props}>
       {(rename) => (

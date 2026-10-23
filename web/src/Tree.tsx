@@ -17,7 +17,6 @@ import { bookmarkToggle } from './BookmarkButton';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import type { Found } from './findSpots';
 import { useShowAll, useShowGroups, useShowNodes } from './Graph';
-import i18next from './i18n';
 import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { shownPath, ShortPlaceTag } from './place';
@@ -123,13 +122,8 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
             <NameEdit id={v.id} name={v.name} rename={rename(`node:${v.id}`)} />
             {from !== null && <FromIcon title={from} />}
             <span className="sub">{agentLabel(agents, v.agent)}</span>
-            {(v.unread > 0 || v.held > 0) && <span className="spacer" />}
+            {v.unread > 0 && <span className="spacer" />}
             {v.unread > 0 && <Unread n={v.unread}>{v.unread}</Unread>}
-            {v.held > 0 && (
-              <span className="kept" title={i18next.t('node.heldTitle', { n: v.held })}>
-                {i18next.t('node.held', { n: v.held })}
-              </span>
-            )}
             <StateTag view={v} />
           </>
         ),

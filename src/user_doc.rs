@@ -135,6 +135,10 @@ fn attach_in(store: &Store, path: &Path) -> Result<WaitDoc, Refusal> {
         return Err(refused());
     }
     let id = store.doc_id(&path).map_err(Refusal::Db)?;
+    // 지난 문서를 다른 이름으로 복사하면 새 경로는 새 ID를 받지만 머리 줄은 옛 ID다. 사람이 다른 문서의 ID로 답하게 된다(2026-10-23 검토자2·codex).
+    if stamp(&text, &id) != text {
+        return Err(refused());
+    }
     store.keep(&id, &path, &text).map_err(Refusal::Db)?;
     let title = bare_title(title(&text).unwrap_or_default()).to_owned();
     Ok(WaitDoc { id, title })
@@ -618,6 +622,26 @@ pub(crate) mod tests {
             refused.contains("put images inside an HTML file"),
             "{refused}"
         );
+    }
+
+    /// 지난 문서를 다른 이름으로 복사한 파일은 새 ID를 받으므로 머리 줄의 옛 ID와 다르다. 다시 점검해야 붙는다.
+    #[test]
+    fn a_copy_of_a_passed_doc_does_not_attach() {
+        let home = tempfile::tempdir().unwrap();
+        let store = store(home.path());
+        let report = home.path().join("r.html");
+        fs::write(&report, DOC.replace("</body>", "<svg></svg></body>")).unwrap();
+        let shown = shown_in(&store, &report);
+        assert_eq!(attach_in(&store, &report), Ok(shown.clone()));
+        let copy = home.path().join("r-v2.html");
+        fs::copy(&report, &copy).unwrap();
+        assert_eq!(
+            attach_in(&store, &copy),
+            Err(Refusal::UncheckedDoc(copy.display().to_string()))
+        );
+        let again = shown_in(&store, &copy);
+        assert_ne!(again.id, shown.id);
+        assert_eq!(attach_in(&store, &copy), Ok(again));
     }
 
     /// 점검을 지난 문서의 조각 링크(`#part`)도 그 문서다.

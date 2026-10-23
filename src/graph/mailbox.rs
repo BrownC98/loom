@@ -62,7 +62,22 @@ pub struct Delivery {
     pub what: Option<MessageKind>,
 }
 
+/// 한 번에 넘기는 메시지 사이의 글.
+pub const BATCH_SEPARATOR: &str = "\n\n";
+
 impl Delivery {
+    /// 받는 에이전트가 읽는 글: 머리 줄(`loom message #…`), 칸 줄, 본문.
+    pub fn text(&self) -> String {
+        let mode = match self.kind {
+            Kind::Queue => None,
+            Kind::Steer => Some("steer"),
+            Kind::Interrupt => {
+                Some("interrupt. Stop your current work and do what this message says")
+            }
+        };
+        crate::protocol::message_text(self.id.0, &self.from, self.what.as_ref(), mode, &self.body)
+    }
+
     /// 쉬는 노드를 깨우는 메시지. 조정·중단은 지금 넣으라는 뜻이라 늘 깨운다(사람의 「안 읽음」 누르기도 조정이다). 종류가 없는 옛 메시지도 깨운다.
     fn wakes(&self) -> bool {
         self.kind != Kind::Queue || self.what.as_ref().is_none_or(MessageKind::wakes)
@@ -376,7 +391,7 @@ impl Graph {
 
     /// `kinds` 가운데 하나인 메시지를 온 순서로 꺼내 전달 중으로 표시한다.
     /// 전달 중인 메시지는 `REDELIVER_AFTER`가 지나야 다시 꺼낸다. 받은 쪽이 `ack`로 확인하면 다시 꺼내지 않는다.
-    /// 첫 메시지는 늘 꺼낸다. 그 뒤 메시지는 본문 합이 `limit_bytes` 이하일 때만 꺼낸다.
+    /// 첫 메시지는 늘 꺼낸다. 그 뒤 메시지는 넘기는 글(`Delivery::text`과 사이 빈 줄) 합이 `limit_bytes` 이하일 때만 꺼낸다.
     pub fn take(
         &self,
         node: NodeId,
@@ -428,7 +443,8 @@ impl Graph {
         let mut taken = Vec::new();
         let mut total = 0;
         for delivery in queued {
-            total += delivery.body.len();
+            // 본문만 세면 본문 없는 알림 수십 개의 머리 줄이 뒤의 결과를 Claude 훅 맥락 상한(10,000자) 밖으로 밀었다(2026-10-23 검토자2·codex).
+            total += delivery.text().len() + BATCH_SEPARATOR.len();
             if !taken.is_empty() && total > limit_bytes {
                 break;
             }
@@ -724,7 +740,8 @@ fn steer_where(
     Ok(steered)
 }
 
-/// 상한에 세는 메시지 수. 쉬는 노드에 쌓인 알림은 세지 않는다. 그 수는 자식 수가 막고, 다음 메시지와 함께 간다.
+/// 상한에 세는 메시지 수. 쉬는 노드에 쌓인 알림은 세지 않는다. 알림 수에는 상한이 없다(자식 수 상한 `max_children`도 기본은 없다).
+/// 알림은 다음 메시지와 함께 가고, 한 번에 넘기는 글은 `take`가 넘기는 글 크기로 묶는다. 남은 알림과 결과는 다음 번에 간다.
 /// 근거: 알림 50개가 쌓이자 자식의 결과(`loom done`)가 `MailboxFull`로 거절됐다(2026-10-23 검토 추적-codex).
 fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
     let queued = db

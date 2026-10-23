@@ -24,7 +24,9 @@ use ts_rs::TS;
 
 pub use events::{AgentSwitch, Entry, EventRecord, SwitchCause, TurnCheck, Via, Who};
 pub use gate::{Ended, GateChoice, MergeTask, Round};
-pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent};
+pub use mailbox::{
+    BATCH_SEPARATOR, Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent,
+};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
     HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId, WaitKind,

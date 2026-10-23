@@ -30,7 +30,7 @@ pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
 #[ts(export)]
 pub struct AgentId(pub String);
 
-/// 한 번에 넘기는 메시지 본문 합의 상한. 첫 메시지는 늘 넘긴다. 남은 메시지는 다음에 넘긴다.
+/// 한 번에 넘기는 메시지 글(`Delivery::text`) 합의 상한. 첫 메시지는 늘 넘긴다. 남은 메시지는 다음에 넘긴다.
 /// Claude는 훅 `additionalContext` 한 개를 10,000자에서 자르고 파일로 돌린다. 모든 프로필이 이 크기로 묶는다.
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 
@@ -727,18 +727,9 @@ pub fn questions_note(open_questions: &[OpenQuestion]) -> Option<String> {
 pub fn message_text(taken: &[Delivery]) -> String {
     taken
         .iter()
-        .map(|d| {
-            let mode = match d.kind {
-                Kind::Queue => None,
-                Kind::Steer => Some("steer"),
-                Kind::Interrupt => {
-                    Some("interrupt. Stop your current work and do what this message says")
-                }
-            };
-            crate::protocol::message_text(d.id.0, &d.from, d.what.as_ref(), mode, &d.body)
-        })
+        .map(Delivery::text)
         .collect::<Vec<_>>()
-        .join("\n\n")
+        .join(crate::graph::BATCH_SEPARATOR)
 }
 
 /// 명령 한 줄을 도는 셸. 명령 노드와 설정 스크립트가 쓴다.

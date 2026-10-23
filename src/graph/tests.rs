@@ -1242,6 +1242,35 @@ fn deferred_notices_do_not_fill_the_mailbox() {
     assert_eq!(woke.len(), MAILBOX_LIMIT as usize + 1);
 }
 
+/// 쌓인 알림이 많아도 한 번에 넘기는 글은 Claude 훅 맥락 상한(10,000자) 안이고, 결과는 통째로 간다.
+#[test]
+fn many_notices_do_not_push_the_result_out_of_the_hook_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let sender = child(&g, lead, "sender");
+    for i in 0..81 {
+        let c = child(&g, lead, &format!("c{i}-{}", "x".repeat(120)));
+        g.exited(c, 0).unwrap();
+    }
+    g.note(sender, PARENT, Kind::Queue, "the real result", None)
+        .unwrap();
+    let mut batches = Vec::new();
+    loop {
+        let batch = g
+            .take_waking(lead, Kind::ALL, crate::profile::BATCH_LIMIT_BYTES)
+            .unwrap();
+        if batch.is_empty() {
+            break;
+        }
+        batches.push(crate::profile::message_text(&batch));
+    }
+    assert!(batches.len() > 1, "the notices do not fit in one batch");
+    assert!(batches.iter().all(|text| text.chars().count() <= 10_000));
+    let last = batches.last().unwrap();
+    assert!(last.ends_with("the real result"), "{last}");
+}
+
 /// 사람이 연 턴(입력 훅이 없는 Codex·OpenCode 2도)은 기다리던 알림을 조정으로 받는다. 다른 큐 메시지는 그대로 큐다.
 #[test]
 fn a_human_turn_takes_the_waiting_notices() {

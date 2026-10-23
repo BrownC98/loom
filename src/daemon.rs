@@ -1211,13 +1211,15 @@ impl App {
                 .flatten()
                 .map(|at| at.distro);
             let on_exit = self.on_exit(node.id, distro.clone(), &node.token, &codex, &opencode2);
-            if self.host.resume(node.id, on_exit).is_err() {
+            if let Err(unattached) = self.host.resume(node.id, on_exit) {
                 if let Some(server) = &node.server {
                     stop_server(server);
                 }
                 self.graph.lost(node.id)?;
-                // 그래프가 노드를 exited로 적었다. 그 토큰의 프로세스는 이제 노드가 아니다.
-                if let Some(distro) = distro {
+                // 호스트가 끝났을 때만 남은 프로세스를 끝낸다. 인사하지 않은 호스트는 노드 프로세스와 함께 살아 있을 수 있다.
+                if unattached == node_host::Unattached::Gone
+                    && let Some(distro) = distro
+                {
                     end_leftovers(
                         &tokio::runtime::Handle::current(),
                         node.id,

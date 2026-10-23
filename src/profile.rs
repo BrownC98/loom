@@ -303,6 +303,11 @@ fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
 
+/// 띄울 때 `choice_args`가 거절할 조합이면 `false`. 카탈로그에 없는 에이전트는 판단하지 않는다(`true`).
+pub(crate) fn accepts_choice(id: &AgentId, choice: &ModelChoice) -> bool {
+    find(id).is_none_or(|agent| choice_args(agent, choice).is_ok())
+}
+
 /// 고정 버전이 있는 프로필과 그 CLI 명령. 메시지 연동이 다른 버전과 맞지 않을 수 있다.
 pub const PINNED: [(Profile, &str); 2] = [
     (Profile::Codex, "codex"),

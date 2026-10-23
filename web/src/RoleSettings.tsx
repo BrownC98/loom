@@ -1,11 +1,11 @@
 import { Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FieldReset } from './FieldReset';
 import type { AgentView } from './gen/AgentView';
 import type { Role } from './gen/Role';
 import type { SettingsView } from './gen/SettingsView';
-import { blankToNull, canChooseModel, nameTaken, runnerText } from './roles';
+import { blankToNull, canChooseModel, cursorEffortWithoutModel, nameTaken, runnerText } from './roles';
 
 /** 편집 중인 줄: 역할 목록의 자리, 더하기면 `'new'`. */
 type Editing = number | 'new' | null;
@@ -17,6 +17,9 @@ export function RoleSettings({ agents, settings, onSettings }: { agents: AgentVi
   const { t } = useTranslation();
   const [editing, setEditing] = useState<Editing>(null);
   const roles = settings.roles;
+  const rolesKey = JSON.stringify(roles);
+  // 편집은 목록의 자리를 가리킨다. 초기화·다른 화면의 변경으로 내용이 바뀌면 그 자리는 다른 역할이다. 내용이 같은 새 배열은 닫지 않는다.
+  useEffect(() => setEditing(null), [rolesKey]);
   const save = (next: Role[]) => {
     onSettings({ ...settings, roles: next });
     setEditing(null);
@@ -83,6 +86,7 @@ function RoleForm(props: { initial: Role; adding: boolean; others: Role[]; agent
   const picks = canChooseModel(props.agents.find((a) => a.id === draft.agent));
   const taken = nameTaken(draft.name, props.others);
   const duplicate = draft.name.trim() !== '' && taken;
+  const needsModel = cursorEffortWithoutModel(props.agents.find((a) => a.id === draft.agent), model, effort);
   return (
     <div className="edit">
       <div className="line">
@@ -112,6 +116,7 @@ function RoleForm(props: { initial: Role; adding: boolean; others: Role[]; agent
         </div>
       </div>
       {duplicate && <span className="err-text">{t('settings.roles.duplicate')}</span>}
+      {needsModel && <span className="err-text">{t('settings.roles.cursorNeedsModel')}</span>}
       <div className="field grow">
         <label htmlFor="role-duty">{t('settings.roles.duty')}</label>
         <textarea id="role-duty" value={draft.duty} placeholder={t('settings.roles.dutyPlaceholder')} onChange={(e) => setDraft({ ...draft, duty: e.target.value })} />
@@ -121,7 +126,7 @@ function RoleForm(props: { initial: Role; adding: boolean; others: Role[]; agent
         <button type="button" className="btn ghost sm" onClick={props.onCancel}>
           {t('settings.roles.cancel')}
         </button>
-        <button type="button" className="btn primary sm" disabled={taken} onClick={() => props.onSave({ ...draft, name: draft.name.trim(), model: picks ? blankToNull(model) : null, effort: picks ? blankToNull(effort) : null })}>
+        <button type="button" className="btn primary sm" disabled={taken || needsModel} onClick={() => props.onSave({ ...draft, name: draft.name.trim(), model: picks ? blankToNull(model) : null, effort: picks ? blankToNull(effort) : null })}>
           {t(props.adding ? 'settings.roles.addSave' : 'settings.roles.save')}
         </button>
       </div>

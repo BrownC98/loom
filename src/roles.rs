@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::{AgentId, ModelChoice};
+use crate::profile::{AgentId, ModelChoice, accepts_choice};
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +37,18 @@ impl<'de> Deserialize<'de> for Roles {
             }
             if role.name.is_empty() {
                 return Err(serde::de::Error::custom("역할 이름이 비었다"));
+            }
+            if let Some(agent) = &role.agent {
+                let choice = ModelChoice {
+                    model: role.model.clone(),
+                    effort: role.effort.clone(),
+                };
+                if !accepts_choice(agent, &choice) {
+                    return Err(serde::de::Error::custom(format!(
+                        "역할 '{}': 이 에이전트는 이 모델·추론 강도를 받지 않는다. Cursor는 추론 강도만 줄 수 없다. 모델을 준다.",
+                        role.name
+                    )));
+                }
             }
             if !seen.insert(role.name.clone()) {
                 return Err(serde::de::Error::custom(format!(
@@ -258,5 +270,24 @@ mod tests {
         assert_eq!(got.0[0].name, "b");
         assert_eq!(got.0[0].model, None);
         assert_eq!(got.0[0].effort, None);
+    }
+
+    #[test]
+    fn cursor_effort_without_model_is_refused_and_defaults_pass() {
+        let parse = |model: Option<&str>, effort: Option<&str>| {
+            serde_json::from_value::<Roles>(serde_json::json!([
+                {"name": "a", "duty": "", "agent": "cursor", "model": model, "effort": effort}
+            ]))
+        };
+        assert!(parse(None, None).is_ok());
+        assert!(parse(Some("m"), None).is_ok());
+        assert!(parse(Some("m"), Some("high")).is_ok());
+        let err = parse(None, Some("high")).unwrap_err().to_string();
+        assert!(err.contains("Cursor"), "{err}");
+        let defaults = serde_json::to_value(Roles::default()).unwrap();
+        assert_eq!(
+            serde_json::from_value::<Roles>(defaults).unwrap(),
+            Roles::default()
+        );
     }
 }

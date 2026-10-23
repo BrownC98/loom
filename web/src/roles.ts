@@ -20,3 +20,9 @@ export function runnerText(role: Role, agents: readonly AgentView[], text: { non
   const label = agents.find((a) => a.id === role.agent)?.label ?? role.agent;
   return [label, role.model ?? text.cliDefault, role.effort ?? text.cliDefault].join(' · ');
 }
+
+/** Cursor는 모델 없이 추론 강도만 받지 못한다(`src/profile/cursor.rs`). 칸의 글 기준이다. */
+export const cursorEffortWithoutModel = (agent: AgentView | undefined, model: string, effort: string): boolean => agent?.profile === 'cursor' && blankToNull(effort) !== null && blankToNull(model) === null;
+
+/** 설정에서 온 역할 목록이 바뀌었는지(내용 기준). 같은 내용의 새 배열은 바뀐 것이 아니다. */
+export const rolesChanged = (before: readonly Role[], after: readonly Role[]): boolean => JSON.stringify(before) !== JSON.stringify(after);

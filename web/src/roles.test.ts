@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentView } from './gen/AgentView';
 import type { Role } from './gen/Role';
-import { blankToNull, canChooseModel, nameTaken, runnerText } from './roles';
+import { blankToNull, canChooseModel, cursorEffortWithoutModel, nameTaken, rolesChanged, runnerText } from './roles';
 
 const agent = (id: string, profile: AgentView['profile']) => ({ id, label: id.toUpperCase(), profile }) as AgentView;
 const role = (name: string, over: Partial<Role> = {}): Role => ({ name, duty: '', agent: 'claude', model: null, effort: null, ...over });
@@ -32,5 +32,20 @@ describe('roles', () => {
     expect(runnerText(role('a', { model: 'm', effort: 'high' }), agents, text)).toBe('CLAUDE · m · high');
     expect(runnerText(role('a'), agents, text)).toBe('CLAUDE · CLI default · CLI default');
     expect(runnerText(role('a', { agent: null }), agents, text)).toBe('none');
+  });
+
+  it('cursor refuses an effort without a model only', () => {
+    const cursor = agent('cursor', 'cursor');
+    expect([['', ''], ['m', ''], ['m', 'high'], ['', 'high'], [' ', ' high ']].map(([m, e]) => cursorEffortWithoutModel(cursor, m, e))).toEqual([false, false, false, true, true]);
+    expect(cursorEffortWithoutModel(agent('claude', 'claude'), '', 'high')).toBe(false);
+  });
+
+  it('a reset, a replaced list or a shorter list closes an open edit; an equal new array does not', () => {
+    const defaults = [role('a'), role('b')];
+    const custom = [role('x', { duty: 'd' }), ...defaults];
+    const seventh = [...defaults, role('c'), role('d'), role('e'), role('f'), role('g')];
+    expect(rolesChanged(custom, defaults)).toBe(true);
+    expect(rolesChanged(seventh, defaults)).toBe(true);
+    expect(rolesChanged(defaults, defaults.map((r) => ({ ...r })))).toBe(false);
   });
 });

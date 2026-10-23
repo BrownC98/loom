@@ -340,7 +340,7 @@ fn files() -> Vec<String> {
         ])
         .current_dir(repo())
         .output()
-        .expect("git ls-files");
+        .unwrap_or_else(|e| panic!("git ls-files in {}: {e}", repo().display()));
     assert!(out.status.success(), "git ls-files failed");
     String::from_utf8(out.stdout)
         .expect("paths are UTF-8")

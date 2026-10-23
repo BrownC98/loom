@@ -7,7 +7,6 @@ import type { RepoView } from './gen/RepoView';
 import { useDismiss } from './popover';
 import type { Group } from './repos';
 
-/** 워크트리 삭제 경고(목업 workspace.html 3번, Orca 「Delete Workspace」). 잃는 것을 모두 보인다. 첫 포커스는 [취소]다. */
 export function DeleteWorktreePopover(props: { repo: RepoId; group: Group; views: NodeView[]; onDeleted: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
   const box = useDismiss<HTMLDivElement>(props.onClose);
@@ -42,7 +41,6 @@ export function DeleteWorktreePopover(props: { repo: RepoId; group: Group; views
         {t('deleteWorktree.folder', { path: group.path })}
       </p>
       {changes === null ? (
-        // 변경을 읽지 못하면 아래 오류 글이 대신 보인다.
         !error && <p className="hint">{t('deleteWorktree.checking')}</p>
       ) : changes.length === 0 ? (
         <p className="hint">{t('deleteWorktree.clean')}</p>

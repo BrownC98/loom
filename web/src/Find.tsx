@@ -1,5 +1,3 @@
-// 사이드바 찾기 칸(목업 docs/mockups/sidebar-find.html). 일치 목록과 현재 일치는 App이 가진다. 트리가 일치 줄만 남기고, 그래프가 강조한다.
-// 이 칸은 입력과 화면 이동만 한다.
 import { Search, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,17 +6,13 @@ import type { RepoId } from './gen/RepoId';
 import { flowId, useShowGroups, useShowNodes } from './Graph';
 import { shortcut } from './platform';
 
-/** 여는 키(Terminal.tsx `findKey`). 툴팁과 `aria-keyshortcuts`에 보인다. */
 export const FIND_KEY = shortcut('F');
-/** 입력 칸 id. App이 여는 키·레일 단추로 이 칸에 포커스를 준다. */
 export const FIND_INPUT = 'find-input';
 
-/** 빈 `query`는 찾기가 꺼진 상태다. `at`은 `found` 안 현재 일치 번호다. `step`은 다음(1)·이전(-1)이다. */
 export function Find(props: {
   query: string;
   found: readonly Found[];
   at: number;
-  /** 현재 저장소. 현재 일치가 다른 저장소에 있으면 `onRepo`로 바꾼다. */
   repo: RepoId | null;
   onRepo: (id: RepoId) => void;
   onQuery: (query: string) => void;
@@ -30,7 +24,6 @@ export function Find(props: {
   const showGroups = useShowGroups();
   const current = props.found[props.at];
 
-  // 현재 일치가 바뀌면 그 상자로 화면을 옮긴다. 다른 저장소면 그 저장소로 바꾼다(묶음·노드를 그린 뒤 React Flow가 옮긴다).
   const currentKey = current && flowId(current);
   useEffect(() => {
     if (!current) return;
@@ -45,7 +38,6 @@ export function Find(props: {
       <Search aria-hidden />
       <input
         id={FIND_INPUT}
-        // 브라우저가 search 칸에 넣는 지우기 단추는 아래 지우기 단추와 겹친다. 그래서 text 칸이다.
         type="text"
         name="find"
         aria-label={t('find.open')}

@@ -1,8 +1,3 @@
-//! 병합 관문 상태: 저장소·브랜치마다 한 줄(`gates`). 전이는 `protocol::step`만 정한다. 이 모듈은 줄을 읽고 쓰고,
-//! 부를 수 있는 노드를 보고, 받는 노드에 고정 꼴 메시지를 넣고, 같은 트랜잭션에서 흔적을 남긴다.
-//! git으로 아는 사실(담당 워크트리의 브랜치, 미커밋 변경, 포함 관계, 커밋)은 데몬이 읽어 넘긴다.
-//! 근거: 출력 표준 R8 v5 ④·⑤(2026-10-23 사람 결정 Q559 A).
-
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
@@ -14,56 +9,40 @@ use crate::protocol::{
     MergeEnd, MessageKind, Receiver, Sender,
 };
 
-/// `loom ready`이 데몬에서 읽은 브랜치 사실.
 pub struct Round<'a> {
     pub branch: &'a str,
     pub target: &'a str,
-    /// 담당 워크트리(데몬이 보는 경로).
     pub worktree: &'a str,
     pub head: &'a str,
 }
 
-/// 브랜치 담당의 관문.
 #[derive(Debug, PartialEq)]
 pub enum GateChoice {
-    /// 부모가 코디다. 대상은 코디 워크트리의 브랜치다.
     Coordinator { gate: NodeId, worktree: String },
-    /// 같은 저장소의 살아 있는 CI 담당자. 대상은 원래 체크아웃의 브랜치다.
     Ci { gate: NodeId },
 }
 
-/// `loom merge`가 할 일. 관문 줄의 이번 차례.
 #[derive(Debug, PartialEq)]
 pub struct MergeTask {
     pub owner: NodeId,
     pub worktree: String,
     pub target: String,
-    /// 검토한 커밋. 검사와 병합은 이 커밋만 쓴다.
     pub head: String,
-    /// audit 시작 시각: 이번 차례의 `loom ready`.
     pub since: i64,
-    /// 이번 `loom merge` 실행 번호. 끝 보고가 같은 번호를 가져온다.
     pub run: i64,
-    /// 이 실행을 시작하기 전 상태. `Merging`이면 앞 실행의 끝 보고가 오지 않았다.
     pub from: GateState,
-    /// 이 브랜치를 마지막으로 병합한 커밋.
     pub merged: Option<String>,
 }
 
-/// `loom merge`가 끝난 꼴과 알릴 값.
 pub struct Ended<'a> {
     pub end: MergeEnd,
-    /// 병합 커밋. 병합했을 때만 있다.
     pub merged: Option<&'a str>,
     pub cause: Option<String>,
-    /// `loom merge` 로그 파일.
     pub log: Option<String>,
-    /// 받는 노드에 덧붙일 본문 줄(배포 결과, 되찾은 병합).
     pub lines: Vec<String>,
     pub findings: Vec<Finding>,
 }
 
-/// 마지막 판정. 관문 줄에 serde JSON으로 둔다.
 #[derive(Serialize, Deserialize)]
 struct Verdict {
     judgment: Judgment,
@@ -84,8 +63,6 @@ struct Row {
     merged: Option<String>,
 }
 
-/// 관문 호출 하나가 받는 노드에 보내는 칸(`protocol::GateFacts`의 호출 쪽 값)과 본문 줄, 흔적에 쓸 audit 결과.
-/// 브랜치·커밋·워크트리·대상·검토 모델은 관문 줄과 부른 노드에서 `apply`가 채운다.
 #[derive(Default)]
 struct Detail {
     findings_file: Option<String>,
@@ -97,7 +74,6 @@ struct Detail {
 }
 
 impl Graph {
-    /// 담당 `owner`의 관문. 부모가 코디면 코디, 아니면 같은 저장소에서 프로세스가 사는 CI 담당자 하나다.
     pub fn gate_for(&self, owner: NodeId) -> Result<GateChoice, Refusal> {
         let db = self.lock();
         if let Some(parent) = coordinator_parent(&db, owner)? {
@@ -127,7 +103,6 @@ impl Graph {
         }
     }
 
-    /// `loom ready`: 담당이 브랜치를 관문에 보낸다. 데몬이 담당·미커밋·포함 관계를 이미 봤다. 돌려준 값은 관문 이름이다.
     pub fn ready(
         &self,
         owner: NodeId,
@@ -159,8 +134,6 @@ impl Graph {
         Ok(name_of(&self.lock(), row.gate)?)
     }
 
-    /// 관문 스크립트가 없는 저장소의 `loom ready`: 관문 상태 없이 관문에 `ready`만 보낸다. 관문은 손으로 병합하고 `loom done`으로 알린다.
-    /// 근거: 요청 #3067(ktasearch: 워커 브랜치가 아무도 모르게 1.5시간 기다렸다).
     pub fn announce_ready(
         &self,
         owner: NodeId,
@@ -198,12 +171,10 @@ impl Graph {
         Ok(name_of(&db, gate)?)
     }
 
-    /// 부모가 코디인가. 코디 밑 워커의 브랜치는 코디가 받는다.
     pub fn under_coordinator(&self, node: NodeId) -> rusqlite::Result<bool> {
         Ok(coordinator_parent(&self.lock(), node)?.is_some())
     }
 
-    /// `owner`가 이 브랜치의 이 커밋으로 `ready`를 보냈는가(관문 상태가 있든 없든). `loom done`의 담당 브랜치 경고가 본다.
     pub fn ready_sent(&self, owner: NodeId, branch: &str, head: &str) -> rusqlite::Result<bool> {
         self.lock().query_row(
             "SELECT EXISTS(SELECT 1 FROM messages WHERE sender = ?1 AND what ->> 'kind' = 'ready'
@@ -213,7 +184,6 @@ impl Graph {
         )
     }
 
-    /// `loom verdict`: 관문이나 그 검토자가 판정한다. block은 결함 파일이 있어야 한다.
     pub fn verdict(
         &self,
         caller: NodeId,
@@ -255,7 +225,6 @@ impl Graph {
         Ok(row.state)
     }
 
-    /// `loom merge` 시작: 관문만, 판정 pass 뒤에만 부른다. 새 실행 번호를 받는다. 앞 실행의 끝 보고는 그 뒤 받지 않는다.
     pub fn merge_start(
         &self,
         caller: NodeId,
@@ -292,7 +261,6 @@ impl Graph {
         })
     }
 
-    /// 이 브랜치의 지금 차례. 병합 끝 보고를 git에서 확인할 때 쓴다.
     pub fn merge_task(&self, caller: NodeId, branch: &str) -> Result<MergeTask, Refusal> {
         let row = load(&self.lock(), caller, branch)?
             .ok_or_else(|| Refusal::NoRound(branch.to_owned()))?;
@@ -308,8 +276,6 @@ impl Graph {
         })
     }
 
-    /// 브랜치 담당의 작업 폴더 이름과 담당의 워크트리. 브랜치 이름이 아니라 관문 줄의 담당이 정한다:
-    /// 브랜치 이름을 바꿔도, 같은 이름을 다시 써도 그 차례의 작업이다. 관문 줄이 없거나 담당 노드가 지워졌거나 폴더가 없으면 없다.
     pub fn branch_task(
         &self,
         caller: NodeId,
@@ -331,8 +297,6 @@ impl Graph {
         }
     }
 
-    /// 같은 저장소에서 관문이 `target`에 병합한 커밋(브랜치마다 마지막 것). 순서는 git의 첫 부모 줄이 정한다:
-    /// 초 단위 시각은 같은 초의 두 병합을 가르지 못한다(검토 Codex R4).
     pub fn gate_merges(&self, caller: NodeId, target: &str) -> rusqlite::Result<Vec<String>> {
         let db = self.lock();
         let repo = place_of(&db, caller)?.repo;
@@ -343,7 +307,6 @@ impl Graph {
         .collect()
     }
 
-    /// audit 가운데 DB로 아는 것: 이번 차례의 흔적 구간이 빈틈없는지, 담당과 그 자손(같은 저장소)이 관문 동사 밖으로 관문 낱말을 보냈는지.
     pub fn audit(&self, owner: NodeId, since: i64) -> Result<Vec<Finding>, Refusal> {
         let db = self.lock();
         let mut findings = Vec::new();
@@ -363,7 +326,6 @@ impl Graph {
             else {
                 continue;
             };
-            // `human-input`·`setup-failed` 본문은 사람과 설정 스크립트의 글이다. 에이전트에게 반려를 돌리지 않는다(관문 검토 P2-1).
             if what.as_ref().is_some_and(protocol::MessageKind::by_loom) {
                 continue;
             }
@@ -381,7 +343,6 @@ impl Graph {
         Ok(findings)
     }
 
-    /// `loom merge` 끝. `run`이 지금 실행 번호가 아니면 받지 않는다.
     pub fn merge_end(
         &self,
         caller: NodeId,
@@ -426,7 +387,6 @@ impl Graph {
         Ok(row.state)
     }
 
-    /// `loom fail`: 관문이 브랜치를 멈추고 루트에 알린다.
     pub fn fail(
         &self,
         caller: NodeId,
@@ -444,7 +404,6 @@ impl Graph {
         Ok(row.state)
     }
 
-    /// 거절한 관문 호출을 남긴다. 사람과 audit가 이벤트 기록에서 본다.
     pub fn record_gate_refusal(
         &self,
         caller: NodeId,
@@ -467,8 +426,6 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    /// 관문 호출 하나: 부를 수 있는 노드인지 보고, 전이하고, `write`로 줄을 쓰고, 받는 노드에 메시지를 넣는다. 모두 한 트랜잭션이다.
-    /// `write`는 새 상태를 담은 줄을 받는다. 줄이 없던 브랜치는 `Working`에서 시작한다(`loom ready`만 줄을 만든다).
     fn apply(
         &self,
         caller: NodeId,
@@ -505,7 +462,6 @@ impl Graph {
         let to = protocol::step(from, call)?;
         let row = match old {
             Some(row) => Row { state: to, ..row },
-            // `loom ready`의 `write`가 줄 전체를 쓴다. 이 값은 받는 노드를 고를 때만 쓴다.
             None => Row {
                 owner: caller,
                 gate: caller,
@@ -552,7 +508,6 @@ impl Graph {
                 Receiver::Gate => row.gate,
                 Receiver::Owner => row.owner,
                 Receiver::Root if exists(&tx, row.owner)? => root_of(&tx, row.owner)?,
-                // 담당을 지웠으면 루트를 모른다. 관문 줄과 흔적은 남는다.
                 Receiver::Root => continue,
             };
             if to_node == caller || sent.contains(&to_node) || !exists(&tx, to_node)? {
@@ -601,7 +556,6 @@ impl Graph {
     }
 }
 
-/// 부모가 코디면 그 부모. 코디 밑 워커의 관문은 코디다.
 fn coordinator_parent(db: &Connection, node: NodeId) -> rusqlite::Result<Option<NodeId>> {
     Ok(match parent_of(db, node)? {
         Some(parent) if role_of(db, parent)?.as_deref() == Some(COORDINATOR_ROLE) => Some(parent),
@@ -629,7 +583,6 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
     )
 }
 
-/// 부르는 노드의 저장소에서 그 브랜치의 관문 줄.
 fn load(db: &Connection, caller: NodeId, branch: &str) -> rusqlite::Result<Option<Row>> {
     let repo = place_of(db, caller)?.repo;
     db.query_row(
@@ -695,7 +648,6 @@ fn trace(
     })
 }
 
-/// 부모를 따라 올라간 맨 위 노드.
 fn root_of(db: &Connection, node: NodeId) -> rusqlite::Result<NodeId> {
     let mut at = node;
     while let Some(parent) = parent_of(db, at)? {
@@ -704,7 +656,6 @@ fn root_of(db: &Connection, node: NodeId) -> rusqlite::Result<NodeId> {
     Ok(at)
 }
 
-/// `top`과 그 아래에서 `top`과 같은 저장소의 노드. 다른 저장소의 자손은 이 브랜치와 관계없다(검토 P2-5).
 fn tree_of(db: &Connection, top: NodeId) -> rusqlite::Result<Vec<NodeId>> {
     db.prepare(
         "WITH RECURSIVE tree(id) AS (SELECT ?1 UNION SELECT n.id FROM nodes n JOIN tree t ON n.parent = t.id)

@@ -10,16 +10,11 @@ import { NameEdit, useRename, type Rename } from './NameEdit';
 import { asking, NoticeChips } from './notice';
 import { navDirection, type Direction } from './Terminal';
 
-/**
- * 노드 점의 클래스. 사람 응답 대기는 실행 상태보다 앞선다(목업 docs/mockups/human-question.html ④).
- * 실행 중·완료는 색이 없다. 쉬는 노드도 「실행 중」으로 보여 헷갈렸다(2026-10-23 사람 지시 "사이드바 표시에도 적용").
- */
 export function stateClass(view: NodeView): string {
   if (asking(view).length > 0) return 'waiting';
   return view.state.kind === 'exited' || view.state.kind === 'setupFailed' ? view.state.kind : '';
 }
 
-/** 점의 글: 사람 응답 대기는 실행 상태보다 앞선다. 점의 클래스(`stateClass`)와 짝이다. */
 export const stateText = (view: NodeView) => (asking(view).length > 0 ? i18next.t('wait.label') : stateLabel(view.state));
 
 export function stateLabel(state: NodeState): string {
@@ -36,7 +31,6 @@ export function stateLabel(state: NodeState): string {
   }
 }
 
-/** 도는 노드와 끝난 노드는 발 줄이 없다. 완료 글은 받은편지함과 부모가 받는다(2026-10-23 사람 지시 "요약 기능 제거"). */
 function footText(state: NodeState, parentName: string | null): string | null {
   const t = i18next.t;
   switch (state.kind) {
@@ -52,7 +46,6 @@ function footText(state: NodeState, parentName: string | null): string | null {
   }
 }
 
-/** 모델 · 추론 강도. 모르면 그리지 않는다. */
 function ModelText(props: { view: NodeView }) {
   const text = [props.view.model, props.view.effort].filter(Boolean).join(' · ');
   return text ? (
@@ -62,7 +55,6 @@ function ModelText(props: { view: NodeView }) {
   ) : null;
 }
 
-/** 읽지 않은 메시지 표시(목업 docs/mockups/unread-badge.html C안). 봉투 아이콘 뒤에 `children`을 둔다. 카드는 「안 읽음 N」, 트리 줄은 수만 둔다. */
 export function Unread(props: { n: number; children: ReactNode }) {
   return (
     <span className="unread" aria-label={i18next.t('node.unread', { n: props.n })}>
@@ -72,13 +64,11 @@ export function Unread(props: { n: number; children: ReactNode }) {
   );
 }
 
-/** 읽지 않은 수와 상태. */
 function Badges(props: { view: NodeView }) {
   const { t } = useTranslation();
   const { view } = props;
   return (
     <>
-      {/* 누르면 기다리는 메시지를 지금 넘긴다. 에이전트가 턴 끝까지 읽지 않을 때 쓴다(2026-10-22 사람 지시 "해당 칩을 클릭하면 수동으로 주입되게"). */}
       {view.unread > 0 && (
         <button
           type="button"
@@ -95,7 +85,6 @@ function Badges(props: { view: NodeView }) {
         </button>
       )}
       <NoticeChips view={view} />
-      {/* 실행 중·완료는 칩이 없다. 사람이 할 일이 있는 종료·설정 실패만 보인다(노드 줄 StateTag와 같은 규칙, 2026-10-23 사람 지시: 쉬는 노드도 「실행 중」으로 보여 헷갈렸다). */}
       {(view.state.kind === 'exited' || view.state.kind === 'setupFailed') && (
         <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
           {stateLabel(view.state)}
@@ -105,10 +94,6 @@ function Badges(props: { view: NodeView }) {
   );
 }
 
-/**
- * 노드 정보 전체: 로고·이름·상태와 수·버튼(`actions`), 모델 · 추론 강도, 상태 줄(마지막 턴 끝 답 글). 상태는 이름 줄 오른쪽이다(2026-10-21 사람 지시). 심플 카드와 오른쪽 칸 터미널의 머리가 함께 쓴다.
- * 목업 docs/mockups/card-view.html 1번, node-card-view.html ⑧. 상태 줄은 두 줄까지 보이고, 마우스를 올리면 전문이 보인다.
- */
 export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode; rename: Rename }) {
   const { view } = props;
   return (
@@ -141,12 +126,10 @@ type ShellProps = {
   onNavigate: (dir: Direction) => void;
 };
 
-/** 카드 안 버튼과 메뉴 항목. 이것을 누르면 카드를 고르지 않는다. */
 export function isControl(target: EventTarget): boolean {
   return target instanceof Element && target.closest('button, [role="menu"]') !== null;
 }
 
-/** 카드 틀: 고르기, 키보드 이동, F2 이름 바꾸기. 이름 편집 상태를 `children`에 넘긴다. */
 function CardShell(props: ShellProps & { className: string; children: (rename: Rename) => ReactNode }) {
   const { t } = useTranslation();
   const home = useRef<HTMLElement>(null);
@@ -160,7 +143,6 @@ function CardShell(props: ShellProps & { className: string; children: (rename: R
       data-selected={props.selected || undefined}
       data-waiting={asking(props.view).length > 0 || undefined}
       onMouseDown={(e) => {
-        // 2026-10-23 사람 "심플모드에서 옵션 메뉴 선택시 바로 사이드 터미널 열리는 문제": 카드 안 버튼·메뉴(포털도 React 전파로 온다)는 카드를 고르지 않는다.
         if (!isControl(e.target)) props.onSelect();
       }}
       onKeyDown={(e) => {
@@ -182,7 +164,6 @@ function CardShell(props: ShellProps & { className: string; children: (rename: R
   );
 }
 
-/** 심플 카드. 터미널이 없다. 고르면 부르는 쪽이 오른쪽 칸에 터미널을 연다. */
 export function SimpleCard(props: ShellProps & { agentLabel: string; actions: ReactNode }) {
   return (
     <CardShell className="card simple" {...props}>
@@ -191,12 +172,9 @@ export function SimpleCard(props: ShellProps & { agentLabel: string; actions: Re
   );
 }
 
-/** 표준 카드: 한 줄 머리, 터미널(`children`), 끝난 노드의 발 줄. 머리 오른쪽 버튼(`headAction`)은 부르는 쪽이 채운다. */
 export function NodeCard(
   props: ShellProps & {
-    /** 에이전트 이름(카탈로그 label)이나 「터미널」. */
     agentLabel: string;
-    /** 부모가 없으면 null. 끝난 노드의 발 줄에 쓴다. */
     parentName: string | null;
     onDoubleClickHead?: () => void;
     headAction: ReactNode;

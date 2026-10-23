@@ -1,6 +1,3 @@
-//! 짝지은 폰과 짝짓기 코드. 폰은 PC 화면이 낸 코드를 한 번 보내고 기기 토큰(쿠키)을 받는다.
-//! 근거: docs/design.md 「원격」, 목업 docs/mockups/phone-pairing.html(2026-10-22 사람 결정 Q364 A, Orca 「휴대폰 페어링」을 따름).
-
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -15,15 +12,10 @@ use ts_rs::TS;
 use crate::db::Database;
 use crate::pake;
 
-/// 코드가 사는 시간. Orca 짝짓기 코드와 같다(`MAX_INVITE_TTL_MS` 10분).
 pub const INVITE_TTL: Duration = Duration::from_secs(10 * 60);
-/// 한 코드로 맞혀 볼 수 있는 횟수: 틀린 `pair`와 처음 보는 `pA`(`answer`)를 함께 센다. 넘으면 코드를 지운다.
-/// 8자(29글자 표)는 약 39비트라 5번으로는 맞힐 수 없다.
 const INVITE_TRIES: u8 = 5;
 const CODE_LEN: usize = 8;
-/// 헷갈리는 글자(0·O, 1·I·L, U·V)를 뺐다. 사람이 폰에 옮겨 적는다.
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTWXYZ23456789";
-/// `last_seen`을 이 간격보다 자주 쓰지 않는다. 화면은 요청마다 기기를 확인한다.
 const SEEN_EVERY_MS: i64 = 60_000;
 const LABEL_MAX: usize = 64;
 
@@ -44,12 +36,10 @@ pub struct DeviceView {
     pub last_seen: i64,
 }
 
-/// 쿠키에 넣는 비밀. DB에는 해시만 둔다.
 pub struct DeviceToken(pub String);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PairRefused {
-    /// 코드가 없거나, 시간이 지났거나, 틀렸다. 폰에는 같은 글을 보인다.
     Wrong,
 }
 
@@ -57,15 +47,12 @@ struct Invite {
     code: String,
     until: Instant,
     tries: u8,
-    /// 답한 `pA`의 SHA-256. 폰이 같은 `pA`를 다시 보내면(UDP를 잃었을 때) 다시 세지 않는다.
     asked: Vec<[u8; 32]>,
 }
 
 pub struct Devices {
     db: Database,
-    /// 열린 코드는 하나다. 새 코드를 만들면 앞 코드는 쓸 수 없다.
     invite: Mutex<Option<Invite>>,
-    /// 기기를 지울 때마다 바뀐다. 열린 웹소켓이 자기 기기가 남았는지 다시 본다.
     removed: watch::Sender<u64>,
 }
 
@@ -78,7 +65,6 @@ impl Devices {
         }
     }
 
-    /// 새 코드를 만든다. 앞 코드는 버린다.
     pub fn invite(&self) -> String {
         let code = random_code();
         *self.invite.lock().unwrap() = Some(Invite {
@@ -90,7 +76,6 @@ impl Devices {
         code
     }
 
-    /// 쓸 수 있는 코드가 있는지. 화면이 코드 상자를 닫을 때를 안다(폰이 썼거나 시간이 지났다).
     pub fn invite_open(&self) -> bool {
         let mut invite = self.invite.lock().unwrap();
         if invite.as_ref().is_some_and(|i| i.until <= Instant::now()) {
@@ -99,7 +84,6 @@ impl Devices {
         invite.is_some()
     }
 
-    /// 코드가 맞으면 기기를 더하고 토큰을 준다. 코드 확인과 지우기를 한 잠금 안에서 한다. 그래서 같은 코드로 두 기기가 짝짓지 못한다.
     pub fn pair(&self, code: &str, label: &str) -> Result<DeviceToken, PairRefused> {
         let code: String = code
             .chars()
@@ -137,8 +121,6 @@ impl Devices {
         Ok(DeviceToken(token))
     }
 
-    /// 같은 Wi-Fi의 폰이 코드로 PC를 찾을 때 보낸 `pA`에 답한다(`pake`). 열린 코드가 없으면 답하지 않는다.
-    /// 처음 보는 `pA`는 한 번 맞혀 보기로 센다. 다섯 번을 넘기면 코드를 지운다. 맞으면 폰이 이어서 `pair`를 부른다.
     pub fn answer(&self, pa: &pake::Element, door: &[u8]) -> Option<pake::Answer> {
         let code = {
             let mut slot = self.invite.lock().unwrap();
@@ -159,7 +141,6 @@ impl Devices {
         Some(pake::answer(&code, pa, door))
     }
 
-    /// 토큰의 기기. 해시를 모두 읽어 시간이 같은 비교로 찾는다. 기기는 몇 개뿐이다.
     pub fn check(&self, token: &str) -> Option<DeviceId> {
         let wanted = hash(token);
         let db = self.db.lock();
@@ -209,7 +190,6 @@ impl Devices {
         .collect()
     }
 
-    /// 지웠으면 `true`. 그 기기의 다음 요청과 열린 웹소켓을 끊는다.
     pub fn remove(&self, id: DeviceId) -> rusqlite::Result<bool> {
         let removed = self
             .db
@@ -222,7 +202,6 @@ impl Devices {
         Ok(removed)
     }
 
-    /// `id`가 지워지면 끝난다. 폰의 웹소켓을 이 미래와 함께 돌려 끊는다.
     pub async fn removed(&self, id: DeviceId) {
         let mut changes = self.removed.subscribe();
         while self.contains(id) {
@@ -243,7 +222,6 @@ pub fn random_token() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
-/// 고른 글자 수의 배수 아래 바이트만 써서 글자마다 확률이 같다.
 fn random_code() -> String {
     let limit = (256 / CODE_ALPHABET.len() * CODE_ALPHABET.len()) as u8;
     let mut code = String::with_capacity(CODE_LEN);
@@ -280,7 +258,6 @@ mod tests {
         assert_eq!(code.len(), CODE_LEN);
         assert!(code.bytes().all(|b| CODE_ALPHABET.contains(&b)));
         assert!(d.invite_open());
-        // 사람이 적는 꼴(소문자, 가운데 줄표)도 받는다.
         let typed = format!("{}-{}", &code[..4], &code[4..]).to_lowercase();
         let token = d.pair(&typed, "iPhone · Safari").unwrap();
         assert!(!d.invite_open());
@@ -318,7 +295,6 @@ mod tests {
         }
         assert!(!d.invite_open());
         assert!(d.pair(&code, "a").is_err());
-        // 다음 코드는 다시 5번이다.
         let code = d.invite();
         for _ in 0..INVITE_TRIES - 1 {
             assert!(d.pair("WRONGXXX", "a").is_err());
@@ -337,12 +313,10 @@ mod tests {
         for pa in &asks {
             assert!(d.answer(pa, b"").is_some());
         }
-        // 같은 `pA`를 다시 보내면 세지 않는다.
         assert!(d.answer(&asks[0], b"").is_some());
         assert!(d.answer(&pake::Element::power(99), b"").is_none());
         assert!(!d.invite_open());
         assert!(d.pair(&code, "a").is_err());
-        // 다섯째 답 뒤에도 맞는 코드로 짝짓는다.
         let code = d.invite();
         for pa in &asks {
             assert!(d.answer(pa, b"").is_some());

@@ -1,6 +1,3 @@
-//! 고정한 Codex app-server 스키마(`src/profile/codex/schema/`)에서 Rust 타입을 만든다.
-//! 근거: docs/design.md 「에이전트 실행」. 파일마다 같은 `definitions`가 겹쳐 있으므로 한 묶음으로 합친다.
-
 use std::collections::BTreeMap;
 use std::path::Path;
 

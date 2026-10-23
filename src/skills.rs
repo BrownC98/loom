@@ -50,24 +50,6 @@ impl Plugin {
     }
 }
 
-pub fn digests() -> BTreeMap<String, String> {
-    let mut names: Vec<_> = Files::iter().collect();
-    names.sort();
-    let mut hashers: BTreeMap<String, Sha256> = BTreeMap::new();
-    for name in names {
-        let file = Files::get(&name).expect("iter가 준 이름은 늘 있다");
-        let hasher = hashers.entry(skill_of(&name).to_owned()).or_default();
-        hasher.update(name.as_bytes());
-        hasher.update([0]);
-        hasher.update(&file.data);
-        hasher.update([0]);
-    }
-    hashers
-        .into_iter()
-        .map(|(skill, hasher)| (skill, hex(hasher)))
-        .collect()
-}
-
 pub fn digest(parts: &[&str]) -> String {
     let mut hasher = Sha256::new();
     for part in parts {
@@ -156,30 +138,65 @@ pub struct Launch {
 }
 
 pub fn always_on(launch: Launch) -> String {
-    let mut parts = vec![ask_rules()];
-    if launch.skills.ste100 {
-        parts.push(body(&text("ste-100/SKILL.md")).to_owned());
+    parts(launch)
+        .into_iter()
+        .map(|source| part(source).expect("`parts`가 고른 원본은 늘 있다"))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+pub fn part_digests(launch: Launch) -> BTreeMap<String, String> {
+    parts(launch)
+        .into_iter()
+        .filter_map(|source| Some((source.to_owned(), part_digest(source)?)))
+        .collect()
+}
+
+pub fn part_digest(source: &str) -> Option<String> {
+    part(source).map(|text| digest(&[&text]))
+}
+
+fn parts(launch: Launch) -> Vec<&'static str> {
+    let mode = match launch.position {
+        Position::Root => MODE_ROOT,
+        Position::Child => MODE_CHILD,
+    };
+    [
+        (true, ASK_SOURCE),
+        (launch.skills.ste100, STE_SOURCE),
+        (launch.skills.raptor3, RAPTOR_SOURCE),
+        (launch.skills.o_mode, mode),
+    ]
+    .into_iter()
+    .filter_map(|(on, source)| on.then_some(source))
+    .collect()
+}
+
+const ASK_SOURCE: &str = "ask-human/SKILL.md";
+const STE_SOURCE: &str = "ste-100/SKILL.md";
+const RAPTOR_SOURCE: &str = "raptor-3/SKILL.md";
+const MODE_ROOT: &str = "o-mode/SKILL.md";
+const MODE_CHILD: &str = "o-mode/agent-rules.md";
+
+fn part(source: &str) -> Option<String> {
+    match source {
+        ASK_SOURCE => Some(ask_rules()),
+        STE_SOURCE => Some(body(&text(source)).to_owned()),
+        RAPTOR_SOURCE => {
+            let raptor = text(source);
+            let (_, rest) = raptor
+                .split_once("\n## 작업 중\n")
+                .expect("랩터-3에 「작업 중」 절이 있다");
+            let section = rest.split("\n## ").next().unwrap_or(rest);
+            Some(format!("# 랩터-3 작업 중\n\n{}", section.trim()))
+        }
+        MODE_ROOT | MODE_CHILD => Some(format!("{MODE_NOTE}\n\n{}", body(&text(source)))),
+        _ => None,
     }
-    if launch.skills.raptor3 {
-        let raptor = text("raptor-3/SKILL.md");
-        let (_, rest) = raptor
-            .split_once("\n## 작업 중\n")
-            .expect("랩터-3에 「작업 중」 절이 있다");
-        let section = rest.split("\n## ").next().unwrap_or(rest);
-        parts.push(format!("# 랩터-3 작업 중\n\n{}", section.trim()));
-    }
-    if launch.skills.o_mode {
-        let mode = match launch.position {
-            Position::Root => text("o-mode/SKILL.md"),
-            Position::Child => text("o-mode/agent-rules.md"),
-        };
-        parts.push(format!("{MODE_NOTE}\n\n{}", body(&mode)));
-    }
-    parts.join("\n\n")
 }
 
 pub fn ask_rules() -> String {
-    body(&text(&format!("{ASK}/SKILL.md"))).to_owned()
+    body(&text(ASK_SOURCE)).to_owned()
 }
 
 const MODE_NOTE: &str = "아래 o-mode 글은 늘 적용한다. 상대 링크는 내장 스킬 `o-mode` 폴더 기준이다. 링크한 절이나 파일이 필요하면 그 스킬 폴더에서 읽는다.";
@@ -279,6 +296,26 @@ mod tests {
         );
         let none = off(AlwaysOn::all().next().unwrap());
         assert_eq!(none, ask_rules());
+    }
+
+    #[test]
+    fn part_digests_name_each_received_part_by_its_source() {
+        let child = part_digests(Launch {
+            position: Position::Child,
+            skills: AlwaysOn {
+                ste100: false,
+                ..AlwaysOn::default()
+            },
+        });
+        assert_eq!(
+            child.keys().map(String::as_str).collect::<Vec<_>>(),
+            [ASK_SOURCE, MODE_CHILD, RAPTOR_SOURCE]
+        );
+        for (source, digest) in &child {
+            assert_eq!(part_digest(source).as_ref(), Some(digest));
+        }
+        assert_ne!(part_digest(MODE_ROOT), part_digest(MODE_CHILD));
+        assert_eq!(part_digest("o-mode/gone.md"), None);
     }
 
     #[test]

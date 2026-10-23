@@ -3,7 +3,7 @@ pub mod codex;
 pub mod cursor;
 pub mod opencode2;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -608,16 +608,53 @@ pub const COMMUNICATION_USAGE: &str = concat!("You are a node in a loom graph. U
 Run a command in the background if you do not need its result for your next step (for example: a build, a test, a deploy wait, a server). How long it takes is not the rule. Run a short command in the foreground if you need its result now. Messages reach you only between tool calls.
 With a parent, write no progress in the terminal. Results go in loom done or loom note. End each turn with at most one short line.
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
-Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input, rules-changed) are notices. The same ID can come again; do not repeat completed actions for that ID.");
+Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input) are notices. The same ID can come again; do not repeat completed actions for that ID.");
 
-pub fn usage_digest() -> String {
-    crate::skills::digest(&[
-        COMMUNICATION_USAGE,
-        claude::WAITING,
-        codex::WAITING,
-        cursor::WAITING,
-        opencode2::WAITING,
-    ])
+pub type StartDigests = BTreeMap<String, String>;
+
+pub fn start_digests(profile: Profile, launch: Launch) -> StartDigests {
+    let mut digests = crate::skills::part_digests(launch);
+    digests.insert(usage_part(profile).to_owned(), usage_digest(profile));
+    digests
+}
+
+pub fn changed_parts(got: &StartDigests) -> Vec<&str> {
+    got.iter()
+        .filter(|(part, digest)| current_digest(part).as_ref() != Some(*digest))
+        .map(|(part, _)| part.as_str())
+        .collect()
+}
+
+fn current_digest(part: &str) -> Option<String> {
+    let profiles = [
+        Profile::Claude,
+        Profile::Codex,
+        Profile::OpenCode2,
+        Profile::Cursor,
+    ];
+    match profiles.into_iter().find(|p| usage_part(*p) == part) {
+        Some(profile) => Some(usage_digest(profile)),
+        None => crate::skills::part_digest(part),
+    }
+}
+
+fn usage_part(profile: Profile) -> &'static str {
+    match profile {
+        Profile::Claude => "usage/claude",
+        Profile::Codex => "usage/codex",
+        Profile::OpenCode2 => "usage/opencode2",
+        Profile::Cursor => "usage/cursor",
+    }
+}
+
+fn usage_digest(profile: Profile) -> String {
+    let waiting = match profile {
+        Profile::Claude => claude::WAITING,
+        Profile::Codex => codex::WAITING,
+        Profile::OpenCode2 => opencode2::WAITING,
+        Profile::Cursor => cursor::WAITING,
+    };
+    crate::skills::digest(&[COMMUNICATION_USAGE, waiting])
 }
 
 fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, LaunchError> {
@@ -830,5 +867,19 @@ mod tests {
             .map(|a| a.id.0)
             .collect();
         assert_eq!(ids, ["claude", "codex", "opencode2", "cursor"]);
+    }
+
+    #[test]
+    fn only_parts_whose_text_changed_are_stale() {
+        let launch = crate::skills::Launch {
+            position: crate::skills::Position::Child,
+            skills: crate::skills::AlwaysOn::default(),
+        };
+        let mut got = start_digests(Profile::Cursor, launch);
+        assert!(got.contains_key("usage/cursor"));
+        assert!(changed_parts(&got).is_empty());
+        got.insert("usage/cursor".into(), "old".into());
+        got.insert("gone/SKILL.md".into(), "old".into());
+        assert_eq!(changed_parts(&got), ["gone/SKILL.md", "usage/cursor"]);
     }
 }

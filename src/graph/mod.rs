@@ -553,6 +553,8 @@ pub struct Graph {
     prompts: Mutex<HashMap<NodeId, Prompt>>,
 }
 
+pub(super) const REACHABLE: &str = "(process_exited = 0 OR asleep = 1)";
+
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL
         AND m.kind = '\"queue\"'),

@@ -220,6 +220,11 @@ const STEPS: &[M] = &[
             SELECT what ->> '$.question.id' FROM messages
             WHERE what ->> 'kind' = 'answer' AND what ->> '$.question.in' = 'inbox';",
     ),
+    M::up(
+        "ALTER TABLE nodes ADD COLUMN rules TEXT;
+        ALTER TABLE nodes ADD COLUMN asleep INTEGER NOT NULL DEFAULT 0;
+        DROP TABLE skill_digests;",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -483,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn step_34_adds_message_kinds_and_skill_digests() {
+    fn step_34_adds_message_kinds() {
         let mut conn = Connection::open_in_memory().unwrap();
         super::MIGRATIONS.to_version(&mut conn, 33).unwrap();
         conn.execute(
@@ -497,7 +502,11 @@ mod tests {
             .unwrap();
         assert_eq!(what, None);
         let digests: u32 = conn
-            .query_row("SELECT count(*) FROM skill_digests", [], |row| row.get(0))
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'skill_digests'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(digests, 0);
     }

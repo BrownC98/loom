@@ -44,6 +44,6 @@ describe('filePath', () => {
     expect(path('file:///home/a%20b.html')).toBe('/home/a b.html');
     expect(path('file:///C:/Users/a.html')).toBe('/C:/Users/a.html');
     expect(path('file:////C:/Users/a.html')).toBe('/C:/Users/a.html');
-    expect(path('file:///G:/%EB%82%B4%20%EB%93%9C%EB%9D%BC%EC%9D%B4%EB%B8%8C/a.html')).toBe('/G:/내 드라이브/a.html');
+    expect(path('file:///G:/%EB%82%B4%20%EB%93%9C%EB%9D%BC%EC%9D%B4%EB%B8%8C/a.html')).toBe(`/G:/${decodeURIComponent('%EB%82%B4%20%EB%93%9C%EB%9D%BC%EC%9D%B4%EB%B8%8C')}/a.html`);
   });
 });

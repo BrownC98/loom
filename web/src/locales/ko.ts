@@ -34,6 +34,7 @@ const ko: typeof en = {
     parent: '부모: {{node}} · {{group}}',
     rowMenu: '{{name}} 메뉴',
     asking: '질문 {{n}}',
+    done: '완료 {{n}}',
   },
   graph: {
     group: '묶음 {{branch}}',

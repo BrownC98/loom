@@ -496,8 +496,16 @@ function AnswerForm(props: { qid: string; placeholder: string; hasImages: boolea
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+    const fit = () => {
+      // 폰 질문 띠의 접힌 패널(`hidden`)에서는 scrollHeight가 0이다. 펼쳐질 때 다시 잰다.
+      if (el.offsetParent === null) return;
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+    };
+    fit();
+    const watch = new ResizeObserver(fit);
+    watch.observe(el);
+    return () => watch.disconnect();
   }, [text]);
   return (
     <form

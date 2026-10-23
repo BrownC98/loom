@@ -147,7 +147,7 @@ svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-widt
 <body data-ui=".chip, .opt, .tabs > span, .search">
 <svg width="0" height="0" style="position:absolute"><symbol id="q" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></symbol></svg>
 <main class="doc">
-  <div class="who"><span class="doc-id">문서 ID: <b>M17</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 출력표준2</b></span><span>v2 · 2026-10-23</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M17</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 출력표준2</b></span><span>v2 · 2026-10-23 · 승인 Q646 A</span></div>
   <h1>메시지 종류로 그리는 이벤트 콘솔과 터미널 머리 줄 (출력 표준 2단계)</h1>
   <p class="lead">사람 지시: “에이전트가 외부로 아웃풋을 낼때(알림, 에이전트간 메시징)은 전부 표준화 되어 혼동이 없어야 한다”, “2~3 끝까지 해 목업 보여주고”. 승인된 설계 R8 v5 2단계다. 지금은 모든 메시지가 「큐·조정·중단」 줄이고, 뜻은 본문 앞 낱말(QUESTION:, done:, exited(0) 등)로만 알 수 있다. 바꾼 뒤에는 데몬이 메시지마다 종류를 붙이고, 이벤트 콘솔·받은편지함·에이전트 터미널이 그 종류로 같은 이름과 색을 보인다. 받은편지함 모양은 그대로다. 선택 단추와 링크는 화면이 글을 읽어 만들지 않고 데몬이 나눠서 준다. 빨간 상자가 바뀌는 곳이고, 점선 상자는 새로 생기는 곳이다.</p>
 
@@ -295,7 +295,7 @@ Old rows stay readable.
       <tr><td><code>done</code></td><td>완료</td><td>초록</td><td>에이전트</td><td>요약, 결과 파일 링크</td></tr>
       <tr><td><code>note</code></td><td>메모 (· 조정 / · 중단)</td><td>없음</td><td>에이전트</td><td>본문</td></tr>
       <tr><td><code>ready</code> · <code>verdict</code></td><td>검토 요청 · 판정 · 통과 / 막음</td><td>없음 · 초록 / 빨강</td><td>관문 동사</td><td>브랜치·커밋, 결함 파일, 검토 모델, 다음 할 일</td></tr>
-      <tr><td><code>merging</code> · <code>merged</code> · <code>failed</code></td><td>병합 시작 · 병합됨 · 실패</td><td>없음 · 초록 · 빨강</td><td>loom</td><td>브랜치, 병합 커밋, 원인, 로그 링크</td></tr>
+      <tr><td><code>merging</code> · <code>merged</code> · <code>rework</code> · <code>failed</code></td><td>병합 시작 · 병합됨 · 재작업 · 실패</td><td>없음 · 초록 · 빨강 · 빨강</td><td>loom</td><td>브랜치, 병합 커밋, 원인, 로그 링크</td></tr>
       <tr><td><code>exited</code> · <code>setup-failed</code></td><td>종료 · 설정 실패</td><td>코드 0이면 없음, 아니면 빨강</td><td>loom</td><td>노드, 종료 코드, 설정 출력</td></tr>
       <tr><td><code>removed</code> · <code>adopted</code></td><td>지워짐 · 입양</td><td>없음</td><td>loom</td><td>노드, 새 부모</td></tr>
       <tr><td><code>human-input</code> · <code>rules-changed</code></td><td>사람 입력 · 규칙 바뀜</td><td>없음</td><td>loom</td><td>사람 원문 · 바뀐 스킬과 커밋</td></tr>

@@ -52,6 +52,18 @@ pub async fn same_site(request: Request, next: Next) -> Response {
     }
 }
 
+/// 사람의 기본 앱을 여는 라우트(파일 링크, 문서 링크)에 씌운다. 화면 페이지가 보낸 요청만 받는다.
+/// 브라우저(데스크톱 앱의 WebView2·WKWebView, 폰 앱의 WebView 포함)는 POST에 `Origin`을 늘 붙이고, `human_site`가 그 값이 이 데몬의 출처인지 이미 봤다.
+/// 노드 터미널의 curl·PowerShell은 `Origin`을 붙이지 않는다. 그래서 에이전트의 맨 HTTP 요청은 사람의 앱을 열지 못한다.
+/// 근거: 2026-10-23 사람 지시 "브리프 말고 기계적으로 차단해". 일부러 머리글을 넣는 요청은 막지 못한다.
+pub async fn from_page(request: Request, next: Next) -> Response {
+    if request.headers().contains_key(header::ORIGIN) {
+        next.run(request).await
+    } else {
+        StatusCode::FORBIDDEN.into_response()
+    }
+}
+
 /// 사람 문. 이 기계의 화면과 Tailscale Serve·폰 문으로 온 짝지은 폰을 받는다. 라우터 전체(HTTP, 웹소켓, 문서, 파일)에 한 겹으로 씌운다.
 pub async fn human_site(
     State(devices): State<Arc<Devices>>,
@@ -353,6 +365,37 @@ mod tests {
                 .route(phone::PAIR_PATH, post(|| async { "pair" }))
                 .fallback(|| async { "asset" })
                 .layer(axum::middleware::from_fn_with_state(devices, human_site))
+        }
+
+        /// 기본 앱을 여는 라우트는 화면 페이지의 요청(`Origin` 있음)만 받는다. curl처럼 `Origin`이 없으면 403이다.
+        #[tokio::test]
+        async fn opener_routes_need_the_page_origin() {
+            let (_dir, devices) = devices();
+            let app = Router::new()
+                .route(
+                    "/api/files/open",
+                    post(|| async { "opened" }).layer(axum::middleware::from_fn(from_page)),
+                )
+                .layer(axum::middleware::from_fn_with_state(devices, human_site));
+            let send = |origin: Option<&'static str>| {
+                let mut b = Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/files/open")
+                    .header("host", "127.0.0.1:7420");
+                if let Some(o) = origin {
+                    b = b.header("origin", o);
+                }
+                app.clone().oneshot(b.body(Body::empty()).unwrap())
+            };
+            assert_eq!(send(None).await.unwrap().status(), StatusCode::FORBIDDEN);
+            assert_eq!(
+                send(Some("http://127.0.0.1:7420")).await.unwrap().status(),
+                StatusCode::OK
+            );
+            assert_eq!(
+                send(Some("https://evil.example")).await.unwrap().status(),
+                StatusCode::FORBIDDEN
+            );
         }
 
         fn devices() -> (tempfile::TempDir, Arc<Devices>) {

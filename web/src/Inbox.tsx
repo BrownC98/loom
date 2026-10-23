@@ -1,7 +1,9 @@
-import { ArrowRight, ArrowUp, ChevronDown, Image as ImageIcon, ImagePlus, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type ReactNode, type RefObject } from 'react';
+import { ArrowRight, ArrowUp, ChevronDown, Image as ImageIcon, ImagePlus, RotateCcw, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type DOMAttributes, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { PillPlace } from './gen/PillPlace';
 import type { QuestionPill } from './gen/QuestionPill';
+import { DRAG_SLOP, PILL_MARGIN, placeFrom, placeOf, popLeft, popSpace, type Size } from './pillPlace';
 import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import { DocText } from './DocText';
 import { choices } from './choices';
@@ -16,6 +18,7 @@ import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, NodeText, NoticeBadges, NoticeLead, oldestWait, showsId, summaryOf, toneOf } from './notice';
+import { PinchImage } from './PinchImage';
 import { Modal } from './Modal';
 import { useDismiss } from './popover';
 
@@ -34,8 +37,9 @@ export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v
  * 그래프 칸 위 가운데에 뜨는 [질문 N] 알약과 그 목록(목업 docs/mockups/question-inbox-place.html ②, question-pill-tone.html M31 ②). 기다리는 노드가 없으면 알약도 없다.
  * 알약은 펼치지 않아도 가장 오래된 대기 하나의 전문과 답 칸을 보인다. 목록 줄의 노드 이름과 시스템 알림을 누르면 사이드바 클릭처럼 그래프를 그 노드로 옮기고 고른다.
  * 알약 머리를 누르면 목록이 열린다. `notify`는 설정 「시스템 알림」이다.
+ * 알약 머리를 끌면 칸 안 어디로든 옮긴다. 자리는 `place`(설정 `pillPlace`)이고 `null`이면 위 가운데다. 목록은 알약을 따라간다(2026-10-23 사람 지시 "알림 알약 출력위치를 사용자가 드래그로 자유롭게 조정할 수 있게 해줘, 위치 초기화 기능도 제공할 것").
  */
-export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
+export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: PillPlace | null; onPlace: (place: PillPlace | null) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const show = useShowNodes();
@@ -51,66 +55,152 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
   const firstWait = first && oldestWait(first);
   const line = props.pill === 'line';
   const toList = () => setOpen(!open);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const pane = useSize(paneRef);
+  const box = useSize(pill);
+  const drag = usePillDrag(pill, pane, box, props.onPlace);
 
   // 마지막 대기가 사라지면 목록을 닫는다. 다음 질문이 생길 때 목록이 저절로 열리지 않는다.
   useEffect(() => {
     if (n === 0) setOpen(false);
   }, [n]);
 
+  const at = drag.at ?? (pane && box ? placeOf(props.place, pane, box) : null);
   return (
-    <div className="inbox">
-      {/* 알약 꼴은 설정 「질문 알약」이다. `line`: 한 줄. `answer`: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
+    <div className="inbox" ref={paneRef}>
       {first && (
-        <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={toneOf(firstWait.kind)}>
-          <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} />
-          {!line && (
-            <div className="pill-row">
-              <WaitEntry key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
-            </div>
+        <div className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
+          {/* 알약 꼴은 설정 「질문 알약」이다. `line`: 한 줄. `answer`: 가장 오래된 대기 하나와 답 칸(목업 docs/mockups/question-pill-tone.html M31 ②). 답하면 다음으로 오래된 대기가 그 자리에 온다. */}
+          <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={toneOf(firstWait.kind)} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
+            <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} />
+            {!line && (
+              <div className="pill-row">
+                <WaitEntry key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
+              </div>
+            )}
+          </div>
+          {open && n > 0 && at && pane && box && (
+            <InboxPop label={t('inbox.title', { count: n })} pill={pill} left={popLeft(at.left, box.w, popWidth(pane), pane.w)} width={popWidth(pane)} {...popSpace(at.top, box, pane)} onClose={() => setOpen(false)}>
+              {/* 노드로 가도 목록은 열린 채로 둔다. 이어서 다른 질문을 보고 답한다(2026-10-22 사람 지시 "총괄클릭해서 이동할때 팝오버 유지되도록"). */}
+              <WaitList
+                waiting={props.waiting}
+                onGo={go}
+                onFocus={(id) => {
+                  show([id]);
+                  props.onFocus(id);
+                }}
+              />
+            </InboxPop>
           )}
         </div>
-      )}
-      {open && n > 0 && (
-        <InboxPop label={t('inbox.title', { count: n })} pill={pill} onClose={() => setOpen(false)}>
-          {/* 노드로 가도 목록은 열린 채로 둔다. 이어서 다른 질문을 보고 답한다(2026-10-22 사람 지시 "총괄클릭해서 이동할때 팝오버 유지되도록"). */}
-          <WaitList
-            waiting={props.waiting}
-            onGo={go}
-            onFocus={(id) => {
-              show([id]);
-              props.onFocus(id);
-            }}
-          />
-        </InboxPop>
       )}
     </div>
   );
 }
 
+const POP_WIDTH = 520;
+const popWidth = (pane: Size) => Math.min(POP_WIDTH, Math.max(0, pane.w - 2 * PILL_MARGIN));
+
+/** 요소의 지금 크기. 크기가 바뀌면(창, 칸, 알약 글) 다시 잰다. 처음 그리기 전에 한 번 잰다. */
+function useSize(ref: RefObject<HTMLElement | null>): Size | null {
+  const [size, setSize] = useState<Size | null>(null);
+  const watched = useRef<{ el: HTMLElement; watch: ResizeObserver } | null>(null);
+  // 알약은 대기가 없으면 사라졌다가 다시 붙는다. 그래서 렌더마다 지금 붙은 요소를 보고, 다르면 새 요소를 잰다.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (watched.current?.el === el) return;
+    watched.current?.watch.disconnect();
+    watched.current = null;
+    if (!el) {
+      setSize(null);
+      return;
+    }
+    const read = () => setSize((was) => (was && was.w === el.offsetWidth && was.h === el.offsetHeight ? was : { w: el.offsetWidth, h: el.offsetHeight }));
+    read();
+    const watch = new ResizeObserver(read);
+    watch.observe(el);
+    watched.current = { el, watch };
+  });
+  useEffect(() => () => watched.current?.watch.disconnect(), []);
+  return size;
+}
+
+/**
+ * 알약 머리 끌기. 끄는 동안의 왼쪽 위 모서리는 `at`이고, 놓으면 `onPlace`가 저장할 자리를 받는다.
+ * {@link DRAG_SLOP}보다 적게 움직이면 끌기가 아니다. 끌고 놓은 뒤에 오는 클릭은 삼킨다(목록이 열리지 않게).
+ */
+function usePillDrag(pill: RefObject<HTMLElement | null>, pane: Size | null, box: Size | null, onPlace: (place: PillPlace) => void) {
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  const moved = useRef(false);
+  const start = (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.button !== 0 || !pane || !box || !(e.target instanceof Element) || e.target.closest('input, textarea, a, label, .pill-reset')) return;
+    const group = pill.current?.parentElement;
+    if (!group) return;
+    const from = { x: e.clientX, y: e.clientY, left: group.offsetLeft, top: group.offsetTop };
+    const dragged = (ev: PointerEvent) => ({ left: from.left + ev.clientX - from.x, top: from.top + ev.clientY - from.y, far: Math.hypot(ev.clientX - from.x, ev.clientY - from.y) > DRAG_SLOP });
+    const place = (ev: PointerEvent) => {
+      const d = dragged(ev);
+      return placeFrom(d.left, d.top, pane, box);
+    };
+    const move = (ev: PointerEvent) => {
+      const d = dragged(ev);
+      if (!d.far && !moved.current) return;
+      moved.current = true;
+      setAt(placeOf(place(ev), pane, box));
+    };
+    const end = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      if (moved.current) {
+        // 저장한 설정이 돌아오기 전에도 알약이 제자리에 있게, 놓은 자리를 설정에 넣은 뒤에 끌기 상태를 지운다.
+        onPlace(place(ev));
+        setAt(null);
+        setTimeout(() => (moved.current = false));
+      }
+    };
+    // 포인터를 붙잡지 않는다. 붙잡으면 머리 안 단추의 클릭이 머리로 간다.
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  };
+  const swallowClick = (e: { stopPropagation: () => void; preventDefault: () => void }) => {
+    if (!moved.current) return;
+    e.stopPropagation();
+    e.preventDefault();
+  };
+  return { at, start, swallowClick };
+}
+
 /** 알약이 연 목록. 열린 동안만 밖 누르기와 Esc가 닫는다. 알약(답 칸 포함)을 누르는 것은 밖이 아니다. */
-function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; onClose: () => void; children: ReactNode }) {
+function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>; left: number; width: number; above: boolean; room: number; onClose: () => void; children: ReactNode }) {
   const box = useDismiss<HTMLDivElement>(props.onClose, { anchor: props.pill });
   return (
-    <div ref={box} className="pop inbox-pop" role="dialog" aria-label={props.label}>
+    <div ref={box} className="pop inbox-pop" data-above={props.above || undefined} style={{ left: props.left, width: props.width, maxHeight: props.room }} role="dialog" aria-label={props.label}>
       <h2>{props.label}</h2>
       {props.children}
     </div>
   );
 }
 
-/** 알약 머리 줄. `node`·`wait`는 가장 오래된 대기(`waitingNodes`의 첫 노드와 `oldestWait`), `waits`는 모든 대기다. */
-function PillHead(props: { node: NodeView; wait: HumanWait; waits: readonly HumanWait[]; line: boolean; open: boolean; onToggle: () => void }) {
+/** 알약 머리 줄. 끌면 알약이 움직인다(`onDragStart`). 옮긴 알약에는 [제자리로](`onReset`)가 뜬다. `node`·`wait`는 가장 오래된 대기(`waitingNodes`의 첫 노드와 `oldestWait`), `waits`는 모든 대기다. */
+function PillHead(props: { node: NodeView; wait: HumanWait; waits: readonly HumanWait[]; line: boolean; open: boolean; onToggle: () => void; onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null }) {
   const { t } = useTranslation();
   const { wait, open } = props;
   return (
     // 머리 줄이 바뀌면(새 알약, 수, 다음 알림) 화면 읽기 프로그램이 읽는다. 답 칸은 이 영역 밖이다.
-    <div className="head" aria-live="polite">
+    <div className="head" aria-live="polite" onPointerDown={props.onDragStart}>
       <NoticeLead wait={wait} waits={props.waits} />
       {/* 알약 머리는 목록만 편다. 노드로 가는 길은 목록 줄의 노드 이름이다(2026-10-22 사람 질문 "알약에 터미널 바로가기가 필요한가?"). */}
       <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.waits.length })} onClick={props.onToggle}>
         {props.line ? <NodeText name={props.node.name} wait={wait} /> : <b>{props.node.name}</b>}
         {!props.line && <ChevronDown className={open ? 'chev open' : 'chev'} aria-hidden="true" />}
       </button>
+      {props.onReset && (
+        <button type="button" className="pill-reset" aria-label={t('inbox.resetPlace')} title={t('inbox.resetPlace')} onClick={props.onReset}>
+          <RotateCcw aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }
@@ -229,7 +319,7 @@ function ZoomImage(props: { src: string; name: string; title: string }) {
       </button>
       {open && (
         <Modal className="image-view" label={props.name} onClose={() => setOpen(false)} outsideClose>
-          <img src={props.src} alt={props.name} onClick={() => setOpen(false)} />
+          <PinchImage src={props.src} alt={props.name} onTap={() => setOpen(false)} />
         </Modal>
       )}
     </>

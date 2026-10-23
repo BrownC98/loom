@@ -235,12 +235,7 @@ impl Graph {
             Err(e) => return Err(e),
         };
         if let Some(to_id) = to_id {
-            let exited: bool = db.query_row(
-                "SELECT process_exited FROM nodes WHERE id = ?1",
-                [to_id.0],
-                |row| row.get(0),
-            )?;
-            if exited {
+            if exited(&db, to_id)? {
                 return Err(Refusal::Ended(to.to_owned()));
             }
             check_room(&db, to_id, to)?;
@@ -521,13 +516,7 @@ impl Graph {
                     file: report.file.map(str::to_owned),
                     warning: report.warning.clone(),
                 };
-                // 요약 없이 파일만 준 완료는 요약이 파일 경로다(노드 카드용). 부모는 `file:` 칸으로 이미 본다.
-                let body = if report.file == Some(summary) {
-                    ""
-                } else {
-                    summary
-                };
-                enqueue(&tx, node, parent, Kind::Queue, &what, body, stamp)?;
+                enqueue(&tx, node, parent, Kind::Queue, &what, summary, stamp)?;
             }
         }
         let alive_children = tx
@@ -549,20 +538,14 @@ impl Graph {
     /// 근거: R8 v5 ③(에이전트가 손으로 보내던 USER DIRECTION·USER DECISION을 대신한다). 글은 자르지 않는다: 끝의 제약 한 줄이 사라지면 부모가 불완전한 지시로 조율한다(검토 출력표준2-종류 P2).
     /// 프로세스가 끝난 부모의 받은편지함에는 넣지 않는다(`post`와 같다).
     pub fn human_typed(&self, node: NodeId, text: &str) -> Result<(), Refusal> {
-        let text = text.trim();
         let mut db = self.lock();
         let Some(parent) = parent_of(&db, node)? else {
             return Ok(());
         };
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return Ok(());
         }
-        let parent_ended: bool = db.query_row(
-            "SELECT process_exited FROM nodes WHERE id = ?1",
-            [parent.0],
-            |row| row.get(0),
-        )?;
-        if parent_ended {
+        if exited(&db, parent)? {
             return Ok(());
         }
         let tx = db.transaction()?;
@@ -632,6 +615,15 @@ impl Graph {
         self.mail.notify_waiters();
         Ok(changed)
     }
+}
+
+/// 노드의 프로세스가 끝났는가. 끝난 노드의 받은편지함에는 넣지 않는다.
+fn exited(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
+    db.query_row(
+        "SELECT process_exited FROM nodes WHERE id = ?1",
+        [node.0],
+        |row| row.get(0),
+    )
 }
 
 /// `rules-changed`의 본문. 다시 띄워도 대화는 이어진다(`loom relaunch`).

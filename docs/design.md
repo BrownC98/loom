@@ -411,7 +411,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 - 저장: `messages.what`에 종류 JSON을 둔다. 이벤트 `Entry::Message`도 같은 값을 가진다. 옛 줄은 값이 없고 `note`로 그린다.
 - `note`·`done` 본문을 종류 낱말(QUESTION, READY 등)로 시작하면 거절하고 맞는 동사를 알린다(`KindWord`). 관문 낱말 가운데 READY만 모든 저장소에서, 나머지는 관문 스크립트가 있는 저장소에서만 막는다.
 - 턴 끝 검사: loom 명령을 부르지 않은 턴의 마지막 답이 종류 낱말로 시작하는 줄을 가지면 한 번 다시 일하게 한다. 모든 노드가 대상이다.
-- `human-input`: Claude 노드의 UserPromptSubmit 훅이 사람이 터미널에 친 글을 부모에게 그대로 보낸다. 띄울 때 loom이 넣은 첫 지시문은 보내지 않는다. Codex·Cursor·OpenCode 2는 입력 글을 loom에 주지 않아(Codex·OpenCode 2는 사람이 연 턴임은 안다) 보내지 않는다. 이 노드의 사람 지시는 에이전트가 `loom note parent`로 알린다(agent-rules).
+- `human-input`: Claude 노드의 UserPromptSubmit 훅이 사람이 터미널에 친 글을 부모에게 원문 그대로 보낸다(자르거나 다듬지 않는다). Claude 부모는 긴 글을 훅 상한(`BATCH_LIMIT_BYTES`) 때문에 파일 미리보기로 받는다. 띄울 때 loom이 넣은 첫 지시문은 보내지 않는다. loom은 Codex·Cursor·OpenCode 2의 `human-input` 글을 넘기지 않는다. 이 노드의 사람 지시는 에이전트가 `loom note parent`로 알린다(agent-rules).
 - `rules-changed`: 데몬은 시작할 때 실은 스킬마다 SHA-256을 `skill_digests`와 견준다. 달라진 스킬이 있으면 살아 있는 에이전트 노드마다 바뀐 스킬 이름과 판 커밋을 보내고 `loom relaunch`를 권한다. 기록이 없으면 모든 스킬이 바뀐 것으로 본다.
 
 ### 노드 제거와 입양

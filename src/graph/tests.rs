@@ -2834,7 +2834,7 @@ fn human_input_goes_to_the_parent_verbatim() {
     assert_eq!(
         crate::profile::message_text(&got),
         format!(
-            "loom message #{} (from: loom, kind: human-input)\nnode: w\nsend 동사는 지우지 말고 한 판 남겨",
+            "loom message #{} (from: loom, kind: human-input)\nnode: w\nsend 동사는 지우지 말고 한 판 남겨\n",
             got[0].id.0
         )
     );
@@ -2854,8 +2854,9 @@ fn done_with_only_a_file_shows_the_path_once() {
     };
     g.done(w, &report, None, &[], None, None).unwrap();
     let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
-    assert!(got[0].body.is_empty());
-    assert!(crate::profile::message_text(&got).ends_with("file: /tmp/r.md"));
+    assert_eq!(got[0].body, "/tmp/r.md");
+    let text = crate::profile::message_text(&got);
+    assert_eq!(text.matches("/tmp/r.md").count(), 1, "{text}");
 }
 
 /// 지시문 상한(4,096바이트)보다 긴 사람 글도 끝까지 간다. 프로세스가 끝난 부모에게는 가지 않는다.
@@ -2871,6 +2872,10 @@ fn long_human_input_is_not_cut_and_skips_an_ended_parent() {
     assert_eq!(got.len(), 1);
     assert!(got[0].body.len() > 4096);
     assert!(got[0].body.ends_with("Do not delete this branch."));
+    // 앞 들여쓰기와 뒤 빈 줄도 그대로다.
+    let code = "    let x = 1;\n        y\n\n\n";
+    g.human_typed(w, code).unwrap();
+    assert_eq!(g.take(lead, Kind::ALL, usize::MAX).unwrap()[0].body, code);
     g.exited(lead, 0).unwrap();
     g.human_typed(w, "more").unwrap();
     assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());

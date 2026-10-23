@@ -555,9 +555,11 @@ pub fn message_text(
         "loom message #{id} (from: {from}, kind: {}{mode})",
         what.word()
     )];
+    // 요약 없이 파일만 준 완료는 본문이 파일 경로다. 같은 경로를 두 번 보이지 않는다.
     lines.extend(
         what.fields()
             .into_iter()
+            .filter(|(name, value)| !(*name == "file" && *value == body))
             .map(|(name, value)| format!("{name}: {value}")),
     );
     if !body.is_empty() {

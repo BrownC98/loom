@@ -9,10 +9,6 @@ import opencode from '@lobehub/icons-static-svg/icons/opencode.svg?url';
 import qwen from '@lobehub/icons-static-svg/icons/qwen-color.svg?url';
 import type { AgentId } from './gen/AgentId';
 
-/**
- * 하네스 로고. Orca와 같은 LobeHub 아이콘이다(Codex는 OpenAI 로고). `color`는 색 그림, `mono`는 글자색으로 칠하는 모양이다.
- * 목록에 없는 에이전트는 이름 글자를 보인다.
- */
 const LOGOS: Partial<Record<string, { color: string } | { mono: string }>> = {
   claude: { color: claude },
   codex: { mono: openai },
@@ -24,7 +20,6 @@ const LOGOS: Partial<Record<string, { color: string } | { mono: string }>> = {
   'qwen-code': { color: qwen },
 };
 
-/** 카드 머리 등에서 이름 대신 보이는 로고. 이름은 접근 이름과 툴팁으로 남긴다. 셸(`agent`가 없음)은 터미널 모양이다. */
 export function AgentMark(props: { agent: AgentId | null; label: string }) {
   const logo = props.agent === null ? undefined : LOGOS[props.agent];
   if (props.agent !== null && !logo) return <span className="agent">{props.label}</span>;

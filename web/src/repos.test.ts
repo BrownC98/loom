@@ -53,7 +53,6 @@ describe('attachCards', () => {
   const groups = [group('/a'), group('/b'), group('/c')];
 
   it('is the parent node inside the parent group', () => {
-    // /a: 1 -> 2. /b: 3 (parent 1), /c: 4 (parent 2).
     const views = [view(1, null, '/a'), view(2, 1, '/a'), view(3, 1, '/b'), view(4, 2, '/c')];
     expect(attachCards(groups, views, groupParents(groups, views))).toEqual([null, 1, 2]);
   });

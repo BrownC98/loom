@@ -1,8 +1,3 @@
-//! 파일·폴더·주소를 그 기계의 기본 앱으로 연다. WSL이면 Windows 쪽 앱으로 연다.
-//! 파일: 사람이 터미널에서 누른 링크(`file://`)와 `loom show`. 브라우저 페이지는 `file://`을 열지 못하므로 데몬이 대신 연다.
-//! 주소: `loom open`이 화면 주소를 연다.
-//! 근거: docs/design.md 「저장」의 터미널 링크 줄, 「배포」의 `loom open` 줄.
-
 use std::ffi::OsString;
 use std::io;
 use std::path::Path;
@@ -10,10 +5,8 @@ use std::process::{Command, Stdio};
 
 mod account;
 
-/// 이 변수가 있으면 기본 앱 대신 이 프로그램에 대상을 넘긴다. 시험이 사람의 브라우저를 열지 않게 기록기를 넣는다.
 pub const OPENER_ENV: &str = "LOOM_BROWSER";
 
-/// 있는 파일이나 폴더만 연다. 앱이 뜨기를 기다리지 않는다.
 pub fn open(path: &Path) -> io::Result<()> {
     if !path.exists() {
         return Err(io::Error::new(
@@ -30,12 +23,10 @@ pub fn open(path: &Path) -> io::Result<()> {
     launch(host, target)
 }
 
-/// explorer는 `/` 경로(`G:/내 드라이브/a.html`, `//wsl.localhost/…`)를 열지 않거나 폴더 창만 띄운다. 화면이 `/` 경로를 보내므로 `\`로 바꾼다.
 fn backslashes(path: &Path) -> OsString {
     path.to_string_lossy().replace('/', "\\").into()
 }
 
-/// 주소(`http://…`)를 기본 브라우저로 연다. WSL은 Windows 기본 브라우저다.
 pub fn open_url(url: &str) -> io::Result<()> {
     launch(Host::current(), url.into())
 }
@@ -52,19 +43,12 @@ fn launch(host: Host, target: OsString) -> io::Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    // explorer.exe는 연 뒤에도 종료 코드 1을 돌려준다. 그래서 종료 코드를 보지 않고 거두기만 한다.
-    // 짧게 사는 `loom open`은 거두기 전에 끝날 수 있다. 그래도 앱은 따로 산다.
     std::thread::spawn(move || child.wait());
     Ok(())
 }
 
-/// 데몬이 노드에 넣는 토큰 변수(`daemon.rs` `node_env`). 데몬은 시작할 때 자기 환경에서 이 변수를 지운다(`profile::is_launcher_env`).
-/// 그래서 이 변수가 있으면 노드 안에서 돈 `loom` 명령이다.
 const NODE_TOKEN_ENV: &str = "LOOM_TOKEN";
 
-/// 여는 프로그램을 고른다. 기록기(`LOOM_BROWSER`)가 있으면 늘 기록기다.
-/// 없으면 사람의 loom만 기본 앱을 연다: 노드 안의 명령(`loom open`)과 계정 폴더가 아닌 데이터 폴더(시험 `HOME`·`APPDATA`)의 loom은 실패한다.
-/// 근거: 2026-10-23 검토자의 시험 데몬이 사람의 앱에 시험 파일을 띄웠다. 사람 지시 "브리프 말고 기계적으로 차단해".
 fn opener(
     host: Host,
     var: impl Fn(&str) -> Option<OsString>,
@@ -90,12 +74,10 @@ fn opener(
     Ok(host.opener().into())
 }
 
-/// 기본 앱을 여는 방법이 다른 실행 환경.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Host {
     Windows,
     Mac,
-    /// Linux 실행 파일이지만 Windows 쪽 앱으로 연다.
     Wsl,
     Linux,
 }
@@ -113,7 +95,6 @@ impl Host {
         }
     }
 
-    /// 대상 하나를 인자로 받는 여는 프로그램.
     fn opener(self) -> &'static str {
         match self {
             Self::Windows => "explorer",
@@ -124,8 +105,6 @@ impl Host {
     }
 }
 
-/// WSL은 `WSLInterop` 파일로 Windows 실행 파일을 부른다. 새 WSL은 이름이 `WSLInterop-late`다.
-/// `wsl.exe`가 띄운 프로세스에는 `WSL_DISTRO_NAME`도 있다.
 fn is_wsl() -> bool {
     std::env::var_os("WSL_DISTRO_NAME").is_some()
         || ["WSLInterop", "WSLInterop-late"]
@@ -159,7 +138,6 @@ mod tests {
         );
     }
 
-    /// 기록기를 LOOM_BROWSER로 넣어 여는 프로그램이 받은 인자를 본다. 사람의 앱은 열지 않는다.
     #[cfg(windows)]
     #[test]
     fn opener_receives_backslash_path() {
@@ -175,7 +153,6 @@ mod tests {
             format!("@chcp 65001 >nul\r\n@echo %~1> \"{}\"\r\n", log.display()),
         )
         .unwrap();
-        // SAFETY: 이 시험만 LOOM_BROWSER를 바꾼다.
         unsafe { std::env::set_var(OPENER_ENV, &rec) };
         open(Path::new(&file.to_string_lossy().replace('\\', "/"))).unwrap();
         let want = file.to_string_lossy().into_owned();
@@ -221,8 +198,6 @@ mod tests {
         );
     }
 
-    /// 시험 `HOME`의 loom과 노드 안의 loom은 여는 프로그램을 띄우지 않는다. 가짜 `xdg-open`·`explorer.exe`·`open`을 PATH 앞에 두고 본다.
-    /// 이 시험 실행 파일을 다시 띄워 바꾼 환경에서 `open_url`을 부른다. Windows는 `explorer`를 PATH보다 먼저 시스템 폴더에서 찾으므로 돌리지 않는다.
     #[cfg(unix)]
     #[test]
     fn test_and_node_looms_run_no_system_opener() {

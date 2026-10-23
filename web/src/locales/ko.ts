@@ -1,4 +1,3 @@
-// 한국어 문구. 키는 en.ts와 같아야 한다(타입이 막는다).
 import type en from './en';
 
 const ko: typeof en = {

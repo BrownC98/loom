@@ -1,7 +1,3 @@
-//! 설정: 모든 권한 허용을 끈 에이전트, 공급자마다 쓰는 계정, 화면 테마, 터미널 테마·글꼴, 카드 보기, 그래프 범위, 간선 모양, 화면 언어,
-//! 워크스페이스 폴더, 노드 나무 상한, 화면 색. SQLite에 한 줄로 둔다.
-//! 근거: docs/design.md 「설정」.
-
 use std::collections::BTreeMap;
 
 use rusqlite::{Connection, OptionalExtension};
@@ -132,7 +128,6 @@ pub struct PillPlace {
 }
 
 impl PillPlace {
-    /// 0~1 안의 유한한 수가 아니면 이유를 돌려준다. 1e100은 `f32`에서 무한대가 되어 JSON에 `null`로 쓰이고, 다음 읽기가 설정 전체를 기본값으로 바꾼다.
     fn problem(self) -> Option<String> {
         let ok = |v: f32| (0.0..=1.0).contains(&v);
         (!(ok(self.x) && ok(self.y))).then(|| "pillPlace must be numbers from 0 to 1".to_string())
@@ -263,7 +258,6 @@ pub struct ThemedColor {
     pub dark: Option<HexColor>,
 }
 
-/// 옛 설정은 뜻마다 두 테마에 쓰는 색 하나(`"#rrggbb"`)를 저장했다. 그 값은 두 테마에 같은 색으로 읽는다.
 impl<'de> Deserialize<'de> for ThemedColor {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
@@ -318,7 +312,6 @@ pub enum Theme {
 }
 
 impl SettingsView {
-    /// `distro`(없으면 이 PC) 저장소의 노드가 쓰는 계정.
     pub fn account(&self, provider: Provider, distro: Option<&str>) -> Option<&AccountId> {
         match (distro, provider) {
             (None, Provider::Claude) => self.claude_account.as_ref(),
@@ -359,9 +352,6 @@ impl Settings {
         Ok(read(&self.db.lock())?.0)
     }
 
-    /// 화면이 바꾼 칸만 받아 지금 설정에 합친다(JSON Merge Patch, RFC 7386: 객체는 칸마다 합치고 다른 값은 바꾼다).
-    /// 읽기·합치기·쓰기를 한 잠금과 한 트랜잭션에서 한다. 그래서 두 화면이 같은 때 다른 칸을 바꿔도 둘 다 남는다.
-    /// 합친 값이 `SettingsView`가 아니면 쓰지 않는다. 합친 설정을 돌려준다.
     pub fn patch(&self, patch: &serde_json::Value) -> Result<SettingsView, PatchProblem> {
         self.write(|_, value| {
             merge(value, patch);
@@ -378,7 +368,6 @@ impl Settings {
         })
     }
 
-    /// 데몬이 설정 하나를 바꾼다(예: 자동 전환한 계정). `patch`와 같은 잠금 안에서 읽고 쓴다.
     pub fn update(&self, edit: impl FnOnce(&mut SettingsView)) -> rusqlite::Result<()> {
         let result = self.write(|mut view, value| {
             edit(&mut view);
@@ -409,7 +398,6 @@ impl Settings {
     }
 }
 
-/// 설정 한 줄과 그 JSON. 형식이 옛것이면 기본값으로 시작한다. 다음 저장이 덮어쓴다.
 fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> {
     let text: Option<String> = db
         .query_row("SELECT value FROM settings WHERE id = 1", [], |row| {
@@ -423,7 +411,6 @@ fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> 
     Ok((view, value))
 }
 
-/// RFC 7386. `null`은 칸을 지운다. 지운 칸은 읽을 때 기본값(없음·꺼짐)이 된다.
 fn merge(target: &mut serde_json::Value, patch: &serde_json::Value) {
     let serde_json::Value::Object(fields) = patch else {
         *target = patch.clone();
@@ -448,7 +435,6 @@ fn merge(target: &mut serde_json::Value, patch: &serde_json::Value) {
 #[derive(Debug)]
 pub enum PatchProblem {
     Db(rusqlite::Error),
-    /// 합친 값이 설정 모양이 아니다. 화면이 보낸 칸이 틀렸다.
     Shape(String),
 }
 
@@ -504,7 +490,6 @@ mod tests {
         assert!(got.wsl_accounts.is_empty());
     }
 
-    /// 옛 두 칸은 이 PC다. 배포판마다 따로 고르고, 한 위치를 바꿔도 다른 위치는 그대로다.
     #[test]
     fn in_use_account_is_per_place() {
         let id = |s: &str| serde_json::from_value::<AccountId>(serde_json::json!(s)).unwrap();
@@ -564,7 +549,6 @@ mod tests {
         assert_eq!(got.closed_switch_notice, Some(9));
     }
 
-    /// 두 화면이 다른 칸을 따로 보낸다. 앞 쓰기가 뒤 쓰기에 지워지지 않는다. 안쪽 객체도 칸마다 합친다.
     #[test]
     fn partial_writes_of_different_fields_both_stay() {
         let tmp = tempfile::tempdir().unwrap();
@@ -585,14 +569,12 @@ mod tests {
                 dock: Some(400)
             }
         );
-        // `null`은 칸을 지워 기본값으로 돌린다.
         settings
             .patch(&serde_json::json!({"paneWidths": {"side": null}}))
             .unwrap();
         assert_eq!(settings.get().unwrap().pane_widths.side, None);
     }
 
-    /// 알약 자리가 0~1 밖이거나 `f32`로 넘치는 수면 쓰지 않는다. 다른 설정은 그대로 남는다.
     #[test]
     fn pill_place_out_of_range_is_refused_and_row_stays() {
         let tmp = tempfile::tempdir().unwrap();
@@ -610,7 +592,6 @@ mod tests {
         assert_eq!(got.pill_place, Some(PillPlace { x: 0.5, y: 0.5 }));
     }
 
-    /// 옛 설정은 기본 역할 표로 읽는다. 목록은 통째로 바뀌고, 틀린 목록은 쓰지 않고, `null`은 기본 표로 돌린다.
     #[test]
     fn roles_default_replace_refuse_and_reset() {
         let tmp = tempfile::tempdir().unwrap();
@@ -639,7 +620,6 @@ mod tests {
         assert_eq!(got.roles, Roles::default());
     }
 
-    /// 모양이 틀린 칸은 쓰지 않는다.
     #[test]
     fn wrong_shape_is_refused_and_not_written() {
         let tmp = tempfile::tempdir().unwrap();
@@ -654,7 +634,6 @@ mod tests {
         assert!(settings.get().unwrap().minimap_folded);
     }
 
-    /// 색은 `#rrggbb`만 받고, `null`은 그 칸을 기본값으로 돌린다. 테마마다 따로 바꾸고 따로 되돌린다.
     #[test]
     fn colors_take_only_hex_and_null_resets() {
         let tmp = tempfile::tempdir().unwrap();
@@ -704,7 +683,6 @@ mod tests {
         assert_eq!(got.colors, UiColors::default());
     }
 
-    /// 옛 설정의 한 색(`"#rrggbb"`)은 두 테마에 같은 색이다. 다음 패치가 한 테마만 바꿔도 다른 테마의 색이 남는다.
     #[test]
     fn old_single_color_reads_as_both_themes() {
         let tmp = tempfile::tempdir().unwrap();

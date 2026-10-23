@@ -1,7 +1,3 @@
-//! 저장소와 워크트리: 사람이 더한 저장소 목록(SQLite)과, 저장소마다 `git worktree`로 만들고 닫는 워크트리.
-//! 워크트리 묶음의 원천은 `git worktree list`다. loom은 따로 저장하지 않는다.
-//! 근거: docs/design.md 「저장소와 워크트리」.
-
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -174,7 +170,6 @@ impl Repos {
         Self { db }
     }
 
-    /// 폴더가 속한 저장소를 더한다. 원래 체크아웃 경로로 저장하므로 같은 저장소의 다른 워크트리를 적어도 하나다.
     pub async fn add(&self, path: &str) -> Result<RepoId, RepoProblem> {
         let folder = Path::new(path);
         check(folder).await?;
@@ -185,8 +180,6 @@ impl Repos {
             .map_err(|e| RepoProblem::Git(e.to_string()))
     }
 
-    /// `url`을 `<parent>/<주소 마지막 마디에서 .git을 뺀 이름>`에 복제하고 더한다.
-    /// 그 폴더가 있고 비어 있으면 그 안에 복제한다. 실패하면 git이 자기가 만든 것만 지운다. loom은 지우지 않는다.
     pub async fn clone(&self, url: &str, parent: &str) -> Result<RepoId, RepoProblem> {
         let url = url.trim();
         let target = new_folder(parent, repo_name(url))?;
@@ -199,7 +192,6 @@ impl Repos {
         self.add(&target.to_string_lossy()).await
     }
 
-    /// `<parent>/<name>` 폴더를 새로 만들고 `git init`한 뒤 더한다. 첫 커밋은 만들지 않는다.
     pub async fn create(&self, parent: &str, name: &str) -> Result<RepoId, RepoProblem> {
         let target = new_folder(parent, name.trim())?;
         let text = target.to_string_lossy().into_owned();
@@ -208,7 +200,6 @@ impl Repos {
         }
         std::fs::create_dir(&target).map_err(|e| RepoProblem::Git(e.to_string()))?;
         if let Err(e) = git::run(&target, &["init", "-q"]).await {
-            // 방금 만든 폴더다. 비어 있을 때만 지워진다.
             let _ = std::fs::remove_dir(&target);
             return Err(RepoProblem::Git(e));
         }
@@ -227,7 +218,6 @@ impl Repos {
         })
     }
 
-    /// 더한 순서다.
     pub fn list(&self) -> rusqlite::Result<Vec<(RepoId, PathBuf)>> {
         self.db
             .lock()
@@ -238,8 +228,6 @@ impl Repos {
             .collect()
     }
 
-    /// 목록에서 뺀다. 폴더는 건드리지 않는다. 노드가 남았으면 거절한다. 보관한 메시지를 몰래 지우지 않는다.
-    /// `nodes`는 같은 DB 파일이다. 검사와 삭제가 한 문장이고, 노드 넣기도 저장소 줄이 있을 때만 한다(`graph::nodes::insert`). 그래서 저장소 없는 노드가 남지 않는다.
     pub fn remove(&self, id: RepoId) -> Result<(), RepoProblem> {
         let db = self.db.lock();
         let fail = |e: rusqlite::Error| RepoProblem::Git(e.to_string());
@@ -276,8 +264,6 @@ impl Repos {
     }
 }
 
-/// 저장소 하나를 화면에 보일 모양으로 읽는다.
-/// 폴더가 있고 git 저장소인지 본다. 목록에 넣은 뒤에도 사람이 폴더나 `.git`을 지울 수 있다.
 pub async fn check(path: &Path) -> Result<(), RepoProblem> {
     let text = || path.to_string_lossy().into_owned();
     if !path.is_dir() {
@@ -311,7 +297,6 @@ async fn has_commits(repo: &Path) -> bool {
         .is_ok()
 }
 
-/// `path`의 자식 폴더 목록. 심볼릭 링크는 따라간다.
 pub fn folders(path: &str) -> Result<FolderList, RepoProblem> {
     let dir = Path::new(path);
     if !dir.is_absolute() {
@@ -345,15 +330,12 @@ pub fn folders(path: &str) -> Result<FolderList, RepoProblem> {
     })
 }
 
-/// 이 PC의 드라이브(`C:\`). Windows 데몬이 아니면 없다.
 pub fn drives() -> Vec<String> {
     #[cfg(windows)]
     {
         unsafe extern "system" {
-            /// 비트 0이 `A:`다. 디스크를 읽지 않아 끊긴 네트워크 드라이브에서도 바로 돌아온다.
             fn GetLogicalDrives() -> u32;
         }
-        // SAFETY: 인자가 없고 값만 돌려주는 Win32 함수다.
         let mask = unsafe { GetLogicalDrives() };
         (b'A'..=b'Z')
             .filter(|letter| mask & (1 << (letter - b'A')) != 0)
@@ -364,7 +346,6 @@ pub fn drives() -> Vec<String> {
     Vec::new()
 }
 
-/// 복제·새 프로젝트가 만들 폴더 `<parent>/<name>`. `parent`는 있는 절대 경로이고 `name`은 한 마디다.
 fn new_folder(parent: &str, name: &str) -> Result<PathBuf, RepoProblem> {
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
         return Err(RepoProblem::BadName(name.to_owned()));
@@ -379,14 +360,12 @@ fn new_folder(parent: &str, name: &str) -> Result<PathBuf, RepoProblem> {
     Ok(dir.join(name))
 }
 
-/// git이 `git clone <url>`에서 고르는 폴더 이름과 같다: 마지막 마디(`/`·`:` 뒤)에서 `.git`을 뺀다.
 fn repo_name(url: &str) -> &str {
     let url = url.trim_end_matches('/');
     let leaf = url.rsplit(['/', ':']).next().unwrap_or_default();
     leaf.strip_suffix(".git").unwrap_or(leaf)
 }
 
-/// 첫째가 원래 체크아웃이다(git이 그 순서로 준다). git을 읽지 못하면 `repo` 하나다.
 pub async fn worktrees(repo: &Path) -> Vec<Worktree> {
     match git::run(repo, &["worktree", "list", "--porcelain"]).await {
         Ok(porcelain) => parse_worktrees(&porcelain)
@@ -405,7 +384,6 @@ pub async fn worktrees(repo: &Path) -> Vec<Worktree> {
     }
 }
 
-/// `porcelain`은 `git worktree list --porcelain` 출력이다. 첫 덩어리가 원래 체크아웃이다.
 fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
     porcelain
         .split("\n\n")
@@ -431,7 +409,6 @@ fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
         .collect()
 }
 
-/// `path`가 `repo`의 워크트리 가운데 하나면 그 워크트리다.
 pub async fn find(repo: &Path, path: &str) -> Result<Worktree, RepoProblem> {
     worktrees(repo)
         .await
@@ -440,9 +417,6 @@ pub async fn find(repo: &Path, path: &str) -> Result<Worktree, RepoProblem> {
         .ok_or_else(|| RepoProblem::NotInRepo(path.to_owned()))
 }
 
-/// 새 브랜치 `branch`를 `base`에서 만들고 `<workspace>/<저장소 이름>/<브랜치 마지막 마디>`에 체크아웃한다.
-/// git은 `from` 폴더에서 돈다. 그래서 `base`가 `HEAD`면 `from`이 체크아웃한 커밋이다. 돌려주는 값은 새 워크트리 경로다.
-/// 폴더 배치는 Orca의 「워크스페이스 중첩」과 같다.
 pub async fn create(
     repo: &Path,
     from: &Path,
@@ -484,8 +458,6 @@ pub async fn create(
     Ok(listed_path(repo, &path, &target, worktrees(repo).await))
 }
 
-/// `create`가 만든 `path`(git 인자는 `target`)를 git이 목록에 적는 글자로 돌려준다. 노드는 이 글자로 묶음을 가리키고, `find`는 글자로 비교한다.
-/// 목록에 없으면 `target`을 `worktrees`와 같은 규칙으로 바꾼다. 실측 2026-10-23: WSL interop이 시간 초과하면 목록이 원래 체크아웃 하나다.
 fn listed_path(repo: &Path, path: &str, target: &str, listed: Vec<Worktree>) -> String {
     let made = Path::new(path).canonicalize().ok();
     listed
@@ -495,8 +467,6 @@ fn listed_path(repo: &Path, path: &str, target: &str, listed: Vec<Worktree>) -> 
         .unwrap_or_else(|| git::from_git_path(repo, target))
 }
 
-/// 지우면 잃는 변경: 커밋하지 않은 파일과 추적하지 않는 파일. 줄마다 `git status --porcelain` 한 줄이다.
-/// 폴더가 이미 없으면 잃을 것이 없다. 그 폴더에서는 git이 돌지 못한다.
 pub async fn changes(worktree: &Worktree) -> Result<Vec<String>, RepoProblem> {
     let path = Path::new(&worktree.path);
     if !path.is_dir() {
@@ -508,8 +478,6 @@ pub async fn changes(worktree: &Worktree) -> Result<Vec<String>, RepoProblem> {
     Ok(status.lines().map(str::to_owned).collect())
 }
 
-/// 워크트리를 지운다: 커밋하지 않은 변경이 있어도 폴더째 지운다(`--force`, Orca와 같다). 브랜치는 남긴다.
-/// 폴더가 이미 없어도 git이 등록을 지운다. 원래 체크아웃은 거절한다.
 pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem> {
     if worktree.original {
         return Err(RepoProblem::Original);
@@ -521,8 +489,6 @@ pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem>
     Ok(())
 }
 
-/// 워크트리의 브랜치 이름을 바꾼다(`git branch -m`). 폴더는 그대로다. 노드는 폴더 경로로 묶음을 가리킨다.
-/// 잘못된 이름과 이미 있는 이름은 git이 거절한다.
 pub async fn rename(repo: &Path, worktree: &Worktree, name: &str) -> Result<(), RepoProblem> {
     if worktree.original {
         return Err(RepoProblem::Original);
@@ -540,7 +506,6 @@ pub async fn rename(repo: &Path, worktree: &Worktree, name: &str) -> Result<(), 
     Ok(())
 }
 
-/// 병합하지 않은 커밋이 있어도 지운다(`-D`). 사람이 삭제 창에서 고를 때와 `discard`만 부른다.
 pub async fn delete_branch(repo: &Path, branch: &str) -> Result<(), RepoProblem> {
     git::run(repo, &["branch", "-D", "--", branch])
         .await
@@ -548,8 +513,6 @@ pub async fn delete_branch(repo: &Path, branch: &str) -> Result<(), RepoProblem>
     Ok(())
 }
 
-/// `create`가 만든 워크트리를 되돌린다: 폴더와 그 워크트리의 브랜치를 지운다. 다른 워크트리·브랜치는 건드리지 않는다.
-/// 새 브랜치는 기준 커밋을 가리킬 뿐 자기 커밋이 없어 잃는 것이 없다.
 pub async fn discard(repo: &Path, path: &str) -> Result<(), RepoProblem> {
     let made = find(repo, path).await?;
     remove(repo, &made).await?;
@@ -559,7 +522,6 @@ pub async fn discard(repo: &Path, path: &str) -> Result<(), RepoProblem> {
     }
 }
 
-/// 폴더가 속한 저장소의 원래 체크아웃. git 저장소가 아니면 없다.
 async fn original_checkout(folder: &Path) -> Option<PathBuf> {
     git::run(folder, &["rev-parse", "--show-toplevel"])
         .await
@@ -574,8 +536,6 @@ fn folder_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// 새 워크트리에서 돌릴 설정 스크립트: 그 워크트리의 `orca.yaml`에 있는 `scripts.setup`.
-/// Orca와 같은 파일과 같은 키를 읽어 저장소 설정 하나가 둘 다에 쓰인다. 파일이 없거나 읽지 못하면 없다(Orca와 같다).
 pub fn setup_script(worktree: &Path) -> Option<String> {
     let text = std::fs::read_to_string(worktree.join("orca.yaml")).ok()?;
     let docs = yaml_rust2::YamlLoader::load_from_str(&text).ok()?;
@@ -583,20 +543,16 @@ pub fn setup_script(worktree: &Path) -> Option<String> {
     (!script.trim().is_empty()).then(|| script.to_owned())
 }
 
-/// Orca 기본값(`<홈>/orca/workspaces`)과 같은 모양이다. Orca처럼 없으면 만든다. 사람이 고른 폴더는 만들지 않는다.
-/// 근거: docs/design.md 「저장소와 워크트리」.
 pub fn default_workspace() -> std::io::Result<PathBuf> {
     workspace_in(&loom_home()?)
 }
 
-/// `<loom>/workspaces`. WSL 배포판의 기본값은 그 홈의 `loom/workspaces`다(목업 docs/mockups/wsl-place.html ⑤). 없으면 만든다.
 pub fn workspace_in(loom: &Path) -> std::io::Result<PathBuf> {
     let dir = loom.join("workspaces");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
-/// `<홈>/loom`. [저장소 추가] 폴더 목록이 처음 여는 폴더다. 없으면 만든다.
 pub fn loom_home() -> std::io::Result<PathBuf> {
     let home =
         std::env::home_dir().ok_or_else(|| std::io::Error::other("홈 폴더를 찾지 못했다"))?;
@@ -611,7 +567,6 @@ mod tests {
 
     use crate::git::test_run as run;
 
-    /// 커밋 하나가 있는 `main` 저장소. 경로는 git이 적는 글자(심볼릭 링크를 푼 경로)다.
     fn repo(dir: &Path) -> PathBuf {
         let repo = dir.join("app");
         std::fs::create_dir(&repo).unwrap();
@@ -658,7 +613,6 @@ mod tests {
         );
         let repos = repos(dir.path());
         let id = repos.add(repo.to_str().unwrap()).await.unwrap();
-        // 같은 저장소의 다른 워크트리를 적어도 원래 체크아웃 한 줄이다.
         assert_eq!(repos.add(wt.to_str().unwrap()).await, Ok(id));
         assert_eq!(repos.list().unwrap(), [(id, repo.clone())]);
 
@@ -682,7 +636,6 @@ mod tests {
         let repo = repo(dir.path());
         let repos = repos(dir.path());
         let id = repos.add(repo.to_str().unwrap()).await.unwrap();
-        // 노드 표는 그래프가 같은 연결로 쓴다.
         let graph = repos.db.clone();
         graph
             .lock()
@@ -723,7 +676,6 @@ mod tests {
         let path = create(&repo, &repo, &workspace, "me/feat-1", "main")
             .await
             .unwrap();
-        // `<워크스페이스>/<저장소 이름>/<브랜치 마지막 마디>`.
         assert!(path.ends_with("/ws/app/feat-1"), "{path}");
         let view = view(RepoId(1), &repo, None).await;
         assert_eq!(view.name, "app");
@@ -736,7 +688,6 @@ mod tests {
             [(Some("main"), true), (Some("me/feat-1"), false)]
         );
 
-        // 커밋하지 않은 변경과 추적하지 않는 파일이 있어도 지운다. 브랜치는 남긴다.
         std::fs::write(Path::new(&path).join("new.txt"), "x").unwrap();
         let made = find(&repo, &path).await.unwrap();
         assert_eq!(made.branch.as_deref(), Some("me/feat-1"));
@@ -749,8 +700,6 @@ mod tests {
         assert_eq!(run(&repo, &["branch", "--list", "me/feat-1"]), "");
     }
 
-    /// 목록을 읽지 못하거나 폴더를 열지 못해도(실측 2026-10-23: WSL interop 시간 초과) git이 적는 글자를 돌려준다.
-    /// 다른 글자로 등록한 노드는 `loom ready`에서 "not a worktree of this repository"로 거절됐다.
     #[test]
     fn a_made_worktree_gets_the_listed_text_when_the_list_does_not_show_it() {
         let repo = r"\\wsl.localhost\NoSuchDistro\home\me\src\loom";
@@ -773,7 +722,6 @@ mod tests {
         );
     }
 
-    /// 띄우지 못한 `loom spawn --worktree`의 되돌리기: 만든 폴더와 브랜치만 지운다.
     #[tokio::test]
     async fn discard_removes_only_the_made_worktree_and_its_branch() {
         let dir = tempfile::tempdir().unwrap();
@@ -794,7 +742,6 @@ mod tests {
             ["kept", "main"]
         );
         assert!(find(&repo, &kept).await.is_ok());
-        // 이미 지운 워크트리는 되돌리지 못한다. 원래 체크아웃은 지우지 않는다.
         assert_eq!(
             discard(&repo, &made).await,
             Err(RepoProblem::NotInRepo(made.clone()))
@@ -862,7 +809,6 @@ mod tests {
         );
     }
 
-    /// 폴더를 loom 밖에서 지워도(`rm -rf`) git은 워크트리를 적어 둔다. 잃을 것이 없고, 지우면 등록이 사라진다.
     #[tokio::test]
     async fn remove_a_worktree_whose_folder_is_gone() {
         let dir = tempfile::tempdir().unwrap();
@@ -880,7 +826,6 @@ mod tests {
         assert_eq!(run(&repo, &["branch", "--list", "feat"]), "feat");
     }
 
-    /// WSL git은 `C:\…`를 저장소 안의 상대 폴더로 읽는다. 이 PC 저장소의 워크트리도 WSL에 두지 않는다.
     #[cfg(windows)]
     #[tokio::test]
     async fn create_refuses_a_workspace_in_another_place() {
@@ -985,14 +930,12 @@ mod tests {
         );
         assert!(view(id, &copy, None).await.has_commits);
 
-        // 대상이 비어 있지 않으면 git을 부르지 않고 거절한다. 원래 파일은 남는다.
         assert_eq!(
             repos.clone(source.to_str().unwrap(), parent_text).await,
             Err(RepoProblem::NotEmpty(copy.to_string_lossy().into_owned()))
         );
         assert!(copy.join(".git").exists());
 
-        // 원본이 없으면 실패한다. 새 폴더는 남지 않고, 미리 있던 빈 폴더는 남는다.
         let Err(RepoProblem::Git(_)) = repos.clone("/nowhere/gone.git", parent_text).await else {
             panic!()
         };
@@ -1021,7 +964,6 @@ mod tests {
         assert!(!made_view.has_commits);
         assert_eq!(made_view.branches, Vec::<String>::new());
 
-        // 첫 커밋 전에는 워크트리를 만들지 않는다. 커밋 뒤에는 만든다.
         let workspace = dir.path().join("ws");
         std::fs::create_dir(&workspace).unwrap();
         assert_eq!(
@@ -1031,14 +973,12 @@ mod tests {
         assert!(!workspace.join("my-app").exists());
         run(&made, &["commit", "-q", "--allow-empty", "-m", "a"]);
         assert!(view(id, &made, None).await.has_commits);
-        // 분리된 HEAD는 브랜치 목록과 관계없이 커밋이 있다.
         run(&made, &["checkout", "-q", "--detach"]);
         assert!(view(id, &made, None).await.has_commits);
         create(&made, &made, &workspace, "feat", "HEAD")
             .await
             .unwrap();
 
-        // 이미 있는 폴더는 건드리지 않는다.
         let taken = dir.path().join("taken");
         std::fs::create_dir(&taken).unwrap();
         std::fs::write(taken.join("keep.txt"), "x").unwrap();
@@ -1057,7 +997,6 @@ mod tests {
         }
     }
 
-    /// `loom spawn --worktree`: 기준이 `HEAD`면 부모 워크트리가 체크아웃한 커밋에서 갈라진다.
     #[tokio::test]
     async fn head_base_starts_from_the_calling_worktree() {
         let dir = tempfile::tempdir().unwrap();

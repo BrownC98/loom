@@ -1,8 +1,3 @@
-//! 그래프: 노드 나무와 메일함. SQLite에 두고, 바뀔 때마다 화면에 이벤트 하나를 보낸다.
-//! 바뀐 일은 이벤트 기록(`events`)에도 남긴다.
-//! 나무 규칙(깊이, 이름, 받는 노드 찾기)은 나무와 메시지를 함께 보므로 이 모듈 한 곳에 둔다.
-//! 근거: docs/design.md 「메시징」.
-
 mod events;
 mod gate;
 mod mailbox;
@@ -38,20 +33,15 @@ use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::protocol::{IllegalStep, MessageKind};
 use crate::worktree::RepoId;
 
-/// 화면 하나가 밀려도 버티는 이벤트 수.
 const EVENT_QUEUE: usize = 256;
-/// 받는 노드마다 `queued` 메시지 상한. 근거: docs/design.md 「상한」.
 const MAILBOX_LIMIT: u32 = 50;
-/// `loom done --image`가 받는 그림 꼴. 브라우저가 `<img>`로 그린다. 받은편지함이 완료 줄의 파일을 그대로 낸다.
 pub const IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
-/// `loom done` 요약 상한. 근거: docs/design.md 「맥락과 크기」.
 const SUMMARY_LIMIT_BYTES: usize = 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct NodeId(pub u32);
 
-/// 노드 호스트가 주소 파일 이름에 쓴다.
 impl fmt::Display for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -122,7 +112,6 @@ pub struct NodeView {
     pub waits: Vec<HumanWait>,
 }
 
-/// 프로필이 CLI에서 읽은 지금 모델과 추론 강도. 값은 CLI가 쓴 글 그대로다. 근거: docs/design.md 「에이전트 실행」.
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Model {
     pub model: Option<String>,
@@ -558,19 +547,12 @@ impl From<rusqlite::Error> for Refusal {
 
 pub struct Graph {
     db: Database,
-    /// 화면에 보낸 마지막 이벤트 기록 id. `db`를 잠근 뒤에만 잠근다(`lock`).
     published: Mutex<u32>,
     events: broadcast::Sender<GraphEvent>,
-    /// 메시지를 넣을 때마다 `wait` 모두를 깨운다. 깬 쪽이 자기 메시지인지 DB에서 본다.
     mail: Notify,
-    /// 실행 중인 노드 화면의 승인 창. PTY와 함께 사라지므로 DB에 두지 않는다. 다시 시작한 데몬은 화면을 다시 읽어 채운다.
-    /// 승인 신호 대기에 붙여 보낸다. 훅이 화면보다 먼저 오든 늦게 오든 보기를 만들 때 붙으므로 순서를 맞출 일이 없다.
-    /// `db`를 잠근 채 잠근다. 반대 순서로 잠그지 않는다.
     prompts: Mutex<HashMap<NodeId, Prompt>>,
 }
 
-// 「안 읽음」은 사람이 눌러 앞당길 수 있는 메시지, 곧 아직 넘기지 않은 큐 메시지만 센다.
-// 조정·중단은 다음 단계에 넘어가므로 누를 일이 없다. 누른 뒤 칩이 그대로면 고장으로 보였다(2026-10-22 사람 보고 "작동을 안하는 것처럼 보임").
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL
         AND m.kind = '\"queue\"'),
@@ -581,8 +563,6 @@ const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
     n.card_view, n.reply
     FROM nodes n";
 
-/// 잠근 DB. 놓을 때 아직 보내지 않은 이벤트 기록을 보낸다.
-/// 기록은 바꾼 트랜잭션 안에서 쓴다. 되돌린 트랜잭션의 기록은 없으므로 보내지 않는다.
 struct Db<'a> {
     conn: MutexGuard<'a, Connection>,
     published: MutexGuard<'a, u32>,
@@ -604,7 +584,6 @@ impl DerefMut for Db<'_> {
 
 impl Drop for Db<'_> {
     fn drop(&mut self) {
-        // 잠금을 쥔 채 보낸다. 그래야 기록 순서가 DB 순서와 같다.
         let Ok(new) = events::after(&self.conn, *self.published) else {
             return;
         };
@@ -618,7 +597,6 @@ impl Drop for Db<'_> {
 }
 
 impl Graph {
-    /// 저장한 그래프를 연다. `running`이던 노드는 그대로 둔다. 프로세스가 살았는지는 데몬이 다시 붙어 보고 정한다(`active`, `lost`).
     pub fn open(db: Database) -> rusqlite::Result<Self> {
         let published = events::last_id(&db.lock())?;
         Ok(Self {
@@ -630,7 +608,6 @@ impl Graph {
         })
     }
 
-    /// 자리가 없는 옛 노드(DB 9단계 전)를 `home`으로 옮긴다. 데몬이 시작할 때 한 번 부른다.
     pub fn settle(&self, home: &Place) -> rusqlite::Result<()> {
         self.lock().execute(
             "UPDATE nodes SET repo = ?1, worktree = ?2 WHERE repo IS NULL",
@@ -643,7 +620,6 @@ impl Graph {
         place_of(&self.lock(), id)
     }
 
-    /// 그 워크트리 안의 노드 id. 워크트리를 지울 때 함께 지운다.
     pub fn nodes_in(&self, worktree: &str) -> rusqlite::Result<Vec<NodeId>> {
         self.lock()
             .prepare("SELECT id FROM nodes WHERE worktree = ?1 ORDER BY id")?
@@ -651,7 +627,6 @@ impl Graph {
             .collect()
     }
 
-    /// 지금 목록과 그 뒤의 이벤트를 빈틈없이 받는다.
     pub fn subscribe(&self) -> rusqlite::Result<(Vec<NodeView>, broadcast::Receiver<GraphEvent>)> {
         let db = self.lock();
         let prompts = self.prompts.lock().unwrap();
@@ -671,12 +646,10 @@ impl Graph {
         }
     }
 
-    /// 이벤트 콘솔을 열 때 읽는 최근 기록. 최근 것부터.
     pub fn recent_events(&self) -> rusqlite::Result<Vec<EventRecord>> {
         events::recent(&self.lock())
     }
 
-    /// 에이전트 동사를 거절한 일을 남긴다. `reason`은 부른 쪽이 받은 거절이다. `what`은 메시지 동사만 있다.
     pub fn record_refusal(
         &self,
         from: NodeId,
@@ -699,7 +672,6 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    /// 턴 끝 검사가 노드를 다시 일하게 한 일을 남긴다.
     pub fn record_nudge(&self, node: NodeId, check: events::TurnCheck) -> rusqlite::Result<()> {
         let db = self.lock();
         let entry = events::Entry::Nudged {
@@ -709,34 +681,28 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    /// 메시지·노드와 무관한 이벤트(계정 전환)를 남긴다.
     pub fn record(&self, entry: &Entry) -> rusqlite::Result<()> {
         events::write(&self.lock(), entry, None)
     }
 
-    /// 잠금을 쥔 채 부른다. 그래야 이벤트 순서가 DB 변경 순서와 같다.
     fn publish_node(&self, db: &Connection, id: NodeId) -> rusqlite::Result<()> {
         let prompts = self.prompts.lock().unwrap();
         let view = db.query_row(&format!("{VIEW_COLUMNS} WHERE n.id = ?1"), [id.0], |row| {
             view_from_row(row, &prompts)
         })?;
         drop(prompts);
-        // 보는 화면이 없으면 send가 실패한다. 화면은 붙을 때 목록 전체를 받으므로 버려도 된다.
         let _ = self.events.send(GraphEvent::Node(Box::new(view)));
         Ok(())
     }
 
-    /// 다음 메시지가 들어올 때 끝나는 future. 메일함을 보기 전에 `enable()`해야 그 사이에 온 메시지를 놓치지 않는다.
     pub fn mail_changed(&self) -> Notified<'_> {
         self.mail.notified()
     }
 
-    /// 메일함은 그대로지만 꺼내도 되는 노드가 바뀌었다(다시 띄우기 실패). 기다리는 전달 작업이 메일함을 다시 본다.
     pub fn wake_mail(&self) {
         self.mail.notify_waiters();
     }
 
-    /// 화면 상태(설정·자리·크기)를 쓴 뒤 부른다. 보는 화면이 없으면 버린다.
     pub fn publish_view_changed(&self) {
         let _ = self.events.send(GraphEvent::ViewChanged);
     }
@@ -759,7 +725,6 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
     let done: String = row.get(12)?;
     let asked: String = row.get(13)?;
     let card_view: Option<String> = row.get(14)?;
-    // 읽지 못하는 값(앞으로 바뀐 형식)은 대기가 없는 것으로 본다. 다음 신호가 다시 쓴다.
     let mut waits: Vec<HumanWait> = serde_json::from_str(&asked).unwrap_or_default();
     waits.sort_by_key(|w| w.id.0);
     waits.extend(
@@ -789,7 +754,6 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
             worktree: row.get(9)?,
         },
         bookmark: row.get(10)?,
-        // 읽지 못하는 값은 고르지 않은 것으로 본다.
         card_view: card_view.and_then(|v| serde_json::from_str(&v).ok()),
         reply: row.get(15)?,
         waits,
@@ -806,7 +770,6 @@ fn from_json<T: DeserializeOwned>(row: &Row, idx: usize) -> rusqlite::Result<T> 
         .map_err(|e| rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, Box::new(e)))
 }
 
-/// NULL이면 없다(그 열을 더하기 전의 옛 줄).
 fn optional_json<T: DeserializeOwned>(row: &Row, idx: usize) -> rusqlite::Result<Option<T>> {
     let text: Option<String> = row.get(idx)?;
     text.map(|text| {
@@ -841,7 +804,6 @@ fn place_of(db: &Connection, id: NodeId) -> rusqlite::Result<Place> {
     )
 }
 
-/// 노드가 도는 자리를 사람이 읽는 글로: `<저장소 폴더>/<워크트리 폴더>`.
 fn place_label(repo_path: &str, worktree: &str) -> String {
     let base = |path: &str| {
         path.rsplit(['/', '\\'])
@@ -852,7 +814,6 @@ fn place_label(repo_path: &str, worktree: &str) -> String {
     format!("{}/{}", base(repo_path), base(worktree))
 }
 
-/// 이름이 `name`인 노드가 `ids` 여럿이라 거절한다. 다시 보낼 수 있게 후보를 번호와 자리로 적는다.
 fn ambiguous(db: &Connection, name: &str, ids: &[NodeId]) -> rusqlite::Result<Refusal> {
     let mut found = db.prepare(
         "SELECT n.name, coalesce(r.path, ''), coalesce(n.worktree, '') FROM nodes n

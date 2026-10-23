@@ -1,6 +1,3 @@
-//! 에이전트 동사(`spawn`·`note`·`answer`·`ask`·`done`·`answered`·`adopt`·`rm`)의 처리기와, 그 성공·거절을 이벤트로 남기는 길(`traced`).
-//! 관문 동사는 `gate`, `relaunch`는 `relaunch`에 있고 같은 `traced`를 쓴다. 시험은 `verb_traces`다.
-
 use super::*;
 
 pub(super) async fn agent_spawn(
@@ -24,7 +21,6 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     }
     let place = app.graph.place_of(parent).map_err(Refusal::from)?;
     let tasks = app.tasks_for(&place.worktree).await?;
-    // `fresh`는 요청이 어느 길에서든 실패하면 새 작업 폴더를 지운다.
     let (dir, fresh) = match &req.worktree {
         Some(branch) => {
             let base = task::base(&app.repos.path(place.repo)?, branch.trim());
@@ -91,7 +87,6 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     if let (Ok(_), Some(fresh)) = (&spawned, fresh) {
         fresh.keep();
     }
-    // 자식을 띄우지 못하면 이 요청이 만든 워크트리와 브랜치를 지운다. 거절만 남긴다.
     if let (Some((repo, made)), Err(_)) = (&worktree, &spawned)
         && let Err(e) = worktree::discard(repo, made).await
     {
@@ -100,9 +95,6 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     spawned
 }
 
-/// `agent_spawn`에서 워크트리를 만든 뒤의 단계: 준비하고 그래프에 자식을 더해 띄운다.
-/// 새 워크트리면 그 설정 스크립트를 자식의 PTY에서 먼저 돌린다. 근거: docs/design.md 「저장소와 워크트리」.
-/// 작업 폴더 안의 틀은 그래프가 자식을 받은 뒤, 띄우기 바로 전에 만든다. `brief`는 `loom spawn`이 받은 지시문이다(역할 머리 없음).
 async fn spawn_child(
     app: &Arc<App>,
     parent: NodeId,
@@ -138,7 +130,6 @@ pub(super) async fn agent_note(
     recorded(&app, from, &req.to, req.mode, MessageKind::Note, &via, sent)
 }
 
-/// 메시지 동사(`note`·`answer`·`done`·`ask`)의 `traced`. 보낸 노드는 이번 턴에 loom 메시지 동사를 불렀다(턴 끝 검사).
 pub(super) fn recorded<T>(
     app: &App,
     from: NodeId,
@@ -162,7 +153,6 @@ pub(super) fn recorded<T>(
     traced(app, from, attempt, via, result.map_err(Problem::from))
 }
 
-/// 거절을 남길 에이전트 동사 하나. `to`는 부른 쪽이 적은 대상이다.
 pub(super) struct Attempt<'a> {
     to: &'a str,
     how: Kind,
@@ -170,7 +160,6 @@ pub(super) struct Attempt<'a> {
 }
 
 impl<'a> Attempt<'a> {
-    /// 메시지가 아닌 동사(`spawn`·`answered`·`rm`·`adopt`·`relaunch`).
     pub(super) fn verb(to: &'a str) -> Self {
         Attempt {
             to,
@@ -180,8 +169,6 @@ impl<'a> Attempt<'a> {
     }
 }
 
-/// 에이전트 동사의 결과를 돌려준다. 거절은 부른 노드만 본다. 사람이 이벤트 콘솔에서 보게 남긴다.
-/// 모든 에이전트 동사가 이 길로 끝난다. `verb_traces` 시험이 동사마다 본다.
 pub(super) fn traced<T>(
     app: &App,
     from: NodeId,
@@ -206,7 +193,6 @@ pub(super) fn traced<T>(
     result.map(Json).map_err(for_agent)
 }
 
-/// 이벤트에 남길 거절. DB·내부 오류는 요청의 잘못이 아니므로 남기지 않는다.
 fn refusal_of(problem: &Problem) -> Option<Refusal> {
     match problem {
         Problem::Refused(Refusal::Db(_)) | Problem::Internal(_) | Problem::NoLogin => None,
@@ -224,7 +210,6 @@ fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, R
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
-        // 셸 앞에 `loom guard`를 붙이는 프로필만 그 셸을 끝낸다.
         if req.mode == Kind::Interrupt && matches!(profile, Profile::Claude | Profile::Cursor) {
             return app
                 .graph
@@ -291,7 +276,6 @@ pub(super) async fn agent_done(
             return recorded::<Reported>(&app, node, PARENT, Kind::Queue, what, &via, Err(refused));
         }
     };
-    // 종류 낱말로 거절할 글에는 git을 부르지 않는다. 경고를 보지 못해도 보고는 보낸다. 완료는 중간 결과도 나른다.
     let word = app.kind_word(node, &req.summary);
     let warning = if word.is_ok() {
         app.unreadied(node).await.unwrap_or_else(|e| {
@@ -327,7 +311,6 @@ pub(super) async fn agent_done(
     recorded(&app, node, PARENT, Kind::Queue, what, &via, done)
 }
 
-/// 완료 줄의 그림은 받은편지함이 그대로 낸다. 있는 그림 파일만 받는다.
 fn done_image(path: &std::path::Path) -> Result<(), Refusal> {
     let image = path
         .extension()
@@ -339,15 +322,12 @@ fn done_image(path: &std::path::Path) -> Result<(), Refusal> {
     Ok(())
 }
 
-/// `--doc`(`loom ask`, `loom done`)의 문서에 ID를 붙인다. `show.sh`를 지난 HTML만 받는다.
 fn attach(doc: Option<&std::path::Path>) -> Result<Option<WaitDoc>, Refusal> {
     doc.map(user_doc::attach).transpose()
 }
 
-/// 부모 없는 노드의 `loom ask`가 사람에게 가는 받는 쪽 이름. 이벤트 줄에만 보인다.
 const INBOX: &str = "inbox";
 
-/// 사람이 읽을 글 속 `file://` 링크 가운데 `--doc`이 받지 않을 것. 경로는 그 노드의 폴더 쪽에서 푼다(WSL 노드의 Linux 경로).
 fn unchecked_link(app: &App, node: NodeId, text: &str) -> Result<Option<String>, Refusal> {
     let folder = app.graph.place_of(node)?.worktree;
     Ok(user_doc::unchecked_link(
@@ -356,7 +336,6 @@ fn unchecked_link(app: &App, node: NodeId, text: &str) -> Result<Option<String>,
     ))
 }
 
-/// 사람에게 묻는 일은 사람이 띄운 노드(부모 없음)만 한다. 다른 노드의 질문은 부모에게 `ask` 메시지로 간다.
 pub(super) async fn agent_ask(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -410,8 +389,6 @@ pub(super) async fn agent_ask(
     )
 }
 
-/// `loom answered`: 사람의 입력이 `loom ask` 질문의 답이라고 에이전트가 판단했다. 그 질문만 지우고 지운 번호를 돌려준다. 다른 대기는 남는다.
-/// 옛 CLI는 몸통 없이(`null`) 부른다. 번호 없는 호출과 같다.
 pub(super) async fn agent_answered(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -456,7 +433,6 @@ pub(super) async fn agent_adopt(
     traced(&app, parent, Attempt::verb(&req.name), &via, adopted)
 }
 
-/// 사람의 [노드 제거]와 같이 프로세스를 끝낸다. 지운 노드의 자식은 부르는 노드가 데려간다. 돌려준 값은 데려간 노드 이름이다.
 pub(super) async fn agent_remove(
     State(app): State<Arc<App>>,
     headers: HeaderMap,

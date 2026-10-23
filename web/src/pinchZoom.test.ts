@@ -9,7 +9,6 @@ describe("pinchView", () => {
     const mid = { x: 100, y: 80 };
     const next = pinchView(start, mid, 50, mid, 100, limits);
     expect(next.zoom).toBe(2);
-    // graph point under the middle: (90, 60) -> same screen point
     expect(next.x + 90 * next.zoom).toBe(100);
     expect(next.y + 60 * next.zoom).toBe(80);
   });

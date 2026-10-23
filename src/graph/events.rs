@@ -1,7 +1,3 @@
-//! 이벤트 기록: 노드와 메시지에 일어난 일을 바꾼 트랜잭션 안에서 `events` 테이블에 한 줄씩 남긴다.
-//! 화면의 이벤트 콘솔이 읽는다. 잠금을 놓을 때 새 줄을 웹소켓으로 보낸다(`Db`의 `Drop`).
-//! 근거: docs/mockups/graph-panels.html 결정 표 「이벤트 저장」·「이벤트 화면 전달」.
-
 use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -13,9 +9,7 @@ use crate::link_text::{TextPart, parts, path_link};
 use crate::profile::{AgentId, Provider};
 use crate::protocol::{Field, Finding, GateState, GateVerb, MessageKind};
 
-/// 남기는 이벤트 수 상한. 노드 50개가 각각 메시지 200개를 주고받는 하루치다.
 const KEEP: u32 = 10_000;
-/// 이벤트 콘솔을 열 때 읽는 수. 한 화면 스크롤 몇 번 분량이다.
 const RECENT: u32 = 500;
 
 /// 이벤트 하나. 노드 이름을 함께 남긴다. 노드를 지워도 이벤트를 읽을 수 있어야 한다.
@@ -341,7 +335,6 @@ impl EventRecord {
     }
 }
 
-/// 화면의 칸 목록. 판정은 줄 머리의 종류 이름이 보이고(「판정 · 막음」), 커밋은 브랜치 줄에 붙는다(「출력표준2 · 3f2a91c」, 목업 M17 ①).
 fn screen_fields(what: Option<&MessageKind>) -> Vec<FieldParts> {
     let mut fields: Vec<FieldParts> = Vec::new();
     for (name, value) in what.iter().flat_map(|w| w.fields()) {
@@ -365,8 +358,6 @@ fn screen_fields(what: Option<&MessageKind>) -> Vec<FieldParts> {
     fields
 }
 
-/// 화면에서 보낸 쪽이 loom인 종류. 터미널의 `by_loom`과 다르다: 병합 단계 알림은 관문 노드가 불러 생기지만 loom이 알린다.
-/// 사람 입력은 사람이 친 노드를 보인다(목업 M17 ① 넷째 표시).
 fn shown_from_loom(what: &MessageKind) -> bool {
     match what {
         MessageKind::Merging { .. }
@@ -391,7 +382,6 @@ fn shown_from_loom(what: &MessageKind) -> bool {
 const RECORD_COLUMNS: &str = "SELECT e.id, e.at, e.entry, m.body, e.message FROM events e
     LEFT JOIN messages m ON m.id = e.message";
 
-/// `message`는 메시지 이벤트가 가리키는 메시지다. 본문을 복사하지 않는다.
 pub(super) fn write(
     db: &Connection,
     entry: &Entry,
@@ -408,12 +398,10 @@ pub(super) fn write(
     Ok(())
 }
 
-/// 가장 오래 남은 이벤트의 시각. 관문 audit가 흔적 구간이 빈틈없는지 본다.
 pub(super) fn oldest_at(db: &Connection) -> rusqlite::Result<Option<i64>> {
     db.query_row("SELECT min(at) FROM events", [], |row| row.get(0))
 }
 
-/// `since`(유닉스 초) 뒤에 보낸 메시지 이벤트와 그 본문, 오래된 것부터. 관문 audit가 읽는다.
 pub(super) fn sent_since(db: &Connection, since: i64) -> rusqlite::Result<Vec<EventRecord>> {
     db.prepare(&format!(
         "{RECORD_COLUMNS} WHERE e.at >= ?1 AND e.entry ->> 'kind' = 'message' AND e.entry ->> 'step' = 'sent' ORDER BY e.id"
@@ -429,14 +417,12 @@ pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
     })
 }
 
-/// 최근 것부터.
 pub(super) fn recent(db: &Connection) -> rusqlite::Result<Vec<EventRecord>> {
     db.prepare(&format!("{RECORD_COLUMNS} ORDER BY e.id DESC LIMIT ?1"))?
         .query_map([RECENT], record_from_row)?
         .collect()
 }
 
-/// `after`보다 뒤의 이벤트, 오래된 것부터.
 pub(super) fn after(db: &Connection, after: u32) -> rusqlite::Result<Vec<EventRecord>> {
     db.prepare(&format!("{RECORD_COLUMNS} WHERE e.id > ?1 ORDER BY e.id"))?
         .query_map([after], record_from_row)?

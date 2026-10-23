@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# check-callouts.cjs는 엇갈린 지시선을 잡아야 한다(SKILL.md 「목업 말풍선」). 정상 문서는 통과하고, 같은 문서의 선 둘을 엇갈리게 한 문서는 실패해야 한다.
-# 사용: test-cross.sh   끝 코드 0 = 둘 다 기대대로
 set -eu
 here=$(dirname "$(realpath "$0")"); tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 page() { cat <<HTML

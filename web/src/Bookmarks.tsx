@@ -1,5 +1,3 @@
-// 사이드바 북마크 영역(목업 docs/mockups/bookmarks.html ④).
-// 북마크는 데몬 DB에 남는다(`NodeView.bookmark`). 화면은 데몬이 알린 노드 목록만 그린다.
 import { Bookmark, ChevronDown, EllipsisVertical } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,20 +10,17 @@ import { stateClass, stateText } from './NodeCard';
 import { MenuSheet, useLongPress, usePhone } from './Phone';
 import { groupsOf } from './repos';
 
-/** 사이드바 북마크 영역. 모든 저장소의 북마크를 북마크한 차례로 보인다. 줄을 누르면 트리의 노드 줄과 같다. */
 export function Bookmarks(props: { views: ReadonlyMap<NodeId, NodeView>; repos: RepoView[]; selected: NodeId | null; onSelect: (id: NodeId) => void; open: boolean; onOpen: (open: boolean) => void }) {
   const { t } = useTranslation();
   const show = useShowNodes();
   const { open, onOpen: setOpen } = props;
   const [refusal, setRefusal] = useState<{ node: NodeId; text: string } | null>(null);
-  // 폰은 마우스를 올려 보이는 단추 대신 줄 끝 [⋮]·길게 누르기의 판이다(목업 R3, Q457 A).
   const phone = usePhone();
   const [menu, setMenu] = useState<NodeId | null>(null);
   const longPress = useLongPress((row) => setMenu(Number(row.dataset.node) as NodeId));
   const menuView = menu === null ? undefined : props.views.get(menu);
   const views = [...props.views.values()];
   const marked = views.filter((v) => v.bookmark !== null).sort((a, b) => a.bookmark! - b.bookmark!);
-  /** `저장소 · 브랜치`. 저장소를 목록에서 뺐으면 브랜치도 모른다. */
   const where = (v: NodeView) => {
     const repo = props.repos.find((r) => r.id === v.place.repo);
     if (!repo) return '';

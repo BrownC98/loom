@@ -32,6 +32,16 @@ export function groupsOf(repo: RepoView, views: NodeView[]): Group[] {
   return groups;
 }
 
+/**
+ * 그래프는 노드가 없는 연결 워크트리를 상자 대신 원래 체크아웃 상자 안의 칩으로 그린다(목업 docs/mockups/empty-worktree-chip.html v2, 2026-10-23 사람 승인 Q662 A).
+ * 노드가 생기면 다시 상자다. 원래 체크아웃이 없으면 칩을 둘 곳이 없어 모두 상자다. 사이드바 트리는 이 나눔을 쓰지 않는다.
+ */
+export function splitChips(groups: readonly Group[], views: readonly NodeView[]): { boxes: Group[]; chips: Group[] } {
+  const chip = (g: Group) => g.kind === 'linked' && !views.some((v) => v.place.worktree === g.path);
+  if (!groups.some((g) => g.kind !== 'linked')) return { boxes: [...groups], chips: [] };
+  return { boxes: groups.filter((g) => !chip(g)), chips: groups.filter(chip) };
+}
+
 /** 그 묶음의 노드. 부모가 다른 묶음에 있는 노드는 이 묶음의 뿌리처럼 보인다. */
 export function inGroup(views: NodeView[], group: Group): NodeView[] {
   return views.filter((v) => v.place.worktree === group.path);

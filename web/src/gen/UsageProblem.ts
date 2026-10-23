@@ -3,4 +3,4 @@
 /**
  * 사용량을 보일 수 없는 이유. 화면이 고른 언어로 쓴다.
  */
-export type UsageProblem = { "code": "notInstalled", "value": string } | { "code": "cliFailed", "value": { command: string, detail: string, } } | { "code": "cliFormat", "value": string } | { "code": "noReply", "value": string } | { "code": "loginNotSupported" } | { "code": "responseFormat" } | { "code": "tokenExpired" } | { "code": "unavailable", "value": string };
+export type UsageProblem = { "code": "notInstalled", "value": string } | { "code": "cliFailed", "value": { command: string, detail: string, } } | { "code": "cliFormat", "value": string } | { "code": "noReply", "value": string } | { "code": "loginNotSupported" } | { "code": "responseFormat" } | { "code": "tokenExpired", "value": string } | { "code": "unavailable", "value": string };

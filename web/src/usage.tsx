@@ -6,7 +6,7 @@ import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import type { Window } from './gen/Window';
-import i18next, { ago, duration, weekdayAndTime } from './i18n';
+import i18next, { ago, duration, monthDay, weekdayAndTime } from './i18n';
 import { usageProblemText } from './problem';
 
 /** 이 비율 이상 쓰면 막대가 노란색이다(목업 usage.html). */
@@ -48,7 +48,11 @@ export function accountName(account: AccountView): string {
 
 /** 그 계정의 CLI가 `PATH`에 없다. */
 export function notInstalled(a: AccountView): boolean {
-  return a.usage.limits.kind === 'failed' && a.usage.limits.problem.code === 'notInstalled';
+  return cliMissing(a.usage.limits);
+}
+
+export function cliMissing(limits: Limits): boolean {
+  return limits.kind === 'failed' && limits.problem.code === 'notInstalled';
 }
 
 /** 사용량을 보일 수 없는 이유. 보일 수 있으면 null. */
@@ -82,10 +86,16 @@ function accountWindows(limits: Limits): NamedWindow[] {
   });
 }
 
-/** 보일 창 목록: 공급자 전체 창 뒤에 모델별 주간 창(예: Fable). */
-function windows(limits: Limits): NamedWindow[] {
+/** 상태 줄에 보일 창: 공급자 전체 창 뒤에 모델·묶음 창(예: Fable, Cursor Models). */
+function inlineWindows(limits: Limits): NamedWindow[] {
   const models = limits.kind === 'ready' ? limits.models.map((m) => ({ label: m.model, window: m.window })) : [];
   return [...accountWindows(limits), ...models];
+}
+
+/** 팝오버에 보일 창: 상태 줄 창 뒤에 플랜 전체. Orca처럼 플랜은 상태 줄에 두지 않는다(M18 v2, Q666 A). */
+function windows(limits: Limits): NamedWindow[] {
+  const plan = limits.kind === 'ready' && limits.plan ? [{ label: i18next.t('usage.window.plan'), window: limits.plan }] : [];
+  return [...inlineWindows(limits), ...plan];
 }
 
 /** 창마다 이름, 막대, 사용한 비율, 남은 시간 한 줄. 사용량이 없으면 아무것도 그리지 않는다. */
@@ -116,7 +126,7 @@ function useMinute(): number {
 
 /** 상태 줄 안의 짧은 표시: 막대와 「5시간 58%」. */
 export function InlineWindows(props: { limits: Limits }) {
-  return windows(props.limits).map(({ label, window: w }) => (
+  return inlineWindows(props.limits).map(({ label, window: w }) => (
     <span className="lim" key={label}>
       <Meter used={w.used} />
       {label} {w.used}%
@@ -139,11 +149,15 @@ function remainingText(resetsAt: number | null, now: number): string {
   return ms < 60 * 1000 ? i18next.t('usage.soon') : i18next.t('usage.remaining', { left: duration(ms) });
 }
 
-/** 예: 「5시간 창 초기화 (월) 15:40 · 주간 창 초기화 (목) 09:00」. 모델 창은 주간 창과 함께 초기화되므로 넣지 않는다(목업 usage.html). */
+/** 예: 「5시간 창 초기화 (월) 15:40 · 주간 창 초기화 (목) 09:00」. 모델 창은 주간 창과 함께 초기화되므로 넣지 않는다(목업 usage.html).
+ * 플랜은 결제 주기 끝 날만 쓴다: 「11월 20일에 초기화」. Cursor 묶음도 그날 다시 찬다(Orca와 같다, M18 v2). */
 export function resetText(limits: Limits): string {
-  return accountWindows(limits)
-    .flatMap(({ label, window: w }) => (w.resetsAt === null ? [] : [i18next.t('usage.reset', { window: label, time: weekdayAndTime(w.resetsAt * 1000) })]))
-    .join(' · ');
+  const windows = accountWindows(limits).flatMap(({ label, window: w }) =>
+    w.resetsAt === null ? [] : [i18next.t('usage.reset', { window: label, time: weekdayAndTime(w.resetsAt * 1000) })],
+  );
+  const planReset = limits.kind === 'ready' ? limits.plan?.resetsAt : null;
+  const plan = planReset == null ? [] : [i18next.t('usage.resetsOn', { date: monthDay(planReset * 1000) })];
+  return [...windows, ...plan].join(' · ');
 }
 
 /** 예: 「2분 전 갱신」. */

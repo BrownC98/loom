@@ -3,12 +3,14 @@ import { Fragment, useRef, useState, type ReactNode, type RefObject } from 'reac
 import { useTranslation } from 'react-i18next';
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
+import type { CursorView } from './gen/CursorView';
+import type { Limits } from './gen/Limits';
 import type { Provider } from './gen/Provider';
 import type { SettingsView } from './gen/SettingsView';
 import { noticeOf } from './accountSwitch';
 import { weekdayAndTime } from './i18n';
 import type { SwitchRecord } from './useSwitchNotice';
-import { accountName, activeAccount, fetchedText, InlineWindows, limitsProblem, notInstalled, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
+import { accountName, activeAccount, cliMissing, fetchedText, InlineWindows, limitsProblem, PROVIDER_LABEL, PROVIDERS, resetText, WindowLines, windowsText } from './usage';
 import { AgentMark } from './AgentMark';
 import { Sheet, usePhone } from './Phone';
 import { useDismiss } from './popover';
@@ -17,6 +19,8 @@ import { VERSION } from './version';
 export type Usage = {
   /** 처음 읽기 전에는 null이다. */
   accounts: AccountView[] | null;
+  /** 위치마다 Cursor CLI 로그인. 처음 읽기 전에는 null이다. */
+  cursor: CursorView[] | null;
   /** 마지막으로 읽은 시각(ms). */
   fetchedAt: number | null;
   loading: boolean;
@@ -46,16 +50,23 @@ export function StatusBar(props: {
   // 고른 저장소의 위치가 아직 목록에 없으면(배포판이 꺼져 있음) 이 PC를 보인다.
   const distro = usage.accounts?.some((a) => a.distro === props.distro) ? props.distro : null;
   const active = (provider: Provider) => (usage.accounts ? activeAccount(usage.accounts, props.settings, provider, distro) : undefined);
-  const summary = PROVIDERS.map((provider) => {
-    const a = active(provider);
-    return `${PROVIDER_LABEL[provider]} ${a ? `${accountName(a)}, ${windowsText(a.usage.limits)}` : t('statusBar.summaryLoading')}`;
-  }).join('; ');
+  // Cursor는 Codex 뒤다. loom은 Cursor 계정을 바꾸지 않고 그 위치의 CLI 로그인만 보인다(목업 cursor-usage.html, Q666 A).
+  const cursor = usage.cursor?.find((c) => c.distro === distro);
+  const cursorName = cursor && (cursor.usage.email ?? t('usage.systemDefault'));
+  const summary = [
+    ...PROVIDERS.map((provider) => {
+      const a = active(provider);
+      return `${PROVIDER_LABEL[provider]} ${a ? `${accountName(a)}, ${windowsText(a.usage.limits)}` : t('statusBar.summaryLoading')}`;
+    }),
+    ...(cursor ? [`${CURSOR_LABEL} ${cursorName}, ${windowsText(cursor.usage.limits)}`] : []),
+  ].join('; ');
 
   const body = usage.accounts && (
     <UsageBody
       accounts={usage.accounts.filter((a) => a.distro === distro)}
       active={active}
       usage={usage}
+      cursor={cursor}
       onChoose={(provider, id) => props.onChoose(provider, distro, id)}
       onManage={
         props.onManage &&
@@ -76,22 +87,17 @@ export function StatusBar(props: {
             <Fragment key={provider}>
               {i > 0 && <span className="sep" aria-hidden="true" />}
               <AgentMark agent={provider} label={PROVIDER_LABEL[provider]} />
-              {a === undefined ? (
-                <span>{t('statusBar.loading')}</span>
-              ) : a.usage.limits.kind === 'needsLogin' ? (
-                <span>{t('statusBar.loginToSee')}</span>
-              ) : notInstalled(a) ? (
-                <span>{t('accounts.notInstalled')}</span>
-              ) : (
-                <>
-                  <span className="acct-name">{accountName(a)}</span>
-                  <InlineWindows limits={a.usage.limits} />
-                  {a.usage.limits.kind === 'failed' && <span className="seg-err">{t('statusBar.unavailable')}</span>}
-                </>
-              )}
+              {a === undefined ? <span>{t('statusBar.loading')}</span> : <Segment name={accountName(a)} limits={a.usage.limits} />}
             </Fragment>
           );
         })}
+        {cursor && cursorName && (
+          <>
+            <span className="sep" aria-hidden="true" />
+            <AgentMark agent="cursor" label={CURSOR_LABEL} />
+            <Segment name={cursorName} limits={cursor.usage.limits} />
+          </>
+        )}
       </button>
       {/* 팝오버를 열지 않고 사용량을 다시 읽는다(2026-10-20 사람 지시 "하단 사용량 표시 섹션에 사용량 조회 새로고침 버튼 만들어"). */}
       <button className="btn ghost sm icon refresh" data-loading={usage.loading || undefined} disabled={usage.loading} aria-label={t('statusBar.refresh')} title={t('statusBar.refresh')} onClick={usage.refresh}>
@@ -101,6 +107,23 @@ export function StatusBar(props: {
       <span className="app-version">v{VERSION}</span>
       {open && usage.accounts && (phone ? <Sheet label={t('statusBar.usage')} onClose={() => setOpen(false)}>{body}</Sheet> : <UsagePopover anchor={button} onClose={() => setOpen(false)}>{body}</UsagePopover>)}
     </footer>
+  );
+}
+
+const CURSOR_LABEL = 'Cursor';
+
+/** 상태 줄의 공급자 하나: 이름과 창, 또는 볼 수 없는 이유. */
+function Segment(props: { name: string; limits: Limits }) {
+  const { t } = useTranslation();
+  const { limits } = props;
+  if (limits.kind === 'needsLogin') return <span>{t('statusBar.loginToSee')}</span>;
+  if (cliMissing(limits)) return <span>{t('accounts.notInstalled')}</span>;
+  return (
+    <>
+      <span className="acct-name">{props.name}</span>
+      <InlineWindows limits={limits} />
+      {limits.kind === 'failed' && <span className="seg-err">{t('statusBar.unavailable')}</span>}
+    </>
   );
 }
 
@@ -144,6 +167,7 @@ function UsagePopover(props: { anchor: RefObject<HTMLButtonElement | null>; onCl
 function UsageBody(props: {
   accounts: AccountView[];
   active: (provider: Provider) => AccountView | undefined;
+  cursor: CursorView | undefined;
   usage: Usage;
   onChoose: (provider: Provider, id: AccountId | null) => void;
   /** 없으면 [계정 관리]를 두지 않는다. 폰에는 설정 창이 없다(목업 mobile.html ⑧). */
@@ -166,6 +190,7 @@ function UsageBody(props: {
           onChoose={(id) => props.onChoose(provider, id)}
         />
       ))}
+      {props.cursor && <CursorSection usage={props.cursor.usage} />}
       <div className="usage-foot">
         {usage.fetchedAt !== null && fetchedText(usage.fetchedAt, Date.now())}
         {props.onManage && (
@@ -219,6 +244,27 @@ function ProviderSection(props: {
           })}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** Cursor 절. 계정 목록이 없어 펼치지 않는다. 창은 Orca 순서다: 묶음 뒤에 플랜(M18 v2, Q666 A). */
+function CursorSection(props: { usage: CursorView['usage'] }) {
+  const { t } = useTranslation();
+  const { limits } = props.usage;
+  const problem = limitsProblem(limits);
+  const reset = resetText(limits);
+  return (
+    <section className="prov-sec" aria-label={t('statusBar.usageLabel', { provider: CURSOR_LABEL })}>
+      <div className="prov plain">
+        <AgentMark agent="cursor" label={CURSOR_LABEL} />
+        <span className="acct-name">{props.usage.email ?? t('usage.systemDefault')}</span>
+      </div>
+      <div className="win" aria-live="polite">
+        <WindowLines limits={limits} />
+        {problem && <span className="error">{problem}</span>}
+        {reset && <span className="reset">{reset}</span>}
+      </div>
     </section>
   );
 }

@@ -1,6 +1,7 @@
 // 데몬 API. 요청·응답 타입은 Rust가 원천이다(gen/).
 import type { AccountId } from './gen/AccountId';
 import type { AccountView } from './gen/AccountView';
+import type { CursorView } from './gen/CursorView';
 import type { AgentView } from './gen/AgentView';
 import type { DocRow } from './gen/DocRow';
 import type { AnswerWait } from './gen/AnswerWait';
@@ -182,6 +183,8 @@ export const deleteWorktree = (repo: RepoId, path: string, deleteBranch: boolean
 export const getEventLog = () => call<EventRecord[]>('GET', '/api/events/log');
 /** 계정마다 사용량을 그 자리에서 읽는다. 몇 초 걸린다. */
 export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
+/** 위치마다 Cursor CLI 로그인의 사용량. 계정 목록과 같은 때 읽는다. */
+export const getCursorUsage = () => call<CursorView[]>('GET', '/api/usage/cursor');
 /** 계정 라우트의 위치 질의. `distro`가 null이면 이 PC다. */
 const at = (distro: string | null): Record<string, string> => (distro === null ? {} : { distro });
 const query = (params: Record<string, string>) => (Object.keys(params).length === 0 ? '' : `?${new URLSearchParams(params)}`);

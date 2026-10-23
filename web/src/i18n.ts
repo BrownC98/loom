@@ -26,6 +26,7 @@ let relative: Intl.RelativeTimeFormat;
 let weekdayTime: Intl.DateTimeFormat;
 let clock: Intl.DateTimeFormat;
 let dayTime: Intl.DateTimeFormat;
+let monthDayFormat: Intl.DateTimeFormat;
 let units: Record<'minute' | 'hour' | 'day', Intl.NumberFormat>;
 const unit = (locale: string, unit: 'minute' | 'hour' | 'day') => new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'narrow' });
 // `init`도 이 이벤트를 낸다.
@@ -35,6 +36,7 @@ i18next.on('languageChanged', (locale) => {
   weekdayTime = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   clock = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
   dayTime = new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  monthDayFormat = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' });
   units = { minute: unit(locale, 'minute'), hour: unit(locale, 'hour'), day: unit(locale, 'day') };
 });
 i18next.use(initReactI18next).init({
@@ -95,6 +97,11 @@ export function dateAndTime(time: number): string {
 /** 예: 「(월) 15:40」, 「Mon 15:40」. */
 export function weekdayAndTime(time: number): string {
   return weekdayTime.format(time);
+}
+
+/** 예: 「11월 20일」, 「Nov 20」. Orca가 Cursor 결제 주기 끝을 이렇게 쓴다. */
+export function monthDay(time: number): string {
+  return monthDayFormat.format(time);
 }
 
 /** 예: 「10. 23. 오후 3:40」, 「10/23, 3:40 PM」. 해는 적지 않는다. */

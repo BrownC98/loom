@@ -10,8 +10,12 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 /// `PATH`에서 찾은 CLI를 띄우는 명령. 못 찾으면 이름 그대로 띄운다(실행할 때 실패한다).
 /// Windows의 `std::process::Command`는 `.exe`만 붙여 찾는다. npm은 CLI를 `.cmd`로 설치한다(예: `codex.cmd`).
 pub fn command(name: &str) -> std::process::Command {
-    let path = which::which(name).unwrap_or_else(|_| name.into());
-    let mut argv = argv(&path).into_iter();
+    command_at(&which::which(name).unwrap_or_else(|_| name.into()))
+}
+
+/// 실행 파일 `path`를 띄우는 명령. npm 배치 파일이면 그것이 부르는 프로그램을 띄운다(`argv`).
+pub fn command_at(path: &Path) -> std::process::Command {
+    let mut argv = argv(path).into_iter();
     let mut cmd = std::process::Command::new(argv.next().expect("argv는 비지 않는다"));
     cmd.args(argv);
     cmd

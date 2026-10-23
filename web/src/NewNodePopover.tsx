@@ -2,6 +2,7 @@ import { LoaderCircle } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createNode } from './api';
+import { useEscapeClose } from './popover';
 import { canBypass } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentId } from './gen/AgentId';
@@ -48,6 +49,7 @@ export function NewNodePopover(props: {
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
+  const box = useEscapeClose<HTMLFormElement>(props.onCancel);
   const labelOf = (c: Choice) => c.agent?.label ?? t('newNode.shell');
   // 카탈로그는 늘 비어 있지 않다. 비었으면 데몬이 아직 PATH를 찾는 중이다(약 2초).
   const loading = props.agents.length === 0;
@@ -129,7 +131,7 @@ export function NewNodePopover(props: {
   };
 
   return (
-    <form className="pop nodrag nowheel" aria-label={t('graph.newNode')} onSubmit={submit} onKeyDown={(e) => e.key === 'Escape' && props.onCancel()}>
+    <form ref={box} className="pop nodrag nowheel" aria-label={t('graph.newNode')} onSubmit={submit}>
       <h2>
         {t('graph.newNode')}
         <span translate="no">{props.branch}</span>

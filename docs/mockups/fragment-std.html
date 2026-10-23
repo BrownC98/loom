@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M10 loom 표준화 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 토큰과 줄 모양은 web/src/styles.css와 같다(화이트 테마). */
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.pane { width: 700px; padding: 18px 22px; background: var(--panel); border-radius: 12px; display: grid; gap: 18px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.pane code { font-family: var(--mono); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.rows { border: 1px solid var(--line); border-radius: var(--radius); }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.acct-row:last-child { border-bottom: 0; }
+.acct-row[aria-current="true"] { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+.row-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.row-main .name { font-weight: 600; }
+.row-main .meta { flex-basis: 100%; font: 12px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-actions { display: flex; gap: 4px; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
+.badge.warn { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }
+.win { display: grid; grid-template-columns: 64px minmax(0, 1fr) 44px auto; gap: 6px 8px; }
+.win > :not(.win-line) { grid-column: 1 / -1; }
+.win-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; font-size: 12px; color: var(--ink-2); }
+.meter { display: block; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.pct { font-family: var(--mono); text-align: right; }
+.left { white-space: nowrap; font-family: var(--mono); color: var(--ink-3); }
+.new { outline: 2px dashed var(--warn); outline-offset: 2px; border-radius: 4px; }
+
+.confirm { width: 420px; padding: 16px; background: var(--surface); border-radius: 10px; border: 1px solid var(--line); display: grid; gap: 12px; font-size: 13px; }
+.confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.login { width: 700px; padding: 14px; background: var(--surface); border-radius: 10px; display: grid; gap: 10px; }
+.login h3 { display: flex; align-items: center; font-size: 14px; }
+.login h3 .spacer { flex: 1; }
+.term { background: oklch(16% 0 0); color: oklch(90% 0 0); font: 12px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; white-space: pre; height: 150px; }
+.term .dim { color: oklch(65% 0 0); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; width: 1000px; }
+.cols h4 { font-size: 12px; color: var(--ink-3); margin-bottom: 6px; }
+.row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; }
+.pop { width: 440px; padding: 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; display: grid; gap: 8px; font-size: 13px; }
+.field { height: 30px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 8px; display: flex; align-items: center; color: var(--ink-3); }
+table { border-collapse: collapse; font-size: 13px; width: 1000px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--ink-3); font-weight: 600; }
+.key { font: 12px var(--mono); padding: 1px 6px; border: 1px solid var(--line-strong); border-radius: 4px; }
+</style>
+</head>
+<body>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M10</b></span><span>응답할 곳: <b>코디 · 파편화코디</b></span><span>연 담당: <b>코디 · 파편화코디</b></span><span>v1 · 2026-10-23 · 승인: Q503 A(①·② 모두 A)</span></div>
+  <h1>같은 기능의 다른 동작 2건 표준화</h1>
+  <p class="lead">사람 지시: "loom에서 동일 기능이 파편화 된 케이스가 있는지 탐색하고, 있으면 표준화 작업을 진행해". 화면이 바뀌지 않는 표준화는 이미 했다. 아래 두 건은 보이는 동작이 바뀌므로 승인을 받는다. 점선이 바뀌는 곳이다.</p>
+
+  <div class="fig">
+    <h2>① 설정 › 폰: 연결한 기기의 날짜 언어 <span class="tag">PhoneSettings.tsx:150</span></h2>
+    <div class="cols">
+      <div><h4>지금 (화면 언어 English, 브라우저 언어 한국어)</h4>
+        <div class="pane" style="width:auto"><div class="rows"><div class="row"><span class="row-main"><span class="name">Galaxy S25</span><span class="meta">Connected 10. 23. 오후 3:40 · used 3 minutes ago</span></span><button class="btn ghost sm">Remove</button></div></div></div></div>
+      <div><h4>바꾼 뒤</h4>
+        <div class="pane" style="width:auto"><div class="rows"><div class="row"><span class="row-main"><span class="name">Galaxy S25</span><span class="meta"><span class="new" style="display:inline-block;padding:0 2px">Connected 10/23, 3:40 PM</span> · used 3 minutes ago</span></span><button class="btn ghost sm">Remove</button></div></div></div></div>
+    </div>
+    <ul class="note">
+      <li>다른 날짜·시간은 모두 설정의 화면 언어를 따른다. 이 날짜 하나만 브라우저 언어를 따른다.</li>
+      <li>바꾼 뒤에는 i18n.ts의 날짜 형식 하나를 쓴다. 두 언어가 같으면 보이는 글자는 그대로다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>② 팝오버를 <span class="key">Esc</span>로 닫기 <span class="tag">popover.ts</span></h2>
+    <div class="cols">
+      <div><h4>지금: 저장소 추가·새 워크트리·워크트리 삭제·새 노드·색 고르기</h4>
+        <div class="pop"><b>저장소 추가</b><span class="field">URL 또는 폴더</span><span class="hint">팝오버 안을 누른 뒤에만 Esc가 닫는다. 그래프나 터미널에 포커스가 있으면 Esc가 닫지 않는다.</span></div></div>
+      <div><h4>바꾼 뒤: 모든 팝오버와 메뉴</h4>
+        <div class="pop new"><b>저장소 추가</b><span class="field">URL 또는 폴더</span><span class="hint">포커스가 어디에 있든 Esc가 맨 위 팝오버 하나를 닫는다. 사용량 팝오버, 받은편지함 목록, 폰 시트가 지금 이렇게 한다.</span></div></div>
+    </div>
+    <ul class="note">
+      <li>바깥 누르기로 닫기는 지금과 같다.</li>
+      <li>창(설정, 계정 전환)은 그대로 브라우저가 Esc를 맡는다.</li>
+      <li>받은편지함 목록은 알림 표시 작업이 끝난 뒤 같은 부품으로 옮긴다.</li>
+    </ul>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table>
+      <tr><th>항목</th><th>안</th><th>권장</th></tr>
+      <tr><td>① 날짜 언어</td><td>A: 화면 언어를 따른다 / B: 그대로 둔다</td><td>A</td></tr>
+      <tr><td>② Esc 닫기</td><td>A: 포커스와 관계없이 맨 위 팝오버를 닫는다 / B: 그대로 둔다</td><td>A</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+</body>
+</html>

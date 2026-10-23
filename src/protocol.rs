@@ -70,8 +70,11 @@ pub enum MergeEnd {
     Merged,
     /// 담당이 고칠 일: 충돌, 검사 실패, 대상 브랜치가 움직임, 관문 밖 관문 낱말.
     Rework,
-    /// 담당이 고칠 수 없는 일: 배포·환경, 관문 밖 병합, 흔적 구간 빔.
+    /// 담당이 고칠 수 없는 일: 배포·환경, 흔적 구간 빔.
     Failed,
+    /// 다시 부르면 될 일(push 거절, fetch 실패, 잠금 대기 초과)이나 루트가 볼 일(관문 밖에서 이미 병합됨)로 멈췄다.
+    /// `Merging`에 남아 관문이 `loom merge`를 다시 부르거나 `loom fail`한다. 게시하지 않은 병합은 남기지 않는다(재작업 3 결정 3).
+    Stopped,
 }
 
 /// 관문 호출 하나. 동사와 그 결과를 함께 담아 틀린 짝(예: ready에 판정)을 만들 수 없게 한다.
@@ -96,7 +99,7 @@ impl GateCall {
     }
 
     /// 상태마다 허용 동사를 셀 때 쓰는 호출 모두.
-    const ALL: [GateCall; 8] = [
+    const ALL: [GateCall; 9] = [
         GateCall::Ready,
         GateCall::Verdict(Judgment::Pass),
         GateCall::Verdict(Judgment::Block),
@@ -104,6 +107,7 @@ impl GateCall {
         GateCall::MergeEnd(MergeEnd::Merged),
         GateCall::MergeEnd(MergeEnd::Rework),
         GateCall::MergeEnd(MergeEnd::Failed),
+        GateCall::MergeEnd(MergeEnd::Stopped),
         GateCall::Fail,
     ];
 }
@@ -159,6 +163,7 @@ fn next(state: GateState, call: GateCall) -> Option<GateState> {
         (S::Merging, GateCall::MergeEnd(MergeEnd::Merged)) => Some(S::Merged),
         (S::Merging, GateCall::MergeEnd(MergeEnd::Rework)) => Some(S::Working),
         (S::Merging, GateCall::MergeEnd(MergeEnd::Failed)) => Some(S::Failed),
+        (S::Merging, GateCall::MergeEnd(MergeEnd::Stopped)) => Some(S::Merging),
         (S::Working | S::Ready | S::Passed | S::Merged | S::Failed, GateCall::MergeEnd(_)) => None,
         (S::Working | S::Ready | S::Passed | S::Merging, GateCall::Fail) => Some(S::Failed),
         (S::Merged | S::Failed, GateCall::Fail) => None,
@@ -212,6 +217,8 @@ pub fn receivers(call: GateCall) -> &'static [Receiver] {
         GateCall::Verdict(Judgment::Pass) => &[Receiver::Gate, Receiver::Owner],
         GateCall::Verdict(Judgment::Block) => &[Receiver::Owner, Receiver::Gate],
         GateCall::MergeStart | GateCall::MergeEnd(MergeEnd::Rework) => &[Receiver::Owner],
+        // 관문 자신의 일이다. 부른 관문이 기록으로 받는다(`KEPT_FOR_CALLER`).
+        GateCall::MergeEnd(MergeEnd::Stopped) => &[],
         GateCall::MergeEnd(MergeEnd::Merged | MergeEnd::Failed) | GateCall::Fail => {
             &[Receiver::Root, Receiver::Owner]
         }
@@ -228,12 +235,14 @@ pub fn headline(call: GateCall, branch: &str) -> String {
         GateCall::MergeEnd(MergeEnd::Merged) => "merged",
         GateCall::MergeEnd(MergeEnd::Rework) => "merge stopped (rework)",
         GateCall::MergeEnd(MergeEnd::Failed) | GateCall::Fail => "failed",
+        GateCall::MergeEnd(MergeEnd::Stopped) => "merge stopped (still merging)",
     };
     format!("gate {branch}: {what}")
 }
 
-/// 받을 노드가 다 없을 때(담당을 지웠다) 부른 노드가 받는 메시지의 끝 줄. 성공한 관문 호출은 모두 흔적을 남긴다(검토 C6).
-pub const KEPT_FOR_CALLER: &str = "No other node can receive this (the owner is gone). loom keeps it in your inbox as the gate record.";
+/// 받을 노드가 없을 때(담당을 지웠다, 관문 자신의 멈춤) 부른 노드가 받는 메시지의 끝 줄. 성공한 관문 호출은 모두 흔적을 남긴다(검토 C6).
+pub const KEPT_FOR_CALLER: &str =
+    "No other node receives this. loom keeps it in your inbox as the gate record.";
 
 /// 받는 쪽이 다음에 할 일. 메시지 끝 줄이다.
 pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
@@ -268,6 +277,9 @@ pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
         }
         (GateCall::MergeEnd(MergeEnd::Failed) | GateCall::Fail, Receiver::Root) => format!(
             "Next: decide. After the cause is fixed, the owner calls `loom ready {branch}` again."
+        ),
+        (GateCall::MergeEnd(MergeEnd::Stopped), _) => format!(
+            "Next: fix the cause above, then `loom merge {branch}` again, or `loom fail {branch} <cause>`."
         ),
         (
             GateCall::MergeEnd(MergeEnd::Failed) | GateCall::Fail,
@@ -320,6 +332,8 @@ pub const SHIP_SCRIPT: &str = "scripts/gate/ship.sh";
 pub const SHIP_REWORK: i32 = 10;
 /// 병합·push는 했고 배포 확인만 실패했다. 마지막 줄이 병합 커밋이다.
 pub const SHIP_DEPLOY_FAILED: i32 = 11;
+/// ship.sh 끝 코드: 다시 부르면 될 일이나 루트가 볼 일로 멈췄다(push 거절, fetch 실패, 관문 밖 병합). 게시하지 않은 병합은 남기지 않았다.
+pub const SHIP_STOPPED: i32 = 12;
 
 /// `loom merge` 안 audit가 찾은 일. 멈출 일(`end`)이 하나라도 있으면 병합하지 않는다.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
@@ -442,7 +456,7 @@ mod tests {
     ];
 
     /// 사람이 정한 전이 표(R8 v5 ④, 워커 브리프 1번). 이 표 밖의 짝은 모두 거절이다.
-    const LEGAL: [(GateState, GateCall, GateState); 16] = [
+    const LEGAL: [(GateState, GateCall, GateState); 17] = [
         (GateState::Working, GateCall::Ready, GateState::Ready),
         (GateState::Failed, GateCall::Ready, GateState::Ready),
         // 병합한 브랜치 이름을 다시 쓴다(검토 P1-3).
@@ -484,6 +498,12 @@ mod tests {
             GateState::Merging,
             GateCall::MergeEnd(MergeEnd::Failed),
             GateState::Failed,
+        ),
+        // 다시 부르면 될 일로 멈춘 병합은 `Merging`에 남는다(재작업 3 결정 3).
+        (
+            GateState::Merging,
+            GateCall::MergeEnd(MergeEnd::Stopped),
+            GateState::Merging,
         ),
         (GateState::Working, GateCall::Fail, GateState::Failed),
         (GateState::Ready, GateCall::Fail, GateState::Failed),

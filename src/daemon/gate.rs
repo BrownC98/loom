@@ -99,6 +99,11 @@ pub enum MergeResult {
         cause: String,
         log: String,
     },
+    /// 관문이 다시 부르면 될 일. `Merging`에 남는다.
+    Stopped {
+        cause: String,
+        log: String,
+    },
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
@@ -409,6 +414,7 @@ impl App {
             }
             MergeResult::Rework { cause, log } => (MergeEnd::Rework, cause, log),
             MergeResult::Failed { cause, log } => (MergeEnd::Failed, cause, log),
+            MergeResult::Stopped { cause, log } => (MergeEnd::Stopped, cause, log),
         };
         let ended = Ended {
             end,

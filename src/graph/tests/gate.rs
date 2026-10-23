@@ -500,3 +500,45 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
         }
     );
 }
+
+/// 다시 부르면 될 일로 멈춘 병합은 `Merging`에 남고, 관문 자신이 기록을 받는다. 담당은 반려를 받지 않는다(재작업 3 결정 3).
+#[test]
+fn a_stopped_merge_stays_merging_and_only_the_gate_hears_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let v = via();
+    g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
+        .unwrap();
+    g.verdict(t.ci, "b", Judgment::Pass, None, Some(&v))
+        .unwrap();
+    let task = g.merge_start(t.ci, "b", Some(&v)).unwrap();
+    mail(&g, t.ci);
+    mail(&g, t.worker);
+    let ended = Ended {
+        end: MergeEnd::Stopped,
+        merged: None,
+        lines: vec!["cause: push was rejected".into()],
+        findings: Vec::new(),
+    };
+    assert_eq!(
+        g.merge_end(t.ci, "b", task.run, ended, Some(&v)),
+        Ok(GateState::Merging)
+    );
+    let kept = mail(&g, t.ci);
+    assert_eq!(kept.len(), 1);
+    assert!(
+        kept[0].starts_with(
+            "gate b: merge stopped (still merging)\ncause: push was rejected\nNo other node"
+        ),
+        "{}",
+        kept[0]
+    );
+    assert!(mail(&g, t.worker).is_empty());
+    assert!(mail(&g, t.lead).is_empty());
+    // 관문은 다시 병합한다.
+    assert_eq!(
+        g.merge_start(t.ci, "b", Some(&v)).unwrap().run,
+        task.run + 1
+    );
+}

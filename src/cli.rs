@@ -601,7 +601,9 @@ pub fn merge(branch: String) -> Result<(), String> {
             );
             Ok(())
         }
-        MergeResult::Rework { cause, .. } | MergeResult::Failed { cause, .. } => Err(format!(
+        MergeResult::Rework { cause, .. }
+        | MergeResult::Failed { cause, .. }
+        | MergeResult::Stopped { cause, .. } => Err(format!(
             "Did not merge {branch}: {cause}. {branch} is now {state:?}, and loom told the receivers. Log: {shown}"
         )),
     }
@@ -610,7 +612,7 @@ pub fn merge(branch: String) -> Result<(), String> {
 /// 병합 일 하나: 저장소의 병합 잠금을 기다려 잡고, 담당 워크트리가 검토한 커밋에 깨끗이 있는지 보고, check.sh, 다시 보기,
 /// 그 뒤 원래 체크아웃이면 ship.sh, 코디 워크트리면 `git merge --no-ff`를 한다. 시작 폴더는 대상 체크아웃이다.
 /// 잠금은 이 셸의 fd 9가 쥔다. 자식(ship.sh)도 물려받으므로 `loom merge`가 죽어도 일이 끝날 때까지 풀리지 않는다(코디 결정 2).
-/// 대상에 검토한 커밋이 이미 있으면: ship.sh는 앞 실행을 이어 push·배포 확인만 하고(결정 7), 코디 브랜치면 `RUN_ALREADY_MERGED`로 끝난다.
+/// 대상에 검토한 커밋이 이미 있으면: ship.sh가 게시된 대상(origin)을 보고 앞 실행을 잇고(재작업 3 결정 1), 코디 브랜치면 `RUN_ALREADY_MERGED`로 끝난다.
 /// 인자: 담당 워크트리, 검토한 커밋, 브랜치, ship.sh 경로(코디 브랜치면 빈 글), 잠금 대기 초.
 const MERGE_RUN: &str = r#"set -u
 wt=$1 head=$2 branch=$3 ship=$4 wait=$5
@@ -618,17 +620,18 @@ exec 9>>"$(git rev-parse --path-format=absolute --git-common-dir)/loom-merge.loc
 flock -E 75 -w "$wait" 9 || { echo "another loom merge held the lock for $wait seconds"; exit 75; }
 if git merge-base --is-ancestor "$head" HEAD; then
   [ -n "$ship" ] && exec bash "$ship" "$branch" "$head"
-  exit 12
+  exit 15
 fi
 at() { [ "$(git -C "$wt" rev-parse HEAD)" = "$head" ] && [ -z "$(git -C "$wt" status --porcelain)" ]; }
 at || { echo "the worktree of $branch is not clean at the reviewed commit $head"; exit 13; }
-(cd "$wt" && bash scripts/gate/check.sh) || { echo "scripts/gate/check.sh exited $?"; exit 14; }
+# check.sh와 그 자식(cargo, 시험 프로세스)에게는 잠금을 넘기지 않는다. 남은 자식이 잠금을 쥐면 다음 병합이 한 시간 기다린다(검토 P3-e).
+(cd "$wt" && bash scripts/gate/check.sh 9>&-) || { echo "scripts/gate/check.sh exited $?"; exit 14; }
 at || { echo "the worktree of $branch moved during the checks"; exit 13; }
 [ -n "$ship" ] && exec bash "$ship" "$branch" "$head"
 git merge --no-ff -m "Merge branch '$branch'" "$head" || { git merge --abort; exit 10; }
 git rev-parse HEAD
 "#;
-const RUN_ALREADY_MERGED: i32 = 12;
+const RUN_ALREADY_MERGED: i32 = 15;
 const RUN_MOVED: i32 = 13;
 const RUN_CHECK_FAILED: i32 = 14;
 const RUN_LOCK_TIMEOUT: i32 = 75;
@@ -643,6 +646,10 @@ fn merge_result(code: Result<i32, String>, into: &MergeInto, log: &Path) -> Merg
         log: log_text.clone(),
     };
     let rework = |cause: String| MergeResult::Rework {
+        cause,
+        log: log_text.clone(),
+    };
+    let stopped = |cause: String| MergeResult::Stopped {
         cause,
         log: log_text.clone(),
     };
@@ -663,12 +670,16 @@ fn merge_result(code: Result<i32, String>, into: &MergeInto, log: &Path) -> Merg
         Ok(protocol::SHIP_REWORK) => rework(
             "the merge found an owner-fixable problem (conflict, or the target moved)".into(),
         ),
+        Ok(protocol::SHIP_STOPPED) if main => stopped(format!(
+            "{} stopped without an unpublished merge (see the last lines of the log); call `loom merge` again, or tell the root",
+            protocol::SHIP_SCRIPT
+        )),
         Ok(RUN_MOVED) => rework(
             "the worktree was not clean at the reviewed commit. Commit nothing during the gate; call `loom ready` again".into(),
         ),
         Ok(RUN_CHECK_FAILED) => rework(format!("{} failed", protocol::CHECK_SCRIPT)),
-        Ok(RUN_LOCK_TIMEOUT) => failed(format!(
-            "another loom merge held the repository lock for {} minutes",
+        Ok(RUN_LOCK_TIMEOUT) => stopped(format!(
+            "another loom merge held the repository lock for {} minutes; call `loom merge` again later",
             MERGE_LOCK_WAIT_SECS / 60
         )),
         Ok(code) => failed(format!("the merge exited {code}")),
@@ -1085,6 +1096,29 @@ mod tests {
             };
             assert_eq!(run(&r, "", "5").0, RUN_CHECK_FAILED);
             assert_eq!(git(&r.main, &["log", "--oneline"]).lines().count(), 1);
+        }
+
+        /// check.sh가 남긴 자식(분리된 시험 프로세스)은 잠금을 쥐지 않는다(검토 P3-e).
+        #[test]
+        fn a_leftover_check_child_does_not_hold_the_lock() {
+            let r = repo();
+            std::fs::write(
+                r.main.join("scripts/gate/check.sh"),
+                "(setsid sleep 5 >/dev/null 2>&1 &) ; echo checked\n",
+            )
+            .unwrap();
+            git(&r.main, &["commit", "-qam", "check leaves a child"]);
+            git(&r.wt, &["merge", "-q", "--no-edit", "main"]);
+            let r = Repo {
+                head: git(&r.wt, &["rev-parse", "HEAD"]),
+                ..r
+            };
+            let (code, text) = run(&r, "", "5");
+            assert_eq!(code, 0, "{text}");
+            assert!(
+                !lock_busy(r.main.to_str().unwrap()),
+                "the sleep keeps no lock"
+            );
         }
 
         /// 잠금은 병합 일이 쥔다. 대상 체크아웃의 git 폴더에서 잡으므로 다른 폴더에서 부른 `loom merge`도 같은 잠금을 본다(검토 Codex R2).

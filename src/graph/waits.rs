@@ -63,7 +63,7 @@ impl fmt::Display for WaitId {
     }
 }
 
-/// 질문에 붙은 문서(user-doc 목업·보고서). 화면은 ID와 제목만 받는다. 파일 경로는 데몬만 안다(`Stored::doc_path`).
+/// 질문·완료에 붙은 문서(user-doc 목업·보고서, `.md` 같은 글 파일). 화면은 ID와 제목만 받는다. 파일 경로는 데몬만 안다(`Posted::doc_path`).
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct WaitDoc {
@@ -72,7 +72,7 @@ pub struct WaitDoc {
     pub title: String,
 }
 
-/// `loom ask --doc`이 붙인 문서와 그 파일.
+/// `--doc`(`loom ask`, `loom done`)이 붙인 문서와 그 파일.
 pub struct Attached {
     pub doc: WaitDoc,
     pub path: PathBuf,
@@ -109,9 +109,9 @@ pub(super) struct Stored {
     pub source: WaitSource,
 }
 
-/// DB `questions.wait`의 JSON: 열린 `loom ask` 질문 하나.
+/// DB `questions.wait`·`dones.wait`의 JSON: 열린 `loom ask` 질문이나 확인하지 않은 완료 하나와 붙은 문서 파일.
 #[derive(Serialize, Deserialize)]
-pub(super) struct Asked {
+pub(super) struct Posted {
     #[serde(flatten)]
     pub wait: HumanWait,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -190,7 +190,7 @@ impl Graph {
         let asked = wait.id;
         tx.execute(
             "INSERT INTO questions (id, node, wait) VALUES (?1, ?2, ?3)",
-            params![asked.0, id.0, to_json(&Asked { wait, doc_path })],
+            params![asked.0, id.0, to_json(&Posted { wait, doc_path })],
         )?;
         let entry = Entry::Asked {
             node: events::who(&tx, id)?,
@@ -291,11 +291,19 @@ impl Graph {
         Ok(closing)
     }
 
-    /// 열린 `loom ask` 질문에 붙은 문서 파일. 사람이 화면의 문서 링크를 눌렀다. 열린 질문의 문서만 연다.
+    /// 열린 질문이나 확인하지 않은 완료에 붙은 문서 파일. 사람이 화면의 문서 링크를 눌렀다. 닫힌 대기의 문서는 열지 않는다.
     pub fn wait_doc(&self, wait: WaitId) -> Result<PathBuf, Refusal> {
-        open_ask(&self.lock(), wait)?
-            .1
-            .doc_path
+        let posted: Option<String> = self
+            .lock()
+            .query_row(
+                "SELECT wait FROM questions WHERE id = ?1 UNION ALL SELECT wait FROM dones WHERE id = ?1",
+                [wait.0],
+                |row| row.get(0),
+            )
+            .optional()?;
+        posted
+            .and_then(|p| serde_json::from_str::<Posted>(&p).ok())
+            .and_then(|p| p.doc_path)
             .ok_or(Refusal::NoWait(wait))
     }
 
@@ -425,22 +433,25 @@ pub(super) fn put_done(
     asked: &str,
     summary: &str,
     images: &[PathBuf],
+    attached: Option<Attached>,
 ) -> rusqlite::Result<()> {
     let summary = summary.trim().to_owned();
     let instruction: String = asked.chars().take(QUESTION_LIMIT_CHARS).collect();
-    let mut wait = new_wait(db, WaitKind::Done, summary.clone(), true, None)?;
+    let (doc, doc_path) = attached.map(|a| (a.doc, a.path)).unzip();
+    let mut wait = new_wait(db, WaitKind::Done, summary.clone(), true, doc)?;
     wait.instruction = Some(instruction.clone());
     wait.images = images
         .iter()
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
+    let done = wait.id;
     db.execute(
         "INSERT INTO dones (id, node, wait) VALUES (?1, ?2, ?3)",
-        params![wait.id.0, id.0, to_json(&wait)],
+        params![done.0, id.0, to_json(&Posted { wait, doc_path })],
     )?;
     let entry = Entry::Reported {
         node: events::who(db, id)?,
-        wait: wait.id,
+        wait: done,
         summary,
         instruction,
     };
@@ -519,7 +530,7 @@ fn put(db: &rusqlite::Connection, id: NodeId, wait: Option<&Stored>) -> rusqlite
 }
 
 /// 번호가 `wait`인 열린 `loom ask` 질문과 그 노드. 지웠거나 신호의 대기면 거절한다.
-fn open_ask(db: &rusqlite::Connection, wait: WaitId) -> Result<(NodeId, Asked), Refusal> {
+fn open_ask(db: &rusqlite::Connection, wait: WaitId) -> Result<(NodeId, Posted), Refusal> {
     let found: Option<(u32, String)> = db
         .query_row(
             "SELECT node, wait FROM questions WHERE id = ?1",
@@ -533,7 +544,7 @@ fn open_ask(db: &rusqlite::Connection, wait: WaitId) -> Result<(NodeId, Asked), 
 }
 
 /// 노드의 열린 질문, 물은 차례(번호 차례)대로. 읽지 못하는 줄(앞으로 바뀐 형식)은 건너뛴다.
-fn questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Vec<Asked>> {
+fn questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<Vec<Posted>> {
     let mut stmt = db.prepare_cached("SELECT wait FROM questions WHERE node = ?1 ORDER BY id")?;
     let rows = stmt
         .query_map([id.0], |row| row.get::<_, String>(0))?

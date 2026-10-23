@@ -1,4 +1,4 @@
-//! `loom show`와 `loom ask --doc`: user-doc 스킬의 문서를 점검하고 문서 ID를 붙인다. 사람의 브라우저는 열지 않는다.
+//! `loom show`와 `--doc`(`loom ask`, `loom done`): user-doc 스킬의 문서를 점검하고 문서 ID를 붙인다. 사람의 브라우저는 열지 않는다.
 //! 사람은 질문 줄의 문서 링크로 연다(2026-10-21 사람 지시 "목업이나 보고서 승인도 질문탭에 링크로 달아두는 식으루 구현하라, 직접 브라우저에 띄우지 말고").
 //! bash가 없는 Windows 노드에서도 같은 일을 하도록 Rust에 둔다. 렌더 그림은 `show.sh`가 한다.
 //! 근거: skills/user-doc/SKILL.md 「보이기」.
@@ -24,16 +24,28 @@ pub fn show(path: &Path) -> Result<(), String> {
 }
 
 /// 문서를 점검하고 ID를 붙인다. 같은 문서는 판이 바뀌어도 같은 ID다.
+/// HTML이 아닌 글 파일(`.md` 보고서 등)은 점검하지 않고 고치지도 않는다. 데몬은 글 그대로 낸다(`daemon::serve_file`).
+/// 근거: 총괄이 `.md` 감사 보고서를 붙이지 못해 경로를 글로 적었고, 사람은 열지 못했다(2026-10-23 사람 "링크로 제공이 안됨").
 pub fn attach(path: &Path) -> Result<Attached, String> {
     let path = real_path(path)?;
     let html = fs::read_to_string(&path).map_err(|e| match e.kind() {
         // 총괄이 그림(PNG)을 붙여 「stream did not contain valid UTF-8」만 받았다(2026-10-22).
         std::io::ErrorKind::InvalidData => format!(
-            "{}: not a text file. Attach a user-doc HTML file; put images inside it.",
+            "{}: not a text file. Attach a user-doc HTML file or a text file such as .md; put images inside an HTML file.",
             path.display()
         ),
         _ => format!("{}: {e}", path.display()),
     })?;
+    if !is_html(&path) {
+        let title = text_title(&html, &path);
+        return Ok(Attached {
+            doc: WaitDoc {
+                id: doc_id(&path)?,
+                title,
+            },
+            path,
+        });
+    }
     check(&html)?;
     if !mockup(&path) {
         check_report(&html)?;
@@ -45,6 +57,29 @@ pub fn attach(path: &Path) -> Result<Attached, String> {
         doc: WaitDoc { id, title },
         path,
     })
+}
+
+/// 화면이 HTML로 그리는 문서. 다른 문서는 글 그대로 낸다.
+pub fn is_html(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
+}
+
+/// 글 문서의 제목: 첫 markdown 제목 줄(`# …`), 없으면 파일 이름.
+fn text_title(text: &str, path: &Path) -> String {
+    let heading = text
+        .lines()
+        .find_map(|l| l.strip_prefix("# "))
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    match heading {
+        Some(t) => t.to_owned(),
+        None => path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    }
 }
 
 /// 같은 문서가 언제나 같은 표 열쇠를 갖게 링크를 푼다. Windows의 `\\?\C:\…`는 앱이 못 읽으므로 `C:\…`로 둔다.
@@ -195,6 +230,15 @@ mod tests {
         fs::write(&png, [0x89, b'P', b'N', b'G', 0xff, 0xfe]).unwrap();
         let refused = attach(&png).err().unwrap();
         assert!(refused.contains("Attach a user-doc HTML file"), "{refused}");
+    }
+
+    #[test]
+    fn a_text_doc_takes_its_first_heading_or_file_name() {
+        let md = Path::new("/r/audit.md");
+        assert_eq!(text_title("앞말\n# 알림 감사 \n본문\n", md), "알림 감사");
+        assert_eq!(text_title("본문만\n#붙은 줄", md), "audit.md");
+        assert!(!is_html(md));
+        assert!(is_html(Path::new("/r/a.HTML")));
     }
 
     #[test]

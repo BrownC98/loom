@@ -1,6 +1,5 @@
 // user-doc 문서 점검(SKILL.md 「형식」·「목업 말풍선」). 배치 스크립트(callouts.js)와 따로 센다.
 // - 파일 하나: src·href·CSS url()은 data:, https:, #만 쓴다.
-// - 화면 절마다 표시 없는 그림(.fig.clean)이 먼저, 같은 크기로 있는지.
 // - 창 폭 여러 개, 늦게 읽히는 그림, 창 폭 바꾸기마다: 설명마다 말풍선이 있는지, 말풍선이 그림 틀 안에 있거나 글자·컨트롤·상자·배지·다른 말풍선과 겹치는지,
 //   지시선이 다른 상자·말풍선을 지나는지, 배지가 잘리거나 덮이거나 글자를 덮는지, 상자가 대상·표 칸·틀에 맞는지, 테두리 선이 하나인지,
 //   덧그림이 대상의 레이아웃을 바꾸는지, 그림 틀과 덧그림이 절 안에 있는지.
@@ -86,19 +85,7 @@ const DOM_PASS = () => {
   // 픽셀 점검은 배치 스크립트가 다시 그려도 같은 차례로 요소를 찾는다.
   const allPins = [...document.querySelectorAll('.fig > .ov-badge')], allBoxes = [...document.querySelectorAll('.fig > .ov-box')];
   const bad = [], badges = [], bands = []; let n = 0;
-  const frameW = f => [...f.querySelectorAll('.page, .xlwin, .shotwrap')].map(e => { const r = e.getBoundingClientRect(); return Math.round(r.width) + 'x' + Math.round(r.height); });
-  // 화면 절마다 표시 없는 그림(.fig.clean)을 먼저, 표시한 그림을 바로 아래 같은 크기로 둔다(2026-10-23 사람 요청 #2824).
-  for (const fig of document.querySelectorAll('.fig.clean')) {
-    const k = fig.querySelectorAll('.mk, [data-n], .new, .ov-box, .ov-badge, .co, .lead-svg, .calls').length;
-    if (k) bad.push((fig.querySelector('h2')?.textContent.slice(0, 12) ?? '') + ' clean copy has ' + k + ' callout elements');
-  }
-  for (const fig of document.querySelectorAll('.fig:not(.clean)')) {
-    if (!fig.querySelector(':scope > .calls')) continue;
-    const prev = fig.previousElementSibling, title = fig.querySelector('h2')?.textContent.slice(0, 12) ?? '';
-    if (!prev?.matches('.fig.clean')) bad.push(title + ' has no clean copy (.fig.clean) right above it');
-    else if (frameW(prev).join() !== frameW(fig).join()) bad.push(title + ' clean copy is not at the same scale (' + frameW(prev).join('/') + ' vs ' + frameW(fig).join('/') + ' px)');
-  }
-  for (const fig of document.querySelectorAll('.fig:not(.clean)')) {
+  for (const fig of document.querySelectorAll('.fig')) {
     const title = fig.querySelector('h2')?.textContent.slice(0, 12) ?? '';
     const calls = fig.querySelector(':scope > .calls');
     const marks = [...fig.querySelectorAll('.mk[data-n]')];

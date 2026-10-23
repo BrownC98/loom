@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::{AgentId, ModelChoice, accepts_choice};
+use crate::profile::{AgentId, ModelChoice, check_choice};
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -126,7 +126,7 @@ impl Roles {
                 model: role.model.clone(),
                 effort: role.effort.clone(),
             };
-            (!accepts_choice(agent, &choice)).then(|| {
+            check_choice(agent, &choice).is_err().then(|| {
                 format!(
                     "역할 '{}': 이 에이전트는 이 모델·추론 강도를 받지 않는다. Cursor는 추론 강도만 줄 수 없다. 모델을 준다.",
                     role.name
@@ -157,16 +157,31 @@ impl Roles {
             .ok_or_else(|| RoleProblem::NoAgent {
                 role: role.name.clone(),
             })?;
-        let own = role.agent.as_ref() == Some(&agent);
-        let from_role = |value: &Option<String>| value.clone().filter(|_| own);
         Ok(Assignment {
+            choice: role.fill(&agent, choice),
             agent,
-            choice: ModelChoice {
-                model: choice.model.or_else(|| from_role(&role.model)),
-                effort: choice.effort.or_else(|| from_role(&role.effort)),
-            },
             brief: format!("Role: {} - {}\n\n{brief}", role.name, role.duty),
         })
+    }
+
+    /// `agent`로 다시 띄우는 그 역할 노드의 모델·강도(`loom relaunch --agent`). 설정에서 역할이 사라졌으면 준 값 그대로다.
+    pub fn choice_for(&self, name: &str, agent: &AgentId, choice: ModelChoice) -> ModelChoice {
+        match self.0.iter().find(|r| r.name == name.trim()) {
+            Some(role) => role.fill(agent, choice),
+            None => choice,
+        }
+    }
+}
+
+impl Role {
+    /// 준 값이 이긴다. 역할의 모델·강도는 역할의 에이전트로 띄울 때만 쓴다. 다른 에이전트는 그 모델을 받지 못한다.
+    fn fill(&self, agent: &AgentId, choice: ModelChoice) -> ModelChoice {
+        let own = self.agent.as_ref() == Some(agent);
+        let from_role = |value: &Option<String>| value.clone().filter(|_| own);
+        ModelChoice {
+            model: choice.model.or_else(|| from_role(&self.model)),
+            effort: choice.effort.or_else(|| from_role(&self.effort)),
+        }
     }
 }
 
@@ -223,6 +238,26 @@ mod tests {
             .unwrap();
         assert_eq!(got.agent, AgentId("codex".into()));
         assert_eq!(got.choice, ModelChoice::default());
+    }
+
+    /// `loom relaunch --agent`도 `loom spawn --role`과 같은 규칙으로 고른다. 설정에서 지운 역할은 준 값 그대로다.
+    #[test]
+    fn relaunch_choice_follows_the_spawn_rule() {
+        let roles = Roles::default();
+        let claude = AgentId("claude".into());
+        let cursor = AgentId("cursor".into());
+        assert_eq!(
+            roles.choice_for("코디", &claude, ModelChoice::default()),
+            choice(Some("claude-opus-5-5"), Some("medium"))
+        );
+        assert_eq!(
+            roles.choice_for("코디", &cursor, ModelChoice::default()),
+            ModelChoice::default()
+        );
+        assert_eq!(
+            roles.choice_for("없는역할", &claude, choice(None, Some("high"))),
+            choice(None, Some("high"))
+        );
     }
 
     #[test]

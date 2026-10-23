@@ -22,7 +22,7 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
-pub use events::{Entry, EventRecord, SwitchCause, Via, Who};
+pub use events::{AgentSwitch, Entry, EventRecord, SwitchCause, Via, Who};
 pub use gate::{Ended, GateChoice, MergeTask, Round};
 pub use mailbox::{Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
@@ -221,6 +221,10 @@ pub enum Refusal {
     NotSteerable(String),
     /// 세션을 이어 다시 띄우지 못하는 노드다(셸·명령). 값은 노드 이름이다.
     NoResume(String),
+    /// `loom relaunch --agent`의 에이전트에 메시지 연동(프로필)이 없다. 값은 에이전트 id다.
+    NoLink(String),
+    /// 노드가 지금 다시 뜨는 중이라 에이전트 바꾸기를 받지 못한다. 값은 노드 이름이다.
+    Relaunching(String),
     /// 노드를 띄울 저장소가 목록에 없다(그 사이에 뺐다).
     NoRepo,
     /// `loom ask`의 질문이 비었다.
@@ -375,6 +379,14 @@ impl fmt::Display for Refusal {
             Refusal::NoResume(name) => write!(
                 f,
                 "{name}: this node runs a shell or command, which has no agent session to continue in a new process."
+            ),
+            Refusal::NoLink(agent) => write!(
+                f,
+                "{agent}: loom has no message link for this agent. Give claude, codex, cursor, or opencode2 with --agent."
+            ),
+            Refusal::Relaunching(name) => write!(
+                f,
+                "{name}: this node is starting again now. Run `loom relaunch --agent` again after it starts."
             ),
             Refusal::Ambiguous { name, candidates } => write!(
                 f,
@@ -657,6 +669,11 @@ impl Graph {
     /// 다음 메시지가 들어올 때 끝나는 future. 메일함을 보기 전에 `enable()`해야 그 사이에 온 메시지를 놓치지 않는다.
     pub fn mail_changed(&self) -> Notified<'_> {
         self.mail.notified()
+    }
+
+    /// 메일함은 그대로지만 꺼내도 되는 노드가 바뀌었다(다시 띄우기 실패). 기다리는 전달 작업이 메일함을 다시 본다.
+    pub fn wake_mail(&self) {
+        self.mail.notify_waiters();
     }
 
     /// 화면 상태(설정·자리·크기)를 쓴 뒤 부른다. 보는 화면이 없으면 버린다.

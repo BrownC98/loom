@@ -550,10 +550,12 @@ pub fn color_terminal(cmd: &mut CommandBuilder) {
 /// - `ANTHROPIC_BASE_URL`: Claude Code는 `settings.json`의 `env`를 자기 셸 명령에 넣는다. 그 세션에서 띄운 데몬이 받으면
 ///   loom 계정 노드도 시스템 기본 계정의 중계 서버로 요청하고, 그 서버가 다른 토큰을 거절했다(2026-10-21 「401 인증 실패」).
 ///   시스템 기본 노드는 Claude가 `~/.claude/settings.json`에서 다시 읽으므로 그대로다.
+/// - 시험의 기록기(`open::OPENER_ENV`)는 남긴다. 지우면 시험 데몬이 사람의 기본 앱을 연다(2026-10-23 검토자가 사람의 브라우저에 시험 파일을 띄웠다).
 pub fn is_launcher_env(key: &str) -> bool {
-    ["CLAUDE_CODE_", "CODEX_", "OPENCODE", "ORCA_", "LOOM_"]
+    (["CLAUDE_CODE_", "CODEX_", "OPENCODE", "ORCA_", "LOOM_"]
         .iter()
         .any(|prefix| key.starts_with(prefix))
+        && key != crate::open::OPENER_ENV)
         || matches!(
             key,
             "CLAUDECODE"
@@ -862,6 +864,7 @@ mod tests {
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "CLAUDE",
+            crate::open::OPENER_ENV,
         ] {
             assert!(!is_launcher_env(key), "{key}");
         }

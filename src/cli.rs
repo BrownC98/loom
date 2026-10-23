@@ -476,7 +476,6 @@ fn absolute(path: &Path) -> Result<PathBuf, String> {
     std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// 글이 `--doc` 문서에 거는 markdown 링크는 그 자리의 문서 링크가 된다. 없으면 화면은 글 끝에 문서 링크를 단다.
 fn with_doc_link(text: &str, doc: Option<&Path>) -> String {
     doc.map_or_else(
         || text.to_owned(),

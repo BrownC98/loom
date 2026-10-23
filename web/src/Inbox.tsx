@@ -399,7 +399,6 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
   );
 }
 
-/** 대기에 붙은 문서의 링크. */
 function DocLink(props: { wait: WaitId; doc: WaitDoc; label: string; onRefusal: (message: string) => void }) {
   const { t } = useTranslation();
   const { wait, doc } = props;

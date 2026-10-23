@@ -104,19 +104,33 @@ pub fn inline_link(text: &str, doc: &Path) -> String {
         let (before, link) = rest.split_at(open);
         out.push_str(before);
         let parsed = link[1..].split_once("](").and_then(|(label, after)| {
-            let target = after.split_once(')')?.0;
+            // CommonMark는 주소를 `<…>`로 감쌀 수 있고, 감싼 주소에는 빈칸이 들 수 있다(2026-10-23 검토 BLOCK).
+            let (target, end) = match after.strip_prefix('<') {
+                Some(wrapped) => {
+                    let (target, tail) = wrapped.split_once('>')?;
+                    tail.starts_with(')')
+                        .then_some((target, target.len() + 3))?
+                }
+                None => {
+                    let target = after.split_once(')')?.0;
+                    if target.contains(char::is_whitespace) {
+                        return None;
+                    }
+                    (target, target.len() + 1)
+                }
+            };
             let ok = !label.is_empty()
                 && !label.contains(['[', ']', '\n'])
                 && !target.is_empty()
-                && !target.contains(char::is_whitespace);
-            ok.then_some((label, target))
+                && !target.contains('\n');
+            ok.then_some((label, target, label.len() + 3 + end))
         });
         match parsed {
-            Some((label, target))
+            Some((label, target, len))
                 if link_path(target).is_some_and(|p| real_path(&p).is_ok_and(|p| p == doc)) =>
             {
                 out.push_str(&format!("[{label}]({DOC_LINK})"));
-                rest = &link[label.len() + target.len() + 4..];
+                rest = &link[len..];
             }
             _ => {
                 out.push('[');
@@ -340,6 +354,18 @@ mod tests {
             format!("[문헌 도구]({DOC_LINK}) 승인? [다른]({other}) [x] (y) [웹](https://a.b/c)")
         );
         assert_eq!(inline_link("승인? (A / B)", &doc), "승인? (A / B)");
+        let path = doc.display();
+        assert_eq!(
+            inline_link(&format!("[목업](<{path}>) 승인? [x](<{path}>"), &doc),
+            format!("[목업]({DOC_LINK}) 승인? [x](<{path}>")
+        );
+        let plain = dir.path().join("plain.md");
+        fs::write(&plain, "").unwrap();
+        let plain_path = plain.display();
+        assert_eq!(
+            inline_link(&format!("[보고서](<{plain_path}>)."), &plain),
+            format!("[보고서]({DOC_LINK}).")
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ import type { GraphScope } from "./GraphScope";
 import type { InUse } from "./InUse";
 import type { Language } from "./Language";
 import type { PaneWidths } from "./PaneWidths";
+import type { PillPlace } from "./PillPlace";
 import type { QuestionPill } from "./QuestionPill";
 import type { RepoId } from "./RepoId";
 import type { Roles } from "./Roles";
@@ -105,7 +106,11 @@ minimapFolded: boolean,
 /**
  * 사이드바에서 고른 저장소. 없거나 목록에 없으면 화면이 첫 저장소를 쓴다.
  */
-repo: RepoId | null, paneWidths: PaneWidths, closedPanes: ClosedPanes, 
+repo: RepoId | null, paneWidths: PaneWidths, 
+/**
+ * 사람이 끌어 옮긴 질문 알약의 자리. 없으면 그래프 칸 위 가운데다.
+ */
+pillPlace: PillPlace | null, closedPanes: ClosedPanes, 
 /**
  * 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
  */

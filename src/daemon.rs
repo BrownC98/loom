@@ -663,7 +663,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/waits/{wait}/answer", post(answer_wait))
         .route("/api/waits/{wait}/choose", post(choose_wait))
         .route("/api/docs", get(list_docs))
-        .route("/api/docs/{id}", post(open_doc))
+        .route(
+            "/api/docs/{id}",
+            post(open_doc).layer(axum::middleware::from_fn(origin::from_page)),
+        )
         .route("/api/docs/{id}/", get(doc))
         .route("/api/docs/{id}/{*file}", get(doc_sibling))
         .route("/api/waits/{wait}/images/{index}", get(done_image_file))
@@ -672,7 +675,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
             "/api/pastes/{name}",
             post(save_paste).layer(DefaultBodyLimit::max(paste::LIMIT_BYTES)),
         )
-        .route("/api/files/open", post(open_file))
+        .route(
+            "/api/files/open",
+            post(open_file).layer(axum::middleware::from_fn(origin::from_page)),
+        )
         .route("/api/files/view/{node}/{*path}", get(view_file))
         .route("/api/shutdown", post(shutdown))
         .route("/api/update", get(update_view))
@@ -1694,7 +1700,7 @@ async fn adopt_node(
     Ok(Json(()))
 }
 
-/// 사람이 터미널에서 누른 파일 링크를 기본 앱으로 연다. JSON 몸통이라 다른 출처의 페이지는 사전 요청에서 막힌다.
+/// 사람이 터미널에서 누른 파일 링크를 기본 앱으로 연다. JSON 몸통이라 다른 출처의 페이지는 사전 요청에서 막히고, `Origin` 없는 요청(노드의 curl)은 `origin::from_page`가 막는다.
 async fn open_file(
     State(app): State<Arc<App>>,
     Json(req): Json<OpenFile>,

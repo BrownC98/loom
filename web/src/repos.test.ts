@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NodeView } from './gen/NodeView';
 import type { RepoView } from './gen/RepoView';
-import { attachCards, chosenRepo, groupParents, groupsOf, inGroup, type Group } from './repos';
+import { attachCards, chosenRepo, groupParents, groupsOf, inGroup, splitChips, type Group } from './repos';
 
 const view = (id: number, parent: number | null, worktree: string, repo = 1): NodeView => ({
   id,
@@ -83,6 +83,24 @@ describe('groupsOf', () => {
     const groups = groupsOf(repo([{ path: '/r', head: '', branch: 'main', original: true }]), [view(1, null, '/gone/x'), view(2, null, '/other', 2), view(3, null, '/r')]);
     expect(groups.map((g) => g.path)).toEqual(['/r', '/gone/x']);
     expect(groups[1]).toEqual({ path: '/gone/x', label: 'x', kind: 'linked', branch: null });
+  });
+});
+
+describe('splitChips', () => {
+  const main: Group = { path: '/r', label: 'main', kind: 'original', branch: 'main' };
+
+  it('a linked worktree without a node is a chip; with a node it is a box; the original checkout is always a box', () => {
+    const split = splitChips([main, group('/a'), group('/b')], [view(1, null, '/b')]);
+    expect(split.boxes.map((g) => g.path)).toEqual(['/r', '/b']);
+    expect(split.chips.map((g) => g.path)).toEqual(['/a']);
+  });
+
+  it('an empty original checkout stays a box, also before the first commit', () => {
+    expect(splitChips([{ ...main, kind: 'unborn' }], []).boxes.map((g) => g.path)).toEqual(['/r']);
+  });
+
+  it('without an original checkout every worktree stays a box', () => {
+    expect(splitChips([group('/a')], [])).toEqual({ boxes: [group('/a')], chips: [] });
   });
 });
 

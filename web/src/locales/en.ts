@@ -605,7 +605,7 @@ const en = {
       noRound: '{{value}}: this branch has no gate round. Its owner calls `loom ready` first.',
       notOwner: '{{branch}}: only the node whose worktree is on this branch calls `loom ready`.',
       uncommitted: '{{value}}: there are uncommitted changes.',
-      notAncestor: '{{target}} is not in {{branch}}. Merge it first.',
+      notAncestor: '{{target}} moved ahead; merge it into {{branch}} again',
       sameAsTarget: '{{value}}: this is the target branch itself.',
       noGate: 'No live CI 담당자 node is in this repository.',
       manyGates: 'More than one CI 담당자 node is in this repository ({{value}}).',

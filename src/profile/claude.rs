@@ -157,6 +157,29 @@ impl Hook {
             None => self.event.take(),
         }
     }
+
+    pub fn asks_interrupt(&self) -> bool {
+        self.agent_id.is_some() && matches!(self.event, Event::PreToolUse { .. })
+    }
+
+    pub fn reports_wait(&self) -> bool {
+        self.agent_id.is_none() || self.event.human_wait().is_some()
+    }
+}
+
+const SUBAGENT_INTERRUPTED: &str =
+    "Your parent agent received a loom interrupt. Stop now and return to your parent agent.";
+
+pub fn subagent_interrupted() -> Value {
+    deny(SUBAGENT_INTERRUPTED.into())
+}
+
+fn deny(text: String) -> Value {
+    json!({ "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": text,
+    } })
 }
 
 #[derive(Deserialize)]
@@ -267,11 +290,7 @@ impl Event {
             | Event::Stop
             | Event::StopFailure { .. }
             | Event::Notification { .. } => None,
-            Event::PreToolUse { .. } => Some(json!({ "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": text,
-            } })),
+            Event::PreToolUse { .. } => Some(deny(text)),
             Event::UserPromptSubmit { .. } => Some(context("UserPromptSubmit", text)),
             Event::PostToolUse => Some(context("PostToolUse", text)),
             Event::PostToolUseFailure => Some(context("PostToolUseFailure", text)),
@@ -576,6 +595,43 @@ mod tests {
         }
         let main = hook(json!({ "hook_event_name": "PostToolUse", "session_id": "e6edf215" }));
         assert_eq!(main.take(), Take::Now(Kind::ALL));
+    }
+
+    #[test]
+    fn only_a_subagent_tool_call_asks_for_a_pending_interrupt_and_is_denied() {
+        let pre = json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls" },
+        });
+        let mut subagent = pre.clone();
+        subagent["agent_id"] = "a7432afa802847021".into();
+        assert!(hook(subagent.clone()).asks_interrupt());
+        assert!(!hook(pre).asks_interrupt());
+        subagent["hook_event_name"] = "PostToolUse".into();
+        assert!(!hook(subagent).asks_interrupt());
+        assert_eq!(
+            subagent_interrupted(),
+            json!({ "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": SUBAGENT_INTERRUPTED,
+            } })
+        );
+    }
+
+    #[test]
+    fn a_subagent_reports_only_a_human_wait_it_raises() {
+        let bash = json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls" },
+        });
+        let ask = json!({
+            "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
+            "tool_input": { "questions": [{ "question": "A or B?" }] },
+        });
+        assert!(hook(bash.clone()).reports_wait());
+        for (mut input, reports) in [(bash, false), (ask, true)] {
+            input["agent_id"] = "a7432afa802847021".into();
+            assert_eq!(hook(input.clone()).reports_wait(), reports, "{input}");
+        }
     }
 
     #[test]

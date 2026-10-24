@@ -1107,14 +1107,11 @@ async fn guard_records_no_host_process_for_a_wsl_node() {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     };
-    let guard = |shell| {
+    let guard = || {
         agent_guard(
             t.state(),
             headers(WORKER, "guard"),
-            Json(GuardRequest {
-                caller: child,
-                shell,
-            }),
+            Json(GuardRequest { caller: child }),
         )
     };
     let place = |worktree: &str| {
@@ -1128,14 +1125,41 @@ async fn guard_records_no_host_process_for_a_wsl_node() {
     };
     if cfg!(windows) {
         place(r"\\wsl.localhost\Ubuntu\home\me\repo");
-        ok("guard", guard(Some(4242)).await);
-        ok("guard", guard(None).await);
+        ok("guard", guard().await);
         assert_eq!(t.app.host.stop_guarded(t.worker), 0);
-        assert_eq!(t.app.host.take_guarded_inside(t.worker), [4242]);
         place(&t.place.worktree);
     }
-    ok("guard", guard(Some(4242)).await);
-    assert_eq!(t.app.host.take_guarded_inside(t.worker), Vec::<u32>::new());
+    ok("guard", guard().await);
     assert!(t.app.host.stop_guarded(t.worker) >= 1);
     t.app.host.kill(t.worker);
+}
+
+#[tokio::test]
+async fn an_interrupt_check_leaves_the_idle_wait_open_and_the_mail_undelivered() {
+    let t = fixture();
+    let target = format!("#{}", t.worker.0);
+    let pending = || agent_interrupt_pending(t.state(), headers(WORKER, "interrupt-pending"));
+    assert!(!pending().await.unwrap().0);
+    t.app
+        .graph
+        .note(t.lead, &target, Kind::Queue, "큐", None)
+        .unwrap();
+    assert!(!pending().await.unwrap().0);
+    let _wait = t.app.idle.open(t.worker);
+    t.app
+        .graph
+        .interrupt(t.lead, &target, "멈춰라", None, |_| {})
+        .unwrap();
+    assert!(pending().await.unwrap().0);
+    assert!(t.app.idle.waiting(t.worker));
+    let taken = t.app.graph.take(t.worker, Kind::ALL, 8192).unwrap();
+    assert_eq!(
+        taken.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
+        ["큐", "멈춰라"]
+    );
+    t.app
+        .graph
+        .ack(t.worker, &taken.iter().map(|d| d.id).collect::<Vec<_>>())
+        .unwrap();
+    assert!(!pending().await.unwrap().0);
 }

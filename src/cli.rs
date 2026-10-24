@@ -173,14 +173,20 @@ pub fn hook() -> Result<(), String> {
     let request = HookWaitRequest {
         wait: event.human_wait(),
     };
-    if let Err(e) = call::<()>("hook-wait", &request, Some(timeout)) {
+    if hook.reports_wait()
+        && let Err(e) = call::<()>("hook-wait", &request, Some(timeout))
+    {
         eprintln!("loom: could not report the human wait: {e}");
     }
     let transcript = input["transcript_path"].as_str().map(str::to_owned);
     let kinds = match hook.take() {
         Take::Now(kinds) => kinds,
         Take::Never => {
-            if let Some(reply) = event.reply(&[], None) {
+            let reply = match hook.asks_interrupt() && interrupt_pending(timeout) {
+                true => Some(claude::subagent_interrupted()),
+                false => event.reply(&[], None),
+            };
+            if let Some(reply) = reply {
                 println!("{reply}");
             }
             return Ok(());
@@ -220,6 +226,13 @@ pub fn hook() -> Result<(), String> {
     }
     acknowledge(&taken.messages, Some(timeout));
     Ok(())
+}
+
+fn interrupt_pending(timeout: Duration) -> bool {
+    call("interrupt-pending", &(), Some(timeout)).unwrap_or_else(|e| {
+        eprintln!("loom: could not check for an interrupt: {e}");
+        false
+    })
 }
 
 fn hook_name(input: &serde_json::Value) -> String {
@@ -399,10 +412,7 @@ fn reconnecting<T>(
 
 pub fn guard() -> Result<(), String> {
     let caller = std::process::id();
-    let shell = std::env::var(crate::wsl::SHELL_ENV)
-        .ok()
-        .and_then(|pid| pid.parse().ok());
-    Ok(call::<()>("guard", &GuardRequest { caller, shell }, None)?)
+    Ok(call::<()>("guard", &GuardRequest { caller }, None)?)
 }
 
 pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {

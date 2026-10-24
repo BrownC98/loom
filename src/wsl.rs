@@ -245,9 +245,10 @@ sleep 2
 kill -KILL $all 2>/dev/null
 exit 0"#;
 
-pub const SHELL_ENV: &str = "LOOM_SHELL";
+const MARKS: &str = r#"started() { s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1; set -- ${s##*) }; shift 19; echo "$1"; }
+marks=/tmp/loom-guard-$(id -u)"#;
 
-pub async fn end_shells(distro: &str, token: &str, shells: &[u32]) -> Result<(), String> {
+pub async fn end_shells(distro: &str, token: &str) -> Result<(), String> {
     let mut cmd = tokio::process::Command::new("wsl.exe");
     cmd.args([
         "-d",
@@ -259,17 +260,22 @@ pub async fn end_shells(distro: &str, token: &str, shells: &[u32]) -> Result<(),
         "sh",
         token,
     ])
-    .args(shells.iter().map(u32::to_string))
     .env("WSL_UTF8", "1");
     bounded(cmd, END_TOKEN_WAIT).await
 }
 
 fn end_shells_script() -> String {
     format!(
-        r#"token=$1; shift; roots=
-for pid; do
+        r#"{MARKS}
+token=$1 dir=$marks/$1 roots=
+[ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || exit 0
+for f in "$dir"/*.*; do
+  [ -e "$f" ] || continue
+  m=${{f##*/}} pid=${{m%.*}}
+  [ "$(started "$pid")" = "${{m#*.}}" ] || continue
   tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token" && roots="$roots $pid"
 done
+rm -rf "$dir"
 {END_TREES}"#
     )
 }
@@ -544,7 +550,22 @@ pub fn write_shim(dir: &Path, exe: &Path) -> std::io::Result<()> {
     let exe = exe.to_string_lossy().replace('\'', r"'\''");
     let shim = dir.join("loom");
     let text = format!(
-        "#!/bin/sh\nexport {SHELL_ENV}=$PPID WSLENV=\"${{WSLENV:+$WSLENV:}}{SHELL_ENV}\"\nexec \"$(wslpath -u '{exe}')\" \"$@\"\n"
+        r#"#!/bin/sh
+if [ "$1" = guard ] && [ -n "$LOOM_TOKEN" ]; then
+{MARKS}
+  dir=$marks/$LOOM_TOKEN
+  mkdir -m 700 "$marks" "$dir" 2>/dev/null
+  for d in "$marks" "$dir"; do [ -O "$d" ] && [ ! -L "$d" ] || exit 0; done
+  for f in "$dir"/*.*; do
+    [ -e "$f" ] || continue
+    m=${{f##*/}}
+    [ "$(started "${{m%.*}}")" = "${{m#*.}}" ] || rm -f "$f"
+  done
+  : >"$dir/$PPID.$(started $PPID)"
+  exit 0
+fi
+exec "$(wslpath -u '{exe}')" "$@"
+"#
     );
     if std::fs::read_to_string(&shim).is_ok_and(|old| old == text) {
         return Ok(());
@@ -624,26 +645,108 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[tokio::test]
-    async fn end_shells_ends_only_the_trees_of_shells_with_the_token() {
-        let token = format!("shell{}", std::process::id());
-        let dir = tempfile::tempdir().unwrap();
-        let child_pid = dir.path().join("child");
-        let spawn = |script: String, token: &str| {
+    struct Shim {
+        dir: tempfile::TempDir,
+        token: String,
+    }
+
+    #[cfg(unix)]
+    impl Shim {
+        fn new(name: &str) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().unwrap();
+            let fake = dir.path().join("loom.exe");
+            let ran = dir.path().join("ran");
+            std::fs::write(
+                &fake,
+                format!("#!/bin/sh\necho \"$*\" >> {}\n", ran.display()),
+            )
+            .unwrap();
+            std::fs::write(dir.path().join("wslpath"), "#!/bin/sh\necho \"$2\"\n").unwrap();
+            write_shim(dir.path(), &fake).unwrap();
+            for file in ["loom.exe", "wslpath", "loom"] {
+                let mode = std::fs::Permissions::from_mode(0o755);
+                std::fs::set_permissions(dir.path().join(file), mode).unwrap();
+            }
+            let token = format!("{name}{}", std::process::id());
+            Shim { dir, token }
+        }
+
+        fn spawn(&self, script: &str, token: &str) -> std::process::Child {
+            let path = format!(
+                "{}:{}",
+                self.dir.path().display(),
+                std::env::var("PATH").unwrap()
+            );
             std::process::Command::new("sh")
-                .args(["-c", &script])
+                .args(["-c", script])
+                .env("PATH", path)
                 .env("LOOM_TOKEN", token)
                 .spawn()
                 .unwrap()
-        };
-        let mut guarded = spawn(
-            format!(
-                "LOOM_TOKEN=other sleep 30 & echo $! > {}; wait",
+        }
+
+        fn run(&self, script: &str) {
+            assert!(self.spawn(script, &self.token).wait().unwrap().success());
+        }
+
+        fn marks(&self) -> PathBuf {
+            use std::os::unix::fs::MetadataExt;
+            let uid = std::fs::metadata(self.dir.path()).unwrap().uid();
+            PathBuf::from(format!("/tmp/loom-guard-{uid}/{}", self.token))
+        }
+
+        fn ran(&self) -> String {
+            std::fs::read_to_string(self.dir.path().join("ran")).unwrap_or_default()
+        }
+    }
+
+    #[cfg(unix)]
+    fn started(pid: u32) -> String {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+        let rest = stat.rsplit_once(") ").unwrap().1;
+        rest.split(' ').nth(19).unwrap().to_owned()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shim_marks_a_guarded_shell_without_the_windows_loom() {
+        use std::os::unix::fs::PermissionsExt;
+        let shim = Shim::new("mark");
+        let mut shell = shim.spawn("loom guard; exec sleep 30", &shim.token);
+        let marked = || std::fs::read_dir(shim.marks()).map_or(0, |d| d.count());
+        while marked() == 0 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let mark = shim
+            .marks()
+            .join(format!("{}.{}", shell.id(), started(shell.id())));
+        assert!(mark.exists(), "{mark:?}");
+        let mode = std::fs::metadata(shim.marks())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+        assert_eq!(shim.ran(), "");
+        shim.run("loom status");
+        assert_eq!(shim.ran(), "status\n");
+        shell.kill().unwrap();
+        shell.wait().unwrap();
+        std::fs::remove_dir_all(shim.marks()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn end_shells_ends_marked_live_shells_with_the_token_after_many_guards() {
+        let shim = Shim::new("end");
+        let child_pid = shim.dir.path().join("child");
+        let mut guarded = shim.spawn(
+            &format!(
+                "loom guard; LOOM_TOKEN=other sleep 30 & echo $! > {}; wait",
                 child_pid.display()
             ),
-            &token,
+            &shim.token,
         );
-        let mut reused = spawn("exec sleep 30".into(), "other");
         while !std::fs::read_to_string(&child_pid).is_ok_and(|t| t.ends_with('\n')) {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
@@ -652,48 +755,30 @@ mod tests {
             .trim()
             .parse()
             .unwrap();
+        for _ in 0..70 {
+            shim.run("loom guard");
+        }
+        let unmarked = shim.spawn("exec sleep 30", &shim.token);
+        let wrong_start = shim.spawn("exec sleep 30", &shim.token);
+        let reused = shim.spawn("exec sleep 30", "other");
+        let mark = |name: String| std::fs::write(shim.marks().join(name), "").unwrap();
+        mark(format!("{}.1", wrong_start.id()));
+        mark(format!("{}.{}", reused.id(), started(reused.id())));
+        assert_eq!(std::fs::read_dir(shim.marks()).unwrap().count(), 4);
 
         let mut cmd = tokio::process::Command::new("sh");
-        cmd.args(["-c", &end_shells_script(), "sh", &token])
-            .args([guarded.id(), reused.id(), u32::MAX].map(|p| p.to_string()));
+        cmd.args(["-c", &end_shells_script(), "sh", &shim.token]);
         bounded(cmd, END_TOKEN_WAIT).await.unwrap();
 
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(guarded.wait().unwrap().signal(), Some(15));
         assert!(!std::path::Path::new(&format!("/proc/{child}")).exists());
-        assert!(reused.try_wait().unwrap().is_none());
-        reused.kill().unwrap();
-        reused.wait().unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn the_shim_passes_its_shell_to_the_windows_loom() {
-        let dir = tempfile::tempdir().unwrap();
-        let bin = dir.path().join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let fake = dir.path().join("loom.exe");
-        std::fs::write(&fake, "#!/bin/sh\necho \"$LOOM_SHELL $WSLENV $*\"\n").unwrap();
-        std::fs::write(bin.join("wslpath"), "#!/bin/sh\necho \"$2\"\n").unwrap();
-        write_shim(dir.path(), &fake).unwrap();
-        for file in [&fake, &bin.join("wslpath"), &dir.path().join("loom")] {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!shim.marks().exists());
+        for mut left in [unmarked, wrong_start, reused] {
+            assert!(left.try_wait().unwrap().is_none());
+            left.kill().unwrap();
+            left.wait().unwrap();
         }
-        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
-        let out = std::process::Command::new("sh")
-            .args(["-c", "\"$0\" guard; echo $$"])
-            .arg(dir.path().join("loom"))
-            .env("PATH", path)
-            .env("WSLENV", "LOOM_TOKEN")
-            .output()
-            .unwrap();
-        let text = String::from_utf8(out.stdout).unwrap();
-        let lines: Vec<_> = text.lines().collect();
-        assert_eq!(
-            lines[0],
-            format!("{} LOOM_TOKEN:LOOM_SHELL guard", lines[1])
-        );
     }
 
     #[cfg(unix)]

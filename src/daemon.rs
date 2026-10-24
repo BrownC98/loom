@@ -371,7 +371,6 @@ pub struct IdleRequest {
 #[derive(Serialize, Deserialize)]
 pub struct GuardRequest {
     pub caller: u32,
-    pub shell: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -551,6 +550,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/take", post(agent_take))
         .route("/api/agent/idle", post(agent_idle))
         .route("/api/agent/ack", post(agent_ack))
+        .route(
+            "/api/agent/interrupt-pending",
+            post(agent_interrupt_pending),
+        )
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/model", post(agent_model))
         .route("/api/agent/roles", post(agent_roles))
@@ -1454,21 +1457,19 @@ impl App {
         Ok(wsl::of(std::path::Path::new(&place.worktree)))
     }
 
-    fn end_guarded_inside(&self, node: NodeId, shells: Vec<u32>) {
-        if shells.is_empty() {
+    fn end_guarded_inside(&self, node: NodeId) {
+        let Some(at) = self.node_wsl(Some(node)).ok().flatten() else {
             return;
-        }
+        };
         let token = self
             .graph
             .active()
             .ok()
             .and_then(|nodes| nodes.into_iter().find(|n| n.id == node))
             .map(|n| n.token);
-        let Some((at, token)) = self.node_wsl(Some(node)).ok().flatten().zip(token) else {
-            return;
-        };
+        let Some(token) = token else { return };
         tokio::spawn(async move {
-            if let Err(e) = wsl::end_shells(&at.distro, &token, &shells).await {
+            if let Err(e) = wsl::end_shells(&at.distro, &token).await {
                 eprintln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0);
             }
         });
@@ -2236,6 +2237,15 @@ async fn agent_idle(
     }
 }
 
+async fn agent_interrupt_pending(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<bool>, AgentError> {
+    let node = app.caller(&headers)?;
+    let pending = app.graph.interrupt_pending(node);
+    Ok(Json(pending.map_err(|e| for_agent(Refusal::from(e)))?))
+}
+
 async fn agent_ack(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
@@ -2252,13 +2262,8 @@ async fn agent_guard(
     Json(req): Json<GuardRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    match app.node_wsl(Some(node)).map_err(for_agent)? {
-        Some(_) => {
-            if let Some(shell) = req.shell {
-                app.host.guard_inside(node, shell);
-            }
-        }
-        None => app.host.guard(node, req.caller),
+    if app.node_wsl(Some(node)).map_err(for_agent)?.is_none() {
+        app.host.guard(node, req.caller);
     }
     Ok(Json(()))
 }

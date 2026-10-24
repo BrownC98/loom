@@ -26,7 +26,6 @@ const VIEWER_QUEUE_CHUNKS: usize = 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const GREET_TIMEOUT: Duration = Duration::from_secs(2);
 const LOST_CODE: u32 = u32::MAX;
-const GUARDED_INSIDE_KEPT: usize = 64;
 
 const SETTLED_AFTER: Duration = Duration::from_secs(2);
 
@@ -85,7 +84,6 @@ pub struct NodeHost<K> {
 struct Pty {
     pid: Mutex<Option<u32>>,
     guarded: Mutex<Vec<u32>>,
-    guarded_inside: Mutex<Vec<u32>>,
     host: Mutex<TcpStream>,
     output: Mutex<Output>,
     size: watch::Sender<PtySize>,
@@ -172,7 +170,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         let pty = Arc::new(Pty {
             pid: Mutex::new(pid),
             guarded: Mutex::default(),
-            guarded_inside: Mutex::default(),
             host: Mutex::new(host),
             output: Mutex::new(Output {
                 backlog: Backlog::default(),
@@ -335,21 +332,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             shells.push(shell);
         }
         process_tree::alive(&mut shells);
-    }
-
-    pub fn guard_inside(&self, id: K, shell: u32) {
-        let Some(pty) = self.pty(id) else { return };
-        let mut shells = pty.guarded_inside.lock().unwrap();
-        shells.retain(|&s| s != shell);
-        shells.push(shell);
-        let over = shells.len().saturating_sub(GUARDED_INSIDE_KEPT);
-        shells.drain(..over);
-    }
-
-    pub fn take_guarded_inside(&self, id: K) -> Vec<u32> {
-        self.pty(id)
-            .map(|pty| std::mem::take(&mut *pty.guarded_inside.lock().unwrap()))
-            .unwrap_or_default()
     }
 
     pub fn stop_guarded(&self, id: K) -> usize {

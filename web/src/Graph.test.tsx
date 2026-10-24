@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import './testSetup';
 import { ReactFlowProvider } from '@xyflow/react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
@@ -8,12 +7,12 @@ import { Graph } from './Graph';
 import { deferred, nodeView, Providers, repo, settings } from './testSupport';
 
 vi.mock('./api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./api')>()),
+  ...(await importOriginal<Record<string, unknown>>()),
   renameNode: vi.fn(),
   getSpots: vi.fn(),
   getSizes: vi.fn(),
 }));
-vi.mock('./Terminal', async (importOriginal) => ({ ...(await importOriginal<typeof import('./Terminal')>()), SizingTerminal: () => null }));
+vi.mock('./Terminal', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), SizingTerminal: () => null }));
 const renameNode = vi.mocked(api.renameNode);
 
 const views = new Map([[1, nodeView(1, 'alpha')]]);

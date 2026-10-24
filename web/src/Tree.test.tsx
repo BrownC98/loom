@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import './testSetup';
 import { ReactFlowProvider } from '@xyflow/react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
@@ -7,7 +6,7 @@ import * as api from './api';
 import { Tree } from './Tree';
 import { deferred, nodeView, Providers, repo, settings } from './testSupport';
 
-vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), renameNode: vi.fn() }));
+vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), renameNode: vi.fn() }));
 const renameNode = vi.mocked(api.renameNode);
 
 const views = new Map([1, 2].map((id) => [id, nodeView(id, id === 1 ? 'alpha' : 'beta')]));
@@ -112,7 +111,6 @@ describe('Tree name edit', () => {
     expect(field().hasAttribute('readonly')).toBe(true);
   });
 
-  // 129750a7: the blur save of row A ends after row B opened its field.
   it('a late save of one row does not close the field of another row', async () => {
     const late = deferred();
     renameNode.mockReturnValue(late.promise);
@@ -127,7 +125,6 @@ describe('Tree name edit', () => {
     expect(field()).toHaveProperty('value', 'beta');
   });
 
-  // 67c48888: the blur save of row A is refused after row B opened its field.
   it('a late refusal of a closed field shows as that row error and keeps the open field', async () => {
     const late = deferred();
     renameNode.mockReturnValue(late.promise);

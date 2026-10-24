@@ -1,4 +1,3 @@
-// Side-effect import for the jsdom component tests: browser stubs and per-test cleanup.
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 

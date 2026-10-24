@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import './testSetup';
 import { ReactFlowProvider } from '@xyflow/react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
@@ -8,7 +7,7 @@ import type { HumanWait } from './gen/HumanWait';
 import { InboxPanel } from './Inbox';
 import { deferred, nodeView, Providers } from './testSupport';
 
-vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), answerWait: vi.fn(), dismissWait: vi.fn() }));
+vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), answerWait: vi.fn(), dismissWait: vi.fn() }));
 const answerWait = vi.mocked(api.answerWait);
 const dismissWait = vi.mocked(api.dismissWait);
 

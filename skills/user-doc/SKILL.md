@@ -7,6 +7,8 @@ description: Make a document for the human (a mockup or a report) as one HTML fi
 
 Mockups and reports use the same design language. Make, check and attach a document in one pass. Do not open the human's browser.
 
+A document exists so that the human decides fast and correctly. Put the decisions first. Put facts that do not change a decision after the decisions, or remove them. Do not give the human more work to choose (more inputs, more choices) unless the human asks for it. For each decision, give the recommendation, what changes for the human (a "now → after" example), the cost, the risk and how to undo it.
+
 ## Form
 
 - One HTML file in the human's language. Put images in `data:` URLs. Do not point `src`, `href` or CSS `url()` to a different file (relative path, `file:`). `https:` URLs, for example web fonts, are permitted. Start from a copy of [style.html](style.html). Do not change the tokens, fonts, font sizes, head line, section numbers or table style in its `<style>`. Add only the blocks that you need.
@@ -19,7 +21,7 @@ Mockups and reports use the same design language. Make, check and attach a docum
 | Type | Body |
 |---|---|
 | Mockup | Title; one paragraph of background (the human's words); a flow strip at the top (step → step); for each screen a numbered section (①②③) with a full-page drawing and callouts (see "Mockup callouts"); at the end an approval table (`승인할 것`) that marks the recommended option. One desktop width |
-| Report | Title; the conclusion in the first section; in each section a diagram first (inline SVG with document tokens, visible in light and dark), then a short list; a table only for what a diagram cannot show; sources as links; at the end a decision table (`정할 것`) that marks the recommended option. `loom show` refuses a report without a diagram. Research, design and check records go in reports, not in mockups |
+| Report | Title; the conclusion in the first section; one section for each decision, with its options in a table (columns: what changes for the human, cost, risk); in each section a diagram first (inline SVG with document tokens, visible in light and dark), then a short list; a table only for what a diagram cannot show; sources as links; at the end a decision table (`정할 것`) with one line per decision: its options and the recommended option. `loom show` refuses a report without a diagram. Research, design and check records go in reports, not in mockups |
 
 - Location: a mockup goes in the repository at `docs/mockups/<name>.html`; a report goes in the task folder (`$LOOM_TASK_DIR`, else `~/.cache/loom/<task>/<subject>.html`). Write a new version to the same path and increase its version number.
 

@@ -2,6 +2,6 @@
 import type { Resize } from "./Resize";
 
 /**
- * 화면이 PTY 웹소켓에 보내는 글 프레임. 키 입력은 바이너리 프레임으로 간다(docs/design.md 「데몬 하나」 PTY 열·줄).
+ * 화면이 PTY 웹소켓에 보내는 글 프레임. 키 입력은 바이너리 프레임으로 간다(docs/design/데몬-하나.md 「데몬 하나」 PTY 열·줄).
  */
 export type PtyRequest = { "resize": Resize } | { "borrow": Resize } | "giveBack";

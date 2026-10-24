@@ -17,7 +17,7 @@ use crate::link_text::bare_link;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
 use crate::protocol::{LOOM, MessageKind, Question};
 
-/// 메시지 전달 방식. 메모(`loom note`)만 조정·중단으로 보낸다. 근거: docs/design.md 「명령」.
+/// 메시지 전달 방식. 메모(`loom note`)만 조정·중단으로 보낸다. 근거: docs/design/메시징.md 「명령」.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]

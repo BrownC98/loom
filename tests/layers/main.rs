@@ -370,14 +370,16 @@ impl Crate {
             return;
         };
         let at = format!("{}:{}", file.name, node.start_position().row + 1);
-        let argument: String = text(tokens, file.source)
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-        let literal = argument
-            .strip_prefix("(\"")
-            .and_then(|rest| rest.strip_suffix("\")"))
-            .filter(|name| !name.contains('"'));
+        let raw = text(tokens, file.source);
+        let argument: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+        let literal = raw
+            .trim()
+            .strip_prefix('(')
+            .and_then(|rest| rest.strip_suffix(')'))
+            .map(str::trim)
+            .and_then(|rest| rest.strip_prefix('"'))
+            .and_then(|rest| rest.strip_suffix('"'))
+            .filter(|name| !name.contains(['"', '\\']));
         let Some(name) = literal else {
             if !GENERATED_INCLUDES.contains(&argument.as_str()) {
                 self.unread.push(format!(
@@ -396,8 +398,8 @@ impl Crate {
         let included = File {
             source: &source,
             name: path.display().to_string(),
-            dir: file.dir.clone(),
-            inline: file.inline,
+            dir: path.parent().expect("file has a folder").to_path_buf(),
+            inline: false,
         };
         self.visit(repo, &included, tree.root_node(), module);
     }
@@ -940,6 +942,35 @@ fn include_reads_the_included_source() {
     let plain = files("pub fn probe() -> String {\n    String::new()\n}\n");
     assert_eq!(
         fixture(&plain, &["devices", "usage"], &[]),
+        Vec::<String>::new()
+    );
+    let call_text = "pub fn probe() -> String {\n    crate::devices::random_token()\n}\n";
+    let plain_text = "pub fn probe() -> String {\n    String::new()\n}\n";
+    let spaced = [
+        ("src/main.rs", MAIN),
+        ("src/devices.rs", DEVICES),
+        ("src/usage.rs", "include!( \"extra file.rs\" );\n"),
+        ("src/extra file.rs", call_text),
+        ("src/extrafile.rs", plain_text),
+    ];
+    assert!(calls_devices(&fixture(&spaced, &["devices", "usage"], &[])));
+    let nested = |helper: &'static str, decoy: &'static str| {
+        [
+            ("src/main.rs", MAIN),
+            ("src/devices.rs", DEVICES),
+            ("src/usage.rs", "include!(\"nested/extra.rs\");\n"),
+            ("src/nested/extra.rs", "mod helper;\n"),
+            ("src/nested/helper.rs", helper),
+            ("src/usage/helper.rs", decoy),
+        ]
+    };
+    assert!(calls_devices(&fixture(
+        &nested(call_text, plain_text),
+        &["devices", "usage"],
+        &[]
+    )));
+    assert_eq!(
+        fixture(&nested(plain_text, call_text), &["devices", "usage"], &[]),
         Vec::<String>::new()
     );
     let unread = [

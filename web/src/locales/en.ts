@@ -633,6 +633,7 @@ const en = {
       kindWord: 'Do not start a message with kind word {{word}}. Instead: {{verb}}.',
       kindWord_nameless: '{{word}} is a kind word · use {{verb}}',
       ownVerdict: '{{value}}: you cannot judge your own branch.',
+      oneBranch: '{{branch}}: this reviewer already judged {{judged}}. One reviewer judges one branch.',
       nothingToMerge: '{{branch}} has no commit that {{target}} does not have.',
       git: 'git failed: {{value}}',
       launch: 'Could not start the node: {{value}}',

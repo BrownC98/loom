@@ -266,6 +266,10 @@ fn failed(cause: String, log: Option<String>, lines: Vec<String>) -> Ended<'stat
     }
 }
 
+fn source_of(repo: &Path, member: &Queued) -> PathBuf {
+    PathBuf::from(git::from_git_path(repo, &member.worktree))
+}
+
 fn repo_path(app: &App, repo: RepoId) -> Result<PathBuf, Refusal> {
     app.repos
         .path(repo)
@@ -481,33 +485,24 @@ impl Batch<'_> {
         }
     }
 
-    async fn publish(
-        &self,
-        members: &[Queued],
-        base: &str,
-        tip: &str,
-        step: u32,
-    ) -> Result<(), Refusal> {
-        let into = self.into().await?;
-        self.publish_into(members, base, tip, step, &into).await
-    }
-
     async fn resume(&self, members: &[Queued], base: &str, tip: &str) -> Result<(), Refusal> {
-        let advanced = git::run(
-            &self.dir,
-            &[
-                "merge-base",
-                "--is-ancestor",
-                tip,
-                &format!("refs/heads/{}", self.target),
-            ],
-        )
-        .await
-        .is_ok();
-        if !advanced && !self.unchanged(members).await? {
+        let into = self.into().await?;
+        let done = match &into {
+            Dest::Base => {
+                git::run(&self.dir, &["fetch", "--quiet", "origin", &self.target])
+                    .await
+                    .map_err(Refusal::Git)?;
+                format!("refs/remotes/origin/{}", self.target)
+            }
+            Dest::Coordinator { .. } => format!("refs/heads/{}", self.target),
+        };
+        let published = git::run(&self.dir, &["merge-base", "--is-ancestor", tip, &done])
+            .await
+            .is_ok();
+        if !published && !self.unchanged(members).await? {
             return Ok(());
         }
-        self.publish(members, base, tip, 0).await
+        self.publish_into(members, base, tip, 0, &into).await
     }
 
     async fn screen(&self, member: &Queued) -> Result<bool, Refusal> {
@@ -681,11 +676,11 @@ impl Batch<'_> {
                 now: now.trim().to_owned(),
             });
         }
-        let source = Path::new(&member.worktree);
+        let source = source_of(&self.dir, member);
         if source.is_dir() {
-            let head = git::run(source, &["rev-parse", "HEAD"]).await;
+            let head = git::run(&source, &["rev-parse", "HEAD"]).await;
             let changes =
-                git::run(source, &["status", "--porcelain", "--untracked-files=no"]).await;
+                git::run(&source, &["status", "--porcelain", "--untracked-files=no"]).await;
             match (head, changes) {
                 (Ok(head), Ok(changes))
                     if head.trim() == member.head && changes.trim().is_empty() => {}
@@ -727,8 +722,8 @@ impl Batch<'_> {
 
     fn moved(&self, members: &[Queued], step: u32) {
         self.record(step, members, None, BatchResult::TargetMoved, None);
-        self.moved.store(true, Ordering::Relaxed);
         if self.moves + 1 < MOVE_LIMIT {
+            self.moved.store(true, Ordering::Relaxed);
             return members.iter().for_each(|m| self.requeue(m));
         }
         let cause = format!(

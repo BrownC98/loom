@@ -286,6 +286,11 @@ pub enum Refusal {
     },
     /// 브랜치 담당이 자기 브랜치를 판정했다. 값은 브랜치다.
     OwnVerdict(String),
+    /// 검토자 노드 하나는 브랜치 하나만 판정한다. `judged`는 그 노드가 이미 판정한 브랜치다.
+    OneBranch {
+        branch: String,
+        judged: String,
+    },
     /// 담당 브랜치의 커밋이 모두 이미 대상 브랜치에 있다. 병합할 것이 없다.
     NothingToMerge {
         branch: String,
@@ -455,6 +460,10 @@ impl fmt::Display for Refusal {
             Refusal::OwnVerdict(branch) => write!(
                 f,
                 "{branch}: you own this branch, so you cannot judge it. A reviewer that its gate spawned gives the verdict."
+            ),
+            Refusal::OneBranch { branch, judged } => write!(
+                f,
+                "{branch}: you already judged {judged}. One reviewer judges one branch: the gate spawns a new reviewer for {branch}."
             ),
             Refusal::NothingToMerge { branch, target } => write!(
                 f,

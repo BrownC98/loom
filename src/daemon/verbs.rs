@@ -7,7 +7,7 @@ pub(super) async fn agent_spawn(
 ) -> Result<Json<NodeId>, AgentError> {
     let parent = app.caller(&headers)?;
     let via = gate::via(&headers, "/api/agent/spawn");
-    let name = req.name.clone();
+    let name = req.run.name();
     let spawned = spawn(&app, parent, req).await;
     traced(&app, parent, Attempt::verb(&name), &via, spawned)
 }
@@ -30,38 +30,26 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         None => (app.task_dir(parent).await?, None),
     };
     let given = req.brief.clone();
-    let (start, queued_brief) = match req.run {
-        SpawnRun::Agent(agent) => {
-            let assigned = match &req.role {
-                Some(role) => app
-                    .settings
-                    .get()
-                    .map_err(internal)?
-                    .roles
-                    .assign(role, agent, req.choice, &req.brief)
-                    .map_err(|e| match e {
-                        RoleProblem::Unknown { role, names } => {
-                            Refusal::UnknownRole { role, names }
-                        }
-                        RoleProblem::NoAgent { role } => Refusal::RoleHasNoAgent { role },
-                    })?,
-                None => Assignment {
-                    agent: agent.ok_or(Refusal::NoAgentOrRole)?,
-                    choice: req.choice,
-                    brief: req.brief,
-                },
-            };
-            (
-                Start::Agent {
-                    agent: assigned.agent,
-                    brief: assigned.brief,
-                    choice: assigned.choice,
-                    resume: None,
-                },
-                String::new(),
-            )
-        }
-        SpawnRun::Command(line) => (Start::Command { line }, req.brief),
+    let name = req.run.name();
+    let (start, queued_brief, role, review) = match &req.run {
+        SpawnRun::Command { line, .. } => (
+            Start::Command { line: line.clone() },
+            req.brief.clone(),
+            None,
+            None,
+        ),
+        SpawnRun::Role { role, .. } => (
+            role_start(app, role, &req.brief)?,
+            String::new(),
+            Some(role.trim()),
+            None,
+        ),
+        SpawnRun::Review { role, branch } => (
+            role_start(app, role, &req.brief)?,
+            String::new(),
+            Some(role.trim()),
+            Some(branch.trim()),
+        ),
     };
     let worktree = match &req.worktree {
         Some(branch) => {
@@ -76,13 +64,13 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     let made = worktree.as_ref().map(|(_, made)| made.as_str());
     let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
     let child = NewChild {
-        name: &req.name,
+        name: &name,
         worktree: made,
         agent: start.agent(),
         brief: &queued_brief,
-        role: req.role.as_deref(),
+        role,
         task: &dir.folder,
-        review: req.review.as_deref(),
+        review,
     };
     let spawned = spawn_child(app, parent, child, &start, cwd, &dir, &given).await;
     if let (Ok(_), Some(fresh)) = (&spawned, fresh) {
@@ -94,6 +82,25 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         eprintln!("loom: 띄우지 못한 자식의 워크트리 {made}를 지우지 못했다: {e}");
     }
     spawned
+}
+
+fn role_start(app: &App, role: &str, brief: &str) -> Result<Start, Problem> {
+    let assigned = app
+        .settings
+        .get()
+        .map_err(internal)?
+        .roles
+        .assign(role, brief)
+        .map_err(|e| match e {
+            RoleProblem::Unknown { role, names } => Refusal::UnknownRole { role, names },
+            RoleProblem::NoAgent { role } => Refusal::RoleHasNoAgent { role },
+        })?;
+    Ok(Start::Agent {
+        agent: assigned.agent,
+        brief: assigned.brief,
+        choice: assigned.choice,
+        resume: None,
+    })
 }
 
 async fn spawn_child(

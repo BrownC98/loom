@@ -13,7 +13,7 @@ use crate::wsl;
 #[ts(export)]
 pub struct RepoId(pub u32);
 
-#[derive(Serialize, TS)]
+#[derive(Serialize, TS, Clone)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct RepoView {
@@ -32,7 +32,7 @@ pub struct RepoView {
 }
 
 /// 저장소가 도는 WSL 배포판. 근거: 목업 docs/mockups/wsl-place.html ②·②′.
-#[derive(Serialize, TS, PartialEq, Debug)]
+#[derive(Serialize, TS, PartialEq, Debug, Clone)]
 #[ts(export)]
 pub struct WslPlace {
     pub distro: String,
@@ -71,7 +71,7 @@ pub struct Folder {
     pub git: bool,
 }
 
-#[derive(Serialize, TS, PartialEq, Debug)]
+#[derive(Serialize, TS, PartialEq, Debug, Clone)]
 #[ts(export)]
 pub struct Worktree {
     /// 절대 경로. 노드는 이 경로로 묶음을 가리킨다.
@@ -280,21 +280,23 @@ pub async fn view(id: RepoId, path: &Path, wsl: Option<WslPlace>) -> RepoView {
         .await
         .map(|out| out.lines().map(str::to_owned).collect())
         .unwrap_or_default();
+    let worktrees = worktrees(path).await;
     RepoView {
         id,
         name: folder_name(path),
         path: path.to_string_lossy().into_owned(),
-        worktrees: worktrees(path).await,
+        has_commits: has_commits(&worktrees),
+        worktrees,
         branches,
-        has_commits: has_commits(path).await,
         wsl,
     }
 }
 
-async fn has_commits(repo: &Path) -> bool {
-    git::run(repo, &["rev-parse", "--verify", "-q", "HEAD"])
-        .await
-        .is_ok()
+fn has_commits(worktrees: &[Worktree]) -> bool {
+    worktrees
+        .iter()
+        .find(|w| w.original)
+        .is_some_and(|w| w.head.bytes().any(|b| b != b'0'))
 }
 
 pub fn folders(path: &str) -> Result<FolderList, RepoProblem> {
@@ -429,7 +431,7 @@ pub async fn create(
     if leaf.is_empty() {
         return Err(RepoProblem::EmptyBranch);
     }
-    if !has_commits(repo).await {
+    if !has_commits(&worktrees(repo).await) {
         return Err(RepoProblem::NoCommit);
     }
     if !workspace.is_absolute() {
@@ -479,13 +481,22 @@ pub async fn changes(worktree: &Worktree) -> Result<Vec<String>, RepoProblem> {
 }
 
 pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem> {
+    git_remove(repo, worktree, &["--force"]).await
+}
+
+pub async fn remove_clean(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem> {
+    git_remove(repo, worktree, &[]).await
+}
+
+async fn git_remove(repo: &Path, worktree: &Worktree, extra: &[&str]) -> Result<(), RepoProblem> {
     if worktree.original {
         return Err(RepoProblem::Original);
     }
     let target = git::to_git_path(repo, &worktree.path);
-    git::run(repo, &["worktree", "remove", "--force", &target])
-        .await
-        .map_err(RepoProblem::Git)?;
+    let mut args = vec!["worktree", "remove"];
+    args.extend_from_slice(extra);
+    args.push(&target);
+    git::run(repo, &args).await.map_err(RepoProblem::Git)?;
     Ok(())
 }
 
@@ -692,6 +703,11 @@ mod tests {
         let made = find(&repo, &path).await.unwrap();
         assert_eq!(made.branch.as_deref(), Some("me/feat-1"));
         assert_eq!(changes(&made).await.unwrap(), ["?? new.txt"]);
+        assert!(matches!(
+            remove_clean(&repo, &made).await,
+            Err(RepoProblem::Git(_))
+        ));
+        assert!(Path::new(&path).join("new.txt").exists());
         assert_eq!(remove(&repo, &made).await, Ok(()));
         assert!(!Path::new(&path).exists());
         assert_eq!(worktrees(&repo).await.len(), 1);
@@ -929,6 +945,7 @@ mod tests {
             copy.canonicalize().unwrap()
         );
         assert!(view(id, &copy, None).await.has_commits);
+        assert_eq!(git::calls_during(view(id, &copy, None)).await.0, 2);
 
         assert_eq!(
             repos.clone(source.to_str().unwrap(), parent_text).await,
@@ -1014,5 +1031,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(run(Path::new(&child), &["log", "-1", "--format=%s"]), "b");
+    }
+
+    #[tokio::test]
+    async fn an_empty_sha256_repo_has_no_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::git::test_run(
+            dir.path(),
+            &["init", "-q", "--object-format=sha256", "-b", "main"],
+        );
+        assert!(!view(RepoId(1), dir.path(), None).await.has_commits);
     }
 }

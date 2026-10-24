@@ -27,29 +27,7 @@ const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
 const REWAKE_EXIT: i32 = 2;
 
-pub struct Spawn {
-    pub name: String,
-    pub worktree: Option<String>,
-    pub agent: Option<String>,
-    pub role: Option<String>,
-    pub review: Option<String>,
-    pub file: Option<PathBuf>,
-    pub choice: ModelChoice,
-    pub command: Vec<String>,
-}
-
-pub fn spawn(
-    Spawn {
-        name,
-        worktree,
-        agent,
-        role,
-        review,
-        file,
-        choice,
-        command,
-    }: Spawn,
-) -> Result<(), String> {
+pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
     let brief = match file {
         Some(path) => {
             std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?
@@ -63,21 +41,13 @@ pub fn spawn(
             brief
         }
     };
-    let run = match (agent, &role) {
-        (None, None) => SpawnRun::Command(command.join(" ")),
-        (agent, _) => SpawnRun::Agent(agent.map(AgentId)),
-    };
     let request = SpawnRequest {
-        name,
         run,
         brief,
         worktree,
-        choice,
-        role,
-        review,
     };
     let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;
-    println!("Created node: {}", request.name);
+    println!("Created node: {}", request.run.name());
     Ok(())
 }
 
@@ -543,7 +513,7 @@ pub fn ready(branch: String) -> Result<(), String> {
         None,
     )?;
     println!(
-        "Sent {branch} to its gate {} (target {}). A worker branch into a coordinator branch: that coordinator accepts it with `loom verdict`. A branch into the original checkout, a coordinator's own branch included: the gate spawns a reviewer for the verdict. On pass, loom queues, checks and merges the branch and sends the result. Do not commit to {branch} until the result comes.",
+        "Sent {branch} to its gate {} (target {}). A worker branch into a coordinator branch: that coordinator accepts it with `loom verdict`. A branch into the original checkout, a coordinator's own branch included: loom sends this round to the reviewers the branch has, and the gate spawns one only for a role it has none of. On pass, loom queues, checks and merges the branch and sends the result. Do not commit to {branch} until the result comes.",
         readied.gate, readied.target
     );
     Ok(())

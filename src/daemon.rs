@@ -2,11 +2,13 @@ mod carry;
 pub mod gate;
 mod idle;
 mod lan;
+mod one_flight;
 mod origin;
 mod passes;
 mod phone;
 mod places;
 mod queue;
+mod reclaim;
 mod relaunch;
 mod sessions;
 mod settings;
@@ -65,11 +67,10 @@ use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
 use crate::profile::opencode2;
 use crate::profile::{
-    self, AgentId, LaunchError, Mailbox, ModelChoice, Profile, Remote, ServerLink, Start,
-    VersionMismatch,
+    self, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
 };
 use crate::protocol::{MessageKind, Question};
-use crate::roles::{Assignment, RoleProblem, Roles};
+use crate::roles::{RoleProblem, Roles};
 use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
@@ -107,6 +108,7 @@ struct App {
     sleeps: sleep::Sleeps,
     switch: switch::Switches,
     usage: usage_cache::UsageCache,
+    repo_list: one_flight::OneFlight<Result<Vec<RepoView>, String>>,
     turn_ends: turn_end::TurnEnds,
     merge_queue: tokio::sync::Notify,
     plugin: skills::Plugin,
@@ -294,23 +296,26 @@ pub struct Resize {
 
 #[derive(Serialize, Deserialize)]
 pub struct SpawnRequest {
-    pub name: String,
     pub run: SpawnRun,
     pub brief: String,
     pub worktree: Option<String>,
-    #[serde(default)]
-    pub choice: ModelChoice,
-    #[serde(default)]
-    pub role: Option<String>,
-    #[serde(default)]
-    pub review: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SpawnRun {
-    Agent(Option<AgentId>),
-    Command(String),
+    Role { name: String, role: String },
+    Review { role: String, branch: String },
+    Command { name: String, line: String },
+}
+
+impl SpawnRun {
+    pub fn name(&self) -> String {
+        match self {
+            SpawnRun::Role { name, .. } | SpawnRun::Command { name, .. } => name.clone(),
+            SpawnRun::Review { role, branch } => format!("{} {}", role.trim(), branch.trim()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -687,11 +692,23 @@ fn node_path() -> std::io::Result<OsString> {
 }
 
 async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, Problem> {
-    let mut views = Vec::new();
-    for (id, path) in app.repos.list().map_err(internal)? {
-        views.push(app.repo_view(id, &path).await);
+    let shared = app
+        .repo_list
+        .run(|| {
+            let app = app.clone();
+            async move {
+                let mut views = Vec::new();
+                for (id, path) in app.repos.list().map_err(|e| e.to_string())? {
+                    views.push(app.repo_view(id, &path).await);
+                }
+                Ok(views)
+            }
+        })
+        .await;
+    match &*shared {
+        Ok(views) => Ok(Json(views.clone())),
+        Err(e) => Err(internal(e)),
     }
-    Ok(Json(views))
 }
 
 async fn add_repo(
@@ -929,6 +946,7 @@ impl App {
             sleeps: sleep::Sleeps::default(),
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
+            repo_list: one_flight::OneFlight::default(),
             turn_ends: turn_end::TurnEnds::default(),
             merge_queue: tokio::sync::Notify::new(),
             plugin: {
@@ -2573,7 +2591,7 @@ mod tests {
         let node = graph
             .add_root(
                 &place,
-                Some(AgentId("claude".into())),
+                Some(crate::profile::AgentId("claude".into())),
                 None,
                 &launched,
                 |_| Ok(()),

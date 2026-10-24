@@ -154,7 +154,7 @@ pub(super) async fn run(app: Arc<App>) {
 }
 
 async fn batch(
-    app: &App,
+    app: &Arc<App>,
     repo: RepoId,
     target: &str,
     lock: &str,
@@ -190,7 +190,7 @@ async fn batch(
     }
 }
 
-async fn recover(app: &App, lock: &str) {
+async fn recover(app: &Arc<App>, lock: &str) {
     match app.graph.orphans() {
         Ok(orphans) => {
             for (repo, branch) in orphans {
@@ -288,7 +288,7 @@ fn repo_path(app: &App, repo: RepoId) -> Result<PathBuf, Refusal> {
 }
 
 struct Batch<'a> {
-    app: &'a App,
+    app: &'a Arc<App>,
     id: BatchId,
     repo: RepoId,
     dir: PathBuf,
@@ -634,6 +634,22 @@ impl Batch<'_> {
         tip: &str,
         deploy: Option<String>,
     ) -> Result<(), Refusal> {
+        let mut merged = Vec::new();
+        let settled = self
+            .settle_merged(members, base, tip, deploy, &mut merged)
+            .await;
+        tokio::spawn(super::reclaim::run(self.app.clone(), self.repo, merged));
+        settled
+    }
+
+    async fn settle_merged(
+        &self,
+        members: &[Queued],
+        base: &str,
+        tip: &str,
+        deploy: Option<String>,
+        merged: &mut Vec<String>,
+    ) -> Result<(), Refusal> {
         let into_base = base_branch(&self.dir).await? == self.target;
         for m in members {
             let own = merge_commit(&self.dir, &m.head, tip).await?;
@@ -678,6 +694,7 @@ impl Batch<'_> {
                     findings,
                 },
             );
+            merged.push(m.branch.clone());
         }
         Ok(())
     }

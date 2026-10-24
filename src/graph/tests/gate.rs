@@ -27,6 +27,7 @@ fn reviewer(g: &Graph, gate: NodeId, branch: &str, name: &str) -> NodeId {
         gate,
         NewChild {
             review: Some(branch),
+            role: Some(name),
             ..named(name)
         },
         limits(),
@@ -66,7 +67,7 @@ fn team(g: &Graph) -> Team {
         lead,
         coordinator,
         worker: with_role(g, coordinator, "worker-x", "워커"),
-        solo: with_role(g, lead, "solo", "워커"),
+        solo: with_role(g, lead, "solo", COORDINATOR_ROLE),
     }
 }
 
@@ -386,6 +387,23 @@ fn a_withdrawn_round_tells_exactly_its_reviewers_to_stop() {
     assert!(traced, "withdrawn is traced");
     g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
         .unwrap();
+    for node in [first, second] {
+        let got = mail(&g, node);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(
+            got[0].starts_with("(from: solo, kind: ready)\nbranch: b\n"),
+            "{}",
+            got[0]
+        );
+        assert!(
+            got[0].contains("Next: a new round of b started."),
+            "{}",
+            got[0]
+        );
+    }
+    for node in [gone, other, own_task] {
+        assert!(mail(&g, node).is_empty(), "{node}");
+    }
     let third = reviewer(&g, t.solo, "b", "third");
     mail(&g, t.solo);
     assert_eq!(
@@ -616,7 +634,9 @@ fn an_old_ci_round_tells_the_root_because_its_target_is_the_base() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    let ci = with_role(&g, t.lead, "ci", "CI 담당자");
+    let ci = g
+        .add_child(t.lead, named("ci"), limits(), &launched(), started)
+        .unwrap();
     g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
         .unwrap();
     g.lock()
@@ -973,4 +993,71 @@ fn an_ungated_ready_reaches_the_gate_without_a_gate_row() {
     assert_eq!(rows, 0, "no gate state machine here");
     assert!(g.ready_sent(t.worker, "b", "c0ffee1").unwrap());
     assert!(!g.ready_sent(t.worker, "b", "other").unwrap());
+}
+
+fn spawned(
+    g: &Graph,
+    parent: NodeId,
+    name: &str,
+    role: &str,
+    review: Option<&str>,
+) -> Result<NodeId, Refusal> {
+    g.add_child(
+        parent,
+        NewChild {
+            role: Some(role),
+            review,
+            ..named(name)
+        },
+        limits(),
+        &launched(),
+        started,
+    )
+}
+
+#[test]
+fn the_lead_spawns_only_a_coordinator_and_the_reviewers_of_its_own_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    for role in ["워커", "검토자", crate::roles::HIGH_RISK_WORKER] {
+        assert_eq!(
+            spawned(&g, t.lead, "w", role, None),
+            Err(Refusal::LeadSpawnsOnlyCoordinator(role.into()))
+        );
+    }
+    assert!(spawned(&g, t.lead, "코디-2", COORDINATOR_ROLE, None).is_ok());
+    assert!(spawned(&g, t.coordinator, "w", "워커", None).is_ok());
+    assert!(
+        g.add_child(t.lead, named("shell"), limits(), &launched(), started)
+            .is_ok()
+    );
+    g.ready(t.lead, &round("lead-fix", "main"), t.lead, Some(&via()))
+        .unwrap();
+    assert!(spawned(&g, t.lead, "검토자 lead-fix", "검토자", Some("lead-fix")).is_ok());
+}
+
+#[test]
+fn a_branch_has_one_reviewer_per_role_even_after_its_process_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.ready(t.solo, &round("x", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = spawned(&g, t.solo, "검토자 b", "검토자", Some("b")).unwrap();
+    let seated = Err(Refusal::ReviewerSeated {
+        branch: "b".into(),
+        role: "검토자".into(),
+        reviewer: "검토자 b".into(),
+    });
+    assert_eq!(spawned(&g, t.solo, "검토자 b", "검토자", Some("b")), seated);
+    assert!(spawned(&g, t.solo, "보조 검토자 b", "보조 검토자", Some("b")).is_ok());
+    assert!(spawned(&g, t.solo, "검토자 x", "검토자", Some("x")).is_ok());
+    g.exited(first, 0).unwrap();
+    assert_eq!(
+        spawned(&g, t.solo, "검토자3 b", "검토자", Some("b")),
+        seated
+    );
 }

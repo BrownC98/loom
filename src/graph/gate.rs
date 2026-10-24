@@ -49,6 +49,14 @@ pub struct Stale {
     pub members: Vec<Queued>,
 }
 
+pub struct Reclaim {
+    pub owner: NodeId,
+    pub told: NodeId,
+    pub target: String,
+    pub worktree: String,
+    pub reviewers: Vec<NodeId>,
+}
+
 pub struct Ended<'a> {
     pub end: MergeEnd,
     pub merged: Option<&'a str>,
@@ -516,6 +524,49 @@ impl Graph {
         Ok(row.state)
     }
 
+    pub fn reclaim(&self, repo: RepoId, branch: &str) -> rusqlite::Result<Option<Reclaim>> {
+        let db = self.lock();
+        let found = db
+            .query_row(
+                "SELECT g.owner, coalesce(n.parent, g.gate), g.target, g.worktree
+                 FROM gates g LEFT JOIN nodes n ON n.id = g.owner
+                 WHERE g.repo = ?1 AND g.branch = ?2 AND g.state = ?3",
+                params![repo.0, branch, to_json(&GateState::Merged)],
+                |r| {
+                    Ok(Reclaim {
+                        owner: NodeId(r.get(0)?),
+                        told: NodeId(r.get(1)?),
+                        target: r.get(2)?,
+                        worktree: r.get(3)?,
+                        reviewers: Vec::new(),
+                    })
+                },
+            )
+            .optional()?;
+        let Some(mut found) = found else {
+            return Ok(None);
+        };
+        found.reviewers = db
+            .prepare(&format!(
+                "SELECT n.id FROM nodes n, gates WHERE gates.repo = ?1 AND gates.branch = ?2 AND {} ORDER BY n.id",
+                of_round("gates.gate", "gates.owner", "gates.branch")
+            ))?
+            .query_map(params![repo.0, branch], |r| Ok(NodeId(r.get(0)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(Some(found))
+    }
+
+    pub fn note_from_loom(&self, to: NodeId, body: &str) -> rusqlite::Result<()> {
+        let db = self.lock();
+        if !exists(&db, to)? {
+            return Ok(());
+        }
+        mailbox::enqueue_from_loom(&db, to, Kind::Queue, &MessageKind::Note, body, None)?;
+        self.publish_node(&db, to)?;
+        self.mail.notify_waiters();
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn apply(
         &self,
@@ -622,6 +673,22 @@ impl Graph {
                     &trace,
                 )?;
                 sent.push(me);
+            }
+            if call == GateCall::Ready {
+                for reviewer in reviewers(&tx, &row, branch, caller)? {
+                    let body = protocol::review_again_step(branch);
+                    post(
+                        &tx,
+                        caller,
+                        reviewer,
+                        Kind::Queue,
+                        &what,
+                        &body,
+                        via,
+                        &trace,
+                    )?;
+                    sent.push(reviewer);
+                }
             }
         }
         if withdrawn(from, to) {
@@ -732,6 +799,28 @@ fn withdraw(
     Ok(reviewers.into_iter().map(|(node, _)| node).collect())
 }
 
+fn reviewers(
+    tx: &Transaction,
+    row: &Row,
+    branch: &str,
+    caller: Caller,
+) -> rusqlite::Result<Vec<NodeId>> {
+    tx.prepare(&format!(
+        "SELECT n.id FROM nodes n WHERE {} AND n.id != ?4 ORDER BY n.id",
+        in_round("?1", "?2", "?3")
+    ))?
+    .query_map(
+        params![
+            row.gate.0,
+            row.owner.0,
+            branch,
+            caller.node().map_or(0, |n| n.0)
+        ],
+        |r| Ok(NodeId(r.get(0)?)),
+    )?
+    .collect()
+}
+
 fn pending(
     tx: &Transaction,
     caller: Caller,
@@ -756,7 +845,11 @@ fn pending(
 }
 
 fn in_round(gate: &str, owner: &str, branch: &str) -> String {
-    format!("(n.parent = {gate} AND n.id != {owner} AND {REACHABLE} AND n.review = {branch})")
+    format!("({} AND {REACHABLE})", of_round(gate, owner, branch))
+}
+
+fn of_round(gate: &str, owner: &str, branch: &str) -> String {
+    format!("(n.parent = {gate} AND n.id != {owner} AND n.review = {branch})")
 }
 
 pub(super) fn check_review(
@@ -764,6 +857,7 @@ pub(super) fn check_review(
     parent: NodeId,
     repo: RepoId,
     branch: &str,
+    role: Option<&str>,
 ) -> Result<(), Refusal> {
     match load(db, repo, branch)? {
         None => Err(Refusal::NoRound(branch.to_owned())),
@@ -772,8 +866,29 @@ pub(super) fn check_review(
             gate: name_of(db, row.gate)?,
         }),
         Some(row) if row.target_kind(db)? == Target::Coordinator => Err(accepts(db, &row, branch)?),
-        Some(_) => Ok(()),
+        Some(_) => match seated(db, parent, branch, role)? {
+            Some(reviewer) => Err(Refusal::ReviewerSeated {
+                branch: branch.to_owned(),
+                role: role.unwrap_or_default().to_owned(),
+                reviewer,
+            }),
+            None => Ok(()),
+        },
     }
+}
+
+fn seated(
+    db: &Connection,
+    gate: NodeId,
+    branch: &str,
+    role: Option<&str>,
+) -> rusqlite::Result<Option<String>> {
+    db.query_row(
+        "SELECT name FROM nodes WHERE parent = ?1 AND review = ?2 AND role IS ?3 ORDER BY id",
+        params![gate.0, branch, role],
+        |row| row.get(0),
+    )
+    .optional()
 }
 
 fn accepts(db: &Connection, row: &Row, branch: &str) -> rusqlite::Result<Refusal> {

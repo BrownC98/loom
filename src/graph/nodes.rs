@@ -10,7 +10,7 @@ use super::{
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink, StartDigests};
-use crate::protocol::MessageKind;
+use crate::protocol::{COORDINATOR_ROLE, MessageKind};
 
 pub struct NewChild<'a> {
     pub name: &'a str,
@@ -99,6 +99,16 @@ impl Graph {
             return Err(Refusal::TooDeep);
         }
         check_children(&tx, parent, limits)?;
+        let place = place_of(&tx, parent)?;
+        match (review, role) {
+            (Some(branch), role) => {
+                super::gate::check_review(&tx, parent, place.repo, branch, role)?;
+            }
+            (None, Some(role)) if role != COORDINATOR_ROLE && parent_of(&tx, parent)?.is_none() => {
+                return Err(Refusal::LeadSpawnsOnlyCoordinator(role.to_owned()));
+            }
+            (None, _) => {}
+        }
         let taken: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM nodes WHERE name = ?2
              AND (parent = ?1 OR id = ?1 OR id = (SELECT parent FROM nodes WHERE id = ?1)))",
@@ -107,10 +117,6 @@ impl Graph {
         )?;
         if taken {
             return Err(Refusal::NameTaken(name.to_owned()));
-        }
-        let place = place_of(&tx, parent)?;
-        if let Some(branch) = review {
-            super::gate::check_review(&tx, parent, place.repo, branch)?;
         }
         let place = Place {
             worktree: worktree.map_or(place.worktree, str::to_owned),
@@ -590,6 +596,29 @@ impl Graph {
         };
         tx.commit()?;
         removal.publish(self, &db)
+    }
+
+    pub fn remove_childless_child(&self, id: NodeId) -> rusqlite::Result<bool> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let removable: bool = tx
+            .query_row(
+                "SELECT parent IS NOT NULL AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent = n.id)
+                 FROM nodes n WHERE id = ?1",
+                [id.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(false);
+        if !removable {
+            return Ok(false);
+        }
+        let Some(removal) = remove_in(&tx, id)? else {
+            return Ok(false);
+        };
+        tx.commit()?;
+        removal.publish(self, &db)?;
+        Ok(true)
     }
 
     pub fn remove_child(

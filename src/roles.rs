@@ -68,6 +68,11 @@ impl Default for Roles {
                 Some(("claude", "claude-sonnet-5-5", "medium")),
             ),
             role(
+                HIGH_RISK_WORKER,
+                HIGH_RISK_DUTY,
+                Some(("claude", "claude-opus-5-5", "high")),
+            ),
+            role(
                 "검토자",
                 "병합 전 브랜치 diff에서 결함을 찾고 랩터-3이 잘 적용되었는지 점검한다. 결과·원문·관찰 증거(캡처, 평가 출력, 측정, 시험 데몬 결과)를 브리프의 완료 조건과 대조한다. 읽기 전용, 보고만 한다",
                 Some(("codex", "gpt-6.1-sol", "high")),
@@ -80,6 +85,9 @@ impl Default for Roles {
         ])
     }
 }
+
+pub const HIGH_RISK_WORKER: &str = "고위험 워커";
+pub const HIGH_RISK_DUTY: &str = "저장 형식, 인증, 동시성, 데이터 손실 경로, 여러 모듈의 계약을 바꾸는 편집 범위의 구현과 검증. 다시 위임하지 않는다";
 
 #[derive(Debug, PartialEq)]
 pub struct Assignment {
@@ -102,10 +110,12 @@ impl std::fmt::Display for RoleProblem {
                 "역할 '{role}'이 설정에 없다. 있는 역할: {}",
                 names.join(", ")
             ),
-            RoleProblem::NoAgent { role } => write!(
-                f,
-                "역할 '{role}'에는 에이전트가 없다. --agent로 에이전트를 준다."
-            ),
+            RoleProblem::NoAgent { role } => {
+                write!(
+                    f,
+                    "역할 '{role}'에는 에이전트가 없다. 이 역할은 사람이 띄운다."
+                )
+            }
         }
     }
 }
@@ -127,13 +137,7 @@ impl Roles {
         })
     }
 
-    pub fn assign(
-        &self,
-        name: &str,
-        agent: Option<AgentId>,
-        choice: ModelChoice,
-        brief: &str,
-    ) -> Result<Assignment, RoleProblem> {
+    pub fn assign(&self, name: &str, brief: &str) -> Result<Assignment, RoleProblem> {
         let role = self
             .0
             .iter()
@@ -142,13 +146,11 @@ impl Roles {
                 role: name.into(),
                 names: self.0.iter().map(|r| r.name.clone()).collect(),
             })?;
-        let agent = agent
-            .or_else(|| role.agent.clone())
-            .ok_or_else(|| RoleProblem::NoAgent {
-                role: role.name.clone(),
-            })?;
+        let agent = role.agent.clone().ok_or_else(|| RoleProblem::NoAgent {
+            role: role.name.clone(),
+        })?;
         Ok(Assignment {
-            choice: role.fill(&agent, choice),
+            choice: role.fill(&agent, ModelChoice::default()),
             agent,
             brief: format!("Role: {} - {}\n\n{brief}", role.name, role.duty),
         })
@@ -186,9 +188,7 @@ mod tests {
 
     #[test]
     fn worker_role_takes_its_agent_model_effort_and_prefixes_the_brief() {
-        let got = Roles::default()
-            .assign("워커", None, ModelChoice::default(), "do it")
-            .unwrap();
+        let got = Roles::default().assign("워커", "do it").unwrap();
         assert_eq!(got.agent, AgentId("claude".into()));
         assert_eq!(
             got.choice,
@@ -198,34 +198,8 @@ mod tests {
             got.brief,
             "Role: 워커 - 정해진 편집 범위의 구현과 검증. 다시 위임하지 않는다\n\ndo it"
         );
-    }
-
-    #[test]
-    fn flags_win_and_another_agent_drops_the_role_model() {
-        let roles = Roles::default();
-        let got = roles
-            .assign("워커", None, choice(None, Some("high")), "")
-            .unwrap();
-        assert_eq!(got.choice, choice(Some("claude-sonnet-5-5"), Some("high")));
-        let got = roles
-            .assign(
-                "워커",
-                Some(AgentId("claude".into())),
-                choice(Some("claude-opus-5-5"), None),
-                "",
-            )
-            .unwrap();
-        assert_eq!(got.choice, choice(Some("claude-opus-5-5"), Some("medium")));
-        let got = roles
-            .assign(
-                "워커",
-                Some(AgentId("codex".into())),
-                ModelChoice::default(),
-                "",
-            )
-            .unwrap();
-        assert_eq!(got.agent, AgentId("codex".into()));
-        assert_eq!(got.choice, ModelChoice::default());
+        let got = Roles::default().assign(HIGH_RISK_WORKER, "").unwrap();
+        assert_eq!(got.choice, choice(Some("claude-opus-5-5"), Some("high")));
     }
 
     #[test]
@@ -250,29 +224,15 @@ mod tests {
     #[test]
     fn unknown_role_and_role_without_agent_are_refused() {
         let roles = Roles::default();
-        let err = roles
-            .assign("없는역할", None, ModelChoice::default(), "")
-            .unwrap_err();
+        let err = roles.assign("없는역할", "").unwrap_err();
         assert!(err.to_string().contains("총괄, 코디, 워커"), "{err}");
-        let err = roles
-            .assign("총괄", None, ModelChoice::default(), "")
-            .unwrap_err();
+        let err = roles.assign("총괄", "").unwrap_err();
         assert_eq!(
             err,
             RoleProblem::NoAgent {
                 role: "총괄".into()
             }
         );
-        assert!(err.to_string().contains("--agent"));
-        let got = roles
-            .assign(
-                "총괄",
-                Some(AgentId("claude".into())),
-                ModelChoice::default(),
-                "",
-            )
-            .unwrap();
-        assert_eq!(got.choice, ModelChoice::default());
     }
 
     #[test]

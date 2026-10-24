@@ -38,6 +38,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
+use crate::daemon::SpawnRun;
 use crate::graph::Kind;
 use crate::profile::ModelChoice;
 
@@ -82,28 +83,21 @@ enum Cli {
     },
     /// 자식 노드를 만든다. 지시문은 stdin이나 `--file`로 받는다.
     Spawn {
-        name: String,
+        /// 노드 이름. `--review`면 주지 않는다: loom이 `<역할> <브랜치>`로 짓는다.
+        #[arg(required_unless_present = "review", conflicts_with = "review")]
+        name: Option<String>,
         /// 새 워크트리의 브랜치. 주면 내 워크트리의 HEAD에서 이 브랜치로 워크트리를 만들고 자식을 그 안에 띄운다.
         #[arg(long)]
         worktree: Option<String>,
-        /// 카탈로그 에이전트 id(예: `claude`). 그 프로필과 계정으로 띄운다. `--role`을 주면 없어도 된다.
-        #[arg(long, conflicts_with = "command", required_unless_present_any = ["command", "role"])]
-        agent: Option<String>,
-        /// 설정의 o-mode 역할(`loom roles`). 그 역할의 에이전트·모델·강도로 띄우고 지시문 앞에 책임을 붙인다. 따로 준 `--agent`·`--model`·`--effort`가 이긴다.
-        #[arg(long, conflicts_with = "command")]
+        /// 설정의 o-mode 역할(`loom roles`). 그 역할의 에이전트·모델·강도로 띄우고 지시문 앞에 책임을 붙인다.
+        #[arg(long, conflicts_with = "command", required_unless_present = "command")]
         role: Option<String>,
         /// 자식이 검토할 브랜치. 내가 관문인 그 브랜치의 검토자로 띄운다. 그 브랜치의 판정은 이렇게 띄운 자식만 한다.
-        #[arg(long, conflicts_with = "command")]
+        #[arg(long, requires = "role", conflicts_with = "worktree")]
         review: Option<String>,
         /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
         #[arg(long)]
         file: Option<PathBuf>,
-        /// 모델. 없으면 CLI 설정의 모델로 뜬다. 받지 않는 에이전트면 거절 글이 받는 값을 알린다.
-        #[arg(long, conflicts_with = "command")]
-        model: Option<String>,
-        /// 추론 강도(예: `medium`). 없으면 CLI 설정의 강도로 뜬다. 받지 않는 에이전트면 거절 글이 받는 값을 알린다.
-        #[arg(long, conflicts_with = "command")]
-        effort: Option<String>,
         /// 자식이 실행할 명령. ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다.
         #[arg(last = true)]
         command: Vec<String>,
@@ -173,7 +167,7 @@ enum Cli {
     /// 관문은 loom이 고른다: 부모가 코디면 코디(대상은 코디 브랜치), 아니면 담당 자신(대상은 원래 체크아웃의 브랜치).
     /// 관문 스크립트가 없는 저장소에서도 관문에 알린다. 그때는 관문 상태가 없고, 관문이 손으로 병합해 `loom done`으로 알린다.
     Ready { branch: String },
-    /// 병합 관문: 판정을 넣는다. 원래 체크아웃이 대상이면 관문이 `loom spawn <이름> --review <브랜치>`로 띄운 그 브랜치의 검토자만 부른다. 코디 밑 워커 브랜치는 검토자 없이 코디가 완료 조건을 보고 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
+    /// 병합 관문: 판정을 넣는다. 원래 체크아웃이 대상이면 관문이 `loom spawn --role <역할> --review <브랜치>`로 띄운 그 브랜치의 검토자만 부른다. 코디 밑 워커 브랜치는 검토자 없이 코디가 완료 조건을 보고 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
     /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push와 `scripts/gate/ship.sh` 배포 확인)하고, merged·rework·failed로 알린다.
     Verdict {
         branch: String,
@@ -238,23 +232,23 @@ fn main() -> ExitCode {
         Cli::Spawn {
             name,
             worktree,
-            agent,
             role,
             review,
             file,
-            model,
-            effort,
             command,
-        } => cli::spawn(cli::Spawn {
-            name,
+        } => cli::spawn(
+            match (name, role, review) {
+                (_, Some(role), Some(branch)) => SpawnRun::Review { role, branch },
+                (Some(name), Some(role), None) => SpawnRun::Role { name, role },
+                (name, None, _) => SpawnRun::Command {
+                    name: name.unwrap_or_default(),
+                    line: command.join(" "),
+                },
+                (None, Some(_), None) => unreachable!("clap requires a name without --review"),
+            },
             worktree,
-            agent,
-            role,
-            review,
-            file: file.map(wsl::from_caller),
-            choice: ModelChoice { model, effort },
-            command,
-        }),
+            file.map(wsl::from_caller),
+        ),
         Cli::Roles => cli::roles(),
         Cli::Note {
             name,

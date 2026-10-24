@@ -277,7 +277,7 @@ impl Site {
     fn find(&self, command: &str) -> Option<OsString> {
         match &self.wsl {
             Some(inside) => inside.find(&[command.to_owned()]).map(OsString::from),
-            None => which::which(command).ok().map(PathBuf::into_os_string),
+            None => crate::search_path::find(command).map(PathBuf::into_os_string),
         }
     }
 }

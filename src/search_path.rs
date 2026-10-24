@@ -1,4 +1,10 @@
 use std::ffi::OsString;
+use std::path::PathBuf;
+
+pub fn find(name: &str) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    which::which_in(name, Some(current()), cwd).ok()
+}
 
 #[cfg(unix)]
 pub fn current() -> OsString {

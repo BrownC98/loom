@@ -49,8 +49,7 @@ pub struct Tailscale {
 
 impl Tailscale {
     pub fn find() -> Option<Self> {
-        which::which("tailscale")
-            .ok()
+        crate::search_path::find("tailscale")
             .or_else(|| INSTALLED.iter().map(PathBuf::from).find(|p| p.is_file()))
             .map(|program| Self { program })
     }

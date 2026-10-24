@@ -19,7 +19,11 @@ const VALUE_TABLE: &str = "| 값 타입 | 모듈 |";
 
 const EXCEPTION_TABLE: &str = "| 의존 | 항목 | 고칠 방법 |";
 
+const GENERATED_INCLUDES: [&str; 1] = ["(concat!(env!(\"OUT_DIR\"),\"/codex_protocol.rs\"))"];
+
 type Link = (String, String, String);
+
+type Aliases = BTreeMap<(Vec<String>, String), Vec<String>>;
 
 #[derive(Default)]
 struct Doc {
@@ -140,22 +144,54 @@ struct Crate {
     references: Vec<Reference>,
     uses: Vec<UseItem>,
     exported: BTreeMap<String, String>,
+    unread: Vec<String>,
 }
 
 fn test_only(attribute: &str) -> bool {
     let text: String = attribute.chars().filter(|c| !c.is_whitespace()).collect();
-    let Some(cfg) = text
-        .strip_prefix("#[cfg(")
+    text.strip_prefix("#[cfg(")
         .or_else(|| text.strip_prefix("#![cfg("))
         .and_then(|rest| rest.strip_suffix(")]"))
-    else {
-        return false;
-    };
-    cfg == "test"
-        || cfg
-            .strip_prefix("all(")
+        .is_some_and(requires_test)
+}
+
+fn requires_test(predicate: &str) -> bool {
+    let arguments = |name: &str| {
+        predicate
+            .strip_prefix(name)
+            .and_then(|rest| rest.strip_prefix('('))
             .and_then(|rest| rest.strip_suffix(')'))
-            .is_some_and(|args| args.split(',').any(|arg| arg == "test"))
+            .map(split_arguments)
+    };
+    if predicate == "test" {
+        true
+    } else if let Some(all) = arguments("all") {
+        all.into_iter().any(requires_test)
+    } else if let Some(any) = arguments("any") {
+        !any.is_empty() && any.into_iter().all(requires_test)
+    } else {
+        false
+    }
+}
+
+fn split_arguments(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut depth, mut quoted, mut start) = (0, false, 0);
+    for (at, c) in text.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted => depth -= 1,
+            ',' if !quoted && depth == 0 => {
+                parts.push(&text[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&text[start..]);
+    parts.retain(|part| !part.is_empty());
+    parts
 }
 
 fn path_attribute(attribute: &str) -> Option<String> {
@@ -284,6 +320,15 @@ struct File<'a> {
     source: &'a str,
     name: String,
     dir: PathBuf,
+    inline: bool,
+}
+
+fn parse(source: &str) -> tree_sitter::Tree {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
+        .expect("Rust grammar loads");
+    parser.parse(source, None).expect("tree-sitter parses")
 }
 
 impl Crate {
@@ -301,11 +346,7 @@ impl Crate {
     fn read_file(&mut self, repo: &Path, file: &Path, module: Vec<String>, dir: PathBuf) {
         let source = std::fs::read_to_string(repo.join(file))
             .unwrap_or_else(|e| panic!("read {}: {e}", file.display()));
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_rust::LANGUAGE.into())
-            .expect("Rust grammar loads");
-        let tree = parser.parse(&source, None).expect("tree-sitter parses");
+        let tree = parse(&source);
         let root = tree.root_node();
         let mut cursor = root.walk();
         if root
@@ -319,8 +360,46 @@ impl Crate {
             source: &source,
             name: file.display().to_string(),
             dir,
+            inline: false,
         };
         self.visit(repo, &at, root, &module);
+    }
+
+    fn include(&mut self, repo: &Path, file: &File, node: Node, module: &[String]) {
+        let Some(tokens) = node.named_children(&mut node.walk()).last() else {
+            return;
+        };
+        let at = format!("{}:{}", file.name, node.start_position().row + 1);
+        let argument: String = text(tokens, file.source)
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        let literal = argument
+            .strip_prefix("(\"")
+            .and_then(|rest| rest.strip_suffix("\")"))
+            .filter(|name| !name.contains('"'));
+        let Some(name) = literal else {
+            if !GENERATED_INCLUDES.contains(&argument.as_str()) {
+                self.unread.push(format!(
+                    "unread include: `include!{argument}` at {at}; the layer check reads only include! of a string literal or a listed build output"
+                ));
+            }
+            return;
+        };
+        let path = Path::new(&file.name)
+            .parent()
+            .expect("file has a folder")
+            .join(name);
+        let source = std::fs::read_to_string(repo.join(&path))
+            .unwrap_or_else(|e| panic!("read {} (include! at {at}): {e}", path.display()));
+        let tree = parse(&source);
+        let included = File {
+            source: &source,
+            name: path.display().to_string(),
+            dir: file.dir.clone(),
+            inline: file.inline,
+        };
+        self.visit(repo, &included, tree.root_node(), module);
     }
 
     fn visit(&mut self, repo: &Path, file: &File, node: Node, module: &[String]) {
@@ -383,17 +462,23 @@ impl Crate {
                     source: file.source,
                     name: file.name.clone(),
                     dir: file.dir.join(&name),
+                    inline: true,
                 };
                 self.visit(repo, &inner, body, &path);
             }
             None => {
                 let explicit = attributes.iter().find_map(|a| path_attribute(a));
-                let file_dir = repo.join(&file.name);
-                let parent = file_dir.parent().expect("file has a folder");
                 let (source, dir) = match explicit {
                     Some(explicit) => {
-                        let source = parent.join(explicit);
-                        let dir = source.with_extension("");
+                        let base = match file.inline {
+                            true => repo.join(&file.dir),
+                            false => {
+                                let file_path = repo.join(&file.name);
+                                file_path.parent().expect("file has a folder").to_path_buf()
+                            }
+                        };
+                        let source = base.join(explicit);
+                        let dir = source.parent().expect("file has a folder").to_path_buf();
                         (source, dir)
                     }
                     None => {
@@ -441,6 +526,14 @@ impl Crate {
                     at: line(node),
                 });
             }
+            "macro_invocation"
+                if node
+                    .child_by_field_name("macro")
+                    .is_some_and(|name| text(name, file.source) == "include") =>
+            {
+                self.include(repo, file, node, module);
+                return;
+            }
             "token_tree" => {
                 let mut found = Vec::new();
                 macro_paths(node, file.source, &mut found);
@@ -458,48 +551,84 @@ impl Crate {
         self.visit(repo, file, node, module);
     }
 
-    fn absolute(&self, module: &[String], path: &[String]) -> Option<Vec<String>> {
-        let first = path.first()?;
-        match first.as_str() {
-            "crate" => Some(path[1..].to_vec()),
-            "self" => Some([module, &path[1..]].concat()),
+    fn resolve(
+        &self,
+        module: &[String],
+        path: &[String],
+        aliases: &Aliases,
+    ) -> Option<Vec<String>> {
+        let mut scope: Vec<String>;
+        let mut rest: Vec<String>;
+        let mut anchored = true;
+        match path.first()?.as_str() {
+            "crate" => (scope, rest) = (Vec::new(), path[1..].to_vec()),
+            "self" => (scope, rest) = (module.to_vec(), path[1..].to_vec()),
             "super" => {
                 let ups = path.iter().take_while(|s| *s == "super").count();
                 let base = module.get(..module.len().checked_sub(ups)?)?;
-                Some([base, &path[ups..]].concat())
+                (scope, rest) = (base.to_vec(), path[ups..].to_vec());
             }
-            _ => {
-                let child = [module, std::slice::from_ref(first)].concat();
-                self.modules
-                    .contains(&child)
-                    .then(|| [module, path].concat())
+            _ => (scope, rest, anchored) = (module.to_vec(), path.to_vec(), false),
+        }
+        for _ in 0..=aliases.len() {
+            let mut at = 0;
+            let jump = loop {
+                let Some(name) = rest.get(at) else {
+                    return Some(scope);
+                };
+                let child = [scope.as_slice(), std::slice::from_ref(name)].concat();
+                if let Some(target) = aliases.get(&(scope.clone(), name.clone()))
+                    && *target != child
+                {
+                    break target;
+                }
+                if !self.modules.contains(&child) {
+                    return (anchored || at > 0).then(|| [scope.as_slice(), &rest[at..]].concat());
+                }
+                scope = child;
+                at += 1;
+            };
+            rest = rest[at + 1..].to_vec();
+            scope = Vec::new();
+            rest = [jump.as_slice(), &rest].concat();
+            anchored = true;
+        }
+        None
+    }
+
+    fn aliases(&self) -> Aliases {
+        let mut aliases = Aliases::new();
+        for _ in 0..=self.uses.len() {
+            let mut changed = false;
+            for item in &self.uses {
+                let Some(path) = self.resolve(&item.module, &item.path, &aliases) else {
+                    continue;
+                };
+                let Some(name) = item.alias.clone().or_else(|| item.path.last().cloned()) else {
+                    continue;
+                };
+                if name != "*" && aliases.get(&(item.module.clone(), name.clone())) != Some(&path) {
+                    aliases.insert((item.module.clone(), name), path);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
             }
         }
+        aliases
     }
 
     fn edges(&self) -> Vec<Edge> {
-        let mut aliases: BTreeMap<(Vec<String>, String), Vec<String>> = BTreeMap::new();
+        let aliases = self.aliases();
         let mut targets = Vec::new();
         for item in &self.uses {
-            let Some(path) = self.absolute(&item.module, &item.path) else {
-                continue;
-            };
-            let name = item.alias.clone().or_else(|| path.last().cloned());
-            if let Some(name) = name {
-                aliases.insert((item.module.clone(), name), path.clone());
+            if let Some(path) = self.resolve(&item.module, &item.path, &aliases) {
+                targets.push((item.module.clone(), path, item.at.clone()));
             }
-            targets.push((item.module.clone(), path, item.at.clone()));
         }
         for reference in &self.references {
-            let alias = reference
-                .segments
-                .first()
-                .and_then(|first| aliases.get(&(reference.module.clone(), first.clone())));
-            let path = match alias {
-                Some(alias) => Some([alias, &reference.segments[1..]].concat()),
-                None => self.absolute(&reference.module, &reference.segments),
-            };
-            if let Some(path) = path {
+            if let Some(path) = self.resolve(&reference.module, &reference.segments, &aliases) {
                 targets.push((reference.module.clone(), path, reference.at.clone()));
             }
         }
@@ -586,7 +715,7 @@ fn cycles(edges: &[&Edge]) -> Vec<Vec<String>> {
 }
 
 fn problems(krate: &Crate, doc: &Doc) -> Vec<String> {
-    let mut problems = Vec::new();
+    let mut problems = krate.unread.clone();
     let mut declared: Vec<(&str, &str)> = vec![(ROOT, "src/main.rs")];
     declared.extend(
         krate
@@ -694,11 +823,7 @@ fn modules_follow_the_layer_table() {
 #[test]
 fn use_groups_expand_to_each_path() {
     let source = "use crate::{a, b::{c, self as d, e::*}};";
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_rust::LANGUAGE.into())
-        .expect("Rust grammar loads");
-    let tree = parser.parse(source, None).expect("tree-sitter parses");
+    let tree = parse(source);
     let argument = tree
         .root_node()
         .named_child(0)
@@ -723,4 +848,152 @@ fn use_groups_expand_to_each_path() {
         shown,
         ["crate::a", "crate::b::c", "crate::b as d", "crate::b::e::*"]
     );
+}
+
+fn fixture(files: &[(&str, &str)], feature: &[&str], base: &[&str]) -> Vec<String> {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("loom-layers-{}-{next}", std::process::id()));
+    for (path, text) in files {
+        let path = dir.join(path);
+        std::fs::create_dir_all(path.parent().expect("file has a folder")).expect("make folder");
+        std::fs::write(path, text).expect("write fixture");
+    }
+    let mut table = format!("{MODULE_TABLE}\n|---|---|---|\n| `{ROOT}` | 상호작용 | x |\n");
+    for (modules, layer) in [(feature, FEATURE), (base, LAYERS[0])] {
+        for module in modules {
+            table.push_str(&format!("| `{module}` | {layer} | x |\n"));
+        }
+    }
+    table.push_str(&format!(
+        "\n{VALUE_TABLE}\n|---|---|\n\n{EXCEPTION_TABLE}\n|---|---|---|\n"
+    ));
+    let doc = read_doc(&table).unwrap_or_else(|problems| panic!("{}", problems.join("\n")));
+    let found = problems(&Crate::read(&dir), &doc);
+    std::fs::remove_dir_all(&dir).expect("remove fixture");
+    found
+}
+
+const MAIN: &str = "mod devices;\nmod usage;\nfn main() {}\n";
+
+const DEVICES: &str = "pub fn random_token() -> String {\n    String::new()\n}\n";
+
+fn feature_call(usage: &str) -> Vec<String> {
+    let files = [
+        ("src/main.rs", MAIN),
+        ("src/devices.rs", DEVICES),
+        ("src/usage.rs", usage),
+    ];
+    let illegal = fixture(&files, &["devices", "usage"], &[]);
+    let legal = fixture(&files, &["usage"], &["devices"]);
+    assert_eq!(legal, Vec::<String>::new(), "{usage}");
+    illegal
+}
+
+fn calls_devices(problems: &[String]) -> bool {
+    problems
+        .iter()
+        .any(|p| p.starts_with("feature to feature: `usage` uses `devices::random_token`"))
+}
+
+#[test]
+fn aliases_resolve_to_the_owner_of_the_item() {
+    for usage in [
+        "pub fn probe() -> String {\n    crate::devices::random_token()\n}\n",
+        "use crate::devices as dev;\nuse dev::random_token;\npub fn probe() -> String {\n    random_token()\n}\n",
+        "use crate::devices as dev;\npub fn probe() -> String {\n    self::dev::random_token()\n}\n",
+        "mod inner {\n    pub use crate::devices::random_token as token;\n}\npub fn probe() -> String {\n    inner::token()\n}\n",
+    ] {
+        assert!(calls_devices(&feature_call(usage)), "{usage}");
+    }
+}
+
+#[test]
+fn only_a_cfg_that_requires_test_hides_code() {
+    let call = "pub fn probe() -> String {\n    crate::devices::random_token()\n}\n";
+    for cfg in [
+        "all(any(unix, test, windows), unix)",
+        "any(test, unix)",
+        "not(test)",
+    ] {
+        let usage = format!("#[cfg({cfg})]\n{call}");
+        assert!(calls_devices(&feature_call(&usage)), "{cfg}");
+    }
+    for cfg in ["test", "all(test, unix)", "any(test, all(test, windows))"] {
+        let usage = format!("#[cfg({cfg})]\n{call}");
+        assert_eq!(feature_call(&usage), Vec::<String>::new(), "{cfg}");
+    }
+}
+
+#[test]
+fn include_reads_the_included_source() {
+    let files = |extra: &'static str| {
+        [
+            ("src/main.rs", MAIN),
+            ("src/devices.rs", DEVICES),
+            ("src/usage.rs", "include!(\"extra.rs\");\n"),
+            ("src/extra.rs", extra),
+        ]
+    };
+    let call = files("pub fn probe() -> String {\n    crate::devices::random_token()\n}\n");
+    assert!(calls_devices(&fixture(&call, &["devices", "usage"], &[])));
+    let plain = files("pub fn probe() -> String {\n    String::new()\n}\n");
+    assert_eq!(
+        fixture(&plain, &["devices", "usage"], &[]),
+        Vec::<String>::new()
+    );
+    let unread = [
+        ("src/main.rs", MAIN),
+        ("src/devices.rs", DEVICES),
+        ("src/usage.rs", "include!(concat!(\"ex\", \"tra.rs\"));\n"),
+    ];
+    let found = fixture(&unread, &["devices", "usage"], &[]);
+    assert!(
+        found.iter().any(|p| p.starts_with("unread include:")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn path_attributes_follow_rustc() {
+    let call = "pub fn probe() -> String {\n    crate::devices::random_token()\n}\n";
+    let inline = |helper: &'static str| {
+        [
+            (
+                "src/main.rs",
+                "mod devices;\nmod usage {\n    #[path = \"helper.rs\"]\n    mod helper;\n}\nfn main() {}\n",
+            ),
+            ("src/devices.rs", DEVICES),
+            ("src/usage/helper.rs", helper),
+        ]
+    };
+    assert_eq!(
+        fixture(&inline(""), &["devices", "usage"], &[]),
+        Vec::<String>::new()
+    );
+    assert!(calls_devices(&fixture(
+        &inline(call),
+        &["devices", "usage"],
+        &[]
+    )));
+    let mod_rs = |helper: &'static str| {
+        [
+            (
+                "src/main.rs",
+                "mod devices;\n#[path = \"alternate/mod.rs\"]\nmod usage;\nfn main() {}\n",
+            ),
+            ("src/devices.rs", DEVICES),
+            ("src/alternate/mod.rs", "mod helper;\n"),
+            ("src/alternate/helper.rs", helper),
+        ]
+    };
+    assert_eq!(
+        fixture(&mod_rs(""), &["devices", "usage"], &[]),
+        Vec::<String>::new()
+    );
+    assert!(calls_devices(&fixture(
+        &mod_rs(call),
+        &["devices", "usage"],
+        &[]
+    )));
 }

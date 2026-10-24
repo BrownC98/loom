@@ -257,11 +257,11 @@ pub fn next_step(call: GateCall, to: Receiver, target: Target, branch: &str) -> 
             Receiver::Gate | Receiver::Root,
         ) => "Next: wait for the owner's next `loom ready`.".to_owned(),
         (GateCall::Start | GateCall::Requeue, _) => "Next: wait for the merge result.".to_owned(),
-        (GateCall::End(MergeEnd::Merged), Receiver::Root) => {
-            "Next: accept the result and reclaim the branch nodes and worktree.".to_owned()
+        (GateCall::End(MergeEnd::Merged), Receiver::Root | Receiver::Gate) => {
+            "Next: accept the result. loom removes the branch's reviewers, its owner node, its clean worktree and the branch.".to_owned()
         }
-        (GateCall::End(MergeEnd::Merged), Receiver::Owner | Receiver::Gate) => {
-            "Next: report with `loom done`. Do not commit to this branch again.".to_owned()
+        (GateCall::End(MergeEnd::Merged), Receiver::Owner) => {
+            "Next: nothing. loom removes this node, its clean worktree and the branch now, unless the node has no parent or has children. Do not commit to this branch again.".to_owned()
         }
         (GateCall::End(MergeEnd::Failed) | GateCall::Fail, Receiver::Root | Receiver::Gate) => {
             format!(

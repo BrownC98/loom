@@ -1,38 +1,39 @@
-# Loom 브리프 공통 규칙
+# Loom brief rules
 
-Loom 코디·워커는 [o-mode](SKILL.md)를 따른다. 역할과 작업 범위는 브리프가 정한다. 사용자 지시가 우선한다.
+Loom 코디 and 워커 nodes follow [o-mode](SKILL.md). The brief gives the role and the scope. The human's instructions come first.
 
-## 시작
+## Start
 
-- 저장소 AGENTS.md와 브리프를 읽는다. 확인된 사실과 가설을 구별한다.
-- 역할, 통신, 목업 승인과 회수는 위 스킬 안의 절차를 쓴다. 다른 오케스트레이션 규칙을 불러오지 않는다.
-- 편집 전 랩터-3 부품 목록을 만든다. 새 부품의 요구, 재사용할 부품과 지울 부품을 결과 보고의 `랩터-3:` 줄에 적는다. 최종 결과는 3줄 요약과 결과 파일(작업 폴더의 `result.md`) 경로다.
+- Read the repository AGENTS.md and the brief. Keep facts that you examined apart from hypotheses.
+- For roles, communication, mockup approval and cleanup, use the procedures in this skill. Do not use rules from a different orchestration skill.
+- Before you edit, make the raptor-3 parts list. The final result is a three-line summary and the path of the result file in the task folder. That file is `result.md`, or `<your node name>.md` if you do part of your parent's task.
 
-## 작업과 연락
+## Work and contact
 
-- 워커는 맡은 조각의 구현과 검증을 끝낸다. 코디는 설계·배정·검수를 맡는다.
-- 읽기 전용 원인 조사는 편집 범위 밖까지 할 수 있다. 범위와 계약 안의 구현 방법은 스스로 정한다.
-- 편집 범위 확대, 완료 조건·제품 동작·공유 계약 변경은 부모에게 질문한다. 영향받지 않는 작업은 계속한다.
-- [질문·응답과 대기](reference.md#질문응답과-대기)를 따른다. 보고는 영어로 쓴다. 사용자에게 보이는 글은 사용자의 언어로 쓴다.
-- 조정 메시지는 현재 작업에 반영한다. 중단 메시지는 하던 작업을 멈추고 따른다.
-- 사용자가 내 터미널에 직접 지시하면 loom이 그 원문을 `kind: human-input`으로 부모에게 보낸다. 따로 알리지 않는다. 범위나 계약이 바뀌는 지시면 부모의 답을 기다린 뒤 편집한다. 코디는 자식의 `human-input`이 범위·계약을 바꾸면 `loom note parent`로 자기 부모에게 넘긴다. loom이 터미널 입력을 보지 못하는 실행자도 있다. 그때는 `loom note parent "<사용자 원문> → <할 일>"`로 알린다.
-- `git stash`는 쓰지 않는다. 다른 워크트리와 공유하기 때문이다. 기존 변경은 보존한다.
-- 검증은 실제 동작과 완료 조건을 확인한다. 테스트나 단언을 약화해 통과시키지 않는다.
-- 검토 지적은 그대로 받지 않고 따져 본다(2026-10-23 사용자 지시 "검토자의 검토는 무조건 받아들이는게 아니라 비판적으로 수용해야하며, 서로 비판적으로 논쟁하여 타당성을 확보해야함").
-  - 브랜치 담당은 지적마다 받아들이거나 증거로 반박한다. 증거는 `경로:줄`, 실패·통과하는 시험, 재현 절차다.
-  - 관문인 담당이 반박과 답을 담당과 검토자 사이에 전한다. 코디 밑 워커 브랜치는 검토자가 없고 코디가 완료 조건으로 받아들인다. 총괄은 검토와 논쟁을 맡지 않는다.
-  - 검토자는 반박마다 증거로 답한다. 권한이 아니라 증거가 정한다.
-  - 검토자가 둘이면 서로의 지적도 확인한다. 동의하지 않으면 증거로 답한다.
-  - BLOCK은 논쟁이 끝날 때까지 잠정이다. 받아들이거나 관문이 정하면 확정된다.
-  - 두 번 주고받아도 다툼이 남으면 관문이 정한다. 그 이유를 판정의 결함 파일에 적는다.
+- A worker implements and examines its piece to the end. A 코디 designs, assigns and reviews.
+- Read-only research into a cause can go outside your edit scope. You select the implementation method in the scope and the contract.
+- Ask your parent before you enlarge the edit scope or change done-when, product behavior or a shared contract. Continue the work that the question does not affect.
+- Follow [reference "Questions, answers and waits"](reference.md#questions-answers-and-waits). Write reports in English and text for the human in the human's language.
+- Apply a steer message to your current work. On an interrupt message, stop the current work and do what it tells.
+- loom sends the human's terminal instructions to your parent as `kind: human-input`; do not report them again. If one changes the scope or a contract, wait for your parent's answer before you edit. A 코디 sends such a child `human-input` on to its parent with `loom note parent`. If loom cannot see your terminal input, send `loom note parent "<human's words> → <what you will do>"`.
+- Do not use `git stash`. All worktrees share it. Keep existing changes.
+- Examine the real behavior and the done-when conditions. Do not make a test or an assertion weaker to pass.
+- Do not accept review findings without examination.
+  - The branch owner accepts each finding or rejects it with evidence. Evidence is `path:line`, a failing or passing test, or steps to see the problem.
+  - The gate (the owner) carries rejections and answers between the owner and the reviewers. A worker branch under a 코디 has no reviewer: the 코디 accepts it against the done-when conditions. The lead does not review or argue.
+  - A reviewer answers each rejection with evidence. Evidence decides, not authority.
+  - When there are two reviewers, each one also examines the other's findings and answers a disagreement with evidence.
+  - A block is temporary until the argument ends. It becomes final when the owner accepts it or the gate decides.
+  - If a dispute remains after two rounds, the gate decides and writes the reason in the verdict's findings file.
+  - A reviewer that receives `kind: withdrawn` stops that review.
 
-## 완료
+## Completion
 
-- `git status --short`와 diff를 확인한다. 저장소가 요구하는 검사를 마친다.
-- 보고에 원인, 바꾼 파일, 검사 명령·결과, 증거 경로, 브랜치와 커밋 SHA를 적는다. 미커밋이면 그대로 밝힌다.
-- 남은 위험과 범위 밖 후보를 구별한다. 지금 고칠 수 있는 결함은 먼저 고친다. `랩터-3:` 줄을 넣는다.
-- HTML 보고서는 사람이 보고서를 요청했다고 부모가 알릴 때만 [사용자 보고서](reference.md#사용자-보고서) 형식으로 쓴다. 에이전트용 긴 결과는 영어로 파일에 쓴다.
-- 브랜치 담당(코디, 또는 코디 없는 워커)은 `loom ready`와 반려를 [병합과 회수](SKILL.md#병합과-회수)대로 한다. 워커를 띄우는 노드는 [역할과 배정](SKILL.md#역할과-배정)을 따른다.
-- 완료 뒤 피드백과 재작업 보고는 위 통신 절차를 따른다. 자기 워크트리는 부모가 결과를 확인하기 전에 지우지 않는다.
-- `loom done` 전에 자기가 띄운 시험 데몬·백그라운드 프로세스·임시 폴더를 끝내거나 지운다. 증거 파일만 남긴다. 노드의 PTY 호스트(`loom pty-host`)는 데몬을 끝내도 산다. 그래서 시험 `HOME`을 환경에 가진 loom 프로세스를 모두 끝낸다. 실행 파일이 `target/`이든 설치된 `loom`이든 같다(2026-10-21 워크트리를 지운 뒤 PTY 호스트 145개가 남았다. 같은 날 설치된 `loom`으로 띄운 시험 PTY 호스트 10개가 `target/` 규칙을 빠져나갔다). 자기 자식은 [회수](reference.md#회수)에 따라 회수한다.
-- 결과 보고에 전용 워크트리 경로와 후속 작업 여부를 적는다. 총괄은 결과 수용 뒤 [병합과 회수](SKILL.md#병합과-회수)에 따라 정리한다.
+- Look at `git status --short` and the diff. Do all checks that the repository requires.
+- The report gives the cause, changed files, check commands and results, evidence paths, branch and commit SHA. If something is not committed, say so.
+- Keep remaining risks apart from candidates outside the scope. Fix each defect that you can fix now. Add the `Raptor-3:` line.
+- Write an HTML report only if your parent says that the human asked for one. Use the form in [reference "Reports to the human"](reference.md#reports-to-the-human). Write long results for agents to a file.
+- A branch owner (a 코디, or a worker without one) follows [o-mode "Merge and cleanup"](SKILL.md#merge-and-cleanup) for `loom ready` and rework. A node that spawns workers follows [o-mode "Roles and assignment"](SKILL.md#roles-and-assignment).
+- Report feedback and rework after completion with the procedure above. Do not delete your worktree before your parent examines the result.
+- Before `loom done`, stop or delete the test daemons, background processes and temporary folders that you started. Keep only evidence files. A node's PTY host (`loom pty-host`) stays alive after its daemon stops. Thus stop all loom processes that have your test `HOME` in their environment, also the installed `loom`. Clean up your children as [reference "Cleanup"](reference.md#cleanup) tells.
+- In the result, write your worktree path and if follow-up work is necessary.

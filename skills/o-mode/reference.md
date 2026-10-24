@@ -1,43 +1,54 @@
-# o-mode 참고
+# o-mode reference
 
-[o-mode](SKILL.md)에서 드물게 쓰는 절차다. 그 일을 할 때 이 파일을 읽는다.
+Procedures from [o-mode](SKILL.md) for rare tasks. Read this file when you do one of them.
 
-## 명령
+## Commands
 
-| 목적 | 명령·동작 |
+| Task | Command or action |
 |---|---|
-| 인계 | 새 총괄에서 `loom adopt <코디 이름>`. 현재 관계와 보관된 메시지를 확인한다 |
-| 조치 전파 | 살아 있는 자식마다 `loom note`. 코디는 필요한 조치를 자기 자식에게 전달한다 |
-| 실패 후 재배정 | 기존 노드의 종료를 확인하고 새 이름으로 생성한다. 브리프에 보존한 브랜치·결과를 적는다 |
+| Handover | In the new lead, `loom adopt <코디 name>`. Look at the relations and the kept messages |
+| Send an action to all children | `loom note` to each live child. A 코디 sends the action on to its own children |
+| Reassign after a failure | Make sure that the old node stopped, then spawn a node with a new name. In the brief, write the kept branch and results |
 
-`--worktree` 자식은 부모의 커밋된 `HEAD`로 저장소 설정 스크립트를 돌린다. 그래서 설정(빌드 포함)이 통과하는 `HEAD`를 커밋한 뒤 띄운다. 부모가 종류 `setup-failed` 메시지(칸 `node`, `code`, 본문은 출력 끝)를 받으면 그 출력으로 원인을 고치고 커밋한다. 그 뒤 실패한 자식을 `loom rm`으로 지우고, 그 워크트리와 브랜치를 `git worktree remove`·`git branch -d`로 지운 뒤 같은 이름으로 다시 띄운다.
+A `--worktree` child runs the repository setup script on the parent's committed `HEAD`. Thus commit a `HEAD` on which the setup (with the build) passes, then spawn. A `setup-failed` message has the fields `node` and `code`, and its body is the end of the output. On it, the parent finds the cause in that output, fixes it and commits. Then it removes the failed child with `loom rm`. It removes the worktree and branch with `git worktree remove` and `git branch -d`. Then it spawns the child again with the same name.
 
-## 막힘
+- The node that starts a release or APK run (`.github/workflows/release.yml`) watches it to the end.
+- In a repository without `scripts/gate/check.sh`, still call `loom ready`. The gate merges by hand and reports with `loom done`.
 
-- 같은 완료 명령이 두 번 실패하거나 환경 문제로 10분 넘게 막히면 부모에게 원인·영향·시도·필요한 결정을 보낸다.
-- 부모는 해결 담당자와 조치를 정한다. 관련 자식에게 원래 메시지 번호와 함께 알리고 해결 결과를 확인한다.
+## Mockup approval
 
-## 질문·응답과 대기
+- [user-doc](../user-doc/SKILL.md) sets the form, style and display of mockups and reports. This section gives only the Loom roles.
+- For screen work, check with an installed design check skill (for example `design-stack`) if there is one. The 코디 makes the mockup, checks the render and reports only the path, the version and the check result.
+- The lead checks the file with user-doc `show.sh` and attaches it with `loom ask "<question>" --doc <file>`. Nobody opens the human's browser. The head line names the lead as the node to answer to.
+- Before the human approves, do not write screen product code and do not spawn implementation workers. Show the version to approve and the open decisions.
+- Write the approved version, its path and its content in the implementation brief. Keep the node and the worktree while the approval waits.
 
-명령·대기·크기 제한은 사용법이 정한다. 아래는 사용법에 없는 규칙이다.
+## Blocked
 
-- 시작할 때와 `adopted` 알림 뒤에 `loom status`로 현재 부모와 자식을 확인한다. 전송이 실패해도 관계와 `alive`를 먼저 확인한다. 보고는 부모에게 한다. 조정·중단은 현재 부모와 자식 사이에만 보낸다.
-- 노드 번호와 메시지 번호를 구별한다. 자식에게 묻는 일은 `loom note`로 보내고 `loom done`이나 답을 받는다. 부모가 바뀌어 답변이 거절되면 현재 부모에게 질문 경위와 결과를 보낸다.
-- 제한 시간이 지나도 질문은 취소되지 않는다. 같은 질문을 자동으로 다시 보내지 않는다. 관계와 생존을 확인하고 감독 절차를 따른다.
-- `done`은 작업 완료이며 프로세스 종료가 아니다. `alive: true`인 완료 노드는 피드백을 받고, 받으면 다시 「실행 중」이 된다. `alive: false`인 노드는 새 이름으로 다시 띄운다.
-- `done --file`은 파일 내용 대신 절대 경로를 보낸다. 결과 파일에는 메시지 크기 제한이 없다.
+- If the same completion command fails two times, or the environment blocks you over 10 minutes, tell your parent. Give the cause, the effect, what you tried and the decision that you need.
+- The parent selects who fixes it and how. It tells the related children, with the number of the first message, and examines the result.
 
-## 사용자 보고서
+## Questions, answers and waits
 
-- HTML 보고서는 사람이 명시해 요청할 때만 user-doc 형식으로 만든다. 총괄이 검수하고 `show.sh`로 점검한 뒤 `loom ask --doc`으로 붙인다(사람의 브라우저를 열지 않는다). 채팅·`loom done`에는 요약과 링크만 적는다.
-- 에이전트끼리 읽는 글은 영어 markdown이다.
+The usage text gives the commands, the waits and the size limits. These rules are not in it:
 
-## 회수
+- At start and after an `adopted` notice, run `loom status` to see your current parent and children. If a send fails, first look at the relations and `alive`. Report to your parent. Send steer and interrupt messages only between a current parent and its children.
+- A node number is not a message number. To ask a child something, send `loom note` and get a `loom done` or an answer. If an answer is refused because the parent changed, send the current parent the question's history and its result.
+- A question stays open after its time limit. Do not send the same question again automatically. Look at the relations and `alive`, then follow the supervision procedure.
+- `done` means that the work is complete, not that the process stopped. A done node with `alive: true` can receive feedback, and then it is running again. Spawn a node with `alive: false` again with a new name.
+- `done --file` sends the absolute path, not the file content. A result file has no size limit.
 
-- 미보존 변경, 검증·승인·병합 대기, 사용 중인 사용자 노드와 기준 체크아웃을 보존한다.
-- 회수 전에 해당 워크트리의 `git status --short`로 미커밋 변경과 추적하지 않는 파일을 확인한다. 검토 증거가 그 폴더에만 있으면 먼저 보존한다. 다른 작업이 사용 중이면 회수하지 않는다.
-- 노드는 `loom rm <자식 이름 또는 번호>`로 지운다. 자기 자식만 지울 수 있다. 그 자식의 프로세스도 끝난다.
-- 지운 자식에게 자식(손자)이 있으면 손자는 내 자식이 된다. 그 노드도 결과를 보존한 뒤 `loom rm`으로 회수한다.
-- 병합되지 않은 워크트리는 노드를 지운 뒤 기준 체크아웃에서 `git worktree remove <경로>`로 지운다. 병합된 브랜치는 데몬이 지운다. 강제 삭제하지 않는다.
-- 남겨야 하는 워크트리는 경로·이유·담당자·회수 조건을 완료 보고에 적는다. 완료 상태라는 이유만으로 방치하지 않는다.
-- 완료 보고 전에 `git worktree list`, `git branch`, 가능한 경우 `loom status`로 회수를 확인한다. 삭제 명령 실행만으로 완료했다고 보고하지 않는다.
+## Reports to the human
+
+- Make an HTML report in the user-doc form only when the human asks for it. The lead reviews it, checks it with `show.sh` and attaches it with `loom ask --doc` (do not open the human's browser). In chat and `loom done`, write only a summary and the link.
+- Text that agents read is English markdown.
+
+## Cleanup
+
+- Do not clean up unsaved changes or work that waits for a check, approval or merge. Also keep user nodes in use and the base checkout.
+- Before cleanup, run `git status --short` in that worktree. Look for uncommitted changes and untracked files. If review evidence is only in that folder, save it first. Do not clean up a worktree that a different task uses.
+- Remove a node with `loom rm <child name or number>`. You can remove only your own children. The process of that child stops too.
+- If the removed child had children, they become your children. Save their results, then remove them with `loom rm` too.
+- Remove an unmerged worktree from the base checkout with `git worktree remove <path>` after you remove its node. The daemon deletes merged branches. Do not force a deletion.
+- In the completion report, give each worktree that must stay: its path, reason, owner and cleanup condition. "Done" alone is not a reason to leave it.
+- Before the completion report, make sure of the cleanup with `git worktree list`, `git branch` and, if possible, `loom status`. A delete command alone does not show that the cleanup is complete.

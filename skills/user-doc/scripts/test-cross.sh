@@ -17,7 +17,7 @@ HTML
 }
 page '' > "$tmp/ok.html"
 page '<script>setTimeout(() => { const [a, b] = document.querySelectorAll(".lead-svg polyline"), pa = a.points, pb = b.points, f = p => p.getItem(0), l = p => p.getItem(p.numberOfItems - 1), s = (p, q) => `${f(p).x},${f(p).y} ${l(q).x},${l(q).y}`; const x = s(pa, pb), y = s(pb, pa); a.setAttribute("points", x); b.setAttribute("points", y); }, 300)</script>' > "$tmp/cross.html"
-node "$here/check-callouts.cjs" "$tmp/ok.html" >&2 || { echo "test-cross: 정상 문서가 실패했다" >&2; exit 1; }
-if out=$(node "$here/check-callouts.cjs" "$tmp/cross.html"); then echo "test-cross: 엇갈린 문서가 통과했다" >&2; exit 1; fi
-echo "$out" | grep -q 'crosses leader' || { echo "test-cross: 실패 이유에 crosses leader가 없다: $out" >&2; exit 1; }
+node "$here/check-callouts.cjs" "$tmp/ok.html" >&2 || { echo "test-cross: the good document failed" >&2; exit 1; }
+if out=$(node "$here/check-callouts.cjs" "$tmp/cross.html"); then echo "test-cross: the crossing document passed" >&2; exit 1; fi
+echo "$out" | grep -q 'crosses leader' || { echo "test-cross: the failure reason has no crosses leader: $out" >&2; exit 1; }
 echo "test-cross: ok"

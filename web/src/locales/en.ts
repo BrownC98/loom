@@ -237,7 +237,7 @@ const en = {
     skill: {
       oMode: { name: 'loom procedure (o-mode)', desc: 'How the lead, coordinators and workers assign, talk, review, merge and clean up.' },
       userDoc: { name: 'User documents (user-doc)', desc: 'Makes mockups and reports as one HTML file and opens them in the browser.' },
-      ste100: { name: 'Writing rules (STE-100)', desc: 'Short, simple text: people get your language, agents talk in English.' },
+      steOrwell: { name: 'Writing rules (STE, Orwell)', desc: 'Short, simple text: people get your language, agents talk in English.' },
       raptor3: { name: 'Fewest parts (Raptor-3)', desc: 'Removes parts with no requirement before writing code and before each commit.' },
     },
     oModeOff: 'Off: nodes know the loom commands but not the roles, merge and clean-up procedure.',

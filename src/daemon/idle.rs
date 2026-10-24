@@ -4,15 +4,23 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
 
+use super::TurnId;
 use crate::graph::{Entry, Graph, IdleEnd, NodeId, Who};
 
 pub struct IdleWaits {
     graph: Arc<Graph>,
     ends: Mutex<HashMap<NodeId, oneshot::Sender<IdleEnd>>>,
     turns: Mutex<HashSet<NodeId>>,
-    heard: Mutex<HashSet<NodeId>>,
-    said: Mutex<HashMap<NodeId, Said>>,
+    watches: Mutex<HashMap<NodeId, Watch>>,
     next_said: AtomicU64,
+}
+
+#[derive(Default)]
+struct Watch {
+    heard: bool,
+    turn: Option<TurnId>,
+    stopped: Option<TurnId>,
+    said: Option<Said>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -31,16 +39,17 @@ impl IdleWaits {
             graph,
             ends: Mutex::default(),
             turns: Mutex::default(),
-            heard: Mutex::default(),
-            said: Mutex::default(),
+            watches: Mutex::default(),
             next_said: AtomicU64::new(0),
         }
     }
 
     pub fn open(&self, node: NodeId) -> Wait<'_> {
         self.turns.lock().unwrap().remove(&node);
-        self.said.lock().unwrap().remove(&node);
-        self.heard.lock().unwrap().insert(node);
+        self.watch(node, |w| {
+            w.heard = true;
+            w.said = None;
+        });
         let (tx, end) = oneshot::channel();
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
             let _ = old.send(IdleEnd::NewWait);
@@ -83,41 +92,75 @@ impl IdleWaits {
         self.turns.lock().unwrap().contains(&node)
     }
 
-    pub fn turn_started(&self, node: NodeId, hook: String) {
-        self.end(node, IdleEnd::Turn { hook });
+    pub fn turn_started(&self, node: NodeId, hook: String, turn: Option<TurnId>) {
+        self.end_wait(node, IdleEnd::Turn { hook });
+        self.watch(node, |w| {
+            w.said = None;
+            if turn.is_some() {
+                w.turn = turn;
+            }
+        });
         self.turns.lock().unwrap().insert(node);
     }
 
     pub fn end(&self, node: NodeId, by: IdleEnd) {
+        self.watches.lock().unwrap().remove(&node);
+        self.end_wait(node, by);
+    }
+
+    fn end_wait(&self, node: NodeId, by: IdleEnd) {
         self.turns.lock().unwrap().remove(&node);
-        self.said.lock().unwrap().remove(&node);
         if let Some(old) = self.ends.lock().unwrap().remove(&node) {
             let _ = old.send(by);
         }
     }
 
-    pub fn said(&self, node: NodeId) -> Option<Said> {
-        if !self.heard.lock().unwrap().contains(&node) {
+    pub fn said(&self, node: NodeId, turn: TurnId) -> Option<Said> {
+        let mut watches = self.watches.lock().unwrap();
+        let w = watches.get_mut(&node)?;
+        let stale =
+            w.stopped.as_ref() == Some(&turn) || w.turn.as_ref().is_some_and(|t| *t != turn);
+        if !w.heard || stale {
             return None;
         }
         let said = Said(self.next_said.fetch_add(1, Ordering::Relaxed));
-        self.said.lock().unwrap().insert(node, said);
+        w.said = Some(said);
         Some(said)
     }
 
-    pub fn stop_reached(&self, node: NodeId) {
-        self.said.lock().unwrap().remove(&node);
+    pub fn stop_reached(&self, node: NodeId, turn: Option<TurnId>) {
+        self.watch(node, |w| {
+            w.said = None;
+            if turn.is_some() {
+                w.stopped = turn;
+            }
+        });
+    }
+
+    pub fn typed(&self, node: NodeId) {
+        if let Some(w) = self.watches.lock().unwrap().get_mut(&node) {
+            w.said = None;
+        }
     }
 
     pub fn missed(&self, node: NodeId, said: Said) -> bool {
-        let mut pending = self.said.lock().unwrap();
-        if pending.get(&node) != Some(&said) {
+        let mut watches = self.watches.lock().unwrap();
+        let Some(w) = watches.get_mut(&node).filter(|w| w.said == Some(said)) else {
+            return false;
+        };
+        let ends = self.ends.lock().unwrap();
+        if ends.get(&node).is_some_and(|end| !end.is_closed()) {
             return false;
         }
-        pending.remove(&node);
-        self.heard.lock().unwrap().remove(&node);
+        drop(ends);
+        w.said = None;
+        w.heard = false;
         self.turns.lock().unwrap().remove(&node);
         true
+    }
+
+    fn watch(&self, node: NodeId, change: impl FnOnce(&mut Watch)) {
+        change(self.watches.lock().unwrap().entry(node).or_default());
     }
 
     fn record(&self, entry: Entry) {
@@ -203,13 +246,13 @@ mod tests {
     fn only_a_turn_hook_until_the_turn_end_counts_as_a_turn() {
         let (_dir, [node, _], waits) = waits();
         assert!(!waits.in_turn(node));
-        waits.turn_started(node, "postToolUse".into());
+        waits.turn_started(node, "postToolUse".into(), None);
         assert!(waits.in_turn(node));
         assert!(!waits.waiting(node));
         let _wait = waits.open(node);
         assert!(!waits.in_turn(node));
         assert!(waits.waiting(node));
-        waits.turn_started(node, "postToolUse".into());
+        waits.turn_started(node, "postToolUse".into(), None);
         waits.end(node, IdleEnd::Exit);
         assert!(!waits.in_turn(node));
     }
@@ -221,39 +264,74 @@ mod tests {
         waits.end(node, IdleEnd::Relaunch);
         assert!(waits.reopen(&mut wait));
         assert!(!waits.reopen(&mut wait));
-        waits.turn_started(node, "preToolUse".into());
+        waits.turn_started(node, "preToolUse".into(), None);
         assert!(!waits.reopen(&mut wait));
     }
 
     #[test]
-    fn a_said_turn_misses_its_wait_only_after_a_heard_stop_hook_and_only_once() {
+    fn a_turn_misses_its_wait_once_per_process_and_only_while_nothing_answered() {
         let (_dir, [node, _], waits) = waits();
-        assert_eq!(waits.said(node), None, "no stop hook has reached loom yet");
+        let turn = |id: &str| TurnId(id.into());
+        let prompt =
+            |id: &str| waits.turn_started(node, "beforeSubmitPrompt".into(), Some(turn(id)));
+        assert_eq!(
+            waits.said(node, turn("1")),
+            None,
+            "no stop hook has reached loom yet"
+        );
         waits.open(node).finish(IdleEnd::Mail);
-        let said = waits.said(node).unwrap();
-        waits.turn_started(node, "preToolUse".into());
-        assert!(waits.in_turn(node));
-        let missed = waits.said(node).unwrap();
+        prompt("1");
+        let said = waits.said(node, turn("1")).unwrap();
+        let missed = waits.said(node, turn("1")).unwrap();
         assert!(!waits.missed(node, said), "a newer turn end came");
         assert!(waits.missed(node, missed));
         assert!(!waits.in_turn(node));
         assert!(!waits.missed(node, missed));
         assert_eq!(
-            waits.said(node),
+            waits.said(node, turn("1")),
             None,
-            "the relaunched process proves its stop hook again"
+            "the process proves its stop hook again"
         );
 
         waits.open(node).finish(IdleEnd::Mail);
-        let said = waits.said(node).unwrap();
+        waits.end(node, IdleEnd::Relaunch);
+        assert_eq!(
+            waits.said(node, turn("2")),
+            None,
+            "a new process proves its stop hook again"
+        );
+
         waits.open(node).finish(IdleEnd::Mail);
+        prompt("3");
+        waits.stop_reached(node, Some(turn("3")));
+        assert_eq!(
+            waits.said(node, turn("3")),
+            None,
+            "the stop hook of that turn came first"
+        );
+        prompt("5");
+        assert_eq!(waits.said(node, turn("4")), None, "a newer turn started");
+        assert!(waits.in_turn(node));
+
+        let said = waits.said(node, turn("5")).unwrap();
+        let wait = waits.open(node);
         assert!(!waits.missed(node, said), "the wait opened");
-        let said = waits.said(node).unwrap();
-        waits.turn_started(node, "beforeSubmitPrompt".into());
-        assert!(!waits.missed(node, said), "the human started a turn");
-        let said = waits.said(node).unwrap();
-        waits.stop_reached(node);
-        assert!(!waits.missed(node, said), "the stop hook nudged a new turn");
+        let said = waits.said(node, turn("5")).unwrap();
+        assert!(!waits.missed(node, said), "a wait is open");
+        wait.finish(IdleEnd::Mail);
+        assert!(
+            waits.missed(node, said),
+            "the finished wait no longer listens"
+        );
+
+        waits.open(node).finish(IdleEnd::Mail);
+        prompt("7");
+        let said = waits.said(node, turn("7")).unwrap();
+        waits.typed(node);
+        assert!(!waits.missed(node, said), "the human types");
+        let said = waits.said(node, turn("7")).unwrap();
+        waits.stop_reached(node, None);
+        assert!(!waits.missed(node, said), "the stop hook reached loom");
     }
 
     #[test]
@@ -284,7 +362,7 @@ mod tests {
         let by = first.ended().await;
         first.finish(by);
         let mut elsewhere = waits.open(other);
-        waits.turn_started(node, "beforeSubmitPrompt".into());
+        waits.turn_started(node, "beforeSubmitPrompt".into(), None);
         let by = second.ended().await;
         second.finish(by);
         assert!(

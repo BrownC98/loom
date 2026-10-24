@@ -509,10 +509,8 @@ fn a_nudged_turn_end_leaves_an_event() {
     assert_eq!(t.since(mark), []);
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_turn_end_without_an_idle_wait_relaunches_the_node_once() {
-    let t = fixture();
-    let cursor = |name: &str, token: &str| {
+impl Fixture {
+    fn cursor(&self, name: &str) -> NodeId {
         let child = NewChild {
             name,
             worktree: None,
@@ -525,34 +523,66 @@ async fn a_turn_end_without_an_idle_wait_relaunches_the_node_once() {
             max_depth: None,
             max_children: None,
         };
-        t.app
+        self.app
             .graph
-            .add_child(t.lead, child, limits, &launched(token), |_| Ok(()))
+            .add_child(self.lead, child, limits, &launched(name), |_| Ok(()))
             .unwrap()
-    };
-    let deaf = cursor("deaf", "deaf-token");
-    let heard = cursor("heard", "heard-token");
-    for node in [deaf, heard] {
-        t.app.idle.open(node).finish(IdleEnd::Mail);
     }
-    let said = |token: &str| {
-        let text = SaidRequest { text: "끝".into() };
-        agent_said(t.state(), headers(token, "said"), Json(text))
-    };
-    let relaunches = |mark| {
-        t.since(mark)
+
+    fn heard(&self, node: NodeId, turn: &str) {
+        self.app.idle.open(node).finish(IdleEnd::Mail);
+        self.prompt(node, turn);
+    }
+
+    fn prompt(&self, node: NodeId, turn: &str) {
+        let hook = "beforeSubmitPrompt".into();
+        let turn = Some(TurnId(turn.into()));
+        self.app.idle.turn_started(node, hook, turn);
+    }
+
+    async fn said(&self, token: &str, turn: Option<&str>) {
+        let text = SaidRequest {
+            text: "끝".into(),
+            turn: turn.map(|t| TurnId(t.into())),
+        };
+        ok(
+            "said",
+            agent_said(self.state(), headers(token, "said"), Json(text)).await,
+        );
+    }
+
+    async fn stop_hook(&self, token: &str, turn: &str) {
+        let req = TurnEndRequest {
+            turn: Some(TurnId(turn.into())),
+        };
+        let end = agent_turn_end(self.state(), headers(token, "turn-end"), Json(Some(req)));
+        ok("turn-end", end.await);
+    }
+
+    fn relaunches(&self, mark: u32) -> Vec<Entry> {
+        self.since(mark)
             .into_iter()
             .filter(|e| matches!(e, Entry::NoIdleWait { .. } | Entry::Relaunched { .. }))
-            .collect::<Vec<_>>()
-    };
+            .collect()
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_without_an_idle_wait_relaunches_the_node_once() {
+    let t = fixture();
+    let deaf = t.cursor("deaf");
+    let heard = t.cursor("heard");
+    t.heard(deaf, "g1");
+    t.heard(heard, "g1");
 
     let mark = t.mark();
-    ok("said", said("deaf-token").await);
-    ok("said", said("heard-token").await);
+    t.said("deaf", Some("g1")).await;
+    t.said("heard", Some("g1")).await;
     tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    t.stop_hook("heard", "g1").await;
     let _wait = t.app.idle.open(heard);
     tokio::time::sleep(turn_end::IDLE_GRACE).await;
-    let found = relaunches(mark);
+    let found = t.relaunches(mark);
     assert!(
         matches!(
             found.as_slice(),
@@ -565,9 +595,45 @@ async fn a_turn_end_without_an_idle_wait_relaunches_the_node_once() {
     );
 
     let mark = t.mark();
-    ok("said", said("deaf-token").await);
+    t.prompt(deaf, "g2");
+    t.said("deaf", Some("g2")).await;
     tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
-    assert_eq!(relaunches(mark), []);
+    assert_eq!(t.relaunches(mark), []);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_that_something_answered_relaunches_nothing() {
+    let t = fixture();
+    let late = t.cursor("late");
+    let newer = t.cursor("newer");
+    let typed = t.cursor("typed");
+    let exited = t.cursor("exited");
+    let plain = t.cursor("plain");
+    for node in [late, newer, typed, exited, plain] {
+        t.heard(node, "g1");
+    }
+    let mark = t.mark();
+
+    t.stop_hook("late", "g1").await;
+    t.app.idle.open(late).finish(IdleEnd::Mail);
+    t.said("late", Some("g1")).await;
+
+    t.prompt(newer, "g2");
+    t.said("newer", Some("g1")).await;
+
+    t.said("typed", Some("g1")).await;
+
+    t.app.graph.exited(exited, 0).unwrap();
+    t.app.idle.end(exited, IdleEnd::Exit);
+    t.said("exited", Some("g1")).await;
+
+    t.said("plain", None).await;
+
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    human_typed(&t.app, typed);
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    assert_eq!(t.relaunches(mark), []);
+    assert!(t.app.busy(newer), "the newer turn still runs");
 }
 
 #[test]

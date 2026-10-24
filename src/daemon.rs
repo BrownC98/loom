@@ -345,6 +345,8 @@ pub struct TakeRequest {
     pub human_input: bool,
     #[serde(default)]
     pub prompt: Option<String>,
+    #[serde(default)]
+    pub turn: Option<TurnId>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -444,9 +446,21 @@ pub struct ChooseOption {
     pub option: usize,
 }
 
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TurnId(pub String);
+
 #[derive(Serialize, Deserialize)]
 pub struct SaidRequest {
     pub text: String,
+    #[serde(default)]
+    pub turn: Option<TurnId>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TurnEndRequest {
+    pub turn: Option<TurnId>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2041,7 +2055,7 @@ async fn agent_take(
     Json(req): Json<TakeRequest>,
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
-    app.idle.turn_started(node, req.hook);
+    app.idle.turn_started(node, req.hook, req.turn);
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let messages = app
         .graph
@@ -2180,15 +2194,17 @@ async fn agent_said(
     Json(req): Json<SaidRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.said(node, req.text);
+    app.said(node, req.text, req.turn);
     Ok(Json(()))
 }
 
 async fn agent_turn_end(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
+    Json(req): Json<Option<TurnEndRequest>>,
 ) -> Result<Json<Option<String>>, AgentError> {
     let node = app.caller(&headers)?;
+    app.idle.stop_reached(node, req.unwrap_or_default().turn);
     Ok(Json(app.turn_end(node).map(str::to_owned)))
 }
 
@@ -2214,17 +2230,19 @@ async fn pty(
     State(app): State<Arc<App>>,
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
-    let typed = |app: &App, id| {
-        if let Err(e) = app.graph.typed(id) {
-            eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
-        }
-        app.sleeps.knocked(id);
-    };
     let id = NodeId(id);
     if app.host.attach(id).is_none() && app.graph.reachable(id).unwrap_or(false) {
         return coming_pty(ws, via, app, id);
     }
-    serve_pty(ws, via, app, |app| &app.host, typed, id)
+    serve_pty(ws, via, app, |app| &app.host, human_typed, id)
+}
+
+fn human_typed(app: &App, id: NodeId) {
+    if let Err(e) = app.graph.typed(id) {
+        eprintln!("loom: 노드 {}의 응답 대기를 지우지 못했다: {e}", id.0);
+    }
+    app.sleeps.knocked(id);
+    app.idle.typed(id);
 }
 
 const COMING_PTY_CHECK: Duration = Duration::from_secs(1);

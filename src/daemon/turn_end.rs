@@ -2,8 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::App;
-use super::relaunch::Plan;
+use super::{App, TurnId};
 use crate::graph::{Entry, NodeId, TurnCheck};
 
 pub(super) const IDLE_GRACE: Duration = Duration::from_secs(60);
@@ -80,9 +79,9 @@ fn nudge_text(check: TurnCheck) -> &'static str {
 }
 
 impl App {
-    pub(super) fn said(self: &Arc<Self>, node: NodeId, text: String) {
+    pub(super) fn said(self: &Arc<Self>, node: NodeId, text: String, turn: Option<TurnId>) {
         self.turn_ends.said(node, text);
-        let Some(said) = self.idle.said(node) else {
+        let Some(said) = turn.and_then(|turn| self.idle.said(node, turn)) else {
             return;
         };
         let app = self.clone();
@@ -91,6 +90,16 @@ impl App {
             if !app.idle.missed(node, said) {
                 return;
             }
+            let active = match app.graph.active() {
+                Ok(nodes) => nodes.into_iter().find(|n| n.id == node),
+                Err(e) => {
+                    eprintln!("loom: 노드 {}를 찾지 못했다: {e}", node.0);
+                    return;
+                }
+            };
+            let Some(active) = active else {
+                return;
+            };
             if let Err(e) = app
                 .graph
                 .record_about(node, |node| Entry::NoIdleWait { node })
@@ -100,9 +109,9 @@ impl App {
                     node.0
                 );
             }
-            if let Err(e) = app.relaunch_by_id(node, Plan::Resume).await {
+            if let Err(e) = app.relaunch_or_queue(active).await {
                 eprintln!(
-                    "loom: 쉬는 대기가 열리지 않은 노드 {}를 다시 띄우지 못했다: {e:?}",
+                    "loom: 쉬는 대기가 열리지 않은 노드 {}를 다시 띄우지 못했다: {e}",
                     node.0
                 );
             }
@@ -110,7 +119,6 @@ impl App {
     }
 
     pub(super) fn turn_end(&self, node: NodeId) -> Option<&'static str> {
-        self.idle.stop_reached(node);
         let gated_repo = || {
             self.gated_repo(node).unwrap_or_else(|e| {
                 eprintln!("loom: 노드 {}의 저장소를 보지 못했다: {e}", node.0);

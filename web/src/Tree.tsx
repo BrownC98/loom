@@ -2,7 +2,6 @@ import { Bookmark, ChevronDown, ChevronsUpDown, CornerLeftUp, EllipsisVertical, 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeNode, removeRepo, renameWorktree } from './api';
-import { AgentMark } from './AgentMark';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -20,7 +19,7 @@ import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { shownPath, ShortPlaceTag } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
-import { modelText, stateClass, stateLabel, stateText, Unread } from './NodeCard';
+import { AgentLine, stateClass, stateLabel, stateText, Unread } from './NodeCard';
 import { NoticeChips } from './notice';
 import { MenuSheet, Sheet, useLongPress, usePhone } from './Phone';
 import { useDismiss } from './popover';
@@ -109,10 +108,7 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
               <StateTag view={v} />
             </span>
             <span className="node-line">
-              <AgentMark agent={v.agent} label={label} />
-              <span className="sub" translate="no">
-                {modelText(v) || label}
-              </span>
+              <AgentLine view={v} label={label} />
             </span>
           </span>
         ),

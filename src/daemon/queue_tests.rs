@@ -833,6 +833,7 @@ mod git_runs {
     async fn a_failed_push_keeps_an_untracked_file_at_a_path_the_batch_deleted() {
         let r = repo();
         r.commit_main("removed.txt", "base content\n");
+        git(&r.main, &["config", "status.showUntrackedFiles", "no"]);
         let base = git(&r.main, &["rev-parse", "main"]);
         r.hook(
             "pre-push",
@@ -965,6 +966,7 @@ mod git_runs {
     async fn a_resumed_batch_keeps_an_untracked_file_at_a_path_the_batch_deleted() {
         let r = repo();
         r.commit_main("removed.txt", "base content\n");
+        git(&r.main, &["config", "status.showUntrackedFiles", "no"]);
         let base = git(&r.main, &["rev-parse", "main"]);
         let a = r.removal("a", "removed.txt");
         r.queue_main("a", &a);

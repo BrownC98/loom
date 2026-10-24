@@ -33,7 +33,7 @@ git worktree prune
 const SYNC: &str = r#"set -u
 target=$1
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$target" ] || { echo "the main checkout is not on $target"; exit 1; }
-[ -z "$(git status --porcelain)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
+[ -z "$(git status --porcelain --untracked-files=all)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
 git fetch --quiet origin "$target" || { echo "git fetch origin $target failed"; exit 1; }
 git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$target diverged"; exit 1; }
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$target")" ] || { echo "$target has commits that are not on origin/$target"; exit 1; }
@@ -79,7 +79,7 @@ mkdir -p "$common/loom-logs"
 exec 3>&1 >>"$log" 2>&1
 echo "log $log" >&3
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$target" ] || { echo "the main checkout is not on $target"; exit 1; }
-[ -z "$(git status --porcelain)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
+[ -z "$(git status --porcelain --untracked-files=all)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
 git fetch --quiet origin "$target" || { echo "git fetch failed"; exit 1; }
 if ! git merge-base --is-ancestor "$tip" "origin/$target"; then
   [ "$(git rev-parse "origin/$target")" = "$base" ] || { echo "origin/$target moved"; exit 20; }
@@ -88,7 +88,7 @@ if ! git merge-base --is-ancestor "$tip" "origin/$target"; then
   git merge --ff-only --quiet "$tip" || exit 1
   [ "$(git rev-parse HEAD)" = "$tip" ] || { echo "$target moved after the fast-forward to $tip"; exit 1; }
   if ! git push --quiet origin "$tip:refs/heads/$target"; then
-    [ -z "$(git status --porcelain)" ] ||
+    [ -z "$(git status --porcelain --untracked-files=all)" ] ||
       { echo "git push origin $target failed and the main checkout has uncommitted changes; loom kept them and did not undo the fast-forward to $tip"; exit 1; }
     git update-ref "refs/heads/$target" "$base" "$tip" ||
       { echo "$target moved during git push; loom kept it and did not undo the fast-forward to $tip"; exit 1; }
@@ -107,14 +107,14 @@ const UNDO: &str = r#"set -u
 target=$1 base=$2 tip=$3
 git merge-base --is-ancestor "$tip" "refs/heads/$target" || exit 0
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$target" ] || { echo "the main checkout is not on $target"; exit 1; }
-[ -z "$(git status --porcelain)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
+[ -z "$(git status --porcelain --untracked-files=all)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
 git update-ref "refs/heads/$target" "$base" "$tip" || { echo "$target moved past the batch tip"; exit 1; }
 git reset --hard --quiet
 "#;
 
 const ADVANCE: &str = r#"set -u
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$1" ] || { echo "the coordinator worktree is not on $1"; exit 1; }
-[ -z "$(git status --porcelain)" ] || exit 21
+[ -z "$(git status --porcelain --untracked-files=all)" ] || exit 21
 git merge --ff-only --quiet "$2" || exit 20
 "#;
 

@@ -9,7 +9,7 @@ export function useSwitchNotice(closed: number | null, onClose: (id: number) => 
   const [latest, setLatest] = useState<SwitchRecord | null>(null);
   useEffect(() => {
     getEventLog()
-      .then((log) => setLatest(latestSwitch(log) ?? null))
+      .then((log) => setLatest(latestSwitch(log.records) ?? null))
       .catch(() => {});
   }, []);
   const onRecord = (next: EventRecord) => {

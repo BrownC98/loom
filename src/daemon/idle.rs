@@ -14,8 +14,8 @@ pub struct IdleWaits {
 pub struct Wait<'a> {
     waits: &'a IdleWaits,
     node: NodeId,
+    who: Option<Who>,
     end: oneshot::Receiver<IdleEnd>,
-    recorded: bool,
 }
 
 impl IdleWaits {
@@ -33,12 +33,19 @@ impl IdleWaits {
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
             let _ = old.send(IdleEnd::NewWait);
         }
-        self.record(node, |node| Entry::IdleOpened { node });
+        let who = self
+            .graph
+            .who(node)
+            .inspect_err(|e| eprintln!("loom: 노드 {}의 쉬는 대기를 남기지 못했다: {e}", node.0))
+            .ok();
+        if let Some(who) = &who {
+            self.record(Entry::IdleOpened { node: who.clone() });
+        }
         Wait {
             waits: self,
             node,
+            who,
             end,
-            recorded: false,
         }
     }
 
@@ -76,9 +83,9 @@ impl IdleWaits {
         }
     }
 
-    fn record(&self, node: NodeId, entry: impl FnOnce(Who) -> Entry) {
-        if let Err(e) = self.graph.record_about(node, entry) {
-            eprintln!("loom: 노드 {}의 쉬는 대기를 남기지 못했다: {e}", node.0);
+    fn record(&self, entry: Entry) {
+        if let Err(e) = self.graph.record(&entry) {
+            eprintln!("loom: 쉬는 대기를 남기지 못했다: {e}");
         }
     }
 }
@@ -95,17 +102,15 @@ impl Wait<'_> {
     }
 
     fn record(&mut self, by: IdleEnd) {
-        self.recorded = true;
-        self.waits
-            .record(self.node, |node| Entry::IdleEnded { node, by });
+        if let Some(node) = self.who.take() {
+            self.waits.record(Entry::IdleEnded { node, by });
+        }
     }
 }
 
 impl Drop for Wait<'_> {
     fn drop(&mut self) {
-        if !self.recorded {
-            self.record(IdleEnd::Gone);
-        }
+        self.record(IdleEnd::Gone);
     }
 }
 
@@ -183,6 +188,22 @@ mod tests {
         assert!(!waits.reopen(&mut wait));
     }
 
+    #[test]
+    fn the_event_log_keeps_shown_events_when_waits_fill_the_newest_rows() {
+        let (_dir, [node, _], waits) = waits();
+        for _ in 0..260 {
+            waits.open(node).finish(IdleEnd::Mail);
+        }
+        let log = waits.graph.event_log().unwrap();
+        assert!(!log.records.is_empty());
+        assert!(
+            log.records
+                .iter()
+                .all(|r| !matches!(r.entry, Entry::IdleOpened { .. } | Entry::IdleEnded { .. }))
+        );
+        assert_eq!(log.last, waits.graph.recent_events().unwrap()[0].id);
+    }
+
     #[tokio::test]
     async fn every_wait_records_its_open_and_the_cause_of_its_end() {
         let (_dir, [node, other], waits) = waits();
@@ -211,6 +232,9 @@ mod tests {
         waits.end(node, IdleEnd::Sleep);
         let by = fifth.ended().await;
         fifth.finish(by);
+        let sixth = waits.open(node);
+        waits.graph.remove(node).unwrap();
+        drop(sixth);
 
         let ended = |by| Entry::IdleEnded { node: who(), by };
         let opened = || Entry::IdleOpened { node: who() };
@@ -229,6 +253,8 @@ mod tests {
                 ended(IdleEnd::Gone),
                 opened(),
                 ended(IdleEnd::Sleep),
+                opened(),
+                ended(IdleEnd::Gone),
             ]
         );
     }

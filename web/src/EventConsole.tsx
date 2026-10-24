@@ -198,8 +198,8 @@ export function useEventLog(open: boolean): { records: EventRecord[] | null; onR
   const load = () => {
     newest.current = null;
     getEventLog().then((log) => {
-      newest.current = log[0]?.id ?? 0;
-      setRecords(log.filter(inConsole));
+      newest.current = log.last;
+      setRecords(log.records);
     });
   };
   useEffect(() => {

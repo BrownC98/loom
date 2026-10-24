@@ -50,7 +50,7 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    CardView, Delivery, EventRecord, Graph, GraphEvent, IMAGE_EXTENSIONS, IdleEnd, Kind, Launched,
+    CardView, Delivery, EventLog, Graph, GraphEvent, IMAGE_EXTENSIONS, IdleEnd, Kind, Launched,
     Listed, MessageId, Model, NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal,
     Relations, Report, Sent, TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
 };
@@ -2404,8 +2404,8 @@ async fn send_size(
     to_view.send(Message::Text(notice.into())).await
 }
 
-async fn event_log(State(app): State<Arc<App>>) -> Result<Json<Vec<EventRecord>>, Problem> {
-    app.graph.recent_events().map(Json).map_err(internal)
+async fn event_log(State(app): State<Arc<App>>) -> Result<Json<EventLog>, Problem> {
+    app.graph.event_log().map(Json).map_err(internal)
 }
 
 async fn events(

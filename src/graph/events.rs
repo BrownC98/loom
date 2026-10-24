@@ -287,6 +287,15 @@ pub enum SwitchCause {
     RateLimit,
 }
 
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct EventLog {
+    /// 숨긴 이벤트까지 센 마지막 번호. 화면은 이 번호 다음부터 건너뛴 번호를 센다.
+    pub last: u32,
+    /// 화면에 보이는 최근 이벤트. 새것부터. 쉬는 대기의 열림·끝은 없다.
+    pub records: Vec<EventRecord>,
+}
+
 #[derive(Clone, Debug, Serialize, TS)]
 #[ts(export)]
 pub struct EventRecord {
@@ -447,6 +456,20 @@ pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
     })
 }
 
+pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
+    let records = db
+        .prepare(&format!(
+            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded') ORDER BY e.id DESC LIMIT ?1"
+        ))?
+        .query_map([RECENT], record_from_row)?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(EventLog {
+        last: last_id(db)?,
+        records,
+    })
+}
+
+#[cfg(test)]
 pub(super) fn recent(db: &Connection) -> rusqlite::Result<Vec<EventRecord>> {
     db.prepare(&format!("{RECORD_COLUMNS} ORDER BY e.id DESC LIMIT ?1"))?
         .query_map([RECENT], record_from_row)?

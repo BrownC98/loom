@@ -51,6 +51,20 @@ const VERSION: &str = match option_env!("LOOM_VERSION") {
 
 const COMMIT: Option<&str> = option_env!("LOOM_COMMIT");
 
+#[derive(clap::Subcommand)]
+enum RolesAction {
+    /// 역할 하나의 에이전트·모델·강도를 바꾼다. 이름과 책임은 그대로 둔다. --model·--effort를 빼면 그 칸은 CLI 기본이 된다(설정 화면과 같다). 부모 없는 노드만 부른다. 바꾼 표를 출력한다.
+    Set {
+        role: String,
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        effort: Option<String>,
+    },
+}
+
 #[derive(Parser)]
 #[command(name = "loom", version = VERSION)]
 enum Cli {
@@ -105,7 +119,10 @@ enum Cli {
         command: Vec<String>,
     },
     /// 설정의 o-mode 역할을 한 줄씩 출력한다: 이름, 에이전트·모델·강도, 책임.
-    Roles,
+    Roles {
+        #[command(subcommand)]
+        action: Option<RolesAction>,
+    },
     /// 메모(종류 note)를 보낸다. 다른 종류(질문, 답, 완료, 관문)에 맞지 않는 메시지다. 종류 낱말(QUESTION, DONE, READY 등)로 시작하면 거절한다.
     Note {
         name: String,
@@ -251,7 +268,21 @@ fn main() -> ExitCode {
             worktree,
             file.map(wsl::from_caller),
         ),
-        Cli::Roles => cli::roles(),
+        Cli::Roles { action: None } => cli::roles(),
+        Cli::Roles {
+            action:
+                Some(RolesAction::Set {
+                    role,
+                    agent,
+                    model,
+                    effort,
+                }),
+        } => cli::set_role(roles::SetRole {
+            role,
+            agent: profile::AgentId(agent),
+            model,
+            effort,
+        }),
         Cli::Note {
             name,
             body,

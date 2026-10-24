@@ -19,7 +19,7 @@ use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor};
 use crate::protocol::{GateState, Judgment};
-use crate::roles::Roles;
+use crate::roles::{Roles, SetRole};
 use crate::task;
 
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
@@ -52,7 +52,16 @@ pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> 
 }
 
 pub fn roles() -> Result<(), String> {
-    let roles: Roles = call("roles", &(), None)?;
+    print_roles(call("roles", &(), None)?);
+    Ok(())
+}
+
+pub fn set_role(set: SetRole) -> Result<(), String> {
+    print_roles(call("roles/set", &set, None)?);
+    Ok(())
+}
+
+fn print_roles(roles: Roles) {
     for role in roles.0 {
         let run = match role.agent {
             None => "띄우지 않음".to_owned(),
@@ -68,7 +77,6 @@ pub fn roles() -> Result<(), String> {
         };
         println!("{} | {run} | {}", role.name, role.duty);
     }
-    Ok(())
 }
 
 pub fn note(to: String, mode: Kind, body: String) -> Result<(), String> {

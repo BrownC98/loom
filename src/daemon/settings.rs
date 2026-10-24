@@ -11,9 +11,10 @@ use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::nodes::serve_pty;
 use super::origin::ViaRemote;
 use super::usage_cache::Key;
-use super::{App, Problem, internal, serve_pty};
+use super::{App, Problem, internal};
 use crate::accounts::{AccountId, Site};
 use crate::node_host::{Exit, NodeHost};
 use crate::profile::{self, AgentView, LaunchError, Profile, Provider, VersionMismatch};

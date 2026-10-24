@@ -1,6 +1,11 @@
 use clap::{CommandFactory, Parser};
 use tempfile::TempDir;
 
+use super::commands::{
+    agent_guard, agent_idle, agent_interrupt_pending, agent_question_box, agent_said, agent_take,
+    agent_turn_end,
+};
+use super::nodes::human_typed;
 use super::*;
 use crate::graph::{Entry, Round, TurnCheck};
 use crate::profile::AgentId;

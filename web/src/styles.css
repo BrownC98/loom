@@ -115,7 +115,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tree-row .leaf { width: 14px; flex: none; }
 .tree-row .from { width: 12px; height: 12px; }
 .tree-row .name { flex-shrink: 0; max-width: 60%; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-row .sub { flex-shrink: 1000; font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+:is(.tree-row, .phone-title) .sub { flex-shrink: 1000; font-size: 12px; color: var(--ink-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tree-row .branch { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .tag { flex-shrink: 1000; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 .tree-row .spacer { flex: 1; }
@@ -810,8 +810,9 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone-top { display: flex; align-items: center; gap: 8px; min-height: calc(52px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 4px 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .phone-top:has(> .phone-icon:first-child) { padding-left: 4px; }
 .phone-title { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
+.phone-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.phone-name .state { margin-left: auto; }
 .phone-title b { font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.phone-title span { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phone-icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink-2); cursor: pointer; }
 .phone-icon:hover { background: var(--surface-hover); }
 .phone-icon svg, .phone-tabs svg, .phone-keys svg, .phone-input .send svg, .phone-offline svg { width: 20px; height: 20px; }

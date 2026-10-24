@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { FieldDefaults, FieldReset } from './FieldReset';
 import type { SettingsPatch } from './settingsPatch';
 import { closeLogin, getLogin, loginPty, logoutSystem, removeAccount, startLogin } from './api';
+import { AgentMark } from './AgentMark';
 import { canBypass } from './catalog';
 import type { AlwaysOn } from './gen/AlwaysOn';
 import type { AccountId } from './gen/AccountId';
@@ -284,6 +285,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
             {installed.map((a) => (
               <div className="row" key={a.id}>
                 <span className="row-main">
+                  <AgentMark agent={a.id} label={a.label} />
                   <span className="name">{a.label}</span>
                   {multi ? (
                     a.places.map((at) => (
@@ -332,6 +334,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
           <div className="cols-2">
             {missing.map((a) => (
               <a key={a.id} href={a.homepage} target="_blank" rel="noreferrer">
+                <AgentMark agent={a.id} label={a.label} />
                 {a.label}
               </a>
             ))}

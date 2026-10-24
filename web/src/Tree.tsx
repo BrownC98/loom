@@ -2,6 +2,7 @@ import { Bookmark, ChevronDown, ChevronsUpDown, CornerLeftUp, EllipsisVertical, 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { removeNode, removeRepo, renameWorktree } from './api';
+import { AgentMark } from './AgentMark';
 import { agentLabel, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
 import type { AgentView } from './gen/AgentView';
@@ -19,7 +20,7 @@ import { NameEdit, NameField, returnFocus, type Rename } from './NameEdit';
 import { NewNodePopover } from './NewNodePopover';
 import { shownPath, ShortPlaceTag } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
-import { stateClass, stateLabel, stateText, Unread } from './NodeCard';
+import { modelText, stateClass, stateLabel, stateText, Unread } from './NodeCard';
 import { NoticeChips } from './notice';
 import { MenuSheet, Sheet, useLongPress, usePhone } from './Phone';
 import { useDismiss } from './popover';
@@ -92,20 +93,28 @@ function nodeItems(views: NodeView[], parent: NodeId | null, agents: AgentView[]
     .sort((a, b) => a.id - b.id)
     .map((v) => {
       const from = note(v);
+      const label = agentLabel(agents, v.agent);
       return {
         key: `node:${v.id}`,
         title: v.name,
         node: v.id,
         row: (
-          <>
-            <span className={`dot ${stateClass(v)}`} aria-label={stateText(v)} />
-            <NameEdit id={v.id} name={v.name} rename={rename(`node:${v.id}`)} />
-            {from !== null && <FromIcon title={from} />}
-            <span className="sub">{agentLabel(agents, v.agent)}</span>
-            {v.unread > 0 && <span className="spacer" />}
-            {v.unread > 0 && <Unread n={v.unread}>{v.unread}</Unread>}
-            <StateTag view={v} />
-          </>
+          <span className="node-row">
+            <span className="node-line">
+              <span className={`dot ${stateClass(v)}`} aria-label={stateText(v)} />
+              <NameEdit id={v.id} name={v.name} rename={rename(`node:${v.id}`)} />
+              {from !== null && <FromIcon title={from} />}
+              {v.unread > 0 && <span className="spacer" />}
+              {v.unread > 0 && <Unread n={v.unread}>{v.unread}</Unread>}
+              <StateTag view={v} />
+            </span>
+            <span className="node-line">
+              <AgentMark agent={v.agent} label={label} />
+              <span className="sub" translate="no">
+                {modelText(v) || label}
+              </span>
+            </span>
+          </span>
         ),
         children: nodeItems(views, v.id, agents, rename, note, acts),
         ...acts(v),

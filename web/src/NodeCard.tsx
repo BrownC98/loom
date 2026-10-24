@@ -46,8 +46,10 @@ function footText(state: NodeState, parentName: string | null): string | null {
   }
 }
 
+export const modelText = (view: NodeView) => [view.model, view.effort].filter(Boolean).join(' · ');
+
 function ModelText(props: { view: NodeView }) {
-  const text = [props.view.model, props.view.effort].filter(Boolean).join(' · ');
+  const text = modelText(props.view);
   return text ? (
     <span className="model" translate="no">
       {text}

@@ -53,7 +53,7 @@ fn kind_of(path: &str) -> Option<Kind> {
             "yml" | "yaml" => Lang::Yaml,
             "toml" => Lang::Toml,
             "kt" | "kts" => Lang::Kotlin,
-            "xml" => Lang::Xml,
+            "xml" | "svg" => Lang::Xml,
             "css" => Lang::Css,
             "html" => Lang::Html,
             "nsh" | "nsi" => Lang::Nsis,

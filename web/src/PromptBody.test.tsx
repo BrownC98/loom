@@ -47,6 +47,7 @@ describe('PromptBody', () => {
   it('labels each key kind', () => {
     expect(keyLabel({ kind: 'char', value: 'a' }, 0)).toBe('a');
     expect(keyLabel({ kind: 'line', value: 'y' }, 0)).toBe('y');
+    expect(keyLabel({ kind: 'line', value: 'yes' }, 0)).toBe('y');
     expect(keyLabel({ kind: 'move', value: -1 }, 0)).toBe('1');
     expect(keyLabel({ kind: 'permission', value: 'once' }, 2)).toBe('3');
     expect(keyLabel({ kind: 'tab' }, 0)).toBe('tab');

@@ -4,6 +4,30 @@ pub struct Dialog {
     pub text: &'static str,
     pub kind: WaitKind,
     pub place: Place,
+    pub answer: Answer,
+}
+
+pub enum Answer {
+    Plain,
+    Below(Options),
+    InBox(Options),
+    Panel(Options),
+}
+
+impl Dialog {
+    fn grammar(&self) -> Option<Grammar> {
+        let (top, options) = match self.answer {
+            Answer::Plain => return None,
+            Answer::Below(options) => (Top::Line(self.text), options),
+            Answer::InBox(options) => (Top::Boxed(self.text), options),
+            Answer::Panel(options) => (Top::PanelEdge, options),
+        };
+        Some(Grammar {
+            top,
+            options,
+            guard: None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -13,7 +37,6 @@ pub enum Session {
 }
 
 pub enum Place {
-    LastLine,
     BeforeSession,
     Panel,
 }
@@ -22,20 +45,17 @@ const TRANSCRIPT_INDENT: usize = 2;
 
 pub fn find(dialogs: &[Dialog], screen: &str, session: Session) -> Option<(WaitKind, String)> {
     let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
-    let last = lines.last()?.trim();
     let panel_start = lines
         .iter()
         .rposition(|l| is_panel_edge(l))
         .map_or(lines.len(), |i| i + 1);
     let squeezed = squeeze(&lines.concat());
     let panel_at = squeezed.len() - squeeze(&lines[panel_start..].concat()).len();
-    let squeezed_last = squeeze(last);
     dialogs
         .iter()
         .filter_map(|d| {
             let needle = squeeze(d.text);
             let (at, text) = match d.place {
-                Place::LastLine => (squeezed_last.contains(&needle).then_some(usize::MAX)?, last),
                 Place::BeforeSession if session == Session::Started => return None,
                 Place::BeforeSession => (squeezed.rfind(&needle)?, d.text),
                 Place::Panel => (panel_at + squeezed[panel_at..].rfind(&needle)?, d.text),
@@ -58,18 +78,21 @@ fn squeeze(text: &str) -> String {
         .collect()
 }
 
+#[derive(Clone, Copy)]
 pub struct Grammar {
     pub top: Top,
     pub options: Options,
     pub guard: Option<&'static str>,
 }
 
+#[derive(Clone, Copy)]
 pub enum Top {
     PanelEdge,
     Line(&'static str),
     Boxed(&'static str),
 }
 
+#[derive(Clone, Copy)]
 pub enum Options {
     Numbered,
     Hinted,
@@ -88,6 +111,7 @@ pub enum Reply {
 }
 
 const SELECTED: [char; 4] = ['❯', '›', '→', '▶'];
+const PROMPT_ENDS: [char; 4] = [':', '?', ']', ')'];
 const CHECKED: char = '✔';
 const BOX_SIDE: char = '│';
 const HINT_LIMIT_CHARS: usize = 3;
@@ -98,18 +122,32 @@ struct Run {
     options: Vec<(PromptOption, bool)>,
 }
 
-pub fn prompt(grammars: &[Grammar], screen: &str, width: usize) -> Option<Prompt> {
+pub fn prompt(
+    grammars: &[Grammar],
+    dialogs: &[Dialog],
+    screen: &str,
+    width: usize,
+) -> Option<Prompt> {
     grammars
         .iter()
-        .filter_map(|g| read(g, screen, width))
+        .copied()
+        .chain(dialogs.iter().filter_map(Dialog::grammar))
+        .filter_map(|g| read(&g, screen, width))
         .rev()
         .max_by_key(|(top, _)| *top)
         .map(|(_, prompt)| prompt)
 }
 
-pub fn line_prompt(prompts: &[LinePrompt], screen: &str) -> Option<Prompt> {
-    let last = screen.lines().rfind(|l| !l.trim().is_empty())?;
-    let squeezed = squeeze(last);
+pub fn line(prompts: &[LinePrompt], to_cursor: &str) -> Option<(String, Prompt)> {
+    let rows: Vec<String> = to_cursor
+        .split('\n')
+        .map(|l| l.trim_end().to_owned())
+        .collect();
+    let asked = rows.last()?.trim();
+    if !asked.ends_with(PROMPT_ENDS) {
+        return None;
+    }
+    let squeezed = squeeze(asked);
     let found = prompts
         .iter()
         .find(|p| squeezed.contains(&squeeze(p.text)))?;
@@ -126,14 +164,15 @@ pub fn line_prompt(prompts: &[LinePrompt], screen: &str) -> Option<Prompt> {
         ),
         Reply::Field(field) => (Vec::new(), Some(field)),
     };
-    let text = last.trim().to_owned();
-    Some(Prompt {
-        rows: vec![last.to_owned()],
+    let text = asked.to_owned();
+    let prompt = Prompt {
         body: vec![text.clone()],
-        summary: text,
+        summary: text.clone(),
+        rows,
         options,
         field,
-    })
+    };
+    Some((text, prompt))
 }
 
 fn read(grammar: &Grammar, screen: &str, width: usize) -> Option<(usize, Prompt)> {
@@ -418,16 +457,21 @@ fn digit(n: usize) -> Option<char> {
 mod tests {
     use super::*;
 
-    const DIALOGS: [Dialog; 2] = [
-        Dialog {
-            text: "Yes, I trust this folder",
-            kind: WaitKind::Trust,
-            place: Place::BeforeSession,
-        },
-        Dialog {
+    const DIALOGS: [Dialog; 1] = [Dialog {
+        text: "Yes, I trust this folder",
+        kind: WaitKind::Trust,
+        place: Place::BeforeSession,
+        answer: Answer::Plain,
+    }];
+
+    const LINES: [LinePrompt; 2] = [
+        LinePrompt {
             text: "password",
-            kind: WaitKind::Input,
-            place: Place::LastLine,
+            reply: Reply::Field(InputField::Secret),
+        },
+        LinePrompt {
+            text: "[y/n]",
+            reply: Reply::Words(&[("y", "yes"), ("n", "no")]),
         },
     ];
 
@@ -454,15 +498,24 @@ mod tests {
     }
 
     #[test]
-    fn shell_prompt_matches_only_on_the_last_line() {
-        let waiting = "$ sudo ls\n[sudo] password for me: ";
-        assert_eq!(
-            find(&DIALOGS, waiting, Session::Started),
-            Some((WaitKind::Input, "[sudo] password for me:".into()))
-        );
-        let answered = "$ sudo ls\n[sudo] password for me:\nfile\nme@host:~$ ";
-        assert_eq!(find(&DIALOGS, answered, Session::Started), None);
-        assert_eq!(find(&DIALOGS, "", Session::NotStarted), None);
+    fn a_shell_prompt_is_the_cursor_line_with_nothing_typed_after_it() {
+        let waiting = "$ sudo ls\n[sudo] password for me:";
+        let (text, prompt) = line(&LINES, waiting).unwrap();
+        assert_eq!(text, "[sudo] password for me:");
+        assert_eq!(prompt.rows, ["$ sudo ls", "[sudo] password for me:"]);
+        assert_eq!(prompt.field, Some(InputField::Secret));
+        for answered in [
+            "$ sudo ls\n[sudo] password for me:\n",
+            "$ sudo ls\n[sudo] password for me:\nfile\nme@host:~$",
+            "read\nEnter password: hunter2",
+            "Continue? [y/n] y",
+            "",
+        ] {
+            assert_eq!(line(&LINES, answered), None, "{answered:?}");
+        }
+        let local = line(&LINES, "Account: LOCAL\nPassword:").unwrap().1;
+        let remote = line(&LINES, "Account: REMOTE\nPassword:").unwrap().1;
+        assert_ne!(local, remote);
     }
 
     #[test]
@@ -472,11 +525,13 @@ mod tests {
                 text: "Choose the text style",
                 kind: WaitKind::Auth,
                 place: Place::BeforeSession,
+                answer: Answer::Plain,
             },
             Dialog {
                 text: "Select login method:",
                 kind: WaitKind::Auth,
                 place: Place::BeforeSession,
+                answer: Answer::Plain,
             },
         ];
         let tail = "Choose the text style\n❯ Dark\nSelect login method:\n❯ 1. Claude account";

@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::VersionMismatch;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::{Dialog, Grammar, Options, Place, Top};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
 #[allow(clippy::all, dead_code)]
@@ -27,26 +27,19 @@ pub const PROMPT: Grammar = Grammar {
     guard: None,
 };
 
-pub const PROMPTS: [Grammar; 2] = [
-    PROMPT,
-    Grammar {
-        top: Top::Line("Trust this folder?"),
-        options: Options::Numbered,
-        guard: None,
-    },
-];
-
 pub const PINNED_VERSION: &str = "0.159.2";
 pub const DIALOGS: [Dialog; 2] = [
     Dialog {
         text: "Trust this folder?",
         kind: WaitKind::Trust,
         place: Place::BeforeSession,
+        answer: Answer::Below(Options::Numbered),
     },
     Dialog {
         text: "Sign in with ChatGPT",
         kind: WaitKind::Auth,
         place: Place::BeforeSession,
+        answer: Answer::Plain,
     },
 ];
 pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
@@ -399,8 +392,13 @@ mod tests {
 
     #[test]
     fn the_trust_dialog_has_buttons() {
-        let prompt =
-            crate::screen::prompt(&PROMPTS, include_str!("screens/codex-trust.txt"), 100).unwrap();
+        let prompt = crate::screen::prompt(
+            &[PROMPT],
+            &DIALOGS,
+            include_str!("screens/codex-trust.txt"),
+            100,
+        )
+        .unwrap();
         assert!(
             prompt.body[0].starts_with("Trust this folder? Codex can read"),
             "{:?}",
@@ -422,7 +420,7 @@ mod tests {
 
     #[test]
     fn wrapped_reason_and_option_are_joined() {
-        let prompt = crate::screen::prompt(&PROMPTS, NARROW, 80).unwrap();
+        let prompt = crate::screen::prompt(&[PROMPT], &DIALOGS, NARROW, 80).unwrap();
         assert_eq!(
             prompt.body[2],
             "Reason: May I run the requested curl command with network access outside the sandbox?"
@@ -435,7 +433,7 @@ mod tests {
 
     #[test]
     fn approval_prompt_is_read_from_the_screen() {
-        let prompt = crate::screen::prompt(&PROMPTS, APPROVAL, 120).unwrap();
+        let prompt = crate::screen::prompt(&[PROMPT], &DIALOGS, APPROVAL, 120).unwrap();
         assert_eq!(
             prompt.body[0],
             "Would you like to run the following command?"

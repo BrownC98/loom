@@ -27,8 +27,9 @@ export function PromptBody(props: { prompt: Prompt; busy: boolean; onPick: (opti
 export function keyLabel(key: PromptKey, index: number): string {
   switch (key.kind) {
     case 'char':
-    case 'line':
       return key.value;
+    case 'line':
+      return key.value.charAt(0);
     case 'tab':
       return 'tab';
     case 'backTab':

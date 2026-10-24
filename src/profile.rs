@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::graph::{Delivery, InputField, Kind, OpenQuestion, Prompt as ScreenPrompt, WaitKind};
-use crate::screen::{self, Dialog, Grammar, LinePrompt, Place, Reply};
+use crate::node_host::Screen;
+use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Session};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
@@ -258,45 +259,7 @@ fn installed_version(cmd: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-const SHELL_DIALOGS: [Dialog; 5] = [
-    Dialog {
-        text: "password",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
-    },
-    Dialog {
-        text: "passphrase",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
-    },
-    Dialog {
-        text: "(yes/no",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
-    },
-    Dialog {
-        text: "[y/n]",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
-    },
-    Dialog {
-        text: "Username for '",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
-    },
-];
-
-pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
-    match profile {
-        Some(Profile::Claude) => &claude::DIALOGS,
-        Some(Profile::Codex) => &codex::DIALOGS,
-        Some(Profile::Cursor) => &cursor::DIALOGS,
-        Some(Profile::OpenCode2) => &[],
-        None => &SHELL_DIALOGS,
-    }
-}
-
-const SHELL_PROMPTS: [LinePrompt; 5] = [
+const SHELL: [LinePrompt; 5] = [
     LinePrompt {
         text: "password",
         reply: Reply::Field(InputField::Secret),
@@ -319,15 +282,37 @@ const SHELL_PROMPTS: [LinePrompt; 5] = [
     },
 ];
 
-pub fn prompt(profile: Option<Profile>, screen: &str, width: usize) -> Option<ScreenPrompt> {
-    let grammars: &[Grammar] = match profile {
-        Some(Profile::Claude) => &claude::PROMPTS,
-        Some(Profile::Codex) => &codex::PROMPTS,
-        Some(Profile::Cursor) => &cursor::PROMPTS,
-        Some(Profile::OpenCode2) => &[],
-        None => return screen::line_prompt(&SHELL_PROMPTS, screen),
-    };
-    screen::prompt(grammars, screen, width)
+pub fn reads_screen(profile: Option<Profile>) -> bool {
+    profile != Some(Profile::OpenCode2)
+}
+
+pub fn wait(
+    profile: Option<Profile>,
+    screen: &Screen,
+    session: Session,
+) -> Option<(WaitKind, String)> {
+    match agent_screen(profile) {
+        Some((_, dialogs)) => screen::find(dialogs, &screen.text, session),
+        None => screen::line(&SHELL, &screen.to_cursor).map(|(text, _)| (WaitKind::Input, text)),
+    }
+}
+
+pub fn prompt(profile: Option<Profile>, screen: &Screen) -> Option<ScreenPrompt> {
+    match agent_screen(profile) {
+        Some((grammars, dialogs)) => {
+            screen::prompt(grammars, dialogs, &screen.text, screen.cols.into())
+        }
+        None => screen::line(&SHELL, &screen.to_cursor).map(|(_, prompt)| prompt),
+    }
+}
+
+fn agent_screen(profile: Option<Profile>) -> Option<(&'static [Grammar], &'static [Dialog])> {
+    match profile? {
+        Profile::Claude => Some((&[claude::PROMPT], &claude::DIALOGS)),
+        Profile::Codex => Some((&[codex::PROMPT], &codex::DIALOGS)),
+        Profile::Cursor => Some((&[cursor::PROMPT], &cursor::DIALOGS)),
+        Profile::OpenCode2 => Some((&[], &[])),
+    }
 }
 
 pub fn profile_of(id: &AgentId) -> Option<Profile> {
@@ -793,22 +778,14 @@ mod tests {
 
     #[test]
     fn every_shell_dialog_has_buttons_or_a_field() {
-        for dialog in &SHELL_DIALOGS {
-            let screen = format!("$ run\nAsk {} here: ", dialog.text);
-            let shown = prompt(None, &screen, 80).unwrap();
-            assert_ne!(
-                shown.field.is_some(),
-                !shown.options.is_empty(),
-                "{}",
-                dialog.text
-            );
-            assert_eq!(shown.rows, [format!("Ask {} here: ", dialog.text)]);
+        for asked in &SHELL {
+            let line = format!("Ask {} here:", asked.text);
+            let (text, shown) = screen::line(&SHELL, &format!("$ run\n{line} ")).unwrap();
+            assert_eq!(text, line);
+            assert_ne!(shown.field.is_some(), !shown.options.is_empty(), "{line}");
         }
-        let secret = prompt(None, "[sudo] password for me: ", 80).unwrap();
-        assert_eq!(secret.field, Some(InputField::Secret));
-        let words = prompt(None, "Continue? [Y/n] ", 80).unwrap();
+        let words = screen::line(&SHELL, "Continue? [Y/n] ").unwrap().1;
         assert_eq!(words.options[0].key.bytes().unwrap(), b"y\r");
-        assert_eq!(prompt(None, "[sudo] password for me:\nfile\n$ ", 80), None);
     }
 
     #[test]

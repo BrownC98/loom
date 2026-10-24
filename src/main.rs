@@ -92,6 +92,9 @@ enum Cli {
         /// 설정의 o-mode 역할(`loom roles`). 그 역할의 에이전트·모델·강도로 띄우고 지시문 앞에 책임을 붙인다. 따로 준 `--agent`·`--model`·`--effort`가 이긴다.
         #[arg(long, conflicts_with = "command")]
         role: Option<String>,
+        /// 자식이 검토할 브랜치. 내가 관문인 그 브랜치의 검토자로 띄운다. 그 브랜치의 판정은 이렇게 띄운 자식만 한다.
+        #[arg(long, conflicts_with = "command")]
+        review: Option<String>,
         /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
         #[arg(long)]
         file: Option<PathBuf>,
@@ -166,11 +169,12 @@ enum Cli {
     },
     /// 사람의 입력이 열린 `loom ask` 질문의 답이다. 받은편지함에서 그 질문을 지운다. 열린 질문이 여럿이면 번호(`Q12 Q13`)를 준다
     Answered { ids: Vec<String> },
-    /// 병합 관문: 자기 브랜치를 관문에 보낸다(종류 ready). 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없고 대상 브랜치를 포함해야 한다.
-    /// 관문은 loom이 고른다: 부모가 코디면 코디(대상은 코디 브랜치), 아니면 같은 저장소의 CI 담당자(대상은 원래 체크아웃의 브랜치).
+    /// 병합 관문: 자기 브랜치를 관문에 보낸다(종류 ready). 워크트리가 그 브랜치에 있는 담당만 부른다. 커밋하지 않은 변경이 없어야 한다.
+    /// 관문은 loom이 고른다: 부모가 코디면 코디(대상은 코디 브랜치), 아니면 담당 자신(대상은 원래 체크아웃의 브랜치).
     /// 관문 스크립트가 없는 저장소에서도 관문에 알린다. 그때는 관문 상태가 없고, 관문이 손으로 병합해 `loom done`으로 알린다.
     Ready { branch: String },
-    /// 병합 관문: 판정을 넣는다. 관문이나 관문이 띄운 검토자가 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
+    /// 병합 관문: 판정을 넣는다. 관문이 `loom spawn <이름> --review <브랜치>`로 띄운 그 브랜치의 검토자만 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
+    /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push와 `scripts/gate/ship.sh` 배포 확인)하고, merged·rework·failed로 알린다.
     Verdict {
         branch: String,
         judgment: protocol::Judgment,
@@ -178,9 +182,7 @@ enum Cli {
         #[arg(long)]
         findings: Option<PathBuf>,
     },
-    /// 병합 관문: pass 판정 뒤 관문이 부른다. audit, `scripts/gate/check.sh`, 병합(main이면 `scripts/gate/ship.sh`가 push·배포 확인까지), 결과 알림을 한 번에 한다.
-    Merge { branch: String },
-    /// 병합 관문: 관문이 브랜치를 멈추고 담당 나무의 루트에 원인을 알린다.
+    /// 병합 관문: 관문이 병합 큐에 들기 전의 브랜치를 멈추고 원인을 알린다(main 대상이면 루트도 받는다).
     Fail { branch: String, cause: String },
     /// 이 노드가 `name` 노드의 새 부모가 된다. 그 노드가 보관한 메시지를 받는다.
     Adopt { name: String },
@@ -238,19 +240,21 @@ fn main() -> ExitCode {
             worktree,
             agent,
             role,
+            review,
             file,
             model,
             effort,
             command,
-        } => cli::spawn(
+        } => cli::spawn(cli::Spawn {
             name,
             worktree,
             agent,
             role,
-            file.map(wsl::from_caller),
-            ModelChoice { model, effort },
+            review,
+            file: file.map(wsl::from_caller),
+            choice: ModelChoice { model, effort },
             command,
-        ),
+        }),
         Cli::Roles => cli::roles(),
         Cli::Note {
             name,
@@ -298,7 +302,6 @@ fn main() -> ExitCode {
             judgment,
             findings,
         } => cli::verdict(branch, judgment, findings.map(wsl::from_caller)),
-        Cli::Merge { branch } => cli::merge(branch),
         Cli::Fail { branch, cause } => cli::fail(branch, cause),
         Cli::Adopt { name } => cli::adopt(name),
         Cli::Rm { name } => cli::remove(name),

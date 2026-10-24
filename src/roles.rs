@@ -77,11 +77,6 @@ impl Default for Roles {
                 "위험이 큰 브랜치를 검토자와 따로 검토한다. 병합 전 브랜치 diff에서 결함을 찾고 결과·원문·관찰 증거를 브리프의 완료 조건과 대조한다. 읽기 전용, 보고만 한다",
                 Some(("claude", "claude-opus-5-5", "medium")),
             ),
-            role(
-                "CI 담당자",
-                "병합 관문(워커 브랜치 검토자·반려), 검사, main 병합·push, 배포·릴리스 확인. 제품 코드는 고치지 않는다",
-                Some(("claude", "claude-opus-5-5", "medium")),
-            ),
         ])
     }
 }

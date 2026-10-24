@@ -6,6 +6,7 @@ mod origin;
 mod passes;
 mod phone;
 mod places;
+mod queue;
 mod relaunch;
 mod sessions;
 mod settings;
@@ -107,6 +108,7 @@ struct App {
     switch: switch::Switches,
     usage: usage_cache::UsageCache,
     turn_ends: turn_end::TurnEnds,
+    merge_queue: tokio::sync::Notify,
     plugin: skills::Plugin,
     shim: PathBuf,
     homes: wsl::Homes,
@@ -300,11 +302,8 @@ pub struct SpawnRequest {
     pub choice: ModelChoice,
     #[serde(default)]
     pub role: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct TaskRequest {
-    pub branch: Option<String>,
+    #[serde(default)]
+    pub review: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -563,8 +562,6 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/relaunch", post(relaunch::agent_relaunch))
         .route("/api/agent/ready", post(gate::agent_ready))
         .route("/api/agent/verdict", post(gate::agent_verdict))
-        .route("/api/agent/merge", post(gate::agent_merge))
-        .route("/api/agent/merged", post(gate::agent_merged))
         .route("/api/agent/fail", post(gate::agent_fail))
         .route("/api/agent/task", post(agent_task));
     let router = node_routes
@@ -658,6 +655,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     }
     claim.announce(&node_url(listen))?;
     tokio::spawn(app.update.clone().run());
+    tokio::spawn(queue::run(app.clone()));
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
     match node_door {
@@ -932,6 +930,7 @@ impl App {
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
             turn_ends: turn_end::TurnEnds::default(),
+            merge_queue: tokio::sync::Notify::new(),
             plugin: {
                 let plugin =
                     skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
@@ -2014,22 +2013,10 @@ async fn serve_file(
 async fn agent_task(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(req): Json<TaskRequest>,
 ) -> Result<Json<Option<String>>, AgentError> {
     let caller = app.caller(&headers)?;
-    let dir = match &req.branch {
-        None => Some(app.task_dir(caller).await.map_err(for_agent)?),
-        Some(branch) => match app.graph.branch_task(caller, branch).map_err(for_agent)? {
-            Some((worktree, folder)) => {
-                let tasks = app.tasks_for(&worktree).await.map_err(for_agent)?;
-                Some(tasks.dir(&folder))
-            }
-            None => None,
-        },
-    };
-    Ok(Json(
-        dir.map(|dir| dir.local.to_string_lossy().into_owned()),
-    ))
+    let dir = app.task_dir(caller).await.map_err(for_agent)?;
+    Ok(Json(Some(dir.local.to_string_lossy().into_owned())))
 }
 
 async fn agent_status(

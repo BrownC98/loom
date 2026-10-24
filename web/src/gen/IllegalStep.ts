@@ -7,6 +7,6 @@ import type { GateVerb } from "./GateVerb";
  */
 export type IllegalStep = { state: GateState, verb: GateVerb, 
 /**
- * 지금 상태에서 부를 수 있는 동사.
+ * 지금 상태에서 에이전트가 부를 수 있는 동사.
  */
 allowed: Array<GateVerb>, };

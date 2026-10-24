@@ -280,7 +280,7 @@ pub fn cursor_hook() -> Result<(), String> {
             note: None,
         },
         Some(Take::WhenIdle) => Taken {
-            messages: wait_for_mail(&IdleRequest {
+            messages: wait_for_cursor_mail(&IdleRequest {
                 transcript,
                 rate_limited: false,
             })?,
@@ -315,6 +315,10 @@ fn acknowledge(taken: &[Delivery], timeout: Option<Duration>) {
 }
 
 fn wait_for_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
+    reconnecting(None, |_| call("idle", request, None))
+}
+
+fn wait_for_cursor_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
     until_answered(RECONNECT_AFTER, || call("idle", request, None))
 }
 

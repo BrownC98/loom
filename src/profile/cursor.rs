@@ -84,6 +84,8 @@ const GATE: [(&str, &str); 2] = [
 ];
 
 pub fn open_gate(path: &Path) -> std::io::Result<()> {
+    let target = std::fs::canonicalize(path);
+    let path = target.as_deref().unwrap_or(path);
     let text = match std::fs::read_to_string(path) {
         Ok(text) => Some(text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -372,6 +374,33 @@ mod tests {
             std::fs::read_dir(home.path().join(".cursor"))
                 .unwrap()
                 .count(),
+            1
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_hooks_file_keeps_its_link_and_the_target_changes() {
+        let home = tempfile::tempdir().unwrap();
+        let target = home.path().join("dotfiles.json");
+        std::fs::write(&target, r#"{"hooks":{"stop":[{"command":"mine"}]}}"#).unwrap();
+        let path = home.path().join(USER_HOOKS);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        open_gate(&path).unwrap();
+        assert!(
+            std::fs::symlink_metadata(&path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert_eq!(
+            written["hooks"]["beforeSubmitPrompt"]
+                .as_array()
+                .unwrap()
+                .len(),
             1
         );
     }

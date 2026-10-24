@@ -556,6 +556,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/hook-wait", post(agent_hook_wait))
         .route("/api/agent/answered", post(agent_answered))
         .route("/api/agent/said", post(agent_said))
+        .route("/api/agent/question-box", post(agent_question_box))
         .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/rm", post(agent_remove))
@@ -1074,6 +1075,7 @@ impl App {
             rules: _,
         } = prepared;
         self.first_inputs.launched(id, first_input);
+        self.turn_ends.launched(id);
         let distro = inside.map(|inside| inside.distro);
         let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;
@@ -2215,6 +2217,15 @@ async fn agent_said(
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.said(node, req.text, req.turn);
+    Ok(Json(()))
+}
+
+async fn agent_question_box(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.turn_ends.question_box(node);
     Ok(Json(()))
 }
 

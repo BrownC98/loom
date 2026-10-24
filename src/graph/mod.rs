@@ -355,7 +355,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::NotRelated(name) => write!(
                 f,
-                "{name}: not your parent or child. Steer and interrupt go only between a parent and its children. Use `loom note` without --steer or --interrupt."
+                "{name}: not your parent or child. Steer and interrupt go only between a parent and its children; steer also goes between the reviewers of one branch. Use `loom note` without --steer or --interrupt."
             ),
             Refusal::NotChild(name) => write!(
                 f,

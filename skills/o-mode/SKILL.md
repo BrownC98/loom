@@ -19,7 +19,7 @@ The default roles are 총괄, 코디, 워커, 고위험 워커, 검토자 and �
 
 - To change the agent of a running node, use `loom relaunch <child> --agent <id>`; do not remove and spawn again. For new nodes, only the human changes the role table.
 - Give a high-risk edit scope (the 고위험 워커 responsibility) to that role, not to 워커. That alone does not require a worker.
-- Each branch to main gets one 검토자. Only a high-risk branch also gets a 보조 검토자.
+- Each branch to main gets two reviewers: one 검토자 and one 보조 검토자.
 - The lead does one- or two-line changes and gives all other work (code, screen checks, research) to one 코디. It keeps the work context: current work, children, decisions, waiting approvals. It receives only the 코디's `done` and the gate's merged and failed results. It does not read result files.
 - The node that has the facts writes the brief, spawns the workers, reviews, merges and cleans up. A lead brief gives only the goal (with done-when) and the scope. Keep its `Facts:` short: put long facts in a task folder file and give the absolute path. Do not give the brief rules path; loom adds those rules.
 - A 코디 does small, closely related work itself. It divides work only into two or more independent edit scopes. With one scope, it spawns the worker without `--worktree` in its own worktree. While the worker runs, the 코디 only reads and reviews there. It also takes pieces that wait for one product decision.

@@ -76,6 +76,11 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     if let (Ok(_), Some(fresh)) = (&spawned, fresh) {
         fresh.keep();
     }
+    if let (Ok(id), Some(_)) = (&spawned, review)
+        && let Err(e) = app.graph.introduce_reviewer(*id)
+    {
+        eprintln!("loom: 검토자 {id}를 다른 검토자에게 알리지 못했다: {e}");
+    }
     if let (Some((repo, made)), Err(_)) = (&worktree, &spawned)
         && let Err(e) = worktree::discard(repo, made).await
     {
@@ -213,7 +218,10 @@ fn refusal_of(problem: &Problem) -> Option<Refusal> {
 fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, Refusal> {
     app.kind_word(from, &req.body)?;
     if req.mode != Kind::Queue {
-        let (to, agent) = app.graph.related(from, &req.to)?;
+        let (to, agent) = match req.mode {
+            Kind::Interrupt => app.graph.related(from, &req.to)?,
+            _ => app.graph.steerable(from, &req.to)?,
+        };
         let target = format!("#{}", to.0);
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));

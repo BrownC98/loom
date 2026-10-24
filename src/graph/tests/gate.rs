@@ -370,7 +370,7 @@ fn a_withdrawn_round_tells_exactly_its_reviewers_to_stop() {
     assert_eq!(got.len(), 1, "{got:?}");
     assert!(
         got[0].starts_with(
-            "(from: loom, kind: withdrawn)\nbranch: b\nhead: c0ffee1\nNext: stop reviewing b."
+            "(from: loom, kind: withdrawn)\nbranch: b\nhead: c0ffee1\nNext: write the findings that you have now to $LOOM_TASK_DIR/review/b-second.md, then stop reviewing b."
         ),
         "{}",
         got[0]
@@ -414,6 +414,92 @@ fn a_withdrawn_round_tells_exactly_its_reviewers_to_stop() {
         assert_eq!(mail(&g, node).len(), 1, "{node}");
     }
     assert!(mail(&g, other).is_empty());
+}
+
+#[test]
+fn reviewers_share_findings_and_the_next_round_names_the_fixes() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.ready(t.solo, &round("x", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "b", "first");
+    let other = reviewer(&g, t.solo, "x", "other");
+    g.introduce_reviewer(first).unwrap();
+    assert!(mail(&g, first).is_empty(), "no peer yet");
+    let second = reviewer(&g, t.solo, "b", "second");
+    g.introduce_reviewer(second).unwrap();
+    let to_first = mail(&g, first);
+    assert_eq!(to_first.len(), 1, "{to_first:?}");
+    assert!(
+        to_first[0].contains(
+            "Other reviewers of b and their findings files: second ($LOOM_TASK_DIR/review/b-second.md). When you find a defect, send it to them at once: `loom note <reviewer> --steer"
+        ),
+        "{}",
+        to_first[0]
+    );
+    let to_second = mail(&g, second);
+    assert!(
+        to_second[0].contains("first ($LOOM_TASK_DIR/review/b-first.md)"),
+        "{}",
+        to_second[0]
+    );
+    assert!(mail(&g, other).is_empty());
+
+    g.note(first, "second", Kind::Steer, "defect at a.rs:3", None)
+        .unwrap();
+    assert_eq!(mail(&g, second).len(), 1);
+    assert!(matches!(
+        g.note(first, "other", Kind::Steer, "x", None),
+        Err(Refusal::NotRelated(_))
+    ));
+
+    mail(&g, t.solo);
+    g.verdict(first, "b", Judgment::Block, Some("/r/f.md"), Some(&via()))
+        .unwrap();
+    assert!(mail(&g, second)[0].contains("$LOOM_TASK_DIR/review/b-second.md"));
+    let fixed = Round {
+        head: "beef002",
+        ..round("b", "main")
+    };
+    g.ready(t.solo, &fixed, t.solo, Some(&via())).unwrap();
+    for (node, peer) in [(first, "second"), (second, "first")] {
+        let got = mail(&g, node);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(
+            got[0].contains(&format!(
+                "Other reviewers of b and their findings files: {peer} ($LOOM_TASK_DIR/review/b-{peer}.md)."
+            )),
+            "{}",
+            got[0]
+        );
+        assert!(
+            got[0].contains(
+                "The fixes since the head that you judged last are `git log c0ffee1..beef002`."
+            ),
+            "{}",
+            got[0]
+        );
+    }
+
+    g.verdict(second, "b", Judgment::Block, Some("/r/g.md"), Some(&via()))
+        .unwrap();
+    mail(&g, first);
+    let again = Round {
+        head: "cafe003",
+        ..round("b", "main")
+    };
+    g.ready(t.solo, &again, t.solo, Some(&via())).unwrap();
+    for (node, judged) in [(first, "c0ffee1"), (second, "beef002")] {
+        let got = mail(&g, node);
+        assert!(
+            got[0].contains(&format!("`git log {judged}..cafe003`")),
+            "{}",
+            got[0]
+        );
+    }
 }
 
 #[test]

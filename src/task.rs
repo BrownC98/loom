@@ -33,6 +33,14 @@ fn head(line: &str) -> Option<String> {
     line.split_once(':').map(|(word, _)| word.trim().to_owned())
 }
 
+pub fn findings(branch: &str, reviewer: &str) -> String {
+    format!("{REVIEW}/{}-{}.md", folder(branch), folder(reviewer))
+}
+
+pub fn findings_in_task(branch: &str, reviewer: &str) -> String {
+    format!("${ENV}/{}", findings(branch, reviewer))
+}
+
 pub fn folder(base: &str) -> String {
     let name = base.trim().replace(['/', '\\', ':'], "-");
     match name.trim_matches('.') {

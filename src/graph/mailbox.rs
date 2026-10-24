@@ -93,6 +93,10 @@ impl Graph {
         related(&self.lock(), from, to)
     }
 
+    pub fn steerable(&self, from: NodeId, to: &str) -> Result<(NodeId, Option<AgentId>), Refusal> {
+        steerable(&self.lock(), from, to)
+    }
+
     pub fn note(
         &self,
         from: NodeId,
@@ -218,7 +222,8 @@ impl Graph {
         let mut db = self.lock();
         let found = match kind {
             Kind::Queue => address(&db, from, to),
-            Kind::Steer | Kind::Interrupt => related(&db, from, to).map(|(id, _)| id),
+            Kind::Steer => steerable(&db, from, to).map(|(id, _)| id),
+            Kind::Interrupt => related(&db, from, to).map(|(id, _)| id),
         };
         let to_id = match found {
             Ok(to_id) => Some(to_id),
@@ -797,6 +802,27 @@ fn address(db: &Connection, from: NodeId, to: &str) -> Result<NodeId, Refusal> {
         [] => Err(Refusal::Ended(to.to_owned())),
         _ => Err(ambiguous(db, to, &live)?),
     }
+}
+
+fn steerable(
+    db: &Connection,
+    from: NodeId,
+    to: &str,
+) -> Result<(NodeId, Option<AgentId>), Refusal> {
+    match related(db, from, to) {
+        Err(Refusal::NotRelated(_)) => {}
+        found => return found,
+    }
+    let id = node_id(db, from, to)?;
+    db.query_row(
+        "SELECT n.id, n.agent FROM nodes n, nodes me WHERE me.id = ?1 AND n.id != me.id
+         AND (CASE WHEN ?3 IS NULL THEN n.name = ?2 ELSE n.id = ?3 END)
+         AND n.parent = me.parent AND n.review = me.review",
+        params![from.0, to, id],
+        |r| Ok((NodeId(r.get(0)?), from_json(r, 1)?)),
+    )
+    .optional()?
+    .ok_or_else(|| Refusal::NotRelated(to.to_owned()))
 }
 
 pub(super) fn related(

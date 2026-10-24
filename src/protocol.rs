@@ -274,15 +274,40 @@ pub fn next_step(call: GateCall, to: Receiver, target: Target, branch: &str) -> 
     }
 }
 
-pub fn withdrawn_step(branch: &str, state: GateState) -> String {
+pub fn withdrawn_step(branch: &str, state: GateState, findings: &str) -> String {
     format!(
-        "Next: stop reviewing {branch}. Its round went back to {state:?}, so loom refuses a verdict for it now. loom sends you the next round (kind: ready) when the owner calls `loom ready {branch}` again."
+        "Next: write the findings that you have now to {findings}, then stop reviewing {branch}. loom shows that file to the other reviewers in the next round. The round went back to {state:?}, so loom refuses a verdict for it now. loom sends you the next round (kind: ready) when the owner calls `loom ready {branch}` again."
     )
 }
 
-pub fn review_again_step(branch: &str) -> String {
+pub struct Peer {
+    pub name: String,
+    pub findings: String,
+}
+
+pub fn peers_step(branch: &str, peers: &[Peer]) -> String {
+    let listed: Vec<String> = peers
+        .iter()
+        .map(|p| format!("{} ({})", p.name, p.findings))
+        .collect();
     format!(
-        "Next: a new round of {branch} started. Review the new head against your earlier findings and the owner's rebuttals, write your findings file again, then call `loom verdict {branch} pass|block`."
+        "Other reviewers of {branch} and their findings files: {}. When you find a defect, send it to them at once: `loom note <reviewer> --steer \"<defect>\"`. Do not check again or report a defect that another reviewer sent you or wrote in its file.",
+        listed.join(", ")
+    )
+}
+
+pub fn review_again_step(branch: &str, head: &str, judged: Option<&str>, findings: &str) -> String {
+    let fixes = match judged {
+        None => format!("You did not judge {branch} before. Review the whole branch."),
+        Some(judged) if judged == head => {
+            "The head is the one that you judged last. Check only the rebuttals.".to_owned()
+        }
+        Some(judged) => format!(
+            "The fixes since the head that you judged last are `git log {judged}..{head}`. Review only that range, not the whole branch again. If {judged} is not an ancestor of {head}, review the whole branch."
+        ),
+    };
+    format!(
+        "Next: a new round of {branch} started. {fixes} Compare it with your findings file {findings}, the other reviewers' findings and the owner's rebuttals. Write your findings file again, then call `loom verdict {branch} pass|block`."
     )
 }
 
@@ -905,7 +930,7 @@ macro_rules! message_usage {
         "- loom ask <question>: with no parent, you MUST ask the human anything (a question, a choice, an approval, a permission) only this way, in the one-line form of the ask-human rules, then end your turn. With a parent, it asks your parent; the answer comes as a message (kind: answer), or wait for it: loom wait --reply-to <message-id> --timeout <seconds> --json.
 - loom answer <message-id> <body>: answer an ask that you received.
 - loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent, also when other parts of the work continue and in a turn that a message or a notice started. Call it again after more work. Do not call it when you only answer a question in text. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction, short> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready. Send no progress reports.
-- loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work (both only to your parent or children). If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
+- loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work (both only to your parent or children; --steer also to the other reviewers of your branch). If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
 - loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (into the original checkout: only a reviewer that the gate spawned with `loom spawn --role <role> --review <branch>` (one per role; loom names it and sends it each next round), never the owner; a worker branch under a coordinator has no reviewer: the coordinator checks the result against the brief's done-when and judges it; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed), loom fail <branch> <cause> (gate, before the queue takes the branch). The gate is your coordinator parent, else you. All return at once. loom picks receivers. loom --help has details.
 "
     };

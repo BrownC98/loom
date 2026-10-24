@@ -458,7 +458,37 @@ impl Graph {
     }
 
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
-        steer_where(&self.lock(), node, |_| true)?;
+        let db = self.lock();
+        let agent: Option<AgentId> = db
+            .query_row("SELECT agent FROM nodes WHERE id = ?1", [node.0], |row| {
+                from_json(row, 0)
+            })
+            .optional()?
+            .flatten();
+        if agent
+            .as_ref()
+            .and_then(crate::profile::profile_of)
+            .is_none()
+        {
+            let notices: Vec<MessageId> = db
+                .prepare(
+                    "SELECT id, sender_name, kind, body, what FROM messages
+                     WHERE recipient = ?1 AND delivered = 0",
+                )?
+                .query_map([node.0], read_delivery)?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+                .into_iter()
+                .filter(|d| d.what.as_ref().is_some_and(|w| !w.wakes()))
+                .map(|d| d.id)
+                .collect();
+            drop(db);
+            if notices.is_empty() {
+                return Ok(());
+            }
+            return self.ack(node, &notices);
+        }
+        steer_where(&db, node, |_| true)?;
+        drop(db);
         self.mail.notify_waiters();
         Ok(())
     }

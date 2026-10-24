@@ -1242,7 +1242,7 @@ fn a_human_turn_takes_the_waiting_notices() {
 fn a_manual_unread_click_wakes_for_notices() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
-    let lead = root(&g, "총괄");
+    let lead = root(&g, "claude");
     let c = child(&g, lead, "c");
     g.exited(c, 0).unwrap();
     g.steer_queued(lead).unwrap();
@@ -2669,8 +2669,8 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
-    let a = child(&g, lead, "a");
-    let b = child(&g, lead, "b");
+    let a = linked_child(&g, lead, "a");
+    let b = linked_child(&g, lead, "b");
     g.note(lead, "a", Kind::Queue, "q1", None).unwrap();
     g.note(lead, "a", Kind::Queue, "q2", None).unwrap();
     g.note(lead, "b", Kind::Queue, "다른 노드", None).unwrap();
@@ -2687,6 +2687,51 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     assert_eq!(view(&g, a).unread, 0);
     assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
     assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);
+}
+
+fn linked_child(g: &Graph, parent: NodeId, name: &str) -> NodeId {
+    g.add_child(
+        parent,
+        NewChild {
+            agent: Some(AgentId("claude".into())),
+            ..named(name)
+        },
+        TreeLimits::default(),
+        &launched(),
+        started,
+    )
+    .unwrap()
+}
+
+#[test]
+fn clicking_unread_on_a_node_without_a_message_link_reads_only_its_notices() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let pi = root(&g, "pi");
+    let shell = g
+        .add_root(&home(), None, None, &launched(), started)
+        .unwrap();
+    g.adopt(lead, pi, TreeLimits::default()).unwrap();
+    g.adopt(lead, shell, TreeLimits::default()).unwrap();
+    g.lock()
+        .execute(
+            "UPDATE messages SET kind = ?2 WHERE recipient = ?1",
+            params![shell.0, to_json(&Kind::Steer)],
+        )
+        .unwrap();
+    g.note(lead, &view(&g, pi).name, Kind::Queue, "q", None)
+        .unwrap();
+    assert_eq!(view(&g, pi).unread, 2);
+    assert_eq!(view(&g, shell).unread, 1);
+
+    g.steer_queued(pi).unwrap();
+    g.steer_queued(shell).unwrap();
+    g.steer_queued(NodeId(999_999)).unwrap();
+    assert_eq!(view(&g, pi).unread, 1);
+    assert_eq!(view(&g, shell).unread, 0);
+    assert_eq!(bodies(&g.take(pi, Kind::ALL, usize::MAX).unwrap()), ["q"]);
+    assert!(g.take(shell, Kind::ALL, usize::MAX).unwrap().is_empty());
 }
 
 #[test]

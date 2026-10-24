@@ -524,11 +524,18 @@ fn cut_sequence(head: &[u8], rest: impl Iterator<Item = u8>) -> Vec<u8> {
     };
     let mut seq = head[esc..].to_vec();
     let start = seq.len();
+    if !open_sequence(&seq) {
+        return Vec::new();
+    }
     for b in rest {
-        if !open_sequence(&seq) {
+        seq.push(b);
+        let open = match seq.len() {
+            ..=3 => open_sequence(&seq),
+            _ => b.is_ascii_digit() || b == b';',
+        };
+        if !open {
             break;
         }
-        seq.push(b);
     }
     seq.split_off(start)
 }
@@ -1145,6 +1152,17 @@ mod tests {
         backlog.push(b"\x1b[?1006h");
         backlog.push(&vec![b'b'; BACKLOG_BYTES - 4]);
         assert!(backlog.to_vec().starts_with(b"\x1b[?1006h"));
+    }
+
+    #[test]
+    fn backlog_reads_digits_after_an_open_mode_sequence_in_linear_time() {
+        let mut backlog = Backlog::default();
+        backlog.push(b"\x1b[?");
+        backlog.push(&vec![b'1'; BACKLOG_BYTES - 3]);
+        let started = Instant::now();
+        backlog.push(b"x");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(backlog.modes.is_empty());
     }
 
     #[test]

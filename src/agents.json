@@ -14,7 +14,7 @@
   {"id": "qoder", "label": "Qoder CLI", "cmd": "qodercli", "aliases": ["qoder"], "prompt": {"flag": "--prompt-interactive"}, "homepage": "https://docs.qoder.com/cli/overview"},
   {"id": "qoder-cn", "label": "Qoder CLI China", "cmd": "qoderclicn", "aliases": ["qodercn"], "prompt": {"flag": "--prompt-interactive"}, "homepage": "https://docs.qoder.cn/cli/overview"},
   {"id": "zcode", "label": "ZCode", "cmd": "zcode", "prompt": "none", "homepage": "https://zcode.z.ai/en/docs"},
-  {"id": "pi", "label": "Pi", "cmd": "pi", "prompt": "argv", "homepage": "https://pi.dev"},
+  {"id": "pi", "label": "Pi", "cmd": "pi", "prompt": {"argvAfter": "--"}, "profile": "pi", "homepage": "https://pi.dev"},
   {"id": "omp", "label": "OMP", "cmd": "omp", "prompt": "argv", "homepage": "https://omp.sh"},
   {"id": "prime-agent", "label": "Prime Agent", "cmd": "prime-agent", "prompt": {"argvAfter": "--"}, "homepage": "https://github.com/PrimeIntellect-ai/prime-agent"},
   {"id": "gemini", "label": "Gemini", "cmd": "gemini", "prompt": {"flag": "--prompt-interactive"}, "homepage": "https://github.com/google-gemini/gemini-cli"},

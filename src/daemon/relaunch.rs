@@ -21,7 +21,6 @@ use crate::graph::{
 };
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
-use crate::profile::cursor;
 use crate::profile::{self, AgentId, ModelChoice, Profile, Provider, ServerLink, Start};
 use crate::settings::SettingsView;
 use crate::skills::Position;
@@ -478,6 +477,7 @@ impl App {
             }
             Profile::Cursor => session_id(node.transcript.as_deref().map(Path::new))
                 .ok_or("이어 갈 Cursor 세션 기록이 없다")?,
+            Profile::Pi => pi_session(&node)?,
             Profile::OpenCode2 => match &node.server {
                 Some(ServerLink::OpenCode2 { session, .. }) => session.clone(),
                 _ => return Err("이어 갈 OpenCode 2 세션이 없다".into()),
@@ -486,12 +486,12 @@ impl App {
         let limited = self.relaunches.limited.lock().unwrap().contains(&node.id);
         let first = match (limited, profile) {
             (true, _) => Some(CONTINUE_PROMPT.to_owned()),
-            (false, Profile::Cursor) => Some(cursor::RESUMED_PROMPT.to_owned()),
+            (false, Profile::Cursor | Profile::Pi) => Some(profile::RESUMED_PROMPT.to_owned()),
             (false, _) => None,
         };
         let stopped = match profile {
             Profile::Claude => 0,
-            Profile::Codex | Profile::Cursor | Profile::OpenCode2 => {
+            Profile::Codex | Profile::Cursor | Profile::OpenCode2 | Profile::Pi => {
                 let snapshot = Snapshot::now();
                 let loom = format!("loom{}", std::env::consts::EXE_SUFFIX);
                 let shells = self.background_shells(&snapshot, &node);
@@ -570,7 +570,7 @@ impl App {
 
     async fn old_record(&self, node: &Active) -> Option<String> {
         match profile_of(node)? {
-            Profile::Claude | Profile::Cursor => node.transcript.clone(),
+            Profile::Claude | Profile::Cursor | Profile::Pi => node.transcript.clone(),
             Profile::Codex => {
                 let server = self.codex.lock().unwrap().get(&node.id).cloned()?;
                 let thread = server.thread().borrow().as_ref().map(|t| t.id.clone())?;
@@ -624,6 +624,7 @@ impl App {
             }
             (Profile::Cursor, _) => session_id(node.transcript.as_deref().map(Path::new))
                 .ok_or("이어 갈 Cursor 세션 기록이 없다")?,
+            (Profile::Pi, _) => pi_session(&node)?,
             (
                 Profile::Codex,
                 Some(ServerLink::Codex {
@@ -659,7 +660,7 @@ impl App {
             brief,
             choice: match profile {
                 Profile::OpenCode2 => ModelChoice::default(),
-                Profile::Claude | Profile::Codex | Profile::Cursor => ModelChoice {
+                Profile::Claude | Profile::Codex | Profile::Cursor | Profile::Pi => ModelChoice {
                     model: node.model.model.clone(),
                     effort: node.model.effort.clone(),
                 },
@@ -840,6 +841,10 @@ fn stopped_notice(count: usize) -> String {
     format!(
         "loom relaunched your process and stopped {count} background command(s) that you started before. Start them again if you still need them."
     )
+}
+
+fn pi_session(node: &Active) -> Result<String, &'static str> {
+    node.transcript.clone().ok_or("이어 갈 Pi 세션 기록이 없다")
 }
 
 fn session_id(transcript: Option<&Path>) -> Option<String> {

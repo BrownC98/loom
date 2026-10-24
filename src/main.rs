@@ -41,8 +41,7 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use crate::daemon::SpawnRun;
-use crate::profile::ModelChoice;
-use crate::protocol::Kind;
+use crate::protocol::{Kind, ModelChoice};
 
 #[derive(clap::Subcommand)]
 enum RolesAction {
@@ -274,7 +273,7 @@ fn main() -> ExitCode {
                 }),
         } => cli::set_role(roles::SetRole {
             role,
-            agent: profile::AgentId(agent),
+            agent: protocol::AgentId(agent),
             model,
             effort,
         }),

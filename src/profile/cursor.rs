@@ -4,8 +4,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Model, WaitKind};
-use crate::protocol::{Delivery, Kind};
+use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
@@ -236,7 +235,7 @@ pub fn rules(launch: Launch) -> Value {
     json!({ "additional_context": crate::skills::always_on(launch) })
 }
 
-pub fn choice_args(choice: &super::ModelChoice) -> Option<Vec<String>> {
+pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Option<Vec<String>> {
     let model = match (&choice.model, &choice.effort) {
         (Some(model), Some(effort)) => format!("{model}-{effort}"),
         (Some(model), None) => model.clone(),
@@ -424,7 +423,7 @@ mod tests {
     }
 
     use super::*;
-    use crate::graph::PromptKey;
+    use crate::protocol::PromptKey;
     use crate::screen::Session;
 
     fn gated(text: Option<&str>) -> Value {
@@ -950,7 +949,7 @@ mod tests {
 
     #[test]
     fn model_and_effort_join_into_one_id() {
-        let choice = |model: Option<&str>, effort: Option<&str>| super::super::ModelChoice {
+        let choice = |model: Option<&str>, effort: Option<&str>| crate::protocol::ModelChoice {
             model: model.map(Into::into),
             effort: effort.map(Into::into),
         };

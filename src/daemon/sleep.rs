@@ -9,7 +9,8 @@ use super::App;
 use super::relaunch::{EXIT_WAIT, Plan, profile_of};
 use crate::graph::{Active, IdleEnd, NodeId};
 use crate::process_tree::Snapshot;
-use crate::profile::{Profile, ServerLink};
+use crate::profile::Profile;
+use crate::protocol::ServerLink;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
 const SWEEP: Duration = Duration::from_secs(30);
@@ -190,9 +191,8 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Launched, NewChild, NodeState, Place, Report, TreeLimits};
-    use crate::profile::AgentId;
-    use crate::protocol::Kind;
+    use crate::graph::{Launched, NewChild, NodeState, Place, Report};
+    use crate::protocol::{AgentId, Kind, TreeLimits};
     use crate::worktree::RepoId;
 
     fn launched(token: &str) -> Launched {

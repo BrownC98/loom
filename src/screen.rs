@@ -1,4 +1,4 @@
-use crate::graph::{InputField, Prompt, PromptKey, PromptOption, WaitKind};
+use crate::protocol::{InputField, Prompt, PromptKey, PromptOption, WaitKind};
 
 pub struct Dialog {
     pub text: &'static str,

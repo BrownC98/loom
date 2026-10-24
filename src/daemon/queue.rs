@@ -7,8 +7,8 @@ use std::time::Duration;
 use super::App;
 use super::gate::{base_branch, merge_commit};
 use crate::git;
-use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Queued, Refusal};
-use crate::protocol::{self, Finding, MergeEnd, SHIP_DEPLOY_FAILED};
+use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Queued};
+use crate::protocol::{self, Finding, MergeEnd, Refusal, SHIP_DEPLOY_FAILED};
 use crate::worktree::{self, RepoId};
 
 const TICK: Duration = Duration::from_secs(60);

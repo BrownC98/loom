@@ -8,13 +8,15 @@ use serde::{Deserialize, Serialize};
 use super::events::{self, Entry, GateTrace, Step, Via};
 use super::waits;
 use super::{
-    Graph, HUMAN, MAILBOX_LIMIT, NodeId, NodeState, REACHABLE, Refusal, SUMMARY_LIMIT_BYTES,
-    Toward, ambiguous, from_json, optional_json, parent_of, set_state, state_of, to_json,
+    Graph, HUMAN, NodeId, NodeState, REACHABLE, Toward, ambiguous, from_json, optional_json,
+    parent_of, set_state, state_of, to_json,
 };
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
-use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::{BATCH_SEPARATOR, Delivery, Kind, LOOM, MessageId, MessageKind, Question};
+use crate::protocol::{
+    AgentId, BATCH_SEPARATOR, BRIEF_LIMIT_BYTES, Delivery, Kind, LOOM, MAILBOX_LIMIT, MessageId,
+    MessageKind, Question, Refusal, SUMMARY_LIMIT_BYTES, WaitDoc,
+};
 
 pub const REDELIVER_AFTER: Duration = Duration::from_secs(30);
 
@@ -492,7 +494,7 @@ impl Graph {
         report: &Report,
         asked: Option<&str>,
         images: &[PathBuf],
-        doc: Option<waits::WaitDoc>,
+        doc: Option<WaitDoc>,
         via: Option<&Via>,
     ) -> Result<Vec<String>, Refusal> {
         let summary = report.summary;

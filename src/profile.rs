@@ -4,7 +4,7 @@ pub mod cursor;
 pub mod opencode2;
 pub mod pi;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -14,19 +14,14 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::graph::{InputField, OpenQuestion, Prompt as ScreenPrompt, WaitKind};
 use crate::node_host::Screen;
-use crate::protocol::{Delivery, Kind};
+use crate::protocol::{
+    AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, ModelChoice, OpenQuestion,
+    Prompt as ScreenPrompt, StartDigests, WaitKind,
+};
 use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Session};
 use crate::skills::Launch;
 use crate::wsl::Inside;
-
-pub const BRIEF_LIMIT_BYTES: usize = 4 * 1024;
-
-/// 카탈로그의 `id`. 예: `claude`, `gemini`.
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct AgentId(pub String);
 
 pub const BATCH_LIMIT_BYTES: usize = 8 * 1024;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
@@ -78,22 +73,6 @@ pub enum Remote<'a> {
         url: &'a str,
         session: &'a str,
         password: &'a str,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ServerLink {
-    Codex {
-        url: String,
-        pid: Option<u32>,
-        thread: Option<String>,
-    },
-    OpenCode2 {
-        url: String,
-        pid: Option<u32>,
-        session: String,
-        password: String,
     },
 }
 
@@ -348,18 +327,6 @@ pub enum Start {
     Command { line: String },
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
-pub struct ModelChoice {
-    pub model: Option<String>,
-    pub effort: Option<String>,
-}
-
-impl ModelChoice {
-    fn is_empty(&self) -> bool {
-        self.model.is_none() && self.effort.is_none()
-    }
-}
-
 impl Start {
     pub fn agent(&self) -> Option<AgentId> {
         match self {
@@ -372,84 +339,6 @@ impl Start {
         match self {
             Start::Agent { agent, .. } => profile_of(agent),
             Start::Command { .. } => None,
-        }
-    }
-}
-
-/// 노드를 띄우지 못한 이유. 에이전트에게는 한국어 문장(`Display`)이, 화면에는 코드와 값(JSON)이 간다.
-#[derive(Debug, Serialize, TS)]
-#[serde(tag = "code", content = "value", rename_all = "camelCase")]
-#[ts(export)]
-pub enum LaunchError {
-    UnknownAgent(AgentId),
-    NotInstalled {
-        agent: String,
-        command: String,
-        /// WSL 노드면 찾은 배포판이다. 없으면 데몬 PATH에서 찾았다.
-        distro: Option<String>,
-    },
-    BriefTooLong {
-        #[ts(type = "number")]
-        len: usize,
-        #[ts(type = "number")]
-        limit: usize,
-    },
-    /// 노드가 붙을 서버(`codex app-server`, `opencode serve`)를 띄우지 못했다. `cause`는 OS·서버 오류 글이다.
-    Server {
-        program: String,
-        cause: String,
-    },
-    /// 서버를 쓰는 프로필인데 서버가 없다. 값은 에이전트 이름이다.
-    NoServer(String),
-    /// 첫 지시문을 받지 않는 에이전트다. 값은 에이전트 이름이다.
-    NoBrief(String),
-    /// 모델·추론 강도를 시작 인자로 받지 않는 에이전트다. 값은 에이전트 이름이다.
-    NoModelChoice(String),
-    /// WSL 폴더의 노드인데 그 배포판을 쓸 수 없다.
-    Wsl(crate::wsl::InsideError),
-}
-
-impl std::fmt::Display for LaunchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LaunchError::UnknownAgent(id) => {
-                write!(f, "{}: this agent is not in the catalog.", id.0)
-            }
-            LaunchError::NotInstalled {
-                agent,
-                command,
-                distro: None,
-            } => write!(
-                f,
-                "{agent}: the daemon PATH has no `{command}`. Install it, then click Find again in settings."
-            ),
-            LaunchError::NotInstalled {
-                agent,
-                command,
-                distro: Some(distro),
-            } => write!(
-                f,
-                "{agent}: could not find `{command}` in WSL · {distro}. Install it in that distro, then click Find again in settings."
-            ),
-            LaunchError::BriefTooLong { len, limit } => write!(
-                f,
-                "The brief is {len} bytes. Make it {limit} bytes or less, and put long material in a file and send its path."
-            ),
-            LaunchError::Server { program, cause } => {
-                write!(f, "Could not start `{program}`: {cause}")
-            }
-            LaunchError::NoServer(agent) => {
-                write!(f, "{agent}: could not start the server for the node.")
-            }
-            LaunchError::NoModelChoice(agent) => write!(
-                f,
-                "{agent}: does not take this `--model` or `--effort` (Claude, Codex and Pi take both, Cursor takes `--model` with an optional `--effort`). Fix them and try again."
-            ),
-            LaunchError::Wsl(e) => e.fmt(f),
-            LaunchError::NoBrief(agent) => write!(
-                f,
-                "{agent}: does not take a brief. Start it without a brief and type into its terminal."
-            ),
         }
     }
 }
@@ -624,8 +513,6 @@ With a parent, write no progress in the terminal. Results go in loom done or loo
 Bodies are at most 4KB and summaries at most 1KB. Put longer material in a file and send its absolute path.
 Messages begin with \"loom message #<id> (from: <sender>, kind: <kind>)\", then one line per field. Kinds from loom (exited, setup-failed, removed, adopted, human-input) are notices. The same ID can come again; do not repeat completed actions for that ID.");
 
-pub type StartDigests = BTreeMap<String, String>;
-
 pub fn start_digests(profile: Profile, launch: Launch) -> StartDigests {
     let mut digests = crate::skills::part_digests(launch);
     digests.insert(usage_part(profile).to_owned(), usage_digest(profile));
@@ -756,11 +643,11 @@ mod tests {
         assert_eq!(questions_note(&[]), None);
         let note = questions_note(&[
             OpenQuestion {
-                id: crate::graph::WaitId(12),
+                id: crate::protocol::WaitId(12),
                 text: "A or B?".into(),
             },
             OpenQuestion {
-                id: crate::graph::WaitId(13),
+                id: crate::protocol::WaitId(13),
                 text: "Delete?".into(),
             },
         ])

@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{AgentError, App, for_agent};
 use crate::git;
-use crate::graph::{GateChoice, NodeId, Refusal, Round, Via};
-use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, SHIP_SCRIPT};
+use crate::graph::{GateChoice, NodeId, Round, Via};
+use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, Refusal, SHIP_SCRIPT};
 use crate::worktree;
 
 pub const TOOL_HEADER: &str = "loom-tool";

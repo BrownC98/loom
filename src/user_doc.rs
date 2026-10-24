@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::graph::{Refusal, WaitDoc};
 use crate::link_text::DOC_LINK;
+use crate::protocol::{Refusal, WaitDoc};
 
 const ID_OPEN: &str = r#"<span class="doc-id">"#;
 const WHO: &str = r#"<div class="who">"#;

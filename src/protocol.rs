@@ -1,7 +1,20 @@
+mod agent;
+mod refusal;
+mod waits;
+
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+pub use agent::{AgentId, LaunchError, Model, ModelChoice, ServerLink, StartDigests};
+pub use refusal::{
+    BRIEF_LIMIT_BYTES, IMAGE_EXTENSIONS, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES, TreeLimits,
+};
+pub use waits::{
+    InputField, OpenQuestion, PermissionReply, Prompt, PromptKey, PromptOption, WaitDoc, WaitId,
+    WaitKind, entered,
+};
 
 pub const VERSION: &str = match option_env!("LOOM_VERSION") {
     Some(v) => v,

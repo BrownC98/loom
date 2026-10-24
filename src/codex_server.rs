@@ -12,14 +12,13 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::graph::WaitKind;
 use crate::process_tree::{self, Snapshot};
-use crate::profile::ServerLink;
 use crate::profile::codex::Status;
 use crate::profile::codex::protocol::{
     ThreadActiveFlag, ThreadReadParams, ThreadReadResponse, ThreadStartedNotification,
     ThreadStatus, ThreadStatusChangedNotification,
 };
+use crate::protocol::{ServerLink, WaitKind};
 use crate::wsl::Inside;
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);

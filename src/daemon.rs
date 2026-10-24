@@ -66,9 +66,8 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    CardView, EventLog, Graph, GraphEvent, IMAGE_EXTENSIONS, IdleEnd, Launched, Listed, Model,
-    NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Report, Sent,
-    TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource, entered,
+    CardView, EventLog, Graph, GraphEvent, IdleEnd, Launched, Listed, NewChild, NodeId, PARENT,
+    Place, REDELIVER_AFTER, Relations, Report, Sent, Via, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -79,10 +78,11 @@ use crate::profile::claude;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
 use crate::profile::opencode2;
-use crate::profile::{
-    self, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
+use crate::profile::{self, Mailbox, Profile, Remote, Start, VersionMismatch};
+use crate::protocol::{
+    Delivery, IMAGE_EXTENSIONS, Kind, LaunchError, MessageId, MessageKind, Model, Prompt, Question,
+    Refusal, ServerLink, TreeLimits, WaitDoc, WaitId, WaitKind, entered,
 };
-use crate::protocol::{Delivery, Kind, MessageId, MessageKind, Question};
 use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};

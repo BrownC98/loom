@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::{App, Problem, internal};
 use crate::db;
 use crate::graph::{Entry, Who};
-use crate::profile::ServerLink;
+use crate::protocol::ServerLink;
 use crate::settings::Settings;
 use crate::wsl::{self, WslPath};
 

@@ -504,7 +504,7 @@ pub(super) struct Prepared {
     pub(super) setup: Option<portable_pty::CommandBuilder>,
     pub(super) token: String,
     pub(super) account: Option<AccountId>,
-    pub(super) rules: Option<profile::StartDigests>,
+    pub(super) rules: Option<crate::protocol::StartDigests>,
     pub(super) profile: Option<Profile>,
     pub(super) codex: Option<Arc<CodexServer>>,
     pub(super) opencode2: Option<Arc<opencode2::Node>>,
@@ -841,7 +841,7 @@ mod tests {
         let node = graph
             .add_root(
                 &place,
-                Some(crate::profile::AgentId("opencode2".into())),
+                Some(crate::protocol::AgentId("opencode2".into())),
                 None,
                 &launched,
                 |_| Ok(()),

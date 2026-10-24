@@ -246,7 +246,7 @@ mod tests {
         let node = graph
             .add_root(
                 &place,
-                Some(crate::profile::AgentId("claude".into())),
+                Some(crate::protocol::AgentId("claude".into())),
                 None,
                 &launched,
                 |_| Ok(()),
@@ -400,7 +400,7 @@ mod tests {
                 .graph
                 .add_root(
                     &place,
-                    agent.map(|a| crate::profile::AgentId(a.into())),
+                    agent.map(|a| crate::protocol::AgentId(a.into())),
                     None,
                     &launched,
                     |_| Ok(()),
@@ -544,7 +544,7 @@ mod tests {
                 ),
             );
             let profile = agent
-                .map(|a| crate::profile::AgentId(a.into()))
+                .map(|a| crate::protocol::AgentId(a.into()))
                 .as_ref()
                 .and_then(profile::profile_of);
             let (wait, shown) = t.shown(node, &token, profile);

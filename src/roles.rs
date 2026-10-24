@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::{AgentId, LaunchError, ModelChoice, check_choice, check_known_choice};
+use crate::profile::{check_choice, check_known_choice};
+use crate::protocol::{AgentId, LaunchError, ModelChoice};
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

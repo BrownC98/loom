@@ -96,7 +96,7 @@ pub struct NodeView {
     pub agent: Option<AgentId>,
     pub parent: Option<NodeId>,
     pub state: NodeState,
-    /// 아직 전하지 않은(`queued`) 메시지 수.
+    /// 아직 꺼내지 않은 메시지 수(모든 방식).
     pub unread: u32,
     /// CLI가 알린 모델 id 그대로다. 명령 노드이거나 CLI가 알리지 않았으면 없다.
     pub model: Option<String>,
@@ -558,8 +558,7 @@ pub struct Graph {
 pub(super) const REACHABLE: &str = "(process_exited = 0 OR asleep = 1)";
 
 const VIEW_COLUMNS: &str = "SELECT n.id, n.name, n.agent, n.parent, n.state,
-    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL
-        AND m.kind = '\"queue\"'),
+    (SELECT count(*) FROM messages m WHERE m.recipient = n.id AND m.delivered = 0 AND m.sent_at IS NULL),
     n.model, n.effort, n.repo, n.worktree,
     n.bookmark, n.wait,
     (SELECT json_group_array(json(d.wait)) FROM dones d WHERE d.node = n.id),

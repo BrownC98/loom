@@ -21,6 +21,7 @@ const CLAUDE_SUBSCRIPTION_LOGIN: &str = "claude.ai";
 const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 const KEYCHAIN_SERVICE_HASH_LEN: usize = 8;
 const SECURITY: &str = "/usr/bin/security";
+const KEYCHAIN_EXIT_POLL: Duration = Duration::from_millis(20);
 const CURSOR_ORIGIN: &str = "https://cursor.com";
 const CURSOR_USAGE_URL: &str = "https://cursor.com/api/usage-summary";
 const CURSOR_AUTH_FILE: &str = ".config/cursor/auth.json";
@@ -218,7 +219,7 @@ fn claude(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
                 .and_then(|bytes| claude_token(&bytes))
         };
         let token = if cfg!(target_os = "macos") {
-            keychain_read(Path::new(SECURITY), &service)
+            keychain_read(Path::new(SECURITY), &service, PROBE_TIMEOUT)
                 .and_then(|bytes| claude_token(&bytes))
                 .or_else(file)
         } else {
@@ -249,7 +250,7 @@ fn claude_keychain_service(config_dir: Option<&str>) -> String {
     )
 }
 
-fn keychain_read(security: &Path, service: &str) -> Option<Vec<u8>> {
+fn keychain_read(security: &Path, service: &str, limit: Duration) -> Option<Vec<u8>> {
     use std::io::Read;
     let mut child = Command::new(security)
         .args(["find-generic-password", "-s", service, "-w"])
@@ -265,12 +266,21 @@ fn keychain_read(security: &Path, service: &str) -> Option<Vec<u8>> {
         let _ = stdout.read_to_end(&mut bytes);
         let _ = tx.send(bytes);
     });
-    let Ok(bytes) = rx.recv_timeout(PROBE_TIMEOUT) else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return None;
-    };
-    child.wait().ok()?.success().then_some(bytes)
+    let deadline = Instant::now() + limit;
+    let bytes = rx.recv_timeout(limit).ok();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return bytes.filter(|_| status.success()),
+            Ok(None) if bytes.is_some() && Instant::now() < deadline => {
+                std::thread::sleep(KEYCHAIN_EXIT_POLL)
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
 }
 
 fn claude_token(credentials: &[u8]) -> Option<String> {
@@ -658,10 +668,28 @@ mod tests {
             &security,
             "#!/bin/sh\n[ \"$*\" = 'find-generic-password -s Claude Code-credentials-dfbe2e67 -w' ] || exit 44\necho '{\"claudeAiOauth\":{\"accessToken\":\"t2\"}}'\n",
         );
-        let bytes = keychain_read(&security, "Claude Code-credentials-dfbe2e67").unwrap();
+        let bytes =
+            keychain_read(&security, "Claude Code-credentials-dfbe2e67", PROBE_TIMEOUT).unwrap();
         assert_eq!(claude_token(&bytes).as_deref(), Some("t2"));
-        assert_eq!(keychain_read(&security, "Claude Code-credentials"), None);
-        assert_eq!(keychain_read(&dir.path().join("missing"), "x"), None);
+        assert_eq!(
+            keychain_read(&security, "Claude Code-credentials", PROBE_TIMEOUT),
+            None
+        );
+        assert_eq!(
+            keychain_read(&dir.path().join("missing"), "x", PROBE_TIMEOUT),
+            None
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keychain_read_ends_a_security_that_stalls_after_closing_stdout() {
+        let dir = tempfile::tempdir().unwrap();
+        let security = dir.path().join("security");
+        crate::fake_exe::write_executable(&security, "#!/bin/sh\nexec 1>&-\nexec sleep 30\n");
+        let start = Instant::now();
+        assert_eq!(keychain_read(&security, "x", Duration::from_secs(1)), None);
+        assert!(start.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

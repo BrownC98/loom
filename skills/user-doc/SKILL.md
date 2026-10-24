@@ -7,7 +7,7 @@ description: Make a document for the human (a mockup or a report) as one HTML fi
 
 Mockups and reports use the same design language. Make, check and attach a document in one pass. Do not open the human's browser.
 
-A document exists so that the human decides fast and correctly. The author does the study and recommends one option; the human only picks. Do not give the human more work to choose (more inputs, more choices, details to fill in) unless the human asks for it. Put facts that do not change a decision after the decisions, or remove them.
+A document exists so that the human decides fast and correctly. The author does the study and recommends one option; the human only picks. Do not give the human more work to choose (more inputs, more choices, details to fill in) unless the human asks for it. For each decision, give the recommendation, what changes for the human (a "now → after" example), the cost, the risk and how to undo it. Put facts that do not change a decision after the decisions, or remove them.
 
 In a report:
 

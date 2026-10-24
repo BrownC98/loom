@@ -626,7 +626,7 @@ const ko: typeof en = {
       emptyAnswer: '답변을 적으십시오.',
       promptChanged: '터미널의 승인 창이 바뀌었습니다. 보내지 않았습니다. 터미널에서 확인하세요.',
       gate: '병합 관문 상태가 {{state}}라서 {{verb}}을(를) 지금 부를 수 없습니다.',
-      notGate: '{{branch}}: 판정은 관문 {{gate}}이(가) 띄운 검토자만, 멈춤은 관문만 부를 수 있습니다.',
+      notGate: '{{branch}}: 관문 {{gate}}만 이 브랜치를 다룹니다. 판정은 관문이나 관문이 띄운 검토자가, 멈춤은 관문만 부를 수 있습니다.',
       noRound: '{{value}}: 관문 차례가 없는 브랜치입니다. 담당이 먼저 `loom ready`를 부릅니다.',
       notOwner: '{{branch}}: 워크트리가 이 브랜치에 있는 담당만 `loom ready`를 부릅니다.',
       uncommitted: '{{value}}: 커밋하지 않은 변경이 있습니다.',

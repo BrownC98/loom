@@ -436,7 +436,7 @@ impl fmt::Display for Refusal {
             Refusal::Gate(e) => e.fmt(f),
             Refusal::NotGate { branch, gate } => write!(
                 f,
-                "{branch}: its gate is {gate}. Only a reviewer that {gate} spawned gives the verdict, and only {gate} calls `loom fail`."
+                "{branch}: its gate is {gate}. Only {gate} handles this branch: it gives the verdict or spawns the reviewer that gives it, and only {gate} calls `loom fail`."
             ),
             Refusal::NoRound(branch) => write!(
                 f,

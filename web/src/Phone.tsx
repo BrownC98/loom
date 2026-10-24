@@ -182,7 +182,15 @@ function controlOf(char: string): string {
 export function NodeTitle(props: { view: NodeView; agentLabel: string }) {
   return (
     <span className="phone-title">
-      <b>{props.view.name}</b>
+      <span className="phone-name">
+        <b>{props.view.name}</b>
+        <NoticeChips view={props.view} />
+        {(props.view.state.kind === 'exited' || props.view.state.kind === 'setupFailed') && (
+          <span className={`state ${props.view.state.kind}`} aria-live="polite" translate="no">
+            {stateLabel(props.view.state)}
+          </span>
+        )}
+      </span>
       <span className="node-line">
         <AgentLine view={props.view} label={props.agentLabel} />
       </span>
@@ -239,12 +247,6 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
           <ChevronLeft aria-hidden="true" />
         </button>
         <NodeTitle view={view} agentLabel={props.agentLabel} />
-        <NoticeChips view={view} />
-        {(view.state.kind === 'exited' || view.state.kind === 'setupFailed') && (
-          <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">
-            {stateLabel(view.state)}
-          </span>
-        )}
         <button type="button" className="phone-icon" aria-label={t('phone.actions')} aria-haspopup="dialog" onClick={() => setSheet('actions')}>
           <EllipsisVertical aria-hidden="true" />
         </button>

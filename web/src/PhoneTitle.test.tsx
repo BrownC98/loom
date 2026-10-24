@@ -34,7 +34,16 @@ describe('phone terminal header subtitle', () => {
   it.each(cases)('is the node list line 2 for %s', (_, view, label, text) => {
     const out = renderToStaticMarkup(<NodeTitle view={view} agentLabel={label} />);
     const line = renderToStaticMarkup(<AgentLine view={view} label={label} />);
-    expect(out).toBe(`<span class="phone-title"><b>worker</b><span class="node-line">${line}</span></span>`);
+    expect(out).toBe(`<span class="phone-title"><span class="phone-name"><b>worker</b></span><span class="node-line">${line}</span></span>`);
     expect(line).toContain(`<span class="sub" translate="no">${text}</span>`);
+  });
+
+  it('puts notice chips and the exit state on the name row, not beside the subtitle', () => {
+    const view = node({ state: { kind: 'exited', code: 1 }, waits: [{ id: 1, kind: 'auth', text: '', since: 0, answerable: false, doc: null, images: [] }] });
+    const out = renderToStaticMarkup(<NodeTitle view={view} agentLabel="Claude Code" />);
+    const [name, line] = out.split('<span class="node-line">');
+    expect(name).toContain('class="chips');
+    expect(name).toContain('class="state exited"');
+    expect(line).not.toContain('chips');
   });
 });

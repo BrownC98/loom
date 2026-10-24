@@ -431,6 +431,9 @@ button.unread:hover { filter: brightness(1.1); }
 .pop { position: absolute; z-index: 6; width: 340px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); padding: 14px; display: grid; gap: 12px; cursor: default; }
 .pop h2 { font-size: 14px; font-weight: 600; }
 .pop h2 span { font-family: var(--mono); font-weight: 500; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
+.new-node h2 { display: flex; align-items: center; margin: -4px -6px -4px 0; }
+.new-node h2 span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-node h2 .btn { margin-left: auto; flex: none; }
 .field { display: grid; gap: 5px; }
 .field label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .field input { background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }

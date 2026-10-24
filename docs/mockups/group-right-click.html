@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M22 묶음 우클릭 새 노드 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+  /* 제품 그림에만 쓴다(web/src/styles.css). */
+  --group-line: light-dark(oklch(57% 0 0), oklch(58% 0 0));
+  --dot: light-dark(oklch(86% 0 0), oklch(30% 0 0));
+  --run: light-dark(oklch(54.6% 0.245 263), oklch(70.7% 0.165 255));
+  --ok: light-dark(oklch(50% 0.13 149), oklch(76% 0.15 149));
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.flow span { padding: 4px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); }
+table.dec { border-collapse: collapse; font-size: 13px; }
+table.dec th, table.dec td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+table.dec th { color: var(--ink-3); font-weight: 600; }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+
+.page { position: relative; width: 1360px; height: 520px; display: grid; grid-template-rows: 40px 1fr; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.bar { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; font-weight: 600; }
+.main { display: flex; min-height: 0; }
+.side { width: 240px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; font-size: 13px; display: grid; align-content: start; gap: 2px; }
+.side h3 { font-size: 12px; color: var(--ink-3); padding: 4px 8px; }
+.row { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 calc(8px + var(--d, 0) * 14px); border-radius: 6px; white-space: nowrap; }
+.row .b { font-weight: 600; }
+.row .tag { font-size: 12px; color: var(--ink-3); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--run); flex: none; }
+.dot.done { background: var(--ok); }
+.graph { position: relative; flex: 1; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; }
+.group { position: absolute; border: 1.5px solid var(--group-line); border-radius: 12px; background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); }
+.group-head .branch { font-weight: 600; font-size: 13px; white-space: nowrap; }
+.group-head .kind { font-size: 12px; color: var(--ink-3); }
+.spacer { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: var(--ink-2); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.btn.icon { width: 26px; padding: 0; justify-content: center; }
+svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.card { position: absolute; width: 230px; padding: 8px 8px 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); display: grid; gap: 2px; }
+.card .top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.card .name { font-weight: 600; }
+.card .meta { font: 11px var(--mono); color: var(--ink-3); }
+.card .line { font-size: 12px; color: var(--ink-2); }
+.lg { font: 12px var(--mono); color: #b0573a; }
+.edge { position: absolute; border-left: 1.5px solid var(--line-strong); }
+.edge.h { border-left: 0; border-top: 1.5px solid var(--line-strong); }
+.group .card, .group .pop, .group .ptr { position: absolute; }
+.pop { z-index: 6; width: 340px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55)); padding: 14px; display: grid; gap: 12px; }
+.pop h2 { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+.pop h2 .t > span { font-family: var(--mono); font-weight: 500; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
+.pop.gone { opacity: .35; box-shadow: none; outline: 0; }
+.field { display: grid; gap: 5px; }
+.field label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.field input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 9px; }
+.pick { list-style: none; padding: 0; display: grid; gap: 1px; font-size: 13px; }
+.pick li { padding: 4px 8px; border-radius: 6px; }
+.pick li.grp { font-size: 11px; color: var(--ink-3); font-weight: 600; }
+.pick li[aria-selected="true"] { background: var(--accent-wash); }
+.pick .recent { font-size: 11px; color: var(--ink-3); margin-left: 6px; }
+.pop-actions { display: flex; justify-content: flex-end; }
+.pop-actions .btn { height: 30px; padding: 0 12px; font-size: 13px; }
+.btn[aria-expanded="true"] { background: var(--surface-hover); }
+svg.ptr { width: 22px; height: 22px; z-index: 7; }
+.card svg.ptr { position: absolute; }
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co b { flex: none; width: 18px; height: 18px; border-radius: 50%; background: #D14343; color: #fff; font-size: 11px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow, table.dec { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font: 700 12px/22px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+</style></head>
+<body data-ui=".card, .pop li, .chip">
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  <symbol id="arrange" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect x="13" y="13" width="8" height="8" rx="2"/></symbol>
+  <symbol id="branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="ptr" viewBox="0 0 24 24"><path d="M4 3l7 17 2.5-7L21 10.5z" fill="#fff" stroke="#111" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+</svg>
+<main class="doc">
+  <div class="who"><span class="doc-id">문서 ID: <b>M22</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 묶음우클릭과pi스크롤</b></span><span>v2 · 2026-10-25</span></div>
+  <h1>묶음 빈 곳 우클릭으로 새 노드, 창 밖을 누르면 새 노드 창 닫기</h1>
+  <p class="lead">사람 지시: 「묶음 빈영역에서 우클릭하면 새 노드 추가 할 수 있도록 해줘」, 「새노드 추가 버튼은 해당 팝오버 바깥 영역 클릭하면 제거되게 해줘」. 지금은 머리 줄의 [새 노드]만 창을 열고, 창은 [취소]·Esc·그래프 빈 바탕 클릭으로만 닫힙니다. 카드·묶음 안·사이드바를 눌러도 남습니다.</p>
+  <div class="flow"><span>묶음 안 빈 곳을 우클릭한다</span>→<span>그 자리에 새 노드 창이 열린다</span>→<span>프로필을 고르면 노드가 뜬다</span>→<span>창 밖을 누르면 창이 닫힌다</span></div>
+
+  <div class="fig">
+    <h2>① 묶음 빈 곳 우클릭 <span class="tag">묶음우클릭과pi스크롤 묶음</span></h2>
+    <div class="page">
+      <div class="bar">loom</div>
+      <div class="main">
+        <aside class="side">
+          <h3>저장소</h3>
+          <div class="row"><span class="b">loom</span></div>
+          <div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span><span class="tag">원래 체크아웃</span></div>
+          <div class="row" style="--d:2"><span class="dot"></span>loom 총괄</div>
+          <div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">묶음우클릭과pi스크롤</span></div>
+          <div class="row" style="--d:2"><span class="dot"></span>코디 묶음우클릭과pi스크롤</div>
+        </aside>
+        <div class="graph">
+          <section class="group" style="left:28px; top:28px; width:330px; height:190px">
+            <div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn icon"><svg class="i"><use href="#arrange"/></svg></button><button class="btn"><svg class="i"><use href="#plus"/></svg>새 노드</button></div>
+            <div class="card" style="left:20px; top:62px"><div class="top"><span class="lg">✳</span><span class="name">loom 총괄</span></div><span class="meta">opus · medium</span><span class="line">목업 승인을 기다립니다.</span></div>
+          </section>
+          <section class="group" style="left:400px; top:28px; width:620px; height:400px">
+            <div class="group-head"><span class="branch">묶음우클릭과pi스크롤</span><span class="spacer"></span><button class="btn icon"><svg class="i"><use href="#arrange"/></svg></button><button class="btn"><svg class="i"><use href="#plus"/></svg>새 노드</button><button class="btn">워크트리 삭제</button></div>
+            <div class="card" style="left:20px; top:62px"><div class="top"><span class="lg">✳</span><span class="name">코디 묶음우클릭과pi스크롤</span></div><span class="meta">opus · medium</span><span class="line">목업을 만듭니다.</span></div>
+            <svg class="ptr" style="left:300px; top:76px"><use href="#ptr"/></svg>
+            <form class="pop mk new" data-n="1" style="left:306px; top:82px">
+              <h2><span class="t">새 노드<span>묶음우클릭과pi스크롤</span></span><span class="mk new" data-n="2" style="display:inline-flex"><button type="button" class="btn icon close"><svg class="i"><use href="#x"/></svg></button></span></h2>
+              <div class="field"><label>프로필</label><input placeholder="이름으로 찾기">
+                <ul class="pick"><li class="grp">설치됨 3</li><li aria-selected="true">Claude <span class="recent">최근</span></li><li>Codex</li><li>pi</li><li>기본 셸</li></ul>
+              </div>
+                          </form>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="calls"><div><b>1</b><span>묶음 안 카드·버튼 밖을 우클릭하면 [새 노드]와 같은 창이 포인터 자리에 열립니다. 브라우저 메뉴는 뜨지 않습니다.</span></div><div><b>2</b><span>[취소] 버튼 대신 오른쪽 위 X로 닫습니다.</span></div></div>
+  </div>
+
+  <div class="fig">
+    <h2>② 새 노드 창 밖을 누름 <span class="tag">카드·다른 묶음·사이드바·터미널 포함</span></h2>
+    <div class="page">
+      <div class="bar">loom</div>
+      <div class="main">
+        <aside class="side">
+          <h3>저장소</h3>
+          <div class="row"><span class="b">loom</span></div>
+          <div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">main</span><span class="tag">원래 체크아웃</span></div>
+          <div class="row" style="--d:2"><span class="dot"></span>loom 총괄</div>
+          <div class="row" style="--d:1"><svg class="i"><use href="#branch"/></svg><span class="b">묶음우클릭과pi스크롤</span></div>
+          <div class="row" style="--d:2"><span class="dot"></span>코디 묶음우클릭과pi스크롤</div>
+        </aside>
+        <div class="graph">
+          <section class="group" style="left:28px; top:28px; width:330px; height:190px">
+            <div class="group-head"><span class="branch">main</span><span class="kind">원래 체크아웃</span><span class="spacer"></span><button class="btn icon"><svg class="i"><use href="#arrange"/></svg></button><button class="btn"><svg class="i"><use href="#plus"/></svg>새 노드</button></div>
+            <div class="card mk" data-n="1" style="left:20px; top:62px"><div class="top"><span class="lg">✳</span><span class="name">loom 총괄</span></div><span class="meta">opus · medium</span><span class="line">목업 승인을 기다립니다.</span><svg class="ptr" style="left:150px; top:30px"><use href="#ptr"/></svg></div>
+          </section>
+          <section class="group" style="left:400px; top:28px; width:620px; height:400px">
+            <div class="group-head"><span class="branch">묶음우클릭과pi스크롤</span><span class="spacer"></span><button class="btn icon"><svg class="i"><use href="#arrange"/></svg></button><span class="mk" data-n="3" style="display:inline-flex"><button class="btn" aria-expanded="true"><svg class="i"><use href="#plus"/></svg>새 노드</button></span><button class="btn">워크트리 삭제</button></div>
+            <div class="card" style="left:20px; top:62px"><div class="top"><span class="lg">✳</span><span class="name">코디 묶음우클릭과pi스크롤</span></div><span class="meta">opus · medium</span><span class="line">목업을 만듭니다.</span></div>
+            <form class="pop gone mk" data-n="2" style="left:270px; top:44px">
+              <h2><span class="t">새 노드<span>묶음우클릭과pi스크롤</span></span><button type="button" class="btn icon close"><svg class="i"><use href="#x"/></svg></button></h2>
+              <div class="field"><label>프로필</label><input placeholder="이름으로 찾기">
+                <ul class="pick"><li class="grp">설치됨 3</li><li aria-selected="true">Claude <span class="recent">최근</span></li><li>Codex</li><li>pi</li><li>기본 셸</li></ul>
+              </div>
+                          </form>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="calls"><div><b>1</b><span>창 밖 어디를 눌러도(카드, 다른 묶음, 사이드바, 터미널) 창이 닫힙니다. 누른 곳의 동작도 그대로 합니다.</span></div><div><b>2</b><span>닫힌 창. 찾기 칸에 쓴 글자는 지웁니다.</span></div><div><b>3</b><span>창이 열린 채 [새 노드]를 다시 누르면 닫힙니다.</span></div></div>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="dec">
+      <tr><th>항목</th><th>권장안</th><th>다른 안</th></tr>
+      <tr><td>우클릭 뒤</td><td><b>권장:</b> 새 노드 창을 바로 엽니다(①-1). 한 번 덜 누릅니다.</td><td>「새 노드」 한 줄 메뉴를 먼저 띄웁니다. 메뉴 항목이 하나뿐이라 한 단계가 늘어납니다.</td></tr>
+      <tr><td>창 자리</td><td><b>권장:</b> 우클릭한 포인터 자리</td><td>머리 줄 [새 노드] 아래. 큰 묶음에서는 포인터와 멀어집니다.</td></tr>
+      <tr><td>우클릭이 열리는 곳</td><td><b>권장:</b> 묶음 안 카드·버튼·칩 밖(머리 줄 빈 곳 포함)</td><td>카드 위 우클릭도 엽니다. 카드를 고르려던 우클릭에도 창이 열립니다.</td></tr>
+      <tr><td>닫기 버튼</td><td><b>반영함:</b> 아래 [취소]를 지우고 오른쪽 위에 X(v1 승인 때 사람 지시)</td><td>—</td></tr>
+      <tr><td>창이 닫히는 곳</td><td><b>권장:</b> 창 밖 어디나(②-1). 다른 팝오버(워크트리 삭제·받은편지함)와 같습니다.</td><td>그래프 안만. 사이드바·터미널을 눌러도 창이 남습니다.</td></tr>
+    </table>
+  </div>
+</main>
+<button class="theme-toggle" type="button" onclick="const h=document.documentElement;const d=h.style.colorScheme==='dark';h.style.colorScheme=d?'light':'dark';this.textContent=d?'다크로 보기':'라이트로 보기'">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    for (let x = 80; place(fig, src) && x <= 1200; x += 80) fig.style.paddingBottom = base + x + 'px';
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = [...src.querySelectorAll(':scope > div > span')].map(s => s.innerHTML);
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 11], [(o.l + o.r) / 2, o.b + 11], [o.l - 11, o.t + 11], [o.r + 11, o.t + 11]].map(([x, y]) => ({ l: x - 11, t: y - 11, r: x + 11, b: y + 11 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts[n - 1]) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b><span>${texts[n - 1]}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 12, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+</script>
+</body></html>

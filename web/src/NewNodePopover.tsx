@@ -1,4 +1,4 @@
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createNode } from './api';
@@ -125,10 +125,13 @@ export function NewNodePopover(props: {
   };
 
   return (
-    <form ref={box} className="pop nodrag nowheel" aria-label={t('graph.newNode')} onSubmit={submit}>
+    <form ref={box} className="pop new-node nodrag nowheel" aria-busy={busy} aria-label={t('graph.newNode')} onSubmit={submit}>
       <h2>
         {t('graph.newNode')}
         <span translate="no">{props.branch}</span>
+        <button type="button" className="btn ghost sm icon" aria-label={t('common.close')} title={t('common.close')} onClick={props.onCancel}>
+          <X />
+        </button>
       </h2>
       <div className="field">
         <label htmlFor="n-find">{t('newNode.profile')}</label>
@@ -186,17 +189,14 @@ export function NewNodePopover(props: {
           {error}
         </p>
       )}
-      <div className="pop-actions">
-        <button type="button" className="btn ghost" onClick={props.onCancel}>
-          {t('common.cancel')}
-        </button>
-        {starting && (
+      {starting && (
+        <div className="pop-actions">
           <button type="button" className="btn primary" disabled>
             <LoaderCircle className="spin" />
             {t('place.startingButton')}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </form>
   );
 }

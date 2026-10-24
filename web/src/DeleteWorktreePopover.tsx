@@ -4,12 +4,12 @@ import { deleteWorktree, getWorktreeChanges } from './api';
 import type { NodeView } from './gen/NodeView';
 import type { RepoId } from './gen/RepoId';
 import type { RepoView } from './gen/RepoView';
-import { useDismiss } from './popover';
+import { useEscapeClose } from './popover';
 import type { Group } from './repos';
 
 export function DeleteWorktreePopover(props: { repo: RepoId; group: Group; views: NodeView[]; onDeleted: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
-  const box = useDismiss<HTMLDivElement>(props.onClose);
+  const box = useEscapeClose<HTMLDivElement>(props.onClose);
   const { group } = props;
   const [changes, setChanges] = useState<string[] | null>(null);
   const [deleteBranch, setDeleteBranch] = useState(false);
@@ -32,7 +32,7 @@ export function DeleteWorktreePopover(props: { repo: RepoId; group: Group; views
   }
 
   return (
-    <div ref={box} className="pop confirm wide nodrag nowheel" role="alertdialog" aria-labelledby="wt-del-title">
+    <div ref={box} className="pop confirm wide nodrag nowheel" role="alertdialog" aria-busy={busy} aria-labelledby="wt-del-title">
       <h2 id="wt-del-title">
         {t('deleteWorktree.action')}
         <span translate="no">{group.label}</span>

@@ -89,7 +89,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (event, ctx) => {
     await call({ event: "session_start", ...state(ctx) }, ctx);
-    if (event.reason === "startup" && pi.getFlag(IDLE_FLAG) === true) void wait("idle", ctx);
+    if (event.reason !== "startup" || pi.getFlag(IDLE_FLAG) === true) void wait("idle", ctx);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {

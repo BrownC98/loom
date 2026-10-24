@@ -615,6 +615,8 @@ const ko: typeof en = {
       noAsked: '부모가 없는 노드는 사람의 지시를 --asked로 함께 적어 완료를 알립니다.',
       notAsk: '메시지 #{{value}}는 이 노드가 받은 질문이 아닙니다. loom answer는 질문에만 답합니다.',
       docHasParent: '부모가 있는 노드입니다. 부모는 경로를 읽습니다. 파일 경로를 부모에게 보내십시오. 문서는 사람이 띄운 노드만 붙입니다.',
+      badRoleSetting: '역할 설정 값이 맞지 않습니다: {{value}}',
+      rolesHaveParent: '부모가 있는 노드입니다. 역할표는 사람이 띄운 노드만 바꿉니다. 부모에게 물으십시오.',
       bareLink: '주소와 파일 경로는 이름을 붙인 markdown 링크 [이름](https://…)나 [이름](file:///…)로 쓰십시오. 주소의 빈칸과 괄호는 %20·%28·%29로 적습니다.',
       badChoices: '질문이 표준 꼴이 아닌 선택지를 냈습니다. 단추가 뜨지 않으므로 (A: … / B: …, 권장: A) 꼴로 다시 물으십시오.',
       missingHeads: '지시문에 {{value}} 머리가 없습니다. 머리는 Goal, Facts, Scope, Done when, Checks, Time입니다.',

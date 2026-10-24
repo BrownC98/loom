@@ -231,6 +231,10 @@ pub enum Refusal {
     NotAsk(u32),
     /// 부모가 있는 노드가 `loom done --doc`을 불렀다. 문서 링크는 사람의 받은편지함에만 있다. 부모는 경로를 읽는다.
     DocHasParent,
+    /// 부모가 있는 노드가 `loom roles set`을 불렀다. 역할표는 부모 없는 노드(사람이 띄운 노드)만 바꾼다.
+    RolesHaveParent,
+    /// `loom roles set`의 값이 틀렸다(카탈로그에 없는 에이전트, 그 에이전트가 받지 않는 모델·강도). 값은 이유다.
+    BadRoleSetting(String),
     /// 사람이 읽는 글(`loom ask`, 부모 없는 노드의 `loom done`)에 markdown 링크 밖의 주소·경로가 있다. 값은 그 주소·경로다.
     BareLink(String),
     /// `loom ask` 질문이 선택지를 내놓는데 표준 꼴 `(A: … / B: …, 권장: A)`가 아니다. 받은편지함이 선택 단추를 만들지 못한다.
@@ -415,6 +419,11 @@ impl fmt::Display for Refusal {
                 f,
                 "You have a parent, and it reads paths. Send the file with `loom done --file <path>` or put its path in the summary. Only nodes that the human started attach --doc."
             ),
+            Refusal::RolesHaveParent => write!(
+                f,
+                "You have a parent. Only a node that the human started changes the role table. Ask your parent with `loom ask`."
+            ),
+            Refusal::BadRoleSetting(reason) => write!(f, "The role setting is not valid: {reason}"),
             Refusal::BareLink(found) => write!(
                 f,
                 "The human sees only Markdown links whose target starts with https://, http:// or file:// and has no spaces and no parentheses. Write [label]({}) instead of `{found}`.",

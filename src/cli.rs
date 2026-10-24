@@ -14,11 +14,12 @@ use crate::daemon::{
     RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken,
     TurnEndRequest, TurnId, WaitRequest,
 };
-use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
+use crate::graph::{Listed, NodeId, Relations, Sent};
 use crate::profile::claude;
-use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor, pi};
-use crate::protocol::{GateState, Judgment};
+use crate::protocol::{
+    AgentId, Delivery, GateState, Judgment, Kind, MessageId, ModelChoice, WaitId,
+};
 use crate::roles::{Roles, SetRole};
 use crate::task;
 
@@ -747,9 +748,9 @@ fn tool() -> String {
 }
 
 fn version() -> String {
-    match crate::COMMIT {
-        Some(commit) => format!("{} ({commit})", crate::VERSION),
-        None => crate::VERSION.to_owned(),
+    match crate::protocol::COMMIT {
+        Some(commit) => format!("{} ({commit})", crate::protocol::VERSION),
+        None => crate::protocol::VERSION.to_owned(),
     }
 }
 

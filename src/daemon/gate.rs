@@ -7,10 +7,10 @@ use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
 
 use super::{AgentError, App, for_agent};
-use crate::git;
-use crate::graph::{GateChoice, NodeId, Refusal, Round, Via};
-use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, SHIP_SCRIPT};
+use crate::graph::{GateChoice, NodeId, Round, Via};
+use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, Refusal, SHIP_SCRIPT};
 use crate::worktree;
+use crate::worktree::merge::{base_branch, contains};
 
 pub const TOOL_HEADER: &str = "loom-tool";
 pub const VERSION_HEADER: &str = "loom-version";
@@ -184,39 +184,6 @@ impl App {
     }
 }
 
-pub(super) async fn merge_commit(
-    repo: &Path,
-    head: &str,
-    tip: &str,
-) -> Result<Option<String>, Refusal> {
-    let listed = git::run(repo, &["log", "--first-parent", "--format=%H %P", tip])
-        .await
-        .map_err(Refusal::Git)?;
-    Ok(listed.lines().find_map(|line| {
-        let mut parts = line.split_whitespace();
-        let sha = parts.next()?;
-        parts.skip(1).any(|p| p == head).then(|| sha.to_owned())
-    }))
-}
-
-pub(super) async fn base_branch(repo: &Path) -> Result<String, Refusal> {
-    worktree::listed(repo)
-        .await
-        .map_err(Refusal::Git)?
-        .into_iter()
-        .find(|w| w.original)
-        .and_then(|w| w.branch)
-        .ok_or_else(|| Refusal::Git("the main checkout is not on a branch".into()))
-}
-
-pub(super) async fn contains(repo: &Path, older: &str, newer: &str) -> Result<bool, Refusal> {
-    match git::run(repo, &["merge-base", "--is-ancestor", older, newer]).await {
-        Ok(_) => Ok(true),
-        Err(e) if e.is_empty() => Ok(false),
-        Err(e) => Err(Refusal::Git(e)),
-    }
-}
-
 async fn owned_worktree(
     repo: &Path,
     registered: &str,
@@ -230,10 +197,7 @@ async fn owned_worktree(
         return Ok(mine);
     }
     let cwd = Path::new(cwd);
-    let top = git::run(cwd, &["rev-parse", "--show-toplevel"])
-        .await
-        .map_err(Refusal::Git)?;
-    let top = git::from_git_path(cwd, top.trim());
+    let top = worktree::top_of(cwd).await.map_err(Refusal::Git)?;
     worktree::worktrees(repo)
         .await
         .into_iter()

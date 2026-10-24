@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::process_tree;
-use crate::profile::{self, LaunchError, Provider};
+use crate::protocol::{LaunchError, Provider};
 use crate::wsl::Inside;
 
 /// 만든 시각(밀리초)의 16진수 16자리. 이름 순서가 만든 순서다.
@@ -242,7 +242,7 @@ impl Site {
             Provider::Claude => &["auth", "login"][..],
             Provider::Codex => &["login"],
         });
-        profile::color_terminal(&mut cmd);
+        process_tree::color_terminal(&mut cmd);
         self.apply(&mut cmd, provider, id);
         Ok(match &self.wsl {
             Some(inside) => inside.wrap(&cmd),

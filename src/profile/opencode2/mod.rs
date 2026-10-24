@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use crate::graph::{Delivery, Kind, Model, PermissionReply, Prompt, PromptKey, PromptOption};
+use crate::protocol::{Delivery, Kind, Model, PermissionReply, Prompt, PromptKey, PromptOption};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
@@ -247,8 +247,8 @@ impl Node {
         Self::follow(Server::connect(url, password, pid), session)
     }
 
-    pub fn link(&self) -> super::ServerLink {
-        super::ServerLink::OpenCode2 {
+    pub fn link(&self) -> crate::protocol::ServerLink {
+        crate::protocol::ServerLink::OpenCode2 {
             url: self.server.url().to_owned(),
             pid: self.server.pid(),
             session: self.session.clone(),
@@ -542,7 +542,7 @@ mod tests {
 
     fn delivery(kind: Kind, body: &str) -> Delivery {
         Delivery {
-            id: crate::graph::MessageId(1),
+            id: crate::protocol::MessageId(1),
             from: "부모".into(),
             kind,
             body: body.into(),

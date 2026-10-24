@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 use tokio::process::Command;
 use tokio::sync::watch;
 
-use crate::graph::PermissionReply;
 use crate::process_tree::{self, Snapshot};
+use crate::protocol::PermissionReply;
 use crate::wsl::Inside;
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);

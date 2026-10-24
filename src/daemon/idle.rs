@@ -242,7 +242,7 @@ mod tests {
         db.lock()
             .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
             .unwrap();
-        let graph = Arc::new(Graph::open(db).unwrap());
+        let graph = Arc::new(Graph::open(db, crate::profile::linked).unwrap());
         let place = Place {
             repo: RepoId(1),
             worktree: "/repo".into(),

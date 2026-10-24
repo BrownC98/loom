@@ -6,9 +6,11 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::VersionMismatch;
-use crate::graph::{Delivery, Kind, Model, WaitKind};
+use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
+
+pub mod server;
 
 #[allow(clippy::all, dead_code)]
 pub mod protocol {
@@ -54,7 +56,7 @@ fn usage(launch: Launch) -> String {
     )
 }
 
-pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
+pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Vec<String> {
     let mut args = Vec::new();
     if let Some(model) = &choice.model {
         args.extend(["-m".into(), model.clone()]);
@@ -329,7 +331,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::PromptKey;
+    use crate::protocol::PromptKey;
 
     const APPROVAL: &str = concat!(
         "\n",
@@ -469,7 +471,7 @@ mod tests {
 
     fn delivery(kind: Kind, body: &str) -> Delivery {
         Delivery {
-            id: crate::graph::MessageId(1),
+            id: crate::protocol::MessageId(1),
             from: "부모".into(),
             kind,
             body: body.into(),

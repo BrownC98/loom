@@ -290,7 +290,7 @@ impl App {
             let (app, mut limited) = (self.clone(), server.limited());
             tokio::spawn(async move {
                 while limited.changed().await.is_ok() {
-                    app.rate_limited(id, profile::Provider::Codex);
+                    app.rate_limited(id, crate::protocol::Provider::Codex);
                 }
             });
             tokio::spawn(follow_codex_model(
@@ -504,7 +504,7 @@ pub(super) struct Prepared {
     pub(super) setup: Option<portable_pty::CommandBuilder>,
     pub(super) token: String,
     pub(super) account: Option<AccountId>,
-    pub(super) rules: Option<profile::StartDigests>,
+    pub(super) rules: Option<crate::protocol::StartDigests>,
     pub(super) profile: Option<Profile>,
     pub(super) codex: Option<Arc<CodexServer>>,
     pub(super) opencode2: Option<Arc<opencode2::Node>>,
@@ -656,7 +656,7 @@ pub(super) fn bearer(headers: &HeaderMap) -> Result<&str, AgentError> {
         .ok_or_else(unauthorized)
 }
 
-pub(super) fn unauthorized() -> AgentError {
+fn unauthorized() -> AgentError {
     (
         StatusCode::UNAUTHORIZED,
         "Run this only inside a loom node.".into(),
@@ -827,7 +827,7 @@ mod tests {
         db.lock()
             .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
             .unwrap();
-        let graph = Arc::new(Graph::open(db).unwrap());
+        let graph = Arc::new(Graph::open(db, crate::profile::linked).unwrap());
         let place = Place {
             repo: RepoId(1),
             worktree: "/repo".into(),
@@ -841,7 +841,7 @@ mod tests {
         let node = graph
             .add_root(
                 &place,
-                Some(crate::profile::AgentId("opencode2".into())),
+                Some(crate::protocol::AgentId("opencode2".into())),
                 None,
                 &launched,
                 |_| Ok(()),

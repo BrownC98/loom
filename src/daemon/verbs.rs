@@ -119,11 +119,13 @@ fn set_role(app: &App, caller: NodeId, req: &SetRole) -> Result<Roles, Problem> 
         return Err(Refusal::RolesHaveParent.into());
     }
     use crate::settings::SetRoleProblem;
-    app.settings.set_role(req).map_err(|e| match e {
-        SetRoleProblem::Db(e) => internal(e),
-        SetRoleProblem::Shape(e) => Refusal::BadRoleSetting(e).into(),
-        SetRoleProblem::Role(e) => role_refusal(e).into(),
-    })
+    app.settings
+        .set_role(req, profile::check_known_choice)
+        .map_err(|e| match e {
+            SetRoleProblem::Db(e) => internal(e),
+            SetRoleProblem::Shape(e) => Refusal::BadRoleSetting(e).into(),
+            SetRoleProblem::Role(e) => role_refusal(e).into(),
+        })
 }
 
 fn role_start(app: &App, role: &str, brief: &str) -> Result<Start, Problem> {

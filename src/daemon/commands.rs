@@ -321,7 +321,7 @@ pub(super) async fn agent_idle(
         return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
     }
     if req.rate_limited {
-        app.rate_limited(node, profile::Provider::Claude);
+        app.rate_limited(node, crate::protocol::Provider::Claude);
     }
     app.turn_ended(node);
     while app.relaunches.holds_mail(node) {

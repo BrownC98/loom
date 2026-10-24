@@ -2,8 +2,10 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::db;
-use crate::profile::ServerLink;
-use crate::protocol::{MessageKind, Question};
+use crate::protocol::{
+    BRIEF_LIMIT_BYTES, Delivery, Kind, MAILBOX_LIMIT, MessageId, MessageKind, Model, OpenQuestion,
+    PromptKey, PromptOption, Question, ServerLink, TreeLimits, WaitDoc, WaitKind,
+};
 use crate::worktree::RepoId;
 
 fn open(path: &Path) -> Graph {
@@ -14,7 +16,7 @@ fn open(path: &Path) -> Graph {
             [],
         )
         .unwrap();
-    Graph::open(db).unwrap()
+    Graph::open(db, crate::profile::linked).unwrap()
 }
 
 fn home() -> Place {

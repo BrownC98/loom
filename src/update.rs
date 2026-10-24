@@ -147,7 +147,7 @@ impl Updater {
         let latest = tokio::task::spawn_blocking(move || fetch_latest(releases))
             .await
             .map_err(|e| e.to_string())??;
-        let newer = launch::newer(&latest, crate::VERSION).then_some(latest);
+        let newer = launch::newer(&latest, crate::protocol::VERSION).then_some(latest);
         self.change(|state| {
             if matches!(state.step, Some(UpdateStep::Downloading { .. })) {
                 return;

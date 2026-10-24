@@ -5,118 +5,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::App;
-use super::gate::{base_branch, merge_commit};
 use crate::git;
-use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Queued, Refusal};
-use crate::protocol::{self, Finding, MergeEnd, SHIP_DEPLOY_FAILED};
+use crate::graph::{BatchId, BatchMember, BatchResult, Ended, Entry, Queued};
+use crate::protocol::{self, Finding, MergeEnd, Refusal, SHIP_DEPLOY_FAILED};
+use crate::worktree::merge::{
+    self, ADVANCE, CHECK_FAILED, CLEAN, CONFLICT, DIRTY, Lines, MOVED, PUBLISH, STACK, SYNC, UNDO,
+    base_branch, bringing_merge, merge_commit, script,
+};
 use crate::worktree::{self, RepoId};
 
 const TICK: Duration = Duration::from_secs(60);
 
-const CONFLICT: i32 = 10;
-const CHECK_FAILED: i32 = 14;
-const MOVED: i32 = 20;
-const DIRTY: i32 = 21;
 const MOVE_LIMIT: u32 = 3;
 
 const CHECK_LOCK: &str = "/tmp/loom-gate-check.lock";
-
-const CLEAN: &str = r#"common=$(git rev-parse --path-format=absolute --git-common-dir)
-for wt in "$common"/loom-batches/*; do
-  [ -e "$wt" ] || continue
-  git worktree remove --force "$wt" 2>/dev/null
-  rm -rf "$wt"
-done
-git worktree prune
-"#;
-
-const SYNC: &str = r#"set -u
-target=$1
-[ "$(git symbolic-ref --quiet --short HEAD)" = "$target" ] || { echo "the main checkout is not on $target"; exit 1; }
-[ -z "$(git status --porcelain --untracked-files=all)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
-git fetch --quiet origin "$target" || { echo "git fetch origin $target failed"; exit 1; }
-git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$target diverged"; exit 1; }
-[ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$target")" ] || { echo "$target has commits that are not on origin/$target"; exit 1; }
-"#;
-
-const STACK: &str = r#"set -u
-common=$(git rev-parse --path-format=absolute --git-common-dir)
-wt=$common/loom-batches/$1 log=$common/loom-logs/$1.log lock=$2 base=$3
-shift 3
-mkdir -p "$common/loom-logs" "$common/loom-batches"
-exec 3>&1 >>"$log" 2>&1
-echo "log $log" >&3
-clean() { git worktree remove --force "$wt" 2>/dev/null; rm -rf "$wt"; git worktree prune; }
-clean
-trap clean EXIT
-git worktree add --detach "$wt" "$base" || exit 1
-i=0
-while [ $# -gt 0 ]; do
-  if git -C "$wt" merge-base --is-ancestor "$2" HEAD; then
-    echo "== $1 $2 is already in the batch"
-  else
-    echo "== merge $1 $2"
-    git -C "$wt" merge --no-ff -m "Merge branch '$1'" "$2" || { git -C "$wt" merge --abort; echo "conflict $i" >&3; exit 10; }
-  fi
-  i=$((i + 1))
-  shift 2
-done
-tip=$(git -C "$wt" rev-parse HEAD)
-exec 9>>"$lock"
-flock 9
-start=$(date +%s)
-(cd "$wt" && CARGO_TARGET_DIR="$common/loom-batch-target" bash scripts/gate/check.sh 9>&-)
-code=$?
-echo "check $(($(date +%s) - start))" >&3
-[ "$code" -eq 0 ] || exit 14
-echo "tip $tip" >&3
-"#;
-
-const PUBLISH: &str = r#"set -u
-common=$(git rev-parse --path-format=absolute --git-common-dir)
-log=$common/loom-logs/$1 target=$2 base=$3 tip=$4
-mkdir -p "$common/loom-logs"
-exec 3>&1 >>"$log" 2>&1
-echo "log $log" >&3
-[ "$(git symbolic-ref --quiet --short HEAD)" = "$target" ] || { echo "the main checkout is not on $target"; exit 1; }
-[ -z "$(git status --porcelain --untracked-files=all)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
-git fetch --quiet origin "$target" || { echo "git fetch failed"; exit 1; }
-if ! git merge-base --is-ancestor "$tip" "origin/$target"; then
-  [ "$(git rev-parse "origin/$target")" = "$base" ] || { echo "origin/$target moved"; exit 20; }
-  head=$(git rev-parse HEAD)
-  [ "$head" = "$base" ] || [ "$head" = "$tip" ] || { echo "$target moved"; exit 20; }
-  git merge --ff-only --quiet "$tip" || exit 1
-  [ "$(git rev-parse HEAD)" = "$tip" ] || { echo "$target moved after the fast-forward to $tip"; exit 1; }
-  if ! git push --quiet origin "$tip:refs/heads/$target"; then
-    [ -z "$(git status --porcelain --untracked-files=all)" ] ||
-      { echo "git push origin $target failed and the main checkout has uncommitted changes; loom kept them and did not undo the fast-forward to $tip"; exit 1; }
-    git update-ref "refs/heads/$target" "$base" "$tip" ||
-      { echo "$target moved during git push; loom kept it and did not undo the fast-forward to $tip"; exit 1; }
-    git reset --hard --quiet
-    git fetch --quiet origin "$target" || { echo "git fetch failed after git push failed"; exit 1; }
-    [ "$(git rev-parse "origin/$target")" = "$base" ] || { echo "origin/$target moved during git push"; exit 20; }
-    echo "git push origin $target failed"
-    exit 1
-  fi
-fi
-echo published >&3
-exec bash scripts/gate/ship.sh "$5" "$6"
-"#;
-
-const UNDO: &str = r#"set -u
-target=$1 base=$2 tip=$3
-git merge-base --is-ancestor "$tip" "refs/heads/$target" || exit 0
-[ "$(git symbolic-ref --quiet --short HEAD)" = "$target" ] || { echo "the main checkout is not on $target"; exit 1; }
-[ -z "$(git status --porcelain --untracked-files=all)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
-git update-ref "refs/heads/$target" "$base" "$tip" || { echo "$target moved past the batch tip"; exit 1; }
-git reset --hard --quiet
-"#;
-
-const ADVANCE: &str = r#"set -u
-[ "$(git symbolic-ref --quiet --short HEAD)" = "$1" ] || { echo "the coordinator worktree is not on $1"; exit 1; }
-[ -z "$(git status --porcelain --untracked-files=all)" ] || exit 21
-git merge --ff-only --quiet "$2" || exit 20
-"#;
 
 pub(super) async fn run(app: Arc<App>) {
     let mut moves: HashMap<(RepoId, String), u32> = HashMap::new();
@@ -343,16 +245,7 @@ impl Batch<'_> {
                 }
             }
         }
-        let base = git::run(
-            &self.dir,
-            &[
-                "rev-parse",
-                "--verify",
-                &format!("refs/heads/{}^{{commit}}", self.target),
-            ],
-        )
-        .await
-        .map_err(Refusal::Git)?;
+        let base = merge::target_base(&self.dir, &self.target).await?;
         self.bisect(members, base.trim(), &into).await
     }
 
@@ -500,16 +393,12 @@ impl Batch<'_> {
         let into = self.into().await?;
         let done = match &into {
             Dest::Base => {
-                git::run(&self.dir, &["fetch", "--quiet", "origin", &self.target])
-                    .await
-                    .map_err(Refusal::Git)?;
+                merge::fetch(&self.dir, &self.target).await?;
                 format!("refs/remotes/origin/{}", self.target)
             }
             Dest::Coordinator { .. } => format!("refs/heads/{}", self.target),
         };
-        let published = git::run(&self.dir, &["merge-base", "--is-ancestor", tip, &done])
-            .await
-            .is_ok();
+        let published = merge::published(&self.dir, tip, &done).await;
         if !published {
             if let Dest::Base = into {
                 let args = [self.target.clone(), base.to_owned(), tip.to_owned()];
@@ -683,12 +572,7 @@ impl Batch<'_> {
             let mut findings = Vec::new();
             if into_base {
                 let known = self.app.graph.gate_merges(self.repo, &self.target)?;
-                let listed = git::run(
-                    &self.dir,
-                    &["rev-list", "--first-parent", &format!("{sha}^1")],
-                )
-                .await
-                .map_err(Refusal::Git)?;
+                let listed = merge::first_parents(&self.dir, &sha).await?;
                 findings = protocol::out_of_gate(&listed, &known);
             }
             let mut lines = self.lines();
@@ -711,15 +595,7 @@ impl Batch<'_> {
 
     async fn audit(&self, member: &Queued) -> Result<Vec<Finding>, Refusal> {
         let mut findings = self.app.graph.audit(member.owner, member.since)?;
-        if let Ok(now) = git::run(
-            &self.dir,
-            &[
-                "rev-parse",
-                "--verify",
-                &format!("refs/heads/{}", member.branch),
-            ],
-        )
-        .await
+        if let Ok(now) = merge::branch_head(&self.dir, &member.branch).await
             && now.trim() != member.head
         {
             findings.push(Finding::HeadMoved {
@@ -728,17 +604,10 @@ impl Batch<'_> {
             });
         }
         let source = source_of(&self.dir, member);
-        if source.is_dir() {
-            let head = git::run(&source, &["rev-parse", "HEAD"]).await;
-            let changes =
-                git::run(&source, &["status", "--porcelain", "--untracked-files=no"]).await;
-            match (head, changes) {
-                (Ok(head), Ok(changes))
-                    if head.trim() == member.head && changes.trim().is_empty() => {}
-                _ => findings.push(Finding::SourceDirty {
-                    worktree: member.worktree.clone(),
-                }),
-            }
+        if source.is_dir() && !merge::clean_at(&source, &member.head).await {
+            findings.push(Finding::SourceDirty {
+                worktree: member.worktree.clone(),
+            });
         }
         Ok(findings)
     }
@@ -862,73 +731,6 @@ impl Batch<'_> {
             self.id.0
         )
     }
-}
-
-async fn bringing_merge(
-    dir: &Path,
-    head: &str,
-    base: &str,
-    tip: &str,
-) -> Result<Option<String>, Refusal> {
-    let listed = git::run(
-        dir,
-        &[
-            "rev-list",
-            "--first-parent",
-            "--reverse",
-            &format!("{base}..{tip}"),
-        ],
-    )
-    .await
-    .map_err(Refusal::Git)?;
-    for sha in listed.lines() {
-        if super::gate::contains(dir, head, sha).await? {
-            return Ok(Some(sha.to_owned()));
-        }
-    }
-    Ok(None)
-}
-
-#[derive(Default, Debug, PartialEq)]
-struct Lines {
-    log: Option<String>,
-    conflict: Option<usize>,
-    check: Option<u64>,
-    tip: Option<String>,
-    published: bool,
-}
-
-impl Lines {
-    fn read(out: &str) -> Lines {
-        let mut lines = Lines::default();
-        for line in out.lines() {
-            let mut words = line.split_whitespace();
-            match (words.next(), words.next(), words.next()) {
-                (Some("log"), _, _) => lines.log = line.strip_prefix("log ").map(str::to_owned),
-                (Some("conflict"), Some(i), _) => lines.conflict = i.parse().ok(),
-                (Some("check"), Some(secs), _) => lines.check = secs.parse().ok(),
-                (Some("tip"), Some(tip), _) => lines.tip = Some(tip.to_owned()),
-                (Some("published"), _, _) => lines.published = true,
-                _ => {}
-            }
-        }
-        lines
-    }
-}
-
-async fn script(dir: &Path, text: &str, args: &[String]) -> Result<(i32, String), Refusal> {
-    let mut cmd = crate::wsl::command(&dir.to_string_lossy(), "bash");
-    cmd.arg("-c").arg(text).arg("loom-queue").args(args);
-    cmd.stdin(std::process::Stdio::null());
-    let out = tokio::process::Command::from(cmd)
-        .output()
-        .await
-        .map_err(|e| Refusal::Git(format!("could not run bash: {e}")))?;
-    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-    if out.status.code() != Some(0) {
-        text.push_str(&String::from_utf8_lossy(&out.stderr));
-    }
-    Ok((out.status.code().unwrap_or(-1), text))
 }
 
 #[cfg(test)]

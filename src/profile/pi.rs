@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model};
+use crate::protocol::{Delivery, Kind, Model};
 use crate::skills::Launch;
 
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
@@ -41,7 +41,7 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     args
 }
 
-pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
+pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Vec<String> {
     let model = choice
         .model
         .iter()
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn a_model_choice_becomes_model_and_thinking() {
-        let choice = super::super::ModelChoice {
+        let choice = crate::protocol::ModelChoice {
             model: Some("kta-hub/kta-chat".into()),
             effort: Some("high".into()),
         };

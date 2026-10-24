@@ -8,7 +8,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use super::{App, Problem, internal};
-use crate::profile::LaunchError;
+use crate::protocol::LaunchError;
 use crate::worktree::{self, Locations, RepoId, RepoView, WslPlace};
 use crate::wsl;
 

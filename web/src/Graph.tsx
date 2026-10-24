@@ -19,7 +19,7 @@ import type { WslPlace } from './gen/WslPlace';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { HopEdge, type HopEdgeType } from './HopEdge';
+import { HopEdge, hopLabelSize, type HopEdgeType } from './HopEdge';
 import { HOP_LANES, siblingLanes, type HopPair } from './hopLanes';
 import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
@@ -900,13 +900,26 @@ export function Graph(props: {
     const at = positions.get(id);
     return at ? { at, size: size(id) } : null;
   };
+  const hopName = (id: NodeId) => props.views.get(id)?.name ?? `#${id}`;
+  const hopLabel = (hop: Hop) =>
+    (['source', 'target'] as const)
+      .filter((end) => hop.counts[end] > 0)
+      .map((end) => t('graph.hop', { from: hopName(hop[end === 'target' ? 'source' : 'target']), to: hopName(hop[end]), n: hop.counts[end] }))
+      .join(' / ');
+  const roomOf = (id: NodeId, parent: NodeId, box: Box): Box => {
+    const worktree = props.views.get(id)?.place.worktree;
+    if (!worktree || worktree === props.views.get(parent)?.place.worktree) return box;
+    const inset = insetOf(worktree);
+    return { at: { x: box.at.x - inset.side, y: box.at.y - inset.top }, size: { width: box.size.width + 2 * inset.side, height: box.size.height + inset.top + inset.side } };
+  };
   const siblingPairs = new Map<NodeId, HopPair[]>();
   for (const [key, hop] of props.hops) {
     const parent = props.views.get(hop.source)?.parent ?? null;
     const source = boxOf(hop.source);
     const target = boxOf(hop.target);
     if (parent === null || parent !== props.views.get(hop.target)?.parent || !source || !target) continue;
-    siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: { id: hop.source, box: source }, target: { id: hop.target, box: target } }]);
+    const end = (id: NodeId, box: Box) => ({ id, box, room: roomOf(id, parent, box) });
+    siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: end(hop.source, source), target: end(hop.target, target), label: hopLabelSize(hopLabel(hop)) }]);
   }
   const routes = new Map([...siblingPairs].flatMap(([parent, pairs]) => {
     const box = boxOf(parent);
@@ -916,7 +929,6 @@ export function Graph(props: {
     if (!props.views.has(hop.source) || !props.views.has(hop.target)) return [];
     const receivers = (['source', 'target'] as const).filter((end) => hop.counts[end] > 0);
     const flow = receivers.length === 1 ? (receivers[0] === 'target' ? 'to-child' : 'to-parent') : undefined;
-    const name = (id: NodeId) => props.views.get(id)?.name ?? `#${id}`;
     const lane = HOP_LANES[hop.color % HOP_LANES.length];
     const color = `var(--lane-${lane})`;
     const arrow = (end: 'source' | 'target') => (hop.counts[end] > 0 ? { type: MarkerType.ArrowClosed, color, width: 12, height: 12, markerUnits: 'userSpaceOnUse' } : undefined);
@@ -933,8 +945,7 @@ export function Graph(props: {
         markerEnd: arrow('target'),
         className: ['live', `hop-c${lane}`, flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
         zIndex: RAISED_EDGE_Z,
-        label: receivers.map((end) => t('graph.hop', { from: name(hop[end === 'target' ? 'source' : 'target']), to: name(hop[end]), n: hop.counts[end] })).join(' / '),
-        labelBgPadding: [8, 2],
+        label: hopLabel(hop),
         labelBgBorderRadius: 10,
         focusable: false,
       },

@@ -6,10 +6,12 @@ export const HOP_LANES = [2, 4, 5, 1, 3] as const;
 const LANE_MARGIN = 10;
 const LANE_STEP = 10;
 const END_GAP = 40;
+const LABEL_SPOTS = [0.5, 0.3, 0.7, 0.15, 0.85, 0.05, 0.95];
+const LABEL_GAP = 2;
 
-export type HopEnd = { id: number; box: Box };
-export type HopPair = { key: string; source: HopEnd; target: HopEnd };
-export type HopRoute = { points: Point[]; label: Point };
+export type HopEnd = { id: number; box: Box; room: Box };
+export type HopPair = { key: string; source: HopEnd; target: HopEnd; label: { width: number; height: number } };
+export type HopRoute = { points: Point[]; label: Point; turned: boolean };
 
 export function pickColor(shown: Iterable<number>): number {
   const uses = HOP_LANES.map(() => 0);
@@ -43,15 +45,21 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
   const routes = new Map<string, HopRoute>();
   const up = rectDown(parent, direction);
   const rects = new Map<number, Rect>();
-  for (const pair of pairs) for (const end of [pair.source, pair.target]) rects.set(end.id, rectDown(end.box, direction));
+  const rooms = new Map<number, Rect>();
+  for (const pair of pairs) {
+    for (const end of [pair.source, pair.target]) {
+      rects.set(end.id, rectDown(end.box, direction));
+      rooms.set(end.id, rectDown(end.room, direction));
+    }
+  }
   const mid = (id: number) => (rects.get(id)!.l + rects.get(id)!.r) / 2;
-  const below = pairs.filter((p) => rects.get(p.source.id)!.t - up.b > 2 * LANE_MARGIN && rects.get(p.target.id)!.t - up.b > 2 * LANE_MARGIN);
+  const below = pairs.filter((p) => rooms.get(p.source.id)!.t - up.b > 2 * LANE_MARGIN && rooms.get(p.target.id)!.t - up.b > 2 * LANE_MARGIN);
   if (below.length === 0) return routes;
   const span = (p: HopPair) => Math.abs(mid(p.source.id) - mid(p.target.id));
   const left = (p: HopPair) => Math.min(mid(p.source.id), mid(p.target.id));
   const order = [...below].sort((a, b) => span(a) - span(b) || left(a) - left(b) || (a.key < b.key ? -1 : 1));
   const lo = up.b + LANE_MARGIN;
-  const hi = Math.min(...order.flatMap((p) => [rects.get(p.source.id)!.t, rects.get(p.target.id)!.t])) - LANE_MARGIN;
+  const hi = Math.min(...order.flatMap((p) => [rooms.get(p.source.id)!.t, rooms.get(p.target.id)!.t])) - LANE_MARGIN;
   const step = order.length > 1 ? Math.min(LANE_STEP, (hi - lo) / (order.length - 1)) : 0;
   const lane = (i: number) => lo + (order.length - 1 - i) * step;
 
@@ -72,14 +80,27 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
     list.forEach((e, k) => at.set(`${e.pair}:${id}`, mid(id) + (k - (list.length - 1) / 2) * gap));
   }
 
+  const apart = (r: Rect, q: Rect, gap: number) => r.r + gap <= q.l || q.r + gap <= r.l || r.b + gap <= q.t || q.b + gap <= r.t;
+  const walls = [up, ...rooms.values(), ...rects.values()];
+  const placed: Rect[] = [];
+  const clear = (r: Rect) => walls.every((q) => apart(r, q, 0)) && placed.every((q) => apart(r, q, LABEL_GAP));
   order.forEach((p, i) => {
     const y = lane(i);
     const xa = at.get(`${i}:${p.source.id}`)!;
     const xb = at.get(`${i}:${p.target.id}`)!;
+    const w = p.label.width;
+    const h = p.label.height;
+    const box = (t: number): Rect => {
+      const x = xa + (xb - xa) * t;
+      return { l: x - w / 2, t: y - h / 2, r: x + w / 2, b: y + h / 2 };
+    };
+    const spot = box(LABEL_SPOTS.find((t) => clear(box(t))) ?? 0.5);
+    placed.push(spot);
     const back = fromDown[direction];
     routes.set(p.key, {
       points: [{ x: xa, y: rects.get(p.source.id)!.t }, { x: xa, y }, { x: xb, y }, { x: xb, y: rects.get(p.target.id)!.t }].map(back),
-      label: back({ x: (xa + xb) / 2, y }),
+      label: back({ x: (spot.l + spot.r) / 2, y }),
+      turned: direction === 'right' || direction === 'left',
     });
   });
   return routes;

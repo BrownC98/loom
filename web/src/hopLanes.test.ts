@@ -21,7 +21,8 @@ function turn(b: Box, direction: ArrangeDirection): Box {
   }
 }
 
-const pair = (cards: Box[], from: number, to: number): HopPair => ({ key: `${from}-${to}`, source: { id: from, box: cards[from] }, target: { id: to, box: cards[to] } });
+const LABEL = { width: 150, height: 20 };
+const pair = (cards: Box[], from: number, to: number): HopPair => ({ key: `${from}-${to}`, source: { id: from, box: cards[from], room: cards[from] }, target: { id: to, box: cards[to], room: cards[to] }, label: LABEL });
 
 function crossesInside(a: { x: number; y: number }, b: { x: number; y: number }, r: Box): boolean {
   const l = r.at.x + 0.5, t = r.at.y + 0.5, rr = r.at.x + r.size.width - 0.5, bb = r.at.y + r.size.height - 0.5;
@@ -50,6 +51,34 @@ describe('siblingLanes', () => {
     expect(lane('0-1')).toBeGreaterThan(lane('2-0'));
     expect(lane('2-0')).toBeGreaterThan(lane('1-3'));
     expect(lane('1-3')).toBeGreaterThan(PARENT.at.y + PARENT.size.height);
+  });
+
+  it.each(ARRANGE_DIRECTIONS)('keeps labels of nested and crossing pairs apart (%s)', (direction) => {
+    const parent = turn(PARENT, direction);
+    const cards = SIBLINGS.map((b) => turn(b, direction));
+    const pairs = [pair(cards, 0, 3), pair(cards, 1, 2), pair(cards, 0, 2), pair(cards, 1, 3)];
+    const vertical = direction === 'down' || direction === 'up';
+    const w = vertical ? LABEL.width : LABEL.height;
+    const h = vertical ? LABEL.height : LABEL.width;
+    const labels = [...siblingLanes(parent, pairs, direction).values()].map((r) => r.label);
+    labels.forEach((a, i) => labels.slice(i + 1).forEach((b) => expect(Math.abs(a.x - b.x) >= w || Math.abs(a.y - b.y) >= h).toBe(true)));
+    for (const label of labels) {
+      for (const card of [parent, ...cards]) {
+        const apart = label.x + w / 2 <= card.at.x || label.x - w / 2 >= card.at.x + card.size.width || label.y + h / 2 <= card.at.y || label.y - h / 2 >= card.at.y + card.size.height;
+        expect(apart).toBe(true);
+      }
+    }
+  });
+
+  it('keeps lanes above the worktree frame of a sibling', () => {
+    const frame = (b: Box): Box => ({ at: { x: b.at.x - 20, y: b.at.y - 60 }, size: { width: b.size.width + 40, height: b.size.height + 80 } });
+    const framed = (from: number, to: number): HopPair => ({ ...pair(SIBLINGS, from, to), source: { id: from, box: SIBLINGS[from], room: frame(SIBLINGS[from]) }, target: { id: to, box: SIBLINGS[to], room: frame(SIBLINGS[to]) } });
+    const routes = siblingLanes(PARENT, [framed(0, 1), framed(2, 0), framed(1, 3), framed(0, 3), framed(1, 2), framed(2, 3)], 'down');
+    expect(routes.size).toBe(6);
+    for (const route of routes.values()) {
+      expect(route.points[1].y).toBeLessThan(716 - 60);
+      expect(route.points[0].y).toBe(716);
+    }
   });
 
   it('starts two lines from one card at different points', () => {

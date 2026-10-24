@@ -17,6 +17,10 @@ const SESSION_WINDOW_MAX_MINS: u64 = 300;
 const DEFAULT_RETRY_AFTER_SECS: i64 = 300;
 const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_USER_AGENT: &str = "claude-code/2.1.0";
+const CLAUDE_SUBSCRIPTION_LOGIN: &str = "claude.ai";
+const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+const KEYCHAIN_SERVICE_HASH_LEN: usize = 8;
+const SECURITY: &str = "/usr/bin/security";
 const CURSOR_ORIGIN: &str = "https://cursor.com";
 const CURSOR_USAGE_URL: &str = "https://cursor.com/api/usage-summary";
 const CURSOR_AUTH_FILE: &str = ".config/cursor/auth.json";
@@ -82,8 +86,10 @@ pub enum UsageProblem {
     CliFormat(String),
     /// CLI가 `PROBE_TIMEOUT` 안에 답하지 않았다.
     NoReply(String),
-    /// API 키 같은 로그인 방식은 사용량을 볼 수 없다.
+    /// API 키·토큰 로그인은 사용량을 볼 수 없다.
     LoginNotSupported,
+    /// 구독 로그인인데 loom이 토큰을 찾지 못했다. 값은 에이전트 이름이다.
+    NoToken(String),
     /// 사용량 API가 알 수 없는 형식을 냈다.
     ResponseFormat,
     /// 사용량 API가 요청 한도를 넘었다고 답했다. `retry_at`(유닉스 초)까지 다시 부르지 않는다.
@@ -172,6 +178,7 @@ fn fingerprint(path: &Path) -> Option<u64> {
 #[serde(rename_all = "camelCase")]
 struct ClaudeStatus {
     logged_in: bool,
+    auth_method: Option<String>,
     email: Option<String>,
     subscription_type: Option<String>,
     config_directory: Option<String>,
@@ -187,32 +194,92 @@ fn claude(mut cmd: Command, site: &Site, id: Option<&AccountId>) -> Usage {
         },
         Err(e) => return Usage::failed(run_failed("claude", &e)),
     };
+    let service = claude_keychain_service(
+        status
+            .config_directory
+            .as_deref()
+            .filter(|_| site.accounts().config_dir(Provider::Claude, id).is_some()),
+    );
     let dir = status
         .config_directory
         .map(|dir| site.local(&dir))
         .or_else(|| site.login_dir(Provider::Claude, id));
     let limits = if !status.logged_in {
         Limits::NeedsLogin
+    } else if status
+        .auth_method
+        .is_some_and(|method| method != CLAUDE_SUBSCRIPTION_LOGIN)
+    {
+        failed(UsageProblem::LoginNotSupported)
     } else if let Some(dir) = dir {
-        claude_limits(&dir)
+        let file = || {
+            std::fs::read(dir.join(".credentials.json"))
+                .ok()
+                .and_then(|bytes| claude_token(&bytes))
+        };
+        let token = if cfg!(target_os = "macos") {
+            keychain_read(Path::new(SECURITY), &service)
+                .and_then(|bytes| claude_token(&bytes))
+                .or_else(file)
+        } else {
+            file()
+        };
+        match token {
+            Some(token) => claude_limits(&token),
+            None => failed(UsageProblem::NoToken("Claude".into())),
+        }
     } else {
         failed(UsageProblem::CliFormat("claude auth status".into()))
     };
     Usage::new(status.email, status.subscription_type, limits)
 }
 
-fn claude_limits(config_dir: &Path) -> Limits {
-    let token = std::fs::read(config_dir.join(".credentials.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .and_then(|v| {
-            v["claudeAiOauth"]["accessToken"]
-                .as_str()
-                .map(str::to_owned)
-        });
-    let Some(token) = token else {
-        return failed(UsageProblem::LoginNotSupported);
+fn claude_keychain_service(config_dir: Option<&str>) -> String {
+    use sha2::{Digest, Sha256};
+    let Some(dir) = config_dir else {
+        return CLAUDE_KEYCHAIN_SERVICE.to_owned();
     };
+    let hash: String = Sha256::digest(dir.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!(
+        "{CLAUDE_KEYCHAIN_SERVICE}-{}",
+        &hash[..KEYCHAIN_SERVICE_HASH_LEN]
+    )
+}
+
+fn keychain_read(security: &Path, service: &str) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut child = Command::new(security)
+        .args(["find-generic-password", "-s", service, "-w"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stdout.read_to_end(&mut bytes);
+        let _ = tx.send(bytes);
+    });
+    let Ok(bytes) = rx.recv_timeout(PROBE_TIMEOUT) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    child.wait().ok()?.success().then_some(bytes)
+}
+
+fn claude_token(credentials: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(credentials).ok()?["claudeAiOauth"]["accessToken"]
+        .as_str()
+        .map(str::to_owned)
+}
+
+fn claude_limits(token: &str) -> Limits {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(PROBE_TIMEOUT))
         .http_status_as_error(false)
@@ -407,7 +474,7 @@ pub fn probe_cursor(site: &Site) -> Usage {
         read(CURSOR_AUTH_FILE).and_then(|v| v["accessToken"].as_str().and_then(CursorToken::parse));
     let limits = match token {
         Some(token) => cursor_limits(&token),
-        None if email.is_some() => failed(UsageProblem::LoginNotSupported),
+        None if email.is_some() => failed(UsageProblem::NoToken("Cursor".into())),
         None => Limits::NeedsLogin,
     };
     Usage::new(email, None, limits)
@@ -558,7 +625,43 @@ mod tests {
         )
         .unwrap();
         assert!(!status.logged_in);
+        assert_eq!(status.auth_method.as_deref(), Some("none"));
         assert_eq!(status.config_directory, None);
+    }
+
+    #[test]
+    fn claude_keychain_service_follows_config_dir() {
+        assert_eq!(claude_keychain_service(None), "Claude Code-credentials");
+        assert_eq!(
+            claude_keychain_service(Some("/Users/a/.loom/accounts/claude/0000019a")),
+            "Claude Code-credentials-dfbe2e67"
+        );
+    }
+
+    #[test]
+    fn claude_token_reads_oauth_access_token() {
+        assert_eq!(
+            claude_token(br#"{"claudeAiOauth":{"accessToken":"t1","refreshToken":"r"}}"#)
+                .as_deref(),
+            Some("t1")
+        );
+        assert_eq!(claude_token(br#"{"claudeAiOauth":{}}"#), None);
+        assert_eq!(claude_token(b"not json"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keychain_read_asks_security_for_the_service_password() {
+        let dir = tempfile::tempdir().unwrap();
+        let security = dir.path().join("security");
+        crate::fake_exe::write_executable(
+            &security,
+            "#!/bin/sh\n[ \"$*\" = 'find-generic-password -s Claude Code-credentials-dfbe2e67 -w' ] || exit 44\necho '{\"claudeAiOauth\":{\"accessToken\":\"t2\"}}'\n",
+        );
+        let bytes = keychain_read(&security, "Claude Code-credentials-dfbe2e67").unwrap();
+        assert_eq!(claude_token(&bytes).as_deref(), Some("t2"));
+        assert_eq!(keychain_read(&security, "Claude Code-credentials"), None);
+        assert_eq!(keychain_read(&dir.path().join("missing"), "x"), None);
     }
 
     #[test]

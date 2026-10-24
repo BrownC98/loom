@@ -205,6 +205,7 @@ pub fn hook() -> Result<(), String> {
         }
     };
     let request = TakeRequest {
+        hook: hook_name(&input),
         kinds: kinds.to_vec(),
         limit_bytes: claude::HOOK_LIMIT_BYTES,
         transcript,
@@ -217,6 +218,13 @@ pub fn hook() -> Result<(), String> {
     }
     acknowledge(&taken.messages, Some(timeout));
     Ok(())
+}
+
+fn hook_name(input: &serde_json::Value) -> String {
+    input["hook_event_name"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
 }
 
 fn to_model(text: &str) -> Result<(), String> {
@@ -252,6 +260,7 @@ pub fn cursor_hook() -> Result<(), String> {
         call(
             "take",
             &TakeRequest {
+                hook: hook_name(&input),
                 kinds: kinds.to_vec(),
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
                 transcript: transcript.clone(),

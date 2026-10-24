@@ -51,9 +51,9 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    CardView, Delivery, EventRecord, Graph, GraphEvent, IMAGE_EXTENSIONS, Kind, Launched, Listed,
-    MessageId, Model, NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations,
-    Report, Sent, TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
+    CardView, Delivery, EventLog, Graph, GraphEvent, IMAGE_EXTENSIONS, IdleEnd, Kind, Launched,
+    Listed, MessageId, Model, NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal,
+    Relations, Report, Sent, TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -332,6 +332,8 @@ pub struct WaitRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct TakeRequest {
+    #[serde(default)]
+    pub hook: String,
     pub kinds: Vec<Kind>,
     pub limit_bytes: usize,
     #[serde(default)]
@@ -877,6 +879,7 @@ impl App {
             move || graph.publish_view_changed()
         }));
         let devices = Arc::new(Devices::new(database.clone()));
+        let idle = idle::IdleWaits::new(graph.clone());
         Ok(App {
             repos,
             host: NodeHost::new(pty_dir.join("nodes")),
@@ -902,7 +905,7 @@ impl App {
             sessions: sessions::Sessions::default(),
             first_inputs: sessions::FirstInputs::default(),
             setups: Mutex::default(),
-            idle: idle::IdleWaits::default(),
+            idle,
             relaunches: relaunch::Relaunches::default(),
             sleeps: sleep::Sleeps::default(),
             switch: switch::Switches::default(),
@@ -1164,7 +1167,7 @@ impl App {
             };
             app.sleeps.exited(id);
             app.graph.wake_mail();
-            app.idle.end(id);
+            app.idle.end(id, IdleEnd::Exit);
         }
     }
 
@@ -2023,7 +2026,7 @@ async fn agent_take(
     Json(req): Json<TakeRequest>,
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
-    app.idle.turn_started(node);
+    app.idle.turn_started(node, req.hook);
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let messages = app
         .graph
@@ -2046,9 +2049,17 @@ async fn agent_idle(
     let node = app.caller(&headers)?;
     let req = req.unwrap_or_default();
     keep_transcript(&app, node, req.transcript.as_deref())?;
-    let mut end = app.idle.open(node);
-    if !app.graph.relations(node).map_err(for_agent)?.me.alive {
-        app.idle.end(node);
+    let mut wait = app.idle.open(node);
+    let alive = match app.graph.relations(node) {
+        Ok(relations) => relations.me.alive,
+        Err(e) => {
+            wait.finish(IdleEnd::Error);
+            return Err(for_agent(e));
+        }
+    };
+    if !alive {
+        app.idle.end(node, IdleEnd::Exit);
+        wait.finish(IdleEnd::Exit);
         eprintln!(
             "loom: 노드 {}의 쉬는 대기를 거절했다: 프로세스가 끝났다",
             node.0
@@ -2060,24 +2071,28 @@ async fn agent_idle(
     }
     app.turn_ended(node);
     while app.relaunches.holds_mail(node) {
-        end.notified().await;
-        if app.caller(&headers).is_err() {
+        let by = wait.ended().await;
+        if app.caller(&headers).is_err() || !app.idle.reopen(&mut wait) {
+            wait.finish(by);
             return Ok(Json(Vec::new()));
-        }
-        match app.idle.reopen(node) {
-            Some(again) => end = again,
-            None => return Ok(Json(Vec::new())),
         }
     }
     tokio::select! {
         taken = app.next_mail(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
-            Ok(taken) => Ok(Json(taken)),
+            Ok(taken) => {
+                wait.finish(IdleEnd::Mail);
+                Ok(Json(taken))
+            }
             Err(e) => {
+                wait.finish(IdleEnd::Error);
                 eprintln!("loom: 노드 {}의 쉬는 대기가 끝났다: {e}", node.0);
                 Err(for_agent(e))
             }
         },
-        () = end.notified() => Ok(Json(Vec::new())),
+        by = wait.ended() => {
+            wait.finish(by);
+            Ok(Json(Vec::new()))
+        }
     }
 }
 
@@ -2374,8 +2389,8 @@ async fn send_size(
     to_view.send(Message::Text(notice.into())).await
 }
 
-async fn event_log(State(app): State<Arc<App>>) -> Result<Json<Vec<EventRecord>>, Problem> {
-    app.graph.recent_events().map(Json).map_err(internal)
+async fn event_log(State(app): State<Arc<App>>) -> Result<Json<EventLog>, Problem> {
+    app.graph.event_log().map(Json).map_err(internal)
 }
 
 async fn events(

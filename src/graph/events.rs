@@ -199,6 +199,15 @@ pub enum Entry {
         result: BatchResult,
         log: Option<String>,
     },
+    /// 쉬는 노드의 훅이 메시지를 기다리기 시작했다(`/api/agent/idle`). 화면 이벤트 콘솔은 보이지 않는다.
+    IdleOpened {
+        node: Who,
+    },
+    /// 쉬는 대기가 끝났다. 화면 이벤트 콘솔은 보이지 않는다.
+    IdleEnded {
+        node: Who,
+        by: IdleEnd,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -233,6 +242,29 @@ pub enum BatchResult {
     Error {
         cause: String,
     },
+}
+
+/// 쉬는 대기가 끝난 까닭.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[ts(export)]
+pub enum IdleEnd {
+    /// 대기가 메시지를 꺼내 훅에 넘겼다.
+    Mail,
+    /// 같은 노드의 새 쉬는 대기가 열렸다.
+    NewWait,
+    /// 턴 안의 훅이 메일함을 읽었다. `hook`은 런타임이 준 훅 이름이다.
+    Turn { hook: String },
+    /// 노드를 다시 띄웠거나, 다시 띄우기가 실패해 대기를 풀었다.
+    Relaunch,
+    /// 노드 프로세스가 끝났다.
+    Exit,
+    /// 완료 노드를 재웠다.
+    Sleep,
+    /// 끝나기 전에 요청이 사라졌다. 훅 프로세스가 끝났거나 연결이 끊겼다.
+    Gone,
+    /// 메일함을 읽지 못했다.
+    Error,
 }
 
 /// 다시 일하게 한 턴 끝 검사(`daemon::turn_end`).
@@ -282,7 +314,7 @@ pub enum ClosedBy {
     Human,
     /// 에이전트가 `loom answered`로 닫았다. 사람이 터미널에서 답했다고 판단했다.
     Agent,
-    /// 노드 프로세스를 다시 띄웠다.
+    /// 노드 프로세스를 다시 띄웠다. 다시 띄우기가 질문을 남기기 전의 옛 기록에만 있다.
     Restart,
     /// 노드 프로세스가 끝났다.
     Exit,
@@ -304,6 +336,15 @@ pub enum SwitchCause {
     Manual,
     /// 자동 전환: 노드가 한도 오류로 멈췄다.
     RateLimit,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct EventLog {
+    /// 숨긴 이벤트까지 센 마지막 번호. 화면은 이 번호 다음부터 건너뛴 번호를 센다.
+    pub last: u32,
+    /// 화면에 보이는 최근 이벤트. 새것부터. 쉬는 대기의 열림·끝은 없다.
+    pub records: Vec<EventRecord>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -466,6 +507,20 @@ pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
     })
 }
 
+pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
+    let records = db
+        .prepare(&format!(
+            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded') ORDER BY e.id DESC LIMIT ?1"
+        ))?
+        .query_map([RECENT], record_from_row)?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(EventLog {
+        last: last_id(db)?,
+        records,
+    })
+}
+
+#[cfg(test)]
 pub(super) fn recent(db: &Connection) -> rusqlite::Result<Vec<EventRecord>> {
     db.prepare(&format!("{RECORD_COLUMNS} ORDER BY e.id DESC LIMIT ?1"))?
         .query_map([RECENT], record_from_row)?

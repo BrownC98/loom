@@ -6,6 +6,7 @@ import type { BatchMember } from "./BatchMember";
 import type { BatchResult } from "./BatchResult";
 import type { ClosedBy } from "./ClosedBy";
 import type { GateTrace } from "./GateTrace";
+import type { IdleEnd } from "./IdleEnd";
 import type { Kind } from "./Kind";
 import type { MessageKind } from "./MessageKind";
 import type { NodeState } from "./NodeState";
@@ -75,4 +76,4 @@ members: Array<BatchMember>,
 /**
  * check.sh가 걸린 초. 검사 전에 끝났으면 없다.
  */
-check_secs: number | null, result: BatchResult, log: string | null, };
+check_secs: number | null, result: BatchResult, log: string | null, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, };

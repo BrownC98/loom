@@ -18,7 +18,8 @@ use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
 pub use events::{
-    AgentSwitch, BatchMember, BatchResult, Entry, EventRecord, SwitchCause, TurnCheck, Via, Who,
+    AgentSwitch, BatchMember, BatchResult, Entry, EventLog, EventRecord, IdleEnd, SwitchCause,
+    TurnCheck, Via, Who,
 };
 pub use gate::{BatchId, Ended, GateChoice, Queued, Round};
 pub use mailbox::{
@@ -610,6 +611,11 @@ impl Graph {
         }
     }
 
+    pub fn event_log(&self) -> rusqlite::Result<EventLog> {
+        events::log(&self.lock())
+    }
+
+    #[cfg(test)]
     pub fn recent_events(&self) -> rusqlite::Result<Vec<EventRecord>> {
         events::recent(&self.lock())
     }
@@ -636,13 +642,18 @@ impl Graph {
         events::write(&db, &entry, None)
     }
 
-    pub fn record_nudge(&self, node: NodeId, check: events::TurnCheck) -> rusqlite::Result<()> {
+    pub fn record_about(
+        &self,
+        node: NodeId,
+        entry: impl FnOnce(Who) -> Entry,
+    ) -> rusqlite::Result<()> {
         let db = self.lock();
-        let entry = events::Entry::Nudged {
-            node: events::who(&db, node)?,
-            check,
-        };
+        let entry = entry(events::who(&db, node)?);
         events::write(&db, &entry, None)
+    }
+
+    pub fn who(&self, node: NodeId) -> rusqlite::Result<Who> {
+        events::who(&self.lock(), node)
     }
 
     pub fn record(&self, entry: &Entry) -> rusqlite::Result<()> {

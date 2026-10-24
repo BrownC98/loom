@@ -234,6 +234,7 @@ mod tests {
         let child = NewChild {
             name: "worker",
             worktree: None,
+            branched_from: None,
             agent: claude(),
             brief: "",
             role: None,

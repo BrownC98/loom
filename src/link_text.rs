@@ -121,10 +121,34 @@ pub fn bare_link(text: &str) -> Option<String> {
                 return Some(balanced_target(&link[from..]).to_owned());
             }
             Some((_, _, len)) => &link[len..],
-            None => &link[1..],
+            None => {
+                if let Some(target) = spaced_target(link) {
+                    return Some(target.to_owned());
+                }
+                &link[1..]
+            }
         };
     }
     bare_in(rest)
+}
+
+fn spaced_target(link: &str) -> Option<&str> {
+    let (label, after) = link[1..].split_once("](")?;
+    let target = after.split_once(')')?.0.trim();
+    let ok = !label.is_empty()
+        && !label.contains(['[', ']', '\n'])
+        && !target.contains(['\n', '<'])
+        && target.contains(' ')
+        && locates(target);
+    ok.then_some(target)
+}
+
+fn locates(target: &str) -> bool {
+    let drive = matches!(
+        target.as_bytes(),
+        [letter, b':', b'\\' | b'/', ..] if letter.is_ascii_alphabetic()
+    );
+    is_url(target) || target.starts_with(['/', '\\', '~']) || drive
 }
 
 fn drawn(target: &str) -> bool {
@@ -359,6 +383,10 @@ mod tests {
             ("[x](<https://a.io/b>)", "https://a.io/b"),
             ("[x](https://a.io/a(b)/c)", "https://a.io/a(b)/c"),
             ("[보고서](/home/a/b.md)를 열까요?", "/home/a/b.md"),
+            (
+                "[R21](//wsl.localhost/U/home/a/loom 총괄 커서/r.html)의 표",
+                "//wsl.localhost/U/home/a/loom 총괄 커서/r.html",
+            ),
         ] {
             assert_eq!(bare_link(bad).as_deref(), Some(found), "{bad}");
         }
@@ -375,11 +403,30 @@ mod tests {
             ),
             ("\\\\host\\share\\a.txt", "file://host/share/a.txt"),
             ("https://a.io/a(b)", "https://a.io/a%28b%29"),
+            (
+                "//wsl.localhost/U/home/a/loom 총괄 커서/r.html",
+                "file://wsl.localhost/U/home/a/loom%20총괄%20커서/r.html",
+            ),
         ] {
             let form_out = drawable_form(found);
             assert_eq!(form_out, form);
             assert_eq!(bare_link(&format!("[x]({form_out})")), None);
         }
+    }
+
+    #[test]
+    fn plain_text_in_parentheses_after_a_label_is_not_a_link() {
+        for ok in [
+            "[옵션](A: 예 / B: 아니오, 권장: A)",
+            "표기는 [x](a b)입니다. (A: 승인 / B: 거절, 권장: A)",
+            "[한글](일반 설명)",
+        ] {
+            assert_eq!(bare_link(ok), None, "{ok}");
+        }
+        assert_eq!(
+            bare_link("[r](C:\\My Docs\\r.html)").as_deref(),
+            Some("C:\\My Docs\\r.html")
+        );
     }
 
     #[test]

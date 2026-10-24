@@ -513,7 +513,7 @@ pub fn ready(branch: String) -> Result<(), String> {
         None,
     )?;
     println!(
-        "Sent {branch} to its gate {} (target {}). A worker branch into a coordinator branch: that coordinator accepts it with `loom verdict`. A branch into the original checkout, a coordinator's own branch included: loom sends this round to the reviewers the branch has, and the gate spawns one only for a role it has none of. On pass, loom queues, checks and merges the branch and sends the result. Do not commit to {branch} until the result comes.",
+        "Sent {branch} to its gate {} (target {}). A branch made from its parent's branch: that parent accepts it with `loom verdict`. A branch into the original checkout: loom sends this round to the reviewers the branch has, and the gate spawns one only for a role it has none of. On pass, loom queues, checks and merges the branch and sends the result. Do not commit to {branch} until the result comes.",
         readied.gate, readied.target
     );
     Ok(())

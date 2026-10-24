@@ -234,7 +234,7 @@ mod tests {
             assert!(text.contains("\n# STE and Orwell\n"));
             assert!(!text.contains("name: ste-orwell"));
             assert!(text.contains("\n# Raptor-3 while you work\n"));
-            assert!(text.contains("write one `Raptor-3:` line"));
+            assert!(text.contains("has one `Raptor-3:` line"));
             assert!(!text.contains("## Screen (UI/UX) audit"));
             assert!(!text.contains("## Five steps"));
             assert!(!text.contains("name: o-mode"));

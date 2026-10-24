@@ -8,11 +8,11 @@ description: The standard for how an agent asks the human. Use it for each quest
 The loom inbox shows the human only questions in this form.
 
 - A node without a parent (the human started it) asks only with `loom ask "<question>"`. The question goes to the human's inbox.
-- A node with a parent does not ask the human. Its `loom ask` goes to its parent.
+- A node with a parent does not ask the human. Its `loom ask` goes to its parent, in English.
 - Write one line: `<question> (A: <option> / B: <option>, Recommended: A)`. loom refuses options in other forms.
-- Write all of it in the human's language, also "Recommended" (Korean: `권장`).
+- Write all of a question to the human in the human's language, also "Recommended".
 - Give a yes/no question the tail too: `(A: Yes / B: No, Recommended: A)`. Without it, the inbox shows no buttons.
-- Write a document that the human must open (mockup, report) with user-doc, check it with `show.sh` and attach it with `--doc <file>`. The human cannot open a path in text. Do not open the human's browser.
+- Write a document for the human (mockup, report) with user-doc. Check it with `show.sh` and attach it with `--doc <file>`. The human cannot open a path in text. Do not open the human's browser.
   - A markdown link to that file on a word becomes the document link: `loom ask "Approve the [R9 mockup](<file>)?" --doc <file>`. Without a link, loom adds one at the end.
 - In question and done text, put URLs and absolute paths only in markdown links.
 - After `loom ask`, end your turn. The question gets a number (`Q12`). The human answers in the inbox or your terminal.

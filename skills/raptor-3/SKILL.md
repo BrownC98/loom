@@ -28,7 +28,7 @@ These are Musk's five design steps. This order is the only source for the order 
 2. **Delete.** Delete each part that has no requirement or no owner. Do not optimize a part that you will delete. If you never had to add back a part, you did not delete enough.
    - Find `parts`: features, screens and APIs that nothing calls; dead code, exports and translations; dependencies that a tool such as `knip` reports as not used; options that always have the same value; interfaces with one implementation; wrappers that only pass calls through. Also examine items outside the code: scripts, CI steps, services, environment variables and documents that nobody uses.
 3. **Simplify.** Merge only the parts that remain. Replace our own code with a standard feature, an existing part or a proven library.
-   - Find `reinvent`: the same work in two implementations. This includes duplicates in the repository, and our own code for work that the standard library, the platform, an installed dependency or a widely used proven library already does. For each replacement, write the package name, the version, the scope, an assembly sketch and the differences in behavior to keep.
+   - Find `reinvent`: the same work in two implementations. This includes duplicates in the repository. It also includes our own code for work that a library already does: the standard library, the platform, an installed dependency or a widely used proven library. For each replacement, write the package name, version, scope, an assembly sketch and the behavior differences to keep.
    - Find `state`: the same fact in two places. Examples: copies between a client store, a context, storage and the URL; copies of a server response; enums and status strings that each layer declares again; code that keeps two states the same. Give the single source. If a finding is also `reinvent`, put it in `reinvent`.
 4. **Accelerate.** Measure the cycle time of each process that remains: tests, build, CI, merge, deployment and the main tasks on screens. Reduce the slowest bottleneck first. Do not write that something is fast without a measurement.
 5. **Automate.** Automate only the steps that a person repeats. Use existing tools and scripts first. A new automation is a part, so it must pass step 1.
@@ -36,13 +36,13 @@ These are Musk's five design steps. This order is the only source for the order 
 
 ## While you work
 
-Do steps 1 to 3 (question the requirement → delete → simplify) at these three times, not in an audit at the end:
+Do steps 1 to 3 at these three times. Do not keep them for an audit at the end.
 
-1. Before you write code, make a parts list: each new part (file, function, export, table, column, queue, worker, option, dependency) with its requirement in one line, the existing parts and libraries that do the same work, and the parts that this change lets you delete. Do not make a part without a requirement.
-2. Before you add a part that is not on the list, do steps 1 to 3 for it and add it.
+1. Before you write code, make a parts list. Write each new part with its requirement in one line. Do not make a part without a requirement. Also write the existing parts and libraries that do the same work. Write the parts that this change lets you delete.
+2. Before you add a part that is not on the list, do steps 1 to 3 for it.
 3. Before you commit, read `git diff --cached` again. Delete new parts without a requirement and old parts that the change made unused.
 
-In the completion report, write one `Raptor-3:` line: the deleted parts, the reused parts and libraries, the reason for each new piece of code, and the differences from the first list.
+The completion report has one `Raptor-3:` line. It gives the deleted parts, reused parts and libraries, why new code was necessary, and changes from the first list.
 
 ## Screen (UI/UX) audit
 
@@ -65,9 +65,9 @@ For each audit unit, also find these on screens:
    - Do not list an element of the approved mockup as a candidate for deletion.
    - Record each difference between a screen and its mockup as a defect.
 3. Decide for each group of changes.
-   - If the visible behavior does not change, implement it and attach only before and after captures. Examples: a change to a standard part with the same look, a single source of state, deletion of unused translation keys, an accessibility fix that keeps the layout.
+   - If the visible behavior does not change, implement it and attach only before and after captures. Examples: a standard part with the same look, a single source of state, unused translation keys, an accessibility fix.
    - If the visible behavior changes, follow [o-mode "Mockup approval"](../o-mode/reference.md#mockup-approval). Examples: deletion of a screen element, merged status displays, a layout change.
    - Get approval for each deletion of a screen element through the mockup. The caller of a button is the user, so code alone cannot show that the button is unused.
    - While you wait for an approval, work on the other groups.
 4. Attach desktop before and after captures to each MR.
-5. If a design check skill is available, use its stop conditions. In the report, add for each screen the decrease in the number of controls and the change in the number of clicks for the main tasks.
+5. If a design check skill is available, use its stop conditions. For each screen, report the decrease in controls and the change in clicks for the main tasks.

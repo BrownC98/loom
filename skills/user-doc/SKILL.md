@@ -10,7 +10,7 @@ Mockups and reports use the same design language. Make, check and attach a docum
 ## Form
 
 - One HTML file in the human's language. Put images in `data:` URLs. Do not point `src`, `href` or CSS `url()` to a different file (relative path, `file:`). `https:` URLs, for example web fonts, are permitted. Start from a copy of [style.html](style.html). Do not change the tokens, fonts, font sizes, head line, section numbers or table style in its `<style>`. Add only the blocks that you need.
-- Draw mockup screens in the design of the target product. Before you draw, read the product's theme and token files, its earlier mockups and real screen captures, and use the same colors, fonts and components. Use the style.html tokens only for the document frame (head line, title, sections, lists, tables).
+- Draw mockup screens in the design of the target product. Before you draw, read the product's theme and token files, earlier mockups and screen captures. Use the same colors, fonts and components. Use the style.html tokens only for the document frame (head line, title, sections, lists, tables).
 - Light is the default (`<html style="color-scheme: light">`). Put a dark-mode toggle button (`.theme-toggle`) at the top right.
 - The head line at the top gives `응답할 곳: <role> · <node name>` (the node that receives the human's answer). A mockup also gives `연 담당: <role> · <node name>` and its version (`v2 · <date>`). Run `loom status` just before you ask, to get the node name. If the name changes, change the head line.
 - Document ID: `loom show` adds it at the start of the head line (`문서 ID: M3`) and before the `<title>`. M is for a mockup and R for a report. A path keeps its ID through all versions (table `~/.cache/user-doc/ids.tsv`). The author does not write the ID. When you name a document in chat, give its ID.
@@ -32,18 +32,18 @@ Mockups and reports use the same design language. Make, check and attach a docum
 - Draw boxes, badges, callouts and leader lines on top of the drawing. Do not change the item's layout.
 - A number badge is not clipped or covered, and it does not cover text in the box. It can cover only a large control that holds the center of the box.
 - Each explanation is a callout next to its box, in the nearest empty area. Empty background in the screen frame is an area too. A leader line goes from the box to the callout and is 120 screen px or shorter. If there is no area, the layout adds space below the section; if the line is still long, shorten the callout text or leave empty space in the drawing. A callout does not cover text, controls, boxes, badges or other callouts. A leader line does not cross other boxes, callouts or leader lines. If lines cross, put the callouts in the same top-to-bottom order as their boxes. Do not put a list of explanations below the drawing.
-- All of these rules apply at window widths 1920, 1440, 1280, 1100 and 960px, when images load late, and after a change of window width. The screen frame stays in the section width.
-- Make: copy [callouts/callouts.css](callouts/callouts.css) into the `<style>` and [callouts/callouts.js](callouts/callouts.js) into a `<script>` at the end of `<body>`. The script places the boxes, badges, callouts and leader lines after the images load and after each change of window width.
+- These rules apply at window widths 1920, 1440, 1280, 1100 and 960px. They also apply when images load late and after a resize. The screen frame stays in the section width.
+- Make: copy [callouts/callouts.css](callouts/callouts.css) into the `<style>` and [callouts/callouts.js](callouts/callouts.js) into a `<script>` at the end of `<body>`. The script places the boxes, badges, callouts and leader lines after the images load and after each resize.
   - In each section, put a screen frame in `<div class="fig"><h2>…</h2>`: `.page` (a drawn screen), `.xlwin` (an Excel window) or `.shotwrap` (a capture `<img>`).
-  - Item: `<span class="mk" data-n="1">…</span>`; a new item is `class="mk new"`. `.mk` and `.new` only mark the item. Do not give them a style (outline, border, padding). For an item on a capture, put an empty element in `.shotwrap` with `style="left:…;top:…;width:…;height:…"` (the position measured on the capture, in %). That box stays at that position.
+  - Item: `<span class="mk" data-n="1">…</span>`; a new item is `class="mk new"`. `.mk` and `.new` only mark the item. Do not give them a style (outline, border, padding). For an item on a capture, put an empty element in `.shotwrap` with `style="left:…;top:…;width:…;height:…"`. The values are the position on the capture, in %. That box stays at that position.
   - Explanations: after the screen frame, `<div class="calls"><div><b>1</b><span>explanation</span></div>…</div>`. Item n is the callout of the box with `data-n="n"`.
   - Give the product's control classes (for example `.abtn`, `.seg`) in `<body data-ui=".abtn, .seg">`. The layout and the check both keep clear of them.
-- Check: `show.sh` uses [scripts/check-callouts.cjs](scripts/check-callouts.cjs) to count violations of the one-file rule and of all rules above (except the developer-note rule) at all window widths. One violation is a failure.
+- Check: `show.sh` runs [scripts/check-callouts.cjs](scripts/check-callouts.cjs) at all window widths. It counts violations of the one-file rule and all rules above, except the developer-note rule. One violation is a failure.
 
 ## Display
 
-1. The author (코디 or 워커) writes the file, checks the render and sends only the path, the version and a one-line summary to its parent.
-2. The node that asks the human (the lead, or outside loom the agent that talks with the human) reviews the content and runs [scripts/show.sh](scripts/show.sh): `bash <this skill folder>/scripts/show.sh <file>`.
+1. The author (코디 or 워커) writes the file and checks the render. It sends its parent only the path, version and a one-line summary.
+2. The node that asks the human is the lead, or outside loom the agent that talks with the human. It reviews the content and runs [scripts/show.sh](scripts/show.sh): `bash <this skill folder>/scripts/show.sh <file>`.
    - `show.sh` calls `loom show <file>`. It checks the form (title, light default, toggle button, head line) and adds the document ID. If the check fails, send the document back to the author.
    - It keeps a render made with headless Chromium. The node that asks looks at that render.
    - On a computer without bash (a Windows node), call only `loom show <file>`.

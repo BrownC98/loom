@@ -138,8 +138,17 @@ fn spaced_target(link: &str) -> Option<&str> {
     let ok = !label.is_empty()
         && !label.contains(['[', ']', '\n'])
         && !target.contains(['\n', '<'])
-        && target.contains(' ');
+        && target.contains(' ')
+        && locates(target);
     ok.then_some(target)
+}
+
+fn locates(target: &str) -> bool {
+    let drive = matches!(
+        target.as_bytes(),
+        [letter, b':', b'\\' | b'/', ..] if letter.is_ascii_alphabetic()
+    );
+    is_url(target) || target.starts_with(['/', '\\', '~']) || drive
 }
 
 fn drawn(target: &str) -> bool {
@@ -403,6 +412,21 @@ mod tests {
             assert_eq!(form_out, form);
             assert_eq!(bare_link(&format!("[x]({form_out})")), None);
         }
+    }
+
+    #[test]
+    fn plain_text_in_parentheses_after_a_label_is_not_a_link() {
+        for ok in [
+            "[옵션](A: 예 / B: 아니오, 권장: A)",
+            "표기는 [x](a b)입니다. (A: 승인 / B: 거절, 권장: A)",
+            "[한글](일반 설명)",
+        ] {
+            assert_eq!(bare_link(ok), None, "{ok}");
+        }
+        assert_eq!(
+            bare_link("[r](C:\\My Docs\\r.html)").as_deref(),
+            Some("C:\\My Docs\\r.html")
+        );
     }
 
     #[test]

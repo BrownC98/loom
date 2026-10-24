@@ -2,6 +2,7 @@ import { CircleCheck, CircleQuestionMark, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeView } from './gen/NodeView';
+import type { WaitId } from './gen/WaitId';
 import type { WaitKind } from './gen/WaitKind';
 import { plainText } from './links';
 
@@ -22,6 +23,10 @@ export const bySince = (a: HumanWait, b: HumanWait) => a.since - b.since;
 const oldest = (waits: readonly HumanWait[]): HumanWait => waits.reduce((a, b) => (bySince(b, a) < 0 ? b : a));
 
 export const oldestWait = (v: NodeView): HumanWait => oldest(v.waits);
+
+export const newestId = (waits: readonly HumanWait[]): WaitId => Math.max(...waits.map((w) => w.id));
+
+export const pillClosed = (closed: WaitId | null, waits: readonly HumanWait[]) => closed !== null && waits.every((w) => w.id <= closed);
 
 export const asking = (view: NodeView) => view.waits.filter((w) => toneOf(w.kind) === 'ask');
 

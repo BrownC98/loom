@@ -6,7 +6,7 @@ use ts_rs::TS;
 
 use crate::accounts::AccountId;
 use crate::db::Database;
-use crate::graph::TreeLimits;
+use crate::graph::{TreeLimits, WaitId};
 use crate::profile::{AgentId, Provider};
 use crate::roles::Roles;
 use crate::skills::AlwaysOn;
@@ -85,6 +85,9 @@ pub struct SettingsView {
     pub closed_panes: ClosedPanes,
     /// 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
     pub closed_switch_notice: Option<u32>,
+    /// 사람이 알약의 [×]를 눌렀을 때 있던 가장 큰 대기 번호. 이보다 큰 대기가 오면 알약이 다시 뜬다.
+    /// 근거: 목업 docs/mockups/pill-close.html M19 ②·③.
+    pub closed_pill: Option<WaitId>,
 }
 
 /// 한 위치에서 공급자마다 쓰는 계정. 없으면 시스템 기본이다.
@@ -213,8 +216,8 @@ pub enum EdgeStyle {
     Curve,
 }
 
-/// 그래프 위 질문 알약의 꼴. `Line`은 한 줄이고 목록을 펼쳐 답한다. `Answer`는 가장 오래된 질문 하나와 답 칸을 펼쳐 보인다(목업 M31 ②).
-/// 근거: 2026-10-22 사람 지시 "질문 다시 알약으로 바꿔", "알약으로 할지 펼칠지는 설정에 옵션으로 제공".
+/// 그래프 위 질문 알약의 꼴. `Line`은 한 줄이고 목록을 펼쳐 답한다. `Answer`는 가장 오래된 질문 하나와 답 칸을 펼쳐 보인다(목업 M31 ②). `Off`는 알약을 보이지 않는다(목업 M19 ④).
+/// 근거: 2026-10-22 사람 지시 "질문 다시 알약으로 바꿔", "알약으로 할지 펼칠지는 설정에 옵션으로 제공", 2026-10-24 "알림 알약 끄는 기능 추가".
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -222,6 +225,7 @@ pub enum QuestionPill {
     #[default]
     Line,
     Answer,
+    Off,
 }
 
 /// 뜻마다 사람이 고른 색. 라이트·다크를 따로 고른다(목업 docs/mockups/color-themes.html v3). 테마마다 쓸 색은 화면이 고른 색에서 만든다(`web/src/uiColors.ts`).
@@ -487,6 +491,7 @@ mod tests {
         assert_eq!(got.pane_widths, PaneWidths::default());
         assert_eq!(got.closed_panes, ClosedPanes::default());
         assert_eq!(got.closed_switch_notice, None);
+        assert_eq!(got.closed_pill, None);
         assert!(got.wsl_accounts.is_empty());
     }
 
@@ -535,6 +540,7 @@ mod tests {
             },
             pill_place: Some(PillPlace { x: 0.25, y: 0.5 }),
             closed_switch_notice: Some(9),
+            closed_pill: Some(WaitId(41)),
             ..Default::default()
         };
         settings.update(|v| *v = view.clone()).unwrap();
@@ -547,6 +553,7 @@ mod tests {
         assert_eq!(got.pill_place, view.pill_place);
         assert_eq!(got.closed_panes, view.closed_panes);
         assert_eq!(got.closed_switch_notice, Some(9));
+        assert_eq!(got.closed_pill, Some(WaitId(41)));
     }
 
     #[test]

@@ -365,6 +365,7 @@ const en = {
   },
   inbox: {
     resetPlace: 'Put the pill back (top centre)',
+    closePill: 'Close the pill · it shows again for a new notice',
     tab: 'Notifications',
     instruction: 'Asked: {{text}}',
     published: 'Sent {{time}}',
@@ -451,7 +452,8 @@ const en = {
     heading: 'Question pill',
     line: 'One line',
     answer: 'Answer here',
-    hint: '“Answer here” shows the oldest question and its answer box in the pill. With “One line”, open the list to answer.',
+    off: 'Off',
+    hint: 'With “Off”, the pill does not show. See notices in the Notifications tab. “Answer here” shows the oldest question and its answer box in the pill. With “One line”, open the list to answer.',
     place: 'Pill place',
     placeHint: 'Drag the pill head to put it anywhere in the graph pane. The default place is top centre. After a move, the pill head shows a put-back button.',
   },

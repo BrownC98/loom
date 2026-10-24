@@ -17,7 +17,7 @@ import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
 import { useShowNodes } from './Graph';
 import { stateClass } from './NodeCard';
-import { bySince, ICON, NodeText, NoticeBadges, NoticeLead, oldestWait, showsId, summaryOf, toneOf } from './notice';
+import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId, summaryOf, toneOf } from './notice';
 import { PinchImage } from './PinchImage';
 import { Modal } from './Modal';
 import { useDismiss } from './popover';
@@ -28,7 +28,7 @@ export function waitingNodes(nodes: ReadonlyMap<NodeId, NodeView>): NodeView[] {
 
 export const waitCount = (waiting: NodeView[]) => waiting.reduce((n, v) => n + v.waits.length, 0);
 
-export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: PillPlace | null; onPlace: (place: PillPlace | null) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
+export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: QuestionPill; place: PillPlace | null; onPlace: (place: PillPlace | null) => void; closed: WaitId | null; onClose: (newest: WaitId) => void; onSelect: (id: NodeId) => void; onFocus: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const show = useShowNodes();
@@ -40,6 +40,7 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
   const pill = useRef<HTMLDivElement>(null);
   const waits = props.waiting.flatMap((v) => v.waits);
   const n = waits.length;
+  const shown = props.pill !== 'off' && !pillClosed(props.closed, waits);
   const first = props.waiting[0];
   const firstWait = first && oldestWait(first);
   const line = props.pill === 'line';
@@ -50,16 +51,16 @@ export function Inbox(props: { waiting: NodeView[]; notify: boolean; pill: Quest
   const drag = usePillDrag(pill, pane, box, props.onPlace);
 
   useEffect(() => {
-    if (n === 0) setOpen(false);
-  }, [n]);
+    if (n === 0 || !shown) setOpen(false);
+  }, [n, shown]);
 
   const at = drag.at ?? (pane && box ? placeOf(props.place, pane, box) : null);
   return (
     <div className="inbox" ref={paneRef}>
-      {first && (
+      {first && shown && (
         <div className="inbox-group" style={at ? { left: at.left, top: at.top } : { visibility: 'hidden' }}>
           <div ref={pill} className="inbox-pill" data-view={props.pill} data-tone={toneOf(firstWait.kind)} data-dragging={drag.at ? true : undefined} onClickCapture={drag.swallowClick}>
-            <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} />
+            <PillHead node={first} wait={firstWait} waits={waits} line={line} open={open} onToggle={toList} onDragStart={drag.start} onReset={props.place ? () => props.onPlace(null) : null} onClose={() => props.onClose(newestId(waits))} />
             {!line && (
               <div className="pill-row">
                 <WaitEntry key={firstWait.id} node={first.id} wait={firstWait} onGo={() => go(first.id)} />
@@ -113,7 +114,7 @@ function usePillDrag(pill: RefObject<HTMLElement | null>, pane: Size | null, box
   const [at, setAt] = useState<{ left: number; top: number } | null>(null);
   const moved = useRef(false);
   const start = (e: ReactPointerEvent<HTMLElement>) => {
-    if (e.button !== 0 || !pane || !box || !(e.target instanceof Element) || e.target.closest('input, textarea, a, label, .pill-reset')) return;
+    if (e.button !== 0 || !pane || !box || !(e.target instanceof Element) || e.target.closest('input, textarea, a, label, .pill-reset, .pill-close')) return;
     const group = pill.current?.parentElement;
     if (!group) return;
     const from = { x: e.clientX, y: e.clientY, left: group.offsetLeft, top: group.offsetTop };
@@ -160,11 +161,14 @@ function InboxPop(props: { label: string; pill: RefObject<HTMLDivElement | null>
   );
 }
 
-function PillHead(props: { node: NodeView; wait: HumanWait; waits: readonly HumanWait[]; line: boolean; open: boolean; onToggle: () => void; onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null }) {
+function PillHead(props: { node: NodeView; wait: HumanWait; waits: readonly HumanWait[]; line: boolean; open: boolean; onToggle: () => void; onDragStart: (e: ReactPointerEvent<HTMLElement>) => void; onReset: (() => void) | null; onClose: () => void }) {
   const { t } = useTranslation();
   const { wait, open } = props;
   return (
     <div className="head" aria-live="polite" onPointerDown={props.onDragStart}>
+      <button type="button" className="pill-close" aria-label={t('inbox.closePill')} title={t('inbox.closePill')} onClick={props.onClose}>
+        <X aria-hidden="true" />
+      </button>
       <NoticeLead wait={wait} waits={props.waits} />
       <button type="button" className="go" aria-expanded={open} aria-label={t('inbox.listLabel', { count: props.waits.length })} onClick={props.onToggle}>
         {props.line ? <NodeText name={props.node.name} wait={wait} /> : <b>{props.node.name}</b>}

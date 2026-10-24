@@ -272,10 +272,10 @@ token=$1 dir=$marks/$1 roots=
 for f in "$dir"/*.*; do
   [ -e "$f" ] || continue
   m=${{f##*/}} pid=${{m%.*}}
+  rm -f "$f"
   [ "$(started "$pid")" = "${{m#*.}}" ] || continue
   tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token" && roots="$roots $pid"
 done
-rm -rf "$dir"
 {END_TREES}"#
     )
 }
@@ -766,14 +766,34 @@ mod tests {
         mark(format!("{}.{}", reused.id(), started(reused.id())));
         assert_eq!(std::fs::read_dir(shim.marks()).unwrap().count(), 4);
 
-        let mut cmd = tokio::process::Command::new("sh");
-        cmd.args(["-c", &end_shells_script(), "sh", &shim.token]);
-        bounded(cmd, END_TOKEN_WAIT).await.unwrap();
+        let mut late = shim.spawn("exec sleep 30", &shim.token);
+        let late_mark = format!("{}.{}", late.id(), started(late.id()));
+        let script = end_shells_script();
+        let during = script.replacen(
+            "  rm -f \"$f\"\n",
+            &format!("  rm -f \"$f\"\n  : >\"$dir/{late_mark}\"\n"),
+            1,
+        );
+        assert_ne!(during, script);
+        let end = |script: String| {
+            let mut cmd = tokio::process::Command::new("sh");
+            cmd.args(["-c", &script, "sh", &shim.token]);
+            bounded(cmd, END_TOKEN_WAIT)
+        };
+        end(during).await.unwrap();
 
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(guarded.wait().unwrap().signal(), Some(15));
         assert!(!std::path::Path::new(&format!("/proc/{child}")).exists());
-        assert!(!shim.marks().exists());
+        let left: Vec<_> = std::fs::read_dir(shim.marks())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left, [late_mark.as_str()]);
+        assert!(late.try_wait().unwrap().is_none());
+        end(script).await.unwrap();
+        assert_eq!(late.wait().unwrap().signal(), Some(15));
+        std::fs::remove_dir_all(shim.marks()).unwrap();
         for mut left in [unmarked, wrong_start, reused] {
             assert!(left.try_wait().unwrap().is_none());
             left.kill().unwrap();

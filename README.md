@@ -62,29 +62,30 @@ Details (Korean): [docs/design.md 「내장 스킬」](docs/design.md#내장-스
 Get the files from the [latest release](https://github.com/BrownC98/loom/releases/latest).
 
 - **Windows:** run `loom_<version>_x64-setup.exe`. To remove loom, use Windows **Settings › Apps**.
-- **macOS (Apple Silicon):** open `loom_<version>_aarch64.dmg` and drag loom to the Applications folder. The app has no Apple signature, so macOS says it "is damaged". Before you open it the first time, run this command in Terminal:
+- **macOS (Apple Silicon):** run this line in Terminal. It downloads the loom app, puts it in the Applications folder and opens it. To update, run it again.
 
   ```sh
-  xattr -cr /Applications/loom.app
+  curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
   ```
 
   To remove loom, move it from the Applications folder to the Trash.
-- **Web version (Linux, WSL, macOS, Windows, no app needed):** see "Web version" below.
+
+  Without Terminal: open `loom_<version>_aarch64.dmg` and drag loom to the Applications folder. The app has no Apple signature, so macOS says a downloaded app "is damaged". Before you open it the first time, run `xattr -cr /Applications/loom.app` in Terminal.
+- **Web version (Linux, WSL, Windows, no app needed):** see "Web version" below.
 
 Install the agent CLIs (Claude Code, Codex, OpenCode 2, Cursor CLI) yourself. loom finds them on `PATH`.
 
-### Web version (every OS)
+### Web version
 
 One daemon also serves the screen. You use it in a browser. You can install it without the app. If you also use the app, the app window and the browser tab show the same daemon: the same nodes, card places, settings and terminals.
 
 1. Run one line. It downloads loom, puts a loom icon on the desktop, and opens loom in the browser.
-   - Linux, WSL and macOS: in a terminal (on WSL, a WSL terminal)
+   - Linux and WSL: in a terminal (on WSL, a WSL terminal)
 
      ```sh
      curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
      ```
 
-     If the loom app is on the Mac, the script uses the loom in the app and downloads nothing.
    - Windows: in PowerShell
 
      ```powershell
@@ -97,7 +98,7 @@ One daemon also serves the screen. You use it in a browser. You can install it w
 4. Add repositories in the left sidebar, and start agents with [New node] on a worktree group.
 5. Click a card to type into its terminal. When an agent asks you something, the question shows in the **Questions** pill at the top of the graph and in the **Questions** tab of the right panel. Click it to go to that node, and answer in its terminal.
 
-Manual install: download the file for your OS from the release (`loom-web-linux-x64`, `loom-web-macos-arm64`, `loom-web-windows-x64.exe`), rename it to `loom` (`loom.exe` on Windows), then run `loom open`. The name must be `loom`, because agents in nodes call the `loom` command. Do not end all `loom` processes: each node runs in its own `loom pty-host` process, and that would end the nodes too.
+On macOS, this line installs the app (see above). The macOS web version installs only by hand. Manual install: download the file for your OS from the release (`loom-web-linux-x64`, `loom-web-macos-arm64`, `loom-web-windows-x64.exe`), rename it to `loom` (`loom.exe` on Windows), then run `loom open`. The name must be `loom`, because agents in nodes call the `loom` command. Do not end all `loom` processes: each node runs in its own `loom pty-host` process, and that would end the nodes too.
 
 - **Data:** `~/.loom` (`%APPDATA%\loom` on Windows) holds the database, logs and built-in skills. If you delete it, the node history is lost. Only one daemon runs on one machine.
 - **Update:** when a new version is out, a card shows at the bottom right. Click [Update]: loom downloads it, replaces itself and starts again. **Settings › About** shows the version, and [Check for updates] checks now. If the daemon is the loom inside the app, the app installs the update. Nodes (agent processes) live apart from the daemon, and the new daemon attaches to them again. You can also run the line in step 1 again.

@@ -62,29 +62,30 @@ loom은 스킬 다섯 개를 싣습니다: `o-mode`(orchestration mode), `ste-10
 [가장 새 릴리스](https://github.com/BrownC98/loom/releases/latest)에서 받습니다.
 
 - **Windows:** `loom_<판>_x64-setup.exe`를 실행합니다. 지울 때는 Windows **설정 › 앱**을 씁니다.
-- **macOS(Apple Silicon):** `loom_<판>_aarch64.dmg`를 열고 loom을 응용 프로그램 폴더로 끕니다. 앱에 Apple 서명이 없어 macOS가 「손상되었기 때문에 열 수 없습니다」라고 합니다. 처음 열기 전에 터미널에서 아래 명령을 한 번 실행합니다.
+- **macOS(Apple Silicon):** 터미널에서 아래 한 줄을 실행합니다. loom 앱을 받아 응용 프로그램 폴더에 넣고 엽니다. 다시 실행하면 새 판으로 바꿉니다.
 
   ```sh
-  xattr -cr /Applications/loom.app
+  curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
   ```
 
   지울 때는 응용 프로그램 폴더의 loom을 휴지통으로 옮깁니다.
-- **웹 버전(Linux·WSL·macOS·Windows, 앱 없이):** 아래 「웹 버전」을 봅니다.
+
+  터미널 없이 설치하려면: `loom_<판>_aarch64.dmg`를 열고 loom을 응용 프로그램 폴더로 끕니다. 앱에 Apple 서명이 없어 브라우저로 받은 앱은 macOS가 「손상되었기 때문에 열 수 없습니다」라고 합니다. 처음 열기 전에 터미널에서 `xattr -cr /Applications/loom.app`을 한 번 실행합니다.
+- **웹 버전(Linux·WSL·Windows, 앱 없이):** 아래 「웹 버전」을 봅니다.
 
 에이전트 CLI(Claude Code, Codex, OpenCode 2, Cursor CLI)는 따로 설치합니다. loom은 `PATH`에서 찾습니다.
 
-### 웹 버전(모든 OS)
+### 웹 버전
 
 데몬 하나가 화면도 함께 냅니다. 브라우저로 씁니다. 앱 없이 설치할 수 있습니다. 앱을 함께 쓰면 앱 창과 브라우저 탭이 같은 데몬을 봅니다. 노드, 카드 자리, 설정, 터미널이 같습니다.
 
 1. 한 줄을 실행합니다. loom을 받고, 바탕 화면에 loom 아이콘을 만들고, 브라우저에 loom을 엽니다.
-   - Linux·WSL·macOS: 터미널(WSL이면 WSL 터미널)에서
+   - Linux·WSL: 터미널(WSL이면 WSL 터미널)에서
 
      ```sh
      curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh
      ```
 
-     macOS에 loom 앱이 있으면 앱에 든 loom을 쓰고 따로 받지 않습니다.
    - Windows: PowerShell에서
 
      ```powershell
@@ -97,7 +98,7 @@ loom은 스킬 다섯 개를 싣습니다: `o-mode`(orchestration mode), `ste-10
 4. 왼쪽 사이드바에서 저장소를 더하고, 워크트리 묶음의 [새 노드]로 에이전트를 띄웁니다.
 5. 카드를 누르면 그 터미널에 글을 쓸 수 있습니다. 에이전트가 사람에게 물으면 그래프 위 가운데의 **질문** 알약과 오른쪽 칸의 **질문** 탭에 뜹니다. 누르면 그 노드로 갑니다. 답은 그 노드 터미널에 씁니다.
 
-손으로 설치하려면: 릴리스에서 OS의 파일(`loom-web-linux-x64`, `loom-web-macos-arm64`, `loom-web-windows-x64.exe`)을 받아 이름을 `loom`(Windows는 `loom.exe`)으로 바꾸고 `loom open`을 실행합니다. 이름은 `loom`이어야 합니다. 노드 안의 에이전트가 `loom` 명령을 부릅니다. `loom` 프로세스를 모두 끝내지 않습니다. 노드마다 따로 `loom pty-host` 프로세스에서 돌아서 노드도 끝납니다.
+macOS에서 이 한 줄은 앱을 설치합니다(위). macOS 웹 버전은 손으로만 설치합니다. 손으로 설치하려면: 릴리스에서 OS의 파일(`loom-web-linux-x64`, `loom-web-macos-arm64`, `loom-web-windows-x64.exe`)을 받아 이름을 `loom`(Windows는 `loom.exe`)으로 바꾸고 `loom open`을 실행합니다. 이름은 `loom`이어야 합니다. 노드 안의 에이전트가 `loom` 명령을 부릅니다. `loom` 프로세스를 모두 끝내지 않습니다. 노드마다 따로 `loom pty-host` 프로세스에서 돌아서 노드도 끝납니다.
 
 - **데이터:** `~/.loom`(Windows는 `%APPDATA%\loom`)에 DB, 로그, 내장 스킬이 있습니다. 지우면 노드 기록이 사라집니다. 한 기계에 데몬은 하나만 돕니다.
 - **업데이트:** 새 판이 나오면 오른쪽 아래에 카드가 뜹니다. [업데이트]를 누르면 받아 바꾸고 다시 뜹니다. **설정 › 정보**에서 판을 보고 [업데이트 확인]으로 바로 확인할 수도 있습니다. 앱에 든 loom이면 앱이 업데이트를 설치합니다. 노드(에이전트 프로세스)는 데몬과 따로 살아 새 데몬이 다시 붙습니다. 1단계의 한 줄을 다시 실행해도 됩니다.

@@ -1,14 +1,53 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
 
+use super::TurnId;
 use crate::graph::{Entry, Graph, IdleEnd, NodeId, Who};
 
 pub struct IdleWaits {
     graph: Arc<Graph>,
     ends: Mutex<HashMap<NodeId, oneshot::Sender<IdleEnd>>>,
     turns: Mutex<HashSet<NodeId>>,
+    watches: Mutex<HashMap<NodeId, Watch>>,
+    next_said: AtomicU64,
+}
+
+#[derive(Default)]
+struct Watch {
+    heard: bool,
+    drafted: bool,
+    turn: Option<TurnId>,
+    past: HashSet<TurnId>,
+    said: Option<(Said, TurnId)>,
+}
+
+impl Watch {
+    fn enter(&mut self, turn: TurnId) {
+        if self.past.contains(&turn) {
+            return;
+        }
+        if let Some((_, armed)) = self.said.take_if(|(_, armed)| *armed != turn) {
+            self.past.insert(armed);
+        }
+        if self.turn.as_ref() != Some(&turn)
+            && let Some(old) = self.turn.replace(turn)
+        {
+            self.past.insert(old);
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Said(u64);
+
+#[derive(PartialEq, Debug)]
+pub enum Expiry {
+    Answered,
+    Listening,
+    Missed,
 }
 
 pub struct Wait<'a> {
@@ -24,11 +63,14 @@ impl IdleWaits {
             graph,
             ends: Mutex::default(),
             turns: Mutex::default(),
+            watches: Mutex::default(),
+            next_said: AtomicU64::new(0),
         }
     }
 
     pub fn open(&self, node: NodeId) -> Wait<'_> {
         self.turns.lock().unwrap().remove(&node);
+        self.watch(node, |w| w.heard = true);
         let (tx, end) = oneshot::channel();
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
             let _ = old.send(IdleEnd::NewWait);
@@ -72,15 +114,89 @@ impl IdleWaits {
     }
 
     pub fn turn_started(&self, node: NodeId, hook: String) {
-        self.end(node, IdleEnd::Turn { hook });
+        self.end_wait(node, IdleEnd::Turn { hook });
         self.turns.lock().unwrap().insert(node);
     }
 
+    pub fn prompted(&self, node: NodeId, turn: TurnId) {
+        self.watch(node, |w| {
+            w.drafted = false;
+            w.enter(turn);
+        });
+    }
+
+    pub fn stepped(&self, node: NodeId, turn: TurnId) {
+        self.watch(node, |w| w.enter(turn));
+    }
+
     pub fn end(&self, node: NodeId, by: IdleEnd) {
+        self.watches.lock().unwrap().remove(&node);
+        self.end_wait(node, by);
+    }
+
+    fn end_wait(&self, node: NodeId, by: IdleEnd) {
         self.turns.lock().unwrap().remove(&node);
         if let Some(old) = self.ends.lock().unwrap().remove(&node) {
             let _ = old.send(by);
         }
+    }
+
+    pub fn said(&self, node: NodeId, turn: TurnId) -> Option<Said> {
+        let mut watches = self.watches.lock().unwrap();
+        let w = watches.get_mut(&node)?;
+        let follows = w
+            .turn
+            .as_ref()
+            .is_none_or(|now| *now == turn || w.past.contains(now));
+        if !w.heard || w.drafted || w.past.contains(&turn) || !follows {
+            return None;
+        }
+        w.enter(turn.clone());
+        let said = Said(self.next_said.fetch_add(1, Ordering::Relaxed));
+        w.said = Some((said, turn));
+        Some(said)
+    }
+
+    pub fn stop_reached(&self, node: NodeId, turn: Option<TurnId>) {
+        self.watch(node, |w| match turn {
+            Some(turn) => {
+                w.said.take_if(|(_, armed)| *armed == turn);
+                w.past.insert(turn);
+            }
+            None => w.said = None,
+        });
+    }
+
+    pub fn typed(&self, node: NodeId) {
+        self.watch(node, |w| {
+            w.drafted = true;
+            if let Some((_, armed)) = w.said.take() {
+                w.past.insert(armed);
+            }
+        });
+    }
+
+    pub fn expire(&self, node: NodeId, said: Said) -> Expiry {
+        let mut watches = self.watches.lock().unwrap();
+        let Some(w) = watches
+            .get_mut(&node)
+            .filter(|w| w.said.as_ref().is_some_and(|(armed, _)| *armed == said))
+        else {
+            return Expiry::Answered;
+        };
+        let ends = self.ends.lock().unwrap();
+        if ends.get(&node).is_some_and(|end| !end.is_closed()) {
+            return Expiry::Listening;
+        }
+        drop(ends);
+        w.said = None;
+        w.heard = false;
+        self.turns.lock().unwrap().remove(&node);
+        Expiry::Missed
+    }
+
+    fn watch(&self, node: NodeId, change: impl FnOnce(&mut Watch)) {
+        change(self.watches.lock().unwrap().entry(node).or_default());
     }
 
     fn record(&self, entry: Entry) {
@@ -186,6 +302,106 @@ mod tests {
         assert!(!waits.reopen(&mut wait));
         waits.turn_started(node, "preToolUse".into());
         assert!(!waits.reopen(&mut wait));
+    }
+
+    #[test]
+    fn a_turn_misses_its_wait_once_per_process_and_only_while_nothing_answered() {
+        let (_dir, [node, _], waits) = waits();
+        let turn = |id: &str| TurnId(id.into());
+        let prompt = |id: &str| {
+            waits.turn_started(node, "beforeSubmitPrompt".into());
+            waits.prompted(node, turn(id));
+        };
+        assert_eq!(
+            waits.said(node, turn("1")),
+            None,
+            "no stop hook has reached loom yet"
+        );
+        waits.open(node).finish(IdleEnd::Mail);
+        prompt("1");
+        let said = waits.said(node, turn("1")).unwrap();
+        let missed = waits.said(node, turn("1")).unwrap();
+        assert_eq!(
+            waits.expire(node, said),
+            Expiry::Answered,
+            "a newer turn end came"
+        );
+        assert_eq!(waits.expire(node, missed), Expiry::Missed);
+        assert!(!waits.in_turn(node));
+        assert_eq!(waits.expire(node, missed), Expiry::Answered);
+        assert_eq!(
+            waits.said(node, turn("1")),
+            None,
+            "the process proves its stop hook again"
+        );
+
+        waits.open(node).finish(IdleEnd::Mail);
+        waits.end(node, IdleEnd::Relaunch);
+        assert_eq!(
+            waits.said(node, turn("2")),
+            None,
+            "a new process proves its stop hook again"
+        );
+
+        waits.open(node).finish(IdleEnd::Mail);
+        prompt("3");
+        waits.stop_reached(node, Some(turn("3")));
+        assert_eq!(
+            waits.said(node, turn("3")),
+            None,
+            "the stop hook of that turn came first"
+        );
+        prompt("4");
+        prompt("5");
+        assert_eq!(waits.said(node, turn("4")), None, "a newer turn started");
+        assert!(waits.in_turn(node));
+
+        let said = waits.said(node, turn("5")).unwrap();
+        let wait = waits.open(node);
+        assert_eq!(
+            waits.expire(node, said),
+            Expiry::Listening,
+            "the wait opened"
+        );
+        wait.finish(IdleEnd::Mail);
+
+        prompt("7");
+        let said = waits.said(node, turn("7")).unwrap();
+        waits.stop_reached(node, None);
+        assert_eq!(
+            waits.expire(node, said),
+            Expiry::Answered,
+            "the stop hook reached loom"
+        );
+        let said = waits.said(node, turn("7")).unwrap();
+        waits.typed(node);
+        assert_eq!(
+            waits.expire(node, said),
+            Expiry::Answered,
+            "the human types"
+        );
+        assert_eq!(
+            waits.said(node, turn("7")),
+            None,
+            "the human typed in that turn"
+        );
+        prompt("8");
+        assert!(waits.said(node, turn("8")).is_some());
+
+        waits.end(node, IdleEnd::Relaunch);
+        let wait = waits.open(node);
+        let said = waits.said(node, turn("9")).unwrap();
+        assert_eq!(
+            waits.expire(node, said),
+            Expiry::Listening,
+            "a wait is open"
+        );
+        wait.finish(IdleEnd::Mail);
+        assert_eq!(
+            waits.expire(node, said),
+            Expiry::Missed,
+            "the finished wait no longer listens"
+        );
     }
 
     #[test]

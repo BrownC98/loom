@@ -1,8 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use super::App;
+use super::idle::Expiry;
+use super::{App, TurnId};
 use crate::graph::{Entry, NodeId, TurnCheck};
+
+pub(super) const IDLE_GRACE: Duration = Duration::from_secs(60);
 
 const NUDGE: &str = "You ended the turn with text but without loom ask or loom done. If the text asks the human anything (a question, a choice, an approval), call loom ask \"<one line>\", then end your turn. If you finished a result the human can use, call loom done \"<what you did>\" --asked \"<the human's instruction>\". Otherwise reply with only a few words in the language the human uses with you that brief your current work or state. Do not name this check. Example in Korean: \"코디 결과 대기\". Then end your turn.";
 
@@ -101,6 +105,49 @@ fn nudge_text(check: TurnCheck) -> &'static str {
 }
 
 impl App {
+    pub(super) fn said(self: &Arc<Self>, node: NodeId, text: String, turn: Option<TurnId>) {
+        self.turn_ends.said(node, text);
+        let Some(said) = turn.and_then(|turn| self.idle.said(node, turn)) else {
+            return;
+        };
+        let app = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(IDLE_GRACE).await;
+                match app.idle.expire(node, said) {
+                    Expiry::Answered => return,
+                    Expiry::Listening => {}
+                    Expiry::Missed => break,
+                }
+            }
+            let active = match app.graph.active() {
+                Ok(nodes) => nodes.into_iter().find(|n| n.id == node),
+                Err(e) => {
+                    eprintln!("loom: 노드 {}를 찾지 못했다: {e}", node.0);
+                    return;
+                }
+            };
+            let Some(active) = active else {
+                return;
+            };
+            if let Err(e) = app
+                .graph
+                .record_about(node, |node| Entry::NoIdleWait { node })
+            {
+                eprintln!(
+                    "loom: 노드 {}의 빠진 쉬는 대기를 남기지 못했다: {e}",
+                    node.0
+                );
+            }
+            if let Err(e) = app.relaunch_or_queue(active).await {
+                eprintln!(
+                    "loom: 쉬는 대기가 열리지 않은 노드 {}를 다시 띄우지 못했다: {e}",
+                    node.0
+                );
+            }
+        });
+    }
+
     pub(super) fn turn_end(&self, node: NodeId) -> Option<&'static str> {
         let gated_repo = || {
             self.gated_repo(node).unwrap_or_else(|e| {

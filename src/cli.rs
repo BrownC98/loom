@@ -11,7 +11,8 @@ use crate::daemon::gate::{
 use crate::daemon::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DoneRequest,
     GuardRequest, HookWaitRequest, IdleRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched,
-    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
+    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken,
+    TurnEndRequest, TurnId, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
@@ -202,7 +203,7 @@ pub fn hook() -> Result<(), String> {
         Take::Never => return Ok(()),
         Take::WhenIdle => {
             if let claude::Event::Stop = event
-                && let Some(nudge) = turn_end(claude::last_reply(&input), timeout)
+                && let Some(nudge) = turn_end(claude::last_reply(&input), None, timeout)
             {
                 to_model(&nudge)?;
                 std::process::exit(REWAKE_EXIT)
@@ -210,6 +211,7 @@ pub fn hook() -> Result<(), String> {
             let taken = wait_for_mail(&IdleRequest {
                 transcript,
                 rate_limited: event.rate_limited(),
+                turn: None,
             })?;
             if taken.is_empty() {
                 return Ok(());
@@ -226,6 +228,7 @@ pub fn hook() -> Result<(), String> {
         transcript,
         human_input: event.human_input(),
         prompt: event.prompt().map(str::to_owned),
+        turn: None,
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken.messages, taken.note.as_deref()) {
@@ -248,16 +251,18 @@ fn to_model(text: &str) -> Result<(), String> {
     stderr.flush().map_err(|e| e.to_string())
 }
 
-fn turn_end(reply: Option<String>, timeout: Duration) -> Option<String> {
+fn turn_end(reply: Option<String>, turn: Option<TurnId>, timeout: Duration) -> Option<String> {
     if let Some(text) = reply
-        && let Err(e) = call::<()>("said", &SaidRequest { text }, Some(timeout))
+        && let Err(e) = call::<()>("said", &SaidRequest { text, turn: None }, Some(timeout))
     {
         eprintln!("loom: could not report the reply: {e}");
     }
-    call::<Option<String>>("turn-end", &(), Some(timeout)).unwrap_or_else(|e| {
-        eprintln!("loom: could not check the turn end: {e}");
-        None
-    })
+    call::<Option<String>>("turn-end", &TurnEndRequest { turn }, Some(timeout)).unwrap_or_else(
+        |e| {
+            eprintln!("loom: could not check the turn end: {e}");
+            None
+        },
+    )
 }
 
 pub fn cursor_hook() -> Result<(), String> {
@@ -266,6 +271,10 @@ pub fn cursor_hook() -> Result<(), String> {
     let event = cursor::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
     let transcript = input["transcript_path"].as_str().map(str::to_owned);
+    let turn = input["generation_id"]
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .map(|id| TurnId(id.to_owned()));
     if let Some(model) = event.model()
         && let Err(e) = call::<()>("model", &model, Some(timeout))
     {
@@ -281,12 +290,20 @@ pub fn cursor_hook() -> Result<(), String> {
                 transcript: transcript.clone(),
                 human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
                 prompt: None,
+                turn: turn.clone(),
             },
             Some(timeout),
         )
     };
     if let cursor::Event::AfterAgentResponse { text } = &event
-        && let Err(e) = call::<()>("said", &SaidRequest { text: text.clone() }, Some(timeout))
+        && let Err(e) = call::<()>(
+            "said",
+            &SaidRequest {
+                text: text.clone(),
+                turn: turn.clone(),
+            },
+            Some(timeout),
+        )
     {
         eprintln!("loom: could not report the reply: {e}");
     }
@@ -304,7 +321,7 @@ pub fn cursor_hook() -> Result<(), String> {
             Some(Err(e)) => eprintln!("loom: could not read the transcript: {e}"),
             None | Some(Ok(false)) => {}
         }
-        if let Some(nudge) = turn_end(None, timeout) {
+        if let Some(nudge) = turn_end(None, turn.clone(), timeout) {
             println!("{}", serde_json::json!({ "followup_message": nudge }));
             return Ok(());
         }
@@ -318,6 +335,7 @@ pub fn cursor_hook() -> Result<(), String> {
             messages: wait_for_cursor_mail(&IdleRequest {
                 transcript,
                 rate_limited: false,
+                turn: turn.clone(),
             })?,
             note: None,
         },

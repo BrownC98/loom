@@ -534,6 +534,376 @@ fn a_nudged_turn_end_leaves_an_event() {
     assert_eq!(t.since(mark), []);
 }
 
+impl Fixture {
+    fn cursor(&self, name: &str) -> NodeId {
+        let child = NewChild {
+            name,
+            worktree: None,
+            agent: Some(AgentId("cursor".into())),
+            brief: "",
+            role: None,
+            task: "t",
+            review: None,
+        };
+        let limits = TreeLimits {
+            max_depth: None,
+            max_children: None,
+        };
+        self.app
+            .graph
+            .add_child(self.lead, child, limits, &launched(name), |_| Ok(()))
+            .unwrap()
+    }
+
+    fn heard(&self, node: NodeId, turn: &str) {
+        self.app.idle.open(node).finish(IdleEnd::Mail);
+        self.prompt(node, turn);
+    }
+
+    fn prompt(&self, node: NodeId, turn: &str) {
+        self.app
+            .idle
+            .turn_started(node, "beforeSubmitPrompt".into());
+        self.app.idle.prompted(node, TurnId(turn.into()));
+    }
+
+    async fn said(&self, token: &str, turn: Option<&str>) {
+        let text = SaidRequest {
+            text: "끝".into(),
+            turn: turn.map(|t| TurnId(t.into())),
+        };
+        ok(
+            "said",
+            agent_said(self.state(), headers(token, "said"), Json(text)).await,
+        );
+    }
+
+    fn idle(
+        &self,
+        token: &str,
+        turn: &str,
+    ) -> impl Future<Output = Result<Json<Vec<Delivery>>, AgentError>> + Send + 'static {
+        let req = IdleRequest {
+            turn: Some(TurnId(turn.into())),
+            ..IdleRequest::default()
+        };
+        agent_idle(self.state(), headers(token, "idle"), Json(Some(req)))
+    }
+
+    async fn idle_request(&self, token: &str, turn: &str) {
+        let _ = tokio::time::timeout(Duration::from_millis(1), self.idle(token, turn)).await;
+    }
+
+    async fn held_idle_request(&self, token: &str, turn: &str) -> tokio::task::JoinHandle<()> {
+        let idle = self.idle(token, turn);
+        let held = tokio::spawn(async move {
+            let _ = idle.await;
+        });
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        held
+    }
+
+    async fn tool_hook(&self, token: &str, turn: &str) {
+        let req = TakeRequest {
+            hook: "postToolUse".into(),
+            kinds: vec![],
+            limit_bytes: 8192,
+            transcript: None,
+            human_input: false,
+            prompt: None,
+            turn: Some(TurnId(turn.into())),
+        };
+        ok(
+            "take",
+            agent_take(self.state(), headers(token, "take"), Json(req)).await,
+        );
+    }
+
+    async fn stop_hook(&self, token: &str, turn: &str) {
+        let req = TurnEndRequest {
+            turn: Some(TurnId(turn.into())),
+        };
+        let end = agent_turn_end(self.state(), headers(token, "turn-end"), Json(Some(req)));
+        ok("turn-end", end.await);
+    }
+
+    fn relaunches(&self, mark: u32) -> Vec<Entry> {
+        self.since(mark)
+            .into_iter()
+            .filter(|e| matches!(e, Entry::NoIdleWait { .. } | Entry::Relaunched { .. }))
+            .collect()
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_without_an_idle_wait_relaunches_the_node_once() {
+    let t = fixture();
+    let deaf = t.cursor("deaf");
+    let heard = t.cursor("heard");
+    t.heard(deaf, "g1");
+    t.heard(heard, "g1");
+
+    let mark = t.mark();
+    t.said("deaf", Some("g1")).await;
+    t.said("heard", Some("g1")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    t.stop_hook("heard", "g1").await;
+    let _wait = t.app.idle.open(heard);
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(
+            found.as_slice(),
+            [
+                Entry::NoIdleWait { node },
+                Entry::Relaunched { node: again, error: Some(_), .. },
+            ] if node.id == Some(deaf) && again.id == Some(deaf)
+        ),
+        "{found:?}"
+    );
+
+    let mark = t.mark();
+    t.prompt(deaf, "g2");
+    t.said("deaf", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    assert_eq!(t.relaunches(mark), []);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_late_idle_request_answers_only_its_own_turn() {
+    let t = fixture();
+    let node = t.cursor("overtaken");
+    t.heard(node, "g1");
+    t.stop_hook("overtaken", "g1").await;
+    t.prompt(node, "g2");
+    t.idle_request("overtaken", "g1").await;
+    let mark = t.mark();
+    t.said("overtaken", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_late_idle_request_keeps_the_watch_of_a_newer_turn() {
+    let t = fixture();
+    let node = t.cursor("overtaken");
+    t.heard(node, "g1");
+    t.stop_hook("overtaken", "g1").await;
+    t.prompt(node, "g2");
+    let mark = t.mark();
+    t.said("overtaken", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    t.idle_request("overtaken", "g1").await;
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_old_idle_wait_open_past_the_deadline_only_delays_the_relaunch() {
+    let t = fixture();
+    let node = t.cursor("overtaken");
+    t.heard(node, "g1");
+    t.stop_hook("overtaken", "g1").await;
+    t.prompt(node, "g2");
+    let mark = t.mark();
+    t.said("overtaken", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    let old = t.held_idle_request("overtaken", "g1").await;
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    assert_eq!(t.relaunches(mark), [], "the old wait still listens");
+    old.abort();
+    let _ = old.await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_late_tool_hook_keeps_the_watch_of_a_newer_turn() {
+    let t = fixture();
+    let node = t.cursor("overtaken");
+    t.heard(node, "g1");
+    t.stop_hook("overtaken", "g1").await;
+    t.prompt(node, "g2");
+    let mark = t.mark();
+    t.said("overtaken", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    t.tool_hook("overtaken", "g1").await;
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_turn_that_a_stop_hook_starts_is_watched() {
+    let t = fixture();
+    let woken = t.cursor("woken");
+    let nudged = t.cursor("nudged");
+    for node in [woken, nudged] {
+        t.heard(node, "g1");
+    }
+    t.stop_hook("woken", "g1").await;
+    t.idle_request("woken", "g1").await;
+    t.tool_hook("woken", "g2").await;
+    t.stop_hook("nudged", "g1").await;
+    let mark = t.mark();
+    t.said("woken", Some("g2")).await;
+    t.said("nudged", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    let missed: Vec<_> = t
+        .relaunches(mark)
+        .into_iter()
+        .filter_map(|e| match e {
+            Entry::NoIdleWait { node } => node.id,
+            _ => None,
+        })
+        .collect();
+    assert_eq!(missed, [woken, nudged]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unseen_old_turn_keeps_the_watch_of_a_newer_turn() {
+    let t = fixture();
+    let prompted = t.cursor("prompted");
+    let followed = t.cursor("followed");
+    for node in [prompted, followed] {
+        t.heard(node, "g1");
+    }
+    t.stop_hook("prompted", "g1").await;
+    t.prompt(prompted, "g3");
+    t.stop_hook("followed", "g1").await;
+    let mark = t.mark();
+    t.said("prompted", Some("g3")).await;
+    t.said("followed", Some("g3")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    for token in ["prompted", "followed"] {
+        t.said(token, Some("g2")).await;
+        t.stop_hook(token, "g2").await;
+    }
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let missed: Vec<_> = t
+        .relaunches(mark)
+        .into_iter()
+        .filter_map(|e| match e {
+            Entry::NoIdleWait { node } => node.id,
+            _ => None,
+        })
+        .collect();
+    assert_eq!(missed, [prompted, followed]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_draft_holds_every_turn_until_the_human_submits() {
+    let t = fixture();
+    let node = t.cursor("drafting");
+    t.heard(node, "g1");
+    t.stop_hook("drafting", "g1").await;
+    human_typed(&t.app, node);
+    t.tool_hook("drafting", "g2").await;
+    let mark = t.mark();
+    t.said("drafting", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    assert_eq!(
+        t.relaunches(mark),
+        [],
+        "the draft is still in the input box"
+    );
+
+    t.stop_hook("drafting", "g2").await;
+    t.prompt(node, "g3");
+    t.said("drafting", Some("g3")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_late_idle_request_keeps_the_typing_of_a_newer_turn() {
+    let t = fixture();
+    let node = t.cursor("drafting");
+    t.heard(node, "g1");
+    t.stop_hook("drafting", "g1").await;
+    t.prompt(node, "g2");
+    human_typed(&t.app, node);
+    t.idle_request("drafting", "g1").await;
+    let mark = t.mark();
+    t.said("drafting", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    assert_eq!(t.relaunches(mark), []);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_that_something_answered_relaunches_nothing() {
+    let t = fixture();
+    let late = t.cursor("late");
+    let newer = t.cursor("newer");
+    let typed = t.cursor("typed");
+    let drafted = t.cursor("drafted");
+    let unchecked = t.cursor("unchecked");
+    let exited = t.cursor("exited");
+    let plain = t.cursor("plain");
+    let moved = t.cursor("moved");
+    let working = t.cursor("working");
+    for node in [
+        late, newer, typed, drafted, unchecked, exited, plain, moved, working,
+    ] {
+        t.heard(node, "g1");
+    }
+    let mark = t.mark();
+
+    t.stop_hook("late", "g1").await;
+    t.app.idle.open(late).finish(IdleEnd::Mail);
+    t.said("late", Some("g1")).await;
+
+    t.prompt(newer, "g2");
+    t.said("newer", Some("g1")).await;
+
+    t.said("typed", Some("g1")).await;
+
+    human_typed(&t.app, drafted);
+    t.said("drafted", Some("g1")).await;
+
+    t.idle_request("unchecked", "g1").await;
+    t.said("unchecked", Some("g1")).await;
+
+    t.app.graph.exited(exited, 0).unwrap();
+    t.app.idle.end(exited, IdleEnd::Exit);
+    t.said("exited", Some("g1")).await;
+
+    t.said("plain", None).await;
+
+    t.said("moved", Some("g1")).await;
+
+    t.stop_hook("working", "g1").await;
+    t.prompt(working, "g3");
+    t.said("working", Some("g2")).await;
+
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    human_typed(&t.app, typed);
+    t.prompt(moved, "g2");
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    assert_eq!(t.relaunches(mark), []);
+    assert!(t.app.busy(newer), "the newer turn still runs");
+    assert!(t.app.busy(working), "an unseen old turn does not end g3");
+}
+
 #[tokio::test]
 async fn a_question_box_turn_with_a_loom_ask_is_not_asked_again() {
     let t = fixture();

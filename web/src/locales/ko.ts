@@ -51,6 +51,7 @@ const ko: typeof en = {
     minimap: '미니맵',
     minimapFold: '미니맵 접기',
     minimapUnfold: '미니맵 펴기',
+    hop: '{{from}} → {{to}} · {{n}}',
     messageTo: '{{n}} 메시지 → {{name}}',
   },
   find: {

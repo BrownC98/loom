@@ -1,7 +1,7 @@
 import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, Trash2, Workflow } from 'lucide-react';
 import { Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyNodeChanges, Handle, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
+import { applyNodeChanges, Handle, MarkerType, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putArranged, putSizes, putSpots, removeNode } from './api';
 import { agentLabel, canResume, recentAgent } from './catalog';
 import type { AccountView } from './gen/AccountView';
@@ -19,7 +19,8 @@ import type { WslPlace } from './gen/WslPlace';
 import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
-import { HopEdge } from './HopEdge';
+import { HopEdge, hopLabelSize, type HopEdgeType } from './HopEdge';
+import { HOP_LANES, siblingLanes, type HopPair } from './hopLanes';
 import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { PlaceTag, shownPath } from './place';
@@ -450,7 +451,7 @@ export type Lit = { keys: ReadonlySet<string>; current: string | null };
 
 export type Pulse = Readonly<Record<Toward, number>>;
 
-export type Hop = Readonly<{ source: NodeId; target: NodeId; counts: Readonly<Record<'source' | 'target', number>> }>;
+export type Hop = Readonly<{ source: NodeId; target: NodeId; color: number; counts: Readonly<Record<'source' | 'target', number>> }>;
 
 export type GraphHandle = { neighbor: (from: NodeId, dir: Direction) => NodeId | null; arrange: () => void; hasSizes: () => boolean; resetSizes: () => void };
 
@@ -895,10 +896,48 @@ export function Graph(props: {
     ];
   });
 
-  const hopEdges: Edge[] = [...props.hops].flatMap(([key, hop]) => {
+  const boxOf = (id: NodeId): Box | null => {
+    const at = positions.get(id);
+    return at ? { at, size: size(id) } : null;
+  };
+  const hopName = (id: NodeId) => props.views.get(id)?.name ?? `#${id}`;
+  const hopLabel = (hop: Hop) =>
+    (['source', 'target'] as const)
+      .filter((end) => hop.counts[end] > 0)
+      .map((end) => t('graph.hop', { from: hopName(hop[end === 'target' ? 'source' : 'target']), to: hopName(hop[end]), n: hop.counts[end] }))
+      .join(' / ');
+  const hopShort = (hop: Hop) =>
+    (['source', 'target'] as const)
+      .filter((end) => hop.counts[end] > 0)
+      .map((end) => String(hop.counts[end]))
+      .join(' / ');
+  const roomOf = (id: NodeId, parent: NodeId, box: Box): Box => {
+    const worktree = props.views.get(id)?.place.worktree;
+    if (!worktree || worktree === props.views.get(parent)?.place.worktree) return box;
+    const inset = insetOf(worktree);
+    return { at: { x: box.at.x - inset.side, y: box.at.y - inset.top }, size: { width: box.size.width + 2 * inset.side, height: box.size.height + inset.top + inset.side } };
+  };
+  const siblingPairs = new Map<NodeId, HopPair[]>();
+  for (const [key, hop] of props.hops) {
+    const parent = props.views.get(hop.source)?.parent ?? null;
+    const source = boxOf(hop.source);
+    const target = boxOf(hop.target);
+    if (parent === null || parent !== props.views.get(hop.target)?.parent || !source || !target) continue;
+    const end = (id: NodeId, box: Box) => ({ id, box, room: roomOf(id, parent, box) });
+    siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: end(hop.source, source), target: end(hop.target, target), label: { full: hopLabelSize(hopLabel(hop)), short: hopLabelSize(hopShort(hop)) } }]);
+  }
+  const routes = new Map([...siblingPairs].flatMap(([parent, pairs]) => {
+    const box = boxOf(parent);
+    return box ? [...siblingLanes(box, pairs, direction)] : [];
+  }));
+  const hopEdges: HopEdgeType[] = [...props.hops].flatMap(([key, hop]) => {
     if (!props.views.has(hop.source) || !props.views.has(hop.target)) return [];
     const receivers = (['source', 'target'] as const).filter((end) => hop.counts[end] > 0);
     const flow = receivers.length === 1 ? (receivers[0] === 'target' ? 'to-child' : 'to-parent') : undefined;
+    const route = routes.get(key) ?? null;
+    const lane = HOP_LANES[hop.color % HOP_LANES.length];
+    const color = `var(--lane-${lane})`;
+    const arrow = (end: 'source' | 'target') => (hop.counts[end] > 0 ? { type: MarkerType.ArrowClosed, color, width: 12, height: 12, markerUnits: 'userSpaceOnUse' } : undefined);
     return [
       {
         id: `hop-${key}`,
@@ -907,10 +946,12 @@ export function Graph(props: {
         target: String(hop.target),
         sourceHandle: 'top',
         targetHandle: 'top',
-        className: ['live', flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
+        data: { route, title: hopLabel(hop) },
+        markerStart: arrow('source'),
+        markerEnd: arrow('target'),
+        className: ['live', `hop-c${lane}`, flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
         zIndex: RAISED_EDGE_Z,
-        label: receivers.map((end) => t('graph.messageTo', { name: props.views.get(hop[end])?.name ?? `#${hop[end]}`, n: hop.counts[end] })).join(' · '),
-        labelBgPadding: [8, 2],
+        label: !route ? hopLabel(hop) : route.label === null ? undefined : route.label.short ? hopShort(hop) : hopLabel(hop),
         labelBgBorderRadius: 10,
         focusable: false,
       },

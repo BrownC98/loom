@@ -26,6 +26,7 @@ import { findSpots } from './findSpots';
 import { isTauri } from '@tauri-apps/api/core';
 import { exit } from '@tauri-apps/plugin-process';
 import { applySettingsPatch, settingsPatch, type SettingsPatch } from './settingsPatch';
+import { pickColor } from './hopLanes';
 import { flowId, Graph, type GraphHandle, type Hop, type Lit, type Pulse } from './Graph';
 import { chosenRepo } from './repos';
 import { applyLanguage, INITIAL_LANGUAGE } from './i18n';
@@ -350,8 +351,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const flash = <K, V>(set: Dispatch<SetStateAction<ReadonlyMap<K, V>>>, timers: Map<K, number>, key: K, bump: (prev: V | undefined) => V) => {
-      set((prev) => new Map(prev).set(key, bump(prev.get(key))));
+    const flash = <K, V>(set: Dispatch<SetStateAction<ReadonlyMap<K, V>>>, timers: Map<K, number>, key: K, bump: (prev: V | undefined, shown: ReadonlyMap<K, V>) => V) => {
+      set((prev) => new Map(prev).set(key, bump(prev.get(key), prev)));
       clearTimeout(timers.get(key));
       const timer = window.setTimeout(() => {
         set((prev) => {
@@ -370,9 +371,10 @@ export function App() {
     const hop = (from: NodeId, to: NodeId) => {
       const [source, target] = from < to ? [from, to] : [to, from];
       const toward = to === target ? 'target' : 'source';
-      flash(setHops, hopTimers.current, `${source}-${target}`, (prev) => {
+      flash(setHops, hopTimers.current, `${source}-${target}`, (prev, shown) => {
         const counts = prev?.counts ?? { source: 0, target: 0 };
-        return { source, target, counts: { ...counts, [toward]: counts[toward] + 1 } };
+        const color = prev?.color ?? pickColor([...shown.values()].map((hop) => hop.color));
+        return { source, target, color, counts: { ...counts, [toward]: counts[toward] + 1 } };
       });
     };
     return watchGraph((event) => {

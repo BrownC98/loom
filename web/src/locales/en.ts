@@ -49,6 +49,7 @@ const en = {
     minimap: 'Minimap',
     minimapFold: 'Fold minimap',
     minimapUnfold: 'Unfold minimap',
+    hop: '{{from}} → {{to}} · {{n}}',
     messageTo: '{{n}} msg → {{name}}',
   },
   find: {

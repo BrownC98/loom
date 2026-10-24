@@ -174,7 +174,7 @@ export function Tree(props: {
     editing: renaming === key,
     open: () => setRenaming(key),
     close: () => {
-      setRenaming(null);
+      setRenaming((k) => (k === key ? null : k));
       returnFocus(() => rowOf(key));
     },
   });

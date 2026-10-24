@@ -62,7 +62,7 @@ Details (Korean): [docs/design.md 「내장 스킬」](docs/design.md#내장-스
 Get the files from the [latest release](https://github.com/BrownC98/loom/releases/latest).
 
 - **Windows:** run `loom_<version>_x64-setup.exe`. To remove loom, use Windows **Settings › Apps**.
-- **macOS (Apple Silicon):** run this line in Terminal. It downloads the loom app, puts it in the Applications folder and opens it. To update, run it again.
+- **macOS (Apple Silicon):** run this line in Terminal. It downloads the loom app, puts it in the Applications folder and opens it. To update, run it again. A Mac that used the web version changes to the app: the `loom` command and the old icon call the loom in the app.
 
   ```sh
   curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh

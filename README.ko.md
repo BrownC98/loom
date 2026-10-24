@@ -62,7 +62,7 @@ loom은 스킬 다섯 개를 싣습니다: `o-mode`(orchestration mode), `ste-10
 [가장 새 릴리스](https://github.com/BrownC98/loom/releases/latest)에서 받습니다.
 
 - **Windows:** `loom_<판>_x64-setup.exe`를 실행합니다. 지울 때는 Windows **설정 › 앱**을 씁니다.
-- **macOS(Apple Silicon):** 터미널에서 아래 한 줄을 실행합니다. loom 앱을 받아 응용 프로그램 폴더에 넣고 엽니다. 다시 실행하면 새 판으로 바꿉니다.
+- **macOS(Apple Silicon):** 터미널에서 아래 한 줄을 실행합니다. loom 앱을 받아 응용 프로그램 폴더에 넣고 엽니다. 다시 실행하면 새 판으로 바꿉니다. 웹 버전을 쓰던 Mac은 앱으로 바뀝니다. `loom` 명령과 옛 아이콘은 앱에 든 loom을 부릅니다.
 
   ```sh
   curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh

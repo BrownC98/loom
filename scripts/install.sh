@@ -5,21 +5,27 @@ bin=$HOME/loom/bin/loom
 port=${LOOM_PORT:-7420}
 raw=https://raw.githubusercontent.com/BrownC98/loom/main
 
+stop_web_install() {
+  [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ] || return 1
+  "$bin" stop --listen "127.0.0.1:$port"
+}
+
+point_bin_to() {
+  mkdir -p "$(dirname "$bin")"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$1" >"$bin.new"
+  chmod +x "$bin.new"
+  mv "$bin.new" "$bin"
+  echo "loom 명령이 $1을 부릅니다: $bin"
+}
+
 if [ -n "${WSL_DISTRO_NAME:-}" ]; then
   carry=
-  if [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]; then
-    "$bin" stop --listen "127.0.0.1:$port"
-    carry=$HOME/.loom
-  fi
+  if stop_web_install; then carry=$HOME/.loom; fi
   rm -f "$HOME/.loom/serve.pid"
   export WSLENV="${WSLENV:+$WSLENV:}LOOM_DOWNLOAD_URL:LOOM_DESKTOP/p"
   (cd /mnt/c && powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; irm $raw/scripts/install.ps1 | iex")
   exe=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/loom/bin/loom.exe
-  mkdir -p "$(dirname "$bin")"
-  printf '#!/bin/sh\nexec "%s" "$@"\n' "$exe" >"$bin.new"
-  chmod +x "$bin.new"
-  mv "$bin.new" "$bin"
-  echo "WSL의 loom 명령이 Windows loom을 부릅니다: $bin"
+  point_bin_to "$exe"
   if [ -n "$carry" ]; then "$bin" carry "$carry"; fi
   exit 0
 fi
@@ -33,6 +39,10 @@ if [ "$(uname -s)" = Darwin ]; then
   url=${LOOM_DOWNLOAD_URL:-}
   if [ -z "$url" ]; then
     version=$(curl -fsSL "$releases/latest/download/latest.json" | sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p')
+    if [ -z "$version" ]; then
+      echo "가장 새 판을 찾지 못했습니다: $releases/latest/download/latest.json" >&2
+      exit 1
+    fi
     url=$releases/download/v$version/loom_${version}_aarch64.app.tar.gz
   fi
   dir=/Applications
@@ -44,10 +54,10 @@ if [ "$(uname -s)" = Darwin ]; then
   tar -xzf "$tmp/loom.app.tar.gz" -C "$tmp"
   xattr -cr "$tmp/loom.app"
   quit_for=10
-  if pgrep -qx loom-app; then
-    osascript -e 'tell application id "io.github.brownc98.loom" to quit'
+  me=$(id -u)
+  if pkill -xu "$me" loom-app; then
     deadline=$(($(date +%s) + quit_for))
-    while pgrep -qx loom-app; do
+    while pgrep -qxu "$me" loom-app; do
       if [ "$(date +%s)" -ge "$deadline" ]; then
         echo "loom 앱이 끝나지 않았습니다. ⌘Q로 앱을 끝내고 다시 실행합니다." >&2
         exit 1
@@ -56,8 +66,21 @@ if [ "$(uname -s)" = Darwin ]; then
     done
   fi
   if [ -e "$dir/loom.app" ]; then mv "$dir/loom.app" "$tmp/old.app"; fi
-  mv "$tmp/loom.app" "$dir/loom.app"
+  if ! mv "$tmp/loom.app" "$dir/loom.app"; then
+    if [ -e "$tmp/old.app" ] && ! mv "$tmp/old.app" "$dir/loom.app"; then
+      trap - EXIT
+      echo "옛 loom 앱을 되돌리지 못했습니다. 옛 앱은 여기에 있습니다: $tmp/old.app" >&2
+    fi
+    exit 1
+  fi
   echo "loom 앱을 설치했습니다: $dir/loom.app"
+  exe=$dir/loom.app/Contents/MacOS/loom
+  if stop_web_install; then point_bin_to "$exe"; fi
+  launcher="$HOME/Applications/loom (browser).command"
+  mkdir -p "$HOME/Applications"
+  printf '#!/bin/sh\nexec "%s" open\n' "$exe" >"$launcher"
+  chmod +x "$launcher"
+  echo "브라우저로 여는 loom을 만들었습니다: $launcher"
   open "$dir/loom.app"
   exit 0
 fi

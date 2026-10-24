@@ -16,7 +16,7 @@ fn open(path: &Path) -> Graph {
             [],
         )
         .unwrap();
-    Graph::open(db).unwrap()
+    Graph::open(db, crate::profile::linked).unwrap()
 }
 
 fn home() -> Place {

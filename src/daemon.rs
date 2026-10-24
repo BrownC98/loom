@@ -327,7 +327,9 @@ impl App {
         codex_version: Option<&str>,
     ) -> std::io::Result<App> {
         let repos = Repos::new(database.clone());
-        let graph = Arc::new(Graph::open(database.clone()).map_err(std::io::Error::other)?);
+        let graph = Arc::new(
+            Graph::open(database.clone(), profile::linked).map_err(std::io::Error::other)?,
+        );
         let pty_dir = db_path.with_file_name("pty");
         let update = Arc::new(Updater::new(listen, {
             let graph = graph.clone();
@@ -339,7 +341,7 @@ impl App {
             repos,
             host: NodeHost::new(pty_dir.join("nodes")),
             graph,
-            settings: Settings::new(database.clone()),
+            settings: Settings::new(database.clone(), profile::check_choice),
             devices: devices.clone(),
             port: listen.port(),
             door: lan::Door::new(

@@ -601,7 +601,10 @@ impl Graph {
         for (id, _, agent) in &seated {
             let (peers, kind) = match *id == node {
                 true => (peers_of(&db, &names, node, &branch)?, Kind::Queue),
-                false => (peers_of(&db, &newcomer, *id, &branch)?, steer_kind(agent)),
+                false => (
+                    peers_of(&db, &newcomer, *id, &branch)?,
+                    steer_kind(self.linked, agent),
+                ),
             };
             let body = protocol::peers_step(&branch, &peers);
             mailbox::enqueue_from_loom(&db, *id, kind, &MessageKind::Note, &body, None)?;
@@ -748,7 +751,7 @@ impl Graph {
             }
         }
         if withdrawn(from, to) {
-            sent.extend(withdraw(&tx, caller, &row, branch, &trace)?);
+            sent.extend(withdraw(&tx, caller, &row, branch, &trace, self.linked)?);
         }
         tx.commit()?;
         for to_node in sent {
@@ -824,6 +827,7 @@ fn withdraw(
     row: &Row,
     branch: &str,
     trace: &GateTrace,
+    linked: fn(&AgentId) -> bool,
 ) -> rusqlite::Result<Vec<NodeId>> {
     let reviewers: Vec<(NodeId, String, Option<AgentId>)> = tx
         .prepare(&format!(
@@ -850,7 +854,7 @@ fn withdraw(
         mailbox::enqueue_from_loom(
             tx,
             *node,
-            steer_kind(agent),
+            steer_kind(linked, agent),
             &what,
             &body,
             Some(trace.clone()),
@@ -859,10 +863,10 @@ fn withdraw(
     Ok(reviewers.into_iter().map(|(node, ..)| node).collect())
 }
 
-fn steer_kind(agent: &Option<AgentId>) -> Kind {
-    match agent.as_ref().and_then(crate::profile::profile_of) {
-        Some(_) => Kind::Steer,
-        None => Kind::Queue,
+fn steer_kind(linked: fn(&AgentId) -> bool, agent: &Option<AgentId>) -> Kind {
+    match agent.as_ref().is_some_and(linked) {
+        true => Kind::Steer,
+        false => Kind::Queue,
     }
 }
 

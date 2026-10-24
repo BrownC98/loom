@@ -8,7 +8,7 @@ use crate::accounts::AccountId;
 use crate::db::Database;
 use crate::profile::Provider;
 use crate::protocol::{AgentId, TreeLimits, WaitId};
-use crate::roles::{RoleProblem, Roles, SetRole};
+use crate::roles::{ChoiceCheck, RoleProblem, Roles, SetRole};
 use crate::skills::AlwaysOn;
 use crate::worktree::RepoId;
 
@@ -345,11 +345,12 @@ impl SettingsView {
 
 pub struct Settings {
     db: Database,
+    check: ChoiceCheck,
 }
 
 impl Settings {
-    pub fn new(db: Database) -> Self {
-        Self { db }
+    pub fn new(db: Database, check: ChoiceCheck) -> Self {
+        Self { db, check }
     }
 
     pub fn get(&self) -> rusqlite::Result<SettingsView> {
@@ -359,15 +360,15 @@ impl Settings {
     pub fn patch(&self, patch: &serde_json::Value) -> Result<SettingsView, PatchProblem> {
         self.write(|_, value| {
             merge(value, patch);
-            checked(value).map_err(PatchProblem::Shape)
+            checked(value, self.check).map_err(PatchProblem::Shape)
         })
     }
 
-    pub fn set_role(&self, set: &SetRole) -> Result<Roles, SetRoleProblem> {
+    pub fn set_role(&self, set: &SetRole, known: ChoiceCheck) -> Result<Roles, SetRoleProblem> {
         self.write(|view, value| {
-            let next = view.roles.with(set).map_err(SetRoleProblem::Role)?;
+            let next = view.roles.with(set, known).map_err(SetRoleProblem::Role)?;
             merge(value, &serde_json::json!({ "roles": next }));
-            checked(value).map_err(SetRoleProblem::Shape)
+            checked(value, self.check).map_err(SetRoleProblem::Shape)
         })
         .map(|view| view.roles)
     }
@@ -415,11 +416,11 @@ fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> 
     Ok((view, value))
 }
 
-fn checked(value: &serde_json::Value) -> Result<SettingsView, String> {
+fn checked(value: &serde_json::Value, check: ChoiceCheck) -> Result<SettingsView, String> {
     let view: SettingsView = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
     let problem = view
         .roles
-        .launch_problem()
+        .launch_problem(check)
         .or_else(|| view.pill_place.and_then(|p| p.problem()));
     match problem {
         Some(problem) => Err(problem),
@@ -479,7 +480,10 @@ mod tests {
     #[test]
     fn put_then_get() {
         let tmp = tempfile::tempdir().unwrap();
-        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let settings = Settings::new(
+            crate::db::open(&tmp.path().join("t.db")).unwrap(),
+            crate::profile::check_choice,
+        );
         assert!(settings.get().unwrap().bypass_off.is_empty());
         let view = SettingsView {
             bypass_off: vec![AgentId("codex".into())],
@@ -499,7 +503,9 @@ mod tests {
                 [r#"{"bypassOff":["codex"],"claudeAccount":null,"codexAccount":null}"#],
             )
             .unwrap();
-        let got = Settings::new(db).get().unwrap();
+        let got = Settings::new(db, crate::profile::check_choice)
+            .get()
+            .unwrap();
         assert_eq!(got.bypass_off, [AgentId("codex".into())]);
         assert_eq!(got.theme, Theme::System);
         assert_eq!(got.terminal_theme, TerminalTheme::default());
@@ -548,7 +554,10 @@ mod tests {
     #[test]
     fn view_state_round_trips() {
         let tmp = tempfile::tempdir().unwrap();
-        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let settings = Settings::new(
+            crate::db::open(&tmp.path().join("t.db")).unwrap(),
+            crate::profile::check_choice,
+        );
         let view = SettingsView {
             arrange_direction: ArrangeDirection::Left,
             always_arrange: true,
@@ -583,7 +592,10 @@ mod tests {
     #[test]
     fn partial_writes_of_different_fields_both_stay() {
         let tmp = tempfile::tempdir().unwrap();
-        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let settings = Settings::new(
+            crate::db::open(&tmp.path().join("t.db")).unwrap(),
+            crate::profile::check_choice,
+        );
         settings
             .patch(&serde_json::json!({"minimapFolded": true, "paneWidths": {"side": 300}}))
             .unwrap();
@@ -609,7 +621,10 @@ mod tests {
     #[test]
     fn pill_place_out_of_range_is_refused_and_row_stays() {
         let tmp = tempfile::tempdir().unwrap();
-        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let settings = Settings::new(
+            crate::db::open(&tmp.path().join("t.db")).unwrap(),
+            crate::profile::check_choice,
+        );
         settings
             .patch(&serde_json::json!({"osNotify": true, "pillPlace": {"x": 0.5, "y": 0.5}}))
             .unwrap();
@@ -626,7 +641,10 @@ mod tests {
     #[test]
     fn roles_default_replace_refuse_and_reset() {
         let tmp = tempfile::tempdir().unwrap();
-        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let settings = Settings::new(
+            crate::db::open(&tmp.path().join("t.db")).unwrap(),
+            crate::profile::check_choice,
+        );
         assert_eq!(settings.get().unwrap().roles, Roles::default());
         let one = serde_json::json!([{"name": "조사", "duty": "읽기만", "agent": "codex", "model": null, "effort": "high"}]);
         let got = settings.patch(&serde_json::json!({"roles": one})).unwrap();
@@ -657,7 +675,10 @@ mod tests {
     #[test]
     fn wrong_shape_is_refused_and_not_written() {
         let tmp = tempfile::tempdir().unwrap();
-        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let settings = Settings::new(
+            crate::db::open(&tmp.path().join("t.db")).unwrap(),
+            crate::profile::check_choice,
+        );
         settings
             .patch(&serde_json::json!({"minimapFolded": true}))
             .unwrap();
@@ -671,7 +692,10 @@ mod tests {
     #[test]
     fn colors_take_only_hex_and_null_resets() {
         let tmp = tempfile::tempdir().unwrap();
-        let settings = Settings::new(crate::db::open(&tmp.path().join("t.db")).unwrap());
+        let settings = Settings::new(
+            crate::db::open(&tmp.path().join("t.db")).unwrap(),
+            crate::profile::check_choice,
+        );
         let hex = |h: &str| Some(HexColor(h.into()));
         let got = settings
             .patch(
@@ -727,7 +751,7 @@ mod tests {
                 [r##"{"colors": {"warn": "#8b5cf6"}}"##],
             )
             .unwrap();
-        let settings = Settings::new(db);
+        let settings = Settings::new(db, crate::profile::check_choice);
         let both = Some(HexColor("#8b5cf6".into()));
         assert_eq!(
             settings.get().unwrap().colors.warn,

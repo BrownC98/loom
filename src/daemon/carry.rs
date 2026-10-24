@@ -141,7 +141,7 @@ fn to_windows(old: &db::Database, at: &WslPath) -> rusqlite::Result<()> {
         }
     }
     let distro = at.distro.clone();
-    Settings::new(old.clone()).update(|view| {
+    Settings::new(old.clone(), crate::profile::check_choice).update(|view| {
         if let Some(dir) = view.workspace_dir.take_if(|d| d.starts_with('/')) {
             view.wsl_workspace_dirs.entry(distro.clone()).or_insert(dir);
         }

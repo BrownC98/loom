@@ -655,7 +655,10 @@ mod tests {
         assert_eq!(added.agent, Some(crate::protocol::AgentId("cursor".into())));
         assert_eq!(added.model.as_deref(), Some("claude-opus-5-5"));
         assert_eq!(added.effort.as_deref(), Some("high"));
-        assert_eq!(view.roles.launch_problem(), None);
+        assert_eq!(
+            view.roles.launch_problem(crate::profile::check_choice),
+            None
+        );
         let reason: String = conn
             .query_row("SELECT entry ->> '$.reason' FROM events", [], |row| {
                 row.get(0)

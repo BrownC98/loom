@@ -232,7 +232,7 @@ mod tests {
         db.lock()
             .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
             .unwrap();
-        let graph = Graph::open(db).unwrap();
+        let graph = Graph::open(db, crate::profile::linked).unwrap();
         let place = Place {
             repo: RepoId(1),
             worktree: "/repo".into(),
@@ -376,7 +376,7 @@ mod tests {
                 .unwrap();
             let host = NodeHost::new(dir.path().join("hosts"));
             Dialogs {
-                graph: Graph::open(db).unwrap(),
+                graph: Graph::open(db, crate::profile::linked).unwrap(),
                 host,
                 dir,
                 count: 0,

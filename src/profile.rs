@@ -306,6 +306,10 @@ pub fn profile_of(id: &AgentId) -> Option<Profile> {
     find(id).and_then(|a| a.profile)
 }
 
+pub fn linked(id: &AgentId) -> bool {
+    profile_of(id).is_some()
+}
+
 #[derive(Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]

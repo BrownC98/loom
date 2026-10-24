@@ -153,6 +153,7 @@ pub struct Graph {
     events: broadcast::Sender<GraphEvent>,
     mail: Notify,
     prompts: Mutex<HashMap<NodeId, Prompt>>,
+    linked: fn(&AgentId) -> bool,
 }
 
 pub(super) const REACHABLE: &str = "(process_exited = 0 OR asleep = 1)";
@@ -200,7 +201,7 @@ impl Drop for Db<'_> {
 }
 
 impl Graph {
-    pub fn open(db: Database) -> rusqlite::Result<Self> {
+    pub fn open(db: Database, linked: fn(&AgentId) -> bool) -> rusqlite::Result<Self> {
         let published = events::last_id(&db.lock())?;
         Ok(Self {
             db,
@@ -208,6 +209,7 @@ impl Graph {
             events: broadcast::channel(EVENT_QUEUE).0,
             mail: Notify::new(),
             prompts: Mutex::default(),
+            linked,
         })
     }
 

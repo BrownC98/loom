@@ -419,11 +419,7 @@ impl Graph {
             })
             .optional()?
             .flatten();
-        if agent
-            .as_ref()
-            .and_then(crate::profile::profile_of)
-            .is_none()
-        {
+        if !agent.as_ref().is_some_and(self.linked) {
             let notices: Vec<MessageId> = db
                 .prepare(
                     "SELECT id, sender_name, kind, body, what FROM messages

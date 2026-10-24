@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::{check_choice, check_known_choice};
 use crate::protocol::{AgentId, LaunchError, ModelChoice};
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -87,6 +86,8 @@ impl Default for Roles {
     }
 }
 
+pub type ChoiceCheck = fn(&AgentId, &ModelChoice) -> Result<(), LaunchError>;
+
 pub const HIGH_RISK_WORKER: &str = "고위험 워커";
 pub const HIGH_RISK_DUTY: &str = "저장 형식, 인증, 동시성, 데이터 손실 경로, 여러 모듈의 계약을 바꾸는 편집 범위의 구현과 검증. 다시 위임하지 않는다";
 
@@ -132,12 +133,12 @@ impl std::fmt::Display for RoleProblem {
 }
 
 impl Roles {
-    pub fn with(&self, set: &SetRole) -> Result<Roles, RoleProblem> {
+    pub fn with(&self, set: &SetRole, check: ChoiceCheck) -> Result<Roles, RoleProblem> {
         let choice = ModelChoice {
             model: set.model.clone().filter(|v| !v.trim().is_empty()),
             effort: set.effort.clone().filter(|v| !v.trim().is_empty()),
         };
-        check_known_choice(&set.agent, &choice).map_err(RoleProblem::Launch)?;
+        check(&set.agent, &choice).map_err(RoleProblem::Launch)?;
         let name = set.role.trim();
         let mut next = self.clone();
         let role =
@@ -154,14 +155,14 @@ impl Roles {
         Ok(next)
     }
 
-    pub fn launch_problem(&self) -> Option<String> {
+    pub fn launch_problem(&self, check: ChoiceCheck) -> Option<String> {
         self.0.iter().find_map(|role| {
             let agent = role.agent.as_ref()?;
             let choice = ModelChoice {
                 model: role.model.clone(),
                 effort: role.effort.clone(),
             };
-            check_choice(agent, &choice).is_err().then(|| {
+            check(agent, &choice).is_err().then(|| {
                 format!(
                     "역할 '{}': 이 에이전트는 이 모델·추론 강도를 받지 않는다. Cursor는 추론 강도만 줄 수 없다. 모델을 준다.",
                     role.name
@@ -211,6 +212,7 @@ impl Role {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::profile::check_choice;
 
     fn choice(model: Option<&str>, effort: Option<&str>) -> ModelChoice {
         ModelChoice {
@@ -287,14 +289,14 @@ mod tests {
                 {"name": "a", "duty": "", "agent": "cursor", "model": model, "effort": effort}
             ]))
             .unwrap()
-            .launch_problem()
+            .launch_problem(check_choice)
         };
         assert_eq!(parse(None, None), None);
         assert_eq!(parse(Some("m"), None), None);
         assert_eq!(parse(Some("m"), Some("high")), None);
         let err = parse(None, Some("high")).unwrap();
         assert!(err.contains("Cursor"), "{err}");
-        assert_eq!(Roles::default().launch_problem(), None);
+        assert_eq!(Roles::default().launch_problem(check_choice), None);
         let defaults = serde_json::to_value(Roles::default()).unwrap();
         assert_eq!(
             serde_json::from_value::<Roles>(defaults).unwrap(),

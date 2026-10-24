@@ -34,7 +34,8 @@ mod login {
 
     const READ_LIMIT: Duration = Duration::from_secs(3);
     const REUSE_FOR: Duration = Duration::from_secs(2);
-    const MARK: &str = "loom-path:";
+    const MARK: &str = "\u{1e}loom-path:";
+    const END: u8 = 0x1e;
 
     static LAST: Mutex<Option<(Instant, Option<OsString>)>> = Mutex::new(None);
 
@@ -53,13 +54,14 @@ mod login {
 
     pub(super) fn read(shell: &OsStr, limit: Duration) -> Option<OsString> {
         let mut cmd = std::process::Command::new(shell);
-        cmd.args(["-ilc", &format!("printf '{MARK}%s' \"$PATH\"")]);
+        cmd.args(["-ilc", &format!("printf '{MARK}%s\\036' \"$PATH\"")]);
         let out = crate::timed::output(cmd, limit)?;
         let start = out
             .windows(MARK.len())
             .rposition(|w| w == MARK.as_bytes())?
             + MARK.len();
-        Some(OsString::from_vec(out[start..].to_vec())).filter(|p| !p.is_empty())
+        let len = out[start..].iter().position(|&b| b == END)?;
+        Some(OsString::from_vec(out[start..start + len].to_vec())).filter(|p| !p.is_empty())
     }
 }
 
@@ -222,7 +224,7 @@ mod unix_tests {
         let shell = dir.path().join("shell");
         crate::fake_exe::write_executable(
             &shell,
-            "#!/bin/sh\n[ \"$1\" = -ilc ] || exit 44\necho 'loom-path:rc noise'\nPATH=/new/bin:/usr/bin\nexec /bin/sh -c \"$2\"\n",
+            "#!/bin/sh\n[ \"$1\" = -ilc ] || exit 44\necho 'loom-path:rc noise'\ntrap 'printf logout-noise' EXIT\nPATH=/new/bin:/usr/bin\n/bin/sh -c \"$2\"\n",
         );
         assert_eq!(
             login::read(shell.as_os_str(), LIMIT),
@@ -242,6 +244,31 @@ mod unix_tests {
         let start = Instant::now();
         assert_eq!(login::read(shell.as_os_str(), Duration::from_secs(1)), None);
         assert!(start.elapsed() < LIMIT);
+    }
+
+    #[test]
+    fn a_login_shell_that_waits_for_its_child_is_ended_with_the_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = dir.path().join("shell");
+        let pid_file = dir.path().join("child");
+        crate::fake_exe::write_executable(
+            &shell,
+            &format!(
+                "#!/bin/sh\n/bin/sleep 30 &\necho $! > {}\nwait\n",
+                pid_file.display()
+            ),
+        );
+        assert_eq!(login::read(shell.as_os_str(), Duration::from_secs(1)), None);
+        let child: i32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let deadline = Instant::now() + LIMIT;
+        while unsafe { libc::kill(child, 0) } == 0 {
+            assert!(Instant::now() < deadline, "child {child} still runs");
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     #[test]

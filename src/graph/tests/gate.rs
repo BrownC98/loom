@@ -416,17 +416,45 @@ fn a_pass_waits_for_every_live_reviewer_of_the_round() {
         ["x"],
         "first judged b in round 1 and has not judged round 2"
     );
-    g.verdict(first, "x", Judgment::Pass, None, Some(&via()))
-        .unwrap();
-    assert_eq!(
-        names(g.queue(repo, "main").unwrap()),
-        ["x"],
-        "a verdict on another branch does not end a reused reviewer's round"
+    assert!(
+        matches!(
+            g.verdict(first, "x", Judgment::Pass, None, Some(&via())),
+            Err(Refusal::OneBranch { .. })
+        ),
+        "a reviewer of b cannot judge x"
     );
     g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
         .unwrap();
     assert_eq!(g.queued_targets().unwrap(), [(repo, "main".to_owned())]);
     assert_eq!(names(g.queue(repo, "main").unwrap()), ["x", "b"]);
+}
+
+#[test]
+fn a_reviewer_spawned_for_another_branch_stops_holding_once_it_judges_that_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "solo", "first");
+    g.ready(t.solo, &round("x", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let other = reviewer(&g, t.solo, "solo", "other");
+    mail(&g, t.solo);
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert!(g.queue(repo, "main").unwrap().is_empty());
+    assert!(mail(&g, t.solo)[0].contains("until other judge it"));
+    g.verdict(other, "x", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    let names: Vec<String> = g
+        .queue(repo, "main")
+        .unwrap()
+        .into_iter()
+        .map(|q| q.branch)
+        .collect();
+    assert_eq!(names, ["b", "x"]);
 }
 
 #[test]
@@ -549,12 +577,12 @@ fn passes_in_one_second_keep_the_pass_order() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    let r = reviewer(&g, t.solo, "solo", "r");
     for branch in ["a", "b"] {
         g.ready(t.solo, &round(branch, "main"), t.solo, Some(&via()))
             .unwrap();
     }
     for branch in ["b", "a"] {
+        let r = reviewer(&g, t.solo, "solo", &format!("r-{branch}"));
         g.verdict(r, branch, Judgment::Pass, None, Some(&via()))
             .unwrap();
     }
@@ -573,9 +601,9 @@ fn a_stale_batch_keeps_its_members_and_requeue_keeps_the_queue_order() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    let r = reviewer(&g, t.solo, "solo", "r");
     let repo = RepoId(1);
     for branch in ["a", "b"] {
+        let r = reviewer(&g, t.solo, "solo", &format!("r-{branch}"));
         queued(&g, t.solo, t.solo, r, branch, "main");
     }
     let id = g.batch_open(repo, "main", &["a", "b"]).unwrap();

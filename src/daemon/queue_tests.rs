@@ -13,6 +13,26 @@ fn scripts_use_the_exit_codes() {
     }
 }
 
+#[test]
+fn a_queued_worktree_is_read_through_the_repo_location() {
+    let member = Queued {
+        branch: "a".into(),
+        owner: crate::graph::NodeId(1),
+        head: "c0ffee".into(),
+        worktree: "/home/a/wt".into(),
+        since: 0,
+        waited: 0,
+    };
+    let want = match cfg!(windows) {
+        true => "//wsl.localhost/Ubuntu/home/a/wt",
+        false => "/home/a/wt",
+    };
+    assert_eq!(
+        source_of(Path::new(r"\\wsl.localhost\Ubuntu\home\a\repo"), &member),
+        PathBuf::from(want)
+    );
+}
+
 #[cfg(unix)]
 mod git_runs {
     use super::*;
@@ -21,6 +41,8 @@ mod git_runs {
     use crate::protocol::{GateState, Judgment};
     use std::process::Command;
     use std::time::Instant;
+
+    static REVIEWERS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
     fn git(dir: &Path, args: &[&str]) -> String {
         let out = Command::new("git")
@@ -50,7 +72,6 @@ mod git_runs {
         main: PathBuf,
         app: Arc<App>,
         lead: NodeId,
-        reviewer: NodeId,
         lock: String,
     }
 
@@ -119,14 +140,12 @@ mod git_runs {
             .graph
             .add_root(&place, None, None, &launched("lead"), |_| Ok(()))
             .unwrap();
-        let reviewer = child(&app, lead, "reviewer", None);
         let lock = dir.path().join("check.lock").to_string_lossy().into_owned();
         Repo {
             dir,
             main,
             app,
             lead,
-            reviewer,
             lock,
         }
     }
@@ -164,26 +183,24 @@ mod git_runs {
             head
         }
 
-        fn queue(
-            &self,
-            owner: NodeId,
-            gate: NodeId,
-            reviewer: NodeId,
-            branch: &str,
-            head: &str,
-            target: &str,
-        ) {
+        fn queue(&self, owner: NodeId, gate: NodeId, branch: &str, head: &str, target: &str) {
             let round = Round {
                 branch,
                 target,
                 worktree: "/wt",
                 head,
             };
-            self.queue_at(owner, gate, reviewer, &round);
+            self.queue_at(owner, gate, &round);
         }
 
-        fn queue_at(&self, owner: NodeId, gate: NodeId, reviewer: NodeId, round: &Round) {
+        fn queue_at(&self, owner: NodeId, gate: NodeId, round: &Round) {
             self.app.graph.ready(owner, round, gate, None).unwrap();
+            let reviewer = child(
+                &self.app,
+                gate,
+                &format!("reviewer-{}", REVIEWERS.fetch_add(1, Ordering::Relaxed)),
+                None,
+            );
             assert_eq!(
                 self.app
                     .graph
@@ -195,7 +212,7 @@ mod git_runs {
         }
 
         fn queue_main(&self, branch: &str, head: &str) {
-            self.queue(self.lead, self.lead, self.reviewer, branch, head, "main");
+            self.queue(self.lead, self.lead, branch, head, "main");
         }
 
         async fn batch(&self, target: &str) {
@@ -522,7 +539,6 @@ mod git_runs {
             Some(crate::protocol::COORDINATOR_ROLE),
         );
         let worker = child(&r.app, coordinator, "worker", None);
-        let reviewer = child(&r.app, coordinator, "coord-reviewer", None);
         let wt = r.dir.path().join("coord");
         git(
             &r.main,
@@ -530,7 +546,7 @@ mod git_runs {
         );
         let origin = git(&r.main, &["rev-parse", "origin/main"]);
         let a = r.branch("a", "코디", "a.txt", "a");
-        r.queue(worker, coordinator, reviewer, "a", &a, "코디");
+        r.queue(worker, coordinator, "a", &a, "코디");
         r.batch("코디").await;
         assert_eq!(r.state("a"), GateState::Merged);
         assert_eq!(git(&wt, &["rev-parse", "HEAD^2"]), a);
@@ -540,7 +556,7 @@ mod git_runs {
 
         let coord_head = git(&wt, &["rev-parse", "HEAD"]);
         let b = r.branch("b", "코디", "b.txt", "b");
-        r.queue(worker, coordinator, reviewer, "b", &b, "코디");
+        r.queue(worker, coordinator, "b", &b, "코디");
         std::fs::write(wt.join("wip.txt"), "x").unwrap();
         r.batch("코디").await;
         assert_eq!(r.state("b"), GateState::Working);
@@ -686,7 +702,6 @@ mod git_runs {
             Some(crate::protocol::COORDINATOR_ROLE),
         );
         let worker = child(&r.app, coordinator, "worker", None);
-        let reviewer = child(&r.app, coordinator, "coord-reviewer", None);
         let wt = r.dir.path().join("coord");
         git(
             &r.main,
@@ -695,8 +710,8 @@ mod git_runs {
         let base = git(&wt, &["rev-parse", "HEAD"]);
         let a = r.branch("a", "코디", "a.txt", "a");
         let b = r.branch("b", "코디", "bad", "b");
-        r.queue(worker, coordinator, reviewer, "a", &a, "코디");
-        r.queue(worker, coordinator, reviewer, "b", &b, "코디");
+        r.queue(worker, coordinator, "a", &a, "코디");
+        r.queue(worker, coordinator, "b", &b, "코디");
         r.batch("코디").await;
         assert_eq!(
             (r.state("a"), r.state("b")),
@@ -763,7 +778,10 @@ mod git_runs {
         r.queue_main("a", &a);
         assert!(r.batch_after("main", 0).await);
         assert_eq!(r.state("a"), GateState::Passed);
-        assert!(r.batch_after("main", MOVE_LIMIT - 1).await);
+        assert!(
+            !r.batch_after("main", MOVE_LIMIT - 1).await,
+            "the counter starts again after the members fail"
+        );
         assert_eq!(r.state("a"), GateState::Failed);
         assert_eq!(r.checks(), 2);
         assert!(r.app.graph.queued_targets().unwrap().is_empty());
@@ -814,7 +832,7 @@ mod git_runs {
     }
 
     #[tokio::test]
-    async fn a_resumed_batch_checks_the_heads_again() {
+    async fn a_resumed_batch_checks_the_heads_again_until_origin_has_the_tip() {
         let r = repo();
         let base = git(&r.main, &["rev-parse", "main"]);
         let a = r.branch("a", "main", "a.txt", "a");
@@ -841,6 +859,7 @@ mod git_runs {
             &r.main,
             &["worktree", "remove", "--force", spare.to_str().unwrap()],
         );
+        git(&r.main, &["merge", "-q", "--ff-only", &tip]);
         let id = r.app.graph.batch_open(RepoId(1), "main", &["a"]).unwrap();
         r.app.graph.batch_checked(id, &base, &tip).unwrap();
         recover(&r.app, &r.lock).await;
@@ -866,7 +885,7 @@ mod git_runs {
                 worktree: worktree.to_str().unwrap(),
                 head,
             };
-            r.queue_at(r.lead, r.lead, r.reviewer, &round);
+            r.queue_at(r.lead, r.lead, &round);
         }
         std::fs::write(wt.join("a.txt"), "edited\n").unwrap();
         r.batch("main").await;

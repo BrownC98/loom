@@ -468,6 +468,24 @@ async fn scene(t: &Fixture, verb: &str) {
                 .verdict(t.reviewer, "b", Judgment::Pass, None, None)
                 .unwrap();
             t.wrote(verb, mark, message_from(t.reviewer));
+            let round = Round {
+                branch: "c",
+                target: "main",
+                worktree: &t.place.worktree,
+                head: "c0ffee2",
+            };
+            t.app.graph.ready(t.worker, &round, t.worker, None).unwrap();
+            let mark = t.mark();
+            let req = gate::VerdictRequest {
+                branch: "c".into(),
+                judgment: Judgment::Pass,
+                findings: None,
+            };
+            let refused = gate::agent_verdict(t.state(), headers(REVIEWER, verb), Json(req)).await;
+            assert!(matches!(
+                t.refused(verb, mark, refused),
+                Refusal::OneBranch { .. }
+            ));
         }
         "fail" => {
             let fail = |branch: &str| gate::FailRequest {

@@ -233,6 +233,12 @@ impl Graph {
             ..Detail::default()
         };
         let repo = place_of(&self.lock(), caller)?.repo;
+        if let Some(judged) = other_verdict(&self.lock(), caller, branch)? {
+            return Err(Refusal::OneBranch {
+                branch: branch.to_owned(),
+                judged,
+            });
+        }
         let row = self.apply(
             Caller::Node(caller),
             repo,
@@ -735,7 +741,7 @@ fn pending(
     tx.prepare(&format!(
         "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?5 ORDER BY n.id",
         in_round("?1", "?2", "?3", "?4"),
-        done("?2", "?3", "?4")
+        done("?2", "?4")
     ))?
     .query_map(
         params![
@@ -752,19 +758,16 @@ fn pending(
 
 fn in_round(gate: &str, owner: &str, mark: &str, branch: &str) -> String {
     format!(
-        "({} AND (n.id > {mark} OR {} OR {}))",
+        "({} AND ({} OR {} OR (n.id > {mark} AND NOT {})))",
         reviewer(gate, owner),
         judged(branch),
-        withdrawn_from(branch)
+        withdrawn_from(branch),
+        judged_any()
     )
 }
 
-fn done(owner: &str, mark: &str, branch: &str) -> String {
-    format!(
-        "({} OR (n.id > {mark} AND {}))",
-        voted(branch, owner),
-        judged_any()
-    )
+fn done(owner: &str, branch: &str) -> String {
+    voted(branch, owner)
 }
 
 fn judged(branch: &str) -> String {
@@ -780,10 +783,28 @@ fn withdrawn_from(branch: &str) -> String {
         "(EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
             AND e.entry ->> '$.what.kind' = 'withdrawn' AND e.entry ->> '$.what.branch' = {branch}
             AND e.entry ->> '$.to.id' = n.id)
-          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
-            AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' != {branch}
-            AND e.entry ->> '$.from.id' = n.id))"
+          AND NOT EXISTS (SELECT 1 FROM events e WHERE {}))",
+        other_verdict_of("n.id", branch)
     )
+}
+
+fn other_verdict_of(node: &str, branch: &str) -> String {
+    format!(
+        "e.entry ->> '$.kind' = 'message' AND e.entry ->> '$.gate.verb' = 'verdict'
+            AND e.entry ->> '$.gate.branch' != {branch} AND e.entry ->> '$.from.id' = {node}"
+    )
+}
+
+fn other_verdict(db: &Connection, node: NodeId, branch: &str) -> rusqlite::Result<Option<String>> {
+    db.query_row(
+        &format!(
+            "SELECT e.entry ->> '$.gate.branch' FROM events e WHERE {} LIMIT 1",
+            other_verdict_of("?1", "?2")
+        ),
+        params![node.0, branch],
+        |r| r.get(0),
+    )
+    .optional()
 }
 
 fn judged_any() -> String {
@@ -860,7 +881,7 @@ fn settled() -> String {
     format!(
         "state = '\"passed\"' AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND NOT {})",
         in_round("gates.gate", "gates.owner", "gates.mark", "gates.branch"),
-        done("gates.owner", "gates.mark", "gates.branch")
+        done("gates.owner", "gates.branch")
     )
 }
 

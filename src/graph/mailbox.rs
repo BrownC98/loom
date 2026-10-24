@@ -470,12 +470,22 @@ impl Graph {
             .and_then(crate::profile::profile_of)
             .is_none()
         {
-            let waiting = db
-                .prepare("SELECT id FROM messages WHERE recipient = ?1 AND delivered = 0")?
-                .query_map([node.0], |row| Ok(MessageId(row.get(0)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let notices: Vec<MessageId> = db
+                .prepare(
+                    "SELECT id, sender_name, kind, body, what FROM messages
+                     WHERE recipient = ?1 AND delivered = 0",
+                )?
+                .query_map([node.0], read_delivery)?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+                .into_iter()
+                .filter(|d| d.what.as_ref().is_some_and(|w| !w.wakes()))
+                .map(|d| d.id)
+                .collect();
             drop(db);
-            return self.ack(node, &waiting);
+            if notices.is_empty() {
+                return Ok(());
+            }
+            return self.ack(node, &notices);
         }
         steer_where(&db, node, |_| true)?;
         drop(db);

@@ -18,8 +18,7 @@ use crate::graph::{Listed, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor, pi};
-use crate::protocol::{Delivery, Kind, MessageId};
-use crate::protocol::{GateState, Judgment};
+use crate::protocol::{Delivery, GateState, Judgment, Kind, MessageId};
 use crate::roles::{Roles, SetRole};
 use crate::task;
 

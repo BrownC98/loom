@@ -10,8 +10,7 @@ use super::{
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink, StartDigests};
-use crate::protocol::Kind;
-use crate::protocol::MessageKind;
+use crate::protocol::{Kind, MessageKind};
 
 pub struct NewChild<'a> {
     pub name: &'a str,

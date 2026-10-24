@@ -82,8 +82,7 @@ use crate::profile::opencode2;
 use crate::profile::{
     self, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
 };
-use crate::protocol::{Delivery, Kind, MessageId};
-use crate::protocol::{MessageKind, Question};
+use crate::protocol::{Delivery, Kind, MessageId, MessageKind, Question};
 use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};

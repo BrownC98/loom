@@ -5,10 +5,9 @@ use super::events::{self, Entry, GateTrace, Via, Who};
 use super::mailbox::{self, Stamp};
 use super::{Graph, NodeId, REACHABLE, Refusal, from_json, name_of, parent_of, place_of, to_json};
 use crate::profile::AgentId;
-use crate::protocol::Kind;
 use crate::protocol::{
-    self, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, MergeEnd, MessageKind, Peer,
-    Receiver, Sender, Target,
+    self, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, Kind, MergeEnd, MessageKind,
+    Peer, Receiver, Sender, Target,
 };
 use crate::task;
 use crate::worktree::RepoId;

@@ -38,8 +38,7 @@ mod git_runs {
     use super::*;
     use crate::db;
     use crate::graph::{Launched, NewChild, NodeId, Place, Round, TreeLimits};
-    use crate::protocol::Kind;
-    use crate::protocol::{GateState, Judgment};
+    use crate::protocol::{GateState, Judgment, Kind};
     use std::process::Command;
     use std::time::Instant;
 

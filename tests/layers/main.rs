@@ -344,12 +344,12 @@ impl Crate {
             if skip {
                 continue;
             }
-            if child.kind() == "macro_definition" && declared.iter().any(|a| a == "#[macro_export]")
+            if child.kind() == "macro_definition"
+                && declared.iter().any(|a| a == "#[macro_export]")
+                && let Some(name) = child.child_by_field_name("name")
             {
-                if let Some(name) = child.child_by_field_name("name") {
-                    self.exported
-                        .insert(text(name, file.source).to_owned(), top(module));
-                }
+                self.exported
+                    .insert(text(name, file.source).to_owned(), top(module));
             }
             self.item(repo, file, child, module);
         }

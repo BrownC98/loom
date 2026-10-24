@@ -20,7 +20,7 @@ const SYNTHETIC_MODEL: &str = "<synthetic>";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
 fn usage(launch: Launch) -> String {
     format!(
@@ -517,6 +517,22 @@ mod tests {
         assert_eq!(crate::screen::prompt(&PROMPT, &answered, 120), None);
         let list = "──────\n❯ plan\n● Steps:\n  1. Build\n  2. Test\n";
         assert_eq!(crate::screen::prompt(&PROMPT, list, 80), None);
+    }
+
+    #[test]
+    fn launch_text_says_where_loom_mail_arrives() {
+        let text = usage(root_launch());
+        for place in [
+            "hook additional context",
+            "denied tool call",
+            REWAKE_MESSAGE,
+        ] {
+            assert!(text.contains(place), "{place}");
+        }
+        let taken = [delivery(Kind::Steer, "b")];
+        let reply = super::super::hook_text(&taken, None).unwrap();
+        let start = "loom message #";
+        assert!(reply.starts_with(start) && text.contains(&format!("starts with \"{start}\"")));
     }
 
     #[test]

@@ -16,12 +16,12 @@ use ts_rs::TS;
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
 use crate::graph::{
-    Active, AgentSwitch, Delivery, Entry, IdleEnd, Kind, Model, NodeId, REDELIVER_AFTER, Refusal,
-    Who,
+    Active, AgentSwitch, Entry, IdleEnd, Model, NodeId, REDELIVER_AFTER, Refusal, Who,
 };
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
 use crate::profile::{self, AgentId, ModelChoice, Profile, Provider, ServerLink, Start};
+use crate::protocol::{Delivery, Kind};
 use crate::settings::SettingsView;
 use crate::skills::Position;
 

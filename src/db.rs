@@ -329,7 +329,7 @@ pub fn open(path: &Path) -> std::io::Result<Database> {
             MigrationDefinitionError::DatabaseTooFarAhead,
         )) => Err(std::io::Error::other(format!(
             "this loom ({}) is older than the data in {}. Open the newer loom.",
-            crate::VERSION,
+            crate::protocol::VERSION,
             path.display()
         ))),
         Err(e) => Err(std::io::Error::other(e)),
@@ -434,7 +434,7 @@ mod tests {
             error,
             format!(
                 "this loom ({}) is older than the data in {}. Open the newer loom.",
-                crate::VERSION,
+                crate::protocol::VERSION,
                 path.display()
             )
         );

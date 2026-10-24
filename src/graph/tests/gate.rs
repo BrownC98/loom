@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::{Finding, GateState, GateVerb, Judgment, MergeEnd};
+use crate::protocol::{Finding, GateState, GateVerb, Judgment, MergeEnd, MessageId};
 
 fn limits() -> TreeLimits {
     TreeLimits {

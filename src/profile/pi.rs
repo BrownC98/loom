@@ -3,7 +3,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model};
+use crate::graph::Model;
+use crate::protocol::{Delivery, Kind};
 use crate::skills::Launch;
 
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;

@@ -37,7 +37,8 @@ fn a_queued_worktree_is_read_through_the_repo_location() {
 mod git_runs {
     use super::*;
     use crate::db;
-    use crate::graph::{Kind, Launched, NewChild, NodeId, Place, Round, TreeLimits};
+    use crate::graph::{Launched, NewChild, NodeId, Place, Round, TreeLimits};
+    use crate::protocol::Kind;
     use crate::protocol::{GateState, Judgment};
     use std::process::Command;
     use std::time::Instant;

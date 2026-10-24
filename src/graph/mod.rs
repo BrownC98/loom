@@ -22,9 +22,7 @@ pub use events::{
     TurnCheck, Via, Who,
 };
 pub use gate::{BatchId, Ended, GateChoice, Queued, Reclaim, Round};
-pub use mailbox::{
-    BATCH_SEPARATOR, Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent,
-};
+pub use mailbox::{PARENT, REDELIVER_AFTER, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
     HUMAN, HumanWait, InputField, OpenQuestion, PermissionReply, Prompt, PromptKey, PromptOption,
@@ -33,7 +31,7 @@ pub use waits::{
 
 use crate::db::Database;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::{IllegalStep, MessageKind};
+use crate::protocol::{IllegalStep, Kind, MessageKind};
 use crate::worktree::RepoId;
 
 const EVENT_QUEUE: usize = 256;

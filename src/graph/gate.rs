@@ -3,10 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry, GateTrace, Via, Who};
 use super::mailbox::{self, Stamp};
-use super::{
-    Graph, Kind, NodeId, REACHABLE, Refusal, from_json, name_of, parent_of, place_of, to_json,
-};
+use super::{Graph, NodeId, REACHABLE, Refusal, from_json, name_of, parent_of, place_of, to_json};
 use crate::profile::AgentId;
+use crate::protocol::Kind;
 use crate::protocol::{
     self, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, MergeEnd, MessageKind, Peer,
     Receiver, Sender, Target,

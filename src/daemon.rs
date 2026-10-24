@@ -66,9 +66,9 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    CardView, Delivery, EventLog, Graph, GraphEvent, IMAGE_EXTENSIONS, IdleEnd, Kind, Launched,
-    Listed, MessageId, Model, NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal,
-    Relations, Report, Sent, TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource, entered,
+    CardView, EventLog, Graph, GraphEvent, IMAGE_EXTENSIONS, IdleEnd, Launched, Listed, Model,
+    NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Report, Sent,
+    TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource, entered,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -82,6 +82,7 @@ use crate::profile::opencode2;
 use crate::profile::{
     self, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
 };
+use crate::protocol::{Delivery, Kind, MessageId};
 use crate::protocol::{MessageKind, Question};
 use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::settings::Settings;

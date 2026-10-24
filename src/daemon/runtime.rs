@@ -656,7 +656,7 @@ pub(super) fn bearer(headers: &HeaderMap) -> Result<&str, AgentError> {
         .ok_or_else(unauthorized)
 }
 
-pub(super) fn unauthorized() -> AgentError {
+fn unauthorized() -> AgentError {
     (
         StatusCode::UNAUTHORIZED,
         "Run this only inside a loom node.".into(),

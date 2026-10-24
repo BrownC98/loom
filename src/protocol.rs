@@ -3,6 +3,13 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub const VERSION: &str = match option_env!("LOOM_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+pub const COMMIT: Option<&str> = option_env!("LOOM_COMMIT");
+
 /// 관문 동사. `Queue`만 빼고 각각 `loom <동사>` 명령 하나다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -662,6 +669,51 @@ impl MessageKind {
                 fields
             }
         }
+    }
+}
+
+/// 메시지 전달 방식. 메모(`loom note`)만 조정·중단으로 보낸다. 근거: docs/design/메시징.md 「명령」.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Kind {
+    /// 받는 노드의 턴을 끊지 않는다.
+    Queue,
+    /// `loom note --steer`: 턴을 멈추지 않고 다음 도구 호출 사이에 넣는다.
+    Steer,
+    /// `loom note --interrupt`: 지금 동작을 멈추고 바로 따르게 한다.
+    Interrupt,
+}
+
+impl Kind {
+    pub const ALL: &[Kind] = &[Kind::Queue, Kind::Steer, Kind::Interrupt];
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct MessageId(pub u32);
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct Delivery {
+    pub id: MessageId,
+    pub from: String,
+    pub kind: Kind,
+    pub body: String,
+    #[serde(default)]
+    pub what: Option<MessageKind>,
+}
+
+pub const BATCH_SEPARATOR: &str = "\n\n";
+
+impl Delivery {
+    pub fn text(&self) -> String {
+        let mode = match self.kind {
+            Kind::Queue => None,
+            Kind::Steer => Some("steer"),
+            Kind::Interrupt => {
+                Some("interrupt. Stop your current work and do what this message says")
+            }
+        };
+        message_text(self.id.0, &self.from, self.what.as_ref(), mode, &self.body)
     }
 }
 

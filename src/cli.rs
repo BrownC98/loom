@@ -17,7 +17,7 @@ use crate::daemon::{
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
-use crate::profile::{Take, cursor};
+use crate::profile::{Take, cursor, pi};
 use crate::protocol::{GateState, Judgment};
 use crate::roles::{Roles, SetRole};
 use crate::task;
@@ -329,7 +329,7 @@ pub fn cursor_hook() -> Result<(), String> {
             note: None,
         },
         Some(Take::WhenIdle) => Taken {
-            messages: wait_for_cursor_mail(&IdleRequest {
+            messages: wait_until_mail(&IdleRequest {
                 transcript,
                 rate_limited: false,
                 turn: turn.clone(),
@@ -354,6 +354,61 @@ pub fn cursor_rules() -> Result<(), String> {
     Ok(())
 }
 
+pub fn pi_hook() -> Result<(), String> {
+    let event: pi::Event =
+        serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
+    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
+    let transcript = event.transcript();
+    if let Some(model) = event.model()
+        && let Err(e) = call::<()>("model", &model, Some(timeout))
+    {
+        eprintln!("loom: could not report the model: {e}");
+    }
+    if let Some(reply) = event.turn_ends()
+        && let Some(nudge) = turn_end(reply, None, timeout)
+    {
+        return print_json(&pi::nudge(nudge));
+    }
+    let taken = match event.take() {
+        None | Some(Take::Never) => Taken {
+            messages: Vec::new(),
+            note: None,
+        },
+        Some(Take::WhenIdle) => Taken {
+            messages: wait_until_mail(&IdleRequest {
+                transcript,
+                rate_limited: false,
+                turn: None,
+            })?,
+            note: None,
+        },
+        Some(Take::Now(kinds)) => call(
+            "take",
+            &TakeRequest {
+                hook: event.name().to_owned(),
+                kinds: kinds.to_vec(),
+                limit_bytes: pi::HOOK_LIMIT_BYTES,
+                transcript,
+                human_input: event.prompt().is_some(),
+                prompt: event.prompt().map(str::to_owned),
+                turn: None,
+            },
+            Some(timeout),
+        )?,
+    };
+    print_json(&pi::reply(&taken.messages, taken.note.as_deref()))?;
+    acknowledge(&taken.messages, Some(timeout));
+    Ok(())
+}
+
+fn print_json(value: &impl Serialize) -> Result<(), String> {
+    let mut stdout = std::io::stdout();
+    serde_json::to_writer(&mut stdout, value).map_err(|e| e.to_string())?;
+    writeln!(stdout)
+        .and_then(|()| stdout.flush())
+        .map_err(|e| e.to_string())
+}
+
 fn acknowledge(taken: &[Delivery], timeout: Option<Duration>) {
     if taken.is_empty() {
         return;
@@ -368,7 +423,7 @@ fn wait_for_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
     reconnecting(None, |_| call("idle", request, None))
 }
 
-fn wait_for_cursor_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
+fn wait_until_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
     until_answered(RECONNECT_AFTER, || call("idle", request, None))
 }
 

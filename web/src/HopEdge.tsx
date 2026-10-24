@@ -15,7 +15,7 @@ export function hopLabelSize(text: string): { width: number; height: number } {
   return { width: width + 2 * LABEL_PAD.x, height: LABEL_LINE + 2 * LABEL_PAD.y };
 }
 
-export type HopEdgeType = Edge<{ route: HopRoute | null }, 'hop'>;
+export type HopEdgeType = Edge<{ route: HopRoute | null; title: string }, 'hop'>;
 
 function lanePath(points: HopRoute['points']): string {
   const toward = (from: number, to: number) => Math.sign(to - from) * Math.min(CORNER, Math.abs(to - from) / 2);
@@ -41,6 +41,7 @@ export function HopEdge(props: EdgeProps<HopEdgeType>) {
   const turned = route?.turned && route.label && typeof props.label === 'string' ? { at: route.label.at, text: props.label, size: hopLabelSize(props.label) } : null;
   return (
     <>
+      <title>{props.data?.title}</title>
       <BaseEdge
         id={props.id}
         path={path}

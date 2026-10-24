@@ -946,7 +946,7 @@ export function Graph(props: {
         target: String(hop.target),
         sourceHandle: 'top',
         targetHandle: 'top',
-        data: { route },
+        data: { route, title: hopLabel(hop) },
         markerStart: arrow('source'),
         markerEnd: arrow('target'),
         className: ['live', `hop-c${lane}`, flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),

@@ -59,7 +59,7 @@ export function NewNodePopover(props: {
   const needle = query.trim().toLowerCase();
   const shown = all.filter((c) => labelOf(c).toLowerCase().includes(needle));
   const selectable = shown.filter((c) => c.installed);
-  const fallback = installed.find((c) => props.recent !== undefined && keyOf(c) === props.recent) ?? installed[0];
+  const fallback = installed.find((c) => props.recent !== undefined && keyOf(c) === props.recent) ?? installed.find((c) => c.agent) ?? installed[0];
   const wanted = picked ? picked.key : fallback && keyOf(fallback);
   const active = selectable.find((c) => keyOf(c) === wanted) ?? selectable[0];
   const activeIndex = active ? shown.indexOf(active) : -1;

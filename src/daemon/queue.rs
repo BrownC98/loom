@@ -477,7 +477,7 @@ impl Batch<'_> {
                 )
                 .await?;
                 match code {
-                    0 => self.merged(members, base, tip, None).await,
+                    0 => self.merged(members, base, tip, None, into).await,
                     DIRTY => {
                         self.dirty(members, worktree);
                         Ok(())
@@ -577,7 +577,7 @@ impl Batch<'_> {
             }
         }
         let Some(last) = last else {
-            return self.merged(members, base, tip, None).await;
+            return self.merged(members, base, tip, None, &Dest::Base).await;
         };
         let args = [
             format!("batch-{}-publish.log", self.id.0),
@@ -592,8 +592,14 @@ impl Batch<'_> {
         let log = lines.log;
         match (code, lines.published) {
             (0, _) => {
-                self.merged(members, base, tip, Some("deploy: confirmed".into()))
-                    .await
+                self.merged(
+                    members,
+                    base,
+                    tip,
+                    Some("deploy: confirmed".into()),
+                    &Dest::Base,
+                )
+                .await
             }
             (SHIP_DEPLOY_FAILED, _) => {
                 self.merged(
@@ -601,6 +607,7 @@ impl Batch<'_> {
                     base,
                     tip,
                     Some("deploy: failed (see the log)".into()),
+                    &Dest::Base,
                 )
                 .await
             }
@@ -610,7 +617,8 @@ impl Batch<'_> {
                     protocol::SHIP_SCRIPT,
                     log.as_deref().unwrap_or("the publish log")
                 );
-                self.merged(members, base, tip, Some(deploy)).await
+                self.merged(members, base, tip, Some(deploy), &Dest::Base)
+                    .await
             }
             (MOVED, false) => {
                 self.moved(members, step);
@@ -633,10 +641,11 @@ impl Batch<'_> {
         base: &str,
         tip: &str,
         deploy: Option<String>,
+        into: &Dest,
     ) -> Result<(), Refusal> {
         let mut merged = Vec::new();
         let settled = self
-            .settle_merged(members, base, tip, deploy, &mut merged)
+            .settle_merged(members, base, tip, deploy, into, &mut merged)
             .await;
         tokio::spawn(super::reclaim::run(self.app.clone(), self.repo, merged));
         settled
@@ -648,9 +657,10 @@ impl Batch<'_> {
         base: &str,
         tip: &str,
         deploy: Option<String>,
+        into: &Dest,
         merged: &mut Vec<String>,
     ) -> Result<(), Refusal> {
-        let into_base = base_branch(&self.dir).await? == self.target;
+        let into_base = matches!(into, Dest::Base);
         for m in members {
             let own = merge_commit(&self.dir, &m.head, tip).await?;
             let sha = match own {

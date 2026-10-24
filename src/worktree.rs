@@ -366,21 +366,25 @@ fn repo_name(url: &str) -> &str {
 }
 
 pub async fn worktrees(repo: &Path) -> Vec<Worktree> {
-    match git::run(repo, &["worktree", "list", "--porcelain"]).await {
-        Ok(porcelain) => parse_worktrees(&porcelain)
-            .into_iter()
-            .map(|w| Worktree {
-                path: git::from_git_path(repo, &w.path),
-                ..w
-            })
-            .collect(),
-        Err(_) => vec![Worktree {
+    listed(repo).await.unwrap_or_else(|_| {
+        vec![Worktree {
             path: repo.to_string_lossy().into_owned(),
             head: String::new(),
             branch: None,
             original: true,
-        }],
-    }
+        }]
+    })
+}
+
+pub async fn listed(repo: &Path) -> Result<Vec<Worktree>, String> {
+    let porcelain = git::run(repo, &["worktree", "list", "--porcelain"]).await?;
+    Ok(parse_worktrees(&porcelain)
+        .into_iter()
+        .map(|w| Worktree {
+            path: git::from_git_path(repo, &w.path),
+            ..w
+        })
+        .collect())
 }
 
 fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {

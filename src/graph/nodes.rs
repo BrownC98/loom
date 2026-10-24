@@ -598,6 +598,29 @@ impl Graph {
         removal.publish(self, &db)
     }
 
+    pub fn remove_childless_child(&self, id: NodeId) -> rusqlite::Result<bool> {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let removable: bool = tx
+            .query_row(
+                "SELECT parent IS NOT NULL AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent = n.id)
+                 FROM nodes n WHERE id = ?1",
+                [id.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(false);
+        if !removable {
+            return Ok(false);
+        }
+        let Some(removal) = remove_in(&tx, id)? else {
+            return Ok(false);
+        };
+        tx.commit()?;
+        removal.publish(self, &db)?;
+        Ok(true)
+    }
+
     pub fn remove_child(
         &self,
         caller: NodeId,

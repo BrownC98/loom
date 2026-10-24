@@ -21,7 +21,7 @@ pub use events::{
     AgentSwitch, BatchMember, BatchResult, Entry, EventLog, EventRecord, IdleEnd, SwitchCause,
     TurnCheck, Via, Who,
 };
-pub use gate::{BatchId, Ended, GateChoice, Queued, Round};
+pub use gate::{BatchId, Ended, GateChoice, Queued, Reclaim, Round};
 pub use mailbox::{
     BATCH_SEPARATOR, Delivery, Kind, MessageId, PARENT, REDELIVER_AFTER, Report, Sent,
 };

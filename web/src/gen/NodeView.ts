@@ -37,6 +37,6 @@ cardView: CardView | null,
 reply: string | null, 
 /**
  * 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
- * 근거: docs/design.md 「사람 응답 대기」.
+ * 근거: docs/design/메시징.md 「사람 응답 대기」.
  */
 waits: Array<HumanWait>, };

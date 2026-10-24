@@ -111,7 +111,7 @@ pub struct NodeView {
     /// 마지막 턴을 끝낸 답 글. 심플 카드의 상태 줄이다(목업 docs/mockups/node-card-view.html ⑧). 답 글을 받은 적이 없으면 없다.
     pub reply: Option<String>,
     /// 사람의 답·승인을 기다린다. 열린 `loom ask` 질문들(물은 차례), 그 뒤에 신호의 대기 하나. 없으면 빈 목록이다.
-    /// 근거: docs/design.md 「사람 응답 대기」.
+    /// 근거: docs/design/메시징.md 「사람 응답 대기」.
     pub waits: Vec<HumanWait>,
 }
 
@@ -162,7 +162,7 @@ pub enum Toward {
     Child,
 }
 
-/// 노드 나무의 상한. 사람이 설정에서 바꾼다. 근거: docs/design.md 「상한」.
+/// 노드 나무의 상한. 사람이 설정에서 바꾼다. 근거: docs/design/메시징.md 「상한」.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 #[ts(export)]

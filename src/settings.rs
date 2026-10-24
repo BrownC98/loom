@@ -8,7 +8,7 @@ use crate::accounts::AccountId;
 use crate::db::Database;
 use crate::graph::{TreeLimits, WaitId};
 use crate::profile::{AgentId, Provider};
-use crate::roles::Roles;
+use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::skills::AlwaysOn;
 use crate::worktree::RepoId;
 
@@ -359,21 +359,21 @@ impl Settings {
     pub fn patch(&self, patch: &serde_json::Value) -> Result<SettingsView, PatchProblem> {
         self.write(|_, value| {
             merge(value, patch);
-            let view: SettingsView = serde_json::from_value(value.clone())
-                .map_err(|e| PatchProblem::Shape(e.to_string()))?;
-            let problem = view
-                .roles
-                .launch_problem()
-                .or_else(|| view.pill_place.and_then(|p| p.problem()));
-            match problem {
-                Some(problem) => Err(PatchProblem::Shape(problem)),
-                None => Ok(view),
-            }
+            checked(value).map_err(PatchProblem::Shape)
         })
     }
 
+    pub fn set_role(&self, set: &SetRole) -> Result<Roles, SetRoleProblem> {
+        self.write(|view, value| {
+            let next = view.roles.with(set).map_err(SetRoleProblem::Role)?;
+            merge(value, &serde_json::json!({ "roles": next }));
+            checked(value).map_err(SetRoleProblem::Shape)
+        })
+        .map(|view| view.roles)
+    }
+
     pub fn update(&self, edit: impl FnOnce(&mut SettingsView)) -> rusqlite::Result<()> {
-        let result = self.write(|mut view, value| {
+        let result = self.write::<PatchProblem>(|mut view, value| {
             edit(&mut view);
             *value = serde_json::to_value(&view).expect("설정은 늘 직렬화된다");
             Ok(view)
@@ -385,10 +385,10 @@ impl Settings {
         }
     }
 
-    fn write(
+    fn write<E: From<rusqlite::Error>>(
         &self,
-        change: impl FnOnce(SettingsView, &mut serde_json::Value) -> Result<SettingsView, PatchProblem>,
-    ) -> Result<SettingsView, PatchProblem> {
+        change: impl FnOnce(SettingsView, &mut serde_json::Value) -> Result<SettingsView, E>,
+    ) -> Result<SettingsView, E> {
         let mut db = self.db.lock();
         let tx = db.transaction()?;
         let (view, mut value) = read(&tx)?;
@@ -413,6 +413,18 @@ fn read(db: &Connection) -> rusqlite::Result<(SettingsView, serde_json::Value)> 
         .unwrap_or_default();
     let value = serde_json::to_value(&view).expect("설정은 늘 직렬화된다");
     Ok((view, value))
+}
+
+fn checked(value: &serde_json::Value) -> Result<SettingsView, String> {
+    let view: SettingsView = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    let problem = view
+        .roles
+        .launch_problem()
+        .or_else(|| view.pill_place.and_then(|p| p.problem()));
+    match problem {
+        Some(problem) => Err(problem),
+        None => Ok(view),
+    }
 }
 
 fn merge(target: &mut serde_json::Value, patch: &serde_json::Value) {
@@ -440,6 +452,18 @@ fn merge(target: &mut serde_json::Value, patch: &serde_json::Value) {
 pub enum PatchProblem {
     Db(rusqlite::Error),
     Shape(String),
+}
+
+pub enum SetRoleProblem {
+    Db(rusqlite::Error),
+    Shape(String),
+    Role(RoleProblem),
+}
+
+impl From<rusqlite::Error> for SetRoleProblem {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Db(e)
+    }
 }
 
 impl From<rusqlite::Error> for PatchProblem {

@@ -118,19 +118,12 @@ fn set_role(app: &App, caller: NodeId, req: &SetRole) -> Result<Roles, Problem> 
     if app.graph.relations(caller)?.parent.is_some() {
         return Err(Refusal::RolesHaveParent.into());
     }
-    let next = app
-        .settings
-        .get()
-        .map_err(internal)?
-        .roles
-        .with(req)
-        .map_err(role_refusal)?;
-    let patch = serde_json::json!({ "roles": next });
-    match app.settings.patch(&patch) {
-        Ok(view) => Ok(view.roles),
-        Err(crate::settings::PatchProblem::Db(e)) => Err(internal(e)),
-        Err(crate::settings::PatchProblem::Shape(e)) => Err(Refusal::Launch(e).into()),
-    }
+    use crate::settings::SetRoleProblem;
+    app.settings.set_role(req).map_err(|e| match e {
+        SetRoleProblem::Db(e) => internal(e),
+        SetRoleProblem::Shape(e) => Refusal::Launch(e).into(),
+        SetRoleProblem::Role(e) => role_refusal(e).into(),
+    })
 }
 
 fn role_start(app: &App, role: &str, brief: &str) -> Result<Start, Problem> {

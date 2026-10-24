@@ -417,7 +417,7 @@ button.unread:hover { filter: brightness(1.1); }
 .react-flow__edge.hop-c5 { --hop: var(--lane-5); }
 .react-flow__edge.live[class*="hop-c"] .react-flow__edge-path { stroke: var(--hop); }
 .react-flow__edge[class*="hop-c"] .react-flow__edge-textbg { fill: var(--hop); }
-.react-flow__edge.inactive[class*="hop-c"] { pointer-events: visibleStroke; }
+.react-flow__edge[class*="hop-c"] .react-flow__edge-interaction { pointer-events: visibleStroke; }
 .react-flow__handle { opacity: 0; pointer-events: none; }
 .react-flow__handle.port { width: 10px; height: 10px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); cursor: crosshair; }
 .react-flow__node:hover > .port, .react-flow__node:has(> .card[data-selected]) > .port { opacity: 1; pointer-events: all; }

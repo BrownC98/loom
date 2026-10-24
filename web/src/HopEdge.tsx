@@ -3,6 +3,7 @@ import type { HopRoute } from './hopLanes';
 
 const HOP_LIFT_MIN = 40;
 const CORNER = 5;
+const HIT_WIDTH = 6;
 const LABEL_FONT = '600 12px';
 const LABEL_PAD = { x: 8, y: 2 };
 const LABEL_LINE = 17;
@@ -47,6 +48,7 @@ export function HopEdge(props: EdgeProps<HopEdgeType>) {
         path={path}
         markerStart={props.markerStart}
         markerEnd={props.markerEnd}
+        interactionWidth={HIT_WIDTH}
         label={turned ? undefined : props.label}
         labelX={route?.label ? route.label.at.x : (sourceX + targetX) / 2}
         labelY={route?.label ? route.label.at.y : (sourceY + 6 * top + targetY) / 8}
@@ -54,7 +56,7 @@ export function HopEdge(props: EdgeProps<HopEdgeType>) {
         labelBgBorderRadius={props.labelBgBorderRadius}
       />
       {turned && (
-        <g transform={`translate(${turned.at.x} ${turned.at.y}) rotate(-90)`}>
+        <g transform={`translate(${turned.at.x} ${turned.at.y}) rotate(-90)`} pointerEvents="visiblePainted">
           <rect className="react-flow__edge-textbg" x={-turned.size.width / 2} y={-turned.size.height / 2} width={turned.size.width} height={turned.size.height} rx={props.labelBgBorderRadius} ry={props.labelBgBorderRadius} />
           <text className="react-flow__edge-text" textAnchor="middle" dominantBaseline="central">
             {turned.text}

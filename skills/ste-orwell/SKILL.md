@@ -7,8 +7,8 @@ description: Apply ASD-STE100 (Simplified Technical English) and George Orwell's
 
 Apply ASD-STE100 Issue 9 and Orwell's six rules ("Politics and the English Language") to all text that you write.
 
-- Write text for people (reports, progress notes, documents, instruction files, issues, MRs, commits, UI) in the human's language: the language that the human writes to you. Before the human writes, use the language of the instruction files and repository documents.
-- Write text between agents in English: briefs, agent messages (loom `ask`, `answer`, `note`), subagent instructions, agent mail, long result files.
+- Write text for people in the human's language: the language that the human writes to you. This includes reports, progress notes, documents, instruction files, issues, MRs, commits and UI. Before the human writes, use the language of the instruction files and repository documents.
+- Write text between agents in English. This includes briefs, agent messages (loom `ask`, `answer`, `note`), subagent instructions, agent mail and long result files.
 - Keep code, commands, paths, identifiers, screen text and quotes of the human in their original form.
 
 1. Do not use a worn metaphor or other figure of speech. Write the fact.

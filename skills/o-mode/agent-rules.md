@@ -6,7 +6,7 @@ Loom 코디 and 워커 nodes follow [o-mode](SKILL.md). The brief gives the role
 
 - Read the repository AGENTS.md and the brief. Keep facts that you examined apart from hypotheses.
 - For roles, communication, mockup approval and cleanup, use the procedures in this skill. Do not use rules from a different orchestration skill.
-- Before you edit, make the raptor-3 parts list. The final result is a three-line summary and the path of the result file: `result.md` in the task folder, or `<your node name>.md` if you do part of your parent's task.
+- Before you edit, make the raptor-3 parts list. The final result is a three-line summary and the path of the result file in the task folder. That file is `result.md`, or `<your node name>.md` if you do part of your parent's task.
 
 ## Work and contact
 
@@ -19,7 +19,7 @@ Loom 코디 and 워커 nodes follow [o-mode](SKILL.md). The brief gives the role
 - Do not use `git stash`. All worktrees share it. Keep existing changes.
 - Examine the real behavior and the done-when conditions. Do not make a test or an assertion weaker to pass.
 - Do not accept review findings without examination.
-  - The branch owner accepts each finding or rejects it with evidence: `path:line`, a test that fails or passes, or steps that show the problem.
+  - The branch owner accepts each finding or rejects it with evidence. Evidence is `path:line`, a failing or passing test, or steps to see the problem.
   - The gate (the owner) carries rejections and answers between the owner and the reviewers. A worker branch under a 코디 has no reviewer: the 코디 accepts it against the done-when conditions. The lead does not review or argue.
   - A reviewer answers each rejection with evidence. Evidence decides, not authority.
   - When there are two reviewers, each one also examines the other's findings and answers a disagreement with evidence.

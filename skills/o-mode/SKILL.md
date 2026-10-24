@@ -23,7 +23,7 @@ The default roles are 총괄, 코디, 워커, 고위험 워커, 검토자 and �
 - The lead does one- or two-line changes and gives all other work (code, screen checks, research) to one 코디. It keeps the work context: current work, children, decisions, waiting approvals. It receives only the 코디's `done` and the gate's merged and failed results. It does not read result files.
 - The node that has the facts writes the brief, spawns the workers, reviews, merges and cleans up. A lead brief gives only the goal (with done-when) and the scope. Keep its `Facts:` short: put long facts in a task folder file and give the absolute path. Do not give the brief rules path; loom adds those rules.
 - A 코디 does small, closely related work itself. It divides work only into two or more independent edit scopes. With one scope, it spawns the worker without `--worktree` in its own worktree. While the worker runs, the 코디 only reads and reviews there. It also takes pieces that wait for one product decision.
-- Write names in the human's language: a branch has the name of its work (`알림표시통일`), a node is `<role> <work>` (`코디 알림표시통일`), the lead is `<repository> 총괄`. Names are unique.
+- Write names in the human's language. A branch has the name of its work (`알림표시통일`). A node is `<role> <work>` (`코디 알림표시통일`). The lead is `<repository> 총괄`. Names are unique.
 - A `--worktree` child starts from its parent's `HEAD`. Do not put two editors in one worktree.
 - For screen work, read [reference "Mockup approval"](reference.md#mockup-approval) first. Before the human approves, do not write screen product code or spawn implementation workers.
 - Make an HTML report only when the human asks ([reference](reference.md#reports-to-the-human)). Else write problem, cause and fix, one line each, per item. If the next step is clear, do it.
@@ -33,7 +33,7 @@ The default roles are 총괄, 코디, 워커, 고위험 워커, 검토자 and �
 - Do not poll: notices tell you when a child is done, exits, is removed or is handed over.
 - After a child's time budget, send `loom note <child> "Report status and blockers." --steer`; if it does not answer, run `loom status`.
 - To stop a child, send `--interrupt` and ask for its result, failure cause and remaining work. Before you reassign, make sure that it stopped.
-- If a completion command fails two times, or you are blocked for over 10 minutes, follow [reference "Blocked"](reference.md#blocked).
+- If the same completion command fails two times, or the environment blocks you over 10 minutes, follow [reference "Blocked"](reference.md#blocked).
 - A reviewer compares the diff, done-when, the check output and the real behavior. Check again if evidence is missing, a check failed or the code changed since. Do not weaken a check or done-when. Send back each problem that can be fixed now.
 
 ## Merge and cleanup
@@ -43,6 +43,6 @@ The default roles are 총괄, 코디, 워커, 고위험 워커, 검토자 and �
 - A 코디's verdict on a worker branch is acceptance against done-when, not a code review. A block lists what done-when misses. A 코디 merges its workers' results before its own `loom ready`.
 - The queue waits for all live reviewers, so spawn the 보조 검토자 before the first verdict. Do other work while the queue runs.
 - After `merged`, the daemon removes the reviewers, the owner node, a clean worktree and the branch. It keeps a worktree with changes, its branch and owner, and tells the owner's parent. An owner without a parent or with children stays. Thus call `loom done` before `loom ready`.
-- Each time that a child reports, the parent cleans up what is safe and no longer needed: unmerged children, shell nodes, their worktrees and branches, background processes, temporary folders ([reference "Cleanup"](reference.md#cleanup)).
+- Each time that a child reports, the parent cleans up what is safe and no longer needed ([reference "Cleanup"](reference.md#cleanup)). This includes unmerged children, shell nodes, their worktrees and branches, background processes and temporary folders.
 - Rare cases (handover, setup failure, release runs, no gate script): [reference "Commands"](reference.md#commands).
 - The completion report gives the result, evidence, location of the change, remaining work and the `Raptor-3:` line.

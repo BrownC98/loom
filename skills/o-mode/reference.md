@@ -25,7 +25,7 @@ A `--worktree` child runs the repository setup script on the parent's committed 
 
 ## Blocked
 
-- If a completion command fails two times, or you are blocked for over 10 minutes, tell your parent. Give the cause, the effect, what you tried and the decision that you need.
+- If the same completion command fails two times, or the environment blocks you over 10 minutes, tell your parent. Give the cause, the effect, what you tried and the decision that you need.
 - The parent selects who fixes it and how. It tells the related children, with the number of the first message, and examines the result.
 
 ## Questions, answers and waits
@@ -45,7 +45,7 @@ The usage text gives the commands, the waits and the size limits. These rules ar
 
 ## Cleanup
 
-- Do not clean up these items: unsaved changes, work that waits for a check, approval or merge, user nodes in use, the base checkout.
+- Do not clean up unsaved changes or work that waits for a check, approval or merge. Also keep user nodes in use and the base checkout.
 - Before cleanup, run `git status --short` in that worktree. Look for uncommitted changes and untracked files. If review evidence is only in that folder, save it first. Do not clean up a worktree that a different task uses.
 - Remove a node with `loom rm <child name or number>`. You can remove only your own children. The process of that child stops too.
 - If the removed child had children, they become your children. Save their results, then remove them with `loom rm` too.

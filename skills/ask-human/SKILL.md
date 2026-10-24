@@ -18,6 +18,6 @@ The loom inbox shows the human only questions in this form.
 - After `loom ask`, end your turn. The question gets a number (`Q12`). The human answers in the inbox or your terminal.
 - Ask each question of a set with its own `loom ask`. Earlier questions stay open.
 - An inbox answer comes as a `loom message` from human: "Answer to loom ask question Q12 (…): A". The question is closed. Do not call `loom answered`. Do what the answer tells.
-- You decide if terminal text from the human answers an open question (it can start with the number: "Q12: A"). While one is open, loom tells you in that turn how to close it.
+- You decide if terminal text from the human answers an open question. It can start with the number: "Q12: A". While one is open, loom tells you in that turn how to close it.
 - Do not ask only in chat and end your turn. The human sees only inbox questions.
 - The Claude question tool (`AskUserQuestion`) also puts the question in the inbox.

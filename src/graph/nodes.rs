@@ -1,7 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
-use super::events::{self, ClosedBy, Entry};
+use super::events::{self, Entry};
 use super::waits::Prompt;
 use super::{
     CardView, Db, Graph, GraphEvent, Kind, Model, NodeId, NodeState, Place, REACHABLE, Refusal,
@@ -251,7 +251,7 @@ impl Graph {
         if changed == 0 {
             return Ok(());
         }
-        waits::drop_questions(&tx, id, ClosedBy::Exit)?;
+        waits::drop_questions(&tx, id)?;
         let parent = parent_of(&tx, id)?;
         if state == NodeState::Running {
             let what = what(name_of(&tx, id)?);
@@ -307,7 +307,7 @@ impl Graph {
         if changed == 0 {
             return Ok(false);
         }
-        waits::drop_questions(&tx, id, ClosedBy::Exit)?;
+        waits::drop_questions(&tx, id)?;
         tx.commit()?;
         self.prompts.lock().unwrap().remove(&id);
         self.publish_node(&db, id)?;
@@ -368,9 +368,7 @@ impl Graph {
     }
 
     pub fn relaunched(&self, id: NodeId, launched: &Launched) -> rusqlite::Result<()> {
-        self.restarted(id, launched, |tx| {
-            waits::drop_questions(tx, id, ClosedBy::Restart)
-        })
+        self.restarted(id, launched, |_| Ok(0))
     }
 
     pub fn switched(

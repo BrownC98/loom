@@ -16,7 +16,8 @@ use ts_rs::TS;
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
 use crate::graph::{
-    Active, AgentSwitch, Delivery, Entry, Kind, Model, NodeId, REDELIVER_AFTER, Refusal, Who,
+    Active, AgentSwitch, Delivery, Entry, IdleEnd, Kind, Model, NodeId, REDELIVER_AFTER, Refusal,
+    Who,
 };
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
@@ -441,7 +442,7 @@ impl App {
     }
 
     fn release_mail(&self, id: NodeId) {
-        self.idle.end(id);
+        self.idle.end(id, IdleEnd::Relaunch);
         self.graph.wake_mail();
     }
 
@@ -545,7 +546,7 @@ impl App {
             .insert(node.id, done);
         let snapshot = Snapshot::now();
         snapshot.kill_trees(self.background_shells(&snapshot, node));
-        self.idle.end(node.id);
+        self.idle.end(node.id, IdleEnd::Relaunch);
         self.host.stop(node.id);
         if tokio::time::timeout(EXIT_WAIT, exited).await.is_err() {
             self.relaunches.exiting.lock().unwrap().remove(&node.id);

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use super::App;
-use crate::graph::{NodeId, TurnCheck};
+use crate::graph::{Entry, NodeId, TurnCheck};
 
 const NUDGE: &str = "You ended the turn with text but without loom ask or loom done. If the text asks the human anything (a question, a choice, an approval), call loom ask \"<one line>\", then end your turn. If you finished a result the human can use, call loom done \"<what you did>\" --asked \"<the human's instruction>\". Otherwise reply with only a few words in the language the human uses with you that brief your current work or state. Do not name this check. Example in Korean: \"코디 결과 대기\". Then end your turn.";
 
@@ -120,7 +120,10 @@ impl App {
             eprintln!("loom: 노드 {}의 답 글을 남기지 못했다: {e}", node.0);
         }
         let check = nudge.filter(|_| !self.relaunches.holds_mail(node))?;
-        if let Err(e) = self.graph.record_nudge(node, check) {
+        if let Err(e) = self
+            .graph
+            .record_about(node, |node| Entry::Nudged { node, check })
+        {
             eprintln!("loom: 노드 {}의 턴 끝 검사를 남기지 못했다: {e}", node.0);
         }
         Some(nudge_text(check))

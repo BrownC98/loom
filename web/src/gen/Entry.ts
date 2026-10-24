@@ -4,6 +4,7 @@ import type { AgentId } from "./AgentId";
 import type { AgentSwitch } from "./AgentSwitch";
 import type { ClosedBy } from "./ClosedBy";
 import type { GateTrace } from "./GateTrace";
+import type { IdleEnd } from "./IdleEnd";
 import type { Kind } from "./Kind";
 import type { MessageKind } from "./MessageKind";
 import type { NodeState } from "./NodeState";
@@ -57,4 +58,4 @@ doc: WaitDoc | null, } | { "kind": "reported", node: Who, wait: WaitId, summary:
 /**
  * 붙은 문서(`--doc`). `Asked`와 같다.
  */
-doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, } | { "kind": "nudged", node: Who, check: TurnCheck, };
+doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, } | { "kind": "nudged", node: Who, check: TurnCheck, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, };

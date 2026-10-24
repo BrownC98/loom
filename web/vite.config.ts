@@ -2,9 +2,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
-  server: process.env.VITEST ? { fs: { deny: ['.env', '.env.*', '*.{crt,pem}'] } } : undefined,
+  server: mode === 'test' ? { fs: { deny: ['.env', '.env.*', '*.{crt,pem}'] } } : undefined,
   build: { chunkSizeWarningLimit: 1500 },
   test: {
     css: { include: [/styles\.css/] },
@@ -13,4 +13,4 @@ export default defineConfig({
       { extends: true, test: { name: 'dom', environment: 'jsdom', include: ['src/{Tree,Graph,Inbox}.test.tsx'] } },
     ],
   },
-});
+}));

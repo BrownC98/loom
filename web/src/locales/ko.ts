@@ -636,6 +636,7 @@ const ko: typeof en = {
       kindWord_nameless: '{{word}}은(는) 종류 낱말 · {{verb}} 사용',
       ownVerdict: '{{value}}: 자기 브랜치는 판정하지 못합니다.',
       notReviewer: '{{branch}}: `loom spawn <이름> --review {{branch}}`로 띄운 검토자만 이 브랜치를 판정합니다.',
+      coordinatorAccepts: '{{branch}}: 코디 밑 워커 브랜치는 검토자가 없습니다. 코디 {{gate}}만 완료 조건을 보고 판정합니다.',
       nothingToMerge: '{{branch}}에는 {{target}}에 없는 커밋이 없습니다.',
       git: 'git이 실패했습니다: {{value}}',
       launch: '노드를 시작하지 못했습니다: {{value}}',

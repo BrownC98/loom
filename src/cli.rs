@@ -525,7 +525,7 @@ pub fn ready(branch: String) -> Result<(), String> {
         None,
     )?;
     println!(
-        "Sent {branch} to its gate {} (target {}). A reviewer that the gate spawns gives the verdict; on pass, loom queues, checks and merges the branch and sends the result. Do not commit to {branch} until the result comes.",
+        "Sent {branch} to its gate {} (target {}). A coordinator gate gives the verdict itself; any other gate spawns a reviewer for it. On pass, loom queues, checks and merges the branch and sends the result. Do not commit to {branch} until the result comes.",
         readied.gate, readied.target
     );
     Ok(())

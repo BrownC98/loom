@@ -137,7 +137,7 @@ fn spawn_role_is_stored_and_picks_the_gate() {
 }
 
 #[test]
-fn a_coordinator_round_goes_ready_block_ready_pass_queue_merge_without_the_root() {
+fn a_coordinator_accepts_a_worker_round_without_reviewers_and_without_the_root() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
@@ -149,13 +149,12 @@ fn a_coordinator_round_goes_ready_block_ready_pass_queue_merge_without_the_root(
         g.ready(t.worker, &round(branch, target), t.coordinator, Some(&v)),
         Ok("코디-1".into())
     );
-    let r = reviewer(&g, t.coordinator, branch, "reviewer");
     assert_eq!(state(&g, branch), GateState::Ready);
     let to_gate = mail(&g, t.coordinator);
     assert_eq!(to_gate.len(), 1);
     assert!(
         to_gate[0].starts_with(
-            "(from: worker-x, kind: ready)\nbranch: 기능\nhead: c0ffee1\nworktree: /repo/wt\ntarget: 코디 브랜치\nNext: spawn a reviewer"
+            "(from: worker-x, kind: ready)\nbranch: 기능\nhead: c0ffee1\nworktree: /repo/wt\ntarget: 코디 브랜치\nNext: accept or return the branch yourself"
         ),
         "{}",
         to_gate[0]
@@ -165,37 +164,64 @@ fn a_coordinator_round_goes_ready_block_ready_pass_queue_merge_without_the_root(
         Err(Refusal::Gate(e)) if e.state == GateState::Ready && e.allowed == [GateVerb::Verdict, GateVerb::Fail]
     ));
 
-    for other in [t.coordinator, t.solo] {
-        assert!(matches!(
+    let accepts = Refusal::CoordinatorAccepts {
+        branch: branch.into(),
+        gate: "코디-1".into(),
+    };
+    let spawned = g
+        .add_child(
+            t.coordinator,
+            NewChild {
+                review: Some(branch),
+                ..named("reviewer")
+            },
+            limits(),
+            &launched(),
+            started,
+        )
+        .map(|_| ());
+    assert_eq!(spawned, Err(accepts.clone()));
+    let plain = g
+        .add_child(
+            t.coordinator,
+            named("plain"),
+            limits(),
+            &launched(),
+            started,
+        )
+        .unwrap();
+    for other in [plain, t.solo] {
+        assert_eq!(
             g.verdict(other, branch, Judgment::Pass, None, Some(&v)),
-            Err(Refusal::NotGate { gate, .. }) if gate == "코디-1"
-        ));
+            Err(accepts.clone())
+        );
     }
     assert_eq!(
         g.verdict(t.worker, branch, Judgment::Pass, None, Some(&v)),
         Err(Refusal::OwnVerdict(branch.into()))
     );
     assert_eq!(
-        g.verdict(r, branch, Judgment::Block, None, Some(&v)),
+        g.verdict(t.coordinator, branch, Judgment::Block, None, Some(&v)),
         Err(Refusal::NoFindings)
     );
     assert_eq!(
-        g.verdict(r, branch, Judgment::Block, Some("/r/findings.md"), Some(&v)),
+        g.verdict(
+            t.coordinator,
+            branch,
+            Judgment::Block,
+            Some("/r/findings.md"),
+            Some(&v)
+        ),
         Ok(GateState::Working)
     );
     let rework = mail(&g, t.worker);
     assert_eq!(rework.len(), 1);
     assert!(
         rework[0].starts_with(
-            "(from: reviewer, kind: verdict)\nbranch: 기능\nhead: c0ffee1\njudgment: block\nfindings: /r/findings.md\n"
+            "(from: 코디-1, kind: verdict)\nbranch: 기능\nhead: c0ffee1\njudgment: block\nfindings: /r/findings.md\n"
         ) && rework[0].contains("\nNext: fix each finding"),
         "{}",
         rework[0]
-    );
-    assert_eq!(
-        mail(&g, t.coordinator).len(),
-        1,
-        "the gate hears its reviewer's block"
     );
     let reviewer_name: Option<String> = g
         .lock()
@@ -203,19 +229,13 @@ fn a_coordinator_round_goes_ready_block_ready_pass_queue_merge_without_the_root(
             r.get(0)
         })
         .unwrap();
-    assert_eq!(reviewer_name.as_deref(), Some("reviewer"));
+    assert_eq!(reviewer_name.as_deref(), Some("코디-1"));
 
-    let second = reviewer(&g, t.coordinator, branch, "reviewer-2");
-    queued(&g, t.worker, t.coordinator, r, branch, target);
+    queued(&g, t.worker, t.coordinator, t.coordinator, branch, target);
     assert!(
         mail(&g, t.worker)[0]
             .contains("kind: verdict)\nbranch: 기능\nhead: c0ffee1\njudgment: pass")
     );
-    assert_eq!(
-        g.verdict(second, branch, Judgment::Pass, None, Some(&v)),
-        Ok(GateState::Passed)
-    );
-    mail(&g, t.worker);
     mail(&g, t.coordinator);
     let repo = RepoId(1);
     assert_eq!(g.queued_targets().unwrap(), [(repo, target.to_owned())]);
@@ -232,7 +252,7 @@ fn a_coordinator_round_goes_ready_block_ready_pass_queue_merge_without_the_root(
     assert!(g.queue(repo, target).unwrap().is_empty());
     assert!(mail(&g, t.worker).is_empty() && mail(&g, t.coordinator).is_empty());
     assert!(matches!(
-        g.verdict(r, branch, Judgment::Block, Some("/r/late.md"), Some(&v)),
+        g.verdict(t.coordinator, branch, Judgment::Block, Some("/r/late.md"), Some(&v)),
         Err(Refusal::Gate(e)) if e.state == GateState::Merging && e.allowed.is_empty()
     ));
     assert_eq!(
@@ -261,6 +281,33 @@ fn a_coordinator_round_goes_ready_block_ready_pass_queue_merge_without_the_root(
     assert_eq!(state(&g, branch), GateState::Ready);
     assert_eq!(g.gate_merges(repo, target).unwrap(), ["abc1234"]);
     assert!(g.gate_merges(repo, "main").unwrap().is_empty());
+}
+
+#[test]
+fn a_coordinator_branch_into_main_still_needs_its_own_reviewer() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    g.ready(
+        t.coordinator,
+        &round("코디", "main"),
+        t.coordinator,
+        Some(&via()),
+    )
+    .unwrap();
+    assert_eq!(state(&g, "코디"), GateState::Ready);
+    assert_eq!(
+        g.verdict(t.coordinator, "코디", Judgment::Pass, None, Some(&via())),
+        Err(Refusal::OwnVerdict("코디".into()))
+    );
+    assert!(g.queue(repo, "main").unwrap().is_empty());
+    let r = reviewer(&g, t.coordinator, "코디", "r");
+    assert_eq!(
+        g.verdict(r, "코디", Judgment::Pass, None, Some(&via())),
+        Ok(GateState::Passed)
+    );
+    assert_eq!(g.queue(repo, "main").unwrap().len(), 1);
 }
 
 #[test]
@@ -518,25 +565,14 @@ fn review_binds_a_child_to_a_branch_of_its_gate() {
         spawn(t.solo, "nope", "r0"),
         Err(Refusal::NoRound("nope".into()))
     );
-    g.ready(
-        t.worker,
-        &round("w", "코디 브랜치"),
-        t.coordinator,
-        Some(&via()),
-    )
-    .unwrap();
+    g.ready(t.solo, &round("w", "main"), t.solo, Some(&via()))
+        .unwrap();
     assert!(matches!(
-        spawn(t.solo, "w", "r1"),
-        Err(Refusal::NotGate { gate, .. }) if gate == "코디-1"
+        spawn(t.coordinator, "w", "r1"),
+        Err(Refusal::NotGate { gate, .. }) if gate == "solo"
     ));
     let plain = g
-        .add_child(
-            t.coordinator,
-            named("plain"),
-            limits(),
-            &launched(),
-            started,
-        )
+        .add_child(t.solo, named("plain"), limits(), &launched(), started)
         .unwrap();
     assert_eq!(
         g.verdict(plain, "w", Judgment::Pass, None, Some(&via())),
@@ -545,7 +581,7 @@ fn review_binds_a_child_to_a_branch_of_its_gate() {
             review: None
         })
     );
-    let r = spawn(t.coordinator, "w", "r2").unwrap();
+    let r = spawn(t.solo, "w", "r2").unwrap();
     assert_eq!(
         g.verdict(r, "w", Judgment::Pass, None, Some(&via())),
         Ok(GateState::Passed)
@@ -680,8 +716,7 @@ fn a_queue_result_without_receivers_is_still_traced() {
         Some(&via()),
     )
     .unwrap();
-    let r = reviewer(&g, t.coordinator, "b", "r");
-    g.verdict(r, "b", Judgment::Pass, None, Some(&via()))
+    g.verdict(t.coordinator, "b", Judgment::Pass, None, Some(&via()))
         .unwrap();
     g.batch_open(RepoId(1), "코디 브랜치", &["b"]).unwrap();
     g.remove(t.worker).unwrap();

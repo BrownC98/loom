@@ -577,7 +577,8 @@ impl Graph {
                 GateCall::Verdict(Judgment::Pass) => pending(&tx, caller, &row, branch)?,
                 _ => Vec::new(),
             };
-            for receiver in protocol::receivers(call, row.target_kind(&tx)?) {
+            let target = row.target_kind(&tx)?;
+            for receiver in protocol::receivers(call, target) {
                 let to_node = match receiver {
                     Receiver::Gate => row.gate,
                     Receiver::Owner => row.owner,
@@ -592,7 +593,7 @@ impl Graph {
                 }
                 let mut body = detail.lines.clone();
                 body.push(match held.is_empty() {
-                    true => protocol::next_step(call, *receiver, branch),
+                    true => protocol::next_step(call, *receiver, target, branch),
                     false => protocol::held_step(*receiver, &held),
                 });
                 post(
@@ -660,6 +661,14 @@ fn allowed_caller(
         (Caller::Node(_), Some(row), Sender::Loom) => not_gate(row),
         (Caller::Node(me), Some(row), Sender::Reviewer) if row.owner == me => {
             Err(Refusal::OwnVerdict(branch.to_owned()))
+        }
+        (Caller::Node(me), Some(row), Sender::Reviewer)
+            if row.target_kind(db)? == Target::Coordinator =>
+        {
+            match row.gate == me {
+                true => Ok(()),
+                false => Err(accepts(db, row, branch)?),
+            }
         }
         (Caller::Node(me), Some(row), Sender::Reviewer) => match parent_of(db, me)? {
             Some(parent) if parent == row.gate => match review_of(db, me)? {
@@ -762,8 +771,16 @@ pub(super) fn check_review(
             branch: branch.to_owned(),
             gate: name_of(db, row.gate)?,
         }),
+        Some(row) if row.target_kind(db)? == Target::Coordinator => Err(accepts(db, &row, branch)?),
         Some(_) => Ok(()),
     }
+}
+
+fn accepts(db: &Connection, row: &Row, branch: &str) -> rusqlite::Result<Refusal> {
+    Ok(Refusal::CoordinatorAccepts {
+        branch: branch.to_owned(),
+        gate: name_of(db, row.gate)?,
+    })
 }
 
 fn review_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<String>> {

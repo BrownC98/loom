@@ -634,6 +634,7 @@ const en = {
       kindWord_nameless: '{{word}} is a kind word · use {{verb}}',
       ownVerdict: '{{value}}: you cannot judge your own branch.',
       notReviewer: '{{branch}}: only a reviewer spawned with `loom spawn <name> --review {{branch}}` judges this branch.',
+      coordinatorAccepts: '{{branch}}: a worker branch under a coordinator has no reviewer. Only the coordinator {{gate}} judges it against the done-when.',
       nothingToMerge: '{{branch}} has no commit that {{target}} does not have.',
       git: 'git failed: {{value}}',
       launch: 'Could not start the node: {{value}}',

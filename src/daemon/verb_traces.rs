@@ -561,9 +561,10 @@ impl Fixture {
     }
 
     fn prompt(&self, node: NodeId, turn: &str) {
-        let hook = "beforeSubmitPrompt".into();
-        let turn = Some(TurnId(turn.into()));
-        self.app.idle.turn_started(node, hook, turn);
+        self.app
+            .idle
+            .turn_started(node, "beforeSubmitPrompt".into());
+        self.app.idle.prompted(node, TurnId(turn.into()));
     }
 
     async fn said(&self, token: &str, turn: Option<&str>) {
@@ -602,7 +603,7 @@ impl Fixture {
         held
     }
 
-    async fn tool_hook(&self, token: &str) {
+    async fn tool_hook(&self, token: &str, turn: &str) {
         let req = TakeRequest {
             hook: "postToolUse".into(),
             kinds: vec![],
@@ -610,7 +611,7 @@ impl Fixture {
             transcript: None,
             human_input: false,
             prompt: None,
-            new_turn: None,
+            turn: Some(TurnId(turn.into())),
         };
         ok(
             "take",
@@ -738,8 +739,63 @@ async fn a_late_tool_hook_keeps_the_watch_of_a_newer_turn() {
     let mark = t.mark();
     t.said("overtaken", Some("g2")).await;
     tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
-    t.tool_hook("overtaken").await;
+    t.tool_hook("overtaken", "g1").await;
     tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_turn_that_a_stop_hook_starts_is_watched() {
+    let t = fixture();
+    let woken = t.cursor("woken");
+    let nudged = t.cursor("nudged");
+    for node in [woken, nudged] {
+        t.heard(node, "g1");
+    }
+    t.stop_hook("woken", "g1").await;
+    t.idle_request("woken", "g1").await;
+    t.tool_hook("woken", "g2").await;
+    t.stop_hook("nudged", "g1").await;
+    let mark = t.mark();
+    t.said("woken", Some("g2")).await;
+    t.said("nudged", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    let missed: Vec<_> = t
+        .relaunches(mark)
+        .into_iter()
+        .filter_map(|e| match e {
+            Entry::NoIdleWait { node } => node.id,
+            _ => None,
+        })
+        .collect();
+    assert_eq!(missed, [woken, nudged]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_draft_holds_every_turn_until_the_human_submits() {
+    let t = fixture();
+    let node = t.cursor("drafting");
+    t.heard(node, "g1");
+    t.stop_hook("drafting", "g1").await;
+    human_typed(&t.app, node);
+    t.tool_hook("drafting", "g2").await;
+    let mark = t.mark();
+    t.said("drafting", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    assert_eq!(
+        t.relaunches(mark),
+        [],
+        "the draft is still in the input box"
+    );
+
+    t.stop_hook("drafting", "g2").await;
+    t.prompt(node, "g3");
+    t.said("drafting", Some("g3")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
     let found = t.relaunches(mark);
     assert!(
         matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
@@ -772,7 +828,8 @@ async fn a_turn_end_that_something_answered_relaunches_nothing() {
     let unchecked = t.cursor("unchecked");
     let exited = t.cursor("exited");
     let plain = t.cursor("plain");
-    for node in [late, newer, typed, drafted, unchecked, exited, plain] {
+    let moved = t.cursor("moved");
+    for node in [late, newer, typed, drafted, unchecked, exited, plain, moved] {
         t.heard(node, "g1");
     }
     let mark = t.mark();
@@ -798,8 +855,11 @@ async fn a_turn_end_that_something_answered_relaunches_nothing() {
 
     t.said("plain", None).await;
 
+    t.said("moved", Some("g1")).await;
+
     tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
     human_typed(&t.app, typed);
+    t.prompt(moved, "g2");
     tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
     assert_eq!(t.relaunches(mark), []);
     assert!(t.app.busy(newer), "the newer turn still runs");

@@ -18,16 +18,33 @@ pub struct IdleWaits {
 #[derive(Default)]
 struct Watch {
     heard: bool,
+    drafted: bool,
     turn: Option<TurnId>,
-    answered: Option<TurnId>,
-    said: Option<Said>,
+    past: HashSet<TurnId>,
+    said: Option<(Said, TurnId)>,
+}
+
+impl Watch {
+    fn enter(&mut self, turn: TurnId) {
+        if self.past.contains(&turn) {
+            return;
+        }
+        if let Some((_, armed)) = self.said.take_if(|(_, armed)| *armed != turn) {
+            self.past.insert(armed);
+        }
+        if self.turn.as_ref() != Some(&turn)
+            && let Some(old) = self.turn.replace(turn)
+        {
+            self.past.insert(old);
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Said(u64);
 
 #[derive(PartialEq, Debug)]
-pub enum Deadline {
+pub enum Expiry {
     Answered,
     Listening,
     Missed,
@@ -96,15 +113,20 @@ impl IdleWaits {
         self.turns.lock().unwrap().contains(&node)
     }
 
-    pub fn turn_started(&self, node: NodeId, hook: String, new_turn: Option<TurnId>) {
+    pub fn turn_started(&self, node: NodeId, hook: String) {
         self.end_wait(node, IdleEnd::Turn { hook });
-        if new_turn.is_some() {
-            self.watch(node, |w| {
-                w.said = None;
-                w.turn = new_turn;
-            });
-        }
         self.turns.lock().unwrap().insert(node);
+    }
+
+    pub fn prompted(&self, node: NodeId, turn: TurnId) {
+        self.watch(node, |w| {
+            w.drafted = false;
+            w.enter(turn);
+        });
+    }
+
+    pub fn stepped(&self, node: NodeId, turn: TurnId) {
+        self.watch(node, |w| w.enter(turn));
     }
 
     pub fn end(&self, node: NodeId, by: IdleEnd) {
@@ -122,49 +144,53 @@ impl IdleWaits {
     pub fn said(&self, node: NodeId, turn: TurnId) -> Option<Said> {
         let mut watches = self.watches.lock().unwrap();
         let w = watches.get_mut(&node)?;
-        let stale =
-            w.answered.as_ref() == Some(&turn) || w.turn.as_ref().is_some_and(|t| *t != turn);
-        if !w.heard || stale {
+        if !w.heard || w.drafted || w.past.contains(&turn) {
             return None;
         }
+        if let Some((_, armed)) = w.said.take_if(|(_, armed)| *armed != turn) {
+            w.past.insert(armed);
+        }
         let said = Said(self.next_said.fetch_add(1, Ordering::Relaxed));
-        w.said = Some(said);
+        w.said = Some((said, turn));
         Some(said)
     }
 
     pub fn stop_reached(&self, node: NodeId, turn: Option<TurnId>) {
-        self.watch(node, |w| {
-            if turn.is_some() && w.turn.is_some() && turn != w.turn {
-                return;
+        self.watch(node, |w| match turn {
+            Some(turn) => {
+                w.said.take_if(|(_, armed)| *armed == turn);
+                w.past.insert(turn);
             }
-            w.said = None;
-            if turn.is_some() {
-                w.answered = turn;
-            }
+            None => w.said = None,
         });
     }
 
     pub fn typed(&self, node: NodeId) {
-        if let Some(w) = self.watches.lock().unwrap().get_mut(&node) {
-            w.said = None;
-            w.answered = w.turn.clone();
-        }
+        self.watch(node, |w| {
+            w.drafted = true;
+            if let Some((_, armed)) = w.said.take() {
+                w.past.insert(armed);
+            }
+        });
     }
 
-    pub fn deadline(&self, node: NodeId, said: Said) -> Deadline {
+    pub fn expire(&self, node: NodeId, said: Said) -> Expiry {
         let mut watches = self.watches.lock().unwrap();
-        let Some(w) = watches.get_mut(&node).filter(|w| w.said == Some(said)) else {
-            return Deadline::Answered;
+        let Some(w) = watches
+            .get_mut(&node)
+            .filter(|w| w.said.as_ref().is_some_and(|(armed, _)| *armed == said))
+        else {
+            return Expiry::Answered;
         };
         let ends = self.ends.lock().unwrap();
         if ends.get(&node).is_some_and(|end| !end.is_closed()) {
-            return Deadline::Listening;
+            return Expiry::Listening;
         }
         drop(ends);
         w.said = None;
         w.heard = false;
         self.turns.lock().unwrap().remove(&node);
-        Deadline::Missed
+        Expiry::Missed
     }
 
     fn watch(&self, node: NodeId, change: impl FnOnce(&mut Watch)) {
@@ -254,13 +280,13 @@ mod tests {
     fn only_a_turn_hook_until_the_turn_end_counts_as_a_turn() {
         let (_dir, [node, _], waits) = waits();
         assert!(!waits.in_turn(node));
-        waits.turn_started(node, "postToolUse".into(), None);
+        waits.turn_started(node, "postToolUse".into());
         assert!(waits.in_turn(node));
         assert!(!waits.waiting(node));
         let _wait = waits.open(node);
         assert!(!waits.in_turn(node));
         assert!(waits.waiting(node));
-        waits.turn_started(node, "postToolUse".into(), None);
+        waits.turn_started(node, "postToolUse".into());
         waits.end(node, IdleEnd::Exit);
         assert!(!waits.in_turn(node));
     }
@@ -272,7 +298,7 @@ mod tests {
         waits.end(node, IdleEnd::Relaunch);
         assert!(waits.reopen(&mut wait));
         assert!(!waits.reopen(&mut wait));
-        waits.turn_started(node, "preToolUse".into(), None);
+        waits.turn_started(node, "preToolUse".into());
         assert!(!waits.reopen(&mut wait));
     }
 
@@ -280,8 +306,10 @@ mod tests {
     fn a_turn_misses_its_wait_once_per_process_and_only_while_nothing_answered() {
         let (_dir, [node, _], waits) = waits();
         let turn = |id: &str| TurnId(id.into());
-        let prompt =
-            |id: &str| waits.turn_started(node, "beforeSubmitPrompt".into(), Some(turn(id)));
+        let prompt = |id: &str| {
+            waits.turn_started(node, "beforeSubmitPrompt".into());
+            waits.prompted(node, turn(id));
+        };
         assert_eq!(
             waits.said(node, turn("1")),
             None,
@@ -292,13 +320,13 @@ mod tests {
         let said = waits.said(node, turn("1")).unwrap();
         let missed = waits.said(node, turn("1")).unwrap();
         assert_eq!(
-            waits.deadline(node, said),
-            Deadline::Answered,
+            waits.expire(node, said),
+            Expiry::Answered,
             "a newer turn end came"
         );
-        assert_eq!(waits.deadline(node, missed), Deadline::Missed);
+        assert_eq!(waits.expire(node, missed), Expiry::Missed);
         assert!(!waits.in_turn(node));
-        assert_eq!(waits.deadline(node, missed), Deadline::Answered);
+        assert_eq!(waits.expire(node, missed), Expiry::Answered);
         assert_eq!(
             waits.said(node, turn("1")),
             None,
@@ -321,6 +349,7 @@ mod tests {
             None,
             "the stop hook of that turn came first"
         );
+        prompt("4");
         prompt("5");
         assert_eq!(waits.said(node, turn("4")), None, "a newer turn started");
         assert!(waits.in_turn(node));
@@ -328,8 +357,8 @@ mod tests {
         let said = waits.said(node, turn("5")).unwrap();
         let wait = waits.open(node);
         assert_eq!(
-            waits.deadline(node, said),
-            Deadline::Listening,
+            waits.expire(node, said),
+            Expiry::Listening,
             "the wait opened"
         );
         wait.finish(IdleEnd::Mail);
@@ -338,15 +367,15 @@ mod tests {
         let said = waits.said(node, turn("7")).unwrap();
         waits.stop_reached(node, None);
         assert_eq!(
-            waits.deadline(node, said),
-            Deadline::Answered,
+            waits.expire(node, said),
+            Expiry::Answered,
             "the stop hook reached loom"
         );
         let said = waits.said(node, turn("7")).unwrap();
         waits.typed(node);
         assert_eq!(
-            waits.deadline(node, said),
-            Deadline::Answered,
+            waits.expire(node, said),
+            Expiry::Answered,
             "the human types"
         );
         assert_eq!(
@@ -361,14 +390,14 @@ mod tests {
         let wait = waits.open(node);
         let said = waits.said(node, turn("9")).unwrap();
         assert_eq!(
-            waits.deadline(node, said),
-            Deadline::Listening,
+            waits.expire(node, said),
+            Expiry::Listening,
             "a wait is open"
         );
         wait.finish(IdleEnd::Mail);
         assert_eq!(
-            waits.deadline(node, said),
-            Deadline::Missed,
+            waits.expire(node, said),
+            Expiry::Missed,
             "the finished wait no longer listens"
         );
     }
@@ -401,7 +430,7 @@ mod tests {
         let by = first.ended().await;
         first.finish(by);
         let mut elsewhere = waits.open(other);
-        waits.turn_started(node, "beforeSubmitPrompt".into(), None);
+        waits.turn_started(node, "beforeSubmitPrompt".into());
         let by = second.ended().await;
         second.finish(by);
         assert!(

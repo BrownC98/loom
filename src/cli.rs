@@ -228,7 +228,7 @@ pub fn hook() -> Result<(), String> {
         transcript,
         human_input: event.human_input(),
         prompt: event.prompt().map(str::to_owned),
-        new_turn: None,
+        turn: None,
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken.messages, taken.note.as_deref()) {
@@ -280,7 +280,6 @@ pub fn cursor_hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the model: {e}");
     }
-    let starts_turn = matches!(event, cursor::Event::BeforeSubmitPrompt { .. });
     let take_now = |kinds: &[Kind]| {
         call(
             "take",
@@ -289,9 +288,9 @@ pub fn cursor_hook() -> Result<(), String> {
                 kinds: kinds.to_vec(),
                 limit_bytes: cursor::HOOK_LIMIT_BYTES,
                 transcript: transcript.clone(),
-                human_input: starts_turn,
+                human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
                 prompt: None,
-                new_turn: turn.clone().filter(|_| starts_turn),
+                turn: turn.clone(),
             },
             Some(timeout),
         )

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::idle::Deadline;
+use super::idle::Expiry;
 use super::{App, TurnId};
 use crate::graph::{Entry, NodeId, TurnCheck};
 
@@ -114,10 +114,10 @@ impl App {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(IDLE_GRACE).await;
-                match app.idle.deadline(node, said) {
-                    Deadline::Answered => return,
-                    Deadline::Listening => {}
-                    Deadline::Missed => break,
+                match app.idle.expire(node, said) {
+                    Expiry::Answered => return,
+                    Expiry::Listening => {}
+                    Expiry::Missed => break,
                 }
             }
             let active = match app.graph.active() {

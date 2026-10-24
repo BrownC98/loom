@@ -22,8 +22,8 @@ const pathAt = (agent: AgentView, distro: string | null) => agent.places.find((p
 
 function choices(agents: AgentView[], distro: string | null): Choice[] {
   return [
-    ...agents.filter((a) => pathAt(a, distro) !== null).map((agent) => ({ agent, installed: true })),
     { agent: null, installed: true },
+    ...agents.filter((a) => pathAt(a, distro) !== null).map((agent) => ({ agent, installed: true })),
     ...agents.filter((a) => pathAt(a, distro) === null).map((agent) => ({ agent, installed: false })),
   ];
 }

@@ -5,9 +5,8 @@ bin=$HOME/loom/bin/loom
 port=${LOOM_PORT:-7420}
 raw=https://raw.githubusercontent.com/BrownC98/loom/main
 
-stop_web_install() {
-  [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ] || return 1
-  "$bin" stop --listen "127.0.0.1:$port"
+is_web_install() {
+  [ -x "$bin" ] && [ "$(head -c 2 "$bin")" != '#!' ]
 }
 
 point_bin_to() {
@@ -20,7 +19,10 @@ point_bin_to() {
 
 if [ -n "${WSL_DISTRO_NAME:-}" ]; then
   carry=
-  if stop_web_install; then carry=$HOME/.loom; fi
+  if is_web_install; then
+    "$bin" stop --listen "127.0.0.1:$port"
+    carry=$HOME/.loom
+  fi
   rm -f "$HOME/.loom/serve.pid"
   export WSLENV="${WSLENV:+$WSLENV:}LOOM_DOWNLOAD_URL:LOOM_DESKTOP/p"
   (cd /mnt/c && powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; irm $raw/scripts/install.ps1 | iex")
@@ -75,7 +77,10 @@ if [ "$(uname -s)" = Darwin ]; then
   fi
   echo "loom 앱을 설치했습니다: $dir/loom.app"
   exe=$dir/loom.app/Contents/MacOS/loom
-  if stop_web_install; then point_bin_to "$exe"; fi
+  if is_web_install; then
+    "$bin" stop --listen "127.0.0.1:$port"
+    point_bin_to "$exe"
+  fi
   launcher="$HOME/Applications/loom (browser).command"
   mkdir -p "$HOME/Applications"
   printf '#!/bin/sh\nexec "%s" open\n' "$exe" >"$launcher"

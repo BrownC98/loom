@@ -33,7 +33,7 @@ pub use waits::{
 
 use crate::db::Database;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::{COORDINATOR_ROLE, IllegalStep, MessageKind};
+use crate::protocol::{IllegalStep, MessageKind};
 use crate::worktree::RepoId;
 
 const EVENT_QUEUE: usize = 256;
@@ -250,8 +250,8 @@ pub enum Refusal {
     RoleHasNoAgent {
         role: String,
     },
-    /// 부모 없는 노드(총괄)가 코디도 자기 브랜치 검토자도 아닌 역할을 띄웠다. 값은 그 역할이다.
-    LeadSpawnsOnlyCoordinator(String),
+    /// 부모 없는 노드가 자기 워크트리도 `--review`도 없는 자식을 띄웠다. 값은 그 역할이다.
+    LeadChildNeedsWorktree(String),
     /// 이 브랜치에는 이 역할의 검토자가 이미 있다. loom이 새 차례마다 그 검토자에게 보낸다. `reviewer`는 그 노드 이름이다.
     ReviewerSeated {
         branch: String,
@@ -298,7 +298,7 @@ pub enum Refusal {
         branch: String,
         review: Option<String>,
     },
-    /// 코디 밑 워커 브랜치는 검토자가 없다. 관문인 코디가 완료 조건을 보고 직접 판정한다. `gate`는 그 코디다.
+    /// 부모 브랜치에서 만든 브랜치는 검토자가 없다. 관문인 부모가 완료 조건을 보고 직접 판정한다. `gate`는 그 부모다.
     CoordinatorAccepts {
         branch: String,
         gate: String,
@@ -459,7 +459,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::SameAsTarget(branch) => write!(
                 f,
-                "{branch} is the target branch itself. If you work in your coordinator's branch, report with `loom done`."
+                "{branch} is the target branch itself. If you work in your parent's branch, report with `loom done`."
             ),
             Refusal::NoFindings => write!(
                 f,
@@ -485,7 +485,7 @@ impl fmt::Display for Refusal {
             },
             Refusal::CoordinatorAccepts { branch, gate } => write!(
                 f,
-                "{branch}: a worker branch under a coordinator has no reviewer. Only its coordinator {gate} gives the verdict, after it checks the result against the brief's done-when."
+                "{branch}: a branch made from its parent's branch has no reviewer. Only that parent {gate} gives the verdict, after it checks the result against the brief's done-when."
             ),
             Refusal::NothingToMerge { branch, target } => write!(
                 f,
@@ -517,9 +517,9 @@ impl fmt::Display for Refusal {
                 f,
                 "The role '{role}' has no agent in the settings. The human starts nodes of this role."
             ),
-            Refusal::LeadSpawnsOnlyCoordinator(role) => write!(
+            Refusal::LeadChildNeedsWorktree(role) => write!(
                 f,
-                "You have no parent, so you spawn only a {COORDINATOR_ROLE} (`loom spawn <name> --role {COORDINATOR_ROLE}`) or the reviewer of your own branch (`loom spawn --role <role> --review <branch>`). Give the work for '{role}' to a {COORDINATOR_ROLE} in its brief."
+                "You have no parent, so each child owns a new worktree (`loom spawn <name> --role {role} --worktree <branch>`) or reviews your own branch (`loom spawn --role <role> --review <branch>`)."
             ),
             Refusal::ReviewerSeated {
                 branch,
@@ -614,6 +614,14 @@ impl Graph {
 
     pub fn place_of(&self, id: NodeId) -> rusqlite::Result<Place> {
         place_of(&self.lock(), id)
+    }
+
+    pub fn branch_renamed(&self, repo: RepoId, from: &str, to: &str) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "UPDATE nodes SET branched_from = ?3 WHERE repo = ?1 AND branched_from = ?2",
+            params![repo.0, from, to],
+        )?;
+        Ok(())
     }
 
     pub fn nodes_in(&self, worktree: &str) -> rusqlite::Result<Vec<NodeId>> {

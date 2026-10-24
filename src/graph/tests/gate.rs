@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::{COORDINATOR_ROLE, Finding, GateState, GateVerb, Judgment, MergeEnd};
+use crate::protocol::{Finding, GateState, GateVerb, Judgment, MergeEnd};
 
 fn limits() -> TreeLimits {
     TreeLimits {
@@ -8,11 +8,14 @@ fn limits() -> TreeLimits {
     }
 }
 
+const RENAMED_COORDINATOR: &str = "조율";
+
 fn with_role(g: &Graph, parent: NodeId, name: &str, role: &str) -> NodeId {
     g.add_child(
         parent,
         NewChild {
             role: Some(role),
+            worktree: Some("/repo"),
             ..named(name)
         },
         limits(),
@@ -62,12 +65,12 @@ struct Team {
 
 fn team(g: &Graph) -> Team {
     let lead = root(g, "claude");
-    let coordinator = with_role(g, lead, "코디-1", COORDINATOR_ROLE);
+    let coordinator = with_role(g, lead, "코디-1", RENAMED_COORDINATOR);
     Team {
         lead,
         coordinator,
         worker: with_role(g, coordinator, "worker-x", "워커"),
-        solo: with_role(g, lead, "solo", COORDINATOR_ROLE),
+        solo: with_role(g, lead, "solo", RENAMED_COORDINATOR),
     }
 }
 
@@ -128,13 +131,13 @@ fn spawn_role_is_stored_and_picks_the_gate() {
     assert_eq!(role.as_deref(), Some("워커"));
     assert_eq!(
         g.gate_for(t.worker).unwrap(),
-        GateChoice::Coordinator {
+        GateChoice::Parent {
             gate: t.coordinator,
-            worktree: "/repo".into()
+            worktree: "/repo".into(),
+            branched_from: None
         }
     );
-    assert_eq!(g.gate_for(t.coordinator).unwrap(), GateChoice::Owner);
-    assert_eq!(g.gate_for(t.solo).unwrap(), GateChoice::Owner);
+    assert_eq!(g.gate_for(t.lead).unwrap(), GateChoice::Owner);
 }
 
 #[test]
@@ -630,33 +633,51 @@ fn a_reused_reviewer_that_exits_stops_holding_the_branch() {
 }
 
 #[test]
-fn an_old_ci_round_tells_the_root_because_its_target_is_the_base() {
+fn a_branch_rename_follows_into_branched_from() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    let ci = g
-        .add_child(t.lead, named("ci"), limits(), &launched(), started)
-        .unwrap();
-    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
-        .unwrap();
-    g.lock()
-        .execute(
-            r#"UPDATE gates SET gate = ?1, state = '"merging"', batch = NULL"#,
-            [ci.0],
+    let worker = g
+        .add_child(
+            t.coordinator,
+            NewChild {
+                worktree: Some("/wt/w"),
+                branched_from: Some("feature"),
+                ..named("w")
+            },
+            limits(),
+            &launched(),
+            started,
         )
         .unwrap();
-    for node in [t.lead, t.solo, ci] {
-        mail(&g, node);
-    }
-    assert_eq!(g.orphans().unwrap(), [(RepoId(1), "b".to_owned())]);
-    let failed = Ended {
-        cause: Some("loom upgrade: send loom ready again".into()),
-        ..ended(MergeEnd::Failed, None)
-    };
-    assert_eq!(g.merge_end(RepoId(1), "b", failed), Ok(GateState::Failed));
-    for node in [t.lead, t.solo, ci] {
-        assert_eq!(mail(&g, node).len(), 1, "{node}");
-    }
+    g.branch_renamed(RepoId(1), "feature", "renamed").unwrap();
+    assert_eq!(
+        g.gate_for(worker).unwrap(),
+        GateChoice::Parent {
+            gate: t.coordinator,
+            worktree: "/repo".into(),
+            branched_from: Some("renamed".into())
+        }
+    );
+}
+
+#[test]
+fn an_adopted_owner_keeps_the_stored_gate_of_its_round() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    g.ready(t.worker, &round("b", "코디 브랜치"), t.coordinator, None)
+        .unwrap();
+    g.adopt(t.lead, t.worker, limits()).unwrap();
+    let refused = g.verdict(t.lead, "b", Judgment::Pass, None, None);
+    assert!(
+        matches!(refused, Err(Refusal::CoordinatorAccepts { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(
+        g.verdict(t.coordinator, "b", Judgment::Pass, None, None),
+        Ok(GateState::Passed)
+    );
 }
 
 #[test]
@@ -856,7 +877,7 @@ fn every_gate_call_and_refusal_leaves_a_trace() {
         (trace.from, trace.to),
         (Some(GateState::Working), Some(GateState::Ready))
     );
-    assert_eq!(trace.role.as_deref(), Some(COORDINATOR_ROLE));
+    assert_eq!(trace.role.as_deref(), Some(RENAMED_COORDINATOR));
     assert_eq!(trace.agent, None, "a shell node");
     assert_eq!(trace.model.as_deref(), Some("claude-opus-5-5"));
     let send_via = Via {
@@ -1016,17 +1037,19 @@ fn spawned(
 }
 
 #[test]
-fn the_lead_spawns_only_a_coordinator_and_the_reviewers_of_its_own_branch() {
+fn the_lead_spawns_only_worktree_owners_and_the_reviewers_of_its_own_branch() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    for role in ["워커", "검토자", crate::roles::HIGH_RISK_WORKER] {
+    for role in ["코디", "워커", "검토자", RENAMED_COORDINATOR] {
         assert_eq!(
             spawned(&g, t.lead, "w", role, None),
-            Err(Refusal::LeadSpawnsOnlyCoordinator(role.into()))
+            Err(Refusal::LeadChildNeedsWorktree(role.into()))
         );
     }
-    assert!(spawned(&g, t.lead, "코디-2", COORDINATOR_ROLE, None).is_ok());
+    for role in ["코디", "워커", "아무 역할"] {
+        with_role(&g, t.lead, &format!("{role}-2"), role);
+    }
     assert!(spawned(&g, t.coordinator, "w", "워커", None).is_ok());
     assert!(
         g.add_child(t.lead, named("shell"), limits(), &launched(), started)

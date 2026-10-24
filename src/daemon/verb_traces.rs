@@ -109,6 +109,7 @@ impl Fixture {
         let child = NewChild {
             name,
             worktree: None,
+            branched_from: None,
             agent: claude(),
             brief: "",
             role: None,
@@ -225,7 +226,7 @@ async fn scene(t: &Fixture, verb: &str) {
             let req = SpawnRequest {
                 run: SpawnRun::Role {
                     name: "made".into(),
-                    role: crate::protocol::COORDINATOR_ROLE.into(),
+                    role: "조율".into(),
                 },
                 brief: "no heads".into(),
                 worktree: None,
@@ -539,6 +540,7 @@ impl Fixture {
         let child = NewChild {
             name,
             worktree: None,
+            branched_from: None,
             agent: Some(AgentId("cursor".into())),
             brief: "",
             role: None,

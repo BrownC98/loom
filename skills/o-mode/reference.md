@@ -6,8 +6,8 @@ Procedures from [o-mode](SKILL.md) for rare tasks. Read this file when you do on
 
 | Task | Command or action |
 |---|---|
-| Handover | In the new lead, `loom adopt <코디 name>`. Look at the relations and the kept messages |
-| Send an action to all children | `loom note` to each live child. A 코디 sends the action on to its own children |
+| Handover | In the new lead, `loom adopt <coordinator name>`. Look at the relations and the kept messages |
+| Send an action to all children | `loom note` to each live child. A coordinator sends the action on to its own children |
 | Reassign after a failure | Make sure that the old node stopped, then spawn a node with a new name. In the brief, write the kept branch and results |
 
 A `--worktree` child runs the repository setup script on the parent's committed `HEAD`. Thus commit a `HEAD` on which the setup (with the build) passes, then spawn. A `setup-failed` message has the fields `node` and `code`, and its body is the end of the output. On it, the parent finds the cause in that output, fixes it and commits. Then it removes the failed child with `loom rm`. It removes the worktree and branch with `git worktree remove` and `git branch -d`. Then it spawns the child again with the same name.
@@ -18,7 +18,7 @@ A `--worktree` child runs the repository setup script on the parent's committed 
 ## Mockup approval
 
 - [user-doc](../user-doc/SKILL.md) sets the form, style and display of mockups and reports. This section gives only the Loom roles.
-- For screen work, check with an installed design check skill (for example `design-stack`) if there is one. The 코디 makes the mockup, checks the render and reports only the path, the version and the check result.
+- For screen work, check with an installed design check skill (for example `design-stack`) if there is one. The coordinator makes the mockup, checks the render and reports only the path, the version and the check result.
 - The lead checks the file with user-doc `show.sh` and attaches it with `loom ask "<question>" --doc <file>`. Nobody opens the human's browser. The head line names the lead as the node to answer to.
 - Before the human approves, do not write screen product code and do not spawn implementation workers. Show the version to approve and the open decisions.
 - Write the approved version, its path and its content in the implementation brief. Keep the node and the worktree while the approval waits.

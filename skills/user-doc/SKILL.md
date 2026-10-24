@@ -42,7 +42,7 @@ Mockups and reports use the same design language. Make, check and attach a docum
 
 ## Display
 
-1. The author (코디 or 워커) writes the file and checks the render. It sends its parent only the path, version and a one-line summary.
+1. The author (a coordinator or a worker) writes the file and checks the render. It sends its parent only the path, version and a one-line summary.
 2. The node that asks the human is the lead, or outside loom the agent that talks with the human. It reviews the content and runs [scripts/show.sh](scripts/show.sh): `bash <this skill folder>/scripts/show.sh <file>`.
    - `show.sh` calls `loom show <file>`. It checks the form (title, light default, toggle button, head line) and adds the document ID. If the check fails, send the document back to the author.
    - It keeps a render made with headless Chromium. The node that asks looks at that render.

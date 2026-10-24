@@ -55,17 +55,20 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         Some(branch) => {
             let repo = app.repos.path(place.repo)?;
             let workspace = app.workspace(&repo).await?;
+            let parent_branch = worktree::find(&repo, &place.worktree).await?.branch;
             let from = std::path::Path::new(&place.worktree);
             let made = worktree::create(&repo, from, &workspace, branch, "HEAD").await?;
-            Some((repo, made))
+            Some((repo, made, parent_branch))
         }
         None => None,
     };
-    let made = worktree.as_ref().map(|(_, made)| made.as_str());
+    let made = worktree.as_ref().map(|(_, made, _)| made.as_str());
+    let branched_from = worktree.as_ref().and_then(|(_, _, from)| from.as_deref());
     let cwd = std::path::Path::new(made.unwrap_or(&place.worktree));
     let child = NewChild {
         name: &name,
         worktree: made,
+        branched_from,
         agent: start.agent(),
         brief: &queued_brief,
         role,
@@ -76,7 +79,7 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     if let (Ok(_), Some(fresh)) = (&spawned, fresh) {
         fresh.keep();
     }
-    if let (Some((repo, made)), Err(_)) = (&worktree, &spawned)
+    if let (Some((repo, made, _)), Err(_)) = (&worktree, &spawned)
         && let Err(e) = worktree::discard(repo, made).await
     {
         eprintln!("loom: 띄우지 못한 자식의 워크트리 {made}를 지우지 못했다: {e}");

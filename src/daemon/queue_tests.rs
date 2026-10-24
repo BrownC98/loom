@@ -163,6 +163,7 @@ mod git_runs {
                 NewChild {
                     name,
                     worktree: None,
+                    branched_from: None,
                     agent: None,
                     brief: "",
                     role,
@@ -177,6 +178,106 @@ mod git_runs {
                 |_| Ok(()),
             )
             .unwrap()
+    }
+
+    fn owner(
+        app: &App,
+        parent: NodeId,
+        name: &str,
+        role: &str,
+        worktree: &Path,
+        branched_from: Option<&str>,
+    ) -> NodeId {
+        app.graph
+            .add_child(
+                parent,
+                NewChild {
+                    name,
+                    worktree: Some(worktree.to_str().unwrap()),
+                    branched_from,
+                    agent: None,
+                    brief: "",
+                    role: Some(role),
+                    task: name,
+                    review: None,
+                },
+                TreeLimits {
+                    max_depth: None,
+                    max_children: None,
+                },
+                &launched(name),
+                |_| Ok(()),
+            )
+            .unwrap()
+    }
+
+    async fn readied(app: &Arc<App>, token: &str, branch: &str, cwd: &Path) -> (String, String) {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let req = crate::daemon::gate::ReadyRequest {
+            branch: branch.into(),
+            cwd: cwd.to_string_lossy().into_owned(),
+        };
+        let readied = crate::daemon::gate::agent_ready(
+            axum::extract::State(app.clone()),
+            headers,
+            axum::Json(req),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"))
+        .0;
+        (readied.gate, readied.target)
+    }
+
+    fn commit(dir: &Path, file: &str) {
+        std::fs::write(dir.join(file), file).unwrap();
+        git(dir, &["add", "-A"]);
+        git(dir, &["commit", "-qm", file]);
+    }
+
+    #[tokio::test]
+    async fn the_gate_follows_the_branch_a_worktree_was_made_from_not_the_role_name() {
+        let r = repo();
+        let upper = r.dir.path().join("upper");
+        git(
+            &r.main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "조율",
+                upper.to_str().unwrap(),
+            ],
+        );
+        let coordinator = owner(&r.app, r.lead, "c1", "조율자", &upper, Some("main"));
+        let lower = r.dir.path().join("lower");
+        git(
+            &upper,
+            &["worktree", "add", "-q", "-b", "a", lower.to_str().unwrap()],
+        );
+        owner(&r.app, coordinator, "w", "아무 역할", &lower, Some("조율"));
+        commit(&lower, "a.txt");
+        commit(&upper, "c.txt");
+        git(&upper, &["checkout", "-q", "-b", "딴길"]);
+        assert_eq!(
+            readied(&r.app, "w", "a", &lower).await,
+            ("c1".into(), "조율".into())
+        );
+        assert_eq!(
+            r.app
+                .graph
+                .verdict(coordinator, "a", Judgment::Pass, None, None),
+            Ok(GateState::Passed)
+        );
+        git(&upper, &["checkout", "-q", "조율"]);
+        assert_eq!(
+            readied(&r.app, "c1", "조율", &upper).await,
+            ("c1".into(), "main".into())
+        );
     }
 
     impl Repo {
@@ -621,13 +722,7 @@ mod git_runs {
     #[tokio::test]
     async fn a_coordinator_target_fast_forwards_only_a_clean_worktree() {
         let r = repo();
-        let coordinator = child(
-            &r.app,
-            r.lead,
-            "코디",
-            Some(crate::protocol::COORDINATOR_ROLE),
-            None,
-        );
+        let coordinator = child(&r.app, r.lead, "코디", None, None);
         let worker = child(&r.app, coordinator, "worker", None, None);
         let wt = r.dir.path().join("coord");
         git(
@@ -786,13 +881,7 @@ mod git_runs {
             "scripts/gate/check.sh",
             "common=$(git rev-parse --path-format=absolute --git-common-dir)\necho \"$(git rev-parse HEAD)\" >>\"$common/check-runs\"\nif [ ! -e \"$common/moved\" ]; then touch \"$common/moved\"; git update-ref refs/heads/코디 HEAD; fi\n[ ! -e bad ] && echo checked\n",
         );
-        let coordinator = child(
-            &r.app,
-            r.lead,
-            "코디",
-            Some(crate::protocol::COORDINATOR_ROLE),
-            None,
-        );
+        let coordinator = child(&r.app, r.lead, "코디", None, None);
         let worker = child(&r.app, coordinator, "worker", None, None);
         let wt = r.dir.path().join("coord");
         git(
@@ -1183,13 +1272,7 @@ mod git_runs {
     }
 
     fn coordinator_with_worker(r: &Repo) -> (NodeId, NodeId, PathBuf) {
-        let coordinator = child(
-            &r.app,
-            r.lead,
-            "코디",
-            Some(crate::protocol::COORDINATOR_ROLE),
-            None,
-        );
+        let coordinator = child(&r.app, r.lead, "코디", None, None);
         let worker = child(&r.app, coordinator, "worker", None, None);
         let wt = r.dir.path().join("coord");
         git(

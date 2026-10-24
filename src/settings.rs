@@ -608,6 +608,9 @@ mod tests {
         let got = settings.patch(&serde_json::json!({"roles": one})).unwrap();
         assert_eq!(got.roles.0.len(), 1);
         assert_eq!(got.roles.0[0].name, "조사");
+        let assigned = settings.get().unwrap().roles.assign("조사", "b").unwrap();
+        assert_eq!(assigned.agent.0, "codex");
+        assert_eq!(assigned.brief, "Role: 조사 - 읽기만\n\nb");
         let twins = serde_json::json!([
             {"name": "a", "duty": "", "agent": null, "model": null, "effort": null},
             {"name": "a", "duty": "", "agent": null, "model": null, "effort": null}

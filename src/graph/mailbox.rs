@@ -459,10 +459,12 @@ impl Graph {
 
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
         let db = self.lock();
-        let agent: Option<AgentId> =
-            db.query_row("SELECT agent FROM nodes WHERE id = ?1", [node.0], |row| {
+        let agent: Option<AgentId> = db
+            .query_row("SELECT agent FROM nodes WHERE id = ?1", [node.0], |row| {
                 from_json(row, 0)
-            })?;
+            })
+            .optional()?
+            .flatten();
         if agent
             .as_ref()
             .and_then(crate::profile::profile_of)

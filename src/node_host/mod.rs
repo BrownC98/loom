@@ -126,7 +126,14 @@ struct Output {
 }
 
 #[derive(Default)]
-struct Backlog(VecDeque<u8>);
+struct Backlog {
+    bytes: VecDeque<u8>,
+    modes: Vec<(u16, bool)>,
+}
+
+const KEPT_MODES: [u16; 14] = [
+    47, 1047, 1049, 1, 9, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1015, 2004,
+];
 
 impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     pub fn new(dir: PathBuf) -> Self {
@@ -233,7 +240,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             .read()
             .unwrap()
             .get(&id)
-            .is_none_or(|pty| !pty.output.lock().unwrap().backlog.0.is_empty())
+            .is_none_or(|pty| !pty.output.lock().unwrap().backlog.bytes.is_empty())
     }
 
     pub fn tail(&self, id: K) -> String {
@@ -477,15 +484,69 @@ impl Output {
 
 impl Backlog {
     fn push(&mut self, chunk: &[u8]) {
-        let overflow = (self.0.len() + chunk.len()).saturating_sub(BACKLOG_BYTES);
-        self.0.drain(..overflow.min(self.0.len()));
+        let overflow = (self.bytes.len() + chunk.len()).saturating_sub(BACKLOG_BYTES);
+        let dropped = overflow.min(self.bytes.len());
+        if dropped > 0 {
+            let seen = (dropped + MODE_SEQUENCE_MAX).min(self.bytes.len());
+            let head: Vec<u8> = self.bytes.iter().take(seen).copied().collect();
+            self.remember_modes(&head);
+            self.bytes.drain(..dropped);
+        }
         let keep = chunk.len().min(BACKLOG_BYTES);
-        self.0.extend(&chunk[chunk.len() - keep..]);
+        if keep < chunk.len() {
+            self.remember_modes(&chunk[..chunk.len() - keep]);
+        }
+        self.bytes.extend(&chunk[chunk.len() - keep..]);
+    }
+
+    fn remember_modes(&mut self, bytes: &[u8]) {
+        for (mode, on) in private_modes(bytes) {
+            if !KEPT_MODES.contains(&mode) {
+                continue;
+            }
+            match self.modes.iter_mut().find(|(m, _)| *m == mode) {
+                Some(entry) => entry.1 = on,
+                None => self.modes.push((mode, on)),
+            }
+        }
     }
 
     fn to_vec(&self) -> Vec<u8> {
-        self.0.iter().copied().collect()
+        let mut out = Vec::with_capacity(self.bytes.len());
+        for mode in KEPT_MODES {
+            if let Some((_, on)) = self.modes.iter().find(|(m, _)| *m == mode) {
+                out.extend(format!("\x1b[?{mode}{}", if *on { 'h' } else { 'l' }).bytes());
+            }
+        }
+        out.extend(&self.bytes);
+        out
     }
+}
+
+const MODE_SEQUENCE_MAX: usize = 32;
+
+fn private_modes(bytes: &[u8]) -> Vec<(u16, bool)> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some(start) = bytes[at..].windows(3).position(|w| w == b"\x1b[?") {
+        let params = at + start + 3;
+        let len = bytes[params..]
+            .iter()
+            .take_while(|b| b.is_ascii_digit() || **b == b';')
+            .count();
+        at = params + len;
+        let on = match bytes.get(at) {
+            Some(b'h') => true,
+            Some(b'l') => false,
+            _ => continue,
+        };
+        for param in bytes[params..at].split(|b| *b == b';') {
+            if let Some(mode) = std::str::from_utf8(param).ok().and_then(|p| p.parse().ok()) {
+                found.push((mode, on));
+            }
+        }
+    }
+    found
 }
 
 #[derive(Default)]
@@ -998,6 +1059,39 @@ mod tests {
         let bytes = backlog.to_vec();
         assert_eq!(bytes.len(), BACKLOG_BYTES);
         assert_eq!(&bytes[BACKLOG_BYTES - 4..], b"axyz");
+    }
+
+    #[test]
+    fn backlog_keeps_terminal_modes_after_it_drops_their_bytes() {
+        let mut backlog = Backlog::default();
+        backlog.push(b"\x1b[?1049h\x1b[?7l\x1b[?1000h\x1b[?1002;1006h\x1b[?1003h\x1b[?1003l");
+        backlog.push(&vec![b'a'; BACKLOG_BYTES]);
+        let bytes = backlog.to_vec();
+        let text = String::from_utf8_lossy(&bytes[..bytes.len() - BACKLOG_BYTES]).into_owned();
+        assert_eq!(
+            text,
+            "\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1003l\x1b[?1006h"
+        );
+        let mut parser = vt100::Parser::new(
+            NonZeroU16::new(24).unwrap(),
+            NonZeroU16::new(80).unwrap(),
+            0,
+        );
+        parser.process(&bytes);
+        assert!(parser.screen().alternate_screen());
+        assert_eq!(
+            parser.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::ButtonMotion
+        );
+    }
+
+    #[test]
+    fn backlog_reads_a_mode_sequence_cut_at_the_drop_edge() {
+        let mut backlog = Backlog::default();
+        backlog.push(&vec![b'a'; BACKLOG_BYTES - 4]);
+        backlog.push(b"\x1b[?1006h");
+        backlog.push(&vec![b'b'; BACKLOG_BYTES - 4]);
+        assert!(backlog.to_vec().starts_with(b"\x1b[?1006h"));
     }
 
     #[test]

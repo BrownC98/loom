@@ -632,33 +632,22 @@ fn a_reused_reviewer_that_exits_stops_holding_the_branch() {
 }
 
 #[test]
-fn an_old_ci_round_tells_the_root_because_its_target_is_the_base() {
+fn an_adopted_owner_keeps_the_stored_gate_of_its_round() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    let ci = g
-        .add_child(t.lead, named("ci"), limits(), &launched(), started)
+    g.ready(t.worker, &round("b", "코디 브랜치"), t.coordinator, None)
         .unwrap();
-    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
-        .unwrap();
-    g.lock()
-        .execute(
-            r#"UPDATE gates SET gate = ?1, state = '"merging"', batch = NULL"#,
-            [ci.0],
-        )
-        .unwrap();
-    for node in [t.lead, t.solo, ci] {
-        mail(&g, node);
-    }
-    assert_eq!(g.orphans().unwrap(), [(RepoId(1), "b".to_owned())]);
-    let failed = Ended {
-        cause: Some("loom upgrade: send loom ready again".into()),
-        ..ended(MergeEnd::Failed, None)
-    };
-    assert_eq!(g.merge_end(RepoId(1), "b", failed), Ok(GateState::Failed));
-    for node in [t.lead, t.solo, ci] {
-        assert_eq!(mail(&g, node).len(), 1, "{node}");
-    }
+    g.adopt(t.lead, t.worker, limits()).unwrap();
+    let refused = g.verdict(t.lead, "b", Judgment::Pass, None, None);
+    assert!(
+        matches!(refused, Err(Refusal::CoordinatorAccepts { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(
+        g.verdict(t.coordinator, "b", Judgment::Pass, None, None),
+        Ok(GateState::Passed)
+    );
 }
 
 #[test]

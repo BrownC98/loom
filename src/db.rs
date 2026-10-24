@@ -279,8 +279,10 @@ const STEPS: &[M] = &[
             WHERE entry ->> '$.reason.code' = 'noAgentOrRole';"#,
     ),
     M::up(
-        "UPDATE events SET entry = json_set(entry, '$.reason.code', 'leadChildNeedsWorktree')
-            WHERE entry ->> '$.reason.code' = 'leadSpawnsOnlyCoordinator';",
+        r#"UPDATE events SET entry = json_set(entry, '$.reason.code', 'leadChildNeedsWorktree')
+            WHERE entry ->> '$.reason.code' = 'leadSpawnsOnlyCoordinator';
+        UPDATE gates SET gate = owner WHERE state = '"merging"' AND batch IS NULL AND gate IS NOT owner
+            AND gate IS NOT (SELECT parent FROM nodes WHERE id = gates.owner);"#,
     ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
@@ -666,7 +668,7 @@ mod tests {
     }
 
     #[test]
-    fn step_40_renames_the_lead_spawn_refusal() {
+    fn step_40_renames_the_lead_spawn_refusal_and_gives_old_ci_rounds_to_the_owner() {
         let mut conn = Connection::open_in_memory().unwrap();
         super::MIGRATIONS.to_version(&mut conn, 39).unwrap();
         conn.execute(
@@ -674,7 +676,27 @@ mod tests {
             [r#"{"kind":"refused","how":"queue","from":{"id":2,"name":"c"},"to":"x","reason":{"code":"leadSpawnsOnlyCoordinator","value":"워커"}}"#],
         )
         .unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO nodes (id, name, agent, state) VALUES (1, 'lead', 'null', '{}'), (2, 'ci', 'null', '{}');
+            INSERT INTO nodes (id, name, agent, state, parent) VALUES (3, 'c', 'null', '{}', 1), (4, 'w', 'null', '{}', 3);
+            INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated, batch) VALUES
+            (1, 'old', 3, 2, 'main', '/w', '"merging"', 'c1', 1, 1, NULL),
+            (1, 'held', 4, 3, 'c', '/w', '"merging"', 'c2', 1, 1, NULL),
+            (1, 'run', 3, 2, 'main', '/w', '"merging"', 'c3', 1, 1, 7);"#,
+        )
+        .unwrap();
         super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let gates: Vec<(String, i64)> = conn
+            .prepare("SELECT branch, gate FROM gates ORDER BY branch")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            gates,
+            [("held".into(), 3), ("old".into(), 3), ("run".into(), 2)]
+        );
         let reason: String = conn
             .query_row("SELECT entry ->> '$.reason' FROM events", [], |row| {
                 row.get(0)

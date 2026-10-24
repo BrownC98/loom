@@ -84,16 +84,11 @@ struct Row {
 }
 
 impl Row {
-    fn target_kind(&self, db: &Connection) -> rusqlite::Result<Target> {
-        let parent: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND parent = ?2)",
-            params![self.owner.0, self.gate.0],
-            |row| row.get(0),
-        )?;
-        Ok(match parent {
-            true => Target::Coordinator,
-            false => Target::Base,
-        })
+    fn target_kind(&self) -> Target {
+        match self.gate == self.owner {
+            true => Target::Base,
+            false => Target::Coordinator,
+        }
     }
 }
 
@@ -624,7 +619,7 @@ impl Graph {
                 GateCall::Verdict(Judgment::Pass) => pending(&tx, caller, &row, branch)?,
                 _ => Vec::new(),
             };
-            let target = row.target_kind(&tx)?;
+            let target = row.target_kind();
             for receiver in protocol::receivers(call, target) {
                 let to_node = match receiver {
                     Receiver::Gate => row.gate,
@@ -726,7 +721,7 @@ fn allowed_caller(
             Err(Refusal::OwnVerdict(branch.to_owned()))
         }
         (Caller::Node(me), Some(row), Sender::Reviewer)
-            if row.target_kind(db)? == Target::Coordinator =>
+            if row.target_kind() == Target::Coordinator =>
         {
             match row.gate == me {
                 true => Ok(()),
@@ -861,7 +856,7 @@ pub(super) fn check_review(
             branch: branch.to_owned(),
             gate: name_of(db, row.gate)?,
         }),
-        Some(row) if row.target_kind(db)? == Target::Coordinator => Err(accepts(db, &row, branch)?),
+        Some(row) if row.target_kind() == Target::Coordinator => Err(accepts(db, &row, branch)?),
         Some(_) => match seated(db, parent, branch, role)? {
             Some(reviewer) => Err(Refusal::ReviewerSeated {
                 branch: branch.to_owned(),

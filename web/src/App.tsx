@@ -443,6 +443,7 @@ export function App() {
       }}
       views={nodes}
       agents={agents}
+      onRescanAgents={rescan}
       selected={selected}
       onSelect={select}
       chosenBox={chosenBox}
@@ -538,6 +539,7 @@ export function App() {
               pulses={pulses}
               hops={hops}
               agents={agents}
+              onRescanAgents={rescan}
               settings={settings}
               accounts={accounts}
               selected={selected}

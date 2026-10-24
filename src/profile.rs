@@ -198,7 +198,7 @@ pub fn catalog_commands() -> Vec<&'static str> {
 fn installed(agent: &Agent) -> Option<PathBuf> {
     std::iter::once(&agent.cmd)
         .chain(&agent.aliases)
-        .find_map(|cmd| which::which(cmd).ok())
+        .find_map(|cmd| crate::search_path::find(cmd))
 }
 
 pub fn commands(start: &Start) -> Vec<&'static str> {

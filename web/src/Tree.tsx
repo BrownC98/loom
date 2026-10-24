@@ -121,6 +121,7 @@ export function Tree(props: {
   onAdded: (repo: RepoView) => void;
   views: ReadonlyMap<NodeId, NodeView>;
   agents: AgentView[];
+  onRescanAgents: () => void;
   selected: NodeId | null;
   onSelect: (id: NodeId) => void;
   chosenBox: string | null;
@@ -412,6 +413,7 @@ export function Tree(props: {
           place={{ repo: repo.id, worktree: group.path }}
           distro={repo.wsl?.distro ?? null}
           agents={props.agents}
+          onOpen={props.onRescanAgents}
           recent={recentAgent(views)}
           settings={props.settings}
           accounts={props.accounts}

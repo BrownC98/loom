@@ -5,7 +5,7 @@ use std::path::Path;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 pub fn command(name: &str) -> std::process::Command {
-    command_at(&which::which(name).unwrap_or_else(|_| name.into()))
+    command_at(&crate::search_path::find(name).unwrap_or_else(|| name.into()))
 }
 
 pub fn command_at(path: &Path) -> std::process::Command {
@@ -32,7 +32,7 @@ fn npm_shim(path: &Path) -> Option<Vec<OsString>> {
     }
     let node = Some(dir.join("node.exe"))
         .filter(|p| p.is_file())
-        .or_else(|| which::which("node").ok())?;
+        .or_else(|| crate::search_path::find("node"))?;
     Some(vec![node.into(), dir.join(script).into()])
 }
 

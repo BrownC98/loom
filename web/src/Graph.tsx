@@ -461,6 +461,7 @@ export function Graph(props: {
   pulses: ReadonlyMap<NodeId, Pulse>;
   hops: ReadonlyMap<string, Hop>;
   agents: AgentView[];
+  onRescanAgents: () => void;
   settings: SettingsView;
   viewVersion: number;
   onMinimapFold: (folded: boolean) => void;
@@ -1148,6 +1149,7 @@ export function Graph(props: {
                       place={{ repo, worktree: group.path }}
                       distro={props.repos.find((r) => r.id === repo)?.wsl?.distro ?? null}
                       agents={props.agents}
+                      onOpen={props.onRescanAgents}
                       recent={recentAgent(views)}
                       settings={props.settings}
                       accounts={props.accounts}

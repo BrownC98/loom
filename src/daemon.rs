@@ -1056,6 +1056,7 @@ impl App {
             rules: _,
         } = prepared;
         self.first_inputs.launched(id, first_input);
+        self.turn_ends.launched(id);
         let distro = inside.map(|inside| inside.distro);
         let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;

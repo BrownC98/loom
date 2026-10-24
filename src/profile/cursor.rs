@@ -127,19 +127,27 @@ pub(super) const WAITING: &str = "When no independent work remains, end your tur
 
 const QUESTION_TOOL: &str = "AskQuestion";
 
-pub fn used_question_box(transcript: &str) -> bool {
-    transcript
-        .lines()
-        .rev()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .take_while(|entry| entry["role"] != "user")
-        .any(|entry| {
-            entry["message"]["content"].as_array().is_some_and(|parts| {
-                parts
-                    .iter()
-                    .any(|part| part["type"] == "tool_use" && part["name"] == QUESTION_TOOL)
-            })
-        })
+pub fn used_question_box(transcript: impl std::io::BufRead) -> bool {
+    let mut used = false;
+    for line in transcript.split(b'\n').map_while(Result::ok) {
+        let line = String::from_utf8_lossy(&line);
+        if !line.contains("\"user\"") && !line.contains(QUESTION_TOOL) {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if entry["role"] == "user" {
+            used = false;
+        } else if entry["message"]["content"].as_array().is_some_and(|parts| {
+            parts
+                .iter()
+                .any(|part| part["type"] == "tool_use" && part["name"] == QUESTION_TOOL)
+        }) {
+            used = true;
+        }
+    }
+    used
 }
 
 pub fn usage() -> String {
@@ -256,14 +264,21 @@ mod tests {
         let asked = r#"{"role":"assistant","message":{"content":[{"type":"text","text":"x"},{"type":"tool_use","name":"AskQuestion","input":{}}]}}"#;
         let read = r#"{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}"#;
         let ended = r#"{"type":"turn_ended","status":"success"}"#;
-        assert!(super::used_question_box(
-            &[user, asked, read, ended].join("\n")
-        ));
-        assert!(!super::used_question_box(&[asked, user, read].join("\n")));
-        assert!(!super::used_question_box(user));
-        assert!(super::used_question_box(&format!(
-            "{user}\n{asked}\n{{\"role\":"
-        )));
+        let used = |lines: &[&str]| super::used_question_box(lines.join("\n").as_bytes());
+        assert!(used(&[user, asked, read, ended]));
+        assert!(!used(&[asked, user, read]));
+        assert!(!used(&[user]));
+        assert!(used(&[user, asked, "{\"role\":"]));
+        let write = format!(
+            r#"{{"role":"assistant","message":{{"content":[{{"type":"tool_use","name":"Write","input":{{"contents":"{}"}}}}]}}}}"#,
+            "x".repeat(8 * 1024)
+        );
+        let long_turn = [user, asked]
+            .into_iter()
+            .chain(std::iter::repeat_n(write.as_str(), 256))
+            .collect::<Vec<_>>();
+        assert!(long_turn.join("\n").len() > 2 * 1024 * 1024);
+        assert!(used(&long_turn), "a turn longer than any tail");
     }
 
     use super::*;

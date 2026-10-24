@@ -41,6 +41,11 @@ impl TurnEnds {
         self.asked.lock().unwrap().insert(node);
     }
 
+    pub fn launched(&self, node: NodeId) {
+        self.asked.lock().unwrap().remove(&node);
+        self.question_box.lock().unwrap().remove(&node);
+    }
+
     pub fn ended(
         &self,
         node: NodeId,
@@ -235,6 +240,15 @@ mod tests {
             turns.ended(node, || true, || false).nudge,
             Some(TurnCheck::QuestionBox),
             "the ask was in an earlier turn"
+        );
+
+        turns.asked(node);
+        turns.launched(node);
+        turns.question_box(node);
+        assert_eq!(
+            turns.ended(node, || true, || false).nudge,
+            Some(TurnCheck::QuestionBox),
+            "the ask was in a process that ended before its turn end"
         );
     }
 }

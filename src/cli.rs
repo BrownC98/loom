@@ -270,10 +270,10 @@ pub fn cursor_hook() -> Result<(), String> {
     }
     if let cursor::Event::Stop { .. } = event {
         let here = std::env::current_dir().unwrap_or_default();
-        let tail = transcript.as_deref().and_then(|path| {
-            crate::profile::transcript_tail(&crate::wsl::from_node(path.into(), &here))
-        });
-        if tail.is_some_and(|text| cursor::used_question_box(&text))
+        let file = transcript
+            .as_deref()
+            .and_then(|path| std::fs::File::open(crate::wsl::from_node(path.into(), &here)).ok());
+        if file.is_some_and(|file| cursor::used_question_box(std::io::BufReader::new(file)))
             && let Err(e) = call::<()>("question-box", &(), Some(timeout))
         {
             eprintln!("loom: could not report the question box: {e}");

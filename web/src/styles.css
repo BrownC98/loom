@@ -868,6 +868,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .side-head .btn.sm { width: 44px; height: 44px; justify-content: center; }
 .phone .side-head .btn.sm svg { width: 18px; height: 18px; }
 .phone .tree-row .dot { width: 10px; height: 10px; }
+.phone .node-line + .node-line { margin-left: 16px; }
 .state-tag { flex: none; margin-left: auto; padding: 0 7px; border: 1px solid; border-radius: 9px; font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
 .state-tag[data-tone] { background: var(--warn); border-color: var(--warn); color: var(--warn-ink); }
 .chips { display: inline-flex; flex: none; gap: 4px; margin-left: auto; }

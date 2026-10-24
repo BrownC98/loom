@@ -362,6 +362,7 @@ pub struct Taken {
 pub struct IdleRequest {
     pub transcript: Option<String>,
     pub rate_limited: bool,
+    pub turn: Option<TurnId>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2096,6 +2097,7 @@ async fn agent_idle(
     let node = app.caller(&headers)?;
     let req = req.unwrap_or_default();
     keep_transcript(&app, node, req.transcript.as_deref())?;
+    app.idle.stop_reached(node, req.turn);
     let mut wait = app.idle.open(node);
     let alive = match app.graph.relations(node) {
         Ok(relations) => relations.me.alive,

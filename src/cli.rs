@@ -197,6 +197,7 @@ pub fn hook() -> Result<(), String> {
             let taken = wait_for_mail(&IdleRequest {
                 transcript,
                 rate_limited: event.rate_limited(),
+                turn: None,
             })?;
             if taken.is_empty() {
                 return Ok(());
@@ -307,6 +308,7 @@ pub fn cursor_hook() -> Result<(), String> {
             messages: wait_for_cursor_mail(&IdleRequest {
                 transcript,
                 rate_limited: false,
+                turn: turn.clone(),
             })?,
             note: None,
         },

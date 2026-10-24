@@ -49,7 +49,6 @@ impl IdleWaits {
         self.watch(node, |w| {
             w.heard = true;
             w.said = None;
-            w.answered = w.turn.clone();
         });
         let (tx, end) = oneshot::channel();
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
@@ -318,11 +317,6 @@ mod tests {
         let said = waits.said(node, turn("5")).unwrap();
         let wait = waits.open(node);
         assert!(!waits.missed(node, said), "the wait opened");
-        assert_eq!(
-            waits.said(node, turn("5")),
-            None,
-            "the stop hook of that turn opened a wait"
-        );
         wait.finish(IdleEnd::Mail);
 
         prompt("7");

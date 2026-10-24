@@ -551,6 +551,15 @@ impl Fixture {
         );
     }
 
+    async fn idle_request(&self, token: &str, turn: &str) {
+        let req = IdleRequest {
+            turn: Some(TurnId(turn.into())),
+            ..IdleRequest::default()
+        };
+        let idle = agent_idle(self.state(), headers(token, "idle"), Json(Some(req)));
+        let _ = tokio::time::timeout(Duration::from_millis(1), idle).await;
+    }
+
     async fn stop_hook(&self, token: &str, turn: &str) {
         let req = TurnEndRequest {
             turn: Some(TurnId(turn.into())),
@@ -602,6 +611,24 @@ async fn a_turn_end_without_an_idle_wait_relaunches_the_node_once() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_late_idle_request_answers_only_its_own_turn() {
+    let t = fixture();
+    let node = t.cursor("overtaken");
+    t.heard(node, "g1");
+    t.stop_hook("overtaken", "g1").await;
+    t.prompt(node, "g2");
+    t.idle_request("overtaken", "g1").await;
+    let mark = t.mark();
+    t.said("overtaken", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_turn_end_that_something_answered_relaunches_nothing() {
     let t = fixture();
     let late = t.cursor("late");
@@ -628,7 +655,7 @@ async fn a_turn_end_that_something_answered_relaunches_nothing() {
     human_typed(&t.app, drafted);
     t.said("drafted", Some("g1")).await;
 
-    t.app.idle.open(unchecked).finish(IdleEnd::Mail);
+    t.idle_request("unchecked", "g1").await;
     t.said("unchecked", Some("g1")).await;
 
     t.app.graph.exited(exited, 0).unwrap();

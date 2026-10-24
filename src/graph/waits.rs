@@ -476,19 +476,15 @@ pub(super) fn put_done(
     events::write(db, &entry, None)
 }
 
-pub(super) fn drop_questions(
-    db: &rusqlite::Connection,
-    id: NodeId,
-    by: ClosedBy,
-) -> rusqlite::Result<usize> {
+pub(super) fn drop_questions(db: &rusqlite::Connection, id: NodeId) -> rusqlite::Result<()> {
     let closed = db
         .prepare("DELETE FROM questions WHERE node = ?1 RETURNING id")?
         .query_map([id.0], |row| row.get(0).map(WaitId))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for wait in &closed {
-        unanswered(db, id, *wait, by)?;
+        unanswered(db, id, *wait, ClosedBy::Exit)?;
     }
-    Ok(closed.len())
+    Ok(())
 }
 
 fn unanswered(

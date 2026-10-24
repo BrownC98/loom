@@ -12,7 +12,7 @@ import type { CloneRepo } from './gen/CloneRepo';
 import type { CommitGraph } from './gen/CommitGraph';
 import type { CommitRange } from './gen/CommitRange';
 import type { CreateRepo } from './gen/CreateRepo';
-import type { EventRecord } from './gen/EventRecord';
+import type { EventLog } from './gen/EventLog';
 import type { FolderList } from './gen/FolderList';
 import type { Locations } from './gen/Locations';
 import type { DistroView } from './gen/DistroView';
@@ -137,7 +137,7 @@ export const renameWorktree = (repo: RepoId, path: string, name: string) => call
 export const getWorktreeChanges = (repo: RepoId, path: string) => call<string[]>('GET', `/api/repos/${repo}/worktrees/changes?${worktreeQuery(path)}`);
 export const deleteWorktree = (repo: RepoId, path: string, deleteBranch: boolean) =>
   call<RepoView>('DELETE', `/api/repos/${repo}/worktrees?${worktreeQuery(path)}&deleteBranch=${deleteBranch}`);
-export const getEventLog = () => call<EventRecord[]>('GET', '/api/events/log');
+export const getEventLog = () => call<EventLog>('GET', '/api/events/log');
 export const getAccounts = () => call<AccountView[]>('GET', '/api/accounts');
 export const getCursorUsage = () => call<CursorView[]>('GET', '/api/usage/cursor');
 const at = (distro: string | null): Record<string, string> => (distro === null ? {} : { distro });

@@ -535,9 +535,9 @@ fn a_node_keeps_several_questions_and_closes_them_by_id() {
         delivery("human", &format!("{q4} was closed without an answer."))
     );
     assert_eq!(g.dismiss(q4), Err(Refusal::NoWait(q4)));
-    g.ask(lead, "G?", None).unwrap();
+    let q6 = g.ask(lead, "G?", None).unwrap();
     g.relaunched(lead, &launched()).unwrap();
-    assert_eq!(ids(lead), []);
+    assert_eq!(ids(lead), [q5, q6]);
 }
 
 #[test]
@@ -560,7 +560,7 @@ fn waits_get_new_ids_and_the_human_answers_from_the_inbox() {
         .unwrap();
     assert!(screen.0 > first.0);
     assert!(!view(&g, other).waits[0].answerable);
-    g.relaunched(lead, &launched()).unwrap();
+    g.answered(lead, &[first]).unwrap();
     let again = g.ask(lead, "A or B?", None).unwrap();
     assert!(again.0 > screen.0);
     assert!(view(&g, lead).waits[0].answerable);
@@ -2772,6 +2772,7 @@ fn records_inbox_notices_and_the_human_responses() {
     g.dismiss(q3).unwrap();
     let q4 = g.ask(lead, "E?", None).unwrap();
     g.relaunched(lead, &launched()).unwrap();
+    g.answer(q4, "E", &[]).unwrap();
     g.set_wait(
         &token(&g, lead),
         WaitSource::Hook,
@@ -2844,10 +2845,11 @@ fn records_inbox_notices_and_the_human_responses() {
                 text: "E?".into(),
                 doc: None
             },
-            Entry::Unanswered {
+            Entry::Answered {
                 node: me(),
                 wait: q4,
-                by: ClosedBy::Restart
+                text: "E".into(),
+                images: 0
             },
             Entry::Reported {
                 node: me(),
@@ -3008,7 +3010,7 @@ fn switching_the_agent_keeps_the_node_and_changes_only_its_process() {
     .unwrap();
     assert_eq!(g.open_questions(lead).unwrap().len(), 1);
     g.relaunched(lead, &launched()).unwrap();
-    assert_eq!(g.open_questions(lead).unwrap().len(), 0);
+    assert_eq!(g.open_questions(lead).unwrap().len(), 1);
 }
 
 mod gate;

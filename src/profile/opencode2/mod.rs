@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use crate::graph::{Delivery, Kind, Model};
+use crate::graph::{Delivery, Kind, Model, PermissionReply, Prompt, PromptKey, PromptOption};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
@@ -106,11 +106,98 @@ fn turn_event(event: &Value, session: &str) -> Option<TurnEvent> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Permission {
+    id: String,
+    action: String,
+    #[serde(default)]
+    resources: Vec<String>,
+}
+
+const PERMISSION_OPTIONS: [(&str, PermissionReply); 3] = [
+    ("Allow once", PermissionReply::Once),
+    ("Always allow", PermissionReply::Always),
+    ("Reject", PermissionReply::Reject),
+];
+
+impl Permission {
+    pub fn summary(&self) -> String {
+        match self.resources.first() {
+            Some(resource) => format!("{}: {resource}", self.action),
+            None => self.action.clone(),
+        }
+    }
+
+    pub fn prompt(&self) -> Prompt {
+        let body: Vec<String> = std::iter::once(self.action.clone())
+            .chain(self.resources.iter().cloned())
+            .collect();
+        Prompt {
+            rows: std::iter::once(self.id.clone())
+                .chain(body.iter().cloned())
+                .collect(),
+            body,
+            summary: self.summary(),
+            options: PERMISSION_OPTIONS
+                .iter()
+                .map(|(label, reply)| PromptOption {
+                    label: (*label).to_owned(),
+                    key: PromptKey::Permission(*reply),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Decision {
+    request: String,
+    reply: PermissionReply,
+}
+
+fn decide(asked: Option<&Permission>, chosen: &Prompt, option: usize) -> Option<Decision> {
+    let asked = asked?;
+    let now = asked.prompt();
+    if now != *chosen {
+        return None;
+    }
+    match now.options.get(option)?.key {
+        PromptKey::Permission(reply) => Some(Decision {
+            request: asked.id.clone(),
+            reply,
+        }),
+        PromptKey::Char(_) | PromptKey::Tab | PromptKey::BackTab => None,
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum PermissionEvent {
+    Asked(Permission),
+    Replied { request: String },
+}
+
+fn permission_event(event: &Value, session: &str) -> Option<PermissionEvent> {
+    let data = &event["data"];
+    if data["sessionID"] != session {
+        return None;
+    }
+    match event["type"].as_str()? {
+        "permission.asked" => Permission::deserialize(data)
+            .ok()
+            .map(PermissionEvent::Asked),
+        "permission.replied" => Some(PermissionEvent::Replied {
+            request: data["requestID"].as_str()?.to_owned(),
+        }),
+        _ => None,
+    }
+}
+
 pub struct Node {
     server: Server,
     session: String,
     model: watch::Receiver<Model>,
     working: watch::Receiver<bool>,
+    permission: watch::Receiver<Option<Permission>>,
     turns: Mutex<Option<mpsc::UnboundedReceiver<Turn>>>,
     sent: Arc<Mutex<HashSet<String>>>,
 }
@@ -167,16 +254,37 @@ impl Node {
     fn follow(server: Server, session: String) -> Self {
         let (tx, model) = watch::channel(Model::default());
         let (tx_working, working) = watch::channel(false);
+        let (tx_permission, permission) = watch::channel(None);
         let (tx_turns, turns) = mpsc::unbounded_channel();
         let sent = Arc::new(Mutex::new(HashSet::new()));
         let ours = session.clone();
         let ours_sent = sent.clone();
         let mut said = None;
+        let mut asked: Vec<Permission> = Vec::new();
         server.follow_events(move |event| {
             if let Some(selected) = selected_model(&event, &ours) {
                 tx.send_replace(selected);
             }
-            match turn_event(&event, &ours) {
+            match permission_event(&event, &ours) {
+                Some(PermissionEvent::Asked(p)) if !asked.iter().any(|a| a.id == p.id) => {
+                    asked.push(p)
+                }
+                Some(PermissionEvent::Replied { request }) => asked.retain(|a| a.id != request),
+                Some(PermissionEvent::Asked(_)) | None => {}
+            }
+            let turn = turn_event(&event, &ours);
+            if turn == Some(TurnEvent::Stopped) {
+                asked.clear();
+            }
+            tx_permission.send_if_modified(|now| {
+                let next = asked.first();
+                let changed = now.as_ref() != next;
+                if changed {
+                    *now = next.cloned();
+                }
+                changed
+            });
+            match turn {
                 Some(TurnEvent::Started) => {
                     said = None;
                     tx_working.send_replace(true);
@@ -200,6 +308,7 @@ impl Node {
             session,
             model,
             working,
+            permission,
             turns: Mutex::new(Some(turns)),
             sent,
         }
@@ -211,6 +320,20 @@ impl Node {
 
     pub fn working(&self) -> watch::Receiver<bool> {
         self.working.clone()
+    }
+
+    pub fn permission(&self) -> watch::Receiver<Option<Permission>> {
+        self.permission.clone()
+    }
+
+    pub fn decide(&self, chosen: &Prompt, option: usize) -> Option<Decision> {
+        decide(self.permission.borrow().as_ref(), chosen, option)
+    }
+
+    pub async fn reply(&self, decision: Decision) -> Result<(), String> {
+        self.server
+            .reply_permission(&self.session, &decision.request, decision.reply)
+            .await
     }
 
     pub fn remote(&self) -> super::Remote<'_> {
@@ -651,6 +774,72 @@ mod tests {
         let step = json!({ "type": "session.step.started", "data": { "sessionID": "ses_a",
             "model": { "id": "kta-chat-deep", "providerID": "KTA" } } });
         assert_eq!(selected_model(&step, "ses_a"), None);
+    }
+
+    fn asked_shell() -> Value {
+        json!({ "type": "permission.asked", "location": { "directory": "/tmp/permprobe" }, "data": {
+            "id": "per_1", "sessionID": "ses_a", "action": "shell", "resources": ["echo hi", "ls"],
+            "save": ["echo *"], "source": { "type": "tool", "messageID": "msg_1", "id": "call_1" } } })
+    }
+
+    #[test]
+    fn permission_events_of_this_session_give_the_request_and_its_reply() {
+        let shell = Permission {
+            id: "per_1".into(),
+            action: "shell".into(),
+            resources: vec!["echo hi".into(), "ls".into()],
+        };
+        assert_eq!(
+            permission_event(&asked_shell(), "ses_a"),
+            Some(PermissionEvent::Asked(shell.clone()))
+        );
+        assert_eq!(permission_event(&asked_shell(), "ses_b"), None);
+        let replied = json!({ "type": "permission.replied", "data": {
+            "sessionID": "ses_a", "requestID": "per_1", "reply": "reject" } });
+        assert_eq!(
+            permission_event(&replied, "ses_a"),
+            Some(PermissionEvent::Replied {
+                request: "per_1".into()
+            })
+        );
+        assert_eq!(shell.summary(), "shell: echo hi");
+        let prompt = shell.prompt();
+        assert_eq!(prompt.summary, "shell: echo hi");
+        assert_eq!(prompt.body, ["shell", "echo hi", "ls"]);
+        let labels: Vec<&str> = prompt.options.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(labels, ["Allow once", "Always allow", "Reject"]);
+    }
+
+    #[test]
+    fn a_choice_decides_only_the_request_that_is_still_open() {
+        let Some(PermissionEvent::Asked(asked)) = permission_event(&asked_shell(), "ses_a") else {
+            panic!("not asked");
+        };
+        let shown = asked.prompt();
+        let decided = |option| decide(Some(&asked), &shown, option);
+        assert_eq!(
+            [decided(0), decided(1), decided(2), decided(3)],
+            [
+                Some(PermissionReply::Once),
+                Some(PermissionReply::Always),
+                Some(PermissionReply::Reject),
+                None,
+            ]
+            .map(|reply| reply.map(|reply| Decision {
+                request: "per_1".into(),
+                reply
+            }))
+        );
+        assert_eq!(decide(None, &shown, 0), None);
+        let next = Permission {
+            id: "per_2".into(),
+            ..asked.clone()
+        };
+        assert_eq!(decide(Some(&next), &shown, 0), None);
+        assert_eq!(
+            serde_json::to_value(PermissionReply::Always).unwrap(),
+            json!("always")
+        );
     }
 
     #[test]

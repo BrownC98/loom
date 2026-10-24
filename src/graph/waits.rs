@@ -40,6 +40,7 @@ pub enum WaitSource {
     Hook,
     Codex,
     Screen,
+    OpenCode2,
 }
 
 /// 대기 번호. 사람은 `Q12`로 읽고 쓴다. 데몬 전체에서 늘기만 하고(DB `wait_ids`) 다시 쓰지 않는다.
@@ -93,14 +94,26 @@ pub enum PromptKey {
     Char(char),
     Tab,
     BackTab,
+    Permission(PermissionReply),
+}
+
+/// OpenCode 2 권한 요청의 답(`POST /api/session/{세션}/permission/{요청}/reply`의 `decision`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum PermissionReply {
+    Once,
+    Always,
+    Reject,
 }
 
 impl PromptKey {
-    pub fn bytes(self) -> Vec<u8> {
+    pub fn bytes(self) -> Option<Vec<u8>> {
         match self {
-            PromptKey::Char(c) => c.to_string().into_bytes(),
-            PromptKey::Tab => b"\t".to_vec(),
-            PromptKey::BackTab => b"\x1b[Z".to_vec(),
+            PromptKey::Char(c) => Some(c.to_string().into_bytes()),
+            PromptKey::Tab => Some(b"\t".to_vec()),
+            PromptKey::BackTab => Some(b"\x1b[Z".to_vec()),
+            PromptKey::Permission(_) => None,
         }
     }
 }

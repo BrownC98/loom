@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use tokio::process::Command;
 use tokio::sync::watch;
 
+use crate::graph::PermissionReply;
 use crate::process_tree::{self, Snapshot};
 use crate::wsl::Inside;
 
@@ -178,6 +179,18 @@ impl Server {
         let body = json!({ "id": id, "text": text, "delivery": delivery });
         let path = format!("/api/session/{session}/prompt");
         self.call("POST", &path, Some(body)).await.map(drop)
+    }
+
+    pub async fn reply_permission(
+        &self,
+        session: &str,
+        request: &str,
+        reply: PermissionReply,
+    ) -> Result<(), String> {
+        let path = format!("/api/session/{session}/permission/{request}/reply");
+        self.call("POST", &path, Some(json!({ "decision": reply })))
+            .await
+            .map(drop)
     }
 
     pub async fn interrupt(&self, session: &str) -> Result<(), String> {

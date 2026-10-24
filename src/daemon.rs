@@ -1287,6 +1287,12 @@ impl App {
         if let Some(node) = opencode2 {
             self.opencode2.lock().unwrap().insert(id, node.clone());
             tokio::spawn(follow_model(self.graph.clone(), id, node.model()));
+            tokio::spawn(follow_permission(
+                self.graph.clone(),
+                id,
+                token.to_owned(),
+                node.permission(),
+            ));
             let mailbox = NodeMailbox {
                 app: self.clone(),
                 node: id,
@@ -1568,6 +1574,32 @@ async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receive
             eprintln!("loom: 노드 {}의 모델을 쓰지 못했다: {e}", node.0);
         }
     }
+}
+
+async fn follow_permission(
+    graph: Arc<Graph>,
+    node: NodeId,
+    token: String,
+    mut asked: watch::Receiver<Option<opencode2::Permission>>,
+) {
+    let show = |now: Option<&opencode2::Permission>| {
+        if let Err(e) = graph.set_prompt(node, now.map(|p| p.prompt())) {
+            eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", node.0);
+        }
+        let summary = now.map(|p| p.summary());
+        let wait = summary.as_deref().map(|s| (WaitKind::Approval, s));
+        if let Err(e) = graph.set_wait(&token, WaitSource::OpenCode2, wait) {
+            eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
+        }
+    };
+    loop {
+        let now = asked.borrow_and_update().clone();
+        show(now.as_ref());
+        if asked.changed().await.is_err() {
+            break;
+        }
+    }
+    show(None);
 }
 
 fn bearer(headers: &HeaderMap) -> Result<&str, AgentError> {
@@ -1915,7 +1947,19 @@ async fn choose_wait(
     Path(wait): Path<u32>,
     Json(req): Json<ChooseOption>,
 ) -> Result<Json<()>, Problem> {
-    choose(&app.graph, &app.host, WaitId(wait), &req)?;
+    let wait = WaitId(wait);
+    let (node, _) = app.graph.approval(wait)?;
+    let server = app.opencode2.lock().unwrap().get(&node).cloned();
+    match server {
+        Some(server) => {
+            let decision = server
+                .decide(&req.prompt, req.option)
+                .ok_or(Refusal::PromptChanged(wait))?;
+            app.graph.dismiss(wait)?;
+            server.reply(decision).await.map_err(internal)?;
+        }
+        None => choose(&app.graph, &app.host, wait, &req)?,
+    }
     Ok(Json(()))
 }
 
@@ -1937,9 +1981,11 @@ fn choose(
             Some(now) if now == req.prompt => now.options.get(req.option).cloned(),
             _ => None,
         };
-        let option = option.ok_or(Refusal::PromptChanged(wait))?;
+        let keys = option
+            .and_then(|o| o.key.bytes())
+            .ok_or(Refusal::PromptChanged(wait))?;
         graph.dismiss(wait)?;
-        Ok(option.key.bytes())
+        Ok(keys)
     })
 }
 

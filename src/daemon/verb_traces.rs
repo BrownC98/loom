@@ -112,6 +112,7 @@ impl Fixture {
             brief: "",
             role: None,
             task: "t",
+            review: None,
         };
         let limits = TreeLimits {
             max_depth: None,
@@ -227,6 +228,7 @@ async fn scene(t: &Fixture, verb: &str) {
                 worktree: None,
                 choice: ModelChoice::default(),
                 role: None,
+                review: None,
             };
             let refused = agent_spawn(t.state(), headers(LEAD, verb), Json(req)).await;
             assert!(matches!(
@@ -462,6 +464,13 @@ async fn scene(t: &Fixture, verb: &str) {
             };
             let refused = gate::agent_verdict(t.state(), headers(REVIEWER, verb), Json(req)).await;
             t.refused(verb, mark, refused);
+            rusqlite::Connection::open(t.dir.path().join("loom.db"))
+                .unwrap()
+                .execute(
+                    "UPDATE nodes SET review = 'b' WHERE id = ?1",
+                    [t.reviewer.0],
+                )
+                .unwrap();
             let mark = t.mark();
             t.app
                 .graph
@@ -484,7 +493,10 @@ async fn scene(t: &Fixture, verb: &str) {
             let refused = gate::agent_verdict(t.state(), headers(REVIEWER, verb), Json(req)).await;
             assert!(matches!(
                 t.refused(verb, mark, refused),
-                Refusal::OneBranch { .. }
+                Refusal::NotReviewer {
+                    review: Some(_),
+                    ..
+                }
             ));
         }
         "fail" => {

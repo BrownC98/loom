@@ -19,6 +19,7 @@ pub struct NewChild<'a> {
     pub brief: &'a str,
     pub role: Option<&'a str>,
     pub task: &'a str,
+    pub review: Option<&'a str>,
 }
 
 const SHELL_NAME: &str = "shell";
@@ -84,6 +85,7 @@ impl Graph {
             brief,
             role,
             task,
+            review,
         } = child;
         let name = checked_name(name)?;
         if brief.len() > BRIEF_LIMIT_BYTES {
@@ -107,14 +109,17 @@ impl Graph {
             return Err(Refusal::NameTaken(name.to_owned()));
         }
         let place = place_of(&tx, parent)?;
+        if let Some(branch) = review {
+            super::gate::check_review(&tx, parent, place.repo, branch)?;
+        }
         let place = Place {
             worktree: worktree.map_or(place.worktree, str::to_owned),
             ..place
         };
         let id = insert(&tx, name, &agent, Some(parent), &place)?;
         tx.execute(
-            "UPDATE nodes SET role = ?2, task = ?3 WHERE id = ?1",
-            params![id.0, role, task],
+            "UPDATE nodes SET role = ?2, task = ?3, review = ?4 WHERE id = ?1",
+            params![id.0, role, task, review],
         )?;
         let has_brief = !brief.trim().is_empty();
         if has_brief {

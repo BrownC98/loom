@@ -150,7 +150,13 @@ mod git_runs {
         }
     }
 
-    fn child(app: &App, parent: NodeId, name: &str, role: Option<&str>) -> NodeId {
+    fn child(
+        app: &App,
+        parent: NodeId,
+        name: &str,
+        role: Option<&str>,
+        review: Option<&str>,
+    ) -> NodeId {
         app.graph
             .add_child(
                 parent,
@@ -161,6 +167,7 @@ mod git_runs {
                     brief: "",
                     role,
                     task: name,
+                    review,
                 },
                 TreeLimits {
                     max_depth: None,
@@ -200,6 +207,7 @@ mod git_runs {
                 gate,
                 &format!("reviewer-{}", REVIEWERS.fetch_add(1, Ordering::Relaxed)),
                 None,
+                Some(round.branch),
             );
             assert_eq!(
                 self.app
@@ -537,8 +545,9 @@ mod git_runs {
             r.lead,
             "코디",
             Some(crate::protocol::COORDINATOR_ROLE),
+            None,
         );
-        let worker = child(&r.app, coordinator, "worker", None);
+        let worker = child(&r.app, coordinator, "worker", None, None);
         let wt = r.dir.path().join("coord");
         git(
             &r.main,
@@ -700,8 +709,9 @@ mod git_runs {
             r.lead,
             "코디",
             Some(crate::protocol::COORDINATOR_ROLE),
+            None,
         );
-        let worker = child(&r.app, coordinator, "worker", None);
+        let worker = child(&r.app, coordinator, "worker", None, None);
         let wt = r.dir.path().join("coord");
         git(
             &r.main,
@@ -865,6 +875,56 @@ mod git_runs {
         recover(&r.app, &r.lock).await;
         assert_eq!(r.state("a"), GateState::Working);
         assert_eq!(git(&r.main, &["rev-parse", "origin/main"]), base);
+        assert_eq!(git(&r.main, &["rev-parse", "main"]), base);
+        let b = r.branch("b", "main", "b.txt", "b");
+        r.queue_main("b", &b);
+        r.batch("main").await;
+        assert_eq!(r.state("b"), GateState::Merged);
+    }
+
+    #[tokio::test]
+    async fn a_resumed_batch_on_a_target_past_its_tip_asks_for_repair() {
+        let r = repo();
+        let base = git(&r.main, &["rev-parse", "main"]);
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        let spare = r.dir.path().join("spare");
+        git(
+            &r.main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                spare.to_str().unwrap(),
+                "main",
+            ],
+        );
+        git(
+            &spare,
+            &["merge", "-q", "--no-ff", "-m", "Merge branch 'a'", &a],
+        );
+        let tip = git(&spare, &["rev-parse", "HEAD"]);
+        git(
+            &r.main,
+            &["worktree", "remove", "--force", spare.to_str().unwrap()],
+        );
+        git(&r.main, &["merge", "-q", "--ff-only", &tip]);
+        std::fs::write(r.main.join("later.txt"), "later\n").unwrap();
+        git(&r.main, &["add", "-A"]);
+        git(&r.main, &["commit", "-qm", "later"]);
+        let later = git(&r.main, &["rev-parse", "main"]);
+        let id = r.app.graph.batch_open(RepoId(1), "main", &["a"]).unwrap();
+        r.app.graph.batch_checked(id, &base, &tip).unwrap();
+        recover(&r.app, &r.lock).await;
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert_eq!(git(&r.main, &["rev-parse", "main"]), later);
+        assert!(
+            r.mail(r.lead)
+                .iter()
+                .any(|m| m.contains("main needs repair: main moved past the batch tip")),
+            "the root hears it"
+        );
     }
 
     #[tokio::test]

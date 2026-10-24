@@ -101,6 +101,15 @@ echo published >&3
 exec bash scripts/gate/ship.sh "$5" "$6"
 "#;
 
+const UNDO: &str = r#"set -u
+target=$1 base=$2 tip=$3
+git merge-base --is-ancestor "$tip" "refs/heads/$target" || exit 0
+[ "$(git symbolic-ref --quiet --short HEAD)" = "$target" ] || { echo "the main checkout is not on $target"; exit 1; }
+[ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
+git update-ref "refs/heads/$target" "$base" "$tip" || { echo "$target moved past the batch tip"; exit 1; }
+git reset --hard --quiet
+"#;
+
 const ADVANCE: &str = r#"set -u
 [ "$(git symbolic-ref --quiet --short HEAD)" = "$1" ] || { echo "the coordinator worktree is not on $1"; exit 1; }
 [ -z "$(git status --porcelain)" ] || exit 21
@@ -499,8 +508,21 @@ impl Batch<'_> {
         let published = git::run(&self.dir, &["merge-base", "--is-ancestor", tip, &done])
             .await
             .is_ok();
-        if !published && !self.unchanged(members).await? {
-            return Ok(());
+        if !published {
+            if let Dest::Base = into {
+                let args = [self.target.clone(), base.to_owned(), tip.to_owned()];
+                let (code, out) = script(&self.dir, UNDO, &args).await?;
+                if code != 0 {
+                    return Err(Refusal::Git(format!(
+                        "{} needs repair: {} (batch base {base}, tip {tip}, not on origin)",
+                        self.target,
+                        out.trim()
+                    )));
+                }
+            }
+            if !self.unchanged(members).await? {
+                return Ok(());
+            }
         }
         self.publish_into(members, base, tip, 0, &into).await
     }

@@ -287,10 +287,10 @@ pub enum Refusal {
     },
     /// 브랜치 담당이 자기 브랜치를 판정했다. 값은 브랜치다.
     OwnVerdict(String),
-    /// 검토자 노드 하나는 브랜치 하나만 판정한다. `judged`는 그 노드가 이미 판정한 브랜치다.
-    OneBranch {
+    /// 판정한 노드가 이 브랜치의 검토자(`loom spawn --review <브랜치>`)가 아니다. `review`는 그 노드가 검토하는 브랜치다.
+    NotReviewer {
         branch: String,
-        judged: String,
+        review: Option<String>,
     },
     /// 담당 브랜치의 커밋이 모두 이미 대상 브랜치에 있다. 병합할 것이 없다.
     NothingToMerge {
@@ -462,10 +462,16 @@ impl fmt::Display for Refusal {
                 f,
                 "{branch}: you own this branch, so you cannot judge it. A reviewer that its gate spawned gives the verdict."
             ),
-            Refusal::OneBranch { branch, judged } => write!(
-                f,
-                "{branch}: you already judged {judged}. One reviewer judges one branch: the gate spawns a new reviewer for {branch}."
-            ),
+            Refusal::NotReviewer { branch, review } => match review {
+                Some(review) => write!(
+                    f,
+                    "{branch}: you review {review}, so you cannot judge {branch}. The gate spawns a reviewer with `loom spawn <name> --review {branch}`."
+                ),
+                None => write!(
+                    f,
+                    "{branch}: only a reviewer that the gate spawned with `loom spawn <name> --review {branch}` judges this branch."
+                ),
+            },
             Refusal::NothingToMerge { branch, target } => write!(
                 f,
                 "{branch} has no commit that {target} does not have, so there is nothing to merge. Commit the work first."

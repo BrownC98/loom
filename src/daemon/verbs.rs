@@ -82,6 +82,7 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
         brief: &queued_brief,
         role: req.role.as_deref(),
         task: &dir.folder,
+        review: req.review.as_deref(),
     };
     let spawned = spawn_child(app, parent, child, &start, cwd, &dir, &given).await;
     if let (Ok(_), Some(fresh)) = (&spawned, fresh) {

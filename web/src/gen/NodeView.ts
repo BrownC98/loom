@@ -12,7 +12,7 @@ export type NodeView = { id: NodeId, name: string,
  */
 agent: AgentId | null, parent: NodeId | null, state: NodeState, 
 /**
- * 아직 전하지 않은(`queued`) 메시지 수.
+ * 아직 꺼내지 않은 메시지 수(모든 방식).
  */
 unread: number, 
 /**

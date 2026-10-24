@@ -61,6 +61,7 @@ use crate::paste;
 use crate::process_tree;
 use crate::profile::claude;
 use crate::profile::codex::{self, Status};
+use crate::profile::cursor;
 use crate::profile::opencode2;
 use crate::profile::{
     self, AgentId, LaunchError, Mailbox, ModelChoice, Profile, Remote, ServerLink, Start,
@@ -1300,6 +1301,15 @@ impl App {
             ),
             None => self.pc_site(),
         };
+        if profile == Some(Profile::Cursor)
+            && let Some(hooks) = user_cursor_hooks(&site)
+            && let Err(e) = cursor::open_gate(&hooks)
+        {
+            eprintln!(
+                "loom: {}에 쉬는 대기 훅을 넣지 못했다: {e}",
+                hooks.display()
+            );
+        }
         let account = provider.and_then(|p| settings.account(p, site.distro()));
         if let Some(dir) = task {
             env.push((task::ENV, dir.shown.clone().into()));
@@ -1447,6 +1457,14 @@ impl Prepared {
 
     fn discarder(&self) -> impl Fn() + use<> {
         discarder(&self.codex, &self.opencode2)
+    }
+}
+
+fn user_cursor_hooks(site: &Site) -> Option<PathBuf> {
+    match site.inside() {
+        Some(inside) => Some(inside.local(&format!("{}/{}", inside.home(), cursor::USER_HOOKS))),
+        None if cfg!(windows) => None,
+        None => std::env::home_dir().map(|home| home.join(cursor::USER_HOOKS)),
     }
 }
 

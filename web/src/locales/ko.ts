@@ -564,7 +564,7 @@ const ko: typeof en = {
     instruction: '지시: {{text}}',
     images: '그림 {{n}}개',
     closedBy: { human: '사람이 닫음', agent: '에이전트가 닫음', restart: '다시 시작', exit: '종료' },
-    turnCheck: { unreported: '묻지도 알리지도 않고 끝냄', kindLine: '종류 낱말 줄만 씀' },
+    turnCheck: { unreported: '묻지도 알리지도 않고 끝냄', kindLine: '종류 낱말 줄만 씀', questionBox: '자체 질문 창으로 물음' },
   },
   terminal: {
     copy: '복사',

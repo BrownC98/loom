@@ -277,11 +277,24 @@ pub fn cursor_hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the reply: {e}");
     }
-    if let cursor::Event::Stop { .. } = event
-        && let Some(nudge) = turn_end(None, timeout)
-    {
-        println!("{}", serde_json::json!({ "followup_message": nudge }));
-        return Ok(());
+    if let cursor::Event::Stop { .. } = event {
+        let here = std::env::current_dir().unwrap_or_default();
+        let file = transcript
+            .as_deref()
+            .and_then(|path| std::fs::File::open(crate::wsl::from_node(path.into(), &here)).ok());
+        match file.map(|file| cursor::used_question_box(std::io::BufReader::new(file))) {
+            Some(Ok(true)) => {
+                if let Err(e) = call::<()>("question-box", &(), Some(timeout)) {
+                    eprintln!("loom: could not report the question box: {e}");
+                }
+            }
+            Some(Err(e)) => eprintln!("loom: could not read the transcript: {e}"),
+            None | Some(Ok(false)) => {}
+        }
+        if let Some(nudge) = turn_end(None, timeout) {
+            println!("{}", serde_json::json!({ "followup_message": nudge }));
+            return Ok(());
+        }
     }
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {

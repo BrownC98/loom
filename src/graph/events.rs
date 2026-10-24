@@ -225,6 +225,8 @@ pub enum TurnCheck {
     Unreported,
     /// 종류 낱말로 시작하는 줄을 쓰고 loom 동사를 부르지 않았다.
     KindLine,
+    /// 런타임의 자체 질문 창(Cursor AskQuestion)으로 물었다. 사람은 `loom ask`로만 답한다.
+    QuestionBox,
 }
 
 /// 요청이 들어온 입구. CLI는 명령 이름(`loom note`)과 판을 헤더로 보낸다. 헤더가 없는 요청(화면, 훅 밖 API)은 경로다.

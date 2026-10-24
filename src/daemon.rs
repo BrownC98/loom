@@ -335,6 +335,7 @@ pub struct WaitRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct TakeRequest {
+    #[serde(default)]
     pub hook: String,
     pub kinds: Vec<Kind>,
     pub limit_bytes: usize,
@@ -2064,7 +2065,14 @@ async fn agent_idle(
     let req = req.unwrap_or_default();
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let mut wait = app.idle.open(node);
-    if !app.graph.relations(node).map_err(for_agent)?.me.alive {
+    let alive = match app.graph.relations(node) {
+        Ok(relations) => relations.me.alive,
+        Err(e) => {
+            wait.finish(IdleEnd::Error);
+            return Err(for_agent(e));
+        }
+    };
+    if !alive {
         app.idle.end(node, IdleEnd::Exit);
         wait.finish(IdleEnd::Exit);
         eprintln!(

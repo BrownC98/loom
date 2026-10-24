@@ -1287,6 +1287,12 @@ impl App {
         if let Some(node) = opencode2 {
             self.opencode2.lock().unwrap().insert(id, node.clone());
             tokio::spawn(follow_model(self.graph.clone(), id, node.model()));
+            tokio::spawn(follow_permission(
+                self.graph.clone(),
+                id,
+                token.to_owned(),
+                node.permission(),
+            ));
             let mailbox = NodeMailbox {
                 app: self.clone(),
                 node: id,
@@ -1568,6 +1574,37 @@ async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receive
             eprintln!("loom: 노드 {}의 모델을 쓰지 못했다: {e}", node.0);
         }
     }
+}
+
+async fn follow_permission(
+    graph: Arc<Graph>,
+    node: NodeId,
+    token: String,
+    mut asked: watch::Receiver<Option<opencode2::Permission>>,
+) {
+    let show = |now: Option<&opencode2::Permission>| {
+        if let Err(e) = graph.set_prompt(node, now.map(|p| p.prompt())) {
+            eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", node.0);
+        }
+        let summary = now.map(|p| p.summary());
+        let wait = summary.as_deref().map(|s| (WaitKind::Approval, s));
+        if let Err(e) = graph.set_wait(&token, WaitSource::OpenCode2, wait) {
+            eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", node.0);
+        }
+    };
+    let mut shown: Option<opencode2::Permission> = None;
+    loop {
+        let now = asked.borrow_and_update().clone();
+        if shown.is_some() && now.is_some() && shown != now {
+            show(None);
+        }
+        show(now.as_ref());
+        shown = now;
+        if asked.changed().await.is_err() {
+            break;
+        }
+    }
+    show(None);
 }
 
 fn bearer(headers: &HeaderMap) -> Result<&str, AgentError> {
@@ -1915,7 +1952,22 @@ async fn choose_wait(
     Path(wait): Path<u32>,
     Json(req): Json<ChooseOption>,
 ) -> Result<Json<()>, Problem> {
-    choose(&app.graph, &app.host, WaitId(wait), &req)?;
+    let wait = WaitId(wait);
+    let (node, _) = app.graph.approval(wait)?;
+    let server = app.opencode2.lock().unwrap().get(&node).cloned();
+    match server {
+        Some(server) => {
+            let decision = server
+                .decide(&req.prompt, req.option)
+                .ok_or(Refusal::PromptChanged(wait))?;
+            server.reply(decision).await.map_err(internal)?;
+            match app.graph.dismiss(wait) {
+                Ok(()) | Err(Refusal::NoWait(_)) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        None => choose(&app.graph, &app.host, wait, &req)?,
+    }
     Ok(Json(()))
 }
 
@@ -1937,9 +1989,11 @@ fn choose(
             Some(now) if now == req.prompt => now.options.get(req.option).cloned(),
             _ => None,
         };
-        let option = option.ok_or(Refusal::PromptChanged(wait))?;
+        let keys = option
+            .and_then(|o| o.key.bytes())
+            .ok_or(Refusal::PromptChanged(wait))?;
         graph.dismiss(wait)?;
-        Ok(option.key.bytes())
+        Ok(keys)
     })
 }
 
@@ -2701,6 +2755,83 @@ mod tests {
         assert_eq!(graph.approval(newer).unwrap().0, node);
         assert_eq!(typed_until_mark(&mut typed), "Z");
         host.kill(node);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn each_permission_request_gets_its_own_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = db::open(&dir.path().join("loom.db")).unwrap();
+        db.lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let graph = Arc::new(Graph::open(db).unwrap());
+        let place = Place {
+            repo: RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let launched = Launched {
+            token: "t".into(),
+            server: None,
+            account: None,
+            rules: None,
+        };
+        let node = graph
+            .add_root(
+                &place,
+                Some(crate::profile::AgentId("opencode2".into())),
+                None,
+                &launched,
+                |_| Ok(()),
+            )
+            .unwrap();
+        let request = |id: &str| -> opencode2::Permission {
+            serde_json::from_value(
+                serde_json::json!({ "id": id, "action": "shell", "resources": ["echo hi"] }),
+            )
+            .unwrap()
+        };
+        let waits = || {
+            let views = graph.subscribe().unwrap().0;
+            let view = views.into_iter().find(|v| v.id == node).unwrap();
+            view.waits
+                .iter()
+                .map(|w| {
+                    (
+                        w.id,
+                        w.text.clone(),
+                        w.prompt.as_ref().map(|p| p.rows[0].clone()),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let until = |request: &str| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                let now = waits();
+                if now.first().is_some_and(|w| w.2.as_deref() == Some(request)) {
+                    return now;
+                }
+                assert!(std::time::Instant::now() < deadline, "{now:?}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        let (tx, rx) = watch::channel(None);
+        let follower = tokio::spawn(follow_permission(graph.clone(), node, "t".into(), rx));
+
+        tx.send_replace(Some(request("per_1")));
+        let first = tokio::task::block_in_place(|| until("per_1"));
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].1, "shell: echo hi");
+
+        tx.send_replace(Some(request("per_2")));
+        let second = tokio::task::block_in_place(|| until("per_2"));
+        assert_eq!(second.len(), 1);
+        assert_ne!(second[0].0, first[0].0);
+        assert_eq!(graph.dismiss(first[0].0), Err(Refusal::NoWait(first[0].0)));
+
+        drop(tx);
+        follower.await.unwrap();
+        assert_eq!(waits(), vec![]);
     }
 
     #[test]

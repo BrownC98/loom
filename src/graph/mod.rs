@@ -27,8 +27,8 @@ pub use mailbox::{
 };
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
-    HUMAN, HumanWait, OpenQuestion, Prompt, PromptKey, PromptOption, WaitDoc, WaitId, WaitKind,
-    WaitSource,
+    HUMAN, HumanWait, OpenQuestion, PermissionReply, Prompt, PromptKey, PromptOption, WaitDoc,
+    WaitId, WaitKind, WaitSource,
 };
 
 use crate::db::Database;

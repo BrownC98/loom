@@ -8,17 +8,59 @@ pub fn find(name: &str) -> Option<PathBuf> {
 
 #[cfg(unix)]
 pub fn current() -> OsString {
-    std::env::var_os("PATH").unwrap_or_default()
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    match login::path() {
+        Some(login) => joined(login, std::env::split_paths(&inherited)),
+        None => inherited,
+    }
 }
 
 #[cfg(windows)]
 pub fn current() -> OsString {
     let inherited = std::env::var_os("PATH").unwrap_or_default();
     let fresh = [machine(), user()].into_iter().flatten();
-    with_fresh(
+    joined(
         inherited,
         fresh.flat_map(|v| std::env::split_paths(&v).collect::<Vec<_>>()),
     )
+}
+
+#[cfg(unix)]
+mod login {
+    use std::ffi::{OsStr, OsString};
+    use std::os::unix::ffi::OsStringExt;
+    use std::sync::{Mutex, PoisonError};
+    use std::time::{Duration, Instant};
+
+    const READ_LIMIT: Duration = Duration::from_secs(3);
+    const REUSE_FOR: Duration = Duration::from_secs(2);
+    const MARK: &str = "loom-path:";
+
+    static LAST: Mutex<Option<(Instant, Option<OsString>)>> = Mutex::new(None);
+
+    pub fn path() -> Option<OsString> {
+        let shell = std::env::var_os("SHELL")?;
+        let mut last = LAST.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((at, path)) = &*last
+            && at.elapsed() < REUSE_FOR
+        {
+            return path.clone();
+        }
+        let path = read(&shell, READ_LIMIT);
+        *last = Some((Instant::now(), path.clone()));
+        path
+    }
+
+    pub(super) fn read(shell: &OsStr, limit: Duration) -> Option<OsString> {
+        let mut cmd = std::process::Command::new(shell);
+        cmd.args(["-ilc", &format!("printf '{MARK}%s' \"$PATH\"")]);
+        let out = crate::timed::output(cmd, limit)?;
+        let start = out
+            .windows(MARK.len())
+            .rposition(|w| w == MARK.as_bytes())?
+            + MARK.len();
+        Some(OsString::from_vec(out[start..].to_vec())).filter(|p| !p.is_empty())
+    }
 }
 
 #[cfg(windows)]
@@ -42,19 +84,18 @@ fn user() -> Option<OsString> {
     registry::path(registry::HKEY_CURRENT_USER, USER_KEY)
 }
 
-#[cfg(windows)]
-fn with_fresh(inherited: OsString, fresh: impl Iterator<Item = std::path::PathBuf>) -> OsString {
-    let mut dirs: Vec<_> = std::env::split_paths(&inherited).collect();
+fn joined(first: OsString, more: impl Iterator<Item = std::path::PathBuf>) -> OsString {
+    let mut dirs: Vec<_> = std::env::split_paths(&first).collect();
     let before = dirs.len();
-    for dir in fresh {
+    for dir in more {
         if !dir.as_os_str().is_empty() && !dirs.iter().any(|d| same(d, &dir)) {
             dirs.push(dir);
         }
     }
     if dirs.len() == before {
-        return inherited;
+        return first;
     }
-    std::env::join_paths(dirs).unwrap_or(inherited)
+    std::env::join_paths(dirs).unwrap_or(first)
 }
 
 #[cfg(windows)]
@@ -65,6 +106,11 @@ fn same(a: &std::path::Path, b: &std::path::Path) -> bool {
             .to_lowercase()
     };
     key(a) == key(b)
+}
+
+#[cfg(unix)]
+fn same(a: &std::path::Path, b: &std::path::Path) -> bool {
+    a.components().eq(b.components())
 }
 
 #[cfg(windows)]
@@ -143,7 +189,7 @@ mod tests {
 
     #[test]
     fn fresh_folders_come_after_the_inherited_ones_without_doubles() {
-        let joined = with_fresh(
+        let joined = joined(
             r"C:\a;C:\B\".into(),
             [r"c:\b", r"C:\new", r"C:\A\", ""]
                 .map(PathBuf::from)
@@ -156,8 +202,56 @@ mod tests {
     fn no_fresh_folder_keeps_the_inherited_path_as_it_is() {
         let inherited = OsString::from(r"C:\a;;C:\b");
         assert_eq!(
-            with_fresh(inherited.clone(), [r"C:\a"].map(PathBuf::from).into_iter()),
+            joined(inherited.clone(), [r"C:\a"].map(PathBuf::from).into_iter()),
             inherited
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    const LIMIT: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn the_login_shell_path_is_read_after_its_noise() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = dir.path().join("shell");
+        crate::fake_exe::write_executable(
+            &shell,
+            "#!/bin/sh\n[ \"$1\" = -ilc ] || exit 44\necho 'loom-path:rc noise'\nPATH=/new/bin:/usr/bin\nexec /bin/sh -c \"$2\"\n",
+        );
+        assert_eq!(
+            login::read(shell.as_os_str(), LIMIT),
+            Some(OsString::from("/new/bin:/usr/bin"))
+        );
+        assert_eq!(
+            login::read(dir.path().join("missing").as_os_str(), LIMIT),
+            None
+        );
+    }
+
+    #[test]
+    fn a_login_shell_that_stalls_gives_no_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = dir.path().join("shell");
+        crate::fake_exe::write_executable(&shell, "#!/bin/sh\nexec sleep 30\n");
+        let start = Instant::now();
+        assert_eq!(login::read(shell.as_os_str(), Duration::from_secs(1)), None);
+        assert!(start.elapsed() < LIMIT);
+    }
+
+    #[test]
+    fn inherited_folders_come_after_the_login_ones_without_doubles() {
+        let joined = joined(
+            "/login/bin:/usr/bin".into(),
+            ["/usr/bin/", "/daemon/bin", ""]
+                .map(PathBuf::from)
+                .into_iter(),
+        );
+        assert_eq!(joined, OsString::from("/login/bin:/usr/bin:/daemon/bin"));
     }
 }

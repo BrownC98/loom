@@ -21,7 +21,6 @@ const CLAUDE_SUBSCRIPTION_LOGIN: &str = "claude.ai";
 const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 const KEYCHAIN_SERVICE_HASH_LEN: usize = 8;
 const SECURITY: &str = "/usr/bin/security";
-const KEYCHAIN_EXIT_POLL: Duration = Duration::from_millis(20);
 const CURSOR_ORIGIN: &str = "https://cursor.com";
 const CURSOR_USAGE_URL: &str = "https://cursor.com/api/usage-summary";
 const CURSOR_AUTH_FILE: &str = ".config/cursor/auth.json";
@@ -251,36 +250,9 @@ fn claude_keychain_service(config_dir: Option<&str>) -> String {
 }
 
 fn keychain_read(security: &Path, service: &str, limit: Duration) -> Option<Vec<u8>> {
-    use std::io::Read;
-    let mut child = Command::new(security)
-        .args(["find-generic-password", "-s", service, "-w"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stdout = child.stdout.take()?;
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        let _ = tx.send(bytes);
-    });
-    let deadline = Instant::now() + limit;
-    let bytes = rx.recv_timeout(limit).ok();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return bytes.filter(|_| status.success()),
-            Ok(None) if bytes.is_some() && Instant::now() < deadline => {
-                std::thread::sleep(KEYCHAIN_EXIT_POLL)
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
+    let mut cmd = Command::new(security);
+    cmd.args(["find-generic-password", "-s", service, "-w"]);
+    crate::timed::output(cmd, limit)
 }
 
 fn claude_token(credentials: &[u8]) -> Option<String> {

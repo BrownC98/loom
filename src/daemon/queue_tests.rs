@@ -190,6 +190,15 @@ mod git_runs {
             head
         }
 
+        fn removal(&self, name: &str, file: &str) -> String {
+            git(&self.main, &["checkout", "-q", "-b", name, "main"]);
+            git(&self.main, &["rm", "-q", file]);
+            git(&self.main, &["commit", "-qm", name]);
+            let head = git(&self.main, &["rev-parse", "HEAD"]);
+            git(&self.main, &["checkout", "-q", "main"]);
+            head
+        }
+
         fn queue(&self, owner: NodeId, gate: NodeId, branch: &str, head: &str, target: &str) {
             let round = Round {
                 branch,
@@ -821,6 +830,31 @@ mod git_runs {
     }
 
     #[tokio::test]
+    async fn a_failed_push_keeps_an_untracked_file_at_a_path_the_batch_deleted() {
+        let r = repo();
+        r.commit_main("removed.txt", "base content\n");
+        let base = git(&r.main, &["rev-parse", "main"]);
+        r.hook(
+            "pre-push",
+            "#!/bin/sh\nprintf 'user content\\n' >removed.txt\nexit 1\n",
+        );
+        let a = r.removal("a", "removed.txt");
+        r.queue_main("a", &a);
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert_eq!(
+            std::fs::read_to_string(r.main.join("removed.txt")).unwrap(),
+            "user content\n"
+        );
+        assert_eq!(git(&r.main, &["rev-parse", "origin/main"]), base);
+        assert!(
+            r.publish_logs().contains(
+                "git push origin main failed and the main checkout has uncommitted changes"
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn a_branch_that_moves_during_the_check_is_rework_and_the_rest_requeues() {
         let r = repo();
         r.commit_main(
@@ -923,6 +957,31 @@ mod git_runs {
             r.mail(r.lead)
                 .iter()
                 .any(|m| m.contains("main needs repair: main moved past the batch tip")),
+            "the root hears it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_resumed_batch_keeps_an_untracked_file_at_a_path_the_batch_deleted() {
+        let r = repo();
+        r.commit_main("removed.txt", "base content\n");
+        let base = git(&r.main, &["rev-parse", "main"]);
+        let a = r.removal("a", "removed.txt");
+        r.queue_main("a", &a);
+        git(&r.main, &["merge", "-q", "--ff-only", &a]);
+        std::fs::write(r.main.join("removed.txt"), "user content\n").unwrap();
+        let id = r.app.graph.batch_open(RepoId(1), "main", &["a"]).unwrap();
+        r.app.graph.batch_checked(id, &base, &a).unwrap();
+        recover(&r.app, &r.lock).await;
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert_eq!(git(&r.main, &["rev-parse", "main"]), a);
+        assert_eq!(
+            std::fs::read_to_string(r.main.join("removed.txt")).unwrap(),
+            "user content\n"
+        );
+        assert!(
+            r.mail(r.lead).iter().any(|m| m
+                .contains("main needs repair: the main checkout has uncommitted changes")),
             "the root hears it"
         );
     }

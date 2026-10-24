@@ -261,11 +261,15 @@ fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, R
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
         if req.mode == Kind::Interrupt && matches!(profile, Profile::Claude | Profile::Cursor) {
-            return app
+            let mut inside = Vec::new();
+            let sent = app
                 .graph
                 .interrupt(from, &target, &req.body, Some(via), |to| {
                     app.host.stop_guarded(to);
+                    inside = app.host.take_guarded_inside(to);
                 });
+            app.end_guarded_inside(to, inside);
+            return sent;
         }
         return app
             .graph

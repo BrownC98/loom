@@ -212,23 +212,18 @@ fn caller() -> Option<WslPath> {
 }
 
 pub async fn end_hosts(distro: &str, home: &str, servers: &[u32]) -> Result<(), String> {
-    let script = r#"home=$1; shift; servers=" $* " roots=
+    let script = format!(
+        r#"home=$1; shift; servers=" $* " roots=
 for d in /proc/[0-9]*; do
-  pid=${d#/proc/}
+  pid=${{d#/proc/}}
   case $servers in *" $pid "*) ;; *) [ "$(tr '\0' '\n' <"$d/cmdline" 2>/dev/null | sed -n 2p)" = pty-host ] || continue ;; esac
   tr '\0' '\n' <"$d/environ" 2>/dev/null | grep -qxF "HOME=$home" || continue
   roots="$roots $pid"
 done
-[ -n "$roots" ] || exit 0
-all=$(ps -eo pid=,ppid= | awk -v roots="$roots" 'BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) keep[r[i]] = 1 }
-  { parent[$1] = $2 }
-  END { do { grew = 0; for (p in parent) if (!(p in keep) && (parent[p] in keep)) { keep[p] = 1; grew = 1 } } while (grew); for (p in keep) print p }')
-kill -TERM $all 2>/dev/null
-sleep 2
-kill -KILL $all 2>/dev/null
-exit 0"#;
+{END_TREES}"#
+    );
     let out = tokio::process::Command::new("wsl.exe")
-        .args(["-d", distro, "-e", "sh", "-c", script, "sh", home])
+        .args(["-d", distro, "-e", "sh", "-c", &script, "sh", home])
         .args(servers.iter().map(u32::to_string))
         .env("WSL_UTF8", "1")
         .stdin(std::process::Stdio::null())
@@ -239,6 +234,44 @@ exit 0"#;
         true => Ok(()),
         false => Err(failure(&out)),
     }
+}
+
+const END_TREES: &str = r#"[ -n "$roots" ] || exit 0
+all=$(ps -eo pid=,ppid= | awk -v roots="$roots" 'BEGIN { n = split(roots, r, " "); for (i = 1; i <= n; i++) keep[r[i]] = 1 }
+  { parent[$1] = $2 }
+  END { do { grew = 0; for (p in parent) if (!(p in keep) && (parent[p] in keep)) { keep[p] = 1; grew = 1 } } while (grew); for (p in keep) print p }')
+kill -TERM $all 2>/dev/null
+sleep 2
+kill -KILL $all 2>/dev/null
+exit 0"#;
+
+pub const SHELL_ENV: &str = "LOOM_SHELL";
+
+pub async fn end_shells(distro: &str, token: &str, shells: &[u32]) -> Result<(), String> {
+    let mut cmd = tokio::process::Command::new("wsl.exe");
+    cmd.args([
+        "-d",
+        distro,
+        "-e",
+        "sh",
+        "-c",
+        &end_shells_script(),
+        "sh",
+        token,
+    ])
+    .args(shells.iter().map(u32::to_string))
+    .env("WSL_UTF8", "1");
+    bounded(cmd, END_TOKEN_WAIT).await
+}
+
+fn end_shells_script() -> String {
+    format!(
+        r#"token=$1; shift; roots=
+for pid; do
+  tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF "LOOM_TOKEN=$token" && roots="$roots $pid"
+done
+{END_TREES}"#
+    )
 }
 
 pub async fn end_token(distro: &str, token: &str) -> Result<(), String> {
@@ -510,7 +543,9 @@ pub fn write_shim(dir: &Path, exe: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let exe = exe.to_string_lossy().replace('\'', r"'\''");
     let shim = dir.join("loom");
-    let text = format!("#!/bin/sh\nexec \"$(wslpath -u '{exe}')\" \"$@\"\n");
+    let text = format!(
+        "#!/bin/sh\nexport {SHELL_ENV}=$PPID WSLENV=\"${{WSLENV:+$WSLENV:}}{SHELL_ENV}\"\nexec \"$(wslpath -u '{exe}')\" \"$@\"\n"
+    );
     if std::fs::read_to_string(&shim).is_ok_and(|old| old == text) {
         return Ok(());
     }
@@ -586,6 +621,79 @@ mod tests {
             .arg(child.to_string())
             .status()
             .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn end_shells_ends_only_the_trees_of_shells_with_the_token() {
+        let token = format!("shell{}", std::process::id());
+        let dir = tempfile::tempdir().unwrap();
+        let child_pid = dir.path().join("child");
+        let spawn = |script: String, token: &str| {
+            std::process::Command::new("sh")
+                .args(["-c", &script])
+                .env("LOOM_TOKEN", token)
+                .spawn()
+                .unwrap()
+        };
+        let mut guarded = spawn(
+            format!(
+                "LOOM_TOKEN=other sleep 30 & echo $! > {}; wait",
+                child_pid.display()
+            ),
+            &token,
+        );
+        let mut reused = spawn("exec sleep 30".into(), "other");
+        while !std::fs::read_to_string(&child_pid).is_ok_and(|t| t.ends_with('\n')) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let child: u32 = std::fs::read_to_string(&child_pid)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.args(["-c", &end_shells_script(), "sh", &token])
+            .args([guarded.id(), reused.id(), u32::MAX].map(|p| p.to_string()));
+        bounded(cmd, END_TOKEN_WAIT).await.unwrap();
+
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(guarded.wait().unwrap().signal(), Some(15));
+        assert!(!std::path::Path::new(&format!("/proc/{child}")).exists());
+        assert!(reused.try_wait().unwrap().is_none());
+        reused.kill().unwrap();
+        reused.wait().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shim_passes_its_shell_to_the_windows_loom() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let fake = dir.path().join("loom.exe");
+        std::fs::write(&fake, "#!/bin/sh\necho \"$LOOM_SHELL $WSLENV $*\"\n").unwrap();
+        std::fs::write(bin.join("wslpath"), "#!/bin/sh\necho \"$2\"\n").unwrap();
+        write_shim(dir.path(), &fake).unwrap();
+        for file in [&fake, &bin.join("wslpath"), &dir.path().join("loom")] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+        let out = std::process::Command::new("sh")
+            .args(["-c", "\"$0\" guard; echo $$"])
+            .arg(dir.path().join("loom"))
+            .env("PATH", path)
+            .env("WSLENV", "LOOM_TOKEN")
+            .output()
+            .unwrap();
+        let text = String::from_utf8(out.stdout).unwrap();
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(
+            lines[0],
+            format!("{} LOOM_TOKEN:LOOM_SHELL guard", lines[1])
+        );
     }
 
     #[cfg(unix)]

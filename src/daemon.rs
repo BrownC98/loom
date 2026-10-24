@@ -371,6 +371,7 @@ pub struct IdleRequest {
 #[derive(Serialize, Deserialize)]
 pub struct GuardRequest {
     pub caller: u32,
+    pub shell: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1453,6 +1454,26 @@ impl App {
         Ok(wsl::of(std::path::Path::new(&place.worktree)))
     }
 
+    fn end_guarded_inside(&self, node: NodeId, shells: Vec<u32>) {
+        if shells.is_empty() {
+            return;
+        }
+        let token = self
+            .graph
+            .active()
+            .ok()
+            .and_then(|nodes| nodes.into_iter().find(|n| n.id == node))
+            .map(|n| n.token);
+        let Some((at, token)) = self.node_wsl(Some(node)).ok().flatten().zip(token) else {
+            return;
+        };
+        tokio::spawn(async move {
+            if let Err(e) = wsl::end_shells(&at.distro, &token, &shells).await {
+                eprintln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0);
+            }
+        });
+    }
+
     fn node_env(&self, token: &str) -> Result<[(&'static str, OsString); 4], Problem> {
         Ok([
             ("LOOM_URL", self.url.clone().into()),
@@ -2231,7 +2252,14 @@ async fn agent_guard(
     Json(req): Json<GuardRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.host.guard(node, req.caller);
+    match app.node_wsl(Some(node)).map_err(for_agent)? {
+        Some(_) => {
+            if let Some(shell) = req.shell {
+                app.host.guard_inside(node, shell);
+            }
+        }
+        None => app.host.guard(node, req.caller),
+    }
     Ok(Json(()))
 }
 

@@ -162,9 +162,10 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Res
 pub fn hook() -> Result<(), String> {
     let input: serde_json::Value =
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
-    let event = claude::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
+    let hook = claude::Hook::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
+    let event = &hook.event;
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
-    if let Some(model) = claude::reported_model(&event, &input)
+    if let Some(model) = claude::reported_model(event, &input)
         && let Err(e) = call::<()>("model", &model, Some(timeout))
     {
         eprintln!("loom: could not report the model: {e}");
@@ -176,9 +177,14 @@ pub fn hook() -> Result<(), String> {
         eprintln!("loom: could not report the human wait: {e}");
     }
     let transcript = input["transcript_path"].as_str().map(str::to_owned);
-    let kinds = match event.take() {
+    let kinds = match hook.take() {
         Take::Now(kinds) => kinds,
-        Take::Never => return Ok(()),
+        Take::Never => {
+            if let Some(reply) = event.reply(&[], None) {
+                println!("{reply}");
+            }
+            return Ok(());
+        }
         Take::WhenIdle => {
             if let claude::Event::Stop = event
                 && let Some(nudge) = turn_end(claude::last_reply(&input), None, timeout)
@@ -393,7 +399,10 @@ fn reconnecting<T>(
 
 pub fn guard() -> Result<(), String> {
     let caller = std::process::id();
-    Ok(call::<()>("guard", &GuardRequest { caller }, None)?)
+    let shell = std::env::var(crate::wsl::SHELL_ENV)
+        .ok()
+        .and_then(|pid| pid.parse().ok());
+    Ok(call::<()>("guard", &GuardRequest { caller, shell }, None)?)
 }
 
 pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {

@@ -144,6 +144,22 @@ const ASK_TOOL: &str = "AskUserQuestion";
 const PLAN_TOOL: &str = "ExitPlanMode";
 
 #[derive(Deserialize)]
+pub struct Hook {
+    #[serde(flatten)]
+    pub event: Event,
+    agent_id: Option<String>,
+}
+
+impl Hook {
+    pub fn take(&self) -> Take {
+        match self.agent_id {
+            Some(_) => Take::Never,
+            None => self.event.take(),
+        }
+    }
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "hook_event_name")]
 pub enum Event {
     SessionStart {
@@ -517,6 +533,49 @@ mod tests {
             event(json!({ "hook_event_name": "PostToolUse" })).take(),
             Take::Now(Kind::ALL)
         );
+    }
+
+    fn hook(input: Value) -> Hook {
+        serde_json::from_value(input).unwrap()
+    }
+
+    #[test]
+    fn subagent_hooks_take_no_mail_and_keep_the_guard_line() {
+        let subagent = json!({
+            "session_id": "e6edf215", "transcript_path": "/t.jsonl", "cwd": "/repo",
+            "prompt_id": "0c124062", "permission_mode": "bypassPermissions",
+            "agent_id": "a7432afa802847021", "agent_type": "general-purpose",
+            "effort": { "level": "medium" },
+        });
+        let with = |fields: Value| {
+            let mut input = subagent.clone();
+            input
+                .as_object_mut()
+                .unwrap()
+                .extend(fields.as_object().unwrap().clone());
+            hook(input)
+        };
+        let pre = with(json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": { "command": "ls", "description": "List files" },
+            "tool_use_id": "toolu_01",
+        }));
+        assert_eq!(pre.take(), Take::Never);
+        assert_eq!(
+            pre.event.reply(&[], None).unwrap()["hookSpecificOutput"]["updatedInput"]["command"],
+            "loom guard\nls"
+        );
+        for fields in [
+            json!({ "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_response": {}, "duration_ms": 19 }),
+            json!({ "hook_event_name": "PostToolUseFailure", "tool_name": "Bash" }),
+            json!({ "hook_event_name": "UserPromptSubmit", "prompt": "x" }),
+        ] {
+            let other = with(fields.clone());
+            assert_eq!(other.take(), Take::Never, "{fields}");
+            assert_eq!(other.event.reply(&[], None), None, "{fields}");
+        }
+        let main = hook(json!({ "hook_event_name": "PostToolUse", "session_id": "e6edf215" }));
+        assert_eq!(main.take(), Take::Now(Kind::ALL));
     }
 
     #[test]

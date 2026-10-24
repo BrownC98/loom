@@ -1955,8 +1955,11 @@ async fn choose_wait(
             let decision = server
                 .decide(&req.prompt, req.option)
                 .ok_or(Refusal::PromptChanged(wait))?;
-            app.graph.dismiss(wait)?;
             server.reply(decision).await.map_err(internal)?;
+            match app.graph.dismiss(wait) {
+                Ok(()) | Err(Refusal::NoWait(_)) => {}
+                Err(e) => return Err(e.into()),
+            }
         }
         None => choose(&app.graph, &app.host, wait, &req)?,
     }

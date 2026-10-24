@@ -220,6 +220,7 @@ pub(super) async fn serve_file(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use super::*;
 
     #[cfg(unix)]

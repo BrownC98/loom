@@ -2,10 +2,18 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
 
+use portable_pty::CommandBuilder;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 pub fn command(name: &str) -> std::process::Command {
     command_at(&crate::search_path::find(name).unwrap_or_else(|| name.into()))
+}
+
+pub fn color_terminal(cmd: &mut CommandBuilder) {
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env_remove("NO_COLOR");
+    cmd.env_remove("FORCE_COLOR");
 }
 
 pub fn command_at(path: &Path) -> std::process::Command {

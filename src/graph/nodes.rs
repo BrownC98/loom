@@ -2,15 +2,16 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 use super::events::{self, Entry};
-use super::waits::Prompt;
 use super::{
-    CardView, Db, Graph, GraphEvent, Model, NodeId, NodeState, Place, REACHABLE, Refusal, Toward,
-    TreeLimits, ambiguous, from_json, mailbox, name_of, parent_of, place_label, place_of,
-    set_state, state_of, to_json, waits,
+    CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, REACHABLE, Toward, ambiguous,
+    from_json, mailbox, name_of, parent_of, place_label, place_of, set_state, state_of, to_json,
+    waits,
 };
 use crate::accounts::AccountId;
-use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink, StartDigests};
-use crate::protocol::{Kind, MessageKind};
+use crate::protocol::{
+    AgentId, BRIEF_LIMIT_BYTES, Kind, MessageKind, Model, Prompt, Refusal, ServerLink,
+    StartDigests, TreeLimits,
+};
 
 pub struct NewChild<'a> {
     pub name: &'a str,

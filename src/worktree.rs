@@ -1,3 +1,5 @@
+pub mod merge;
+
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -418,6 +420,11 @@ pub async fn find(repo: &Path, path: &str) -> Result<Worktree, RepoProblem> {
         .into_iter()
         .find(|w| w.path == path)
         .ok_or_else(|| RepoProblem::NotInRepo(path.to_owned()))
+}
+
+pub async fn top_of(cwd: &Path) -> Result<String, String> {
+    let top = git::run(cwd, &["rev-parse", "--show-toplevel"]).await?;
+    Ok(git::from_git_path(cwd, top.trim()))
 }
 
 pub async fn create(

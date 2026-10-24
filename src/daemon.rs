@@ -61,14 +61,12 @@ use tokio::sync::watch;
 use ts_rs::TS;
 
 use crate::accounts::{AccountId, Site};
-use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    CardView, EventLog, Graph, GraphEvent, IMAGE_EXTENSIONS, IdleEnd, Launched, Listed, Model,
-    NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal, Relations, Report, Sent,
-    TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource, entered,
+    CardView, EventLog, Graph, GraphEvent, IdleEnd, Launched, Listed, NewChild, NodeId, PARENT,
+    Place, REDELIVER_AFTER, Relations, Report, Sent, Via, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -76,13 +74,15 @@ use crate::open;
 use crate::paste;
 use crate::process_tree;
 use crate::profile::claude;
+use crate::profile::codex::server::CodexServer;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
 use crate::profile::opencode2;
-use crate::profile::{
-    self, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
+use crate::profile::{self, Mailbox, Profile, Remote, Start, VersionMismatch};
+use crate::protocol::{
+    Delivery, IMAGE_EXTENSIONS, Kind, LaunchError, MessageId, MessageKind, Model, Prompt, Question,
+    Refusal, ServerLink, TreeLimits, WaitDoc, WaitId, WaitKind, entered,
 };
-use crate::protocol::{Delivery, Kind, MessageId, MessageKind, Question};
 use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
@@ -327,7 +327,9 @@ impl App {
         codex_version: Option<&str>,
     ) -> std::io::Result<App> {
         let repos = Repos::new(database.clone());
-        let graph = Arc::new(Graph::open(database.clone()).map_err(std::io::Error::other)?);
+        let graph = Arc::new(
+            Graph::open(database.clone(), profile::linked).map_err(std::io::Error::other)?,
+        );
         let pty_dir = db_path.with_file_name("pty");
         let update = Arc::new(Updater::new(listen, {
             let graph = graph.clone();
@@ -339,7 +341,7 @@ impl App {
             repos,
             host: NodeHost::new(pty_dir.join("nodes")),
             graph,
-            settings: Settings::new(database.clone()),
+            settings: Settings::new(database.clone(), profile::check_choice),
             devices: devices.clone(),
             port: listen.port(),
             door: lan::Door::new(

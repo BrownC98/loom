@@ -232,7 +232,7 @@ mod tests {
         db.lock()
             .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
             .unwrap();
-        let graph = Graph::open(db).unwrap();
+        let graph = Graph::open(db, crate::profile::linked).unwrap();
         let place = Place {
             repo: RepoId(1),
             worktree: "/repo".into(),
@@ -246,7 +246,7 @@ mod tests {
         let node = graph
             .add_root(
                 &place,
-                Some(crate::profile::AgentId("claude".into())),
+                Some(crate::protocol::AgentId("claude".into())),
                 None,
                 &launched,
                 |_| Ok(()),
@@ -376,7 +376,7 @@ mod tests {
                 .unwrap();
             let host = NodeHost::new(dir.path().join("hosts"));
             Dialogs {
-                graph: Graph::open(db).unwrap(),
+                graph: Graph::open(db, crate::profile::linked).unwrap(),
                 host,
                 dir,
                 count: 0,
@@ -400,7 +400,7 @@ mod tests {
                 .graph
                 .add_root(
                     &place,
-                    agent.map(|a| crate::profile::AgentId(a.into())),
+                    agent.map(|a| crate::protocol::AgentId(a.into())),
                     None,
                     &launched,
                     |_| Ok(()),
@@ -423,7 +423,7 @@ mod tests {
             self.dir.path().join(name)
         }
 
-        fn until(&self, node: NodeId, mut done: impl FnMut(&node_host::Screen) -> bool) {
+        fn until(&self, node: NodeId, mut done: impl FnMut(&crate::screen::Screen) -> bool) {
             let deadline = std::time::Instant::now() + Duration::from_secs(10);
             while !done(&self.host.screen(node)) {
                 assert!(
@@ -544,7 +544,7 @@ mod tests {
                 ),
             );
             let profile = agent
-                .map(|a| crate::profile::AgentId(a.into()))
+                .map(|a| crate::protocol::AgentId(a.into()))
                 .as_ref()
                 .and_then(profile::profile_of);
             let (wait, shown) = t.shown(node, &token, profile);
@@ -577,7 +577,7 @@ mod tests {
             assert_eq!(sent, Ok(()), "{i}");
             assert_eq!(t.graph.dialog(wait), Err(Refusal::NoWait(wait)), "{i}");
             t.until(node, |_| std::fs::read(&typed).is_ok_and(|b| b == expected));
-            let settled = |now: &node_host::Screen| match after {
+            let settled = |now: &crate::screen::Screen| match after {
                 "clear" => now.text.contains("answered"),
                 "newline" => now.to_cursor.ends_with('\n'),
                 _ => now.text.contains(secret),

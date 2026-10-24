@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use base64::Engine;
 use num_bigint::BigUint;
 use ring::hmac;
 use sha2::{Digest, Sha256};
@@ -72,6 +73,12 @@ impl Element {
 pub struct Answer {
     pub pb: Vec<u8>,
     pub confirm: Vec<u8>,
+}
+
+pub fn random_token() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("OS 난수를 읽지 못했다");
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 pub fn answer(code: &str, pa: &Element, door: &[u8]) -> Answer {

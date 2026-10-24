@@ -8,8 +8,7 @@ use super::commands::{
 use super::nodes::human_typed;
 use super::*;
 use crate::graph::{Entry, Round, TurnCheck};
-use crate::profile::AgentId;
-use crate::protocol::Judgment;
+use crate::protocol::{AgentId, Judgment};
 
 const UNTRACED: [(&str, &str); 16] = [
     ("serve", "runs the daemon"),

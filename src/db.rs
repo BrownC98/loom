@@ -610,7 +610,7 @@ mod tests {
                 .unwrap();
         }
         super::MIGRATIONS.to_latest(&mut conn).unwrap();
-        let reasons: Vec<crate::graph::Refusal> = conn
+        let reasons: Vec<crate::protocol::Refusal> = conn
             .prepare("SELECT entry ->> '$.reason' FROM events ORDER BY id")
             .unwrap()
             .query_map([], |row| row.get::<_, String>(0))
@@ -619,12 +619,12 @@ mod tests {
             .collect();
         assert_eq!(
             reasons[0],
-            crate::graph::Refusal::KindWord {
+            crate::protocol::Refusal::KindWord {
                 word: "READY".into(),
                 verb: "loom ready".into()
             }
         );
-        assert!(matches!(reasons[1], crate::graph::Refusal::Git(_)));
+        assert!(matches!(reasons[1], crate::protocol::Refusal::Git(_)));
     }
 
     #[test]
@@ -652,10 +652,13 @@ mod tests {
         assert_eq!(names, ["워커", "평가자", crate::roles::HIGH_RISK_WORKER]);
         let added = &view.roles.0[2];
         assert_eq!(added.duty, crate::roles::HIGH_RISK_DUTY);
-        assert_eq!(added.agent, Some(crate::profile::AgentId("cursor".into())));
+        assert_eq!(added.agent, Some(crate::protocol::AgentId("cursor".into())));
         assert_eq!(added.model.as_deref(), Some("claude-opus-5-5"));
         assert_eq!(added.effort.as_deref(), Some("high"));
-        assert_eq!(view.roles.launch_problem(), None);
+        assert_eq!(
+            view.roles.launch_problem(crate::profile::check_choice),
+            None
+        );
         let reason: String = conn
             .query_row("SELECT entry ->> '$.reason' FROM events", [], |row| {
                 row.get(0)
@@ -663,7 +666,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             serde_json::from_str(&reason).unwrap(),
-            crate::graph::Refusal::Git(_)
+            crate::protocol::Refusal::Git(_)
         ));
     }
 
@@ -707,8 +710,8 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            serde_json::from_str::<crate::graph::Refusal>(&reason).unwrap(),
-            crate::graph::Refusal::LeadChildNeedsWorktree("워커".into())
+            serde_json::from_str::<crate::protocol::Refusal>(&reason).unwrap(),
+            crate::protocol::Refusal::LeadChildNeedsWorktree("워커".into())
         );
     }
 
@@ -765,8 +768,8 @@ mod tests {
             .unwrap()
             .map(|json| serde_json::from_str(&json.unwrap()).unwrap())
             .collect();
-        use crate::graph::{Entry, Refusal};
-        use crate::protocol::{Finding, GateVerb, MessageKind};
+        use crate::graph::Entry;
+        use crate::protocol::{Finding, GateVerb, MessageKind, Refusal};
         let Entry::Message {
             what: Some(MessageKind::Note),
             gate: Some(trace),

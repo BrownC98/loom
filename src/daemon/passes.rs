@@ -45,7 +45,7 @@ enum Reach {
 
 impl Passes {
     fn issue(&self, folder: PathBuf, only: Option<String>) -> String {
-        let token = crate::devices::random_token();
+        let token = crate::pake::random_token();
         let now = Instant::now();
         let mut passes = self.0.lock().expect("passes lock");
         passes.retain(|_, pass| pass.until > now);

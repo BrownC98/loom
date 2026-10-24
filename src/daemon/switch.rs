@@ -15,7 +15,7 @@ use super::usage_cache::{Key, UsageCache};
 use super::{App, Problem, internal};
 use crate::accounts::{AccountId, Site};
 use crate::graph::{Active, Entry, NodeId, SwitchCause};
-use crate::profile::Provider;
+use crate::protocol::Provider;
 use crate::usage::{self, Limits, Window};
 use crate::wsl;
 

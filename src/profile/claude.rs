@@ -5,8 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Model, WaitKind};
-use crate::protocol::{Delivery, Kind};
+use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
@@ -54,7 +53,7 @@ const ALLOWED: [&str; 20] = [
     "Bash(loom fail:*)",
 ];
 
-pub fn choice_args(choice: &super::ModelChoice) -> Vec<String> {
+pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Vec<String> {
     let mut args = Vec::new();
     if let Some(model) = &choice.model {
         args.extend(["--model".into(), model.clone()]);
@@ -372,7 +371,7 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::PromptKey;
+    use crate::protocol::PromptKey;
 
     const APPROVAL: &str = concat!(
         "\n",

@@ -14,11 +14,12 @@ use crate::daemon::{
     RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken,
     TurnEndRequest, TurnId, WaitRequest,
 };
-use crate::graph::{Listed, NodeId, Relations, Sent, WaitId};
+use crate::graph::{Listed, NodeId, Relations, Sent};
 use crate::profile::claude;
-use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor, pi};
-use crate::protocol::{Delivery, GateState, Judgment, Kind, MessageId};
+use crate::protocol::{
+    AgentId, Delivery, GateState, Judgment, Kind, MessageId, ModelChoice, WaitId,
+};
 use crate::roles::{Roles, SetRole};
 use crate::task;
 

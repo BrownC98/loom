@@ -1,4 +1,11 @@
-use crate::graph::{InputField, Prompt, PromptKey, PromptOption, WaitKind};
+use crate::protocol::{InputField, Prompt, PromptKey, PromptOption, WaitKind};
+
+#[derive(Default)]
+pub struct Screen {
+    pub text: String,
+    pub to_cursor: String,
+    pub cols: u16,
+}
 
 pub struct Dialog {
     pub text: &'static str,

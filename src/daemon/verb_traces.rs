@@ -534,6 +534,32 @@ fn a_nudged_turn_end_leaves_an_event() {
     assert_eq!(t.since(mark), []);
 }
 
+#[tokio::test]
+async fn a_question_box_turn_with_a_loom_ask_is_not_asked_again() {
+    let t = fixture();
+    let ask = AskRequest {
+        question: "배포할까요? (A: 예 / B: 아니오, 권장: A)".into(),
+        doc: None,
+    };
+    let Json(_) = agent_ask(t.state(), headers(LEAD, "ask"), Json(ask))
+        .await
+        .unwrap();
+    let Json(()) = agent_question_box(t.state(), headers(LEAD, "question-box"))
+        .await
+        .unwrap();
+    assert_eq!(t.app.turn_end(t.lead), None);
+
+    let Json(()) = agent_question_box(t.state(), headers(LEAD, "question-box"))
+        .await
+        .unwrap();
+    t.app.turn_ends.called(t.lead);
+    let mark = t.mark();
+    assert!(t.app.turn_end(t.lead).is_some());
+    t.wrote("turn end", mark, |e| {
+        matches!(e, Entry::Nudged { node, check: TurnCheck::QuestionBox } if node.id == Some(t.lead))
+    });
+}
+
 #[test]
 fn old_message_verbs_are_gone() {
     for old in ["send", "steer", "interrupt", "reply", "merge"] {

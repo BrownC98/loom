@@ -3,4 +3,4 @@
 /**
  * 다시 일하게 한 턴 끝 검사(`daemon::turn_end`).
  */
-export type TurnCheck = "unreported" | "kindLine";
+export type TurnCheck = "unreported" | "kindLine" | "questionBox";

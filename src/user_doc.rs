@@ -311,7 +311,7 @@ impl Store {
             .ok_or_else(|| format!("{}: 파일 이름이 없다", source.display()))?;
         let dir = copy.parent().unwrap_or(&self.copies);
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let next = dir.join(format!(".{}.tmp", crate::devices::random_token()));
+        let next = dir.join(format!(".{}.tmp", crate::pake::random_token()));
         let written = fs::write(&next, text).and_then(|()| fs::rename(&next, &copy));
         if written.is_err() {
             let _ = fs::remove_file(&next);

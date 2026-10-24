@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::accounts::{AccountId, Site};
-use crate::profile::Provider;
+use crate::protocol::Provider;
 use crate::usage::{Limits, Usage, UsageProblem};
 
 const MIN_AGE: Duration = Duration::from_secs(60);

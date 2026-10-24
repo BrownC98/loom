@@ -8,6 +8,15 @@ use ts_rs::TS;
 #[ts(export)]
 pub struct AgentId(pub String);
 
+/// 계정과 사용량이 있는 공급자. 근거: docs/design/에이전트-실행.md 「계정과 사용량」.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Provider {
+    Claude,
+    Codex,
+}
+
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Model {
     pub model: Option<String>,

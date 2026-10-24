@@ -7,7 +7,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-pub use agent::{AgentId, LaunchError, Model, ModelChoice, ServerLink, StartDigests};
+pub use agent::{AgentId, LaunchError, Model, ModelChoice, Provider, ServerLink, StartDigests};
 pub use refusal::{
     BRIEF_LIMIT_BYTES, IMAGE_EXTENSIONS, MAILBOX_LIMIT, Refusal, SUMMARY_LIMIT_BYTES, TreeLimits,
 };

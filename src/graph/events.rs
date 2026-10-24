@@ -6,10 +6,9 @@ use super::{NodeId, NodeState, from_json, to_json};
 use crate::accounts::AccountId;
 use crate::choices::{Choice, choices};
 use crate::link_text::{TextPart, parts, path_link};
-use crate::profile::Provider;
 use crate::protocol::{
-    AgentId, Field, Finding, GateState, GateVerb, Kind, MessageId, MessageKind, Refusal, WaitDoc,
-    WaitId,
+    AgentId, Field, Finding, GateState, GateVerb, Kind, MessageId, MessageKind, Provider, Refusal,
+    WaitDoc, WaitId,
 };
 
 const KEEP: u32 = 10_000;

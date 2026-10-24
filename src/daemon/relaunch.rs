@@ -18,8 +18,8 @@ use crate::accounts::{self, Site};
 use crate::graph::{Active, AgentSwitch, Entry, IdleEnd, NodeId, REDELIVER_AFTER, Who};
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
-use crate::profile::{self, Profile, Provider, Start};
-use crate::protocol::{AgentId, Delivery, Kind, Model, ModelChoice, Refusal, ServerLink};
+use crate::profile::{self, Profile, Start};
+use crate::protocol::{AgentId, Delivery, Kind, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::settings::SettingsView;
 use crate::skills::Position;
 

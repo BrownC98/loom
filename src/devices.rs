@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use base64::Engine;
 use rusqlite::params;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -108,7 +107,7 @@ impl Devices {
             }
             *slot = None;
         }
-        let token = random_token();
+        let token = pake::random_token();
         let now = now_ms();
         let label: String = label.chars().take(LABEL_MAX).collect();
         self.db
@@ -214,12 +213,6 @@ impl Devices {
 
 fn hash(token: &str) -> [u8; 32] {
     Sha256::digest(token.as_bytes()).into()
-}
-
-pub fn random_token() -> String {
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).expect("OS 난수를 읽지 못했다");
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 fn random_code() -> String {

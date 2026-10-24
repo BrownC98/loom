@@ -10,8 +10,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::accounts::{AccountId, Site};
-use crate::profile::Provider;
-use crate::protocol::LaunchError;
+use crate::protocol::{LaunchError, Provider};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 const SESSION_WINDOW_MAX_MINS: u64 = 300;

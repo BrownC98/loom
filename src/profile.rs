@@ -16,7 +16,7 @@ use ts_rs::TS;
 
 use crate::protocol::{
     AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, ModelChoice, OpenQuestion,
-    Prompt as ScreenPrompt, StartDigests, WaitKind,
+    Prompt as ScreenPrompt, Provider, StartDigests, WaitKind,
 };
 use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Screen, Session};
 use crate::skills::Launch;
@@ -53,15 +53,6 @@ impl Profile {
             Profile::OpenCode2 | Profile::Cursor | Profile::Pi => None,
         }
     }
-}
-
-/// 계정과 사용량이 있는 공급자. 근거: docs/design/에이전트-실행.md 「계정과 사용량」.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum Provider {
-    Claude,
-    Codex,
 }
 
 pub enum Remote<'a> {
@@ -387,15 +378,8 @@ pub fn command(
         },
     };
     cmd.cwd(cwd);
-    color_terminal(&mut cmd);
+    crate::process_tree::color_terminal(&mut cmd);
     Ok(cmd)
-}
-
-pub fn color_terminal(cmd: &mut CommandBuilder) {
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-    cmd.env_remove("NO_COLOR");
-    cmd.env_remove("FORCE_COLOR");
 }
 
 pub fn is_launcher_env(key: &str) -> bool {
@@ -762,7 +746,7 @@ mod tests {
         let mut cmd = shell("true");
         cmd.env("NO_COLOR", "1");
         cmd.env("FORCE_COLOR", "0");
-        color_terminal(&mut cmd);
+        crate::process_tree::color_terminal(&mut cmd);
         assert_eq!(cmd.get_env("NO_COLOR"), None);
         assert_eq!(cmd.get_env("FORCE_COLOR"), None);
         assert_eq!(cmd.get_env("COLORTERM").unwrap(), "truecolor");

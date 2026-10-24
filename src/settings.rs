@@ -6,8 +6,7 @@ use ts_rs::TS;
 
 use crate::accounts::AccountId;
 use crate::db::Database;
-use crate::profile::Provider;
-use crate::protocol::{AgentId, TreeLimits, WaitId};
+use crate::protocol::{AgentId, Provider, TreeLimits, WaitId};
 use crate::roles::{ChoiceCheck, RoleProblem, Roles, SetRole};
 use crate::skills::AlwaysOn;
 use crate::worktree::RepoId;

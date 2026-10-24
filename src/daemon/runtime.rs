@@ -290,7 +290,7 @@ impl App {
             let (app, mut limited) = (self.clone(), server.limited());
             tokio::spawn(async move {
                 while limited.changed().await.is_ok() {
-                    app.rate_limited(id, profile::Provider::Codex);
+                    app.rate_limited(id, crate::protocol::Provider::Codex);
                 }
             });
             tokio::spawn(follow_codex_model(
@@ -349,7 +349,7 @@ impl App {
             position,
             skills: settings.always_on,
         };
-        let token = new_token().map_err(internal)?;
+        let token = crate::pake::random_token();
         let mut env = self.node_env(&token)?.to_vec();
         let plugin = self.plugin.dir(launch.skills);
         let site = match wsl::of(cwd) {
@@ -408,7 +408,7 @@ impl App {
         };
         let opencode2 = match profile {
             Some(Profile::OpenCode2) => {
-                let password = new_token().map_err(internal)?;
+                let password = crate::pake::random_token();
                 let resume = match start {
                     Start::Agent { resume, .. } => resume.as_deref(),
                     Start::Command { .. } => None,
@@ -808,12 +808,6 @@ fn stop_server(server: &ServerLink) {
     if let Some(root) = pid {
         process_tree::Snapshot::now().kill_trees([*root]);
     }
-}
-
-fn new_token() -> Result<String, String> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 #[cfg(test)]

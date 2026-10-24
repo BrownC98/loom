@@ -199,14 +199,25 @@ mod git_runs {
             head
         }
 
-        fn queue(&self, owner: NodeId, gate: NodeId, branch: &str, head: &str, target: &str) {
+        fn accept(&self, worker: NodeId, coordinator: NodeId, branch: &str, head: &str) {
             let round = Round {
                 branch,
-                target,
+                target: "코디",
                 worktree: "/wt",
                 head,
             };
-            self.queue_at(owner, gate, &round);
+            self.app
+                .graph
+                .ready(worker, &round, coordinator, None)
+                .unwrap();
+            assert_eq!(
+                self.app
+                    .graph
+                    .verdict(coordinator, branch, Judgment::Pass, None, None),
+                Ok(GateState::Passed)
+            );
+            self.mail(worker);
+            self.mail(coordinator);
         }
 
         fn queue_at(&self, owner: NodeId, gate: NodeId, round: &Round) {
@@ -229,7 +240,13 @@ mod git_runs {
         }
 
         fn queue_main(&self, branch: &str, head: &str) {
-            self.queue(self.lead, self.lead, branch, head, "main");
+            let round = Round {
+                branch,
+                target: "main",
+                worktree: "/wt",
+                head,
+            };
+            self.queue_at(self.lead, self.lead, &round);
         }
 
         async fn batch(&self, target: &str) {
@@ -564,7 +581,7 @@ mod git_runs {
         );
         let origin = git(&r.main, &["rev-parse", "origin/main"]);
         let a = r.branch("a", "코디", "a.txt", "a");
-        r.queue(worker, coordinator, "a", &a, "코디");
+        r.accept(worker, coordinator, "a", &a);
         r.batch("코디").await;
         assert_eq!(r.state("a"), GateState::Merged);
         assert_eq!(git(&wt, &["rev-parse", "HEAD^2"]), a);
@@ -574,7 +591,7 @@ mod git_runs {
 
         let coord_head = git(&wt, &["rev-parse", "HEAD"]);
         let b = r.branch("b", "코디", "b.txt", "b");
-        r.queue(worker, coordinator, "b", &b, "코디");
+        r.accept(worker, coordinator, "b", &b);
         std::fs::write(wt.join("wip.txt"), "x").unwrap();
         r.batch("코디").await;
         assert_eq!(r.state("b"), GateState::Working);
@@ -729,8 +746,8 @@ mod git_runs {
         let base = git(&wt, &["rev-parse", "HEAD"]);
         let a = r.branch("a", "코디", "a.txt", "a");
         let b = r.branch("b", "코디", "bad", "b");
-        r.queue(worker, coordinator, "a", &a, "코디");
-        r.queue(worker, coordinator, "b", &b, "코디");
+        r.accept(worker, coordinator, "a", &a);
+        r.accept(worker, coordinator, "b", &b);
         r.batch("코디").await;
         assert_eq!(
             (r.state("a"), r.state("b")),

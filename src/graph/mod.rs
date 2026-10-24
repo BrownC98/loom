@@ -292,6 +292,11 @@ pub enum Refusal {
         branch: String,
         review: Option<String>,
     },
+    /// 코디 밑 워커 브랜치는 검토자가 없다. 관문인 코디가 완료 조건을 보고 직접 판정한다. `gate`는 그 코디다.
+    CoordinatorAccepts {
+        branch: String,
+        gate: String,
+    },
     /// 담당 브랜치의 커밋이 모두 이미 대상 브랜치에 있다. 병합할 것이 없다.
     NothingToMerge {
         branch: String,
@@ -431,7 +436,7 @@ impl fmt::Display for Refusal {
             Refusal::Gate(e) => e.fmt(f),
             Refusal::NotGate { branch, gate } => write!(
                 f,
-                "{branch}: its gate is {gate}. Only a reviewer that {gate} spawned gives the verdict, and only {gate} calls `loom fail`."
+                "{branch}: its gate is {gate}. Only {gate} handles this branch: it gives the verdict or spawns the reviewer that gives it, and only {gate} calls `loom fail`."
             ),
             Refusal::NoRound(branch) => write!(
                 f,
@@ -472,6 +477,10 @@ impl fmt::Display for Refusal {
                     "{branch}: only a reviewer that the gate spawned with `loom spawn <name> --review {branch}` judges this branch."
                 ),
             },
+            Refusal::CoordinatorAccepts { branch, gate } => write!(
+                f,
+                "{branch}: a worker branch under a coordinator has no reviewer. Only its coordinator {gate} gives the verdict, after it checks the result against the brief's done-when."
+            ),
             Refusal::NothingToMerge { branch, target } => write!(
                 f,
                 "{branch} has no commit that {target} does not have, so there is nothing to merge. Commit the work first."

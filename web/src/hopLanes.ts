@@ -3,15 +3,14 @@ import type { ArrangeDirection, Box } from './layout';
 type Point = { x: number; y: number };
 
 export const HOP_LANES = [2, 4, 5, 1, 3] as const;
-const LANE_MARGIN = 10;
-const LANE_STEP = 10;
 const END_GAP = 40;
 const LABEL_SPOTS = [0.5, 0.3, 0.7, 0.15, 0.85, 0.05, 0.95];
 const LABEL_GAP = 2;
 
 export type HopEnd = { id: number; box: Box; room: Box };
-export type HopPair = { key: string; source: HopEnd; target: HopEnd; label: { width: number; height: number } };
-export type HopRoute = { points: Point[]; label: Point; turned: boolean };
+export type LabelSize = { width: number; height: number };
+export type HopPair = { key: string; source: HopEnd; target: HopEnd; label: { full: LabelSize; short: LabelSize } };
+export type HopRoute = { points: Point[]; label: { at: Point; short: boolean } | null; turned: boolean };
 
 export function pickColor(shown: Iterable<number>): number {
   const uses = HOP_LANES.map(() => 0);
@@ -53,14 +52,15 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
     }
   }
   const mid = (id: number) => (rects.get(id)!.l + rects.get(id)!.r) / 2;
-  const below = pairs.filter((p) => rooms.get(p.source.id)!.t - up.b > 2 * LANE_MARGIN && rooms.get(p.target.id)!.t - up.b > 2 * LANE_MARGIN);
+  const room = Math.max(...pairs.map((p) => p.label.full.height)) + LABEL_GAP;
+  const below = pairs.filter((p) => rooms.get(p.source.id)!.t - up.b > room && rooms.get(p.target.id)!.t - up.b > room);
   if (below.length === 0) return routes;
   const span = (p: HopPair) => Math.abs(mid(p.source.id) - mid(p.target.id));
   const left = (p: HopPair) => Math.min(mid(p.source.id), mid(p.target.id));
   const order = [...below].sort((a, b) => span(a) - span(b) || left(a) - left(b) || (a.key < b.key ? -1 : 1));
-  const lo = up.b + LANE_MARGIN;
-  const hi = Math.min(...order.flatMap((p) => [rooms.get(p.source.id)!.t, rooms.get(p.target.id)!.t])) - LANE_MARGIN;
-  const step = order.length > 1 ? Math.min(LANE_STEP, (hi - lo) / (order.length - 1)) : 0;
+  const lo = up.b + room / 2;
+  const hi = Math.min(...order.flatMap((p) => [rooms.get(p.source.id)!.t, rooms.get(p.target.id)!.t])) - room / 2;
+  const step = order.length > 1 ? Math.min(room, (hi - lo) / (order.length - 1)) : 0;
   const lane = (i: number) => lo + (order.length - 1 - i) * step;
 
   type End = { pair: number; id: number; toward: number };
@@ -83,23 +83,32 @@ export function siblingLanes(parent: Box, pairs: readonly HopPair[], direction: 
   const apart = (r: Rect, q: Rect, gap: number) => r.r + gap <= q.l || q.r + gap <= r.l || r.b + gap <= q.t || q.b + gap <= r.t;
   const walls = [up, ...rooms.values(), ...rects.values()];
   const placed: Rect[] = [];
-  const clear = (r: Rect) => walls.every((q) => apart(r, q, 0)) && placed.every((q) => apart(r, q, LABEL_GAP));
+  const stems = order.flatMap((p, i) =>
+    [p.source.id, p.target.id].map((id) => {
+      const x = at.get(`${i}:${id}`)!;
+      return { pair: i, rect: { l: x - 1, t: lane(i), r: x + 1, b: rects.get(id)!.t } };
+    }),
+  );
   order.forEach((p, i) => {
+    const clear = (r: Rect) => walls.every((q) => apart(r, q, 0)) && placed.every((q) => apart(r, q, LABEL_GAP)) && stems.every((s) => s.pair === i || apart(r, s.rect, 0));
     const y = lane(i);
     const xa = at.get(`${i}:${p.source.id}`)!;
     const xb = at.get(`${i}:${p.target.id}`)!;
-    const w = p.label.width;
-    const h = p.label.height;
-    const box = (t: number): Rect => {
-      const x = xa + (xb - xa) * t;
-      return { l: x - w / 2, t: y - h / 2, r: x + w / 2, b: y + h / 2 };
+    const fit = (size: LabelSize) => {
+      const box = (t: number): Rect => {
+        const x = xa + (xb - xa) * t;
+        return { l: x - size.width / 2, t: y - size.height / 2, r: x + size.width / 2, b: y + size.height / 2 };
+      };
+      const t = LABEL_SPOTS.find((t) => clear(box(t)));
+      return t === undefined ? null : box(t);
     };
-    const spot = box(LABEL_SPOTS.find((t) => clear(box(t))) ?? 0.5);
-    placed.push(spot);
+    const full = fit(p.label.full);
+    const spot = full ?? fit(p.label.short);
+    if (spot) placed.push(spot);
     const back = fromDown[direction];
     routes.set(p.key, {
       points: [{ x: xa, y: rects.get(p.source.id)!.t }, { x: xa, y }, { x: xb, y }, { x: xb, y: rects.get(p.target.id)!.t }].map(back),
-      label: back({ x: (spot.l + spot.r) / 2, y }),
+      label: spot && { at: back({ x: (spot.l + spot.r) / 2, y }), short: !full },
       turned: direction === 'right' || direction === 'left',
     });
   });

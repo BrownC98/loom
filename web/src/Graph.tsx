@@ -906,6 +906,11 @@ export function Graph(props: {
       .filter((end) => hop.counts[end] > 0)
       .map((end) => t('graph.hop', { from: hopName(hop[end === 'target' ? 'source' : 'target']), to: hopName(hop[end]), n: hop.counts[end] }))
       .join(' / ');
+  const hopShort = (hop: Hop) =>
+    (['source', 'target'] as const)
+      .filter((end) => hop.counts[end] > 0)
+      .map((end) => String(hop.counts[end]))
+      .join(' / ');
   const roomOf = (id: NodeId, parent: NodeId, box: Box): Box => {
     const worktree = props.views.get(id)?.place.worktree;
     if (!worktree || worktree === props.views.get(parent)?.place.worktree) return box;
@@ -919,7 +924,7 @@ export function Graph(props: {
     const target = boxOf(hop.target);
     if (parent === null || parent !== props.views.get(hop.target)?.parent || !source || !target) continue;
     const end = (id: NodeId, box: Box) => ({ id, box, room: roomOf(id, parent, box) });
-    siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: end(hop.source, source), target: end(hop.target, target), label: hopLabelSize(hopLabel(hop)) }]);
+    siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: end(hop.source, source), target: end(hop.target, target), label: { full: hopLabelSize(hopLabel(hop)), short: hopLabelSize(hopShort(hop)) } }]);
   }
   const routes = new Map([...siblingPairs].flatMap(([parent, pairs]) => {
     const box = boxOf(parent);
@@ -929,6 +934,7 @@ export function Graph(props: {
     if (!props.views.has(hop.source) || !props.views.has(hop.target)) return [];
     const receivers = (['source', 'target'] as const).filter((end) => hop.counts[end] > 0);
     const flow = receivers.length === 1 ? (receivers[0] === 'target' ? 'to-child' : 'to-parent') : undefined;
+    const route = routes.get(key) ?? null;
     const lane = HOP_LANES[hop.color % HOP_LANES.length];
     const color = `var(--lane-${lane})`;
     const arrow = (end: 'source' | 'target') => (hop.counts[end] > 0 ? { type: MarkerType.ArrowClosed, color, width: 12, height: 12, markerUnits: 'userSpaceOnUse' } : undefined);
@@ -940,12 +946,12 @@ export function Graph(props: {
         target: String(hop.target),
         sourceHandle: 'top',
         targetHandle: 'top',
-        data: { route: routes.get(key) ?? null },
+        data: { route },
         markerStart: arrow('source'),
         markerEnd: arrow('target'),
         className: ['live', `hop-c${lane}`, flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
         zIndex: RAISED_EDGE_Z,
-        label: hopLabel(hop),
+        label: !route ? hopLabel(hop) : route.label === null ? undefined : route.label.short ? hopShort(hop) : hopLabel(hop),
         labelBgBorderRadius: 10,
         focusable: false,
       },

@@ -5,7 +5,7 @@ const HOP_LIFT_MIN = 40;
 const CORNER = 5;
 const LABEL_FONT = '600 12px';
 const LABEL_PAD = { x: 8, y: 2 };
-const LABEL_LINE = 16;
+const LABEL_LINE = 17;
 let measure: CanvasRenderingContext2D | null = null;
 
 export function hopLabelSize(text: string): { width: number; height: number } {
@@ -38,7 +38,7 @@ export function HopEdge(props: EdgeProps<HopEdgeType>) {
   const { sourceX, sourceY, targetX, targetY } = props;
   const top = Math.min(sourceY, targetY) - Math.max(HOP_LIFT_MIN, Math.abs(targetX - sourceX) / 4);
   const path = route ? lanePath(route.points) : `M ${sourceX} ${sourceY} C ${sourceX} ${top}, ${targetX} ${top}, ${targetX} ${targetY}`;
-  const turned = route?.turned && typeof props.label === 'string' ? { at: route.label, text: props.label, size: hopLabelSize(props.label) } : null;
+  const turned = route?.turned && route.label && typeof props.label === 'string' ? { at: route.label.at, text: props.label, size: hopLabelSize(props.label) } : null;
   return (
     <>
       <BaseEdge
@@ -47,8 +47,8 @@ export function HopEdge(props: EdgeProps<HopEdgeType>) {
         markerStart={props.markerStart}
         markerEnd={props.markerEnd}
         label={turned ? undefined : props.label}
-        labelX={route ? route.label.x : (sourceX + targetX) / 2}
-        labelY={route ? route.label.y : (sourceY + 6 * top + targetY) / 8}
+        labelX={route?.label ? route.label.at.x : (sourceX + targetX) / 2}
+        labelY={route?.label ? route.label.at.y : (sourceY + 6 * top + targetY) / 8}
         labelBgPadding={[LABEL_PAD.x, LABEL_PAD.y]}
         labelBgBorderRadius={props.labelBgBorderRadius}
       />

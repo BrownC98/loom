@@ -84,7 +84,12 @@ const GATE: [(&str, &str); 3] = [
     ("afterAgentResponse", r"printf '{}\n'"),
 ];
 
+static GATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn open_gate(path: &Path) -> std::io::Result<()> {
+    let _held = GATE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let target = std::fs::canonicalize(path);
     let path = target.as_deref().unwrap_or(path);
     let text = match std::fs::read_to_string(path) {

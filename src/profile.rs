@@ -14,8 +14,9 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::graph::{Delivery, InputField, Kind, OpenQuestion, Prompt as ScreenPrompt, WaitKind};
+use crate::graph::{InputField, OpenQuestion, Prompt as ScreenPrompt, WaitKind};
 use crate::node_host::Screen;
+use crate::protocol::{Delivery, Kind};
 use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Session};
 use crate::skills::Launch;
 use crate::wsl::Inside;
@@ -711,7 +712,7 @@ pub fn message_text(taken: &[Delivery]) -> String {
         .iter()
         .map(Delivery::text)
         .collect::<Vec<_>>()
-        .join(crate::graph::BATCH_SEPARATOR)
+        .join(crate::protocol::BATCH_SEPARATOR)
 }
 
 #[cfg(unix)]

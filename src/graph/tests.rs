@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::*;
 use crate::db;
 use crate::profile::ServerLink;
-use crate::protocol::{MessageKind, Question};
+use crate::protocol::{Delivery, Kind, MessageId, MessageKind, Question};
 use crate::worktree::RepoId;
 
 fn open(path: &Path) -> Graph {

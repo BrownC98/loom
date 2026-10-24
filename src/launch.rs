@@ -57,7 +57,7 @@ impl Claim {
         let file = DaemonFile {
             url: url.to_owned(),
             pid: std::process::id(),
-            version: crate::VERSION.to_owned(),
+            version: crate::protocol::VERSION.to_owned(),
             exe: std::env::current_exe()?,
         };
         let path = data_file("daemon.json")?;
@@ -71,13 +71,13 @@ impl Claim {
 }
 
 pub fn start(listen: Option<SocketAddr>) -> Result<(), String> {
-    let url = ensure(&mut Host, listen, crate::VERSION)?;
+    let url = ensure(&mut Host, listen, crate::protocol::VERSION)?;
     println!("{READY_PREFIX}{url}");
     Ok(())
 }
 
 pub fn open(listen: Option<SocketAddr>) -> Result<(), String> {
-    let url = ensure(&mut Host, listen, crate::VERSION)?;
+    let url = ensure(&mut Host, listen, crate::protocol::VERSION)?;
     open::open_url(&url).map_err(|e| format!("could not open the browser: {e}"))?;
     println!("{READY_PREFIX}{url}");
     Ok(())

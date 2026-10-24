@@ -190,8 +190,9 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Kind, Launched, NewChild, NodeState, Place, Report, TreeLimits};
+    use crate::graph::{Launched, NewChild, NodeState, Place, Report, TreeLimits};
     use crate::profile::AgentId;
+    use crate::protocol::Kind;
     use crate::worktree::RepoId;
 
     fn launched(token: &str) -> Launched {

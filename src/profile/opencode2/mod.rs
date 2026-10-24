@@ -11,7 +11,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
-use crate::graph::{Delivery, Kind, Model, PermissionReply, Prompt, PromptKey, PromptOption};
+use crate::graph::{Model, PermissionReply, Prompt, PromptKey, PromptOption};
+use crate::protocol::{Delivery, Kind};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
@@ -542,7 +543,7 @@ mod tests {
 
     fn delivery(kind: Kind, body: &str) -> Delivery {
         Delivery {
-            id: crate::graph::MessageId(1),
+            id: crate::protocol::MessageId(1),
             from: "부모".into(),
             kind,
             body: body.into(),

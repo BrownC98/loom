@@ -41,15 +41,8 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use crate::daemon::SpawnRun;
-use crate::graph::Kind;
 use crate::profile::ModelChoice;
-
-const VERSION: &str = match option_env!("LOOM_VERSION") {
-    Some(v) => v,
-    None => env!("CARGO_PKG_VERSION"),
-};
-
-const COMMIT: Option<&str> = option_env!("LOOM_COMMIT");
+use crate::protocol::Kind;
 
 #[derive(clap::Subcommand)]
 enum RolesAction {
@@ -66,7 +59,7 @@ enum RolesAction {
 }
 
 #[derive(Parser)]
-#[command(name = "loom", version = VERSION)]
+#[command(name = "loom", version = protocol::VERSION)]
 enum Cli {
     /// 데몬과 화면을 띄운다. 데이터 폴더마다 하나만 돈다.
     Serve {

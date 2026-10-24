@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 use super::events::{self, Entry, GateTrace, Step, Via};
 use super::waits;
@@ -15,57 +14,12 @@ use super::{
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::{LOOM, MessageKind, Question};
-
-/// 메시지 전달 방식. 메모(`loom note`)만 조정·중단으로 보낸다. 근거: docs/design/메시징.md 「명령」.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum Kind {
-    /// 받는 노드의 턴을 끊지 않는다.
-    Queue,
-    /// `loom note --steer`: 턴을 멈추지 않고 다음 도구 호출 사이에 넣는다.
-    Steer,
-    /// `loom note --interrupt`: 지금 동작을 멈추고 바로 따르게 한다.
-    Interrupt,
-}
-
-impl Kind {
-    pub const ALL: &[Kind] = &[Kind::Queue, Kind::Steer, Kind::Interrupt];
-}
+use crate::protocol::{BATCH_SEPARATOR, Delivery, Kind, LOOM, MessageId, MessageKind, Question};
 
 pub const REDELIVER_AFTER: Duration = Duration::from_secs(30);
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct MessageId(pub u32);
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct Delivery {
-    pub id: MessageId,
-    pub from: String,
-    pub kind: Kind,
-    pub body: String,
-    #[serde(default)]
-    pub what: Option<MessageKind>,
-}
-
-pub const BATCH_SEPARATOR: &str = "\n\n";
-
-impl Delivery {
-    pub fn text(&self) -> String {
-        let mode = match self.kind {
-            Kind::Queue => None,
-            Kind::Steer => Some("steer"),
-            Kind::Interrupt => {
-                Some("interrupt. Stop your current work and do what this message says")
-            }
-        };
-        crate::protocol::message_text(self.id.0, &self.from, self.what.as_ref(), mode, &self.body)
-    }
-
-    fn wakes(&self) -> bool {
-        self.kind != Kind::Queue || self.what.as_ref().is_none_or(MessageKind::wakes)
-    }
+fn wakes(delivery: &Delivery) -> bool {
+    delivery.kind != Kind::Queue || delivery.what.as_ref().is_none_or(MessageKind::wakes)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -372,9 +326,7 @@ impl Graph {
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
-        self.take_if(node, kinds, limit_bytes, |queued| {
-            queued.iter().any(Delivery::wakes)
-        })
+        self.take_if(node, kinds, limit_bytes, |queued| queued.iter().any(wakes))
     }
 
     fn take_if(
@@ -445,7 +397,7 @@ impl Graph {
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        let steered = steer_where(&tx, node, |d| !d.wakes())?;
+        let steered = steer_where(&tx, node, |d| !wakes(d))?;
         let resumed = resume(&tx, node)?;
         tx.commit()?;
         if resumed || steered > 0 {
@@ -686,7 +638,7 @@ fn queued(db: &Connection, to: NodeId) -> rusqlite::Result<u32> {
         )?
         .query_map([to.0], read_delivery)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(queued.iter().filter(|d| d.wakes()).count() as u32)
+    Ok(queued.iter().filter(|d| wakes(d)).count() as u32)
 }
 
 fn check_room(db: &Connection, to: NodeId, name: &str) -> Result<(), Refusal> {

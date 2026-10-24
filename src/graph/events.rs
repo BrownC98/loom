@@ -2,12 +2,12 @@ use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{Kind, MessageId, NodeId, NodeState, Refusal, WaitDoc, WaitId, from_json, to_json};
+use super::{NodeId, NodeState, Refusal, WaitDoc, WaitId, from_json, to_json};
 use crate::accounts::AccountId;
 use crate::choices::{Choice, choices};
 use crate::link_text::{TextPart, parts, path_link};
 use crate::profile::{AgentId, Provider};
-use crate::protocol::{Field, Finding, GateState, GateVerb, MessageKind};
+use crate::protocol::{Field, Finding, GateState, GateVerb, Kind, MessageId, MessageKind};
 
 const KEEP: u32 = 10_000;
 const RECENT: u32 = 500;

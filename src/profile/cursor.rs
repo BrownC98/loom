@@ -4,7 +4,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Take;
-use crate::graph::{Delivery, Kind, Model, WaitKind};
+use crate::graph::{Model, WaitKind};
+use crate::protocol::{Delivery, Kind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
@@ -763,7 +764,7 @@ mod tests {
 
     fn delivery(kind: Kind) -> Delivery {
         Delivery {
-            id: crate::graph::MessageId(7),
+            id: crate::protocol::MessageId(7),
             from: "총괄".into(),
             kind,
             body: "go".into(),

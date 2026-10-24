@@ -346,7 +346,7 @@ pub struct TakeRequest {
     #[serde(default)]
     pub prompt: Option<String>,
     #[serde(default)]
-    pub turn: Option<TurnId>,
+    pub new_turn: Option<TurnId>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2063,7 +2063,7 @@ async fn agent_take(
     Json(req): Json<TakeRequest>,
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
-    app.idle.turn_started(node, req.hook, req.turn);
+    app.idle.turn_started(node, req.hook, req.new_turn);
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let messages = app
         .graph

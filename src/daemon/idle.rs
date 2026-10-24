@@ -26,6 +26,13 @@ struct Watch {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Said(u64);
 
+#[derive(PartialEq, Debug)]
+pub enum Deadline {
+    Answered,
+    Listening,
+    Missed,
+}
+
 pub struct Wait<'a> {
     waits: &'a IdleWaits,
     node: NodeId,
@@ -89,14 +96,14 @@ impl IdleWaits {
         self.turns.lock().unwrap().contains(&node)
     }
 
-    pub fn turn_started(&self, node: NodeId, hook: String, turn: Option<TurnId>) {
+    pub fn turn_started(&self, node: NodeId, hook: String, new_turn: Option<TurnId>) {
         self.end_wait(node, IdleEnd::Turn { hook });
-        self.watch(node, |w| {
-            w.said = None;
-            if turn.is_some() {
-                w.turn = turn;
-            }
-        });
+        if new_turn.is_some() {
+            self.watch(node, |w| {
+                w.said = None;
+                w.turn = new_turn;
+            });
+        }
         self.turns.lock().unwrap().insert(node);
     }
 
@@ -144,20 +151,20 @@ impl IdleWaits {
         }
     }
 
-    pub fn missed(&self, node: NodeId, said: Said) -> bool {
+    pub fn deadline(&self, node: NodeId, said: Said) -> Deadline {
         let mut watches = self.watches.lock().unwrap();
         let Some(w) = watches.get_mut(&node).filter(|w| w.said == Some(said)) else {
-            return false;
+            return Deadline::Answered;
         };
         let ends = self.ends.lock().unwrap();
         if ends.get(&node).is_some_and(|end| !end.is_closed()) {
-            return false;
+            return Deadline::Listening;
         }
         drop(ends);
         w.said = None;
         w.heard = false;
         self.turns.lock().unwrap().remove(&node);
-        true
+        Deadline::Missed
     }
 
     fn watch(&self, node: NodeId, change: impl FnOnce(&mut Watch)) {
@@ -284,10 +291,14 @@ mod tests {
         prompt("1");
         let said = waits.said(node, turn("1")).unwrap();
         let missed = waits.said(node, turn("1")).unwrap();
-        assert!(!waits.missed(node, said), "a newer turn end came");
-        assert!(waits.missed(node, missed));
+        assert_eq!(
+            waits.deadline(node, said),
+            Deadline::Answered,
+            "a newer turn end came"
+        );
+        assert_eq!(waits.deadline(node, missed), Deadline::Missed);
         assert!(!waits.in_turn(node));
-        assert!(!waits.missed(node, missed));
+        assert_eq!(waits.deadline(node, missed), Deadline::Answered);
         assert_eq!(
             waits.said(node, turn("1")),
             None,
@@ -316,16 +327,28 @@ mod tests {
 
         let said = waits.said(node, turn("5")).unwrap();
         let wait = waits.open(node);
-        assert!(!waits.missed(node, said), "the wait opened");
+        assert_eq!(
+            waits.deadline(node, said),
+            Deadline::Listening,
+            "the wait opened"
+        );
         wait.finish(IdleEnd::Mail);
 
         prompt("7");
         let said = waits.said(node, turn("7")).unwrap();
         waits.stop_reached(node, None);
-        assert!(!waits.missed(node, said), "the stop hook reached loom");
+        assert_eq!(
+            waits.deadline(node, said),
+            Deadline::Answered,
+            "the stop hook reached loom"
+        );
         let said = waits.said(node, turn("7")).unwrap();
         waits.typed(node);
-        assert!(!waits.missed(node, said), "the human types");
+        assert_eq!(
+            waits.deadline(node, said),
+            Deadline::Answered,
+            "the human types"
+        );
         assert_eq!(
             waits.said(node, turn("7")),
             None,
@@ -337,10 +360,15 @@ mod tests {
         waits.end(node, IdleEnd::Relaunch);
         let wait = waits.open(node);
         let said = waits.said(node, turn("9")).unwrap();
-        assert!(!waits.missed(node, said), "a wait is open");
+        assert_eq!(
+            waits.deadline(node, said),
+            Deadline::Listening,
+            "a wait is open"
+        );
         wait.finish(IdleEnd::Mail);
-        assert!(
-            waits.missed(node, said),
+        assert_eq!(
+            waits.deadline(node, said),
+            Deadline::Missed,
             "the finished wait no longer listens"
         );
     }

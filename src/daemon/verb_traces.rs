@@ -577,13 +577,45 @@ impl Fixture {
         );
     }
 
-    async fn idle_request(&self, token: &str, turn: &str) {
+    fn idle(
+        &self,
+        token: &str,
+        turn: &str,
+    ) -> impl Future<Output = Result<Json<Vec<Delivery>>, AgentError>> + Send + 'static {
         let req = IdleRequest {
             turn: Some(TurnId(turn.into())),
             ..IdleRequest::default()
         };
-        let idle = agent_idle(self.state(), headers(token, "idle"), Json(Some(req)));
-        let _ = tokio::time::timeout(Duration::from_millis(1), idle).await;
+        agent_idle(self.state(), headers(token, "idle"), Json(Some(req)))
+    }
+
+    async fn idle_request(&self, token: &str, turn: &str) {
+        let _ = tokio::time::timeout(Duration::from_millis(1), self.idle(token, turn)).await;
+    }
+
+    async fn held_idle_request(&self, token: &str, turn: &str) -> tokio::task::JoinHandle<()> {
+        let idle = self.idle(token, turn);
+        let held = tokio::spawn(async move {
+            let _ = idle.await;
+        });
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        held
+    }
+
+    async fn tool_hook(&self, token: &str) {
+        let req = TakeRequest {
+            hook: "postToolUse".into(),
+            kinds: vec![],
+            limit_bytes: 8192,
+            transcript: None,
+            human_input: false,
+            prompt: None,
+            new_turn: None,
+        };
+        ok(
+            "take",
+            agent_take(self.state(), headers(token, "take"), Json(req)).await,
+        );
     }
 
     async fn stop_hook(&self, token: &str, turn: &str) {
@@ -665,6 +697,48 @@ async fn a_late_idle_request_keeps_the_watch_of_a_newer_turn() {
     t.said("overtaken", Some("g2")).await;
     tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
     t.idle_request("overtaken", "g1").await;
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_old_idle_wait_open_past_the_deadline_only_delays_the_relaunch() {
+    let t = fixture();
+    let node = t.cursor("overtaken");
+    t.heard(node, "g1");
+    t.stop_hook("overtaken", "g1").await;
+    t.prompt(node, "g2");
+    let mark = t.mark();
+    t.said("overtaken", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    let old = t.held_idle_request("overtaken", "g1").await;
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    assert_eq!(t.relaunches(mark), [], "the old wait still listens");
+    old.abort();
+    let _ = old.await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_late_tool_hook_keeps_the_watch_of_a_newer_turn() {
+    let t = fixture();
+    let node = t.cursor("overtaken");
+    t.heard(node, "g1");
+    t.stop_hook("overtaken", "g1").await;
+    t.prompt(node, "g2");
+    let mark = t.mark();
+    t.said("overtaken", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    t.tool_hook("overtaken").await;
     tokio::time::sleep(turn_end::IDLE_GRACE).await;
     let found = t.relaunches(mark);
     assert!(

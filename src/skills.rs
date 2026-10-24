@@ -67,7 +67,7 @@ fn hex(hasher: Sha256) -> String {
         .collect()
 }
 
-const SKILLS: [&str; 4] = ["o-mode", "user-doc", "ste-100", "raptor-3"];
+const SKILLS: [&str; 4] = ["o-mode", "user-doc", "ste-orwell", "raptor-3"];
 
 const ASK: &str = "ask-human";
 
@@ -94,7 +94,8 @@ pub enum Position {
 pub struct AlwaysOn {
     pub o_mode: bool,
     pub user_doc: bool,
-    pub ste100: bool,
+    #[serde(alias = "ste100")]
+    pub ste_orwell: bool,
     pub raptor3: bool,
 }
 
@@ -103,7 +104,7 @@ impl Default for AlwaysOn {
         Self {
             o_mode: true,
             user_doc: true,
-            ste100: true,
+            ste_orwell: true,
             raptor3: true,
         }
     }
@@ -114,7 +115,7 @@ impl AlwaysOn {
         match skill {
             "o-mode" => self.o_mode,
             "user-doc" => self.user_doc,
-            "ste-100" => self.ste100,
+            "ste-orwell" => self.ste_orwell,
             "raptor-3" => self.raptor3,
             ASK => true,
             _ => unreachable!("`SKILLS`에 없는 스킬 폴더: {skill}"),
@@ -125,7 +126,7 @@ impl AlwaysOn {
         (0..16u8).map(|bits| Self {
             o_mode: bits & 1 != 0,
             user_doc: bits & 2 != 0,
-            ste100: bits & 4 != 0,
+            ste_orwell: bits & 4 != 0,
             raptor3: bits & 8 != 0,
         })
     }
@@ -163,7 +164,7 @@ fn parts(launch: Launch) -> Vec<&'static str> {
     };
     [
         (true, ASK_SOURCE),
-        (launch.skills.ste100, STE_SOURCE),
+        (launch.skills.ste_orwell, STE_SOURCE),
         (launch.skills.raptor3, RAPTOR_SOURCE),
         (launch.skills.o_mode, mode),
     ]
@@ -173,7 +174,7 @@ fn parts(launch: Launch) -> Vec<&'static str> {
 }
 
 const ASK_SOURCE: &str = "ask-human/SKILL.md";
-const STE_SOURCE: &str = "ste-100/SKILL.md";
+const STE_SOURCE: &str = "ste-orwell/SKILL.md";
 const RAPTOR_SOURCE: &str = "raptor-3/SKILL.md";
 const MODE_ROOT: &str = "o-mode/SKILL.md";
 const MODE_CHILD: &str = "o-mode/agent-rules.md";
@@ -185,10 +186,10 @@ fn part(source: &str) -> Option<String> {
         RAPTOR_SOURCE => {
             let raptor = text(source);
             let (_, rest) = raptor
-                .split_once("\n## 작업 중\n")
-                .expect("랩터-3에 「작업 중」 절이 있다");
+                .split_once("\n## While you work\n")
+                .expect("랩터-3에 「While you work」 절이 있다");
             let section = rest.split("\n## ").next().unwrap_or(rest);
-            Some(format!("# 랩터-3 작업 중\n\n{}", section.trim()))
+            Some(format!("# Raptor-3 while you work\n\n{}", section.trim()))
         }
         MODE_ROOT | MODE_CHILD => Some(format!("{MODE_NOTE}\n\n{}", body(&text(source)))),
         _ => None,
@@ -199,7 +200,7 @@ pub fn ask_rules() -> String {
     body(&text(ASK_SOURCE)).to_owned()
 }
 
-const MODE_NOTE: &str = "아래 o-mode 글은 늘 적용한다. 상대 링크는 내장 스킬 `o-mode` 폴더 기준이다. 링크한 절이나 파일이 필요하면 그 스킬 폴더에서 읽는다.";
+const MODE_NOTE: &str = "The o-mode text below always applies. Its relative links start in the built-in skill folder `o-mode`.";
 
 fn body(skill: &str) -> &str {
     skill
@@ -229,15 +230,15 @@ mod tests {
     fn always_on_has_the_ste_body_and_only_the_raptor_work_section() {
         for position in [Position::Root, Position::Child] {
             let text = always_on(launch(position));
-            assert!(text.starts_with("# 사람에게 묻기\n"), "{text}");
-            assert!(text.contains("\n# STE-100\n"));
-            assert!(!text.contains("name: ste-100"));
-            assert!(text.contains("\n# 랩터-3 작업 중\n"));
-            assert!(text.contains("완료 보고에는 `랩터-3:` 한 줄로"));
-            assert!(!text.contains("## 화면(UI/UX) 감사"));
-            assert!(!text.contains("## 5단계"));
+            assert!(text.starts_with("# Ask the human\n"), "{text}");
+            assert!(text.contains("\n# STE and Orwell\n"));
+            assert!(!text.contains("name: ste-orwell"));
+            assert!(text.contains("\n# Raptor-3 while you work\n"));
+            assert!(text.contains("has one `Raptor-3:` line"));
+            assert!(!text.contains("## Screen (UI/UX) audit"));
+            assert!(!text.contains("## Five steps"));
             assert!(!text.contains("name: o-mode"));
-            assert_eq!(text.matches("# 사람에게 묻기\n").count(), 1);
+            assert_eq!(text.matches("# Ask the human\n").count(), 1);
             assert!(!text.contains("name: ask-human"));
         }
     }
@@ -245,13 +246,13 @@ mod tests {
     #[test]
     fn root_gets_the_o_mode_procedure_and_child_gets_the_brief_rules() {
         let root = always_on(launch(Position::Root));
-        assert!(root.contains("\n# Loom 병렬 개발\n"));
-        assert!(root.contains("## 병합과 회수"));
-        assert!(!root.contains("# Loom 브리프 공통 규칙"));
+        assert!(root.contains("\n# Loom parallel development\n"));
+        assert!(root.contains("## Merge and cleanup"));
+        assert!(!root.contains("# Loom brief rules"));
         let child = always_on(launch(Position::Child));
-        assert!(child.contains("\n# Loom 브리프 공통 규칙\n"));
-        assert!(!child.contains("# Loom 병렬 개발"));
-        assert!(!child.contains("## 병합과 회수"));
+        assert!(child.contains("\n# Loom brief rules\n"));
+        assert!(!child.contains("# Loom parallel development"));
+        assert!(!child.contains("## Merge and cleanup"));
     }
 
     #[test]
@@ -264,24 +265,24 @@ mod tests {
         };
         let on = AlwaysOn::default();
         let no_ste = off(AlwaysOn {
-            ste100: false,
+            ste_orwell: false,
             ..on
         });
-        assert!(!no_ste.contains("# STE-100"));
-        assert!(no_ste.contains("\n# 랩터-3 작업 중\n"), "{no_ste}");
+        assert!(!no_ste.contains("# STE and Orwell"));
+        assert!(no_ste.contains("\n# Raptor-3 while you work\n"), "{no_ste}");
         let no_raptor = off(AlwaysOn {
             raptor3: false,
             ..on
         });
-        assert!(no_raptor.contains("\n# STE-100\n"));
-        assert!(!no_raptor.contains("랩터-3 작업 중"));
+        assert!(no_raptor.contains("\n# STE and Orwell\n"));
+        assert!(!no_raptor.contains("Raptor-3 while you work"));
         let no_mode = off(AlwaysOn {
             o_mode: false,
             ..on
         });
         assert!(!no_mode.contains(MODE_NOTE));
-        assert!(!no_mode.contains("# Loom 병렬 개발"));
-        assert!(no_mode.contains("# 랩터-3 작업 중\n"));
+        assert!(!no_mode.contains("# Loom parallel development"));
+        assert!(no_mode.contains("# Raptor-3 while you work\n"));
         let mode_only = off(AlwaysOn {
             o_mode: true,
             ..AlwaysOn::all().next().unwrap()
@@ -303,7 +304,7 @@ mod tests {
         let child = part_digests(Launch {
             position: Position::Child,
             skills: AlwaysOn {
-                ste100: false,
+                ste_orwell: false,
                 ..AlwaysOn::default()
             },
         });
@@ -330,6 +331,8 @@ mod tests {
                 ..AlwaysOn::default()
             }
         );
+        let old: AlwaysOn = serde_json::from_str(r#"{"ste100":false}"#).unwrap();
+        assert!(!old.ste_orwell);
     }
 
     #[test]
@@ -345,7 +348,7 @@ mod tests {
             serde_json::from_slice(&std::fs::read(dir.join(".claude-plugin/plugin.json")).unwrap())
                 .unwrap();
         assert_eq!(manifest["name"], "loom");
-        for skill in ["o-mode", "ste-100", "user-doc", "raptor-3", ASK] {
+        for skill in ["o-mode", "ste-orwell", "user-doc", "raptor-3", ASK] {
             assert!(
                 plugin.skills(on).join(skill).join("SKILL.md").is_file(),
                 "{skill}"

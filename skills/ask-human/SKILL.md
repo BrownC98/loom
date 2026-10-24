@@ -1,24 +1,23 @@
 ---
 name: ask-human
-description: 에이전트가 사람에게 묻는 표준. 질문·고르기·승인·허락이 필요할 때 누구에게 어떤 꼴로 묻는지 정한다. loom이 모든 노드에 늘 넣는다.
+description: The standard for how an agent asks the human. Use it for each question, choice, approval or permission. It tells you whom to ask and in which form. loom gives it to every node.
 ---
 
-# 사람에게 묻기
+# Ask the human
 
-사람에게 무엇이든 물을 때(질문, 고르기, 승인, 허락) 반드시 이 표준을 따른다. loom 받은편지함은 이 표준으로 온 질문만 사람에게 보인다(2026-10-21 사용자 지시 "질문을 loom 시스템에서 표준화", "loom 기능과 직결되므로 … 각 에이전트에 강하게 명시되어야 함").
+The loom inbox shows the human only questions in this form.
 
-- 부모가 없는 노드(사람이 띄운 노드)는 반드시 `loom ask "<질문>"`으로만 묻는다. 질문은 사람의 받은편지함에 뜬다.
-- 부모가 있는 노드는 사람에게 묻지 않는다. 같은 `loom ask "<질문>"`이 부모에게 간다. 질문은 영어로 쓴다. 출력의 메시지 번호로 `loom wait --reply-to <번호>`를 부를 수 있다.
-- 질문은 한 줄로 쓴다: `<질문> (A: <선택지> / B: <선택지>, 권장: A)`. 선택지를 이 꼴이 아닌 다른 꼴로 쓰면 loom이 거절한다.
-- 질문 전체를 사람의 언어로 쓴다. "권장"이라는 낱말도 사람의 언어로 쓴다.
-- 예·아니오 질문도 꼬리를 붙인다: `(A: 예 / B: 아니오, 권장: A)`. 꼬리가 없으면 받은편지함에 버튼이 없다(2026-10-23 사람 "이건 또 왜 옵션 버튼 없음").
-- 사람이 열 문서(목업·보고서)는 user-doc HTML로 쓰고 `show.sh`로 점검한 뒤 질문·완료에 `--doc <파일>`로 붙인다. 글 속 경로는 사람이 열지 못한다. 사람의 브라우저를 직접 열지 않는다(2026-10-23 사람 "이런 문서는 html로 올리라고 되어 있지 않나?", Q687 A).
-  - 글 속 낱말에 그 파일로 markdown 링크를 걸면 그 자리가 문서 링크가 된다: `loom ask "[R9 목업](<파일>)을 승인할까요?" --doc <파일>`. 링크가 없으면 글 끝에 문서 링크가 붙는다.
-- 질문·완료 글 속 주소와 절대 경로는 markdown 링크 안에만 쓴다. 꼴이 틀리면 loom의 거절 글이 맞는 꼴을 알린다.
-- `loom ask`를 부른 뒤 바로 턴을 끝낸다. 질문은 번호(`Q12`)를 받는다. 사람은 받은편지함에서 답하거나 그 노드 터미널에 답한다.
-- 질문 묶음은 질문마다 `loom ask`를 한 번씩 부른다. 앞 질문은 열린 채 남는다.
-- 받은편지함에서 온 답은 `loom message`(from: human)로 온다: 「Answer to loom ask question Q12 (…): A」. 질문은 이미 닫혔다. `loom answered`를 부르지 않고 그 답대로 일한다.
-- 터미널 답은 「Q12: A」처럼 번호로 시작할 수 있다. 그 번호의 질문에 답한 것이다.
-- 글로만 묻고 턴을 끝내지 않는다. 사람은 받은편지함에 뜬 질문만 본다.
-- Claude 질문 도구(`AskUserQuestion`)로 물어도 받은편지함에 뜬다.
-- 사람이 터미널에 친 글이 열린 질문의 답인지는 에이전트가 판단한다. 질문이 열려 있으면 loom이 그 턴에 닫는 방법을 알린다.
+- A node without a parent (the human started it) asks only with `loom ask "<question>"`. The question goes to the human's inbox.
+- A node with a parent does not ask the human. Its `loom ask` goes to its parent, in English.
+- Write one line: `<question> (A: <option> / B: <option>, Recommended: A)`. loom refuses options in other forms.
+- Write all of a question to the human in the human's language, also "Recommended".
+- Give a yes/no question the tail too: `(A: Yes / B: No, Recommended: A)`. Without it, the inbox shows no buttons.
+- Write a document for the human (mockup, report) with user-doc. Check it with `show.sh` and attach it with `--doc <file>`. The human cannot open a path in text. Do not open the human's browser.
+  - A markdown link to that file on a word becomes the document link: `loom ask "Approve the [R9 mockup](<file>)?" --doc <file>`. Without a link, loom adds one at the end.
+- In question and done text, put URLs and absolute paths only in markdown links.
+- After `loom ask`, end your turn. The question gets a number (`Q12`). The human answers in the inbox or your terminal.
+- Ask each question of a set with its own `loom ask`. Earlier questions stay open.
+- An inbox answer comes as a `loom message` from human: "Answer to loom ask question Q12 (…): A". The question is closed. Do not call `loom answered`. Do what the answer tells.
+- You decide if terminal text from the human answers an open question. It can start with the number: "Q12: A". While one is open, loom tells you in that turn how to close it.
+- Do not ask only in chat and end your turn. The human sees only inbox questions.
+- The Claude question tool (`AskUserQuestion`) also puts the question in the inbox.

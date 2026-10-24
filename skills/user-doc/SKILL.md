@@ -1,54 +1,52 @@
 ---
 name: user-doc
-description: 사람에게 보이는 문서(목업·보고서)를 HTML 한 파일로 만들고, 정해진 형식·스타일로 점검하고, 받은편지함 질문에 링크로 붙인다. 목업이나 조사·설계·비교·결과 보고서를 사람에게 보일 때, 「목업」「보고서」「브라우저에 띄워」 요청 때, o-mode에서 목업 승인이나 사용자 보고서를 낼 때 쓴다. 에이전트끼리 읽는 브리프·메모에는 쓰지 않는다.
+description: Make a document for the human (a mockup or a report) as one HTML file, check it against the set form and style, and attach it as a link to an inbox question. Use it to show the human a mockup or a research, design, comparison or result report, when the human asks for "목업", "보고서" or "브라우저에 띄워", and for mockup approvals and reports in o-mode. Do not use it for briefs or notes that only agents read.
 ---
 
-# 사람에게 보이는 문서
+# Documents for the human
 
-목업과 보고서는 같은 디자인 언어를 쓴다(2026-10-21 사용자 지시 "목업과 보고서는 동일 디자인 언어를 사용하도록 한다"). 만들기 → 점검 → 질문에 붙이기를 한 번에 한다. 사람의 브라우저를 직접 열지 않는다(2026-10-21 사람 지시 "목업이나 보고서 승인도 질문탭에 링크로 달아두는 식으루 구현하라, 직접 브라우저에 띄우지 말고").
+Mockups and reports use the same design language. Make, check and attach a document in one pass. Do not open the human's browser.
 
-## 형식
+## Form
 
-- HTML 한 파일, 사람의 언어. 그림은 `data:` 주소로 넣는다. 다른 파일을 가리키는 `src`·`href`·CSS `url()`(상대 경로, `file:`)을 쓰지 않는다. 웹 글꼴 같은 `https:` 주소는 된다(2026-10-23 사람 요청 #2529). [style.html](style.html)을 복사해 시작한다. `<style>`의 토큰·글꼴·글자 크기·머리 줄·절 번호·표 모양을 바꾸지 않는다. 필요한 블록만 더한다.
-- 목업의 화면 그림은 대상 제품의 디자인을 따른다. 그리기 전에 제품의 테마·토큰 파일, 기존 목업, 실제 화면 캡처를 읽고 같은 색·글꼴·구성 요소로 그린다. style.html의 토큰은 문서 틀(머리 줄, 제목, 절, 목록, 표)에만 쓴다(2026-10-21 사용자 지적 "디자인 톤이 조사툴과 다르잖아").
-- 기본은 라이트(`<html style="color-scheme: light">`)이고, 오른쪽 위에 [다크로 보기] 전환 버튼(`.theme-toggle`)을 둔다(2026-10-21 사용자 지시 "디폴트는 라이트").
-- 맨 위 머리 줄: `응답할 곳: <역할> · <노드 이름>`(사람이 답을 보낼 노드), 목업은 `연 담당: <역할> · <노드 이름>`과 판 번호(`v2 · 날짜`)도 둔다. 노드 이름은 묻기 직전에 `loom status`로 확인한다. 이름이 바뀌면 머리 줄도 바꾼다.
-- 문서 ID: `loom show`가 머리 줄 맨 앞(`문서 ID: M3`)과 `<title>` 앞에 붙인다. 목업은 M, 보고서는 R에 번호다. 같은 경로는 판이 바뀌어도 ID가 같다(표 `~/.cache/user-doc/ids.tsv`). 만든 사람은 ID를 쓰지 않는다. 채팅에서 문서를 말할 때 ID를 같이 적는다(2026-10-21 사용자 지시 "보고서, 목업 마다 id를 붙여서 상단에 표시해줘").
-- `<title>`은 문서마다 다른 짧은 이름이다. 열린 창을 이 제목으로 찾는다.
+- One HTML file in the human's language. Put images in `data:` URLs. Do not point `src`, `href` or CSS `url()` to a different file (relative path, `file:`). `https:` URLs, for example web fonts, are permitted. Start from a copy of [style.html](style.html). Do not change the tokens, fonts, font sizes, head line, section numbers or table style in its `<style>`. Add only the blocks that you need.
+- Draw mockup screens in the design of the target product. Before you draw, read the product's theme and token files, earlier mockups and screen captures. Use the same colors, fonts and components. Use the style.html tokens only for the document frame (head line, title, sections, lists, tables).
+- Light is the default (`<html style="color-scheme: light">`). Put a dark-mode toggle button (`.theme-toggle`) at the top right.
+- The head line at the top gives `응답할 곳: <role> · <node name>` (the node that receives the human's answer). A mockup also gives `연 담당: <role> · <node name>` and its version (`v2 · <date>`). Run `loom status` just before you ask, to get the node name. If the name changes, change the head line.
+- Document ID: `loom show` adds it at the start of the head line (`문서 ID: M3`) and before the `<title>`. M is for a mockup and R for a report. A path keeps its ID through all versions (table `~/.cache/user-doc/ids.tsv`). The author does not write the ID. When you name a document in chat, give its ID.
+- Give each document a short, different `<title>`. People find open windows by it.
 
-| 종류 | 본문 |
+| Type | Body |
 |---|---|
-| 목업 | 제목, 한 문단 배경(사람 지시 원문), 맨 위 흐름 띠(단계 → 단계), 화면마다 ①②③ 번호 절과 말풍선(아래 「목업 말풍선」)을 단 페이지 전체 그림, 끝에 「승인할 것」 표(권장안 표시). 데스크톱 폭 하나 |
-| 보고서 | 제목, 첫 절에 결론, 본문은 절마다 다이어그램(인라인 SVG, 문서 토큰으로 라이트·다크 모두 보임)을 먼저 두고 그 아래에 짧은 목록, 그림으로 안 되는 것만 표, 출처는 링크, 끝에 「정할 것」 표(권장안 표시). 그림이 없으면 `loom show`가 거절한다(2026-10-22 사람 지시 "다이어그램 등으로 시각화 해서 이해하기 쉽게 작성해, 앞으로 모든 보고서에 적용되는 규칙으로 설정"). 조사·설계·점검 기록은 보고서에 쓰고 목업에는 쓰지 않는다 |
+| Mockup | Title; one paragraph of background (the human's words); a flow strip at the top (step → step); for each screen a numbered section (①②③) with a full-page drawing and callouts (see "Mockup callouts"); at the end an approval table (`승인할 것`) that marks the recommended option. One desktop width |
+| Report | Title; the conclusion in the first section; in each section a diagram first (inline SVG with document tokens, visible in light and dark), then a short list; a table only for what a diagram cannot show; sources as links; at the end a decision table (`정할 것`) that marks the recommended option. `loom show` refuses a report without a diagram. Research, design and check records go in reports, not in mockups |
 
-- 위치: 목업은 저장소 `docs/mockups/<이름>.html`, 보고서는 작업 폴더 `~/.cache/loom/<작업>/<내용>.html`(loom 자식은 `$LOOM_TASK_DIR`). 수정본은 같은 경로에 쓰고 판 번호를 올린다.
+- Location: a mockup goes in the repository at `docs/mockups/<name>.html`; a report goes in the task folder (`$LOOM_TASK_DIR`, else `~/.cache/loom/<task>/<subject>.html`). Write a new version to the same path and increase its version number.
 
-## 목업 말풍선
+## Mockup callouts
 
-2026-10-23 사람 지시: "지금 만든 목업 방식 (박스와 박스 근처 설명) 을 표준으로 지정", "페이지별로 부분부분 보여주지 말고 페이지 전체를 그린다음 박스로 설명할 것", "박스 설명은 박스 근처에 배치해서 바로 읽을 수 있게 해". 예: ktasearch `docs/설계/uiux-목업/93-SDI-업무.html` v17.
+- Draw the full page of each screen (head line, tabs, panels) at desktop width. Do not draw only the area that changes.
+- Put only text that the user sees on a screen. Do not write notes for developers (sizes, scale, internal values that the user does not use). The checker cannot find these notes; the author and the node that asks read the document to make sure.
+- Put a red numbered box around each item to explain. A new item gets a dashed box. A box has one border line. Do not give the item a second line such as `outline`.
+- A box fits its item: it is 5px larger than the item. It stays in the table cell, image frame or clipping ancestor that holds the item. If a table cell is the item, the box is 1px inside the cell. The gaps between the content and the box differ by 4px or less left to right and top to bottom. A box border on a capture does not cut through the content of the capture.
+- Draw boxes, badges, callouts and leader lines on top of the drawing. Do not change the item's layout.
+- A number badge is not clipped or covered, and it does not cover text in the box. It can cover only a large control that holds the center of the box.
+- Each explanation is a callout next to its box, in the nearest empty area. Empty background in the screen frame is an area too. A leader line goes from the box to the callout and is 120 screen px or shorter. If there is no area, the layout adds space below the section. If the line is still long, shorten the callout text or leave empty space in the drawing. A callout does not cover text, controls, boxes, badges or other callouts. A leader line does not cross other boxes, callouts or leader lines. If lines cross, put the callouts in the same top-to-bottom order as their boxes. Do not put a list of explanations below the drawing.
+- These rules apply at window widths 1920, 1440, 1280, 1100 and 960px. They also apply when images load late and after a resize. The screen frame stays in the section width.
+- Make: copy [callouts/callouts.css](callouts/callouts.css) into the `<style>` and [callouts/callouts.js](callouts/callouts.js) into a `<script>` at the end of `<body>`. The script places the boxes, badges, callouts and leader lines after the images load and after each resize.
+  - In each section, put a screen frame in `<div class="fig"><h2>…</h2>`. The frame is `.page` (a drawn screen), `.xlwin` (an Excel window) or `.shotwrap` (a capture `<img>`).
+  - Item: `<span class="mk" data-n="1">…</span>`; a new item is `class="mk new"`. `.mk` and `.new` only mark the item. Do not give them a style (outline, border, padding). For an item on a capture, put an empty element in `.shotwrap` with `style="left:…;top:…;width:…;height:…"`. The values are the position on the capture, in %. That box stays at that position.
+  - Explanations: after the screen frame, `<div class="calls"><div><b>1</b><span>explanation</span></div>…</div>`. Item n is the callout of the box with `data-n="n"`.
+  - Give the product's control classes (for example `.abtn`, `.seg`) in `<body data-ui=".abtn, .seg">`. The layout and the check both keep clear of them.
+- Check: `show.sh` runs [scripts/check-callouts.cjs](scripts/check-callouts.cjs) at all window widths. It counts violations of the one-file rule and all rules above, except the developer-note rule. One violation is a failure.
 
-- 화면마다 페이지 전체(머리 줄, 탭, 패널)를 데스크톱 폭으로 그린다. 바뀌는 구역만 잘라 그리지 않는다.
-- 화면에는 사용자가 보는 글만 쓴다. 크기·배율 메모, 사용자가 쓰지 않는 내부 값 같은 개발자용 글을 쓰지 않는다(사람 요청 #2822). 이 규칙은 점검기가 보지 못한다. 만든 사람과 묻는 사람이 읽어 확인한다.
-- 설명할 곳에 빨간 번호 상자를 두른다. 새로 생기는 곳은 점선 상자다. 상자의 테두리 선은 하나다. 대상에 `outline` 같은 두 번째 선을 두지 않는다(사람 요청 #2781).
-- 상자는 대상에 맞는다: 대상보다 5px 크고, 대상을 품은 표 칸·그림 틀·대상을 자르는 조상 밖으로 나가지 않는다. 표 칸이 대상이면 상자는 칸 안쪽 1px이다(사람 요청 Q616). 감싼 내용과 상자 사이 틈은 좌우·위아래가 4px 넘게 다르지 않다. 캡처 위 상자의 테두리는 캡처 속 내용을 가르지 않는다.
-- 상자·배지·말풍선·지시선은 그림 위에 따로 그린다. 대상의 레이아웃을 바꾸지 않는다(사람 요청 #2618).
-- 번호 배지는 잘리거나 가려지지 않고, 상자 안의 글자도 덮지 않는다. 상자 가운데를 품은 큰 컨트롤만 덮어도 된다.
-- 설명은 상자 옆 말풍선이다. 말풍선은 그 상자에서 가장 가까운 빈 자리에 둔다. 화면 그림 틀 안의 빈 바탕도 자리다. 지시선은 120px(화면 px)을 넘지 않는다(사람 요청 Q643 "선이 너무 길어서 시선이 움직이는 길이가 길어져 피로함"). 자리가 없으면 배치가 절 아래 여백을 늘린다. 그래도 선이 길면 말풍선 글을 줄이거나 그림에 빈 곳을 둔다. 상자에서 말풍선까지 지시선을 긋는다. 말풍선은 글자·컨트롤·상자·배지·다른 말풍선을 덮지 않고, 지시선은 다른 상자·말풍선을 지나지 않고 서로 엇갈리지 않는다(#2559, ktasearch 요청 #3268). 엇갈리면 말풍선을 상자와 같은 위아래 차례로 놓는다. 그림 아래 설명 목록을 두지 않는다.
-- 창 폭 1920·1440·1280·1100·960px, 그림이 늦게 읽힐 때, 창 폭을 바꾼 뒤에도 위 규칙이 모두 맞아야 한다. 화면 그림 틀은 절 폭 안에 들어온다(사람 요청 Q596).
-- 만들기: [callouts/callouts.css](callouts/callouts.css)를 `<style>`에, [callouts/callouts.js](callouts/callouts.js)를 `<body>` 끝 `<script>`에 복사한다. 스크립트가 그림을 다 읽은 뒤와 창 폭이 바뀔 때 상자·배지·말풍선·지시선을 놓는다.
-  - 절마다 `<div class="fig"><h2>…</h2>` 안에 그림 틀 `.page`(그린 화면)·`.xlwin`(엑셀 창)·`.shotwrap`(캡처 `<img>`)을 둔다.
-  - 대상: `<span class="mk" data-n="1">…</span>`, 새 곳은 `class="mk new"`. `.mk`·`.new`는 대상만 가리킨다. 모양(outline·테두리·여백)을 주지 않는다. 캡처 위 대상은 `.shotwrap` 안 빈 요소에 `style="left:…;top:…;width:…;height:…"`(캡처에서 잰 자리, %)로 둔다. 이 상자는 그 자리 그대로다.
-  - 설명: 그림 틀 뒤 `<div class="calls"><div><b>1</b><span>설명</span></div>…</div>`. n번째 항목이 `data-n="n"` 상자의 말풍선이 된다.
-  - 제품의 컨트롤 클래스(예: `.abtn`, `.seg`)는 `<body data-ui=".abtn, .seg">`로 알린다. 배치와 점검이 모두 피한다.
-- 점검: `show.sh`가 [scripts/check-callouts.cjs](scripts/check-callouts.cjs)로 파일 하나 규칙과 위 규칙을 모든 창 폭에서 센다. 개발자용 글 규칙을 뺀 모든 규칙을 센다. 하나라도 어기면 실패다.
+## Display
 
-## 보이기
-
-1. 만든 사람(코디·워커)은 파일을 쓰고 렌더를 점검한 뒤, 경로·판·한 줄 요약만 부모에게 보낸다.
-2. 사람에게 묻는 사람(총괄, loom이 아니면 사람과 대화하는 에이전트)이 내용을 검수하고 [scripts/show.sh](scripts/show.sh)를 부른다: `bash <이 스킬 폴더>/scripts/show.sh <파일>`.
-   - `show.sh`는 `loom show <파일>`을 부른다. 이 명령이 형식을 점검하고(제목, 라이트 기본, 전환 버튼, 머리 줄) 문서 ID를 붙인다. 점검이 실패하면 만든 사람에게 돌려보낸다.
-   - 헤드리스 Chromium으로 그린 그림을 남긴다. 묻는 사람은 이 그림을 본다.
-   - bash가 없는 기계(Windows 노드)에서는 `loom show <파일>`만 부른다.
-3. 문서를 질문에 붙여 묻는다: `loom ask "[<제목>](<파일>)을 승인할까요?" --doc <파일>`. 글 속 그 링크 자리가 문서 링크가 된다. 링크를 걸지 않으면 질문 끝에 「M3 <제목>」 링크가 붙는다. 사람이 누르면 데몬이 기본 브라우저로 연다. 새 판은 같은 경로에 쓰고 `show.sh`를 다시 부른 뒤 `loom ask --doc`으로 묻는다.
-4. loom 밖이면(받은편지함이 없으면) 사람에게 파일 링크를 준다.
-5. 채팅에는 사람의 언어로 쓴 요약, 파일 링크(markdown), 정할 것만 적는다. 표 전체를 채팅에 다시 쓰지 않는다.
+1. The author (코디 or 워커) writes the file and checks the render. It sends its parent only the path, version and a one-line summary.
+2. The node that asks the human is the lead, or outside loom the agent that talks with the human. It reviews the content and runs [scripts/show.sh](scripts/show.sh): `bash <this skill folder>/scripts/show.sh <file>`.
+   - `show.sh` calls `loom show <file>`. It checks the form (title, light default, toggle button, head line) and adds the document ID. If the check fails, send the document back to the author.
+   - It keeps a render made with headless Chromium. The node that asks looks at that render.
+   - On a computer without bash (a Windows node), call only `loom show <file>`.
+3. Attach the document to the question: `loom ask "[<title>](<file>)을 승인할까요?" --doc <file>`. The link in the text becomes the document link. Without a link, loom adds "M3 <title>" at the end. When the human clicks it, the daemon opens it in the default browser. For a new version, write the same path, run `show.sh` again and ask again with `loom ask --doc`.
+4. Outside loom (no inbox), give the human a link to the file.
+5. In chat, write a summary in the human's language, a markdown link to the file and the open decisions. Do not copy the full tables into chat.

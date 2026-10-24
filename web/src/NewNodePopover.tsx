@@ -125,7 +125,7 @@ export function NewNodePopover(props: {
   };
 
   return (
-    <form ref={box} className="pop new-node nodrag nowheel" aria-label={t('graph.newNode')} onSubmit={submit}>
+    <form ref={box} className="pop new-node nodrag nowheel" aria-busy={busy} aria-label={t('graph.newNode')} onSubmit={submit}>
       <h2>
         {t('graph.newNode')}
         <span translate="no">{props.branch}</span>

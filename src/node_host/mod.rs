@@ -131,8 +131,8 @@ struct Backlog {
     modes: Vec<(u16, bool)>,
 }
 
-const KEPT_MODES: [u16; 14] = [
-    47, 1047, 1049, 1, 9, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1015, 2004,
+const KEPT_MODES: [u16; 15] = [
+    47, 1047, 1049, 1, 9, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1015, 1016, 2004,
 ];
 
 impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
@@ -500,23 +500,22 @@ impl Backlog {
     }
 
     fn remember_modes(&mut self, bytes: &[u8]) {
-        for (mode, on) in private_modes(bytes) {
-            if !KEPT_MODES.contains(&mode) {
-                continue;
-            }
-            match self.modes.iter_mut().find(|(m, _)| *m == mode) {
-                Some(entry) => entry.1 = on,
-                None => self.modes.push((mode, on)),
+        for event in mode_events(bytes) {
+            match event {
+                ModeEvent::Set(mode, on) if KEPT_MODES.contains(&mode) => {
+                    self.modes.retain(|(m, _)| *m != mode);
+                    self.modes.push((mode, on));
+                }
+                ModeEvent::Set(..) => {}
+                ModeEvent::Reset => self.modes.clear(),
             }
         }
     }
 
     fn to_vec(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.bytes.len());
-        for mode in KEPT_MODES {
-            if let Some((_, on)) = self.modes.iter().find(|(m, _)| *m == mode) {
-                out.extend(format!("\x1b[?{mode}{}", if *on { 'h' } else { 'l' }).bytes());
-            }
+        for (mode, on) in &self.modes {
+            out.extend(format!("\x1b[?{mode}{}", if *on { 'h' } else { 'l' }).bytes());
         }
         out.extend(&self.bytes);
         out
@@ -525,11 +524,26 @@ impl Backlog {
 
 const MODE_SEQUENCE_MAX: usize = 32;
 
-fn private_modes(bytes: &[u8]) -> Vec<(u16, bool)> {
+enum ModeEvent {
+    Set(u16, bool),
+    Reset,
+}
+
+fn mode_events(bytes: &[u8]) -> Vec<ModeEvent> {
     let mut found = Vec::new();
     let mut at = 0;
-    while let Some(start) = bytes[at..].windows(3).position(|w| w == b"\x1b[?") {
-        let params = at + start + 3;
+    while let Some(start) = bytes[at..].iter().position(|b| *b == 0x1b) {
+        let esc = at + start;
+        if bytes.get(esc + 1) == Some(&b'c') {
+            found.push(ModeEvent::Reset);
+            at = esc + 2;
+            continue;
+        }
+        if bytes.get(esc + 1..esc + 3) != Some(b"[?") {
+            at = esc + 1;
+            continue;
+        }
+        let params = esc + 3;
         let len = bytes[params..]
             .iter()
             .take_while(|b| b.is_ascii_digit() || **b == b';')
@@ -542,7 +556,7 @@ fn private_modes(bytes: &[u8]) -> Vec<(u16, bool)> {
         };
         for param in bytes[params..at].split(|b| *b == b';') {
             if let Some(mode) = std::str::from_utf8(param).ok().and_then(|p| p.parse().ok()) {
-                found.push((mode, on));
+                found.push(ModeEvent::Set(mode, on));
             }
         }
     }
@@ -1061,27 +1075,49 @@ mod tests {
         assert_eq!(&bytes[BACKLOG_BYTES - 4..], b"axyz");
     }
 
-    #[test]
-    fn backlog_keeps_terminal_modes_after_it_drops_their_bytes() {
+    fn replayed_modes(stream: &[u8]) -> (String, vt100::Parser) {
         let mut backlog = Backlog::default();
-        backlog.push(b"\x1b[?1049h\x1b[?7l\x1b[?1000h\x1b[?1002;1006h\x1b[?1003h\x1b[?1003l");
+        backlog.push(stream);
         backlog.push(&vec![b'a'; BACKLOG_BYTES]);
         let bytes = backlog.to_vec();
-        let text = String::from_utf8_lossy(&bytes[..bytes.len() - BACKLOG_BYTES]).into_owned();
-        assert_eq!(
-            text,
-            "\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1003l\x1b[?1006h"
-        );
+        let prefix = String::from_utf8_lossy(&bytes[..bytes.len() - BACKLOG_BYTES]).into_owned();
         let mut parser = vt100::Parser::new(
             NonZeroU16::new(24).unwrap(),
             NonZeroU16::new(80).unwrap(),
             0,
         );
         parser.process(&bytes);
+        (prefix, parser)
+    }
+
+    #[test]
+    fn backlog_keeps_terminal_modes_after_it_drops_their_bytes() {
+        let (prefix, parser) =
+            replayed_modes(b"\x1b[?1049h\x1b[?7l\x1b[?1003h\x1b[?1003l\x1b[?1002;1006h");
+        assert_eq!(prefix, "\x1b[?1049h\x1b[?1003l\x1b[?1002h\x1b[?1006h");
         assert!(parser.screen().alternate_screen());
         assert_eq!(
             parser.screen().mouse_protocol_mode(),
             vt100::MouseProtocolMode::ButtonMotion
+        );
+    }
+
+    #[test]
+    fn backlog_replays_modes_in_the_order_of_their_last_change() {
+        let (prefix, parser) = replayed_modes(b"\x1b[?1049h\x1b[?1049l\x1b[?47h");
+        assert_eq!(prefix, "\x1b[?1049l\x1b[?47h");
+        assert!(parser.screen().alternate_screen());
+        let (prefix, _) = replayed_modes(b"\x1b[?1002h\x1b[?1000h\x1b[?1002l");
+        assert_eq!(prefix, "\x1b[?1000h\x1b[?1002l");
+    }
+
+    #[test]
+    fn backlog_forgets_modes_after_a_terminal_reset() {
+        let (prefix, parser) = replayed_modes(b"\x1b[?1000h\x1b[?1006h\x1bc\x1b[?2004h");
+        assert_eq!(prefix, "\x1b[?2004h");
+        assert_eq!(
+            parser.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::None
         );
     }
 

@@ -53,6 +53,7 @@ export function useOutsidePress(box: RefObject<HTMLElement | null>, onClose: () 
   useEffect(() => {
     const outside = (e: PointerEvent) => {
       const target = e.target as Node;
+      if (box.current?.querySelector('[aria-busy="true"]')) return;
       if (!box.current?.contains(target) && !anchor?.current?.contains(target)) close.current();
     };
     document.addEventListener('pointerdown', outside, true);

@@ -2,12 +2,12 @@ import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createWorktree } from './api';
 import type { RepoView } from './gen/RepoView';
-import { useDismiss } from './popover';
+import { useEscapeClose } from './popover';
 import { folderName } from './repos';
 
 export function NewWorktreePopover(props: { repo: RepoView; workspaceDir: string; onCreated: (repo: RepoView) => void; onClose: () => void }) {
   const { t } = useTranslation();
-  const box = useDismiss<HTMLFormElement>(props.onClose);
+  const box = useEscapeClose<HTMLFormElement>(props.onClose);
   const { repo } = props;
   const [branch, setBranch] = useState('');
   const [base, setBase] = useState(repo.worktrees.find((w) => w.original)?.branch ?? repo.branches[0] ?? 'HEAD');
@@ -29,7 +29,7 @@ export function NewWorktreePopover(props: { repo: RepoView; workspaceDir: string
   }
 
   return (
-    <form ref={box} className="pop worktree-pop nodrag nowheel" aria-label={t('repo.newWorktree')} onSubmit={submit}>
+    <form ref={box} className="pop worktree-pop nodrag nowheel" aria-busy={busy} aria-label={t('repo.newWorktree')} onSubmit={submit}>
       <h2>{t('repo.newWorktree')}</h2>
       <div className="field">
         <label htmlFor="wt-branch">{t('repo.branch')}</label>

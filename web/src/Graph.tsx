@@ -786,12 +786,10 @@ export function Graph(props: {
     const rect = button.getBoundingClientRect();
     return { x: rect.right, y: rect.bottom + POPOVER_GAP };
   };
+  const isOpenFrom = (open: string | null, path: string, button: HTMLElement) => open === path && opener.current === button;
   const openNew = (path: string, origin: XYPosition, button: HTMLElement) => {
     setDeleting(null);
-    if (creating === path && opener.current === button) {
-      setCreating(null);
-      return;
-    }
+    if (isOpenFrom(creating, path, button)) return setCreating(null);
     opener.current = button;
     setCreating(path);
     anchorAt(origin, belowButton(button), 'end');
@@ -804,6 +802,7 @@ export function Graph(props: {
   };
   const openDelete = (path: string, origin: XYPosition, button: HTMLElement) => {
     setCreating(null);
+    if (isOpenFrom(deleting, path, button)) return setDeleting(null);
     opener.current = button;
     setDeleting(path);
     anchorAt(origin, belowButton(button), 'end');

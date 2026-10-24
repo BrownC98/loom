@@ -196,9 +196,11 @@ pub fn catalog_commands() -> Vec<&'static str> {
 }
 
 fn installed(agent: &Agent) -> Option<PathBuf> {
+    let path = crate::search_path::current();
+    let cwd = std::env::current_dir().unwrap_or_default();
     std::iter::once(&agent.cmd)
         .chain(&agent.aliases)
-        .find_map(|cmd| which::which(cmd).ok())
+        .find_map(|cmd| which::which_in(cmd, Some(&path), &cwd).ok())
 }
 
 pub fn commands(start: &Start) -> Vec<&'static str> {

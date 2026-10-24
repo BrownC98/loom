@@ -210,7 +210,7 @@ loom은 스킬 다섯 개를 싣는다: `o-mode`, `ste-100`, `user-doc`, `raptor
 | `"none"` | 지시문을 넘기지 않는다 | `stdin-after-start`, `hermes-query` |
 
 - `"none"`인 에이전트는 Orca가 시작 뒤 입력창에 지시문을 써 넣는다. loom은 PTY에 글자를 쓰지 않으므로(「메시징」) 첫 지시문을 받지 않는다. 첫 지시문은 `loom spawn`만 넘긴다.
-- 탐지: 데몬이 자기 `PATH`에서 `cmd`, 그다음 `aliases`를 찾는다(`which`). 설정 창을 열 때와 [다시 찾기]를 누를 때 다시 찾는다. 노드를 띄울 때도 찾은 경로로 띄운다.
+- 탐지: 데몬이 찾기 `PATH`에서 `cmd`, 그다음 `aliases`를 찾는다(`which`). 찾기 `PATH`는 데몬의 `PATH`다. Windows에서는 그 뒤에 레지스트리의 시스템·사용자 `Path`를 찾을 때마다 새로 읽어 붙인다. 그래서 데몬이 뜬 뒤 설치기가 `PATH`에 더한 폴더도 보인다(Q808 A). 새 노드 창과 설정 창을 열 때, [다시 찾기]를 누를 때 다시 찾는다. 새 노드 창은 지금 목록을 바로 보이고, 결과가 오면 목록을 바꾼다. 노드를 띄울 때도 찾은 경로로 띄우고, 노드의 `PATH`도 그때 새로 읽은 찾기 `PATH`다.
   - Windows 데몬은 위치(아래 「계정과 사용량」)마다 찾는다. WSL 배포판은 `wsl.exe` 한 번으로 카탈로그 명령을 모두 찾고 Codex·OpenCode 2 버전을 읽는다. 설정 › 에이전트는 에이전트마다 줄 하나에 위치마다 메타 줄과 버전 경고를 둔다. 새 노드 창은 저장소 위치에 설치된 에이전트만 고르게 하고, 다른 위치에만 있으면 「WSL에 없음」·「이 PC에 없음」을 붙인다(목업 [wsl-place.html](mockups/wsl-place.html) ④·⑥a, Q282 A).
 - 새 노드 창은 프로필 하나만 고른다. 검색 입력 아래에 카탈로그 전체를 보인다. 줄을 누르거나 Enter를 누르면 그 프로필로 바로 띄운다. [만들기] 단추는 없다(2026-10-20 사람 지시 "새노드는 리스트 아이템을 클릭하면 바로 해당 노드가 생성되는걸로 변경"). 명세는 [settings.html 5번](mockups/settings.html#u5)이다.
   - 순서: 설치됨(카탈로그 순서), 「기본 셸」, 설치하지 않음. 설치하지 않은 항목은 고를 수 없다. 화면은 에이전트 이름으로 분기하지 않는다.
@@ -846,7 +846,7 @@ Android 앱은 Tailscale 없이 데몬의 폰 문에 직접 닿는다(2026-10-22
 | 상호작용 | 화면, CLI 명령(`src/cli.rs`), 데몬 켜기·끄기(`src/launch.rs`: `loom open`·`loom stop`), 데스크톱 앱 창(`app/`), 폰 앱(`android/`) |
 | 조합 | 데몬 라우트(`src/daemon.rs`, 설정·계정·사용량은 `src/daemon/settings.rs`). 아래 모듈을 부르고 결과를 엮기만 한다. 예: 워크트리 닫기는 그래프의 `running` 수, `worktree::close`, 노드 지우기를 차례로 부른다 |
 | 기능 | 그래프(`src/graph/`: 노드 목록, 메일함, 이벤트 기록, 사람 응답 대기(`waits.rs`)), 노드 호스트(`src/node_host/`: PTY 호스트에 붙어 출력 나누기, 중단할 셸(`mod.rs`), PTY 호스트 프로세스(`host.rs`), 프레임(`wire.rs`)), 저장소와 워크트리(`src/worktree.rs`: 저장소 목록, `git worktree` 읽기·만들기·닫기), 커밋 그래프(`src/commit_graph.rs`: `git log` 읽기), 프로필(`src/profile.rs`: 에이전트 카탈로그와 시작 명령, `src/profile/claude.rs`: Claude 시작 인자와 훅 입출력, `src/profile/codex.rs`: Codex 시작 인자와 메일함→`turn/*` 규칙, `src/profile/opencode2/`: OpenCode 2 규칙과 전달 작업(`mod.rs`), 서버 프로세스와 HTTP 연결(`server.rs`)), Codex app-server(`src/codex_server.rs`: 서버 프로세스와 JSON-RPC 연결), 화면 확인 창 찾기(`src/screen.rs`), 계정(`src/accounts.rs`), 사용량(`src/usage.rs`), 설정(`src/settings.rs`) |
-| 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기, Windows에서 WSL 저장소는 그 배포판의 git), WSL(`src/wsl.rs`: `\\wsl.localhost\…` UNC와 Linux 경로 바꾸기, 배포판 값 읽기, 노드를 배포판에서 띄우는 `wsl.exe` 명령), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드) |
+| 기반 | DB(`src/db.rs`: 파일 열기와 스키마 변경 목록), git(`src/git.rs`: `git` CLI 부르기, Windows에서 WSL 저장소는 그 배포판의 git), WSL(`src/wsl.rs`: `\\wsl.localhost\…` UNC와 Linux 경로 바꾸기, 배포판 값 읽기, 노드를 배포판에서 띄우는 `wsl.exe` 명령), 프로세스 나무(`src/process_tree.rs`: 자손 찾기와 끝내기, OS마다 다른 프로세스 코드), 찾기 `PATH`(`src/search_path.rs`: 실행 파일을 찾을 `PATH`, Windows에서 레지스트리 `Path` 새로 읽기) |
 
 - 기능 모듈은 서로 부르지 않는다. 다른 기능 모듈의 값 타입(`NodeId`, `RepoId`, `AgentId`, `Profile`, `Provider`, `AccountId`, `Delivery`, `Kind`)만 쓴다.
 - `Profile`은 메시지 연동이고 `Provider`는 계정이다. OpenCode 2와 Cursor는 프로필은 있고 공급자는 없다. Cursor 노드는 Cursor CLI의 로그인을 쓴다.

@@ -118,7 +118,6 @@ struct App {
     codex_config: Vec<String>,
     url: String,
     spawn_url: String,
-    path: OsString,
     update: Arc<Updater>,
     devices: Arc<Devices>,
     port: u16,
@@ -686,8 +685,8 @@ fn node_path() -> std::io::Result<OsString> {
         .parent()
         .map(PathBuf::from)
         .unwrap_or_default();
-    let inherited = std::env::var_os("PATH").unwrap_or_default();
-    let dirs = std::iter::once(exe_dir).chain(std::env::split_paths(&inherited));
+    let searched = crate::search_path::current();
+    let dirs = std::iter::once(exe_dir).chain(std::env::split_paths(&searched));
     std::env::join_paths(dirs).map_err(std::io::Error::other)
 }
 
@@ -975,7 +974,6 @@ impl App {
                 None => node_url(listen),
             },
             spawn_url: node_url(listen),
-            path: node_path()?,
             update,
         })
     }
@@ -1323,7 +1321,7 @@ impl App {
             skills: settings.always_on,
         };
         let token = new_token().map_err(internal)?;
-        let mut env = self.node_env(&token).to_vec();
+        let mut env = self.node_env(&token)?.to_vec();
         let plugin = self.plugin.dir(launch.skills);
         let site = match wsl::of(cwd) {
             Some(at) => Site::wsl(
@@ -1443,13 +1441,13 @@ impl App {
         Ok(wsl::of(std::path::Path::new(&place.worktree)))
     }
 
-    fn node_env(&self, token: &str) -> [(&'static str, OsString); 4] {
-        [
+    fn node_env(&self, token: &str) -> Result<[(&'static str, OsString); 4], Problem> {
+        Ok([
             ("LOOM_URL", self.url.clone().into()),
             ("LOOM_SPAWN_URL", self.spawn_url.clone().into()),
             ("LOOM_TOKEN", token.into()),
-            ("PATH", self.path.clone()),
-        ]
+            ("PATH", node_path().map_err(internal)?),
+        ])
     }
 }
 

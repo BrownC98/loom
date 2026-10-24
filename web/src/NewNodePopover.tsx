@@ -34,6 +34,7 @@ export function NewNodePopover(props: {
   place: Place;
   distro: string | null;
   agents: AgentView[];
+  onOpen: () => void;
   recent: AgentId | null | undefined;
   settings: SettingsView;
   accounts: AccountView[] | null;
@@ -65,6 +66,10 @@ export function NewNodePopover(props: {
   const activeIndex = active ? shown.indexOf(active) : -1;
   const agent = active?.agent ?? null;
   const account = agent?.provider && props.accounts ? activeAccount(props.accounts, props.settings, agent.provider, distro) : undefined;
+
+  useEffect(() => {
+    props.onOpen();
+  }, []);
 
   useEffect(() => {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });

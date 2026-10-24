@@ -21,6 +21,7 @@ mod profile;
 mod protocol;
 mod roles;
 mod screen;
+mod search_path;
 mod settings;
 mod skills;
 mod spots;

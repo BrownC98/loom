@@ -229,6 +229,8 @@ enum Cli {
     CursorHook,
     /// Cursor 세션 시작 훅이 부른다. 상시 지시를 출력한다.
     CursorRules,
+    /// loom이 싣는 Pi 확장이 부른다. stdin의 이벤트를 받아 넘길 메시지를 출력한다.
+    PiHook,
     /// Claude 훅이 Bash 명령 앞에 붙인다. 부른 셸을 중단 대상으로 알린다.
     Guard,
     /// 데몬이 노드마다 띄운다. PTY 하나를 쥐고 데몬보다 오래 산다.
@@ -300,6 +302,7 @@ fn main() -> ExitCode {
         Cli::Hook => cli::hook(),
         Cli::CursorHook => cli::cursor_hook(),
         Cli::CursorRules => cli::cursor_rules(),
+        Cli::PiHook => cli::pi_hook(),
         Cli::Guard => cli::guard(),
         Cli::Wait {
             reply_to,

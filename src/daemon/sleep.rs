@@ -135,7 +135,7 @@ impl App {
             return false;
         }
         match profile_of(node) {
-            Some(Profile::Claude | Profile::Cursor) => {
+            Some(Profile::Claude | Profile::Cursor | Profile::Pi) => {
                 node.transcript.is_some() && self.idle.waiting(node.id)
             }
             Some(Profile::Codex) => {

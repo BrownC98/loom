@@ -35,7 +35,7 @@ pub fn output(mut cmd: Command, limit: Duration) -> Option<Vec<u8>> {
     };
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return Some(bytes).filter(|_| status.success()),
+            Ok(Some(status)) => return status.success().then_some(bytes),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(EXIT_POLL),
             _ => {
                 stop(child);

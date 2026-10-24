@@ -1,12 +1,17 @@
 use clap::{CommandFactory, Parser};
 use tempfile::TempDir;
 
+use super::commands::{
+    agent_guard, agent_idle, agent_interrupt_pending, agent_question_box, agent_said, agent_take,
+    agent_turn_end,
+};
+use super::nodes::human_typed;
 use super::*;
 use crate::graph::{Entry, Round, TurnCheck};
 use crate::profile::AgentId;
 use crate::protocol::Judgment;
 
-const UNTRACED: [(&str, &str); 15] = [
+const UNTRACED: [(&str, &str); 16] = [
     ("serve", "runs the daemon"),
     ("start", "starts or joins the daemon"),
     ("open", "opens the screen"),
@@ -28,6 +33,7 @@ const UNTRACED: [(&str, &str); 15] = [
     ("hook", "hook transport that the agent CLI runs"),
     ("cursor-hook", "hook transport that the agent CLI runs"),
     ("cursor-rules", "hook transport that the agent CLI runs"),
+    ("pi-hook", "hook transport that the agent CLI runs"),
     ("guard", "hook transport that the agent CLI runs"),
     ("pty-host", "the node process host"),
     ("help", "clap help"),

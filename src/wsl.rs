@@ -615,14 +615,15 @@ mod tests {
         );
         let mut test_daemon = spawn("exec sleep 30".into(), &token, "/tmp/other-home");
         let mut other_node = spawn("exec sleep 30".into(), "other", &home);
-        while !child_pid.exists() {
+        let child: u32 = loop {
+            if let Some(pid) = std::fs::read_to_string(&child_pid)
+                .ok()
+                .and_then(|text| text.trim().parse().ok())
+            {
+                break pid;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        let child: u32 = std::fs::read_to_string(&child_pid)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
+        };
 
         let mut cmd = tokio::process::Command::new("sh");
         cmd.args(["-c", END_TOKEN, "sh", &token]);

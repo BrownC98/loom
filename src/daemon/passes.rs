@@ -10,7 +10,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
-use super::{App, DocProblem, OpenFile, Problem, doc_file, host_path, internal, phone, serve_file};
+use super::system::{OpenFile, host_path};
+use super::waits::{DocProblem, doc_file, serve_file};
+use super::{App, Problem, internal, phone};
 
 pub const PASS_PREFIX: &str = "/api/files/pass/";
 const PASS_TTL: Duration = Duration::from_secs(30 * 60);

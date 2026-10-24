@@ -586,9 +586,9 @@ a { color: var(--accent); }
 .wait-body .choice[data-recommended] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
 .wait-body .choice .mark { margin-left: 6px; color: var(--warn); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .wait-body .answer { display: flex; align-items: flex-end; gap: 6px; }
-.wait-body .answer textarea { flex: 1; min-width: 0; max-height: 40vh; padding: 4px 8px; resize: none; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
-.wait-body .answer textarea::placeholder { color: var(--ink-3); }
-.wait-body .answer textarea:focus-visible { outline: none; border-color: var(--warn); }
+.wait-body .answer :is(textarea, .field) { flex: 1; min-width: 0; max-height: 40vh; padding: 4px 8px; resize: none; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; line-height: 18px; }
+.wait-body .answer :is(textarea, .field)::placeholder { color: var(--ink-3); }
+.wait-body .answer :is(textarea, .field):focus-visible { outline: none; border-color: var(--warn); }
 .wait-body .send { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: var(--warn); color: var(--warn-ink); cursor: pointer; }
 .wait-body .send:disabled { opacity: 0.45; cursor: default; }
 .wait-body .send svg { width: 14px; height: 14px; }
@@ -827,7 +827,7 @@ details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; col
 .phone .wait-body .choices { display: grid; gap: 6px; }
 .phone .wait-body .choice { min-height: 44px; padding: 8px 14px; border-radius: 10px; font-size: 14px; align-items: center; }
 .phone .wait-body .doc-link { display: inline-flex; align-items: center; min-height: 44px; }
-.phone .wait-body .answer textarea { padding: 10px 12px; line-height: 22px; border-radius: 10px; font-size: 16px; }
+.phone .wait-body .answer :is(textarea, .field) { padding: 10px 12px; line-height: 22px; border-radius: 10px; font-size: 16px; }
 .phone .wait-body .send { width: 44px; height: 44px; border-radius: 10px; }
 .phone .wait-body .send svg { width: 20px; height: 20px; }
 .phone .wait-body .to-terminal { min-height: 44px; }

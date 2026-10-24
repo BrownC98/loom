@@ -6,6 +6,7 @@ import type { DocRow } from './gen/DocRow';
 import type { AnswerWait } from './gen/AnswerWait';
 import type { ChooseOption } from './gen/ChooseOption';
 import type { Prompt } from './gen/Prompt';
+import type { TypeText } from './gen/TypeText';
 import type { CardSize } from './gen/CardSize';
 import type { CardView } from './gen/CardView';
 import type { CloneRepo } from './gen/CloneRepo';
@@ -88,6 +89,8 @@ export const answerWait = (wait: WaitId, text: string, images: string[]) =>
   call<null>('POST', `/api/waits/${wait}/answer`, { text, images } satisfies AnswerWait);
 export const chooseOption = (wait: WaitId, prompt: Prompt, option: number) =>
   call<null>('POST', `/api/waits/${wait}/choose`, { prompt, option } satisfies ChooseOption);
+export const typeText = (wait: WaitId, prompt: Prompt, text: string) =>
+  call<null>('POST', `/api/waits/${wait}/type`, { prompt, text } satisfies TypeText);
 export const listDocs = () => call<DocRow[]>('GET', '/api/docs');
 export const openDoc = (id: string) => call<null>('POST', `/api/docs/${encodeURIComponent(id)}`);
 export const docUrl = (id: string) => `/api/docs/${encodeURIComponent(id)}/`;

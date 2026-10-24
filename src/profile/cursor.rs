@@ -14,6 +14,15 @@ pub const PROMPT: Grammar = Grammar {
     guard: Some(GUARD),
 };
 
+pub const PROMPTS: [Grammar; 2] = [
+    PROMPT,
+    Grammar {
+        top: Top::Boxed("Do you trust the contents of this directory?"),
+        options: Options::Bracketed,
+        guard: None,
+    },
+];
+
 pub const DIALOGS: [Dialog; 8] = [
     Dialog {
         text: "Enter next/submit",
@@ -578,6 +587,29 @@ mod tests {
     }
 
     #[test]
+    fn the_trust_box_has_buttons() {
+        let prompt =
+            crate::screen::prompt(&PROMPTS, include_str!("screens/cursor-trust.txt"), 100).unwrap();
+        assert_eq!(
+            prompt.body,
+            ["Do you trust the contents of this directory?", "/tmp/repo"]
+        );
+        let options: Vec<_> = prompt
+            .options
+            .iter()
+            .map(|o| (o.label.as_str(), &o.key))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                ("Trust this workspace", &PromptKey::Char('a')),
+                ("Quit", &PromptKey::Char('q'))
+            ]
+        );
+        assert_eq!(crate::screen::prompt(&PROMPTS, QUESTION, 80), None);
+    }
+
+    #[test]
     fn the_trust_box_is_a_trust_wait() {
         let screen = "│  Do you trust the contents of this directory?  │\n│  ▶ [a] Trust this workspace  │\n│    [q] Quit  │";
         assert_eq!(
@@ -615,7 +647,7 @@ mod tests {
 
     #[test]
     fn the_guard_line_is_not_the_command() {
-        let prompt = crate::screen::prompt(&PROMPT, GUARDED, 80).unwrap();
+        let prompt = crate::screen::prompt(&PROMPTS, GUARDED, 80).unwrap();
         assert_eq!(
             prompt.body,
             [
@@ -630,7 +662,7 @@ mod tests {
 
     #[test]
     fn approval_prompt_keys_come_from_the_hints() {
-        let prompt = crate::screen::prompt(&PROMPT, APPROVAL, 80).unwrap();
+        let prompt = crate::screen::prompt(&PROMPTS, APPROVAL, 80).unwrap();
         assert_eq!(
             prompt.body,
             [
@@ -643,7 +675,7 @@ mod tests {
         let options: Vec<_> = prompt
             .options
             .iter()
-            .map(|o| (o.label.as_str(), o.key))
+            .map(|o| (o.label.as_str(), o.key.clone()))
             .collect();
         assert_eq!(
             options,
@@ -657,7 +689,7 @@ mod tests {
                 ),
             ]
         );
-        assert_eq!(crate::screen::prompt(&PROMPT, QUESTION, 80), None);
+        assert_eq!(crate::screen::prompt(&PROMPTS, QUESTION, 80), None);
     }
 
     #[test]

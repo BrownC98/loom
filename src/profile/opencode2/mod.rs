@@ -145,6 +145,7 @@ impl Permission {
                     key: PromptKey::Permission(*reply),
                 })
                 .collect(),
+            field: None,
         }
     }
 }
@@ -166,7 +167,11 @@ fn decide(asked: Option<&Permission>, chosen: &Prompt, option: usize) -> Option<
             request: asked.id.clone(),
             reply,
         }),
-        PromptKey::Char(_) | PromptKey::Tab | PromptKey::BackTab => None,
+        PromptKey::Char(_)
+        | PromptKey::Tab
+        | PromptKey::BackTab
+        | PromptKey::Move(_)
+        | PromptKey::Line(_) => None,
     }
 }
 

@@ -55,7 +55,7 @@ use crate::devices::Devices;
 use crate::graph::{
     CardView, Delivery, EventLog, Graph, GraphEvent, IMAGE_EXTENSIONS, IdleEnd, Kind, Launched,
     Listed, MessageId, Model, NewChild, NodeId, PARENT, Place, Prompt, REDELIVER_AFTER, Refusal,
-    Relations, Report, Sent, TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource,
+    Relations, Report, Sent, TreeLimits, Via, WaitDoc, WaitId, WaitKind, WaitSource, entered,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -451,6 +451,14 @@ pub struct ChooseOption {
     pub option: usize,
 }
 
+/// 사람이 알림의 입력칸에 쓴 글. 데몬은 `prompt`가 지금 화면과 같을 때만 그 글과 Enter를 치고, 글을 저장하거나 로그에 쓰지 않는다.
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct TypeText {
+    pub prompt: Prompt,
+    pub text: String,
+}
+
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TurnId(pub String);
@@ -606,6 +614,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/waits/{wait}", delete(dismiss_wait))
         .route("/api/waits/{wait}/answer", post(answer_wait))
         .route("/api/waits/{wait}/choose", post(choose_wait))
+        .route("/api/waits/{wait}/type", post(type_wait))
         .route("/api/docs", get(list_docs))
         .route(
             "/api/docs/{id}",
@@ -1214,7 +1223,6 @@ impl App {
 
     fn follow_screen(self: &Arc<Self>, id: NodeId, profile: Option<Profile>, token: &str) {
         let dialogs = profile::dialogs(profile);
-        let grammar = profile::prompt_grammar(profile);
         let Some(attached) = self.host.attach(id) else {
             return;
         };
@@ -1252,7 +1260,7 @@ impl App {
                 if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
                 }
-                let prompt = grammar.and_then(|g| screen::prompt(g, &now.text, now.cols.into()));
+                let prompt = profile::prompt(profile, &now.text, now.cols.into());
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
                     eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
@@ -1958,7 +1966,7 @@ async fn choose_wait(
     Json(req): Json<ChooseOption>,
 ) -> Result<Json<()>, Problem> {
     let wait = WaitId(wait);
-    let (node, _) = app.graph.approval(wait)?;
+    let (node, _) = app.graph.dialog(wait)?;
     let server = app.opencode2.lock().unwrap().get(&node).cloned();
     match server {
         Some(server) => {
@@ -1982,20 +1990,45 @@ fn choose(
     wait: WaitId,
     req: &ChooseOption,
 ) -> Result<(), Refusal> {
-    let (node, agent) = graph.approval(wait)?;
-    let grammar = agent
-        .as_ref()
-        .and_then(profile::profile_of)
-        .and_then(|p| profile::prompt_grammar(Some(p)));
-    host.write_if(node, |keys| {
-        let shown = keys.screen();
-        let now = grammar.and_then(|g| screen::prompt(g, &shown.text, shown.cols.into()));
-        let option = match now {
-            Some(now) if now == req.prompt => now.options.get(req.option).cloned(),
-            _ => None,
-        };
-        let keys = option
-            .and_then(|o| o.key.bytes())
+    answer_dialog(graph, host, wait, &req.prompt, |now| {
+        now.options.get(req.option)?.key.bytes()
+    })
+}
+
+async fn type_wait(
+    State(app): State<Arc<App>>,
+    Path(wait): Path<u32>,
+    Json(req): Json<TypeText>,
+) -> Result<Json<()>, Problem> {
+    type_text(&app.graph, &app.host, WaitId(wait), &req)?;
+    Ok(Json(()))
+}
+
+fn type_text(
+    graph: &Graph,
+    host: &NodeHost<NodeId>,
+    wait: WaitId,
+    req: &TypeText,
+) -> Result<(), Refusal> {
+    answer_dialog(graph, host, wait, &req.prompt, |now| {
+        now.field.map(|_| entered(&req.text))
+    })
+}
+
+fn answer_dialog(
+    graph: &Graph,
+    host: &NodeHost<NodeId>,
+    wait: WaitId,
+    shown: &Prompt,
+    keys: impl FnOnce(&Prompt) -> Option<Vec<u8>>,
+) -> Result<(), Refusal> {
+    let (node, agent) = graph.dialog(wait)?;
+    let profile = agent.as_ref().and_then(profile::profile_of);
+    host.write_if(node, |screen| {
+        let now = screen.screen();
+        let keys = profile::prompt(profile, &now.text, now.cols.into())
+            .filter(|now| now == shown)
+            .and_then(|now| keys(&now))
             .ok_or(Refusal::PromptChanged(wait))?;
         graph.dismiss(wait)?;
         Ok(keys)
@@ -2670,7 +2703,7 @@ mod tests {
             .unwrap();
         let shown = loop {
             let text = host.screen(node).text;
-            if let Some(prompt) = screen::prompt(&claude::PROMPT, &text, 80) {
+            if let Some(prompt) = profile::prompt(Some(Profile::Claude), &text, 80) {
                 break prompt;
             }
             std::thread::sleep(Duration::from_millis(10));
@@ -2733,7 +2766,7 @@ mod tests {
         let mut older = shown.clone();
         older.rows[3] = " touch two".into();
         assert_eq!(pick(wait, &older), Err(Refusal::PromptChanged(wait)));
-        assert_eq!(graph.approval(wait).unwrap().0, node);
+        assert_eq!(graph.dialog(wait).unwrap().0, node);
 
         assert_eq!(typed_until_mark(&mut typed), "1Z");
 
@@ -2748,7 +2781,8 @@ mod tests {
         graph.relaunched(node, &relaunched).unwrap();
         node_host::in_process(&hosts, node, screen_cmd());
         host.resume(node, |_| {}).unwrap();
-        while screen::prompt(&claude::PROMPT, &host.screen(node).text, 80).as_ref() != Some(&shown)
+        while profile::prompt(Some(Profile::Claude), &host.screen(node).text, 80).as_ref()
+            != Some(&shown)
         {
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -2757,9 +2791,190 @@ mod tests {
         assert_eq!(open("t"), vec![]);
         let newer = open("t2")[0];
         assert_eq!(pick(wait, &shown), Err(Refusal::NoWait(wait)));
-        assert_eq!(graph.approval(newer).unwrap().0, node);
+        assert_eq!(graph.dialog(newer).unwrap().0, node);
         assert_eq!(typed_until_mark(&mut typed), "Z");
         host.kill(node);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dialog_buttons_and_fields_type_into_the_terminal_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("loom.db");
+        let db = db::open(&db_path).unwrap();
+        db.lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let graph = Graph::open(db).unwrap();
+        let place = Place {
+            repo: RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let hosts = dir.path().join("hosts");
+        let host = NodeHost::new(hosts.clone());
+        let secret = "hunter2-loom";
+        let cases: [(Option<&str>, &str, WaitKind, Answer); 7] = [
+            (
+                Some("claude"),
+                include_str!("profile/screens/claude-trust.txt"),
+                WaitKind::Trust,
+                Answer::Option(1, b"\x1b[B\r"),
+            ),
+            (
+                Some("claude"),
+                include_str!("profile/screens/claude-login.txt"),
+                WaitKind::Auth,
+                Answer::Option(0, b"1"),
+            ),
+            (
+                Some("codex"),
+                include_str!("profile/screens/codex-trust.txt"),
+                WaitKind::Trust,
+                Answer::Option(0, b"1"),
+            ),
+            (
+                Some("cursor"),
+                include_str!("profile/screens/cursor-trust.txt"),
+                WaitKind::Trust,
+                Answer::Option(0, b"a"),
+            ),
+            (
+                None,
+                "$ apt remove x\nDo you want to continue? [Y/n] ",
+                WaitKind::Input,
+                Answer::Option(1, b"n\r"),
+            ),
+            (
+                None,
+                "$ sudo ls\n[sudo] password for me: ",
+                WaitKind::Input,
+                Answer::Text(secret),
+            ),
+            (
+                None,
+                "Username for 'https://example.com': ",
+                WaitKind::Input,
+                Answer::Text("me"),
+            ),
+        ];
+        for (i, (agent, screen_text, kind, answer)) in cases.into_iter().enumerate() {
+            let token = format!("t{i}");
+            let launched = Launched {
+                token: token.clone(),
+                server: None,
+                account: None,
+                rules: None,
+            };
+            let node = graph
+                .add_root(
+                    &place,
+                    agent.map(|a| crate::profile::AgentId(a.into())),
+                    None,
+                    &launched,
+                    |_| Ok(()),
+                )
+                .unwrap();
+            let fixture = dir.path().join(format!("screen{i}"));
+            let typed = dir.path().join(format!("typed{i}"));
+            std::fs::write(&fixture, screen_text.trim_end()).unwrap();
+            let expected: Vec<u8> = match answer {
+                Answer::Option(_, keys) => keys.to_vec(),
+                Answer::Text(text) => format!("{text}\r").into_bytes(),
+            };
+            let mut cmd = portable_pty::CommandBuilder::new("sh");
+            cmd.args([
+                "-c",
+                &format!(
+                    "stty -icanon -echo -icrnl; until [ \"$(stty size)\" = '40 120' ]; do sleep 0.02; done; cat '{}'; head -c {} > '{}'; printf '\\033[2J\\033[Hanswered'; exec cat",
+                    fixture.display(),
+                    expected.len(),
+                    typed.display()
+                ),
+            ]);
+            node_host::in_process(&hosts, node, cmd);
+            host.resume(node, |_| {}).unwrap();
+            host.resize(node, 120, 40);
+            let profile = agent
+                .map(|a| crate::profile::AgentId(a.into()))
+                .as_ref()
+                .and_then(profile::profile_of);
+            let shown = loop {
+                let now = host.screen(node);
+                if let Some(prompt) = profile::prompt(profile, &now.text, now.cols.into()) {
+                    break prompt;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            graph
+                .set_wait(&token, WaitSource::Screen, Some((kind, "dialog")))
+                .unwrap();
+            graph.set_prompt(node, Some(shown.clone())).unwrap();
+            let view = graph
+                .subscribe()
+                .unwrap()
+                .0
+                .into_iter()
+                .find(|v| v.id == node)
+                .unwrap();
+            let wait = view.waits[0].id;
+            assert_eq!(view.waits[0].prompt.as_ref(), Some(&shown), "{i}");
+            let sent = match answer {
+                Answer::Option(option, _) => choose(
+                    &graph,
+                    &host,
+                    wait,
+                    &ChooseOption {
+                        prompt: shown.clone(),
+                        option,
+                    },
+                ),
+                Answer::Text(text) => {
+                    let req = TypeText {
+                        prompt: shown.clone(),
+                        text: text.into(),
+                    };
+                    assert_eq!(
+                        choose(
+                            &graph,
+                            &host,
+                            wait,
+                            &ChooseOption {
+                                prompt: shown.clone(),
+                                option: 0
+                            }
+                        ),
+                        Err(Refusal::PromptChanged(wait))
+                    );
+                    type_text(&graph, &host, wait, &req)
+                }
+            };
+            assert_eq!(sent, Ok(()), "{i}");
+            assert_eq!(graph.dialog(wait), Err(Refusal::NoWait(wait)), "{i}");
+            while !host.screen(node).text.contains("answered") {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert_eq!(std::fs::read(&typed).unwrap(), expected, "{i}");
+            let now = host.screen(node);
+            assert_eq!(profile::prompt(profile, &now.text, now.cols.into()), None);
+            host.kill(node);
+        }
+        drop(graph);
+        for entry in std::fs::read_dir(dir.path()).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_file() && !path.ends_with("typed5") {
+                let bytes = std::fs::read(&path).unwrap();
+                assert!(
+                    !bytes.windows(secret.len()).any(|w| w == secret.as_bytes()),
+                    "{path:?}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    enum Answer {
+        Option(usize, &'static [u8]),
+        Text(&'static str),
     }
 
     #[tokio::test(flavor = "multi_thread")]

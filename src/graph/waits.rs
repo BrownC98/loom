@@ -64,7 +64,7 @@ pub struct WaitDoc {
     pub title: String,
 }
 
-/// 터미널 승인 창의 본문과 선택지(`screen::prompt`). 화면은 선택지마다 버튼을 그리고, 누르면 이 값을 그대로 돌려보낸다(`Graph::approval`).
+/// 터미널 창(승인, 폴더 신뢰, 로그인, 셸 입력)의 본문과 답하는 수단(`profile::prompt`). 화면은 선택지마다 버튼을, `field`가 있으면 입력칸을 그리고, 누르면 이 값을 그대로 돌려보낸다(`Graph::dialog`). 2026-10-24 목업 M20 v2 승인(Q889).
 /// 데몬은 보내기 직전 화면을 다시 읽어 같은 값일 때만 키를 친다. 그래서 다른 창에 키가 들어가지 않는다(2026-10-23 목업 M11 승인).
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -76,6 +76,19 @@ pub struct Prompt {
     /// 무엇을 승인하는지 한 줄(명령). 알약 미리 보기가 쓴다.
     pub summary: String,
     pub options: Vec<PromptOption>,
+    /// 셸 입력 물음(비밀번호, 이름)만: 글을 쳐서 답하는 칸. 데몬은 보낸 글과 Enter를 치고 그 글을 어디에도 두지 않는다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub field: Option<InputField>,
+}
+
+/// 셸 입력칸의 종류. `Secret`은 화면이 글자를 가린다.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum InputField {
+    Text,
+    Secret,
 }
 
 /// 승인 창의 선택지 하나. `label`은 터미널 글(영어) 그대로다.
@@ -86,8 +99,8 @@ pub struct PromptOption {
     pub key: PromptKey,
 }
 
-/// 선택지를 고르는 키 하나. 누르면 바로 정한다(Claude 2.1.309, Codex 0.159.2 실측: 숫자 키 하나, Enter 없음).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
+/// 선택지를 고르는 키. `Char`·`Tab`·`BackTab`은 누르면 바로 정한다(Claude 2.1.309, Codex 0.159.2 실측: 숫자 키 하나, Enter 없음).
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 #[ts(export)]
 pub enum PromptKey {
@@ -95,6 +108,10 @@ pub enum PromptKey {
     Tab,
     BackTab,
     Permission(PermissionReply),
+    /// 번호 없는 목록: 고른 줄에서 이만큼 화살표로 옮긴 뒤 Enter. 아래가 양수다(Claude 2.1.310 폴더 신뢰 창은 숫자 키를 받지 않는다).
+    Move(i8),
+    /// 셸 물음: 이 글과 Enter.
+    Line(String),
 }
 
 /// OpenCode 2 권한 요청의 답(`POST /api/session/{세션}/permission/{요청}/reply`의 `decision`).
@@ -108,12 +125,32 @@ pub enum PermissionReply {
 }
 
 impl PromptKey {
-    pub fn bytes(self) -> Option<Vec<u8>> {
+    pub fn bytes(&self) -> Option<Vec<u8>> {
         match self {
             PromptKey::Char(c) => Some(c.to_string().into_bytes()),
             PromptKey::Tab => Some(b"\t".to_vec()),
             PromptKey::BackTab => Some(b"\x1b[Z".to_vec()),
             PromptKey::Permission(_) => None,
+            PromptKey::Move(rows) => {
+                let arrow: &[u8] = if *rows < 0 { b"\x1b[A" } else { b"\x1b[B" };
+                let mut keys = arrow.repeat(rows.unsigned_abs().into());
+                keys.push(b'\r');
+                Some(keys)
+            }
+            PromptKey::Line(text) => Some(entered(text)),
+        }
+    }
+}
+
+pub fn entered(text: &str) -> Vec<u8> {
+    format!("{text}\r").into_bytes()
+}
+
+impl WaitKind {
+    pub fn has_dialog(self) -> bool {
+        match self {
+            WaitKind::Approval | WaitKind::Trust | WaitKind::Auth | WaitKind::Input => true,
+            WaitKind::Question | WaitKind::Done => false,
         }
     }
 }
@@ -129,7 +166,7 @@ pub struct HumanWait {
     /// 대기가 시작된 유닉스 초.
     #[ts(type = "number")]
     pub since: i64,
-    /// `loom ask` 질문이나 완료다. 화면에서 답할 수 있다(`Graph::answer`). 완료의 답은 이어서 맡기는 일이다. 다른 대기는 그 노드 터미널에서만 답한다.
+    /// `loom ask` 질문이나 완료다. 화면에서 답할 수 있다(`Graph::answer`). 완료의 답은 이어서 맡기는 일이다. 다른 대기는 `prompt`의 버튼·입력칸이나 그 노드 터미널에서 답한다.
     pub answerable: bool,
     pub doc: Option<WaitDoc>,
     /// 완료(`Done`)만: 그 일을 맡긴 사람의 지시(`loom done --asked`). `text`는 결과(`loom done`의 요약)다.
@@ -139,7 +176,7 @@ pub struct HumanWait {
     /// 완료(`Done`)만: 사람이 그 지시에 준 그림의 데몬 기계 경로(`loom done --image`). 화면은 `GET /api/waits/{id}/images/{index}`로 읽는다.
     #[serde(default)]
     pub images: Vec<String>,
-    /// 승인(`Approval`) 신호 대기만: 지금 터미널 화면에서 읽은 승인 창. 읽지 못했으면 없다. DB에 두지 않는다(`Graph::set_prompt`).
+    /// 터미널 창 대기(`WaitKind::has_dialog`)만: 지금 터미널 화면에서 읽은 창. 읽지 못했으면 없다. DB에 두지 않는다(`Graph::set_prompt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub prompt: Option<Prompt>,
@@ -444,17 +481,21 @@ impl Graph {
             .ok_or(Refusal::NoWait(wait))
     }
 
-    pub fn approval(&self, wait: WaitId) -> Result<(NodeId, Option<AgentId>), Refusal> {
-        let found: Option<(u32, Option<AgentId>)> = self
+    pub fn dialog(&self, wait: WaitId) -> Result<(NodeId, Option<AgentId>), Refusal> {
+        let found: Option<(u32, Option<AgentId>, Stored)> = self
             .lock()
             .query_row(
-                "SELECT id, agent FROM nodes WHERE wait ->> 'id' = ?1 AND wait ->> 'kind' = 'approval'",
+                "SELECT id, agent, wait FROM nodes WHERE wait ->> 'id' = ?1",
                 [wait.0],
-                |row| Ok((row.get(0)?, from_json(row, 1)?)),
+                |row| Ok((row.get(0)?, from_json(row, 1)?, from_json(row, 2)?)),
             )
             .optional()?;
-        let (node, agent) = found.ok_or(Refusal::NoWait(wait))?;
-        Ok((NodeId(node), agent))
+        match found {
+            Some((node, agent, stored)) if stored.wait.kind.has_dialog() => {
+                Ok((NodeId(node), agent))
+            }
+            _ => Err(Refusal::NoWait(wait)),
+        }
     }
 }
 

@@ -13,8 +13,8 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::graph::{Delivery, Kind, OpenQuestion, WaitKind};
-use crate::screen::{Dialog, Grammar, Place};
+use crate::graph::{Delivery, InputField, Kind, OpenQuestion, Prompt as ScreenPrompt, WaitKind};
+use crate::screen::{self, Dialog, Grammar, LinePrompt, Place, Reply};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
@@ -296,13 +296,38 @@ pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
     }
 }
 
-pub fn prompt_grammar(profile: Option<Profile>) -> Option<&'static Grammar> {
-    match profile? {
-        Profile::Claude => Some(&claude::PROMPT),
-        Profile::Codex => Some(&codex::PROMPT),
-        Profile::Cursor => Some(&cursor::PROMPT),
-        Profile::OpenCode2 => None,
-    }
+const SHELL_PROMPTS: [LinePrompt; 5] = [
+    LinePrompt {
+        text: "password",
+        reply: Reply::Field(InputField::Secret),
+    },
+    LinePrompt {
+        text: "passphrase",
+        reply: Reply::Field(InputField::Secret),
+    },
+    LinePrompt {
+        text: "(yes/no",
+        reply: Reply::Words(&[("yes", "yes"), ("no", "no")]),
+    },
+    LinePrompt {
+        text: "[y/n]",
+        reply: Reply::Words(&[("y", "yes"), ("n", "no")]),
+    },
+    LinePrompt {
+        text: "Username for '",
+        reply: Reply::Field(InputField::Text),
+    },
+];
+
+pub fn prompt(profile: Option<Profile>, screen: &str, width: usize) -> Option<ScreenPrompt> {
+    let grammars: &[Grammar] = match profile {
+        Some(Profile::Claude) => &claude::PROMPTS,
+        Some(Profile::Codex) => &codex::PROMPTS,
+        Some(Profile::Cursor) => &cursor::PROMPTS,
+        Some(Profile::OpenCode2) => &[],
+        None => return screen::line_prompt(&SHELL_PROMPTS, screen),
+    };
+    screen::prompt(grammars, screen, width)
 }
 
 pub fn profile_of(id: &AgentId) -> Option<Profile> {
@@ -764,6 +789,26 @@ mod tests {
             leading_args(codex, None, true),
             ["--dangerously-bypass-approvals-and-sandbox"]
         );
+    }
+
+    #[test]
+    fn every_shell_dialog_has_buttons_or_a_field() {
+        for dialog in &SHELL_DIALOGS {
+            let screen = format!("$ run\nAsk {} here: ", dialog.text);
+            let shown = prompt(None, &screen, 80).unwrap();
+            assert_ne!(
+                shown.field.is_some(),
+                !shown.options.is_empty(),
+                "{}",
+                dialog.text
+            );
+            assert_eq!(shown.rows, [format!("Ask {} here: ", dialog.text)]);
+        }
+        let secret = prompt(None, "[sudo] password for me: ", 80).unwrap();
+        assert_eq!(secret.field, Some(InputField::Secret));
+        let words = prompt(None, "Continue? [Y/n] ", 80).unwrap();
+        assert_eq!(words.options[0].key.bytes().unwrap(), b"y\r");
+        assert_eq!(prompt(None, "[sudo] password for me:\nfile\n$ ", 80), None);
     }
 
     #[test]

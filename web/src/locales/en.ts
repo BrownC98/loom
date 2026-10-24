@@ -389,6 +389,9 @@ const en = {
     removeImage: 'Remove image',
     notImage: '{{name}}: not an image. Only images can be attached.',
     toTerminal: 'Answer in the terminal',
+    secretLabel: 'Password',
+    textLabel: 'Text to type',
+    typeSend: 'Type into the terminal',
   },
   wait: {
     label: 'waiting for you',

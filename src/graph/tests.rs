@@ -228,7 +228,7 @@ fn signal_wait_has_one_entry_and_clears_by_source_key_and_exit() {
 }
 
 #[test]
-fn screen_prompt_joins_only_the_approval_wait_in_either_order() {
+fn screen_prompt_joins_only_dialog_waits_in_either_order() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "claude");
@@ -240,6 +240,7 @@ fn screen_prompt_joins_only_the_approval_wait_in_either_order() {
             label: "Yes".into(),
             key: PromptKey::Char('1'),
         }],
+        field: None,
     };
     let shown = |g: &Graph| view(g, lead).waits.first().and_then(|w| w.prompt.clone());
     let permission = Some((WaitKind::Approval, "Claude needs your permission"));
@@ -250,24 +251,33 @@ fn screen_prompt_joins_only_the_approval_wait_in_either_order() {
     g.set_prompt(lead, Some(prompt.clone())).unwrap();
     assert_eq!(shown(&g), Some(prompt.clone()));
     let wait = view(&g, lead).waits[0].id;
-    assert_eq!(g.approval(wait).unwrap().0, lead);
+    assert_eq!(g.dialog(wait).unwrap().0, lead);
     g.typed(lead).unwrap();
-    assert_eq!(g.approval(wait), Err(Refusal::NoWait(wait)));
+    assert_eq!(g.dialog(wait), Err(Refusal::NoWait(wait)));
 
     g.set_wait(&token(&g, lead), WaitSource::Hook, permission)
         .unwrap();
     assert_eq!(shown(&g), Some(prompt.clone()));
 
+    for kind in [WaitKind::Trust, WaitKind::Auth, WaitKind::Input] {
+        g.typed(lead).unwrap();
+        g.set_wait(&token(&g, lead), WaitSource::Screen, Some((kind, "t")))
+            .unwrap();
+        assert_eq!(shown(&g), Some(prompt.clone()), "{kind:?}");
+        let wait = view(&g, lead).waits[0].id;
+        assert_eq!(g.dialog(wait).unwrap().0, lead, "{kind:?}");
+    }
+
     g.typed(lead).unwrap();
     g.set_wait(
         &token(&g, lead),
-        WaitSource::Screen,
-        Some((WaitKind::Trust, "t")),
+        WaitSource::Hook,
+        Some((WaitKind::Question, "q")),
     )
     .unwrap();
     assert_eq!(shown(&g), None);
-    let trust = view(&g, lead).waits[0].id;
-    assert_eq!(g.approval(trust), Err(Refusal::NoWait(trust)));
+    let question = view(&g, lead).waits[0].id;
+    assert_eq!(g.dialog(question), Err(Refusal::NoWait(question)));
     g.set_prompt(lead, None).unwrap();
 }
 

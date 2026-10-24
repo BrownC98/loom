@@ -27,6 +27,15 @@ pub const PROMPT: Grammar = Grammar {
     guard: None,
 };
 
+pub const PROMPTS: [Grammar; 2] = [
+    PROMPT,
+    Grammar {
+        top: Top::Line("Trust this folder?"),
+        options: Options::Numbered,
+        guard: None,
+    },
+];
+
 pub const PINNED_VERSION: &str = "0.159.2";
 pub const DIALOGS: [Dialog; 2] = [
     Dialog {
@@ -389,8 +398,31 @@ mod tests {
     );
 
     #[test]
+    fn the_trust_dialog_has_buttons() {
+        let prompt =
+            crate::screen::prompt(&PROMPTS, include_str!("screens/codex-trust.txt"), 100).unwrap();
+        assert!(
+            prompt.body[0].starts_with("Trust this folder? Codex can read"),
+            "{:?}",
+            prompt.body
+        );
+        let options: Vec<_> = prompt
+            .options
+            .iter()
+            .map(|o| (o.label.as_str(), &o.key))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                ("Trust and continue", &PromptKey::Char('1')),
+                ("Quit", &PromptKey::Char('2'))
+            ]
+        );
+    }
+
+    #[test]
     fn wrapped_reason_and_option_are_joined() {
-        let prompt = crate::screen::prompt(&PROMPT, NARROW, 80).unwrap();
+        let prompt = crate::screen::prompt(&PROMPTS, NARROW, 80).unwrap();
         assert_eq!(
             prompt.body[2],
             "Reason: May I run the requested curl command with network access outside the sandbox?"
@@ -403,7 +435,7 @@ mod tests {
 
     #[test]
     fn approval_prompt_is_read_from_the_screen() {
-        let prompt = crate::screen::prompt(&PROMPT, APPROVAL, 120).unwrap();
+        let prompt = crate::screen::prompt(&PROMPTS, APPROVAL, 120).unwrap();
         assert_eq!(
             prompt.body[0],
             "Would you like to run the following command?"
@@ -412,7 +444,7 @@ mod tests {
         let options: Vec<_> = prompt
             .options
             .iter()
-            .map(|o| (o.label.as_str(), o.key))
+            .map(|o| (o.label.as_str(), o.key.clone()))
             .collect();
         assert_eq!(
             options,

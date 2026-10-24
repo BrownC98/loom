@@ -8,25 +8,36 @@ type Message = { role: string; content: string | Part[] };
 const GUARD = "loom guard";
 const MESSAGE = "loom";
 const IDLE_FLAG = "loom-idle";
+const RETRY_MS = 250;
+
+function parse(out: string): Reply {
+  try {
+    return JSON.parse(out) as Reply;
+  } catch {
+    return {};
+  }
+}
 
 function call(input: Record<string, unknown>, ctx: ExtensionContext, signal?: AbortSignal): Promise<Reply> {
   return new Promise((resolve) => {
     const child = spawn("loom", ["pi-hook"], { stdio: ["pipe", "pipe", "pipe"], signal, windowsHide: true });
     let out = "";
     let err = "";
-    child.stdout.on("data", (chunk) => (out += chunk));
-    child.stderr.on("data", (chunk) => (err += chunk));
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      out += chunk;
+      const end = out.indexOf("\n");
+      if (end >= 0) resolve(parse(out.slice(0, end)));
+    });
+    child.stderr.on("data", (chunk: string) => (err += chunk));
     child.on("error", (e) => {
       if (!signal?.aborted && ctx.hasUI) ctx.ui.notify(`loom pi-hook: ${e.message}`, "error");
       resolve({});
     });
     child.on("close", (code) => {
       if (code !== 0 && err.trim() && ctx.hasUI) ctx.ui.notify(err.trim(), "error");
-      try {
-        resolve(JSON.parse(out) as Reply);
-      } catch {
-        resolve({});
-      }
+      resolve(parse(out));
     });
     child.stdin.on("error", () => {});
     child.stdin.end(JSON.stringify(input));
@@ -58,23 +69,22 @@ function lastText(messages: Message[]): string | undefined {
 
 export default function (pi: ExtensionAPI) {
   let lastReply: string | undefined;
-  let idle: AbortController | undefined;
+  const shutdown = new AbortController();
 
   pi.registerFlag(IDLE_FLAG, { type: "boolean", default: false, description: "Wait for loom mail when the session starts without a prompt" });
 
   const deliver = (text: string, ctx: ExtensionContext) => {
-    const message = { customType: MESSAGE, content: text, display: true };
-    if (ctx.isIdle()) pi.sendMessage(message, { triggerTurn: true });
-    else pi.sendMessage(message, { deliverAs: "steer" });
+    if (shutdown.signal.aborted) return;
+    if (ctx.isIdle() || ctx.signal) {
+      pi.sendMessage({ customType: MESSAGE, content: text, display: true }, { triggerTurn: true, deliverAs: "steer" });
+    } else {
+      setTimeout(() => deliver(text, ctx), RETRY_MS);
+    }
   };
 
   const wait = async (event: string, ctx: ExtensionContext, reply?: string) => {
-    idle?.abort();
-    const mine = new AbortController();
-    idle = mine;
-    const { text } = await call({ event, reply, ...state(ctx) }, ctx, mine.signal);
-    if (idle === mine) idle = undefined;
-    if (text && !mine.signal.aborted) deliver(text, ctx);
+    const { text } = await call({ event, reply, ...state(ctx) }, ctx, shutdown.signal);
+    if (text) deliver(text, ctx);
   };
 
   pi.on("session_start", async (event, ctx) => {
@@ -114,8 +124,5 @@ export default function (pi: ExtensionAPI) {
     void wait("settled", ctx, reply);
   });
 
-  pi.on("session_shutdown", () => {
-    idle?.abort();
-    idle = undefined;
-  });
+  pi.on("session_shutdown", () => shutdown.abort());
 }

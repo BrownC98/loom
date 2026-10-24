@@ -1,4 +1,4 @@
-Agent logos in this folder belong to their projects. loom shows each one only
+Agent logos in web/src/agent-logos belong to their projects. loom shows each one only
 to identify the agent that a node runs. Each file comes from the project's own
 repository under that repository's license. Changes: the viewBox of
 autohand.svg and continue.svg is cropped or padded, and the background circle

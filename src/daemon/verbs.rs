@@ -92,6 +92,47 @@ async fn spawn(app: &Arc<App>, parent: NodeId, req: SpawnRequest) -> Result<Node
     spawned
 }
 
+fn role_refusal(e: RoleProblem) -> Refusal {
+    match e {
+        RoleProblem::Unknown { role, names } => Refusal::UnknownRole { role, names },
+        RoleProblem::NoAgent { role } => Refusal::RoleHasNoAgent { role },
+        RoleProblem::UnknownAgent(_) => Refusal::Launch(e.to_string()),
+    }
+}
+
+pub(super) async fn agent_set_role(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(req): Json<SetRole>,
+) -> Result<Json<Roles>, AgentError> {
+    let caller = app.caller(&headers)?;
+    let via = gate::via(&headers, "/api/agent/roles/set");
+    let set = set_role(&app, caller, &req);
+    if set.is_ok() {
+        app.graph.publish_view_changed();
+    }
+    traced(&app, caller, Attempt::verb(&req.role), &via, set)
+}
+
+fn set_role(app: &App, caller: NodeId, req: &SetRole) -> Result<Roles, Problem> {
+    if app.graph.relations(caller)?.parent.is_some() {
+        return Err(Refusal::RolesHaveParent.into());
+    }
+    let next = app
+        .settings
+        .get()
+        .map_err(internal)?
+        .roles
+        .with(req)
+        .map_err(role_refusal)?;
+    let patch = serde_json::json!({ "roles": next });
+    match app.settings.patch(&patch) {
+        Ok(view) => Ok(view.roles),
+        Err(crate::settings::PatchProblem::Db(e)) => Err(internal(e)),
+        Err(crate::settings::PatchProblem::Shape(e)) => Err(Refusal::Launch(e).into()),
+    }
+}
+
 fn role_start(app: &App, role: &str, brief: &str) -> Result<Start, Problem> {
     let assigned = app
         .settings
@@ -99,10 +140,7 @@ fn role_start(app: &App, role: &str, brief: &str) -> Result<Start, Problem> {
         .map_err(internal)?
         .roles
         .assign(role, brief)
-        .map_err(|e| match e {
-            RoleProblem::Unknown { role, names } => Refusal::UnknownRole { role, names },
-            RoleProblem::NoAgent { role } => Refusal::RoleHasNoAgent { role },
-        })?;
+        .map_err(role_refusal)?;
     Ok(Start::Agent {
         agent: assigned.agent,
         brief: assigned.brief,

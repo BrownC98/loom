@@ -219,6 +219,10 @@ fn find(id: &AgentId) -> Option<&'static Agent> {
     CATALOG.iter().find(|a| a.id == *id)
 }
 
+pub(crate) fn known_agent(id: &AgentId) -> bool {
+    find(id).is_some()
+}
+
 pub(crate) fn check_choice(id: &AgentId, choice: &ModelChoice) -> Result<(), LaunchError> {
     find(id).map_or(Ok(()), |agent| choice_args(agent, choice).map(drop))
 }

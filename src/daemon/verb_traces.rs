@@ -12,7 +12,10 @@ const UNTRACED: [(&str, &str); 15] = [
     ("open", "opens the screen"),
     ("stop", "stops the daemon"),
     ("carry", "moves an old daemon's data"),
-    ("roles", "reads the settings"),
+    (
+        "roles",
+        "reads the settings; `roles set` leaves a refusal event and view-changed (see roles_set_*)",
+    ),
     ("status", "reads the graph"),
     (
         "wait",
@@ -968,4 +971,109 @@ fn spawn_takes_a_role_and_never_an_agent_model_or_effort() {
         branch: " 기계화".into(),
     };
     assert_eq!(review.name(), "검토자 기계화");
+}
+
+fn set(role: &str, agent: &str, model: Option<&str>, effort: Option<&str>) -> Json<SetRole> {
+    Json(SetRole {
+        role: role.into(),
+        agent: AgentId(agent.into()),
+        model: model.map(Into::into),
+        effort: effort.map(Into::into),
+    })
+}
+
+#[tokio::test]
+async fn roles_set_changes_one_role_and_publishes_view_changed() {
+    let t = fixture();
+    let (_, mut events) = t.app.graph.subscribe().unwrap();
+    let Json(got) = agent_set_role(
+        t.state(),
+        headers(LEAD, "roles"),
+        set("워커", "codex", Some("m"), None),
+    )
+    .await
+    .unwrap();
+    let before = Roles::default();
+    let worker = got.0.iter().find(|r| r.name == "워커").unwrap();
+    assert_eq!(worker.agent, Some(AgentId("codex".into())));
+    assert_eq!(worker.model.as_deref(), Some("m"));
+    assert_eq!(worker.effort, None);
+    assert_eq!(worker.duty, before.0[2].duty);
+    assert_eq!(got.0.len(), before.0.len());
+    assert_eq!(t.app.settings.get().unwrap().roles, got);
+    assert!(matches!(
+        events.try_recv(),
+        Ok(crate::graph::GraphEvent::ViewChanged)
+    ));
+}
+
+#[tokio::test]
+async fn roles_set_refuses_a_child_an_unknown_role_and_an_unknown_agent() {
+    let t = fixture();
+    let (_, mut events) = t.app.graph.subscribe().unwrap();
+    let mark = t.mark();
+    let refused = agent_set_role(
+        t.state(),
+        headers(WORKER, "roles"),
+        set("워커", "claude", None, None),
+    )
+    .await;
+    assert_eq!(t.refused("roles", mark, refused), Refusal::RolesHaveParent);
+
+    let mark = t.mark();
+    let refused = agent_set_role(
+        t.state(),
+        headers(LEAD, "roles"),
+        set("없는역할", "claude", None, None),
+    )
+    .await;
+    assert!(matches!(
+        t.refused("roles", mark, refused),
+        Refusal::UnknownRole { .. }
+    ));
+
+    let mark = t.mark();
+    let refused = agent_set_role(
+        t.state(),
+        headers(LEAD, "roles"),
+        set("워커", "nobody", None, None),
+    )
+    .await;
+    assert!(matches!(
+        t.refused("roles", mark, refused),
+        Refusal::Launch(_)
+    ));
+
+    let mark = t.mark();
+    let refused = agent_set_role(
+        t.state(),
+        headers(LEAD, "roles"),
+        set("워커", "cursor", None, Some("high")),
+    )
+    .await;
+    assert!(matches!(
+        t.refused("roles", mark, refused),
+        Refusal::Launch(_)
+    ));
+
+    assert_eq!(t.app.settings.get().unwrap().roles, Roles::default());
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(event, crate::graph::GraphEvent::ViewChanged));
+    }
+}
+
+#[test]
+fn roles_set_needs_an_agent_and_roles_alone_still_parses() {
+    let parse =
+        |args: &[&str]| crate::Cli::try_parse_from(["loom", "roles"].iter().chain(args).copied());
+    assert!(parse(&[]).is_ok());
+    assert!(parse(&["set", "워커"]).is_err());
+    assert!(parse(&["set", "워커", "--effort", "high"]).is_err());
+    assert!(parse(&["set", "워커", "--agent", "claude"]).is_ok());
+    assert!(
+        parse(&[
+            "set", "워커", "--agent", "claude", "--model", "m", "--effort", "high"
+        ])
+        .is_ok()
+    );
 }

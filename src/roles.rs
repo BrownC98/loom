@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::{AgentId, ModelChoice, check_choice};
+use crate::profile::{AgentId, ModelChoice, check_choice, known_agent};
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -100,6 +100,15 @@ pub struct Assignment {
 pub enum RoleProblem {
     Unknown { role: String, names: Vec<String> },
     NoAgent { role: String },
+    UnknownAgent(AgentId),
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SetRole {
+    pub role: String,
+    pub agent: AgentId,
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 impl std::fmt::Display for RoleProblem {
@@ -116,11 +125,34 @@ impl std::fmt::Display for RoleProblem {
                     "역할 '{role}'에는 에이전트가 없다. 이 역할은 사람이 띄운다."
                 )
             }
+            RoleProblem::UnknownAgent(agent) => {
+                write!(f, "에이전트 '{}'이 카탈로그에 없다.", agent.0)
+            }
         }
     }
 }
 
 impl Roles {
+    pub fn with(&self, set: &SetRole) -> Result<Roles, RoleProblem> {
+        if !known_agent(&set.agent) {
+            return Err(RoleProblem::UnknownAgent(set.agent.clone()));
+        }
+        let name = set.role.trim();
+        let mut next = self.clone();
+        let role =
+            next.0
+                .iter_mut()
+                .find(|r| r.name == name)
+                .ok_or_else(|| RoleProblem::Unknown {
+                    role: set.role.clone(),
+                    names: self.0.iter().map(|r| r.name.clone()).collect(),
+                })?;
+        role.agent = Some(set.agent.clone());
+        role.model = set.model.clone();
+        role.effort = set.effort.clone();
+        Ok(next)
+    }
+
     pub fn launch_problem(&self) -> Option<String> {
         self.0.iter().find_map(|role| {
             let agent = role.agent.as_ref()?;

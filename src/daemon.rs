@@ -70,7 +70,7 @@ use crate::profile::{
     self, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
 };
 use crate::protocol::{MessageKind, Question};
-use crate::roles::{RoleProblem, Roles};
+use crate::roles::{RoleProblem, Roles, SetRole};
 use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
@@ -82,7 +82,7 @@ use crate::worktree::{self, FolderList, RepoId, RepoProblem, RepoView, Repos, Wo
 use crate::wsl;
 use verbs::{
     Attempt, agent_adopt, agent_answer, agent_answered, agent_ask, agent_done, agent_note,
-    agent_remove, agent_spawn, traced,
+    agent_remove, agent_set_role, agent_spawn, traced,
 };
 
 #[derive(Embed)]
@@ -553,6 +553,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/guard", post(agent_guard))
         .route("/api/agent/model", post(agent_model))
         .route("/api/agent/roles", post(agent_roles))
+        .route("/api/agent/roles/set", post(agent_set_role))
         .route("/api/agent/question", post(agent_question))
         .route("/api/agent/done", post(agent_done))
         .route("/api/agent/ask", post(agent_ask))

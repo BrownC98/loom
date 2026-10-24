@@ -68,6 +68,7 @@ fn named(name: &str) -> NewChild<'_> {
         brief: "",
         role: None,
         task: name,
+        review: None,
     }
 }
 
@@ -2194,6 +2195,7 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
                 brief,
                 role: None,
                 task: name,
+                review: None,
             },
             TreeLimits::default(),
             &launched(),

@@ -92,6 +92,9 @@ enum Cli {
         /// 설정의 o-mode 역할(`loom roles`). 그 역할의 에이전트·모델·강도로 띄우고 지시문 앞에 책임을 붙인다. 따로 준 `--agent`·`--model`·`--effort`가 이긴다.
         #[arg(long, conflicts_with = "command")]
         role: Option<String>,
+        /// 자식이 검토할 브랜치. 내가 관문인 그 브랜치의 검토자로 띄운다. 그 브랜치의 판정은 이렇게 띄운 자식만 한다.
+        #[arg(long, conflicts_with = "command")]
+        review: Option<String>,
         /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
         #[arg(long)]
         file: Option<PathBuf>,
@@ -170,7 +173,7 @@ enum Cli {
     /// 관문은 loom이 고른다: 부모가 코디면 코디(대상은 코디 브랜치), 아니면 담당 자신(대상은 원래 체크아웃의 브랜치).
     /// 관문 스크립트가 없는 저장소에서도 관문에 알린다. 그때는 관문 상태가 없고, 관문이 손으로 병합해 `loom done`으로 알린다.
     Ready { branch: String },
-    /// 병합 관문: 판정을 넣는다. 관문이 띄운 검토자만 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
+    /// 병합 관문: 판정을 넣는다. 관문이 `loom spawn <이름> --review <브랜치>`로 띄운 그 브랜치의 검토자만 부른다. block은 결함 파일이 꼭 있고 담당에게 반려로 간다.
     /// pass는 브랜치를 데몬의 병합 큐에 세운다. 큐가 쌓고, `scripts/gate/check.sh`로 검사하고, 병합(main이면 push와 `scripts/gate/ship.sh` 배포 확인)하고, merged·rework·failed로 알린다.
     Verdict {
         branch: String,
@@ -237,19 +240,21 @@ fn main() -> ExitCode {
             worktree,
             agent,
             role,
+            review,
             file,
             model,
             effort,
             command,
-        } => cli::spawn(
+        } => cli::spawn(cli::Spawn {
             name,
             worktree,
             agent,
             role,
-            file.map(wsl::from_caller),
-            ModelChoice { model, effort },
+            review,
+            file: file.map(wsl::from_caller),
+            choice: ModelChoice { model, effort },
             command,
-        ),
+        }),
         Cli::Roles => cli::roles(),
         Cli::Note {
             name,

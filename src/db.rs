@@ -227,10 +227,10 @@ const STEPS: &[M] = &[
     ),
     M::up(
         r#"ALTER TABLE gates DROP COLUMN run;
+        ALTER TABLE nodes ADD COLUMN review TEXT;
         ALTER TABLE gates ADD COLUMN queued INTEGER;
         ALTER TABLE gates ADD COLUMN seq INTEGER;
         ALTER TABLE gates ADD COLUMN batch INTEGER;
-        ALTER TABLE gates ADD COLUMN mark INTEGER NOT NULL DEFAULT 0;
         UPDATE gates SET state = '"merging"' WHERE state IN ('"passed"', '"merging"')
             OR (state = '"ready"' AND gate IS NOT coalesce((SELECT p.id FROM nodes o JOIN nodes p ON p.id = o.parent
                 WHERE o.id = gates.owner AND p.role = '코디'), owner));

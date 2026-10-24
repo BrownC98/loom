@@ -73,7 +73,6 @@ struct Row {
     worktree: String,
     state: GateState,
     head: String,
-    mark: u32,
 }
 
 impl Row {
@@ -145,11 +144,11 @@ impl Graph {
             via,
             |tx, row| {
                 tx.execute(
-                    "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated, mark)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch(), (SELECT max(id) FROM nodes))
+                    "INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch())
                      ON CONFLICT (repo, branch) DO UPDATE SET owner = ?3, gate = ?4, target = ?5, worktree = ?6,
                         state = ?7, head = ?8, verdict = NULL, queued = NULL, seq = NULL, batch = NULL, opened = unixepoch(),
-                        updated = unixepoch(), mark = (SELECT max(id) FROM nodes)",
+                        updated = unixepoch()",
                     params![
                         repo.0,
                         round.branch,
@@ -233,12 +232,6 @@ impl Graph {
             ..Detail::default()
         };
         let repo = place_of(&self.lock(), caller)?.repo;
-        if let Some(judged) = other_verdict(&self.lock(), caller, branch)? {
-            return Err(Refusal::OneBranch {
-                branch: branch.to_owned(),
-                judged,
-            });
-        }
         let row = self.apply(
             Caller::Node(caller),
             repo,
@@ -549,7 +542,6 @@ impl Graph {
                 worktree: String::new(),
                 state: to,
                 head: String::new(),
-                mark: 0,
             },
         };
         write(&tx, &row)?;
@@ -670,7 +662,13 @@ fn allowed_caller(
             Err(Refusal::OwnVerdict(branch.to_owned()))
         }
         (Caller::Node(me), Some(row), Sender::Reviewer) => match parent_of(db, me)? {
-            Some(parent) if parent == row.gate => Ok(()),
+            Some(parent) if parent == row.gate => match review_of(db, me)? {
+                Some(review) if review == branch => Ok(()),
+                review => Err(Refusal::NotReviewer {
+                    branch: branch.to_owned(),
+                    review,
+                }),
+            },
             _ => not_gate(row),
         },
         (Caller::Node(me), Some(row), Sender::Gate) if row.gate == me => Ok(()),
@@ -698,14 +696,13 @@ fn withdraw(
     let reviewers: Vec<(NodeId, Option<AgentId>)> = tx
         .prepare(&format!(
             "SELECT n.id, n.agent FROM nodes n WHERE {} AND n.id != ?3 ORDER BY n.id",
-            in_round("?1", "?2", "?4", "?5")
+            in_round("?1", "?2", "?4")
         ))?
         .query_map(
             params![
                 row.gate.0,
                 row.owner.0,
                 caller.node().map_or(0, |n| n.0),
-                row.mark,
                 branch
             ],
             |r| Ok((NodeId(r.get(0)?), from_json(r, 1)?)),
@@ -726,12 +723,6 @@ fn withdraw(
     Ok(reviewers.into_iter().map(|(node, _)| node).collect())
 }
 
-fn reviewer(gate: &str, owner: &str) -> String {
-    format!(
-        "n.parent = {gate} AND n.id != {owner} AND {REACHABLE} AND n.task IS (SELECT task FROM nodes WHERE id = {gate})"
-    )
-}
-
 fn pending(
     tx: &Transaction,
     caller: Caller,
@@ -739,15 +730,14 @@ fn pending(
     branch: &str,
 ) -> rusqlite::Result<Vec<String>> {
     tx.prepare(&format!(
-        "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?5 ORDER BY n.id",
-        in_round("?1", "?2", "?3", "?4"),
-        done("?2", "?4")
+        "SELECT n.name FROM nodes n WHERE {} AND NOT {} AND n.id != ?4 ORDER BY n.id",
+        in_round("?1", "?2", "?3"),
+        voted("?3", "?2")
     ))?
     .query_map(
         params![
             row.gate.0,
             row.owner.0,
-            row.mark,
             branch,
             caller.node().map_or(0, |n| n.0)
         ],
@@ -756,61 +746,30 @@ fn pending(
     .collect()
 }
 
-fn in_round(gate: &str, owner: &str, mark: &str, branch: &str) -> String {
-    format!(
-        "({} AND ({} OR {} OR (n.id > {mark} AND NOT {})))",
-        reviewer(gate, owner),
-        judged(branch),
-        withdrawn_from(branch),
-        judged_any()
-    )
+fn in_round(gate: &str, owner: &str, branch: &str) -> String {
+    format!("(n.parent = {gate} AND n.id != {owner} AND {REACHABLE} AND n.review = {branch})")
 }
 
-fn done(owner: &str, branch: &str) -> String {
-    voted(branch, owner)
+pub(super) fn check_review(
+    db: &Connection,
+    parent: NodeId,
+    repo: RepoId,
+    branch: &str,
+) -> Result<(), Refusal> {
+    match load(db, repo, branch)? {
+        None => Err(Refusal::NoRound(branch.to_owned())),
+        Some(row) if row.gate != parent => Err(Refusal::NotGate {
+            branch: branch.to_owned(),
+            gate: name_of(db, row.gate)?,
+        }),
+        Some(_) => Ok(()),
+    }
 }
 
-fn judged(branch: &str) -> String {
-    format!(
-        "EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
-            AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' = {branch}
-            AND e.entry ->> '$.from.id' = n.id)"
-    )
-}
-
-fn withdrawn_from(branch: &str) -> String {
-    format!(
-        "(EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
-            AND e.entry ->> '$.what.kind' = 'withdrawn' AND e.entry ->> '$.what.branch' = {branch}
-            AND e.entry ->> '$.to.id' = n.id)
-          AND NOT EXISTS (SELECT 1 FROM events e WHERE {}))",
-        other_verdict_of("n.id", branch)
-    )
-}
-
-fn other_verdict_of(node: &str, branch: &str) -> String {
-    format!(
-        "e.entry ->> '$.kind' = 'message' AND e.entry ->> '$.gate.verb' = 'verdict'
-            AND e.entry ->> '$.gate.branch' != {branch} AND e.entry ->> '$.from.id' = {node}"
-    )
-}
-
-fn other_verdict(db: &Connection, node: NodeId, branch: &str) -> rusqlite::Result<Option<String>> {
-    db.query_row(
-        &format!(
-            "SELECT e.entry ->> '$.gate.branch' FROM events e WHERE {} LIMIT 1",
-            other_verdict_of("?1", "?2")
-        ),
-        params![node.0, branch],
-        |r| r.get(0),
-    )
-    .optional()
-}
-
-fn judged_any() -> String {
-    "EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
-        AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.from.id' = n.id)"
-        .to_owned()
+fn review_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<String>> {
+    db.query_row("SELECT review FROM nodes WHERE id = ?1", [node.0], |row| {
+        row.get(0)
+    })
 }
 
 fn voted(branch: &str, owner: &str) -> String {
@@ -880,8 +839,8 @@ fn exists(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {
 fn settled() -> String {
     format!(
         "state = '\"passed\"' AND NOT EXISTS (SELECT 1 FROM nodes n WHERE {} AND NOT {})",
-        in_round("gates.gate", "gates.owner", "gates.mark", "gates.branch"),
-        done("gates.owner", "gates.branch")
+        in_round("gates.gate", "gates.owner", "gates.branch"),
+        voted("gates.branch", "gates.owner")
     )
 }
 
@@ -900,7 +859,7 @@ fn read_queued(r: &rusqlite::Row) -> rusqlite::Result<Queued> {
 
 fn load(db: &Connection, repo: RepoId, branch: &str) -> rusqlite::Result<Option<Row>> {
     db.query_row(
-        "SELECT owner, gate, target, worktree, state, head, mark FROM gates WHERE repo = ?1 AND branch = ?2",
+        "SELECT owner, gate, target, worktree, state, head FROM gates WHERE repo = ?1 AND branch = ?2",
         params![repo.0, branch],
         |row| {
             Ok(Row {
@@ -910,7 +869,6 @@ fn load(db: &Connection, repo: RepoId, branch: &str) -> rusqlite::Result<Option<
                 worktree: row.get(3)?,
                 state: from_json(row, 4)?,
                 head: row.get(5)?,
-                mark: row.get(6)?,
             })
         },
     )

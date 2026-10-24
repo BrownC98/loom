@@ -238,6 +238,7 @@ mod tests {
             brief: "",
             role: None,
             task: "t",
+            review: None,
         };
         let limits = TreeLimits {
             max_depth: None,

@@ -301,6 +301,8 @@ pub struct SpawnRequest {
     pub choice: ModelChoice,
     #[serde(default)]
     pub role: Option<String>,
+    #[serde(default)]
+    pub review: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

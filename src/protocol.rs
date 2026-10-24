@@ -235,7 +235,7 @@ pub fn held_step(to: Receiver, reviewers: &[String]) -> String {
 pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
     match (call, to) {
         (GateCall::Ready, _) => format!(
-            "Next: spawn a reviewer as your child (without --worktree). It reviews the branch and calls `loom verdict {branch} pass|block --findings <file>`."
+            "Next: spawn a reviewer as your child with `loom spawn <name> --review {branch}` (without --worktree). It reviews the branch and calls `loom verdict {branch} pass|block --findings <file>`. For the next round, send the same reviewer a note."
         ),
         (GateCall::Verdict(Judgment::Pass), Receiver::Gate | Receiver::Root) => {
             "Next: nothing. loom queued the branch and sends the merge result (merged, rework or failed).".to_owned()
@@ -273,7 +273,7 @@ pub fn next_step(call: GateCall, to: Receiver, branch: &str) -> String {
 
 pub fn withdrawn_step(branch: &str, state: GateState) -> String {
     format!(
-        "Next: stop reviewing {branch}. Its round went back to {state:?}, so loom refuses a verdict for it. If you review another branch, ignore this message."
+        "Next: stop reviewing {branch}. Its round went back to {state:?}, so loom refuses a verdict for it now. The gate sends you a note when the next round starts."
     )
 }
 
@@ -897,7 +897,7 @@ macro_rules! message_usage {
 - loom answer <message-id> <body>: answer an ask that you received.
 - loom done <summary> [--file <path>] (a relative path is in $LOOM_TASK_DIR): report each finished or interim result to your parent, also when other parts of the work continue and in a turn that a message or a notice started. Call it again after more work. Do not call it when you only answer a question in text. People read the summary on your node card: write it in the language they use with you. With no parent, add --asked <the human's instruction, short> and --image <path> per image the human gave. This is the only way to tell the human that a result is ready. Send no progress reports.
 - loom note <target> <body> [--steer|--interrupt]: any other message. --steer puts it between the receiver's tool calls; --interrupt stops its current work (both only to your parent or children). If you receive an interrupt, stop your previous task. Do not start a body with a kind word (QUESTION, STATUS, READY, ...): use the verb for that kind.
-- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (only a reviewer that the gate spawned, never the owner; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed), loom fail <branch> <cause> (gate, before the queue takes the branch). The gate is your coordinator parent, else you. All return at once. loom picks receivers. loom --help has details.
+- loom ready <branch> (branch owner, all committed) sends the branch to its gate. In repositories with scripts/gate/check.sh and ship.sh: loom verdict <branch> pass|block [--findings <file>] (only a reviewer that the gate spawned with `loom spawn <name> --review <branch>`, never the owner; without --findings, review/<branch>-<your name>.md in your task folder; block goes to the owner as rework; pass puts the branch in the merge queue, and loom checks, merges and sends merged, rework or failed), loom fail <branch> <cause> (gate, before the queue takes the branch). The gate is your coordinator parent, else you. All return at once. loom picks receivers. loom --help has details.
 "
     };
 }

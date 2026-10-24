@@ -26,14 +26,28 @@ const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
 const REWAKE_EXIT: i32 = 2;
 
+pub struct Spawn {
+    pub name: String,
+    pub worktree: Option<String>,
+    pub agent: Option<String>,
+    pub role: Option<String>,
+    pub review: Option<String>,
+    pub file: Option<PathBuf>,
+    pub choice: ModelChoice,
+    pub command: Vec<String>,
+}
+
 pub fn spawn(
-    name: String,
-    worktree: Option<String>,
-    agent: Option<String>,
-    role: Option<String>,
-    file: Option<PathBuf>,
-    choice: ModelChoice,
-    command: Vec<String>,
+    Spawn {
+        name,
+        worktree,
+        agent,
+        role,
+        review,
+        file,
+        choice,
+        command,
+    }: Spawn,
 ) -> Result<(), String> {
     let brief = match file {
         Some(path) => {
@@ -59,6 +73,7 @@ pub fn spawn(
         worktree,
         choice,
         role,
+        review,
     };
     let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;
     println!("Created node: {}", request.name);

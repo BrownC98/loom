@@ -635,7 +635,7 @@ const ko: typeof en = {
       kindWord: '메시지를 종류 낱말 {{word}}(으)로 시작하지 않습니다. 대신: {{verb}}.',
       kindWord_nameless: '{{word}}은(는) 종류 낱말 · {{verb}} 사용',
       ownVerdict: '{{value}}: 자기 브랜치는 판정하지 못합니다.',
-      oneBranch: '{{branch}}: 이미 {{judged}}를 판정한 검토자입니다. 검토자 하나는 브랜치 하나만 판정합니다.',
+      notReviewer: '{{branch}}: `loom spawn <이름> --review {{branch}}`로 띄운 검토자만 이 브랜치를 판정합니다.',
       nothingToMerge: '{{branch}}에는 {{target}}에 없는 커밋이 없습니다.',
       git: 'git이 실패했습니다: {{value}}',
       launch: '노드를 시작하지 못했습니다: {{value}}',

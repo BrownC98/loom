@@ -119,6 +119,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tree-row .branch { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .tag { flex-shrink: 1000; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 .tree-row .spacer { flex: 1; }
+.tree-row:has(.node-row) { height: 44px; align-items: flex-start; padding-top: 4px; }
+.tree-row:has(.node-row) > :is(.chev, .leaf) { margin-top: 3px; }
+.node-row { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.node-line { display: flex; align-items: center; gap: 6px; min-width: 0; height: 20px; }
+.node-line + .node-line { height: 16px; margin-left: 13px; }
+.node-line .sub { font-family: var(--mono); }
+.node-line:not(:has(.chips, .state-tag, .unread)) .name { flex-shrink: 1; max-width: none; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ink-3); }
 .dot.waiting { background: var(--ask); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ask) 25%, transparent); }
 .dot.running { background: var(--run); }
@@ -355,9 +362,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tree .tree-row { position: relative; }
 .tree .rename { position: static; }
 .tree .rename .tip { left: 8px; right: 8px; width: auto; max-width: none; }
-.card-head .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
 .agent-logo { width: 14px; height: 14px; flex-shrink: 0; display: inline-grid; place-items: center; color: var(--ink-2); }
 span.agent-logo[style] { background: currentColor; mask: var(--logo) center / contain no-repeat; }
+.agent-logo.letter { border: 1px solid currentColor; border-radius: 3px; font: 700 9px/1 var(--font); }
+.agent-logo.letter::before { content: attr(data-letter); }
 .agent-logo svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .card-head .model { font-size: 12px; color: var(--ink-3); font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-head .spacer { flex: 1; }
@@ -369,7 +377,6 @@ span.agent-logo[style] { background: currentColor; mask: var(--logo) center / co
 .summary-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px; }
 .summary-row .name { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .summary-row .spacer { flex: 1; }
-.summary-row .agent { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
 .summary-model { min-width: 0; display: flex; }
 .summary-model .model { font: 12px var(--mono); color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .summary-reply { margin: 0; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
@@ -709,6 +716,7 @@ dialog::backdrop { background: var(--scrim); }
 .switch input:checked::after { transform: translateX(12px); background: var(--accent-ink); }
 details.more > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .cols-2 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 16px; margin-top: 8px; font-size: 13px; }
+.cols-2 a { display: inline-flex; align-items: center; gap: 6px; }
 .acct-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .acct-row[aria-current="true"] { background: color-mix(in oklch, var(--accent) 6%, transparent); }
 .login { position: fixed; width: 640px; max-width: calc(100vw - 32px); margin: auto; inset: 0; height: fit-content; }

@@ -7,7 +7,7 @@ use tokio::sync::Notify;
 
 use super::App;
 use super::relaunch::{EXIT_WAIT, Plan, profile_of};
-use crate::graph::{Active, NodeId};
+use crate::graph::{Active, IdleEnd, NodeId};
 use crate::process_tree::Snapshot;
 use crate::profile::{Profile, ServerLink};
 
@@ -174,7 +174,7 @@ impl App {
         eprintln!("loom: 쉬는 완료 노드 {}를 재운다", id.0);
         let snapshot = Snapshot::now();
         snapshot.kill_trees(self.background_shells(&snapshot, &node));
-        self.idle.end(id);
+        self.idle.end(id, IdleEnd::Sleep);
         self.host.stop(id);
         tokio::time::sleep(EXIT_WAIT).await;
         if self.sleeps.cancel(id) {

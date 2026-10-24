@@ -169,6 +169,8 @@ function whoOf(entry: Entry): Who[] {
     case 'unanswered':
     case 'confirmed':
     case 'nudged':
+    case 'idleOpened':
+    case 'idleEnded':
       return [entry.node];
     case 'adopted':
       return [entry.node, ...(entry.from ? [entry.from] : []), entry.to];
@@ -186,14 +188,18 @@ export function involved(entry: Entry): NodeId[] {
   return whoOf(entry).flatMap((w) => (w.id === null ? [] : [w.id]));
 }
 
+function inConsole(record: EventRecord): boolean {
+  return record.entry.kind !== 'idleOpened' && record.entry.kind !== 'idleEnded';
+}
+
 export function useEventLog(open: boolean): { records: EventRecord[] | null; onRecord: (record: EventRecord) => void } {
   const [records, setRecords] = useState<EventRecord[] | null>(null);
   const newest = useRef<number | null>(null);
   const load = () => {
     newest.current = null;
     getEventLog().then((log) => {
-      newest.current = log[0]?.id ?? 0;
-      setRecords(log);
+      newest.current = log.last;
+      setRecords(log.records);
     });
   };
   useEffect(() => {
@@ -207,7 +213,7 @@ export function useEventLog(open: boolean): { records: EventRecord[] | null; onR
     if (newest.current === null || record.id <= newest.current) return;
     if (record.id !== newest.current + 1) return load();
     newest.current = record.id;
-    setRecords((prev) => prev && [record, ...prev]);
+    if (inConsole(record)) setRecords((prev) => prev && [record, ...prev]);
   };
   return { records, onRecord };
 }
@@ -363,6 +369,9 @@ function What({ entry, facts, views, agents }: { entry: Entry; facts: MessageFac
           <WaitNote wait={entry.wait} extra={t(`events.closedBy.${entry.by}`)} />
         </>
       );
+    case 'idleOpened':
+    case 'idleEnded':
+      return null;
     case 'accountSwitched':
     case 'noAccountLeft':
       return (

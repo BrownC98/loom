@@ -57,8 +57,6 @@ pub const DIALOGS: [Dialog; 8] = [
     },
 ];
 
-pub const SKIP_QUESTION: &[u8] = b"\x1b";
-
 pub const POSITION_ENV: &str = "LOOM_POSITION";
 pub const SKILLS_ENV: &str = "LOOM_SKILLS";
 #[cfg(test)]
@@ -125,7 +123,24 @@ pub fn skills_from(value: Option<&str>) -> AlwaysOn {
         .unwrap_or_default()
 }
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Cursor runs that wake hook only when ~/.cursor/hooks.json has a \"stop\" entry; if it has none, wait for an expected reply with loom wait --reply-to <message-id> --timeout <seconds> before you end your turn. The loom guard line before shell commands is inserted by loom; do not remove it or add it yourself. Do not use your AskQuestion tool: loom closes its box, because the human answers only loom ask.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Cursor runs that wake hook only when ~/.cursor/hooks.json has a \"stop\" entry; if it has none, wait for an expected reply with loom wait --reply-to <message-id> --timeout <seconds> before you end your turn. The loom guard line before shell commands is inserted by loom; do not remove it or add it yourself. Do not use your AskQuestion tool: the human answers only loom ask.";
+
+const QUESTION_TOOL: &str = "AskQuestion";
+
+pub fn used_question_box(transcript: &str) -> bool {
+    transcript
+        .lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .take_while(|entry| entry["role"] != "user")
+        .any(|entry| {
+            entry["message"]["content"].as_array().is_some_and(|parts| {
+                parts
+                    .iter()
+                    .any(|part| part["type"] == "tool_use" && part["name"] == QUESTION_TOOL)
+            })
+        })
+}
 
 pub fn usage() -> String {
     format!("{}\n{WAITING}", super::COMMUNICATION_USAGE)
@@ -234,6 +249,23 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_question_tool_call_in_the_last_turn_counts() {
+        let user =
+            r#"{"role":"user","message":{"content":[{"type":"text","text":"AskQuestion"}]}}"#;
+        let asked = r#"{"role":"assistant","message":{"content":[{"type":"text","text":"x"},{"type":"tool_use","name":"AskQuestion","input":{}}]}}"#;
+        let read = r#"{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}"#;
+        let ended = r#"{"type":"turn_ended","status":"success"}"#;
+        assert!(super::used_question_box(
+            &[user, asked, read, ended].join("\n")
+        ));
+        assert!(!super::used_question_box(&[asked, user, read].join("\n")));
+        assert!(!super::used_question_box(user));
+        assert!(super::used_question_box(&format!(
+            "{user}\n{asked}\n{{\"role\":"
+        )));
+    }
+
     use super::*;
     use crate::graph::PromptKey;
     use crate::screen::Session;

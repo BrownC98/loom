@@ -142,7 +142,7 @@ pub(super) fn recorded<T>(
     if result.is_ok() {
         app.turn_ends.called(from);
         if matches!(what, MessageKind::Ask) {
-            app.turn_ends.clear_question(from);
+            app.turn_ends.asked(from);
         }
     }
     let attempt = Attempt {

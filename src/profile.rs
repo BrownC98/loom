@@ -5,6 +5,7 @@ pub mod opencode2;
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::LazyLock;
@@ -286,6 +287,18 @@ const SHELL_DIALOGS: [Dialog; 5] = [
     },
 ];
 
+const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
+
+pub fn transcript_tail(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(TRANSCRIPT_TAIL_BYTES)))
+        .ok()?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail).ok()?;
+    Some(String::from_utf8_lossy(&tail).into_owned())
+}
+
 pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
     match profile {
         Some(Profile::Claude) => &claude::DIALOGS,
@@ -293,13 +306,6 @@ pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
         Some(Profile::Cursor) => &cursor::DIALOGS,
         Some(Profile::OpenCode2) => &[],
         None => &SHELL_DIALOGS,
-    }
-}
-
-pub fn question_skip(profile: Option<Profile>) -> Option<&'static [u8]> {
-    match profile? {
-        Profile::Cursor => Some(cursor::SKIP_QUESTION),
-        Profile::Claude | Profile::Codex | Profile::OpenCode2 => None,
     }
 }
 

@@ -510,9 +510,8 @@ fn a_nudged_turn_end_leaves_an_event() {
 }
 
 #[tokio::test]
-async fn a_loom_ask_after_a_skipped_question_box_is_not_asked_again() {
+async fn a_question_box_turn_with_a_loom_ask_is_not_asked_again() {
     let t = fixture();
-    t.app.turn_ends.question_closed(t.lead);
     let ask = AskRequest {
         question: "배포할까요? (A: 예 / B: 아니오, 권장: A)".into(),
         doc: None,
@@ -520,9 +519,14 @@ async fn a_loom_ask_after_a_skipped_question_box_is_not_asked_again() {
     let Json(_) = agent_ask(t.state(), headers(LEAD, "ask"), Json(ask))
         .await
         .unwrap();
+    let Json(()) = agent_question_box(t.state(), headers(LEAD, "question-box"))
+        .await
+        .unwrap();
     assert_eq!(t.app.turn_end(t.lead), None);
 
-    t.app.turn_ends.question_closed(t.lead);
+    let Json(()) = agent_question_box(t.state(), headers(LEAD, "question-box"))
+        .await
+        .unwrap();
     t.app.turn_ends.called(t.lead);
     let mark = t.mark();
     assert!(t.app.turn_end(t.lead).is_some());

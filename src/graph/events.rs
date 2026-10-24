@@ -193,7 +193,7 @@ pub enum TurnCheck {
     Unreported,
     /// 종류 낱말로 시작하는 줄을 쓰고 loom 동사를 부르지 않았다.
     KindLine,
-    /// 런타임의 질문 창으로 물었다. 데몬이 그 창을 닫았다(`profile::question_skip`).
+    /// 런타임의 자체 질문 창(Cursor AskQuestion)으로 물었다. 사람은 `loom ask`로만 답한다.
     QuestionBox,
 }
 

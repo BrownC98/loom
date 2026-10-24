@@ -1,4 +1,3 @@
-use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -15,7 +14,6 @@ const HOOK_TIMEOUT_SECS: u64 = 10;
 const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 const REWAKE_MESSAGE: &str = "Messages from loom:";
 const REWAKE_SUMMARY: &str = "loom message";
-const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 const SYNTHETIC_MODEL: &str = "<synthetic>";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
@@ -272,21 +270,11 @@ pub fn reported_model(event: &Event, input: &Value) -> Option<Model> {
         });
     }
     let path = PathBuf::from(input["transcript_path"].as_str()?);
-    last_model(&transcript_tail(&path)?)
+    last_model(&super::transcript_tail(&path)?)
 }
 
 pub fn last_reply(input: &Value) -> Option<String> {
     input["last_assistant_message"].as_str().map(str::to_owned)
-}
-
-fn transcript_tail(path: &Path) -> Option<String> {
-    let mut file = std::fs::File::open(path).ok()?;
-    let len = file.metadata().ok()?.len();
-    file.seek(SeekFrom::Start(len.saturating_sub(TRANSCRIPT_TAIL_BYTES)))
-        .ok()?;
-    let mut tail = Vec::new();
-    file.read_to_end(&mut tail).ok()?;
-    Some(String::from_utf8_lossy(&tail).into_owned())
 }
 
 fn last_model(tail: &str) -> Option<Model> {

@@ -268,11 +268,20 @@ pub fn cursor_hook() -> Result<(), String> {
     {
         eprintln!("loom: could not report the reply: {e}");
     }
-    if let cursor::Event::Stop { .. } = event
-        && let Some(nudge) = turn_end(None, timeout)
-    {
-        println!("{}", serde_json::json!({ "followup_message": nudge }));
-        return Ok(());
+    if let cursor::Event::Stop { .. } = event {
+        let here = std::env::current_dir().unwrap_or_default();
+        let tail = transcript.as_deref().and_then(|path| {
+            crate::profile::transcript_tail(&crate::wsl::from_node(path.into(), &here))
+        });
+        if tail.is_some_and(|text| cursor::used_question_box(&text))
+            && let Err(e) = call::<()>("question-box", &(), Some(timeout))
+        {
+            eprintln!("loom: could not report the question box: {e}");
+        }
+        if let Some(nudge) = turn_end(None, timeout) {
+            println!("{}", serde_json::json!({ "followup_message": nudge }));
+            return Ok(());
+        }
     }
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {

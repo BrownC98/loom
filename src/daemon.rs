@@ -538,6 +538,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         .route("/api/agent/hook-wait", post(agent_hook_wait))
         .route("/api/agent/answered", post(agent_answered))
         .route("/api/agent/said", post(agent_said))
+        .route("/api/agent/question-box", post(agent_question_box))
         .route("/api/agent/turn-end", post(agent_turn_end))
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/rm", post(agent_remove))
@@ -1055,7 +1056,6 @@ impl App {
             rules: _,
         } = prepared;
         self.first_inputs.launched(id, first_input);
-        self.turn_ends.clear_question(id);
         let distro = inside.map(|inside| inside.distro);
         let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
         self.host.spawn(id, cmd, setup, on_exit)?;
@@ -1175,7 +1175,6 @@ impl App {
     fn follow_screen(self: &Arc<Self>, id: NodeId, profile: Option<Profile>, token: &str) {
         let dialogs = profile::dialogs(profile);
         let grammar = profile::prompt_grammar(profile);
-        let skip = profile::question_skip(profile);
         let Some(attached) = self.host.attach(id) else {
             return;
         };
@@ -1187,11 +1186,9 @@ impl App {
         tokio::spawn(async move {
             let mut output = attached.output;
             let mut changed = true;
-            let mut retry = None;
             loop {
                 if !changed {
                     tokio::select! {
-                        () = tokio::time::sleep_until(retry.unwrap_or_else(tokio::time::Instant::now)), if retry.is_some() => {}
                         received = output.recv() => match received {
                             Ok(_) | Err(RecvError::Lagged(_)) => {}
                             Err(RecvError::Closed) => return,
@@ -1214,12 +1211,6 @@ impl App {
                 let wait = found.as_ref().map(|(kind, text)| (*kind, text.as_str()));
                 if let Err(e) = app.graph.set_wait(&token, WaitSource::Screen, wait) {
                     eprintln!("loom: 노드 {}의 응답 대기를 쓰지 못했다: {e}", id.0);
-                }
-                if let Some(key) = skip {
-                    let question = matches!(found, Some((WaitKind::Question, _)));
-                    let held =
-                        question && !skip_question(&app.host, &app.turn_ends, id, dialogs, key);
-                    retry = held.then(|| tokio::time::Instant::now() + node_host::KEY_QUIET);
                 }
                 let prompt = grammar.and_then(|g| screen::prompt(g, &now.text, now.cols.into()));
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
@@ -1900,33 +1891,6 @@ fn choose(
     })
 }
 
-fn skip_question(
-    host: &NodeHost<NodeId>,
-    turn_ends: &turn_end::TurnEnds,
-    id: NodeId,
-    dialogs: &[screen::Dialog],
-    key: &'static [u8],
-) -> bool {
-    enum Held {
-        Late,
-        NoBox,
-    }
-    let written = host.write_if(id, |keys| {
-        let Some(shown) = keys.quiet_screen() else {
-            return Err(Held::Late);
-        };
-        if !matches!(
-            screen::find(dialogs, &shown.text, screen::Session::Started),
-            Some((WaitKind::Question, _))
-        ) {
-            return Err(Held::NoBox);
-        }
-        turn_ends.question_closed(id);
-        Ok(key.to_vec())
-    });
-    !matches!(written, Err(Held::Late))
-}
-
 async fn list_docs() -> Result<Json<Vec<user_doc::DocRow>>, Problem> {
     Ok(Json(user_doc::docs().map_err(internal)?))
 }
@@ -2203,6 +2167,15 @@ async fn agent_said(
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
     app.turn_ends.said(node, req.text);
+    Ok(Json(()))
+}
+
+async fn agent_question_box(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<()>, AgentError> {
+    let node = app.caller(&headers)?;
+    app.turn_ends.question_box(node);
     Ok(Json(()))
 }
 
@@ -2665,62 +2638,6 @@ mod tests {
         assert_eq!(pick(wait, &shown), Err(Refusal::NoWait(wait)));
         assert_eq!(graph.approval(newer).unwrap().0, node);
         assert_eq!(typed_until_mark(&mut typed), "Z");
-        host.kill(node);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_question_box_is_skipped_only_when_the_keys_are_quiet() {
-        const SCREEN: &str = " ┌──────────┐\n │ Question 1 of 1 │\n │ › [ ] Red │\n │ Enter next/submit · Esc to skip │\n └──────────┘\n";
-        let dialogs = &profile::cursor::DIALOGS;
-        let dir = tempfile::tempdir().unwrap();
-        let node = NodeId(1);
-        let lines = dir.path().join("typed");
-        let mut cmd = portable_pty::CommandBuilder::new("sh");
-        cmd.args([
-            "-c",
-            &format!(
-                "stty -echo; printf '{SCREEN}'; while IFS= read -r l; do printf '%s\\n' \"$l\" >> '{}'; printf .; done",
-                lines.display()
-            ),
-        ]);
-        let hosts = dir.path().join("hosts");
-        node_host::in_process(&hosts, node, cmd);
-        let host = NodeHost::new(hosts);
-        host.resume(node, |_| {}).unwrap();
-        let wait_for = |dots: usize| loop {
-            let text = host.screen(node).text;
-            let shown = matches!(
-                screen::find(dialogs, &text, screen::Session::Started),
-                Some((WaitKind::Question, _))
-            );
-            if shown && text.matches('.').count() >= dots {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        };
-        wait_for(0);
-        let turns = turn_end::TurnEnds::default();
-        let skip = || skip_question(&host, &turns, node, dialogs, profile::cursor::SKIP_QUESTION);
-        let human = |keys: &'static [u8]| {
-            host.write_if(node, |_| Ok::<_, std::convert::Infallible>(keys.to_vec()))
-                .unwrap()
-        };
-
-        assert!(skip(), "no key yet");
-        assert!(!skip(), "right after the Esc");
-        human(b"\r");
-        wait_for(1);
-        assert!(!skip(), "output after the human Enter is no proof");
-        std::thread::sleep(node_host::KEY_QUIET);
-        assert!(skip(), "the box is still there after the quiet time");
-        human(b"\r");
-        wait_for(2);
-        assert_eq!(
-            std::fs::read_to_string(&lines).unwrap(),
-            "\x1b\n\x1b\n",
-            "an Esc only when the keys are quiet"
-        );
         host.kill(node);
     }
 

@@ -8,7 +8,7 @@ const NUDGE: &str = "You ended the turn with text but without loom ask or loom d
 
 const KIND_NUDGE: &str = "Your last reply has a line that starts with a kind word (QUESTION, ANSWER, STATUS, DONE, READY, MERGED, USER DIRECTION, ...), but you called no loom verb in this turn. Text in the terminal reaches nobody. If you meant a message, send it now with its verb: loom ask, loom answer, loom done, loom note, or a gate verb (see loom --help). Otherwise reply with a few words without that line. Then end your turn.";
 
-const QUESTION_BOX_NUDGE: &str = "loom closed your AskQuestion box. The human does not see that box and loom keeps no record of it. Ask the same question again with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskQuestion again.";
+const QUESTION_BOX_NUDGE: &str = "You used your AskQuestion tool in this turn. The human answers only loom ask, and loom keeps no record of that box or its answer. Ask the same question again with loom ask in the one-line form of the ask-human rules, then end your turn. Do not use AskQuestion again.";
 
 #[derive(Default)]
 pub struct TurnEnds {
@@ -16,7 +16,8 @@ pub struct TurnEnds {
     human: Mutex<HashSet<NodeId>>,
     called: Mutex<HashSet<NodeId>>,
     kind_nudged: Mutex<HashSet<NodeId>>,
-    question_closed: Mutex<HashSet<NodeId>>,
+    question_box: Mutex<HashSet<NodeId>>,
+    asked: Mutex<HashSet<NodeId>>,
 }
 
 impl TurnEnds {
@@ -32,12 +33,12 @@ impl TurnEnds {
         self.called.lock().unwrap().insert(node);
     }
 
-    pub fn question_closed(&self, node: NodeId) {
-        self.question_closed.lock().unwrap().insert(node);
+    pub fn question_box(&self, node: NodeId) {
+        self.question_box.lock().unwrap().insert(node);
     }
 
-    pub fn clear_question(&self, node: NodeId) {
-        self.question_closed.lock().unwrap().remove(&node);
+    pub fn asked(&self, node: NodeId) {
+        self.asked.lock().unwrap().insert(node);
     }
 
     pub fn ended(
@@ -50,7 +51,8 @@ impl TurnEnds {
         let human = self.human.lock().unwrap().remove(&node);
         let called = self.called.lock().unwrap().remove(&node);
         let nudged = self.kind_nudged.lock().unwrap().remove(&node);
-        if self.question_closed.lock().unwrap().remove(&node) {
+        let asked = self.asked.lock().unwrap().remove(&node);
+        if self.question_box.lock().unwrap().remove(&node) && !asked {
             return TurnEnd {
                 reply,
                 nudge: Some(TurnCheck::QuestionBox),
@@ -209,25 +211,30 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_question_box_is_asked_again_with_loom_ask() {
+    fn a_question_box_turn_is_asked_again_with_loom_ask() {
         let turns = TurnEnds::default();
         let node = NodeId(1);
         turns.called(node);
-        turns.question_closed(node);
+        turns.question_box(node);
         turns.said(node, "The question was skipped.".into());
         let end = turns.ended(node, || true, || false);
         assert_eq!(end.nudge, Some(TurnCheck::QuestionBox));
         assert_eq!(end.reply.as_deref(), Some("The question was skipped."));
         assert!(nudge_text(TurnCheck::QuestionBox).contains("loom ask"));
         assert_eq!(turns.ended(node, || true, || false).nudge, None);
-    }
 
-    #[test]
-    fn a_cleared_question_box_is_not_asked_again() {
-        let turns = TurnEnds::default();
-        let node = NodeId(1);
-        turns.question_closed(node);
-        turns.clear_question(node);
-        assert_eq!(turns.ended(node, || true, || false).nudge, None);
+        turns.asked(node);
+        turns.question_box(node);
+        assert_eq!(
+            turns.ended(node, || true, || false).nudge,
+            None,
+            "asked with loom ask in the same turn"
+        );
+        turns.question_box(node);
+        assert_eq!(
+            turns.ended(node, || true, || false).nudge,
+            Some(TurnCheck::QuestionBox),
+            "the ask was in an earlier turn"
+        );
     }
 }

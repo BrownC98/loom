@@ -29,8 +29,6 @@ const LOST_CODE: u32 = u32::MAX;
 
 const SETTLED_AFTER: Duration = Duration::from_secs(2);
 
-pub(crate) const KEY_QUIET: Duration = Duration::from_secs(3);
-
 const TAIL_LINES: usize = 20;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -125,7 +123,6 @@ struct Output {
     backlog: Backlog,
     tx: broadcast::Sender<Bytes>,
     last_push: Instant,
-    typed_at: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -178,7 +175,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 backlog: Backlog::default(),
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
                 last_push: Instant::now(),
-                typed_at: None,
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
             sizing: Mutex::default(),
@@ -280,11 +276,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         let pty = self.pty(id);
         let mut host = pty.as_ref().map(|pty| pty.host.lock().unwrap());
         let bytes = pick(&Keys(pty.as_deref()))?;
-        if let Some(pty) = &pty
-            && typed(&bytes)
-        {
-            pty.output.lock().unwrap().typed_at = Some(Instant::now());
-        }
         if let Some(host) = host.as_mut() {
             let _ = wire::write(&mut **host, &Frame::Data(bytes));
         }
@@ -426,20 +417,9 @@ impl Keys<'_> {
     pub fn screen(&self) -> Screen {
         self.0.map_or_else(Screen::default, Pty::screen)
     }
-
-    pub fn quiet_screen(&self) -> Option<Screen> {
-        self.0.and_then(Pty::quiet_screen)
-    }
 }
 
 impl Pty {
-    fn quiet_screen(&self) -> Option<Screen> {
-        let typed_at = self.output.lock().unwrap().typed_at;
-        typed_at
-            .is_none_or(|at| at.elapsed() >= KEY_QUIET)
-            .then(|| self.screen())
-    }
-
     fn screen(&self) -> Screen {
         let PtySize { cols, rows } = *self.size.borrow();
         let bytes = self.output.lock().unwrap().backlog.to_vec();
@@ -990,7 +970,6 @@ mod tests {
             backlog: Backlog::default(),
             tx: broadcast::channel(1).0,
             last_push: Instant::now(),
-            typed_at: None,
         };
         output.push(b"\x1b]11;?\x1b\\");
         let pushed = output.last_push;

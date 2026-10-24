@@ -8,7 +8,7 @@ import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
 import { relaunchableState } from './catalog';
 import { InboxPanel, waitCount } from './Inbox';
-import { stateLabel } from './NodeCard';
+import { AgentLine, stateLabel } from './NodeCard';
 import { NodeText, NoticeChips, NoticeLead, oldestWait, toneOf } from './notice';
 import { useEscapeClose } from './popover';
 import { borrowSize, SizingTerminal } from './Terminal';
@@ -179,6 +179,17 @@ function controlOf(char: string): string {
   return code >= 0x40 && code <= 0x5f ? String.fromCharCode(code - 0x40) : char;
 }
 
+export function NodeTitle(props: { view: NodeView; agentLabel: string }) {
+  return (
+    <span className="phone-title">
+      <b>{props.view.name}</b>
+      <span className="node-line">
+        <AgentLine view={props.view} label={props.agentLabel} />
+      </span>
+    </span>
+  );
+}
+
 function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => void; view: NodeView; waiting: NodeView[]; agentLabel: string; resumable: boolean; online: boolean; onBack: () => void; onOpen: (id: NodeId) => void }) {
   const { t } = useTranslation();
   const { view } = props;
@@ -189,7 +200,6 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
   const [text, setText] = useState('');
   const [sheet, setSheet] = useState<'actions' | null>(null);
   const { askOpen, setAskOpen } = props;
-  const worktree = view.place.worktree.split(/[\\/]/).filter(Boolean).pop() ?? '';
   const { waiting } = props;
   const head = waiting[0];
   const first = head && oldestWait(head);
@@ -228,12 +238,7 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
         <button type="button" className="phone-icon" aria-label={t('phone.back')} onClick={props.onBack}>
           <ChevronLeft aria-hidden="true" />
         </button>
-        <span className="phone-title">
-          <b>{view.name}</b>
-          <span>
-            {props.agentLabel} · {worktree}
-          </span>
-        </span>
+        <NodeTitle view={view} agentLabel={props.agentLabel} />
         <NoticeChips view={view} />
         {(view.state.kind === 'exited' || view.state.kind === 'setupFailed') && (
           <span className={`state ${view.state.kind}`} aria-live="polite" translate="no">

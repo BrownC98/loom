@@ -48,6 +48,17 @@ function footText(state: NodeState, parentName: string | null): string | null {
 
 export const modelText = (view: NodeView) => [view.model, view.effort].filter(Boolean).join(' · ');
 
+export function AgentLine(props: { view: NodeView; label: string }) {
+  return (
+    <>
+      <AgentMark agent={props.view.agent} label={props.label} />
+      <span className="sub" translate="no">
+        {modelText(props.view) || props.label}
+      </span>
+    </>
+  );
+}
+
 function ModelText(props: { view: NodeView }) {
   const text = modelText(props.view);
   return text ? (

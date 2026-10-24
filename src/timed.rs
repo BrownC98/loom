@@ -6,7 +6,15 @@ use std::time::{Duration, Instant};
 const EXIT_POLL: Duration = Duration::from_millis(20);
 
 pub fn output(mut cmd: Command, limit: Duration) -> Option<Vec<u8>> {
-    crate::process_tree::detach(&mut cmd);
+    #[cfg(unix)]
+    unsafe {
+        std::os::unix::process::CommandExt::pre_exec(&mut cmd, || {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

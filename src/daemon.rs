@@ -7,6 +7,7 @@ mod passes;
 mod phone;
 mod places;
 mod queue;
+mod reclaim;
 mod relaunch;
 mod sessions;
 mod settings;

@@ -335,6 +335,61 @@ mod git_runs {
                 .collect()
         }
 
+        fn worktree(&self, name: &str, branch: &str) -> PathBuf {
+            let wt = self.dir.path().join(name);
+            git(
+                &self.main,
+                &["worktree", "add", "-q", wt.to_str().unwrap(), branch],
+            );
+            wt
+        }
+
+        fn place(&self, node: NodeId, worktree: &Path) {
+            rusqlite::Connection::open(self.dir.path().join("loom.db"))
+                .unwrap()
+                .execute(
+                    "UPDATE nodes SET worktree = ?2 WHERE id = ?1",
+                    rusqlite::params![node.0, worktree.to_string_lossy()],
+                )
+                .unwrap();
+        }
+
+        fn count(&self, sql: &str, value: &dyn rusqlite::ToSql) -> u32 {
+            rusqlite::Connection::open(self.dir.path().join("loom.db"))
+                .unwrap()
+                .query_row(sql, [value], |row| row.get(0))
+                .unwrap()
+        }
+
+        fn exists(&self, node: NodeId) -> bool {
+            self.count("SELECT count(*) FROM nodes WHERE id = ?1", &node.0) == 1
+        }
+
+        fn reviewers(&self, branch: &str) -> u32 {
+            self.count("SELECT count(*) FROM nodes WHERE review = ?1", &branch)
+        }
+
+        fn has_branch(&self, branch: &str) -> bool {
+            Command::new("git")
+                .args(["rev-parse", "--verify", "--quiet"])
+                .arg(format!("refs/heads/{branch}"))
+                .current_dir(&self.main)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        }
+
+        async fn until(&self, what: &str, mut done: impl FnMut() -> bool) {
+            for _ in 0..400 {
+                if done() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            panic!("timed out: {what}");
+        }
+
         fn batches(&self) -> Vec<(u32, Vec<String>, BatchResult)> {
             let mut found: Vec<_> = self
                 .app
@@ -590,15 +645,16 @@ mod git_runs {
         assert_eq!(r.mail(worker).len(), 1);
 
         let coord_head = git(&wt, &["rev-parse", "HEAD"]);
+        let next = child(&r.app, coordinator, "next", None, None);
         let b = r.branch("b", "코디", "b.txt", "b");
-        r.accept(worker, coordinator, "b", &b);
+        r.accept(next, coordinator, "b", &b);
         std::fs::write(wt.join("wip.txt"), "x").unwrap();
         r.batch("코디").await;
         assert_eq!(r.state("b"), GateState::Working);
         assert_eq!(git(&wt, &["rev-parse", "HEAD"]), coord_head);
         assert_eq!(r.checks(), 1, "a dirty target is not checked");
         assert!(
-            r.mail(worker)
+            r.mail(next)
                 .iter()
                 .any(|m| m.contains("uncommitted changes"))
         );
@@ -1036,5 +1092,193 @@ mod git_runs {
                 .iter()
                 .any(|m| m.contains("is not clean at the reviewed commit")),
         );
+    }
+
+    fn round<'a>(branch: &'a str, target: &'a str, worktree: &'a Path, head: &'a str) -> Round<'a> {
+        Round {
+            branch,
+            target,
+            worktree: worktree.to_str().unwrap(),
+            head,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_merged_branch_loses_its_reviewers_owner_worktree_and_branch() {
+        let r = repo();
+        let owner = child(&r.app, r.lead, "owner", None, None);
+        let a = r.branch("a", "main", "a.txt", "a");
+        git(&r.main, &["push", "-q", "-u", "origin", "a"]);
+        let wt = r.worktree("wt-a", "a");
+        r.place(owner, &wt);
+        r.queue_at(owner, owner, &round("a", "main", &wt, &a));
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Merged);
+        r.until("branch a is gone", || !r.has_branch("a")).await;
+        assert_eq!(r.reviewers("a"), 0);
+        assert!(!r.exists(owner));
+        assert!(r.exists(r.lead));
+        assert!(!wt.exists());
+        assert_eq!(git(&r.main, &["ls-remote", "origin", "refs/heads/a"]), "");
+    }
+
+    #[tokio::test]
+    async fn a_dirty_worktree_keeps_its_branch_and_owner_and_tells_the_parent() {
+        let r = repo();
+        let owner = child(&r.app, r.lead, "owner", None, None);
+        let a = r.branch("a", "main", "a.txt", "a");
+        let wt = r.worktree("wt-a", "a");
+        r.place(owner, &wt);
+        r.queue_at(owner, owner, &round("a", "main", &wt, &a));
+        std::fs::write(wt.join("notes.txt"), "wip\n").unwrap();
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Merged);
+        let mut seen = Vec::new();
+        r.until("the parent hears of the kept worktree", || {
+            seen.extend(r.mail(r.lead));
+            seen.iter().any(|m| m.contains("has uncommitted changes"))
+        })
+        .await;
+        let kept = seen
+            .iter()
+            .find(|m| m.contains("has uncommitted changes"))
+            .unwrap();
+        assert!(kept.contains("from: loom"), "{kept}");
+        assert!(kept.contains(wt.to_str().unwrap()), "{kept}");
+        assert_eq!(r.reviewers("a"), 0);
+        assert!(r.exists(owner));
+        assert!(r.has_branch("a"));
+        assert!(wt.join("notes.txt").is_file());
+    }
+
+    #[tokio::test]
+    async fn a_lead_owner_is_never_removed() {
+        let r = repo();
+        let a = r.branch("a", "main", "a.txt", "a");
+        let wt = r.worktree("wt-a", "a");
+        r.queue_at(r.lead, r.lead, &round("a", "main", &wt, &a));
+        r.batch("main").await;
+        r.until("branch a is gone", || !r.has_branch("a")).await;
+        assert!(r.exists(r.lead));
+        assert_eq!(r.reviewers("a"), 0);
+        assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn an_owner_with_children_is_not_removed() {
+        let r = repo();
+        let owner = child(&r.app, r.lead, "owner", None, None);
+        let helper = child(&r.app, owner, "helper", None, None);
+        let a = r.branch("a", "main", "a.txt", "a");
+        let wt = r.worktree("wt-a", "a");
+        r.queue_at(owner, owner, &round("a", "main", &wt, &a));
+        r.batch("main").await;
+        r.until("branch a is gone", || !r.has_branch("a")).await;
+        assert!(r.exists(owner));
+        assert_eq!(
+            r.app.graph.relations(helper).unwrap().parent.map(|p| p.id),
+            Some(owner)
+        );
+        assert_eq!(r.reviewers("a"), 0);
+    }
+
+    fn coordinator_with_worker(r: &Repo) -> (NodeId, NodeId, PathBuf) {
+        let coordinator = child(
+            &r.app,
+            r.lead,
+            "코디",
+            Some(crate::protocol::COORDINATOR_ROLE),
+            None,
+        );
+        let worker = child(&r.app, coordinator, "worker", None, None);
+        let wt = r.dir.path().join("coord");
+        git(
+            &r.main,
+            &["worktree", "add", "-q", "-b", "코디", wt.to_str().unwrap()],
+        );
+        r.place(coordinator, &wt);
+        r.place(worker, &wt);
+        (coordinator, worker, wt)
+    }
+
+    #[tokio::test]
+    async fn a_worker_branch_merged_into_a_coordinator_is_reclaimed() {
+        let r = repo();
+        let (coordinator, worker, coord) = coordinator_with_worker(&r);
+        let a = r.branch("a", "코디", "a.txt", "a");
+        let wt = r.worktree("wt-a", "a");
+        r.app
+            .graph
+            .ready(worker, &round("a", "코디", &wt, &a), coordinator, None)
+            .unwrap();
+        r.app
+            .graph
+            .verdict(coordinator, "a", Judgment::Pass, None, None)
+            .unwrap();
+        r.batch("코디").await;
+        assert_eq!(r.state("a"), GateState::Merged);
+        r.until("branch a is gone", || !r.has_branch("a")).await;
+        assert!(!r.exists(worker));
+        assert!(!wt.exists());
+        assert!(r.exists(coordinator));
+        assert_eq!(git(&coord, &["rev-parse", "HEAD^2"]), a);
+    }
+
+    async fn reclaim_merged(r: &Repo, branch: &str) {
+        r.sql(r#"UPDATE gates SET state = '"merged"'"#);
+        crate::daemon::reclaim::run(r.app.clone(), RepoId(1), vec![branch.into()]).await;
+    }
+
+    #[tokio::test]
+    async fn a_worktree_that_another_node_shares_stays() {
+        let r = repo();
+        let (coordinator, worker, coord) = coordinator_with_worker(&r);
+        let a = r.branch("a", "코디", "a.txt", "a");
+        git(&coord, &["merge", "-q", "--no-ff", "-m", "Merge a", "a"]);
+        r.app
+            .graph
+            .ready(worker, &round("a", "코디", &coord, &a), coordinator, None)
+            .unwrap();
+        reclaim_merged(&r, "a").await;
+        assert!(!r.exists(worker));
+        assert!(r.exists(coordinator));
+        assert!(coord.is_dir());
+        assert!(!r.has_branch("a"));
+    }
+
+    #[tokio::test]
+    async fn the_original_checkout_stays() {
+        let r = repo();
+        let owner = child(&r.app, r.lead, "owner", None, None);
+        let elsewhere = r.dir.path().join("elsewhere");
+        r.place(r.lead, &elsewhere);
+        r.place(owner, &elsewhere);
+        let b = r.branch("b", "main", "b.txt", "b");
+        git(&r.main, &["merge", "-q", "--no-ff", "-m", "Merge b", "b"]);
+        r.queue_at(owner, owner, &round("b", "main", &r.main, &b));
+        std::fs::write(r.main.join("untracked.txt"), "x").unwrap();
+        reclaim_merged(&r, "b").await;
+        assert!(!r.has_branch("b"));
+        assert!(!r.exists(owner));
+        assert!(r.main.join("untracked.txt").is_file());
+        assert_eq!(git(&r.main, &["rev-parse", "--abbrev-ref", "HEAD"]), "main");
+    }
+
+    #[tokio::test]
+    async fn a_reworked_branch_keeps_its_reviewers_and_branch() {
+        let r = repo();
+        let a = r.branch("a", "main", "f.txt", "a\n");
+        let b = r.branch("b", "main", "f.txt", "b\n");
+        r.queue_main("a", &a);
+        r.queue_main("b", &b);
+        r.batch("main").await;
+        assert_eq!(
+            (r.state("a"), r.state("b")),
+            (GateState::Merged, GateState::Working)
+        );
+        r.until("branch a is gone", || !r.has_branch("a")).await;
+        assert_eq!(r.reviewers("a"), 0);
+        assert_eq!(r.reviewers("b"), 1);
+        assert!(r.has_branch("b"));
     }
 }

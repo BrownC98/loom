@@ -776,6 +776,37 @@ async fn a_turn_that_a_stop_hook_starts_is_watched() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn an_unseen_old_turn_keeps_the_watch_of_a_newer_turn() {
+    let t = fixture();
+    let prompted = t.cursor("prompted");
+    let followed = t.cursor("followed");
+    for node in [prompted, followed] {
+        t.heard(node, "g1");
+    }
+    t.stop_hook("prompted", "g1").await;
+    t.prompt(prompted, "g3");
+    t.stop_hook("followed", "g1").await;
+    let mark = t.mark();
+    t.said("prompted", Some("g3")).await;
+    t.said("followed", Some("g3")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    for token in ["prompted", "followed"] {
+        t.said(token, Some("g2")).await;
+        t.stop_hook(token, "g2").await;
+    }
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let missed: Vec<_> = t
+        .relaunches(mark)
+        .into_iter()
+        .filter_map(|e| match e {
+            Entry::NoIdleWait { node } => node.id,
+            _ => None,
+        })
+        .collect();
+    assert_eq!(missed, [prompted, followed]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_draft_holds_every_turn_until_the_human_submits() {
     let t = fixture();
     let node = t.cursor("drafting");
@@ -829,7 +860,10 @@ async fn a_turn_end_that_something_answered_relaunches_nothing() {
     let exited = t.cursor("exited");
     let plain = t.cursor("plain");
     let moved = t.cursor("moved");
-    for node in [late, newer, typed, drafted, unchecked, exited, plain, moved] {
+    let working = t.cursor("working");
+    for node in [
+        late, newer, typed, drafted, unchecked, exited, plain, moved, working,
+    ] {
         t.heard(node, "g1");
     }
     let mark = t.mark();
@@ -857,12 +891,17 @@ async fn a_turn_end_that_something_answered_relaunches_nothing() {
 
     t.said("moved", Some("g1")).await;
 
+    t.stop_hook("working", "g1").await;
+    t.prompt(working, "g3");
+    t.said("working", Some("g2")).await;
+
     tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
     human_typed(&t.app, typed);
     t.prompt(moved, "g2");
     tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
     assert_eq!(t.relaunches(mark), []);
     assert!(t.app.busy(newer), "the newer turn still runs");
+    assert!(t.app.busy(working), "an unseen old turn does not end g3");
 }
 
 #[tokio::test]

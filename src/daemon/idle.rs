@@ -144,12 +144,14 @@ impl IdleWaits {
     pub fn said(&self, node: NodeId, turn: TurnId) -> Option<Said> {
         let mut watches = self.watches.lock().unwrap();
         let w = watches.get_mut(&node)?;
-        if !w.heard || w.drafted || w.past.contains(&turn) {
+        let follows = w
+            .turn
+            .as_ref()
+            .is_none_or(|now| *now == turn || w.past.contains(now));
+        if !w.heard || w.drafted || w.past.contains(&turn) || !follows {
             return None;
         }
-        if let Some((_, armed)) = w.said.take_if(|(_, armed)| *armed != turn) {
-            w.past.insert(armed);
-        }
+        w.enter(turn.clone());
         let said = Said(self.next_said.fetch_add(1, Ordering::Relaxed));
         w.said = Some((said, turn));
         Some(said)

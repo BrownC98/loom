@@ -29,7 +29,7 @@ const LANGUAGES = ['system', 'en', 'ko'] as const satisfies readonly Language[];
 const CARD_VIEWS = ['simple', 'rootTerminal', 'standard'] as const satisfies readonly DefaultCardView[];
 const GRAPH_SCOPES = ['repo', 'all'] as const satisfies readonly GraphScope[];
 const EDGE_STYLES = ['step', 'curve'] as const satisfies readonly EdgeStyle[];
-const QUESTION_PILLS = ['line', 'answer'] as const satisfies readonly QuestionPill[];
+const QUESTION_PILLS = ['line', 'answer', 'off'] as const satisfies readonly QuestionPill[];
 
 export function CardViewSwitch(props: { value: DefaultCardView; onChange: (value: DefaultCardView) => void }) {
   const { t } = useTranslation();

@@ -93,6 +93,7 @@ const EMPTY_SETTINGS: SettingsView = {
   pillPlace: null,
   closedPanes: { side: false, dock: false, bookmarks: false },
   closedSwitchNotice: null,
+  closedPill: null,
   colors: { warn: NO_COLOR, run: NO_COLOR, ok: NO_COLOR, err: NO_COLOR, edge: NO_COLOR, repo: NO_COLOR, worktree: NO_COLOR, accent: NO_COLOR, notice: NO_COLOR },
 };
 const SETTINGS_HASH = '#settings/';
@@ -527,7 +528,7 @@ export function App() {
                 <PlaceTag wsl={shown[0].wsl} />
               </h1>
             )}
-            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} onSelect={selectNode} onFocus={focusNode} />
+            <Inbox waiting={waiting} notify={settings.osNotify} pill={settings.questionPill} place={settings.pillPlace} onPlace={(pillPlace) => editSettings((s) => ({ ...s, pillPlace }))} closed={settings.closedPill} onClose={(closedPill) => editSettings((s) => ({ ...s, closedPill }))} onSelect={selectNode} onFocus={focusNode} />
             {shown.length > 0 && <Graph
               repos={shown}
               viewVersion={viewVersion}

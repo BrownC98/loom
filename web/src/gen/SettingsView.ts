@@ -19,6 +19,7 @@ import type { TerminalTheme } from "./TerminalTheme";
 import type { Theme } from "./Theme";
 import type { TreeLimits } from "./TreeLimits";
 import type { UiColors } from "./UiColors";
+import type { WaitId } from "./WaitId";
 
 export type SettingsView = { 
 /**
@@ -114,4 +115,9 @@ pillPlace: PillPlace | null, closedPanes: ClosedPanes,
 /**
  * 사용자가 닫은 계정 전환 알림의 이벤트 기록 번호.
  */
-closedSwitchNotice: number | null, };
+closedSwitchNotice: number | null, 
+/**
+ * 사람이 알약의 [×]를 눌렀을 때 있던 가장 큰 대기 번호. 이보다 큰 대기가 오면 알약이 다시 뜬다.
+ * 근거: 목업 docs/mockups/pill-close.html M19 ②·③.
+ */
+closedPill: WaitId | null, };

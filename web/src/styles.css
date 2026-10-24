@@ -499,7 +499,7 @@ a { color: var(--accent); }
 .inbox-pill { width: 520px; max-width: 100%; border: 1px solid var(--warn); border-radius: 14px; background: var(--panel); box-shadow: 0 4px 14px var(--shadow); color: var(--ink); font-size: 13px; }
 .inbox-pill[data-view="line"] { width: auto; max-width: min(520px, 100%); border-radius: 17px; }
 .inbox-pill[data-view="line"] .head { border-bottom: 0; }
-.inbox-pill .head { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
+.inbox-pill .head { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 6px; border-bottom: 1px solid var(--line); }
 .inbox-pill .head > b { white-space: nowrap; }
 [data-tone="ask"] { --warn: var(--ask); --warn-ink: var(--ask-ink); }
 [data-tone="done"] { --warn: var(--ok); --warn-ink: var(--surface); }
@@ -523,9 +523,9 @@ a { color: var(--accent); }
 .inbox-pill .head { cursor: grab; touch-action: none; }
 .inbox-pill[data-dragging] .head { cursor: grabbing; }
 .inbox-pill[data-dragging] { user-select: none; }
-.inbox-pill .pill-reset { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
-.inbox-pill .pill-reset:hover { background: var(--surface-hover); color: var(--ink); }
-.inbox-pill .pill-reset svg { width: 14px; height: 14px; }
+.inbox-pill :is(.pill-reset, .pill-close) { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.inbox-pill :is(.pill-reset, .pill-close):hover { background: var(--surface-hover); color: var(--ink); }
+.inbox-pill :is(.pill-reset, .pill-close) svg { width: 14px; height: 14px; }
 .inbox-pop h2 { font-size: 12px; color: var(--ink-3); padding: 0 8px; }
 .wait-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .inbox-pop .wait-list { flex: 1 1 auto; min-height: 0; }

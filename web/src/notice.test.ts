@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { HumanWait } from './gen/HumanWait';
 import type { NodeView } from './gen/NodeView';
 import type { WaitKind } from './gen/WaitKind';
-import { asking, bySince, countsByTone, minimapClass, oldestWait, showsId, summaryOf, toneOf } from './notice';
+import { asking, bySince, countsByTone, minimapClass, newestId, oldestWait, pillClosed, showsId, summaryOf, toneOf } from './notice';
 
 const wait = (id: number, kind: WaitKind, since: number, text = ''): HumanWait => ({ id, kind, text, since, answerable: false, doc: null, images: [] });
 const node = (waits: HumanWait[]) => ({ waits, state: { kind: 'running' } }) as unknown as NodeView;
@@ -55,5 +55,21 @@ describe('summaryOf', () => {
     const parts = [{ part: 'text', text: 'see ' }, { part: 'link', label: 'plan', href: 'https://x.test/p' }] as const;
     expect(summaryOf({ ...wait(1, 'done', 1, 'see [plan](https://x.test/p)'), parts: [...parts] })).toBe('see plan');
     expect(summaryOf(wait(2, 'approval', 1))).toBe('');
+  });
+});
+
+describe('pill close', () => {
+  it('stays closed while only the waits seen at close remain, and opens for a larger id of any kind', () => {
+    const atClose = [wait(7, 'question', 100), wait(5, 'done', 50)];
+    const closed = newestId(atClose);
+    expect(closed).toBe(7);
+    expect(pillClosed(closed, atClose)).toBe(true);
+    expect(pillClosed(closed, [wait(5, 'done', 50)])).toBe(true);
+    expect(pillClosed(closed, [...atClose, wait(8, 'done', 10)])).toBe(false);
+    expect(pillClosed(closed, [wait(9, 'approval', 200)])).toBe(false);
+  });
+
+  it('is open when the pill was never closed', () => {
+    expect(pillClosed(null, [wait(1, 'question', 1)])).toBe(false);
   });
 });

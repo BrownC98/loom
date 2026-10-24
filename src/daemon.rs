@@ -2804,11 +2804,11 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
-        let until = |want: &dyn Fn(&[(WaitId, String, Option<String>)]) -> bool| {
+        let until = |request: &str| {
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
             loop {
                 let now = waits();
-                if want(&now) {
+                if now.first().is_some_and(|w| w.2.as_deref() == Some(request)) {
                     return now;
                 }
                 assert!(std::time::Instant::now() < deadline, "{now:?}");
@@ -2819,16 +2819,12 @@ mod tests {
         let follower = tokio::spawn(follow_permission(graph.clone(), node, "t".into(), rx));
 
         tx.send_replace(Some(request("per_1")));
-        let first = tokio::task::block_in_place(|| {
-            until(&|w| w.first().is_some_and(|w| w.2.as_deref() == Some("per_1")))
-        });
+        let first = tokio::task::block_in_place(|| until("per_1"));
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].1, "shell: echo hi");
 
         tx.send_replace(Some(request("per_2")));
-        let second = tokio::task::block_in_place(|| {
-            until(&|w| w.first().is_some_and(|w| w.2.as_deref() == Some("per_2")))
-        });
+        let second = tokio::task::block_in_place(|| until("per_2"));
         assert_eq!(second.len(), 1);
         assert_ne!(second[0].0, first[0].0);
         assert_eq!(graph.dismiss(first[0].0), Err(Refusal::NoWait(first[0].0)));

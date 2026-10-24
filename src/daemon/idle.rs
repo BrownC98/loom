@@ -46,10 +46,7 @@ impl IdleWaits {
 
     pub fn open(&self, node: NodeId) -> Wait<'_> {
         self.turns.lock().unwrap().remove(&node);
-        self.watch(node, |w| {
-            w.heard = true;
-            w.said = None;
-        });
+        self.watch(node, |w| w.heard = true);
         let (tx, end) = oneshot::channel();
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
             let _ = old.send(IdleEnd::NewWait);
@@ -130,6 +127,9 @@ impl IdleWaits {
 
     pub fn stop_reached(&self, node: NodeId, turn: Option<TurnId>) {
         self.watch(node, |w| {
+            if turn.is_some() && w.turn.is_some() && turn != w.turn {
+                return;
+            }
             w.said = None;
             if turn.is_some() {
                 w.answered = turn;

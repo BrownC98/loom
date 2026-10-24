@@ -629,6 +629,40 @@ async fn a_late_idle_request_answers_only_its_own_turn() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_late_idle_request_keeps_the_watch_of_a_newer_turn() {
+    let t = fixture();
+    let node = t.cursor("overtaken");
+    t.heard(node, "g1");
+    t.stop_hook("overtaken", "g1").await;
+    t.prompt(node, "g2");
+    let mark = t.mark();
+    t.said("overtaken", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    t.idle_request("overtaken", "g1").await;
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let found = t.relaunches(mark);
+    assert!(
+        matches!(found.as_slice(), [Entry::NoIdleWait { node: n }, ..] if n.id == Some(node)),
+        "{found:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_late_idle_request_keeps_the_typing_of_a_newer_turn() {
+    let t = fixture();
+    let node = t.cursor("drafting");
+    t.heard(node, "g1");
+    t.stop_hook("drafting", "g1").await;
+    t.prompt(node, "g2");
+    human_typed(&t.app, node);
+    t.idle_request("drafting", "g1").await;
+    let mark = t.mark();
+    t.said("drafting", Some("g2")).await;
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    assert_eq!(t.relaunches(mark), []);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_turn_end_that_something_answered_relaunches_nothing() {
     let t = fixture();
     let late = t.cursor("late");

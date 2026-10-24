@@ -13,7 +13,7 @@
 
 ## 개발 환경
 
-호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드는 `memcap -m 8G` 아래에서 돌린다. 단 검사·테스트 네 명령은 `memcap -m 5G`다. 실측(2026-10-23, cgroup `memory.peak`, 처음부터 빌드, 단계마다 2회): clippy 2.2GiB, test 2.7GiB, Windows clippy 2.5GiB, Windows test 3.0GiB(최대 3076MiB). 이미 빌드한 `target/`은 130MiB 이하다. 5G는 최대값에 약 65%를 더한 값이다. 병합 관문(`scripts/gate/check.sh`)은 여유가 이 5G를 넘을 때만 단계를 띄운다.
+호스트(WSL)에서 빌드·실행한다. 사람이 loom을 쓰는 곳과 같다. Rust 판은 `rust-toolchain.toml`, Node 판은 `.nvmrc`가 정한다. 저장소 폴더에서 아래 명령을 쓴다. 무거운 빌드는 `memcap -m 8G` 아래에서 돌린다. 단 검사·테스트 네 명령은 `memcap -m 5G`다. 실측(2026-10-23, cgroup `memory.peak`, 처음부터 빌드, 단계마다 2회): clippy 2.2GiB, test 2.7GiB, Windows clippy 2.5GiB, Windows test 3.0GiB(최대 3076MiB). 이미 빌드한 `target/`은 130MiB 이하다. 5G는 최대값에 약 65%를 더한 값이다. 병합 관문(`scripts/gate/check.sh`)은 여유가 이 5G를 넘을 때만 단계를 띄운다. 여유가 2×5G 이상이면 cargo 단계를 Linux 갈래와 Windows 갈래로 함께 돌린다.
 
 | 할 일 | 명령 |
 |---|---|

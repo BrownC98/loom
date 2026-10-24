@@ -1,79 +1,48 @@
 ---
 name: o-mode
-description: o-mode(orchestration mode)의 Loom 판. Loom 노드에서 저장소 작업을 병렬로 개발하는 독립 절차. 총괄·코디·워커의 배정, 통신, 검수, 병합과 회수를 Loom과 Git으로 한다. LOOM_TOKEN과 LOOM_URL이 있는 세션에서 쓴다.
+description: The Loom version of o-mode (orchestration mode). A procedure to develop repository work in parallel on Loom nodes. It covers how the lead (총괄), coordinators (코디) and workers (워커) assign, communicate, review, merge and clean up with Loom and Git. Use it in sessions that have LOOM_TOKEN and LOOM_URL.
 ---
 
-# Loom 병렬 개발
+# Loom parallel development
 
-## 실행 경계
+## Limits
 
-- 이 파일, [브리프 공통 규칙](agent-rules.md)과 [참고](reference.md)가 실행 절차의 원천이다. 참고의 절차는 그 일을 할 때 그 파일을 읽고 따른다. 다른 오케스트레이션 스킬을 상속하지 않는다. 부모 없는 노드가 총괄이다. 자식은 브리프가 정한 역할을 유지한다.
-- Loom 환경과 다른 터미널 환경 변수가 함께 있어도 Loom으로 배정·통신·감독한다.
-- Orca CLI·앱·오케스트레이션 스킬·보조 스크립트를 실행 경로로 쓰지 않는다. Loom 기능이 없다고 그 도구로 우회하지 않는다.
-- 다른 제품 벤치마킹 요청은 비교 조사다. 제공된 자료와 로컬 소스를 먼저 읽고, 그 제품의 앱·CLI는 사용자가 명시할 때만 조작한다.
+- This file, the [brief rules](agent-rules.md) and the [reference](reference.md) are the only source of this procedure. Read a reference section when you do its task. Do not use a different orchestration skill.
+- A node without a parent is the lead. A child keeps the role from its brief.
+- Assign, communicate and supervise only with Loom, not with Orca (CLI, app, skills, scripts), also when Loom lacks a feature.
+- A request to benchmark a different product is a comparison study. Read the given material and local source first. Operate that product only when the human tells you to.
+- At start, run `loom status` and read the repository AGENTS.md. In a brief, write the setup steps for a new worktree and how to check completion.
 
-## 시작
+## Roles and assignment
 
-1. `loom status`로 현재 관계와 생존 여부를 확인한다.
-2. 저장소 AGENTS.md와 작업 관련 문서를 읽는다. 새 워크트리의 설정 절차와 완료 확인 방법을 브리프에 적는다. `--worktree` 자식은 설정 스크립트가 성공한 뒤 같은 카드에서 뜬다.
+The default roles are 총괄, 코디, 워커, 고위험 워커, 검토자 and 보조 검토자. `loom roles` shows each role's responsibility, agent, model and effort.
 
-## 역할과 배정
+- To change the agent of a running node, use `loom relaunch <child> --agent <id>`; do not remove and spawn again. For new nodes, only the human changes the role table.
+- Spawn a 고위험 워커 only for the edits that its responsibility names; that alone does not require a worker.
+- Each branch to main gets one 검토자. Only a high-risk branch also gets a 보조 검토자.
+- The lead does one- or two-line changes and gives all other work (code, screen checks, research) to one 코디. It keeps the work context (current work, children, decisions, waiting approvals), receives only the 코디's `done` and the gate's merged and failed results, and does not read result files.
+- The node that has the facts writes the brief, spawns the workers, reviews, merges and cleans up. A lead brief gives only the goal (with done-when) and the scope. Keep its `Facts:` short: put long facts in a task folder file and give the absolute path.
+- A 코디 does small, closely related work itself. It divides work only into two or more independent edit scopes. With one scope, it spawns the worker without `--worktree` in its own worktree and then only reads and reviews there. It also takes the pieces that wait for the same product decision.
+- Write names in the human's language: a branch has the name of its work (`알림표시통일`), a node is `<role> <work>` (`코디 알림표시통일`), the lead is `<repository> 총괄`. Names are unique.
+- A `--worktree` child starts from its parent's `HEAD`. Do not put two editors in one worktree.
+- For screen work, read [reference "Mockup approval"](reference.md#mockup-approval) first. Before the human approves, do not write screen product code or spawn implementation workers.
+- Make an HTML report only when the human asks ([reference](reference.md#reports-to-the-human)). Else write problem, cause and fix, one line each, per item. If the next step is clear, do it.
 
-기본 역할은 총괄, 코디, 워커, 고위험 워커, 검토자, 보조 검토자다. 사용자가 역할을 더하고 고치고 지울 수 있다. 각 역할의 책임과 에이전트·모델·강도는 loom 설정(설정 › 에이전트 › o-mode 역할)에 있다. `loom roles`로 본다.
+## Supervision and review
 
-- 자식은 `loom spawn <이름> --role <역할>`로 띄운다. 사람이 다른 실행자를 원하면 사람이 역할 표를 바꾸거나 화면에서 노드를 만든다.
-- 뜬 노드의 실행자를 바꿀 때(사용 한도 등)는 `loom relaunch <자식> --agent <id>`를 쓴다. 노드를 지우고 새로 띄우지 않는다. 역할·메일함·자식이 남고, 새 세션은 옛 세션 기록 경로를 받는다.
-- 고위험 편집 범위(역할 「고위험 워커」의 책임)는 그 역할로 띄운다. 이 조건만으로 워커를 띄우지 않는다(2026-10-23 사람 "네가 작업안하고 워커 부른이유").
-- 검토자는 main 대상 브랜치마다 1명(설정의 검토자)이다. `loom spawn --role 검토자 --review <브랜치>`로 띄운다. 고위험 브랜치에만 `loom spawn --role "보조 검토자" --review <브랜치>`로 검토자를 하나 더 띄운다(Q540 실측: 두 모델이 놓친 결함이 겹치지 않아 심은 결함 8/8을 찾았다).
-- 크기로 맡긴다(Q522 A, Q687 A): 한두 줄은 총괄이 직접, 그 밖은 코디 1명이다. 총괄은 코디의 `done`과 관문의 merged·failed만 받는다. 결과 파일은 읽지 않는다(2026-10-23 실측: 총괄 한 세션이 Claude 입력의 21%를 썼다. 깨울 때마다 맥락 약 22.5만 토큰을 다시 읽었다).
-- 사실을 가진 노드가 브리프를 쓰고 워커를 띄운다(예: 코디가 찾은 불안정한 시험). 그 노드가 검토·병합·회수까지 맡는다. 총괄 브리프에는 목표(완료 조건 포함)와 범위만 적는다. 남의 사실을 옮겨 적지 않는다.
-- 총괄은 상주하며 작업 컨텍스트(진행 중인 일, 자식, 결정, 승인 대기)를 관리한다. 코드 수정·화면 검증·조사는 브리프로 맡긴다.
-- 코디는 강하게 결합된 작은 작업을 직접 한다. 독립된 편집 범위가 둘 이상일 때만 나눈다. 코디의 편집 범위가 하나면 워커를 `--worktree` 없이 코디 워크트리에 띄운다. 새 워크트리는 설정·빌드·병합·회수만 더한다. 워커가 도는 동안 코디는 그 워크트리를 편집·빌드하지 않고 읽기와 검수만 한다. 코디는 같은 제품 결정을 기다리는 조각을 함께 맡는다.
-- 이름은 사용자의 언어로 짓는다. 브랜치·워크트리는 그 안에서 하는 작업(예: `알림표시통일`), 노드는 `<역할> <작업>`(예: `코디 알림표시통일`, `워커 완료링크`)이다. 총괄은 `<저장소> 총괄`이다. 노드 이름은 유일하게 짓는다. 주소는 이름, 노드 번호, `parent`를 쓴다.
-- 브리프 머리는 사용법의 `loom spawn` 줄이 정한다. 총괄 브리프의 `Facts:`는 짧게 둔다. 긴 사실은 작업 폴더의 파일에 쓰고 절대 경로를 적는다. 브리프에 공통 규칙 경로를 적지 않는다.
-- 작업 폴더(`$LOOM_TASK_DIR`): 이름은 `~/.cache/loom/<저장소 폴더 이름>-<작업>[-N]/`이다. 부모의 작업을 나누는 자식은 `result.md` 대신 `<자기 노드 이름>.md`에 쓴다. 옛 `~/.cache/loom-briefs`, `~/.cache/loom-results`는 읽기만 한다.
+- Do not poll: notices tell you when a child is done, exits, is removed or is handed over.
+- After a child's time budget, send `loom note <child> "Report status and blockers." --steer`; if it does not answer, run `loom status`.
+- To stop a child, send `--interrupt` and ask for its result, failure cause and remaining work. Before you reassign, make sure that it stopped.
+- If the same completion command fails two times, or the environment blocks you for over 10 minutes, follow [reference "Blocked"](reference.md#blocked).
+- A reviewer compares the diff, done-when, the check output and the real behavior. Check again if evidence is missing, a check failed or the code changed since. Do not weaken a check or done-when. Send back each problem that can be fixed now.
 
-## Loom 명령
+## Merge and cleanup
 
-명령은 사용법이 정한다. 드문 일(인계, 조치 전파, 재배정, 설정 실패)은 [참고 「명령」](reference.md#명령)을 따른다.
-
-`--worktree`는 부모 워크트리의 `HEAD`에서 갈라진다. 총괄은 기준 체크아웃에서, 코디는 자기 브랜치에서 자식을 만든다. 같은 워크트리에 편집자를 여럿 두지 않는다.
-
-## 목업 승인
-
-- 사람에게 보이는 목업·보고서의 형식, 스타일, 보이기는 [user-doc](../user-doc/SKILL.md)이 정한다. 아래는 loom 역할만 정한다.
-- 화면 작업은 설치된 디자인 점검 스킬(예: `design-stack`)이 있으면 그것으로 점검한다. 코디가 목업을 만든다.
-- 코디는 렌더 점검 뒤 경로·판·점검 결과만 보고한다. 총괄 한 명이 user-doc `show.sh`로 점검하고 `loom ask "<질문>" --doc <파일>`로 질문에 붙인다. 사람의 브라우저는 아무도 직접 열지 않는다. 브리프에 코디의 브라우저 열기를 지시하지 않는다.
-- 머리 줄의 `응답할 곳`은 총괄이다. 사람은 그 노드의 대화에 승인이나 수정을 전한다.
-- 사용자 승인 전에는 화면 제품 코드를 쓰거나 구현 워커를 띄우지 않는다. 승인할 판과 남은 결정을 구체적으로 제시한다.
-- 사용자의 승인 판·경로·내용을 구현 브리프에 적는다. 승인 대기 중인 노드와 워크트리는 유지한다.
-
-## 사용자 보고서
-
-- HTML 보고서는 사람이 명시해 요청할 때만 만든다. 절차는 [참고 「사용자 보고서」](reference.md#사용자-보고서)에 있다. 그 밖의 결과는 터미널에 항목마다 문제·원인·해결 세 줄로 알리고, 할 일이 뻔하면 바로 진행한다.
-
-## 감독과 검수
-
-- 완료·종료·제거·인계 알림을 받는다. 주기적인 순찰 프로세스는 만들지 않는다.
-- 시간 예산을 넘기면 `loom note <자식> "Report status and blockers." --steer`로 확인한다. 응답이 없으면 `loom status`로 생존을 확인한다.
-- 중단이 필요하면 `loom note <자식> <본문> --interrupt`로 현재 결과·실패 원인·남은 일을 보고하게 한다. 기존 편집자가 멈췄는지 확인한 뒤 재배정한다.
-- 같은 완료 명령이 두 번 실패하거나 환경 문제로 10분 넘게 막히면 [참고 「막힘」](reference.md#막힘)을 따른다.
-- 검수자는 diff, 완료 조건, 검사 출력과 실제 관찰 결과를 대조한다. 실패한 검사를 약화하거나 완료 조건을 줄여 통과시키지 않는다.
-- 증거가 없거나 실패했거나 검증 뒤 관련 코드가 바뀌었을 때 검사를 다시 한다. 지금 고칠 수 있는 문제는 반려해 고친다.
-
-## 병합과 회수
-
-- 병합은 관문 동사로만 한다: `loom ready`, `loom verdict`, `loom fail`. 모두 바로 돌아온다. 받는 곳·순서·필요한 값은 `loom --help`와 거절 글이 알린다.
-- 브랜치 담당(코디, 또는 코디 없는 워커)은 커밋하고 검사를 마친 뒤 `loom ready <브랜치>`를 부른다. 대상 브랜치(main, 코디 밑 워커는 코디 브랜치)를 먼저 병합하지 않아도 된다. 병합 큐가 지금 대상 위에 쌓고, 충돌하면 rework로 알린다. 그때 대상을 병합해 고친다.
-- 관문은 코디 밑 워커의 브랜치면 코디, 그 밖은 담당 자신이다(Q692 A).
-- 검토는 main 앞 한 번이다(Q785~Q787 A). 코디 밑 워커 브랜치는 검토자를 띄우지 않는다. 코디가 결과를 브리프의 완료 조건과 대조하고 `loom verdict`를 직접 부른다. 이것은 받아들이기이고 코드 검토가 아니다. block이면 결함 파일에 완료 조건에서 빠진 것을 적는다. loom이 그 브랜치의 `--review`를 거절한다.
-- main 대상 브랜치(코디 브랜치 포함)는 관문이 검토자를 띄우고, 판정은 그 검토자만 한다. 검토자는 diff와 브리프의 완료 조건을 확인하고 결함 파일을 자기 작업 폴더의 `review/<브랜치>-<자기 노드 이름>.md`에 쓴 뒤 `loom verdict`를 부른다(검토자는 관문의 작업 폴더를 물려받는다. 브랜치 이름의 `/`는 `-`다). `--findings`가 없으면 loom이 그 파일을 쓴다. 코디는 자기 브랜치를 `loom ready` 하기 전에 워커 결과를 검수해 합친다.
-- 차례가 판정·병합 전에 담당에게 돌아가면 그 차례의 검토자는 `kind: withdrawn`을 받는다. 받은 검토자는 그 브랜치 검토를 멈춘다.
-- pass 판정은 브랜치를 데몬의 병합 큐에 세운다. 큐는 그 차례의 산 검토자가 모두 판정한 뒤에 묶는다. 그래서 관문은 보조 검토자를 첫 판정 전에 띄운다. 큐가 대상마다 브랜치를 묶어 쌓고, `scripts/gate/check.sh`를 한 번 돌리고, 병합한다. main이면 push하고 `scripts/gate/ship.sh`로 배포를 확인한다. 결과는 `merged`·`rework`·`failed`로 온다. 기다리지 않고 다른 일을 한다(Q697 A).
-- 손으로 main에 병합·push하지 않는다. 병합 큐가 관문 밖 커밋을 찾아 알린다.
-- 릴리스·APK 실행(`.github/workflows/release.yml`)은 시작한 노드가 끝까지 지켜본다.
-- 저장소에 `scripts/gate/check.sh`가 없어도 `loom ready <브랜치>`를 부른다. 관문은 `kind: ready` 메시지를 받고, 손으로 병합한 뒤 `loom done`으로 알린다.
-- 병합(`merged`) 뒤에는 데몬이 그 브랜치의 검토자, 담당 노드, 깨끗한 워크트리, 브랜치를 지운다. 변경이 남은 워크트리는 워크트리·브랜치·담당을 남기고 담당의 부모에게 알린다. 부모 없는 담당과 자식이 있는 담당은 남는다. 그래서 담당은 `loom ready` 전에 `loom done`으로 결과를 보고한다.
-- 그 밖의 회수는 그 노드의 현재 부모가 한다. 대상은 병합하지 않은 자식 노드, 띄운 셸 노드, 그 워크트리와 브랜치, 시험 데몬 같은 백그라운드 프로세스, 임시 폴더다.
-- 자식의 결과를 받은 직후마다 회수 대상을 확인한다. 결과를 보존했고 더 쓸 계획이 없으면 바로 회수한다. 사용자 확인이나 작업 전체의 끝을 기다리지 않는다. 절차는 [참고 「회수」](reference.md#회수)를 따른다.
-- 완료 보고에는 결과, 검증 근거, 반영 위치와 남은 일을 적는다. `랩터-3:` 줄에 삭제·재사용·새 부품의 이유를 적는다.
+- Merge only with `loom ready`, `loom verdict` and `loom fail`. Do not merge or push to main by hand.
+- The owner commits, does the checks and calls `loom ready` without a merge of the target. On a conflict, the queue sends rework: then merge the target and fix it.
+- A 코디's verdict on a worker branch is acceptance against done-when, not a code review. A block lists what done-when misses. A 코디 merges its workers' results before its own `loom ready`.
+- The queue waits for all live reviewers, so spawn the 보조 검토자 before the first verdict. Do other work while the queue runs.
+- After `merged`, the daemon removes the reviewers, the owner node, a clean worktree and the branch. It keeps a worktree with changes, its branch and owner, and tells the owner's parent. An owner without a parent or with children stays. Thus call `loom done` before `loom ready`.
+- Each time that a child reports, the parent cleans up what is safe and no longer needed: unmerged children, shell nodes, their worktrees and branches, background processes, temporary folders ([reference "Cleanup"](reference.md#cleanup)).
+- Rare cases (handover, setup failure, release runs, no gate script): [reference "Commands"](reference.md#commands).
+- In the completion report, write the result, the evidence, where the change is, the remaining work and the `Raptor-3:` line.

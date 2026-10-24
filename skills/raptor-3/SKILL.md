@@ -1,78 +1,73 @@
 ---
 name: raptor-3
-description: 랩터-3(raptor-3). SpaceX Raptor 3처럼 "최고의 부품은 없는 부품"을 코드베이스에 적용한다. 머스크 설계 5단계(요구 사항 의심 → 삭제 → 단순화 → 가속 → 자동화)로 요구 사항 없는 부품, 재발명, 중복 상태, 느린 루프·반복 수동 절차를 찾아 같은 순서로 고친다. "랩터-3", "raptor-3", "바퀴의 재발명", "부품 최소화", "상태 통일", "단순화 점검", "사이클 타임 단축"을 요청할 때 쓴다. 언어·프로젝트·에이전트와 관계없이 쓴다.
+description: 랩터-3 (raptor-3). Keep the number of parts in a code base to a minimum ("the best part is no part"). Use Musk's five design steps (question the requirement → delete → simplify → accelerate → automate) to find parts without a requirement, reinvented code, duplicate state, slow loops and repeated manual steps, and fix them in that order. Use it when the human asks for "랩터-3", "raptor-3", "바퀴의 재발명", "부품 최소화", "상태 통일", "단순화 점검" or "사이클 타임 단축". It applies to all languages, projects and agents.
 ---
 
-# 랩터-3
+# Raptor-3
 
-"최고의 부품은 없는 부품"을 모든 작업(코드, 문서, 스크립트, CI, 배포, 지시 파일)에 적용한다.
+Remove parts from all work: code, documents, scripts, CI, deployment and instruction files.
 
-참고: SpaceX Raptor 3는 추력을 올리면서 배관·센서를 몸체에 넣고 열 차폐를 없앴다.
+## Parts
 
-## 부품
+A part is a thing that we must maintain: code that we write, a file, an export, an option, a script, a service, a copy of a fact.
 
-부품은 우리가 유지보수해야 하는 지점이다. 직접 쓴 코드, 파일, export, 옵션, 스크립트, 서비스, 같은 사실의 사본이 부품이다.
+- Make the number of parts that the goal needs as small as possible. First, cut the code that agents write.
+- For the same result, select in this order: delete; assemble existing parts or libraries; write new code.
+- The code in an external library is not our part. Our parts are the dependency line and the calls. A widely used, maintained library moves maintenance out of the repository. Thus a change from our own code to a proven library removes parts.
+- Do not replace a library that we use with our own code. That adds parts. If a library must go (no maintenance, a security defect, a license problem), first find a different proven library.
 
-- 목표: 목표에 필요한 부품 수를 최소로 만든다. 가장 먼저 줄일 부품은 에이전트가 직접 쓰는 코드다.
-- 고르는 순서: 같은 결과면 삭제, 기존 부품·라이브러리 조립, 새 코드 순으로 고른다.
-- 외부 라이브러리: 라이브러리 내부 코드는 우리 부품이 아니다. 우리 부품은 의존성 한 줄과 호출부뿐이다. 널리 쓰이고 유지되는 라이브러리는 유지보수를 밖으로 넘긴다. 그래서 직접 구현을 검증된 라이브러리로 바꾸면 부품이 줄어든다.
-- 역방향 금지: 쓰이는 라이브러리를 지우고 직접 구현으로 바꾸지 않는다. 부품이 늘어난다. 유지 중단·보안 결함·라이선스 문제로 바꿔야 하면 다른 검증된 라이브러리를 먼저 찾는다.
+## Five steps
 
-## 5단계
+These are Musk's five design steps. This order is the only source for the order of findings and of work.
 
-머스크 설계 5단계다. 이 순서가 판정 순서와 작업 순서의 유일한 원천이다.
+- Do not apply a step to a part before the earlier steps are complete for it. Do not merge, accelerate or automate a part that you will delete.
+- Put each finding in one step only. If it fits two steps, put it in the earlier step.
+- Each "Find" item is an audit unit. An audit examines only the units that the request names.
 
-- 앞 단계가 끝나지 않은 부품에 뒤 단계를 적용하지 않는다. 지울 부품을 합치거나, 빠르게 하거나, 자동화하지 않는다.
-- 발견 하나는 한 단계에만 넣는다. 두 단계에 걸치면 앞 단계에 넣는다.
-- 각 단계의 「찾는 것」은 감사 단위다. 감사는 요청받은 단위만 본다.
+1. **Question the requirement.** Each part must connect to a current user, a caller or a requirement. That requirement must have an owner (a person, an issue, a document).
+2. **Delete.** Delete each part that has no requirement or no owner. Do not optimize a part that you will delete. If you never had to add back a part, you did not delete enough.
+   - Find `parts`: features, screens and APIs that nothing calls; dead code, exports and translations; dependencies that a tool such as `knip` reports as not used; options that always have the same value; interfaces with one implementation; wrappers that only pass calls through. Also examine items outside the code: scripts, CI steps, services, environment variables and documents that nobody uses.
+3. **Simplify.** Merge only the parts that remain. Replace our own code with a standard feature, an existing part or a proven library.
+   - Find `reinvent`: the same work in two implementations. This includes duplicates in the repository, and our own code for work that the standard library, the platform, an installed dependency or a widely used proven library already does. For each replacement, write the package name, the version, the scope, an assembly sketch and the differences in behavior to keep.
+   - Find `state`: the same fact in two places. Examples: copies between a client store, a context, storage and the URL; copies of a server response; enums and status strings that each layer declares again; code that keeps two states the same. Give the single source. If a finding is also `reinvent`, put it in `reinvent`.
+4. **Accelerate.** Measure the cycle time of each process that remains: tests, build, CI, merge, deployment and the main tasks on screens. Reduce the slowest bottleneck first. Do not write that something is fast without a measurement.
+5. **Automate.** Automate only the steps that a person repeats. Use existing tools and scripts first. A new automation is a part, so it must pass step 1.
+   - Find `speed` (steps 4 and 5): slow tests, builds, CI jobs and waits; independent steps that run one after another; manual commands and checks that people repeat. For each finding, write the measurement (command, number of samples, median, maximum) and the target. If the `ci-bottleneck` skill is available, measure CI and tests with its procedure.
 
-1. **요구 사항 의심.** 모든 부품은 지금 쓰는 사람, 호출부, 요구 가운데 하나로 이어져야 한다. 그 요구에는 주인(사람, 이슈, 문서)이 있어야 한다.
-2. **삭제.** 요구로 이어지지 않거나 주인이 없는 부품을 지운다. 지울 부품을 최적화하지 않는다. 다시 더할 부품이 하나도 없었다면 덜 지운 것이다.
-   - 찾는 것 `parts`: 호출되지 않는 기능·화면·API, 죽은 코드·export·번역, `knip` 같은 도구가 쓰이지 않는다고 보고한 의존성, 늘 같은 값인 옵션, 구현이 하나뿐인 인터페이스, 넘기기만 하는 래퍼. 코드 밖도 본다: 쓰지 않는 스크립트·CI 단계·서비스·환경 변수·문서.
-3. **단순화.** 남은 부품만 합친다. 직접 구현을 표준 기능, 기존 부품, 검증된 라이브러리로 바꾼다.
-   - 찾는 것 `reinvent`: 같은 일을 두 번 구현한 것. 저장소 안의 중복 구현, 표준 라이브러리·플랫폼·설치된 의존성이 이미 하는 일의 직접 구현, 널리 쓰이는 검증된 라이브러리가 하는 일의 직접 구현. 대체 제안에는 패키지 이름, 버전, 대체 범위, 조립 스케치, 유지할 동작 차이를 적는다.
-   - 찾는 것 `state`: 같은 사실을 두 곳이 따로 가진 것. 클라이언트 store·context·저장소·URL 사이의 중복, 서버 응답의 복사본, 계층마다 다시 선언한 enum·상태 문자열, 두 상태를 맞추는 동기화 코드. 단일 원천을 제시한다. `reinvent`와 겹치면 `reinvent`에 넣는다.
-4. **가속.** 남은 공정의 사이클 타임을 실측한다. 공정은 테스트, 빌드, CI, 병합, 배포, 화면의 주요 작업이다. 가장 느린 병목부터 줄인다. 실측 없이 빠르다고 쓰지 않는다.
-5. **자동화.** 남은 절차 가운데 사람이 반복하는 것만 자동화한다. 기존 도구·스크립트를 먼저 쓴다. 새 자동화도 부품이므로 1단계 심사를 받는다.
-   - 찾는 것 `speed`(4·5단계): 느린 테스트·빌드·CI 잡·대기, 직렬로 도는 독립 단계, 반복하는 수동 명령·확인. 발견마다 실측값(명령, 표본 수, 중앙값, 최대)과 목표값을 적는다. `ci-bottleneck` 스킬이 있으면 CI·테스트 실측은 그 절차를 따른다.
+## While you work
 
-## 작업 중
+Do steps 1 to 3 (question the requirement → delete → simplify) at these three times, not in an audit at the end:
 
-설계·구현하는 동안 아래 세 시점마다 1~3단계(요구 사항 의심 → 삭제 → 단순화)를 돌린다. 끝난 뒤 감사로 미루지 않는다.
+1. Before you write code, make a parts list: each new part (file, function, export, table, column, queue, worker, option, dependency) with its requirement in one line, the existing parts and libraries that do the same work, and the parts that this change lets you delete. Do not make a part without a requirement.
+2. Before you add a part that is not on the list, do steps 1 to 3 for it and add it.
+3. Before you commit, read `git diff --cached` again. Delete new parts without a requirement and old parts that the change made unused.
 
-1. 코드를 쓰기 전: 부품 목록을 만든다.
-   - 새로 더할 부품(파일·함수·export·표·열·큐·워커·옵션·의존성)마다 이어지는 요구를 한 줄로 적는다. 요구가 없는 부품은 만들지 않는다.
-   - 같은 일을 하는 기존 부품과 라이브러리를 적는다.
-   - 이번 변경으로 지울 수 있는 부품을 적는다.
-2. 목록에 없는 부품을 더하려 할 때: 그 부품 하나에 1~3단계를 돌리고 목록에 더한다.
-3. 커밋하기 전: `git diff --cached`를 다시 읽는다. 요구가 없는 새 부품과, 이번 변경 때문에 쓰이지 않게 된 옛 부품을 찾아 지운다.
+In the completion report, write one `Raptor-3:` line: the deleted parts, the reused parts and libraries, the reason for each new piece of code, and the differences from the first list.
 
-완료 보고에는 `랩터-3:` 한 줄로 지운 부품, 다시 쓴 기존 부품·라이브러리, 새로 쓴 코드의 이유, 처음 목록과의 차이를 적는다.
+## Screen (UI/UX) audit
 
-## 화면(UI/UX) 감사
+When the human asks for a raptor-3 UI/UX improvement, also do this. A slice is one screen feature (for example: sign-up, a list, a viewer, settings, layout).
 
-UI/UX 개선을 랩터-3로 요청받으면 아래를 더한다. 조각은 화면 기능 단위다(예: 등록, 문헌 목록, 문헌 뷰어·도면, 판정, 하이라이트, 프로젝트·설정, 관리자, 레이아웃·팝아웃).
+For each audit unit, also find these on screens:
 
-감사 단위마다 화면에서 더 찾는 것:
-
-| 단위 | 화면에서 찾는 것 |
+| Unit | Find on screens |
 |---|---|
-| `parts` | 같은 동작으로 가는 진입점 여럿, 거의 늘 같은 값인 옵션, 되돌리기가 있는데 띄우는 확인 창, 없어도 되는 설명 문구, 쓰이지 않는 번역 키 |
-| `reinvent` | UI 라이브러리에 있는 표·팝오버·메뉴의 직접 구현, 브라우저 기본 기능을 다시 만든 포커스·키보드 처리 |
-| `state` | 같은 상태를 화면마다 다른 문구·색으로 보이는 것, 토큰 밖에 하드코딩한 색 |
-| `speed` | 주요 작업의 클릭 수·대기 시간(로딩·스피너), 사용자가 매번 손으로 반복하는 입력·선택 |
+| `parts` | many entry points to the same action, options that almost always have the same value, confirmation dialogs for actions that you can undo, text that the screen does not need, translation keys that nothing uses |
+| `reinvent` | our own tables, popovers and menus that the UI library has; focus and keyboard handling that the browser already does |
+| `state` | one state with different text or colors on different screens; colors written outside the tokens |
+| `speed` | the number of clicks and the wait (loading, spinners) for the main tasks; input and selections that the user repeats by hand each time |
 
-1. 근거를 모은다.
-   - 미리보기 서버에서 데스크톱 폭 화면을 찍는다. 모바일 화면은 보지 않는다.
-   - 디자인 점검 스킬(예: `design-stack`)이 있으면 그 기존 화면 리뷰 절차를 한 번 실행한다.
-   - 찍은 화면은 목업의 "현재" 화면으로 다시 쓴다.
-2. 요구 사항을 정한다. 사용자가 승인한 목업이 화면의 요구 사항이다.
-   - 승인 목업에 있는 요소는 삭제 후보로 올리지 않는다.
-   - 목업과 다른 화면은 결함으로 적는다.
-3. 묶음마다 판정한다.
-   - 보이는 동작이 그대로인 묶음은 바로 구현하고 전후 캡처만 붙인다. 예: 같은 모양의 표준 부품으로 바꾸기, 상태 단일 원천, 쓰지 않는 번역 키 삭제, 배치가 바뀌지 않는 접근성 수정.
-   - 보이는 동작이 바뀌는 묶음은 [o-mode 「목업 승인」](../o-mode/SKILL.md#목업-승인)을 따른다. 예: 화면 요소 삭제, 상태 표시 통합, 배치 변경.
-   - 화면 요소 삭제는 목업 승인으로 승인받는다. 참고: 버튼의 호출부는 사용자라서 코드만으로 판정할 수 없다.
-   - 승인을 기다리는 동안 다른 묶음을 병렬로 한다.
-4. MR마다 데스크톱 전후 캡처를 붙인다.
-5. 디자인 점검 스킬이 있으면 멈추는 조건은 그 스킬을 따른다. 보고에는 화면별로 줄어든 컨트롤 수와, 주요 작업을 끝내는 클릭 수의 변화를 더한다.
+1. Collect evidence.
+   - On the preview server, capture the screens at desktop width. Do not examine mobile screens.
+   - If a design check skill (for example `design-stack`) is available, do its review procedure for existing screens one time.
+   - Use the captures again as the "current" screens in the mockup.
+2. Set the requirements. The mockup that the user approved is the requirement for a screen.
+   - Do not list an element of the approved mockup as a candidate for deletion.
+   - Record each difference between a screen and its mockup as a defect.
+3. Decide for each group of changes.
+   - If the visible behavior does not change, implement it and attach only before and after captures. Examples: a change to a standard part with the same look, a single source of state, deletion of unused translation keys, an accessibility fix that keeps the layout.
+   - If the visible behavior changes, follow [o-mode "Mockup approval"](../o-mode/reference.md#mockup-approval). Examples: deletion of a screen element, merged status displays, a layout change.
+   - Get approval for each deletion of a screen element through the mockup. The caller of a button is the user, so code alone cannot show that the button is unused.
+   - While you wait for an approval, work on the other groups.
+4. Attach desktop before and after captures to each MR.
+5. If a design check skill is available, use its stop conditions. In the report, add for each screen the decrease in the number of controls and the change in the number of clicks for the main tasks.

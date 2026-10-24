@@ -9,7 +9,7 @@
 모든 에이전트가 모든 작업에 아래 두 지침을 따른다. 문맥에 전문이 없으면 작업을 시작하기 전에 그 파일을 읽는다.
 
 - [랩터-3](~/.agents/skills/raptor-3/SKILL.md): 설계·구현할 때마다 부품 수를 최소로 만든다. 코드를 쓰기 전, 목록에 없는 부품을 더할 때, 커밋하기 전에 요구가 없는 부품을 지운다.
-- [ste-100](~/.agents/skills/ste-100/SKILL.md): 모든 글에 ASD-STE100을 적용한다. 사람에게 보이는 글은 한국어, 에이전트끼리 주고받는 글은 영어로 쓴다.
+- [ste-orwell](~/.agents/skills/ste-orwell/SKILL.md): 모든 글에 ASD-STE100과 조지 오웰의 글쓰기 6원칙을 적용한다. 사람에게 보이는 글은 한국어, 에이전트끼리 주고받는 글은 영어로 쓴다.
 
 ## 개발 환경
 
@@ -35,7 +35,7 @@
 
 - 사람의 DB(`~/.loom/loom.db`)를 볼 때는 데몬 API를 먼저 쓴다. 파일을 직접 읽으면 읽기 전용(`sqlite3.connect('file:<경로>?mode=ro', uri=True)`)으로만 연다. 쓰기 연결은 데몬의 쓰기를 막을 수 있다(docs/design.md 「저장」).
 
-- `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-100/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(설계 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
+- `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-orwell/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(설계 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
 
 - API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.
 
@@ -147,7 +147,7 @@ AI도 컨텍스트 한계 때문에 코드 전체를 소유하지 못한다. 한
 ## 10. 작업 방식
 
 - 구조가 잡히기 전에는 기능마다 어느 모듈·파일·인터페이스에 둘지 먼저 제안한다. 사용자가 확인한 뒤 구현한다.
-- 화면을 새로 만들거나 바꾸기 전에 목업을 사용자에게 승인받는다. 승인 전에는 화면 코드를 쓰지 않는다. 절차는 [o-mode 「목업 승인」](skills/o-mode/SKILL.md#목업-승인)을 따른다.
+- 화면을 새로 만들거나 바꾸기 전에 목업을 사용자에게 승인받는다. 승인 전에는 화면 코드를 쓰지 않는다. 절차는 [o-mode "Mockup approval"](skills/o-mode/reference.md#mockup-approval)을 따른다.
 - 구조가 잡힌 뒤에는 기존 예(파일 경로)를 따라 만든다. 그래도 목표 달성을 위해 구조를 어기지 않았는지 매번 본다.
 - 편집은 언제나 작업마다 만든 워크트리에서 한다. 원래 체크아웃(main)에서는 병합과 `scripts/host.sh`만 한다. main 작업 폴더에 남은 미커밋 변경은 다른 작업의 병합·배포를 막는다.
 - 개발이 끝나면 검사를 전부 통과한 뒤 바로 main에 병합하고 원격에 올린다. 작업 브랜치와 워크트리는 병합 뒤 지운다. 커밋하지 않은 변경을 main에 두고 끝내지 않는다.

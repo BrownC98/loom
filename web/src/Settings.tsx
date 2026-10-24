@@ -345,7 +345,7 @@ function AgentsTab(props: { agents: AgentView[]; onRescan: () => void; settings:
   );
 }
 
-const SKILLS = ['oMode', 'userDoc', 'ste100', 'raptor3'] as const satisfies readonly (keyof AlwaysOn)[];
+const SKILLS = ['oMode', 'userDoc', 'steOrwell', 'raptor3'] as const satisfies readonly (keyof AlwaysOn)[];
 
 function SkillsSection({ settings, onSettings }: { settings: SettingsView; onSettings: (next: SettingsView) => void }) {
   const { t } = useTranslation();

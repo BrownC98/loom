@@ -4,4 +4,4 @@
  * 설정에서 켜고 끄는 내장 스킬. 끈 스킬은 새로 띄우는 노드에 주지 않는다: 시작 지시에서 글을 빼고 스킬 폴더에서도 뺀다.
  * 근거: 목업 docs/mockups/skill-options.html, 2026-10-21 사람 지시 "o-mode·user-doc 도 옵션에 추가해".
  */
-export type AlwaysOn = { oMode: boolean, userDoc: boolean, ste100: boolean, raptor3: boolean, };
+export type AlwaysOn = { oMode: boolean, userDoc: boolean, steOrwell: boolean, raptor3: boolean, };

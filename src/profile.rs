@@ -710,7 +710,7 @@ pub fn assert_every_launch_asks(texts: impl Fn(Launch) -> (String, String)) {
     let off = AlwaysOn {
         o_mode: false,
         user_doc: false,
-        ste100: false,
+        ste_orwell: false,
         raptor3: false,
     };
     for position in [Position::Root, Position::Child] {

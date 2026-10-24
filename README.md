@@ -49,10 +49,10 @@ loom done "Added one toggle() test"              # report to the parent
 
 ## Built-in skills
 
-loom ships five skills: `o-mode` (orchestration mode), `ste-100`, `user-doc`, `raptor-3` and `ask-human`. You do not install anything.
+loom ships five skills: `o-mode` (orchestration mode), `ste-orwell`, `user-doc`, `raptor-3` and `ask-human`. You do not install anything. The skill text is English that follows ASD-STE100 and George Orwell's six rules of writing. Agents write to you in your language.
 
 - Call a skill by name. Claude Code: `/loom:<name>`. Codex: `loom:<name>`. OpenCode 2: `<name>`.
-- Always on, without a call: `ask-human` (how an agent asks you: one line in the question inbox), STE-100 and the raptor-3 work rules go to every node. You can turn off all but `ask-human` in **Settings › Agents › Built-in skills**. A node without a parent (a node you start) also gets the full `o-mode` procedure and acts as the lead. A child gets only the common brief rules of `o-mode`.
+- Always on, without a call: `ask-human` (how an agent asks you: one line in the question inbox), the writing rules (STE and Orwell) and the raptor-3 work rules go to every node. You can turn off all but `ask-human` in **Settings › Agents › Built-in skills**. A node without a parent (a node you start) also gets the full `o-mode` procedure and acts as the lead. A child gets only the common brief rules of `o-mode`.
 - A node reads the skill text when it starts. After you update loom, restart running nodes to give them the new text.
 
 Details (Korean): [docs/design.md 「내장 스킬」](docs/design.md#내장-스킬).

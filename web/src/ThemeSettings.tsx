@@ -163,7 +163,7 @@ export function GraphTab({ settings, onSettings }: TabProps) {
         <div className="choice" role="radiogroup" aria-labelledby="t-pill">
           {QUESTION_PILLS.map((v) => (
             <label key={v}>
-              <input type="radio" name="questionPill" checked={settings.questionPill === v} onChange={() => onSettings({ ...settings, questionPill: v })} />
+              <input type="radio" name="questionPill" checked={settings.questionPill === v} onChange={() => onSettings({ ...settings, questionPill: v, closedPill: null })} />
               {t(`questionPill.${v}`)}
             </label>
           ))}

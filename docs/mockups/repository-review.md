@@ -52,7 +52,7 @@
 | `web/src/Tree.tsx` | 커밋이 없는 원래 체크아웃의 설명을 「원래 체크아웃」 대신 「커밋 없음」으로 보인다 |
 | `web/src/api.ts` | `getFolders`, `cloneRepo`, `createRepo` |
 | `web/src/locales/ko.ts`, `en.ts` | 탭 이름, 칸 이름, 오류 문구 |
-| `docs/design.md` 「저장소와 워크트리」 | 「더하기」 줄을 세 갈래로 고친다. 20줄의 "경로를 글로 입력해 더한다"를 고친다 |
+| `docs/design/그래프와-화면.md` 「저장소와 워크트리」 | 「더하기」 줄을 세 갈래로 고친다. 20줄의 "경로를 글로 입력해 더한다"를 고친다 |
 
 ### 랩터-3 부품 목록
 

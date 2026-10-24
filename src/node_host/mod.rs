@@ -17,6 +17,7 @@ use portable_pty::CommandBuilder;
 use tokio::sync::{broadcast, watch};
 
 use crate::process_tree::{self, Snapshot};
+use crate::screen::Screen;
 use wire::Frame;
 
 pub use host::run;
@@ -585,13 +586,6 @@ fn mode_events(bytes: &[u8]) -> Vec<ModeEvent> {
         }
     }
     found
-}
-
-#[derive(Default)]
-pub struct Screen {
-    pub text: String,
-    pub to_cursor: String,
-    pub cols: u16,
 }
 
 pub fn typed(input: &[u8]) -> bool {

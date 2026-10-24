@@ -423,7 +423,7 @@ mod tests {
             self.dir.path().join(name)
         }
 
-        fn until(&self, node: NodeId, mut done: impl FnMut(&node_host::Screen) -> bool) {
+        fn until(&self, node: NodeId, mut done: impl FnMut(&crate::screen::Screen) -> bool) {
             let deadline = std::time::Instant::now() + Duration::from_secs(10);
             while !done(&self.host.screen(node)) {
                 assert!(
@@ -577,7 +577,7 @@ mod tests {
             assert_eq!(sent, Ok(()), "{i}");
             assert_eq!(t.graph.dialog(wait), Err(Refusal::NoWait(wait)), "{i}");
             t.until(node, |_| std::fs::read(&typed).is_ok_and(|b| b == expected));
-            let settled = |now: &node_host::Screen| match after {
+            let settled = |now: &crate::screen::Screen| match after {
                 "clear" => now.text.contains("answered"),
                 "newline" => now.to_cursor.ends_with('\n'),
                 _ => now.text.contains(secret),

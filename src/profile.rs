@@ -14,12 +14,11 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::node_host::Screen;
 use crate::protocol::{
     AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, ModelChoice, OpenQuestion,
     Prompt as ScreenPrompt, StartDigests, WaitKind,
 };
-use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Session};
+use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Screen, Session};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 

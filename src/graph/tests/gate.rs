@@ -455,6 +455,10 @@ fn reviewers_share_findings_and_the_next_round_names_the_fixes() {
         g.note(first, "other", Kind::Steer, "x", None),
         Err(Refusal::NotRelated(_))
     ));
+    assert!(matches!(
+        g.interrupt(first, "second", "x", None, |_| {}),
+        Err(Refusal::NotRelated(_))
+    ));
 
     mail(&g, t.solo);
     g.verdict(first, "b", Judgment::Block, Some("/r/f.md"), Some(&via()))
@@ -465,40 +469,53 @@ fn reviewers_share_findings_and_the_next_round_names_the_fixes() {
         ..round("b", "main")
     };
     g.ready(t.solo, &fixed, t.solo, Some(&via())).unwrap();
-    for (node, peer) in [(first, "second"), (second, "first")] {
-        let got = mail(&g, node);
-        assert_eq!(got.len(), 1, "{got:?}");
-        assert!(
-            got[0].contains(&format!(
-                "Other reviewers of b and their findings files: {peer} ($LOOM_TASK_DIR/review/b-{peer}.md)."
-            )),
-            "{}",
-            got[0]
-        );
-        assert!(
-            got[0].contains(
-                "The fixes since the head that you judged last are `git log c0ffee1..beef002`."
-            ),
-            "{}",
-            got[0]
-        );
-    }
+    let to_first = mail(&g, first);
+    assert_eq!(to_first.len(), 1, "{to_first:?}");
+    assert!(
+        to_first[0].contains(
+            "Other reviewers of b and their findings files: second ($LOOM_TASK_DIR/review/b-second.md)."
+        ),
+        "{}",
+        to_first[0]
+    );
+    assert!(
+        to_first[0].contains(
+            "The fixes since the head that you judged last are `git log c0ffee1..beef002`."
+        ),
+        "{}",
+        to_first[0]
+    );
+    let to_second = mail(&g, second);
+    assert!(
+        to_second[0].contains("Other reviewers of b and their findings files: first (/r/f.md)."),
+        "{}",
+        to_second[0]
+    );
+    assert!(
+        to_second[0].contains("You did not judge b before. Review the whole branch."),
+        "{}",
+        to_second[0]
+    );
 
     g.verdict(second, "b", Judgment::Block, Some("/r/g.md"), Some(&via()))
         .unwrap();
-    mail(&g, first);
+    assert!(mail(&g, first)[0].contains("write the findings that you have now to /r/f.md"));
     let again = Round {
         head: "cafe003",
         ..round("b", "main")
     };
     g.ready(t.solo, &again, t.solo, Some(&via())).unwrap();
-    for (node, judged) in [(first, "c0ffee1"), (second, "beef002")] {
+    for (node, judged, peer) in [
+        (first, "c0ffee1", "second (/r/g.md)"),
+        (second, "beef002", "first (/r/f.md)"),
+    ] {
         let got = mail(&g, node);
         assert!(
             got[0].contains(&format!("`git log {judged}..cafe003`")),
             "{}",
             got[0]
         );
+        assert!(got[0].contains(peer), "{}", got[0]);
     }
 }
 

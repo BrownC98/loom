@@ -603,8 +603,8 @@ impl Graph {
             .collect();
         for (id, _, agent) in &seated {
             let (peers, kind) = match *id == node {
-                true => (peers_of(&names, node, &branch), Kind::Queue),
-                false => (peers_of(&newcomer, *id, &branch), steer_kind(agent)),
+                true => (peers_of(&db, &names, node, &branch)?, Kind::Queue),
+                false => (peers_of(&db, &newcomer, *id, &branch)?, steer_kind(agent)),
             };
             let body = protocol::peers_step(&branch, &peers);
             mailbox::enqueue_from_loom(&db, *id, kind, &MessageKind::Note, &body, None)?;
@@ -631,7 +631,6 @@ impl Graph {
         let from = old.as_ref().map_or(GateState::Working, |row| row.state);
         allowed_caller(&tx, caller, old.as_ref(), call.verb(), branch)?;
         let to = protocol::step(from, call)?;
-        let previous = old.as_ref().map(|row| row.head.clone());
         let row = match old {
             Some(row) => Row { state: to, ..row },
             None => Row {
@@ -725,9 +724,9 @@ impl Graph {
             if call == GateCall::Ready {
                 let seated = reviewers(&tx, &row, branch, caller)?;
                 for (reviewer, name) in &seated {
-                    let judged = last_judged(&tx, *reviewer, branch)?.or(previous.clone());
+                    let judged = last_judged(&tx, *reviewer, branch)?;
                     let mut body = Vec::new();
-                    let peers = peers_of(&seated, *reviewer, branch);
+                    let peers = peers_of(&tx, &seated, *reviewer, branch)?;
                     if !peers.is_empty() {
                         body.push(protocol::peers_step(branch, &peers));
                     }
@@ -735,7 +734,7 @@ impl Graph {
                         branch,
                         &row.head,
                         judged.as_deref(),
-                        &task::findings_in_task(branch, name),
+                        &findings_of(&tx, *reviewer, name, branch)?,
                     ));
                     post(
                         &tx,
@@ -850,7 +849,7 @@ fn withdraw(
     };
     for (node, name, agent) in &reviewers {
         let body =
-            protocol::withdrawn_step(branch, row.state, &task::findings_in_task(branch, name));
+            protocol::withdrawn_step(branch, row.state, &findings_of(tx, *node, name, branch)?);
         mailbox::enqueue_from_loom(
             tx,
             *node,
@@ -892,15 +891,32 @@ fn reviewers(
     .collect()
 }
 
-fn peers_of(seated: &[(NodeId, String)], me: NodeId, branch: &str) -> Vec<Peer> {
+fn peers_of(
+    db: &Connection,
+    seated: &[(NodeId, String)],
+    me: NodeId,
+    branch: &str,
+) -> rusqlite::Result<Vec<Peer>> {
     seated
         .iter()
         .filter(|(id, _)| *id != me)
-        .map(|(_, name)| Peer {
-            name: name.clone(),
-            findings: task::findings_in_task(branch, name),
+        .map(|(id, name)| {
+            Ok(Peer {
+                name: name.clone(),
+                findings: findings_of(db, *id, name, branch)?,
+            })
         })
         .collect()
+}
+
+fn findings_of(
+    db: &Connection,
+    reviewer: NodeId,
+    name: &str,
+    branch: &str,
+) -> rusqlite::Result<String> {
+    let given = last_verdict(db, reviewer, branch, "SELECT entry ->> '$.what.findings'")?;
+    Ok(given.unwrap_or_else(|| task::findings_in_task(branch, name)))
 }
 
 fn last_judged(
@@ -908,10 +924,21 @@ fn last_judged(
     reviewer: NodeId,
     branch: &str,
 ) -> rusqlite::Result<Option<String>> {
+    last_verdict(db, reviewer, branch, "SELECT entry ->> '$.what.head'")
+}
+
+fn last_verdict(
+    db: &Connection,
+    reviewer: NodeId,
+    branch: &str,
+    select: &str,
+) -> rusqlite::Result<Option<String>> {
     db.query_row(
-        "SELECT entry ->> '$.what.head' FROM events WHERE entry ->> '$.kind' = 'message'
-         AND entry ->> '$.gate.verb' = 'verdict' AND entry ->> '$.gate.branch' = ?2
-         AND entry ->> '$.from.id' = ?1 ORDER BY id DESC LIMIT 1",
+        &format!(
+            "{select} FROM events WHERE entry ->> '$.kind' = 'message'
+             AND entry ->> '$.gate.verb' = 'verdict' AND entry ->> '$.gate.branch' = ?2
+             AND entry ->> '$.from.id' = ?1 ORDER BY id DESC LIMIT 1"
+        ),
         params![reviewer.0, branch],
         |r| r.get(0),
     )

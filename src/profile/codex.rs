@@ -10,6 +10,8 @@ use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
+pub mod server;
+
 #[allow(clippy::all, dead_code)]
 pub mod protocol {
     include!(concat!(env!("OUT_DIR"), "/codex_protocol.rs"));

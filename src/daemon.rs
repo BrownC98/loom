@@ -61,7 +61,6 @@ use tokio::sync::watch;
 use ts_rs::TS;
 
 use crate::accounts::{AccountId, Site};
-use crate::codex_server::CodexServer;
 use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
@@ -75,6 +74,7 @@ use crate::open;
 use crate::paste;
 use crate::process_tree;
 use crate::profile::claude;
+use crate::profile::codex::server::CodexServer;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
 use crate::profile::opencode2;

@@ -12,12 +12,12 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::process_tree::{self, Snapshot};
-use crate::profile::codex::Status;
-use crate::profile::codex::protocol::{
+use super::Status;
+use super::protocol::{
     ThreadActiveFlag, ThreadReadParams, ThreadReadResponse, ThreadStartedNotification,
     ThreadStatus, ThreadStatusChangedNotification,
 };
+use crate::process_tree::{self, Snapshot};
 use crate::protocol::{ServerLink, WaitKind};
 use crate::wsl::Inside;
 

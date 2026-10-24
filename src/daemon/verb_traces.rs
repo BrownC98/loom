@@ -1041,7 +1041,7 @@ async fn roles_set_refuses_a_child_an_unknown_role_and_an_unknown_agent() {
     .await;
     assert!(matches!(
         t.refused("roles", mark, refused),
-        Refusal::Launch(_)
+        Refusal::BadRoleSetting(_)
     ));
 
     let mark = t.mark();
@@ -1053,7 +1053,7 @@ async fn roles_set_refuses_a_child_an_unknown_role_and_an_unknown_agent() {
     .await;
     assert!(matches!(
         t.refused("roles", mark, refused),
-        Refusal::Launch(_)
+        Refusal::BadRoleSetting(_)
     ));
 
     assert_eq!(t.app.settings.get().unwrap().roles, Roles::default());

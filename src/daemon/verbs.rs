@@ -96,7 +96,7 @@ fn role_refusal(e: RoleProblem) -> Refusal {
     match e {
         RoleProblem::Unknown { role, names } => Refusal::UnknownRole { role, names },
         RoleProblem::NoAgent { role } => Refusal::RoleHasNoAgent { role },
-        RoleProblem::UnknownAgent(_) => Refusal::Launch(e.to_string()),
+        RoleProblem::Launch(e) => Refusal::BadRoleSetting(e.to_string()),
     }
 }
 
@@ -121,7 +121,7 @@ fn set_role(app: &App, caller: NodeId, req: &SetRole) -> Result<Roles, Problem> 
     use crate::settings::SetRoleProblem;
     app.settings.set_role(req).map_err(|e| match e {
         SetRoleProblem::Db(e) => internal(e),
-        SetRoleProblem::Shape(e) => Refusal::Launch(e).into(),
+        SetRoleProblem::Shape(e) => Refusal::BadRoleSetting(e).into(),
         SetRoleProblem::Role(e) => role_refusal(e).into(),
     })
 }

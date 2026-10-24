@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::profile::{AgentId, ModelChoice, check_choice, known_agent};
+use crate::profile::{AgentId, LaunchError, ModelChoice, check_choice, check_known_choice};
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -96,11 +96,11 @@ pub struct Assignment {
     pub brief: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum RoleProblem {
     Unknown { role: String, names: Vec<String> },
     NoAgent { role: String },
-    UnknownAgent(AgentId),
+    Launch(LaunchError),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -125,18 +125,18 @@ impl std::fmt::Display for RoleProblem {
                     "역할 '{role}'에는 에이전트가 없다. 이 역할은 사람이 띄운다."
                 )
             }
-            RoleProblem::UnknownAgent(agent) => {
-                write!(f, "에이전트 '{}'이 카탈로그에 없다.", agent.0)
-            }
+            RoleProblem::Launch(e) => write!(f, "{e}"),
         }
     }
 }
 
 impl Roles {
     pub fn with(&self, set: &SetRole) -> Result<Roles, RoleProblem> {
-        if !known_agent(&set.agent) {
-            return Err(RoleProblem::UnknownAgent(set.agent.clone()));
-        }
+        let choice = ModelChoice {
+            model: set.model.clone().filter(|v| !v.trim().is_empty()),
+            effort: set.effort.clone().filter(|v| !v.trim().is_empty()),
+        };
+        check_known_choice(&set.agent, &choice).map_err(RoleProblem::Launch)?;
         let name = set.role.trim();
         let mut next = self.clone();
         let role =
@@ -259,12 +259,7 @@ mod tests {
         let err = roles.assign("없는역할", "").unwrap_err();
         assert!(err.to_string().contains("총괄, 코디, 워커"), "{err}");
         let err = roles.assign("총괄", "").unwrap_err();
-        assert_eq!(
-            err,
-            RoleProblem::NoAgent {
-                role: "총괄".into()
-            }
-        );
+        assert!(matches!(err, RoleProblem::NoAgent { role } if role == "총괄"));
     }
 
     #[test]

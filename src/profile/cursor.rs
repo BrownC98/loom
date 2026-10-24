@@ -247,11 +247,18 @@ pub enum Event {
         model: Option<String>,
     },
     PreToolUse {
-        tool_name: String,
-        tool_input: Value,
+        #[serde(flatten)]
+        call: ToolCall,
     },
-    PostToolUse,
-    PostToolUseFailure,
+    PostToolUse {
+        #[serde(flatten)]
+        call: ToolCall,
+        duration: Option<f64>,
+    },
+    PostToolUseFailure {
+        #[serde(flatten)]
+        call: ToolCall,
+    },
     Stop {
         model: Option<String>,
     },
@@ -261,14 +268,57 @@ pub enum Event {
     },
 }
 
+#[derive(Deserialize)]
+pub struct ToolCall {
+    tool_name: String,
+    #[serde(default)]
+    tool_input: Value,
+    transcript_path: Option<String>,
+}
+
+const SEEN_TOOLS: [&str; 5] = ["Shell", "Read", "Write", "Grep", "Task"];
+const POLLED_FOLDER: &str = "terminals";
+
+impl ToolCall {
+    fn reaches_model(&self) -> bool {
+        self.transcript_path.is_some()
+            && SEEN_TOOLS.contains(&self.tool_name.as_str())
+            && !(self.tool_name == "Read" && self.polled_file())
+    }
+
+    fn polled_file(&self) -> bool {
+        self.tool_input["file_path"]
+            .as_str()
+            .and_then(|path| Path::new(path).parent()?.file_name())
+            .is_some_and(|folder| folder == POLLED_FOLDER)
+    }
+
+    fn sent_to_background(&self, duration: Option<f64>) -> bool {
+        self.tool_name == "Shell"
+            && duration
+                .zip(self.tool_input["timeout"].as_f64())
+                .is_some_and(|(duration, timeout)| duration >= timeout)
+    }
+}
+
 impl Event {
     pub fn take(&self) -> Option<Take> {
         Some(match self {
             Event::SessionStart { .. } | Event::AfterAgentResponse { .. } => return None,
             Event::Stop { .. } => Take::WhenIdle,
             Event::BeforeSubmitPrompt { .. } => Take::Now(Kind::ALL),
-            Event::PostToolUse => Take::Now(Kind::ALL),
-            Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
+            Event::PostToolUse { call, duration } => {
+                if !call.reaches_model() || call.sent_to_background(*duration) {
+                    return None;
+                }
+                Take::Now(Kind::ALL)
+            }
+            Event::PreToolUse { call } | Event::PostToolUseFailure { call } => {
+                if !call.reaches_model() {
+                    return None;
+                }
+                Take::Now(&[Kind::Interrupt])
+            }
         })
     }
 
@@ -289,10 +339,7 @@ impl Event {
             return match self {
                 Event::SessionStart { .. } => json!({ "additional_context": usage() }),
                 Event::BeforeSubmitPrompt { .. } => json!({ "continue": true }),
-                Event::PreToolUse {
-                    tool_name,
-                    tool_input,
-                } => match guarded(tool_name, tool_input) {
+                Event::PreToolUse { call } => match guarded(&call.tool_name, &call.tool_input) {
                     Some(input) => json!({ "updated_input": input }),
                     None => json!({}),
                 },
@@ -302,14 +349,16 @@ impl Event {
         match self {
             Event::SessionStart { .. } => json!({ "additional_context": usage() }),
             Event::Stop { .. } => json!({ "followup_message": text }),
-            Event::BeforeSubmitPrompt { .. } | Event::PostToolUse | Event::PostToolUseFailure => {
+            Event::BeforeSubmitPrompt { .. }
+            | Event::PostToolUse { .. }
+            | Event::PostToolUseFailure { .. } => {
                 json!({ "continue": true, "additional_context": text })
             }
             Event::AfterAgentResponse { .. } => json!({}),
             Event::PreToolUse { .. } => json!({
                 "permission": "deny",
                 "user_message": "loom message",
-                "agent_message": text,
+                "additional_context": text,
             }),
         }
     }
@@ -681,13 +730,28 @@ mod tests {
         }
     }
 
+    const TRANSCRIPT: &str = "/h/.cursor/projects/tmp-r/agent-transcripts/a1ab/a1ab.jsonl";
+
+    fn tool_event(name: &str, tool: &str, input: Value, extra: Value) -> Event {
+        let mut e = json!({
+            "hook_event_name": name, "conversation_id": "a1ab", "session_id": "a1ab",
+            "tool_name": tool, "tool_input": input, "tool_use_id": "toolu_01",
+            "transcript_path": TRANSCRIPT,
+        });
+        e.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        event(e)
+    }
+
     #[test]
     fn reads_measured_inputs() {
-        let pre = event(json!({
-            "conversation_id": "c", "model": "gpt-5.3-codex", "tool_name": "Shell",
-            "tool_input": { "command": "echo hi", "cwd": "", "timeout": 30000 },
-            "tool_use_id": "t", "hook_event_name": "preToolUse",
-        }));
+        let pre = tool_event(
+            "preToolUse",
+            "Shell",
+            json!({ "command": "echo hi", "cwd": "", "timeout": 30000 }),
+            json!({ "model": "gpt-5.3-codex" }),
+        );
         assert_eq!(pre.take(), Some(Take::Now(&[Kind::Interrupt])));
         assert_eq!(pre.model(), None);
         let stop = event(json!({
@@ -698,10 +762,67 @@ mod tests {
             stop.model().and_then(|m| m.model).as_deref(),
             Some("gpt-5.3-codex-low")
         );
-        assert_eq!(
-            event(json!({ "hook_event_name": "postToolUse", "tool_output": "{}" })).take(),
-            Some(Take::Now(Kind::ALL))
+        let shell = tool_event(
+            "postToolUse",
+            "Shell",
+            json!({ "command": "sleep 9", "cwd": "", "timeout": 20000 }),
+            json!({ "duration": 9063.009, "tool_output": "{\"output\":\"\",\"exitCode\":0}" }),
         );
+        assert_eq!(shell.take(), Some(Take::Now(Kind::ALL)));
+        let background = tool_event(
+            "postToolUse",
+            "Shell",
+            json!({ "command": "sleep 4", "cwd": "" }),
+            json!({ "duration": 40.0 }),
+        );
+        assert_eq!(background.take(), Some(Take::Now(Kind::ALL)));
+        for (tool, input) in [
+            ("Read", json!({ "file_path": "/r/a.txt" })),
+            ("Write", json!({ "file_path": "/r/b.txt" })),
+            ("Grep", json!({ "pattern": "hello" })),
+            ("Task", json!({ "description": "d", "prompt": "p" })),
+        ] {
+            let post = tool_event("postToolUse", tool, input, json!({ "duration": 20.0 }));
+            assert_eq!(post.take(), Some(Take::Now(Kind::ALL)), "{tool}");
+        }
+        let failed = tool_event(
+            "postToolUseFailure",
+            "Shell",
+            json!({ "command": "false", "cwd": "", "timeout": 30000 }),
+            json!({ "error_message": "exit 1", "failure_type": "error", "is_interrupt": false }),
+        );
+        assert_eq!(failed.take(), Some(Take::Now(&[Kind::Interrupt])));
+    }
+
+    #[test]
+    fn tool_calls_whose_hook_context_the_model_never_sees_take_nothing() {
+        let poll = json!({ "file_path": "/h/.cursor/projects/tmp-r/terminals/618716.txt" });
+        for name in ["preToolUse", "postToolUse", "postToolUseFailure"] {
+            let read = tool_event(name, "Read", poll.clone(), json!({ "duration": 0.4 }));
+            assert_eq!(read.take(), None, "AwaitShell poll {name}");
+        }
+        let moved = tool_event(
+            "postToolUse",
+            "Shell",
+            json!({ "command": "sleep 8 && echo late", "cwd": "", "timeout": 2000 }),
+            json!({ "duration": 2094.747, "tool_output": "{\"output\":\"\",\"exitCode\":0}" }),
+        );
+        assert_eq!(moved.take(), None, "a shell sent to the background");
+        let mut subagent = json!({
+            "hook_event_name": "postToolUse", "conversation_id": "81db", "session_id": "81db",
+            "tool_name": "Shell", "tool_input": { "command": "echo sub", "cwd": "", "timeout": 30000 },
+            "tool_use_id": "73ce", "duration": 54.6, "transcript_path": null,
+        });
+        assert_eq!(event(subagent.clone()).take(), None, "a subagent tool");
+        subagent["hook_event_name"] = "preToolUse".into();
+        assert_eq!(event(subagent).take(), None, "a subagent tool");
+        let mcp = tool_event(
+            "postToolUse",
+            "MCP:search",
+            json!({}),
+            json!({ "duration": 10.0 }),
+        );
+        assert_eq!(mcp.take(), None, "a tool not measured");
     }
 
     #[test]
@@ -709,13 +830,16 @@ mod tests {
         let stop = event(json!({ "hook_event_name": "stop" }));
         let reply = stop.reply(&[delivery(Kind::Queue)], None);
         assert!(reply["followup_message"].as_str().unwrap().contains("#7"));
-        let pre = event(json!({
-            "hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {},
-        }));
-        assert_eq!(
-            pre.reply(&[delivery(Kind::Interrupt)], None)["permission"],
-            "deny"
+        let pre = tool_event("preToolUse", "Read", json!({}), json!({}));
+        let denied = pre.reply(&[delivery(Kind::Interrupt)], None);
+        assert_eq!(denied["permission"], "deny");
+        assert!(
+            denied["additional_context"]
+                .as_str()
+                .unwrap()
+                .contains("#7")
         );
+        assert_eq!(denied.get("agent_message"), None);
     }
 
     #[test]

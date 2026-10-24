@@ -7,7 +7,7 @@ description: Apply ASD-STE100 (Simplified Technical English) and George Orwell's
 
 Apply ASD-STE100 Issue 9 and Orwell's six rules ("Politics and the English Language") to all text that you write.
 
-- Write text for people in the human's language: the language that the human writes to you. This includes reports, notes, documents, instruction files, issues, MRs, commits and UI. Before the human writes, use the language of the instruction files and repository documents.
+- Write text for people in the human's language: the language that the human writes to you. This includes reports, progress notes, documents, instruction files, issues, MRs, commits and UI. Before the human writes, use the language of the instruction files and repository documents.
 - Write text between agents in English. This includes briefs, agent messages (loom `ask`, `answer`, `note`), subagent instructions, agent mail and long result files.
 - Keep code, commands, paths, identifiers, screen text and quotes of the human in their original form.
 
@@ -19,7 +19,7 @@ Apply ASD-STE100 Issue 9 and Orwell's six rules ("Politics and the English Langu
 6. Use STE approved words, each with one meaning, and one term for one thing.
 7. Use simple tenses and commands, no -ing forms. Sentences: 20 words or fewer in procedures, 25 in descriptions.
 8. Do not guess. Write "Hypothesis:" before a statement that you did not examine.
-9. Break any rule sooner than write something barbarous (Orwell's sixth rule). If an STE word and a shorter word disagree, use the STE word.
+9. Break any rule sooner than write something barbarous (Orwell's sixth rule).
 
 If the human's language is Korean, change the English-only rules:
 
@@ -27,7 +27,7 @@ If the human's language is Korean, change the English-only rules:
 - No -ing → use verbs, not noun forms (진행하다, -함, -기).
 - Simple tenses → no guess endings (-ㄹ 것 같다, -로 보인다). Write "가설:" before a statement that you did not examine.
 - Word count → 어절 count: 15 in procedures, 18 in descriptions.
-- Register → 합니다체 (했습니다), not 한다체 (했다), also in documents.
+- Register → 합니다체 (했습니다) to the human (reports, asks, user-doc, UI). Repo files and commits: 한다체.
 - Approved words → write 하다·쓰다·적다·그·다르다, not 실시·수행·진행·처리·활용·기재·해당·상이. No translated phrases (~을 통해, ~에 있어서, ~로 인해).
 
 The exact rules and dictionary are in `ASD-STE100_ISSUE9.pdf`; read it if it is in this skill folder. loom does not ship it. ASD forbids copies without permission: do not copy its text into a repository or web page.

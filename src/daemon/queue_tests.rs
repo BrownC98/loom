@@ -1281,4 +1281,72 @@ mod git_runs {
         assert_eq!(r.reviewers("b"), 1);
         assert!(r.has_branch("b"));
     }
+
+    #[tokio::test]
+    async fn a_remote_branch_with_newer_commits_stays_after_the_merge() {
+        let r = repo();
+        let owner = child(&r.app, r.lead, "owner", None, None);
+        let a = r.branch("a", "main", "a.txt", "a");
+        git(&r.main, &["push", "-q", "-u", "origin", "a"]);
+        let other = r.dir.path().join("other");
+        git(
+            r.dir.path(),
+            &[
+                "clone",
+                "-q",
+                "--branch",
+                "a",
+                r.dir.path().join("origin.git").to_str().unwrap(),
+                other.to_str().unwrap(),
+            ],
+        );
+        git(&other, &["config", "user.email", "t@t"]);
+        git(&other, &["config", "user.name", "t"]);
+        std::fs::write(other.join("new.txt"), "new remote work\n").unwrap();
+        git(&other, &["add", "-A"]);
+        git(&other, &["commit", "-qm", "new remote work"]);
+        git(&other, &["push", "-q", "origin", "a"]);
+        let latest = git(&other, &["rev-parse", "HEAD"]);
+        assert_ne!(latest, a);
+        assert_eq!(git(&r.main, &["rev-parse", "origin/a"]), a);
+        let wt = r.worktree("wt-a", "a");
+        r.place(owner, &wt);
+        r.queue_at(owner, owner, &round("a", "main", &wt, &a));
+        r.batch("main").await;
+        r.until("cleanup finishes", || !r.has_branch("a")).await;
+        assert_eq!(
+            git(&r.main, &["ls-remote", "origin", "refs/heads/a"])
+                .split_whitespace()
+                .next(),
+            Some(latest.as_str()),
+            "cleanup must preserve the remote branch containing unmerged work"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_worktree_now_on_another_branch_stays_with_its_owner() {
+        let r = repo();
+        let owner = child(&r.app, r.lead, "owner", None, None);
+        let a = r.branch("a", "main", "a.txt", "a");
+        let wt = r.worktree("wt-a", "a");
+        r.place(owner, &wt);
+        r.app
+            .graph
+            .ready(owner, &round("a", "main", &wt, &a), owner, None)
+            .unwrap();
+        git(&r.main, &["merge", "-q", "--no-ff", "-m", "Merge a", "a"]);
+        git(&wt, &["checkout", "-q", "-b", "new-task"]);
+        std::fs::write(wt.join("new.txt"), "new work\n").unwrap();
+        git(&wt, &["add", "-A"]);
+        git(&wt, &["commit", "-qm", "new task"]);
+        reclaim_merged(&r, "a").await;
+        assert!(
+            wt.is_dir(),
+            "cleanup must preserve a worktree now used for another branch"
+        );
+        assert!(
+            r.exists(owner),
+            "cleanup must preserve the owner of the new task"
+        );
+    }
 }

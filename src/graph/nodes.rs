@@ -105,7 +105,7 @@ impl Graph {
                 super::gate::check_review(&tx, parent, place.repo, branch, role)?;
             }
             (None, Some(role)) if role != COORDINATOR_ROLE && parent_of(&tx, parent)?.is_none() => {
-                return Err(Refusal::LeadSpawnsCoordinator(role.to_owned()));
+                return Err(Refusal::LeadSpawnsOnlyCoordinator(role.to_owned()));
             }
             (None, _) => {}
         }

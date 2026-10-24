@@ -292,13 +292,11 @@ pub async fn view(id: RepoId, path: &Path, wsl: Option<WslPlace>) -> RepoView {
     }
 }
 
-const UNBORN_HEAD: &str = "0000000000000000000000000000000000000000";
-
 fn has_commits(worktrees: &[Worktree]) -> bool {
     worktrees
         .iter()
         .find(|w| w.original)
-        .is_some_and(|w| !w.head.is_empty() && w.head != UNBORN_HEAD)
+        .is_some_and(|w| w.head.bytes().any(|b| b != b'0'))
 }
 
 pub fn folders(path: &str) -> Result<FolderList, RepoProblem> {
@@ -483,13 +481,22 @@ pub async fn changes(worktree: &Worktree) -> Result<Vec<String>, RepoProblem> {
 }
 
 pub async fn remove(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem> {
+    git_remove(repo, worktree, &["--force"]).await
+}
+
+pub async fn remove_clean(repo: &Path, worktree: &Worktree) -> Result<(), RepoProblem> {
+    git_remove(repo, worktree, &[]).await
+}
+
+async fn git_remove(repo: &Path, worktree: &Worktree, extra: &[&str]) -> Result<(), RepoProblem> {
     if worktree.original {
         return Err(RepoProblem::Original);
     }
     let target = git::to_git_path(repo, &worktree.path);
-    git::run(repo, &["worktree", "remove", "--force", &target])
-        .await
-        .map_err(RepoProblem::Git)?;
+    let mut args = vec!["worktree", "remove"];
+    args.extend_from_slice(extra);
+    args.push(&target);
+    git::run(repo, &args).await.map_err(RepoProblem::Git)?;
     Ok(())
 }
 
@@ -696,6 +703,11 @@ mod tests {
         let made = find(&repo, &path).await.unwrap();
         assert_eq!(made.branch.as_deref(), Some("me/feat-1"));
         assert_eq!(changes(&made).await.unwrap(), ["?? new.txt"]);
+        assert!(matches!(
+            remove_clean(&repo, &made).await,
+            Err(RepoProblem::Git(_))
+        ));
+        assert!(Path::new(&path).join("new.txt").exists());
         assert_eq!(remove(&repo, &made).await, Ok(()));
         assert!(!Path::new(&path).exists());
         assert_eq!(worktrees(&repo).await.len(), 1);
@@ -1019,5 +1031,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(run(Path::new(&child), &["log", "-1", "--format=%s"]), "b");
+    }
+
+    #[tokio::test]
+    async fn an_empty_sha256_repo_has_no_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::git::test_run(
+            dir.path(),
+            &["init", "-q", "--object-format=sha256", "-b", "main"],
+        );
+        assert!(!view(RepoId(1), dir.path(), None).await.has_commits);
     }
 }

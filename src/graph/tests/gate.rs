@@ -1023,7 +1023,7 @@ fn the_lead_spawns_only_a_coordinator_and_the_reviewers_of_its_own_branch() {
     for role in ["워커", "검토자", crate::roles::HIGH_RISK_WORKER] {
         assert_eq!(
             spawned(&g, t.lead, "w", role, None),
-            Err(Refusal::LeadSpawnsCoordinator(role.into()))
+            Err(Refusal::LeadSpawnsOnlyCoordinator(role.into()))
         );
     }
     assert!(spawned(&g, t.lead, "코디-2", COORDINATOR_ROLE, None).is_ok());

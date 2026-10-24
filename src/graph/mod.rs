@@ -251,7 +251,7 @@ pub enum Refusal {
         role: String,
     },
     /// 부모 없는 노드(총괄)가 코디도 자기 브랜치 검토자도 아닌 역할을 띄웠다. 값은 그 역할이다.
-    LeadSpawnsCoordinator(String),
+    LeadSpawnsOnlyCoordinator(String),
     /// 이 브랜치에는 이 역할의 검토자가 이미 있다. loom이 새 차례마다 그 검토자에게 보낸다. `reviewer`는 그 노드 이름이다.
     ReviewerSeated {
         branch: String,
@@ -517,7 +517,7 @@ impl fmt::Display for Refusal {
                 f,
                 "The role '{role}' has no agent in the settings. The human starts nodes of this role."
             ),
-            Refusal::LeadSpawnsCoordinator(role) => write!(
+            Refusal::LeadSpawnsOnlyCoordinator(role) => write!(
                 f,
                 "You have no parent, so you spawn only a {COORDINATOR_ROLE} (`loom spawn <name> --role {COORDINATOR_ROLE}`) or the reviewer of your own branch (`loom spawn --role <role> --review <branch>`). Give the work for '{role}' to a {COORDINATOR_ROLE} in its brief."
             ),

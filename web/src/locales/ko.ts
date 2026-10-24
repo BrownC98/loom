@@ -620,7 +620,7 @@ const ko: typeof en = {
       notImage: '{{value}}: 있는 그림 파일만 붙입니다(png, jpg, jpeg, gif, webp, bmp).',
       unknownRole: "설정에 역할 '{{role}}'이 없습니다. 있는 역할: {{names}}",
       roleHasNoAgent: "역할 '{{role}}'에 에이전트가 없습니다. 이 역할은 사람이 띄웁니다.",
-      leadSpawnsCoordinator: "부모가 없는 노드는 코디와 자기 브랜치의 검토자만 띄웁니다. '{{value}}'의 일은 코디 지시문에 넣으십시오.",
+      leadSpawnsOnlyCoordinator: "부모가 없는 노드는 코디와 자기 브랜치의 검토자만 띄웁니다. '{{value}}'의 일은 코디 지시문에 넣으십시오.",
       reviewerSeated: '{{reviewer}}이(가) 이미 {{branch}}를 {{role}}(으)로 검토합니다. 담당이 loom ready를 부르면 loom이 새 차례를 그 검토자에게 보냅니다.',
       noWait: 'Q{{value}} 질문은 이미 닫혔습니다.',
       severalOpen: '열린 질문이 여럿입니다: {{value}}.',

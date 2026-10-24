@@ -41,7 +41,7 @@
 An agent runs these commands in its own terminal. loom gives each node its address and token.
 
 ```sh
-loom spawn tests --agent codex --file brief.md   # make a child in this worktree
+loom spawn tests --role 워커 --file brief.md     # make a child in this worktree
 loom note tests "Please stand by for review."    # queue a message
 loom wait --json                                 # wait for the next message
 loom done "Added one toggle() test"              # report to the parent

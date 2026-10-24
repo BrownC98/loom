@@ -634,8 +634,23 @@ impl Batch<'_> {
         tip: &str,
         deploy: Option<String>,
     ) -> Result<(), Refusal> {
-        let into_base = base_branch(&self.dir).await? == self.target;
         let mut merged = Vec::new();
+        let settled = self
+            .settle_merged(members, base, tip, deploy, &mut merged)
+            .await;
+        tokio::spawn(super::reclaim::run(self.app.clone(), self.repo, merged));
+        settled
+    }
+
+    async fn settle_merged(
+        &self,
+        members: &[Queued],
+        base: &str,
+        tip: &str,
+        deploy: Option<String>,
+        merged: &mut Vec<String>,
+    ) -> Result<(), Refusal> {
+        let into_base = base_branch(&self.dir).await? == self.target;
         for m in members {
             let own = merge_commit(&self.dir, &m.head, tip).await?;
             let sha = match own {
@@ -681,7 +696,6 @@ impl Batch<'_> {
             );
             merged.push(m.branch.clone());
         }
-        tokio::spawn(super::reclaim::run(self.app.clone(), self.repo, merged));
         Ok(())
     }
 

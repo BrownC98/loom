@@ -618,7 +618,7 @@ const en = {
       notImage: '{{value}}: --image takes an image file that exists (png, jpg, jpeg, gif, webp, bmp).',
       unknownRole: "The settings have no role '{{role}}'. The roles are: {{names}}.",
       roleHasNoAgent: "The role '{{role}}' has no agent in the settings. The human starts nodes of this role.",
-      leadSpawnsCoordinator: "A node with no parent spawns only a coordinator (코디) and the reviewer of its own branch. Put the work for '{{value}}' in a coordinator brief.",
+      leadSpawnsOnlyCoordinator: "A node with no parent spawns only a coordinator (코디) and the reviewer of its own branch. Put the work for '{{value}}' in a coordinator brief.",
       reviewerSeated: '{{reviewer}} already reviews {{branch}} as {{role}}. loom sends it each new round when the owner calls loom ready.',
       noWait: 'Question Q{{value}} is already closed.',
       severalOpen: 'Several questions are open: {{value}}.',

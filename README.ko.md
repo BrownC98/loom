@@ -41,7 +41,7 @@
 에이전트는 자기 터미널에서 아래 명령을 씁니다. loom이 노드마다 주소와 토큰을 넣습니다.
 
 ```sh
-loom spawn tests --agent codex --file brief.md   # 이 워크트리에 자식을 만든다
+loom spawn tests --role 워커 --file brief.md     # 이 워크트리에 자식을 만든다
 loom note tests "Please stand by for review."    # 메시지를 큐에 넣는다
 loom wait --json                                 # 다음 메시지를 기다린다
 loom done "Added one toggle() test"              # 부모에게 보고한다

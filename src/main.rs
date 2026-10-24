@@ -27,6 +27,7 @@ mod skills;
 mod spots;
 mod tailscale;
 mod task;
+mod timed;
 mod update;
 mod usage;
 mod user_doc;

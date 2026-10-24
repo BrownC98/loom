@@ -786,6 +786,27 @@ mod tests {
         }
         let words = screen::line(&SHELL, "Continue? [Y/n] ").unwrap().1;
         assert_eq!(words.options[0].key.bytes().unwrap(), b"y\r");
+        let keys = |line: &str| -> Vec<Vec<u8>> {
+            let shown = screen::line(&SHELL, line).unwrap().1;
+            assert_eq!(shown.field, None, "{line}");
+            shown
+                .options
+                .iter()
+                .map(|o| o.key.bytes().unwrap())
+                .collect()
+        };
+        assert_eq!(
+            keys("Reset password? [y/n] "),
+            [b"y\r".to_vec(), b"n\r".to_vec()]
+        );
+        assert_eq!(
+            keys("Delete passphrase file? (yes/no) "),
+            [b"yes\r".to_vec(), b"no\r".to_vec()]
+        );
+        let field = screen::line(&SHELL, "Enter passphrase for key '/k': ")
+            .unwrap()
+            .1;
+        assert_eq!(field.field, Some(InputField::Secret));
     }
 
     #[test]

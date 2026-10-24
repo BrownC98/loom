@@ -150,7 +150,9 @@ pub fn line(prompts: &[LinePrompt], to_cursor: &str) -> Option<(String, Prompt)>
     let squeezed = squeeze(asked);
     let found = prompts
         .iter()
-        .find(|p| squeezed.contains(&squeeze(p.text)))?;
+        .filter_map(|p| Some((squeezed.rfind(&squeeze(p.text))?, p)))
+        .max_by_key(|(at, _)| *at)?
+        .1;
     let (options, field) = match found.reply {
         Reply::Words(words) => (
             words

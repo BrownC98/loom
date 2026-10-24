@@ -2898,7 +2898,7 @@ mod tests {
     fn dialog_buttons_and_fields_type_into_the_terminal_once() {
         let mut t = Dialogs::new();
         let secret = "hunter2-loom";
-        let cases: [(Option<&str>, &str, Answer, &str); 8] = [
+        let cases: [(Option<&str>, &str, Answer, &str); 9] = [
             (
                 Some("claude"),
                 include_str!("profile/screens/claude-trust.txt"),
@@ -2945,6 +2945,12 @@ mod tests {
                 None,
                 "Username for 'https://example.com': ",
                 Answer::Text("me"),
+                "newline",
+            ),
+            (
+                None,
+                "Reset password? [y/n] ",
+                Answer::Option(0, b"y\r"),
                 "newline",
             ),
         ];

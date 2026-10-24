@@ -78,9 +78,10 @@ pub fn write_plugin(dir: &Path) -> std::io::Result<()> {
 
 pub const USER_HOOKS: &str = ".cursor/hooks.json";
 
-const GATE: [(&str, &str); 2] = [
+const GATE: [(&str, &str); 3] = [
     ("stop", r"printf '{}\n'"),
     ("beforeSubmitPrompt", r#"printf '{"continue":true}\n'"#),
+    ("afterAgentResponse", r"printf '{}\n'"),
 ];
 
 pub fn open_gate(path: &Path) -> std::io::Result<()> {
@@ -97,9 +98,22 @@ pub fn open_gate(path: &Path) -> std::io::Result<()> {
         return Ok(());
     };
     std::fs::create_dir_all(path.parent().expect("파일 경로에는 부모가 있다"))?;
-    let draft = path.with_extension("json.loom");
-    std::fs::write(&draft, gated)?;
-    std::fs::rename(draft, path)
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let draft = path.with_extension(format!(
+        "json.{}.{}.loom",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let written = std::fs::write(&draft, gated)
+        .and_then(|()| match std::fs::metadata(path) {
+            Ok(old) => std::fs::set_permissions(&draft, old.permissions()),
+            Err(_) => Ok(()),
+        })
+        .and_then(|()| std::fs::rename(&draft, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&draft);
+    }
+    written
 }
 
 fn with_gate(text: Option<&str>) -> Result<Option<String>, String> {
@@ -291,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_hooks_file_gets_both_no_op_entries() {
+    fn a_missing_hooks_file_gets_every_no_op_entry() {
         let config = gated(None);
         assert_eq!(config["version"], 1);
         assert_eq!(config["hooks"]["stop"][0]["command"], "printf '{}\\n'");
@@ -299,19 +313,23 @@ mod tests {
             config["hooks"]["beforeSubmitPrompt"][0]["command"],
             "printf '{\"continue\":true}\\n'"
         );
+        assert_eq!(
+            config["hooks"]["afterAgentResponse"][0]["command"],
+            "printf '{}\\n'"
+        );
         assert_eq!(config["hooks"]["stop"][0]["timeout"], HOOK_TIMEOUT_SECS);
     }
 
     #[test]
     fn the_gate_adds_only_missing_events_and_keeps_every_other_entry() {
-        let orca = r#"{"version":1,"hooks":{"stop":[{"command":"orca stop"}],"preToolUse":[{"command":"orca pre"}],"afterAgentResponse":[]},"extra":true}"#;
+        let orca = r#"{"version":1,"hooks":{"stop":[{"command":"orca stop"}],"preToolUse":[{"command":"orca pre"}],"afterFileEdit":[]},"extra":true}"#;
         let config = gated(Some(orca));
         assert_eq!(config["hooks"]["stop"], json!([{ "command": "orca stop" }]));
         assert_eq!(
             config["hooks"]["preToolUse"],
             json!([{ "command": "orca pre" }])
         );
-        assert_eq!(config["hooks"]["afterAgentResponse"], json!([]));
+        assert_eq!(config["hooks"]["afterFileEdit"], json!([]));
         assert_eq!(config["extra"], true);
         assert_eq!(
             config["hooks"]["beforeSubmitPrompt"]
@@ -378,6 +396,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn concurrent_launches_each_read_a_whole_gated_file() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join(USER_HOOKS);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mine = "x".repeat(16 * 1024);
+        let start = json!({ "hooks": { "afterFileEdit": [{ "command": mine }] } }).to_string();
+        for _ in 0..50 {
+            std::fs::write(&path, &start).unwrap();
+            let barrier = std::sync::Barrier::new(8);
+            std::thread::scope(|s| {
+                for _ in 0..8 {
+                    s.spawn(|| {
+                        barrier.wait();
+                        open_gate(&path).unwrap();
+                        let read: Value =
+                            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                        assert_eq!(read["hooks"]["afterFileEdit"][0]["command"], mine);
+                        assert_eq!(read["hooks"]["stop"].as_array().unwrap().len(), 1);
+                    });
+                }
+            });
+        }
+        assert_eq!(
+            std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_linked_hooks_file_keeps_its_link_and_the_target_changes() {
@@ -403,6 +450,12 @@ mod tests {
                 .len(),
             1
         );
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(&target, "{}").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        open_gate(&path).unwrap();
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]

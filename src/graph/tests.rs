@@ -2665,17 +2665,30 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
     assert_eq!(g.take(a, &[Kind::Queue], 1).unwrap().len(), 1);
     assert_eq!(view(&g, a).unread, 1);
 
-    let (_, mut events) = g.subscribe().unwrap();
     g.steer_queued(a).unwrap();
-    assert_eq!(view(&g, a).unread, 0);
-    assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.id == a && v.unread == 0));
+    assert_eq!(view(&g, a).unread, 1);
     let steered = g.take(a, &[Kind::Steer], usize::MAX).unwrap();
     assert_eq!(
         steered.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
         ["q2"]
     );
+    assert_eq!(view(&g, a).unread, 0);
     assert_eq!(g.take(b, &[Kind::Steer], usize::MAX).unwrap().len(), 0);
     assert_eq!(g.take(b, &[Kind::Queue], usize::MAX).unwrap().len(), 1);
+}
+
+#[test]
+fn unread_counts_every_untaken_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let a = child(&g, lead, "a");
+    g.note(lead, "a", Kind::Queue, "q", None).unwrap();
+    g.note(lead, "a", Kind::Steer, "s", None).unwrap();
+    g.note(lead, "a", Kind::Interrupt, "i", None).unwrap();
+    assert_eq!(view(&g, a).unread, 3);
+    assert_eq!(g.take(a, &[Kind::Interrupt], usize::MAX).unwrap().len(), 1);
+    assert_eq!(view(&g, a).unread, 2);
 }
 
 #[test]

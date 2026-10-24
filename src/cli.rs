@@ -302,7 +302,7 @@ pub fn cursor_hook() -> Result<(), String> {
             note: None,
         },
         Some(Take::WhenIdle) => Taken {
-            messages: wait_for_mail(&IdleRequest {
+            messages: wait_for_cursor_mail(&IdleRequest {
                 transcript,
                 rate_limited: false,
             })?,
@@ -338,6 +338,23 @@ fn acknowledge(taken: &[Delivery], timeout: Option<Duration>) {
 
 fn wait_for_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
     reconnecting(None, |_| call("idle", request, None))
+}
+
+fn wait_for_cursor_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
+    until_answered(RECONNECT_AFTER, || call("idle", request, None))
+}
+
+fn until_answered<T>(
+    pause: Duration,
+    mut attempt: impl FnMut() -> Result<T, CallError>,
+) -> Result<T, String> {
+    loop {
+        match attempt() {
+            Ok(value) => return Ok(value),
+            Err(CallError::Unreachable(_)) => std::thread::sleep(pause),
+            Err(e) => return Err(e.into()),
+        }
+    }
 }
 
 fn reconnecting<T>(
@@ -749,6 +766,23 @@ mod tests {
         assert!(started.elapsed() < RECONNECT_AFTER);
         let got: Result<(), String> =
             reconnecting(None, |_| Err(CallError::Refused("gone".into())));
+        assert_eq!(got, Err("gone".into()));
+    }
+
+    #[test]
+    fn the_idle_wait_outlasts_any_outage_and_ends_only_on_mail_or_refusal() {
+        let mut calls = 0;
+        let got = until_answered(Duration::ZERO, || {
+            calls += 1;
+            if calls <= 10_000 {
+                Err(unreachable())
+            } else {
+                Ok("mail")
+            }
+        });
+        assert_eq!(got, Ok("mail"));
+        let got: Result<(), String> =
+            until_answered(Duration::ZERO, || Err(CallError::Refused("gone".into())));
         assert_eq!(got, Err("gone".into()));
     }
 

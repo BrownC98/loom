@@ -444,10 +444,7 @@ impl Graph {
     }
 
     pub fn steer_queued(&self, node: NodeId) -> Result<(), Refusal> {
-        let db = self.lock();
-        if steer_where(&db, node, |_| true)? > 0 {
-            self.publish_node(&db, node)?;
-        }
+        steer_where(&self.lock(), node, |_| true)?;
         self.mail.notify_waiters();
         Ok(())
     }

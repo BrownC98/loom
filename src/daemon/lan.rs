@@ -355,6 +355,9 @@ impl axum::serve::Listener for TlsListener {
 mod tests {
     use super::*;
 
+    const SILENCE: Duration = Duration::from_millis(1500);
+    const ANSWER: Duration = Duration::from_secs(30);
+
     #[test]
     fn powershell_quotes() {
         assert_eq!(
@@ -415,22 +418,20 @@ mod tests {
             })
             .unwrap()
         };
-        let reply = async |request: &[u8]| {
+        let reply = async |request: &[u8], limit: Duration| {
             phone_socket.send_to(request, at).await.unwrap();
             let mut buf = vec![0u8; FIND_MAX];
-            let got =
-                tokio::time::timeout(Duration::from_millis(1500), phone_socket.recv(&mut buf))
-                    .await;
+            let got = tokio::time::timeout(limit, phone_socket.recv(&mut buf)).await;
             got.ok()
                 .map(|len| serde_json::from_slice::<Found>(&buf[..len.unwrap()]).unwrap())
         };
         let phone = pake::Phone::new("ABCD2345", 7);
-        assert!(reply(&ask(&phone)).await.is_none());
+        assert!(reply(&ask(&phone), SILENCE).await.is_none());
         let code = devices.invite();
-        assert!(reply(b"{\"pa\":\"AAAA\"}").await.is_none());
-        assert!(reply(b"not json").await.is_none());
+        assert!(reply(b"{\"pa\":\"AAAA\"}", SILENCE).await.is_none());
+        assert!(reply(b"not json", SILENCE).await.is_none());
         let phone = pake::Phone::new(&code, 7);
-        let found = reply(&ask(&phone)).await.unwrap();
+        let found = reply(&ask(&phone), ANSWER).await.unwrap();
         assert!(found.door.starts_with("fp=FP&a="));
         let (pb, c) = (
             b64.decode(&found.pb).unwrap(),

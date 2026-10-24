@@ -607,9 +607,11 @@ async fn a_turn_end_that_something_answered_relaunches_nothing() {
     let late = t.cursor("late");
     let newer = t.cursor("newer");
     let typed = t.cursor("typed");
+    let drafted = t.cursor("drafted");
+    let unchecked = t.cursor("unchecked");
     let exited = t.cursor("exited");
     let plain = t.cursor("plain");
-    for node in [late, newer, typed, exited, plain] {
+    for node in [late, newer, typed, drafted, unchecked, exited, plain] {
         t.heard(node, "g1");
     }
     let mark = t.mark();
@@ -622,6 +624,12 @@ async fn a_turn_end_that_something_answered_relaunches_nothing() {
     t.said("newer", Some("g1")).await;
 
     t.said("typed", Some("g1")).await;
+
+    human_typed(&t.app, drafted);
+    t.said("drafted", Some("g1")).await;
+
+    t.app.idle.open(unchecked).finish(IdleEnd::Mail);
+    t.said("unchecked", Some("g1")).await;
 
     t.app.graph.exited(exited, 0).unwrap();
     t.app.idle.end(exited, IdleEnd::Exit);

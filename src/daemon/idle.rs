@@ -19,7 +19,7 @@ pub struct IdleWaits {
 struct Watch {
     heard: bool,
     turn: Option<TurnId>,
-    stopped: Option<TurnId>,
+    answered: Option<TurnId>,
     said: Option<Said>,
 }
 
@@ -49,6 +49,7 @@ impl IdleWaits {
         self.watch(node, |w| {
             w.heard = true;
             w.said = None;
+            w.answered = w.turn.clone();
         });
         let (tx, end) = oneshot::channel();
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
@@ -119,7 +120,7 @@ impl IdleWaits {
         let mut watches = self.watches.lock().unwrap();
         let w = watches.get_mut(&node)?;
         let stale =
-            w.stopped.as_ref() == Some(&turn) || w.turn.as_ref().is_some_and(|t| *t != turn);
+            w.answered.as_ref() == Some(&turn) || w.turn.as_ref().is_some_and(|t| *t != turn);
         if !w.heard || stale {
             return None;
         }
@@ -132,7 +133,7 @@ impl IdleWaits {
         self.watch(node, |w| {
             w.said = None;
             if turn.is_some() {
-                w.stopped = turn;
+                w.answered = turn;
             }
         });
     }
@@ -140,6 +141,7 @@ impl IdleWaits {
     pub fn typed(&self, node: NodeId) {
         if let Some(w) = self.watches.lock().unwrap().get_mut(&node) {
             w.said = None;
+            w.answered = w.turn.clone();
         }
     }
 
@@ -316,22 +318,37 @@ mod tests {
         let said = waits.said(node, turn("5")).unwrap();
         let wait = waits.open(node);
         assert!(!waits.missed(node, said), "the wait opened");
-        let said = waits.said(node, turn("5")).unwrap();
+        assert_eq!(
+            waits.said(node, turn("5")),
+            None,
+            "the stop hook of that turn opened a wait"
+        );
+        wait.finish(IdleEnd::Mail);
+
+        prompt("7");
+        let said = waits.said(node, turn("7")).unwrap();
+        waits.stop_reached(node, None);
+        assert!(!waits.missed(node, said), "the stop hook reached loom");
+        let said = waits.said(node, turn("7")).unwrap();
+        waits.typed(node);
+        assert!(!waits.missed(node, said), "the human types");
+        assert_eq!(
+            waits.said(node, turn("7")),
+            None,
+            "the human typed in that turn"
+        );
+        prompt("8");
+        assert!(waits.said(node, turn("8")).is_some());
+
+        waits.end(node, IdleEnd::Relaunch);
+        let wait = waits.open(node);
+        let said = waits.said(node, turn("9")).unwrap();
         assert!(!waits.missed(node, said), "a wait is open");
         wait.finish(IdleEnd::Mail);
         assert!(
             waits.missed(node, said),
             "the finished wait no longer listens"
         );
-
-        waits.open(node).finish(IdleEnd::Mail);
-        prompt("7");
-        let said = waits.said(node, turn("7")).unwrap();
-        waits.typed(node);
-        assert!(!waits.missed(node, said), "the human types");
-        let said = waits.said(node, turn("7")).unwrap();
-        waits.stop_reached(node, None);
-        assert!(!waits.missed(node, said), "the stop hook reached loom");
     }
 
     #[test]

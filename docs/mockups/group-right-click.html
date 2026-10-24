@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>묶음 우클릭 새 노드 목업</title>
+<title>M22 묶음 우클릭 새 노드 목업</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -77,8 +77,8 @@ svg.i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-widt
 .edge.h { border-left: 0; border-top: 1.5px solid var(--line-strong); }
 .group .card, .group .pop, .group .ptr { position: absolute; }
 .pop { z-index: 6; width: 340px; background: var(--surface); border-radius: 10px; box-shadow: 0 12px 32px light-dark(oklch(0% 0 0 / 0.16), oklch(0% 0 0 / 0.55)); padding: 14px; display: grid; gap: 12px; }
-.pop h2 { font-size: 14px; font-weight: 600; display: block; }
-.pop h2 span { font-family: var(--mono); font-weight: 500; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
+.pop h2 { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+.pop h2 .t > span { font-family: var(--mono); font-weight: 500; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
 .pop.gone { opacity: .35; box-shadow: none; outline: 0; }
 .field { display: grid; gap: 5px; }
 .field label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
@@ -114,10 +114,11 @@ svg.ptr { width: 22px; height: 22px; z-index: 7; }
   <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
   <symbol id="arrange" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect x="13" y="13" width="8" height="8" rx="2"/></symbol>
   <symbol id="branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
   <symbol id="ptr" viewBox="0 0 24 24"><path d="M4 3l7 17 2.5-7L21 10.5z" fill="#fff" stroke="#111" stroke-width="1.5" stroke-linejoin="round"/></symbol>
 </svg>
 <main class="doc">
-  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 묶음우클릭과pi스크롤</b></span><span>v1 · 2026-10-25</span></div>
+  <div class="who"><span class="doc-id">문서 ID: <b>M22</b></span><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 묶음우클릭과pi스크롤</b></span><span>v2 · 2026-10-25</span></div>
   <h1>묶음 빈 곳 우클릭으로 새 노드, 창 밖을 누르면 새 노드 창 닫기</h1>
   <p class="lead">사람 지시: 「묶음 빈영역에서 우클릭하면 새 노드 추가 할 수 있도록 해줘」, 「새노드 추가 버튼은 해당 팝오버 바깥 영역 클릭하면 제거되게 해줘」. 지금은 머리 줄의 [새 노드]만 창을 열고, 창은 [취소]·Esc·그래프 빈 바탕 클릭으로만 닫힙니다. 카드·묶음 안·사이드바를 눌러도 남습니다.</p>
   <div class="flow"><span>묶음 안 빈 곳을 우클릭한다</span>→<span>그 자리에 새 노드 창이 열린다</span>→<span>프로필을 고르면 노드가 뜬다</span>→<span>창 밖을 누르면 창이 닫힌다</span></div>
@@ -145,17 +146,16 @@ svg.ptr { width: 22px; height: 22px; z-index: 7; }
             <div class="card" style="left:20px; top:62px"><div class="top"><span class="lg">✳</span><span class="name">코디 묶음우클릭과pi스크롤</span></div><span class="meta">opus · medium</span><span class="line">목업을 만듭니다.</span></div>
             <svg class="ptr" style="left:300px; top:76px"><use href="#ptr"/></svg>
             <form class="pop mk new" data-n="1" style="left:306px; top:82px">
-              <h2>새 노드<span>묶음우클릭과pi스크롤</span></h2>
+              <h2><span class="t">새 노드<span>묶음우클릭과pi스크롤</span></span><span class="mk new" data-n="2" style="display:inline-flex"><button type="button" class="btn icon close"><svg class="i"><use href="#x"/></svg></button></span></h2>
               <div class="field"><label>프로필</label><input placeholder="이름으로 찾기">
                 <ul class="pick"><li class="grp">설치됨 3</li><li aria-selected="true">Claude <span class="recent">최근</span></li><li>Codex</li><li>pi</li><li>기본 셸</li></ul>
               </div>
-              <div class="pop-actions"><button type="button" class="btn ghost">취소</button></div>
-            </form>
+                          </form>
           </section>
         </div>
       </div>
     </div>
-    <div class="calls"><div><b>1</b><span>묶음 안 카드·버튼 밖을 우클릭하면 [새 노드]와 같은 창이 포인터 자리에 열립니다. 브라우저 메뉴는 뜨지 않습니다.</span></div></div>
+    <div class="calls"><div><b>1</b><span>묶음 안 카드·버튼 밖을 우클릭하면 [새 노드]와 같은 창이 포인터 자리에 열립니다. 브라우저 메뉴는 뜨지 않습니다.</span></div><div><b>2</b><span>[취소] 버튼 대신 오른쪽 위 X로 닫습니다.</span></div></div>
   </div>
 
   <div class="fig">
@@ -180,12 +180,11 @@ svg.ptr { width: 22px; height: 22px; z-index: 7; }
             <div class="group-head"><span class="branch">묶음우클릭과pi스크롤</span><span class="spacer"></span><button class="btn icon"><svg class="i"><use href="#arrange"/></svg></button><span class="mk" data-n="3" style="display:inline-flex"><button class="btn" aria-expanded="true"><svg class="i"><use href="#plus"/></svg>새 노드</button></span><button class="btn">워크트리 삭제</button></div>
             <div class="card" style="left:20px; top:62px"><div class="top"><span class="lg">✳</span><span class="name">코디 묶음우클릭과pi스크롤</span></div><span class="meta">opus · medium</span><span class="line">목업을 만듭니다.</span></div>
             <form class="pop gone mk" data-n="2" style="left:270px; top:44px">
-              <h2>새 노드<span>묶음우클릭과pi스크롤</span></h2>
+              <h2><span class="t">새 노드<span>묶음우클릭과pi스크롤</span></span><button type="button" class="btn icon close"><svg class="i"><use href="#x"/></svg></button></h2>
               <div class="field"><label>프로필</label><input placeholder="이름으로 찾기">
                 <ul class="pick"><li class="grp">설치됨 3</li><li aria-selected="true">Claude <span class="recent">최근</span></li><li>Codex</li><li>pi</li><li>기본 셸</li></ul>
               </div>
-              <div class="pop-actions"><button type="button" class="btn ghost">취소</button></div>
-            </form>
+                          </form>
           </section>
         </div>
       </div>
@@ -200,6 +199,7 @@ svg.ptr { width: 22px; height: 22px; z-index: 7; }
       <tr><td>우클릭 뒤</td><td><b>권장:</b> 새 노드 창을 바로 엽니다(①-1). 한 번 덜 누릅니다.</td><td>「새 노드」 한 줄 메뉴를 먼저 띄웁니다. 메뉴 항목이 하나뿐이라 한 단계가 늘어납니다.</td></tr>
       <tr><td>창 자리</td><td><b>권장:</b> 우클릭한 포인터 자리</td><td>머리 줄 [새 노드] 아래. 큰 묶음에서는 포인터와 멀어집니다.</td></tr>
       <tr><td>우클릭이 열리는 곳</td><td><b>권장:</b> 묶음 안 카드·버튼·칩 밖(머리 줄 빈 곳 포함)</td><td>카드 위 우클릭도 엽니다. 카드를 고르려던 우클릭에도 창이 열립니다.</td></tr>
+      <tr><td>닫기 버튼</td><td><b>반영함:</b> 아래 [취소]를 지우고 오른쪽 위에 X(v1 승인 때 사람 지시)</td><td>—</td></tr>
       <tr><td>창이 닫히는 곳</td><td><b>권장:</b> 창 밖 어디나(②-1). 다른 팝오버(워크트리 삭제·받은편지함)와 같습니다.</td><td>그래프 안만. 사이드바·터미널을 눌러도 창이 남습니다.</td></tr>
     </table>
   </div>

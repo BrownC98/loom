@@ -28,17 +28,8 @@ export function useEscapeClose<T extends HTMLElement>(onClose: () => void) {
 
 export function useDismiss<T extends HTMLElement>(onClose: () => void, options: { anchor?: RefObject<HTMLElement | null> } = {}) {
   const box = useRef<T>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
   const { anchor } = options;
-  useEffect(() => {
-    const outside = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (!box.current?.contains(target) && !anchor?.current?.contains(target)) close.current();
-    };
-    document.addEventListener('pointerdown', outside, true);
-    return () => document.removeEventListener('pointerdown', outside, true);
-  }, []);
+  useOutsidePress(box, onClose, anchor);
   useEscapeEntry(box, () => {
     onClose();
     anchor?.current?.focus();
@@ -53,5 +44,18 @@ function useEscapeEntry(box: RefObject<HTMLElement | null>, onClose: () => void)
     const entry: Open = { box, close };
     opened.push(entry);
     return () => void opened.splice(opened.indexOf(entry), 1);
+  }, []);
+}
+
+export function useOutsidePress(box: RefObject<HTMLElement | null>, onClose: () => void, anchor?: RefObject<HTMLElement | null>) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const outside = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (!box.current?.contains(target) && !anchor?.current?.contains(target)) close.current();
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
   }, []);
 }

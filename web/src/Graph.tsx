@@ -1,5 +1,5 @@
 import { GitBranchPlus, MapMinus, MapPlus, Maximize2, Minimize2, Plus, Trash2, Workflow } from 'lucide-react';
-import { Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { applyNodeChanges, Handle, MarkerType, MiniMap, NodeResizeControl, Panel, Position, ResizeControlVariant, ReactFlow, useReactFlow, useStore, useStoreApi, useUpdateNodeInternals, ViewportPortal, type Edge, type FinalConnectionState, type Node, type NodeChange, type NodeProps, type ResizeParams, type XYPosition } from '@xyflow/react';
 import { adoptNode, clearSizes, clearSpots, getSizes, getSpots, nodePty, putArranged, putSizes, putSpots, removeNode } from './api';
@@ -23,6 +23,7 @@ import { HopEdge, hopLabelSize, type HopEdgeType } from './HopEdge';
 import { HOP_LANES, siblingLanes, type HopPair } from './hopLanes';
 import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
+import { useOutsidePress } from './popover';
 import { PlaceTag, shownPath } from './place';
 import { NewWorktreePopover } from './NewWorktreePopover';
 import { BookmarkButton } from './BookmarkButton';
@@ -58,8 +59,11 @@ const MOVE_MS = 300;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3.5;
 
-function PopAt(props: { at: XYPosition; children: ReactNode }) {
+type Align = 'start' | 'end';
+
+function PopAt(props: { at: XYPosition; align: Align; opener?: RefObject<HTMLElement | null>; onClose: () => void; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
+  useOutsidePress(box, props.onClose, props.opener);
   const [shift, setShift] = useState(0);
   const transform = useStore((s) => s.transform);
   useLayoutEffect(() => {
@@ -67,12 +71,15 @@ function PopAt(props: { at: XYPosition; children: ReactNode }) {
     const pane = box.current?.closest('.react-flow');
     if (!pop || !pane) return;
     const zoom = transform[2];
-    const left = pop.getBoundingClientRect().left - shift * zoom;
-    const next = Math.max(0, (pane.getBoundingClientRect().left + POPOVER_EDGE - left) / zoom);
+    const rect = pop.getBoundingClientRect();
+    const room = pane.getBoundingClientRect();
+    const left = rect.left - shift * zoom;
+    const right = rect.right - shift * zoom;
+    const next = Math.max((room.left + POPOVER_EDGE - left) / zoom, Math.min(0, (room.right - POPOVER_EDGE - right) / zoom));
     if (Math.abs(next - shift) > 0.5) setShift(next);
   }, [props.at.x, props.at.y, transform, shift]);
   return (
-    <div ref={box} className="pop-end" style={{ position: 'absolute', transform: `translate(${props.at.x + shift}px, ${props.at.y}px)` }}>
+    <div ref={box} className={`pop-${props.align}`} style={{ position: 'absolute', transform: `translate(${props.at.x + shift}px, ${props.at.y}px)` }}>
       {props.children}
     </div>
   );
@@ -176,6 +183,7 @@ type GroupData = {
   creating: boolean;
   deleting: boolean;
   onOpen: (button: HTMLElement) => void;
+  onOpenAt: (point: XYPosition) => void;
   onDelete?: (button: HTMLElement) => void;
   onArrange: () => void;
   chips: readonly Chip[];
@@ -213,6 +221,11 @@ function Group({ data }: NodeProps<GroupNode>) {
       onMouseDown={(e) => {
         if (e.button !== 0 || (e.target as Element).closest('.group-head, .nodrag')) return;
         e.currentTarget.closest('.react-flow')?.querySelector('.react-flow__pane')?.dispatchEvent(new MouseEvent('mousedown', e.nativeEvent));
+      }}
+      onContextMenu={(e) => {
+        if ((e.target as Element).closest('button, .wt-chip')) return;
+        e.preventDefault();
+        data.onOpenAt({ x: e.clientX, y: e.clientY });
       }}
     >
       <div className="group-head">
@@ -488,7 +501,8 @@ export function Graph(props: {
   const [expanded, setExpanded] = useState<NodeId | null>(null);
   const zoomed = expanded !== null && selected !== null && props.views.has(selected) ? selected : expanded;
   const [creating, setCreating] = useState<string | null>(null);
-  const [anchor, setAnchor] = useState<XYPosition | null>(null);
+  const [anchor, setAnchor] = useState<{ at: XYPosition; align: Align } | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [chipRows, setChipRows] = useState<ReadonlyMap<string, number>>(new Map());
   const [branching, setBranching] = useState<{ key: string; anchor: XYPosition } | null>(null);
@@ -764,20 +778,35 @@ export function Graph(props: {
         }),
       )
     : [];
-  const anchorAt = (origin: XYPosition, button: HTMLElement) => {
+  const anchorAt = (origin: XYPosition, point: XYPosition, align: Align) => {
+    const at = flow.screenToFlowPosition(point);
+    setAnchor({ at: { x: at.x - origin.x, y: at.y - origin.y }, align });
+  };
+  const belowButton = (button: HTMLElement) => {
     const rect = button.getBoundingClientRect();
-    const at = flow.screenToFlowPosition({ x: rect.right, y: rect.bottom + POPOVER_GAP });
-    setAnchor({ x: at.x - origin.x, y: at.y - origin.y });
+    return { x: rect.right, y: rect.bottom + POPOVER_GAP };
   };
   const openNew = (path: string, origin: XYPosition, button: HTMLElement) => {
     setDeleting(null);
+    if (creating === path && opener.current === button) {
+      setCreating(null);
+      return;
+    }
+    opener.current = button;
     setCreating(path);
-    anchorAt(origin, button);
+    anchorAt(origin, belowButton(button), 'end');
+  };
+  const openNewAt = (path: string, origin: XYPosition, point: XYPosition) => {
+    setDeleting(null);
+    opener.current = null;
+    setCreating(path);
+    anchorAt(origin, point, 'start');
   };
   const openDelete = (path: string, origin: XYPosition, button: HTMLElement) => {
     setCreating(null);
+    opener.current = button;
     setDeleting(path);
-    anchorAt(origin, button);
+    anchorAt(origin, belowButton(button), 'end');
   };
   const nodes: FlowNode[] = [...repoNodes, ...groups.flatMap(({ group, members, local, lead, origin, outer, size: box }) => [
     keep<GroupNode>({
@@ -795,6 +824,7 @@ export function Graph(props: {
         deleting: deleting === group.path,
         onArrange: () => arrangeGroup(group.path),
         onOpen: (button) => openNew(group.path, origin, button),
+        onOpenAt: (point) => openNewAt(group.path, origin, point),
         onDelete: group.kind === 'linked' ? (button) => openDelete(group.path, origin, button) : undefined,
         chips: chipsOf(group.path).map((c) => ({
           path: c.path,
@@ -1183,7 +1213,15 @@ export function Graph(props: {
             (creating === group.path || deleting === group.path) &&
             anchor && (
               <ViewportPortal key={group.path}>
-                <PopAt at={{ x: origin.x + anchor.x, y: origin.y + anchor.y }}>
+                <PopAt
+                  at={{ x: origin.x + anchor.at.x, y: origin.y + anchor.at.y }}
+                  align={anchor.align}
+                  opener={opener}
+                  onClose={() => {
+                    setCreating(null);
+                    setDeleting(null);
+                  }}
+                >
                   {creating === group.path ? (
                     <NewNodePopover
                       branch={group.label}
@@ -1222,7 +1260,7 @@ export function Graph(props: {
             (r) =>
               branching?.key === r.key && (
                 <ViewportPortal key={r.key}>
-                  <PopAt at={{ x: repoAt.get(r.key)!.x + branching.anchor.x, y: repoAt.get(r.key)!.y + branching.anchor.y }}>
+                  <PopAt at={{ x: repoAt.get(r.key)!.x + branching.anchor.x, y: repoAt.get(r.key)!.y + branching.anchor.y }} align="end" onClose={() => setBranching(null)}>
                     <NewWorktreePopover
                       repo={r.repo}
                       workspaceDir={props.settings.workspaceDir ?? ''}

@@ -163,6 +163,7 @@ mod git_runs {
                 NewChild {
                     name,
                     worktree: None,
+                    branched_from: None,
                     agent: None,
                     brief: "",
                     role,
@@ -179,13 +180,21 @@ mod git_runs {
             .unwrap()
     }
 
-    fn owner(app: &App, parent: NodeId, name: &str, role: &str, worktree: &Path) -> NodeId {
+    fn owner(
+        app: &App,
+        parent: NodeId,
+        name: &str,
+        role: &str,
+        worktree: &Path,
+        branched_from: Option<&str>,
+    ) -> NodeId {
         app.graph
             .add_child(
                 parent,
                 NewChild {
                     name,
                     worktree: Some(worktree.to_str().unwrap()),
+                    branched_from,
                     agent: None,
                     brief: "",
                     role: Some(role),
@@ -244,15 +253,16 @@ mod git_runs {
                 upper.to_str().unwrap(),
             ],
         );
-        let coordinator = owner(&r.app, r.lead, "c1", "조율자", &upper);
+        let coordinator = owner(&r.app, r.lead, "c1", "조율자", &upper, Some("main"));
         let lower = r.dir.path().join("lower");
         git(
             &upper,
             &["worktree", "add", "-q", "-b", "a", lower.to_str().unwrap()],
         );
-        owner(&r.app, coordinator, "w", "아무 역할", &lower);
+        owner(&r.app, coordinator, "w", "아무 역할", &lower, Some("조율"));
         commit(&lower, "a.txt");
         commit(&upper, "c.txt");
+        git(&upper, &["checkout", "-q", "-b", "딴길"]);
         assert_eq!(
             readied(&r.app, "w", "a", &lower).await,
             ("c1".into(), "조율".into())
@@ -263,6 +273,7 @@ mod git_runs {
                 .verdict(coordinator, "a", Judgment::Pass, None, None),
             Ok(GateState::Passed)
         );
+        git(&upper, &["checkout", "-q", "조율"]);
         assert_eq!(
             readied(&r.app, "c1", "조율", &upper).await,
             ("c1".into(), "main".into())

@@ -133,7 +133,8 @@ fn spawn_role_is_stored_and_picks_the_gate() {
         g.gate_for(t.worker).unwrap(),
         GateChoice::Parent {
             gate: t.coordinator,
-            worktree: "/repo".into()
+            worktree: "/repo".into(),
+            branched_from: None
         }
     );
     assert_eq!(g.gate_for(t.lead).unwrap(), GateChoice::Owner);

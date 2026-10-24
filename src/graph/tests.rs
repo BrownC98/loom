@@ -64,6 +64,7 @@ fn named(name: &str) -> NewChild<'_> {
     NewChild {
         name,
         worktree: None,
+        branched_from: None,
         agent: None,
         brief: "",
         role: None,
@@ -2191,6 +2192,7 @@ async fn lead_coordinator_and_worker_spawn_talk_finish_and_are_reclaimed() {
             NewChild {
                 name,
                 worktree: Some(worktree),
+                branched_from: None,
                 agent: Some(AgentId("claude".into())),
                 brief,
                 role: None,
@@ -2995,7 +2997,8 @@ fn switching_the_agent_keeps_the_node_and_changes_only_its_process() {
         g.gate_for(worker).unwrap(),
         GateChoice::Parent {
             gate: coordinator,
-            worktree: "/wt/코디".into()
+            worktree: "/wt/코디".into(),
+            branched_from: None
         }
     );
     assert_eq!(take(&g, coordinator), delivery("cursor-1", "계속해"));

@@ -109,6 +109,7 @@ impl Fixture {
         let child = NewChild {
             name,
             worktree: None,
+            branched_from: None,
             agent: claude(),
             brief: "",
             role: None,
@@ -539,6 +540,7 @@ impl Fixture {
         let child = NewChild {
             name,
             worktree: None,
+            branched_from: None,
             agent: Some(AgentId("cursor".into())),
             brief: "",
             role: None,

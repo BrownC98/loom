@@ -232,8 +232,8 @@ const STEPS: &[M] = &[
         ALTER TABLE gates ADD COLUMN seq INTEGER;
         ALTER TABLE gates ADD COLUMN batch INTEGER;
         UPDATE gates SET state = '"merging"' WHERE state IN ('"passed"', '"merging"')
-            OR (state = '"ready"' AND gate IS NOT owner
-                AND gate IS NOT (SELECT parent FROM nodes WHERE id = gates.owner));
+            OR (state = '"ready"' AND gate IS NOT coalesce((SELECT p.id FROM nodes o JOIN nodes p ON p.id = o.parent
+                WHERE o.id = gates.owner AND p.role = '코디'), owner));
         CREATE TABLE batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             repo INTEGER NOT NULL,
@@ -279,10 +279,10 @@ const STEPS: &[M] = &[
             WHERE entry ->> '$.reason.code' = 'noAgentOrRole';"#,
     ),
     M::up(
-        r#"UPDATE events SET entry = json_set(entry, '$.reason.code', 'leadChildNeedsWorktree')
+        r#"ALTER TABLE nodes ADD COLUMN branched_from TEXT;
+        UPDATE events SET entry = json_set(entry, '$.reason.code', 'leadChildNeedsWorktree')
             WHERE entry ->> '$.reason.code' = 'leadSpawnsOnlyCoordinator';
-        UPDATE gates SET gate = owner WHERE state = '"merging"' AND batch IS NULL AND gate IS NOT owner
-            AND gate IS NOT (SELECT parent FROM nodes WHERE id = gates.owner);"#,
+        UPDATE gates SET gate = owner WHERE state = '"merging"' AND batch IS NULL;"#,
     ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
@@ -681,7 +681,7 @@ mod tests {
             INSERT INTO nodes (id, name, agent, state, parent) VALUES (3, 'c', 'null', '{}', 1), (4, 'w', 'null', '{}', 3);
             INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated, batch) VALUES
             (1, 'old', 3, 2, 'main', '/w', '"merging"', 'c1', 1, 1, NULL),
-            (1, 'held', 4, 3, 'c', '/w', '"merging"', 'c2', 1, 1, NULL),
+            (1, 'ci-parent', 4, 3, 'main', '/w', '"merging"', 'c2', 1, 1, NULL),
             (1, 'run', 3, 2, 'main', '/w', '"merging"', 'c3', 1, 1, 7);"#,
         )
         .unwrap();
@@ -695,7 +695,11 @@ mod tests {
             .collect();
         assert_eq!(
             gates,
-            [("held".into(), 3), ("old".into(), 3), ("run".into(), 2)]
+            [
+                ("ci-parent".into(), 4),
+                ("old".into(), 3),
+                ("run".into(), 2)
+            ]
         );
         let reason: String = conn
             .query_row("SELECT entry ->> '$.reason' FROM events", [], |row| {

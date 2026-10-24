@@ -1,6 +1,6 @@
 ---
 name: o-mode
-description: The Loom version of o-mode (orchestration mode). A procedure to develop repository work in parallel on Loom nodes. It covers how the lead (총괄), coordinators (코디) and workers (워커) assign, communicate, review, merge and clean up with Loom and Git. Use it in sessions that have LOOM_TOKEN and LOOM_URL.
+description: The Loom version of o-mode (orchestration mode). A procedure to develop repository work in parallel on Loom nodes. It covers how the lead, coordinators and workers assign, communicate, review, merge and clean up with Loom and Git. Use it in sessions that have LOOM_TOKEN and LOOM_URL.
 ---
 
 # Loom parallel development
@@ -15,15 +15,15 @@ description: The Loom version of o-mode (orchestration mode). A procedure to dev
 
 ## Roles and assignment
 
-The default roles are 총괄, 코디, 워커, 고위험 워커, 검토자 and 보조 검토자. `loom roles` shows each role's responsibility, agent, model and effort.
+Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `loom roles` by its duty; the human renames roles.
 
 - To change the agent of a running node, use `loom relaunch <child> --agent <id>`; do not remove and spawn again. For new nodes, only the human changes the role table.
-- Give a high-risk edit scope (the 고위험 워커 responsibility) to that role, not to 워커. That alone does not require a worker.
-- Each branch to main gets one 검토자. Only a high-risk branch also gets a 보조 검토자.
-- The lead does one- or two-line changes and gives all other work (code, screen checks, research) to one 코디. It keeps the work context: current work, children, decisions, waiting approvals. It receives only the 코디's `done` and the gate's merged and failed results. It does not read result files.
+- A high-risk edit scope goes to the high-risk role. That alone does not require a worker.
+- Each branch to main gets one reviewer. Only a high-risk branch also gets a second reviewer.
+- The lead does one- or two-line changes and gives all other work (code, screen checks, research) to one coordinator in a new worktree. It keeps the work context: current work, children, decisions, waiting approvals. It receives only the coordinator's `done` and the gate's merged and failed results. It does not read result files.
 - The node that has the facts writes the brief, spawns the workers, reviews, merges and cleans up. A lead brief gives only the goal (with done-when) and the scope. Keep its `Facts:` short: put long facts in a task folder file and give the absolute path. Do not give the brief rules path; loom adds those rules.
-- A 코디 does small, closely related work itself. It divides work only into two or more independent edit scopes. With one scope, it spawns the worker without `--worktree` in its own worktree. While the worker runs, the 코디 only reads and reviews there. It also takes pieces that wait for one product decision.
-- Write names in the human's language. A branch has the name of its work (`알림표시통일`). A node is `<role> <work>` (`코디 알림표시통일`). The lead is `<repository> 총괄`. Names are unique.
+- A coordinator does small, closely related work itself. It divides work only into two or more independent edit scopes. With one scope, it spawns the worker without `--worktree` in its own worktree. While the worker runs, the coordinator only reads and reviews there. It also takes pieces that wait for one product decision.
+- Write names in the human's language. A branch has the name of its work (`알림표시통일`). A node is `<role> <work>`. The lead is `<repository> <role>`. Names are unique.
 - A `--worktree` child starts from its parent's `HEAD`. Do not put two editors in one worktree.
 - For screen work, read [reference "Mockup approval"](reference.md#mockup-approval) first. Before the human approves, do not write screen product code or spawn implementation workers.
 - Make an HTML report only when the human asks ([reference](reference.md#reports-to-the-human)). Else write problem, cause and fix, one line each, per item. If the next step is clear, do it.
@@ -40,8 +40,8 @@ The default roles are 총괄, 코디, 워커, 고위험 워커, 검토자 and �
 
 - Merge only with `loom ready`, `loom verdict` and `loom fail`. Do not merge or push to main by hand.
 - The owner commits, does the checks and calls `loom ready` without a merge of the target. On a conflict, the queue sends rework: then merge the target and fix it.
-- A 코디's verdict on a worker branch is acceptance against done-when, not a code review. A block lists what done-when misses. A 코디 merges its workers' results before its own `loom ready`.
-- The queue waits for all live reviewers, so spawn the 보조 검토자 before the first verdict. Do other work while the queue runs.
+- A parent's verdict on a branch made from its branch is acceptance against done-when, not a code review. A block lists what done-when misses. A coordinator merges its workers' results before its own `loom ready`.
+- The queue waits for all live reviewers, so spawn the second reviewer before the first verdict. Do other work while the queue runs.
 - After `merged`, the daemon removes the reviewers, the owner node, a clean worktree and the branch. It keeps a worktree with changes, its branch and owner, and tells the owner's parent. An owner without a parent or with children stays. Thus call `loom done` before `loom ready`.
 - Each time that a child reports, the parent cleans up what is safe and no longer needed ([reference "Cleanup"](reference.md#cleanup)). This includes unmerged children, shell nodes, their worktrees and branches, background processes and temporary folders.
 - Rare cases (handover, setup failure, release runs, no gate script): [reference "Commands"](reference.md#commands).

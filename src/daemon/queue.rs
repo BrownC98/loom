@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::App;
@@ -15,6 +17,7 @@ const CONFLICT: i32 = 10;
 const CHECK_FAILED: i32 = 14;
 const MOVED: i32 = 20;
 const DIRTY: i32 = 21;
+const MOVE_LIMIT: u32 = 3;
 
 const CHECK_LOCK: &str = "/tmp/loom-gate-check.lock";
 
@@ -33,6 +36,7 @@ target=$1
 [ -z "$(git status --porcelain)" ] || { echo "the main checkout has uncommitted changes"; exit 1; }
 git fetch --quiet origin "$target" || { echo "git fetch origin $target failed"; exit 1; }
 git merge --ff-only --quiet "origin/$target" || { echo "$target and origin/$target diverged"; exit 1; }
+[ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$target")" ] || { echo "$target has commits that are not on origin/$target"; exit 1; }
 "#;
 
 const STACK: &str = r#"set -u
@@ -84,7 +88,9 @@ if ! git merge-base --is-ancestor "$tip" "origin/$target"; then
   git merge --ff-only --quiet "$tip" || exit 1
   [ "$(git rev-parse HEAD)" = "$tip" ] || { echo "$target moved after the fast-forward to $tip"; exit 1; }
   if ! git push --quiet origin "$tip:refs/heads/$target"; then
-    git reset --hard --quiet "$base"
+    [ -z "$(git status --porcelain --untracked-files=no)" ] && git update-ref "refs/heads/$target" "$base" "$tip" ||
+      { echo "$target moved during git push; loom kept it and did not undo the fast-forward to $tip"; exit 1; }
+    git reset --hard --quiet
     git fetch --quiet origin "$target" || { echo "git fetch failed after git push failed"; exit 1; }
     [ "$(git rev-parse "origin/$target")" = "$base" ] || { echo "origin/$target moved during git push"; exit 20; }
     echo "git push origin $target failed"
@@ -102,6 +108,7 @@ git merge --ff-only --quiet "$2" || exit 20
 "#;
 
 pub(super) async fn run(app: Arc<App>) {
+    let mut moves: HashMap<(RepoId, String), u32> = HashMap::new();
     loop {
         recover(&app, CHECK_LOCK).await;
         loop {
@@ -113,9 +120,19 @@ pub(super) async fn run(app: Arc<App>) {
                 }
             };
             let Some((repo, target)) = next else { break };
-            if let Err(e) = batch(&app, repo, &target, CHECK_LOCK).await {
-                eprintln!("loom: merge queue {target}: {e}");
-                break;
+            let key = (repo, target);
+            let before = moves.get(&key).copied().unwrap_or(0);
+            match batch(&app, key.0, &key.1, CHECK_LOCK, before).await {
+                Ok(true) => {
+                    moves.insert(key, before + 1);
+                }
+                Ok(false) => {
+                    moves.remove(&key);
+                }
+                Err(e) => {
+                    eprintln!("loom: merge queue {}: {e}", key.1);
+                    break;
+                }
             }
         }
         tokio::select! {
@@ -125,7 +142,13 @@ pub(super) async fn run(app: Arc<App>) {
     }
 }
 
-async fn batch(app: &App, repo: RepoId, target: &str, lock: &str) -> Result<(), Refusal> {
+async fn batch(
+    app: &App,
+    repo: RepoId,
+    target: &str,
+    lock: &str,
+    moves: u32,
+) -> Result<bool, Refusal> {
     let queue = app.graph.queue(repo, target)?;
     let branches: Vec<&str> = queue.iter().map(|q| q.branch.as_str()).collect();
     let dir = repo_path(app, repo);
@@ -139,14 +162,21 @@ async fn batch(app: &App, repo: RepoId, target: &str, lock: &str) -> Result<(), 
                 dir,
                 target: target.to_owned(),
                 lock,
+                moves,
+                moved: AtomicBool::new(false),
             };
             if let Err(e) = run.run(queue.clone()).await {
                 fail_all(app, repo, id, &queue, &e.to_string());
             }
+            app.graph.batch_close(id)?;
+            Ok(run.moved.load(Ordering::Relaxed))
         }
-        Err(e) => fail_all(app, repo, id, &queue, &e.to_string()),
+        Err(e) => {
+            fail_all(app, repo, id, &queue, &e.to_string());
+            app.graph.batch_close(id)?;
+            Ok(false)
+        }
     }
-    Ok(app.graph.batch_close(id)?)
 }
 
 async fn recover(app: &App, lock: &str) {
@@ -183,6 +213,8 @@ async fn recover(app: &App, lock: &str) {
             dir,
             target: stale.target,
             lock,
+            moves: 0,
+            moved: AtomicBool::new(false),
         };
         if let Err(e) = script(&run.dir, CLEAN, &[]).await {
             eprintln!("loom: merge queue recovery: {e}");
@@ -190,7 +222,7 @@ async fn recover(app: &App, lock: &str) {
         run.record(0, &stale.members, None, BatchResult::Interrupted, None);
         let done = match (stale.base, stale.tip) {
             (Some(base), Some(tip)) if !stale.members.is_empty() => {
-                run.publish(&stale.members, &base, &tip, 0).await
+                run.resume(&stale.members, &base, &tip).await
             }
             _ => {
                 stale.members.iter().for_each(|m| run.requeue(m));
@@ -247,6 +279,8 @@ struct Batch<'a> {
     dir: PathBuf,
     target: String,
     lock: &'a str,
+    moves: u32,
+    moved: AtomicBool,
 }
 
 enum Dest {
@@ -264,20 +298,8 @@ impl Batch<'_> {
     async fn run(&self, queue: Vec<Queued>) -> Result<(), Refusal> {
         let mut members = Vec::new();
         for member in queue {
-            let findings = self.audit(&member).await?;
-            match protocol::audit_end(&findings) {
-                Some(end) => self.settle(
-                    &member,
-                    Ended {
-                        end,
-                        merged: None,
-                        cause: None,
-                        log: None,
-                        lines: self.lines(),
-                        findings,
-                    },
-                ),
-                None => members.push(member),
+            if self.screen(&member).await? {
+                members.push(member);
             }
         }
         if members.is_empty() {
@@ -353,6 +375,9 @@ impl Batch<'_> {
                     continue;
                 }
                 Trial::Passed { tip } if half == suspects.len() => {
+                    if !self.unchanged(&trial).await? {
+                        return Ok(());
+                    }
                     self.app.graph.batch_checked(self.id, base, &tip)?;
                     return self.publish_into(&trial, base, &tip, step, into).await;
                 }
@@ -465,6 +490,57 @@ impl Batch<'_> {
     ) -> Result<(), Refusal> {
         let into = self.into().await?;
         self.publish_into(members, base, tip, step, &into).await
+    }
+
+    async fn resume(&self, members: &[Queued], base: &str, tip: &str) -> Result<(), Refusal> {
+        let advanced = git::run(
+            &self.dir,
+            &[
+                "merge-base",
+                "--is-ancestor",
+                tip,
+                &format!("refs/heads/{}", self.target),
+            ],
+        )
+        .await
+        .is_ok();
+        if !advanced && !self.unchanged(members).await? {
+            return Ok(());
+        }
+        self.publish(members, base, tip, 0).await
+    }
+
+    async fn screen(&self, member: &Queued) -> Result<bool, Refusal> {
+        let findings = self.audit(member).await?;
+        let Some(end) = protocol::audit_end(&findings) else {
+            return Ok(true);
+        };
+        self.settle(
+            member,
+            Ended {
+                end,
+                merged: None,
+                cause: None,
+                log: None,
+                lines: self.lines(),
+                findings,
+            },
+        );
+        Ok(false)
+    }
+
+    async fn unchanged(&self, members: &[Queued]) -> Result<bool, Refusal> {
+        let mut kept = Vec::new();
+        for m in members {
+            if self.screen(m).await? {
+                kept.push(m);
+            }
+        }
+        if kept.len() == members.len() {
+            return Ok(true);
+        }
+        kept.into_iter().for_each(|m| self.requeue(m));
+        Ok(false)
     }
 
     async fn publish_base(
@@ -605,6 +681,19 @@ impl Batch<'_> {
                 now: now.trim().to_owned(),
             });
         }
+        let source = Path::new(&member.worktree);
+        if source.is_dir() {
+            let head = git::run(source, &["rev-parse", "HEAD"]).await;
+            let changes =
+                git::run(source, &["status", "--porcelain", "--untracked-files=no"]).await;
+            match (head, changes) {
+                (Ok(head), Ok(changes))
+                    if head.trim() == member.head && changes.trim().is_empty() => {}
+                _ => findings.push(Finding::SourceDirty {
+                    worktree: member.worktree.clone(),
+                }),
+            }
+        }
         Ok(findings)
     }
 
@@ -638,7 +727,17 @@ impl Batch<'_> {
 
     fn moved(&self, members: &[Queued], step: u32) {
         self.record(step, members, None, BatchResult::TargetMoved, None);
-        members.iter().for_each(|m| self.requeue(m));
+        self.moved.store(true, Ordering::Relaxed);
+        if self.moves + 1 < MOVE_LIMIT {
+            return members.iter().for_each(|m| self.requeue(m));
+        }
+        let cause = format!(
+            "{} moved during {MOVE_LIMIT} batches in a row; tell the root, then send loom ready again",
+            self.target
+        );
+        for m in members {
+            self.settle(m, self.failed(cause.clone(), None));
+        }
     }
 
     fn settle(&self, member: &Queued, ended: Ended) {

@@ -819,12 +819,16 @@ pub enum Finding {
     OutOfGate { commit: String },
     /// 판정한 커밋 뒤에 브랜치가 움직였다. 검토하지 않은 커밋은 병합하지 않는다.
     HeadMoved { reviewed: String, now: String },
+    /// 담당 워크트리가 판정한 커밋에 있지 않거나 추적 파일에 미커밋 변경이 있다. 워크트리가 없으면 보지 않는다.
+    SourceDirty { worktree: String },
 }
 
 impl Finding {
     pub fn end(&self) -> Option<MergeEnd> {
         match self {
-            Finding::RawGateWord { .. } | Finding::HeadMoved { .. } => Some(MergeEnd::Rework),
+            Finding::RawGateWord { .. }
+            | Finding::HeadMoved { .. }
+            | Finding::SourceDirty { .. } => Some(MergeEnd::Rework),
             Finding::RangeIncomplete { .. } => Some(MergeEnd::Failed),
             Finding::OutOfGate { .. } => None,
         }
@@ -851,6 +855,10 @@ impl fmt::Display for Finding {
             Finding::HeadMoved { reviewed, now } => write!(
                 f,
                 "the branch moved from the reviewed commit {reviewed} to {now}; call loom ready again for a new review"
+            ),
+            Finding::SourceDirty { worktree } => write!(
+                f,
+                "the owner worktree {worktree} is not clean at the reviewed commit; commit or revert, then call loom ready again"
             ),
         }
     }

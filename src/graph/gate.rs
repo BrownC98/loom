@@ -31,6 +31,7 @@ pub struct Queued {
     pub branch: String,
     pub owner: NodeId,
     pub head: String,
+    pub worktree: String,
     pub since: i64,
     pub waited: u64,
 }
@@ -751,9 +752,10 @@ fn pending(
 
 fn in_round(gate: &str, owner: &str, mark: &str, branch: &str) -> String {
     format!(
-        "({} AND (n.id > {mark} OR {}))",
+        "({} AND (n.id > {mark} OR {} OR {}))",
         reviewer(gate, owner),
-        judged(branch)
+        judged(branch),
+        withdrawn_from(branch)
     )
 }
 
@@ -770,6 +772,17 @@ fn judged(branch: &str) -> String {
         "EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
             AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' = {branch}
             AND e.entry ->> '$.from.id' = n.id)"
+    )
+}
+
+fn withdrawn_from(branch: &str) -> String {
+    format!(
+        "(EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
+            AND e.entry ->> '$.what.kind' = 'withdrawn' AND e.entry ->> '$.what.branch' = {branch}
+            AND e.entry ->> '$.to.id' = n.id)
+          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.entry ->> '$.kind' = 'message'
+            AND e.entry ->> '$.gate.verb' = 'verdict' AND e.entry ->> '$.gate.branch' != {branch}
+            AND e.entry ->> '$.from.id' = n.id))"
     )
 }
 
@@ -851,13 +864,14 @@ fn settled() -> String {
     )
 }
 
-const QUEUED: &str = "SELECT branch, owner, head, opened, max(unixepoch() - coalesce(queued, unixepoch()), 0) FROM gates";
+const QUEUED: &str = "SELECT branch, owner, head, opened, max(unixepoch() - coalesce(queued, unixepoch()), 0), worktree FROM gates";
 
 fn read_queued(r: &rusqlite::Row) -> rusqlite::Result<Queued> {
     Ok(Queued {
         branch: r.get(0)?,
         owner: NodeId(r.get(1)?),
         head: r.get(2)?,
+        worktree: r.get(5)?,
         since: r.get(3)?,
         waited: r.get::<_, i64>(4)?.unsigned_abs(),
     })

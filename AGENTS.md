@@ -33,9 +33,9 @@
 
 - Android 앱(APK, `android/`)도 서명본은 `release.yml`만 만든다. 호스트에서 빌드하려면 JDK 17, Android SDK(`ANDROID_HOME`), Gradle 9.7.1을 깔고 `memcap -m 8G gradle -p android lintDebug testDebugUnitTest assembleDebug`를 돌린다. 저장소에는 이 도구가 없다.
 
-- 사람의 DB(`~/.loom/loom.db`)를 볼 때는 데몬 API를 먼저 쓴다. 파일을 직접 읽으면 읽기 전용(`sqlite3.connect('file:<경로>?mode=ro', uri=True)`)으로만 연다. 쓰기 연결은 데몬의 쓰기를 막을 수 있다(docs/design.md 「저장」).
+- 사람의 DB(`~/.loom/loom.db`)를 볼 때는 데몬 API를 먼저 쓴다. 파일을 직접 읽으면 읽기 전용(`sqlite3.connect('file:<경로>?mode=ro', uri=True)`)으로만 연다. 쓰기 연결은 데몬의 쓰기를 막을 수 있다(docs/design/저장.md).
 
-- `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-orwell/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(설계 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
+- `skills/`는 loom이 노드에 넣는 내장 스킬의 원본이다. 사람의 `~/.agents/skills/{user-doc,raptor-3}`와 `ste-orwell/SKILL.md`가 main 체크아웃의 이 폴더를 가리킨다. loom 절차 스킬은 `skills/o-mode`다. 사람의 Orca 판 `~/.agents/skills/o-mode`와 이름이 같고, 실행 환경이 고른다. Claude에서는 `loom:o-mode`와 `orca:o-mode`로 갈린다(docs/design/에이전트-실행.md 「내장 스킬」). 스킬을 고칠 때도 워크트리에서 고치고 병합한다.
 
 - API 타입은 Rust에만 선언한다. `web/src/gen/`은 `cargo test`가 쓴다. 손으로 고치지 않는다.
 
@@ -107,7 +107,7 @@
 ## 6. 레이어
 
 - 레이어 아키텍처의 조건은 이름이 아니라 방향이다. 시스템 사이 의존이 단방향이면 레이어다.
-- 레이어를 나누는 관점은 기능 역할(상호작용, 조합, 기능)로 정했다. 모듈 배치는 [docs/design.md 「레이어」](docs/design.md#레이어)에 있다.
+- 레이어를 나누는 관점은 기능 역할(상호작용, 조합, 기능)로 정했다. 모듈 배치는 [docs/design/레이어.md](docs/design/레이어.md)에 있다.
   - 다른 관점: 수명주기(세션 동안, 요청 동안, 오래 사는 것), 도메인 역할(도메인별 화면·BFF, 도메인 특화 기능, 일반 기반 기능)
 - 도메인이 자주 바뀌면 기술 레이어로만 나눈 구조는 수정 하나가 모든 레이어를 건드린다. 이때는 도메인(기능) 단위로 먼저 세로로 나눈다.
 - 조합 코드(오케스트레이터)는 다른 모듈을 부르고 결과를 엮기만 한다. 도메인 규칙과 저장 방식을 알지 않는다.

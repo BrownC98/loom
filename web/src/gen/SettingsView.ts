@@ -70,7 +70,7 @@ wslWorkspaceDirs: { [key in string]: string },
 treeLimits: TreeLimits, 
 /**
  * 쓰는 계정이 한도에 닿으면 같은 공급자의 남은 계정으로 바꾸고 실행 중인 노드도 옮긴다. 옛 설정에는 없다. 없으면 꺼짐이다.
- * 근거: docs/design.md 「계정 전환」, 목업 docs/mockups/account-switch.html ②.
+ * 근거: docs/design/에이전트-실행.md 「계정 전환」, 목업 docs/mockups/account-switch.html ②.
  */
 autoSwitch: boolean, 
 /**
@@ -79,7 +79,7 @@ autoSwitch: boolean,
  */
 osNotify: boolean, 
 /**
- * 새 노드에 주는 내장 스킬. 옛 설정에는 없다. 없으면 모두 켜짐이다. 근거: docs/design.md 「내장 스킬」.
+ * 새 노드에 주는 내장 스킬. 옛 설정에는 없다. 없으면 모두 켜짐이다. 근거: docs/design/에이전트-실행.md 「내장 스킬」.
  */
 alwaysOn: AlwaysOn, 
 /**

@@ -13,7 +13,7 @@
 :root {
   /* 테마: light-dark(라이트, 다크). 다크 값은 2026-10-19 승인본 그대로다. 고른 테마는 color-scheme이 정한다. */
   color-scheme: light dark;
-  /* 무채색(채도 0). 회색 값은 Orca 1.4 다크·라이트 토큰(shadcn neutral)이다. 근거와 출처는 docs/design.md의 「디자인 언어」 줄이다. */
+  /* 무채색(채도 0). 회색 값은 Orca 1.4 다크·라이트 토큰(shadcn neutral)이다. 근거와 출처는 docs/design/에이전트-실행.md의 「디자인 언어」 줄이다. */
   --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
   --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
   --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
@@ -381,7 +381,7 @@ test node_host::resize ... <span class="err">FAILED</span>
 
   <h2>점검 기록</h2>
   <ul>
-    <li>2026-10-19 구현(web/src): impeccable detect 1회 0건. WIG 1회: 아이콘 버튼 <code>aria-label</code>, 장식 아이콘 <code>aria-hidden</code>, 거절 문장 <code>role="alert"</code>를 지켰다. 「끌기 동작에는 클릭·키보드 대안을 둔다」는 이번에 넣지 않고 docs/design.md 「후속」에 적었다. 새 화면 요소라 목업 승인이 필요하다.</li>
+    <li>2026-10-19 구현(web/src): impeccable detect 1회 0건. WIG 1회: 아이콘 버튼 <code>aria-label</code>, 장식 아이콘 <code>aria-hidden</code>, 거절 문장 <code>role="alert"</code>를 지켰다. 「끌기 동작에는 클릭·키보드 대안을 둔다」는 이번에 넣지 않고 docs/design/후속.md에 적었다. 새 화면 요소라 목업 승인이 필요하다.</li>
     <li>2026-10-19 노드 제거·카드 높이: impeccable detect 1회는 위와 같은 <code>.app</code> 테두리 오탐 1건뿐이다. WIG 1회: 「되돌릴 수 없는 삭제는 바로 하지 않는다」에 따라 끝난 노드도 확인 팝오버를 띄운다. 확인 버튼 이름을 [제거]에서 [노드 제거]로 바꿨다. 아이콘 버튼에 <code>aria-label</code>, 장식 아이콘에 <code>aria-hidden</code>을 둔다.</li>
     <li>방향: 제품 UI(Operate). Hallmark Cobalt의 팔레트만 썼다. 어두운 바탕은 카드 안 터미널과 밝기를 맞추려고 골랐다. 글꼴은 Pretendard 하나, 터미널만 JetBrains Mono다.</li>
     <li>impeccable detect 1회: 결함 4건을 고쳤다(카드 테두리+넓은 그림자, 프로필 선택 칸 좌우 여백, 제목 크기 단계 1.14배→1.29배, h1 다음 h3). 오탐 1건: <code>.app</code> 아래 테두리 여백 경고. 화면 틀의 테두리이고 안쪽 패널이 여백을 가진다.</li>

@@ -480,7 +480,7 @@ test daemon::<span style="background:#deeaf9;color:#22272e">with_theme</span> ..
       <tr><td>기본 인자(Arguments), 환경 변수(Environment)</td><td>—</td><td class="no">뺀다</td><td>「직접 입력」에 명령 전체를 적으면 같은 일을 한다.</td></tr>
       <tr><td>Agent Permissions (Yolo/Manual)</td><td>에이전트마다 「모든 권한 허용」, 처음 값 켜짐</td><td class="yes">넣는다</td><td>사람 지시 「터미널 생성시는 항상 모든 권한을 허용한걸 디폴트로」. 인자는 카탈로그 <code>bypass</code> 필드다(3번 구역).</td></tr>
       <tr><td>Claude·Codex 계정 여러 개, 시스템 기본</td><td>4번 화면</td><td class="yes">넣는다</td><td>요청의 「계정 관리」다.</td></tr>
-      <tr><td>계정마다 따로 둔 로그인 폴더</td><td><code>~/.loom/accounts/&lt;공급자&gt;/&lt;id&gt;</code></td><td class="yes">넣는다</td><td>사용자의 <code>~/.claude</code>·<code>~/.codex</code>를 고치지 않는다(docs/design.md 「프로필」).</td></tr>
+      <tr><td>계정마다 따로 둔 로그인 폴더</td><td><code>~/.loom/accounts/&lt;공급자&gt;/&lt;id&gt;</code></td><td class="yes">넣는다</td><td>사용자의 <code>~/.claude</code>·<code>~/.codex</code>를 고치지 않는다(docs/design/에이전트-실행.md 「계정과 사용량」).</td></tr>
       <tr><td>Needs re-auth, [Re-authenticate]</td><td>「다시 로그인 필요」, [다시 로그인]</td><td class="yes">넣는다</td><td>토큰이 만료되면 사용량과 노드가 모두 실패한다.</td></tr>
       <tr><td>하단 상태 줄 사용량(늘 보임)</td><td>1번 화면. 공급자 순서 Claude, Codex</td><td class="yes">넣는다</td><td>사용자 지시: 「사용량은 orca처럼 하단에 항상 뜨도록」.</td></tr>
       <tr><td>5시간·주간 비율, 초기화 시각</td><td>1·2·4번 화면</td><td class="yes">넣는다</td><td>요청의 「남은 사용량 표시」다.</td></tr>
@@ -498,7 +498,7 @@ test daemon::<span style="background:#deeaf9;color:#22272e">with_theme</span> ..
 <!-- 구조 제안 -->
 <section class="unit" aria-labelledby="u7">
   <h2 id="u7">구조 제안: 모듈, 파일, 인터페이스</h2>
-  <p class="hint" style="margin:6px 0 12px">AGENTS.md 10절에 따라 구현 전에 확인받는다. 레이어 규칙(docs/design.md 「레이어」)을 따른다: 기능 모듈끼리 부르지 않고, 데몬 라우트가 엮는다.</p>
+  <p class="hint" style="margin:6px 0 12px">AGENTS.md 10절에 따라 구현 전에 확인받는다. 레이어 규칙(docs/design/레이어.md)을 따른다: 기능 모듈끼리 부르지 않고, 데몬 라우트가 엮는다.</p>
   <table class="t">
     <thead><tr><th>레이어·파일</th><th>바뀌는 이유</th><th>맡는 일과 인터페이스</th></tr></thead>
     <tbody>

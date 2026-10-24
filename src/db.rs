@@ -225,6 +225,42 @@ const STEPS: &[M] = &[
         ALTER TABLE nodes ADD COLUMN asleep INTEGER NOT NULL DEFAULT 0;
         DROP TABLE skill_digests;",
     ),
+    M::up(
+        r#"ALTER TABLE gates DROP COLUMN run;
+        ALTER TABLE nodes ADD COLUMN review TEXT;
+        ALTER TABLE gates ADD COLUMN queued INTEGER;
+        ALTER TABLE gates ADD COLUMN seq INTEGER;
+        ALTER TABLE gates ADD COLUMN batch INTEGER;
+        UPDATE gates SET state = '"merging"' WHERE state IN ('"passed"', '"merging"')
+            OR (state = '"ready"' AND gate IS NOT coalesce((SELECT p.id FROM nodes o JOIN nodes p ON p.id = o.parent
+                WHERE o.id = gates.owner AND p.role = '코디'), owner));
+        CREATE TABLE batches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo INTEGER NOT NULL,
+            target TEXT NOT NULL,
+            base TEXT,
+            tip TEXT,
+            started INTEGER NOT NULL
+        );
+        UPDATE events SET entry = json_set(entry, '$.gate.verb', 'queue') WHERE entry ->> '$.gate.verb' = 'merge';
+        UPDATE events SET entry = json_set(entry, '$.gate.findings',
+            (SELECT json_group_array(json(value)) FROM json_each(entry, '$.gate.findings') WHERE value ->> '$.kind' != 'targetMoved'))
+            WHERE EXISTS (SELECT 1 FROM json_each(entry, '$.gate.findings') WHERE value ->> '$.kind' = 'targetMoved');
+        UPDATE events SET entry = json_set(entry, '$.reason.value.verb', 'queue') WHERE entry ->> '$.reason.code' = 'gate' AND entry ->> '$.reason.value.verb' = 'merge';
+        UPDATE events SET entry = json_set(entry, '$.reason.value.allowed',
+            (SELECT json_group_array(CASE value WHEN 'merge' THEN 'queue' ELSE value END) FROM json_each(entry, '$.reason.value.allowed')))
+            WHERE entry ->> '$.reason.code' = 'gate';
+        UPDATE events SET entry = json_set(entry, '$.what', json('{"kind":"note"}')) WHERE entry ->> '$.what.kind' = 'merging';
+        UPDATE messages SET what = '{"kind":"note"}' WHERE what ->> '$.kind' = 'merging';
+        UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value', CASE entry ->> '$.reason.code'
+                WHEN 'notAncestor' THEN 'Old rule: loom ready needed the branch to contain its target.'
+                WHEN 'noGate' THEN 'Old rule: a branch outside a coordinator needed one live CI 담당자 node.'
+                WHEN 'manyGates' THEN 'Old rule: a branch outside a coordinator needed one live CI 담당자 node.'
+                WHEN 'noGateScripts' THEN 'Old rule: loom merge needed the gate scripts.'
+                WHEN 'staleRun' THEN 'Old rule: a loom merge report had to come from the current run.'
+                ELSE 'Old rule: a loom merge report needed its merge commit in the target.' END))
+            WHERE entry ->> '$.reason.code' IN ('notAncestor', 'noGate', 'manyGates', 'noGateScripts', 'staleRun', 'notMerged');"#,
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -566,6 +602,113 @@ mod tests {
             }
         );
         assert!(matches!(reasons[1], crate::graph::Refusal::Git(_)));
+    }
+
+    #[test]
+    fn step_38_keeps_old_merge_records_readable_and_queues_nothing() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 37).unwrap();
+        let from = r#""from":{"id":2,"name":"ci"}"#;
+        let trace = |verb: &str, findings: &str| {
+            format!(
+                r#""gate":{{"verb":"{verb}","branch":"b","from":"passed","to":"merging","role":null,"agent":null,"model":null,"findings":{findings}}}"#
+            )
+        };
+        let rows = [
+            format!(
+                r#"{{"kind":"message","how":"queue",{from},"to":{{"id":3,"name":"w"}},"step":"sent","what":{{"kind":"merging","branch":"b","head":"c0ffee1"}},{}}}"#,
+                trace(
+                    "merge",
+                    r#"[{"kind":"targetMoved","reviewed":"a","now":"b"},{"kind":"headMoved","reviewed":"a","now":"b"}]"#
+                )
+            ),
+            format!(
+                r#"{{"kind":"refused","how":"queue",{from},"to":"b","reason":{{"code":"gate","value":{{"state":"working","verb":"merge","allowed":["ready","merge"]}}}},{}}}"#,
+                trace("merge", "[]")
+            ),
+            format!(
+                r#"{{"kind":"refused","how":"queue",{from},"to":"b","reason":{{"code":"notAncestor","value":{{"branch":"b","target":"main"}}}}}}"#
+            ),
+            format!(
+                r#"{{"kind":"refused","how":"queue",{from},"to":"b","reason":{{"code":"noGate"}}}}"#
+            ),
+        ];
+        for entry in &rows {
+            conn.execute("INSERT INTO events (at, entry) VALUES (1, ?1)", [entry])
+                .unwrap();
+        }
+        conn.execute_batch(
+            r#"INSERT INTO nodes (id, name, agent, state, role) VALUES (1, 'w', 'null', '{}', NULL), (2, 'ci', 'null', '{}', 'CI 담당자'),
+                (5, '코디-1', 'null', '{}', '코디');
+            INSERT INTO nodes (id, name, agent, state, parent) VALUES (6, 'cw', 'null', '{}', 5);
+            INSERT INTO gates (repo, branch, owner, gate, target, worktree, state, head, opened, updated) VALUES
+            (1, 'p', 1, 2, 'main', '/w', '"passed"', 'c1', 1, 1),
+            (1, 'm', 1, 2, 'main', '/w', '"merging"', 'c2', 1, 1),
+            (1, 'r', 1, 2, 'main', '/w', '"ready"', 'c3', 1, 1),
+            (1, 's', 1, 1, 'main', '/w', '"ready"', 'c4', 1, 1),
+            (1, 't', 6, 5, 'c', '/c', '"ready"', 'c5', 1, 1);"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let entries: Vec<crate::graph::Entry> = conn
+            .prepare("SELECT entry FROM events ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|json| serde_json::from_str(&json.unwrap()).unwrap())
+            .collect();
+        use crate::graph::{Entry, Refusal};
+        use crate::protocol::{Finding, GateVerb, MessageKind};
+        let Entry::Message {
+            what: Some(MessageKind::Note),
+            gate: Some(trace),
+            ..
+        } = &entries[0]
+        else {
+            panic!("{:?}", entries[0]);
+        };
+        assert_eq!(trace.verb, GateVerb::Queue);
+        assert!(matches!(trace.findings[..], [Finding::HeadMoved { .. }]));
+        let Entry::Refused {
+            reason: Refusal::Gate(e),
+            ..
+        } = &entries[1]
+        else {
+            panic!("{:?}", entries[1]);
+        };
+        assert_eq!(
+            (e.verb, &e.allowed[..]),
+            (GateVerb::Queue, &[GateVerb::Ready, GateVerb::Queue][..])
+        );
+        for entry in &entries[2..] {
+            assert!(
+                matches!(
+                    entry,
+                    Entry::Refused {
+                        reason: Refusal::Git(_),
+                        ..
+                    }
+                ),
+                "{entry:?}"
+            );
+        }
+        let states: Vec<String> = conn
+            .prepare("SELECT state FROM gates ORDER BY branch")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            states,
+            [
+                r#""merging""#,
+                r#""merging""#,
+                r#""merging""#,
+                r#""ready""#,
+                r#""ready""#
+            ]
+        );
     }
 
     #[test]

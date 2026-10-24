@@ -15,7 +15,7 @@ use super::{
 use crate::choices::offers_choices_without_tail;
 use crate::link_text::bare_link;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::{MessageKind, Question};
+use crate::protocol::{LOOM, MessageKind, Question};
 
 /// 메시지 전달 방식. 메모(`loom note`)만 조정·중단으로 보낸다. 근거: docs/design.md 「명령」.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
@@ -711,6 +711,35 @@ pub(super) fn enqueue_human(
         params![to.0, HUMAN, to_json(&Kind::Queue), body, to_json(what)],
     )?;
     Ok(MessageId(db.last_insert_rowid() as u32))
+}
+
+pub(super) fn enqueue_from_loom(
+    db: &Connection,
+    to: NodeId,
+    kind: Kind,
+    what: &MessageKind,
+    body: &str,
+    gate: Option<GateTrace>,
+) -> rusqlite::Result<MessageId> {
+    db.execute(
+        "INSERT INTO messages (recipient, sender, sender_name, kind, body, what) VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
+        params![to.0, LOOM, to_json(&kind), body, to_json(what)],
+    )?;
+    let id = MessageId(db.last_insert_rowid() as u32);
+    let entry = Entry::Message {
+        how: kind,
+        what: Some(what.clone()),
+        from: events::Who {
+            id: None,
+            name: LOOM.to_owned(),
+        },
+        to: Some(events::who(db, to)?),
+        step: Step::Sent,
+        via: None,
+        gate,
+    };
+    events::write(db, &entry, Some(id))?;
+    Ok(id)
 }
 
 fn read_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<Delivery> {

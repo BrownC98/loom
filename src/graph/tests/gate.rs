@@ -1,7 +1,12 @@
 use super::*;
-use crate::protocol::{
-    CI_ROLE, COORDINATOR_ROLE, Finding, GateState, GateVerb, Judgment, MergeEnd,
-};
+use crate::protocol::{COORDINATOR_ROLE, Finding, GateState, GateVerb, Judgment, MergeEnd};
+
+fn limits() -> TreeLimits {
+    TreeLimits {
+        max_depth: None,
+        max_children: None,
+    }
+}
 
 fn with_role(g: &Graph, parent: NodeId, name: &str, role: &str) -> NodeId {
     g.add_child(
@@ -10,10 +15,21 @@ fn with_role(g: &Graph, parent: NodeId, name: &str, role: &str) -> NodeId {
             role: Some(role),
             ..named(name)
         },
-        TreeLimits {
-            max_depth: None,
-            max_children: None,
+        limits(),
+        &launched(),
+        started,
+    )
+    .unwrap()
+}
+
+fn reviewer(g: &Graph, gate: NodeId, branch: &str, name: &str) -> NodeId {
+    g.add_child(
+        gate,
+        NewChild {
+            review: Some(branch),
+            ..named(name)
         },
+        limits(),
         &launched(),
         started,
     )
@@ -38,18 +54,19 @@ fn round<'a>(branch: &'a str, target: &'a str) -> Round<'a> {
 
 struct Team {
     lead: NodeId,
-    ci: NodeId,
     coordinator: NodeId,
     worker: NodeId,
+    solo: NodeId,
 }
 
 fn team(g: &Graph) -> Team {
     let lead = root(g, "claude");
+    let coordinator = with_role(g, lead, "코디-1", COORDINATOR_ROLE);
     Team {
         lead,
-        ci: with_role(g, lead, "ci", CI_ROLE),
-        coordinator: with_role(g, lead, "코디-1", COORDINATOR_ROLE),
-        worker: with_role(g, lead, "worker-x", "워커"),
+        coordinator,
+        worker: with_role(g, coordinator, "worker-x", "워커"),
+        solo: with_role(g, lead, "solo", "워커"),
     }
 }
 
@@ -76,91 +93,97 @@ fn mail(g: &Graph, node: NodeId) -> Vec<String> {
         .collect()
 }
 
+fn ended(end: MergeEnd, merged: Option<&str>) -> Ended<'_> {
+    Ended {
+        end,
+        merged,
+        cause: None,
+        log: Some("/l/batch-1-0.log".into()),
+        lines: vec!["batch: 1".into()],
+        findings: Vec::new(),
+    }
+}
+
+fn queued(g: &Graph, owner: NodeId, gate: NodeId, by: NodeId, branch: &str, target: &str) {
+    g.ready(owner, &round(branch, target), gate, Some(&via()))
+        .unwrap();
+    assert_eq!(
+        g.verdict(by, branch, Judgment::Pass, None, Some(&via())),
+        Ok(GateState::Passed)
+    );
+}
+
 #[test]
 fn spawn_role_is_stored_and_picks_the_gate() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    let worker = with_role(&g, t.coordinator, "w", "워커");
     let role: Option<String> = g
         .lock()
-        .query_row("SELECT role FROM nodes WHERE id = ?1", [worker.0], |r| {
+        .query_row("SELECT role FROM nodes WHERE id = ?1", [t.worker.0], |r| {
             r.get(0)
         })
         .unwrap();
     assert_eq!(role.as_deref(), Some("워커"));
     assert_eq!(
-        g.gate_for(worker).unwrap(),
+        g.gate_for(t.worker).unwrap(),
         GateChoice::Coordinator {
             gate: t.coordinator,
             worktree: "/repo".into()
         }
     );
-    assert_eq!(
-        g.gate_for(t.coordinator).unwrap(),
-        GateChoice::Ci { gate: t.ci }
-    );
-    let second = with_role(&g, t.lead, "ci2", CI_ROLE);
-    assert!(
-        matches!(g.gate_for(t.worker), Err(Refusal::ManyGates(ids)) if ids.contains(&format!("#{second}")))
-    );
-    g.exited(second, 0).unwrap();
-    assert_eq!(g.gate_for(t.worker).unwrap(), GateChoice::Ci { gate: t.ci });
-    g.done(t.ci, &report("idle"), None, &[], None, None)
-        .unwrap();
-    g.slept(t.ci).unwrap();
-    assert_eq!(g.gate_for(t.worker).unwrap(), GateChoice::Ci { gate: t.ci });
-    g.sleep_lost(t.ci).unwrap();
-    assert_eq!(g.gate_for(t.worker), Err(Refusal::NoGate));
+    assert_eq!(g.gate_for(t.coordinator).unwrap(), GateChoice::Owner);
+    assert_eq!(g.gate_for(t.solo).unwrap(), GateChoice::Owner);
 }
 
 #[test]
-fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
+fn a_coordinator_round_goes_ready_block_ready_pass_queue_merge_without_the_root() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    let reviewer = with_role(&g, t.ci, "reviewer", "검토자");
     let v = via();
     let branch = "기능";
+    let target = "코디 브랜치";
 
     assert_eq!(
-        g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
-        Ok("ci".into())
+        g.ready(t.worker, &round(branch, target), t.coordinator, Some(&v)),
+        Ok("코디-1".into())
     );
+    let r = reviewer(&g, t.coordinator, branch, "reviewer");
     assert_eq!(state(&g, branch), GateState::Ready);
-    let to_ci = mail(&g, t.ci);
-    assert_eq!(to_ci.len(), 1);
+    let to_gate = mail(&g, t.coordinator);
+    assert_eq!(to_gate.len(), 1);
     assert!(
-        to_ci[0].starts_with(
-            "(from: 코디-1, kind: ready)\nbranch: 기능\nhead: c0ffee1\nworktree: /repo/wt\ntarget: main\nNext: review"
+        to_gate[0].starts_with(
+            "(from: worker-x, kind: ready)\nbranch: 기능\nhead: c0ffee1\nworktree: /repo/wt\ntarget: 코디 브랜치\nNext: spawn a reviewer"
         ),
         "{}",
-        to_ci[0]
+        to_gate[0]
     );
     assert!(matches!(
-        g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
+        g.ready(t.worker, &round(branch, target), t.coordinator, Some(&v)),
         Err(Refusal::Gate(e)) if e.state == GateState::Ready && e.allowed == [GateVerb::Verdict, GateVerb::Fail]
     ));
 
-    assert!(matches!(
-        g.verdict(t.worker, branch, Judgment::Pass, None, Some(&v)),
-        Err(Refusal::NotGate { gate, .. }) if gate == "ci"
-    ));
+    for other in [t.coordinator, t.solo] {
+        assert!(matches!(
+            g.verdict(other, branch, Judgment::Pass, None, Some(&v)),
+            Err(Refusal::NotGate { gate, .. }) if gate == "코디-1"
+        ));
+    }
     assert_eq!(
-        g.verdict(reviewer, branch, Judgment::Block, None, Some(&v)),
+        g.verdict(t.worker, branch, Judgment::Pass, None, Some(&v)),
+        Err(Refusal::OwnVerdict(branch.into()))
+    );
+    assert_eq!(
+        g.verdict(r, branch, Judgment::Block, None, Some(&v)),
         Err(Refusal::NoFindings)
     );
     assert_eq!(
-        g.verdict(
-            reviewer,
-            branch,
-            Judgment::Block,
-            Some("/r/findings.md"),
-            Some(&v)
-        ),
+        g.verdict(r, branch, Judgment::Block, Some("/r/findings.md"), Some(&v)),
         Ok(GateState::Working)
     );
-    let rework = mail(&g, t.coordinator);
+    let rework = mail(&g, t.worker);
     assert_eq!(rework.len(), 1);
     assert!(
         rework[0].starts_with(
@@ -170,92 +193,58 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
         rework[0]
     );
     assert_eq!(
-        mail(&g, t.ci).len(),
+        mail(&g, t.coordinator).len(),
         1,
         "the gate hears its reviewer's block"
     );
-    let reviewer_model: Option<String> = g
+    let reviewer_name: Option<String> = g
         .lock()
         .query_row("SELECT verdict ->> '$.reviewer.name' FROM gates", [], |r| {
             r.get(0)
         })
         .unwrap();
-    assert_eq!(reviewer_model.as_deref(), Some("reviewer"));
+    assert_eq!(reviewer_name.as_deref(), Some("reviewer"));
 
-    g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v))
-        .unwrap();
-    mail(&g, t.ci);
-    assert_eq!(
-        g.verdict(t.coordinator, branch, Judgment::Pass, None, Some(&v)),
-        Err(Refusal::OwnVerdict(branch.into()))
-    );
-    assert_eq!(
-        g.verdict(t.ci, branch, Judgment::Pass, None, Some(&v)),
-        Ok(GateState::Passed)
-    );
+    let second = reviewer(&g, t.coordinator, branch, "reviewer-2");
+    queued(&g, t.worker, t.coordinator, r, branch, target);
     assert!(
-        mail(&g, t.coordinator)[0]
+        mail(&g, t.worker)[0]
             .contains("kind: verdict)\nbranch: 기능\nhead: c0ffee1\njudgment: pass")
     );
     assert_eq!(
-        g.verdict(reviewer, branch, Judgment::Block, Some("/r/2.md"), Some(&v)),
-        Ok(GateState::Working)
-    );
-    mail(&g, t.coordinator);
-    mail(&g, t.ci);
-    g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v))
-        .unwrap();
-    g.verdict(t.ci, branch, Judgment::Pass, None, Some(&v))
-        .unwrap();
-    assert_eq!(
-        g.verdict(reviewer, branch, Judgment::Pass, None, Some(&v)),
+        g.verdict(second, branch, Judgment::Pass, None, Some(&v)),
         Ok(GateState::Passed)
     );
+    mail(&g, t.worker);
     mail(&g, t.coordinator);
-    mail(&g, t.ci);
+    let repo = RepoId(1);
+    assert_eq!(g.queued_targets().unwrap(), [(repo, target.to_owned())]);
+    let queue = g.queue(repo, target).unwrap();
+    assert_eq!(
+        queue
+            .iter()
+            .map(|q| (q.branch.as_str(), q.owner, q.head.as_str()))
+            .collect::<Vec<_>>(),
+        [(branch, t.worker, "c0ffee1")]
+    );
+    let id = g.batch_open(repo, target, &[branch]).unwrap();
+    assert_eq!(state(&g, branch), GateState::Merging);
+    assert!(g.queue(repo, target).unwrap().is_empty());
+    assert!(mail(&g, t.worker).is_empty() && mail(&g, t.coordinator).is_empty());
     assert!(matches!(
-        g.merge_start(t.coordinator, branch, Some(&v)),
-        Err(Refusal::NotGate { .. })
+        g.verdict(r, branch, Judgment::Block, Some("/r/late.md"), Some(&v)),
+        Err(Refusal::Gate(e)) if e.state == GateState::Merging && e.allowed.is_empty()
     ));
-    let task = g.merge_start(t.ci, branch, Some(&v)).unwrap();
     assert_eq!(
-        (
-            task.owner,
-            task.target.as_str(),
-            task.head.as_str(),
-            task.run,
-            task.from
-        ),
-        (t.coordinator, "main", "c0ffee1", 1, GateState::Passed)
-    );
-    assert!(mail(&g, t.coordinator)[0].starts_with("(from: ci, kind: merging)\nbranch: 기능"));
-    let again = g.merge_start(t.ci, branch, Some(&v)).unwrap();
-    assert_eq!((again.run, again.from), (2, GateState::Merging));
-    mail(&g, t.coordinator);
-    let ended = |sha| Ended {
-        end: MergeEnd::Merged,
-        merged: Some(sha),
-        cause: None,
-        log: Some("/l/merge.log".into()),
-        lines: vec!["deploy: Confirmed".into()],
-        findings: Vec::new(),
-    };
-    assert_eq!(
-        g.merge_end(t.ci, branch, 1, ended("old0000"), Some(&v)),
-        Err(Refusal::StaleRun {
-            branch: branch.into(),
-            run: 1
-        })
-    );
-    assert_eq!(
-        g.merge_end(t.ci, branch, 2, ended("abc1234"), Some(&v)),
+        g.merge_end(repo, branch, ended(MergeEnd::Merged, Some("abc1234"))),
         Ok(GateState::Merged)
     );
-    let merged = mail(&g, t.lead);
+    g.batch_close(id).unwrap();
+    let merged = mail(&g, t.worker);
     assert_eq!(merged.len(), 1);
     assert!(
         merged[0].starts_with(
-            "(from: ci, kind: merged)\nbranch: 기능\nhead: c0ffee1\nsha: abc1234\nlog: /l/merge.log\ndeploy: Confirmed\nNext: accept"
+            "(from: loom, kind: merged)\nbranch: 기능\nhead: c0ffee1\nsha: abc1234\nlog: /l/batch-1-0.log\nbatch: 1\nNext:"
         ),
         "{}",
         merged[0]
@@ -263,52 +252,445 @@ fn a_round_goes_ready_block_ready_pass_merge_with_fixed_receivers() {
     assert_eq!(
         mail(&g, t.coordinator).len(),
         1,
-        "the owner hears the merge too"
+        "the gate hears the merge too"
     );
-    assert_eq!(g.gate_merges(t.ci, "main").unwrap(), ["abc1234"]);
-    assert_eq!(
-        g.ready(t.coordinator, &round(branch, "main"), t.ci, Some(&v)),
-        Ok("ci".into())
-    );
+    assert!(mail(&g, t.lead).is_empty());
+    assert_eq!(g.gate_merges(repo, target).unwrap(), ["abc1234"]);
+    g.ready(t.worker, &round(branch, target), t.coordinator, Some(&v))
+        .unwrap();
     assert_eq!(state(&g, branch), GateState::Ready);
-    assert_eq!(g.gate_merges(t.ci, "main").unwrap(), ["abc1234"]);
-    assert!(g.gate_merges(t.ci, "코디 브랜치").unwrap().is_empty());
+    assert_eq!(g.gate_merges(repo, target).unwrap(), ["abc1234"]);
+    assert!(g.gate_merges(repo, "main").unwrap().is_empty());
 }
 
 #[test]
-fn a_gate_call_without_receivers_goes_to_the_caller() {
+fn an_owner_gated_round_tells_the_root_about_a_failure() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
-    let v = via();
-    g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
-        .unwrap();
-    g.verdict(t.ci, "b", Judgment::Pass, None, Some(&v))
-        .unwrap();
-    let task = g.merge_start(t.ci, "b", Some(&v)).unwrap();
-    mail(&g, t.ci);
-    g.remove(t.worker).unwrap();
-    let ended = Ended {
-        end: MergeEnd::Merged,
-        merged: Some("abc1234"),
-        cause: None,
-        log: None,
-        lines: Vec::new(),
-        findings: Vec::new(),
-    };
     assert_eq!(
-        g.merge_end(t.ci, "b", task.run, ended, Some(&v)),
-        Ok(GateState::Merged)
+        g.ready(t.solo, &round("b", "main"), t.solo, Some(&via())),
+        Ok("solo".into())
     );
-    let kept = mail(&g, t.ci);
-    assert_eq!(kept.len(), 1);
+    let r = reviewer(&g, t.solo, "b", "solo-reviewer");
+    assert_eq!(mail(&g, t.solo).len(), 1);
+    g.verdict(r, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    mail(&g, t.solo);
+    let id = g.batch_open(RepoId(1), "main", &["b"]).unwrap();
+    let failed = Ended {
+        cause: Some("publishing the batch exited 1".into()),
+        ..ended(MergeEnd::Failed, None)
+    };
+    assert_eq!(g.merge_end(RepoId(1), "b", failed), Ok(GateState::Failed));
+    g.batch_close(id).unwrap();
+    let to_root = mail(&g, t.lead);
+    assert_eq!(to_root.len(), 1);
     assert!(
-        kept[0].starts_with(
-            "(from: ci, kind: merged)\nbranch: b\nhead: c0ffee1\nsha: abc1234\nNo other node"
+        to_root[0].starts_with(
+            "(from: loom, kind: failed)\nbranch: b\nhead: c0ffee1\ncause: publishing the batch exited 1\n"
         ),
         "{}",
-        kept[0]
+        to_root[0]
     );
+    assert_eq!(mail(&g, t.solo).len(), 1, "the owner hears the failure too");
+}
+
+#[test]
+fn a_withdrawn_round_tells_exactly_its_reviewers_to_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let own_task = g
+        .add_child(t.solo, named("own-task"), limits(), &launched(), started)
+        .unwrap();
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.ready(t.solo, &round("x", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "b", "first");
+    let second = reviewer(&g, t.solo, "b", "second");
+    let gone = reviewer(&g, t.solo, "b", "gone");
+    let other = reviewer(&g, t.solo, "x", "other");
+    g.exited(gone, 0).unwrap();
+    mail(&g, t.solo);
+    assert_eq!(
+        g.verdict(first, "b", Judgment::Block, Some("/r/f.md"), Some(&via())),
+        Ok(GateState::Working)
+    );
+    let got = mail(&g, second);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(
+        got[0].starts_with(
+            "(from: loom, kind: withdrawn)\nbranch: b\nhead: c0ffee1\nNext: stop reviewing b."
+        ),
+        "{}",
+        got[0]
+    );
+    for node in [first, gone, other, own_task, t.lead] {
+        assert!(mail(&g, node).is_empty(), "{node}");
+    }
+    let traced = g.recent_events().unwrap().into_iter().any(|r| {
+        matches!(
+            &r.entry,
+            Entry::Message { what: Some(MessageKind::Withdrawn { branch, .. }), gate: Some(_), .. } if branch == "b"
+        )
+    });
+    assert!(traced, "withdrawn is traced");
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let third = reviewer(&g, t.solo, "b", "third");
+    mail(&g, t.solo);
+    assert_eq!(
+        g.fail(t.solo, "b", "not needed", Some(&via())),
+        Ok(GateState::Failed)
+    );
+    for node in [third, first, second] {
+        assert_eq!(mail(&g, node).len(), 1, "{node}");
+    }
+    assert!(mail(&g, other).is_empty());
+}
+
+#[test]
+fn a_pass_waits_for_every_live_reviewer_of_the_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "b", "first");
+    let second = reviewer(&g, t.solo, "b", "second");
+    let quiet = reviewer(&g, t.solo, "b", "quiet");
+    assert_eq!(
+        g.verdict(first, "b", Judgment::Pass, None, Some(&via())),
+        Ok(GateState::Passed)
+    );
+    assert!(
+        g.queued_targets().unwrap().is_empty(),
+        "second and quiet have not judged"
+    );
+    g.exited(quiet, 0).unwrap();
+    assert!(
+        g.queue(repo, "main").unwrap().is_empty(),
+        "second has not judged"
+    );
+    g.ready(t.solo, &round("x", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let other = reviewer(&g, t.solo, "x", "other");
+    g.verdict(other, "x", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    let names = |q: Vec<Queued>| q.into_iter().map(|q| q.branch).collect::<Vec<_>>();
+    assert_eq!(names(g.queue(repo, "main").unwrap()), ["x"]);
+    for node in [t.solo, first, other] {
+        mail(&g, node);
+    }
+    assert_eq!(
+        g.verdict(second, "b", Judgment::Block, Some("/r/f.md"), Some(&via())),
+        Ok(GateState::Working)
+    );
+    assert_eq!(mail(&g, first).len(), 1, "first hears withdrawn");
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    assert_eq!(
+        g.verdict(second, "b", Judgment::Pass, None, Some(&via())),
+        Ok(GateState::Passed)
+    );
+    assert_eq!(
+        names(g.queue(repo, "main").unwrap()),
+        ["x"],
+        "first has not judged round 2"
+    );
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert_eq!(names(g.queue(repo, "main").unwrap()), ["x", "b"]);
+}
+
+#[test]
+fn a_reviewer_of_another_branch_never_holds_this_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.ready(t.solo, &round("x", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "b", "first");
+    reviewer(&g, t.solo, "x", "other");
+    mail(&g, t.solo);
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert_eq!(g.queue(RepoId(1), "main").unwrap().len(), 1);
+    assert!(mail(&g, t.solo)[0].contains("Next: nothing. loom queued the branch"));
+}
+
+#[test]
+fn a_held_pass_names_the_reviewers_that_hold_the_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "b", "first");
+    let second = reviewer(&g, t.solo, "b", "second");
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    g.verdict(second, "b", Judgment::Block, Some("/r/f.md"), Some(&via()))
+        .unwrap();
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    mail(&g, t.solo);
+    g.verdict(second, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    let held = mail(&g, t.solo);
+    assert_eq!(held.len(), 1);
+    assert!(
+        held[0].contains("loom holds the branch until first judge it")
+            && !held[0].contains("loom queued"),
+        "{}",
+        held[0]
+    );
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    let queued = mail(&g, t.solo);
+    assert!(
+        queued[0].contains("Next: nothing. loom queued the branch"),
+        "{}",
+        queued[0]
+    );
+}
+
+#[test]
+fn a_reviewer_withdrawn_before_its_verdict_cannot_judge_another_branch_and_still_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let a = reviewer(&g, t.solo, "b", "a");
+    let bee = reviewer(&g, t.solo, "b", "bee");
+    g.verdict(a, "b", Judgment::Block, Some("/r/f.md"), Some(&via()))
+        .unwrap();
+    assert_eq!(mail(&g, bee).len(), 1, "bee hears withdrawn");
+    g.ready(t.solo, &round("x", "main"), t.solo, Some(&via()))
+        .unwrap();
+    assert_eq!(
+        g.verdict(bee, "x", Judgment::Pass, None, Some(&via())),
+        Err(Refusal::NotReviewer {
+            branch: "x".into(),
+            review: Some("b".into())
+        })
+    );
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    mail(&g, t.solo);
+    g.verdict(a, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert!(g.queue(repo, "main").unwrap().is_empty());
+    assert!(
+        mail(&g, t.solo)[0].contains("until bee judge it"),
+        "the pass names bee"
+    );
+    g.verdict(bee, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert_eq!(g.queue(repo, "main").unwrap().len(), 1);
+}
+
+#[test]
+fn review_binds_a_child_to_a_branch_of_its_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let spawn = |parent: NodeId, branch: &str, name: &str| {
+        g.add_child(
+            parent,
+            NewChild {
+                review: Some(branch),
+                ..named(name)
+            },
+            limits(),
+            &launched(),
+            started,
+        )
+    };
+    assert_eq!(
+        spawn(t.solo, "nope", "r0"),
+        Err(Refusal::NoRound("nope".into()))
+    );
+    g.ready(
+        t.worker,
+        &round("w", "코디 브랜치"),
+        t.coordinator,
+        Some(&via()),
+    )
+    .unwrap();
+    assert!(matches!(
+        spawn(t.solo, "w", "r1"),
+        Err(Refusal::NotGate { gate, .. }) if gate == "코디-1"
+    ));
+    let plain = g
+        .add_child(
+            t.coordinator,
+            named("plain"),
+            limits(),
+            &launched(),
+            started,
+        )
+        .unwrap();
+    assert_eq!(
+        g.verdict(plain, "w", Judgment::Pass, None, Some(&via())),
+        Err(Refusal::NotReviewer {
+            branch: "w".into(),
+            review: None
+        })
+    );
+    let r = spawn(t.coordinator, "w", "r2").unwrap();
+    assert_eq!(
+        g.verdict(r, "w", Judgment::Pass, None, Some(&via())),
+        Ok(GateState::Passed)
+    );
+}
+
+#[test]
+fn a_reused_reviewer_that_exits_stops_holding_the_branch() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "b", "first");
+    let second = reviewer(&g, t.solo, "b", "second");
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    g.verdict(second, "b", Judgment::Block, Some("/r/f.md"), Some(&via()))
+        .unwrap();
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.verdict(second, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert!(g.queue(repo, "main").unwrap().is_empty());
+    g.exited(first, 0).unwrap();
+    assert_eq!(g.queue(repo, "main").unwrap().len(), 1);
+}
+
+#[test]
+fn an_old_ci_round_tells_the_root_because_its_target_is_the_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let ci = with_role(&g, t.lead, "ci", "CI 담당자");
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    g.lock()
+        .execute(
+            r#"UPDATE gates SET gate = ?1, state = '"merging"', batch = NULL"#,
+            [ci.0],
+        )
+        .unwrap();
+    for node in [t.lead, t.solo, ci] {
+        mail(&g, node);
+    }
+    assert_eq!(g.orphans().unwrap(), [(RepoId(1), "b".to_owned())]);
+    let failed = Ended {
+        cause: Some("loom upgrade: send loom ready again".into()),
+        ..ended(MergeEnd::Failed, None)
+    };
+    assert_eq!(g.merge_end(RepoId(1), "b", failed), Ok(GateState::Failed));
+    for node in [t.lead, t.solo, ci] {
+        assert_eq!(mail(&g, node).len(), 1, "{node}");
+    }
+}
+
+#[test]
+fn passes_in_one_second_keep_the_pass_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    for branch in ["a", "b"] {
+        g.ready(t.solo, &round(branch, "main"), t.solo, Some(&via()))
+            .unwrap();
+    }
+    for branch in ["b", "a"] {
+        let r = reviewer(&g, t.solo, branch, &format!("r-{branch}"));
+        g.verdict(r, branch, Judgment::Pass, None, Some(&via()))
+            .unwrap();
+    }
+    g.lock().execute("UPDATE gates SET queued = 1", []).unwrap();
+    let names: Vec<String> = g
+        .queue(RepoId(1), "main")
+        .unwrap()
+        .into_iter()
+        .map(|q| q.branch)
+        .collect();
+    assert_eq!(names, ["b", "a"]);
+}
+
+#[test]
+fn a_stale_batch_keeps_its_members_and_requeue_keeps_the_queue_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    for branch in ["a", "b"] {
+        g.ready(t.solo, &round(branch, "main"), t.solo, Some(&via()))
+            .unwrap();
+        let r = reviewer(&g, t.solo, branch, &format!("r-{branch}"));
+        g.verdict(r, branch, Judgment::Pass, None, Some(&via()))
+            .unwrap();
+    }
+    let id = g.batch_open(repo, "main", &["a", "b"]).unwrap();
+    g.batch_checked(id, "base0", "tip0").unwrap();
+    let stale = g.stale_batches().unwrap();
+    assert_eq!(stale.len(), 1);
+    assert_eq!(
+        (
+            stale[0].id,
+            stale[0].base.as_deref(),
+            stale[0].tip.as_deref()
+        ),
+        (id, Some("base0"), Some("tip0"))
+    );
+    let names = |members: &[Queued]| members.iter().map(|m| m.branch.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&stale[0].members), ["a", "b"]);
+    assert_eq!(g.requeue(repo, "b"), Ok(GateState::Passed));
+    assert_eq!(g.requeue(repo, "a"), Ok(GateState::Passed));
+    assert_eq!(names(&g.queue(repo, "main").unwrap()), ["a", "b"]);
+    assert!(g.stale_batches().unwrap()[0].members.is_empty());
+    let id2 = g.batch_open(repo, "main", &["a"]).unwrap();
+    g.batch_close(id2).unwrap();
+    assert_eq!(g.stale_batches().unwrap().len(), 2);
+    g.requeue(repo, "a").unwrap();
+    g.batch_close(id2).unwrap();
+    g.batch_close(id).unwrap();
+    assert!(g.stale_batches().unwrap().is_empty());
+    assert!(matches!(g.requeue(repo, "a"), Err(Refusal::Gate(_))));
+}
+
+#[test]
+fn a_queue_result_without_receivers_is_still_traced() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    g.ready(
+        t.worker,
+        &round("b", "코디 브랜치"),
+        t.coordinator,
+        Some(&via()),
+    )
+    .unwrap();
+    let r = reviewer(&g, t.coordinator, "b", "r");
+    g.verdict(r, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    g.batch_open(RepoId(1), "코디 브랜치", &["b"]).unwrap();
+    g.remove(t.worker).unwrap();
+    mail(&g, t.coordinator);
+    assert_eq!(
+        g.merge_end(RepoId(1), "b", ended(MergeEnd::Merged, Some("abc1234"))),
+        Ok(GateState::Merged)
+    );
+    assert_eq!(mail(&g, t.coordinator).len(), 1);
     let recent = g.recent_events().unwrap();
     assert!(recent.iter().any(|r| matches!(
         &r.entry,
@@ -317,46 +699,59 @@ fn a_gate_call_without_receivers_goes_to_the_caller() {
 }
 
 #[test]
-fn fail_and_no_round_and_unknown_callers_are_refused_or_routed_to_the_root() {
+fn fail_and_no_round_and_unknown_callers_are_refused_or_routed() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let t = team(&g);
     let v = via();
     assert_eq!(
-        g.verdict(t.ci, "없음", Judgment::Pass, None, Some(&v)),
+        g.verdict(t.coordinator, "없음", Judgment::Pass, None, Some(&v)),
         Err(Refusal::NoRound("없음".into()))
     );
     assert_eq!(
-        g.fail(t.ci, "없음", "x", Some(&v)),
+        g.fail(t.coordinator, "없음", "x", Some(&v)),
         Err(Refusal::NoRound("없음".into()))
     );
-    g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
-        .unwrap();
-    mail(&g, t.ci);
+    g.ready(
+        t.worker,
+        &round("b", "코디 브랜치"),
+        t.coordinator,
+        Some(&v),
+    )
+    .unwrap();
+    mail(&g, t.coordinator);
     assert!(matches!(
         g.fail(t.worker, "b", "x", Some(&v)),
         Err(Refusal::NotGate { .. })
     ));
+    assert!(matches!(
+        g.requeue(RepoId(1), "b"),
+        Err(Refusal::Gate(e)) if e.state == GateState::Ready
+    ));
     assert_eq!(
-        g.fail(t.ci, "b", "deploy is down", Some(&v)),
+        g.fail(t.coordinator, "b", "not needed", Some(&v)),
         Ok(GateState::Failed)
     );
-    let to_root = mail(&g, t.lead);
+    let to_owner = mail(&g, t.worker);
     assert!(
-        to_root[0].starts_with(
-            "(from: ci, kind: failed)\nbranch: b\nhead: c0ffee1\ncause: deploy is down\nNext: decide"
+        to_owner[0].starts_with(
+            "(from: 코디-1, kind: failed)\nbranch: b\nhead: c0ffee1\ncause: not needed\nNext:"
         ),
         "{}",
-        to_root[0]
+        to_owner[0]
+    );
+    assert!(
+        mail(&g, t.lead).is_empty(),
+        "no root copy for a coordinator target"
     );
     assert_eq!(
-        mail(&g, t.worker).len(),
-        1,
-        "the owner hears the failure too"
-    );
-    assert_eq!(
-        g.ready(t.worker, &round("b", "main"), t.ci, Some(&v)),
-        Ok("ci".into())
+        g.ready(
+            t.worker,
+            &round("b", "코디 브랜치"),
+            t.coordinator,
+            Some(&v)
+        ),
+        Ok("코디-1".into())
     );
 }
 
@@ -374,7 +769,7 @@ fn every_gate_call_and_refusal_leaves_a_trace() {
     )
     .unwrap();
     let v = via();
-    g.ready(t.coordinator, &round("b", "main"), t.ci, Some(&v))
+    g.ready(t.coordinator, &round("b", "main"), t.coordinator, Some(&v))
         .unwrap();
     let refusal = Refusal::Uncommitted("b".into());
     g.record_gate_refusal(t.coordinator, GateVerb::Ready, "b", &refusal, Some(&v))
@@ -413,7 +808,7 @@ fn every_gate_call_and_refusal_leaves_a_trace() {
         tool: "loom send".into(),
         version: None,
     };
-    g.note(t.worker, "ci", Kind::Queue, "hi", Some(&send_via))
+    g.note(t.worker, "코디-1", Kind::Queue, "hi", Some(&send_via))
         .unwrap();
     let recent = g.recent_events().unwrap();
     assert!(
@@ -453,7 +848,7 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
     let stranger = root(&g, "codex");
     let v = via();
     let before = g
-        .note(t.worker, "ci", Kind::Queue, "READY old", None)
+        .note(t.worker, "코디-1", Kind::Queue, "READY old", None)
         .unwrap();
     g.lock()
         .execute(
@@ -461,22 +856,32 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
             [before.id.0],
         )
         .unwrap();
-    g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
-        .unwrap();
+    g.ready(
+        t.worker,
+        &round("b", "코디 브랜치"),
+        t.coordinator,
+        Some(&v),
+    )
+    .unwrap();
     g.lock()
         .execute("UPDATE gates SET opened = opened - 5", [])
         .unwrap();
     let raw = g
-        .note(t.worker, "ci", Kind::Queue, "READY b /x", None)
+        .note(t.worker, "코디-1", Kind::Queue, "READY b /x", None)
         .unwrap();
-    g.note(stranger, "ci", Kind::Queue, "READY other", None)
+    g.note(stranger, "코디-1", Kind::Queue, "READY other", None)
         .unwrap();
-    g.note(t.lead, "ci", Kind::Queue, "MERGED other", None)
+    g.note(t.lead, "코디-1", Kind::Queue, "MERGED other", None)
         .unwrap();
-    g.note(t.worker, "ci", Kind::Queue, "Ready for review", None)
+    g.note(t.worker, "코디-1", Kind::Queue, "Ready for review", None)
         .unwrap();
     g.human_typed(t.worker, "READY now").unwrap();
-    let since = g.merge_task(t.worker, "b").unwrap().since;
+    let since: i64 = g
+        .lock()
+        .query_row("SELECT opened FROM gates WHERE branch = 'b'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
     assert_eq!(
         g.audit(t.worker, since).unwrap(),
         vec![Finding::RawGateWord {
@@ -507,65 +912,6 @@ fn audit_finds_raw_gate_words_of_the_owner_subtree_in_this_round_and_a_pruned_ra
 }
 
 #[test]
-fn a_stopped_merge_stays_merging_and_only_the_gate_hears_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let g = open(&dir.path().join("loom.db"));
-    let t = team(&g);
-    let v = via();
-    g.ready(t.worker, &round("b", "main"), t.ci, Some(&v))
-        .unwrap();
-    g.verdict(t.ci, "b", Judgment::Pass, None, Some(&v))
-        .unwrap();
-    let task = g.merge_start(t.ci, "b", Some(&v)).unwrap();
-    mail(&g, t.ci);
-    mail(&g, t.worker);
-    let ended = Ended {
-        end: MergeEnd::Stopped,
-        merged: None,
-        cause: Some("push was rejected".into()),
-        log: None,
-        lines: Vec::new(),
-        findings: Vec::new(),
-    };
-    assert_eq!(
-        g.merge_end(t.ci, "b", task.run, ended, Some(&v)),
-        Ok(GateState::Merging)
-    );
-    let kept = mail(&g, t.ci);
-    assert_eq!(kept.len(), 1);
-    assert!(
-        kept[0].starts_with(
-            "(from: ci, kind: merging)\nbranch: b\nhead: c0ffee1\ncause: push was rejected\nNo other node"
-        ),
-        "{}",
-        kept[0]
-    );
-    assert!(mail(&g, t.worker).is_empty());
-    assert!(mail(&g, t.lead).is_empty());
-    assert_eq!(
-        g.merge_start(t.ci, "b", Some(&v)).unwrap().run,
-        task.run + 1
-    );
-}
-
-#[test]
-fn a_branch_task_comes_from_the_owner_of_its_gate_round() {
-    let dir = tempfile::tempdir().unwrap();
-    let g = open(&dir.path().join("loom.db"));
-    let t = team(&g);
-    assert_eq!(g.branch_task(t.ci, "new-name").unwrap(), None);
-    g.ready(t.worker, &round("new-name", "main"), t.ci, Some(&via()))
-        .unwrap();
-    assert_eq!(
-        g.branch_task(t.ci, "new-name").unwrap(),
-        Some(("/repo".to_owned(), "worker-x".to_owned()))
-    );
-    assert_eq!(g.branch_task(t.ci, "old-name").unwrap(), None);
-    g.remove(t.worker).unwrap();
-    assert_eq!(g.branch_task(t.ci, "new-name").unwrap(), None);
-}
-
-#[test]
 fn an_ungated_ready_reaches_the_gate_without_a_gate_row() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
@@ -573,10 +919,10 @@ fn an_ungated_ready_reaches_the_gate_without_a_gate_row() {
     let v = via();
     assert!(!g.ready_sent(t.worker, "b", "c0ffee1").unwrap());
     assert_eq!(
-        g.announce_ready(t.worker, &round("b", "main"), t.ci, Some(&v)),
-        Ok("ci".into())
+        g.announce_ready(t.worker, &round("b", "main"), t.coordinator, Some(&v)),
+        Ok("코디-1".into())
     );
-    let to_ci = mail(&g, t.ci);
+    let to_ci = mail(&g, t.coordinator);
     assert_eq!(to_ci.len(), 1);
     assert!(
         to_ci[0].starts_with(

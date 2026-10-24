@@ -6,20 +6,18 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::gate::{
-    BranchRequest, Deploy, FailRequest, MergeInto, MergePlan, MergeResult, MergedRequest, Readied,
-    ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest,
+    FailRequest, Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest,
 };
 use crate::daemon::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DoneRequest,
     GuardRequest, HookWaitRequest, IdleRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched,
-    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, TaskRequest,
-    WaitRequest,
+    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken, WaitRequest,
 };
 use crate::graph::{Delivery, Kind, Listed, MessageId, NodeId, Relations, Sent, WaitId};
 use crate::profile::claude;
 use crate::profile::{AgentId, ModelChoice};
 use crate::profile::{Take, cursor};
-use crate::protocol::{self, GateState, Judgment};
+use crate::protocol::{GateState, Judgment};
 use crate::roles::Roles;
 use crate::task;
 
@@ -28,14 +26,28 @@ const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
 const REWAKE_EXIT: i32 = 2;
 
+pub struct Spawn {
+    pub name: String,
+    pub worktree: Option<String>,
+    pub agent: Option<String>,
+    pub role: Option<String>,
+    pub review: Option<String>,
+    pub file: Option<PathBuf>,
+    pub choice: ModelChoice,
+    pub command: Vec<String>,
+}
+
 pub fn spawn(
-    name: String,
-    worktree: Option<String>,
-    agent: Option<String>,
-    role: Option<String>,
-    file: Option<PathBuf>,
-    choice: ModelChoice,
-    command: Vec<String>,
+    Spawn {
+        name,
+        worktree,
+        agent,
+        role,
+        review,
+        file,
+        choice,
+        command,
+    }: Spawn,
 ) -> Result<(), String> {
     let brief = match file {
         Some(path) => {
@@ -61,6 +73,7 @@ pub fn spawn(
         worktree,
         choice,
         role,
+        review,
     };
     let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;
     println!("Created node: {}", request.name);
@@ -512,7 +525,7 @@ pub fn ready(branch: String) -> Result<(), String> {
         None,
     )?;
     println!(
-        "Sent {branch} to its gate {} (target {}). Do not commit to {branch} until the verdict comes.",
+        "Sent {branch} to its gate {} (target {}). A reviewer that the gate spawns gives the verdict; on pass, loom queues, checks and merges the branch and sends the result. Do not commit to {branch} until the result comes.",
         readied.gate, readied.target
     );
     Ok(())
@@ -567,275 +580,14 @@ pub fn fail(branch: String, cause: String) -> Result<(), String> {
         },
         None,
     )?;
-    println!("{branch} is now {state:?}. loom told the root and the owner.");
+    println!("{branch} is now {state:?}. loom told the receivers.");
     Ok(())
 }
 
-pub fn merge(branch: String) -> Result<(), String> {
-    let log = merge_log(&branch)?;
-    let unused = || {
-        let _ = std::fs::remove_file(&log);
-    };
-    let plan: MergePlan = call(
-        "merge",
-        &BranchRequest {
-            branch: branch.clone(),
-        },
-        None,
-    )
-    .inspect_err(|_| unused())?;
-    let (worktree, head, run, into) = match plan {
-        MergePlan::Stopped { end, findings } => {
-            unused();
-            return Err(format!(
-                "Did not merge {branch}. The audit ended it as {end:?} and loom told the receivers:\n- {}",
-                findings.join("\n- ")
-            ));
-        }
-        MergePlan::Recorded { sha } => {
-            unused();
-            println!(
-                "An earlier run already merged {branch} as {sha}, and its report did not arrive. loom recorded it as merged and told the receivers."
-            );
-            return Ok(());
-        }
-        MergePlan::Go {
-            worktree,
-            head,
-            run,
-            into,
-        } => (worktree, head, run, into),
-    };
-    let (dir, ship) = match &into {
-        MergeInto::Main { checkout } => (checkout.as_str(), protocol::SHIP_SCRIPT),
-        MergeInto::Branch { worktree } => (worktree.as_str(), ""),
-    };
-    if lock_busy(dir) {
-        println!(
-            "Waiting for another loom merge in this repository (up to {} minutes).",
-            MERGE_LOCK_WAIT_SECS / 60
-        );
-    }
-    let mut work = crate::wsl::command(dir, "bash");
-    work.args([
-        "-c",
-        MERGE_RUN,
-        "loom-merge",
-        &inside(&worktree),
-        &head,
-        &branch,
-        ship,
-        &MERGE_LOCK_WAIT_SECS.to_string(),
-    ]);
-    let code = logged(&mut work, &log);
-    if code == Ok(RUN_ALREADY_MERGED) {
-        println!("{branch} is already in its target branch. Asking loom to record that merge.");
-        return merge(branch);
-    }
-    let result = merge_result(code, &into, &log);
-    let request = MergedRequest {
-        branch: branch.clone(),
-        run,
-        result: result.clone(),
-    };
-    let state: GateState = reconnecting(None, |_| call("merged", &request, None))?;
-    let shown = crate::wsl::for_caller(&log);
-    match result {
-        MergeResult::Merged { sha, deploy, .. } => {
-            println!(
-                "Merged {branch} as {sha} (deploy: {deploy:?}). {branch} is now {state:?}. Log: {shown}"
-            );
-            Ok(())
-        }
-        MergeResult::Rework { cause, .. }
-        | MergeResult::Failed { cause, .. }
-        | MergeResult::Stopped { cause, .. } => Err(format!(
-            "Did not merge {branch}: {cause}. {branch} is now {state:?}, and loom told the receivers. Log: {shown}"
-        )),
-    }
-}
-
-const MERGE_RUN: &str = r#"set -u
-wt=$1 head=$2 branch=$3 ship=$4 wait=$5
-exec 9>>"$(git rev-parse --path-format=absolute --git-common-dir)/loom-merge.lock"
-flock -E 75 -w "$wait" 9 || { echo "another loom merge held the lock for $wait seconds"; exit 75; }
-if git merge-base --is-ancestor "$head" HEAD; then
-  [ -n "$ship" ] && exec bash "$ship" "$branch" "$head"
-  exit 15
-fi
-at() { [ "$(git -C "$wt" rev-parse HEAD)" = "$head" ] && [ -z "$(git -C "$wt" status --porcelain)" ]; }
-at || { echo "the worktree of $branch is not clean at the reviewed commit $head"; exit 13; }
-# check.sh와 그 자식(cargo, 시험 프로세스)에게는 잠금을 넘기지 않는다. 남은 자식이 잠금을 쥐면 다음 병합이 한 시간 기다린다(검토 P3-e).
-(cd "$wt" && bash scripts/gate/check.sh 9>&-) || { echo "scripts/gate/check.sh exited $?"; exit 14; }
-at || { echo "the worktree of $branch moved during the checks"; exit 13; }
-[ -n "$ship" ] && exec bash "$ship" "$branch" "$head"
-git merge --no-ff -m "Merge branch '$branch'" "$head" || { git merge --abort; exit 10; }
-git rev-parse HEAD
-"#;
-const RUN_ALREADY_MERGED: i32 = 15;
-const RUN_MOVED: i32 = 13;
-const RUN_CHECK_FAILED: i32 = 14;
-const RUN_LOCK_TIMEOUT: i32 = 75;
-const MERGE_LOCK_WAIT_SECS: u32 = 3600;
-
-fn merge_result(code: Result<i32, String>, into: &MergeInto, log: &Path) -> MergeResult {
-    let log_text = crate::wsl::for_caller(log);
-    let failed = |cause: String| MergeResult::Failed {
-        cause,
-        log: log_text.clone(),
-    };
-    let rework = |cause: String| MergeResult::Rework {
-        cause,
-        log: log_text.clone(),
-    };
-    let stopped = |cause: String| MergeResult::Stopped {
-        cause,
-        log: log_text.clone(),
-    };
-    let merged = |deploy| match last_commit(log) {
-        Some(sha) => MergeResult::Merged {
-            sha,
-            deploy,
-            log: log_text.clone(),
-        },
-        None => failed("the merge did not print the merged commit on its last line".into()),
-    };
-    let main = matches!(into, MergeInto::Main { .. });
-    match code {
-        Err(e) => failed(e),
-        Ok(0) if main => merged(Deploy::Confirmed),
-        Ok(0) => merged(Deploy::NotApplicable),
-        Ok(protocol::SHIP_DEPLOY_FAILED) if main => merged(Deploy::Failed),
-        Ok(protocol::SHIP_REWORK) => rework(
-            "the merge found an owner-fixable problem (conflict, or the target moved)".into(),
-        ),
-        Ok(protocol::SHIP_STOPPED) if main => stopped(format!(
-            "{} stopped without an unpublished merge (see the last lines of the log); call `loom merge` again, or tell the root",
-            protocol::SHIP_SCRIPT
-        )),
-        Ok(RUN_MOVED) => rework(
-            "the worktree was not clean at the reviewed commit. Commit nothing during the gate; call `loom ready` again".into(),
-        ),
-        Ok(RUN_CHECK_FAILED) => rework(format!("{} failed", protocol::CHECK_SCRIPT)),
-        Ok(RUN_LOCK_TIMEOUT) => stopped(format!(
-            "another loom merge held the repository lock for {} minutes; call `loom merge` again later",
-            MERGE_LOCK_WAIT_SECS / 60
-        )),
-        Ok(code) => failed(format!("the merge exited {code}")),
-    }
-}
-
-fn lock_busy(dir: &str) -> bool {
-    let mut probe = crate::wsl::command(dir, "sh");
-    probe.args([
-        "-c",
-        r#"exec flock -n "$(git rev-parse --path-format=absolute --git-common-dir)/loom-merge.lock" true"#,
-    ]);
-    output(&mut probe).is_err()
-}
-
-fn inside(path: &str) -> String {
-    crate::wsl::location(path).map_or_else(|| path.to_owned(), |w| w.path)
-}
-
-fn merge_log(branch: &str) -> Result<PathBuf, String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let log = match branch_task(branch)? {
-        Some(dir) => dir.join(task::LOGS).join(format!("merge-{now}.log")),
-        None => {
-            let here = crate::wsl::from_caller(std::env::current_dir().map_err(|e| e.to_string())?);
-            let mut common = crate::wsl::command(&here.display().to_string(), "git");
-            common.args(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-            let common = output(&mut common)?;
-            crate::wsl::from_caller(PathBuf::from(common.trim()))
-                .join("loom-gate")
-                .join(format!("{}-merge-{now}.log", task::folder(branch)))
-        }
-    };
-    create_log(&log)
-}
-
-fn create_log(log: &Path) -> Result<PathBuf, String> {
-    let dir = log.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let stem = log.with_extension("");
-    for n in 1.. {
-        let path = match n {
-            1 => log.to_path_buf(),
-            n => PathBuf::from(format!("{}-{n}.log", stem.display())),
-        };
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(_) => return Ok(path),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => {
-                return Err(format!(
-                    "Did not start the merge: cannot write its log {}: {e}",
-                    path.display()
-                ));
-            }
-        }
-    }
-    unreachable!("1.. does not end")
-}
-
 fn task_dir() -> Result<PathBuf, String> {
-    let dir: Option<String> = call("task", &TaskRequest { branch: None }, None)?;
+    let dir: Option<String> = call("task", &(), None)?;
     dir.map(|d| crate::wsl::from_caller(PathBuf::from(d)))
         .ok_or_else(|| "loom has no task folder for this node".to_owned())
-}
-
-fn branch_task(branch: &str) -> Result<Option<PathBuf>, String> {
-    let dir: Option<String> = call(
-        "task",
-        &TaskRequest {
-            branch: Some(branch.to_owned()),
-        },
-        None,
-    )?;
-    Ok(dir.map(|d| crate::wsl::from_caller(PathBuf::from(d))))
-}
-
-fn output(cmd: &mut std::process::Command) -> Result<String, String> {
-    let out = cmd
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| format!("could not run {cmd:?}: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "{cmd:?} failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-fn logged(cmd: &mut std::process::Command, log: &Path) -> Result<i32, String> {
-    let open = || {
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log)
-            .map_err(|e| format!("{}: {e}", log.display()))
-    };
-    let status = cmd
-        .stdin(std::process::Stdio::null())
-        .stdout(open()?)
-        .stderr(open()?)
-        .status()
-        .map_err(|e| format!("could not run {cmd:?}: {e}"))?;
-    Ok(status.code().unwrap_or(-1))
-}
-
-fn last_commit(log: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(log).ok()?;
-    let last = text.lines().rev().find(|l| !l.trim().is_empty())?.trim();
-    (last.len() >= 7 && last.chars().all(|c| c.is_ascii_hexdigit())).then(|| last.to_owned())
 }
 
 fn absolute(path: &Path) -> Result<PathBuf, String> {
@@ -994,21 +746,6 @@ fn post_as<T: DeserializeOwned>(
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_merge_log_never_reuses_a_file_and_a_log_that_cannot_open_is_an_error() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = dir.path().join("logs").join("merge-5.log");
-        let first = create_log(&log).unwrap();
-        std::fs::write(&first, "earlier merge").unwrap();
-        let second = create_log(&log).unwrap();
-        assert_eq!(first, log);
-        assert_eq!(second, dir.path().join("logs").join("merge-5-2.log"));
-        assert_eq!(std::fs::read_to_string(&first).unwrap(), "earlier merge");
-        let blocked = dir.path().join("file");
-        std::fs::write(&blocked, "").unwrap();
-        assert!(create_log(&blocked.join("merge-5.log")).is_err());
-    }
-
     fn unreachable() -> CallError {
         CallError::Unreachable("down".into())
     }
@@ -1094,189 +831,5 @@ mod tests {
         assert_eq!(got, Ok(vec![7]));
         let gone = "HTTP/1.1 410 Gone\r\ncontent-length: 4\r\n\r\ngone";
         assert!(matches!(ask(&answering(gone)), Err(CallError::Refused(e)) if e == "gone"));
-    }
-
-    #[cfg(unix)]
-    mod merge_run {
-        use super::*;
-        use std::process::Command;
-
-        struct Repo {
-            _dir: tempfile::TempDir,
-            main: PathBuf,
-            wt: PathBuf,
-            head: String,
-        }
-
-        fn git(dir: &Path, args: &[&str]) -> String {
-            let out = Command::new("git")
-                .args(args)
-                .current_dir(dir)
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-            String::from_utf8_lossy(&out.stdout).trim().to_owned()
-        }
-
-        fn repo() -> Repo {
-            let dir = tempfile::tempdir().unwrap();
-            let main = dir.path().join("main");
-            std::fs::create_dir_all(main.join("scripts/gate")).unwrap();
-            git(&main, &["init", "-q", "-b", "main"]);
-            git(&main, &["config", "user.email", "t@t"]);
-            git(&main, &["config", "user.name", "t"]);
-            std::fs::write(
-                main.join("scripts/gate/check.sh"),
-                "[ ! -e check-fails ] && echo checked\n",
-            )
-            .unwrap();
-            std::fs::write(
-                main.join("scripts/gate/ship.sh"),
-                "echo \"ship $1 $2\"; sleep \"${SHIP_SLEEP:-0}\"; git rev-parse HEAD\n",
-            )
-            .unwrap();
-            git(&main, &["add", "-A"]);
-            git(&main, &["commit", "-qm", "init"]);
-            let wt = dir.path().join("wt");
-            git(
-                &main,
-                &["worktree", "add", "-q", "-b", "기능", wt.to_str().unwrap()],
-            );
-            std::fs::write(wt.join("f.txt"), "f").unwrap();
-            git(&wt, &["add", "-A"]);
-            git(&wt, &["commit", "-qm", "f"]);
-            let head = git(&wt, &["rev-parse", "HEAD"]);
-            Repo {
-                _dir: dir,
-                main,
-                wt,
-                head,
-            }
-        }
-
-        fn run(r: &Repo, ship: &str, wait: &str) -> (i32, String) {
-            let out = Command::new("bash")
-                .args(["-c", MERGE_RUN, "loom-merge"])
-                .args([r.wt.to_str().unwrap(), &r.head, "기능", ship, wait])
-                .current_dir(&r.main)
-                .output()
-                .unwrap();
-            let text = String::from_utf8_lossy(&out.stdout).into_owned()
-                + &String::from_utf8_lossy(&out.stderr);
-            (out.status.code().unwrap_or(-1), text)
-        }
-
-        fn lock(r: &Repo) -> PathBuf {
-            r.main.join(".git/loom-merge.lock")
-        }
-
-        #[test]
-        fn a_clean_reviewed_commit_is_checked_and_merged_once() {
-            let r = repo();
-            let (code, text) = run(&r, "", "5");
-            assert_eq!(code, 0, "{text}");
-            assert!(text.contains("checked"), "{text}");
-            let merged = git(&r.main, &["rev-parse", "HEAD"]);
-            assert!(text.trim_end().ends_with(&merged), "{text}");
-            assert_eq!(git(&r.main, &["rev-parse", "HEAD^2"]), r.head);
-            assert_eq!(run(&r, "", "5").0, RUN_ALREADY_MERGED);
-            assert_eq!(git(&r.main, &["rev-parse", "HEAD"]), merged);
-            let (code, text) = run(&r, "scripts/gate/ship.sh", "5");
-            assert_eq!(code, 0, "{text}");
-            assert!(text.contains(&format!("ship 기능 {}", r.head)), "{text}");
-            assert!(!text.contains("checked"), "no second check: {text}");
-        }
-
-        #[test]
-        fn a_moved_or_dirty_worktree_and_a_failed_check_are_rework() {
-            let r = repo();
-            std::fs::write(r.wt.join("dirty.txt"), "x").unwrap();
-            assert_eq!(run(&r, "", "5").0, RUN_MOVED);
-            std::fs::remove_file(r.wt.join("dirty.txt")).unwrap();
-            std::fs::write(r.wt.join("check-fails"), "").unwrap();
-            git(&r.wt, &["add", "-A"]);
-            git(&r.wt, &["commit", "-qm", "late"]);
-            assert_eq!(
-                run(&r, "", "5").0,
-                RUN_MOVED,
-                "HEAD is not the reviewed commit"
-            );
-            let r = Repo {
-                head: git(&r.wt, &["rev-parse", "HEAD"]),
-                ..r
-            };
-            assert_eq!(run(&r, "", "5").0, RUN_CHECK_FAILED);
-            assert_eq!(git(&r.main, &["log", "--oneline"]).lines().count(), 1);
-        }
-
-        #[test]
-        fn a_leftover_check_child_does_not_hold_the_lock() {
-            let r = repo();
-            std::fs::write(
-                r.main.join("scripts/gate/check.sh"),
-                "(setsid sleep 5 >/dev/null 2>&1 &) ; echo checked\n",
-            )
-            .unwrap();
-            git(&r.main, &["commit", "-qam", "check leaves a child"]);
-            git(&r.wt, &["merge", "-q", "--no-edit", "main"]);
-            let r = Repo {
-                head: git(&r.wt, &["rev-parse", "HEAD"]),
-                ..r
-            };
-            let (code, text) = run(&r, "", "5");
-            assert_eq!(code, 0, "{text}");
-            assert!(
-                !lock_busy(r.main.to_str().unwrap()),
-                "the sleep keeps no lock"
-            );
-        }
-
-        #[test]
-        fn the_lock_waits_then_times_out_and_outlives_a_killed_caller() {
-            let r = repo();
-            std::fs::File::create(lock(&r)).unwrap();
-            let mut holder = Command::new("flock")
-                .args([lock(&r).to_str().unwrap(), "sleep", "3"])
-                .spawn()
-                .unwrap();
-            std::thread::sleep(Duration::from_millis(300));
-            assert!(
-                lock_busy(r.wt.to_str().unwrap()),
-                "the worktree shares the lock"
-            );
-            let (code, text) = run(&r, "", "1");
-            assert_eq!(code, RUN_LOCK_TIMEOUT, "{text}");
-            holder.wait().unwrap();
-            assert!(!lock_busy(r.main.to_str().unwrap()));
-            let mut work = Command::new("bash")
-                .args(["-c", MERGE_RUN, "loom-merge"])
-                .args([
-                    r.wt.to_str().unwrap(),
-                    &r.head,
-                    "기능",
-                    "scripts/gate/ship.sh",
-                    "5",
-                ])
-                .env("SHIP_SLEEP", "3")
-                .current_dir(&r.main)
-                .stdout(std::process::Stdio::null())
-                .spawn()
-                .unwrap();
-            std::thread::sleep(Duration::from_millis(1500));
-            assert!(
-                lock_busy(r.main.to_str().unwrap()),
-                "ship.sh holds the lock"
-            );
-            work.kill().unwrap();
-            work.wait().unwrap();
-            assert!(
-                lock_busy(r.main.to_str().unwrap()),
-                "the child of ship.sh keeps the lock"
-            );
-        }
     }
 }

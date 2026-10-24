@@ -3,7 +3,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::graph::{Entry, Round, TurnCheck};
-use crate::protocol::{CI_ROLE, Judgment};
+use crate::protocol::Judgment;
 
 const UNTRACED: [(&str, &str); 15] = [
     ("serve", "runs the daemon"),
@@ -35,12 +35,12 @@ struct Fixture {
     place: Place,
     lead: NodeId,
     worker: NodeId,
-    ci: NodeId,
+    reviewer: NodeId,
 }
 
 const LEAD: &str = "lead-token";
 const WORKER: &str = "worker-token";
-const CI: &str = "ci-token";
+const REVIEWER: &str = "reviewer-token";
 
 fn launched(token: &str) -> Launched {
     Launched {
@@ -92,22 +92,27 @@ fn fixture() -> Fixture {
         place,
         lead,
         worker: lead,
-        ci: lead,
+        reviewer: lead,
     };
-    fixture.worker = fixture.child("worker", None, WORKER);
-    fixture.ci = fixture.child("ci", Some(CI_ROLE), CI);
+    fixture.worker = fixture.child("worker", WORKER);
+    fixture.reviewer = fixture.child_of(fixture.worker, "reviewer", REVIEWER);
     fixture
 }
 
 impl Fixture {
-    fn child(&self, name: &str, role: Option<&str>, token: &str) -> NodeId {
+    fn child(&self, name: &str, token: &str) -> NodeId {
+        self.child_of(self.lead, name, token)
+    }
+
+    fn child_of(&self, parent: NodeId, name: &str, token: &str) -> NodeId {
         let child = NewChild {
             name,
             worktree: None,
             agent: claude(),
             brief: "",
-            role,
+            role: None,
             task: "t",
+            review: None,
         };
         let limits = TreeLimits {
             max_depth: None,
@@ -115,7 +120,7 @@ impl Fixture {
         };
         self.app
             .graph
-            .add_child(self.lead, child, limits, &launched(token), |_| Ok(()))
+            .add_child(parent, child, limits, &launched(token), |_| Ok(()))
             .unwrap()
     }
 
@@ -223,6 +228,7 @@ async fn scene(t: &Fixture, verb: &str) {
                 worktree: None,
                 choice: ModelChoice::default(),
                 role: None,
+                review: None,
             };
             let refused = agent_spawn(t.state(), headers(LEAD, verb), Json(req)).await;
             assert!(matches!(
@@ -230,7 +236,7 @@ async fn scene(t: &Fixture, verb: &str) {
                 Refusal::MissingHeads(_)
             ));
             let mark = t.mark();
-            t.child("made", None, "made-token");
+            t.child("made", "made-token");
             t.wrote(
                 verb,
                 mark,
@@ -399,7 +405,7 @@ async fn scene(t: &Fixture, verb: &str) {
             let rm = |name: &str| Json(RemoveRequest { name: name.into() });
             let refused = agent_remove(t.state(), headers(LEAD, verb), rm("nobody")).await;
             t.refused(verb, mark, refused);
-            t.child("spare", None, "spare-token");
+            t.child("spare", "spare-token");
             let mark = t.mark();
             ok(
                 verb,
@@ -447,7 +453,7 @@ async fn scene(t: &Fixture, verb: &str) {
                 head: "c0ffee1",
             };
             let mark = t.mark();
-            t.app.graph.ready(t.worker, &round, t.ci, None).unwrap();
+            t.app.graph.ready(t.worker, &round, t.worker, None).unwrap();
             t.wrote(verb, mark, message_from(t.worker));
         }
         "verdict" => {
@@ -456,35 +462,54 @@ async fn scene(t: &Fixture, verb: &str) {
                 judgment: Judgment::Pass,
                 findings: None,
             };
-            let refused = gate::agent_verdict(t.state(), headers(CI, verb), Json(req)).await;
+            let refused = gate::agent_verdict(t.state(), headers(REVIEWER, verb), Json(req)).await;
             t.refused(verb, mark, refused);
+            rusqlite::Connection::open(t.dir.path().join("loom.db"))
+                .unwrap()
+                .execute(
+                    "UPDATE nodes SET review = 'b' WHERE id = ?1",
+                    [t.reviewer.0],
+                )
+                .unwrap();
             let mark = t.mark();
             t.app
                 .graph
-                .verdict(t.ci, "b", Judgment::Pass, None, None)
+                .verdict(t.reviewer, "b", Judgment::Pass, None, None)
                 .unwrap();
-            t.wrote(verb, mark, message_from(t.ci));
-        }
-        "merge" => {
-            let req = gate::BranchRequest {
-                branch: "nope".into(),
+            t.wrote(verb, mark, message_from(t.reviewer));
+            let round = Round {
+                branch: "c",
+                target: "main",
+                worktree: &t.place.worktree,
+                head: "c0ffee2",
             };
-            let refused = gate::agent_merge(t.state(), headers(CI, verb), Json(req)).await;
-            t.refused(verb, mark, refused);
+            t.app.graph.ready(t.worker, &round, t.worker, None).unwrap();
             let mark = t.mark();
-            t.app.graph.merge_start(t.ci, "b", None).unwrap();
-            t.wrote(verb, mark, message_from(t.ci));
+            let req = gate::VerdictRequest {
+                branch: "c".into(),
+                judgment: Judgment::Pass,
+                findings: None,
+            };
+            let refused = gate::agent_verdict(t.state(), headers(REVIEWER, verb), Json(req)).await;
+            assert!(matches!(
+                t.refused(verb, mark, refused),
+                Refusal::NotReviewer {
+                    review: Some(_),
+                    ..
+                }
+            ));
         }
         "fail" => {
             let fail = |branch: &str| gate::FailRequest {
                 branch: branch.into(),
                 cause: "broken".into(),
             };
-            let refused = gate::agent_fail(t.state(), headers(CI, verb), Json(fail("nope"))).await;
+            let refused =
+                gate::agent_fail(t.state(), headers(WORKER, verb), Json(fail("nope"))).await;
             t.refused(verb, mark, refused);
             let mark = t.mark();
-            t.app.graph.fail(t.ci, "b", "broken", None).unwrap();
-            t.wrote(verb, mark, message_from(t.ci));
+            t.app.graph.fail(t.worker, "b", "broken", None).unwrap();
+            t.wrote(verb, mark, message_from(t.worker));
         }
         _ => panic!(
             "{verb}: no trace scene. Add a success and a refusal scene here, or add {verb} to UNTRACED with the reason"
@@ -537,7 +562,7 @@ async fn a_question_box_turn_with_a_loom_ask_is_not_asked_again() {
 
 #[test]
 fn old_message_verbs_are_gone() {
-    for old in ["send", "steer", "interrupt", "reply"] {
+    for old in ["send", "steer", "interrupt", "reply", "merge"] {
         assert!(
             crate::Cli::try_parse_from(["loom", old, "a", "b"]).is_err(),
             "{old}"

@@ -8,19 +8,12 @@ use serde::{Deserialize, Serialize};
 
 use super::{AgentError, App, for_agent};
 use crate::git;
-use crate::graph::{Ended, GateChoice, MergeTask, NodeId, Refusal, Round, Via};
-use crate::protocol::{
-    self, CHECK_SCRIPT, Finding, GateState, GateVerb, Judgment, MergeEnd, SHIP_SCRIPT,
-};
+use crate::graph::{GateChoice, NodeId, Refusal, Round, Via};
+use crate::protocol::{self, CHECK_SCRIPT, GateState, GateVerb, Judgment, SHIP_SCRIPT};
 use crate::worktree;
 
 pub const TOOL_HEADER: &str = "loom-tool";
 pub const VERSION_HEADER: &str = "loom-version";
-
-#[derive(Serialize, Deserialize)]
-pub struct BranchRequest {
-    pub branch: String,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct ReadyRequest {
@@ -45,64 +38,6 @@ pub struct VerdictRequest {
 pub struct FailRequest {
     pub branch: String,
     pub cause: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum MergePlan {
-    Stopped {
-        end: MergeEnd,
-        findings: Vec<String>,
-    },
-    Recorded {
-        sha: String,
-    },
-    Go {
-        worktree: String,
-        head: String,
-        run: i64,
-        into: MergeInto,
-    },
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum MergeInto {
-    Main { checkout: String },
-    Branch { worktree: String },
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MergedRequest {
-    pub branch: String,
-    pub run: i64,
-    pub result: MergeResult,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub enum MergeResult {
-    Merged {
-        sha: String,
-        deploy: Deploy,
-        log: String,
-    },
-    Rework {
-        cause: String,
-        log: String,
-    },
-    Failed {
-        cause: String,
-        log: String,
-    },
-    Stopped {
-        cause: String,
-        log: String,
-    },
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-pub enum Deploy {
-    Confirmed,
-    Failed,
-    NotApplicable,
 }
 
 pub fn via(headers: &HeaderMap, route: &str) -> Via {
@@ -211,13 +146,12 @@ impl App {
                     _ => return Err(Refusal::SameAsTarget(base)),
                 }
             }
-            GateChoice::Ci { gate } => (gate, base),
+            GateChoice::Owner => (node, base),
         };
         if target == branch {
             return Err(Refusal::SameAsTarget(branch.to_owned()));
         }
-        contains(&repo, &target, branch).await?;
-        if contains(&repo, branch, &target).await.is_ok() {
+        if contains(&repo, branch, &target).await? {
             return Err(Refusal::NothingToMerge {
                 branch: branch.to_owned(),
                 target,
@@ -237,202 +171,14 @@ impl App {
         };
         Ok(Readied { gate, target })
     }
-
-    async fn merge(&self, node: NodeId, branch: &str, via: &Via) -> Result<MergePlan, Refusal> {
-        let repo = self.repo_of(node)?;
-        if !self.gated_repo(node)? {
-            return Err(Refusal::NoGateScripts);
-        }
-        let task = self.graph.merge_start(node, branch, Some(via))?;
-        let into = self.merge_into(&repo, &task.target).await?;
-        let go = |task: MergeTask, into| MergePlan::Go {
-            worktree: task.worktree,
-            head: task.head,
-            run: task.run,
-            into,
-        };
-        if task.from == GateState::Merging
-            && let Ok(()) = contains(&repo, &task.head, &task.target).await
-        {
-            if let MergeInto::Main { .. } = into {
-                return Ok(go(task, into));
-            }
-            let Some(sha) = merge_commit(&repo, &task.head, &task.target).await? else {
-                let cause = format!(
-                    "the reviewed commit {} is in {}, but no merge commit on {} has it as a parent",
-                    task.head, task.target, task.target
-                );
-                return self.stop(node, branch, &task, Vec::new(), Some(cause), via);
-            };
-            let lines = vec![
-                "recovered: an earlier run merged this commit, and its report did not arrive"
-                    .to_owned(),
-            ];
-            self.record_merged(
-                node,
-                branch,
-                &task,
-                &sha,
-                MergedNotes { lines, log: None },
-                via,
-            )
-            .await?;
-            return Ok(MergePlan::Recorded { sha });
-        }
-        let mut findings = self.graph.audit(task.owner, task.since)?;
-        let now = git::run(&repo, &["rev-parse", &format!("refs/heads/{branch}")])
-            .await
-            .map_err(Refusal::Git)?;
-        if now.trim() != task.head {
-            findings.push(Finding::HeadMoved {
-                reviewed: task.head.clone(),
-                now: now.trim().to_owned(),
-            });
-        }
-        match contains(&repo, &task.target, &task.head).await {
-            Ok(()) => {}
-            Err(Refusal::NotAncestor { target, .. }) => {
-                findings.push(Finding::TargetMoved { target })
-            }
-            Err(e) => return Err(e),
-        }
-        if protocol::audit_end(&findings).is_some() {
-            return self.stop(node, branch, &task, findings, None, via);
-        }
-        Ok(go(task, into))
-    }
-
-    fn stop(
-        &self,
-        node: NodeId,
-        branch: &str,
-        task: &MergeTask,
-        findings: Vec<Finding>,
-        cause: Option<String>,
-        via: &Via,
-    ) -> Result<MergePlan, Refusal> {
-        let end = protocol::audit_end(&findings).unwrap_or(MergeEnd::Rework);
-        let shown = findings
-            .iter()
-            .map(Finding::to_string)
-            .chain(cause.iter().cloned())
-            .collect();
-        let ended = Ended {
-            end,
-            merged: None,
-            cause,
-            log: None,
-            lines: Vec::new(),
-            findings,
-        };
-        self.graph
-            .merge_end(node, branch, task.run, ended, Some(via))?;
-        Ok(MergePlan::Stopped {
-            end,
-            findings: shown,
-        })
-    }
-
-    async fn merge_into(&self, repo: &Path, target: &str) -> Result<MergeInto, Refusal> {
-        if target == base_branch(repo).await? {
-            return Ok(MergeInto::Main {
-                checkout: repo.to_string_lossy().into_owned(),
-            });
-        }
-        let found = worktree::worktrees(repo)
-            .await
-            .into_iter()
-            .find(|w| w.branch.as_deref() == Some(target))
-            .ok_or_else(|| Refusal::Git(format!("no worktree has {target}")))?;
-        Ok(MergeInto::Branch {
-            worktree: found.path,
-        })
-    }
-
-    async fn record_merged(
-        &self,
-        node: NodeId,
-        branch: &str,
-        task: &MergeTask,
-        sha: &str,
-        notes: MergedNotes,
-        via: &Via,
-    ) -> Result<GateState, Refusal> {
-        let repo = self.repo_of(node)?;
-        let not_merged = || Refusal::NotMerged {
-            sha: sha.to_owned(),
-            target: task.target.clone(),
-            head: task.head.clone(),
-        };
-        if sha.is_empty() || sha == task.head {
-            return Err(not_merged());
-        }
-        for (older, newer) in [(task.head.as_str(), sha), (sha, task.target.as_str())] {
-            match contains(&repo, older, newer).await {
-                Ok(()) => {}
-                Err(Refusal::NotAncestor { .. } | Refusal::Git(_)) => return Err(not_merged()),
-                Err(e) => return Err(e),
-            }
-        }
-        let mut findings = Vec::new();
-        if task.target == base_branch(&repo).await? {
-            let known = self.graph.gate_merges(node, &task.target)?;
-            let listed = git::run(&repo, &["rev-list", "--first-parent", &format!("{sha}^1")])
-                .await
-                .map_err(Refusal::Git)?;
-            findings = protocol::out_of_gate(&listed, &known);
-        }
-        let ended = Ended {
-            end: MergeEnd::Merged,
-            merged: Some(sha),
-            cause: None,
-            log: notes.log,
-            lines: notes.lines,
-            findings,
-        };
-        self.graph
-            .merge_end(node, branch, task.run, ended, Some(via))
-    }
-
-    async fn merged(
-        &self,
-        node: NodeId,
-        req: &MergedRequest,
-        via: &Via,
-    ) -> Result<GateState, Refusal> {
-        let (end, cause, log) = match &req.result {
-            MergeResult::Merged { sha, deploy, log } => {
-                let task = self.graph.merge_task(node, &req.branch)?;
-                if task.from == GateState::Merged && task.merged.as_deref() == Some(sha.as_str()) {
-                    return Ok(GateState::Merged);
-                }
-                let notes = MergedNotes {
-                    lines: vec![format!("deploy: {deploy:?}")],
-                    log: Some(log.clone()),
-                };
-                return self
-                    .record_merged(node, &req.branch, &task, sha, notes, via)
-                    .await;
-            }
-            MergeResult::Rework { cause, log } => (MergeEnd::Rework, cause, log),
-            MergeResult::Failed { cause, log } => (MergeEnd::Failed, cause, log),
-            MergeResult::Stopped { cause, log } => (MergeEnd::Stopped, cause, log),
-        };
-        let ended = Ended {
-            end,
-            merged: None,
-            cause: Some(cause.clone()),
-            log: Some(log.clone()),
-            lines: Vec::new(),
-            findings: Vec::new(),
-        };
-        self.graph
-            .merge_end(node, &req.branch, req.run, ended, Some(via))
-    }
 }
 
-async fn merge_commit(repo: &Path, head: &str, target: &str) -> Result<Option<String>, Refusal> {
-    let listed = git::run(repo, &["log", "--first-parent", "--format=%H %P", target])
+pub(super) async fn merge_commit(
+    repo: &Path,
+    head: &str,
+    tip: &str,
+) -> Result<Option<String>, Refusal> {
+    let listed = git::run(repo, &["log", "--first-parent", "--format=%H %P", tip])
         .await
         .map_err(Refusal::Git)?;
     Ok(listed.lines().find_map(|line| {
@@ -442,7 +188,7 @@ async fn merge_commit(repo: &Path, head: &str, target: &str) -> Result<Option<St
     }))
 }
 
-async fn base_branch(repo: &Path) -> Result<String, Refusal> {
+pub(super) async fn base_branch(repo: &Path) -> Result<String, Refusal> {
     worktree::worktrees(repo)
         .await
         .into_iter()
@@ -451,13 +197,10 @@ async fn base_branch(repo: &Path) -> Result<String, Refusal> {
         .ok_or_else(|| Refusal::Git("the main checkout is not on a branch".into()))
 }
 
-async fn contains(repo: &Path, target: &str, branch: &str) -> Result<(), Refusal> {
-    match git::run(repo, &["merge-base", "--is-ancestor", target, branch]).await {
-        Ok(_) => Ok(()),
-        Err(e) if e.is_empty() => Err(Refusal::NotAncestor {
-            target: target.to_owned(),
-            branch: branch.to_owned(),
-        }),
+pub(super) async fn contains(repo: &Path, older: &str, newer: &str) -> Result<bool, Refusal> {
+    match git::run(repo, &["merge-base", "--is-ancestor", older, newer]).await {
+        Ok(_) => Ok(true),
+        Err(e) if e.is_empty() => Ok(false),
         Err(e) => Err(Refusal::Git(e)),
     }
 }
@@ -489,11 +232,6 @@ async fn owned_worktree(
         })
 }
 
-struct MergedNotes {
-    lines: Vec<String>,
-    log: Option<String>,
-}
-
 async fn branch_warning(
     repo: &Path,
     worktree: &str,
@@ -504,7 +242,7 @@ async fn branch_warning(
     let Some(branch) = mine.branch.filter(|b| *b != base) else {
         return Ok(None);
     };
-    if contains(repo, &mine.head, &base).await.is_ok() || ready_sent(&branch, &mine.head)? {
+    if contains(repo, &mine.head, &base).await? || ready_sent(&branch, &mine.head)? {
         return Ok(None);
     }
     Ok(Some(format!(
@@ -546,29 +284,10 @@ pub(super) async fn agent_verdict(
         req.findings.as_deref(),
         Some(&via),
     );
+    if result == Ok(GateState::Passed) {
+        app.merge_queue.notify_one();
+    }
     app.traced(node, GateVerb::Verdict, &req.branch, &via, result)
-}
-
-pub(super) async fn agent_merge(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<BranchRequest>,
-) -> Result<Json<MergePlan>, AgentError> {
-    let node = app.caller(&headers)?;
-    let via = via(&headers, "/api/agent/merge");
-    let result = app.merge(node, &req.branch, &via).await;
-    app.traced(node, GateVerb::Merge, &req.branch, &via, result)
-}
-
-pub(super) async fn agent_merged(
-    State(app): State<Arc<App>>,
-    headers: HeaderMap,
-    Json(req): Json<MergedRequest>,
-) -> Result<Json<GateState>, AgentError> {
-    let node = app.caller(&headers)?;
-    let via = via(&headers, "/api/agent/merged");
-    let result = app.merged(node, &req, &via).await;
-    app.traced(node, GateVerb::Merge, &req.branch, &via, result)
 }
 
 pub(super) async fn agent_fail(

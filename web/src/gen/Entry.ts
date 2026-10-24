@@ -2,6 +2,8 @@
 import type { AccountId } from "./AccountId";
 import type { AgentId } from "./AgentId";
 import type { AgentSwitch } from "./AgentSwitch";
+import type { BatchMember } from "./BatchMember";
+import type { BatchResult } from "./BatchResult";
 import type { ClosedBy } from "./ClosedBy";
 import type { GateTrace } from "./GateTrace";
 import type { IdleEnd } from "./IdleEnd";
@@ -58,4 +60,20 @@ doc: WaitDoc | null, } | { "kind": "reported", node: Who, wait: WaitId, summary:
 /**
  * 붙은 문서(`--doc`). `Asked`와 같다.
  */
-doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, } | { "kind": "nudged", node: Who, check: TurnCheck, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, };
+doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, } | { "kind": "nudged", node: Who, check: TurnCheck, } | { "kind": "batch", batch: number, 
+/**
+ * 원래 체크아웃의 저장소 폴더.
+ */
+repo: string, target: string, 
+/**
+ * 0이면 묶음 전체, 1부터 이분 탐색 단계다.
+ */
+step: number, 
+/**
+ * 쌓은 순서(큐 순서). 크기는 이 목록의 길이다.
+ */
+members: Array<BatchMember>, 
+/**
+ * check.sh가 걸린 초. 검사 전에 끝났으면 없다.
+ */
+check_secs: number | null, result: BatchResult, log: string | null, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, };

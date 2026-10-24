@@ -12,6 +12,19 @@ export type LabelSize = { width: number; height: number };
 export type HopPair = { key: string; source: HopEnd; target: HopEnd; label: { full: LabelSize; short: LabelSize } };
 export type HopRoute = { points: Point[]; label: { at: Point; short: boolean } | null; turned: boolean };
 
+export type HopEndName = 'source' | 'target';
+export type HopPart = { from: HopEndName; to: HopEndName; back: boolean };
+
+export function hopParts(counts: Readonly<Record<HopEndName, number>>, source: Point | null, target: Point | null, turned: boolean): HopPart[] {
+  const sourceFirst = !source || !target || (turned ? source.y >= target.y : source.x <= target.x);
+  const [first, second]: HopEndName[] = sourceFirst ? ['source', 'target'] : ['target', 'source'];
+  const parts: HopPart[] = [
+    { from: first, to: second, back: false },
+    { from: second, to: first, back: true },
+  ];
+  return parts.filter((part) => counts[part.to] > 0);
+}
+
 export function pickColor(shown: Iterable<number>): number {
   const uses = HOP_LANES.map(() => 0);
   for (const color of shown) uses[color % HOP_LANES.length]++;

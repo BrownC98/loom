@@ -20,7 +20,7 @@ import type { SettingsView } from './gen/SettingsView';
 import type { Spot } from './gen/Spot';
 import { DeleteWorktreePopover } from './DeleteWorktreePopover';
 import { HopEdge, hopLabelSize, type HopEdgeType } from './HopEdge';
-import { HOP_LANES, siblingLanes, type HopPair } from './hopLanes';
+import { HOP_LANES, hopParts, siblingLanes, type HopPair } from './hopLanes';
 import { arrangeNested, edgeSides, followCard, FREE_GAP, GROUP_GAP, overlaps, push, samePoint, settle, SIDES, stepAt, swap, TREE_SIDES, unpile, type ArrangeDirection, type Box, type NestGroup, type Side, type Sibling, type Size, type Swap } from './layout';
 import { NewNodePopover } from './NewNodePopover';
 import { useOutsidePress } from './popover';
@@ -930,15 +930,18 @@ export function Graph(props: {
     return at ? { at, size: size(id) } : null;
   };
   const hopName = (id: NodeId) => props.views.get(id)?.name ?? `#${id}`;
-  const hopLabel = (hop: Hop) =>
-    (['source', 'target'] as const)
-      .filter((end) => hop.counts[end] > 0)
-      .map((end) => t('graph.hop', { from: hopName(hop[end === 'target' ? 'source' : 'target']), to: hopName(hop[end]), n: hop.counts[end] }))
+  const centerOf = (id: NodeId): XYPosition | null => {
+    const box = boxOf(id);
+    return box && { x: box.at.x + box.size.width / 2, y: box.at.y + box.size.height / 2 };
+  };
+  const partsOf = (hop: Hop, turned: boolean) => hopParts(hop.counts, centerOf(hop.source), centerOf(hop.target), turned);
+  const hopLabel = (hop: Hop, turned: boolean) =>
+    partsOf(hop, turned)
+      .map((part) => t(part.back ? 'graph.hopBack' : 'graph.hop', { from: hopName(hop[part.from]), to: hopName(hop[part.to]), n: hop.counts[part.to] }))
       .join(' / ');
-  const hopShort = (hop: Hop) =>
-    (['source', 'target'] as const)
-      .filter((end) => hop.counts[end] > 0)
-      .map((end) => String(hop.counts[end]))
+  const hopShort = (hop: Hop, turned: boolean) =>
+    partsOf(hop, turned)
+      .map((part) => String(hop.counts[part.to]))
       .join(' / ');
   const roomOf = (id: NodeId, parent: NodeId, box: Box): Box => {
     const worktree = props.views.get(id)?.place.worktree;
@@ -946,6 +949,7 @@ export function Graph(props: {
     const inset = insetOf(worktree);
     return { at: { x: box.at.x - inset.side, y: box.at.y - inset.top }, size: { width: box.size.width + 2 * inset.side, height: box.size.height + inset.top + inset.side } };
   };
+  const turnedLabels = direction === 'right' || direction === 'left';
   const siblingPairs = new Map<NodeId, HopPair[]>();
   for (const [key, hop] of props.hops) {
     const parent = props.views.get(hop.source)?.parent ?? null;
@@ -953,7 +957,7 @@ export function Graph(props: {
     const target = boxOf(hop.target);
     if (parent === null || parent !== props.views.get(hop.target)?.parent || !source || !target) continue;
     const end = (id: NodeId, box: Box) => ({ id, box, room: roomOf(id, parent, box) });
-    siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: end(hop.source, source), target: end(hop.target, target), label: { full: hopLabelSize(hopLabel(hop)), short: hopLabelSize(hopShort(hop)) } }]);
+    siblingPairs.set(parent, [...(siblingPairs.get(parent) ?? []), { key, source: end(hop.source, source), target: end(hop.target, target), label: { full: hopLabelSize(hopLabel(hop, turnedLabels)), short: hopLabelSize(hopShort(hop, turnedLabels)) } }]);
   }
   const routes = new Map([...siblingPairs].flatMap(([parent, pairs]) => {
     const box = boxOf(parent);
@@ -964,6 +968,7 @@ export function Graph(props: {
     const receivers = (['source', 'target'] as const).filter((end) => hop.counts[end] > 0);
     const flow = receivers.length === 1 ? (receivers[0] === 'target' ? 'to-child' : 'to-parent') : undefined;
     const route = routes.get(key) ?? null;
+    const text = hopLabel(hop, route?.turned ?? false);
     const lane = HOP_LANES[hop.color % HOP_LANES.length];
     const color = `var(--lane-${lane})`;
     const arrow = (end: 'source' | 'target') => (hop.counts[end] > 0 ? { type: MarkerType.ArrowClosed, color, width: 12, height: 12, markerUnits: 'userSpaceOnUse' } : undefined);
@@ -975,12 +980,12 @@ export function Graph(props: {
         target: String(hop.target),
         sourceHandle: 'top',
         targetHandle: 'top',
-        data: { route, title: hopLabel(hop) },
+        data: { route, title: text },
         markerStart: arrow('source'),
         markerEnd: arrow('target'),
         className: ['live', `hop-c${lane}`, flow, lit(String(hop.source), String(hop.target))].filter(Boolean).join(' '),
         zIndex: RAISED_EDGE_Z,
-        label: !route ? hopLabel(hop) : route.label === null ? undefined : route.label.short ? hopShort(hop) : hopLabel(hop),
+        label: !route ? text : route.label === null ? undefined : route.label.short ? hopShort(hop, route.turned) : text,
         labelBgBorderRadius: 10,
         focusable: false,
       },

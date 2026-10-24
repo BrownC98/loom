@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickColor, siblingLanes, type HopPair, type HopRoute } from './hopLanes';
+import { hopParts, pickColor, siblingLanes, type HopPair, type HopRoute } from './hopLanes';
 import { ARRANGE_DIRECTIONS, type ArrangeDirection, type Box } from './layout';
 
 const box = (x: number, y: number, width = 600, height = 437): Box => ({ at: { x, y }, size: { width, height } });
@@ -152,5 +152,31 @@ describe('pickColor', () => {
     expect(pickColor([0, 2])).toBe(1);
     expect(pickColor([0, 1, 2, 3, 4])).toBe(0);
     expect(pickColor([0, 1, 2, 3, 4, 0])).toBe(1);
+  });
+});
+
+describe('hopParts', () => {
+  const left = { x: 100, y: 500 };
+  const right = { x: 900, y: 500 };
+  const low = { x: 500, y: 900 };
+  const high = { x: 500, y: 100 };
+
+  it('writes the names in screen order and points the arrow at the receiver', () => {
+    expect(hopParts({ source: 0, target: 1 }, left, right, false)).toEqual([{ from: 'source', to: 'target', back: false }]);
+    expect(hopParts({ source: 0, target: 1 }, right, left, false)).toEqual([{ from: 'source', to: 'target', back: true }]);
+    expect(hopParts({ source: 1, target: 0 }, left, right, false)).toEqual([{ from: 'target', to: 'source', back: true }]);
+    expect(hopParts({ source: 1, target: 0 }, right, left, false)).toEqual([{ from: 'target', to: 'source', back: false }]);
+  });
+
+  it('reads a turned label from bottom to top', () => {
+    expect(hopParts({ source: 0, target: 1 }, low, high, true)).toEqual([{ from: 'source', to: 'target', back: false }]);
+    expect(hopParts({ source: 0, target: 1 }, high, low, true)).toEqual([{ from: 'source', to: 'target', back: true }]);
+  });
+
+  it('puts the forward part first in a two-way label', () => {
+    expect(hopParts({ source: 3, target: 7 }, right, left, false)).toEqual([
+      { from: 'target', to: 'source', back: false },
+      { from: 'source', to: 'target', back: true },
+    ]);
   });
 });

@@ -50,6 +50,7 @@ const en = {
     minimapFold: 'Fold minimap',
     minimapUnfold: 'Unfold minimap',
     hop: '{{from}} → {{to}} · {{n}}',
+    hopBack: '{{to}} ← {{from}} · {{n}}',
     messageTo: '{{n}} msg → {{name}}',
   },
   find: {

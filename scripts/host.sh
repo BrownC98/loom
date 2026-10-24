@@ -29,8 +29,9 @@ else
   dir=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/loom
   exe=$dir/loom.exe
   mkdir -p "$dir"
+  cp "$build/target/$target/release/loom.exe" "$exe.new"
   [ -e "$exe" ] && mv "$exe" "$exe.$(date +%s).old"
-  cp "$build/target/$target/release/loom.exe" "$exe"
+  mv "$exe.new" "$exe"
   rm -f "$dir"/loom.exe.*.old 2>/dev/null || true
   printf '#!/bin/sh\nexec "%s" "$@"\n' "$exe" >"$bin.new"
   chmod +x "$bin.new"

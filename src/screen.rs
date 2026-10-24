@@ -18,23 +18,6 @@ pub enum Place {
     Panel,
 }
 
-pub struct IdleInput {
-    pub prompt: &'static str,
-    pub placeholders: &'static [&'static str],
-    pub busy: &'static str,
-}
-
-impl IdleInput {
-    pub fn shown(&self, screen: &str) -> bool {
-        !screen.contains(self.busy)
-            && screen
-                .lines()
-                .map(str::trim_start)
-                .rfind(|line| line.starts_with(self.prompt))
-                .is_some_and(|line| self.placeholders.iter().any(|p| line.starts_with(p)))
-    }
-}
-
 const TRANSCRIPT_INDENT: usize = 2;
 
 pub fn find(dialogs: &[Dialog], screen: &str, session: Session) -> Option<(WaitKind, String)> {

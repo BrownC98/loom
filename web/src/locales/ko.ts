@@ -70,7 +70,7 @@ const ko: typeof en = {
     label: '노드 {{name}}',
     unread: '읽지 않은 메시지 {{n}}개',
     unreadShort: '안 읽음 {{n}}',
-    deliverNow: '눌러서 지금 전하기',
+    steerQueued: '눌러서 지금 전하기',
     terminal: '터미널',
     expand: '확대',
     expandTitle: '확대(머리글을 두 번 클릭)',

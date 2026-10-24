@@ -29,8 +29,6 @@ const LOST_CODE: u32 = u32::MAX;
 
 const SETTLED_AFTER: Duration = Duration::from_secs(2);
 
-pub(crate) const KEY_QUIET: Duration = Duration::from_secs(3);
-
 const TAIL_LINES: usize = 20;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -125,7 +123,6 @@ struct Output {
     backlog: Backlog,
     tx: broadcast::Sender<Bytes>,
     last_push: Instant,
-    typed_at: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -178,7 +175,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                 backlog: Backlog::default(),
                 tx: broadcast::channel(VIEWER_QUEUE_CHUNKS).0,
                 last_push: Instant::now(),
-                typed_at: None,
             }),
             size: watch::Sender::new(host::INITIAL_SIZE_VIEW),
             sizing: Mutex::default(),
@@ -261,10 +257,6 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             .map_or_else(Screen::default, |pty| pty.screen())
     }
 
-    pub fn quiet_screen(&self, id: K) -> Option<Screen> {
-        self.pty(id)?.quiet_screen()
-    }
-
     pub fn attach(&self, id: K) -> Option<Attached> {
         let pty = self.pty(id)?;
         let output = pty.output.lock().unwrap();
@@ -281,34 +273,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         id: K,
         pick: impl FnOnce(&Keys<'_>) -> Result<Vec<u8>, E>,
     ) -> Result<(), E> {
-        self.write_paced_if(id, Duration::ZERO, |keys| {
-            pick(keys).map(|bytes| vec![bytes])
-        })
-    }
-
-    pub fn write_paced_if<E>(
-        &self,
-        id: K,
-        gap: Duration,
-        pick: impl FnOnce(&Keys<'_>) -> Result<Vec<Vec<u8>>, E>,
-    ) -> Result<(), E> {
         let pty = self.pty(id);
         let mut host = pty.as_ref().map(|pty| pty.host.lock().unwrap());
-        let pieces = pick(&Keys(pty.as_deref()))?;
-        let (Some(pty), Some(host)) = (pty.as_ref(), host.as_mut()) else {
-            return Ok(());
-        };
-        let keys = pieces.iter().any(|bytes| typed(bytes));
-        for (i, bytes) in pieces.into_iter().enumerate() {
-            if i > 0 {
-                std::thread::sleep(gap);
-            }
-            if wire::write(&mut **host, &Frame::Data(bytes)).is_err() {
-                break;
-            }
-        }
-        if keys {
-            pty.output.lock().unwrap().typed_at = Some(Instant::now());
+        let bytes = pick(&Keys(pty.as_deref()))?;
+        if let Some(host) = host.as_mut() {
+            let _ = wire::write(&mut **host, &Frame::Data(bytes));
         }
         Ok(())
     }
@@ -342,6 +311,12 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 
     pub fn kill(&self, id: K) {
         if let Some(pty) = self.nodes.write().unwrap().remove(&id) {
+            pty.send(&Frame::Kill);
+        }
+    }
+
+    pub fn stop(&self, id: K) {
+        if let Some(pty) = self.pty(id) {
             pty.send(&Frame::Kill);
         }
     }
@@ -442,20 +417,9 @@ impl Keys<'_> {
     pub fn screen(&self) -> Screen {
         self.0.map_or_else(Screen::default, Pty::screen)
     }
-
-    pub fn quiet_screen(&self) -> Option<Screen> {
-        self.0.and_then(Pty::quiet_screen)
-    }
 }
 
 impl Pty {
-    fn quiet_screen(&self) -> Option<Screen> {
-        let typed_at = self.output.lock().unwrap().typed_at;
-        typed_at
-            .is_none_or(|at| at.elapsed() >= KEY_QUIET)
-            .then(|| self.screen())
-    }
-
     fn screen(&self) -> Screen {
         let PtySize { cols, rows } = *self.size.borrow();
         let bytes = self.output.lock().unwrap().backlog.to_vec();
@@ -704,6 +668,37 @@ mod tests {
         assert!(read_until(&mut attached, "got x").contains("before"));
         assert_eq!(rx.recv().unwrap(), Exit::Command(3));
         assert!(!dir.path().join("1").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stopped_pty_stays_until_the_new_process_replaces_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut old = CommandBuilder::new("sh");
+        old.args(["-c", "echo old; read line"]);
+        in_process(dir.path(), 1, old);
+        let nodes = NodeHost::new(dir.path().to_path_buf());
+        let (tx, rx) = std::sync::mpsc::channel();
+        nodes.resume(1, move |code| tx.send(code).unwrap()).unwrap();
+        let mut viewer = nodes.attach(1).unwrap();
+        read_until(&mut viewer, "old");
+
+        nodes.stop(1);
+        rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let between = nodes
+            .attach(1)
+            .expect("the screen still attaches between the two processes");
+        assert!(String::from_utf8_lossy(&between.backlog).contains("old"));
+
+        let mut new = CommandBuilder::new("sh");
+        new.args(["-c", "echo new; read line"]);
+        in_process(dir.path(), 1, new);
+        nodes.resume(1, |_| {}).unwrap();
+        while let Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) =
+            viewer.output.blocking_recv()
+        {}
+        read_until(&mut nodes.attach(1).unwrap(), "new");
+        nodes.kill(1);
     }
 
     #[cfg(unix)]
@@ -975,7 +970,6 @@ mod tests {
             backlog: Backlog::default(),
             tx: broadcast::channel(1).0,
             last_push: Instant::now(),
-            typed_at: None,
         };
         output.push(b"\x1b]11;?\x1b\\");
         let pushed = output.last_push;

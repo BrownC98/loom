@@ -79,7 +79,7 @@ export const createNode = (req: NewNode) => call<NodeId>('POST', '/api/nodes', r
 export const removeNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}`);
 export const adoptNode = (child: NodeId, parent: NodeId) => call<null>('PUT', `/api/nodes/${child}/parent/${parent}`);
 export const bookmarkNode = (id: NodeId) => call<null>('PUT', `/api/nodes/${id}/bookmark`);
-export const deliverNow = (id: NodeId) => call<null>('POST', `/api/nodes/${id}/deliver`);
+export const steerQueued = (id: NodeId) => call<null>('POST', `/api/nodes/${id}/steer-queued`);
 export const unbookmarkNode = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/bookmark`);
 export const setCardView = (id: NodeId, view: CardView) => call<null>('PUT', `/api/nodes/${id}/card-view`, view);
 export const clearCardView = (id: NodeId) => call<null>('DELETE', `/api/nodes/${id}/card-view`);

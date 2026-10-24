@@ -51,10 +51,6 @@ impl FirstInputs {
         };
     }
 
-    pub fn typing(&self, node: NodeId) {
-        self.0.lock().unwrap().insert(node);
-    }
-
     pub fn injected(&self, node: NodeId) -> bool {
         self.0.lock().unwrap().remove(&node)
     }

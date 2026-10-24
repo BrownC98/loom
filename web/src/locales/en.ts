@@ -68,7 +68,7 @@ const en = {
     label: 'Node {{name}}',
     unread: 'Unread messages: {{n}}',
     unreadShort: 'Unread {{n}}',
-    deliverNow: 'Click to deliver now',
+    steerQueued: 'Click to deliver now',
     terminal: 'Terminal',
     expand: 'Expand',
     expandTitle: 'Expand (or double-click the header)',

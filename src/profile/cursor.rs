@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::Take;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::{Dialog, Grammar, IdleInput, Options, Place, Top};
+use crate::screen::{Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
 pub const PROMPT: Grammar = Grammar {
@@ -67,14 +67,6 @@ const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 const HOOKS_FILE: &str = "cursor-hooks.json";
 const MANIFEST: &str = r#"{"name":"loom","description":"loom이 싣는 스킬과 메시지 훅","skills":"./skills/","hooks":"./cursor-hooks.json"}"#;
 pub const RESUMED_PROMPT: &str = "loom relaunched your process. If your last turn was cut, continue it. Otherwise end your turn.";
-pub const WAKE: super::Wake = super::Wake {
-    input: IdleInput {
-        prompt: "→ ",
-        placeholders: &["→ Add a follow-up", "→ Plan, search, build anything"],
-        busy: "ctrl+c to stop",
-    },
-    prompt: "loom woke you: messages wait for you. If no loom message is in the context of this prompt, run `loom status`; the messages come with that command. Act on them, or end your turn.",
-};
 const GUARD: &str = "loom guard";
 
 pub fn write_plugin(dir: &Path) -> std::io::Result<()> {
@@ -82,6 +74,54 @@ pub fn write_plugin(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(manifest.parent().expect("파일 경로에는 부모가 있다"))?;
     std::fs::write(manifest, MANIFEST)?;
     std::fs::write(dir.join(HOOKS_FILE), hooks().to_string())
+}
+
+pub const USER_HOOKS: &str = ".cursor/hooks.json";
+
+const GATE: [(&str, &str); 2] = [
+    ("stop", r"printf '{}\n'"),
+    ("beforeSubmitPrompt", r#"printf '{"continue":true}\n'"#),
+];
+
+pub fn open_gate(path: &Path) -> std::io::Result<()> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let Some(gated) = with_gate(text.as_deref())
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+    else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(path.parent().expect("파일 경로에는 부모가 있다"))?;
+    let draft = path.with_extension("json.loom");
+    std::fs::write(&draft, gated)?;
+    std::fs::rename(draft, path)
+}
+
+fn with_gate(text: Option<&str>) -> Result<Option<String>, String> {
+    let mut config: Value = match text {
+        Some(text) => serde_json::from_str(text).map_err(|e| e.to_string())?,
+        None => json!({ "version": 1 }),
+    };
+    let root = config
+        .as_object_mut()
+        .ok_or("the hooks file is not a JSON object")?;
+    let hooks = root
+        .entry("hooks")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("\"hooks\" is not a JSON object")?;
+    let mut changed = false;
+    for (event, command) in GATE {
+        let entries = hooks.entry(event).or_insert_with(|| json!([]));
+        if entries.as_array().is_some_and(Vec::is_empty) {
+            *entries = json!([{ "command": command, "timeout": HOOK_TIMEOUT_SECS }]);
+            changed = true;
+        }
+    }
+    Ok(changed.then(|| format!("{config:#}\n")))
 }
 
 fn hooks() -> Value {
@@ -243,6 +283,98 @@ mod tests {
     use super::*;
     use crate::graph::PromptKey;
     use crate::screen::Session;
+
+    fn gated(text: Option<&str>) -> Value {
+        serde_json::from_str(&with_gate(text).unwrap().expect("the file changes")).unwrap()
+    }
+
+    #[test]
+    fn a_missing_hooks_file_gets_both_no_op_entries() {
+        let config = gated(None);
+        assert_eq!(config["version"], 1);
+        assert_eq!(config["hooks"]["stop"][0]["command"], "printf '{}\\n'");
+        assert_eq!(
+            config["hooks"]["beforeSubmitPrompt"][0]["command"],
+            "printf '{\"continue\":true}\\n'"
+        );
+        assert_eq!(config["hooks"]["stop"][0]["timeout"], HOOK_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn the_gate_adds_only_missing_events_and_keeps_every_other_entry() {
+        let orca = r#"{"version":1,"hooks":{"stop":[{"command":"orca stop"}],"preToolUse":[{"command":"orca pre"}],"afterAgentResponse":[]},"extra":true}"#;
+        let config = gated(Some(orca));
+        assert_eq!(config["hooks"]["stop"], json!([{ "command": "orca stop" }]));
+        assert_eq!(
+            config["hooks"]["preToolUse"],
+            json!([{ "command": "orca pre" }])
+        );
+        assert_eq!(config["hooks"]["afterAgentResponse"], json!([]));
+        assert_eq!(config["extra"], true);
+        assert_eq!(
+            config["hooks"]["beforeSubmitPrompt"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn an_empty_event_list_counts_as_missing() {
+        let config = gated(Some(
+            r#"{"hooks":{"stop":[],"beforeSubmitPrompt":[{"command":"x"}]}}"#,
+        ));
+        assert_eq!(config["hooks"]["stop"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            config["hooks"]["beforeSubmitPrompt"],
+            json!([{ "command": "x" }])
+        );
+    }
+
+    #[test]
+    fn a_gated_file_is_not_written_again() {
+        let once = with_gate(None).unwrap().unwrap();
+        assert_eq!(with_gate(Some(&once)).unwrap(), None);
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_hooks_object_is_left_alone() {
+        for text in ["{not json", "[]", r#"{"hooks":[]}"#] {
+            assert!(with_gate(Some(text)).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn opening_the_gate_writes_the_file_and_keeps_other_entries() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join(USER_HOOKS);
+        open_gate(&path).unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written["hooks"]["stop"].as_array().unwrap().len(), 1);
+        std::fs::write(&path, r#"{"hooks":{"stop":[{"command":"mine"}]}}"#).unwrap();
+        open_gate(&path).unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written["hooks"]["stop"], json!([{ "command": "mine" }]));
+        assert_eq!(
+            written["hooks"]["beforeSubmitPrompt"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        std::fs::write(&path, "{broken").unwrap();
+        assert!(open_gate(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{broken");
+        assert_eq!(
+            std::fs::read_dir(home.path().join(".cursor"))
+                .unwrap()
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn the_trust_box_is_a_trust_wait() {

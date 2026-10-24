@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::*;
@@ -34,6 +33,7 @@ fn launched() -> Launched {
         ),
         server: None,
         account: None,
+        rules: None,
     }
 }
 
@@ -2030,6 +2030,91 @@ fn completed_nodes_receive_feedback_until_the_process_ends() {
     ));
 }
 
+#[test]
+fn a_waking_node_stays_reachable_until_its_launch_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    g.done(worker, &report("finished"), None, &[], None, None)
+        .unwrap();
+    assert!(g.slept(worker).unwrap());
+    assert!(g.reachable(worker).unwrap());
+    g.relaunched(worker, &launched()).unwrap();
+    assert!(!g.asleep(worker).unwrap());
+    assert!(g.reachable(worker).unwrap());
+    g.lost(worker).unwrap();
+    assert!(!g.reachable(worker).unwrap());
+    g.sleep_lost(worker).unwrap();
+    assert_eq!(view(&g, worker).state, NodeState::Exited { code: None });
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(bodies(got.iter()), ["finished", ""]);
+    assert!(matches!(
+        got[1].what,
+        Some(MessageKind::Exited { code: None, .. })
+    ));
+}
+
+#[test]
+fn a_sleeping_node_keeps_its_mail_and_wakes_only_on_waking_mail() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "lead");
+    let worker = child(&g, lead, "worker");
+    let grand = child(&g, worker, "grand");
+    let lost = child(&g, lead, "lost");
+    g.done(lost, &report("lost done"), None, &[], None, None)
+        .unwrap();
+    g.lost(lost).unwrap();
+    assert!(!g.asleep(lost).unwrap());
+    assert!(matches!(
+        g.note(lead, "lost", Kind::Queue, "x", None),
+        Err(Refusal::Ended(_))
+    ));
+    assert!(!g.slept(grand).unwrap());
+    g.done(lead, &report("lead done"), Some("일해"), &[], None, None)
+        .unwrap();
+    g.done(worker, &report("finished"), None, &[], None, None)
+        .unwrap();
+    assert_eq!(g.done_children().unwrap(), [worker]);
+    assert!(g.slept(worker).unwrap());
+    assert!(g.asleep(worker).unwrap());
+    assert_eq!(
+        g.done(lead, &report("lead again"), Some("일해"), &[], None, None)
+            .unwrap(),
+        ["worker"]
+    );
+    g.exited(worker, 0).unwrap();
+    assert!(g.done_children().unwrap().is_empty());
+    assert_eq!(
+        view(&g, worker).state,
+        NodeState::Done {
+            summary: "finished".into()
+        }
+    );
+
+    g.exited(grand, 1).unwrap();
+    assert!(g.sleepers_with_mail().unwrap().is_empty());
+    g.note(lead, "worker", Kind::Queue, "feedback", None)
+        .unwrap();
+    assert_eq!(g.sleepers_with_mail().unwrap(), [worker]);
+
+    g.sleep_lost(worker).unwrap();
+    assert!(!g.asleep(worker).unwrap());
+    assert!(g.sleepers_with_mail().unwrap().is_empty());
+    assert_eq!(view(&g, worker).state, NodeState::Exited { code: None });
+    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    assert_eq!(bodies(got.iter()), ["lost done", "finished", ""]);
+    assert!(matches!(
+        got[2].what,
+        Some(MessageKind::Exited { code: None, .. })
+    ));
+    assert!(matches!(
+        g.note(lead, "worker", Kind::Queue, "more", None),
+        Err(Refusal::Ended(_))
+    ));
+}
+
 #[tokio::test]
 async fn replies_match_the_request_even_after_another_consumer_acknowledged_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -2591,31 +2676,6 @@ fn clicking_unread_turns_waiting_queue_mail_into_steer() {
 }
 
 #[test]
-fn only_waking_mail_makes_a_node_to_wake() {
-    let dir = tempfile::tempdir().unwrap();
-    let g = open(&dir.path().join("loom.db"));
-    let lead = root(&g, "cursor");
-    let gone = child(&g, lead, "gone");
-    let stays = child(&g, lead, "stays");
-    let other = root(&g, "cursor");
-    let other_gone = child(&g, other, "gone2");
-    g.exited(gone, 0).unwrap();
-    g.exited(other_gone, 0).unwrap();
-    assert_eq!(view(&g, lead).unread, 1);
-    assert!(g.waking_agents().unwrap().is_empty());
-
-    g.note(stays, "parent", Kind::Queue, "결과", None).unwrap();
-    g.steer_queued(other).unwrap();
-    let woken: Vec<NodeId> = g
-        .waking_agents()
-        .unwrap()
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    assert_eq!(woken, [lead, other]);
-}
-
-#[test]
 fn unread_counts_every_untaken_message() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
@@ -3051,67 +3111,6 @@ fn long_human_input_is_not_cut_and_skips_an_ended_parent() {
     g.exited(lead, 0).unwrap();
     g.human_typed(w, "more").unwrap();
     assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());
-}
-
-#[test]
-fn changed_skills_are_announced_once_to_live_agent_nodes() {
-    let dir = tempfile::tempdir().unwrap();
-    let g = open(&dir.path().join("loom.db"));
-    let lead = root(&g, "총괄");
-    let shell = child(&g, lead, "shell");
-    let ended = root(&g, "끝남");
-    g.exited(ended, 0).unwrap();
-    let digests = |o: &str| {
-        BTreeMap::from([
-            ("o-mode".to_owned(), o.to_owned()),
-            ("ste-100".to_owned(), "s1".to_owned()),
-        ])
-    };
-    assert_eq!(
-        g.rules_changed(&digests("o1"), Some("abc1234")).unwrap(),
-        ["o-mode", "ste-100"]
-    );
-    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
-    assert_eq!(got.len(), 1);
-    assert_eq!(
-        got[0].what,
-        Some(MessageKind::RulesChanged {
-            skills: vec!["o-mode".into(), "ste-100".into()],
-            commit: Some("abc1234".into())
-        })
-    );
-    assert!(crate::profile::message_text(&got).starts_with(&format!(
-        "loom message #{} (from: loom, kind: rules-changed)\nskills: o-mode, ste-100\ncommit: abc1234\nNext: call `loom relaunch`",
-        got[0].id.0
-    )));
-    assert!(g.take(shell, Kind::ALL, usize::MAX).unwrap().is_empty());
-    assert!(g.take(ended, Kind::ALL, usize::MAX).unwrap().is_empty());
-    g.ack(lead, &[got[0].id]).unwrap();
-    assert!(g.rules_changed(&digests("o1"), None).unwrap().is_empty());
-    assert_eq!(g.rules_changed(&digests("o2"), None).unwrap(), ["o-mode"]);
-}
-
-#[test]
-fn rules_changed_exceeds_a_full_inbox() {
-    let dir = tempfile::tempdir().unwrap();
-    let g = open(&dir.path().join("loom.db"));
-    let lead = root(&g, "총괄");
-    let w = child(&g, lead, "w");
-    for _ in 0..MAILBOX_LIMIT {
-        g.note(w, "parent", Kind::Queue, "x", None).unwrap();
-    }
-    assert!(matches!(
-        g.note(w, "parent", Kind::Queue, "x", None),
-        Err(Refusal::MailboxFull(_))
-    ));
-    let digests = BTreeMap::from([("o-mode".to_owned(), "o1".to_owned())]);
-    assert_eq!(g.rules_changed(&digests, None).unwrap(), ["o-mode"]);
-    let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
-    assert!(
-        got.iter()
-            .any(|m| matches!(m.what, Some(MessageKind::RulesChanged { .. })))
-    );
-    assert!(g.rules_changed(&digests, None).unwrap().is_empty());
 }
 
 #[test]

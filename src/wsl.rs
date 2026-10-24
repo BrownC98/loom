@@ -94,8 +94,8 @@ async fn list(args: &[&str]) -> Vec<String> {
     }
 }
 
-fn read_list(bytes: &[u8]) -> Vec<String> {
-    let text = if bytes.contains(&0) {
+fn decode(bytes: &[u8]) -> String {
+    if bytes.contains(&0) {
         let units: Vec<u16> = bytes
             .as_chunks::<2>()
             .0
@@ -105,8 +105,12 @@ fn read_list(bytes: &[u8]) -> Vec<String> {
         String::from_utf16_lossy(&units)
     } else {
         String::from_utf8_lossy(bytes).into_owned()
-    };
-    text.lines()
+    }
+}
+
+fn read_list(bytes: &[u8]) -> Vec<String> {
+    decode(bytes)
+        .lines()
         .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}'))
         .filter(|l| !l.is_empty())
         .map(str::to_owned)
@@ -121,23 +125,18 @@ impl Homes {
         if let Some(home) = self.0.lock().unwrap().get(distro) {
             return Ok(home.clone());
         }
-        let out = tokio::process::Command::new("wsl.exe")
-            .args(["-d", distro, "-e", "sh", "-c", r#"printf '\036%s' "$HOME""#])
-            .env("WSL_UTF8", "1")
-            .stdin(std::process::Stdio::null())
-            .output()
-            .await
-            .map_err(|e| InsideError::Start {
-                distro: distro.into(),
-                cause: e.to_string(),
-            })?;
-        let text = String::from_utf8_lossy(&out.stdout);
+        let text = values(distro, || {
+            let mut cmd = tokio::process::Command::new("wsl.exe");
+            cmd.args(["-d", distro, "-e", "sh", "-c", r#"printf '\036%s' "$HOME""#]);
+            cmd
+        })
+        .await?;
         let home = match text.split_once(SEP) {
             Some((_, home)) if home.starts_with('/') => home.to_owned(),
             _ => {
                 return Err(InsideError::Start {
                     distro: distro.into(),
-                    cause: String::from_utf8_lossy(&out.stderr).trim().into(),
+                    cause: "$HOME is not an absolute path".into(),
                 });
             }
         };
@@ -238,7 +237,7 @@ exit 0"#;
         .map_err(|e| e.to_string())?;
     match out.status.success() {
         true => Ok(()),
-        false => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
+        false => Err(failure(&out)),
     }
 }
 
@@ -278,7 +277,7 @@ async fn bounded(
         Err(_) => Err(format!("{}초 안에 끝나지 않았다", limit.as_secs())),
         Ok(Err(e)) => Err(e.to_string()),
         Ok(Ok(out)) if out.status.success() => Ok(()),
-        Ok(Ok(out)) => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
+        Ok(Ok(out)) => Err(failure(&out)),
     }
 }
 
@@ -321,6 +320,8 @@ impl std::fmt::Display for InsideError {
 }
 
 const SEP: char = '\u{1e}';
+const START_TRIES: u32 = 3;
+const START_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 const INTEROP_OFF: &str = "interop-off";
 
 pub async fn inside(
@@ -335,26 +336,58 @@ printf '\036%s' "$PATH" "$HOME"
 while [ "$1" != -- ]; do printf '\036%s' "$(command -v "$1")"; shift; done; shift
 for p; do printf '\036%s' "$(wslpath -u "$p")"; done
 printf '\036'"#;
-    let mut cmd = tokio::process::Command::new("wsl.exe");
-    cmd.args(["-d", distro, "-e", "bash", "-lic", script, "bash"])
-        .args(find)
-        .arg("--")
-        .arg(bin)
-        .args(paths)
-        .env("WSL_UTF8", "1")
-        .stdin(std::process::Stdio::null());
-    let start = |cause: String| InsideError::Start {
-        distro: distro.into(),
-        cause,
-    };
-    let out = cmd.output().await.map_err(|e| start(e.to_string()))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    if !text.contains(SEP) {
-        return Err(start(String::from_utf8_lossy(&out.stderr).trim().into()));
-    }
+    let text = values(distro, || {
+        let mut cmd = tokio::process::Command::new("wsl.exe");
+        cmd.args(["-d", distro, "-e", "bash", "-lic", script, "bash"])
+            .args(find)
+            .arg("--")
+            .arg(bin)
+            .args(paths);
+        cmd
+    })
+    .await?;
     read_inside(at, find, &text).ok_or_else(|| InsideError::Interop {
         distro: distro.into(),
     })
+}
+
+async fn values(
+    distro: &str,
+    wsl: impl Fn() -> tokio::process::Command,
+) -> Result<String, InsideError> {
+    let mut cause = String::new();
+    for attempt in 0..START_TRIES {
+        if attempt > 0 {
+            tokio::time::sleep(START_RETRY_AFTER).await;
+        }
+        let mut cmd = wsl();
+        cmd.env("WSL_UTF8", "1").stdin(std::process::Stdio::null());
+        match cmd.output().await {
+            Ok(out) => {
+                let text = String::from_utf8_lossy(&out.stdout);
+                if text.contains(SEP) {
+                    return Ok(text.into_owned());
+                }
+                cause = failure(&out);
+            }
+            Err(e) => cause = e.to_string(),
+        }
+    }
+    Err(InsideError::Start {
+        distro: distro.into(),
+        cause,
+    })
+}
+
+fn failure(out: &std::process::Output) -> String {
+    let text: Vec<String> = [&out.stdout, &out.stderr]
+        .map(|bytes| decode(bytes).trim().to_owned())
+        .into_iter()
+        .filter(|t| !t.is_empty())
+        .collect();
+    format!("{} ({})", text.join(" "), out.status)
+        .trim_start()
+        .to_owned()
 }
 
 fn read_inside(at: &WslPath, find: &[&str], text: &str) -> Option<Inside> {
@@ -476,10 +509,12 @@ fn names<K: AsRef<str>, V>(env: &[(K, V)]) -> String {
 pub fn write_shim(dir: &Path, exe: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let exe = exe.to_string_lossy().replace('\'', r"'\''");
-    std::fs::write(
-        dir.join("loom"),
-        format!("#!/bin/sh\nexec \"$(wslpath -u '{exe}')\" \"$@\"\n"),
-    )
+    let shim = dir.join("loom");
+    let text = format!("#!/bin/sh\nexec \"$(wslpath -u '{exe}')\" \"$@\"\n");
+    if std::fs::read_to_string(&shim).is_ok_and(|old| old == text) {
+        return Ok(());
+    }
+    std::fs::write(shim, text)
 }
 
 pub fn shell(line: &str) -> Vec<OsString> {
@@ -578,6 +613,72 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         panic!("the stalled command still runs");
+    }
+
+    #[cfg(unix)]
+    fn failing_wsl(dir: &Path, fails: u32) -> impl Fn() -> tokio::process::Command {
+        let tries = dir.join("tries");
+        move || {
+            let mut cmd = tokio::process::Command::new("sh");
+            cmd.args([
+                "-c",
+                r#"echo x >> "$0"; [ "$(wc -l < "$0")" -gt "$1" ] && { printf '\036/home/me'; exit 0; }
+printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
+            ])
+            .arg(&tries)
+            .arg(fails.to_string());
+            cmd
+        }
+    }
+
+    #[cfg(unix)]
+    fn tries(dir: &Path) -> usize {
+        std::fs::read_to_string(dir.join("tries"))
+            .unwrap()
+            .lines()
+            .count()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_start_that_fails_once_is_tried_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = values("Ubuntu", failing_wsl(dir.path(), 1)).await.unwrap();
+        assert_eq!(text, "\u{1e}/home/me");
+        assert_eq!(tries(dir.path()), 2);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_start_that_keeps_failing_shows_the_wsl_error_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let failed = values("Ubuntu", failing_wsl(dir.path(), u32::MAX)).await;
+        let Err(InsideError::Start { distro, cause }) = failed else {
+            panic!("{failed:?}");
+        };
+        assert_eq!(distro, "Ubuntu");
+        assert!(cause.contains("Wsl/Service/0x8007274c"), "{cause}");
+        assert!(cause.ends_with("(exit status: 1)"), "{cause}");
+        assert_eq!(tries(dir.path()), START_TRIES as usize);
+    }
+
+    #[test]
+    fn an_unchanged_shim_is_not_written_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = Path::new(r"C:\loom\loom.exe");
+        write_shim(dir.path(), exe).unwrap();
+        let shim = dir.path().join("loom");
+        let set_read_only = |on| {
+            let mut permissions = std::fs::metadata(&shim).unwrap().permissions();
+            permissions.set_readonly(on);
+            std::fs::set_permissions(&shim, permissions).unwrap();
+        };
+        set_read_only(true);
+        let same = write_shim(dir.path(), exe);
+        let other = write_shim(dir.path(), Path::new(r"C:\other\loom.exe"));
+        set_read_only(false);
+        same.unwrap();
+        assert!(other.is_err());
     }
 
     #[test]

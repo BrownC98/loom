@@ -2,6 +2,7 @@ mod carry;
 pub mod gate;
 mod idle;
 mod lan;
+mod one_flight;
 mod origin;
 mod passes;
 mod phone;
@@ -107,6 +108,7 @@ struct App {
     sleeps: sleep::Sleeps,
     switch: switch::Switches,
     usage: usage_cache::UsageCache,
+    repo_list: one_flight::OneFlight<Result<Vec<RepoView>, String>>,
     turn_ends: turn_end::TurnEnds,
     merge_queue: tokio::sync::Notify,
     plugin: skills::Plugin,
@@ -672,11 +674,23 @@ fn node_path() -> std::io::Result<OsString> {
 }
 
 async fn list_repos(State(app): State<Arc<App>>) -> Result<Json<Vec<RepoView>>, Problem> {
-    let mut views = Vec::new();
-    for (id, path) in app.repos.list().map_err(internal)? {
-        views.push(app.repo_view(id, &path).await);
+    let shared = app
+        .repo_list
+        .run(|| {
+            let app = app.clone();
+            async move {
+                let mut views = Vec::new();
+                for (id, path) in app.repos.list().map_err(|e| e.to_string())? {
+                    views.push(app.repo_view(id, &path).await);
+                }
+                Ok(views)
+            }
+        })
+        .await;
+    match &*shared {
+        Ok(views) => Ok(Json(views.clone())),
+        Err(e) => Err(internal(e)),
     }
-    Ok(Json(views))
 }
 
 async fn add_repo(
@@ -914,6 +928,7 @@ impl App {
             sleeps: sleep::Sleeps::default(),
             switch: switch::Switches::default(),
             usage: usage_cache::UsageCache::default(),
+            repo_list: one_flight::OneFlight::default(),
             turn_ends: turn_end::TurnEnds::default(),
             merge_queue: tokio::sync::Notify::new(),
             plugin: {

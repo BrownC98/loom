@@ -13,7 +13,7 @@ use crate::wsl;
 #[ts(export)]
 pub struct RepoId(pub u32);
 
-#[derive(Serialize, TS)]
+#[derive(Serialize, TS, Clone)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct RepoView {
@@ -32,7 +32,7 @@ pub struct RepoView {
 }
 
 /// 저장소가 도는 WSL 배포판. 근거: 목업 docs/mockups/wsl-place.html ②·②′.
-#[derive(Serialize, TS, PartialEq, Debug)]
+#[derive(Serialize, TS, PartialEq, Debug, Clone)]
 #[ts(export)]
 pub struct WslPlace {
     pub distro: String,
@@ -71,7 +71,7 @@ pub struct Folder {
     pub git: bool,
 }
 
-#[derive(Serialize, TS, PartialEq, Debug)]
+#[derive(Serialize, TS, PartialEq, Debug, Clone)]
 #[ts(export)]
 pub struct Worktree {
     /// 절대 경로. 노드는 이 경로로 묶음을 가리킨다.
@@ -280,21 +280,25 @@ pub async fn view(id: RepoId, path: &Path, wsl: Option<WslPlace>) -> RepoView {
         .await
         .map(|out| out.lines().map(str::to_owned).collect())
         .unwrap_or_default();
+    let worktrees = worktrees(path).await;
     RepoView {
         id,
         name: folder_name(path),
         path: path.to_string_lossy().into_owned(),
-        worktrees: worktrees(path).await,
+        has_commits: has_commits(&worktrees),
+        worktrees,
         branches,
-        has_commits: has_commits(path).await,
         wsl,
     }
 }
 
-async fn has_commits(repo: &Path) -> bool {
-    git::run(repo, &["rev-parse", "--verify", "-q", "HEAD"])
-        .await
-        .is_ok()
+const UNBORN_HEAD: &str = "0000000000000000000000000000000000000000";
+
+fn has_commits(worktrees: &[Worktree]) -> bool {
+    worktrees
+        .iter()
+        .find(|w| w.original)
+        .is_some_and(|w| !w.head.is_empty() && w.head != UNBORN_HEAD)
 }
 
 pub fn folders(path: &str) -> Result<FolderList, RepoProblem> {
@@ -429,7 +433,7 @@ pub async fn create(
     if leaf.is_empty() {
         return Err(RepoProblem::EmptyBranch);
     }
-    if !has_commits(repo).await {
+    if !has_commits(&worktrees(repo).await) {
         return Err(RepoProblem::NoCommit);
     }
     if !workspace.is_absolute() {
@@ -929,6 +933,7 @@ mod tests {
             copy.canonicalize().unwrap()
         );
         assert!(view(id, &copy, None).await.has_commits);
+        assert_eq!(git::calls_during(view(id, &copy, None)).await.0, 2);
 
         assert_eq!(
             repos.clone(source.to_str().unwrap(), parent_text).await,

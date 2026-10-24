@@ -5,7 +5,24 @@ use tokio::process::Command;
 use crate::process_tree;
 use crate::wsl::{self, WslPath};
 
+#[cfg(test)]
+tokio::task_local! {
+    static CALLS: std::cell::Cell<usize>;
+}
+
+#[cfg(test)]
+pub async fn calls_during<T>(work: impl Future<Output = T>) -> (usize, T) {
+    CALLS
+        .scope(std::cell::Cell::new(0), async {
+            let value = work.await;
+            (CALLS.with(|n| n.get()), value)
+        })
+        .await
+}
+
 pub async fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
+    #[cfg(test)]
+    let _ = CALLS.try_with(|n| n.set(n.get() + 1));
     let out = command(dir, wsl::of(dir).as_ref(), args)
         .output()
         .await

@@ -349,10 +349,9 @@ fn a_withdrawn_round_tells_exactly_its_reviewers_to_stop() {
         g.fail(t.solo, "b", "not needed", Some(&via())),
         Ok(GateState::Failed)
     );
-    for node in [third, earlier, first] {
+    for node in [third, earlier, first, second] {
         assert_eq!(mail(&g, node).len(), 1, "{node}");
     }
-    assert!(mail(&g, second).is_empty());
 }
 
 #[test]
@@ -464,6 +463,34 @@ fn a_held_pass_names_the_reviewers_that_hold_the_branch() {
         "{}",
         queued[0]
     );
+}
+
+#[test]
+fn a_reviewer_withdrawn_before_its_first_verdict_stays_in_the_next_round() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let repo = RepoId(1);
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, t.solo, "solo", "first");
+    let second = reviewer(&g, t.solo, "solo", "second");
+    g.verdict(first, "b", Judgment::Block, Some("/r/f.md"), Some(&via()))
+        .unwrap();
+    assert_eq!(mail(&g, second).len(), 1, "second hears withdrawn");
+    g.ready(t.solo, &round("b", "main"), t.solo, Some(&via()))
+        .unwrap();
+    mail(&g, t.solo);
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert!(g.queue(repo, "main").unwrap().is_empty());
+    assert!(
+        mail(&g, t.solo)[0].contains("until second judge it"),
+        "the pass names second"
+    );
+    g.verdict(second, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    assert_eq!(g.queue(repo, "main").unwrap().len(), 1);
 }
 
 #[test]

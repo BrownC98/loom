@@ -7,4 +7,4 @@ export type Finding = { "kind": "rangeIncomplete", since: number, oldest: number
 /**
  * 그 메시지의 이벤트 기록 번호. 이벤트 콘솔에서 찾는다.
  */
-event: number, from: string, word: string, } | { "kind": "outOfGate", commit: string, } | { "kind": "headMoved", reviewed: string, now: string, };
+event: number, from: string, word: string, } | { "kind": "outOfGate", commit: string, } | { "kind": "headMoved", reviewed: string, now: string, } | { "kind": "sourceDirty", worktree: string, };

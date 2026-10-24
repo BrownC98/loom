@@ -179,11 +179,15 @@ mod git_runs {
                 worktree: "/wt",
                 head,
             };
-            self.app.graph.ready(owner, &round, gate, None).unwrap();
+            self.queue_at(owner, gate, reviewer, &round);
+        }
+
+        fn queue_at(&self, owner: NodeId, gate: NodeId, reviewer: NodeId, round: &Round) {
+            self.app.graph.ready(owner, round, gate, None).unwrap();
             assert_eq!(
                 self.app
                     .graph
-                    .verdict(reviewer, branch, Judgment::Pass, None, None),
+                    .verdict(reviewer, round.branch, Judgment::Pass, None, None),
                 Ok(GateState::Passed)
             );
             self.mail(owner);
@@ -195,9 +199,13 @@ mod git_runs {
         }
 
         async fn batch(&self, target: &str) {
-            batch(&self.app, RepoId(1), target, &self.lock)
+            self.batch_after(target, 0).await;
+        }
+
+        async fn batch_after(&self, target: &str, moves: u32) -> bool {
+            batch(&self.app, RepoId(1), target, &self.lock, moves)
                 .await
-                .unwrap();
+                .unwrap()
         }
 
         fn state(&self, branch: &str) -> GateState {
@@ -606,7 +614,7 @@ mod git_runs {
         r.app.graph.batch_open(RepoId(7), "main", &["b"]).unwrap();
         recover(&r.app, &r.lock).await;
         assert_eq!(r.state("b"), GateState::Failed);
-        batch(&r.app, RepoId(7), "main", &r.lock).await.unwrap();
+        batch(&r.app, RepoId(7), "main", &r.lock, 0).await.unwrap();
         assert_eq!(r.state("a"), GateState::Failed);
         assert!(r.app.graph.stale_batches().unwrap().is_empty());
         assert!(r.app.graph.queued_targets().unwrap().is_empty());
@@ -722,5 +730,154 @@ mod git_runs {
         assert_eq!(r.state("a"), GateState::Merged);
         assert!(r.app.graph.stale_batches().unwrap().is_empty());
         assert_eq!(r.checks(), 1, "no second check");
+    }
+
+    #[tokio::test]
+    async fn a_local_only_commit_on_the_target_fails_the_batch_before_a_check() {
+        let r = repo();
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        std::fs::write(r.main.join("local.txt"), "local\n").unwrap();
+        git(&r.main, &["add", "-A"]);
+        git(&r.main, &["commit", "-qm", "local"]);
+        assert!(!r.batch_after("main", 0).await);
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert_eq!(r.checks(), 0);
+        assert!(r.app.graph.queued_targets().unwrap().is_empty());
+        assert!(
+            r.mail(r.lead)
+                .iter()
+                .any(|m| m.contains("main has commits that are not on origin/main")),
+            "the root hears it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_target_that_keeps_moving_ends_the_batch_at_the_move_limit() {
+        let r = repo();
+        r.commit_main(
+            "scripts/gate/check.sh",
+            "echo run >>\"$(git rev-parse --path-format=absolute --git-common-dir)/check-runs\"\ngit fetch -q origin main\nc=$(git commit-tree -m moved -p origin/main 'origin/main^{tree}')\ngit push -q origin \"$c:refs/heads/main\"\n",
+        );
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        assert!(r.batch_after("main", 0).await);
+        assert_eq!(r.state("a"), GateState::Passed);
+        assert!(r.batch_after("main", MOVE_LIMIT - 1).await);
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert_eq!(r.checks(), 2);
+        assert!(r.app.graph.queued_targets().unwrap().is_empty());
+        assert!(
+            r.mail(r.lead)
+                .iter()
+                .any(|m| m.contains("main moved during 3 batches in a row")),
+            "the root hears it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_push_keeps_a_commit_made_during_the_push() {
+        let r = repo();
+        let base = git(&r.main, &["rev-parse", "main"]);
+        r.hook(
+            "pre-push",
+            "#!/bin/sh\necho x >during && git add during && git commit -qm during\nexit 1\n",
+        );
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        r.batch("main").await;
+        assert_eq!(r.state("a"), GateState::Failed);
+        assert_eq!(git(&r.main, &["show", "main:during"]), "x");
+        assert_eq!(git(&r.main, &["rev-parse", "origin/main"]), base);
+        assert!(r.publish_logs().contains("main moved during git push"));
+    }
+
+    #[tokio::test]
+    async fn a_branch_that_moves_during_the_check_is_rework_and_the_rest_requeues() {
+        let r = repo();
+        r.commit_main(
+            "scripts/gate/check.sh",
+            "git update-ref refs/heads/a HEAD\n",
+        );
+        let base = git(&r.main, &["rev-parse", "main"]);
+        let a = r.branch("a", "main", "a.txt", "a");
+        let b = r.branch("b", "main", "b.txt", "b");
+        r.queue_main("a", &a);
+        r.queue_main("b", &b);
+        r.batch("main").await;
+        assert_eq!(
+            (r.state("a"), r.state("b")),
+            (GateState::Working, GateState::Passed)
+        );
+        assert_eq!(git(&r.main, &["rev-parse", "origin/main"]), base);
+        assert_eq!(git(&r.main, &["rev-parse", "main"]), base);
+    }
+
+    #[tokio::test]
+    async fn a_resumed_batch_checks_the_heads_again() {
+        let r = repo();
+        let base = git(&r.main, &["rev-parse", "main"]);
+        let a = r.branch("a", "main", "a.txt", "a");
+        r.queue_main("a", &a);
+        let spare = r.dir.path().join("spare");
+        git(
+            &r.main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                spare.to_str().unwrap(),
+                "main",
+            ],
+        );
+        git(
+            &spare,
+            &["merge", "-q", "--no-ff", "-m", "Merge branch 'a'", &a],
+        );
+        let tip = git(&spare, &["rev-parse", "HEAD"]);
+        git(&r.main, &["update-ref", "refs/heads/a", &tip]);
+        git(
+            &r.main,
+            &["worktree", "remove", "--force", spare.to_str().unwrap()],
+        );
+        let id = r.app.graph.batch_open(RepoId(1), "main", &["a"]).unwrap();
+        r.app.graph.batch_checked(id, &base, &tip).unwrap();
+        recover(&r.app, &r.lock).await;
+        assert_eq!(r.state("a"), GateState::Working);
+        assert_eq!(git(&r.main, &["rev-parse", "origin/main"]), base);
+    }
+
+    #[tokio::test]
+    async fn a_dirty_owner_worktree_is_rework_and_a_removed_one_is_not() {
+        let r = repo();
+        let a = r.branch("a", "main", "a.txt", "a");
+        let b = r.branch("b", "main", "b.txt", "b");
+        let wt = r.dir.path().join("wt-a");
+        git(
+            &r.main,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "a"],
+        );
+        let gone = r.dir.path().join("gone");
+        for (branch, head, worktree) in [("a", &a, &wt), ("b", &b, &gone)] {
+            let round = Round {
+                branch,
+                target: "main",
+                worktree: worktree.to_str().unwrap(),
+                head,
+            };
+            r.queue_at(r.lead, r.lead, r.reviewer, &round);
+        }
+        std::fs::write(wt.join("a.txt"), "edited\n").unwrap();
+        r.batch("main").await;
+        assert_eq!(
+            (r.state("a"), r.state("b")),
+            (GateState::Working, GateState::Merged)
+        );
+        assert!(
+            r.mail(r.lead)
+                .iter()
+                .any(|m| m.contains("is not clean at the reviewed commit")),
+        );
     }
 }

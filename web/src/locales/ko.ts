@@ -228,6 +228,7 @@ const ko: typeof en = {
       codex: 'codex {{installed}} · 고정 {{pinned}} · loom 명령마다 승인 필요',
       opencode2: 'opencode2 {{installed}} · 고정 {{pinned}}',
       cursor: 'cursor-agent {{installed}} · 고정 {{pinned}}',
+      pi: 'pi {{installed}} · 고정 {{pinned}}',
     },
     messaging: '메시지 연동',
     terminalOnly: '터미널만',

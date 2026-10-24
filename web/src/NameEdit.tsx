@@ -2,10 +2,9 @@ import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { renameNode } from './api';
 import type { NodeId } from './gen/NodeId';
+import { editEnd, type SaveName } from './editEnd';
 
-export type SaveName = (name: string) => Promise<unknown>;
-
-export type Rename = { editing: boolean; open: () => void; close: () => void };
+export type Rename = { editing: boolean; open: () => void; close: () => void; refused?: (message: string) => void };
 
 export function returnFocus(home: () => HTMLElement | null | undefined) {
   requestAnimationFrame(() => {
@@ -25,24 +24,30 @@ export function useRename(home?: RefObject<HTMLElement | null>): Rename {
   };
 }
 
-function Editor(props: { name: string; label: string; save: SaveName; onClose: () => void }) {
+function Editor(props: { name: string; label: string; save: SaveName; onClose: () => void; onRefusedAfterClose?: (message: string) => void }) {
   const { t } = useTranslation();
   const tipId = useId();
   const input = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(props.name);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const shown = useRef(true);
   useEffect(() => {
+    shown.current = true;
     input.current?.focus();
     input.current?.select();
+    return () => {
+      shown.current = false;
+    };
   }, []);
+  const ending = useRef(editEnd()).current;
   const save = () => {
-    if (value.trim() === props.name) return props.onClose();
-    setSaving(true);
-    props.save(value).then(props.onClose, (e: Error) => {
+    const fail = (message: string) => {
+      if (!shown.current) return props.onRefusedAfterClose?.(message);
       setSaving(false);
-      setError(e.message);
-    });
+      setError(message);
+    };
+    if (ending.save(value, props.name, props.save, props.onClose, fail)) setSaving(true);
   };
   return (
     <span className="rename nodrag" onDoubleClick={(e) => e.stopPropagation()}>
@@ -60,11 +65,11 @@ function Editor(props: { name: string; label: string; save: SaveName; onClose: (
           setValue(e.target.value);
           setError(null);
         }}
-        onBlur={props.onClose}
+        onBlur={save}
         onKeyDown={(e) => {
           e.stopPropagation();
-          if (e.key === 'Escape') props.onClose();
-          else if (e.key === 'Enter' && !saving) save();
+          if (e.key === 'Escape') ending.cancel(props.onClose);
+          else if (e.key === 'Enter') save();
         }}
       />
       {error === null ? (
@@ -82,7 +87,7 @@ function Editor(props: { name: string; label: string; save: SaveName; onClose: (
 
 export function NameField(props: { name: string; label: string; detail?: string; rename: Rename; save: SaveName }) {
   const { t } = useTranslation();
-  if (props.rename.editing) return <Editor name={props.name} label={props.label} save={props.save} onClose={props.rename.close} />;
+  if (props.rename.editing) return <Editor name={props.name} label={props.label} save={props.save} onClose={props.rename.close} onRefusedAfterClose={props.rename.refused} />;
   return (
     <span
       className="name renamable"

@@ -58,4 +58,4 @@ doc: WaitDoc | null, } | { "kind": "reported", node: Who, wait: WaitId, summary:
 /**
  * 붙은 문서(`--doc`). `Asked`와 같다.
  */
-doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, } | { "kind": "nudged", node: Who, check: TurnCheck, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, };
+doc: WaitDoc | null, } | { "kind": "answered", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "instructed", node: Who, wait: WaitId, text: string, images: number, } | { "kind": "unanswered", node: Who, wait: WaitId, by: ClosedBy, } | { "kind": "confirmed", node: Who, wait: WaitId, } | { "kind": "nudged", node: Who, check: TurnCheck, } | { "kind": "idleOpened", node: Who, } | { "kind": "idleEnded", node: Who, by: IdleEnd, } | { "kind": "noIdleWait", node: Who, };

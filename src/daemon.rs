@@ -2180,7 +2180,7 @@ async fn agent_said(
     Json(req): Json<SaidRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.turn_ends.said(node, req.text);
+    app.said(node, req.text);
     Ok(Json(()))
 }
 

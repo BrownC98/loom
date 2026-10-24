@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
@@ -9,7 +10,13 @@ pub struct IdleWaits {
     graph: Arc<Graph>,
     ends: Mutex<HashMap<NodeId, oneshot::Sender<IdleEnd>>>,
     turns: Mutex<HashSet<NodeId>>,
+    heard: Mutex<HashSet<NodeId>>,
+    said: Mutex<HashMap<NodeId, Said>>,
+    next_said: AtomicU64,
 }
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Said(u64);
 
 pub struct Wait<'a> {
     waits: &'a IdleWaits,
@@ -24,11 +31,16 @@ impl IdleWaits {
             graph,
             ends: Mutex::default(),
             turns: Mutex::default(),
+            heard: Mutex::default(),
+            said: Mutex::default(),
+            next_said: AtomicU64::new(0),
         }
     }
 
     pub fn open(&self, node: NodeId) -> Wait<'_> {
         self.turns.lock().unwrap().remove(&node);
+        self.said.lock().unwrap().remove(&node);
+        self.heard.lock().unwrap().insert(node);
         let (tx, end) = oneshot::channel();
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
             let _ = old.send(IdleEnd::NewWait);
@@ -78,9 +90,34 @@ impl IdleWaits {
 
     pub fn end(&self, node: NodeId, by: IdleEnd) {
         self.turns.lock().unwrap().remove(&node);
+        self.said.lock().unwrap().remove(&node);
         if let Some(old) = self.ends.lock().unwrap().remove(&node) {
             let _ = old.send(by);
         }
+    }
+
+    pub fn said(&self, node: NodeId) -> Option<Said> {
+        if !self.heard.lock().unwrap().contains(&node) {
+            return None;
+        }
+        let said = Said(self.next_said.fetch_add(1, Ordering::Relaxed));
+        self.said.lock().unwrap().insert(node, said);
+        Some(said)
+    }
+
+    pub fn stop_reached(&self, node: NodeId) {
+        self.said.lock().unwrap().remove(&node);
+    }
+
+    pub fn missed(&self, node: NodeId, said: Said) -> bool {
+        let mut pending = self.said.lock().unwrap();
+        if pending.get(&node) != Some(&said) {
+            return false;
+        }
+        pending.remove(&node);
+        self.heard.lock().unwrap().remove(&node);
+        self.turns.lock().unwrap().remove(&node);
+        true
     }
 
     fn record(&self, entry: Entry) {
@@ -186,6 +223,37 @@ mod tests {
         assert!(!waits.reopen(&mut wait));
         waits.turn_started(node, "preToolUse".into());
         assert!(!waits.reopen(&mut wait));
+    }
+
+    #[test]
+    fn a_said_turn_misses_its_wait_only_after_a_heard_stop_hook_and_only_once() {
+        let (_dir, [node, _], waits) = waits();
+        assert_eq!(waits.said(node), None, "no stop hook has reached loom yet");
+        waits.open(node).finish(IdleEnd::Mail);
+        let said = waits.said(node).unwrap();
+        waits.turn_started(node, "preToolUse".into());
+        assert!(waits.in_turn(node));
+        let missed = waits.said(node).unwrap();
+        assert!(!waits.missed(node, said), "a newer turn end came");
+        assert!(waits.missed(node, missed));
+        assert!(!waits.in_turn(node));
+        assert!(!waits.missed(node, missed));
+        assert_eq!(
+            waits.said(node),
+            None,
+            "the relaunched process proves its stop hook again"
+        );
+
+        waits.open(node).finish(IdleEnd::Mail);
+        let said = waits.said(node).unwrap();
+        waits.open(node).finish(IdleEnd::Mail);
+        assert!(!waits.missed(node, said), "the wait opened");
+        let said = waits.said(node).unwrap();
+        waits.turn_started(node, "beforeSubmitPrompt".into());
+        assert!(!waits.missed(node, said), "the human started a turn");
+        let said = waits.said(node).unwrap();
+        waits.stop_reached(node);
+        assert!(!waits.missed(node, said), "the stop hook nudged a new turn");
     }
 
     #[test]

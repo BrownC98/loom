@@ -509,6 +509,67 @@ fn a_nudged_turn_end_leaves_an_event() {
     assert_eq!(t.since(mark), []);
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_without_an_idle_wait_relaunches_the_node_once() {
+    let t = fixture();
+    let cursor = |name: &str, token: &str| {
+        let child = NewChild {
+            name,
+            worktree: None,
+            agent: Some(AgentId("cursor".into())),
+            brief: "",
+            role: None,
+            task: "t",
+        };
+        let limits = TreeLimits {
+            max_depth: None,
+            max_children: None,
+        };
+        t.app
+            .graph
+            .add_child(t.lead, child, limits, &launched(token), |_| Ok(()))
+            .unwrap()
+    };
+    let deaf = cursor("deaf", "deaf-token");
+    let heard = cursor("heard", "heard-token");
+    for node in [deaf, heard] {
+        t.app.idle.open(node).finish(IdleEnd::Mail);
+    }
+    let said = |token: &str| {
+        let text = SaidRequest { text: "끝".into() };
+        agent_said(t.state(), headers(token, "said"), Json(text))
+    };
+    let relaunches = |mark| {
+        t.since(mark)
+            .into_iter()
+            .filter(|e| matches!(e, Entry::NoIdleWait { .. } | Entry::Relaunched { .. }))
+            .collect::<Vec<_>>()
+    };
+
+    let mark = t.mark();
+    ok("said", said("deaf-token").await);
+    ok("said", said("heard-token").await);
+    tokio::time::sleep(turn_end::IDLE_GRACE / 2).await;
+    let _wait = t.app.idle.open(heard);
+    tokio::time::sleep(turn_end::IDLE_GRACE).await;
+    let found = relaunches(mark);
+    assert!(
+        matches!(
+            found.as_slice(),
+            [
+                Entry::NoIdleWait { node },
+                Entry::Relaunched { node: again, error: Some(_), .. },
+            ] if node.id == Some(deaf) && again.id == Some(deaf)
+        ),
+        "{found:?}"
+    );
+
+    let mark = t.mark();
+    ok("said", said("deaf-token").await);
+    tokio::time::sleep(turn_end::IDLE_GRACE * 2).await;
+    assert_eq!(relaunches(mark), []);
+}
+
 #[test]
 fn old_message_verbs_are_gone() {
     for old in ["send", "steer", "interrupt", "reply"] {

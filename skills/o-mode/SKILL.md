@@ -19,7 +19,7 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 
 - To change the agent of a running node, use `loom relaunch <child> --agent <id>`; do not remove and spawn again. For new nodes, only the human changes the role table.
 - A high-risk edit scope goes to the high-risk role. That alone does not require a worker.
-- Each branch to main gets one reviewer. Only a high-risk branch also gets a second reviewer.
+- Each branch to main gets two reviewers.
 - The lead does one- or two-line changes and gives all other work (code, screen checks, research) to one coordinator in a new worktree. It keeps the work context: current work, children, decisions, waiting approvals. It receives only the coordinator's `done` and the gate's merged and failed results. It does not read result files.
 - The node that has the facts writes the brief, spawns the workers, reviews, merges and cleans up. A lead brief gives only the goal (with done-when) and the scope. Keep its `Facts:` short: put long facts in a task folder file and give the absolute path. Do not give the brief rules path; loom adds those rules.
 - A coordinator does small, closely related work itself. It divides work only into two or more independent edit scopes. With one scope, it spawns the worker without `--worktree` in its own worktree. While the worker runs, the coordinator only reads and reviews there. It also takes pieces that wait for one product decision.

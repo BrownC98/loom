@@ -544,11 +544,7 @@ pub fn verdict(
 
 fn default_findings(branch: &str, judgment: Judgment) -> Result<Option<PathBuf>, String> {
     let relations: Relations = call("status", &(), None)?;
-    let path = task_dir()?.join(task::REVIEW).join(format!(
-        "{}-{}.md",
-        task::folder(branch),
-        task::folder(&relations.me.name)
-    ));
+    let path = task_dir()?.join(task::findings(branch, &relations.me.name));
     match (path.is_file(), judgment) {
         (true, _) => absolute(&path).map(Some),
         (false, Judgment::Pass) => Ok(None),

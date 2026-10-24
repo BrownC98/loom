@@ -8,9 +8,10 @@ use super::{
 };
 use crate::profile::AgentId;
 use crate::protocol::{
-    self, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, MergeEnd, MessageKind,
+    self, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, MergeEnd, MessageKind, Peer,
     Receiver, Sender, Target,
 };
+use crate::task;
 use crate::worktree::RepoId;
 
 pub struct Round<'a> {
@@ -567,6 +568,52 @@ impl Graph {
         Ok(())
     }
 
+    pub fn introduce_reviewer(&self, node: NodeId) -> rusqlite::Result<()> {
+        let db = self.lock();
+        let Some((gate, branch)) = db
+            .query_row(
+                "SELECT parent, review FROM nodes WHERE id = ?1 AND review IS NOT NULL",
+                [node.0],
+                |r| Ok((NodeId(r.get(0)?), r.get::<_, String>(1)?)),
+            )
+            .optional()?
+        else {
+            return Ok(());
+        };
+        let seated: Vec<(NodeId, String, Option<AgentId>)> = db
+            .prepare(&format!(
+                "SELECT n.id, n.name, n.agent FROM nodes n
+                 WHERE n.parent = ?1 AND n.review = ?2 AND {REACHABLE} ORDER BY n.id"
+            ))?
+            .query_map(params![gate.0, branch], |r| {
+                Ok((NodeId(r.get(0)?), r.get(1)?, from_json(r, 2)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        if seated.len() < 2 {
+            return Ok(());
+        }
+        let names: Vec<(NodeId, String)> = seated
+            .iter()
+            .map(|(id, name, _)| (*id, name.clone()))
+            .collect();
+        let newcomer: Vec<(NodeId, String)> = names
+            .iter()
+            .filter(|(id, _)| *id == node)
+            .cloned()
+            .collect();
+        for (id, _, agent) in &seated {
+            let (peers, kind) = match *id == node {
+                true => (peers_of(&db, &names, node, &branch)?, Kind::Queue),
+                false => (peers_of(&db, &newcomer, *id, &branch)?, steer_kind(agent)),
+            };
+            let body = protocol::peers_step(&branch, &peers);
+            mailbox::enqueue_from_loom(&db, *id, kind, &MessageKind::Note, &body, None)?;
+            self.publish_node(&db, *id)?;
+        }
+        self.mail.notify_waiters();
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn apply(
         &self,
@@ -675,19 +722,31 @@ impl Graph {
                 sent.push(me);
             }
             if call == GateCall::Ready {
-                for reviewer in reviewers(&tx, &row, branch, caller)? {
-                    let body = protocol::review_again_step(branch);
+                let seated = reviewers(&tx, &row, branch, caller)?;
+                for (reviewer, name) in &seated {
+                    let judged = last_judged(&tx, *reviewer, branch)?;
+                    let mut body = Vec::new();
+                    let peers = peers_of(&tx, &seated, *reviewer, branch)?;
+                    if !peers.is_empty() {
+                        body.push(protocol::peers_step(branch, &peers));
+                    }
+                    body.push(protocol::review_again_step(
+                        branch,
+                        &row.head,
+                        judged.as_deref(),
+                        &findings_of(&tx, *reviewer, name, branch)?,
+                    ));
                     post(
                         &tx,
                         caller,
-                        reviewer,
+                        *reviewer,
                         Kind::Queue,
                         &what,
-                        &body,
+                        &body.join("\n"),
                         via,
                         &trace,
                     )?;
-                    sent.push(reviewer);
+                    sent.push(*reviewer);
                 }
             }
         }
@@ -769,9 +828,9 @@ fn withdraw(
     branch: &str,
     trace: &GateTrace,
 ) -> rusqlite::Result<Vec<NodeId>> {
-    let reviewers: Vec<(NodeId, Option<AgentId>)> = tx
+    let reviewers: Vec<(NodeId, String, Option<AgentId>)> = tx
         .prepare(&format!(
-            "SELECT n.id, n.agent FROM nodes n WHERE {} AND n.id != ?3 ORDER BY n.id",
+            "SELECT n.id, n.name, n.agent FROM nodes n WHERE {} AND n.id != ?3 ORDER BY n.id",
             in_round("?1", "?2", "?4")
         ))?
         .query_map(
@@ -781,22 +840,33 @@ fn withdraw(
                 caller.node().map_or(0, |n| n.0),
                 branch
             ],
-            |r| Ok((NodeId(r.get(0)?), from_json(r, 1)?)),
+            |r| Ok((NodeId(r.get(0)?), r.get(1)?, from_json(r, 2)?)),
         )?
         .collect::<rusqlite::Result<_>>()?;
     let what = MessageKind::Withdrawn {
         branch: branch.to_owned(),
         head: row.head.clone(),
     };
-    let body = protocol::withdrawn_step(branch, row.state);
-    for (node, agent) in &reviewers {
-        let kind = match agent.as_ref().and_then(crate::profile::profile_of) {
-            Some(_) => Kind::Steer,
-            None => Kind::Queue,
-        };
-        mailbox::enqueue_from_loom(tx, *node, kind, &what, &body, Some(trace.clone()))?;
+    for (node, name, agent) in &reviewers {
+        let body =
+            protocol::withdrawn_step(branch, row.state, &findings_of(tx, *node, name, branch)?);
+        mailbox::enqueue_from_loom(
+            tx,
+            *node,
+            steer_kind(agent),
+            &what,
+            &body,
+            Some(trace.clone()),
+        )?;
     }
-    Ok(reviewers.into_iter().map(|(node, _)| node).collect())
+    Ok(reviewers.into_iter().map(|(node, ..)| node).collect())
+}
+
+fn steer_kind(agent: &Option<AgentId>) -> Kind {
+    match agent.as_ref().and_then(crate::profile::profile_of) {
+        Some(_) => Kind::Steer,
+        None => Kind::Queue,
+    }
 }
 
 fn reviewers(
@@ -804,9 +874,9 @@ fn reviewers(
     row: &Row,
     branch: &str,
     caller: Caller,
-) -> rusqlite::Result<Vec<NodeId>> {
+) -> rusqlite::Result<Vec<(NodeId, String)>> {
     tx.prepare(&format!(
-        "SELECT n.id FROM nodes n WHERE {} AND n.id != ?4 ORDER BY n.id",
+        "SELECT n.id, n.name FROM nodes n WHERE {} AND n.id != ?4 ORDER BY n.id",
         in_round("?1", "?2", "?3")
     ))?
     .query_map(
@@ -816,9 +886,64 @@ fn reviewers(
             branch,
             caller.node().map_or(0, |n| n.0)
         ],
-        |r| Ok(NodeId(r.get(0)?)),
+        |r| Ok((NodeId(r.get(0)?), r.get(1)?)),
     )?
     .collect()
+}
+
+fn peers_of(
+    db: &Connection,
+    seated: &[(NodeId, String)],
+    me: NodeId,
+    branch: &str,
+) -> rusqlite::Result<Vec<Peer>> {
+    seated
+        .iter()
+        .filter(|(id, _)| *id != me)
+        .map(|(id, name)| {
+            Ok(Peer {
+                name: name.clone(),
+                findings: findings_of(db, *id, name, branch)?,
+            })
+        })
+        .collect()
+}
+
+fn findings_of(
+    db: &Connection,
+    reviewer: NodeId,
+    name: &str,
+    branch: &str,
+) -> rusqlite::Result<String> {
+    let given = last_verdict(db, reviewer, branch, "SELECT entry ->> '$.what.findings'")?;
+    Ok(given.unwrap_or_else(|| task::findings_in_task(branch, name)))
+}
+
+fn last_judged(
+    db: &Connection,
+    reviewer: NodeId,
+    branch: &str,
+) -> rusqlite::Result<Option<String>> {
+    last_verdict(db, reviewer, branch, "SELECT entry ->> '$.what.head'")
+}
+
+fn last_verdict(
+    db: &Connection,
+    reviewer: NodeId,
+    branch: &str,
+    select: &str,
+) -> rusqlite::Result<Option<String>> {
+    db.query_row(
+        &format!(
+            "{select} FROM events WHERE entry ->> '$.kind' = 'message'
+             AND entry ->> '$.gate.verb' = 'verdict' AND entry ->> '$.gate.branch' = ?2
+             AND entry ->> '$.from.id' = ?1 ORDER BY id DESC LIMIT 1"
+        ),
+        params![reviewer.0, branch],
+        |r| r.get(0),
+    )
+    .optional()
+    .map(Option::flatten)
 }
 
 fn pending(

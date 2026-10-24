@@ -19,7 +19,7 @@ text: string,
  */
 since: number, 
 /**
- * `loom ask` 질문이나 완료다. 화면에서 답할 수 있다(`Graph::answer`). 완료의 답은 이어서 맡기는 일이다. 다른 대기는 그 노드 터미널에서만 답한다.
+ * `loom ask` 질문이나 완료다. 화면에서 답할 수 있다(`Graph::answer`). 완료의 답은 이어서 맡기는 일이다. 다른 대기는 `prompt`의 버튼·입력칸이나 그 노드 터미널에서 답한다.
  */
 answerable: boolean, doc: WaitDoc | null, 
 /**
@@ -31,7 +31,7 @@ instruction?: string,
  */
 images: Array<string>, 
 /**
- * 승인(`Approval`) 신호 대기만: 지금 터미널 화면에서 읽은 승인 창. 읽지 못했으면 없다. DB에 두지 않는다(`Graph::set_prompt`).
+ * 터미널 창 대기(`WaitKind::has_dialog`)만: 지금 터미널 화면에서 읽은 창. 읽지 못했으면 없다. DB에 두지 않는다(`Graph::set_prompt`).
  */
 prompt?: Prompt, 
 /**

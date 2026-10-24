@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::Take;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::{Dialog, Grammar, Options, Place, Top};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
@@ -121,21 +121,25 @@ pub const DIALOGS: [Dialog; 4] = [
         text: "Choose the text style that looks best with your terminal",
         kind: WaitKind::Auth,
         place: Place::BeforeSession,
+        answer: Answer::Below(Options::Listed),
     },
     Dialog {
         text: "Yes, I trust this folder",
         kind: WaitKind::Trust,
         place: Place::BeforeSession,
+        answer: Answer::Panel(Options::Listed),
     },
     Dialog {
         text: "Yes, I accept",
         kind: WaitKind::Approval,
         place: Place::BeforeSession,
+        answer: Answer::Panel(Options::Listed),
     },
     Dialog {
         text: "Select login method:",
         kind: WaitKind::Auth,
         place: Place::BeforeSession,
+        answer: Answer::Below(Options::Numbered),
     },
 ];
 
@@ -361,7 +365,7 @@ mod tests {
 
     #[test]
     fn approval_prompt_is_read_from_the_screen() {
-        let prompt = crate::screen::prompt(&PROMPT, APPROVAL, 120).unwrap();
+        let prompt = crate::screen::prompt(&[PROMPT], &DIALOGS, APPROVAL, 120).unwrap();
         assert_eq!(
             prompt.body,
             [
@@ -375,7 +379,7 @@ mod tests {
         let options: Vec<_> = prompt
             .options
             .iter()
-            .map(|o| (o.label.as_str(), o.key))
+            .map(|o| (o.label.as_str(), o.key.clone()))
             .collect();
         assert_eq!(
             options,
@@ -423,7 +427,7 @@ mod tests {
 
     #[test]
     fn wrapped_lines_and_the_guard_line_are_joined_or_dropped() {
-        let prompt = crate::screen::prompt(&PROMPT, NARROW, 80).unwrap();
+        let prompt = crate::screen::prompt(&[PROMPT], &DIALOGS, NARROW, 80).unwrap();
         assert_eq!(
             prompt.body,
             [
@@ -450,7 +454,7 @@ mod tests {
                 ),
             )
         };
-        let one = crate::screen::prompt(&PROMPT, &screen("one"), 120).unwrap();
+        let one = crate::screen::prompt(&[PROMPT], &DIALOGS, &screen("one"), 120).unwrap();
         assert_eq!(
             one.body,
             [
@@ -470,18 +474,79 @@ mod tests {
             ]
         );
         assert_eq!(one.summary, "echo ready");
-        let two = crate::screen::prompt(&PROMPT, &screen("two"), 120).unwrap();
+        let two = crate::screen::prompt(&[PROMPT], &DIALOGS, &screen("two"), 120).unwrap();
         assert_ne!(one, two);
         let spaced = screen("one").replace(" │   indented", " │    indented");
-        assert_ne!(one, crate::screen::prompt(&PROMPT, &spaced, 120).unwrap());
+        assert_ne!(
+            one,
+            crate::screen::prompt(&[PROMPT], &DIALOGS, &spaced, 120).unwrap()
+        );
     }
 
     #[test]
     fn numbered_lists_without_a_selection_are_not_prompts() {
         let answered = APPROVAL.replace(" ❯ 1. Yes", "   1. Yes");
-        assert_eq!(crate::screen::prompt(&PROMPT, &answered, 120), None);
+        assert_eq!(
+            crate::screen::prompt(&[PROMPT], &DIALOGS, &answered, 120),
+            None
+        );
         let list = "──────\n❯ plan\n● Steps:\n  1. Build\n  2. Test\n";
-        assert_eq!(crate::screen::prompt(&PROMPT, list, 80), None);
+        assert_eq!(crate::screen::prompt(&[PROMPT], &DIALOGS, list, 80), None);
+    }
+
+    fn options(screen: &str) -> Vec<(String, PromptKey)> {
+        crate::screen::prompt(&[PROMPT], &DIALOGS, screen, 100)
+            .unwrap()
+            .options
+            .into_iter()
+            .map(|o| (o.label, o.key))
+            .collect()
+    }
+
+    #[test]
+    fn first_dialogs_have_buttons() {
+        let trust = include_str!("screens/claude-trust.txt");
+        let prompt = crate::screen::prompt(&[PROMPT], &DIALOGS, trust, 100).unwrap();
+        assert_eq!(prompt.body[..2], ["Accessing workspace:", "/tmp/repo"]);
+        assert_eq!(
+            options(trust),
+            [
+                ("No, exit".into(), PromptKey::Move(0)),
+                ("Yes, I trust this folder".into(), PromptKey::Move(1)),
+            ]
+        );
+        assert_eq!(PromptKey::Move(1).bytes().unwrap(), b"\x1b[B\r");
+        let theme = options(include_str!("screens/claude-theme.txt"));
+        assert_eq!(theme.len(), 7);
+        assert_eq!(
+            theme[0],
+            ("Auto (match terminal)".into(), PromptKey::Move(-1))
+        );
+        assert_eq!(theme[1], ("Dark mode".into(), PromptKey::Move(0)));
+        assert_eq!(
+            options(include_str!("screens/claude-login.txt")),
+            [
+                (
+                    "Claude account with subscription · Pro, Max, Team, or Enterprise".into(),
+                    PromptKey::Char('1')
+                ),
+                (
+                    "Anthropic Console account · API usage billing".into(),
+                    PromptKey::Char('2')
+                ),
+                (
+                    "3rd-party platform · Amazon Bedrock, Microsoft Foundry, Google Vertex AI"
+                        .into(),
+                    PromptKey::Char('3')
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_input_box_is_not_a_list() {
+        let idle = "──────\n❯ Try \"how do I log an error?\"\n──────\n  ⏵⏵ auto mode on (shift+tab to cycle)\n";
+        assert_eq!(crate::screen::prompt(&[PROMPT], &DIALOGS, idle, 80), None);
     }
 
     #[test]

@@ -426,8 +426,13 @@ impl Pty {
         let size = |n: u16| NonZeroU16::new(n.max(1)).expect("1 이상이다");
         let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
         parser.process(&bytes);
+        let screen = parser.screen();
+        let (row, col) = screen.cursor_position();
+        let above = screen.rows(0, cols).take(row.into());
+        let at = screen.rows(0, col).nth(row.into());
         Screen {
-            text: parser.screen().contents(),
+            text: screen.contents(),
+            to_cursor: above.chain(at).collect::<Vec<_>>().join("\n"),
             cols,
         }
     }
@@ -486,6 +491,7 @@ impl Backlog {
 #[derive(Default)]
 pub struct Screen {
     pub text: String,
+    pub to_cursor: String,
     pub cols: u16,
 }
 

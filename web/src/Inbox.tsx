@@ -4,14 +4,12 @@ import { useTranslation } from 'react-i18next';
 import type { PillPlace } from './gen/PillPlace';
 import type { QuestionPill } from './gen/QuestionPill';
 import { DRAG_SLOP, PILL_MARGIN, placeFrom, placeOf, popLeft, popSpace, type Size } from './pillPlace';
-import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, savePastedFile } from './api';
+import { answerWait, chooseOption, dismissWait, doneImageUrl, PASTE_LIMIT_BYTES, savePastedFile, typeText } from './api';
 import { DocText } from './DocText';
 import { dateAndTime } from './i18n';
 import { notify, notifyAllowed, windowHidden } from './osNotify';
 import type { Choice } from './gen/Choice';
 import type { HumanWait } from './gen/HumanWait';
-import type { Prompt } from './gen/Prompt';
-import type { PromptKey } from './gen/PromptKey';
 import type { NodeId } from './gen/NodeId';
 import type { WaitId } from './gen/WaitId';
 import type { NodeView } from './gen/NodeView';
@@ -19,6 +17,7 @@ import { useShowNodes } from './Graph';
 import { stateClass } from './NodeCard';
 import { bySince, ICON, newestId, NodeText, NoticeBadges, NoticeLead, oldestWait, pillClosed, showsId, summaryOf, toneOf } from './notice';
 import { PinchImage } from './PinchImage';
+import { PromptBody } from './PromptBody';
 import { Modal } from './Modal';
 import { useDismiss } from './popover';
 
@@ -324,6 +323,11 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       images.list.map((i) => i.path),
     ).catch((err: Error) => setRefusal(err.message));
   };
+  const answerPrompt = (sent: Promise<null>) => {
+    setRefusal(null);
+    setChoosing(true);
+    sent.catch((err: Error) => setRefusal(err.message)).finally(() => setChoosing(false));
+  };
   const drop: DOMAttributes<HTMLDivElement> = wait.answerable
     ? {
         onDragOver: (e) => {
@@ -357,14 +361,9 @@ function WaitBody(props: { node: NodeId; wait: HumanWait; onGo: () => void }) {
       {prompt && (
         <PromptBody
           prompt={prompt}
-          choosing={choosing}
-          onPick={(option) => {
-            setRefusal(null);
-            setChoosing(true);
-            chooseOption(wait.id, prompt, option)
-              .catch((err: Error) => setRefusal(err.message))
-              .finally(() => setChoosing(false));
-          }}
+          busy={choosing}
+          onPick={(option) => answerPrompt(chooseOption(wait.id, prompt, option))}
+          onType={(text) => answerPrompt(typeText(wait.id, prompt, text))}
         />
       )}
       {!prompt && (wait.text || wait.doc) && (
@@ -449,24 +448,6 @@ function useImages(node: NodeId, onError: (message: string) => void) {
   };
   return { list, attach, remove };
 }
-
-function PromptBody(props: { prompt: Prompt; choosing: boolean; onPick: (option: number) => void }) {
-  return (
-    <>
-      <pre className="prompt">{props.prompt.body.join('\n')}</pre>
-      <div className="choices prompt-options">
-        {props.prompt.options.map((o, index) => (
-          <button key={index} type="button" className="choice" data-recommended={index === 0 || undefined} disabled={props.choosing} onClick={() => props.onPick(index)}>
-            <span className="key">{keyLabel(o.key)}</span>
-            <span className="label">{o.label}</span>
-          </button>
-        ))}
-      </div>
-    </>
-  );
-}
-
-const keyLabel = (key: PromptKey) => (key.kind === 'char' ? key.value : key.kind === 'tab' ? 'tab' : '⇧tab');
 
 function Choices(props: { list: readonly Choice[]; onPick: (key: string) => void }) {
   const { t } = useTranslation();

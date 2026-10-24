@@ -13,8 +13,9 @@ use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::graph::{Delivery, Kind, OpenQuestion, WaitKind};
-use crate::screen::{Dialog, Grammar, Place};
+use crate::graph::{Delivery, InputField, Kind, OpenQuestion, Prompt as ScreenPrompt, WaitKind};
+use crate::node_host::Screen;
+use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Session};
 use crate::skills::Launch;
 use crate::wsl::Inside;
 
@@ -263,50 +264,59 @@ fn installed_version(cmd: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-const SHELL_DIALOGS: [Dialog; 5] = [
-    Dialog {
+const SHELL: [LinePrompt; 5] = [
+    LinePrompt {
         text: "password",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
+        reply: Reply::Field(InputField::Secret),
     },
-    Dialog {
+    LinePrompt {
         text: "passphrase",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
+        reply: Reply::Field(InputField::Secret),
     },
-    Dialog {
+    LinePrompt {
         text: "(yes/no",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
+        reply: Reply::Words(&[("yes", "yes"), ("no", "no")]),
     },
-    Dialog {
+    LinePrompt {
         text: "[y/n]",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
+        reply: Reply::Words(&[("y", "yes"), ("n", "no")]),
     },
-    Dialog {
+    LinePrompt {
         text: "Username for '",
-        kind: WaitKind::Input,
-        place: Place::LastLine,
+        reply: Reply::Field(InputField::Text),
     },
 ];
 
-pub fn dialogs(profile: Option<Profile>) -> &'static [Dialog] {
-    match profile {
-        Some(Profile::Claude) => &claude::DIALOGS,
-        Some(Profile::Codex) => &codex::DIALOGS,
-        Some(Profile::Cursor) => &cursor::DIALOGS,
-        Some(Profile::OpenCode2) => &[],
-        None => &SHELL_DIALOGS,
+pub fn reads_screen(profile: Option<Profile>) -> bool {
+    profile != Some(Profile::OpenCode2)
+}
+
+pub fn wait(
+    profile: Option<Profile>,
+    screen: &Screen,
+    session: Session,
+) -> Option<(WaitKind, String)> {
+    match agent_screen(profile) {
+        Some((_, dialogs)) => screen::find(dialogs, &screen.text, session),
+        None => screen::line(&SHELL, &screen.to_cursor).map(|(text, _)| (WaitKind::Input, text)),
     }
 }
 
-pub fn prompt_grammar(profile: Option<Profile>) -> Option<&'static Grammar> {
+pub fn prompt(profile: Option<Profile>, screen: &Screen) -> Option<ScreenPrompt> {
+    match agent_screen(profile) {
+        Some((grammars, dialogs)) => {
+            screen::prompt(grammars, dialogs, &screen.text, screen.cols.into())
+        }
+        None => screen::line(&SHELL, &screen.to_cursor).map(|(_, prompt)| prompt),
+    }
+}
+
+fn agent_screen(profile: Option<Profile>) -> Option<(&'static [Grammar], &'static [Dialog])> {
     match profile? {
-        Profile::Claude => Some(&claude::PROMPT),
-        Profile::Codex => Some(&codex::PROMPT),
-        Profile::Cursor => Some(&cursor::PROMPT),
-        Profile::OpenCode2 => None,
+        Profile::Claude => Some((&[claude::PROMPT], &claude::DIALOGS)),
+        Profile::Codex => Some((&[codex::PROMPT], &codex::DIALOGS)),
+        Profile::Cursor => Some((&[cursor::PROMPT], &cursor::DIALOGS)),
+        Profile::OpenCode2 => Some((&[], &[])),
     }
 }
 
@@ -769,6 +779,39 @@ mod tests {
             leading_args(codex, None, true),
             ["--dangerously-bypass-approvals-and-sandbox"]
         );
+    }
+
+    #[test]
+    fn every_shell_dialog_has_buttons_or_a_field() {
+        for asked in &SHELL {
+            let line = format!("Ask {} here:", asked.text);
+            let (text, shown) = screen::line(&SHELL, &format!("$ run\n{line} ")).unwrap();
+            assert_eq!(text, line);
+            assert_ne!(shown.field.is_some(), !shown.options.is_empty(), "{line}");
+        }
+        let words = screen::line(&SHELL, "Continue? [Y/n] ").unwrap().1;
+        assert_eq!(words.options[0].key.bytes().unwrap(), b"y\r");
+        let keys = |line: &str| -> Vec<Vec<u8>> {
+            let shown = screen::line(&SHELL, line).unwrap().1;
+            assert_eq!(shown.field, None, "{line}");
+            shown
+                .options
+                .iter()
+                .map(|o| o.key.bytes().unwrap())
+                .collect()
+        };
+        assert_eq!(
+            keys("Reset password? [y/n] "),
+            [b"y\r".to_vec(), b"n\r".to_vec()]
+        );
+        assert_eq!(
+            keys("Delete passphrase file? (yes/no) "),
+            [b"yes\r".to_vec(), b"no\r".to_vec()]
+        );
+        let field = screen::line(&SHELL, "Enter passphrase for key '/k': ")
+            .unwrap()
+            .1;
+        assert_eq!(field.field, Some(InputField::Secret));
     }
 
     #[test]

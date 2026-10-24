@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::Take;
 use crate::graph::{Delivery, Kind, Model, WaitKind};
-use crate::screen::{Dialog, Grammar, Options, Place, Top};
+use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
 
 pub const PROMPT: Grammar = Grammar {
@@ -19,41 +19,49 @@ pub const DIALOGS: [Dialog; 8] = [
         text: "Enter next/submit",
         kind: WaitKind::Question,
         place: Place::Panel,
+        answer: Answer::Plain,
     },
     Dialog {
         text: "Do you trust the contents of this directory?",
         kind: WaitKind::Trust,
         place: Place::BeforeSession,
+        answer: Answer::InBox(Options::Bracketed),
     },
     Dialog {
         text: "Run this command",
         kind: WaitKind::Approval,
         place: Place::Panel,
+        answer: Answer::Plain,
     },
     Dialog {
         text: "Run this MCP tool?",
         kind: WaitKind::Approval,
         place: Place::Panel,
+        answer: Answer::Plain,
     },
     Dialog {
         text: "Read this file?",
         kind: WaitKind::Approval,
         place: Place::Panel,
+        answer: Answer::Plain,
     },
     Dialog {
         text: "Write to this file?",
         kind: WaitKind::Approval,
         place: Place::Panel,
+        answer: Answer::Plain,
     },
     Dialog {
         text: "Delete this file?",
         kind: WaitKind::Approval,
         place: Place::Panel,
+        answer: Answer::Plain,
     },
     Dialog {
         text: "Press any key to log in",
         kind: WaitKind::Auth,
         place: Place::BeforeSession,
+        answer: Answer::Plain,
     },
 ];
 
@@ -578,6 +586,37 @@ mod tests {
     }
 
     #[test]
+    fn the_trust_box_has_buttons() {
+        let prompt = crate::screen::prompt(
+            &[PROMPT],
+            &DIALOGS,
+            include_str!("screens/cursor-trust.txt"),
+            100,
+        )
+        .unwrap();
+        assert_eq!(
+            prompt.body,
+            ["Do you trust the contents of this directory?", "/tmp/repo"]
+        );
+        let options: Vec<_> = prompt
+            .options
+            .iter()
+            .map(|o| (o.label.as_str(), &o.key))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                ("Trust this workspace", &PromptKey::Char('a')),
+                ("Quit", &PromptKey::Char('q'))
+            ]
+        );
+        assert_eq!(
+            crate::screen::prompt(&[PROMPT], &DIALOGS, QUESTION, 80),
+            None
+        );
+    }
+
+    #[test]
     fn the_trust_box_is_a_trust_wait() {
         let screen = "│  Do you trust the contents of this directory?  │\n│  ▶ [a] Trust this workspace  │\n│    [q] Quit  │";
         assert_eq!(
@@ -615,7 +654,7 @@ mod tests {
 
     #[test]
     fn the_guard_line_is_not_the_command() {
-        let prompt = crate::screen::prompt(&PROMPT, GUARDED, 80).unwrap();
+        let prompt = crate::screen::prompt(&[PROMPT], &DIALOGS, GUARDED, 80).unwrap();
         assert_eq!(
             prompt.body,
             [
@@ -630,7 +669,7 @@ mod tests {
 
     #[test]
     fn approval_prompt_keys_come_from_the_hints() {
-        let prompt = crate::screen::prompt(&PROMPT, APPROVAL, 80).unwrap();
+        let prompt = crate::screen::prompt(&[PROMPT], &DIALOGS, APPROVAL, 80).unwrap();
         assert_eq!(
             prompt.body,
             [
@@ -643,7 +682,7 @@ mod tests {
         let options: Vec<_> = prompt
             .options
             .iter()
-            .map(|o| (o.label.as_str(), o.key))
+            .map(|o| (o.label.as_str(), o.key.clone()))
             .collect();
         assert_eq!(
             options,
@@ -657,7 +696,10 @@ mod tests {
                 ),
             ]
         );
-        assert_eq!(crate::screen::prompt(&PROMPT, QUESTION, 80), None);
+        assert_eq!(
+            crate::screen::prompt(&[PROMPT], &DIALOGS, QUESTION, 80),
+            None
+        );
     }
 
     #[test]

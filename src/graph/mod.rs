@@ -27,8 +27,8 @@ pub use mailbox::{
 };
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{
-    HUMAN, HumanWait, OpenQuestion, PermissionReply, Prompt, PromptKey, PromptOption, WaitDoc,
-    WaitId, WaitKind, WaitSource,
+    HUMAN, HumanWait, InputField, OpenQuestion, PermissionReply, Prompt, PromptKey, PromptOption,
+    WaitDoc, WaitId, WaitKind, WaitSource, entered,
 };
 
 use crate::db::Database;
@@ -753,7 +753,10 @@ fn view_from_row(row: &Row, prompts: &HashMap<NodeId, Prompt>) -> rusqlite::Resu
     waits.extend(
         wait.and_then(|w| serde_json::from_str::<waits::Stored>(&w).ok())
             .map(|s| HumanWait {
-                prompt: (s.wait.kind == WaitKind::Approval)
+                prompt: s
+                    .wait
+                    .kind
+                    .has_dialog()
                     .then(|| prompts.get(&id).cloned())
                     .flatten(),
                 ..s.wait

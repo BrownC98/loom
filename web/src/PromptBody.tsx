@@ -1,0 +1,62 @@
+import { ArrowUp } from 'lucide-react';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { Prompt } from './gen/Prompt';
+import type { PromptKey } from './gen/PromptKey';
+
+export function PromptBody(props: { prompt: Prompt; busy: boolean; onPick: (option: number) => void; onType: (text: string) => void }) {
+  const { prompt } = props;
+  return (
+    <>
+      <pre className="prompt">{prompt.body.join('\n')}</pre>
+      {prompt.options.length > 0 && (
+        <div className="choices prompt-options">
+          {prompt.options.map((o, index) => (
+            <button key={index} type="button" className="choice" data-recommended={index === 0 || undefined} disabled={props.busy} onClick={() => props.onPick(index)}>
+              <span className="key">{keyLabel(o.key, index)}</span>
+              <span className="label">{o.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {prompt.field && <FieldForm secret={prompt.field === 'secret'} busy={props.busy} onType={props.onType} />}
+    </>
+  );
+}
+
+export function keyLabel(key: PromptKey, index: number): string {
+  switch (key.kind) {
+    case 'char':
+      return key.value;
+    case 'line':
+      return key.value.charAt(0);
+    case 'tab':
+      return 'tab';
+    case 'backTab':
+      return '⇧tab';
+    case 'move':
+    case 'permission':
+      return String(index + 1);
+  }
+}
+
+function FieldForm(props: { secret: boolean; busy: boolean; onType: (text: string) => void }) {
+  const { t } = useTranslation();
+  const [text, setText] = useState('');
+  const label = t(props.secret ? 'inbox.secretLabel' : 'inbox.textLabel');
+  return (
+    <form
+      className="answer"
+      onSubmit={(e) => {
+        e.preventDefault();
+        props.onType(text);
+        setText('');
+      }}
+    >
+      <input className="field" type={props.secret ? 'password' : 'text'} autoComplete="off" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} aria-label={label} />
+      <button type="submit" className="send" aria-label={t('inbox.typeSend')} title={t('inbox.typeSend')} disabled={props.busy}>
+        <ArrowUp aria-hidden="true" />
+      </button>
+    </form>
+  );
+}

@@ -177,6 +177,7 @@ export function Tree(props: {
       setRenaming((k) => (k === key ? null : k));
       returnFocus(() => rowOf(key));
     },
+    refused: (message) => setRefusal({ key, text: message }),
   });
   const toggle = (key: string, open: boolean) =>
     setClosed((prev) => {

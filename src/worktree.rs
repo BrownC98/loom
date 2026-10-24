@@ -198,7 +198,7 @@ impl Repos {
         if target.exists() {
             return Err(RepoProblem::Exists(text));
         }
-        std::fs::create_dir(&target).map_err(|e| RepoProblem::Git(e.to_string()))?;
+        std::fs::create_dir_all(&target).map_err(|e| RepoProblem::Git(e.to_string()))?;
         if let Err(e) = git::run(&target, &["init", "-q"]).await {
             let _ = std::fs::remove_dir(&target);
             return Err(RepoProblem::Git(e));
@@ -355,9 +355,6 @@ fn new_folder(parent: &str, name: &str) -> Result<PathBuf, RepoProblem> {
     let dir = Path::new(parent);
     if !dir.is_absolute() {
         return Err(RepoProblem::NotAbsolute(parent.to_owned()));
-    }
-    if !dir.is_dir() {
-        return Err(RepoProblem::NotFound(parent.to_owned()));
     }
     Ok(dir.join(name))
 }
@@ -931,8 +928,7 @@ mod tests {
     async fn clone_adds_the_copy_and_keeps_existing_folders() {
         let dir = tempfile::tempdir().unwrap();
         let source = repo(dir.path());
-        let parent = dir.path().join("p");
-        std::fs::create_dir(&parent).unwrap();
+        let parent = dir.path().join("p").join("q");
         let parent_text = parent.to_str().unwrap();
         let repos = repos(dir.path());
         let id = repos
@@ -1012,6 +1008,14 @@ mod tests {
                 Err(RepoProblem::BadName(bad.into()))
             );
         }
+
+        let missing = dir.path().join("new").join("deep");
+        let id = repos
+            .create(missing.to_str().unwrap(), "fresh")
+            .await
+            .unwrap();
+        assert_eq!(repos.path(id).unwrap(), missing.join("fresh"));
+        assert!(missing.join("fresh").join(".git").exists());
     }
 
     #[tokio::test]

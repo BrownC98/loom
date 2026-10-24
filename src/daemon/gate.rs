@@ -200,8 +200,9 @@ pub(super) async fn merge_commit(
 }
 
 pub(super) async fn base_branch(repo: &Path) -> Result<String, Refusal> {
-    worktree::worktrees(repo)
+    worktree::listed(repo)
         .await
+        .map_err(Refusal::Git)?
         .into_iter()
         .find(|w| w.original)
         .and_then(|w| w.branch)

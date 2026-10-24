@@ -30,7 +30,7 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 
 ## Supervision and review
 
-- Do not poll: notices tell you when a child is done, exits, is removed or is handed over.
+- Do not poll. Loom tells you when a child is done, exits or is removed.
 - After a child's time budget, send `loom note <child> "Report status and blockers." --steer`; if it does not answer, run `loom status`.
 - To stop a child, send `--interrupt` and ask for its result, failure cause and remaining work. Before you reassign, make sure that it stopped.
 - If the same completion command fails two times, or the environment blocks you over 10 minutes, follow [reference "Blocked"](reference.md#blocked).

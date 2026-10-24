@@ -27,6 +27,7 @@ If the human's language is Korean, change the English-only rules:
 - No -ing → use verbs, not noun forms (진행하다, -함, -기).
 - Simple tenses → no guess endings (-ㄹ 것 같다, -로 보인다). Write "가설:" before a statement that you did not examine.
 - Word count → 어절 count: 15 in procedures, 18 in descriptions.
+- Register → 합니다체 in text to the human; repo files and commits: 한다체.
 - Approved words → write 하다·쓰다·적다·그·다르다, not 실시·수행·진행·처리·활용·기재·해당·상이. No translated phrases (~을 통해, ~에 있어서, ~로 인해).
 
 The exact rules and dictionary are in `ASD-STE100_ISSUE9.pdf`; read it if it is in this skill folder. loom does not ship it. ASD forbids copies without permission: do not copy its text into a repository or web page.

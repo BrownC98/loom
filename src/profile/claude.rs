@@ -20,7 +20,7 @@ const SYNTHETIC_MODEL: &str = "<synthetic>";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you when a message arrives. The loom guard line before foreground Bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages as hook additional context after a tool call or at a prompt. An interrupt arrives as the reason of a denied tool call. A wake arrives as a \"Messages from loom:\" notification. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
 fn usage(launch: Launch) -> String {
     format!(
@@ -148,6 +148,45 @@ const ASK_TOOL: &str = "AskUserQuestion";
 const PLAN_TOOL: &str = "ExitPlanMode";
 
 #[derive(Deserialize)]
+pub struct Hook {
+    #[serde(flatten)]
+    pub event: Event,
+    agent_id: Option<String>,
+}
+
+impl Hook {
+    pub fn take(&self) -> Take {
+        match self.agent_id {
+            Some(_) => Take::Never,
+            None => self.event.take(),
+        }
+    }
+
+    pub fn asks_interrupt(&self) -> bool {
+        self.agent_id.is_some() && matches!(self.event, Event::PreToolUse { .. })
+    }
+
+    pub fn reports_wait(&self) -> bool {
+        self.agent_id.is_none() || self.event.human_wait().is_some()
+    }
+}
+
+const SUBAGENT_INTERRUPTED: &str =
+    "Your parent agent received a loom interrupt. Stop now and return to your parent agent.";
+
+pub fn subagent_interrupted() -> Value {
+    deny(SUBAGENT_INTERRUPTED.into())
+}
+
+fn deny(text: String) -> Value {
+    json!({ "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": text,
+    } })
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "hook_event_name")]
 pub enum Event {
     SessionStart {
@@ -255,11 +294,7 @@ impl Event {
             | Event::Stop
             | Event::StopFailure { .. }
             | Event::Notification { .. } => None,
-            Event::PreToolUse { .. } => Some(json!({ "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": text,
-            } })),
+            Event::PreToolUse { .. } => Some(deny(text)),
             Event::UserPromptSubmit { .. } => Some(context("UserPromptSubmit", text)),
             Event::PostToolUse => Some(context("PostToolUse", text)),
             Event::PostToolUseFailure => Some(context("PostToolUseFailure", text)),
@@ -550,6 +585,22 @@ mod tests {
     }
 
     #[test]
+    fn launch_text_says_where_loom_mail_arrives() {
+        let text = usage(root_launch());
+        for place in [
+            "hook additional context",
+            "denied tool call",
+            REWAKE_MESSAGE,
+        ] {
+            assert!(text.contains(place), "{place}");
+        }
+        let taken = [delivery(Kind::Steer, "b")];
+        let reply = super::super::hook_text(&taken, None).unwrap();
+        let start = "loom message #";
+        assert!(reply.starts_with(start) && text.contains(&format!("starts with \"{start}\"")));
+    }
+
+    #[test]
     fn launch_text_has_the_ask_rules() {
         super::super::assert_every_launch_asks(|launch| (usage(launch), usage(launch)));
     }
@@ -582,6 +633,86 @@ mod tests {
             event(json!({ "hook_event_name": "PostToolUse" })).take(),
             Take::Now(Kind::ALL)
         );
+    }
+
+    fn hook(input: Value) -> Hook {
+        serde_json::from_value(input).unwrap()
+    }
+
+    #[test]
+    fn subagent_hooks_take_no_mail_and_keep_the_guard_line() {
+        let subagent = json!({
+            "session_id": "e6edf215", "transcript_path": "/t.jsonl", "cwd": "/repo",
+            "prompt_id": "0c124062", "permission_mode": "bypassPermissions",
+            "agent_id": "a7432afa802847021", "agent_type": "general-purpose",
+            "effort": { "level": "medium" },
+        });
+        let with = |fields: Value| {
+            let mut input = subagent.clone();
+            input
+                .as_object_mut()
+                .unwrap()
+                .extend(fields.as_object().unwrap().clone());
+            hook(input)
+        };
+        let pre = with(json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": { "command": "ls", "description": "List files" },
+            "tool_use_id": "toolu_01",
+        }));
+        assert_eq!(pre.take(), Take::Never);
+        assert_eq!(
+            pre.event.reply(&[], None).unwrap()["hookSpecificOutput"]["updatedInput"]["command"],
+            "loom guard\nls"
+        );
+        for fields in [
+            json!({ "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_response": {}, "duration_ms": 19 }),
+            json!({ "hook_event_name": "PostToolUseFailure", "tool_name": "Bash" }),
+            json!({ "hook_event_name": "UserPromptSubmit", "prompt": "x" }),
+        ] {
+            let other = with(fields.clone());
+            assert_eq!(other.take(), Take::Never, "{fields}");
+            assert_eq!(other.event.reply(&[], None), None, "{fields}");
+        }
+        let main = hook(json!({ "hook_event_name": "PostToolUse", "session_id": "e6edf215" }));
+        assert_eq!(main.take(), Take::Now(Kind::ALL));
+    }
+
+    #[test]
+    fn only_a_subagent_tool_call_asks_for_a_pending_interrupt_and_is_denied() {
+        let pre = json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls" },
+        });
+        let mut subagent = pre.clone();
+        subagent["agent_id"] = "a7432afa802847021".into();
+        assert!(hook(subagent.clone()).asks_interrupt());
+        assert!(!hook(pre).asks_interrupt());
+        subagent["hook_event_name"] = "PostToolUse".into();
+        assert!(!hook(subagent).asks_interrupt());
+        assert_eq!(
+            subagent_interrupted(),
+            json!({ "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": SUBAGENT_INTERRUPTED,
+            } })
+        );
+    }
+
+    #[test]
+    fn a_subagent_reports_only_a_human_wait_it_raises() {
+        let bash = json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls" },
+        });
+        let ask = json!({
+            "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
+            "tool_input": { "questions": [{ "question": "A or B?" }] },
+        });
+        assert!(hook(bash.clone()).reports_wait());
+        for (mut input, reports) in [(bash, false), (ask, true)] {
+            input["agent_id"] = "a7432afa802847021".into();
+            assert_eq!(hook(input.clone()).reports_wait(), reports, "{input}");
+        }
     }
 
     #[test]

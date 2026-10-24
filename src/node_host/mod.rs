@@ -544,7 +544,7 @@ fn report_len(seq: &[u8]) -> Option<usize> {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 pub fn in_process(dir: &std::path::Path, id: impl Display, cmd: CommandBuilder) {
     let started = host::start(cmd, None).unwrap();
     std::fs::create_dir_all(dir).unwrap();

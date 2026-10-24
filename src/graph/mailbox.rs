@@ -348,6 +348,15 @@ impl Graph {
         }
     }
 
+    pub fn interrupt_pending(&self, node: NodeId) -> rusqlite::Result<bool> {
+        self.lock().query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages
+             WHERE recipient = ?1 AND delivered = 0 AND kind = ?2)",
+            params![node.0, to_json(&Kind::Interrupt)],
+            |row| row.get(0),
+        )
+    }
+
     pub fn take(
         &self,
         node: NodeId,

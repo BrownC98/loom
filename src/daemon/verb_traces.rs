@@ -1077,3 +1077,89 @@ fn roles_set_needs_an_agent_and_roles_alone_still_parses() {
         .is_ok()
     );
 }
+
+#[tokio::test]
+async fn guard_records_no_host_process_for_a_wsl_node() {
+    let t = fixture();
+    let mut cmd = match cfg!(windows) {
+        true => portable_pty::CommandBuilder::new("powershell.exe"),
+        false => portable_pty::CommandBuilder::new("sh"),
+    };
+    cmd.args(match cfg!(windows) {
+        true => [
+            "-NoProfile",
+            "-Command",
+            "$p = Start-Process ping -ArgumentList '-n','60','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"pid=$($p.Id)=\"; $p.WaitForExit()",
+        ]
+        .as_slice(),
+        false => ["-c", "sleep 60 & echo pid=$!=; wait"].as_slice(),
+    });
+    node_host::in_process(&t.dir.path().join("pty").join("nodes"), t.worker, cmd);
+    t.app.host.resume(t.worker, |_| {}).unwrap();
+    let child: u32 = loop {
+        let text = t.app.host.screen(t.worker).text;
+        if let Some(pid) = text
+            .split_once("pid=")
+            .and_then(|(_, rest)| rest.split_once('='))
+            .and_then(|(pid, _)| pid.trim().parse().ok())
+        {
+            break pid;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let guard = || {
+        agent_guard(
+            t.state(),
+            headers(WORKER, "guard"),
+            Json(GuardRequest { caller: child }),
+        )
+    };
+    let place = |worktree: &str| {
+        rusqlite::Connection::open(t.dir.path().join("loom.db"))
+            .unwrap()
+            .execute(
+                "UPDATE nodes SET worktree = ?2 WHERE id = ?1",
+                rusqlite::params![t.worker.0, worktree],
+            )
+            .unwrap();
+    };
+    if cfg!(windows) {
+        place(r"\\wsl.localhost\Ubuntu\home\me\repo");
+        ok("guard", guard().await);
+        assert_eq!(t.app.host.stop_guarded(t.worker), 0);
+        place(&t.place.worktree);
+    }
+    ok("guard", guard().await);
+    assert!(t.app.host.stop_guarded(t.worker) >= 1);
+    t.app.host.kill(t.worker);
+}
+
+#[tokio::test]
+async fn an_interrupt_check_leaves_the_idle_wait_open_and_the_mail_undelivered() {
+    let t = fixture();
+    let target = format!("#{}", t.worker.0);
+    let pending = || agent_interrupt_pending(t.state(), headers(WORKER, "interrupt-pending"));
+    assert!(!pending().await.unwrap().0);
+    t.app
+        .graph
+        .note(t.lead, &target, Kind::Queue, "큐", None)
+        .unwrap();
+    assert!(!pending().await.unwrap().0);
+    let _wait = t.app.idle.open(t.worker);
+    t.app
+        .graph
+        .interrupt(t.lead, &target, "멈춰라", None, |_| {})
+        .unwrap();
+    assert!(pending().await.unwrap().0);
+    assert!(t.app.idle.waiting(t.worker));
+    let taken = t.app.graph.take(t.worker, Kind::ALL, 8192).unwrap();
+    assert_eq!(
+        taken.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
+        ["큐", "멈춰라"]
+    );
+    t.app
+        .graph
+        .ack(t.worker, &taken.iter().map(|d| d.id).collect::<Vec<_>>())
+        .unwrap();
+    assert!(!pending().await.unwrap().0);
+}

@@ -623,6 +623,22 @@ impl Graph {
                 )?;
                 sent.push(me);
             }
+            if call == GateCall::Ready {
+                for reviewer in reviewers(&tx, &row, branch, caller)? {
+                    let body = protocol::review_again_step(branch);
+                    post(
+                        &tx,
+                        caller,
+                        reviewer,
+                        Kind::Queue,
+                        &what,
+                        &body,
+                        via,
+                        &trace,
+                    )?;
+                    sent.push(reviewer);
+                }
+            }
         }
         if withdrawn(from, to) {
             sent.extend(withdraw(&tx, caller, &row, branch, &trace)?);
@@ -732,6 +748,28 @@ fn withdraw(
     Ok(reviewers.into_iter().map(|(node, _)| node).collect())
 }
 
+fn reviewers(
+    tx: &Transaction,
+    row: &Row,
+    branch: &str,
+    caller: Caller,
+) -> rusqlite::Result<Vec<NodeId>> {
+    tx.prepare(&format!(
+        "SELECT n.id FROM nodes n WHERE {} AND n.id != ?4 ORDER BY n.id",
+        in_round("?1", "?2", "?3")
+    ))?
+    .query_map(
+        params![
+            row.gate.0,
+            row.owner.0,
+            branch,
+            caller.node().map_or(0, |n| n.0)
+        ],
+        |r| Ok(NodeId(r.get(0)?)),
+    )?
+    .collect()
+}
+
 fn pending(
     tx: &Transaction,
     caller: Caller,
@@ -764,6 +802,7 @@ pub(super) fn check_review(
     parent: NodeId,
     repo: RepoId,
     branch: &str,
+    role: Option<&str>,
 ) -> Result<(), Refusal> {
     match load(db, repo, branch)? {
         None => Err(Refusal::NoRound(branch.to_owned())),
@@ -772,8 +811,29 @@ pub(super) fn check_review(
             gate: name_of(db, row.gate)?,
         }),
         Some(row) if row.target_kind(db)? == Target::Coordinator => Err(accepts(db, &row, branch)?),
-        Some(_) => Ok(()),
+        Some(_) => match seated(db, parent, branch, role)? {
+            Some(reviewer) => Err(Refusal::ReviewerSeated {
+                branch: branch.to_owned(),
+                role: role.unwrap_or_default().to_owned(),
+                reviewer,
+            }),
+            None => Ok(()),
+        },
     }
+}
+
+fn seated(
+    db: &Connection,
+    gate: NodeId,
+    branch: &str,
+    role: Option<&str>,
+) -> rusqlite::Result<Option<String>> {
+    db.query_row(
+        "SELECT name FROM nodes WHERE parent = ?1 AND review = ?2 AND role IS ?3 ORDER BY id",
+        params![gate.0, branch, role],
+        |row| row.get(0),
+    )
+    .optional()
 }
 
 fn accepts(db: &Connection, row: &Row, branch: &str) -> rusqlite::Result<Refusal> {

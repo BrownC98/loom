@@ -33,7 +33,7 @@ pub use waits::{
 
 use crate::db::Database;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES};
-use crate::protocol::{IllegalStep, MessageKind};
+use crate::protocol::{COORDINATOR_ROLE, IllegalStep, MessageKind};
 use crate::worktree::RepoId;
 
 const EVENT_QUEUE: usize = 256;
@@ -241,16 +241,22 @@ pub enum Refusal {
     UncheckedDoc(String),
     /// `loom done --image`의 파일이 그림 파일(`IMAGE_EXTENSIONS`)이 아니거나 없다. 값은 그 경로다.
     NotImage(String),
-    /// `loom spawn`에 `--agent`도 `--role`도 없다.
-    NoAgentOrRole,
     /// `loom spawn --role`의 역할이 설정에 없다. `names`는 설정의 역할 이름이다.
     UnknownRole {
         role: String,
         names: Vec<String>,
     },
-    /// `loom spawn --role`의 역할에 에이전트가 없고 `--agent`도 없다.
+    /// `loom spawn --role`의 역할에 에이전트가 없다. 그 역할은 사람이 띄운다.
     RoleHasNoAgent {
         role: String,
+    },
+    /// 부모 없는 노드(총괄)가 코디도 자기 브랜치 검토자도 아닌 역할을 띄웠다. 값은 그 역할이다.
+    LeadSpawnsCoordinator(String),
+    /// 이 브랜치에는 이 역할의 검토자가 이미 있다. loom이 새 차례마다 그 검토자에게 보낸다. `reviewer`는 그 노드 이름이다.
+    ReviewerSeated {
+        branch: String,
+        role: String,
+        reviewer: String,
     },
     /// 그 번호의 `loom ask` 질문이 열려 있지 않다(답했거나 지웠다). 문서가 없는 질문의 문서도 이것이다.
     NoWait(WaitId),
@@ -470,11 +476,11 @@ impl fmt::Display for Refusal {
             Refusal::NotReviewer { branch, review } => match review {
                 Some(review) => write!(
                     f,
-                    "{branch}: you review {review}, so you cannot judge {branch}. The gate spawns a reviewer with `loom spawn <name> --review {branch}`."
+                    "{branch}: you review {review}, so you cannot judge {branch}. The gate spawns a reviewer with `loom spawn --role <role> --review {branch}`."
                 ),
                 None => write!(
                     f,
-                    "{branch}: only a reviewer that the gate spawned with `loom spawn <name> --review {branch}` judges this branch."
+                    "{branch}: only a reviewer that the gate spawned with `loom spawn --role <role> --review {branch}` judges this branch."
                 ),
             },
             Refusal::CoordinatorAccepts { branch, gate } => write!(
@@ -502,7 +508,6 @@ impl fmt::Display for Refusal {
                 "{path}: --image takes an image file that exists ({}).",
                 IMAGE_EXTENSIONS.join(", ")
             ),
-            Refusal::NoAgentOrRole => f.write_str("Give --agent or --role."),
             Refusal::UnknownRole { role, names } => write!(
                 f,
                 "The settings have no role '{role}'. The roles are: {}.",
@@ -510,7 +515,19 @@ impl fmt::Display for Refusal {
             ),
             Refusal::RoleHasNoAgent { role } => write!(
                 f,
-                "The role '{role}' has no agent in the settings. Give --agent."
+                "The role '{role}' has no agent in the settings. The human starts nodes of this role."
+            ),
+            Refusal::LeadSpawnsCoordinator(role) => write!(
+                f,
+                "You have no parent, so you spawn only a {COORDINATOR_ROLE} (`loom spawn <name> --role {COORDINATOR_ROLE}`) or the reviewer of your own branch (`loom spawn --role <role> --review <branch>`). Give the work for '{role}' to a {COORDINATOR_ROLE} in its brief."
+            ),
+            Refusal::ReviewerSeated {
+                branch,
+                role,
+                reviewer,
+            } => write!(
+                f,
+                "{reviewer} already reviews {branch} as {role}. loom sends it each new round when the owner calls `loom ready {branch}`. To tell it more, use `loom note {reviewer} <body>`. If its process ended, use `loom relaunch {reviewer}`."
             ),
             Refusal::Db(e) => write!(f, "DB error: {e}"),
         }

@@ -261,6 +261,23 @@ const STEPS: &[M] = &[
                 ELSE 'Old rule: a loom merge report needed its merge commit in the target.' END))
             WHERE entry ->> '$.reason.code' IN ('notAncestor', 'noGate', 'manyGates', 'noGateScripts', 'staleRun', 'notMerged');"#,
     ),
+    M::up(
+        r#"UPDATE settings SET value = json_set(settings.value, '$.roles',
+            (SELECT json_group_array(json(r.value)) FROM json_each(settings.value, '$.roles') r
+                WHERE r.value ->> '$.name' IS NOT 'CI 담당자'))
+            WHERE json_type(settings.value, '$.roles') = 'array';
+        UPDATE settings SET value = json_insert(settings.value, '$.roles[#]', json_object(
+                'name', '고위험 워커',
+                'duty', '저장 형식, 인증, 동시성, 데이터 손실 경로, 여러 모듈의 계약을 바꾸는 편집 범위의 구현과 검증. 다시 위임하지 않는다',
+                'agent', coalesce((SELECT r.value ->> '$.agent' FROM json_each(settings.value, '$.roles') r
+                    WHERE r.value ->> '$.name' = '워커' AND r.value ->> '$.agent' IN ('claude', 'cursor')), 'claude'),
+                'model', 'claude-opus-5-5',
+                'effort', 'high'))
+            WHERE json_type(settings.value, '$.roles') = 'array'
+            AND NOT EXISTS (SELECT 1 FROM json_each(settings.value, '$.roles') r WHERE r.value ->> '$.name' = '고위험 워커');
+        UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value', 'Old rule: loom spawn took --agent without --role.'))
+            WHERE entry ->> '$.reason.code' = 'noAgentOrRole';"#,
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -602,6 +619,46 @@ mod tests {
             }
         );
         assert!(matches!(reasons[1], crate::graph::Refusal::Git(_)));
+    }
+
+    #[test]
+    fn step_39_drops_the_ci_role_adds_the_high_risk_worker_and_renames_the_old_spawn_refusal() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 38).unwrap();
+        let role = |name: &str, agent: &str| serde_json::json!({"name": name, "duty": "d", "agent": agent, "model": null, "effort": null});
+        let roles = serde_json::json!({"theme": "dark", "roles": [role("워커", "cursor"), role("CI 담당자", "cursor"), role("평가자", "codex")]});
+        conn.execute(
+            "INSERT INTO settings (id, value) VALUES (1, ?1)",
+            [roles.to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO events (at, entry) VALUES (1, ?1)",
+            [r#"{"kind":"refused","how":"queue","from":{"id":2,"name":"c"},"to":"x","reason":{"code":"noAgentOrRole"}}"#],
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let value: String = conn
+            .query_row("SELECT value FROM settings", [], |row| row.get(0))
+            .unwrap();
+        let view: crate::settings::SettingsView = serde_json::from_str(&value).unwrap();
+        let names: Vec<&str> = view.roles.0.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["워커", "평가자", crate::roles::HIGH_RISK_WORKER]);
+        let added = &view.roles.0[2];
+        assert_eq!(added.duty, crate::roles::HIGH_RISK_DUTY);
+        assert_eq!(added.agent, Some(crate::profile::AgentId("cursor".into())));
+        assert_eq!(added.model.as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(added.effort.as_deref(), Some("high"));
+        assert_eq!(view.roles.launch_problem(), None);
+        let reason: String = conn
+            .query_row("SELECT entry ->> '$.reason' FROM events", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert!(matches!(
+            serde_json::from_str(&reason).unwrap(),
+            crate::graph::Refusal::Git(_)
+        ));
     }
 
     #[test]

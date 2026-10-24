@@ -65,11 +65,10 @@ use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
 use crate::profile::opencode2;
 use crate::profile::{
-    self, AgentId, LaunchError, Mailbox, ModelChoice, Profile, Remote, ServerLink, Start,
-    VersionMismatch,
+    self, LaunchError, Mailbox, Profile, Remote, ServerLink, Start, VersionMismatch,
 };
 use crate::protocol::{MessageKind, Question};
-use crate::roles::{Assignment, RoleProblem, Roles};
+use crate::roles::{RoleProblem, Roles};
 use crate::screen;
 use crate::settings::Settings;
 use crate::skills::{self, Launch, Position};
@@ -294,23 +293,26 @@ pub struct Resize {
 
 #[derive(Serialize, Deserialize)]
 pub struct SpawnRequest {
-    pub name: String,
     pub run: SpawnRun,
     pub brief: String,
     pub worktree: Option<String>,
-    #[serde(default)]
-    pub choice: ModelChoice,
-    #[serde(default)]
-    pub role: Option<String>,
-    #[serde(default)]
-    pub review: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SpawnRun {
-    Agent(Option<AgentId>),
-    Command(String),
+    Role { name: String, role: String },
+    Review { role: String, branch: String },
+    Command { name: String, line: String },
+}
+
+impl SpawnRun {
+    pub fn name(&self) -> String {
+        match self {
+            SpawnRun::Role { name, .. } | SpawnRun::Command { name, .. } => name.clone(),
+            SpawnRun::Review { role, branch } => format!("{} {}", role.trim(), branch.trim()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2548,7 +2550,7 @@ mod tests {
         let node = graph
             .add_root(
                 &place,
-                Some(AgentId("claude".into())),
+                Some(crate::profile::AgentId("claude".into())),
                 None,
                 &launched,
                 |_| Ok(()),

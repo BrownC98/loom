@@ -3,6 +3,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::graph::{Entry, Round, TurnCheck};
+use crate::profile::AgentId;
 use crate::protocol::Judgment;
 
 const UNTRACED: [(&str, &str); 15] = [
@@ -222,13 +223,12 @@ async fn scene(t: &Fixture, verb: &str) {
     match verb {
         "spawn" => {
             let req = SpawnRequest {
-                name: "made".into(),
-                run: SpawnRun::Agent(claude()),
+                run: SpawnRun::Role {
+                    name: "made".into(),
+                    role: crate::protocol::COORDINATOR_ROLE.into(),
+                },
                 brief: "no heads".into(),
                 worktree: None,
-                choice: ModelChoice::default(),
-                role: None,
-                review: None,
             };
             let refused = agent_spawn(t.state(), headers(LEAD, verb), Json(req)).await;
             assert!(matches!(
@@ -568,4 +568,32 @@ fn old_message_verbs_are_gone() {
             "{old}"
         );
     }
+}
+
+#[test]
+fn spawn_takes_a_role_and_never_an_agent_model_or_effort() {
+    let parse =
+        |args: &[&str]| crate::Cli::try_parse_from(["loom", "spawn"].iter().chain(args).copied());
+    for flags in [
+        &["w", "--agent", "claude"][..],
+        &["w", "--role", "워커", "--model", "m"],
+        &["w", "--role", "워커", "--effort", "high"],
+        &["w"],
+        &["w", "--role", "검토자", "--review", "b"],
+        &["--role", "검토자", "--review", "b", "--worktree", "x"],
+    ] {
+        assert!(parse(flags).is_err(), "{flags:?}");
+    }
+    for flags in [
+        &["w", "--role", "워커"][..],
+        &["--role", "검토자", "--review", "b"],
+        &["s", "--", "ls"],
+    ] {
+        assert!(parse(flags).is_ok(), "{flags:?}");
+    }
+    let review = SpawnRun::Review {
+        role: "검토자 ".into(),
+        branch: " 기계화".into(),
+    };
+    assert_eq!(review.name(), "검토자 기계화");
 }

@@ -127,9 +127,10 @@ pub(super) const WAITING: &str = "When no independent work remains, end your tur
 
 const QUESTION_TOOL: &str = "AskQuestion";
 
-pub fn used_question_box(transcript: impl std::io::BufRead) -> bool {
+pub fn used_question_box(transcript: impl std::io::BufRead) -> std::io::Result<bool> {
     let mut used = false;
-    for line in transcript.split(b'\n').map_while(Result::ok) {
+    for line in transcript.split(b'\n') {
+        let line = line?;
         let line = String::from_utf8_lossy(&line);
         if !line.contains("\"user\"") && !line.contains(QUESTION_TOOL) {
             continue;
@@ -147,7 +148,7 @@ pub fn used_question_box(transcript: impl std::io::BufRead) -> bool {
             used = true;
         }
     }
-    used
+    Ok(used)
 }
 
 pub fn usage() -> String {
@@ -264,7 +265,7 @@ mod tests {
         let asked = r#"{"role":"assistant","message":{"content":[{"type":"text","text":"x"},{"type":"tool_use","name":"AskQuestion","input":{}}]}}"#;
         let read = r#"{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}"#;
         let ended = r#"{"type":"turn_ended","status":"success"}"#;
-        let used = |lines: &[&str]| super::used_question_box(lines.join("\n").as_bytes());
+        let used = |lines: &[&str]| super::used_question_box(lines.join("\n").as_bytes()).unwrap();
         assert!(used(&[user, asked, read, ended]));
         assert!(!used(&[asked, user, read]));
         assert!(!used(&[user]));
@@ -279,6 +280,21 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(long_turn.join("\n").len() > 2 * 1024 * 1024);
         assert!(used(&long_turn), "a turn longer than any tail");
+
+        let history = [user, asked].join("\n") + "\n";
+        let cut = std::io::Read::chain(history.as_bytes(), Broken);
+        assert!(
+            super::used_question_box(std::io::BufReader::new(cut)).is_err(),
+            "an interrupted scan is no answer"
+        );
+    }
+
+    struct Broken;
+
+    impl std::io::Read for Broken {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::ConnectionReset.into())
+        }
     }
 
     use super::*;

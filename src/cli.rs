@@ -282,10 +282,14 @@ pub fn cursor_hook() -> Result<(), String> {
         let file = transcript
             .as_deref()
             .and_then(|path| std::fs::File::open(crate::wsl::from_node(path.into(), &here)).ok());
-        if file.is_some_and(|file| cursor::used_question_box(std::io::BufReader::new(file)))
-            && let Err(e) = call::<()>("question-box", &(), Some(timeout))
-        {
-            eprintln!("loom: could not report the question box: {e}");
+        match file.map(|file| cursor::used_question_box(std::io::BufReader::new(file))) {
+            Some(Ok(true)) => {
+                if let Err(e) = call::<()>("question-box", &(), Some(timeout)) {
+                    eprintln!("loom: could not report the question box: {e}");
+                }
+            }
+            Some(Err(e)) => eprintln!("loom: could not read the transcript: {e}"),
+            None | Some(Ok(false)) => {}
         }
         if let Some(nudge) = turn_end(None, timeout) {
             println!("{}", serde_json::json!({ "followup_message": nudge }));

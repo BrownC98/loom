@@ -225,7 +225,7 @@ async fn scene(t: &Fixture, verb: &str) {
             let req = SpawnRequest {
                 run: SpawnRun::Role {
                     name: "made".into(),
-                    role: crate::protocol::COORDINATOR_ROLE.into(),
+                    role: "조율".into(),
                 },
                 brief: "no heads".into(),
                 worktree: None,

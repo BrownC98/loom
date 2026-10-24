@@ -232,8 +232,8 @@ const STEPS: &[M] = &[
         ALTER TABLE gates ADD COLUMN seq INTEGER;
         ALTER TABLE gates ADD COLUMN batch INTEGER;
         UPDATE gates SET state = '"merging"' WHERE state IN ('"passed"', '"merging"')
-            OR (state = '"ready"' AND gate IS NOT coalesce((SELECT p.id FROM nodes o JOIN nodes p ON p.id = o.parent
-                WHERE o.id = gates.owner AND p.role = '코디'), owner));
+            OR (state = '"ready"' AND gate IS NOT owner
+                AND gate IS NOT (SELECT parent FROM nodes WHERE id = gates.owner));
         CREATE TABLE batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             repo INTEGER NOT NULL,
@@ -277,6 +277,10 @@ const STEPS: &[M] = &[
             AND NOT EXISTS (SELECT 1 FROM json_each(settings.value, '$.roles') r WHERE r.value ->> '$.name' = '고위험 워커');
         UPDATE events SET entry = json_set(entry, '$.reason', json_object('code', 'git', 'value', 'Old rule: loom spawn took --agent without --role.'))
             WHERE entry ->> '$.reason.code' = 'noAgentOrRole';"#,
+    ),
+    M::up(
+        "UPDATE events SET entry = json_set(entry, '$.reason.code', 'leadChildNeedsWorktree')
+            WHERE entry ->> '$.reason.code' = 'leadSpawnsOnlyCoordinator';",
     ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
@@ -659,6 +663,27 @@ mod tests {
             serde_json::from_str(&reason).unwrap(),
             crate::graph::Refusal::Git(_)
         ));
+    }
+
+    #[test]
+    fn step_40_renames_the_lead_spawn_refusal() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 39).unwrap();
+        conn.execute(
+            "INSERT INTO events (at, entry) VALUES (1, ?1)",
+            [r#"{"kind":"refused","how":"queue","from":{"id":2,"name":"c"},"to":"x","reason":{"code":"leadSpawnsOnlyCoordinator","value":"워커"}}"#],
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let reason: String = conn
+            .query_row("SELECT entry ->> '$.reason' FROM events", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<crate::graph::Refusal>(&reason).unwrap(),
+            crate::graph::Refusal::LeadChildNeedsWorktree("워커".into())
+        );
     }
 
     #[test]

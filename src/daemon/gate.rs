@@ -68,12 +68,9 @@ impl App {
     }
 
     pub(super) async fn unreadied(&self, node: NodeId) -> Result<Option<String>, Refusal> {
-        if self.graph.under_coordinator(node)? {
-            return Ok(None);
-        }
         let place = self.graph.place_of(node)?;
         let repo = self.repo_of(node)?;
-        if Path::new(&place.worktree) == repo {
+        if Path::new(&place.worktree) == repo || self.gate_of(node, &repo).await?.0 != node {
             return Ok(None);
         }
         branch_warning(&repo, &place.worktree, |branch, head| {
@@ -111,6 +108,20 @@ impl App {
         }
     }
 
+    async fn gate_of(&self, node: NodeId, repo: &Path) -> Result<(NodeId, String), Refusal> {
+        let base = base_branch(repo).await?;
+        match self.graph.gate_for(node)? {
+            GateChoice::Parent { gate, worktree } => {
+                let theirs = worktree::find(repo, &worktree).await.map_err(git_problem)?;
+                match theirs.branch {
+                    Some(target) if target != base => Ok((gate, target)),
+                    _ => Ok((node, base)),
+                }
+            }
+            GateChoice::Owner => Ok((node, base)),
+        }
+    }
+
     fn repo_of(&self, node: NodeId) -> Result<std::path::PathBuf, Refusal> {
         let place = self.graph.place_of(node)?;
         self.repos
@@ -135,19 +146,7 @@ impl App {
         {
             return Err(Refusal::Uncommitted(branch.to_owned()));
         }
-        let base = base_branch(&repo).await?;
-        let (gate, target) = match self.graph.gate_for(node)? {
-            GateChoice::Coordinator { gate, worktree } => {
-                let theirs = worktree::find(&repo, &worktree)
-                    .await
-                    .map_err(git_problem)?;
-                match theirs.branch {
-                    Some(target) if target != base => (gate, target),
-                    _ => return Err(Refusal::SameAsTarget(base)),
-                }
-            }
-            GateChoice::Owner => (node, base),
-        };
+        let (gate, target) = self.gate_of(node, &repo).await?;
         if target == branch {
             return Err(Refusal::SameAsTarget(branch.to_owned()));
         }

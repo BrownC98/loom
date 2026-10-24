@@ -2950,7 +2950,8 @@ fn switching_the_agent_keeps_the_node_and_changes_only_its_process() {
             lead,
             NewChild {
                 agent: Some(AgentId("claude".into())),
-                role: Some(crate::protocol::COORDINATOR_ROLE),
+                role: Some("조율"),
+                worktree: Some("/wt/코디"),
                 ..named("코디")
             },
             TreeLimits::default(),
@@ -2981,10 +2982,7 @@ fn switching_the_agent_keeps_the_node_and_changes_only_its_process() {
     assert_eq!(node.name, "코디");
     assert_eq!(node.agent, Some(cursor));
     assert_eq!(node.model, model);
-    assert_eq!(
-        node.role.as_deref(),
-        Some(crate::protocol::COORDINATOR_ROLE)
-    );
+    assert_eq!(node.role.as_deref(), Some("조율"));
     assert_eq!(node.transcript, None);
     assert_ne!(node.token, old_token);
     let relations = g.relations(coordinator).unwrap();
@@ -2995,9 +2993,9 @@ fn switching_the_agent_keeps_the_node_and_changes_only_its_process() {
     );
     assert_eq!(
         g.gate_for(worker).unwrap(),
-        GateChoice::Coordinator {
+        GateChoice::Parent {
             gate: coordinator,
-            worktree: "/repo".into()
+            worktree: "/wt/코디".into()
         }
     );
     assert_eq!(take(&g, coordinator), delivery("cursor-1", "계속해"));

@@ -8,8 +8,8 @@ use super::{
 };
 use crate::profile::AgentId;
 use crate::protocol::{
-    self, COORDINATOR_ROLE, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, MergeEnd,
-    MessageKind, Receiver, Sender, Target,
+    self, Finding, GateCall, GateFacts, GateState, GateVerb, Judgment, MergeEnd, MessageKind,
+    Receiver, Sender, Target,
 };
 use crate::worktree::RepoId;
 
@@ -22,7 +22,7 @@ pub struct Round<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum GateChoice {
-    Coordinator { gate: NodeId, worktree: String },
+    Parent { gate: NodeId, worktree: String },
     Owner,
 }
 
@@ -85,12 +85,12 @@ struct Row {
 
 impl Row {
     fn target_kind(&self, db: &Connection) -> rusqlite::Result<Target> {
-        let coordinator: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND id != ?2 AND role = ?3)",
-            params![self.gate.0, self.owner.0, COORDINATOR_ROLE],
+        let parent: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?1 AND parent = ?2)",
+            params![self.owner.0, self.gate.0],
             |row| row.get(0),
         )?;
-        Ok(match coordinator {
+        Ok(match parent {
             true => Target::Coordinator,
             false => Target::Base,
         })
@@ -125,8 +125,8 @@ impl Caller {
 impl Graph {
     pub fn gate_for(&self, owner: NodeId) -> Result<GateChoice, Refusal> {
         let db = self.lock();
-        match coordinator_parent(&db, owner)? {
-            Some(parent) => Ok(GateChoice::Coordinator {
+        match parent_of(&db, owner)? {
+            Some(parent) => Ok(GateChoice::Parent {
                 gate: parent,
                 worktree: place_of(&db, parent)?.worktree,
             }),
@@ -209,10 +209,6 @@ impl Graph {
         tx.commit()?;
         self.publish_sent(&db, owner, gate)?;
         Ok(name_of(&db, gate)?)
-    }
-
-    pub fn under_coordinator(&self, node: NodeId) -> rusqlite::Result<bool> {
-        Ok(coordinator_parent(&self.lock(), node)?.is_some())
     }
 
     pub fn ready_sent(&self, owner: NodeId, branch: &str, head: &str) -> rusqlite::Result<bool> {
@@ -939,19 +935,6 @@ fn post(
         }
     }
     Ok(())
-}
-
-fn coordinator_parent(db: &Connection, node: NodeId) -> rusqlite::Result<Option<NodeId>> {
-    Ok(match parent_of(db, node)? {
-        Some(parent) if role_of(db, parent)?.as_deref() == Some(COORDINATOR_ROLE) => Some(parent),
-        _ => None,
-    })
-}
-
-fn role_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<String>> {
-    db.query_row("SELECT role FROM nodes WHERE id = ?1", [node.0], |row| {
-        row.get(0)
-    })
 }
 
 fn model_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<String>> {

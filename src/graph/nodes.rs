@@ -10,7 +10,7 @@ use super::{
 };
 use crate::accounts::AccountId;
 use crate::profile::{AgentId, BRIEF_LIMIT_BYTES, ServerLink, StartDigests};
-use crate::protocol::{COORDINATOR_ROLE, MessageKind};
+use crate::protocol::MessageKind;
 
 pub struct NewChild<'a> {
     pub name: &'a str,
@@ -104,8 +104,8 @@ impl Graph {
             (Some(branch), role) => {
                 super::gate::check_review(&tx, parent, place.repo, branch, role)?;
             }
-            (None, Some(role)) if role != COORDINATOR_ROLE && parent_of(&tx, parent)?.is_none() => {
-                return Err(Refusal::LeadSpawnsOnlyCoordinator(role.to_owned()));
+            (None, Some(role)) if worktree.is_none() && parent_of(&tx, parent)?.is_none() => {
+                return Err(Refusal::LeadChildNeedsWorktree(role.to_owned()));
             }
             (None, _) => {}
         }

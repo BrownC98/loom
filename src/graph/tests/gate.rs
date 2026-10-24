@@ -633,6 +633,35 @@ fn a_reused_reviewer_that_exits_stops_holding_the_branch() {
 }
 
 #[test]
+fn a_branch_rename_follows_into_branched_from() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let worker = g
+        .add_child(
+            t.coordinator,
+            NewChild {
+                worktree: Some("/wt/w"),
+                branched_from: Some("feature"),
+                ..named("w")
+            },
+            limits(),
+            &launched(),
+            started,
+        )
+        .unwrap();
+    g.branch_renamed(RepoId(1), "feature", "renamed").unwrap();
+    assert_eq!(
+        g.gate_for(worker).unwrap(),
+        GateChoice::Parent {
+            gate: t.coordinator,
+            worktree: "/repo".into(),
+            branched_from: Some("renamed".into())
+        }
+    );
+}
+
+#[test]
 fn an_adopted_owner_keeps_the_stored_gate_of_its_round() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));

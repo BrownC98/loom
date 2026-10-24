@@ -55,7 +55,7 @@ loom ships five skills: `o-mode` (orchestration mode), `ste-orwell`, `user-doc`,
 - Always on, without a call: `ask-human` (how an agent asks you: one line in the question inbox), the writing rules (STE and Orwell) and the raptor-3 work rules go to every node. You can turn off all but `ask-human` in **Settings › Agents › Built-in skills**. A node without a parent (a node you start) also gets the full `o-mode` procedure and acts as the lead. A child gets only the common brief rules of `o-mode`.
 - A node reads the skill text when it starts. After you update loom, restart running nodes to give them the new text.
 
-Details (Korean): [docs/design.md 「내장 스킬」](docs/design.md#내장-스킬).
+Details (Korean): [docs/design/에이전트-실행.md 「내장 스킬」](docs/design/에이전트-실행.md#내장-스킬).
 
 ## Install
 

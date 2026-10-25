@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,18 @@ const BASH_TIMEOUT_S = 1200;
 let started = 0;
 const SKILLS = join(dirname(fileURLToPath(import.meta.url)), "skills");
 
+const EXIT_MARK = "[loom: exited";
+const WAIT_LIMIT_S = 1800;
+
+export function bashQuote(path: string, windows = process.platform === "win32"): string {
+  return `'${(windows ? path.replaceAll("\\", "/") : path).replaceAll("'", `'\\''`)}'`;
+}
+
+export function waitCommand(log: string, windows = process.platform === "win32"): string {
+  const path = bashQuote(log, windows);
+  return `for i in $(seq ${WAIT_LIMIT_S}); do grep -qs '^\\${EXIT_MARK}' ${path} && break; sleep 1; done; tail -n 40 ${path}`;
+}
+
 async function background(command: string, cwd: string, shell: { shell: string; args: string[]; commandTransport?: string }) {
   const dir = join(process.env.LOOM_TASK_DIR || tmpdir(), "logs");
   mkdirSync(dir, { recursive: true });
@@ -37,12 +49,17 @@ async function background(command: string, cwd: string, shell: { shell: string; 
     child.stdin?.on("error", () => {});
     child.stdin?.end(command);
   }
+  child.once("exit", (code, signal) => {
+    try {
+      appendFileSync(log, `\n${EXIT_MARK} with ${signal ? `signal ${signal}` : `code ${code}`}]\n`);
+    } catch {}
+  });
   await new Promise((resolve, reject) => {
     child.once("spawn", resolve);
     child.once("error", (e) => reject(new Error(`Could not start the background command: ${e.message}`)));
   });
   child.unref();
-  const text = `Started in the background: pid ${child.pid}, output in ${log}. Stop it with: kill -- -${child.pid}. To wait until it ends and then read the log, run: tail --pid=${child.pid} -f /dev/null; tail -n 40 ${log} . Do not wait with a fixed sleep.`;
+  const text = `Started in the background: pid ${child.pid}, output in ${log}. Stop it with: kill -- -${child.pid}. To wait until it ends (at most ${WAIT_LIMIT_S} s) and then read the log, run this command:\n${waitCommand(log)}\nDo not wait with a fixed sleep.`;
   return { content: [{ type: "text" as const, text }], details: undefined };
 }
 

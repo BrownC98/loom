@@ -615,12 +615,19 @@ pub(super) mod tests {
              console.log(await bash.execute('4', { command: 'true', run_in_background: true }, undefined, undefined, gone).catch((e) => e.message));
              console.log(bash.description);
              const short = (await bash.execute('6', { command: 'sleep 1; echo done', run_in_background: true }, undefined, undefined, ctx)).content[0].text;
-             const wait = short.match(/run: (.+?) \\. Do not/)[1];
+             const wait = short.match(/run this command:\\n(.+)\\nDo not/)[1];
              console.log(short.includes('Do not wait with a fixed sleep'));
              const w = Date.now();
              const { exec } = await import('node:child_process');
              const shown = await new Promise((r) => exec(wait, { shell: '/bin/bash' }, (e, out) => r(out)));
-             console.log(JSON.stringify({ ended: Date.now() - w >= 800, shown }));",
+             console.log(JSON.stringify({ ended: Date.now() - w >= 800 && Date.now() - w < 2500, shown: shown.replace(/\\n\\[loom: exited with code 0\\]\\n/, 'EXIT') }));
+             const { bashQuote, waitCommand } = await import('./pi-loom.ts');
+             console.log(bashQuote('C:\\\\Users\\\\a b\\\\it\\'s.log', true));
+             console.log(bashQuote('/tmp/a b/it\\'s.log', false));
+             console.log(waitCommand('C:\\\\Users\\\\x.log', true).includes('tail --pid'));
+             const odd = fs.mkdtempSync('/tmp/wait ') + '/it\\'s a.log';
+             fs.writeFileSync(odd, 'hello\\n[loom: exited with code 3]\\n');
+             console.log(await new Promise((r) => exec(waitCommand(odd, false), { shell: '/bin/bash' }, (e, out) => r(out))));",
         );
         let mut lines = out.lines();
         assert_eq!(
@@ -659,8 +666,16 @@ pub(super) mod tests {
         assert_eq!(lines.next(), Some("true"));
         assert_eq!(
             lines.next(),
-            Some(r#"{"ended":true,"shown":"done\n"}"#),
+            Some(r#"{"ended":true,"shown":"done\nEXIT"}"#),
             "the wait command returns after the job ends and shows the log tail"
+        );
+        assert_eq!(lines.next(), Some(r"'C:/Users/a b/it'\''s.log'"));
+        assert_eq!(lines.next(), Some(r"'/tmp/a b/it'\''s.log'"));
+        assert_eq!(lines.next(), Some("false"), "no PID in the wait command");
+        assert_eq!(
+            lines.next(),
+            Some("hello"),
+            "a path with a space and a quote works"
         );
     }
 

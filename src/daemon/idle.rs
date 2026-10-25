@@ -127,6 +127,7 @@ impl IdleWaits {
             end: Some(tx),
         };
         ends.insert(wait.node, latest);
+        self.feed(wait.node, AgentEvent::WaitOpened);
         wait.end = end;
         true
     }
@@ -587,6 +588,7 @@ mod tests {
     #[derive(Clone, Copy, Debug, PartialEq)]
     enum Step {
         Open(usize),
+        Reopen(usize),
         Close(usize),
         Turn,
         End,
@@ -599,8 +601,14 @@ mod tests {
             return;
         }
         for (at, step) in left.iter().enumerate() {
-            let unopened = matches!(step, Step::Close(i) if !done.contains(&Step::Open(*i)));
-            if unopened || left[..at].contains(step) {
+            let early = match step {
+                Step::Reopen(i) => !done.contains(&Step::Open(*i)),
+                Step::Close(i) => {
+                    !done.contains(&Step::Open(*i)) || left.contains(&Step::Reopen(*i))
+                }
+                _ => false,
+            };
+            if early || left[..at].contains(step) {
                 continue;
             }
             let mut rest = left.to_vec();
@@ -611,11 +619,36 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct Model {
+        state: Option<AgentState>,
+        latest: Option<usize>,
+        live: bool,
+        ended: [bool; 2],
+        in_turn: bool,
+    }
+
+    impl Model {
+        fn apply(&mut self, event: AgentEvent) {
+            let now = self.state.take().unwrap_or(AgentState::Starting);
+            self.state = Some(now.next(&event));
+        }
+
+        fn end_latest(&mut self) -> bool {
+            let live = std::mem::take(&mut self.live);
+            if live && let Some(i) = self.latest {
+                self.ended[i] = true;
+            }
+            live
+        }
+    }
+
     #[test]
     fn every_order_of_two_waits_and_turns_applies_each_transition_once_at_its_owner() {
         let (_dir, [node, _], first) = waits();
         let steps = [
             Step::Open(0),
+            Step::Reopen(0),
             Step::Close(0),
             Step::Open(1),
             Step::Close(1),
@@ -625,69 +658,88 @@ mod tests {
         ];
         let mut all = Vec::new();
         orders(&steps, &mut Vec::new(), &mut all);
-        assert_eq!(all.len(), 1260);
+        assert_eq!(all.len(), 3360);
         for order in &all {
             let waits = IdleWaits::new(first.graph.clone());
             for restart in [AgentEvent::Exited, AgentEvent::Relaunched] {
                 waits.graph.agent_event(node, restart).unwrap();
             }
             let mut open: [Option<Wait<'_>>; 2] = [None, None];
-            let (mut model, mut latest, mut live) = (AgentState::Starting, None, false);
+            let mut model = Model::default();
             for step in order {
-                let event = match *step {
+                match *step {
                     Step::Open(i) => {
                         open[i] = Some(waits.open(node));
-                        (latest, live) = (Some(i), true);
-                        Some(AgentEvent::WaitOpened)
+                        model.end_latest();
+                        (model.latest, model.live, model.in_turn) = (Some(i), true, false);
+                        model.apply(AgentEvent::WaitOpened);
+                    }
+                    Step::Reopen(i) => {
+                        let Some(mut wait) = open[i].take() else {
+                            continue;
+                        };
+                        let Ok(by) = wait.end.try_recv() else {
+                            open[i] = Some(wait);
+                            continue;
+                        };
+                        assert!(model.ended[i], "{order:?} after {step:?}");
+                        model.ended[i] = false;
+                        if waits.reopen(&mut wait) {
+                            open[i] = Some(wait);
+                            assert!(model.latest == Some(i) && !model.in_turn);
+                            model.live = true;
+                            model.apply(AgentEvent::WaitOpened);
+                        } else {
+                            wait.finish(by);
+                        }
                     }
                     Step::Close(i) => {
-                        let mut wait = open[i].take().unwrap();
+                        let Some(mut wait) = open[i].take() else {
+                            continue;
+                        };
                         match (wait.end.try_recv(), i) {
-                            (Ok(by), _) => {
-                                wait.finish(by);
-                                None
-                            }
+                            (Ok(by), _) => wait.finish(by),
                             (Err(_), 0) => {
                                 wait.hand_mail();
-                                live = false;
-                                (latest == Some(i))
-                                    .then_some(AgentEvent::WaitClosed { by: IdleEnd::Mail })
+                                model.live = false;
+                                model.apply(AgentEvent::WaitClosed { by: IdleEnd::Mail });
                             }
                             (Err(_), _) => {
                                 drop(wait);
-                                live = false;
-                                (latest == Some(i))
-                                    .then_some(AgentEvent::WaitClosed { by: IdleEnd::Gone })
+                                model.live = false;
+                                model.apply(AgentEvent::WaitClosed { by: IdleEnd::Gone });
                             }
                         }
                     }
                     Step::Turn => {
                         waits.turn_started(node, "preToolUse".into());
-                        live = false;
-                        Some(AgentEvent::TurnStarted)
+                        model.end_latest();
+                        model.in_turn = true;
+                        model.apply(AgentEvent::TurnStarted);
                     }
                     Step::End => {
                         waits.end(node, IdleEnd::Relaunch);
-                        std::mem::take(&mut live).then_some(AgentEvent::WaitClosed {
-                            by: IdleEnd::Relaunch,
-                        })
+                        model.in_turn = false;
+                        if model.end_latest() {
+                            model.apply(AgentEvent::WaitClosed {
+                                by: IdleEnd::Relaunch,
+                            });
+                        }
                     }
                     Step::TurnEnded => {
                         waits
                             .graph
                             .agent_event(node, AgentEvent::TurnEnded)
                             .unwrap();
-                        Some(AgentEvent::TurnEnded)
+                        model.apply(AgentEvent::TurnEnded);
                     }
-                };
-                if let Some(event) = event {
-                    model = model.next(&event);
                 }
                 let state = waits.graph.agent_state(node).unwrap();
-                assert_eq!(state.as_ref(), Some(&model), "{order:?} after {step:?}");
-                assert_eq!(live, waits.waiting(node), "{order:?} after {step:?}");
+                let want = model.state.clone().unwrap_or(AgentState::Starting);
+                assert_eq!(state.as_ref(), Some(&want), "{order:?} after {step:?}");
+                assert_eq!(model.live, waits.waiting(node), "{order:?} after {step:?}");
                 let listening = state == Some(AgentState::Listening);
-                assert_eq!(listening, live, "{order:?} after {step:?}");
+                assert_eq!(listening, model.live, "{order:?} after {step:?}");
             }
         }
     }

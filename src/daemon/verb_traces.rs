@@ -1336,3 +1336,31 @@ async fn an_old_process_that_does_not_exit_gives_back_its_state_with_the_events_
         ]
     );
 }
+
+#[tokio::test]
+async fn a_kept_relaunch_releases_the_held_idle_wait_and_its_reopen_listens_again() {
+    let t = fixture();
+    t.app.relaunches.hold(t.worker);
+    let mark = t.mark();
+    let held = t.held_idle_request(WORKER, "g1").await;
+    t.app.kept_running(t.worker);
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert!(t.app.idle.waiting(t.worker), "the wait reopened");
+    assert_eq!(t.agent_state(t.worker), Some(AgentState::Listening));
+    assert_eq!(
+        t.agent_changes(mark),
+        [
+            (AgentState::Listening, AgentEvent::WaitOpened),
+            (
+                AgentState::Deaf,
+                AgentEvent::WaitClosed {
+                    by: IdleEnd::Relaunch
+                }
+            ),
+            (AgentState::Listening, AgentEvent::WaitOpened),
+        ]
+    );
+    held.abort();
+}

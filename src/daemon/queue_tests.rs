@@ -129,7 +129,7 @@ mod git_runs {
                 "127.0.0.1:0".parse().unwrap(),
                 None,
                 None,
-                crate::tunnel::Door::new().0,
+                tokio::sync::mpsc::unbounded_channel().0,
             )
             .unwrap(),
         );

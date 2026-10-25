@@ -1,7 +1,10 @@
 use std::io::{self, Read, Write};
 
+use crate::protocol::PTY_HOST;
+
 const MAGIC: &[u8; 8] = b"loom-pty";
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = PTY_HOST.now;
+pub const STREAMS_SINCE: u32 = 4;
 const MAX_BODY: usize = 1 << 20;
 
 const HELLO: u8 = 0;
@@ -11,6 +14,7 @@ const KILL: u8 = 3;
 const EXIT: u8 = 4;
 const PID: u8 = 5;
 const SETUP_FAILED: u8 = 6;
+const STREAMS: u8 = 7;
 
 #[derive(Debug, PartialEq)]
 pub enum Frame {
@@ -21,6 +25,12 @@ pub enum Frame {
     Exit(u32),
     Pid(u32),
     SetupFailed(u32),
+    Streams { version: u32 },
+}
+
+pub enum Link {
+    Terminal,
+    Streams,
 }
 
 pub fn write(to: &mut impl Write, frame: &Frame) -> io::Result<()> {
@@ -37,6 +47,7 @@ pub fn write(to: &mut impl Write, frame: &Frame) -> io::Result<()> {
         Frame::Exit(code) => (EXIT, code.to_le_bytes().to_vec()),
         Frame::Pid(pid) => (PID, pid.to_le_bytes().to_vec()),
         Frame::SetupFailed(code) => (SETUP_FAILED, code.to_le_bytes().to_vec()),
+        Frame::Streams { version } => (STREAMS, [&MAGIC[..], &version.to_le_bytes()].concat()),
     };
     let mut buf = Vec::with_capacity(5 + body.len());
     buf.push(kind);
@@ -64,6 +75,9 @@ pub fn read(from: &mut impl Read) -> io::Result<Frame> {
             pid: Some(u32_at(12)?).filter(|&p| p != 0),
         }),
         HELLO => Err(invalid("not a loom pty-host")),
+        STREAMS if body.starts_with(MAGIC) => Ok(Frame::Streams {
+            version: u32_at(8)?,
+        }),
         DATA => Ok(Frame::Data(body)),
         RESIZE if len == 4 => Ok(Frame::Resize {
             cols: u16::from_le_bytes([body[0], body[1]]),
@@ -77,32 +91,57 @@ pub fn read(from: &mut impl Read) -> io::Result<Frame> {
     }
 }
 
-pub fn greet(stream: &mut (impl Read + Write)) -> io::Result<Option<u32>> {
-    write(
+pub struct Greeted {
+    pub version: u32,
+    pub pid: Option<u32>,
+}
+
+pub fn greet(stream: &mut (impl Read + Write)) -> io::Result<Greeted> {
+    greet_as(
         stream,
         &Frame::Hello {
             version: VERSION,
             pid: None,
         },
-    )?;
+    )
+}
+
+pub fn greet_streams(stream: &mut (impl Read + Write)) -> io::Result<()> {
+    greet_as(
+        stream,
+        &Frame::Streams {
+            version: crate::protocol::STREAMS,
+        },
+    )
+    .map(drop)
+}
+
+fn greet_as(stream: &mut (impl Read + Write), hello: &Frame) -> io::Result<Greeted> {
+    write(stream, hello)?;
     match read(stream)? {
-        Frame::Hello { version, pid } if (1..=VERSION).contains(&version) => Ok(pid),
+        Frame::Hello { version, pid } if PTY_HOST.accepts(version) => Ok(Greeted { version, pid }),
         Frame::Hello { version, .. } => Err(invalid(&format!("pty-host version {version}"))),
         _ => Err(invalid("pty-host did not greet")),
     }
 }
 
-pub fn welcome(stream: &mut (impl Read + Write), pid: Option<u32>) -> io::Result<()> {
-    match read(stream)? {
-        Frame::Hello { .. } => write(
-            stream,
-            &Frame::Hello {
-                version: VERSION,
-                pid,
-            },
-        ),
-        _ => Err(invalid("client did not greet")),
-    }
+pub fn welcome(stream: &mut (impl Read + Write), pid: Option<u32>) -> io::Result<Link> {
+    let link = match read(stream)? {
+        Frame::Hello { .. } => Link::Terminal,
+        Frame::Streams { version } if version == crate::protocol::STREAMS => Link::Streams,
+        Frame::Streams { version } => {
+            return Err(invalid(&format!("stream link version {version}")));
+        }
+        _ => return Err(invalid("client did not greet")),
+    };
+    write(
+        stream,
+        &Frame::Hello {
+            version: VERSION,
+            pid,
+        },
+    )?;
+    Ok(link)
 }
 
 fn invalid(why: &str) -> io::Error {
@@ -169,6 +208,36 @@ mod tests {
     }
 
     #[test]
+    fn version_4_streams_bytes_are_frozen_and_pick_the_stream_link() {
+        let mut out = Vec::new();
+        write(&mut out, &Frame::Streams { version: 1 }).unwrap();
+        assert_eq!(
+            out,
+            [&[7, 12, 0, 0, 0][..], b"loom-pty", &[1, 0, 0, 0]].concat()
+        );
+        let mut daemon = Duplex {
+            input: std::io::Cursor::new(out),
+            output: Vec::new(),
+        };
+        assert!(matches!(welcome(&mut daemon, Some(5)), Ok(Link::Streams)));
+        assert_eq!(
+            read(&mut daemon.output.as_slice()).unwrap(),
+            Frame::Hello {
+                version: VERSION,
+                pid: Some(5)
+            }
+        );
+        let mut newer = Vec::new();
+        write(&mut newer, &Frame::Streams { version: 2 }).unwrap();
+        let mut newer = Duplex {
+            input: std::io::Cursor::new(newer),
+            output: Vec::new(),
+        };
+        assert!(welcome(&mut newer, None).is_err());
+        assert!(newer.output.is_empty());
+    }
+
+    #[test]
     fn greet_accepts_known_versions_only() {
         let reply = |frame: Frame| {
             let mut bytes = Vec::new();
@@ -182,7 +251,7 @@ mod tests {
             version: 1,
             pid: Some(42),
         });
-        assert_eq!(greet(&mut old).unwrap(), Some(42));
+        assert_eq!(greet(&mut old).unwrap().pid, Some(42));
         assert_eq!(
             read(&mut old.output.as_slice()).unwrap(),
             Frame::Hello {
@@ -195,7 +264,7 @@ mod tests {
             pid: Some(42),
         });
         assert_eq!(
-            greet(&mut newer).unwrap_err().to_string(),
+            greet(&mut newer).err().unwrap().to_string(),
             format!("pty-host version {}", VERSION + 1)
         );
         let mut stranger = Duplex {
@@ -203,7 +272,7 @@ mod tests {
             output: Vec::new(),
         };
         assert_eq!(
-            greet(&mut stranger).unwrap_err().to_string(),
+            greet(&mut stranger).err().unwrap().to_string(),
             "not a loom pty-host"
         );
     }

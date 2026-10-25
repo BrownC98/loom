@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
@@ -8,7 +8,11 @@ use std::time::Duration;
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 
-use super::wire::{self, Frame};
+use crate::tunnel::ENDPOINT_ENV;
+
+use super::endpoint::Endpoint;
+use super::inner::Inner;
+use super::wire::{self, Frame, Link};
 use super::{Backlog, Exit};
 
 const INITIAL_SIZE: PtySize = PtySize {
@@ -35,6 +39,7 @@ struct Host {
     pid: Mutex<Option<u32>>,
     state: Mutex<State>,
     delivered: mpsc::Sender<()>,
+    endpoint: Mutex<Option<Endpoint>>,
 }
 
 struct Process {
@@ -57,6 +62,10 @@ pub struct Spec {
     env: Vec<(String, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     setup: Option<Vec<OsString>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    endpoint: Option<OsString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    inner: Option<Inner>,
 }
 
 impl Spec {
@@ -69,7 +78,32 @@ impl Spec {
                 .map(|(k, v)| (k.to_owned(), v.to_owned()))
                 .collect(),
             setup: setup.map(|s| s.get_argv().clone()),
+            endpoint: cmd.get_env(ENDPOINT_ENV).map(Into::into),
+            inner: None,
         }
+    }
+
+    pub fn inner(
+        launcher: &CommandBuilder,
+        cmd: &CommandBuilder,
+        setup: Option<&CommandBuilder>,
+    ) -> Self {
+        Self {
+            inner: Some(Inner::of(cmd, setup)),
+            endpoint: None,
+            ..Self::of(launcher, None)
+        }
+    }
+
+    fn process(&self) -> tokio::process::Command {
+        let mut cmd = tokio::process::Command::new(&self.argv[0]);
+        cmd.args(&self.argv[1..])
+            .env_clear()
+            .envs(self.env.iter().map(|(k, v)| (k, v)));
+        if let Some(cwd) = &self.cwd {
+            cmd.current_dir(cwd);
+        }
+        cmd
     }
 
     pub(super) fn commands(self) -> (CommandBuilder, Option<CommandBuilder>) {
@@ -89,10 +123,14 @@ impl Spec {
 }
 
 pub fn run() -> Result<(), String> {
-    let spec: Spec =
+    let mut spec: Spec =
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("command: {e}"))?;
+    if let Some(inner) = spec.inner.take() {
+        return super::inner::outer(spec.process(), inner);
+    }
+    let endpoint = spec.endpoint.take();
     let (cmd, setup) = spec.commands();
-    let started = start(cmd, setup)?;
+    let started = start(cmd, setup, endpoint.as_deref())?;
     let mut stdout = std::io::stdout();
     writeln!(stdout, "{}", started.address)
         .and_then(|()| stdout.flush())
@@ -109,7 +147,16 @@ pub struct Started {
     delivered: mpsc::Receiver<()>,
 }
 
-pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Started, String> {
+pub fn start(
+    cmd: CommandBuilder,
+    setup: Option<CommandBuilder>,
+    endpoint: Option<&OsStr>,
+) -> Result<Started, String> {
+    let endpoint = endpoint.and_then(|at| {
+        Endpoint::open(at)
+            .inspect_err(|e| eprintln!("loom: 노드 접속점 {}: {e}", at.display()))
+            .ok()
+    });
     let pair = native_pty_system()
         .openpty(INITIAL_SIZE)
         .map_err(|e| e.to_string())?;
@@ -134,6 +181,7 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
         pid: Mutex::new(child.process_id()),
         state: Mutex::default(),
         delivered: delivered_tx,
+        endpoint: Mutex::new(endpoint),
     });
     let output_done = host.read_in_background(reader);
     let accepting = host.clone();
@@ -153,6 +201,14 @@ pub fn start(cmd: CommandBuilder, setup: Option<CommandBuilder>) -> Result<Start
 }
 
 impl Started {
+    pub fn stopper(&self) -> impl Fn() + Send + use<> {
+        let host = self.host.clone();
+        move || {
+            host.kill();
+            host.endpoint.lock().unwrap().take();
+        }
+    }
+
     pub fn wait(mut self) {
         let code = self.running.exit_code();
         let mut note = None;
@@ -180,6 +236,7 @@ impl Started {
         }
         self.host.exited(exit);
         let _ = self.delivered.recv_timeout(EXIT_KEEP);
+        self.host.endpoint.lock().unwrap().take();
     }
 }
 
@@ -258,6 +315,12 @@ impl Host {
         Ok(Some(Running { child, output_done }))
     }
 
+    fn kill(&self) {
+        let mut process = self.process.lock().unwrap();
+        process.killed = true;
+        let _ = process.killer.kill();
+    }
+
     fn note(&self, text: &str) {
         let line = format!("\r\n{text}\r\n").into_bytes();
         let mut state = self.state.lock().unwrap();
@@ -278,9 +341,21 @@ impl Host {
         let greeted = stream
             .set_read_timeout(Some(HELLO_TIMEOUT))
             .and_then(|()| stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT)))
-            .and_then(|()| wire::welcome(&mut stream, greeted_pid))
-            .and_then(|()| stream.set_read_timeout(None));
-        let Ok(mut reader) = greeted.and_then(|()| stream.try_clone()) else {
+            .and_then(|()| wire::welcome(&mut stream, greeted_pid));
+        match greeted {
+            Ok(Link::Terminal) => {}
+            Ok(Link::Streams) => {
+                if let Some(endpoint) = &*self.endpoint.lock().unwrap() {
+                    endpoint.carry(stream);
+                }
+                return;
+            }
+            Err(_) => return,
+        }
+        let Ok(mut reader) = stream
+            .set_read_timeout(None)
+            .and_then(|()| stream.try_clone())
+        else {
             return;
         };
         let size = self
@@ -340,12 +415,12 @@ impl Host {
                     };
                     let _ = self.master.lock().unwrap().resize(size);
                 }
-                Frame::Kill => {
-                    let mut process = self.process.lock().unwrap();
-                    process.killed = true;
-                    let _ = process.killer.kill();
-                }
-                Frame::Hello { .. } | Frame::Exit(_) | Frame::Pid(_) | Frame::SetupFailed(_) => {}
+                Frame::Kill => self.kill(),
+                Frame::Hello { .. }
+                | Frame::Exit(_)
+                | Frame::Pid(_)
+                | Frame::SetupFailed(_)
+                | Frame::Streams { .. } => {}
             }
         }
         let mut state = self.state.lock().unwrap();

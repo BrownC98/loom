@@ -23,6 +23,24 @@ pub const VERSION: &str = match option_env!("LOOM_VERSION") {
 
 pub const COMMIT: Option<&str> = option_env!("LOOM_COMMIT");
 
+#[derive(Clone, Copy, Debug)]
+pub struct Versions {
+    pub now: u32,
+    pub oldest: u32,
+}
+
+impl Versions {
+    pub fn accepts(self, version: u32) -> bool {
+        (self.oldest..=self.now).contains(&version)
+    }
+}
+
+pub const PTY_HOST: Versions = Versions { now: 4, oldest: 1 };
+pub const NODE_CALLS: Versions = Versions { now: 1, oldest: 1 };
+pub const NODE_CALLS_HEADER: &str = "loom-protocol";
+pub const STREAMS: u32 = 1;
+pub const PI_HOOK: u32 = 2;
+
 /// 관문 동사. `Queue`만 빼고 각각 `loom <동사>` 명령 하나다.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

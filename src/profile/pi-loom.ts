@@ -42,7 +42,7 @@ async function background(command: string, cwd: string, shell: { shell: string; 
     child.once("error", (e) => reject(new Error(`Could not start the background command: ${e.message}`)));
   });
   child.unref();
-  const text = `Started in the background: pid ${child.pid}, output in ${log}. Stop it with: kill -- -${child.pid}`;
+  const text = `Started in the background: pid ${child.pid}, output in ${log}. Stop it with: kill -- -${child.pid}. To wait until it ends and then read the log, run: tail --pid=${child.pid} -f /dev/null; tail -n 40 ${log} . Do not wait with a fixed sleep.`;
   return { content: [{ type: "text" as const, text }], details: undefined };
 }
 
@@ -73,7 +73,7 @@ export default function (pi: ExtensionAPI) {
   const bash = createBashToolDefinition(process.cwd());
   pi.registerTool({
     ...bash,
-    description: `${bash.description} Set run_in_background to true for a process that keeps running, such as a server: it starts detached, writes its output to a log file and returns at once. A foreground command without timeout stops after ${BASH_TIMEOUT_S} seconds.`,
+    description: `${bash.description} Run builds and tests in the foreground. Set run_in_background to true only for a process that keeps running, such as a server: it starts detached, writes its output to a log file and returns at once with the command that waits for its end. A foreground command without timeout stops after ${BASH_TIMEOUT_S} seconds.`,
     parameters: Type.Object({
       ...bash.parameters.properties,
       run_in_background: Type.Optional(Type.Boolean({ description: "Start the command detached and return at once" })),

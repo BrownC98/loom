@@ -358,6 +358,8 @@ const ko: typeof en = {
     notifyDone: '완료',
     notifyDoneHint: '사람이 맡긴 일이 끝남',
     notifyLink: 'PC 연결 표시 숨기기',
+    notifyLinkHint:
+      '「PC에 연결됨」 알림은 앱을 닫아도 PC 연결을 지켜 질문·완료 알림을 받게 합니다. Android가 이 알림을 요구합니다. 「PC 연결 표시 숨기기」를 누르고 Android 설정에서 「연결 표시」를 끕니다. 그 뒤에도 질문·완료 알림은 옵니다. Android 12 이하에서는 시스템이 따로 실행 중 알림을 띄울 수 있습니다.',
     notifyBlocked: 'Android에서 loom 알림이 꺼져 있습니다',
     themeSystem: '시스템 설정 따름',
     actions: '노드 동작',

@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { notifyChanged() }
 
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
+    private val net by lazy { NetWatch(this) { moved() } }
 
     private var origin: String?
         get() = prefs.getString(Prefs.ORIGIN, null)
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
         })
         if (savedInstanceState == null) jumpTo(intent)
         if (doors.isEmpty()) origin?.let(::open) ?: showStart(null)
+        net.start()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !prefs.getBoolean(Prefs.NOTIFY_ASKED, false)) {
             prefs.edit().putBoolean(Prefs.NOTIFY_ASKED, true).apply()
             askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -219,6 +221,20 @@ class MainActivity : ComponentActivity() {
             checked = now
             thread { Release.newer()?.let { runOnUiThread { showAvailable(it) } } }
         }
+        recheck()
+    }
+
+    override fun onDestroy() {
+        net.stop()
+        super.onDestroy()
+    }
+
+    private fun moved() {
+        if (web.url != null && card.visibility != View.VISIBLE) web.evaluateJavascript("dispatchEvent(new Event('online'))", null)
+        recheck()
+    }
+
+    private fun recheck() {
         val at = origin?.removePrefix("https://")
         if (doors.isNotEmpty() && !reaching) {
             when {

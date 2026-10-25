@@ -25,8 +25,9 @@ internal class Pace {
     }
 
     companion object {
+        const val BACK_FRAME = "{\"pace\":\"back\"}"
         const val CONNECT_MS = 5_000L
-        const val QUIET_MS = 40_000L
+        const val QUIET_MS = 75_000L
         const val NO_BEAT_QUIET_MS = 10 * 60_000L
         const val RETRY_MS = 1_000L
         const val RETRY_MAX_MS = 60_000L

@@ -92,20 +92,38 @@ async fn event_log(State(app): State<Arc<App>>) -> Result<Json<EventLog>, Proble
     app.graph.event_log().map(Json).map_err(internal)
 }
 
+/// 화면이 `/api/events`로 보내는 글 프레임. 데몬은 이 값에 맞춰 박동 간격을 바꾼다.
+/// 보내지 않은 화면에는 15초마다 박동을 보낸다.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, TS)]
+#[serde(tag = "pace", rename_all = "camelCase")]
+#[ts(export)]
+pub enum Pace {
+    /// 사람이 화면을 보고 있다.
+    Front,
+    /// 화면이 뒤에 있다. 휴대폰 서비스는 늘 이것을 보낸다.
+    Back,
+}
+
+fn beat(pace: Option<Pace>) -> Duration {
+    match pace {
+        None => pulse::BEAT,
+        Some(Pace::Front) => pulse::FRONT_BEAT,
+        Some(Pace::Back) => pulse::BACK_BEAT,
+    }
+}
+
 async fn events(
     ws: WebSocketUpgrade,
     State(app): State<Arc<App>>,
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
     let devices = app.devices.clone();
-    ws.on_upgrade(move |socket| {
-        origin::until_removed(devices, via, send_events(socket, app, pulse::BEAT))
-    })
+    ws.on_upgrade(move |socket| origin::until_removed(devices, via, send_events(socket, app, beat)))
 }
 
-async fn send_events(socket: WebSocket, app: Arc<App>, beat: Duration) {
+async fn send_events(socket: WebSocket, app: Arc<App>, beat: fn(Option<Pace>) -> Duration) {
     let (mut to_view, mut from_view) = socket.split();
-    let mut pulse = Pulse::new(beat);
+    let mut pulse = Pulse::new(beat(None));
     loop {
         let Ok((snapshot, mut rx)) = app.graph.subscribe() else {
             return;
@@ -116,19 +134,35 @@ async fn send_events(socket: WebSocket, app: Arc<App>, beat: Duration) {
         {
             return;
         }
+        pulse.sent();
         loop {
             tokio::select! {
                 event = rx.recv() => match event {
-                    Ok(event) => if send_json(&mut to_view, &event).await.is_err() { return },
+                    Ok(event) => {
+                        if send_json(&mut to_view, &event).await.is_err() {
+                            return;
+                        }
+                        pulse.sent();
+                    }
                     Err(RecvError::Lagged(_)) => break,
                     Err(RecvError::Closed) => return,
                 },
                 heard = pulse.listen(&mut from_view) => match heard {
+                    Heard::Frame(Some(Ok(Message::Text(text)))) => {
+                        if let Ok(pace) = serde_json::from_str(&text) {
+                            pulse.pace(beat(Some(pace)));
+                        }
+                    }
                     Heard::Frame(Some(Ok(_))) => {}
                     Heard::Frame(Some(Err(_)) | None) => return,
-                    Heard::Beat(beat) => {
-                        if beat == Beat::Dead
-                            || to_view.send(Message::Ping(Default::default())).await.is_err()
+                    Heard::Beat(Beat::Dead) => return,
+                    Heard::Beat(Beat::Ping) => {
+                        if to_view.send(Message::Ping(Default::default())).await.is_err() {
+                            return;
+                        }
+                    }
+                    Heard::Beat(Beat::Send) => {
+                        if to_view.send(Message::Ping(Default::default())).await.is_err()
                             || send_json(&mut to_view, &GraphEvent::Beat).await.is_err()
                         {
                             return;
@@ -176,6 +210,14 @@ mod tests {
 
     const TEST_BEAT: Duration = Duration::from_millis(100);
 
+    fn test_beat(pace: Option<Pace>) -> Duration {
+        match pace {
+            None => TEST_BEAT,
+            Some(Pace::Front) => TEST_BEAT / 4,
+            Some(Pace::Back) => TEST_BEAT * 10,
+        }
+    }
+
     async fn events_socket() -> (
         tempfile::TempDir,
         Arc<App>,
@@ -201,7 +243,7 @@ mod tests {
                 "/api/events",
                 get(
                     |ws: WebSocketUpgrade, State(app): State<Arc<App>>| async move {
-                        ws.on_upgrade(move |socket| send_events(socket, app, TEST_BEAT))
+                        ws.on_upgrade(move |socket| send_events(socket, app, test_beat))
                     },
                 ),
             )
@@ -236,6 +278,37 @@ mod tests {
             }
         }
         assert!(beats >= 5, "{beats} beats in 10 beat periods");
+    }
+
+    #[tokio::test]
+    async fn the_events_socket_beats_at_the_pace_the_view_sends() {
+        let (_dir, _app, mut socket) = events_socket().await;
+        let mut beats_at = async |pace: &str| {
+            socket.send(Frame::text(pace)).await.unwrap();
+            let mut beats = 0;
+            let until = tokio::time::Instant::now() + TEST_BEAT * 10;
+            while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(until, socket.next()).await {
+                if kind(&frame) == "beat" {
+                    beats += 1;
+                }
+            }
+            beats
+        };
+        let back = beats_at(r#"{"pace":"back"}"#).await;
+        assert!(back <= 2, "{back} beats at the back pace");
+        let front = beats_at(r#"{"pace":"front"}"#).await;
+        assert!(front >= 15, "{front} beats at the front pace");
+    }
+
+    #[test]
+    fn the_pace_frame_is_one_small_object() {
+        assert_eq!(
+            serde_json::from_str::<Pace>(r#"{"pace":"front"}"#).unwrap(),
+            Pace::Front
+        );
+        assert_eq!(beat(None), pulse::BEAT);
+        assert_eq!(beat(Some(Pace::Front)), pulse::FRONT_BEAT);
+        assert_eq!(beat(Some(Pace::Back)), pulse::BACK_BEAT);
     }
 
     #[tokio::test]

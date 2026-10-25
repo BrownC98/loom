@@ -5,7 +5,7 @@ import org.junit.Test
 
 class PaceTest {
     @Test
-    fun quietLimitIsTenMinutesUntilTheFirstBeatThenFortySeconds() {
+    fun quietLimitIsTenMinutesUntilTheFirstBeatThenSeventyFiveSeconds() {
         val pace = Pace()
         pace.opened()
         assertEquals(600_000L, pace.quietMs)
@@ -13,9 +13,14 @@ class PaceTest {
         pace.heard(Heard.OTHER)
         assertEquals(600_000L, pace.quietMs)
         pace.heard(Heard.BEAT)
-        assertEquals(40_000L, pace.quietMs)
+        assertEquals(75_000L, pace.quietMs)
         pace.heard(Heard.WAITS)
-        assertEquals(40_000L, pace.quietMs)
+        assertEquals(75_000L, pace.quietMs)
+    }
+
+    @Test
+    fun theServiceAsksForTheBackPace() {
+        assertEquals("{\"pace\":\"back\"}", Pace.BACK_FRAME)
     }
 
     @Test

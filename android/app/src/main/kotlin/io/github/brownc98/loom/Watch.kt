@@ -10,8 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
-import android.net.ConnectivityManager
-import android.net.Network
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -41,16 +39,7 @@ class Watch : Service() {
     private var at = 0
     private var linked = false
     private var stopped = false
-    private var network: Network? = null
-    private val networks = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(next: Network) {
-            main.post {
-                val before = network
-                network = next
-                if (before != null && before != next && !stopped) restart()
-            }
-        }
-    }
+    private val net by lazy { NetWatch(this) { if (!stopped) restart() } }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -58,7 +47,7 @@ class Watch : Service() {
         super.onCreate()
         channels(this)
         foreground()
-        runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networks) }
+        net.start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -71,7 +60,7 @@ class Watch : Service() {
     override fun onDestroy() {
         stopped = true
         turn++
-        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networks) }
+        net.stop()
         main.removeCallbacksAndMessages(null)
         socket?.cancel()
         manager.activeNotifications.filter { it.tag == WAIT_TAG }.forEach { manager.cancel(WAIT_TAG, it.id) }
@@ -106,6 +95,7 @@ class Watch : Service() {
         val mine = ++turn
         socket = client(pin).newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                webSocket.send(Pace.BACK_FRAME)
                 main.post {
                     if (mine != turn) return@post
                     pace.opened()

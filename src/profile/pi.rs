@@ -3,11 +3,10 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::Take;
-use crate::protocol::{Delivery, Kind, Model};
+use crate::protocol::{Delivery, Kind, Model, PI_HOOK as PROTOCOL};
 use crate::skills::Launch;
 
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
-pub const PROTOCOL: u32 = 2;
 const EXTENSION: &str = include_str!("pi-loom.ts");
 const EXTENSION_FILE: &str = "pi-loom.ts";
 const HOOK: &str = include_str!("loom-hook.ts");

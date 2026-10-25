@@ -4,10 +4,8 @@ use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 pub const MAX_CHUNK: usize = 64 * 1024;
-pub const VERSION: u32 = 1;
 const HEAD: usize = 9;
 
-const READY: u8 = 0;
 const OPEN: u8 = 1;
 const DATA: u8 = 2;
 const END: u8 = 3;
@@ -15,7 +13,6 @@ const CLOSE: u8 = 4;
 
 #[derive(Debug, PartialEq)]
 pub enum Frame {
-    Ready(u32),
     Open(u32),
     Data(u32, Bytes),
     End(u32),
@@ -24,7 +21,6 @@ pub enum Frame {
 
 pub fn encode(frame: &Frame, out: &mut Vec<u8>) {
     let (kind, id, body): (u8, u32, &[u8]) = match frame {
-        Frame::Ready(version) => (READY, *version, &[]),
         Frame::Open(id) => (OPEN, *id, &[]),
         Frame::Data(id, bytes) => (DATA, *id, bytes),
         Frame::End(id) => (END, *id, &[]),
@@ -50,7 +46,6 @@ pub async fn read(from: &mut (impl AsyncRead + Unpin)) -> io::Result<Option<Fram
     let mut body = vec![0u8; len];
     from.read_exact(&mut body).await?;
     Ok(Some(match head[0] {
-        READY => Frame::Ready(id),
         OPEN => Frame::Open(id),
         DATA => Frame::Data(id, body.into()),
         END => Frame::End(id),
@@ -86,7 +81,6 @@ mod tests {
     #[tokio::test]
     async fn frames_split_into_single_bytes_read_back_whole() {
         let frames = [
-            Frame::Ready(VERSION),
             Frame::Open(7),
             Frame::Data(7, Bytes::from(vec![0xab; MAX_CHUNK])),
             Frame::Data(u32::MAX, Bytes::from_static(b"\0\r\n")),

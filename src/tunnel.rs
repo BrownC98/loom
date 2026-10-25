@@ -1,7 +1,4 @@
-mod supervisor;
 mod wire;
-
-pub use supervisor::{Launch, Pace, Tunnels};
 
 use std::collections::HashMap;
 use std::io;
@@ -16,13 +13,12 @@ use tokio::sync::mpsc;
 
 use wire::{Frame, MAX_CHUNK};
 
+pub const ENDPOINT_ENV: &str = "LOOM_SOCKET";
 const BATCH_BYTES: usize = 256 * 1024;
-#[cfg(unix)]
-const ACCEPT_RETRY: std::time::Duration = std::time::Duration::from_millis(100);
 
 struct Shared {
     out: mpsc::UnboundedSender<Frame>,
-    streams: Mutex<HashMap<u32, Inbound>>,
+    streams: Mutex<Option<HashMap<u32, Inbound>>>,
 }
 
 struct Inbound {
@@ -51,13 +47,14 @@ impl Shared {
     fn register(self: &Arc<Self>, id: u32) -> Stream {
         let (data, rx) = mpsc::unbounded_channel();
         let peer = Arc::new(Peer::default());
-        self.streams.lock().unwrap().insert(
-            id,
-            Inbound {
-                data: Some(data),
-                peer: peer.clone(),
-            },
-        );
+        let inbound = Inbound {
+            data: Some(data),
+            peer: peer.clone(),
+        };
+        match self.streams.lock().unwrap().as_mut() {
+            Some(streams) => drop(streams.insert(id, inbound)),
+            None => peer.reset(),
+        }
         Stream {
             id,
             data: rx,
@@ -69,25 +66,22 @@ impl Shared {
     }
 
     fn reset_all(&self) {
-        for (_, inbound) in self.streams.lock().unwrap().drain() {
+        for (_, inbound) in self.streams.lock().unwrap().take().into_iter().flatten() {
             inbound.peer.reset();
         }
     }
+
+    fn open_streams(&self) -> std::sync::MutexGuard<'_, Option<HashMap<u32, Inbound>>> {
+        self.streams.lock().unwrap()
+    }
 }
 
-pub enum Event {
-    Ready(u32),
-    Opened(Stream),
-}
-
-#[cfg(any(unix, test))]
 pub struct Mux {
     shared: Arc<Shared>,
     next: std::sync::atomic::AtomicU32,
 }
 
-#[cfg(any(unix, test))]
-pub fn start<R, W>(reader: R, writer: W) -> (Mux, mpsc::UnboundedReceiver<Event>)
+pub fn start<R, W>(reader: R, writer: W) -> (Mux, mpsc::UnboundedReceiver<Stream>)
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -100,7 +94,7 @@ where
     (mux, events)
 }
 
-pub fn accept<R, W>(reader: R, writer: W) -> mpsc::UnboundedReceiver<Event>
+pub fn accept<R, W>(reader: R, writer: W) -> mpsc::UnboundedReceiver<Stream>
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -108,7 +102,7 @@ where
     spawn(reader, writer).1
 }
 
-fn spawn<R, W>(reader: R, writer: W) -> (Arc<Shared>, mpsc::UnboundedReceiver<Event>)
+fn spawn<R, W>(reader: R, writer: W) -> (Arc<Shared>, mpsc::UnboundedReceiver<Stream>)
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -116,7 +110,7 @@ where
     let (out, frames) = mpsc::unbounded_channel();
     let shared = Arc::new(Shared {
         out,
-        streams: Mutex::default(),
+        streams: Mutex::new(Some(HashMap::new())),
     });
     let (events, events_rx) = mpsc::unbounded_channel();
     tokio::spawn(write_frames(writer, frames));
@@ -124,11 +118,9 @@ where
     (shared, events_rx)
 }
 
-#[cfg(any(unix, test))]
 impl Mux {
-    #[cfg(unix)]
-    pub fn ready(&self) {
-        let _ = self.shared.out.send(Frame::Ready(wire::VERSION));
+    pub fn is_closed(&self) -> bool {
+        self.shared.open_streams().is_none()
     }
 
     pub fn open(&self) -> Stream {
@@ -161,34 +153,38 @@ async fn write_frames(
 async fn read_frames(
     reader: impl AsyncRead + Unpin,
     shared: Arc<Shared>,
-    events: mpsc::UnboundedSender<Event>,
+    events: mpsc::UnboundedSender<Stream>,
 ) {
     let mut reader = tokio::io::BufReader::new(reader);
     while let Ok(Some(frame)) = wire::read(&mut reader).await {
         match frame {
-            Frame::Ready(version) => {
-                let _ = events.send(Event::Ready(version));
-            }
             Frame::Open(id) => {
-                let _ = events.send(Event::Opened(shared.register(id)));
+                let _ = events.send(shared.register(id));
             }
             Frame::Data(id, bytes) => {
                 if let Some(data) = shared
-                    .streams
-                    .lock()
-                    .unwrap()
-                    .get(&id)
+                    .open_streams()
+                    .as_ref()
+                    .and_then(|streams| streams.get(&id))
                     .and_then(|i| i.data.as_ref())
                 {
                     let _ = data.send(bytes);
                 }
             }
             Frame::End(id) => {
-                if let Some(inbound) = shared.streams.lock().unwrap().get_mut(&id) {
+                if let Some(inbound) = shared
+                    .open_streams()
+                    .as_mut()
+                    .and_then(|streams| streams.get_mut(&id))
+                {
                     inbound.data = None;
                 }
             }
-            Frame::Close(id) => match shared.streams.lock().unwrap().remove(&id) {
+            Frame::Close(id) => match shared
+                .open_streams()
+                .as_mut()
+                .and_then(|streams| streams.remove(&id))
+            {
                 Some(Inbound {
                     data: Some(_),
                     peer,
@@ -279,92 +275,56 @@ impl AsyncWrite for Stream {
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        self.shared.streams.lock().unwrap().remove(&self.id);
+        if let Some(streams) = self.shared.open_streams().as_mut() {
+            streams.remove(&self.id);
+        }
         if !self.is_gone() {
             let _ = self.shared.out.send(Frame::Close(self.id));
         }
     }
 }
 
-pub struct Door(mpsc::UnboundedReceiver<Stream>);
+pub struct Door<A>(mpsc::UnboundedReceiver<(Stream, A)>);
 
-impl Door {
-    pub fn new() -> (mpsc::UnboundedSender<Stream>, Door) {
+impl<A> Door<A> {
+    pub fn new() -> (mpsc::UnboundedSender<(Stream, A)>, Door<A>) {
         let (tx, rx) = mpsc::unbounded_channel();
         (tx, Door(rx))
     }
 }
 
-impl axum::serve::Listener for Door {
+impl<A: Clone + Send + Sync + 'static> axum::serve::Listener for Door<A> {
     type Io = Stream;
-    type Addr = ();
+    type Addr = A;
 
-    async fn accept(&mut self) -> (Stream, ()) {
+    async fn accept(&mut self) -> (Stream, A) {
         match self.0.recv().await {
-            Some(stream) => (stream, ()),
+            Some(opened) => opened,
             None => std::future::pending().await,
         }
     }
 
-    fn local_addr(&self) -> io::Result<()> {
-        Ok(())
+    fn local_addr(&self) -> io::Result<A> {
+        Err(io::ErrorKind::Unsupported.into())
     }
 }
 
-#[cfg(unix)]
-pub async fn relay(
-    sock: &std::path::Path,
-    from: impl AsyncRead + Unpin + Send + 'static,
-    to: impl AsyncWrite + Unpin + Send + 'static,
+pub fn carry<A: Clone + Send + 'static>(
+    link: std::net::TcpStream,
+    at: A,
+    doors: mpsc::UnboundedSender<(Stream, A)>,
 ) -> io::Result<()> {
-    use std::os::unix::fs::MetadataExt;
-    let listener = bind(sock)?;
-    let bound = std::fs::metadata(sock)?.ino();
-    let (mux, mut events) = start(from, to);
-    mux.ready();
-    let mut conns = tokio::task::JoinSet::new();
-    loop {
-        tokio::select! {
-            accepted = listener.accept() => match accepted {
-                Ok((mut client, _)) => {
-                    let mut stream = mux.open();
-                    conns.spawn(async move {
-                        let _ = tokio::io::copy_bidirectional(&mut client, &mut stream).await;
-                    });
-                }
-                Err(e) => {
-                    eprintln!("loom: 터널이 연결을 받지 못했다: {e}");
-                    tokio::time::sleep(ACCEPT_RETRY).await;
-                }
-            },
-            event = events.recv() => if event.is_none() {
+    link.set_nonblocking(true)?;
+    let (reader, writer) = tokio::net::TcpStream::from_std(link)?.into_split();
+    let mut events = accept(reader, writer);
+    tokio::spawn(async move {
+        while let Some(stream) = events.recv().await {
+            if doors.send((stream, at.clone())).is_err() {
                 break;
-            },
-            Some(_) = conns.join_next(), if !conns.is_empty() => {}
+            }
         }
-    }
-    if std::fs::metadata(sock).is_ok_and(|m| m.ino() == bound) {
-        let _ = std::fs::remove_file(sock);
-    }
+    });
     Ok(())
-}
-
-#[cfg(unix)]
-fn bind(sock: &std::path::Path) -> io::Result<tokio::net::UnixListener> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    let dir = sock
-        .parent()
-        .ok_or_else(|| io::Error::other("소켓 경로에 폴더가 없다"))?;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-    match std::fs::remove_file(sock) {
-        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
-        _ => {}
-    }
-    tokio::net::UnixListener::bind(sock)
 }
 
 #[cfg(test)]

@@ -812,7 +812,7 @@ pub fn tunnel(sock: PathBuf) -> Result<(), String> {
                 tokio::io::stdin(),
                 tokio::io::stdout(),
             ))
-            .map_err(|e| format!("tunnel {}: {e}", sock.display()))?;
+            .map_err(|e| format!("터널 {}: {e}", sock.display()))?;
         std::process::exit(0)
     }
     #[cfg(not(unix))]

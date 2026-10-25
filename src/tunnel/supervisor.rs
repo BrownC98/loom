@@ -85,9 +85,9 @@ impl<L: Launch> Tunnels<L> {
                 Phase::Down(why) => Err(why.clone()),
                 _ => Ok(()),
             },
-            Ok(Err(_)) => Err("the tunnel supervisor ended".into()),
+            Ok(Err(_)) => Err("터널 감독이 끝났다".into()),
             Err(_) => Err(format!(
-                "the tunnel did not start in {} s",
+                "터널이 {}초 안에 뜨지 않았다",
                 READY_WAIT.as_secs()
             )),
         }
@@ -136,7 +136,7 @@ async fn supervise<L: Launch>(
             let began = Instant::now();
             let why = run(&*launch, &doors, &distro, &supervised).await;
             if why != last {
-                eprintln!("loom: tunnel to {distro} ended: {why}");
+                eprintln!("loom: {distro} 터널이 끝났다: {why}");
             }
             supervised
                 .state
@@ -175,13 +175,13 @@ async fn run<L: Launch>(
     let (Some(stdin), Some(stdout), Some(stderr)) =
         (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
-        return "the tunnel has no pipes".into();
+        return "터널 프로세스에 파이프가 없다".into();
     };
     let name = distro.to_owned();
     tokio::spawn(async move {
         let mut lines = tokio::io::BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            eprintln!("loom: tunnel {name}: {line}");
+            eprintln!("loom: {name} 터널: {line}");
         }
     });
     let mut events = super::accept(stdout, stdin);
@@ -195,7 +195,7 @@ async fn run<L: Launch>(
     }
     let _ = child.start_kill();
     match child.wait().await {
-        Ok(status) => format!("the relay exited ({status})"),
+        Ok(status) => format!("중계가 끝났다 ({status})"),
         Err(e) => e.to_string(),
     }
 }

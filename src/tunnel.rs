@@ -324,7 +324,7 @@ pub async fn relay(
                     });
                 }
                 Err(e) => {
-                    eprintln!("loom: tunnel accept: {e}");
+                    eprintln!("loom: 터널이 연결을 받지 못했다: {e}");
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
             },
@@ -345,7 +345,7 @@ fn bind(sock: &std::path::Path) -> io::Result<tokio::net::UnixListener> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let dir = sock
         .parent()
-        .ok_or_else(|| io::Error::other("the socket path has no folder"))?;
+        .ok_or_else(|| io::Error::other("소켓 경로에 폴더가 없다"))?;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)

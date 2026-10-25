@@ -467,13 +467,23 @@ fn until_answered<T>(
     loop {
         match attempt() {
             Ok(value) => return Ok(value),
-            Err(CallError::Unreachable(_)) => std::thread::sleep(pause),
+            Err(CallError::Unreachable(_) | CallError::NotConnected(_)) => {
+                std::thread::sleep(pause)
+            }
             Err(e) => return Err(e.into()),
         }
     }
 }
 
 fn reconnecting<T>(
+    deadline: Option<Instant>,
+    attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
+) -> Result<T, String> {
+    reconnecting_within(RECONNECT_FOR, deadline, attempt)
+}
+
+fn reconnecting_within<T>(
+    outage_limit: Duration,
     deadline: Option<Instant>,
     mut attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
 ) -> Result<T, String> {
@@ -482,16 +492,19 @@ fn reconnecting<T>(
         let started = Instant::now();
         match attempt(deadline.map(|d| d.saturating_duration_since(started))) {
             Ok(value) => return Ok(value),
-            Err(CallError::Unreachable(e)) => {
-                if started.elapsed() >= RECONNECT_AFTER {
+            Err(error @ (CallError::Unreachable(_) | CallError::NotConnected(_))) => {
+                if matches!(error, CallError::Unreachable(_))
+                    && started.elapsed() >= RECONNECT_AFTER
+                {
                     unreachable_since = None;
                 }
+                let e = error.to_string();
                 let gave_up =
-                    unreachable_since.get_or_insert_with(Instant::now).elapsed() >= RECONNECT_FOR;
+                    unreachable_since.get_or_insert_with(Instant::now).elapsed() >= outage_limit;
                 if gave_up {
                     return Err(format!(
                         "{e} The daemon or its tunnel was down for {} min. A message that was on its way to you comes again.",
-                        RECONNECT_FOR.as_secs() / 60
+                        outage_limit.as_secs() / 60
                     ));
                 }
                 if deadline.is_some_and(|d| Instant::now() + RECONNECT_AFTER >= d) {
@@ -864,6 +877,7 @@ pub fn tunnel(sock: PathBuf) -> Result<(), String> {
 }
 
 enum CallError {
+    NotConnected(String),
     Unreachable(String),
     Refused(String),
 }
@@ -871,7 +885,9 @@ enum CallError {
 impl std::fmt::Display for CallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CallError::Unreachable(e) | CallError::Refused(e) => f.write_str(e),
+            CallError::NotConnected(e) | CallError::Unreachable(e) | CallError::Refused(e) => {
+                f.write_str(e)
+            }
         }
     }
 }
@@ -924,7 +940,10 @@ fn post_as<T: DeserializeOwned>(
         .header(TOOL_HEADER, tool())
         .header(VERSION_HEADER, version())
         .send_json(body)
-        .map_err(|e| CallError::Unreachable(daemon.not_answered(e)))?;
+        .map_err(|e| match e {
+            ureq::Error::ConnectionFailed => CallError::NotConnected(daemon.not_answered(e)),
+            e => CallError::Unreachable(daemon.not_answered(e)),
+        })?;
     let status = res.status();
     let text = res.body_mut().read_to_string().map_err(|e| {
         CallError::Unreachable(format!(
@@ -980,6 +999,24 @@ mod tests {
         let got: Result<(), String> =
             reconnecting(None, |_| Err(CallError::Refused("gone".into())));
         assert_eq!(got, Err("gone".into()));
+    }
+
+    #[test]
+    fn a_slow_failed_connect_does_not_restart_the_outage_clock() {
+        let started = Instant::now();
+        let mut calls = 0;
+        let got: Result<(), String> = reconnecting_within(Duration::from_secs(1), None, |_| {
+            calls += 1;
+            std::thread::sleep(RECONNECT_AFTER);
+            Err(CallError::NotConnected("no tunnel".into()))
+        });
+        let e = got.unwrap_err();
+        assert!(
+            e.starts_with("no tunnel The daemon or its tunnel was down"),
+            "{e}"
+        );
+        assert_eq!(calls, 2);
+        assert!(started.elapsed() < 4 * RECONNECT_AFTER);
     }
 
     #[test]
@@ -1149,7 +1186,7 @@ mod tests {
             None,
         );
         assert!(
-            matches!(&got, Err(CallError::Unreachable(e)) if e.starts_with("Could not connect to the daemon through the tunnel")),
+            matches!(&got, Err(CallError::NotConnected(e)) if e.starts_with("Could not connect to the daemon through the tunnel")),
             "{}",
             got.err().map(String::from).unwrap_or_default()
         );

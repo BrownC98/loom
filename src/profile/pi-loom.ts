@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   createBashToolDefinition,
   DefaultPackageManager,
+  getShellConfig,
   type ExtensionAPI,
   type ExtensionContext,
   getAgentDir,
@@ -25,6 +26,7 @@ const IDLE_FLAG = "loom-idle";
 const RETRY_MS = 250;
 const REOPEN_MS = 1000;
 const BASH_TIMEOUT_S = 1200;
+let started = 0;
 const SKILLS = join(dirname(fileURLToPath(import.meta.url)), "skills");
 
 function parse(line: string): Reply | undefined {
@@ -74,13 +76,27 @@ function open(ctx: ExtensionContext, signal: AbortSignal): Hook {
   return hook;
 }
 
-function background(command: string, cwd: string) {
+async function background(command: string, cwd: string, shell: { shell: string; args: string[]; commandTransport?: string }) {
   const dir = join(process.env.LOOM_TASK_DIR || tmpdir(), "logs");
   mkdirSync(dir, { recursive: true });
-  const log = join(dir, `background-${Date.now()}.log`);
+  const log = join(dir, `background-${Date.now()}-${++started}.log`);
   const fd = openSync(log, "a");
-  const child = spawn("bash", ["-c", command], { cwd, detached: true, stdio: ["ignore", fd, fd] });
+  const stdin = shell.commandTransport === "stdin";
+  const child = spawn(shell.shell, stdin ? shell.args : [...shell.args, command], {
+    cwd,
+    detached: true,
+    stdio: [stdin ? "pipe" : "ignore", fd, fd],
+    windowsHide: true,
+  });
   closeSync(fd);
+  if (stdin) {
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(command);
+  }
+  await new Promise((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", (e) => reject(new Error(`Could not start the background command: ${e.message}`)));
+  });
   child.unref();
   const text = `Started in the background: pid ${child.pid}, output in ${log}. Stop it with: kill -- -${child.pid}`;
   return { content: [{ type: "text" as const, text }], details: undefined };
@@ -130,7 +146,10 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerFlag(IDLE_FLAG, { type: "boolean", default: false, description: "Wait for loom mail when the session starts without a prompt" });
 
-  const bash = createBashToolDefinition(process.cwd());
+  const settings = SettingsManager.create(process.cwd(), getAgentDir());
+  const commandPrefix = settings.getShellCommandPrefix();
+  const shellPath = settings.getShellPath();
+  const bash = createBashToolDefinition(process.cwd(), { commandPrefix, shellPath });
   pi.registerTool({
     ...bash,
     description: `${bash.description} Set run_in_background to true for a process that keeps running, such as a server: it starts detached, writes its output to a log file and returns at once. A foreground command without timeout stops after ${BASH_TIMEOUT_S} seconds.`,
@@ -139,7 +158,10 @@ export default function (pi: ExtensionAPI) {
       run_in_background: Type.Optional(Type.Boolean({ description: "Start the command detached and return at once" })),
     }),
     async execute(id, params, signal, onUpdate, ctx) {
-      if (params.run_in_background) return background(params.command, ctx.cwd);
+      if (params.run_in_background) {
+        const command = commandPrefix ? `${commandPrefix}\n${params.command}` : params.command;
+        return background(command, ctx.cwd, getShellConfig(shellPath));
+      }
       try {
         return await bash.execute(id, { command: params.command, timeout: params.timeout ?? BASH_TIMEOUT_S }, signal, onUpdate, ctx);
       } catch (e) {

@@ -351,13 +351,17 @@ mod tests {
         };
         module(
             "@earendil-works/pi-coding-agent",
-            "export class DefaultPackageManager {}; export class SettingsManager {};
+            "export class DefaultPackageManager {};
+             export class SettingsManager {
+               static create() { return { getShellCommandPrefix: () => 'PREFIX=set', getShellPath: () => '/bin/sh' }; }
+             }
+             export const getShellConfig = (path) => ({ shell: path, args: ['-c'] });
              export const getAgentDir = () => ''; export const loadSkills = () => ({ skills: [] });
-             export const createBashToolDefinition = () => ({
+             export const createBashToolDefinition = (cwd, options) => ({
                name: 'bash', description: 'Run bash.', parameters: { properties: { command: {}, timeout: {} } },
                execute: async (id, params) => {
                  if (params.command === 'hang') throw new Error('Command timed out after ' + params.timeout + ' seconds');
-                 return { content: [{ type: 'text', text: JSON.stringify(params) }] };
+                 return { content: [{ type: 'text', text: JSON.stringify({ ...params, ...options }) }] };
                },
              });",
         );
@@ -466,26 +470,36 @@ mod tests {
         let (out, _) = run_extension(
             &format!("{LOG_LINES}answer \"$line\"; done"),
             "const bash = tools.bash;
-             const input = { command: 'echo up; sleep 30', run_in_background: true };
+             const input = { command: 'echo up $PREFIX; sleep 30', run_in_background: true };
              await on.tool_call({ toolName: 'bash', input }, ctx);
              const t = Date.now();
              const started = (await bash.execute('1', input, undefined, undefined, ctx)).content[0].text;
              const pid = Number(started.match(/pid (\\d+)/)[1]);
              const log = started.match(/output in (\\S+)\\./)[1];
              const fs = await import('node:fs');
-             await until(() => fs.readFileSync(log, 'utf8').includes('up'), 3000);
+             await until(() => fs.readFileSync(log, 'utf8').includes('set'), 3000);
              console.log(JSON.stringify({ fast: Date.now() - t < 1000, guard: input.command.startsWith('loom guard'), log: fs.readFileSync(log, 'utf8'), alive: process.kill(pid, 0) }));
              process.kill(-pid);
              console.log((await bash.execute('2', { command: 'ls' }, undefined, undefined, ctx)).content[0].text);
              console.log(await bash.execute('3', { command: 'hang' }, undefined, undefined, ctx).catch((e) => e.message));
-             console.log('run_in_background' in bash.parameters.properties);",
+             console.log('run_in_background' in bash.parameters.properties);
+             const two = await Promise.all([1, 2].map((n) => bash.execute(String(n), { command: 'true', run_in_background: true }, undefined, undefined, ctx)));
+             const logs = two.map((r) => r.content[0].text.match(/output in (\\S+)\\./)[1]);
+             console.log(logs[0] !== logs[1]);
+             const gone = { ...ctx, cwd: '/nonexistent' };
+             console.log(await bash.execute('4', { command: 'true', run_in_background: true }, undefined, undefined, gone).catch((e) => e.message));",
         );
         let mut lines = out.lines();
         assert_eq!(
             lines.next(),
-            Some(r#"{"fast":true,"guard":false,"log":"up\n","alive":true}"#)
+            Some(r#"{"fast":true,"guard":false,"log":"up set\n","alive":true}"#)
         );
-        assert_eq!(lines.next(), Some(r#"{"command":"ls","timeout":1200}"#));
+        assert_eq!(
+            lines.next(),
+            Some(
+                r#"{"command":"ls","timeout":1200,"commandPrefix":"PREFIX=set","shellPath":"/bin/sh"}"#
+            )
+        );
         assert_eq!(
             lines.next(),
             Some(
@@ -493,6 +507,15 @@ mod tests {
             )
         );
         assert_eq!(lines.next(), Some("true"));
+        assert_eq!(
+            lines.next(),
+            Some("true"),
+            "two background calls get two logs"
+        );
+        assert_eq!(
+            lines.next(),
+            Some("Could not start the background command: spawn /bin/sh ENOENT")
+        );
     }
 
     #[test]

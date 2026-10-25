@@ -1,3 +1,5 @@
+use std::time::{Duration, SystemTime};
+
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -235,6 +237,30 @@ impl Graph {
 
     pub fn agent_state(&self, node: NodeId) -> rusqlite::Result<Option<AgentState>> {
         state_of(&self.lock(), node)
+    }
+
+    pub fn turn_began(&self, node: NodeId) -> rusqlite::Result<Option<SystemTime>> {
+        let began: Option<(String, i64)> = self
+            .lock()
+            .query_row(
+                "SELECT state, at FROM agent_states WHERE node = ?1",
+                [node.0],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        Ok(began
+            .filter(|(state, _)| serde_json::from_str(state).ok() == Some(AgentState::Turn))
+            .map(|(_, at)| SystemTime::UNIX_EPOCH + Duration::from_secs(at.max(0).unsigned_abs())))
+    }
+
+    #[cfg(test)]
+    pub fn backdate_agent_state(&self, node: NodeId, by: Duration) {
+        self.lock()
+            .execute(
+                "UPDATE agent_states SET at = at - ?2 WHERE node = ?1",
+                params![node.0, by.as_secs() as i64],
+            )
+            .unwrap();
     }
 }
 

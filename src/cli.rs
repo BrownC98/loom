@@ -30,6 +30,8 @@ mod unix_socket;
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
+pub const RESTART_WAIT: Duration = Duration::from_secs(10);
+pub const HOOK_RESTART_WAIT: Duration = Duration::from_secs(2);
 
 pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
     let brief = match file {
@@ -831,10 +833,11 @@ impl Daemon {
     }
 }
 
-pub fn through_tunnel() {
+#[cfg_attr(not(unix), allow(unused_variables))]
+pub fn through_tunnel(wait: Duration) {
     #[cfg(unix)]
     if let Some(sock) = std::env::var_os(crate::wsl::SOCKET_ENV)
-        && unix_socket::connect(Path::new(&sock), unix_socket::PROBE_WAIT).is_err()
+        && unix_socket::connect(Path::new(&sock), wait).is_err()
     {
         std::process::exit(crate::wsl::TUNNEL_DOWN_EXIT);
     }

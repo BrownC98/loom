@@ -3,14 +3,14 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use super::RESTART_WAIT;
+
 use ureq::Error;
 use ureq::unversioned::transport::{
     Buffers, ConnectionDetails, LazyBuffers, NextTimeout, Transport,
 };
 
 pub const URL: &str = "http://127.0.0.1";
-pub const RESTART_WAIT: Duration = Duration::from_secs(10);
-pub const PROBE_WAIT: Duration = Duration::from_secs(2);
 const CONNECT_AGAIN_AFTER: Duration = Duration::from_millis(200);
 
 fn restarting(e: &io::Error) -> bool {

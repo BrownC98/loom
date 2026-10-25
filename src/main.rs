@@ -235,7 +235,10 @@ enum Cli {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    cli::through_tunnel();
+    cli::through_tunnel(match cli {
+        Cli::Hook | Cli::CursorHook | Cli::PiHook => cli::HOOK_RESTART_WAIT,
+        _ => cli::RESTART_WAIT,
+    });
     let result = match cli {
         Cli::Serve { listen } => {
             forget_launcher_env();

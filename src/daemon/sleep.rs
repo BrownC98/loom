@@ -361,7 +361,7 @@ impl App {
         let Ok(changed) = std::fs::metadata(&path).and_then(|m| m.modified()) else {
             return Ok(None);
         };
-        if self.idle.waiting(node.id) {
+        if self.listening(node.id) {
             return Ok(Some(Seen {
                 path,
                 changed,
@@ -377,6 +377,14 @@ impl App {
             typed_after: changed,
             listening: false,
         }))
+    }
+
+    fn listening(&self, node: NodeId) -> bool {
+        let listening = self.idle.waiting(node);
+        if let Err(e) = self.graph.compare_listening(node, listening) {
+            eprintln!("loom: 노드 {}의 에이전트 상태와 견주지 못했다: {e}", node.0);
+        }
+        listening
     }
 
     fn untouched(&self, node: NodeId, since: SystemTime, screen: &Screen) -> bool {
@@ -409,7 +417,7 @@ impl App {
         }
         match profile_of(node) {
             Some(Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp) => {
-                node.transcript.is_some() && self.idle.waiting(node.id)
+                node.transcript.is_some() && self.listening(node.id)
             }
             Some(Profile::Codex) => {
                 matches!(

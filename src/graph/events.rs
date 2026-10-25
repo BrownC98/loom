@@ -2,6 +2,7 @@ use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::agent_state::{AgentEvent, AgentState, ShadowCheck};
 use super::{NodeId, NodeState, from_json, to_json};
 use crate::accounts::AccountId;
 use crate::choices::{Choice, choices};
@@ -213,6 +214,20 @@ pub enum Entry {
     /// 턴 끝 답 글(`said`) 뒤 `IDLE_GRACE` 안에 stop 훅이 데몬에 닿지 않았다. 데몬이 노드를 같은 세션으로 다시 띄운다. 그 결과는 다음 `Relaunched`다. 화면 이벤트 콘솔은 보이지 않는다.
     NoIdleWait {
         node: Who,
+    },
+    /// 에이전트 상태가 바뀌었다(`AgentState`). 화면 이벤트 콘솔은 보이지 않는다.
+    AgentStateChanged {
+        node: Who,
+        from: AgentState,
+        to: AgentState,
+        by: AgentEvent,
+    },
+    /// 옛 판정(`check`의 값 `old`)과 상태 기계(`state`)가 달랐다. 상태가 바뀔 때까지 한 번만 남긴다. 화면 이벤트 콘솔은 보이지 않는다.
+    AgentStateDisagreed {
+        node: Who,
+        check: ShadowCheck,
+        old: bool,
+        state: AgentState,
     },
 }
 
@@ -518,7 +533,7 @@ pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
 pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
     let records = db
         .prepare(&format!(
-            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'noIdleWait') ORDER BY e.id DESC LIMIT ?1"
+            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'noIdleWait', 'agentStateChanged', 'agentStateDisagreed') ORDER BY e.id DESC LIMIT ?1"
         ))?
         .query_map([RECENT], record_from_row)?
         .collect::<rusqlite::Result<_>>()?;

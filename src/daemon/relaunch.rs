@@ -15,7 +15,7 @@ use ts_rs::TS;
 
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
-use crate::graph::{Active, AgentSwitch, Entry, IdleEnd, NodeId, REDELIVER_AFTER, Who};
+use crate::graph::{Active, AgentEvent, AgentSwitch, Entry, IdleEnd, NodeId, REDELIVER_AFTER, Who};
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
 use crate::profile::{self, Profile, Start, claude};
@@ -228,7 +228,21 @@ impl App {
         }
     }
 
+    pub(super) fn feed(&self, node: NodeId, event: AgentEvent) {
+        if let Err(e) = self.graph.agent_event(node, event) {
+            eprintln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0);
+        }
+    }
+
     pub(super) fn busy(&self, node: NodeId) -> bool {
+        let busy = self.reported_busy(node);
+        if let Err(e) = self.graph.compare_busy(node, busy) {
+            eprintln!("loom: 노드 {}의 에이전트 상태와 견주지 못했다: {e}", node.0);
+        }
+        busy
+    }
+
+    fn reported_busy(&self, node: NodeId) -> bool {
         if let Some(server) = self.codex.lock().unwrap().get(&node) {
             return server
                 .thread()
@@ -412,6 +426,7 @@ impl App {
     }
 
     async fn relaunch_unserved(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
+        self.feed(id, AgentEvent::VersionMismatch);
         let found = self
             .graph
             .active()
@@ -720,6 +735,7 @@ impl App {
         let shells = self.background_shells(&snapshot, node);
         match guard {
             None => {
+                self.feed(node.id, AgentEvent::RelaunchStarted);
                 snapshot.kill_trees(shells);
                 self.idle.end(node.id, IdleEnd::Relaunch);
                 self.host.stop(node.id);
@@ -730,12 +746,14 @@ impl App {
                     discard();
                     return Ok(Stop::Kept);
                 }
+                self.feed(node.id, AgentEvent::RelaunchStarted);
                 snapshot.kill_trees(shells);
                 self.idle.end(node.id, IdleEnd::Relaunch);
             }
         }
         if tokio::time::timeout(EXIT_WAIT, exited).await.is_err() {
             self.relaunches.exiting.lock().unwrap().remove(&node.id);
+            self.feed(node.id, AgentEvent::RelaunchFailed);
             discard();
             return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
         }

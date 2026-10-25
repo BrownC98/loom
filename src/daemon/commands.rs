@@ -340,7 +340,7 @@ pub(super) async fn agent_idle(
         taken = app.next_mail(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
             Ok(taken) => {
                 app.idle.mail_handed(node);
-                wait.finish(IdleEnd::Mail);
+                wait.hand_mail();
                 Ok(Json(taken))
             }
             Err(e) => {
@@ -456,6 +456,7 @@ pub(super) async fn agent_turn_end(
 ) -> Result<Json<Option<String>>, AgentError> {
     let node = app.caller(&headers)?;
     app.idle.stop_reached(node, req.unwrap_or_default().turn);
+    app.feed(node, AgentEvent::TurnEnded);
     Ok(Json(app.turn_end(node).map(str::to_owned)))
 }
 

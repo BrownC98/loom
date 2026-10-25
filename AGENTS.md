@@ -26,7 +26,7 @@
 | 화면 타입·순환 검사 | `npm --prefix web run check` |
 | 화면 배치 테스트(vitest, 한 번 실행) | `npm --prefix web test` |
 | 화면 빌드 | `npm --prefix web run build` |
-| 데몬 띄우기(시험) | `memcap -m 8G cargo build` 뒤 임시 git 저장소 폴더에서 `HOME=/tmp/<이름> <워크트리>/target/debug/loom serve --listen 127.0.0.1:<빈 포트>`. 다른 `HOME`이라 사람의 DB(`~/.loom`)를 건드리지 않는다. 데몬은 시작 폴더를 저장소로 등록하므로 이 저장소 폴더에서 띄우지 않는다(2026-10-23 실측: 이 저장소 폴더에서 띄운 시험 데몬에 사람의 loom 저장소가 들어갔다). `cargo run`은 쓰지 않는다(바꾼 `HOME`에서 rustup이 판을 찾지 못한다) |
+| 데몬 띄우기(시험) | `memcap -m 8G cargo build` 뒤 임시 git 저장소 폴더에서 `HOME=/tmp/<이름> <워크트리>/target/debug/loom serve --listen 127.0.0.1:<빈 포트>`. 다른 `HOME`이라 사람의 DB(`~/.loom`)를 건드리지 않는다. 데몬은 시작 폴더를 저장소로 등록하므로 이 저장소 폴더에서 띄우지 않는다(2026-10-23 실측: 이 저장소 폴더에서 띄운 시험 데몬에 사람의 loom 저장소가 들어갔다). `cargo run`은 쓰지 않는다(바꾼 `HOME`에서 rustup이 판을 찾지 못한다). 끝나면 `bash scripts/dev/stop-test-daemon.sh /tmp/<이름>`을 돌린다. 환경에 그 `HOME`이 있는 프로세스(데몬, pty-host, 훅)를 모두 끄고, 남으면 0이 아닌 코드로 끝난다. 보고에 그 출력을 넣는다. 근거: 시험 데몬의 pty-host가 워크트리를 지운 뒤 11시간 남았다(2026-10-25 사람 보고). Windows 시험 데몬의 `loom.exe`는 WSL에서 환경을 읽을 수 없어 이 스크립트가 찾지 못한다 |
 | 사람이 쓰는 loom 올리기 | 원래 체크아웃(main)에서 `bash scripts/host.sh`. WSL에서는 앱 옆 `%LOCALAPPDATA%\loom\loom.exe`(Windows 데몬)를, Linux에서는 `~/loom/bin/loom`을 바꾸고 데몬(포트 7420)을 다시 띄운다. 노드는 그대로 산다 |
 
 - Windows 설치 파일(앱, msvc)은 GitHub Actions(`.github/workflows/release.yml`, 손으로 돌린다)만 만든다. 호스트는 mingw-w64로 `x86_64-pc-windows-gnu` 데몬만 빌드·검사·시험한다. 시험 데몬은 `APPDATA`·`LOCALAPPDATA`를 Windows 임시 폴더로 바꾸고(`WSLENV=APPDATA:LOCALAPPDATA`) 빈 포트에서 띄운다. 사람의 `%APPDATA%\loom`·`%LOCALAPPDATA%\loom`은 건드리지 않는다.

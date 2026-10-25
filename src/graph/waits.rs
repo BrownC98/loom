@@ -5,6 +5,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::agent_state::{self, AgentEvent};
 use super::events::{self, ClosedBy, Entry};
 use super::mailbox;
 use crate::choices::{Choice, choices, offers_choices_without_tail};
@@ -92,11 +93,12 @@ impl Graph {
         source: WaitSource,
         wait: Option<(WaitKind, &str)>,
     ) -> rusqlite::Result<()> {
-        let db = self.lock();
-        let Some(id) = super::nodes::caller_in(&db, token)? else {
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let Some(id) = super::nodes::caller_in(&tx, token)? else {
             return Ok(());
         };
-        let Some(now) = stored(&db, id)? else {
+        let Some(now) = stored(&tx, id)? else {
             return Ok(());
         };
         let next = match wait {
@@ -109,14 +111,20 @@ impl Graph {
                     return Ok(());
                 }
                 Some(Stored {
-                    wait: new_wait(&db, kind, text, false, None)?,
+                    wait: new_wait(&tx, kind, text, false, None)?,
                     source,
                 })
             }
             None if now.as_ref().is_some_and(|n| n.source == source) => None,
             None => return Ok(()),
         };
-        put(&db, id, next.as_ref())?;
+        put(&tx, id, next.as_ref())?;
+        let event = match next {
+            Some(_) => AgentEvent::Dialog,
+            None => AgentEvent::DialogCleared,
+        };
+        agent_state::apply(&tx, id, event)?;
+        tx.commit()?;
         self.publish_node(&db, id)
     }
 
@@ -269,15 +277,18 @@ impl Graph {
     }
 
     pub fn typed(&self, id: NodeId) -> rusqlite::Result<()> {
-        let db = self.lock();
-        let changed = db.execute(
+        let mut db = self.lock();
+        let tx = db.transaction()?;
+        let changed = tx.execute(
             "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
             [id.0],
         )?;
-        if changed > 0 {
-            self.publish_node(&db, id)?;
+        if changed == 0 {
+            return Ok(());
         }
-        Ok(())
+        agent_state::apply(&tx, id, AgentEvent::DialogCleared)?;
+        tx.commit()?;
+        self.publish_node(&db, id)
     }
 
     pub fn dismiss(&self, wait: WaitId) -> Result<(), Refusal> {
@@ -312,15 +323,19 @@ impl Graph {
                     events::write(&tx, &entry, None)?;
                     node
                 }
-                Err(Refusal::NoWait(_)) => tx
-                    .query_row(
-                        "UPDATE nodes SET wait = NULL WHERE wait ->> 'id' = ?1 RETURNING id",
-                        [wait.0],
-                        |row| row.get(0),
-                    )
-                    .optional()?
-                    .map(NodeId)
-                    .ok_or(Refusal::NoWait(wait))?,
+                Err(Refusal::NoWait(_)) => {
+                    let node = tx
+                        .query_row(
+                            "UPDATE nodes SET wait = NULL WHERE wait ->> 'id' = ?1 RETURNING id",
+                            [wait.0],
+                            |row| row.get(0),
+                        )
+                        .optional()?
+                        .map(NodeId)
+                        .ok_or(Refusal::NoWait(wait))?;
+                    agent_state::apply(&tx, node, AgentEvent::DialogCleared)?;
+                    node
+                }
                 Err(e) => return Err(e),
             },
         };

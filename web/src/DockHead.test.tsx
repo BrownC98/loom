@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import css from './styles.css?raw';
 import type { NodeView } from './gen/NodeView';
 
 vi.stubGlobal('document', { documentElement: { dataset: { language: 'en' } }, addEventListener: () => {} });
@@ -39,5 +40,30 @@ describe('side terminal header in simple mode', () => {
     const out = renderToStaticMarkup(<NodeSummary {...props} />);
     expect(out).toContain('<div class="summary-model">');
     expect(out).toContain('the report summary');
+  });
+
+  it('keeps the buttons in a 320 px dock while the name editor and two badges are open', () => {
+    const rule = (selector: string) => css.split('\n').find((line) => line.startsWith(`${selector} {`)) ?? '';
+    const px = (selector: string, prop: string) => Number(rule(selector).match(new RegExp(`[ ;{]${prop}: (\\d+)px`))?.[1] ?? NaN);
+    const pad = rule('.dock-head').match(/padding: \d+px (\d+)px \d+px (\d+)px/)!;
+    const badge = ':is(.summary-row, .card-head):has(> .rename) > :is(.unread, .chips, .state)';
+    expect(rule(badge)).toContain('flex-shrink: 1');
+    expect(rule('.summary-row > :not(.name, .rename, .model, .spacer, .unread, .chips, .state)')).toContain('flex-shrink: 0');
+    expect(rule('.summary-row.one-row .rename + .model')).toContain('display: none');
+    const editing = { ...props, view: { ...view, unread: 1, state: { kind: 'exited', code: 1 } } as NodeView, rename: { ...rename, editing: true } };
+    const icon = <button type="button" className="btn icon" />;
+    const out = renderToStaticMarkup(<DockSummary {...editing} actions={<>{icon}{icon}</>} />);
+    const items = { 'agent-logo': px('.agent-logo', 'width'), rename: px(':is(.summary-row, .card-head) > .rename', 'min-width'), spacer: 0, unread: px(badge, 'min-width'), state: px(badge, 'min-width'), 'btn icon': px('.btn.icon', 'width') };
+    let need = 0;
+    let count = 0;
+    for (const [cls, min] of Object.entries(items)) {
+      const n = out.split(`class="${cls}`).length - 1;
+      expect(n, cls).toBeGreaterThan(0);
+      expect(min, cls).not.toBeNaN();
+      need += n * min;
+      count += n;
+    }
+    need += (count - 1) * px('.summary-row', 'gap');
+    expect(need).toBeLessThanOrEqual(320 - Number(pad[1]) - Number(pad[2]));
   });
 });

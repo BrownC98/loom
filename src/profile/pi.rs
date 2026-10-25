@@ -30,6 +30,7 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
     let mut args = vec![
         "--extension".into(),
         format!("{plugin}/{EXTENSION_FILE}"),
+        "--no-skills".into(),
         "--skill".into(),
         format!("{plugin}/skills"),
         "--append-system-prompt".into(),
@@ -260,17 +261,18 @@ mod tests {
         let plugin = Path::new("/p/plugin");
         let args = super::args(plugin, launch, "  ");
         assert_eq!(
-            args[..4],
+            args[..5],
             [
                 "--extension",
                 "/p/plugin/pi-loom.ts",
+                "--no-skills",
                 "--skill",
                 "/p/plugin/skills"
             ]
         );
-        assert_eq!(args[4], "--append-system-prompt");
-        assert!(args[5].contains(super::super::COMMUNICATION_USAGE));
-        assert!(args[5].contains(&crate::skills::always_on(launch)));
+        assert_eq!(args[5], "--append-system-prompt");
+        assert!(args[6].contains(super::super::COMMUNICATION_USAGE));
+        assert!(args[6].contains(&crate::skills::always_on(launch)));
         assert_eq!(args.last().unwrap(), IDLE_FLAG);
         assert!(!super::args(plugin, launch, "Goal: x").contains(&IDLE_FLAG.to_owned()));
     }
@@ -286,6 +288,7 @@ mod tests {
     #[test]
     fn the_extension_names_the_hook_verb_and_the_idle_flag() {
         assert!(EXTENSION.contains(r#"spawn("loom", ["pi-hook"]"#));
+        assert!(EXTENSION.contains(r#"pi.on("resources_discover""#));
         assert!(EXTENSION.contains(&format!(r#"IDLE_FLAG = "{}""#, &IDLE_FLAG[2..])));
         let dir = tempfile::tempdir().unwrap();
         write_extension(dir.path()).unwrap();

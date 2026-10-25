@@ -362,15 +362,51 @@ exit 0"#;
 
 const END_TOKEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-async fn bounded(
+pub async fn hook_running(distro: &str, token: &str, hooks: &[&str]) -> Result<bool, String> {
+    let mut cmd = tokio::process::Command::new("wsl.exe");
+    cmd.args(["-d", distro, "-e"]).env("WSL_UTF8", "1");
+    hook_found(cmd, token, hooks).await
+}
+
+async fn hook_found(
+    mut cmd: tokio::process::Command,
+    token: &str,
+    hooks: &[&str],
+) -> Result<bool, String> {
+    cmd.args(["sh", "-c", HOOK_FOUND, "sh", token]).args(hooks);
+    Ok(!output_within(cmd, END_TOKEN_WAIT).await?.stdout.is_empty())
+}
+
+const HOOK_FOUND: &str = r#"token=$1 nl='
+'
+shift
+for f in $(grep -laF "LOOM_TOKEN=$token" /proc/[0-9]*/environ 2>/dev/null); do
+  d=${f%/environ}
+  [ "$d" = "/proc/$$" ] && continue
+  env=$nl$(tr '\0' '\n' <"$f" 2>/dev/null)$nl
+  case $env in *"${nl}LOOM_TOKEN=$token$nl"*) ;; *) continue ;; esac
+  line=$(tr '\0' ' ' <"$d/cmdline" 2>/dev/null)
+  line=${line% }
+  line=${line%\"}
+  for hook in "$@"; do
+    case $line in *"$hook") echo "${d#/proc/}"; exit 0 ;; esac
+  done
+done
+exit 0"#;
+
+async fn bounded(cmd: tokio::process::Command, limit: std::time::Duration) -> Result<(), String> {
+    output_within(cmd, limit).await.map(drop)
+}
+
+async fn output_within(
     mut cmd: tokio::process::Command,
     limit: std::time::Duration,
-) -> Result<(), String> {
+) -> Result<std::process::Output, String> {
     cmd.stdin(std::process::Stdio::null()).kill_on_drop(true);
     match tokio::time::timeout(limit, cmd.output()).await {
         Err(_) => Err(format!("{}초 안에 끝나지 않았다", limit.as_secs())),
         Ok(Err(e)) => Err(e.to_string()),
-        Ok(Ok(out)) if out.status.success() => Ok(()),
+        Ok(Ok(out)) if out.status.success() => Ok(out),
         Ok(Ok(out)) => Err(failure(&out)),
     }
 }
@@ -812,6 +848,39 @@ pub fn shell(line: &str) -> Vec<OsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn hook_found_sees_only_a_hook_process_with_the_token() {
+        let token = format!("hook{}", std::process::id());
+        let hooks = ["loom hook", "loom cursor-hook"];
+        let found = |token: String| async move {
+            hook_found(tokio::process::Command::new("env"), &token, &hooks)
+                .await
+                .unwrap()
+        };
+        let spawn = |script: &str, token: &str| {
+            std::process::Command::new("sh")
+                .args(["-c", script])
+                .env("LOOM_TOKEN", token)
+                .spawn()
+                .unwrap()
+        };
+        let agent = spawn("exec sleep 30", &token);
+        let other = spawn("exec sh -c 'sleep 30; :' loom hook", "other");
+        assert!(!found(token.clone()).await, "no hook runs");
+        let hook = spawn("exec sh -c 'sleep 30; :' loom cursor-hook", &token);
+        while !std::fs::read(format!("/proc/{}/cmdline", hook.id()))
+            .is_ok_and(|line| line.ends_with(b"cursor-hook\0"))
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(found(token).await);
+        for mut child in [agent, other, hook] {
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+    }
 
     #[cfg(unix)]
     #[tokio::test]

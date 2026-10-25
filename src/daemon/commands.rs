@@ -279,6 +279,7 @@ pub(super) async fn agent_take(
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
     app.idle.turn_started(node, req.hook);
+    app.turn_ends.stepped(node);
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let messages = app
         .graph

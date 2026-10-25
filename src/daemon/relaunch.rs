@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::process::Stdio;
@@ -34,7 +34,7 @@ const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle
      Messages that came for you arrive next.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
-const HOOK_COMMAND: &str = "loom hook";
+pub(super) const HOOK_COMMANDS: [&str; 2] = ["loom hook", "loom cursor-hook"];
 const STOPPED_LINE_CHARS: usize = 200;
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
 const CODEX_ROLLOUT_DEPTH: usize = 5;
@@ -42,7 +42,13 @@ const CODEX_ROLLOUT_DEPTH: usize = 5;
 #[derive(Default)]
 pub struct Relaunches {
     exiting: Mutex<HashMap<NodeId, oneshot::Sender<()>>>,
-    refused: Mutex<HashSet<NodeId>>,
+    refused: Mutex<HashMap<NodeId, Held>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Held {
+    Human,
+    Hook,
 }
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
@@ -68,12 +74,12 @@ impl Relaunches {
         self.exiting.lock().unwrap().contains_key(&node)
     }
 
-    pub(super) fn refused(&self, node: NodeId) {
-        self.refused.lock().unwrap().insert(node);
+    pub(super) fn refused(&self, node: NodeId, by: Held) {
+        self.refused.lock().unwrap().insert(node, by);
     }
 
-    pub(super) fn was_refused(&self, node: NodeId) -> bool {
-        self.refused.lock().unwrap().contains(&node)
+    pub(super) fn held(&self, node: NodeId) -> Option<Held> {
+        self.refused.lock().unwrap().get(&node).copied()
     }
 
     pub(super) fn heard(&self, node: NodeId) {
@@ -983,6 +989,15 @@ impl App {
             .collect()
     }
 
+    pub(super) fn hook_running(&self, node: NodeId) -> bool {
+        self.host.pid(node).is_some_and(|root| {
+            Snapshot::now()
+                .command_lines(root)
+                .iter()
+                .any(|line| runs_hook(line))
+        })
+    }
+
     pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
         let server = match &node.server {
             Some(ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) => *pid,
@@ -1065,7 +1080,8 @@ fn stopped_notice(commands: &[String]) -> String {
 }
 
 fn runs_hook(shell: &str) -> bool {
-    shell.trim_end_matches('"').ends_with(HOOK_COMMAND)
+    let line = shell.trim_end_matches('"');
+    HOOK_COMMANDS.iter().any(|hook| line.ends_with(hook))
 }
 
 fn shown(line: &str) -> String {

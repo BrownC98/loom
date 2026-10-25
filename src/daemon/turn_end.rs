@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use super::App;
 use crate::graph::{Entry, NodeId, TurnCheck};
@@ -13,6 +14,7 @@ const QUESTION_BOX_NUDGE: &str = "You used your AskQuestion tool in this turn. T
 #[derive(Default)]
 pub struct TurnEnds {
     said: Mutex<HashMap<NodeId, String>>,
+    said_at: Mutex<HashMap<NodeId, Instant>>,
     human: Mutex<HashSet<NodeId>>,
     called: Mutex<HashSet<NodeId>>,
     kind_nudged: Mutex<HashSet<NodeId>>,
@@ -22,7 +24,24 @@ pub struct TurnEnds {
 
 impl TurnEnds {
     pub fn said(&self, node: NodeId, text: String) {
+        self.said_at(node, text, Instant::now());
+    }
+
+    pub(super) fn said_at(&self, node: NodeId, text: String, at: Instant) {
         self.said.lock().unwrap().insert(node, text);
+        self.said_at.lock().unwrap().insert(node, at);
+    }
+
+    pub fn stepped(&self, node: NodeId) {
+        self.said_at.lock().unwrap().remove(&node);
+    }
+
+    pub fn said_before(&self, node: NodeId, grace: Duration) -> bool {
+        self.said_at
+            .lock()
+            .unwrap()
+            .get(&node)
+            .is_some_and(|at| at.elapsed() >= grace)
     }
 
     pub fn human(&self, node: NodeId) {
@@ -53,6 +72,7 @@ impl TurnEnds {
         unreported_root: impl FnOnce() -> bool,
     ) -> TurnEnd {
         let reply = self.said.lock().unwrap().remove(&node);
+        self.said_at.lock().unwrap().remove(&node);
         let human = self.human.lock().unwrap().remove(&node);
         let called = self.called.lock().unwrap().remove(&node);
         let nudged = self.kind_nudged.lock().unwrap().remove(&node);

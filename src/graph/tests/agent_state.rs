@@ -289,6 +289,15 @@ fn a_printed_message_is_read_at_the_next_agent_event_and_comes_back_when_the_pro
     );
     assert_eq!(take(), [lost]);
     assert_eq!(mail_state(&g, lost), HANDED);
+    g.agent_event(worker, AgentEvent::WaitClosed { by: IdleEnd::Mail })
+        .unwrap();
+    g.agent_event(worker, AgentEvent::WaitOpened).unwrap();
+    assert_eq!(
+        mail_state(&g, lost),
+        QUEUED,
+        "a new idle wait gives back what the lost idle reply carried"
+    );
+    assert_eq!(take(), [lost]);
 }
 
 #[test]

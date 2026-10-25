@@ -1241,18 +1241,22 @@ mod tests {
         let stepped = cursor("stepped");
         let silent = cursor("silent");
         let old = Instant::now() - STOP_HOOK_GRACE * 2;
+        let late = cursor("late");
         for node in [missed_stop, stepped] {
-            t.app.turn_ends.said_at(node, "끝".into(), old);
+            t.app.turn_ends.said_at(node, "끝".into(), None, old);
         }
-        t.app.turn_ends.said(fresh, "끝".into());
-        t.app.turn_ends.stepped(stepped);
+        t.app.turn_ends.said(fresh, "끝".into(), None);
+        t.app.turn_ends.stepped(stepped, None);
+        t.app.turn_ends.stepped(late, Some("A"));
+        t.app.turn_ends.stepped(late, Some("B"));
+        t.app.turn_ends.said_at(late, "끝".into(), Some("A"), old);
         for _ in 0..3 {
             t.app.end_unhooked_turns().unwrap();
         }
         relaunched(&t, missed_stop).await;
         assert_eq!(missed(&t)[0], (missed_stop, false));
         assert!(missed(&t).iter().all(|(node, _)| *node == missed_stop));
-        for node in [fresh, stepped, silent] {
+        for node in [fresh, stepped, silent, late] {
             assert_eq!(t.app.agent_state(node), Some(AgentState::Turn));
         }
     }

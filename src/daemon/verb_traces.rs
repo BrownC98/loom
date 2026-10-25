@@ -538,7 +538,7 @@ fn a_nudged_turn_end_leaves_an_event() {
     t.app.turn_ends.human(t.lead);
     t.app
         .turn_ends
-        .said(t.lead, "A안과 B안 가운데 고르시면 진행합니다.".into());
+        .said(t.lead, "A안과 B안 가운데 고르시면 진행합니다.".into(), None);
     let mark = t.mark();
     assert!(t.app.turn_end(t.lead).is_some());
     t.wrote("turn end", mark, |e| {
@@ -585,6 +585,7 @@ impl Fixture {
             transcript: None,
             human_input: false,
             prompt: None,
+            turn: None,
         };
         ok(
             "take",

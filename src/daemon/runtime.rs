@@ -647,7 +647,7 @@ impl Mailbox for NodeMailbox {
 
     fn turn_ended(&self, reply: Option<String>) -> Option<String> {
         if let Some(text) = reply {
-            self.app.turn_ends.said(self.node, text);
+            self.app.turn_ends.said(self.node, text, None);
         }
         self.app.turn_end(self.node).map(str::to_owned)
     }
@@ -875,7 +875,7 @@ async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread
 async fn codex_turn_end(app: &App, node: NodeId, server: &CodexServer, thread: &str) -> bool {
     let call = |method, params| server.call(method, params);
     match codex::last_reply(call, thread).await {
-        Ok(Some(text)) => app.turn_ends.said(node, text),
+        Ok(Some(text)) => app.turn_ends.said(node, text, None),
         Ok(None) => {}
         Err(e) => eprintln!("loom: 노드 {}의 답 글을 읽지 못했다: {e}", node.0),
     }

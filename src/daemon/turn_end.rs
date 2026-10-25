@@ -15,6 +15,7 @@ const QUESTION_BOX_NUDGE: &str = "You used your AskQuestion tool in this turn. T
 pub struct TurnEnds {
     said: Mutex<HashMap<NodeId, String>>,
     said_at: Mutex<HashMap<NodeId, Instant>>,
+    turn: Mutex<HashMap<NodeId, String>>,
     human: Mutex<HashSet<NodeId>>,
     called: Mutex<HashSet<NodeId>>,
     kind_nudged: Mutex<HashSet<NodeId>>,
@@ -23,17 +24,28 @@ pub struct TurnEnds {
 }
 
 impl TurnEnds {
-    pub fn said(&self, node: NodeId, text: String) {
-        self.said_at(node, text, Instant::now());
+    pub fn said(&self, node: NodeId, text: String, turn: Option<&str>) {
+        self.said_at(node, text, turn, Instant::now());
     }
 
-    pub(super) fn said_at(&self, node: NodeId, text: String, at: Instant) {
+    pub(super) fn said_at(&self, node: NodeId, text: String, turn: Option<&str>, at: Instant) {
+        let current = self.turn.lock().unwrap();
+        if turn
+            .zip(current.get(&node))
+            .is_some_and(|(said, now)| said != now)
+        {
+            return;
+        }
         self.said.lock().unwrap().insert(node, text);
         self.said_at.lock().unwrap().insert(node, at);
     }
 
-    pub fn stepped(&self, node: NodeId) {
+    pub fn stepped(&self, node: NodeId, turn: Option<&str>) {
+        let mut current = self.turn.lock().unwrap();
         self.said_at.lock().unwrap().remove(&node);
+        if let Some(turn) = turn {
+            current.insert(node, turn.to_owned());
+        }
     }
 
     pub fn said_before(&self, node: NodeId, grace: Duration) -> bool {
@@ -158,33 +170,33 @@ mod tests {
     fn only_a_human_turn_of_an_unreported_root_is_nudged_once() {
         let turns = TurnEnds::default();
         let node = NodeId(1);
-        turns.said(node, "병합했습니다".into());
+        turns.said(node, "병합했습니다".into(), None);
         assert_eq!(
             turns.ended(node, || true, || true).nudge,
             None,
             "not a human turn"
         );
         turns.human(node);
-        turns.said(node, "병합할까요?".into());
+        turns.said(node, "병합할까요?".into(), None);
         assert_eq!(
             turns.ended(node, || true, || false).nudge,
             None,
             "child, asked or done"
         );
         turns.human(node);
-        turns.said(node, "A안과 B안 가운데 고르시면 진행합니다.".into());
+        turns.said(node, "A안과 B안 가운데 고르시면 진행합니다.".into(), None);
         assert_eq!(
             turns.ended(node, || true, || true).nudge,
             Some(TurnCheck::Unreported)
         );
-        turns.said(node, "코디 결과 대기".into());
+        turns.said(node, "코디 결과 대기".into(), None);
         let end = turns.ended(node, || true, || true);
         assert_eq!(
             (end.reply.as_deref(), end.nudge),
             (Some("코디 결과 대기"), None)
         );
         turns.human(node);
-        turns.said(node, " \n".into());
+        turns.said(node, " \n".into(), None);
         assert_eq!(turns.ended(node, || true, || true).nudge, None);
     }
 
@@ -192,49 +204,49 @@ mod tests {
     fn a_kind_line_without_a_loom_call_is_nudged_once() {
         let turns = TurnEnds::default();
         let node = NodeId(1);
-        turns.said(node, "검사 끝.\nMERGED 출력표준".into());
+        turns.said(node, "검사 끝.\nMERGED 출력표준".into(), None);
         assert_eq!(
             turns.ended(node, || false, || false).nudge,
             None,
             "old repo"
         );
-        turns.said(node, "MERGED 출력표준 abc\nQUESTION: 지울까?".into());
+        turns.said(node, "MERGED 출력표준 abc\nQUESTION: 지울까?".into(), None);
         assert_eq!(
             turns.ended(node, || false, || false).nudge,
             Some(TurnCheck::KindLine),
             "old repo, later question"
         );
-        turns.said(node, "ok".into());
+        turns.said(node, "ok".into(), None);
         turns.ended(node, || false, || false);
-        turns.said(node, "MERGED 출력표준".into());
+        turns.said(node, "MERGED 출력표준".into(), None);
         assert_eq!(
             turns.ended(node, || true, || false).nudge,
             Some(TurnCheck::KindLine)
         );
-        turns.said(node, "MERGED 출력표준".into());
+        turns.said(node, "MERGED 출력표준".into(), None);
         assert_eq!(turns.ended(node, || true, || false).nudge, None);
         for line in [
             "QUESTION: A or B?",
             "USER DIRECTION: keep send",
             "READY 출력표준",
         ] {
-            turns.said(node, format!("끝.\n{line}"));
+            turns.said(node, format!("끝.\n{line}"), None);
             assert_eq!(
                 turns.ended(node, || false, || false).nudge,
                 Some(TurnCheck::KindLine),
                 "{line}"
             );
-            turns.said(node, "ok".into());
+            turns.said(node, "ok".into(), None);
             turns.ended(node, || false, || false);
         }
         turns.called(node);
-        turns.said(node, "STATUS: 50%".into());
+        turns.said(node, "STATUS: 50%".into(), None);
         assert_eq!(
             turns.ended(node, || true, || false).nudge,
             None,
             "called loom done"
         );
-        turns.said(node, "Ready for review".into());
+        turns.said(node, "Ready for review".into(), None);
         assert_eq!(turns.ended(node, || true, || false).nudge, None);
     }
 
@@ -244,7 +256,7 @@ mod tests {
         let node = NodeId(1);
         turns.called(node);
         turns.question_box(node);
-        turns.said(node, "The question was skipped.".into());
+        turns.said(node, "The question was skipped.".into(), None);
         let end = turns.ended(node, || true, || false);
         assert_eq!(end.nudge, Some(TurnCheck::QuestionBox));
         assert_eq!(end.reply.as_deref(), Some("The question was skipped."));

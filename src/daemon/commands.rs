@@ -100,6 +100,8 @@ pub struct TakeRequest {
     pub human_input: bool,
     #[serde(default)]
     pub prompt: Option<String>,
+    #[serde(default)]
+    pub turn: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -198,6 +200,8 @@ struct QuestionState {
 #[derive(Serialize, Deserialize)]
 pub struct SaidRequest {
     pub text: String,
+    #[serde(default)]
+    pub turn: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -279,7 +283,7 @@ pub(super) async fn agent_take(
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
     app.idle.turn_started(node, req.hook);
-    app.turn_ends.stepped(node);
+    app.turn_ends.stepped(node, req.turn.as_deref());
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let messages = app
         .graph
@@ -304,7 +308,7 @@ pub(super) async fn agent_idle(
     keep_transcript(&app, node, req.transcript.as_deref())?;
     if let Some(ended) = &req.turn_end {
         if let Some(text) = ended.reply.clone() {
-            app.turn_ends.said(node, text);
+            app.turn_ends.said(node, text, None);
         }
         if let Some(nudge) = app.turn_end(node) {
             return Ok(Json(IdleReply::Nudge {
@@ -442,7 +446,7 @@ pub(super) async fn agent_said(
     Json(req): Json<SaidRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.turn_ends.said(node, req.text);
+    app.turn_ends.said(node, req.text, req.turn.as_deref());
     Ok(Json(()))
 }
 

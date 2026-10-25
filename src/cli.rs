@@ -271,6 +271,7 @@ pub fn hook() -> Result<(), String> {
         transcript,
         human_input: event.human_input(),
         prompt: event.prompt().map(str::to_owned),
+        turn: None,
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken.messages, taken.note.as_deref()) {
@@ -306,6 +307,10 @@ pub fn cursor_hook() -> Result<(), String> {
     let event = cursor::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
     let transcript = input["transcript_path"].as_str().map(str::to_owned);
+    let turn = input["generation_id"]
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned);
     if let Some(model) = event.model()
         && let Err(e) = call::<()>("model", &model, Some(timeout))
     {
@@ -321,12 +326,20 @@ pub fn cursor_hook() -> Result<(), String> {
                 transcript: transcript.clone(),
                 human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
                 prompt: None,
+                turn: turn.clone(),
             },
             Some(timeout),
         )
     };
     if let cursor::Event::AfterAgentResponse { text } = &event
-        && let Err(e) = call::<()>("said", &SaidRequest { text: text.clone() }, Some(timeout))
+        && let Err(e) = call::<()>(
+            "said",
+            &SaidRequest {
+                text: text.clone(),
+                turn: turn.clone(),
+            },
+            Some(timeout),
+        )
     {
         eprintln!("loom: could not report the reply: {e}");
     }
@@ -473,6 +486,7 @@ fn pi_event(
                 transcript,
                 human_input: event.prompt().is_some(),
                 prompt: event.prompt().map(str::to_owned),
+                turn: None,
             },
             Some(timeout),
         )?,

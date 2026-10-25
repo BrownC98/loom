@@ -125,7 +125,7 @@ pub const PROMPT: Grammar = Grammar {
     guard: Some(GUARD),
 };
 
-pub const DIALOGS: [Dialog; 4] = [
+pub const DIALOGS: [Dialog; 6] = [
     Dialog {
         text: "Choose the text style that looks best with your terminal",
         kind: WaitKind::Auth,
@@ -149,6 +149,18 @@ pub const DIALOGS: [Dialog; 4] = [
         kind: WaitKind::Auth,
         place: Place::BeforeSession,
         answer: Answer::Below(Options::Numbered),
+    },
+    Dialog {
+        text: "Allow external CLAUDE.md file imports?",
+        kind: WaitKind::Trust,
+        place: Place::BeforeSession,
+        answer: Answer::Panel(Options::Listed),
+    },
+    Dialog {
+        text: "Enter to confirm · Esc to cancel",
+        kind: WaitKind::Approval,
+        place: Place::OtherBeforeSession,
+        answer: Answer::Panel(Options::Listed),
     },
 ];
 
@@ -418,6 +430,7 @@ fn guarded(tool_name: &str, input: &Value) -> Option<Value> {
 mod tests {
     use super::*;
     use crate::protocol::PromptKey;
+    use crate::screen::Session;
 
     const APPROVAL: &str = concat!(
         "\n",
@@ -620,6 +633,43 @@ mod tests {
                         .into(),
                     PromptKey::Char('3')
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_startup_dialog_without_a_name_still_waits() {
+        let imports = include_str!("screens/claude-imports.txt");
+        let trust = include_str!("screens/claude-trust.txt");
+        let unknown = imports.replace("Allow external CLAUDE.md file imports?", "New question?");
+        let find = |screen| crate::screen::find(&DIALOGS, screen, Session::NotStarted);
+        assert_eq!(
+            find(imports),
+            Some((
+                WaitKind::Trust,
+                "Allow external CLAUDE.md file imports?".into()
+            ))
+        );
+        assert_eq!(
+            find(trust),
+            Some((WaitKind::Trust, "Yes, I trust this folder".into()))
+        );
+        assert_eq!(
+            find(&unknown),
+            Some((
+                WaitKind::Approval,
+                "Enter to confirm · Esc to cancel".into()
+            ))
+        );
+        assert_eq!(
+            crate::screen::find(&DIALOGS, &unknown, Session::Started),
+            None
+        );
+        assert_eq!(
+            options(&unknown),
+            [
+                ("No, disable external imports".into(), PromptKey::Move(0)),
+                ("Yes, allow external imports".into(), PromptKey::Move(1)),
             ]
         );
     }

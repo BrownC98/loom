@@ -46,6 +46,7 @@ pub enum Session {
 pub enum Place {
     BeforeSession,
     Panel,
+    OtherBeforeSession,
 }
 
 const TRANSCRIPT_INDENT: usize = 2;
@@ -62,14 +63,17 @@ pub fn find(dialogs: &[Dialog], screen: &str, session: Session) -> Option<(WaitK
         .iter()
         .filter_map(|d| {
             let needle = squeeze(d.text);
-            let (at, text) = match d.place {
-                Place::BeforeSession if session == Session::Started => return None,
-                Place::BeforeSession => (squeezed.rfind(&needle)?, d.text),
-                Place::Panel => (panel_at + squeezed[panel_at..].rfind(&needle)?, d.text),
+            let (named, at) = match d.place {
+                Place::BeforeSession | Place::OtherBeforeSession if session == Session::Started => {
+                    return None;
+                }
+                Place::BeforeSession => (true, squeezed.rfind(&needle)?),
+                Place::OtherBeforeSession => (false, squeezed.rfind(&needle)?),
+                Place::Panel => (true, panel_at + squeezed[panel_at..].rfind(&needle)?),
             };
-            Some((at, d.kind, text))
+            Some(((named, at), d.kind, d.text))
         })
-        .max_by_key(|(at, ..)| *at)
+        .max_by_key(|(rank, ..)| *rank)
         .map(|(_, kind, text)| (kind, text.to_owned()))
 }
 

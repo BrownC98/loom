@@ -354,7 +354,7 @@ impl App {
         Ok(Arc::new(move |screen: &Screen| {
             let quiet = match profile {
                 Some(Profile::Claude) => {
-                    claude::input(&screen.text) == Some("") && !turn_shown(&screen.text)
+                    claude::input(&screen.undimmed) == Some("") && !turn_shown(&screen.text)
                 }
                 _ => true,
             };
@@ -1229,6 +1229,27 @@ mod tests {
             .note(t.lead, "drafted", Kind::Queue, "third", None)
             .unwrap();
         relaunched(&t, node).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_deaf_claude_node_whose_input_box_shows_the_dim_placeholder_relaunches_at_once() {
+        let t = fixture();
+        t.app.watch_agents();
+        let node = unheard(&t, "hinted", ENDED);
+        screen(
+            &t,
+            node,
+            "❯\u{a0}\x1b[2mTry \"write a test for styles.css\"\x1b[22m",
+        );
+        assert_eq!(
+            claude::input(&t.app.host.screen(node).text),
+            Some("Try \"write a test for styles.css\"")
+        );
+        std::fs::remove_file(t.dir.path().join("hinted.jsonl")).unwrap();
+        drop(t.app.idle.open(node));
+        relaunched(&t, node).await;
+        assert!(!t.app.relaunches.held(node));
     }
 
     async fn relaunched(t: &Fixture, node: NodeId) {

@@ -567,6 +567,7 @@ impl Pty {
         let at = screen.rows(0, col).nth(row.into());
         Screen {
             text: screen.contents(),
+            undimmed: undimmed(screen),
             to_cursor: above.chain(at).collect::<Vec<_>>().join("\n"),
             cols,
         }
@@ -596,6 +597,23 @@ impl Pty {
             let _ = wire::write(&mut *host, &Frame::Resize { cols, rows });
         }
     }
+}
+
+fn undimmed(screen: &vt100::Screen) -> String {
+    let (rows, cols) = screen.size();
+    let (rows, cols) = (rows.get(), cols.get());
+    let line = |row| {
+        let cells = (0..cols).filter_map(|col| screen.cell(row, col));
+        let text: String = cells
+            .filter(|cell| !cell.is_wide_continuation())
+            .map(|cell| match cell.dim() || !cell.has_contents() {
+                true => " ",
+                false => cell.contents(),
+            })
+            .collect();
+        text.trim_end().to_owned()
+    };
+    (0..rows).map(line).collect::<Vec<_>>().join("\n")
 }
 
 impl Output {
@@ -778,6 +796,21 @@ mod endpoint_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dim_text_like_an_input_placeholder_is_not_in_the_undimmed_screen() {
+        let size = |n| NonZeroU16::new(n).unwrap();
+        let mut parser = vt100::Parser::new(size(40), size(120), 0);
+        parser.process(include_bytes!("../profile/screens/claude-idle.ans"));
+        let screen = parser.screen();
+        let input = |text: String| text.lines().find(|l| l.starts_with('❯')).map(str::to_owned);
+        assert_eq!(
+            input(screen.contents()).as_deref(),
+            Some("❯\u{a0}Try \"write a test for styles.css\"")
+        );
+        assert_eq!(input(undimmed(screen)).as_deref(), Some("❯"));
+        assert!(undimmed(screen).contains("⏵⏵ auto mode on"));
+    }
 
     #[cfg(unix)]
     fn read_until(attached: &mut Attached, text: &str) -> String {

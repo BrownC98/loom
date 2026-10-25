@@ -23,6 +23,7 @@ type Hook = { child: ChildProcess; pending: Map<number, (reply: Reply | undefine
 const GUARD = "loom guard";
 const MESSAGE = "loom";
 const IDLE_FLAG = "loom-idle";
+const PROTOCOL = 2;
 const RETRY_MS = 250;
 const REOPEN_MS = 1000;
 const BASH_TIMEOUT_S = 1200;
@@ -183,7 +184,7 @@ export default function (pi: ExtensionAPI) {
     const id = ++next;
     return new Promise((resolve) => {
       pending.set(id, resolve);
-      child.stdin.write(`${JSON.stringify({ id, ...input })}\n`);
+      child.stdin.write(`${JSON.stringify({ protocol: PROTOCOL, id, ...input })}\n`);
     });
   };
 

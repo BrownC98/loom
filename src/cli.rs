@@ -359,24 +359,18 @@ pub fn pi_hook() -> Result<(), String> {
     let out = std::sync::Arc::new(std::sync::Mutex::new(std::io::stdout()));
     for line in std::io::stdin().lines() {
         let line = line.map_err(|e| format!("hook input: {e}"))?;
-        let request: pi::Request = match serde_json::from_str(&line) {
+        let request = match pi::request(&line) {
             Ok(request) => request,
-            Err(e) => {
-                eprintln!("loom: hook input: {e}");
-                continue;
-            }
+            Err(unserved) => return pi_unserved(unserved, &out),
         };
         let out = out.clone();
+        let id = request.id;
+        let send = move |reply: &pi::Reply| pi_send(&out, reply);
+        if id.is_none() {
+            return pi_event(request.event, id, send);
+        }
         std::thread::spawn(move || {
-            let id = request.id;
-            let send = |reply: &pi::Reply| {
-                let mut out = out.lock().unwrap();
-                serde_json::to_writer(&mut *out, reply).map_err(|e| e.to_string())?;
-                writeln!(out)
-                    .and_then(|()| out.flush())
-                    .map_err(|e| e.to_string())
-            };
-            if let Err(e) = pi_event(request.event, id, send) {
+            if let Err(e) = pi_event(request.event, id, &send) {
                 let _ = send(&pi::failed(id, e));
             }
         });
@@ -384,9 +378,36 @@ pub fn pi_hook() -> Result<(), String> {
     Ok(())
 }
 
+fn pi_unserved(
+    unserved: pi::Unserved,
+    out: &std::sync::Mutex<std::io::Stdout>,
+) -> Result<(), String> {
+    if unserved.id.is_some() {
+        pi_send(out, &pi::failed(unserved.id, unserved.error.clone()))?;
+    }
+    let request = RelaunchRequest {
+        name: None,
+        to: None,
+    };
+    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
+    let relaunch = match call::<Relaunched>("relaunch", &request, Some(timeout)) {
+        Ok(_) => "loom relaunches this node with the current pi extension".to_owned(),
+        Err(e) => format!("loom could not relaunch this node: {e}"),
+    };
+    Err(format!("{}. {relaunch}.", unserved.error))
+}
+
+fn pi_send(out: &std::sync::Mutex<std::io::Stdout>, reply: &pi::Reply) -> Result<(), String> {
+    let mut out = out.lock().unwrap();
+    serde_json::to_writer(&mut *out, reply).map_err(|e| e.to_string())?;
+    writeln!(out)
+        .and_then(|()| out.flush())
+        .map_err(|e| e.to_string())
+}
+
 fn pi_event(
     event: pi::Event,
-    id: u64,
+    id: Option<u64>,
     send: impl Fn(&pi::Reply) -> Result<(), String>,
 ) -> Result<(), String> {
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);

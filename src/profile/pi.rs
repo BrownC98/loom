@@ -7,6 +7,7 @@ use crate::protocol::{Delivery, Kind, Model};
 use crate::skills::Launch;
 
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
+pub const PROTOCOL: u32 = 2;
 const EXTENSION: &str = include_str!("pi-loom.ts");
 const EXTENSION_FILE: &str = "pi-loom.ts";
 const IDLE_FLAG: &str = "--loom-idle";
@@ -58,11 +59,44 @@ pub fn resume_args(session: &str) -> Vec<String> {
     vec!["--session".into(), session.into()]
 }
 
-#[derive(Deserialize)]
 pub struct Request {
-    pub id: u64,
-    #[serde(flatten)]
+    pub id: Option<u64>,
     pub event: Event,
+}
+
+pub struct Unserved {
+    pub id: Option<u64>,
+    pub error: String,
+}
+
+#[derive(Deserialize)]
+struct Header {
+    protocol: Option<u32>,
+    id: Option<u64>,
+}
+
+pub fn request(line: &str) -> Result<Request, Unserved> {
+    let header: Header = serde_json::from_str(line).map_err(|e| Unserved {
+        id: None,
+        error: format!("hook input: {e}"),
+    })?;
+    let id = header.id;
+    let unserved = |error| Err(Unserved { id, error });
+    match (header.protocol, id) {
+        (Some(PROTOCOL), Some(_)) | (None, _) => {}
+        (Some(PROTOCOL), None) => {
+            return unserved(format!("a hook protocol {PROTOCOL} request has no id"));
+        }
+        (Some(other), _) => {
+            return unserved(format!(
+                "the pi extension speaks hook protocol {other}, but this loom speaks {PROTOCOL}"
+            ));
+        }
+    }
+    match serde_json::from_str(line) {
+        Ok(event) => Ok(Request { id, event }),
+        Err(e) => unserved(format!("hook input: {e}")),
+    }
 }
 
 #[derive(Deserialize)]
@@ -105,7 +139,8 @@ pub struct State {
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Reply {
-    id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -179,7 +214,7 @@ impl Event {
     }
 }
 
-pub fn reply(id: u64, taken: &[Delivery], note: Option<&str>) -> Reply {
+pub fn reply(id: Option<u64>, taken: &[Delivery], note: Option<&str>) -> Reply {
     Reply {
         id,
         text: super::hook_text(taken, note),
@@ -187,7 +222,7 @@ pub fn reply(id: u64, taken: &[Delivery], note: Option<&str>) -> Reply {
     }
 }
 
-pub fn nudge(id: u64, text: String) -> Reply {
+pub fn nudge(id: Option<u64>, text: String) -> Reply {
     Reply {
         id,
         text: Some(text),
@@ -195,7 +230,7 @@ pub fn nudge(id: u64, text: String) -> Reply {
     }
 }
 
-pub fn failed(id: u64, error: String) -> Reply {
+pub fn failed(id: Option<u64>, error: String) -> Reply {
     Reply {
         id,
         text: None,
@@ -270,21 +305,61 @@ mod tests {
     #[test]
     fn an_empty_reply_has_no_text() {
         assert_eq!(
-            serde_json::to_string(&reply(3, &[], None)).unwrap(),
+            serde_json::to_string(&reply(Some(3), &[], None)).unwrap(),
             r#"{"id":3}"#
         );
         assert_eq!(
-            serde_json::to_string(&reply(4, &[], Some("n"))).unwrap(),
+            serde_json::to_string(&reply(Some(4), &[], Some("n"))).unwrap(),
             r#"{"id":4,"text":"n"}"#
         );
         assert_eq!(
-            serde_json::to_string(&failed(5, "down".into())).unwrap(),
+            serde_json::to_string(&failed(Some(5), "down".into())).unwrap(),
             r#"{"id":5,"error":"down"}"#
         );
-        let request: Request =
-            serde_json::from_str(r#"{"id":7,"event":"settled","reply":"r","model":"m"}"#).unwrap();
-        assert_eq!(request.id, 7);
+        let request = served(r#"{"protocol":2,"id":7,"event":"settled","reply":"r","model":"m"}"#);
+        assert_eq!(request.id, Some(7));
         assert_eq!(request.event.turn_ends(), Some(Some("r".into())));
+    }
+
+    fn served(line: &str) -> Request {
+        request(line).unwrap_or_else(|u| panic!("{line}: {}", u.error))
+    }
+
+    fn unserved(line: &str) -> Unserved {
+        match request(line) {
+            Ok(_) => panic!("{line} is served"),
+            Err(unserved) => unserved,
+        }
+    }
+
+    #[test]
+    fn a_request_without_id_or_protocol_is_the_old_one_shot_form() {
+        let old = served(r#"{"event":"tool_result","transcript":"/s.jsonl"}"#);
+        assert_eq!(old.id, None);
+        assert_eq!(old.event.take(), Some(Take::Now(Kind::ALL)));
+        assert_eq!(
+            serde_json::to_string(&reply(old.id, &[], Some("n"))).unwrap(),
+            r#"{"text":"n"}"#
+        );
+        let unversioned = served(r#"{"id":4,"event":"idle"}"#);
+        assert_eq!(unversioned.id, Some(4));
+    }
+
+    #[test]
+    fn an_unknown_protocol_or_event_is_refused_with_the_id() {
+        let newer = unserved(r#"{"protocol":3,"id":9,"event":"idle"}"#);
+        assert_eq!(newer.id, Some(9));
+        assert!(newer.error.contains("protocol 3"), "{}", newer.error);
+        assert!(
+            newer.error.contains(&format!("speaks {PROTOCOL}")),
+            "{}",
+            newer.error
+        );
+        let event = unserved(r#"{"protocol":2,"id":5,"event":"compacted"}"#);
+        assert_eq!(event.id, Some(5));
+        assert!(event.error.contains("compacted"), "{}", event.error);
+        assert_eq!(unserved(r#"{"protocol":2,"event":"idle"}"#).id, None);
+        assert_eq!(unserved("not json").id, None);
     }
 
     #[test]
@@ -326,6 +401,8 @@ mod tests {
         assert!(EXTENSION.contains(r#"spawn("loom", ["pi-hook"]"#));
         assert!(EXTENSION.contains(r#"pi.on("resources_discover""#));
         assert!(EXTENSION.contains(&format!(r#"IDLE_FLAG = "{}""#, &IDLE_FLAG[2..])));
+        assert!(EXTENSION.contains(&format!("PROTOCOL = {PROTOCOL};")));
+        assert!(EXTENSION.contains("{ protocol: PROTOCOL, id, ...input }"));
         let dir = tempfile::tempdir().unwrap();
         write_extension(dir.path()).unwrap();
         assert_eq!(

@@ -10,10 +10,9 @@ use crate::graph::{AgentEvent, Entry, Graph, IdleEnd, NodeId, Who};
 
 pub struct IdleWaits {
     graph: Arc<Graph>,
-    ends: Mutex<HashMap<NodeId, oneshot::Sender<IdleEnd>>>,
+    ends: Mutex<HashMap<NodeId, (u64, oneshot::Sender<IdleEnd>)>>,
     turns: Mutex<HashSet<NodeId>>,
     watches: Mutex<HashMap<NodeId, Watch>>,
-    latest: Mutex<HashMap<NodeId, u64>>,
     next_said: AtomicU64,
     next_wait: AtomicU64,
 }
@@ -69,7 +68,6 @@ impl IdleWaits {
             ends: Mutex::default(),
             turns: Mutex::default(),
             watches: Mutex::default(),
-            latest: Mutex::default(),
             next_said: AtomicU64::new(0),
             next_wait: AtomicU64::new(0),
         }
@@ -79,14 +77,13 @@ impl IdleWaits {
         self.turns.lock().unwrap().remove(&node);
         self.watch(node, |w| w.heard = true);
         let id = self.next_wait.fetch_add(1, Ordering::Relaxed);
-        let mut latest = self.latest.lock().unwrap();
-        latest.insert(node, id);
-        self.feed(node, AgentEvent::WaitOpened);
-        drop(latest);
         let (tx, end) = oneshot::channel();
-        if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
+        let mut ends = self.ends.lock().unwrap();
+        if let Some((_, old)) = ends.insert(node, (id, tx)) {
             let _ = old.send(IdleEnd::NewWait);
         }
+        self.feed(node, AgentEvent::WaitOpened);
+        drop(ends);
         let who = self
             .graph
             .who(node)
@@ -113,7 +110,7 @@ impl IdleWaits {
             return false;
         }
         let (tx, end) = oneshot::channel();
-        ends.insert(wait.node, tx);
+        ends.insert(wait.node, (wait.id, tx));
         wait.end = end;
         true
     }
@@ -123,7 +120,7 @@ impl IdleWaits {
             .lock()
             .unwrap()
             .get(&node)
-            .is_some_and(|end| !end.is_closed())
+            .is_some_and(|(_, end)| !end.is_closed())
     }
 
     pub fn typed_since(&self, node: NodeId, since: SystemTime) -> bool {
@@ -140,9 +137,13 @@ impl IdleWaits {
     }
 
     pub fn turn_started(&self, node: NodeId, hook: String) {
-        self.end_wait(node, IdleEnd::Turn { hook });
+        let mut ends = self.ends.lock().unwrap();
+        if let Some((_, old)) = ends.remove(&node) {
+            let _ = old.send(IdleEnd::Turn { hook });
+        }
         self.turns.lock().unwrap().insert(node);
         self.feed(node, AgentEvent::TurnStarted);
+        drop(ends);
     }
 
     pub fn prompted(&self, node: NodeId, turn: TurnId) {
@@ -162,14 +163,14 @@ impl IdleWaits {
     }
 
     pub fn release(&self, node: NodeId) {
-        if let Some(end) = self.ends.lock().unwrap().remove(&node) {
+        if let Some((_, end)) = self.ends.lock().unwrap().remove(&node) {
             let _ = end.send(IdleEnd::Relaunch);
         }
     }
 
     fn end_wait(&self, node: NodeId, by: IdleEnd) {
         self.turns.lock().unwrap().remove(&node);
-        if let Some(old) = self.ends.lock().unwrap().remove(&node) {
+        if let Some((_, old)) = self.ends.lock().unwrap().remove(&node) {
             let _ = old.send(by);
         }
     }
@@ -265,8 +266,8 @@ impl Wait<'_> {
                 node,
                 by: by.clone(),
             });
-            let latest = self.waits.latest.lock().unwrap();
-            if latest.get(&self.node) == Some(&self.id) {
+            let ends = self.waits.ends.lock().unwrap();
+            if ends.get(&self.node).is_none_or(|(id, _)| *id == self.id) {
                 self.waits.feed(self.node, AgentEvent::WaitClosed { by });
             }
         }
@@ -498,6 +499,48 @@ mod tests {
 
         drop(current);
         assert_eq!(state(), Some(AgentState::Deaf), "the latest wait closed");
+    }
+
+    #[test]
+    fn parallel_waits_and_turns_leave_the_state_that_the_open_wait_shows() {
+        let (_dir, [node, _], waits) = waits();
+        let state = || waits.graph.agent_state(node).unwrap();
+        for round in 0..100 {
+            let barrier = std::sync::Barrier::new(8);
+            let kept: Vec<Wait<'_>> = std::thread::scope(|s| {
+                let threads: Vec<_> = (0..8)
+                    .map(|i| {
+                        let (waits, barrier) = (&waits, &barrier);
+                        s.spawn(move || {
+                            barrier.wait();
+                            if round % 2 == 1 && i == 0 {
+                                waits.turn_started(node, "preToolUse".into());
+                                return None;
+                            }
+                            let mut wait = waits.open(node);
+                            match wait.end.try_recv() {
+                                Ok(by) => {
+                                    wait.finish(by);
+                                    None
+                                }
+                                Err(_) => Some(wait),
+                            }
+                        })
+                    })
+                    .collect();
+                threads
+                    .into_iter()
+                    .filter_map(|t| t.join().unwrap())
+                    .collect()
+            });
+            let shown = match waits.waiting(node) {
+                true => AgentState::Listening,
+                false => AgentState::Turn,
+            };
+            assert_eq!(state(), Some(shown), "round {round}");
+            drop(kept);
+            waits.turn_started(node, "preToolUse".into());
+        }
     }
 
     #[tokio::test]

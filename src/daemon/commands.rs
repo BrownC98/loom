@@ -339,6 +339,7 @@ pub(super) async fn agent_idle(
     tokio::select! {
         taken = app.next_mail(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
             Ok(taken) => {
+                app.idle.mail_handed(node);
                 wait.finish(IdleEnd::Mail);
                 Ok(Json(taken))
             }

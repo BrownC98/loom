@@ -133,6 +133,10 @@ impl IdleWaits {
         self.turns.lock().unwrap().insert(node);
     }
 
+    pub fn mail_handed(&self, node: NodeId) {
+        self.turns.lock().unwrap().insert(node);
+    }
+
     pub fn prompted(&self, node: NodeId, turn: TurnId) {
         self.watch(node, |w| {
             w.drafted = false;

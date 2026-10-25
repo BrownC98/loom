@@ -396,8 +396,9 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use crate::daemon::nodes::human_typed;
+    use crate::daemon::relaunch::Relaunched;
     #[cfg(unix)]
-    use crate::daemon::relaunch::{Relaunched, Stop};
+    use crate::daemon::relaunch::Stop;
     use crate::graph::{Launched, NewChild, NodeState, Place, Report};
     use crate::protocol::{AgentId, Kind, TreeLimits};
     use crate::worktree::RepoId;
@@ -804,6 +805,51 @@ mod tests {
             .unwrap()
             .unwrap();
         taken[0].body.clone()
+    }
+
+    #[tokio::test]
+    async fn a_relaunch_waits_for_the_turn_that_idle_wait_mail_started() {
+        let t = fixture();
+        let worker = add_worker(&t, "worker");
+        let wait = idle_request(&t, "worker");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        t.app
+            .graph
+            .note(t.lead, "worker", Kind::Queue, "implement fix 3", None)
+            .unwrap();
+        assert_eq!(taken(wait).await, "implement fix 3");
+        let active = t.app.graph.active().unwrap();
+        let node = active.into_iter().find(|n| n.id == worker).unwrap();
+        assert_eq!(
+            t.app.relaunch_or_queue(node).await,
+            Ok(Relaunched::AtTurnEnd)
+        );
+        assert_eq!(missed(&t), [], "nothing cut the turn");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_restarted_daemon_reads_an_open_claude_turn_from_the_transcript() {
+        let t = fixture();
+        let node = |name: &str, transcript: &str| {
+            let id = add_worker(&t, name);
+            let path = t.dir.path().join(format!("{name}.jsonl"));
+            std::fs::write(&path, transcript).unwrap();
+            t.app
+                .graph
+                .set_transcript(id, path.to_str().unwrap())
+                .unwrap();
+            let active = t.app.graph.active().unwrap();
+            active.into_iter().find(|n| n.id == id).unwrap()
+        };
+        let working = node("working", IN_TOOL);
+        let resting = node("resting", ENDED);
+        assert_eq!(
+            t.app.relaunch_or_queue(working).await,
+            Ok(Relaunched::AtTurnEnd)
+        );
+        let now = t.app.relaunch_or_queue(resting).await;
+        assert!(now.is_err(), "{now:?}");
     }
 
     #[tokio::test]

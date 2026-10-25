@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use portable_pty::CommandBuilder;
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 pub fn command(name: &str) -> std::process::Command {
     command_at(&crate::search_path::find(name).unwrap_or_else(|| name.into()))
@@ -88,12 +88,27 @@ impl Snapshot {
             .collect()
     }
 
-    pub fn runs(&self, root: u32, name: &str) -> bool {
-        subtree(&self.parents, root).into_iter().any(|pid| {
-            self.system
-                .process(Pid::from_u32(pid))
-                .is_some_and(|p| p.name() == name)
-        })
+    pub fn command_lines(&self, root: u32) -> Vec<String> {
+        let pids: Vec<Pid> = subtree(&self.parents, root)
+            .into_iter()
+            .map(Pid::from_u32)
+            .collect();
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&pids),
+            true,
+            ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always),
+        );
+        pids.iter()
+            .filter_map(|pid| system.process(*pid))
+            .map(|p| {
+                p.cmd()
+                    .iter()
+                    .map(|arg| arg.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect()
     }
 
     pub fn kill_trees(&self, roots: impl IntoIterator<Item = u32>) -> usize {
@@ -216,17 +231,22 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn runs_finds_a_process_name_in_the_tree() {
-        let mut child = std::process::Command::new("sleep")
-            .arg("5")
+    fn command_lines_give_the_root_first_then_its_children() {
+        let mut shell = std::process::Command::new("sh")
+            .args(["-c", "sleep 31; true"])
             .spawn()
             .unwrap();
-        let snapshot = Snapshot::now();
-        let me = std::process::id();
-        assert!(snapshot.runs(me, "sleep"));
-        assert!(!snapshot.runs(child.id(), "loom"));
-        child.kill().unwrap();
-        child.wait().unwrap();
+        let mut lines = Vec::new();
+        for _ in 0..50 {
+            lines = Snapshot::now().command_lines(shell.id());
+            if lines.len() == 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(lines, ["sh -c sleep 31; true", "sleep 31"]);
+        Snapshot::now().kill_trees([shell.id()]);
+        shell.wait().unwrap();
     }
 
     #[test]

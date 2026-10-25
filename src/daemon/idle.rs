@@ -79,11 +79,11 @@ impl IdleWaits {
     }
 
     pub fn open(&self, node: NodeId) -> Wait<'_> {
-        self.turns.lock().unwrap().remove(&node);
         self.watch(node, |w| w.heard = true);
         let id = self.next_wait.fetch_add(1, Ordering::Relaxed);
         let (tx, end) = oneshot::channel();
         let mut ends = self.ends.lock().unwrap();
+        self.turns.lock().unwrap().remove(&node);
         let latest = Latest {
             wait: id,
             end: Some(tx),
@@ -111,14 +111,11 @@ impl IdleWaits {
     }
 
     pub fn reopen(&self, wait: &mut Wait<'_>) -> bool {
-        if self.in_turn(wait.node) {
-            return false;
-        }
         let mut ends = self.ends.lock().unwrap();
-        if ends
+        let replaced = ends
             .get(&wait.node)
-            .is_some_and(|latest| latest.wait != wait.id || latest.end.is_some())
-        {
+            .is_some_and(|latest| latest.wait != wait.id || latest.end.is_some());
+        if replaced || self.in_turn(wait.node) {
             return false;
         }
         let (tx, end) = oneshot::channel();
@@ -741,6 +738,39 @@ mod tests {
                 let listening = state == Some(AgentState::Listening);
                 assert_eq!(listening, model.live, "{order:?} after {step:?}");
             }
+        }
+    }
+
+    #[test]
+    fn a_reopen_and_a_parallel_turn_hook_agree_on_the_turn() {
+        let (_dir, [node, _], waits) = waits();
+        for round in 0..300 {
+            let mut wait = waits.open(node);
+            waits.end(node, IdleEnd::Relaunch);
+            wait.end.try_recv().unwrap();
+            let barrier = std::sync::Barrier::new(2);
+            let reopened = std::thread::scope(|s| {
+                s.spawn(|| {
+                    barrier.wait();
+                    waits.turn_started(node, "preToolUse".into());
+                });
+                barrier.wait();
+                waits.reopen(&mut wait)
+            });
+            let state = waits.graph.agent_state(node).unwrap();
+            assert_eq!(
+                (state == Some(AgentState::Listening), waits.waiting(node)),
+                (
+                    reopened && !waits.in_turn(node),
+                    reopened && !waits.in_turn(node)
+                ),
+                "round {round}: reopened {reopened}, state {state:?}"
+            );
+            assert!(
+                !(waits.in_turn(node) && waits.waiting(node)),
+                "round {round}"
+            );
+            drop(wait);
         }
     }
 

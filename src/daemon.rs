@@ -349,11 +349,12 @@ impl App {
         let idle = idle::IdleWaits::new(graph.clone());
         let shim = db_path.with_file_name("wsl");
         let wsl_tunnel = match cfg!(windows) {
-            true => tunnels::WslTunnel::install(&shim, listen.port()).unwrap_or_else(|e| {
-                eprintln!("loom: WSL 터널용 Linux loom을 넣지 못했다: {e}");
-                tunnels::WslTunnel::none()
-            }),
-            false => tunnels::WslTunnel::none(),
+            true => tunnels::WslTunnel::install(&shim, listen.port(), graph.clone())
+                .unwrap_or_else(|e| {
+                    eprintln!("loom: WSL 터널용 Linux loom을 넣지 못했다: {e}");
+                    tunnels::WslTunnel::none(graph.clone())
+                }),
+            false => tunnels::WslTunnel::none(graph.clone()),
         };
         if cfg!(windows) {
             wsl::write_shim(&shim, &std::env::current_exe()?, wsl_tunnel.shim())?;

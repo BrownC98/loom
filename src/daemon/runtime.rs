@@ -203,6 +203,7 @@ impl App {
         let runtime = tokio::runtime::Handle::current();
         let token = token.to_owned();
         move |exit| {
+            let _recheck = tunnels::Recheck::after(&app, distro.clone());
             discard();
             if exit != Exit::Lost
                 && let Some(distro) = distro

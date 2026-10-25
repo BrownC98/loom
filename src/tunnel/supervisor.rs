@@ -7,11 +7,9 @@ use tokio::sync::{Notify, mpsc, watch};
 
 use super::{Event, Stream};
 
-const READY_WAIT: Duration = Duration::from_secs(30);
-
 pub trait Launch: Send + Sync + 'static {
     fn command(&self, distro: &str) -> Result<tokio::process::Command, String>;
-    fn running(&self, distro: &str) -> impl Future<Output = bool> + Send;
+    fn needed(&self, distro: &str) -> impl Future<Output = bool> + Send;
 }
 
 #[derive(Clone, Copy)]
@@ -19,6 +17,7 @@ pub struct Pace {
     pub first: Duration,
     pub most: Duration,
     pub stable: Duration,
+    pub ready: Duration,
 }
 
 impl Default for Pace {
@@ -27,6 +26,7 @@ impl Default for Pace {
             first: Duration::from_secs(1),
             most: Duration::from_secs(60),
             stable: Duration::from_secs(60),
+            ready: Duration::from_secs(30),
         }
     }
 }
@@ -47,6 +47,7 @@ struct State {
 struct Supervised {
     state: watch::Sender<State>,
     kick: Notify,
+    recheck: Notify,
 }
 
 pub struct Tunnels<L> {
@@ -80,16 +81,18 @@ impl<L: Launch> Tunnels<L> {
             Phase::Down(_) => now.attempt > seen.attempt || seen.phase == Phase::Starting,
             Phase::Starting => false,
         });
-        match tokio::time::timeout(READY_WAIT, settled).await {
-            Ok(Ok(now)) => match &now.phase {
+        match settled.await {
+            Ok(now) => match &now.phase {
                 Phase::Down(why) => Err(why.clone()),
                 _ => Ok(()),
             },
-            Ok(Err(_)) => Err("터널 감독이 끝났다".into()),
-            Err(_) => Err(format!(
-                "터널이 {}초 안에 뜨지 않았다",
-                READY_WAIT.as_secs()
-            )),
+            Err(_) => Err("터널 감독이 끝났다".into()),
+        }
+    }
+
+    pub fn recheck(&self, distro: &str) {
+        if let Some(supervised) = self.distros.lock().unwrap().get(distro) {
+            supervised.recheck.notify_one();
         }
     }
 
@@ -104,6 +107,7 @@ impl<L: Launch> Tunnels<L> {
                 phase: Phase::Starting,
             }),
             kick: Notify::new(),
+            recheck: Notify::new(),
         });
         distros.insert(distro.to_owned(), supervised.clone());
         tokio::spawn(supervise(
@@ -128,13 +132,13 @@ async fn supervise<L: Launch>(
     let mut kicked = true;
     let mut last = String::new();
     loop {
-        if kicked || launch.running(&distro).await {
+        if kicked || launch.needed(&distro).await {
             supervised.state.send_modify(|s| {
                 s.attempt += 1;
                 s.phase = Phase::Starting;
             });
             let began = Instant::now();
-            let why = run(&*launch, &doors, &distro, &supervised).await;
+            let why = run(&*launch, &doors, &distro, &supervised, pace.ready).await;
             if why != last {
                 eprintln!("loom: {distro} 터널이 끝났다: {why}");
             }
@@ -159,6 +163,7 @@ async fn run<L: Launch>(
     doors: &mpsc::UnboundedSender<Stream>,
     distro: &str,
     supervised: &Supervised,
+    ready_wait: Duration,
 ) -> String {
     let mut cmd = match launch.command(distro) {
         Ok(cmd) => cmd,
@@ -185,19 +190,59 @@ async fn run<L: Launch>(
         }
     });
     let mut events = super::accept(stdout, stdin);
-    while let Some(event) = events.recv().await {
+    let deadline = tokio::time::Instant::now() + ready_wait;
+    let mut ready = false;
+    let end = loop {
+        let next = async {
+            match ready {
+                true => Ok(events.recv().await),
+                false => tokio::time::timeout_at(deadline, events.recv()).await,
+            }
+        };
+        let event = tokio::select! {
+            got = next => match got {
+                Ok(event) => event,
+                Err(_) => break End::Late,
+            },
+            () = supervised.recheck.notified() => match launch.needed(distro).await {
+                true => continue,
+                false => break End::Unneeded,
+            },
+        };
         match event {
-            Event::Ready => supervised.state.send_modify(|s| s.phase = Phase::Ready),
-            Event::Opened(stream) => {
+            None => break End::Exited,
+            Some(Event::Ready(version)) if version != super::wire::VERSION => {
+                break End::Version(version);
+            }
+            Some(Event::Ready(_)) => {
+                ready = true;
+                supervised.state.send_modify(|s| s.phase = Phase::Ready);
+            }
+            Some(Event::Opened(stream)) => {
                 let _ = doors.send(stream);
             }
         }
-    }
+    };
+    drop(events);
     let _ = child.start_kill();
-    match child.wait().await {
-        Ok(status) => format!("중계가 끝났다 ({status})"),
-        Err(e) => e.to_string(),
+    let ended = child.wait().await;
+    match (end, ended) {
+        (End::Late, _) => format!("중계가 {ready_wait:?} 안에 준비되지 않았다"),
+        (End::Unneeded, _) => format!("{distro}에 도는 노드가 없다"),
+        (End::Version(theirs), _) => format!(
+            "중계의 프레임 판({theirs})이 데몬의 판({})과 다르다. 훅은 loom.exe로 간다",
+            super::wire::VERSION
+        ),
+        (End::Exited, Ok(status)) => format!("중계가 끝났다 ({status})"),
+        (End::Exited, Err(e)) => e.to_string(),
     }
+}
+
+enum End {
+    Exited,
+    Version(u32),
+    Late,
+    Unneeded,
 }
 
 #[cfg(test)]
@@ -209,7 +254,7 @@ mod tests {
     struct Fake {
         script: &'static str,
         starts: Arc<AtomicUsize>,
-        running: bool,
+        needed: Arc<std::sync::atomic::AtomicBool>,
     }
 
     impl Launch for Fake {
@@ -220,39 +265,48 @@ mod tests {
             Ok(cmd)
         }
 
-        async fn running(&self, _: &str) -> bool {
-            self.running
+        async fn needed(&self, _: &str) -> bool {
+            self.needed.load(Ordering::SeqCst)
         }
     }
 
     #[cfg(unix)]
     const SHELL: [&str; 2] = ["sh", "-c"];
     #[cfg(unix)]
-    const READY_THEN_EXIT: &str = r"printf '\000\000\000\000\000\000\000\000\000'; sleep 0.2";
+    const READY_THEN_EXIT: &str = r"printf '\000\001\000\000\000\000\000\000\000'; sleep 0.2";
     #[cfg(unix)]
     const BROKEN: &str = "echo broken >&2; exit 7";
+    #[cfg(unix)]
+    const SILENT: &str = "exec sleep 600";
     #[cfg(windows)]
     const SHELL: [&str; 2] = ["powershell", "-Command"];
     #[cfg(windows)]
-    const READY_THEN_EXIT: &str = "[Console]::OpenStandardOutput().Write([byte[]]::new(9), 0, 9); Start-Sleep -Milliseconds 200";
+    const READY_THEN_EXIT: &str = "$b = [byte[]]::new(9); $b[1] = 1; [Console]::OpenStandardOutput().Write($b, 0, 9); Start-Sleep -Milliseconds 200";
     #[cfg(windows)]
     const BROKEN: &str = "[Console]::Error.WriteLine('broken'); exit 7";
+    #[cfg(windows)]
+    const SILENT: &str = "Start-Sleep -Seconds 600";
 
-    fn tunnels(script: &'static str, running: bool) -> (Tunnels<Fake>, Arc<AtomicUsize>) {
+    type Needed = Arc<std::sync::atomic::AtomicBool>;
+
+    fn tunnels(script: &'static str, needed: bool) -> (Tunnels<Fake>, Arc<AtomicUsize>, Needed) {
         let starts = Arc::new(AtomicUsize::new(0));
+        let needed = Arc::new(std::sync::atomic::AtomicBool::new(needed));
         let fake = Fake {
             script,
             starts: starts.clone(),
-            running,
+            needed: needed.clone(),
         };
         let pace = Pace {
             first: Duration::from_millis(10),
             most: Duration::from_millis(20),
             stable: Duration::from_secs(3600),
+            ready: Duration::from_secs(5),
         };
         (
             Tunnels::new(fake, crate::tunnel::Door::new().0, pace),
             starts,
+            needed,
         )
     }
 
@@ -268,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_exited_tunnel_starts_again() {
-        let (tunnels, starts) = tunnels(READY_THEN_EXIT, true);
+        let (tunnels, starts, _) = tunnels(READY_THEN_EXIT, true);
         tunnels.ensure("Ubuntu").await.unwrap();
         until(|| starts.load(Ordering::SeqCst) >= 3).await;
         tunnels.ensure("Ubuntu").await.unwrap();
@@ -276,14 +330,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_tunnel_that_never_gets_ready_is_reported() {
-        let (tunnels, _) = tunnels(BROKEN, true);
+        let (tunnels, _, _) = tunnels(BROKEN, true);
         let why = tunnels.ensure("Ubuntu").await.unwrap_err();
         assert!(why.ends_with(": 7)"), "{why}");
     }
 
     #[tokio::test]
-    async fn a_stopped_distro_is_not_started_again_until_a_node_needs_it() {
-        let (tunnels, starts) = tunnels(READY_THEN_EXIT, false);
+    async fn a_distro_without_nodes_is_not_started_again_until_a_node_needs_it() {
+        let (tunnels, starts, _) = tunnels(READY_THEN_EXIT, false);
         tunnels.ensure("Ubuntu").await.unwrap();
         let supervised = tunnels.supervised("Ubuntu");
         until(|| matches!(supervised.state.borrow().phase, Phase::Down(_))).await;
@@ -291,5 +345,55 @@ mod tests {
         assert_eq!(starts.load(Ordering::SeqCst), 1);
         tunnels.ensure("Ubuntu").await.unwrap();
         assert_eq!(starts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_live_relay_that_never_gets_ready_is_ended_and_started_again() {
+        let (tunnels, starts, _) = tunnels(SILENT, true);
+        let why = tunnels.ensure("Ubuntu").await.unwrap_err();
+        assert_eq!(why, "중계가 5s 안에 준비되지 않았다");
+        until(|| starts.load(Ordering::SeqCst) >= 2).await;
+        let why = tunnels.ensure("Ubuntu").await.unwrap_err();
+        assert_eq!(why, "중계가 5s 안에 준비되지 않았다");
+    }
+
+    #[cfg(unix)]
+    const READY_THEN_STAY: &str = r"printf '\000\001\000\000\000\000\000\000\000'; exec sleep 600";
+    #[cfg(unix)]
+    const OLD_READY_THEN_STAY: &str =
+        r"printf '\000\000\000\000\000\000\000\000\000'; exec sleep 600";
+    #[cfg(windows)]
+    const READY_THEN_STAY: &str = "$b = [byte[]]::new(9); $b[1] = 1; [Console]::OpenStandardOutput().Write($b, 0, 9); Start-Sleep -Seconds 600";
+    #[cfg(windows)]
+    const OLD_READY_THEN_STAY: &str =
+        "[Console]::OpenStandardOutput().Write([byte[]]::new(9), 0, 9); Start-Sleep -Seconds 600";
+
+    #[tokio::test]
+    async fn the_relay_ends_when_the_last_node_of_its_distro_ends() {
+        let (tunnels, starts, needed) = tunnels(READY_THEN_STAY, true);
+        tunnels.ensure("Ubuntu").await.unwrap();
+        tunnels.recheck("Ubuntu");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(tunnels.ensure("Ubuntu").await.is_ok());
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        needed.store(false, Ordering::SeqCst);
+        tunnels.recheck("Ubuntu");
+        let supervised = tunnels.supervised("Ubuntu");
+        until(|| matches!(&supervised.state.borrow().phase, Phase::Down(why) if why == "Ubuntu에 도는 노드가 없다")).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        tunnels.ensure("Ubuntu").await.unwrap();
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_relay_of_another_frame_version_is_ended_and_reported() {
+        let (tunnels, starts, _) = tunnels(OLD_READY_THEN_STAY, true);
+        let why = tunnels.ensure("Ubuntu").await.unwrap_err();
+        assert_eq!(
+            why,
+            "중계의 프레임 판(0)이 데몬의 판(1)과 다르다. 훅은 loom.exe로 간다"
+        );
+        until(|| starts.load(Ordering::SeqCst) >= 2).await;
     }
 }

@@ -76,7 +76,7 @@ impl Shared {
 }
 
 pub enum Event {
-    Ready,
+    Ready(u32),
     Opened(Stream),
 }
 
@@ -128,7 +128,7 @@ where
 impl Mux {
     #[cfg(unix)]
     pub fn ready(&self) {
-        let _ = self.shared.out.send(Frame::Ready);
+        let _ = self.shared.out.send(Frame::Ready(wire::VERSION));
     }
 
     pub fn open(&self) -> Stream {
@@ -166,8 +166,8 @@ async fn read_frames(
     let mut reader = tokio::io::BufReader::new(reader);
     while let Ok(Some(frame)) = wire::read(&mut reader).await {
         match frame {
-            Frame::Ready => {
-                let _ = events.send(Event::Ready);
+            Frame::Ready(version) => {
+                let _ = events.send(Event::Ready(version));
             }
             Frame::Open(id) => {
                 let _ = events.send(Event::Opened(shared.register(id)));

@@ -129,7 +129,7 @@ async fn the_router_answers_through_the_relay_while_a_long_wait_stays_open() {
     });
     let (doors, door) = Door::new();
     let mut events = accept(from_relay, to_relay);
-    let Some(Event::Ready) = events.recv().await else {
+    let Some(Event::Ready(wire::VERSION)) = events.recv().await else {
         panic!("no ready frame");
     };
     tokio::spawn(async move {
@@ -197,7 +197,7 @@ async fn the_relay_ends_on_stdin_eof_and_closes_its_clients() {
     });
     assert_eq!(
         wire::read(&mut from_relay).await.unwrap(),
-        Some(Frame::Ready)
+        Some(Frame::Ready(wire::VERSION))
     );
     let mut clients = Vec::new();
     for _ in 0..3 {

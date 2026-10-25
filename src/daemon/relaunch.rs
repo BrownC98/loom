@@ -74,6 +74,14 @@ impl Relaunches {
         self.pending.lock().unwrap().contains_key(&node)
     }
 
+    #[cfg(test)]
+    pub(super) fn hold(&self, node: NodeId) {
+        self.pending
+            .lock()
+            .unwrap()
+            .insert(node, (Phase::Running, Plan::Resume));
+    }
+
     pub(super) fn at_turn_end(&self, node: NodeId) -> bool {
         self.pending
             .lock()
@@ -404,15 +412,7 @@ impl App {
             let relaunched = match found {
                 Ok(Some(active)) => match app.relaunch(active, plan, guard).await {
                     Ok(Stop::Kept) => {
-                        if let Some((phase, _)) =
-                            app.relaunches.pending.lock().unwrap().get_mut(&node)
-                        {
-                            *phase = Phase::AtTurnEnd;
-                        }
-                        eprintln!(
-                            "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우기를 턴 끝으로 미룬다",
-                            node.0
-                        );
+                        app.kept_at_turn_end(node);
                         return;
                     }
                     relaunched => relaunched.map(drop),
@@ -468,11 +468,33 @@ impl App {
             pending.insert(id, (Phase::Running, Plan::Resume));
         }
         if self.relaunch(node, Plan::Resume, Some(guard)).await? == Stop::Kept {
-            self.relaunches.pending.lock().unwrap().remove(&id);
-            self.graph.wake_mail();
-            eprintln!("loom: 노드 {}를 사람이 쓰고 있어 다시 띄우지 않는다", id.0);
+            self.kept_running(id);
         }
         Ok(())
+    }
+
+    pub(super) fn kept_running(&self, node: NodeId) {
+        self.relaunches.pending.lock().unwrap().remove(&node);
+        self.idle.release(node);
+        self.graph.wake_mail();
+        eprintln!(
+            "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우지 않는다",
+            node.0
+        );
+    }
+
+    pub(super) fn kept_at_turn_end(self: &Arc<Self>, node: NodeId) {
+        if let Some((phase, _)) = self.relaunches.pending.lock().unwrap().get_mut(&node) {
+            *phase = Phase::AtTurnEnd;
+        }
+        if self.idle.waiting(node) {
+            self.turn_ended(node);
+            return;
+        }
+        eprintln!(
+            "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우기를 턴 끝으로 미룬다",
+            node.0
+        );
     }
 
     async fn relaunch(

@@ -149,6 +149,12 @@ impl IdleWaits {
         self.end_wait(node, by);
     }
 
+    pub fn release(&self, node: NodeId) {
+        if let Some(end) = self.ends.lock().unwrap().remove(&node) {
+            let _ = end.send(IdleEnd::Relaunch);
+        }
+    }
+
     fn end_wait(&self, node: NodeId, by: IdleEnd) {
         self.turns.lock().unwrap().remove(&node);
         if let Some(old) = self.ends.lock().unwrap().remove(&node) {

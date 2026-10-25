@@ -746,6 +746,78 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn a_cancelled_wake_restart_frees_an_idle_wait_that_came_during_preparation() {
+        use axum::Json;
+        use axum::extract::State;
+        use axum::http::{HeaderMap, header};
+        let t = fixture();
+        let fallback = add_worker(&t, "fallback");
+        let queued = add_worker(&t, "queued");
+        t.app
+            .graph
+            .set_transcript(queued, t.dir.path().join("없음.jsonl").to_str().unwrap())
+            .unwrap();
+        t.app.idle.turn_started(queued, "UserPromptSubmit".into());
+        let held = t
+            .app
+            .graph
+            .active()
+            .unwrap()
+            .into_iter()
+            .find(|n| n.id == queued)
+            .unwrap();
+        assert_eq!(
+            t.app.relaunch_or_queue(held).await,
+            Ok(crate::daemon::relaunch::Relaunched::AtTurnEnd)
+        );
+        for node in [fallback, queued] {
+            t.app.relaunches.hold(node);
+        }
+        let idle = |token: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                header::AUTHORIZATION,
+                format!("Bearer {token}").parse().unwrap(),
+            );
+            tokio::spawn(crate::daemon::commands::agent_idle(
+                State(t.app.clone()),
+                headers,
+                Json(None),
+            ))
+        };
+        let mut waits = [idle("fallback"), idle("queued")];
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        for name in ["fallback", "queued"] {
+            t.app
+                .graph
+                .note(t.lead, name, Kind::Queue, &format!("for {name}"), None)
+                .unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            waits.iter().all(|w| !w.is_finished()),
+            "the waits hold while the restart prepares"
+        );
+
+        t.app.kept_running(fallback);
+        t.app.kept_at_turn_end(queued);
+        for (wait, name) in waits.iter_mut().zip(["fallback", "queued"]) {
+            let Json(taken) = tokio::time::timeout(Duration::from_secs(5), wait)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(taken[0].body, format!("for {name}"));
+        }
+        assert!(
+            missed(&t)
+                .iter()
+                .any(|&(node, relaunched)| node == queued && relaunched),
+            "the queued plan ran at the turn end that came during preparation"
+        );
+    }
+
     #[test]
     fn a_node_is_due_after_resting_through_the_grace_time() {
         let sleeps = Sleeps::default();

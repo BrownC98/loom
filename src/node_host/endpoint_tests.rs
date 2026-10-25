@@ -53,7 +53,9 @@ impl Daemon {
             );
         runtime.spawn(async move {
             while let Some((node, link)) = linked.recv().await {
-                tunnel::carry(link, node, doors.clone()).unwrap();
+                if let Linked::Streams(link) = link {
+                    tunnel::carry(link, node, doors.clone()).unwrap();
+                }
             }
         });
         runtime.spawn(async move {
@@ -196,6 +198,69 @@ fn an_old_pty_host_attaches_without_a_stream_link() {
     assert!(linked.try_recv().is_err());
 }
 
+#[test]
+fn a_host_that_does_not_greet_the_stream_link_is_killed_and_not_attached() {
+    let dir = tempfile::tempdir().unwrap();
+    let hosts = dir.path().join("hosts");
+    std::fs::create_dir_all(&hosts).unwrap();
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    std::fs::write(hosts.join("1"), listener.local_addr().unwrap().to_string()).unwrap();
+    let silent = std::thread::spawn(move || {
+        let (mut terminal, _) = listener.accept().unwrap();
+        assert!(matches!(wire::read(&mut terminal), Ok(Frame::Hello { .. })));
+        wire::write(
+            &mut terminal,
+            &Frame::Hello {
+                version: wire::STREAMS_SINCE,
+                pid: Some(9),
+            },
+        )
+        .unwrap();
+        let (mut streams, _) = listener.accept().unwrap();
+        assert!(matches!(
+            wire::read(&mut streams),
+            Ok(Frame::Streams { .. })
+        ));
+        (wire::read(&mut terminal).unwrap(), streams)
+    });
+    let (links, mut linked) = tokio::sync::mpsc::unbounded_channel();
+    let host = NodeHost::new(hosts.clone()).with_links(links);
+    let got = host.resume(NODE, |_| {});
+    assert!(
+        matches!(&got, Err(Unattached::Silent(e)) if e.starts_with("node endpoint link: ")),
+        "{got:?}"
+    );
+    let (sent, _streams) = silent.join().unwrap();
+    assert_eq!(sent, Frame::Kill);
+    assert!(linked.try_recv().is_err());
+    assert!(!hosts.join("1").exists());
+    assert_eq!(host.pid(NODE), None);
+}
+
+#[test]
+fn a_host_reports_an_endpoint_it_cannot_bind_to_the_daemon() {
+    use super::endpoint::Endpoint;
+    let dir = tempfile::tempdir().unwrap();
+    let hosts = dir.path().join("hosts");
+    let at = endpoint(dir.path(), "taken");
+    let _other = Endpoint::open(&at, drop).unwrap();
+    let started = host::start(waiting_command(), None, Some(&at)).unwrap();
+    std::fs::create_dir_all(&hosts).unwrap();
+    std::fs::write(hosts.join("1"), started.address.to_string()).unwrap();
+    let stop = started.stopper();
+    std::thread::spawn(move || started.wait());
+    let (links, mut linked) = tokio::sync::mpsc::unbounded_channel();
+    let host = NodeHost::new(hosts).with_links(links);
+    host.resume(NODE, |_| {}).unwrap();
+    let failed = loop {
+        if let (NODE, Linked::EndpointFailed(error)) = linked.blocking_recv().unwrap() {
+            break error;
+        }
+    };
+    assert!(failed.starts_with(&*at.to_string_lossy()), "{failed}");
+    stop();
+}
+
 #[cfg(unix)]
 #[test]
 fn the_outer_host_carries_the_terminal_and_the_endpoint_of_the_inner_host() {
@@ -210,7 +275,12 @@ fn the_outer_host_carries_the_terminal_and_the_endpoint_of_the_inner_host() {
         let (a, b) = tokio::io::duplex(1 << 16);
         let (from_outer, to_outer) = tokio::io::split(a);
         let (from_inner, to_inner) = tokio::io::split(b);
-        tokio::spawn(inner::carry_in(inner, from_outer, to_outer));
+        tokio::spawn(inner::carry_in(
+            inner,
+            from_outer,
+            to_outer,
+            std::future::pending(),
+        ));
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
             .unwrap();
@@ -238,8 +308,11 @@ fn an_endpoint_takes_a_stale_socket_but_never_a_live_one_or_an_inherited_name() 
     use super::endpoint::Endpoint;
     let dir = tempfile::tempdir().unwrap();
     let live = endpoint(dir.path(), "live");
-    let first = Endpoint::open(&live).unwrap();
-    assert!(Endpoint::open(&live).is_err(), "another host holds it");
+    let first = Endpoint::open(&live, drop).unwrap();
+    assert!(
+        Endpoint::open(&live, drop).is_err(),
+        "another host holds it"
+    );
     drop(first);
     assert!(
         !Path::new(&live).exists(),
@@ -248,7 +321,7 @@ fn an_endpoint_takes_a_stale_socket_but_never_a_live_one_or_an_inherited_name() 
 
     let stale = endpoint(dir.path(), "stale");
     drop(std::os::unix::net::UnixListener::bind(&stale).unwrap());
-    assert!(Endpoint::open(&stale).is_ok());
+    assert!(Endpoint::open(&stale, drop).is_ok());
 
     let inherited = endpoint(dir.path(), "inherited");
     let mut cmd = waiting_command();

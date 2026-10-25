@@ -2,7 +2,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -51,8 +51,11 @@ struct Process {
 struct State {
     backlog: Backlog,
     client: Option<(u64, TcpStream)>,
+    client_version: u32,
     next_client: u64,
     exit: Option<Exit>,
+    endpoint_failed: Option<String>,
+    closed: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -152,10 +155,15 @@ pub fn start(
     setup: Option<CommandBuilder>,
     endpoint: Option<&OsStr>,
 ) -> Result<Started, String> {
-    let endpoint = endpoint.and_then(|at| {
-        Endpoint::open(at)
-            .inspect_err(|e| eprintln!("loom: 노드 접속점 {}: {e}", at.display()))
-            .ok()
+    let reported = Arc::new(OnceLock::<Weak<Host>>::new());
+    let opened = endpoint.map(|at| {
+        let to = reported.clone();
+        let report = move |e: String| {
+            if let Some(host) = to.get().and_then(Weak::upgrade) {
+                host.endpoint_failed(e);
+            }
+        };
+        Endpoint::open(at, report).map_err(|e| format!("{}: {e}", at.display()))
     });
     let pair = native_pty_system()
         .openpty(INITIAL_SIZE)
@@ -179,10 +187,14 @@ pub fn start(
         master: Mutex::new(pair.master),
         input: Mutex::new(input),
         pid: Mutex::new(child.process_id()),
-        state: Mutex::default(),
+        state: Mutex::new(State {
+            endpoint_failed: opened.as_ref().and_then(|o| o.as_ref().err()).cloned(),
+            ..State::default()
+        }),
         delivered: delivered_tx,
-        endpoint: Mutex::new(endpoint),
+        endpoint: Mutex::new(opened.and_then(Result::ok)),
     });
+    let _ = reported.set(Arc::downgrade(&host));
     let output_done = host.read_in_background(reader);
     let accepting = host.clone();
     std::thread::spawn(move || {
@@ -236,7 +248,7 @@ impl Started {
         }
         self.host.exited(exit);
         let _ = self.delivered.recv_timeout(EXIT_KEEP);
-        self.host.endpoint.lock().unwrap().take();
+        self.host.close();
     }
 }
 
@@ -336,14 +348,31 @@ impl Host {
         }
     }
 
+    fn endpoint_failed(&self, error: String) {
+        let mut state = self.state.lock().unwrap();
+        if state.client_version >= wire::ENDPOINT_FAILED_SINCE {
+            state.send(&Frame::EndpointFailed(error.clone()));
+        }
+        state.endpoint_failed = Some(error);
+    }
+
+    fn close(&self) {
+        self.endpoint.lock().unwrap().take();
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        if let Some((_, client)) = state.client.take() {
+            let _ = client.shutdown(Shutdown::Write);
+        }
+    }
+
     fn serve(&self, mut stream: TcpStream) {
         let greeted_pid = *self.pid.lock().unwrap();
         let greeted = stream
             .set_read_timeout(Some(HELLO_TIMEOUT))
             .and_then(|()| stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT)))
             .and_then(|()| wire::welcome(&mut stream, greeted_pid));
-        match greeted {
-            Ok(Link::Terminal) => {}
+        let version = match greeted {
+            Ok(Link::Terminal { version }) => version,
             Ok(Link::Streams) => {
                 if let Some(endpoint) = &*self.endpoint.lock().unwrap() {
                     endpoint.carry(stream);
@@ -351,7 +380,7 @@ impl Host {
                 return;
             }
             Err(_) => return,
-        }
+        };
         let Ok(mut reader) = stream
             .set_read_timeout(None)
             .and_then(|()| stream.try_clone())
@@ -385,10 +414,14 @@ impl Host {
                 .filter(|&pid| Some(pid) != greeted_pid);
             let sent = pid.is_none_or(|pid| wire::write(&mut stream, &Frame::Pid(pid)).is_ok())
                 && (backlog.is_empty() || wire::write(&mut stream, &Frame::Data(backlog)).is_ok())
+                && (version < wire::ENDPOINT_FAILED_SINCE
+                    || state.endpoint_failed.as_ref().is_none_or(|error| {
+                        wire::write(&mut stream, &Frame::EndpointFailed(error.clone())).is_ok()
+                    }))
                 && state
                     .exit
                     .is_none_or(|exit| wire::write(&mut stream, &exit.frame()).is_ok());
-            if !sent {
+            if !sent || state.closed {
                 return;
             }
             if state.exit.is_some() {
@@ -396,6 +429,7 @@ impl Host {
             }
             let me = state.next_client;
             state.next_client += 1;
+            state.client_version = version;
             if let Some((_, old)) = state.client.replace((me, stream)) {
                 let _ = old.shutdown(Shutdown::Both);
             }
@@ -420,7 +454,8 @@ impl Host {
                 | Frame::Exit(_)
                 | Frame::Pid(_)
                 | Frame::SetupFailed(_)
-                | Frame::Streams { .. } => {}
+                | Frame::Streams { .. }
+                | Frame::EndpointFailed(_) => {}
             }
         }
         let mut state = self.state.lock().unwrap();

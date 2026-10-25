@@ -223,14 +223,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let db_path = db::default_path()?;
     let node_door_addr = node_door.as_ref().map(|d| d.local_addr()).transpose()?;
     let (doors, endpoint_door) = tunnel::Door::<NodeId>::new();
-    let (links, mut linked) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        while let Some((node, link)) = linked.recv().await {
-            if let Err(e) = tunnel::carry(link, node, doors.clone()) {
-                eprintln!("loom: 노드 {}의 접속점 연결을 쓰지 못했다: {e}", node.0);
-            }
-        }
-    });
+    let (links, linked) = tokio::sync::mpsc::unbounded_channel();
     let app = Arc::new(App::new(
         db::open(&db_path)?,
         &db_path,
@@ -239,6 +232,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         codex_version.as_deref(),
         links,
     )?);
+    tokio::spawn(app.clone().carry_links(linked, doors));
     match app
         .repos
         .add(&std::env::current_dir()?.to_string_lossy())

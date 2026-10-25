@@ -1,11 +1,15 @@
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::sync::oneshot;
+use tokio::task::JoinSet;
 
-use super::endpoint::carry;
+use super::endpoint::splice;
 use super::host;
 use super::wire::VERSION;
 use crate::tunnel::{self, ENDPOINT_ENV};
@@ -74,18 +78,21 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let (mux, mut events) = tunnel::start(from_inner, to_inner);
+    let mut carried = JoinSet::new();
     loop {
         tokio::select! {
             accepted = listener.accept() => {
                 if let Ok((conn, _)) = accepted {
-                    carry(conn, &mux);
+                    carried.spawn(splice(conn, mux.open()));
                 }
             }
+            Some(_) = carried.join_next() => {}
             event = events.recv() => if event.is_none() {
-                return;
+                break;
             },
         }
     }
+    carried.join_all().await;
 }
 
 pub fn inner() -> Result<(), String> {
@@ -110,34 +117,126 @@ pub fn inner() -> Result<(), String> {
         endpoint.as_deref(),
     )?;
     let (address, stop) = (started.address, started.stopper());
-    let (ended, wait_end) = tokio::sync::oneshot::channel();
+    let (ended, host_ended) = oneshot::channel();
     std::thread::spawn(move || {
         started.wait();
         let _ = ended.send(());
     });
-    runtime()?.block_on(async move {
-        tokio::select! {
-            () = carry_in(address, tokio::io::stdin(), tokio::io::stdout()) => stop(),
-            _ = wait_end => {}
-        }
-    });
+    let runtime = runtime()?;
+    let gone = runtime.block_on(carry_in(
+        address,
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+        async {
+            let _ = host_ended.await;
+        },
+    ));
+    if gone == Gone::Outer {
+        stop();
+    }
+    runtime.shutdown_background();
     Ok(())
 }
 
-pub(super) async fn carry_in<R, W>(address: SocketAddr, from_outer: R, to_outer: W)
+#[derive(PartialEq)]
+pub(super) enum Gone {
+    Outer,
+    Host,
+}
+
+pub(super) async fn carry_in<R, W>(
+    address: SocketAddr,
+    from_outer: R,
+    to_outer: W,
+    host_ended: impl Future<Output = ()>,
+) -> Gone
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    let mut events = tunnel::accept(from_outer, to_outer);
-    while let Some(stream) = events.recv().await {
-        tokio::spawn(to_host(address, stream));
+    let (stop_reading, stop) = oneshot::channel();
+    let (written, all_written) = oneshot::channel::<()>();
+    let mut events = tunnel::accept(
+        Until {
+            reader: from_outer,
+            stop: Some(stop),
+        },
+        Told {
+            writer: to_outer,
+            _written: written,
+        },
+    );
+    let mut carried = JoinSet::new();
+    tokio::pin!(host_ended);
+    loop {
+        tokio::select! {
+            stream = events.recv() => match stream {
+                Some(stream) => {
+                    carried.spawn(to_host(address, stream));
+                }
+                None => return Gone::Outer,
+            },
+            Some(_) = carried.join_next() => {}
+            () = &mut host_ended => break,
+        }
+    }
+    drop(events);
+    carried.join_all().await;
+    drop(stop_reading);
+    let _ = all_written.await;
+    Gone::Host
+}
+
+async fn to_host(address: SocketAddr, stream: tunnel::Stream) {
+    if let Ok(conn) = tokio::net::TcpStream::connect(address).await {
+        splice(stream, conn).await;
     }
 }
 
-async fn to_host(address: SocketAddr, mut stream: tunnel::Stream) {
-    if let Ok(mut conn) = tokio::net::TcpStream::connect(address).await {
-        let _ = tokio::io::copy_bidirectional(&mut conn, &mut stream).await;
+struct Until<R> {
+    reader: R,
+    stop: Option<oneshot::Receiver<()>>,
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for Until<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        if this
+            .stop
+            .as_mut()
+            .is_none_or(|stop| Pin::new(stop).poll(cx).is_ready())
+        {
+            this.stop = None;
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut this.reader).poll_read(cx, buf)
+    }
+}
+
+struct Told<W> {
+    writer: W,
+    _written: oneshot::Sender<()>,
+}
+
+impl<W: AsyncWrite + Unpin> AsyncWrite for Told<W> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().writer).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().writer).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().writer).poll_shutdown(cx)
     }
 }
 

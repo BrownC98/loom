@@ -23,6 +23,7 @@ const STOP_HOOK_GRACE: Duration = Duration::from_secs(60);
 const RUNNING_STATUS: &str = "esc to interrupt";
 
 type Recovery = (Active, Plan, Guard, fn(&App, NodeId));
+type TypedFrom = fn(&App, &Active) -> Option<SystemTime>;
 
 #[derive(Default)]
 pub struct Sleeps {
@@ -164,7 +165,13 @@ impl App {
     }
 
     fn recover(self: &Arc<Self>, id: NodeId) {
-        let (node, plan, guard, kept) = match self.recovering(id) {
+        self.recover_typed_from(id, |app, node| {
+            app.relaunches.held(node.id).then(SystemTime::now)
+        });
+    }
+
+    fn recover_typed_from(self: &Arc<Self>, id: NodeId, typed_from: TypedFrom) {
+        let (node, plan, guard, kept) = match self.recovering(id, typed_from) {
             Ok(Some(recovery)) => recovery,
             Ok(None) => return,
             Err(e) => return eprintln!("loom: 듣지 못하는 노드 {}를 보지 못했다: {e}", id.0),
@@ -200,11 +207,17 @@ impl App {
             .mail_since_refused(|id| self.graph.newest_mail(id).ok().flatten());
         for id in mailed {
             self.refused(id);
-            self.recover(id);
+            self.recover_typed_from(id, |_, node| {
+                (profile_of(node) == Some(Profile::Claude)).then(SystemTime::now)
+            });
         }
     }
 
-    fn recovering(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<Option<Recovery>> {
+    fn recovering(
+        self: &Arc<Self>,
+        id: NodeId,
+        typed_from: TypedFrom,
+    ) -> rusqlite::Result<Option<Recovery>> {
         if self.agent_state(id) != Some(AgentState::Deaf) || self.sleeps.stopping(id) {
             return Ok(None);
         }
@@ -214,8 +227,7 @@ impl App {
         if profile_of(&node).is_none() {
             return Ok(None);
         }
-        let since = self.relaunches.held(id).then(SystemTime::now);
-        let guard = self.restart_guard(&node, since)?;
+        let guard = self.restart_guard(&node, typed_from(self, &node))?;
         if !guard(&self.host.screen(id)) {
             self.refused(id);
             eprintln!(
@@ -1250,6 +1262,47 @@ mod tests {
         drop(t.app.idle.open(node));
         relaunched(&t, node).await;
         assert!(!t.app.relaunches.held(node));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_pi_node_held_by_typing_keeps_its_process_when_mail_comes() {
+        let t = fixture();
+        t.app.watch_agents();
+        t.app.watch_sleep();
+        let node = add_agent(&t, "typer", "pi");
+        let path = t.dir.path().join("typer.jsonl");
+        std::fs::write(&path, "{}\n").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(SystemTime::now() - STOP_HOOK_GRACE * 2)
+            .unwrap();
+        t.app
+            .graph
+            .set_transcript(node, path.to_str().unwrap())
+            .unwrap();
+        t.app.idle.turn_started(node, "UserPromptSubmit".into());
+        screen(&t, node, "❯ ");
+        human_typed(&t.app, node);
+        drop(t.app.idle.open(node));
+        while !t.app.relaunches.held(node) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let exited = || t.dir.path().join(format!("exited-{}", node.0)).exists();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!exited(), "typing holds the node");
+
+        t.app
+            .graph
+            .note(t.lead, "typer", Kind::Queue, "report", None)
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        assert!(
+            !exited(),
+            "the human typed and did not submit: mail must not end the process"
+        );
     }
 
     async fn relaunched(t: &Fixture, node: NodeId) {

@@ -79,6 +79,7 @@ use crate::profile::claude;
 use crate::profile::codex::server::CodexServer;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
+use crate::profile::omp;
 use crate::profile::opencode2;
 use crate::profile::{self, Mailbox, Profile, Remote, Start, VersionMismatch};
 use crate::protocol::{
@@ -397,7 +398,7 @@ impl App {
                     skills::Plugin::install(db_path.parent().expect("DB 파일에는 폴더가 있다"))?;
                 for dir in plugin.dirs() {
                     profile::cursor::write_plugin(&dir)?;
-                    profile::pi::write_extension(&dir)?;
+                    profile::write_extensions(&dir)?;
                 }
                 plugin
             },

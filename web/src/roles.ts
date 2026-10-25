@@ -2,7 +2,7 @@ import type { AgentView } from './gen/AgentView';
 import type { Profile } from './gen/Profile';
 import type { Role } from './gen/Role';
 
-const MODEL_PROFILES: readonly Profile[] = ['claude', 'codex', 'cursor'];
+const MODEL_PROFILES: readonly Profile[] = ['claude', 'codex', 'cursor', 'pi', 'omp'];
 
 export const canChooseModel = (agent: AgentView | undefined): boolean => agent === undefined || (agent.profile !== null && MODEL_PROFILES.includes(agent.profile));
 

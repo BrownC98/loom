@@ -71,6 +71,10 @@ const SKILLS: [&str; 4] = ["o-mode", "user-doc", "ste-orwell", "raptor-3"];
 
 const ASK: &str = "ask-human";
 
+pub fn names(on: AlwaysOn) -> impl Iterator<Item = &'static str> {
+    std::iter::once(ASK).chain(SKILLS.into_iter().filter(move |s| on.has(s)))
+}
+
 fn skill_of(name: &str) -> &str {
     name.split('/').next().unwrap_or(name)
 }

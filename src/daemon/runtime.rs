@@ -220,6 +220,9 @@ impl App {
             let slept = matches!(exit, Exit::Command(_))
                 && app.sleeps.stopping(id)
                 && app.graph.slept(id).unwrap_or(false);
+            if slept && let Err(e) = app.host.keep(id) {
+                eprintln!("loom: 잠든 노드 {}의 화면을 남기지 못했다: {e}", id.0);
+            }
             let _ = match exit {
                 _ if slept => Ok(()),
                 Exit::Command(code) => app.graph.exited(id, code),

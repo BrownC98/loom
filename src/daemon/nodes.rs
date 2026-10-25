@@ -174,8 +174,14 @@ fn coming_pty(
     id: NodeId,
 ) -> Response {
     let devices = app.devices.clone();
+    let kept = app.host.kept(id);
     ws.on_upgrade(move |mut socket| {
         origin::until_removed(devices, via, async move {
+            if let Some(kept) = kept
+                && send_kept(&mut socket, kept).await.is_err()
+            {
+                return;
+            }
             let mut check = tokio::time::interval(COMING_PTY_CHECK);
             loop {
                 tokio::select! {
@@ -194,6 +200,15 @@ fn coming_pty(
             }
         })
     })
+}
+
+async fn send_kept(socket: &mut WebSocket, kept: node_host::Kept) -> Result<(), axum::Error> {
+    let node_host::PtySize { cols, rows } = kept.size;
+    for notice in [PtyNotice::Size(Resize { cols, rows }), PtyNotice::Settled] {
+        let notice = serde_json::to_string(&notice).expect("PtyNotice는 늘 직렬화된다");
+        socket.send(Message::Text(notice.into())).await?;
+    }
+    socket.send(Message::Binary(kept.backlog)).await
 }
 
 /// 화면이 PTY 웹소켓에 보내는 글 프레임. 키 입력은 바이너리 프레임으로 간다(docs/design/데몬-하나.md 「데몬 하나」 PTY 열·줄).

@@ -39,7 +39,7 @@ class Watch : Service() {
     private var at = 0
     private var linked = false
     private var stopped = false
-    private val net by lazy { NetWatch(this) { if (!stopped) restart() } }
+    private val net by lazy { NetWatch(this, appeared = { if (!stopped && !linked && socket == null) restart() }, moved = { if (!stopped) restart() }) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 

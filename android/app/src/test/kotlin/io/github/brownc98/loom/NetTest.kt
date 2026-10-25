@@ -20,15 +20,23 @@ class NetTest {
     @Test
     fun theFirstNetworkAtRegistrationIsNoMove() {
         val moves = Moves()
-        assertFalse(moves.available(wifi, 0))
+        assertEquals(Arrival.FIRST, moves.available(wifi, 0))
         assertFalse(moves.changed(wifi, online, 0))
         assertFalse(moves.settled(settle * 10))
     }
 
     @Test
+    fun aNetworkThatAppearsAfterAStartWithoutNetworkIsTheFirstArrival() {
+        val moves = Moves()
+        assertEquals(Arrival.FIRST, moves.available(wifi, 5_000))
+        assertEquals(Arrival.SAME, moves.available(wifi, 6_000))
+        assertFalse(moves.settled(5_000 + settle))
+    }
+
+    @Test
     fun aNewDefaultNetworkMoves() {
         val moves = joined()
-        assertTrue(moves.available(cell, 100))
+        assertEquals(Arrival.NEW, moves.available(cell, 100))
         assertFalse(moves.changed(cell, online, 100))
         assertTrue(moves.settled(100 + settle))
     }
@@ -38,7 +46,7 @@ class NetTest {
         val moves = joined()
         assertTrue(moves.lost(wifi, 100))
         assertTrue(moves.settled(100 + settle))
-        assertTrue(moves.available(wifi, 200))
+        assertEquals(Arrival.NEW, moves.available(wifi, 200))
     }
 
     @Test
@@ -51,7 +59,7 @@ class NetTest {
     @Test
     fun anUnchangedNetworkDoesNotMove() {
         val moves = joined()
-        assertFalse(moves.available(wifi, 100))
+        assertEquals(Arrival.SAME, moves.available(wifi, 100))
         assertFalse(moves.changed(wifi, online, 100))
         assertFalse(moves.lost(cell, 100))
         assertFalse(moves.changed(cell, unchecked, 100))
@@ -62,8 +70,8 @@ class NetTest {
     fun flapsSettleIntoOneReconnectAfterTheLastChange() {
         val moves = joined()
         assertTrue(moves.lost(wifi, 100))
-        assertTrue(moves.available(cell, 600))
-        assertTrue(moves.available(wifi, 1_500))
+        assertEquals(Arrival.NEW, moves.available(cell, 600))
+        assertEquals(Arrival.NEW, moves.available(wifi, 1_500))
         assertFalse(moves.settled(100 + settle))
         assertFalse(moves.settled(1_500 + settle - 1))
         assertTrue(moves.settled(1_500 + settle))

@@ -10,19 +10,23 @@ import android.os.SystemClock
 
 internal data class Route(val validated: Boolean, val transports: Set<Int>)
 
+internal enum class Arrival { FIRST, SAME, NEW }
+
 internal class Moves {
     private var known = false
     private var network: Any? = null
     private var route: Route? = null
     private var movedAt: Long? = null
 
-    fun available(next: Any, now: Long): Boolean {
-        if (known && next == network) return false
+    fun available(next: Any, now: Long): Arrival {
+        if (known && next == network) return Arrival.SAME
         val first = !known
         known = true
         network = next
         route = null
-        return !first && moved(now)
+        if (first) return Arrival.FIRST
+        moved(now)
+        return Arrival.NEW
     }
 
     fun lost(gone: Any, now: Long): Boolean {
@@ -56,13 +60,19 @@ internal class Moves {
     }
 }
 
-internal class NetWatch(context: Context, private val moved: () -> Unit) {
+internal class NetWatch(context: Context, private val appeared: () -> Unit, private val moved: () -> Unit) {
     private val main = Handler(Looper.getMainLooper())
     private val moves = Moves()
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val check = Runnable { if (moves.settled(SystemClock.elapsedRealtime())) moved() }
     private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = on { moves.available(network, it) }
+        override fun onAvailable(network: Network) {
+            when (moves.available(network, SystemClock.elapsedRealtime())) {
+                Arrival.FIRST -> appeared()
+                Arrival.NEW -> settle()
+                Arrival.SAME -> {}
+            }
+        }
 
         override fun onLost(network: Network) = on { moves.lost(network, it) }
 
@@ -79,7 +89,10 @@ internal class NetWatch(context: Context, private val moved: () -> Unit) {
     }
 
     private fun on(event: (Long) -> Boolean) {
-        if (!event(SystemClock.elapsedRealtime())) return
+        if (event(SystemClock.elapsedRealtime())) settle()
+    }
+
+    private fun settle() {
         main.removeCallbacks(check)
         main.postDelayed(check, Moves.SETTLE_MS)
     }

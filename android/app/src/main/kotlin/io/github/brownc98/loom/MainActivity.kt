@@ -43,6 +43,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.io.File
 import java.net.InetSocketAddress
@@ -73,7 +74,7 @@ class MainActivity : ComponentActivity() {
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { notifyChanged() }
 
     private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
-    private val net by lazy { NetWatch(this) { moved() } }
+    private val net by lazy { NetWatch(this, appeared = {}, moved = ::moved) }
 
     private var origin: String?
         get() = prefs.getString(Prefs.ORIGIN, null)
@@ -231,7 +232,7 @@ class MainActivity : ComponentActivity() {
 
     private fun moved() {
         if (web.url != null && card.visibility != View.VISIBLE) web.evaluateJavascript("dispatchEvent(new Event('online'))", null)
-        recheck()
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) recheck()
     }
 
     private fun recheck() {

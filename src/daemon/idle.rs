@@ -180,16 +180,23 @@ impl IdleWaits {
     }
 
     pub fn release(&self, node: NodeId) {
-        if let Some(end) = take_end(&mut self.ends.lock().unwrap(), node) {
-            let _ = end.send(IdleEnd::Relaunch);
-        }
+        self.close_latest(node, IdleEnd::Relaunch);
     }
 
     fn end_wait(&self, node: NodeId, by: IdleEnd) {
         self.turns.lock().unwrap().remove(&node);
-        if let Some(old) = take_end(&mut self.ends.lock().unwrap(), node) {
-            let _ = old.send(by);
+        self.close_latest(node, by);
+    }
+
+    fn close_latest(&self, node: NodeId, by: IdleEnd) {
+        let mut ends = self.ends.lock().unwrap();
+        let Some(end) = take_end(&mut ends, node) else {
+            return;
+        };
+        if !end.is_closed() {
+            self.feed(node, AgentEvent::WaitClosed { by: by.clone() });
         }
+        let _ = end.send(by);
     }
 
     pub fn said(&self, node: NodeId, turn: TurnId) -> Option<Said> {
@@ -281,16 +288,24 @@ impl Wait<'_> {
         self.record(by);
     }
 
+    pub fn hand_mail(mut self) {
+        self.feed_if_latest(IdleEnd::Mail);
+        self.record(IdleEnd::Mail);
+    }
+
     fn record(&mut self, by: IdleEnd) {
         if let Some(node) = self.who.take() {
-            self.waits.record(Entry::IdleEnded {
-                node,
-                by: by.clone(),
-            });
-            let ends = self.waits.ends.lock().unwrap();
-            if ends.get(&self.node).map(|latest| latest.wait) == Some(self.id) {
-                self.waits.feed(self.node, AgentEvent::WaitClosed { by });
+            if matches!(by, IdleEnd::Gone | IdleEnd::Error) {
+                self.feed_if_latest(by.clone());
             }
+            self.waits.record(Entry::IdleEnded { node, by });
+        }
+    }
+
+    fn feed_if_latest(&self, by: IdleEnd) {
+        let ends = self.waits.ends.lock().unwrap();
+        if ends.get(&self.node).map(|latest| latest.wait) == Some(self.id) {
+            self.waits.feed(self.node, AgentEvent::WaitClosed { by });
         }
     }
 }
@@ -544,11 +559,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_wait_that_a_turn_ended_does_not_move_the_state_again_when_it_finishes() {
+        let (_dir, [node, _], waits) = waits();
+        let mut wait = waits.open(node);
+        waits.turn_started(node, "preToolUse".into());
+        waits
+            .graph
+            .agent_event(node, AgentEvent::TurnEnded)
+            .unwrap();
+        let by = wait.end.try_recv().unwrap();
+        wait.finish(by);
+        assert_eq!(
+            waits.graph.agent_state(node).unwrap(),
+            Some(AgentState::Deaf)
+        );
+    }
+
     #[derive(Clone, Copy, Debug, PartialEq)]
     enum Step {
         Open(usize),
         Close(usize),
         Turn,
+        End,
         TurnEnded,
     }
 
@@ -571,47 +604,65 @@ mod tests {
     }
 
     #[test]
-    fn every_order_of_two_waits_and_turns_applies_only_the_last_opened_wait() {
-        let (_dir, _, waits) = waits();
+    fn every_order_of_two_waits_and_turns_applies_each_transition_once_at_its_owner() {
+        let (_dir, [node, _], first) = waits();
         let steps = [
             Step::Open(0),
             Step::Close(0),
             Step::Open(1),
             Step::Close(1),
             Step::Turn,
-            Step::Turn,
+            Step::End,
             Step::TurnEnded,
         ];
         let mut all = Vec::new();
         orders(&steps, &mut Vec::new(), &mut all);
-        assert_eq!(all.len(), 630);
-        for (n, order) in all.iter().enumerate() {
-            let node = root(&waits.graph, &format!("order-{n}"));
+        assert_eq!(all.len(), 1260);
+        for order in &all {
+            let waits = IdleWaits::new(first.graph.clone());
+            for restart in [AgentEvent::Exited, AgentEvent::Relaunched] {
+                waits.graph.agent_event(node, restart).unwrap();
+            }
             let mut open: [Option<Wait<'_>>; 2] = [None, None];
-            let (mut model, mut latest) = (AgentState::Starting, None);
+            let (mut model, mut latest, mut live) = (AgentState::Starting, None, false);
             for step in order {
                 let event = match *step {
                     Step::Open(i) => {
                         open[i] = Some(waits.open(node));
-                        latest = Some(i);
+                        (latest, live) = (Some(i), true);
                         Some(AgentEvent::WaitOpened)
                     }
                     Step::Close(i) => {
                         let mut wait = open[i].take().unwrap();
-                        let by = match (wait.end.try_recv(), i) {
-                            (Ok(by), _) => by,
-                            (Err(_), 0) => IdleEnd::Mail,
-                            (Err(_), _) => IdleEnd::Gone,
-                        };
-                        match by {
-                            IdleEnd::Gone => drop(wait),
-                            _ => wait.finish(by.clone()),
+                        match (wait.end.try_recv(), i) {
+                            (Ok(by), _) => {
+                                wait.finish(by);
+                                None
+                            }
+                            (Err(_), 0) => {
+                                wait.hand_mail();
+                                live = false;
+                                (latest == Some(i))
+                                    .then_some(AgentEvent::WaitClosed { by: IdleEnd::Mail })
+                            }
+                            (Err(_), _) => {
+                                drop(wait);
+                                live = false;
+                                (latest == Some(i))
+                                    .then_some(AgentEvent::WaitClosed { by: IdleEnd::Gone })
+                            }
                         }
-                        (latest == Some(i)).then_some(AgentEvent::WaitClosed { by })
                     }
                     Step::Turn => {
                         waits.turn_started(node, "preToolUse".into());
+                        live = false;
                         Some(AgentEvent::TurnStarted)
+                    }
+                    Step::End => {
+                        waits.end(node, IdleEnd::Relaunch);
+                        std::mem::take(&mut live).then_some(AgentEvent::WaitClosed {
+                            by: IdleEnd::Relaunch,
+                        })
                     }
                     Step::TurnEnded => {
                         waits
@@ -626,8 +677,9 @@ mod tests {
                 }
                 let state = waits.graph.agent_state(node).unwrap();
                 assert_eq!(state.as_ref(), Some(&model), "{order:?} after {step:?}");
+                assert_eq!(live, waits.waiting(node), "{order:?} after {step:?}");
                 let listening = state == Some(AgentState::Listening);
-                assert_eq!(listening, waits.waiting(node), "{order:?} after {step:?}");
+                assert_eq!(listening, live, "{order:?} after {step:?}");
             }
         }
     }

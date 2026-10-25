@@ -261,8 +261,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn a_view_that_falls_behind_gets_a_new_snapshot() {
         let (_dir, app, mut socket) = events_socket().await;
+        let until = tokio::time::Instant::now() + Duration::from_secs(10);
         let mut next = async || loop {
-            let frame = tokio::time::timeout(Duration::from_secs(5), socket.next())
+            let frame = tokio::time::timeout_at(until, socket.next())
                 .await
                 .unwrap()
                 .unwrap()

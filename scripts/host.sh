@@ -15,7 +15,12 @@ flock 9
 [ -e "$build/.git" ] || git clone --quiet --no-checkout . "$build"
 git -C "$build" fetch --quiet "$PWD" HEAD
 git -C "$build" checkout --detach --quiet --force FETCH_HEAD
-(cd "$build" && bash scripts/worktree/setup.sh && LOOM_VERSION=$(sh scripts/version.sh) LOOM_COMMIT=$(git rev-parse --short HEAD) memcap -m 8G cargo build --release ${target:+--target "$target"})
+linux=
+if [ -n "$target" ] && command -v x86_64-linux-musl-gcc >/dev/null; then linux=x86_64-unknown-linux-musl; fi
+(cd "$build" && bash scripts/worktree/setup.sh && export LOOM_VERSION=$(sh scripts/version.sh) LOOM_COMMIT=$(git rev-parse --short HEAD) &&
+  memcap -m 8G cargo build --release ${target:+--target "$target"} &&
+  if [ -n "$linux" ]; then rustup target add "$linux" && memcap -m 8G cargo build --release --target "$linux"; fi &&
+  if [ -n "$target" ] && [ -z "$linux" ]; then memcap -m 8G cargo build --release; fi)
 
 if [ -z "$target" ]; then
   cp "$build/target/release/loom" "$bin.new"
@@ -29,6 +34,8 @@ else
   dir=$(wslpath "$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/loom
   exe=$dir/loom.exe
   mkdir -p "$dir"
+  cp "$build/target/${linux:+$linux/}release/loom" "$dir/loom-linux.new"
+  mv "$dir/loom-linux.new" "$dir/loom-linux"
   cp "$build/target/$target/release/loom.exe" "$exe.new"
   [ -e "$exe" ] && mv "$exe" "$exe.$(date +%s).old"
   mv "$exe.new" "$exe"

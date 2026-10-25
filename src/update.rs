@@ -40,19 +40,37 @@ pub enum UpdateStep {
 
 #[derive(Debug, PartialEq)]
 enum Install {
-    Standalone { exe: PathBuf, asset: &'static str },
-    App { app: PathBuf },
+    Standalone {
+        exe: PathBuf,
+        asset: &'static str,
+        besides: &'static [Beside],
+    },
+    App {
+        app: PathBuf,
+    },
     Unsupported,
 }
 
+#[derive(Debug, PartialEq)]
+struct Beside {
+    asset: &'static str,
+    file: &'static str,
+}
+
+const WINDOWS_BESIDES: &[Beside] = &[Beside {
+    asset: "loom-web-linux-x64",
+    file: crate::wsl::LINUX_LOOM,
+}];
+
 impl Install {
-    fn of(exe: &Path, asset: Option<&'static str>) -> Self {
+    fn of(exe: &Path, asset: Option<&'static str>, besides: &'static [Beside]) -> Self {
         let app = exe.with_file_name(format!("{APP_NAME}{}", std::env::consts::EXE_SUFFIX));
         match asset {
             _ if app.is_file() => Install::App { app },
             Some(asset) => Install::Standalone {
                 exe: exe.to_owned(),
                 asset,
+                besides,
             },
             None => Install::Unsupported,
         }
@@ -65,6 +83,13 @@ fn asset_name(os: &str, arch: &str) -> Option<&'static str> {
         ("windows", "x86_64") => Some("loom-web-windows-x64.exe"),
         ("macos", "aarch64") => Some("loom-web-macos-arm64"),
         _ => None,
+    }
+}
+
+fn besides(os: &str, arch: &str) -> &'static [Beside] {
+    match (os, arch) {
+        ("windows", "x86_64") => WINDOWS_BESIDES,
+        _ => &[],
     }
 }
 
@@ -100,10 +125,8 @@ impl Updater {
         let install = match std::env::current_exe() {
             Ok(exe) => {
                 remove_aside(&exe);
-                Install::of(
-                    &exe,
-                    asset_name(std::env::consts::OS, std::env::consts::ARCH),
-                )
+                let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
+                Install::of(&exe, asset_name(os, arch), besides(os, arch))
             }
             Err(_) => Install::Unsupported,
         };
@@ -186,14 +209,19 @@ impl Updater {
     fn replace(&self, version: &str) -> Result<(), String> {
         let releases = self.checks().ok_or("updates are off")?;
         match &self.install {
-            Install::Standalone { exe, asset } => {
-                let new = exe.with_file_name(format!(
-                    "{}.new",
-                    exe.file_name().unwrap_or_default().to_string_lossy()
-                ));
+            Install::Standalone {
+                exe,
+                asset,
+                besides,
+            } => {
+                let besides = fetch_besides(releases, version, exe, besides)?;
+                let new = staged(exe);
                 download(&asset_url(releases, version, asset), &new, |percent| {
                     self.state.lock().unwrap().step = Some(UpdateStep::Downloading { percent });
                 })?;
+                for (file, new) in besides {
+                    swap_over(&file, &new).map_err(|e| format!("{}: {e}", file.display()))?;
+                }
                 swap(exe, &new).map_err(|e| format!("{}: {e}", exe.display()))?;
                 launch::restart_with(exe, self.listen)
             }
@@ -227,6 +255,30 @@ fn fetch_latest(releases: &str) -> Result<String, String> {
         .and_then(|mut r| r.body_mut().read_json())
         .map_err(|e| format!("{url}: {e}"))?;
     Ok(latest.version)
+}
+
+fn staged(file: &Path) -> PathBuf {
+    file.with_file_name(format!(
+        "{}.new",
+        file.file_name().unwrap_or_default().to_string_lossy()
+    ))
+}
+
+fn fetch_besides(
+    releases: &str,
+    version: &str,
+    exe: &Path,
+    besides: &[Beside],
+) -> Result<Vec<(PathBuf, PathBuf)>, String> {
+    besides
+        .iter()
+        .map(|beside| {
+            let file = exe.with_file_name(beside.file);
+            let new = staged(&file);
+            download(&asset_url(releases, version, beside.asset), &new, |_| {})?;
+            Ok((file, new))
+        })
+        .collect()
 }
 
 fn download(url: &str, to: &Path, mut progress: impl FnMut(u8)) -> Result<(), String> {
@@ -267,7 +319,6 @@ fn swap(exe: &Path, new: &Path) -> std::io::Result<()> {
     swap_aside(exe, new, now_secs())
 }
 
-#[cfg(any(not(windows), test))]
 fn swap_over(exe: &Path, new: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -338,6 +389,65 @@ mod tests {
     }
 
     #[test]
+    fn a_standalone_windows_loom_also_gets_the_linux_loom_for_wsl() {
+        assert_eq!(
+            besides("windows", "x86_64"),
+            [Beside {
+                asset: "loom-web-linux-x64",
+                file: "loom-linux"
+            }]
+        );
+        assert_eq!(besides("linux", "x86_64"), []);
+        assert_eq!(besides("macos", "aarch64"), []);
+        let install = include_str!("../scripts/install.ps1");
+        assert!(install.contains("loom-web-linux-x64") && install.contains("'loom-linux'"));
+    }
+
+    fn serving(files: &'static [(&'static str, &'static str)]) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut request = [0u8; 2048];
+                let n = stream.read(&mut request).unwrap();
+                let line = String::from_utf8_lossy(&request[..n]);
+                let path = line.split(' ').nth(1).unwrap_or_default().to_owned();
+                let answer = match files.iter().find(|(name, _)| path.ends_with(name)) {
+                    Some((_, body)) => format!(
+                        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    ),
+                    None => {
+                        "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                            .into()
+                    }
+                };
+                std::io::Write::write_all(&mut stream, answer.as_bytes()).unwrap();
+            }
+        });
+        url
+    }
+
+    #[test]
+    fn the_linux_loom_is_fetched_from_the_same_release_and_placed_next_to_the_exe() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("loom.exe");
+        let linux = dir.path().join("loom-linux");
+        std::fs::write(&linux, "old").unwrap();
+        let releases = serving(&[("/download/v0.2.5/loom-web-linux-x64", "linux 0.2.5")]);
+        let staged = fetch_besides(&releases, "0.2.5", &exe, WINDOWS_BESIDES).unwrap();
+        assert_eq!(staged, [(linux.clone(), dir.path().join("loom-linux.new"))]);
+        assert_eq!(std::fs::read_to_string(&linux).unwrap(), "old");
+        for (file, new) in staged {
+            swap_over(&file, &new).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(&linux).unwrap(), "linux 0.2.5");
+        assert!(!dir.path().join("loom-linux.new").exists());
+        assert!(fetch_besides(&releases, "0.2.6", &exe, WINDOWS_BESIDES).is_err());
+    }
+
+    #[test]
     fn urls_follow_release_layout() {
         let base = "https://github.com/BrownC98/loom/releases";
         assert_eq!(
@@ -361,22 +471,23 @@ mod tests {
         let exe = dir.path().join("loom");
         std::fs::write(&exe, "").unwrap();
         assert_eq!(
-            Install::of(&exe, Some("loom-web-linux-x64")),
+            Install::of(&exe, Some("loom-web-linux-x64"), &[]),
             Install::Standalone {
                 exe: exe.clone(),
-                asset: "loom-web-linux-x64"
+                asset: "loom-web-linux-x64",
+                besides: &[],
             }
         );
-        assert_eq!(Install::of(&exe, None), Install::Unsupported);
+        assert_eq!(Install::of(&exe, None, &[]), Install::Unsupported);
         let app = dir
             .path()
             .join(format!("loom-app{}", std::env::consts::EXE_SUFFIX));
         std::fs::write(&app, "").unwrap();
         assert_eq!(
-            Install::of(&exe, Some("loom-web-macos-arm64")),
+            Install::of(&exe, Some("loom-web-macos-arm64"), &[]),
             Install::App { app: app.clone() }
         );
-        assert_eq!(Install::of(&exe, None), Install::App { app });
+        assert_eq!(Install::of(&exe, None, &[]), Install::App { app });
     }
 
     #[test]

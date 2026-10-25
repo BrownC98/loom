@@ -10,7 +10,7 @@ use super::*;
 use crate::graph::{Entry, Round, TurnCheck};
 use crate::protocol::{AgentId, Judgment};
 
-const UNTRACED: [(&str, &str); 16] = [
+const UNTRACED: [(&str, &str); 17] = [
     ("serve", "runs the daemon"),
     ("start", "starts or joins the daemon"),
     ("open", "opens the screen"),
@@ -35,6 +35,10 @@ const UNTRACED: [(&str, &str); 16] = [
     ("pi-hook", "hook transport that the agent CLI runs"),
     ("guard", "hook transport that the agent CLI runs"),
     ("pty-host", "the node process host"),
+    (
+        "tunnel",
+        "the WSL relay that carries hook connections to the daemon",
+    ),
     ("help", "clap help"),
 ];
 
@@ -84,6 +88,7 @@ fn fixture() -> Fixture {
             "127.0.0.1:0".parse().unwrap(),
             None,
             None,
+            crate::tunnel::Door::new().0,
         )
         .unwrap(),
     );

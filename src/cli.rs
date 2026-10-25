@@ -24,6 +24,9 @@ use crate::roles::{Roles, SetRole};
 use crate::task;
 use crate::wsl::REWAKE_EXIT;
 
+#[cfg(unix)]
+mod unix_socket;
+
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
@@ -47,7 +50,11 @@ pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> 
         brief,
         worktree,
     };
-    let _: NodeId = post(&env_var("LOOM_SPAWN_URL")?, None, "spawn", &request, None)?;
+    let spawn = Daemon::Http {
+        url: env_var("LOOM_SPAWN_URL")?,
+        proxy: None,
+    };
+    let _: NodeId = post(&spawn, "spawn", &request, None)?;
     println!("Created node: {}", request.run.name());
     Ok(())
 }
@@ -742,8 +749,77 @@ fn call<T: DeserializeOwned>(
     body: &impl Serialize,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
-    let url = env_var("LOOM_URL").map_err(CallError::Refused)?;
-    post(&url, ureq::Proxy::try_from_env(), action, body, timeout)
+    post(&Daemon::from_env()?, action, body, timeout)
+}
+
+enum Daemon {
+    Http {
+        url: String,
+        proxy: Option<ureq::Proxy>,
+    },
+    #[cfg(unix)]
+    Socket(PathBuf),
+}
+
+impl Daemon {
+    fn from_env() -> Result<Daemon, CallError> {
+        #[cfg(unix)]
+        if let Some(sock) = std::env::var_os(crate::wsl::SOCKET_ENV) {
+            return Ok(Daemon::Socket(sock.into()));
+        }
+        Ok(Daemon::Http {
+            url: env_var("LOOM_URL").map_err(CallError::Refused)?,
+            proxy: ureq::Proxy::try_from_env(),
+        })
+    }
+
+    fn agent(&self, timeout: Option<Duration>) -> (ureq::Agent, &str) {
+        let config = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(timeout);
+        match self {
+            Daemon::Http { url, proxy } => (config.proxy(proxy.clone()).build().into(), url),
+            #[cfg(unix)]
+            Daemon::Socket(sock) => (
+                ureq::Agent::with_parts(
+                    config.build(),
+                    unix_socket::Connector(sock.clone()),
+                    ureq::unversioned::resolver::DefaultResolver::default(),
+                ),
+                unix_socket::URL,
+            ),
+        }
+    }
+}
+
+pub fn through_tunnel(hook: fn() -> Result<(), String>) -> Result<(), String> {
+    #[cfg(unix)]
+    if let Some(sock) = std::env::var_os(crate::wsl::SOCKET_ENV)
+        && std::os::unix::net::UnixStream::connect(sock).is_err()
+    {
+        std::process::exit(crate::wsl::TUNNEL_DOWN_EXIT);
+    }
+    hook()
+}
+
+pub fn tunnel(sock: PathBuf) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+        runtime
+            .block_on(crate::tunnel::relay(
+                &sock,
+                tokio::io::stdin(),
+                tokio::io::stdout(),
+            ))
+            .map_err(|e| format!("터널 {}: {e}", sock.display()))?;
+        std::process::exit(0)
+    }
+    #[cfg(not(unix))]
+    Err(format!(
+        "loom tunnel {} runs only in Linux.",
+        sock.display()
+    ))
 }
 
 enum CallError {
@@ -782,30 +858,23 @@ fn env_var(name: &str) -> Result<String, String> {
 }
 
 fn post<T: DeserializeOwned>(
-    url: &str,
-    proxy: Option<ureq::Proxy>,
+    daemon: &Daemon,
     action: &str,
     body: &impl Serialize,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
     let token = env_var("LOOM_TOKEN").map_err(CallError::Refused)?;
-    post_as(url, &token, proxy, action, body, timeout)
+    post_as(daemon, &token, action, body, timeout)
 }
 
 fn post_as<T: DeserializeOwned>(
-    url: &str,
+    daemon: &Daemon,
     token: &str,
-    proxy: Option<ureq::Proxy>,
     action: &str,
     body: &impl Serialize,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .timeout_global(timeout)
-        .proxy(proxy)
-        .build()
-        .into();
+    let (agent, url) = daemon.agent(timeout);
     let mut res = agent
         .post(format!("{url}/api/agent/{action}"))
         .header("authorization", format!("Bearer {token}"))
@@ -906,7 +975,64 @@ mod tests {
     }
 
     fn ask(url: &str) -> Result<Vec<u32>, CallError> {
-        post_as(url, "token", None, "idle", &(), None)
+        let daemon = Daemon::Http {
+            url: url.to_owned(),
+            proxy: None,
+        };
+        post_as(&daemon, "token", "idle", &(), None)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_idle_wait_over_the_tunnel_socket_is_sent_again_after_the_socket_closes() {
+        use std::os::unix::net::UnixListener;
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("daemon.sock");
+        let read_request = |stream: &mut std::os::unix::net::UnixStream| {
+            let mut request = Vec::new();
+            let mut buf = [0; 1024];
+            while !request.ends_with(b"null") {
+                let n = stream.read(&mut buf).unwrap();
+                request.extend_from_slice(&buf[..n]);
+            }
+            String::from_utf8(request).unwrap()
+        };
+        let server = std::thread::spawn({
+            let sock = sock.clone();
+            move || {
+                let listener = UnixListener::bind(&sock).unwrap();
+                let (mut stream, _) = listener.accept().unwrap();
+                let first = read_request(&mut stream);
+                drop((stream, listener));
+                std::fs::remove_file(&sock).unwrap();
+                std::thread::sleep(RECONNECT_AFTER + Duration::from_millis(500));
+                let listener = UnixListener::bind(&sock).unwrap();
+                let (mut stream, _) = listener.accept().unwrap();
+                let again = read_request(&mut stream);
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 3\r\n\r\n[7]")
+                    .unwrap();
+                (first, again)
+            }
+        });
+        while !sock.exists() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let daemon = Daemon::Socket(sock);
+        let mut tries = 0;
+        let got = reconnecting(None, |_| {
+            tries += 1;
+            post_as::<Vec<u32>>(&daemon, "token", "idle", &(), None)
+        });
+        assert_eq!(got, Ok(vec![7]));
+        assert!(tries >= 3, "{tries}");
+        let (first, again) = server.join().unwrap();
+        assert!(
+            first.starts_with("POST /api/agent/idle HTTP/1.1\r\n"),
+            "{first}"
+        );
+        assert!(first.contains("authorization: Bearer token\r\n"), "{first}");
+        assert_eq!(first, again);
     }
 
     #[test]

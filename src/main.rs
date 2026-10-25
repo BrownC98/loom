@@ -27,6 +27,7 @@ mod spots;
 mod tailscale;
 mod task;
 mod timed;
+mod tunnel;
 mod update;
 mod usage;
 mod user_doc;
@@ -227,6 +228,9 @@ enum Cli {
     /// 데몬이 노드마다 띄운다. PTY 하나를 쥐고 데몬보다 오래 산다.
     #[command(hide = true)]
     PtyHost,
+    /// Windows 데몬이 WSL 배포판마다 띄운다. 이 Unix 소켓의 연결을 stdin·stdout 프레임으로 데몬에 잇는다.
+    #[command(hide = true)]
+    Tunnel { sock: PathBuf },
 }
 
 fn main() -> ExitCode {
@@ -290,10 +294,10 @@ fn main() -> ExitCode {
             cli::note(name, mode, body)
         }
         Cli::Answer { message, body } => cli::answer(message, body),
-        Cli::Hook => cli::hook(),
-        Cli::CursorHook => cli::cursor_hook(),
+        Cli::Hook => cli::through_tunnel(cli::hook),
+        Cli::CursorHook => cli::through_tunnel(cli::cursor_hook),
         Cli::CursorRules => cli::cursor_rules(),
-        Cli::PiHook => cli::pi_hook(),
+        Cli::PiHook => cli::through_tunnel(cli::pi_hook),
         Cli::Guard => cli::guard(),
         Cli::Wait {
             reply_to,
@@ -341,6 +345,7 @@ fn main() -> ExitCode {
             checked: true,
         } => user_doc::record_checked(&wsl::from_caller(file)),
         Cli::PtyHost => node_host::run(),
+        Cli::Tunnel { sock } => cli::tunnel(sock),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

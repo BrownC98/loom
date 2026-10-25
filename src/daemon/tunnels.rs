@@ -2,9 +2,7 @@ use std::path::Path;
 
 use super::App;
 use crate::tunnel::Launch;
-use crate::wsl;
-
-const LINUX_LOOM: &str = "loom-linux";
+use crate::wsl::{self, LINUX_LOOM};
 
 pub(super) struct WslTunnel(Option<wsl::Tunnel>);
 

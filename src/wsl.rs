@@ -367,7 +367,7 @@ const INTEROP_ERROR: &str = "UtilAcceptVsock|WSL.*ERROR";
 pub const REWAKE_EXIT: i32 = 2;
 pub const TUNNEL_DOWN_EXIT: i32 = 3;
 pub const SOCKET_ENV: &str = "LOOM_SOCKET";
-const LINUX_LOOM: &str = "loom-linux-";
+pub const LINUX_LOOM: &str = "loom-linux";
 const LINUX_HASH_HEX: usize = 12;
 
 pub async fn inside(
@@ -573,7 +573,7 @@ pub fn install_linux(dir: &Path, source: &Path) -> std::io::Result<Option<PathBu
         .map(|b| format!("{b:02x}"))
         .collect();
     std::fs::create_dir_all(dir)?;
-    let path = dir.join(format!("{LINUX_LOOM}{}", &hash[..LINUX_HASH_HEX]));
+    let path = dir.join(format!("{LINUX_LOOM}-{}", &hash[..LINUX_HASH_HEX]));
     if std::fs::metadata(&path).is_ok_and(|m| m.len() == bytes.len() as u64) {
         return Ok(Some(path));
     }
@@ -597,7 +597,11 @@ pub fn prune_linux(keep: &Path) {
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if name != keep && name.to_string_lossy().starts_with(LINUX_LOOM) {
+        if name != keep
+            && name
+                .to_string_lossy()
+                .starts_with(&format!("{LINUX_LOOM}-"))
+        {
             let _ = std::fs::remove_file(entry.path());
         }
     }

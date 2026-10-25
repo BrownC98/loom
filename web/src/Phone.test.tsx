@@ -54,6 +54,7 @@ describe('phone settings sheet', () => {
     mount(fake);
     fireEvent.click(screen.getByRole('button', { name: 'Hide the PC connection notice' }));
     expect(fake.link).toHaveBeenCalledOnce();
+    expect(screen.getByText(/^The 'Connected to the PC' notice keeps the PC link open/)).toBeTruthy();
   });
 
   it('hides the connection notice button for an app without it', () => {
@@ -61,6 +62,7 @@ describe('phone settings sheet', () => {
     mount({ state: fake.state, ask: fake.ask, done: fake.done });
     expect(toggle('Questions').checked).toBe(true);
     expect(screen.queryByRole('button', { name: 'Hide the PC connection notice' })).toBeNull();
+    expect(screen.queryByText(/Connected to the PC/)).toBeNull();
   });
 
   it('reads the state again when the app says it changed', () => {

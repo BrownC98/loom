@@ -22,7 +22,7 @@ pub use events::{
     TurnCheck, Via, Who,
 };
 pub use gate::{BatchId, Ended, GateChoice, Queued, Reclaim, Round};
-pub use mailbox::{PARENT, REDELIVER_AFTER, Report, Sent};
+pub use mailbox::{Kept, PARENT, REDELIVER_AFTER, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{HUMAN, HumanWait, WaitSource};
 
@@ -136,7 +136,7 @@ pub enum GraphEvent {
     },
     /// 설정, 카드 자리, 카드 크기 가운데 하나가 바뀌었다. 값은 담지 않는다. 다른 화면은 세 가지를 다시 읽는다.
     ViewChanged,
-    /// 데몬이 연결이 살아 있음을 알린다. `/api/events`에 15초마다 보낸다. 화면은 이것도 오지 않으면 연결이 죽었다고 보고 다시 연결한다.
+    /// 데몬이 연결이 살아 있음을 알린다. `/api/events`로 다른 이벤트를 보내지 않은 동안 화면이 정한 간격(`Pace`)마다 보낸다. 화면은 이것도 오지 않으면 연결이 죽었다고 보고 다시 연결한다.
     Beat,
 }
 

@@ -97,6 +97,7 @@ fn report(summary: &str) -> Report<'_> {
         summary,
         file: None,
         warning: None,
+        keep: &[],
     }
 }
 
@@ -2093,11 +2094,8 @@ fn a_sleeping_node_keeps_its_mail_and_wakes_only_on_waking_mail() {
     assert_eq!(g.done_children().unwrap(), [worker]);
     assert!(g.slept(worker).unwrap());
     assert!(g.asleep(worker).unwrap());
-    assert_eq!(
-        g.done(lead, &report("lead again"), Some("일해"), &[], None, None)
-            .unwrap(),
-        ["worker"]
-    );
+    g.done(lead, &report("lead again"), Some("일해"), &[], None, None)
+        .unwrap();
     g.exited(worker, 0).unwrap();
     assert!(g.done_children().unwrap().is_empty());
     assert_eq!(
@@ -2593,21 +2591,131 @@ fn remove_child_changes_nothing_when_a_grandchild_cannot_move() {
     assert_eq!(take(&g, lead), None);
 }
 
+const UNLIMITED: TreeLimits = TreeLimits {
+    max_depth: None,
+    max_children: None,
+};
+
+fn spawned(g: &Graph, parent: NodeId, name: &str) -> NodeId {
+    g.add_child(
+        parent,
+        NewChild {
+            role: Some("워커"),
+            worktree: Some("/repo/wt"),
+            ..named(name)
+        },
+        UNLIMITED,
+        &launched(),
+        started,
+    )
+    .unwrap()
+}
+
+fn spent(g: &Graph, node: NodeId) {
+    g.done(node, &report("끝"), None, &[], None, None).unwrap();
+    assert!(g.slept(node).unwrap());
+}
+
 #[test]
-fn done_returns_children_whose_process_still_runs() {
+fn done_refuses_while_a_finished_child_sleeps_until_it_is_removed() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "총괄");
-    let coord = child(&g, lead, "코디");
-    let ended = child(&g, coord, "끝난워커");
-    child(&g, coord, "워커");
-    g.exited(ended, 0).unwrap();
+    let coord = spawned(&g, lead, "코디");
+    let worker = spawned(&g, coord, "워커");
+    let grandchild = spawned(&g, worker, "손자");
+    spent(&g, grandchild);
+    g.remove_child(worker, "손자", UNLIMITED).unwrap();
+    spawned(&g, worker, "남은손자");
+    spent(&g, worker);
+    spawned(&g, coord, "도는워커");
 
     assert_eq!(
-        g.done(coord, &report("요약"), None, &[], None, None)
-            .unwrap(),
-        ["워커"]
+        g.done(coord, &report("요약"), None, &[], None, None),
+        Err(Refusal::SpentChildren {
+            children: vec!["워커".into()],
+            inherited: vec!["남은손자".into()],
+        })
     );
+    assert!(matches!(view(&g, coord).state, NodeState::Running));
+    g.remove_child(coord, "워커", UNLIMITED).unwrap();
+    g.done(coord, &report("요약"), None, &[], None, None)
+        .unwrap();
+}
+
+#[test]
+fn done_refuses_a_lead_too_and_counts_a_done_child_whose_host_was_lost() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let coord = spawned(&g, lead, "코디");
+    g.done(coord, &report("끝"), None, &[], None, None).unwrap();
+    g.exited(coord, 0).unwrap();
+    let crashed = spawned(&g, lead, "죽은코디");
+    g.exited(crashed, 1).unwrap();
+
+    assert_eq!(
+        g.done(lead, &report("요약"), Some("지시"), &[], None, None),
+        Err(Refusal::SpentChildren {
+            children: vec!["코디".into()],
+            inherited: vec![],
+        })
+    );
+}
+
+#[test]
+fn done_keeps_a_named_child_and_tells_the_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let coord = spawned(&g, lead, "코디");
+    let worker = spawned(&g, coord, "워커");
+    spent(&g, worker);
+    let keep = |name: &str| {
+        vec![Kept {
+            name: name.into(),
+            reason: "사람이 화면을 본다".into(),
+        }]
+    };
+
+    let typo = keep("워카");
+    let report_with = |keep| Report {
+        keep,
+        ..report("요약")
+    };
+    assert_eq!(
+        g.done(coord, &report_with(&typo), None, &[], None, None),
+        Err(Refusal::NotChild("워카".into()))
+    );
+    let kept = keep("워커");
+    g.done(coord, &report_with(&kept), None, &[], None, None)
+        .unwrap();
+    assert_eq!(
+        take(&g, lead),
+        delivery("코디", "요약\nKept: 워커 (사람이 화면을 본다)")
+    );
+    assert_eq!(
+        g.done(coord, &report("다시"), None, &[], None, None),
+        Err(Refusal::SpentChildren {
+            children: vec!["워커".into()],
+            inherited: vec![],
+        }),
+        "a keep holds for one call"
+    );
+}
+
+#[test]
+fn done_skips_running_children_and_nodes_the_human_started() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "총괄");
+    let coord = spawned(&g, lead, "코디");
+    spawned(&g, coord, "도는워커");
+    let human = child(&g, coord, "사람노드");
+    spent(&g, human);
+
+    g.done(coord, &report("요약"), None, &[], None, None)
+        .unwrap();
 }
 
 #[test]
@@ -3147,6 +3255,7 @@ fn done_with_only_a_file_shows_the_path_once() {
         summary: "/tmp/r.md",
         file: Some("/tmp/r.md"),
         warning: None,
+        keep: &[],
     };
     g.done(w, &report, None, &[], None, None).unwrap();
     let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();

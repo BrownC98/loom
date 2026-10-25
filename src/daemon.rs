@@ -67,8 +67,8 @@ use crate::commit_graph::{self, Commit};
 use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
-    CardView, EventLog, Graph, GraphEvent, IdleEnd, Launched, Listed, NewChild, NodeId, PARENT,
-    Place, REDELIVER_AFTER, Relations, Report, Sent, Via, WaitSource,
+    CardView, EventLog, Graph, GraphEvent, IdleEnd, Kept, Launched, Listed, NewChild, NodeId,
+    PARENT, Place, REDELIVER_AFTER, Relations, Report, Sent, Via, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};

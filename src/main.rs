@@ -41,6 +41,7 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use crate::daemon::SpawnRun;
+use crate::graph::Kept;
 use crate::protocol::{Kind, ModelChoice};
 
 #[derive(clap::Subcommand)]
@@ -163,6 +164,9 @@ enum Cli {
         /// 사람이 열 문서(`show.sh`를 지난 user-doc HTML). 받은편지함 완료 줄에 링크로 보인다. 부모 없는 노드만 쓴다.
         #[arg(long)]
         doc: Option<PathBuf>,
+        /// 일을 끝내고 프로세스가 끝난 자식을 일부러 남긴다: `<이름>=<이유>`. 여러 번 준다. 이유는 보고 끝에 `Kept:`로 붙는다. 그런 자식이 남으면 `loom done`은 거부된다.
+        #[arg(long, value_parser = cli::kept)]
+        keep: Vec<Kept>,
     },
     /// 질문 한 줄을 묻는다(종류 ask). 부모 없는 노드는 사람에게 묻는다: 받은편지함에 번호(`Q12`)와 함께 뜨고, 사람은 이 노드 터미널이나 받은편지함에서 답한다.
     /// 부모 있는 노드는 부모에게 묻는다. 답은 종류 answer 메시지로 온다.
@@ -318,12 +322,14 @@ fn main() -> ExitCode {
             asked,
             images,
             doc,
+            keep,
         } => cli::done(
             summary,
             file.map(wsl::from_caller),
             asked,
             images.into_iter().map(wsl::from_caller).collect(),
             doc.map(wsl::from_caller),
+            keep,
         ),
         Cli::Ask { question, doc } => cli::ask(question, doc.map(wsl::from_caller)),
         Cli::Answered { ids } => cli::answered(ids),

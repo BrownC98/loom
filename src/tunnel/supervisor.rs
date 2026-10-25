@@ -199,3 +199,97 @@ async fn run<L: Launch>(
         Err(e) => e.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    struct Fake {
+        script: &'static str,
+        starts: Arc<AtomicUsize>,
+        running: bool,
+    }
+
+    impl Launch for Fake {
+        fn command(&self, _: &str) -> Result<tokio::process::Command, String> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            let mut cmd = tokio::process::Command::new(SHELL[0]);
+            cmd.args([SHELL[1], self.script]);
+            Ok(cmd)
+        }
+
+        async fn running(&self, _: &str) -> bool {
+            self.running
+        }
+    }
+
+    #[cfg(unix)]
+    const SHELL: [&str; 2] = ["sh", "-c"];
+    #[cfg(unix)]
+    const READY_THEN_EXIT: &str = r"printf '\000\000\000\000\000\000\000\000\000'; sleep 0.2";
+    #[cfg(unix)]
+    const BROKEN: &str = "echo broken >&2; exit 7";
+    #[cfg(windows)]
+    const SHELL: [&str; 2] = ["powershell", "-Command"];
+    #[cfg(windows)]
+    const READY_THEN_EXIT: &str = "[Console]::OpenStandardOutput().Write([byte[]]::new(9), 0, 9); Start-Sleep -Milliseconds 200";
+    #[cfg(windows)]
+    const BROKEN: &str = "[Console]::Error.WriteLine('broken'); exit 7";
+
+    fn tunnels(script: &'static str, running: bool) -> (Tunnels<Fake>, Arc<AtomicUsize>) {
+        let starts = Arc::new(AtomicUsize::new(0));
+        let fake = Fake {
+            script,
+            starts: starts.clone(),
+            running,
+        };
+        let pace = Pace {
+            first: Duration::from_millis(10),
+            most: Duration::from_millis(20),
+            stable: Duration::from_secs(3600),
+        };
+        (
+            Tunnels::new(fake, crate::tunnel::Door::new().0, pace),
+            starts,
+        )
+    }
+
+    async fn until(what: impl Fn() -> bool) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !what() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_exited_tunnel_starts_again() {
+        let (tunnels, starts) = tunnels(READY_THEN_EXIT, true);
+        tunnels.ensure("Ubuntu").await.unwrap();
+        until(|| starts.load(Ordering::SeqCst) >= 3).await;
+        tunnels.ensure("Ubuntu").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_tunnel_that_never_gets_ready_is_reported() {
+        let (tunnels, _) = tunnels(BROKEN, true);
+        let why = tunnels.ensure("Ubuntu").await.unwrap_err();
+        assert!(why.ends_with(": 7)"), "{why}");
+    }
+
+    #[tokio::test]
+    async fn a_stopped_distro_is_not_started_again_until_a_node_needs_it() {
+        let (tunnels, starts) = tunnels(READY_THEN_EXIT, false);
+        tunnels.ensure("Ubuntu").await.unwrap();
+        let supervised = tunnels.supervised("Ubuntu");
+        until(|| matches!(supervised.state.borrow().phase, Phase::Down(_))).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        tunnels.ensure("Ubuntu").await.unwrap();
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+    }
+}

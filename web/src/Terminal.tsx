@@ -305,9 +305,11 @@ export function SizingTerminal(props: TerminalProps) {
         if (isPlainEnter(e) && !replayed.has(e)) {
           const later = () => {
             enterHeld = false;
-            const again = new KeyboardEvent('keydown', { key: e.key, code: e.code, keyCode: e.keyCode, bubbles: true, cancelable: true });
-            replayed.add(again);
-            xterm.textarea?.dispatchEvent(again);
+            for (const type of ['keydown', 'keyup']) {
+              const again = new KeyboardEvent(type, { key: e.key, code: e.code, keyCode: e.keyCode, bubbles: true, cancelable: true });
+              replayed.add(again);
+              xterm.textarea?.dispatchEvent(again);
+            }
           };
           if (e.type === 'keydown' && composition.afterText(later)) enterHeld = true;
           if (enterHeld) {

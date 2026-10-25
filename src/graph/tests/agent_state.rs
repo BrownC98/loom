@@ -61,6 +61,9 @@ fn the_agent_state_survives_a_daemon_restart_and_shows_in_status() {
 
 #[test]
 fn exit_sleep_and_relaunch_move_the_agent_state() {
+    let relaunching = || AgentState::Relaunching {
+        before: Box::new(AgentState::Starting),
+    };
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "claude");
@@ -73,6 +76,8 @@ fn exit_sleep_and_relaunch_move_the_agent_state() {
     g.relaunched(worker, &launched()).unwrap();
     assert_eq!(g.agent_state(worker).unwrap(), Some(AgentState::Starting));
     g.agent_event(worker, AgentEvent::RelaunchStarted).unwrap();
+    g.agent_event(worker, AgentEvent::RelaunchFailed).unwrap();
+    g.agent_event(worker, AgentEvent::RelaunchStarted).unwrap();
     g.lost(worker).unwrap();
     g.sleep_lost(worker).unwrap();
     assert_eq!(
@@ -81,12 +86,42 @@ fn exit_sleep_and_relaunch_move_the_agent_state() {
             (AgentState::Listening, AgentEvent::WaitOpened),
             (AgentState::Asleep, AgentEvent::Slept),
             (AgentState::Starting, AgentEvent::Relaunched),
-            (AgentState::Relaunching, AgentEvent::RelaunchStarted),
+            (relaunching(), AgentEvent::RelaunchStarted),
+            (AgentState::Starting, AgentEvent::RelaunchFailed),
+            (relaunching(), AgentEvent::RelaunchStarted),
             (AgentState::Ended, AgentEvent::Exited),
         ]
     );
     g.exited(lead, 0).unwrap();
     assert_eq!(g.agent_state(lead).unwrap(), Some(AgentState::Ended));
+}
+
+#[test]
+fn a_lifecycle_event_logs_the_change_of_a_node_without_a_stored_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let lead = root(&g, "claude");
+    let worker = child(&g, lead, "worker");
+    g.done(worker, &report("finished"), None, &[], None, None)
+        .unwrap();
+    assert!(g.slept(worker).unwrap());
+    g.exited(lead, 0).unwrap();
+    assert_eq!(
+        changes(&g, worker),
+        [(AgentState::Asleep, AgentEvent::Slept)]
+    );
+    assert_eq!(changes(&g, lead), [(AgentState::Ended, AgentEvent::Exited)]);
+    g.lock().execute("DELETE FROM agent_states", []).unwrap();
+    g.relaunched(lead, &launched()).unwrap();
+    g.sleep_lost(worker).unwrap();
+    assert_eq!(
+        changes(&g, lead).last(),
+        Some(&(AgentState::Starting, AgentEvent::Relaunched))
+    );
+    assert_eq!(
+        changes(&g, worker).last(),
+        Some(&(AgentState::Ended, AgentEvent::Exited))
+    );
 }
 
 #[test]

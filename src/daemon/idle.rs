@@ -13,7 +13,9 @@ pub struct IdleWaits {
     ends: Mutex<HashMap<NodeId, oneshot::Sender<IdleEnd>>>,
     turns: Mutex<HashSet<NodeId>>,
     watches: Mutex<HashMap<NodeId, Watch>>,
+    latest: Mutex<HashMap<NodeId, u64>>,
     next_said: AtomicU64,
+    next_wait: AtomicU64,
 }
 
 #[derive(Default)]
@@ -55,6 +57,7 @@ pub enum Expiry {
 pub struct Wait<'a> {
     waits: &'a IdleWaits,
     node: NodeId,
+    id: u64,
     who: Option<Who>,
     end: oneshot::Receiver<IdleEnd>,
 }
@@ -66,18 +69,24 @@ impl IdleWaits {
             ends: Mutex::default(),
             turns: Mutex::default(),
             watches: Mutex::default(),
+            latest: Mutex::default(),
             next_said: AtomicU64::new(0),
+            next_wait: AtomicU64::new(0),
         }
     }
 
     pub fn open(&self, node: NodeId) -> Wait<'_> {
         self.turns.lock().unwrap().remove(&node);
         self.watch(node, |w| w.heard = true);
+        let id = self.next_wait.fetch_add(1, Ordering::Relaxed);
+        let mut latest = self.latest.lock().unwrap();
+        latest.insert(node, id);
+        self.feed(node, AgentEvent::WaitOpened);
+        drop(latest);
         let (tx, end) = oneshot::channel();
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
             let _ = old.send(IdleEnd::NewWait);
         }
-        self.feed(node, AgentEvent::WaitOpened);
         let who = self
             .graph
             .who(node)
@@ -89,6 +98,7 @@ impl IdleWaits {
         Wait {
             waits: self,
             node,
+            id,
             who,
             end,
         }
@@ -255,15 +265,17 @@ impl Wait<'_> {
                 node,
                 by: by.clone(),
             });
-            self.waits.feed(self.node, AgentEvent::WaitClosed { by });
+            let latest = self.waits.latest.lock().unwrap();
+            if latest.get(&self.node) == Some(&self.id) {
+                self.waits.feed(self.node, AgentEvent::WaitClosed { by });
+            }
         }
     }
 }
 
 impl Drop for Wait<'_> {
     fn drop(&mut self) {
-        let by = self.end.try_recv().unwrap_or(IdleEnd::Gone);
-        self.record(by);
+        self.record(IdleEnd::Gone);
     }
 }
 
@@ -461,22 +473,31 @@ mod tests {
     }
 
     #[test]
-    fn a_replaced_wait_that_drops_late_leaves_the_newer_wait_listening() {
+    fn only_the_latest_wait_moves_the_agent_state_when_it_closes() {
         let (_dir, [node, _], waits) = waits();
-        let first = waits.open(node);
-        let _second = waits.open(node);
-        drop(first);
-        assert_eq!(
-            waits.graph.agent_state(node).unwrap(),
-            Some(AgentState::Listening)
-        );
-        assert!(matches!(
-            idle_entries(&waits, node).last(),
-            Some(Entry::IdleEnded {
-                by: IdleEnd::NewWait,
-                ..
-            })
-        ));
+        let state = || waits.graph.agent_state(node).unwrap();
+        let last_end = || match idle_entries(&waits, node).pop() {
+            Some(Entry::IdleEnded { by, .. }) => Some(by),
+            _ => None,
+        };
+        let dropped = waits.open(node);
+        waits.turn_started(node, "preToolUse".into());
+        let current = waits.open(node);
+        drop(dropped);
+        assert_eq!(last_end(), Some(IdleEnd::Gone));
+        assert!(waits.waiting(node));
+        assert_eq!(state(), Some(AgentState::Listening), "a late drop");
+
+        let finished = current;
+        waits.turn_started(node, "preToolUse".into());
+        let current = waits.open(node);
+        finished.finish(IdleEnd::Turn {
+            hook: "preToolUse".into(),
+        });
+        assert_eq!(state(), Some(AgentState::Listening), "a late finish");
+
+        drop(current);
+        assert_eq!(state(), Some(AgentState::Deaf), "the latest wait closed");
     }
 
     #[tokio::test]

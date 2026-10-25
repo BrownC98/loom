@@ -755,6 +755,7 @@ impl App {
         }
         if tokio::time::timeout(EXIT_WAIT, exited).await.is_err() {
             self.relaunches.exiting.lock().unwrap().remove(&node.id);
+            self.feed(node.id, AgentEvent::RelaunchFailed);
             discard();
             return Err(format!("노드 {}의 옛 프로세스가 끝나지 않았다", node.id.0));
         }

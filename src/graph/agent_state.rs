@@ -22,8 +22,10 @@ pub enum AgentState {
     /// 턴이 끝났는데 메시지를 받을 길이 없다.
     Deaf,
     Turn,
-    /// 데몬이 옛 프로세스를 끝내고 다시 띄우는 중이다.
-    Relaunching,
+    /// 데몬이 옛 프로세스를 끝내고 다시 띄우는 중이다. `before`는 옛 프로세스가 끝나지 않아 다시 띄우기가 실패하면 돌아갈 상태다. 그동안 온 사건도 `before`에 적용한다.
+    Relaunching {
+        before: Box<AgentState>,
+    },
     /// 노드 쪽 연결의 판이 데몬과 맞지 않는다.
     Mismatch,
     Asleep,
@@ -40,7 +42,7 @@ pub enum AgentEvent {
     /// 훅이 턴 끝을 알렸다. 쉬는 대기는 따로 `WaitOpened`로 온다.
     TurnEnded,
     WaitOpened,
-    /// 쉬는 대기가 끝났다. `Mail`이면 메일을 넘겨 턴이 시작한다.
+    /// 노드의 마지막 쉬는 대기가 끝났다. `Mail`이면 메일을 넘겨 턴이 시작한다. 새 대기가 열린 뒤 끝난 옛 대기는 보내지 않는다.
     WaitClosed {
         by: IdleEnd,
     },
@@ -54,6 +56,8 @@ pub enum AgentEvent {
     /// 서버 연결이 끊겼다.
     ServerLost,
     RelaunchStarted,
+    /// 옛 프로세스가 끝나지 않아 다시 띄우기를 그만두었다. 옛 프로세스가 그대로 돈다.
+    RelaunchFailed,
     Relaunched,
     Slept,
     Exited,
@@ -90,9 +94,16 @@ impl AgentState {
             (_, E::Slept) => S::Asleep,
             (S::Asleep, E::Relaunched) => S::Starting,
             (S::Asleep, _) => S::Asleep,
-            (_, E::RelaunchStarted) => S::Relaunching,
             (_, E::Relaunched) => S::Starting,
-            (S::Relaunching, _) => S::Relaunching,
+            (S::Relaunching { before }, E::RelaunchFailed) => *before,
+            (S::Relaunching { before }, E::RelaunchStarted) => S::Relaunching { before },
+            (S::Relaunching { before }, event) => S::Relaunching {
+                before: Box::new(before.next(event)),
+            },
+            (state, E::RelaunchStarted) => S::Relaunching {
+                before: Box::new(state),
+            },
+            (state, E::RelaunchFailed) => state,
             (_, E::VersionMismatch) => S::Mismatch,
             (S::Mismatch, _) => S::Mismatch,
             (S::Blocked { before }, E::DialogCleared) => *before,
@@ -113,12 +124,6 @@ impl AgentState {
                     by: IdleEnd::Mail | IdleEnd::Turn { .. },
                 },
             ) => S::Turn,
-            (
-                S::Listening,
-                E::WaitClosed {
-                    by: IdleEnd::NewWait,
-                },
-            ) => S::Listening,
             (S::Listening, E::WaitClosed { .. }) => S::Deaf,
             (state, E::WaitClosed { .. }) => state,
             (S::Starting | S::Turn, E::TurnEnded) => S::Deaf,
@@ -258,9 +263,9 @@ impl Graph {
 mod tests {
     use super::*;
 
-    const STATES: [&str; 9] = ["S", "bT", "L", "D", "T", "R", "M", "A", "E"];
+    const STATES: [&str; 9] = ["S", "bT", "L", "D", "T", "rT", "M", "A", "E"];
 
-    fn events() -> [AgentEvent; 21] {
+    fn events() -> [AgentEvent; 22] {
         let closed = |by| AgentEvent::WaitClosed { by };
         [
             AgentEvent::TurnStarted,
@@ -280,6 +285,7 @@ mod tests {
             AgentEvent::ServerIdle,
             AgentEvent::ServerLost,
             AgentEvent::RelaunchStarted,
+            AgentEvent::RelaunchFailed,
             AgentEvent::Relaunched,
             AgentEvent::Slept,
             AgentEvent::Exited,
@@ -288,15 +294,15 @@ mod tests {
     }
 
     const NEXT: [&str; 9] = [
-        "T  D  L  T  S  T  S  S  S  S  S  bS S  T  L  D  R  S  A  E  M",
-        "bT bD bL bT bT bT bT bT bT bT bT bT T  bT bL bD R  S  A  E  M",
-        "T  L  L  T  L  T  D  D  D  D  D  bL L  T  L  D  R  S  A  E  M",
-        "T  D  L  T  D  T  D  D  D  D  D  bD D  T  L  D  R  S  A  E  M",
-        "T  D  L  T  T  T  T  T  T  T  T  bT T  T  L  D  R  S  A  E  M",
-        "R  R  R  R  R  R  R  R  R  R  R  R  R  R  R  R  R  S  A  E  R",
-        "M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  R  S  A  E  M",
-        "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  S  A  E  A",
-        "E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  S  E  E  E",
+        "T  D  L  T  S  T  S  S  S  S  S  bS S  T  L  D  rS  S  S  A  E  M",
+        "bT bD bL bT bT bT bT bT bT bT bT bT T  bT bL bD rbT bT S  A  E  M",
+        "T  L  L  T  D  T  D  D  D  D  D  bL L  T  L  D  rL  L  S  A  E  M",
+        "T  D  L  T  D  T  D  D  D  D  D  bD D  T  L  D  rD  D  S  A  E  M",
+        "T  D  L  T  T  T  T  T  T  T  T  bT T  T  L  D  rT  T  S  A  E  M",
+        "rT rD rL rT rT rT rT rT rT rT rT rbT rT rT rL rD rT T  S  A  E  rM",
+        "M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  rM  M  S  A  E  M",
+        "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A   A  S  A  E  A",
+        "E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E   E  S  E  E  E",
     ];
 
     fn state(code: &str) -> AgentState {
@@ -305,10 +311,12 @@ mod tests {
             "L" => AgentState::Listening,
             "D" => AgentState::Deaf,
             "T" => AgentState::Turn,
-            "R" => AgentState::Relaunching,
             "M" => AgentState::Mismatch,
             "A" => AgentState::Asleep,
             "E" => AgentState::Ended,
+            relaunching if relaunching.starts_with('r') => AgentState::Relaunching {
+                before: Box::new(state(&relaunching[1..])),
+            },
             blocked => AgentState::Blocked {
                 before: Box::new(state(blocked.strip_prefix('b').unwrap())),
             },
@@ -336,6 +344,6 @@ mod tests {
             .into_iter()
             .filter(|code| state(code).busy())
             .collect();
-        assert_eq!(busy, ["S", "bT", "T", "R", "M"]);
+        assert_eq!(busy, ["S", "bT", "T", "rT", "M"]);
     }
 }

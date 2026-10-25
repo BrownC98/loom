@@ -4,4 +4,4 @@
  * 노드 에이전트가 지금 무엇을 하는지. 모든 에이전트 경로의 공통 사건(`AgentEvent`)이 `next` 하나로 바꾼다. 데몬 DB에 있어 데몬을 다시 띄워도 남는다.
  * 근거: R32 v2 ②A. 1단계는 그림자다. 옛 판정과 나란히 계산하고 다르면 `AgentStateDisagreed`를 남긴다. 결정은 아직 옛 판정이 한다.
  */
-export type AgentState = { "kind": "starting" } | { "kind": "blocked", before: AgentState, } | { "kind": "listening" } | { "kind": "deaf" } | { "kind": "turn" } | { "kind": "relaunching" } | { "kind": "mismatch" } | { "kind": "asleep" } | { "kind": "ended" };
+export type AgentState = { "kind": "starting" } | { "kind": "blocked", before: AgentState, } | { "kind": "listening" } | { "kind": "deaf" } | { "kind": "turn" } | { "kind": "relaunching", before: AgentState, } | { "kind": "mismatch" } | { "kind": "asleep" } | { "kind": "ended" };

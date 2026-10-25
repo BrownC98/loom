@@ -259,6 +259,7 @@ impl Graph {
             return Ok(());
         };
         let tx = db.transaction()?;
+        agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let changed = tx.execute(
             "UPDATE nodes SET process_exited = 1, wait = NULL WHERE id = ?1 AND process_exited = 0",
             [id.0],
@@ -267,7 +268,6 @@ impl Graph {
             return Ok(());
         }
         waits::drop_questions(&tx, id)?;
-        agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let parent = parent_of(&tx, id)?;
         if state == NodeState::Running {
             let what = what(name_of(&tx, id)?);
@@ -315,6 +315,7 @@ impl Graph {
     pub fn slept(&self, id: NodeId) -> rusqlite::Result<bool> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        agent_state::apply(&tx, id, AgentEvent::Slept)?;
         let changed = tx.execute(
             "UPDATE nodes SET process_exited = 1, asleep = 1, wait = NULL
              WHERE id = ?1 AND process_exited = 0 AND state ->> 'kind' = 'done'",
@@ -324,7 +325,6 @@ impl Graph {
             return Ok(false);
         }
         waits::drop_questions(&tx, id)?;
-        agent_state::apply(&tx, id, AgentEvent::Slept)?;
         tx.commit()?;
         self.prompts.lock().unwrap().remove(&id);
         self.publish_node(&db, id)?;
@@ -362,9 +362,9 @@ impl Graph {
             node: name_of(&tx, id)?,
             code: None,
         };
+        agent_state::apply(&tx, id, AgentEvent::Exited)?;
         tx.execute("UPDATE nodes SET asleep = 0 WHERE id = ?1", [id.0])?;
         set_state(&tx, id, &NodeState::Exited { code: None })?;
-        agent_state::apply(&tx, id, AgentEvent::Exited)?;
         mailbox::enqueue(&tx, id, parent, Kind::Queue, &what, "", Default::default())?;
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -412,6 +412,7 @@ impl Graph {
     ) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
+        agent_state::apply(&tx, id, AgentEvent::Relaunched)?;
         keep(&tx, id, launched)?;
         let cleared = tx.execute(
             "UPDATE nodes SET wait = NULL WHERE id = ?1 AND wait IS NOT NULL",
@@ -429,7 +430,6 @@ impl Graph {
         {
             set_state(&tx, id, &NodeState::Running)?;
         }
-        agent_state::apply(&tx, id, AgentEvent::Relaunched)?;
         tx.commit()?;
         if revived || cleared > 0 {
             self.publish_node(&db, id)?;

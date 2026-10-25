@@ -1298,3 +1298,43 @@ async fn server_status_edges_move_the_agent_state() {
         ]
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn an_old_process_that_does_not_exit_gives_back_its_state_with_the_events_since() {
+    let t = fixture();
+    let mut wait = t.app.idle.open(t.worker);
+    let mark = t.mark();
+    let node = t
+        .app
+        .graph
+        .active()
+        .unwrap()
+        .into_iter()
+        .find(|n| n.id == t.worker)
+        .unwrap();
+    let app = t.app.clone();
+    let ending = tokio::spawn(async move { app.end_old(&node, || {}, None).await });
+    let by = wait.ended().await;
+    wait.finish(by);
+    let ended = ending.await.unwrap();
+    assert!(ended.is_err(), "{:?}", ended.ok());
+    let relaunching = |before| AgentState::Relaunching {
+        before: Box::new(before),
+    };
+    assert_eq!(
+        t.agent_changes(mark),
+        [
+            (
+                relaunching(AgentState::Listening),
+                AgentEvent::RelaunchStarted
+            ),
+            (
+                relaunching(AgentState::Deaf),
+                AgentEvent::WaitClosed {
+                    by: IdleEnd::Relaunch
+                }
+            ),
+            (AgentState::Deaf, AgentEvent::RelaunchFailed),
+        ]
+    );
+}

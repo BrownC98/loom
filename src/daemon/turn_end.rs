@@ -16,7 +16,7 @@ pub struct TurnEnds {
     said: Mutex<HashMap<NodeId, String>>,
     said_at: Mutex<HashMap<NodeId, Instant>>,
     turn: Mutex<HashMap<NodeId, String>>,
-    ended_turn: Mutex<HashMap<NodeId, String>>,
+    ended_turns: Mutex<HashMap<NodeId, HashSet<String>>>,
     human: Mutex<HashSet<NodeId>>,
     called: Mutex<HashSet<NodeId>>,
     kind_nudged: Mutex<HashSet<NodeId>>,
@@ -31,10 +31,10 @@ impl TurnEnds {
 
     pub(super) fn said_at(&self, node: NodeId, text: String, turn: Option<&str>, at: Instant) {
         let current = self.turn.lock().unwrap();
-        let ended = self.ended_turn.lock().unwrap();
+        let ended = self.ended_turns.lock().unwrap();
         if turn.is_some_and(|said| {
             current.get(&node).is_some_and(|now| now != said)
-                || ended.get(&node).is_some_and(|done| done == said)
+                || ended.get(&node).is_some_and(|done| done.contains(said))
         }) {
             return;
         }
@@ -47,6 +47,15 @@ impl TurnEnds {
         self.said_at.lock().unwrap().remove(&node);
         if let Some(turn) = turn {
             current.insert(node, turn.to_owned());
+        }
+    }
+
+    pub fn stopped(&self, node: NodeId, turn: Option<&str>) {
+        if let Some(turn) = turn {
+            let current = self.turn.lock().unwrap();
+            let mut ended = self.ended_turns.lock().unwrap();
+            ended.entry(node).or_default().insert(turn.to_owned());
+            drop(current);
         }
     }
 
@@ -75,6 +84,10 @@ impl TurnEnds {
     }
 
     pub fn launched(&self, node: NodeId) {
+        let mut current = self.turn.lock().unwrap();
+        current.remove(&node);
+        self.ended_turns.lock().unwrap().remove(&node);
+        drop(current);
         self.asked.lock().unwrap().remove(&node);
         self.question_box.lock().unwrap().remove(&node);
     }
@@ -87,9 +100,12 @@ impl TurnEnds {
     ) -> TurnEnd {
         let reply = self.said.lock().unwrap().remove(&node);
         self.said_at.lock().unwrap().remove(&node);
-        if let Some(turn) = self.turn.lock().unwrap().remove(&node) {
-            self.ended_turn.lock().unwrap().insert(node, turn);
+        let mut current = self.turn.lock().unwrap();
+        if let Some(turn) = current.remove(&node) {
+            let mut ended = self.ended_turns.lock().unwrap();
+            ended.entry(node).or_default().insert(turn);
         }
+        drop(current);
         let human = self.human.lock().unwrap().remove(&node);
         let called = self.called.lock().unwrap().remove(&node);
         let nudged = self.kind_nudged.lock().unwrap().remove(&node);

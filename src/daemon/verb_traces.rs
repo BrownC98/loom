@@ -1057,6 +1057,7 @@ async fn a_turn_end_that_opens_its_idle_wait_goes_from_turn_to_listening_in_one_
             WORKER,
             Some(EndedTurn {
                 reply: Some("끝.\nQUESTION: 지울까?".into()),
+                turn: None,
             }),
         )
         .await;

@@ -243,6 +243,7 @@ pub fn hook() -> Result<(), String> {
         Take::WhenIdle => {
             let turn_end = matches!(event, claude::Event::Stop).then(|| EndedTurn {
                 reply: claude::last_reply(&input),
+                turn: None,
             });
             let reply = wait_for_mail(IdleRequest {
                 transcript,
@@ -364,7 +365,10 @@ pub fn cursor_hook() -> Result<(), String> {
             note: None,
         },
         Some(Take::WhenIdle) => {
-            let turn_end = matches!(event, cursor::Event::Stop { .. }).then(EndedTurn::default);
+            let turn_end = matches!(event, cursor::Event::Stop { .. }).then(|| EndedTurn {
+                reply: None,
+                turn: turn.clone(),
+            });
             let reply = wait_until_mail(IdleRequest {
                 transcript,
                 rate_limited: false,
@@ -463,7 +467,9 @@ fn pi_event(
             note: None,
         },
         Some(Take::WhenIdle) => {
-            let turn_end = event.turn_ends().map(|reply| EndedTurn { reply });
+            let turn_end = event
+                .turn_ends()
+                .map(|reply| EndedTurn { reply, turn: None });
             let reply = wait_until_mail(IdleRequest {
                 transcript,
                 rate_limited: false,

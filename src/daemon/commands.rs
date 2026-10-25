@@ -123,6 +123,8 @@ pub struct IdleRequest {
 #[serde(default)]
 pub struct EndedTurn {
     pub reply: Option<String>,
+    #[serde(default)]
+    pub turn: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -307,6 +309,7 @@ pub(super) async fn agent_idle(
     let req = req.unwrap_or_default();
     keep_transcript(&app, node, req.transcript.as_deref())?;
     if let Some(ended) = &req.turn_end {
+        app.turn_ends.stopped(node, ended.turn.as_deref());
         if let Some(text) = ended.reply.clone() {
             app.turn_ends.said(node, text, None);
         }

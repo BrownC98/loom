@@ -1256,6 +1256,20 @@ mod tests {
         t.app
             .turn_ends
             .said_at(followup, "끝".into(), Some("B"), old);
+        let stopped_first = cursor("stoppedFirst");
+        t.app.turn_ends.stepped(stopped_first, Some("A"));
+        t.app.turn_ends.ended(stopped_first, || false, || false);
+        t.app.turn_ends.stopped(stopped_first, Some("B"));
+        t.app.turn_ends.ended(stopped_first, || false, || false);
+        t.app
+            .turn_ends
+            .said_at(stopped_first, "끝".into(), Some("B"), old);
+        let older = cursor("older");
+        for turn in ["A", "B"] {
+            t.app.turn_ends.stepped(older, Some(turn));
+            t.app.turn_ends.ended(older, || false, || false);
+        }
+        t.app.turn_ends.said_at(older, "끝".into(), Some("A"), old);
         let retired = cursor("retired");
         t.app.turn_ends.stepped(retired, Some("A"));
         t.app.turn_ends.ended(retired, || false, || false);
@@ -1274,7 +1288,7 @@ mod tests {
             .collect();
         noted.sort_by_key(|node| node.0);
         assert_eq!(noted, vec![missed_stop, followup]);
-        for node in [fresh, stepped, silent, late, retired] {
+        for node in [fresh, stepped, silent, late, retired, stopped_first, older] {
             assert_eq!(t.app.agent_state(node), Some(AgentState::Turn));
         }
     }

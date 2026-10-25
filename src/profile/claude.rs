@@ -4,13 +4,11 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::Take;
+use super::{Handed, HookEvent, Report, Shown, Signals, Take};
 use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
 
-pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
-pub const HOOK_HTTP_TIMEOUT_SECS: u64 = 5;
 const HOOK_TIMEOUT_SECS: u64 = 10;
 const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 const REWAKE_MESSAGE: &str = "Messages from loom:";
@@ -173,31 +171,63 @@ pub struct Hook {
     #[serde(flatten)]
     pub event: Event,
     agent_id: Option<String>,
+    transcript_path: Option<String>,
+    last_assistant_message: Option<String>,
 }
 
-impl Hook {
-    pub fn take(&self) -> Take {
-        match self.agent_id {
-            Some(_) => Take::Never,
-            None => self.event.take(),
+impl HookEvent for Hook {
+    fn signals(&self) -> Signals {
+        let main = self.agent_id.is_none();
+        let wait = self.event.human_wait();
+        Signals {
+            hook: self.event.name().to_owned(),
+            model: reported_model(&self.event, self.transcript_path.as_deref()),
+            take: self.event.take().filter(|_| main),
+            transcript: self.transcript_path.clone(),
+            prompt: self.event.prompt().map(str::to_owned),
+            human_input: self.event.prompt().is_some(),
+            turn_end: matches!(self.event, Event::Stop)
+                .then(|| self.last_assistant_message.clone()),
+            rate_limited: self.event.rate_limited(),
+            asks_interrupt: !main && matches!(self.event, Event::PreToolUse { .. }),
+            reports: (main || wait.is_some())
+                .then_some(Report::Wait(wait))
+                .into_iter()
+                .collect(),
+            ..Signals::default()
         }
     }
 
-    pub fn asks_interrupt(&self) -> bool {
-        self.agent_id.is_some() && matches!(self.event, Event::PreToolUse { .. })
+    fn show(&self, handed: &Handed) -> Shown {
+        match handed {
+            Handed::Taken { messages, note } => Shown {
+                out: self
+                    .event
+                    .reply(messages, note.as_deref())
+                    .map(|reply| reply.to_string()),
+                ..Shown::default()
+            },
+            Handed::Interrupted => Shown {
+                out: Some(deny(SUBAGENT_INTERRUPTED.into()).to_string()),
+                ..Shown::default()
+            },
+            Handed::Mail(messages) if messages.is_empty() => Shown::default(),
+            Handed::Mail(messages) => to_model(super::message_text(messages)),
+            Handed::Nudge(text) => to_model(text.clone()),
+        }
     }
+}
 
-    pub fn reports_wait(&self) -> bool {
-        self.agent_id.is_none() || self.event.human_wait().is_some()
+fn to_model(text: String) -> Shown {
+    Shown {
+        out: None,
+        to_model: Some(text),
+        rewake: true,
     }
 }
 
 const SUBAGENT_INTERRUPTED: &str =
     "Your parent agent received a loom interrupt. Stop now and return to your parent agent.";
-
-pub fn subagent_interrupted() -> Value {
-    deny(SUBAGENT_INTERRUPTED.into())
-}
 
 fn deny(text: String) -> Value {
     json!({ "hookSpecificOutput": {
@@ -241,18 +271,27 @@ const RATE_LIMIT_ERROR: &str = "rate_limit";
 const RATE_LIMIT_TEXT: &str = "Stop and wait for limit to reset";
 
 impl Event {
-    pub fn take(&self) -> Take {
+    fn name(&self) -> &'static str {
         match self {
+            Event::SessionStart { .. } => "SessionStart",
+            Event::UserPromptSubmit { .. } => "UserPromptSubmit",
+            Event::PreToolUse { .. } => "PreToolUse",
+            Event::PostToolUse => "PostToolUse",
+            Event::PostToolUseFailure => "PostToolUseFailure",
+            Event::Stop => "Stop",
+            Event::StopFailure { .. } => "StopFailure",
+            Event::Notification { .. } => "Notification",
+        }
+    }
+
+    pub fn take(&self) -> Option<Take> {
+        Some(match self {
             Event::SessionStart { .. } | Event::Stop | Event::StopFailure { .. } => Take::WhenIdle,
             Event::UserPromptSubmit { .. } => Take::Now(Kind::ALL),
             Event::PostToolUse => Take::Now(Kind::ALL),
             Event::PreToolUse { .. } | Event::PostToolUseFailure => Take::Now(&[Kind::Interrupt]),
-            Event::Notification { .. } => Take::Never,
-        }
-    }
-
-    pub fn human_input(&self) -> bool {
-        self.prompt().is_some()
+            Event::Notification { .. } => return None,
+        })
     }
 
     pub fn prompt(&self) -> Option<&str> {
@@ -323,19 +362,14 @@ impl Event {
     }
 }
 
-pub fn reported_model(event: &Event, input: &Value) -> Option<Model> {
+fn reported_model(event: &Event, transcript: Option<&str>) -> Option<Model> {
     if let Event::SessionStart { model, .. } = event {
         return Some(Model {
             model: model.clone(),
             effort: None,
         });
     }
-    let path = PathBuf::from(input["transcript_path"].as_str()?);
-    last_model(&transcript_tail(&path)?)
-}
-
-pub fn last_reply(input: &Value) -> Option<String> {
-    input["last_assistant_message"].as_str().map(str::to_owned)
+    last_model(&transcript_tail(&PathBuf::from(transcript?))?)
 }
 
 fn transcript_tail(path: &Path) -> Option<String> {
@@ -718,12 +752,12 @@ mod tests {
             "tool_input": { "command": "npm test", "description": "테스트" }, "tool_use_id": "t1",
         }));
         assert!(matches!(&pre, Event::PreToolUse { tool_name, .. } if tool_name == "Bash"));
-        assert_eq!(pre.take(), Take::Now(&[Kind::Interrupt]));
+        assert_eq!(pre.take(), Some(Take::Now(&[Kind::Interrupt])));
         let stop = event(json!({ "hook_event_name": "Stop", "stop_hook_active": true }));
-        assert_eq!(stop.take(), Take::WhenIdle);
+        assert_eq!(stop.take(), Some(Take::WhenIdle));
         assert_eq!(
             event(json!({ "hook_event_name": "PostToolUse" })).take(),
-            Take::Now(Kind::ALL)
+            Some(Take::Now(Kind::ALL))
         );
     }
 
@@ -752,7 +786,7 @@ mod tests {
             "tool_input": { "command": "ls", "description": "List files" },
             "tool_use_id": "toolu_01",
         }));
-        assert_eq!(pre.take(), Take::Never);
+        assert_eq!(pre.signals().take, None);
         assert_eq!(
             pre.event.reply(&[], None).unwrap()["hookSpecificOutput"]["updatedInput"]["command"],
             "loom guard\nls"
@@ -763,11 +797,11 @@ mod tests {
             json!({ "hook_event_name": "UserPromptSubmit", "prompt": "x" }),
         ] {
             let other = with(fields.clone());
-            assert_eq!(other.take(), Take::Never, "{fields}");
+            assert_eq!(other.signals().take, None, "{fields}");
             assert_eq!(other.event.reply(&[], None), None, "{fields}");
         }
         let main = hook(json!({ "hook_event_name": "PostToolUse", "session_id": "e6edf215" }));
-        assert_eq!(main.take(), Take::Now(Kind::ALL));
+        assert_eq!(main.signals().take, Some(Take::Now(Kind::ALL)));
     }
 
     #[test]
@@ -777,17 +811,21 @@ mod tests {
         });
         let mut subagent = pre.clone();
         subagent["agent_id"] = "a7432afa802847021".into();
-        assert!(hook(subagent.clone()).asks_interrupt());
-        assert!(!hook(pre).asks_interrupt());
+        assert!(hook(subagent.clone()).signals().asks_interrupt);
+        assert!(!hook(pre).signals().asks_interrupt);
         subagent["hook_event_name"] = "PostToolUse".into();
-        assert!(!hook(subagent).asks_interrupt());
+        assert!(!hook(subagent).signals().asks_interrupt);
         assert_eq!(
-            subagent_interrupted(),
+            hook(json!({ "hook_event_name": "Stop" }))
+                .show(&Handed::Interrupted)
+                .out
+                .unwrap(),
             json!({ "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": SUBAGENT_INTERRUPTED,
             } })
+            .to_string()
         );
     }
 
@@ -800,10 +838,14 @@ mod tests {
             "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
             "tool_input": { "questions": [{ "question": "A or B?" }] },
         });
-        assert!(hook(bash.clone()).reports_wait());
+        assert!(!hook(bash.clone()).signals().reports.is_empty());
         for (mut input, reports) in [(bash, false), (ask, true)] {
             input["agent_id"] = "a7432afa802847021".into();
-            assert_eq!(hook(input.clone()).reports_wait(), reports, "{input}");
+            assert_eq!(
+                !hook(input.clone()).signals().reports.is_empty(),
+                reports,
+                "{input}"
+            );
         }
     }
 
@@ -883,9 +925,9 @@ mod tests {
             "source": "startup", "model": "claude-opus-5-5",
         });
         let start = event(input.clone());
-        assert_eq!(start.take(), Take::WhenIdle);
+        assert_eq!(start.take(), Some(Take::WhenIdle));
         assert_eq!(
-            reported_model(&start, &input),
+            reported_model(&start, None),
             Some(Model {
                 model: Some("claude-opus-5-5".into()),
                 effort: None
@@ -896,7 +938,7 @@ mod tests {
     #[test]
     fn stop_failure_waits_for_mail_and_raises_a_rate_limit_wait() {
         let limited = event(json!({ "hook_event_name": "StopFailure", "error": "rate_limit" }));
-        assert_eq!(limited.take(), Take::WhenIdle);
+        assert_eq!(limited.take(), Some(Take::WhenIdle));
         assert!(limited.rate_limited());
         assert_eq!(
             limited.human_wait(),
@@ -911,13 +953,21 @@ mod tests {
     fn task_notifications_are_not_human_input() {
         let prompt =
             |text: &str| event(json!({ "hook_event_name": "UserPromptSubmit", "prompt": text }));
-        assert!(prompt("Reply only HELLO.").human_input());
-        assert!(!prompt("<task-notification>\n<task-id>b68lj1bk9</task-id>").human_input());
+        assert!(prompt("Reply only HELLO.").prompt().is_some());
+        assert!(
+            !prompt("<task-notification>\n<task-id>b68lj1bk9</task-id>")
+                .prompt()
+                .is_some()
+        );
         assert!(
             !prompt("<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>\n<system-reminder>")
-                .human_input()
+                .prompt().is_some()
         );
-        assert!(!event(json!({ "hook_event_name": "Stop" })).human_input());
+        assert!(
+            !event(json!({ "hook_event_name": "Stop" }))
+                .prompt()
+                .is_some()
+        );
     }
 
     #[test]
@@ -931,8 +981,16 @@ mod tests {
     #[test]
     fn last_reply_is_the_stop_input_text() {
         let stop = json!({ "hook_event_name": "Stop", "last_assistant_message": "병합할까요?" });
-        assert_eq!(last_reply(&stop).as_deref(), Some("병합할까요?"));
-        assert_eq!(last_reply(&json!({ "hook_event_name": "Stop" })), None);
+        assert_eq!(
+            hook(stop).signals().turn_end,
+            Some(Some("병합할까요?".into()))
+        );
+        assert_eq!(
+            hook(json!({ "hook_event_name": "Stop" }))
+                .signals()
+                .turn_end,
+            Some(None)
+        );
     }
 
     #[test]
@@ -1023,8 +1081,8 @@ mod tests {
     fn a_task_notification_is_not_human_input() {
         let line = format!("{NOTIFICATION_TAG}{REWAKE_SUMMARY}</task-notification>");
         let submit = event(json!({ "hook_event_name": "UserPromptSubmit", "prompt": line }));
-        assert!(!submit.human_input());
-        assert_eq!(submit.take(), Take::Now(Kind::ALL));
+        assert!(!submit.prompt().is_some());
+        assert_eq!(submit.take(), Some(Take::Now(Kind::ALL)));
     }
 
     #[test]
@@ -1038,7 +1096,7 @@ mod tests {
         .unwrap();
         let input = json!({ "hook_event_name": "Stop", "transcript_path": path });
         assert_eq!(
-            reported_model(&event(input.clone()), &input),
+            reported_model(&event(input.clone()), input["transcript_path"].as_str()),
             Some(Model {
                 model: Some("claude-opus-5-5".into()),
                 effort: Some("xhigh".into())
@@ -1046,7 +1104,10 @@ mod tests {
         );
         let missing =
             json!({ "hook_event_name": "Stop", "transcript_path": dir.path().join("없음") });
-        assert_eq!(reported_model(&event(missing.clone()), &missing), None);
+        assert_eq!(
+            reported_model(&event(missing.clone()), missing["transcript_path"].as_str()),
+            None
+        );
     }
 
     #[test]
@@ -1067,7 +1128,7 @@ mod tests {
             "hook_event_name": "Notification", "notification_type": "permission_prompt",
             "message": "Claude needs your permission to use Bash",
         }));
-        assert_eq!(permission.take(), Take::Never);
+        assert_eq!(permission.take(), None);
         assert_eq!(
             permission.human_wait(),
             Some((

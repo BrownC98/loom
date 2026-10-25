@@ -1,3 +1,4 @@
+mod agent;
 mod carry;
 mod commands;
 pub mod gate;
@@ -44,7 +45,6 @@ use std::future::IntoFuture;
 use std::hash::Hash;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::pin::pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -75,13 +75,12 @@ use crate::node_host::{self, Exit, NodeHost};
 use crate::open;
 use crate::paste;
 use crate::process_tree;
-use crate::profile::claude;
 use crate::profile::codex::server::CodexServer;
 use crate::profile::codex::{self, Status};
 use crate::profile::cursor;
 use crate::profile::omp;
 use crate::profile::opencode2;
-use crate::profile::{self, Mailbox, Profile, Remote, Start, VersionMismatch};
+use crate::profile::{self, Profile, Remote, Start, VersionMismatch};
 use crate::protocol::{
     Delivery, IMAGE_EXTENSIONS, Kind, LaunchError, MessageId, MessageKind, Model, Prompt, Question,
     Refusal, ServerLink, TreeLimits, WaitDoc, WaitId, WaitKind, entered,

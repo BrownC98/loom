@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::Take;
+use super::{Handed, HookEvent, Report, Shown, Signals, Take};
 use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::{AlwaysOn, Launch, Position};
@@ -69,7 +69,6 @@ pub const POSITION_ENV: &str = "LOOM_POSITION";
 pub const SKILLS_ENV: &str = "LOOM_SKILLS";
 #[cfg(test)]
 const CONTEXT_LIMIT_CHARS: usize = 10_000;
-pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 const HOOK_TIMEOUT_SECS: u64 = 10;
 const IDLE_HOOK_TIMEOUT_SECS: u64 = 2_000_000;
 const HOOKS_FILE: &str = "cursor-hooks.json";
@@ -242,6 +241,73 @@ pub fn choice_args(choice: &crate::protocol::ModelChoice) -> Option<Vec<String>>
         (None, _) => return None,
     };
     Some(vec!["--model".into(), model])
+}
+
+pub struct Hook {
+    event: Event,
+    input: Value,
+}
+
+impl Hook {
+    pub fn parse(input: Value) -> Result<Self, serde_json::Error> {
+        Ok(Self {
+            event: Event::deserialize(&input)?,
+            input,
+        })
+    }
+
+    fn used_question_box(&self) -> std::io::Result<bool> {
+        let Some(path) = self.input["transcript_path"].as_str() else {
+            return Ok(false);
+        };
+        let here = std::env::current_dir().unwrap_or_default();
+        let Ok(file) = std::fs::File::open(crate::wsl::from_node(path.into(), &here)) else {
+            return Ok(false);
+        };
+        used_question_box(std::io::BufReader::new(file))
+    }
+}
+
+impl HookEvent for Hook {
+    fn signals(&self) -> Signals {
+        let text = |key: &str| self.input[key].as_str().map(str::to_owned);
+        let reports = match &self.event {
+            Event::AfterAgentResponse { text } => vec![Report::Said(text.clone())],
+            Event::Stop { .. } => match self.used_question_box() {
+                Ok(true) => vec![Report::QuestionBox],
+                Ok(false) => Vec::new(),
+                Err(e) => {
+                    eprintln!("loom: could not read the transcript: {e}");
+                    Vec::new()
+                }
+            },
+            _ => Vec::new(),
+        };
+        Signals {
+            hook: text("hook_event_name").unwrap_or_default(),
+            model: self.event.model(),
+            take: self.event.take(),
+            transcript: text("transcript_path"),
+            human_input: matches!(self.event, Event::BeforeSubmitPrompt { .. }),
+            turn: text("generation_id").filter(|id| !id.is_empty()),
+            turn_end: matches!(self.event, Event::Stop { .. }).then_some(None),
+            reports,
+            ..Signals::default()
+        }
+    }
+
+    fn show(&self, handed: &Handed) -> Shown {
+        let out = match handed {
+            Handed::Taken { messages, note } => self.event.reply(messages, note.as_deref()),
+            Handed::Mail(messages) => self.event.reply(messages, None),
+            Handed::Nudge(text) => json!({ "followup_message": text }),
+            Handed::Interrupted => self.event.reply(&[], None),
+        };
+        Shown {
+            out: Some(out.to_string()),
+            ..Shown::default()
+        }
+    }
 }
 
 #[derive(Deserialize)]

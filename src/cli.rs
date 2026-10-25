@@ -1,22 +1,20 @@
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 
 use crate::daemon::gate::{
     FailRequest, Readied, ReadyRequest, TOOL_HEADER, VERSION_HEADER, VerdictRequest,
 };
 use crate::daemon::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DoneRequest,
-    EndedTurn, GuardRequest, HookWaitRequest, IdleReply, IdleRequest, NewAgent, NoteRequest,
-    RelaunchRequest, Relaunched, RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun,
-    TakeRequest, Taken, WaitRequest,
+    GuardRequest, IdleReply, IdleRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched,
+    RemoveRequest, Reported, SpawnRequest, SpawnRun, WaitRequest,
 };
 use crate::graph::{Kept, Listed, NodeId, Relations, Sent};
-use crate::profile::claude;
-use crate::profile::{Take, cursor, pi};
+use crate::profile::cursor;
 use crate::protocol::{
     AgentId, Delivery, GateState, Judgment, Kind, MessageId, ModelChoice, NODE_CALLS,
     NODE_CALLS_HEADER, WaitId,
@@ -24,9 +22,11 @@ use crate::protocol::{
 use crate::roles::{Roles, SetRole};
 use crate::task;
 use crate::tunnel::ENDPOINT_ENV;
-use crate::wsl::REWAKE_EXIT;
 
 mod endpoint;
+mod hook;
+
+pub use hook::{claude_hook as hook, cursor_hook, pi_hook};
 
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
@@ -207,191 +207,6 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Res
     })
 }
 
-pub fn hook() -> Result<(), String> {
-    let input: serde_json::Value =
-        serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
-    let hook = claude::Hook::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
-    let event = &hook.event;
-    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
-    if let Some(model) = claude::reported_model(event, &input)
-        && let Err(e) = call::<()>("model", &model, Some(timeout))
-    {
-        eprintln!("loom: could not report the model: {e}");
-    }
-    let request = HookWaitRequest {
-        wait: event.human_wait(),
-    };
-    if hook.reports_wait()
-        && let Err(e) = call::<()>("hook-wait", &request, Some(timeout))
-    {
-        eprintln!("loom: could not report the human wait: {e}");
-    }
-    let transcript = input["transcript_path"].as_str().map(str::to_owned);
-    let kinds = match hook.take() {
-        Take::Now(kinds) => kinds,
-        Take::Never => {
-            let reply = match hook.asks_interrupt() && interrupt_pending(timeout) {
-                true => Some(claude::subagent_interrupted()),
-                false => event.reply(&[], None),
-            };
-            if let Some(reply) = reply {
-                println!("{reply}");
-            }
-            return Ok(());
-        }
-        Take::WhenIdle => {
-            let turn_end = matches!(event, claude::Event::Stop).then(|| EndedTurn {
-                reply: claude::last_reply(&input),
-                turn: None,
-            });
-            let reply = wait_for_mail(IdleRequest {
-                transcript,
-                rate_limited: event.rate_limited(),
-                turn_end,
-            })?;
-            let taken = match reply {
-                IdleReply::Nudge { nudge } => {
-                    to_model(&nudge)?;
-                    std::process::exit(REWAKE_EXIT)
-                }
-                IdleReply::Mail(taken) => taken,
-            };
-            if taken.is_empty() {
-                return Ok(());
-            }
-            to_model(&crate::profile::message_text(&taken))?;
-            acknowledge(&taken, None);
-            std::process::exit(REWAKE_EXIT)
-        }
-    };
-    let request = TakeRequest {
-        hook: hook_name(&input),
-        kinds: kinds.to_vec(),
-        limit_bytes: claude::HOOK_LIMIT_BYTES,
-        transcript,
-        human_input: event.human_input(),
-        prompt: event.prompt().map(str::to_owned),
-        turn: None,
-    };
-    let taken: Taken = call("take", &request, Some(timeout))?;
-    if let Some(reply) = event.reply(&taken.messages, taken.note.as_deref()) {
-        println!("{reply}");
-    }
-    acknowledge(&taken.messages, Some(timeout));
-    Ok(())
-}
-
-fn interrupt_pending(timeout: Duration) -> bool {
-    call("interrupt-pending", &(), Some(timeout)).unwrap_or_else(|e| {
-        eprintln!("loom: could not check for an interrupt: {e}");
-        false
-    })
-}
-
-fn hook_name(input: &serde_json::Value) -> String {
-    input["hook_event_name"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned()
-}
-
-fn to_model(text: &str) -> Result<(), String> {
-    let mut stderr = std::io::stderr();
-    writeln!(stderr, "{text}").map_err(|e| e.to_string())?;
-    stderr.flush().map_err(|e| e.to_string())
-}
-
-pub fn cursor_hook() -> Result<(), String> {
-    let input: serde_json::Value =
-        serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
-    let event = cursor::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
-    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
-    let transcript = input["transcript_path"].as_str().map(str::to_owned);
-    let turn = input["generation_id"]
-        .as_str()
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned);
-    if let Some(model) = event.model()
-        && let Err(e) = call::<()>("model", &model, Some(timeout))
-    {
-        eprintln!("loom: could not report the model: {e}");
-    }
-    let take_now = |kinds: &[Kind]| {
-        call(
-            "take",
-            &TakeRequest {
-                hook: hook_name(&input),
-                kinds: kinds.to_vec(),
-                limit_bytes: cursor::HOOK_LIMIT_BYTES,
-                transcript: transcript.clone(),
-                human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
-                prompt: None,
-                turn: turn.clone(),
-            },
-            Some(timeout),
-        )
-    };
-    if let cursor::Event::AfterAgentResponse { text } = &event
-        && let Err(e) = call::<()>(
-            "said",
-            &SaidRequest {
-                text: text.clone(),
-                turn: turn.clone(),
-            },
-            Some(timeout),
-        )
-    {
-        eprintln!("loom: could not report the reply: {e}");
-    }
-    if let cursor::Event::Stop { .. } = event {
-        let here = std::env::current_dir().unwrap_or_default();
-        let file = transcript
-            .as_deref()
-            .and_then(|path| std::fs::File::open(crate::wsl::from_node(path.into(), &here)).ok());
-        match file.map(|file| cursor::used_question_box(std::io::BufReader::new(file))) {
-            Some(Ok(true)) => {
-                if let Err(e) = call::<()>("question-box", &(), Some(timeout)) {
-                    eprintln!("loom: could not report the question box: {e}");
-                }
-            }
-            Some(Err(e)) => eprintln!("loom: could not read the transcript: {e}"),
-            None | Some(Ok(false)) => {}
-        }
-    }
-    let taken = match event.take() {
-        None | Some(Take::Never) => Taken {
-            messages: Vec::new(),
-            note: None,
-        },
-        Some(Take::WhenIdle) => {
-            let turn_end = matches!(event, cursor::Event::Stop { .. }).then(|| EndedTurn {
-                reply: None,
-                turn: turn.clone(),
-            });
-            let reply = wait_until_mail(IdleRequest {
-                transcript,
-                rate_limited: false,
-                turn_end,
-            })?;
-            match reply {
-                IdleReply::Nudge { nudge } => {
-                    println!("{}", serde_json::json!({ "followup_message": nudge }));
-                    return Ok(());
-                }
-                IdleReply::Mail(messages) => Taken {
-                    messages,
-                    note: None,
-                },
-            }
-        }
-        Some(Take::Now(kinds)) => take_now(kinds)?,
-    };
-    println!("{}", event.reply(&taken.messages, taken.note.as_deref()));
-    std::io::stdout().flush().map_err(|e| e.to_string())?;
-    acknowledge(&taken.messages, Some(timeout));
-    Ok(())
-}
-
 pub fn cursor_rules() -> Result<(), String> {
     let env = |key| std::env::var(key).ok();
     let launch = crate::skills::Launch {
@@ -400,119 +215,6 @@ pub fn cursor_rules() -> Result<(), String> {
     };
     println!("{}", cursor::rules(launch));
     Ok(())
-}
-
-pub fn pi_hook() -> Result<(), String> {
-    let out = std::sync::Arc::new(std::sync::Mutex::new(std::io::stdout()));
-    for line in std::io::stdin().lines() {
-        let line = line.map_err(|e| format!("hook input: {e}"))?;
-        let request = match pi::request(&line) {
-            Ok(request) => request,
-            Err(unserved) => return pi_unserved(unserved, &out),
-        };
-        let out = out.clone();
-        let id = request.id;
-        let send = move |reply: &pi::Reply| pi_send(&out, reply);
-        if id.is_none() {
-            return pi_event(request.event, id, send);
-        }
-        std::thread::spawn(move || {
-            if let Err(e) = pi_event(request.event, id, &send) {
-                let _ = send(&pi::failed(id, e));
-            }
-        });
-    }
-    Ok(())
-}
-
-fn pi_unserved(
-    unserved: pi::Unserved,
-    out: &std::sync::Mutex<std::io::Stdout>,
-) -> Result<(), String> {
-    if unserved.id.is_some() {
-        pi_send(out, &pi::failed(unserved.id, unserved.error.clone()))?;
-    }
-    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
-    let relaunch = match call::<Relaunched>("relaunch-unserved", &(), Some(timeout)) {
-        Ok(_) => "loom relaunches this node with the current pi extension".to_owned(),
-        Err(e) => format!("loom could not relaunch this node: {e}"),
-    };
-    Err(format!("{}. {relaunch}.", unserved.error))
-}
-
-fn pi_send(out: &std::sync::Mutex<std::io::Stdout>, reply: &pi::Reply) -> Result<(), String> {
-    let mut out = out.lock().unwrap();
-    serde_json::to_writer(&mut *out, reply).map_err(|e| e.to_string())?;
-    writeln!(out)
-        .and_then(|()| out.flush())
-        .map_err(|e| e.to_string())
-}
-
-fn pi_event(
-    event: pi::Event,
-    id: Option<u64>,
-    send: impl Fn(&pi::Reply) -> Result<(), String>,
-) -> Result<(), String> {
-    let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
-    let transcript = event.transcript();
-    if let Some(model) = event.model()
-        && let Err(e) = call::<()>("model", &model, Some(timeout))
-    {
-        eprintln!("loom: could not report the model: {e}");
-    }
-    let taken = match event.take() {
-        None | Some(Take::Never) => Taken {
-            messages: Vec::new(),
-            note: None,
-        },
-        Some(Take::WhenIdle) => {
-            let turn_end = event
-                .turn_ends()
-                .map(|reply| EndedTurn { reply, turn: None });
-            let reply = wait_until_mail(IdleRequest {
-                transcript,
-                rate_limited: false,
-                turn_end,
-            })?;
-            match reply {
-                IdleReply::Nudge { nudge } => return send(&pi::nudge(id, nudge)),
-                IdleReply::Mail(messages) => Taken {
-                    messages,
-                    note: None,
-                },
-            }
-        }
-        Some(Take::Now(kinds)) => call(
-            "take",
-            &TakeRequest {
-                hook: event.name().to_owned(),
-                kinds: kinds.to_vec(),
-                limit_bytes: pi::HOOK_LIMIT_BYTES,
-                transcript,
-                human_input: event.prompt().is_some(),
-                prompt: event.prompt().map(str::to_owned),
-                turn: None,
-            },
-            Some(timeout),
-        )?,
-    };
-    send(&pi::reply(id, &taken.messages, taken.note.as_deref()))?;
-    acknowledge(&taken.messages, Some(timeout));
-    Ok(())
-}
-
-fn acknowledge(taken: &[Delivery], timeout: Option<Duration>) {
-    if taken.is_empty() {
-        return;
-    }
-    let ids = taken.iter().map(|d| d.id).collect();
-    if let Err(e) = call::<()>("ack", &AckRequest { ids }, timeout) {
-        eprintln!("loom: could not acknowledge: {e}");
-    }
-}
-
-fn wait_for_mail(mut request: IdleRequest) -> Result<IdleReply, String> {
-    reconnecting(None, |_| idle_once(&mut request))
 }
 
 fn wait_until_mail(mut request: IdleRequest) -> Result<IdleReply, String> {
@@ -1056,6 +758,7 @@ fn post_as<T: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn a_role_spawn_needs_a_brief_and_the_others_do_not() {

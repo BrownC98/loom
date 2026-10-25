@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::pin::pin;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,7 +20,7 @@ use crate::graph::{
 use crate::process_tree::Snapshot;
 use crate::profile::codex;
 use crate::profile::{self, Profile, Start};
-use crate::protocol::{AgentId, Delivery, Kind, Model, ModelChoice, Provider, Refusal, ServerLink};
+use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
 use crate::skills::Position;
@@ -218,37 +217,6 @@ impl App {
                 "loom: 노드 {}의 프로세스가 끝나 턴 끝 다시 띄우기를 지운다",
                 node.0
             );
-        }
-    }
-
-    pub(super) fn take_mail(
-        &self,
-        node: NodeId,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        if self.holds_mail(node) {
-            return Ok(Vec::new());
-        }
-        self.sleeps
-            .unless_stopping(node, || self.graph.take_waking(node, kinds, limit_bytes))
-            .unwrap_or(Ok(Vec::new()))
-    }
-
-    pub(super) async fn next_mail(
-        &self,
-        node: NodeId,
-        kinds: &[Kind],
-        limit_bytes: usize,
-    ) -> Result<Vec<Delivery>, Refusal> {
-        loop {
-            let mut changed = pin!(self.graph.mail_changed());
-            changed.as_mut().enable();
-            let taken = self.take_mail(node, kinds, limit_bytes)?;
-            if !taken.is_empty() {
-                return Ok(taken);
-            }
-            changed.await;
         }
     }
 
@@ -501,15 +469,11 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn turn_ended(self: &Arc<Self>, node: NodeId) {
-        self.run_at_turn_end(node, None);
-    }
-
     pub(super) fn server_turn_ended(self: &Arc<Self>, node: NodeId) {
         let server = self.codex.lock().unwrap().contains_key(&node)
             || self.opencode2.lock().unwrap().contains_key(&node);
         if server && !self.busy(node) {
-            self.turn_ended(node);
+            self.run_at_turn_end(node, None);
         }
     }
 
@@ -749,15 +713,13 @@ impl App {
 
     async fn old_record(&self, node: &Active) -> Option<String> {
         match profile_of(node)? {
-            Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp => {
-                node.transcript.clone()
-            }
+            profile if profile.hooked() => node.transcript.clone(),
             Profile::Codex => {
                 let server = self.codex.lock().unwrap().get(&node.id).cloned()?;
                 let thread = server.thread().borrow().as_ref().map(|t| t.id.clone())?;
                 server.rollout(&thread).await.ok().flatten()
             }
-            Profile::OpenCode2 => None,
+            _ => None,
         }
     }
 
@@ -968,7 +930,7 @@ impl App {
             eprintln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.id.0);
             true
         });
-        let opens_no_wait = matches!(profile, Profile::Cursor | Profile::Pi | Profile::Omp);
+        let opens_no_wait = !profile.listens_at_start();
         let first = match limited {
             true => Some(CONTINUE_PROMPT),
             false => (cut || unread || !stopped.is_empty() || opens_no_wait)
@@ -1474,7 +1436,13 @@ mod tests {
             )
             .unwrap();
         app.graph
-            .note(sender, &format!("#{}", id.0), Kind::Queue, "일", None)
+            .note(
+                sender,
+                &format!("#{}", id.0),
+                crate::protocol::Kind::Queue,
+                "일",
+                None,
+            )
             .unwrap();
         assert_eq!(
             brief(Profile::Claude),

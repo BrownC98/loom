@@ -276,10 +276,7 @@ impl App {
     fn hear_lost_waits(self: &Arc<Self>) -> rusqlite::Result<()> {
         for node in self.graph.active()? {
             let id = node.id;
-            let hooked = matches!(
-                profile_of(&node),
-                Some(Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp)
-            );
+            let hooked = profile_of(&node).is_some_and(Profile::hooked);
             if !hooked || self.sleeps.stopping(id) {
                 continue;
             }
@@ -295,7 +292,7 @@ impl App {
         for node in self.graph.active()? {
             let id = node.id;
             let profile = profile_of(&node);
-            if !matches!(profile, Some(Profile::Claude | Profile::Cursor))
+            if !profile.is_some_and(Profile::ends_turns_by_stop_hook)
                 || self.sleeps.stopping(id)
                 || self.agent_state(id) != Some(AgentState::Turn)
             {
@@ -396,9 +393,7 @@ impl App {
             return false;
         }
         match profile_of(node) {
-            Some(Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp) => {
-                node.transcript.is_some()
-            }
+            Some(profile) if profile.hooked() => node.transcript.is_some(),
             Some(Profile::Codex) => matches!(
                 node.server,
                 Some(ServerLink::Codex {
@@ -406,7 +401,7 @@ impl App {
                     ..
                 })
             ),
-            Some(Profile::OpenCode2) | None => false,
+            Some(_) | None => false,
         }
     }
 
@@ -599,6 +594,49 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap();
+        assert_eq!(taken[0].body, "new task");
+    }
+
+    #[tokio::test]
+    async fn a_hook_take_hands_no_mail_to_a_held_or_stopping_node() {
+        let t = fixture();
+        let (app, lead) = (t.app.clone(), t.lead);
+        let worker = add_worker(&t, "worker");
+        app.graph
+            .note(lead, "worker", Kind::Queue, "new task", None)
+            .unwrap();
+        let take = async || {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                "Bearer worker".parse().unwrap(),
+            );
+            let req = crate::daemon::TakeRequest {
+                hook: "PostToolUse".into(),
+                kinds: Kind::ALL.to_vec(),
+                limit_bytes: crate::profile::BATCH_LIMIT_BYTES,
+                transcript: None,
+                human_input: false,
+                prompt: None,
+                turn: None,
+            };
+            let reply = crate::daemon::commands::agent_take(
+                axum::extract::State(app.clone()),
+                headers,
+                axum::Json(req),
+            )
+            .await;
+            let axum::Json(taken) = reply.unwrap_or_else(|(_, e)| panic!("{e}"));
+            taken.messages
+        };
+        app.hold(worker);
+        assert_eq!(take().await, [], "a pending relaunch holds the mail");
+        app.kept_running(worker);
+        assert!(app.sleeps.begin(worker));
+        assert_eq!(take().await, [], "the node is put to sleep");
+        assert!(app.sleeps.cancel(worker));
+        let taken = take().await;
+        assert_eq!(taken.len(), 1);
         assert_eq!(taken[0].body, "new task");
     }
 

@@ -334,7 +334,7 @@ impl App {
                     now.is_some_and(|now| now.ptr_eq(&current))
                 },
             ));
-            tokio::spawn(deliver_to_codex(self.clone(), id, server));
+            tokio::spawn(self.clone().deliver_loop(id, codex::adapter(server)));
         }
         if let Some(node) = opencode2 {
             self.opencode2.lock().unwrap().insert(id, node.clone());
@@ -356,11 +356,7 @@ impl App {
                 token.to_owned(),
                 node.permission(),
             ));
-            let mailbox = NodeMailbox {
-                app: self.clone(),
-                node: id,
-            };
-            tokio::spawn(async move { node.run(mailbox).await });
+            tokio::spawn(self.clone().deliver_loop(id, node.adapter()));
         }
     }
 
@@ -657,52 +653,6 @@ fn discarder(
     }
 }
 
-struct NodeMailbox {
-    app: Arc<App>,
-    node: NodeId,
-}
-
-impl Mailbox for NodeMailbox {
-    fn changed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        let mut changed = Box::pin(self.app.graph.mail_changed());
-        changed.as_mut().enable();
-        changed
-    }
-
-    fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String> {
-        self.app
-            .take_mail(self.node, kinds, limit_bytes)
-            .map_err(|e| e.to_string())
-    }
-
-    fn ack(&self, taken: &[Delivery]) -> Result<(), String> {
-        let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
-        self.app
-            .graph
-            .ack(self.node, &ids)
-            .map_err(|e| e.to_string())
-    }
-
-    fn release(&self, taken: &[Delivery]) -> Result<(), String> {
-        let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
-        self.app
-            .graph
-            .release(self.node, &ids)
-            .map_err(|e| e.to_string())
-    }
-
-    fn turn_ended(&self, reply: Option<String>) -> Option<String> {
-        if let Some(text) = reply {
-            self.app.turn_ends.said(self.node, text, None);
-        }
-        self.app.turn_end(self.node).map(str::to_owned)
-    }
-
-    fn human_input(&self) -> Option<String> {
-        self.app.human_input(self.node, None).ok().flatten()
-    }
-}
-
 async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receiver<Model>) {
     while model.changed().await.is_ok() {
         let now = model.borrow_and_update().clone();
@@ -728,10 +678,7 @@ pub(super) async fn follow_server_turns<T>(
         {
             match busy {
                 true => app.feed(node, AgentEvent::ServerBusy),
-                false => {
-                    app.feed(node, AgentEvent::ServerIdle);
-                    app.turn_ended(node);
-                }
+                false => app.feed(node, AgentEvent::ServerIdle),
             }
             fed = now;
         }
@@ -876,117 +823,6 @@ async fn follow_codex_model(
         };
         if let Err(e) = saved {
             eprintln!("loom: 노드 {}의 모델을 읽지 못했다: {e}", node.0);
-        }
-    }
-}
-
-async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>) {
-    let mut thread = server.thread();
-    let mut started = false;
-    let mut busy = false;
-    let mut ours = false;
-    loop {
-        let mut mail = pin!(app.graph.mail_changed());
-        mail.as_mut().enable();
-        let now = thread.borrow_and_update().clone();
-        if let Some(now) = now {
-            let was_busy = std::mem::replace(&mut busy, now.status == Status::Busy);
-            if !was_busy && busy && !std::mem::take(&mut ours) {
-                codex_human_input(&app, node, &server, &now.id).await;
-            }
-            if was_busy && !busy && !started && codex_turn_end(&app, node, &server, &now.id).await {
-                started = true;
-                ours = true;
-                continue;
-            }
-            let status = if started { Status::Busy } else { now.status };
-            match app.take_mail(node, codex::kinds(status), codex::INPUT_LIMIT_BYTES) {
-                Ok(taken) if !taken.is_empty() => {
-                    if taken.iter().any(|d| d.kind == Kind::Interrupt) {
-                        server.stop_shells();
-                    }
-                    let call = |method, params| server.call(method, params);
-                    let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
-                    match codex::deliver(call, &now.id, status, &taken).await {
-                        Ok(()) => {
-                            started = true;
-                            ours |= status == Status::Idle;
-                            if let Err(e) = app.graph.ack(node, &ids) {
-                                eprintln!("loom: 노드 {}의 받음 확인을 쓰지 못했다: {e}", node.0);
-                            }
-                            continue;
-                        }
-                        Err(e) => {
-                            eprintln!("loom: 노드 {}에 메시지를 넘기지 못했다: {e}", node.0);
-                            if let Err(e) = app.graph.release(node, &ids) {
-                                eprintln!(
-                                    "loom: 노드 {}의 메시지를 큐로 돌리지 못했다: {e}",
-                                    node.0
-                                );
-                            }
-                        }
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.0),
-            }
-        }
-        tokio::select! {
-            _ = mail => {}
-            changed = thread.changed() => {
-                if changed.is_err() {
-                    return;
-                }
-                started = false;
-            }
-        }
-    }
-}
-
-impl App {
-    pub(super) fn human_input(
-        &self,
-        node: NodeId,
-        prompt: Option<&str>,
-    ) -> Result<Option<String>, Refusal> {
-        self.graph.human_input(node)?;
-        self.turn_ends.human(node);
-        if let Some(text) = prompt
-            && !self.first_inputs.injected(node)
-        {
-            self.graph.human_typed(node, text)?;
-        }
-        Ok(profile::questions_note(&self.graph.open_questions(node)?))
-    }
-}
-
-async fn codex_human_input(app: &App, node: NodeId, server: &CodexServer, thread: &str) {
-    let text = match app.human_input(node, None) {
-        Ok(Some(text)) => text,
-        Ok(None) => return,
-        Err(e) => return eprintln!("loom: 노드 {}의 사람 입력을 처리하지 못했다: {e}", node.0),
-    };
-    let call = |method, params| server.call(method, params);
-    if let Err(e) = codex::steer(call, thread, &text).await {
-        eprintln!("loom: 노드 {}에 열린 질문을 알리지 못했다: {e}", node.0);
-    }
-}
-
-async fn codex_turn_end(app: &App, node: NodeId, server: &CodexServer, thread: &str) -> bool {
-    let call = |method, params| server.call(method, params);
-    match codex::last_reply(call, thread).await {
-        Ok(Some(text)) => app.turn_ends.said(node, text, None),
-        Ok(None) => {}
-        Err(e) => eprintln!("loom: 노드 {}의 답 글을 읽지 못했다: {e}", node.0),
-    }
-    let Some(nudge) = app.turn_end(node) else {
-        return false;
-    };
-    match codex::start_turn(call, thread, nudge).await {
-        Ok(()) => true,
-        Err(e) => {
-            eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0);
-            false
         }
     }
 }

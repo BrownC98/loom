@@ -8,7 +8,6 @@ pub mod pi;
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::LazyLock;
 
 use portable_pty::CommandBuilder;
@@ -16,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::protocol::{
-    AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, ModelChoice, OpenQuestion,
-    Prompt as ScreenPrompt, Provider, StartDigests, WaitKind,
+    AgentId, BRIEF_LIMIT_BYTES, Delivery, InputField, Kind, LaunchError, Model, ModelChoice,
+    OpenQuestion, Prompt as ScreenPrompt, Provider, StartDigests, WaitKind,
 };
 use crate::screen::{self, Dialog, Grammar, LinePrompt, Reply, Screen, Session};
 use crate::skills::Launch;
@@ -44,7 +43,73 @@ pub enum Profile {
 pub enum Take {
     Now(&'static [Kind]),
     WhenIdle,
-    Never,
+}
+
+pub enum Report {
+    Wait(Option<(WaitKind, String)>),
+    Said(String),
+    QuestionBox,
+}
+
+pub enum Handed {
+    Taken {
+        messages: Vec<Delivery>,
+        note: Option<String>,
+    },
+    Mail(Vec<Delivery>),
+    Nudge(String),
+    Interrupted,
+}
+
+impl Handed {
+    pub fn messages(&self) -> &[Delivery] {
+        match self {
+            Handed::Taken { messages, .. } | Handed::Mail(messages) => messages,
+            Handed::Nudge(_) | Handed::Interrupted => &[],
+        }
+    }
+}
+
+#[derive(Default, Debug, PartialEq)]
+pub struct Shown {
+    pub out: Option<String>,
+    pub to_model: Option<String>,
+    pub rewake: bool,
+}
+
+#[derive(Default)]
+pub struct Signals {
+    pub hook: String,
+    pub model: Option<Model>,
+    pub take: Option<Take>,
+    pub transcript: Option<String>,
+    pub prompt: Option<String>,
+    pub human_input: bool,
+    pub turn: Option<String>,
+    pub turn_end: Option<Option<String>>,
+    pub rate_limited: bool,
+    pub asks_interrupt: bool,
+    pub reports: Vec<Report>,
+}
+
+pub trait HookEvent {
+    fn signals(&self) -> Signals;
+    fn show(&self, handed: &Handed) -> Shown;
+}
+
+pub enum Signal {
+    TurnEnded(Option<String>),
+    HumanInput,
+}
+
+pub trait ServerAdapter: Send {
+    fn takes(&self) -> &'static [&'static [Kind]];
+    fn signal(&mut self) -> impl Future<Output = Option<Signal>> + Send;
+    fn changed(&mut self) -> impl Future<Output = bool> + Send;
+    fn inject(&mut self, taken: &[Delivery]) -> impl Future<Output = Result<(), String>> + Send;
+    fn stop_shells(&self) -> impl Future<Output = ()> + Send;
+    fn start_turn(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;
+    fn steer(&mut self, text: &str) -> impl Future<Output = Result<(), String>> + Send;
 }
 
 impl Profile {
@@ -53,6 +118,27 @@ impl Profile {
             Profile::Claude => Some(Provider::Claude),
             Profile::Codex => Some(Provider::Codex),
             Profile::OpenCode2 | Profile::Cursor | Profile::Pi | Profile::Omp => None,
+        }
+    }
+
+    pub fn hooked(self) -> bool {
+        match self {
+            Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp => true,
+            Profile::Codex | Profile::OpenCode2 => false,
+        }
+    }
+
+    pub fn listens_at_start(self) -> bool {
+        match self {
+            Profile::Claude | Profile::Codex | Profile::OpenCode2 => true,
+            Profile::Cursor | Profile::Pi | Profile::Omp => false,
+        }
+    }
+
+    pub fn ends_turns_by_stop_hook(self) -> bool {
+        match self {
+            Profile::Claude | Profile::Cursor => true,
+            Profile::Codex | Profile::OpenCode2 | Profile::Pi | Profile::Omp => false,
         }
     }
 }
@@ -66,15 +152,6 @@ pub enum Remote<'a> {
         session: &'a str,
         password: &'a str,
     },
-}
-
-pub trait Mailbox: Send + Sync + 'static {
-    fn changed(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
-    fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String>;
-    fn ack(&self, taken: &[Delivery]) -> Result<(), String>;
-    fn release(&self, taken: &[Delivery]) -> Result<(), String>;
-    fn turn_ended(&self, reply: Option<String>) -> Option<String>;
-    fn human_input(&self) -> Option<String>;
 }
 
 #[derive(Deserialize)]

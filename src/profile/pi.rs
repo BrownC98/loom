@@ -353,7 +353,9 @@ mod tests {
             "@earendil-works/pi-coding-agent",
             "export class DefaultPackageManager {};
              export class SettingsManager {
-               static create() { return { getShellCommandPrefix: () => 'PREFIX=set', getShellPath: () => '/bin/sh' }; }
+               static create(cwd, dir, options) {
+                 return { getShellCommandPrefix: () => (options?.projectTrusted ? 'PREFIX=set' : 'PREFIX=untrusted'), getShellPath: () => '/bin/sh' };
+               }
              }
              export const getShellConfig = (path) => ({ shell: path, args: ['-c'] });
              export const getAgentDir = () => ''; export const loadSkills = () => ({ skills: [] });
@@ -382,7 +384,7 @@ mod tests {
             "import ext from './{EXTENSION_FILE}';
              const on = {{}}; const sent = []; const tools = {{}};
              ext({{ registerFlag() {{}}, getFlag: () => false, on: (n, f) => (on[n] = f), sendMessage: (m) => sent.push(m), registerTool: (t) => (tools[t.name] = t) }});
-             const ctx = {{ isIdle: () => true, hasUI: false, cwd: process.cwd(), sessionManager: {{ getSessionFile: () => '/s.jsonl' }}, ui: {{ notify() {{}} }} }};
+             const ctx = {{ isIdle: () => true, isProjectTrusted: () => true, hasUI: false, cwd: process.cwd(), sessionManager: {{ getSessionFile: () => '/s.jsonl' }}, ui: {{ notify() {{}} }} }};
              const until = async (done, ms) => {{ for (let t = 0; t < ms && !done(); t += 50) await new Promise((r) => setTimeout(r, 50)); }};
              {script}
              on.session_shutdown();"
@@ -481,6 +483,8 @@ mod tests {
              console.log(JSON.stringify({ fast: Date.now() - t < 1000, guard: input.command.startsWith('loom guard'), log: fs.readFileSync(log, 'utf8'), alive: process.kill(pid, 0) }));
              process.kill(-pid);
              console.log((await bash.execute('2', { command: 'ls' }, undefined, undefined, ctx)).content[0].text);
+             const untrusted = { ...ctx, isProjectTrusted: () => false };
+             console.log(JSON.parse((await bash.execute('5', { command: 'ls' }, undefined, undefined, untrusted)).content[0].text).commandPrefix);
              console.log(await bash.execute('3', { command: 'hang' }, undefined, undefined, ctx).catch((e) => e.message));
              console.log('run_in_background' in bash.parameters.properties);
              const two = await Promise.all([1, 2].map((n) => bash.execute(String(n), { command: 'true', run_in_background: true }, undefined, undefined, ctx)));
@@ -500,6 +504,7 @@ mod tests {
                 r#"{"command":"ls","timeout":1200,"commandPrefix":"PREFIX=set","shellPath":"/bin/sh"}"#
             )
         );
+        assert_eq!(lines.next(), Some("PREFIX=untrusted"));
         assert_eq!(
             lines.next(),
             Some(

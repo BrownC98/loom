@@ -146,10 +146,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerFlag(IDLE_FLAG, { type: "boolean", default: false, description: "Wait for loom mail when the session starts without a prompt" });
 
-  const settings = SettingsManager.create(process.cwd(), getAgentDir());
-  const commandPrefix = settings.getShellCommandPrefix();
-  const shellPath = settings.getShellPath();
-  const bash = createBashToolDefinition(process.cwd(), { commandPrefix, shellPath });
+  const bash = createBashToolDefinition(process.cwd());
   pi.registerTool({
     ...bash,
     description: `${bash.description} Set run_in_background to true for a process that keeps running, such as a server: it starts detached, writes its output to a log file and returns at once. A foreground command without timeout stops after ${BASH_TIMEOUT_S} seconds.`,
@@ -158,12 +155,16 @@ export default function (pi: ExtensionAPI) {
       run_in_background: Type.Optional(Type.Boolean({ description: "Start the command detached and return at once" })),
     }),
     async execute(id, params, signal, onUpdate, ctx) {
+      const settings = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
+      const commandPrefix = settings.getShellCommandPrefix();
+      const shellPath = settings.getShellPath();
       if (params.run_in_background) {
         const command = commandPrefix ? `${commandPrefix}\n${params.command}` : params.command;
         return background(command, ctx.cwd, getShellConfig(shellPath));
       }
       try {
-        return await bash.execute(id, { command: params.command, timeout: params.timeout ?? BASH_TIMEOUT_S }, signal, onUpdate, ctx);
+        const shell = createBashToolDefinition(ctx.cwd, { commandPrefix, shellPath });
+        return await shell.execute(id, { command: params.command, timeout: params.timeout ?? BASH_TIMEOUT_S }, signal, onUpdate, ctx);
       } catch (e) {
         if (e instanceof Error && e.message.includes("timed out")) {
           throw new Error(`${e.message}. Start a process that keeps running with run_in_background: true.`);

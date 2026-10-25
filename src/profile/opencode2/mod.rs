@@ -377,13 +377,20 @@ impl Node {
                             if let Err(e) = mailbox.ack(&batch.taken) {
                                 eprintln!("loom: OpenCode 2 노드의 받음 확인을 쓰지 못했다: {e}");
                             }
+                            continue;
                         }
-                        Err(e) => eprintln!(
-                            "loom: OpenCode 2 세션 {}에 메시지를 넘기지 못했다: {e}",
-                            self.session
-                        ),
+                        Err(e) => {
+                            eprintln!(
+                                "loom: OpenCode 2 세션 {}에 메시지를 넘기지 못했다: {e}",
+                                self.session
+                            );
+                            if let Err(e) = mailbox.release(&batch.taken) {
+                                eprintln!(
+                                    "loom: OpenCode 2 노드의 메시지를 큐로 돌리지 못했다: {e}"
+                                );
+                            }
+                        }
                     }
-                    continue;
                 }
                 Ok(None) => {}
                 Err(e) => eprintln!("loom: OpenCode 2 노드의 메일함을 읽지 못했다: {e}"),
@@ -573,6 +580,10 @@ mod tests {
         }
 
         fn ack(&self, _taken: &[Delivery]) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn release(&self, _taken: &[Delivery]) -> Result<(), String> {
             Ok(())
         }
 

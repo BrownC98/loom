@@ -18,7 +18,8 @@ mod runtime;
 mod sessions;
 mod settings;
 mod sleep;
-pub use relaunch::{NewAgent, Relaunched};
+pub use crate::graph::NewAgent;
+pub use relaunch::Relaunched;
 mod switch;
 mod system;
 mod tunnels;
@@ -31,9 +32,9 @@ mod waits;
 
 pub use commands::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, Asked,
-    DoneRequest, GuardRequest, HookWaitRequest, IdleRequest, NoteRequest, RelaunchRequest,
-    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken,
-    TurnEndRequest, TurnId, WaitRequest,
+    DoneRequest, EndedTurn, GuardRequest, HookWaitRequest, IdleReply, IdleRequest, NoteRequest,
+    RelaunchRequest, RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest,
+    Taken, WaitRequest,
 };
 use origin::ViaRemote;
 use runtime::Prepared;
@@ -68,7 +69,7 @@ use crate::db;
 use crate::devices::Devices;
 use crate::graph::{
     AgentEvent, CardView, EventLog, Graph, GraphEvent, IdleEnd, Kept, Launched, Listed, NewChild,
-    NodeId, PARENT, Place, REDELIVER_AFTER, Relations, Report, Sent, Via, WaitSource,
+    NodeId, PARENT, Place, Relations, Report, Sent, Via, WaitSource,
 };
 use crate::launch;
 use crate::node_host::{self, Exit, NodeHost};
@@ -257,6 +258,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         eprintln!("loom: 시작 글이 바뀐 노드를 고르지 못했다: {e}");
     }
     app.watch_sleep();
+    app.watch_agents();
     let node_routes = commands::node_routes();
     let router = node_routes
         .clone()

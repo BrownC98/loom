@@ -204,6 +204,8 @@ impl App {
         let token = token.to_owned();
         move |exit| {
             let _recheck = tunnels::Recheck::after(&app, distro.clone());
+            app.codex.lock().unwrap().remove(&id);
+            app.opencode2.lock().unwrap().remove(&id);
             discard();
             if exit != Exit::Lost
                 && let Some(distro) = distro
@@ -213,8 +215,6 @@ impl App {
             if app.relaunches.exited(id) {
                 return;
             }
-            app.codex.lock().unwrap().remove(&id);
-            app.opencode2.lock().unwrap().remove(&id);
             app.sessions.exited(id);
             let setup = app.setups.lock().unwrap().remove(&id);
             if exit == Exit::Command(0)
@@ -236,7 +236,7 @@ impl App {
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
                 Exit::Lost => app.graph.lost(id),
             };
-            app.relaunches.process_ended(id);
+            app.process_ended(id);
             app.sleeps.exited(id);
             app.graph.wake_mail();
             app.idle.end(id, IdleEnd::Exit);
@@ -316,22 +316,32 @@ impl App {
                     app.sessions.started(id, &token);
                 }
             });
+            let current = Arc::downgrade(&server);
             tokio::spawn(follow_server_turns(
                 self.clone(),
                 id,
                 server.thread(),
                 |thread| thread.as_ref().map(|t| t.status == Status::Busy),
+                move |app: &App| {
+                    let now = app.codex.lock().unwrap().get(&id).map(Arc::downgrade);
+                    now.is_some_and(|now| now.ptr_eq(&current))
+                },
             ));
             tokio::spawn(deliver_to_codex(self.clone(), id, server));
         }
         if let Some(node) = opencode2 {
             self.opencode2.lock().unwrap().insert(id, node.clone());
             tokio::spawn(follow_model(self.graph.clone(), id, node.model()));
+            let current = Arc::downgrade(&node);
             tokio::spawn(follow_server_turns(
                 self.clone(),
                 id,
                 node.working(),
                 |working| Some(*working),
+                move |app: &App| {
+                    let now = app.opencode2.lock().unwrap().get(&id).map(Arc::downgrade);
+                    now.is_some_and(|now| now.ptr_eq(&current))
+                },
             ));
             tokio::spawn(follow_permission(
                 self.graph.clone(),
@@ -610,9 +620,7 @@ impl Mailbox for NodeMailbox {
     fn changed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         let mut changed = Box::pin(self.app.graph.mail_changed());
         changed.as_mut().enable();
-        Box::pin(async move {
-            let _ = tokio::time::timeout(REDELIVER_AFTER, changed).await;
-        })
+        changed
     }
 
     fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String> {
@@ -626,6 +634,14 @@ impl Mailbox for NodeMailbox {
         self.app
             .graph
             .ack(self.node, &ids)
+            .map_err(|e| e.to_string())
+    }
+
+    fn release(&self, taken: &[Delivery]) -> Result<(), String> {
+        let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
+        self.app
+            .graph
+            .release(self.node, &ids)
             .map_err(|e| e.to_string())
     }
 
@@ -655,22 +671,28 @@ pub(super) async fn follow_server_turns<T>(
     node: NodeId,
     mut status: watch::Receiver<T>,
     busy: fn(&T) -> Option<bool>,
+    current: impl Fn(&App) -> bool,
 ) {
     let mut fed = None;
     loop {
         let now = busy(&status.borrow_and_update());
         if let Some(busy) = now
             && now != fed
+            && current(&app)
         {
-            let event = match busy {
-                true => AgentEvent::ServerBusy,
-                false => AgentEvent::ServerIdle,
-            };
-            app.feed(node, event);
+            match busy {
+                true => app.feed(node, AgentEvent::ServerBusy),
+                false => {
+                    app.feed(node, AgentEvent::ServerIdle);
+                    app.turn_ended(node);
+                }
+            }
             fed = now;
         }
         if status.changed().await.is_err() {
-            app.feed(node, AgentEvent::ServerLost);
+            if current(&app) {
+                app.feed(node, AgentEvent::ServerLost);
+            }
             return;
         }
     }
@@ -784,18 +806,26 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
                         server.stop_shells();
                     }
                     let call = |method, params| server.call(method, params);
+                    let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
                     match codex::deliver(call, &now.id, status, &taken).await {
                         Ok(()) => {
                             started = true;
                             ours |= status == Status::Idle;
-                            let ids: Vec<MessageId> = taken.iter().map(|d| d.id).collect();
                             if let Err(e) = app.graph.ack(node, &ids) {
                                 eprintln!("loom: 노드 {}의 받음 확인을 쓰지 못했다: {e}", node.0);
                             }
+                            continue;
                         }
-                        Err(e) => eprintln!("loom: 노드 {}에 메시지를 넘기지 못했다: {e}", node.0),
+                        Err(e) => {
+                            eprintln!("loom: 노드 {}에 메시지를 넘기지 못했다: {e}", node.0);
+                            if let Err(e) = app.graph.release(node, &ids) {
+                                eprintln!(
+                                    "loom: 노드 {}의 메시지를 큐로 돌리지 못했다: {e}",
+                                    node.0
+                                );
+                            }
+                        }
                     }
-                    continue;
                 }
                 Ok(_) => {}
                 Err(e) => eprintln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.0),
@@ -803,7 +833,6 @@ async fn deliver_to_codex(app: Arc<App>, node: NodeId, server: Arc<CodexServer>)
         }
         tokio::select! {
             _ = mail => {}
-            _ = tokio::time::sleep(REDELIVER_AFTER) => {}
             changed = thread.changed() => {
                 if changed.is_err() {
                     return;

@@ -2,7 +2,7 @@ use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::agent_state::{AgentEvent, AgentState, ShadowCheck};
+use super::agent_state::{AgentEvent, AgentState};
 use super::{NodeId, NodeState, from_json, to_json};
 use crate::accounts::AccountId;
 use crate::choices::{Choice, choices};
@@ -211,7 +211,7 @@ pub enum Entry {
         node: Who,
         by: IdleEnd,
     },
-    /// 턴 끝 답 글(`said`) 뒤 `IDLE_GRACE` 안에 stop 훅이 데몬에 닿지 않았다. 데몬이 노드를 같은 세션으로 다시 띄운다. 그 결과는 다음 `Relaunched`다. 화면 이벤트 콘솔은 보이지 않는다.
+    /// Claude 기록 파일이 턴 끝을 적은 뒤 `STOP_HOOK_GRACE`가 지나도 stop 훅이 데몬에 닿지 않았다. 데몬이 노드에 `TurnEnded`를 적용하고 같은 세션으로 다시 띄운다. 그 결과는 다음 `Relaunched`다. 화면 이벤트 콘솔은 보이지 않는다.
     NoIdleWait {
         node: Who,
     },
@@ -222,10 +222,10 @@ pub enum Entry {
         to: AgentState,
         by: AgentEvent,
     },
-    /// 옛 판정(`check`의 값 `old`)과 상태 기계(`state`)가 달랐다. 상태가 바뀔 때까지 한 번만 남긴다. 화면 이벤트 콘솔은 보이지 않는다.
+    /// 그림자 단계의 옛 판정(`check`: `busy`·`listening`의 값 `old`)과 상태 기계(`state`)가 달랐다. 지금 데몬은 남기지 않는다. 옛 이벤트 기록을 읽으려고 남긴다. 화면 이벤트 콘솔은 보이지 않는다.
     AgentStateDisagreed {
         node: Who,
-        check: ShadowCheck,
+        check: String,
         old: bool,
         state: AgentState,
     },

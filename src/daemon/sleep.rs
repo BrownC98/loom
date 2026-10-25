@@ -7,19 +7,21 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::Notify;
 
 use super::App;
-use super::relaunch::{EXIT_WAIT, Guard, Plan, profile_of};
-use super::turn_end::IDLE_GRACE;
-use crate::graph::{Active, Entry, IdleEnd, NodeId};
+use super::relaunch::{EXIT_WAIT, Guard, Stop, profile_of};
+use crate::graph::{
+    Active, AgentChange, AgentEvent, AgentState, Entry, IdleEnd, NodeId, Phase, Plan,
+};
 use crate::process_tree::Snapshot;
 use crate::profile::{self, Profile, claude};
-use crate::protocol::{MessageId, ServerLink};
+use crate::protocol::ServerLink;
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
 const SWEEP: Duration = Duration::from_secs(30);
-const STOPPED_SETTLE: Duration = Duration::from_secs(5);
+const STOP_HOOK_GRACE: Duration = Duration::from_secs(60);
 const RUNNING_STATUS: &str = "esc to interrupt";
-const WAKE_SUBMIT_AFTER: Duration = Duration::from_millis(500);
+
+type Recovery = (Active, Plan, Guard, fn(&App, NodeId));
 
 #[derive(Default)]
 pub struct Sleeps {
@@ -27,34 +29,6 @@ pub struct Sleeps {
     stopping: Mutex<HashSet<NodeId>>,
     knocked: Mutex<HashSet<NodeId>>,
     knock: Notify,
-    unheard: Mutex<HashMap<NodeId, Unheard>>,
-    stopped: Mutex<HashMap<NodeId, (Instant, SystemTime)>>,
-}
-
-struct Seen {
-    path: PathBuf,
-    changed: SystemTime,
-    typed_after: SystemTime,
-    listening: bool,
-}
-
-struct Unheard {
-    oldest: MessageId,
-    step: Step,
-    noted: bool,
-}
-
-#[derive(Clone, Copy)]
-enum Step {
-    Seen(Instant),
-    Tried(Instant),
-    Relaunched,
-}
-
-#[derive(Clone, Copy)]
-enum Wake {
-    Type,
-    Relaunch,
 }
 
 impl Sleeps {
@@ -85,46 +59,6 @@ impl Sleeps {
         self.knock.notify_one();
     }
 
-    fn unheard_due(&self, mail: &[(NodeId, MessageId)], now: Instant) -> Vec<(NodeId, Wake)> {
-        let mut unheard = self.unheard.lock().unwrap();
-        unheard.retain(|id, u| mail.contains(&(*id, u.oldest)));
-        mail.iter()
-            .filter_map(|&(id, oldest)| {
-                let fresh = Unheard {
-                    oldest,
-                    step: Step::Seen(now),
-                    noted: false,
-                };
-                match unheard.entry(id).or_insert(fresh).step {
-                    Step::Seen(at) if now.duration_since(at) >= IDLE_GRACE => {
-                        Some((id, Wake::Type))
-                    }
-                    Step::Tried(at) if now.duration_since(at) >= IDLE_GRACE => {
-                        Some((id, Wake::Relaunch))
-                    }
-                    _ => None,
-                }
-            })
-            .collect()
-    }
-
-    fn first_miss(&self, node: NodeId) -> bool {
-        self.unheard
-            .lock()
-            .unwrap()
-            .get_mut(&node)
-            .is_some_and(|u| !std::mem::replace(&mut u.noted, true))
-    }
-
-    fn woke(&self, node: NodeId, wake: Wake, now: Instant) {
-        if let Some(u) = self.unheard.lock().unwrap().get_mut(&node) {
-            u.step = match wake {
-                Wake::Type => Step::Tried(now),
-                Wake::Relaunch => Step::Relaunched,
-            };
-        }
-    }
-
     fn due(&self, resting: &[NodeId], now: Instant) -> Vec<NodeId> {
         let mut since = self.resting.lock().unwrap();
         since.retain(|id, _| resting.contains(id));
@@ -149,11 +83,8 @@ impl App {
                 if let Err(e) = app.wake_sleepers() {
                     eprintln!("loom: 잠든 노드를 보지 못했다: {e}");
                 }
-                if let Err(e) = app.wake_unheard(Instant::now()) {
-                    eprintln!("loom: 쉬는 대기가 없는 노드를 보지 못했다: {e}");
-                }
-                if let Err(e) = app.release_stopped_turns(Instant::now()) {
-                    eprintln!("loom: 턴 끝을 기다리는 노드를 보지 못했다: {e}");
+                if let Err(e) = app.end_unhooked_turns() {
+                    eprintln!("loom: stop 훅이 닿지 않은 노드를 보지 못했다: {e}");
                 }
                 if Instant::now() >= next_sweep {
                     if let Err(e) = app.sleep_resting() {
@@ -168,6 +99,111 @@ impl App {
                 }
             }
         });
+    }
+
+    pub(super) fn watch_agents(self: &Arc<Self>) {
+        let Some(mut changes) = self.graph.agent_changes() else {
+            return;
+        };
+        let app = self.clone();
+        tokio::spawn(async move {
+            while let Some(change) = changes.recv().await {
+                app.agent_changed(change);
+            }
+        });
+    }
+
+    fn agent_changed(self: &Arc<Self>, change: AgentChange) {
+        match change.to {
+            AgentState::Deaf => {}
+            AgentState::Blocked { .. } => return,
+            _ => return self.relaunches.heard(change.node),
+        }
+        let lost = match change.by {
+            AgentEvent::WaitClosed {
+                by: IdleEnd::Gone | IdleEnd::Error,
+            } => change.from == AgentState::Listening,
+            AgentEvent::ServerLost => true,
+            AgentEvent::TurnEnded | AgentEvent::RelaunchFailed => false,
+            _ => self.relaunches.was_refused(change.node),
+        };
+        if lost {
+            self.recover(change.node);
+        }
+    }
+
+    pub(super) fn recover(self: &Arc<Self>, id: NodeId) {
+        let (node, plan, guard, kept) = match self.recovering(id) {
+            Ok(Some(recovery)) => recovery,
+            Ok(None) => return,
+            Err(e) => return eprintln!("loom: 듣지 못하는 노드 {}를 보지 못했다: {e}", id.0),
+        };
+        let app = self.clone();
+        tokio::spawn(async move {
+            match app.relaunch(node, plan, Some(guard)).await {
+                Ok(Stop::Stopped) => {}
+                Ok(Stop::Kept) => {
+                    kept(&app, id);
+                    app.relaunches.refused(id);
+                }
+                Err(e) => {
+                    eprintln!("loom: 듣지 못하는 노드 {}를 살리지 못했다: {e}", id.0);
+                    app.host.stop(id);
+                    if let Err(e) = app.graph.lost(id) {
+                        eprintln!("loom: 노드 {}를 exited로 바꾸지 못했다: {e}", id.0);
+                    }
+                    app.graph.wake_mail();
+                }
+            }
+        });
+    }
+
+    fn recovering(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<Option<Recovery>> {
+        if self.agent_state(id) != Some(AgentState::Deaf) || self.sleeps.stopping(id) {
+            return Ok(None);
+        }
+        let Some(node) = self.graph.active()?.into_iter().find(|n| n.id == id) else {
+            return Ok(None);
+        };
+        if profile_of(&node).is_none() {
+            return Ok(None);
+        }
+        let since = match self.relaunches.was_refused(id) {
+            true => Some(SystemTime::now()),
+            false => None,
+        };
+        let guard = self.restart_guard(&node, since)?;
+        if !guard(&self.host.screen(id)) {
+            self.relaunches.refused(id);
+            eprintln!(
+                "loom: 듣지 못하는 노드 {}를 사람이 쓰고 있어 다음 사건까지 기다린다",
+                id.0
+            );
+            return Ok(None);
+        }
+        let claimed = self.graph.plan_relaunch(id, |now| match now.pending {
+            _ if now.ended => (now.pending, None),
+            None => {
+                let kept: fn(&App, NodeId) = App::kept_running;
+                (
+                    Some((Phase::Running, Plan::Resume)),
+                    Some((Plan::Resume, kept)),
+                )
+            }
+            Some((Phase::AtTurnEnd, plan)) => {
+                let kept: fn(&App, NodeId) = App::kept_at_turn_end;
+                (Some((Phase::Running, plan.clone())), Some((plan, kept)))
+            }
+            running => (running, None),
+        })?;
+        let Some((plan, kept)) = claimed else {
+            return Ok(None);
+        };
+        eprintln!(
+            "loom: 듣지 못하는 노드 {}를 같은 세션으로 다시 띄운다",
+            id.0
+        );
+        Ok(Some((node, plan, guard, kept)))
     }
 
     fn wake_sleepers(self: &Arc<Self>) -> rusqlite::Result<()> {
@@ -192,204 +228,75 @@ impl App {
         Ok(())
     }
 
-    fn wake_unheard(self: &Arc<Self>, now: Instant) -> rusqlite::Result<()> {
-        let due = self.sleeps.unheard_due(&self.graph.awake_with_mail()?, now);
-        if due.is_empty() {
-            return Ok(());
-        }
-        let mut active = self.graph.active()?;
-        for (id, wake) in due {
-            let Some(at) = active.iter().position(|n| n.id == id) else {
-                continue;
-            };
-            let node = active.swap_remove(at);
-            let queued = self.relaunches.at_turn_end(id);
-            if self.relaunches.holds_mail(id) && !queued {
-                continue;
-            }
-            let Some(seen) = self.unheard_since(&node)? else {
-                continue;
-            };
-            if seen.listening && !queued {
-                continue;
-            }
-            let since = seen.typed_after;
-            if self.sleeps.first_miss(id) {
-                eprintln!("loom: 노드 {}의 쉬는 대기가 없다", id.0);
-                if let Err(e) = self
-                    .graph
-                    .record_about(id, |node| Entry::NoIdleWait { node })
-                {
-                    eprintln!("loom: 노드 {}의 빠진 쉬는 대기를 남기지 못했다: {e}", id.0);
-                }
-            }
-            if queued || matches!(wake, Wake::Relaunch) {
-                let guard = self.restart_guard(id, seen);
-                if !guard(&self.host.screen(id)) {
-                    continue;
-                }
-                if queued {
-                    eprintln!("loom: 노드 {}의 턴 끝 다시 띄우기를 지금 한다", id.0);
-                    self.sleeps.woke(id, Wake::Type, now);
-                    self.run_at_turn_end(id, Some(guard));
-                    continue;
-                }
-                self.sleeps.woke(id, Wake::Relaunch, now);
-                eprintln!("loom: 알림 줄로 깨지 않은 노드 {}를 다시 띄운다", id.0);
-                let app = self.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = app.relaunch_unless_used(node, guard).await {
-                        eprintln!(
-                            "loom: 쉬는 대기가 없는 노드 {}를 다시 띄우지 못했다: {e}",
-                            id.0
-                        );
-                    }
-                });
-                continue;
-            }
-            let typed = self.host.write_if(id, |keys| {
-                let screen = keys.screen();
-                (self.untouched(id, since, &screen) && claude::input(&screen.text) == Some(""))
-                    .then(|| claude::wake_line().into_bytes())
-                    .ok_or(())
-            });
-            if typed.is_err() {
-                continue;
-            }
-            eprintln!("loom: 쉬는 대기가 없는 노드 {}에 알림 줄을 쳤다", id.0);
-            self.sleeps.woke(id, Wake::Type, now);
-            let app = self.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(WAKE_SUBMIT_AFTER).await;
-                let line = claude::wake_line();
-                let _ = app.host.write_if(id, |keys| {
-                    (claude::input(&keys.screen().text) == Some(line.as_str()))
-                        .then(|| b"\r".to_vec())
-                        .ok_or(())
-                });
-            });
-        }
-        Ok(())
-    }
-
-    fn release_stopped_turns(self: &Arc<Self>, now: Instant) -> rusqlite::Result<()> {
-        let mut stopped = self.sleeps.stopped.lock().unwrap();
-        let mut queued = Vec::new();
+    fn end_unhooked_turns(self: &Arc<Self>) -> rusqlite::Result<()> {
         for node in self.graph.active()? {
             let id = node.id;
-            if !self.relaunches.at_turn_end(id) || self.idle.waiting(id) {
+            if profile_of(&node) != Some(Profile::Claude)
+                || self.sleeps.stopping(id)
+                || self.agent_state(id) != Some(AgentState::Turn)
+            {
                 continue;
             }
-            let Some(seen) = self.transcript_seen(&node)? else {
+            let Some(path) = self.transcript(&node)? else {
                 continue;
             };
-            queued.push(id);
-            let changed_now = seen.changed;
-            let guard = self.restart_guard(id, seen);
-            if !guard(&self.host.screen(id)) {
-                stopped.remove(&id);
+            let settled = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .is_ok_and(|at| at.elapsed().is_ok_and(|age| age >= STOP_HOOK_GRACE));
+            let ended = self.at_turn_end(id) || claude::turn_ended(&path);
+            if !settled || !ended || turn_shown(&self.host.screen(id).text) {
                 continue;
             }
-            let hooked = |since: Instant| self.idle.turn_seen(id).is_some_and(|at| at >= since);
-            match stopped.get(&id) {
-                Some(&(since, changed))
-                    if changed == changed_now
-                        && !hooked(since)
-                        && now.duration_since(since) >= STOPPED_SETTLE =>
-                {
-                    stopped.remove(&id);
-                    eprintln!(
-                        "loom: 노드 {}의 화면에 도는 턴이 없다. 턴 끝 다시 띄우기를 지금 한다",
-                        id.0
-                    );
-                    self.run_at_turn_end(id, Some(guard));
-                }
-                Some(&(since, changed)) if changed == changed_now && !hooked(since) => {}
-                _ => {
-                    stopped.insert(id, (now, changed_now));
-                }
+            eprintln!("loom: 노드 {}의 턴이 끝났는데 stop 훅이 닿지 않았다", id.0);
+            if let Err(e) = self
+                .graph
+                .record_about(id, |node| Entry::NoIdleWait { node })
+            {
+                eprintln!("loom: 노드 {}의 빠진 쉬는 대기를 남기지 못했다: {e}", id.0);
             }
+            self.feed(id, AgentEvent::TurnEnded);
+            self.recover(id);
         }
-        stopped.retain(|id, _| queued.contains(id));
         Ok(())
     }
 
-    fn transcript_seen(&self, node: &Active) -> rusqlite::Result<Option<Seen>> {
-        if profile_of(node) != Some(Profile::Claude) {
-            return Ok(None);
-        }
+    fn transcript(&self, node: &Active) -> rusqlite::Result<Option<PathBuf>> {
         let Some(transcript) = &node.transcript else {
             return Ok(None);
         };
         let place = self.graph.place_of(node.id)?;
-        let path = crate::wsl::from_node(PathBuf::from(transcript), Path::new(&place.worktree));
-        let Ok(changed) = std::fs::metadata(&path).and_then(|m| m.modified()) else {
-            return Ok(None);
+        Ok(Some(crate::wsl::from_node(
+            PathBuf::from(transcript),
+            Path::new(&place.worktree),
+        )))
+    }
+
+    fn restart_guard(
+        self: &Arc<Self>,
+        node: &Active,
+        since: Option<SystemTime>,
+    ) -> rusqlite::Result<Guard> {
+        let (app, id, profile) = (self.clone(), node.id, profile_of(node));
+        let path = self.transcript(node)?;
+        let modified = |path: &Option<PathBuf>| {
+            path.as_ref()
+                .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
         };
-        Ok(Some(Seen {
-            path,
-            changed,
-            typed_after: changed,
-            listening: false,
+        let changed = modified(&path);
+        let typed_after = since.or(changed).unwrap_or_else(SystemTime::now);
+        Ok(Arc::new(move |screen: &Screen| {
+            let quiet = match profile {
+                Some(Profile::Claude) => {
+                    claude::input(&screen.text) == Some("") && !turn_shown(&screen.text)
+                }
+                _ => true,
+            };
+            quiet
+                && modified(&path) == changed
+                && app.agent_state(id) == Some(AgentState::Deaf)
+                && !app.idle.typed_since(id, typed_after)
+                && profile::prompt(profile, screen).is_none()
         }))
-    }
-
-    fn restart_guard(self: &Arc<Self>, node: NodeId, seen: Seen) -> Guard {
-        let app = self.clone();
-        let line = claude::wake_line();
-        Arc::new(move |screen: &Screen| {
-            let input = claude::input(&screen.text);
-            std::fs::metadata(&seen.path)
-                .and_then(|m| m.modified())
-                .is_ok_and(|at| at == seen.changed)
-                && app.idle.waiting(node) == seen.listening
-                && app.untouched(node, seen.typed_after, screen)
-                && (input == Some("") || input == Some(line.as_str()))
-                && !turn_shown(&screen.text)
-        })
-    }
-
-    fn unheard_since(&self, node: &Active) -> rusqlite::Result<Option<Seen>> {
-        if profile_of(node) != Some(Profile::Claude) || self.sleeps.stopping(node.id) {
-            return Ok(None);
-        }
-        let Some(transcript) = &node.transcript else {
-            return Ok(None);
-        };
-        let place = self.graph.place_of(node.id)?;
-        let path = crate::wsl::from_node(PathBuf::from(transcript), Path::new(&place.worktree));
-        let Ok(changed) = std::fs::metadata(&path).and_then(|m| m.modified()) else {
-            return Ok(None);
-        };
-        if self.listening(node.id) {
-            return Ok(Some(Seen {
-                path,
-                changed,
-                typed_after: SystemTime::now(),
-                listening: true,
-            }));
-        }
-        let ended =
-            changed.elapsed().is_ok_and(|age| age >= IDLE_GRACE) && claude::turn_ended(&path);
-        Ok(ended.then_some(Seen {
-            path,
-            changed,
-            typed_after: changed,
-            listening: false,
-        }))
-    }
-
-    fn listening(&self, node: NodeId) -> bool {
-        let listening = self.idle.waiting(node);
-        if let Err(e) = self.graph.compare_listening(node, listening) {
-            eprintln!("loom: 노드 {}의 에이전트 상태와 견주지 못했다: {e}", node.0);
-        }
-        listening
-    }
-
-    fn untouched(&self, node: NodeId, since: SystemTime, screen: &Screen) -> bool {
-        !self.idle.typed_since(node, since)
-            && profile::prompt(Some(Profile::Claude), screen).is_none()
     }
 
     fn sleep_resting(self: &Arc<Self>) -> rusqlite::Result<()> {
@@ -412,24 +319,26 @@ impl App {
     }
 
     fn resting(&self, node: &Active) -> bool {
-        if self.relaunches.holds_mail(node.id) {
+        if self.holds_mail(node.id) || !self.listening(node.id) {
             return false;
         }
         match profile_of(node) {
             Some(Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp) => {
-                node.transcript.is_some() && self.listening(node.id)
+                node.transcript.is_some()
             }
-            Some(Profile::Codex) => {
-                matches!(
-                    node.server,
-                    Some(ServerLink::Codex {
-                        thread: Some(_),
-                        ..
-                    })
-                ) && !self.busy(node.id)
-            }
+            Some(Profile::Codex) => matches!(
+                node.server,
+                Some(ServerLink::Codex {
+                    thread: Some(_),
+                    ..
+                })
+            ),
             Some(Profile::OpenCode2) | None => false,
         }
+    }
+
+    fn listening(&self, node: NodeId) -> bool {
+        self.agent_state(node) == Some(AgentState::Listening)
     }
 
     async fn put_to_sleep(&self, node: Active) {
@@ -438,7 +347,7 @@ impl App {
             self.graph
                 .done_children()
                 .is_ok_and(|done| done.contains(&id))
-                && !self.busy(id)
+                && self.listening(id)
         };
         let stopped = match still() {
             true => self.stop_old_claude(&node).await,
@@ -500,8 +409,6 @@ mod tests {
     #[cfg(unix)]
     use crate::daemon::nodes::human_typed;
     use crate::daemon::relaunch::Relaunched;
-    #[cfg(unix)]
-    use crate::daemon::relaunch::Stop;
     use crate::graph::{Launched, NewChild, NodeState, Place, Report};
     use crate::protocol::{AgentId, Kind, TreeLimits};
     use crate::worktree::RepoId;
@@ -630,7 +537,7 @@ mod tests {
             .write(true)
             .open(&path)
             .unwrap()
-            .set_modified(SystemTime::now() - IDLE_GRACE * 2)
+            .set_modified(SystemTime::now() - STOP_HOOK_GRACE * 2)
             .unwrap();
         t.app
             .graph
@@ -673,16 +580,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_node_without_a_readable_input_box_is_noted_once_and_kept() {
+    async fn a_turn_end_without_a_stop_hook_is_noted_once_and_a_node_without_an_input_box_is_kept()
+    {
         let t = fixture();
         let blind = unheard(&t, "blind", ENDED);
-        let t0 = Instant::now();
-        for step in 0..6 {
-            t.app.wake_unheard(t0 + IDLE_GRACE * step).unwrap();
+        for _ in 0..3 {
+            t.app.end_unhooked_turns().unwrap();
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(missed(&t), [(blind, false)]);
-        assert!(t.app.busy(blind));
+        assert_eq!(t.app.agent_state(blind), Some(AgentState::Deaf));
+        assert!(t.app.relaunches.was_refused(blind));
     }
 
     #[cfg(unix)]
@@ -736,7 +644,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn use_of_the_old_node_after_the_wake_decision_keeps_its_process() {
+    async fn use_of_the_old_node_after_the_recovery_decision_keeps_its_process() {
         let t = fixture();
         let drafted = unheard(&t, "drafted", ENDED);
         let typed = unheard(&t, "typed", ENDED);
@@ -751,8 +659,8 @@ mod tests {
             .into_iter()
             .filter(|n| [drafted, typed, spoke, quiet].contains(&n.id))
             .map(|n| {
-                let seen = t.app.unheard_since(&n).unwrap().unwrap();
-                let guard = t.app.restart_guard(n.id, seen);
+                t.app.feed(n.id, AgentEvent::TurnEnded);
+                let guard = t.app.restart_guard(&n, None).unwrap();
                 assert!(
                     guard(&t.app.host.screen(n.id)),
                     "the sweep decides to restart"
@@ -785,7 +693,12 @@ mod tests {
                 continue;
             }
             assert_eq!((stop, kept), (Ok(Stop::Kept), true), "node {}", id.0);
-            assert!(t.app.busy(id), "node {} keeps its turn state", id.0);
+            assert_eq!(
+                t.app.agent_state(id),
+                Some(AgentState::Deaf),
+                "node {} keeps its state",
+                id.0
+            );
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
         let exited = |node: NodeId| t.dir.path().join(format!("exited-{}", node.0)).exists();
@@ -802,88 +715,75 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn an_idle_node_without_a_live_idle_wait_is_woken_then_relaunched() {
+    async fn a_turn_end_without_a_stop_hook_makes_the_node_deaf_and_relaunches_it_at_once() {
         let t = fixture();
         let deaf = unheard(&t, "deaf", ENDED);
         let busy = unheard(&t, "busy", IN_TOOL);
         let heard = unheard(&t, "heard", ENDED);
         let typing = unheard(&t, "typing", ENDED);
-        let closed = unheard(&t, "closed", ENDED);
         let draft = unheard(&t, "draft", ENDED);
+        let fresh = unheard(&t, "fresh", ENDED);
         let queued = unheard(&t, "queued", ENDED);
-        for node in [deaf, busy, heard, typing, closed, queued] {
+        for node in [deaf, busy, heard, typing, fresh, queued] {
             screen(&t, node, "❯ ");
         }
         screen(&t, draft, "❯ 고쳐 줘");
         let _wait = t.app.idle.open(heard);
         human_typed(&t.app, typing);
-        drop(t.app.idle.open(closed));
-        t.app
-            .idle
-            .typed_at(draft, SystemTime::now() - IDLE_GRACE * 3);
+        std::fs::File::options()
+            .write(true)
+            .open(t.dir.path().join("fresh.jsonl"))
+            .unwrap()
+            .set_modified(SystemTime::now())
+            .unwrap();
         let active = t.app.graph.active().unwrap();
         let held = active.into_iter().find(|n| n.id == queued).unwrap();
         assert_eq!(
             t.app.relaunch_or_queue(held).await,
             Ok(Relaunched::AtTurnEnd)
         );
-        let gone = |names: &[&str]| {
-            for name in names {
-                std::fs::remove_file(t.dir.path().join(format!("{name}.jsonl"))).unwrap();
-            }
-        };
 
-        let t0 = Instant::now();
-        t.app.wake_unheard(t0).unwrap();
-        assert_eq!(missed(&t), [], "the mail is new");
-        t.app.wake_unheard(t0 + IDLE_GRACE).unwrap();
-        gone(&["queued"]);
-        let noticed = [
-            (deaf, false),
-            (typing, false),
-            (closed, false),
-            (draft, false),
-            (queued, false),
-            (queued, true),
-        ];
-        assert_eq!(settle(&t, 6).await, noticed);
-        assert!(t.app.busy(deaf), "a typed wake keeps the turn state");
-        let typed =
-            || std::fs::read_to_string(t.dir.path().join(format!("typed-{}", deaf.0))).unwrap();
-        while typed().is_empty() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+        t.app.end_unhooked_turns().unwrap();
+        for name in ["deaf", "queued"] {
+            std::fs::remove_file(t.dir.path().join(format!("{name}.jsonl"))).unwrap();
         }
-        assert_eq!(typed(), claude::wake_line());
-        t.app.wake_unheard(t0 + IDLE_GRACE * 3 / 2).unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(missed(&t), noticed, "the typed wake gets its grace");
-        t.app.wake_unheard(t0 + IDLE_GRACE * 2).unwrap();
-        gone(&["deaf", "closed"]);
-        let found = settle(&t, 8).await;
-        assert_eq!(found[6..], [(deaf, true), (closed, true)]);
-        t.app.wake_unheard(t0 + IDLE_GRACE * 10).unwrap();
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        let found = settle(&t, 6).await;
         assert_eq!(
-            missed(&t),
-            found,
-            "once per oldest message, never over a draft"
+            found[..4],
+            [
+                (deaf, false),
+                (typing, false),
+                (draft, false),
+                (queued, false)
+            ]
         );
-        assert!(!found.iter().any(|(n, _)| [busy, heard].contains(n)));
+        assert!(found[4..].contains(&(deaf, true)) && found[4..].contains(&(queued, true)));
         for node in [typing, draft] {
+            assert_eq!(t.app.agent_state(node), Some(AgentState::Deaf));
+            assert!(t.app.relaunches.was_refused(node));
             let file = t.dir.path().join(format!("typed-{}", node.0));
             assert_eq!(
                 std::fs::read_to_string(file).unwrap(),
                 "",
-                "nothing typed over a draft"
+                "loom types nothing"
             );
         }
+        assert_eq!(t.app.agent_state(busy), Some(AgentState::Turn));
+        assert_eq!(t.app.agent_state(fresh), Some(AgentState::Turn));
+        assert_eq!(t.app.agent_state(heard), Some(AgentState::Listening));
+        while t.app.graph.ended(deaf).unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        t.app.end_unhooked_turns().unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(missed(&t).len(), 6, "each turn end is noted once");
     }
 
     fn idle_request(
         t: &Fixture,
         token: &str,
     ) -> tokio::task::JoinHandle<
-        Result<axum::Json<Vec<crate::protocol::Delivery>>, crate::daemon::AgentError>,
+        Result<axum::Json<crate::daemon::IdleReply>, crate::daemon::AgentError>,
     > {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(
@@ -899,15 +799,17 @@ mod tests {
 
     async fn taken(
         wait: tokio::task::JoinHandle<
-            Result<axum::Json<Vec<crate::protocol::Delivery>>, crate::daemon::AgentError>,
+            Result<axum::Json<crate::daemon::IdleReply>, crate::daemon::AgentError>,
         >,
     ) -> String {
-        let axum::Json(taken) = tokio::time::timeout(Duration::from_secs(5), wait)
+        let reply = tokio::time::timeout(Duration::from_secs(5), wait)
             .await
             .unwrap()
-            .unwrap()
             .unwrap();
-        taken[0].body.clone()
+        match reply {
+            Ok(axum::Json(crate::daemon::IdleReply::Mail(taken))) => taken[0].body.clone(),
+            _ => panic!("the idle wait gave no mail"),
+        }
     }
 
     #[tokio::test]
@@ -930,29 +832,38 @@ mod tests {
         assert_eq!(missed(&t), [], "nothing cut the turn");
     }
 
-    #[cfg(unix)]
     #[tokio::test]
-    async fn a_restarted_daemon_reads_an_open_claude_turn_from_the_transcript() {
+    async fn a_relaunch_waits_while_the_agent_starts_or_turns_and_runs_once_it_listens() {
         let t = fixture();
-        let node = |name: &str, transcript: &str| {
-            let id = add_worker(&t, name);
-            let path = t.dir.path().join(format!("{name}.jsonl"));
-            std::fs::write(&path, transcript).unwrap();
-            t.app
-                .graph
-                .set_transcript(id, path.to_str().unwrap())
-                .unwrap();
+        let starting = add_worker(&t, "starting");
+        let turning = add_worker(&t, "turning");
+        let listening = add_worker(&t, "listening");
+        t.app.idle.turn_started(turning, "PostToolUse".into());
+        let _wait = t.app.idle.open(listening);
+        let active = |id: NodeId| {
             let active = t.app.graph.active().unwrap();
             active.into_iter().find(|n| n.id == id).unwrap()
         };
-        let working = node("working", IN_TOOL);
-        let resting = node("resting", ENDED);
-        assert_eq!(
-            t.app.relaunch_or_queue(working).await,
-            Ok(Relaunched::AtTurnEnd)
-        );
-        let now = t.app.relaunch_or_queue(resting).await;
-        assert!(now.is_err(), "{now:?}");
+        for node in [starting, turning] {
+            assert_eq!(
+                t.app.relaunch_or_queue(active(node)).await,
+                Ok(Relaunched::AtTurnEnd)
+            );
+        }
+        let now = t.app.relaunch_or_queue(active(listening)).await;
+        assert!(now.is_err(), "it ran now and found no session: {now:?}");
+        assert_eq!(missed(&t), [(listening, true)]);
+
+        let wait = idle_request(&t, "starting");
+        for _ in 0..100 {
+            if missed(&t).len() == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(missed(&t), [(listening, true), (starting, true)]);
+        assert!(t.app.at_turn_end(turning), "the turn has not ended");
+        wait.abort();
     }
 
     #[cfg(unix)]
@@ -976,6 +887,7 @@ mod tests {
                 .graph
                 .set_transcript(id, path.to_str().unwrap())
                 .unwrap();
+            t.app.idle.turn_started(id, "UserPromptSubmit".into());
             let mut cmd = portable_pty::CommandBuilder::new("sh");
             cmd.args([
                 "-c",
@@ -986,8 +898,7 @@ mod tests {
                 boxed("❯ ").replace("bypass permissions on", footer),
             );
             host_pty(&t, id, cmd);
-            let active = t.app.graph.active().unwrap();
-            active.into_iter().find(|n| n.id == id).unwrap()
+            id
         };
         let stopped = node(
             "stopped",
@@ -999,7 +910,11 @@ mod tests {
             IN_TOOL,
             "bypass permissions on (shift+tab to cycle) · esc to interrupt",
         );
-        let (stopped, working) = (stopped.id, working.id);
+        let unplanned = node(
+            "unplanned",
+            INTERRUPTED,
+            "bypass permissions on (shift+tab to cycle)",
+        );
         for id in [stopped, working] {
             let active = t.app.graph.active().unwrap();
             let held = active.into_iter().find(|n| n.id == id).unwrap();
@@ -1009,22 +924,22 @@ mod tests {
             );
         }
 
-        let t0 = Instant::now();
-        t.app.release_stopped_turns(t0).unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(missed(&t), [], "one look is not enough");
-        t.app.release_stopped_turns(t0 + STOPPED_SETTLE).unwrap();
+        t.app.end_unhooked_turns().unwrap();
         while !missed(&t).contains(&(stopped, true)) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert!(!t.app.relaunches.at_turn_end(stopped));
-
-        for step in 2..10 {
-            t.app.release_stopped_turns(t0 + hour * step).unwrap();
+        assert!(!t.app.at_turn_end(stopped));
+        for _ in 0..5 {
+            t.app.end_unhooked_turns().unwrap();
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(missed(&t), [(stopped, true)], "a running tool is never cut");
-        assert!(t.app.relaunches.at_turn_end(working));
+        assert_eq!(
+            missed(&t),
+            [(stopped, false), (stopped, true)],
+            "a running tool is never cut, and a cut turn without a plan waits for the human"
+        );
+        assert!(t.app.at_turn_end(working));
+        assert_eq!(t.app.agent_state(unplanned), Some(AgentState::Turn));
     }
 
     #[test]
@@ -1049,7 +964,7 @@ mod tests {
     async fn a_cancelled_wake_restart_frees_an_idle_wait_that_came_during_preparation() {
         let t = fixture();
         let fallback = add_worker(&t, "fallback");
-        t.app.relaunches.hold(fallback);
+        t.app.hold(fallback);
         let wait = idle_request(&t, "fallback");
         tokio::time::sleep(Duration::from_millis(50)).await;
         t.app
@@ -1067,60 +982,52 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_kept_queued_plan_runs_only_when_the_guard_passes_later() {
+    async fn a_lost_idle_wait_relaunches_the_node_at_once_or_at_its_next_event() {
         let t = fixture();
-        let queued = unheard(&t, "queued", ENDED);
-        redrawn(&t, queued, "❯ 고쳐 줘", "❯ ");
-        let held = t
-            .app
-            .graph
-            .active()
-            .unwrap()
-            .into_iter()
-            .find(|n| n.id == queued)
-            .unwrap();
-        assert_eq!(
-            t.app.relaunch_or_queue(held).await,
-            Ok(Relaunched::AtTurnEnd)
-        );
-        t.app.relaunches.hold(queued);
-        let wait = idle_request(&t, "queued");
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        human_typed(&t.app, queued);
-        t.app.kept_at_turn_end(queued);
+        t.app.watch_agents();
+        let node = unheard(&t, "queued", ENDED);
+        redrawn(&t, node, "❯ 고쳐 줘", "❯ ");
+        drop(t.app.idle.open(node));
         tokio::time::sleep(Duration::from_millis(200)).await;
-        let relaunched = || missed(&t).contains(&(queued, true));
-        let exited = || t.dir.path().join(format!("exited-{}", queued.0)).exists();
-        assert!(!wait.is_finished() && !relaunched() && !exited());
-        assert!(
-            t.app.relaunches.at_turn_end(queued),
-            "the plan stays queued"
-        );
-
-        let t0 = Instant::now();
-        t.app.wake_unheard(t0).unwrap();
-        t.app.wake_unheard(t0 + IDLE_GRACE).unwrap();
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        let relaunched = || missed(&t).contains(&(node, true));
+        let exited = || t.dir.path().join(format!("exited-{}", node.0)).exists();
+        assert_eq!(t.app.agent_state(node), Some(AgentState::Deaf));
+        assert!(t.app.relaunches.was_refused(node));
         assert!(!relaunched() && !exited(), "no restart over the draft");
-        assert_eq!(
-            claude::input(&t.app.host.screen(queued).text),
-            Some("고쳐 줘")
-        );
 
         t.app
             .host
-            .write_if(queued, |_| {
-                human_typed(&t.app, queued);
+            .write_if(node, |_| {
+                human_typed(&t.app, node);
                 Ok::<_, std::convert::Infallible>(b"\x7f".to_vec())
             })
             .unwrap();
-        while claude::input(&t.app.host.screen(queued).text) != Some("") {
+        while claude::input(&t.app.host.screen(node).text) != Some("") {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        t.app.wake_unheard(t0 + IDLE_GRACE * 2).unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!relaunched(), "typing is no event of the agent");
+
+        let dialog = Some((crate::protocol::WaitKind::Approval, "허용할까요?"));
+        t.app
+            .graph
+            .set_wait("queued", crate::graph::WaitSource::Hook, dialog)
+            .unwrap();
+        t.app
+            .graph
+            .set_wait("queued", crate::graph::WaitSource::Hook, None)
+            .unwrap();
         std::fs::remove_file(t.dir.path().join("queued.jsonl")).unwrap();
-        assert_eq!(taken(wait).await, "new task");
-        assert!(relaunched(), "the queued plan ran once the box was empty");
+        while !relaunched() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        while t.app.graph.ended(node).unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            !t.app.relaunches.was_refused(node),
+            "a failed recovery ends the node"
+        );
     }
 
     #[cfg(unix)]
@@ -1200,6 +1107,7 @@ mod tests {
             .into_iter()
             .find(|n| n.id == worker)
             .unwrap();
+        app.feed(worker, AgentEvent::WaitOpened);
         assert!(app.sleeps.begin(worker));
         let sleeping = app.clone();
         tokio::spawn(async move { sleeping.put_to_sleep(node).await });

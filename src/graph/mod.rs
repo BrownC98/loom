@@ -3,6 +3,7 @@ mod events;
 mod gate;
 mod mailbox;
 mod nodes;
+mod relaunch_plans;
 mod waits;
 
 use std::collections::HashMap;
@@ -15,19 +16,18 @@ use rusqlite::{Connection, Row, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::futures::Notified;
-use tokio::sync::{Notify, broadcast};
+use tokio::sync::{Notify, broadcast, mpsc};
 use ts_rs::TS;
 
-pub use agent_state::AgentEvent;
-#[cfg(test)]
-pub use agent_state::{AgentState, ShadowCheck};
+pub use agent_state::{AgentChange, AgentEvent, AgentState};
 pub use events::{
     AgentSwitch, BatchMember, BatchResult, Entry, EventLog, EventRecord, IdleEnd, SwitchCause,
     TurnCheck, Via, Who,
 };
 pub use gate::{BatchId, Ended, GateChoice, Queued, Reclaim, Round};
-pub use mailbox::{Kept, PARENT, REDELIVER_AFTER, Report, Sent};
+pub use mailbox::{Kept, PARENT, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
+pub use relaunch_plans::{NewAgent, Phase, Plan, Planned};
 pub use waits::{HUMAN, HumanWait, WaitSource};
 
 use crate::db::Database;
@@ -157,6 +157,8 @@ pub struct Graph {
     db: Database,
     published: Mutex<u32>,
     events: broadcast::Sender<GraphEvent>,
+    agent_tx: mpsc::UnboundedSender<AgentChange>,
+    agent_rx: Mutex<Option<mpsc::UnboundedReceiver<AgentChange>>>,
     mail: Notify,
     prompts: Mutex<HashMap<NodeId, Prompt>>,
     linked: fn(&AgentId) -> bool,
@@ -177,6 +179,7 @@ struct Db<'a> {
     conn: MutexGuard<'a, Connection>,
     published: MutexGuard<'a, u32>,
     events: &'a broadcast::Sender<GraphEvent>,
+    agent: &'a mpsc::UnboundedSender<AgentChange>,
 }
 
 impl Deref for Db<'_> {
@@ -199,6 +202,16 @@ impl Drop for Db<'_> {
         };
         for record in new {
             *self.published = record.id;
+            if let Entry::AgentStateChanged { node, from, to, by } = &record.entry
+                && let Some(node) = node.id
+            {
+                let _ = self.agent.send(AgentChange {
+                    node,
+                    from: from.clone(),
+                    to: to.clone(),
+                    by: by.clone(),
+                });
+            }
             let _ = self.events.send(GraphEvent::Recorded {
                 record: Box::new(record),
             });
@@ -209,10 +222,15 @@ impl Drop for Db<'_> {
 impl Graph {
     pub fn open(db: Database, linked: fn(&AgentId) -> bool) -> rusqlite::Result<Self> {
         let published = events::last_id(&db.lock())?;
+        relaunch_plans::settle_running(&db.lock())?;
+        mailbox::requeue_handed(&db.lock())?;
+        let (agent_tx, agent_rx) = mpsc::unbounded_channel();
         Ok(Self {
             db,
             published: Mutex::new(published),
             events: broadcast::channel(EVENT_QUEUE).0,
+            agent_tx,
+            agent_rx: Mutex::new(Some(agent_rx)),
             mail: Notify::new(),
             prompts: Mutex::default(),
             linked,
@@ -262,7 +280,12 @@ impl Graph {
             conn: self.db.lock(),
             published: self.published.lock().unwrap(),
             events: &self.events,
+            agent: &self.agent_tx,
         }
+    }
+
+    pub fn agent_changes(&self) -> Option<mpsc::UnboundedReceiver<AgentChange>> {
+        self.agent_rx.lock().unwrap().take()
     }
 
     pub fn event_log(&self) -> rusqlite::Result<EventLog> {

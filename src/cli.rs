@@ -10,9 +10,9 @@ use crate::daemon::gate::{
 };
 use crate::daemon::{
     AckRequest, AdoptRequest, AnswerRequest, AnsweredRequest, AskRequest, AskResult, DoneRequest,
-    GuardRequest, HookWaitRequest, IdleRequest, NewAgent, NoteRequest, RelaunchRequest, Relaunched,
-    RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken,
-    TurnEndRequest, TurnId, WaitRequest,
+    EndedTurn, GuardRequest, HookWaitRequest, IdleReply, IdleRequest, NewAgent, NoteRequest,
+    RelaunchRequest, Relaunched, RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun,
+    TakeRequest, Taken, WaitRequest,
 };
 use crate::graph::{Kept, Listed, NodeId, Relations, Sent};
 use crate::profile::claude;
@@ -241,17 +241,21 @@ pub fn hook() -> Result<(), String> {
             return Ok(());
         }
         Take::WhenIdle => {
-            if let claude::Event::Stop = event
-                && let Some(nudge) = turn_end(claude::last_reply(&input), None, timeout)
-            {
-                to_model(&nudge)?;
-                std::process::exit(REWAKE_EXIT)
-            }
-            let taken = wait_for_mail(&IdleRequest {
+            let turn_end = matches!(event, claude::Event::Stop).then(|| EndedTurn {
+                reply: claude::last_reply(&input),
+            });
+            let reply = wait_for_mail(IdleRequest {
                 transcript,
                 rate_limited: event.rate_limited(),
-                turn: None,
+                turn_end,
             })?;
+            let taken = match reply {
+                IdleReply::Nudge { nudge } => {
+                    to_model(&nudge)?;
+                    std::process::exit(REWAKE_EXIT)
+                }
+                IdleReply::Mail(taken) => taken,
+            };
             if taken.is_empty() {
                 return Ok(());
             }
@@ -267,7 +271,6 @@ pub fn hook() -> Result<(), String> {
         transcript,
         human_input: event.human_input(),
         prompt: event.prompt().map(str::to_owned),
-        turn: None,
     };
     let taken: Taken = call("take", &request, Some(timeout))?;
     if let Some(reply) = event.reply(&taken.messages, taken.note.as_deref()) {
@@ -297,30 +300,12 @@ fn to_model(text: &str) -> Result<(), String> {
     stderr.flush().map_err(|e| e.to_string())
 }
 
-fn turn_end(reply: Option<String>, turn: Option<TurnId>, timeout: Duration) -> Option<String> {
-    if let Some(text) = reply
-        && let Err(e) = call::<()>("said", &SaidRequest { text, turn: None }, Some(timeout))
-    {
-        eprintln!("loom: could not report the reply: {e}");
-    }
-    call::<Option<String>>("turn-end", &TurnEndRequest { turn }, Some(timeout)).unwrap_or_else(
-        |e| {
-            eprintln!("loom: could not check the turn end: {e}");
-            None
-        },
-    )
-}
-
 pub fn cursor_hook() -> Result<(), String> {
     let input: serde_json::Value =
         serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
     let event = cursor::Event::deserialize(&input).map_err(|e| format!("hook input: {e}"))?;
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
     let transcript = input["transcript_path"].as_str().map(str::to_owned);
-    let turn = input["generation_id"]
-        .as_str()
-        .filter(|id| !id.is_empty())
-        .map(|id| TurnId(id.to_owned()));
     if let Some(model) = event.model()
         && let Err(e) = call::<()>("model", &model, Some(timeout))
     {
@@ -336,20 +321,12 @@ pub fn cursor_hook() -> Result<(), String> {
                 transcript: transcript.clone(),
                 human_input: matches!(event, cursor::Event::BeforeSubmitPrompt { .. }),
                 prompt: None,
-                turn: turn.clone(),
             },
             Some(timeout),
         )
     };
     if let cursor::Event::AfterAgentResponse { text } = &event
-        && let Err(e) = call::<()>(
-            "said",
-            &SaidRequest {
-                text: text.clone(),
-                turn: turn.clone(),
-            },
-            Some(timeout),
-        )
+        && let Err(e) = call::<()>("said", &SaidRequest { text: text.clone() }, Some(timeout))
     {
         eprintln!("loom: could not report the reply: {e}");
     }
@@ -367,24 +344,30 @@ pub fn cursor_hook() -> Result<(), String> {
             Some(Err(e)) => eprintln!("loom: could not read the transcript: {e}"),
             None | Some(Ok(false)) => {}
         }
-        if let Some(nudge) = turn_end(None, turn.clone(), timeout) {
-            println!("{}", serde_json::json!({ "followup_message": nudge }));
-            return Ok(());
-        }
     }
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {
             messages: Vec::new(),
             note: None,
         },
-        Some(Take::WhenIdle) => Taken {
-            messages: wait_until_mail(&IdleRequest {
+        Some(Take::WhenIdle) => {
+            let turn_end = matches!(event, cursor::Event::Stop { .. }).then(EndedTurn::default);
+            let reply = wait_until_mail(IdleRequest {
                 transcript,
                 rate_limited: false,
-                turn: turn.clone(),
-            })?,
-            note: None,
-        },
+                turn_end,
+            })?;
+            match reply {
+                IdleReply::Nudge { nudge } => {
+                    println!("{}", serde_json::json!({ "followup_message": nudge }));
+                    return Ok(());
+                }
+                IdleReply::Mail(messages) => Taken {
+                    messages,
+                    note: None,
+                },
+            }
+        }
         Some(Take::Now(kinds)) => take_now(kinds)?,
     };
     println!("{}", event.reply(&taken.messages, taken.note.as_deref()));
@@ -461,24 +444,26 @@ fn pi_event(
     {
         eprintln!("loom: could not report the model: {e}");
     }
-    if let Some(reply) = event.turn_ends()
-        && let Some(nudge) = turn_end(reply, None, timeout)
-    {
-        return send(&pi::nudge(id, nudge));
-    }
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {
             messages: Vec::new(),
             note: None,
         },
-        Some(Take::WhenIdle) => Taken {
-            messages: wait_until_mail(&IdleRequest {
+        Some(Take::WhenIdle) => {
+            let turn_end = event.turn_ends().map(|reply| EndedTurn { reply });
+            let reply = wait_until_mail(IdleRequest {
                 transcript,
                 rate_limited: false,
-                turn: None,
-            })?,
-            note: None,
-        },
+                turn_end,
+            })?;
+            match reply {
+                IdleReply::Nudge { nudge } => return send(&pi::nudge(id, nudge)),
+                IdleReply::Mail(messages) => Taken {
+                    messages,
+                    note: None,
+                },
+            }
+        }
         Some(Take::Now(kinds)) => call(
             "take",
             &TakeRequest {
@@ -488,7 +473,6 @@ fn pi_event(
                 transcript,
                 human_input: event.prompt().is_some(),
                 prompt: event.prompt().map(str::to_owned),
-                turn: None,
             },
             Some(timeout),
         )?,
@@ -508,12 +492,20 @@ fn acknowledge(taken: &[Delivery], timeout: Option<Duration>) {
     }
 }
 
-fn wait_for_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
-    reconnecting(None, |_| call("idle", request, None))
+fn wait_for_mail(mut request: IdleRequest) -> Result<IdleReply, String> {
+    reconnecting(None, |_| idle_once(&mut request))
 }
 
-fn wait_until_mail(request: &IdleRequest) -> Result<Vec<Delivery>, String> {
-    until_answered(RECONNECT_AFTER, || call("idle", request, None))
+fn wait_until_mail(mut request: IdleRequest) -> Result<IdleReply, String> {
+    until_answered(RECONNECT_AFTER, || idle_once(&mut request))
+}
+
+fn idle_once(request: &mut IdleRequest) -> Result<IdleReply, CallError> {
+    let reply = call("idle", &*request, None);
+    if !matches!(reply, Err(CallError::NotConnected(_))) {
+        request.turn_end = None;
+    }
+    reply
 }
 
 fn until_answered<T>(

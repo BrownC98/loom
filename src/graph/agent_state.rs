@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::events::{self, Entry, IdleEnd};
-use super::{Graph, NodeId, optional_json, to_json};
+use super::{Graph, NodeId, mailbox, optional_json, to_json};
 
 /// 노드 에이전트가 지금 무엇을 하는지. 모든 에이전트 경로의 공통 사건(`AgentEvent`)이 `next` 하나로 바꾼다. 데몬 DB에 있어 데몬을 다시 띄워도 남는다.
-/// 근거: R32 v2 ②A. 1단계는 그림자다. 옛 판정과 나란히 계산하고 다르면 `AgentStateDisagreed`를 남긴다. 결정은 아직 옛 판정이 한다.
+/// 근거: R32 v3 ②A. 다시 띄우기·재우기·전달 판단이 이 상태를 읽는다.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
@@ -39,8 +39,10 @@ pub enum AgentState {
 pub enum AgentEvent {
     /// 턴 안의 훅이 메일함을 읽었다.
     TurnStarted,
-    /// 훅이 턴 끝을 알렸다. 쉬는 대기는 따로 `WaitOpened`로 온다.
+    /// 옛 판의 훅이 턴 끝을 따로 알렸다. 쉬는 대기는 따로 `WaitOpened`로 온다. 훅이 닿지 않은 턴 끝의 증거(기록 파일과 화면)도 이 사건이다.
     TurnEnded,
+    /// 훅이 한 요청으로 턴 끝을 알리고 쉬는 대기를 열었다.
+    TurnEndedWaitOpened,
     WaitOpened,
     /// 노드의 마지막 쉬는 대기가 끝났다. `Mail`이면 메일을 넘겨 턴이 시작한다. 새 대기가 열린 뒤 끝난 옛 대기는 보내지 않는다.
     WaitClosed {
@@ -65,23 +67,20 @@ pub enum AgentEvent {
     VersionMismatch,
 }
 
-/// 상태 기계와 견준 옛 판정.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub enum ShadowCheck {
-    /// `App::busy`(턴 중인가).
-    Busy,
-    /// `IdleWaits::waiting`(쉬는 대기가 열려 있는가).
-    Listening,
-}
-
 impl AgentState {
     pub fn busy(&self) -> bool {
         !matches!(
             self,
-            Self::Listening | Self::Deaf | Self::Asleep | Self::Ended
+            Self::Listening | Self::Deaf | Self::Blocked { .. } | Self::Asleep | Self::Ended
         )
+    }
+
+    pub fn cut(&self) -> bool {
+        match self {
+            Self::Listening | Self::Asleep | Self::Ended => false,
+            Self::Blocked { before } | Self::Relaunching { before } => before.cut(),
+            Self::Starting | Self::Deaf | Self::Turn | Self::Mismatch => true,
+        }
     }
 
     pub fn next(self, event: &AgentEvent) -> AgentState {
@@ -116,7 +115,7 @@ impl AgentState {
             },
             (state, E::DialogCleared) => state,
             (_, E::TurnStarted | E::ServerBusy) => S::Turn,
-            (_, E::WaitOpened | E::ServerIdle) => S::Listening,
+            (_, E::WaitOpened | E::TurnEndedWaitOpened | E::ServerIdle) => S::Listening,
             (_, E::ServerLost) => S::Deaf,
             (
                 _,
@@ -130,28 +129,28 @@ impl AgentState {
             (state, E::TurnEnded) => state,
         }
     }
+}
 
-    fn agrees(&self, check: ShadowCheck, old: bool) -> bool {
-        match check {
-            ShadowCheck::Busy => self.busy() == old,
-            ShadowCheck::Listening => (*self == Self::Listening) == old,
-        }
-    }
+#[derive(Clone, Debug, PartialEq)]
+pub struct AgentChange {
+    pub node: NodeId,
+    pub from: AgentState,
+    pub to: AgentState,
+    pub by: AgentEvent,
 }
 
 struct Stored {
     state: AgentState,
     seq: i64,
-    noted: Option<i64>,
 }
 
 fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Stored>> {
     db.query_row(
-        "SELECT s.state, coalesce(s.seq, 0), s.noted, n.process_exited, n.asleep
+        "SELECT s.state, coalesce(s.seq, 0), n.process_exited, n.asleep
          FROM nodes n LEFT JOIN agent_states s ON s.node = n.id WHERE n.id = ?1",
         [node.0],
         |row| {
-            let state = optional_json(row, 0)?.unwrap_or(match (row.get(3)?, row.get(4)?) {
+            let state = optional_json(row, 0)?.unwrap_or(match (row.get(2)?, row.get(3)?) {
                 (_, true) => AgentState::Asleep,
                 (true, false) => AgentState::Ended,
                 (false, false) => AgentState::Starting,
@@ -159,7 +158,6 @@ fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Stored>> {
             Ok(Stored {
                 state,
                 seq: row.get(1)?,
-                noted: row.get(2)?,
             })
         },
     )
@@ -168,21 +166,21 @@ fn load(db: &Connection, node: NodeId) -> rusqlite::Result<Option<Stored>> {
 
 fn store(db: &Connection, node: NodeId, stored: &Stored) -> rusqlite::Result<()> {
     db.execute(
-        "INSERT INTO agent_states (node, state, seq, noted, at) VALUES (?1, ?2, ?3, ?4, unixepoch())
-         ON CONFLICT (node) DO UPDATE SET state = excluded.state, seq = excluded.seq,
-             noted = excluded.noted, at = excluded.at",
-        params![node.0, to_json(&stored.state), stored.seq, stored.noted],
+        "INSERT INTO agent_states (node, state, seq, at) VALUES (?1, ?2, ?3, unixepoch())
+         ON CONFLICT (node) DO UPDATE SET state = excluded.state, seq = excluded.seq, at = excluded.at",
+        params![node.0, to_json(&stored.state), stored.seq],
     )?;
     Ok(())
 }
 
-pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlite::Result<()> {
+pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlite::Result<usize> {
     let Some(now) = load(db, node)? else {
-        return Ok(());
+        return Ok(0);
     };
+    let moved = move_mail(db, node, &event)?;
     let to = now.state.clone().next(&event);
     if to == now.state {
-        return Ok(());
+        return Ok(moved);
     }
     store(
         db,
@@ -190,7 +188,6 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
         &Stored {
             state: to.clone(),
             seq: now.seq + 1,
-            noted: now.noted,
         },
     )?;
     let entry = Entry::AgentStateChanged {
@@ -199,31 +196,23 @@ pub(super) fn apply(db: &Connection, node: NodeId, event: AgentEvent) -> rusqlit
         to,
         by: event,
     };
-    events::write(db, &entry, None)
+    events::write(db, &entry, None)?;
+    Ok(moved)
 }
 
-fn compare(db: &Connection, node: NodeId, check: ShadowCheck, old: bool) -> rusqlite::Result<()> {
-    let Some(now) = load(db, node)? else {
-        return Ok(());
-    };
-    if now.state.agrees(check, old) || now.noted == Some(now.seq) {
-        return Ok(());
+fn move_mail(db: &Connection, node: NodeId, event: &AgentEvent) -> rusqlite::Result<usize> {
+    use AgentEvent as E;
+    match event {
+        E::TurnStarted | E::ServerBusy | E::ServerIdle => mailbox::read(db, node),
+        E::TurnEnded | E::TurnEndedWaitOpened => {
+            Ok(mailbox::read(db, node)? + mailbox::requeue_unprinted(db, node)?)
+        }
+        E::WaitClosed {
+            by: IdleEnd::Gone | IdleEnd::Error,
+        } => mailbox::requeue_unprinted(db, node),
+        E::Exited | E::RelaunchStarted | E::Slept => mailbox::requeue_unread(db, node),
+        _ => Ok(0),
     }
-    let entry = Entry::AgentStateDisagreed {
-        node: events::who(db, node)?,
-        check,
-        old,
-        state: now.state.clone(),
-    };
-    store(
-        db,
-        node,
-        &Stored {
-            noted: Some(now.seq),
-            ..now
-        },
-    )?;
-    events::write(db, &entry, None)
 }
 
 pub(super) fn state_of(db: &Connection, node: NodeId) -> rusqlite::Result<Option<AgentState>> {
@@ -234,26 +223,15 @@ impl Graph {
     pub fn agent_event(&self, node: NodeId, event: AgentEvent) -> rusqlite::Result<()> {
         let mut db = self.lock();
         let tx = db.transaction()?;
-        apply(&tx, node, event)?;
-        tx.commit()
+        let moved = apply(&tx, node, event)?;
+        tx.commit()?;
+        if moved > 0 {
+            self.publish_node(&db, node)?;
+            self.mail.notify_waiters();
+        }
+        Ok(())
     }
 
-    pub fn compare_busy(&self, node: NodeId, old: bool) -> rusqlite::Result<()> {
-        self.compare(node, ShadowCheck::Busy, old)
-    }
-
-    pub fn compare_listening(&self, node: NodeId, old: bool) -> rusqlite::Result<()> {
-        self.compare(node, ShadowCheck::Listening, old)
-    }
-
-    fn compare(&self, node: NodeId, check: ShadowCheck, old: bool) -> rusqlite::Result<()> {
-        let mut db = self.lock();
-        let tx = db.transaction()?;
-        compare(&tx, node, check, old)?;
-        tx.commit()
-    }
-
-    #[cfg(test)]
     pub fn agent_state(&self, node: NodeId) -> rusqlite::Result<Option<AgentState>> {
         state_of(&self.lock(), node)
     }
@@ -265,11 +243,12 @@ mod tests {
 
     const STATES: [&str; 9] = ["S", "bT", "L", "D", "T", "rT", "M", "A", "E"];
 
-    fn events() -> [AgentEvent; 22] {
+    fn events() -> [AgentEvent; 23] {
         let closed = |by| AgentEvent::WaitClosed { by };
         [
             AgentEvent::TurnStarted,
             AgentEvent::TurnEnded,
+            AgentEvent::TurnEndedWaitOpened,
             AgentEvent::WaitOpened,
             closed(IdleEnd::Mail),
             closed(IdleEnd::NewWait),
@@ -294,15 +273,15 @@ mod tests {
     }
 
     const NEXT: [&str; 9] = [
-        "T  D  L  T  S  T  S  S  S  S  S  bS S  T  L  D  rS  S  S  A  E  M",
-        "bT bD bL bT bT bT bT bT bT bT bT bT T  bT bL bD rbT bT S  A  E  M",
-        "T  L  L  T  D  T  D  D  D  D  D  bL L  T  L  D  rL  L  S  A  E  M",
-        "T  D  L  T  D  T  D  D  D  D  D  bD D  T  L  D  rD  D  S  A  E  M",
-        "T  D  L  T  T  T  T  T  T  T  T  bT T  T  L  D  rT  T  S  A  E  M",
-        "rT rD rL rT rT rT rT rT rT rT rT rbT rT rT rL rD rT T  S  A  E  rM",
-        "M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  rM  M  S  A  E  M",
-        "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A   A  S  A  E  A",
-        "E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E   E  S  E  E  E",
+        "T  D  L  L  T  S  T  S  S  S  S  S  bS  S  T  L  D  rS  S  S  A  E  M",
+        "bT  bD  bL  bL  bT  bT  bT  bT  bT  bT  bT  bT  bT  T  bT  bL  bD  rbT  bT  S  A  E  M",
+        "T  L  L  L  T  D  T  D  D  D  D  D  bL  L  T  L  D  rL  L  S  A  E  M",
+        "T  D  L  L  T  D  T  D  D  D  D  D  bD  D  T  L  D  rD  D  S  A  E  M",
+        "T  D  L  L  T  T  T  T  T  T  T  T  bT  T  T  L  D  rT  T  S  A  E  M",
+        "rT  rD  rL  rL  rT  rT  rT  rT  rT  rT  rT  rT  rbT  rT  rT  rL  rD  rT  T  S  A  E  rM",
+        "M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  M  rM  M  S  A  E  M",
+        "A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  A  S  A  E  A",
+        "E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  E  S  E  E  E",
     ];
 
     fn state(code: &str) -> AgentState {
@@ -339,11 +318,11 @@ mod tests {
     }
 
     #[test]
-    fn only_a_listening_deaf_asleep_or_ended_agent_is_not_busy() {
+    fn only_a_listening_deaf_blocked_asleep_or_ended_agent_is_not_busy() {
         let busy: Vec<&str> = STATES
             .into_iter()
             .filter(|code| state(code).busy())
             .collect();
-        assert_eq!(busy, ["S", "bT", "T", "rT", "M"]);
+        assert_eq!(busy, ["S", "T", "rT", "M"]);
     }
 }

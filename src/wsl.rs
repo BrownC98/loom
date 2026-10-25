@@ -61,6 +61,64 @@ pub fn windows_path(distro: &str, linux: &str) -> String {
     )
 }
 
+fn interop_path(distro: &str, linux: &str) -> String {
+    std::process::Command::new("wslpath")
+        .arg("-w")
+        .arg(linux)
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|path| path.trim_end_matches('\n').to_owned())
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| windows_path(distro, linux))
+}
+
+fn verbatim(windows: &str) -> String {
+    match windows.strip_prefix(r"\\") {
+        Some(unc) => format!(r"\\?\UNC\{unc}"),
+        None => format!(r"\\?\{windows}"),
+    }
+}
+
+fn tunnel_distro() -> Option<String> {
+    if cfg!(windows) {
+        return None;
+    }
+    std::env::var_os(SOCKET_ENV)?;
+    std::env::var("WSL_DISTRO_NAME").ok()
+}
+
+fn linux(path: &Path) -> Option<&str> {
+    path.to_str()
+        .filter(|p| p.starts_with('/') && !p.starts_with("//"))
+}
+
+pub fn for_daemon(path: PathBuf) -> PathBuf {
+    match (tunnel_distro(), linux(&path)) {
+        (Some(distro), Some(linux)) => verbatim(&interop_path(&distro, linux)).into(),
+        _ => path,
+    }
+}
+
+pub fn cwd_for_daemon(dir: PathBuf) -> PathBuf {
+    match (tunnel_distro(), linux(&dir)) {
+        (Some(distro), Some(linux)) => interop_path(&distro, linux).into(),
+        _ => from_caller(dir),
+    }
+}
+
+pub fn from_daemon(path: String) -> PathBuf {
+    inside_distro(path, tunnel_distro().as_deref())
+}
+
+fn inside_distro(path: String, distro: Option<&str>) -> PathBuf {
+    match (distro, location(&path)) {
+        (Some(distro), Some(inside)) if inside.distro == distro => inside.path.into(),
+        _ => path.into(),
+    }
+}
+
 pub fn tilde(path: &str, home: &str) -> String {
     let home = home.trim_end_matches('/');
     match path.strip_prefix(home) {
@@ -154,10 +212,7 @@ pub fn from_node(path: PathBuf, folder: &Path) -> PathBuf {
 }
 
 fn linux_at(path: PathBuf, at: Option<WslPath>) -> PathBuf {
-    let linux = path
-        .to_str()
-        .filter(|p| p.starts_with('/') && !p.starts_with("//"));
-    match (linux, at) {
+    match (linux(&path), at) {
         (Some(p), Some(at)) => at.unc(p).into(),
         _ => path,
     }
@@ -368,6 +423,22 @@ pub const REWAKE_EXIT: i32 = 2;
 pub const TUNNEL_DOWN_EXIT: i32 = 3;
 pub const SOCKET_ENV: &str = "LOOM_SOCKET";
 pub const LINUX_LOOM: &str = "loom-linux";
+pub const WINDOWS_VERBS: &[&str] = &[
+    "serve", "start", "open", "stop", "carry", "show", "spawn", "pty-host", "guard", "tunnel",
+];
+const STDIN_VERBS: &[&str] = &["hook", "cursor-hook", "spawn"];
+const RETRY_VERBS: &[&str] = &[
+    "hook",
+    "cursor-hook",
+    "spawn",
+    "status",
+    "roles",
+    "cursor-rules",
+    "start",
+    "open",
+    "stop",
+    "show",
+];
 const LINUX_HASH_HEX: usize = 12;
 
 pub async fn inside(
@@ -634,7 +705,8 @@ pub fn write_shim(dir: &Path, exe: &Path, tunnel: Option<&Tunnel>) -> std::io::R
     let shim = dir.join("loom");
     let through_tunnel = match tunnel {
         Some(Tunnel { linux, sock }) => format!(
-            r#"sock=$HOME/{sock}
+            r#"case $1 in {windows}) ;; *)
+sock=$HOME/{sock}
 lin=$(wslpath -u '{linux}')
 if [ ! -x "$lin" ]; then
   why="no $lin"
@@ -651,7 +723,9 @@ else
   why="$sock refused the connection"
 fi
 note "$1" "uses loom.exe: $why"
+;; esac
 "#,
+            windows = WINDOWS_VERBS.join(" | "),
             linux = quoted(linux)
         ),
         None => String::new(),
@@ -672,7 +746,6 @@ if [ "$1" = guard ] && [ -n "$LOOM_TOKEN" ]; then
   exit 0
 fi
 exe=$(wslpath -u '{exe}')
-case $1 in hook | cursor-hook | pi-hook) ;; *) exec "$exe" "$@" ;; esac
 trap 'kill $pid 2>/dev/null; wait; exit 143' TERM
 trap 'kill $pid 2>/dev/null; wait; exit 130' INT
 trap 'kill $pid 2>/dev/null; wait; exit 129' HUP
@@ -684,7 +757,8 @@ note() {{
 tmp=$(mktemp -d) || exec "$exe" "$@"
 mkfifo "$tmp/o" "$tmp/e" || {{ rm -rf "$tmp"; exec "$exe" "$@"; }}
 trap 'rm -rf "$tmp"' EXIT
-cat >"$tmp/in"
+: >"$tmp/in"
+case $1 in {stdin}) [ -t 0 ] || cat >"$tmp/in" ;; esac
 try=1
 while :; do
   tee "$tmp/out" <"$tmp/o" &
@@ -697,13 +771,22 @@ while :; do
   [ $code -ne 0 ] && [ $code -ne {REWAKE_EXIT} ] && [ ! -s "$tmp/out" ] &&
     head -n 1 "$tmp/err" | grep -qE '{INTEROP_ERROR}' || break
   note "$1" "try $try/{START_TRIES} exit $code: $(head -n 1 "$tmp/err")"
-  [ $try -lt {START_TRIES} ] || break
+  case $1 in {again}) ;; *)
+    printf 'loom: loom.exe may have run %s before WSL interop failed. Look with `loom status` before you send it again.\n' "$1" >&2
+    break ;;
+  esac
+  if [ $try -ge {START_TRIES} ]; then
+    echo "loom: loom.exe did not start through WSL interop in {START_TRIES} tries ($HOME/{INTEROP_LOG}). Run the command again." >&2
+    break
+  fi
   try=$((try + 1))
   sleep {retry}
 done
 exit $code
 "#,
         exe = quoted(exe),
+        stdin = STDIN_VERBS.join(" | "),
+        again = RETRY_VERBS.join(" | "),
         retry = START_RETRY_AFTER.as_secs()
     );
     if std::fs::read_to_string(&shim).is_ok_and(|old| old == text) {
@@ -782,6 +865,44 @@ mod tests {
             .arg(child.to_string())
             .status()
             .unwrap();
+    }
+
+    #[test]
+    fn a_linux_path_reaches_the_windows_daemon_in_the_form_loom_exe_sends() {
+        assert_eq!(
+            verbatim(&windows_path("Ubuntu-24.04", "/tmp/trace/work/문서.html")),
+            r"\\?\UNC\wsl.localhost\Ubuntu-24.04\tmp\trace\work\문서.html"
+        );
+        assert_eq!(verbatim(r"C:\repo\문서.html"), r"\\?\C:\repo\문서.html");
+        if let Ok(distro) = std::env::var("WSL_DISTRO_NAME")
+            && Path::new("/mnt/c").is_dir()
+        {
+            assert_eq!(interop_path(&distro, "/mnt/c/repo/작업"), r"C:\repo\작업");
+            assert_eq!(interop_path(&distro, "/mnt/c"), r"C:\");
+            assert_eq!(
+                interop_path(&distro, "/home/k/작업"),
+                windows_path(&distro, "/home/k/작업")
+            );
+        }
+        assert_eq!(
+            windows_path("Ubuntu-24.04", "/home/ktadev/loom/workspaces/loom/CLI터널"),
+            r"\\wsl.localhost\Ubuntu-24.04\home\ktadev\loom\workspaces\loom\CLI터널"
+        );
+        let task = r"\\wsl.localhost\Ubuntu-24.04\home\k\.cache\loom\repo-me";
+        assert_eq!(
+            inside_distro(task.into(), Some("Ubuntu-24.04")),
+            PathBuf::from("/home/k/.cache/loom/repo-me")
+        );
+        for (path, distro) in [
+            (task, Some("Debian")),
+            (task, None),
+            (r"C:\Users\k\loom", Some("Ubuntu-24.04")),
+        ] {
+            assert_eq!(inside_distro(path.into(), distro), PathBuf::from(path));
+        }
+        assert_eq!(linux(Path::new("/home/k")), Some("/home/k"));
+        assert_eq!(linux(Path::new("//wsl.localhost/U/home")), None);
+        assert_eq!(linux(Path::new("rel/a")), None);
     }
 
     #[cfg(unix)]
@@ -890,7 +1011,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn the_shim_runs_a_hook_again_only_after_a_wsl_interop_failure() {
+    fn the_shim_runs_a_safe_verb_again_only_after_a_wsl_interop_failure() {
         use std::io::Write;
         let shim = Shim::with_exe(
             "retry",
@@ -898,6 +1019,7 @@ mod tests {
 n=$(cat "$dir/count" 2>/dev/null || echo 0)
 echo $((n + 1)) >"$dir/count"
 input=$(cat)
+[ "$(cat "$dir/first")" = never ] && { echo 'WSL ERROR: UtilAcceptVsock:273' >&2; exit 1; }
 if [ "$n" = 0 ]; then
   case $(cat "$dir/first") in
   interop) echo 'WSL (12) ERROR: UtilAcceptVsock:273: accept4 failed 110' >&2; exit 1 ;;
@@ -927,7 +1049,7 @@ exit 2"#,
                 .stderr(std::process::Stdio::piped())
                 .spawn()
                 .unwrap();
-            child.stdin.take().unwrap().write_all(b"{}").unwrap();
+            let _ = child.stdin.take().unwrap().write_all(b"{}");
             let out = child.wait_with_output().unwrap();
             let count = std::fs::read_to_string(shim.dir.path().join("count")).unwrap();
             std::fs::remove_file(shim.dir.path().join("count")).unwrap();
@@ -978,24 +1100,62 @@ exit 2"#,
         assert_eq!(
             run("interop", &["status"]),
             (
-                Some(1),
-                line(""),
-                line("WSL (12) ERROR: UtilAcceptVsock:273: accept4 failed 110\n"),
-                line("1")
-            )
+                Some(2),
+                line("out status \n"),
+                line("WSL (12) ERROR: UtilAcceptVsock:273: accept4 failed 110\nerr\n"),
+                line("2")
+            ),
+            "a verb that reads no input gets none"
         );
-        assert_eq!(log().lines().count(), 1, "{}", log());
+        assert_eq!(
+            run("interop", &["spawn", "child"]),
+            (
+                Some(2),
+                line("out spawn child {}\n"),
+                line("WSL (12) ERROR: UtilAcceptVsock:273: accept4 failed 110\nerr\n"),
+                line("2")
+            ),
+            "the brief survives the retry"
+        );
+        assert_eq!(log().lines().count(), 3, "{}", log());
+        let (code, out, err, count) = run("never", &["status"]);
+        assert_eq!((code, out.as_str(), count.as_str()), (Some(1), "", "3"));
+        assert!(
+            err.ends_with("loom: loom.exe did not start through WSL interop in 3 tries ($HOME/.loom/wsl-interop.log). Run the command again.\n".replace("$HOME", &shim.dir.path().display().to_string()).as_str()),
+            "{err}"
+        );
+        assert_eq!(log().lines().count(), 6, "{}", log());
+        for verb in [
+            "done", "note", "ask", "answer", "answered", "verdict", "ready", "fail", "adopt", "rm",
+            "relaunch", "wait",
+        ] {
+            assert!(!RETRY_VERBS.contains(&verb));
+            assert_eq!(
+                run("interop", &[verb, "x"]),
+                (
+                    Some(1),
+                    line(""),
+                    format!(
+                        "WSL (12) ERROR: UtilAcceptVsock:273: accept4 failed 110\nloom: loom.exe may have run {verb} before WSL interop failed. Look with `loom status` before you send it again.\n"
+                    ),
+                    line("1")
+                ),
+                "a one-shot verb is never sent twice"
+            );
+        }
+        assert_eq!(log().lines().count(), 18, "{}", log());
     }
 
     #[cfg(unix)]
     #[test]
-    fn the_shim_sends_hooks_to_the_tunnel_and_falls_back_to_loom_exe() {
+    fn the_shim_sends_all_but_the_windows_verbs_to_the_tunnel_and_falls_back_to_loom_exe() {
         use std::io::Write;
         let shim = Shim::with_tunnel(
             "tunnel",
             r#"echo "exe $* $(cat)""#,
             Some(
                 r#"[ -e "$HOME/refuse" ] && exit 3
+[ -e "$HOME/sent" ] && { echo "sent $1"; exit 1; }
 echo "linux $* $LOOM_SOCKET $(cat)"
 exit 2"#,
             ),
@@ -1009,11 +1169,12 @@ exit 2"#,
                     format!("{}:{}", home.display(), std::env::var("PATH").unwrap()),
                 )
                 .env("HOME", home)
+                .env_remove("LOOM_TOKEN")
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .spawn()
                 .unwrap();
-            child.stdin.take().unwrap().write_all(b"{}").unwrap();
+            let _ = child.stdin.take().unwrap().write_all(b"{}");
             let out = child.wait_with_output().unwrap();
             (out.status.code(), String::from_utf8(out.stdout).unwrap())
         };
@@ -1036,8 +1197,28 @@ exit 2"#,
                 format!("linux cursor-hook {} {{}}\n", sock.display())
             )
         );
-        assert_eq!(run(&["status"]), (Some(0), "exe status {}\n".into()));
+        for verb in [
+            "done", "ask", "note", "answer", "status", "wait", "ready", "verdict", "roles",
+        ] {
+            assert_eq!(
+                run(&[verb]),
+                (Some(2), format!("linux {verb} {} {{}}\n", sock.display()))
+            );
+        }
+        for verb in WINDOWS_VERBS {
+            let input = if STDIN_VERBS.contains(verb) { "{}" } else { "" };
+            assert_eq!(run(&[verb]), (Some(0), format!("exe {verb} {input}\n")));
+        }
         assert_eq!(log().lines().count(), 1, "{}", log());
+
+        std::fs::write(home.join("sent"), "").unwrap();
+        assert_eq!(run(&["note"]), (Some(1), "sent note\n".into()));
+        assert_eq!(
+            log().lines().count(),
+            1,
+            "a sent request never goes to loom.exe"
+        );
+        std::fs::remove_file(home.join("sent")).unwrap();
 
         std::fs::write(home.join("refuse"), "").unwrap();
         assert_eq!(run(&["pi-hook"]), (Some(0), "exe pi-hook {}\n".into()));

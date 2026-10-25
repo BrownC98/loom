@@ -30,6 +30,8 @@ mod unix_socket;
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
+pub const RESTART_WAIT: Duration = Duration::from_secs(10);
+pub const HOOK_RESTART_WAIT: Duration = Duration::from_secs(2);
 
 pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
     let brief = match file {
@@ -54,7 +56,7 @@ pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> 
         url: env_var("LOOM_SPAWN_URL")?,
         proxy: None,
     };
-    let _: NodeId = post(&spawn, "spawn", &request, None)?;
+    let _: NodeId = post(&spawn, "spawn", &request, None, None)?;
     println!("Created node: {}", request.run.name());
     Ok(())
 }
@@ -144,7 +146,7 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Res
         };
         let timeout = timeout_secs
             .map(|secs| Duration::from_secs(secs.saturating_add(WAIT_RESPONSE_GRACE_SECS)));
-        call("wait", &request, timeout)
+        call_within("wait", &request, remaining, timeout)
     })?;
     let id = delivery.id;
     if json {
@@ -482,13 +484,23 @@ fn until_answered<T>(
     loop {
         match attempt() {
             Ok(value) => return Ok(value),
-            Err(CallError::Unreachable(_)) => std::thread::sleep(pause),
+            Err(CallError::Unreachable(_) | CallError::NotConnected(_)) => {
+                std::thread::sleep(pause)
+            }
             Err(e) => return Err(e.into()),
         }
     }
 }
 
 fn reconnecting<T>(
+    deadline: Option<Instant>,
+    attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
+) -> Result<T, String> {
+    reconnecting_within(RECONNECT_FOR, deadline, attempt)
+}
+
+fn reconnecting_within<T>(
+    outage_limit: Duration,
     deadline: Option<Instant>,
     mut attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
 ) -> Result<T, String> {
@@ -497,13 +509,22 @@ fn reconnecting<T>(
         let started = Instant::now();
         match attempt(deadline.map(|d| d.saturating_duration_since(started))) {
             Ok(value) => return Ok(value),
-            Err(CallError::Unreachable(e)) => {
-                if started.elapsed() >= RECONNECT_AFTER {
+            Err(error @ (CallError::Unreachable(_) | CallError::NotConnected(_))) => {
+                if matches!(error, CallError::Unreachable(_))
+                    && started.elapsed() >= RECONNECT_AFTER
+                {
                     unreachable_since = None;
                 }
+                let e = error.to_string();
                 let gave_up =
-                    unreachable_since.get_or_insert_with(Instant::now).elapsed() >= RECONNECT_FOR;
-                if gave_up || deadline.is_some_and(|d| Instant::now() + RECONNECT_AFTER >= d) {
+                    unreachable_since.get_or_insert_with(Instant::now).elapsed() >= outage_limit;
+                if gave_up {
+                    return Err(format!(
+                        "{e} The daemon or its tunnel was down for {} min. A message that was on its way to you comes again.",
+                        outage_limit.as_secs() / 60
+                    ));
+                }
+                if deadline.is_some_and(|d| Instant::now() + RECONNECT_AFTER >= d) {
                     return Err(e);
                 }
                 std::thread::sleep(RECONNECT_AFTER);
@@ -524,7 +545,7 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
         "ask",
         &AskRequest {
             question: with_doc_link(&question, doc.as_deref()),
-            doc,
+            doc: doc.map(crate::wsl::for_daemon),
         },
         None,
     )? {
@@ -613,7 +634,7 @@ pub fn done(
     let summary = summary.or_else(|| file.clone()).unwrap_or_default();
     let images = images
         .iter()
-        .map(|path| absolute(path))
+        .map(|path| absolute(path).map(crate::wsl::for_daemon))
         .collect::<Result<Vec<_>, _>>()?;
     let doc = doc.as_deref().map(absolute).transpose()?;
     let reported: Reported = call(
@@ -623,7 +644,7 @@ pub fn done(
             file,
             asked,
             images,
-            doc,
+            doc: doc.map(crate::wsl::for_daemon),
             keep,
         },
         None,
@@ -642,7 +663,7 @@ pub fn ready(branch: String) -> Result<(), String> {
         "ready",
         &ReadyRequest {
             branch: branch.clone(),
-            cwd: crate::wsl::from_caller(std::env::current_dir().map_err(|e| e.to_string())?)
+            cwd: crate::wsl::cwd_for_daemon(std::env::current_dir().map_err(|e| e.to_string())?)
                 .display()
                 .to_string(),
         },
@@ -706,7 +727,7 @@ pub fn fail(branch: String, cause: String) -> Result<(), String> {
 
 fn task_dir() -> Result<PathBuf, String> {
     let dir: Option<String> = call("task", &(), None)?;
-    dir.map(|d| crate::wsl::from_caller(PathBuf::from(d)))
+    dir.map(crate::wsl::from_daemon)
         .ok_or_else(|| "loom has no task folder for this node".to_owned())
 }
 
@@ -772,7 +793,16 @@ fn call<T: DeserializeOwned>(
     body: &impl Serialize,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
-    post(&Daemon::from_env()?, action, body, timeout)
+    call_within(action, body, timeout, timeout)
+}
+
+fn call_within<T: DeserializeOwned>(
+    action: &str,
+    body: &impl Serialize,
+    connect: Option<Duration>,
+    timeout: Option<Duration>,
+) -> Result<T, CallError> {
+    post(&Daemon::from_env()?, action, body, connect, timeout)
 }
 
 enum Daemon {
@@ -796,9 +826,10 @@ impl Daemon {
         })
     }
 
-    fn agent(&self, timeout: Option<Duration>) -> (ureq::Agent, &str) {
+    fn agent(&self, connect: Option<Duration>, timeout: Option<Duration>) -> (ureq::Agent, &str) {
         let config = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            .timeout_connect(connect)
             .timeout_global(timeout);
         match self {
             Daemon::Http { url, proxy } => (config.proxy(proxy.clone()).build().into(), url),
@@ -813,16 +844,39 @@ impl Daemon {
             ),
         }
     }
+
+    fn not_answered(&self, e: ureq::Error) -> String {
+        match (self, e) {
+            (Daemon::Http { .. }, e) => format!(
+                "Could not connect to the daemon: {e}. In a sandbox, get approval to run outside the sandbox and try again."
+            ),
+            #[cfg(unix)]
+            (Daemon::Socket(sock), ureq::Error::ConnectionFailed) => format!(
+                "Could not connect to the daemon through the tunnel {}.",
+                sock.display()
+            ),
+            #[cfg(unix)]
+            (Daemon::Socket(sock), e @ ureq::Error::Timeout(_)) => format!(
+                "The daemon did not answer through the tunnel {} in time: {e}.",
+                sock.display()
+            ),
+            #[cfg(unix)]
+            (Daemon::Socket(sock), e) => format!(
+                "The tunnel {} closed after loom sent the request: {e}. The daemon may have done it. Look with `loom status` before you send it again.",
+                sock.display()
+            ),
+        }
+    }
 }
 
-pub fn through_tunnel(hook: fn() -> Result<(), String>) -> Result<(), String> {
+#[cfg_attr(not(unix), allow(unused_variables))]
+pub fn through_tunnel(wait: Duration) {
     #[cfg(unix)]
     if let Some(sock) = std::env::var_os(crate::wsl::SOCKET_ENV)
-        && std::os::unix::net::UnixStream::connect(sock).is_err()
+        && unix_socket::connect(Path::new(&sock), wait).is_err()
     {
         std::process::exit(crate::wsl::TUNNEL_DOWN_EXIT);
     }
-    hook()
 }
 
 pub fn tunnel(sock: PathBuf) -> Result<(), String> {
@@ -846,6 +900,7 @@ pub fn tunnel(sock: PathBuf) -> Result<(), String> {
 }
 
 enum CallError {
+    NotConnected(String),
     Unreachable(String),
     Refused(String),
 }
@@ -853,7 +908,9 @@ enum CallError {
 impl std::fmt::Display for CallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CallError::Unreachable(e) | CallError::Refused(e) => f.write_str(e),
+            CallError::NotConnected(e) | CallError::Unreachable(e) | CallError::Refused(e) => {
+                f.write_str(e)
+            }
         }
     }
 }
@@ -884,10 +941,11 @@ fn post<T: DeserializeOwned>(
     daemon: &Daemon,
     action: &str,
     body: &impl Serialize,
+    connect: Option<Duration>,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
     let token = env_var("LOOM_TOKEN").map_err(CallError::Refused)?;
-    post_as(daemon, &token, action, body, timeout)
+    post_as(daemon, &token, action, body, connect, timeout)
 }
 
 fn post_as<T: DeserializeOwned>(
@@ -895,17 +953,19 @@ fn post_as<T: DeserializeOwned>(
     token: &str,
     action: &str,
     body: &impl Serialize,
+    connect: Option<Duration>,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
-    let (agent, url) = daemon.agent(timeout);
+    let (agent, url) = daemon.agent(connect, timeout);
     let mut res = agent
         .post(format!("{url}/api/agent/{action}"))
         .header("authorization", format!("Bearer {token}"))
         .header(TOOL_HEADER, tool())
         .header(VERSION_HEADER, version())
         .send_json(body)
-        .map_err(|e| {
-            CallError::Unreachable(format!("Could not connect to the daemon: {e}. In a sandbox, get approval to run outside the sandbox and try again."))
+        .map_err(|e| match e {
+            ureq::Error::ConnectionFailed => CallError::NotConnected(daemon.not_answered(e)),
+            e => CallError::Unreachable(daemon.not_answered(e)),
         })?;
     let status = res.status();
     let text = res.body_mut().read_to_string().map_err(|e| {
@@ -965,6 +1025,24 @@ mod tests {
     }
 
     #[test]
+    fn a_slow_failed_connect_does_not_restart_the_outage_clock() {
+        let started = Instant::now();
+        let mut calls = 0;
+        let got: Result<(), String> = reconnecting_within(Duration::from_secs(1), None, |_| {
+            calls += 1;
+            std::thread::sleep(RECONNECT_AFTER);
+            Err(CallError::NotConnected("no tunnel".into()))
+        });
+        let e = got.unwrap_err();
+        assert!(
+            e.starts_with("no tunnel The daemon or its tunnel was down"),
+            "{e}"
+        );
+        assert_eq!(calls, 2);
+        assert!(started.elapsed() < 4 * RECONNECT_AFTER);
+    }
+
+    #[test]
     fn the_idle_wait_outlasts_any_outage_and_ends_only_on_mail_or_refusal() {
         let mut calls = 0;
         let got = until_answered(Duration::ZERO, || {
@@ -1002,7 +1080,7 @@ mod tests {
             url: url.to_owned(),
             proxy: None,
         };
-        post_as(&daemon, "token", "idle", &(), None)
+        post_as(&daemon, "token", "idle", &(), None, None)
     }
 
     #[cfg(unix)]
@@ -1045,10 +1123,10 @@ mod tests {
         let mut tries = 0;
         let got = reconnecting(None, |_| {
             tries += 1;
-            post_as::<Vec<u32>>(&daemon, "token", "idle", &(), None)
+            post_as::<Vec<u32>>(&daemon, "token", "idle", &(), None, None)
         });
         assert_eq!(got, Ok(vec![7]));
-        assert!(tries >= 3, "{tries}");
+        assert_eq!(tries, 2);
         let (first, again) = server.join().unwrap();
         assert!(
             first.starts_with("POST /api/agent/idle HTTP/1.1\r\n"),
@@ -1056,6 +1134,146 @@ mod tests {
         );
         assert!(first.contains("authorization: Bearer token\r\n"), "{first}");
         assert_eq!(first, again);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_tunnel_check_waits_for_a_restarting_relay_and_then_gives_up() {
+        use std::os::unix::net::UnixListener;
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("daemon.sock");
+        drop(UnixListener::bind(&sock).unwrap());
+        let started = Instant::now();
+        let refused = unix_socket::connect(&sock, Duration::from_millis(500)).unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::ConnectionRefused);
+        assert!(started.elapsed() >= Duration::from_millis(500));
+
+        std::fs::remove_file(&sock).unwrap();
+        let relay = std::thread::spawn({
+            let sock = sock.clone();
+            move || {
+                std::thread::sleep(Duration::from_millis(400));
+                UnixListener::bind(&sock).unwrap().accept().unwrap()
+            }
+        });
+        assert!(unix_socket::connect(&sock, Duration::from_secs(5)).is_ok());
+        relay.join().unwrap();
+
+        let started = Instant::now();
+        let blocked = dir.path().join("file");
+        std::fs::write(&blocked, "").unwrap();
+        assert!(unix_socket::connect(&blocked.join("sock"), Duration::from_secs(5)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_request_cut_after_it_was_sent_is_an_error_not_a_fallback() {
+        use std::os::unix::net::UnixListener;
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("daemon.sock");
+        let listener = UnixListener::bind(&sock).unwrap();
+        let daemon = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0; 1024];
+            while !request.ends_with(b"null") {
+                let n = stream.read(&mut buf).unwrap();
+                request.extend_from_slice(&buf[..n]);
+            }
+            String::from_utf8(request).unwrap()
+        });
+        let got = post_as::<()>(
+            &Daemon::Socket(sock.clone()),
+            "token",
+            "note",
+            &(),
+            None,
+            None,
+        );
+        assert!(daemon.join().unwrap().starts_with("POST /api/agent/note "));
+        assert!(
+            matches!(&got, Err(CallError::Unreachable(e)) if e.contains("closed after loom sent the request") && e.contains("loom status")),
+            "{}",
+            got.err().map(String::from).unwrap_or_default()
+        );
+
+        let file = dir.path().join("file");
+        std::fs::write(&file, "").unwrap();
+        let got = post_as::<()>(
+            &Daemon::Socket(file.join("sock")),
+            "token",
+            "note",
+            &(),
+            None,
+            None,
+        );
+        assert!(
+            matches!(&got, Err(CallError::NotConnected(e)) if e.starts_with("Could not connect to the daemon through the tunnel")),
+            "{}",
+            got.err().map(String::from).unwrap_or_default()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_tunnel_request_keeps_its_time_limit_while_the_relay_restarts() {
+        use std::os::unix::net::UnixListener;
+        let dir = tempfile::tempdir().unwrap();
+        let stale = dir.path().join("stale.sock");
+        drop(UnixListener::bind(&stale).unwrap());
+        let in_time = |connect, timeout| {
+            let started = Instant::now();
+            let got = post_as::<()>(
+                &Daemon::Socket(stale.clone()),
+                "token",
+                "wait",
+                &(),
+                connect,
+                timeout,
+            );
+            (
+                started.elapsed(),
+                got.err().map(String::from).unwrap_or_default(),
+            )
+        };
+        for (connect, timeout) in [
+            (None, Some(Duration::from_millis(500))),
+            (
+                Some(Duration::from_millis(500)),
+                Some(Duration::from_secs(6)),
+            ),
+        ] {
+            let (took, e) = in_time(connect, timeout);
+            assert!(took < Duration::from_millis(1500), "{took:?}");
+            assert!(
+                e.starts_with("The daemon did not answer through the tunnel"),
+                "{e}"
+            );
+        }
+
+        let silent = dir.path().join("silent.sock");
+        let listener = UnixListener::bind(&silent).unwrap();
+        let daemon = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0; 1024];
+            while stream.read(&mut buf).unwrap() > 0 {}
+        });
+        let got = post_as::<()>(
+            &Daemon::Socket(silent),
+            "token",
+            "wait",
+            &(),
+            None,
+            Some(Duration::from_millis(300)),
+        );
+        let e = got.err().map(String::from).unwrap_or_default();
+        assert!(
+            e.starts_with("The daemon did not answer through the tunnel"),
+            "{e}"
+        );
+        assert!(!e.contains("loom status"), "{e}");
+        daemon.join().unwrap();
     }
 
     #[test]

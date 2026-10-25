@@ -200,6 +200,9 @@ impl Site {
             && let Some(dir) = self.accounts.config_dir(provider, id)
         {
             let _ = mark_claude_onboarded(&dir);
+            if self.home_file(HOME_CLAUDE_MD).is_some_and(|f| f.is_file()) {
+                link_claude_md(&dir);
+            }
         }
         self.accounts.env(provider, id)
     }
@@ -288,6 +291,26 @@ fn mark_claude_onboarded(dir: &Path) -> io::Result<()> {
     update_json(&dir.join(".claude.json"), |config| {
         config.insert(CLAUDE_ONBOARDED.into(), true.into()) != Some(true.into())
     })
+}
+
+const HOME_CLAUDE_MD: &str = ".claude/CLAUDE.md";
+const CLAUDE_MD_IMPORT: &str = "@~/.claude/CLAUDE.md\n";
+
+fn link_claude_md(dir: &Path) {
+    let file = dir.join("CLAUDE.md");
+    match std::fs::read_to_string(&file) {
+        Ok(text) if text == CLAUDE_MD_IMPORT => {}
+        Ok(_) => eprintln!(
+            "loom: {}이 이미 있어 ~/.claude/CLAUDE.md를 잇지 않는다",
+            file.display()
+        ),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            if let Err(e) = std::fs::write(&file, CLAUDE_MD_IMPORT) {
+                eprintln!("loom: {}을 쓰지 못했다: {e}", file.display());
+            }
+        }
+        Err(e) => eprintln!("loom: {}을 읽지 못했다: {e}", file.display()),
+    }
 }
 
 pub fn carry_claude_consent(from: &(PathBuf, PathBuf), to: &Path, cwd: &str) -> io::Result<()> {
@@ -401,6 +424,21 @@ mod tests {
         );
         let dir = accounts.config_dir(Provider::Codex, Some(&codex)).unwrap();
         assert!(!dir.join(".claude.json").exists());
+    }
+
+    #[test]
+    fn claude_account_imports_the_home_claude_md_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("CLAUDE.md");
+        link_claude_md(tmp.path());
+        link_claude_md(tmp.path());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "@~/.claude/CLAUDE.md\n"
+        );
+        std::fs::write(&file, "own rules\n").unwrap();
+        link_claude_md(tmp.path());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "own rules\n");
     }
 
     #[test]

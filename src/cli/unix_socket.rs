@@ -1,7 +1,9 @@
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use super::RESTART_WAIT;
 
 use ureq::Error;
 use ureq::unversioned::transport::{
@@ -9,6 +11,26 @@ use ureq::unversioned::transport::{
 };
 
 pub const URL: &str = "http://127.0.0.1";
+const CONNECT_AGAIN_AFTER: Duration = Duration::from_millis(200);
+
+fn restarting(e: &io::Error) -> bool {
+    matches!(
+        e.kind(),
+        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+    )
+}
+
+pub fn connect(sock: &Path, wait: Duration) -> io::Result<UnixStream> {
+    let until = Instant::now() + wait;
+    loop {
+        match UnixStream::connect(sock) {
+            Err(e) if restarting(&e) && Instant::now() < until => std::thread::sleep(
+                CONNECT_AGAIN_AFTER.min(until.saturating_duration_since(Instant::now())),
+            ),
+            connected => return connected,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Connector(pub PathBuf);
@@ -17,7 +39,12 @@ impl ureq::unversioned::transport::Connector for Connector {
     type Out = Socket;
 
     fn connect(&self, details: &ConnectionDetails, _: Option<()>) -> Result<Option<Socket>, Error> {
-        let stream = UnixStream::connect(&self.0)?;
+        let budget = limit(&details.timeout).filter(|b| *b < RESTART_WAIT);
+        let stream =
+            connect(&self.0, budget.unwrap_or(RESTART_WAIT)).map_err(|e| match budget {
+                Some(_) if restarting(&e) => Error::Timeout(details.timeout.reason),
+                _ => Error::ConnectionFailed,
+            })?;
         let config = details.config;
         Ok(Some(Socket {
             stream,

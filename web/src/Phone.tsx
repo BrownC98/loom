@@ -203,10 +203,13 @@ function NotifySwitches(props: { bridge: PhoneNotify }) {
         </label>
       ))}
       {props.bridge.link && (
-        <button type="button" className="btn" onClick={() => props.bridge.link?.()}>
-          <EyeOff />
-          {t('phone.notifyLink')}
-        </button>
+        <>
+          <button type="button" className="btn" onClick={() => props.bridge.link?.()}>
+            <EyeOff />
+            {t('phone.notifyLink')}
+          </button>
+          <p className="hint">{t('phone.notifyLinkHint')}</p>
+        </>
       )}
     </>
   );

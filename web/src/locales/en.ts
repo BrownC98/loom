@@ -357,6 +357,8 @@ const en = {
     notifyDone: 'Done',
     notifyDoneHint: 'Work you gave is finished',
     notifyLink: 'Hide the PC connection notice',
+    notifyLinkHint:
+      "The 'Connected to the PC' notice keeps the PC link open while the app is closed, so question and done alerts arrive. Android requires this notice. Tap 'Hide the PC connection notice' and turn off 'Connection status' in Android settings. Alerts keep coming after that. On Android 12 and older, the system can show its own running notice.",
     notifyBlocked: 'Android notifications for loom are off',
     themeSystem: 'Follow system',
     actions: 'Node actions',

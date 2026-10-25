@@ -19,6 +19,15 @@ class PaceTest {
     }
 
     @Test
+    fun theBeatRightAfterTheSnapshotSetsTheLimitWhileEventsFlow() {
+        val board = Board()
+        val pace = Pace()
+        pace.opened()
+        listOf("""{"kind":"snapshot","nodes":[]}""", """{"kind":"beat"}""", """{"kind":"viewChanged"}""").forEach { pace.heard(board.apply(it)) }
+        assertEquals(75_000L, pace.quietMs)
+    }
+
+    @Test
     fun theServiceAsksForTheBackPace() {
         assertEquals("{\"pace\":\"back\"}", Pace.BACK_FRAME)
     }

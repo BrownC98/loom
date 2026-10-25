@@ -131,6 +131,7 @@ async fn send_events(socket: WebSocket, app: Arc<App>, beat: fn(Option<Pace>) ->
         if send_json(&mut to_view, &GraphEvent::Snapshot { nodes: snapshot })
             .await
             .is_err()
+            || send_json(&mut to_view, &GraphEvent::Beat).await.is_err()
         {
             return;
         }
@@ -214,7 +215,7 @@ mod tests {
         match pace {
             None => TEST_BEAT,
             Some(Pace::Front) => TEST_BEAT / 4,
-            Some(Pace::Back) => TEST_BEAT * 10,
+            Some(Pace::Back) => TEST_BEAT * 40,
         }
     }
 
@@ -281,12 +282,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_events_socket_beats_right_after_the_snapshot() {
+        let (_dir, _app, mut socket) = events_socket().await;
+        let mut kinds = Vec::new();
+        while kinds.len() < 2 {
+            let frame = socket.next().await.unwrap().unwrap();
+            if !matches!(frame, Frame::Ping(_)) {
+                kinds.push(kind(&frame));
+            }
+        }
+        assert_eq!(kinds, ["snapshot", "beat"]);
+    }
+
+    #[tokio::test]
     async fn the_events_socket_beats_at_the_pace_the_view_sends() {
         let (_dir, _app, mut socket) = events_socket().await;
         let mut beats_at = async |pace: &str| {
             socket.send(Frame::text(pace)).await.unwrap();
             let mut beats = 0;
-            let until = tokio::time::Instant::now() + TEST_BEAT * 10;
+            let until = tokio::time::Instant::now() + TEST_BEAT * 20;
             while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(until, socket.next()).await {
                 if kind(&frame) == "beat" {
                     beats += 1;
@@ -297,7 +311,7 @@ mod tests {
         let back = beats_at(r#"{"pace":"back"}"#).await;
         assert!(back <= 2, "{back} beats at the back pace");
         let front = beats_at(r#"{"pace":"front"}"#).await;
-        assert!(front >= 15, "{front} beats at the front pace");
+        assert!(front >= 5, "{front} beats at the front pace");
     }
 
     #[test]

@@ -163,8 +163,8 @@ test('a page shown again gives a quiet link the front limit from then', () => {
   expect(FakeSocket.made).toHaveLength(2);
 });
 
-test('the limits are 15 seconds in front and 75 seconds behind', () => {
-  expect(QUIET_LIMIT_MS).toEqual({ front: 15_000, back: 75_000 });
+test('the limits are 12 seconds in front and 75 seconds behind', () => {
+  expect(QUIET_LIMIT_MS).toEqual({ front: 12_000, back: 75_000 });
 });
 
 test('a connection attempt that hangs is given up and tried again', () => {

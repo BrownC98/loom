@@ -2,7 +2,7 @@ import type { Pace } from './gen/Pace';
 
 export const RECONNECT_MS = 1000;
 export const CONNECT_LIMIT_MS = 5000;
-export const QUIET_LIMIT_MS: QuietLimits = { front: 15_000, back: 75_000 };
+export const QUIET_LIMIT_MS: QuietLimits = { front: 12_000, back: 75_000 };
 
 export type QuietLimits = Record<Pace['pace'], number>;
 

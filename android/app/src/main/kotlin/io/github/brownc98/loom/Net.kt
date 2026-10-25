@@ -81,10 +81,12 @@ internal class NetWatch(context: Context, private val appeared: () -> Unit, priv
         }
     }
 
-    fun start() = connectivity.registerDefaultNetworkCallback(callback, main)
+    fun start() {
+        runCatching { connectivity.registerDefaultNetworkCallback(callback, main) }
+    }
 
     fun stop() {
-        connectivity.unregisterNetworkCallback(callback)
+        runCatching { connectivity.unregisterNetworkCallback(callback) }
         main.removeCallbacks(check)
     }
 

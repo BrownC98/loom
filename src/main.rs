@@ -103,7 +103,7 @@ enum Cli {
         /// 자식이 검토할 브랜치. 내가 관문인 그 브랜치의 검토자로 띄운다. 그 브랜치의 판정은 이렇게 띄운 자식만 한다.
         #[arg(long, requires = "role", conflicts_with = "worktree")]
         review: Option<String>,
-        /// 지시문 파일. 없으면 stdin을 읽는다(stdin이 터미널이면 지시문 없이 만든다).
+        /// 지시문 파일. 없으면 stdin이 파이프나 파일일 때만 읽는다. `--role`로 만드는 노드는 지시문이 없으면 실패한다.
         #[arg(long)]
         file: Option<PathBuf>,
         /// 자식이 실행할 명령. ssh처럼 낱말을 빈칸으로 이어 셸이 해석한다.

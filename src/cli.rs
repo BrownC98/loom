@@ -1,4 +1,4 @@
-use std::io::{IsTerminal, Read, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -33,20 +33,59 @@ const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
 pub const RESTART_WAIT: Duration = Duration::from_secs(10);
 pub const HOOK_RESTART_WAIT: Duration = Duration::from_secs(2);
 
-pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
-    let brief = match file {
-        Some(path) => {
-            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?
+const NO_BRIEF: &str =
+    "loom spawn: no brief. Give it with --file <path>, or on stdin from a pipe or a file.";
+
+fn read_brief(
+    run: &SpawnRun,
+    file: Option<&Path>,
+    stdin: Option<impl Read>,
+) -> Result<String, String> {
+    let brief = match (file, stdin) {
+        (Some(path), _) => {
+            std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?
         }
-        None if std::io::stdin().is_terminal() => String::new(),
-        None => {
+        (None, Some(mut stdin)) => {
             let mut brief = String::new();
-            std::io::stdin()
+            stdin
                 .read_to_string(&mut brief)
                 .map_err(|e| e.to_string())?;
             brief
         }
+        (None, None) => String::new(),
     };
+    if brief.trim().is_empty() && matches!(run, SpawnRun::Role { .. }) {
+        return Err(NO_BRIEF.into());
+    }
+    Ok(brief)
+}
+
+#[cfg(unix)]
+fn stdin_is_input() -> bool {
+    use std::os::fd::AsFd;
+    std::io::stdin()
+        .as_fd()
+        .try_clone_to_owned()
+        .map(std::fs::File::from)
+        .and_then(|f| f.metadata())
+        .is_ok_and(|m| is_input(&m))
+}
+
+#[cfg(unix)]
+fn is_input(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    meta.is_file() || meta.file_type().is_fifo()
+}
+
+#[cfg(windows)]
+fn stdin_is_input() -> bool {
+    use std::io::IsTerminal;
+    !std::io::stdin().is_terminal()
+}
+
+pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
+    let stdin = stdin_is_input().then(std::io::stdin);
+    let brief = read_brief(&run, file.as_deref(), stdin)?;
     let request = SpawnRequest {
         run,
         brief,
@@ -981,6 +1020,55 @@ fn post_as<T: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_role_spawn_needs_a_brief_and_the_others_do_not() {
+        let role = SpawnRun::Role {
+            name: "w".into(),
+            role: "워커".into(),
+        };
+        let none: Option<&[u8]> = None;
+        assert_eq!(read_brief(&role, None, none), Err(NO_BRIEF.into()));
+        assert_eq!(
+            read_brief(&role, None, Some(&b" \n"[..])),
+            Err(NO_BRIEF.into())
+        );
+        assert_eq!(
+            read_brief(&role, None, Some(&b"Goal: x"[..])),
+            Ok("Goal: x".into())
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("brief.md");
+        std::fs::write(&file, "Goal: file").unwrap();
+        assert_eq!(
+            read_brief(&role, Some(&file), Some(&b"Goal: stdin"[..])),
+            Ok("Goal: file".into())
+        );
+        let review = SpawnRun::Review {
+            role: "검토자".into(),
+            branch: "b".into(),
+        };
+        assert_eq!(read_brief(&review, None, none), Ok(String::new()));
+        let shell = SpawnRun::Command {
+            name: "s".into(),
+            line: "sh".into(),
+        };
+        assert_eq!(read_brief(&shell, None, none), Ok(String::new()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_a_pipe_or_a_file_on_stdin_is_brief_input() {
+        use std::os::fd::OwnedFd;
+        let meta = |fd: OwnedFd| std::fs::File::from(fd).metadata().unwrap();
+        let (reader, _writer) = std::io::pipe().unwrap();
+        assert!(is_input(&meta(reader.into())));
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        assert!(is_input(&tmp.as_file().metadata().unwrap()));
+        let (socket, _other) = std::os::unix::net::UnixStream::pair().unwrap();
+        assert!(!is_input(&meta(socket.into())));
+        assert!(!is_input(&std::fs::metadata("/dev/null").unwrap()));
+    }
 
     fn unreachable() -> CallError {
         CallError::Unreachable("down".into())

@@ -22,11 +22,11 @@ use crate::protocol::{
 };
 use crate::roles::{Roles, SetRole};
 use crate::task;
+use crate::wsl::REWAKE_EXIT;
 
 const WAIT_RESPONSE_GRACE_SECS: u64 = 5;
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 const RECONNECT_FOR: Duration = Duration::from_secs(10 * 60);
-const REWAKE_EXIT: i32 = 2;
 
 pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> Result<(), String> {
     let brief = match file {

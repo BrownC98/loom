@@ -361,6 +361,18 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         })
     }
 
+    pub fn stop_if(&self, id: K, stop: impl FnOnce(&Keys<'_>) -> bool) -> bool {
+        let Some(pty) = self.pty(id) else {
+            return false;
+        };
+        let mut host = pty.host.lock().unwrap();
+        let stopping = stop(&Keys(Some(&pty)));
+        if stopping {
+            let _ = wire::write(&mut *host, &Frame::Kill);
+        }
+        stopping
+    }
+
     pub fn stop(&self, id: K) {
         if let Some(pty) = self.pty(id) {
             pty.send(&Frame::Kill);

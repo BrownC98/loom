@@ -17,6 +17,15 @@ const REWAKE_MESSAGE: &str = "Messages from loom:";
 const REWAKE_SUMMARY: &str = "loom message";
 const TRANSCRIPT_TAIL_BYTES: u64 = 1024 * 1024;
 const SYNTHETIC_MODEL: &str = "<synthetic>";
+const CONVERSATION_TYPES: [&str; 5] = [
+    "user",
+    "assistant",
+    "attachment",
+    "queue-operation",
+    "system",
+];
+const TURN_ENDS: [&str; 3] = ["stop_hook_summary", "turn_duration", "away_summary"];
+const INPUT_MARK: &str = "❯";
 const RESTARTED_SESSION: &str = "clear|compact";
 const GUARD: &str = "loom guard";
 
@@ -352,6 +361,43 @@ fn last_model(tail: &str) -> Option<Model> {
                 effort: e.effort,
             })
         })
+}
+
+pub fn turn_ended(transcript: &Path) -> bool {
+    transcript_tail(transcript).is_some_and(|tail| ends_turn(&tail))
+}
+
+fn ends_turn(tail: &str) -> bool {
+    #[derive(Deserialize)]
+    struct Entry {
+        r#type: String,
+        subtype: Option<String>,
+    }
+    tail.lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<Entry>(line).ok())
+        .find(|e| CONVERSATION_TYPES.contains(&e.r#type.as_str()))
+        .is_some_and(|e| {
+            e.r#type == "system" && e.subtype.is_some_and(|s| TURN_ENDS.contains(&s.as_str()))
+        })
+}
+
+pub fn input(screen: &str) -> Option<&str> {
+    let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
+    lines.windows(3).rev().find_map(|w| match w {
+        [above, input, below] if is_rule(above) && is_rule(below) => {
+            input.strip_prefix(INPUT_MARK).map(str::trim)
+        }
+        _ => None,
+    })
+}
+
+fn is_rule(line: &str) -> bool {
+    !line.is_empty() && line.chars().all(|c| c == '─')
+}
+
+pub fn wake_line() -> String {
+    format!("{NOTIFICATION_TAG}{REWAKE_SUMMARY}</task-notification>")
 }
 
 fn context(event: &str, text: String) -> Value {
@@ -860,6 +906,80 @@ mod tests {
             })
         );
         assert_eq!(last_model("ssistant\"}}\n{\"type\":\"user\"}\n"), None);
+    }
+
+    #[test]
+    fn only_a_last_turn_end_record_ends_the_turn() {
+        let ended = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"끝"}]}}
+{"parentUuid":"a","isSidechain":false,"type":"system","subtype":"stop_hook_summary","hookCount":1,"hookInfos":[{"command":"loom hook"}]}
+{"parentUuid":"b","isSidechain":false,"type":"system","subtype":"turn_duration","durationMs":15169,"messageCount":33}
+{"type":"last-prompt","lastPrompt":"x"}
+{"type":"ai-title","aiTitle":"x"}
+{"type":"mode","mode":"normal"}
+{"type":"permission-mode","permissionMode":"bypassPermissions"}
+{"type":"atis-latch"}
+"#;
+        assert!(ends_turn(ended));
+        let away = format!(
+            "{ended}{}\n",
+            r#"{"type":"system","subtype":"away_summary"}"#
+        );
+        assert!(ends_turn(&away));
+        let tool = r#"{"type":"system","subtype":"turn_duration"}
+{"type":"user","message":{"role":"user","content":"go"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash"}]}}
+{"type":"api-request","x":1}
+"#;
+        assert!(!ends_turn(tool));
+        let queued = format!(
+            "{ended}{}\n",
+            r#"{"type":"queue-operation","operation":"enqueue","content":"<task-notification>"}"#
+        );
+        assert!(!ends_turn(&queued));
+        let local = format!(
+            "{ended}{}\n",
+            r#"{"type":"system","subtype":"local_command"}"#
+        );
+        assert!(!ends_turn(&local));
+        assert!(!ends_turn("on\"}\n"));
+        assert!(!ends_turn(""));
+    }
+
+    #[test]
+    fn transcript_file_tells_a_turn_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.jsonl");
+        std::fs::write(
+            &path,
+            "{\"type\":\"system\",\"subtype\":\"turn_duration\"}\n",
+        )
+        .unwrap();
+        assert!(turn_ended(&path));
+        assert!(!turn_ended(&dir.path().join("없음")));
+    }
+
+    #[test]
+    fn the_input_box_gives_its_one_line() {
+        let screen = |input: &str| {
+            format!(
+                "● Waiting for the next instruction.\n\n✻ Churned for 1s · done 9:48 AM\n\n────────\n{input}\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+            )
+        };
+        assert_eq!(input(&screen("❯ ")), Some(""));
+        assert_eq!(input(&screen("❯")), Some(""));
+        assert_eq!(input(&screen("❯ 고쳐 줘")), Some("고쳐 줘"));
+        assert_eq!(input("──────\n❯ 첫 줄\n  둘째 줄\n──────\n"), None);
+        assert_eq!(input(" ❯ 1. Yes\n   2. No\n"), None);
+        assert_eq!(input(""), None);
+    }
+
+    #[test]
+    fn the_wake_line_is_a_notification_and_not_human_input() {
+        let line = wake_line();
+        assert!(!line.contains(['\r', '\n']));
+        let submit = event(json!({ "hook_event_name": "UserPromptSubmit", "prompt": line }));
+        assert!(!submit.human_input());
+        assert_eq!(submit.take(), Take::Now(Kind::ALL));
     }
 
     #[test]

@@ -262,14 +262,16 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn a_view_that_falls_behind_gets_a_new_snapshot() {
         let (_dir, app, mut socket) = events_socket().await;
-        let mut next = async || {
-            kind(
-                &tokio::time::timeout(Duration::from_secs(5), socket.next())
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .unwrap(),
-            )
+        let until = tokio::time::Instant::now() + Duration::from_secs(10);
+        let mut next = async || loop {
+            let frame = tokio::time::timeout_at(until, socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if !matches!(frame, Frame::Ping(_)) && kind(&frame) != "beat" {
+                return kind(&frame);
+            }
         };
         assert_eq!(next().await, "snapshot");
         for _ in 0..crate::graph::EVENT_QUEUE * 2 {

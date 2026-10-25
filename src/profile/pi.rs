@@ -2,11 +2,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::Take;
+use super::{Handed, HookEvent, Shown, Signals, Take};
 use crate::protocol::{Delivery, Kind, Model, PI_HOOK as PROTOCOL};
 use crate::skills::Launch;
 
-pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 const EXTENSION: &str = include_str!("pi-loom.ts");
 const EXTENSION_FILE: &str = "pi-loom.ts";
 const HOOK: &str = include_str!("loom-hook.ts");
@@ -217,7 +216,42 @@ impl Event {
     }
 }
 
-pub fn reply(id: Option<u64>, taken: &[Delivery], note: Option<&str>) -> Reply {
+impl Reply {
+    pub fn line(&self) -> String {
+        serde_json::to_string(self).expect("답은 늘 직렬화된다")
+    }
+}
+
+impl HookEvent for Request {
+    fn signals(&self) -> Signals {
+        let event = &self.event;
+        Signals {
+            hook: event.name().to_owned(),
+            model: event.model(),
+            take: event.take(),
+            transcript: event.transcript(),
+            prompt: event.prompt().map(str::to_owned),
+            human_input: event.prompt().is_some(),
+            turn_end: event.turn_ends(),
+            ..Signals::default()
+        }
+    }
+
+    fn show(&self, handed: &Handed) -> Shown {
+        let reply = match handed {
+            Handed::Taken { messages, note } => reply(self.id, messages, note.as_deref()),
+            Handed::Mail(messages) => reply(self.id, messages, None),
+            Handed::Nudge(text) => nudge(self.id, text.clone()),
+            Handed::Interrupted => reply(self.id, &[], None),
+        };
+        Shown {
+            out: Some(reply.line()),
+            ..Shown::default()
+        }
+    }
+}
+
+fn reply(id: Option<u64>, taken: &[Delivery], note: Option<&str>) -> Reply {
     Reply {
         id,
         text: super::hook_text(taken, note),
@@ -225,7 +259,7 @@ pub fn reply(id: Option<u64>, taken: &[Delivery], note: Option<&str>) -> Reply {
     }
 }
 
-pub fn nudge(id: Option<u64>, text: String) -> Reply {
+fn nudge(id: Option<u64>, text: String) -> Reply {
     Reply {
         id,
         text: Some(text),

@@ -276,10 +276,7 @@ impl App {
     fn hear_lost_waits(self: &Arc<Self>) -> rusqlite::Result<()> {
         for node in self.graph.active()? {
             let id = node.id;
-            let hooked = matches!(
-                profile_of(&node),
-                Some(Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp)
-            );
+            let hooked = profile_of(&node).is_some_and(Profile::hooked);
             if !hooked || self.sleeps.stopping(id) {
                 continue;
             }
@@ -295,7 +292,7 @@ impl App {
         for node in self.graph.active()? {
             let id = node.id;
             let profile = profile_of(&node);
-            if !matches!(profile, Some(Profile::Claude | Profile::Cursor))
+            if !profile.is_some_and(Profile::ends_turns_by_stop_hook)
                 || self.sleeps.stopping(id)
                 || self.agent_state(id) != Some(AgentState::Turn)
             {
@@ -325,9 +322,12 @@ impl App {
         let Some(path) = self.transcript(node)? else {
             return Ok(false);
         };
+        let Some(began) = self.graph.turn_began(node.id)? else {
+            return Ok(false);
+        };
         let settled = std::fs::metadata(&path)
             .and_then(|m| m.modified())
-            .is_ok_and(|at| at.elapsed().is_ok_and(|age| age >= STOP_HOOK_GRACE));
+            .is_ok_and(|at| at > began && at.elapsed().is_ok_and(|age| age >= STOP_HOOK_GRACE));
         let ended = self.at_turn_end(node.id) || claude::turn_ended(&path);
         Ok(settled && ended && !turn_shown(&self.host.screen(node.id).text))
     }
@@ -396,9 +396,7 @@ impl App {
             return false;
         }
         match profile_of(node) {
-            Some(Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp) => {
-                node.transcript.is_some()
-            }
+            Some(profile) if profile.hooked() => node.transcript.is_some(),
             Some(Profile::Codex) => matches!(
                 node.server,
                 Some(ServerLink::Codex {
@@ -406,7 +404,7 @@ impl App {
                     ..
                 })
             ),
-            Some(Profile::OpenCode2) | None => false,
+            Some(_) | None => false,
         }
     }
 
@@ -602,6 +600,49 @@ mod tests {
         assert_eq!(taken[0].body, "new task");
     }
 
+    #[tokio::test]
+    async fn a_hook_take_hands_no_mail_to_a_held_or_stopping_node() {
+        let t = fixture();
+        let (app, lead) = (t.app.clone(), t.lead);
+        let worker = add_worker(&t, "worker");
+        app.graph
+            .note(lead, "worker", Kind::Queue, "new task", None)
+            .unwrap();
+        let take = async || {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::AUTHORIZATION,
+                "Bearer worker".parse().unwrap(),
+            );
+            let req = crate::daemon::TakeRequest {
+                hook: "PostToolUse".into(),
+                kinds: Kind::ALL.to_vec(),
+                limit_bytes: crate::profile::BATCH_LIMIT_BYTES,
+                transcript: None,
+                human_input: false,
+                prompt: None,
+                turn: None,
+            };
+            let reply = crate::daemon::commands::agent_take(
+                axum::extract::State(app.clone()),
+                headers,
+                axum::Json(req),
+            )
+            .await;
+            let axum::Json(taken) = reply.unwrap_or_else(|(_, e)| panic!("{e}"));
+            taken.messages
+        };
+        app.hold(worker);
+        assert_eq!(take().await, [], "a pending relaunch holds the mail");
+        app.kept_running(worker);
+        assert!(app.sleeps.begin(worker));
+        assert_eq!(take().await, [], "the node is put to sleep");
+        assert!(app.sleeps.cancel(worker));
+        let taken = take().await;
+        assert_eq!(taken.len(), 1);
+        assert_eq!(taken[0].body, "new task");
+    }
+
     const ENDED: &str = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"끝\"}]}}\n{\"type\":\"system\",\"subtype\":\"stop_hook_summary\"}\n{\"type\":\"system\",\"subtype\":\"turn_duration\"}\n{\"type\":\"last-prompt\"}\n";
     #[cfg(unix)]
     const IN_TOOL: &str = "{\"type\":\"user\",\"message\":{\"content\":\"go\"}}\n{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\"}]}}\n";
@@ -621,11 +662,41 @@ mod tests {
             .set_transcript(node, path.to_str().unwrap())
             .unwrap();
         t.app.idle.turn_started(node, "UserPromptSubmit".into());
+        t.app.graph.backdate_agent_state(node, STOP_HOOK_GRACE * 3);
         t.app
             .graph
             .note(t.lead, name, Kind::Queue, "new task", None)
             .unwrap();
         node
+    }
+
+    #[tokio::test]
+    async fn mail_that_wakes_a_node_after_its_last_turn_end_is_not_a_missed_stop_hook() {
+        let t = fixture();
+        let woken = add_worker(&t, "woken");
+        let path = t.dir.path().join("woken.jsonl");
+        std::fs::write(&path, ENDED).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(SystemTime::now() - STOP_HOOK_GRACE * 2)
+            .unwrap();
+        t.app
+            .graph
+            .set_transcript(woken, path.to_str().unwrap())
+            .unwrap();
+        let wait = t.app.idle.open(woken);
+        t.app
+            .graph
+            .note(t.lead, "woken", Kind::Queue, "new task", None)
+            .unwrap();
+        wait.hand_mail();
+        assert_eq!(t.app.agent_state(woken), Some(AgentState::Turn));
+        t.app.end_unhooked_turns().unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(missed(&t), []);
+        assert_eq!(t.app.agent_state(woken), Some(AgentState::Turn));
     }
 
     fn missed(t: &Fixture) -> Vec<(NodeId, bool)> {
@@ -965,6 +1036,7 @@ mod tests {
                 .set_transcript(id, path.to_str().unwrap())
                 .unwrap();
             t.app.idle.turn_started(id, "UserPromptSubmit".into());
+            t.app.graph.backdate_agent_state(id, hour * 2);
             let mut cmd = portable_pty::CommandBuilder::new("sh");
             cmd.args([
                 "-c",

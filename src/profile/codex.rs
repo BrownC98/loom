@@ -5,10 +5,15 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use super::VersionMismatch;
+use std::sync::Arc;
+
+use tokio::sync::watch;
+
+use super::{ServerAdapter, Signal, VersionMismatch};
 use crate::protocol::{Delivery, Kind, Model, WaitKind};
 use crate::screen::{Answer, Dialog, Grammar, Options, Place, Top};
 use crate::skills::Launch;
+use server::CodexServer;
 
 pub mod server;
 
@@ -44,7 +49,6 @@ pub const DIALOGS: [Dialog; 2] = [
         answer: Answer::Plain,
     },
 ];
-pub const INPUT_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 
 pub(super) const WAITING: &str = "When waiting for children and no independent work remains, end your turn. Their messages start a new turn automatically. Do not run an unbounded loom wait.";
 
@@ -160,10 +164,120 @@ fn thread_model(thread: &Thread) -> Model {
     }
 }
 
-pub fn kinds(status: Status) -> &'static [Kind] {
+pub fn kinds(status: Status) -> &'static [&'static [Kind]] {
     match status {
-        Status::Idle => Kind::ALL,
-        Status::Busy => &[Kind::Steer, Kind::Interrupt],
+        Status::Idle => &[Kind::ALL],
+        Status::Busy => &[&[Kind::Steer, Kind::Interrupt]],
+    }
+}
+
+pub fn adapter(server: Arc<CodexServer>) -> impl ServerAdapter {
+    let thread = server.thread();
+    let stopper = server.clone();
+    Adapter::new(
+        move |method, params| {
+            let server = server.clone();
+            async move { server.call(method, params).await }
+        },
+        thread,
+        move || {
+            stopper.stop_shells();
+        },
+    )
+}
+
+pub struct Adapter<F, S> {
+    call: F,
+    stop: S,
+    thread: watch::Receiver<Option<server::Thread>>,
+    now: Option<server::Thread>,
+    busy: bool,
+    started: bool,
+    ours: bool,
+}
+
+impl<F, S> Adapter<F, S> {
+    pub fn new(call: F, thread: watch::Receiver<Option<server::Thread>>, stop: S) -> Self {
+        Self {
+            call,
+            stop,
+            thread,
+            now: None,
+            busy: false,
+            started: false,
+            ours: false,
+        }
+    }
+
+    fn thread(&self) -> Result<(String, Status), String> {
+        let now = self.now.as_ref().ok_or("Codex 스레드가 아직 없다")?;
+        let status = match self.started {
+            true => Status::Busy,
+            false => now.status,
+        };
+        Ok((now.id.clone(), status))
+    }
+}
+
+impl<F, Fut, S> ServerAdapter for Adapter<F, S>
+where
+    F: Fn(&'static str, Value) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<Value, String>> + Send,
+    S: Fn() + Send + Sync,
+{
+    fn takes(&self) -> &'static [&'static [Kind]] {
+        self.thread().map_or(&[], |(_, status)| kinds(status))
+    }
+
+    async fn signal(&mut self) -> Option<Signal> {
+        self.now = self.thread.borrow_and_update().clone();
+        let now = self.now.clone()?;
+        let was_busy = std::mem::replace(&mut self.busy, now.status == Status::Busy);
+        if !was_busy && self.busy && !std::mem::take(&mut self.ours) {
+            return Some(Signal::HumanInput);
+        }
+        if !(was_busy && !self.busy && !self.started) {
+            return None;
+        }
+        let reply = match last_reply(&self.call, &now.id).await {
+            Ok(reply) => reply,
+            Err(e) => {
+                eprintln!("loom: Codex 스레드 {}의 답 글을 읽지 못했다: {e}", now.id);
+                None
+            }
+        };
+        Some(Signal::TurnEnded(reply))
+    }
+
+    async fn changed(&mut self) -> bool {
+        let alive = self.thread.changed().await.is_ok();
+        self.started = false;
+        alive
+    }
+
+    async fn inject(&mut self, taken: &[Delivery]) -> Result<(), String> {
+        let (thread, status) = self.thread()?;
+        deliver(&self.call, &thread, status, taken).await?;
+        self.started = true;
+        self.ours |= status == Status::Idle;
+        Ok(())
+    }
+
+    async fn stop_shells(&self) {
+        (self.stop)();
+    }
+
+    async fn start_turn(&mut self, text: &str) -> Result<(), String> {
+        let (thread, _) = self.thread()?;
+        start_turn(&self.call, &thread, text).await?;
+        self.started = true;
+        self.ours = true;
+        Ok(())
+    }
+
+    async fn steer(&mut self, text: &str) -> Result<(), String> {
+        let (thread, _) = self.thread()?;
+        steer(&self.call, &thread, text).await
     }
 }
 
@@ -524,8 +638,8 @@ mod tests {
 
     #[test]
     fn busy_nodes_keep_the_queue_for_the_next_turn() {
-        assert_eq!(kinds(Status::Idle), Kind::ALL);
-        assert_eq!(kinds(Status::Busy), [Kind::Steer, Kind::Interrupt]);
+        assert_eq!(kinds(Status::Idle), [Kind::ALL]);
+        assert_eq!(kinds(Status::Busy), [[Kind::Steer, Kind::Interrupt]]);
     }
 
     #[tokio::test]

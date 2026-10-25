@@ -284,20 +284,7 @@ pub(super) async fn agent_take(
     Json(req): Json<TakeRequest>,
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
-    app.idle.turn_started(node, req.hook);
-    app.turn_ends.stepped(node, req.turn.as_deref());
-    keep_transcript(&app, node, req.transcript.as_deref())?;
-    let messages = app
-        .graph
-        .take(node, &req.kinds, req.limit_bytes)
-        .map_err(for_agent)?;
-    let note = match req.human_input {
-        true => app
-            .human_input(node, req.prompt.as_deref())
-            .map_err(for_agent)?,
-        false => None,
-    };
-    Ok(Json(Taken { messages, note }))
+    app.take_now(node, req).map(Json).map_err(for_agent)
 }
 
 pub(super) async fn agent_idle(
@@ -306,67 +293,10 @@ pub(super) async fn agent_idle(
     Json(req): Json<Option<IdleRequest>>,
 ) -> Result<Json<IdleReply>, AgentError> {
     let node = app.caller(&headers)?;
-    let req = req.unwrap_or_default();
-    keep_transcript(&app, node, req.transcript.as_deref())?;
-    if let Some(ended) = &req.turn_end {
-        app.turn_ends.stopped(node, ended.turn.as_deref());
-        if let Some(text) = ended.reply.clone() {
-            app.turn_ends.said(node, text, None);
-        }
-        if let Some(nudge) = app.turn_end(node) {
-            return Ok(Json(IdleReply::Nudge {
-                nudge: nudge.to_owned(),
-            }));
-        }
-    }
-    let mut wait = match req.turn_end {
-        Some(_) => app.idle.open_after_turn(node),
-        None => app.idle.open(node),
-    };
-    let alive = match app.graph.relations(node) {
-        Ok(relations) => relations.me.alive,
-        Err(e) => {
-            wait.finish(IdleEnd::Error);
-            return Err(for_agent(e));
-        }
-    };
-    if !alive {
-        app.idle.end(node, IdleEnd::Exit);
-        wait.finish(IdleEnd::Exit);
-        eprintln!(
-            "loom: 노드 {}의 쉬는 대기를 거절했다: 프로세스가 끝났다",
-            node.0
-        );
-        return Err((StatusCode::GONE, "The node process has exited.".to_owned()));
-    }
-    if req.rate_limited {
-        app.rate_limited(node, crate::protocol::Provider::Claude);
-    }
-    app.turn_ended(node);
-    while app.holds_mail(node) {
-        let by = wait.ended().await;
-        if app.caller(&headers).is_err() || !app.idle.reopen(&mut wait) {
-            wait.finish(by);
-            return Ok(Json(IdleReply::Mail(Vec::new())));
-        }
-    }
-    tokio::select! {
-        taken = app.next_mail(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
-            Ok(taken) => {
-                wait.hand_mail();
-                Ok(Json(IdleReply::Mail(taken)))
-            }
-            Err(e) => {
-                wait.finish(IdleEnd::Error);
-                eprintln!("loom: 노드 {}의 쉬는 대기가 끝났다: {e}", node.0);
-                Err(for_agent(e))
-            }
-        },
-        by = wait.ended() => {
-            wait.finish(by);
-            Ok(Json(IdleReply::Mail(Vec::new())))
-        }
-    }
+    let current = || app.caller(&headers).is_ok();
+    app.wait_idle(node, req.unwrap_or_default(), current)
+        .await
+        .map(Json)
 }
 
 pub(super) async fn agent_interrupt_pending(
@@ -410,16 +340,6 @@ async fn agent_model(
         .set_model(node, &model)
         .map_err(|e| for_agent(Refusal::from(e)))?;
     Ok(Json(()))
-}
-
-fn keep_transcript(app: &App, node: NodeId, path: Option<&str>) -> Result<(), AgentError> {
-    match path {
-        Some(path) => app
-            .graph
-            .set_transcript(node, path)
-            .map_err(|e| for_agent(Refusal::from(e))),
-        None => Ok(()),
-    }
 }
 
 async fn agent_wait(
@@ -468,7 +388,7 @@ pub(super) async fn agent_turn_end(
 ) -> Result<Json<Option<String>>, AgentError> {
     let node = app.caller(&headers)?;
     app.feed(node, AgentEvent::TurnEnded);
-    Ok(Json(app.turn_end(node).map(str::to_owned)))
+    Ok(Json(app.turn_ended(node, EndedTurn::default())))
 }
 
 async fn agent_hook_wait(
@@ -491,7 +411,7 @@ async fn agent_hook_wait(
 mod tests {
     #[test]
     fn every_agent_route_the_cli_calls_is_on_the_node_door() {
-        let cli = include_str!("../cli.rs");
+        let cli = [include_str!("../cli.rs"), include_str!("../cli/hook.rs")].concat();
         let daemon = include_str!("commands.rs");
         let door = &daemon[daemon.find("fn node_routes()").unwrap()..];
         let door = &door[..door.find("fn routes()").unwrap()];

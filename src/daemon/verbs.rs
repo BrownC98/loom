@@ -262,12 +262,7 @@ fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, R
         let Some(profile) = agent.as_ref().and_then(profile::profile_of) else {
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
-        if req.mode == Kind::Interrupt
-            && matches!(
-                profile,
-                Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp
-            )
-        {
+        if req.mode == Kind::Interrupt && profile.hooked() {
             let sent = app
                 .graph
                 .interrupt(from, &target, &req.body, Some(via), |to| {

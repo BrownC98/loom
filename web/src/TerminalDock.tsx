@@ -4,7 +4,7 @@ import { BookmarkButton } from './BookmarkButton';
 import type { DefaultCardView } from './gen/DefaultCardView';
 import type { NodeView } from './gen/NodeView';
 import { useRename } from './NameEdit';
-import { NodeSummary } from './NodeCard';
+import { DockSummary } from './NodeCard';
 import { NodeMenu } from './NodeMenu';
 import { SizingTerminal, type Direction } from './Terminal';
 
@@ -16,7 +16,7 @@ export function TerminalDock(props: { view: NodeView; defaultView: DefaultCardVi
   return (
     <>
       <div className="dock-head">
-        <NodeSummary view={view} agentLabel={props.agentLabel} rename={rename} actions={
+        <DockSummary view={view} agentLabel={props.agentLabel} rename={rename} actions={
             <>
               <BookmarkButton view={view} />
               <NodeMenu

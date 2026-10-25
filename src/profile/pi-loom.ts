@@ -1,5 +1,14 @@
 import { spawn } from "node:child_process";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  DefaultPackageManager,
+  type ExtensionAPI,
+  type ExtensionContext,
+  getAgentDir,
+  loadSkills,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 
 type Reply = { text?: string };
 type Part = { type: string; text?: string };
@@ -9,6 +18,7 @@ const GUARD = "loom guard";
 const MESSAGE = "loom";
 const IDLE_FLAG = "loom-idle";
 const RETRY_MS = 250;
+const SKILLS = join(dirname(fileURLToPath(import.meta.url)), "skills");
 
 function parse(out: string): Reply {
   try {
@@ -67,6 +77,18 @@ function lastText(messages: Message[]): string | undefined {
   return undefined;
 }
 
+async function otherSkills(cwd: string, projectTrusted: boolean): Promise<string[]> {
+  const agentDir = getAgentDir();
+  const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted });
+  const { skills } = await new DefaultPackageManager({ cwd, agentDir, settingsManager }).resolve();
+  const found = (skillPaths: string[]) => loadSkills({ cwd, agentDir, skillPaths, includeDefaults: false }).skills;
+  const loom = new Set(found([SKILLS]).map((skill) => skill.name));
+  const paths = skills.filter((skill) => skill.enabled).map((skill) => skill.path);
+  return found(paths)
+    .filter((skill) => !loom.has(skill.name))
+    .map((skill) => skill.filePath);
+}
+
 export default function (pi: ExtensionAPI) {
   let lastReply: string | undefined;
   const shutdown = new AbortController();
@@ -86,6 +108,8 @@ export default function (pi: ExtensionAPI) {
     const { text } = await call({ event, reply, ...state(ctx) }, ctx, shutdown.signal);
     if (text) deliver(text, ctx);
   };
+
+  pi.on("resources_discover", async (event, ctx) => ({ skillPaths: await otherSkills(event.cwd, ctx.isProjectTrusted()) }));
 
   pi.on("session_start", async (event, ctx) => {
     await call({ event: "session_start", ...state(ctx) }, ctx);

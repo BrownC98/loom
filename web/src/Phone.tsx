@@ -7,6 +7,7 @@ import type { NodeId } from './gen/NodeId';
 import type { NodeView } from './gen/NodeView';
 import { bookmarkToggle } from './BookmarkButton';
 import { relaunchableState } from './catalog';
+import { watchComposition, type Composition } from './composition';
 import { InboxPanel, waitCount } from './Inbox';
 import { AgentLine, stateLabel } from './NodeCard';
 import { NodeText, NoticeChips, NoticeLead, oldestWait, toneOf } from './notice';
@@ -206,6 +207,17 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
   const [pasteFailed, setPasteFailed] = useState(false);
   const [ctrl, setCtrl] = useState(false);
   const [text, setText] = useState('');
+  const box = useRef<HTMLInputElement>(null);
+  const composition = useRef<Composition | null>(null);
+  useEffect(() => {
+    if (!box.current) return;
+    const watched = watchComposition(box.current);
+    composition.current = watched;
+    return () => {
+      watched.dispose();
+      composition.current = null;
+    };
+  }, []);
   const [sheet, setSheet] = useState<'actions' | null>(null);
   const { askOpen, setAskOpen } = props;
   const { waiting } = props;
@@ -232,8 +244,11 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
   const arrow = (code: string) => key(ctrl ? `${ESC}[1;5${code}` : `${ESC}[${code}`);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    key(`${text}\r`);
-    setText('');
+    const sendBox = () => {
+      key(`${box.current?.value ?? text}\r`);
+      setText('');
+    };
+    if (!composition.current?.afterText(sendBox)) sendBox();
   };
   const type = (next: string) => {
     if (ctrl && next.length === text.length + 1 && next.startsWith(text)) return key(controlOf(next.slice(-1)));
@@ -300,7 +315,7 @@ function NodeScreen(props: { askOpen: boolean; setAskOpen: (open: boolean) => vo
           </p>
         )}
         <form className="phone-input" onSubmit={submit}>
-          <input value={text} onChange={(e) => type(e.target.value)} aria-label={t('phone.input')} placeholder={t('phone.input')} autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="send" />
+          <input ref={box} value={text} onChange={(e) => type(e.target.value)} aria-label={t('phone.input')} placeholder={t('phone.input')} autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="send" />
           <button type="submit" className="send" aria-label={t('phone.send')}>
             <CornerDownLeft aria-hidden="true" />
           </button>

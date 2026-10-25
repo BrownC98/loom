@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type DragEvent,
 import { Terminal as XTerm, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { withoutColorReplies } from './colorReplies';
+import { watchComposition } from './composition';
 import { attachPty, PASTE_LIMIT_BYTES, savePastedFile } from './api';
 import type { NodeId } from './gen/NodeId';
 import type { PtyRequest } from './gen/PtyRequest';
@@ -43,6 +44,11 @@ const SHIFT_ENTER_INPUT = '\n';
 function isShiftEnter(e: KeyboardEvent | ReactKeyboardEvent): boolean {
   return e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
 }
+
+function isPlainEnter(e: KeyboardEvent): boolean {
+  return e.key === 'Enter' && e.keyCode !== IME_KEY_CODE && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+}
+const IME_KEY_CODE = 229;
 
 function plainCommand(e: KeyboardEvent, code: string): boolean {
   return commandKey(e) && !e.shiftKey && !e.altKey && e.code === code;
@@ -223,6 +229,9 @@ export function SizingTerminal(props: TerminalProps) {
       xterm.open(el);
       unscaleMouse(xterm);
       term.current = xterm;
+      const composition = watchComposition(xterm.textarea ?? el);
+      let enterHeld = false;
+      const replayed = new WeakSet<KeyboardEvent>();
       const rescale = () => scaleToBox(xterm, el);
       const propose = () => {
         const proposed = fitAddon.proposeDimensions();
@@ -293,6 +302,21 @@ export function SizingTerminal(props: TerminalProps) {
           e.preventDefault();
           return false;
         }
+        if (isPlainEnter(e) && !replayed.has(e)) {
+          const later = () => {
+            enterHeld = false;
+            for (const type of ['keydown', 'keyup']) {
+              const again = new KeyboardEvent(type, { key: e.key, code: e.code, keyCode: e.keyCode, bubbles: true, cancelable: true });
+              replayed.add(again);
+              xterm.textarea?.dispatchEvent(again);
+            }
+          };
+          if (e.type === 'keydown' && composition.afterText(later)) enterHeld = true;
+          if (enterHeld) {
+            e.preventDefault();
+            return false;
+          }
+        }
         if (isShiftEnter(e) && !e.isComposing) {
           if (e.type === 'keydown') setTimeout(() => link.sendInput(SHIFT_ENTER_INPUT));
           e.preventDefault();
@@ -344,6 +368,7 @@ export function SizingTerminal(props: TerminalProps) {
       if (latest.current.focused) focusSoon(xterm);
       return () => {
         unhold();
+        composition.dispose();
         reflush.current = () => {};
         observer.disconnect();
         window.removeEventListener('focus', claim);

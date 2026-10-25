@@ -77,8 +77,14 @@ pub struct PtySize {
     pub rows: u16,
 }
 
+pub struct Kept {
+    pub size: PtySize,
+    pub backlog: Bytes,
+}
+
 pub struct NodeHost<K> {
     dir: PathBuf,
+    kept: PathBuf,
     nodes: RwLock<HashMap<K, Arc<Pty>>>,
 }
 
@@ -139,6 +145,7 @@ const KEPT_MODES: [u16; 15] = [
 impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     pub fn new(dir: PathBuf) -> Self {
         Self {
+            kept: dir.with_extension("screens"),
             dir,
             nodes: RwLock::default(),
         }
@@ -163,6 +170,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         id: K,
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> Result<(), Unattached> {
+        let _ = std::fs::remove_file(self.kept_file(id));
         let file = self.file(id);
         let connected = connect(&file);
         let (mut reader, pid) = match connected {
@@ -321,6 +329,36 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         if let Some(pty) = self.nodes.write().unwrap().remove(&id) {
             pty.send(&Frame::Kill);
         }
+        let _ = std::fs::remove_file(self.kept_file(id));
+    }
+
+    pub fn keep(&self, id: K) -> std::io::Result<()> {
+        let nodes = self.nodes.read().unwrap();
+        let Some(pty) = nodes.get(&id) else {
+            return Ok(());
+        };
+        let PtySize { cols, rows } = *pty.size.borrow();
+        let backlog = pty.output.lock().unwrap().backlog.to_vec();
+        let file = self.kept_file(id);
+        let temp = file.with_extension("tmp");
+        std::fs::create_dir_all(&self.kept)?;
+        std::fs::write(
+            &temp,
+            [&cols.to_le_bytes()[..], &rows.to_le_bytes(), &backlog].concat(),
+        )?;
+        std::fs::rename(temp, file)
+    }
+
+    pub fn kept(&self, id: K) -> Option<Kept> {
+        let saved = std::fs::read(self.kept_file(id)).ok()?;
+        let (size, backlog) = saved.split_first_chunk::<4>()?;
+        Some(Kept {
+            size: PtySize {
+                cols: u16::from_le_bytes([size[0], size[1]]),
+                rows: u16::from_le_bytes([size[2], size[3]]),
+            },
+            backlog: Bytes::copy_from_slice(backlog),
+        })
     }
 
     pub fn stop_if(&self, id: K, stop: impl FnOnce(&Keys<'_>) -> bool) -> bool {
@@ -378,6 +416,10 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
 
     fn file(&self, id: K) -> PathBuf {
         self.dir.join(id.to_string())
+    }
+
+    fn kept_file(&self, id: K) -> PathBuf {
+        self.kept.join(id.to_string())
     }
 }
 
@@ -779,6 +821,51 @@ mod tests {
         assert!(read_until(&mut attached, "got x").contains("before"));
         assert_eq!(rx.recv().unwrap(), Exit::Command(3));
         assert!(!dir.path().join("1").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_kept_screen_outlives_the_daemon_until_a_new_pty_or_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        let hosts = dir.path().join("nodes");
+        let mut old = CommandBuilder::new("sh");
+        old.args([
+            "-c",
+            "printf '\\033[?1049h'; head -c 300000 /dev/zero | tr '\\0' x; printf last; read line",
+        ]);
+        in_process(&hosts, 1, old);
+        let first = Arc::new(NodeHost::new(hosts.clone()));
+        let keeper = first.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        first
+            .resume(1, move |_| tx.send(keeper.keep(1).is_ok()).unwrap())
+            .unwrap();
+        first.resize(1, 90, 30);
+        read_until(&mut first.attach(1).unwrap(), "last");
+        first.stop(1);
+        assert!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+
+        let second = NodeHost::new(hosts.clone());
+        assert!(second.attach(1).is_none());
+        let kept = second.kept(1).unwrap();
+        assert_eq!(kept.size, PtySize { cols: 90, rows: 30 });
+        assert!(kept.backlog.starts_with(b"\x1b[?1049h"));
+        assert!(kept.backlog.ends_with(b"last"));
+        let saved = std::fs::metadata(hosts.with_extension("screens").join("1")).unwrap();
+        assert!(saved.len() <= (4 + b"\x1b[?1049h".len() + BACKLOG_BYTES) as u64);
+
+        let mut new = CommandBuilder::new("sh");
+        new.args(["-c", "echo new; read line"]);
+        in_process(&hosts, 1, new);
+        second.resume(1, |_| {}).unwrap();
+        assert!(second.kept(1).is_none());
+        read_until(&mut second.attach(1).unwrap(), "new");
+        second.keep(1).unwrap();
+        let replaced = String::from_utf8_lossy(&second.kept(1).unwrap().backlog).into_owned();
+        assert!(replaced.contains("new") && !replaced.contains("last"));
+
+        second.kill(1);
+        assert!(second.kept(1).is_none());
     }
 
     #[cfg(unix)]

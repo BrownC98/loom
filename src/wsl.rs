@@ -365,6 +365,10 @@ const INTEROP_OFF: &str = "interop-off";
 const INTEROP_LOG: &str = ".loom/wsl-interop.log";
 const INTEROP_ERROR: &str = "UtilAcceptVsock|WSL.*ERROR";
 pub const REWAKE_EXIT: i32 = 2;
+pub const TUNNEL_DOWN_EXIT: i32 = 3;
+pub const SOCKET_ENV: &str = "LOOM_SOCKET";
+pub const LINUX_LOOM: &str = "loom-linux";
+const LINUX_HASH_HEX: usize = 12;
 
 pub async fn inside(
     at: &WslPath,
@@ -548,10 +552,110 @@ fn names<K: AsRef<str>, V>(env: &[(K, V)]) -> String {
         .join(":")
 }
 
-pub fn write_shim(dir: &Path, exe: &Path) -> std::io::Result<()> {
+pub struct Tunnel {
+    pub linux: PathBuf,
+    pub sock: String,
+}
+
+pub fn socket(port: u16) -> String {
+    format!(".loom/run/daemon-{port}.sock")
+}
+
+pub fn install_linux(dir: &Path, source: &Path) -> std::io::Result<Option<PathBuf>> {
+    use sha2::Digest;
+    let bytes = match std::fs::read(source) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let hash: String = sha2::Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     std::fs::create_dir_all(dir)?;
-    let exe = exe.to_string_lossy().replace('\'', r"'\''");
+    let path = dir.join(format!("{LINUX_LOOM}-{}", &hash[..LINUX_HASH_HEX]));
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() == bytes.len() as u64) {
+        return Ok(Some(path));
+    }
+    let partial = path.with_extension("partial");
+    std::fs::write(&partial, &bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755))?;
+    }
+    std::fs::rename(&partial, &path)?;
+    Ok(Some(path))
+}
+
+pub fn prune_linux(keep: &Path) {
+    let (Some(dir), Some(keep)) = (keep.parent(), keep.file_name()) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name != keep
+            && name
+                .to_string_lossy()
+                .starts_with(&format!("{LINUX_LOOM}-"))
+        {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+pub fn relay(distro: &str, tunnel: &Tunnel) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new("wsl.exe");
+    cmd.args([
+        "-d",
+        distro,
+        "--cd",
+        "~",
+        "--exec",
+        "sh",
+        "-c",
+        r#"exec "$(wslpath -u "$1")" tunnel "$HOME/$2""#,
+        "sh",
+    ])
+    .arg(&tunnel.linux)
+    .arg(&tunnel.sock);
+    cmd
+}
+
+fn quoted(path: &Path) -> String {
+    path.to_string_lossy().replace('\'', r"'\''")
+}
+
+pub fn write_shim(dir: &Path, exe: &Path, tunnel: Option<&Tunnel>) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
     let shim = dir.join("loom");
+    let through_tunnel = match tunnel {
+        Some(Tunnel { linux, sock }) => format!(
+            r#"sock=$HOME/{sock}
+lin=$(wslpath -u '{linux}')
+if [ ! -x "$lin" ]; then
+  why="no $lin"
+elif [ ! -S "$sock" ]; then
+  why="no $sock"
+else
+  exec 3<&0
+  {SOCKET_ENV}=$sock "$lin" "$@" <&3 3<&- &
+  pid=$!
+  wait $pid
+  code=$?
+  exec 3<&-
+  [ $code -eq {TUNNEL_DOWN_EXIT} ] || exit $code
+  why="$sock refused the connection"
+fi
+note "$1" "uses loom.exe: $why"
+"#,
+            linux = quoted(linux)
+        ),
+        None => String::new(),
+    };
     let text = format!(
         r#"#!/bin/sh
 if [ "$1" = guard ] && [ -n "$LOOM_TOKEN" ]; then
@@ -568,13 +672,18 @@ if [ "$1" = guard ] && [ -n "$LOOM_TOKEN" ]; then
   exit 0
 fi
 exe=$(wslpath -u '{exe}')
-case $1 in hook | cursor-hook) ;; *) exec "$exe" "$@" ;; esac
-tmp=$(mktemp -d) || exec "$exe" "$@"
-mkfifo "$tmp/o" "$tmp/e" || {{ rm -rf "$tmp"; exec "$exe" "$@"; }}
-trap 'rm -rf "$tmp"' EXIT
+case $1 in hook | cursor-hook | pi-hook) ;; *) exec "$exe" "$@" ;; esac
 trap 'kill $pid 2>/dev/null; wait; exit 143' TERM
 trap 'kill $pid 2>/dev/null; wait; exit 130' INT
 trap 'kill $pid 2>/dev/null; wait; exit 129' HUP
+note() {{
+  log=$HOME/{INTEROP_LOG}
+  mkdir -p "${{log%/*}}" && printf '%s %s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1" "$2" >>"$log"
+}}
+{through_tunnel}[ "$1" = pi-hook ] && exec "$exe" "$@"
+tmp=$(mktemp -d) || exec "$exe" "$@"
+mkfifo "$tmp/o" "$tmp/e" || {{ rm -rf "$tmp"; exec "$exe" "$@"; }}
+trap 'rm -rf "$tmp"' EXIT
 cat >"$tmp/in"
 try=1
 while :; do
@@ -587,15 +696,14 @@ while :; do
   wait
   [ $code -ne 0 ] && [ $code -ne {REWAKE_EXIT} ] && [ ! -s "$tmp/out" ] &&
     head -n 1 "$tmp/err" | grep -qE '{INTEROP_ERROR}' || break
-  log=$HOME/{INTEROP_LOG}
-  mkdir -p "${{log%/*}}" &&
-    printf '%s %s try %s/{START_TRIES} exit %s: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1" $try $code "$(head -n 1 "$tmp/err")" >>"$log"
+  note "$1" "try $try/{START_TRIES} exit $code: $(head -n 1 "$tmp/err")"
   [ $try -lt {START_TRIES} ] || break
   try=$((try + 1))
   sleep {retry}
 done
 exit $code
 "#,
+        exe = quoted(exe),
         retry = START_RETRY_AFTER.as_secs()
     );
     if std::fs::read_to_string(&shim).is_ok_and(|old| old == text) {
@@ -689,12 +797,26 @@ mod tests {
         }
 
         fn with_exe(name: &str, body: &str) -> Self {
+            Self::with_tunnel(name, body, None)
+        }
+
+        fn with_tunnel(name: &str, body: &str, linux: Option<&str>) -> Self {
             use std::os::unix::fs::PermissionsExt;
             let dir = tempfile::tempdir().unwrap();
             let fake = dir.path().join("loom.exe");
             std::fs::write(&fake, format!("#!/bin/sh\n{body}\n")).unwrap();
             std::fs::write(dir.path().join("wslpath"), "#!/bin/sh\necho \"$2\"\n").unwrap();
-            write_shim(dir.path(), &fake).unwrap();
+            let tunnel = linux.map(|body| {
+                let linux = dir.path().join("loom-linux-test");
+                std::fs::write(&linux, format!("#!/bin/sh\n{body}\n")).unwrap();
+                let mode = std::fs::Permissions::from_mode(0o755);
+                std::fs::set_permissions(&linux, mode).unwrap();
+                Tunnel {
+                    linux,
+                    sock: socket(1),
+                }
+            });
+            write_shim(dir.path(), &fake, tunnel.as_ref()).unwrap();
             for file in ["loom.exe", "wslpath", "loom"] {
                 let mode = std::fs::Permissions::from_mode(0o755);
                 std::fs::set_permissions(dir.path().join(file), mode).unwrap();
@@ -863,6 +985,111 @@ exit 2"#,
             )
         );
         assert_eq!(log().lines().count(), 1, "{}", log());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shim_sends_hooks_to_the_tunnel_and_falls_back_to_loom_exe() {
+        use std::io::Write;
+        let shim = Shim::with_tunnel(
+            "tunnel",
+            r#"echo "exe $* $(cat)""#,
+            Some(
+                r#"[ -e "$HOME/refuse" ] && exit 3
+echo "linux $* $LOOM_SOCKET $(cat)"
+exit 2"#,
+            ),
+        );
+        let home = shim.dir.path();
+        let run = |args: &[&str]| {
+            let mut child = std::process::Command::new(home.join("loom"))
+                .args(args)
+                .env(
+                    "PATH",
+                    format!("{}:{}", home.display(), std::env::var("PATH").unwrap()),
+                )
+                .env("HOME", home)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            child.stdin.take().unwrap().write_all(b"{}").unwrap();
+            let out = child.wait_with_output().unwrap();
+            (out.status.code(), String::from_utf8(out.stdout).unwrap())
+        };
+        let log = || std::fs::read_to_string(home.join(INTEROP_LOG)).unwrap_or_default();
+        let sock = home.join(socket(1));
+
+        assert_eq!(run(&["hook"]), (Some(0), "exe hook {}\n".into()));
+        assert!(
+            log().ends_with(&format!(" hook uses loom.exe: no {}\n", sock.display())),
+            "{}",
+            log()
+        );
+
+        std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        assert_eq!(
+            run(&["cursor-hook"]),
+            (
+                Some(2),
+                format!("linux cursor-hook {} {{}}\n", sock.display())
+            )
+        );
+        assert_eq!(run(&["status"]), (Some(0), "exe status {}\n".into()));
+        assert_eq!(log().lines().count(), 1, "{}", log());
+
+        std::fs::write(home.join("refuse"), "").unwrap();
+        assert_eq!(run(&["pi-hook"]), (Some(0), "exe pi-hook {}\n".into()));
+        assert!(
+            log().ends_with(
+                " pi-hook uses loom.exe: {} refused the connection\n"
+                    .replace("{}", &sock.display().to_string())
+                    .as_str()
+            ),
+            "{}",
+            log()
+        );
+        assert_eq!(log().lines().count(), 2, "{}", log());
+        drop(listener);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shim_streams_pi_hook_lines_through_the_tunnel() {
+        use std::io::{BufRead, Write};
+        let shim = Shim::with_tunnel(
+            "pistream",
+            "echo exe",
+            Some(r#"while read -r line; do echo "linux $line"; done"#),
+        );
+        let home = shim.dir.path();
+        let sock = home.join(socket(1));
+        std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+        let _listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        let mut child = std::process::Command::new(home.join("loom"))
+            .arg("pi-hook")
+            .env(
+                "PATH",
+                format!("{}:{}", home.display(), std::env::var("PATH").unwrap()),
+            )
+            .env("HOME", home)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        for request in ["{\"id\":1}", "{\"id\":2}"] {
+            writeln!(stdin, "{request}").unwrap();
+            line.clear();
+            stdout.read_line(&mut line).unwrap();
+            assert_eq!(line, format!("linux {request}\n"));
+        }
+        drop(stdin);
+        assert!(child.wait().unwrap().success());
+        assert!(!home.join(INTEROP_LOG).exists());
     }
 
     #[cfg(unix)]
@@ -1074,7 +1301,7 @@ printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
     fn an_unchanged_shim_is_not_written_again() {
         let dir = tempfile::tempdir().unwrap();
         let exe = Path::new(r"C:\loom\loom.exe");
-        write_shim(dir.path(), exe).unwrap();
+        write_shim(dir.path(), exe, None).unwrap();
         let shim = dir.path().join("loom");
         let set_read_only = |on| {
             let mut permissions = std::fs::metadata(&shim).unwrap().permissions();
@@ -1082,8 +1309,8 @@ printf '오류 코드: Wsl/Service/0x8007274c\n'; exit 1"#,
             std::fs::set_permissions(&shim, permissions).unwrap();
         };
         set_read_only(true);
-        let same = write_shim(dir.path(), exe);
-        let other = write_shim(dir.path(), Path::new(r"C:\other\loom.exe"));
+        let same = write_shim(dir.path(), exe, None);
+        let other = write_shim(dir.path(), Path::new(r"C:\other\loom.exe"), None);
         set_read_only(false);
         same.unwrap();
         assert!(other.is_err());

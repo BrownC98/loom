@@ -125,6 +125,7 @@ impl App {
     }
 
     pub(super) async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
+        let mut distros = std::collections::HashSet::new();
         for node in self.graph.active()? {
             let (codex, opencode2) = match node.server.clone() {
                 Some(ServerLink::Codex { url, pid, thread }) => {
@@ -178,6 +179,11 @@ impl App {
             }
             self.follow_screen(node.id, profile, &node.token);
             self.follow_servers(node.id, codex, opencode2, &node.token);
+            distros.extend(distro);
+        }
+        for distro in distros {
+            let app = self.clone();
+            tokio::spawn(async move { app.open_tunnel(&distro).await });
         }
         self.host.end_others();
         self.logins.end_others();
@@ -197,6 +203,7 @@ impl App {
         let runtime = tokio::runtime::Handle::current();
         let token = token.to_owned();
         move |exit| {
+            let _recheck = tunnels::Recheck::after(&app, distro.clone());
             discard();
             if exit != Exit::Lost
                 && let Some(distro) = distro
@@ -357,11 +364,14 @@ impl App {
         let mut env = self.node_env(&token)?.to_vec();
         let plugin = self.plugin.dir(launch.skills);
         let site = match wsl::of(cwd) {
-            Some(at) => Site::wsl(
-                wsl::inside(&at, &profile::commands(start), &self.shim, &[&plugin])
-                    .await
-                    .map_err(LaunchError::Wsl)?,
-            ),
+            Some(at) => {
+                self.open_tunnel(&at.distro).await;
+                Site::wsl(
+                    wsl::inside(&at, &profile::commands(start), &self.shim, &[&plugin])
+                        .await
+                        .map_err(LaunchError::Wsl)?,
+                )
+            }
             None => self.pc_site(),
         };
         if profile == Some(Profile::Cursor)

@@ -168,10 +168,10 @@ pub(super) async fn agent_relaunch_unserved(
     headers: HeaderMap,
 ) -> Result<Json<Relaunched>, AgentError> {
     let caller = app.caller(&headers)?;
-    app.relaunch_unserved(caller)
-        .await
-        .map(Json)
-        .map_err(for_agent)
+    let via = super::gate::via(&headers, "/api/agent/relaunch-unserved");
+    let relaunched = app.relaunch_unserved(caller).await;
+    let to = format!("#{}", caller.0);
+    super::traced(&app, caller, super::Attempt::verb(&to), &via, relaunched)
 }
 
 async fn relaunch(
@@ -395,18 +395,28 @@ impl App {
             .map_err(internal)?
             .into_iter()
             .find(|n| n.id == id);
-        let Some(node) = found.filter(|n| profile_of(n).is_some()) else {
+        let Some(node) = found else {
             return self.revive_ended(id, Plan::Resume).await;
         };
+        if profile_of(&node).is_none() {
+            return Err(Refusal::NoResume(node.name).into());
+        }
         let plan = {
             let mut pending = self.relaunches.pending.lock().unwrap();
-            let plan = match pending.get(&id) {
-                Some((Phase::Running, _)) => return Ok(Relaunched::Now),
-                Some((Phase::AtTurnEnd, plan)) => plan.clone(),
-                None => Plan::Resume,
-            };
-            pending.insert(id, (Phase::Running, plan.clone()));
-            plan
+            if self.graph.ended(id).map_err(internal)?.is_some() {
+                None
+            } else {
+                let plan = match pending.get(&id) {
+                    Some((Phase::Running, _)) => return Ok(Relaunched::Now),
+                    Some((Phase::AtTurnEnd, plan)) => plan.clone(),
+                    None => Plan::Resume,
+                };
+                pending.insert(id, (Phase::Running, plan.clone()));
+                Some(plan)
+            }
+        };
+        let Some(plan) = plan else {
+            return self.revive_ended(id, Plan::Resume).await;
         };
         let app = self.clone();
         tokio::spawn(async move { app.relaunch(node, plan, None).await })
@@ -1126,7 +1136,17 @@ mod tests {
             .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
             .unwrap();
         let addr = "127.0.0.1:0".parse().unwrap();
-        let app = Arc::new(App::new(database, &db_path, addr, None, None).unwrap());
+        let app = Arc::new(
+            App::new(
+                database,
+                &db_path,
+                addr,
+                None,
+                None,
+                crate::tunnel::Door::new().0,
+            )
+            .unwrap(),
+        );
         (dir, app)
     }
 

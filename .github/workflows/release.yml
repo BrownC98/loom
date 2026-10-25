@@ -18,7 +18,38 @@ env:
   LOOM_RELEASES: https://github.com/${{ github.repository }}/releases
 
 jobs:
+  wsl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: 판 쓰기
+        run: |
+          version=$(sh scripts/version.sh)
+          sed -i "s/^version = \".*\"$/version = \"$version\"/" Cargo.toml
+      - name: 화면 빌드
+        run: npm ci && npm run build
+        working-directory: web
+      - name: Linux loom 빌드
+        run: |
+          sudo apt-get install -y --no-install-recommends musl-tools
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --target x86_64-unknown-linux-musl
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: loom-linux
+          path: target/x86_64-unknown-linux-musl/release/loom
+          if-no-files-found: error
+
   installer:
+    needs: wsl
     strategy:
       max-parallel: 1
       matrix:
@@ -64,6 +95,15 @@ jobs:
           triple=$(rustc -vV | sed -n 's/^host: //p')
           exe=$([ "$RUNNER_OS" = Windows ] && echo .exe || true)
           cp "target/release/loom$exe" "app/binaries/loom-$triple$exe"
+      - name: Linux loom 받기
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: loom-linux
+          path: app/binaries/linux
+      - name: Linux loom 이름 맞추기
+        if: runner.os == 'Windows'
+        run: mv app/binaries/linux/loom app/binaries/loom-linux
       - name: 설치 템플릿 받기
         if: runner.os == 'Windows'
         shell: bash
@@ -92,39 +132,15 @@ jobs:
             - 웹 버전(앱 없이 브라우저로, `loom-web-*` 파일): 아래 명령이 받는다. Linux·WSL `curl -fsSL https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.sh | sh`, Windows PowerShell `irm https://raw.githubusercontent.com/BrownC98/loom/main/scripts/install.ps1 | iex`.
       - name: 웹 버전 실행 파일 올리기
         run: |
+          version=v${{ steps.version.outputs.version }}
           case "$RUNNER_OS" in
-          Windows) cp target/release/loom.exe loom-web-windows-x64.exe; asset=loom-web-windows-x64.exe ;;
+          Windows)
+            cp app/binaries/loom-linux loom-web-linux-x64
+            gh release upload "$version" loom-web-linux-x64 --clobber
+            cp target/release/loom.exe loom-web-windows-x64.exe; asset=loom-web-windows-x64.exe ;;
           macOS) cp target/release/loom loom-web-macos-arm64; asset=loom-web-macos-arm64 ;;
           esac
-          gh release upload "v${{ steps.version.outputs.version }}" "$asset" --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-  linux:
-    needs: installer
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - uses: Swatinem/rust-cache@v2.9.2
-      - name: 판 쓰기
-        run: sed -i "s/^version = \".*\"$/version = \"${{ needs.installer.outputs.version }}\"/" Cargo.toml
-      - name: 화면 빌드
-        run: npm ci && npm run build
-        working-directory: web
-      - name: loom 빌드, Release에 올리기
-        run: |
-          sudo apt-get install -y --no-install-recommends musl-tools
-          rustup target add x86_64-unknown-linux-musl
-          cargo build --release --target x86_64-unknown-linux-musl
-          cp target/x86_64-unknown-linux-musl/release/loom loom-web-linux-x64
-          gh release upload "v${{ needs.installer.outputs.version }}" loom-web-linux-x64 --clobber
+          gh release upload "$version" "$asset" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 

@@ -432,6 +432,7 @@ mod tests {
                 "127.0.0.1:0".parse().unwrap(),
                 None,
                 None,
+                crate::tunnel::Door::new().0,
             )
             .unwrap(),
         );
@@ -903,6 +904,7 @@ mod tests {
                     "127.0.0.1:0".parse().unwrap(),
                     None,
                     None,
+                    crate::tunnel::Door::new().0,
                 )
                 .unwrap(),
             )

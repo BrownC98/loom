@@ -363,6 +363,33 @@ mod tests {
     }
 
     #[test]
+    fn every_event_the_extension_sends_is_served() {
+        let after = |mark| EXTENSION.split(mark).skip(1);
+        let sent: Vec<&str> = after("event: \"")
+            .chain(after("wait(\""))
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        for event in [
+            "session_start",
+            "idle",
+            "prompt",
+            "tool_call",
+            "tool_result",
+            "settled",
+        ] {
+            assert!(
+                sent.contains(&event),
+                "{event} is not in the extension: {sent:?}"
+            );
+        }
+        for event in sent {
+            let line =
+                format!(r#"{{"protocol":{PROTOCOL},"id":1,"event":"{event}","prompt":"p"}}"#);
+            assert_eq!(served(&line).event.name(), event);
+        }
+    }
+
+    #[test]
     fn a_launch_without_a_brief_waits_for_mail() {
         let launch = Launch {
             position: Position::Child,

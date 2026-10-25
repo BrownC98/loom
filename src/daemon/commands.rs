@@ -100,8 +100,6 @@ pub struct TakeRequest {
     pub human_input: bool,
     #[serde(default)]
     pub prompt: Option<String>,
-    #[serde(default)]
-    pub turn: Option<TurnId>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -116,7 +114,20 @@ pub struct Taken {
 pub struct IdleRequest {
     pub transcript: Option<String>,
     pub rate_limited: bool,
-    pub turn: Option<TurnId>,
+    pub turn_end: Option<EndedTurn>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EndedTurn {
+    pub reply: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum IdleReply {
+    Mail(Vec<Delivery>),
+    Nudge { nudge: String },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -184,21 +195,9 @@ struct QuestionState {
     answered: bool,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct TurnId(pub String);
-
 #[derive(Serialize, Deserialize)]
 pub struct SaidRequest {
     pub text: String,
-    #[serde(default)]
-    pub turn: Option<TurnId>,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct TurnEndRequest {
-    pub turn: Option<TurnId>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -280,11 +279,6 @@ pub(super) async fn agent_take(
 ) -> Result<Json<Taken>, AgentError> {
     let node = app.caller(&headers)?;
     app.idle.turn_started(node, req.hook);
-    match req.turn {
-        Some(turn) if req.human_input => app.idle.prompted(node, turn),
-        Some(turn) => app.idle.stepped(node, turn),
-        None => {}
-    }
     keep_transcript(&app, node, req.transcript.as_deref())?;
     let messages = app
         .graph
@@ -303,12 +297,24 @@ pub(super) async fn agent_idle(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
     Json(req): Json<Option<IdleRequest>>,
-) -> Result<Json<Vec<Delivery>>, AgentError> {
+) -> Result<Json<IdleReply>, AgentError> {
     let node = app.caller(&headers)?;
     let req = req.unwrap_or_default();
     keep_transcript(&app, node, req.transcript.as_deref())?;
-    app.idle.stop_reached(node, req.turn);
-    let mut wait = app.idle.open(node);
+    if let Some(ended) = &req.turn_end {
+        if let Some(text) = ended.reply.clone() {
+            app.turn_ends.said(node, text);
+        }
+        if let Some(nudge) = app.turn_end(node) {
+            return Ok(Json(IdleReply::Nudge {
+                nudge: nudge.to_owned(),
+            }));
+        }
+    }
+    let mut wait = match req.turn_end {
+        Some(_) => app.idle.open_after_turn(node),
+        None => app.idle.open(node),
+    };
     let alive = match app.graph.relations(node) {
         Ok(relations) => relations.me.alive,
         Err(e) => {
@@ -329,19 +335,18 @@ pub(super) async fn agent_idle(
         app.rate_limited(node, crate::protocol::Provider::Claude);
     }
     app.turn_ended(node);
-    while app.relaunches.holds_mail(node) {
+    while app.holds_mail(node) {
         let by = wait.ended().await;
         if app.caller(&headers).is_err() || !app.idle.reopen(&mut wait) {
             wait.finish(by);
-            return Ok(Json(Vec::new()));
+            return Ok(Json(IdleReply::Mail(Vec::new())));
         }
     }
     tokio::select! {
         taken = app.next_mail(node, Kind::ALL, claude::HOOK_LIMIT_BYTES) => match taken {
             Ok(taken) => {
-                app.idle.mail_handed(node);
                 wait.hand_mail();
-                Ok(Json(taken))
+                Ok(Json(IdleReply::Mail(taken)))
             }
             Err(e) => {
                 wait.finish(IdleEnd::Error);
@@ -351,7 +356,7 @@ pub(super) async fn agent_idle(
         },
         by = wait.ended() => {
             wait.finish(by);
-            Ok(Json(Vec::new()))
+            Ok(Json(IdleReply::Mail(Vec::new())))
         }
     }
 }
@@ -436,7 +441,7 @@ pub(super) async fn agent_said(
     Json(req): Json<SaidRequest>,
 ) -> Result<Json<()>, AgentError> {
     let node = app.caller(&headers)?;
-    app.said(node, req.text, req.turn);
+    app.turn_ends.said(node, req.text);
     Ok(Json(()))
 }
 
@@ -452,10 +457,8 @@ pub(super) async fn agent_question_box(
 pub(super) async fn agent_turn_end(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    Json(req): Json<Option<TurnEndRequest>>,
 ) -> Result<Json<Option<String>>, AgentError> {
     let node = app.caller(&headers)?;
-    app.idle.stop_reached(node, req.unwrap_or_default().turn);
     app.feed(node, AgentEvent::TurnEnded);
     Ok(Json(app.turn_end(node).map(str::to_owned)))
 }

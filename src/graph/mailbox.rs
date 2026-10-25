@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use std::pin::pin;
-use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -17,8 +16,6 @@ use crate::protocol::{
     AgentId, BATCH_SEPARATOR, BRIEF_LIMIT_BYTES, Delivery, Kind, LOOM, MAILBOX_LIMIT, MessageId,
     MessageKind, Question, Refusal, SUMMARY_LIMIT_BYTES, WaitDoc,
 };
-
-pub const REDELIVER_AFTER: Duration = Duration::from_secs(30);
 
 fn wakes(delivery: &Delivery) -> bool {
     delivery.kind != Kind::Queue || delivery.what.as_ref().is_none_or(MessageKind::wakes)
@@ -281,9 +278,14 @@ impl Graph {
                 )
                 .optional()?;
             if let Some(delivery) = delivery {
+                self.lock().execute(
+                    "UPDATE messages SET sent_at = unixepoch()
+                     WHERE id = ?1 AND delivered = 0 AND sent_at IS NULL",
+                    [delivery.id.0],
+                )?;
                 return Ok(delivery);
             }
-            let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
+            notified.await;
         }
     }
 
@@ -300,14 +302,14 @@ impl Graph {
             if !taken.is_empty() {
                 return Ok(taken);
             }
-            let _ = tokio::time::timeout(REDELIVER_AFTER, notified).await;
+            notified.await;
         }
     }
 
     pub fn interrupt_pending(&self, node: NodeId) -> rusqlite::Result<bool> {
         self.lock().query_row(
             "SELECT EXISTS(SELECT 1 FROM messages
-             WHERE recipient = ?1 AND delivered = 0 AND kind = ?2)",
+             WHERE recipient = ?1 AND delivered = 0 AND printed = 0 AND kind = ?2)",
             params![node.0, to_json(&Kind::Interrupt)],
             |row| row.get(0),
         )
@@ -345,14 +347,10 @@ impl Graph {
         let queued = tx
             .prepare(
                 "SELECT id, sender_name, kind, body, what FROM messages
-                 WHERE recipient = ?1 AND delivered = 0
-                 AND (sent_at IS NULL OR sent_at <= unixepoch() - ?3)
+                 WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NULL
                  AND kind IN (SELECT value FROM json_each(?2)) ORDER BY id",
             )?
-            .query_map(
-                params![node.0, kinds, REDELIVER_AFTER.as_secs() as i64],
-                read_delivery,
-            )?
+            .query_map(params![node.0, kinds], read_delivery)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if !wanted(&queued) {
             return Ok(Vec::new());
@@ -394,25 +392,6 @@ impl Graph {
             }
         }
         Ok(waking)
-    }
-
-    pub fn awake_with_mail(&self) -> rusqlite::Result<Vec<(NodeId, MessageId)>> {
-        let db = self.lock();
-        let queued = db
-            .prepare(
-                "SELECT m.id, m.sender_name, m.kind, m.body, m.what, m.recipient
-                 FROM messages m JOIN nodes n ON n.id = m.recipient
-                 WHERE n.process_exited = 0 AND m.delivered = 0 ORDER BY m.recipient, m.id",
-            )?
-            .query_map([], |row| Ok((NodeId(row.get(5)?), read_delivery(row)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut oldest: Vec<(NodeId, MessageId)> = Vec::new();
-        for (node, delivery) in queued {
-            if wakes(&delivery) && oldest.last().is_none_or(|(last, _)| *last != node) {
-                oldest.push((node, delivery.id));
-            }
-        }
-        Ok(oldest)
     }
 
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
@@ -466,38 +445,47 @@ impl Graph {
         let mut db = self.lock();
         let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
             .expect("숫자 목록은 늘 직렬화된다");
+        let agent: Option<AgentId> = db
+            .query_row("SELECT agent FROM nodes WHERE id = ?1", [node.0], |row| {
+                from_json(row, 0)
+            })
+            .optional()?
+            .flatten();
+        let linked = agent.as_ref().is_some_and(self.linked);
         let tx = db.transaction()?;
-        let acked = tx
-            .prepare(
-                "UPDATE messages SET delivered = 1
-                 WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))
-                 RETURNING id, kind, sender, sender_name, what",
-            )?
-            .query_map(params![node.0, ids], |row| {
-                Ok((
-                    MessageId(row.get(0)?),
-                    from_json::<Kind>(row, 1)?,
-                    row.get::<_, Option<u32>>(2)?.map(NodeId),
-                    row.get::<_, String>(3)?,
-                    optional_json::<MessageKind>(row, 4)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let to = events::who(&tx, node)?;
-        for (id, how, sender, name, what) in acked.iter().cloned() {
-            let entry = Entry::Message {
-                how,
-                what,
-                from: events::Who { id: sender, name },
-                to: Some(to.clone()),
-                step: Step::Delivered,
-                via: None,
-                gate: None,
-            };
-            events::write(&tx, &entry, Some(id))?;
-        }
+        let handed = match linked {
+            true => "AND sent_at IS NOT NULL",
+            false => "",
+        };
+        tx.execute(
+            &format!(
+                "UPDATE messages SET printed = 1
+                 WHERE recipient = ?1 AND delivered = 0 {handed}
+                 AND id IN (SELECT value FROM json_each(?2))"
+            ),
+            params![node.0, ids],
+        )?;
+        let read = match linked {
+            true => 0,
+            false => read(&tx, node)?,
+        };
         tx.commit()?;
-        if !acked.is_empty() {
+        if read > 0 {
+            self.publish_node(&db, node)?;
+        }
+        Ok(())
+    }
+
+    pub fn release(&self, node: NodeId, ids: &[MessageId]) -> Result<(), Refusal> {
+        let db = self.lock();
+        let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+            .expect("숫자 목록은 늘 직렬화된다");
+        let released = db.execute(
+            "UPDATE messages SET sent_at = NULL, printed = 0
+             WHERE recipient = ?1 AND delivered = 0 AND id IN (SELECT value FROM json_each(?2))",
+            params![node.0, ids],
+        )?;
+        if released > 0 {
             self.publish_node(&db, node)?;
         }
         Ok(())
@@ -627,6 +615,67 @@ fn with_kept(summary: &str, keep: &[Kept]) -> String {
         .map(|k| format!("{} ({})", k.name, k.reason))
         .collect();
     format!("{summary}\nKept: {}", kept.join("; "))
+}
+
+pub(super) fn read(db: &Connection, node: NodeId) -> rusqlite::Result<usize> {
+    let read = db
+        .prepare(
+            "UPDATE messages SET delivered = 1
+             WHERE recipient = ?1 AND delivered = 0 AND printed = 1
+             RETURNING id, kind, sender, sender_name, what",
+        )?
+        .query_map([node.0], |row| {
+            Ok((
+                MessageId(row.get(0)?),
+                from_json::<Kind>(row, 1)?,
+                row.get::<_, Option<u32>>(2)?.map(NodeId),
+                row.get::<_, String>(3)?,
+                optional_json::<MessageKind>(row, 4)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if read.is_empty() {
+        return Ok(0);
+    }
+    let to = events::who(db, node)?;
+    for (id, how, sender, name, what) in read.iter().cloned() {
+        let entry = Entry::Message {
+            how,
+            what,
+            from: events::Who { id: sender, name },
+            to: Some(to.clone()),
+            step: Step::Delivered,
+            via: None,
+            gate: None,
+        };
+        events::write(db, &entry, Some(id))?;
+    }
+    Ok(read.len())
+}
+
+pub(super) fn requeue_unprinted(db: &Connection, node: NodeId) -> rusqlite::Result<usize> {
+    db.execute(
+        "UPDATE messages SET sent_at = NULL
+         WHERE recipient = ?1 AND delivered = 0 AND printed = 0 AND sent_at IS NOT NULL",
+        [node.0],
+    )
+}
+
+pub(super) fn requeue_handed(db: &Connection) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE messages SET sent_at = NULL
+         WHERE delivered = 0 AND printed = 0 AND sent_at IS NOT NULL",
+        [],
+    )?;
+    Ok(())
+}
+
+pub(super) fn requeue_unread(db: &Connection, node: NodeId) -> rusqlite::Result<usize> {
+    db.execute(
+        "UPDATE messages SET sent_at = NULL, printed = 0
+         WHERE recipient = ?1 AND delivered = 0 AND sent_at IS NOT NULL",
+        [node.0],
+    )
 }
 
 fn resume(db: &Connection, node: NodeId) -> rusqlite::Result<bool> {

@@ -15,10 +15,12 @@ use ts_rs::TS;
 
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
-use crate::graph::{Active, AgentEvent, AgentSwitch, Entry, IdleEnd, NodeId, REDELIVER_AFTER, Who};
+use crate::graph::{
+    Active, AgentEvent, AgentState, AgentSwitch, Entry, IdleEnd, NewAgent, NodeId, Phase, Plan, Who,
+};
 use crate::process_tree::Snapshot;
-use crate::profile::codex::{self, Status};
-use crate::profile::{self, Profile, Start, claude};
+use crate::profile::codex;
+use crate::profile::{self, Profile, Start};
 use crate::protocol::{AgentId, Delivery, Kind, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
@@ -40,14 +42,7 @@ const CODEX_ROLLOUT_DEPTH: usize = 5;
 #[derive(Default)]
 pub struct Relaunches {
     exiting: Mutex<HashMap<NodeId, oneshot::Sender<()>>>,
-    pending: Mutex<HashMap<NodeId, (Phase, Plan)>>,
-    limited: Mutex<HashSet<NodeId>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Phase {
-    AtTurnEnd,
-    Running,
+    refused: Mutex<HashSet<NodeId>>,
 }
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
@@ -58,40 +53,7 @@ pub(super) enum Stop {
     Kept,
 }
 
-#[derive(Clone)]
-pub(super) enum Plan {
-    Resume,
-    Switch(NewAgent),
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct NewAgent {
-    pub agent: AgentId,
-    #[serde(flatten)]
-    pub choice: ModelChoice,
-}
-
 impl Relaunches {
-    pub(super) fn holds_mail(&self, node: NodeId) -> bool {
-        self.pending.lock().unwrap().contains_key(&node)
-    }
-
-    #[cfg(test)]
-    pub(super) fn hold(&self, node: NodeId) {
-        self.pending
-            .lock()
-            .unwrap()
-            .insert(node, (Phase::Running, Plan::Resume));
-    }
-
-    pub(super) fn at_turn_end(&self, node: NodeId) -> bool {
-        self.pending
-            .lock()
-            .unwrap()
-            .get(&node)
-            .is_some_and(|(phase, _)| *phase == Phase::AtTurnEnd)
-    }
-
     pub fn exited(&self, node: NodeId) -> bool {
         match self.exiting.lock().unwrap().remove(&node) {
             Some(done) => {
@@ -102,23 +64,20 @@ impl Relaunches {
         }
     }
 
-    pub fn process_ended(&self, node: NodeId) {
-        let mut pending = self.pending.lock().unwrap();
-        if let Some((Phase::AtTurnEnd, _)) = pending.get(&node) {
-            pending.remove(&node);
-            eprintln!(
-                "loom: 노드 {}의 프로세스가 끝나 턴 끝 다시 띄우기를 지운다",
-                node.0
-            );
-        }
-    }
-
     pub(super) fn exiting(&self, node: NodeId) -> bool {
         self.exiting.lock().unwrap().contains_key(&node)
     }
 
-    pub(super) fn stopped_at_limit(&self, node: NodeId) {
-        self.limited.lock().unwrap().insert(node);
+    pub(super) fn refused(&self, node: NodeId) {
+        self.refused.lock().unwrap().insert(node);
+    }
+
+    pub(super) fn was_refused(&self, node: NodeId) -> bool {
+        self.refused.lock().unwrap().contains(&node)
+    }
+
+    pub(super) fn heard(&self, node: NodeId) {
+        self.refused.lock().unwrap().remove(&node);
     }
 }
 
@@ -141,7 +100,7 @@ pub fn routes() -> Router<Arc<App>> {
 }
 
 async fn relaunch_queued(State(app): State<Arc<App>>, UrlPath(id): UrlPath<u32>) -> Json<bool> {
-    Json(app.relaunches.holds_mail(NodeId(id)))
+    Json(app.holds_mail(NodeId(id)))
 }
 
 async fn relaunch_node(
@@ -197,13 +156,72 @@ async fn relaunch(
 }
 
 impl App {
+    pub(super) fn holds_mail(&self, node: NodeId) -> bool {
+        self.pending(node).is_some()
+    }
+
+    pub(super) fn at_turn_end(&self, node: NodeId) -> bool {
+        self.pending(node) == Some(Phase::AtTurnEnd)
+    }
+
+    fn pending(&self, node: NodeId) -> Option<Phase> {
+        match self.graph.relaunch_plan(node) {
+            Ok(plan) => plan.map(|(phase, _)| phase),
+            Err(e) => {
+                eprintln!(
+                    "loom: 노드 {}의 다시 띄우기 계획을 읽지 못했다: {e}",
+                    node.0
+                );
+                None
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn hold(&self, node: NodeId) {
+        self.change_plan(node, |_| (Some((Phase::Running, Plan::Resume)), ()));
+    }
+
+    fn drop_plan(&self, node: NodeId) {
+        self.change_plan(node, |_| (None, ()));
+    }
+
+    fn change_plan<R: Default>(
+        &self,
+        node: NodeId,
+        decide: impl FnOnce(crate::graph::Planned) -> (Option<(Phase, Plan)>, R),
+    ) -> R {
+        self.graph
+            .plan_relaunch(node, decide)
+            .inspect_err(|e| {
+                eprintln!(
+                    "loom: 노드 {}의 다시 띄우기 계획을 쓰지 못했다: {e}",
+                    node.0
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    pub(super) fn process_ended(&self, node: NodeId) {
+        let dropped = self.change_plan(node, |now| match now.pending {
+            Some((Phase::AtTurnEnd, _)) => (None, true),
+            kept => (kept, false),
+        });
+        if dropped {
+            eprintln!(
+                "loom: 노드 {}의 프로세스가 끝나 턴 끝 다시 띄우기를 지운다",
+                node.0
+            );
+        }
+    }
+
     pub(super) fn take_mail(
         &self,
         node: NodeId,
         kinds: &[Kind],
         limit_bytes: usize,
     ) -> Result<Vec<Delivery>, Refusal> {
-        if self.relaunches.holds_mail(node) {
+        if self.holds_mail(node) {
             return Ok(Vec::new());
         }
         self.sleeps
@@ -224,7 +242,7 @@ impl App {
             if !taken.is_empty() {
                 return Ok(taken);
             }
-            let _ = tokio::time::timeout(REDELIVER_AFTER, changed).await;
+            changed.await;
         }
     }
 
@@ -234,47 +252,16 @@ impl App {
         }
     }
 
+    pub(super) fn agent_state(&self, node: NodeId) -> Option<AgentState> {
+        self.graph
+            .agent_state(node)
+            .inspect_err(|e| eprintln!("loom: 노드 {}의 에이전트 상태를 읽지 못했다: {e}", node.0))
+            .ok()
+            .flatten()
+    }
+
     pub(super) fn busy(&self, node: NodeId) -> bool {
-        let busy = self.reported_busy(node);
-        if let Err(e) = self.graph.compare_busy(node, busy) {
-            eprintln!("loom: 노드 {}의 에이전트 상태와 견주지 못했다: {e}", node.0);
-        }
-        busy
-    }
-
-    fn reported_busy(&self, node: NodeId) -> bool {
-        if let Some(server) = self.codex.lock().unwrap().get(&node) {
-            return server
-                .thread()
-                .borrow()
-                .as_ref()
-                .is_some_and(|t| t.status == Status::Busy);
-        }
-        if let Some(session) = self.opencode2.lock().unwrap().get(&node) {
-            return *session.working().borrow();
-        }
-        self.idle.in_turn(node)
-    }
-
-    fn turn_running(&self, node: &Active) -> bool {
-        self.busy(node.id) || (!self.idle.waiting(node.id) && self.claude_turn_open(node))
-    }
-
-    fn claude_turn_open(&self, node: &Active) -> bool {
-        self.claude_transcript(node)
-            .is_some_and(|path| !claude::turn_ended(&path))
-    }
-
-    fn claude_transcript(&self, node: &Active) -> Option<PathBuf> {
-        if profile_of(node) != Some(Profile::Claude) {
-            return None;
-        }
-        let place = self.graph.place_of(node.id).ok()?;
-        let path = crate::wsl::from_node(
-            PathBuf::from(node.transcript.as_ref()?),
-            Path::new(&place.worktree),
-        );
-        path.is_file().then_some(path)
+        self.agent_state(node).is_some_and(|s| s.busy())
     }
 
     pub(super) async fn relaunch_by_id(
@@ -333,15 +320,15 @@ impl App {
             true => WOKEN_NOTICE,
             false => REVIVED_NOTICE,
         };
-        {
-            let mut pending = self.relaunches.pending.lock().unwrap();
-            if let Some((Phase::Running, _)) = pending.get(&id) {
-                return match plan {
-                    Plan::Resume => Ok(Relaunched::Now),
-                    Plan::Switch(_) => Err(Refusal::Relaunching(node.name).into()),
-                };
-            }
-            pending.insert(id, (Phase::Running, plan.clone()));
+        let running = self.change_plan(id, |now| match now.pending {
+            Some((Phase::Running, kept)) => (Some((Phase::Running, kept)), true),
+            _ => (Some((Phase::Running, plan.clone())), false),
+        });
+        if running {
+            return match plan {
+                Plan::Resume => Ok(Relaunched::Now),
+                Plan::Switch(_) => Err(Refusal::Relaunching(node.name).into()),
+            };
         }
         let who = Who {
             id: Some(id),
@@ -365,7 +352,7 @@ impl App {
         .await
         .map_err(|e| e.to_string())
         .and_then(|r| r);
-        self.relaunches.pending.lock().unwrap().remove(&id);
+        self.drop_plan(id);
         if asleep
             && result.is_err()
             && let Err(e) = self.graph.sleep_lost(id)
@@ -386,43 +373,48 @@ impl App {
     }
 
     async fn queue(self: &Arc<Self>, node: Active, plan: Plan) -> Result<Relaunched, Problem> {
-        let phase = {
-            let mut pending = self.relaunches.pending.lock().unwrap();
-            if self.graph.ended(node.id).map_err(internal)?.is_some() {
-                None
-            } else if let Some((phase, queued)) = pending.get_mut(&node.id) {
-                if let Plan::Switch(_) = plan {
-                    if *phase == Phase::Running {
-                        return Err(Refusal::Relaunching(node.name).into());
-                    }
-                    *queued = plan;
+        let queued = self
+            .graph
+            .plan_relaunch(node.id, |now| {
+                if now.ended {
+                    return (now.pending, Queued::Ended);
                 }
-                return Ok(match phase {
-                    Phase::AtTurnEnd => Relaunched::AtTurnEnd,
-                    Phase::Running => Relaunched::Now,
-                });
-            } else {
-                let phase = match self.turn_running(&node) {
-                    true => Phase::AtTurnEnd,
-                    false => Phase::Running,
-                };
-                pending.insert(node.id, (phase, plan.clone()));
-                Some(phase)
-            }
-        };
-        let Some(phase) = phase else {
-            return self.revive_ended(node.id, plan).await;
-        };
-        if phase == Phase::AtTurnEnd {
-            self.watch_server_turn(node.id);
-            return Ok(Relaunched::AtTurnEnd);
-        }
-        let app = self.clone();
-        tokio::spawn(async move { app.relaunch(node, plan, None).await })
-            .await
-            .map_err(internal)?
+                match (now.pending, &plan) {
+                    (Some((Phase::Running, kept)), Plan::Switch(_)) => {
+                        (Some((Phase::Running, kept)), Queued::Refused)
+                    }
+                    (Some((phase, kept)), Plan::Resume) => {
+                        (Some((phase, kept)), Queued::Kept(phase))
+                    }
+                    (Some((phase, _)), Plan::Switch(_)) => {
+                        (Some((phase, plan.clone())), Queued::Kept(phase))
+                    }
+                    (None, _) => {
+                        let phase = match now.busy {
+                            true => Phase::AtTurnEnd,
+                            false => Phase::Running,
+                        };
+                        (Some((phase, plan.clone())), Queued::Added(phase))
+                    }
+                }
+            })
             .map_err(internal)?;
-        Ok(Relaunched::Now)
+        match queued {
+            Queued::Ended => self.revive_ended(node.id, plan).await,
+            Queued::Refused => Err(Refusal::Relaunching(node.name).into()),
+            Queued::Kept(Phase::AtTurnEnd) | Queued::Added(Phase::AtTurnEnd) => {
+                Ok(Relaunched::AtTurnEnd)
+            }
+            Queued::Kept(Phase::Running) => Ok(Relaunched::Now),
+            Queued::Added(Phase::Running) => {
+                let app = self.clone();
+                tokio::spawn(async move { app.relaunch(node, plan, None).await })
+                    .await
+                    .map_err(internal)?
+                    .map_err(internal)?;
+                Ok(Relaunched::Now)
+            }
+        }
     }
 
     async fn relaunch_unserved(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
@@ -439,23 +431,32 @@ impl App {
         if profile_of(&node).is_none() {
             return Err(Refusal::NoResume(node.name).into());
         }
-        let plan = {
-            let mut pending = self.relaunches.pending.lock().unwrap();
-            if self.graph.ended(id).map_err(internal)?.is_some() {
-                None
-            } else {
-                let plan = match pending.get(&id) {
-                    Some((Phase::Running, _)) => return Ok(Relaunched::Now),
-                    Some((Phase::AtTurnEnd, plan)) => plan.clone(),
-                    None => Plan::Resume,
-                };
-                pending.insert(id, (Phase::Running, plan.clone()));
-                Some(plan)
-            }
-        };
-        let Some(plan) = plan else {
-            return self.revive_ended(id, Plan::Resume).await;
-        };
+        let claimed = self
+            .graph
+            .plan_relaunch(id, |now| match (now.ended, now.pending) {
+                (true, kept) => (kept, Queued::Ended),
+                (false, Some((Phase::Running, kept))) => {
+                    (Some((Phase::Running, kept)), Queued::Kept(Phase::Running))
+                }
+                (false, Some((Phase::AtTurnEnd, kept))) => {
+                    (Some((Phase::Running, kept)), Queued::Added(Phase::Running))
+                }
+                (false, None) => (
+                    Some((Phase::Running, Plan::Resume)),
+                    Queued::Added(Phase::Running),
+                ),
+            })
+            .map_err(internal)?;
+        match claimed {
+            Queued::Ended => return self.revive_ended(id, Plan::Resume).await,
+            Queued::Added(_) => {}
+            Queued::Kept(_) | Queued::Refused => return Ok(Relaunched::Now),
+        }
+        let plan = self
+            .graph
+            .relaunch_plan(id)
+            .map_err(internal)?
+            .map_or(Plan::Resume, |(_, plan)| plan);
         let app = self.clone();
         tokio::spawn(async move { app.relaunch(node, plan, None).await })
             .await
@@ -471,23 +472,22 @@ impl App {
                 .as_ref()
                 .map(profile::changed_parts)
                 .unwrap_or_default();
-            if changed.is_empty() || profile_of(&node).is_none() {
-                continue;
+            if !changed.is_empty() && profile_of(&node).is_some() {
+                let added = self.graph.plan_relaunch(node.id, |now| match now.pending {
+                    None if !now.ended => (Some((Phase::AtTurnEnd, Plan::Resume)), true),
+                    kept => (kept, false),
+                })?;
+                if added {
+                    eprintln!(
+                        "loom: 노드 {}의 시작 글이 바뀌었다({}). 턴 끝에 다시 띄운다",
+                        node.id.0,
+                        changed.join(", ")
+                    );
+                }
             }
-            let mut pending = self.relaunches.pending.lock().unwrap();
-            if self.graph.ended(node.id)?.is_some() {
-                continue;
+            if self.at_turn_end(node.id) {
+                self.server_turn_ended(node.id);
             }
-            eprintln!(
-                "loom: 노드 {}의 시작 글이 바뀌었다({}). 턴 끝에 다시 띄운다",
-                node.id.0,
-                changed.join(", ")
-            );
-            pending
-                .entry(node.id)
-                .or_insert((Phase::AtTurnEnd, Plan::Resume));
-            drop(pending);
-            self.watch_server_turn(node.id);
         }
         Ok(())
     }
@@ -496,16 +496,21 @@ impl App {
         self.run_at_turn_end(node, None);
     }
 
+    pub(super) fn server_turn_ended(self: &Arc<Self>, node: NodeId) {
+        let server = self.codex.lock().unwrap().contains_key(&node)
+            || self.opencode2.lock().unwrap().contains_key(&node);
+        if server && !self.busy(node) {
+            self.turn_ended(node);
+        }
+    }
+
     pub(super) fn run_at_turn_end(self: &Arc<Self>, node: NodeId, guard: Option<Guard>) {
-        let plan = {
-            let mut pending = self.relaunches.pending.lock().unwrap();
-            match pending.get_mut(&node) {
-                Some((phase @ Phase::AtTurnEnd, plan)) => {
-                    *phase = Phase::Running;
-                    plan.clone()
-                }
-                _ => return,
-            }
+        let plan = self.change_plan(node, |now| match now.pending {
+            Some((Phase::AtTurnEnd, plan)) => (Some((Phase::Running, plan.clone())), Some(plan)),
+            kept => (kept, None),
+        });
+        let Some(plan) = plan else {
+            return;
         };
         let app = self.clone();
         tokio::spawn(async move {
@@ -524,11 +529,11 @@ impl App {
                     relaunched => relaunched.map(drop),
                 },
                 Ok(None) => {
-                    app.relaunches.pending.lock().unwrap().remove(&node);
+                    app.drop_plan(node);
                     return;
                 }
                 Err(e) => {
-                    app.relaunches.pending.lock().unwrap().remove(&node);
+                    app.drop_plan(node);
                     app.release_mail(node);
                     Err(e.to_string())
                 }
@@ -539,48 +544,8 @@ impl App {
         });
     }
 
-    fn watch_server_turn(self: &Arc<Self>, node: NodeId) {
-        let codex = self.codex.lock().unwrap().get(&node).cloned();
-        let opencode2 = self.opencode2.lock().unwrap().get(&node).cloned();
-        let app = self.clone();
-        tokio::spawn(async move {
-            let idle = match (codex, opencode2) {
-                (Some(server), _) => {
-                    let mut thread = server.thread();
-                    let idle =
-                        thread.wait_for(|t| t.as_ref().is_none_or(|t| t.status == Status::Idle));
-                    idle.await.is_ok()
-                }
-                (_, Some(session)) => session.working().wait_for(|w| !w).await.is_ok(),
-                (None, None) => return,
-            };
-            if idle {
-                app.turn_ended(node);
-            }
-        });
-    }
-
-    pub(super) async fn relaunch_unless_used(
-        self: &Arc<Self>,
-        node: Active,
-        guard: Guard,
-    ) -> Result<(), String> {
-        let id = node.id;
-        {
-            let mut pending = self.relaunches.pending.lock().unwrap();
-            if pending.contains_key(&id) {
-                return Ok(());
-            }
-            pending.insert(id, (Phase::Running, Plan::Resume));
-        }
-        if self.relaunch(node, Plan::Resume, Some(guard)).await? == Stop::Kept {
-            self.kept_running(id);
-        }
-        Ok(())
-    }
-
     pub(super) fn kept_running(&self, node: NodeId) {
-        self.relaunches.pending.lock().unwrap().remove(&node);
+        self.drop_plan(node);
         self.idle.release(node);
         self.graph.wake_mail();
         eprintln!(
@@ -590,16 +555,17 @@ impl App {
     }
 
     pub(super) fn kept_at_turn_end(&self, node: NodeId) {
-        if let Some((phase, _)) = self.relaunches.pending.lock().unwrap().get_mut(&node) {
-            *phase = Phase::AtTurnEnd;
-        }
+        self.change_plan(node, |now| {
+            let next = now.pending.map(|(_, plan)| (Phase::AtTurnEnd, plan));
+            (next, ())
+        });
         eprintln!(
             "loom: 노드 {}를 사람이 쓰고 있어 다시 띄우기를 턴 끝으로 미룬다",
             node.0
         );
     }
 
-    async fn relaunch(
+    pub(super) async fn relaunch(
         self: &Arc<Self>,
         node: Active,
         plan: Plan,
@@ -618,7 +584,7 @@ impl App {
         if result == Ok(Stop::Kept) {
             return result;
         }
-        self.relaunches.pending.lock().unwrap().remove(&id);
+        self.drop_plan(id);
         if result.is_err() {
             self.release_mail(id);
         }
@@ -807,13 +773,15 @@ impl App {
         }
         self.codex.lock().unwrap().remove(&id);
         self.opencode2.lock().unwrap().remove(&id);
-        self.relaunches.pending.lock().unwrap().remove(&id);
+        self.drop_plan(id);
         if let Err(e) = self.launch(id, prepared) {
             discard();
             let _ = self.graph.lost(id);
             return Err(e);
         }
-        self.relaunches.limited.lock().unwrap().remove(&id);
+        if let Err(e) = self.graph.limit_cleared(id) {
+            eprintln!("loom: 노드 {}의 한도 표시를 지우지 못했다: {e}", id.0);
+        }
         Ok(())
     }
 
@@ -915,13 +883,15 @@ impl App {
             let _ = self.graph.lost(id);
             return Err(e.to_string());
         }
-        self.relaunches.pending.lock().unwrap().remove(&id);
+        self.drop_plan(id);
         if let Err(e) = self.launch(id, prepared) {
             discard();
             let _ = self.graph.lost(id);
             return Err(e);
         }
-        self.relaunches.limited.lock().unwrap().remove(&id);
+        if let Err(e) = self.graph.limit_cleared(id) {
+            eprintln!("loom: 노드 {}의 한도 표시를 지우지 못했다: {e}", id.0);
+        }
         Ok(())
     }
 
@@ -979,13 +949,22 @@ impl App {
     }
 
     fn resumed_brief(&self, node: &Active, profile: Profile) -> String {
-        let limited = self.relaunches.limited.lock().unwrap().contains(&node.id);
-        let first = match (limited, profile) {
-            (true, _) => Some(CONTINUE_PROMPT),
-            (false, Profile::Cursor | Profile::Pi | Profile::Omp) => Some(profile::RESUMED_PROMPT),
-            (false, _) => None,
-        };
+        let limited = self.graph.limited(node.id).unwrap_or_else(|e| {
+            eprintln!("loom: 노드 {}의 한도 표시를 읽지 못했다: {e}", node.id.0);
+            false
+        });
         let stopped = self.background_commands(&Snapshot::now(), node);
+        let cut = self.agent_state(node.id).is_some_and(|s| s.cut());
+        let unread = self.graph.unread_mail(node.id).unwrap_or_else(|e| {
+            eprintln!("loom: 노드 {}의 메일함을 읽지 못했다: {e}", node.id.0);
+            true
+        });
+        let opens_no_wait = matches!(profile, Profile::Cursor | Profile::Pi | Profile::Omp);
+        let first = match limited {
+            true => Some(CONTINUE_PROMPT),
+            false => (cut || unread || !stopped.is_empty() || opens_no_wait)
+                .then_some(profile::RESUMED_PROMPT),
+        };
         let stopped = (!stopped.is_empty()).then(|| stopped_notice(&stopped));
         first
             .map(str::to_owned)
@@ -1036,6 +1015,13 @@ impl App {
         copy_session(&site.local(&rollout), CODEX_ROLLOUT_DEPTH, new_root)?;
         Ok(thread)
     }
+}
+
+enum Queued {
+    Ended,
+    Refused,
+    Kept(Phase),
+    Added(Phase),
 }
 
 pub(super) fn profile_of(node: &Active) -> Option<Profile> {
@@ -1249,14 +1235,14 @@ mod tests {
         let ended = stale_pi(&app, "ended");
         app.graph.exited(ended, 0).unwrap();
         app.relaunch_stale().unwrap();
-        assert!(app.relaunches.at_turn_end(live));
-        assert!(!app.relaunches.holds_mail(ended), "no turn end can come");
-        app.relaunches.hold(ended);
-        app.relaunches.process_ended(ended);
-        assert!(app.relaunches.holds_mail(ended), "a running relaunch stays");
+        assert!(app.at_turn_end(live));
+        assert!(!app.holds_mail(ended), "no turn end can come");
+        app.hold(ended);
+        app.process_ended(ended);
+        assert!(app.holds_mail(ended), "a running relaunch stays");
         app.graph.exited(live, 0).unwrap();
-        app.relaunches.process_ended(live);
-        assert!(!app.relaunches.holds_mail(live), "the exit clears the plan");
+        app.process_ended(live);
+        assert!(!app.holds_mail(live), "the exit clears the plan");
     }
 
     #[tokio::test]
@@ -1272,16 +1258,12 @@ mod tests {
             relaunch_errors(&app),
             [Some("이어 갈 Pi·OMP 세션 기록이 없다".to_owned())]
         );
-        assert!(!app.relaunches.holds_mail(node));
-        app.relaunches
-            .pending
-            .lock()
-            .unwrap()
-            .insert(node, (Phase::AtTurnEnd, Plan::Resume));
+        assert!(!app.holds_mail(node));
+        app.change_plan(node, |_| (Some((Phase::AtTurnEnd, Plan::Resume)), ()));
         let revived = app.relaunch_by_id(node, Plan::Resume).await;
         assert!(revived.is_err(), "{revived:?}");
         assert_eq!(relaunch_errors(&app).len(), 2);
-        assert!(!app.relaunches.holds_mail(node));
+        assert!(!app.holds_mail(node));
     }
 
     #[tokio::test]
@@ -1302,12 +1284,13 @@ mod tests {
             relaunch_errors(&app),
             [Some("이어 갈 Pi·OMP 세션 기록이 없다".to_owned())]
         );
-        assert!(!app.relaunches.holds_mail(node));
+        assert!(!app.holds_mail(node));
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_claude_relaunch_names_the_stopped_commands_and_does_not_continue_a_stopped_turn() {
+    async fn the_first_input_of_a_relaunch_follows_the_old_state_the_mail_and_the_stopped_commands()
+    {
         let (dir, app) = app();
         let bin = dir.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
@@ -1360,31 +1343,50 @@ mod tests {
             app.background_commands(&Snapshot::now(), &node),
             ["sleep 37"]
         );
-        let ended = app.resumed_brief(&node, Profile::Claude);
+        let stopped = "loom relaunched your process and stopped these background commands that you started before:\n- sleep 37\nStart them again if you still need them.";
+        app.feed(id, AgentEvent::WaitOpened);
         assert_eq!(
-            ended,
-            "loom relaunched your process and stopped these background commands that you started before:\n- sleep 37\nStart them again if you still need them."
+            app.resumed_brief(&node, Profile::Claude),
+            format!("{}\n{stopped}", profile::RESUMED_PROMPT)
         );
-        std::fs::write(
-            &transcript,
-            "{\"type\":\"user\",\"message\":{\"content\":\"[Request interrupted by user]\"}}\n",
-        )
-        .unwrap();
-        for age in [Duration::ZERO, Duration::from_secs(3600)] {
-            std::fs::File::options()
-                .write(true)
-                .open(&transcript)
-                .unwrap()
-                .set_modified(std::time::SystemTime::now() - age)
-                .unwrap();
-            assert_eq!(
-                app.resumed_brief(&node, Profile::Claude),
-                ended,
-                "a session the human stopped does not continue its task"
-            );
-        }
         let snapshot = Snapshot::now();
         snapshot.kill_trees(app.background_shells(&snapshot, &node));
+        while !app.background_commands(&Snapshot::now(), &node).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let brief = |profile| app.resumed_brief(&node, profile);
+        assert_eq!(brief(Profile::Claude), "", "a listening node without mail");
+        assert_eq!(brief(Profile::Cursor), profile::RESUMED_PROMPT);
+        app.feed(id, AgentEvent::WaitClosed { by: IdleEnd::Gone });
+        assert_eq!(brief(Profile::Claude), profile::RESUMED_PROMPT, "deaf");
+        app.feed(id, AgentEvent::TurnStarted);
+        assert_eq!(
+            brief(Profile::Claude),
+            profile::RESUMED_PROMPT,
+            "a cut turn"
+        );
+        app.feed(id, AgentEvent::WaitOpened);
+        let sender = app
+            .graph
+            .add_root(
+                &place,
+                None,
+                None,
+                &Launched {
+                    token: "s".into(),
+                    ..launched
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+        app.graph
+            .note(sender, &format!("#{}", id.0), Kind::Queue, "일", None)
+            .unwrap();
+        assert_eq!(
+            brief(Profile::Claude),
+            profile::RESUMED_PROMPT,
+            "unread mail"
+        );
         app.host.kill(id);
     }
 

@@ -164,7 +164,9 @@ impl App {
     }
 
     pub(super) fn rate_limited(self: &Arc<Self>, node: NodeId, provider: Provider) {
-        self.relaunches.stopped_at_limit(node);
+        if let Err(e) = self.graph.limit_reached(node) {
+            eprintln!("loom: 노드 {}의 한도 표시를 쓰지 못했다: {e}", node.0);
+        }
         let app = self.clone();
         let distro = self.distro_of(node);
         tokio::spawn(async move { app.auto_switch(provider, distro).await });

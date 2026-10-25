@@ -72,6 +72,7 @@ pub trait Mailbox: Send + Sync + 'static {
     fn changed(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
     fn take(&self, kinds: &[Kind], limit_bytes: usize) -> Result<Vec<Delivery>, String>;
     fn ack(&self, taken: &[Delivery]) -> Result<(), String>;
+    fn release(&self, taken: &[Delivery]) -> Result<(), String>;
     fn turn_ended(&self, reply: Option<String>) -> Option<String>;
     fn human_input(&self) -> Option<String>;
 }

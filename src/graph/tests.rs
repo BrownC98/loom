@@ -105,15 +105,6 @@ fn delivery(from: &str, body: &str) -> Option<(String, Kind, String)> {
     Some((from.into(), Kind::Queue, body.into()))
 }
 
-fn expire(g: &Graph) {
-    g.lock()
-        .execute(
-            "UPDATE messages SET sent_at = sent_at - ?1",
-            [REDELIVER_AFTER.as_secs() as i64],
-        )
-        .unwrap();
-}
-
 fn bodies<'a>(taken: impl IntoIterator<Item = &'a Delivery>) -> Vec<&'a str> {
     taken.into_iter().map(|d| d.body.as_str()).collect()
 }
@@ -768,6 +759,7 @@ fn messages_between_unrelated_nodes_are_recorded() {
     let (left, right) = two_repos(&g);
     g.note(left, "codex-1", Kind::Queue, "hi", None).unwrap();
     take(&g, right);
+    g.agent_event(right, AgentEvent::ServerIdle).unwrap();
 
     let message = |step| {
         (
@@ -783,7 +775,10 @@ fn messages_between_unrelated_nodes_are_recorded() {
             Some("hi".to_owned()),
         )
     };
-    let records = recorded(&g);
+    let records: Vec<_> = recorded(&g)
+        .into_iter()
+        .filter(|(entry, _)| matches!(entry, Entry::Message { .. }))
+        .collect();
     assert_eq!(
         records[records.len() - 2..],
         [
@@ -1126,7 +1121,7 @@ async fn wait_returns_when_a_message_arrives() {
 }
 
 #[test]
-fn an_unacknowledged_message_comes_back_in_order_even_after_a_restart() {
+fn an_unacknowledged_message_comes_back_in_order_after_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("loom.db");
     let g = open(&path);
@@ -1138,24 +1133,17 @@ fn an_unacknowledged_message_comes_back_in_order_even_after_a_restart() {
     let first = g.take(a, Kind::ALL, usize::MAX).unwrap();
     assert_eq!(bodies(first.iter()), ["1", "2"]);
     assert!(g.take(a, Kind::ALL, usize::MAX).unwrap().is_empty());
-    expire(&g);
-    let again = g.take(a, Kind::ALL, usize::MAX).unwrap();
-    assert_eq!(again, first);
     g.ack(a, &[first[0].id]).unwrap();
     g.ack(lead, &[first[1].id]).unwrap();
-    expire(&g);
-    assert_eq!(bodies(&g.take(a, Kind::ALL, usize::MAX).unwrap()), ["2"]);
 
     drop(g);
     let g = open(&path);
-    expire(&g);
     let after = g.take(a, Kind::ALL, usize::MAX).unwrap();
     assert_eq!(
         after.iter().map(|d| d.id).collect::<Vec<_>>(),
         [first[1].id]
     );
     g.ack(a, &[first[1].id]).unwrap();
-    expire(&g);
     assert!(g.take(a, Kind::ALL, usize::MAX).unwrap().is_empty());
     assert_eq!(view(&g, a).unread, 0);
 }
@@ -3278,12 +3266,16 @@ fn long_human_input_is_not_cut_and_skips_an_ended_parent() {
     let text = format!("{}\nDo not delete this branch.", "가".repeat(2000));
     g.human_typed(w, &text).unwrap();
     let got = g.take(lead, Kind::ALL, usize::MAX).unwrap();
+    g.ack(lead, &[got[0].id]).unwrap();
     assert_eq!(got.len(), 1);
     assert!(got[0].body.len() > 4096);
     assert!(got[0].body.ends_with("Do not delete this branch."));
     let code = "    let x = 1;\n        y\n\n\n";
     g.human_typed(w, code).unwrap();
-    assert_eq!(g.take(lead, Kind::ALL, usize::MAX).unwrap()[0].body, code);
+    assert_eq!(
+        take(&g, lead).map(|(_, _, body)| body).as_deref(),
+        Some(code)
+    );
     g.exited(lead, 0).unwrap();
     g.human_typed(w, "more").unwrap();
     assert!(g.take(lead, Kind::ALL, usize::MAX).unwrap().is_empty());

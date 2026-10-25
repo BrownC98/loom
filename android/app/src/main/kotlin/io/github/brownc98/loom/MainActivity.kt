@@ -1,5 +1,6 @@
 package io.github.brownc98.loom
 
+import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -46,8 +47,8 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.security.MessageDigest
 import kotlin.concurrent.thread
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private lateinit var web: WebView
@@ -64,24 +65,26 @@ class MainActivity : ComponentActivity() {
     private var attempt = 0
     private var reaching = false
     private var unpaired = false
+    private var jump: String? = null
     private val pickFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         upload?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
         upload = null
     }
+    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { notifyChanged() }
 
-    private val prefs by lazy { getSharedPreferences("loom", MODE_PRIVATE) }
+    private val prefs by lazy { getSharedPreferences(Prefs.FILE, MODE_PRIVATE) }
 
     private var origin: String?
-        get() = prefs.getString(ORIGIN, null)
-        set(value) = prefs.edit().putString(ORIGIN, value).apply()
+        get() = prefs.getString(Prefs.ORIGIN, null)
+        set(value) = prefs.edit().putString(Prefs.ORIGIN, value).apply()
 
     private var doors: List<String>
-        get() = prefs.getString(DOORS, null)?.split(',')?.filter { it.isNotEmpty() } ?: emptyList()
-        set(value) = prefs.edit().putString(DOORS, value.joinToString(",")).apply()
+        get() = Door.list(prefs.getString(Prefs.DOORS, null))
+        set(value) = prefs.edit().putString(Prefs.DOORS, value.joinToString(",")).apply()
 
     private var pin: String?
-        get() = prefs.getString(PIN, null)
-        set(value) = prefs.edit().putString(PIN, value).apply()
+        get() = prefs.getString(Prefs.PIN, null)
+        set(value) = prefs.edit().putString(Prefs.PIN, value).apply()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,6 +97,7 @@ class MainActivity : ComponentActivity() {
             addJavascriptInterface(Clipboard(), "loomClipboard")
             addJavascriptInterface(Chrome(), "loomChrome")
             addJavascriptInterface(Browser(), "loomBrowser")
+            addJavascriptInterface(Notify(), "loomNotify")
         }
         CookieManager.getInstance().setAcceptCookie(true)
         card = ScrollView(this).apply {
@@ -132,7 +136,29 @@ class MainActivity : ComponentActivity() {
                 if (card.visibility != View.VISIBLE && web.canGoBack()) web.goBack() else finish()
             }
         })
+        if (savedInstanceState == null) jumpTo(intent)
         if (doors.isEmpty()) origin?.let(::open) ?: showStart(null)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !prefs.getBoolean(Prefs.NOTIFY_ASKED, false)) {
+            prefs.edit().putBoolean(Prefs.NOTIFY_ASKED, true).apply()
+            askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        jumpTo(intent)
+    }
+
+    private fun jumpTo(intent: Intent?) {
+        val node = intent?.getLongExtra(Watch.EXTRA_NODE, -1)?.takeIf { it >= 0 } ?: return
+        intent.removeExtra(Watch.EXTRA_NODE)
+        val hash = "#/node/$node/ask"
+        if (web.url != null && card.visibility != View.VISIBLE) web.evaluateJavascript("location.replace('$hash')", null) else jump = hash
+    }
+
+    private fun notifyChanged() {
+        Watch.sync(this)
+        web.evaluateJavascript("dispatchEvent(new Event('$NOTIFY_EVENT'))", null)
     }
 
     private fun reach(candidates: List<String>, fragment: String = "") {
@@ -167,17 +193,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun copyCookie(to: String) {
-        if (deviceCookie(to) != null) return
-        doors.firstNotNullOfOrNull(::deviceCookie)?.let { putCookies(listOf(to), it) }
+        if (Door.deviceCookie(to) != null) return
+        doors.firstNotNullOfOrNull(Door::deviceCookie)?.let { putCookies(listOf(to), it) }
     }
 
     private fun spreadCookie(from: String) {
-        val token = deviceCookie(from) ?: return
-        putCookies(doors.filter { it != from && deviceCookie(it) != token }, token)
+        val token = Door.deviceCookie(from) ?: return
+        putCookies(doors.filter { it != from && Door.deviceCookie(it) != token }, token)
     }
-
-    private fun deviceCookie(door: String): String? =
-        CookieManager.getInstance().getCookie("https://$door/")?.split(';')?.map { it.trim() }?.firstOrNull { it.startsWith("$DEVICE_COOKIE=") }
 
     private fun putCookies(to: List<String>, token: String) {
         if (to.isEmpty()) return
@@ -188,6 +211,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        Watch.front = true
+        notifyChanged()
         waiting?.takeIf { packageManager.canRequestPackageInstalls() }?.let { (version, apk) -> install(version, apk) }
         val now = SystemClock.elapsedRealtime()
         if (checked.let { it == null || now - it >= Release.CHECK_EVERY_MS }) {
@@ -205,6 +230,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        Watch.front = false
         CookieManager.getInstance().flush()
     }
 
@@ -213,7 +239,8 @@ class MainActivity : ComponentActivity() {
         card.visibility = View.GONE
         fresh = true
         refused = false
-        web.loadUrl(url)
+        web.loadUrl(jump?.takeIf { '#' !in url }?.let { url.removeSuffix("/") + "/" + it } ?: url)
+        jump = null
     }
 
     private fun showStart(error: Int?, typedCode: String = "") {
@@ -568,6 +595,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private inner class Notify {
+        @JavascriptInterface
+        fun state(): String {
+            val allowed = Watch.allowed(this@MainActivity)
+            val on = Watch.switches(prefs)
+            return JSONObject().put("ask", allowed && on.ask).put("done", allowed && on.done).put("allowed", allowed).toString()
+        }
+
+        @JavascriptInterface
+        fun ask(on: Boolean) {
+            runOnUiThread { choose { it.copy(ask = on) } }
+        }
+
+        @JavascriptInterface
+        fun done(on: Boolean) {
+            runOnUiThread { choose { it.copy(done = on) } }
+        }
+    }
+
+    private fun choose(change: (Switches) -> Switches) {
+        val allowed = Watch.allowed(this)
+        val next = change(if (allowed) Watch.switches(prefs) else Switches(ask = false, done = false))
+        Watch.store(prefs, next)
+        if (!allowed && next.any) {
+            runCatching { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
+        }
+        notifyChanged()
+    }
+
     private inner class Chooser : WebChromeClient() {
         override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
             upload?.onReceiveValue(null)
@@ -578,17 +634,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun fingerprint(cert: SslCertificate): String? {
-        val der = SslCertificate.saveState(cert).getByteArray("x509-certificate") ?: return null
-        val hash = MessageDigest.getInstance("SHA-256").digest(der)
-        return android.util.Base64.encodeToString(hash, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-    }
+    private fun fingerprint(cert: SslCertificate): String? =
+        SslCertificate.saveState(cert).getByteArray("x509-certificate")?.let(Door::fingerprint)
 
     private companion object {
-        const val ORIGIN = "origin"
-        const val DOORS = "doors"
-        const val PIN = "pin"
-        const val DEVICE_COOKIE = "loom_device"
+        const val NOTIFY_EVENT = "loomnotify"
         const val COOKIE_MAX_AGE_SECS = 400 * 24 * 60 * 60
         const val PROBE_MS = 1500
         const val REACH_MS = 10_000L

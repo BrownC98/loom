@@ -30,4 +30,15 @@
     <string name="finding_body">Looking on this Wi‑Fi for the PC that shows this code.</string>
     <string name="not_found">Could not find the PC on this Wi‑Fi. Make sure the code is still shown on the PC. If the PC runs Windows, click Settings › Phone › [Allow in firewall].</string>
     <string name="code_wrong">The code is wrong or expired. Make a new code on the PC.</string>
+    <string name="notify_linked">Connected to the PC</string>
+    <string name="notify_unlinked">Cannot reach the PC</string>
+    <string name="notify_channel_ask">Questions</string>
+    <string name="notify_channel_done">Done</string>
+    <string name="notify_channel_link">Connection status</string>
+    <string name="wait_question">Question</string>
+    <string name="wait_approval">Approval</string>
+    <string name="wait_trust">Folder trust</string>
+    <string name="wait_auth">Login or account setup</string>
+    <string name="wait_input">Input</string>
+    <string name="wait_done">Done</string>
 </resources>

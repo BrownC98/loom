@@ -9,8 +9,8 @@ export default defineConfig(({ mode }) => ({
   test: {
     css: { include: [/styles\.css/] },
     projects: [
-      { extends: true, test: { name: 'node', include: ['src/**/*.test.{ts,tsx}'], exclude: ['src/{Tree,Graph,Inbox}.test.tsx'] } },
-      { extends: true, test: { name: 'dom', environment: 'jsdom', include: ['src/{Tree,Graph,Inbox}.test.tsx'] } },
+      { extends: true, test: { name: 'node', include: ['src/**/*.test.{ts,tsx}'], exclude: ['src/{Tree,Graph,Inbox,Phone}.test.tsx'] } },
+      { extends: true, test: { name: 'dom', environment: 'jsdom', include: ['src/{Tree,Graph,Inbox,Phone}.test.tsx'] } },
     ],
   },
 }));

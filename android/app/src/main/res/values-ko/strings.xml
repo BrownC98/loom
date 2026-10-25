@@ -30,4 +30,15 @@
     <string name="finding_body">같은 Wi‑Fi에서 이 코드를 낸 PC를 찾습니다.</string>
     <string name="not_found">같은 Wi‑Fi에서 PC를 찾지 못했습니다. PC에 코드가 아직 나와 있는지 봅니다. PC가 Windows면 설정 › 휴대폰 [방화벽 허용]을 누릅니다.</string>
     <string name="code_wrong">코드가 맞지 않거나 시간이 지났습니다. PC에서 새 코드를 만듭니다.</string>
+    <string name="notify_linked">PC에 연결됨</string>
+    <string name="notify_unlinked">PC에 닿지 않음</string>
+    <string name="notify_channel_ask">질문</string>
+    <string name="notify_channel_done">완료</string>
+    <string name="notify_channel_link">연결 표시</string>
+    <string name="wait_question">질문</string>
+    <string name="wait_approval">승인 요청</string>
+    <string name="wait_trust">폴더 신뢰 확인</string>
+    <string name="wait_auth">로그인·계정 설정</string>
+    <string name="wait_input">입력 요청</string>
+    <string name="wait_done">완료</string>
 </resources>

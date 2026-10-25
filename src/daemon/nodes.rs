@@ -1,3 +1,4 @@
+use super::pulse::{self, Beat, Pulse};
 use super::*;
 
 pub(super) fn routes() -> Router<Arc<App>> {
@@ -183,13 +184,19 @@ fn coming_pty(
                 return;
             }
             let mut check = tokio::time::interval(COMING_PTY_CHECK);
+            let mut pulse = Pulse::new(pulse::BEAT);
             loop {
                 tokio::select! {
-                    frame = socket.next() => match frame {
+                    frame = socket.next() => match frame.inspect(|_| pulse.heard()) {
                         Some(Ok(Message::Binary(_))) => app.sleeps.knocked(id),
                         Some(Ok(_)) => {}
                         Some(Err(_)) | None => return,
                     },
+                    beat = pulse.due() => {
+                        if beat == Beat::Dead || socket.send(Message::Ping(Default::default())).await.is_err() {
+                            return;
+                        }
+                    }
                     _ = check.tick() => {
                         if app.host.attach(id).is_some() || !app.graph.reachable(id).unwrap_or(false) {
                             let _ = socket.send(Message::Close(None)).await;
@@ -314,8 +321,14 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
     {
         return;
     }
+    let mut pulse = Pulse::new(pulse::BEAT);
     loop {
         tokio::select! {
+            beat = pulse.due() => {
+                if beat == Beat::Dead || to_view.send(Message::Ping(Default::default())).await.is_err() {
+                    return;
+                }
+            }
             chunk = output.recv() => match chunk {
                 Ok(bytes) => if to_view.send(Message::Binary(bytes)).await.is_err() { return },
                 Err(RecvError::Lagged(_) | RecvError::Closed) => return,
@@ -325,7 +338,7 @@ async fn relay_pty<K: Copy + Eq + Hash + std::fmt::Display + Send + Sync + 'stat
                     return;
                 }
             }
-            msg = from_view.next() => match msg {
+            msg = from_view.next() => match msg.inspect(|_| pulse.heard()) {
                 Some(Ok(Message::Binary(bytes))) => {
                     let _ = host(app).write_if(id, |_| {
                         if node_host::typed(&bytes) {

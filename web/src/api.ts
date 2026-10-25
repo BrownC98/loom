@@ -49,8 +49,8 @@ import type { UpdateView } from './gen/UpdateView';
 import type { SettingsPatch } from './settingsPatch';
 import type { WaitId } from './gen/WaitId';
 import { problemText, statusText } from './problem';
+import { QUIET_LIMIT_MS, reconnecting } from './link';
 
-const RECONNECT_MS = 1000;
 
 async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }): Promise<T> {
   const res = await fetch(path, {
@@ -166,42 +166,13 @@ function socketUrl(path: string): string {
 }
 
 export function watchGraph(onEvent: (event: GraphEvent) => void, onLink: (up: boolean) => void = () => {}): () => void {
-  const link = reconnecting('/api/events', {
+  const link = reconnecting(socketUrl('/api/events'), {
     onOpen: () => onLink(true),
     onMessage: (e) => onEvent(JSON.parse(e.data) as GraphEvent),
     onDrop: () => onLink(false),
+    quietLimitMs: QUIET_LIMIT_MS,
   });
   return link.close;
-}
-
-function reconnecting(
-  path: string,
-  handlers: { onOpen: () => void; onMessage: (e: MessageEvent) => void; onDrop?: () => void },
-): { send: (data: string | Uint8Array<ArrayBuffer>) => void; close: () => void } {
-  let socket: WebSocket | undefined;
-  let stopped = false;
-  const open = () => {
-    if (stopped) return;
-    socket = new WebSocket(socketUrl(path));
-    socket.binaryType = 'arraybuffer';
-    socket.onopen = handlers.onOpen;
-    socket.onmessage = handlers.onMessage;
-    socket.onclose = () => {
-      if (stopped) return;
-      handlers.onDrop?.();
-      setTimeout(open, RECONNECT_MS);
-    };
-  };
-  open();
-  return {
-    send: (data) => {
-      if (socket?.readyState === WebSocket.OPEN) socket.send(data);
-    },
-    close: () => {
-      stopped = true;
-      socket?.close();
-    },
-  };
 }
 
 export async function newBuildServed(): Promise<boolean> {
@@ -227,7 +198,7 @@ export function attachPty(
 ): PtyLink {
   const encoder = new TextEncoder();
   let backlogNext = false;
-  const link = reconnecting(path, {
+  const link = reconnecting(socketUrl(path), {
     onOpen: () => {
       backlogNext = true;
       handlers.onAttach();

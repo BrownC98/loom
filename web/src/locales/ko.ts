@@ -268,7 +268,7 @@ const ko: typeof en = {
       dutyPlaceholder: '이 역할이 맡는 일',
       duplicate: '같은 이름의 역할이 있습니다.',
       cursorNeedsModel: 'Cursor는 모델 없이 추론 강도만 줄 수 없습니다. 모델을 적으십시오.',
-      formHint: '모델·강도를 비우면 그 CLI 설정의 값으로 뜹니다. 모델·강도는 Claude·Codex·Cursor만 받습니다. 다른 실행자를 고르면 두 칸이 꺼집니다.',
+      formHint: '모델·강도를 비우면 그 CLI 설정의 값으로 뜹니다. 모델·강도는 Claude·Codex·Cursor·Pi·OMP만 받습니다. 다른 실행자를 고르면 두 칸이 꺼집니다.',
       cancel: '취소',
       save: '저장',
       addSave: '더하기',

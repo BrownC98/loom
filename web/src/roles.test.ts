@@ -8,8 +8,8 @@ const role = (name: string, over: Partial<Role> = {}): Role => ({ name, duty: ''
 const text = { none: 'none', cliDefault: 'CLI default' };
 
 describe('roles', () => {
-  it('only claude, codex and cursor profiles take a model choice', () => {
-    expect(['claude', 'codex', 'cursor'].map((p) => canChooseModel(agent(p, p as AgentView['profile'])))).toEqual([true, true, true]);
+  it('only claude, codex, cursor, pi and omp profiles take a model choice', () => {
+    expect(['claude', 'codex', 'cursor', 'pi', 'omp'].map((p) => canChooseModel(agent(p, p as AgentView['profile'])))).toEqual([true, true, true, true, true]);
     expect(canChooseModel(agent('opencode2', 'opencode2'))).toBe(false);
     expect(canChooseModel(agent('gemini', null))).toBe(false);
     expect(canChooseModel(undefined)).toBe(true);

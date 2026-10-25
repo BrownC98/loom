@@ -266,7 +266,7 @@ const en = {
       dutyPlaceholder: 'What this role does',
       duplicate: 'A role with this name exists.',
       cursorNeedsModel: 'Cursor cannot take an effort without a model. Enter a model.',
-      formHint: 'If you leave model and effort empty, the CLI setting is used. Only Claude, Codex and Cursor take them. For other agents the two fields are off.',
+      formHint: 'If you leave model and effort empty, the CLI setting is used. Only Claude, Codex, Cursor, Pi and OMP take them. For other agents the two fields are off.',
       cancel: 'Cancel',
       save: 'Save',
       addSave: 'Add',

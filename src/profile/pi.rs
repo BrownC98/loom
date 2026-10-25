@@ -9,17 +9,25 @@ use crate::skills::Launch;
 pub const HOOK_LIMIT_BYTES: usize = super::BATCH_LIMIT_BYTES;
 const EXTENSION: &str = include_str!("pi-loom.ts");
 const EXTENSION_FILE: &str = "pi-loom.ts";
-const IDLE_FLAG: &str = "--loom-idle";
+const HOOK: &str = include_str!("loom-hook.ts");
+const EXTENSIONS: [(&str, &str); 3] = [
+    ("loom-hook.ts", HOOK),
+    (EXTENSION_FILE, EXTENSION),
+    (super::omp::EXTENSION_FILE, super::omp::EXTENSION),
+];
+pub(super) const IDLE_FLAG: &str = "--loom-idle";
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with bash `run_in_background: true`; it returns at once with the log file path. A foreground bash call without a timeout stops after 20 minutes. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
-pub fn write_extension(dir: &Path) -> std::io::Result<()> {
-    std::fs::write(dir.join(EXTENSION_FILE), EXTENSION)
+pub fn write_extensions(dir: &Path) -> std::io::Result<()> {
+    EXTENSIONS
+        .iter()
+        .try_for_each(|(file, text)| std::fs::write(dir.join(file), text))
 }
 
-fn usage(launch: Launch) -> String {
+pub(super) fn usage(waiting: &str, launch: Launch) -> String {
     format!(
-        "{}\n{WAITING}\n\n{}",
+        "{}\n{waiting}\n\n{}",
         super::COMMUNICATION_USAGE,
         crate::skills::always_on(launch)
     )
@@ -34,7 +42,7 @@ pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
         "--skill".into(),
         format!("{plugin}/skills"),
         "--append-system-prompt".into(),
-        usage(launch),
+        usage(WAITING, launch),
     ];
     if brief.trim().is_empty() {
         args.push(IDLE_FLAG.into());
@@ -204,7 +212,7 @@ pub fn failed(id: u64, error: String) -> Reply {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::skills::{AlwaysOn, Position};
 
@@ -316,29 +324,40 @@ mod tests {
     #[test]
     fn every_launch_asks_the_human_through_loom() {
         super::super::assert_every_launch_asks(|launch| {
-            let text = usage(launch);
+            let text = usage(WAITING, launch);
             (text.clone(), text)
         });
     }
 
     #[test]
-    fn the_extension_names_the_hook_verb_and_the_idle_flag() {
-        assert!(EXTENSION.contains(r#"spawn("loom", ["pi-hook"]"#));
+    fn the_extensions_name_the_hook_verb_and_the_idle_flag() {
+        assert!(HOOK.contains(r#"spawn("loom", ["pi-hook"]"#));
+        assert!(HOOK.contains(&format!(r#"IDLE_FLAG = "{}""#, &IDLE_FLAG[2..])));
         assert!(EXTENSION.contains(r#"pi.on("resources_discover""#));
-        assert!(EXTENSION.contains(&format!(r#"IDLE_FLAG = "{}""#, &IDLE_FLAG[2..])));
         let dir = tempfile::tempdir().unwrap();
-        write_extension(dir.path()).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join(EXTENSION_FILE)).unwrap(),
-            EXTENSION
-        );
+        write_extensions(dir.path()).unwrap();
+        for (file, text) in EXTENSIONS {
+            assert!(
+                file == EXTENSIONS[0].0
+                    || text.contains(&format!(r#"from "./{}""#, EXTENSIONS[0].0))
+            );
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join(file)).unwrap(),
+                text
+            );
+        }
     }
 
     #[cfg(unix)]
     fn run_extension(fake_loom: &str, script: &str) -> (String, String) {
+        run(EXTENSION_FILE, fake_loom, script)
+    }
+
+    #[cfg(unix)]
+    pub(in crate::profile) fn run(file: &str, fake_loom: &str, script: &str) -> (String, String) {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        write_extension(dir.path()).unwrap();
+        write_extensions(dir.path()).unwrap();
         let module = |name: &str, code: &str| {
             let at = dir.path().join("node_modules").join(name);
             std::fs::create_dir_all(&at).unwrap();
@@ -381,9 +400,9 @@ mod tests {
         std::fs::write(&loom, body).unwrap();
         std::fs::set_permissions(&loom, std::fs::Permissions::from_mode(0o755)).unwrap();
         let harness = format!(
-            "import ext from './{EXTENSION_FILE}';
+            "import ext from './{file}';
              const on = {{}}; const sent = []; const tools = {{}};
-             ext({{ registerFlag() {{}}, getFlag: () => false, on: (n, f) => (on[n] = f), sendMessage: (m) => sent.push(m), registerTool: (t) => (tools[t.name] = t) }});
+             ext({{ registerFlag() {{}}, getFlag: () => false, getThinkingLevel: () => 'high', on: (n, f) => (on[n] = f), sendMessage: (m) => sent.push(m), registerTool: (t) => (tools[t.name] = t) }});
              const ctx = {{ isIdle: () => true, isProjectTrusted: () => true, hasUI: false, cwd: process.cwd(), sessionManager: {{ getSessionFile: () => '/s.jsonl' }}, ui: {{ notify() {{}} }} }};
              const until = async (done, ms) => {{ for (let t = 0; t < ms && !done(); t += 50) await new Promise((r) => setTimeout(r, 50)); }};
              {script}
@@ -412,7 +431,8 @@ mod tests {
     }
 
     #[cfg(unix)]
-    const LOG_LINES: &str = "while read -r line; do echo \"$line\" >> \"$0.in\"; ";
+    pub(in crate::profile) const LOG_LINES: &str =
+        "while read -r line; do echo \"$line\" >> \"$0.in\"; ";
 
     #[cfg(unix)]
     #[test]

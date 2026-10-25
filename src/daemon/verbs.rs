@@ -263,7 +263,10 @@ fn note(app: &App, from: NodeId, req: &NoteRequest, via: &Via) -> Result<Sent, R
             return Err(Refusal::NotSteerable(req.to.clone()));
         };
         if req.mode == Kind::Interrupt
-            && matches!(profile, Profile::Claude | Profile::Cursor | Profile::Pi)
+            && matches!(
+                profile,
+                Profile::Claude | Profile::Cursor | Profile::Pi | Profile::Omp
+            )
         {
             let sent = app
                 .graph

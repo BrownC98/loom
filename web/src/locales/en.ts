@@ -227,6 +227,7 @@ const en = {
       opencode2: 'opencode2 {{installed}} · pinned {{pinned}}',
       cursor: 'cursor-agent {{installed}} · pinned {{pinned}}',
       pi: 'pi {{installed}} · pinned {{pinned}}',
+      omp: 'omp {{installed}} · pinned {{pinned}}',
     },
     messaging: 'messaging',
     terminalOnly: 'terminal only',

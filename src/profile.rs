@@ -1,6 +1,7 @@
 pub mod claude;
 pub mod codex;
 pub mod cursor;
+pub mod omp;
 pub mod opencode2;
 pub mod pi;
 
@@ -36,6 +37,7 @@ pub enum Profile {
     OpenCode2,
     Cursor,
     Pi,
+    Omp,
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,7 +52,7 @@ impl Profile {
         match self {
             Profile::Claude => Some(Provider::Claude),
             Profile::Codex => Some(Provider::Codex),
-            Profile::OpenCode2 | Profile::Cursor | Profile::Pi => None,
+            Profile::OpenCode2 | Profile::Cursor | Profile::Pi | Profile::Omp => None,
         }
     }
 }
@@ -289,7 +291,7 @@ fn agent_screen(profile: Option<Profile>) -> Option<(&'static [Grammar], &'stati
         Profile::Claude => Some((&[claude::PROMPT], &claude::DIALOGS)),
         Profile::Codex => Some((&[codex::PROMPT], &codex::DIALOGS)),
         Profile::Cursor => Some((&[cursor::PROMPT], &cursor::DIALOGS)),
-        Profile::OpenCode2 | Profile::Pi => Some((&[], &[])),
+        Profile::OpenCode2 | Profile::Pi | Profile::Omp => Some((&[], &[])),
     }
 }
 
@@ -312,7 +314,7 @@ pub enum Start {
         #[serde(default)]
         #[ts(skip)]
         choice: ModelChoice,
-        /// 이어 갈 세션(Claude·Cursor 세션 id, Codex 스레드 id, OpenCode 2 세션 id, Pi 세션 파일). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
+        /// 이어 갈 세션(Claude·Cursor 세션 id, Codex 스레드 id, OpenCode 2 세션 id, Pi·OMP 세션 파일). 다시 띄우기만 넣는다. 그때 `brief`는 이어 간 세션의 새 입력이다.
         #[serde(skip)]
         #[ts(skip)]
         resume: Option<String>,
@@ -444,6 +446,7 @@ fn agent_command(
             cmd.env(cursor::SKILLS_ENV, cursor::skills_value(launch.skills));
         }
         (Some(Profile::Pi), _) => cmd.args(pi::args(plugin, launch, brief)),
+        (Some(Profile::Omp), _) => cmd.args(omp::args(plugin, launch, brief)),
         (Some(Profile::Codex), Some(Remote::Codex { url })) => cmd.args(codex::args(url)),
         (
             Some(Profile::OpenCode2),
@@ -481,6 +484,7 @@ fn leading_args(agent: &Agent, resume: Option<&str>, bypass: bool) -> Vec<String
         }
         (Some(Profile::Codex), Some(thread)) => return vec!["resume".into(), thread.into()],
         (Some(Profile::Pi), Some(session)) => pi::resume_args(session),
+        (Some(Profile::Omp), Some(session)) => omp::resume_args(session),
         _ => Vec::new(),
     };
     if bypass {
@@ -520,6 +524,7 @@ fn current_digest(part: &str) -> Option<String> {
         Profile::OpenCode2,
         Profile::Cursor,
         Profile::Pi,
+        Profile::Omp,
     ];
     match profiles.into_iter().find(|p| usage_part(*p) == part) {
         Some(profile) => Some(usage_digest(profile)),
@@ -534,6 +539,7 @@ fn usage_part(profile: Profile) -> &'static str {
         Profile::OpenCode2 => "usage/opencode2",
         Profile::Cursor => "usage/cursor",
         Profile::Pi => "usage/pi",
+        Profile::Omp => "usage/omp",
     }
 }
 
@@ -544,6 +550,7 @@ fn usage_digest(profile: Profile) -> String {
         Profile::OpenCode2 => opencode2::WAITING,
         Profile::Cursor => cursor::WAITING,
         Profile::Pi => pi::WAITING,
+        Profile::Omp => omp::WAITING,
     };
     crate::skills::digest(&[COMMUNICATION_USAGE, waiting])
 }
@@ -555,7 +562,7 @@ fn choice_args(agent: &Agent, choice: &ModelChoice) -> Result<Vec<String>, Launc
         Some(Profile::Codex) => Ok(codex::choice_args(choice)),
         Some(Profile::Cursor) => cursor::choice_args(choice)
             .ok_or_else(|| LaunchError::NoModelChoice(agent.label.clone())),
-        Some(Profile::Pi) => Ok(pi::choice_args(choice)),
+        Some(Profile::Pi | Profile::Omp) => Ok(pi::choice_args(choice)),
         Some(Profile::OpenCode2) | None => Err(LaunchError::NoModelChoice(agent.label.clone())),
     }
 }

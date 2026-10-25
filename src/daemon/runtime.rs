@@ -395,8 +395,15 @@ impl App {
                 PathBuf::from(inside),
                 PathBuf::from(format!("{inside}/skills")),
             ),
-            None => (plugin, self.plugin.skills(launch.skills)),
+            None => (plugin.clone(), self.plugin.skills(launch.skills)),
         };
+        if profile == Some(Profile::Omp) {
+            omp::write_config(
+                &self.plugin.dir(launch.skills),
+                &omp::config(&plugin, launch),
+            )
+            .map_err(internal)?;
+        }
         let codex = match profile {
             Some(Profile::Codex) => {
                 let config: Vec<String> = self

@@ -2710,11 +2710,11 @@ fn clicking_unread_on_a_node_without_a_message_link_reads_only_its_notices() {
     let dir = tempfile::tempdir().unwrap();
     let g = open(&dir.path().join("loom.db"));
     let lead = root(&g, "claude");
-    let omp = root(&g, "omp");
+    let grok = root(&g, "grok");
     let shell = g
         .add_root(&home(), None, None, &launched(), started)
         .unwrap();
-    g.adopt(lead, omp, TreeLimits::default()).unwrap();
+    g.adopt(lead, grok, TreeLimits::default()).unwrap();
     g.adopt(lead, shell, TreeLimits::default()).unwrap();
     g.lock()
         .execute(
@@ -2722,17 +2722,17 @@ fn clicking_unread_on_a_node_without_a_message_link_reads_only_its_notices() {
             params![shell.0, to_json(&Kind::Steer)],
         )
         .unwrap();
-    g.note(lead, &view(&g, omp).name, Kind::Queue, "q", None)
+    g.note(lead, &view(&g, grok).name, Kind::Queue, "q", None)
         .unwrap();
-    assert_eq!(view(&g, omp).unread, 2);
+    assert_eq!(view(&g, grok).unread, 2);
     assert_eq!(view(&g, shell).unread, 1);
 
-    g.steer_queued(omp).unwrap();
+    g.steer_queued(grok).unwrap();
     g.steer_queued(shell).unwrap();
     g.steer_queued(NodeId(999_999)).unwrap();
-    assert_eq!(view(&g, omp).unread, 1);
+    assert_eq!(view(&g, grok).unread, 1);
     assert_eq!(view(&g, shell).unread, 0);
-    assert_eq!(bodies(&g.take(omp, Kind::ALL, usize::MAX).unwrap()), ["q"]);
+    assert_eq!(bodies(&g.take(grok, Kind::ALL, usize::MAX).unwrap()), ["q"]);
     assert!(g.take(shell, Kind::ALL, usize::MAX).unwrap().is_empty());
 }
 

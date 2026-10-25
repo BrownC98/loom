@@ -25,8 +25,21 @@ impl Default for Pace {
         Pace {
             first: Duration::from_secs(1),
             most: Duration::from_secs(60),
-            stable: Duration::from_secs(60),
+            stable: Duration::from_secs(10),
             ready: Duration::from_secs(30),
+        }
+    }
+}
+
+impl Pace {
+    fn slower(&self, pause: Duration) -> Duration {
+        (pause * 2).clamp(self.first, self.most)
+    }
+
+    fn after(&self, pause: Duration, ready: bool, ran: Duration) -> Duration {
+        match ready && ran >= self.stable {
+            true => Duration::ZERO,
+            false => self.slower(pause),
         }
     }
 }
@@ -128,7 +141,7 @@ async fn supervise<L: Launch>(
     distro: String,
     supervised: Arc<Supervised>,
 ) {
-    let mut pause = pace.first;
+    let mut pause = Duration::ZERO;
     let mut kicked = true;
     let mut last = String::new();
     loop {
@@ -142,19 +155,19 @@ async fn supervise<L: Launch>(
             if why != last {
                 eprintln!("loom: {distro} 터널이 끝났다: {why}");
             }
+            let ready = supervised.state.borrow().phase == Phase::Ready;
             supervised
                 .state
                 .send_modify(|s| s.phase = Phase::Down(why.clone()));
             last = why;
-            if began.elapsed() >= pace.stable {
-                pause = pace.first;
-            }
+            pause = pace.after(pause, ready, began.elapsed());
+        } else {
+            pause = pace.slower(pause);
         }
         kicked = tokio::select! {
             () = tokio::time::sleep(pause) => false,
             () = supervised.kick.notified() => true,
         };
-        pause = (pause * 2).min(pace.most);
     }
 }
 
@@ -289,19 +302,30 @@ mod tests {
 
     type Needed = Arc<std::sync::atomic::AtomicBool>;
 
+    const HOUR: Duration = Duration::from_secs(3600);
+
+    const QUICK: Pace = Pace {
+        first: Duration::from_millis(10),
+        most: Duration::from_millis(20),
+        stable: HOUR,
+        ready: Duration::from_secs(5),
+    };
+
     fn tunnels(script: &'static str, needed: bool) -> (Tunnels<Fake>, Arc<AtomicUsize>, Needed) {
+        paced(script, needed, QUICK)
+    }
+
+    fn paced(
+        script: &'static str,
+        needed: bool,
+        pace: Pace,
+    ) -> (Tunnels<Fake>, Arc<AtomicUsize>, Needed) {
         let starts = Arc::new(AtomicUsize::new(0));
         let needed = Arc::new(std::sync::atomic::AtomicBool::new(needed));
         let fake = Fake {
             script,
             starts: starts.clone(),
             needed: needed.clone(),
-        };
-        let pace = Pace {
-            first: Duration::from_millis(10),
-            most: Duration::from_millis(20),
-            stable: Duration::from_secs(3600),
-            ready: Duration::from_secs(5),
         };
         (
             Tunnels::new(fake, crate::tunnel::Door::new().0, pace),
@@ -326,6 +350,55 @@ mod tests {
         tunnels.ensure("Ubuntu").await.unwrap();
         until(|| starts.load(Ordering::SeqCst) >= 3).await;
         tunnels.ensure("Ubuntu").await.unwrap();
+    }
+
+    #[test]
+    fn quick_failures_wait_longer_each_time_and_a_long_ready_run_restarts_at_once() {
+        let pace = Pace {
+            first: Duration::from_secs(1),
+            most: Duration::from_secs(8),
+            stable: Duration::from_secs(10),
+            ready: Duration::from_secs(30),
+        };
+        let short = Duration::from_secs(2);
+        let mut pause = Duration::ZERO;
+        let mut pauses = Vec::new();
+        for ready in [false, true, false, true, false] {
+            pause = pace.after(pause, ready, short);
+            pauses.push(pause.as_secs());
+        }
+        assert_eq!(pauses, [1, 2, 4, 8, 8]);
+        assert_eq!(pace.after(pause, true, pace.stable), Duration::ZERO);
+        assert_eq!(pace.after(pause, false, pace.ready), pace.most);
+        assert_eq!(pace.after(Duration::ZERO, false, short), pace.first);
+    }
+
+    #[tokio::test]
+    async fn a_relay_that_was_ready_long_enough_starts_again_at_once() {
+        let pace = Pace {
+            first: HOUR,
+            most: HOUR,
+            stable: Duration::from_millis(100),
+            ready: Duration::from_secs(5),
+        };
+        let (tunnels, starts, _) = paced(READY_THEN_EXIT, true, pace);
+        tunnels.ensure("Ubuntu").await.unwrap();
+        until(|| starts.load(Ordering::SeqCst) >= 3).await;
+    }
+
+    #[tokio::test]
+    async fn a_relay_that_ends_soon_after_it_was_ready_waits_before_it_starts_again() {
+        let pace = Pace {
+            first: HOUR,
+            most: HOUR,
+            ..QUICK
+        };
+        let (tunnels, starts, _) = paced(READY_THEN_EXIT, true, pace);
+        tunnels.ensure("Ubuntu").await.unwrap();
+        let supervised = tunnels.supervised("Ubuntu");
+        until(|| matches!(supervised.state.borrow().phase, Phase::Down(_))).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

@@ -11,11 +11,7 @@ pub const PROTOCOL: u32 = 2;
 const EXTENSION: &str = include_str!("pi-loom.ts");
 const EXTENSION_FILE: &str = "pi-loom.ts";
 const HOOK: &str = include_str!("loom-hook.ts");
-const EXTENSIONS: [(&str, &str); 3] = [
-    ("loom-hook.ts", HOOK),
-    (EXTENSION_FILE, EXTENSION),
-    (super::omp::EXTENSION_FILE, super::omp::EXTENSION),
-];
+const EXTENSIONS: [(&str, &str); 2] = [("loom-hook.ts", HOOK), (EXTENSION_FILE, EXTENSION)];
 pub(super) const IDLE_FLAG: &str = "--loom-idle";
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with bash `run_in_background: true`; it returns at once with the log file path. A foreground bash call without a timeout stops after 20 minutes. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
@@ -462,7 +458,7 @@ pub(super) mod tests {
     pub(in crate::profile) fn run(file: &str, fake_loom: &str, script: &str) -> (String, String) {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        write_extensions(dir.path()).unwrap();
+        super::super::write_extensions(dir.path()).unwrap();
         let module = |name: &str, code: &str| {
             let at = dir.path().join("node_modules").join(name);
             std::fs::create_dir_all(&at).unwrap();

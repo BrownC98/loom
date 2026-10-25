@@ -217,6 +217,11 @@ pub fn version_warning(profile: Profile, version_output: &str) -> Option<Version
     }
 }
 
+pub fn write_extensions(dir: &Path) -> std::io::Result<()> {
+    pi::write_extensions(dir)?;
+    omp::write_extension(dir)
+}
+
 pub fn version_warnings(codex_version: Option<&str>) -> HashMap<Profile, VersionMismatch> {
     PINNED
         .into_iter()

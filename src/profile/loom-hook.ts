@@ -98,6 +98,7 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
   let next = 0;
   let waits = 0;
   let running = 0;
+  let polling = false;
 
   pi.registerFlag(IDLE_FLAG, { type: "boolean", default: false, description: "Wait for loom mail when the session starts without a prompt" });
 
@@ -170,19 +171,25 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
       void wait("settled", ctx, reply);
     },
     async running(ctx: C, stop: () => void) {
-      if (++running > 1) return;
-      while (running > 0 && !shutdown.signal.aborted) {
-        await new Promise((resolve) => setTimeout(resolve, INTERRUPT_POLL_MS));
-        if (running === 0) return;
-        if (ctx.isIdle()) {
-          running = 0;
-          return;
+      running++;
+      if (polling) return;
+      polling = true;
+      try {
+        while (running > 0 && !shutdown.signal.aborted) {
+          await new Promise((resolve) => setTimeout(resolve, INTERRUPT_POLL_MS));
+          if (running === 0) return;
+          if (ctx.isIdle()) {
+            running = 0;
+            return;
+          }
+          const { text } = (await call({ event: "tool_call" }, ctx)) ?? {};
+          if (text) {
+            stop();
+            return deliver(text, ctx);
+          }
         }
-        const { text } = (await call({ event: "tool_call" }, ctx)) ?? {};
-        if (text) {
-          stop();
-          return deliver(text, ctx);
-        }
+      } finally {
+        polling = false;
       }
     },
     finished() {

@@ -2,8 +2,8 @@ use std::path::Path;
 
 use crate::skills::Launch;
 
-pub(super) const EXTENSION: &str = include_str!("omp-loom.ts");
-pub(super) const EXTENSION_FILE: &str = "omp-loom.ts";
+const EXTENSION: &str = include_str!("omp-loom.ts");
+const EXTENSION_FILE: &str = "omp-loom.ts";
 
 pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with bash `async: true, timeout: 0`; it returns at once with a job ID. A bash call without a timeout stops after 5 minutes. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
@@ -27,8 +27,20 @@ pub fn config(plugin: &Path, launch: Launch) -> Config {
     Config { file, text }
 }
 
+pub fn write_extension(dir: &Path) -> std::io::Result<()> {
+    std::fs::write(dir.join(EXTENSION_FILE), EXTENSION)
+}
+
 pub fn write_config(dir: &Path, config: &Config) -> std::io::Result<()> {
-    std::fs::write(dir.join(&config.file), &config.text)
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let path = dir.join(&config.file);
+    if path.is_file() {
+        return Ok(());
+    }
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!("{}.{}-{n}.new", config.file, std::process::id()));
+    std::fs::write(&tmp, &config.text)?;
+    std::fs::rename(&tmp, &path)
 }
 
 pub fn args(plugin: &Path, launch: Launch, brief: &str) -> Vec<String> {
@@ -103,10 +115,12 @@ mod tests {
         );
         let dir = tempfile::tempdir().unwrap();
         write_config(dir.path(), &config).unwrap();
+        write_config(dir.path(), &config).unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.path().join(&config.file)).unwrap(),
             config.text
         );
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[cfg(unix)]
@@ -191,6 +205,27 @@ mod tests {
             1,
             "{calls}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tools_that_start_one_after_another_share_one_interrupt_poll() {
+        use super::super::pi::tests::{LOG_LINES, run};
+        let (_, calls) = run(
+            EXTENSION_FILE,
+            &format!("{LOG_LINES}answer \"$line\"; done"),
+            "const busy = { ...ctx, isIdle: () => false };
+             for (let n = 0; n < 6; n++) {
+               on.tool_execution_start({}, busy);
+               await new Promise((r) => setTimeout(r, 50));
+               on.tool_execution_end({}, busy);
+             }
+             on.tool_execution_start({}, busy);
+             await new Promise((r) => setTimeout(r, 3150));
+             on.tool_execution_end({}, busy);",
+        );
+        let polls = calls.matches(r#""event":"tool_call""#).count();
+        assert!((2..=3).contains(&polls), "{polls}: {calls}");
     }
 
     #[test]

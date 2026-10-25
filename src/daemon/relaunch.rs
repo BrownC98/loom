@@ -100,6 +100,17 @@ impl Relaunches {
         }
     }
 
+    pub fn process_ended(&self, node: NodeId) {
+        let mut pending = self.pending.lock().unwrap();
+        if let Some((Phase::AtTurnEnd, _)) = pending.get(&node) {
+            pending.remove(&node);
+            eprintln!(
+                "loom: 노드 {}의 프로세스가 끝나 턴 끝 다시 띄우기를 지운다",
+                node.0
+            );
+        }
+    }
+
     pub(super) fn exiting(&self, node: NodeId) -> bool {
         self.exiting.lock().unwrap().contains_key(&node)
     }
@@ -149,6 +160,17 @@ pub(super) async fn agent_relaunch(
     let via = super::gate::via(&headers, "/api/agent/relaunch");
     let to = req.name.clone().unwrap_or_else(|| format!("#{}", caller.0));
     let relaunched = relaunch(&app, caller, req).await;
+    super::traced(&app, caller, super::Attempt::verb(&to), &via, relaunched)
+}
+
+pub(super) async fn agent_relaunch_unserved(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<Relaunched>, AgentError> {
+    let caller = app.caller(&headers)?;
+    let via = super::gate::via(&headers, "/api/agent/relaunch-unserved");
+    let relaunched = app.relaunch_unserved(caller).await;
+    let to = format!("#{}", caller.0);
     super::traced(&app, caller, super::Attempt::verb(&to), &via, relaunched)
 }
 
@@ -276,7 +298,7 @@ impl App {
         };
         {
             let mut pending = self.relaunches.pending.lock().unwrap();
-            if pending.contains_key(&id) {
+            if let Some((Phase::Running, _)) = pending.get(&id) {
                 return match plan {
                     Plan::Resume => Ok(Relaunched::Now),
                     Plan::Switch(_) => Err(Refusal::Relaunching(node.name).into()),
@@ -329,7 +351,9 @@ impl App {
     async fn queue(self: &Arc<Self>, node: Active, plan: Plan) -> Result<Relaunched, Problem> {
         let phase = {
             let mut pending = self.relaunches.pending.lock().unwrap();
-            if let Some((phase, queued)) = pending.get_mut(&node.id) {
+            if self.graph.ended(node.id).map_err(internal)?.is_some() {
+                None
+            } else if let Some((phase, queued)) = pending.get_mut(&node.id) {
                 if let Plan::Switch(_) = plan {
                     if *phase == Phase::Running {
                         return Err(Refusal::Relaunching(node.name).into());
@@ -340,18 +364,60 @@ impl App {
                     Phase::AtTurnEnd => Relaunched::AtTurnEnd,
                     Phase::Running => Relaunched::Now,
                 });
+            } else {
+                let phase = match self.busy(node.id) {
+                    true => Phase::AtTurnEnd,
+                    false => Phase::Running,
+                };
+                pending.insert(node.id, (phase, plan.clone()));
+                Some(phase)
             }
-            let phase = match self.busy(node.id) {
-                true => Phase::AtTurnEnd,
-                false => Phase::Running,
-            };
-            pending.insert(node.id, (phase, plan.clone()));
-            phase
+        };
+        let Some(phase) = phase else {
+            return self.revive_ended(node.id, plan).await;
         };
         if phase == Phase::AtTurnEnd {
             self.watch_server_turn(node.id);
             return Ok(Relaunched::AtTurnEnd);
         }
+        let app = self.clone();
+        tokio::spawn(async move { app.relaunch(node, plan, None).await })
+            .await
+            .map_err(internal)?
+            .map_err(internal)?;
+        Ok(Relaunched::Now)
+    }
+
+    async fn relaunch_unserved(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
+        let found = self
+            .graph
+            .active()
+            .map_err(internal)?
+            .into_iter()
+            .find(|n| n.id == id);
+        let Some(node) = found else {
+            return self.revive_ended(id, Plan::Resume).await;
+        };
+        if profile_of(&node).is_none() {
+            return Err(Refusal::NoResume(node.name).into());
+        }
+        let plan = {
+            let mut pending = self.relaunches.pending.lock().unwrap();
+            if self.graph.ended(id).map_err(internal)?.is_some() {
+                None
+            } else {
+                let plan = match pending.get(&id) {
+                    Some((Phase::Running, _)) => return Ok(Relaunched::Now),
+                    Some((Phase::AtTurnEnd, plan)) => plan.clone(),
+                    None => Plan::Resume,
+                };
+                pending.insert(id, (Phase::Running, plan.clone()));
+                Some(plan)
+            }
+        };
+        let Some(plan) = plan else {
+            return self.revive_ended(id, Plan::Resume).await;
+        };
         let app = self.clone();
         tokio::spawn(async move { app.relaunch(node, plan, None).await })
             .await
@@ -370,17 +436,19 @@ impl App {
             if changed.is_empty() || profile_of(&node).is_none() {
                 continue;
             }
+            let mut pending = self.relaunches.pending.lock().unwrap();
+            if self.graph.ended(node.id)?.is_some() {
+                continue;
+            }
             eprintln!(
                 "loom: 노드 {}의 시작 글이 바뀌었다({}). 턴 끝에 다시 띄운다",
                 node.id.0,
                 changed.join(", ")
             );
-            self.relaunches
-                .pending
-                .lock()
-                .unwrap()
+            pending
                 .entry(node.id)
                 .or_insert((Phase::AtTurnEnd, Plan::Resume));
+            drop(pending);
             self.watch_server_turn(node.id);
         }
         Ok(())
@@ -1064,6 +1132,124 @@ fn background_job(json: &[u8], session: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::{Launched, Place};
+    use crate::worktree::RepoId;
+
+    fn app() -> (tempfile::TempDir, Arc<App>) {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("loom.db");
+        let database = crate::db::open(&db_path).unwrap();
+        database
+            .lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let app = Arc::new(
+            App::new(
+                database,
+                &db_path,
+                addr,
+                None,
+                None,
+                crate::tunnel::Door::new().0,
+            )
+            .unwrap(),
+        );
+        (dir, app)
+    }
+
+    fn stale_pi(app: &App, token: &str) -> NodeId {
+        let place = Place {
+            repo: RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let launched = Launched {
+            token: token.into(),
+            server: None,
+            account: None,
+            rules: Some([("usage/pi".to_owned(), "old".to_owned())].into()),
+        };
+        app.graph
+            .add_root(&place, Some(AgentId("pi".into())), None, &launched, |_| {
+                Ok(())
+            })
+            .unwrap()
+    }
+
+    fn relaunch_errors(app: &App) -> Vec<Option<String>> {
+        app.graph
+            .recent_events()
+            .unwrap()
+            .into_iter()
+            .filter_map(|r| match r.entry {
+                Entry::Relaunched { error, .. } => Some(error),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_stale_node_waits_for_its_turn_end_until_its_process_ends() {
+        let (_dir, app) = app();
+        let live = stale_pi(&app, "live");
+        let ended = stale_pi(&app, "ended");
+        app.graph.exited(ended, 0).unwrap();
+        app.relaunch_stale().unwrap();
+        assert!(app.relaunches.at_turn_end(live));
+        assert!(!app.relaunches.holds_mail(ended), "no turn end can come");
+        app.relaunches.hold(ended);
+        app.relaunches.process_ended(ended);
+        assert!(app.relaunches.holds_mail(ended), "a running relaunch stays");
+        app.graph.exited(live, 0).unwrap();
+        app.relaunches.process_ended(live);
+        assert!(!app.relaunches.holds_mail(live), "the exit clears the plan");
+    }
+
+    #[tokio::test]
+    async fn a_relaunch_after_the_process_ended_starts_it_or_reports_why_not() {
+        let (_dir, app) = app();
+        let node = stale_pi(&app, "gone");
+        app.relaunch_stale().unwrap();
+        let before = app.graph.active().unwrap().pop().unwrap();
+        app.graph.exited(node, 0).unwrap();
+        let queued = app.queue(before, Plan::Resume).await;
+        assert!(queued.is_err(), "{queued:?}");
+        assert_eq!(
+            relaunch_errors(&app),
+            [Some("이어 갈 Pi 세션 기록이 없다".to_owned())]
+        );
+        assert!(!app.relaunches.holds_mail(node));
+        app.relaunches
+            .pending
+            .lock()
+            .unwrap()
+            .insert(node, (Phase::AtTurnEnd, Plan::Resume));
+        let revived = app.relaunch_by_id(node, Plan::Resume).await;
+        assert!(revived.is_err(), "{revived:?}");
+        assert_eq!(relaunch_errors(&app).len(), 2);
+        assert!(!app.relaunches.holds_mail(node));
+    }
+
+    #[tokio::test]
+    async fn an_unserved_hook_relaunches_a_node_in_its_turn_now() {
+        let (_dir, app) = app();
+        let node = stale_pi(&app, "busy");
+        app.idle.turn_started(node, "prompt".into());
+        assert!(app.busy(node));
+        let active = || app.graph.active().unwrap().pop().unwrap();
+        assert_eq!(
+            app.queue(active(), Plan::Resume).await.ok(),
+            Some(Relaunched::AtTurnEnd)
+        );
+        assert!(relaunch_errors(&app).is_empty());
+        let now = app.relaunch_unserved(node).await;
+        assert!(now.is_err(), "{now:?}");
+        assert_eq!(
+            relaunch_errors(&app),
+            [Some("이어 갈 Pi 세션 기록이 없다".to_owned())]
+        );
+        assert!(!app.relaunches.holds_mail(node));
+    }
 
     #[test]
     fn only_a_background_job_of_the_same_full_session_is_stopped() {

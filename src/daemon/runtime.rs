@@ -236,6 +236,7 @@ impl App {
                 Exit::Setup(code) => app.graph.setup_failed(id, code, &app.host.tail(id)),
                 Exit::Lost => app.graph.lost(id),
             };
+            app.relaunches.process_ended(id);
             app.sleeps.exited(id);
             app.graph.wake_mail();
             app.idle.end(id, IdleEnd::Exit);

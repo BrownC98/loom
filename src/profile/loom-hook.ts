@@ -25,6 +25,7 @@ type Api<C> = {
 const GUARD = "loom guard";
 const MESSAGE = "loom";
 const IDLE_FLAG = "loom-idle";
+const PROTOCOL = 2;
 const RETRY_MS = 250;
 const REOPEN_MS = 1000;
 const INTERRUPT_POLL_MS = 1000;
@@ -109,7 +110,7 @@ export function connect<C extends Context>(pi: Api<C>, harness: Harness<C>) {
     const id = ++next;
     return new Promise((resolve) => {
       pending.set(id, resolve);
-      child.stdin?.write(`${JSON.stringify({ id, ...input, ...harness.state(ctx) })}\n`);
+      child.stdin?.write(`${JSON.stringify({ protocol: PROTOCOL, id, ...input, ...harness.state(ctx) })}\n`);
     });
   };
 

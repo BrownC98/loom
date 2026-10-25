@@ -29,7 +29,7 @@ sha2 = "0.11.1"
 strip-ansi-escapes = "0.2.1"
 subtle = "2.6.1"
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
-tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "sync", "net", "process", "time", "io-util"] }
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "sync", "net", "process", "time", "io-util", "io-std"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect"] }
 tower-http = { version = "0.6.11", features = ["fs"] }

@@ -17,6 +17,7 @@ use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
 const SWEEP: Duration = Duration::from_secs(30);
+const SILENT_TURN: Duration = Duration::from_secs(600);
 const WAKE_SUBMIT_AFTER: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
@@ -149,6 +150,9 @@ impl App {
                 if let Err(e) = app.wake_unheard(Instant::now()) {
                     eprintln!("loom: 쉬는 대기가 없는 노드를 보지 못했다: {e}");
                 }
+                if let Err(e) = app.end_silent_turns(Instant::now()) {
+                    eprintln!("loom: 턴 끝을 기다리는 노드를 보지 못했다: {e}");
+                }
                 if Instant::now() >= next_sweep {
                     if let Err(e) = app.sleep_resting() {
                         eprintln!("loom: 쉬는 노드를 보지 못했다: {e}");
@@ -264,6 +268,56 @@ impl App {
             });
         }
         Ok(())
+    }
+
+    fn end_silent_turns(self: &Arc<Self>, now: Instant) -> rusqlite::Result<()> {
+        for node in self.graph.active()? {
+            let id = node.id;
+            if !self.relaunches.at_turn_end(id)
+                || self.idle.waiting(id)
+                || self
+                    .idle
+                    .turn_seen(id)
+                    .is_some_and(|at| now.duration_since(at) < SILENT_TURN)
+            {
+                continue;
+            }
+            let Some(seen) = self.silent_since(&node)? else {
+                continue;
+            };
+            let guard = self.restart_guard(id, seen);
+            if !guard(&self.host.screen(id)) {
+                continue;
+            }
+            eprintln!(
+                "loom: 노드 {}의 턴 끝 신호가 {}초 동안 없다. 턴 끝 다시 띄우기를 지금 한다",
+                id.0,
+                SILENT_TURN.as_secs()
+            );
+            self.run_at_turn_end(id, Some(guard));
+        }
+        Ok(())
+    }
+
+    fn silent_since(&self, node: &Active) -> rusqlite::Result<Option<Seen>> {
+        if profile_of(node) != Some(Profile::Claude) {
+            return Ok(None);
+        }
+        let Some(transcript) = &node.transcript else {
+            return Ok(None);
+        };
+        let place = self.graph.place_of(node.id)?;
+        let path = crate::wsl::from_node(PathBuf::from(transcript), Path::new(&place.worktree));
+        let Ok(changed) = std::fs::metadata(&path).and_then(|m| m.modified()) else {
+            return Ok(None);
+        };
+        let silent = changed.elapsed().is_ok_and(|age| age >= SILENT_TURN);
+        Ok(silent.then_some(Seen {
+            path,
+            changed,
+            typed_after: changed,
+            listening: false,
+        }))
     }
 
     fn restart_guard(self: &Arc<Self>, node: NodeId, seen: Seen) -> Guard {
@@ -850,6 +904,63 @@ mod tests {
         );
         let now = t.app.relaunch_or_queue(resting).await;
         assert!(now.is_err(), "{now:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_queued_relaunch_of_a_stopped_claude_session_runs_after_a_silent_bound() {
+        const INTERRUPTED: &str =
+            "{\"type\":\"user\",\"message\":{\"content\":\"[Request interrupted by user]\"}}\n";
+        let t = fixture();
+        let node = |name: &str, transcript: &str, age: Duration| {
+            let id = add_worker(&t, name);
+            let path = t.dir.path().join(format!("{name}.jsonl"));
+            std::fs::write(&path, transcript).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(SystemTime::now() - age)
+                .unwrap();
+            t.app
+                .graph
+                .set_transcript(id, path.to_str().unwrap())
+                .unwrap();
+            screen(&t, id, "❯ ");
+            id
+        };
+        let stopped = node("stopped", INTERRUPTED, SILENT_TURN * 2);
+        let working = node("working", IN_TOOL, Duration::ZERO);
+        let hooked = node("hooked", INTERRUPTED, SILENT_TURN * 2);
+        t.app.idle.turn_started(hooked, "PreToolUse".into());
+        for id in [stopped, working, hooked] {
+            let active = t.app.graph.active().unwrap();
+            let found = active.into_iter().find(|n| n.id == id).unwrap();
+            assert_eq!(
+                t.app.relaunch_or_queue(found).await,
+                Ok(Relaunched::AtTurnEnd)
+            );
+        }
+
+        t.app.end_silent_turns(Instant::now()).unwrap();
+        while !missed(&t).contains(&(stopped, true)) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(missed(&t), [(stopped, true)], "a live turn keeps waiting");
+        assert!(t.app.relaunches.at_turn_end(working));
+        assert!(t.app.relaunches.at_turn_end(hooked));
+
+        t.app
+            .end_silent_turns(Instant::now() + SILENT_TURN)
+            .unwrap();
+        while !missed(&t).contains(&(hooked, true)) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            t.app.relaunches.at_turn_end(working),
+            "its transcript is fresh"
+        );
     }
 
     #[tokio::test]

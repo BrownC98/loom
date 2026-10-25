@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use tokio::sync::oneshot;
 
@@ -11,7 +11,7 @@ use crate::graph::{Entry, Graph, IdleEnd, NodeId, Who};
 pub struct IdleWaits {
     graph: Arc<Graph>,
     ends: Mutex<HashMap<NodeId, oneshot::Sender<IdleEnd>>>,
-    turns: Mutex<HashSet<NodeId>>,
+    turns: Mutex<HashMap<NodeId, Instant>>,
     watches: Mutex<HashMap<NodeId, Watch>>,
     next_said: AtomicU64,
 }
@@ -125,16 +125,20 @@ impl IdleWaits {
     }
 
     pub fn in_turn(&self, node: NodeId) -> bool {
-        self.turns.lock().unwrap().contains(&node)
+        self.turns.lock().unwrap().contains_key(&node)
+    }
+
+    pub fn turn_seen(&self, node: NodeId) -> Option<Instant> {
+        self.turns.lock().unwrap().get(&node).copied()
     }
 
     pub fn turn_started(&self, node: NodeId, hook: String) {
         self.end_wait(node, IdleEnd::Turn { hook });
-        self.turns.lock().unwrap().insert(node);
+        self.turns.lock().unwrap().insert(node, Instant::now());
     }
 
     pub fn mail_handed(&self, node: NodeId) {
-        self.turns.lock().unwrap().insert(node);
+        self.turns.lock().unwrap().insert(node, Instant::now());
     }
 
     pub fn prompted(&self, node: NodeId, turn: TurnId) {

@@ -178,7 +178,8 @@ async fn worktree_changes(
     let repo = app.repos.path(RepoId(id))?;
     match worktree::find(&repo, &req.path).await {
         Ok(listed) => Ok(Json(worktree::changes(&listed).await?)),
-        Err(_) => Ok(Json(Vec::new())),
+        Err(RepoProblem::NotInRepo(_)) => Ok(Json(Vec::new())),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -375,5 +376,12 @@ mod tests {
         assert!(deleted.is_err());
         assert_eq!(app.graph.nodes_in(&path).unwrap(), [node]);
         assert_eq!(app.spots.layout().unwrap().placed, [spot]);
+        let changes = worktree_changes(
+            State(app.clone()),
+            Path(1),
+            Query(WorktreePath { path: path.clone() }),
+        )
+        .await;
+        assert!(changes.is_err(), "a git failure is not 'no changes'");
     }
 }

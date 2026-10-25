@@ -1331,6 +1331,24 @@ mod git_runs {
     }
 
     #[tokio::test]
+    async fn a_git_failure_keeps_the_owner_of_a_dirty_worktree() {
+        let r = repo();
+        let owner = child(&r.app, r.lead, "owner", None, None);
+        let a = r.branch("a", "main", "a.txt", "a");
+        let wt = r.worktree("wt-a", "a");
+        r.place(owner, &wt);
+        r.app
+            .graph
+            .ready(owner, &round("a", "main", &wt, &a), r.lead, None)
+            .unwrap();
+        std::fs::write(wt.join("notes.txt"), "wip\n").unwrap();
+        std::fs::rename(r.main.join(".git"), r.dir.path().join("moved.git")).unwrap();
+        reclaim_merged(&r, "a").await;
+        assert!(r.exists(owner));
+        assert!(wt.join("notes.txt").is_file());
+    }
+
+    #[tokio::test]
     async fn the_original_checkout_stays() {
         let r = repo();
         let owner = child(&r.app, r.lead, "owner", None, None);

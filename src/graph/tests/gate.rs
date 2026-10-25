@@ -1189,3 +1189,38 @@ fn a_branch_has_one_reviewer_per_role_even_after_its_process_ends() {
         seated
     );
 }
+
+#[test]
+fn done_waits_for_the_owner_and_reviewers_of_an_open_round_and_not_after_the_merge() {
+    let dir = tempfile::tempdir().unwrap();
+    let g = open(&dir.path().join("loom.db"));
+    let t = team(&g);
+    let sleep = |node| {
+        g.done(node, &report("끝"), None, &[], None, None).unwrap();
+        assert!(g.slept(node).unwrap());
+    };
+    let owner = with_role(&g, t.solo, "owner", "워커");
+    g.ready(owner, &round("b", "main"), owner, Some(&via()))
+        .unwrap();
+    let first = reviewer(&g, owner, "b", "first");
+    sleep(owner);
+    g.done(t.solo, &report("요약"), None, &[], None, None)
+        .unwrap();
+    g.verdict(first, "b", Judgment::Pass, None, Some(&via()))
+        .unwrap();
+    sleep(first);
+    g.done(owner, &report("요약"), None, &[], None, None)
+        .unwrap();
+    g.batch_open(RepoId(1), "main", &["b"]).unwrap();
+    assert_eq!(
+        g.merge_end(RepoId(1), "b", ended(MergeEnd::Merged, Some("abc1234"))),
+        Ok(GateState::Merged)
+    );
+    assert_eq!(
+        g.done(owner, &report("요약"), None, &[], None, None),
+        Err(Refusal::SpentChildren {
+            children: vec!["first".into()],
+            inherited: vec![],
+        })
+    );
+}

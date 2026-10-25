@@ -344,6 +344,7 @@ async fn scene(t: &Fixture, verb: &str) {
                 asked: Some("do it".into()),
                 images,
                 doc: None,
+                keep: Vec::new(),
             };
             let image = vec![t.dir.path().join("none.png")];
             let refused =

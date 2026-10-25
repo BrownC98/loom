@@ -935,6 +935,50 @@ fn adopt_in(
     }))
 }
 
+pub(super) fn check_spent(
+    db: &Connection,
+    node: NodeId,
+    keep: &[mailbox::Kept],
+) -> Result<(), Refusal> {
+    let children = db
+        .prepare("SELECT name FROM nodes WHERE parent = ?1")?
+        .query_map([node.0], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if let Some(kept) = keep.iter().find(|k| !children.contains(&k.name)) {
+        return Err(Refusal::NotChild(kept.name.clone()));
+    }
+    let spent = db
+        .prepare(
+            r#"SELECT c.id, c.name FROM nodes c WHERE c.parent = ?1
+             AND c.state ->> 'kind' = 'done' AND c.process_exited = 1 AND c.role IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM gates g WHERE g.state != '"merged"'
+                 AND (g.owner = c.id OR (g.repo = c.repo AND g.branch = c.review)))
+             ORDER BY c.id"#,
+        )?
+        .query_map([node.0], |row| {
+            Ok((NodeId(row.get(0)?), row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|(_, name)| !keep.iter().any(|k| &k.name == name))
+        .collect::<Vec<_>>();
+    if spent.is_empty() {
+        return Ok(());
+    }
+    let mut inherited = Vec::new();
+    for (id, _) in &spent {
+        inherited.extend(
+            db.prepare("SELECT name FROM nodes WHERE parent = ?1 ORDER BY id")?
+                .query_map([id.0], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+        );
+    }
+    Err(Refusal::SpentChildren {
+        children: spent.into_iter().map(|(_, name)| name).collect(),
+        inherited,
+    })
+}
+
 fn asleep(db: &Connection, id: NodeId) -> rusqlite::Result<bool> {
     db.query_row(
         "SELECT asleep = 1 FROM nodes WHERE id = ?1",

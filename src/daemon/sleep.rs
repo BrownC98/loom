@@ -483,6 +483,7 @@ mod tests {
             summary: "finished",
             file: None,
             warning: None,
+            keep: &[],
         };
         app.graph
             .done(worker, &report, None, &[], None, None)
@@ -940,6 +941,7 @@ mod tests {
             summary: "finished",
             file: None,
             warning: None,
+            keep: &[],
         };
         app.graph
             .done(worker, &report, None, &[], None, None)

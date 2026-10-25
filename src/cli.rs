@@ -14,7 +14,7 @@ use crate::daemon::{
     RemoveRequest, Reported, SaidRequest, SpawnRequest, SpawnRun, TakeRequest, Taken,
     TurnEndRequest, TurnId, WaitRequest,
 };
-use crate::graph::{Listed, NodeId, Relations, Sent};
+use crate::graph::{Kept, Listed, NodeId, Relations, Sent};
 use crate::profile::claude;
 use crate::profile::{Take, cursor, pi};
 use crate::protocol::{
@@ -574,6 +574,16 @@ pub fn ask(question: String, doc: Option<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
+pub fn kept(given: &str) -> Result<Kept, String> {
+    match given.split_once('=') {
+        Some((name, reason)) if !name.trim().is_empty() && !reason.trim().is_empty() => Ok(Kept {
+            name: name.trim().to_owned(),
+            reason: reason.trim().to_owned(),
+        }),
+        _ => Err("give <child name>=<reason why you keep it>".to_owned()),
+    }
+}
+
 pub fn answered(ids: Vec<String>) -> Result<(), String> {
     let ids = ids
         .iter()
@@ -602,6 +612,7 @@ pub fn done(
     asked: Option<String>,
     images: Vec<PathBuf>,
     doc: Option<PathBuf>,
+    keep: Vec<Kept>,
 ) -> Result<(), String> {
     let file = match file {
         Some(path) => {
@@ -634,16 +645,11 @@ pub fn done(
             asked,
             images,
             doc: doc.map(crate::wsl::for_daemon),
+            keep,
         },
         None,
     )?;
     println!("Reported to your parent, or to the human's inbox if you have no parent.");
-    if !reported.alive.is_empty() {
-        println!(
-            "Warning: these children are still running or asleep: {}. Reclaim each with `loom rm <name>` when you keep its results, or they stay in the graph.",
-            reported.alive.join(", ")
-        );
-    }
     if let Some(warning) = reported.warning {
         println!(
             "Warning: {warning}. Your parent sees this warning. When the branch is ready, call `loom ready <branch>`."

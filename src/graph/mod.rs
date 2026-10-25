@@ -22,7 +22,7 @@ pub use events::{
     TurnCheck, Via, Who,
 };
 pub use gate::{BatchId, Ended, GateChoice, Queued, Reclaim, Round};
-pub use mailbox::{PARENT, REDELIVER_AFTER, Report, Sent};
+pub use mailbox::{Kept, PARENT, REDELIVER_AFTER, Report, Sent};
 pub use nodes::{Active, Launched, Listed, NewChild, Relations};
 pub use waits::{HUMAN, HumanWait, WaitSource};
 

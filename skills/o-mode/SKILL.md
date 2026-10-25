@@ -24,7 +24,7 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 - A coordinator does small, closely related work itself. It divides work only into two or more independent edit scopes. With one scope, it spawns the worker without `--worktree` in its own worktree. While the worker runs, the coordinator only reads and reviews there. It also takes pieces that wait for one product decision.
 - Write unique names in the human's language. A branch has the name of its work (`알림표시통일`), a node `<role> <work>`, the lead `<repository> <role>`.
 - A `--worktree` child starts from its parent's `HEAD`. Do not put two editors in one worktree.
-- For screen work, read [reference "Mockup approval"](reference.md#mockup-approval) first. Before the human approves, do not write screen product code or spawn implementation workers.
+- For screen work, read [reference "Mockup approval"](reference.md#mockup-approval) first. Before approval, write no screen product code and spawn no implementation workers.
 - Make an HTML report only when the human asks ([reference](reference.md#reports-to-the-human)). Else write problem, cause and fix, one line each, per item. If the next step is clear, do it.
 
 ## Supervision and review
@@ -33,7 +33,7 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 - After a child's time budget, send `loom note <child> "Report status and blockers." --steer`; if it does not answer, run `loom status`.
 - To stop a child, send `--interrupt` and ask for its result, failure cause and remaining work. Before you reassign, make sure it stopped.
 - If the same completion command fails twice, or the environment blocks you over 10 minutes, follow [reference "Blocked"](reference.md#blocked).
-- A reviewer compares the diff, done-when, the check output and the real behavior. Check again if evidence is missing, a check failed or the code changed since. Do not weaken a check or done-when. Send back each problem that can be fixed now.
+- A reviewer compares the diff, done-when, check output and the real behavior. Check again if evidence is missing, a check failed or the code changed since. Do not weaken a check or done-when. Send back each problem that can be fixed now.
 
 ## Merge and cleanup
 
@@ -41,7 +41,7 @@ Lead, coordinator, worker and reviewer are jobs. Pick a role for each job from `
 - The owner commits, does the checks and calls `loom ready` without a merge of the target. On a conflict, the queue sends rework: then merge the target and fix it.
 - A parent's verdict on a branch made from its branch is acceptance against done-when, not a code review. A block lists what done-when misses. A coordinator merges its workers' results before its own `loom ready`.
 - A branch to main gets two reviewers if high-risk (storage, concurrency, delivery, auth, process lifecycle, module contracts), else one; if unsure, two. The queue waits for all live reviewers: spawn the second before the first verdict.
-- After `merged`, the daemon removes the reviewers, the owner node, a clean worktree and the branch. It keeps a worktree with changes, its branch and owner, and tells the owner's parent. An owner without a parent or with children stays. Thus call `loom done` before `loom ready`.
-- Each time a child reports, the parent cleans up what is safe and no longer needed ([reference "Cleanup"](reference.md#cleanup)). This includes unmerged children, shell nodes, their worktrees and branches, background processes and temporary folders.
+- After `merged`, the daemon removes the reviewers, the owner node, a clean worktree and the branch. It keeps a worktree with changes, its branch and owner, and tells the owner's parent. An owner without a parent or with children stays. So call `loom done` before `loom ready`.
+- Each time a child reports, clean up what is safe and unused ([reference "Cleanup"](reference.md#cleanup)): shell nodes, unmerged worktrees and branches, background processes, temporary folders. `loom done` refuses while a done, exited child stays (`--keep <name>=<reason>`).
 - Rare cases (handover, setup failure, release runs, no gate script): [reference "Commands"](reference.md#commands).
 - The completion report gives the result, evidence, location of the change, remaining work and the `Raptor-3:` line.

@@ -30,6 +30,10 @@ pub(super) fn node_routes() -> Router<Arc<App>> {
         .route("/api/agent/adopt", post(agent_adopt))
         .route("/api/agent/rm", post(agent_remove))
         .route("/api/agent/relaunch", post(relaunch::agent_relaunch))
+        .route(
+            "/api/agent/relaunch-unserved",
+            post(relaunch::agent_relaunch_unserved),
+        )
         .route("/api/agent/ready", post(gate::agent_ready))
         .route("/api/agent/verdict", post(gate::agent_verdict))
         .route("/api/agent/fail", post(gate::agent_fail))

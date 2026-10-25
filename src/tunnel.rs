@@ -17,6 +17,8 @@ use tokio::sync::mpsc;
 use wire::{Frame, MAX_CHUNK};
 
 const BATCH_BYTES: usize = 256 * 1024;
+#[cfg(unix)]
+const ACCEPT_RETRY: std::time::Duration = std::time::Duration::from_millis(100);
 
 struct Shared {
     out: mpsc::UnboundedSender<Frame>,
@@ -35,9 +37,13 @@ struct Peer {
 }
 
 impl Peer {
-    fn close(&self, reset: bool) {
-        self.reset.fetch_or(reset, Ordering::SeqCst);
+    fn close(&self) {
         self.gone.store(true, Ordering::SeqCst);
+    }
+
+    fn reset(&self) {
+        self.reset.store(true, Ordering::SeqCst);
+        self.close();
     }
 }
 
@@ -64,7 +70,7 @@ impl Shared {
 
     fn reset_all(&self) {
         for (_, inbound) in self.streams.lock().unwrap().drain() {
-            inbound.peer.close(true);
+            inbound.peer.reset();
         }
     }
 }
@@ -182,11 +188,14 @@ async fn read_frames(
                     inbound.data = None;
                 }
             }
-            Frame::Close(id) => {
-                if let Some(inbound) = shared.streams.lock().unwrap().remove(&id) {
-                    inbound.peer.close(inbound.data.is_some());
-                }
-            }
+            Frame::Close(id) => match shared.streams.lock().unwrap().remove(&id) {
+                Some(Inbound {
+                    data: Some(_),
+                    peer,
+                }) => peer.reset(),
+                Some(Inbound { data: None, peer }) => peer.close(),
+                None => {}
+            },
         }
     }
     shared.reset_all();
@@ -325,7 +334,7 @@ pub async fn relay(
                 }
                 Err(e) => {
                     eprintln!("loom: 터널이 연결을 받지 못했다: {e}");
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    tokio::time::sleep(ACCEPT_RETRY).await;
                 }
             },
             event = events.recv() => if event.is_none() {

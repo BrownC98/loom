@@ -1,3 +1,4 @@
+mod agent_state;
 mod events;
 mod gate;
 mod mailbox;
@@ -17,6 +18,9 @@ use tokio::sync::futures::Notified;
 use tokio::sync::{Notify, broadcast};
 use ts_rs::TS;
 
+pub use agent_state::AgentEvent;
+#[cfg(test)]
+pub use agent_state::{AgentState, ShadowCheck};
 pub use events::{
     AgentSwitch, BatchMember, BatchResult, Entry, EventLog, EventRecord, IdleEnd, SwitchCause,
     TurnCheck, Via, Who,

@@ -455,6 +455,7 @@ pub(super) async fn agent_turn_end(
 ) -> Result<Json<Option<String>>, AgentError> {
     let node = app.caller(&headers)?;
     app.idle.stop_reached(node, req.unwrap_or_default().turn);
+    app.feed(node, AgentEvent::TurnEnded);
     Ok(Json(app.turn_end(node).map(str::to_owned)))
 }
 

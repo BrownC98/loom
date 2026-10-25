@@ -316,11 +316,23 @@ impl App {
                     app.sessions.started(id, &token);
                 }
             });
+            tokio::spawn(follow_server_turns(
+                self.clone(),
+                id,
+                server.thread(),
+                |thread| thread.as_ref().map(|t| t.status == Status::Busy),
+            ));
             tokio::spawn(deliver_to_codex(self.clone(), id, server));
         }
         if let Some(node) = opencode2 {
             self.opencode2.lock().unwrap().insert(id, node.clone());
             tokio::spawn(follow_model(self.graph.clone(), id, node.model()));
+            tokio::spawn(follow_server_turns(
+                self.clone(),
+                id,
+                node.working(),
+                |working| Some(*working),
+            ));
             tokio::spawn(follow_permission(
                 self.graph.clone(),
                 id,
@@ -634,6 +646,32 @@ async fn follow_model(graph: Arc<Graph>, node: NodeId, mut model: watch::Receive
         let now = model.borrow_and_update().clone();
         if let Err(e) = graph.set_model(node, &now) {
             eprintln!("loom: 노드 {}의 모델을 쓰지 못했다: {e}", node.0);
+        }
+    }
+}
+
+pub(super) async fn follow_server_turns<T>(
+    app: Arc<App>,
+    node: NodeId,
+    mut status: watch::Receiver<T>,
+    busy: fn(&T) -> Option<bool>,
+) {
+    let mut fed = None;
+    loop {
+        let now = busy(&status.borrow_and_update());
+        if let Some(busy) = now
+            && now != fed
+        {
+            let event = match busy {
+                true => AgentEvent::ServerBusy,
+                false => AgentEvent::ServerIdle,
+            };
+            app.feed(node, event);
+            fed = now;
+        }
+        if status.changed().await.is_err() {
+            app.feed(node, AgentEvent::ServerLost);
+            return;
         }
     }
 }

@@ -203,6 +203,10 @@ fn signal_wait_has_one_entry_and_clears_by_source_key_and_exit() {
     )
     .unwrap();
     assert!(matches!(events.try_recv(), Ok(GraphEvent::Node(v)) if v.waits.len() == 1));
+    assert!(matches!(
+        events.try_recv(),
+        Ok(GraphEvent::Recorded { record }) if matches!(record.entry, Entry::AgentStateChanged { .. })
+    ));
     assert!(events.try_recv().is_err());
     assert_eq!(view(&g, worker).waits[0].since, since);
     g.set_wait(&token(&g, worker), WaitSource::Codex, None)
@@ -3181,6 +3185,7 @@ fn switching_the_agent_keeps_the_node_and_changes_only_its_process() {
     assert_eq!(g.open_questions(lead).unwrap().len(), 1);
 }
 
+mod agent_state;
 mod gate;
 
 #[test]

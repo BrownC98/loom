@@ -284,6 +284,15 @@ const STEPS: &[M] = &[
             WHERE entry ->> '$.reason.code' = 'leadSpawnsOnlyCoordinator';
         UPDATE gates SET gate = owner WHERE state = '"merging"' AND batch IS NULL;"#,
     ),
+    M::up(
+        "CREATE TABLE agent_states (
+            node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+            state TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            noted INTEGER,
+            at INTEGER NOT NULL
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 

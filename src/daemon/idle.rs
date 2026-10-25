@@ -6,7 +6,7 @@ use std::time::SystemTime;
 use tokio::sync::oneshot;
 
 use super::TurnId;
-use crate::graph::{Entry, Graph, IdleEnd, NodeId, Who};
+use crate::graph::{AgentEvent, Entry, Graph, IdleEnd, NodeId, Who};
 
 pub struct IdleWaits {
     graph: Arc<Graph>,
@@ -77,6 +77,7 @@ impl IdleWaits {
         if let Some(old) = self.ends.lock().unwrap().insert(node, tx) {
             let _ = old.send(IdleEnd::NewWait);
         }
+        self.feed(node, AgentEvent::WaitOpened);
         let who = self
             .graph
             .who(node)
@@ -131,6 +132,7 @@ impl IdleWaits {
     pub fn turn_started(&self, node: NodeId, hook: String) {
         self.end_wait(node, IdleEnd::Turn { hook });
         self.turns.lock().unwrap().insert(node);
+        self.feed(node, AgentEvent::TurnStarted);
     }
 
     pub fn prompted(&self, node: NodeId, turn: TurnId) {
@@ -228,6 +230,12 @@ impl IdleWaits {
             eprintln!("loom: 쉬는 대기를 남기지 못했다: {e}");
         }
     }
+
+    fn feed(&self, node: NodeId, event: AgentEvent) {
+        if let Err(e) = self.graph.agent_event(node, event) {
+            eprintln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0);
+        }
+    }
 }
 
 impl Wait<'_> {
@@ -243,21 +251,26 @@ impl Wait<'_> {
 
     fn record(&mut self, by: IdleEnd) {
         if let Some(node) = self.who.take() {
-            self.waits.record(Entry::IdleEnded { node, by });
+            self.waits.record(Entry::IdleEnded {
+                node,
+                by: by.clone(),
+            });
+            self.waits.feed(self.node, AgentEvent::WaitClosed { by });
         }
     }
 }
 
 impl Drop for Wait<'_> {
     fn drop(&mut self) {
-        self.record(IdleEnd::Gone);
+        let by = self.end.try_recv().unwrap_or(IdleEnd::Gone);
+        self.record(by);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Launched, Place};
+    use crate::graph::{AgentState, Launched, Place};
     use crate::worktree::RepoId;
 
     fn waits() -> (tempfile::TempDir, [NodeId; 2], IdleWaits) {
@@ -445,6 +458,25 @@ mod tests {
                 .all(|r| !matches!(r.entry, Entry::IdleOpened { .. } | Entry::IdleEnded { .. }))
         );
         assert_eq!(log.last, waits.graph.recent_events().unwrap()[0].id);
+    }
+
+    #[test]
+    fn a_replaced_wait_that_drops_late_leaves_the_newer_wait_listening() {
+        let (_dir, [node, _], waits) = waits();
+        let first = waits.open(node);
+        let _second = waits.open(node);
+        drop(first);
+        assert_eq!(
+            waits.graph.agent_state(node).unwrap(),
+            Some(AgentState::Listening)
+        );
+        assert!(matches!(
+            idle_entries(&waits, node).last(),
+            Some(Entry::IdleEnded {
+                by: IdleEnd::NewWait,
+                ..
+            })
+        ));
     }
 
     #[tokio::test]

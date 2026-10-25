@@ -7,7 +7,7 @@ use super::commands::{
 };
 use super::nodes::human_typed;
 use super::*;
-use crate::graph::{Entry, Round, TurnCheck};
+use crate::graph::{AgentState, Entry, Round, ShadowCheck, TurnCheck, Who};
 use crate::protocol::{AgentId, Judgment};
 
 const UNTRACED: [(&str, &str); 17] = [
@@ -1173,4 +1173,128 @@ async fn an_interrupt_check_leaves_the_idle_wait_open_and_the_mail_undelivered()
         .ack(t.worker, &taken.iter().map(|d| d.id).collect::<Vec<_>>())
         .unwrap();
     assert!(!pending().await.unwrap().0);
+}
+
+impl Fixture {
+    fn agent_state(&self, node: NodeId) -> Option<AgentState> {
+        self.app.graph.agent_state(node).unwrap()
+    }
+
+    async fn settled(&self, node: NodeId, want: AgentState) {
+        for _ in 0..100 {
+            if self.agent_state(node).as_ref() == Some(&want) {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!(
+            "node {node} stays {:?}, not {want:?}",
+            self.agent_state(node)
+        );
+    }
+
+    fn agent_changes(&self, mark: u32) -> Vec<(AgentState, AgentEvent)> {
+        self.since(mark)
+            .into_iter()
+            .filter_map(|e| match e {
+                Entry::AgentStateChanged { to, by, .. } => Some((to, by)),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+#[tokio::test]
+async fn mail_handed_by_the_idle_wait_starts_a_turn_that_the_old_busy_misses() {
+    let t = fixture();
+    let held = t.held_idle_request(WORKER, "g1").await;
+    assert_eq!(t.agent_state(t.worker), Some(AgentState::Listening));
+    t.app
+        .graph
+        .note(
+            t.lead,
+            &format!("#{}", t.worker.0),
+            Kind::Queue,
+            "일해",
+            None,
+        )
+        .unwrap();
+    held.await.unwrap();
+    assert_eq!(t.agent_state(t.worker), Some(AgentState::Turn));
+    let mark = t.mark();
+    assert!(!t.app.busy(t.worker), "the old turn state misses the mail");
+    assert!(!t.app.busy(t.worker));
+    assert_eq!(
+        t.since(mark),
+        [Entry::AgentStateDisagreed {
+            node: Who {
+                id: Some(t.worker),
+                name: "worker".into(),
+            },
+            check: ShadowCheck::Busy,
+            old: false,
+            state: AgentState::Turn,
+        }]
+    );
+}
+
+#[tokio::test]
+async fn a_dropped_idle_wait_leaves_the_node_deaf_until_a_wait_opens() {
+    let t = fixture();
+    let mark = t.mark();
+    t.idle_request(WORKER, "g1").await;
+    assert_eq!(t.agent_state(t.worker), Some(AgentState::Deaf));
+    let held = t.held_idle_request(WORKER, "g2").await;
+    let newer = t.held_idle_request(WORKER, "g2").await;
+    held.abort();
+    let _ = held.await;
+    assert_eq!(t.agent_state(t.worker), Some(AgentState::Listening));
+    t.tool_hook(WORKER, "g2").await;
+    let _ = newer.await;
+    t.stop_hook(WORKER, "g2").await;
+    let gone = || AgentEvent::WaitClosed { by: IdleEnd::Gone };
+    assert_eq!(
+        t.agent_changes(mark),
+        [
+            (AgentState::Listening, AgentEvent::WaitOpened),
+            (AgentState::Deaf, gone()),
+            (AgentState::Listening, AgentEvent::WaitOpened),
+            (AgentState::Turn, AgentEvent::TurnStarted),
+            (AgentState::Deaf, AgentEvent::TurnEnded),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn server_status_edges_move_the_agent_state() {
+    let t = fixture();
+    let mark = t.mark();
+    let (status, seen) = tokio::sync::watch::channel(None);
+    let follow = tokio::spawn(runtime::follow_server_turns(
+        t.app.clone(),
+        t.worker,
+        seen,
+        |s: &Option<bool>| *s,
+    ));
+    tokio::task::yield_now().await;
+    assert_eq!(t.agent_state(t.worker), Some(AgentState::Starting));
+    status.send_replace(Some(false));
+    t.settled(t.worker, AgentState::Listening).await;
+    status.send_replace(Some(true));
+    t.settled(t.worker, AgentState::Turn).await;
+    status.send_replace(Some(true));
+    tokio::task::yield_now().await;
+    status.send_replace(Some(false));
+    t.settled(t.worker, AgentState::Listening).await;
+    drop(status);
+    follow.await.unwrap();
+    assert_eq!(
+        t.agent_changes(mark),
+        [
+            (AgentState::Listening, AgentEvent::ServerIdle),
+            (AgentState::Turn, AgentEvent::ServerBusy),
+            (AgentState::Listening, AgentEvent::ServerIdle),
+            (AgentState::Deaf, AgentEvent::ServerLost),
+        ]
+    );
 }

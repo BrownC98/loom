@@ -1,6 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
+use super::agent_state::{self, AgentEvent, AgentState};
 use super::events::{self, Entry};
 use super::{
     CardView, Db, Graph, GraphEvent, NodeId, NodeState, Place, REACHABLE, Toward, ambiguous,
@@ -266,6 +267,7 @@ impl Graph {
             return Ok(());
         }
         waits::drop_questions(&tx, id)?;
+        agent_state::apply(&tx, id, AgentEvent::Exited)?;
         let parent = parent_of(&tx, id)?;
         if state == NodeState::Running {
             let what = what(name_of(&tx, id)?);
@@ -322,6 +324,7 @@ impl Graph {
             return Ok(false);
         }
         waits::drop_questions(&tx, id)?;
+        agent_state::apply(&tx, id, AgentEvent::Slept)?;
         tx.commit()?;
         self.prompts.lock().unwrap().remove(&id);
         self.publish_node(&db, id)?;
@@ -361,6 +364,7 @@ impl Graph {
         };
         tx.execute("UPDATE nodes SET asleep = 0 WHERE id = ?1", [id.0])?;
         set_state(&tx, id, &NodeState::Exited { code: None })?;
+        agent_state::apply(&tx, id, AgentEvent::Exited)?;
         mailbox::enqueue(&tx, id, parent, Kind::Queue, &what, "", Default::default())?;
         tx.commit()?;
         self.publish_node(&db, id)?;
@@ -425,6 +429,7 @@ impl Graph {
         {
             set_state(&tx, id, &NodeState::Running)?;
         }
+        agent_state::apply(&tx, id, AgentEvent::Relaunched)?;
         tx.commit()?;
         if revived || cleared > 0 {
             self.publish_node(&db, id)?;
@@ -443,6 +448,7 @@ impl Graph {
     pub fn relations(&self, node: NodeId) -> Result<Relations, Refusal> {
         let db = self.lock();
         let read = |id: NodeId| -> rusqlite::Result<Peer> {
+            let agent_state = agent_state::state_of(&db, id)?;
             db.query_row(
                 "SELECT name, state, process_exited FROM nodes WHERE id = ?1",
                 [id.0],
@@ -452,6 +458,7 @@ impl Graph {
                         name: row.get(0)?,
                         state: from_json(row, 1)?,
                         alive: !row.get::<_, bool>(2)?,
+                        agent_state,
                     })
                 },
             )
@@ -1145,6 +1152,8 @@ pub struct Peer {
     pub name: String,
     pub state: NodeState,
     pub alive: bool,
+    #[serde(default)]
+    pub agent_state: Option<AgentState>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

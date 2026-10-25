@@ -58,13 +58,13 @@ class Watch : Service() {
         super.onCreate()
         channels(this)
         foreground()
-        connect()
         runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networks) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         foreground()
         show()
+        if (!linked) restart()
         return START_STICKY
     }
 
@@ -111,6 +111,7 @@ class Watch : Service() {
                     if (mine != turn) return@post
                     pace.opened()
                     linked(true)
+                    awaitFrame()
                 }
             }
 
@@ -131,9 +132,13 @@ class Watch : Service() {
 
     private fun heard(heard: Heard) {
         pace.heard(heard)
-        main.removeCallbacks(quiet)
-        pace.quietMs?.let { main.postDelayed(quiet, it) }
+        awaitFrame()
         if (heard == Heard.WAITS) show()
+    }
+
+    private fun awaitFrame() {
+        main.removeCallbacks(quiet)
+        main.postDelayed(quiet, pace.quietMs)
     }
 
     private fun linked(on: Boolean) {

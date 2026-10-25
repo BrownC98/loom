@@ -521,6 +521,7 @@ class MainActivity : ComponentActivity() {
             fresh = false
             val door = Uri.parse(url).let { "${it.host}:${it.port}" }
             if (!unpaired && card.visibility != View.VISIBLE && door in doors) spreadCookie(door)
+            if (!unpaired && card.visibility != View.VISIBLE) Watch.sync(this@MainActivity)
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -605,20 +606,18 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun ask(on: Boolean) {
-            runOnUiThread { choose { it.copy(ask = on) } }
+            runOnUiThread { choose(on) { it.copy(ask = on) } }
         }
 
         @JavascriptInterface
         fun done(on: Boolean) {
-            runOnUiThread { choose { it.copy(done = on) } }
+            runOnUiThread { choose(on) { it.copy(done = on) } }
         }
     }
 
-    private fun choose(change: (Switches) -> Switches) {
-        val allowed = Watch.allowed(this)
-        val next = change(if (allowed) Watch.switches(prefs) else Switches(ask = false, done = false))
-        Watch.store(prefs, next)
-        if (!allowed && next.any) {
+    private fun choose(on: Boolean, change: (Switches) -> Switches) {
+        Watch.store(prefs, change(Watch.switches(prefs)))
+        if (on && !Watch.allowed(this)) {
             runCatching { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
         }
         notifyChanged()

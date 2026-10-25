@@ -1,30 +1,33 @@
 package io.github.brownc98.loom
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PaceTest {
     @Test
-    fun quietLimitStartsOnlyAfterTheFirstBeat() {
+    fun quietLimitIsTenMinutesUntilTheFirstBeatThenFortySeconds() {
         val pace = Pace()
         pace.opened()
+        assertEquals(600_000L, pace.quietMs)
         pace.heard(Heard.WAITS)
         pace.heard(Heard.OTHER)
-        assertNull(pace.quietMs)
+        assertEquals(600_000L, pace.quietMs)
         pace.heard(Heard.BEAT)
-        assertEquals(Pace.QUIET_MS, pace.quietMs)
+        assertEquals(40_000L, pace.quietMs)
         pace.heard(Heard.WAITS)
-        assertEquals(Pace.QUIET_MS, pace.quietMs)
+        assertEquals(40_000L, pace.quietMs)
     }
 
     @Test
-    fun aDropForgetsTheBeatUntilTheNextConnectionBeats() {
+    fun aDropOrRestartForgetsTheBeatUntilTheNextConnectionBeats() {
         val pace = Pace()
         pace.heard(Heard.BEAT)
         pace.dropped()
         pace.opened()
-        assertNull(pace.quietMs)
+        assertEquals(600_000L, pace.quietMs)
+        pace.heard(Heard.BEAT)
+        pace.restarted()
+        assertEquals(600_000L, pace.quietMs)
     }
 
     @Test

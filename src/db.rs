@@ -293,6 +293,17 @@ const STEPS: &[M] = &[
             at INTEGER NOT NULL
         );",
     ),
+    M::up(
+        "ALTER TABLE agent_states DROP COLUMN noted;
+        ALTER TABLE messages ADD COLUMN printed INTEGER NOT NULL DEFAULT 0;
+        UPDATE messages SET sent_at = NULL WHERE delivered = 0;
+        ALTER TABLE nodes ADD COLUMN limited INTEGER NOT NULL DEFAULT 0;
+        CREATE TABLE relaunch_plans (
+            node INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+            phase TEXT NOT NULL,
+            plan TEXT NOT NULL
+        );",
+    ),
 ];
 const MIGRATIONS: Migrations = Migrations::from_slice(STEPS);
 
@@ -722,6 +733,38 @@ mod tests {
             serde_json::from_str::<crate::protocol::Refusal>(&reason).unwrap(),
             crate::protocol::Refusal::LeadChildNeedsWorktree("워커".into())
         );
+    }
+
+    #[test]
+    fn step_42_gives_handed_messages_back_to_the_queue_and_keeps_relaunch_plans() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        super::MIGRATIONS.to_version(&mut conn, 41).unwrap();
+        conn.execute_batch(
+            r#"INSERT INTO nodes (id, name, agent, state) VALUES (1, 'a', 'null', '{}'), (2, 'b', 'null', '{}');
+            INSERT INTO messages (id, recipient, sender, sender_name, kind, body, delivered, sent_at) VALUES
+            (1, 2, 1, 'a', '"queue"', 'handed', 0, 100),
+            (2, 2, 1, 'a', '"queue"', 'read', 1, 100);
+            INSERT INTO agent_states (node, state, seq, noted, at) VALUES (2, '{"kind":"turn"}', 3, 3, 1);"#,
+        )
+        .unwrap();
+        super::MIGRATIONS.to_latest(&mut conn).unwrap();
+        let sent: Vec<(i64, bool, bool)> = conn
+            .prepare("SELECT id, sent_at IS NOT NULL, printed FROM messages ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(sent, [(1, false, false), (2, true, false)]);
+        conn.execute(
+            "INSERT INTO relaunch_plans (node, phase, plan) VALUES (2, '\"atTurnEnd\"', '{\"kind\":\"resume\"}')",
+            [],
+        )
+        .unwrap();
+        let limited: bool = conn
+            .query_row("SELECT limited FROM nodes WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+        assert!(!limited);
     }
 
     #[test]

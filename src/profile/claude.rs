@@ -408,10 +408,6 @@ fn is_rule(line: &str) -> bool {
     !line.is_empty() && line.chars().all(|c| c == '─')
 }
 
-pub fn wake_line() -> String {
-    format!("{NOTIFICATION_TAG}{REWAKE_SUMMARY}</task-notification>")
-}
-
 fn context(event: &str, text: String) -> Value {
     json!({ "hookSpecificOutput": { "hookEventName": event, "additionalContext": text } })
 }
@@ -1024,9 +1020,8 @@ mod tests {
     }
 
     #[test]
-    fn the_wake_line_is_a_notification_and_not_human_input() {
-        let line = wake_line();
-        assert!(!line.contains(['\r', '\n']));
+    fn a_task_notification_is_not_human_input() {
+        let line = format!("{NOTIFICATION_TAG}{REWAKE_SUMMARY}</task-notification>");
         let submit = event(json!({ "hook_event_name": "UserPromptSubmit", "prompt": line }));
         assert!(!submit.human_input());
         assert_eq!(submit.take(), Take::Now(Kind::ALL));

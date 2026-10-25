@@ -17,7 +17,8 @@ use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
 const SWEEP: Duration = Duration::from_secs(30);
-const SILENT_TURN: Duration = Duration::from_secs(600);
+const STOPPED_SETTLE: Duration = Duration::from_secs(5);
+const RUNNING_STATUS: &str = "esc to interrupt";
 const WAKE_SUBMIT_AFTER: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
@@ -27,6 +28,7 @@ pub struct Sleeps {
     knocked: Mutex<HashSet<NodeId>>,
     knock: Notify,
     unheard: Mutex<HashMap<NodeId, Unheard>>,
+    stopped: Mutex<HashMap<NodeId, (Instant, SystemTime)>>,
 }
 
 struct Seen {
@@ -150,7 +152,7 @@ impl App {
                 if let Err(e) = app.wake_unheard(Instant::now()) {
                     eprintln!("loom: 쉬는 대기가 없는 노드를 보지 못했다: {e}");
                 }
-                if let Err(e) = app.end_silent_turns(Instant::now()) {
+                if let Err(e) = app.release_stopped_turns(Instant::now()) {
                     eprintln!("loom: 턴 끝을 기다리는 노드를 보지 못했다: {e}");
                 }
                 if Instant::now() >= next_sweep {
@@ -270,36 +272,49 @@ impl App {
         Ok(())
     }
 
-    fn end_silent_turns(self: &Arc<Self>, now: Instant) -> rusqlite::Result<()> {
+    fn release_stopped_turns(self: &Arc<Self>, now: Instant) -> rusqlite::Result<()> {
+        let mut stopped = self.sleeps.stopped.lock().unwrap();
+        let mut queued = Vec::new();
         for node in self.graph.active()? {
             let id = node.id;
-            if !self.relaunches.at_turn_end(id)
-                || self.idle.waiting(id)
-                || self
-                    .idle
-                    .turn_seen(id)
-                    .is_some_and(|at| now.duration_since(at) < SILENT_TURN)
-            {
+            if !self.relaunches.at_turn_end(id) || self.idle.waiting(id) {
                 continue;
             }
-            let Some(seen) = self.silent_since(&node)? else {
+            let Some(seen) = self.transcript_seen(&node)? else {
                 continue;
             };
+            queued.push(id);
+            let changed_now = seen.changed;
             let guard = self.restart_guard(id, seen);
             if !guard(&self.host.screen(id)) {
+                stopped.remove(&id);
                 continue;
             }
-            eprintln!(
-                "loom: 노드 {}의 턴 끝 신호가 {}초 동안 없다. 턴 끝 다시 띄우기를 지금 한다",
-                id.0,
-                SILENT_TURN.as_secs()
-            );
-            self.run_at_turn_end(id, Some(guard));
+            let hooked = |since: Instant| self.idle.turn_seen(id).is_some_and(|at| at >= since);
+            match stopped.get(&id) {
+                Some(&(since, changed))
+                    if changed == changed_now
+                        && !hooked(since)
+                        && now.duration_since(since) >= STOPPED_SETTLE =>
+                {
+                    stopped.remove(&id);
+                    eprintln!(
+                        "loom: 노드 {}의 화면에 도는 턴이 없다. 턴 끝 다시 띄우기를 지금 한다",
+                        id.0
+                    );
+                    self.run_at_turn_end(id, Some(guard));
+                }
+                Some(&(since, changed)) if changed == changed_now && !hooked(since) => {}
+                _ => {
+                    stopped.insert(id, (now, changed_now));
+                }
+            }
         }
+        stopped.retain(|id, _| queued.contains(id));
         Ok(())
     }
 
-    fn silent_since(&self, node: &Active) -> rusqlite::Result<Option<Seen>> {
+    fn transcript_seen(&self, node: &Active) -> rusqlite::Result<Option<Seen>> {
         if profile_of(node) != Some(Profile::Claude) {
             return Ok(None);
         }
@@ -311,8 +326,7 @@ impl App {
         let Ok(changed) = std::fs::metadata(&path).and_then(|m| m.modified()) else {
             return Ok(None);
         };
-        let silent = changed.elapsed().is_ok_and(|age| age >= SILENT_TURN);
-        Ok(silent.then_some(Seen {
+        Ok(Some(Seen {
             path,
             changed,
             typed_after: changed,
@@ -331,6 +345,7 @@ impl App {
                 && app.idle.waiting(node) == seen.listening
                 && app.untouched(node, seen.typed_after, screen)
                 && (input == Some("") || input == Some(line.as_str()))
+                && !turn_shown(&screen.text)
         })
     }
 
@@ -443,6 +458,32 @@ impl App {
             self.graph.wake_mail();
         }
     }
+}
+
+fn turn_shown(screen: &str) -> bool {
+    let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
+    let rules: Vec<usize> = (0..lines.len())
+        .filter(|&i| !lines[i].is_empty() && lines[i].chars().all(|c| c == '─'))
+        .collect();
+    let (above, footer) = match rules[..] {
+        [.., top, bottom] => (&lines[..top], &lines[bottom + 1..]),
+        _ => (&lines[..], &lines[..0]),
+    };
+    footer.iter().any(|line| line.contains(RUNNING_STATUS)) || above.iter().any(|l| spinner(l))
+}
+
+fn spinner(line: &str) -> bool {
+    let mut chars = line.chars();
+    let glyph = chars
+        .next()
+        .is_some_and(|c| !c.is_alphanumeric() && !c.is_whitespace() && !"❯●⎿─".contains(c));
+    let rest = chars.as_str();
+    glyph
+        && rest.starts_with(' ')
+        && rest[1..]
+            .split(' ')
+            .next()
+            .is_some_and(|word| word.ends_with('…') && word.chars().count() > 1)
 }
 
 #[cfg(test)]
@@ -908,11 +949,12 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_queued_relaunch_of_a_stopped_claude_session_runs_after_a_silent_bound() {
+    async fn a_queued_relaunch_waits_while_the_screen_shows_a_turn_and_runs_once_it_stops() {
         const INTERRUPTED: &str =
             "{\"type\":\"user\",\"message\":{\"content\":\"[Request interrupted by user]\"}}\n";
         let t = fixture();
-        let node = |name: &str, transcript: &str, age: Duration| {
+        let hour = Duration::from_secs(3600);
+        let node = |name: &str, transcript: &str, footer: &str| {
             let id = add_worker(&t, name);
             let path = t.dir.path().join(format!("{name}.jsonl"));
             std::fs::write(&path, transcript).unwrap();
@@ -920,47 +962,79 @@ mod tests {
                 .write(true)
                 .open(&path)
                 .unwrap()
-                .set_modified(SystemTime::now() - age)
+                .set_modified(SystemTime::now() - hour)
                 .unwrap();
             t.app
                 .graph
                 .set_transcript(id, path.to_str().unwrap())
                 .unwrap();
-            screen(&t, id, "❯ ");
-            id
-        };
-        let stopped = node("stopped", INTERRUPTED, SILENT_TURN * 2);
-        let working = node("working", IN_TOOL, Duration::ZERO);
-        let hooked = node("hooked", INTERRUPTED, SILENT_TURN * 2);
-        t.app.idle.turn_started(hooked, "PreToolUse".into());
-        for id in [stopped, working, hooked] {
+            let mut cmd = portable_pty::CommandBuilder::new("sh");
+            cmd.args([
+                "-c",
+                "stty -icanon -echo; printf '%s' \"$SCREEN\"; exec cat >/dev/null",
+            ]);
+            cmd.env(
+                "SCREEN",
+                boxed("❯ ").replace("bypass permissions on", footer),
+            );
+            host_pty(&t, id, cmd);
             let active = t.app.graph.active().unwrap();
-            let found = active.into_iter().find(|n| n.id == id).unwrap();
+            active.into_iter().find(|n| n.id == id).unwrap()
+        };
+        let stopped = node(
+            "stopped",
+            INTERRUPTED,
+            "bypass permissions on (shift+tab to cycle)",
+        );
+        let working = node(
+            "working",
+            IN_TOOL,
+            "bypass permissions on (shift+tab to cycle) · esc to interrupt",
+        );
+        let (stopped, working) = (stopped.id, working.id);
+        for id in [stopped, working] {
+            let active = t.app.graph.active().unwrap();
+            let held = active.into_iter().find(|n| n.id == id).unwrap();
             assert_eq!(
-                t.app.relaunch_or_queue(found).await,
+                t.app.relaunch_or_queue(held).await,
                 Ok(Relaunched::AtTurnEnd)
             );
         }
 
-        t.app.end_silent_turns(Instant::now()).unwrap();
+        let t0 = Instant::now();
+        t.app.release_stopped_turns(t0).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(missed(&t), [], "one look is not enough");
+        t.app.release_stopped_turns(t0 + STOPPED_SETTLE).unwrap();
         while !missed(&t).contains(&(stopped, true)) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(missed(&t), [(stopped, true)], "a live turn keeps waiting");
-        assert!(t.app.relaunches.at_turn_end(working));
-        assert!(t.app.relaunches.at_turn_end(hooked));
+        assert!(!t.app.relaunches.at_turn_end(stopped));
 
-        t.app
-            .end_silent_turns(Instant::now() + SILENT_TURN)
-            .unwrap();
-        while !missed(&t).contains(&(hooked, true)) {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+        for step in 2..10 {
+            t.app.release_stopped_turns(t0 + hour * step).unwrap();
         }
-        assert!(
-            t.app.relaunches.at_turn_end(working),
-            "its transcript is fresh"
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(missed(&t), [(stopped, true)], "a running tool is never cut");
+        assert!(t.app.relaunches.at_turn_end(working));
+    }
+
+    #[test]
+    fn the_spinner_or_the_footer_shows_a_running_turn() {
+        let box_ = "────\n❯ \n────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n";
+        let idle = format!(
+            "● Claude shows esc to interrupt and Thinking… while it works.\n✻ Churned for 18s · done 10:05 PM\n{box_}"
         );
+        let stopped = format!("  ⎿  Interrupted · What should Claude do instead?\n{box_}");
+        assert!(!turn_shown(&idle));
+        assert!(!turn_shown(&stopped));
+        let footer = idle.replace("cycle)\n", "cycle) · esc to interrupt\n");
+        assert!(turn_shown(&footer));
+        let narrow = format!(
+            "     (ctrl+b ctrl+b (twice) to run in background)\n· Coalescing… (10s · ↓ 246 tokens)\n  ⎿  Tip: steer Claude\n{box_}"
+        );
+        assert!(turn_shown(&narrow));
+        assert!(turn_shown(&format!("* Ionizing…\n{box_}")));
     }
 
     #[tokio::test]

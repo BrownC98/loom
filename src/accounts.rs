@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -200,8 +200,8 @@ impl Site {
             && let Some(dir) = self.accounts.config_dir(provider, id)
         {
             let _ = mark_claude_onboarded(&dir);
-            if self.home_file(HOME_CLAUDE_MD).is_some_and(|f| f.is_file()) {
-                link_claude_md(&dir);
+            if let Some(home_md) = self.home_file(HOME_CLAUDE_MD) {
+                link_claude_md(&home_md, &dir);
             }
         }
         self.accounts.env(provider, id)
@@ -296,20 +296,27 @@ fn mark_claude_onboarded(dir: &Path) -> io::Result<()> {
 const HOME_CLAUDE_MD: &str = ".claude/CLAUDE.md";
 const CLAUDE_MD_IMPORT: &str = "@~/.claude/CLAUDE.md\n";
 
-fn link_claude_md(dir: &Path) {
+fn link_claude_md(home_md: &Path, dir: &Path) {
+    if !home_md.is_file() {
+        return;
+    }
     let file = dir.join("CLAUDE.md");
-    match std::fs::read_to_string(&file) {
-        Ok(text) if text == CLAUDE_MD_IMPORT => {}
-        Ok(_) => eprintln!(
-            "loom: {}이 이미 있어 ~/.claude/CLAUDE.md를 잇지 않는다",
-            file.display()
-        ),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            if let Err(e) = std::fs::write(&file, CLAUDE_MD_IMPORT) {
-                eprintln!("loom: {}을 쓰지 못했다: {e}", file.display());
+    let created = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file)
+        .and_then(|mut f| f.write_all(CLAUDE_MD_IMPORT.as_bytes()));
+    match created {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            if std::fs::read_to_string(&file).ok().as_deref() != Some(CLAUDE_MD_IMPORT) {
+                eprintln!(
+                    "loom: {}이 이미 있어 ~/.claude/CLAUDE.md를 잇지 않는다",
+                    file.display()
+                );
             }
         }
-        Err(e) => eprintln!("loom: {}을 읽지 못했다: {e}", file.display()),
+        Err(e) => eprintln!("loom: {}을 쓰지 못했다: {e}", file.display()),
     }
 }
 
@@ -429,16 +436,39 @@ mod tests {
     #[test]
     fn claude_account_imports_the_home_claude_md_once() {
         let tmp = tempfile::tempdir().unwrap();
+        let home_md = tmp.path().join("home.md");
+        std::fs::write(&home_md, "rules\n").unwrap();
         let file = tmp.path().join("CLAUDE.md");
-        link_claude_md(tmp.path());
-        link_claude_md(tmp.path());
+        link_claude_md(&home_md, tmp.path());
+        link_claude_md(&home_md, tmp.path());
         assert_eq!(
             std::fs::read_to_string(&file).unwrap(),
             "@~/.claude/CLAUDE.md\n"
         );
         std::fs::write(&file, "own rules\n").unwrap();
-        link_claude_md(tmp.path());
+        link_claude_md(&home_md, tmp.path());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "own rules\n");
+    }
+
+    #[test]
+    fn claude_account_writes_nothing_without_the_home_claude_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        link_claude_md(&tmp.path().join("absent.md"), tmp.path());
+        assert!(!tmp.path().join("CLAUDE.md").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn claude_account_does_not_follow_a_dangling_claude_md_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home_md = tmp.path().join("home.md");
+        std::fs::write(&home_md, "rules\n").unwrap();
+        let account = tmp.path().join("account");
+        std::fs::create_dir(&account).unwrap();
+        let outside = tmp.path().join("outside.md");
+        std::os::unix::fs::symlink(&outside, account.join("CLAUDE.md")).unwrap();
+        link_claude_md(&home_md, &account);
+        assert!(!outside.exists());
     }
 
     #[test]

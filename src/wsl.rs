@@ -426,7 +426,7 @@ pub const LINUX_LOOM: &str = "loom-linux";
 pub const WINDOWS_VERBS: &[&str] = &[
     "serve", "start", "open", "stop", "carry", "show", "spawn", "pty-host", "guard", "tunnel",
 ];
-const STDIN_VERBS: &[&str] = &["hook", "cursor-hook", "spawn"];
+const STDIN_VERBS: &[&str] = &["hook", "cursor-hook"];
 const RETRY_VERBS: &[&str] = &[
     "hook",
     "cursor-hook",
@@ -758,7 +758,13 @@ tmp=$(mktemp -d) || exec "$exe" "$@"
 mkfifo "$tmp/o" "$tmp/e" || {{ rm -rf "$tmp"; exec "$exe" "$@"; }}
 trap 'rm -rf "$tmp"' EXIT
 : >"$tmp/in"
-case $1 in {stdin}) [ -t 0 ] || cat >"$tmp/in" ;; esac
+case $1 in
+{stdin}) [ -t 0 ] || cat >"$tmp/in" ;;
+spawn)
+  brief=1
+  for a; do case $a in --file | --file=*) brief= ;; --) break ;; esac; done
+  [ -n "$brief" ] && {{ [ -p /dev/stdin ] || [ -f /dev/stdin ]; }} && cat >"$tmp/in" ;;
+esac
 try=1
 while :; do
   tee "$tmp/out" <"$tmp/o" &
@@ -1148,6 +1154,62 @@ exit 2"#,
 
     #[cfg(unix)]
     #[test]
+    fn the_shim_reads_a_spawn_brief_only_from_a_pipe_or_a_file_without_file() {
+        use std::io::Write;
+        let shim = Shim::with_exe("spawnin", r#"echo "exe $* [$(cat)]""#);
+        let home = shim.dir.path();
+        let run = |args: &[&str], stdin: std::process::Stdio| {
+            let mut child = std::process::Command::new(home.join("loom"))
+                .args(args)
+                .env(
+                    "PATH",
+                    format!("{}:{}", home.display(), std::env::var("PATH").unwrap()),
+                )
+                .env("HOME", home)
+                .env_remove("LOOM_TOKEN")
+                .stdin(stdin)
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(b"Goal: pipe").unwrap();
+            }
+            let out = child.wait_with_output().unwrap();
+            String::from_utf8(out.stdout).unwrap()
+        };
+        let (open, _held) = std::os::unix::net::UnixStream::pair().unwrap();
+        let socket =
+            || std::process::Stdio::from(std::os::fd::OwnedFd::from(open.try_clone().unwrap()));
+        assert_eq!(
+            run(&["spawn", "w", "--file", "b.md"], socket()),
+            "exe spawn w --file b.md []\n"
+        );
+        assert_eq!(
+            run(&["spawn", "w", "--file=b.md"], std::process::Stdio::piped()),
+            "exe spawn w --file=b.md []\n"
+        );
+        assert_eq!(run(&["spawn", "w"], socket()), "exe spawn w []\n");
+        assert_eq!(
+            run(&["spawn", "w"], std::process::Stdio::piped()),
+            "exe spawn w [Goal: pipe]\n"
+        );
+        let brief = home.join("brief.md");
+        std::fs::write(&brief, "Goal: file").unwrap();
+        assert_eq!(
+            run(&["spawn", "w"], std::fs::File::open(&brief).unwrap().into()),
+            "exe spawn w [Goal: file]\n"
+        );
+        assert_eq!(
+            run(
+                &["spawn", "s", "--", "x", "--file"],
+                std::process::Stdio::piped()
+            ),
+            "exe spawn s -- x --file [Goal: pipe]\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn the_shim_sends_all_but_the_windows_verbs_to_the_tunnel_and_falls_back_to_loom_exe() {
         use std::io::Write;
         let shim = Shim::with_tunnel(
@@ -1206,7 +1268,11 @@ exit 2"#,
             );
         }
         for verb in WINDOWS_VERBS {
-            let input = if STDIN_VERBS.contains(verb) { "{}" } else { "" };
+            let input = if STDIN_VERBS.contains(verb) || *verb == "spawn" {
+                "{}"
+            } else {
+                ""
+            };
             assert_eq!(run(&[verb]), (Some(0), format!("exe {verb} {input}\n")));
         }
         assert_eq!(log().lines().count(), 1, "{}", log());

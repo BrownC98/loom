@@ -85,6 +85,7 @@ impl App {
                 if let Err(e) = app.wake_sleepers() {
                     eprintln!("loom: 잠든 노드를 보지 못했다: {e}");
                 }
+                app.recover_held_with_mail();
                 if let Err(e) = app.end_unhooked_turns() {
                     eprintln!("loom: stop 훅이 닿지 않은 노드를 보지 못했다: {e}");
                 }
@@ -174,7 +175,7 @@ impl App {
                 Ok(Stop::Stopped) => {}
                 Ok(Stop::Kept) => {
                     kept(&app, id);
-                    app.relaunches.refused(id);
+                    app.refused(id);
                 }
                 Err(e) => {
                     eprintln!("loom: 듣지 못하는 노드 {}를 살리지 못했다: {e}", id.0);
@@ -186,6 +187,21 @@ impl App {
                 }
             }
         });
+    }
+
+    fn refused(&self, id: NodeId) {
+        let newest = self.graph.newest_mail(id).ok().flatten();
+        self.relaunches.refused(id, newest);
+    }
+
+    fn recover_held_with_mail(self: &Arc<Self>) {
+        let mailed = self
+            .relaunches
+            .mail_since_refused(|id| self.graph.newest_mail(id).ok().flatten());
+        for id in mailed {
+            self.refused(id);
+            self.recover(id);
+        }
     }
 
     fn recovering(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<Option<Recovery>> {
@@ -201,7 +217,7 @@ impl App {
         let since = self.relaunches.held(id).then(SystemTime::now);
         let guard = self.restart_guard(&node, since)?;
         if !guard(&self.host.screen(id)) {
-            self.relaunches.refused(id);
+            self.refused(id);
             eprintln!(
                 "loom: 듣지 못하는 노드 {}를 사람이 쓰고 있어 다음 사건까지 기다린다",
                 id.0
@@ -1155,6 +1171,64 @@ mod tests {
             !t.app.relaunches.held(node),
             "a failed recovery ends the node"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_node_held_by_a_draft_tries_again_when_mail_comes() {
+        let t = fixture();
+        t.app.watch_agents();
+        t.app.watch_sleep();
+        let node = unheard(&t, "drafted", ENDED);
+        redrawn(&t, node, "❯ 고쳐 줘", "❯ ");
+        drop(t.app.idle.open(node));
+        let restarted = || missed(&t).contains(&(node, true));
+        let mailed = || {
+            t.app
+                .relaunches
+                .mail_since_refused(|id| t.app.graph.newest_mail(id).ok().flatten())
+        };
+        while !t.app.relaunches.held(node) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(mailed().is_empty());
+
+        t.app
+            .graph
+            .note(t.lead, "drafted", Kind::Queue, "second", None)
+            .unwrap();
+        let retried = async {
+            while !mailed().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), retried)
+            .await
+            .expect("the mail tries the recovery again");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!restarted(), "the draft still holds");
+        assert!(t.app.relaunches.held(node));
+        assert_eq!(t.app.agent_state(node), Some(AgentState::Deaf));
+
+        t.app
+            .host
+            .write_if(node, |_| {
+                human_typed(&t.app, node);
+                Ok::<_, std::convert::Infallible>(b"\x7f".to_vec())
+            })
+            .unwrap();
+        while claude::input(&t.app.host.screen(node).text) != Some("") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!restarted(), "no mail, no try");
+
+        std::fs::remove_file(t.dir.path().join("drafted.jsonl")).unwrap();
+        t.app
+            .graph
+            .note(t.lead, "drafted", Kind::Queue, "third", None)
+            .unwrap();
+        relaunched(&t, node).await;
     }
 
     async fn relaunched(t: &Fixture, node: NodeId) {

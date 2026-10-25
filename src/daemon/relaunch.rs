@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -20,7 +20,7 @@ use crate::graph::{
 use crate::process_tree::Snapshot;
 use crate::profile::codex;
 use crate::profile::{self, Profile, Start};
-use crate::protocol::{AgentId, Model, ModelChoice, Provider, Refusal, ServerLink};
+use crate::protocol::{AgentId, MessageId, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
 use crate::skills::Position;
@@ -41,7 +41,7 @@ const CODEX_ROLLOUT_DEPTH: usize = 5;
 #[derive(Default)]
 pub struct Relaunches {
     exiting: Mutex<HashMap<NodeId, oneshot::Sender<()>>>,
-    refused: Mutex<HashSet<NodeId>>,
+    refused: Mutex<HashMap<NodeId, Option<MessageId>>>,
 }
 
 pub(super) type Guard = Arc<dyn Fn(&Screen) -> bool + Send + Sync>;
@@ -67,12 +67,24 @@ impl Relaunches {
         self.exiting.lock().unwrap().contains_key(&node)
     }
 
-    pub(super) fn refused(&self, node: NodeId) {
-        self.refused.lock().unwrap().insert(node);
+    pub(super) fn refused(&self, node: NodeId, newest: Option<MessageId>) {
+        self.refused.lock().unwrap().insert(node, newest);
     }
 
     pub(super) fn held(&self, node: NodeId) -> bool {
-        self.refused.lock().unwrap().contains(&node)
+        self.refused.lock().unwrap().contains_key(&node)
+    }
+
+    pub(super) fn mail_since_refused(
+        &self,
+        newest: impl Fn(NodeId) -> Option<MessageId>,
+    ) -> Vec<NodeId> {
+        let refused = self.refused.lock().unwrap().clone();
+        refused
+            .into_iter()
+            .filter(|(node, seen)| newest(*node).map(|m| m.0) > seen.map(|m| m.0))
+            .map(|(node, _)| node)
+            .collect()
     }
 
     pub(super) fn heard(&self, node: NodeId) {

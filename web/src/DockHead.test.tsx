@@ -5,7 +5,7 @@ import type { NodeView } from './gen/NodeView';
 vi.stubGlobal('document', { documentElement: { dataset: { language: 'en' } }, addEventListener: () => {} });
 vi.stubGlobal('navigator', { language: 'en' });
 vi.mock('./Terminal', () => ({ navDirection: () => null }));
-const { NodeSummary } = await import('./NodeCard');
+const { DockSummary, NodeSummary } = await import('./NodeCard');
 
 const view: NodeView = {
   id: 1,
@@ -23,11 +23,11 @@ const view: NodeView = {
   waits: [],
 };
 const rename = { editing: false, open: () => {}, close: () => {}, refused: () => {} };
-const render = (oneRow: boolean) => renderToStaticMarkup(<NodeSummary view={view} agentLabel="Claude Code" rename={rename} oneRow={oneRow} actions={<button type="button">menu</button>} />);
+const props = { view, agentLabel: 'Claude Code', rename, actions: <button type="button">menu</button> };
 
 describe('side terminal header in simple mode', () => {
   it('puts the model on the name row before the buttons and hides the summary', () => {
-    const out = render(true);
+    const out = renderToStaticMarkup(<DockSummary {...props} />);
     expect(out).not.toContain('the report summary');
     expect(out).not.toContain('summary-model');
     const row = out.match(/<div class="summary-row one-row">(.*)<\/div><\/div>$/)?.[1] ?? '';
@@ -36,7 +36,7 @@ describe('side terminal header in simple mode', () => {
   });
 
   it('keeps the card summary with its model row and summary text', () => {
-    const out = render(false);
+    const out = renderToStaticMarkup(<NodeSummary {...props} />);
     expect(out).toContain('<div class="summary-model">');
     expect(out).toContain('the report summary');
   });

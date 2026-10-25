@@ -171,6 +171,7 @@ impl App {
                         eprintln!("loom: 노드 {}를 다시 일하게 하지 못했다: {e}", node.0);
                     }
                 }
+                Some(Signal::Stopped) => self.run_at_turn_end(node, None),
                 Some(Signal::HumanInput) => match self.human_input(node, None) {
                     Ok(Some(text)) => {
                         if let Err(e) = server.steer(&text).await {

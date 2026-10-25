@@ -613,6 +613,14 @@ class MainActivity : ComponentActivity() {
         fun done(on: Boolean) {
             runOnUiThread { choose(on) { it.copy(done = on) } }
         }
+
+        @JavascriptInterface
+        fun link() {
+            val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, Watch.LINK_CHANNEL)
+            runOnUiThread { runCatching { startActivity(intent) } }
+        }
     }
 
     private fun choose(on: Boolean, change: (Switches) -> Switches) {

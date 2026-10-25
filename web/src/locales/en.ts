@@ -355,6 +355,7 @@ const en = {
     notifyAskHint: 'Things that wait for your answer',
     notifyDone: 'Done',
     notifyDoneHint: 'Work you gave is finished',
+    notifyLink: 'Hide the PC connection notice',
     notifyBlocked: 'Android notifications for loom are off',
     themeSystem: 'Follow system',
     actions: 'Node actions',

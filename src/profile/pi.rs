@@ -13,7 +13,7 @@ const HOOK: &str = include_str!("loom-hook.ts");
 const EXTENSIONS: [(&str, &str); 2] = [("loom-hook.ts", HOOK), (EXTENSION_FILE, EXTENSION)];
 pub(super) const IDLE_FLAG: &str = "--loom-idle";
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with bash `run_in_background: true`; it returns at once with the log file path. A foreground bash call without a timeout stops after 20 minutes. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
 pub fn write_extensions(dir: &Path) -> std::io::Result<()> {
     EXTENSIONS
@@ -414,7 +414,7 @@ pub(super) mod tests {
         assert_eq!(args[5], "--append-system-prompt");
         assert!(args[6].contains(super::super::COMMUNICATION_USAGE));
         assert!(args[6].contains(&crate::skills::always_on(launch)));
-        assert!(args[6].contains("run_in_background: true"));
+        assert!(!args[6].contains("run_in_background"));
         assert_eq!(args.last().unwrap(), IDLE_FLAG);
         assert!(!super::args(plugin, launch, "Goal: x").contains(&IDLE_FLAG.to_owned()));
     }
@@ -611,7 +611,22 @@ pub(super) mod tests {
              const logs = two.map((r) => r.content[0].text.match(/output in (\\S+)\\./)[1]);
              console.log(logs[0] !== logs[1]);
              const gone = { ...ctx, cwd: '/nonexistent' };
-             console.log(await bash.execute('4', { command: 'true', run_in_background: true }, undefined, undefined, gone).catch((e) => e.message));",
+             console.log(await bash.execute('4', { command: 'true', run_in_background: true }, undefined, undefined, gone).catch((e) => e.message));
+             console.log(bash.description);
+             const short = (await bash.execute('6', { command: 'sleep 1; echo done', run_in_background: true }, undefined, undefined, ctx)).content[0].text;
+             const wait = short.match(/run this command:\\n(.+)\\nDo not/)[1];
+             console.log(short.includes('Do not wait with a fixed sleep'));
+             const w = Date.now();
+             const { exec } = await import('node:child_process');
+             const shown = await new Promise((r) => exec(wait, { shell: '/bin/bash' }, (e, out) => r(out)));
+             console.log(JSON.stringify({ ended: Date.now() - w >= 800 && Date.now() - w < 2500, shown: shown.replace(/\\n\\[loom: exited with code 0\\]\\n/, 'EXIT') }));
+             const { bashQuote, waitCommand } = await import('./pi-loom.ts');
+             console.log(bashQuote('C:\\\\Users\\\\a b\\\\it\\'s.log', true));
+             console.log(bashQuote('/tmp/a b/it\\'s.log', false));
+             console.log(waitCommand('C:\\\\Users\\\\x.log', true).includes('tail --pid'));
+             const odd = fs.mkdtempSync('/tmp/wait ') + '/it\\'s a.log';
+             fs.writeFileSync(odd, 'hello\\n[loom: exited with code 3]\\n');
+             console.log(await new Promise((r) => exec(waitCommand(odd, false), { shell: '/bin/bash' }, (e, out) => r(out))));",
         );
         let mut lines = out.lines();
         assert_eq!(
@@ -640,6 +655,26 @@ pub(super) mod tests {
         assert_eq!(
             lines.next(),
             Some("Could not start the background command: spawn /bin/sh ENOENT")
+        );
+        let description = lines.next().unwrap();
+        assert!(
+            description.contains("Run builds and tests in the foreground."),
+            "{description}"
+        );
+        assert!(description.contains("only for a process that keeps running"));
+        assert_eq!(lines.next(), Some("true"));
+        assert_eq!(
+            lines.next(),
+            Some(r#"{"ended":true,"shown":"done\nEXIT"}"#),
+            "the wait command returns after the job ends and shows the log tail"
+        );
+        assert_eq!(lines.next(), Some(r"'C:/Users/a b/it'\''s.log'"));
+        assert_eq!(lines.next(), Some(r"'/tmp/a b/it'\''s.log'"));
+        assert_eq!(lines.next(), Some("false"), "no PID in the wait command");
+        assert_eq!(
+            lines.next(),
+            Some("hello"),
+            "a path with a space and a quote works"
         );
     }
 

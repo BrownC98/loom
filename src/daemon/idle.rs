@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use tokio::sync::oneshot;
 
@@ -19,6 +20,7 @@ pub struct IdleWaits {
 struct Watch {
     heard: bool,
     drafted: bool,
+    typed_at: Option<SystemTime>,
     turn: Option<TurnId>,
     past: HashSet<TurnId>,
     said: Option<(Said, TurnId)>,
@@ -106,7 +108,20 @@ impl IdleWaits {
     }
 
     pub fn waiting(&self, node: NodeId) -> bool {
-        self.ends.lock().unwrap().contains_key(&node)
+        self.ends
+            .lock()
+            .unwrap()
+            .get(&node)
+            .is_some_and(|end| !end.is_closed())
+    }
+
+    pub fn typed_since(&self, node: NodeId, since: SystemTime) -> bool {
+        self.watches
+            .lock()
+            .unwrap()
+            .get(&node)
+            .and_then(|w| w.typed_at)
+            .is_some_and(|at| at >= since)
     }
 
     pub fn in_turn(&self, node: NodeId) -> bool {
@@ -170,6 +185,7 @@ impl IdleWaits {
     pub fn typed(&self, node: NodeId) {
         self.watch(node, |w| {
             w.drafted = true;
+            w.typed_at = Some(SystemTime::now());
             if let Some((_, armed)) = w.said.take() {
                 w.past.insert(armed);
             }
@@ -184,11 +200,9 @@ impl IdleWaits {
         else {
             return Expiry::Answered;
         };
-        let ends = self.ends.lock().unwrap();
-        if ends.get(&node).is_some_and(|end| !end.is_closed()) {
+        if self.waiting(node) {
             return Expiry::Listening;
         }
-        drop(ends);
         w.said = None;
         w.heard = false;
         self.turns.lock().unwrap().remove(&node);
@@ -291,6 +305,9 @@ mod tests {
         waits.turn_started(node, "postToolUse".into());
         waits.end(node, IdleEnd::Exit);
         assert!(!waits.in_turn(node));
+        let gone = waits.open(node);
+        drop(gone);
+        assert!(!waits.waiting(node), "the hook that held the wait is gone");
     }
 
     #[test]

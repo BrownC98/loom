@@ -362,6 +362,7 @@ const SEP: char = '\u{1e}';
 const START_TRIES: u32 = 3;
 const START_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 const INTEROP_OFF: &str = "interop-off";
+const INTEROP_LOG: &str = ".loom/wsl-interop.log";
 
 pub async fn inside(
     at: &WslPath,
@@ -564,8 +565,32 @@ if [ "$1" = guard ] && [ -n "$LOOM_TOKEN" ]; then
   : >"$dir/$PPID.$(started $PPID)"
   exit 0
 fi
-exec "$(wslpath -u '{exe}')" "$@"
-"#
+exe=$(wslpath -u '{exe}')
+case $1 in hook | cursor-hook | pi-hook) ;; *) exec "$exe" "$@" ;; esac
+tmp=$(mktemp -d) || exec "$exe" "$@"
+trap 'rm -rf "$tmp"' EXIT
+trap 'kill $pid 2>/dev/null; exit 143' TERM
+trap 'kill $pid 2>/dev/null; exit 130' INT
+trap 'kill $pid 2>/dev/null; exit 129' HUP
+cat >"$tmp/in"
+try=1
+while :; do
+  "$exe" "$@" <"$tmp/in" 2>"$tmp/err" &
+  pid=$!
+  wait $pid
+  code=$?
+  [ $code -ne 0 ] && grep -qE 'UtilAcceptVsock|WSL ERROR' "$tmp/err" || break
+  log=$HOME/{INTEROP_LOG}
+  mkdir -p "${{log%/*}}" &&
+    printf '%s %s try %s/{START_TRIES} exit %s: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1" $try $code "$(tr '\n' ' ' <"$tmp/err")" >>"$log"
+  [ $try -lt {START_TRIES} ] || break
+  try=$((try + 1))
+  sleep {retry}
+done
+cat "$tmp/err" >&2
+exit $code
+"#,
+        retry = START_RETRY_AFTER.as_secs()
     );
     if std::fs::read_to_string(&shim).is_ok_and(|old| old == text) {
         return Ok(());
@@ -654,15 +679,14 @@ mod tests {
     #[cfg(unix)]
     impl Shim {
         fn new(name: &str) -> Self {
+            Self::with_exe(name, "echo \"$*\" >> \"${0%/*}/ran\"")
+        }
+
+        fn with_exe(name: &str, body: &str) -> Self {
             use std::os::unix::fs::PermissionsExt;
             let dir = tempfile::tempdir().unwrap();
             let fake = dir.path().join("loom.exe");
-            let ran = dir.path().join("ran");
-            std::fs::write(
-                &fake,
-                format!("#!/bin/sh\necho \"$*\" >> {}\n", ran.display()),
-            )
-            .unwrap();
+            std::fs::write(&fake, format!("#!/bin/sh\n{body}\n")).unwrap();
             std::fs::write(dir.path().join("wslpath"), "#!/bin/sh\necho \"$2\"\n").unwrap();
             write_shim(dir.path(), &fake).unwrap();
             for file in ["loom.exe", "wslpath", "loom"] {
@@ -734,6 +758,75 @@ mod tests {
         shell.kill().unwrap();
         shell.wait().unwrap();
         std::fs::remove_dir_all(shim.marks()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shim_runs_a_hook_again_only_after_a_wsl_interop_failure() {
+        use std::io::Write;
+        let shim = Shim::with_exe(
+            "retry",
+            r#"dir=${0%/*}
+n=$(cat "$dir/count" 2>/dev/null || echo 0)
+echo $((n + 1)) >"$dir/count"
+input=$(cat)
+if [ "$n" = 0 ] && [ "$1" = hook ]; then echo 'WSL ERROR: UtilAcceptVsock:273: accept4 failed 110' >&2; exit 1; fi
+echo "out $* $input"
+echo err >&2
+exit 2"#,
+        );
+        let run = |args: &[&str]| {
+            let mut child = std::process::Command::new(shim.dir.path().join("loom"))
+                .args(args)
+                .env(
+                    "PATH",
+                    format!(
+                        "{}:{}",
+                        shim.dir.path().display(),
+                        std::env::var("PATH").unwrap()
+                    ),
+                )
+                .env("HOME", shim.dir.path())
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            child.stdin.take().unwrap().write_all(b"{}").unwrap();
+            let out = child.wait_with_output().unwrap();
+            let count = std::fs::read_to_string(shim.dir.path().join("count")).unwrap();
+            std::fs::remove_file(shim.dir.path().join("count")).unwrap();
+            (
+                out.status.code(),
+                String::from_utf8(out.stdout).unwrap(),
+                String::from_utf8(out.stderr).unwrap(),
+                count.trim().to_owned(),
+            )
+        };
+        let line = |s: &str| s.to_owned();
+        assert_eq!(
+            run(&["hook"]),
+            (Some(2), line("out hook {}\n"), line("err\n"), line("2"))
+        );
+        let log = std::fs::read_to_string(shim.dir.path().join(INTEROP_LOG)).unwrap();
+        assert_eq!(log.lines().count(), 1, "{log}");
+        assert!(
+            log.contains(" hook try 1/3 exit 1: WSL ERROR: UtilAcceptVsock"),
+            "{log}"
+        );
+        assert_eq!(
+            run(&["cursor-hook"]),
+            (
+                Some(2),
+                line("out cursor-hook {}\n"),
+                line("err\n"),
+                line("1")
+            )
+        );
+        assert_eq!(
+            run(&["status"]),
+            (Some(2), line("out status {}\n"), line("err\n"), line("1"))
+        );
     }
 
     #[cfg(unix)]

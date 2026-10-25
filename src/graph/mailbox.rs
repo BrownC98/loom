@@ -396,6 +396,25 @@ impl Graph {
         Ok(waking)
     }
 
+    pub fn awake_with_mail(&self) -> rusqlite::Result<Vec<(NodeId, MessageId)>> {
+        let db = self.lock();
+        let queued = db
+            .prepare(
+                "SELECT m.id, m.sender_name, m.kind, m.body, m.what, m.recipient
+                 FROM messages m JOIN nodes n ON n.id = m.recipient
+                 WHERE n.process_exited = 0 AND m.delivered = 0 ORDER BY m.recipient, m.id",
+            )?
+            .query_map([], |row| Ok((NodeId(row.get(5)?), read_delivery(row)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut oldest: Vec<(NodeId, MessageId)> = Vec::new();
+        for (node, delivery) in queued {
+            if wakes(&delivery) && oldest.last().is_none_or(|(last, _)| *last != node) {
+                oldest.push((node, delivery.id));
+            }
+        }
+        Ok(oldest)
+    }
+
     pub fn human_input(&self, node: NodeId) -> Result<(), Refusal> {
         let mut db = self.lock();
         let tx = db.transaction()?;

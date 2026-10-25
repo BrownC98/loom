@@ -9,6 +9,7 @@ mod origin;
 mod passes;
 mod phone;
 mod places;
+mod pulse;
 mod queue;
 mod reclaim;
 mod relaunch;

@@ -1,3 +1,6 @@
+use futures_util::stream::SplitSink;
+
+use super::pulse::{self, Beat, Heard, Pulse};
 use super::waits::serve_file;
 use super::*;
 
@@ -95,29 +98,54 @@ async fn events(
     via: Option<Extension<ViaRemote>>,
 ) -> Response {
     let devices = app.devices.clone();
-    ws.on_upgrade(move |socket| origin::until_removed(devices, via, send_events(socket, app)))
+    ws.on_upgrade(move |socket| {
+        origin::until_removed(devices, via, send_events(socket, app, pulse::BEAT))
+    })
 }
 
-async fn send_events(mut socket: WebSocket, app: Arc<App>) {
-    let Ok((snapshot, mut rx)) = app.graph.subscribe() else {
-        return;
-    };
-    if send_json(&mut socket, &GraphEvent::Snapshot { nodes: snapshot })
-        .await
-        .is_err()
-    {
-        return;
-    }
-    while let Ok(event) = rx.recv().await {
-        if send_json(&mut socket, &event).await.is_err() {
+async fn send_events(socket: WebSocket, app: Arc<App>, beat: Duration) {
+    let (mut to_view, mut from_view) = socket.split();
+    let mut pulse = Pulse::new(beat);
+    loop {
+        let Ok((snapshot, mut rx)) = app.graph.subscribe() else {
             return;
+        };
+        if send_json(&mut to_view, &GraphEvent::Snapshot { nodes: snapshot })
+            .await
+            .is_err()
+        {
+            return;
+        }
+        loop {
+            tokio::select! {
+                event = rx.recv() => match event {
+                    Ok(event) => if send_json(&mut to_view, &event).await.is_err() { return },
+                    Err(RecvError::Lagged(_)) => break,
+                    Err(RecvError::Closed) => return,
+                },
+                heard = pulse.listen(&mut from_view) => match heard {
+                    Heard::Frame(Some(Ok(_))) => {}
+                    Heard::Frame(Some(Err(_)) | None) => return,
+                    Heard::Beat(beat) => {
+                        if beat == Beat::Dead
+                            || to_view.send(Message::Ping(Default::default())).await.is_err()
+                            || send_json(&mut to_view, &GraphEvent::Beat).await.is_err()
+                        {
+                            return;
+                        }
+                    }
+                },
+            }
         }
     }
 }
 
-async fn send_json(socket: &mut WebSocket, value: &impl Serialize) -> Result<(), axum::Error> {
+async fn send_json(
+    to_view: &mut SplitSink<WebSocket, Message>,
+    value: &impl Serialize,
+) -> Result<(), axum::Error> {
     let text = serde_json::to_string(value).expect("GraphEvent는 늘 직렬화된다");
-    socket.send(Message::Text(text.into())).await
+    to_view.send(Message::Text(text.into())).await
 }
 
 const HASHED_ASSETS: &str = "assets/";
@@ -144,6 +172,117 @@ pub(super) async fn asset(uri: Uri) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio_tungstenite::tungstenite::Message as Frame;
+
+    const TEST_BEAT: Duration = Duration::from_millis(100);
+
+    async fn events_socket() -> (
+        tempfile::TempDir,
+        Arc<App>,
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("loom.db");
+        let app = Arc::new(
+            App::new(
+                crate::db::open(&db_path).unwrap(),
+                &db_path,
+                "127.0.0.1:0".parse().unwrap(),
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+        let routes = Router::new()
+            .route(
+                "/api/events",
+                get(
+                    |ws: WebSocketUpgrade, State(app): State<Arc<App>>| async move {
+                        ws.on_upgrade(move |socket| send_events(socket, app, TEST_BEAT))
+                    },
+                ),
+            )
+            .with_state(app.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, routes).await });
+        let (socket, _) = tokio_tungstenite::connect_async(format!("ws://{address}/api/events"))
+            .await
+            .unwrap();
+        (dir, app, socket)
+    }
+
+    fn kind(frame: &Frame) -> String {
+        let Frame::Text(text) = frame else {
+            return format!("{frame:?}");
+        };
+        serde_json::from_str::<serde_json::Value>(text).unwrap()["kind"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    #[tokio::test]
+    async fn the_events_socket_beats_while_the_view_answers() {
+        let (_dir, _app, mut socket) = events_socket().await;
+        let mut beats = 0;
+        let until = tokio::time::Instant::now() + TEST_BEAT * 10;
+        while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(until, socket.next()).await {
+            if kind(&frame) == "beat" {
+                beats += 1;
+            }
+        }
+        assert!(beats >= 5, "{beats} beats in 10 beat periods");
+    }
+
+    #[tokio::test]
+    async fn the_events_socket_closes_when_the_view_stops_answering() {
+        let (_dir, _app, mut socket) = events_socket().await;
+        tokio::time::sleep(TEST_BEAT * 6).await;
+        let mut frames = Vec::new();
+        let ended = tokio::time::timeout(TEST_BEAT * 20, async {
+            while let Some(Ok(frame)) = socket.next().await {
+                if matches!(frame, Frame::Close(_)) {
+                    break;
+                }
+                frames.push(kind(&frame));
+            }
+        })
+        .await;
+        assert!(ended.is_ok(), "the socket stayed open: {frames:?}");
+        assert!(
+            frames.iter().filter(|k| *k == "beat").count() <= 3,
+            "{frames:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_view_that_falls_behind_gets_a_new_snapshot() {
+        let (_dir, app, mut socket) = events_socket().await;
+        let mut next = async || {
+            kind(
+                &tokio::time::timeout(Duration::from_secs(5), socket.next())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap(),
+            )
+        };
+        assert_eq!(next().await, "snapshot");
+        for _ in 0..crate::graph::EVENT_QUEUE * 2 {
+            app.graph.publish_view_changed();
+        }
+        let mut kinds = Vec::new();
+        while !kinds.contains(&"snapshot".to_owned()) {
+            kinds.push(next().await);
+        }
+        assert!(
+            kinds.iter().all(|k| k == "viewChanged" || k == "snapshot"),
+            "{kinds:?}"
+        );
+    }
 
     #[tokio::test]
     async fn only_hashed_assets_are_cached() {

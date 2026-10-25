@@ -30,7 +30,7 @@ use crate::db::Database;
 use crate::protocol::{AgentId, Kind, MessageKind, Prompt, Refusal};
 use crate::worktree::RepoId;
 
-const EVENT_QUEUE: usize = 256;
+pub(crate) const EVENT_QUEUE: usize = 256;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -136,6 +136,8 @@ pub enum GraphEvent {
     },
     /// 설정, 카드 자리, 카드 크기 가운데 하나가 바뀌었다. 값은 담지 않는다. 다른 화면은 세 가지를 다시 읽는다.
     ViewChanged,
+    /// 데몬이 연결이 살아 있음을 알린다. `/api/events`에 15초마다 보낸다. 화면은 이것도 오지 않으면 연결이 죽었다고 보고 다시 연결한다.
+    Beat,
 }
 
 /// 간선 위 메시지가 가는 쪽.

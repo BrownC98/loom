@@ -465,7 +465,7 @@ mod tests {
     fn dialog_buttons_and_fields_type_into_the_terminal_once() {
         let mut t = Dialogs::new();
         let secret = "hunter2-loom";
-        let cases: [(Option<&str>, &str, Answer, &str); 9] = [
+        let cases: [(Option<&str>, &str, Answer, &str); 10] = [
             (
                 Some("claude"),
                 include_str!("../profile/screens/claude-trust.txt"),
@@ -519,6 +519,12 @@ mod tests {
                 "Reset password? [y/n] ",
                 Answer::Option(0, b"y\r"),
                 "newline",
+            ),
+            (
+                Some("claude"),
+                include_str!("../profile/screens/claude-imports.txt"),
+                Answer::Option(1, b"\x1b[B\r"),
+                "clear",
             ),
         ];
         for (i, (agent, screen_text, answer, after)) in cases.into_iter().enumerate() {

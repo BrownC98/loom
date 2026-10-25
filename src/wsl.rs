@@ -568,7 +568,7 @@ if [ "$1" = guard ] && [ -n "$LOOM_TOKEN" ]; then
   exit 0
 fi
 exe=$(wslpath -u '{exe}')
-case $1 in hook | cursor-hook | pi-hook) ;; *) exec "$exe" "$@" ;; esac
+case $1 in hook | cursor-hook) ;; *) exec "$exe" "$@" ;; esac
 tmp=$(mktemp -d) || exec "$exe" "$@"
 mkfifo "$tmp/o" "$tmp/e" || {{ rm -rf "$tmp"; exec "$exe" "$@"; }}
 trap 'rm -rf "$tmp"' EXIT
@@ -863,6 +863,38 @@ exit 2"#,
             )
         );
         assert_eq!(log().lines().count(), 1, "{}", log());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shim_streams_pi_hook_lines_without_waiting_for_the_end_of_input() {
+        use std::io::{BufRead, Write};
+        let shim = Shim::with_exe("stream", "while read -r line; do echo \"got $line\"; done");
+        let mut child = std::process::Command::new(shim.dir.path().join("loom"))
+            .arg("pi-hook")
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    shim.dir.path().display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        for request in ["{\"id\":1}", "{\"id\":2}"] {
+            writeln!(stdin, "{request}").unwrap();
+            line.clear();
+            stdout.read_line(&mut line).unwrap();
+            assert_eq!(line, format!("got {request}\n"));
+        }
+        drop(stdin);
+        assert!(child.wait().unwrap().success());
     }
 
     #[cfg(unix)]

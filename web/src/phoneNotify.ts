@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 export type NotifyState = { ask: boolean; done: boolean; allowed: boolean };
 
-export type PhoneNotify = { state: () => string; ask: (on: boolean) => void; done: (on: boolean) => void };
+export type PhoneNotify = { state: () => string; ask: (on: boolean) => void; done: (on: boolean) => void; link?: () => void };
 
 export const NOTIFY_EVENT = 'loomnotify';
 

@@ -83,7 +83,6 @@ class Watch : Service() {
         val note = Notification.Builder(this, LINK_CHANNEL)
             .setSmallIcon(R.drawable.ic_notify)
             .setContentTitle(text)
-            .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setContentIntent(opener(null))
@@ -229,7 +228,7 @@ class Watch : Service() {
         private const val LINK_ID = 1
         private const val ASK_CHANNEL = "ask"
         private const val DONE_CHANNEL = "done"
-        private const val LINK_CHANNEL = "link"
+        const val LINK_CHANNEL = "link"
         private val LABELS = mapOf(
             "question" to R.string.wait_question,
             "approval" to R.string.wait_approval,

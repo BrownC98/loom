@@ -357,6 +357,7 @@ const ko: typeof en = {
     notifyAskHint: '사람의 답을 기다리는 것',
     notifyDone: '완료',
     notifyDoneHint: '사람이 맡긴 일이 끝남',
+    notifyLink: 'PC 연결 표시 숨기기',
     notifyBlocked: 'Android에서 loom 알림이 꺼져 있습니다',
     themeSystem: '시스템 설정 따름',
     actions: '노드 동작',

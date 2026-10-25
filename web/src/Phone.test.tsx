@@ -10,7 +10,7 @@ vi.mock('./Terminal', () => ({ borrowSize: () => {}, SizingTerminal: () => null 
 
 function bridge(state: NotifyState | string) {
   let now = typeof state === 'string' ? state : JSON.stringify(state);
-  const fake = { state: vi.fn(() => now), ask: vi.fn(), done: vi.fn() } satisfies PhoneNotify;
+  const fake = { state: vi.fn(() => now), ask: vi.fn(), done: vi.fn(), link: vi.fn() } satisfies PhoneNotify;
   return { fake, change: (next: NotifyState) => (now = JSON.stringify(next)) };
 }
 
@@ -47,6 +47,20 @@ describe('phone settings sheet', () => {
     expect(fake.done).toHaveBeenCalledWith(true);
     fireEvent.click(toggle('Questions'));
     expect(fake.ask).toHaveBeenCalledWith(false);
+  });
+
+  it('opens the connection notice settings from the app', () => {
+    const { fake } = bridge({ ask: true, done: true, allowed: true });
+    mount(fake);
+    fireEvent.click(screen.getByRole('button', { name: 'Hide the PC connection notice' }));
+    expect(fake.link).toHaveBeenCalledOnce();
+  });
+
+  it('hides the connection notice button for an app without it', () => {
+    const { fake } = bridge({ ask: true, done: true, allowed: true });
+    mount({ state: fake.state, ask: fake.ask, done: fake.done });
+    expect(toggle('Questions').checked).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Hide the PC connection notice' })).toBeNull();
   });
 
   it('reads the state again when the app says it changed', () => {

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, ListTree, Moon, SettingsIcon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, EyeOff, ListTree, Moon, SettingsIcon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, relaunchNode, relaunchQueued, removeNode } from './api';
@@ -202,6 +202,12 @@ function NotifySwitches(props: { bridge: PhoneNotify }) {
           <input type="checkbox" role="switch" checked={row.on} onChange={(e) => row.set(e.target.checked)} />
         </label>
       ))}
+      {props.bridge.link && (
+        <button type="button" className="btn" onClick={() => props.bridge.link?.()}>
+          <EyeOff />
+          {t('phone.notifyLink')}
+        </button>
+      )}
     </>
   );
 }

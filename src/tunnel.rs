@@ -309,9 +309,9 @@ impl<A: Clone + Send + Sync + 'static> axum::serve::Listener for Door<A> {
     }
 }
 
-pub fn carry<A: Clone + Send + 'static>(
+pub fn carry<A: Send + 'static>(
     link: std::net::TcpStream,
-    at: A,
+    mut at: impl FnMut() -> A + Send + 'static,
     doors: mpsc::UnboundedSender<(Stream, A)>,
 ) -> io::Result<()> {
     link.set_nonblocking(true)?;
@@ -319,7 +319,7 @@ pub fn carry<A: Clone + Send + 'static>(
     let mut events = accept(reader, writer);
     tokio::spawn(async move {
         while let Some(stream) = events.recv().await {
-            if doors.send((stream, at.clone())).is_err() {
+            if doors.send((stream, at())).is_err() {
                 break;
             }
         }

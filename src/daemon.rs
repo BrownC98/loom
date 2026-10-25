@@ -1,4 +1,5 @@
 mod agent;
+mod arrival;
 mod carry;
 mod commands;
 pub mod gate;
@@ -221,7 +222,7 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
     let node_door_addr = node_door.as_ref().map(|d| d.local_addr()).transpose()?;
-    let (doors, endpoint_door) = tunnel::Door::<NodeId>::new();
+    let (doors, endpoint_door) = tunnel::Door::<arrival::Caller>::new();
     let (links, linked) = tokio::sync::mpsc::unbounded_channel();
     let app = Arc::new(App::new(
         db::open(&db_path)?,
@@ -300,20 +301,10 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     tokio::spawn(queue::run(app.clone()));
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
-    let node_routes = node_routes.layer(axum::middleware::from_fn(origin::same_site));
-    let endpoint = axum::serve(
-        endpoint_door,
-        node_routes
-            .clone()
-            .layer(axum::middleware::from_fn_with_state(
-                app.clone(),
-                runtime::from_its_node,
-            ))
-            .with_state(app.clone())
-            .into_make_service_with_connect_info::<NodeId>(),
-    )
-    .into_future();
-    let node_routes = node_routes.with_state(app);
+    let endpoint = axum::serve(endpoint_door, endpoint_routes(&app)).into_future();
+    let node_routes = node_routes
+        .layer(axum::middleware::from_fn(origin::same_site))
+        .with_state(app);
     match node_door {
         Some(door) => {
             let node = axum::serve(door, node_routes).into_future();
@@ -321,6 +312,19 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
         }
         None => tokio::try_join!(main, endpoint).map(drop),
     }
+}
+
+fn endpoint_routes(
+    app: &Arc<App>,
+) -> axum::extract::connect_info::IntoMakeServiceWithConnectInfo<Router, arrival::Caller> {
+    commands::node_routes()
+        .layer(axum::middleware::from_fn(origin::same_site))
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            runtime::from_its_node,
+        ))
+        .with_state(app.clone())
+        .into_make_service_with_connect_info::<arrival::Caller>()
 }
 
 fn node_url(listen: SocketAddr) -> String {

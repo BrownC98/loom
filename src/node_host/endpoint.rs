@@ -6,6 +6,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
+use super::wire::{self, Frame};
 use crate::tunnel::{self, Mux};
 
 pub struct Endpoint {
@@ -71,7 +72,7 @@ async fn serve(
                 }
             },
             Some(_) = carried.join_next() => accepting = true,
-            link = links.recv() => match link.map(attach) {
+            link = links.recv() => match link.map(|link| attach(link, held.len())) {
                 Some(Ok((opener, events))) => {
                     for conn in held.drain(..) {
                         carried.spawn(splice(conn, opener.open()));
@@ -94,7 +95,8 @@ async fn link_ended(mux: &mut Option<Opened>) {
     }
 }
 
-fn attach(link: TcpStream) -> io::Result<Opened> {
+fn attach(mut link: TcpStream, held: usize) -> io::Result<Opened> {
+    wire::write(&mut link, &Frame::Held(held as u32))?;
     link.set_read_timeout(None)?;
     link.set_write_timeout(None)?;
     link.set_nonblocking(true)?;

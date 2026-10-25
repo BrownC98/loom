@@ -17,7 +17,6 @@ use crate::protocol::ServerLink;
 use crate::screen::Screen;
 
 const DONE_GRACE: Duration = Duration::from_secs(600);
-const SWEEP: Duration = Duration::from_secs(30);
 const STOP_HOOK_GRACE: Duration = Duration::from_secs(60);
 const RUNNING_STATUS: &str = "esc to interrupt";
 
@@ -28,7 +27,7 @@ pub struct Sleeps {
     resting: Mutex<HashMap<NodeId, Instant>>,
     stopping: Mutex<HashSet<NodeId>>,
     knocked: Mutex<HashSet<NodeId>>,
-    knock: Notify,
+    changed: Notify,
 }
 
 impl Sleeps {
@@ -56,7 +55,19 @@ impl Sleeps {
 
     pub fn knocked(&self, node: NodeId) {
         self.knocked.lock().unwrap().insert(node);
-        self.knock.notify_one();
+        self.changed();
+    }
+
+    pub fn changed(&self) {
+        self.changed.notify_one();
+    }
+
+    fn rest_again(&self, node: NodeId) -> bool {
+        let cancelled = self.cancel(node);
+        if cancelled {
+            self.resting.lock().unwrap().insert(node, now());
+        }
+        cancelled
     }
 
     fn due(&self, resting: &[NodeId], now: Instant) -> Vec<NodeId> {
@@ -68,40 +79,53 @@ impl Sleeps {
             .copied()
             .collect()
     }
+
+    fn next_due(&self, now: Instant) -> Option<Instant> {
+        self.resting
+            .lock()
+            .unwrap()
+            .values()
+            .map(|since| *since + DONE_GRACE)
+            .filter(|due| *due > now)
+            .min()
+    }
+}
+
+fn now() -> Instant {
+    tokio::time::Instant::now().into_std()
+}
+
+async fn until(at: Option<Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at.into()).await,
+        None => std::future::pending().await,
+    }
 }
 
 impl App {
     pub(super) fn watch_sleep(self: &Arc<Self>) {
         let app = self.clone();
         tokio::spawn(async move {
-            let started = Instant::now();
-            let mut next_sweep = started;
             loop {
                 let mut mail = pin!(app.graph.mail_changed());
                 mail.as_mut().enable();
-                let mut knock = pin!(app.sleeps.knock.notified());
-                knock.as_mut().enable();
+                let mut changed = pin!(app.sleeps.changed.notified());
+                changed.as_mut().enable();
                 if let Err(e) = app.wake_sleepers() {
                     eprintln!("loom: 잠든 노드를 보지 못했다: {e}");
                 }
-                if let Err(e) = app.end_unhooked_turns() {
+                let turns = app.end_unhooked_turns().unwrap_or_else(|e| {
                     eprintln!("loom: stop 훅이 닿지 않은 노드를 보지 못했다: {e}");
-                }
-                if Instant::now() >= next_sweep {
-                    if let Err(e) = app.sleep_resting() {
-                        eprintln!("loom: 쉬는 노드를 보지 못했다: {e}");
-                    }
-                    if started.elapsed() >= SWEEP
-                        && let Err(e) = app.hear_lost_waits()
-                    {
-                        eprintln!("loom: 쉬는 대기를 잃은 노드를 보지 못했다: {e}");
-                    }
-                    next_sweep = Instant::now() + SWEEP;
-                }
+                    None
+                });
+                let resting = app.sleep_resting().unwrap_or_else(|e| {
+                    eprintln!("loom: 쉬는 노드를 보지 못했다: {e}");
+                    None
+                });
                 tokio::select! {
                     () = mail => {}
-                    () = knock => {}
-                    () = tokio::time::sleep_until(next_sweep.into()) => {}
+                    () = changed => {}
+                    () = until(turns.into_iter().chain(resting).min()) => {}
                 }
             }
         });
@@ -120,6 +144,7 @@ impl App {
     }
 
     fn agent_changed(self: &Arc<Self>, change: AgentChange) {
+        self.sleeps.changed();
         match change.to {
             AgentState::Deaf => {}
             AgentState::Blocked { .. } => return,
@@ -273,22 +298,23 @@ impl App {
         Ok(())
     }
 
-    fn hear_lost_waits(self: &Arc<Self>) -> rusqlite::Result<()> {
-        for node in self.graph.active()? {
-            let id = node.id;
-            let hooked = profile_of(&node).is_some_and(Profile::hooked);
-            if !hooked || self.sleeps.stopping(id) {
-                continue;
-            }
-            self.idle.lose_unheld(id);
-            if self.relaunches.held(id) == Some(Held::Hook) {
-                self.recover(id);
-            }
+    pub(super) fn hear_lost_wait(self: &Arc<Self>, id: NodeId) -> rusqlite::Result<()> {
+        let Some(node) = self.graph.active()?.into_iter().find(|n| n.id == id) else {
+            return Ok(());
+        };
+        let hooked = profile_of(&node).is_some_and(Profile::hooked);
+        if !hooked || self.sleeps.stopping(id) {
+            return Ok(());
+        }
+        self.idle.lose_unheld(id);
+        if self.relaunches.held(id) == Some(Held::Hook) {
+            self.recover(id);
         }
         Ok(())
     }
 
-    fn end_unhooked_turns(self: &Arc<Self>) -> rusqlite::Result<()> {
+    fn end_unhooked_turns(self: &Arc<Self>) -> rusqlite::Result<Option<Instant>> {
+        let mut next = None;
         for node in self.graph.active()? {
             let id = node.id;
             let profile = profile_of(&node);
@@ -298,11 +324,20 @@ impl App {
             {
                 continue;
             }
-            let ended = match profile {
-                Some(Profile::Claude) => self.claude_turn_ended(&node)?,
-                _ => self.turn_ends.said_before(id, STOP_HOOK_GRACE),
+            let quiet = match profile {
+                Some(Profile::Claude) => self.transcript_quiet(&node)?,
+                _ => self.turn_ends.reply_age(id),
             };
-            if !ended {
+            let Some(quiet) = quiet else {
+                continue;
+            };
+            if let Some(left) = STOP_HOOK_GRACE.checked_sub(quiet)
+                && !left.is_zero()
+            {
+                next = next.into_iter().chain([now() + left]).min();
+                continue;
+            }
+            if profile == Some(Profile::Claude) && !self.claude_turn_ended(&node)? {
                 continue;
             }
             eprintln!("loom: 노드 {}의 턴이 끝났는데 stop 훅이 닿지 않았다", id.0);
@@ -315,21 +350,29 @@ impl App {
             self.feed(id, AgentEvent::TurnEnded);
             self.recover(id);
         }
-        Ok(())
+        Ok(next)
+    }
+
+    fn transcript_quiet(&self, node: &Active) -> rusqlite::Result<Option<Duration>> {
+        let Some(path) = self.transcript(node)? else {
+            return Ok(None);
+        };
+        let Some(began) = self.graph.turn_began(node.id)? else {
+            return Ok(None);
+        };
+        Ok(std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .filter(|at| *at > began)
+            .map(|at| at.elapsed().unwrap_or_default()))
     }
 
     fn claude_turn_ended(&self, node: &Active) -> rusqlite::Result<bool> {
-        let Some(path) = self.transcript(node)? else {
-            return Ok(false);
-        };
-        let Some(began) = self.graph.turn_began(node.id)? else {
-            return Ok(false);
-        };
-        let settled = std::fs::metadata(&path)
-            .and_then(|m| m.modified())
-            .is_ok_and(|at| at > began && at.elapsed().is_ok_and(|age| age >= STOP_HOOK_GRACE));
-        let ended = self.at_turn_end(node.id) || claude::turn_ended(&path);
-        Ok(settled && ended && !turn_shown(&self.host.screen(node.id).text))
+        let ended = self.at_turn_end(node.id)
+            || self
+                .transcript(node)?
+                .is_some_and(|path| claude::turn_ended(&path));
+        Ok(ended && !turn_shown(&self.host.screen(node.id).text))
     }
 
     fn transcript(&self, node: &Active) -> rusqlite::Result<Option<PathBuf>> {
@@ -372,7 +415,7 @@ impl App {
         }))
     }
 
-    fn sleep_resting(self: &Arc<Self>) -> rusqlite::Result<()> {
+    fn sleep_resting(self: &Arc<Self>) -> rusqlite::Result<Option<Instant>> {
         let children = self.graph.done_children()?;
         let resting: Vec<Active> = self
             .graph
@@ -381,14 +424,15 @@ impl App {
             .filter(|n| children.contains(&n.id) && self.resting(n))
             .collect();
         let ids: Vec<NodeId> = resting.iter().map(|n| n.id).collect();
-        let due = self.sleeps.due(&ids, Instant::now());
+        let now = now();
+        let due = self.sleeps.due(&ids, now);
         for node in resting {
             if due.contains(&node.id) && self.sleeps.begin(node.id) {
                 let app = self.clone();
                 tokio::spawn(async move { app.put_to_sleep(node).await });
             }
         }
-        Ok(())
+        Ok(self.sleeps.next_due(now))
     }
 
     fn resting(&self, node: &Active) -> bool {
@@ -428,7 +472,7 @@ impl App {
             eprintln!("loom: 노드 {}를 재우지 못했다: {e}", id.0);
         }
         if stopped.is_err() || !still() {
-            self.sleeps.cancel(id);
+            self.sleeps.rest_again(id);
             self.graph.wake_mail();
             return;
         }
@@ -438,7 +482,7 @@ impl App {
         self.idle.end(id, IdleEnd::Sleep);
         self.host.stop(id);
         tokio::time::sleep(EXIT_WAIT).await;
-        if self.sleeps.cancel(id) {
+        if self.sleeps.rest_again(id) {
             eprintln!(
                 "loom: 노드 {}의 프로세스가 끝나지 않았다. 재우지 않는다",
                 id.0
@@ -477,6 +521,7 @@ fn spinner(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::commands::IDLE_PATH;
     #[cfg(unix)]
     use crate::daemon::nodes::human_typed;
     use crate::daemon::relaunch::Relaunched;
@@ -941,6 +986,7 @@ mod tests {
         tokio::spawn(crate::daemon::commands::agent_idle(
             axum::extract::State(t.app.clone()),
             headers,
+            None,
             axum::Json(None),
         ))
     }
@@ -1189,23 +1235,115 @@ mod tests {
         panic!("node {} is not relaunched", node.0);
     }
 
-    #[cfg(unix)]
+    struct Endpoint {
+        links: tokio::sync::mpsc::UnboundedSender<(NodeId, crate::node_host::Linked)>,
+    }
+
+    impl Endpoint {
+        fn serve(t: &Fixture) -> Endpoint {
+            let (links, linked) = tokio::sync::mpsc::unbounded_channel();
+            let (doors, door) = crate::tunnel::Door::new();
+            tokio::spawn(t.app.clone().carry_links(linked, doors));
+            let routes = crate::daemon::endpoint_routes(&t.app);
+            tokio::spawn(axum::serve(door, routes).into_future());
+            Endpoint { links }
+        }
+
+        async fn attach(
+            &self,
+            node: NodeId,
+            held: &[Option<&str>],
+        ) -> (crate::tunnel::Mux, Vec<crate::tunnel::Stream>) {
+            use tokio::io::AsyncWriteExt;
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let host = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+                .await
+                .unwrap();
+            let (daemon, _) = listener.accept().await.unwrap();
+            let (reader, writer) = host.into_split();
+            let (mux, _) = crate::tunnel::start(reader, writer);
+            let mut streams = Vec::new();
+            for request in held {
+                let mut stream = mux.open();
+                match request {
+                    Some(request) => stream.write_all(request.as_bytes()).await.unwrap(),
+                    None => drop(stream.shutdown().await),
+                }
+                streams.push(stream);
+            }
+            let held = Some(held.len() as u32);
+            let link = daemon.into_std().unwrap();
+            let linked = crate::node_host::Linked::Streams { link, held };
+            self.links.send((node, linked)).unwrap();
+            (mux, streams)
+        }
+    }
+
+    fn call(path: &str, token: &str, body: &str) -> String {
+        format!(
+            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
     #[tokio::test]
-    async fn a_node_left_listening_without_an_idle_wait_relaunches_at_the_sweep() {
+    async fn after_its_host_attach_a_node_whose_held_wait_comes_back_keeps_listening() {
         let t = fixture();
         t.app.watch_agents();
-        let lost = unheard(&t, "lost", ENDED);
-        let heard = unheard(&t, "heard", ENDED);
-        for node in [lost, heard] {
-            screen(&t, node, "❯ ");
+        let endpoint = Endpoint::serve(&t);
+        let idle = |token| call(IDLE_PATH, token, "null");
+        let other = |token| call("/api/agent/interrupt-pending", token, "");
+        let (late, early) = (add_worker(&t, "late"), add_worker(&t, "early"));
+        for node in [late, early] {
+            t.app.feed(node, AgentEvent::WaitOpened);
         }
-        t.app.feed(lost, AgentEvent::WaitOpened);
-        let _wait = t.app.idle.open(heard);
-        t.app.hear_lost_waits().unwrap();
-        relaunched(&t, lost).await;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(t.app.agent_state(heard), Some(AgentState::Listening));
-        assert!(missed(&t).iter().all(|(node, _)| *node == lost));
+        let _late = endpoint
+            .attach(late, &[Some(&other("late")), Some(&idle("late"))])
+            .await;
+        let _early = endpoint
+            .attach(early, &[Some(&idle("early")), Some(&other("early"))])
+            .await;
+        while !t.app.idle.waiting(late) || !t.app.idle.waiting(early) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        for node in [late, early] {
+            assert_eq!(t.app.agent_state(node), Some(AgentState::Listening));
+        }
+        let deaf = t.app.graph.recent_events().unwrap().into_iter().any(|r| {
+            matches!(
+                r.entry,
+                Entry::AgentStateChanged {
+                    to: AgentState::Deaf,
+                    ..
+                }
+            )
+        });
+        assert!(!deaf, "no node was deaf for a moment");
+        assert_eq!(missed(&t), []);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn after_its_host_attach_a_node_whose_wait_does_not_come_back_relaunches() {
+        let t = fixture();
+        t.app.watch_agents();
+        let endpoint = Endpoint::serve(&t);
+        let none = unheard(&t, "none", ENDED);
+        let dead = unheard(&t, "dead", ENDED);
+        let old = unheard(&t, "old", ENDED);
+        for node in [none, dead, old] {
+            screen(&t, node, "❯ ");
+            t.app.feed(node, AgentEvent::WaitOpened);
+        }
+        endpoint.attach(none, &[]).await;
+        let other = call("/api/agent/interrupt-pending", "dead", "");
+        let _dead = endpoint.attach(dead, &[Some(&other), None]).await;
+        let terminal = crate::node_host::Linked::Terminal;
+        endpoint.links.send((old, terminal)).unwrap();
+        for node in [none, dead, old] {
+            relaunched(&t, node).await;
+        }
     }
 
     #[cfg(unix)]
@@ -1283,7 +1421,7 @@ mod tests {
         assert_eq!(t.app.agent_state(node), Some(AgentState::Listening));
         drop(wait);
         held(&t, node, Some(Held::Hook)).await;
-        t.app.hear_lost_waits().unwrap();
+        t.app.hear_lost_wait(node).unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(missed(&t).is_empty(), "the hook still lives");
         assert!(!t.dir.path().join(format!("exited-{}", node.0)).exists());
@@ -1295,7 +1433,7 @@ mod tests {
         while t.app.hook_running(node) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        t.app.hear_lost_waits().unwrap();
+        t.app.hear_lost_wait(node).unwrap();
         relaunched(&t, node).await;
     }
 
@@ -1480,6 +1618,72 @@ mod tests {
         restarted.remove(worker).unwrap();
         assert!(restarted.host.kept(worker).is_none());
         assert!(matches!(next().await, Message::Close(_)));
+    }
+
+    async fn run_ready() {
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    fn done_child(t: &Fixture, name: &str) -> NodeId {
+        let worker = add_agent(t, name, "cursor");
+        t.app.graph.set_transcript(worker, "/t/s.jsonl").unwrap();
+        let report = Report {
+            summary: "finished",
+            file: None,
+            warning: None,
+            keep: &[],
+        };
+        t.app
+            .graph
+            .done(worker, &report, None, &[], None, None)
+            .unwrap();
+        worker
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_done_node_sleeps_at_its_grace_deadline_and_not_before() {
+        let t = fixture();
+        let worker = done_child(&t, "worker");
+        let mut wait = t.app.idle.open(worker);
+        t.app.watch_sleep();
+        run_ready().await;
+        tokio::time::advance(DONE_GRACE - Duration::from_secs(1)).await;
+        run_ready().await;
+        assert!(!t.app.sleeps.stopping(worker));
+        assert!(t.app.idle.waiting(worker), "not yet");
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let by = tokio::time::timeout(Duration::from_secs(1), wait.ended()).await;
+        assert_eq!(by, Ok(IdleEnd::Sleep));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_done_node_that_turns_before_its_deadline_does_not_sleep_then() {
+        let t = fixture();
+        t.app.watch_agents();
+        let worker = done_child(&t, "worker");
+        let mut wait = t.app.idle.open(worker);
+        t.app.watch_sleep();
+        run_ready().await;
+        tokio::time::advance(DONE_GRACE / 2).await;
+        t.app.idle.turn_started(worker, "beforeSubmitPrompt".into());
+        let by = wait.ended().await;
+        wait.finish(by);
+        run_ready().await;
+        tokio::time::advance(DONE_GRACE / 4).await;
+        let mut again = t.app.idle.open(worker);
+        run_ready().await;
+        tokio::time::advance(DONE_GRACE / 2).await;
+        run_ready().await;
+        assert!(!t.app.sleeps.stopping(worker));
+        assert!(
+            t.app.idle.waiting(worker),
+            "the turn restarted the grace time"
+        );
+        tokio::time::advance(DONE_GRACE / 2).await;
+        let by = tokio::time::timeout(Duration::from_secs(1), again.ended()).await;
+        assert_eq!(by, Ok(IdleEnd::Sleep));
     }
 
     #[test]

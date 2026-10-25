@@ -202,13 +202,26 @@ impl App {
     pub(super) async fn carry_links(
         self: Arc<Self>,
         mut linked: tokio::sync::mpsc::UnboundedReceiver<(NodeId, node_host::Linked)>,
-        doors: tokio::sync::mpsc::UnboundedSender<(tunnel::Stream, NodeId)>,
+        doors: tokio::sync::mpsc::UnboundedSender<(tunnel::Stream, arrival::Caller)>,
     ) {
         while let Some((node, link)) = linked.recv().await {
+            let app = self.clone();
+            let hear = move || {
+                if let Err(e) = app.hear_lost_wait(node) {
+                    eprintln!("loom: 노드 {}의 쉬는 대기를 보지 못했다: {e}", node.0);
+                }
+            };
             let failed = match link {
-                node_host::Linked::Streams(link) => tunnel::carry(link, node, doors.clone())
-                    .err()
-                    .map(|e| format!("the daemon side of the link: {e}")),
+                node_host::Linked::Terminal => {
+                    hear();
+                    None
+                }
+                node_host::Linked::Streams { link, held } => {
+                    let callers = arrival::callers(node, held.unwrap_or(0), hear);
+                    tunnel::carry(link, callers, doors.clone())
+                        .err()
+                        .map(|e| format!("the daemon side of the link: {e}"))
+                }
                 node_host::Linked::EndpointFailed(error) => Some(error),
             };
             if let Some(error) = failed
@@ -315,6 +328,7 @@ impl App {
                 if let Err(e) = app.graph.set_prompt(id, prompt) {
                     eprintln!("loom: 노드 {}의 승인 창을 쓰지 못했다: {e}", id.0);
                 }
+                app.sleeps.changed();
             }
         });
     }
@@ -757,15 +771,19 @@ fn unserved_protocol(headers: &HeaderMap) -> Option<String> {
 
 pub(super) async fn from_its_node(
     State(app): State<Arc<App>>,
-    axum::extract::ConnectInfo(at): axum::extract::ConnectInfo<NodeId>,
-    request: axum::extract::Request,
+    axum::extract::ConnectInfo(at): axum::extract::ConnectInfo<arrival::Caller>,
+    mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    match request.uri().path() == super::commands::IDLE_PATH {
+        true => drop(request.extensions_mut().insert(at.arrival())),
+        false => at.arrival().arrived(),
+    }
     let caller = bearer(request.headers())
         .ok()
         .map(|token| app.graph.caller(token));
     match caller {
-        Some(Ok(Some(node))) if node != at => (
+        Some(Ok(Some(node))) if node != at.node => (
             StatusCode::FORBIDDEN,
             "This node endpoint belongs to another node.",
         )
@@ -774,11 +792,15 @@ pub(super) async fn from_its_node(
     }
 }
 
-impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, tunnel::Door<NodeId>>>
-    for NodeId
+impl
+    axum::extract::connect_info::Connected<
+        axum::serve::IncomingStream<'_, tunnel::Door<arrival::Caller>>,
+    > for arrival::Caller
 {
-    fn connect_info(stream: axum::serve::IncomingStream<'_, tunnel::Door<NodeId>>) -> NodeId {
-        *stream.remote_addr()
+    fn connect_info(
+        stream: axum::serve::IncomingStream<'_, tunnel::Door<arrival::Caller>>,
+    ) -> arrival::Caller {
+        stream.remote_addr().clone()
     }
 }
 

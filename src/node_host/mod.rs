@@ -28,7 +28,8 @@ pub use inner::inner;
 pub type Links<K> = tokio::sync::mpsc::UnboundedSender<(K, Linked)>;
 
 pub enum Linked {
-    Streams(TcpStream),
+    Terminal,
+    Streams { link: TcpStream, held: Option<u32> },
     EndpointFailed(String),
 }
 
@@ -224,21 +225,18 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             }
         };
         let pid = greeted.pid;
-        if greeted.version >= wire::STREAMS_SINCE
-            && let Some(links) = &self.links
-        {
-            match connect(at, wire::greet_streams) {
-                Ok((link, ())) => {
-                    let _ = links.send((id, Linked::Streams(link)));
-                }
+        let linked = match greeted.version >= wire::STREAMS_SINCE && self.links.is_some() {
+            true => match connect(at, |link| wire::greet_streams(link, greeted.version)) {
+                Ok((link, held)) => Linked::Streams { link, held },
                 Err(e) => {
                     let _ = wire::write(&mut reader, &Frame::Kill);
                     std::thread::spawn(move || while wire::read(&mut reader).is_ok() {});
                     let _ = std::fs::remove_file(&file);
                     return Err(Unattached::Silent(format!("node endpoint link: {e}")));
                 }
-            }
-        }
+            },
+            false => Linked::Terminal,
+        };
         let links = self.links.clone();
         let host = reader
             .try_clone()
@@ -256,6 +254,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             sizing: Mutex::default(),
         });
         self.nodes.write().unwrap().insert(id, pty.clone());
+        if let Some(links) = &links {
+            let _ = links.send((id, linked));
+        }
         std::thread::spawn(move || {
             let exit = loop {
                 match wire::read(&mut reader) {

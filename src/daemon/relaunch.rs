@@ -1263,7 +1263,7 @@ mod tests {
         let status = |token: &'static str| {
             let request = axum::http::Request::post("/api/agent/status")
                 .header("authorization", format!("Bearer {token}"))
-                .extension(ConnectInfo(mine))
+                .extension(ConnectInfo(super::super::arrival::callers(mine, 0, || {})()))
                 .body(axum::body::Body::empty())
                 .unwrap();
             let router = router.clone();

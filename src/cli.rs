@@ -356,8 +356,39 @@ pub fn cursor_rules() -> Result<(), String> {
 }
 
 pub fn pi_hook() -> Result<(), String> {
-    let event: pi::Event =
-        serde_json::from_reader(std::io::stdin()).map_err(|e| format!("hook input: {e}"))?;
+    let out = std::sync::Arc::new(std::sync::Mutex::new(std::io::stdout()));
+    for line in std::io::stdin().lines() {
+        let line = line.map_err(|e| format!("hook input: {e}"))?;
+        let request: pi::Request = match serde_json::from_str(&line) {
+            Ok(request) => request,
+            Err(e) => {
+                eprintln!("loom: hook input: {e}");
+                continue;
+            }
+        };
+        let out = out.clone();
+        std::thread::spawn(move || {
+            let id = request.id;
+            let send = |reply: &pi::Reply| {
+                let mut out = out.lock().unwrap();
+                serde_json::to_writer(&mut *out, reply).map_err(|e| e.to_string())?;
+                writeln!(out)
+                    .and_then(|()| out.flush())
+                    .map_err(|e| e.to_string())
+            };
+            if let Err(e) = pi_event(request.event, id, send) {
+                let _ = send(&pi::failed(id, e));
+            }
+        });
+    }
+    Ok(())
+}
+
+fn pi_event(
+    event: pi::Event,
+    id: u64,
+    send: impl Fn(&pi::Reply) -> Result<(), String>,
+) -> Result<(), String> {
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
     let transcript = event.transcript();
     if let Some(model) = event.model()
@@ -368,7 +399,7 @@ pub fn pi_hook() -> Result<(), String> {
     if let Some(reply) = event.turn_ends()
         && let Some(nudge) = turn_end(reply, None, timeout)
     {
-        return print_json(&pi::nudge(nudge));
+        return send(&pi::nudge(id, nudge));
     }
     let taken = match event.take() {
         None | Some(Take::Never) => Taken {
@@ -397,17 +428,9 @@ pub fn pi_hook() -> Result<(), String> {
             Some(timeout),
         )?,
     };
-    print_json(&pi::reply(&taken.messages, taken.note.as_deref()))?;
+    send(&pi::reply(id, &taken.messages, taken.note.as_deref()))?;
     acknowledge(&taken.messages, Some(timeout));
     Ok(())
-}
-
-fn print_json(value: &impl Serialize) -> Result<(), String> {
-    let mut stdout = std::io::stdout();
-    serde_json::to_writer(&mut stdout, value).map_err(|e| e.to_string())?;
-    writeln!(stdout)
-        .and_then(|()| stdout.flush())
-        .map_err(|e| e.to_string())
 }
 
 fn acknowledge(taken: &[Delivery], timeout: Option<Duration>) {

@@ -1,7 +1,10 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  createBashToolDefinition,
   DefaultPackageManager,
   type ExtensionAPI,
   type ExtensionContext,
@@ -9,49 +12,78 @@ import {
   loadSkills,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
-type Reply = { text?: string };
+type Reply = { id?: number; text?: string; error?: string };
 type Part = { type: string; text?: string };
 type Message = { role: string; content: string | Part[] };
+type Hook = { child: ChildProcess; pending: Map<number, (reply: Reply | undefined) => void>; open: boolean };
 
 const GUARD = "loom guard";
 const MESSAGE = "loom";
 const IDLE_FLAG = "loom-idle";
 const RETRY_MS = 250;
+const REOPEN_MS = 1000;
+const BASH_TIMEOUT_S = 1200;
 const SKILLS = join(dirname(fileURLToPath(import.meta.url)), "skills");
 
-function parse(out: string): Reply {
+function parse(line: string): Reply | undefined {
   try {
-    return JSON.parse(out) as Reply;
+    return JSON.parse(line) as Reply;
   } catch {
-    return {};
+    return undefined;
   }
 }
 
-function call(input: Record<string, unknown>, ctx: ExtensionContext, signal?: AbortSignal): Promise<Reply> {
-  return new Promise((resolve) => {
-    const child = spawn("loom", ["pi-hook"], { stdio: ["pipe", "pipe", "pipe"], signal, windowsHide: true });
-    let out = "";
-    let err = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      out += chunk;
-      const end = out.indexOf("\n");
-      if (end >= 0) resolve(parse(out.slice(0, end)));
-    });
-    child.stderr.on("data", (chunk: string) => (err += chunk));
-    child.on("error", (e) => {
-      if (!signal?.aborted && ctx.hasUI) ctx.ui.notify(`loom pi-hook: ${e.message}`, "error");
-      resolve({});
-    });
-    child.on("close", (code) => {
-      if (code !== 0 && err.trim() && ctx.hasUI) ctx.ui.notify(err.trim(), "error");
-      resolve(parse(out));
-    });
-    child.stdin.on("error", () => {});
-    child.stdin.end(JSON.stringify(input));
+function open(ctx: ExtensionContext, signal: AbortSignal): Hook {
+  const child = spawn("loom", ["pi-hook"], { stdio: ["pipe", "pipe", "pipe"], signal, windowsHide: true });
+  const hook: Hook = { child, pending: new Map(), open: true };
+  let out = "";
+  let err = "";
+  const notify = (text: string) => {
+    if (!signal.aborted && ctx.hasUI) ctx.ui.notify(text, "error");
+  };
+  const end = () => {
+    hook.open = false;
+    for (const done of hook.pending.values()) done(undefined);
+    hook.pending.clear();
+  };
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    out += chunk;
+    for (let at = out.indexOf("\n"); at >= 0; at = out.indexOf("\n")) {
+      const reply = parse(out.slice(0, at));
+      out = out.slice(at + 1);
+      if (reply?.id === undefined) continue;
+      if (reply.error) notify(`loom pi-hook: ${reply.error}`);
+      hook.pending.get(reply.id)?.(reply.error ? undefined : reply);
+      hook.pending.delete(reply.id);
+    }
   });
+  child.stderr.on("data", (chunk: string) => (err += chunk));
+  child.on("error", (e) => {
+    notify(`loom pi-hook: ${e.message}`);
+    end();
+  });
+  child.on("close", (code) => {
+    if (code !== 0 && err.trim()) notify(err.trim());
+    end();
+  });
+  child.stdin.on("error", () => {});
+  return hook;
+}
+
+function background(command: string, cwd: string) {
+  const dir = join(process.env.LOOM_TASK_DIR || tmpdir(), "logs");
+  mkdirSync(dir, { recursive: true });
+  const log = join(dir, `background-${Date.now()}.log`);
+  const fd = openSync(log, "a");
+  const child = spawn("bash", ["-c", command], { cwd, detached: true, stdio: ["ignore", fd, fd] });
+  closeSync(fd);
+  child.unref();
+  const text = `Started in the background: pid ${child.pid}, output in ${log}. Stop it with: kill -- -${child.pid}`;
+  return { content: [{ type: "text" as const, text }], details: undefined };
 }
 
 function state(ctx: ExtensionContext) {
@@ -92,8 +124,45 @@ async function otherSkills(cwd: string, projectTrusted: boolean): Promise<string
 export default function (pi: ExtensionAPI) {
   let lastReply: string | undefined;
   const shutdown = new AbortController();
+  let hook: Hook | undefined;
+  let next = 0;
+  let waits = 0;
 
   pi.registerFlag(IDLE_FLAG, { type: "boolean", default: false, description: "Wait for loom mail when the session starts without a prompt" });
+
+  const bash = createBashToolDefinition(process.cwd());
+  pi.registerTool({
+    ...bash,
+    description: `${bash.description} Set run_in_background to true for a process that keeps running, such as a server: it starts detached, writes its output to a log file and returns at once. A foreground command without timeout stops after ${BASH_TIMEOUT_S} seconds.`,
+    parameters: Type.Object({
+      ...bash.parameters.properties,
+      run_in_background: Type.Optional(Type.Boolean({ description: "Start the command detached and return at once" })),
+    }),
+    async execute(id, params, signal, onUpdate, ctx) {
+      if (params.run_in_background) return background(params.command, ctx.cwd);
+      try {
+        return await bash.execute(id, { command: params.command, timeout: params.timeout ?? BASH_TIMEOUT_S }, signal, onUpdate, ctx);
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("timed out")) {
+          throw new Error(`${e.message}. Start a process that keeps running with run_in_background: true.`);
+        }
+        throw e;
+      }
+    },
+  });
+
+  const call = (input: Record<string, unknown>, ctx: ExtensionContext): Promise<Reply | undefined> => {
+    if (shutdown.signal.aborted) return Promise.resolve(undefined);
+    if (!hook?.open) {
+      hook = open(ctx, shutdown.signal);
+    }
+    const { child, pending } = hook;
+    const id = ++next;
+    return new Promise((resolve) => {
+      pending.set(id, resolve);
+      child.stdin.write(`${JSON.stringify({ id, ...input })}\n`);
+    });
+  };
 
   const deliver = (text: string, ctx: ExtensionContext) => {
     if (shutdown.signal.aborted) return;
@@ -105,8 +174,15 @@ export default function (pi: ExtensionAPI) {
   };
 
   const wait = async (event: string, ctx: ExtensionContext, reply?: string) => {
-    const { text } = await call({ event, reply, ...state(ctx) }, ctx, shutdown.signal);
-    if (text) deliver(text, ctx);
+    const id = ++waits;
+    const current = () => !shutdown.signal.aborted && id === waits && ctx.isIdle();
+    for (;;) {
+      const answer = await call({ event, reply, ...state(ctx) }, ctx);
+      if (answer?.text) return deliver(answer.text, ctx);
+      if (answer || !current()) return;
+      await new Promise((resolve) => setTimeout(resolve, REOPEN_MS));
+      if (!current()) return;
+    }
   };
 
   pi.on("resources_discover", async (event, ctx) => ({ skillPaths: await otherSkills(event.cwd, ctx.isProjectTrusted()) }));
@@ -118,22 +194,23 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", async (event, ctx) => {
     if (event.messageType !== "user") return;
-    const { text } = await call({ event: "prompt", prompt: event.prompt, ...state(ctx) }, ctx);
+    const { text } = (await call({ event: "prompt", prompt: event.prompt, ...state(ctx) }, ctx)) ?? {};
     if (text) return { message: { customType: MESSAGE, content: text, display: true } };
   });
 
   pi.on("tool_call", async (event, ctx) => {
     if (event.parentToolCallId) return;
-    const { text } = await call({ event: "tool_call", ...state(ctx) }, ctx);
+    const { text } = (await call({ event: "tool_call", ...state(ctx) }, ctx)) ?? {};
     if (text) return { block: true, reason: text };
-    if (event.toolName === "bash" && typeof event.input.command === "string") {
-      event.input.command = `${GUARD}\n${event.input.command}`;
+    const input = event.input as { command?: unknown; run_in_background?: unknown };
+    if (event.toolName === "bash" && typeof input.command === "string" && !input.run_in_background) {
+      input.command = `${GUARD}\n${input.command}`;
     }
   });
 
   pi.on("tool_result", async (event, ctx) => {
     if (event.parentToolCallId) return;
-    const { text } = await call({ event: "tool_result", ...state(ctx) }, ctx);
+    const { text } = (await call({ event: "tool_result", ...state(ctx) }, ctx)) ?? {};
     if (text) return { content: [...event.content, { type: "text", text }], structuredContent: event.structuredContent };
   });
 

@@ -1250,13 +1250,31 @@ mod tests {
         t.app.turn_ends.stepped(late, Some("A"));
         t.app.turn_ends.stepped(late, Some("B"));
         t.app.turn_ends.said_at(late, "끝".into(), Some("A"), old);
+        let followup = cursor("followup");
+        t.app.turn_ends.stepped(followup, Some("A"));
+        t.app.turn_ends.ended(followup, || false, || false);
+        t.app
+            .turn_ends
+            .said_at(followup, "끝".into(), Some("B"), old);
+        let retired = cursor("retired");
+        t.app.turn_ends.stepped(retired, Some("A"));
+        t.app.turn_ends.ended(retired, || false, || false);
+        t.app
+            .turn_ends
+            .said_at(retired, "끝".into(), Some("A"), old);
         for _ in 0..3 {
             t.app.end_unhooked_turns().unwrap();
         }
         relaunched(&t, missed_stop).await;
-        assert_eq!(missed(&t)[0], (missed_stop, false));
-        assert!(missed(&t).iter().all(|(node, _)| *node == missed_stop));
-        for node in [fresh, stepped, silent, late] {
+        relaunched(&t, followup).await;
+        let mut noted: Vec<_> = missed(&t)
+            .into_iter()
+            .filter(|(_, relaunch)| !relaunch)
+            .map(|(node, _)| node)
+            .collect();
+        noted.sort_by_key(|node| node.0);
+        assert_eq!(noted, vec![missed_stop, followup]);
+        for node in [fresh, stepped, silent, late, retired] {
             assert_eq!(t.app.agent_state(node), Some(AgentState::Turn));
         }
     }

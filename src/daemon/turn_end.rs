@@ -16,6 +16,7 @@ pub struct TurnEnds {
     said: Mutex<HashMap<NodeId, String>>,
     said_at: Mutex<HashMap<NodeId, Instant>>,
     turn: Mutex<HashMap<NodeId, String>>,
+    ended_turn: Mutex<HashMap<NodeId, String>>,
     human: Mutex<HashSet<NodeId>>,
     called: Mutex<HashSet<NodeId>>,
     kind_nudged: Mutex<HashSet<NodeId>>,
@@ -30,10 +31,11 @@ impl TurnEnds {
 
     pub(super) fn said_at(&self, node: NodeId, text: String, turn: Option<&str>, at: Instant) {
         let current = self.turn.lock().unwrap();
-        if turn
-            .zip(current.get(&node))
-            .is_some_and(|(said, now)| said != now)
-        {
+        let ended = self.ended_turn.lock().unwrap();
+        if turn.is_some_and(|said| {
+            current.get(&node).is_some_and(|now| now != said)
+                || ended.get(&node).is_some_and(|done| done == said)
+        }) {
             return;
         }
         self.said.lock().unwrap().insert(node, text);
@@ -85,6 +87,9 @@ impl TurnEnds {
     ) -> TurnEnd {
         let reply = self.said.lock().unwrap().remove(&node);
         self.said_at.lock().unwrap().remove(&node);
+        if let Some(turn) = self.turn.lock().unwrap().remove(&node) {
+            self.ended_turn.lock().unwrap().insert(node, turn);
+        }
         let human = self.human.lock().unwrap().remove(&node);
         let called = self.called.lock().unwrap().remove(&node);
         let nudged = self.kind_nudged.lock().unwrap().remove(&node);

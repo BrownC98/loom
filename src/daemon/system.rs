@@ -1,6 +1,6 @@
 use futures_util::stream::SplitSink;
 
-use super::pulse::{self, Beat, Pulse};
+use super::pulse::{self, Beat, Heard, Pulse};
 use super::waits::serve_file;
 use super::*;
 
@@ -123,18 +123,18 @@ async fn send_events(socket: WebSocket, app: Arc<App>, beat: Duration) {
                     Err(RecvError::Lagged(_)) => break,
                     Err(RecvError::Closed) => return,
                 },
-                frame = from_view.next() => match frame {
-                    Some(Ok(_)) => pulse.heard(),
-                    Some(Err(_)) | None => return,
-                },
-                beat = pulse.due() => {
-                    if beat == Beat::Dead
-                        || to_view.send(Message::Ping(Default::default())).await.is_err()
-                        || send_json(&mut to_view, &GraphEvent::Beat).await.is_err()
-                    {
-                        return;
+                heard = pulse.listen(&mut from_view) => match heard {
+                    Heard::Frame(Some(Ok(_))) => {}
+                    Heard::Frame(Some(Err(_)) | None) => return,
+                    Heard::Beat(beat) => {
+                        if beat == Beat::Dead
+                            || to_view.send(Message::Ping(Default::default())).await.is_err()
+                            || send_json(&mut to_view, &GraphEvent::Beat).await.is_err()
+                        {
+                            return;
+                        }
                     }
-                }
+                },
             }
         }
     }

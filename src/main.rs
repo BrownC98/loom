@@ -234,7 +234,9 @@ enum Cli {
 }
 
 fn main() -> ExitCode {
-    let result = match Cli::parse() {
+    let cli = Cli::parse();
+    cli::through_tunnel();
+    let result = match cli {
         Cli::Serve { listen } => {
             forget_launcher_env();
             tokio::runtime::Runtime::new()
@@ -294,10 +296,10 @@ fn main() -> ExitCode {
             cli::note(name, mode, body)
         }
         Cli::Answer { message, body } => cli::answer(message, body),
-        Cli::Hook => cli::through_tunnel(cli::hook),
-        Cli::CursorHook => cli::through_tunnel(cli::cursor_hook),
+        Cli::Hook => cli::hook(),
+        Cli::CursorHook => cli::cursor_hook(),
         Cli::CursorRules => cli::cursor_rules(),
-        Cli::PiHook => cli::through_tunnel(cli::pi_hook),
+        Cli::PiHook => cli::pi_hook(),
         Cli::Guard => cli::guard(),
         Cli::Wait {
             reply_to,

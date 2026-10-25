@@ -284,6 +284,120 @@ mod tests {
         assert_eq!(taken[0].body, "new task");
     }
 
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_restarted_daemon_shows_the_last_screen_of_a_sleeping_node() {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("loom.db");
+        let database = crate::db::open(&db_path).unwrap();
+        database
+            .lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, '/repo')", [])
+            .unwrap();
+        let start = |database| {
+            Arc::new(
+                App::new(
+                    database,
+                    &db_path,
+                    "127.0.0.1:0".parse().unwrap(),
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+        };
+        let app = start(database);
+        let place = Place {
+            repo: RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let lead = app
+            .graph
+            .add_root(&place, None, None, &launched("lead"), |_| Ok(()))
+            .unwrap();
+        let child = NewChild {
+            name: "worker",
+            worktree: None,
+            branched_from: None,
+            agent: None,
+            brief: "",
+            role: None,
+            task: "t",
+            review: None,
+        };
+        let limits = TreeLimits {
+            max_depth: None,
+            max_children: None,
+        };
+        let worker = app
+            .graph
+            .add_child(lead, child, limits, &launched("worker"), |_| Ok(()))
+            .unwrap();
+        let report = Report {
+            summary: "finished",
+            file: None,
+            warning: None,
+        };
+        app.graph
+            .done(worker, &report, None, &[], None, None)
+            .unwrap();
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args(["-c", "printf 'last screen'; read line"]);
+        crate::node_host::in_process(&dir.path().join("pty/nodes"), worker.0, cmd);
+        app.resume().await.unwrap();
+        app.host.resize(worker, 77, 22);
+        while !app.host.tail(worker).contains("last screen") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let node = app
+            .graph
+            .active()
+            .unwrap()
+            .into_iter()
+            .find(|n| n.id == worker)
+            .unwrap();
+        assert!(app.sleeps.begin(worker));
+        let sleeping = app.clone();
+        tokio::spawn(async move { sleeping.put_to_sleep(node).await });
+        while app.host.kept(worker).is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(app.graph.asleep(worker).unwrap());
+
+        let restarted = start(crate::db::open(&db_path).unwrap());
+        restarted.resume().await.unwrap();
+        assert!(restarted.host.attach(worker).is_none());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let routes = super::super::nodes::routes().with_state(restarted.clone());
+        tokio::spawn(async move { axum::serve(listener, routes).await });
+        let url = format!("ws://{address}/api/nodes/{}/pty", worker.0);
+        let (mut socket, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+        let mut next = async || {
+            tokio::time::timeout(Duration::from_secs(5), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+        };
+        assert_eq!(
+            next().await,
+            Message::text(r#"{"size":{"cols":77,"rows":22}}"#)
+        );
+        assert_eq!(next().await, Message::text(r#""settled""#));
+        let Message::Binary(screen) = next().await else {
+            panic!("the saved screen did not come");
+        };
+        assert!(String::from_utf8_lossy(&screen).ends_with("last screen"));
+
+        restarted.remove(worker).unwrap();
+        assert!(restarted.host.kept(worker).is_none());
+        assert!(matches!(next().await, Message::Close(_)));
+    }
+
     #[test]
     fn a_node_is_due_after_resting_through_the_grace_time() {
         let sleeps = Sleeps::default();

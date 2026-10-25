@@ -40,7 +40,9 @@ tasks.named("preBuild") { dependsOn(icon) }
 dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("androidx.activity:activity:1.13.0")
+    implementation("com.squareup.okhttp3:okhttp:5.1.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20260814")
     constraints {
         implementation("androidx.fragment:fragment:1.9.0")
     }

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, ListTree, Moon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Check, ChevronDown, ChevronLeft, ChevronUp, CornerDownLeft, EllipsisVertical, ListTree, Moon, SettingsIcon, Sun, SunMoon, TriangleAlert, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { nodePty, relaunchNode, relaunchQueued, removeNode } from './api';
@@ -11,6 +11,7 @@ import { watchComposition, type Composition } from './composition';
 import { InboxPanel, waitCount } from './Inbox';
 import { AgentLine, stateLabel } from './NodeCard';
 import { NodeText, NoticeChips, NoticeLead, oldestWait, toneOf } from './notice';
+import { phoneNotify, useNotifyState, type PhoneNotify } from './phoneNotify';
 import { useEscapeClose } from './popover';
 import { borrowSize, SizingTerminal } from './Terminal';
 import { LONG_PRESS_MS, readClipboard, SLOP_PX } from './touchTerminal';
@@ -28,13 +29,26 @@ export function usePhone(): boolean {
   return phone;
 }
 
-export type PhoneRoute = { screen: 'inbox' } | { screen: 'nodes' } | { screen: 'node'; id: NodeId };
+export type PhoneRoute = { screen: 'inbox' } | { screen: 'nodes' } | { screen: 'node'; id: NodeId; ask?: true };
 
-function readRoute(): PhoneRoute {
-  const hash = location.hash;
+export function readRoute(hash: string): PhoneRoute {
   if (hash === '#/inbox') return { screen: 'inbox' };
-  const node = /^#\/node\/(\d+)$/.exec(hash);
-  return node ? { screen: 'node', id: Number(node[1]) as NodeId } : { screen: 'nodes' };
+  const node = /^#\/node\/(\d+)(\/ask)?$/.exec(hash);
+  if (!node) return { screen: 'nodes' };
+  const id = Number(node[1]) as NodeId;
+  return node[2] ? { screen: 'node', id, ask: true } : { screen: 'node', id };
+}
+
+function currentRoute(): PhoneRoute {
+  const route = readRoute(location.hash);
+  if (route.screen === 'node' && route.ask) history.replaceState(history.state, '', routeHash(route));
+  return route;
+}
+
+type NodeEntry = { loomNode: true };
+
+function isNodeEntry(state: unknown): state is NodeEntry {
+  return typeof state === 'object' && state !== null && (state as NodeEntry).loomNode === true;
 }
 
 function routeHash(route: PhoneRoute): string {
@@ -42,14 +56,14 @@ function routeHash(route: PhoneRoute): string {
 }
 
 export function usePhoneRoute(): [PhoneRoute, (next: PhoneRoute) => void] {
-  const [route, setRoute] = useState(readRoute);
+  const [route, setRoute] = useState(currentRoute);
   useEffect(() => {
-    const onHash = () => setRoute(readRoute());
+    const onHash = () => setRoute(currentRoute());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
   const go = (next: PhoneRoute) => {
-    if (next.screen === 'node' && !isSheetEntry(history.state)) history.pushState(null, '', routeHash(next));
+    if (next.screen === 'node' && !isSheetEntry(history.state)) history.pushState({ loomNode: true } satisfies NodeEntry, '', routeHash(next));
     else history.replaceState(null, '', routeHash(next));
     setRoute(next);
   };
@@ -77,12 +91,15 @@ export function Phone(props: {
   useEffect(() => {
     if (count === 0) setAskOpen(false);
   }, [count]);
+  useEffect(() => {
+    if (route.screen === 'node' && route.ask) setAskOpen(true);
+  }, [route]);
   const view = route.screen === 'node' ? props.nodes.get(route.id) : undefined;
   if (route.screen === 'node')
     return (
       <div className="phone">
         {view ? (
-          <NodeScreen key={view.id} askOpen={askOpen} setAskOpen={setAskOpen} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => history.back()} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
+          <NodeScreen key={view.id} askOpen={askOpen} setAskOpen={setAskOpen} view={view} waiting={props.waiting} agentLabel={props.agentLabel(view)} resumable={props.resumable(view)} online={props.online} onBack={() => (isNodeEntry(history.state) ? history.back() : props.onRoute({ screen: 'nodes' }))} onOpen={(id) => props.onRoute({ screen: 'node', id })} />
         ) : (
           <>
             <header className="phone-top">
@@ -102,7 +119,7 @@ export function Phone(props: {
         <span className="phone-title">
           <b>{inbox ? t('phone.inbox') : t('phone.nodes')}</b>
         </span>
-        <ThemeButton theme={props.theme} onTheme={props.onTheme} />
+        <SettingsButton theme={props.theme} onTheme={props.onTheme} />
       </header>
       {!props.online && <Offline />}
       <main className="phone-body" aria-label={inbox ? t('phone.inbox') : t('phone.nodes')}>
@@ -136,22 +153,55 @@ const THEME_CHOICES = [
   { value: 'dark', label: 'theme.dark', icon: Moon },
 ] as const satisfies readonly { value: Theme; label: string; icon: LucideIcon }[];
 
-function ThemeButton(props: { theme: Theme; onTheme: (next: Theme) => void }) {
+function SettingsButton(props: { theme: Theme; onTheme: (next: Theme) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const Current = THEME_CHOICES.find((choice) => choice.value === props.theme)?.icon ?? SunMoon;
   return (
     <>
-      <button type="button" className="phone-icon" aria-label={t('phone.theme')} onClick={() => setOpen(true)}>
-        <Current aria-hidden="true" />
+      <button type="button" className="phone-icon" aria-label={t('phone.settings')} aria-haspopup="dialog" onClick={() => setOpen(true)}>
+        <SettingsIcon aria-hidden="true" />
       </button>
-      {open && (
-        <MenuSheet
-          title={t('phone.theme')}
-          onClose={() => setOpen(false)}
-          items={THEME_CHOICES.map((choice) => ({ label: t(choice.label), icon: <choice.icon />, checked: choice.value === props.theme, run: () => props.onTheme(choice.value) }))}
-        />
-      )}
+      {open && <SettingsSheet theme={props.theme} onTheme={props.onTheme} notify={phoneNotify()} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+export function SettingsSheet(props: { theme: Theme; onTheme: (next: Theme) => void; notify: PhoneNotify | undefined; onClose: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <Sheet label={t('phone.settings')} onClose={props.onClose}>
+      <h4 className="sheet-section">{t('phone.theme')}</h4>
+      {THEME_CHOICES.map((choice) => (
+        <button key={choice.value} type="button" className="btn" aria-pressed={choice.value === props.theme} onClick={() => props.onTheme(choice.value)}>
+          <choice.icon />
+          {t(choice.label)}
+          {choice.value === props.theme && <Check className="mark" aria-hidden="true" />}
+        </button>
+      ))}
+      {props.notify && <NotifySwitches bridge={props.notify} />}
+    </Sheet>
+  );
+}
+
+function NotifySwitches(props: { bridge: PhoneNotify }) {
+  const { t } = useTranslation();
+  const state = useNotifyState(props.bridge);
+  const rows = [
+    { key: 'ask', label: t('phone.notifyAsk'), hint: t('phone.notifyAskHint'), on: state.ask, set: (on: boolean) => props.bridge.ask(on) },
+    { key: 'done', label: t('phone.notifyDone'), hint: t('phone.notifyDoneHint'), on: state.done, set: (on: boolean) => props.bridge.done(on) },
+  ];
+  return (
+    <>
+      <h4 className="sheet-section">{t('phone.notify')}</h4>
+      {rows.map((row) => (
+        <label key={row.key} className="sheet-switch">
+          <span className="two">
+            {row.label}
+            <small data-warn={!state.allowed || undefined}>{state.allowed ? row.hint : t('phone.notifyBlocked')}</small>
+          </span>
+          <input type="checkbox" role="switch" checked={row.on} onChange={(e) => row.set(e.target.checked)} />
+        </label>
+      ))}
     </>
   );
 }

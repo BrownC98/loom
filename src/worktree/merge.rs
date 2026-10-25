@@ -128,11 +128,9 @@ pub async fn base_branch(repo: &Path) -> Result<String, Refusal> {
 }
 
 pub async fn contains(repo: &Path, older: &str, newer: &str) -> Result<bool, Refusal> {
-    match git::run(repo, &["merge-base", "--is-ancestor", older, newer]).await {
-        Ok(_) => Ok(true),
-        Err(e) if e.is_empty() => Ok(false),
-        Err(e) => Err(Refusal::Git(e)),
-    }
+    git::holds(repo, &["merge-base", "--is-ancestor", older, newer])
+        .await
+        .map_err(Refusal::Git)
 }
 
 pub async fn target_base(repo: &Path, target: &str) -> Result<String, Refusal> {

@@ -415,8 +415,9 @@ fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
 }
 
 pub async fn find(repo: &Path, path: &str) -> Result<Worktree, RepoProblem> {
-    worktrees(repo)
+    listed(repo)
         .await
+        .map_err(RepoProblem::Git)?
         .into_iter()
         .find(|w| w.path == path)
         .ok_or_else(|| RepoProblem::NotInRepo(path.to_owned()))
@@ -787,6 +788,19 @@ mod tests {
             find(&repo, "/nowhere/wt").await,
             Err(RepoProblem::NotInRepo("/nowhere/wt".into()))
         );
+    }
+
+    #[tokio::test]
+    async fn find_reports_the_git_failure_and_the_screen_list_keeps_the_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = repo(dir.path());
+        std::fs::rename(repo.join(".git"), dir.path().join("moved.git")).unwrap();
+        let path = repo.to_str().unwrap();
+        let Err(RepoProblem::Git(e)) = find(&repo, path).await else {
+            panic!("find hid the git failure");
+        };
+        assert!(e.contains("not a git repository"), "{e}");
+        assert_eq!(worktrees(&repo).await.len(), 1);
     }
 
     #[tokio::test]

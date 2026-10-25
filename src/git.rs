@@ -21,16 +21,37 @@ pub async fn calls_during<T>(work: impl Future<Output = T>) -> (usize, T) {
 }
 
 pub async fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
-    #[cfg(test)]
-    let _ = CALLS.try_with(|n| n.set(n.get() + 1));
-    let out = command(dir, wsl::of(dir).as_ref(), args)
-        .output()
-        .await
-        .map_err(|e| format!("git을 실행하지 못했다: {e}"))?;
+    let out = output(dir, args).await?;
     if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
+        return Err(failure(&out));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+pub async fn holds(dir: &Path, args: &[&str]) -> Result<bool, String> {
+    let out = output(dir, args).await?;
+    match out.status.code() {
+        Some(0) => Ok(true),
+        Some(1) if out.stdout.is_empty() && out.stderr.is_empty() => Ok(false),
+        _ => Err(failure(&out)),
+    }
+}
+
+async fn output(dir: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+    #[cfg(test)]
+    let _ = CALLS.try_with(|n| n.set(n.get() + 1));
+    command(dir, wsl::of(dir).as_ref(), args)
+        .output()
+        .await
+        .map_err(|e| format!("git을 실행하지 못했다: {e}"))
+}
+
+fn failure(out: &std::process::Output) -> String {
+    [&out.stderr, &out.stdout]
+        .into_iter()
+        .map(|text| String::from_utf8_lossy(text).trim().to_owned())
+        .find(|text| !text.is_empty())
+        .unwrap_or_else(|| format!("git이 {}로 끝났다", out.status))
 }
 
 fn command(dir: &Path, wsl: Option<&WslPath>, args: &[&str]) -> Command {
@@ -72,7 +93,7 @@ pub async fn clone(url: &str, target: &Path) -> Result<(), String> {
         .await
         .map_err(|e| format!("git을 실행하지 못했다: {e}"))?;
     if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
+        return Err(failure(&out));
     }
     Ok(())
 }
@@ -162,6 +183,34 @@ mod tests {
                 "status"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn a_silent_failure_still_names_the_exit_status() {
+        let dir = tempfile::tempdir().unwrap();
+        test_run(dir.path(), &["init", "-q"]);
+        std::fs::write(dir.path().join("a.txt"), "1").unwrap();
+        test_run(dir.path(), &["add", "a.txt"]);
+        std::fs::write(dir.path().join("a.txt"), "2").unwrap();
+        let err = run(dir.path(), &["diff", "--quiet"]).await.unwrap_err();
+        assert!(err.contains('1'), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn holds_is_false_only_for_a_silent_exit_1() {
+        let dir = tempfile::tempdir().unwrap();
+        test_run(dir.path(), &["init", "-q"]);
+        test_run(dir.path(), &["commit", "-q", "--allow-empty", "-m", "a"]);
+        let first = test_run(dir.path(), &["rev-parse", "HEAD"]);
+        test_run(dir.path(), &["commit", "-q", "--allow-empty", "-m", "b"]);
+        let ancestor = ["merge-base", "--is-ancestor"];
+        let first_then_head = [&ancestor[..], &[first.as_str(), "HEAD"]].concat();
+        let head_then_first = [&ancestor[..], &["HEAD", first.as_str()]].concat();
+        let unknown = [&ancestor[..], &["nope", "HEAD"]].concat();
+        assert_eq!(holds(dir.path(), &first_then_head).await, Ok(true));
+        assert_eq!(holds(dir.path(), &head_then_first).await, Ok(false));
+        let err = holds(dir.path(), &unknown).await.unwrap_err();
+        assert!(err.contains("nope"), "{err}");
     }
 
     #[cfg(unix)]

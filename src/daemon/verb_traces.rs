@@ -7,7 +7,7 @@ use super::commands::{
 };
 use super::nodes::human_typed;
 use super::*;
-use crate::graph::{AgentState, Entry, Round, ShadowCheck, TurnCheck, Who};
+use crate::graph::{AgentState, Entry, Round, TurnCheck};
 use crate::protocol::{AgentId, Judgment};
 
 const UNTRACED: [(&str, &str); 17] = [
@@ -1205,7 +1205,7 @@ impl Fixture {
 }
 
 #[tokio::test]
-async fn mail_handed_by_the_idle_wait_starts_a_turn_that_the_old_busy_misses() {
+async fn mail_handed_by_the_idle_wait_is_a_turn_in_the_old_and_the_new_state() {
     let t = fixture();
     let held = t.held_idle_request(WORKER, "g1").await;
     assert_eq!(t.agent_state(t.worker), Some(AgentState::Listening));
@@ -1222,19 +1222,17 @@ async fn mail_handed_by_the_idle_wait_starts_a_turn_that_the_old_busy_misses() {
     held.await.unwrap();
     assert_eq!(t.agent_state(t.worker), Some(AgentState::Turn));
     let mark = t.mark();
-    assert!(!t.app.busy(t.worker), "the old turn state misses the mail");
-    assert!(!t.app.busy(t.worker));
+    assert!(t.app.busy(t.worker), "the handed mail starts a turn");
+    assert_eq!(t.since(mark), [], "no disagreement");
     assert_eq!(
-        t.since(mark),
-        [Entry::AgentStateDisagreed {
-            node: Who {
-                id: Some(t.worker),
-                name: "worker".into(),
-            },
-            check: ShadowCheck::Busy,
-            old: false,
-            state: AgentState::Turn,
-        }]
+        t.agent_changes(0),
+        [
+            (AgentState::Listening, AgentEvent::WaitOpened),
+            (
+                AgentState::Turn,
+                AgentEvent::WaitClosed { by: IdleEnd::Mail }
+            ),
+        ]
     );
 }
 

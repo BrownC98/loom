@@ -18,7 +18,7 @@ use crate::accounts::{self, Site};
 use crate::graph::{Active, AgentEvent, AgentSwitch, Entry, IdleEnd, NodeId, REDELIVER_AFTER, Who};
 use crate::process_tree::Snapshot;
 use crate::profile::codex::{self, Status};
-use crate::profile::{self, Profile, Start};
+use crate::profile::{self, Profile, Start, claude};
 use crate::protocol::{AgentId, Delivery, Kind, Model, ModelChoice, Provider, Refusal, ServerLink};
 use crate::screen::Screen;
 use crate::settings::SettingsView;
@@ -32,6 +32,8 @@ const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle
      Messages that came for you arrive next.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
+const HOOK_COMMAND: &str = "loom hook";
+const STOPPED_LINE_CHARS: usize = 200;
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
 const CODEX_ROLLOUT_DEPTH: usize = 5;
 
@@ -254,6 +256,27 @@ impl App {
         self.idle.in_turn(node)
     }
 
+    fn turn_running(&self, node: &Active) -> bool {
+        self.busy(node.id) || (!self.idle.waiting(node.id) && self.claude_turn_open(node))
+    }
+
+    fn claude_turn_open(&self, node: &Active) -> bool {
+        self.claude_transcript(node)
+            .is_some_and(|path| !claude::turn_ended(&path))
+    }
+
+    fn claude_transcript(&self, node: &Active) -> Option<PathBuf> {
+        if profile_of(node) != Some(Profile::Claude) {
+            return None;
+        }
+        let place = self.graph.place_of(node.id).ok()?;
+        let path = crate::wsl::from_node(
+            PathBuf::from(node.transcript.as_ref()?),
+            Path::new(&place.worktree),
+        );
+        path.is_file().then_some(path)
+    }
+
     pub(super) async fn relaunch_by_id(
         self: &Arc<Self>,
         id: NodeId,
@@ -379,7 +402,7 @@ impl App {
                     Phase::Running => Relaunched::Now,
                 });
             } else {
-                let phase = match self.busy(node.id) {
+                let phase = match self.turn_running(&node) {
                     true => Phase::AtTurnEnd,
                     false => Phase::Running,
                 };
@@ -646,32 +669,7 @@ impl App {
                 _ => return Err("이어 갈 OpenCode 2 세션이 없다".into()),
             },
         };
-        let limited = self.relaunches.limited.lock().unwrap().contains(&node.id);
-        let first = match (limited, profile) {
-            (true, _) => Some(CONTINUE_PROMPT.to_owned()),
-            (false, Profile::Cursor | Profile::Pi | Profile::Omp) => {
-                Some(profile::RESUMED_PROMPT.to_owned())
-            }
-            (false, _) => None,
-        };
-        let stopped = match profile {
-            Profile::Claude => 0,
-            Profile::Codex | Profile::Cursor | Profile::OpenCode2 | Profile::Pi | Profile::Omp => {
-                let snapshot = Snapshot::now();
-                let loom = format!("loom{}", std::env::consts::EXE_SUFFIX);
-                let shells = self.background_shells(&snapshot, &node);
-                shells
-                    .into_iter()
-                    .filter(|&s| !snapshot.runs(s, &loom))
-                    .count()
-            }
-        };
-        let stopped = (stopped > 0).then(|| stopped_notice(stopped));
-        let brief = first
-            .into_iter()
-            .chain(stopped)
-            .collect::<Vec<_>>()
-            .join("\n");
+        let brief = self.resumed_brief(&node, profile);
         let prepared = self
             .prepare_resumed(&node, &agent, profile, &resume, brief)
             .await?;
@@ -980,6 +978,32 @@ impl App {
         })
     }
 
+    fn resumed_brief(&self, node: &Active, profile: Profile) -> String {
+        let limited = self.relaunches.limited.lock().unwrap().contains(&node.id);
+        let first = match (limited, profile) {
+            (true, _) => Some(CONTINUE_PROMPT),
+            (false, Profile::Cursor | Profile::Pi | Profile::Omp) => Some(profile::RESUMED_PROMPT),
+            (false, _) => None,
+        };
+        let stopped = self.background_commands(&Snapshot::now(), node);
+        let stopped = (!stopped.is_empty()).then(|| stopped_notice(&stopped));
+        first
+            .map(str::to_owned)
+            .into_iter()
+            .chain(stopped)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn background_commands(&self, snapshot: &Snapshot, node: &Active) -> Vec<String> {
+        self.background_shells(snapshot, node)
+            .into_iter()
+            .map(|shell| snapshot.command_lines(shell))
+            .filter(|lines| !lines.first().is_some_and(|shell| runs_hook(shell)))
+            .filter_map(|lines| lines.get(1).or(lines.first()).map(|line| shown(line)))
+            .collect()
+    }
+
     pub(super) fn background_shells(&self, snapshot: &Snapshot, node: &Active) -> Vec<u32> {
         let server = match &node.server {
             Some(ServerLink::Codex { pid, .. } | ServerLink::OpenCode2 { pid, .. }) => *pid,
@@ -1047,10 +1071,22 @@ fn handoff(from: &AgentId, role: Option<&str>, record: Option<&str>) -> String {
     )
 }
 
-fn stopped_notice(count: usize) -> String {
+fn stopped_notice(commands: &[String]) -> String {
+    let list: String = commands.iter().map(|c| format!("\n- {c}")).collect();
     format!(
-        "loom relaunched your process and stopped {count} background command(s) that you started before. Start them again if you still need them."
+        "loom relaunched your process and stopped these background commands that you started before:{list}\nStart them again if you still need them."
     )
+}
+
+fn runs_hook(shell: &str) -> bool {
+    shell.trim_end_matches('"').ends_with(HOOK_COMMAND)
+}
+
+fn shown(line: &str) -> String {
+    match line.char_indices().nth(STOPPED_LINE_CHARS) {
+        Some((end, _)) => format!("{}…", &line[..end]),
+        None => line.to_owned(),
+    }
 }
 
 fn pi_session(node: &Active) -> Result<String, &'static str> {
@@ -1267,6 +1303,89 @@ mod tests {
             [Some("이어 갈 Pi·OMP 세션 기록이 없다".to_owned())]
         );
         assert!(!app.relaunches.holds_mail(node));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_claude_relaunch_names_the_stopped_commands_and_does_not_continue_a_stopped_turn() {
+        let (dir, app) = app();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        crate::fake_exe::write_executable(&bin.join("loom"), "#!/bin/sh\nsleep 30\n");
+        let place = Place {
+            repo: RepoId(1),
+            worktree: "/repo".into(),
+        };
+        let launched = Launched {
+            token: "t".into(),
+            server: None,
+            account: None,
+            rules: None,
+        };
+        let id = app
+            .graph
+            .add_root(
+                &place,
+                Some(AgentId("claude".into())),
+                None,
+                &launched,
+                |_| Ok(()),
+            )
+            .unwrap();
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args([
+            "-c",
+            "setsid sleep 37 & PATH=\"$BIN:$PATH\" setsid sh -c 'loom hook' & exec sleep 60",
+        ]);
+        cmd.env("BIN", &bin);
+        crate::node_host::in_process(&dir.path().join("pty").join("nodes"), id, cmd);
+        app.host.resume(id, |_| {}).unwrap();
+        let transcript = dir.path().join("s.jsonl");
+        std::fs::write(
+            &transcript,
+            "{\"type\":\"assistant\"}\n{\"type\":\"system\",\"subtype\":\"turn_duration\"}\n",
+        )
+        .unwrap();
+        app.graph
+            .set_transcript(id, transcript.to_str().unwrap())
+            .unwrap();
+        let node = app.graph.active().unwrap().pop().unwrap();
+        for _ in 0..250 {
+            if app.background_shells(&Snapshot::now(), &node).len() == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            app.background_commands(&Snapshot::now(), &node),
+            ["sleep 37"]
+        );
+        let ended = app.resumed_brief(&node, Profile::Claude);
+        assert_eq!(
+            ended,
+            "loom relaunched your process and stopped these background commands that you started before:\n- sleep 37\nStart them again if you still need them."
+        );
+        std::fs::write(
+            &transcript,
+            "{\"type\":\"user\",\"message\":{\"content\":\"[Request interrupted by user]\"}}\n",
+        )
+        .unwrap();
+        for age in [Duration::ZERO, Duration::from_secs(3600)] {
+            std::fs::File::options()
+                .write(true)
+                .open(&transcript)
+                .unwrap()
+                .set_modified(std::time::SystemTime::now() - age)
+                .unwrap();
+            assert_eq!(
+                app.resumed_brief(&node, Profile::Claude),
+                ended,
+                "a session the human stopped does not continue its task"
+            );
+        }
+        let snapshot = Snapshot::now();
+        snapshot.kill_trees(app.background_shells(&snapshot, &node));
+        app.host.kill(id);
     }
 
     #[test]

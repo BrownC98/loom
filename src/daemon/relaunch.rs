@@ -1216,7 +1216,7 @@ mod tests {
         assert!(queued.is_err(), "{queued:?}");
         assert_eq!(
             relaunch_errors(&app),
-            [Some("이어 갈 Pi 세션 기록이 없다".to_owned())]
+            [Some("이어 갈 Pi·OMP 세션 기록이 없다".to_owned())]
         );
         assert!(!app.relaunches.holds_mail(node));
         app.relaunches
@@ -1246,7 +1246,7 @@ mod tests {
         assert!(now.is_err(), "{now:?}");
         assert_eq!(
             relaunch_errors(&app),
-            [Some("이어 갈 Pi 세션 기록이 없다".to_owned())]
+            [Some("이어 갈 Pi·OMP 세션 기록이 없다".to_owned())]
         );
         assert!(!app.relaunches.holds_mail(node));
     }

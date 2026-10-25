@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ko" style="color-scheme: light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>앱 새 판 푸시 알림</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --bg: light-dark(oklch(97% 0 0), oklch(20.5% 0 0));
+  --panel: light-dark(oklch(98.5% 0 0), oklch(23.5% 0 0));
+  --surface: light-dark(oklch(100% 0 0), oklch(26.9% 0 0));
+  --surface-hover: light-dark(oklch(93.7% 0 0), oklch(32.9% 0 0));
+  --line: light-dark(oklch(92.2% 0 0), oklch(33% 0 0));
+  --line-strong: light-dark(oklch(87% 0 0), oklch(40% 0 0));
+  --ink: light-dark(oklch(20.5% 0 0), oklch(98.5% 0 0));
+  --ink-2: light-dark(oklch(37.1% 0 0), oklch(80% 0 0));
+  --ink-3: light-dark(oklch(50% 0 0), oklch(70.9% 0 0));
+  --accent: light-dark(oklch(20.5% 0 0), oklch(92.2% 0 0));
+  --accent-wash: light-dark(oklch(20.5% 0 0 / 0.07), oklch(92.2% 0 0 / 0.12));
+  --warn: light-dark(oklch(54% 0.12 87), oklch(80% 0.15 87));
+  --err: light-dark(oklch(55% 0.2 27), oklch(70% 0.17 25));
+  --font: 'Pretendard', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; }
+html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+button { font: inherit; color: inherit; }
+.doc { width: 1440px; margin: 0 auto; padding: 32px 40px 64px; display: grid; gap: 28px; }
+.who { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); }
+.who b { color: var(--ink); }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+h2 .tag { font: 12px var(--mono); color: var(--ink-3); }
+.lead { color: var(--ink-2); max-width: 900px; }
+.fig { display: grid; gap: 10px; }
+.note { font-size: 13px; color: var(--ink-2); max-width: 880px; }
+.note li { margin-left: 18px; }
+
+.pane { width: 700px; padding: 18px 22px; background: var(--panel); border-radius: 12px; display: grid; gap: 18px; }
+.pane section { display: grid; gap: 8px; }
+.pane section > h4 { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+.pane code { font-family: var(--mono); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn.ghost { border-color: transparent; background: none; color: var(--ink-2); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hint { font-size: 12px; color: var(--ink-3); }
+.rows { border: 1px solid var(--line); border-radius: var(--radius); }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px auto; align-items: center; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.acct-row:last-child { border-bottom: 0; }
+.acct-row[aria-current="true"] { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+.row-main { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.row-main .name { font-weight: 600; }
+.row-main .meta { flex-basis: 100%; font: 12px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-actions { display: flex; gap: 4px; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--accent-wash); color: var(--accent); }
+.badge.warn { background: color-mix(in oklch, var(--warn) 14%, transparent); color: var(--warn); }
+.win { display: grid; grid-template-columns: 64px minmax(0, 1fr) 44px auto; gap: 6px 8px; }
+.win > :not(.win-line) { grid-column: 1 / -1; }
+.win-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; font-size: 12px; color: var(--ink-2); }
+.meter { display: block; height: 6px; border-radius: 3px; background: var(--surface-hover); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.pct { font-family: var(--mono); text-align: right; }
+.left { white-space: nowrap; font-family: var(--mono); color: var(--ink-3); }
+
+.confirm { width: 420px; padding: 16px; background: var(--surface); border-radius: 10px; border: 1px solid var(--line); display: grid; gap: 12px; font-size: 13px; }
+.confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.login { width: 700px; padding: 14px; background: var(--surface); border-radius: 10px; display: grid; gap: 10px; }
+.login h3 { display: flex; align-items: center; font-size: 14px; }
+.login h3 .spacer { flex: 1; }
+.term { background: oklch(16% 0 0); color: oklch(90% 0 0); font: 12px/1.5 var(--mono); padding: 10px 12px; border-radius: 6px; white-space: pre; height: 150px; }
+.term .dim { color: oklch(65% 0 0); }
+.theme-toggle { position: fixed; top: 16px; right: 16px; height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.flow { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); flex-wrap: wrap; }
+.flow span { padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); color: var(--ink); }
+table.decide { border-collapse: collapse; font-size: 13px; max-width: 1200px; }
+table.decide th, table.decide td { border-bottom: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+table.decide th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+table.decide tr.rec td { background: var(--accent-wash); }
+.page { display: flex; gap: 48px; align-items: flex-start; width: max-content; padding: 8px; }
+.shot { display: grid; gap: 8px; justify-items: start; }
+.cap { font-size: 13px; color: var(--ink-3); }
+.phone { width: 360px; height: 600px; border: 1px solid var(--line-strong); border-radius: 18px; overflow: hidden; display: grid; grid-template-rows: 28px auto 52px 1fr 56px; background: var(--bg); position: relative; }
+.os { display: flex; justify-content: space-between; align-items: center; padding: 0 16px; font-size: 12px; color: var(--ink-2); background: var(--panel); }
+.ptop { display: flex; align-items: center; padding: 0 14px 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.ptop b { flex: 1; font-size: 16px; }
+.icon { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; border-radius: 10px; }
+.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.pbody { padding: 12px; color: var(--ink-3); font-size: 13px; display: grid; gap: 8px; align-content: start; }
+.ghost { height: 44px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); }
+.ptabs { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); background: var(--panel); font-size: 12px; place-items: center; }
+.banner { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 4px 0 14px; background: var(--surface); border-bottom: 1px solid var(--line-strong); font-size: 13px; }
+.banner .txt { flex: 1; min-width: 0; display: grid; line-height: 1.3; }
+.banner .txt b { justify-self: start; font-size: 14px; }
+.banner .txt > span:not(.mk) { font-size: 12px; color: var(--ink-3); }
+.banner .meter { margin-top: 4px; }
+.pbtn { height: 36px; padding: 0 12px; border-radius: 6px; border: 0; background: var(--accent); color: var(--bg); font-size: 13px; font-weight: 600; }
+.ib { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; color: var(--ink-2); }
+.scrim { position: absolute; inset: 0; background: oklch(0% 0 0 / 0.35); display: grid; align-items: end; }
+.scrim.mid { align-items: center; justify-items: center; }
+.sheet { background: var(--surface); border-radius: 16px 16px 0 0; padding: 8px 16px 16px; display: grid; gap: 4px; }
+.grip { justify-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.sheet h3 { font-size: 16px; padding: 6px 0; }
+.sheet h4 { font-size: 12px; color: var(--ink-3); font-weight: 600; padding: 8px 12px 2px; }
+.row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 12px; border-radius: 10px; }
+.row[aria-checked="true"] { background: var(--accent-wash); font-weight: 600; }
+.row .ck { margin-left: auto; }
+.row .two { flex: 1; display: grid; line-height: 1.35; padding: 6px 0; }
+.row .two small { font-size: 12px; color: var(--ink-3); }
+.row .two small.w { color: var(--warn); }
+.tg { flex: none; width: 40px; height: 24px; border-radius: 12px; background: var(--line-strong); position: relative; }
+.tg::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); }
+.tg.on { background: var(--accent); }
+.tg.on::after { left: 19px; background: var(--bg); }
+.shade { grid-row: 2 / -1; background: oklch(25% 0 0); padding: 14px 16px; display: grid; gap: 12px; align-content: start; color: oklch(95% 0 0); }
+.clock { font-size: 34px; font-weight: 300; padding: 6px 8px 10px; }
+.noti { display: grid; grid-template-columns: 28px 1fr; gap: 4px 10px; padding: 12px; border-radius: 18px; background: oklch(96% 0 0); color: oklch(20% 0 0); }
+.noti .app { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; font-size: 12px; color: oklch(45% 0 0); }
+.lm { width: 18px; height: 18px; border-radius: 5px; background: oklch(20.5% 0 0); color: oklch(98% 0 0); font: 700 11px/18px var(--mono); text-align: center; }
+.noti .lm { grid-row: 2 / span 2; width: 28px; height: 28px; line-height: 28px; font-size: 14px; border-radius: 8px; }
+.noti b { font-size: 14px; }
+.noti span.body { grid-column: 2; font-size: 13px; color: oklch(35% 0 0); }
+.noti.dim { opacity: 0.55; }
+.sys { width: 300px; background: var(--surface); border-radius: 24px; padding: 22px; display: grid; gap: 14px; justify-items: center; text-align: center; }
+.sys .bell { width: 28px; height: 28px; stroke: var(--ink-2); }
+.sys p { font-size: 16px; }
+.sys .acts { display: grid; gap: 8px; width: 100%; }
+.sys .acts span { height: 40px; border-radius: 20px; display: grid; place-items: center; background: var(--accent-wash); font-weight: 600; font-size: 14px; }
+.fig { position: relative; }
+.co { position: absolute; z-index: 63; max-width: 250px; display: flex; gap: 6px; align-items: flex-start; background: #fff; color: #171B22; border: 1.5px solid #D14343; border-radius: 6px; padding: 4px 8px 4px 5px; font: 12px/1.45 var(--font); box-shadow: 0 2px 8px rgb(0 0 0 / .18); }
+.co b { flex: none; width: 18px; height: 18px; border-radius: 50%; background: #D14343; color: #fff; font-size: 11px; display: grid; place-items: center; margin-top: 1px; }
+.shotwrap { position: relative; justify-self: start; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; }
+.doc { width: auto; max-width: 1440px; }
+.doc > *, .fig > * { min-width: 0; }
+.flow, table.dec { width: auto; max-width: 1200px; }
+.fig > .xlwin { margin-bottom: 8px; }
+.lead-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 61; }
+.ov-box { position: absolute; box-sizing: border-box; border: 2px solid #D14343; border-radius: 6px; pointer-events: none; z-index: 60; }
+.ov-box.new { border-style: dashed; }
+.ov-badge { position: absolute; z-index: 62; width: 22px; height: 22px; border-radius: 50%; background: #D14343; color: #fff; font: 700 12px/22px var(--font); text-align: center; pointer-events: none; }
+.lead-svg polyline { fill: none; stroke: #D14343; stroke-width: 1.5; }
+.lead-svg circle { fill: #D14343; }
+.shotwrap .mk { position: absolute; }
+</style></head>
+<body data-ui=".icon, .ib, .pbtn, .tg, .sys .acts span">
+<main class="doc">
+  <div class="who"><span>응답할 곳: <b>총괄 · loom 총괄</b></span><span>연 담당: <b>코디 · 코디 앱버전푸시</b></span><span>v1 · 2026-10-25</span></div>
+  <h1>앱 새 판 푸시 알림과 켜기·끄기</h1>
+  <p class="lead">사람 지시: 「앱버전 알림은 푸시 알림으로 구현해줘, on off 옵션 제공할」. 지금은 앱을 열 때만 화면 위 띠로 새 판을 알립니다(M3). 바꾼 뒤에는 앱을 닫아 두어도 폰이 6시간마다 새 판을 확인하고 Android 알림으로 알립니다. 위 막대의 설정 판에서 알림을 끌 수 있습니다. 점선이 새 것입니다.</p>
+  <div class="flow"><span>GitHub에 새 판</span>→<span>폰이 6시간마다 확인(앱을 닫아도)</span>→<span>Android 알림</span>→<span>누르면 앱이 열리고 받기 시작</span>→<span>Android 설치 화면</span></div>
+
+  <div class="fig"><h2>① 새 판이 나오면 <span class="tag">알림 켬(기본)</span></h2>
+    <div class="page">
+      <div class="shot"><span class="cap">알림판</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div>
+          <div class="shade"><div class="clock">9:41</div>
+            <span class="mk new" data-n="1"><div class="noti"><span class="app"><span class="lm">L</span>loom · 지금</span><span class="lm">L</span><b>앱 새 판 0.2.8</b><span class="body">지금 0.2.7 · 눌러서 업데이트합니다</span></div></span>
+            <div class="noti dim"><span class="app">메시지 · 12분 전</span><span class="lm">M</span><b>　</b><span class="body">　</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="shot"><span class="cap">알림을 누른 뒤</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div>
+          <div class="banner"><span class="txt"><b class="mk" data-n="2">업데이트 0.2.8 받는 중… 12%</b><span class="meter"><i style="width:12%"></i></span></span></div>
+          <div class="ptop"><b>노드</b><button class="icon" aria-label="설정"><svg class="i" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+          <div class="pbody"><div class="ghost"></div><div class="ghost"></div><div class="ghost"></div></div>
+          <div class="ptabs"><span>노드</span><span>알림</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="calls"><div><b>1</b><span>새 판마다 한 번 알립니다. 같은 판을 다시 알리지 않습니다.</span></div><div><b>2</b><span>누르면 앱이 열리고 바로 받습니다. 받은 뒤 Android 설치 화면이 열립니다(지금과 같음).</span></div></div>
+  </div>
+
+  <div class="fig"><h2>② 설정 <span class="tag">노드·알림 탭 위 막대</span></h2>
+    <div class="page">
+      <div class="shot"><span class="cap">위 막대</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div><div></div>
+          <div class="ptop"><b>노드</b><span class="mk new" data-n="1"><button class="icon" aria-label="설정"><svg class="i" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button></span></div>
+          <div class="pbody"><div class="ghost"></div><div class="ghost"></div><div class="ghost"></div></div>
+          <div class="ptabs"><span>노드</span><span>알림</span></div>
+        </div>
+      </div>
+      <div class="shot"><span class="cap">단추를 누르면</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div><div></div>
+          <div class="ptop"><b>노드</b></div>
+          <div class="pbody"></div>
+          <div class="ptabs"><span>노드</span><span>알림</span></div>
+          <div class="scrim"><div class="sheet"><span class="grip"></span><h3>설정</h3>
+            <h4>테마</h4>
+            <div class="row" aria-checked="true">시스템 설정 따름<svg class="i ck" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+            <div class="row">라이트</div>
+            <div class="row">다크</div>
+            <h4>알림</h4>
+            <span class="mk new" data-n="2"><div class="row"><span class="two">새 앱 판 알림<small>새 판이 나오면 Android 알림으로 알립니다</small></span><span class="tg on" role="switch" aria-checked="true"></span></div></span>
+          </div></div>
+        </div>
+      </div>
+    </div>
+    <div class="calls"><div><b>1</b><span>테마 단추 자리에 설정 단추를 둡니다. 테마 고르기는 설정 판으로 옮깁니다.</span></div><div><b>2</b><span>기본은 켬입니다. 폰에 저장하므로 앱을 다시 열어도, 다른 PC에 이어도 남습니다.</span></div></div>
+  </div>
+
+  <div class="fig"><h2>③ Android 알림 허용 <span class="tag">Android 13 이상</span></h2>
+    <div class="page">
+      <div class="shot"><span class="cap">이 판을 깔고 앱을 처음 열 때 한 번</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div><div></div>
+          <div class="ptop"><b>노드</b></div>
+          <div class="pbody"></div>
+          <div class="ptabs"><span>노드</span><span>알림</span></div>
+          <div class="scrim mid"><span class="mk new" data-n="1"><div class="sys"><svg class="i bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><p><b>loom</b>에서 알림을 보내도록 허용하시겠습니까?</p><div class="acts"><span>허용</span><span>허용 안함</span></div></div></span></div>
+        </div>
+      </div>
+      <div class="shot"><span class="cap">허용하지 않았으면</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div><div></div>
+          <div class="ptop"><b>노드</b></div>
+          <div class="pbody"></div>
+          <div class="ptabs"><span>노드</span><span>알림</span></div>
+          <div class="scrim"><div class="sheet"><span class="grip"></span><h3>설정</h3>
+            <h4>테마</h4>
+            <div class="row" aria-checked="true">시스템 설정 따름<svg class="i ck" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+            <div class="row">라이트</div>
+            <div class="row">다크</div>
+            <h4>알림</h4>
+            <span class="mk new" data-n="2"><div class="row"><span class="two">새 앱 판 알림<small class="w">Android에서 loom 알림이 꺼져 있습니다</small></span><span class="tg" role="switch" aria-checked="false"></span></div></span>
+          </div></div>
+        </div>
+      </div>
+    </div>
+    <div class="calls"><div><b>1</b><span>Android가 그리는 창입니다. 문구는 폰마다 조금 다릅니다.</span></div><div><b>2</b><span>스위치를 켜면 Android 알림 설정 화면을 엽니다. 허용하고 돌아오면 켜집니다.</span></div></div>
+  </div>
+
+  <div class="fig"><h2>④ 알림을 끄면 <span class="tag">지금과 같음</span></h2>
+    <div class="page">
+      <div class="shot"><span class="cap">앱을 열 때</span>
+        <div class="phone"><div class="os"><span>9:41</span><span>LTE</span></div>
+          <div class="banner"><span class="txt mk" data-n="1"><b>업데이트 0.2.8</b><span>지금 0.2.7</span></span><button class="pbtn">업데이트</button><button class="ib" aria-label="닫기"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+          <div class="ptop"><b>노드</b></div>
+          <div class="pbody"><div class="ghost"></div><div class="ghost"></div><div class="ghost"></div></div>
+          <div class="ptabs"><span>노드</span><span>알림</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="calls"><div><b>1</b><span>끄면 Android 알림은 오지 않습니다. 앱을 열 때만 지금처럼 위 띠로 알립니다.</span></div></div>
+  </div>
+
+  <div class="fig">
+    <h2>승인할 것</h2>
+    <table class="decide">
+      <tr><th>정할 것</th><th>권장</th><th>사람이 보는 것(지금 → 바꾼 뒤)</th><th>비용·준비</th><th>위험 · 되돌리기</th></tr>
+      <tr class="rec"><td>알림 방식</td><td><b>A. 폰이 직접 확인</b>: Android 작업 예약(JobScheduler)으로 6시간마다 GitHub <code>latest.json</code>을 보고 폰 안에서 알림을 냅니다</td><td>앱을 열어야 띠 → 앱을 닫아도 6시간 안에 알림(추정: 절전 모드면 더 늦음)</td><td>계정·키 없음. 6시간에 요청 1번(작은 JSON). 새 라이브러리 없음</td><td>새 판이 나온 뒤 몇 시간 늦게 알 수 있음. 되돌리기: 커밋 되돌리기</td></tr>
+      <tr><td></td><td>B. Firebase(FCM)</td><td>릴리스 몇 분 뒤 알림</td><td>Firebase 프로젝트, <code>google-services.json</code>, release.yml에 서버 키 비밀값</td><td>키 관리, Google Play 서비스가 없는 폰에서 안 옴. 버리는 이유: 몇 시간 차이에 비해 준비와 키가 큽니다</td></tr>
+      <tr><td></td><td>C. PC 데몬 연결로 보냄</td><td>PC가 켜져 있을 때만 알림</td><td>앱이 늘 연결을 잡는 전경 서비스, 상단에 늘 아이콘</td><td>배터리 소모, 새 판은 PC가 아니라 GitHub에서 옴. 버리는 이유: 비용이 크고 PC가 꺼지면 안 옴</td></tr>
+      <tr><td></td><td>D. 지금 그대로</td><td>앱을 열 때만 띠</td><td>없음</td><td>사람 요청을 채우지 못함</td></tr>
+      <tr class="rec"><td>켜기·끄기 자리</td><td>②의 설정 판(테마와 함께)</td><td>위 막대 테마 단추 → 설정 단추, 판에 테마와 알림</td><td>단추 하나 그대로</td><td>다른 안: Android 앱 알림 설정에만 둠(앱 안 스위치 없음). 버리는 이유: 사람이 앱 안 옵션을 요청함</td></tr>
+      <tr class="rec"><td>기본값</td><td>켬, 처음 열 때 한 번 허용을 묻습니다(③)</td><td>업데이트 뒤 첫 실행에 Android 허용 창 한 번</td><td>없음</td><td>다른 안: 끔으로 시작. 버리는 이유: 사람이 켜기 전까지 지금과 같음</td></tr>
+      <tr class="rec"><td>켰을 때 앱 안 띠</td><td>새 판 띠는 보이지 않고 알림만 냅니다. 받는 중·설치 띠는 그대로입니다</td><td>앱을 열면 띠 → 알림판에 알림</td><td>없음</td><td>다른 안: 띠와 알림을 함께. 버리는 이유: 같은 알림이 두 번 보입니다</td></tr>
+    </table>
+  </div>
+</main>
+<button type="button" class="theme-toggle" onclick="const h=document.documentElement;const dark=h.style.colorScheme==='dark';h.style.colorScheme=dark?'light':'dark';this.textContent=dark?'다크로 보기':'라이트로 보기';">다크로 보기</button>
+<script>
+(() => {
+  const GUT = 290;
+  const fit = fig => {
+    const room = fig.clientWidth - GUT;
+    for (const e of fig.querySelectorAll('.page, .shotwrap')) e.style.zoom = Math.min(0.8, room / (e.matches('.shotwrap') ? 1394 : 1360));
+    for (const e of fig.querySelectorAll('.xlwin')) { e.style.zoom = 1; e.style.zoom = Math.min(1, room / e.offsetWidth); }
+  };
+  const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  const inside = (a, b) => a.l >= b.l && a.r <= b.r && a.t >= b.t && a.b <= b.b;
+  const grow = (r, d) => ({ l: r.l - d, t: r.t - d, r: r.r + d, b: r.b + d });
+  const cross = (x1, y1, x2, y2, r) => {
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r.l], [dx, r.r - x1], [-dy, y1 - r.t], [dy, r.b - y1]]) {
+      if (p === 0) { if (q < 0) return false; continue; }
+      const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    }
+    return true;
+  };
+  const UI = ['img, svg, button, input, select, textarea', document.body.dataset.ui].filter(Boolean).join(', ');
+  const uiRects = (fig, rel) => {
+    const out = [];
+    for (const r of [...fig.children].filter(e => !e.matches('.co, .lead-svg, .calls'))) {
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const g = document.createRange(); g.selectNodeContents(n);
+        for (const q of g.getClientRects()) if (q.width && q.height) out.push(Object.assign(rel(q), { txt: 1 }));
+      }
+      for (const e of r.querySelectorAll(UI)) out.push(rel(e.getBoundingClientRect()));
+    }
+    return out;
+  };
+  const layout = () => { for (const fig of document.querySelectorAll('.fig')) {
+    const src = fig.querySelector(':scope > .calls'); if (!src) { fit(fig); continue; }
+    fig.style.paddingBottom = ''; const base = parseFloat(getComputedStyle(fig).paddingBottom);
+    for (let x = 80; place(fig, src) && x <= 1200; x += 80) fig.style.paddingBottom = base + x + 'px';
+  } };
+  const place = (fig, src) => {
+    fig.querySelectorAll(':scope > .co, :scope > .lead-svg, :scope > .ov-box, :scope > .ov-badge').forEach(e => e.remove());
+    fit(fig);
+    const texts = [...src.querySelectorAll(':scope > div > span')].map(s => s.innerHTML);
+    src.style.display = 'none';
+    const F = fig.getBoundingClientRect();
+    const rel = r => ({ l: r.left - F.left, t: r.top - F.top, r: r.right - F.left, b: r.bottom - F.top });
+    const marks = [...fig.querySelectorAll('.mk[data-n]')];
+    const clip = (g, e) => { if (!e || !fig.contains(e)) return g; const z = grow(rel(e.getBoundingClientRect()), -1); return { l: Math.max(g.l, z.l), t: Math.max(g.t, z.t), r: Math.min(g.r, z.r), b: Math.min(g.b, z.b) }; };
+    const outl = marks.map(m => { const r = rel(m.getBoundingClientRect()), frame = m.closest('.page, .xlwin, .shotwrap');
+      if (m.matches('td, th')) return clip(grow(r, -1), frame);
+      if (m.matches('.shotwrap .mk')) return r;
+      return clip(clip(grow(r, 5), m.parentElement.closest('td, th')), frame); });
+    const ui = uiRects(fig, rel);
+    const badges = [];
+    marks.forEach((m, i) => {
+      const o = outl[i], bx = document.createElement('div'); bx.className = 'ov-box' + (m.classList.contains('new') ? ' new' : ''); bx.dataset.n = m.dataset.n;
+      Object.assign(bx.style, { left: o.l + 'px', top: o.t + 'px', width: o.r - o.l + 'px', height: o.b - o.t + 'px' }); fig.appendChild(bx);
+      const spots = [[o.l, o.t], [o.r, o.t], [o.l, o.b], [o.r, o.b], [(o.l + o.r) / 2, o.t - 11], [(o.l + o.r) / 2, o.b + 11], [o.l - 11, o.t + 11], [o.r + 11, o.t + 11]].map(([x, y]) => ({ l: x - 11, t: y - 11, r: x + 11, b: y + 11 }));
+      const ocx = (o.l + o.r) / 2, ocy = (o.t + o.b) / 2, cont = u => !u.txt && u.l <= ocx && ocx <= u.r && u.t <= ocy && ocy <= u.b;
+      const area = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+      const cost = r => (r.l < 0 || r.t < 0 || r.r > F.width ? 1e9 : 0) + ui.reduce((s, u) => s + (cont(u) ? 0 : area(r, u)), 0) + badges.reduce((s, u) => s + 10 * area(grow(r, 2), u), 0)
+        + outl.reduce((s, u, j) => s + (j !== i && hit(r, u) && !(u.l <= r.l && r.r <= u.r && u.t <= r.t && r.b <= u.b) ? 50 : 0), 0);
+      const sp = spots.reduce((a, r) => (cost(r) < cost(a) ? r : a)); badges.push(sp);
+      const bd = document.createElement('div'); bd.className = 'ov-badge'; bd.dataset.n = bd.textContent = m.dataset.n;
+      Object.assign(bd.style, { left: sp.l + 'px', top: sp.t + 'px' }); fig.appendChild(bd);
+    });
+    const boxes = outl;
+    const frames = [...fig.querySelectorAll('.page, .xlwin, .shotwrap')];
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'lead-svg');
+    svg.setAttribute('width', F.width); svg.setAttribute('height', F.height); fig.appendChild(svg);
+    const attempt = order => {
+    fig.querySelectorAll(':scope > .co').forEach(e => e.remove()); svg.replaceChildren();
+    const placed = [], segs = [], seen = new Set(), pad = 4; let fails = 0, longest = 0;
+    order.forEach(i => { const m = marks[i];
+      const n = +m.dataset.n; if (seen.has(n) || !texts[n - 1]) return; seen.add(n);
+      const co = document.createElement('div'); co.className = 'co'; co.dataset.n = n; co.innerHTML = `<b>${n}</b><span>${texts[n - 1]}</span>`;
+      Object.assign(co.style, { left: '0px', top: '0px', boxSizing: 'border-box' }); fig.appendChild(co);
+      const own = m.closest('.page, .xlwin, .shotwrap');
+      const other = frames.filter(e => e !== own).map(e => rel(e.getBoundingClientRect()));
+      const k = outl[i];
+      const cx = (k.l + k.r) / 2, cy = (k.t + k.b) / 2, holds = o => o.l <= cx && cx <= o.r && o.t <= cy && cy <= o.b;
+      const lineObs = ui.filter(o => !inside(o, k) && !holds(o)).concat(outl.filter((o, j) => j !== i && !holds(o)), badges.filter(b => !hit(b, grow(k, 1))), other);
+      const bubObs = ui.concat(boxes, badges);
+      const segFree = (x1, y1, x2, y2) => { const d = Math.hypot(x2 - x1, y2 - y1); if (d < 3) return true;
+        const ux = (x2 - x1) / d, uy = (y2 - y1) / d; return ![...lineObs, ...placed].some(o => cross(x1 + ux * 2, y1 + uy * 2, x2 - ux * 2, y2 - uy * 2, o)); };
+      const plen = p => p.reduce((s, q, z) => z ? s + Math.hypot(q[0] - p[z - 1][0], q[1] - p[z - 1][1]) : 0, 0);
+      const route = c => {
+        const x1 = Math.min(Math.max((c.l + c.r) / 2, k.l), k.r), y1 = Math.min(Math.max((c.t + c.b) / 2, k.t), k.b);
+        const st = [[x1, y1], [Math.min(Math.max(x1, c.l), c.r), Math.min(Math.max(y1, c.t), c.b)]];
+        if (segFree(...st[0], ...st[1])) return st;
+        let line = null;
+        for (const [a, b] of [[k.l, k.t, k.r, k.t], [k.l, k.b, k.r, k.b], [k.l, k.t, k.l, k.b], [k.r, k.t, k.r, k.b]].flatMap(([xa, ya, xb, yb]) => { const L = Math.hypot(xb - xa, yb - ya), m = Math.max(1, Math.round(L / 8)); return Array.from({ length: m + 1 }, (_, z) => [xa + (xb - xa) * z / m, ya + (yb - ya) * z / m]); })) {
+          const p = [[a, b], [Math.min(Math.max(a, c.l), c.r), Math.min(Math.max(b, c.t), c.b)]];
+          if ((!line || plen(p) < plen(line)) && segFree(...p[0], ...p[1])) line = p;
+        }
+        if (line) return line;
+        const yc = c.t + 12, side = c.l >= k.r ? c.l : c.r <= k.l ? c.r : null; if (side === null) return null;
+        if (yc >= k.t && yc <= k.b) return null;
+        const ye = yc < k.t ? k.t : k.b; let best = null;
+        for (let xv = k.l + 6; xv <= k.r - 6; xv += 10) {
+          const p = [[xv, ye], [xv, yc], [side, yc]];
+          if (segFree(...p[0], ...p[1]) && segFree(...p[1], ...p[2]) && (!best || plen(p) < plen(best))) best = p;
+        }
+        return best;
+      };
+      const free = c => c.l >= 0 && c.r <= F.width && c.t >= 40 && c.b <= F.height - 4 && ![...bubObs, ...placed].some(o => hit(grow(c, pad), o)) && !segs.some(q => cross(...q, grow(c, 2)));
+      const w0 = co.offsetWidth, sizes = [...new Set([w0, Math.round(w0 * 0.75), Math.round(w0 * 0.55)])].map(w => { co.style.width = w + 'px'; return [w, co.offsetHeight]; });
+      const cands = [];
+      for (const [w, h] of sizes) {
+        for (let d = 6; d <= 120; d += 6)
+          for (const [x, y] of [[k.r + d, k.t], [k.l, k.b + d], [k.l - w - d, k.t], [k.l, k.t - h - d], [k.r + d, k.b - h], [k.r - w, k.b + d], [k.r - w, k.t - h - d], [k.l - w - d, k.b - h]])
+            cands.push({ l: x, t: y, r: x + w, b: y + h });
+        for (let y = 40; y + h < F.height; y += 16) for (let x = 0; x + w < F.width; x += 16) cands.push({ l: x, t: y, r: x + w, b: y + h });
+      }
+      const gap = c => Math.hypot(Math.max(0, c.l - k.r, k.l - c.r), Math.max(0, c.t - k.b, k.t - c.b));
+      const pick = list => { let bp = null, bc = null; for (const c of list.map(c => [gap(c), c]).sort((a, b) => a[0] - b[0]).map(([, c]) => c)) { if (bp && gap(c) >= plen(bp)) break; if (!free(c)) continue; const p = route(c); if (p && (!bp || plen(p) < plen(bp))) { bp = p; bc = c; } } return bc && { c: bc, p: bp }; };
+      const best = pick(cands);
+      if (!best) { fails++; co.remove(); console.error(`callouts: no place for bubble ${n}`); return; }
+      const { c: bc, p: path } = best; longest = Math.max(longest, plen(path));
+      Object.assign(co.style, { left: bc.l + 'px', top: bc.t + 'px', width: bc.r - bc.l + 'px' }); placed.push(bc);
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      ln.setAttribute('points', path.map(q => q.join(',')).join(' ')); ln.dataset.n = n; svg.appendChild(ln);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', path[0][0]); dot.setAttribute('cy', path[0][1]); dot.setAttribute('r', 2.5); svg.appendChild(dot);
+      for (let z = 1; z < path.length; z++) segs.push([...path[z - 1], ...path[z]]);
+    });
+    return { fails, longest }; };
+    const idx = marks.map((_, i) => i);
+    const orders = [idx, [...idx].sort((a, b) => outl[b].r - outl[a].r), [...idx].sort((a, b) => outl[a].t - outl[b].t), [...idx].reverse()];
+    const cmp = (a, b) => a.fails - b.fails || a.longest - b.longest;
+    let bestO = null, bestR = null;
+    for (const o of orders) { const r = attempt(o); if (!bestR || cmp(r, bestR) < 0) { bestR = r; bestO = o; } }
+    if (bestO !== orders[orders.length - 1]) attempt(bestO);
+    return bestR.fails;
+  };
+  document.fonts?.addEventListener('loadingdone', () => dispatchEvent(new Event('resize')));
+  let tm; addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(layout, 120); });
+  if (document.readyState === 'complete') layout(); else addEventListener('load', layout);
+})();
+</script></body></html>

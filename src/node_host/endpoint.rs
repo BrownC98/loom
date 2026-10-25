@@ -4,6 +4,7 @@ use std::net::TcpStream;
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 
 use crate::tunnel::{self, Mux};
 
@@ -13,8 +14,10 @@ pub struct Endpoint {
     _bound: Bound,
 }
 
+type Opened = (Mux, mpsc::UnboundedReceiver<tunnel::Stream>);
+
 impl Endpoint {
-    pub fn open(at: &OsStr) -> io::Result<Endpoint> {
+    pub fn open(at: &OsStr, failed: impl Fn(String) + Send + 'static) -> io::Result<Endpoint> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .build()?;
@@ -25,7 +28,7 @@ impl Endpoint {
         #[cfg(unix)]
         let bound = listener.bound()?;
         let (links, waiting) = mpsc::unbounded_channel();
-        std::thread::spawn(move || runtime.block_on(serve(listener, waiting)));
+        std::thread::spawn(move || runtime.block_on(serve(listener, waiting, failed)));
         Ok(Endpoint {
             links,
             #[cfg(unix)]
@@ -38,14 +41,22 @@ impl Endpoint {
     }
 }
 
-async fn serve(mut listener: Listener, mut links: mpsc::UnboundedReceiver<TcpStream>) {
-    let mut mux: Option<(Mux, mpsc::UnboundedReceiver<tunnel::Stream>)> = None;
+async fn serve(
+    mut listener: Listener,
+    mut links: mpsc::UnboundedReceiver<TcpStream>,
+    failed: impl Fn(String),
+) {
+    let mut mux: Option<Opened> = None;
     let mut held = Vec::new();
+    let mut carried = JoinSet::new();
+    let mut accepting = true;
     loop {
         tokio::select! {
-            accepted = listener.accept() => match accepted {
+            accepted = listener.accept(), if accepting => match accepted {
                 Ok(conn) => match &mux {
-                    Some((open, _)) if !open.is_closed() => carry(conn, open),
+                    Some((open, _)) if !open.is_closed() => {
+                        carried.spawn(splice(conn, open.open()));
+                    }
                     _ => {
                         mux = None;
                         held.push(conn);
@@ -53,32 +64,37 @@ async fn serve(mut listener: Listener, mut links: mpsc::UnboundedReceiver<TcpStr
                 },
                 Err(e) if e.kind() == io::ErrorKind::ConnectionAborted => {}
                 Err(e) => {
-                    eprintln!("loom: 노드 접속점이 연결을 받지 못해 닫는다: {e}");
-                    return;
+                    accepting = false;
+                    if carried.is_empty() {
+                        failed(format!("accept: {e}"));
+                    }
                 }
             },
-            Some(link) = links.recv() => match attach(link) {
-                Ok((opener, events)) => {
+            Some(_) = carried.join_next() => accepting = true,
+            link = links.recv() => match link.map(attach) {
+                Some(Ok((opener, events))) => {
                     for conn in held.drain(..) {
-                        carry(conn, &opener);
+                        carried.spawn(splice(conn, opener.open()));
                     }
                     mux = Some((opener, events));
+                    accepting = true;
                 }
-                Err(e) => eprintln!("loom: 데몬의 스트림 연결을 쓰지 못했다: {e}"),
+                Some(Err(e)) => failed(format!("the daemon link: {e}")),
+                None => return,
             },
             () = link_ended(&mut mux) => mux = None,
         }
     }
 }
 
-async fn link_ended(mux: &mut Option<(Mux, mpsc::UnboundedReceiver<tunnel::Stream>)>) {
+async fn link_ended(mux: &mut Option<Opened>) {
     match mux {
         Some((_, events)) => while events.recv().await.is_some() {},
         None => std::future::pending().await,
     }
 }
 
-fn attach(link: TcpStream) -> io::Result<(Mux, mpsc::UnboundedReceiver<tunnel::Stream>)> {
+fn attach(link: TcpStream) -> io::Result<Opened> {
     link.set_read_timeout(None)?;
     link.set_write_timeout(None)?;
     link.set_nonblocking(true)?;
@@ -86,26 +102,25 @@ fn attach(link: TcpStream) -> io::Result<(Mux, mpsc::UnboundedReceiver<tunnel::S
     Ok(tunnel::start(reader, writer))
 }
 
-pub(super) fn carry<C>(conn: C, mux: &Mux)
+pub(super) async fn splice<A, B>(near: A, far: B)
 where
-    C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    A: AsyncRead + AsyncWrite,
+    B: AsyncRead + AsyncWrite,
 {
-    let (mut from_client, mut to_client) = tokio::io::split(conn);
-    let (mut from_daemon, mut to_daemon) = tokio::io::split(mux.open());
-    tokio::spawn(async move {
-        let request = async {
-            let _ = tokio::io::copy(&mut from_client, &mut to_daemon).await;
-            let _ = to_daemon.shutdown().await;
-            std::future::pending::<()>().await
-        };
-        let answer = async {
-            let _ = tokio::io::copy(&mut from_daemon, &mut to_client).await;
-        };
-        tokio::select! {
-            () = request => {}
-            () = answer => {}
-        }
-    });
+    let (mut from_near, mut to_near) = tokio::io::split(near);
+    let (mut from_far, mut to_far) = tokio::io::split(far);
+    let request = async {
+        let _ = tokio::io::copy(&mut from_near, &mut to_far).await;
+        let _ = to_far.shutdown().await;
+        std::future::pending::<()>().await
+    };
+    let answer = async {
+        let _ = tokio::io::copy(&mut from_far, &mut to_near).await;
+    };
+    tokio::select! {
+        () = request => {}
+        () = answer => {}
+    }
 }
 
 #[cfg(unix)]
@@ -169,23 +184,27 @@ impl Drop for Bound {
 #[cfg(windows)]
 struct Listener {
     name: OsString,
-    next: tokio::net::windows::named_pipe::NamedPipeServer,
+    next: Option<tokio::net::windows::named_pipe::NamedPipeServer>,
 }
 
 #[cfg(windows)]
 impl Listener {
     fn bind(at: &OsStr) -> io::Result<Listener> {
-        let next = pipe::create(at, true)?;
         Ok(Listener {
             name: at.into(),
-            next,
+            next: Some(pipe::create(at, true)?),
         })
     }
 
     async fn accept(&mut self) -> io::Result<tokio::net::windows::named_pipe::NamedPipeServer> {
-        self.next.connect().await?;
-        let next = pipe::create(&self.name, false)?;
-        Ok(std::mem::replace(&mut self.next, next))
+        let next = match &mut self.next {
+            Some(next) => next,
+            None => self.next.insert(pipe::create(&self.name, false)?),
+        };
+        let connected = next.connect().await;
+        let server = self.next.take().expect("connect가 이 인스턴스를 기다렸다");
+        self.next = pipe::create(&self.name, false).ok();
+        connected.map(|()| server)
     }
 }
 

@@ -1275,6 +1275,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_node_endpoint_is_in_the_event_log_but_not_in_the_console() {
+        use crate::graph::Entry;
+        use crate::node_host::Linked;
+        let (_dir, app) = app();
+        let node = stale_pi(&app, "tok");
+        let (links, linked) = tokio::sync::mpsc::unbounded_channel();
+        let (doors, _door) = crate::tunnel::Door::new();
+        links
+            .send((node, Linked::EndpointFailed("accept: no fd".into())))
+            .unwrap();
+        drop(links);
+        app.clone().carry_links(linked, doors).await;
+        let recorded = app.graph.recent_events().unwrap();
+        assert!(recorded.iter().any(|r| matches!(
+            &r.entry,
+            Entry::EndpointFailed { node: who, error } if who.id == Some(node) && error == "accept: no fd"
+        )));
+        assert!(
+            app.graph
+                .event_log()
+                .unwrap()
+                .records
+                .iter()
+                .all(|r| !matches!(r.entry, Entry::EndpointFailed { .. }))
+        );
+    }
+
+    #[tokio::test]
     async fn a_node_call_in_an_unknown_protocol_is_refused_and_relaunches_the_node() {
         use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
         let (_dir, app) = app();

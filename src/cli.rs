@@ -219,14 +219,18 @@ pub fn cursor_rules() -> Result<(), String> {
 
 fn wait_until_mail(mut request: IdleRequest) -> Result<IdleReply, String> {
     match through_endpoint() {
-        true => again_after_cut(None, |_| idle_once(&mut request)),
+        true => again_after_cut(
+            None,
+            |_| idle_once(&mut request),
+            |e, _| answered_later(RECONNECT_AFTER, e),
+        ),
         false => until_answered(RECONNECT_AFTER, || idle_once(&mut request)),
     }
 }
 
 fn idle_once(request: &mut IdleRequest) -> Result<IdleReply, CallError> {
     let reply = call("idle", &*request, None);
-    if !matches!(reply, Err(CallError::NotConnected(_))) {
+    if !reply.as_ref().is_err_and(CallError::not_sent) {
         request.turn_end = None;
     }
     reply
@@ -239,11 +243,18 @@ fn until_answered<T>(
     loop {
         match attempt() {
             Ok(value) => return Ok(value),
-            Err(CallError::Unreachable(_) | CallError::Failed(_) | CallError::NotConnected(_)) => {
-                std::thread::sleep(pause)
-            }
-            Err(e) => return Err(e.into()),
+            Err(e) => answered_later(pause, e)?,
         }
+    }
+}
+
+fn answered_later(pause: Duration, error: CallError) -> Result<(), String> {
+    match error.through_url() {
+        CallError::Unreachable(_) | CallError::Failed(_) | CallError::NotConnected(_) => {
+            std::thread::sleep(pause);
+            Ok(())
+        }
+        e => Err(e.into()),
     }
 }
 
@@ -252,7 +263,12 @@ fn reconnecting<T>(
     attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
 ) -> Result<T, String> {
     match through_endpoint() {
-        true => again_after_cut(deadline, attempt),
+        true => {
+            let mut outage = Outage::new(RECONNECT_FOR);
+            again_after_cut(deadline, attempt, |e, started| {
+                outage.pause(e, started, deadline)
+            })
+        }
         false => reconnecting_within(RECONNECT_FOR, deadline, attempt),
     }
 }
@@ -264,11 +280,14 @@ fn through_endpoint() -> bool {
 fn again_after_cut<T>(
     deadline: Option<Instant>,
     mut attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
+    mut through_url: impl FnMut(CallError, Instant) -> Result<(), String>,
 ) -> Result<T, String> {
     loop {
-        let left = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        let started = Instant::now();
+        let left = deadline.map(|d| d.saturating_duration_since(started));
         match attempt(left) {
             Ok(value) => return Ok(value),
+            Err(e @ CallError::FellBack(_)) => through_url(e, started)?,
             Err(CallError::Unreachable(_)) if left.is_none_or(|left| !left.is_zero()) => {}
             Err(e) => return Err(e.into()),
         }
@@ -280,37 +299,55 @@ fn reconnecting_within<T>(
     deadline: Option<Instant>,
     mut attempt: impl FnMut(Option<Duration>) -> Result<T, CallError>,
 ) -> Result<T, String> {
-    let mut unreachable_since = None;
+    let mut outage = Outage::new(outage_limit);
     loop {
         let started = Instant::now();
         match attempt(deadline.map(|d| d.saturating_duration_since(started))) {
             Ok(value) => return Ok(value),
-            Err(
-                error @ (CallError::Unreachable(_)
-                | CallError::Failed(_)
-                | CallError::NotConnected(_)),
-            ) => {
-                if matches!(error, CallError::Unreachable(_) | CallError::Failed(_))
-                    && started.elapsed() >= RECONNECT_AFTER
-                {
-                    unreachable_since = None;
-                }
-                let e = error.to_string();
-                let gave_up =
-                    unreachable_since.get_or_insert_with(Instant::now).elapsed() >= outage_limit;
-                if gave_up {
-                    return Err(format!(
-                        "{e} The daemon was down for {} min. A message that was on its way to you comes again.",
-                        outage_limit.as_secs() / 60
-                    ));
-                }
-                if deadline.is_some_and(|d| Instant::now() + RECONNECT_AFTER >= d) {
-                    return Err(e);
-                }
-                std::thread::sleep(RECONNECT_AFTER);
-            }
-            Err(e) => return Err(e.into()),
+            Err(e) => outage.pause(e, started, deadline)?,
         }
+    }
+}
+
+struct Outage {
+    limit: Duration,
+    since: Option<Instant>,
+}
+
+impl Outage {
+    fn new(limit: Duration) -> Outage {
+        Outage { limit, since: None }
+    }
+
+    fn pause(
+        &mut self,
+        error: CallError,
+        started: Instant,
+        deadline: Option<Instant>,
+    ) -> Result<(), String> {
+        let error = match error.through_url() {
+            error @ (CallError::Unreachable(_)
+            | CallError::Failed(_)
+            | CallError::NotConnected(_)) => error,
+            e => return Err(e.into()),
+        };
+        if matches!(error, CallError::Unreachable(_) | CallError::Failed(_))
+            && started.elapsed() >= RECONNECT_AFTER
+        {
+            self.since = None;
+        }
+        let e = error.to_string();
+        if self.since.get_or_insert_with(Instant::now).elapsed() >= self.limit {
+            return Err(format!(
+                "{e} The daemon was down for {} min. A message that was on its way to you comes again.",
+                self.limit.as_secs() / 60
+            ));
+        }
+        if deadline.is_some_and(|d| Instant::now() + RECONNECT_AFTER >= d) {
+            return Err(e);
+        }
+        std::thread::sleep(RECONNECT_AFTER);
+        Ok(())
     }
 }
 
@@ -604,13 +641,16 @@ fn reach<T: DeserializeOwned>(
     connect: Option<Duration>,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
-    if let Some(at) = endpoint {
-        match post_as(&Daemon::Endpoint(at), token, action, body, connect, timeout) {
-            Err(CallError::NotConnected(_)) => {}
-            reached => return reached,
-        }
+    let Some(at) = endpoint else {
+        return post_as(&http()?, token, action, body, connect, timeout);
+    };
+    match post_as(&Daemon::Endpoint(at), token, action, body, connect, timeout) {
+        Err(CallError::NotConnected(_)) => {}
+        reached => return reached,
     }
-    post_as(&http()?, token, action, body, connect, timeout)
+    http()
+        .and_then(|daemon| post_as(&daemon, token, action, body, connect, timeout))
+        .map_err(|e| CallError::FellBack(Box::new(e)))
 }
 
 enum Daemon {
@@ -672,6 +712,24 @@ enum CallError {
     Unreachable(String),
     Failed(String),
     Refused(String),
+    FellBack(Box<CallError>),
+}
+
+impl CallError {
+    fn through_url(self) -> CallError {
+        match self {
+            CallError::FellBack(e) => *e,
+            e => e,
+        }
+    }
+
+    fn not_sent(&self) -> bool {
+        match self {
+            CallError::NotConnected(_) => true,
+            CallError::FellBack(e) => e.not_sent(),
+            _ => false,
+        }
+    }
 }
 
 impl std::fmt::Display for CallError {
@@ -681,6 +739,7 @@ impl std::fmt::Display for CallError {
             | CallError::Unreachable(e)
             | CallError::Failed(e)
             | CallError::Refused(e) => f.write_str(e),
+            CallError::FellBack(e) => e.fmt(f),
         }
     }
 }
@@ -938,10 +997,14 @@ mod tests {
         let daemon = Daemon::Endpoint(sock);
         let mut tries = 0;
         let started = Instant::now();
-        let got = again_after_cut(None, |_| {
-            tries += 1;
-            post_as::<Vec<u32>>(&daemon, "token", "idle", &(), None, None)
-        });
+        let got = again_after_cut(
+            None,
+            |_| {
+                tries += 1;
+                post_as::<Vec<u32>>(&daemon, "token", "idle", &(), None, None)
+            },
+            |e, _| Err(e.into()),
+        );
         assert_eq!(got, Ok(vec![7]));
         assert_eq!(tries, 2);
         assert!(
@@ -970,19 +1033,26 @@ mod tests {
         ] {
             let mut calls = 0;
             let mut error = Some(error);
-            let got: Result<(), String> = again_after_cut(None, |_| {
-                calls += 1;
-                Err(error.take().unwrap_or_else(unreachable))
-            });
+            let got: Result<(), String> = again_after_cut(
+                None,
+                |_| {
+                    calls += 1;
+                    Err(error.take().unwrap_or_else(unreachable))
+                },
+                |e, _| Err(e.into()),
+            );
             assert!(got.is_err());
             assert_eq!(calls, tries);
         }
         let mut calls = 0;
-        let got: Result<(), String> =
-            again_after_cut(Some(Instant::now() + Duration::from_millis(50)), |_| {
+        let got: Result<(), String> = again_after_cut(
+            Some(Instant::now() + Duration::from_millis(50)),
+            |_| {
                 calls += 1;
                 Err(unreachable())
-            });
+            },
+            |e, _| Err(e.into()),
+        );
         assert_eq!(got, Err("down".into()));
         assert!(calls >= 1);
     }
@@ -1026,17 +1096,46 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn a_held_endpoint_request_keeps_its_time_limit() {
-        use std::os::unix::net::UnixListener;
-        let dir = tempfile::tempdir().unwrap();
-        let silent = dir.path().join("silent.sock");
-        let listener = UnixListener::bind(&silent).unwrap();
-        let daemon = std::thread::spawn(move || {
+    fn silent_endpoint(dir: &std::path::Path) -> (PathBuf, std::thread::JoinHandle<()>) {
+        let silent = dir.join("silent.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&silent).unwrap();
+        let held = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buf = [0; 1024];
             while stream.read(&mut buf).unwrap() > 0 {}
         });
+        (silent, held)
+    }
+
+    #[cfg(windows)]
+    fn silent_endpoint(_: &std::path::Path) -> (PathBuf, std::thread::JoinHandle<()>) {
+        use tokio::io::AsyncReadExt;
+        let silent = PathBuf::from(format!(r"\\.\pipe\loom-cli-silent-{}", std::process::id()));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+            .unwrap();
+        let mut server = {
+            let _entered = runtime.enter();
+            tokio::net::windows::named_pipe::ServerOptions::new()
+                .create(&silent)
+                .unwrap()
+        };
+        let held = std::thread::spawn(move || {
+            runtime.block_on(async move {
+                server.connect().await.unwrap();
+                let mut buf = [0; 1024];
+                while server.read(&mut buf).await.is_ok_and(|n| n > 0) {}
+            })
+        });
+        (silent, held)
+    }
+
+    #[test]
+    fn a_held_endpoint_request_keeps_its_time_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let (silent, daemon) = silent_endpoint(dir.path());
+        let started = Instant::now();
         let got = post_as::<()>(
             &Daemon::Endpoint(silent),
             "token",
@@ -1050,7 +1149,60 @@ mod tests {
             e.starts_with("The daemon did not answer through the node endpoint"),
             "{e}"
         );
+        assert!(started.elapsed() < Duration::from_secs(5));
         daemon.join().unwrap();
+    }
+
+    #[test]
+    fn a_call_that_fell_back_to_loom_url_pauses_while_the_daemon_is_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let down = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", down.local_addr().unwrap());
+        drop(down);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut outage = Outage::new(RECONNECT_FOR);
+        let mut tries = 0;
+        let got: Result<Vec<u32>, String> = again_after_cut(
+            Some(deadline),
+            |left| {
+                tries += 1;
+                let http = || {
+                    Ok(Daemon::Http {
+                        url: url.clone(),
+                        proxy: None,
+                    })
+                };
+                let endpoint = Some(dir.path().join("none.sock"));
+                reach(endpoint, http, "token", "idle", &(), left, left)
+            },
+            |e, started| outage.pause(e, started, Some(deadline)),
+        );
+        assert!(got.is_err());
+        assert_eq!(tries, 1, "the deadline is closer than one pause");
+
+        let mut tries = 0;
+        let got = again_after_cut(
+            None,
+            |_| {
+                tries += 1;
+                match tries {
+                    1 => Err(CallError::FellBack(Box::new(unreachable()))),
+                    _ => Ok("mail"),
+                }
+            },
+            |e, _| answered_later(Duration::ZERO, e),
+        );
+        assert_eq!(got, Ok("mail"));
+        let got: Result<(), String> = again_after_cut(
+            None,
+            |_| {
+                Err(CallError::FellBack(Box::new(CallError::Refused(
+                    "gone".into(),
+                ))))
+            },
+            |e, _| answered_later(Duration::ZERO, e),
+        );
+        assert_eq!(got, Err("gone".into()));
     }
 
     #[cfg(unix)]

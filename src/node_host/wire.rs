@@ -5,6 +5,7 @@ use crate::protocol::PTY_HOST;
 const MAGIC: &[u8; 8] = b"loom-pty";
 pub const VERSION: u32 = PTY_HOST.now;
 pub const STREAMS_SINCE: u32 = 4;
+pub const ENDPOINT_FAILED_SINCE: u32 = 4;
 const MAX_BODY: usize = 1 << 20;
 
 const HELLO: u8 = 0;
@@ -15,6 +16,7 @@ const EXIT: u8 = 4;
 const PID: u8 = 5;
 const SETUP_FAILED: u8 = 6;
 const STREAMS: u8 = 7;
+const ENDPOINT_FAILED: u8 = 8;
 
 #[derive(Debug, PartialEq)]
 pub enum Frame {
@@ -26,10 +28,11 @@ pub enum Frame {
     Pid(u32),
     SetupFailed(u32),
     Streams { version: u32 },
+    EndpointFailed(String),
 }
 
 pub enum Link {
-    Terminal,
+    Terminal { version: u32 },
     Streams,
 }
 
@@ -48,6 +51,7 @@ pub fn write(to: &mut impl Write, frame: &Frame) -> io::Result<()> {
         Frame::Pid(pid) => (PID, pid.to_le_bytes().to_vec()),
         Frame::SetupFailed(code) => (SETUP_FAILED, code.to_le_bytes().to_vec()),
         Frame::Streams { version } => (STREAMS, [&MAGIC[..], &version.to_le_bytes()].concat()),
+        Frame::EndpointFailed(error) => (ENDPOINT_FAILED, error.as_bytes().to_vec()),
     };
     let mut buf = Vec::with_capacity(5 + body.len());
     buf.push(kind);
@@ -87,6 +91,9 @@ pub fn read(from: &mut impl Read) -> io::Result<Frame> {
         EXIT => Ok(Frame::Exit(u32_at(0)?)),
         PID => Ok(Frame::Pid(u32_at(0)?)),
         SETUP_FAILED => Ok(Frame::SetupFailed(u32_at(0)?)),
+        ENDPOINT_FAILED => Ok(Frame::EndpointFailed(
+            String::from_utf8_lossy(&body).into_owned(),
+        )),
         _ => Err(invalid("unknown frame")),
     }
 }
@@ -127,7 +134,7 @@ fn greet_as(stream: &mut (impl Read + Write), hello: &Frame) -> io::Result<Greet
 
 pub fn welcome(stream: &mut (impl Read + Write), pid: Option<u32>) -> io::Result<Link> {
     let link = match read(stream)? {
-        Frame::Hello { .. } => Link::Terminal,
+        Frame::Hello { version, .. } => Link::Terminal { version },
         Frame::Streams { version } if version == crate::protocol::STREAMS => Link::Streams,
         Frame::Streams { version } => {
             return Err(invalid(&format!("stream link version {version}")));
@@ -235,6 +242,17 @@ mod tests {
         };
         assert!(welcome(&mut newer, None).is_err());
         assert!(newer.output.is_empty());
+    }
+
+    #[test]
+    fn version_4_endpoint_failed_bytes_are_frozen() {
+        let mut out = Vec::new();
+        write(&mut out, &Frame::EndpointFailed("no".into())).unwrap();
+        assert_eq!(out, [8, 2, 0, 0, 0, b'n', b'o']);
+        assert_eq!(
+            read(&mut out.as_slice()).unwrap(),
+            Frame::EndpointFailed("no".into())
+        );
     }
 
     #[test]

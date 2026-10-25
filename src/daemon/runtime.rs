@@ -1,4 +1,5 @@
 use super::*;
+use crate::graph::Entry;
 use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
 use crate::tunnel::ENDPOINT_ENV;
 
@@ -196,6 +197,28 @@ impl App {
         self.host.end_others();
         self.logins.end_others();
         Ok(())
+    }
+
+    pub(super) async fn carry_links(
+        self: Arc<Self>,
+        mut linked: tokio::sync::mpsc::UnboundedReceiver<(NodeId, node_host::Linked)>,
+        doors: tokio::sync::mpsc::UnboundedSender<(tunnel::Stream, NodeId)>,
+    ) {
+        while let Some((node, link)) = linked.recv().await {
+            let failed = match link {
+                node_host::Linked::Streams(link) => tunnel::carry(link, node, doors.clone())
+                    .err()
+                    .map(|e| format!("the daemon side of the link: {e}")),
+                node_host::Linked::EndpointFailed(error) => Some(error),
+            };
+            if let Some(error) = failed
+                && let Err(e) = self
+                    .graph
+                    .record_about(node, |node| Entry::EndpointFailed { node, error })
+            {
+                eprintln!("loom: 노드 {}의 접속점 실패를 적지 못했다: {e}", node.0);
+            }
+        }
     }
 
     fn on_exit(

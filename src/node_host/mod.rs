@@ -25,7 +25,12 @@ use wire::Frame;
 pub use host::run;
 pub use inner::inner;
 
-pub type Links<K> = tokio::sync::mpsc::UnboundedSender<(K, TcpStream)>;
+pub type Links<K> = tokio::sync::mpsc::UnboundedSender<(K, Linked)>;
+
+pub enum Linked {
+    Streams(TcpStream),
+    EndpointFailed(String),
+}
 
 const BACKLOG_BYTES: usize = 256 * 1024;
 const VIEWER_QUEUE_CHUNKS: usize = 1024;
@@ -224,11 +229,17 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         {
             match connect(at, wire::greet_streams) {
                 Ok((link, ())) => {
-                    let _ = links.send((id, link));
+                    let _ = links.send((id, Linked::Streams(link)));
                 }
-                Err(e) => eprintln!("loom: 노드 {id}의 접속점에 붙지 못했다: {e}"),
+                Err(e) => {
+                    let _ = wire::write(&mut reader, &Frame::Kill);
+                    std::thread::spawn(move || while wire::read(&mut reader).is_ok() {});
+                    let _ = std::fs::remove_file(&file);
+                    return Err(Unattached::Silent(format!("node endpoint link: {e}")));
+                }
             }
         }
+        let links = self.links.clone();
         let host = reader
             .try_clone()
             .map_err(|e| Unattached::Silent(e.to_string()))?;
@@ -254,6 +265,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     Ok(Frame::Exit(code)) => break Exit::Command(code),
                     Ok(Frame::SetupFailed(code)) => break Exit::Setup(code),
                     Ok(Frame::Pid(pid)) => *pty.pid.lock().unwrap() = Some(pid),
+                    Ok(Frame::EndpointFailed(error)) => {
+                        if let Some(links) = &links {
+                            let _ = links.send((id, Linked::EndpointFailed(error)));
+                        }
+                    }
                     Ok(Frame::Resize { cols, rows }) => {
                         let mut sizing = pty.sizing.lock().unwrap();
                         if sizing.host == HostSize::Unreported {

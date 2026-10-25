@@ -31,6 +31,7 @@ pub struct Sleeps {
 struct Unheard {
     oldest: MessageId,
     step: Step,
+    noted: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -79,8 +80,12 @@ impl Sleeps {
         unheard.retain(|id, u| mail.contains(&(*id, u.oldest)));
         mail.iter()
             .filter_map(|&(id, oldest)| {
-                let step = Step::Seen(now);
-                match unheard.entry(id).or_insert(Unheard { oldest, step }).step {
+                let fresh = Unheard {
+                    oldest,
+                    step: Step::Seen(now),
+                    noted: false,
+                };
+                match unheard.entry(id).or_insert(fresh).step {
                     Step::Seen(at) if now.duration_since(at) >= IDLE_GRACE => {
                         Some((id, Wake::Type))
                     }
@@ -91,6 +96,14 @@ impl Sleeps {
                 }
             })
             .collect()
+    }
+
+    fn first_miss(&self, node: NodeId) -> bool {
+        self.unheard
+            .lock()
+            .unwrap()
+            .get_mut(&node)
+            .is_some_and(|u| !std::mem::replace(&mut u.noted, true))
     }
 
     fn woke(&self, node: NodeId, wake: Wake, now: Instant) {
@@ -177,71 +190,86 @@ impl App {
                 continue;
             };
             let node = active.swap_remove(at);
+            let queued = self.relaunches.at_turn_end(id);
+            if self.relaunches.holds_mail(id) && !queued {
+                continue;
+            }
             let Some(since) = self.unheard_since(&node)? else {
                 continue;
             };
-            if !self.untouched(id, since, &self.host.screen(id)) {
+            if self.sleeps.first_miss(id) {
+                eprintln!("loom: 노드 {}의 쉬는 대기가 없다", id.0);
+                if let Err(e) = self
+                    .graph
+                    .record_about(id, |node| Entry::NoIdleWait { node })
+                {
+                    eprintln!("loom: 노드 {}의 빠진 쉬는 대기를 남기지 못했다: {e}", id.0);
+                }
+            }
+            if queued || matches!(wake, Wake::Relaunch) {
+                if !self.safe_to_restart(id, since) {
+                    continue;
+                }
+                self.sleeps.woke(id, Wake::Relaunch, now);
+                self.idle.end(id, IdleEnd::Relaunch);
+                if queued {
+                    eprintln!("loom: 노드 {}의 턴 끝 다시 띄우기를 지금 한다", id.0);
+                    self.turn_ended(id);
+                    continue;
+                }
+                eprintln!("loom: 알림 줄로 깨지 않은 노드 {}를 다시 띄운다", id.0);
+                let app = self.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = app.relaunch_or_queue(node).await {
+                        eprintln!(
+                            "loom: 쉬는 대기가 없는 노드 {}를 다시 띄우지 못했다: {e}",
+                            id.0
+                        );
+                    }
+                });
                 continue;
             }
-            self.sleeps.woke(id, wake, now);
-            match wake {
-                Wake::Type => {
-                    if let Err(e) = self
-                        .graph
-                        .record_about(id, |node| Entry::NoIdleWait { node })
-                    {
-                        eprintln!("loom: 노드 {}의 빠진 쉬는 대기를 남기지 못했다: {e}", id.0);
-                    }
-                    let typed = self.host.write_if(id, |keys| {
-                        let screen = keys.screen();
-                        (self.untouched(id, since, &screen)
-                            && claude::input(&screen.text) == Some(""))
-                        .then(|| claude::wake_line().into_bytes())
-                        .ok_or(())
-                    });
-                    if typed.is_ok() {
-                        let app = self.clone();
-                        tokio::spawn(async move {
-                            tokio::time::sleep(WAKE_SUBMIT_AFTER).await;
-                            let line = claude::wake_line();
-                            let _ = app.host.write_if(id, |keys| {
-                                (claude::input(&keys.screen().text) == Some(line.as_str()))
-                                    .then(|| b"\r".to_vec())
-                                    .ok_or(())
-                            });
-                        });
-                    }
-                    eprintln!(
-                        "loom: 쉬는 대기가 없는 노드 {}{}",
-                        id.0,
-                        match typed {
-                            Ok(()) => "에 알림 줄을 쳤다",
-                            Err(()) => "의 입력칸이 비지 않아 알림 줄을 치지 않았다",
-                        }
-                    );
-                }
-                Wake::Relaunch => {
-                    eprintln!("loom: 알림 줄로 깨지 않은 노드 {}를 다시 띄운다", id.0);
-                    self.idle.end(id, IdleEnd::Relaunch);
-                    let app = self.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = app.relaunch_or_queue(node).await {
-                            eprintln!(
-                                "loom: 쉬는 대기가 없는 노드 {}를 다시 띄우지 못했다: {e}",
-                                id.0
-                            );
-                        }
-                    });
-                }
+            let typed = self.host.write_if(id, |keys| {
+                let screen = keys.screen();
+                (self.untouched(id, since, &screen) && claude::input(&screen.text) == Some(""))
+                    .then(|| claude::wake_line().into_bytes())
+                    .ok_or(())
+            });
+            if typed.is_err() {
+                continue;
             }
+            eprintln!("loom: 쉬는 대기가 없는 노드 {}에 알림 줄을 쳤다", id.0);
+            self.sleeps.woke(id, Wake::Type, now);
+            let app = self.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(WAKE_SUBMIT_AFTER).await;
+                let line = claude::wake_line();
+                let _ = app.host.write_if(id, |keys| {
+                    (claude::input(&keys.screen().text) == Some(line.as_str()))
+                        .then(|| b"\r".to_vec())
+                        .ok_or(())
+                });
+            });
         }
         Ok(())
+    }
+
+    fn safe_to_restart(&self, node: NodeId, since: SystemTime) -> bool {
+        let line = claude::wake_line();
+        let checked = self.host.write_if(node, |keys| {
+            let screen = keys.screen();
+            let input = claude::input(&screen.text);
+            Err::<Vec<u8>, bool>(
+                self.untouched(node, since, &screen)
+                    && (input == Some("") || input == Some(line.as_str())),
+            )
+        });
+        matches!(checked, Err(true))
     }
 
     fn unheard_since(&self, node: &Active) -> rusqlite::Result<Option<SystemTime>> {
         if profile_of(node) != Some(Profile::Claude)
             || self.idle.waiting(node.id)
-            || self.relaunches.holds_mail(node.id)
             || self.sleeps.stopping(node.id)
         {
             return Ok(None);
@@ -341,7 +369,10 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::daemon::nodes::human_typed;
+    #[cfg(unix)]
+    use crate::daemon::relaunch::Relaunched;
     use crate::graph::{Launched, NewChild, NodeState, Place, Report};
     use crate::protocol::{AgentId, Kind, TreeLimits};
     use crate::worktree::RepoId;
@@ -457,6 +488,7 @@ mod tests {
     }
 
     const ENDED: &str = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"끝\"}]}}\n{\"type\":\"system\",\"subtype\":\"stop_hook_summary\"}\n{\"type\":\"system\",\"subtype\":\"turn_duration\"}\n{\"type\":\"last-prompt\"}\n";
+    #[cfg(unix)]
     const IN_TOOL: &str = "{\"type\":\"user\",\"message\":{\"content\":\"go\"}}\n{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\"}]}}\n";
 
     fn unheard(t: &Fixture, name: &str, transcript: &str) -> NodeId {
@@ -498,6 +530,7 @@ mod tests {
         found
     }
 
+    #[cfg(unix)]
     async fn settle(t: &Fixture, count: usize) -> Vec<(NodeId, bool)> {
         for _ in 0..500 {
             if missed(t).len() >= count {
@@ -509,38 +542,115 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_node_without_a_readable_input_box_is_noted_once_and_kept() {
+        let t = fixture();
+        let blind = unheard(&t, "blind", ENDED);
+        let t0 = Instant::now();
+        for step in 0..6 {
+            t.app.wake_unheard(t0 + IDLE_GRACE * step).unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(missed(&t), [(blind, false)]);
+        assert!(t.app.busy(blind));
+    }
+
+    #[cfg(unix)]
+    fn screen(t: &Fixture, node: NodeId, input: &str) {
+        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        cmd.args([
+            "-c",
+            "stty -icanon -echo; printf '%s' \"$SCREEN\"; exec cat >\"$TYPED\"",
+        ]);
+        cmd.env(
+            "SCREEN",
+            format!("● 끝났습니다.\r\n\r\n────────\r\n{input}\r\n────────\r\n  ⏵⏵ bypass permissions on\r\n"),
+        );
+        cmd.env("TYPED", t.dir.path().join(format!("typed-{}", node.0)));
+        let hosts = t.dir.path().join("pty").join("nodes");
+        crate::node_host::in_process(&hosts, node, cmd);
+        t.app.host.resume(node, |_| {}).unwrap();
+        while claude::input(&t.app.host.screen(node).text).is_none() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn an_idle_node_without_a_live_idle_wait_is_woken_then_relaunched() {
         let t = fixture();
         let deaf = unheard(&t, "deaf", ENDED);
         let busy = unheard(&t, "busy", IN_TOOL);
         let heard = unheard(&t, "heard", ENDED);
         let typing = unheard(&t, "typing", ENDED);
+        let closed = unheard(&t, "closed", ENDED);
+        let draft = unheard(&t, "draft", ENDED);
+        let queued = unheard(&t, "queued", ENDED);
+        for node in [deaf, busy, heard, typing, closed, queued] {
+            screen(&t, node, "❯ ");
+        }
+        screen(&t, draft, "❯ 고쳐 줘");
         let _wait = t.app.idle.open(heard);
         human_typed(&t.app, typing);
-        let closed = unheard(&t, "closed", ENDED);
         drop(t.app.idle.open(closed));
+        t.app
+            .idle
+            .typed_at(draft, SystemTime::now() - IDLE_GRACE * 3);
+        let active = t.app.graph.active().unwrap();
+        let held = active.into_iter().find(|n| n.id == queued).unwrap();
+        assert_eq!(
+            t.app.relaunch_or_queue(held).await,
+            Ok(Relaunched::AtTurnEnd)
+        );
+        let gone = |names: &[&str]| {
+            for name in names {
+                std::fs::remove_file(t.dir.path().join(format!("{name}.jsonl"))).unwrap();
+            }
+        };
 
         let t0 = Instant::now();
         t.app.wake_unheard(t0).unwrap();
         assert_eq!(missed(&t), [], "the mail is new");
         t.app.wake_unheard(t0 + IDLE_GRACE).unwrap();
-        assert_eq!(missed(&t), [(deaf, false), (closed, false)]);
+        gone(&["queued"]);
+        let noticed = [
+            (deaf, false),
+            (typing, false),
+            (closed, false),
+            (draft, false),
+            (queued, false),
+            (queued, true),
+        ];
+        assert_eq!(settle(&t, 6).await, noticed);
         assert!(t.app.busy(deaf), "a typed wake keeps the turn state");
-        t.app.wake_unheard(t0 + IDLE_GRACE * 3 / 2).unwrap();
-        assert_eq!(missed(&t).len(), 2, "the typed wake gets its grace");
-        t.app.wake_unheard(t0 + IDLE_GRACE * 2).unwrap();
-        for name in ["deaf", "closed"] {
-            std::fs::remove_file(t.dir.path().join(format!("{name}.jsonl"))).unwrap();
+        let typed =
+            || std::fs::read_to_string(t.dir.path().join(format!("typed-{}", deaf.0))).unwrap();
+        while typed().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let found = settle(&t, 4).await;
-        assert_eq!(
-            found,
-            [(deaf, false), (closed, false), (deaf, true), (closed, true)]
-        );
+        assert_eq!(typed(), claude::wake_line());
+        t.app.wake_unheard(t0 + IDLE_GRACE * 3 / 2).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(missed(&t), noticed, "the typed wake gets its grace");
+        t.app.wake_unheard(t0 + IDLE_GRACE * 2).unwrap();
+        gone(&["deaf", "closed"]);
+        let found = settle(&t, 8).await;
+        assert_eq!(found[6..], [(deaf, true), (closed, true)]);
         t.app.wake_unheard(t0 + IDLE_GRACE * 10).unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(missed(&t), found, "once per oldest message");
-        assert!(!found.iter().any(|(n, _)| [busy, heard, typing].contains(n)));
+        assert_eq!(
+            missed(&t),
+            found,
+            "once per oldest message, never over a draft"
+        );
+        assert!(!found.iter().any(|(n, _)| [busy, heard].contains(n)));
+        for node in [typing, draft] {
+            let file = t.dir.path().join(format!("typed-{}", node.0));
+            assert_eq!(
+                std::fs::read_to_string(file).unwrap(),
+                "",
+                "nothing typed over a draft"
+            );
+        }
     }
 
     #[test]

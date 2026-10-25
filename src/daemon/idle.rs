@@ -183,9 +183,13 @@ impl IdleWaits {
     }
 
     pub fn typed(&self, node: NodeId) {
+        self.typed_at(node, SystemTime::now());
+    }
+
+    pub(super) fn typed_at(&self, node: NodeId, at: SystemTime) {
         self.watch(node, |w| {
             w.drafted = true;
-            w.typed_at = Some(SystemTime::now());
+            w.typed_at = Some(at);
             if let Some((_, armed)) = w.said.take() {
                 w.past.insert(armed);
             }

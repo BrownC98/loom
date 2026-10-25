@@ -65,6 +65,14 @@ impl Relaunches {
         self.pending.lock().unwrap().contains_key(&node)
     }
 
+    pub(super) fn at_turn_end(&self, node: NodeId) -> bool {
+        self.pending
+            .lock()
+            .unwrap()
+            .get(&node)
+            .is_some_and(|(phase, _)| *phase == Phase::AtTurnEnd)
+    }
+
     pub fn exited(&self, node: NodeId) -> bool {
         match self.exiting.lock().unwrap().remove(&node) {
             Some(done) => {

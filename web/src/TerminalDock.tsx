@@ -16,7 +16,7 @@ export function TerminalDock(props: { view: NodeView; defaultView: DefaultCardVi
   return (
     <>
       <div className="dock-head">
-        <NodeSummary view={view} agentLabel={props.agentLabel} rename={rename} actions={
+        <NodeSummary view={view} agentLabel={props.agentLabel} rename={rename} oneRow actions={
             <>
               <BookmarkButton view={view} />
               <NodeMenu

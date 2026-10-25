@@ -107,23 +107,24 @@ function Badges(props: { view: NodeView }) {
   );
 }
 
-export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode; rename: Rename }) {
+export function NodeSummary(props: { view: NodeView; agentLabel: string; actions: ReactNode; rename: Rename; oneRow?: boolean }) {
   const { view } = props;
   return (
     <div className="summary">
-      <div className="summary-row">
+      <div className={props.oneRow ? 'summary-row one-row' : 'summary-row'}>
         <AgentMark agent={view.agent} label={props.agentLabel} />
         <NameEdit id={view.id} name={view.name} rename={props.rename} />
+        {props.oneRow && <ModelText view={view} />}
         <span className="spacer" />
         <Badges view={view} />
         {props.actions}
       </div>
-      {(view.model || view.effort) && (
+      {!props.oneRow && (view.model || view.effort) && (
         <div className="summary-model">
           <ModelText view={view} />
         </div>
       )}
-      {view.reply && (
+      {!props.oneRow && view.reply && (
         <p className="summary-reply" title={view.reply}>
           {view.reply}
         </p>

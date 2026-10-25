@@ -801,7 +801,7 @@ mod tests {
     fn dim_text_like_an_input_placeholder_is_not_in_the_undimmed_screen() {
         let size = |n| NonZeroU16::new(n).unwrap();
         let mut parser = vt100::Parser::new(size(40), size(120), 0);
-        parser.process(include_bytes!("../profile/screens/claude-idle.ans"));
+        parser.process(include_bytes!("../profile/screens/claude-idle.txt"));
         let screen = parser.screen();
         let input = |text: String| text.lines().find(|l| l.starts_with('❯')).map(str::to_owned);
         assert_eq!(

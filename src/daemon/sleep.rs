@@ -329,7 +329,7 @@ impl App {
         let Some(path) = self.transcript(node)? else {
             return Ok(false);
         };
-        let Some(began) = self.graph.turn_began(node.id)? else {
+        let Some(began) = self.graph.turn_began_before(node.id)? else {
             return Ok(false);
         };
         let settled = std::fs::metadata(&path)
@@ -701,6 +701,39 @@ mod tests {
         assert_eq!(t.app.agent_state(woken), Some(AgentState::Turn));
         t.app.end_unhooked_turns().unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(missed(&t), []);
+        assert_eq!(t.app.agent_state(woken), Some(AgentState::Turn));
+    }
+
+    #[tokio::test]
+    async fn a_transcript_written_in_the_wake_second_before_the_wake_is_no_evidence() {
+        let t = fixture();
+        let woken = add_worker(&t, "woken");
+        let path = t.dir.path().join("woken.jsonl");
+        std::fs::write(&path, ENDED).unwrap();
+        let old = SystemTime::now();
+        let set_modified = |at| {
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(at)
+                .unwrap()
+        };
+        set_modified(old);
+        t.app
+            .graph
+            .set_transcript(woken, path.to_str().unwrap())
+            .unwrap();
+        let wait = t.app.idle.open(woken);
+        t.app
+            .graph
+            .note(t.lead, "woken", Kind::Queue, "new task", None)
+            .unwrap();
+        wait.hand_mail();
+        t.app.graph.backdate_agent_state(woken, STOP_HOOK_GRACE * 2);
+        set_modified(old - STOP_HOOK_GRACE * 2);
+        t.app.end_unhooked_turns().unwrap();
         assert_eq!(missed(&t), []);
         assert_eq!(t.app.agent_state(woken), Some(AgentState::Turn));
     }

@@ -239,7 +239,7 @@ impl Graph {
         state_of(&self.lock(), node)
     }
 
-    pub fn turn_began(&self, node: NodeId) -> rusqlite::Result<Option<SystemTime>> {
+    pub fn turn_began_before(&self, node: NodeId) -> rusqlite::Result<Option<SystemTime>> {
         let began: Option<(String, i64)> = self
             .lock()
             .query_row(
@@ -250,7 +250,9 @@ impl Graph {
             .optional()?;
         Ok(began
             .filter(|(state, _)| serde_json::from_str(state).ok() == Some(AgentState::Turn))
-            .map(|(_, at)| SystemTime::UNIX_EPOCH + Duration::from_secs(at.max(0).unsigned_abs())))
+            .map(|(_, at)| {
+                SystemTime::UNIX_EPOCH + Duration::from_secs(at.max(0).unsigned_abs() + 1)
+            }))
     }
 
     #[cfg(test)]

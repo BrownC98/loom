@@ -163,6 +163,17 @@ pub(super) async fn agent_relaunch(
     super::traced(&app, caller, super::Attempt::verb(&to), &via, relaunched)
 }
 
+pub(super) async fn agent_relaunch_unserved(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+) -> Result<Json<Relaunched>, AgentError> {
+    let caller = app.caller(&headers)?;
+    app.relaunch_unserved(caller)
+        .await
+        .map(Json)
+        .map_err(for_agent)
+}
+
 async fn relaunch(
     app: &Arc<App>,
     caller: NodeId,
@@ -369,6 +380,34 @@ impl App {
             self.watch_server_turn(node.id);
             return Ok(Relaunched::AtTurnEnd);
         }
+        let app = self.clone();
+        tokio::spawn(async move { app.relaunch(node, plan, None).await })
+            .await
+            .map_err(internal)?
+            .map_err(internal)?;
+        Ok(Relaunched::Now)
+    }
+
+    async fn relaunch_unserved(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
+        let found = self
+            .graph
+            .active()
+            .map_err(internal)?
+            .into_iter()
+            .find(|n| n.id == id);
+        let Some(node) = found.filter(|n| profile_of(n).is_some()) else {
+            return self.revive_ended(id, Plan::Resume).await;
+        };
+        let plan = {
+            let mut pending = self.relaunches.pending.lock().unwrap();
+            let plan = match pending.get(&id) {
+                Some((Phase::Running, _)) => return Ok(Relaunched::Now),
+                Some((Phase::AtTurnEnd, plan)) => plan.clone(),
+                None => Plan::Resume,
+            };
+            pending.insert(id, (Phase::Running, plan.clone()));
+            plan
+        };
         let app = self.clone();
         tokio::spawn(async move { app.relaunch(node, plan, None).await })
             .await
@@ -1160,6 +1199,27 @@ mod tests {
         let revived = app.relaunch_by_id(node, Plan::Resume).await;
         assert!(revived.is_err(), "{revived:?}");
         assert_eq!(relaunch_errors(&app).len(), 2);
+        assert!(!app.relaunches.holds_mail(node));
+    }
+
+    #[tokio::test]
+    async fn an_unserved_hook_relaunches_a_node_in_its_turn_now() {
+        let (_dir, app) = app();
+        let node = stale_pi(&app, "busy");
+        app.idle.turn_started(node, "prompt".into());
+        assert!(app.busy(node));
+        let active = || app.graph.active().unwrap().pop().unwrap();
+        assert_eq!(
+            app.queue(active(), Plan::Resume).await.ok(),
+            Some(Relaunched::AtTurnEnd)
+        );
+        assert!(relaunch_errors(&app).is_empty());
+        let now = app.relaunch_unserved(node).await;
+        assert!(now.is_err(), "{now:?}");
+        assert_eq!(
+            relaunch_errors(&app),
+            [Some("이어 갈 Pi 세션 기록이 없다".to_owned())]
+        );
         assert!(!app.relaunches.holds_mail(node));
     }
 

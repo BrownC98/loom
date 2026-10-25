@@ -385,12 +385,8 @@ fn pi_unserved(
     if unserved.id.is_some() {
         pi_send(out, &pi::failed(unserved.id, unserved.error.clone()))?;
     }
-    let request = RelaunchRequest {
-        name: None,
-        to: None,
-    };
     let timeout = Duration::from_secs(claude::HOOK_HTTP_TIMEOUT_SECS);
-    let relaunch = match call::<Relaunched>("relaunch", &request, Some(timeout)) {
+    let relaunch = match call::<Relaunched>("relaunch-unserved", &(), Some(timeout)) {
         Ok(_) => "loom relaunches this node with the current pi extension".to_owned(),
         Err(e) => format!("loom could not relaunch this node: {e}"),
     };

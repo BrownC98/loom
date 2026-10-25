@@ -31,9 +31,11 @@ import { NodeMenu } from './NodeMenu';
 import { isControl, NodeCard, SimpleCard } from './NodeCard';
 import { minimapClass } from './notice';
 import { attachCards, groupParents, groupsOf, inGroup, splitChips, type Group, type GroupKind } from './repos';
-import { attachPinchZoom } from './pinchZoom';
+import { attachDragPan, attachPinchZoom, type View } from './pinchZoom';
 import { realignTerminals, SizingTerminal, XtermFont, type Direction, type Draw } from './Terminal';
+import { SLOP_PX } from './touchTerminal';
 
+const OWN_TOUCH = 'input, textarea, [contenteditable], .react-flow__handle, .react-flow__resize-control, [data-selected] .term';
 const GROUP_POSITION: XYPosition = { x: 16, y: 64 };
 const REPO_Z = -1;
 const RAISED_EDGE_Z = 1;
@@ -706,7 +708,14 @@ export function Graph(props: {
   const pane = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = pane.current;
-    return el ? attachPinchZoom(el, { get: flow.getViewport, set: (v) => void flow.setViewport(v) }, { min: MIN_ZOOM, max: MAX_ZOOM }) : undefined;
+    if (!el) return;
+    const view = { get: flow.getViewport, set: (v: View) => void flow.setViewport(v) };
+    const pinch = attachPinchZoom(el, view, { min: MIN_ZOOM, max: MAX_ZOOM });
+    const pan = attachDragPan(el, view, (target) => target.closest('.react-flow__node') !== null && !target.closest(OWN_TOUCH), SLOP_PX);
+    return () => {
+      pinch();
+      pan();
+    };
   }, [flow]);
   useEffect(() => {
     const el = pane.current;

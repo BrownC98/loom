@@ -78,3 +78,49 @@ export function attachPinchZoom(
     root.removeEventListener('touchcancel', onEnd, { capture: true });
   };
 }
+
+export function attachDragPan(
+  root: HTMLElement,
+  view: { get: () => View; set: (v: View) => void },
+  pans: (target: Element) => boolean,
+  slop: number,
+): () => void {
+  let from: { view: View; x: number; y: number; moving: boolean } | null = null;
+
+  const onStart = (e: TouchEvent) => {
+    from = null;
+    if (e.touches.length !== 1 || !(e.target instanceof Element) || !pans(e.target))
+      return;
+    e.stopPropagation();
+    from = { view: view.get(), x: e.touches[0].clientX, y: e.touches[0].clientY, moving: false };
+  };
+  const onMove = (e: TouchEvent) => {
+    if (!from) return;
+    if (e.touches.length !== 1) return void (from = null);
+    const dx = e.touches[0].clientX - from.x;
+    const dy = e.touches[0].clientY - from.y;
+    if (!from.moving && Math.hypot(dx, dy) < slop) return;
+    from.moving = true;
+    e.preventDefault();
+    e.stopPropagation();
+    view.set({ x: from.view.x + dx, y: from.view.y + dy, zoom: from.view.zoom });
+  };
+  const onEnd = (e: TouchEvent) => {
+    if (from?.moving) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    from = null;
+  };
+
+  root.addEventListener('touchstart', onStart, { capture: true, passive: true });
+  root.addEventListener('touchmove', onMove, { capture: true, passive: false });
+  root.addEventListener('touchend', onEnd, { capture: true, passive: false });
+  root.addEventListener('touchcancel', onEnd, { capture: true, passive: false });
+  return () => {
+    root.removeEventListener('touchstart', onStart, { capture: true });
+    root.removeEventListener('touchmove', onMove, { capture: true });
+    root.removeEventListener('touchend', onEnd, { capture: true });
+    root.removeEventListener('touchcancel', onEnd, { capture: true });
+  };
+}

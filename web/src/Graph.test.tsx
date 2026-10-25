@@ -17,7 +17,7 @@ const renameNode = vi.mocked(api.renameNode);
 
 const views = new Map([[1, nodeView(1, 'alpha')]]);
 
-const mount = () =>
+const mount = (onSelect: (id: number | null) => void = () => {}) =>
   render(
     <Providers>
       <ReactFlowProvider>
@@ -35,7 +35,7 @@ const mount = () =>
           accounts={null}
           selected={null}
           focusAsk={0}
-          onSelect={() => {}}
+          onSelect={onSelect}
           onClear={() => {}}
           chosenBox={null}
           onChooseBox={() => {}}
@@ -108,5 +108,38 @@ describe('Graph card name edit', () => {
     expect(field().hasAttribute('readonly')).toBe(false);
     fireEvent.change(field(), { target: { value: 'gamma' } });
     expect(screen.queryByRole('alert', { hidden: true })).toBeNull();
+  });
+});
+
+describe('Graph touch on a card', () => {
+  const touch = (x: number, y: number) => ({ touches: [{ clientX: x, clientY: y }] });
+  const camera = () => document.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform;
+
+  it('moves the camera on a drag and stops the click after it', async () => {
+    mount();
+    await settle();
+    const before = camera();
+    const card = screen.getByText('alpha');
+    fireEvent.touchStart(card, touch(100, 100));
+    fireEvent.touchMove(card, touch(104, 100));
+    expect(camera()).toBe(before);
+    fireEvent.touchMove(card, touch(140, 130));
+    await settle();
+    expect(camera()).toBe('translate(40px,30px) scale(1)');
+    expect(fireEvent.touchEnd(card, { touches: [] })).toBe(false);
+  });
+
+  it('keeps a tap as a selection', async () => {
+    const onSelect = vi.fn();
+    mount(onSelect);
+    await settle();
+    const before = camera();
+    const card = screen.getByText('alpha');
+    fireEvent.touchStart(card, touch(100, 100));
+    expect(fireEvent.touchEnd(card, { touches: [] })).toBe(true);
+    fireEvent.mouseDown(card);
+    fireEvent.click(card);
+    expect(onSelect).toHaveBeenCalledWith(1);
+    expect(camera()).toBe(before);
   });
 });

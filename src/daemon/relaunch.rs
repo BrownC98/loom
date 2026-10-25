@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use ts_rs::TS;
 
-use super::turn_end::IDLE_GRACE;
 use super::{AgentError, App, Problem, RelaunchRequest, for_agent, internal};
 use crate::accounts::{self, Site};
 use crate::graph::{Active, AgentSwitch, Entry, IdleEnd, NodeId, REDELIVER_AFTER, Who};
@@ -33,8 +32,6 @@ const WOKEN_NOTICE: &str = "loom ended your process while you were done and idle
      Messages that came for you arrive next.";
 const REVIVED_NOTICE: &str = "Your process ended, and loom started it again in the same session. \
      Messages sent while it was ended did not arrive. Run `loom status`, then continue your work.";
-const CUT_NOTICE: &str =
-    "loom relaunched your process before your last turn ended. Continue that turn.";
 const HOOK_COMMAND: &str = "loom hook";
 const STOPPED_LINE_CHARS: usize = 200;
 const CLAUDE_TRANSCRIPT_DEPTH: usize = 3;
@@ -252,15 +249,6 @@ impl App {
     fn claude_turn_open(&self, node: &Active) -> bool {
         self.claude_transcript(node)
             .is_some_and(|path| !claude::turn_ended(&path))
-    }
-
-    fn claude_turn_cut(&self, node: &Active) -> bool {
-        self.claude_transcript(node).is_some_and(|path| {
-            std::fs::metadata(&path)
-                .and_then(|m| m.modified())
-                .is_ok_and(|at| at.elapsed().is_ok_and(|age| age >= IDLE_GRACE))
-                && !claude::turn_ended(&path)
-        })
     }
 
     fn claude_transcript(&self, node: &Active) -> Option<PathBuf> {
@@ -977,7 +965,6 @@ impl App {
         let first = match (limited, profile) {
             (true, _) => Some(CONTINUE_PROMPT),
             (false, Profile::Cursor | Profile::Pi | Profile::Omp) => Some(profile::RESUMED_PROMPT),
-            (false, Profile::Claude) if self.claude_turn_cut(node) => Some(CUT_NOTICE),
             (false, _) => None,
         };
         let stopped = self.background_commands(&Snapshot::now(), node);
@@ -1302,7 +1289,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_claude_relaunch_names_the_stopped_commands_and_a_cut_turn() {
+    async fn a_claude_relaunch_names_the_stopped_commands_and_does_not_continue_a_stopped_turn() {
         let (dir, app) = app();
         let bin = dir.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
@@ -1362,22 +1349,22 @@ mod tests {
         );
         std::fs::write(
             &transcript,
-            "{\"type\":\"user\",\"message\":{\"content\":\"go\"}}\n",
+            "{\"type\":\"user\",\"message\":{\"content\":\"[Request interrupted by user]\"}}\n",
         )
         .unwrap();
-        assert_eq!(
-            app.resumed_brief(&node, Profile::Claude),
-            ended,
-            "a turn end that is still being written is no cut"
-        );
-        std::fs::File::options()
-            .write(true)
-            .open(&transcript)
-            .unwrap()
-            .set_modified(std::time::SystemTime::now() - IDLE_GRACE * 2)
-            .unwrap();
-        let cut = app.resumed_brief(&node, Profile::Claude);
-        assert_eq!(cut, format!("{CUT_NOTICE}\n{ended}"));
+        for age in [Duration::ZERO, Duration::from_secs(3600)] {
+            std::fs::File::options()
+                .write(true)
+                .open(&transcript)
+                .unwrap()
+                .set_modified(std::time::SystemTime::now() - age)
+                .unwrap();
+            assert_eq!(
+                app.resumed_brief(&node, Profile::Claude),
+                ended,
+                "a session the human stopped does not continue its task"
+            );
+        }
         let snapshot = Snapshot::now();
         snapshot.kill_trees(app.background_shells(&snapshot, &node));
         app.host.kill(id);

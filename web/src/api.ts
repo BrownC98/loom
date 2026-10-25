@@ -51,7 +51,6 @@ import type { WaitId } from './gen/WaitId';
 import { problemText, statusText } from './problem';
 import { QUIET_LIMIT_MS, reconnecting } from './link';
 
-
 async function request<T>(method: string, path: string, body?: { type: string; data: BodyInit }): Promise<T> {
   const res = await fetch(path, {
     method,

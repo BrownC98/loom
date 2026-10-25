@@ -14,15 +14,21 @@ export interface LinkHandlers {
   quietLimitMs?: number;
 }
 
+const live = new Set<() => void>();
+
+const restartAll = () => {
+  for (const restart of [...live]) restart();
+};
+
 export function reconnecting(url: string, handlers: LinkHandlers): Link {
   let socket: WebSocket | undefined;
   let stopped = false;
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let hiddenAt: number | undefined;
-  const watch = (ms: number | null) => {
+  const watch = (ms: number | null, expired: () => void = restartAll) => {
     clearTimeout(watchdog);
-    watchdog = ms === null ? undefined : setTimeout(restart, ms);
+    watchdog = ms === null ? undefined : setTimeout(expired, ms);
   };
   const open = () => {
     clearTimeout(retry);
@@ -46,7 +52,7 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
       handlers.onDrop?.();
       retry = setTimeout(open, RECONNECT_MS);
     };
-    watch(CONNECT_LIMIT_MS);
+    watch(CONNECT_LIMIT_MS, restart);
   };
   const abandon = () => {
     const ws = socket;
@@ -74,6 +80,7 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
   const onPageShow = (e: PageTransitionEvent) => {
     if (e.persisted) restart();
   };
+  live.add(restart);
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('online', restart);
   window.addEventListener('pageshow', onPageShow);
@@ -84,6 +91,7 @@ export function reconnecting(url: string, handlers: LinkHandlers): Link {
     },
     close: () => {
       stopped = true;
+      live.delete(restart);
       clearTimeout(retry);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', restart);

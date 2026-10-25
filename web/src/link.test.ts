@@ -103,6 +103,17 @@ test('a socket that hears no beat for the quiet limit opens again', () => {
   expect(seen.drops).toBe(1);
 });
 
+test('a quiet beat link also opens the links without beats again', () => {
+  link();
+  latest().accept();
+  const pty = reconnecting('ws://pc/api/nodes/1/pty', { onOpen: () => {}, onMessage: () => {} });
+  links.push(pty);
+  latest().accept();
+  vi.advanceTimersByTime(QUIET_LIMIT_MS);
+  expect(FakeSocket.made.slice(0, 2).every((s) => s.closed)).toBe(true);
+  expect(FakeSocket.made.slice(2).map((s) => s.url).sort()).toEqual(['ws://pc/api/events', 'ws://pc/api/nodes/1/pty']);
+});
+
 test('a connection attempt that hangs is given up and tried again', () => {
   link();
   vi.advanceTimersByTime(CONNECT_LIMIT_MS);

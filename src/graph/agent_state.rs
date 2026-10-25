@@ -207,7 +207,8 @@ fn move_mail(db: &Connection, node: NodeId, event: &AgentEvent) -> rusqlite::Res
         E::TurnEnded | E::TurnEndedWaitOpened => {
             Ok(mailbox::read(db, node)? + mailbox::requeue_unprinted(db, node)?)
         }
-        E::WaitClosed {
+        E::WaitOpened
+        | E::WaitClosed {
             by: IdleEnd::Gone | IdleEnd::Error,
         } => mailbox::requeue_unprinted(db, node),
         E::Exited | E::RelaunchStarted | E::Slept => mailbox::requeue_unread(db, node),

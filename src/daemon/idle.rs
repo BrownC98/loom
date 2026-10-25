@@ -96,12 +96,18 @@ impl IdleWaits {
 
     #[cfg(test)]
     pub fn waiting(&self, node: NodeId) -> bool {
-        self.ends
-            .lock()
-            .unwrap()
-            .get(&node)
-            .and_then(|latest| latest.end.as_ref())
-            .is_some_and(|end| !end.is_closed())
+        held(&self.ends.lock().unwrap(), node)
+    }
+
+    pub fn lose_unheld(&self, node: NodeId) {
+        let ends = self.ends.lock().unwrap();
+        let listening = self
+            .graph
+            .agent_state(node)
+            .is_ok_and(|state| state == Some(AgentState::Listening));
+        if listening && !held(&ends, node) {
+            self.feed(node, AgentEvent::WaitClosed { by: IdleEnd::Gone });
+        }
     }
 
     pub fn typed_since(&self, node: NodeId, since: SystemTime) -> bool {
@@ -166,6 +172,12 @@ impl IdleWaits {
             eprintln!("loom: 노드 {}의 에이전트 상태를 쓰지 못했다: {e}", node.0);
         }
     }
+}
+
+fn held(ends: &HashMap<NodeId, Latest>, node: NodeId) -> bool {
+    ends.get(&node)
+        .and_then(|latest| latest.end.as_ref())
+        .is_some_and(|end| !end.is_closed())
 }
 
 fn take_end(ends: &mut HashMap<NodeId, Latest>, node: NodeId) -> Option<oneshot::Sender<IdleEnd>> {

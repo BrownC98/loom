@@ -61,8 +61,24 @@ pub fn windows_path(distro: &str, linux: &str) -> String {
     )
 }
 
-fn verbatim_path(distro: &str, linux: &str) -> String {
-    format!(r"\\?\UNC{}", &windows_path(distro, linux)[1..])
+fn interop_path(distro: &str, linux: &str) -> String {
+    std::process::Command::new("wslpath")
+        .arg("-w")
+        .arg(linux)
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|path| path.trim_end_matches('\n').to_owned())
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| windows_path(distro, linux))
+}
+
+fn verbatim(windows: &str) -> String {
+    match windows.strip_prefix(r"\\") {
+        Some(unc) => format!(r"\\?\UNC\{unc}"),
+        None => format!(r"\\?\{windows}"),
+    }
 }
 
 fn tunnel_distro() -> Option<String> {
@@ -80,14 +96,14 @@ fn linux(path: &Path) -> Option<&str> {
 
 pub fn for_daemon(path: PathBuf) -> PathBuf {
     match (tunnel_distro(), linux(&path)) {
-        (Some(distro), Some(linux)) => verbatim_path(&distro, linux).into(),
+        (Some(distro), Some(linux)) => verbatim(&interop_path(&distro, linux)).into(),
         _ => path,
     }
 }
 
 pub fn cwd_for_daemon(dir: PathBuf) -> PathBuf {
     match (tunnel_distro(), linux(&dir)) {
-        (Some(distro), Some(linux)) => windows_path(&distro, linux).into(),
+        (Some(distro), Some(linux)) => interop_path(&distro, linux).into(),
         _ => from_caller(dir),
     }
 }
@@ -411,6 +427,18 @@ pub const WINDOWS_VERBS: &[&str] = &[
     "serve", "start", "open", "stop", "carry", "show", "spawn", "pty-host", "guard", "tunnel",
 ];
 const STDIN_VERBS: &[&str] = &["hook", "cursor-hook", "spawn"];
+const RETRY_VERBS: &[&str] = &[
+    "hook",
+    "cursor-hook",
+    "spawn",
+    "status",
+    "roles",
+    "cursor-rules",
+    "start",
+    "open",
+    "stop",
+    "show",
+];
 const LINUX_HASH_HEX: usize = 12;
 
 pub async fn inside(
@@ -743,6 +771,10 @@ while :; do
   [ $code -ne 0 ] && [ $code -ne {REWAKE_EXIT} ] && [ ! -s "$tmp/out" ] &&
     head -n 1 "$tmp/err" | grep -qE '{INTEROP_ERROR}' || break
   note "$1" "try $try/{START_TRIES} exit $code: $(head -n 1 "$tmp/err")"
+  case $1 in {again}) ;; *)
+    printf 'loom: loom.exe may have run %s before WSL interop failed. Look with `loom status` before you send it again.\n' "$1" >&2
+    break ;;
+  esac
   if [ $try -ge {START_TRIES} ]; then
     echo "loom: loom.exe did not start through WSL interop in {START_TRIES} tries ($HOME/{INTEROP_LOG}). Run the command again." >&2
     break
@@ -754,6 +786,7 @@ exit $code
 "#,
         exe = quoted(exe),
         stdin = STDIN_VERBS.join(" | "),
+        again = RETRY_VERBS.join(" | "),
         retry = START_RETRY_AFTER.as_secs()
     );
     if std::fs::read_to_string(&shim).is_ok_and(|old| old == text) {
@@ -837,9 +870,20 @@ mod tests {
     #[test]
     fn a_linux_path_reaches_the_windows_daemon_in_the_form_loom_exe_sends() {
         assert_eq!(
-            verbatim_path("Ubuntu-24.04", "/tmp/trace/work/문서.html"),
+            verbatim(&windows_path("Ubuntu-24.04", "/tmp/trace/work/문서.html")),
             r"\\?\UNC\wsl.localhost\Ubuntu-24.04\tmp\trace\work\문서.html"
         );
+        assert_eq!(verbatim(r"C:\repo\문서.html"), r"\\?\C:\repo\문서.html");
+        if let Ok(distro) = std::env::var("WSL_DISTRO_NAME")
+            && Path::new("/mnt/c").is_dir()
+        {
+            assert_eq!(interop_path(&distro, "/mnt/c/repo/작업"), r"C:\repo\작업");
+            assert_eq!(interop_path(&distro, "/mnt/c"), r"C:\");
+            assert_eq!(
+                interop_path(&distro, "/home/k/작업"),
+                windows_path(&distro, "/home/k/작업")
+            );
+        }
         assert_eq!(
             windows_path("Ubuntu-24.04", "/home/ktadev/loom/workspaces/loom/CLI터널"),
             r"\\wsl.localhost\Ubuntu-24.04\home\ktadev\loom\workspaces\loom\CLI터널"
@@ -967,7 +1011,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn the_shim_runs_a_hook_again_only_after_a_wsl_interop_failure() {
+    fn the_shim_runs_a_safe_verb_again_only_after_a_wsl_interop_failure() {
         use std::io::Write;
         let shim = Shim::with_exe(
             "retry",
@@ -1074,13 +1118,32 @@ exit 2"#,
             "the brief survives the retry"
         );
         assert_eq!(log().lines().count(), 3, "{}", log());
-        let (code, out, err, count) = run("never", &["note", "p", "b"]);
+        let (code, out, err, count) = run("never", &["status"]);
         assert_eq!((code, out.as_str(), count.as_str()), (Some(1), "", "3"));
         assert!(
             err.ends_with("loom: loom.exe did not start through WSL interop in 3 tries ($HOME/.loom/wsl-interop.log). Run the command again.\n".replace("$HOME", &shim.dir.path().display().to_string()).as_str()),
             "{err}"
         );
         assert_eq!(log().lines().count(), 6, "{}", log());
+        for verb in [
+            "done", "note", "ask", "answer", "answered", "verdict", "ready", "fail", "adopt", "rm",
+            "relaunch", "wait",
+        ] {
+            assert!(!RETRY_VERBS.contains(&verb));
+            assert_eq!(
+                run("interop", &[verb, "x"]),
+                (
+                    Some(1),
+                    line(""),
+                    format!(
+                        "WSL (12) ERROR: UtilAcceptVsock:273: accept4 failed 110\nloom: loom.exe may have run {verb} before WSL interop failed. Look with `loom status` before you send it again.\n"
+                    ),
+                    line("1")
+                ),
+                "a one-shot verb is never sent twice"
+            );
+        }
+        assert_eq!(log().lines().count(), 18, "{}", log());
     }
 
     #[cfg(unix)]

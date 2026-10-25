@@ -10,20 +10,23 @@ use ureq::unversioned::transport::{
 
 pub const URL: &str = "http://127.0.0.1";
 pub const RESTART_WAIT: Duration = Duration::from_secs(10);
+pub const PROBE_WAIT: Duration = Duration::from_secs(2);
 const CONNECT_AGAIN_AFTER: Duration = Duration::from_millis(200);
+
+fn restarting(e: &io::Error) -> bool {
+    matches!(
+        e.kind(),
+        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+    )
+}
 
 pub fn connect(sock: &Path, wait: Duration) -> io::Result<UnixStream> {
     let until = Instant::now() + wait;
     loop {
         match UnixStream::connect(sock) {
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
-                ) && Instant::now() < until =>
-            {
-                std::thread::sleep(CONNECT_AGAIN_AFTER)
-            }
+            Err(e) if restarting(&e) && Instant::now() < until => std::thread::sleep(
+                CONNECT_AGAIN_AFTER.min(until.saturating_duration_since(Instant::now())),
+            ),
             connected => return connected,
         }
     }
@@ -36,7 +39,12 @@ impl ureq::unversioned::transport::Connector for Connector {
     type Out = Socket;
 
     fn connect(&self, details: &ConnectionDetails, _: Option<()>) -> Result<Option<Socket>, Error> {
-        let stream = connect(&self.0, RESTART_WAIT).map_err(|_| Error::ConnectionFailed)?;
+        let budget = limit(&details.timeout).filter(|b| *b < RESTART_WAIT);
+        let stream =
+            connect(&self.0, budget.unwrap_or(RESTART_WAIT)).map_err(|e| match budget {
+                Some(_) if restarting(&e) => Error::Timeout(details.timeout.reason),
+                _ => Error::ConnectionFailed,
+            })?;
         let config = details.config;
         Ok(Some(Socket {
             stream,

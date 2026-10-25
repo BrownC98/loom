@@ -54,7 +54,7 @@ pub fn spawn(run: SpawnRun, worktree: Option<String>, file: Option<PathBuf>) -> 
         url: env_var("LOOM_SPAWN_URL")?,
         proxy: None,
     };
-    let _: NodeId = post(&spawn, "spawn", &request, None)?;
+    let _: NodeId = post(&spawn, "spawn", &request, None, None)?;
     println!("Created node: {}", request.run.name());
     Ok(())
 }
@@ -144,7 +144,7 @@ pub fn wait(reply_to: Option<u32>, timeout_secs: Option<u64>, json: bool) -> Res
         };
         let timeout = timeout_secs
             .map(|secs| Duration::from_secs(secs.saturating_add(WAIT_RESPONSE_GRACE_SECS)));
-        call("wait", &request, timeout)
+        call_within("wait", &request, remaining, timeout)
     })?;
     let id = delivery.id;
     if json {
@@ -755,7 +755,16 @@ fn call<T: DeserializeOwned>(
     body: &impl Serialize,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
-    post(&Daemon::from_env()?, action, body, timeout)
+    call_within(action, body, timeout, timeout)
+}
+
+fn call_within<T: DeserializeOwned>(
+    action: &str,
+    body: &impl Serialize,
+    connect: Option<Duration>,
+    timeout: Option<Duration>,
+) -> Result<T, CallError> {
+    post(&Daemon::from_env()?, action, body, connect, timeout)
 }
 
 enum Daemon {
@@ -779,9 +788,10 @@ impl Daemon {
         })
     }
 
-    fn agent(&self, timeout: Option<Duration>) -> (ureq::Agent, &str) {
+    fn agent(&self, connect: Option<Duration>, timeout: Option<Duration>) -> (ureq::Agent, &str) {
         let config = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            .timeout_connect(connect)
             .timeout_global(timeout);
         match self {
             Daemon::Http { url, proxy } => (config.proxy(proxy.clone()).build().into(), url),
@@ -808,6 +818,11 @@ impl Daemon {
                 sock.display()
             ),
             #[cfg(unix)]
+            (Daemon::Socket(sock), e @ ureq::Error::Timeout(_)) => format!(
+                "The daemon did not answer through the tunnel {} in time: {e}.",
+                sock.display()
+            ),
+            #[cfg(unix)]
             (Daemon::Socket(sock), e) => format!(
                 "The tunnel {} closed after loom sent the request: {e}. The daemon may have done it. Look with `loom status` before you send it again.",
                 sock.display()
@@ -819,7 +834,7 @@ impl Daemon {
 pub fn through_tunnel() {
     #[cfg(unix)]
     if let Some(sock) = std::env::var_os(crate::wsl::SOCKET_ENV)
-        && unix_socket::connect(Path::new(&sock), unix_socket::RESTART_WAIT).is_err()
+        && unix_socket::connect(Path::new(&sock), unix_socket::PROBE_WAIT).is_err()
     {
         std::process::exit(crate::wsl::TUNNEL_DOWN_EXIT);
     }
@@ -884,10 +899,11 @@ fn post<T: DeserializeOwned>(
     daemon: &Daemon,
     action: &str,
     body: &impl Serialize,
+    connect: Option<Duration>,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
     let token = env_var("LOOM_TOKEN").map_err(CallError::Refused)?;
-    post_as(daemon, &token, action, body, timeout)
+    post_as(daemon, &token, action, body, connect, timeout)
 }
 
 fn post_as<T: DeserializeOwned>(
@@ -895,9 +911,10 @@ fn post_as<T: DeserializeOwned>(
     token: &str,
     action: &str,
     body: &impl Serialize,
+    connect: Option<Duration>,
     timeout: Option<Duration>,
 ) -> Result<T, CallError> {
-    let (agent, url) = daemon.agent(timeout);
+    let (agent, url) = daemon.agent(connect, timeout);
     let mut res = agent
         .post(format!("{url}/api/agent/{action}"))
         .header("authorization", format!("Bearer {token}"))
@@ -1000,7 +1017,7 @@ mod tests {
             url: url.to_owned(),
             proxy: None,
         };
-        post_as(&daemon, "token", "idle", &(), None)
+        post_as(&daemon, "token", "idle", &(), None, None)
     }
 
     #[cfg(unix)]
@@ -1043,7 +1060,7 @@ mod tests {
         let mut tries = 0;
         let got = reconnecting(None, |_| {
             tries += 1;
-            post_as::<Vec<u32>>(&daemon, "token", "idle", &(), None)
+            post_as::<Vec<u32>>(&daemon, "token", "idle", &(), None, None)
         });
         assert_eq!(got, Ok(vec![7]));
         assert_eq!(tries, 2);
@@ -1103,7 +1120,14 @@ mod tests {
             }
             String::from_utf8(request).unwrap()
         });
-        let got = post_as::<()>(&Daemon::Socket(sock.clone()), "token", "note", &(), None);
+        let got = post_as::<()>(
+            &Daemon::Socket(sock.clone()),
+            "token",
+            "note",
+            &(),
+            None,
+            None,
+        );
         assert!(daemon.join().unwrap().starts_with("POST /api/agent/note "));
         assert!(
             matches!(&got, Err(CallError::Unreachable(e)) if e.contains("closed after loom sent the request") && e.contains("loom status")),
@@ -1119,12 +1143,74 @@ mod tests {
             "note",
             &(),
             None,
+            None,
         );
         assert!(
             matches!(&got, Err(CallError::Unreachable(e)) if e.starts_with("Could not connect to the daemon through the tunnel")),
             "{}",
             got.err().map(String::from).unwrap_or_default()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_tunnel_request_keeps_its_time_limit_while_the_relay_restarts() {
+        use std::os::unix::net::UnixListener;
+        let dir = tempfile::tempdir().unwrap();
+        let stale = dir.path().join("stale.sock");
+        drop(UnixListener::bind(&stale).unwrap());
+        let in_time = |connect, timeout| {
+            let started = Instant::now();
+            let got = post_as::<()>(
+                &Daemon::Socket(stale.clone()),
+                "token",
+                "wait",
+                &(),
+                connect,
+                timeout,
+            );
+            (
+                started.elapsed(),
+                got.err().map(String::from).unwrap_or_default(),
+            )
+        };
+        for (connect, timeout) in [
+            (None, Some(Duration::from_millis(500))),
+            (
+                Some(Duration::from_millis(500)),
+                Some(Duration::from_secs(6)),
+            ),
+        ] {
+            let (took, e) = in_time(connect, timeout);
+            assert!(took < Duration::from_millis(1500), "{took:?}");
+            assert!(
+                e.starts_with("The daemon did not answer through the tunnel"),
+                "{e}"
+            );
+        }
+
+        let silent = dir.path().join("silent.sock");
+        let listener = UnixListener::bind(&silent).unwrap();
+        let daemon = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0; 1024];
+            while stream.read(&mut buf).unwrap() > 0 {}
+        });
+        let got = post_as::<()>(
+            &Daemon::Socket(silent),
+            "token",
+            "wait",
+            &(),
+            None,
+            Some(Duration::from_millis(300)),
+        );
+        let e = got.err().map(String::from).unwrap_or_default();
+        assert!(
+            e.starts_with("The daemon did not answer through the tunnel"),
+            "{e}"
+        );
+        assert!(!e.contains("loom status"), "{e}");
+        daemon.join().unwrap();
     }
 
     #[test]

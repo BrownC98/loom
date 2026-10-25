@@ -1,4 +1,6 @@
+mod endpoint;
 mod host;
+mod inner;
 mod wire;
 
 use std::collections::{HashMap, VecDeque};
@@ -21,6 +23,14 @@ use crate::screen::Screen;
 use wire::Frame;
 
 pub use host::run;
+pub use inner::inner;
+
+pub type Links<K> = tokio::sync::mpsc::UnboundedSender<(K, Linked)>;
+
+pub enum Linked {
+    Streams(TcpStream),
+    EndpointFailed(String),
+}
 
 const BACKLOG_BYTES: usize = 256 * 1024;
 const VIEWER_QUEUE_CHUNKS: usize = 1024;
@@ -86,6 +96,7 @@ pub struct NodeHost<K> {
     dir: PathBuf,
     kept: PathBuf,
     nodes: RwLock<HashMap<K, Arc<Pty>>>,
+    links: Option<Links<K>>,
 }
 
 struct Pty {
@@ -148,6 +159,14 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             kept: dir.with_extension("screens"),
             dir,
             nodes: RwLock::default(),
+            links: None,
+        }
+    }
+
+    pub fn with_links(self, links: Links<K>) -> Self {
+        Self {
+            links: Some(links),
+            ..self
         }
     }
 
@@ -158,7 +177,31 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
         setup: Option<CommandBuilder>,
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> Result<(), String> {
-        let address = start_host(&cmd, setup.as_ref())?;
+        self.start(id, host::Spec::of(&cmd, setup.as_ref()), on_exit)
+    }
+
+    pub fn spawn_inner(
+        &self,
+        id: K,
+        launcher: CommandBuilder,
+        cmd: CommandBuilder,
+        setup: Option<CommandBuilder>,
+        on_exit: impl FnOnce(Exit) + Send + 'static,
+    ) -> Result<(), String> {
+        self.start(
+            id,
+            host::Spec::inner(&launcher, &cmd, setup.as_ref()),
+            on_exit,
+        )
+    }
+
+    fn start(
+        &self,
+        id: K,
+        spec: host::Spec,
+        on_exit: impl FnOnce(Exit) + Send + 'static,
+    ) -> Result<(), String> {
+        let address = start_host(&spec)?;
         std::fs::create_dir_all(&self.dir)
             .and_then(|()| std::fs::write(self.file(id), &address))
             .map_err(|e| e.to_string())?;
@@ -172,14 +215,31 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     ) -> Result<(), Unattached> {
         let _ = std::fs::remove_file(self.kept_file(id));
         let file = self.file(id);
-        let connected = connect(&file);
-        let (mut reader, pid) = match connected {
+        let connected = address(&file).and_then(|at| Ok((at, connect(at, wire::greet)?)));
+        let (at, (mut reader, greeted)) = match connected {
             Ok(found) => found,
             Err(e) => {
                 let _ = std::fs::remove_file(&file);
                 return Err(e);
             }
         };
+        let pid = greeted.pid;
+        if greeted.version >= wire::STREAMS_SINCE
+            && let Some(links) = &self.links
+        {
+            match connect(at, wire::greet_streams) {
+                Ok((link, ())) => {
+                    let _ = links.send((id, Linked::Streams(link)));
+                }
+                Err(e) => {
+                    let _ = wire::write(&mut reader, &Frame::Kill);
+                    std::thread::spawn(move || while wire::read(&mut reader).is_ok() {});
+                    let _ = std::fs::remove_file(&file);
+                    return Err(Unattached::Silent(format!("node endpoint link: {e}")));
+                }
+            }
+        }
+        let links = self.links.clone();
         let host = reader
             .try_clone()
             .map_err(|e| Unattached::Silent(e.to_string()))?;
@@ -205,6 +265,11 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
                     Ok(Frame::Exit(code)) => break Exit::Command(code),
                     Ok(Frame::SetupFailed(code)) => break Exit::Setup(code),
                     Ok(Frame::Pid(pid)) => *pty.pid.lock().unwrap() = Some(pid),
+                    Ok(Frame::EndpointFailed(error)) => {
+                        if let Some(links) = &links {
+                            let _ = links.send((id, Linked::EndpointFailed(error)));
+                        }
+                    }
                     Ok(Frame::Resize { cols, rows }) => {
                         let mut sizing = pty.sizing.lock().unwrap();
                         if sizing.host == HostSize::Unreported {
@@ -237,7 +302,9 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
             if ours.contains(&entry.file_name().to_string_lossy().into_owned()) {
                 continue;
             }
-            if let Ok((mut host, _)) = connect(&entry.path()) {
+            if let Ok((mut host, _)) =
+                address(&entry.path()).and_then(|at| connect(at, wire::greet))
+            {
                 let _ = wire::write(&mut host, &Frame::Kill);
             }
             let _ = std::fs::remove_file(entry.path());
@@ -423,7 +490,7 @@ impl<K: Copy + Eq + Hash + Display + Send + Sync + 'static> NodeHost<K> {
     }
 }
 
-fn start_host(cmd: &CommandBuilder, setup: Option<&CommandBuilder>) -> Result<String, String> {
+fn start_host(spec: &host::Spec) -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe = exe
         .to_str()
@@ -436,7 +503,7 @@ fn start_host(cmd: &CommandBuilder, setup: Option<&CommandBuilder>) -> Result<St
         .stderr(Stdio::null());
     process_tree::detach(&mut host);
     let mut child = host.spawn().map_err(|e| format!("pty-host: {e}"))?;
-    let spec = serde_json::to_vec(&host::Spec::of(cmd, setup)).map_err(|e| e.to_string())?;
+    let spec = serde_json::to_vec(spec).map_err(|e| e.to_string())?;
     let sent = child
         .stdin
         .take()
@@ -453,13 +520,19 @@ fn start_host(cmd: &CommandBuilder, setup: Option<&CommandBuilder>) -> Result<St
     }
 }
 
-fn connect(file: &std::path::Path) -> Result<(TcpStream, Option<u32>), Unattached> {
-    let silent = |e: std::io::Error| Unattached::Silent(e.to_string());
-    let address = std::fs::read_to_string(file).map_err(silent)?;
-    let address = address
+fn address(file: &std::path::Path) -> Result<std::net::SocketAddr, Unattached> {
+    let address = std::fs::read_to_string(file).map_err(|e| Unattached::Silent(e.to_string()))?;
+    address
         .trim()
         .parse()
-        .map_err(|e| Unattached::Silent(format!("{}: {e}", file.display())))?;
+        .map_err(|e| Unattached::Silent(format!("{}: {e}", file.display())))
+}
+
+fn connect<G>(
+    address: std::net::SocketAddr,
+    greet: impl FnOnce(&mut TcpStream) -> std::io::Result<G>,
+) -> Result<(TcpStream, G), Unattached> {
+    let silent = |e: std::io::Error| Unattached::Silent(e.to_string());
     let mut stream =
         TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).map_err(|e| match e.kind() {
             std::io::ErrorKind::ConnectionRefused => Unattached::Gone,
@@ -468,9 +541,9 @@ fn connect(file: &std::path::Path) -> Result<(TcpStream, Option<u32>), Unattache
     stream
         .set_read_timeout(Some(GREET_TIMEOUT))
         .map_err(silent)?;
-    let pid = wire::greet(&mut stream).map_err(silent)?;
+    let greeted = greet(&mut stream).map_err(silent)?;
     stream.set_read_timeout(None).map_err(silent)?;
-    Ok((stream, pid))
+    Ok((stream, greeted))
 }
 
 pub struct Keys<'a>(Option<&'a Pty>);
@@ -693,11 +766,14 @@ fn report_len(seq: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 pub fn in_process(dir: &std::path::Path, id: impl Display, cmd: CommandBuilder) {
-    let started = host::start(cmd, None).unwrap();
+    let started = host::start(cmd, None, None).unwrap();
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join(id.to_string()), started.address.to_string()).unwrap();
     std::thread::spawn(move || started.wait());
 }
+
+#[cfg(test)]
+mod endpoint_tests;
 
 #[cfg(test)]
 mod tests {
@@ -937,7 +1013,7 @@ mod tests {
             ),
         ] {
             let dir = tempfile::tempdir().unwrap();
-            let started = host::start(sh("echo agent $$; exit 4"), Some(sh(setup))).unwrap();
+            let started = host::start(sh("echo agent $$; exit 4"), Some(sh(setup)), None).unwrap();
             std::fs::write(dir.path().join("1"), started.address.to_string()).unwrap();
             std::thread::spawn(move || started.wait());
             let nodes = NodeHost::new(dir.path().to_path_buf());

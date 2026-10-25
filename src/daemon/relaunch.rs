@@ -423,7 +423,10 @@ impl App {
         }
     }
 
-    async fn relaunch_unserved(self: &Arc<Self>, id: NodeId) -> Result<Relaunched, Problem> {
+    pub(super) async fn relaunch_unserved(
+        self: &Arc<Self>,
+        id: NodeId,
+    ) -> Result<Relaunched, Problem> {
         self.feed(id, AgentEvent::VersionMismatch);
         let found = self
             .graph
@@ -1207,7 +1210,7 @@ mod tests {
                 addr,
                 None,
                 None,
-                crate::tunnel::Door::new().0,
+                tokio::sync::mpsc::unbounded_channel().0,
             )
             .unwrap(),
         );
@@ -1280,6 +1283,109 @@ mod tests {
         assert!(revived.is_err(), "{revived:?}");
         assert_eq!(relaunch_errors(&app).len(), 2);
         assert!(!app.holds_mail(node));
+    }
+
+    #[tokio::test]
+    async fn an_endpoint_stream_serves_only_the_token_of_its_own_node() {
+        use axum::extract::ConnectInfo;
+        use tower::ServiceExt;
+        let (_dir, app) = app();
+        let mine = stale_pi(&app, "mine");
+        stale_pi(&app, "other");
+        let router = Router::new()
+            .route("/api/agent/status", axum::routing::post(|| async { "ok" }))
+            .layer(axum::middleware::from_fn_with_state(
+                app.clone(),
+                super::super::runtime::from_its_node,
+            ));
+        let status = |token: &'static str| {
+            let request = axum::http::Request::post("/api/agent/status")
+                .header("authorization", format!("Bearer {token}"))
+                .extension(ConnectInfo(mine))
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let router = router.clone();
+            async move { router.oneshot(request).await.unwrap().status() }
+        };
+        assert_eq!(status("mine").await, axum::http::StatusCode::OK);
+        assert_eq!(status("other").await, axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(status("unknown").await, axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_failed_node_endpoint_is_in_the_event_log_but_not_in_the_console() {
+        use crate::graph::Entry;
+        use crate::node_host::Linked;
+        let (_dir, app) = app();
+        let node = stale_pi(&app, "tok");
+        let (links, linked) = tokio::sync::mpsc::unbounded_channel();
+        let (doors, _door) = crate::tunnel::Door::new();
+        links
+            .send((node, Linked::EndpointFailed("accept: no fd".into())))
+            .unwrap();
+        drop(links);
+        app.clone().carry_links(linked, doors).await;
+        let recorded = app.graph.recent_events().unwrap();
+        assert!(recorded.iter().any(|r| matches!(
+            &r.entry,
+            Entry::EndpointFailed { node: who, error } if who.id == Some(node) && error == "accept: no fd"
+        )));
+        assert!(
+            app.graph
+                .event_log()
+                .unwrap()
+                .records
+                .iter()
+                .all(|r| !matches!(r.entry, Entry::EndpointFailed { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_node_call_in_an_unknown_protocol_is_refused_and_relaunches_the_node() {
+        use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
+        let (_dir, app) = app();
+        let node = stale_pi(&app, "tok");
+        let headers = |protocol: Option<String>| {
+            let mut headers = HeaderMap::new();
+            headers.insert("authorization", "Bearer tok".parse().unwrap());
+            if let Some(protocol) = protocol {
+                headers.insert(NODE_CALLS_HEADER, protocol.parse().unwrap());
+            }
+            headers
+        };
+        assert_eq!(app.caller(&headers(None)).ok(), Some(node), "an old hook");
+        assert_eq!(
+            app.caller(&headers(Some(NODE_CALLS.now.to_string()))).ok(),
+            Some(node)
+        );
+        assert_eq!(
+            app.graph.agent_state(node).unwrap(),
+            Some(AgentState::Starting)
+        );
+        let newer = (NODE_CALLS.now + 1).to_string();
+        let Err((status, text)) = app.caller(&headers(Some(newer.clone()))) else {
+            panic!("a newer protocol is refused");
+        };
+        assert_eq!(status, axum::http::StatusCode::UPGRADE_REQUIRED);
+        assert!(text.contains(&format!("node protocol {newer}")), "{text}");
+        for _ in 0..500 {
+            if !relaunch_errors(&app).is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            relaunch_errors(&app),
+            [Some("이어 갈 Pi·OMP 세션 기록이 없다".to_owned())],
+            "the refusal relaunches the node"
+        );
+        assert!(app.graph.recent_events().unwrap().iter().any(|r| matches!(
+            &r.entry,
+            Entry::AgentStateChanged {
+                by: AgentEvent::VersionMismatch,
+                ..
+            }
+        )));
     }
 
     #[tokio::test]

@@ -22,7 +22,6 @@ pub use crate::graph::NewAgent;
 pub use relaunch::Relaunched;
 mod switch;
 mod system;
-mod tunnels;
 mod turn_end;
 mod usage_cache;
 #[cfg(test)]
@@ -130,7 +129,8 @@ struct App {
     merge_queue: tokio::sync::Notify,
     plugin: skills::Plugin,
     shim: PathBuf,
-    tunnels: tunnel::Tunnels<tunnels::WslTunnel>,
+    linux_loom: Option<PathBuf>,
+    run_dir: PathBuf,
     homes: wsl::Homes,
     version_warnings: HashMap<Profile, VersionMismatch>,
     codex_config: Vec<String>,
@@ -222,15 +222,17 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     let codex_version = codex::installed_version();
     let db_path = db::default_path()?;
     let node_door_addr = node_door.as_ref().map(|d| d.local_addr()).transpose()?;
-    let (doors, tunnel_door) = tunnel::Door::new();
+    let (doors, endpoint_door) = tunnel::Door::<NodeId>::new();
+    let (links, linked) = tokio::sync::mpsc::unbounded_channel();
     let app = Arc::new(App::new(
         db::open(&db_path)?,
         &db_path,
         listen,
         node_door_addr,
         codex_version.as_deref(),
-        doors,
+        links,
     )?);
+    tokio::spawn(app.clone().carry_links(linked, doors));
     match app
         .repos
         .add(&std::env::current_dir()?.to_string_lossy())
@@ -299,16 +301,26 @@ pub async fn serve(listen: SocketAddr) -> std::io::Result<()> {
     tokio::spawn(queue::run(app.clone()));
     println!("loom: http://{listen}");
     let main = axum::serve(listener, router).into_future();
-    let node_routes = node_routes
-        .layer(axum::middleware::from_fn(origin::same_site))
-        .with_state(app);
-    let tunnel = axum::serve(tunnel_door, node_routes.clone()).into_future();
+    let node_routes = node_routes.layer(axum::middleware::from_fn(origin::same_site));
+    let endpoint = axum::serve(
+        endpoint_door,
+        node_routes
+            .clone()
+            .layer(axum::middleware::from_fn_with_state(
+                app.clone(),
+                runtime::from_its_node,
+            ))
+            .with_state(app.clone())
+            .into_make_service_with_connect_info::<NodeId>(),
+    )
+    .into_future();
+    let node_routes = node_routes.with_state(app);
     match node_door {
         Some(door) => {
             let node = axum::serve(door, node_routes).into_future();
-            tokio::try_join!(main, node, tunnel).map(drop)
+            tokio::try_join!(main, node, endpoint).map(drop)
         }
-        None => tokio::try_join!(main, tunnel).map(drop),
+        None => tokio::try_join!(main, endpoint).map(drop),
     }
 }
 
@@ -337,7 +349,7 @@ impl App {
         listen: SocketAddr,
         node_door: Option<SocketAddr>,
         codex_version: Option<&str>,
-        doors: tokio::sync::mpsc::UnboundedSender<tunnel::Stream>,
+        links: node_host::Links<NodeId>,
     ) -> std::io::Result<App> {
         let repos = Repos::new(database.clone());
         let graph = Arc::new(
@@ -351,20 +363,26 @@ impl App {
         let devices = Arc::new(Devices::new(database.clone()));
         let idle = idle::IdleWaits::new(graph.clone());
         let shim = db_path.with_file_name("wsl");
-        let wsl_tunnel = match cfg!(windows) {
-            true => tunnels::WslTunnel::install(&shim, listen.port(), graph.clone())
-                .unwrap_or_else(|e| {
-                    eprintln!("loom: WSL 터널용 Linux loom을 넣지 못했다: {e}");
-                    tunnels::WslTunnel::none(graph.clone())
-                }),
-            false => tunnels::WslTunnel::none(graph.clone()),
+        let linux_loom = match cfg!(windows) {
+            true => wsl::install_linux(
+                &shim,
+                &std::env::current_exe()?.with_file_name(wsl::LINUX_LOOM),
+            )
+            .unwrap_or_else(|e| {
+                eprintln!("loom: WSL 노드용 Linux loom을 넣지 못했다: {e}");
+                None
+            }),
+            false => None,
         };
+        if let Some(linux) = &linux_loom {
+            wsl::prune_linux(linux);
+        }
         if cfg!(windows) {
-            wsl::write_shim(&shim, &std::env::current_exe()?, wsl_tunnel.shim())?;
+            wsl::write_shim(&shim, &std::env::current_exe()?, linux_loom.as_deref())?;
         }
         Ok(App {
             repos,
-            host: NodeHost::new(pty_dir.join("nodes")),
+            host: NodeHost::new(pty_dir.join("nodes")).with_links(links),
             graph,
             settings: Settings::new(database.clone(), profile::check_choice),
             devices: devices.clone(),
@@ -405,7 +423,8 @@ impl App {
                 plugin
             },
             shim,
-            tunnels: tunnel::Tunnels::new(wsl_tunnel, doors, tunnel::Pace::default()),
+            linux_loom,
+            run_dir: db_path.with_file_name("run"),
             homes: wsl::Homes::default(),
             version_warnings: profile::version_warnings(codex_version),
             codex_config: match (codex_version, node_door) {

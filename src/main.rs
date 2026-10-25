@@ -231,19 +231,15 @@ enum Cli {
     Guard,
     /// 데몬이 노드마다 띄운다. PTY 하나를 쥐고 데몬보다 오래 산다.
     #[command(hide = true)]
-    PtyHost,
-    /// Windows 데몬이 WSL 배포판마다 띄운다. 이 Unix 소켓의 연결을 stdin·stdout 프레임으로 데몬에 잇는다.
-    #[command(hide = true)]
-    Tunnel { sock: PathBuf },
+    PtyHost {
+        /// Windows pty-host가 WSL 배포판 안에서 띄운다. stdin·stdout의 스트림이 바깥 pty-host로 간다.
+        #[arg(long)]
+        inner: bool,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match cli {
-        Cli::CursorRules => {}
-        Cli::Hook | Cli::CursorHook | Cli::PiHook => cli::through_tunnel(cli::HOOK_RESTART_WAIT),
-        _ => cli::through_tunnel(cli::RESTART_WAIT),
-    }
     let result = match cli {
         Cli::Serve { listen } => {
             forget_launcher_env();
@@ -356,8 +352,8 @@ fn main() -> ExitCode {
             file,
             checked: true,
         } => user_doc::record_checked(&wsl::from_caller(file)),
-        Cli::PtyHost => node_host::run(),
-        Cli::Tunnel { sock } => cli::tunnel(sock),
+        Cli::PtyHost { inner: false } => node_host::run(),
+        Cli::PtyHost { inner: true } => node_host::inner(),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

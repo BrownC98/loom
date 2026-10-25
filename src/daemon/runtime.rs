@@ -1,4 +1,7 @@
 use super::*;
+use crate::graph::Entry;
+use crate::protocol::{NODE_CALLS, NODE_CALLS_HEADER};
+use crate::tunnel::ENDPOINT_ENV;
 
 impl App {
     pub(super) fn tree_limits(&self) -> Result<TreeLimits, Problem> {
@@ -116,16 +119,27 @@ impl App {
         } = prepared;
         self.first_inputs.launched(id, first_input);
         self.turn_ends.launched(id);
-        let distro = inside.map(|inside| inside.distro);
+        let distro = inside.as_ref().map(|inside| inside.distro.clone());
         let on_exit = self.on_exit(id, distro, &token, &codex, &opencode2);
-        self.host.spawn(id, cmd, setup, on_exit)?;
+        match (&inside, &self.linux_loom) {
+            (Some(inside), Some(loom)) => {
+                let launcher = inside.wrap(&inner_launcher(inside, loom, &cmd));
+                self.host.spawn_inner(id, launcher, cmd, setup, on_exit)?
+            }
+            (Some(inside), None) => self.host.spawn(
+                id,
+                inside.wrap(&cmd),
+                setup.map(|setup| inside.wrap(&setup)),
+                on_exit,
+            )?,
+            (None, _) => self.host.spawn(id, cmd, setup, on_exit)?,
+        }
         self.follow_screen(id, profile, &token);
         self.follow_servers(id, codex, opencode2, &token);
         Ok(())
     }
 
     pub(super) async fn resume(self: &Arc<Self>) -> rusqlite::Result<()> {
-        let mut distros = std::collections::HashSet::new();
         for node in self.graph.active()? {
             let (codex, opencode2) = match node.server.clone() {
                 Some(ServerLink::Codex { url, pid, thread }) => {
@@ -179,15 +193,32 @@ impl App {
             }
             self.follow_screen(node.id, profile, &node.token);
             self.follow_servers(node.id, codex, opencode2, &node.token);
-            distros.extend(distro);
-        }
-        for distro in distros {
-            let app = self.clone();
-            tokio::spawn(async move { app.open_tunnel(&distro).await });
         }
         self.host.end_others();
         self.logins.end_others();
         Ok(())
+    }
+
+    pub(super) async fn carry_links(
+        self: Arc<Self>,
+        mut linked: tokio::sync::mpsc::UnboundedReceiver<(NodeId, node_host::Linked)>,
+        doors: tokio::sync::mpsc::UnboundedSender<(tunnel::Stream, NodeId)>,
+    ) {
+        while let Some((node, link)) = linked.recv().await {
+            let failed = match link {
+                node_host::Linked::Streams(link) => tunnel::carry(link, node, doors.clone())
+                    .err()
+                    .map(|e| format!("the daemon side of the link: {e}")),
+                node_host::Linked::EndpointFailed(error) => Some(error),
+            };
+            if let Some(error) = failed
+                && let Err(e) = self
+                    .graph
+                    .record_about(node, |node| Entry::EndpointFailed { node, error })
+            {
+                eprintln!("loom: 노드 {}의 접속점 실패를 적지 못했다: {e}", node.0);
+            }
+        }
     }
 
     fn on_exit(
@@ -203,7 +234,6 @@ impl App {
         let runtime = tokio::runtime::Handle::current();
         let token = token.to_owned();
         move |exit| {
-            let _recheck = tunnels::Recheck::after(&app, distro.clone());
             app.codex.lock().unwrap().remove(&id);
             app.opencode2.lock().unwrap().remove(&id);
             discard();
@@ -357,13 +387,31 @@ impl App {
         }
     }
 
-    pub(super) fn caller(&self, headers: &HeaderMap) -> Result<NodeId, AgentError> {
+    pub(super) fn caller(self: &Arc<Self>, headers: &HeaderMap) -> Result<NodeId, AgentError> {
         let token = bearer(headers)?;
         let node = self
             .graph
             .caller(token)
             .map_err(|e| for_agent(Refusal::from(e)))?
             .ok_or_else(unauthorized)?;
+        if let Some(spoken) = unserved_protocol(headers) {
+            let app = self.clone();
+            tokio::spawn(async move {
+                if let Err(e) = app.relaunch_unserved(node).await {
+                    eprintln!(
+                        "loom: 판이 맞지 않는 노드 {}를 다시 띄우지 못했다: {e:?}",
+                        node.0
+                    );
+                }
+            });
+            return Err((
+                StatusCode::UPGRADE_REQUIRED,
+                format!(
+                    "This loom command speaks node protocol {spoken}, but the daemon speaks {}-{}. loom relaunches this node with the current loom. End your turn.",
+                    NODE_CALLS.oldest, NODE_CALLS.now
+                ),
+            ));
+        }
         self.sessions.started(node, token);
         Ok(node)
     }
@@ -386,14 +434,11 @@ impl App {
         let mut env = self.node_env(&token)?.to_vec();
         let plugin = self.plugin.dir(launch.skills);
         let site = match wsl::of(cwd) {
-            Some(at) => {
-                self.open_tunnel(&at.distro).await;
-                Site::wsl(
-                    wsl::inside(&at, &profile::commands(start), &self.shim, &[&plugin])
-                        .await
-                        .map_err(LaunchError::Wsl)?,
-                )
-            }
+            Some(at) => Site::wsl(
+                wsl::inside(&at, &profile::commands(start), &self.shim, &[&plugin])
+                    .await
+                    .map_err(LaunchError::Wsl)?,
+            ),
             None => self.pc_site(),
         };
         if profile == Some(Profile::Cursor)
@@ -404,6 +449,10 @@ impl App {
                 "loom: {}에 쉬는 대기 훅을 넣지 못했다: {e}",
                 hooks.display()
             );
+        }
+        let endpoint = self.endpoint(&token, site.inside());
+        if let Some(at) = &endpoint {
+            env.push((ENDPOINT_ENV, at.into()));
         }
         let account = provider.and_then(|p| settings.account(p, site.distro()));
         if let Some(dir) = task {
@@ -486,13 +535,12 @@ impl App {
         for (key, value) in &env {
             cmd.env(key, value);
         }
-        let inside = site.into_inside();
-        if let Some(inside) = &inside {
-            cmd = inside.wrap(&cmd);
+        if endpoint.is_none() {
+            cmd.env_remove(ENDPOINT_ENV);
         }
         Ok(Prepared {
             cmd,
-            inside,
+            inside: site.into_inside(),
             setup: None,
             token,
             account: account.cloned(),
@@ -529,6 +577,27 @@ impl App {
                 eprintln!("loom: 노드 {}의 명령을 멈추지 못했다: {e}", node.0);
             }
         });
+    }
+
+    fn endpoint(&self, token: &str, inside: Option<&wsl::Inside>) -> Option<String> {
+        use sha2::Digest;
+        let hash: String = sha2::Sha256::digest(token.as_bytes())[..6]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        match inside {
+            Some(inside) => self
+                .linux_loom
+                .as_ref()
+                .map(|_| format!("{}/.loom/run/{hash}.sock", inside.home())),
+            None if cfg!(windows) => Some(format!(r"\\.\pipe\loom-{hash}")),
+            None => Some(
+                self.run_dir
+                    .join(format!("{hash}.sock"))
+                    .display()
+                    .to_string(),
+            ),
+        }
     }
 
     fn node_env(&self, token: &str) -> Result<[(&'static str, OsString); 4], Problem> {
@@ -570,7 +639,7 @@ impl Prepared {
 
     pub(super) fn shell(&self, line: &str) -> portable_pty::CommandBuilder {
         match &self.inside {
-            Some(inside) => inside.wrap(&portable_pty::CommandBuilder::from_argv(wsl::shell(line))),
+            Some(_) => portable_pty::CommandBuilder::from_argv(wsl::shell(line)),
             None => profile::shell(line),
         }
     }
@@ -727,6 +796,60 @@ async fn follow_permission(
         }
     }
     show(None);
+}
+
+fn unserved_protocol(headers: &HeaderMap) -> Option<String> {
+    let spoken = headers.get(NODE_CALLS_HEADER)?;
+    let accepted = spoken
+        .to_str()
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .is_some_and(|v| NODE_CALLS.accepts(v));
+    (!accepted).then(|| String::from_utf8_lossy(spoken.as_bytes()).into_owned())
+}
+
+pub(super) async fn from_its_node(
+    State(app): State<Arc<App>>,
+    axum::extract::ConnectInfo(at): axum::extract::ConnectInfo<NodeId>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let caller = bearer(request.headers())
+        .ok()
+        .map(|token| app.graph.caller(token));
+    match caller {
+        Some(Ok(Some(node))) if node != at => (
+            StatusCode::FORBIDDEN,
+            "This node endpoint belongs to another node.",
+        )
+            .into_response(),
+        _ => next.run(request).await,
+    }
+}
+
+impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, tunnel::Door<NodeId>>>
+    for NodeId
+{
+    fn connect_info(stream: axum::serve::IncomingStream<'_, tunnel::Door<NodeId>>) -> NodeId {
+        *stream.remote_addr()
+    }
+}
+
+fn inner_launcher(
+    inside: &wsl::Inside,
+    loom: &std::path::Path,
+    cmd: &portable_pty::CommandBuilder,
+) -> portable_pty::CommandBuilder {
+    let name = loom.file_name().unwrap_or_default().to_string_lossy();
+    let mut launcher = portable_pty::CommandBuilder::from_argv(vec![
+        inside.bin_file(&name).into(),
+        "pty-host".into(),
+        "--inner".into(),
+    ]);
+    for (key, value) in cmd.iter_extra_env_as_str() {
+        launcher.env(key, value);
+    }
+    launcher
 }
 
 pub(super) fn bearer(headers: &HeaderMap) -> Result<&str, AgentError> {

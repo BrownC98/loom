@@ -215,6 +215,11 @@ pub enum Entry {
     NoIdleWait {
         node: Who,
     },
+    /// 노드의 접속점(`LOOM_SOCKET`)이 요청을 받지 못한다. 노드의 CLI는 `LOOM_URL`로 간다. 화면 이벤트 콘솔은 보이지 않는다.
+    EndpointFailed {
+        node: Who,
+        error: String,
+    },
     /// 에이전트 상태가 바뀌었다(`AgentState`). 화면 이벤트 콘솔은 보이지 않는다.
     AgentStateChanged {
         node: Who,
@@ -533,7 +538,7 @@ pub(super) fn who(db: &Connection, id: NodeId) -> rusqlite::Result<Who> {
 pub(super) fn log(db: &Connection) -> rusqlite::Result<EventLog> {
     let records = db
         .prepare(&format!(
-            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'noIdleWait', 'agentStateChanged', 'agentStateDisagreed') ORDER BY e.id DESC LIMIT ?1"
+            "{RECORD_COLUMNS} WHERE e.entry ->> 'kind' NOT IN ('idleOpened', 'idleEnded', 'noIdleWait', 'endpointFailed', 'agentStateChanged', 'agentStateDisagreed') ORDER BY e.id DESC LIMIT ?1"
         ))?
         .query_map([RECENT], record_from_row)?
         .collect::<rusqlite::Result<_>>()?;

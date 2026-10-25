@@ -637,10 +637,12 @@ if [ ! -x "$lin" ]; then
 elif [ ! -S "$sock" ]; then
   why="no $sock"
 else
-  {SOCKET_ENV}=$sock "$lin" "$@" <"$tmp/in" &
+  exec 3<&0
+  {SOCKET_ENV}=$sock "$lin" "$@" <&3 3<&- &
   pid=$!
   wait $pid
   code=$?
+  exec 3<&-
   [ $code -eq {TUNNEL_DOWN_EXIT} ] || exit $code
   why="$sock refused the connection"
 fi
@@ -667,9 +669,6 @@ if [ "$1" = guard ] && [ -n "$LOOM_TOKEN" ]; then
 fi
 exe=$(wslpath -u '{exe}')
 case $1 in hook | cursor-hook | pi-hook) ;; *) exec "$exe" "$@" ;; esac
-tmp=$(mktemp -d) || exec "$exe" "$@"
-mkfifo "$tmp/o" "$tmp/e" || {{ rm -rf "$tmp"; exec "$exe" "$@"; }}
-trap 'rm -rf "$tmp"' EXIT
 trap 'kill $pid 2>/dev/null; wait; exit 143' TERM
 trap 'kill $pid 2>/dev/null; wait; exit 130' INT
 trap 'kill $pid 2>/dev/null; wait; exit 129' HUP
@@ -677,8 +676,12 @@ note() {{
   log=$HOME/{INTEROP_LOG}
   mkdir -p "${{log%/*}}" && printf '%s %s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$1" "$2" >>"$log"
 }}
+{through_tunnel}[ "$1" = pi-hook ] && exec "$exe" "$@"
+tmp=$(mktemp -d) || exec "$exe" "$@"
+mkfifo "$tmp/o" "$tmp/e" || {{ rm -rf "$tmp"; exec "$exe" "$@"; }}
+trap 'rm -rf "$tmp"' EXIT
 cat >"$tmp/in"
-{through_tunnel}try=1
+try=1
 while :; do
   tee "$tmp/out" <"$tmp/o" &
   tee "$tmp/err" <"$tmp/e" >&2 &
@@ -1045,6 +1048,76 @@ exit 2"#,
         );
         assert_eq!(log().lines().count(), 2, "{}", log());
         drop(listener);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shim_streams_pi_hook_lines_through_the_tunnel() {
+        use std::io::{BufRead, Write};
+        let shim = Shim::with_tunnel(
+            "pistream",
+            "echo exe",
+            Some(r#"while read -r line; do echo "linux $line"; done"#),
+        );
+        let home = shim.dir.path();
+        let sock = home.join(socket(1));
+        std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+        let _listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        let mut child = std::process::Command::new(home.join("loom"))
+            .arg("pi-hook")
+            .env(
+                "PATH",
+                format!("{}:{}", home.display(), std::env::var("PATH").unwrap()),
+            )
+            .env("HOME", home)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        for request in ["{\"id\":1}", "{\"id\":2}"] {
+            writeln!(stdin, "{request}").unwrap();
+            line.clear();
+            stdout.read_line(&mut line).unwrap();
+            assert_eq!(line, format!("linux {request}\n"));
+        }
+        drop(stdin);
+        assert!(child.wait().unwrap().success());
+        assert!(!home.join(INTEROP_LOG).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shim_streams_pi_hook_lines_without_waiting_for_the_end_of_input() {
+        use std::io::{BufRead, Write};
+        let shim = Shim::with_exe("stream", "while read -r line; do echo \"got $line\"; done");
+        let mut child = std::process::Command::new(shim.dir.path().join("loom"))
+            .arg("pi-hook")
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    shim.dir.path().display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        for request in ["{\"id\":1}", "{\"id\":2}"] {
+            writeln!(stdin, "{request}").unwrap();
+            line.clear();
+            stdout.read_line(&mut line).unwrap();
+            assert_eq!(line, format!("got {request}\n"));
+        }
+        drop(stdin);
+        assert!(child.wait().unwrap().success());
     }
 
     #[cfg(unix)]

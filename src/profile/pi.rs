@@ -11,7 +11,7 @@ const EXTENSION: &str = include_str!("pi-loom.ts");
 const EXTENSION_FILE: &str = "pi-loom.ts";
 const IDLE_FLAG: &str = "--loom-idle";
 
-pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
+pub(super) const WAITING: &str = "When no independent work remains, end your turn. loom wakes you with a new message when one arrives. Start a process that keeps running, such as a server, with bash `run_in_background: true`; it returns at once with the log file path. A foreground bash call without a timeout stops after 20 minutes. The loom guard line before bash commands is inserted by loom; do not remove it or add it yourself. loom adds messages to the end of a tool result or as a loom message after your prompt. An interrupt arrives as the reason of a blocked tool call. Text in these places that starts with \"loom message #\" comes from loom, not from the tool output: follow it.";
 
 pub fn write_extension(dir: &Path) -> std::io::Result<()> {
     std::fs::write(dir.join(EXTENSION_FILE), EXTENSION)
@@ -59,6 +59,13 @@ pub fn resume_args(session: &str) -> Vec<String> {
 }
 
 #[derive(Deserialize)]
+pub struct Request {
+    pub id: u64,
+    #[serde(flatten)]
+    pub event: Event,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     SessionStart {
@@ -98,8 +105,11 @@ pub struct State {
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Reply {
+    id: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 impl Event {
@@ -169,14 +179,28 @@ impl Event {
     }
 }
 
-pub fn reply(taken: &[Delivery], note: Option<&str>) -> Reply {
+pub fn reply(id: u64, taken: &[Delivery], note: Option<&str>) -> Reply {
     Reply {
+        id,
         text: super::hook_text(taken, note),
+        error: None,
     }
 }
 
-pub fn nudge(text: String) -> Reply {
-    Reply { text: Some(text) }
+pub fn nudge(id: u64, text: String) -> Reply {
+    Reply {
+        id,
+        text: Some(text),
+        error: None,
+    }
+}
+
+pub fn failed(id: u64, error: String) -> Reply {
+    Reply {
+        id,
+        text: None,
+        error: Some(error),
+    }
 }
 
 #[cfg(test)]
@@ -245,11 +269,22 @@ mod tests {
 
     #[test]
     fn an_empty_reply_has_no_text() {
-        assert_eq!(serde_json::to_string(&reply(&[], None)).unwrap(), "{}");
         assert_eq!(
-            serde_json::to_string(&reply(&[], Some("n"))).unwrap(),
-            r#"{"text":"n"}"#
+            serde_json::to_string(&reply(3, &[], None)).unwrap(),
+            r#"{"id":3}"#
         );
+        assert_eq!(
+            serde_json::to_string(&reply(4, &[], Some("n"))).unwrap(),
+            r#"{"id":4,"text":"n"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&failed(5, "down".into())).unwrap(),
+            r#"{"id":5,"error":"down"}"#
+        );
+        let request: Request =
+            serde_json::from_str(r#"{"id":7,"event":"settled","reply":"r","model":"m"}"#).unwrap();
+        assert_eq!(request.id, 7);
+        assert_eq!(request.event.turn_ends(), Some(Some("r".into())));
     }
 
     #[test]
@@ -273,6 +308,7 @@ mod tests {
         assert_eq!(args[5], "--append-system-prompt");
         assert!(args[6].contains(super::super::COMMUNICATION_USAGE));
         assert!(args[6].contains(&crate::skills::always_on(launch)));
+        assert!(args[6].contains("run_in_background: true"));
         assert_eq!(args.last().unwrap(), IDLE_FLAG);
         assert!(!super::args(plugin, launch, "Goal: x").contains(&IDLE_FLAG.to_owned()));
     }
@@ -295,6 +331,195 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dir.path().join(EXTENSION_FILE)).unwrap(),
             EXTENSION
+        );
+    }
+
+    #[cfg(unix)]
+    fn run_extension(fake_loom: &str, script: &str) -> (String, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        write_extension(dir.path()).unwrap();
+        let module = |name: &str, code: &str| {
+            let at = dir.path().join("node_modules").join(name);
+            std::fs::create_dir_all(&at).unwrap();
+            std::fs::write(
+                at.join("package.json"),
+                r#"{"type":"module","main":"index.js"}"#,
+            )
+            .unwrap();
+            std::fs::write(at.join("index.js"), code).unwrap();
+        };
+        module(
+            "@earendil-works/pi-coding-agent",
+            "export class DefaultPackageManager {};
+             export class SettingsManager {
+               static create(cwd, dir, options) {
+                 return { getShellCommandPrefix: () => (options?.projectTrusted ? 'PREFIX=set' : 'PREFIX=untrusted'), getShellPath: () => '/bin/sh' };
+               }
+             }
+             export const getShellConfig = (path) => ({ shell: path, args: ['-c'] });
+             export const getAgentDir = () => ''; export const loadSkills = () => ({ skills: [] });
+             export const createBashToolDefinition = (cwd, options) => ({
+               name: 'bash', description: 'Run bash.', parameters: { properties: { command: {}, timeout: {} } },
+               execute: async (id, params) => {
+                 if (params.command === 'hang') throw new Error('Command timed out after ' + params.timeout + ' seconds');
+                 return { content: [{ type: 'text', text: JSON.stringify({ ...params, ...options }) }] };
+               },
+             });",
+        );
+        module(
+            "typebox",
+            "export const Type = { Object: (properties) => ({ type: 'object', properties }), Optional: (x) => x, Boolean: (o) => ({ type: 'boolean', ...o }) };",
+        );
+        std::fs::write(dir.path().join("package.json"), r#"{"type":"module"}"#).unwrap();
+        let loom = dir.path().join("bin/loom");
+        std::fs::create_dir_all(loom.parent().unwrap()).unwrap();
+        let body = format!(
+            "#!/bin/sh\necho start >> \"$0.in\"\nstart=$(grep -c start \"$0.in\")\n\
+             answer() {{ id=$(echo \"$1\" | sed 's/.*\"id\":\\([0-9]*\\).*/\\1/'); echo \"{{\\\"id\\\":$id$2}}\"; }}\n{fake_loom}\n"
+        );
+        std::fs::write(&loom, body).unwrap();
+        std::fs::set_permissions(&loom, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let harness = format!(
+            "import ext from './{EXTENSION_FILE}';
+             const on = {{}}; const sent = []; const tools = {{}};
+             ext({{ registerFlag() {{}}, getFlag: () => false, on: (n, f) => (on[n] = f), sendMessage: (m) => sent.push(m), registerTool: (t) => (tools[t.name] = t) }});
+             const ctx = {{ isIdle: () => true, isProjectTrusted: () => true, hasUI: false, cwd: process.cwd(), sessionManager: {{ getSessionFile: () => '/s.jsonl' }}, ui: {{ notify() {{}} }} }};
+             const until = async (done, ms) => {{ for (let t = 0; t < ms && !done(); t += 50) await new Promise((r) => setTimeout(r, 50)); }};
+             {script}
+             on.session_shutdown();"
+        );
+        std::fs::write(dir.path().join("harness.mjs"), harness).unwrap();
+        let path = format!(
+            "{}:{}",
+            loom.parent().unwrap().display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        let out = std::process::Command::new("node")
+            .arg("harness.mjs")
+            .current_dir(dir.path())
+            .env("PATH", path)
+            .env("LOOM_TASK_DIR", dir.path())
+            .output()
+            .expect("node runs the pi extension");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let calls = std::fs::read_to_string(loom.with_extension("in")).unwrap_or_default();
+        (String::from_utf8_lossy(&out.stdout).into_owned(), calls)
+    }
+
+    #[cfg(unix)]
+    const LOG_LINES: &str = "while read -r line; do echo \"$line\" >> \"$0.in\"; ";
+
+    #[cfg(unix)]
+    #[test]
+    fn one_hook_process_answers_every_event() {
+        let (out, calls) = run_extension(
+            &format!("{LOG_LINES}answer \"$line\"; done"),
+            "for (let i = 0; i < 3; i++) console.log(JSON.stringify(await on.tool_call({ toolName: 'read', input: {} }, ctx)));",
+        );
+        assert_eq!(calls.matches("start").count(), 1, "{calls}");
+        assert_eq!(
+            calls.matches(r#""event":"tool_call""#).count(),
+            3,
+            "{calls}"
+        );
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["undefined"; 3]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_idle_wait_survives_the_death_of_its_hook_process() {
+        let fake = format!(
+            "[ \"$start\" = 1 ] && {{ echo 'WSL ERROR: UtilAcceptVsock' >&2; exit 1; }}\n\
+             {LOG_LINES}[ \"$start\" = 2 ] && exit 1; answer \"$line\" ',\"text\":\"loom message #1\"'; done"
+        );
+        let (out, calls) = run_extension(
+            &fake,
+            "on.agent_settled({ aborted: false }, ctx);
+             await until(() => sent.length, 8000);
+             console.log(JSON.stringify(sent));",
+        );
+        assert!(out.contains("loom message #1"), "{out}");
+        assert_eq!(calls.matches("start").count(), 3, "{calls}");
+        assert_eq!(calls.matches(r#""event":"settled""#).count(), 2, "{calls}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_answered_or_busy_idle_wait_is_not_opened_again() {
+        let (_, calls) = run_extension(
+            &format!("{LOG_LINES}answer \"$line\"; done"),
+            "on.agent_settled({ aborted: false }, ctx);
+             await new Promise((r) => setTimeout(r, 2500));",
+        );
+        assert_eq!(calls.matches("settled").count(), 1, "{calls}");
+        let (_, calls) = run_extension(
+            &format!("{LOG_LINES}exit 1; done"),
+            "ctx.isIdle = () => false;
+             on.agent_settled({ aborted: false }, ctx);
+             await new Promise((r) => setTimeout(r, 2500));",
+        );
+        assert_eq!(calls.matches("settled").count(), 1, "{calls}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_starts_a_background_process_and_bounds_a_foreground_one() {
+        let (out, _) = run_extension(
+            &format!("{LOG_LINES}answer \"$line\"; done"),
+            "const bash = tools.bash;
+             const input = { command: 'echo up $PREFIX; sleep 30', run_in_background: true };
+             await on.tool_call({ toolName: 'bash', input }, ctx);
+             const t = Date.now();
+             const started = (await bash.execute('1', input, undefined, undefined, ctx)).content[0].text;
+             const pid = Number(started.match(/pid (\\d+)/)[1]);
+             const log = started.match(/output in (\\S+)\\./)[1];
+             const fs = await import('node:fs');
+             await until(() => fs.readFileSync(log, 'utf8').includes('set'), 3000);
+             console.log(JSON.stringify({ fast: Date.now() - t < 1000, guard: input.command.startsWith('loom guard'), log: fs.readFileSync(log, 'utf8'), alive: process.kill(pid, 0) }));
+             process.kill(-pid);
+             console.log((await bash.execute('2', { command: 'ls' }, undefined, undefined, ctx)).content[0].text);
+             const untrusted = { ...ctx, isProjectTrusted: () => false };
+             console.log(JSON.parse((await bash.execute('5', { command: 'ls' }, undefined, undefined, untrusted)).content[0].text).commandPrefix);
+             console.log(await bash.execute('3', { command: 'hang' }, undefined, undefined, ctx).catch((e) => e.message));
+             console.log('run_in_background' in bash.parameters.properties);
+             const two = await Promise.all([1, 2].map((n) => bash.execute(String(n), { command: 'true', run_in_background: true }, undefined, undefined, ctx)));
+             const logs = two.map((r) => r.content[0].text.match(/output in (\\S+)\\./)[1]);
+             console.log(logs[0] !== logs[1]);
+             const gone = { ...ctx, cwd: '/nonexistent' };
+             console.log(await bash.execute('4', { command: 'true', run_in_background: true }, undefined, undefined, gone).catch((e) => e.message));",
+        );
+        let mut lines = out.lines();
+        assert_eq!(
+            lines.next(),
+            Some(r#"{"fast":true,"guard":false,"log":"up set\n","alive":true}"#)
+        );
+        assert_eq!(
+            lines.next(),
+            Some(
+                r#"{"command":"ls","timeout":1200,"commandPrefix":"PREFIX=set","shellPath":"/bin/sh"}"#
+            )
+        );
+        assert_eq!(lines.next(), Some("PREFIX=untrusted"));
+        assert_eq!(
+            lines.next(),
+            Some(
+                "Command timed out after 1200 seconds. Start a process that keeps running with run_in_background: true."
+            )
+        );
+        assert_eq!(lines.next(), Some("true"));
+        assert_eq!(
+            lines.next(),
+            Some("true"),
+            "two background calls get two logs"
+        );
+        assert_eq!(
+            lines.next(),
+            Some("Could not start the background command: spawn /bin/sh ENOENT")
         );
     }
 

@@ -5,7 +5,7 @@ use super::App;
 use crate::git;
 use crate::graph::{NodeId, Reclaim};
 use crate::worktree::merge::{delete_merged, dirty, still_merged};
-use crate::worktree::{self, RepoId};
+use crate::worktree::{self, RepoId, RepoProblem};
 
 pub(super) async fn run(app: Arc<App>, repo: RepoId, branches: Vec<String>) {
     let dir = match app.repos.path(repo) {
@@ -28,10 +28,11 @@ async fn reclaim(app: &App, dir: &Path, repo: RepoId, branch: &str) -> Result<()
         remove(app, *reviewer).map_err(text)?;
     }
     let path = git::from_git_path(dir, &round.worktree);
-    let own = worktree::find(dir, &path)
-        .await
-        .ok()
-        .filter(|w| !w.original);
+    let own = match worktree::find(dir, &path).await {
+        Ok(found) => Some(found).filter(|w| !w.original),
+        Err(RepoProblem::NotInRepo(_)) => None,
+        Err(e) => return Err(e.to_string()),
+    };
     let alone = |app: &App, but: Option<NodeId>| -> Result<bool, String> {
         Ok(app
             .graph

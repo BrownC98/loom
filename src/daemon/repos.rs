@@ -178,7 +178,8 @@ async fn worktree_changes(
     let repo = app.repos.path(RepoId(id))?;
     match worktree::find(&repo, &req.path).await {
         Ok(listed) => Ok(Json(worktree::changes(&listed).await?)),
-        Err(_) => Ok(Json(Vec::new())),
+        Err(RepoProblem::NotInRepo(_)) => Ok(Json(Vec::new())),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -206,7 +207,11 @@ async fn delete_worktree(
 ) -> Result<Json<RepoView>, Problem> {
     let id = RepoId(id);
     let repo = app.repos.path(id)?;
-    let listed = worktree::find(&repo, &req.path).await.ok();
+    let listed = match worktree::find(&repo, &req.path).await {
+        Ok(listed) => Some(listed),
+        Err(RepoProblem::NotInRepo(_)) => None,
+        Err(e) => return Err(e.into()),
+    };
     if listed.as_ref().is_some_and(|w| w.original) {
         return Err(RepoProblem::Original.into());
     }
@@ -301,4 +306,82 @@ async fn commits(
         version,
         worktrees: worktree::worktrees(&repo).await,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{Launched, Place};
+    use crate::spots::{Placed, Point, Spot};
+
+    #[tokio::test]
+    async fn a_git_failure_keeps_the_nodes_and_the_spot_of_the_checkout() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("app");
+        std::fs::create_dir(&repo).unwrap();
+        crate::git::test_run(&repo, &["init", "-q", "-b", "main"]);
+        crate::git::test_run(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        let path = repo.to_string_lossy().into_owned();
+        let db_path = dir.path().join("loom.db");
+        let database = crate::db::open(&db_path).unwrap();
+        database
+            .lock()
+            .execute("INSERT INTO repos (id, path) VALUES (1, ?1)", [&path])
+            .unwrap();
+        let app = Arc::new(
+            App::new(
+                database,
+                &db_path,
+                "127.0.0.1:0".parse().unwrap(),
+                None,
+                None,
+                crate::tunnel::Door::new().0,
+            )
+            .unwrap(),
+        );
+        let place = Place {
+            repo: RepoId(1),
+            worktree: path.clone(),
+        };
+        let launched = Launched {
+            token: "t".into(),
+            server: None,
+            account: None,
+            rules: None,
+        };
+        let node = app
+            .graph
+            .add_root(&place, None, None, &launched, |_| Ok(()))
+            .unwrap();
+        let spot = Placed {
+            spot: Spot::Worktree {
+                repo: RepoId(1),
+                path: path.clone(),
+            },
+            at: Point { x: 1.0, y: 2.0 },
+        };
+        app.spots.put(std::slice::from_ref(&spot)).unwrap();
+        std::fs::rename(repo.join(".git"), dir.path().join("moved.git")).unwrap();
+
+        let deleted = delete_worktree(
+            State(app.clone()),
+            Path(1),
+            Query(DeleteWorktree {
+                path: path.clone(),
+                delete_branch: false,
+            }),
+        )
+        .await;
+
+        assert!(deleted.is_err());
+        assert_eq!(app.graph.nodes_in(&path).unwrap(), [node]);
+        assert_eq!(app.spots.layout().unwrap().placed, [spot]);
+        let changes = worktree_changes(
+            State(app.clone()),
+            Path(1),
+            Query(WorktreePath { path: path.clone() }),
+        )
+        .await;
+        assert!(changes.is_err(), "a git failure is not 'no changes'");
+    }
 }
